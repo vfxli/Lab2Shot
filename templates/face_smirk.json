@@ -1,0 +1,177 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "343d7b0ab0419fce6677be1cca3d1360",
+  "name": "面部动作 · SMIRK",
+  "intro": "SMIRK 从单目画面解出三维人脸，面部几何能忠实还原极端、不对称和细微的表情。这张卡交付带表情形变的 FLAME 头模和表情曲线。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "face_anim",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "curves_format",
+   "label": "曲线格式",
+   "target": "out_c.format"
+  },
+  {
+   "name": "focal",
+   "label": "Focal Length",
+   "target": "face.focal_mm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 140
+   }
+  },
+  {
+   "id": "face",
+   "type": "smirk.face",
+   "label": "SMIRK 面部动作",
+   "params": {
+    "crop": "auto"
+   },
+   "ui": {
+    "x": 320,
+    "y": 140,
+    "on_node": [
+     "focal_mm",
+     "crop"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "scene"
+   },
+   "ui": {
+    "x": 620,
+    "y": 0,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "out_c",
+   "type": "core.output_curves",
+   "label": "曲线输出设置",
+   "params": {
+    "format": "csv",
+    "name": "curves"
+   },
+   "ui": {
+    "x": 620,
+    "y": 180,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 940,
+    "y": 100,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "face",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "face",
+    "expressions"
+   ],
+   "to": [
+    "out_c",
+    "curves"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_c",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "face",
+    "character"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "face",
+  "frame": null
+ }
+}

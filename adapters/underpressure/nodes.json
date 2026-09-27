@@ -1,0 +1,6 @@
+{
+ "underpressure.footskate": {
+  "label": "UnderPressure 脚滑清理",
+  "description": "InterDigital UnderPressure：先估出每一帧两只脚踩地的力（压力鞋垫测出的真值训练的），由力判断哪只脚在哪几帧真的着地，再用带接触约束的 IK 把着地的脚钉在原地，去掉脚滑。脚接触作为四条曲线一起交出来，可以拿到 DCC 里做 IK；模型估的足底力（每只脚 16 个鞋垫单元，占体重的比例）也逐帧交出来，着地就是由它判出来的，要自己定着地阈值时用它。"
+ }
+}

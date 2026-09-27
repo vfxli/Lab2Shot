@@ -1,0 +1,140 @@
+/* The one way the site navigates a catalogue: the first-level categories down
+   the left with how many each holds, and rows of filter chips over the list. The template sheet, the help page and the
+   dataset catalogue use the same two parts. Docked, so solid. */
+
+.cat-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 10px;
+  min-width: 0;
+}
+
+.cat-rail button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-md);
+  cursor: default;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.cat-rail button i {
+  flex: none;
+  width: 3px;
+  height: 14px;
+  border-radius: var(--r-xs);
+  background: var(--c, var(--text-3));
+}
+
+.cat-rail button b {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--text-3);
+}
+
+.cat-rail button:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.cat-rail button[aria-current="true"] {
+  background: var(--pressed);
+  color: var(--text);
+}
+
+/* bands are set apart by space alone: a rule between them reads as a cut */
+.cat-gap {
+  height: 14px;
+  flex: none;
+}
+
+/* a band's heading (the node menu's 「Lab2Shot」 / 「第三方项目」) */
+.cat-rail h4.cat-band {
+  margin: 0;
+  padding: 4px 10px 2px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* The filter over a list: one flowing line — a row's label, its chips, a gap, the next row — wrapping to a second
+   line only when the window is too narrow, so it takes little room. No box and no background: a hairline under it is the whole frame. */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  /* the page it sits on sets --filters-pad to its own side margin: the hairline under the bar still runs edge to edge */
+  padding: 0 var(--filters-pad, 0) var(--sp-3);
+  border-bottom: 1px solid var(--hair);
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap; /* 一行放不下就折行，不让这一段横着滚（后台「模板」的「类别」有十几个） */
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.filter-label {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* the title over a rail of categories (「新建节点图」): the sheet's own name, where the design puts it */
+.cat-rail h3 {
+  margin: 0;
+  padding: 2px 10px 12px;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* a category's glyph (ui/icons.tsx CategoryGlyph): the node menu, the template sheet, the help page */
+.cat-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+/* a managed rail (editor/Templates.tsx, for a login that manages the templates): each category is a row that drags and
+   takes a dropped card; its menu sits at the right end, and the band ends with 「新建分类」 */
+.cat-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--r-ctl);
+}
+
+.cat-row > button:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.cat-row.drag-over,
+.cat-end.drag-over {
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+
+.cat-end {
+  padding: 6px 4px 0;
+  border-radius: var(--r-ctl);
+}

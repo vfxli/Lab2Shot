@@ -1,0 +1,3 @@
+# Two-stage Transformer environment (torch from EnvSpec). Upstream needs only torch and numpy for inference
+# (visdom is for training, pymel for its Maya viewer: neither is installed).
+numpy==2.3.3

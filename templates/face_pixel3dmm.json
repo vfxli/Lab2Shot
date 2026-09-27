@@ -1,0 +1,192 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "49e3136e1a092857bad447c5d96ba69a",
+  "name": "面部动作 · Pixel3DMM",
+  "intro": "Pixel3DMM 是一组高度泛化的视觉 transformer：逐像素预测几何线索（法线和规范面部 UV），用来约束三维形变人脸模型（3DMM）的优化。这张卡把 FLAME 头模拟合到整段脸部特写，交付带表情形变的头、表情曲线和它解出的相机。",
+  "author": "Lab2Shot",
+  "created": "2026-09-19T22:00:00",
+  "deliverable": "face_anim",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "curves_format",
+   "label": "曲线格式",
+   "target": "out_c.format"
+  },
+  {
+   "name": "focal",
+   "label": "Focal Length",
+   "target": "face.focal_mm"
+  },
+  {
+   "name": "quality",
+   "label": "精度",
+   "target": "face.quality"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 80
+   }
+  },
+  {
+   "id": "face",
+   "type": "pixel3dmm.face",
+   "label": "Pixel3DMM 面部动作",
+   "params": {
+    "quality": "standard"
+   },
+   "ui": {
+    "x": 320,
+    "y": 80,
+    "on_node": [
+     "focal_mm",
+     "quality"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "scene"
+   },
+   "ui": {
+    "x": 660,
+    "y": 0,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "out_c",
+   "type": "core.output_curves",
+   "label": "曲线输出设置",
+   "params": {
+    "format": "csv",
+    "name": "curves"
+   },
+   "ui": {
+    "x": 660,
+    "y": 180,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 980,
+    "y": 100,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "face",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "face",
+    "expressions"
+   ],
+   "to": [
+    "out_c",
+    "curves"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_c",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "face",
+    "character"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "face",
+    "camera"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "face",
+  "frame": null
+ }
+}

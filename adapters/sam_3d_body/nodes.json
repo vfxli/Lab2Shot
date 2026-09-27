@@ -1,0 +1,10 @@
+{
+ "sam_3d_body.detect_people": {
+  "label": "ViTDet 人物框",
+  "description": "用 ViTDet（Meta Detectron2）找出画面里的每个人，给每人一个编号，并标出他在每一帧的框。随 SAM 3D Body 扩展包安装。"
+ },
+ "sam_3d_body.solve": {
+  "label": "SAM 3D Body 全身动作",
+  "description": "估计人物全身动作（含手指），结果在相机空间里。接了「人物框」（「ViTDet 人物框」→「选人」）就只解这些人、不再自己检人；不接就自己检出画面里所有人（和「ViTDet 人物框」同一个检测器）。检人、加载模型只做一次，一帧里的人分批解算、每个人都解；只要其中某一个人时，前面接「ViTDet 人物框」→「选人」→「人物框转遮罩」→「图像合成」，把别人从画面里去掉再送进来。填了 Focal Length（或接一条 Focal Length 进来）就用它，人的远近会准很多。要摆进某台相机的世界，后面接「相机空间转换」。要快 2.5–3 倍的版本用「Fast SAM 3D Body 全身动作」，要脚不滑的世界轨迹用「GVHMR 全身动作」。"
+ }
+}

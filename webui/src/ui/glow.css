@@ -1,0 +1,95 @@
+/* The hover glow: when the pointer rests on a kit control
+   (a button, a segmented choice, a chip, a tab, a menu item), a thin rainbow light runs once around its edge and fades;
+   it never loops. One implementation: a conic gradient on the control's own ring (a mask keeps only the border), its
+   angle an animated custom property. Duration, width and palette are tokens (ui/tokens.css). Nothing moves for a viewer
+   who asked for less motion (webui/tests/uiKit.test.ts). */
+
+@property --glow-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0turn;
+}
+
+/* no weight: a control a page positions (absolute, sticky) keeps its own position, and is positioned anyway */
+:where(.btn, .seg > button, button.chip, .chip-md, [role="tab"], [role="menuitem"]) {
+  position: relative;
+}
+
+:is(.btn:not(.entry), .seg > button, button.chip, .chip-md, [role="tab"], [role="menuitem"])::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: var(--glow-width);
+  border-radius: inherit;
+  background: conic-gradient(from var(--glow-angle), var(--glow-palette));
+  -webkit-mask: linear-gradient(black 0 0) content-box, linear-gradient(black 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(black 0 0) content-box exclude, linear-gradient(black 0 0);
+  opacity: 0;
+  pointer-events: none;
+}
+
+:is(.btn:not(.entry), .seg > button, button.chip, .chip-md, [role="tab"], [role="menuitem"]):hover:not(:disabled)::after {
+  animation: glow-once var(--glow-duration) ease-out 1 both;
+}
+
+@keyframes glow-once {
+  from {
+    --glow-angle: 0turn;
+    opacity: var(--glow-opacity);
+  }
+  70% {
+    opacity: var(--glow-opacity);
+  }
+  to {
+    --glow-angle: 1turn;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.btn:not(.entry), .seg > button, button.chip, .chip-md, [role="tab"], [role="menuitem"])::after {
+    animation: none;
+  }
+}
+
+/* The entry rim: the page's one entry point, 「模板」, wears a 1 px rim in the wire colours that turns slowly and
+   never stops — the only thing on the site that loops, so the eye finds it without a second solid button. The same
+   ring as the hover glow (a conic gradient kept to the border by a mask), its own angle, palette and pace (tokens:
+   --entry-palette, --entry-turn). */
+
+@property --entry-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0turn;
+}
+
+.btn.entry {
+  border-color: transparent;
+}
+
+.btn.entry::after {
+  content: "";
+  position: absolute;
+  inset: -1px; /* over the button's own 1 px border, which is transparent: the rim is the border */
+  padding: var(--glow-width);
+  border-radius: inherit;
+  background: conic-gradient(from var(--entry-angle), var(--entry-palette));
+  -webkit-mask: linear-gradient(black 0 0) content-box, linear-gradient(black 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(black 0 0) content-box exclude, linear-gradient(black 0 0);
+  pointer-events: none;
+  animation: entry-turn var(--entry-turn) linear infinite;
+}
+
+@keyframes entry-turn {
+  to {
+    --entry-angle: 1turn;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn.entry::after {
+    animation: none;
+  }
+}

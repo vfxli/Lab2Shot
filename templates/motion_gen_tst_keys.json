@@ -1,0 +1,276 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "82196d221b82b1b664f9dc8447ed3c21",
+  "name": "动作补帧 · Two-stage Transformer",
+  "intro": "两阶段的动作补帧框架：给一些上下文帧和一个目标帧，非自回归地生成长度可变的过渡动作，先由 Context Transformer 出粗略过渡，再由 Detail Transformer 精修动作细节。这张卡从导入的关键帧补出中间动作，交付 USD。",
+  "author": "Lab2Shot",
+  "created": "2026-09-12T12:00:00",
+  "deliverable": "motion_gen",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入动画",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "keys",
+   "label": "关键帧",
+   "target": "fill.keys"
+  },
+  {
+   "name": "skeleton",
+   "label": "骨骼",
+   "target": "fill.skeleton"
+  },
+  {
+   "name": "exact",
+   "label": "关键帧精确",
+   "target": "fill.exact"
+  },
+  {
+   "name": "foot_lock",
+   "label": "脚锁定",
+   "target": "fill.foot_lock"
+  },
+  {
+   "name": "character_pick",
+   "label": "哪个角色",
+   "target": "read.characters"
+  }
+ ],
+ "frames": null,
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.import_usd",
+   "label": "导入 USD",
+   "params": {
+    "path": "",
+    "camera": "",
+    "models": [],
+    "points": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "fill",
+   "type": "two_stage_transformer.inbetween",
+   "label": "Two-stage Transformer 动作补帧",
+   "params": {
+    "skeleton": null,
+    "keys": "",
+    "exact": true,
+    "foot_lock": true,
+    "mapping": [
+     {
+      "name": "Hips",
+      "label": "髋",
+      "joint": null
+     },
+     {
+      "name": "Spine",
+      "label": "脊柱 1",
+      "joint": null
+     },
+     {
+      "name": "Spine1",
+      "label": "脊柱 2",
+      "joint": null
+     },
+     {
+      "name": "Spine2",
+      "label": "胸",
+      "joint": null
+     },
+     {
+      "name": "Neck",
+      "label": "颈",
+      "joint": null
+     },
+     {
+      "name": "Head",
+      "label": "头",
+      "joint": null
+     },
+     {
+      "name": "LeftShoulder",
+      "label": "左锁骨",
+      "joint": null
+     },
+     {
+      "name": "LeftArm",
+      "label": "左上臂",
+      "joint": null
+     },
+     {
+      "name": "LeftForeArm",
+      "label": "左前臂",
+      "joint": null
+     },
+     {
+      "name": "LeftHand",
+      "label": "左手",
+      "joint": null
+     },
+     {
+      "name": "LeftUpLeg",
+      "label": "左大腿",
+      "joint": null
+     },
+     {
+      "name": "LeftLeg",
+      "label": "左小腿",
+      "joint": null
+     },
+     {
+      "name": "LeftFoot",
+      "label": "左脚",
+      "joint": null
+     },
+     {
+      "name": "LeftToe",
+      "label": "左脚趾",
+      "joint": null
+     },
+     {
+      "name": "RightShoulder",
+      "label": "右锁骨",
+      "joint": null
+     },
+     {
+      "name": "RightArm",
+      "label": "右上臂",
+      "joint": null
+     },
+     {
+      "name": "RightForeArm",
+      "label": "右前臂",
+      "joint": null
+     },
+     {
+      "name": "RightHand",
+      "label": "右手",
+      "joint": null
+     },
+     {
+      "name": "RightUpLeg",
+      "label": "右大腿",
+      "joint": null
+     },
+     {
+      "name": "RightLeg",
+      "label": "右小腿",
+      "joint": null
+     },
+     {
+      "name": "RightFoot",
+      "label": "右脚",
+      "joint": null
+     },
+     {
+      "name": "RightToe",
+      "label": "右脚趾",
+      "joint": null
+     }
+    ],
+    "post_process": true
+   },
+   "ui": {
+    "x": 300,
+    "y": 0,
+    "on_node": [
+     "keys",
+     "exact"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "name": "animation",
+    "format": "usd",
+    "unit": "cm"
+   },
+   "ui": {
+    "x": 720,
+    "y": 0,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1020,
+    "y": 0,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "characters"
+   ],
+   "to": [
+    "fill",
+    "character"
+   ]
+  },
+  {
+   "from": [
+    "fill",
+    "character"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "fill",
+  "frame": 1001
+ }
+}

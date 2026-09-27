@@ -1,0 +1,9 @@
+# SAM 3D Body（adapters/sam_3d_body/nodes.py、worker.py、sam3dbody.py；Fast SAM 3D Body 也用 sam3dbody.py 的这几条）。
+# 。
+
+# ---- 检测人物
+"N-SAM3DBODY-NOPEOPLEFOUND" = "「ViTDet 人物框」在画面里没有检测到人（「检测阈值」是 {threshold:g}），人物框是空的：后面接的「选人」「人物框转遮罩」这次没有框可用（2026-09-22 起解算器、相机解算、相机与深度、Sapiens2 都不接人物框了，它们自己检测）。人在远处、被挡住或是背影时，把「检测阈值」调低到 0.5–0.6 再算"
+
+# ---- 解算
+"N-SAM3DBODY-NOBODYCHOSEN" = "接进来的「人物框」里一个人都没有：这次没有人可解。要解画面里所有人，把「选人」改成「全部」，或者不接「人物框」"
+"N-SAM3DBODY-INTERPOLATED" = "人物 {person} 有 {missing} 帧（共 {frames} 帧）没有解算结果，这些帧按前后帧插值"

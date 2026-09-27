@@ -1,0 +1,416 @@
+/* ------------------------------------------------ 节点本体：框、标题行、端口行、脚注、状态词、信息卡按钮
+   (editor/GraphNode.tsx)。画布、连线与画布上的控件位于 08-node-graph.css。 */
+
+/* ============================ 节点尺寸的不变量（以下规则是其直接实现） ============================
+   节点的宽高仅由其形状决定：标题（名称 + 类型 id）、端口行数、参数行数。
+   当前帧、剩余量、步骤名称、耗时等文字的变化不得改变宽高
+   （内容自适应不得改变布局确定的尺寸，否则节点在计算过程中会忽大忽小）。
+
+   固定部分：
+     · 状态词格 `.gnode-state`：宽度固定为 `--node-state-w`，始终占用该宽度，不参与撑宽节点；
+     · 脚注 `.gnode-foot`：高度固定为 24px，内容不会使其增高；
+     · 进度条 `.gnode-progress`：绝对定位于节点底边，不占布局，出现与消失均不改变高度。
+   弹性部分：
+     · 标题列 `.gnode-name`（`flex: 1 1 0`，不挤压其他元素）。空间不足时整个节点变宽；
+       这属于形状，在节点图打开时即已确定，计算过程中不变。
+   可压缩为 0 的部分：
+     · 无。标题不得截断或换行，空间不足时整个节点变宽。
+   标题行与端口行参与撑宽；参数行与脚注（自检未通过时脚注为一长句）不参与（见文件末尾的宽度归零规则），
+   否则一条长提示即可使节点宽达数千像素。
+   端口行同属形状：一行中左侧为输入口名称与「可选」，右侧为输出口的值与名称（「已知 Focal Length 可选」
+   与「18.038 mm Focal Length」位于同一行）。若仅按标题定宽，同一行的三段文字宽度由其他行决定，必然重叠。
+   宽度取标题与最宽端口行中的较大值；端口值计算出来后节点会变宽一次，这是形状变化，而非内容抖动。
+
+   The node: a flat dark block, not a card, with a 1 px hairline, 8 px radius, a low soft shadow, and the category's colour
+   only as a bar at the left of the title row. Selected: a thin accent rim, nothing else. */
+.gnode {
+  /* 状态词格的宽度：按最长的状态预留，不截断文字。实测宽度（Geist + 思源黑体回退，
+     字号 --fs-2xs 10.5px，tabular-nums，含左内边距 4）：「计算中…」41.5、「999/999」46.8、「9999/9999」59.5。
+     取 60：镜头不会超过一万帧（9999 帧 @24fps 已约 7 分钟）。
+     tests/test_tools.py NODE_HEAD_CHROME 使用同一数值，两处须同步修改。 */
+  --node-state-w: 60px;
+  min-width: 240px;
+  width: max-content;
+  position: relative; /* 警告角标位于右上角，进度条位于底边，均不占布局 */
+  border-radius: var(--r-node);
+  background: var(--lifted);
+  border: 1px solid var(--hair-strong);
+  box-shadow: var(--shadow-lift);
+  transition: box-shadow var(--t-fast), border-color var(--t-fast), opacity var(--t-fast);
+}
+
+.gnode.unavailable {
+  opacity: 0.55;
+}
+
+/* 正在计算的节点整体呈呼吸发光效果。触发条件与进度条相同（`progress`：服务器报告当前正在计算该节点），
+   因此进度条运行的节点即为发光节点。光晕使用强调色：外圈细线加一层柔光，周期 2.4 秒。
+   光晕通过 box-shadow 实现，不占布局，不改变尺寸（见文件开头的不变量）。 */
+.gnode.cooking {
+  border-color: var(--accent);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px var(--accent), 0 0 5px 1px color-mix(in srgb, var(--accent) 20%, transparent), var(--shadow-lift);
+  }
+  50% {
+      box-shadow: 0 0 0 1px var(--accent), 0 0 13px 4px color-mix(in srgb, var(--accent) 40%, transparent), var(--shadow-lift);
+  }
+}
+
+/* 两行：名称，以及下方以小号灰字显示的节点类型 id（所有节点均有）。状态词与第一行对齐，因此此处顶对齐，颜色条同样顶对齐 */
+.gnode-head {
+  min-height: 26px;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-1);
+  padding: 4px var(--sp-2) 5px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.gnode-name {
+  flex: 1 1 0; /* 弹性，basis 为 0，不挤压其他元素（状态词格宽度固定，见 .gnode 顶部的不变量） */
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* 节点类型 id：节点改名后仍可识别其类型；命令行与 DCC 插件使用该字符串。
+   不使用问号光标（cursor: help）：悬停提示由 data-tip 提供，与光标无关 */
+.gnode-type {
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  line-height: 1.25;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* the category's colour: a 3 × 12 bar, the design's one mark of what kind of node this is */
+.gnode-kind {
+  flex: none;
+  width: 3px;
+  height: 12px;
+  border-radius: 99px;
+  margin: 3px var(--sp-1) 0 0;  /* 与标题行顶对齐 */
+}
+
+.gnode-title {
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+/* The state as a word at the right end of the title row.
+   该格宽度固定（--node-state-w，原因见 .gnode 顶部的不变量）：文字从「未计算」变为
+   「计算中…」，再变为「60/195」「194/195」时，节点尺寸保持不变；若按内容定宽，节点会随文字宽度来回变化数十像素。
+   数字使用 tabular-nums（GraphNode.tsx 添加了 `tnum`），各数字等宽，帧号变化不改变宽度。 */
+.gnode-state {
+  flex: 0 0 var(--node-state-w);
+  box-sizing: border-box;
+  text-align: right;
+  margin-left: auto;
+  margin-top: 2px;  /* 与标题行对齐 */
+  padding-left: var(--sp-1);
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
+  white-space: nowrap;
+  /* 不使用问号光标（cursor: help） */
+}
+
+.gnode-state.cooked {
+  color: var(--green);
+}
+
+/* 排队: its job waits in the queue (the node's footer says why) */
+.gnode-state.queued {
+  color: var(--orange);
+}
+
+.gnode-state.cooking {
+  color: var(--yellow);
+}
+
+.gnode-state.error {
+  color: var(--error);
+}
+
+/* 「输出」 delivered, waiting for the submitting computer to fetch it */
+.gnode-state.pending {
+  color: var(--orange);
+}
+
+/* 在视图中显示 and 展开: not in the design's title row, which carries only the name and the state. The two switches stay
+   (the editor cannot do without them) but keep out of the way: they hold their room, so no node ever changes width or
+   jumps, and only show while the pointer is over the node, while it is selected, or while the switch itself is on. */
+.gnode .display-flag,
+.gnode .expand-flag {
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+
+.gnode:hover .display-flag,
+.gnode:hover .expand-flag,
+.react-flow__node.selected .gnode .display-flag,
+.react-flow__node.selected .gnode .expand-flag,
+.gnode .display-flag.on,
+.gnode .expand-flag.on {
+  opacity: 1;
+}
+
+/* The node's own three icon marks (展开, 在视图中显示, 数据信息) are written one way: a square box with the icon
+   exactly in its middle. A <button> brings its own padding and its own content layout, which leaves the icon a pixel or
+   two off centre inside its square; the reset below makes the two centres coincide.
+   tests/ui/walk_common.py ICONS_CENTRED measures every icon-only control of the site against it. */
+.display-flag,
+.expand-flag,
+.gnode-info {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  cursor: default;
+}
+
+.display-flag svg,
+.expand-flag svg,
+.gnode-info svg {
+  display: block;
+}
+
+.display-flag:hover {
+  background: var(--raised);
+  color: var(--text-2);
+}
+
+.display-flag.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* 两列各按自身最宽的一行定宽（max-content）；节点宽于两列之和时，两列分别贴靠两侧，因此端口行参与撑宽。
+   参见文件开头的不变量，以及末尾宽度归零规则中的 `:not(.gnode-ports)` */
+.gnode-ports {
+  padding: 5px 0 6px;
+  display: grid;
+  grid-template-columns: max-content max-content;
+  justify-content: space-between;
+  column-gap: var(--sp-3);
+}
+
+.gnode-ports .col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.port-row {
+  height: 16px;
+  display: flex;
+  align-items: center;
+  position: relative;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  min-width: 0;
+}
+
+.port-row.in {
+  padding-left: 10px;
+}
+
+.port-row.out {
+  justify-content: flex-end;
+  padding-right: 10px;
+}
+
+/* 「可选」两字不得折行。端口名本身为 `flex: none; white-space: nowrap`（08-node-graph.css：
+   名称不得截断，一行放不下时先收缩相邻元素），而该角标只有两个字，收缩到极限即折为
+   「可」「选」两行，这属于换行而非收缩。因此此处强制单行：空间不足时向中间空白区域延伸
+   （长名称采用相同处理），节点宽度不变（见文件开头的不变量）。
+   典型场景：端口名由「已知焦距」（44 px）变为「已知 Focal Length」（90 px）后，该列仅剩十余像素。 */
+.port-row .opt {
+  color: var(--text-3);
+  margin-left: 3px;
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+/* an output that is wired but gone: kept so its wire shows (dashed, the error colour) and can be removed */
+.port-row.ghost {
+  color: var(--error);
+  text-decoration: line-through;
+}
+
+/* an output waiting for a selection (an import node's kind not selected yet): kept muted so the wire from it shows;
+   it connects by itself once something of that kind is selected */
+.port-row.waiting {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+/* a plain 8 px dot in the data type's colour, no rim. It is drawn small, but stays easy to hit: an invisible
+   pad around it (::before) belongs to the handle itself, so a click a few pixels off still lands on the port. */
+.gnode .react-flow__handle {
+  width: 8px;
+  height: 8px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: var(--c, var(--text-3));
+  transition: box-shadow var(--t-fast);
+}
+
+.gnode .react-flow__handle::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+}
+
+/* an input that takes several wires: the dot is a bar, so「一个口能接几根」reads at a glance */
+.gnode .react-flow__handle.multi {
+  height: 14px;
+  border-radius: var(--r-xs);
+}
+
+.gnode .react-flow__handle:hover {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 40%, transparent);
+}
+
+/* one line box of its own, whatever sits in it (a note, a file name, the 非商用 badge, the cost tag, 数据信息's mark)
+   and whatever font the machine falls back to: 4 + 15 + 4 = 23 px plus the border, the same on every node
+   (tests/test_tools.py NODE_FOOT counts it; a tag that only shows once its extension is installed must never make a
+   node taller, and tests/ui/walk_templates.py measures that nothing in it is taller than the line) */
+.gnode-foot {
+  border-top: 1px solid var(--hair);
+  padding: 4px 8px;
+  line-height: 16px;
+  height: 24px;
+  box-sizing: border-box;
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* the note (right) stays pinned right whether or not the 计算量 badge (left, before it) is there; 数据信息's mark is
+   always last, at the node's bottom right corner. Whatever words are in the row give way before the mark does:
+   without this a long sentence would push the mark out past the node's right edge. */
+.gnode-foot > .node-mark,
+.gnode-foot > .gnode-note,
+.gnode-foot > .gnode-file {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+}
+
+.gnode-foot > .gnode-note {
+  margin-left: auto;
+}
+
+/* 数据信息: a small circled 「i」 at the node's bottom right. Every item of the footer must stay inside its one line
+   (tests/ui/walk_templates.py measures it), so it is exactly the line's height. */
+.gnode-info {
+  border-radius: 50%;
+}
+
+.gnode-info:hover,
+.gnode-info.on {
+  background: var(--raised);
+  color: var(--text-2);
+}
+
+.gnode-info.on {
+  color: var(--accent);
+}
+
+/* the node has something to read: the mark takes that message's own level colour (red only for a production risk) */
+.gnode-info[data-level="N"] {
+  color: var(--accent);
+}
+
+.gnode-info[data-level="W"] {
+  color: var(--orange);
+}
+
+.gnode-info[data-level="E"],
+.gnode-info[data-level="B"] {
+  color: var(--error);
+}
+
+.gnode-info[data-level="P"] {
+  color: var(--production-risk);
+}
+
+.gnode-foot .gnode-file {
+  overflow: hidden;
+}
+
+/* 计算量档位：低/中/高/超高，bottom-left of the node, before whatever the footer already says (file / status). Its box
+   stays inside the footer's one line (tests/ui/walk_templates.py measures it), so it carries its own line height. */
+.gnode-compute {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  padding: 0 6px;
+  border-radius: var(--r-ctl);
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 16%, transparent);
+}
+
+.gnode-compute[data-tier="中"] {
+  color: var(--yellow);
+  background: color-mix(in srgb, var(--yellow) 16%, transparent);
+}
+
+.gnode-compute[data-tier="高"] {
+  color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 16%, transparent);
+}
+
+.gnode-compute[data-tier="超高"] {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 16%, transparent);
+}
+
+/* 标题行与端口行决定节点宽度：其余部分宽度归零，再撑满计算得到的宽度（见 .gnode 的注释）。
+   这是全站唯一控制节点各部分宽度的规则，不得在其他文件（如 29-node-chrome.css）重复定义，
+   否则修改此处时会被另一份规则覆盖。
+   进度条不在此列：它不参与布局（绝对定位于底边，12-preview-bar.css），
+   再为其设置 width: 0 / min-width: 100% 会形成两套规则控制同一属性。
+   该规则同时保证节点内的元素不超出节点：宽度恰为节点内容宽（max-width），左右外边距一律为 0；
+   在 `min-width: 100%` 之外再加左右外边距，实际宽度为 100% 加边距，会超出节点右边。需要内缩时使用 padding。
+   tests/ui/walk_templates.py 逐个节点测量。此处不设任何允许超出的例外，也不得添加。 */
+.gnode > :not(.gnode-head):not(.gnode-ports):not(.gnode-progress) {
+  width: 0;
+  min-width: 100%;
+  max-width: 100%;
+  margin-inline: 0;
+}
+
+.gnode > .gnode-ports {
+  margin-inline: 0;
+}
+
+/* 该端口当前不可用（由服务器计算，nodes/base.py Port.applies）：置灰、位置不变、悬停说明原因，且无法连线。
+   不区分 `.in` / `.out`：输入与输出遵循同一规则；若只写 `.in`，输出口只有 class 而无样式，应置灰的端口会与正常端口一样显示。 */
+.port-row.inactive {
+  opacity: 0.4;
+}

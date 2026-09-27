@@ -1,0 +1,11 @@
+/* ------------------------------------------------------------------ the user's data, cut */
+
+/* The one rule that cuts text: only the user's own data — a file name, a path, a name they typed, a value from their
+   file — and the element carrying it has its whole text in data-tip (checked by webui/tests/uiKit.test.ts, which finds
+   such elements by the data-user-data attribute). The interface's own words are never cut: they fit, or get a shorter word. */
+[data-user-data] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

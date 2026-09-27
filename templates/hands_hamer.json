@@ -1,0 +1,325 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "d1787b82183d9e8ff7a317890279e166",
+  "name": "手部动作 · HaMeR",
+  "intro": "HaMeR 从单目画面恢复手的三维形态，全 Transformer 架构，比以往做法明显更准更稳。这张卡给每个人的左右手各交付一只 MANO 手；它只用镜头的 Focal Length、把手解在相机前面，所以经「相机空间转换」按 ViPE 解的相机（有解算好的换成「导入 USD」）逐帧摆进世界——交付的相机永远是用户那台。「选人」默认最大的一个，改「前几个」「全部」或填编号就一次解这几个人（检人、加载模型只做一次）。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "hands",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "focal",
+   "label": "已知 Focal Length",
+   "target": "cam.focal_mm"
+  },
+  {
+   "name": "people",
+   "label": "选人",
+   "target": "pick.mode"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 220
+   }
+  },
+  {
+   "id": "detect",
+   "type": "sam_3d_body.detect_people",
+   "label": "ViTDet 人物框",
+   "params": {
+    "threshold": 0.8
+   },
+   "ui": {
+    "x": 320,
+    "y": 100,
+    "on_node": [
+     "threshold"
+    ]
+   }
+  },
+  {
+   "id": "pick",
+   "type": "core.select_people",
+   "label": "选人",
+   "params": {
+    "mode": "largest",
+    "ids": "",
+    "picks": []
+   },
+   "ui": {
+    "x": 640,
+    "y": 100,
+    "on_node": [
+     "mode",
+     "ids"
+    ]
+   }
+  },
+  {
+   "id": "hands",
+   "type": "hamer.hands",
+   "label": "HaMeR 手部动作",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "rescale_factor": 2.0
+   },
+   "ui": {
+    "x": 1300,
+    "y": 120,
+    "on_node": [
+     "focal_mm",
+     "rescale_factor"
+    ]
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "scene"
+   },
+   "ui": {
+    "x": 2000,
+    "y": 380,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 2300,
+    "y": 380,
+    "on_node": [
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "cam",
+   "type": "vipe.camera_solve",
+   "label": "ViPE 相机解算",
+   "params": {
+    "mode": "pose_only"
+   },
+   "ui": {
+    "x": 320,
+    "y": 420,
+    "on_node": [
+     "focal_mm",
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "cam_split",
+   "type": "core.split_camera",
+   "label": "拆分相机",
+   "params": {
+    "per_frame": true
+   },
+   "ui": {
+    "x": 680,
+    "y": 520,
+    "on_node": [
+     "per_frame"
+    ]
+   }
+  },
+  {
+   "id": "place",
+   "type": "core.camera_space",
+   "label": "相机空间转换",
+   "params": {
+    "fit": "per_frame"
+   },
+   "ui": {
+    "x": 1660,
+    "y": 300,
+    "on_node": [
+     "fit"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "detect",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "detect",
+    "boxes"
+   ],
+   "to": [
+    "pick",
+    "boxes"
+   ]
+  },
+  {
+   "from": [
+    "pick",
+    "boxes"
+   ],
+   "to": [
+    "hands",
+    "boxes"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "hands",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "cam",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "camera"
+   ],
+   "to": [
+    "cam_split",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "cam_split",
+    "focal"
+   ],
+   "to": [
+    "hands",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "cam_split",
+    "filmback"
+   ],
+   "to": [
+    "hands",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "hands",
+    "character"
+   ],
+   "to": [
+    "place",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "camera"
+   ],
+   "to": [
+    "place",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "place",
+    "scene"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "camera"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "hands",
+  "frame": null
+ }
+}

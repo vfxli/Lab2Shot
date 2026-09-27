@@ -1,0 +1,162 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "2bc93155772f2204ecaf75b2f6ae7125",
+  "name": "精细抠像 · MatAnyone 2",
+  "intro": "MatAnyone 2 是面向人物视频抠像的框架，不走分割式的硬边，保住细节，在真实素材上更稳。这张卡由 BiRefNet 给出第一帧粗遮罩，交付整段 alpha 序列。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "matte_fine",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 140
+   }
+  },
+  {
+   "id": "seg",
+   "type": "birefnet.matte",
+   "label": "BiRefNet 抠像",
+   "params": {},
+   "ui": {
+    "x": 320,
+    "y": 0,
+    "on_node": [
+     "model",
+     "resolution"
+    ]
+   }
+  },
+  {
+   "id": "matte",
+   "type": "matanyone.matte",
+   "label": "MatAnyone 2 精细抠像",
+   "params": {
+    "resolution": 1920,
+    "warmup": 10,
+    "mask_close": 10,
+    "fp16": true
+   },
+   "ui": {
+    "x": 620,
+    "y": 120,
+    "on_node": [
+     "resolution",
+     "mask_close"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "alpha"
+   },
+   "ui": {
+    "x": 960,
+    "y": 120,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1280,
+    "y": 120,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "seg",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "matte",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte",
+    "alpha"
+   ],
+   "to": [
+    "out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "seg",
+    "alpha"
+   ],
+   "to": [
+    "matte",
+    "mask"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "matte",
+  "frame": null
+ }
+}

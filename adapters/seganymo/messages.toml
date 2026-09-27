@@ -1,0 +1,9 @@
+# SegAnyMo 运动物体遮罩（adapters/seganymo）。一行一条：编号 = 模板。
+
+# ---- 输入画面
+"I-SEGANYMO-WHYMOTION" = "要看画面里的物体怎么动"
+"E-SEGANYMO-UNREADABLE" = "「SegAnyMo 运动物体遮罩」读不了第 {frame} 帧的画面：重新计算一次；还不行，把参数面板里这个节点的日志发给开发者"
+
+# ---- 结果
+"N-SEGANYMO-EMPTY" = "「SegAnyMo 运动物体遮罩」没有找到在动的物体，遮罩是空的：物体动得慢或只动了一小段时，调大「分析帧数」、调小「查询间隔」再试"
+"I-SEGANYMO-FOUND" = "SegAnyMo 找到 {count:d} 个在动的物体（分析了 {frames:d} 帧）"

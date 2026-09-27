@@ -1,0 +1,330 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "917f763a301259c59929cb9999b50868",
+  "name": "全身动作 · TRAM",
+  "intro": "TRAM 是两阶段方法，从实拍视频解出人的全局轨迹和动作：让 SLAM 在画面里有人走动时也稳得住，并用场景背景定出动作的尺度。这张卡交付全身角色（骨架和网格），TRAM 自己解的那台相机只当「来源相机」：人经「相机空间转换」搬进 ViPE 解的相机里（有解算好的换成「导入 USD」）——交付的相机永远是用户那台。只要骨架不要网格就接「提取骨架」。「选人」默认最大的一个，改「前几个」「全部」或填编号就一次解这几个人（检人、加载模型只做一次）。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "body_full",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "people",
+   "label": "选人",
+   "target": "pick.mode"
+  },
+  {
+   "name": "focal",
+   "label": "已知 Focal Length",
+   "target": "cam.focal_mm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 220
+   }
+  },
+  {
+   "id": "detect",
+   "type": "sam_3d_body.detect_people",
+   "label": "ViTDet 人物框",
+   "params": {
+    "threshold": 0.8
+   },
+   "ui": {
+    "x": 320,
+    "y": 100,
+    "on_node": [
+     "threshold"
+    ]
+   }
+  },
+  {
+   "id": "pick",
+   "type": "core.select_people",
+   "label": "选人",
+   "params": {
+    "mode": "largest",
+    "ids": "",
+    "picks": []
+   },
+   "ui": {
+    "x": 640,
+    "y": 100,
+    "on_node": [
+     "mode",
+     "ids"
+    ]
+   }
+  },
+  {
+   "id": "human",
+   "type": "tram.solve",
+   "label": "TRAM 全身动作",
+   "params": {
+    "max_people": 20,
+    "static_camera": false
+   },
+   "ui": {
+    "x": 1300,
+    "y": 120,
+    "on_node": [
+     "focal_mm",
+     "static_camera"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "scene"
+   },
+   "ui": {
+    "x": 2000,
+    "y": 380,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 2300,
+    "y": 380,
+    "on_node": [
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "cam",
+   "type": "vipe.camera_solve",
+   "label": "ViPE 相机解算",
+   "params": {
+    "mode": "pose_only"
+   },
+   "ui": {
+    "x": 320,
+    "y": 420,
+    "on_node": [
+     "focal_mm",
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "cam_split",
+   "type": "core.split_camera",
+   "label": "拆分相机",
+   "params": {
+    "per_frame": true
+   },
+   "ui": {
+    "x": 680,
+    "y": 520,
+    "on_node": [
+     "per_frame"
+    ]
+   }
+  },
+  {
+   "id": "place",
+   "type": "core.camera_space",
+   "label": "相机空间转换",
+   "params": {
+    "fit": "per_frame"
+   },
+   "ui": {
+    "x": 1660,
+    "y": 300,
+    "on_node": [
+     "fit"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "detect",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "detect",
+    "boxes"
+   ],
+   "to": [
+    "pick",
+    "boxes"
+   ]
+  },
+  {
+   "from": [
+    "pick",
+    "boxes"
+   ],
+   "to": [
+    "human",
+    "boxes"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "human",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "cam",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "camera"
+   ],
+   "to": [
+    "cam_split",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "cam_split",
+    "focal"
+   ],
+   "to": [
+    "human",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "cam_split",
+    "filmback"
+   ],
+   "to": [
+    "human",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "human",
+    "character"
+   ],
+   "to": [
+    "place",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "human",
+    "camera"
+   ],
+   "to": [
+    "place",
+    "source_camera"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "camera"
+   ],
+   "to": [
+    "place",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "place",
+    "scene"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "camera"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "human",
+  "frame": null
+ }
+}

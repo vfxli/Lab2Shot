@@ -1,0 +1,304 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "c1c58f9b067565c03a58479f6926ca7f",
+  "name": "动作补帧 · Kimodo",
+  "intro": "Kimodo 是在 700 小时可商用光学动捕上训练的运动学动作扩散模型，由文字描述和全身姿势关键帧这类约束控制。这张卡拿导入的关键帧当约束，补出中间动作，交付 USD。",
+  "author": "Lab2Shot",
+  "created": "2026-09-12T12:00:00",
+  "deliverable": "motion_gen",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入动画",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "keys",
+   "label": "关键帧",
+   "target": "fill.keys"
+  },
+  {
+   "name": "model",
+   "label": "模型",
+   "target": "fill.model"
+  },
+  {
+   "name": "prompt",
+   "label": "文字描述",
+   "target": "fill.prompt"
+  },
+  {
+   "name": "seed",
+   "label": "随机种子",
+   "target": "fill.seed"
+  },
+  {
+   "name": "skeleton",
+   "label": "骨骼",
+   "target": "fill.skeleton"
+  },
+  {
+   "name": "exact",
+   "label": "关键帧精确",
+   "target": "fill.exact"
+  },
+  {
+   "name": "foot_lock",
+   "label": "脚锁定",
+   "target": "fill.foot_lock"
+  },
+  {
+   "name": "character_pick",
+   "label": "哪个角色",
+   "target": "read.characters"
+  }
+ ],
+ "frames": null,
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.import_usd",
+   "label": "导入 USD",
+   "params": {
+    "path": "",
+    "camera": "",
+    "models": [],
+    "points": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "fill",
+   "type": "kimodo.motion",
+   "label": "Kimodo 动作生成",
+   "params": {
+    "start_frame": 1001,
+    "skeleton": null,
+    "keys": "",
+    "exact": true,
+    "foot_lock": true,
+    "mapping": [
+     {
+      "name": "Hips",
+      "label": "髋",
+      "joint": null
+     },
+     {
+      "name": "Spine1",
+      "label": "脊柱 1",
+      "joint": null
+     },
+     {
+      "name": "Spine2",
+      "label": "脊柱 2",
+      "joint": null
+     },
+     {
+      "name": "Chest",
+      "label": "胸",
+      "joint": null
+     },
+     {
+      "name": "Neck1",
+      "label": "颈 1",
+      "joint": null
+     },
+     {
+      "name": "Neck2",
+      "label": "颈 2",
+      "joint": null
+     },
+     {
+      "name": "Head",
+      "label": "头",
+      "joint": null
+     },
+     {
+      "name": "LeftShoulder",
+      "label": "左锁骨",
+      "joint": null
+     },
+     {
+      "name": "LeftArm",
+      "label": "左上臂",
+      "joint": null
+     },
+     {
+      "name": "LeftForeArm",
+      "label": "左前臂",
+      "joint": null
+     },
+     {
+      "name": "LeftHand",
+      "label": "左手",
+      "joint": null
+     },
+     {
+      "name": "LeftLeg",
+      "label": "左大腿",
+      "joint": null
+     },
+     {
+      "name": "LeftShin",
+      "label": "左小腿",
+      "joint": null
+     },
+     {
+      "name": "LeftFoot",
+      "label": "左脚",
+      "joint": null
+     },
+     {
+      "name": "LeftToeBase",
+      "label": "左脚趾",
+      "joint": null
+     },
+     {
+      "name": "RightShoulder",
+      "label": "右锁骨",
+      "joint": null
+     },
+     {
+      "name": "RightArm",
+      "label": "右上臂",
+      "joint": null
+     },
+     {
+      "name": "RightForeArm",
+      "label": "右前臂",
+      "joint": null
+     },
+     {
+      "name": "RightHand",
+      "label": "右手",
+      "joint": null
+     },
+     {
+      "name": "RightLeg",
+      "label": "右大腿",
+      "joint": null
+     },
+     {
+      "name": "RightShin",
+      "label": "右小腿",
+      "joint": null
+     },
+     {
+      "name": "RightFoot",
+      "label": "右脚",
+      "joint": null
+     },
+     {
+      "name": "RightToeBase",
+      "label": "右脚趾",
+      "joint": null
+     }
+    ],
+    "model": "rp",
+    "prompt": "",
+    "steps": 100,
+    "guidance": 2.0,
+    "seed": 0,
+    "post_process": true,
+    "end_frame": 1120
+   },
+   "ui": {
+    "x": 300,
+    "y": 0,
+    "on_node": [
+     "prompt",
+     "keys",
+     "exact"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "name": "animation",
+    "format": "usd",
+    "unit": "cm"
+   },
+   "ui": {
+    "x": 600,
+    "y": 0,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 900,
+    "y": 0,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "characters"
+   ],
+   "to": [
+    "fill",
+    "character"
+   ]
+  },
+  {
+   "from": [
+    "fill",
+    "character"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "fill",
+  "frame": 1001
+ }
+}

@@ -1,0 +1,9 @@
+# MediaPipe Face Landmarker environment (no torch: TFLite on the CPU).
+# mediapipe 1.0.0 matches the pinned repo tag v1.0.0. It is a py3-none wheel that
+# ships its own native library (libmediapipe, loaded with ctypes), so no Bazel
+# build. Its declared dependencies (absl-py, flatbuffers, matplotlib, sounddevice,
+# opencv-contrib-python) come along; the worker only uses numpy and OpenCV.
+
+mediapipe==1.0.0
+numpy==2.5.3
+opencv-contrib-python==5.0.0.93

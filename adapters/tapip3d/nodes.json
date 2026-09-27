@@ -1,0 +1,6 @@
+{
+ "tapip3d.track": {
+  "label": "TAPIP3D 3D 跟踪点",
+  "description": "画面 + 深度图 + 相机 → 带编号、可见性和速度的 3D 跟踪点（厘米，和相机、深度图转出的点云对得上）；点被挡住也接着跟。深度图和相机要准，尺度跟着接进来的相机；固定机位的短焦镜头上 ViPE 的 Focal Length 会错，这时先填 Focal Length。3D 跟踪点在 Houdini 里当定位器，钉 CG 道具到旗子、衣服、车身上；只要 2D 点用「TAPNext++ 2D 跟踪点」。"
+ }
+}

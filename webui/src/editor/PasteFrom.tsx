@@ -1,0 +1,83 @@
+import { useState } from "react";
+import { api } from "../api";
+import { Button } from "../ui/Button";
+import { setParams } from "../graph/edit";
+import { say, msg, messageOf } from "../state/say";
+import { readClipboard } from "../platform/util";
+import { useCookInputs } from "../state/cookInputs";
+import type { NodeTypeDef } from "../api/catalog";
+
+/** 从别的软件粘一组参数进来（3DE / Nuke 镜头数据）。
+ *
+ * 节点声明了 `paste`（是哪个软件）才画这个按钮；一次改完 = 一步撤销——粘进来的一整颗镜头十几个数，
+ * 撤销一次全回去，不是撤十几次。
+ *
+ * 这里不认识任何软件、任何格式：文字原样交给服务器，服务器交给节点类，节点自己读
+ * （lab2shot/nodes/core/lens_distortion.py read_pasted）。读不出来时节点说的那句话原样显示。
+ *
+ * 剪贴板读不到的情况（http:// 从别的机器打开、浏览器拒绝了权限）不是失败：换成一个文本框让人自己粘，
+ * 不是弹一句「读不到剪贴板」就把人扔在那。 */
+
+const APPS: Record<string, string> = { nuke: "Nuke" };
+
+export function PasteFrom({ nodeId, def }: { nodeId: string; def: NodeTypeDef }) {
+  const [typing, setTyping] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!def.paste) return null;
+  const app = APPS[def.paste] ?? def.paste;
+
+  const read = (text: string) => {
+    if (!text.trim()) return;
+    setBusy(true);
+    void api.paste(def.id, text).then(
+      (got) => {
+        setBusy(false);
+        setTyping(null);
+        setParams(nodeId, got);
+        say(msg("N-WEB-PASTED", { app, count: Object.keys(got).length }), nodeId);
+        // 画面宽高是这张表里粘不进来的两个数（LD_3DE4 的旋钮里没有），而畸变的坐标要靠它们。
+        // 现在就说，不等到计算时才发现；接了「图像」就跟画面走，那时不用说
+        const ci = useCookInputs.getState();
+        const n = ci.nodes[nodeId];
+        const hasImage = Object.values(ci.edges).some((e) => e.target === nodeId && e.targetHandle === "image");
+        if (n && !hasImage && !n.params.width && !n.params.height) {
+          say(msg("N-WEB-PASTENORASTER", { app }), nodeId);
+        }
+      },
+      // 读不出来时，节点说的那句话原样显示（带它自己的编号）：页面不重写一遍理由
+      (e) => {
+        setBusy(false);
+        say(messageOf(e), nodeId);
+      },
+    );
+  };
+
+  if (typing !== null) {
+    return (
+      <div className="paste-from">
+        <textarea
+          className="field" rows={4} autoFocus value={typing} data-field="paste-text"
+          aria-label={`${app} 的节点文字`}
+          data-tip={`${app} 里复制的节点文字（3DE 导出的 Nuke 脚本也行）：粘进来按「读进来」，一次填好这个节点的参数`}
+          placeholder={`在 ${app} 里选中节点按 Ctrl+C，在这里按 Ctrl+V`}
+          onChange={(e) => setTyping(e.target.value)}
+        />
+        <div className="paste-row">
+          <Button size="sm" disabled={busy || !typing.trim()} tip={`读这段文字，一次填好这个节点的参数（可以撤销）`}
+            onClick={() => read(typing)}>读进来</Button>
+          <Button size="sm" tone="ghost" tip="不粘了" onClick={() => setTyping(null)}>取消</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="paste-from">
+      <Button size="sm" disabled={busy} data-field="paste-from"
+        tip={`把 ${app} 里复制的节点文字读进来，一次填好这个节点的参数（可以撤销）`}
+        onClick={() => void readClipboard().then((text) => (text.trim() ? read(text) : setTyping("")))}>
+        从 {app} 粘贴
+      </Button>
+    </div>
+  );
+}

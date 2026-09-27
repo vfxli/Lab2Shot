@@ -1,0 +1,11 @@
+# 允许的重复代码（tests/test_core_health.py）：超过 composition.toml [core] clone_tokens 的重复，不重构就要在这里写明理由。
+# 一条管两个文件之间的全部重复；每批集成后的同质审查逐条看，能合并的合并掉并删掉这一条。
+#
+#   UniDepth / UniK3D  → mono_geometry.load_network / network_camera / infer_frame
+#   CUT3R / MonST3R    → adapters/cut3r/dust3r_input.py read_images / moving_at_model_size
+#   LingBot-Map / SDK  → recon.at_input_size（加了 exclude 参数）
+#   CoTracker3 / TAPNext++ → point_tracks.write_result
+
+[[clones]]
+files = ["adapters/fast_sam_3d_body/extension.py", "adapters/sam_3d_body/extension.py"]
+reason = "故意各写一份：两个扩展包用同一套 SAM 3D Body 权重和 DINOv3 代码，锁定的地址和 sha256 两边都写，这样一个扩展包的说明书不导入别的扩展包，拿掉 SAM 3D Body 时 Fast SAM 3D Body 照样列出、能安装，只是写明缺少它（tests/test_boundaries.py）；安装时相同的文件只存一份"

@@ -1,0 +1,215 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "ad89024027edab8bb947cce095daf0e8",
+  "name": "深度与相机 · MonST3R",
+  "intro": "MonST3R 官方自述：以前馈为主处理动态视频，给出随时间变化的动态点云，以及每帧相机的位姿和内参。这张卡交付相机、深度图和它附带的运动物体遮罩；不出点云（整段点云是它的优化器用深度反投影的），要点云接「深度转点云」。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "depth_solved",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "focal",
+   "label": "已知 Focal Length",
+   "target": "r.focal_mm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 200
+   }
+  },
+  {
+   "id": "r",
+   "type": "monst3r.reconstruct",
+   "label": "MonST3R 深度与相机",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "step": 1,
+    "niter": 300,
+    "motion_threshold": 0.35,
+    "sam2_refine": true,
+    "conf_threshold": 1.1,
+    "unit_cm": 100.0
+   },
+   "ui": {
+    "x": 320,
+    "y": 200,
+    "on_node": [
+     "focal_mm",
+     "step",
+     "max_frames"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "scene"
+   },
+   "ui": {
+    "x": 640,
+    "y": 260,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "mov",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "moving_mask"
+   },
+   "ui": {
+    "x": 640,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1000,
+    "y": 240,
+    "on_node": [
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "nuke",
+   "type": "core.output_nuke_camera",
+   "label": "Nuke 相机输出设置",
+   "params": {
+    "name": "camera_nuke"
+   },
+   "ui": {
+    "x": 640,
+    "y": 440,
+    "on_node": [
+     "name"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "r",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "r",
+    "mask"
+   ],
+   "to": [
+    "mov",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "mov",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "r",
+    "camera"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "r",
+    "camera"
+   ],
+   "to": [
+    "nuke",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "nuke",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "r",
+  "frame": null
+ }
+}

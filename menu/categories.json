@@ -1,0 +1,511 @@
+{
+ "read": {
+  "parent": "",
+  "label": "读取",
+  "tip": "把文件读进来：画面、视频、三维场景",
+  "color": "#8E8E93",
+  "rank": 0.0,
+  "section": "tools"
+ },
+ "read_plate": {
+  "parent": "read",
+  "label": "序列与视频",
+  "tip": "序列图、图片、视频，以及视频转序列",
+  "color": "",
+  "rank": 0.0
+ },
+ "read_scene": {
+  "parent": "read",
+  "label": "三维数据",
+  "tip": "三维场景、骨架动画、点云的文件，以及一个标准人",
+  "color": "",
+  "rank": 1.0
+ },
+ "image": {
+  "parent": "",
+  "label": "图像",
+  "tip": "画面本身的处理：调整、变形、通道",
+  "color": "#64D2FF",
+  "rank": 1.0,
+  "section": "tools"
+ },
+ "img_adjust": {
+  "parent": "image",
+  "label": "画面调整",
+  "tip": "裁切、定帧、色彩转换、拆网格图",
+  "color": "",
+  "rank": 0.0
+ },
+ "img_warp": {
+  "parent": "image",
+  "label": "变形",
+  "tip": "按 ST-map 或运动矢量重采样",
+  "color": "",
+  "rank": 1.0
+ },
+ "img_channel": {
+  "parent": "image",
+  "label": "通道",
+  "tip": "通道之间的取放和生成",
+  "color": "",
+  "rank": 2.0
+ },
+ "tools_mask": {
+  "parent": "",
+  "label": "遮罩",
+  "tip": "遮罩和人物框：从别的数据生成，或者修一张已有的",
+  "color": "#D1D1D6",
+  "rank": 2.0,
+  "section": "tools"
+ },
+ "mask_make": {
+  "parent": "tools_mask",
+  "label": "生成遮罩",
+  "tip": "从人物框、深度、分割、置信度或手画生成",
+  "color": "",
+  "rank": 0.0
+ },
+ "mask_edit": {
+  "parent": "tools_mask",
+  "label": "处理遮罩",
+  "tip": "收放羽化、合并、挑出要的那个人",
+  "color": "",
+  "rank": 1.0
+ },
+ "camera": {
+  "parent": "",
+  "label": "相机",
+  "tip": "相机的创建、拆分、去抖、锁定 Focal Length 和镜头畸变",
+  "color": "#FFD60A",
+  "rank": 3.0,
+  "section": "tools"
+ },
+ "camera_tools": {
+  "parent": "camera",
+  "label": "相机",
+  "tip": "相机的创建、拆分、去抖、锁定 Focal Length 和镜头畸变",
+  "color": "",
+  "rank": 0.0
+ },
+ "geometry": {
+  "parent": "",
+  "label": "几何",
+  "tip": "深度、法线、点云、跟踪点之间的互相转换",
+  "color": "#AC8E68",
+  "rank": 4.0,
+  "section": "tools"
+ },
+ "geometry_tools": {
+  "parent": "geometry",
+  "label": "几何",
+  "tip": "深度、法线、点云、跟踪点之间的互相转换，以及手画的关键姿势",
+  "color": "",
+  "rank": 0.0
+ },
+ "scene": {
+  "parent": "",
+  "label": "场景",
+  "tip": "三维数据的组装、摆放和换一种表示",
+  "color": "#30D158",
+  "rank": 5.0,
+  "section": "tools"
+ },
+ "scene_build": {
+  "parent": "scene",
+  "label": "组装与变换",
+  "tip": "合成、取出、3D 变换、落地、重定时",
+  "color": "",
+  "rank": 0.0
+ },
+ "scene_convert": {
+  "parent": "scene",
+  "label": "转换",
+  "tip": "换一种表示：烘焙、提取骨架、SMPL 互转、投影成 2D",
+  "color": "",
+  "rank": 1.0
+ },
+ "blocks": {
+  "parent": "",
+  "label": "积木",
+  "tip": "自己搭图用的零件：值、运算、列表、流程",
+  "color": "#A78BFA",
+  "rank": 6.0,
+  "section": "tools"
+ },
+ "value": {
+  "parent": "blocks",
+  "label": "数值",
+  "tip": "数字、文字、向量、曲线取值、取信息",
+  "color": "",
+  "rank": 0.0
+ },
+ "math": {
+  "parent": "blocks",
+  "label": "运算",
+  "tip": "数学、与或非、比较",
+  "color": "",
+  "rank": 1.0
+ },
+ "list": {
+  "parent": "blocks",
+  "label": "列表",
+  "tip": "合成、拆开、取一条、列表合并、命名",
+  "color": "",
+  "rank": 2.0
+ },
+ "flow": {
+  "parent": "blocks",
+  "label": "流程",
+  "tip": "逐项处理和切换",
+  "color": "",
+  "rank": 3.0
+ },
+ "output": {
+  "parent": "",
+  "label": "输出",
+  "tip": "交付：一个「输出」节点，加上每种格式的输出设置",
+  "color": "#FF9F0A",
+  "rank": 7.0,
+  "section": "tools"
+ },
+ "out_deliver": {
+  "parent": "output",
+  "label": "交付",
+  "tip": "把上游的文件交付到一个文件夹",
+  "color": "",
+  "rank": 0.0
+ },
+ "out_scene": {
+  "parent": "output",
+  "label": "三维",
+  "tip": "三维场景，和给合成的相机",
+  "color": "",
+  "rank": 1.0
+ },
+ "out_picture": {
+  "parent": "output",
+  "label": "画面与数据",
+  "tip": "EXR、序列图、曲线、跟踪点、人物框",
+  "color": "",
+  "rank": 2.0
+ },
+ "camera_track": {
+  "parent": "",
+  "label": "镜头解算",
+  "tip": "解出拍这个镜头的相机和镜头本身：每帧的位置朝向 Focal Length、镜头畸变、场景的重力方向",
+  "color": "#FFD60A",
+  "rank": 0.0,
+  "section": "deliver"
+ },
+ "camera_traj": {
+  "parent": "camera_track",
+  "label": "相机轨迹",
+  "tip": "每帧的相机位置、朝向和 Focal Length",
+  "color": "",
+  "rank": 0.0
+ },
+ "lens_calib": {
+  "parent": "camera_track",
+  "label": "镜头标定",
+  "tip": "镜头畸变和 Focal Length",
+  "color": "",
+  "rank": 1.0
+ },
+ "leveling": {
+  "parent": "camera_track",
+  "label": "地平面对齐",
+  "tip": "把解算出来的场景转正、落到 y = 0",
+  "color": "",
+  "rank": 2.0
+ },
+ "reconstruct": {
+  "parent": "",
+  "label": "三维重建",
+  "tip": "把画面还原成场景：每帧变形的网格",
+  "color": "#30D158",
+  "rank": 1.0,
+  "section": "deliver"
+ },
+ "mesh_seq": {
+  "parent": "reconstruct",
+  "label": "网格序列",
+  "tip": "从画面解出来的、每帧变形的网格（点缓存）",
+  "color": "",
+  "rank": 0.0
+ },
+ "depth": {
+  "parent": "",
+  "label": "深度与法线",
+  "tip": "每个像素一个三维值的图：EXR 的 Z 和法线，给合成做景深、大气、重新打光",
+  "color": "#AC8E68",
+  "rank": 2.0,
+  "section": "deliver"
+ },
+ "depth_image": {
+  "parent": "depth",
+  "label": "单帧深度",
+  "tip": "一帧一帧独立算，只估内参，没有相机轨迹",
+  "color": "",
+  "rank": 0.0
+ },
+ "depth_video": {
+  "parent": "depth",
+  "label": "视频深度",
+  "tip": "整段一起算、帧间连贯，但不出相机",
+  "color": "",
+  "rank": 1.0
+ },
+ "depth_camera": {
+  "parent": "depth",
+  "label": "前馈相机与深度",
+  "tip": "整段一次前馈，每帧相机和深度一起出，点云每帧一片",
+  "color": "",
+  "rank": 2.0
+ },
+ "depth_solved": {
+  "parent": "depth",
+  "label": "解算相机与深度",
+  "tip": "相机解算出来、或跟着解好的相机走，深度每帧一片",
+  "color": "",
+  "rank": 3.0
+ },
+ "normal_map": {
+  "parent": "depth",
+  "label": "法线",
+  "tip": "每帧的法线图",
+  "color": "",
+  "rank": 4.0
+ },
+ "matte": {
+  "parent": "",
+  "label": "抠像与遮罩",
+  "tip": "把画面切成几块：软边的 alpha 交给合成，硬边的选区和类别图给 roto 和 holdout",
+  "color": "#D1D1D6",
+  "rank": 3.0,
+  "section": "deliver"
+ },
+ "matte_alpha": {
+  "parent": "matte",
+  "label": "抠像",
+  "tip": "自己找主体，直接给软边 alpha",
+  "color": "",
+  "rank": 0.0
+ },
+ "matte_fine": {
+  "parent": "matte",
+  "label": "精细抠像",
+  "tip": "给它一张粗遮罩，它修出发丝级的软边",
+  "color": "",
+  "rank": 1.0
+ },
+ "mask": {
+  "parent": "matte",
+  "label": "遮罩",
+  "tip": "0 或 1 的选区",
+  "color": "",
+  "rank": 2.0
+ },
+ "segmentation": {
+  "parent": "matte",
+  "label": "分割",
+  "tip": "按类别或部位区分每个像素",
+  "color": "",
+  "rank": 3.0
+ },
+ "tracks": {
+  "parent": "",
+  "label": "跟踪",
+  "tip": "追着点和面穿过时间：3DE 的 2D 点、CornerPin 的四个角、Houdini 的定位器",
+  "color": "#FF8FC7",
+  "rank": 4.0,
+  "section": "deliver"
+ },
+ "tracks2d": {
+  "parent": "tracks",
+  "label": "2D 跟踪点",
+  "tip": "画面上跟住的点",
+  "color": "",
+  "rank": 0.0
+ },
+ "plane": {
+  "parent": "tracks",
+  "label": "平面跟踪",
+  "tip": "一块平面的四个角",
+  "color": "",
+  "rank": 1.0
+ },
+ "tracks3d": {
+  "parent": "tracks",
+  "label": "3D 跟踪点",
+  "tip": "三维空间里跟住的点",
+  "color": "",
+  "rank": 2.0
+ },
+ "warp": {
+  "parent": "",
+  "label": "光流与对位",
+  "tip": "逐像素的对应关系：Nuke 的 motion 图层、把另一张图对位过来、在一帧上画一次贴到整段",
+  "color": "#64D2FF",
+  "rank": 5.0,
+  "section": "deliver"
+ },
+ "motion": {
+  "parent": "warp",
+  "label": "运动矢量",
+  "tip": "前后两帧之间每个像素的位移",
+  "color": "",
+  "rank": 0.0
+ },
+ "paint": {
+  "parent": "warp",
+  "label": "跟踪贴片",
+  "tip": "在参考帧上画一次，跟着画面贴到整段",
+  "color": "",
+  "rank": 1.0
+ },
+ "match": {
+  "parent": "warp",
+  "label": "图像对位",
+  "tip": "把另一张图对位到画面上",
+  "color": "",
+  "rank": 2.0
+ },
+ "body": {
+  "parent": "",
+  "label": "人体动捕",
+  "tip": "从画面解出人怎么动：全身动作、手，以及框出人的位置",
+  "color": "#FF375F",
+  "rank": 6.0,
+  "section": "deliver"
+ },
+ "body_full": {
+  "parent": "body",
+  "label": "全身",
+  "tip": "带骨骼的全身动作",
+  "color": "",
+  "rank": 0.0
+ },
+ "hands": {
+  "parent": "body",
+  "label": "手",
+  "tip": "手的动作和手型",
+  "color": "",
+  "rank": 1.0
+ },
+ "boxes": {
+  "parent": "body",
+  "label": "人物框",
+  "tip": "每帧每个人的位置框",
+  "color": "",
+  "rank": 2.0
+ },
+ "animation": {
+  "parent": "",
+  "label": "动作编辑",
+  "tip": "改已有的动作、造新动作，以及让一个模型能动起来",
+  "color": "#FF6482",
+  "rank": 7.0,
+  "section": "deliver"
+ },
+ "cleanup": {
+  "parent": "animation",
+  "label": "动作清理",
+  "tip": "把动捕里坏掉的帧和脚滑修好",
+  "color": "",
+  "rank": 0.0
+ },
+ "motion_gen": {
+  "parent": "animation",
+  "label": "生成动作",
+  "tip": "按关键帧、草图或文字这些约束生成一整段动作",
+  "color": "",
+  "rank": 1.0
+ },
+ "auto_rig": {
+  "parent": "animation",
+  "label": "自动绑定",
+  "tip": "骨架加蒙皮权重",
+  "color": "",
+  "rank": 2.0
+ },
+ "face": {
+  "parent": "",
+  "label": "面部",
+  "tip": "角色身上的细活：带表情的头模和表情曲线、面部的 UV 与深度图",
+  "color": "#FFB38A",
+  "rank": 8.0,
+  "section": "deliver"
+ },
+ "face_anim": {
+  "parent": "face",
+  "label": "面部动作",
+  "tip": "带表情的头模和表情曲线",
+  "color": "",
+  "rank": 0.0
+ },
+ "face_geo": {
+  "parent": "face",
+  "label": "面部通道",
+  "tip": "面部的深度图、UV 图和规范坐标图",
+  "color": "",
+  "rank": 1.0
+ },
+ "light": {
+  "parent": "",
+  "label": "光照与材质",
+  "tip": "解出光和表面：照明的 HDRI 环境球、PBR 通道、重新打光、去掉光照的贴图",
+  "color": "#FFE9A8",
+  "rank": 9.0,
+  "section": "deliver"
+ },
+ "env_light": {
+  "parent": "light",
+  "label": "HDRI",
+  "tip": "画面里照明的 HDRI 环境球",
+  "color": "",
+  "rank": 0.0
+ },
+ "material": {
+  "parent": "light",
+  "label": "PBR 通道",
+  "tip": "基础色、粗糙度、金属度这些通道",
+  "color": "",
+  "rank": 1.0
+ },
+ "relight": {
+  "parent": "light",
+  "label": "重新打光",
+  "tip": "换一张 HDRI 重新照亮画面",
+  "color": "",
+  "rank": 2.0
+ },
+ "face_texture": {
+  "parent": "light",
+  "label": "面部贴图",
+  "tip": "去掉光照的面部贴图",
+  "color": "",
+  "rank": 3.0
+ },
+ "formats": {
+  "parent": "",
+  "label": "格式与交付",
+  "tip": "读写文件的模块：场景格式、图像与色彩",
+  "color": "#8E8E93",
+  "rank": 10.0,
+  "section": "deliver"
+ },
+ "scene_format": {
+  "parent": "formats",
+  "label": "场景格式",
+  "tip": "三维场景的读写",
+  "color": "",
+  "rank": 0.0
+ },
+ "image_color": {
+  "parent": "formats",
+  "label": "图像与色彩",
+  "tip": "图像文件和色彩管理",
+  "color": "",
+  "rank": 1.0
+ }
+}

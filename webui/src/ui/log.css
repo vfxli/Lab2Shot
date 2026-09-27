@@ -1,0 +1,15 @@
+/* The one look of a block of log text (ui/Feedback.tsx's diagnostics, the editor's 日志 window, the admin page's
+   服务日志): mono, wrapped, scrolling inside itself — never making its page scroll sideways. */
+
+.server-log {
+  max-height: 60vh;
+  overflow: auto;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  font: 11.5px/1.55 var(--mono);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

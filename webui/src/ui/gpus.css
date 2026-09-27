@@ -1,0 +1,87 @@
+/* The graphics cards as the queue and the admin page show them (ui/GpuFits.tsx, ui/Queue.tsx, admin/Cards.tsx): one
+   card per GPU with its meter, what is on it now, and which extensions fit it. Split out of ui/queue.css (G09). */
+
+
+.q-gpus {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.q-gpu {
+  padding: 12px 14px;
+  border-radius: var(--r-card);
+  background: var(--raised);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  opacity: 0.72;
+}
+
+.q-gpu.on {
+  opacity: 1;
+  box-shadow: inset 0 0 0 1px rgba(48, 209, 88, 0.35);
+}
+
+.q-gpu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.q-gpu-name {
+  font-weight: 600;
+}
+
+.q-gpu-meter {
+  height: 4px;
+  border-radius: var(--r-xs);
+  background: var(--hair-strong);
+  overflow: hidden;
+}
+
+.q-gpu-meter i {
+  display: block;
+  height: 100%;
+  background: var(--text-2);
+}
+
+.q-gpu-stats,
+.q-gpu-job {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.q-gpu-fits {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.q-gpu-fit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.q-gpu-fit-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.q-gpu-fit-list li .mono {
+  color: var(--text-3);
+}
+
+.q-gpu-uuid {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}

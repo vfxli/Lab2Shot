@@ -1,0 +1,6 @@
+{
+ "cotracker.track": {
+  "label": "CoTracker3 2D 跟踪点",
+  "description": "画面 → 2D 跟踪点：很多点一起算，点和点互相参照，被挡住的点标成不可见（Meta CoTracker3）。适合整片表面上的密集点；只能研究用，不能用于商业项目。要可商用的 2D 点用「TAPNext++ 2D 跟踪点」。"
+ }
+}

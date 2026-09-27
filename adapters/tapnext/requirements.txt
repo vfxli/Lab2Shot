@@ -1,0 +1,9 @@
+# TAPNext++ environment (torch comes from EnvSpec). tapnet itself is not
+# pip-installed: its pyproject pulls in JAX, Haiku, TensorFlow & co. for the
+# JAX models and training. The worker imports tapnet.tapnext / tapnet.tapnextpp
+# straight from the pinned repo/; the PyTorch TAPNext++ code needs only these.
+einops==0.8.2
+numpy==2.4.6
+opencv-python-headless==4.10.0.84
+# Reads the float EXR masks of the "mask" input (same version as the colmap adapter).
+OpenEXR==3.4.15

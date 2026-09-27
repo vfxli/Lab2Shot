@@ -1,0 +1,8 @@
+# GeoCalib 的消息（adapters/geocalib）。
+
+# ---- 节点（nodes.py）
+"I-GEOCALIB-TILT" = "GeoCalib 估的相机倾斜中位 {roll:.1f}°、俯仰中位 {pitch:.1f}°（{count:d} 帧，重力误差中位 {error:.1f}°）；{lens}"
+
+# ---- worker
+"E-GEOCALIB-NOGRAVITY" = "GeoCalib 没能估出重力方向（结果里有无效值 NaN）：画面里可能缺少直线、地平线或竖直的物体；换一段画面，或填上实拍「Focal Length」再试"
+"W-GEOCALIB-UNRELIABLE" = "GeoCalib 估的重力方向不太可靠：误差中位 {error:.1f}°（超过 5°）。画面里缺少直线、地平线或竖直的物体，接到「自动落地」后场景可能放不平；知道实拍 Focal Length 就填「Focal Length」，重力方向会更准"

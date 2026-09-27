@@ -1,0 +1,232 @@
+/* ---------------------------------------------------------------- parameters on the node's body */
+/* A node's key parameters (NodeTypeDef.on_node) and the ones 提升到节点, a row each: its name, its value edited in
+   place. The same value as the panel's (a mirror, never a second source): the panel lists every parameter.
+
+   一行两格，宽度不随状态变化：
+     [标签] flex: 0 1 auto，最宽 96px，空间足够时不压缩；
+     [值]   flex: 1 1 0，始终有内容占位：可编辑时为控件（.gctl），不可编辑时为同尺寸的灰色格
+            （.gctl.gwired，已接线）或置灰的控件（fieldset[disabled]，参数当前不可用）。
+   因此接线与断线只改变该格的外观，行高、行宽与控件位置均不变
+   （控件不显隐切换，只区分可用与不可用）。
+   .gprow-text 是缩小后才显示的纯文本行（.graph.zoom-text / .zoom-far），正常缩放下不显示。 */
+.gnode-params {
+  border-top: 1px solid var(--hair);
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.gprow {
+  position: relative;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 10px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  cursor: default;
+}
+
+.gprow:hover {
+  background: var(--raised);
+}
+
+/* 标签格最宽 96px。现有最长的参数名「已知 Focal Length」约 89.8 px（11px Geist + 中文回退；
+   Geist 为随包分发的 woff2，各机器上宽度一致）；超出上限的部分会被 `overflow: hidden` 截断，而标签不得被截断。
+   该上限仅在标签超长时生效，短标签按内容宽度显示（flex: 0 1 auto），值格以 flex: 1 1 0 占据剩余宽度。
+   长于 96 的参数名应改用更短的词，而不是依靠截断隐藏。 */
+.gprow-label {
+  flex: 0 1 auto;
+  max-width: 96px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.gctl,
+.gprow-text {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* .gctl 是 fieldset（设置 disabled 即可将其中控件整组置灰，与参数面板的 .prow .ctl 做法相同）：
+   须清除 fieldset 自带的边框与内外边距，否则行高会增加 */
+fieldset.gctl {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  gap: var(--sp-1);
+}
+
+/* 已接线：该格显示连线传入的值（灰色格，不可编辑），前面一小行说明其来源。
+   置灰程度与其他不可用状态一致（ui/field.css .field:disabled、ui/parts.css 中约 0.5） */
+.gctl.gwired {
+  gap: 4px;
+  cursor: default;
+}
+
+/* 两个选择器均写在 .gctl 下（0,2,0）：.field 的 width:100% 为 (0,1,0)，
+   因此不依赖样式表先后顺序即可覆盖 */
+.gctl .gwired-from {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--fs-2xs);
+  color: var(--wired);
+}
+
+.gctl .gwired-val {
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 124px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* the whole row as plain text, only when zoomed out (.graph.zoom-text / .zoom-far below) */
+.gprow-text {
+  display: none;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-align: right;
+}
+
+.gprow.wired .gprow-text {
+  color: var(--wired);
+  opacity: 0.8;
+}
+
+.gprow.inactive .gprow-text,
+.gprow.inactive .gprow-label {
+  color: var(--text-3);
+}
+
+/* 提升到节点 的参数，其输入口绘制在该行左边缘 */
+.gprow.promoted .gprow-label {
+  color: var(--text);
+}
+
+/* ---------------- 多行文本框行（参数自身声明 `P(lines=…)`，NodeParamRow.tsx 添加 .multi）
+
+该行变为上下两格：标签在上，自动换行的文本框在下并占满整行宽度，比右侧 124 px 的空间宽一倍，
+这是节点上唯一可以扩大文本框的方向。
+
+高度固定（该行属于节点形状的一部分）：文字数量、换行数与缩放档位均不得改变节点高度
+（见 08a-node.css 顶部的不变量）。
+94 = 上下内边距 3+3 + 标签一行 14 + 间距 2 + 文本框 72（4 行 × 11px × 1.45 + 内边距 6 + 边框 2）。
+tests/test_tools.py PARAM_ROW_MULTI 使用同一数值（排版按其计算，两处须同步修改）。
+宽度仍不参与撑宽节点：文本框宽度由该格决定（ui/field.css .field 的 width:100% + min-width:0），
+节点宽度仅由标题行决定（见 08a-node.css 末尾的规则）。 */
+.gprow.multi {
+  height: 94px;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 2px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+/* 标签独占一行，因此无须与控件争用 96 px */
+.gprow.multi .gprow-label {
+  max-width: none;
+}
+
+/* 控件格占满剩余高度，文本框以 stretch 撑满（ui/field.css .field.area.snug） */
+.gprow.multi .gctl {
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
+}
+
+/* 缩小后该行显示为纯文本（.graph.zoom-text）：左对齐、自上而下排列，行高不变 */
+.gprow.multi .gprow-text {
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.gctl .field.mini {
+  height: 18px;
+  border-radius: var(--r-ctl);
+  padding: 0 6px;
+  font-size: var(--fs-xs);
+  max-width: 124px;
+}
+
+.gctl .num-unit.mini {
+  max-width: 124px;
+}
+
+.gctl .num-unit.mini::after {
+  right: 6px;
+  font-size: var(--fs-2xs);
+}
+
+.gctl .num-unit.mini .field.num {
+  padding-right: calc(8px + var(--unit-w, 2.2em));
+}
+
+.gctl .vec3.mini {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  width: 132px;
+}
+
+.gctl .vec3.mini .field {
+  padding: 0 4px;
+}
+
+/* zoomed out (NodeEditor): the values read as text, nothing small to hit by accident; further out they fade. The node
+   keeps its size either way. */
+.graph.zoom-text .gctl,
+.graph.zoom-far .gctl {
+  display: none;
+}
+
+.graph.zoom-text .gprow-text {
+  display: block;
+}
+
+.graph.zoom-far .gprow-text,
+.graph.zoom-far .gprow-label {
+  display: block;
+  visibility: hidden;
+}
+
+.graph.zoom-text .gprow:hover,
+.graph.zoom-far .gprow:hover {
+  background: none;
+}
+
+/* 展开 / 收起: every simple parameter on the node for now (its box and its icon: styles/08-node-graph.css) */
+.expand-flag:hover {
+  background: var(--raised);
+  color: var(--text-2);
+}
+
+.expand-flag.on {
+  background: var(--raised-hover);
+  color: var(--text);
+}
+
+/* the node's two switches sit together: room for its name */
+.expand-flag + .display-flag {
+  margin-left: -2px;
+}
+
+/* the node's file in its footer: a mirror of the parameter, leading to it */
+.gnode-file:hover {
+  color: var(--text-2);
+}

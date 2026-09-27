@@ -1,0 +1,19 @@
+# Kimodo environment (torch from EnvSpec). What the kimodo package imports for generation and its LLM2Vec text
+# encoder (upstream docker_requirements.in); the demo, its web UI (gradio, viser), visualisation (trimesh, scenepic)
+# and exports (bvhio, mujoco) are not installed. MotionCorrection is compiled by build.py.
+numpy==1.26.4
+scipy==1.14.1
+hydra-core==1.3.2
+omegaconf==2.3.0
+einops==0.8.1
+safetensors==0.6.2
+huggingface-hub==1.3.1
+transformers==5.1.0
+peft==0.18.1
+tqdm==4.67.1
+packaging==25.0
+pydantic==2.11.9
+filelock==3.20.3
+# MotionCorrection's build (pybind11 found through its CMake config; Eigen 3.4.0 fetched by its CMakeLists)
+setuptools==80.9.0
+pybind11==3.0.1

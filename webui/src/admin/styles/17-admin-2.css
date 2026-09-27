@@ -1,0 +1,295 @@
+.login-field .field {
+  height: 32px;
+  font-size: var(--fs-md);
+}
+
+.login-actions.end {
+  justify-content: flex-end;
+}
+
+/* 安全 (admin/Security.tsx) */
+.sec-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.sec-row .field {
+  height: 28px;
+}
+
+.sec-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0 16px;
+  font-size: var(--fs-sm);
+}
+
+.sec-table th,
+.sec-table td {
+  padding: 5px 8px;
+  border-bottom: 0.5px solid var(--hair);
+  text-align: left;
+  vertical-align: top;
+}
+
+.sec-table th {
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+/* 设置 → 管理密码 */
+.pw-card .set-row {
+  cursor: default;
+}
+
+.pw-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0 6px;
+  border-top: 0.5px solid var(--hair);
+}
+
+.pw-hint {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  /* 不给问号光标（cursor: help）：停留提示是 data-tip 那一套的事，和光标没关系 */
+}
+
+/* 设置 */
+/* the groups flow down two columns (in their order), each card whole */
+.set-groups {
+  column-width: 520px;
+  column-gap: 16px;
+}
+
+.set-card {
+  break-inside: avoid;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px 8px;
+  border: 0.5px solid var(--hair);
+  border-radius: var(--r-panel);
+  background: var(--raised);
+}
+
+.set-card h3 {
+  margin: 0 0 6px;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+/* 设置的一行和弹窗、参数面板同一副长相：标签右对齐成一列，控件跟着一条线开始。
+   第三列是这一项的标记（需重启、启动参数、已改过）。 */
+.set-row {
+  display: grid;
+  grid-template-columns: var(--form-label-w) minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--sp-3);
+  min-height: 42px;
+  padding: 5px 0;
+  border-top: 0.5px solid var(--hair);
+}
+
+.set-card {
+  --form-label-w: 112px;
+}
+
+.set-label {
+  font-size: var(--fs-md);
+  text-align: right;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  /* 不给问号光标（cursor: help）：停留提示是 data-tip 那一套的事，和光标没关系 */
+}
+
+.set-ctl {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.set-ctl .field {
+  height: 28px;
+}
+
+.set-text .field {
+  font: var(--fs-sm) var(--mono);
+}
+
+.set-num {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 150px;
+}
+
+.set-num .field {
+  padding-right: 44px;
+}
+
+.set-unit {
+  position: absolute;
+  right: 9px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.set-static {
+  color: var(--text-2);
+  font-size: var(--fs-md);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.set-tags {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  min-width: 52px;
+}
+
+.chip.set-restart {
+  background: var(--orange-soft);
+  color: var(--orange-text);
+}
+
+.chip.set-pending {
+  background: var(--orange);
+  color: var(--window);
+  font-weight: 600;
+}
+
+.chip.set-over {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.set-reset {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  justify-content: center;
+  color: var(--text-2);
+}
+
+.set-why {
+  grid-column: 2 / -1;
+  padding-bottom: 3px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.set-why.bad {
+  color: var(--error-text);
+}
+
+.set-row.bad .field {
+  border-color: var(--error);
+}
+
+.set-row.off .set-ctl {
+  opacity: 0.4;
+}
+
+.set-status .set-label,
+.set-status .set-static {
+  color: var(--text-3);
+}
+
+.set-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-hud);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--r-card);
+}
+
+.set-bar.done {
+  color: var(--green);
+}
+
+.set-bar-text {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.set-bar-note {
+  color: var(--orange-text);
+}
+
+/* restarting */
+.rs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: var(--fs-md);
+  line-height: 1.65;
+  user-select: text;
+}
+
+.rs-body p {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.rs-body p.rs-note,
+.rs-veil-card p.rs-note {
+  color: var(--orange-text);
+}
+
+.rs-list {
+  margin: 0;
+  padding: 10px 14px 10px 30px;
+  border-radius: var(--r-card);
+  background: var(--well);
+}
+
+.rs-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.rs-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px;
+  border: 0.5px solid var(--hair-strong);
+  border-radius: var(--r-sheet);
+  background: var(--raised);
+  color: var(--text);
+  text-align: left;
+  cursor: default;
+  font: inherit;
+  line-height: 1.55;
+}
+
+.rs-choice:hover {
+  background: var(--raised-hover);
+  border-color: var(--accent);
+}
+
+.rs-choice.danger:hover {
+  border-color: var(--error);
+}
+
+.rs-choice span {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}

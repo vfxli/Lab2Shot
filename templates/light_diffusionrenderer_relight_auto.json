@@ -1,0 +1,207 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "d4de2f5b45004faf8155ffb777974836",
+  "name": "重新打光 · DiffusionRenderer 估光",
+  "follows": "light_diffusionrenderer_relight",
+  "intro": "Cosmos DiffusionRenderer 的渲染模型不做显式光线传输模拟，从 G-buffer 生成照片级画面。这张卡不用自己准备 HDRI：「FrameHold」取一帧，LuxDiT 按这一帧生成 HDR 环境贴图，再交给 DiffusionRenderer 重新打光。",
+  "author": "Lab2Shot",
+  "created": "2026-09-21T17:00:00",
+  "deliverable": "relight",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "probe_frame",
+   "label": "取光的帧",
+   "target": "hold.frame"
+  },
+  {
+   "name": "rotation",
+   "label": "环境旋转",
+   "target": "relight.env_rotate"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 140
+   }
+  },
+  {
+   "id": "hold",
+   "type": "core.frame_hold",
+   "label": "FrameHold",
+   "params": {
+    "frame": null
+   },
+   "ui": {
+    "x": 320,
+    "y": 20,
+    "on_node": [
+     "frame"
+    ]
+   }
+  },
+  {
+   "id": "probe",
+   "type": "luxdit.light_probe",
+   "label": "LuxDiT HDRI",
+   "params": {
+    "seed": 0,
+    "envmap_width": 1024,
+    "lora_scale": 0.8,
+    "steps": null,
+    "guidance_scale": 2.5,
+    "resolution": "auto"
+   },
+   "ui": {
+    "x": 620,
+    "y": 0,
+    "on_node": [
+     "envmap_width"
+    ]
+   }
+  },
+  {
+   "id": "relight",
+   "type": "diffusionrenderer.relight",
+   "label": "DiffusionRenderer 重新打光",
+   "params": {
+    "resolution": 1280,
+    "max_frames": 41,
+    "overlap": 8,
+    "steps": 15,
+    "seed": 1000,
+    "env_rotate": 0.0,
+    "exposure": 0.0
+   },
+   "ui": {
+    "x": 940,
+    "y": 120,
+    "on_node": [
+     "env_rotate",
+     "exposure"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "relit"
+   },
+   "ui": {
+    "x": 1340,
+    "y": 120,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1660,
+    "y": 120,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "hold",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "hold",
+    "image"
+   ],
+   "to": [
+    "probe",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "relight",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "probe",
+    "hdri"
+   ],
+   "to": [
+    "relight",
+    "hdri"
+   ]
+  },
+  {
+   "from": [
+    "relight",
+    "image"
+   ],
+   "to": [
+    "out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "relight",
+  "frame": null
+ }
+}

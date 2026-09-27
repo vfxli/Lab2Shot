@@ -1,0 +1,13 @@
+# UnderPressure 脚滑清理（adapters/underpressure/worker.py）。
+
+# ---- 骨架
+"E-UNDERPRESSURE-SKELETON" = "「UnderPressure 脚滑清理」没法把接进来的骨架对应到它的 23 关节骨架：{reason}"
+"W-UNDERPRESSURE-WEIGHT" = "「UnderPressure 脚滑清理」估出的脚底支撑力平均只有 {weight:.2f} 倍体重，正常的人走路整段平均在 1 倍上下：接进来的骨架多半不是人的比例，或者「关节映射」里配错了关节。脚接触的判断和这次的清理都不可信，先核对关节映射表"
+
+# ---- 接触
+"N-UNDERPRESSURE-NOCONTACT" = "「UnderPressure 脚滑清理」在这段动作里没找到任何一帧脚是踩在地上的：动作原样交出去，没做任何改动。常见原因：这段本来就是跳跃、悬空或坐着，或者「关节映射」里脚没配对上"
+"I-UNDERPRESSURE-CONTACT" = "「UnderPressure 脚滑清理」判断 {frames} 帧有脚着地（模型自己的 {total} 帧里），左脚 {left} 段、右脚 {right} 段"
+
+# ---- 帧率
+"N-UNDERPRESSURE-RESAMPLED" = "这段动画 {fps:g} 帧/秒，「UnderPressure 脚滑清理」的模型只认 100 帧/秒：动作已自动升采样到 100 帧/秒（{frames} 帧）判断接触，结果按原帧率换算回来"
+"N-UNDERPRESSURE-GROUNDED" = "这段动捕的脚最低点在 {offset:.0f} cm，不在地面（0）上：「UnderPressure 脚滑清理」按人站在地面上钉脚，所以节点先把整段移到地面再清理，清理完原样移回去——交出去的动画站的位置和接进来的一模一样。想让它本来就站在地面上，先接「自动落地」"

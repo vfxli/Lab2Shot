@@ -1,0 +1,10 @@
+{
+ "vipe.camera_solve": {
+  "label": "ViPE 相机解算",
+  "description": "画面 → 每帧相机、SLAM 解出来的那些三维点，以及它解算时分出来的运动物体（NVIDIA ViPE）。解算前它本来就要把走动的人、车、动物分出来遮掉，那份分割一并交出来：接「多层 EXR 输出设置」写成 Cryptomatte，Nuke 里按 person_01 这样的名字取；要一张遮罩就接「分割转遮罩」。相机要有位移（有视差）：固定机位、纯摇镜头自动 Focal Length 不可靠，知道 Focal Length 就填上「Focal Length」（或者接「AnyCalib 镜头标定」的 Focal Length）；不支持变焦镜头，广角素材先去畸变。要和相机对齐的逐帧深度图，把「相机」和「点云」接到「ViPE 深度图」上。"
+ },
+ "vipe.depth": {
+  "label": "ViPE 深度图",
+  "description": "接「ViPE 相机解算」的相机和点云 → 和那台相机对齐的逐帧深度图（厘米，尺度接近真实）。这是官方流水线里位姿之后的那一步：它把 SLAM 解出来的点投到每一帧上当提示，所以「点云」必须接，光有相机算不出来。把「物体分割」也接上，走动的人、车就不参与深度对齐，和官方默认跑法一致。用到 UniDepth / Depth Anything 等深度图模型；整段镜头的画面要放进内存。"
+ }
+}

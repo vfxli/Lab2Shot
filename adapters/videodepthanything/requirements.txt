@@ -1,0 +1,11 @@
+# Video Depth Anything environment (torch comes from EnvSpec). Inference-only
+# subset of upstream requirements.txt at the pinned commit: decord, imageio,
+# matplotlib, OpenEXR and pillow are only used by run.py's video reading/writing,
+# which the worker does not use. xformers is optional upstream (plain attention
+# fallback); the worker swaps DINOv2's attention for torch's fused SDPA instead.
+
+numpy==2.4.6
+opencv-python-headless==5.0.0.93
+einops==0.8.2
+easydict==1.13
+tqdm==4.67.3

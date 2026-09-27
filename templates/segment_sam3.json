@@ -1,0 +1,174 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "7fd0bbeec2d738b1a31d8283a1636933",
+  "name": "视频分割 · SAM 3",
+  "intro": "SAM 3 是可提示分割的统一基础模型，画面和视频都管：用文字，或点、框、遮罩这类视觉提示，检出、分割并跟住物体。这张卡按文字提示（如 person、car）跟满整段镜头，交付遮罩序列。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "mask",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "prompt",
+   "label": "要分割的东西",
+   "target": "seg.prompt"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 240
+   }
+  },
+  {
+   "id": "seg",
+   "type": "sam3.segment",
+   "label": "SAM 3 视频分割",
+   "params": {
+    "prompt": "person",
+    "max_objects": 8,
+    "threshold": 0.5
+   },
+   "ui": {
+    "x": 320,
+    "y": 240,
+    "on_node": [
+     "prompt",
+     "threshold"
+    ]
+   }
+  },
+  {
+   "id": "out_m",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "mask"
+   },
+   "ui": {
+    "x": 620,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out_o",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "objects",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "CryptoObject"
+     }
+    ],
+    "colorspace": null
+   },
+   "ui": {
+    "x": 620,
+    "y": 260,
+    "on_node": [
+     "name"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 940,
+    "y": 140,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "seg",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "seg",
+    "mask"
+   ],
+   "to": [
+    "out_m",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "seg",
+    "objects"
+   ],
+   "to": [
+    "out_o",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "out_m",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_o",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "seg",
+  "frame": null
+ }
+}

@@ -1,0 +1,62 @@
+/* ------------------------------------------------- 数据信息卡 (editor/NodeInfoCard.tsx)
+   The glass card beside a node, opened by the mark at its bottom right. Floating, so glass; it hangs
+   on <body>, so nothing on the page can clip it. Its rows are the parameter panel's own (editor/DataInfo.tsx). */
+
+.node-info-card {
+  position: fixed;
+  z-index: var(--z-popover);
+  /* 按内容定宽（320 px 起）：短的不留空，长的撑到上限，再长就在行里换行，不裁 */
+  width: max-content;
+  min-width: 320px;
+  max-width: min(560px, calc(100vw - 2 * var(--sp-4)));
+  border-radius: var(--r-card); /* 玻璃的亮边跟着这个圆角走（.glass::before 是 border-radius: inherit） */
+  padding: var(--sp-3) 0 var(--sp-2);
+  font-size: var(--fs-xs);
+}
+
+.node-info-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-4) var(--sp-2);
+  min-width: 0;
+}
+
+.node-info-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.node-info-what {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+}
+
+/* a block with dozens of items lists them all: the card scrolls instead of growing past the window */
+.node-info-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* the card is the frame: the group inside it brings no second one */
+.node-info-body .group {
+  padding: 0 var(--sp-4) var(--sp-1);
+}
+
+.node-info-body .group-title {
+  display: none;
+}
+
+/* 卡片是按内容定宽的，所以这里的值整句显示，撑到上限就换行——不裁。参数面板那边宽度是固定的，那里照旧一行加悬停看全文。 */
+.node-info-card .data-port-said,
+.node-info-card .data-port-name,
+.node-info-card .node-info-what {
+  white-space: normal;
+  overflow: visible;
+}

@@ -1,0 +1,166 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "cf8e598b7bc32ac02902efd7a330bd48",
+  "name": "动作生成 · Sketch2Anim 画线",
+  "intro": "Sketch2Anim 把分镜草图变成三维动画：一个由三维关键姿势、关节轨迹和动作词控制的动作生成器，加一层把二维草图对到同一嵌入空间的神经映射。这张卡在空画布上画火柴人，交付一段骨架动画 USD。",
+  "author": "Lab2Shot",
+  "created": "2026-09-20T13:00:00",
+  "deliverable": "motion_gen",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "prompt",
+   "label": "文字描述",
+   "target": "draw.prompt"
+  },
+  {
+   "name": "sketch_view",
+   "label": "视角",
+   "target": "draw.sketch_view"
+  },
+  {
+   "name": "seed",
+   "label": "随机种子",
+   "target": "draw.seed"
+  },
+  {
+   "name": "control",
+   "label": "贴合草图",
+   "target": "draw.control"
+  },
+  {
+   "name": "text_guidance",
+   "label": "贴合描述",
+   "target": "draw.text_guidance"
+  },
+  {
+   "name": "foot_lock",
+   "label": "脚锁定",
+   "target": "draw.foot_lock"
+  }
+ ],
+ "frames": null,
+ "nodes": [
+  {
+   "id": "figure",
+   "type": "core.draw_figure",
+   "label": "手画简笔画",
+   "params": {
+    "poses": [
+     "1001:537.6,517.3,579.2,524.9,496.0,524.9,537.6,388.8,579.2,702.5,496.0,702.5,579.2,884.0,496.0,884.0,594.3,918.0,480.9,918.0,537.6,271.6,609.4,286.7,465.8,286.7,537.6,207.4,753.1,286.7,322.1,286.7,862.7,286.7,212.5,286.7",
+     "1096:1382.4,517.3,1424.0,524.9,1340.8,524.9,1382.4,388.8,1424.0,702.5,1340.8,702.5,1424.0,884.0,1340.8,884.0,1439.1,918.0,1325.7,918.0,1382.4,271.6,1454.2,286.7,1310.6,286.7,1382.4,207.4,1597.9,286.7,1166.9,286.7,1707.5,286.7,1057.3,286.7"
+    ]
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "draw",
+   "type": "sketch2anim.motion",
+   "label": "Sketch2Anim 动作生成",
+   "params": {
+    "prompt": "a person walks forward and then jumps.",
+    "text_guidance": 7.5,
+    "control": 1.0,
+    "steps": 2,
+    "seed": 1234,
+    "foot_lock": true,
+    "sketch_view": "side30"
+   },
+   "ui": {
+    "x": 360,
+    "y": 0,
+    "on_node": [
+     "prompt",
+     "sketch_view"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "name": "animation",
+    "format": "usd",
+    "unit": "cm"
+   },
+   "ui": {
+    "x": 720,
+    "y": 0,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": "",
+    "name": ""
+   },
+   "ui": {
+    "x": 1080,
+    "y": 0,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "figure",
+    "sketch"
+   ],
+   "to": [
+    "draw",
+    "sketch"
+   ]
+  },
+  {
+   "from": [
+    "draw",
+    "skeleton"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "figure",
+  "frame": 1001
+ }
+}

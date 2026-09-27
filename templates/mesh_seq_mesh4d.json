@@ -1,0 +1,176 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "5c2b83c8df9a42d6b25ecf9d2d8b5138",
+  "name": "网格序列 · Mesh4D",
+  "intro": "给一段单目 RGB 画面，Mesh4D 前馈生成一个完整的三维动画网格和它的形变。这张卡用 BiRefNet 抠出主体，交付整段拓扑不变的点缓存 USD。仅限研究。",
+  "author": "Lab2Shot",
+  "created": "2026-09-20T12:00:00",
+  "deliverable": "mesh_seq",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "faces",
+   "label": "面数",
+   "target": "solve.faces"
+  },
+  {
+   "name": "unit",
+   "label": "尺度",
+   "target": "solve.unit_cm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 140
+   }
+  },
+  {
+   "id": "matte",
+   "type": "birefnet.matte",
+   "label": "BiRefNet 抠像",
+   "params": {
+    "model": "matting",
+    "fp16": true
+   },
+   "ui": {
+    "x": 320,
+    "y": 0,
+    "on_node": [
+     "model",
+     "resolution"
+    ]
+   }
+  },
+  {
+   "id": "solve",
+   "type": "mesh4d.solve",
+   "label": "Mesh4D 网格序列",
+   "params": {
+    "quality": "standard",
+    "faces": "full",
+    "seed": 0,
+    "unit_cm": 100.0
+   },
+   "ui": {
+    "x": 620,
+    "y": 120,
+    "on_node": [
+     "faces",
+     "quality",
+     "unit_cm"
+    ]
+   }
+  },
+  {
+   "id": "usd",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "mesh"
+   },
+   "ui": {
+    "x": 920,
+    "y": 120,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1220,
+    "y": 120,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "matte",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "solve",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte",
+    "alpha"
+   ],
+   "to": [
+    "solve",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "mesh"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "solve",
+  "frame": null
+ }
+}

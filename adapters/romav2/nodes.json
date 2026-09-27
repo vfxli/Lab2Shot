@@ -1,0 +1,6 @@
+{
+ "romav2.match": {
+  "label": "RoMa v2 图像对位",
+  "description": "RoMa v2：画面的每个像素在参考图里的位置。输出把参考图对齐到画面的 ST-map（接「STMap」，源接参考图；Nuke 里用 STMap）、置信度，和两边的匹配点（同名的点是同一对，给 3DE、COLMAP、PnP 用）。见证机、参考照片对齐到画面，补拍对齐英雄素材，跨 take 传 roto 都用它。一整段逐帧跟点用「AllTracker 跟踪贴片」。"
+ }
+}

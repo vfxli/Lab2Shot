@@ -1,0 +1,137 @@
+/* ------------------------------------------------------------------ welcome: the node graph while it is empty */
+
+/* Over the empty canvas (the first opening in a browser, or every node deleted): what to do first. The canvas
+   around it stays usable (Tab, right-click, double-click); it goes as soon as the graph has a node. */
+.welcome {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-canvas-card); /* over the canvas, under the flow controls and the hint line */
+  display: grid;
+  place-items: center;
+  padding: 24px 24px 44px;
+  pointer-events: none;
+  animation: fade var(--t-med) var(--ease);
+}
+
+.welcome-card {
+  pointer-events: auto;
+  width: min(660px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+}
+
+.welcome-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.welcome-title {
+  margin: 6px 0 0;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+}
+
+.welcome-sub {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.welcome-acts {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.welcome-act {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px 14px 13px;
+  border: 0.5px solid var(--hair-strong);
+  border-radius: var(--r-card);
+  background: var(--lifted-2);
+  color: var(--text);
+  text-align: left;
+  cursor: default;
+  transition:
+    background-color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-med) var(--ease),
+    transform var(--t-med) var(--ease);
+}
+
+.welcome-act:hover {
+  background: var(--raised-hover);
+  border-color: var(--hair-strong);
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-1px);
+}
+
+.welcome-act:active {
+  transform: none;
+  background: var(--pressed);
+}
+
+/* the first thing to try: 从模板新建 */
+.welcome-act.main {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--lifted-2));
+}
+
+.welcome-act.main:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--lifted-2));
+}
+
+.welcome-icon {
+  height: 26px;
+  min-width: 26px;
+  padding: 0 6px;
+  border-radius: var(--r-ctl);
+  display: grid;
+  place-items: center;
+  background: var(--raised-hover);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.welcome-act.main .welcome-icon {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.welcome-name {
+  margin-top: 4px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.welcome-desc {
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+/* the copyright line under the welcome screen (editor/Welcome.tsx) */
+
+
+.login-legal,
+.help-legal,
+.welcome-legal {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.welcome-legal {
+  margin: 14px 0 0;
+  text-align: center;
+}

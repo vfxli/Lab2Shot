@@ -1,0 +1,97 @@
+/* 参数行上的三样东西: a parameter a wire drives, why a parameter does nothing now, and the curve
+   of a wire that carries a value per frame. */
+
+/* a parameter a wire drives shows a block in the wire's colour with the value and where it comes
+   from, in place of a field nothing can be typed into */
+.prow .ctl.pwired {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-1);
+  height: 24px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-ctl);
+  border: 0.5px solid color-mix(in srgb, var(--wired) 36%, transparent);
+  background: color-mix(in srgb, var(--wired) 10%, transparent);
+  color: var(--wired);
+  font-size: var(--fs-sm);
+  min-width: 0;
+  cursor: default;
+}
+
+/* 值先占够位置，先收缩的是「· 来自 …」里的节点名（用户自己起的名字，是用户的数据）：
+   界面里的词不许截断，用户的数据可以，悬停看全名 */
+.prow .ctl.pwired b {
+  flex: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.prow .ctl.pwired small {
+  flex: 1 1 auto;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  min-width: 0;
+}
+
+/* 参数曲线: the wire's value per frame — a thin line, a faint grid, the current frame's value
+   beside the dot; no other words on the plot */
+.param-curve {
+  position: relative;
+  margin: var(--sp-1) 0 0 var(--plabel-w, 92px);
+  height: 76px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--hair);
+  background: var(--field-bg);
+  overflow: hidden;
+}
+
+.param-curve svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.param-curve-name,
+.param-curve-names {
+  position: absolute;
+  top: 4px;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.param-curve-name {
+  left: var(--sp-2);
+}
+
+.param-curve-names {
+  right: var(--sp-2);
+  max-width: 45%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.param-curve-line {
+  stroke: var(--wired);
+  stroke-width: 1.5;
+}
+
+.param-curve-dot {
+  fill: var(--accent);
+}
+
+.param-curve-now,
+.param-curve-frame {
+  font-family: var(--mono);
+}
+
+.param-curve-now {
+  font-size: 10px;
+  fill: var(--text);
+}
+
+.param-curve-frame {
+  font-size: 9px;
+  fill: var(--text-3);
+}
+

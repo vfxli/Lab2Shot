@@ -1,0 +1,8 @@
+# MEMFOF environment (torch comes from EnvSpec). memfof itself is not pip-installed: the worker imports the package
+# straight from the pinned repo/. Its model module imports huggingface_hub (PyTorchModelHubMixin) and loads
+# safetensors; nothing is fetched from the hub (the weights are local).
+einops==0.8.2
+huggingface-hub==1.26.0
+safetensors==0.7.0
+numpy==2.4.6
+opencv-python-headless==4.10.0.84

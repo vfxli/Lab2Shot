@@ -1,0 +1,309 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "ca0500e879964171880c6df356139034",
+  "name": "动作生成 · Kimodo",
+  "intro": "Kimodo 是在 700 小时可商用光学动捕上训练的运动学动作扩散模型，生成人体和机器人动作，由文字描述控制。这张卡不用素材：写一句英文动作描述，定好帧范围，生成的动作套到「标准人」身上（只看骨架看不出动作好不好），交付一个蒙皮角色 USD。",
+  "author": "Lab2Shot",
+  "created": "2026-09-22T12:00:00",
+  "deliverable": "motion_gen",
+  "exposed": null,
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "prompt",
+   "label": "文字描述",
+   "target": "make.prompt"
+  },
+  {
+   "name": "end_frame",
+   "label": "结束帧号",
+   "target": "make.end_frame"
+  },
+  {
+   "name": "start_frame",
+   "label": "起始帧号",
+   "target": "make.start_frame"
+  },
+  {
+   "name": "model",
+   "label": "模型",
+   "target": "make.model"
+  },
+  {
+   "name": "seed",
+   "label": "随机种子",
+   "target": "make.seed"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "height_cm",
+   "label": "身高",
+   "target": "body.height_cm"
+  }
+ ],
+ "frames": null,
+ "nodes": [
+  {
+   "id": "make",
+   "type": "kimodo.motion",
+   "label": "Kimodo 动作生成",
+   "params": {
+    "start_frame": 1001,
+    "skeleton": null,
+    "keys": "",
+    "exact": true,
+    "foot_lock": true,
+    "mapping": [
+     {
+      "name": "Hips",
+      "label": "髋",
+      "joint": null
+     },
+     {
+      "name": "Spine1",
+      "label": "脊柱 1",
+      "joint": null
+     },
+     {
+      "name": "Spine2",
+      "label": "脊柱 2",
+      "joint": null
+     },
+     {
+      "name": "Chest",
+      "label": "胸",
+      "joint": null
+     },
+     {
+      "name": "Neck1",
+      "label": "颈 1",
+      "joint": null
+     },
+     {
+      "name": "Neck2",
+      "label": "颈 2",
+      "joint": null
+     },
+     {
+      "name": "Head",
+      "label": "头",
+      "joint": null
+     },
+     {
+      "name": "LeftShoulder",
+      "label": "左锁骨",
+      "joint": null
+     },
+     {
+      "name": "LeftArm",
+      "label": "左上臂",
+      "joint": null
+     },
+     {
+      "name": "LeftForeArm",
+      "label": "左前臂",
+      "joint": null
+     },
+     {
+      "name": "LeftHand",
+      "label": "左手",
+      "joint": null
+     },
+     {
+      "name": "LeftLeg",
+      "label": "左大腿",
+      "joint": null
+     },
+     {
+      "name": "LeftShin",
+      "label": "左小腿",
+      "joint": null
+     },
+     {
+      "name": "LeftFoot",
+      "label": "左脚",
+      "joint": null
+     },
+     {
+      "name": "LeftToeBase",
+      "label": "左脚趾",
+      "joint": null
+     },
+     {
+      "name": "RightShoulder",
+      "label": "右锁骨",
+      "joint": null
+     },
+     {
+      "name": "RightArm",
+      "label": "右上臂",
+      "joint": null
+     },
+     {
+      "name": "RightForeArm",
+      "label": "右前臂",
+      "joint": null
+     },
+     {
+      "name": "RightHand",
+      "label": "右手",
+      "joint": null
+     },
+     {
+      "name": "RightLeg",
+      "label": "右大腿",
+      "joint": null
+     },
+     {
+      "name": "RightShin",
+      "label": "右小腿",
+      "joint": null
+     },
+     {
+      "name": "RightFoot",
+      "label": "右脚",
+      "joint": null
+     },
+     {
+      "name": "RightToeBase",
+      "label": "右脚趾",
+      "joint": null
+     }
+    ],
+    "model": "rp",
+    "prompt": "A person walks forward.",
+    "steps": 100,
+    "guidance": 2.0,
+    "seed": 0,
+    "post_process": true,
+    "end_frame": 1120
+   },
+   "ui": {
+    "x": 0,
+    "y": 0,
+    "on_node": [
+     "prompt",
+     "keys",
+     "exact"
+    ]
+   }
+  },
+  {
+   "id": "body",
+   "type": "core.standard_human",
+   "label": "标准人",
+   "params": {
+    "height_cm": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 320,
+    "on_node": [
+     "height_cm"
+    ]
+   }
+  },
+  {
+   "id": "skin",
+   "type": "core.retarget",
+   "label": "线性蒙皮变形",
+   "params": {},
+   "ui": {
+    "x": 300,
+    "y": 0
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "name": "animation",
+    "format": "usd",
+    "unit": "cm"
+   },
+   "ui": {
+    "x": 600,
+    "y": 0,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 900,
+    "y": 0,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "body",
+    "character"
+   ],
+   "to": [
+    "skin",
+    "character"
+   ]
+  },
+  {
+   "from": [
+    "make",
+    "character"
+   ],
+   "to": [
+    "skin",
+    "motion"
+   ]
+  },
+  {
+   "from": [
+    "skin",
+    "character"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "skin",
+  "frame": 1001
+ }
+}

@@ -1,0 +1,18 @@
+# Sapiens2 environment (torch comes from EnvSpec). Sapiens2 itself is not
+# pip-installed: the worker imports the `sapiens` package straight from the
+# pinned repo/. These are upstream's pyproject dependencies that importing
+# `sapiens` needs (its package __init__ pulls in the training engine too), minus
+# transformers / timm (pose demo only) and open3d (pointmap viewer only).
+
+numpy==2.4.6
+opencv-python-headless==4.10.0.84
+pillow==12.3.0
+safetensors==0.8.0
+scipy==1.17.1
+tqdm==4.70.0
+matplotlib==3.11.1
+iopath==0.1.10
+prettytable==3.18.0
+termcolor==3.3.0
+rich==15.0.0
+accelerate==1.15.0

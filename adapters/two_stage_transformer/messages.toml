@@ -1,0 +1,8 @@
+# Two-stage Transformer 动作补帧（adapters/two_stage_transformer/worker.py）。
+
+# ---- 骨架
+"E-TWOSTAGETRANSFORMER-SKELETON" = "「Two-stage Transformer 动作补帧」没法把接进来的骨架对应到它的模型骨架：{reason}"
+
+# ---- 关键帧
+"E-TWOSTAGETRANSFORMER-KEYSTOOCLOSE" = "关键帧 {first} 和 {second} 挨得太近：「Two-stage Transformer 动作补帧」按 30 帧/秒生成，这两帧落在同一帧上。去掉其中一个关键帧"
+"E-TWOSTAGETRANSFORMER-KEYGAP" = "关键帧 {first} 和 {second} 相隔 {seconds:.1f} 秒，「Two-stage Transformer 动作补帧」两个关键帧最多隔 {max_seconds:.1f} 秒（30 帧/秒的 {max_frames} 帧）：在中间加关键帧，或者改用「Kimodo 动作补帧」"

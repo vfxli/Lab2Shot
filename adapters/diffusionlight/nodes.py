@@ -1,0 +1,40 @@
+"""Nodes provided by the DiffusionLight extension (MIT code and LoRAs; SDXL under Open RAIL++-M)."""
+
+from __future__ import annotations
+
+from lab2shot.sdk import (Official, LensParams, LightProbe as LightProbeBase, LightProbeParams, NEW_PICTURE, Port, Cost,
+                          Licence)
+
+
+class LightProbe(LightProbeBase):
+    id = "diffusionlight.light_probe"
+    # 上游 README 的三步：inpaint.py（画铬球，square）-> ball2envmap.py（展成经纬图）-> exposure2hdr.py（合成 hdr）
+    official = Official(
+        cite="third_party/diffusionlight/repo/README.md:55-87",
+        takes={"image": "--dataset"},
+        gives={"hdri": "hdr", "preview": "square"},
+        note="「铬球」显示图就是上游第一步的 square（「Square-cropped chrome ball」，README:68）；"
+             "HDRI 是第三步 exposure2hdr.py 写进 <output_dir>/hdr 的 .exr（exposure2hdr.py:90 hdr_rgb）。"
+             "上游不吃相机、不吃遮罩。",
+    )
+    version = 2  # image packets now always say whether they have an alpha
+    # 整段镜头只算一帧（默认镜头中间那一帧），挑环境最完整、遮挡最少的一帧；环境看得比较全的广一点的镜头最好
+    outputs = tuple(p for p in LightProbeBase.outputs if p.name != "preview") + (Port("preview", "image.3", "铬球", shape=NEW_PICTURE),)
+    runtime = "diffusionlight"
+    # vram_gb: RTX 4090，1280×534、默认参数、全新进程：PyTorch 保留峰值 13.69 GB（分配 12.46）
+    cost = Cost(gpu=True, vram_gb=13.7, whole="只算一帧的环境光（约 51 秒一次），不是逐帧的活")
+    licence = Licence(note="代码和 LoRA 是 MIT；SDXL 和 ControlNet 是 CreativeML Open RAIL++-M（可商用，但有用途限制）。")
+
+    # 没有相机口：镜头就是两个普通参数
+    class Params(LightProbeParams, LensParams):
+        pass
+
+    @classmethod
+    def prepare(cls, ctx):
+        """The lens unfolds the chrome ball correctly: its Focal Length, else the connected camera's, else the ball is unfolded
+        as seen from infinitely far (a small error at usual focal lengths)."""
+        job = super().prepare(ctx)
+        return job.with_(extra={"fov_deg": job.lens.fov_x_deg})
+
+
+NODES = (LightProbe,)

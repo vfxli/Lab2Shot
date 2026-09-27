@@ -1,0 +1,100 @@
+/* a form's rows and fields as the add-sample and add-dataset forms lay them out, the words blocked before sending, and the
+   marker of where a value came from (components/Said.tsx) */
+
+.bench-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.bench-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.bench-field > span {
+  min-width: 48px;
+  flex-shrink: 0;
+  color: var(--text-2);
+}
+
+.bench-field .field.num {
+  width: 90px;
+}
+
+.bench-field.text .field {
+  width: 140px;
+}
+
+.bench-field.wide {
+  flex: 1;
+  min-width: 260px;
+}
+
+.bench-field.wide .field {
+  flex: 1;
+}
+
+.bench-field textarea.field {
+  resize: vertical;
+  font: inherit;
+}
+
+.bench-blocked {
+  font-style: normal;
+  color: var(--error);
+  font-size: var(--fs-md);
+}
+
+.bench-check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.bench-check-label input {
+  accent-color: var(--accent);
+}
+
+.bench-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.bench-said { font-size: var(--fs-xs); color: var(--accent); white-space: nowrap; }
+
+/* 弹窗和表单里的一行：标签右对齐成一列、控件左对齐按内容宽。每一行都用它，左右边缘才对得齐 */
+.who-row {
+  display: grid;
+  grid-template-columns: var(--form-label-w, 56px) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 32px;
+}
+
+.who-row > .who-label {
+  text-align: right;
+}
+
+.who-row label,
+.who-label {
+  color: var(--text-2);
+  font-size: 13px;
+  /* 不设 cursor: help：停留提示由 data-tip 负责，光标保持默认，全站一致 */
+}
+
+.who-row .field {
+  height: 30px;
+  font-size: 14px;
+}
+
+/* 控件那一列按内容宽，不跟着 1fr 拉满（grid 的格子默认 stretch）；输入框例外，它本来就该占满 */
+.who-row > *:not(.field):not(.who-label) {
+  justify-self: start;
+}

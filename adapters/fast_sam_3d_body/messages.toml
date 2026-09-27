@@ -1,0 +1,5 @@
+# Fast SAM 3D Body 全身动作（adapters/fast_sam_3d_body/worker.py）。
+
+# ---- 解算
+"N-FASTSAM3DBODY-NOBODYCHOSEN" = "接进来的「人物框」里一个人都没有：这次没有人可解。要解画面里所有人，把「选人」改成「全部」，或者不接「人物框」"
+"N-FASTSAM3DBODY-SLOWHANDS" = "有 {frames} 帧手腕看不清，「Fast SAM 3D Body 全身动作」在这些帧上按 SAM 3D Body 原来的方式算手（结果一样，只是稍慢）"

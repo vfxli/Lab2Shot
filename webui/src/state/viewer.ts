@@ -1,0 +1,204 @@
+import { create } from "zustand";
+import type { Dir } from "../model/timelineMath";
+
+export { useView2D, useView2DNav } from "./view2d";
+export type { Nav2D, View2D, ViewSlot } from "./view2d";
+export { VIEW_NAMES, useCurveView, useRulerView, useStageNotes, useStagePicture, useViewCamera, useViewLoads, useViewOptions, useViewerNote } from "./viewTools";
+export type { FrameWindow, ViewName } from "./viewTools";
+
+/** 视图: everything that belongs to the browser tab looking at the document, never the document itself — switching
+ * which node is displayed, panning the 2D view, tumbling the 3D camera, picking a matte mode, opening a menu, the
+ * 「消息」 panel. None of it is undoable, none of it is sent to the server, none of it makes state/results.ts stop
+ * trusting a result, and nothing here has a `version`: nothing here decides whether anything else is stale. Only the
+ * display options are kept (in localStorage); everything else resets when the tab closes.
+ *
+ * This file gathers the viewer's zustand stores (the 2D view and the display-option stores are re-exported from
+ * view2d.ts and viewTools.ts) and the viewer fields: selection, the panel's tab, menus, the 「消息」 panel, playback,
+ * expanded nodes, the parameter panel's flash, where a new node should pan the view, the templates and log sheets,
+ * and this tab's editing role. `canvas` is the node editor's own per-id ephemera (selected/dragging/measured): xyflow
+ * needs them, but they are no more part of the undoable document than a mouse hovering over a node is, so they are
+ * kept apart from position and params and history.ts does not count them. */
+
+export interface Reveal {
+  node: string;
+  param: string;
+  focus: boolean;
+  n: number;
+}
+
+export interface LooseWire {
+  node: string;
+  port: string;
+  side: "source" | "target";
+}
+
+export interface CanvasNode {
+  selected?: boolean;
+  dragging?: boolean;
+  measured?: { width?: number; height?: number };
+}
+
+
+interface State {
+  // ---- selection, panels, chrome ----
+  selectedId: string | null;
+  expanded: string[]; // nodes whose body shows every simple parameter for now (a view of the moment, not the graph's)
+  reveal: Reveal | null;
+  panTo: { x: number; y: number; n: number } | null;
+  inspectorFit: number; // the width (px) the parameter panel needs to show the selected node's parameters in full
+  menu: { x: number; y: number; flowX: number; flowY: number; wire?: LooseWire } | null;
+  templatesOpen: boolean;
+  logOpen: boolean;
+  frames: number[]; // the frames the timeline follows: the displayed node's results (or the plate it works on)
+  frame: number;
+  playing: boolean;
+  // 正在拖时间线：拖动时不取帧，松手才取。拖过去的帧多半只是路过，为每一帧去拉一块是白花流量（带宽有限）
+  scrubbing: boolean;
+  playDir: Dir;
+  // 播多快：视图设置，不是数据。镜头没有「帧率」这回事（帧率只在输出设置节点上说一次），
+  // 所以这个数不从包里来、不进节点图、不影响写出去的文件
+  fps: number;
+  loads: number; // bumps whenever another graph is loaded (NodeEditor.tsx fits the view)
+
+  // ---- this working copy's identity and save state in this tab (tabs.ts, history.ts) ----
+  // As browser-local and reset-on-load as everything else here, and unrelated to the server's check of the graph:
+  // `file` is which of the user's own files this tab is editing (never sent to the server), `dirty` and the
+  // undo/redo labels are this tab's own read of graph/history.ts. None of them make anything else stale.
+  docId: string;
+  role: "editor" | "viewer";
+  peerBanner: "same-open" | "demoted" | null;
+  file: { name: string; handle?: string } | null;
+  dirty: boolean;
+  undoLabel: string | null;
+  redoLabel: string | null;
+
+  // ---- the node editor's own canvas ephemera (never saved, never undone) ----
+  canvas: Record<string, CanvasNode>;
+  selectedEdgeIds: string[];
+  selectedBoxIds: string[];
+
+  select: (id: string | null) => void;
+  toggleExpanded: (id: string) => void;
+  revealParam: (id: string, name: string, focus?: boolean) => void;
+  requestPan: (x: number, y: number) => void;
+  setInspectorFit: (px: number) => void;
+  openMenu: (m: State["menu"]) => void;
+  setTemplatesOpen: (o: boolean) => void;
+  setLogOpen: (open: boolean) => void;
+  setFrame: (f: number) => void;
+  setFrames: (frames: number[], current: number) => void;
+  togglePlay: () => void;
+  play: (dir: Dir) => void;
+  setPlaying: (playing: boolean) => void;
+  setScrubbing: (scrubbing: boolean) => void;
+
+  claimEditing: () => void;
+  stayViewer: () => void;
+  freshDoc: () => void; // a fresh graph is nobody else's until proven otherwise (tabs.ts's reset())
+  setFile: (f: State["file"]) => void;
+  setSaveState: (dirty: boolean, undoLabel: string | null, redoLabel: string | null) => void;
+
+  setCanvasNode: (id: string, patch: CanvasNode) => void;
+  removeCanvasNodes: (ids: string[]) => void;
+  setSelectedNodes: (ids: string[]) => void; // marquee-select / delete: every id's `.selected` set at once
+  setSelectedEdges: (ids: string[]) => void;
+  setSelectedBoxes: (ids: string[]) => void;
+  setEdgeSelected: (id: string, on: boolean) => void; // one wire at a time (xyflow's own per-id "select" change)
+  setBoxSelected: (id: string, on: boolean) => void;
+
+  reset: () => void; // another graph loaded: selection, panels and canvas ephemera do not carry over
+}
+
+export const useViewer = create<State>((set, get) => ({
+  selectedId: null,
+  expanded: [],
+  reveal: null,
+  panTo: null,
+  inspectorFit: 0,
+  menu: null,
+  templatesOpen: false,
+  logOpen: false,
+  frames: [],
+  frame: 1001,
+  playing: false,
+  scrubbing: false,
+  playDir: 1,
+  fps: 24,
+  loads: 0,
+
+  docId: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  role: "editor",
+  peerBanner: null,
+  file: null,
+  dirty: false,
+  undoLabel: null,
+  redoLabel: null,
+
+  canvas: {},
+  selectedEdgeIds: [],
+  selectedBoxIds: [],
+
+  select: (id) => set((s) => (s.selectedId === id ? {} : { selectedId: id })),
+  toggleExpanded: (id) => set((s) => ({ expanded: s.expanded.includes(id) ? s.expanded.filter((x) => x !== id) : [...s.expanded, id] })),
+  revealParam: (id, name, focus = false) => set((s) => ({ selectedId: id, reveal: { node: id, param: name, focus, n: (s.reveal?.n ?? 0) + 1 } })),
+  requestPan: (x, y) => set((s) => ({ panTo: { x, y, n: (s.panTo?.n ?? 0) + 1 } })),
+  setInspectorFit: (px) => get().inspectorFit !== px && set({ inspectorFit: px }),
+  openMenu: (m) => set({ menu: m }),
+  setTemplatesOpen: (o) => set({ templatesOpen: o }),
+  setLogOpen: (open) => set({ logOpen: open }),
+  setFrame: (f) => set({ frame: f }),
+  setFrames: (fr, current) => set({ frames: fr, frame: fr.includes(current) ? current : (fr[0] ?? current) }),
+  setScrubbing: (scrubbing) => set({ scrubbing }),
+  togglePlay: () => set((s) => ({ playing: !s.playing })),
+  play: (dir) => set((s) => ({ playing: !(s.playing && s.playDir === dir), playDir: dir })),
+  setPlaying: (playing) => set({ playing }),
+
+  claimEditing: () => set({ role: "editor", peerBanner: null }),
+  stayViewer: () => set({ peerBanner: null }),
+  freshDoc: () => set({ role: "editor", peerBanner: null }),
+  setFile: (f) => set({ file: f }),
+  setSaveState: (dirty, undoLabel, redoLabel) => set({ dirty, undoLabel, redoLabel }),
+
+  setCanvasNode: (id, patch) =>
+    set((s) => {
+      const before = s.canvas[id];
+      const after = { ...before, ...patch };
+      // xyflow reports a "dimensions" NodeChange (ResizeObserver) each time a node's box is (re)measured, sometimes
+      // repeatedly for the same, unchanged size; without this equality check, an identical measurement (same
+      // width/height, in a freshly allocated object) would still replace `canvas` with a new object, which
+      // graph/index.ts's composed node array would treat as new node content, needlessly rebuilding and
+      // re-measuring. Compared field by field, `measured` by its width/height rather than object identity.
+      const same =
+        !!before &&
+        before.selected === after.selected &&
+        before.dragging === after.dragging &&
+        before.measured?.width === after.measured?.width &&
+        before.measured?.height === after.measured?.height;
+      return same ? {} : { canvas: { ...s.canvas, [id]: after } };
+    }),
+  removeCanvasNodes: (ids) =>
+    set((s) => {
+      const canvas = { ...s.canvas };
+      for (const id of ids) delete canvas[id];
+      return { canvas };
+    }),
+  setSelectedNodes: (ids) =>
+    set((s) => {
+      const on = new Set(ids);
+      const canvas = { ...s.canvas };
+      for (const id of new Set([...Object.keys(canvas), ...ids])) canvas[id] = { ...canvas[id], selected: on.has(id) };
+      return { canvas };
+    }),
+  setSelectedEdges: (ids) => set({ selectedEdgeIds: ids }),
+  setSelectedBoxes: (ids) => set({ selectedBoxIds: ids }),
+  setEdgeSelected: (id, on) => set((s) => ({ selectedEdgeIds: on ? [...new Set([...s.selectedEdgeIds, id])] : s.selectedEdgeIds.filter((x) => x !== id) })),
+  setBoxSelected: (id, on) => set((s) => ({ selectedBoxIds: on ? [...new Set([...s.selectedBoxIds, id])] : s.selectedBoxIds.filter((x) => x !== id) })),
+
+  reset: () =>
+    set((s) => ({
+      selectedId: null, expanded: [], reveal: null, menu: null, canvas: {}, selectedEdgeIds: [], selectedBoxIds: [],
+      frame: 1001, playing: false, scrubbing: false, playDir: 1, fps: 24, loads: s.loads + 1,
+    })),
+}));
+
+export const framesShown = (): number[] => useViewer.getState().frames;

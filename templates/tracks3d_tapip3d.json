@@ -1,0 +1,258 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "b8c051e8d91826ceb552fe1af7d68ad4",
+  "name": "3D 跟踪点 · TAPIP3D",
+  "intro": "TAPIP3D 做单目 RGB 和 RGB-D 画面的长时前馈三维点跟踪：把画面特征抬进持久的世界坐标特征云，抵掉相机自身的运动，跨帧轨迹估计更准。这张卡由 ViPE 给出相机和深度图，交付 3D 跟踪点 USD。",
+  "author": "Lab2Shot",
+  "created": "2026-09-13T12:00:00",
+  "deliverable": "tracks3d",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "grid",
+   "label": "网格点数",
+   "target": "track.grid"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "usd.unit"
+  },
+  {
+   "name": "focal",
+   "label": "Focal Length",
+   "target": "vipe.focal_mm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 360
+   }
+  },
+  {
+   "id": "vipe",
+   "type": "vipe.camera_solve",
+   "label": "ViPE 相机解算",
+   "params": {
+    "mode": "pose_only"
+   },
+   "ui": {
+    "x": 320,
+    "y": 160,
+    "on_node": [
+     "focal_mm",
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "vipe_depth",
+   "type": "vipe.depth",
+   "label": "ViPE 深度图",
+   "params": {
+    "model": "default"
+   },
+   "ui": {
+    "x": 620,
+    "y": 0,
+    "on_node": [
+     "model"
+    ]
+   }
+  },
+  {
+   "id": "track",
+   "type": "tapip3d.track",
+   "label": "TAPIP3D 3D 跟踪点",
+   "params": {
+    "grid": 10,
+    "query_frame": null,
+    "picks": [],
+    "min_confidence": null,
+    "point_size": 1.0,
+    "resolution": "fine"
+   },
+   "ui": {
+    "x": 940,
+    "y": 360,
+    "on_node": [
+     "grid",
+     "query_frame",
+     "resolution"
+    ]
+   }
+  },
+  {
+   "id": "usd",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "name": "tracks3d",
+    "format": "usd",
+    "unit": "cm"
+   },
+   "ui": {
+    "x": 1260,
+    "y": 240,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1560,
+    "y": 240,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "vipe",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "track",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "vipe_depth",
+    "depth"
+   ],
+   "to": [
+    "track",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "camera"
+   ],
+   "to": [
+    "track",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "track",
+    "tracks3d"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "camera"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "vipe_depth",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "camera"
+   ],
+   "to": [
+    "vipe_depth",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "points"
+   ],
+   "to": [
+    "vipe_depth",
+    "points"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "objects"
+   ],
+   "to": [
+    "vipe_depth",
+    "objects"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "track",
+  "frame": null
+ }
+}

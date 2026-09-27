@@ -1,0 +1,13 @@
+# StableMotion environment (torch from EnvSpec). What upstream's model, diffusion and feature code import for
+# inference; training, evaluation (TMR), the BrokenAMASS dataset build and the renderer are not installed.
+# Versions follow upstream's requirements.txt where the API matters (diffusers 0.30.2: the model subclasses
+# diffusers' ModelMixin / ConfigMixin and uses StableAudioAttnProcessor2_0).
+numpy==1.26.4
+einops==0.8.1
+diffusers==0.30.3
+huggingface-hub==0.25.2
+safetensors==0.4.5
+tqdm==4.67.1
+# smplx.lbs.batch_rigid_transform, used by upstream's foot-locking guidance (sample/utils.py footlocking_fn).
+# Installed without its stale dependency pins (torchgeometry), which upstream never imports.
+smplx==0.1.28

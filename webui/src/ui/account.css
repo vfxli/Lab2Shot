@@ -1,0 +1,85 @@
+/* the account at the end of the top bar (components/Account.tsx): its chip (its menu is the site's one Menu, ui/Menu.tsx) and the password dialog */
+.acct {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.acct-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 界面设计预览 .avatar: a round mark with the first character of the name, then 「名字 · 部门」 — no rim and no fill,
+   so the end of the top bar reads as a name and not as one more button */
+.btn.who-chip {
+  max-width: 190px;
+  padding: 0 8px 0 4px;
+  gap: var(--sp-2);
+  border-radius: 999px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+  font-weight: 400;
+  overflow: hidden;
+}
+
+.btn.who-chip:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.btn.who-chip::before {
+  content: attr(data-initial);
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.btn.who-chip.missing {
+  padding: 0 12px;
+}
+
+.btn.who-chip.missing::before {
+  display: none;
+}
+
+.btn.who-chip.missing {
+  color: var(--orange);
+  box-shadow: inset 0 0 0 1px rgba(255, 159, 10, 0.5);
+}
+
+/* the account form's rows (ui/Account.tsx, ui/Feedback.tsx): a part of the kit, so its rules come with it */
+.pw-note {
+  margin: 4px 0 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.pw-note.warn {
+  color: #ffc56b;
+}
+
+.pw-note.bad {
+  color: var(--error);
+}
+
+.pw-note.ok {
+  color: var(--green);
+}
+
+/* the rows of a person's details, shared by the account menu, the feedback dialog and the admin's user page */
+/* who submits: the chip next to 计算 (the name's first character in a round mark, the department fainter) and its
+   dialog */
+.who-dept {
+  color: var(--text-2);
+}
+

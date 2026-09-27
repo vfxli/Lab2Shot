@@ -1,0 +1,34 @@
+/* An empty state (every place the page stops says why and what to do next): the one look for 「没有显示
+   节点」, an empty table, a list nothing matches. Centred, quiet, with the next step under the title. */
+
+.empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--text-3);
+  padding: var(--sp-5);
+  line-height: 1.6;
+}
+
+.empty-title {
+  font-size: var(--fs-lg);
+  color: var(--text-2);
+  margin-bottom: var(--sp-1);
+}
+
+.empty-hint {
+  font-size: var(--fs-sm);
+}
+
+/* a list with nothing in it yet, inside a panel (ui/FeedbackMine.tsx and the admin lists) */
+.adm-empty {
+  margin: 0;
+  padding: 28px;
+  border-radius: var(--r-card);
+  /* 凹陷的面，不是虚线框 */
+  background: var(--field-bg);
+  border: 0.5px solid transparent;
+  color: var(--text-3);
+  text-align: center;
+}

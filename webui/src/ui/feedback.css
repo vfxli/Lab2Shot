@@ -1,0 +1,283 @@
+/* feedback: the kit component's own rules (K10), next to it in ui/; loaded in the page's cascade order by styles/index.css */
+
+.fb-form .tpl-desc,
+.fb-done .tpl-desc {
+  margin: 0;
+}
+
+.fb-why {
+  margin-top: -6px;
+  font-size: var(--fs-sm);
+  color: #dcaaf7;
+}
+
+.fb-pics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.fb-pics:empty {
+  display: none;
+}
+
+.fb-pic {
+  margin: 0;
+  width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--field-bg);
+  border: 0.5px solid transparent;
+}
+
+.fb-pic img {
+  width: 100%;
+  height: 108px;
+  object-fit: contain;
+  display: block;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.fb-pic figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 4px 4px 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.fb-pic figcaption span {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.fb-pic-wait {
+  height: 132px;
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.fb-diag,
+.fb-group {
+  border-radius: var(--r-md);
+  background: var(--raised);
+  padding: 8px 12px;
+}
+
+.fb-diag > summary,
+.fb-group > summary {
+  cursor: default;
+  font-size: var(--fs-md);
+  color: var(--text-2);
+}
+
+.fb-diag[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fb-diag .tpl-desc {
+  margin: 4px 0 0;
+}
+
+.fb-group {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.fb-group[open] > summary {
+  margin-bottom: 8px;
+}
+
+.fb-count {
+  margin-left: 8px;
+  color: var(--text-3);
+}
+
+.fb-actions {
+  justify-content: flex-end;
+}
+
+.fb-actions .tpl-desc {
+  margin-right: auto;
+}
+
+.fb-done-mark {
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  color: var(--green);
+}
+
+.chip.fb-status.new {
+  background: var(--accent-soft);
+  color: #9fcbff;
+}
+
+.chip.fb-status.solved {
+  background: rgba(48, 209, 88, 0.16);
+  color: var(--green);
+}
+
+.fb-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--fs-md);
+  color: var(--text-2);
+}
+
+/* 我的反馈 (components/Feedback.tsx): the unread dot, the dialog's two tabs, the user's own feedback with the reply;
+   the admin page's answer (回复 the user sees, 内部备注 they don't) */
+
+.fb-unread {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--orange);
+}
+
+.fb-button {
+  position: relative;
+}
+
+.fb-button .fb-unread {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+.fb-tabs {
+  align-self: flex-start;
+}
+
+.fb-mine,
+.fb-mine-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fb-mine-empty {
+  align-items: flex-start;
+}
+
+.fb-mine .tpl-desc {
+  margin: 0;
+}
+
+.fb-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--raised);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+}
+
+.fb-card.fresh {
+  box-shadow: inset 0 0 0 1px rgba(255, 159, 10, 0.5);
+}
+
+.fb-card-text,
+.fb-reply {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  user-select: text;
+}
+
+.fb-card-text.clipped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fb-more {
+  align-self: flex-start;
+}
+
+.fb-reply {
+  padding: 8px 10px;
+  border-radius: var(--r-ctl);
+  background: var(--accent-soft);
+}
+
+.fb-reply-head {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.fb-new-mark {
+  color: var(--orange);
+  font-weight: 600;
+}
+
+/* the feedback dialog's own text areas and log block (ui/Feedback.tsx) */
+textarea.field.fb-text,
+textarea.field.fb-note {
+  height: auto;
+  min-height: 132px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.server-log.fb-pre {
+  max-height: 40vh;
+  margin: 0 0 8px;
+}
+
+.fb-text-full {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13.5px;
+  line-height: 1.55;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--raised);
+  user-select: text;
+}
+
+/* 弹窗里的每一行都按同一套表单行排（ui/account.css .who-row）：标签一列、控件一列。
+   独占一行的东西（说明、文本框、图片、按钮组）缩进到控件那一列的左边缘，整屏才有一条线 */
+.fb-form {
+  --form-label-w: 56px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.fb-form > .tpl-desc,
+.fb-form > textarea.fb-text,
+.fb-form > .fb-pics,
+.fb-form > .fb-row,
+.fb-form > .fb-diag,
+.fb-form > .fb-why {
+  margin-left: calc(var(--form-label-w) + var(--sp-3));
+  width: auto; /* 缩进之后不能再 width:100%，否则右边溢出弹窗 */
+}
+
+
+/* 按钮和它旁边那句说明：说明不是控件，靠文字颜色退到后面，不再和按钮抢同一种框 */
+.fb-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}

@@ -1,0 +1,6 @@
+{
+ "two_stage_transformer.inbetween": {
+  "label": "Two-stage Transformer 动作补帧",
+  "description": "Qin 等（SIGGRAPH Asia 2022）的两段式 Transformer：在动画师的关键帧之间补出动捕风格的自然动作，确定性（同样的关键帧永远得到同样的结果），毫秒级。每两个关键帧之间最多约 1.8 秒（30 帧/秒的 54 帧）；第一个关键帧前面的 10 帧上下文由前两个关键帧直线外推得到。"
+ }
+}

@@ -1,0 +1,4 @@
+# CoTracker3 2D 跟踪点（adapters/cotracker）。一行一条：编号 = 模板。
+
+# ---- 结果
+"W-COTRACKER-NAN" = "CoTracker3 有 {count:d} 处位置（某个点在某一帧）没有算出来（NaN）：这些帧上的这些点不可用，交付前在视图里检查"

@@ -1,0 +1,96 @@
+/* The page's ground, its type and the one focus ring. Every value is a token (ui/tokens.css). */
+
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+/* 整页竖着摞：最上面是全站通知条（有才占位），下面是这一页本身，填满剩下的高度。
+   通知条在正常文档流里，它一出现页面整体往下让，不压在任何内容上。
+   `min-height: 0` 少了的话，下面那一页会按内容撑高、撑出一条滚动条 */
+#root {
+  display: flex;
+  flex-direction: column;
+  /* 整个应用就是一屏，自己不滚：少了这一条，通知条一出现就多一条竖滚动条 */
+  overflow: hidden;
+}
+
+/* 通知条永远在最前面、这一页永远在最后：按位置写，不点名公共零件的类名
+   （点名了就算「页面在重新设置公共零件的样式」，守门 webui/tests/uiKit.test.ts 会拦） */
+#root > :last-child {
+  flex: 1;
+  min-height: 0;
+}
+
+body {
+  background: var(--window);
+  color: var(--text);
+  font: var(--fs-md) / 1.5 var(--font);
+  /* figures line up in a column wherever they are: frame numbers, sizes, counts */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* figures in a column, where an element resets it (the page's body already asks for them) */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+
+/* secondary text next to the main one (a unit, a count, an aside): the site's one class for it, beside .tnum and .mono
+   — defined here so no page needs a rule of its own */
+.dim {
+  color: var(--text-2);
+}
+
+/* the two ways something appears, used by every floating layer (a menu, a sheet, a panel that slides in): a short
+   fade, and a fade that settles into place */
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.98) translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 1ms !important;
+  }
+}
+
+/* what turns while something is under way (the loading line, a banner) */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

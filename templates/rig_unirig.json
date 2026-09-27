@@ -1,0 +1,140 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "8cbfb9c8c9f92f6135f8ab42da03e11a",
+  "name": "自动绑定 · UniRig",
+  "intro": "UniRig 是自动 rig 的统一框架，用大型自回归模型给各类三维资产生成骨架、分配蒙皮权重。这张卡把导入的静止模型绑好骨架和权重，交付 USD。",
+  "author": "Lab2Shot",
+  "created": "2026-09-20T12:00:00",
+  "deliverable": "auto_rig",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "模型文件",
+   "target": "read.path"
+  },
+  {
+   "name": "models",
+   "label": "模型",
+   "target": "read.models"
+  },
+  {
+   "name": "seed",
+   "label": "随机种子",
+   "target": "rig.seed"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.import_usd",
+   "label": "导入 USD",
+   "params": {
+    "path": "",
+    "camera": "",
+    "models": [],
+    "points": [],
+    "curves": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "rig",
+   "type": "unirig.auto_rig",
+   "label": "UniRig 自动绑定",
+   "params": {
+    "influences": 4,
+    "seed": 12345,
+    "character": ""
+   },
+   "ui": {
+    "x": 300,
+    "y": 0
+   }
+  },
+  {
+   "id": "usd",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "name": "rig",
+    "format": "usd",
+    "unit": "cm"
+   },
+   "ui": {
+    "x": 600,
+    "y": 0,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": "",
+    "name": ""
+   },
+   "ui": {
+    "x": 900,
+    "y": 0,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "models"
+   ],
+   "to": [
+    "rig",
+    "model"
+   ]
+  },
+  {
+   "from": [
+    "rig",
+    "character"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "rig",
+  "frame": null
+ }
+}

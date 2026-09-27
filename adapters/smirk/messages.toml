@@ -1,0 +1,5 @@
+# SMIRK 面部动作（adapters/smirk/worker.py）。
+
+# ---- 画面和脸
+"N-SMIRK-NOFACE" = "「SMIRK 面部动作」用 MediaPipe 在全部 {frames} 帧里都没找到脸，这次输出是空的：画面已经是裁好的正脸特写时，把「裁切」改成「整幅画面」；否则检查素材里脸是否够大、没被挡住"
+"N-SMIRK-FACEMISSING" = "「SMIRK 面部动作」有 {missing} 帧（共 {frames} 帧）MediaPipe 没找到脸，这些帧沿用最近一帧的裁切框"

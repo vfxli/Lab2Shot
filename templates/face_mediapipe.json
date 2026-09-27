@@ -1,0 +1,176 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "64773f005549a91a19f55ed5f9057f88",
+  "name": "面部动作 · MediaPipe",
+  "intro": "MediaPipe Face Landmarker 官方说明：检测画面里的面部关键点和表情，输出三维面部关键点、表情 blendshape 系数和变换矩阵。这张卡交付 52 条 ARKit 表情曲线和跟着头动的面具网格。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "face_anim",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "curves_format",
+   "label": "曲线格式",
+   "target": "out_c.format"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out_h.unit"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 140
+   }
+  },
+  {
+   "id": "mp",
+   "type": "mediapipe_face.face",
+   "label": "MediaPipe 面部动作",
+   "params": {
+    "max_faces": 1,
+    "mode": "video",
+    "threshold": 0.5,
+    "min_tracking_confidence": 0.5,
+    "min_presence_confidence": 0.5
+   },
+   "ui": {
+    "x": 320,
+    "y": 140,
+    "on_node": [
+     "max_faces",
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "out_c",
+   "type": "core.output_curves",
+   "label": "曲线输出设置",
+   "params": {
+    "format": "csv",
+    "name": "curves"
+   },
+   "ui": {
+    "x": 660,
+    "y": 180,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out_h",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "head"
+   },
+   "ui": {
+    "x": 660,
+    "y": 0,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 980,
+    "y": 100,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "mp",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "mp",
+    "expressions"
+   ],
+   "to": [
+    "out_c",
+    "curves"
+   ]
+  },
+  {
+   "from": [
+    "out_c",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_h",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "mp",
+    "head"
+   ],
+   "to": [
+    "out_h",
+    "scene"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "mp",
+  "frame": null
+ }
+}

@@ -1,0 +1,20 @@
+# MatAnyone 2 environment (torch comes from EnvSpec). MatAnyone 2 itself is not
+# pip-installed: the worker imports `matanyone2` straight from the pinned repo/.
+# Only what the inference code imports (model, InferenceCore, mask erode/dilate helpers);
+# upstream's GUI / training extras (gradio, PySide6, tensorboard, hickle, pycocotools,
+# thinplate, gdown, typer ...) are left out. Versions from upstream's uv.lock where it pins them.
+
+numpy==2.4.6
+opencv-python-headless==5.0.0.93
+pillow==12.3.0
+tqdm==4.70.0
+# model config (upstream composes eval_matanyone_config.yaml with Hydra)
+omegaconf==2.3.0
+hydra-core==1.3.2
+# the model class subclasses PyTorchModelHubMixin (never downloads: weights are local);
+# upstream pins 0.36.2
+huggingface-hub==0.36.2
+# imported at the top of matanyone2/inference/inference_core.py (video writing, unused here)
+imageio==2.37.4
+# guide masks arrive as single-channel EXR files (channel "A")
+OpenEXR==3.4.15

@@ -1,0 +1,4 @@
+# VideoMaMa 精细抠像（adapters/videomama）。一行一条：编号 = 模板。
+
+# ---- 权重
+"E-VIDEOMAMA-UNETMISMATCH" = "VideoMaMa 的 UNet 权重和 SVD 的时间条件维度对不上：这份权重的时间条件层收 {got:d} 维，按配置（addition_time_embed_dim {dim:d} × 3）应该是 {want:d} 维。权重文件不对，请管理员重新执行 lab2shot ext install videomama"

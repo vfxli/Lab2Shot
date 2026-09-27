@@ -1,0 +1,165 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "ae1e9dc10cfe4f518908f73b517169c7",
+  "name": "精细抠像 · SDMatte",
+  "intro": "SDMatte 是基于 stable diffusion 的交互式抠像方法，支持点、框、遮罩三种视觉提示，从自然画面里准确取出目标物体。这张卡用 BiRefNet 逐帧给出遮罩提示，许可证 MIT，可商用。",
+  "author": "Lab2Shot",
+  "created": "2026-09-20T03:00:00",
+  "deliverable": "matte_fine",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 140
+   }
+  },
+  {
+   "id": "rough",
+   "type": "birefnet.matte",
+   "label": "BiRefNet 抠像",
+   "params": {
+    "model": "matting",
+    "fp16": true
+   },
+   "ui": {
+    "x": 320,
+    "y": 0,
+    "on_node": [
+     "model",
+     "resolution"
+    ]
+   }
+  },
+  {
+   "id": "matte",
+   "type": "sdmatte.matte",
+   "label": "SDMatte 精细抠像",
+   "params": {
+    "guide": "mask",
+    "resolution": 1024,
+    "transparent": false,
+    "fp16": true
+   },
+   "ui": {
+    "x": 620,
+    "y": 120,
+    "on_node": [
+     "guide",
+     "resolution"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "alpha"
+   },
+   "ui": {
+    "x": 940,
+    "y": 120,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1260,
+    "y": 120,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "rough",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "matte",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "rough",
+    "alpha"
+   ],
+   "to": [
+    "matte",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "matte",
+    "alpha"
+   ],
+   "to": [
+    "out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "matte",
+  "frame": null
+ }
+}

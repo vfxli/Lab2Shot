@@ -1,0 +1,13 @@
+# 下载（lab2shot/io/download.py）：断点续传的下载器说的话。
+# 一行一条：编号 = 模板。写法：现象（带数值）→ 影响 → 处理。装扩展包、拉模型权重都走这个下载器。
+
+
+# ---- 错误
+"E-DOWNLOAD-WEBPAGE" = "{url} 回来的是网页，不是文件：多半要先登录或同意许可，或者下载额度用完了"
+"E-DOWNLOAD-CHECKSUM" = "{file} 下载完了但校验值不对（要 {want}，这里是 {got}）：文件已删掉，再下一次；还不对就是源换了文件"
+"E-DOWNLOAD-REFUSED" = "{url} 拒绝下载（HTTP {status}）：地址失效、要登录，或者没有权限"
+"E-DOWNLOAD-FAILED" = "{url} 试了 {attempts} 次都没下完：网络不稳就稍后再下，已下的部分留着，会接着下"
+"E-DOWNLOAD-NORANGES" = "{url} 不支持从中间接着下（没有按字节段返回）：删掉没下完的文件再下一次，会从头开始"
+"E-DOWNLOAD-PARTFAILED" = "{url} 的第 {part} 段试了 {attempts} 次都没下完：已下的部分留着，会接着下"
+"E-DOWNLOAD-INCOMPLETE" = "{url} 拼起来只有 {got} 字节，应该是 {want} 字节：再下一次"
+"E-DOWNLOAD-STREAM" = "{url} 边下边读到第 {at} 字节断了，重连多次都没接上"

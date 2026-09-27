@@ -1,0 +1,277 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "11e3cc3619bd18046fc79d9b97389079",
+  "name": "PBR 通道 · DiffusionRenderer",
+  "intro": "Cosmos DiffusionRenderer 在一个统一框架里同时解逆向渲染和正向渲染；逆向渲染模型借助视频扩散先验，从实拍视频估计 G-buffer。这张卡交付 PBR 材质通道：基础色、法线图、深度图、粗糙度图、金属度图。",
+  "author": "Lab2Shot",
+  "created": "2026-09-12T08:00:00",
+  "deliverable": "material",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 480
+   }
+  },
+  {
+   "id": "dr",
+   "type": "diffusionrenderer.inverse",
+   "label": "DiffusionRenderer PBR 通道",
+   "params": {
+    "resolution": 1280,
+    "max_frames": 41,
+    "overlap": 8,
+    "steps": 15,
+    "seed": 1000
+   },
+   "ui": {
+    "x": 320,
+    "y": 480,
+    "on_node": [
+     "resolution",
+     "max_frames"
+    ]
+   }
+  },
+  {
+   "id": "out_base",
+   "type": "core.output_images",
+   "label": "基础色输出",
+   "params": {
+    "colorspace": null,
+    "name": "basecolor"
+   },
+   "ui": {
+    "x": 720,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out_normal",
+   "type": "core.output_images",
+   "label": "法线输出",
+   "params": {
+    "colorspace": null,
+    "name": "normal"
+   },
+   "ui": {
+    "x": 720,
+    "y": 260,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out_depth",
+   "type": "core.output_images",
+   "label": "深度输出",
+   "params": {
+    "colorspace": null,
+    "name": "depth"
+   },
+   "ui": {
+    "x": 720,
+    "y": 520,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out_rough",
+   "type": "core.output_images",
+   "label": "粗糙度输出",
+   "params": {
+    "colorspace": null,
+    "name": "roughness"
+   },
+   "ui": {
+    "x": 720,
+    "y": 780,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out_metal",
+   "type": "core.output_images",
+   "label": "金属度输出",
+   "params": {
+    "colorspace": null,
+    "name": "metallic"
+   },
+   "ui": {
+    "x": 720,
+    "y": 1040,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1040,
+    "y": 520,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "dr",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "dr",
+    "basecolor"
+   ],
+   "to": [
+    "out_base",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "dr",
+    "normal"
+   ],
+   "to": [
+    "out_normal",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "dr",
+    "depth"
+   ],
+   "to": [
+    "out_depth",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "dr",
+    "roughness"
+   ],
+   "to": [
+    "out_rough",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "dr",
+    "metallic"
+   ],
+   "to": [
+    "out_metal",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out_base",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_normal",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_depth",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_rough",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_metal",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "dr",
+  "frame": null
+ }
+}

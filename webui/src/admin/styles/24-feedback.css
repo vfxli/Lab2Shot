@@ -1,0 +1,109 @@
+/* ------------------------------------------------------------------ 提交反馈 (components/Feedback.tsx) and the admin page's 用户反馈 */
+
+.fb-form,
+.fb-detail,
+.fb-done {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+textarea.field.fb-note {
+  min-height: 56px;
+}
+
+.fb-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.field.fb-search {
+  width: 160px;
+}
+
+.fb-table tr.fb-new .q-title {
+  font-weight: 600;
+}
+
+.fb-meta .q-targets {
+  display: inline;
+}
+
+.fb-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fb-job {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 0.5px solid var(--hair);
+}
+
+.fb-status-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.fb-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--raised);
+}
+
+.fb-answer .fb-status-row,
+.fb-detail .fb-status-row {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+/* a feedback's screenshots in the detail sheet: small by default, one opens to the sheet's width when clicked
+   (a full-size image would be clipped by the sheet) */
+.fb-shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.fb-shot {
+  margin: 0;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.fb-shot img {
+  display: block;
+  height: 108px;
+  width: auto;
+  max-width: 260px;
+  object-fit: cover;
+}
+
+.fb-shot.open {
+  flex-basis: 100%;
+}
+
+.fb-shot.open img {
+  height: auto;
+  width: 100%;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.fb-shot figcaption {
+  padding: 4px 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}

@@ -1,0 +1,31 @@
+/* tip: the kit component's own rules (K10), next to it in ui/; loaded in the page's cascade order by styles/index.css */
+
+/* ------------------------------------------------------------------ tooltip (tips.ts): one look everywhere */
+
+.tip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: var(--z-tip);
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 8px 11px;
+  border-radius: var(--r-md);
+  color: var(--text);
+  font: var(--fs-sm) / 1.55 var(--font);
+  white-space: pre-line;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--t-fast) var(--ease), visibility var(--t-fast);
+}
+
+.tip.on {
+  opacity: 1;
+  visibility: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tip {
+    transition: none;
+  }
+}

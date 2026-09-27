@@ -1,0 +1,123 @@
+/* The field a value is typed or picked in (.field): the kit's one input look — the parameter panel's, a form's, a
+   filter's search box, the login gate's; the number field with its unit inside, and the pull-down's own list where the
+   browser lets us draw it. Every value is a token. */
+
+.field {
+  height: 26px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--hair);
+  background: var(--field-bg);
+  padding: 0 8px;
+  width: 100%;
+  min-width: 0;
+  outline: none;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+  user-select: text;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* 点进去：边线带一点强调色就够了，一圈亮蓝的光晕在暗界面里太刺眼。醒目的记号只给键盘导航（:focus-visible） */
+.field:focus {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--hair-strong));
+  box-shadow: none;
+}
+
+/* 键盘导航的记号。1 px 就够：:focus-visible 对「程序设的焦点」也算数，所以一开窗就自动聚焦的输入框
+   （反馈弹窗的正文、后台新建用户的用户名）会顶着它，2 px 在暗界面里太刺眼 */
+.field:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 1px;
+}
+
+/* the large field of a page that is only a form (the login): on clear glass, no well */
+.field.lg {
+  height: 38px;
+  padding: 0 12px;
+  border-color: transparent;
+  border-radius: var(--r-card);
+  background: var(--field-soft);
+  font-size: var(--fs-lg);
+}
+
+.field::placeholder {
+  color: var(--text-3);
+}
+
+/* ---------------------------------------------------------------- 自动换行的多行文本框（.field.area）
+
+   和 .field 是同一个控件，不是第二种：由参数自己声明要几行
+   （核心 nodes/base.py `P(lines=…)`，画它的是 ui/controls.tsx TextField），参数面板里和节点身上
+   是同一份声明画出来的同一个东西。提示词那一类参数的值是一整句英文描述，一行的输入框写几个字就满了。
+
+   不变量：只长高，不变宽。宽度完全由它那一格给（`width: 100%` + `min-width: 0`，上面 .field 里就有），
+   所以它既撑不开参数面板（宽度是固定的，editor/App.tsx INSPECTOR_WIDTH），也撑不开节点
+   （节点的宽只由标题行决定，editor/styles/08a-node.css 末尾那条「其余几块宽度归零」的规则）。
+   高度由 `rows`（= 声明的行数）定，或者由它那一行拉着长满（节点身上的 .snug）。
+   文字自动换行、一个字都不截断；写超了这一框就自己出竖滚动条。 */
+textarea.field.area {
+  height: auto;          /* 上面 .field 的 26px 是给一行的输入框定的；这里按 rows 给的行数长 */
+  font: inherit;         /* textarea 默认是等宽字，拉回界面的字 */
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  padding: 5px 8px;
+  white-space: pre-wrap;    /* 自动换行；.field 的 nowrap 只对一行的输入框成立 */
+  overflow-wrap: break-word;
+  overflow: auto;
+  resize: vertical;         /* 想看更多行就往下拉。只改高，不改宽 */
+}
+
+/* 节点身上那一份：小一号，并且长满它那一行（高度由 editor/styles/22-node-params.css 的
+   `.gprow.multi` 写死，`align-items: stretch` 拉的）。
+   画布上不能拖动改高：节点的高是它的「形状」，拖一下就把节点撑大了，而画布上的东西不随内容变
+   （见 08a-node.css 顶上的不变量）。 */
+textarea.field.area.snug {
+  min-height: 0;
+  padding: 3px 6px;
+  border-radius: var(--r-ctl);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  resize: none;
+}
+
+.field.num {
+  text-align: right;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* a number field with its unit inside, faint, after the value */
+.num-unit {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.num-unit .field.num {
+  width: 100%;
+  padding-right: calc(10px + var(--unit-w, 2.4em));
+}
+
+.num-unit::after {
+  content: attr(data-unit);
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .field {
+    transition: none;
+  }
+}
+
+/* 用不上时和别处的「不可用」一样淡下去（ui/Button.css、parts.css 的 0.5 左右），位置不变。
+   控件不消失，只分能用和不能用 */
+.field:disabled {
+  opacity: 0.5;
+}

@@ -1,0 +1,169 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "48d18414d9c0579bf7fba28bf152ff48",
+  "name": "人体分割 · Sapiens2",
+  "intro": "Sapiens2 是一组高分辨率 transformer，面向以人为中心的视觉任务，重点在泛化、通用和高保真输出；身体部位分割比第一代高 24.3 mIoU。这张卡逐人交付身体部位分割和人物 alpha，部位写成 Cryptomatte。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "segmentation",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 140
+   }
+  },
+  {
+   "id": "seg",
+   "type": "sapiens2.segment",
+   "label": "Sapiens2 人体分割",
+   "params": {
+    "model_size": "1b",
+    "fp16": true,
+    "matte": true
+   },
+   "ui": {
+    "x": 320,
+    "y": 140,
+    "on_node": [
+     "model_size",
+     "matte"
+    ]
+   }
+  },
+  {
+   "id": "out_p",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "parts",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "CryptoObject"
+     }
+    ],
+    "colorspace": null
+   },
+   "ui": {
+    "x": 640,
+    "y": 0,
+    "on_node": [
+     "name"
+    ]
+   }
+  },
+  {
+   "id": "out_a",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "alpha"
+   },
+   "ui": {
+    "x": 640,
+    "y": 160,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 960,
+    "y": 80,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "seg",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "seg",
+    "parts"
+   ],
+   "to": [
+    "out_p",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "seg",
+    "alpha"
+   ],
+   "to": [
+    "out_a",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out_p",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_a",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "seg",
+  "frame": null
+ }
+}

@@ -1,0 +1,267 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "3ed1cf8c3b75bce2e84e2b4ade392abe",
+  "name": "深度图 · ViPE",
+  "intro": "ViPE 官方自述：从无约束的原始视频估计相机内参、相机运动和接近真实尺度的稠密深度图。官方把它分成两段跑——先解位姿，再在位姿上估计深度图；这张卡就照这两段接成两个节点，交付相机和与它对齐的深度图。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "depth_solved",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "cam.unit"
+  },
+  {
+   "name": "model",
+   "label": "模型",
+   "target": "depth.model"
+  },
+  {
+   "name": "focal",
+   "label": "Focal Length",
+   "target": "solve.focal_mm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 200
+   }
+  },
+  {
+   "id": "solve",
+   "type": "vipe.camera_solve",
+   "label": "ViPE 相机解算",
+   "params": {
+    "mode": "pose_only"
+   },
+   "ui": {
+    "x": 320,
+    "y": 200,
+    "on_node": [
+     "focal_mm",
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "depth",
+   "type": "vipe.depth",
+   "label": "ViPE 深度图",
+   "params": {
+    "model": "default"
+   },
+   "ui": {
+    "x": 640,
+    "y": 40,
+    "on_node": [
+     "model"
+    ]
+   }
+  },
+  {
+   "id": "cam",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "camera"
+   },
+   "ui": {
+    "x": 980,
+    "y": 300,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "dep",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "depth"
+   },
+   "ui": {
+    "x": 980,
+    "y": 40,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1320,
+    "y": 280,
+    "on_node": [
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "nuke",
+   "type": "core.output_nuke_camera",
+   "label": "Nuke 相机输出设置",
+   "params": {
+    "name": "camera_nuke"
+   },
+   "ui": {
+    "x": 980,
+    "y": 480,
+    "on_node": [
+     "name"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "solve",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "depth",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "camera"
+   ],
+   "to": [
+    "depth",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "points"
+   ],
+   "to": [
+    "depth",
+    "points"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "objects"
+   ],
+   "to": [
+    "depth",
+    "objects"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "camera"
+   ],
+   "to": [
+    "cam",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "depth",
+    "depth"
+   ],
+   "to": [
+    "dep",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "dep",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "camera"
+   ],
+   "to": [
+    "nuke",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "nuke",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "depth",
+  "frame": null
+ }
+}

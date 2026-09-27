@@ -1,0 +1,11 @@
+# VidEoMT environment (torch comes from EnvSpec). The pinned repo is not pip-installed: the worker loads its network
+# (videomt/modeling/backbone: MIT) by path. Upstream's requirements.txt pins timm and einops; the rest of that list
+# serves training, evaluation and the detectron2 meta-architecture, which the worker does not run.
+timm==1.0.20
+einops==0.8.1
+numpy==2.2.6
+pillow==11.3.0
+# timm's own dependencies
+PyYAML==6.0.2
+huggingface_hub==0.35.3
+safetensors==0.6.2

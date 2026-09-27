@@ -1,0 +1,23 @@
+# Sketch2Anim 环境（torch 由 EnvSpec 装）。只装推理这条路上真用到的东西：
+# omegaconf 读配置、diffusers 只用它的 LCMScheduler / DDPMScheduler、sentence-transformers + transformers
+# 是 sentence-t5-large 文字编码器、torchmetrics 是上游 mld/models/metrics 的 import（我们把 METRIC.TYPE 设成
+# 空表，一个指标都不建，但模块还是要导得进来）、rich 是上游数据集模块的 import、scipy 给 IK 用。
+# 上游 demo 里画图和出视频那一套（matplotlib、moviepy、imageio）、SMPL 网格（smplx、chumpy、trimesh）、
+# 训练和评测（tensorboard、swanlab、nltk、scikit-learn 的评测路径）都不装。
+#
+# numpy 钉在 1.23.5（上游 environment.yml 是 1.23.1）：上游 visualization/remove_fs.py 和
+# common/quaternion.py 里用了 np.float、visualization/AnimationStructure.py 用了 np.int，
+# 这两个别名在 numpy 1.24 被删掉。原始仓库不许改，所以钉版本，不打补丁。
+numpy==1.23.5
+scipy==1.11.4
+omegaconf==2.3.0
+diffusers==0.31.0
+transformers==4.44.2
+# sentence-transformers 钉在 2.7.0：3.x 的 model_card.py 硬性 import HuggingFace 的 datasets 包，
+# 而上游仓库根目录就有一个叫 datasets 的文件夹（Mean/Std 这些 .npy 放在里面），两个名字会撞；
+# 2.7.0 没有那个 import，也就不用为了一个名字再装 pyarrow、pandas 一整套
+sentence-transformers==2.7.0
+torchmetrics==1.4.3
+huggingface-hub==0.24.7
+tqdm==4.67.1
+rich==13.9.4

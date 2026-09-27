@@ -1,0 +1,21 @@
+/* The application's word mark (ui/icons.tsx BrandMark, src/brand/): the editor's and the admin page's top bars, the
+   login gate and the welcome screen. The part carries its own rules, so it looks the same wherever it is shown — the
+   login page loads no page stylesheet at all (webui/tests/bundle.test.ts). */
+
+/* It carries its own colour on a transparent ground, so it sits straight on the dark bar — no plate, no rounded box,
+   no shadow. Its height is set, its width follows the picture (about 2.6 : 1). */
+.brand-mark {
+  flex: none;
+  height: 18px;
+  width: auto;
+  display: block;
+}
+
+.brand-mark.big {
+  height: 36px;
+}
+
+/* the login page's mark (gate.tsx): larger, over the card */
+.brand-mark.hero {
+  height: 72px;
+}

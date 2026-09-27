@@ -1,0 +1,222 @@
+/* ------------------------------------------------------------------ preview bar */
+
+.preview-bar {
+  border-top: 0.5px solid var(--hair);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.preview-note {
+  flex: 1;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.preview-progress {
+  flex: 1;
+  height: 20px;
+  position: relative;
+}
+
+
+/* how far a node's cook has got: one line across the node, inside its border box — never inset with a margin, which
+   would draw it 100 % + the margins wide (see 08a-node.css's sizing rule).
+
+   它不占布局：贴在节点的底边上，绝对定位。作为流里的一行、只在算的时候才画的话，每个节点一开始算就
+   长高几个像素、算完又矮回去。
+   不变量：谁固定 = 节点的高度（只由端口行数、参数行数、脚注决定）；谁弹性 = 没有；
+   进度条不参与布局，所以它出现、消失、走到哪一格，节点的高度都不动一个像素。
+   贴底边而不是「一直占着那几个像素」：后者会让每一个节点无端变高，还会让 tests/test_tools.py node_box
+   从上界变成下界（NODE_BOX_SLACK）。
+   左右 0、贴着节点的内边（.gnode position: relative 是它的定位父），所以永远不会伸出节点外面。 */
+.gnode-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 0 0 var(--r-node) var(--r-node);
+  background: var(--fill-strong);
+  overflow: hidden;
+}
+
+.gnode-progress > div {
+  height: 100%;
+  background: var(--yellow);
+  transition: width 0.3s;
+}
+
+.gnode-progress > div.indeterminate {
+  animation: slide 1.2s ease-in-out infinite;
+}
+
+@keyframes slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+
+@keyframes pulse {
+  50% { opacity: 0.35; }
+}
+
+.nc-badge {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  padding: 0 6px;
+  border-radius: var(--r-ctl);
+  color: #ff9f0a;
+  background: rgba(255, 159, 10, 0.16);
+  letter-spacing: 0.02em;
+}
+
+.notice.nc {
+  background: rgba(255, 159, 10, 0.1);
+}
+
+.menu-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.menu-title-text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* 「分类 · 项目」 at the right end of a search row: shown whole, never cut (界面文字不许截断); the menu is wide
+   enough that it does not need to be. */
+.menu-project {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.menu-item.active .menu-project {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* two-level node menu: categories | nodes grouped by project */
+.menu-browse {
+  display: grid;
+  /* 左栏按内容定宽：170 px 放不下「MonST3R 相机解算」这种名字。上限按最长的节点名算
+     （「Two-stage Transformer 动作补帧」15 字宽 ≈ 190 px，加图标和内边距 ≈ 230 px）。
+     右栏必须写 `minmax(0, 1fr)`，不能只写 `1fr`：`1fr` 等于 `minmax(auto, 1fr)`，它的最小值是右栏内容的
+     最小宽度，所以某个分类的节点名或说明里有长词，右栏就多抢宽度、左栏被挤回 170 px；滑到节点名短的分类
+     左栏又长回去——左栏宽度被右栏内容带着变，鼠标在一级分类间滑动时整个菜单忽大忽小。
+     「切换一级分类只换右栏，左栏内容不变，所以宽度不会变」这个理由是错的。
+     写成 minmax(0, 1fr) 之后右栏能被压到 0，左栏永远按自己的内容定宽，跟分类无关。
+     tests/ui/walk_nodemenu.py 逐个分类悬停，量左栏宽度和右栏左边缘，差一个像素就报错。 */
+  grid-template-columns: minmax(170px, max-content) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr); /* the two columns scroll inside the menu instead of growing past it */
+  min-height: 0;
+  /* `flex: 1 1 0`（basis 0），不是 `1 1 auto`：auto 的时候它的基准是自身内容高度，某个分类的节点多一点
+     就要得多一点，列向 flex 只能去压上面那个搜索框，搜索框的高度就跟着分类跳。
+     basis 0 之后它自己能被压到 0、剩多少拿多少，从不挤别人；放不下就在两栏内部滚。
+     和上面 `minmax(0, 1fr)` 是同一条规矩的两个方向：左右、上下都不许互相挤。 */
+  flex: 1 1 0;
+}
+
+.menu-cats {
+  max-width: 260px;
+  border-right: 0.5px solid var(--hair);
+  overflow-y: auto;
+  /* 滚动条那道宽度永远留着：两栏都是 overflow-y: auto，滚动条按内容有没有超高来出现 / 消失——
+     右栏一个分类 3 个节点、另一个 20 个，滑过去滚动条就一会儿有一会儿没有，内容跟着横移十几个像素。
+     无头浏览器的滚动条是零宽的覆盖式，所以走查量不出来，只有真浏览器才看得见。 */
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  min-height: 0;
+  padding: 6px;
+}
+
+.menu-catrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--r-ctl);
+  cursor: default;
+  transition: background-color var(--t-fast) var(--ease);
+}
+
+.menu-catrow:hover {
+  background: var(--raised);
+}
+
+.menu-catrow.on {
+  background: var(--raised-hover);
+}
+
+.menu-catname {
+  flex: 1;
+  white-space: nowrap; /* 不裁：界面文字不许截断，左栏宽度按最长的名字定 */
+}
+
+.menu-count {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-browse .menu-list .menu-item:hover {
+  background: var(--raised-hover);
+}
+
+/* the node menu's category column is the same rail as the templates panel's (ui/Categories.tsx: the same drag,
+   rename, remove and 「新建分类」 in both), fitted to the menu's row height and column padding */
+.menu-cats .cat-rail {
+  padding: 0;
+  gap: 2px;
+}
+
+.menu-cats .cat-rail button {
+  height: auto;
+  padding: 5px 8px;
+  font-size: inherit;
+  color: var(--text);
+}
+
+.menu-cats .cat-rail button b {
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-cats .cat-rail h4.cat-band {
+  padding: 8px 8px 4px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.menu-cats .cat-gap {
+  height: 6px;
+}
+
+/* a subcategory heading in the node list, managed: its count and its menu at the right end */
+.menu-subhead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.menu-subhead > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.menu-list .drag-over {
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+  border-radius: var(--r-ctl);
+}
+
+.menu-addsub {
+  padding: 6px 8px 10px;
+}

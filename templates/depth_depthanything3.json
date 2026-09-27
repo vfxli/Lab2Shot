@@ -1,0 +1,204 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "e32bef6364656011069a8a24d215718a",
+  "name": "深度与相机 · Depth Anything 3",
+  "intro": "Depth Anything 3 官方自述：从任意视觉输入预测空间一致的几何，相机位姿已知与否都可以；官方称多视图深度估计和位姿估计优于 VGGT。这张卡交付每帧相机和深度图；不出点云（官方只交深度和相机），要点云接「深度转点云」。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "depth_camera",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "model",
+   "label": "模型",
+   "target": "r.model"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 200
+   }
+  },
+  {
+   "id": "r",
+   "type": "depthanything3.reconstruct",
+   "label": "Depth Anything 3 深度与相机",
+   "params": {
+    "step": 1,
+    "model": "da3-large-1.1",
+    "unit_cm": 100.0
+   },
+   "ui": {
+    "x": 320,
+    "y": 200,
+    "on_node": [
+     "step",
+     "max_frames"
+    ]
+   }
+  },
+  {
+   "id": "dep",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "depth"
+   },
+   "ui": {
+    "x": 720,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "scene"
+   },
+   "ui": {
+    "x": 720,
+    "y": 260,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1080,
+    "y": 240,
+    "on_node": [
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "nuke",
+   "type": "core.output_nuke_camera",
+   "label": "Nuke 相机输出设置",
+   "params": {
+    "name": "camera_nuke"
+   },
+   "ui": {
+    "x": 720,
+    "y": 440,
+    "on_node": [
+     "name"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "r",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "r",
+    "depth"
+   ],
+   "to": [
+    "dep",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "dep",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "r",
+    "camera"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "r",
+    "camera"
+   ],
+   "to": [
+    "nuke",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "nuke",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "r",
+  "frame": null
+ }
+}

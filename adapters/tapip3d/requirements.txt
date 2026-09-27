@@ -1,0 +1,21 @@
+# TAPIP3D environment (torch and the pip CUDA 13.2 compiler come from EnvSpec). TAPIP3D itself is imported from the
+# pinned repo; only what its tracking model and depth clean-up import is installed (not its MegaSaM / MoGe / UniDepth
+# depth path, the viewers or the training tools).
+
+# build helpers for pointops2 (build.py): setup.py imports distutils (from setuptools on Python 3.12)
+setuptools==80.10.2
+wheel==0.48.0
+ninja==1.13.2
+
+numpy==2.4.6
+opencv-python-headless==4.10.0.84
+scipy==1.17.0
+einops==0.8.2
+hydra-core==1.3.2
+omegaconf==2.3.0
+python-box==7.3.2
+av==15.1.0
+pillow==12.1.1
+rich==14.2.0
+# the depth maps the node sends (EXR) and the grid's mask (same version as the other extensions)
+OpenEXR==3.4.15

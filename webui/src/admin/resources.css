@@ -1,0 +1,149 @@
+/* 后台里按账号列出的表格和它上面的那几块（admin/Resources.tsx、UserQuota.tsx、Categories.tsx、EnterTemplate.tsx）：
+   只有布局，颜色、圆角、字号都是 ui/tokens.css 的。 */
+
+/* ---------------------------------------------------------------- 一种资源的一页 (admin/Resources.tsx) */
+.res,
+.res-by-user {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.res-by-user {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 0.5px solid var(--hair);
+}
+
+.res-search {
+  width: 220px;
+}
+
+.res-pages {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+/* 一行上的操作（登记表声明的 Act：恢复、放进回收站、永久删除） */
+.res-acts {
+  display: flex;
+  gap: var(--sp-1);
+}
+
+/* 选中几条之后出现的那一条：对选中的一起做 */
+.res-many {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  margin-bottom: var(--sp-2);
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------- 磁盘配额 (admin/UserQuota.tsx) */
+.usr-quota {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) 0;
+  border-top: 0.5px solid var(--hair);
+}
+
+.usr-quota-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+}
+
+.usr-quota-what {
+  color: var(--text-2);
+}
+
+.usr-quota-over {
+  color: var(--error-text);
+  font-size: var(--fs-sm);
+}
+
+.usr-quota-bar {
+  height: var(--sp-1);
+  border-radius: 999px;
+  background: var(--fill-strong);
+  overflow: hidden;
+}
+
+.usr-quota-bar i {
+  display: block;
+  width: var(--pct, 0%);
+  height: 100%;
+  background: var(--accent);
+}
+
+.usr-quota-areas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.usr-quota-areas li {
+  display: flex;
+  gap: var(--sp-1);
+}
+
+.usr-quota-set {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.usr-quota-field {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+/* the field's own width here (the subject is the input, never the kit's .field: ui/Button.css owns how it looks) */
+.usr-quota-field input {
+  width: 88px;
+}
+
+/* ---------------------------------------------------------------- 分类和录入模板 (admin/Categories.tsx, EnterTemplate.tsx) */
+.cat-adm {
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-4);
+  border-top: 0.5px solid var(--hair);
+}
+
+.cat-adm-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.cat-adm-head h3 {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.cat-adm-head p {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+
+.cat-adm-name {
+  color: var(--text);
+}

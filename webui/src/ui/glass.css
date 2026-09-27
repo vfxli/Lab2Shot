@@ -1,0 +1,76 @@
+/* The floating layers' one glass: high transparency, a thin lit rim, a specular line along the top, the page blurred
+   behind it.
+   Menus and popovers, sheets and dialogs, the tooltip, notices and the views' HUD float, so they are glass; what is
+   docked (node bodies, tables, the parameter panel, the timeline) stays solid.
+
+   A layer composes the class: `glass` (menus, dialogs, tooltips, pills), `glass strong` (a layer over a picture — the
+   graph's 操作说明, the view's HUD panels: a denser tint so words stay readable over a plate), `glass static` (over the
+   WebGL view: nothing to re-blur every frame), `glass solid` (a window of tables and long lists), `veil` (the whole
+   window dimmed behind what stops the page). Values are tokens (ui/tokens.css), solid for a viewer who asked for less
+   transparency; nothing else sets a backdrop-filter (webui/tests/uiKit.test.ts). */
+
+.glass {
+  --text-2: rgba(235, 235, 245, 0.72); /* the faint text colours a step brighter inside it: the backdrop is dimmed */
+  --text-3: rgba(235, 235, 245, 0.48);
+  position: relative;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border: 0;
+  box-shadow: var(--glass-shadow);
+}
+
+/* the rim: one hairline of light around the edge, brightest at the top-left and bottom-right corners — a border-width
+   box painted through a mask, so it follows whatever radius the layer itself sets */
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: var(--glass-sheen);
+  /* the mask is a stencil, not a colour: an opaque fill over the whole box minus its content box */
+  -webkit-mask: linear-gradient(black 0 0) content-box, linear-gradient(black 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(black 0 0) content-box, linear-gradient(black 0 0);
+  mask-composite: exclude;
+}
+
+/* over a picture (the node graph, the plate): the same glass, a denser tint so the words keep their contrast */
+.glass.strong {
+  background: var(--glass-bg-strong);
+}
+
+.glass.clear {
+  background: var(--glass-clear-bg);
+  -webkit-backdrop-filter: var(--glass-clear-filter);
+  backdrop-filter: var(--glass-clear-filter);
+  border: 0.5px solid var(--glass-clear-edge);
+  box-shadow: var(--glass-clear-shadow);
+}
+
+/* clear glass is a flat pane: no rim, no sheen (a lit rim on it reads as embossed) */
+.glass.clear::before {
+  display: none;
+}
+
+.glass.static {
+  background: var(--glass-static-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* a window of tables and long lists (队列, 日志): solid, like the pages they come from, with the glass's rim and shadow */
+.glass.solid {
+  background: var(--panel-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.veil {
+  background: var(--veil-bg);
+  -webkit-backdrop-filter: var(--veil-filter);
+  backdrop-filter: var(--veil-filter);
+}
+

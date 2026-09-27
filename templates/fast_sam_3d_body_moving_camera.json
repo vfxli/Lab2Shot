@@ -1,0 +1,379 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "9bcc8b2887844f8a9e4ab0b9223b443b",
+  "name": "全身动作 · Fast SAM 3D Body",
+  "intro": "Fast SAM 3D Body 是一个免训练的加速框架，把 SAM 3D Body 的推理路径重排，端到端最快 10.9 倍，精度与它相当。这张卡先检出画面里的人，「选人」默认最大的一个，改「全部」或填编号就一次解这几个人（检人、加载模型只做一次，一帧里的人分批解）；相机默认用 ViPE 解，有解算好的换成「导入 USD」。",
+  "author": "Lab2Shot",
+  "created": "2026-09-20T18:20:00",
+  "deliverable": "body_full",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "focal",
+   "label": "已知 Focal Length",
+   "target": "cam.focal_mm"
+  },
+  {
+   "name": "people",
+   "label": "选人",
+   "target": "pick.mode"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 420
+   }
+  },
+  {
+   "id": "cam",
+   "type": "vipe.camera_solve",
+   "label": "ViPE 相机解算",
+   "params": {
+    "mode": "pose_only"
+   },
+   "ui": {
+    "x": 320,
+    "y": 520,
+    "on_node": [
+     "focal_mm",
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "solve",
+   "type": "fast_sam_3d_body.solve",
+   "label": "Fast SAM 3D Body 全身动作",
+   "params": {
+    "hand_refine": true,
+    "lock_shape": true,
+    "smoothing": 0.5
+   },
+   "ui": {
+    "x": 1300,
+    "y": 60,
+    "on_node": [
+     "focal_mm",
+     "smoothing",
+     "hand_refine"
+    ]
+   }
+  },
+  {
+   "id": "pack",
+   "type": "core.usd_pack",
+   "label": "合成场景",
+   "params": {},
+   "ui": {
+    "x": 2000,
+    "y": 580
+   }
+  },
+  {
+   "id": "xform",
+   "type": "core.transform",
+   "label": "3D 变换",
+   "params": {
+    "translate": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "rotate": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": 1.0
+   },
+   "ui": {
+    "x": 2300,
+    "y": 580,
+    "on_node": [
+     "translate",
+     "rotate",
+     "scale"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "scene"
+   },
+   "ui": {
+    "x": 2600,
+    "y": 580,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 2900,
+    "y": 580,
+    "on_node": [
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "place_solve",
+   "type": "core.camera_space",
+   "label": "相机空间转换",
+   "params": {
+    "fit": "per_frame"
+   },
+   "ui": {
+    "x": 1660,
+    "y": 240,
+    "on_node": [
+     "fit"
+    ]
+   }
+  },
+  {
+   "id": "focal_of_cam",
+   "type": "core.split_camera",
+   "label": "拆分相机",
+   "params": {
+    "per_frame": true
+   },
+   "ui": {
+    "x": 680,
+    "y": 360,
+    "on_node": [
+     "per_frame"
+    ]
+   }
+  },
+  {
+   "id": "detect",
+   "type": "sam_3d_body.detect_people",
+   "label": "ViTDet 人物框",
+   "params": {
+    "threshold": 0.8
+   },
+   "ui": {
+    "x": 320,
+    "y": 160,
+    "on_node": [
+     "threshold"
+    ]
+   }
+  },
+  {
+   "id": "pick",
+   "type": "core.select_people",
+   "label": "选人",
+   "params": {
+    "mode": "largest",
+    "ids": "",
+    "picks": []
+   },
+   "ui": {
+    "x": 640,
+    "y": 160,
+    "on_node": [
+     "mode",
+     "ids"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "pack",
+    "scene"
+   ],
+   "to": [
+    "xform",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "xform",
+    "scene"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "cam",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "camera"
+   ],
+   "to": [
+    "pack",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "character"
+   ],
+   "to": [
+    "place_solve",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "camera"
+   ],
+   "to": [
+    "place_solve",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "camera"
+   ],
+   "to": [
+    "focal_of_cam",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "focal_of_cam",
+    "focal"
+   ],
+   "to": [
+    "solve",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "focal_of_cam",
+    "filmback"
+   ],
+   "to": [
+    "solve",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "solve",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "place_solve",
+    "scene"
+   ],
+   "to": [
+    "pack",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "detect",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "detect",
+    "boxes"
+   ],
+   "to": [
+    "pick",
+    "boxes"
+   ]
+  },
+  {
+   "from": [
+    "pick",
+    "boxes"
+   ],
+   "to": [
+    "solve",
+    "boxes"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "xform",
+  "frame": null
+ }
+}

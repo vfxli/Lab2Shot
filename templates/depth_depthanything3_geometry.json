@@ -1,0 +1,178 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "c30371c6780b4d24bb2880d9bef3f984",
+  "name": "深度图 · Depth Anything 3",
+  "intro": "Depth Anything 3 官方自述：从任意视觉输入预测空间一致的几何；官方称单目深度估计优于 Depth Anything V2。这张卡逐帧交付深度图和相机，填「已知 Focal Length」并把「模型」换成 Metric-Large 可得真实尺度。",
+  "author": "Lab2Shot",
+  "created": "2026-09-21T16:00:00",
+  "deliverable": "depth_image",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out_p.unit"
+  },
+  {
+   "name": "focal",
+   "label": "已知 Focal Length",
+   "target": "geo.focal_mm"
+  },
+  {
+   "name": "model",
+   "label": "模型",
+   "target": "geo.model"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 200
+   }
+  },
+  {
+   "id": "geo",
+   "type": "depthanything3.geometry",
+   "label": "Depth Anything 3 深度图",
+   "params": {
+    "model": "da3-base",
+    "resolution": 504
+   },
+   "ui": {
+    "x": 320,
+    "y": 200,
+    "on_node": [
+     "focal_mm",
+     "model"
+    ]
+   }
+  },
+  {
+   "id": "out_d",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "depth"
+   },
+   "ui": {
+    "x": 700,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out_p",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "scene"
+   },
+   "ui": {
+    "x": 700,
+    "y": 260,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1020,
+    "y": 120,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "geo",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "geo",
+    "depth"
+   ],
+   "to": [
+    "out_d",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "geo",
+    "camera"
+   ],
+   "to": [
+    "out_p",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "out_d",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_p",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "geo",
+  "frame": null
+ }
+}

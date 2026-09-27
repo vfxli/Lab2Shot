@@ -1,0 +1,6 @@
+{
+ "moge.geometry": {
+  "label": "MoGe 深度图与法线",
+  "description": "画面 → 逐帧的真实尺度深度图和法线图。给了 Focal Length（填「Focal Length」、接「AnyCalib 镜头标定」的 Focal Length，或接一台相机）就用它，不给由模型估计；每帧单独计算，用在序列上深度图会轻微闪动。要整段不闪的深度图用「Video Depth Anything 深度图」，两者接「深度对齐」就既不闪又是真实尺度。点云是每帧一片、各在这一帧自己的相机里（官方原生的点图），不是整段求出的一套场景点云。"
+ }
+}

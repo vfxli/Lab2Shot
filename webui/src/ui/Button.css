@@ -1,0 +1,188 @@
+/* The page's buttons and icon buttons (ui/Button.tsx). Only this file styles them: a page places them (layout), never sizes or colours them (webui/tests/uiKit.test.ts). Every value
+   is a token (ui/tokens.css). The kit's other small controls — the segmented control, the switch, the chip, the key cap
+   — are ui/parts.css: the login page shows none of them, and what the gate loads is capped (tests/bundle.test.ts). */
+
+.btn {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--r-ctl);
+  /* 没有描边：一圈亮边在暗底上像浮雕。按钮本身比面板亮一档，轮廓靠明暗，不靠线 */
+  border: 1px solid transparent;
+  background: var(--ctl-face);
+  color: var(--text);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  /* 行高 1：按钮里的字只有一行，行框和字一样高，flex 才是真的居中。继承 1.5 的行高时行框比字高，
+     中文字形在行框里偏上（Windows 微软雅黑上尤其明显） */
+  line-height: 1;
+  /* 再往下让 1px：字体栈里 Geist 在前，中文字是回退字体画的，基线跟着拉丁字走，字形重心比行框中心高
+     约 0.7px（Windows 微软雅黑上更明显）。给上内边距 1px 把它压回中心 */
+  padding-top: 1px;
+  gap: var(--sp-1);
+  cursor: default;
+  transition:
+    background-color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+  white-space: nowrap;
+}
+
+a.btn {
+  color: inherit;
+  text-decoration: none;
+}
+
+.btn:hover {
+  background: var(--ctl-face-hover);
+}
+
+.btn:active:not(:disabled) {
+  background: var(--pressed);
+}
+
+/* the one filled button of a page: the editor's 提交 */
+.btn.primary {
+  background: var(--accent-fill);
+  border-color: transparent;
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.btn.primary:hover {
+  background: color-mix(in srgb, var(--accent-fill) 82%, var(--accent));
+}
+
+.btn.primary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-fill) 80%, var(--window));
+}
+
+/* no fill and no rim: a row of them in the top bar reads as words, not as a row of boxes */
+.btn.ghost {
+  padding: 0 9px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-2);
+}
+
+.btn.ghost:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.btn svg {
+  flex: none;
+}
+
+.btn.icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-2);
+}
+
+.btn.icon-btn:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+
+/* 不能点的按钮要一眼看出来不能点。只降不透明度不够：ghost 那种本来就是 `--text-2` 的灰字、又没有边框，
+   在暗底上几乎看不出差别；所以字再降到最淡的一档，鼠标变成「不可点」。
+   按钮不消失：控件只分能用和不能用，位置不跳，原因写在悬停提示里。 */
+.btn:disabled {
+  opacity: 0.5;
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+/* sizes: md (28, the default), sm 22, xs 20, xxs 16 */
+.btn.sm {
+  height: 22px;
+  padding: 0 8px;
+  font-size: var(--fs-sm);
+}
+
+.btn.sm.icon-btn,
+.btn.xs.icon-btn {
+  width: 22px;
+}
+
+.btn.xxs.icon-btn {
+  width: 16px;
+}
+
+.btn.xs {
+  height: 20px;
+  padding: 0 8px;
+  font-size: var(--fs-xs);
+}
+
+/* 节点底行那一条线正好 16 px（.gnode-foot line-height），里面的每一样东西都要装得下，否则被裁
+   （tests/ui/walk_templates.py 会量）。xs（20 px）放进去会让底行超高，所以零件自己多一档；
+   页面只做布局，不在页面里改零件的高度 */
+.btn.xxs {
+  height: 16px;
+  padding: 0 6px;
+  font-size: var(--fs-2xs);
+  border-radius: var(--r-xs);
+}
+
+/* a toggle that is on, or what is running now (the top bar's job) */
+.btn.on {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent-text);
+}
+
+/* reads as text that acts (a name that opens its details) */
+.btn.link {
+  padding: 0;
+  height: auto;
+  background: transparent;
+  border-color: transparent;
+  font: inherit;
+  color: var(--text);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+/* an action that removes or ends something */
+.btn.danger {
+  color: var(--error);
+}
+
+.btn.primary.danger {
+  background: var(--error);
+  color: var(--on-accent);
+}
+
+/* 提交 with an 「输出」 that has nowhere to save yet: clickable, its tooltip and the click both say which node */
+.btn.warn {
+  color: var(--orange);
+}
+
+/* 提交 clickable while something is not ready (an 「输出」 with nowhere to save, 计算任务 paused): it stays the page's one
+ * filled main button whatever the state, and what is missing shows as a warning rim and in the tooltip, not as a
+ * second kind of button */
+.btn.primary.warn {
+  background: var(--accent-fill);
+  border-color: var(--orange);
+  color: var(--on-accent);
+}
+
+.btn.lg {
+  justify-content: center;
+  height: 38px;
+  padding: 0 18px;
+  border-radius: var(--r-card);
+  font-size: var(--fs-lg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn {
+    transition: none;
+  }
+}

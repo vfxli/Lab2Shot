@@ -1,0 +1,40 @@
+/* upload: the kit component's own rules (K10), next to it in ui/; loaded in the page's cascade order by styles/index.css */
+
+/* ------------------------------------------------------------------ transfer: uploads going up, the local preview */
+
+.fp-line .fp-meta.fp-far {
+  flex: none;
+}
+
+.fp-up .fp-meta {
+  flex: 1 1 auto;
+}
+
+.fp-retry {
+  flex: none;
+  height: 20px;
+  padding: 0 8px;
+  font-size: var(--fs-sm);
+}
+
+/* what an upload shows while it goes (ui/UploadState.tsx) */
+/* the name gives way first (down to a few letters), then the frames and size */
+.fp-name {
+  flex: 0 1 auto;
+  min-width: 4em;
+  overflow: hidden;
+  color: var(--text);
+}
+
+.fp-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--hair-strong);
+  overflow: hidden;
+}
+
+.fp-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}

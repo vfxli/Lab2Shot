@@ -1,0 +1,113 @@
+/* ------------------------------------------------------------------ file parameters: what was chosen, one line */
+
+.fileparam {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* 「输出」的「保存到」：按钮一行，交付的完整样子一行（FileParam.tsx deliveryLayout） */
+.fp-deliver {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* 它带 data-user-data（里面有用户选的文件名）：切字和整句提示由 styles/01-user-data.css 一处管 */
+.fp-full {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  /* 不给问号光标（节点上同理，见 08a-node.css）。停留提示照旧有——那由 data-tip 负责，和光标无关 */
+}
+
+.fp-pick {
+  flex: none;
+  width: 30px;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+}
+
+.fp-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.fp-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+}
+
+.fp-folder,
+.fp-empty {
+  color: var(--text-3);
+}
+
+.fp-meta {
+  flex: 0 0.001 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+/* several sequences in a pick: the list to choose one from, under the file row */
+.menu.seq-offer {
+  max-width: 420px;
+  max-height: 320px;
+}
+
+.seq-offer .seq-offer-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.fp-missing {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--orange);
+}
+
+.fp-clear {
+  flex: none;
+}
+
+.fp-where {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 55%;
+  height: 28px;
+  gap: 6px;
+  padding: 0 9px;
+}
+
+.fp-where span {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.fp-where.warn {
+  color: var(--orange);
+}
+
+.fp-download {
+  flex: none;
+}
+
+.fileparam .fp-field {
+  flex: 1;
+  min-width: 60px;
+}

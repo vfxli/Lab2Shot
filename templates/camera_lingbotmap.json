@@ -1,0 +1,242 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "a8d30aeaad9b34177b6038043af91f4d",
+  "name": "深度与相机 · LingBot-Map",
+  "intro": "LingBot-Map 官方自述是流式的前馈三维基础模型，518×378 下超过一万帧的长序列仍能约 20 FPS 稳定推理。这张卡交付每帧相机和深度图，相机再做去抖；不出点云（放出的权重没有点图头），要点云接「深度转点云」。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "depth_camera",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "scale",
+   "label": "尺度",
+   "target": "r.unit_cm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 340
+   }
+  },
+  {
+   "id": "r",
+   "type": "lingbotmap.reconstruct",
+   "label": "LingBot-Map 深度与相机",
+   "params": {
+    "step": 1,
+    "model": "long",
+    "keyframe_interval": 0,
+    "context_window": 64,
+    "conf_threshold": 1.5,
+    "mask_sky": false,
+    "unit_cm": 100.0
+   },
+   "ui": {
+    "x": 320,
+    "y": 340,
+    "on_node": [
+     "step",
+     "max_frames"
+    ]
+   }
+  },
+  {
+   "id": "smooth",
+   "type": "core.deshake_camera",
+   "label": "相机去抖",
+   "params": {
+    "strength": 6.0,
+    "keep_sudden": true,
+    "rotation": true,
+    "focal": "keep"
+   },
+   "ui": {
+    "x": 680,
+    "y": 180,
+    "on_node": [
+     "strength",
+     "keep_sudden"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "scene"
+   },
+   "ui": {
+    "x": 1000,
+    "y": 0,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "dep",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "depth"
+   },
+   "ui": {
+    "x": 1000,
+    "y": 340,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1360,
+    "y": 180,
+    "on_node": [
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "nuke",
+   "type": "core.output_nuke_camera",
+   "label": "Nuke 相机输出设置",
+   "params": {
+    "name": "camera_nuke"
+   },
+   "ui": {
+    "x": 1000,
+    "y": 180,
+    "on_node": [
+     "name"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "r",
+    "camera"
+   ],
+   "to": [
+    "smooth",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "r",
+    "depth"
+   ],
+   "to": [
+    "dep",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "dep",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "smooth",
+    "camera"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "smooth",
+    "camera"
+   ],
+   "to": [
+    "nuke",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "nuke",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "r",
+    "image"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "smooth",
+  "frame": null
+ }
+}

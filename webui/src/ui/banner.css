@@ -1,0 +1,122 @@
+/* The site's one notice bar (ui/Banner.tsx): the administrator's notice, the server restarting or not answering, this
+   graph being open in another tab. One row, a dot in the tone's colour, the words, and at most one action at the end.
+   `float` puts it under the top bar, centred, over the page — the only place it is glass. */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.banner > i {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.banner-text {
+  min-width: 0;
+}
+
+/* who said it, or where the server moves to: at the end, faint */
+.banner-aside {
+  margin-left: auto;
+  color: var(--text-3);
+}
+
+.banner .btn {
+  flex: none;
+}
+
+/* the tones (lab2shot/server/notice.py TONES, messages/levels.ts): information and a notice are the blue of 选中和信息,
+   a warning is 警告, a production risk is the red reserved for it alone, and 完成 is green */
+.banner.info,
+.banner.notice {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.banner.warn {
+  background: color-mix(in srgb, var(--orange) 12%, transparent);
+  color: var(--orange-text);
+}
+
+.banner.error {
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  color: var(--error-text);
+}
+
+.banner.risk {
+  background: color-mix(in srgb, var(--production-risk) 14%, transparent);
+  color: var(--risk-text);
+}
+
+.banner.ok {
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  color: var(--green);
+}
+
+/* the site's own notices, stacked under the top bar of every page: the administrator's notice, then the server's state
+   (ui/Banner.tsx SiteNotices). The stack does the placing, so its banners are laid out, not fixed. */
+/* 管理员通知和「服务器正在重启」：整页最上面的一条条幅，在正常文档流里，把下面的内容顶下去。
+   不浮在内容上——浮着会居中飘在距顶 54 px 处，正好压在视图上，看着像视图自己的东西。
+   和视图工具栏同一条规矩：在正常文档流里，一个像素都不挡内容。 */
+.site-notices {
+  flex: none;
+  display: grid;
+  gap: 1px;
+}
+
+.site-notices:empty {
+  display: none;
+}
+
+/* 条幅铺满整页宽，不是居中一小块：一眼看得出这是全站的通知，不是某个面板的提示 */
+.site-notices .banner,
+.site-notices .banner.float {
+  position: static;
+  transform: none;
+  max-width: none;
+  width: 100%;
+  border-radius: 0;
+  justify-content: center;
+  min-height: 32px;
+  border-bottom: 1px solid var(--hair);
+}
+
+/* over the page, under the top bar of every page: the other-tab notice, and each of the site's own notices */
+.banner.float {
+  position: fixed;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-server-banner);
+  max-width: min(760px, calc(100vw - 24px));
+  border-radius: 999px;
+  padding: 4px 8px 4px 14px;
+}
+
+/* the dot turns while something is under way (a restart) */
+.banner > i.spin {
+  background: none;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 900ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .banner > i.spin {
+    animation: none;
+  }
+}

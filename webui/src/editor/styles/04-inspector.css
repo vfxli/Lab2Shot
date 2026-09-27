@@ -1,0 +1,362 @@
+/* ------------------------------------------------------------------ inspector */
+
+.inspector {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--panel); /* 停靠的面板使用实色 --panel；缺少时继承 --window，与视图同为黑色 */
+}
+
+.insp-head {
+  padding: 12px 16px 10px;
+  border-bottom: 0.5px solid var(--hair);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.insp-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* the node's category as a small square of its colour, before its name */
+.insp-swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-xs);
+}
+
+.insp-title input {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  background: transparent;
+  border: 0;
+  outline: none;
+  padding: 0;
+  min-width: 0;
+  flex: 1;
+  user-select: text;
+}
+
+/* 名称下方的小号灰字：节点类型 id（与节点上的该行含义相同）。缩进与名称对齐，而非与分类色块对齐 */
+.insp-type {
+  margin: 1px 0 0 16px;
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
+  white-space: nowrap;
+  /* 不使用问号光标（cursor: help）：悬停提示由 data-tip 机制负责，与光标无关 */
+}
+
+.insp-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.insp-desc {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.insp-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0 16px;
+}
+
+/* 三方项目的许可证：贴于面板下边缘（margin-top: auto 将其推到 .inspector 纵向 flex 的最底部），一行小号灰字 */
+.insp-licence {
+  margin-top: auto;
+  padding: 8px 16px 10px;
+  border-top: 0.5px solid var(--hair);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.insp-licence-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis; /* 项目名与许可证名属于外部文字（适用 user-data 规则），空间不足时可截断 */
+}
+
+.insp-licence a {
+  color: var(--text-2);
+  text-decoration: none;
+  flex: 0 0 auto;
+}
+
+.insp-licence a:hover {
+  color: var(--accent);
+}
+
+.insp-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.insp-body::-webkit-scrollbar-thumb {
+  background: var(--hair-strong);
+  border-radius: var(--r-xs);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* A section is a line of small type with a hairline running off to the right, with no rule between sections and no box;
+   the space between them separates them. */
+.group {
+  padding: 8px 16px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+}
+
+.group-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--hair);
+}
+
+/* 一行 = [标签，固定宽度] [控件，弹性、basis 0、不挤压其他元素]。仅此两列：修改列数时须同步修改
+   ParamControls.tsx fitWidth 中的宽度计算，否则参数右侧会多出或缺少一列的宽度。 */
+.prow {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--plabel-w, 92px) minmax(0, 1fr);
+  gap: var(--sp-2);
+  align-items: center;
+  min-height: 30px;
+}
+
+.prow > .plabel {
+  position: relative;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  text-align: right;
+  line-height: 1.25;
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 2px;
+}
+
+/* the label column is sized to fit every label (ParamPanel.tsx fitPanelWidth), capped at 206px: a label longer than
+   that is a naming problem to fix (a shorter word), not something to hide behind an ellipsis; this is only the
+   safety net for the moment before the fit runs, or a value typed in by the user (a renamed parameter group) */
+.plabel-text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.prow .ctl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* 多行文本框行（参数自身声明 `P(lines=…)`，ParamPanel.tsx 添加 .multi）：标签与第一行对齐，
+   不在四行高的文本框中垂直居中。宽度不变：面板宽度固定（editor/App.tsx INSPECTOR_WIDTH），
+   文本框只在该格内增高（ui/field.css .field.area）。 */
+.prow.multi {
+  align-items: start;
+}
+
+.prow.multi > .plabel {
+  align-items: flex-start;
+  padding-top: 4px;
+}
+
+/* a parameter this node's connections or settings make irrelevant (the engine ignores it too) */
+.prow.inactive .plabel-text {
+  color: var(--text-3);
+}
+
+.prow.inactive .ctl {
+  opacity: 0.38;
+}
+
+/* 支持的数据: what a 3D output-settings node writes of a scene (OutputSettings.writes); how or why not on hover */
+.writes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 4px 6px;
+}
+
+.writes-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--r-ctl);
+  background: var(--raised);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.writes-item:hover {
+  background: var(--raised-hover);
+}
+
+.writes-item i {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.writes-item b {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.writes-item.full b {
+  color: var(--green);
+}
+
+.writes-item.static b,
+.writes-item.lost b {
+  color: var(--orange);
+}
+
+.writes-item.no {
+  color: var(--text-3);
+}
+
+.writes-item.no i {
+  opacity: 0.45;
+}
+
+.writes-item.no b {
+  color: var(--error);
+}
+
+.pwhy {
+  grid-column: 2;
+  margin-top: -4px;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--text-3);
+}
+
+.notice {
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  border-radius: var(--r-card);
+  background: color-mix(in srgb, var(--orange) 12%, transparent);
+  color: var(--orange-text);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* 「关键姿势」区域（editor/ParamControls.tsx FigureFrames）：上一行为两个按钮，下一行为已绘制的帧。
+   此处只负责排版，按钮与 chip 均由 ui/Button.tsx 绘制；颜色、圆角、字号不在此定义。 */
+.fig-frames {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start; /* 按钮按自身文字宽度显示，不被该列拉伸为横贯面板的深色条（与 .paste-from 相同） */
+  gap: 6px;
+  width: 100%;
+}
+
+/* 每帧一对：帧号 chip 与删除该帧的 ✕。同一对内紧邻，不同对之间留有间距，否则等距排列时无法分辨 ✕ 所属的帧 */
+.fig-frame {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.fig-frames .picks {
+  gap: 10px;
+}
+
+.fig-none {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.class-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.class-hint {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+/* a dropdown of options from a file or an input with nothing to choose yet (先选择相机文件): its text stays readable */
+.field.choice:disabled {
+  opacity: 1;
+  color: var(--text-2);
+}
+
+.picks .chip button {
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  padding: 0;
+  cursor: default;
+}
+
+/* 「从其他软件粘贴一组参数」（editor/PasteFrom.tsx）：位于参数上方的一行，仅定义布局；
+   按钮与输入框本身由通用组件绘制（ui/Button.tsx、.field），此处只负责排列 */
+.paste-from {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start; /* 按钮按自身文字宽度显示，不被该列拉伸为横贯面板的深色条 */
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.paste-from > textarea {
+  align-self: stretch; /* 输入框占满宽度：粘贴的内容是一大段脚本 */
+  height: auto; /* .field 定义的是单行输入框的高度；此处按 rows 指定的行数增高 */
+}
+
+.paste-from > textarea {
+  resize: vertical;
+  font-family: var(--mono); /* 脚本以等宽字体显示 */
+}
+
+.paste-row {
+  display: flex;
+  gap: 6px;
+}

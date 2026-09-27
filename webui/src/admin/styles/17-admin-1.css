@@ -1,0 +1,304 @@
+/* ------------------------------------------------------------------ admin page (/admin): top bar, side list, sections */
+
+.adm {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  user-select: text;
+}
+
+.adm-server {
+  height: 24px;
+  padding: 0 10px;
+  font-size: var(--fs-sm);
+}
+
+.adm-server i,
+.adm-alerts li > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.adm-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  padding: 8px 20px;
+  font-size: var(--fs-md);
+  border-bottom: 0.5px solid var(--hair);
+}
+
+.adm-banner > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.adm-banner.pending {
+  background: var(--orange-soft);
+  color: var(--orange-text);
+}
+
+.adm-banner.draining {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.adm-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 188px minmax(0, 1fr);
+}
+
+/* the side list: rows of one line, banded by 人员 / 数据 / 系统; the page being looked at is filled, not marked
+   with a bar — the fill is what the design uses everywhere something is chosen */
+.adm-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 10px;
+  border-right: 1px solid var(--hair);
+  background: var(--panel-solid);
+  overflow-y: auto;
+}
+
+.adm-nav a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: var(--fs-md);
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+
+.adm-nav a:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.adm-nav a.on {
+  background: var(--lifted-2);
+  color: var(--text);
+}
+
+/* a band of the side list (人员, 数据, 系统) */
+.adm-nav-group {
+  padding: var(--sp-3) 10px var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.adm-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-card);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  display: inline-grid;
+  place-items: center;
+}
+
+.adm-badge.warn {
+  background: var(--orange);
+}
+
+.adm-main {
+  overflow-y: auto;
+  padding: 26px 36px 80px;
+}
+
+.adm-main > * {
+  max-width: 1480px;
+}
+
+.adm-notice {
+  margin: 0 0 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.adm-notice > span {
+  flex: 1;
+}
+
+.adm-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.adm-sec + .adm-sec {
+  margin-top: 36px;
+}
+
+.adm-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 30px;
+}
+
+.adm-sec-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: 650;
+}
+
+.adm-sec-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.adm-lede {
+  margin: -6px 0 0;
+  max-width: 980px;
+  color: var(--text-2);
+  font-size: var(--fs-md);
+  line-height: 1.65;
+}
+
+.adm-lede code {
+  font: var(--fs-sm) var(--mono);
+  color: var(--text);
+}
+
+/* 概览 */
+.adm-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.adm-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 0.5px solid var(--hair);
+  border-radius: var(--r-card);
+  background: var(--raised);
+  color: var(--text);
+  text-align: left;
+  cursor: default;
+  transition:
+    background-color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-med) var(--ease),
+    transform var(--t-med) var(--ease);
+}
+
+/* a tile that leads to its section lifts like the other cards that open something (a plain figure does not) */
+button.adm-tile:hover {
+  background: var(--raised-hover);
+  border-color: var(--hair-strong);
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-1px);
+}
+
+button.adm-tile:active {
+  transform: none;
+  background: var(--pressed);
+}
+
+.adm-tile-label {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.adm-tile b {
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.adm-tile-sub {
+  max-width: 100%;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  white-space: normal;
+}
+
+/* 组合率 */
+.cr-ok {
+  color: var(--green);
+}
+
+.cr-off {
+  color: var(--orange);
+}
+
+.cr-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 980px;
+  font-size: var(--fs-md);
+  line-height: 1.6;
+}
+
+.cr-list li {
+  display: flex;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: var(--r-card);
+  background: var(--raised);
+}
+
+.cr-list b {
+  flex: none;
+  min-width: 5.5em;
+  font-weight: 600;
+}
+
+.cr-list span {
+  color: var(--text-2);
+}
+
+.adm-alerts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.adm-alerts li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 4px 6px 4px 14px;
+  border-radius: var(--r-card);
+  background: var(--orange-soft);
+  color: var(--orange-text);
+}
+
+.adm-alerts li > i {
+  background: var(--orange);
+}
+
+.adm-alerts li > span {
+  flex: 1;
+}

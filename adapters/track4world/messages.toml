@@ -1,0 +1,7 @@
+# Track4World 扩展包（adapters/track4world）的消息。一行一条：编号 = 模板。
+
+# ---- 节点（nodes.py）
+
+# ---- 跟踪（worker.py）
+"E-TRACK4WORLD-WEIGHTS" = "Track4World 的权重缺 {count} 个参数（如 {example}）：权重文件和代码的版本对不上，管理员重新执行 lab2shot ext install track4world"
+"E-TRACK4WORLD-SMALLSIDE" = "画面 {width:d}x{height:d} 按「处理分辨率」{side:d} 缩成 {w:d}x{h:d}，短边不到 {need:d}：Track4World 的相关金字塔有 5 层，短边小于 {need:d} 时它自己会算到 0 像素。把「处理分辨率」调大（画面越扁越要调大）"

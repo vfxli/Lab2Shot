@@ -1,0 +1,105 @@
+/* ------------------------------------- what surrounds a node on the canvas (split out of styles/08-node-graph.css)
+   The wires' own look, the canvas's controls, the wire the pointer carries, 操作说明, a key cap and the corner mark. */
+
+.react-flow__controls {
+  box-shadow: none !important;
+}
+
+/* the canvas's own controls sit beside the 「?」 in the bottom left corner, not opposite it */
+.flow-controls {
+  position: absolute;
+  left: 46px;
+  bottom: 10px;
+  z-index: var(--z-canvas-ui);
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: var(--r-md);
+}
+
+/* 操作说明: the 「?」 in the graph's bottom left corner with the canvas's
+   own controls beside it, and the table of what the mouse does opened by the pointer resting on it */
+.graph-help {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  z-index: var(--z-canvas-ui);
+}
+
+.graph-help-mark {
+  border-radius: 50%;
+}
+
+.graph-help-panel {
+  position: absolute;
+  left: 0;
+  bottom: 34px; /* above the button and its own tooltip */
+  width: 340px;
+  max-height: calc(100vh - 120px); /* a short window: it scrolls rather than running off the top */
+  overflow-y: auto;
+  padding: var(--sp-3) 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.graph-help-row {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 4px var(--sp-3);
+  align-items: baseline;
+}
+
+.graph-help-title {
+  color: var(--text);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.graph-help-text {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+
+/* the wire the pointer carries: a dashed line over the graph, in the pane's own pixels */
+.wire-line {
+  position: absolute;
+  inset: 0;
+  width: 100%; /* an SVG is a replaced element: without a size it keeps its 300 x 150 default and clips the line */
+  height: 100%;
+  z-index: var(--z-canvas-ui);
+  pointer-events: none;
+}
+
+.wire-line path {
+  fill: none;
+  stroke: var(--text-2);
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+
+.graph:not(.wiring) .wire-line {
+  display: none;
+}
+
+/* while a wire is carried, the ports it can end on stand out and the others step back */
+.graph.wiring .gnode .react-flow__handle.wire-fit {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 55%, transparent);
+}
+
+.graph.wiring .gnode .react-flow__handle.wire-no {
+  opacity: 0.35;
+}
+
+kbd {
+  font-family: var(--font);
+  font-size: var(--fs-2xs);
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--hair-strong);
+  background: var(--raised);
+  color: var(--text-2);
+}
+
+/* 节点各块的宽度规则**只在 08a-node.css 末尾那一条**，别在这里再写一份：两份规则管同一件事会互相打架，
+   把端口块钉成节点宽，输出口整列伸到节点外面。 */

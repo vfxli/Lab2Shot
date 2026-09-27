@@ -1,0 +1,396 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "d4163a6aec7cbdb8bf4f2dcce3b6f056",
+  "name": "镜头标定 · AnyCalib",
+  "intro": "AnyCalib 从一张实拍画面标定相机内参，与镜头模型无关。这张卡交付去畸变的素材、两张 ST-map 和一台相机；扭画面在「STMap」里做，按「LensDistortion」烘出的 ST-map，节点图上看得见。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "lens_calib",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "fit_model",
+   "label": "拟合模型",
+   "target": "lens.fit_model"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 580
+   }
+  },
+  {
+   "id": "lens",
+   "type": "anycalib.calibrate",
+   "label": "AnyCalib 镜头标定",
+   "params": {
+    "samples": 8,
+    "checkpoint": "anycalib_gen",
+    "principal_point": "center",
+    "filmback_mm": 36.0,
+    "fit_model": "simple_radial:1"
+   },
+   "ui": {
+    "x": 320,
+    "y": 340,
+    "on_node": [
+     "fit_model"
+    ]
+   }
+  },
+  {
+   "id": "camnode",
+   "type": "core.create_camera",
+   "label": "创建相机",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "translate": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "rotate": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "width": 1920,
+    "height": 1080
+   },
+   "ui": {
+    "x": 980,
+    "y": 200,
+    "on_node": [
+     "focal_mm",
+     "filmback_mm"
+    ]
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "cam",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "camera"
+   },
+   "ui": {
+    "x": 1300,
+    "y": 0,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "st_u",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "stmap_undistort"
+   },
+   "ui": {
+    "x": 1300,
+    "y": 180,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "st_d",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "stmap_distort"
+   },
+   "ui": {
+    "x": 1300,
+    "y": 440,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1620,
+    "y": 340,
+    "on_node": [
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "undist",
+   "type": "core.lens_distortion",
+   "ui": {
+    "x": 640,
+    "y": 420,
+    "on_node": [
+     "lens_model"
+    ]
+   },
+   "params": {
+    "lens_model": "simple_radial:1",
+    "lens_group": "anycalib"
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "warp",
+   "type": "core.stmap_warp",
+   "label": "STMap",
+   "params": {},
+   "ui": {
+    "x": 980,
+    "y": 700
+   }
+  },
+  {
+   "id": "out_plate",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "undistorted_plate"
+   },
+   "ui": {
+    "x": 1300,
+    "y": 700,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "lens",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "camnode",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "camnode",
+    "camera"
+   ],
+   "to": [
+    "cam",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "st_u",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "st_d",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "undist",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "undist",
+    "undistort_stmap"
+   ],
+   "to": [
+    "st_u",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "undist",
+    "distort_stmap"
+   ],
+   "to": [
+    "st_d",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "warp",
+    "src"
+   ]
+  },
+  {
+   "from": [
+    "undist",
+    "undistort_stmap"
+   ],
+   "to": [
+    "warp",
+    "stmap"
+   ]
+  },
+  {
+   "from": [
+    "warp",
+    "image"
+   ],
+   "to": [
+    "out_plate",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out_plate",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "lens",
+    "focal"
+   ],
+   "to": [
+    "camnode",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "lens",
+    "focal"
+   ],
+   "to": [
+    "undist",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "lens",
+    "filmback"
+   ],
+   "to": [
+    "camnode",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "lens",
+    "filmback"
+   ],
+   "to": [
+    "undist",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "lens",
+    "lens"
+   ],
+   "to": [
+    "undist",
+    "lens"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "lens",
+  "frame": null
+ }
+}

@@ -1,0 +1,25 @@
+# DiffusionLight-Turbo environment (torch 2.0.1+cu118 comes from EnvSpec). The pinned
+# repo is not pip-installed: the worker imports its `relighting` package and
+# inpaint.py straight from third_party/diffusionlight/repo.
+# Versions from upstream's requirements.txt at the pinned commit. Left out:
+# torchvision/torchaudio, datasets (unused by inference), xformers (optional,
+# upstream falls back to PyTorch attention), skylibs + OpenEXR 1.3.9 (EXR I/O of the
+# command-line scripts; need a C++ OpenEXR build) -> the OpenEXR 3.x wheel writes the EXR instead.
+
+diffusers==0.23.0
+transformers==4.34.1
+accelerate==0.21.0
+# diffusers 0.23 imports huggingface_hub.cached_download (removed in 0.26); upstream pins 0.17.3
+huggingface_hub==0.17.3
+numpy==1.24.1
+scikit-image==0.21.0
+Pillow==10.2.0
+tqdm==4.66.1
+# imported by relighting/dataset.py, which inpaint.py imports
+natsort==8.4.0
+# relighting/ball_processor.py (scipy.special.sph_harm); upstream gets it via scikit-image
+scipy==1.11.4
+
+# float32 EXR out. OpenImageIO wheels need numpy>=2, which torch 2.0.1 cannot use;
+# the OpenEXR bindings (same version as the colmap adapter) accept numpy 1.x.
+OpenEXR==3.4.15

@@ -1,0 +1,303 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "802d894c08365c779ec57d4df21ef45b",
+  "author": "Lab2Shot",
+  "created": "2026-09-20T10:00:00",
+  "name": "脚滑清理 · UnderPressure",
+  "intro": "UnderPressure 论文摘要：用神经网络从动作数据估计脚上的地面反作用力，据此得出准确的脚接触标记，再用基于优化的 IK 求解脚部约束消除脚滑。这张卡一并交付脚接触曲线。",
+  "deliverable": "cleanup",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入动画",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "skeleton",
+   "label": "骨骼",
+   "target": "feet.skeleton"
+  },
+  {
+   "name": "margin",
+   "label": "接触余量",
+   "target": "feet.contact_margin"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "skeleton_pick",
+   "label": "哪副骨架",
+   "target": "read.skeletons"
+  }
+ ],
+ "frames": null,
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.import_bvh",
+   "label": "导入 BVH",
+   "params": {
+    "path": "",
+    "skeletons": [],
+    "unit": "cm"
+   },
+   "ui": {
+    "x": 0,
+    "y": 140,
+    "on_node": [
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "feet",
+   "type": "underpressure.footskate",
+   "label": "UnderPressure 脚滑清理",
+   "params": {
+    "skeleton": null,
+    "mapping": [
+     {
+      "name": "pelvis",
+      "label": "髋",
+      "joint": null
+     },
+     {
+      "name": "spine_1",
+      "label": "脊柱 1",
+      "joint": null
+     },
+     {
+      "name": "spine_2",
+      "label": "脊柱 2",
+      "joint": null
+     },
+     {
+      "name": "spine_3",
+      "label": "脊柱 3",
+      "joint": null
+     },
+     {
+      "name": "spine_4",
+      "label": "胸",
+      "joint": null
+     },
+     {
+      "name": "neck",
+      "label": "颈",
+      "joint": null
+     },
+     {
+      "name": "head",
+      "label": "头",
+      "joint": null
+     },
+     {
+      "name": "right_clavicle",
+      "label": "右锁骨",
+      "joint": null
+     },
+     {
+      "name": "right_shoulder",
+      "label": "右上臂",
+      "joint": null
+     },
+     {
+      "name": "right_elbow",
+      "label": "右前臂",
+      "joint": null
+     },
+     {
+      "name": "right_wrist",
+      "label": "右手",
+      "joint": null
+     },
+     {
+      "name": "right_hip",
+      "label": "右大腿",
+      "joint": null
+     },
+     {
+      "name": "right_knee",
+      "label": "右小腿",
+      "joint": null
+     },
+     {
+      "name": "right_ankle",
+      "label": "右脚",
+      "joint": null
+     },
+     {
+      "name": "right_foot",
+      "label": "右脚趾",
+      "joint": null
+     },
+     {
+      "name": "left_clavicle",
+      "label": "左锁骨",
+      "joint": null
+     },
+     {
+      "name": "left_shoulder",
+      "label": "左上臂",
+      "joint": null
+     },
+     {
+      "name": "left_elbow",
+      "label": "左前臂",
+      "joint": null
+     },
+     {
+      "name": "left_wrist",
+      "label": "左手",
+      "joint": null
+     },
+     {
+      "name": "left_hip",
+      "label": "左大腿",
+      "joint": null
+     },
+     {
+      "name": "left_knee",
+      "label": "左小腿",
+      "joint": null
+     },
+     {
+      "name": "left_ankle",
+      "label": "左脚",
+      "joint": null
+     },
+     {
+      "name": "left_foot",
+      "label": "左脚趾",
+      "joint": null
+     }
+    ],
+    "contact_margin": 5
+   },
+   "ui": {
+    "x": 300,
+    "y": 140
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "name": "footlocked",
+    "format": "usd",
+    "unit": "cm"
+   },
+   "ui": {
+    "x": 660,
+    "y": 0,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "curve",
+   "type": "core.output_curves",
+   "label": "曲线输出设置",
+   "params": {
+    "name": "foot_contacts",
+    "format": "csv"
+   },
+   "ui": {
+    "x": 660,
+    "y": 180,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": "",
+    "name": ""
+   },
+   "ui": {
+    "x": 980,
+    "y": 100,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "skeletons"
+   ],
+   "to": [
+    "feet",
+    "character"
+   ]
+  },
+  {
+   "from": [
+    "feet",
+    "character"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "feet",
+    "contacts"
+   ],
+   "to": [
+    "curve",
+    "curves"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "curve",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "feet",
+  "frame": null
+ }
+}

@@ -1,0 +1,39 @@
+.fp-up.fp-waiting .fp-meta,
+.fp-up.fp-paused .fp-meta,
+.fp-bar.fp-waiting i,
+.fp-bar.fp-paused i {
+  color: var(--orange);
+  background-color: var(--orange);
+}
+
+.fp-up.fp-waiting .fp-meta,
+.fp-up.fp-paused .fp-meta {
+  background: none;
+}
+
+.fp-up.fp-failed .fp-meta {
+  color: var(--error);
+}
+
+.fp-bar.fp-failed i {
+  background: var(--error);
+}
+
+.gnode-up.waiting,
+.gnode-up.paused {
+  color: var(--orange);
+}
+
+.gnode-up.failed {
+  color: var(--error);
+}
+
+.view-local {
+  position: absolute;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-hud);
+  white-space: nowrap;
+  color: var(--text-2);
+}

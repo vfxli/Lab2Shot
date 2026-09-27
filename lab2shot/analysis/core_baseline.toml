@@ -1,0 +1,16 @@
+# 核心概念数量的基线：lab2shot/analysis/core_health.py 数现在的核心有多少种数据类型、核心节点、家族、控件、
+# 契约检查、用法检查、手柄、作用域和特例，和这里比。数变多了就是核心在长，要有意为之：改这里的数，
+# 并在 reason 里写一句为什么。
+
+reason = "核心概念的当前基线：数据类型、核心节点、家族、控件、契约检查、用法检查、手柄、作用域、特例各有多少"
+
+[concepts]
+types = 19
+core_nodes = 82
+families = 11
+widgets = 16
+contracts = 9
+expects = 11
+handles = 7
+scopes = 1
+special_cases = 0

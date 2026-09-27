@@ -1,0 +1,215 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "0f92f26336541f5500f11ee098f457ea",
+  "name": "跟踪贴片 · AllTracker",
+  "intro": "AllTracker 估计查询帧到其余每一帧的流场，由此得到长距离的点轨迹，结果是高分辨率的稠密全像素对应。这张卡在参考帧上画一次（修补、纹身、贴图），按 ST-map 贴满整段镜头。",
+  "author": "Lab2Shot",
+  "created": "2026-09-13T09:00:00",
+  "deliverable": "paint",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "paint",
+   "label": "参考帧上画的图",
+   "target": "paint.path"
+  },
+  {
+   "name": "ref_frame",
+   "label": "参考帧",
+   "target": "track.query_frame"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 20
+   }
+  },
+  {
+   "id": "paint",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 200
+   }
+  },
+  {
+   "id": "track",
+   "type": "alltracker.track",
+   "label": "AllTracker 跟踪贴片",
+   "params": {
+    "grid": 0,
+    "query_frame": null,
+    "picks": [],
+    "min_confidence": null,
+    "resolution": 1024
+   },
+   "ui": {
+    "x": 320,
+    "y": 20,
+    "on_node": [
+     "grid",
+     "query_frame"
+    ]
+   }
+  },
+  {
+   "id": "warp",
+   "type": "core.stmap_warp",
+   "label": "STMap",
+   "params": {},
+   "ui": {
+    "x": 660,
+    "y": 180
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "paint",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "paint"
+     },
+     {
+      "name": "layer2",
+      "label": "stmap"
+     },
+     {
+      "name": "layer3",
+      "label": "confidence"
+     }
+    ],
+    "colorspace": null
+   },
+   "ui": {
+    "x": 960,
+    "y": 0,
+    "on_node": [
+     "name"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1280,
+    "y": 0,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "track",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "paint",
+    "image"
+   ],
+   "to": [
+    "warp",
+    "src"
+   ]
+  },
+  {
+   "from": [
+    "track",
+    "stmap"
+   ],
+   "to": [
+    "warp",
+    "stmap"
+   ]
+  },
+  {
+   "from": [
+    "warp",
+    "image"
+   ],
+   "to": [
+    "out",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "track",
+    "stmap"
+   ],
+   "to": [
+    "out",
+    "layer2"
+   ]
+  },
+  {
+   "from": [
+    "track",
+    "confidence"
+   ],
+   "to": [
+    "out",
+    "layer3"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "warp",
+  "frame": null
+ }
+}

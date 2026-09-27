@@ -1,0 +1,59 @@
+/* 视图通知区：舞台左上角、工具栏底下，位置固定不跳（ui/ViewNotices.tsx 的说明） */
+.view-notices {
+  position: absolute;
+  top: var(--sp-2);
+  left: var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-1);
+  pointer-events: none;
+  z-index: var(--z-hud);
+  /* 绝对定位的收缩盒：不给它一个算得出来的宽度，胶囊身上那条 max-width: 45% 就没有参照，
+     四条通知会一起塌成 60 px 并被截断。
+     max-content 让盒子宽到最长那条，再用舞台宽度封顶，长话也不会顶出画面。 */
+  width: max-content;
+  max-width: calc(100% - 2 * var(--sp-2));
+}
+
+/* 直接显示字，不要圆角浮层：一行一句、行首对齐、不换行；
+   画面深浅不定，所以给文字一道细描边，亮背景上也读得清 */
+.view-notices .view-notice {
+  pointer-events: auto;
+  max-width: 100%;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  white-space: nowrap;
+  color: var(--text);
+  text-shadow: var(--text-on-picture);
+}
+
+/* 「你现在看到的不是数据本身」那三种，用同一个颜色（橙，不是红——红留给可能造成生产事故的提醒）。
+   「还没齐」和「我刚替你做了一下」用正常的文字色：它们说的不是质量问题。 */
+.view-notices .notice-proxy,
+.view-notices .notice-local {
+  color: var(--orange-text);
+}
+
+/* 三维的每秒帧数、点数、手柄提示：说的不是质量问题，用次一级的文字色，不抢画面 */
+.view-notices .notice-stats,
+.view-notices .notice-hint,
+.view-notices .notice-camera {
+  color: var(--text-3);
+}
+
+.view-notices .notice-error {
+  color: var(--error-text);
+}
+
+/* 会自己消失的那一种（视图刚替你做了什么）：淡入淡出 */
+.view-notices .notice-did {
+  animation: view-notice-did 4s ease forwards;
+}
+
+@keyframes view-notice-did {
+  0% { opacity: 0; }
+  6% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}

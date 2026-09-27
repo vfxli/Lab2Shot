@@ -1,0 +1,258 @@
+/* The queue, as the editor window and the admin page show it (ui/Queue.tsx, ui/QueueTables.tsx): the running job, the line
+   behind it and the deliveries a finished job left. The cards are ui/gpus.css, the waiting deliveries ui/deliveries.css. */
+
+.q-eta {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+.q-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  user-select: text;
+}
+
+.q-view .notice {
+  margin: 0;
+}
+
+.q-switches {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.q-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-md);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.q-paused {
+  color: var(--orange);
+}
+
+.q-view .sec-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.q-count {
+  color: var(--text-2);
+}
+
+/* 「删除全部」贴在那一行的右端，不挤在「前面任务：0」旁边。
+   右边让开表格单元格那一份左右内边距（--q-cell-x，queueRow.css 的 td/th 用同一个值），
+   这样它的右边缘和下面每一行「加载」的右边缘在同一条线上，不会往右探出 10px */
+.q-view {
+  --q-cell-x: 10px;
+}
+
+.q-view .btn.q-forget-all {
+  margin-left: auto;
+  margin-right: var(--q-cell-x);
+}
+
+.q-hint {
+  font-weight: 400;
+}
+
+.q-empty {
+  color: var(--text-3);
+  font-size: var(--fs-md);
+  padding: 4px 0 8px;
+}
+
+.q-detail {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px 20px;
+  margin: 0;
+}
+
+.q-detail dt {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.q-detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.q-error-full {
+  white-space: pre-wrap;
+  color: #dcaaf7;
+  font: var(--fs-sm) / 1.5 var(--mono);
+  margin: 0;
+}
+
+/* a finished job's deliveries: name, what became of it, a download */
+.q-deliveries {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.q-delivery {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.q-dname {
+  max-width: 220px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+
+/* ------------------------------------------------------------------ the queue window's own rows */
+
+/* ------------------------------------------------------------------ queue (editor 队列 window and /admin) */
+
+.q-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  display: inline-grid;
+  place-items: center;
+}
+
+/* a value the page will not send (the cook's frame range): the error colour until it is right */
+.field.bad,
+.field.bad:focus {
+  border-color: var(--error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 20%, transparent);
+}
+
+.chip.q-ok {
+  background: rgba(48, 209, 88, 0.16);
+  color: var(--green);
+}
+
+.cards-said {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cards-end {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.q-fit-refused {
+  color: var(--orange);
+}
+
+/* the queue's own faint text and the department chip (ui/Queue.tsx, ui/QueueTables.tsx) */
+.chip.q-dept {
+  margin-left: 6px;
+  background: rgba(100, 210, 255, 0.14);
+  color: #9fdcff;
+}
+
+/* a line of the queue that no longer matters (a finished or cancelled job) */
+.q-muted {
+  color: var(--text-3);
+}
+
+/* 计算单元: a job of a 逐项处理 block says how many of its items are through, and how many cards it is on */
+.q-units {
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* 拖拽插队 (ui/rowDrag.ts)：管理员的队列每行左边一个手柄，能拖的可以抓，不能拖的变灰留在原位不跳 */
+.q-grip-cell {
+  width: 22px;
+  padding-right: 0;
+}
+
+.q-grip {
+  display: inline-block;
+  cursor: grab;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1;
+  padding: 0 2px;
+  user-select: none;
+}
+
+.q-grip:hover {
+  color: var(--text);
+}
+
+.q-grip.off {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.q-grip.off:hover {
+  color: var(--text-3);
+}
+
+.q-table tr.drag-over > td {
+  border-top: 1px dashed var(--text-3);
+}
+
+
+/* 一律不折行（结果那一列只是一个状态标记，列都排得下）；只有节点图的名字（用户自己的数据）
+   放不下时省略号 + 悬停看全名。 */
+.q-table th,
+.q-table td {
+  white-space: nowrap;
+}
+
+
+
+.q-out {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.q-out.bad {
+  /* 普通的失败用错误色（紫），不用红——红只留给可能造成生产事故的提醒（见 tokens.css） */
+  color: var(--error-text);
+}
+
+.chip.q-ahead {
+  margin-left: 8px;
+  color: var(--text-2);
+}
+
+/* 节点图的名字是用户自己的数据：它带 data-user-data，切字和整句提示由 styles/01-user-data.css
+   一处统一管（uiKit 测试查的是选择器本身，页面不能自己再写一份省略号）。这里只给它一个宽度上限。 */
+.q-table td .q-title[data-user-data] {
+  display: inline-block;
+  /* 放不下时由它让位（只有用户的数据可以截断，悬停看全名），表格不冒横向滚动条。 */
+  /* 固定布局下这一格的宽度由列分摊决定，这里只保证它按自己那一格切字，不撑开列 */
+  max-width: 100%;
+  vertical-align: bottom;
+}
+
+/* 「我的任务」那一行的「缓存」：一个状态标记。它自己就占「缓存」那一格，不用按最长的字数留宽度，
+   跨行对齐由 queueRow.css 的 .q-line-facts 第五列负责。 */
+.q-cache {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  white-space: nowrap;
+}

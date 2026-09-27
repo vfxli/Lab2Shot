@@ -1,0 +1,164 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "9d007d2e116fff56df26d4c4166385ee",
+  "name": "面部去光照 · OpenDelight",
+  "intro": "OpenDelight 是面向面部外观采集的完全开源、高性能去光照先验。这张卡交付 ACEScg 的基础色和脸部遮罩；逐帧算整段会闪，默认只接一张画面。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "face_texture",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入图片",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_picture",
+   "label": "读取图片",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 240
+   }
+  },
+  {
+   "id": "delight",
+   "type": "opendelight.delight",
+   "label": "OpenDelight 面部去光照",
+   "params": {
+    "enhancer": true,
+    "resolution": 512,
+    "smooth_landmarks": true
+   },
+   "ui": {
+    "x": 320,
+    "y": 240,
+    "on_node": [
+     "resolution",
+     "enhancer"
+    ]
+   }
+  },
+  {
+   "id": "out_a",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "basecolor"
+   },
+   "ui": {
+    "x": 680,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out_m",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "mask"
+   },
+   "ui": {
+    "x": 680,
+    "y": 260,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1000,
+    "y": 140,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "delight",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "delight",
+    "basecolor"
+   ],
+   "to": [
+    "out_a",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "delight",
+    "mask"
+   ],
+   "to": [
+    "out_m",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out_a",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_m",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "delight",
+  "frame": null
+ }
+}

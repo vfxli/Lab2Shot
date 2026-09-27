@@ -1,0 +1,23 @@
+# Fast SAM 3D Body environment (torch comes from EnvSpec). What the pinned
+# sam_3d_body/ package and tools/ actually import at run time; no detectron2
+# (ViTDet is not used: YOLO11-Pose finds people and wrists).
+
+pytorch-lightning
+opencv-python
+yacs
+omegaconf
+einops
+timm
+roma
+braceexpand
+pillow
+huggingface_hub
+scipy
+# the pinned DINOv3 backbone code (third_party/fast_sam_3d_body/dinov3)
+termcolor
+
+# people + wrist keypoints (AGPL-3.0)
+ultralytics==8.4.146
+
+# MoGe-2: field-of-view estimation, same pinned commit as the sam_3d_body extension
+moge @ git+https://github.com/microsoft/MoGe.git@07444410f1e33f402353b99d6ccd26bd31e469e8

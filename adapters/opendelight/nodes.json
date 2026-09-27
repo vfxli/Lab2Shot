@@ -1,0 +1,6 @@
+{
+ "opendelight.delight": {
+  "label": "OpenDelight 面部去光照",
+  "description": "从面部照片或视频帧去掉光照，得到基础色（漫反射颜色，CG 流程里也叫 albedo）和脸部遮罩。逐帧处理，视频会闪。"
+ }
+}

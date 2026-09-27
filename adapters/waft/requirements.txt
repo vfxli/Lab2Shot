@@ -1,0 +1,8 @@
+# WAFT environment (torch comes from EnvSpec). WAFT is not a package: the worker imports its `model`, `utils` and
+# `thirdparty` folders from the pinned repo/. timm builds the ResNet-18 feature layers (their ImageNet weights are
+# replaced by the checkpoint, so nothing is downloaded); scipy and cv2 are imported by upstream modules.
+einops==0.8.2
+numpy==2.4.6
+opencv-python-headless==4.10.0.84
+scipy==1.17.1
+timm==1.0.29

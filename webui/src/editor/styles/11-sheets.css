@@ -1,0 +1,44 @@
+/* What the editor's sheets share. The templates panel has its own rules next to it (editor/templates.css). */
+
+/* a standing mark (src/ui/nodeMarks.ts): one short word on the node's bottom row, the sentence in its tooltip; no
+   taller than the 非商用 badge beside it (no padding, the row's own line height), so a node with it is drawn at the
+   size the layout checker gives every node (onnode walk). Its level gives it its colour: the production-risk red only
+   for P, the ordinary notice colour for the rest */
+.node-mark {
+  flex: none;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-2);
+  /* 不给问号光标（cursor: help）：停留提示是 data-tip 那一套的事，和光标没关系 */
+}
+
+.node-mark[data-level="P"] {
+  color: var(--production-risk);
+}
+
+/* a small paragraph of explanation inside a sheet or a form. The name comes from the template card it was written
+   for; it is also used by the log window, the feedback dialog and the admin forms, so it lives here for the whole site. */
+.tpl-desc {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+
+.sec-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .adm-tile:hover,
+  .welcome-act:hover {
+    transform: none !important; /* the lifts and presses are defined later in the file */
+  }
+}

@@ -1,0 +1,41 @@
+# Mesh4D 官方 requirements.txt 里这条流程真正用到的部分，版本按官方钉死。
+# 官方那份里另外还有 gradio / fastapi / uvicorn（它们自己的网页 demo）、rembg（只在输入是 RGB 时才走，
+# 我们送进去的一律是 RGBA）、realesrgan / basicsr / cupy-cuda12x（贴图那一步，见 docs.md），都不在这里。
+
+# 核心
+transformers==4.46.0
+diffusers==0.30.0
+accelerate==1.1.1
+pytorch-lightning==1.9.5
+huggingface-hub==0.30.2
+safetensors==0.4.4
+
+# 数值
+numpy==1.24.4
+scipy==1.14.1
+einops==0.8.0
+pandas==2.2.2
+
+# 图像
+opencv-python==4.10.0.84
+OpenEXR==3.4.15   # 「前景遮罩」是逐帧 EXR（lab2shot_worker.files.read_mask 要它）
+imageio==2.36.0
+scikit-image==0.24.0
+
+# 网格
+trimesh==4.4.7
+pymeshlab==2022.2.post3
+open3d==0.18.0
+pycpd==2.0.0
+
+# 配置
+omegaconf==2.3.0
+pyyaml==6.0.2
+tqdm==4.66.5
+psutil==6.0.0
+
+# 官方 requirements.txt 里漏写、但代码 import 得到的四个（少一个就起不来）：
+cython==3.3.0     # setup_im2mesh.py 编它那 5 个 Cython 模块要它
+timm==1.0.11      # hy3dshape/models/denoisers/moe_layers.py
+munch==4.0.0      # dataset/custom_dataloader.py 读自己的 yaml
+plyfile==1.1.2    # im2mesh/utils/io.py

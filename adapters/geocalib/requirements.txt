@@ -1,0 +1,8 @@
+# GeoCalib environment (torch comes from EnvSpec). The pinned repo is not pip-installed: the worker imports the
+# `geocalib` package from third_party/geocalib/repo. Upstream's inference dependencies (requirements.txt at the
+# pinned commit): torch, torchvision, opencv-python, kornia; matplotlib is only for its plots and left out.
+
+numpy==2.4.6
+opencv-python-headless==4.10.0.84
+kornia==0.8.3
+kornia-rs==0.1.14

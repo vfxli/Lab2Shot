@@ -1,0 +1,6 @@
+{
+ "alltracker.track": {
+  "label": "AllTracker 跟踪贴片",
+  "description": "AllTracker：从参考帧出发，算出画面上每一个像素在整段镜头里的位置。输出每一帧回到参考帧的 ST-map（在参考帧上画一次修补、纹身、贴图，接「STMap」贴到整段镜头；Nuke 里用 STMap）和置信度，也能取样出 2D 跟踪点。比把运动矢量一帧接一帧串起来不容易漂，可以商用。只要稀疏的 2D 点用「TAPNext++ 2D 跟踪点」。"
+ }
+}

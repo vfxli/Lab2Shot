@@ -1,0 +1,16 @@
+# VideoMaMa environment (torch comes from EnvSpec). VideoMaMa is not pip-installed
+# (upstream's setup.py pulls in training tools: deepspeed, flash_attn, wandb ...).
+# Inference is Stable Video Diffusion's temporal VAE + VideoMaMa's fine-tuned
+# spatio-temporal UNet, both plain diffusers classes: only diffusers is needed.
+# transformers / CLIP are not installed: upstream computes the CLIP image
+# embedding and then replaces it with zeros, so the worker passes the zeros directly.
+
+numpy==2.4.6
+opencv-python-headless==5.0.0.93
+diffusers==0.40.0
+safetensors==0.8.0
+huggingface-hub==1.31.0
+# faster, lower-RAM loading of the 6 GB UNet (diffusers' low_cpu_mem_usage)
+accelerate==1.15.0
+# guide masks arrive as single-channel EXR files (channel "A")
+OpenEXR==3.4.15

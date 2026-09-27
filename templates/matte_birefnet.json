@@ -1,0 +1,131 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "95ea0339431c13e92b7de826e9fda03a",
+  "name": "抠像 · BiRefNet",
+  "intro": "BiRefNet 是用于高分辨率二分图像分割（DIS）的双边参考框架，由定位模块和带双边参考的还原模块组成。这张卡逐帧交付画面主体的 alpha，不用点选，也常给精细抠像当粗遮罩。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "matte_alpha",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "model",
+   "label": "模型",
+   "target": "matte.model"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "matte",
+   "type": "birefnet.matte",
+   "label": "BiRefNet 抠像",
+   "params": {
+    "model": "matting",
+    "fp16": true
+   },
+   "ui": {
+    "x": 320,
+    "y": 0,
+    "on_node": [
+     "model",
+     "resolution"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "alpha"
+   },
+   "ui": {
+    "x": 620,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 940,
+    "y": 0,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "matte",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte",
+    "alpha"
+   ],
+   "to": [
+    "out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "matte",
+  "frame": null
+ }
+}

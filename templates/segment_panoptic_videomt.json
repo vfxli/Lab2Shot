@@ -1,0 +1,156 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "1aa0a4f353b2a26a75b5db5181646d1d",
+  "name": "整画面分割 · VidEoMT",
+  "intro": "VidEoMT 是只有编码器的轻量在线视频分割模型，建在普通的 Vision Transformer 上，空间和时间的推理都在编码器里完成，不依赖专门的目标跟随模块。这张卡不写提示词，把每个像素分到 VIPSeg 124 类，交付带 Cryptomatte 的多层 EXR。",
+  "author": "Lab2Shot",
+  "created": "2026-09-13T12:00:00",
+  "deliverable": "segmentation",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 120
+   }
+  },
+  {
+   "id": "pan",
+   "type": "videomt.panoptic",
+   "label": "VidEoMT 整画面分割",
+   "params": {
+    "resolution": 720,
+    "threshold": 0.8,
+    "min_coverage": 0.8
+   },
+   "ui": {
+    "x": 320,
+    "y": 0
+   }
+  },
+  {
+   "id": "exr",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "panoptic",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "rgba"
+     },
+     {
+      "name": "layer2",
+      "label": "CryptoObject"
+     },
+     {
+      "name": "layer3",
+      "label": "CryptoMaterial"
+     }
+    ],
+    "colorspace": null
+   },
+   "ui": {
+    "x": 640,
+    "y": 80,
+    "on_node": [
+     "name"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 960,
+    "y": 80,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "pan",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "exr",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "pan",
+    "panoptic"
+   ],
+   "to": [
+    "exr",
+    "layer2"
+   ]
+  },
+  {
+   "from": [
+    "pan",
+    "classes"
+   ],
+   "to": [
+    "exr",
+    "layer3"
+   ]
+  },
+  {
+   "from": [
+    "exr",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "pan",
+  "frame": null
+ }
+}

@@ -1,0 +1,24 @@
+# Track4World environment (torch comes from EnvSpec). Track4World is imported from the pinned repo; only what its
+# model and the Depth Anything 3 backbone import is installed (not the viewers, the Gradio app, the SAM 2 / Grounding
+# DINO object selection or the benchmark tools). Versions as upstream's requirements.txt where it pins them.
+numpy==1.26.4
+einops==0.8.1
+omegaconf==2.3.0
+hydra-core==1.3.4
+scipy==1.16.2
+opencv-python-headless==4.10.0.84
+pillow==11.3.0
+tqdm==4.67.1
+matplotlib==3.10.7
+scikit-image==0.25.2
+scikit-learn==1.7.2
+imageio==2.37.0
+plyfile==1.1.3
+trimesh==4.8.3
+# the Depth Anything 3 backbone: its config objects (addict), weights (safetensors) and PyTorchModelHubMixin
+addict==2.4.0
+safetensors==0.6.2
+huggingface_hub==0.35.3
+# the mask the node sends (EXR), as the other extensions read it
+OpenEXR==3.4.15
+# (the authors' utils3d fork is a pinned checkout, Extension.extra_sources)

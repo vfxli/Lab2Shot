@@ -1,0 +1,7 @@
+# CoTracker3 environment (torch comes from EnvSpec). CoTracker itself is not
+# pip-installed: the worker imports the `cotracker` package straight from the
+# pinned repo/ (its setup.py has no dependencies; the model code needs only torch).
+numpy==2.4.6
+opencv-python-headless==4.10.0.84
+# Reads the float EXR masks of the "mask" input (same version as the colmap adapter).
+OpenEXR==3.4.15

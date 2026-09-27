@@ -1,0 +1,45 @@
+/* 我的占用 (ui/Storage.tsx)：队列窗口里的一段 —— 一行「占了多少 / 上限 + 占用条 + 还剩」，只报一个总数。
+   后台「用户」页的分项占用和流量是它自己的样式（admin/UserQuota.tsx 的 .usr-quota-*），和这里不共用。
+   只有布局，颜色、圆角、间距、字号都是 ui/tokens.css 的。 */
+
+.sto {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.sto-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.sto-total {
+  font-size: var(--fs-lg);
+  white-space: nowrap;
+}
+
+.sto-over {
+  color: var(--error-text);
+}
+
+.sto-bar {
+  flex: 1;
+  min-width: 0;
+  height: var(--sp-2);
+  border-radius: 999px;
+  background: var(--fill-strong);
+  overflow: hidden;
+}
+
+.sto-bar i {
+  display: block;
+  width: var(--pct, 0%);
+  height: 100%;
+  background: var(--accent);
+}
+
+/* 满了：条子跟着「已满」换成提醒的颜色（不是红色——红色只给可能造成生产事故的提醒） */
+.sto-bar.over i {
+  background: var(--error-text);
+}

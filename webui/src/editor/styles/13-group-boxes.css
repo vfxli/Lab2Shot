@@ -1,0 +1,155 @@
+/* ---------------------------------------------------------------- group boxes */
+.react-flow__node-box {
+  pointer-events: none !important; /* clicks in the body reach the canvas: box-select, node menu */
+}
+
+.netbox {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--r-sheet);
+  background: color-mix(in srgb, var(--box) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--box) 32%, transparent);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.netbox.selected {
+  border-color: color-mix(in srgb, var(--box) 75%, transparent);
+}
+
+.netbox.collapsed {
+  background: color-mix(in srgb, var(--box) 22%, var(--panel, #1c1c1e));
+  border-color: color-mix(in srgb, var(--box) 55%, transparent);
+}
+
+.netbox-head {
+  pointer-events: all;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 8px;
+  border-radius: 13px 13px 0 0;
+  background: color-mix(in srgb, var(--box) 16%, transparent);
+  color: color-mix(in srgb, var(--box) 40%, #fff);
+  cursor: grab;
+  font-weight: 600;
+  font-size: var(--fs-md);
+  letter-spacing: 0.01em;
+}
+
+.netbox.collapsed .netbox-head {
+  border-radius: 13px;
+  background: transparent;
+}
+
+.netbox-head:active {
+  cursor: grabbing;
+}
+
+.netbox-title {
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: text;
+}
+
+.netbox-title-input {
+  font: inherit;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid color-mix(in srgb, var(--box) 60%, transparent);
+  border-radius: var(--r-md);
+  padding: 2px 6px;
+  outline: none;
+  min-width: 0;
+  width: 160px;
+}
+
+.netbox-fold {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-ctl);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.netbox-fold:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.netbox-fold svg {
+  transition: transform 0.15s;
+}
+
+.netbox-count {
+  font-weight: 500;
+  font-size: 11.5px;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.netbox-colors {
+  margin-left: auto;
+  display: flex;
+  gap: 5px;
+}
+
+.netbox-port {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.netbox-resize-line,
+.netbox-resize-handle {
+  pointer-events: all;
+}
+
+.netbox-resize-line {
+  border-color: transparent !important;
+}
+
+.netbox-resize-handle {
+  width: 9px !important;
+  height: 9px !important;
+  border-radius: 3px;
+  background: var(--box) !important;
+  border: 0 !important;
+}
+
+.pwhy.pover {
+  color: var(--orange);
+}
+
+/* a value output shows its value once known (a constant at once) */
+.port-value {
+  flex: 0 0 auto; /* 它参与节点的宽（08a-node.css 开头的不变量），所以不压缩、不截断 */
+  margin-right: 6px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* where the node's parameters get their values (a focal length over the camera's) */
+.gnode-said {
+  border-top: 0.5px solid var(--hair);
+  padding: 5px 12px 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.gnode-said div + div {
+  margin-top: 2px;
+}
+
+.graph-minimap {
+  border-radius: var(--r-card);
+  overflow: hidden;
+  border: 0.5px solid var(--hair-strong);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+

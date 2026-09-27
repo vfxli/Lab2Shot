@@ -1,0 +1,75 @@
+/* One message, wherever it is said: a square in the level's
+   colour, the node it is about, the words, and its code at the end. The 「消息」 panel beside the node graph lists them
+   by node; nothing else draws a message row of its own. Red belongs to the production-risk level alone. */
+
+.msg-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+  cursor: default;
+}
+
+/* a row in a list that takes the reader to what it is about (the 「消息」 panel): a row of its own to click. One that
+   is only read (the information card's 提醒) sits in the text around it and stays still. */
+.msg-row.go {
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.msg-row.go:hover {
+  background: var(--raised);
+}
+
+.msg-dot {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 0.1em;
+  border-radius: var(--r-xs);
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-3);
+  background: var(--raised);
+}
+
+.msg-row.E .msg-dot,
+.msg-row.B .msg-dot {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 16%, transparent);
+}
+
+.msg-row.P .msg-dot {
+  color: var(--production-risk);
+  background: color-mix(in srgb, var(--production-risk) 16%, transparent);
+}
+
+.msg-row.W .msg-dot {
+  color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 16%, transparent);
+}
+
+.msg-row.N .msg-dot {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.msg-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.msg-code {
+  margin-left: 6px;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+

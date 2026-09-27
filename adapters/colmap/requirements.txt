@@ -1,0 +1,13 @@
+# COLMAP environment. No torch: COLMAP is C++; the official pycolmap wheel for
+# CUDA 12 (same release as COLMAP 4.2.0, built by the COLMAP maintainers) brings
+# the whole library: GPU SIFT (SiftGPU) + CPU SIFT (VLFeat), matching, the
+# incremental and the global (GLOMAP) mapper, bundle adjustment (Ceres).
+pycolmap-cuda12==4.2.0
+# The wheel's CUDA runtime + cuRAND (pycolmap-cuda12 requires cuda-toolkit>=12,<13;
+# pinned for reproducible installs). Works with any driver >= CUDA 12.9.
+cuda-toolkit[cudart,curand]==12.9.1
+
+numpy==2.5.3
+pillow==12.3.0
+# Reads the single-channel float EXR masks of the "mask" input.
+OpenEXR==3.4.15

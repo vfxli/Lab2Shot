@@ -1,0 +1,131 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "c3a7f18d6be24e05ab91d740f2c8e356",
+  "name": "深度图 · UniK3D",
+  "intro": "UniK3D 论文摘要：首个能对任意相机建模的通用单目三维估计方法，不像以往那样假设针孔镜头或校正过的画面，鱼眼和全景也算得出。这张卡逐帧交付真实尺度的深度图和点云；点云是每帧一片，不是整段一套场景点云。",
+  "author": "Lab2Shot",
+  "created": "2026-09-20T10:00:00",
+  "deliverable": "depth_image",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "focal",
+   "label": "已知 Focal Length",
+   "target": "geo.focal_mm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "geo",
+   "type": "unik3d.geometry",
+   "label": "UniK3D 深度图",
+   "params": {
+    "model": "unik3d-vitl",
+    "resolution_level": 9
+   },
+   "ui": {
+    "x": 320,
+    "y": 0,
+    "on_node": [
+     "focal_mm",
+     "model"
+    ]
+   }
+  },
+  {
+   "id": "out_d",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "depth"
+   },
+   "ui": {
+    "x": 620,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 940,
+    "y": 0,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "geo",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "geo",
+    "depth"
+   ],
+   "to": [
+    "out_d",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out_d",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "geo",
+  "frame": null
+ }
+}

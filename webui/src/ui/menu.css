@@ -1,0 +1,139 @@
+/* The site's one menu (ui/Menu.tsx): the node menu (with its search line), a right-click menu, the account menu, the
+   file menu. It floats, so it is glass; a row is 28 px high and a shortcut sits at its right end. Every value is a
+   token. */
+
+.menu {
+  position: fixed;
+  z-index: var(--z-menu);
+  min-width: 200px;
+  /* 宽度跟着最长的那一行走，不截字；只在窗口装不下时才封顶（放置逻辑本来就把菜单整张按进窗口里） */
+  max-width: calc(100vw - 16px);
+  /* 按内容定宽，不按窗口右边还剩多少：fixed 定位的盒子默认「有多少地方用多少」，开在靠右的触发器上
+     就会被窗口右沿压窄、把字压出去；写死 max-content 之后它先量出自己真正的宽，再由上面的放置逻辑整张往左夹 */
+  width: max-content;
+  max-height: 460px;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-sheet);
+  /* 条数超过 max-height 就自己滚，不能用 overflow: hidden——越出去的行会既滚不到也点不着。
+     横向照旧裁：一行放不下的名字在行里自己切（[data-user-data]），不让菜单横着长出去。
+     滚轮落在菜单自己身上不算「点外面」（Menu.tsx 的 close 按 contains 判），所以滚不会把它关掉。 */
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: var(--fs-md);
+  animation: pop var(--t-med) var(--ease);
+}
+
+/* the node menu searches and browses: a line at the top, the list under it, and a size of its own (it holds two
+   columns, and a name and a sentence per row). Its height comes from the component (NodeMenu.tsx MENU_TALL), which
+   also places it, so the box and the window always agree. */
+.menu.wide {
+  max-width: none;
+  max-height: 700px;
+  padding: 0;
+}
+
+/* 搜索框固定高，不被压缩。`.menu` 是列向 flex，input 默认 `flex-shrink: 1`；菜单框的高是写死的
+   （NodeMenu.tsx 的 MENU_TALL），下面浏览区某些分类要的最小高度多一点，flex 就会压它，
+   鼠标在一级分类之间滑动时下面的内容整块跟着上下抖。
+   不变量：框高写死 → 第一行（搜索框）固定高不压缩，剩下的全归浏览区，浏览区自己内部滚动。
+   tests/ui/walk_nodemenu.py 逐个分类悬停，量的那一串里就有这个 input 的高度。 */
+.menu input {
+  flex: 0 0 auto;
+  height: 40px;
+  border: 0;
+  border-bottom: 1px solid var(--hair);
+  background: transparent;
+  padding: 0 14px;
+  font-size: var(--fs-lg);
+  outline: none;
+  user-select: text;
+}
+
+.menu-list {
+  overflow-y: auto;
+  /* 滚动条那道宽度永远留着：不然内容超没超高会让它出现 / 消失，菜单看着就是忽大忽小的。
+     editor/styles/12-preview-bar.css 的左栏同理 */
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 5px;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: var(--r-md);
+  color: var(--text);
+  cursor: default;
+  white-space: nowrap;
+  transition: background-color var(--t-fast) var(--ease);
+}
+
+.menu-item:not(.off):hover,
+.menu-item.active {
+  background: var(--pressed);
+}
+
+.menu-item.off {
+  opacity: 0.5;
+}
+
+/* the row's own name (a walk finds a menu's rows by it) */
+.menu-label {
+  min-width: 0;
+}
+
+/* what the row is about, after its name: a shortcut, a count, a word of explanation — at the right end, faint */
+.menu-desc,
+.menu-item .kbd {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.menu-sep {
+  border: 0;
+  border-top: 1px solid var(--hair);
+  margin: 4px 6px;
+}
+
+/* the node menu's rows carry a category line and a sentence: they may run two lines */
+.menu.wide .menu-item {
+  align-items: flex-start;
+  padding: 6px 8px;
+  white-space: normal;
+}
+
+.menu.wide .menu-desc {
+  white-space: normal;
+}
+
+.menu-cat,
+.menu-group {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  padding: 8px 8px 4px;
+}
+
+.menu-group:first-of-type {
+  padding-top: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu {
+    animation: none;
+  }
+
+  .menu-item {
+    transition: none;
+  }
+}

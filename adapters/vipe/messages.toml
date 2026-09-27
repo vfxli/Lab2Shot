@@ -1,0 +1,13 @@
+# ViPE 扩展包（adapters/vipe）的消息。一行一条：编号 = 模板。
+
+# ---- 解算相机（worker.py）
+"E-VIPE-PRESET" = "ViPE 的配置 {preset} 要用 {instance} / {depth} / {post}，不是这个扩展包安装的模型：这次没有计算。扩展包的代码和 ViPE 版本对不上，管理员重新执行 lab2shot ext install vipe"
+"W-VIPE-FOCALJUMP" = "ViPE 解出的 Focal Length {solved:.0f} px，和单帧估计（GeoCalib 估的 {single:.0f} px）差了 {diff:.0%}：镜头几乎不动或只摇不移时，捆绑调整解不准 Focal Length，人和物体的大小、相机前后移动的幅度都可能跟着错。在「Focal Length」参数里填实拍 Focal Length（说明书或手机相册的 EXIF 里能查到）"
+"W-VIPE-PRINCIPAL" = "ViPE 解出的主点不在画面中心：cx={cx:.1f} cy={cy:.1f} px（画面中心是 {center_x:.1f}, {center_y:.1f}）"
+
+# ---- 深度（「ViPE 深度图」nodes.py / worker.py）
+"E-VIPE-NOPOINTS" = "「点云」口上这份点云一个点都没有：ViPE 的深度图要靠 SLAM 解出来的点定尺度，没有点就算不出来。把「ViPE 相机解算」的「点云」口接到这里"
+"N-VIPE-NOOBJECTS" = "没接「物体分割」：深度图照常算，但画面里走动的人、车也参与了深度对齐，动的地方可能不准。把「ViPE 相机解算」的「物体分割」口接过来就和官方默认跑法一致"
+"E-VIPE-NOSLAMMAP" = "ViPE 解算完没有交出 SLAM 地图：「点云」口交不出结果，「ViPE 深度图」也就没法接。扩展包的代码和 ViPE 版本对不上，管理员重新执行 lab2shot ext install vipe"
+"E-VIPE-NOCAMERA" = "「相机」口上没有相机：「ViPE 深度图」要接「ViPE 相机解算」解出来的那台相机才能算深度图"
+"E-VIPE-CAMFRAMES" = "接进来的相机有 {camera} 帧，这段画面有 {frames} 帧：两边对不上，深度图算不出来。相机和画面要来自同一段镜头"

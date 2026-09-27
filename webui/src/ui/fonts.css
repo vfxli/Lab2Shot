@@ -1,0 +1,45 @@
+/* The page's Latin face and its figures: Geist and Geist Mono, packed with the page (src/fonts/*.woff2, SIL Open Font
+   License 1.1 — src/fonts/LICENSE.txt). Nothing is fetched from a font service: the software runs on the machine it is
+   installed on and never calls out. Chinese falls through to the system's own face, as --font says.
+   The build gives each file a hashed name under /assets and the server hands it out at the level of the code that asked
+   for it (lab2shot/server/access.py): these come with the login page, so anyone gets them. */
+
+@font-face {
+  font-family: "Geist";
+  src: url("../fonts/Geist-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist";
+  src: url("../fonts/Geist-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist";
+  src: url("../fonts/Geist-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("../fonts/GeistMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("../fonts/GeistMono-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}

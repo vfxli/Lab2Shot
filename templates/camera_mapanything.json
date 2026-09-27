@@ -1,0 +1,240 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "1a21bef2bc508037fad9847396c4df9c",
+  "name": "深度与相机 · MapAnything",
+  "intro": "MapAnything 官方自述：端到端训练的 transformer，从画面、标定、位姿、深度图这几类输入回归出场景的真实尺度三维几何。这张卡交付每帧相机、深度图和点云；点云是每帧一张点图、各在这一帧自己的相机里，官方没有合成一份场景点云的输出。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "depth_camera",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "focal",
+   "label": "已知 Focal Length",
+   "target": "ma.focal_mm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 340
+   }
+  },
+  {
+   "id": "ma",
+   "type": "mapanything.reconstruct",
+   "label": "MapAnything 深度与相机",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "step": 1,
+    "model": "main"
+   },
+   "ui": {
+    "x": 320,
+    "y": 340,
+    "on_node": [
+     "focal_mm",
+     "step",
+     "max_frames"
+    ]
+   }
+  },
+  {
+   "id": "smooth",
+   "type": "core.deshake_camera",
+   "label": "相机去抖",
+   "params": {
+    "strength": 6.0,
+    "keep_sudden": true,
+    "rotation": true,
+    "focal": "keep"
+   },
+   "ui": {
+    "x": 680,
+    "y": 180,
+    "on_node": [
+     "strength",
+     "keep_sudden"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "scene"
+   },
+   "ui": {
+    "x": 1000,
+    "y": 0,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "dep",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "depth"
+   },
+   "ui": {
+    "x": 1000,
+    "y": 340,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1360,
+    "y": 180,
+    "on_node": [
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "nuke",
+   "type": "core.output_nuke_camera",
+   "label": "Nuke 相机输出设置",
+   "params": {
+    "name": "camera_nuke"
+   },
+   "ui": {
+    "x": 1000,
+    "y": 180,
+    "on_node": [
+     "name"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "ma",
+    "camera"
+   ],
+   "to": [
+    "smooth",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "ma",
+    "depth"
+   ],
+   "to": [
+    "dep",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "dep",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "smooth",
+    "camera"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "smooth",
+    "camera"
+   ],
+   "to": [
+    "nuke",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "nuke",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "ma",
+    "image"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "smooth",
+  "frame": null
+ }
+}

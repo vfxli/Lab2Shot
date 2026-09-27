@@ -1,0 +1,217 @@
+/* Lab2Shot's design tokens — the one place a colour, a space, a radius, a type size or a layer is a value.
+ Components and pages use var(--…) only;
+ webui/tests/uiKit.test.ts counts the values written anywhere else. Canvas and WebGL code that needs numbers reads
+ platform/palette.ts, checked against these by the same test.
+
+ Three rules the values carry:
+ - what is docked is solid (--window … --lifted-2, --field-bg), only what floats is glass (--glass-*);
+ - colour says two things: a state (--green 完成, --orange 警告, --error 错误, --production-risk 生产风险,
+   --accent 选中和信息) and a data type (the wire colours, api/catalog.ts, fixed after release); everything else is
+   a neutral grey with a cold cast;
+ - sizes sit on a 4 px grid, the type scale has five steps, the radii four. */
+
+@import "./fonts.css";
+
+:root {
+  /* the surfaces, darkest first: the window behind everything, a docked panel, something lifted off it (a button, a
+     node), something lifted again (a pressed segment, a chosen row), the well a value is typed into */
+  --window: #0b0d10;
+  /* the word mark's own four colours (src/brand/): the login page's light, nowhere else — the working pages stay neutral */
+  --brand-cyan: #19e3ff;
+  --brand-blue: #3d6bff;
+  --brand-magenta: #ff3fd0;
+  --brand-orange: #ffb02e;
+  --panel: #13161a;
+  --panel-solid: #13161a;
+  --lifted: #191d22;
+  --lifted-2: #20252b;
+  --field-bg: #0e1115;
+  /* 控件不靠一圈亮边描出轮廓（在暗底上那是浮雕感），靠面本身的明暗分层。这两个是控件的面：静止和悬停 */
+  --ctl-face: #21262d;
+  --ctl-face-hover: #2a3037;
+
+  /* what the pointer adds on any of them, glass included: a light film, never a colour of its own */
+  --raised: rgba(255, 255, 255, 0.05);
+  --raised-hover: rgba(255, 255, 255, 0.08);
+  --pressed: rgba(255, 255, 255, 0.12);
+
+  --hair: rgba(190, 205, 225, 0.08);
+  --hair-strong: rgba(190, 205, 225, 0.15);
+
+  --text: #e6eaf0;
+  --text-2: #a1a9b4;
+  --text-3: #69717c;
+
+  /* selection and information; the one filled main button of a page */
+  --accent: #6aa8ff;
+  --accent-fill: #3b82f6;
+  --accent-soft: rgba(106, 168, 255, 0.14);
+  --green: #43d38b;
+  --orange: #f2b441;
+  /* ordinary errors, refusals, failed and blocked things: purple, never red */
+  --error: #b98cff;
+  /* 透明处的棋盘格（二维视图的背景，以及背景下拉里那一格小样）：值在 platform/palette.ts，这里跟着它 */
+  --checker-light: #4a4a4e;
+  --checker-dark: #323234;
+  /* red is kept for production-risk marks: an estimated distortion, a plate that never went through
+     the lens grid; never for ordinary errors */
+  --production-risk: #ff5b4f;
+  /* the camera's yellow: a mark that wants the eye without saying error (a pending value, a 非商用 label) */
+  --yellow: #ffd60a;
+  --wired: #f4b393; /* a parameter a wire drives: its socket, and where its value comes from */
+
+  /* 逐项处理 blocks are told apart by the colour of their frame (editor/BlockFrame.tsx): a block
+     name means nothing about state, so these are neutral, cool and deliberately none of the status colours (accent,
+     green, orange, error purple, production red, yellow) and none of the data types' (api/catalog.ts) */
+  --block-1: #7a8ca8;
+  --block-2: #6f9691;
+  --block-3: #8d86a6;
+  --block-4: #8a9196;
+
+  /* radii: a tag or a key cap, a control, a field or a menu row, a card or a panel, a dialog.
+     偏大的一套：再小（如 5/6/10/14）在 1× 屏上看着接近直角 */
+  --r-xs: 5px;
+  --r-ctl: 7px;
+  --r-md: 9px;
+  --r-card: 13px;
+  --r-panel: 13px;
+  --r-sheet: 18px;
+  --r-hero: 24px;
+
+  /* shadows: a docked panel, a card lifted on hover, anything floating over the page */
+  --shadow-panel: 0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 12px 32px rgba(0, 0, 0, 0.32);
+  --shadow-lift: 0 6px 18px rgba(0, 0, 0, 0.35);
+  --shadow-float: 0 18px 48px rgba(0, 0, 0, 0.45);
+  /* 画面上直接写的字（视图通知区）：底下是用户的画面，深浅不定，所以给一道细描边而不是加个浮层底 */
+  --text-on-picture: 0 1px 2px rgba(0, 0, 0, 0.85), 0 0 2px rgba(0, 0, 0, 0.9);
+
+  /* type: a hint, a dense row (tables, node bodies), body text, a section heading, a panel title, a page title */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 12.5px;
+  --fs-lg: 14px;
+  --fs-xl: 18px;
+  --fs-2xl: 22px;
+
+  /* motion: quick and quiet; prefers-reduced-motion turns it all off (below) */
+  --ease: cubic-bezier(0.2, 0.8, 0.3, 1);
+  --t-fast: 120ms;
+  --t-med: 170ms;
+
+  /* Glass: the one material of everything that floats over the page (menus, pull-down lists, popovers, dialogs,
+     tooltips, pills over the viewer and the node graph). Docked surfaces (nodes, the parameter panel, tables,
+     the queue, the admin pages) stay solid. Tuned here only; a solid fallback below. */
+  --glass-bg: rgba(24, 28, 34, 0.52); /* menus, dialogs, tooltips, pills */
+  --glass-bg-strong: rgba(24, 28, 34, 0.66); /* a layer over a picture (the graph, the plate): denser, so words keep their contrast */
+  --glass-blur: 28px;
+  --glass-filter: blur(var(--glass-blur)) saturate(1.9) brightness(1.06);
+  --glass-edge: rgba(255, 255, 255, 0.1);
+  /* clear glass (the login card): flat, no sheen and no raised rim — light through a pane, not a bevel */
+  --glass-clear-bg: rgba(255, 255, 255, 0.055);
+  --glass-clear-edge: rgba(255, 255, 255, 0.1);
+  --glass-clear-filter: blur(32px) saturate(1.5);
+  --glass-clear-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+  --field-soft: rgba(255, 255, 255, 0.07); /* a field on clear glass */
+  --glass-highlight: rgba(255, 255, 255, 0.18); /* the specular line along the top edge */
+  --glass-rim: rgba(255, 255, 255, 0.22); /* the brightest point of the rim of light around the edge */
+  /* the rim itself (ui/glass.css .glass::before): brightest at the top-left and bottom-right corners, nearly out along
+     the way — the one thing that makes the material read as glass rather than as a grey box */
+  --glass-sheen: linear-gradient(160deg, var(--glass-rim), rgba(255, 255, 255, 0.04) 35%, rgba(255, 255, 255, 0.02) 65%, rgba(255, 255, 255, 0.14));
+  --glass-depth: var(--shadow-float); /* soft and low: no outline */
+  --glass-shadow: inset 0 1px 0 var(--glass-highlight), inset 0 -1px 0 rgba(0, 0, 0, 0.25), var(--glass-depth);
+  --glass-static-bg: rgba(24, 28, 34, 0.72); /* over the WebGL view: no blur to redraw every frame, so a denser tint */
+  --veil-bg: rgba(7, 8, 10, 0.72); /* the whole window dimmed behind something that stops the page */
+  --veil-filter: blur(6px);
+
+  /* the one entry point's rim (「模板」, ui/glow.css): the data types' wire colours as they are set in the catalogue
+     (api/catalog.ts, the product's contract) — here only as decoration, turning once every --entry-turn */
+  --entry-palette: #64d2ff, #ffd60a, #ff375f, #bf5af2, #66d4cf, #64d2ff;
+  --entry-turn: 6s;
+
+  /* the hover glow: a thin rainbow light runs once around a control's edge (ui/glow.css) */
+  --glow-duration: 550ms; /* short: the glow is gone soon after the pointer arrives */
+  --glow-width: 1px;
+  --glow-opacity: 0.85;
+  --glow-palette: #ff7a7a, #ffcf5c, #7dff9a, #5cd6ff, #b18cff, #ff7a7a;
+
+  /* Chinese is the system's own face (微软雅黑 / 苹方); Latin and figures are Geist, packed with the page
+     (ui/fonts.css, OFL) — nothing is fetched from the network. */
+  --font: "Geist", "PingFang SC", "Microsoft YaHei UI", "Noto Sans SC", system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+
+  /* text on a colour, and the lighter text of each alert colour (a label on its tinted background) */
+  --on-accent: #fff;
+  --accent-text: #a9cbff;
+  --orange-text: #f6cf82;
+  --error-text: #d6bdff;
+  --risk-text: #ff9c93;
+
+  /* a state's own tint and edge, for the few places a whole box carries the state (a 需重启 chip, a waiting banner,
+     an approved row, a well sunk into a panel) — the same four meanings as the text colours above */
+  --orange-soft: rgba(242, 180, 65, 0.13);
+  --orange-edge: rgba(242, 180, 65, 0.35);
+  --green-edge: rgba(67, 211, 139, 0.35);
+  --accent-edge: rgba(106, 168, 255, 0.5);
+  --well: rgba(0, 0, 0, 0.3); /* a recessed area on a panel: code, a log, a picture's mat */
+
+  /* control surfaces: a segmented control's or a switch's track, its chosen segment */
+  --fill-strong: rgba(190, 205, 225, 0.14);
+  --seg-on: var(--lifted-2);
+
+  /* spacing, on a 4 px grid: inside a control, between controls, a row, a group, a section */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+
+  /* layers, lowest first: marks over the viewer, controls over the canvas, a popover, a sheet over the page, the menu
+     it opened, the unsaved-delivery notice, the restart veil, the server banner, the login over the page, the tooltip.
+     菜单在弹窗之上：Menu 挂在 document.body 上（portal），弹窗里点开的下拉如果排在弹窗下面，就被遮罩挡住点不开。
+     菜单是开它的那一层开的，永远压在它上面。 */
+  --z-under: -1;
+  --z-hud: 2;
+  --z-hud-note: 3;
+  --z-hud-open: 4; /* the top HUD while a popover it opened is up: over the stage's foot (fps, 视角, 框显) */
+  --z-canvas-card: 4;
+  --z-canvas-ui: 5;
+  --z-popover: 40;
+  --z-sheet: 60;
+  --z-menu: 70; /* 弹窗里开的菜单要压在弹窗上（上面那段） */
+  --z-notice: 85;
+  --z-veil: 900;
+  --z-server-banner: 950;
+  --z-login: 990;
+  --z-tip: 1000;
+
+  color-scheme: dark;
+}
+
+/* a browser without backdrop blur, or a viewer who asked for less transparency: the same layers, solid */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --glass-bg: #1a1e23;
+    --glass-clear-bg: #1a1e23;
+    --glass-bg-strong: #1a1e23;
+  }
+}
+
+/* the two design values the editor's own surfaces add. The sizes a node has (title row 26, port row 16, port dot 8, the 3 px category bar) are geometry, not design
+   values, and stay in editor/styles/08-node-graph.css beside the shape they make. */
+:root {
+  --fs-2xs: 10.5px; /* below --fs-xs: a node's footer, its state word, a block's title */
+  --r-node: 8px;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-bg: #1a1e23;
+    --glass-bg-strong: #1a1e23;
+    --glass-filter: none;
+    --glass-sheen: none;
+    --glass-static-bg: #1a1e23;
+    --veil-bg: #0c0c0e;
+    --veil-filter: none;
+    --glass-highlight: transparent;
+  }
+}

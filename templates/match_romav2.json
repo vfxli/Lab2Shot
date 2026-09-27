@@ -1,0 +1,296 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "7477490c915e1e29505354d37e43371f",
+  "name": "图像对位 · RoMa v2",
+  "intro": "稠密特征匹配要估计同一个三维场景两张画面之间的全部对应关系；RoMa v2 用新的匹配架构和损失，精度明显超过前几代。这张卡把参考图对齐到画面上，交付对齐后的参考图、ST-map、置信度和两边的匹配点。",
+  "author": "Lab2Shot",
+  "created": "2026-09-13T09:00:00",
+  "deliverable": "match",
+  "owner": "admin",
+  "updated": "2026-09-26T20:46:02"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "画面",
+   "target": "read.path"
+  },
+  {
+   "name": "reference",
+   "label": "参考图",
+   "target": "ref.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 40
+   }
+  },
+  {
+   "id": "ref",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 220
+   }
+  },
+  {
+   "id": "match",
+   "type": "romav2.match",
+   "label": "RoMa v2 图像对位",
+   "params": {
+    "setting": "precise",
+    "matches": 2000
+   },
+   "ui": {
+    "x": 320,
+    "y": 20,
+    "on_node": [
+     "setting",
+     "matches"
+    ]
+   }
+  },
+  {
+   "id": "warp",
+   "type": "core.stmap_warp",
+   "label": "STMap",
+   "params": {},
+   "ui": {
+    "x": 640,
+    "y": 120
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "aligned",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "aligned"
+     },
+     {
+      "name": "layer2",
+      "label": "stmap"
+     },
+     {
+      "name": "layer3",
+      "label": "confidence"
+     }
+    ],
+    "colorspace": null
+   },
+   "ui": {
+    "x": 940,
+    "y": 0,
+    "on_node": [
+     "name"
+    ]
+   }
+  },
+  {
+   "id": "pts",
+   "type": "core.output_tracks",
+   "label": "2D 跟踪点输出设置",
+   "params": {
+    "name": "matches_plate",
+    "format": "3de",
+    "origin": "bottom_left",
+    "min_visible": 1
+   },
+   "ui": {
+    "x": 940,
+    "y": 200,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "rpts",
+   "type": "core.output_tracks",
+   "label": "2D 跟踪点输出设置",
+   "params": {
+    "name": "matches_reference",
+    "format": "3de",
+    "origin": "bottom_left",
+    "min_visible": 1
+   },
+   "ui": {
+    "x": 940,
+    "y": 380,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1260,
+    "y": 200,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "match",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "ref",
+    "image"
+   ],
+   "to": [
+    "match",
+    "other"
+   ]
+  },
+  {
+   "from": [
+    "ref",
+    "image"
+   ],
+   "to": [
+    "warp",
+    "src"
+   ]
+  },
+  {
+   "from": [
+    "match",
+    "stmap"
+   ],
+   "to": [
+    "warp",
+    "stmap"
+   ]
+  },
+  {
+   "from": [
+    "warp",
+    "image"
+   ],
+   "to": [
+    "out",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "match",
+    "stmap"
+   ],
+   "to": [
+    "out",
+    "layer2"
+   ]
+  },
+  {
+   "from": [
+    "match",
+    "confidence"
+   ],
+   "to": [
+    "out",
+    "layer3"
+   ]
+  },
+  {
+   "from": [
+    "match",
+    "matches"
+   ],
+   "to": [
+    "pts",
+    "tracks"
+   ]
+  },
+  {
+   "from": [
+    "match",
+    "other_matches"
+   ],
+   "to": [
+    "rpts",
+    "tracks"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "pts",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "rpts",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "match",
+  "frame": null
+ }
+}

@@ -1,0 +1,199 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "c0747e33821e116ef571f349249e04a5",
+  "name": "深度图 · Video Depth Anything 定尺度",
+  "intro": "Video Depth Anything 官方自述：基于 Depth Anything V2，任意长度的视频都能算，质量、一致性和泛化能力不打折。这张卡再按 MoGe 的真实尺度深度图把它定到厘米。",
+  "author": "Lab2Shot",
+  "created": "2026-09-12T12:00:00",
+  "deliverable": "depth_video",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "fit",
+   "label": "拟合",
+   "target": "align.fit"
+  },
+  {
+   "name": "focal",
+   "label": "Focal Length",
+   "target": "moge.focal_mm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 200
+   }
+  },
+  {
+   "id": "vda",
+   "type": "videodepthanything.depth",
+   "label": "Video Depth Anything 深度图",
+   "params": {
+    "model": "small",
+    "resolution": 518,
+    "fp16": true
+   },
+   "ui": {
+    "x": 320,
+    "y": 0,
+    "on_node": [
+     "model",
+     "resolution"
+    ]
+   }
+  },
+  {
+   "id": "moge",
+   "type": "moge.geometry",
+   "label": "MoGe 深度图与法线",
+   "params": {
+    "model": "Ruicheng/moge-3-vitl",
+    "resolution_level": 9
+   },
+   "ui": {
+    "x": 320,
+    "y": 200,
+    "on_node": [
+     "focal_mm",
+     "model"
+    ]
+   }
+  },
+  {
+   "id": "align",
+   "type": "core.depth_align",
+   "label": "深度对齐",
+   "params": {
+    "fit": "shot"
+   },
+   "ui": {
+    "x": 720,
+    "y": 100,
+    "on_node": [
+     "fit"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "depth"
+   },
+   "ui": {
+    "x": 1020,
+    "y": 100,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1340,
+    "y": 100,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "vda",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "moge",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "vda",
+    "disparity"
+   ],
+   "to": [
+    "align",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "moge",
+    "depth"
+   ],
+   "to": [
+    "align",
+    "reference"
+   ]
+  },
+  {
+   "from": [
+    "align",
+    "depth"
+   ],
+   "to": [
+    "out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "align",
+  "frame": null
+ }
+}

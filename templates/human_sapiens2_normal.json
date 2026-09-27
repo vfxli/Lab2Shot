@@ -1,0 +1,125 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "2918f16c47b806c4a5bd39841c48b1f1",
+  "name": "法线图 · Sapiens2",
+  "intro": "Sapiens2 是一组高分辨率 transformer，面向以人为中心的视觉任务，重点在泛化、通用和高保真输出；法线估计的角度误差比第一代低 45.6%。这张卡按人裁切后逐人交付人体法线图。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "normal_map",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "nrm",
+   "type": "sapiens2.normal",
+   "label": "Sapiens2 人体法线",
+   "params": {
+    "model_size": "1b",
+    "fp16": true
+   },
+   "ui": {
+    "x": 320,
+    "y": 0,
+    "on_node": [
+     "model_size"
+    ]
+   }
+  },
+  {
+   "id": "out_n",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "normal"
+   },
+   "ui": {
+    "x": 640,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 960,
+    "y": 0,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "nrm",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "nrm",
+    "normal"
+   ],
+   "to": [
+    "out_n",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out_n",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "nrm",
+  "frame": null
+ }
+}

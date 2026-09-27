@@ -1,0 +1,43 @@
+/* A row of colours to pick one from (ui/Swatches.tsx); sm on a node graph's network box. */
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 2px 0;
+}
+
+.swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--c);
+  border: 0.5px solid var(--hair-strong);
+  cursor: default;
+}
+
+.swatch.on {
+  box-shadow: 0 0 0 2px var(--panel-solid), 0 0 0 3.5px var(--accent);
+}
+
+.swatches.sm {
+  gap: 5px;
+  padding: 0;
+}
+
+.swatches.sm .swatch {
+  width: 11px;
+  height: 11px;
+  border: 0;
+  opacity: 0.75;
+}
+
+.swatches.sm .swatch.on,
+.swatches.sm .swatch:hover {
+  opacity: 1;
+}
+
+/* 现在选不了：和别处的「不可用」一样淡下去（ui/Button.css、parts.css 的 0.5 左右），位置不变 */
+.swatch:disabled {
+  opacity: 0.5;
+}

@@ -1,0 +1,188 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "2f0998c6599da944d4d77a89e783ecb0",
+  "name": "相机解算 · COLMAP",
+  "intro": "COLMAP 官方自述是通用的运动恢复结构（SfM）与多视图立体（MVS）流程，成组画面无论有序无序都能算。这张卡用它解算每帧相机，并交付一层稀疏点云。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "camera_traj",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "scale",
+   "label": "尺度",
+   "target": "sfm.unit_cm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 140
+   }
+  },
+  {
+   "id": "sfm",
+   "type": "colmap.camera_solve",
+   "label": "COLMAP 相机解算",
+   "params": {
+    "mapper": "global",
+    "matcher": "sequential",
+    "fit_model": "SIMPLE_PINHOLE",
+    "step": 1,
+    "resolution": 2000,
+    "unit_cm": 100.0,
+    "sift_gpu": false
+   },
+   "ui": {
+    "x": 320,
+    "y": 140,
+    "on_node": [
+     "mapper",
+     "step",
+     "resolution",
+     "fit_model"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "scene"
+   },
+   "ui": {
+    "x": 640,
+    "y": 160,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1000,
+    "y": 80,
+    "on_node": [
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "nuke",
+   "type": "core.output_nuke_camera",
+   "label": "Nuke 相机输出设置",
+   "params": {
+    "name": "camera_nuke"
+   },
+   "ui": {
+    "x": 640,
+    "y": 0,
+    "on_node": [
+     "name"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "sfm",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "sfm",
+    "camera"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "sfm",
+    "points"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "sfm",
+    "camera"
+   ],
+   "to": [
+    "nuke",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "nuke",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "sfm",
+  "frame": null
+ }
+}

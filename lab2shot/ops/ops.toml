@@ -1,0 +1,30 @@
+# 算法目录：每条算法占一行（id = 一份描述）。新增算法只需修改本文件，两个执行器无需改动。
+#
+# 词汇表以及精度、取整的强制规定见 vocab.py；服务器执行器为 run.py，浏览器执行器为 webui/src/ops/run.ts。
+# 浏览器端目录（webui/src/ops/ops.gen.ts）由 tools/gen_ops_ts.py 从本文件生成，本文件是唯一数据源。
+#
+# 节点只声明所用算法的 id（NodeDef.ops），算法定义集中在本文件，便于各节点共用。
+
+[ops]
+
+# ---------------- 图像合成（「图像合成」core.image_merge 的六种运算，与 Nuke 的 Merge 同名）
+# a = 图像（任意通道数），b = 遮罩（单通道，自动广播到 a 的每个通道）。
+# 结果一律不钳位（相加可以超过 1，属预期行为），见 vocab 第 2 条强制规定。
+"image.merge.multiply" = { kind = "pixel", expr = "a * b", desc = "留下：只保留遮罩里的那块，其余变黑" }
+"image.merge.stencil"  = { kind = "pixel", expr = "a * (1 - b)", desc = "挡掉：把遮罩里的那块抹黑（Nuke 的 stencil），比如解相机前挡掉走动的人" }
+"image.merge.plus"     = { kind = "pixel", expr = "a + b", desc = "相加：逐像素相加，不看 alpha" }
+"image.merge.minus"    = { kind = "pixel", expr = "a - b", desc = "相减：逐像素相减，不看 alpha" }
+"image.merge.min"      = { kind = "pixel", expr = "min(a, b)", desc = "取小：逐像素取较小的那个" }
+"image.merge.max"      = { kind = "pixel", expr = "max(a, b)", desc = "取大：逐像素取较大的那个" }
+
+# ---------------- 人物框转遮罩（「人物框转遮罩」core.boxes_mask）
+# axis：像素沿一条轴被框覆盖的比例（p = 像素坐标，lo/hi = 框在该轴上的两端）。
+#       软边由此产生：框边落在像素内部时，该像素按覆盖比例计入（抗锯齿）。
+#       改为硬边属于结构性差异，会被对照检查拦下（vocab 第 4 条强制规定）。
+# combine：两条轴合成为像素覆盖率的方式；accumulate：多个框重叠时的合并方式。
+"boxes.to_mask" = { kind = "boxes.paint", axis = "clamp(min(p + 1, hi) - max(p, lo), 0, 1)", combine = "x * y", accumulate = "max", base = 0.0, desc = "人物框 → 框里是 1 的遮罩（原画面大小），框的边按覆盖率抗锯齿" }
+
+# ---------------- 选取条目
+# 输出的是位置而非内容；未能选中的条目原样返回，由节点决定提示内容（执行器不产生消息）。
+"items.take_one" = { kind = "items.pick", rules = ["index", "name"], count = "one", desc = "从一条列表里取出一条：按序号（从 1 数）或者按名字" }
+"people.select"  = { kind = "items.pick", rules = ["first", "top", "all", "ids", "at_point"], count = "any", desc = "从人物框里挑人：最显眼的一个（第一条）、最显眼的前几个、全部、按编号、在 2D 视图里点到的" }

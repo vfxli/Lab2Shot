@@ -1,0 +1,8 @@
+/* What every page of the site shares: the marker on the user's own data, the window frame, the top bar. A page's own
+   rules are its own bundle (styles/editor.css, help.css, admin.css), imported by that page and loaded with it; a kit
+   component's rules sit next to it in ui/ and come with the component. */
+
+@import "../ui/parts.css";
+@import "./01-user-data.css";
+@import "./02-app-frame.css";
+@import "./03-top-bar.css";

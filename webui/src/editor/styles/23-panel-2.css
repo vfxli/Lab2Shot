@@ -1,0 +1,131 @@
+.hdetail {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.hgroup-pick {
+  margin-left: auto;
+  height: 18px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--raised);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  opacity: 0;
+}
+
+.hrow:hover .hgroup-pick,
+.hrow.focus .hgroup-pick {
+  opacity: 1;
+}
+
+.hgroup-pick:hover {
+  background: var(--raised-hover);
+  color: var(--text);
+}
+
+.htree-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.htree-count {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 320px;
+}
+
+.htree-gone {
+  color: var(--error);
+}
+
+/* 数据信息: the node's inputs and its outputs, one row each: the port's name, what the
+   result actually is (the server's summary), and 复制到 Nuke where the result carries text for it. */
+.data-side {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: var(--sp-2);
+  align-items: baseline;
+  margin-bottom: var(--sp-1);
+}
+
+.data-side-name {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.data-ports {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.data-port {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-height: 20px;
+  min-width: 0;
+}
+
+.data-port-name {
+  /* 按内容定宽，最小 72px，而非固定为 72px：固定宽度时，`nowrap` 的长名称（如「已知 Focal Length」）
+     会覆盖右侧一列的文字。文字不得换行或截断，重叠更不可接受。 */
+  flex: 0 0 auto;
+  min-width: 72px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  white-space: nowrap;
+  /* 不使用问号光标（节点上同理，见 08a-node.css）。悬停提示仍然存在，由 data-tip 负责，与光标无关 */
+}
+
+/* 数据内容说明：每项一行，名称一列、值一列，不串联为一长条，也不使用 `nowrap + overflow:hidden`
+   （文字不得截断）。名称列按内容定宽（`max-content`），值列为 `minmax(0, 1fr)`；弹性轨道一律写作
+   minmax(0,1fr) 而非 1fr（1fr 的最小宽度为内容宽度，长值会撑破网格）。 */
+.data-port-said {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--sp-2);
+  row-gap: 1px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  /* 不使用问号光标（节点上同理，见 08a-node.css）。悬停提示仍然存在，由 data-tip 负责，与光标无关 */
+}
+
+/* 提醒: everything the node has to say now, whole (the node's own footer keeps a short word only).
+   The site's one message row (ui/MessageRow.tsx) draws each of them; a sentence may run to a second line, its level
+   square and its code never do. */
+.data-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+/* 摘要的一项：名称（暗色）一列，值（亮色）一列，各占一行 */
+.data-port-said > .said-item {
+  display: contents;
+}
+
+.said-name {
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.said-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

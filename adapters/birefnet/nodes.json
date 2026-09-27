@@ -1,0 +1,6 @@
+{
+ "birefnet.matte": {
+  "label": "BiRefNet 抠像",
+  "description": "逐帧抠出画面主体（人、物体、动物），输出 0–1 的 alpha。不用点选，模型自己判断主体；每帧单独计算。要发丝级软边接「MatAnyone 2 精细抠像」或「VideoMaMa 精细抠像」精修，要按提示词挑物体用「SAM 3 视频分割」。"
+ }
+}

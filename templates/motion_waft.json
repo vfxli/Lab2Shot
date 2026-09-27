@@ -1,0 +1,201 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "4c1f7a6e58d94b2fa0c3e5d71b8f6a29",
+  "name": "运动矢量 · WAFT",
+  "intro": "WAFT 是简单有效的光流方法，和 RAFT 相似，但把代价体换成高分辨率的扭曲，精度更好、显存更省，在 Spring、Sintel、KITTI 上都排第一。这张卡交付 Nuke 能读的多层 EXR：运动矢量、置信度和遮挡。",
+  "author": "Lab2Shot",
+  "created": "2026-09-20T10:00:00",
+  "deliverable": "motion",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "resolution",
+   "label": "处理分辨率",
+   "target": "flow.resolution"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 140
+   }
+  },
+  {
+   "id": "flow",
+   "type": "waft.flow",
+   "label": "WAFT 运动矢量",
+   "params": {
+    "resolution": 960
+   },
+   "ui": {
+    "x": 320,
+    "y": 140,
+    "on_node": [
+     "resolution"
+    ]
+   }
+  },
+  {
+   "id": "occ",
+   "type": "core.motion_occlusion",
+   "label": "遮挡遮罩",
+   "params": {
+    "tolerance": 1.0
+   },
+   "ui": {
+    "x": 620,
+    "y": 0,
+    "on_node": [
+     "tolerance"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "motion",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "motion"
+     },
+     {
+      "name": "layer2",
+      "label": "confidence"
+     },
+     {
+      "name": "layer3",
+      "label": "occluded"
+     },
+     {
+      "name": "layer4",
+      "label": "revealed"
+     }
+    ],
+    "colorspace": null
+   },
+   "ui": {
+    "x": 960,
+    "y": 120,
+    "on_node": [
+     "name"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1280,
+    "y": 120,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "flow",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "flow",
+    "flow"
+   ],
+   "to": [
+    "occ",
+    "flow"
+   ]
+  },
+  {
+   "from": [
+    "flow",
+    "flow"
+   ],
+   "to": [
+    "out",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "flow",
+    "confidence"
+   ],
+   "to": [
+    "out",
+    "layer2"
+   ]
+  },
+  {
+   "from": [
+    "occ",
+    "occluded"
+   ],
+   "to": [
+    "out",
+    "layer3"
+   ]
+  },
+  {
+   "from": [
+    "occ",
+    "revealed"
+   ],
+   "to": [
+    "out",
+    "layer4"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "flow",
+  "frame": null
+ }
+}

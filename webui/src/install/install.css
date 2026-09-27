@@ -1,0 +1,258 @@
+/* 装扩展包那一套的样子（install/Install.tsx 的控件、体检清单、步骤条、安装日志，install/Manual.tsx 的
+   手动下载收件夹和许可协议），由后台管理页的「扩展包」那一区使用（admin/admin.css 引它）。
+
+   控件本身只管自己长什么样，不管它坐在哪：和周围的分隔线由容器自己写。 */
+
+@import "../ui/log.css"; /* 安装日志用站点唯一那块日志底（.server-log），不自成一套 */
+
+.inst,
+.inst-ctl {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.inst-ctl {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.inst-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.inst-note {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.inst-note.err {
+  color: var(--error);
+}
+
+/* 安装日志：站点唯一那块日志底（ui/log.css），只把高度限在弹层里 */
+.inst-log {
+  max-height: 320px;
+}
+
+.inst-log .lv-E,
+.inst-log .lv-B {
+  color: var(--error);
+}
+
+.inst-log .lv-W {
+  color: var(--yellow);
+}
+
+/* 步骤条：一步一段，颜色说它的状态 */
+.inst-steps {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.inst-step {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.inst-step i {
+  align-self: stretch;
+  height: 5px;
+  border-radius: var(--r-xs);
+  background: var(--hair-strong);
+}
+
+.inst-steps.compact .inst-step i {
+  height: 4px;
+}
+
+.inst-step.running {
+  color: var(--text);
+}
+
+.inst-step.running i {
+  background: var(--accent);
+  animation: inst-pulse 1.2s ease-in-out infinite;
+}
+
+.inst-step.done i {
+  background: var(--green);
+}
+
+.inst-step.skipped i {
+  background: color-mix(in srgb, var(--green) 45%, transparent);
+}
+
+.inst-step.failed {
+  color: var(--error);
+}
+
+.inst-step.failed i {
+  background: var(--error);
+}
+
+.inst-step.cancelled i {
+  background: var(--text-3);
+}
+
+@keyframes inst-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.inst-state {
+  font-size: var(--fs-md);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* 任务状态那一枚标签用零件的胶囊 .chip（ui/parts.css），只把面染成自己那种颜色 */
+.inst-job-state {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.inst-job-state.failed {
+  color: var(--error);
+}
+
+.inst-job-state.done {
+  color: var(--green);
+}
+
+/* 安装弹层：体检清单 → 开始安装 → 步骤条和日志 */
+.inst-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.inst-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inst-check {
+  display: grid;
+  grid-template-columns: 16px 64px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+}
+
+.inst-check .kind {
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.inst-check .mark {
+  text-align: center;
+}
+
+.inst-check.ok .mark {
+  color: var(--green);
+}
+
+.inst-check.warning .mark {
+  color: var(--yellow);
+}
+
+.inst-check.notice .mark {
+  color: var(--text-3);
+}
+
+.inst-check.blocked .mark,
+.inst-check.blocked .text {
+  color: var(--error);
+}
+
+.inst-sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 手动下载：所有手动下载的文件都放这一个收件文件夹，说一次（不是每项说一遍） */
+.manual-inbox {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-card);
+  border: 0.5px solid var(--hair);
+  background: var(--raised);
+}
+
+/* 收件文件夹那一行路径：自己一个类名，不靠裸 `code` 选择器——同样强度的规则谁在后面谁说了算，
+   那要看打包顺序 */
+.manual-inbox .manual-path {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  font-family: var(--mono);
+  font-size: var(--fs-md);
+  color: var(--text);
+  user-select: all;
+  word-break: break-all;
+}
+
+.manual-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 6px;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+/* 认不出的文件：染成警告色的面，不描边 */
+.manual-unknown {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--r-card);
+  background: var(--orange-soft);
+  color: var(--orange-text);
+  font-size: var(--fs-md);
+}
+
+.licence-text {
+  white-space: pre-wrap;
+  max-height: 56vh;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border-radius: var(--r-card);
+  border: 0.5px solid var(--hair);
+  background: var(--well);
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  user-select: text;
+}
+
+.licence-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}

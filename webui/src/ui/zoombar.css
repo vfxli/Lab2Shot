@@ -1,0 +1,28 @@
+
+
+/* The zoom bar over a ruler (ui/ZoomBar.tsx): the frame window's two fields and the buttons around them; the
+   timeline lays its own row out with the same parts. */
+.field.num.tl-field {
+  width: 54px;
+  height: 22px;
+  padding: 0 4px;
+  text-align: center;
+}
+
+.tl-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tl-zoom {
+  gap: 2px;
+}
+
+.tl-zoom-pct {
+  min-width: 42px;
+}
+
+.tl-zoom-field {
+  width: 42px;
+}

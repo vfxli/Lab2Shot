@@ -1,0 +1,289 @@
+.rs-veil {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-veil);
+  display: grid;
+  place-items: center;
+}
+
+/* 浮在整页之上的东西是玻璃，底、模糊、亮边和阴影都由 `glass` 出；这里只说它多大、多少内边距、什么圆角 */
+.rs-veil-card {
+  width: min(460px, 90vw);
+  padding: 28px 30px;
+  border-radius: var(--r-sheet);
+  text-align: center;
+}
+
+.rs-veil-card h2 {
+  margin: 14px 0 8px;
+  font-size: var(--fs-xl);
+}
+
+.rs-veil-card p {
+  margin: 6px 0 0;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.rs-veil-card a {
+  color: var(--accent);
+}
+
+i.spin {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid var(--hair-strong);
+  border-top-color: currentColor;
+  background: none;
+  animation: spin 0.8s linear infinite;
+}
+
+i.spin.big {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+  border-top-color: var(--accent);
+}
+
+/* 人员: merging names */
+.merge-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-card);
+  background: var(--raised);
+  color: var(--text-2);
+  font-size: var(--fs-md);
+}
+
+.merge-bar.on {
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.merge-bar .field {
+  width: 180px;
+  height: 28px;
+}
+
+.merge-bar .field.bad,
+.who-form .field.bad {
+  border-color: var(--error);
+}
+
+.people-table tr {
+  cursor: default;
+}
+
+.people-table tr.picked td {
+  background: var(--accent-soft);
+}
+
+.people-table input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.merges-table tr.undone .q-title {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+/* 数据库 */
+.db-tiles {
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
+
+.db-tiles .adm-tile {
+  cursor: default;
+}
+
+.adm-tile b.db-ok {
+  color: var(--green);
+}
+
+.adm-tile b.db-bad {
+  color: var(--error);
+}
+
+.who-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.who-form .tpl-desc {
+  margin: 0;
+  font-size: var(--fs-md);
+}
+
+.who-depts {
+  flex-wrap: wrap;
+}
+
+.who-depts button {
+  height: 26px;
+  padding: 0 14px;
+  font-size: var(--fs-md);
+}
+
+.who-why {
+  margin: -4px 0 0 58px;
+  font-size: var(--fs-sm);
+  color: var(--error-text);
+}
+
+.u-views {
+  margin-right: 8px;
+}
+
+@media (max-width: 900px) {
+  .adm-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .adm-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    border-right: 0;
+    border-bottom: 0.5px solid var(--hair);
+  }
+
+  .adm-main {
+    padding: 18px 16px 60px;
+  }
+
+  .rs-choices {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* the admin page's disk cleaning and resident workers (admin/Disk.tsx, admin/Resident.tsx) */
+
+
+
+
+
+.disk-days {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-md);
+}
+
+.disk-days .field {
+  width: 80px;
+  height: 28px;
+}
+
+.disk-days > span {
+  color: var(--text-2);
+}
+
+.resident-act {
+  white-space: nowrap;
+}
+
+.resident-act > * + * {
+  margin-left: 6px;
+}
+
+/* 扩展包（admin/Extensions.tsx）：一张表在上，手动下载那一块在下。这一页只做布局——控件本身长什么样
+   在 install/install.css */
+
+/* 第一列：名字一行，下面一行写它现在还差什么。状态、节点、安装三列是定宽的，第一列吃剩下的宽度，
+   那片宽度正好给这句话 */
+/* `td.` 那一节不能少：零件的 `.tbl td` 把每个格子设成不折行，两条一样强的时候后写的赢，
+   而这份样式表先加载——少了元素选择器那句话就不折行，把表撑得横向滚。多一个元素选择器就比它强一档，
+   跟谁先加载无关 */
+.tbl td.ext-proj {
+  white-space: normal; /* 是一句话，不是按钮上的词：放不下就折行，不截断（截断的才是禁止的） */
+  line-height: 1.45;
+}
+
+.ext-title {
+  display: block;
+  color: var(--text);
+}
+
+.ext-why {
+  display: block;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.ext-manual {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.ext-manual h3 {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+/* rows folded by extension (admin/Cards.tsx Folds): one closed line per extension, the table inside once opened */
+.adm-folds {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.adm-fold {
+  border-radius: var(--r-md);
+  background: var(--raised);
+  padding: 6px 12px;
+}
+
+.adm-fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+  cursor: default;
+  color: var(--text-2);
+  list-style: none;
+}
+
+.adm-fold > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--text-3);
+  border-bottom: 1.5px solid var(--text-3);
+  transform: rotate(-45deg);
+  flex: none;
+  transition: transform var(--t-fast) var(--ease);
+}
+
+.adm-fold[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.adm-fold[open] > summary {
+  margin-bottom: 8px;
+}
+
+.adm-fold-title {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.adm-fold-key {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.adm-fold-count,
+.adm-fold-note {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}

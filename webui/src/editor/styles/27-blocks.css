@@ -1,0 +1,109 @@
+/* ---------------------------------------------------------------- 逐项处理 blocks (editor/BlockFrame.tsx)
+   A dashed frame around the nodes of one block, coloured by the block's name, with one title row. It is drawn in the
+   canvas's own layer (xyflow's ViewportPortal), not as a node: nothing measures it, so a frame that follows the sizes
+   of the nodes inside it can never turn into a measuring loop. Every click goes through it to the canvas below — only
+   its title row takes the pointer — so box-select, the node menu and dragging inside it work as they do anywhere else. */
+
+.blockframes {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: var(--z-under);
+}
+
+/* a block's colour is its name's (state/items.ts colourOf): neutral and cool, never a status colour — a block name
+   says nothing about how it is going (red is production risk, purple an error, yellow a warning) */
+.blockframe[data-colour="1"] {
+  --block: var(--block-1);
+}
+
+.blockframe[data-colour="2"] {
+  --block: var(--block-2);
+}
+
+.blockframe[data-colour="3"] {
+  --block: var(--block-3);
+}
+
+.blockframe[data-colour="4"] {
+  --block: var(--block-4);
+}
+
+/* a block: a dashed rounded frame with one pill sitting on its top edge — not a title bar inside it */
+.blockframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: var(--r-card);
+  border: 1px dashed color-mix(in srgb, var(--block) 45%, transparent);
+  background: color-mix(in srgb, var(--block) 6%, transparent);
+}
+
+.blockframe-head {
+  pointer-events: all;
+  position: absolute;
+  top: -10px;
+  left: var(--sp-3);
+  max-width: calc(100% - 2 * var(--sp-3));
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: 20px;
+  padding: 0 var(--sp-2);
+  border-radius: 99px;
+  border: 1px solid color-mix(in srgb, var(--block) 45%, transparent);
+  background: var(--panel);
+  color: color-mix(in srgb, var(--block) 55%, var(--text));
+  font-size: var(--fs-xs);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.blockframe-title {
+  font-weight: 500;
+}
+
+.blockframe-count,
+.blockframe-done {
+  color: var(--text-2);
+}
+
+.blockframe-failed {
+  color: var(--orange-text);
+}
+
+/* the node's own bottom row inside a block: 「4/5 条已算」 */
+.gnode-items {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 2px var(--sp-2);
+  border-top: 1px solid var(--hair);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.gnode-items .items-failed {
+  color: var(--orange-text);
+}
+
+/* the item's own name is the user's data: the one rule in styles/01-user-data.css cuts it and says it whole on hover */
+.gnode-items .items-name {
+  color: var(--text-3);
+  min-width: 0;
+}
+
+/* a list port is square: the wire's shape says「这是一条列表」, its colour still says what it holds.
+   xyflow draws every handle round by default, so the square is written here, not as a colour or a size of its own. */
+.gnode .react-flow__handle.list {
+  border-radius: 0;
+}
+
+/* a list wire is drawn as two lines: the wire's colour with a hairline of the canvas through the middle */
+.react-flow .edge-list-core {
+  stroke: var(--window);
+  fill: none;
+}

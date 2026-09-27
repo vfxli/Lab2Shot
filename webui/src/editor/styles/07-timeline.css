@@ -1,0 +1,257 @@
+/* ------------------------------------------------------------------ timeline */
+
+/* the ruler's layers, restyled here in one place: the data's frames, the playback range and its handles, the cook
+   range, the cache bar, the marks, the frames missing, the current frame */
+.timeline {
+  --tl-bg: var(--panel); /* 停靠在视图下方：使用实色，与其他面板相同的灰色，不另设偏暖色调 */
+  --tl-data: rgba(120, 120, 128, 0.26);
+  --tl-play: rgba(10, 132, 255, 0.3);
+  --tl-grip: #4da3ff;
+  --tl-cache: var(--green);
+  --tl-stale: var(--orange); /* 过期：可以播放，但不是最新结果 */
+  --tl-loaded: #b6f5c6;
+  --tl-gap: color-mix(in srgb, var(--error) 55%, transparent);
+  --tl-mark-0: var(--yellow);
+  --tl-mark-1: #ff8fc7;
+  --tl-mark-2: #64d2ff;
+  --tl-tick: rgba(235, 235, 245, 0.22);
+  --tl-tick-major: rgba(235, 235, 245, 0.4);
+  --tl-num: rgba(235, 235, 245, 0.5);
+  --tl-head: #fff;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 10px;
+  border-top: 1px solid var(--hair);
+  background: var(--tl-bg);
+  container-type: inline-size; /* a narrow viewer keeps the controls on one line: see the @container rules below */
+}
+
+/* one 28 px track inside the row, every layer of the ruler stacked inside it */
+.tl-ruler {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 28px;
+  border-radius: var(--r-xs);
+  background: var(--field-bg);
+  overflow: hidden;
+  cursor: default;
+  touch-action: none;
+  user-select: none;
+}
+
+.tl-ruler > * {
+  position: absolute;
+}
+
+/* ticks: numbered ones every 1 / 5 / 10 / 50 … frames, small ones between */
+.tl-tick {
+  top: 11px;
+  width: 1px;
+  height: 3px;
+  margin-left: -0.5px;
+  background: var(--tl-tick);
+}
+
+.tl-tick.major {
+  top: 12px;
+  height: 8px;
+  background: var(--tl-tick-major);
+}
+
+.tl-num {
+  position: absolute;
+  top: -10px;
+  left: 0;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--tl-num);
+  white-space: nowrap;
+}
+
+/* the data's frames (grey), the playback range over them, the frames missing hatched */
+.tl-data,
+.tl-play,
+.tl-gap {
+  top: 15px;
+  height: 8px;
+}
+
+.tl-data {
+  background: var(--tl-data);
+  border-radius: 2px;
+}
+
+.tl-play {
+  background: var(--tl-play);
+}
+
+.tl-gap {
+  background: repeating-linear-gradient(135deg, var(--tl-gap) 0 2px, transparent 2px 5px);
+}
+
+/* the playback range's handles, just inside its ends */
+.tl-grip {
+  top: 14px;
+  width: 6px;
+  height: 10px;
+  border-radius: 3px 0 0 3px;
+  background: var(--tl-grip);
+  cursor: ew-resize;
+}
+
+.tl-grip.out {
+  margin-left: -6px;
+  border-radius: 0 3px 3px 0;
+}
+
+/* marks results carry (key frames …): diamonds, or runs when dense */
+.tl-mark {
+  top: 19px;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  transform: rotate(45deg);
+  border-radius: 1px;
+  background: var(--tl-mark-0);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.6);
+}
+
+.tl-mark.on {
+  box-shadow: 0 0 0 1.5px var(--tl-head);
+}
+
+.tl-mark-run {
+  top: 17.5px;
+  height: 3px;
+  background: var(--tl-mark-0);
+}
+
+.tl-mark.k1,
+.tl-mark-run.k1 {
+  background: var(--tl-mark-1);
+}
+
+.tl-mark.k2,
+.tl-mark-run.k2 {
+  background: var(--tl-mark-2);
+}
+
+/* the cook range: its own colour, under the data; dim while it is every frame of the inputs */
+/* the cache bar: the frames the displayed node has results for */
+/* 一条色带：绿 = 已在浏览器中、可实时播放；土黄 = 可实时播放但为上一次的结果（见 editor/Timeline.tsx 相关注释） */
+.tl-cache {
+  top: 26px;
+  height: 2px;
+  background: var(--tl-loaded);
+}
+
+.tl-cache.stale {
+  background: var(--tl-stale);
+}
+
+/* the current frame: a line through every layer, its number on top */
+.tl-head {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--tl-head);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.tl-head-num {
+  position: absolute;
+  top: 0;
+  z-index: var(--z-hud);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--tl-head);
+  color: #000;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 13px;
+}
+
+/* by the ruler's ends the number stays whole */
+.tl-head.at-start .tl-head-num {
+  left: -1px;
+  transform: none;
+}
+
+.tl-head.at-end .tl-head-num {
+  left: auto;
+  right: -1px;
+  transform: none;
+}
+
+.field.num.tl-current {
+  flex: none;
+  width: 58px;
+  height: 22px;
+  font-weight: 600;
+}
+
+.tl-label {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  margin-right: 2px;
+}
+
+.tl-dash {
+  color: var(--text-3);
+}
+
+/* 宽度固定：播放时数字从 24 变为 23.7 也不得挤压整条时间条 */
+.tl-fps {
+  flex: 0 0 auto;
+  width: 60px;
+  text-align: right;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.tl-fps.slow {
+  color: var(--orange);
+}
+
+/* a narrow viewer keeps the row on one line: the less needed parts go first (they are all in 更多 as well) */
+@container (max-width: 900px) {
+  .tl-fps {
+    display: none;
+  }
+}
+
+@container (max-width: 760px) {
+  .tl-label {
+    display: none;
+  }
+}
+
+@container (max-width: 620px) {
+  .tl-zoom {
+    display: none;
+  }
+}
+
+/* 计算范围 on the timeline row (the frames belong where the frames are), the one range the design keeps on the row:
+   its fields are the ruler's own (ui/zoombar.css .tl-field) and a typed mistake shows in the kit's error state
+   (.field.bad). It never shrinks: the ruler takes whatever is left. */
+.timeline .cook-range {
+  flex: none;
+}
+
+/* 该行的固定与弹性部分：只有标尺 `.tl-ruler` 是弹性的（`flex: 1 1 0; min-width: 0`），占据全部剩余宽度；
+   其余各项（倒放 / 播放两个按键、当前帧、缩放条、计算范围、帧率、播放方式下拉）一律固定宽度。
+   任何一项遗漏固定宽度（例如类名没有对应规则而按默认宽度撑开），标尺都会被挤压为 0 宽。 */
+.timeline .tl-loopmode {
+  flex: 0 0 auto;
+  width: 92px;
+}
+

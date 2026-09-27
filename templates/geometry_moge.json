@@ -1,0 +1,210 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "e704a7995a8b734fb7ca14f8581ecf75",
+  "name": "深度图与法线 · MoGe",
+  "intro": "MoGe 从单目开放域画面恢复三维几何，包括真实尺度的点图、真实尺度的深度图、法线图和相机视场角。这张卡交付深度图、法线图和点云；点云是每帧一片，不是整段一套场景点云。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "depth_image",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out_p.unit"
+  },
+  {
+   "name": "focal",
+   "label": "已知 Focal Length",
+   "target": "moge.focal_mm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 240
+   }
+  },
+  {
+   "id": "moge",
+   "type": "moge.geometry",
+   "label": "MoGe 深度图与法线",
+   "params": {
+    "model": "Ruicheng/moge-3-vitl",
+    "resolution_level": 9
+   },
+   "ui": {
+    "x": 320,
+    "y": 240,
+    "on_node": [
+     "focal_mm",
+     "model"
+    ]
+   }
+  },
+  {
+   "id": "out_d",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "depth"
+   },
+   "ui": {
+    "x": 640,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out_n",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "normal"
+   },
+   "ui": {
+    "x": 640,
+    "y": 260,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out_p",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "camera"
+   },
+   "ui": {
+    "x": 640,
+    "y": 520,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 960,
+    "y": 260,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "moge",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "moge",
+    "depth"
+   ],
+   "to": [
+    "out_d",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "moge",
+    "normal"
+   ],
+   "to": [
+    "out_n",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out_d",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_n",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_p",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "moge",
+    "camera"
+   ],
+   "to": [
+    "out_p",
+    "scene"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "moge",
+  "frame": null
+ }
+}

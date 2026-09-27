@@ -1,0 +1,392 @@
+/* 从模板新建: the category rail on the left with the sheet's own name over it, the chosen category's cards on the
+   right in sections of its subcategories, with one flowing line of shot filters over them. Only layout here — the
+   rail, the filter rows, the chips and the fields are ui/; every colour, radius and size is a token. */
+
+.tpl-browse {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  /* the sheet is one size (ui/Sheet.tsx height): the rail and the head stay put, the cards scroll */
+  flex: 1;
+  min-height: 0;
+}
+
+.tpl-browse .cat-rail {
+  border-right: 1px solid var(--hair);
+  overflow-y: auto;
+}
+
+.tpl-main {
+  --filters-pad: var(--sp-5); /* ui/Categories.tsx Filters: the bar keeps the page's side margin, its hairline does not */
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tpl-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5) 10px var(--sp-5);
+}
+
+.tpl-head h2 {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tpl-head p {
+  margin: var(--sp-1) 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.tpl-head .field {
+  flex: none;
+  width: 220px;
+  margin-right: var(--sp-5); /* the way out sits in this corner (ui/Sheet.tsx bare) */
+}
+
+/* a category whose filter bar carries nothing worth pressing (state/shotFilter.ts): the hairline under the head is
+   still the one that separates it from the cards */
+.tpl-head + .tpl-cards {
+  border-top: 1px solid var(--hair);
+}
+
+.tpl-cards {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 14px var(--sp-5) var(--sp-5);
+}
+
+.tpl-cards .sec-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.tpl-cards .sec-title b {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--text-3);
+}
+
+.tpl-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* a card is as tall as what it says (a fixed height would cut the bottom row of a card in half); the cards of one
+   row are one height because the grid stretches them, and the bottom row sits at the bottom of each.
+   Nothing here is cut: name, what it does, the conditions its category shows, 适合 / 不适合, and one bottom row. */
+.tpl-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: var(--sp-3) 13px 10px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r-card);
+  background: var(--raised);
+  text-align: left;
+  cursor: default;
+  transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+
+.tpl-card:hover {
+  background: var(--raised-hover);
+  border-color: var(--hair-strong);
+}
+
+.tpl-card:active {
+  background: var(--pressed);
+}
+
+.tpl-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* does not suit the shot the filter describes — dimmed, and the reason takes the intro's line */
+.tpl-card.dim {
+  opacity: 0.45;
+}
+
+.tpl-card.dim:hover {
+  opacity: 1;
+}
+
+.tpl-name {
+  margin: 0;
+  /* 这一行只有名字：年份在下面那排角标里（贴在角上会压住名字末尾几个字，而名字一行、不许换行也不许截断）。 */
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tpl-name-text {
+  min-width: 0;
+}
+
+
+/* 「交付物 · 项目名」: the project half reads quieter, so the eye finds what the card delivers first */
+.tpl-built {
+  color: var(--text-3);
+  font-weight: 400;
+}
+
+/* an administrator sees a template that was taken out of use: the card is dimmed and says so */
+.tpl-off {
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--orange-text);
+  /* 不用 cursor: help：停留提示是 data-tip 那一套的事，和光标无关 */
+}
+
+.tpl-intro {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.tpl-conds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+/* 适合 / 不适合, one line each, the label in its own narrow column */
+.tpl-fit {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr); /* 「不适合」 is three characters: the label column fits it */
+  gap: 2px var(--sp-2);
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.tpl-fit dt {
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.tpl-fit dd {
+  margin: 0;
+  color: var(--text-2);
+  min-width: 0;
+}
+
+/* the one bottom row: the strictest licence word, 实测 when it was measured, and the compute bar
+   at the right end. What it is built on is in the card's hover, not in a row of chips. */
+.tpl-foot {
+  margin-top: auto;
+  padding-top: 7px;
+  border-top: 1px solid var(--hair);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.tpl-measured {
+  flex: none;
+  color: var(--text-3);
+  /* 不用 cursor: help：停留提示是 data-tip 那一套的事，和光标无关 */
+}
+
+/* 计算量四格: one cell lit per tier (低 · 中 · 高 · 超高) */
+.tpl-cost {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+  flex: none;
+  /* 不用 cursor: help：停留提示是 data-tip 那一套的事，和光标无关 */
+}
+
+.tpl-cost i {
+  width: 5px;
+  height: 9px;
+  background: var(--hair-strong);
+}
+
+.tpl-cost i.on {
+  background: var(--text-2);
+}
+
+/* 计算量档位：模板卡片底部一行的右端（几个节点里最贵的那个）。和第三方标签同一行（.tpl-foot），
+   不再绝对定位盖住标签——margin-left: auto 把它推到这一行的最右边，标签换到第二行也不会钻到它底下。 */
+.tpl-compute {
+  flex: none;
+  align-self: flex-start;
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--r-ctl);
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 16%, transparent);
+}
+
+.tpl-compute[data-tier="中"] {
+  color: var(--yellow);
+  background: color-mix(in srgb, var(--yellow) 16%, transparent);
+}
+
+.tpl-compute[data-tier="高"] {
+  color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 16%, transparent);
+}
+
+.tpl-compute[data-tier="超高"] {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 16%, transparent);
+}
+
+/* ---------------------------------------------------------------- 我的模板 (editor/MyTemplates.tsx)
+   自己存在服务器上的节点图：和内置模板同一种卡片，下面多一行大小、时间和两个按钮。 */
+.lib-card {
+  cursor: default;
+}
+
+.lib-meta {
+  display: flex;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+  margin-top: auto;
+}
+
+.lib-acts {
+  display: flex;
+  gap: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 0.5px solid var(--hair);
+}
+
+.lib-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.lib-note {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+/* 录入模板里的「分类」那一行：下拉和「新建分类」并排，下拉占满剩下的宽度 */
+.lib-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.lib-pick > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 管模板的登录（editor/Templates.tsx manage）：卡片能拖，二级分类标题是落点，卡片右上角有菜单 */
+.tpl-card.managed {
+  cursor: grab;
+}
+
+.tpl-card.managed:active {
+  cursor: grabbing;
+}
+
+.tpl-cards section.drag-over {
+  outline: 1px dashed var(--accent);
+  outline-offset: 4px;
+  border-radius: var(--r-card);
+}
+
+.tpl-cards .sec-title[draggable="true"] {
+  cursor: grab;
+}
+
+.tpl-name .btn[data-layout="tpl-menu"],
+.tpl-name .tpl-menu {
+  margin-left: auto;
+}
+
+.tpl-empty-band {
+  margin: 0;
+  padding: var(--sp-3);
+  border: 1px dashed var(--hair-strong);
+  border-radius: var(--r-card);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+
+.tpl-addsub {
+  display: flex;
+  justify-content: flex-start;
+}
+
+/* the sentence over the cards when the tree's file cannot be read (every card is 未分类 then): said, not hidden */
+.tpl-problem {
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+/* a card's properties (the 「属性」 sheet): one row per property, the name in the quieter colour */
+.tpl-props {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--sp-2) var(--sp-4);
+  margin: 0 0 var(--sp-4);
+}
+
+.tpl-props > div {
+  display: contents;
+}
+
+.tpl-props dt {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+.tpl-props dd {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* 保存为预设模板时的分类选择：一级与二级两个下拉等宽并排 */
+.lib-form .lib-pick > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 表单里的字号大于默认控件：下拉与同一表单的输入框取同样的高度，文字不被裁切 */
+.lib-form .select-trigger,
+.lib-form input.field {
+  height: 34px;
+  line-height: 1.3;
+}

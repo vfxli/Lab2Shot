@@ -1,0 +1,23 @@
+/* ------------------------------------------------------------------ 消息在节点上的样式
+   不设单独的消息栏，消息只在以下三处呈现：
+     ① 日志（顶栏的日志图标，出错时显示红色计数；样式位于 editor/styles/20-log-window.css）；
+     ② 节点底行的角标（下方第一条规则：`.warn-mark`，级别按元素上的 `data-level` 取色）；
+     ③ 节点右下角「数据信息」中的「消息」组（使用全站统一的 ui/MessageRow.tsx，样式位于 ui/message.css）。
+   本文件只包含 ② 以及节点底行两个标签的行高。 */
+
+/* A node's notice mark (N messages only): grey, not the warning's yellow.
+   按元素上已有的 `data-level` 取色，不另加类名：不得使用 `.notice` 等类名，`notice` 是全站橙色提示块的类
+   （04-inspector.css，带 margin / padding / 橙色底），会将单字角标撑成大方块并超出节点底边，
+   而 `.node-mark` 只控制字号，无法覆盖。属性选择器不会与组件类名冲突。 */
+.warn-mark[data-level="N"] {
+  color: var(--text-2);  /* N 级仅为提醒，不使用易被理解为「故障」的颜色（红色仅用于可能造成生产事故的消息） */
+}
+
+/* the licence badge in a node's footer (moved there from the title row): no vertical padding, so it is never taller
+   than the footer's own line of text and the node keeps the height the layout checker counts (tests/test_tools.py) */
+.gnode-foot .nc-badge,
+.gnode-foot .gnode-compute {
+  line-height: 13.5px;
+  padding-block: 1px;
+}
+

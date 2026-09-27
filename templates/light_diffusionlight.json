@@ -1,0 +1,125 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "6d070fb1093ab80b2203f327dd3d8987",
+  "name": "HDRI · DiffusionLight",
+  "intro": "DiffusionLight 把光照估计改写成「在画面里补画一颗镜面铬球」的问题，从一张低动态范围（LDR）画面估计光照。这张卡交付环境 HDRI 和 USD 穹顶灯。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "env_light",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入图片",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_picture",
+   "label": "读取图片",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "light",
+   "type": "diffusionlight.light_probe",
+   "label": "DiffusionLight HDRI",
+   "params": {
+    "seed": 0,
+    "envmap_width": 1024
+   },
+   "ui": {
+    "x": 320,
+    "y": 0,
+    "on_node": [
+     "envmap_width"
+    ]
+   }
+  },
+  {
+   "id": "out_h",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "hdri"
+   },
+   "ui": {
+    "x": 680,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1000,
+    "y": 0,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "light",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "light",
+    "hdri"
+   ],
+   "to": [
+    "out_h",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out_h",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "light",
+  "frame": null
+ }
+}

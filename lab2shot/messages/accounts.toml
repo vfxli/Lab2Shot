@@ -1,0 +1,97 @@
+# 账号、登录、用户管理、用户反馈、帮助页（lab2shot/accounts.py、lab2shot/feedback.py、lab2shot/server/auth.py、
+# server/users.py、server/feedback.py、server/help.py）。
+# 一行一条：编号 = 模板。写法：谁估的、和什么比、数字和单位、意味着什么、怎么办。
+
+# ---- 密码和口令的规则（accounts.rule_problem；网页提交前查的是同一套）
+"E-ACCOUNT-SECRETSHORT" = "{what}至少要 {min:d} 个字符"
+"E-ACCOUNT-SECRETLONG" = "{what}最多 {max:d} 个字符"
+"E-ACCOUNT-SECRETBLANK" = "{what}不能全是空格"
+
+# ---- 新建和修改账号（accounts.py）
+"E-ACCOUNT-USERNAME" = "用户名要 3 到 32 个字符：小写英文字母开头，只用小写字母、数字和 _ . -"
+"E-ACCOUNT-USERNAMETAKEN" = "用户名 {username} 已经有人用了：换一个"
+"E-ACCOUNT-NONAME" = "要填中文名：{min:d} 到 {max:d} 个字"
+"E-ACCOUNT-NAMESPACE" = "名字「{name}」里有空格：中文名中间不用空格，少数民族名字用 · 隔开，如 阿依·买买提"
+"E-ACCOUNT-NAMELATIN" = "名字「{name}」要写中文名，不是拼音或英文名"
+"E-ACCOUNT-NAMECHARS" = "名字「{name}」只能是中文字，名字之间可以用 · 隔开（如 阿依·买买提）"
+"E-ACCOUNT-NAMELENGTH" = "名字「{name}」有 {count:d} 个字：中文名要 {min:d} 到 {max:d} 个字"
+"E-ACCOUNT-DEPARTMENT" = "部门只能是 {departments} 之一（管理员在设置里维护这张表）"
+"E-ACCOUNT-TAGS" = "没有这些标签：{tags}"
+"E-ACCOUNT-EXPIRYPAST" = "到期时间要在以后：选一个今天之后的日期"
+"E-ACCOUNT-ADMINFIXED" = "主人的账号 {username} 一直是管理员：不会过期、不能停用、不能改角色，什么都能用；只能改它的中文名和部门"
+"E-ACCOUNT-ADMINDELETE" = "主人的账号 {username} 不能删除"
+"E-ACCOUNT-ADMINPASSWORD" = "主人的账号 {username} 的密码只有主人自己能改：忘了密码，在登录页用口令找回，或者在服务器上执行 lab2shot admin password"
+
+# ---- 角色和权限（lab2shot/roles.py、server/users.py）
+"E-ROLES-UNKNOWN" = "没有「{role}」这个角色：只能是 {roles}"
+"E-ROLES-NOTYOURS" = "{role}不能管 {username} 的账号（{target}）：要管理员来改"
+"E-ROLES-ROLE" = "只有管理员能新建{target}或改账号的角色：{role}只能新建普通用户"
+"E-ROLES-TAGS" = "账号能用哪些标签（许可）只有管理员能设：{role}新建的普通用户用默认的「{default}」，要改找管理员"
+"E-ACCOUNT-NOUSER" = "没有这个用户：可能已经删除，刷新用户列表"
+"E-ACCOUNT-NOTDELETED" = "{username} 还没有删除：永久删除只对「已删除」里的账号有效，先点「删除」"
+
+# ---- 二级管理员的权限由管理员分配（lab2shot/roles.py、server/users.py 的 /api/admin/rights）
+"E-RIGHTS-FIXEDROLE" = "{role}的权限改不了：管理员永远什么都能做，普通用户只用编辑器；能分配的只有 {roles}"
+"E-RIGHTS-OWNERONLY" = "这几项只有管理员本人有，不能分配给二级管理员：{names}"
+"E-RIGHTS-UNKNOWN" = "没有这些权限：{names}；刷新页面再试（网页和服务器的版本可能对不上）"
+
+# ---- 账号现在能不能用（accounts.User.usable_now：登录、每个请求、重启后排回队列时查）
+"E-ACCOUNT-GONE" = "没有这个账号：可能已经删除，请联系管理员"
+"E-ACCOUNT-DISABLED" = "这个账号已停用，请联系管理员"
+"E-ACCOUNT-EXPIRED" = "这个账号已过期，请联系管理员延长"
+
+# ---- 登录（server/auth.py）
+"E-LOGIN-REQUIRED" = "要先登录"
+"E-LOGIN-WRONG" = "用户名或密码不对"
+"E-LOGIN-WRONGSECRET" = "{what}不对"
+"E-LOGIN-WAITSECONDS" = "输错的次数太多，{seconds:d} 秒后再试"
+"E-LOGIN-WAITMINUTES" = "输错的次数太多，{minutes:d} 分钟后再试"
+"E-LOGIN-KICKED" = "这个账号在别处登录了：{when}，{ip}，{device}。要接着用就重新登录（那边的登录会退出）"
+"E-LOGIN-NOPASSPHRASE" = "还没有设置口令：在服务器上执行 uv run lab2shot admin passphrase 设置"
+"W-LOGIN-FAILED" = "{what}不对（这个来源第 {count:d} 次，所有来源 {total:d} 次，{minutes:d} 分钟内）"
+"W-LOGIN-BLOCKED" = "{minutes:d} 分钟内 {count:d} 次可疑请求"
+
+# ---- 用户管理（server/users.py）
+"E-USERS-DELETED" = "这个账号已经删除了：不能再设密码"
+"E-LOGIN-UNLOCKMACHINE" = "解开登录的全局锁只能在这台服务器上用本机命令行（机器令牌）做：浏览器上的管理员登录不行——锁住的就是用密码登录这件事"
+"I-AUDIT-LOGINUNLOCKED" = "{who}在服务器上用本机命令行解开了登录的全局锁（清掉 {count:d} 次输错的记录）"
+
+
+# ---- 用户反馈（lab2shot/feedback.py、server/feedback.py）
+"E-FEEDBACK-NOTEXT" = "反馈还没有写内容：写清遇到了什么问题、在哪一步出现，再提交"
+"E-FEEDBACK-TEXTLONG" = "问题写得太长了：{count:d} 个字，最多 {max:d} 个字"
+"E-FEEDBACK-CATEGORY" = "没有「{category}」这个类别"
+"E-FEEDBACK-IMAGES" = "最多附 {max:d} 张截图"
+"E-FEEDBACK-IMAGEUNREADABLE" = "第 {index:d} 张截图读不出来：重新截一张再附上"
+"E-FEEDBACK-IMAGEBIG" = "第 {index:d} 张截图太大：{size:.1f} MB，最多 {max:d} MB"
+"E-FEEDBACK-NOTIMAGE" = "第 {index:d} 个附件不是图像（只收 PNG、JPG、WebP、GIF）：换一张截图再附上"
+"E-FEEDBACK-BUNDLEBIG" = "诊断资料太大（超过 {max:d} MB）：刷新页面后再提交"
+"E-FEEDBACK-REQUESTBIG" = "反馈太大：{size:.1f} MB，最多 {max:d} MB（截图少附几张或小一些）"
+"E-FEEDBACK-REQUESTLIMIT" = "反馈太大：最多 {max:d} MB（截图少附几张或小一些）"
+"E-FEEDBACK-UNREADABLE" = "反馈的内容读不出来：刷新页面后再提交一次"
+"E-FEEDBACK-NOTFOUND" = "没有这条反馈：可能已经删除，刷新页面"
+"E-FEEDBACK-GONE" = "没有这条反馈：可能已经删除，刷新页面"
+"E-FEEDBACK-STATUS" = "没有「{status}」这个状态"
+"E-FEEDBACK-ANSWERLONG" = "{what}太长了：{count:d} 个字，最多 {max:d} 个字"
+"E-FEEDBACK-NOSHOT" = "没有这张截图：可能已经删除，刷新页面"
+"E-FEEDBACK-NOEXTENSION" = "没有这个扩展包：可能已经卸载，刷新页面"
+
+# ---- 帮助页（server/help.py）
+
+# ---- 服务器日志（每行日志带编号）
+
+"I-FEEDBACK-RECEIVED" = "用户反馈 {id}：{who} ·「{first}」"
+"I-FEEDBACK-DELETED" = "管理员 {by} 删除了用户反馈 {id}（{person}）"
+"I-LOGIN-IN" = "{user} 登录：{where}"
+"I-LOGIN-TOKEN" = "{user} 在 {app} 登录（令牌）：{where}"
+"I-LOGIN-CLIENT" = "{user} 在客户端登录（令牌）：{where}"
+"I-LOGIN-PASSWORDCHANGED" = "{user} 改了自己的密码：{where}；别处的登录都退出了"
+"I-LOGIN-RECOVERED" = "管理员密码用口令重设了：{where}；别处的登录都退出了"
+"W-LOGIN-SUSPICIOUS" = "可疑：{account} {whom} {kind} {method} {path}（{detail}）"
+"I-LOGIN-OUT" = "{user} 退出登录：{where}"
+"W-LOGIN-LOCKED" = "错误的密码太多（{minutes:d} 分钟内 {count:d} 次）：{minutes:d} 分钟内谁都不能登录；在服务器上执行 lab2shot admin password 可以马上解开，不想换密码就在服务器上执行 lab2shot admin unlock 只清计数"
+"W-LOGIN-PROBEBLOCKED" = "可疑：{account} {whom} 被暂时封住 {minutes:d} 分钟（{window:d} 分钟内 {count:d} 次可疑请求）"
+"I-LOGIN-CLIRESET" = "管理员密码已在服务器上用命令行重设；管理员的登录都作废，输错的次数清零"
+"I-LOGIN-CLIPASSPHRASECHANGED" = "「我的口令」已在服务器上用命令行换成新的"
+"I-LOGIN-CLIPASSPHRASESET" = "「我的口令」已在服务器上用命令行设好"
+"I-LOGIN-CLIREVOKED" = "所有登录已在服务器上用命令行作废（{count:d} 个）"

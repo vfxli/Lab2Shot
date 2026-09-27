@@ -1,0 +1,74 @@
+/* 条目选择条 (view/ItemsBar.tsx): the glass pill at the bottom middle of the viewer — which item of each
+   逐项处理 block the view is on. A view setting: nothing here starts a cook. */
+
+.items-bar {
+  position: absolute;
+  left: 50%;
+  bottom: var(--sp-3);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  z-index: var(--z-hud);
+  white-space: nowrap;
+  /* .hud-pill 的 45% 是给「一句短话」的胶囊定的；这一条装的是控件，按舞台宽度夹住就行 */
+  max-width: calc(100% - 2 * var(--sp-5));
+}
+
+.items-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+/* 一个块一个下拉，宽度写死（条目可能有几十个，平铺放不下）。
+   这一条浮在舞台上（position: absolute），挤不到画布；触发器的宽度不跟着条目名长短或条目数变，所以
+   切换前后，画面上这一条在同一个位置、同一个大小。条目多只让展开的那一列变长，
+   那一列是菜单零件自己的事（ui/Menu.tsx：超高了自己滚，贴着窗口边不出界）。 */
+.items-select.select-trigger {
+  flex: none;
+  width: 132px;
+}
+
+.items-kind {
+  flex: none;
+  color: var(--text-3);
+}
+
+/* 第 7/37 条。宽度按「第 999/999 条」留够，所以条目数从 3 涨到 37，这一句变长了，
+   而这一条的总宽一个像素都不变——它是居中摆的（translateX(-50%)），总宽一变下拉就横着挪，
+   控件位置就跳了。数字等宽（.tnum），切换时数字也不会左右抖。 */
+/* 两个类名是为了优先级：`.hud-pill span { min-width: 0 }`（editor/styles/05-viewer.css）比单个类名更具体，
+   只写 `.items-at` 的话这条下限不生效。 */
+.items-bar .items-at {
+  flex: none;
+  min-width: 78px;
+  text-align: right; /* 留出来的那点空档摆在下拉和数字之间，不摆在胶囊边上：看着是个右对齐的读数 */
+  color: var(--text-3);
+}
+
+/* 每一条 (ui/ItemsList.tsx): the item-by-item list the 数据信息 panel puts under a node inside a block */
+.items-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.items-list-head {
+  color: var(--text-2);
+}
+
+.items-list .items-row-name {
+  max-width: 180px;
+}
+
+.items-state.failed,
+.items-state.error {
+  color: var(--error-text);
+}
+
+.items-state.skipped,
+.items-state.pending {
+  color: var(--text-3);
+}

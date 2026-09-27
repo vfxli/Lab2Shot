@@ -1,0 +1,98 @@
+/* 二级管理员权限 (admin/Rights.tsx): the band under 用户, and the sheet of ticks it opens.
+   Only tokens (ui/tokens.css) — no colour, radius or type size of its own. */
+
+.rts {
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-4);
+  border-top: 0.5px solid var(--hair);
+}
+
+.rts-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+}
+
+.rts-head h3 {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.rts-sum {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+
+.rts-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.rts-note,
+.rts-warn {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.rts-note {
+  color: var(--text-3);
+}
+
+.rts-warn {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-ctl);
+  background: var(--raised);
+  color: var(--orange);
+}
+
+/* the ticks: one scroll of its own, so the sheet's buttons stay where they are however long the table grows.
+   The hairlines say it scrolls — a row half in view at the edge is the scroller's, never a clipped word. */
+.rts-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  max-height: 52vh;
+  overflow: auto;
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) 0;
+  border-top: 0.5px solid var(--hair);
+  border-bottom: 0.5px solid var(--hair);
+}
+
+.rts-group h4 {
+  margin: 0 0 var(--sp-1);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.rts-row {
+  display: grid;
+  grid-template-columns: auto 6.5rem 1fr;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-1);
+  border-radius: var(--r-xs);
+  cursor: pointer;
+}
+
+.rts-row:hover {
+  background: var(--raised);
+}
+
+.rts-name {
+  color: var(--text);
+  font-size: var(--fs-md);
+  white-space: nowrap;
+}
+
+/* what the capability lets one do: the server's own sentence, wrapped as body text (never a control's name) */
+.rts-what {
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+
+.rts-gap {
+  flex: 1;
+}

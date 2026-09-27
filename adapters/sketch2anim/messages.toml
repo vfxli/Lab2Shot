@@ -1,0 +1,20 @@
+# Sketch2Anim 动作生成（adapters/sketch2anim/nodes.py、worker.py）。
+
+# ---- 草图
+"E-SKETCH2ANIM-NOPOSE" = "「Sketch2Anim 动作生成」还没有火柴人：在「手画简笔画」节点上点「添加帧」，在 2D 视图里把关节拖到你要的姿势，接到「草图」口，再算一次"
+"E-SKETCH2ANIM-NOTFIGURE" = "「草图」口上接的不是火柴人：它有 {count} 个点，火柴人是 {want} 个关节。用「手画简笔画」画一个接过来"
+"E-SKETCH2ANIM-FLATFIGURE" = "画的火柴人只有 {pixels} 像素高，量不出身体的比例：把火柴人画大一些（头到脚至少几十像素）"
+"N-SKETCH2ANIM-SAMEFRAME" = "第 {frame} 帧上的火柴人和另一个落在模型的同一帧上（模型是 20 帧/秒）：只用了后画的那个。要两个都算，把它们画得离得远一些"
+
+# ---- 时长
+"E-SKETCH2ANIM-TOOLONG" = "「Sketch2Anim 动作生成」一次最长 {seconds} 秒：按 {fps} 帧/秒算最多 {most} 帧，「起始帧号」到「结束帧号」有 {frames} 帧。把范围缩短，或者分几段、每段各生成一次"
+"W-SKETCH2ANIM-SHORT" = "「起始帧号」到「结束帧号」只有 {frames} 帧：Sketch2Anim 训练时最短的动作是 {least} 帧（{fps} 帧/秒的 2 秒），比这短的它没见过，动作可能不像样。照常算了，结果自己看一眼"
+"E-SKETCH2ANIM-FRAMES" = "Sketch2Anim 交回来 {made} 帧，节点要的是 {want} 帧：扩展包和节点的版本对不上，重装一次（lab2shot ext install sketch2anim --force）"
+
+"E-SKETCH2ANIM-LENGTH" = "Sketch2Anim 收到 {frames} 个模型帧，它一次最多 {most} 帧：扩展包和节点的版本对不上，重装一次（lab2shot ext install sketch2anim --force）"
+
+# ---- 运行
+"E-SKETCH2ANIM-WEIGHTS" = "Sketch2Anim 的权重和模型对不上：有 {count} 个张量没加载上（第一个是 {first}）。重装一次扩展包（lab2shot ext install sketch2anim --force）"
+"I-SKETCH2ANIM-PATH" = "生成的身体走的路线，和两个火柴人之间那条线差 {error} 厘米"
+"I-SKETCH2ANIM-DONE" = "Sketch2Anim 按 {keys} 个关键姿势生成了 {frames} 帧：生成的姿势和画的差 {key_error} 厘米，骨架 IK 拟合差 {ik_error} 厘米；生成本身 {generate} 秒，连读模型一共 {seconds} 秒"
+"E-SKETCH2ANIM-BADRANGE" = "结束帧号 {end} 比起始帧号 {start} 还小：把「结束帧号」改大"

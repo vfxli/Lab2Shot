@@ -1,0 +1,214 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "b53f411f320243eda871f9d921580dcb",
+  "name": "深度与相机 · CUT3R",
+  "intro": "CUT3R 论文摘要：模型自带一个持续的状态，每读入一帧就用新观测更新它，在线给出这一帧真实尺度的点图。这张卡交付每帧相机、深度图和点云；点云是每帧一张点图、各在这一帧自己的相机里，官方没有合成一份场景点云的输出。",
+  "author": "Lab2Shot",
+  "created": "2026-09-20T18:00:00",
+  "deliverable": "depth_camera",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "scale",
+   "label": "尺度",
+   "target": "r.unit_cm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 220
+   }
+  },
+  {
+   "id": "r",
+   "type": "cut3r.reconstruct",
+   "label": "CUT3R 深度与相机",
+   "params": {
+    "step": 1,
+    "update": "cut3r",
+    "max_frames": 64,
+    "overlap": 16,
+    "conf_threshold": 1.5,
+    "shared_focal": true,
+    "unit_cm": 100.0
+   },
+   "ui": {
+    "x": 320,
+    "y": 220,
+    "on_node": [
+     "update",
+     "step",
+     "max_frames"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "scene"
+   },
+   "ui": {
+    "x": 640,
+    "y": 260,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "dep",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "depth"
+   },
+   "ui": {
+    "x": 640,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1000,
+    "y": 240,
+    "on_node": [
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "nuke",
+   "type": "core.output_nuke_camera",
+   "label": "Nuke 相机输出设置",
+   "params": {
+    "name": "camera_nuke"
+   },
+   "ui": {
+    "x": 640,
+    "y": 440,
+    "on_node": [
+     "name"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "r",
+    "depth"
+   ],
+   "to": [
+    "dep",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "dep",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "r",
+    "camera"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "r",
+    "camera"
+   ],
+   "to": [
+    "nuke",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "nuke",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "r",
+    "image"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "r",
+  "frame": null
+ }
+}

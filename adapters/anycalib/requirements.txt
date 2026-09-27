@@ -1,0 +1,10 @@
+# AnyCalib environment (torch comes from EnvSpec). Upstream's only dependency is
+# torch; the pinned repo is imported from third_party/anycalib/repo (pure Python,
+# not pip-installed). xformers ("eff" extra) is optional and left out: the
+# network runs at ~320x320, plain attention is fast enough.
+
+numpy==2.4.6
+# EUCM / simple_eucm fitting uses scipy.optimize.lsq_linear
+scipy==1.17.1
+# PNG in, float32 EXR ST-maps out (same library as the main environment)
+OpenImageIO==3.1.17.0

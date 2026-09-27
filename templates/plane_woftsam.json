@@ -1,0 +1,137 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "80cc91021fa29294d35efc5af54d11f8",
+  "name": "平面跟踪 · WOFTSAM",
+  "intro": "WOFTSAM 是分割引导的单应估计，用于长时平面跟踪，在 POT-210 和 PlanarTrack 两个平面物体基准上成绩最好。这张卡框出平面的四个角，跟满整段镜头，交付 Nuke 的 CornerPin2D。",
+  "author": "Lab2Shot",
+  "created": "2026-09-13T12:00:00",
+  "deliverable": "plane",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "corners",
+   "label": "四个角",
+   "target": "plane.corners"
+  },
+  {
+   "name": "format",
+   "label": "格式",
+   "target": "out.format"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "plane",
+   "type": "woftsam.track",
+   "label": "WOFTSAM 平面跟踪",
+   "params": {
+    "corners": [],
+    "resolution": null
+   },
+   "ui": {
+    "x": 320,
+    "y": 0,
+    "on_node": [
+     "resolution"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_tracks",
+   "label": "2D 跟踪点输出设置",
+   "params": {
+    "name": "cornerpin",
+    "format": "cornerpin",
+    "origin": "bottom_left",
+    "min_visible": 5
+   },
+   "ui": {
+    "x": 640,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 960,
+    "y": 0,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "plane",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "plane",
+    "tracks"
+   ],
+   "to": [
+    "out",
+    "tracks"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "plane",
+  "frame": null
+ }
+}

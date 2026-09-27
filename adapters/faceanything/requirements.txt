@@ -1,0 +1,39 @@
+# FaceAnything environment (torch 2.9.0 / torchvision 0.24.0 cu128 come from EnvSpec).
+# Upstream requirements.txt at the pinned commit, same versions (gdown dropped:
+# the installer downloads the checkpoint).
+# 0.0.33.post1's compiled _C.so / flash_attn_3/_C.so stop at sm_90a, no RTX 5090 (sm_120)
+# kernels and no PTX (显卡兼容_GVHMR失败.md 五). 0.0.34 (checked with cuobjdump, see
+# 升级环境_4090与5090.md) turned out worse for this: its _C.so/flash_attn_3 only cover
+# sm_75/sm_80 (sm_89 the RTX 4090 still runs via the same-major-version binary rule, but
+# sm_120 the RTX 5090 has nothing). 0.0.35 ships no compiled CUDA kernels of its own at all
+# (a ~3 MB wheel vs. 0.0.34's ~110 MB) -- it is a thin layer over torch's own
+# scaled_dot_product_attention, so whatever architectures the pinned torch supports (both
+# sm_89 and sm_120 here), xformers does too. Needs torch>=2.10 (not pinned to one exact
+# version like the older releases).
+xformers==0.0.35
+
+numpy==1.26.4
+scipy==1.16.3
+einops==0.8.1
+omegaconf==2.3.0
+huggingface-hub==1.1.7
+safetensors==0.7.0
+e3nn==0.5.8
+
+opencv-python==4.11.0.86
+pillow==12.0.0
+imageio==2.37.2
+imageio-ffmpeg==0.6.0
+trimesh==4.10.0
+plyfile==1.1.3
+tqdm==4.67.1
+matplotlib==3.10.7
+
+# Imported at module level by the vendored depth_anything_3 package but missing
+# from upstream's list (their Hugging Face Space adds addict and evo). Only the
+# import is needed: the pose alignment (evo), Gaussian video (moviepy 1.x, which
+# still has moviepy.editor) and COLMAP export (pycolmap) paths are never called.
+addict==2.4.0
+evo==1.34.0
+moviepy==1.0.3
+pycolmap==4.2.0

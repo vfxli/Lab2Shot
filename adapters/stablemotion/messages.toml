@@ -1,0 +1,11 @@
+# StableMotion 动捕清理（adapters/stablemotion/worker.py）。
+
+# ---- 骨架
+"E-STABLEMOTION-NOSTATS" = "StableMotion 的归一化统计量不在：{path}。这两个文件（mean.pt / std.pt）是上游仓库自带的，扩展包可能装坏了：管理员重新执行 lab2shot ext install stablemotion"
+"E-STABLEMOTION-SKELETON" = "「StableMotion 动捕清理」没法把接进来的骨架对应到 SMPL 的骨架：{reason}"
+
+# ---- 帧
+"E-STABLEMOTION-SHORT" = "这段动画在模型的 20 帧/秒上只有 {frames} 帧，「StableMotion 动捕清理」至少要 {least} 帧才看得出哪里坏了。接一段更长的动画，或者在「重定时」里把帧率提上去"
+"N-STABLEMOTION-PARTS" = "镜头 {seconds:.1f} 秒，超过「StableMotion 动捕清理」一次能看的 5 秒：判坏的帧落在 {parts} 处，每处各开一个 100 帧的窗口重画，只把判坏的帧写回去、好帧不动；窗口按坏帧的位置开，前后窗口可能重合也可能隔开（一般不超过 {overlap} 帧），不做交叉过渡"
+"I-STABLEMOTION-FOUND" = "「StableMotion 动捕清理」判断 {bad} 帧有问题（共 {total} 帧）"
+"W-STABLEMOTION-SHORTTAKE" = "这段动画只有 {seconds:.1f} 秒（模型自己的 {frames} 帧），不够「StableMotion 动捕清理」一次要看的 {window} 帧（5 秒）：实测不足 5 秒的镜头会被判坏很多帧（2 秒的镜头判坏 70%–100%，5 秒的只有 2%–3%）。接一整段动捕再切，比切好再清理可靠得多；「问题帧」曲线也要当心看"

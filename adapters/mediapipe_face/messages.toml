@@ -1,0 +1,8 @@
+# MediaPipe 面部动作（adapters/mediapipe_face）。一行一条：编号 = 模板。
+
+# ---- 输入
+"E-MEDIAPIPEFACE-SIZE" = "第 {frame} 帧的尺寸 {width}×{height} 和第一帧 {first_width}×{first_height} 不一致：一段镜头的画面必须一样大"
+
+# ---- 结果
+"N-MEDIAPIPEFACE-NOFACE" = "MediaPipe 在整段 {frames} 帧里都没找到脸，面部关键点、表情曲线和头部这次都是空的：它只适合脸在画面里比较大、大致正对镜头的镜头（远景小脸、侧脸超过约 80° 找不到）；也可以调低「检测阈值」"
+"W-MEDIAPIPEFACE-MISSING" = "MediaPipe 有 {count} 帧没找到脸（共 {total} 帧）：这些帧的关键点记为被挡住，表情曲线和头部动画沿用前后帧"

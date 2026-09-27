@@ -1,0 +1,24 @@
+# SDMatte environment (torch comes from EnvSpec). SDMatte itself is not pip-installed:
+# the worker imports the model class straight from the pinned repo/.
+# detectron2 is NOT installed: upstream uses it only to build the model from a LazyConfig and to
+# load the checkpoint, both of which the worker does directly (adapters/sdmatte/worker.py).
+# Its training extras (tensorboard, fairscale, scikit-image, easydict, timm) are not installed either.
+# Versions from upstream's requirements.txt where the API matters (diffusers' UNet internals are
+# subclassed by the repo's utils/replace.py CustomUNet, so diffusers is pinned to upstream's).
+
+numpy==2.4.6
+# lab2shot_worker's matte contract, and the worker's own resizing
+opencv-python-headless==5.0.0.93
+# the UNet, VAE and DDIM scheduler the model is built from; CustomUNet subclasses UNet2DConditionModel
+diffusers==0.30.3
+# the CLIP text encoder and tokenizer (the model keeps them, and feeds an empty prompt)
+transformers==4.45.1
+huggingface-hub==0.25.1
+safetensors==0.8.0
+# SDMatte.pth is a detectron2 training checkpoint: beside the state dict it pickles the trainer's
+# OmegaConf config, so unpickling it needs omegaconf even though the worker only keeps ["model"]
+omegaconf==2.3.0
+# faster, lower-RAM loading (diffusers' low_cpu_mem_usage)
+accelerate==0.34.2
+# guide masks arrive as single-channel EXR files (channel "A")
+OpenEXR==3.4.15

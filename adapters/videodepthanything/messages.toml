@@ -1,0 +1,7 @@
+# Video Depth Anything 的消息（adapters/videodepthanything）。
+
+# ---- 节点（nodes.py）
+"W-VIDEODEPTHANYTHING-SIZELIMIT" = "「处理分辨率」{size} 对 {model} 模型会超出 24 GB 显存，这次按上限 {limit} 计算：细节比设的少一些。要更高的分辨率，把「模型」换成 Small（1036 约 11 GB）"
+
+# ---- worker（worker.py）
+"N-VIDEODEPTHANYTHING-SHORTSHOT" = "画面只有 {count} 帧，不足 Video Depth Anything 一次看的 32 帧：末帧会重复补齐，结果正常，只是前后帧的稳定性参考少一些"

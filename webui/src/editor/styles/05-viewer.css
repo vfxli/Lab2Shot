@@ -1,0 +1,351 @@
+/* ------------------------------------------------------------------ viewer */
+
+.viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--window); /* 画面底层：使用窗口底色，不另设偏暖的黑色 */
+}
+
+.view-stage {
+  position: relative;
+  flex: 1;
+  min-height: 240px; /* its control bar, its foot and the axes always have room: a tall curve editor gives way */
+  overflow: hidden;
+}
+
+/* 画面上方的独立工具栏，与视图同宽（参照 Nuke）。位于正常文档流中，不浮于画面上，不遮挡图像。 */
+.view-bar {
+  display: flex;
+  align-items: center;
+  /* 从左向右排列，不集中在右侧（space-between 加右对齐会使左侧大片留空、按钮堆在右上角）。
+     与 Nuke 的视图工具栏一致：名称位于最左，控件紧随其后向右排列 */
+  justify-content: flex-start;
+  gap: var(--sp-2);
+  /* 允许换行，但画布位置不得变化：在两个节点间切换对比画面是该视图的主要用法，工具栏高度变化会使画布跳动。
+     保持行数不变的方法不是禁止换行，而是使这一行的控件数量不随模式变化：三种模式使用同一组控件，不适用的置灰并说明原因
+     （editor/Viewer.tsx）。 */
+  flex-wrap: wrap;
+  padding: 3px var(--sp-2);
+  /* 使用 min-height 而非固定 height：固定高度会使更高的控件溢出工具栏并覆盖画面，导致「视图设置」按钮无法点击 */
+  min-height: 30px;
+  background: var(--well);
+  border-bottom: 1px solid var(--hair);
+}
+
+/* 当前显示的节点：位于工具栏最左侧，不再使用胶囊样式（工具栏本身已形成层次，无须再加一层玻璃效果） */
+.view-bar-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: none;
+  max-width: 22ch;  /* 名称只占少量宽度，其余宽度留给控件 */
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+/* 节点名过长时收在工具栏内，不撑开也不换行。省略号由 ui 中统一的 [data-user-data] 规则处理，
+   此处不单独定义（webui/tests/uiKit.test.ts 只允许 [data-user-data] 选择器截断） */
+.view-bar-name span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* 显示选项弹层从该工具栏展开，须覆盖下方画面 */
+.view-bar:has(.popover) {
+  z-index: var(--z-hud-open);
+  position: relative;
+}
+
+.hud-pill {
+  flex: none;
+  white-space: nowrap;
+}
+
+.view-hud > * {
+  pointer-events: auto;
+}
+
+.hud-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border-radius: var(--r-sheet);
+  font-size: var(--fs-sm);
+  max-width: 45%;
+}
+
+.hud-pill span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.hud-pill .dim {
+  color: var(--text-3);
+}
+
+.hud-tools {
+  display: flex;
+  /* 空间不足时换行，不使用横向滚动。画布保持不动依靠的不是禁止换行，而是这一行的控件数量始终不变：
+     三种模式使用同一组控件，不适用的置灰（editor/Viewer.tsx），因此切换模式或节点时行数不变。 */
+  flex-wrap: wrap;
+  justify-content: flex-start;  /* 紧随名称向右排列，不贴靠右侧 */
+  gap: var(--sp-1);  /* 工具栏内排列更紧凑 */
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+/* 预览链的控件不包裹在单个块中，直接作为该行的子元素：整行一起从左向右排列，空间不足时一起换行。
+   若包裹为一个块，它会成为一千多像素宽的不可分割整体，浏览器只能将其单独放在一行，2D / 3D 与「视图设置」
+   会被挤到其他行。整行左对齐，左侧位置不随右侧内容变化，无须为其单独占一行 */
+.hud-tools .hud-modes {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+/* 各控件不得被压缩：空间不足时换行，而非缩小自身。缺少此规则时，flex 会先压缩通道下拉，
+   直至只剩一个箭头，「原图」「Alpha」等文字全部消失。 */
+.hud-tools > * {
+  flex: none;
+}
+
+/* 通道与着色下拉：至少容纳自身名称，最多 200 px（放不下的是使用者自己的节点名，其自身可横向滚动） */
+.hud-tools .port-pick {
+  min-width: 5.5em;
+  max-width: 200px;
+}
+
+/* 中间运算的 mix：一条窄滑块加数字框，与该行按钮同高，宽度固定，两侧控件不跳动。
+   26 px 即该行的统一高度：2D / 3D 分段控件的外壳为 22 px 按钮 + 2 px 内边距 = 26 px
+   （ui/parts.css 的 .seg.sm），该行一律以此为准，避免同一行出现两种高度。
+   其中的数字输入框为 24 px（保证可点击），26 − 2×0.5 px 边框 = 25 px，可以容纳。 */
+.hud-tools .hud-mix,
+.hud-tools .hud-num {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: 26px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-ctl);
+  background: var(--glass-bg);
+  border: 0.5px solid var(--hair);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* 「自动」并入「白点」格：紧贴数字框，不另占一格的内边距与边框 */
+.hud-tools .hud-num .hud-num-auto {
+  height: 24px;
+  margin-inline-start: 2px;
+  padding-inline: 5px;
+}
+
+.hud-tools .hud-mix input[type="range"] {
+  width: 64px;
+  accent-color: var(--accent);
+}
+
+.hud-tools .hud-mix b {
+  min-width: 2.2em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* 黑点 / 白点填写的是数据自身范围的 0 到 1（如「0.35」，四个字符）。宽 52 px、高 24 px：
+   可点击性优先于节省空间，不为减少换行而收窄。是否换行由 tests/ui/walk_text_layout.py
+   在 1280 与 1920 两种宽度下测量。 */
+.hud-tools .hud-num input.num {
+  width: 52px;
+  height: 24px;
+  padding: 0 6px;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-tools .hud-num[data-tip]:has(input:disabled),
+.hud-tools .hud-mix:has(input:disabled) {
+  opacity: 0.45;
+}
+
+/* 着色下拉中各档前的小色条（色标为渐变，纯色为单色色条） */
+.tint-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.tint-bar {
+  display: inline-block;
+  width: 28px;
+  height: 10px;
+  border-radius: var(--r-xs);
+  border: 0.5px solid var(--hair);
+}
+
+/* 背景下拉中「棋盘格」项的小方块：绘制为真实的格子，以便区别于颜色选项。
+   由两条 45 度渐变拼成格子；`conic-gradient` 仅允许在 ui/glow.css 中使用（webui/tests/uiKit.test.ts） */
+.tint-bar.checker-bar {
+  background-color: var(--checker-dark);
+  background-image:
+    linear-gradient(45deg, var(--checker-light) 25%, transparent 25% 75%, var(--checker-light) 75%),
+    linear-gradient(45deg, var(--checker-light) 25%, transparent 25% 75%, var(--checker-light) 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 4px 4px;
+}
+
+/* 工具栏中的控件比面板中小一档，避免分散对画面的注意力。空间不足时换行，不得裁切。
+   画布位置优先于排版：该工具栏的高度不得随节点或模式变化（见 .view-bar）。
+   「视图设置」弹层挂载在 body 上（ui/DisplayOptions.tsx，与 ui/Menu.tsx 做法相同），
+   不受该工具栏影响，不得将其移回工具栏内。 */
+.hud-tools,
+.view-bar {
+  flex-wrap: wrap;
+}
+
+/* the curve editor docked under the stage (the stage gives up the room: nothing drawn over it), its top edge dragged */
+.curve-strip {
+  position: relative;
+  flex: 0 1 auto;
+  min-height: 120px;
+  border-top: 0.5px solid var(--hair-strong);
+  background: var(--field-bg);
+}
+
+.curve-strip-grip {
+  position: absolute;
+  top: -4px;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: ns-resize;
+  z-index: var(--z-hud);
+}
+
+.curve-strip-grip:hover {
+  background: linear-gradient(transparent 3px, var(--accent-soft) 3px, var(--accent-soft) 5px, transparent 5px);
+}
+
+/* curves that are all a node gives: the whole stage under its control bar */
+.curves-board {
+  position: absolute;
+  inset: 52px 10px 10px;
+  border: 0.5px solid var(--hair);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--field-bg);
+}
+
+/* the node's basic values: the stage (a node that gives only values) or a strip under it */
+.values-board {
+  position: absolute;
+  inset: 52px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+}
+
+.values-strip {
+  border-top: 0.5px solid var(--hair);
+  background: var(--field-bg);
+  padding: 6px 10px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.values-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* 舞台下方值条中的一格，字号比面板小一档；整屏显示值的 values-board 仍使用大字号 */
+.value-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 84px;
+  padding: 4px 10px;
+  border-radius: var(--r-ctl);
+  background: var(--raised);
+}
+
+.values-board .value-card {
+  min-width: 150px;
+  padding: 12px 16px;
+}
+
+.value-label {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.value-text {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.values-board .value-text {
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+}
+
+/* 没有值的格显示「—」（计算前同样如此），颜色较淡 */
+.value-card.off .value-text,
+.values-board .value-card.off .value-text {
+  color: var(--text-3);
+}
+
+.value-curve {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 200px;
+  margin-top: 8px;
+}
+
+.value-curve .curves {
+  flex: 1;
+  min-height: 0;
+}
+
+/* The first thing in the stage's foot, on the left; the foot's own controls stay on the right (in a narrow view, on a row of their own).
+   不得被压缩（`flex: none`）：它设置了 nowrap，盒子窄于文字时文字会超出药丸框。
+   文字放不下时应改用更短的词（handles2d.ts HANDLE_HINT），而不是缩小盒子。 */
+.view-hint {
+  flex: none;
+  margin-right: auto;
+  white-space: nowrap;
+  pointer-events: none;
+  font-size: var(--fs-sm);
+}
+
+.view-foot {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  /* 左对齐而非右对齐：光标下的读数每次变化宽度都会改变（0.5 → 0.523），右对齐时整块会
+     左右高频抖动，难以阅读。左对齐后宽度只向右延伸，左侧保持不动 */
+  justify-content: flex-start;
+  gap: var(--sp-2);
+  z-index: var(--z-hud);
+  pointer-events: none;
+}
+
+.canvas2d {
+  width: 100%;
+  height: 100%;
+  display: block;
+}

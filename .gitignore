@@ -1,0 +1,38 @@
+# ---- 不纳入版本控制的文件（每项注明原因）----
+
+# 第三方论文代码、权重及其运行环境：由后台「扩展包」页面或 `lab2shot ext install` 安装至此处；为隔离许可证，不随仓库分发
+/third_party/*
+!/third_party/README.md
+
+# 各机器的本地设置（OCIO 路径、编译器路径）
+/config/local.toml
+
+# 服务工作目录：账号、缓存、上传、交付、日志
+/work/
+/work-*/
+
+# 用户手动下载的权重（SMPL、FLAME、FBX SDK 等）及自动下载的暂存文件
+/downloads/
+
+# 用户的测试素材与本地输出
+/input/
+/output/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# 网页前端：依赖与构建产物（克隆后执行 `cd webui && npm install && npm run build`）
+node_modules/
+/webui/dist/
+
+# 编辑器与开发工具的本地状态
+.vscode/
+.idea/
+.DS_Store
+
+# 分类文件（lab2shot/categories.py）最近一次修改前的版本：仅用于手动回退一步，不作为历史记录
+*.bak

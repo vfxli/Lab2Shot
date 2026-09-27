@@ -1,0 +1,20 @@
+# UniDepth V2 environment (torch comes from EnvSpec); UniK3D uses this same file
+# (same author, same dependency list). Inference-only subset of upstream
+# requirements.txt: gradio / wandb / h5py / tables / pandas / trimesh are for the
+# demo app, training logs and datasets. The worker never imports those code paths
+# (a stub replaces wandb, which utils/visualization.py imports at module level).
+# The model packages are not pip-installed: the worker imports them from the pinned repo/.
+
+numpy==2.4.6
+opencv-python-headless==5.0.0.93
+pillow==12.3.0
+einops==0.8.2
+timm==1.0.29
+scipy==1.17.1
+matplotlib==3.11.1
+tqdm==4.67.3
+safetensors==0.8.0
+# PyTorchModelHubMixin base class (models are loaded from local files only)
+huggingface-hub==1.26.0
+# UniK3D's robust_loss.py imports pkg_resources at module level (removed in setuptools 81)
+setuptools==80.9.0

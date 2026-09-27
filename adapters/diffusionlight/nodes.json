@@ -1,0 +1,6 @@
+{
+ "diffusionlight.light_probe": {
+  "label": "DiffusionLight HDRI",
+  "description": "从一帧画面生成 HDRI 环境图（经纬图 EXR）：在画面里画一个铬球再展开。只吃一帧，接一段序列时前面接「FrameHold」定住一帧。「已知 Focal Length」「Filmback」给出水平视场角，用来按透视正确展开铬球，不填按上游的正交展开（常见焦距下误差不大）。亮度是相对画面的，不是绝对值；结果不理想就换随机种子。"
+ }
+}

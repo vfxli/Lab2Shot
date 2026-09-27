@@ -1,0 +1,116 @@
+/* sheet: the kit component's own rules (K10), next to it in ui/; loaded in the page's cascade order by styles/index.css */
+
+/* ------------------------------------------------------------------ sheets */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-sheet);
+  background: rgba(0, 0, 0, 0.42); /* dims only: the dialog's own glass blurs what is under it, once */
+  display: grid;
+  place-items: center;
+  animation: fade var(--t-med) var(--ease);
+}
+
+.sheet {
+  width: min(90vw, 1800px); /* grows with the window; small dialogs pass their own width */
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-sheet);
+  overflow: hidden; /* whatever is docked inside (a rail, a table) keeps the sheet's rounded corners */
+  animation: pop var(--t-med) var(--ease);
+}
+
+/* a sheet that browses (从模板新建): one size whatever it lists, so choosing another category never resizes it under
+   the pointer — the body takes what is left and the page inside decides what scrolls (Sheet's `height`) */
+.sheet.fixed > .sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sheet-head {
+  padding: 18px 20px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* a sheet that names itself inside (Sheet `bare`): the way out keeps its corner, over the content */
+.sheet.bare > .sheet-body {
+  padding: 0;
+}
+
+.sheet-close {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+  z-index: var(--z-hud);
+}
+
+.sheet-head h2 {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+}
+
+.sheet-body {
+  overflow-y: auto;
+  padding: 0 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+
+
+/* the dot stays with the first line */
+
+
+
+.dialog-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* the one confirmation (ui/Confirm.tsx): what will happen, then 取消 and the action's word */
+.confirm-say {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.confirm-end {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/* a paragraph field in a small sheet (ui/NameSheet.tsx TextSheet): several lines high, drags taller */
+.lib-form textarea.field {
+  height: auto;
+  min-height: 112px;
+  resize: vertical;
+  line-height: 1.5;
+  padding-top: 8px;
+  white-space: pre-wrap; /* .field is one line by design; a paragraph wraps */
+  overflow-wrap: anywhere;
+  overflow: auto;
+}
+
+/* how much of the room is used (the limits are the card's / the menu row's: lab2shot/library.py, nodes/text.py) */
+.lib-form .field-count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.lib-form .login-field > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between; /* the label at the left, the count at the right edge */
+  gap: 8px;
+  width: 100%;
+}

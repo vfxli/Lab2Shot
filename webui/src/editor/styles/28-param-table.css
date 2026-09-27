@@ -1,0 +1,258 @@
+/* 表格参数 (editor/ParamTable.tsx): a parameter that is a list of entries, such as 「读取多条序列」's sequences,
+   「多层 EXR 输出设置」's 图层, the camera's distortion parameters, or the joint mapping. One line per entry, with every
+   column the server declares: editable ones as controls, the others as plain text. */
+
+/* a list of entries: one line each (「多层 EXR 输出设置」's 图层: 端口, 图层名, 通道); its label at the top */
+.prow:has(.ptable) > .plabel {
+  align-self: start;
+  padding-top: 5px;
+}
+
+/* 每张表使用一套列：列宽由 ParamTable.tsx 按该表的列计算一次（内联 grid-template-columns），
+   表头与每一行均通过 subgrid 使用同一套列。不得将行改为各自独立的 flex 容器，否则各行列宽分别计算，无法对齐。 */
+.ptable {
+  display: grid;
+  /* grid-template-columns 由组件按列声明内联提供 */
+  gap: 4px var(--sp-2);
+  align-items: center;
+  width: 100%;
+}
+
+.ptable-row {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+  padding: 3px 0;
+}
+
+/* 该行中不存在的列（「重新列出」仅在表头，「去掉」仅在数据行）：以空格占位，使列号对齐 */
+.ptable-blank {
+  display: block;
+}
+
+/* 表格下方的说明：横跨整张表，不得放入第一列而被挤成两行 */
+.ptable > .class-hint {
+  grid-column: 1 / -1;
+}
+
+/* a row with more in it than one line holds (「读取多条序列」: the sequence and its frames, then its name and 读) runs
+   to a second line: a hairline between rows keeps the two lines reading as one row */
+.ptable-row + .ptable-row {
+  border-top: 1px solid var(--hair);
+}
+
+.ptable-head + .ptable-row {
+  border-top: 0;
+}
+
+.ptable-row.drag-over {
+  outline: 1px dashed var(--text-3);
+  outline-offset: 2px;
+}
+
+.ptable-grip {
+  cursor: grab;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1;
+  padding: 0 2px;
+  user-select: none;
+}
+
+.ptable-grip:hover {
+  color: var(--text);
+}
+
+/* 行首列（说明该行内容）按自身文字宽度显示，最多占满一行。不能固定宽度：「畸变参数」表中 3DE 的
+   参数名（如「Distortion - Degree 2」）需要与 3DE 的镜头表逐行核对，截断为省略号后无法核对。该列在栅格中为
+   minmax(64px, max-content)：宽度随文字长度变化，超出可用空间时才在该格内截断，其他列不受影响 */
+.ptable-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+/* A column the server declares read-only (widget "fixed"): listed like any other, shown as plain text (the row's
+   own sequence, its frames, the layer a port comes from). It is the user's data, so it gives way first:
+   it shrinks and shows its full text on hover, rather than pushing editable content onto another line. */
+.ptable-fixed {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--text-2);
+  /* 不使用问号光标（节点上同理，见 08a-node.css）。悬停提示仍然存在，由 data-tip 负责，与光标无关 */
+}
+
+/* 可编辑的格：宽度等于所在列宽（由栅格决定），其中的控件铺满 */
+.ptable-cell {
+  min-width: 0;
+}
+
+.ptable-cell .field {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  font-size: var(--fs-sm);
+}
+
+/* a cell whose options come from the input (the joint table's 人物关节): its column takes the remaining width */
+.ptable-cell.wide .field {
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.ptable-drop {
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  padding: 2px 4px;
+  cursor: default;
+}
+
+.ptable-drop:hover {
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------- a parameter row's label and its three pins
+   (moved here from 13-group-boxes.css and 08-node-graph.css: they are the parameter panel's, not the graph's) */
+
+/* a parameter's label: its help is the page's one tooltip, on hover or on focus. No underline:
+   the label reads as plain text. */
+.plabel-text {
+  /* 不使用问号光标（节点上同理，见 08a-node.css）。悬停提示仍然存在，由 data-tip 负责，与光标无关 */
+  outline: none;
+  border-radius: 3px;
+}
+
+.plabel-text:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* exposed-parameter pin next to a parameter's label */
+.expose-pin {
+  position: absolute;
+  left: -2px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.prow:hover .expose-pin,
+.expose-pin.on {
+  opacity: 1;
+}
+
+.expose-pin.on {
+  color: var(--accent);
+}
+
+.expose-pin:hover {
+  background: var(--raised);
+}
+
+/* 提升到节点 (.socket-pin, ParamPanel.tsx PromotePin): one click puts the parameter on the node's body, as a row with
+   its own input and its control. 其右侧另有标记 .onnode-pin「在节点上显示」（23-panel-1.css）：
+   该标记只控制显示，不提供输入口。 */
+.socket-pin {
+  position: absolute;
+  left: 15px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  /* 始终显示：若仅在悬停时出现，使用者难以发现该功能。默认以较淡样式常驻，悬停与开启时完全显示 */
+  opacity: 0.4;
+  transition: opacity 0.12s;
+}
+
+.prow:hover .socket-pin,
+.socket-pin.on,
+.socket-pin.fixed {
+  opacity: 1;
+}
+
+/* 节点类型声明的常驻接线口（NodeDef.wired_ports）：端口始终存在，不可取消 */
+.socket-pin.fixed {
+  color: var(--wired);
+  cursor: default;
+}
+
+.socket-pin.on {
+  color: var(--wired);
+}
+
+.socket-pin:hover {
+  background: var(--raised);
+}
+
+/* 「重新列出」接在列头行的右端，不单独占一行。
+   仅在没有列头时（表为空）单独占一行，此时上方没有可衔接的行 */
+.ptable-again {
+  justify-self: end;
+  height: 24px;
+  font-size: 11.5px;
+}
+
+/* 表为空（没有列头）时单独占一行：此时上方没有可衔接的行 */
+.ptable:not(:has(.ptable-head)) > .ptable-again {
+  grid-column: 1 / -1;
+  justify-self: start;
+  margin-top: var(--sp-2);
+}
+
+/* 列头：字号小一档、颜色暗一档。与下方各行使用同一套列对齐（subgrid），不依赖 class 的偶然一致 */
+.ptable-head {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  padding-bottom: 2px;
+  border-bottom: 0.5px solid var(--hair);
+  margin-bottom: 2px;
+}
+
+.ptable-head .ptable-cell {
+  font-family: inherit;
+}
+
+/* 行中不起作用的格（控件不显隐切换，只区分可用与不可用）：
+   仍占据所在列并置灰，原因显示在悬停提示中。与面板中 .prow.inactive 的做法及不透明度相同 */
+.ptable-field {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: contents;
+}
+
+.ptable-cell.inactive {
+  opacity: 0.38;
+}
+
+.ptable-fixed.inactive {
+  color: var(--text-3);
+  opacity: 0.38;
+}

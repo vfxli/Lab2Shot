@@ -1,0 +1,18 @@
+# BiRefNet environment (torch comes from EnvSpec). BiRefNet itself is not
+# pip-installed: the worker imports `models.birefnet` straight from the pinned
+# repo/. Only what the model code imports at inference time (models/, config.py,
+# dataset.py, utils.py, image_proc.py); upstream's training / evaluation extras
+# (scipy, scikit-image, prettytable, tabulate, ipykernel, accelerate) are left out.
+# Upstream asks for numpy<2 (old OpenCV wheels); the inference code runs on numpy 2.
+
+numpy==2.4.6
+opencv-python-headless==5.0.0.93
+pillow==12.3.0
+tqdm==4.70.0
+# Swin-L backbone layers (timm.layers), Laplacian in the decoder (kornia), patch rearrange (einops)
+timm==1.0.29
+kornia==0.8.3
+einops==0.8.2
+# models/birefnet.py subclasses PyTorchModelHubMixin (never downloads: only local files are loaded)
+huggingface-hub==1.31.0
+safetensors==0.8.0

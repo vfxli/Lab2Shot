@@ -1,0 +1,10 @@
+{
+ "fbx.import": {
+  "label": "导入 FBX",
+  "description": "导入 Maya、MotionBuilder、3ds Max、Unreal 导出的 FBX：按层级列出文件里的相机、模型、骨架动画和蒙皮角色（蒙皮、blend shape 和它们的动画），选哪些就输出哪些。单位和坐标轴按文件自己记录的换算成厘米、Y 向上，父级的变换（包括动画）一起算进去。"
+ },
+ "fbx.output": {
+  "label": "FBX 输出设置",
+  "description": "把三维数据写成 FBX：相机、静止的模型、骨架动画、蒙皮角色（蒙皮和 blend shape 的权重曲线），单位厘米、Y 向上，Maya、MotionBuilder、Unreal 都能读。「场景」可以接多根线，也可以接一条场景列表（每条写在 /shot/<条目名> 下）。接到「输出」上交给你。"
+ }
+}

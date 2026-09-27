@@ -1,0 +1,46 @@
+# GVHMR environment (torch from EnvSpec, as upstream's requirements.txt at the
+# pinned commit). pytorch3d is built from source against the pinned torch
+# (EnvSpec.compiled): Meta stopped publishing a prebuilt wheel for this
+# Python/torch/CUDA combination once torch moved past the wheel's original
+# py310_cu121_pyt230 build, which has no Blackwell (RTX 5090) kernels. DPVO (optional upstream, "not
+# recommended") is not installed: camera rotation comes from upstream's default
+# SimpleVO.
+
+setuptools==80.10.2
+numpy==1.23.5
+
+# upstream requirements.txt (training / notebook / formatting tools left out); unpinned
+# upstream entries pinned to what resolved on 2026-09-11
+timm==0.9.12
+lightning==2.3.0
+hydra-core==1.3.2
+hydra-zen==0.16.0
+hydra_colorlog==1.2.0
+rich==15.0.0
+opencv-python==4.10.0.84
+ffmpeg-python==0.2.0
+scikit-image==0.24.0
+termcolor==3.3.0
+# hmr4d/network/hmr2/ imports yacs.config.CfgNode directly; upstream's requirements.txt never
+# pins it (some transitive dependency of the old torch 2.3 stack pulled it in incidentally —
+# not true anymore once torch/numpy move, 2026-09-14 RTX 5090 upgrade). Same version the old
+# environment had.
+yacs==0.1.8
+einops==0.8.2
+imageio==2.34.1
+av==13.0.0
+joblib==1.6.0
+matplotlib==3.10.9
+trimesh==5.1.0
+smplx==0.1.28
+# upstream's "2D-Pose" section: its own people tracker (hmr4d/utils/preproc/tracker.py Tracker)
+# is YOLOv8x behind ultralytics, and ultralytics' BoT-SORT/ByteTrack tracker imports `lap`
+# (the lapx wheel provides it; without it ultralytics tries to pip-install at run time, which
+# an offline worker cannot do). ultralytics as upstream pins it; lapx (upstream leaves it
+# unpinned) at 0.5.11, which ships a cp310 manylinux wheel — nothing to compile.
+# cython_bbox (upstream's third entry there) is left out:
+# ultralytics 8.2 does not import it — it belongs to the older tracker upstream no longer uses.
+ultralytics==8.2.42
+lapx==0.5.11
+wis3d==1.0.1
+pycolmap==4.2.0

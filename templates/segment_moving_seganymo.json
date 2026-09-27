@@ -1,0 +1,166 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "cfd3ea0887119c1ccb2e146e50c027e8",
+  "name": "运动物体遮罩 · SegAnyMo",
+  "intro": "SegAnyMo 把长距离轨迹的运动线索和 DINO 的语义特征结合起来做运动物体分割，再用 SAM2 以迭代提示把遮罩加密到像素级。这张卡交付整段运动物体遮罩和按物体区分的分割结果。",
+  "author": "Lab2Shot",
+  "created": "2026-09-13T12:00:00",
+  "deliverable": "mask",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 240
+   }
+  },
+  {
+   "id": "seg",
+   "type": "seganymo.moving_objects",
+   "label": "SegAnyMo 运动物体遮罩",
+   "params": {
+    "resolution": 1000,
+    "analysis_frames": 100,
+    "query_step": 10
+   },
+   "ui": {
+    "x": 320,
+    "y": 240
+   }
+  },
+  {
+   "id": "out_m",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "name": "moving_mask",
+    "format": "exr",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 680,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out_o",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "moving_objects",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "CryptoObject"
+     }
+    ],
+    "colorspace": null
+   },
+   "ui": {
+    "x": 680,
+    "y": 260,
+    "on_node": [
+     "name"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1000,
+    "y": 140,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "seg",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "seg",
+    "mask"
+   ],
+   "to": [
+    "out_m",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "seg",
+    "objects"
+   ],
+   "to": [
+    "out_o",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "out_m",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_o",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "seg",
+  "frame": null
+ }
+}

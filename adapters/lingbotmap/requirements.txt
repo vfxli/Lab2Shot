@@ -1,0 +1,26 @@
+# LingBot-Map environment (torch comes from EnvSpec). The pinned repo is not
+# pip-installed: the worker imports the `lingbot_map` package straight from
+# third_party/lingbotmap/repo. Only what inference imports (upstream
+# pyproject.toml at the pinned commit: Pillow, huggingface_hub, einops,
+# safetensors, opencv-python, tqdm, scipy); none of the viser / GLB / render
+# extras (kaolin, open3d, ...).
+#
+# Attention runs on PyTorch SDPA (upstream's --use_sdpa, fixed for long sequences
+# on 2026-06-28). FlashInfer (upstream's faster default) is left out: it JIT-compiles
+# CUDA kernels (CUDA 12.x headers do not build on glibc 2.43) or needs a 1.2 GB
+# precompiled kernel wheel plus the CUTLASS DSL stack.
+
+numpy==2.2.6
+pillow==12.3.0
+opencv-python-headless==4.10.0.84
+einops==0.8.1
+safetensors==0.7.0
+tqdm==4.67.1
+scipy==1.16.3
+# lingbot_map.models.gct_base imports PyTorchModelHubMixin (weights are local files)
+huggingface-hub==0.36.2
+
+# Sky segmentation (mask_sky), CPU is enough at 320x320.
+onnxruntime==1.23.2
+# Reads the float EXR masks of the "mask" input (moving objects).
+OpenEXR==3.4.15

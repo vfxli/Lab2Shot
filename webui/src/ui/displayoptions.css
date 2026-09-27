@@ -1,0 +1,90 @@
+/* The view's 显示 popover (ui/DisplayOptions.tsx): the floating panel and its rows of switches, sliders and
+   choices; `popover` is the floating panel every small menu of the viewer uses. */
+
+/* a floating panel opened from a control (the viewer's display options) */
+.popover {
+  position: absolute;
+  z-index: var(--z-popover);
+  border-radius: var(--r-card);
+  animation: pop var(--t-med) var(--ease);
+}
+
+.vo-anchor {
+  position: relative;
+}
+
+.vo-panel {
+  top: calc(100% + 8px);
+  /* 从按钮的左边往右挂：工具栏在画面上方从左往右排，按钮靠左，往左挂会挂出屏幕、左半边被浏览器裁掉 */
+  left: 0;
+  right: auto;
+  width: 324px;
+  max-width: calc(100vw - 24px);
+  max-height: min(560px, calc(100vh - 170px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+}
+
+.vo-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.vo-row {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 26px;
+}
+
+.vo-label {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.vo-ctl {
+  display: flex;
+  min-width: 0;
+}
+
+.vo-ctl .seg.stretch {
+  max-width: 100%; /* 按内容宽，放不下才收缩 */
+  /* 放不下就换行，不是把字挤掉（界面文字既不换行也不截断成省略号——换行的是这一排按钮，
+     每个按钮自己的字照旧一行）。面板 324 px、控件区约 240 px，而「自动 / 关 / FXAA / MSAA / SMAA」
+     五个按钮光左右内边距就 160 px，必然装不下；FXAA / MSAA / SMAA 是行业通用词，换不了更短的 */
+  flex-wrap: wrap;
+}
+
+.vo-ctl .seg.stretch button {
+  padding: 0 10px; /* 一排能多站一个；仍然比字宽，圆角不会切到字 */
+}
+
+.vo-slider {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 82px;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.vo-foot {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 0.5px solid var(--hair);
+  padding-top: 8px;
+}
+
+/* 用不上的一行：整行淡下去，位置不跳（控件不忽隐忽现，只分能用和不能用）。为什么用不上写在行名的
+   悬停提示里（model/viewControls.ts WHY_OFF 的编号，中文在消息目录）；行里的控件自己也是 disabled 的，
+   这里只管看相 */
+.vo-row.off .vo-label {
+  color: var(--text-3);
+}

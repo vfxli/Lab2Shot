@@ -1,0 +1,177 @@
+/* The login gate's own page rules (gate.tsx, admin/Auth.tsx's login): the card, its fields and actions, the brand and the
+   top line it shares with the admin page. main.tsx loads only these with the tokens, the base and the field; site.tsx
+   loads the rest of the page stylesheet once the login is through. */
+
+.adm-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 48px;
+  flex: none;
+  padding: 0 20px;
+  border-bottom: 0.5px solid var(--hair);
+  background: var(--panel-solid);
+}
+
+.adm-top-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 登录: the admin page's top bar over one card, in the middle of the window (admin/Auth.tsx) */
+.login-page {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--window);
+}
+
+/* The first screen's light (gate.tsx BOKEH): many out-of-focus discs in the word mark's colours — a
+   flat disc with a brighter rim, as a lens draws a point of light — each drifting at its own pace; only transform and
+   opacity move, so the compositor does it all. Their brightness follows their place (gate.tsx): dark at the top left, bright at
+   the bottom right — no wash of gradient over them, which bands on a dark screen. The one page that is coloured; the working pages stay neutral. */
+.login-scene {
+  position: absolute;
+  inset: 0;
+}
+.login-scene i {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, currentColor 72%, transparent) 84%, currentColor 94%, transparent);
+  animation: login-drift-a linear infinite alternate;
+}
+.login-scene i:nth-child(3n) { animation-name: login-drift-b; }
+.login-scene i:nth-child(3n + 1) { animation-name: login-drift-c; }
+@keyframes login-drift-a {
+  to { transform: translate3d(6vmax, -9vmax, 0) scale(1.25); }
+}
+@keyframes login-drift-b {
+  50% { opacity: 0.04; }
+  to { transform: translate3d(-8vmax, -5vmax, 0) scale(0.8); }
+}
+@keyframes login-drift-c {
+  to { transform: translate3d(4vmax, 7vmax, 0) scale(1.1); }
+}
+
+/* the mark over the card, breathing */
+.login-mark {
+  position: relative;
+  margin-bottom: 28px;
+  animation: login-breathe 5s ease-in-out infinite alternate;
+}
+@keyframes login-breathe {
+  from { filter: brightness(0.82); }
+  to { filter: brightness(1.22); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-scene i, .login-mark { animation: none; }
+}
+
+.login-main {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14vh 20px 40px;
+}
+
+.login-card {
+  width: min(360px, 100%);
+  padding: 30px 30px 22px;
+  border-radius: var(--r-hero);
+}
+/* the solid look of the card where it does not float over the light (admin/Auth.tsx); gate.tsx's cards are glass */
+.login-plate {
+  border: 0.5px solid var(--hair);
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-panel);
+}
+
+.login-card h1 {
+  margin: 0 0 6px;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+}
+
+.login-lede {
+  margin: 0 0 16px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: var(--fs-md);
+}
+.login-field > span {
+  color: var(--text-2);
+  /* 不设 cursor: help：停留提示由 data-tip 负责，光标保持默认，全站一致 */
+  align-self: flex-start;
+}
+
+.login-problem {
+  margin: -2px 0 12px;
+  color: var(--error);
+  font-size: var(--fs-sm);
+}
+
+.login-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+}
+/* the login form itself: one wide button, the way out under it */
+.login-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+}
+.login-go {
+  width: 100%;
+}
+
+.login-first {
+  padding: 8px 10px;
+  border-radius: var(--r-ctl);
+  background: rgba(255, 159, 10, 0.12);
+  color: #ffc56b;
+}
+
+/* the code asked for again over a page that stays underneath (gate.tsx) */
+.login-page.over {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-login);
+  height: auto;
+  background: rgba(10, 10, 12, 0.72);
+}
+
+.login-legal {
+  position: relative;
+  padding: 12px 20px 18px;
+  text-align: center;
+}
+
+.help-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text);
+  font-weight: 700;
+  font-size: 14px;
+  text-decoration: none;
+}

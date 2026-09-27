@@ -1,0 +1,4 @@
+# BiRefNet 抠像（adapters/birefnet）。一行一条：编号 = 模板。
+
+# ---- 结果
+"N-BIREFNET-EMPTY" = "「BiRefNet 抠像」有 {count:d} 帧没有找到主体（alpha 全部低于 0.5，这些帧的 Alpha 基本是空的）：第 {frames}{more} 帧"

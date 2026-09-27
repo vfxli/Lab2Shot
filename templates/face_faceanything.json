@@ -1,0 +1,274 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "8c9351c2459686e976bdc14c47d51bfe",
+  "name": "面部 UV 与深度图 · FaceAnything",
+  "intro": "FaceAnything 官方自述：统一的前馈模型，从任意画面序列做高保真的 4D 面部几何与稠密跟踪，核心是给每个像素预测共享规范空间里的面部坐标。这张卡交付面部深度图、规范坐标、遮罩和 UV 坐标图。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "face_geo",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 500
+   }
+  },
+  {
+   "id": "face",
+   "type": "faceanything.solve",
+   "label": "FaceAnything 面部通道",
+   "params": {
+    "mode": "chunk",
+    "max_frames": 16,
+    "resolution": 504
+   },
+   "ui": {
+    "x": 320,
+    "y": 500,
+    "on_node": [
+     "mode",
+     "max_frames",
+     "resolution"
+    ]
+   }
+  },
+  {
+   "id": "out_p",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "canonical"
+   },
+   "ui": {
+    "x": 980,
+    "y": 520,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out_d",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "depth"
+   },
+   "ui": {
+    "x": 980,
+    "y": 260,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out_m",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "mask"
+   },
+   "ui": {
+    "x": 980,
+    "y": 780,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1300,
+    "y": 380,
+    "on_node": [
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "uv",
+   "type": "core.position_uv",
+   "label": "规范坐标转 UV",
+   "params": {
+    "way": "cylinder"
+   },
+   "ui": {
+    "x": 680,
+    "y": 340,
+    "on_node": [
+     "way"
+    ]
+   }
+  },
+  {
+   "id": "out_uv",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "uv"
+   },
+   "ui": {
+    "x": 980,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "face",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "face",
+    "canonical"
+   ],
+   "to": [
+    "out_p",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "face",
+    "depth"
+   ],
+   "to": [
+    "out_d",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "face",
+    "mask"
+   ],
+   "to": [
+    "out_m",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out_p",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_d",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_m",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "face",
+    "canonical"
+   ],
+   "to": [
+    "uv",
+    "position"
+   ]
+  },
+  {
+   "from": [
+    "face",
+    "mask"
+   ],
+   "to": [
+    "uv",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "uv",
+    "uv"
+   ],
+   "to": [
+    "out_uv",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out_uv",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "face",
+  "frame": null
+ }
+}

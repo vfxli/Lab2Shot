@@ -1,0 +1,563 @@
+"""节点图的流程节点：列表、逐项处理、切换与判断。
+
+这些节点与数据类型无关（端口按 data/types.py 的 ANY / ANY_LIST 声明，新增的数据类型自动适用），且不处理像素：
+
+- 列表：「合成列表」将多份数据合成一个列表；「拆成列表」拆分包含多个条目的数据（人物框、场景、2D 跟踪点、分割图）；
+  「取一条」取出其中一个条目；「列表合并」将列表合并回单份数据（拆分与合并统一登记在 data/items.py）；
+- 逐项处理：「逐项开始」与「逐项结束」界定一个块，块内节点对每个条目各计算一次（引擎实例，engine/scopes.py）；
+- 「命名」为数据命名：场景改为 /shot/<名字>，列表按「名字_序号」逐条命名，其他类型将名字记录在数据上，
+  供「逐项结束」和写出节点使用；
+- 「切换」按条件只计算其中一路；「与或非」「比较」「数学」「取信息」提供其条件与数值。
+
+条目数据不会被复制：列表数据包只记录名字与指纹（data/packet.py），「逐项开始」输出的「条目」即条目本身的数据包。
+"""
+
+from __future__ import annotations
+
+import math
+from typing import Literal
+
+from ...data.packet import Packet, copy_packet, item_fingerprint, items_meta, items_of, packet_dir, produce
+from ...data.types import ANY, ANY_LIST, element_of, is_list, type_label
+from ...data.values import BOOL, FLOAT, INT, TEXT, factor, read, unit_problem, value_packet
+from ...errors import Invalid
+from ...messages import Msg
+from ..applies import Param
+from ..base import NodeDef, NodeParams, P, Port, empty_packet, typed_list
+from ..expects import OneValue
+
+# Flow nodes produce no image and never modify pixels, so none of their outputs is checked against a plate
+# (data/contracts.py); the data they pass on keeps its original capture information unchanged.
+NO_PICTURE = ""
+BOTH = f"{ANY}|{ANY_LIST}"  # port type accepting either a single value or a list
+
+
+def _block_param() -> str:
+    return P("A", label="块名", group="块", affects_result=False,
+             help="这个块的名字：「逐项开始」和「逐项结束」的块名相同才算一个块。一个图里有几个块时，各起一个名字")
+
+
+def _list_type(ctx, port: str = "list") -> str:
+    """Return the list type of an output port as resolved for this graph (for example 图像序列[])."""
+    return ctx.output_types[port]
+
+
+class ItemsOnly:
+    """Mixin for the nodes that split data and merge it back (「拆成列表」, 「列表合并」). Both operate only on types
+    that contain multiple items; data/items.py is the single place that defines which types these are."""
+
+    @classmethod
+    def refuses(cls, data_type: str, kinds: frozenset[str] | None = None):
+        from ...data.items import kind_of
+
+        if all(kind_of(element_of(t)) is None for t in data_type.split("|")):
+            return Msg("E-LIST-NOITEMS", kind=type_label(data_type))
+        return ""
+
+
+def _item_packets(p: Packet) -> list[tuple[str, Packet]]:
+    """Return a list packet's items as packets, in order (they are guaranteed to be cached by the contract check)."""
+    out = []
+    for name, fp in items_of(p):
+        d = packet_dir(fp)
+        if not Packet.exists(d):
+            raise Invalid(Msg("E-CONTRACT-NOITEM", name=name))
+        out.append((name, Packet.load(d)))
+    return out
+
+
+# ------------------------------------------------------------------ 逐项处理
+
+
+class EachBegin(NodeDef):
+    id = "core.each_begin"
+    category = "flow"
+    picture = NO_PICTURE
+    inputs = (Port("list", ANY_LIST, "列表"),)
+    outputs = (
+        Port("item", ANY, "条目", type_from="input:list#item"),
+        Port("name", TEXT, "名字"),
+        Port("index", INT, "序号"),
+        Port("count", INT, "条数"),
+    )
+    main = "item"
+    # read by engine/scopes.py: this node begins a 逐项处理 block
+    scope_role, scope_kind = "begin", "each"
+    item_input, item_output = "list", "item"
+
+    class Params(NodeParams):
+        block: str = _block_param()
+
+    @classmethod
+    def scope_name(cls, params: dict) -> str:
+        return params["block"]
+
+    @classmethod
+    def scope_items(cls, params: dict, packet):
+        from ...data.items import Item
+
+        return [Item(name, fp) for name, fp in items_of(packet)]
+
+    @classmethod
+    def item_outputs(cls, params: dict, item, list_packet: str) -> dict:
+        """Return the per-item outputs. 名字 depends only on the item, 序号 on the item and its position, and 总数 on
+        the whole list, so appending an item does not invalidate existing items or anything cooked from them."""
+        from ...data.items import port_fp
+
+        return {"name": (port_fp(item.packet, "name"), item.name),
+                "index": (port_fp(item.packet, "index", item.index), item.index + 1),
+                "count": (port_fp(list_packet, "count"), item.count)}
+
+    @classmethod
+    def cook(cls, ctx) -> dict:
+        given = cls.item_outputs(ctx.params, ctx.item, "")
+        return {port: value_packet(ctx.outputs[port], TEXT if port == "name" else INT, given[port][1])
+                for port in ("name", "index", "count") if port in ctx.wanted}
+
+
+class EachEnd(NodeDef):
+    id = "core.each_end"
+    category = "flow"
+    picture = NO_PICTURE
+    inputs = (Port("result", BOTH, "结果", multi=True),)
+    outputs = (Port("list", ANY_LIST, "列表", type_from="input:result#list"),)
+    scope_role, scope_kind = "end", "each"
+
+    class Params(NodeParams):
+        block: str = _block_param()
+
+    @classmethod
+    def scope_name(cls, params: dict) -> str:
+        return params["block"]
+
+    @classmethod
+    def cook(cls, ctx) -> dict:
+        items, got = list(ctx.items), list(ctx.inputs["result"])
+        parts: list[tuple[str, str]] = []
+        # The engine supplies one result per item and wire, grouped by wire (engine/evaluation.py wires). All wires
+        # cover the same items, so the result of wire w for item i is at index w * items + i.
+        wires = len(got) // len(items) if items else 0
+        for i, item in enumerate(items):
+            mine = [got[w * len(items) + i] for w in range(wires)]
+            if len(mine) > 1:  # multiple results for one item are packed into a single scene
+                parts.append((item.name, cls._packed(ctx, item.key, mine).fingerprint))
+            elif is_list(mine[0].type):  # a list from a nested block is flattened and named 外层/内层
+                parts += [(f"{item.name}/{name}", fp) for name, fp in items_of(mine[0])]
+            else:
+                parts.append((mine[0].meta.get("item_name") or item.name, mine[0].fingerprint))
+        return {"list": Packet(ctx.outputs["list"], _list_type(ctx), items_meta(parts))}
+
+    @classmethod
+    def _packed(cls, ctx, key: str, packets: list[Packet]) -> Packet:
+        """Pack one item's multiple results into a single scene. All results must be 3D data, since no other types
+        can be combined."""
+        from ...data.scene import pack
+
+        if not all(p.type.startswith("scene") for p in packets):
+            raise Invalid(Msg("E-EACH-SEVERAL", kinds=sorted({type_label(p.type) for p in packets})))
+        fp = item_fingerprint(cls.id, cls.version, ctx.fingerprint, key)
+        return produce(fp, lambda d: pack(packets, d).commit(cls.id))  # runs under the entry lock (data/packet.py produce)
+
+
+# ------------------------------------------------------------------ 列表
+
+
+class TakeOne(NodeDef):
+    id = "core.take_one"
+    category = "list"
+    picture = NO_PICTURE
+    list_role = "one"  # offered by engine/graph.py when a list is wired into a single-value port
+    inputs = (Port("list", ANY_LIST, "列表"),)
+    outputs = (Port("item", ANY, "条目", type_from="input:list#item"),)
+    on_node = ("by", "index", "name")
+    # 算法定义在算法目录（lab2shot/ops/ops.toml）：按序号或名字选取条目由 items.take_one 实现，
+    # 浏览器依据同一描述执行（webui/src/ops/run.ts）。未选中时该算法只返回事实（超出范围 / 名字不存在），
+    # 由本节点决定输出哪条消息
+    ops = ("items.take_one",)
+
+    class Params(NodeParams):
+        by: Literal["index", "name"] = P("index", label="按", group="条目",
+                                         option_labels={"index": "序号", "name": "名字"},
+                                         help="按位置取（第几条），还是按名字取（sh020）。名字更稳：列表增删以后位置会变")
+        index: int = P(1, label="序号", ge=1, group="条目", applies=Param("by").one_of("index"),
+                       help="第几条，从 1 数。超出列表的条数会报错说明一共有几条")
+        name: str = P("", label="名字", group="条目", applies=Param("by").one_of("name"),
+                      help="条目的名字，和列表里写的一样（序列名、person_01……）")
+
+    @classmethod
+    def cook(cls, ctx) -> dict:
+        from ...ops import run as run_op
+
+        items = _item_packets(ctx.input("list"))
+        got = run_op("items.take_one", {"items": [{"name": name} for name, _ in items],
+                                        "rule": ctx.params["by"], "index": ctx.params["index"],
+                                        "name": ctx.params["name"]})
+        if not got["indices"]:  # 未选中：依据返回的事实输出消息（消息定义在消息目录，不在算法中）
+            miss = got["missed"][0]
+            if miss["rule"] == "name":
+                raise Invalid(Msg("E-ITEMS-NONAME", name=miss["name"], kind=type_label(ctx.input("list").type)))
+            raise Invalid(Msg("E-LIST-NOINDEX", index=miss["index"], count=miss["count"]))
+        return {"item": copy_packet(items[got["indices"][0]][1], ctx.outputs["item"])}
+
+
+class MakeList(NodeDef):
+    id = "core.make_list"
+    category = "list"
+    picture = NO_PICTURE
+    list_role = "make"
+    inputs = (Port("items", ANY, "条目", multi=True),)
+    outputs = (Port("list", ANY_LIST, "列表", type_from="input:items#list"),)
+
+    class Params(NodeParams):
+        names: str = P("", label="名字", group="条目", placeholder="按顺序，逗号分开",
+                       help="每条一个名字，按接线的顺序，用逗号分开（sh010,sh020）。留空的条目用上游「命名」起的名字，"
+                            "没有就按序号编号；同一条列表里名字不能重复")
+
+    @classmethod
+    def cook(cls, ctx) -> dict:
+        given = typed_list(ctx.params["names"])
+        parts = []
+        for i, packet in enumerate(ctx.inputs["items"]):
+            name = given[i] if i < len(given) else (packet.meta.get("item_name") or str(i + 1))
+            parts.append((name, packet.fingerprint))
+        return {"list": Packet(ctx.outputs["list"], _list_type(ctx), items_meta(parts))}
+
+
+class SplitItems(ItemsOnly, NodeDef):
+    id = "core.split_items"
+    category = "list"
+    picture = NO_PICTURE
+    list_role = "split"
+    inputs = (Port("data", ANY, "数据"),)
+    outputs = (Port("list", ANY_LIST, "列表", type_from="input:data#list"),)
+    # 可在浏览器中拆分的类型：
+    #
+    # 人物框：支持。数据为每人每帧四个浮点数，浏览器为绘制框已持有完整数据（`/api/packet/{fp}/boxes`），
+    # 拆分只需将该 JSON 按人物分组，无需额外传输。
+    #
+    # 场景（scene）：不支持。拆分需要读取 USD 并按 /shot 下的组重写文件（data/items.py `_scene_split`），
+    # 属于格式模块的职责，不纳入算法目录。
+    #
+    # 2D 跟踪点、分割图：不支持。其上游为解算器（结果只在服务器计算后产生），链路上没有可即时调整的参数，
+    # 在浏览器中计算不带来即时反馈。分割图还需按类别编号从像素中提取图层，而算法目录的词汇表仅包含三种运算
+    # （逐像素算术 / 按框绘制 / 选取条目），不含按编号提取图层；如需支持，应先扩展 `ops/vocab.py` 的词汇表。
+    IN_BROWSER = ("boxes",)
+
+    @classmethod
+    def browser_ops(cls, params, types):
+        """按泛型端口的实际类型判断：人物框由浏览器拆分，其他类型由服务器处理。
+        拆分只是分离条目而非运算，不使用算法目录中的算法，因此返回空元组。空元组与 `None` 含义不同：
+        空元组表示浏览器可以计算。"""
+        return () if types.get("data") in cls.IN_BROWSER else None
+
+    @classmethod
+    def cook(cls, ctx) -> dict:
+        from ...data.items import as_items
+
+        data = ctx.input("data")
+        # 拆分逻辑只在 data/items.py 中实现（as_items），「选人」输出列表时使用同一段代码，
+        # 因此两者的列表包逐字节一致，视图只需处理一种情况
+        parts = as_items(data, cls.id, cls.version)
+        if not parts:  # no items (e.g. no person detected): an empty list, not an error
+            ctx.say("N-LIST-NOTHING", node=ctx.label, kind=type_label(data.type))
+        return {"list": Packet(ctx.outputs["list"], _list_type(ctx), items_meta(parts))}
+
+
+class MergeItems(ItemsOnly, NodeDef):
+    id = "core.merge_items"
+    # 通用的列表合并，适用于人物框、场景、跟踪点、分割图等任意列表，与「拆成列表」互逆
+    category = "list"
+    picture = NO_PICTURE
+    inputs = (Port("list", ANY_LIST, "列表"),)
+    outputs = (Port("data", ANY, "数据", type_from="input:list#item"),)
+
+    @classmethod
+    def cook(cls, ctx) -> dict:
+        from ...data.items import merge
+
+        parts = _item_packets(ctx.input("list"))
+        if not parts:
+            return {"data": empty_packet(ctx, "data")}
+        return {"data": merge(parts, ctx.outputs["data"])}
+
+
+class NameIt(NodeDef):
+    id = "core.name_item"
+    category = "list"
+    picture = NO_PICTURE
+    inputs = (Port("data", BOTH, "数据"),)
+    outputs = (Port("out", BOTH, "结果", type_from="input:data"),)
+    on_node = ("name",)
+
+    class Params(NodeParams):
+        name: str = P("名字", label="名字", group="名字",
+                      help="这份数据的名字：写进 USD 的层级名（/shot/<名字>）、交付的文件夹名、列表里的条目名。"
+                           "接上「逐项开始」的「名字」就按条目命名")
+
+    @classmethod
+    def cook(cls, ctx) -> dict:
+        name = str(ctx.params["name"]).strip()
+        if not name:
+            raise Invalid(Msg("E-NAME-EMPTY"))
+        data = ctx.input("data")
+        out = ctx.outputs["out"]
+        if is_list(data.type):  # name each item as 名字_序号
+            parts = [(f"{name}_{i + 1}", fp) for i, (_old, fp) in enumerate(items_of(data))]
+            return {"out": Packet(out, data.type, items_meta(parts))}
+        if data.type.startswith("scene"):
+            from ...data.scene import as_group
+
+            return {"out": as_group(data, name, out)}
+        made = copy_packet(data, out)
+        made.meta["item_name"] = name
+        return {"out": made}
+
+
+# ------------------------------------------------------------------ 切换和判断
+
+
+class Switch(NodeDef):
+    id = "core.switch"
+    category = "flow"
+    picture = NO_PICTURE
+    inputs = (
+        Port("condition", f"{BOOL}|{INT}", "条件", expects=(OneValue(),)),
+        Port("a", BOTH, "第一路", optional=True),
+        Port("b", BOTH, "第二路", optional=True),
+        Port("c", BOTH, "第三路", optional=True),
+        Port("d", BOTH, "第四路", optional=True),
+    )
+    outputs = (Port("out", BOTH, "结果", type_from="input:a,b,c,d#common"),)
+    WAYS = ("a", "b", "c", "d")
+    condition_input = "condition"
+
+    @classmethod
+    def chosen_inputs(cls, params: dict, condition) -> frozenset[str]:
+        """Return the branch selected by the condition (engine/scopes.py Chooses): a boolean selects the first branch
+        when on and the second when off; a number selects that branch, counting from 1."""
+        value = read(condition).one()
+        if isinstance(value, bool):
+            return frozenset({cls.WAYS[0] if value else cls.WAYS[1]})
+        n = int(value)
+        return frozenset({cls.WAYS[n - 1]} if 1 <= n <= len(cls.WAYS) else set())
+
+    @classmethod
+    def cook(cls, ctx) -> dict:
+        taken = next((p for way in cls.WAYS for p in ctx.inputs.get(way) or ()), None)
+        if taken is None:
+            value = read(ctx.input("condition")).one()
+            raise Invalid(Msg("E-SWITCH-NOWAY", value=str(value)))
+        return {"out": copy_packet(taken, ctx.outputs["out"])}
+
+
+class Logic(NodeDef):
+    id = "core.logic"
+    category = "math"
+    picture = NO_PICTURE
+    inputs = (Port("values", BOOL, "布尔", multi=True),)
+    outputs = (Port("value", BOOL, "结果"),)
+    on_node = ("operation",)
+
+    class Params(NodeParams):
+        operation: Literal["and", "or", "not"] = P("and", label="运算", group="运算",
+                                                   option_labels={"and": "与", "or": "或", "not": "非"},
+                                                   help="与：接进来的都开才开；或：有一个开就开；非：把第一根线反过来")
+
+    @classmethod
+    def cook(cls, ctx) -> dict:
+        values = [bool(read(p).one()) for p in ctx.inputs["values"]]
+        how = ctx.params["operation"]
+        got = (not values[0]) if how == "not" else (all(values) if how == "and" else any(values))
+        return {"value": value_packet(ctx.outputs["value"], BOOL, got)}
+
+
+COMPARISONS = {"gt": "大于", "ge": "不小于", "lt": "小于", "le": "不大于", "eq": "等于", "ne": "不等于"}
+
+
+class Compare(NodeDef):
+    id = "core.compare"
+    category = "math"
+    picture = NO_PICTURE
+    inputs = (Port("a", "value", "甲"), Port("b", "value", "乙"))
+    outputs = (Port("value", BOOL, "结果"),)
+    on_node = ("operation",)
+
+    class Params(NodeParams):
+        operation: Literal["gt", "ge", "lt", "le", "eq", "ne"] = P(
+            "gt", label="运算", group="运算", option_labels=COMPARISONS,
+            help="甲和乙的关系：大于、不小于、小于、不大于、等于、不等于。文字和开关只能比等于、不等于")
+
+    @classmethod
+    def param_refuses(cls, data_type: str, params: dict) -> Msg | None:
+        """Ordering operations (大于, 小于, ...) apply only to numbers: a wire carrying 文字 or 开关 is rejected for
+        them, while equality accepts any type. The problem is reported on the wire before cooking."""
+        if params.get("operation") in ("eq", "ne"):
+            return None
+        if all(t in (BOOL, TEXT) for t in data_type.split("|")):
+            return Msg("E-COMPARE-ORDER", how=COMPARISONS[params["operation"]], kind=type_label(data_type))
+        return None
+
+    @classmethod
+    def cook(cls, ctx) -> dict:
+        a, b = read(ctx.input("a")), read(ctx.input("b"))
+        how = ctx.params["operation"]
+        if a.numeric and b.numeric:
+            if (why := unit_problem(b.unit, a.unit)) is not None:
+                raise Invalid(Msg("E-COMPARE-UNIT", reason=why))
+            x, y = float(_number(a.one())), float(_number(b.one())) * factor(b.unit, a.unit)
+            got = {"gt": x > y, "ge": x >= y, "lt": x < y, "le": x <= y,
+                   "eq": math.isclose(x, y), "ne": not math.isclose(x, y)}[how]
+        else:
+            if how not in ("eq", "ne"):
+                raise Invalid(Msg("E-COMPARE-ORDER", kind=type_label(ctx.input("a").type), how=COMPARISONS[how]))
+            got = (a.one() == b.one()) if how == "eq" else (a.one() != b.one())
+        return {"value": value_packet(ctx.outputs["value"], BOOL, bool(got))}
+
+
+def _number(value) -> float:
+    """Convert a value to a number; a vector yields its length, so positions compare by distance."""
+    if isinstance(value, (list, tuple)):
+        return float(sum(float(v) * float(v) for v in value) ** 0.5)
+    return float(value)
+
+
+OPERATIONS = {"add": "加", "subtract": "减", "multiply": "乘", "divide": "除", "min": "最小", "max": "最大",
+              "round": "取整", "abs": "绝对值"}
+UNARY = ("round", "abs")
+UNITS = {"": "无", "mm": "mm", "cm": "cm", "m": "m", "px": "px", "°": "°", "帧": "帧", "秒": "秒", "EV": "EV"}
+
+
+class Math(NodeDef):
+    id = "core.math"
+    category = "math"
+    picture = NO_PICTURE
+    inputs = (Port("values", f"{FLOAT}|{INT}", "数值", multi=True),)
+    outputs = (Port("value", FLOAT, "结果", unit="param:unit"),)
+    on_node = ("operation", "unit")
+
+    class Params(NodeParams):
+        operation: Literal["add", "subtract", "multiply", "divide", "min", "max", "round", "abs"] = P(
+            "add", label="运算", group="运算", option_labels=OPERATIONS,
+            help="按接线顺序算：减和除是第一根线减去（除以）后面的；取整和绝对值只看第一根线")
+        unit: Literal["", "mm", "cm", "m", "px", "°", "帧", "秒", "EV"] = P(
+            "", label="单位", group="运算", option_labels=UNITS,
+            help="结果的单位：接进来的值先换算成它（毫米和厘米能换，像素和毫米不能，会报错说明）。选「无」就照原样算")
+
+    @classmethod
+    def cook(cls, ctx) -> dict:
+        want = ctx.params["unit"]
+        numbers = []
+        for p in ctx.inputs["values"]:
+            v = read(p)
+            if (why := unit_problem(v.unit, want)) is not None:
+                raise Invalid(Msg("E-MATH-UNIT", reason=why))
+            numbers.append(float(_number(v.one())) * factor(v.unit, want))
+        how = ctx.params["operation"]
+        if how in UNARY:
+            got = round(numbers[0]) if how == "round" else abs(numbers[0])
+        elif how == "add":
+            got = sum(numbers)
+        elif how == "subtract":
+            got = numbers[0] - sum(numbers[1:])
+        elif how == "multiply":
+            got = math.prod(numbers)
+        elif how == "divide":
+            if any(n == 0 for n in numbers[1:]):
+                raise Invalid(Msg("E-MATH-ZERO"))
+            got = numbers[0] / math.prod(numbers[1:]) if len(numbers) > 1 else numbers[0]
+        else:
+            got = min(numbers) if how == "min" else max(numbers)
+        return {"value": value_packet(ctx.outputs["value"], FLOAT, float(got), unit=want)}
+
+
+# ------------------------------------------------------------------ 取信息（摘要在 data/summary.py）
+
+
+class DataInfo(NodeDef):
+    id = "core.data_info"
+    category = "value"
+    picture = NO_PICTURE
+    inputs = (Port("data", BOTH, "数据"),)
+    outputs = (
+        Port("frames", INT, "帧数", unit="帧"),
+        Port("first", INT, "首帧", unit="帧"),
+        Port("last", INT, "末帧", unit="帧"),
+        Port("width", INT, "宽", unit="px"),
+        Port("height", INT, "高", unit="px"),
+        Port("count", INT, "条数"),
+        Port("value", FLOAT, "值"),
+        Port("text", TEXT, "文字"),
+    )
+    main = "frames"
+
+    class Params(NodeParams):
+        item: str = P("", label="取哪一项", widget="choice", group="信息", choices_from=("data",), placeholder="先接上数据",
+                      help="「值」和「文字」两个输出取数据说明里的哪一行（Focal Length、尺度、点数……）。"
+                           "帧数、首帧、末帧、宽、高、条数各有自己的输出口，不用在这里选")
+
+    @classmethod
+    def choices(cls, params: dict, inputs: dict) -> dict:
+        """Return the lines of the connected data's summary (data/summary.py), which 「取哪一项」 lists."""
+        from ...data.summary import describe
+
+        packet = (inputs.get("data") or [None])[0]
+        if packet is None:
+            return {"item": {"options": [], "empty": "先接上数据"}}
+        lines = describe(packet).get("items") or []
+        return {"item": {"options": [line["id"] for line in lines],
+                         "labels": {line["id"]: line["label"] or line["text"] for line in lines},
+                         "empty": "不取" if lines else "这份数据没有别的信息"}}
+
+    @classmethod
+    def cook(cls, ctx) -> dict:
+        from ...data.summary import describe
+
+        data = ctx.input("data")
+        meta = data.meta
+        frames = list(meta.get("frames") or ())
+        given: dict[str, tuple[str, object, str]] = {
+            "frames": (INT, len(frames) or None, "帧"),
+            "first": (INT, frames[0] if frames else None, "帧"),
+            "last": (INT, frames[-1] if frames else None, "帧"),
+            "width": (INT, meta.get("width"), "px"),
+            "height": (INT, meta.get("height"), "px"),
+            "count": (INT, len(items_of(data)) if is_list(data.type) else None, ""),
+        }
+        out = {}
+        for port, (kind, value, unit) in given.items():
+            if port not in ctx.wanted:
+                continue
+            out[port] = (value_packet(ctx.outputs[port], kind, int(value) if kind == INT else float(value), unit=unit)
+                         if value is not None else empty_packet(ctx, port))
+        line = next((x for x in describe(data).get("items") or () if x["id"] == ctx.params["item"]), None)
+        if "text" in ctx.wanted:
+            out["text"] = (value_packet(ctx.outputs["text"], TEXT, line["text"]) if line is not None
+                           else empty_packet(ctx, "text"))
+        if "value" in ctx.wanted:
+            number = _one_number(line["value"]) if line is not None else None
+            out["value"] = (value_packet(ctx.outputs["value"], FLOAT, number) if number is not None
+                            else empty_packet(ctx, "value"))
+        return out
+
+
+def _one_number(value) -> float | None:
+    """Return the number held by a summary line (「Focal Length：35 mm」, 「人物：3 个」), or None if it holds none."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    if isinstance(value, dict):
+        numbers = [v for v in value.values() if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        if len(numbers) == 1:
+            return float(numbers[0])
+        for key in ("count", "value"):
+            got = value.get(key)
+            try:
+                return float(got)
+            except (TypeError, ValueError):
+                continue
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+NODES = (EachBegin, EachEnd, TakeOne, MakeList, SplitItems, MergeItems, NameIt, Switch, Logic, Compare, Math, DataInfo)

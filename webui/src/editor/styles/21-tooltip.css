@@ -1,0 +1,61 @@
+/* a node that stops the cook (found before anything is sent): an outline in the error colour, the reason in its footer */
+.gnode.blocked {
+  box-shadow: 0 0 0 1.5px var(--error), 0 8px 24px color-mix(in srgb, var(--error) 18%, transparent);
+}
+
+.gnode.blocked .gnode-foot span:first-child {
+  color: #dcaaf7;
+}
+
+/* a node whose wiring cooks but probably not as meant (usage checks, engine/lint.py): a yellow mark, never a block */
+/* 这一轮计算留下的提醒 / 警告，写在节点标题行里的一个短词（`node-mark` 那一套的一员，样式在
+   11-sheets.css）。用文字而不用圆圈加感叹号：图标看着像占位图，而且会盖住「已缓存」。黄色只用在「能算但结果可能不是预期的」那一档，N 级提醒用普通字色（26-messages.css）。 */
+.warn-mark {
+  color: var(--yellow);
+  cursor: pointer;
+}
+
+.notice.warn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 214, 10, 0.1);
+  color: #ffe27a;
+}
+
+.notice.warn.refused {
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  color: #dcaaf7;
+}
+
+.notice.warn span {
+  flex: 1;
+  min-width: 0;
+}
+
+.notice-fix {
+  flex: none;
+}
+
+/* tabs.ts: this graph is open in another tab of this browser — editing here is turned off (never two tabs
+   autosaving over each other), everything else (looking at values, switching nodes, the 2D/3D view, the timeline)
+   stays as it is */
+.app.viewer .inspector .ctl,
+.app.viewer .inspector .expose-pin,
+.app.viewer .inspector .socket-pin,
+.app.viewer .inspector .onnode-pin,
+.app.viewer .inspector .insp-title input,
+.app.viewer .inspector .notice-fix,
+.app.viewer .gnode-params .gctl,
+.app.viewer .gnode-head .display-flag,
+.app.viewer .gnode-head .expand-flag {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* a wire out of an input whose usage checks name a node to put in front of it: that node first, alone and chained */
+.menu-recommended {
+  border-bottom: 0.5px solid var(--hair);
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+}

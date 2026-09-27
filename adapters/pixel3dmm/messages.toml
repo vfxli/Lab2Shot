@@ -1,0 +1,17 @@
+# Pixel3DMM 的消息（adapters/pixel3dmm）。
+
+# ---- 素材本身的前提（worker.py）：这三条都是方法算不过去的，不是我们的问题，写清楚下一步做什么
+"E-PIXEL3DMM-NOFACE" = "Pixel3DMM 要求整段每一帧都有一张清晰的脸，这一段里有帧找不到（{reason}）：把帧范围缩到脸一直在画面里的那一段，或者换一条脸更大、更正的素材"
+"E-PIXEL3DMM-TOOMANYFRAMES" = "Pixel3DMM 一次最多解 {most} 帧，这一段有 {have} 帧：分成几段分别解算（它整段联合优化，段与段之间的脸型会各解各的）"
+"N-PIXEL3DMM-WHYFRAMES" = "它最后一步是整段联合优化，一次取 {least} 帧一起算"
+
+# ---- 中间步骤没出齐（worker.py）：真出了这些说明上游改了或素材太怪，给出是哪一步、差多少
+"E-PIXEL3DMM-NOSEG" = "面部分割只出了 {got} / {count} 帧：这一段里有帧的脸太小、太偏或被挡住，Pixel3DMM 接着算不下去"
+"E-PIXEL3DMM-PRIOR" = "{kind} 只预测出 {got} / {count} 帧：显存不够或素材有坏帧，看日志里这一步的报错"
+"E-PIXEL3DMM-NOTRACK" = "第 {frame} 帧没有拟合结果：拟合中途停了，看日志里最后一条报错"
+
+# ---- 提醒（worker.py）
+"N-PIXEL3DMM-OFFCENTRE" = "脸偏离画面中心 {percent}%：Pixel3DMM 的镜头中心跟着裁切框走，接进来的相机镜头中心在画面正中，放进那台相机的世界后头的位置会差一点。不接相机时交付的相机带着正确的镜头中心，没有这个问题"
+
+# ---- 某一步的进程停了（worker.py run_step：上游每一步各跑一个进程，和它官方脚本一样）
+"E-PIXEL3DMM-STEP" = "「{step}」这一步停了（退出码 {code}）：看日志里这一步最后的报错"

@@ -1,0 +1,164 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "fe1c731bb817aa6ef7860e5cc2bdc038",
+  "name": "重新打光 · DiffusionRenderer",
+  "intro": "Cosmos DiffusionRenderer 的渲染模型不做显式光线传输模拟，从 G-buffer 生成照片级画面，论文把重新打光列为它的用途之一。这张卡先拆出 G-buffer，再用一张 HDRI 给整段镜头重新打光。",
+  "author": "Lab2Shot",
+  "created": "2026-09-12T08:00:00",
+  "deliverable": "relight",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "hdri",
+   "label": "HDRI",
+   "target": "sky.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "rotation",
+   "label": "环境旋转",
+   "target": "relight.env_rotate"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "sky",
+   "type": "core.read_sequence",
+   "label": "读取 HDRI",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 160
+   }
+  },
+  {
+   "id": "relight",
+   "type": "diffusionrenderer.relight",
+   "label": "DiffusionRenderer 重新打光",
+   "params": {
+    "resolution": 1280,
+    "max_frames": 41,
+    "overlap": 8,
+    "steps": 15,
+    "seed": 1000,
+    "env_rotate": 0.0,
+    "exposure": 0.0
+   },
+   "ui": {
+    "x": 320,
+    "y": 80,
+    "on_node": [
+     "env_rotate",
+     "exposure"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "relit"
+   },
+   "ui": {
+    "x": 720,
+    "y": 80,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 1040,
+    "y": 80,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "relight",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "sky",
+    "image"
+   ],
+   "to": [
+    "relight",
+    "hdri"
+   ]
+  },
+  {
+   "from": [
+    "relight",
+    "image"
+   ],
+   "to": [
+    "out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "relight",
+  "frame": null
+ }
+}

@@ -1,0 +1,368 @@
+/* The kit's other small controls (ui/Button.tsx): the segmented control, the switch, the chip and the key cap. They
+   are defined here rather than in ui/Button.css because the login page uses none of them: the gate's bundle size is
+   measured and capped (webui/tests/bundle.test.ts), so a control the login page never shows is loaded with the page
+   behind the gate (styles/index.css). Only this file styles them; every value is a token. */
+
+/* ------------------------------------------------------------------ segmented control */
+
+.seg {
+  display: inline-flex;
+  background: var(--field-bg);
+  border: 1px solid transparent; /* 无描边：槽比面板深一档，轮廓由明暗区分 */
+  border-radius: var(--r-md);
+  padding: 3px;
+  gap: 2px;
+}
+
+.seg button {
+  border: 0;
+  background: transparent;
+  border-radius: var(--r-xs);
+  /* 28 px 高 + 16 px 内边距：左右使文字与圆角错开，上下不贴边；再压缩会使选中块的圆角切到文字 */
+  padding: 0 16px;
+  height: 28px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: default;
+  white-space: nowrap;
+  transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+
+.seg button:hover {
+  color: var(--text);
+}
+
+.seg button.on {
+  background: var(--ctl-face);
+  color: var(--text);
+  box-shadow: var(--shadow-lift);
+}
+
+.seg button:disabled {
+  opacity: 0.5;
+}
+
+/* 参数行中的分段控件：空间足够时按内容宽度（「开 / 关」为窄的一小块，而非占满整行），空间不足时才收缩。
+   使用 `display: flex` 会将两三个字的分段拉伸至整行宽度 */
+.seg.stretch {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+/* 参数行中的分段控件：内边距与其他分段控件相同，内边距过小会使文字贴近圆角被裁切。选项过多放不下时依靠 flex 收缩，
+   文字不截断 */
+.seg.stretch button {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0 14px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.seg.md button {
+  height: 26px;
+  padding: 0 14px;
+  font-size: var(--fs-md);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+/* 画面上方的一排控件（视角、框显、视图设置）：玻璃质感由 ui/glass.css 提供，圆角使用全站统一的令牌。
+   使用 `--r-md`，与 2D / 3D 及工具栏中使用 `--r-ctl` 的控件属于同一档圆角矩形；不得写成胶囊形（999px），
+   否则外壳为胶囊形而内部按钮为 `--r-xs`，同一排出现两种形状。 */
+.seg.hud-seg {
+  border: 0;
+  border-radius: var(--r-md);
+}
+
+/* ------------------------------------------------------------------ switch */
+
+.switch {
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--fill-strong);
+  border: 0;
+  position: relative;
+  cursor: default;
+  transition: background-color var(--t-med) var(--ease);
+  flex: none;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--on-accent);
+  transition: transform var(--t-med) var(--ease);
+}
+
+.switch.on {
+  background: var(--accent-fill);
+}
+
+.switch.on::after {
+  transform: translateX(12px);
+}
+
+.switch:disabled {
+  opacity: 0.55;
+}
+
+.switch.mini {
+  width: 26px;
+  height: 15px;
+  border-radius: var(--r-md);
+}
+
+.switch.mini::after {
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+}
+
+.switch.mini.on::after {
+  transform: translateX(11px);
+}
+
+/* ------------------------------------------------------------------ chip: a label, or a pill that picks or filters
+
+   A span is the label (a licence, a state, a count beside a name); a button is the pill that selects or filters (its
+   md size carries the colour of what it filters and the count). They share one name because they are the same element
+   in two forms: a word in a pill, read-only or clickable.
+
+   The label's shape: 18 px high, a small radius, a faint film, no rim. */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  padding-top: 1px;
+  gap: 5px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  background: var(--raised);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chip i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* a chip whose full explanation is in its tooltip (a licence, a shot condition) */
+.chip[data-tip] {
+  /* 不设 cursor: help：悬停提示由 data-tip 负责，光标保持默认，与全站一致 */
+}
+
+/* a chip that is a link (a project's page, a website): still a chip, never underlined */
+a.chip {
+  text-decoration: none;
+}
+
+/* 标签行中可点击的标签（GitHub）：保持标签外观，点击后在新页打开 */
+a.chip.link {
+  color: var(--text-2);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+a.chip.link:hover {
+  color: var(--accent);
+}
+
+.chip.ok {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 10%, transparent);
+}
+
+.chip.warn,
+.chip.nc {
+  color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 10%, transparent);
+}
+
+.chip.bad {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+}
+
+/* a key cap in a menu row or a tooltip: the key to press, never a descriptive word */
+.kbd {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--r-xs);
+  padding: 0 4px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+/* 可点击的胶囊（帮助页「安装 / 许可证」一排筛选）：底色比静态标签深一档，否则在无边框时看似纯文字，
+   无法识别为可点击 */
+button.chip,
+.chip-md {
+  --c: var(--text-3);
+  background: var(--ctl-face);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  /* 标签有底色、无描边：透明底加描边是旧式标签的样式。带颜色的标签（许可、状态）在下方各自将底色设为自身颜色 */
+  border: 1px solid transparent;
+  background: var(--raised);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 400;
+  line-height: 1;
+  cursor: default;
+  white-space: nowrap;
+  transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+
+button.chip:hover,
+.chip-md:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+
+button.chip.on,
+.chip-md.on {
+  background: var(--accent-soft);
+  border-color: var(--accent-edge);
+  color: var(--text);
+}
+
+.chip-md i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c);
+}
+
+.chip-md em {
+  font-style: normal;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seg button,
+  .switch,
+  .switch::after,
+  button.chip,
+  .chip-md {
+    transition: none;
+  }
+}
+
+/* 下拉框的触发器（ui/Select.tsx）：外观为一个 field，右侧带一个小箭头。
+   弹出列表使用站点的菜单组件（玻璃、圆角、暗色），而非系统绘制的白底直角列表 */
+.select-trigger {
+  line-height: 1; /* 同 .btn：单行文字，行框等于字高，以保证居中准确 */
+  padding-top: 1px; /* 同 .btn：中文字形偏上，向下补偿至中心 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 一行中有多个控件的位置（视图上方一排）：下拉框按自身文字宽度，不随整排压缩，
+   否则文字会被截断（界面文字既不换行也不截断）。面板和表单中的下拉框不使用此类，
+   仍占满所在格，与输入框对齐 */
+.select-trigger.fit {
+  width: auto;
+  flex: none; /* .field 的 min-width: 0 会使其被同排控件压缩至窄于文字 */
+}
+
+.select-trigger:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.select-now {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* 小一号的控件（用于视图工具栏）：尺寸由组件自身决定，页面只添加 class，不得在页面样式中修改组件外观
+   （由 uiKit.pageCssRestylingKit 检查）。
+
+   视图上方一排统一使用此档：按钮 22 px、外壳 22 + 2×2 = 26 px、圆角 --r-xs / --r-ctl、字号 --fs-xs。
+   进入该排的控件，class 一律使用 ui/Button.tsx 导出的 HUD_SEG（或为 Segmented / Toggle 传入 `hud`），
+   不得手工复制这组 class：遗漏 `sm` 会得到 28 px 按钮和 34 px 外壳，遗漏 glass 则没有玻璃效果。 */
+.seg.sm {
+  padding: 2px;
+  border-radius: var(--r-ctl);
+}
+
+.seg.sm button,
+.btn.sm,
+.field.sm,
+.select-trigger.sm {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--r-xs);
+  font-size: var(--fs-xs);
+}
+
+
+/* ------------------------------------------------------------------ 年份小标签
+
+   项目的论文或发布年份，用于直观区分新旧。同一个类用于两处：帮助页的项目列表和项目页，
+   以及模板面板每张卡片的右上角。 */
+
+.year-tag {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: var(--r-md);
+  color: var(--orange-text);
+  /* 有底色无描边：底色已将其与背景区分，再加描边会呈现浮雕效果 */
+  background: var(--orange-soft);
+}
+
+/* 位于一行末尾：用于帮助页的项目列表。标题行按 baseline 排列，标签自身居中 */
+.year-tag.at-end {
+  margin-left: auto;
+  align-self: center;
+}
+
+/* 位于卡片右上角，不占用标题行的宽度（使用它的容器须设 position: relative）。
+   若使用 .at-end，年份会占用行末约 40 px，窄窗口下较长的模板名会溢出；界面文字既不换行也不截断，
+   因此采用腾出空间的方式，而非截断名称 */
+.year-tag.corner {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+}
+
+.year-tag.big {
+  font-size: var(--fs-lg);
+  padding: 4px 10px;
+  border-radius: var(--r-card);
+}

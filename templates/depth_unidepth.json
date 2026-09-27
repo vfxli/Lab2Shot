@@ -1,0 +1,173 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "8b0d5e3c17f64a9d92c8ab4e6f105d73",
+  "name": "深度图 · UniDepth V2",
+  "intro": "UniDepth V2 官方自述是通用的单目真实尺度深度估计：只看一张画面就预测真实尺度的三维点，推理时不要求任何额外输入。这张卡逐帧交付深度图、相机和点云；点云是每帧一片，不是整段一套场景点云。",
+  "author": "Lab2Shot",
+  "created": "2026-09-20T10:00:00",
+  "deliverable": "depth_image",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out_p.unit"
+  },
+  {
+   "name": "focal",
+   "label": "已知 Focal Length",
+   "target": "geo.focal_mm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 220
+   }
+  },
+  {
+   "id": "geo",
+   "type": "unidepth.geometry",
+   "label": "UniDepth 深度图",
+   "params": {
+    "model": "unidepth-v2-vitl14",
+    "resolution_level": 9
+   },
+   "ui": {
+    "x": 320,
+    "y": 220,
+    "on_node": [
+     "focal_mm",
+     "model"
+    ]
+   }
+  },
+  {
+   "id": "out_d",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "depth"
+   },
+   "ui": {
+    "x": 640,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "out_p",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "scene"
+   },
+   "ui": {
+    "x": 640,
+    "y": 260,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 960,
+    "y": 140,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "geo",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "geo",
+    "depth"
+   ],
+   "to": [
+    "out_d",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out_d",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "out_p",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "geo",
+    "camera"
+   ],
+   "to": [
+    "out_p",
+    "scene"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "geo",
+  "frame": null
+ }
+}

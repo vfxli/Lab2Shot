@@ -1,0 +1,36 @@
+# UniRig environment (torch from EnvSpec: torch 2.8.0 + cu128, the newest pair that still has prebuilt
+# torch_scatter and flash_attn wheels and covers both sm_89 (4090) and sm_120 (5090)).
+#
+# Upstream's requirements.txt, minus what only its Blender front end and its training tools need:
+#   bpy==4.2   upstream's mesh reader / FBX writer. Lab2Shot reads the mesh out of our own USD packet and writes
+#              the result back into it (a 240 MB Blender in a worker environment, only to re-read a file we already
+#              have in memory, buys nothing and loses the UVs, materials and subsets of the original mesh).
+#   wandb      training logger; the inference task config has no wandb section.
+#   pyrender   the default backend of the skin stage's voxel_skin vertex group; it wants an EGL context. open3d's
+#              ray casting does the same job headless, and upstream offers it as the alternative in that config.
+numpy==1.26.4
+scipy==1.15.3
+transformers==4.51.3
+python-box==7.3.2
+einops==0.8.1
+omegaconf==2.3.0
+lightning==2.5.5
+pytorch-lightning==2.5.5
+addict==2.4.0
+timm==1.0.22
+fast-simplification==0.1.11
+trimesh==4.9.0
+open3d==0.19.0
+huggingface-hub==0.35.3
+pyyaml==6.0.3
+safetensors==0.6.2
+tqdm==4.67.1
+# The skin stage's point transformer (src/model/pointcept): sparse convolutions and segment_csr.
+spconv-cu126==2.3.8
+torch_scatter @ https://data.pyg.org/whl/torch-2.8.0%2Bcu128/torch_scatter-2.1.2%2Bpt28cu128-cp311-cp311-linux_x86_64.whl
+# Michelangelo 的形状编码器按最远点采样取点（src/model/michelangelo/.../sal_perceiver.py: torch_cluster.fps）
+torch_cluster @ https://data.pyg.org/whl/torch-2.8.0%2Bcu128/torch_cluster-1.6.3%2Bpt28cu128-cp311-cp311-linux_x86_64.whl
+# Both stages' attention (the skeleton model's OPT runs with _attn_implementation: flash_attention_2, and
+# src/model/unirig_skin.py imports flash_attn.modules.mha at module level). The official prebuilt wheel, not a
+# source build: flash-attn compiles for over an hour.
+flash_attn @ https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl

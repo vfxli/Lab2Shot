@@ -1,0 +1,6 @@
+{
+ "tram.solve": {
+  "label": "TRAM 全身动作",
+  "description": "画面 → 世界空间里每个人的动作（SMPL 身体）和相机：先用遮掉人的 DROID-SLAM 解相机（真实尺度），再把每个人放进这个世界。多人在同一世界里的相对位置最准；相机是它自己解的，知道实拍 Focal Length 就填「Focal Length」，长焦镜头上它自己估的重力方向不可靠。要手指和脸用「SAM 3D Body 全身动作」，要脚不滑的重力对齐轨迹用「GVHMR 全身动作」。"
+ }
+}

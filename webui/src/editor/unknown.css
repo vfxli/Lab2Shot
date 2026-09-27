@@ -1,0 +1,26 @@
+/* 「未知节点」 (editor/UnknownNode.tsx): a plain grey box, dashed, with its wires */
+.unknown-node {
+  width: 160px;
+  box-sizing: border-box;
+  border: 1px dashed rgba(255, 255, 255, 0.28);
+  border-radius: 8px;
+  background: rgba(40, 40, 44, 0.85);
+  color: var(--text-2);
+  cursor: default;
+}
+
+.unknown-head {
+  height: 26px;
+  line-height: 26px;
+  padding: 0 10px;
+  font-size: var(--fs-sm, 12px);
+  white-space: nowrap;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.14);
+}
+
+.unknown-port.react-flow__handle {
+  width: 8px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.3);
+  border: none;
+}

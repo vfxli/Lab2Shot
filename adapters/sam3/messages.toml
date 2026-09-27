@@ -1,0 +1,15 @@
+# SAM 3 视频分割（adapters/sam3）。一行一条：编号 = 模板。
+
+# ---- 安装
+"E-SAM3-WEIGHTSINCOMPLETE" = "SAM 3 权重不完整（{path} 缺失或不到 3 GB，多半是下载中断）：重新安装一次"
+"E-SAM3-NOLICENSE" = "SAM 3 权重缺少 LICENSE 文件（SAM License 要求许可证跟着权重走）：重新安装一次"
+
+# ---- 输入
+"E-SAM3-NOPROMPT" = "「SAM 3 视频分割」不知道要分割什么：在「提示词」填英文短语（如 person），或接入人物框"
+"N-SAM3-NOBOXES" = "接入的人物框里没有一个框落在这段画面（第 {first}–{last} 帧）里，「SAM 3 视频分割」这次遮罩是空的：上游没检测到人时这是正常的；否则检查人物框和画面是不是同一段镜头"
+"W-SAM3-TOOMANYPEOPLE" = "人物框里有 {count} 个人，超过「最多物体数」{max_objects}：只分割出现帧数最多的 {people} 号；都要的话把「最多物体数」调大"
+
+# ---- 结果
+"N-SAM3-EMPTY" = "SAM 3 在整段画面里没有找到物体，遮罩是空的：换个「提示词」，或调低「检测阈值」"
+"N-SAM3-PERSONEMPTY" = "人物框里的 {person} 号，SAM 3 没有分割出遮罩，已略过"
+"W-SAM3-TOOMANYOBJECTS" = "SAM 3 找到 {count} 个物体，超过「最多物体数」，只保留出现帧数最多的 {max_objects} 个；都要的话把「最多物体数」调大"

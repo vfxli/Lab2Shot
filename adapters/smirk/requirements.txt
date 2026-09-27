@@ -1,0 +1,21 @@
+# SMIRK environment (torch comes from EnvSpec; chumpy is built afterwards, see
+# EnvSpec.compiled). Upstream requirements.txt at the pinned commit, minus the
+# training-only packages (albumentations, pytorch_lightning, scikit_learn, fvcore)
+# and pytorch3d (only its renderer uses it; the worker does not render).
+
+# chumpy's setup.py imports pkg_resources (removed in setuptools 81)
+setuptools<81
+wheel
+
+# FLAME.py sets np.float = np.float_ etc. (numpy 1.x names); chumpy needs numpy 1.x too
+numpy==1.26.4
+scipy==1.13.1
+six
+# the encoders are timm MobileNetV3 "minimal" backbones: upstream pin, so the
+# checkpoint's parameter names match
+timm==0.9.16
+scikit-image==0.24.0
+# MediaPipe 0.10.x (upstream pins 0.10.10) brings opencv-contrib-python; the
+# last 0.10 release, still built against numpy 1.x
+mediapipe==0.10.21
+opencv-contrib-python==4.10.0.84

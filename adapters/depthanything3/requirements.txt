@@ -1,0 +1,20 @@
+# Depth Anything 3 environment (torch comes from EnvSpec). Inference-only subset
+# of upstream's dependencies at the pinned commit: the worker builds the networks
+# from the pinned repo/ (depth_anything_3.cfg + model) and never imports api.py,
+# whose exporters pull in open3d, pycolmap, evo, moviepy, trimesh, gsplat, gradio.
+# xformers is optional upstream (plain SwiGLU / SDPA fallback) and not installed.
+# Upstream pins numpy<2 only for those exporters.
+
+numpy==2.4.6
+opencv-python-headless==5.0.0.93
+pillow==12.3.0
+einops==0.8.2
+omegaconf==2.3.1
+addict==2.4.0
+safetensors==0.8.0
+huggingface-hub==1.26.0
+tqdm==4.67.3
+# depth_anything_3.utils.parallel_utils (used by the input processor) imports it at module level
+imageio==2.37.3
+# the worker SDK's read_mask: the 运动物体遮罩 input arrives as EXR (same version as the other adapters)
+OpenEXR==3.4.15

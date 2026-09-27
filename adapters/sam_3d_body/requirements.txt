@@ -1,0 +1,57 @@
+# SAM 3D Body environment (torch comes from EnvSpec; detectron2 is compiled
+# afterwards). Package list follows the upstream INSTALL.md at the pinned commit,
+# minus macOS-only appnope.
+
+# build helpers for compiled packages; detectron2 still imports pkg_resources,
+# which setuptools 81 removed
+setuptools<81
+wheel
+ninja
+
+pytorch-lightning
+pyrender
+opencv-python
+yacs
+scikit-image
+einops
+timm
+dill
+pandas
+rich
+hydra-core
+hydra-submitit-launcher
+hydra-colorlog
+pyrootutils
+webdataset
+chump
+networkx==3.2.1
+roma
+joblib
+seaborn
+wandb
+appdirs
+ffmpeg
+cython
+jsonlines
+pytest
+xtcocotools
+loguru
+optree
+fvcore
+black
+pycocotools
+tensorboard
+huggingface_hub
+trimesh
+
+# detectron2 runtime deps (it is installed with --no-deps)
+iopath
+omegaconf
+cloudpickle
+tabulate
+termcolor
+matplotlib
+
+# MoGe-2: field-of-view estimation. Pinned to the last commit before the
+# SAM 3D Body release (2025-11-19); MoGe V3 needs newer torch + compiled deps.
+moge @ git+https://github.com/microsoft/MoGe.git@07444410f1e33f402353b99d6ccd26bd31e469e8

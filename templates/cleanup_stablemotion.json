@@ -1,0 +1,316 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "61beeceba2b65630ae44f91f15800074",
+  "author": "Lab2Shot",
+  "created": "2026-09-20T10:00:00",
+  "name": "动捕清理 · StableMotion",
+  "intro": "StableMotion 官方自述：不需要成对的干净数据，从原始动捕数据学会修复损坏的动作，论文里由动作质量标记找出有问题的帧。这张卡交付修好的动作和问题帧曲线。",
+  "deliverable": "cleanup",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入动画",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "skeleton",
+   "label": "骨骼",
+   "target": "fix.skeleton"
+  },
+  {
+   "name": "only_bad",
+   "label": "只改问题帧",
+   "target": "fix.only_bad"
+  },
+  {
+   "name": "threshold",
+   "label": "检测阈值",
+   "target": "fix.threshold"
+  },
+  {
+   "name": "quality",
+   "label": "档位",
+   "target": "fix.quality"
+  },
+  {
+   "name": "seed",
+   "label": "随机种子",
+   "target": "fix.seed"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "skeleton_pick",
+   "label": "哪副骨架",
+   "target": "read.skeletons"
+  }
+ ],
+ "frames": null,
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.import_bvh",
+   "label": "导入 BVH",
+   "params": {
+    "path": "",
+    "skeletons": [],
+    "unit": "cm"
+   },
+   "ui": {
+    "x": 0,
+    "y": 160,
+    "on_node": [
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "fix",
+   "type": "stablemotion.cleanup",
+   "label": "StableMotion 动捕清理",
+   "params": {
+    "skeleton": null,
+    "only_bad": true,
+    "threshold": 0.5,
+    "mapping": [
+     {
+      "name": "pelvis",
+      "label": "髋",
+      "joint": null
+     },
+     {
+      "name": "left_hip",
+      "label": "左大腿",
+      "joint": null
+     },
+     {
+      "name": "right_hip",
+      "label": "右大腿",
+      "joint": null
+     },
+     {
+      "name": "spine1",
+      "label": "脊柱 1",
+      "joint": null
+     },
+     {
+      "name": "left_knee",
+      "label": "左小腿",
+      "joint": null
+     },
+     {
+      "name": "right_knee",
+      "label": "右小腿",
+      "joint": null
+     },
+     {
+      "name": "spine2",
+      "label": "脊柱 2",
+      "joint": null
+     },
+     {
+      "name": "left_ankle",
+      "label": "左脚",
+      "joint": null
+     },
+     {
+      "name": "right_ankle",
+      "label": "右脚",
+      "joint": null
+     },
+     {
+      "name": "spine3",
+      "label": "胸",
+      "joint": null
+     },
+     {
+      "name": "left_foot",
+      "label": "左脚趾",
+      "joint": null
+     },
+     {
+      "name": "right_foot",
+      "label": "右脚趾",
+      "joint": null
+     },
+     {
+      "name": "neck",
+      "label": "颈",
+      "joint": null
+     },
+     {
+      "name": "left_collar",
+      "label": "左锁骨",
+      "joint": null
+     },
+     {
+      "name": "right_collar",
+      "label": "右锁骨",
+      "joint": null
+     },
+     {
+      "name": "head",
+      "label": "头",
+      "joint": null
+     },
+     {
+      "name": "left_shoulder",
+      "label": "左上臂",
+      "joint": null
+     },
+     {
+      "name": "right_shoulder",
+      "label": "右上臂",
+      "joint": null
+     },
+     {
+      "name": "left_elbow",
+      "label": "左前臂",
+      "joint": null
+     },
+     {
+      "name": "right_elbow",
+      "label": "右前臂",
+      "joint": null
+     },
+     {
+      "name": "left_wrist",
+      "label": "左手",
+      "joint": null
+     },
+     {
+      "name": "right_wrist",
+      "label": "右手",
+      "joint": null
+     }
+    ],
+    "quality": "basic",
+    "seed": 10
+   },
+   "ui": {
+    "x": 300,
+    "y": 160
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "name": "cleaned",
+    "format": "usd",
+    "unit": "cm"
+   },
+   "ui": {
+    "x": 660,
+    "y": 0,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "curve",
+   "type": "core.output_curves",
+   "label": "曲线输出设置",
+   "params": {
+    "name": "broken_frames",
+    "format": "csv"
+   },
+   "ui": {
+    "x": 660,
+    "y": 180,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": "",
+    "name": ""
+   },
+   "ui": {
+    "x": 980,
+    "y": 100,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "skeletons"
+   ],
+   "to": [
+    "fix",
+    "character"
+   ]
+  },
+  {
+   "from": [
+    "fix",
+    "character"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "fix",
+    "labels"
+   ],
+   "to": [
+    "curve",
+    "curves"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "curve",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "fix",
+  "frame": null
+ }
+}

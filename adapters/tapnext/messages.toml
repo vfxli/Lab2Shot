@@ -1,0 +1,4 @@
+# TAPNext++ 2D 跟踪点（adapters/tapnext）。一行一条：编号 = 模板。
+
+# ---- 输入
+"N-TAPNEXT-SIDEROUNDED" = "「处理分辨率」要是 8 的倍数：{given} 已改为 {side} 计算"

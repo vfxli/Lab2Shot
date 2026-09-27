@@ -1,0 +1,3 @@
+# UnderPressure environment (torch from EnvSpec). The project is torch plus the Python standard library:
+# anim / data / models / footskate / util / parsing import nothing else. panda3d is only for upstream's
+# viewer (visualization.py), which Lab2Shot never runs, so it is not installed.

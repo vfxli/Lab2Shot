@@ -1,0 +1,45 @@
+/* ui/Loading.tsx: what the page shows while a part of it loads, the login gate included (P8). */
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  color: var(--text-2);
+  font-size: var(--fs-md);
+  white-space: nowrap;
+}
+
+.loading-fill {
+  height: 100%;
+  justify-content: center;
+  background: var(--window);
+}
+
+.spinner {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid var(--hair-strong);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+/* a part of the page that failed and offers to draw itself again (ui/ErrorBoundary.tsx) */
+.panel-failed {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-5);
+  text-align: center;
+  color: var(--text-2);
+}

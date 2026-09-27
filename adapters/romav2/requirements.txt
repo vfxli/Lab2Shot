@@ -1,0 +1,8 @@
+# RoMa v2 environment (torch comes from EnvSpec). romav2 is imported from the pinned repo/src; these are its own
+# dependencies (pyproject), without the fused-local-corr kernel (see extension.py).
+einops==0.8.2
+numpy==2.4.6
+opencv-python-headless==4.10.0.84
+pillow==12.3.0
+rich==15.0.0
+tqdm==4.70.0

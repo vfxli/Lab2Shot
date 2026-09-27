@@ -1,0 +1,56 @@
+/* ------------------------------------------------------------------ log window */
+
+.log-list {
+  height: min(56vh, 560px);
+  overflow-y: auto;
+  border-radius: var(--r-card);
+  background: rgba(0, 0, 0, 0.2);
+  padding: 6px 0;
+  font-size: var(--fs-md);
+  user-select: text;
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: 150px 40px 1fr;
+  gap: 10px;
+  padding: 4px 12px;
+}
+
+.log-row:hover {
+  background: var(--raised);
+}
+
+.log-time {
+  color: var(--text-3);
+}
+
+.log-level {
+  color: var(--text-2);
+}
+
+.log-row.error .log-level,
+.log-row.error .log-text {
+  color: var(--error-text);
+}
+
+.log-row.warn .log-level {
+  color: var(--orange);
+}
+
+.log-row.ok .log-level {
+  color: var(--green);
+}
+
+.log-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log-actions .tpl-desc {
+  flex: 1;
+}
+
+.q-badge.log-badge {
+  background: var(--error);
+}

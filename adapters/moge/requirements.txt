@@ -1,0 +1,23 @@
+# MoGe environment (torch comes from EnvSpec). MoGe itself is not pip-installed:
+# the worker imports the `moge` package straight from the pinned repo/, so only
+# the inference dependencies are needed (no gradio / click / trimesh / pipeline,
+# which upstream's pyproject pulls in for the demo app and training).
+# Versions from upstream's uv.lock at the pinned commit.
+
+numpy==2.4.6
+opencv-python-headless==4.10.0.84
+scipy==1.17.1
+pillow==12.3.0
+# moge.model.v2 imports hf_hub_download at module level (we always load local files)
+huggingface-hub==1.26.0
+
+# Geometry helpers (MIT). Its rasterization module would import nvdiffrast
+# (NVIDIA non-commercial license) lazily; MoGe's inference never calls it and
+# nvdiffrast is not installed.
+utils3d_moge @ git+https://github.com/EasternJournalist/utils3d-moge.git@62f09d58509485564e24d5d9f6aac9ee9ebc0c37
+moderngl==5.12.0
+
+# MoGe-3's sparse 3D refiner (MIT). Pure Triton at this commit: the optional CUDA
+# extension is only built with FLEX_GEMM_BUILD_CUDA=1, so nothing is compiled.
+flex_gemm @ git+https://github.com/JeffreyXiang/FlexGEMM.git@b2fadb29d41846c7981ade6801ffc689fae119cf
+filelock==3.32.2

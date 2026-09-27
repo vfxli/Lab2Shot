@@ -1,0 +1,134 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "810d93a734748598da5b2c218ab6e77b",
+  "name": "HDRI · LuxDiT",
+  "intro": "LuxDiT 微调一个视频扩散 transformer，按画面生成 HDR 环境贴图，光照准确并保住与画面的语义对应。这张卡交付环境 HDRI 和 USD 穹顶灯。",
+  "author": "Lab2Shot",
+  "created": "2026-09-11T11:00:00",
+  "deliverable": "env_light",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入图片",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "seed",
+   "label": "随机种子",
+   "target": "light.seed"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_picture",
+   "label": "读取图片",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "light",
+   "type": "luxdit.light_probe",
+   "label": "LuxDiT HDRI",
+   "params": {
+    "seed": 0,
+    "envmap_width": 1024,
+    "lora_scale": 0.8,
+    "steps": null,
+    "guidance_scale": 2.5,
+    "resolution": "auto"
+   },
+   "ui": {
+    "x": 320,
+    "y": 0,
+    "on_node": [
+     "envmap_width"
+    ]
+   }
+  },
+  {
+   "id": "out_h",
+   "type": "core.output_images",
+   "label": "序列图输出设置",
+   "params": {
+    "colorspace": null,
+    "name": "hdri"
+   },
+   "ui": {
+    "x": 640,
+    "y": 0,
+    "on_node": [
+     "name",
+     "format"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 960,
+    "y": 0,
+    "on_node": [
+     "mode"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "light",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "light",
+    "hdri"
+   ],
+   "to": [
+    "out_h",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "out_h",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "light",
+  "frame": null
+ }
+}

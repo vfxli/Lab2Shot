@@ -1,0 +1,390 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "7e2b9c4a0d53416fb8a7d21e95c6408f",
+  "name": "全身动作 · WHAM",
+  "intro": "WHAM 把 2D 关键点序列结合动作捕捉数据和画面特征抬到三维，再用 SLAM 给的相机角速度定出全局轨迹，并按脚和地面的接触修正轨迹。这张卡交付全身角色；相机默认用 ViPE 解，有解算好的换成「导入 USD」。「选人」默认最大的一个，改「前几个」「全部」或填编号就一次解这几个人；WHAM 官方不收框，选人靠「人物框转遮罩」→「图像合成」把别人从画面里抹掉后一趟解完。",
+  "author": "Lab2Shot",
+  "created": "2026-09-20T10:00:00",
+  "deliverable": "body_full",
+  "owner": "admin",
+  "updated": "2026-09-27T08:55:44"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": "输入序列",
+   "target": "read.path"
+  },
+  {
+   "name": "output",
+   "label": "保存到",
+   "target": "deliver.path"
+  },
+  {
+   "name": "unit",
+   "label": "单位",
+   "target": "out.unit"
+  },
+  {
+   "name": "people",
+   "label": "选人",
+   "target": "pick.mode"
+  },
+  {
+   "name": "focal",
+   "label": "已知 Focal Length",
+   "target": "cam.focal_mm"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "core.read_sequence",
+   "label": "读取序列",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 360
+   }
+  },
+  {
+   "id": "detect",
+   "type": "sam_3d_body.detect_people",
+   "label": "ViTDet 人物框",
+   "params": {
+    "threshold": 0.8
+   },
+   "ui": {
+    "x": 320,
+    "y": 160,
+    "on_node": [
+     "threshold"
+    ]
+   }
+  },
+  {
+   "id": "pick",
+   "type": "core.select_people",
+   "label": "选人",
+   "params": {
+    "mode": "largest",
+    "ids": "",
+    "picks": []
+   },
+   "ui": {
+    "x": 640,
+    "y": 160,
+    "on_node": [
+     "mode",
+     "ids"
+    ]
+   }
+  },
+  {
+   "id": "cam",
+   "type": "vipe.camera_solve",
+   "label": "ViPE 相机解算",
+   "params": {
+    "mode": "pose_only"
+   },
+   "ui": {
+    "x": 320,
+    "y": 460,
+    "on_node": [
+     "focal_mm",
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "human",
+   "type": "wham.solve",
+   "label": "WHAM 全身动作",
+   "params": {
+    "static_camera": false,
+    "follow_camera": false,
+    "smplify": false
+   },
+   "ui": {
+    "x": 1940,
+    "y": 60,
+    "on_node": [
+     "focal_mm",
+     "static_camera"
+    ]
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_usd",
+   "label": "USD 输出设置",
+   "params": {
+    "unit": "cm",
+    "name": "scene"
+   },
+   "ui": {
+    "x": 2640,
+    "y": 380,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "core.output",
+   "label": "输出",
+   "params": {
+    "mode": "tar",
+    "path": ""
+   },
+   "ui": {
+    "x": 2940,
+    "y": 380,
+    "on_node": [
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "mask_person",
+   "type": "core.boxes_mask",
+   "ui": {
+    "x": 1280,
+    "y": 160,
+    "on_node": [
+     "ids"
+    ]
+   },
+   "params": {
+    "ids": ""
+   }
+  },
+  {
+   "id": "keep_person",
+   "type": "core.image_merge",
+   "params": {
+    "operation": "multiply"
+   },
+   "ui": {
+    "x": 1600,
+    "y": 260,
+    "on_node": [
+     "operation"
+    ]
+   }
+  },
+  {
+   "id": "cam_split",
+   "type": "core.split_camera",
+   "label": "拆分相机",
+   "params": {
+    "per_frame": true
+   },
+   "ui": {
+    "x": 680,
+    "y": 560,
+    "on_node": [
+     "per_frame"
+    ]
+   }
+  },
+  {
+   "id": "place",
+   "type": "core.camera_space",
+   "label": "相机空间转换",
+   "params": {
+    "fit": "per_frame"
+   },
+   "ui": {
+    "x": 2300,
+    "y": 240,
+    "on_node": [
+     "fit"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "detect",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "detect",
+    "boxes"
+   ],
+   "to": [
+    "pick",
+    "boxes"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "keep_person",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "mask_person",
+    "mask"
+   ],
+   "to": [
+    "keep_person",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "keep_person",
+    "image"
+   ],
+   "to": [
+    "human",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "cam",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "camera"
+   ],
+   "to": [
+    "cam_split",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "cam_split",
+    "focal"
+   ],
+   "to": [
+    "human",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "cam_split",
+    "rotate"
+   ],
+   "to": [
+    "human",
+    "param:camera_rotate"
+   ]
+  },
+  {
+   "from": [
+    "cam_split",
+    "filmback"
+   ],
+   "to": [
+    "human",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "human",
+    "character"
+   ],
+   "to": [
+    "place",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "human",
+    "ref_camera"
+   ],
+   "to": [
+    "place",
+    "source_camera"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "camera"
+   ],
+   "to": [
+    "place",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "place",
+    "scene"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "camera"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "pick",
+    "boxes"
+   ],
+   "to": [
+    "mask_person",
+    "boxes"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "human",
+  "frame": null
+ }
+}
