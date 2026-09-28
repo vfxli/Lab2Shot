@@ -7,8 +7,8 @@
  *     右（结果）：取通道 → 黑点/白点 → 着色
  *     背景：棋盘格 / 纯色（和运算完全解耦，三个模式下都在）
  *
- * Pure: no imports, so node's own test runner reads it directly (webui/tests/view2d.test.ts). Canvas CSS pixel =
- * x + image pixel * s (`s`, not "scale", to match Stage2D's and overlays.ts's existing `at.s`). */
+ * Pure: no imports. Canvas CSS pixel =
+ * x + image pixel * s (`s`, as Stage2D's and overlays.ts's `at.s`). */
 
 export interface Transform2D {
   x: number;
@@ -16,10 +16,10 @@ export interface Transform2D {
   s: number; // canvas CSS pixels per image pixel
 }
 
-export const MIN_ZOOM = 0.05; // 5%
-export const MAX_ZOOM = 32; // 3200%
+const MIN_ZOOM = 0.05; // 5%
+const MAX_ZOOM = 32; // 3200%
 
-export const clampZoom = (s: number): number => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, s));
+const clampZoom = (s: number): number => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, s));
 
 /** Zooming by `factor` around a fixed canvas point (px, py, CSS pixels): the image point under it stays under it. */
 export function zoomAt(t: Transform2D, factor: number, px: number, py: number): Transform2D {
@@ -36,8 +36,6 @@ export function toPercent(t: Transform2D, pct: number, cw: number, ch: number): 
   const s = clampZoom(pct / 100);
   return zoomAt(t, t.s === 0 ? 1 : s / t.s, cw / 2, ch / 2);
 }
-
-export const zoomPercentOf = (t: Transform2D): number => Math.round(t.s * 100);
 
 /** 返回画面在舞台上的摆放尺寸。摆放依据是该帧的画面范围，而非解码图像的像素数，以保证切换节点对比时画面大小不变。
  *
@@ -83,18 +81,6 @@ export function oneToOneTransform(width: number, height: number, cw: number, ch:
   const d = dpr || 1;
   const s = clampZoom(1 / d);
   return { x: Math.round(((cw - width * s) / 2) * d) / d, y: Math.round(((ch - height * s) / 2) * d) / d, s };
-}
-
-/** The viewer's one view, set on a picture of fromW x fromH, carried to a picture of toW x toH (another displayed
- * node). The same size: exactly the same view (A/B flipping shows the same pixels in the same place). Another size:
- * the picture keeps its on-screen width and its centre stays where it was, so a half-resolution result of the same
- * shot lies over the full one (the same spot of the shot under the same screen point). */
-export function carryView(t: Transform2D, fromW: number, fromH: number, toW: number, toH: number): Transform2D {
-  if (fromW === toW && fromH === toH) return t;
-  if (toW <= 0 || toH <= 0 || fromW <= 0 || fromH <= 0) return t;
-  const s = clampZoom((t.s * fromW) / toW);
-  const [cx, cy] = [t.x + (fromW * t.s) / 2, t.y + (fromH * t.s) / 2];
-  return { s, x: cx - (toW * s) / 2, y: cy - (toH * s) / 2 };
 }
 
 // ------------------------------------------------------------------ 二维像素数据：仅依据通道数与包自带信息
@@ -143,12 +129,6 @@ export const lookIndex = (index: number | null, channels: number): number | null
  * 黑白点以数据自身范围的 0 到 1 表示，而非绝对值，因此默认值为 0 和 1，切换显示节点后仍然有效。 */
 export const graded = (v: number, black: number, white: number): number => (v - black) / (white - black || 1e-6);
 
-/** 逆映射：将屏幕上的 0..1 换算为数据自身范围内的比例（光标读数用它还原真值）。 */
-export const ungraded = (t: number, black: number, white: number): number => black + t * (white - black);
-
-/** 黑白点是否偏离默认值（偏离时视图角落显示「预览已调整」）。 */
-export const gradedAt = (black: number, white: number): boolean => black !== 0 || white !== 1;
-
 // ------------------------------------------------------------------ 着色：固定的色标与纯色，不支持自定义
 
 /** 右侧通道的着色方式，三类共用一个下拉：
@@ -159,7 +139,7 @@ export const gradedAt = (black: number, white: number): boolean => black !== 0 |
 export type Tint = "grey" | "warm" | "id" | "red" | "green" | "blue" | "yellow" | "cyan" | "magenta" | "white";
 
 /** 纯色各档的颜色（出现在 `SOLID` 中的为纯色，其余为色标）。 */
-export const SOLID: Partial<Record<Tint, readonly [number, number, number]>> = {
+const SOLID: Partial<Record<Tint, readonly [number, number, number]>> = {
   red: [255, 69, 108],
   green: [61, 220, 132],
   blue: [76, 141, 255],
@@ -169,7 +149,7 @@ export const SOLID: Partial<Record<Tint, readonly [number, number, number]>> = {
   white: [255, 255, 255],
 };
 
-export const isSolid = (tint: Tint): boolean => tint in SOLID;
+const isSolid = (tint: Tint): boolean => tint in SOLID;
 
 /** 单通道显示时该着色档的不透明度（0..1），同一规则适用于两种模式：
  *
@@ -201,13 +181,13 @@ const ID_COLOURS: readonly (readonly [number, number, number])[] = [
  * 必须先取整再判断是否为背景：`i` 由 8 位值乘以值域上界得到（见 tintLut），可能是小数。
  * 若先判断 `i <= 0`，0.2 会进入后一分支，`Math.round(0.2) - 1 = -1`，`ID_COLOURS[-1]` 为 `undefined`，
  * 调用处的 `[...idColour(...)]` 随即抛错，整个视图被错误边界接管（值域上界为 1 时，v/255 在 1..127 上均落入 (0, 0.5)）。 */
-export const idColour = (i: number): readonly [number, number, number] => {
+const idColour = (i: number): readonly [number, number, number] => {
   const n = Math.round(i);
   return n <= 0 ? BLACK : ID_COLOURS[(n - 1) % ID_COLOURS.length]!;
 };
 
 /** 各档绘制为小色条时的色标站点（纯色为单一颜色）。实际查色使用 `tintLut`。 */
-export const RAMPS: Record<Tint, readonly (readonly [number, number, number])[]> = {
+const RAMPS: Record<Tint, readonly (readonly [number, number, number])[]> = {
   grey: [BLACK, [255, 255, 255]],
   warm: VIRIDIS,
   id: ID_COLOURS,
@@ -226,7 +206,7 @@ const said = (c: readonly [number, number, number]) => `rgb(${c.join(",")})`;
 export const rampGradient = (tint: Tint): string => `linear-gradient(to right, ${(RAMPS[tint] ?? RAMPS.grey).map(said).join(", ")})`;
 
 /** 返回 0..1 的数值在该色标上的颜色，[r, g, b] 0..255（超出范围时取端点值；纯色档始终返回该纯色）。 */
-export function rampColor(tint: Tint, t: number): [number, number, number] {
+function rampColor(tint: Tint, t: number): [number, number, number] {
   const solid = SOLID[tint];
   if (solid) return [...solid] as [number, number, number];
   const stops = RAMPS[tint] ?? RAMPS.grey;
@@ -237,8 +217,7 @@ export function rampColor(tint: Tint, t: number): [number, number, number] {
   return [0, 1, 2].map((k) => Math.round(a[k] + (b[k] - a[k]) * f)) as [number, number, number];
 }
 
-/** 256 项查色表，供逐像素循环查表，避免对每个像素插值。 */
-/** 返回一条色标的 256 档查色表。
+/** 返回一条色标的 256 档查色表，供逐像素循环查表，避免对每个像素插值。
  *
  * 「编号」档例外：服务器按包的值域将编号映射为 0..255 后发送（分割图的值域为 0..类别数），
  * 因此须先将 8 位值换算回编号再取色，不得插值。`top` 为最大编号（包的 range 上界）。 */
@@ -250,7 +229,7 @@ export const tintLut = (tint: Tint, top = 0): [number, number, number][] =>
 // ------------------------------------------------------------------ 三种模式与中间运算
 
 /** 视图模式：`plate` 仅原图（仅左侧）、`over` 运算（左 ⊕ 右）、`result` 仅结果（仅右侧）。
- * 每个节点带有预览标签，指定默认模式（NodeTypeDef.preview，由服务器计算，同一标签适用于 2D 与 3D）。 */
+ * 每个节点带有预览标签，决定默认模式（NodeTypeDef.preview，由服务器计算，同一标签适用于 2D 与 3D；换算见 view/plan.ts）。 */
 export type Mode = "plate" | "over" | "result";
 
 /** 中间运算（对应 Nuke 的 merge），三档共用一个下拉。
@@ -326,7 +305,7 @@ export interface Layer {
 }
 
 /** 将一层展开为下拉中的若干项：整体与每条通道（`遮罩`、`遮罩.R`…，与 Nuke 一致）。
- * 单通道的层不再单列 `.R`，其「整体」即该通道。 */
+ * 单通道的层不单列 `.R`，其「整体」即该通道。 */
 export function channelOptions(layers: readonly Layer[]): { value: string; label: string; port: string; index: number | null }[] {
   const out: { value: string; label: string; port: string; index: number | null }[] = [];
   for (const layer of layers) {

@@ -1,5 +1,5 @@
 """An extension's install status, computed in one place for every reader: nodes (usable or not, and why), the
-help page, the command line and the installer's own checks. A pure look: nothing is installed here.
+admin page, the command line and the installer's own checks. A pure look: nothing is installed here.
 
 A weight is "ok", "missing" (not downloaded yet), "pending" (a gated download waiting for access), or for an item the
 user downloads by hand (lab2shot.extensions.manual) "manual" (not there yet) or "consent" (there, waiting for the user
@@ -137,8 +137,8 @@ def extension_status(ext: Extension) -> dict:
 
 
 def public(status: dict) -> dict:
-    """What an account that does not install sees of a status: an uninstalled card shows only 「未安装」, with no
-    reason, hand downloads, access requests or weight states."""
+    """What an account that does not install sees of a status: a card that is not ready shows only 「未安装」, with
+    no reason, hand downloads, access requests or weight states."""
     return {**status, "label": "已就绪" if status["ready"] else "未安装", "reason": "", "message": None, "manual": [],
             "needs_manual": False, "needs_request": False,
             "weights": [{k: v for k, v in r.items() if k in ("key", "kind", "note", "optional", "notice")} for r in status["weights"]]}

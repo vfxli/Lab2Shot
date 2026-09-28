@@ -1,8 +1,8 @@
-/** The curve editor's arithmetic, kept free of the page (no imports) so it is tested on its own (webui/tests): which
+/** The curve editor's arithmetic, kept free of the page (no imports): which
  * channels are picked (a click, Ctrl, Shift, as in Maya's and Houdini's channel lists), which move most, the value
  * range a graph fits and its axis ticks. */
 
-/** A curves packet's before/after pairing (scene_tools_spec 六) as indices: `pair` maps a channel to the channel
+/** A curves packet's before/after pairing as indices: `pair` maps a channel to the channel
  * holding what it was before, `hidden` is every channel that is only another channel's before (they are never listed on
  * their own; one switch shows them all). A name the packet does not have is ignored. */
 export function beforePairs(names: string[], before?: Record<string, string>): { pair: Map<number, number>; hidden: Set<number> } {

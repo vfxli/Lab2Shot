@@ -1,43 +1,45 @@
-"""GPU scheduling: which GPU (if any, of possibly several on a multi-card workstation) a job
-should run on, and why it must wait when none fit. Separate concerns kept apart so each can change on its own:
+"""Scheduling by node: the machine's places (each authorized GPU, the CPU slots) and which task's node gets one, with
+the time limit of a node. Separate concerns kept apart so each can change on its own:
 
-    inventory.py     live GPU state (nvidia-smi), refreshed by a background thread — never inside the queue's lock
+    inventory.py     live GPU state (nvidia-smi), refreshed by a background thread — never inside a lock of the farm's
     compat.py        can a runtime's environment (an extension's, or the core's) run on a given architecture: the
                      extension's declared architectures (Extension.env_archs) and the install-time probe, nothing
                      else
-    requirements.py  what a job needs (runtimes, VRAM), derived once from its planned nodes
-    placement.py     place(): pure placement policy — eligibility, best-fit, ageing fairness
+    placement.py     place(): which free card a GPU node fits on (architecture, VRAM, the preference order), and why
+                     none does
+    pools.py         Pools: the places, the rules of who gets one (queue order, the limits of a task and of the
+                     machine, memory), the time limit, and background work; one dispatcher
+                     thread decides
 
-farm/queue.py is the only caller: its GPU lanes ask place() for the next job they should run and report the
-result; extensions/gpu_archs.py stays the install-time recorder that compat.py reads (and probes lazily when an
-environment predates it). No other module computes GPU compatibility or reads nvidia-smi directly (the queue
-stays thin).
+The engine asks through the interface it defines itself (engine/resources.py: Need, Ticket, Resources), which
+TaskResources implements for one task; farm/queue.py builds the Pools and hands each task's cook its TaskResources.
+extensions/gpu_archs.py is the install-time recorder that compat.py reads (and has probe, on a thread of its own, an
+environment that was never probed or changed since). No other module computes GPU compatibility or reads nvidia-smi
+directly.
 """
 
 from __future__ import annotations
 
 from .compat import Fit, card_extensions, fit, runtime_record, wait_reason
 from .inventory import GpuState, Host, LocalHost, Snapshot, local_host
-from .placement import Ahead, Placement, Wait, eligible, place, reclaimable_cards
-from .requirements import Requirement, requirement_for
+from .placement import eligible, place, reclaimable_cards
+from .pools import Pools, TaskResources, Ticket
 
 __all__ = [
-    "Ahead",
     "Fit",
     "GpuState",
     "Host",
     "LocalHost",
-    "Placement",
-    "Requirement",
+    "Pools",
     "Snapshot",
-    "Wait",
+    "TaskResources",
+    "Ticket",
     "card_extensions",
     "eligible",
     "fit",
     "local_host",
     "place",
     "reclaimable_cards",
-    "requirement_for",
     "runtime_record",
     "wait_reason",
 ]

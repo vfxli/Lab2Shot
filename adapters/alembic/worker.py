@@ -4,8 +4,8 @@ Lab2Shot core.
     python worker.py <job.json>
 
 job["node"]:
-    alembic.import   inputs.file (.abc), params fps -> raw/scene.npz: every item of the file in the scene-arrays
-                     layout (lab2shot_worker/scene_arrays.py): cameras, models (poly meshes), point clouds, curves. The import
+    alembic.import   inputs.file (.abc) -> raw/scene.npz: every item of the file in the scene-arrays
+                     layout (lab2shot_shared/scene_arrays.py): cameras, models (poly meshes), point clouds, curves. The import
                      node lists the file's hierarchy from it and makes packets of the items chosen; listing and reading
                      share this one job and its cached result.
     alembic.output   inputs.scene (scene arrays: lengths in the unit the node chose, Y up), params file (.abc) -> the
@@ -19,10 +19,11 @@ and the import reads it back as the rate to convert seconds with.
 Items (both directions):
     - where an item is: the path DCCs show, its transform (/rig/cam1 for the shape /rig/cam1/cam1Shape) when it is
       that transform's only shape, else the shape itself; its name is the path's last part;
-    - its frames: the frames of every sample of it and of its parent transforms (fps converts seconds; of sub-frame
+    - its frames: the frames of every sample of it and of its parent transforms (the rate converts seconds; of sub-frame
       samples the one nearest the frame is kept); nothing animated: its one sample's frame;
-    - world: every parent transform composed at each of those frames. Written back, each item is a top-level
-      transform holding its world per sample and one shape "<name>Shape" under it.
+    - world: every parent transform composed at each of those frames. Written back, each item is a transform holding
+      its world per sample, under identity group transforms that rebuild its path (without the scene's leading /shot),
+      with one shape "<name>Shape" under it.
 
 Conventions at the npz boundary (both directions):
     - matrices are column-vector (translation in [:3, 3]); Alembic stores row-vector matrices (translation in the last
@@ -54,7 +55,7 @@ from lab2shot_worker.run import Run
 from lab2shot_shared.scene_arrays import SceneArrays, load, text
 
 CM_PER_MM = 0.1
-FALLBACK_FPS = 24.0  # lab2shot.data.units.DEFAULT_FPS: neither the node nor the archive says a rate
+FALLBACK_FPS = 24.0  # lab2shot.data.units.DEFAULT_FPS: the archive records no rate
 WRAP = Abc.WrapExistingFlag.kWrapExisting
 VARYING = AbcGeom.GeometryScope.kVaryingScope  # one value per point
 FACEVARYING = AbcGeom.GeometryScope.kFacevaryingScope

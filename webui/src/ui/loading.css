@@ -1,4 +1,4 @@
-/* ui/Loading.tsx: what the page shows while a part of it loads, the login gate included (P8). */
+/* ui/Loading.tsx: what the page shows while a part of it loads, the login gate included. */
 
 .loading {
   display: flex;

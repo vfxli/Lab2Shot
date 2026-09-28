@@ -14,13 +14,12 @@
 }
 
 /* 以下规则只作用于队列自身的表格（`.q-jobs`），不得写在 `.q-table` 上。
-   `.q-table` 是全站共用的表格组件：后台的「硬盘」「数据库」「使用统计」「组合率」「反馈」「基准」
-   等十余张表均使用它，若将 `table-layout: fixed` 和第一列 4.6rem 写在其上，后台表格的第一列会被压窄、短词换行。
+   `.q-table` 是多处共用的表格样式：后台的「硬盘」「数据库」「使用统计」「反馈」「常驻模型」
+   等表均使用它，若将 `table-layout: fixed` 和第一列 4.6rem 写在其上，后台表格的第一列会被压窄、短词换行。
    共用组件上只写对所有使用者都成立的规则；各表自身的列宽写在其修饰类上。 */
 .q-jobs { table-layout: fixed; }
 .q-jobs th:nth-child(1),
 .q-jobs td:nth-child(1) { width: 4.6rem; }
-.q-jobs .q-grip-cell { width: 1.6rem; }
 .q-jobs .q-act { width: 1%; white-space: nowrap; }
 
 /* 主体固定为两行：上方为名称，下方为一排数值。不使用会换行的 flex：否则内容多的行折到第二行，
@@ -90,11 +89,6 @@
   vertical-align: top;
 }
 
-/* 自己的任务不加底色：任务归属由「我的」标记表示，而非整行变色；后台一屏数十行时，
-   大面积底色会影响状态列的辨识。 */
-.q-table tr.mine td {
-}
-
 .q-table tr.expandable {
   cursor: pointer;
 }
@@ -132,7 +126,7 @@
   display: flex;
   flex-direction: column;
   gap: 5px;
-  /* 降低最小宽度，避免整张表宽于容器而出现横向滚动条。该格为纵向排列（当前计算内容、进度条目、进度条、
+  /* 降低最小宽度，避免整张表宽于容器而出现横向滚动条。该格为纵向排列（当前计算内容、进度条、
      剩余时间），较窄时不影响阅读。 */
   min-width: 128px;
 }
@@ -150,7 +144,7 @@
 
 /* 计算进度条（api/progress.ts `at`）：只增不减，因此宽度带过渡；
    无法估计时绘制一条往复移动的条（不虚构数值），动画在此单独定义：
-   后台页面不加载编辑器的样式，无法复用 12-preview-bar.css 中的 slide */
+   后台页面不加载编辑器的样式，无法复用 12-node-progress.css 中的 slide */
 .q-bar i {
   display: block;
   height: 100%;
@@ -195,3 +189,35 @@
   margin-top: 10px;
 }
 
+
+/* 任务分组（QueueTables.tsx GroupRows）：一组一行，默认收起；展开后组里的任务行缩进，一眼看出属于上面那一组。
+   组的数值行不是任务行那五列网格：它只有「几个任务 · 时段 · 最近提交」几项，按顺序排开。 */
+.q-group-name {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.q-group-toggle {
+  flex: 0 0 auto;
+  width: 0.9rem;
+  color: var(--text-3);
+}
+
+.q-group-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-3);
+  margin-top: var(--sp-1);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.q-table tr.q-member td.q-body {
+  padding-left: calc(var(--q-cell-x, 10px) + 1.2rem);
+}
+
+.q-table tr.q-member td {
+  background: rgba(255, 255, 255, 0.015);
+}

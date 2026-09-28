@@ -73,11 +73,14 @@ class HaMeR(Extension):
         # Old setup.py packages: built with the environment's setuptools<81 (they
         # import pkg_resources), without build isolation and without their pins.
         compiled=(
+            # the person detector (ViTDet-H, load_detector); same commit as the sam_3d_body extension.
+            # Its own CUDA kernels are unused (ROIAlign / NMS run through torchvision), see compiled_cuda
+            "detectron2 @ git+https://github.com/facebookresearch/detectron2.git@a1ce2f956a1d2212ad672e3c47d53405c2fe4312",
             "mmcv==1.3.9",  # "lite" mmcv without compiled ops, as upstream pins it
             f"mmpose @ git+{VITPOSE_URL}.git@{VITPOSE_COMMIT}",
             "chumpy @ git+https://github.com/mattloper/chumpy.git@580566eafc9ac68b2614b64d6f7aaa84eebb70da",
         ),
-        compiled_cuda=False,  # pure Python packages: nothing needs the CUDA toolkit
+        compiled_cuda=False,  # C++ ops only (detectron2), the rest pure Python: nothing needs the CUDA toolkit
     )
     weights = (
         *(hf_file(SPACE, SPACE_REVISION, path, key=key, dest=path, sha256=sha, note=note)

@@ -3,9 +3,7 @@
 
 from __future__ import annotations
 
-import importlib.util
 import zipfile
-from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -74,15 +72,7 @@ def read_mask(path: str | Path) -> np.ndarray:
     path = Path(path)
     if path.suffix.lower() == ".exr":
         if has_module("OpenEXR"):
-            import OpenEXR
-
-            # separate_channels: RGBA comes as R, G, B, A. The channels are released when the file closes,
-            # so the pixels are copied inside the block.
-            with OpenEXR.File(str(path), separate_channels=True) as exr:
-                channels = exr.channels()
-                name = _mask_channel(path, list(channels))
-                pixels = np.array(channels[name].pixels, dtype=np.float32)
-            return pixels[..., 0] if pixels.ndim == 3 else pixels
+            return next(iter(_exr_planes(path, lambda names: [_mask_channel(path, names)]).values()))
         if not has_module("OpenImageIO"):
             raise Failure("E-FILES-NOEXRMASK")
         import OpenImageIO as oiio
@@ -119,15 +109,15 @@ def read_channels(path: str | Path, names: tuple[str, ...] = ("R", "G")) -> np.n
         raise Failure("E-FILES-NOTEXR", path=shown(path))
     if not has_module("OpenEXR"):
         raise Failure("E-FILES-NOEXRMASK")
-    import OpenEXR
 
-    with OpenEXR.File(str(path), separate_channels=True) as exr:
-        channels = exr.channels()
+    def pick(channels: list[str]) -> list[str]:
         missing = [n for n in names if n not in channels]
         if missing:
-            raise Failure("E-FILES-CHANNELS", file=path.name, want=list(missing), channels=sorted(channels))
-        out = [np.array(channels[n].pixels, dtype=np.float32) for n in names]
-    return np.ascontiguousarray(np.stack([a[..., 0] if a.ndim == 3 else a for a in out], axis=-1))
+            raise Failure("E-FILES-CHANNELS", file=path.name, want=missing, channels=sorted(channels))
+        return list(names)
+
+    planes = _exr_planes(path, pick)
+    return np.stack([planes[n] for n in names], axis=-1)
 
 
 def read_depth(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
@@ -141,15 +131,36 @@ def read_depth(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
     because a user may connect a depth EXR rendered by a DCC directly (as lenient as `read_mask`)."""
     if not has_module("OpenEXR"):
         raise Failure("E-FILES-NOEXRDEPTH")
-    import OpenEXR
-
-    with OpenEXR.File(str(path), separate_channels=True) as exr:
-        channels = exr.channels()
-        z = np.array(channels[_depth_channel(Path(path), list(channels))].pixels, dtype=np.float32)
-        ok = next((n for n in ("valid", "A") if n in channels), "")
-        a = np.array(channels[ok].pixels, dtype=np.float32) if ok else np.ones_like(z)
+    path = Path(path)
+    # the depth channel, then the file's validity channel when it has one
+    planes = list(_exr_planes(path, lambda channels: [_depth_channel(path, channels),
+                                                      *[n for n in ("valid", "A") if n in channels][:1]]).values())
+    z = planes[0]
+    a = planes[1] if len(planes) > 1 else np.ones_like(z)
     valid = (a > 0) & np.isfinite(z) & (z > 0)
     return np.where(valid, z / M_TO_CM, 0.0).astype(np.float32), valid
+
+
+def _exr_planes(path: Path, pick) -> dict[str, np.ndarray]:
+    """Channels of an EXR as float32 [H, W] planes (its data window), in the order `pick(names)` chooses them from
+    the file's channel names; the library converts every pixel type (half, float, uint) to float32.
+
+    Read with the OpenEXR bindings' InputFile, the reading API of every version of the bindings: an extension's
+    environment has the version its upstream pins, and the File class exists only from 3.3 on (ViPE pins OpenEXR<3.3)."""
+    import Imath
+    import OpenEXR
+
+    exr = OpenEXR.InputFile(str(path))
+    try:
+        header = exr.header()
+        box = header["dataWindow"]
+        h, w = box.max.y - box.min.y + 1, box.max.x - box.min.x + 1
+        as_float = Imath.PixelType(Imath.PixelType.FLOAT)
+        # frombuffer shares the library's read-only bytes: copied so that callers may change the pixels in place
+        return {n: np.frombuffer(exr.channel(n, as_float), np.float32).reshape(h, w).copy()
+                for n in pick(list(header["channels"]))}
+    finally:
+        exr.close()
 
 
 def _depth_channel(path: Path, channels: list[str]) -> str:

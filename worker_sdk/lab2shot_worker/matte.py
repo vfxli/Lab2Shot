@@ -1,12 +1,12 @@
 """The mask-guided video matting worker contract, shared by every such worker
-(MatAnyone 2, VideoMaMa): one job contract, so the node code is shared. Needs
+(MatAnyone 2, VideoMaMa, SDMatte): one job contract, so the node code is shared. Needs
 numpy and OpenCV; never imports Lab2Shot core.
 
 Job: job["node"] = "<extension>.matte"; job["frames"] = [{frame, path}] sRGB PNGs;
 job["inputs"]["mask"] = JSON {"frames": {"<frame>": path}} of coarse 0..1 guide
 masks (EXR: channel "A" or the only channel; PNG/JPG: grey 0..255);
-job["params"] = {resolution, warmup, erode_dilate, fp16}, each model validates its own
-ranges and defaults.
+job["params"] = the node's parameters (resolution, fp16 and each model's own, e.g.
+warmup, erode_dilate, mask_close), complete and validated by the node.
 
 Output: raw/frame_<n>.npz with alpha float32 [H,W] in 0..1 at the input frame's
 resolution (+ foreground float32 [H,W,3] sRGB 0..1 when a model predicts one),

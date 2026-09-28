@@ -3,7 +3,7 @@ import type { Piece, Typed } from "../model/viewFormat";
 import { workerAsks } from "../platform/work";
 import type { ChunkAnswer } from "./sceneWorker";
 
-/** The scene worker's client (view/sceneWorker.ts: the 3D viewer's arithmetic off the page's thread, G25). One worker
+/** The scene worker's client (view/sceneWorker.ts: the 3D viewer's arithmetic off the page's thread). One worker
  * for the whole page, started by the first request (platform/work.ts). Every request carries its arrays as themselves,
  * i.e. exactly their own bytes even when they are views into a larger buffer (a sample of a chunk, one camera of a
  * track); arrays are transferred when the page no longer needs them and copied otherwise, and the response's arrays are
@@ -13,9 +13,9 @@ import type { ChunkAnswer } from "./sceneWorker";
 
 const ask = workerAsks<object>(() => new Worker(new URL("./sceneWorker.ts", import.meta.url), { type: "module" }));
 
-export interface Parsed {
+interface Parsed {
   pieces: { piece: Piece; samples: Typed[] }[];
-  bounds: Record<string, Bounds | null>; // "clouds/<i>|<sample>" -> the extent of its points
+  bounds: Record<string, Bounds | null>; // "<cloud index>|<sample>" -> the extent of its points
 }
 
 /** A chunk's bytes as its pieces with their samples, plus the bounds of every explicit cloud sample in it. The bytes

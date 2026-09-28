@@ -8,6 +8,7 @@
 "E-ACCESS-NOROUTE" = "没有这个接口"
 "E-ACCESS-PROBE" = "请求的参数里有往上一层的路径（..）或空字符：已拒绝"
 "E-ACCESS-ADMINONLY" = "这里只有管理员能用：要用管理员账号登录"
+"E-ACCESS-UNKNOWNHOST" = "{host} 不是这台服务器的名字：用它的机器名或 IP 地址打开；要用这个域名的话，管理员在「设置 → 网络 → 对外域名」里加上它（在服务器本机上用 localhost 打开设置）"
 "E-ACCESS-NOCAPABILITY" = "{role}没有这项权限（{what}）：只有{roles}能用"
 "N-ACCESS-RIGHTSAGAIN" = "管理权限每三天要重新输一次密码：再输一次密码就能接着用"
 
@@ -15,6 +16,8 @@
 "E-ACCESS-CROSSSITE" = "这个请求不是从本网站的页面发出的，已拒绝：请从 Lab2Shot 的页面上操作"
 "E-ACCESS-NOLENGTH" = "请求没有写明大小（Content-Length），服务器不收：换用 Lab2Shot 的页面或客户端发送"
 "E-ACCESS-TOOBIG" = "请求太大：最多 {mb:g} MB"
+"E-ACCESS-NOTJSON" = "请求的内容不是 JSON，服务器看不懂：换用 Lab2Shot 的页面或客户端发送"
+"E-ACCESS-TOODEEP" = "请求的内容嵌套太深（最多 {most:d} 层），服务器不收：换用 Lab2Shot 的页面或客户端发送"
 "E-ACCESS-NORESULT" = "这个结果不存在：还没有计算，或者已经被清理，重新计算一次"
 "E-CLIPBOARD-NONE" = "这个结果里没有可以复制到别的软件的节点文字：写成 Nuke 节点的输出设置、以及解出镜头的节点（「LensDistortion」「AnyCalib 镜头标定」）才有。"
 
@@ -24,13 +27,18 @@
 "I-AUDIT-USERCREATED" = "{who}（{role}）新建{target} {username}（{name} · {department}，到期 {expires}，能用 {tags}）"
 "I-AUDIT-USERCHANGED" = "{who}（{role}）改了{target} {username}：{changes}"
 "I-AUDIT-PASSWORDRESET" = "{who}（{role}）给{target} {username} 设了新密码"
-"I-AUDIT-USERDELETED" = "{who}（{role}）删除了{target} {username}（{name}）：停下 {jobs:d} 个任务，删掉 {deliveries:d} 份结果"
+"I-AUDIT-USERDELETED" = "{who}（{role}）删除了{target} {username}（{name}）：停下 {jobs:d} 个任务，删掉 {outputs:d} 份结果"
 "I-AUDIT-USERPURGED" = "{who}（{role}）永久删除了{target} {username}（{name}）：账号行删掉，用户名可以重用；{jobs:d} 条任务记录和 {feedback:d} 条反馈留着显示成「已删除的用户」，{graphs:d} 张存在服务器上的节点图一起删掉"
+"I-AUDIT-SELFREGISTERED" = "{username}（{name} · {department}）自行注册成了{role}：到期 {expires}，配额 {quota} GB，能用 {tags}；邀请码 {invite}，来自 {ip}"
+"I-AUDIT-INVITECREATED" = "{who}（{role}）新建了邀请码 {hint}…（{how}；{note}；{uses}，到期 {expires}）"
+"I-AUDIT-INVITECHANGED" = "{who}（{role}）改了邀请码 {hint}…：{state}；{note}；{uses}，到期 {expires}"
+"I-AUDIT-INVITEDELETED" = "{who}（{role}）删除了邀请码 {hint}…（{note}；用过 {used:d} 次）"
+"I-AUDIT-REGISTEREDDISABLED" = "{who}（{role}）按{by}停用了 {count:d} 个自己注册的账号：{usernames}"
 "W-AUDIT-NOTKEPT" = "这条管理操作只写进了日志，没能写进留底表（{code}）：{why}"
 "I-AUDIT-TEMPLATESWITCH" = "{who}把模板「{template}」{state}"
 "I-AUDIT-TEMPLATEPLACED" = "{who}把模板「{template}」归到了「{where}」"
 "I-AUDIT-TEMPLATEDELETED" = "{who}删掉了预设模板「{name}」"
-"E-TEMPLATES-READONLY" = "「{template}」是兼容层自带的模板，改不了它的文件：可以关闭，或拖到别的分类"
+"E-TEMPLATES-READONLY" = "「{template}」是接入层自带的模板，改不了它的文件：可以关闭，或拖到别的分类"
 "I-AUDIT-TEMPLATECOPIED" = "{who}把模板「{template}」复制成了「{name}」"
 
 # ---- 后台「模板」页（server/templates.py）
@@ -42,17 +50,15 @@
 "E-GRAPH-NOTAGRAPH" = "发来的不是 Lab2Shot 节点图"
 "E-GRAPH-UNKNOWNNODES" = "节点图里有这个服务器上没有的节点（「未知节点」），不能计算：先删掉它们"
 "E-GRAPH-TOOMANYNODES" = "节点图有 {count} 个节点，超过一张图最多的 {most} 个：太大的图算一次就要占很久的服务器。按步骤拆成几张图，各自计算，用「输出」把结果接起来"
-"E-GRAPH-UNREADABLE" = "节点图读不了：{reason}"
 "E-GRAPH-UNKNOWNCHOICE" = "「{node}」的参数里有这个服务器上没有的选项：在参数面板里重新选一个"
 "E-GRAPH-BADPATCH" = "节点图的改动格式不对：页面和服务器没对上，刷新页面再试"
 "E-GRAPH-UNKNOWNVERSION" = "服务器没有这一版节点图（服务重启过）：再发一次整张图"
 "E-GRAPH-MISSING" = "请求里没有节点图"
-"B-JOB-WHAT" = "没有说清这次算什么：算一个节点、算显示的节点、交付哪些「输出」（空列表是全部），三种里要给且只给一种"
+"B-JOB-WHAT" = "没有说清这次算什么：算一个节点，或者整理打包哪些「输出」（空列表是全部），两种里要给且只给一种"
 "E-GRAPH-NODETYPE" = "没有这个节点类型"
 
 # ---- 提交计算（server/farm.py）
 "B-COOK-NOSUCHNODE" = "节点图里没有节点 {node}：页面和服务器没对上，刷新页面再试"
-"B-COOK-NOTWIRED" = "「{node}」没有要显示的结果：它的输入还没有接线，先把上游节点接上"
 "B-COOK-NOOUTPUT" = "节点图里没有「输出」：先加一个「输出」节点，把要写出的数据接上去，再点「提交」"
 "E-JOB-GONE" = "没有这个计算任务：服务重启过，或者它早就结束了"
 "E-JOB-NOGRAPH" = "没有这个任务，或者它的节点图没有留下"
@@ -64,11 +70,12 @@
 # ---- 上传和取回（server/transfer.py）
 "E-UPLOAD-TOOMANYASKED" = "一次问的文件太多：最多 10 万个，分几次问"
 "E-UPLOAD-TOOMANYPICKED" = "一次选的文件太多：最多 50 万个，分几次选"
-"E-UPLOAD-TOOBIG" = "文件太大：一个文件最多 {gb:d} GB（管理员可以在设置的「上传上限」里改）"
+"E-UPLOAD-TOOBIG" = "文件太大：一个任务最多带 {gb:g} GB 上传的素材，这一个文件就超了（管理员可以在设置的「单任务上传上限」里改）"
 "E-UPLOAD-DISKFULL" = "服务器的硬盘快满了（要留 {gb:d} GB）：请管理员清理后再上传"
 "E-UPLOAD-MOVED" = "{reason}：从那里接着传"
-"E-DELIVERY-GONE" = "没有这个结果：服务器只保留 {days:g} 天，过期了就再算一次"
-"E-DELIVERY-STATE" = "结果的状态只能是 saved 或 dismissed，不是 {state}"
+"E-TASKDIR-GONE" = "没有这个任务：它不是这个账号的，或者已经过了保留期被清理了"
+"E-TASKGROUP-GONE" = "没有这一组任务：它不是这个账号的，或者组里的任务都已经删掉、过了保留期被清理了"
+"E-OUTPUT-GONE" = "没有这个结果：任务结束后服务器只保留 {days:g} 天，过期了就再算一次「输出」"
 "E-STATUS-ITEMSPAGE" = "条目要一页一页取：从第几条起不能是负数，一页最少 1 条、最多 {most} 条"
 
 # ---- 看结果（server/packets.py、server/view.py）
@@ -101,9 +108,8 @@
 "E-SEARCH-TOOLONG" = "搜索的字太多：最多 {most} 个字"
 
 # ---- 数据库的版本（lab2shot/database/schema.py）
-"E-DB-TOOOLD" = "数据库 {path} 是第 {version} 版：比这个版本的 Lab2Shot 能升级的最早一版（第 {first} 版，有用户账号的第一版）还早，不能一步升上来，没有动它。先用 2026-09-13 的 Lab2Shot（main 5bbec5ce）启动一次把它升到第 {first} 版，或者恢复一个第 {first} 版以后的备份"
 
-# ---- 服务本身（server/app.py、server/logs.py、server/restart.py、server/composition.py）
+# ---- 服务本身（server/app.py、server/logs.py、server/restart.py、server/wire.py）
 "E-SERVER-NOHTTPS" = "服务没有用 HTTPS，没有证书：用 lab2shot ui --https 启动后才有"
 "E-SERVER-NOPAGE" = "网页还没有构建：在 webui 文件夹里执行 npm run build"
 "E-SERVER-NOCOPY" = "没有这个文件：网页脚本的压缩副本不按自己的名字请求（用原名字请求）；这是网页构建的问题，请重新构建"
@@ -116,10 +122,19 @@
 # ---- 服务器日志（每行日志带编号）
 
 "I-RESTART-STARTED" = "服务启动：{host}:{listen}（进程 {pid:d}）"
+"I-MEMORY-REUSE" = "内存复用：开，服务进程最多留约 {gb:g} GB 用过的内存给下一帧（{arenas:d} 个分配区，每个最多留 {mb:d} MB）"
+"I-MEMORY-REUSEOFF" = "内存复用：关，用过的内存马上还给系统（设置「内存复用」）"
+"W-MEMORY-NOGLIBC" = "内存复用没有生效：这台机器的 C 库不是 glibc，调不了它的内存分配参数；服务照常运行，只是逐帧计算没有这份加速"
+"W-MEMORY-NOREUSE" = "内存复用没有完全生效：glibc 没有接受某个内存分配参数（mallopt）；服务照常运行，只是逐帧计算可能没有这份加速"
+"I-THREADS-POOLS" = "数学库线程：numpy 的 OpenBLAS 1 个（逐帧并行只由引擎做），OpenEXR {exr:d} 个（服务进程可用的核数）"
+"W-THREADS-NOBLAS" = "numpy 的 OpenBLAS 线程数没有限住：找不到它的库；服务照常运行，只是矩阵乘法多的逐帧节点会多占 CPU（OpenEXR {exr:d} 个线程）"
 "I-RESTART-ASKEDNOW" = "管理员要求立即重启服务"
 "I-RESTART-ASKEDDRAIN" = "管理员要求等当前任务算完后重启服务"
 "I-RESTART-GOING" = "服务重启：常驻进程已结束，停止监听，重新启动"
 "I-RESTART-CALLEDOFF" = "管理员取消了重启"
+"I-RESTART-ASKEDSTOPNOW" = "本机要求立即停止服务（配置菜单「停止服务」或一键更新）：计算中的任务停下，排队的任务留给下一次启动的服务"
+"I-RESTART-ASKEDSTOPDRAIN" = "本机要求等当前任务算完后停止服务（配置菜单「停止服务」或一键更新）：排队的任务留给下一次启动的服务"
+"I-RESTART-STOPPING" = "服务停止：常驻进程已结束，排队的任务已留给下一次启动，停止监听"
 "E-HTTP-FAILED" = "{who} {method} {path} 出错（编号 {ref}）：错误记录在下面几行"
 "I-HTTP-REQUEST" = "{who} {method} {path} → {status:d}，用时 {ms:d} ms"
 "W-HTTP-REQUEST" = "{who} {method} {path} → {status:d}，请求没有成功，用时 {ms:d} ms"
@@ -127,7 +142,9 @@
 "E-NOTICE-TONE" = "通知的颜色只能是 {tones} 之一，不是「{tone}」"
 "E-NOTICE-TOOLONG" = "通知有 {count:d} 个字，最多 {most:d} 个字：请缩短后再保存"
 "B-NOTICE-EMPTY" = "通知没有文字，不能打开：请先填写通知的内容"
+"E-RELEASES-BROKEN" = "更新说明文件 {file} 有问题，显示不了：{why}。在服务器上运行 lab2shot check releases 能看到全部问题，改好后重启服务"
 "W-LOG-FROMPAGE" = "{who}（{ip}，{app}）发来网页日志：内容在下面几行"
+"W-TLS-NEWAUTHORITY" = "HTTPS 用的证书颁发机构换了一个新的：旧的不能为现在的名字和地址（{names}）作保。每台用户电脑要重新装一次证书：浏览器打开 /api/tls/ca.pem 下载，装进「受信任的根证书颁发机构」，旧的那张可以删掉"
 "I-SERVER-DUMPREADY" = "卡住时查线程：执行 kill -USR1 {pid}，所有线程在做什么写进 {file}"
 
 # ---- 我的模板和管理员录入的模板（server/library.py）
@@ -136,12 +153,10 @@
 "E-LIBRARY-TOOLONG" = "「{what}」太长了：最多 {most:d} 个字"
 "E-LIBRARY-TOOBIG" = "这张节点图 {mb:.1f} MB，超过一张模板最多的 {most:.0f} MB：模板只存节点图和参数，素材不随模板保存。先删掉图里用不到的节点再存"
 "E-LIBRARY-TOOMANY" = "你存的模板已经有 {most:d} 张了：先在「我的模板」里删掉几张（进回收站，随时能恢复），再存新的"
-"E-LIBRARY-ADMINBINNED" = "「{name}」是管理员放进回收站的，自己拿不回来：要用它，找管理员在后台「模板」里恢复"
 "I-AUDIT-GRAPHRESTORED" = "{who}恢复了模板「{name}」"
 "I-AUDIT-GRAPHBINNED" = "{who}把模板「{name}」放进了回收站"
 "I-AUDIT-GRAPHPURGED" = "{who}永久删除了模板「{name}」"
 "I-AUDIT-GRAPHLISTED" = "{who}把「{name}」录入成了模板"
-"I-AUDIT-GRAPHUNLISTED" = "{who}撤回了模板「{name}」的录入"
 
 # ---- 分类树（server/categories.py）
 "E-NODE-NOSUCH" = "没有节点类型 {type}：它可能随扩展包卸载了，重新打开菜单再看"
@@ -165,7 +180,7 @@
 "I-AUDIT-NODETEXT" = "{who}改了节点 {node} 的名字或说明（现在叫「{name}」）"
 "I-AUDIT-TEMPLATEEDITED" = "{who}改了模板「{name}」的名字或简介"
 "E-JOB-GRAPHTOOBIG" = "节点图过大（{mb:.1f} MB），超过单个任务允许的 {most} MB 上限：节点图只应包含节点与参数，请检查是否有参数中存放了大量数据"
-"E-LOGIN-NOPASSWORD" = "管理员 {user} 还没设密码，谁都登不进去：在服务器上执行 ./setup.sh，选「管理员密码」设一个"
+"E-LOGIN-NOPASSWORD" = "管理员 {user} 还没设密码，谁都登不进去：在服务器上执行 ./setup.sh，选「账号与安全 → 设置管理员密码」设一个"
 "E-NODETEXT-LABEL" = "节点的名字不能空，最多 {most} 个字"
 "E-NODETEXT-TEXT" = "节点的说明最多 {most} 个字"
 "E-NODETEXT-BROKEN" = "节点文字文件 {file} 坏了（{why}），先恢复再改：上一版在 {bak}，复制回去即可"
@@ -179,11 +194,11 @@
 
 # ---- 单账号磁盘配额（server/quota.py）
 "E-QUOTA-FULL" = "你在服务器上已经占了 {used_gb:.2f} GB，上限 {limit_gb:.2f} GB，这一份还要 {adding_gb:.2f} GB：打开「队列」窗口，删掉用不到的任务（每一行的「删除」，或者上面的「删除全部」）——删任务就腾出它占的空间，现在有 {jobs:d} 条已经结束的可以删，删完接着用；还不够找管理员调大配额"
-"E-QUOTA-FULLSTUCK" = "你在服务器上已经占了 {used_gb:.2f} GB，上限 {limit_gb:.2f} GB，这一份还要 {adding_gb:.2f} GB：队列里没有已经结束的任务可以删（正在算的先取消，取消完就能删）。占地方最多的是「{area}」（{area_gb:.2f} GB）：模板在「我的模板」里删掉用不到的就腾出来了；上传的素材和算好的缓存要删掉用到它们的任务才会跟着走，一条任务都没有就找管理员调大配额"
+"E-QUOTA-FULLSTUCK" = "你在服务器上已经占了 {used_gb:.2f} GB，上限 {limit_gb:.2f} GB，这一份还要 {adding_gb:.2f} GB：队列里没有已经结束的任务可以删（正在算的先取消，取消完就能删）。占地方最多的是「{area}」（{area_gb:.2f} GB）：模板在「我的模板」里删掉用不到的就腾出来了；任务结束后、还没用上的素材传上来后，过了保留天数会自己清掉，等不及就找管理员调大配额"
 "E-QUOTA-COOKFULL" = "你在服务器上已经占了 {used_gb:.2f} GB，到了上限 {limit_gb:.2f} GB，不能再算了：打开「队列」窗口，删掉用不到的任务（每一行的「删除」，或者上面的「删除全部」）——删任务就腾出它占的空间，现在有 {jobs:d} 条已经结束的可以删，删完接着算；还不够找管理员调大配额"
-"E-QUOTA-COOKSTUCK" = "你在服务器上已经占了 {used_gb:.2f} GB，到了上限 {limit_gb:.2f} GB，不能再算了：队列里没有已经结束的任务可以删（正在算的先取消，取消完就能删）。占地方最多的是「{area}」（{area_gb:.2f} GB）：模板在「我的模板」里删掉用不到的就腾出来了；上传的素材和算好的缓存要删掉用到它们的任务才会跟着走，一条任务都没有就找管理员调大配额"
-"E-QUOTA-BUSY" = "现在有任务在排队或计算，正用着一部分缓存：等它算完再删这条任务（腾空间绝不会动正在算的任务）"
-"I-AUDIT-QUEUEMOVED" = "{who}把任务「{title}」（{owner}）在{lane}里从第 {was} 位拖到第 {now} 位"
+"E-QUOTA-COOKSTUCK" = "你在服务器上已经占了 {used_gb:.2f} GB，到了上限 {limit_gb:.2f} GB，不能再算了：队列里没有已经结束的任务可以删（正在算的先取消，取消完就能删）。占地方最多的是「{area}」（{area_gb:.2f} GB）：模板在「我的模板」里删掉用不到的就腾出来了；任务结束后、还没用上的素材传上来后，过了保留天数会自己清掉，等不及就找管理员调大配额"
+"I-AUDIT-GROUPRENAMED" = "{who}把 {owner} 的一组任务改名为「{name}」"
+"I-AUDIT-QUEUEFIRST" = "{who}把任务「{title}」（{owner}）从队列第 {was} 位插到队首"
 "I-AUDIT-QUOTASET" = "{who}把 {username} 的磁盘配额设成 {gb:g} GB"
 "I-AUDIT-RIGHTSSET" = "{who}改了{target}的权限（现在 {count:d} 条）：{changes}"
 "I-AUDIT-RIGHTSDEFAULT" = "{who}把{target}的权限恢复成默认的 {count:d} 条"

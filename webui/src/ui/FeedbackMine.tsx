@@ -10,17 +10,22 @@ export function MyFeedbackList({ onWrite }: { onWrite: () => void }) {
   const items = useMine((s) => s.items);
   const load = useMine((s) => s.load);
   const read = useMine((s) => s.read);
+  const problem = useMine((s) => s.problem);
   const [fresh, setFresh] = useState<Set<string> | null>(null); // unread when the list opened: marked while it shows
   const [open, setOpen] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    void load().then(() => {
-      setFresh(new Set((useMine.getState().items ?? []).filter((f) => f.unread).map((f) => f.id)));
-      void read();
-    });
+    load().then(
+      () => {
+        setFresh(new Set((useMine.getState().items ?? []).filter((f) => f.unread).map((f) => f.id)));
+        void read();
+      },
+      () => setFresh(new Set()), // said below; what was read before (if anything) still shows
+    );
   }, [load, read]);
 
-  if (items === null || fresh === null) return <Loading what="我的反馈" />;
+  if (items === null) return problem ? <p className="adm-empty">没读到我的反馈：{problem}</p> : <Loading what="我的反馈" />;
+  if (fresh === null) return <Loading what="我的反馈" />;
   if (!items.length)
     return (
       <div className="fb-mine-empty">
@@ -39,7 +44,7 @@ export function MyFeedbackList({ onWrite }: { onWrite: () => void }) {
         return (
           <article key={f.id} className={`fb-card${fresh.has(f.id) ? " fresh" : ""}`}>
             <div className="fb-meta">
-              <span className="tnum">{stampText(f.at * 1000 / 1000)}</span>
+              <span className="tnum">{stampText(f.at)}</span>
               {f.category_label && <span className="chip">{f.category_label}</span>}
               <span className={`chip fb-status ${f.status}`} data-tip={STATUS_TIP[f.status]}>
                 {f.status_label}
@@ -55,7 +60,7 @@ export function MyFeedbackList({ onWrite }: { onWrite: () => void }) {
             )}
             {f.reply ? (
               <div className="fb-reply">
-                <span className="fb-reply-head">管理员回复{f.replied ? ` · ${stampText(f.replied * 1000 / 1000)}` : ""}</span>
+                <span className="fb-reply-head">管理员回复{f.replied ? ` · ${stampText(f.replied)}` : ""}</span>
                 {f.reply}
               </div>
             ) : (

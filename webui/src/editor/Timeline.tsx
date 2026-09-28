@@ -12,23 +12,21 @@ import { ZoomBar } from "../ui/ZoomBar";
 import { useRefSize } from "../platform/size";
 import { IconButton } from "../ui/Button";
 import { MoreMenu } from "./TimelineMenu";
-// 时间线的数据来源（帧、已计算的帧、标尺上的标记）集中在 timelineSource 中，与绘制标尺无关的部分拆分于该文件
+// 时间线的数据来源（帧、已计算的帧、标尺上的标记）在 timelineSource.ts 中，与绘制标尺无关
 import { useSource } from "./timelineSource";
 import { CookRange } from "./Chrome";
 
-/** The timeline under both stages, one thin row: 播放, the current frame, the frame ruler,
- * 计算范围 and the rate. The ruler is in the shot's own frame numbers (zoomed with the wheel, moved by dragging with the
- * middle or right button) and carries the data's frames, the playback range with its handles, the
- * frames the displayed node has results for (the cache bar), the marks its results carry and the frames missing.
- * Occasionally used functions (the jumps and steps, playing backwards, the playback range, 播放方式, 实时)
- * are in the row's 更多 menu (MoreMenu); every keyboard shortcut is unchanged. The arithmetic is in
- * timelineMath.ts; the loop mode and real-time preference belong to state/preferences.ts (this browser's way of playing,
- * not the graph's). */
-
-const RULER_TIP = "按住拖动换帧 · 滚轮缩放 · 中键或右键拖动平移 · 双击看全部";
+/** The timeline under both stages, one thin row: 倒放 / 播放, the current frame, the frame ruler, the 2D zoom,
+ * 计算范围, the rate and 播放方式 (MoreMenu). The ruler is in the shot's own frame numbers (zoomed with the wheel, moved
+ * by dragging with the middle or right button) and carries the data's frames, the playback range with its handles,
+ * the frames already in the browser (the cache bar), the marks the displayed node's results carry and the frames
+ * missing. Steps and jumps are keys only (← → ↑ ↓, editor/App.tsx). The arithmetic is in model/timelineMath.ts; the
+ * loop mode belongs to state/preferences.ts (this browser's way of playing, not the graph's).
+ *
+ * The whole strip shows no hover tips (data-no-tips, platform/tips.ts); the 播放方式 menu it opens keeps its own. */
 
 /** Plays while the store says so: moves the frame on inside the playback range at the shot's rate, as the loop mode
- * and real time say. Returns the frames actually shown per second while playing. */
+ * says, waiting for a frame not yet in the browser. Returns the frames actually shown per second while playing. */
 function usePlayback(prefs: { mode: LoopMode }): number | null {
   const playing = useViewer((s) => s.playing);
   const [shownRate, setShownRate] = useState<number | null>(null);
@@ -111,7 +109,7 @@ export function Timeline({ stage2d }: { stage2d: boolean }) {
   const setPlayback = useLook((s) => s.setPlayback);
   const setFrame = useViewer((s) => s.setFrame);
   const play = useViewer((s) => s.play);
-  const { layers } = useSource(); // 不再绘制 `cooked`（结果位于服务器上的帧）：色带只表示能否实时播放
+  const { layers } = useSource(); // 色带只表示能否实时播放，不画结果位于服务器上的帧
   const prefsMode = usePreferences((s) => s.playbackMode);
   const setPreferencesPlayback = usePreferences((s) => s.setPlayback);
   const prefs = { mode: prefsMode };
@@ -125,19 +123,18 @@ export function Timeline({ stage2d }: { stage2d: boolean }) {
   const slow = shownRate !== null && shownRate < fps * 0.9;
 
   return (
-    <div className="timeline">
+    <div className="timeline" data-no-tips>
       {/* 倒放与正放并列置于最左侧，与 DCC 软件一致 */}
-      <IconButton tip="倒着播放 / 暂停" tone="ghost" size="sm" layout="tl-playpause" on={playing && playDir < 0} onClick={() => play(-1)} disabled={!has}>
+      <IconButton aria-label="倒着播放" tone="ghost" size="sm" layout="tl-playpause" on={playing && playDir < 0} onClick={() => play(-1)} disabled={!has}>
         {playing && playDir < 0 ? <IconPause size={13} /> : <IconPlay size={13} back />}
       </IconButton>
-      <IconButton tip="播放 / 暂停 · 空格" tone="ghost" size="sm" layout="tl-playpause" on={playing && playDir > 0} onClick={() => play(1)} disabled={!has}>
+      <IconButton aria-label="播放" tone="ghost" size="sm" layout="tl-playpause" on={playing && playDir > 0} onClick={() => play(1)} disabled={!has}>
         {playing && playDir > 0 ? <IconPause size={13} /> : <IconPlay size={13} />}
       </IconButton>
       <FrameField
         className="tl-current"
         value={has ? frame : null}
         label="当前帧"
-        tip="当前帧：输入帧号，回车跳过去（没有这一帧时去最近的一帧）"
         onCommit={(f) => setFrame(nearest(frames, f))}
       />
       <Ruler frames={frames} frame={frame} range={range} layers={layers} onFrame={setFrame} onEnd={setEnd} />
@@ -145,7 +142,7 @@ export function Timeline({ stage2d }: { stage2d: boolean }) {
       <CookRange />
       {/* 帧率：未播放时显示镜头设定的帧率，播放时显示当前每秒实际绘制的帧数，与 Nuke 相同只显示一个数。
           宽度固定，开始播放时该格不变宽，整条时间条不发生位移。 */}
-      <span className={`tl-fps tnum${slow ? " slow" : ""}`} data-tip={shownRate !== null ? `现在每秒画出的帧数（视图按 ${rate} fps 播）` : "视图播多快（视图设置，不写进文件；写文件的帧率在输出设置节点上）"}>
+      <span className={`tl-fps tnum${slow ? " slow" : ""}`}>
         {`${shownRate !== null ? shownRate.toFixed(1) : rate} fps`}
       </span>
       <MoreMenu prefs={prefs} prefer={prefer} />
@@ -153,9 +150,9 @@ export function Timeline({ stage2d }: { stage2d: boolean }) {
   );
 }
 
-/** A frame number typed freely, taken on Enter or when the field is left; Escape, or what is not a whole number,
- * puts back the value. */
-function FrameField({ value, label, tip, className, onCommit }: { value: number | null; label: string; tip?: string; className: string; onCommit: (f: number) => void }) {
+/** A frame number typed freely, taken on Enter or when the field is left (a frame the data does not have goes to the
+ * nearest one); Escape, or what is not a whole number, puts back the value. */
+function FrameField({ value, label, className, onCommit }: { value: number | null; label: string; className: string; onCommit: (f: number) => void }) {
   const shown = value === null ? "" : String(value);
   const [text, setText] = useState(shown);
   useEffect(() => setText(shown), [shown]);
@@ -170,7 +167,6 @@ function FrameField({ value, label, tip, className, onCommit }: { value: number 
       className={`field num tl-field ${className}`}
       value={text}
       aria-label={label}
-      data-tip={tip}
       placeholder="—"
       inputMode="numeric"
       spellCheck={false}
@@ -181,7 +177,8 @@ function FrameField({ value, label, tip, className, onCommit }: { value: number 
         if (e.key === "Enter") e.currentTarget.blur();
         else if (e.key === "Escape") {
           setText(shown);
-          requestAnimationFrame(() => e.currentTarget?.blur());
+          const field = e.currentTarget; // React clears currentTarget once the handler returns: taken now, blurred next frame
+          requestAnimationFrame(() => field.blur());
         }
       }}
     />
@@ -257,7 +254,6 @@ function Ruler({ frames, frame, range, layers, onFrame, onEnd }: RulerProps) {
     <div
       ref={el}
       className="tl-ruler"
-      data-tip={RULER_TIP}
       onContextMenu={(e) => e.preventDefault()}
       onDoubleClick={() => setZoom(null)}
       onPointerDown={(e) => {
@@ -294,18 +290,18 @@ function Ruler({ frames, frame, range, layers, onFrame, onEnd }: RulerProps) {
       <div className="tl-data" style={cells(frames[0], frames.at(-1)!)} />
       {range && <div className="tl-play" style={cells(range[0], range[1])} />}
       {gaps(frames).map(([a, b]) => (
-        <div key={`g${a}`} className="tl-gap" style={cells(a, b)} data-tip={a === b ? `第 ${a} 帧没有数据` : `第 ${a}–${b} 帧没有数据`} />
+        <div key={`g${a}`} className="tl-gap" style={cells(a, b)} />
       ))}
       {layers.map((l, i) => {
         const inView = l.frames.filter(seen);
         return inView.length > DENSE || ppf < 3
-          ? runs(inView).map(([a, b]) => <div key={`${l.name}${a}`} className={`tl-mark-run k${i % 3}`} style={cells(a, b)} data-tip={`${l.name} ${a === b ? a : `${a}–${b}`}`} />)
-          : inView.map((f) => <div key={`${l.name}${f}`} className={`tl-mark k${i % 3}${f === frame ? " on" : ""}`} style={{ left: x(f) }} data-tip={`${l.name} ${f}`} />);
+          ? runs(inView).map(([a, b]) => <div key={`${l.name}${a}`} className={`tl-mark-run k${i % 3}`} style={cells(a, b)} />)
+          : inView.map((f) => <div key={`${l.name}${f}`} className={`tl-mark k${i % 3}${f === frame ? " on" : ""}`} style={{ left: x(f) }} />);
       })}
       {range && (
         <>
-          <div className="tl-grip" data-end="0" style={{ left: x(range[0] - 0.5) }} data-tip={`播放起始帧 ${range[0]}：拖动改播放范围，播放和循环只在范围里`} />
-          <div className="tl-grip out" data-end="1" style={{ left: x(range[1] + 0.5) }} data-tip={`播放结束帧 ${range[1]}：拖动改播放范围`} />
+          <div className="tl-grip" data-end="0" style={{ left: x(range[0] - 0.5) }} />
+          <div className="tl-grip out" data-end="1" style={{ left: x(range[1] + 0.5) }} />
         </>
       )}
       {/* 一条色带，两种颜色，只表示能否实时播放以及是否为最新结果：
@@ -314,10 +310,7 @@ function Ruler({ frames, frame, range, layers, onFrame, onEnd }: RulerProps) {
           土黄 = 可实时播放，但显示的是上一次的结果（state/stale.ts）。不绘制结果是否位于服务器上。 */}
       {loaded &&
         runs(loaded).map(([a, b]) => (
-          <div key={`l${a}`} className={`tl-cache${stale ? " stale" : ""}`} style={cells(a, b)}
-               data-tip={stale
-                 ? `第 ${a === b ? a : `${a}–${b}`} 帧能实时播，但画的是上一次的结果：参数改过了，点「计算」更新`
-                 : `第 ${a === b ? a : `${a}–${b}`} 帧已在浏览器里，播放不用再下载`} />
+          <div key={`l${a}`} className={`tl-cache${stale ? " stale" : ""}`} style={cells(a, b)} />
         ))}
       <div className={`tl-head${x(frame) < 20 ? " at-start" : x(frame) > width - 20 ? " at-end" : ""}`} style={{ left: x(frame) }}>
         <span className="tl-head-num tnum">{frame}</span>

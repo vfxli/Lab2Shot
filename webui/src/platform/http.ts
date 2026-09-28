@@ -1,5 +1,5 @@
-/** The single request layer for the editor and the admin pages. Every request goes through `answer`
- * (webui/tests/http.test.ts keeps `fetch` out of all other modules), so an expired login is detected the same way
+/** The single request layer for the editor and the admin pages. Every request goes through `answer` (no other
+ * module calls `fetch`), so an expired login is detected the same way
  * wherever it occurs. Imports nothing from the page. */
 
 import { CODE } from "../messages/format";
@@ -9,6 +9,10 @@ import { MessageError, fromServer, msg } from "../messages/message";
  * null); also dispatched by the gate after a successful login over the page (state/session.ts then rereads the login). */
 export const NEED_LOGIN = "lab2shot:need-login";
 export const LOGGED_IN = "lab2shot:logged-in";
+
+/** Dispatched when the server refuses a request because the account has not agreed to the current 用户协议 and
+ * 隐私政策 (lab2shot/server/access.py marks that 403 `terms`): the gate asks for it over the page (gate.tsx). */
+export const NEED_TERMS = "lab2shot:need-terms";
 
 /** Dispatched when the server reports that administrator rights are absent or revoked: the admin page asks again. */
 export const SIGNED_OUT = "lab2shot:signed-out";
@@ -33,7 +37,7 @@ export class ApiError extends MessageError {
  * an expired login (the account was disabled or expired, or logged in elsewhere) is reported to the gate, which asks for
  * it over the page (gate.tsx); expired administrator rights are reported to the admin page. Also called by the uploads,
  * which use XMLHttpRequest for progress reporting (transfer/uploads.ts). No route is named here: this file belongs to the
- * gate, which contains none of the page's addresses (tests/test_outsider.py). */
+ * gate, which contains none of the page's addresses. */
 export function refusedLogin(body: { login?: boolean; admin?: boolean; kicked?: unknown; detail?: unknown; code?: unknown } | null): void {
   if (body?.login) {
     ended = { message: String(body.detail ?? ""), code: String(body.code ?? "") };
@@ -67,8 +71,41 @@ export function loggedIn(): void {
   window.dispatchEvent(new Event(LOGGED_IN));
 }
 
-/** For the tests, and for a page that rereads the login by itself. */
-export const loginEnded = (): boolean => ended !== null;
+// Whose page this is. A browser's login is one for all its tabs and windows: when one of them logs out and in as another
+// account, every other tab's requests go out as that account from then on, while what those tabs show (the account
+// menu, the graph, the working copy, the jobs) is still the first one's. A page therefore never goes on under another
+// account: as soon as it learns that the login changed, it opens again (the gate then shows the login, or the page of
+// the account logged in now). It learns it from the tab that changed the login (a message on CHANNEL), and, for a login
+// changed where no message reaches (another browser window of the same profile that is not open on this site, a
+// program sharing the cookie), from the account every answer about the server names (GET /api/server and the
+// /api/load that carries it: `account`, lab2shot/server/settings.py server_now).
+let owner: number | null | undefined; // undefined: not known yet (the gate has not read the login)
+const CHANNEL = "lab2shot:account";
+const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(CHANNEL);
+
+/** The gate says whose page this is, when it has read the login (null: the login page). */
+export function belongsTo(id: number | null): void {
+  owner = id;
+}
+
+/** An answer names the account this browser is logged in as: another account than the page's opens the page again.
+ * No account (the login ended: expired, or ended by a login elsewhere) is not a change of account: the gate asks for
+ * the login over the page, and the page underneath stays as it is (gate.tsx). True: the page is opening again. */
+export function sawAccount(id: number | null): boolean {
+  const other = owner !== undefined && id !== null && id !== owner;
+  if (other) window.location.reload();
+  return other;
+}
+
+/** This tab logged in (the account) or out (null): every other tab of this site in this browser is told, and opens
+ * again unless it already is that account's page (a logout, too, is the whole browser's: 退出登录). */
+export function changedAccount(id: number | null): void {
+  channel?.postMessage(id);
+}
+
+channel?.addEventListener("message", (e: MessageEvent<number | null>) => {
+  if (owner !== undefined && e.data !== owner) window.location.reload();
+});
 
 /** A request the server refused or that never reached it, kept for the feedback report (state/diagnostics.ts reads them). */
 export interface FailedRequest {
@@ -104,7 +141,7 @@ export async function answer(url: string, init?: RequestInit): Promise<Response>
   }
   if (!r.ok && r.type !== "opaque") {
     const text = await r.clone().text().catch(() => "");
-    let body: { detail?: unknown; login?: boolean; admin?: boolean; kicked?: unknown } | null = null;
+    let body: { detail?: unknown; login?: boolean; admin?: boolean; kicked?: unknown; terms?: number } | null = null;
     try {
       body = JSON.parse(text);
     } catch {
@@ -112,6 +149,7 @@ export async function answer(url: string, init?: RequestInit): Promise<Response>
     }
     keepFailed({ t, method, url: where, status: r.status, message: cut(String(body?.detail ?? text), 500), ms: Date.now() - t });
     if (r.status === 401) refusedLogin(body);
+    else if (r.status === 403 && body?.terms) window.dispatchEvent(new Event(NEED_TERMS));
   }
   return r;
 }
@@ -140,11 +178,4 @@ export async function blob(url: string, init?: RequestInit): Promise<Blob> {
 /** 一段原始字节（按通道读取的路径：transfer/plane.ts 的 L2C1，gzip 由浏览器解压）。 */
 export async function bytes(url: string, init?: RequestInit): Promise<ArrayBuffer> {
   return (await request(url, init)).arrayBuffer();
-}
-
-/** Whether anything responds at `url` (another address the server moved to: the browser may not expose the response to
- * the page, only the fact that one arrived). A request that never arrives throws. */
-export async function reachable(url: string): Promise<true> {
-  await answer(url, { mode: "no-cors", cache: "no-store" });
-  return true;
 }

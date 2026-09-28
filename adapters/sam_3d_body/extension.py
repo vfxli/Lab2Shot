@@ -1,4 +1,5 @@
-"""SAM 3D Body: full-body human motion from plates -> USD skeleton, mesh, camera."""
+"""SAM 3D Body: full-body human motion from plates -> a USD skinned character in camera space, plus the ViTDet
+people detector (人物框)."""
 
 from __future__ import annotations
 

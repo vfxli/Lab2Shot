@@ -4,7 +4,7 @@ import { Button } from "./Button";
 import { Sheet } from "./Sheet";
 
 /** The page's one confirmation: a sheet that says, from the message catalogue, what an action will do, with
- * 取消 and the action's own word. Never the browser's window.confirm (webui/tests/uiKit.test.ts windowConfirm 0).
+ * 取消 and the action's own word. Never the browser's window.confirm.
  *   const [ask, confirmSheet] = useConfirm();
  *   if (await ask({ title: "清理硬盘", say: msg("N-DISK-CLEAN", {...}), yes: "删掉", tip: "...", danger: true })) ...
  * and render {confirmSheet} where the component renders. Esc, the backdrop and 取消 answer false. */

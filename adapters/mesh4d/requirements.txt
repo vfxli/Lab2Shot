@@ -34,8 +34,10 @@ pyyaml==6.0.2
 tqdm==4.66.5
 psutil==6.0.0
 
-# 官方 requirements.txt 里漏写、但代码 import 得到的四个（少一个就起不来）：
+# 官方 requirements.txt 里漏写、但代码 import 得到的几个（少一个就起不来）：
 cython==3.3.0     # setup_im2mesh.py 编它那 5 个 Cython 模块要它
 timm==1.0.11      # hy3dshape/models/denoisers/moe_layers.py
 munch==4.0.0      # dataset/custom_dataloader.py 读自己的 yaml
 plyfile==1.1.2    # im2mesh/utils/io.py
+rich==15.0.0      # hy3dshape/util/console.py：worker 切窗口用的数据集模块导入它
+setuptools==80.9.0  # worker 的路径上导入 pkg_resources，setuptools 81 及以后没有它

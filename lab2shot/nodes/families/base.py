@@ -23,7 +23,7 @@ import numpy as np
 from ...data.packet import Packet
 from ...errors import Invalid
 from ...messages import Msg
-from ..base import NodeDef, Port
+from ..base import NodeDef
 from ..lens import NO_LENS, Lens
 from ..kit.confidence import Confidence
 
@@ -135,7 +135,7 @@ class Job:
     `notes` holds values a family computes in prepare() for use by its own convert() only (each family's docstring
     lists its keys); an extension node reads or adds only the keys its family documents."""
 
-    plate: Packet | None  # frames, size and frame rate of the results (usually ctx.input("image")); None: no plate
+    plate: Packet | None  # frames and size of the results (usually ctx.input("image")); None: no plate
     send: Packet | None = None  # frames sent to the worker when they differ from the plate (a light probe's single frame)
     extra: Mapping[str, Any] = field(default_factory=dict)  # values computed by the node for the worker (fov_x_deg, etc.)
     inputs: Mapping[str, Path] = field(default_factory=dict)  # additional files the worker reads (boxes, mask, motion.npz)
@@ -155,7 +155,7 @@ class WorkerNode(NodeDef):
     """A node that runs its worker: prepare -> Job -> worker -> convert (see the module docstring).
 
     `confidence`: how the model provides per-pixel confidence (Confidence), or None; a node that declares it gets the
-    output 置信度 (listed in type order by nodes/applies.py all_outputs), written by ConfidenceWriter.
+    output 置信度 (listed in type order by nodes/applies.py all_outputs), written by kit/confidence.py ConfidenceWriter.
     `missing_frames`: how a frame without a raw result is handled (MissingFrames)."""
 
     confidence: ClassVar[Confidence | None] = None
@@ -207,9 +207,16 @@ class WorkerNode(NodeDef):
         image = job.send if job.send is not None else job.plate
         if cls.streams and getattr(ctx, "stream_worker", None) is not None:
             # the farm runs the worker on a separate thread, so convert() consumes frames as they appear
-            folder, done, error = ctx.run_worker_streaming(image, extra=dict(job.extra), inputs=dict(job.inputs),
-                                                           record=job.lens.record())
-            produced = cls.convert(ctx, RawOutput(folder, cls.missing_frames, done=done, error=error), job)
+            folder, done, error, halt = ctx.run_worker_streaming(image, extra=dict(job.extra), inputs=dict(job.inputs),
+                                                                 record=job.lens.record())
+            try:
+                produced = cls.convert(ctx, RawOutput(folder, cls.missing_frames, done=done, error=error), job)
+            except BaseException:
+                # the node is through only once its worker is: it gives its card back when it fails, and a worker still
+                # running there would have the card handed to another node as well
+                halt()
+                done.wait()
+                raise
             done.wait()  # the worker must end before the packet commits; its error, if any, takes precedence
             if (failed := error()) is not None:
                 raise failed

@@ -37,7 +37,7 @@
   min-width: 0;
 }
 
-/* the divider between viewer and parameter panel (the vertical twin of .splitter) */
+/* the divider between the left column (view and node graph) and the parameter panel (the vertical twin of .splitter) */
 .vsplitter,
 .splitter {
   position: relative;
@@ -54,9 +54,8 @@
   cursor: row-resize;
 }
 
-/* the line is 1 px; what the pointer may grab is 9 px around it — 但不对称：
-   横的那条下面就是时间线的标尺（28 px 高，双击看全部），抓取区往下伸会挡住标尺的点击和双击。
-   往上伸进视图里没关系，那儿贴边没有细控件。 */
+/* the line is 1 px; what the pointer may grab is 9 px around it — 但不对称：往上 7 px，伸进视图底部的时间线那一行
+   （行高 40 px，28 px 高的标尺居中，下缘离分割线 6 px）；往下只伸 2 px，进节点图。 */
 .vsplitter::after,
 .splitter::after {
   content: "";

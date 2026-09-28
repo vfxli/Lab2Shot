@@ -44,5 +44,3 @@ export interface Licence {
   text: string;
   sha256: string; // of the text: the user accepts exactly what was shown
 }
-
-export type Commercial = "yes" | "partial" | "no" | "pending";

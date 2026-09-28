@@ -16,11 +16,6 @@
    "target": "read.path"
   },
   {
-   "name": "output",
-   "label": "保存到",
-   "target": "deliver.path"
-  },
-  {
    "name": "focal",
    "label": "已知 Focal Length",
    "target": "geo.focal_mm"
@@ -78,16 +73,10 @@
    "id": "deliver",
    "type": "core.output",
    "label": "输出",
-   "params": {
-    "mode": "tar",
-    "path": ""
-   },
+   "params": {},
    "ui": {
     "x": 940,
-    "y": 0,
-    "on_node": [
-     "mode"
-    ]
+    "y": 0
    }
   }
  ],

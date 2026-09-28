@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import Official, CameraLensParams, PerFrameDepthCamera, P, Port, precision_level_param, Cost
+from lab2shot.sdk import Official, PerFrameDepthCamera, P, Port, precision_level_param, Cost
 
 
 class Geometry(PerFrameDepthCamera):
@@ -12,12 +12,10 @@ class Geometry(PerFrameDepthCamera):
     # 模型自己就输出每个像素的三维点（worker 的 npz 里 points，相机空间、米）：「点云」口直接用它，
     # 不拿深度 + Focal Length 反投影绕一圈（families/base.py native_points）
     native_points = "points"
-    # Benchmark figures shown as the inputs' tooltips.
-    measured = {
-        "focal_mm": "实测（10 个公开镜头）：填真实 Focal Length，深度误差 AbsRel 中位数 0.175 → 0.134，每个镜头典型少 22%（6 好 3 差；ETH3D 上形状更准，米制尺度却偏了）。接 AnyCalib 估的 Focal Length 反而更差（3 好 5 差）",
-    }
+    # 公开基准上的实测（接不接、接什么的差别）：
+    #   focal_mm：实测（10 个公开镜头）：填真实 Focal Length，深度误差 AbsRel 中位数 0.175 → 0.134，每个镜头典型少 22%（6 好 3 差；ETH3D 上形状更准，米制尺度却偏了）。接 AnyCalib 估的 Focal Length 反而更差（3 好 5 差）
     version = 2
-    # 每帧单独计算，没有前后帧约束，深度会轻微闪动；「米制」是模型猜出来的尺度，不是测量值
+    # 每帧单独计算，没有前后帧约束，深度会轻微闪动；米制尺度是模型猜出来的，不是测量值
     # （长焦镜头不填 Focal Length 时视角会估宽一倍）
     outputs = PerFrameDepthCamera.outputs[:1] + (Port("normal", "image.3", "法线图", means=("space",)),) + PerFrameDepthCamera.outputs[1:]
     runtime = "moge"
@@ -37,7 +35,6 @@ class Geometry(PerFrameDepthCamera):
         model: Literal["Ruicheng/moge-3-vitl", "Ruicheng/moge-3-vitg"] = P(
             "Ruicheng/moge-3-vitl", label="模型", group="几何",
             option_labels={"Ruicheng/moge-3-vitl": "标准 ViT-L", "Ruicheng/moge-3-vitg": "大模型 ViT-G"},
-            help="标准模型够用；大模型慢约 2 倍、显存更多，实测深度并不更稳，只在细节不够时试试",
         )
         resolution_level: int = precision_level_param()
 

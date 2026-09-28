@@ -3,9 +3,10 @@ import type { BoxJSON } from "../api";
 
 /** 文档外观: saved with the graph file, undoable, but never part of the server's check of the graph
  * (state/cookInputs.ts) — moving a node, folding a group box, showing another node or scrubbing the playback range
- * leaves every cached result standing. `version` bumps on every change here too (history.ts records a step whenever
- * either version moves; state/results.ts never compares against this one), so undo/redo and autosave can tell "the
- * document changed" apart from "the cook inputs changed". */
+ * leaves every cached result standing. `version` bumps on every change here too (state/results.ts never compares
+ * against this one), so autosave (editor/autosave.ts) and the graph snapshot (graph/snapshot.ts) can tell "the
+ * document changed" apart from "the cook inputs changed". Undo steps are recorded by graph/document.ts on any change
+ * of either store. */
 
 export interface Pos {
   x: number;
@@ -30,7 +31,7 @@ interface State {
   setOnNode: (id: string, rows: string[] | undefined) => void; // undefined：这个节点回到类型声明的那几行
   setDisplay: (id: string | null) => void;
   setDisplayPort: (port: string | null) => void;
-  setPlayback: (r: [number, number] | null) => void; // does not bump version: not an undo step (matches today)
+  setPlayback: (r: [number, number] | null) => void; // does not bump version: not an undo step
   addBox: (box: Box) => void;
   setBox: (id: string, patch: Partial<Box>) => void;
   moveBox: (id: string, x: number, y: number, members: string[]) => void; // nodes riding along while it is dragged

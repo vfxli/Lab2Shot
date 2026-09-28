@@ -18,6 +18,7 @@ scene*  scene.usd (cm, Y-up, source frame numbers) + meta: frames
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -103,25 +104,31 @@ def read_picture(p: Packet, path: Path, box: tuple | None = None) -> np.ndarray:
 
 
 def ingest_picture(directory: Path, files: dict[int, Path], width: int, height: int, colorspace: str, alpha: bool,
-                   window: Window, each=None) -> Packet:
+                   window: Window, each_done=None) -> Packet:
     """A reader's pictures into the working space (io/color.py module docstring): a file whose pixels already are
     it (PNG, JPG, SDR video frames) is referenced as it is; a scene-referred one (an EXR in ACEScg, a log plate) is
     converted once, here, into half-float EXR frames in `directory`. Either way the packet states the working space;
-    nothing downstream carries or converts colour. `each`: the cook's progress loop (ctx.each) over the frames."""
+    nothing downstream carries or converts colour. `each_done`: the cook's per-frame runner (ctx.each_done: the frames
+    converted side by side, with progress); None converts them one after another."""
     cfg = load_config()
     if is_working(colorspace, cfg):
         return image_packet(directory, files, width, height, working_space(cfg), alpha, window)
     writer = ExrWriter(directory, 4 if alpha else 3, half=True, colorspace=working_space(cfg), window=window,
                        **({"alpha": True} if alpha else {}))
-    seen: dict[Path, int] = {}  # a still (one file for every frame) is converted once
     items = sorted(files.items())
-    for frame, path in (each(items) if each else items):
-        if path in seen:
-            writer.files[frame] = writer.files[seen[path]]
-            continue
-        picture = images.read_picture(path, alpha, window.data)
-        writer.add(frame, to_working_picture(picture, cfg, colorspace))
-        seen[path] = frame
+    first: dict[Path, int] = {}  # a still (one file for every frame) is converted once, at the first frame showing it
+    for frame, path in items:
+        first.setdefault(path, frame)
+
+    def convert(job):
+        frame, path = job
+        writer.add(frame, to_working_picture(images.read_picture(path, alpha, window.data), cfg, colorspace))
+
+    jobs = [(frame, path) for path, frame in first.items()]
+    list((each_done or (lambda jobs, work: map(work, jobs)))(jobs, convert))
+    for frame, path in items:
+        if first[path] != frame:
+            writer.files[frame] = writer.files[first[path]]
     return writer.packet()
 
 
@@ -133,35 +140,48 @@ def image_files(p: Packet) -> dict[int, Path]:
 
 def file_at(p: Packet, frame: int) -> Path | None:
     """The file of an image or map packet at `frame` (a still: its one picture at any frame); None when it has no
-    such frame."""
-    files = image_files(p)
+    such frame. Looked up by the frame's key in the meta (image_packet writes `str(frame)`), not by building every
+    frame's path: a node asks once per frame, and a shot of F frames would otherwise cost F x F paths."""
+    ref = p.meta["files"].get(str(frame))
+    if ref is not None:
+        return file_path(p, ref)
+    files = image_files(p)  # a key written some other way ("0001"), or a still: every file by its frame
     if frame in files:
         return files[frame]
     return next(iter(files.values()), None) if p.meta.get("still") else None
 
 
 def frames_for_worker(p: Packet, emit=None) -> Packet:
-    """The packet as sRGB 8-bit RGB PNGs: what a worker's ML model wants as its input (and, through the cache it
-    makes, what the viewer shows of a picture without an alpha. The name reflects the worker use, which is what every
-    caller except the viewer needs: engine/external.py's job preparation).
+    """The packet as sRGB RGB PNGs: what a worker's ML model wants as its input (and, through the cache it makes,
+    what the viewer shows of a picture without an alpha. The name reflects the worker use, which is what every caller
+    except the viewer needs: engine/external.py's job preparation).
 
-    Every picture packet is in the working space (io/color.py): a PNG is used as it is, an EXR is clamped to 0..1 and
-    quantised, once, cached next to the source; no colour transform happens here. A picture's alpha is deliberately
-    left out (the models take RGB): what they see is its premultiplied colour, the picture over black, as Nuke
-    shows RGB.
+    A worker receives RGB PNGs, 8 or 16 bit, and nothing else; this is the one place that holds it (worker_ready), so
+    no adapter checks what its decoder (cv2, PIL, torchvision, an upstream loader) makes of other PNGs. Every picture
+    packet is in the working space (io/color.py): an RGB PNG is used as it is, with no copy; anything else (an EXR, a
+    grey or palette PNG referenced as it is by 「读取序列」) is written out once as 8-bit RGB PNGs, cached next to the
+    source; no colour transform happens here. A picture's alpha is deliberately left out (the models take RGB): what
+    they see is its premultiplied colour, the picture over black, as Nuke shows RGB.
     """
     cfg = load_config()
     files = image_files(p)
-    if worker_ready(p, cfg):
+    if worker_ready(p, cfg, files):
         return p
     # two cooks (or viewers) of the same plate convert it once: data/packet.py produce holds the entry's lock
     return produce(f"{p.fingerprint}_display", lambda d: _convert_for_worker(p, d, cfg, files, emit))
 
 
-def worker_ready(p: Packet, cfg) -> bool:
-    """Working-space PNGs without an alpha: usable (by a worker, or the viewer) as they are, no conversion."""
+def shown_as_is(p: Packet, cfg) -> bool:
+    """Working-space PNGs without an alpha, their data window the plate frame: the viewer shows (and the browser
+    decodes) them as they are, whatever their samples (a grey PNG too)."""
     return (is_working(p.meta["colorspace"], cfg) and all(f.suffix.lower() == ".png" for f in image_files(p).values())
             and not has_alpha(p) and window_of(p).same)
+
+
+def worker_ready(p: Packet, cfg, files: dict[int, Path]) -> bool:
+    """Shown as it is and every file an 8- or 16-bit RGB PNG (a header read per file; a still's one file once): a
+    worker reads the packet's own files. `files`: image_files(p)."""
+    return shown_as_is(p, cfg) and all(images.is_rgb_png(f) for f in set(files.values()))
 
 
 def _convert_for_worker(p: Packet, d: Path, cfg, files: dict[int, Path], emit) -> Packet:
@@ -274,13 +294,33 @@ def read_map(path: Path, box: tuple | None = None) -> tuple[np.ndarray, np.ndarr
     if box is not None and not (isinstance(box, tuple) and len(box) == 4):
         # 属于开发者错误（调用方传参错误），不是面向使用者的消息，因此不进入消息目录，与其他断言一样使用英文
         raise TypeError(f"read_map's second argument is a data window (x, y, w, h), not {box!r}: for a packet's own window use data/maps.py map_at")
-    named = images.read_named(path, box=box)
-    valid = named.pop(VALIDITY, None)
-    data = np.stack([named[c] for c in channel_names(len(named))], axis=-1)
-    return data, np.ones(data.shape[:2], np.float32) if valid is None else valid.astype(np.float32)
+    # 一次打开、一次读出：值通道（R G B A 的前若干条）在前，有 valid 通道时放在最后一并读出
+    block, chosen = images.read_stack(path, lambda names: [*channel_names(len(names) - (VALIDITY in names)),
+                                                            *([VALIDITY] if VALIDITY in names else [])], box)
+    if chosen[-1] != VALIDITY:
+        return block, np.ones(block.shape[:2], np.float32)
+    return np.ascontiguousarray(block[..., :-1]), block[..., -1].astype(np.float32)
 
 
 RANGE_SAMPLE = 1_000_000  # the most values of a frame a map's display range is taken over (a fixed stride: reproducible)
+
+# The compression of the EXR frames the engine keeps between nodes (ExrWriter): ZIP, lossless and readable everywhere.
+# Measured with OpenImageIO 3.1 (the core's writer) on 1080p frames, ms per frame, one thread / eight frames at once:
+#                   mask (half, 1 ch)          picture (half, 3 ch)       depth (float, 1 ch)
+#                   write     read   MB        write     read   MB        write     read   MB
+#   zip (level 4)  4.2/1.9  5.0/1.0  0.01     9.8/5.8 12.4/3.3  2.95     7.2/4.2  2.1/1.5  7.85
+#   zip level 1    4.1/1.8  6.2/1.0  0.01     9.0/4.6 13.9/3.2  3.18     8.2/3.4  2.9/1.9  7.86   <- used
+#   zips          19.4/2.9 19.1/2.4  0.06    27.3/6.3 28.2/3.8  3.78    27.6/5.1 19.0/1.9  8.30
+#   rle           19.2/3.6 19.1/3.4  0.09    28.2/5.0 30.6/3.7  6.49    28.2/5.1 18.9/3.2  8.31
+#   none          25.3/4.8 19.0/3.6  4.16    34.0/6.5 22.3/4.6 12.46    27.7/4.8 18.9/3.1  8.31
+#   piz            4.4/3.3  1.9/1.1  0.03     9.4/5.5  5.6/3.4  1.96    20.6/11.4 3.5/2.2 6.95
+# "Lighter" formats are not faster here: OpenEXR splits a 16-scanline ZIP file into blocks it compresses and
+# decompresses on its own threads, while none / rle / zips store one scanline per block and go through it line by
+# line, and write 4-400 times the bytes. PIZ reads pictures faster but writes float data at half the speed. DWAA / DWAB
+# and PXR24 lose precision (on float data), which a data map may not. So the cache keeps ZIP at its fastest level: the
+# same format every reader already takes (the level is not part of the file), a few percent larger, faster to write.
+CACHE_COMPRESSION = "zip"
+CACHE_LEVEL = 1
 
 
 class ExrWriter:
@@ -292,6 +332,10 @@ class ExrWriter:
     `validity`：每帧附加一条 valid 通道，标记该像素是否有值，由图像自身表明数据范围，
     不另附「有效像素」遮罩。
     数值图未给定 `value_range` 时，视图的显示范围取整段有效像素的 1%–99% 分位。
+
+    `add` 可以在多个线程中同时调用（逐帧并行的节点在各自的线程里写出本帧，engine/cook.py CookContext.each_done）：
+    各帧的文件互不相干，共用的记录（文件表、取值范围）在锁内合并；合并只取最小值与最大值，与各帧写出的先后无关，
+    包的内容与逐帧依次写出时完全相同（文件表在包中按帧号排列，image_packet）。
     """
 
     def __init__(self, directory: Path, channels: int, *, validity: bool = False, half: bool | None = None,
@@ -314,7 +358,9 @@ class ExrWriter:
         # 始终测量真实的最小值与最大值（不限于未给定固定值域的情况），声明 0..1 的输出同样测量。
         # 黑白点对应两项不同的信息：「显示范围」默认 0..1 不裁切（fixed），
         # 「贴合」按数据真实的最小值与最大值拉伸（full_range）。若给定 fixed 即不测量，
-        # 声明 0..1 的输出将无法使用「贴合」
+        # 声明 0..1 的输出将无法使用「贴合」。
+        # 1%–99% 分位（lo/hi，显示范围）只在未给定 fixed 时计算：给定时显示范围就是 fixed，分位不会被用到，
+        # 而它是这里最贵的一步（两次部分排序），遮罩这类固定值域的输出每帧省下它
         self.track = not self.picture
         self.meta = meta
         self.files: dict[int, Path] = {}
@@ -323,11 +369,13 @@ class ExrWriter:
         # 本身已经裁切，不能作为数据的实际范围
         self.least, self.most = np.inf, -np.inf
         self.size = (0, 0)
+        self._top = -np.inf  # the highest frame written so far (its size is the packet's)
+        self._lock = threading.Lock()
 
     def add(self, frame: int, data: np.ndarray, valid: np.ndarray | None = None) -> None:
         """`valid` (bool, or 0..1): pixels outside it are written as 0, marked invalid in the map's validity channel
         and left out of the range. `data` covers the writer's window (its data window's pixels, a picture's overscan
-        passed on), else its own size is the picture."""
+        passed on), else its own size is the picture. Safe to call from several threads at once (see the class)."""
         data = np.ascontiguousarray(data, dtype=np.float32)
         if data.ndim == 2:
             data = data[..., None]
@@ -341,21 +389,40 @@ class ExrWriter:
         if self.window is not None and (data.shape[1], data.shape[0]) != self.window.canvas:
             raise Invalid(Msg("E-EXR-SIZE", width=data.shape[1], height=data.shape[0],
                               want_width=self.window.canvas[0], want_height=self.window.canvas[1]))
-        self.files[frame] = self.directory / f"frame.{frame}.exr"
-        write_exr(self.files[frame], data, self.channels, half=self.half,
+        path = self.directory / f"frame.{frame}.exr"
+        write_exr(path, data, self.channels, half=self.half, compression=CACHE_COMPRESSION, level=CACHE_LEVEL,
                   windows=None if self.window is None else self.window.exr_windows)
-        self.size = self.window.plate if self.window is not None else (data.shape[1], data.shape[0])
-        if self.track:
-            values = data[..., : self.count]
-            values = values[mask > 0] if mask is not None else values.reshape(-1, values.shape[-1])
+        found = self._range(data, mask) if self.track else None
+        with self._lock:
+            self.files[frame] = path
+            if frame >= self._top:  # the last frame's size, as when the frames are written one after another
+                self._top = frame
+                self.size = self.window.plate if self.window is not None else (data.shape[1], data.shape[0])
+            if found is not None:
+                lo, hi, least, most = found
+                self.lo, self.hi = min(self.lo, lo), max(self.hi, hi)
+                self.least, self.most = min(self.least, least), max(self.most, most)
+
+    def _range(self, data: np.ndarray, mask: np.ndarray | None) -> tuple[float, float, float, float] | None:
+        """One frame's (1% quantile, 99% quantile, least, most) over its finite values (inside `mask`), taken over
+        every n-th of them past RANGE_SAMPLE; None when it has none. With a fixed range the quantiles are not taken
+        (they would not be used): (inf, -inf, least, most)."""
+        values = data[..., : self.count]
+        values = values[mask > 0] if mask is not None else values.reshape(-1, values.shape[-1])
+        if self.fixed is not None and values.size and np.isfinite(values.min()) and np.isfinite(values.max()):
+            # every value finite (a NaN or an infinity would show in the least or the most): the finite values
+            # below are all of them, in the same order, so this skips only the filtering copy
+            values = values.reshape(-1)
+        else:
             values = values[np.isfinite(values)]
-            if values.size > RANGE_SAMPLE:  # a hint for the viewer's range: every n-th value, the same each time
-                values = values[:: -(-values.size // RANGE_SAMPLE)]
-            if values.size:
-                self.lo = min(self.lo, float(np.percentile(values, 1)))
-                self.hi = max(self.hi, float(np.percentile(values, 99)))
-                self.least = min(self.least, float(values.min()))
-                self.most = max(self.most, float(values.max()))
+        if values.size > RANGE_SAMPLE:  # a hint for the viewer's range: every n-th value, the same each time
+            values = values[:: -(-values.size // RANGE_SAMPLE)]
+        if not values.size:
+            return None
+        least, most = float(values.min()), float(values.max())
+        if self.fixed is not None:
+            return np.inf, -np.inf, least, most
+        return float(np.percentile(values, 1)), float(np.percentile(values, 99)), least, most
 
     def packet(self) -> Packet:
         if self.picture:
@@ -567,12 +634,6 @@ def curve_totals(prims) -> tuple[int, int]:
     return strands, points
 
 
-def frame_files(p: Packet) -> dict[int, Path]:
-    """The files of a packet's frames, by frame number, wherever they are (the server layer never writes
-    `frame.*.exr` itself). A packet with no per-frame files (a scene, a value) has none."""
-    return image_files(p) if "files" in p.meta and isinstance(p.meta["files"], dict) else {}
-
-
 def partial_frames(directory: Path) -> dict[int, str]:
     """The frames a node is writing into `directory` right now, by frame number -> the file's name inside it: the same
     naming ExrWriter uses above, read back here so nothing outside this layer depends on it (边算边传: the server layer
@@ -672,34 +733,5 @@ def start_colours(image: Packet, tracks: dict[str, np.ndarray], frames: list[int
         rgb = display_rgb(image, f, w, h)
         colours[ids] = rgb[np.clip(np.floor(xy[:, 1]).astype(int), 0, h - 1), np.clip(np.floor(xy[:, 0]).astype(int), 0, w - 1)]
     return colours
-
-
-def read_tracked_points(p: Packet) -> dict[str, np.ndarray]:
-    """The first cloud of a points packet as tracks: ids [N], xyz [N,F,3] (cm, USD space) and visible [N,F] over the
-    packet's frames, by id (a point missing on a frame is nan and hidden there). Without ids: {}."""
-    from pxr import Usd, UsdGeom
-
-    stage = Usd.Stage.Open(str(p.path(SCENE_FILE)))
-    prim = next((q for q in stage.Traverse() if q.IsA(UsdGeom.Points)), None)
-    if prim is None or not UsdGeom.Points(prim).GetIdsAttr().HasAuthoredValue():
-        return {}
-    cloud = UsdGeom.Points(prim)
-    vis_pv = UsdGeom.PrimvarsAPI(prim).GetPrimvar("visible")
-    frames = p.meta["frames"]
-    samples = []
-    for fr in frames:
-        t = Usd.TimeCode(fr)
-        ids = np.asarray(cloud.GetIdsAttr().Get(t), np.int64)
-        pts = np.asarray(cloud.GetPointsAttr().Get(t), np.float64).reshape(-1, 3)
-        vis = np.asarray(vis_pv.Get(t), bool) if vis_pv and vis_pv.HasValue() else np.ones(len(ids), bool)
-        samples.append((ids, pts, vis))
-    order = np.unique(np.concatenate([s[0] for s in samples]))
-    xyz = np.full((len(order), len(frames), 3), np.nan)
-    visible = np.zeros((len(order), len(frames)), bool)
-    for j, (ids, pts, vis) in enumerate(samples):
-        rows = np.searchsorted(order, ids)
-        xyz[rows, j] = pts
-        visible[rows, j] = vis
-    return {"ids": order, "xyz": xyz, "visible": visible}
 
 

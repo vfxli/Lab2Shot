@@ -12,8 +12,6 @@ from ...data import units
 from ...data.camera import CameraSamples, carried_lens
 from ...data.packet import Packet
 from ...data.payloads import SCENE_FILE
-from ...availability import Because, Not
-from ..applies import Wired
 from ..expects import SameShot
 from ..base import Port
 from ..lens import Lens, lens
@@ -62,7 +60,7 @@ def solved_camera(ctx, image: Packet, solved: list[int], focal_px, cam_to_world,
                                    filmback_mm=filmback_mm, info=info, fy_px=None if fy_px is None else along(fy_px),
                                    principal_px=None if principal_px is None else along(principal_px, 2),
                                    lens=carried, overscan=window.overscan, plate=image.fingerprint)
-    # `port`：输出端口。绝大多数节点为「相机」；人体家族中仅供「对齐到相机」作参照的相机
+    # `port`：输出端口。绝大多数节点为「相机」；人体家族中仅供「相机空间转换」作参照的相机
     # 为 `ref_camera`（families/humans.py reference_camera）。两种端口读取同一份 raw/camera.npz，写出逻辑只在此处。
     return samples.write(ctx.outputs[port], **meta)
 
@@ -90,7 +88,8 @@ def lens_stmaps(ctx, lens_meta: dict, image: Packet, ports: tuple[str, str] = ST
     frames = image.meta["frames"]
     keys = frames if lens.animated else [None]
     canvas, capped = L.fit_canvas(lens, keys, overscan)
-    pairs = {k: L.lens_stmaps(lens, canvas, k) for k in ctx.each(keys)}
+    # 各帧的镜头互不相干：由引擎逐帧并行（ctx.each_done），按帧序收集
+    pairs = dict(zip(keys, ctx.each_done(keys, lambda k: L.lens_stmaps(lens, canvas, k))))
     if capped:
         ctx.say("W-LENS-OVERSCANCAP", cap=L.OVERSCAN_CAP, outside=max(p.outside for p in pairs.values()))
     out = {}
@@ -101,13 +100,16 @@ def lens_stmaps(ctx, lens_meta: dict, image: Packet, ports: tuple[str, str] = ST
             continue
         # 去畸变图覆盖画布（画面框为其显示窗口）；加畸变图表示每个画面像素的落点，覆盖画面框本身
         window = canvas if direction == "undistort" else Window(*canvas.plate)
-        files = {}
-        for key, pair in pairs.items():
+
+        def write(key, port=port, direction=direction, window=window):  # 一帧：写出也由引擎逐帧并行（ctx.each_done）
             frame = frames[0] if key is None else key
-            files[frame] = ctx.outputs[port] / f"frame.{frame}.exr"
+            path = ctx.outputs[port] / f"frame.{frame}.exr"
+            pair = pairs[key]
             values = pair.undistort if direction == "undistort" else pair.distort
-            write_exr(files[frame], values.astype(np.float32), channel_names(2), half=False,
-                      windows=window.exr_windows)
+            write_exr(path, values.astype(np.float32), channel_names(2), half=False, windows=window.exr_windows)
+            return frame, path
+
+        files = dict(ctx.each_done(pairs, write))
         if None in pairs:
             packet = still_packet(ctx.outputs[port], files[frames[0]], frames, *window.plate, channels=2,
                                   value_range=UNIT, window=window)
@@ -129,31 +131,11 @@ def sent_fov_x_deg(lens: Lens, image: Packet) -> float | None:
     return float(units.fov_x_deg(lens.focal_px, Window.of(image.meta).canvas[0]))
 
 
-    # 方法对接入相机的使用程度，以一句话写在相机端口的悬停提示上（哪些解算器使用整台相机、哪些只使用
-    # Focal Length、哪些只使用旋转，使用者应能在端口上直接看出）。
-    # 四档即家族声明 `camera_to_worker` 的四个取值，因此「节点如何使用」与「提示如何描述」始终同源。
-TAKES_CAMERA = {
-    "camera": "接上相机：解出来的人对齐到这台相机的世界，逐帧位姿和 Focal Length 解算器都用上。"
-              "接了之后节点上的「Focal Length」「Filmback」变灰——相机自带，交付出去的也是你这台相机，一个字节不动",
-    # "rotation"：GVHMR 和 WHAM 的上游只取相机每帧的旋转并丢弃位移：
-    # GVHMR：third_party/gvhmr/repo/tools/demo/demo.py compute_cam_angvel(R_w2c)；
-    # WHAM：third_party/wham/repo/lib/data/datasets/dataset_custom.py 只取轨迹中的四元数。
-    # 直接接入相机会使使用者误以为位移也被使用，因此该档没有「相机」输入端口（families/humans.py __init_subclass__
-    # 已移除该端口），旋转通过「相机旋转」参数的接线端口，从「拆分相机」的「旋转」端口连接。
-    # 这句话不会出现在任何端口上；保留在四档表中只为说明该档使用相机的哪一部分。
-    "rotation": "解算器只用相机**每帧的旋转**（相机怎么转），位移不参与解算。这一档没有「相机」输入口："
-                "从「拆分相机」的「旋转」口接到参数「相机旋转」上，Focal Length 同样从「拆分相机」接给「已知 Focal Length」",
-    "focal": "接上相机：解算器只用它的 Focal Length（逐帧，跟变焦），位姿不参与解算，但人会按这台相机摆进世界；"
-             "交付出去的也是你这台相机，一个字节不动。接了之后节点上的「Focal Length」「Filmback」变灰",
-    None: "接上相机：这个方法不吃相机动画，只用它的 Focal Length（它没有「世界」这个概念）。"
-          "接了之后节点上的「Focal Length」「Filmback」变灰——相机自带",
-}
-
-
-def camera_port(optional: bool = True, takes: str | None = "camera") -> Port:
-    """画面相机的输入端口：提供其镜头和每帧的位置。
-    `takes`：方法对其使用的程度（家族的 `camera_to_worker`），写在端口的悬停提示中（TAKES_CAMERA）。"""
-    return Port("camera", "scene.camera", "相机", optional=optional, expects=(SameShot(),), help=TAKES_CAMERA[takes])
+def camera_port(optional: bool = True) -> Port:
+    """画面相机的输入端口：提供其镜头和每帧的位置，方法整台使用（人体家族只在 `camera_to_worker == "camera"` 时保留
+    这个口，families/humans.py）。"""
+    return Port("camera", "scene.camera", "相机", optional=optional, expects=(SameShot(),),
+                help="接上相机：这台相机的逐帧位姿和 Focal Length 都用上，算出来的结果放进这台相机的世界")
 
 
 def send_camera(ctx, camera: Packet | None, frames: list[int], focal_px: np.ndarray) -> Path:
@@ -175,9 +157,9 @@ def send_rotation(ctx, rotate, frames: list[int], focal_px) -> Path:
     位移为 0 而不附带位移，是因为上游本身不使用位移：GVHMR（`third_party/gvhmr/repo/tools/demo/demo.py`）输入网络的是
     `compute_cam_angvel(R_w2c)`，只有旋转；WHAM（`third_party/wham/repo/lib/data/datasets/dataset_custom.py`）只取
     轨迹中的四元数，丢弃位移。用接入相机的位移放置结果属于使用者看不到的隐式操作，因此旋转通过图上
-    可见的连线提供；要将人物放入某台相机的世界，需在图上另接「对齐到相机」。
+    可见的连线提供；要将人物放入某台相机的世界，需在图上另接「相机空间转换」。
 
-    `rotate`：`ctx.values["camera_rotate"]`，即「拆分相机」输出的「朝向」值：逐帧 XYZ 欧拉角，单位为度，采用本项目的
+    `rotate`：`ctx.values["camera_rotate"]`，即「拆分相机」输出的「旋转」值：逐帧 XYZ 欧拉角，单位为度，采用本项目的
     朝向约定（`data/scene.py xyz_euler_deg` 的输出）。此处将其转回旋转矩阵，再换为 worker 读取的 OpenCV 轴向和米
     （与 `send_camera` 使用同一 `units.usd_poses_to_opencv_m`）。欧拉角、四元数、矩阵之间的转换在节点内部完成。"""
     from ...data.scene import euler_xyz_matrix

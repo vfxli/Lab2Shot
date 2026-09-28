@@ -22,7 +22,7 @@ from .lens import GROUP
 
 class GeoCalib(Extension):
     name = "geocalib"
-    lens_groups = (GROUP,)  # 它自己的模型名 → 公式表（lens.py）
+    lens_groups = (GROUP,)  # its own camera model names -> the core lens formula table (lens.py)
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "GeoCalib"
     summary = "单图标定算法，只从一张画面估计相机内参和重力方向；把几何优化和深度学习结合起来"

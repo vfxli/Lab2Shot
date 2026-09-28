@@ -19,15 +19,13 @@ class Face(NodeDef):
         takes={"image": "image"},
         gives={"landmarks": "face_landmarks", "expressions": "face_blendshapes",
                "head": "facial_transformation_matrixes"},
-        note="① 「头部」口给的是官方那张 canonical face 网格（上游自带的资源）按 facial_transformation_matrixes "
-             "逐帧摆位，网格本身和矩阵都是官方的。"
-             "② **原来这里还有一个「相机」输出口，已删掉**"
-             "（我们自己造出来的输出口不留）。"
-             "它不是官方的：官方的矩阵是相对它自己假设的一台虚拟相机（63° 垂直视场）说的，"
-             "FaceLandmarkerResult 里根本没有相机这一项；那台相机是我们按那个视场造出来的"
-             "（worker.py VIRTUAL_VFOV_DEG），用来把头部网格摆进世界。要把头放进某台相机的世界，"
-             "接核心节点「相机空间转换」（core.camera_space）。"
-             "③ image 的确切出处是同文件 `3189-3193 def detect(self, image: image_lib.Image) -> FaceLandmarkerResult`。",
+        note="① 「头部」口给的是官方那张 canonical face 网格（上游自带的资源）按 "
+             "facial_transformation_matrixes 逐帧摆位，网格本身和矩阵都是官方的。② 没有「相机」输出口："
+             "官方的矩阵是相对它自己假设的一台虚拟相机（63° 垂直视场）说的，FaceLandmarkerResult "
+             "里没有相机这一项；worker 按那个视场造的相机（worker.py VIRTUAL_VFOV_DEG）"
+             "只用来把头部网格摆进世界，不是官方结果，不交出去。要把头放进某台相机的世界，"
+             "接核心节点「相机空间转换」（core.camera_space）。③ image 的确切出处是同文件 `3189-3193 def "
+             "detect(self, image: image_lib.Image) -> FaceLandmarkerResult`。",
     )
     lens = "pinhole"  # treats the plate as a lens without distortion: says it needs undistorted plates
     on_node = ("max_faces", "mode")
@@ -44,15 +42,14 @@ class Face(NodeDef):
     runtime = "mediapipe_face"
 
     class Params(NodeParams):
-        max_faces: int = P(1, label="最多几张脸", help="画面里最多找几张脸。主角特写用 1 最稳（多于 1 时 MediaPipe 会关掉帧间平滑）", ge=1, le=8, group="检测")
+        max_faces: int = P(1, label="最多几张脸", ge=1, le=8, group="检测")
         mode: Literal["video", "image"] = P(
             "video", label="方式", group="检测",
             option_labels={"video": "视频", "image": "逐张"},
-            help="视频：利用前一帧的位置并做平滑，抖动少约 40%；逐张：每帧单独找，适合不相关的照片",
         )
-        threshold: float = P(0.5, label="检测阈值", help="认定「有一张脸」的把握门槛（0–1）。脸没找到就调低，把别的东西当成脸就调高", ge=0.0, le=1.0, group="检测", widget="slider")
-        min_tracking_confidence: float = P(0.5, label="跟住门槛", help="视频方式下继续跟住上一帧那张脸的把握门槛（0–1）；跟丢频繁就调低", ge=0.0, le=1.0, group="检测", widget="slider", applies=Param("mode").one_of("video"))
-        min_presence_confidence: float = P(0.5, label="存在阈值", help="视频方式下低于它就认为脸已经离开画面、重新去找。脸被短暂遮挡时调低可以少丢帧", ge=0.0, le=1.0, group="检测", widget="slider",
+        threshold: float = P(0.5, label="检测阈值", ge=0.0, le=1.0, group="检测", widget="slider")
+        min_tracking_confidence: float = P(0.5, label="跟住门槛", ge=0.0, le=1.0, group="检测", widget="slider", applies=Param("mode").one_of("video"))
+        min_presence_confidence: float = P(0.5, label="存在阈值", ge=0.0, le=1.0, group="检测", widget="slider",
                                            applies=Param("mode").one_of("video"))
 
     @classmethod

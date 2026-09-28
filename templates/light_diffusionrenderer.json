@@ -14,11 +14,6 @@
    "name": "input",
    "label": "输入序列",
    "target": "read.path"
-  },
-  {
-   "name": "output",
-   "label": "保存到",
-   "target": "deliver.path"
   }
  ],
  "nodes": [
@@ -144,16 +139,10 @@
    "id": "deliver",
    "type": "core.output",
    "label": "输出",
-   "params": {
-    "mode": "tar",
-    "path": ""
-   },
+   "params": {},
    "ui": {
     "x": 1040,
-    "y": 520,
-    "on_node": [
-     "mode"
-    ]
+    "y": 520
    }
   }
  ],

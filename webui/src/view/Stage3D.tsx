@@ -1,12 +1,12 @@
 import { usable } from "../api/applies";
 import { viewAvailable } from "./available";
 import { msg } from "../messages/message";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { KeepContext, Redraw } from "./canvasLife";
 import { TransformControls } from "@react-three/drei";
 import * as THREE from "three";
-import { setParam } from "../graph/actions";
+import { setParams } from "../graph/actions";
 import { useCookInputs } from "../state/cookInputs";
 import { useLook } from "../state/look";
 import { Picker, ViewCamera, type Lens } from "./camera3d";
@@ -30,10 +30,11 @@ import { useShortcut } from "../platform/keys";
 import { useResults } from "../state/results";
 import { getNodeDefs } from "../state/catalog";
 import { placeMatrix, threeOrder } from "../model/places";
+import { cookedWith, useLastGood } from "../state/stale";
 import { Preparing } from "./StageHud";
 
 /** The 3D stage: every 3D result of the node in one scene (cameras with their paths, models and skinned characters,
- * skeletons, point clouds, 3D curves, lights as their environment), depth / position maps as a point preview, and the
+ * skeletons, point clouds, 3D curves), depth / position maps as a point preview, and the
  * transform handle. Any camera in the scene can be looked through (the view menu, as in Houdini): its view on every
  * frame, its resolution gate with the outside dimmed, and its plate behind it as an image plane when it has one. Drawing
  * follows the display options (model/viewOptions.ts). Rendering is done by the browser (WebGL); the server only
@@ -64,14 +65,24 @@ function SceneElement({ item, d, frame, hidden, through, look, o }: { item: View
   );
 }
 
-/** The transform handle: a gizmo placing what the node outputs, according to the placement the node declares (its
- * parameters, their order and rotation order, model/places.ts). Dragging moves the node's output immediately using the
- * same matrix the cook applies and, on release, edits the parameters (one undo step, then cooked again). */
-function TransformHandle({ children, mode }: { children: React.ReactNode; mode: "translate" | "rotate" | "scale" }) {
+/** The transform handle: a gizmo placing what the node gives, according to the placement the node declares (its
+ * parameters, their order and rotation order, model/places.ts). It only displays, and computes nothing: what is shown is
+ * put where the current parameters (or, while dragging, the gizmo) place it, with the matrix the cook applies, and a
+ * release only stores the parameters (one undo step; nothing is cooked, 计算 is a right click). What it shows is chosen
+ * by view/plan.ts underHandles:
+ * - `input`: the handle's input (「3D 变换」's upstream scene, before the node has a current result), which the node has
+ *   not placed yet: it is put at the placement itself;
+ * - `own`: the node's own result, which was placed by the parameters it was cooked with (state/stale.ts cookedWith): it
+ *   is moved by the current placement times the inverse of that one, so a stale result, or the old one until the next
+ *   status reply, sits where the current parameters put it rather than jumping back. */
+function TransformHandle({ input, own, mode }: { input: React.ReactNode; own: React.ReactNode; mode: "translate" | "rotate" | "scale" }) {
   const displayId = useLook((s) => s.displayId);
+  const graphId = useCookInputs((s) => s.graphId);
   const node = useCookInputs((s) => (displayId ? s.nodes[displayId] : undefined));
   const statusPlaces = useResults((s) => (displayId ? s.reply?.nodes[displayId]?.places : undefined));
   const places = statusPlaces ?? (node ? getNodeDefs()[node.typeId]?.places : null) ?? null;
+  // re-read when a result is recorded: the parameters it was cooked with come with it
+  useLastGood((s) => s.byGraph[graphId]?.[displayId ?? ""]);
   // the pivot is kept as state: a ref read during render is null on the first pass, so the controls appeared only
   // once something else re-rendered the stage
   const [pivotObj, setPivotObj] = useState<THREE.Group | null>(null);
@@ -82,34 +93,53 @@ function TransformHandle({ children, mode }: { children: React.ReactNode; mode: 
   };
   const [live, setLive] = useState<THREE.Matrix4 | null>(null);
   const p = node?.params ?? {};
-  const cooked = useMemo(() => (places ? new THREE.Matrix4().fromArray(placeMatrix(places, p)) : null), [places, JSON.stringify(places ? [p[places.translate], p[places.rotate], places.scale ? p[places.scale] : 1] : null)]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!places || !cooked) return <>{children}</>;
+  const placedBy = displayId ? cookedWith(graphId, displayId) : undefined;
+  const key = (q: Record<string, unknown>) => (places ? JSON.stringify([q[places.translate], q[places.rotate], places.scale ? q[places.scale] : 1]) : "");
+  const current = useMemo(() => (places ? new THREE.Matrix4().fromArray(placeMatrix(places, p)) : null), [places, key(p)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const before = useMemo(() => (places && placedBy ? new THREE.Matrix4().fromArray(placeMatrix(places, placedBy)).invert() : null), [places, key(placedBy ?? {})]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the gizmo sits at the current parameters, set on the object when they change and never as props: props are applied
+  // again on every render, and a render during a drag (each move sets `live`) would put the gizmo back where the drag
+  // began, so the release would store the old place
+  useLayoutEffect(() => {
+    if (!pivotObj || !current) return;
+    current.decompose(pivotObj.position, pivotObj.quaternion, pivotObj.scale);
+    pivotObj.updateMatrix();
+  }, [pivotObj, current]);
+  if (!places || !current) return <>{input}{own}</>;
   const order = threeOrder(places.rotation);
-  const position = new THREE.Vector3();
-  const quaternion = new THREE.Quaternion();
   const scaled = new THREE.Vector3();
-  cooked.decompose(position, quaternion, scaled);
-  const delta = live ? live.clone().multiply(cooked.clone().invert()) : null;
+  current.decompose(new THREE.Vector3(), new THREE.Quaternion(), scaled);
+  const at = live ?? current; // where it is shown: the gizmo while dragging, else the current parameters
   return (
     <>
-      <group matrix={delta ?? new THREE.Matrix4()} matrixAutoUpdate={false}>
-        {children}
+      <group matrix={at} matrixAutoUpdate={false}>
+        {input}
       </group>
-      <group ref={bind} position={position} quaternion={quaternion} scale={scaled} />
+      {/* view/plan.ts shows the node's own result only when `before` is known */}
+      {before && (
+        <group matrix={at.clone().multiply(before)} matrixAutoUpdate={false}>
+          {own}
+        </group>
+      )}
+      <group ref={bind} />
       {pivotObj && (
         <TransformControls
           object={pivotObj}
           mode={mode}
           size={0.8}
-          onObjectChange={() => pivot.current && setLive(pivot.current.matrix.clone())}
+          // from the gizmo's own position, rotation and scale: its matrix is only brought up to date when the scene is drawn
+          onObjectChange={() => { const g = pivot.current; if (g) setLive(new THREE.Matrix4().compose(g.position, g.quaternion, g.scale)); }}
           onMouseUp={() => {
             const g = pivot.current;
             if (!node || !g) return;
             const e = new THREE.Euler().setFromQuaternion(g.quaternion, order);
             const round = (v: number, k = 100) => Math.round(v * k) / k;
-            setParam(displayId!, places.translate, g.position.toArray().map((v) => round(v)));
-            setParam(displayId!, places.rotate, [e.x, e.y, e.z].map((v) => round(THREE.MathUtils.radToDeg(v))));
-            if (places.scale) setParam(displayId!, places.scale, round(mode === "scale" ? (g.scale.x + g.scale.y + g.scale.z) / 3 : scaled.x, 1000));
+            // one undo step; the stage then shows it at these parameters (`current`), where the cook will put it
+            setParams(displayId!, {
+              [places.translate]: g.position.toArray().map((v) => round(v)),
+              [places.rotate]: [e.x, e.y, e.z].map((v) => round(THREE.MathUtils.radToDeg(v))),
+              ...(places.scale ? { [places.scale]: round(mode === "scale" ? (g.scale.x + g.scale.y + g.scale.z) / 3 : scaled.x, 1000) } : {}),
+            });
             setLive(null);
           }}
         />
@@ -118,8 +148,6 @@ function TransformHandle({ children, mode }: { children: React.ReactNode; mode: 
   );
 }
 
-/** Requests a new frame whenever React redraws the stage (a new frame, an option) or the canvas is resized (which
- * clears it): the canvas only draws when something has changed. */
 /** The picked object's box, in the accent colour. */
 function Picked({ stage, keyOf, width }: { stage: StageState; keyOf: string | null; width: number }) {
   const box = keyOf ? stage.pickables.get(keyOf)?.bounds() : null;
@@ -128,7 +156,7 @@ function Picked({ stage, keyOf, width }: { stage: StageState; keyOf: string | nu
 }
 
 /** A camera of the scene that can be looked through. */
-export interface SceneCamera {
+interface SceneCamera {
   key: string; // "packet|camera path"
   cam: CameraData;
   label: string; // its position in the hierarchy
@@ -174,7 +202,7 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
     return loadPoints(fp, cam || null);
   });
   // chunks of per-frame data: the current frame first, then frames ahead of the playhead while playing, as many as the
-  // memory budget allows (view/scene.ts memoryBytes, always 自动); redrawn as they arrive; the timeline is informed
+  // memory budget allows (view/scene.ts memoryBytes); redrawn as they arrive; the timeline is informed
   // which frames are in the view
   const scenes = [...loaded.values(), ...points.values(), ...(partialScene ? [partialScene] : [])];
   const scenesKey = scenes.map((s) => s.key).join("|");
@@ -230,7 +258,7 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
   // the stage looks through the camera chosen in the view menu (none: the free view)
   const looked = cameras.find((c) => c.key === chosen);
   const lens = looked ? lensOf(looked, frame) : null;
-  // looking through a camera, the gate is its picture in a 2D view (view2dState.ts, the same pan/zoom as a picture's):
+  // looking through a camera, the gate is its picture in a 2D view (state/view2d.ts, the same pan/zoom as a picture's):
   // the wheel, a middle-drag (on the 2D stage also an Alt+left-drag), F and 适应 / 1:1 / % move and scale the gate and
   // its plate on the canvas. This is a scale and offset applied after the camera's projection, never a movement of the
   // camera or its lens; at 1:1 one gate pixel equals one camera (plate) pixel. The 2D stage's view is the viewer's 2D
@@ -247,8 +275,8 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
   // 下方的 memo 必须将原件查找结果计入依赖（`plan.originals`，`view/useOriginals.ts`）：查找原件是异步的，
   // 画面先用服务器数据绘制，原件稍后才登记；若不随之重算，源将一直是服务器数据，既不报错也难以察觉。
   // 背板属于相机自身的属性，而非节点图中的位置：透过哪台相机查看，背板即为该相机记录的画面
-  // （`CameraRef.plate`，由解算节点在 kit/cameras.py solved_camera 中记录，或为「创建相机」所接的画面），与相机来源无关；
-  // 未记录背板的相机（导入的 USD 相机、旧版本解算出的相机）没有背板。
+  // （`CameraRef.plate`，由解算节点在 lab2shot/nodes/kit/cameras.py solved_camera 中记录，或为「创建相机」所接的画面），与相机来源无关；
+  // 未记录背板的相机（导入的 USD 相机）没有背板。
   // 不使用 `plan.plate`（「上游最近的画面」）：它是二维舞台的底图，与「该相机由哪段素材解算得到」
   // 是两个概念，只在最简单的节点图中恰好一致。
   const plateFp = looked?.cam.ref.plate || null;
@@ -264,9 +292,7 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
     () => (plateFp && plateManifest ? serverFrames({ fp: plateFp, type: "", through }, plateManifest) : null),
     [plateFp, plateManifest, plan.sourceKey, through?.fp, through?.at, plateGen],  // 来源改变时重算（view/origin.ts；其中包含原件查找结果）
   );
-  const playing = useViewer((s) => s.playing);
-  const fps = useViewer((s) => s.fps);
-  const plate = useFrame(plateSource, frame, playDir || 1, playing, fps);
+  const plate = useFrame(plateSource, frame, playDir || 1);
   // 背板的帧同样计入「该帧是否在视图中」：三维数据块很小、很快全部到达，若只看数据块，播放将永远不会等待背板
   const plateLoaded = useLoadedFrames(plateSource?.id ?? null);
   const loadKey = scenes.map((s) => `${s.key}:${s.version}`).join("|");
@@ -314,7 +340,7 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
     note("camera", lens && looked
       ? { text: `${looked.label.split("/").pop() || looked.label} · ${Number(lens.focalMm.toFixed(1))} mm${!plateFp ? " · 没有背板" : through ? " · 背板已去畸变" : ""}`,
           tip: `透过「${looked.label}」看：${looked.cam.ref.width} × ${looked.cam.ref.height}，框外变暗的部分不在画面里。转动视图就离开相机，回到透视（相机本身不动）`
-            + (!plateFp ? "。这台相机没记背板：导入的相机没有；旧版本解出来的相机重算一次就有"
+            + (!plateFp ? "。这台相机没记背板：导入的相机没有"
               : through ? `。这台相机带畸变（${distortion}），背板已按它的镜头去畸变，和点云对得上；原图在二维视图里看` : "。背板是它解算时的那张画面") }
       : null);
   }, [looked?.key, lens?.focalMm, plateFp, through?.fp, note]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -328,8 +354,8 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
   useEffect(() => {
     setSelectedName(selected ? stage.pickables.get(selected)?.label ?? null : null);
   }, [selected, stage, setSelectedName]);
-  // 上方所有 hook 必须位于此 return 之前（由 webui/tests/hooksOrder.test.ts 检查：
-  // React 的 hook 不得在提前 return 之后调用，否则画面内容变化时 hook 顺序会错乱）
+  // 上方所有 hook 必须位于此 return 之前
+  // （React 的 hook 不得在提前 return 之后调用，否则画面内容变化时 hook 顺序会错乱）
   if (!elements.length && !maps.length && !partialScene) return <div className="empty">没有三维结果</div>;
 
 
@@ -340,9 +366,14 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
   const frameKey = `${plan.node.id}|${elements.map((e) => e.fp).join()}|${maps.map((m) => m.fp).join()}`;
   const lookKey = looked?.key ?? null;
 
-  const contents = (
+  const sceneOf = (e: ViewItem & { fp: string }) =>
+    loaded.get(e.fp) && <SceneElement key={e.key} item={e} d={loaded.get(e.fp)!} frame={frame} hidden={hidden} through={!!lens} look={lookKey} o={o} />;
+  // the handle's input (view/plan.ts: shown with a transform handle before the node has a current result) and what the node
+  // itself gives: a transform handle places the two differently (TransformHandle)
+  const input = <>{elements.filter((e) => e.context).map(sceneOf)}</>;
+  const own = (
     <>
-      {elements.map((e) => loaded.get(e.fp) && <SceneElement key={e.key} item={e} d={loaded.get(e.fp)!} frame={frame} hidden={hidden} through={!!lens} look={lookKey} o={o} />)}
+      {elements.filter((e) => !e.context).map(sceneOf)}
       {!hidden.has("points") && partialScene?.clouds.map((c) => (
         <Cloud key={c.key} src={c} frame={frame} o={o} pickKey={`${streaming!.node}.${streaming!.port}/points/${c.name}`} version={partialScene.version} />
       ))}
@@ -379,7 +410,7 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
           {lens && plate.image && !isPlane(plate.image) && <ImagePlane image={plate.image} pose={lens.pose} fovV={lens.fovV} aspect={lens.aspect} exact />}
           <Lights o={o} />
           <GroundGrid o={o} through={!!lens} />
-          {transform ? <TransformHandle mode={transformMode}>{contents}</TransformHandle> : contents}
+          {transform ? <TransformHandle mode={transformMode} input={input} own={own} /> : <>{input}{own}</>}
           <Picked stage={stage} keyOf={selected} width={o.lineWidth} />
           <ViewCamera o={o} frameKey={frameKey} selected={selected} lens={lens} gate={gate} onLeave={onLeave} />
           <Picker onPick={onPick} />

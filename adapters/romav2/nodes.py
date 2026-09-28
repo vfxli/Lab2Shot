@@ -6,14 +6,14 @@ from typing import Literal
 
 import numpy as np
 
-from lab2shot.sdk import (Official, measured_param, Confidence, Invalid, Job, Msg, NodeParams, NothingToCook, P, Port, Shape,
+from lab2shot.sdk import (Official, measured_param, Confidence, Job, Msg, NodeParams, NothingToCook, P, Port, Shape,
                           WorkerNode, correspondence, empty_packet, tracks_packet, Cost, Licence, Measured)
 
 
 class Match(WorkerNode):
     id = "romav2.match"
     on_node = ("setting", "matches")
-    # 两个输入是「图像」和「参考图」，逐对算，没有时间上的连贯（逐帧可能抖）
+    # 两个输入是「RGB」和「参考图」，逐对算，没有时间上的连贯（逐帧可能抖）
     runtime = "romav2"
     # RoMaV2.match(img_like_A, img_like_B) 交出 warp_AB（A 的每个像素在 B 里的位置）、confidence_AB、
     # overlap_AB、precision_AB，反向同名的四样（romav2.py:301-370）；RoMaV2.sample(preds, num_corresp)
@@ -22,7 +22,7 @@ class Match(WorkerNode):
         cite="third_party/romav2/repo/src/romav2/romav2.py:301-395",
         takes={"image": "img_like_A", "other": "img_like_B"},
         gives={"stmap": "warp_AB", "matches": "matches_AB", "other_matches": "matches_AB"},
-        note="「ST-map」就是官方的 warp_AB（romav2.py:344）搬到画面尺寸；两个「匹配点」口是同一份"
+        note="「ST-map」就是官方的 warp_AB（romav2.py:344）搬到画面尺寸；「画面上的匹配点」「参考图上的匹配点」两个口是同一份"
              "matches_AB（romav2.py:384）的两半：每一行是 A 的坐标加 B 的坐标，同名的点是一对。"
              "上游还出反向的 warp_BA / overlap_BA / precision（romav2.py:365-368），我们没有对应的口",
     )
@@ -37,12 +37,10 @@ class Match(WorkerNode):
     class Params(NodeParams):
         setting: Literal["fast", "base", "precise"] = P(
             "precise", label="精度", group="匹配",
-            option_labels={"fast": "快", "base": "标准", "precise": "精细"},
-            help="快：两张图缩到 512×512 匹配；标准：640×640；精细：800×800 匹配后在 1280×1280 上再细化，双向都算（官方默认，最准）。"
-                 "结果都放大回画面的尺寸")
+            option_labels={"fast": "快", "base": "标准", "precise": "精细"})
         matches: Literal[0, 500, 1000, 2000] = measured_param(
-            "匹配点数", {0: Measured("不取样匹配点，只要 ST-map", flat=True), 500: Measured("取样更快", flat=True), 1000: Measured("取样更快", flat=True), 2000: Measured("精细：一对 2.3 秒", flat=True)}, default=2000,
-            group="匹配", help="每一对图取样多少个匹配点（均匀分布、可信的优先），给 3DE、COLMAP、PnP 反求用；0 = 不要匹配点，只要 ST-map")
+            "匹配点数", {0: Measured(flat=True), 500: Measured(flat=True), 1000: Measured(flat=True), 2000: Measured(flat=True)}, default=2000,
+            group="匹配")
 
     @classmethod
     def info(cls, params, inputs):

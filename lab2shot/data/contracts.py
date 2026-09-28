@@ -2,14 +2,13 @@
 remembered.
 
 check() runs on every packet a node produces, before it is committed (engine/cook.py): a node that breaks its type's
-contract fails with the reason instead of passing bad data downstream, whichever project it wraps. check(deep=True)
-also opens the files (the GPU tests run it on every result). A new type gets its contract here, together with its
+contract fails with the reason instead of passing bad data downstream, whichever project it wraps. The check reads
+the meta and looks for the files it names; it does not open them. A new type gets its contract here, together with its
 entry in types.DATA_TYPES; a type without a contract is not a type.
 """
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -48,13 +47,13 @@ MEANING: Mapping[str, frozenset | None] = MappingProxyType({k: v if v is ANY els
     "values": {True, False},   # numeric values, not colour (the viewer maps them by range, without OCIO)
     "range": ANY,              # the viewer's display range
     "validity": {True, False}, # an extra valid channel per frame marking the pixels that hold a value
-    # metric: the method's claim of real distances (see its help for how close); relative: right up to one unknown
+    # metric: the method's claim of real distances; relative: right up to one unknown
     # factor (consistent with the camera of the same solve); affine: up to an unknown factor and offset
     "scale": {"metric", "relative", "affine", "disparity"},
     "space": {"world", "camera", "canonical"},  # canonical: positions in a template / canonical space (faces, bodies and object models alike; no project terms)
     # whose score it is ("VGGT"; "" read from a file): scores of one model compare, of two models don't
     "model": ANY,
-    # how the positions were projected onto UV (data/projection.py WAYS): cylinder / sphere / plane
+    # how the positions were projected onto UV (nodes/kit/projection.py WAYS): cylinder / sphere / plane
     "projection": {"cylinder", "sphere", "plane", "unknown"},
     "classes": ANY,            # id-to-name table: its presence marks a segmentation (written as Cryptomatte in multi-layer EXR)
     # the channel is a matte alpha (0 = fully transparent, 1 = fully opaque). Wiring ignores it (a channel may connect
@@ -100,7 +99,7 @@ META: Mapping[str, Mapping[str, frozenset | None]] = MappingProxyType({
     # what an output-settings node wrote: its 名字 (the sub-folder 「输出」 puts it in), the main file (a sequence as ####),
     # every file relative to the packet (the provenance sidecar too), whether all of it may be used commercially
     "files": {"name": ANY, "main": ANY, "files": ANY, "commercial": ANY, "learned": ANY},
-    # a basic value (nodes/values.py): one value, or one per frame; its unit ("" none). What else it holds is checked
+    # a basic value (data/values.py): one value, or one per frame; its unit ("" none). What else it holds is checked
     # by values.check
     "value": {"unit": ANY},
     "value.float": {},
@@ -270,13 +269,13 @@ def _window_problems(packet: Packet, shape: Shape, picture: Packet | None, Windo
     return []
 
 
-def check(p: Packet, deep: bool = False) -> list[Msg]:
+def check(p: Packet) -> list[Msg]:
     """What is wrong with this packet for its type (empty: nothing). An empty packet (meta "empty": a node that
-    has nothing to give, e.g. 「相机属性」 without a focal length) only needs its type."""
+    has nothing to give, e.g. 「创建相机」 without a focal length) only needs its type."""
     from .types import channels_of, is_list
 
     if is_list(p.type):
-        return _check_list(p, deep)
+        return _check_list(p)
     if p.type not in DATA_TYPES:
         return [Msg("E-CONTRACT-UNKNOWNTYPE", type=p.type)]
     if p.meta.get("empty"):
@@ -296,7 +295,7 @@ def check(p: Packet, deep: bool = False) -> list[Msg]:
         return problems
     root = p.type.split(".")[0]
     if root == "image":
-        problems += _check_frames(p, deep)
+        problems += _check_frames(p)
     elif root == "files":
         missing = [f for f in p.meta["files"] if not p.path(f).is_file()]
         if not p.meta["files"] or missing:
@@ -304,18 +303,14 @@ def check(p: Packet, deep: bool = False) -> list[Msg]:
     elif root == "scene":
         if not p.path(SCENE_FILE).is_file():
             problems.append(Msg("E-CONTRACT-NOSCENE", file=SCENE_FILE))
-        elif deep:
-            problems += _check_stage(p)
     elif root == "value":
         from .values import check as check_value
 
         problems += check_value(p)
-    elif deep and root in _FILES:
-        problems += _FILES[root](p)
     return problems
 
 
-def _check_list(p: Packet, deep: bool) -> list[Msg]:
+def _check_list(p: Packet) -> list[Msg]:
     """A list packet (data/packet.py): its items in order, each with a name of its own (never two the same)
     and a packet of the list's item type that is really in the cache. The items' own contracts were checked where they
     were made: a list copies nothing, so it can break nothing."""
@@ -341,98 +336,10 @@ def _check_list(p: Packet, deep: bool) -> list[Msg]:
         item = P.load(d)
         if not accepts(carried, item.type):
             return [Msg("E-CONTRACT-ITEMTYPE", name=name, got=item.type, want=carried)]
-        if deep:
-            problems = check(item, deep)
-            if problems:
-                return problems
     return []
 
 
-def _check_boxes(p: Packet) -> list[Msg]:
-    """boxes.json: the people the description lists, each box [x1, y1, x2, y2] finite with x1 <= x2, y1 <= y2, on
-    frames of the packet."""
-    import json
-
-    people = json.loads(p.path("boxes.json").read_text(encoding="utf-8"))["people"]
-    if [q["id"] for q in people] != p.meta["people"]:
-        return [Msg("E-CONTRACT-BOXPEOPLE")]
-    frames = set(map(str, p.meta["frames"]))
-    for q in people:
-        for f, b in q["boxes"].items():
-            if f not in frames:
-                return [Msg("E-CONTRACT-BOXFRAME", person=q["id"], frame=f)]
-            if len(b) != 4 or not all(math.isfinite(v) for v in b) or b[0] > b[2] or b[1] > b[3]:
-                return [Msg("E-CONTRACT-BOX", person=q["id"], frame=f, box=str(b))]
-    return []
-
-
-def _check_tracks(p: Packet) -> list[Msg]:
-    """tracks.npz: tracks [N,F,2] and visible [N,F] for the packet's frames, N points as named; visible positions
-    finite; a confidence [N,F] in 0..1. Points on one plane (a planar track) may carry its homography [F,3,3]: the
-    plane from the points' query frame to each frame, which must take the points there on every frame they are visible
-    (within a pixel)."""
-    import numpy as np
-
-    d = np.load(p.path("tracks.npz"))
-    n, frames = p.meta["count"], len(p.meta["frames"])
-    if d["tracks"].shape != (n, frames, 2) or d["visible"].shape != (n, frames) or len(p.meta["names"]) != n:
-        return [Msg("E-CONTRACT-TRACKSHAPE", shape=str(d["tracks"].shape), count=n, frames=frames)]
-    if not np.isfinite(d["tracks"][d["visible"]]).all():
-        return [Msg("E-CONTRACT-TRACKNAN")]
-    if "confidence" in d and (d["confidence"].shape != (n, frames) or not np.isfinite(d["confidence"]).all()
-                              or d["confidence"].min(initial=0) < 0 or d["confidence"].max(initial=0) > 1):
-        return [Msg("E-CONTRACT-TRACKCONFIDENCE", count=n, frames=frames, shape=str(d["confidence"].shape))]
-    if "homography" not in d:
-        return []
-    from ..data.payloads import apply_homography
-
-    h, query = d["homography"], d["query_frames"]
-    frames = p.meta["frames"]
-    if h.shape != (len(frames), 3, 3) or not np.isfinite(h).all():
-        return [Msg("E-CONTRACT-HOMOGRAPHYSHAPE", shape=str(h.shape), frames=len(frames))]
-    if len(set(query.tolist())) != 1 or int(query[0]) not in frames:
-        return [Msg("E-CONTRACT-HOMOGRAPHYQUERY")]
-    ref = d["tracks"][:, frames.index(int(query[0]))]
-    for j in range(len(frames)):
-        seen = d["visible"][:, j]
-        err = np.linalg.norm(apply_homography(h[j], ref[seen]) - d["tracks"][seen, j], axis=-1)
-        if len(err) and err.max() > 1.0:
-            return [Msg("E-CONTRACT-HOMOGRAPHY", frame=frames[j], pixels=float(err.max()))]
-    return []
-
-
-# The arrays in a packet's npz must match the counts the packet states and be finite. 「动画曲线」 and 「SMPL 人体」
-# follow the same rule (as _check_point_arrays does for point clouds and 3D curves: an array's length is set by what it
-# belongs to), so there is one check and one table rather than one per type. Each entry:
-# file name -> (meta -> {array: expected shape}, arrays that must be finite)
-ARRAYS: Mapping[str, tuple[str, object, tuple[str, ...]]] = MappingProxyType({
-    "curves": ("curves.npz", lambda m: {"values": (len(m["frames"]), len(m["names"]))}, ("values",)),
-})
-
-
-def _check_arrays(p: Packet) -> list[Msg]:
-    """Check the packet against the ARRAYS table: every array in its npz matches the stated counts of people, frames,
-    curves or joints, and the arrays that must be finite contain no NaN or infinity."""
-    import numpy as np
-
-    file, shapes, finite = ARRAYS[p.type]
-    d = np.load(p.path(file))
-    label = DATA_TYPES[p.type].label
-    for key, want in shapes(p.meta).items():
-        got = d[key].shape if key in d.files else None
-        if got is None or len(got) != len(want) or any(w is not None and g != w for g, w in zip(got, want)):
-            return [Msg("E-CONTRACT-ARRAYSHAPE", kind=label, key=key, shape=str(got),
-                        want="(" + ", ".join("*" if w is None else str(w) for w in want) + ")")]
-    for key in finite:
-        if not np.isfinite(d[key]).all():
-            return [Msg("E-CONTRACT-ARRAYNAN", kind=label, key=key)]
-    return []
-
-
-_FILES = {"boxes": _check_boxes, "tracks2d": _check_tracks, **{t: _check_arrays for t in ARRAYS}}
-
-
-def _check_frames(p: Packet, deep: bool) -> list[Msg]:
+def _check_frames(p: Packet) -> list[Msg]:
     frames, files = p.meta["frames"], p.meta["files"]
     problems = []
     if frames != sorted({int(f) for f in frames}):
@@ -442,126 +349,4 @@ def _check_frames(p: Packet, deep: bool) -> list[Msg]:
     missing = [f for f, ref in files.items() if not file_path(p, ref).is_file()]
     if missing:
         problems.append(Msg("E-CONTRACT-FRAMESMISSING", count=len(missing), first=missing[0]))
-    if problems or not deep or not frames:
-        return problems
-    from ..data.payloads import is_data
-    from ..io import images
-
-    path = file_path(p, files[str(frames[0])])
-    w, h = images.image_size(path)
-    if (w, h) != (p.meta["width"], p.meta["height"]):
-        problems.append(Msg("E-CONTRACT-SIZE", width=w, height=h, meta_width=p.meta["width"], meta_height=p.meta["height"]))
-    if is_data(p):
-        problems += _check_map_values(path, p.type)
     return problems
-
-
-def _check_map_values(path, type_: str) -> list[Msg]:
-    """Check a 2D map written by this project: the channel count, and that valid pixels hold finite values.
-
-    Value ranges are not checked per kind (depth, mask, normals): 2D data has only a channel count, and what a float
-    channel means is defined by its use. Conventions such as value ranges are the responsibility of the writing node."""
-    import numpy as np
-
-    from ..data.payloads import VALIDITY, channel_names, read_map
-    from ..data.types import channels_of
-    from ..io import images
-
-    count = channels_of(type_)
-    named = images.read_named(path)
-    want = (set(channel_names(count)), set(channel_names(count, True)))  # with or without the valid channel
-    if set(named) not in want:
-        return [Msg("E-CONTRACT-CHANNELS", have=" ".join(sorted(named)),
-                    want=" ".join(sorted(channel_names(count))) + f" (+{VALIDITY})")]
-    data, alpha = read_map(path)
-    if not np.isfinite(data[alpha > 0]).all():
-        return [Msg("E-CONTRACT-PIXELNAN")]
-    return []
-
-
-def _check_stage(p: Packet) -> list[Msg]:
-    from pxr import Usd, UsdGeom, UsdSkel
-
-    from ..io.usd import STAGE_FPS
-
-    stage = Usd.Stage.Open(str(p.path(SCENE_FILE)))
-    problems = []
-    if UsdGeom.GetStageUpAxis(stage) != UsdGeom.Tokens.y:
-        problems.append(Msg("E-CONTRACT-UPAXIS"))
-    if not math.isclose(UsdGeom.GetStageMetersPerUnit(stage), 0.01):
-        problems.append(Msg("E-CONTRACT-CENTIMETRES"))
-    if not math.isclose(stage.GetTimeCodesPerSecond(), STAGE_FPS):  # frame numbers are time codes (io/usd.py apply_conventions)
-        problems.append(Msg("E-CONTRACT-USDFPS", usd_fps=stage.GetTimeCodesPerSecond(), fps=STAGE_FPS))
-    wanted = {"scene.camera": UsdGeom.Camera, "scene.points": UsdGeom.Points, "scene.model": UsdGeom.Mesh,
-              "scene.character": UsdSkel.Skeleton, "scene.skeleton": UsdSkel.Skeleton,
-              "scene.curves": UsdGeom.BasisCurves}.get(p.type)
-    if wanted and not any(prim.IsA(wanted) for prim in stage.Traverse()):
-        problems.append(Msg("E-CONTRACT-NOKIND", kind=DATA_TYPES[p.type].label))
-    if p.type == "scene.camera" and not problems:
-        problems += _check_camera(p)
-    return problems or _check_point_arrays(stage, p.meta["frames"])
-
-
-def _check_point_arrays(stage, frames: list[int]) -> list[Msg]:
-    """Per-point and per-curve data matches what it belongs to, on every frame. One check covers both kinds of
-    point-based geometry, because it is one rule:
-
-    - a 点云: its ids (unique: a tracked point keeps its own), velocities and vertex primvars have one value per point;
-    - a 三维曲线: its curve vertex counts add up to its points; its widths, normals and vertex primvars have one value
-      per point, and a uniform primvar one per curve.
-    """
-    import numpy as np
-    from pxr import Usd, UsdGeom
-
-    vertex = (UsdGeom.Tokens.vertex, UsdGeom.Tokens.varying)  # a linear curve's varying is per point too
-    for prim in stage.Traverse():
-        if prim.IsA(UsdGeom.Points):
-            cloud = UsdGeom.Points(prim)
-            per_point = [("ids", cloud.GetIdsAttr()), ("velocities", cloud.GetVelocitiesAttr())]
-            per_point += [(pv.GetPrimvarName(), pv.GetAttr()) for pv in UsdGeom.PrimvarsAPI(prim).GetPrimvars()
-                          if pv.GetInterpolation() in vertex]
-            per_curve, counts_attr = [], None
-        elif prim.IsA(UsdGeom.BasisCurves):
-            curves = UsdGeom.BasisCurves(prim)
-            counts_attr = curves.GetCurveVertexCountsAttr()
-            named = [("widths", curves.GetWidthsAttr(), curves.GetWidthsInterpolation()),
-                     ("normals", curves.GetNormalsAttr(), curves.GetNormalsInterpolation())]
-            named += [(pv.GetPrimvarName(), pv.GetAttr(), pv.GetInterpolation()) for pv in UsdGeom.PrimvarsAPI(prim).GetPrimvars()]
-            per_point = [(n, a) for n, a, i in named if i in vertex]
-            per_curve = [(n, a) for n, a, i in named if i == UsdGeom.Tokens.uniform]
-        else:
-            continue
-        points_attr = UsdGeom.PointBased(prim).GetPointsAttr()
-        for f in frames or [Usd.TimeCode.Default()]:
-            n = len(points_attr.Get(f) or [])
-            counts = np.asarray(counts_attr.Get(f) or [], np.int64) if counts_attr is not None else None
-            if counts is not None and int(counts.sum()) != n:
-                return [Msg("E-CONTRACT-CURVEPOINTS", curves=prim.GetName(), frame=str(f), count=n, counted=int(counts.sum()))]
-            for name, attr in per_point:
-                values = attr.Get(f) if attr and attr.HasAuthoredValue() else None
-                if values is not None and len(values) != n:
-                    said = {"curves": prim.GetName()} if counts is not None else {"cloud": prim.GetName()}
-                    code = "E-CONTRACT-CURVECOUNT" if counts is not None else "E-CONTRACT-CLOUDCOUNT"
-                    return [Msg(code, **said, frame=str(f), count=n, attribute=name, values=len(values))]
-                if name == "ids" and values is not None and len(np.unique(np.asarray(values))) != n:
-                    return [Msg("E-CONTRACT-CLOUDIDS", cloud=prim.GetName(), frame=str(f))]
-            for name, attr in per_curve:
-                values = attr.Get(f) if attr and attr.HasAuthoredValue() else None
-                if values is not None and len(values) != len(counts):
-                    return [Msg("E-CONTRACT-STRANDCOUNT", curves=prim.GetName(), frame=str(f), count=len(counts), attribute=name, values=len(values))]
-    return []
-
-
-def _check_camera(p: Packet) -> list[Msg]:
-    """A real camera on every frame of the packet: a finite place, a focal length and a film back."""
-    import numpy as np
-
-    from ..data.camera import CameraSamples
-
-    cam = CameraSamples.from_packet(p, p.meta["frames"] or [0])
-    checked = (cam.cam_to_world, cam.focal_mm, cam.h_aperture_mm, cam.v_aperture_mm)
-    if not all(np.isfinite(v).all() for v in checked):
-        return [Msg("E-CONTRACT-CAMERANAN")]
-    if (cam.focal_mm <= 0).any() or (cam.h_aperture_mm <= 0).any():
-        return [Msg("E-CONTRACT-CAMERALENS")]
-    return []

@@ -2,7 +2,7 @@
 
 Small and Metric-Small are Apache-2.0. Base / Large and Metric-Base /
 Metric-Large are CC-BY-NC-4.0 (non-commercial, research use): downloaded too,
-because the user is a researcher; the node labels them 非商用.
+because the user is a researcher; the node marks them non-commercial.
 """
 
 from __future__ import annotations

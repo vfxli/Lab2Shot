@@ -4,13 +4,13 @@ the Fast SAM 3D Body repo on PYTHONPATH; never imports Lab2Shot core.
     python worker.py <job.json>
 
 Same job and raw output as the sam_3d_body worker's solve node (the solve, rig and
-converter are shared: sam3dbody.py of the sam_3d_body extension, which this one requires): this repo's own
-YOLO11-Pose detector finds the people (upstream detects them itself; boxes are not an input) -> one focal length
-for the shot -> Fast SAM 3D Body per frame, every person of the frame in one batch, hand crops placed from the
-same YOLO11-Pose pass's wrists so body and hands run through the backbone together -> per person: lock shape,
-smooth, re-evaluate the MHR rig -> raw npz files.
+converter are shared: sam3dbody.py of the sam_3d_body extension, which this one requires): the given person
+boxes, or without them this repo's own YOLO11-Pose detector (as upstream's demo detects people itself) -> one
+focal length for the shot -> Fast SAM 3D Body per frame, the people of a frame in batches, hand crops placed from
+the YOLO11-Pose wrists so body and hands run through the backbone together -> per person: lock shape, smooth,
+re-evaluate the MHR rig -> raw npz files.
 
-一次 YOLO11-Pose 就同时给出框和手腕，所以检测器只加载一次、画面只过一遍。
+One YOLO11-Pose pass gives both the boxes and the wrists: the detector is loaded once and the frames are read once.
 """
 
 from __future__ import annotations
@@ -108,18 +108,19 @@ def measure_focal(job, device, loaded: list):
 
 
 def detect_people(run: Run, device) -> dict[int, tuple[np.ndarray, np.ndarray]]:
-    """frame -> (boxes [N,4], COCO keypoints [N,17,3]) from YOLO11-Pose: 这一帧有哪些人，他们的手腕在哪。
+    """frame -> (boxes [N,4], COCO keypoints [N,17,3]) from YOLO11-Pose: who is in each frame and where their
+    wrists are.
 
-    这是没接「人物框」时的路（「人物框」是可选输入：上游 process_one_image 收 bboxes，接了就按框解，
-    这里只在还要手腕时跑——见 node_solve）。用的是这个仓库自己的检测器，不是 SAM 3D Body 那套 ViTDet：
-      - 这个仓库自己的 demo 把 YOLO11 当默认人物检测器，`yolo_pose` 是它列出来的三档之一
-        （third_party/fast_sam_3d_body/repo/demo_human.py:623-629，`--detector` default "yolo"，
-        choices ["vitdet", "yolo", "yolo_pose"]），手部裁切也走同一份 YOLO-Pose 的手腕
-        （run_publisher.py:305 `hand_box_source="yolo_pose"`，build_detector.py:27-31 的 run_yolo_pose）；
-      - 选 `yolo_pose` 而不是 `yolo`：一次检测同时给出框和手腕，检测器只加载一次、画面只过一遍，
-        后面 infer() 要的手腕就是这一趟的结果；
-      - 装好的权重也只有它（third_party/fast_sam_3d_body/weights/ 下是 yolo/yolo11m-pose.pt，
-        没有 ViTDet 那 2.7 GB 的 model_final_f05665.pkl，那份在 sam_3d_body 扩展的权重目录里）。
+    The people when no 「人物框」 is connected (a connected one goes straight to upstream's process_one_image
+    bboxes; then this runs only for the wrists, see node_solve). This repo's own detector, not SAM 3D Body's ViTDet:
+      - this repo's demo uses YOLO11 as its default person detector, `yolo_pose` being one of its three choices
+        (third_party/fast_sam_3d_body/repo/demo_human.py:623-629, `--detector` default "yolo",
+        choices ["vitdet", "yolo", "yolo_pose"]), and its hand crops take the same YOLO-Pose wrists
+        (run_publisher.py:305 `hand_box_source="yolo_pose"`, run_yolo_pose in build_detector.py:27-31);
+      - `yolo_pose` rather than `yolo`: one detection gives both boxes and wrists, so the detector is loaded once
+        and the frames are read once; the wrists infer() needs are this pass's;
+      - it is the only detector whose weights this extension installs (third_party/fast_sam_3d_body/weights/
+        yolo/yolo11m-pose.pt; ViTDet's 2.7 GB model_final_f05665.pkl is in the sam_3d_body extension's weights).
     """
     detector = run.model("YOLO11-Pose 模型", load_yolo, run.job.weights_dir / "yolo" / "yolo11m-pose.pt", device)
     run.stage("检测人物")
@@ -171,12 +172,13 @@ def infer(run: Run, estimator, people: FramePeople, selected, wrists, cam_int, f
     run.stage("估计人体姿态")
     per_person: dict[int, dict[int, dict]] = {pid: {} for pid, _ in selected}
     serial = 0
-    batch = [family.PEOPLE_BATCH]  # 一批几个人；显存不够降过一档就一直用降过的那档（不然每一帧都先撞一次）
+    batch = [family.PEOPLE_BATCH]  # people per batch; once lowered for memory it stays lowered (else every frame fails once first)
     for n, (frame, path) in run.each(run.job.frames, ""):
         present = [(pid, t.boxes[frame]) for pid, t in selected if frame in t.boxes]
         if present:
-            # 一帧里的人分批解，每个人都解（sam3dbody.py batches）：一批装不下显存就换小一档重来这一帧。
-            # 每一批把这批人的框和手腕交给 FramePeople（它顶替上游的检测器），上游就按这一批走快路
+            # a frame's people in batches, every one solved (sam3dbody.py batches); a batch that does not fit the GPU
+            # redoes the frame one size smaller. Each batch hands its boxes and wrists to FramePeople (standing in for
+            # upstream's detector), so upstream takes its fast path for that batch
             def estimate(size, frame=frame, path=path, present=present):
                 batch[0] = size
                 pairs, slow = [], 0
@@ -205,13 +207,13 @@ def infer(run: Run, estimator, people: FramePeople, selected, wrists, cam_int, f
 
 
 def node_solve(run: Run, device) -> None:
-    """Node Fast SAM 3D Body 全身动作: same inputs, parameters and raw output as sam_3d_body.solve —
-    画面进去，人物动作出来，没接框时由这个仓库自己的 YOLO11-Pose 检出来（见 detect_people）。"""
+    """Node Fast SAM 3D Body 全身动作: same inputs, parameters and raw output as sam_3d_body.solve; without
+    person boxes the people come from this repo's own YOLO11-Pose (detect_people)."""
     job = run.job
     full = bool(job.params["hand_refine"])  # False: body decoder only (the wrists are then not used)
     given = bool(job.inputs.get("boxes"))
-    # 接了「人物框」就按框解（上游 process_one_image 收 bboxes）；YOLO-Pose 只在还要手腕（手部精修）时跑。
-    # 没接就照官方 demo 的路自己检：一趟同时拿到框和手腕
+    # given 「人物框」 are solved as given (upstream's process_one_image takes bboxes); YOLO-Pose then runs only for
+    # the wrists (hand refinement). Without them it detects, as upstream's demo does: boxes and wrists in one pass
     found = detect_people(run, device) if (full or not given) else {}
     selected = family.given_people(job, "N-FASTSAM3DBODY-NOBODYCHOSEN") if given \
         else family.people_tracks({frame: boxes for frame, (boxes, _) in found.items()})
@@ -220,8 +222,8 @@ def node_solve(run: Run, device) -> None:
     for model in fov:
         offload(model)  # off the GPU while Fast SAM 3D Body works
     wrists = found if full else {}
-    # a batch is at most family.PEOPLE_BATCH people (infer() splits a frame's people the same way): keeps this bounded
-    # too, in case USE_COMPILE is ever turned back on (env override) and actually reads these batch sizes
+    # a batch is at most family.PEOPLE_BATCH people (infer() splits a frame's people the same way): the warm-up batch
+    # sizes, read only when USE_COMPILE=1 is set in the environment
     counts = sorted({min(sum(frame in t.boxes for _, t in selected), family.PEOPLE_BATCH) for frame, _ in job.frames} - {0})
     model, estimator, people = load_estimator(run, device, counts or [1])
     per_person = infer(run, estimator, people, selected, wrists, cam_int, full)

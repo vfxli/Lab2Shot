@@ -62,8 +62,5 @@ export function onPageError(f: (e: PageError, detail: string) => void): () => vo
   return () => void listeners.delete(f);
 }
 
-/** The current number of listeners (webui/tests/registries.test.ts: zero after the last one stops). */
-export const pageErrorListeners = (): number => listeners.size;
-
 /** The errors kept since the page opened, oldest first. */
 export const pageErrors = (): PageError[] => errors.map((e) => ({ ...e }));

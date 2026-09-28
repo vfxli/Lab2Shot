@@ -28,7 +28,7 @@ TAPIP3D 做的是单目 RGB 和 RGB-D 视频里的长时前馈 3D 点跟踪。�
 
 **我们怎么接的**
 
-- 「图像」= `video`，「深度图」= `depths`（米），「相机」= `intrinsics` + `extrinsics`。
+- 「RGB」= `video`，「深度图」= `depths`（米），「相机」= `intrinsics` + `extrinsics`。
   这个「相机」口成立，是因为 worker 内参和每帧外参都读了——上游整台相机都用上了。
 - 「参考帧」「网格点数」「手动点」一起造出上游的 `query_point`；**「遮罩」口不进模型**，它只圈定网格点撒在哪。
 - 「3D 跟踪点」= `coords`；「可见门槛」用的是上游 `visibs` 的概率本身（上游只留是非值，我们把概率留着，好让艺术家自己定门槛）。
@@ -36,11 +36,11 @@ TAPIP3D 做的是单目 RGB 和 RGB-D 视频里的长时前馈 3D 点跟踪。�
   哪个模型算的、什么尺度，线上一眼看得见。
 
 **出处**：简介抽自 `third_party/tapip3d/repo/README.md:28`（「TAPIP3D is a method for long-term feed-forward 3D point tracking in monocular RGB and RGB-D video sequences…」两句）；
-输入输出依据 `repo/inference.py:40-70、114-157`、`repo/utils/inference_utils.py:108-118` 和 `adapters/tapip3d/nodes.py:14-22`、`worker.py:7-21`。
+输入输出依据 `repo/inference.py:40-70、114-157`、`repo/utils/inference_utils.py:108-118` 和 `adapters/tapip3d/nodes.py:14-29`、`worker.py:7-19`。
 
 ## 在 Lab2Shot 里怎么用
 
-- 典型接法：读取序列 →「ViPE 相机与深度」（或任何深度图节点 + 任何相机节点）→ TAPIP3D 3D 跟踪点 →「合成场景」
+- 典型接法：读取序列 →「ViPE 相机解算」→「ViPE 深度图」（或任何深度图节点 + 任何相机节点）→ TAPIP3D 3D 跟踪点 →「合成场景」
   （3D 跟踪点；相机直接从解算节点接过去）→「USD 输出设置」→「输出」。模板「3D 跟踪点 · TAPIP3D」就是这样。
 - 输入「深度图」和「相机」都必须接，而且要**对得上**：同一个解算节点出的深度图和相机最好（ViPE、Depth Anything 3、MapAnything……）；
   MoGe 这类逐帧深度图配它自己的相机（相机空间，适合固定机位）。深度图只知道远近（affine）时先接「深度对齐」。
@@ -62,7 +62,7 @@ RTX 4090 实测：
 
 已知局限：
 - 结果的好坏取决于接进来的深度图和相机：深度图逐帧闪烁（单帧深度图模型）时，静止物体上的点也会跟着前后抖；用视频深度图或多帧解算的深度图更稳。
-- 所有帧的特征都放在显卡上：显存和帧数成正比，很长的镜头分段处理（见下方实测）。
+- 所有帧的特征都放在显卡上：显存和帧数成正比，整段一次跟，很长的镜头放不下（300 帧以内放得下）。
 - 模型在 Kubric 合成数据上训练；真实画面里细长的物体（头发、线）跟不准。
 
 ## 团队

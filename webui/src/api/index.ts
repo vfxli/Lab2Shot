@@ -4,12 +4,12 @@ import type { Availability, MessageJson } from "./applies";
 import { clientInfo, deviceId } from "../platform/client";
 import { ApiError, json } from "../platform/http";
 import { followEvents } from "../platform/events";
-import { addressOf, type Delivery, type Upload } from "./deliveries";
+import type { Output, Upload } from "./files";
 import { graphKept, graphRef, unknownGraph, type GraphRef } from "../model/graphSync";
 import type { BackgroundTask } from "./tasks";
 import type { Catalog, GraphJSON, OcioInfo, TemplatesPage } from "./catalog";
 import type { Licence, ManualNeed, ManualView } from "./extensions";
-import type { DiskArea, JobLoad, JobRecord, QueueView, ResidentView, ServerLoad } from "./queue";
+import type { DiskArea, HistoryJob, JobLoad, JobRecord, QueueView, ResidentView, ServerLoad } from "./queue";
 import type { BoxesData, Choice, ClipboardText, CurvesData, ItemsPage, Manifest, StatusReply, TracksData } from "./status";
 import type { UsageStats } from "./usage";
 import { libraryApi } from "./library";
@@ -36,7 +36,7 @@ export interface Account {
 
 /** Another login of this account (same kind: a browser, or a DCC plugin/command line) ended this one: one place
  * online per account, per kind (lab2shot/accounts.py start()). `detail` is the ready-made sentence the gate shows. */
-export interface KickedInfo {
+interface KickedInfo {
   at: number;
   ip: string;
   device: string;
@@ -56,6 +56,15 @@ export interface AuthState {
   admin_until?: number;
   passphrase?: boolean;
   kicked?: KickedInfo;
+  settings_pages?: SettingsPageEntry[]; // signed in: the admin side list's 设置 band (lab2shot/config.py PAGES)
+}
+
+/** One settings page as the admin side list shows it: its id (its section of the admin page is settings-<id>), name
+ * and hover text. */
+export interface SettingsPageEntry {
+  id: string;
+  label: string;
+  tip: string;
 }
 
 
@@ -93,6 +102,31 @@ export interface Version {
 
 const versionQuery = (v?: Version): string[] => (v ? [...(v.g ? [`g=${v.g}`] : []), ...(v.px ? [`px=${v.px}`] : [])] : []);
 const query = (parts: string[]): string => (parts.length ? `?${parts.join("&")}` : "");
+
+/** The queue as the editor's 队列 window reads it: the poll (/api/queue) carries the jobs going and only the version of
+ * the account's task history; the history itself (/api/queue/history: every unexpired task, their groups and cache
+ * marks) is asked for when that version is not the one kept here, so an unchanged history is never sent again. The
+ * answer is the same either way: the poll's with `history` filled in. */
+type HistoryKept = { version: string; history: HistoryJob[] };
+let historyKept: HistoryKept | null = null;
+// the history being asked for, for the version it was asked for: calls at the same moment (a page opening polls and
+// resumes its jobs at once) share one request
+let historyAsked: { version: string | undefined; answer: Promise<HistoryKept> } | null = null;
+
+async function queueWithHistory(load: boolean): Promise<QueueView> {
+  const view = await json<QueueView>("GET", `/api/queue${load ? "" : "?load=0"}`);
+  if (!historyKept || historyKept.version !== view.history_version) {
+    if (historyAsked?.version !== view.history_version) {
+      const answer = json<HistoryKept>("GET", "/api/queue/history");
+      historyAsked = { version: view.history_version, answer };
+      answer.then((got) => (historyKept = got), () => undefined).finally(() => {
+        if (historyAsked?.answer === answer) historyAsked = null;
+      });
+    }
+    historyKept = await historyAsked!.answer;
+  }
+  return { ...view, history: historyKept.history };
+}
 
 export const api = {
   catalog: () => json<Catalog>("GET", "/api/catalog"),
@@ -133,38 +167,35 @@ export const api = {
   nodeItems: (graph: string, node: string, offset = 0, limit = 50) =>
     json<ItemsPage>("GET", `/api/status/${encodeURIComponent(graph)}/node/${encodeURIComponent(node)}/items?offset=${offset}&limit=${limit}`),
   // POST /api/jobs, the one way anything queues a graph (server/farm.py JobRequest): exactly one of cook (a node and
-  // its upstream), shown (the viewer asks because the node is shown: only what it shows, only light, never a delivery)
-  // or deliver ([]: every 「输出」 in the graph, like Nuke's Render All). `version`: the cook inputs' version of the graph
-  // (state/cookInputs.ts), which every event of the job carries back; a node_done applies to the page only while it
-  // is still that version (graph/streamDone.ts).
+  // its upstream) or deliver ([]: every 「输出」 in the graph, like Nuke's Render All). `version`: the cook inputs'
+  // version of the graph (state/cookInputs.ts), which every event of the job carries back; a node_done applies to the
+  // page only while it is still that version (graph/streamDone.ts).
   // `show`: the output ports the viewer is showing (the server cooks only what they need); left out when there are none
-  cook: (graph: GraphJSON, version: number, target: string, shown = false, show: string[] = []) =>
-    askGraph<{ job: string }>("/api/jobs", graph, { [shown ? "shown" : "cook"]: target, version, ...(show.length ? { show } : {}), client: clientInfo() }),
+  cook: (graph: GraphJSON, version: number, target: string, show: string[] = []) =>
+    askGraph<{ job: string }>("/api/jobs", graph, { cook: target, version, ...(show.length ? { show } : {}), client: clientInfo() }),
   deliver: (graph: GraphJSON, version: number) => askGraph<{ job: string }>("/api/jobs", graph, { deliver: [], version, client: clientInfo() }),
   // the job's events as a stream that mends itself (platform/events.ts: nothing else opens an EventSource)
   cookEvents: (job: string) => followEvents(`/api/jobs/${job}/events`),
   cancelCook: (job: string) => json<{ ok: boolean }>("POST", `/api/jobs/${job}/cancel`, {}),
-  /** 删除一条已结束的任务：该记录与其留在服务器上的交付包一并删除，计算结果的缓存保留
-   * （缓存按指纹共享，可能仍被其他任务使用；需要释放空间时使用该行的「清理」）。正在计算的任务先取消。 */
+  /** 删除一条已结束的任务：它的任务文件夹（节点图、素材、输出的文件夹和 zip、日志）整个删除；只被它引用的缓存随后由服务器清理。
+   * 正在计算的任务先取消。 */
   forgetJob: (job: string) => json<{ ok: boolean }>("DELETE", `/api/jobs/${encodeURIComponent(job)}`),
   // 一键释放空间：删除自己全部已结束的任务及其占用的空间
   forgetAllJobs: () => json<{ ok: boolean; jobs: number; skipped: number; bytes: number }>("DELETE", "/api/jobs"),
+  /** 删除自己的一组任务：组里每个已结束的任务都像删一条那样整个删除；正在排队和计算的跳过（`skipped`）。 */
+  forgetGroup: (key: string) =>
+    json<{ ok: boolean; jobs: number; skipped: number; bytes: number }>("DELETE", `/api/task-groups/${encodeURIComponent(key)}`),
+  /** 给自己的一组任务改名（只改显示，分组不变）；空名字回到自动起的名字。答里是这一组现在显示的名字。 */
+  renameGroup: (key: string, name: string) =>
+    json<{ ok: boolean; name: string }>("PUT", `/api/task-groups/${encodeURIComponent(key)}/name`, { name }),
   // load: with the machine's load (the queue panel open); without it an idle queue's answer stays the same (a 304)
-  queue: (load = true) => json<QueueView>("GET", `/api/queue${load ? "" : "?load=0"}`),
+  queue: (load = true) => queueWithHistory(load),
   /** How busy the server is, for the top bar's load pill: small enough to ask for on every poll. */
   load: () => json<ServerLoad>("GET", "/api/load"),
   /** One of the account's jobs again: its graph as submitted and whether its results are still cached. */
   job: (id: string) => json<JobLoad>("GET", `/api/jobs/${encodeURIComponent(id)}`),
-  deliveries: {
-    mine: () => json<Delivery[]>("GET", "/api/deliveries"),
-    // Every path is the delivery's address (transfer/deliveries.py address): the node, or node.<hash> for one item of
-    // a 逐项处理 block (`addressOf`), never the bare node id.
-    get: (d: Pick<Delivery, "run" | "node" | "address">) => json<Delivery>("GET", `/api/deliveries/${d.run}/${addressOf(d)}`),
-    state: (d: Pick<Delivery, "run" | "node" | "address">, state: "saved" | "dismissed") =>
-      json<Delivery>("POST", `/api/deliveries/${d.run}/${addressOf(d)}/state`, { state }),
-    /** Every package one 「输出」 delivered in that run, one per item of a block. */
-    batch: (run: string, node: string) => `/api/deliveries/${run}/${node}/batch`,
-  },
+  /** Every output of the account's tasks still kept on the server, newest first (lab2shot/transfer/outputs.py). */
+  outputs: () => json<Output[]>("GET", "/api/outputs"),
   uploads: {
     describe: (ref: string) => json<Upload>("GET", `/api/uploads/describe?ref=${encodeURIComponent(ref)}`),
     /** 申报一份上传：包含的文件、各文件内容的 sha256（由网页在本机计算），以及第一个文件开头的数十 KB。
@@ -183,10 +214,17 @@ export const api = {
     authorize: (uuids: string[]) => json<QueueView>("PUT", "/api/admin/gpus", { authorized: uuids }),
     cancel: (job: string) => json<{ ok: boolean }>("POST", `/api/admin/jobs/${job}/cancel`, {}),
     forget: (job: string) => json<{ ok: boolean }>("DELETE", `/api/admin/jobs/${encodeURIComponent(job)}`),
-    // 拖拽插队: put a waiting job at `position` (1-based) of its own lane; the server records who moved what, from
-    // where to where (lab2shot/server/access.py audit) and answers with the queue as it now is
-    place: (job: string, position: number) => json<QueueView>("POST", `/api/admin/jobs/${job}/place`, { position }),
-    history: () => json<JobRecord[]>("GET", "/api/admin/history"),
+    // one account's group of tasks, every finished task of it (the same path as the account's own 删除组)
+    forgetGroup: (user: number, key: string) =>
+      json<{ ok: boolean; jobs: number; skipped: number; bytes: number }>("DELETE", `/api/admin/task-groups/${user}/${encodeURIComponent(key)}`),
+    // rename one account's group (the server records who renamed whose group to what)
+    renameGroup: (user: number, key: string, name: string) =>
+      json<{ ok: boolean; name: string }>("PUT", `/api/admin/task-groups/${user}/${encodeURIComponent(key)}/name`, { name }),
+    // 插队: put a task still to finish at the front of the queue; the server records who moved what from where
+    // (lab2shot/server/access.py audit) and answers with the queue as it now is
+    first: (job: string) => json<QueueView>("POST", `/api/admin/jobs/${encodeURIComponent(job)}/first`, {}),
+    // `user`: only this account's jobs (the queue's 「按人」), filtered by the server
+    history: (user: number | null = null) => json<JobRecord[]>("GET", `/api/admin/history${user === null ? "" : `?user=${user}`}`),
     disk: () => json<DiskArea[]>("GET", "/api/admin/disk"),
     log: (lines = 500) => json<{ file: string; lines: string[] }>("GET", `/api/admin/log?lines=${lines}`),
     clean: (area: string, days: number) => json<{ removed: number; bytes: number }>("POST", "/api/admin/disk/clean", { area, days }),
@@ -233,7 +271,8 @@ export const api = {
     login: (username: string, password: string) => json<AuthState>("POST", "/api/auth/login", { username, password, device_id: deviceId() }),
     logout: () => json<AuthState>("POST", "/api/auth/logout", {}),
     change: (current: string, next: string) => json<AuthState>("POST", "/api/auth/password", { current, new: next }),
-    recover: (passphrase: string, next: string) => json<AuthState>("POST", "/api/auth/recover", { passphrase, new: next }),
+    recover: (passphrase: string, next: string) =>
+      json<AuthState>("POST", "/api/auth/recover", { passphrase, new: next, device_id: deviceId() }),
   },
 };
 
@@ -255,9 +294,10 @@ export interface ServerInfo {
   ui: number; // when the built page was made: another one after a restart means the page should reload
   restart: RestartState | null;
   notice: number; // when the administrator's notice last changed: another number means reading /api/notice again
+  account: number | null; // the account this browser is logged in as now (null: none): another than the page's opens it again
   // 本机代理的两项参数（管理员设置「视图 · 本机代理尺寸 / 本机缓存上限」，lab2shot/config.py）：
-  // 浏览器据此生成与淘汰本机代理（transfer/localProxy）。旧版服务器不提供该项时，页面使用默认值 1024 / 10
-  view?: { local_px: number; local_cache_gb: number };
+  // 浏览器据此生成与淘汰本机代理（transfer/localProxy）
+  view: { local_px: number; local_cache_gb: number };
 }
 
 /** The administrator's notice (GET /api/notice): one line every page shows at the top while it is on. The type is

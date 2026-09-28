@@ -3,11 +3,11 @@ original repo on PYTHONPATH; never imports Lab2Shot core.
 
     python worker.py <job.json>
 
-Node 检测人物 (sam_3d_body.detect_people): ViTDet on every frame -> IoU tracks -> raw/boxes.json.
-Node SAM 3D Body 全身动作 (sam_3d_body.solve): the same ViTDet pass inside the solve (upstream detects the
-people itself: demo.py builds a HumanDetector and hands process_one_image no boxes at all) -> one focal length for
-the shot -> SAM 3D Body per frame with that focal -> per person: lock body shape, smooth the motion, re-evaluate
-the MHR rig (sam3dbody.py) -> raw npz files.
+Node ViTDet 人物框 (sam_3d_body.detect_people): ViTDet on every frame -> IoU tracks -> raw/boxes.json.
+Node SAM 3D Body 全身动作 (sam_3d_body.solve): the wired 人物框, or without them the same ViTDet pass inside the
+solve (upstream detects the people itself: demo.py builds a HumanDetector and hands process_one_image no boxes at
+all) -> one focal length for the shot, or a wired per-frame one -> SAM 3D Body per frame with that focal -> per
+person: lock body shape, smooth the motion, re-evaluate the MHR rig (sam3dbody.py) -> raw npz files.
 
 Both nodes use the same detect_people() and the same @resident load_detector(), so ViTDet is loaded only once
 (when both nodes run in one process, the second receives the same model instance).
@@ -101,7 +101,7 @@ def infer(run: Run, estimator, selected, cam_int, inference_type: str) -> dict[i
 
 
 def node_detect_people(run: Run, device) -> None:
-    """Node 检测人物: every person, one id each, a box per frame -> raw/boxes.json."""
+    """Node ViTDet 人物框: every person, one id each, a box per frame -> raw/boxes.json."""
     job = run.job
     detector = run.model("检测模型", load_detector, job.weights_dir / "vitdet", device)
     tracks = tracking.track_boxes(detect_people(run, detector, job.params["threshold"]))
@@ -119,7 +119,7 @@ def node_solve(run: Run, device) -> None:
     detection runs. Otherwise this follows the upstream entry point demo.py, which takes `--image_folder` and builds
     its own HumanDetector (vitdet by default); it uses the same detect_people() and load_detector() as the
     「ViTDet 人物框」 node (same @resident cache key, so the detector is not loaded twice).
-    No camera input or output: only a Focal Length (the node's 「Focal Length」 parameter, or a per-frame wired value);
+    No camera input or output: only a Focal Length (the node's 「已知 Focal Length」 parameter, or a per-frame wired value);
     results stay in camera space."""
     from sam_3d_body import SAM3DBodyEstimator
 

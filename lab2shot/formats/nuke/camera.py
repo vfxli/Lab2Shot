@@ -5,10 +5,9 @@ millimetres. Lab2Shot positions are in centimetres and Nuke has no unit of its o
 unchanged (the Nuke comp's world is then in centimetres, consistent with every camera Lab2Shot writes from the same
 solve).
 
-Rotation: Nuke builds a transform's rotation in the order its `rot_order` knob says, applying each rotation on the
-right (DDImage's Matrix4::rotate*), so the default ZXY means R = Rz·Rx·Ry with column vectors. The angles written here
-are decomposed in exactly that order and `rot_order` is written explicitly, so the result does not depend on the
-default.
+Rotation: Nuke's `rot_order` knob names the order the rotations are applied in, first to last, so the default ZXY
+applies Z first: R = Ry·Rx·Rz with column vectors. The angles written here are decomposed in exactly that order
+(euler_zxy) and `rot_order` is written explicitly, so the result does not depend on the default.
 
 Every knob that changes over the shot is written as an animation curve with the plate's own frame numbers; one that
 does not is written as a plain number (a locked-off camera then has no keys).
@@ -25,8 +24,8 @@ ROT_ORDER = "ZXY"  # what the angles below are decomposed in, written out on the
 
 
 def euler_zxy(rotations: np.ndarray) -> np.ndarray:
-    """Rotation matrices [F,3,3] -> Nuke's rotate knob [F,3] in degrees (rx, ry, rz) for rot_order ZXY. This is the
-    exact inverse of formats/nuke/parse.py euler(angles, "ZXY"), which builds R = Ry·Rx·Rz: ZXY names the order in
+    """Rotation matrices [F,3,3] -> Nuke's rotate knob [F,3] in degrees (rx, ry, rz) for rot_order ZXY. Nuke builds
+    R = Ry·Rx·Rz from them: ZXY names the order in
     which the rotations are applied, Z first, so Rz is rightmost. At gimbal lock (cos rx = 0) Z and Y rotate about the
     same axis; rz is then set to 0 and ry carries the whole rotation, which yields the same matrix."""
     m = np.asarray(rotations, np.float64).reshape(-1, 3, 3)
@@ -84,30 +83,3 @@ def write_camera(samples, name: str = "camera", note: str = "") -> str:
     return script.script([script.block(CAMERA_NODE, knobs)])
 
 
-def lens_camera(focal_mm, back_mm: tuple[float, float], center_mm: tuple[float, float], name: str = "camera",
-                note: str = "", frames=()) -> str:
-    """A lens's intrinsics as a Camera3 node: focal length, film back and, off centre, the principal point as Nuke's
-    window translate (in half-apertures). Position and rotation are omitted because a calibration carries no camera
-    placement, and distortion is omitted because Camera3 is a pinhole model (the writing node reports this as
-    N-NUKE-LENSASCAMERA).
-
-    `focal_mm` is a number or, for a shot, {"frames", "values"}; `frames` are the frames over which a constant is
-    written.
-    """
-    from . import distortion as dist
-
-    width_mm, height_mm = float(back_mm[0]), float(back_mm[1])
-    at, focal = dist.series(focal_mm, frames)
-    knobs = [
-        ("inputs", "0"),
-        ("focal", script.channel(at, focal, dist.DIGITS)),
-        ("haperture", script.number(width_mm, dist.DIGITS)),
-        ("vaperture", script.number(height_mm, dist.DIGITS)),
-    ]
-    cx, cy = float(center_mm[0]), float(center_mm[1])
-    if max(abs(cx), abs(cy)) > 1e-9:
-        # Nuke's window translate is in half-apertures, +x right, +y up: the same sign convention as center_mm (主点).
-        knobs.append(("win_translate", "{%s %s}" % (script.number(cx / (width_mm / 2.0), dist.DIGITS),
-                                                    script.number(cy / (height_mm / 2.0), dist.DIGITS))))
-    knobs += [("name", script.node_name(name, "Lab2Shot_lens")), ("label", script.label(note or "lens"))]
-    return script.block(CAMERA_NODE, knobs)

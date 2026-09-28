@@ -16,8 +16,8 @@ import "./items.css";
  * with (`StatusReply.graph`), the node's id and how many items there are (`NodeStatus.summary.total`); a click on a row
  * puts the view on that item, the same 当前条目 the item bar changes (state/items.ts). */
 
-export const ITEMS_PAGE = 50; // server/packets.py ITEMS_PAGE / ITEMS_MOST
-export const ITEMS_MOST = 200;
+const ITEMS_PAGE = 50; // server/packets.py ITEMS_PAGE / ITEMS_MOST
+const ITEMS_MOST = 200;
 
 const STATE_WORD: Record<string, string> = {
   cached: render("I-ITEMS-CACHED"),

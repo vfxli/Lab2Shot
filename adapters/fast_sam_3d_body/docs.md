@@ -26,8 +26,8 @@ year = 2026
 
 **我们怎么接的**
 
-- 「图像」口就是 `--image_folder`：和上游一样，**只有画面**。
-- 「蒙皮角色」口是 `body_pose_params` 转成的骨骼动画，「网格」口是 `pred_vertices`。
+- 「RGB」口就是 `--image_folder`：和上游一样，**只有画面**。
+- 「蒙皮角色」口是官方整套 MHR 参数（`body_pose_params` 等）装成的蒙皮角色：骨骼动画加静止网格和蒙皮权重；没有单独的「网格」口。
 - **「人物框」是可选输入口**：这个仓库自己的 `process_one_image(img, bboxes=None, …)`
   （`sam_3d_body/sam_3d_body_estimator.py`）收框。接了就按框解；不接时 worker 用它自己的 YOLO11-Pose 检人
   （一趟同时给出框和手腕）。

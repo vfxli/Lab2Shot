@@ -1,7 +1,7 @@
 // The node catalogue and the graph file as the server describes them (lab2shot/nodes/base.py describe(), catalog.py):
 // data types, 3D kinds, ports, parameters, node types, tags, templates, OCIO. Re-exported by api/index.ts.
 
-import type { Upload } from "./deliveries";
+import type { Upload } from "./files";
 import type { Places } from "../model/places";
 import { NEUTRAL_COLOR } from "../platform/palette";
 import type { StandingMark } from "./status";
@@ -12,48 +12,43 @@ export interface DataType {
   label: string;
   color: string;
   description: string;
-  in_2d: "picture" | "overlay" | "strip" | "inputs" | "value" | null; // its role in the viewer's 2D stage (nodes/types.py; inputs: shown as what it was made from; value: a basic value, shown as itself)
+  in_2d: "picture" | "overlay" | "strip" | "inputs" | "value" | null; // its role in the viewer's 2D stage (lab2shot/data/types.py; inputs: shown as what it was made from; value: a basic value, shown as itself)
   in_3d: "element" | "backplate" | "points" | "strip" | "inputs" | "value" | null; // and in the 3D stage
   end: string;
   // data that holds several things (人物框 several 人物, 场景 several 组): what one of them is called (data/types.py
   // DataType.items; "" the type cannot be worked on item by item). What 「逐个：人物」 reads.
   items: string;
-  // the layer name a multi-layer EXR gives this kind by default ("" never one), suggested for a new row of 「多层 EXR 输出设置」's 图层 table (data/layers.py DEFAULT_NAMES)
+  // the layer name a multi-layer EXR gives this kind by default ("" never one), suggested for a new row of 「多层 EXR 输出设置」's 图层 table (lab2shot/data/types.py layer_default)
   layer_default: string;
 }
 
-/** A kind of 3D data as DCCs tell them apart (nodes/types.py SCENE_KINDS: 模型, 相机, 点云, 骨架动画, 蒙皮角色, 灯光),
+/** A kind of 3D data as DCCs tell them apart (lab2shot/data/types.py SCENE_KINDS: 模型, 相机, 点云, 骨架动画, 蒙皮角色, 灯光),
  * in the order the editor lists them. */
 export interface SceneKind {
   id: string;
   label: string;
   type: string; // the data type it travels as on its own: its color
-  description: string;
 }
-
-/** A 模型 whose points change every frame (a point cache): carried beside "model" (nodes/types.py DEFORMING). */
-export const DEFORMING = "model.deforming";
 
 /** What a 3D output-settings node's format holds of one kind (OutputSettings.writes): all of it, only still ones (模型),
  * or none; `reason` says how or why not. */
 export interface WritesPart {
   how: "full" | "static" | "no";
-  reason?: string; // 仅在有说明时下发（控制首屏数据量）
   // 该数据可以写出，但格式无法保留其中一部分（FBX 可写出模型，但无法保留网格分区）：
-  // 显示在「支持的数据」中，不构成拒绝的理由（nodes/output.py Writes.lost）
-  lost?: string;
+  // 「支持的数据」中标「部分」，不构成拒绝的理由（nodes/output.py Writes.lost）；仅在为真时下发
+  lost?: boolean;
 }
 
 /** Why a writer refuses a kind: on a wire of the kind's own type, on a packed 场景 holding it; the node that converts it
  * into what the writer takes ("" none), offered as one click. */
-export interface Refusal {
+interface Refusal {
   wire: string;
   packed: string;
   via: string;
 }
 
 /** One subcategory of a tree the administrator keeps as a data file (lab2shot/categories.py). */
-export interface TreeSub {
+interface TreeSub {
   id: string;
   label: string;
   tip: string;
@@ -123,16 +118,13 @@ export interface PortDef {
   type_from: string; // "input:<port>": the output carries the type of what is wired into that input
   inserts: string; // an input: the node type offered first for a wire drawn out of it (inserted in front of it, or a parameter's constant) ("" none); a check's own one click comes with the check, not from here
   unit: string; // a value's unit: what a value output gives ("param:<name>": its node's parameter says) or a parameter's input takes
-  help: string; // an optional input: what connecting it does ("" none)
   // 该端口当前是否不可用及其原因（由服务器计算，nodes/base.py Port.applies）：节点上置灰、位置不变，
   // 悬停说明原因，且不允许连线（例如接入「图像」后，下方的 rgba 口不可用）。
   // 输入口与输出口都可能置灰：解算器接入相机后，其「相机」输出仅原样透传该相机，
   // 若从该处再连线，将无法区分交付中的相机来源，因此不允许从该端口连出。
   // 仅存在于图中的端口上（catalog 中没有：它描述的是当前这张图的状态）
   inactive?: MessageJson;
-  // what a benchmark found about connecting it (nodes/base.py NodeDef.measured): sent only to an account that runs the benchmarks, so the page shows it when it is there
-  finding?: string;
-  // what the pointer says over the port, written by the server (nodes/base.py Port.tip): the type's name and unit,
+  // what the pointer says over the port, written by the server (nodes/port.py Port.tip): the type's name and unit,
   // what that type is, what this port means, and what it does with a picture's alpha. Only on the ports of a graph
   // (the status reply): the catalogue describes types, and would repeat every description on every port.
   tip?: string;
@@ -149,13 +141,11 @@ export interface NodePorts {
   waiting: PortDef[];
 }
 
-export type SimpleKind = "" | "toggle" | "options" | "number" | "vector" | "text";
+type SimpleKind = "" | "toggle" | "options" | "number" | "vector" | "text";
 
 export interface ParamDef {
   name: string;
   label: string;
-  description: string;
-  finding?: string; // what a benchmark found about setting it (as PortDef.finding: there only for the accounts that run benchmarks)
   type: "string" | "number" | "integer" | "boolean" | "array";
   nullable: boolean;
   minimum: number | null;
@@ -180,7 +170,6 @@ export interface ParamDef {
   unit: string; // shown inside a number field (mm, °, px ...)
   derived_from: string[]; // parameters the node works this one out from (asked from the server when they change)
   unique: boolean; // a node added in the editor gets a value no other node has (its default, numbered on)
-  option_needs: Record<string, string>; // choice -> what this browser must be able to do for it ("folders")
   choices_from: string[]; // parameters and input ports its options come from (widget "choice": asked from the server, NodeDef.choices)
   wire: string; // the value type a wire into it carries once it is 提升到节点 ("" it can't be driven by a wire)
   simple: SimpleKind; // how it can show on the node's body ("" panel only: files, tables, pickers ...), nodes/base.py simple_kind
@@ -203,19 +192,18 @@ export interface NodeTypeDef {
   ports_from_type: string; // the port type every row gets when ports_from_side is "inputs" (a row has no `type` of its own then)
   ports_from_type_label: string; // and how that type is said (the server's words)
   main: string; // its main result's port: what the viewer shows and a label names by default (ports go by data type)
-  lens: "" | "pinhole" | "any" | "given"; // what it assumes of the plate's lens (nodes/applies.py LENSES)
-  marks: StandingMark[]; // the standing marks its declaration gives it (a pinhole node: N-LENS-NEEDSUNDISTORTED)
+  marks: StandingMark[]; // the standing marks its declaration gives it (a crop that decides its own size: I-SHAPE-CROP)
   params: ParamDef[];
   defaults: Record<string, unknown>;
   runtime: string;
   project: string;
   handles: HandleDef[];
-  places: Places | null; // where it places what it gives, when its effect on the viewer is a transform (G17)
+  places: Places | null; // where it places what it gives, when its effect on the viewer is a transform
   // 预览标签（由 nodes/base.py default_preview 集中计算，同一取值适用于 2D、3D 两个舞台）
   preview: "plate" | "compute" | "result" | "scene";
-  // what it declares running it costs (nodes/applies.py Cost): the lane off a GPU, whether it always runs on one, the
-  // rating its own measured numbers give (a choice may change them: option_traits)
-  cost: { lane: "light" | "heavy"; gpu: boolean; rating: ComputeRating | null };
+  // what it declares running it costs (nodes/applies.py Cost): whether it always runs on a GPU, the rating its own
+  // measured numbers give (a choice may change them: option_traits)
+  cost: { gpu: boolean; rating: ComputeRating | null };
   // resolved at its default parameters (a node not in a graph yet); a node in a graph reads its status (NodeStatus)
   // and its ports and handles on its own (Graph.at_defaults): what a node just added shows until its status arrives
   at_defaults: { cost: ResolvedCost; licence: ResolvedLicence; ports: NodePorts; handles: number[] };
@@ -226,7 +214,7 @@ export interface NodeTypeDef {
   // is being cooked the viewer may show what is there already (边算边看, view/partial.ts). Only a worker node says it.
   tags: string[]; // lab2shot/nodes/tags.py: its licence class, 需注册 ...
   // 仅三方节点具有：项目的代码仓库与主页（标题行的 GitHub 标签）、许可证（面板底部，仅作信息展示）
-  links?: { repo: string; homepage: string; licence: { name: string; url: string; summary: string } };
+  links?: { repo: string; homepage: string; licence: { name: string; url: string } };
   word: string; // the one word to show for them (tags.strictest, on the server): 仅限研究 / 非商用 / 需注册 / …
   on_node: string[]; // its key parameters, shown on its body (the node author's default; a node instance may choose others: its ui.on_node)
   strip?: string[]; // 视图值条上显示的参数（NodeDef.strip；值由状态回复的 `strip` 提供，不是输出口）
@@ -252,7 +240,6 @@ export interface NodeTypeDef {
 
 /** What a node costs with its parameters, as the server resolved it (nodes/applies.py ResolvedCost). */
 export interface ResolvedCost {
-  lane: "light" | "heavy" | "gpu";
   gpu: boolean;
   vram_gb: number; // the measured peak (RTX 4090) with these parameters; 0 off a GPU
   seconds_per_frame: number | null;
@@ -268,10 +255,9 @@ export interface ResolvedLicence {
   word: string; // 服务器计算出的许可词（nodes/tags.py strictest）：仅限研究 / 非商用 / 需注册 / 可商用
 }
 
-/** 低/中/高/超高：GPU 节点的计算量档位（lab2shot/nodes/compute.py），附带包含实测显存与秒/帧数据的提示语。 */
-export interface ComputeRating {
+/** 低/中/高/超高：GPU 节点的计算量档位（lab2shot/nodes/compute.py）。 */
+interface ComputeRating {
   tier: "低" | "中" | "高" | "超高";
-  tip: string;
 }
 
 /** A tag (lab2shot/nodes/tags.py): what a node, a choice or a template is (基础, 可商用, 非商用, 仅限研究, 需注册). */
@@ -304,21 +290,15 @@ export interface Catalog {
  * it was when the server no longer has the upload. */
 export type PickedFrom = Omit<Upload, "name"> & { folder: string };
 
-/** An 「输出」 node's folder on the user's machine: its key in this browser (files/handles.ts), and its name. */
-export interface SaveTo {
-  handle: string;
-  name: string;
-}
-
 interface GraphNodeJSON {
   id: string;
   type: string;
   label: string;
   params: Record<string, unknown>;
   promoted?: string[]; // 提升到节点: each gets an input "param:<name>" and a row on the node's body
-  // editor only: where the node's files came from (by parameter) and go to; the parameters its body shows when the
+  // editor only: where the node's files came from (by parameter); the parameters its body shows when the
   // user chose others than its type's (NodeTypeDef.on_node, 「在节点上显示」, ParamPanel.tsx OnNodePin)
-  ui: { x: number; y: number; picked?: Record<string, PickedFrom>; save_to?: SaveTo; on_node?: string[] };
+  ui: { x: number; y: number; picked?: Record<string, PickedFrom>; on_node?: string[] };
 }
 
 /** A group box around nodes (Houdini network box). Members are listed only while it is collapsed. */
@@ -337,15 +317,15 @@ export interface BoxJSON {
 export interface GraphJSON {
   schema: "lab2shot.graph/1";
   // id: the graph's own identity, 128 random bits as 32 hex
-  // characters (graph/actions.ts's newGraphId), never an integer or anything else that could collide. Generated the
-  // moment a document is created (a template opened, a 另存为 copy) or, for a file saved before this existed, the
+  // characters (model/graphId.ts newGraphId), never an integer or anything else that could collide. Generated the
+  // moment a document is created (a template opened, a 另存为 copy) or, for a file without one, the
   // moment it is opened (and then marked changed, so saving writes it in); a plain open, save or reopen keeps it.
-  // Jobs and deliveries carry it, so the page only ever draws a delivery on the graph it belongs to. Two graphs from
+  // Jobs and outputs carry it, so the page only ever draws an output on the graph it belongs to. Two graphs from
   // the same template never share one; the id inside a template file (templates/*.json) exists only so the file
   // itself always has one, and is never inherited by a graph created from it.
   // `template`: the file stem of the built-in template this graph was made from (the templates panel writes it when
-  // a card is opened). It rides with the graph a job is submitted with, which is where the administrator's 模板 page
-  // counts 本月使用次数 from (lab2shot/server/templates.py _uses_this_month). A graph of one's own has none.
+  // a card is opened). It rides with the graph a job is submitted with; the queue groups a job without footage by it
+  // (lab2shot/transfer/groups.py). A graph of one's own has none.
   meta: { id?: string; name: string; description?: string; author?: string; created?: string; category?: string; tags?: string[]; template?: string };
   exposed: { name: string; label: string; target: string }[];
   frames?: [number, number] | null; // the frames to cook, first and last (null: every frame of the inputs)

@@ -30,8 +30,6 @@ export const PHASE_TEXT: Record<Phase, string> = {
   fetching: "取回结果",
 };
 
-export const BLANK_PROGRESS: JobProgress = { phase: "queued", node: "", label: "", note: "", done: 0, total: 0, at: null };
-
 /** 悬停提示中的完整说明：阶段名称、解算器当前步骤、该步骤的计数。
  * 该计数只在此处显示，节点右上角不显示。 */
 export function progressTip(p: JobProgress): string {

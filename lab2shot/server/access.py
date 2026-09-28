@@ -5,7 +5,7 @@ own address, so an address proves nothing). Three levels of route:
 
     open   anyone: the login page and the few files it is made of (the gate), logging in, the administrator's
            recovery with the 口令, the certificate users install for HTTPS, whether the server is up (Access.open, Access.page)
-    user   whoever logged in with an account (server/auth.py; or the command line on this machine): the editor, help,
+    user   whoever logged in with an account (server/auth.py; or the command line on this machine): the editor,
            the queue, their own jobs, uploads, results and feedback, and the rest of the web page's code (Access.user)
     admin  an account whose role has rights (lab2shot/roles.py: 管理员, 二级管理员), with the password typed within the
            last three days: the code of the admin page, and each route under /api/admin/ with the
@@ -20,17 +20,20 @@ user's), and a file the manifest does not name is not served at all.
 What is a user's own, and only theirs and whoever holds the right its route declares for other people's data
 (others_right: data.others for all but the few admin routes that name a narrower one, such as
 templates.restore for giving a user back a template they deleted):
-  - jobs, deliveries, feedback: by the account they were made under (mine);
-  - uploads: the content of a file is kept once on disk whoever sends it, but only who uploaded it may use it
-    (transfer/uploads.py owns): knowing its sha is not enough;
-  - results (packets): cached once for everyone (the same inputs and parameters cook once), readable by a user only
-    when the server derived its fingerprint from a graph of theirs (admit, then grant): a bare fingerprint is not
-    enough;
+  - jobs, task outputs, feedback: by the account they were made under (mine);
+  - uploads: each account's own, in its own folder (transfer/uploads.py): the same bytes sent by two accounts are
+    kept twice, and knowing a sha or an upload id is never enough to use or even learn of another's;
+  - results (packets): each account's own cache (data/store.py <数据位置>/cache/<account id>/): a packet is readable
+    when its fingerprint is there, in the requesting account's own cache (packets_readable); the same graph cooked by
+    two accounts is cooked and kept twice, and a fingerprint of another account's is simply not there;
   - node types: only those whose tags the account may use (nodes/tags.py). The others do not exist for it: not in the
-    catalog, templates or help, a graph with one is refused like one with a type this server lacks, and
+    catalog or templates, a graph with one is refused like one with a type this server lacks, and
     no answer names them (redact).
 
 Guard, the one middleware in front of everything, applies it to every request, and also
+  - lets an account that has not agreed to the current 用户协议 and 隐私政策 (lab2shot/terms owed: one an
+    administrator made, or anyone after the texts changed) reach nothing but the login's own routes (/api/auth/:
+    agreeing, logging out) and the open ones, until it agrees (403 marked `terms`: the page asks for it);
   - counts requests per client (auth.Rate), every session's alike, and per client on a route with a rate of its own
     (its declared Limit): a flood is refused (429);
   - refuses every write that relies on the cookie (or on no credential: logging in) and did not come from a page of
@@ -40,7 +43,7 @@ Guard, the one middleware in front of everything, applies it to every request, a
     as they read);
   - adds the security headers (HEADERS) to every answer, and over HTTPS (this server's, or the tunnel's in front of
     it) to a named host also HSTS: the browser then never asks it over plain http;
-  - takes this server's own folders out of what anyone but the administrator gets back (scrub): an error, a job's
+  - takes this server's own folders out of what anyone without logs.view gets back (scrub): an error, a job's
     log, a result's description never show where the server keeps things, only file names;
   - takes what an account may not use out of every answer it gets (redact);
   - notes what looks like probing (auth.Watch, the admin page's 安全): refused routes, odd paths, floods;
@@ -64,7 +67,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import compile_path
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .. import logs, roles
+from .. import logs, roles, terms
 from ..accounts import User
 from ..config import ROOT, WEBUI_DIST, settings
 from ..database import db, json_text
@@ -89,7 +92,8 @@ HEADERS = {
         "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'")),
 }
 SCRUBBED = ("application/json", "text/event-stream", "text/plain")
-VERBATIM = compile_path("/api/deliveries/{run}/{node}/file/{name:path}")[0]  # the user's own files, as they are
+AUTH = "/api/auth/"  # the login's own routes: answered before an account agreed to the texts (logging in and out, agreeing)
+VERBATIM = compile_path("/api/tasks/{task_id}/outputs/{pkg}/file/{name:path}")[0]  # the user's own files, as they are
 
 
 def limit_of(method: str, path: str) -> tuple[str, Limit] | None:
@@ -199,12 +203,11 @@ def level(method: str, path: str) -> str | None:
 
 def same_site(request: Request) -> bool:
     """Whether the request came from a page of this site: its Origin (or, without one, its Referer) names the host it was
-    sent to (or the host a tunnel says it forwarded)."""
+    sent to (or the host a trusted proxy says it forwarded: auth.host)."""
     source = request.headers.get("origin") or request.headers.get("referer") or ""
     host = urlsplit(source).netloc.lower() if source and source != "null" else ""
-    here = {request.headers.get("host", "").lower(), request.headers.get("x-forwarded-host", "").split(",")[0].strip().lower()}
+    here = {request.headers.get("host", "").lower(), auth.host(request)}
     return bool(host) and host in here - {""}
-
 
 
 def refused(message: Msg, status: int, **extra) -> JSONResponse:
@@ -254,12 +257,12 @@ def node_types_for(u: User | None) -> dict:
 
 def templates_for(u: User | None) -> list[dict]:
     """The templates an account may use: every node and choice of it within its tags and, unless this login manages
-    the templates, only the ones that are switched on (server/templates.py; the one place that filter lives, so the
-    template sheet and the help page's 「用到它的模板」 agree without either of them deciding anything).
+    the templates, only the ones that are switched on (switched in server/templates.py; this is the one place that
+    filter lives, so the template panel and the tools routes (server/tools.py) agree without either deciding anything).
 
-    Two sources, one list: the graph files under templates/ (engine/templates.py) and the ones an administrator
-    entered from a node graph someone built (server/library.py); they are cards of the same
-    shape, so nothing downstream tells them apart."""
+    Two sources, one list (engine/templates.py templates, read by lab2shot/library.py presets): the project's
+    templates/ (including the ones an administrator saved there from a node graph) and each adapter's own templates/;
+    they are cards of the same shape, so nothing downstream tells them apart."""
     from ..engine.templates import templates
 
     given = u.allowed if u else None
@@ -275,14 +278,6 @@ def _hidden_choices(given: frozenset[str] | None, node_type) -> dict[str, list]:
     if given is None or tags.may(frozenset({tags.NONCOMMERCIAL}), given):
         return {}
     return {name: list(values) for name, values in noncommercial_choices(node_type).items()}
-
-
-def noncommercial_for(u: User | None, node_type) -> dict[str, list]:
-    """Parameter -> the values that switch the node to non-commercial parts, of those the account may use."""
-    from ..nodes.applies import noncommercial_choices
-
-    hidden = _hidden_choices(u.allowed if u else None, node_type)
-    return {k: [v for v in vs if v not in hidden.get(k, [])] for k, vs in noncommercial_choices(node_type).items()}
 
 
 def describe_for(u: User | None, node_type) -> dict:
@@ -318,21 +313,6 @@ def describe_for(u: User | None, node_type) -> dict:
     return {**desc, "params": params, "defaults": defaults, "option_traits": traits}
 
 
-def project_visible(u: User | None, runtime: str) -> bool:
-    """Does a project exist for an account: it has a node type the account may use, or, with no nodes yet, its
-    licence class is one it may use."""
-    from ..nodes import node_types
-
-    if runtime == "core" or (u.allowed if u else None) is None:
-        return True
-    nodes = [t for t in node_types().values() if t.runtime == runtime]
-    if nodes:
-        return any(tags.may(tags.node_tags(t), u.allowed if u else None) for t in nodes)
-    from ..adapters import project_of
-
-    return tags.may(frozenset({project_of(runtime).licence}), u.allowed if u else None)
-
-
 UNKNOWN = Msg("E-GRAPH-UNKNOWNNODES")
 
 
@@ -350,44 +330,14 @@ def admit(request: Request, data: dict) -> Graph:
     usable = node_types_for(u)
     if "nodes.all" not in u.capabilities and any(not isinstance(n, dict) or n.get("type") not in usable for n in data["nodes"]):
         raise GraphError(UNKNOWN)
-    try:
-        graph = Graph.from_json(data)
-    except GraphError as exc:  # its words may list every choice of a parameter: the account's editor says what fits
-        if "nodes.all" in u.capabilities:
-            raise
-        raise GraphError(Msg("E-GRAPH-UNREADABLE", reason=str(exc).split('：')[0])) from None
+    # what it says when it cannot be read is said to everyone alike: a parameter it refuses is named with the value
+    # given and what it takes, never with the list of its options (nodes/params.py refusal)
+    graph = Graph.from_json(data)
     given = u.allowed if u else None
     for nid, n in graph.nodes.items():
         if not tags.may(graph.resolved(nid).licence.tags, given):
             raise GraphError(Msg("E-GRAPH-UNKNOWNCHOICE", node=n.label))
     return graph
-
-
-def grant(request: Request, fingerprints) -> None:
-    """The account may read these packets: the server derived them from a graph of theirs (admit)."""
-    fps = [fp for fp in dict.fromkeys(fingerprints) if fp]
-    u = auth.me(request)
-    if not fps or auth.can(request, "data.others"):
-        return
-    t = time.time()
-    with db().write() as c:
-        c.executemany("INSERT INTO grants (user_id, fp, at) VALUES (?, ?, ?) ON CONFLICT (user_id, fp) DO UPDATE SET at = excluded.at",
-                      [(u.id, fp, t) for fp in fps])
-
-
-def grant_status(request: Request, evaluation, status: dict) -> None:
-    """Grant every packet a graph's status names (its nodes' outputs)."""
-    grant_packets(request, evaluation, (fp for s in status["nodes"].values() for fp in (s.get("outputs") or {}).values()))
-
-
-def grant_packets(request: Request, evaluation, fingerprints) -> None:
-    """Grant the packets an answer about a graph names (its status, one node's items), skipping the ones `evaluation`
-    (engine/evaluation.py, its Evaluation.granted) already granted for this session. Avoiding a database write, on
-    every status poll, for a fingerprint this session was already given is the whole purpose of that evaluation
-    field."""
-    fps = [fp for fp in dict.fromkeys(fingerprints) if fp not in evaluation.granted]
-    grant(request, fps)
-    evaluation.granted.update(fps)
 
 
 def packets_readable(request: Request) -> None:
@@ -402,21 +352,72 @@ def packets_readable(request: Request) -> None:
 
 
 def readable(request: Request, fp: str) -> None:
-    """A packet this account may read (with data.others: any): one granted to it, else not found."""
-    if auth.can(request, "data.others"):
-        return
-    u = auth.me(request)
-    base = fp.removesuffix("_display")
-    if db().row("SELECT 1 FROM grants WHERE user_id = ? AND fp = ?", (u.id, base)) is None:
-        raise NotFound(Msg("E-ACCESS-NORESULT"))
+    """A packet this account may read: one in its own cache (data/store.py; the request is served as its account,
+    lab2shot/serving.py, so packet_dir names that cache), else not found — exactly as for a result never computed. An
+    administrator holding data.others reads its own cache too: another account's is read by naming that account
+    (data/store.py cache_of), never by a bare fingerprint."""
+    from ..data.packet import base_of, packet_dir
 
+    if not packet_dir(base_of(fp)).is_dir():  # packet_dir refuses what is not a fingerprint (E-PACKET-FINGERPRINT)
+        raise NotFound(Msg("E-ACCESS-NORESULT"))
 
 
 # ------------------------------------------------------------------ what an account may not use, out of every answer
 
 
+def _case_classes() -> dict[int, str]:
+    """Each character the regular-expression engine takes as the same letter as another one when case is ignored,
+    beyond what lowercasing gives (the dotless i and i, the long s and s, the two sigmas ...: re/_casefix.py), mapped
+    to one of them."""
+    from re import _casefix
+
+    first: dict[int, int] = {}
+    for k, others in _casefix._EXTRA_CASES.items():
+        m = min(k, *others)
+        for x in (k, *others):
+            first[x] = min(first.get(x, m), m)
+    return {k: chr(v) for k, v in first.items() if k != v}
+
+
+_CASE_CLASSES = _case_classes()
+_CASE_CHARS = re.compile("[" + "".join(re.escape(chr(k)) for k in _CASE_CLASSES) + "]")
+
+
+def _fold(text: str) -> str:
+    """`text` with case taken out exactly as a case-insensitive pattern takes it out, one character for one: İ is i
+    (lowercasing makes it two), then lowercase, then the letters the engine counts as one (_case_classes). Two strings
+    a case-insensitive literal pattern matches at a place are equal here character by character. Each step only when
+    the text has something for it (most answers have none of those letters)."""
+    if "\u0130" in text:
+        text = text.replace("\u0130", "i")
+    text = text.lower()
+    return text.translate(_CASE_CLASSES) if _CASE_CHARS.search(text) else text
+
+
+class Hidden:
+    """The names of what an account may not use, as `pattern`: whole words, case-insensitive (what an answer loses).
+    `search` answers exactly as `pattern.search` does, fast: first a plain look for any of the names anywhere in the
+    text case-folded (_fold), which every match of `pattern` needs, and `pattern` itself only when that finds one. A
+    name that holds another is not looked for (the shorter one is there wherever it is). A big case-insensitive
+    alternation with lookarounds tries every name at every place: hundreds of ms on a long answer; the look is a few
+    substring searches."""
+
+    def __init__(self, terms: set[str]) -> None:
+        alts = "|".join(re.escape(x) for x in sorted(terms, key=len, reverse=True))
+        self.pattern = re.compile(rf"(?i)(?<![A-Za-z0-9_])(?:{alts})(?![A-Za-z0-9_])")
+        needed: list[str] = []
+        for name in sorted({_fold(x) for x in terms}, key=len):
+            if not any(n in name for n in needed):
+                needed.append(name)
+        self._needed = tuple(needed)
+
+    def search(self, text: str) -> re.Match | None:
+        folded = _fold(text)
+        return self.pattern.search(text) if any(n in folded for n in self._needed) else None
+
+
 @lru_cache(maxsize=16)
-def _hidden_terms(given: frozenset[str], _text_stamp: tuple) -> re.Pattern | None:
+def _hidden_terms(given: frozenset[str], _text_stamp: tuple) -> Hidden | None:
     """The names of what does not exist for someone given `given` (hidden projects: their ids and titles; hidden
     node types: their ids and labels; hidden choices: their values that are names of their own, like a model's), as
     one pattern; None when nothing is hidden. `_text_stamp`: the node text files' stamp the labels were taken from
@@ -440,11 +441,10 @@ def _hidden_terms(given: frozenset[str], _text_stamp: tuple) -> re.Pattern | Non
     terms = {x for x in terms if len(x) >= 3}
     if not terms:
         return None
-    alts = "|".join(re.escape(x) for x in sorted(terms, key=len, reverse=True))
-    return re.compile(rf"(?i)(?<![A-Za-z0-9_])(?:{alts})(?![A-Za-z0-9_])")
+    return Hidden(terms)
 
 
-def hidden_pattern(u: User | None) -> re.Pattern | None:
+def hidden_pattern(u: User | None) -> Hidden | None:
     given = u.allowed if u else None
     if given is None:
         return None
@@ -458,14 +458,14 @@ def hidden_pattern(u: User | None) -> re.Pattern | None:
 _SENTENCE = re.compile(r"(?<=[。；！？\n])|(?<=[.;!?])(?=\s)")
 
 
-def redact_text(text: str, hidden: re.Pattern) -> str:
+def redact_text(text: str, hidden: Hidden) -> str:
     """A text without the sentences (lines, clauses ended by 。；！？) that name what is hidden."""
     if not hidden.search(text):
         return text
     return "".join(part for part in _SENTENCE.split(text) if not hidden.search(part)).strip()
 
 
-def redact(value, hidden: re.Pattern):
+def redact(value, hidden: Hidden):
     """Every text in an answer without what is hidden: sentences naming it go, an entry keyed by it goes."""
     if isinstance(value, str):
         return redact_text(value, hidden)
@@ -496,7 +496,7 @@ def _strip_bytes(data: bytes, paths: tuple[str, ...], stream: bool) -> bytes:
         return data
 
 
-def _redact_bytes(data: bytes, hidden: re.Pattern, stream: bool) -> bytes:
+def _redact_bytes(data: bytes, hidden: Hidden, stream: bool) -> bytes:
     text = data.decode("utf-8", "replace")  # decoded once leniently here; a strict decode would raise UnicodeDecodeError (a 500) on a split multi-byte character
     if not hidden.search(text):
         return data
@@ -520,25 +520,39 @@ def _redact_bytes(data: bytes, hidden: re.Pattern, stream: bool) -> bytes:
 
 
 def _places() -> re.Pattern:
-    """A path under one of this server's own folders (the work folder, the program's, the home folder, Python's),
-    up to where it ends in a JSON string or a line."""
+    """A path under one of this server's own folders (every folder the settings place things in, the program's, the
+    home folder, Python's), as configured and as resolved, up to where it ends in a JSON string or a line."""
     import sys
 
-    roots = {str(settings().work_dir), str(ROOT), str(Path.home()), sys.prefix, sys.base_prefix}
+    folders = [*settings().folders, ROOT, Path.home(), Path(sys.prefix), Path(sys.base_prefix)]
+    roots = {str(p) for f in folders for p in (f, f.resolve())}
     alts = "|".join(re.escape(r) for r in sorted((r for r in roots if len(r) > 1), key=len, reverse=True))
     return re.compile(rf"(?:{alts})(?:/[^\s\"'<>\\,;)]*)?".encode())
 
 
 def scrub(data: bytes) -> bytes:
-    """This server's own folders out of what goes back to someone who is not the administrator: a path there becomes
+    """This server's own folders out of what goes back to someone without logs.view: a path there becomes
     its file name alone (a job's error still says which file, never where it is)."""
     return _places().sub(lambda m: m.group(0).rsplit(b"/", 1)[-1] or b"...", data)
 
 
-# what probing looks like: in the path as sent, going up, encoded dots, slashes and NUL, backslashes, the repo's own
-# folders and files; in the query, going up or NUL (a query may encode slashes: an upload's reference)
-PROBE_PATH = re.compile(rb"(?i)(\.\.|%2e|%2f|%5c|%00|\\|\x00|/\.git|/\.env|/lab2shot/|/adapters/|/third_party/|/work/|/config/|\.py$|\.toml$|\.db$|\.lock$)")
+# what probing looks like: in the path as sent, going up a folder, encoded dots, slashes and NUL, backslashes (never in
+# an address a client of ours sends); asking for the repo's own folders and files (PROBE_OWN), except on a route of an
+# account's own things, whose names may well be config/shot.toml or comp..v2.py (probe_path); in the query, going up or
+# NUL (a query may encode slashes: an upload's reference)
+PROBE_PATH = re.compile(rb"(?i)((?:^|/)\.\.(?:[/;]|$)|%2e|%2f|%5c|%00|\\|\x00)")
+PROBE_OWN = re.compile(rb"(?i)(\.\.|/\.git|/\.env|/lab2shot/|/adapters/|/third_party/|/work/|/config/|\.py$|\.toml$|\.db$|\.lock$)")
 PROBE_QUERY = re.compile(rb"(?i)(\.\.|%2e%2e|%00|\x00)")
+
+
+def probe_path(raw: bytes, method: str, path: str, s) -> bool:
+    """Whether the path as sent looks like probing. A signed-in account on a route of its own (user or admin) asks for
+    its things by their names: counting a name as probing would block the account's own session (auth.Watch) for
+    fetching its outputs, and the route checks the name itself (io/files.py inside). Everyone else, and every address
+    that is not such a route (the page's entry, one this server does not have), is checked for the repo's files too."""
+    found = match(method, path)
+    theirs = s is not None and found is not None and found[1].level in ("user", "admin")
+    return bool(PROBE_PATH.search(raw) or (not theirs and PROBE_OWN.search(raw)))
 
 
 _SLASHES = re.compile(r"/{2,}")  # an address no page of this site ever asks for: refused, never quietly collapsed
@@ -574,7 +588,7 @@ class Guard:
         # request's owner; traffic accounting does not identify it again.
         scope[SCOPE_USER] = s.user.id if s is not None else 0
         transforming = scrubbing or bool(fields)
-        hsts = auth.https(request) and _named(request.headers.get("x-forwarded-host") or request.headers.get("host", ""))
+        hsts = auth.https(request) and _named(auth.host(request))
 
         started: Message | None = None
         held: list[bytes] = []
@@ -651,13 +665,16 @@ class Guard:
         g = auth.guards()
         if blocked := g.watch.is_blocked(request):
             return refused(Msg("E-ACCESS-BLOCKED", minutes=int(blocked / 60) + 1), 429)
+        if not auth.host_known(request):  # another site's name pointing here (DNS rebinding), or a name not yet listed
+            g.watch.note(request, "陌生的域名", request.headers.get("host", "")[:200])
+            return refused(Msg("E-ACCESS-UNKNOWNHOST", host=request.headers.get("host", "")[:200]), 421)
         key, own = auth.client_key(request), limit_of(method, path)
         if not g.rate.take(key) or (own is not None and own[1].burst is not None
                                     and not g.rate.take(f"{own[0]} {key}", own[1].burst, own[1].per_s)):
             g.watch.note(request, "请求太频繁")  # every session counts, the administrator's too
             return refused(Msg("E-ACCESS-TOOFAST"), 429)
         raw, query = request.scope.get("raw_path") or request.scope["path"].encode(), request.scope.get("query_string") or b""
-        if PROBE_PATH.search(raw) or PROBE_QUERY.search(query):
+        if probe_path(raw, method, path, s) or PROBE_QUERY.search(query):
             g.watch.note(request, "路径可疑", (raw + (b"?" + query if query else b"")).decode("latin-1")[:200])
         if PROBE_QUERY.search(query):  # going up or NUL in a parameter: never a name any page sends (defence in depth)
             return refused(Msg("E-ACCESS-PROBE"), 400)
@@ -666,12 +683,13 @@ class Guard:
             return refused(Msg("E-ACCESS-NOROUTE"), 404)
         where = level(method, path)
         if where is None:
-            # A page of this site, logged in, calling an endpoint this server does not have: a version mismatch (during
-            # an upgrade the page may be newer than the server or vice versa), not probing. It is still recorded under
-            # the admin page's 「安全」 but not counted toward blocking; otherwise an active user would be locked out after
-            # a few dozen clicks.
+            # Logged in, and the request says it comes from a page of this site, yet the endpoint is not here. During an
+            # upgrade the page may be newer than the server or older, and an open page keeps asking: counting that would
+            # lock a person out after a few dozen clicks. A script holding someone's login looks just the same (Origin is
+            # a header anyone can send), so the note says only what is known, never which of the two it was. It is
+            # recorded under the admin page's 「安全」 with the account, not counted toward blocking.
             ours = s is not None and same_site(request)
-            g.watch.note(request, "未开放的接口", "页面和服务器版本对不上" if ours else "", counts=not ours)
+            g.watch.note(request, "未开放的接口", "已登录，请求自称来自本站页面；不计入封禁" if ours else "", counts=not ours)
             return refused(Msg("E-ACCESS-NOROUTE"), 404)
         writes = method not in ("GET", "HEAD")
         if where == "admin" and (s is None or not s.capabilities):  # no rights at all now: the page asks for the password
@@ -703,6 +721,8 @@ class Guard:
                 if not auth.accounts.once_issued(auth.credential(request)):
                     g.watch.note(request, "登录凭证不是这台服务器发的")
             return refused(Msg("E-ACCESS-SIGNIN"), 401, login=True)
+        if where != "open" and not path.startswith(AUTH) and (owed := terms.owed(s.user)) is not None:
+            return refused(Msg("E-TERMS-OWED"), 403, terms=owed)
         if where == "user" and need is not None and not s.can(need):  # a product page's action that is not everyone's
             if need in s.user.capabilities:  # the role has it, its three days ran out: the password again
                 return refused(Msg("E-ACCESS-ADMINONLY"), 401, admin=True)

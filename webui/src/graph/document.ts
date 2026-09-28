@@ -18,14 +18,15 @@ import { msg, say, type Message } from "../state/say";
 import { refreshStatus } from "./actions";
 import { useItems } from "../state/items";
 import { justWired } from "./actions";
+import { loadOutputs } from "./outputs";
+import { randomId } from "../platform/randomId";
 
 // ------------------------------------------------------------------ history + dirty
 
 const history = new History();
 let statusTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** history.ts's flat Doc, built fresh from state/cookInputs.ts + state/look.ts (webui/tests/history.test.ts covers
- * the Doc shape, the History class and restore()). */
+/** history.ts's flat Doc, built fresh from state/cookInputs.ts + state/look.ts. */
 function docNow(): Doc {
   const ci = useCookInputs.getState();
   const look = useLook.getState();
@@ -52,13 +53,20 @@ export function stopStatusRefresh(): void {
   statusTimer = null;
 }
 
+/** What the server's answer depends on: the cook inputs' version and the node shown. A move, a box, the rows shown on
+ * a node change neither, so they ask nothing (a drag would otherwise ask again after every pause of the pointer). */
+let askedFor = { version: -1, display: "" as string | null };
+
 /** After any edit of state/cookInputs.ts or state/look.ts: record a history step, refresh dirty/undo/redo, and ask
- * the server again (debounced) if the cook inputs moved. */
+ * the server again (debounced) if the cook inputs or the node shown moved. */
 function noticed(): void {
   const doc = docNow();
   if (history.record(doc, getNodeDefs(), (id, port) => (port ? outputsOf(snapshotNow(), id).find((p) => p.name === port) : mainOutput(snapshotNow(), id)))) {
     useViewer.getState().setSaveState(!history.isSaved(doc), history.labels.undoLabel, history.labels.redoLabel);
   }
+  const now = { version: useCookInputs.getState().version, display: useLook.getState().displayId };
+  if (now.version === askedFor.version && now.display === askedFor.display) return;
+  askedFor = now;
   scheduleStatusRefresh();
 }
 
@@ -118,7 +126,7 @@ function applyDoc(doc: Doc): void {
   const positions: Record<string, { x: number; y: number }> = {};
   const onNode: Record<string, string[] | undefined> = {};
   for (const n of restored.nodes) {
-    nodes[n.id] = { typeId: n.data.typeId, label: n.data.label, params: n.data.params, promoted: n.data.promoted, picked: n.data.picked, saveTo: n.data.saveTo, stored: n.data.stored };
+    nodes[n.id] = { typeId: n.data.typeId, label: n.data.label, params: n.data.params, promoted: n.data.promoted, picked: n.data.picked, stored: n.data.stored };
     positions[n.id] = n.position;
     onNode[n.id] = n.data.onNode;
   }
@@ -132,9 +140,15 @@ function applyDoc(doc: Doc): void {
   useViewer.setState({ selectedId: restored.selectedId });
 }
 
-export function markSaved(): void {
-  history.markSaved(docNow());
-  useViewer.getState().setSaveState(false, history.labels.undoLabel, history.labels.redoLabel);
+/** The document as it is now, taken when it is serialized for its file (graph/graphFile.ts); calling the result once
+ * the write has finished marks exactly that as the file's content. An edit made while the write was under way is not in
+ * the file, so it stays unsaved. */
+export function savePoint(): () => void {
+  const doc = docNow();
+  return () => {
+    history.markSaved(doc);
+    useViewer.getState().setSaveState(!history.isSaved(docNow()), history.labels.undoLabel, history.labels.redoLabel);
+  };
 }
 
 // ------------------------------------------------------------------ loading, saving
@@ -184,7 +198,7 @@ function checkGraph(g: GraphJSON, defs: Record<string, NodeTypeDef>) {
   const onNodeOf = new Map(
     g.nodes.flatMap((n) => {
       // `ui` 整体可以缺失（节点图文件未记录位置）：此时没有该名单，按类型声明处理。
-      // 文件缺少某个键不应导致页面崩溃（tests/test_templates.py 检查模板文件）
+      // 文件缺少某个键不应导致页面崩溃（模板文件由 `lab2shot check templates` 检查）
       if (!n.ui?.on_node) return [];
       const simple = new Set(defs[n.type].params.filter((p) => p.simple).map((p) => p.name));
       const gone = n.ui.on_node.filter((p) => !simple.has(p));
@@ -219,10 +233,9 @@ function checkGraph(g: GraphJSON, defs: Record<string, NodeTypeDef>) {
   return { nodes: g.nodes, params, stored, promoted, onNode, edges, problems, kept };
 }
 
-export { newGraphId } from "../model/graphId"; // re-exported: graph/graphFile.ts and others import it from here
 
 /** Another graph (a template, a file, a job's, a fresh document): the working state a new document starts with.
- * `docId` given only when resuming this browser's last working state (tabs.ts). `opts.freshId`: this document is a
+ * `docId` given only when resuming this browser's last working state (editor/autosave.ts). `opts.freshId`: this document is a
  * new copy of whatever `g` was (a template opened again and again); it never keeps `g`'s own id, even
  * when `g.meta.id` is set (a template file's id exists only so the file itself always has one; every graph made
  * from it gets its own, so two graphs from the same template never share one). */
@@ -235,7 +248,7 @@ export function loadGraph(g: GraphJSON, file: { name: string; handle?: string } 
   const order: string[] = [];
   for (const n of checked.nodes) {
     order.push(n.id);
-    nodes[n.id] = { typeId: n.type, label: n.label || defs[n.type]?.label || n.type, params: checked.params(n), promoted: checked.promoted(n).length ? checked.promoted(n) : undefined, picked: n.ui.picked, saveTo: n.ui.save_to, stored: checked.stored(n) };
+    nodes[n.id] = { typeId: n.type, label: n.label || defs[n.type]?.label || n.type, params: checked.params(n), promoted: checked.promoted(n).length ? checked.promoted(n) : undefined, picked: n.ui.picked, stored: checked.stored(n) };
     positions[n.id] = { x: n.ui.x, y: n.ui.y };
     onNode[n.id] = checked.onNode(n);
   }
@@ -253,12 +266,11 @@ export function loadGraph(g: GraphJSON, file: { name: string; handle?: string } 
   const boxes: Box[] = (g.boxes ?? []).map((b) => ({ ...b, members: b.members ?? [] }));
   const cookRange: [string, string] | null = g.frames ? [String(g.frames[0]), String(g.frames[1])] : null;
 
-  // meta.id: generated for a graph that never had one (a file
-  // saved before this existed) or that must never share the one it was opened from (opts.freshId: a template, or a
-  // graph reopened from a still-open document via 另存为's new-copy path). There is no compatibility layer: it is fixed up
-  // once, here, and the document counts as changed so saving writes the id in.
+  // meta.id: generated for a graph whose file has none, or that must never share the one it was opened from
+  // (opts.freshId: a template; 另存为 gives its copy a new id in graph/graphFile.ts). There is no compatibility layer:
+  // it is fixed up once, here, and the document counts as changed so saving writes the id in.
   const { id: graphId, generated } = graphIdForLoad(g.meta.id, opts?.freshId);
-  // Only a file that lacks its id has something to write back; a new copy (a template, 另存为) has no file yet and its
+  // Only a file that lacks its id has something to write back; a new copy (a template) has no file yet and its
   // first save writes the id anyway. It opens unchanged, so an edit that is undone brings it back to unchanged.
   if (generated && !opts?.freshId) dirty = true;
   const { id: _unusedId, ...meta } = g.meta;
@@ -267,7 +279,7 @@ export function loadGraph(g: GraphJSON, file: { name: string; handle?: string } 
   useResults.getState().reset();
   useItems.getState().reset(); // another graph: no block of the old one is being shown any more (state/items.ts)
   justWired.clear();
-  restoring = true; // two separate store writes below, one document (see watchStores()'s comment)
+  restoring = true; // two separate store writes below, one document (see the comment on `restoring`)
   try {
     // 节点图文件未写「对外参数」项时按空处理：缺失会导致参数面板整体空白
     useCookInputs.getState().load({ graphId, meta, exposed: g.exposed ?? [], cookRange, nodes, order, edges, kept: checked.kept });
@@ -276,7 +288,7 @@ export function loadGraph(g: GraphJSON, file: { name: string; handle?: string } 
     restoring = false;
   }
   useViewer.getState().reset();
-  useViewer.setState({ file, docId: docId ?? (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`), role: "editor", peerBanner: null });
+  useViewer.setState({ file, docId: docId ?? randomId(), role: "editor", peerBanner: null });
   if (view.frame) useViewer.setState({ frame: view.frame });
   history.reset(docNow(), !dirty);
   // the unsaved mark is the history's answer from the start (a file fixed up on load shows it at once), never a
@@ -284,6 +296,7 @@ export function loadGraph(g: GraphJSON, file: { name: string; handle?: string } 
   useViewer.getState().setSaveState(!history.isSaved(docNow()), history.labels.undoLabel, history.labels.redoLabel);
   noticed();
   for (const m of said) say(m);
+  void loadOutputs(); // what its 「输出」 packed before, still on the server
 }
 
 /** The graph as sent to the server (toJSON) or kept in its file (fileJSON: adds back the 「未知节点」 kept as they
@@ -303,7 +316,7 @@ export function toJSON(): GraphJSON {
       return {
         id, type: n.typeId, label: n.label, params: n.params,
         ...(n.promoted?.length ? { promoted: n.promoted } : {}),
-        ui: { x: Math.round(pos.x), y: Math.round(pos.y), ...(n.picked && Object.keys(n.picked).length ? { picked: n.picked } : {}), ...(n.saveTo ? { save_to: n.saveTo } : {}), ...(look.onNode[id] ? { on_node: look.onNode[id] } : {}) },
+        ui: { x: Math.round(pos.x), y: Math.round(pos.y), ...(n.picked && Object.keys(n.picked).length ? { picked: n.picked } : {}), ...(look.onNode[id] ? { on_node: look.onNode[id] } : {}) },
       };
     }),
     edges: ci.edges.map((e) => ({ from: [e.source, e.sourceHandle], to: [e.target, e.targetHandle] })),

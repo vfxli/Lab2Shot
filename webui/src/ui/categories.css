@@ -1,6 +1,6 @@
 /* The one way the site navigates a catalogue: the first-level categories down
-   the left with how many each holds, and rows of filter chips over the list. The template sheet, the help page and the
-   dataset catalogue use the same two parts. Docked, so solid. */
+   the left with how many each holds, and rows of filter chips over the list. The template sheet and the node menu use
+   the rail, the template sheet and the admin's resource lists the filter rows. Docked, so solid. */
 
 .cat-rail {
   display: flex;
@@ -83,7 +83,7 @@
 
 .filter-row {
   display: flex;
-  flex-wrap: wrap; /* 一行放不下就折行，不让这一段横着滚（后台「模板」的「类别」有十几个） */
+  flex-wrap: wrap; /* 一行放不下就折行，不让这一段横着滚（后台列表的「按人」可有几十个） */
   align-items: center;
   gap: var(--sp-1);
 }
@@ -104,7 +104,7 @@
   white-space: nowrap;
 }
 
-/* a category's glyph (ui/icons.tsx CategoryGlyph): the node menu, the template sheet, the help page */
+/* a category's glyph (ui/CategoryGlyph.tsx): the node menu's rail and rows */
 .cat-icon {
   width: 18px;
   height: 18px;
@@ -114,7 +114,7 @@
   flex: none;
 }
 
-/* a managed rail (editor/Templates.tsx, for a login that manages the templates): each category is a row that drags and
+/* a managed rail (editor/Templates.tsx, editor/NodeMenu.tsx, for a login that manages that tree): each category is a row that drags and
    takes a dropped card; its menu sits at the right end, and the band ends with 「新建分类」 */
 .cat-row {
   display: flex;

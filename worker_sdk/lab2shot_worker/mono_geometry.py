@@ -1,8 +1,8 @@
-"""The single-image geometry family (MoGe, UniDepth, UniK3D, Depth Anything 3): the per-frame loop, the geometry
+"""The single-image geometry family (MoGe, UniDepth, UniK3D, Depth Anything 3, FaceAnything): the per-frame loop, the geometry
 arrays and result.json. Runs inside each extension's own environment (numpy, torch); never imports Lab2Shot core.
 
-Per-frame geometry contract (lab2shot/nodes/results.py geometry()), at the input
-resolution, raw/frame_<n>.npz:
+Per-frame geometry contract (node side: lab2shot/nodes/families/depth_camera.py
+PerFrameDepthCamera), at the input resolution, raw/frame_<n>.npz:
 
     points      float32 [H,W,3]  camera space, OpenCV (+X right, +Y down, +Z forward), metres
     depth       float32 [H,W]    camera Z, metres
@@ -12,6 +12,7 @@ resolution, raw/frame_<n>.npz:
     confidence  float32 [H,W]    the model's own confidence (larger = more reliable; not
                                  comparable between models); absent when the model has none
     normal      float32 [H,W,3]  camera space, OpenCV; only models that predict normals (MoGe)
+    sky         float32 [H,W]    the model's own sky probability; only models that predict it (DA3)
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ import numpy as np
 import torch
 from lab2shot_shared.poses import pixel_rays
 
-from . import Job, read_frame, say, stub_module
+from . import Job, fail, read_frame, say, stub_module
 from .frame_io import FrameReader, Writer
 from .run import Run
 
@@ -96,15 +97,17 @@ def camera_for_network(k: np.ndarray, size: tuple[int, int], model, get_paddings
 
 
 def load_network(model_dir: Path, device, module: str, class_name: str, project: str, extension: str):
-    """UniDepth / UniK3D（同一组作者的两个仓库）加载权重的那一段：`<模型目录>/config.json` 配出网络，
-    `model.safetensors` 填权重，少了键就停下（`E-WORKER-WEIGHTSMISMATCH`，一族共用一条，项目名是参数），
-    再放到显卡上转成推理模式。
+    """UniDepth / UniK3D (two repositories by the same authors) loading their weights: the network built from
+    `<model folder>/config.json`, filled from `model.safetensors`, stopping when keys are missing
+    (`E-WORKER-WEIGHTSMISMATCH`, one code for the family, the project a parameter), then moved to the GPU in
+    inference mode.
 
-    两个 worker 只差类名、模块路径和项目名，所以那几样由调用方给。
-    常驻（`@resident`）仍然挂在 worker 自己那个一行的 `load_model` 上：常驻记录在后台页面上显示的是
-    加载函数的参数，把模块名也传进去会把那一行写得没法看。
+    The two workers differ only in class name, module path and project name, so the caller gives those.
+    `@resident` stays on each worker's own one-line `load_model`: the admin page shows a resident loader's
+    arguments, and the module name among them would make that line unreadable.
 
-    `interpolation_mode = "bilinear"`、`.eval()` 都照原样：UniK3D 只有 eval() 之后才会用传进去的镜头。
+    `interpolation_mode = "bilinear"` and `.eval()` are as upstream does them: UniK3D uses the camera it is given
+    only after eval().
     """
     from safetensors.torch import load_file
 
@@ -120,9 +123,8 @@ def load_network(model_dir: Path, device, module: str, class_name: str, project:
 
 def network_camera(fov_x_deg: float | None, width: int, height: int, model, get_paddings, get_resize_factor,
                    pinhole_class, device):
-    """已知视场角时，网络要的那个镜头条件（`Pinhole`），不知道就是 None（让网络自己估）。
-
-    UniDepth / UniK3D 的 `infer(image, camera)` 第二个参数就是它。
+    """The camera condition (`Pinhole`) the network takes when the field of view is known; None otherwise (the
+    network estimates it). It is the second argument of UniDepth / UniK3D's `infer(image, camera)`.
     """
     if not fov_x_deg:
         return None
@@ -133,8 +135,9 @@ def network_camera(fov_x_deg: float | None, width: int, height: int, model, get_
 
 def infer_frame(rgb: np.ndarray, device, model, fov_x_deg: float | None, get_paddings, get_resize_factor,
                 pinhole_class):
-    """一帧送进 UniDepth / UniK3D 的网络：画面搬上显卡、已知视场角就做成镜头条件、跑 `infer`，
-    交出网络原样的输出和点图（[H,W,3]，相机空间、米）。"""
+    """One frame through UniDepth / UniK3D's network: the picture onto the GPU, the camera condition when the field
+    of view is known, `infer`; returns the network's output as it is and the point map ([H,W,3], camera space,
+    metres)."""
     image = torch.from_numpy(rgb).to(device).permute(2, 0, 1)
     h, w = rgb.shape[:2]
     camera = network_camera(fov_x_deg, w, h, model, get_paddings, get_resize_factor, pinhole_class, device)
@@ -168,7 +171,7 @@ def frame_arrays(points: torch.Tensor, mask: torch.Tensor, intrinsics: np.ndarra
         arrays["confidence"] = torch.nan_to_num(confidence.float()).cpu().numpy().astype(np.float32)
     if normal is not None:
         arrays["normal"] = torch.nan_to_num(normal.float()).cpu().numpy().astype(np.float32)
-    if sky is not None:  # 模型自己的天空概率：官方输出的一张，照样交出去
+    if sky is not None:  # the model's own sky probability, one of its official outputs, passed on as it is
         arrays["sky"] = torch.nan_to_num(sky.float()).cpu().numpy().astype(np.float32)
     return arrays
 

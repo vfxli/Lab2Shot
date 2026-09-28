@@ -11,7 +11,7 @@ import "./categories.css";
  * The chips of a filter row are ui/Button.tsx's Chip (`size="md"`, with the colour of what it filters and its count);
  * this component only lays them out and labels the row. */
 
-export interface Category {
+interface Category {
   id: string;
   label: string;
   tip: string;
@@ -45,7 +45,7 @@ export interface RailManage {
   onDropItem: (id: string, itemId: string) => void;
 }
 
-export const CATEGORY_TYPE = "application/x-lab2shot-category";
+const CATEGORY_TYPE = "application/x-lab2shot-category";
 
 /** The rail of first-level categories, in bands separated by spacing (no divider between them). */
 export function CategoryRail({ bands, chosen, onChoose, label, title, manage, onHover }: {

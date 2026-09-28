@@ -48,8 +48,8 @@ class Sketch2AnimMotion(WorkerNode):
     草图通过输入口接入，不在本节点上绘制：绘制由「手画简笔画」`core.draw_figure` 完成，本节点只负责解算。
     每个火柴人是一个关键姿势，多个火柴人的髋关节连线即人体的行进路线。模型坐标系的相关处理
     （米制单位、20 帧/秒、草图归一化）均在 worker.py 中；本侧发送像素坐标，并将返回的骨架转换为带 CG 骨骼名
-    和 CG 关节轴向的 USD 骨架动画（data/skeleton.py rig_of_model，与「SMPL 转骨架动画」及各解算器的角色
-    使用同一转换，Maya 中的重定向可以识别）。"""
+    和 CG 关节轴向的 USD 骨架动画（data/skeleton.py rig_of_model，与骨骼动作、自动绑定两个家族及各解算器的
+    蒙皮角色使用同一转换，Maya 中的重定向可以识别）。"""
 
     id = "sketch2anim.motion"
     # 引用官方 demo_kp_traj_2d.py 传给模型的 batch 及其输出：
@@ -65,7 +65,7 @@ class Sketch2AnimMotion(WorkerNode):
              "草图有三种来源，各是一个节点，输出都接进这个节点的「草图」口："
              "棋盘格图（手动指定几行几列）拆成序列图、直接输入序列图、自己画简笔画。"
              "\n"
-             "画火柴人的是「手画简笔画」`core.draw_figure`（它有个**可选**的「图像」口当底图），"
+             "画火柴人的是「手画简笔画」`core.draw_figure`（「手画简笔画」的「图像」口是**可选**的底图），"
              "底图可以来自「拆网格图」`core.split_grid`（棋盘格图）或「读取序列」。"
              "帧范围由这个节点自己的两个参数说了算（起始帧号 / 结束帧号，"
              "和骨骼动作家族 `FreeMotionParams` 同一套说法）。**没有「帧率」**：帧率只在输出设置节点上出现。",
@@ -80,7 +80,7 @@ class Sketch2AnimMotion(WorkerNode):
     outputs = (Port("skeleton", "scene.skeleton", "骨架动画"),)
     on_node = ("prompt", "sketch_view")
     missing_frames = MissingFrames.FAIL
-    # vram_gb 与耗时在 RTX 4090 上测得（tests/integration/test_sketch2anim.py 的输出）
+    # cost 的 vram_gb 与耗时在 RTX 4090 上测得
     licence = Licence(note="Sketch2Anim 的代码是 MIT，但官方权重用 HumanML3D 训练，HumanML3D 的动作来自 AMASS，"
                            "AMASS 只许学术研究和非商业用途：生成出来的动作只能用于研究和评估。")
     cost = Cost(gpu=True, vram_gb=1.6, whole="一整段一次生成，不是逐帧的活：4 秒的动作去噪 0.5 秒，头一次还要读模型 6 秒")
@@ -89,35 +89,20 @@ class Sketch2AnimMotion(WorkerNode):
         # 帧范围：本节点不读取画面，长度由这两个参数决定，含义与骨骼动作家族的 FreeMotionParams 相同。
         # 不提供「帧率」参数（帧率仅在输出设置节点上出现）：模型帧率为 20 帧/秒（HumanML3D，
         # worker.py MODEL_FPS = 20.0），重采样后的帧数由起止帧号决定
-        start_frame: int = P(1001, label="起始帧号", group="时间", worker=False,
-                             help="生成出来的第一帧是第几帧，影视习惯从 1001 开始。和镜头的帧号对齐，交到 DCC 里时间轴就对得上")
-        end_frame: int = P(1120, label="结束帧号", group="时间", worker=False,
-                           help="生成到第几帧为止（含这一帧）")
-        prompt: str = P("a person walks forward.", label="提示词", group="草图", lines=4,
-                        help="一句英文，说清这是什么动作，最好以「A person …」开头，如「A person jumps over a box」。"
-                             "模型的文字编码器只认英文（sentence-t5）。和画出来的姿势矛盾时，"
-                             "「贴合草图」大就听草图的，「贴合描述」大就听文字的")
+        start_frame: int = P(1001, label="起始帧号", group="时间", worker=False)
+        end_frame: int = P(1120, label="结束帧号", group="时间", worker=False)
+        prompt: str = P("a person walks forward.", label="提示词", group="草图", lines=4)
         sketch_view: Literal["front", "side30", "side45"] = P(
             "side30", label="草图视角", group="草图",
-            option_labels={"front": "正面", "side30": "侧前 30", "side45": "侧前 45"},
-            help="画的这个火柴人是从哪个角度看身体的：正面、向左转 30 度、向左转 45 度（都带 15–20 度俯视）。"
-                 "选错了生成出来的动作朝向会歪。三档都在模型训练过的角度范围里")
-        text_guidance: float = P(7.5, label="贴合描述", group="模型", ge=1.0, le=15.0,
-                                 help="模型往那句文字上靠的力度（官方 guidance_scale，默认 7.5）。"
-                                      "动作和描述不像就调高；动作僵硬、幅度变小就调低")
-        control: float = P(1.0, label="贴合草图", group="模型", ge=0.0, le=2.0,
-                           help="模型往画出来的姿势和路线上靠的力度（官方 control_scale，默认 1）。"
-                                "生成的姿势和画的差太远就调高；动作别扭、像被硬拽就调低")
+            option_labels={"front": "正面", "side30": "侧前 30", "side45": "侧前 45"})
+        text_guidance: float = P(7.5, label="贴合描述", group="模型", ge=1.0, le=15.0)
+        control: float = P(1.0, label="贴合草图", group="模型", ge=0.0, le=2.0)
         # RTX 4090 实测（4 秒动作，显存均为 1.6 GB）：2 步 0.45 秒、4 步 0.51 秒、8 步 0.56 秒
         steps: Literal[2, 4, 8] = measured_param(
-            "去噪步数", {2: Measured("官方默认：4 秒的动作 0.45 秒", flat=True), 4: Measured("慢一成，动作略稳", flat=True),
-                     8: Measured("慢两成，提升很小", flat=True)}, default=2, group="模型",
-            help="去噪步数。这是个 LCM 模型，官方配置就是 2 步，再多提升很小、时间成倍涨")
-        seed: int = P(1234, label="随机种子", group="模型", ge=0,
-                      help="同一个种子得到同一段动作。不满意就换一个数字重算，挑一个最好的")
-        foot_lock: bool = P(True, label="脚锁定", group="结果",
-                            help="上游自带的去脚滑：判断脚踩地的那几帧，把脚钉在原地再解关节旋转。"
-                                 "脚本来就该滑的动作（滑冰、拖步）关掉")
+            "去噪步数", {2: Measured(flat=True), 4: Measured(flat=True),
+                     8: Measured(flat=True)}, default=2, group="模型")
+        seed: int = P(1234, label="随机种子", group="模型", ge=0)
+        foot_lock: bool = P(True, label="脚锁定", group="结果")
 
     @classmethod
     def prepare(cls, ctx):

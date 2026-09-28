@@ -27,14 +27,13 @@ UniK3D 是第一个能为任意相机建模的通用单目三维估计方法。�
 
 **我们怎么接的**
 
-- 「图像」= 上游那张画面。「Focal Length」「Filmback」= 上游那个可选的相机条件（按去过畸变的针孔造出光线喂进去）；同样是两个参数，不是一台相机。
+- 「RGB」= 上游那张画面。「已知 Focal Length」「Filmback」= 上游那个可选的相机条件（按去过畸变的针孔造出光线喂进去）；同样是两个参数，不是一台相机。
 - 「深度图」= `depth`，「距离图」= `distance`，「射线场」= `rays`，「点云」= `points`，「置信度」= 它的置信度。
   上游算出的这几样都原样交出，一样不丢。
-- **对不上的一点（待解决）**：「相机」输出口给的是那套光线的**最小二乘针孔近似**（给了 Focal Length 时是精确的），
-  上游自己那套球谐相机模型另外存在 `raw/camera.json` 里——Lab2Shot 的相机数据类型是针孔加畸变，装不下球谐表示
-  （`adapters/unik3d/worker.py`）。这个口是「逐帧几何」一类节点统一带的，不能只在这个扩展里删，
-  所以 `tests/test_official_ports.py` 对这个节点不通过，作为这条待办的标记（`adapters/unik3d/nodes.py` 的 `official` 第 ③ 条）。
-- 节点上没有「镜头模型」「畸变系数」「主点」这类口：把 `rays` 拟合成鱼眼参数不是上游的结果。
+- 节点上**没有「相机」输出口**：上游不出内参。worker 把那套光线拟合成的**最小二乘针孔近似**（给了 Focal Length 时是精确的）
+  只在家族内部用来反投影和摆位；上游自己那套球谐相机模型另外存在 `raw/camera.json` 里——Lab2Shot 的相机数据类型是针孔加畸变，
+  装不下球谐表示（`adapters/unik3d/worker.py`，`adapters/unik3d/nodes.py` 的 `solves_camera = False`）。
+- 节点上没有镜头模型、畸变系数、主点这类口：把 `rays` 拟合成鱼眼参数不是上游的结果。
 
 **出处**：简介来自论文摘要（arXiv 2503.16591：「Monocular 3D estimation is crucial for visual perception. However, current methods fall short by relying on oversimplified assumptions, such as pinhole camera models or rectified images.」
 以及它介绍方法的那两句：球面三维表示、与相机模型无关的光线表示由学出来的球谐叠加给出、角度损失）；
@@ -46,8 +45,8 @@ UniK3D 是第一个能为任意相机建模的通用单目三维估计方法。�
 - 典型接法：读取序列 → UniK3D 深度图 → 深度图 / 距离图 / 射线场 / 点云；鱼眼、运动相机、GoPro 这类没去畸变的素材也能拿来就用（点云是按真实视线方向算的，不受镜头模型限制）。
 - 「深度图」「距离图」「射线场」是同一次推理的三种说法：深度图是相机坐标系里到成像面的距离，距离图是沿这条视线离镜头多远（越靠画面边缘两者差得越多，鱼眼和广角上差别很大），射线场是这条视线本身（单位向量，相机空间）。距离乘射线场就是「点云」那片三维点。
 - 节点不输出镜头模型和畸变系数：把射线场拟合成 OpenCV 鱼眼（Kannala-Brandt）参数不是 **上游 UniK3D 的输出**。要镜头畸变参数请用显式的标定节点（「AnyCalib 镜头标定」）。
-- 镜头参数：raw/camera.json 里有 UniK3D 自己的镜头模型（球谐函数表示的视线场）和它的针孔最小二乘拟合（fx、fy、cx、cy）及拟合误差（像素）。针孔误差小于约 2 像素说明是普通镜头；节点里的"相机内参"就是这个针孔近似。
-- 知道镜头就填"水平视场角"：只适合已经去畸变的普通镜头素材，会把这个针孔镜头作为条件输入网络，尺度更可信。
+- 镜头参数：raw/camera.json 里有 UniK3D 自己的镜头模型（球谐函数表示的视线场）和它的针孔最小二乘拟合（fx、fy、cx、cy）及拟合误差（像素）。针孔误差小于约 2 像素说明是普通镜头；家族内部反投影用的内参就是这个针孔近似。
+- 知道镜头就填「已知 Focal Length」「Filmback」：只适合已经去畸变的普通镜头素材，会把这个针孔镜头作为条件输入网络，尺度更可信。
 - "精度等级" 0–9（默认 9）：网络内部计算的分辨率，降低更快、细节更少；输出始终是原图大小。模型：ViT-L（默认）、ViT-B、ViT-S。
 - 每帧单独计算，没有时序平滑；没有天空检测，也不输出法线。
 
@@ -68,7 +67,7 @@ RTX 4090 上（ViT-L，精度等级 9，fp16）：
 
 ## 模型下载和安装
 
-- 运行 `lab2shot ext install unik3d`：下载 UniK3D 代码（锁定版本）、建独立 Python 环境（PyTorch 2.9，和 UniDepth、Depth Anything 3 共用同一份依赖清单和下载缓存，基本不额外占空间），再下载三个模型：ViT-L 1.4 GB、ViT-B 0.47 GB、ViT-S 0.14 GB（Hugging Face 固定版本，安装程序校验 sha256）。网速正常时十分钟左右。
+- 运行 `lab2shot ext install unik3d`：下载 UniK3D 代码（锁定版本）、建独立 Python 环境（PyTorch 2.9，依赖清单和 UniDepth 相同，和 UniDepth、Depth Anything 3 共用下载缓存，基本不额外占空间），再下载三个模型：ViT-L 1.4 GB、ViT-B 0.47 GB、ViT-S 0.14 GB（Hugging Face 固定版本，安装程序校验 sha256）。网速正常时十分钟左右。
 - 不需要申请权限，不需要自行下载任何文件。
 
 ## 许可证说明

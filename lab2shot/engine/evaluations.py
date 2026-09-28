@@ -5,8 +5,8 @@ instead of building one.
 
 The generation is a single server-wide counter. It is incremented whenever a cached packet that a plan relied on may
 have changed: the engine commits a packet (engine/cook.py, Engine._run_node), the disk cleaner removes cache items or
-uploads (farm/disk.py), or an extension begins installing (its nodes' behaviour may change afterwards; this currently
-requires a restart, which discards the cache with the process, but the hook is kept in place for when it does not).
+uploads (farm/disk.py), or an install switches an extension's environment or finishes (server/installs.py: its nodes
+may behave differently afterwards).
 Incrementing loses nothing: stale Evaluations are no longer handed out, and the next request for their key builds a
 fresh one.
 
@@ -16,7 +16,6 @@ check before the cache returns it."""
 
 from __future__ import annotations
 
-import json
 import threading
 from collections import OrderedDict
 from collections.abc import Callable
@@ -75,7 +74,7 @@ class EvaluationCache:
     def get(self, session: str, graph_key: str, build: Callable[[], Graph], account: "Account | None" = None) -> Evaluation:
         """Return the Evaluation of `graph_key` for `session` and `account` at the current generation: the cached one
         if present and its external files (still_true) have not changed identity; otherwise a new one built from
-        `build()` (called only on a cache miss). `account` (transfer/uploads.py Account) is part of the key because the
+        `build()` (called only on a cache miss). `account` (lab2shot/serving.py Account) is part of the key because the
         same graph resolves differently for different accounts: uploads belonging to another account are not visible,
         and the farm's session is shared by all accounts."""
         from ..serving import ANYONE
@@ -111,8 +110,9 @@ class EvaluationCache:
 
 EVALUATIONS = EvaluationCache()
 
-# 缓存中有内容被删除时，计划随之换代。删除的唯一入口是 packet.remove，由其通知本模块；各删除路径（cook、disk.clean、
-# quota、读取节点作废、删除任务与素材）无需各自调用 bump
+# a removal from the cache starts a new generation: packet.remove is the one way a cache entry goes, and it tells
+# this module, so no removal path (cook, disk.clean, quota, a reader node's invalidation, deleting tasks and footage)
+# has to call bump itself
 from ..data.packet import on_removed  # noqa: E402
 
 on_removed(lambda _fp, _why: EVALUATIONS.bump())

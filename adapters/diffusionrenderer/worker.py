@@ -7,12 +7,12 @@ Two nodes (job["node"]):
 
 diffusionrenderer.inverse  frames -> G-buffers
     The shot is cut into windows of `max_frames` frames (8k+1, the tokenizer's causal
-    chunk) overlapping by `overlap` frames; each max_frames is placed on the model's 16:9
+    chunk) overlapping by `overlap` frames; each window is placed on the model's 16:9
     working canvas (Canvas: aspect kept, borders mirrored), encoded by the Cosmos tokenizer and denoised by the
-    inverse 7B DiT once per requested pass (15 Euler steps, no guidance, the same
-    noise for every max_frames and pass), then decoded. Windows are stitched with a
+    inverse 7B DiT once per requested pass (`steps` Euler steps, 15 by default, no guidance, the same
+    noise for every window and pass), then decoded. Windows are stitched with a
     linear cross-fade over the overlapping frames (depth is first fitted to the
-    previous max_frames by least-squares scale + offset on those frames). ->
+    previous window by least-squares scale + offset on those frames). ->
 
     raw/frame_<n>.npz, at the INPUT resolution, every pass (the node has an output for each):
         basecolor  float32 [H,W,3]  base colour (albedo) 0..1, sRGB-encoded (BASECOLOR_SPACE)
@@ -24,7 +24,7 @@ diffusionrenderer.inverse  frames -> G-buffers
     raw/result.json
 
 diffusionrenderer.relight  frames + HDRI -> relit frames
-    Inverse rendering as above (all five passes, kept as latents), then per max_frames the
+    Inverse rendering as above (all five passes, kept as latents), then per window the
     G-buffers are decoded, re-encoded as conditions together with the HDRI (Reinhard
     LDR, log and direction encodings, upstream's three environment inputs) and the
     forward 7B DiT renders the shot under the new light. Windows cross-fade the same
@@ -36,10 +36,10 @@ diffusionrenderer.relight  frames + HDRI -> relit frames
     raw/result.json
 
 Parameters (job["params"], as the node defines them in adapters/diffusionrenderer/nodes.py):
-    passes       拆材质 only: the material channels to compute (default: all five); each one is a model run
+    passes       inverse only: the material channels to compute (default: all five); each one is a model run
     resolution   working canvas width (16:9): 1280 / 1024 / 960 / 768 / 640 / 512
-    max_frames       frames per chunk, 8k+1 (57 = training length, needs ~15 GB extra RAM on a 24 GB card)
-    overlap      shared frames between chunks, at most max_frames/2 (a short shot's max_frames shrinks: kept within half)
+    max_frames   frames per window, 8k+1 (57 = training length, needs ~15 GB extra RAM on a 24 GB card)
+    overlap      shared frames between windows, at most max_frames/2 (a short shot's window shrinks: kept within half)
     seed, steps  the sampler
     env_rotate relight only: turns the HDRI about the camera up axis; +90 moves what was straight ahead to the
                  camera's left
@@ -108,8 +108,8 @@ ENV_REINHARD_MAX = 16.0  # upstream hdr_mapping reinhard max_point
 
 BASECOLOR_SPACE = "sRGB-encoded (display-referred) 0..1, like a base-colour texture: convert sRGB->linear before rendering"
 RELATIVE_DEPTH = (
-    "relative depth 0..1 (0 = near, 1 = far; affine-invariant, the model normalises each max_frames "
-    "to its own range; windows after the first are fitted to the previous one by scale+offset), not metric"
+    "relative depth 0..1 (0 = near, 1 = far; affine-invariant, the model normalises each window of max_frames "
+    "frames to its own range; windows after the first are fitted to the previous one by scale+offset), not metric"
 )
 NORMAL_CONVENTION = "OpenCV camera space: +X right, +Y down, +Z forward (into the scene); unit length; facing the camera"
 
@@ -371,7 +371,7 @@ class Renderer:
     @torch.no_grad()
     def sample(self, latent_condition: torch.Tensor, shape: tuple, context_index: int | None, steps: int, seed: int):
         """upstream DiffusionRendererModel.generate_samples_from_batch (guidance 0) with the
-        latent condition computed once per max_frames; the noise depends on the seed only."""
+        latent condition computed once per window; the noise depends on the seed only."""
         self.net_to_gpu()
         m = self.model
         _, _, t, h, w = shape
@@ -419,18 +419,16 @@ def gbuffer_arrays(name: str, video01: np.ndarray) -> np.ndarray:
         n = video01 * 2 - 1  # model camera frame: +X right, +Y up, +Z towards the viewer
         n = n * np.array([1.0, -1.0, -1.0], dtype=np.float32)  # -> OpenCV: +Y down, +Z forward
         return n.astype(np.float32)
-    g = video01.mean(-1)  # grey passes come back as three equal channels
-    if name == "depth":
-        return g.astype(np.float32)
-    return g.astype(np.float32)
+    return video01.mean(-1).astype(np.float32)  # grey passes come back as three equal channels
 
 
 def normalize_normals(n: np.ndarray) -> np.ndarray:
-    """上游 cosmos_predict1/diffusion/inference/diffusion_renderer_pipeline.py:164-173 的做法：不是硬归一化，
-    而是按模长混合——模长 < 0.2 的原样保留，0.2–0.4 之间线性过渡，> 0.4 才完全归一化。
+    """Upstream's normalisation (cosmos_predict1/diffusion/inference/diffusion_renderer_pipeline.py:163-172): not a
+    hard normalise but a blend by length — vectors shorter than 0.2 stay as they are, 0.2–0.4 blend linearly, longer
+    than 0.4 become unit length.
 
-    模型对没把握的像素输出的就是短向量；无条件拉成单位长度会把噪声方向放大成一条满强度的法线，
-    平坦区和阴影区会出彩色噪点。"""
+    The model answers pixels it is unsure of with short vectors; stretching every one to unit length would turn that
+    noise into full-strength normals, and flat or shadowed areas would get coloured speckle."""
     length = np.linalg.norm(n, axis=-1, keepdims=True)
     unit = n / np.maximum(length, 1e-12)
     blend = np.clip((length - 0.2) / (0.4 - 0.2), 0.0, 1.0)
@@ -444,7 +442,7 @@ def fit_scale_offset(src: np.ndarray, dst: np.ndarray) -> tuple[float, float]:
     if vx < 1e-12:
         return 1.0, float(y.mean() - x.mean())
     a = float(((x - x.mean()) * (y - y.mean())).mean() / vx)
-    if not 0.2 < a < 5.0:  # a degenerate fit would wreck the max_frames: fall back to an offset
+    if not 0.2 < a < 5.0:  # a degenerate fit would wreck the window: fall back to an offset
         a = 1.0
     return a, float(y.mean() - a * x.mean())
 
@@ -492,7 +490,7 @@ def needs_offload(hw: tuple[int, int], max_frames: int, budget_mb: int) -> bool:
 
 
 def effective_window(n: int, max_frames: int) -> int:
-    """Short shots use the smallest 8k+1 max_frames that holds them (padding repeats the last frame)."""
+    """Short shots use the smallest 8k+1 window that holds them (padding repeats the last frame)."""
     if n >= max_frames:
         return max_frames
     return min(w for w in WINDOWS if w >= n)
@@ -690,8 +688,8 @@ def common_result(p, in_h, in_w, canvas: Canvas, max_frames, overlap, windows, t
         "offload": r.offload,
         "gpu_budget_mb": GPU_BUDGET_MB,
         "consistency": (
-            "each max_frames is one video diffusion pass (temporally coherent inside); consecutive windows share "
-            "`overlap` frames, use the same noise (seed), and are cross-faded linearly over the shared frames"
+            "each window of max_frames frames is one video diffusion pass (temporally coherent inside); consecutive "
+            "windows share `overlap` frames, use the same noise (seed), and are cross-faded linearly over the shared frames"
         ),
         **timings,
         "notice": "Built on NVIDIA Cosmos. Models licensed by NVIDIA Corporation under the NVIDIA Open Model License",

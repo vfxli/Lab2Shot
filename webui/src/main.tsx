@@ -1,14 +1,16 @@
+// the kit's base styles first, so what a component brings with it (ui/menu.css's fixed .menu, which is also .glass)
+// comes after them and wins where both say something
+import "./ui/tokens.css";
+import "./styles/00-base.css";
+import "./ui/field.css";
+import "./ui/forms.css"; // 公共表单行（.who-row）多处使用，全站加载，不跟着某个组件走
+import "./ui/glass.css";
+import "./ui/tip.css"; // after glass: the tip is also .glass, and its own position (fixed) must win
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Gate } from "./gate";
 import { catchPageErrors } from "./platform/pageErrors";
 import { installTips } from "./platform/tips";
-import "./ui/tokens.css";
-import "./styles/00-base.css";
-import "./ui/field.css";
-import "./ui/forms.css"; // 公共表单行（.who-row）多处使用，全站加载，不跟着某个组件走
-import "./ui/tip.css";
-import "./ui/glass.css";
 import "./styles/login.css";
 
 // The page's entry is only the gate (gate.tsx): the one thing anyone gets before the access code. The rest of the page

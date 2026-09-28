@@ -4,5 +4,5 @@
 einops==0.8.2
 numpy==2.4.6
 opencv-python-headless==4.10.0.84
-# Reads the float EXR masks of the "mask" input (same version as the other trackers).
+# EXR reader of lab2shot_worker.files.read_mask (this node has no mask input).
 OpenEXR==3.4.15

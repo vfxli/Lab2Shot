@@ -15,6 +15,3 @@ const WHY_TEXT: Record<string, string> = Object.fromEntries(
 
 /** 根据给定事实计算各控件的可用性，不可用的附带原因。 */
 export const viewAvailable = (facts: ViewFacts): Availability => resolveLocal<ViewFacts>(VIEW_CONTROLS, facts, WHY_TEXT);
-
-/** 返回某控件不可用时的原因文字，供按选项逐项变灰的场合使用（例如「通道」中当前数据不具备的选项）。 */
-export const whyOffText = (control: ViewControl): string => WHY_TEXT[control] ?? "";

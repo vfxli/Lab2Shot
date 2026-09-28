@@ -1,4 +1,4 @@
-"""视图代理：解算完成后，在同一次任务中将每一帧的二维结果等比缩放到管理员设定的档位（TIERS 三档之一）、
+"""视图代理：解算完成后，将每一帧的二维结果等比缩放到管理员设定的档位（TIERS 三档之一）、
 分别压缩后存为代理。视图只接收代理，没有无损路径；需要无损查看时，使用交付的文件在 Nuke / DCC 中查看。
 代理的生成不向使用者报告进度，使用者看到的即为「已完成」。
 
@@ -10,32 +10,45 @@
 本层只负责查看：交付写出的文件始终为原尺寸、原精度、无损，不改动任何字节。
 
 代理在此处统一生成，而不是在各 `adapters/<名称>/` 中：若由各适配器自行实现，必然会有遗漏。第三方接入新项目时，
-代理自动具备：engine 每计算完一个数据包都会调用 `build()`（`lab2shot/farm/queue.py` 将该函数交给 Engine；
-engine 本身不依赖 view 层，核心各层只向下 import）。
+代理自动具备：每计算完一个数据包，农场都把 `build()` 作为后台工作交给调度器（`lab2shot/farm/queue.py
+_proxies_of`；engine 本身不依赖 view 层，核心各层只向下 import）。
 
-代理在 CPU 上生成：GPU 计算完成后应立即释放给下一个任务。
+代理在 CPU 上生成，只用没有节点在等的 CPU 名额：任务在它的节点算完时就结束，不等代理。
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 
+from ..config import provide_choices
 from ..data.packet import Packet
-from ..data.payloads import channel_list, image_files, is_data
+from ..data.payloads import channel_list, image_files
 from .channels import channel_blob
 from .encode import write_once
-from .frames import VIDEO_AHEAD, channel_key, channel_values, display_frame, map_view_frame, video_frames
+from .frames import VIDEO_AHEAD, channel_key, channel_values, shown_now, video_frames
 
-# 管理员可选的三档（长边像素）。本表是唯一数据源：设置项的选项（lab2shot/config.py view.proxy_px）由它生成。
+# 管理员可选的三档（长边像素）。本表是唯一数据源：设置项 view.proxy_px 的选项由它提供（config.provide_choices）。
 TIERS = (512, 1024, 2048)
+provide_choices("proxy_tiers", lambda: tuple((str(px), f"{px} 像素") for px in TIERS))
 
 # 代理图的 WebP 质量。1920×1080 的实拍帧缩到 512 档时，一张代理约 2.4 KB，
 # 而原尺寸无损显示图约 1.5 MB：缩放与压缩共节省三个数量级。
 PROXY_QUALITY = 80
+# WebP 编码器的压缩力度（libwebp 的 method，0–6；OpenImageIO 默认 6）与通道代理的 gzip 级别（1–9）：代理紧接在
+# 计算之后生成，编码时间直接计入查看前的等待，而文件只大几个百分点。实测 100 帧 1920×1080、8 线程，生成全部代理的墙钟时间
+# （method 6 + gzip 5 → method 4 + gzip 1）：
+#                 512 档                                2048 档
+#   画面 JPG      3.2 → 3.2 秒，WebP 2.09 → 2.18 MB      5.6 → 4.2 秒，通道 283 → 300 MB
+#   画面 EXR      3.3 → 3.2 秒，通道 47.0 → 50.1 MB      9.2 → 6.6 秒，通道 389 → 461 MB
+#   带 alpha      17.2 → 6.2 秒，WebP 1.01 → 1.05 MB     35.4 → 13.0 秒，通道 140 → 172 MB
+# 画质不变（相对无损缩图的 PSNR：method 6 为 35.5 dB，method 4 为 35.6 dB）；通道代理解压后逐字节相同。
+PROXY_METHOD = 4
+PROXY_GZIP = 1
 # 单个通道保留的尾数位数见 `view/channels.py HALF_MANTISSA`，此处不另存。
 
 
@@ -67,23 +80,41 @@ def sized(width: int, height: int, px: int | None = None) -> tuple[int, int]:
 # ------------------------------------------------------------------ 等比缩放：按面积平均
 
 
-@lru_cache(maxsize=8)  # 每份是 n_out x n_in 的 float32 稠密矩阵（4K 缩到 2048 一份约 30 MB）：只保留常用的几对，64 份可能占用超过 1 GB
-def _weights(n_in: int, n_out: int) -> np.ndarray:
-    """一个轴上将 `n_in` 个像素缩为 `n_out` 个的权重矩阵（每行之和为 1）：每个输出像素为其覆盖的
-    源像素区间按面积加权的平均值。
+@lru_cache(maxsize=64)  # 每份只有 n_out x 几个下标与权重（4K 缩到 2048 一份约 50 KB）
+def _taps(n_in: int, n_out: int) -> tuple[np.ndarray, np.ndarray]:
+    """一个轴上将 `n_in` 个像素缩为 `n_out` 个的做法：(下标 [n_out, K], 权重 [n_out, K])，第 i 个输出像素
+    = Σ_k 权重[i, k] × 源像素[下标[i, k]]（每行权重之和为 1）：每个输出像素为其覆盖的源像素区间按面积加权的平均值。
+    K 是一个输出像素最多覆盖的源像素数（1920 缩到 512 为 5）；覆盖得少的行用权重 0 补齐。
+
+    只记覆盖到的那几个源像素，不用 n_out x n_in 的稠密矩阵做矩阵乘法：稠密矩阵每行只有几个非零值，
+    乘法 99% 以上乘的是 0（1080p 一个通道缩到 512 档，单线程 29 ms，这样约 2 ms）；而且矩阵乘法走 BLAS，
+    BLAS 自己再按核数开线程，与逐帧的线程叠在一起时互相争抢，实测 100 帧 1080p 的代理 CPU 时间 720 秒、墙钟 30 秒。
 
     不使用双线性（`lab2shot/data/maps.py resize`）：双线性只考虑相邻两个源像素，1920 缩到 512 时每三个源像素中
     有一个完全未被采样，细纹会产生摩尔纹，而代理是使用者唯一能看到的画面。按面积平均是缩图的标准方法
     （OIIO 的 box、OpenCV 的 INTER_AREA 均为此法），每个源像素都参与计算，且不裁掉任何行列
     （整数倍下采样的 reshape 写法会裁掉余数，使画面整体偏移，叠加的人物框便无法对齐）。"""
     edges = np.linspace(0.0, n_in, n_out + 1)
-    w = np.zeros((n_out, n_in), np.float32)
-    for i in range(n_out):
+    spans = [range(int(np.floor(edges[i])), min(int(np.ceil(edges[i + 1])), n_in)) for i in range(n_out)]
+    most = max(len(r) for r in spans)
+    index = np.zeros((n_out, most), np.intp)
+    weight = np.zeros((n_out, most), np.float32)
+    for i, r in enumerate(spans):
         lo, hi = edges[i], edges[i + 1]
-        for j in range(int(np.floor(lo)), min(int(np.ceil(hi)), n_in)):
-            w[i, j] = min(hi, j + 1.0) - max(lo, float(j))
-    total = w.sum(axis=1, keepdims=True)
-    return w / np.where(total > 0, total, 1.0)
+        index[i, :len(r)] = r
+        weight[i, :len(r)] = [min(hi, j + 1.0) - max(lo, float(j)) for j in r]
+    total = weight.sum(axis=1, keepdims=True)
+    return index, weight / np.where(total > 0, total, 1.0)
+
+
+def _along(a: np.ndarray, axis: int, taps: tuple[np.ndarray, np.ndarray]) -> np.ndarray:
+    """`a` 沿 `axis`（0 或 1）按 `_taps` 缩小：逐个覆盖位置取出那一排源像素、乘以权重累加。"""
+    index, weight = taps
+    shape = (-1,) + (1,) * (a.ndim - 1) if axis == 0 else (1, -1) + (1,) * (a.ndim - 2)
+    out = np.take(a, index[:, 0], axis=axis) * weight[:, 0].reshape(shape)
+    for k in range(1, index.shape[1]):
+        out += np.take(a, index[:, k], axis=axis) * weight[:, k].reshape(shape)
+    return out
 
 
 def shrink(values: np.ndarray, width: int, height: int) -> np.ndarray:
@@ -96,18 +127,17 @@ def shrink(values: np.ndarray, width: int, height: int) -> np.ndarray:
         return np.ascontiguousarray(values, np.float32)
     flat = np.ascontiguousarray(values, np.float32).reshape(h, w, -1)
     good = np.isfinite(flat)
-    vals = np.where(good, flat, 0.0).astype(np.float32)
-    wy, wx = _weights(h, height), _weights(w, width)
+    wy, wx = _taps(h, height), _taps(w, width)
 
-    def across(a: np.ndarray) -> np.ndarray:
-        # 先纵向（[h, w*C] 一次矩阵乘法），再横向（每个通道 [w] × [w, width]）：两步各为一次 BLAS 调用
-        c = a.shape[2]
-        down = (wy @ a.reshape(h, w * c)).reshape(height, w, c)
-        return np.ascontiguousarray(down.transpose(0, 2, 1) @ wx.T).transpose(0, 2, 1)
+    def across(a: np.ndarray) -> np.ndarray:  # 先纵向，再横向
+        return _along(_along(a, 0, wy), 1, wx)
 
-    summed, seen = across(vals), across(good.astype(np.float32))
-    out = np.where(seen > 0, summed / np.where(seen > 0, seen, 1.0), np.nan).astype(np.float32)
-    # 必须是连续内存：上述两步转置后通道是跨步存储的，而 OpenImageIO 的 write_image 遇到这种数组时
+    if good.all():  # 画面、遮罩等每个值都有：各块参与平均的权重之和就是 1，不必再算一遍「有值的比例」
+        out = across(flat)
+    else:
+        summed, seen = across(np.where(good, flat, 0.0).astype(np.float32)), across(good.astype(np.float32))
+        out = np.where(seen > 0, summed / np.where(seen > 0, seen, 1.0), np.nan).astype(np.float32)
+    # 必须是连续内存：OpenImageIO 的 write_image 遇到通道跨步存储的数组时
     # （"Can't handle numpy array with noncontiguous channels"）只返回 False 而不抛出异常，写出的代理图全黑，
     # 且仍会被当作已完成的结果移到位并发送给使用者。
     return np.ascontiguousarray(out.reshape(height, width, *values.shape[2:]))
@@ -129,20 +159,29 @@ def channel_file(p: Packet, frame: int, name: str, px: int | None = None) -> Pat
 
     名称中包含所属帧的文件、通道和档位：静帧整段指向同一个文件，`channel_key` 使其落在
     同一个名称上，只需生成一次；档位改变时名称随之改变，旧文件自然失效，新文件按需生成。"""
+    return channel_files(p, frame, [name], px)[name]
+
+
+def channel_files(p: Packet, frame: int, names: list[str], px: int | None = None) -> dict[str, Path]:
+    """该帧若干通道的代理（通道名 -> 文件，同 channel_file）。需要生成时，这几个通道从该帧的文件中一次读出
+    （view/frames.py channel_values），而不是每个通道各读一遍。"""
     px = tier() if px is None else px
     key = channel_key(p, frame)
     if key is None:
         raise FileNotFoundError(f"no frame {frame}")
-    target = p.dir / "_view" / "proxy" / f"{key}.{name}.{px}.bin.gz"
+    read: dict[str, np.ndarray] = {}
 
-    def write(part: Path) -> None:
+    def write(name: str, part: Path) -> None:
         import gzip
 
-        values = channel_values(p, frame, name)
+        if not read:  # 第一个要生成的通道读出全部这几个通道；都已生成时一个也不读
+            read.update(channel_values(p, frame, names))
+        values = read[name]
         h, w = values.shape[:2]
-        part.write_bytes(gzip.compress(_blob(shrink(values, *sized(w, h, px))), 5))
+        part.write_bytes(gzip.compress(_blob(shrink(values, *sized(w, h, px))), PROXY_GZIP))
 
-    return write_once(target, write)
+    return {name: write_once(p.dir / "_view" / "proxy" / f"{key}.{name}.{px}.bin.gz", lambda part, name=name: write(name, part))
+            for name in names}
 
 
 # ------------------------------------------------------------------ 单帧显示图的代理
@@ -154,15 +193,15 @@ def picture_file(p: Packet, frame: int, px: int | None = None) -> Path | None:
     同时查看多个颜色通道时走此路径（`webui/src/transfer/route.ts`：该图即三个通道经 OCIO 显示
     变换后打包成的最小载体）。它同样是代理：缩放到该档位并使用有损 WebP，否则最常用的查看方式无法节省流量。"""
     px = tier() if px is None else px
-    source = _shown(p, frame)
-    if source is None:
-        return None
     key = channel_key(p, frame)
-    return picture_of(source, p.dir / "_view" / "proxy" / f"{key if key is not None else frame}.{px}", px)
+    if key is None:
+        return None
+    return picture_of(lambda: _shown(p, frame), p.dir / "_view" / "proxy" / f"{key}.{px}", px)
 
 
-def _shown(p: Packet, frame: int) -> Path | None:
-    """该帧显示图本身（未缩放），适用于任何类型的二维像素数据包；None：没有此帧。
+def _shown(p: Packet, frame: int) -> Path | np.ndarray | None:
+    """该帧显示图本身（未缩放），适用于任何类型的二维像素数据包：文件，或尚未写成文件的 8 位像素
+    （view/frames.py shown_now）；None：没有此帧。
     视频的像素位于容器中，需先解码为显示 PNG（view/frames.py video_frames）；视频数据包的 meta 中没有 files，
     不能直接使用 display_frame。"""
     if p.type == "video":
@@ -171,7 +210,7 @@ def _shown(p: Packet, frame: int) -> Path | None:
         video_frames(p, [frame], ahead=VIDEO_AHEAD)
         made = p.dir / "_view" / f"frame.{frame}.png"
         return made if made.exists() else None  # 容器头报告的帧数多于实际可解码的帧数：该帧不存在（见 video_frames 的说明）
-    return (map_view_frame if is_data(p) else display_frame)(p, frame)
+    return shown_now(p, frame)
 
 
 def video_picture_file(p: Packet, frame: int, px: int | None = None) -> Path:
@@ -184,8 +223,9 @@ def video_picture_file(p: Packet, frame: int, px: int | None = None) -> Path:
     return picture_of(source, p.dir / "_view" / "proxy" / f"{frame}.{px}", px)
 
 
-def picture_of(source: Path, base: Path, px: int | None = None, write=None) -> Path:
-    """任意显示图的代理。
+def picture_of(source: Path | Callable[[], Path | np.ndarray | None], base: Path, px: int | None = None, write=None) -> Path:
+    """任意显示图的代理。`source`：显示图的文件，或只在需要生成代理时才调用、给出显示图（文件或像素，
+    `_shown`）的函数：代理已生成时不必先做出显示图。
 
     边算边看的路径同样使用它（`lab2shot/server/farm.py partial_frame`）：此时显示图生成在数据包的
     `_partial` 中，不进入数据包自身的 `_view`，但发送给使用者的仍只能是代理。
@@ -196,7 +236,7 @@ def picture_of(source: Path, base: Path, px: int | None = None, write=None) -> P
     （view/encode.py write_once）。
 
     `write(source, part, px, kind)`：将该显示图生成为该结果的方式（默认为 `_write_picture`：缩放并编码）。
-    通过带畸变的相机查看时改用 `_write_through`（缩放后再按该相机的镜头去畸变），其余相同。"""
+    通过带畸变的相机查看时（through_picture_file）仍用 `_write_picture`，另给 `warp`：缩放后再按该相机的镜头去畸变。"""
     px = tier() if px is None else px
     write = _write_picture if write is None else write
     # 以追加方式拼接，而不使用 `with_suffix`：`base` 的名称中包含档位（`2001.512`），
@@ -210,36 +250,53 @@ def picture_of(source: Path, base: Path, px: int | None = None, write=None) -> P
         return write_once(png, lambda part: write(source, part, px, ".png"))
 
 
-def _write_picture(source: Path, part: Path, px: int, kind: str, warp=None) -> None:
-    """将显示图缩放到该档位并编码为 `kind` 格式（无法写出时抛出 OSError，由 `picture_of` 改用另一种格式）。
-    `warp(pixels)`：缩放后对该 [h, w, C] float32 执行的附加步骤（去畸变），没有时不执行。"""
+def _write_picture(source, part: Path, px: int, kind: str, warp=None) -> None:
+    """将显示图（`picture_of` 的 `source`）缩放到该档位并编码为 `kind` 格式（无法写出时抛出 OSError，由 `picture_of`
+    改用另一种格式）。`warp(pixels)`：缩放后对该 [h, w, C] float32 执行的附加步骤（去畸变），没有时不执行。
+
+    读用 ImageInput、写用 ImageBuf.write：代理在多个线程上同时生成，而 OpenImageIO 的 Python 接口里
+    ImageBuf.get_pixels 与 ImageOutput.close（WebP 写入器在 close 时才编码整张图）执行期间都不释放解释器锁，
+    各线程只能排队；这两个调用释放，字节完全相同。实测 8 线程编码带 alpha 的 512 档 WebP 8 张：2.2 秒 → 0.33 秒。"""
     import OpenImageIO as oiio
 
-    buf = oiio.ImageBuf(str(source))
-    spec = buf.spec()
-    pixels = buf.get_pixels(oiio.UINT8)
-    width, height = sized(spec.width, spec.height, px)
-    if (width, height) != (spec.width, spec.height) or warp is not None:
+    source = source() if callable(source) else source
+    pixels = source if isinstance(source, np.ndarray) else _read_picture(source)
+    h, w, channels = pixels.shape
+    width, height = sized(w, h, px)
+    if (width, height) != (w, h) or warp is not None:
         pixels = shrink(pixels.astype(np.float32), width, height)
         pixels = np.rint(np.clip(pixels if warp is None else warp(pixels), 0, 255))
-    # 必须连续：OIIO 的 write_image 收到通道不连续的数组时返回 False 而不抛出异常，留下一张全黑的图
-    pixels = np.ascontiguousarray(pixels, np.uint8)
-    out = oiio.ImageOutput.create(str(part))
-    if out is not None:
-        want = oiio.ImageSpec(width, height, spec.nchannels, oiio.UINT8)
-        if kind == ".webp":
-            # 只单独设置 CompressionQuality，不设置其他参数：OIIO 的 WebP 写入器只要设置了 `compression`
-            # 就会忽略该值
-            want.attribute("CompressionQuality", PROXY_QUALITY)
-        if out.open(str(part), want):
-            # 需检查是否写入成功（原因同上：失败时返回 False 而不抛出异常）
-            wrote = out.write_image(pixels)
-            out.close()
-            if wrote:
-                return
-            part.unlink(missing_ok=True)
+    # 必须连续：OIIO 收到通道不连续的数组时返回 False 而不抛出异常，留下一张全黑的图
+    pixels = np.ascontiguousarray(pixels, np.uint8).reshape(height, width, channels)
+    want = oiio.ImageSpec(width, height, channels, oiio.UINT8)
+    if kind == ".webp":
+        # 不设置 `compression`：OIIO 的 WebP 写入器只要设置了它就会忽略 CompressionQuality
+        want.attribute("CompressionQuality", PROXY_QUALITY)
+        want.attribute("webp:method", PROXY_METHOD)
+    buf = oiio.ImageBuf(want)
+    # 需检查是否写入成功（原因同上：失败时返回 False 而不抛出异常）
+    if buf.set_pixels(oiio.ROI(), pixels) and buf.write(str(part)):
+        return
+    part.unlink(missing_ok=True)
     # 内部错误（`picture_of` 捕获后改用另一种格式重试），不面向使用者，因此不进入消息目录
-    raise OSError(f"cannot write a {kind} proxy of {source} ({spec.nchannels} channels)")
+    raise OSError(f"cannot write a {kind} proxy of {'pixels' if isinstance(source, np.ndarray) else source} ({channels} channels)")
+
+
+def _read_picture(source: Path | None) -> np.ndarray:
+    """显示图文件的 8 位像素 [h, w, C]（读不出时抛出 OSError）。"""
+    import OpenImageIO as oiio
+
+    inp = oiio.ImageInput.open(str(source)) if source is not None else None
+    if inp is None:
+        raise OSError(f"cannot read {source}")
+    try:
+        spec = inp.spec()
+        pixels = inp.read_image(0, 0, 0, spec.nchannels, oiio.UINT8)
+    finally:
+        inp.close()
+    if pixels is None:
+        raise OSError(f"cannot read {source}")
+    return np.asarray(pixels).reshape(spec.height, spec.width, spec.nchannels)
 
 
 # ------------------------------------------------------------------ 通过带畸变的相机查看：底图按其镜头去畸变
@@ -261,15 +318,15 @@ def through_picture_file(p: Packet, frame: int, camera: Packet, at: str = "", px
 
     文件名中包含镜头的摘要（`_camera_lens`）：同一台相机重新解出另一套畸变时即为另一份，旧文件自然失效。"""
     px = tier() if px is None else px
-    lens, tag = _camera_lens(camera.fingerprint, at, _generation(camera))
+    lens, tag = _camera_lens(camera.fingerprint, at, camera.created)
     if lens is None:
         return picture_file(p, frame, px)
-    source = _shown(p, frame)
-    if source is None:
-        return None
     key = channel_key(p, frame)
+    if key is None:
+        return None
+    source = lambda: _shown(p, frame)  # noqa: E731
     when = frame if lens.animated else None  # 镜头整段固定时各帧共用同一张 ST-map；变焦时每帧一张
-    base = p.dir / "_view" / "proxy" / f"{key if key is not None else frame}.{px}.through-{tag}{'' if when is None else f'.{when}'}"
+    base = p.dir / "_view" / "proxy" / f"{key}.{px}.through-{tag}{'' if when is None else f'.{when}'}"
     return picture_of(source, base, px, write=lambda src, part, px_, kind: _write_picture(src, part, px_, kind, warp=lambda pixels: _undistort(pixels, lens, when)))
 
 
@@ -288,25 +345,11 @@ def _undistort(pixels: np.ndarray, lens, frame: int | None) -> np.ndarray:
     return np.where(valid[..., None] > 0, out, 0.0)
 
 
-def _generation(p: Packet) -> str:
-    """该数据包的代次：manifest 中的 created（同一指纹重新计算后即为另一个 created，data/packet.py Packet.created），
-    没有该字段的旧数据包使用 manifest 文件的修改时间。按指纹缓存的内容一律附带代次：若只按指纹缓存，相机数据包重新计算
-    （fresh_dir 替换了文件夹）后，本进程会一直使用旧的镜头。"""
-    from ..data.packet import MANIFEST
-
-    if p.created:
-        return p.created
-    try:
-        return str((p.dir / MANIFEST).stat().st_mtime_ns)
-    except OSError:
-        return ""
-
-
 @lru_cache(maxsize=32)
-def _camera_lens(camera_fp: str, at: str, generation: str = ""):
+def _camera_lens(camera_fp: str, at: str, generation: str):
     """相机数据包 `camera_fp` 中 `at` 所指相机（为空时取包中唯一的相机）所带的镜头 -> (Lens, 摘要)；不带畸变时为 (None, "")。
-    按数据包指纹及其代次（`generation`，_generation）缓存：数据包写好后不再改变，同一台相机的每一帧都会查询，
-    无需每帧打开一次 USD；重新计算的数据包属于另一代次，不会取到旧结果。
+    按数据包指纹及其代次（`generation`：manifest 中的 created，data/packet.py Packet.created）缓存：数据包写好后不再改变，
+    同一台相机的每一帧都会查询，无需每帧打开一次 USD；重新计算的数据包属于另一代次，不会取到旧结果。
     提供 `at` 时它必须是该数据包中的一台相机：地址中的任意字符串若不指向相机即立即拒绝（4xx），
     否则非相机的 prim 会一直传到 CameraSamples.from_prim 中引发 TypeError，导致 500。"""
     import hashlib
@@ -340,7 +383,7 @@ def _camera_lens(camera_fp: str, at: str, generation: str = ""):
     return lens, hashlib.sha1(json.dumps(meta, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
-# ------------------------------------------------------------------ 计算完成后生成（在同一次任务中）
+# ------------------------------------------------------------------ 计算完成后生成（农场的后台工作）
 
 
 def has_proxy(p: Packet) -> bool:
@@ -354,10 +397,11 @@ def frames_of(p: Packet) -> list[int]:
     return sorted(p.meta.get("frames") or ()) if p.type == "video" else sorted(image_files(p))
 
 
-def build(p: Packet, threads: int = 0) -> None:
-    """生成该数据包的全部代理（每帧 × 每个通道，另加每帧的显示图）。不报告进度，不发送任何事件。
+def build(p: Packet, threads: int = 0, frames: list[int] | None = None) -> None:
+    """生成该数据包的代理（每帧 × 每个通道，另加每帧的显示图；`frames`：只做这几帧，None 为全部）。不报告进度，
+    不发送任何事件。
 
-    engine 每计算完一个节点，就对其输出的每个数据包调用一次（`lab2shot/farm/queue.py` 将该函数交给 Engine）。
+    每计算完一个节点，农场就对其输出的每个数据包分几段调用（`lab2shot/farm/queue.py _proxies_of`，每段持有该数据包的锁）。
     已生成的不再重复生成（write_once 按文件名识别），因此重复调用只是若干次 `stat`，不会重新生成。
 
     出错不影响本次解算：代理只涉及查看方式，计算结果本身已写好；本层出现问题时，由取帧路径在
@@ -366,7 +410,7 @@ def build(p: Packet, threads: int = 0) -> None:
         return
     from ..engine.cook import FRAME_THREADS
 
-    px, names, frames = tier(), channel_list(p), frames_of(p)
+    px, names, frames = tier(), channel_list(p), frames_of(p) if frames is None else frames
     if p.type == "video":
         # 视频先一次解码完成：其像素位于容器中，逐帧请求意味着将同一文件打开数百次
         # （`view/frames.py video_frames` 一次解码这些帧，已解码的跳过）。下面每个通道、每张图读取的
@@ -374,12 +418,15 @@ def build(p: Packet, threads: int = 0) -> None:
         from .frames import video_frames
 
         video_frames(p, list(frames))
-    jobs: list = [lambda f=f, n=n: channel_file(p, f, n, px) for f in frames for n in names]
+    # 每帧的各通道一起生成：该帧的文件只读一次（channel_files）
+    jobs: list = [lambda f=f: channel_files(p, f, list(names), px) for f in frames]
     jobs += [lambda f=f: (video_picture_file if p.type == "video" else picture_file)(p, f, px) for f in frames]
     if not jobs:
         return
     with ThreadPoolExecutor(threads or FRAME_THREADS) as pool:
-        for _ in pool.map(_quietly, jobs):
+        from ..serving import carried
+
+        for _ in pool.map(carried(_quietly), jobs):  # in the cache of the account whose packet it is
             pass
 
 

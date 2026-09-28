@@ -1,6 +1,4 @@
 # UniK3D 的消息（adapters/unik3d）。
 
-# ---- 加载模型
-
 # ---- 解算
-"W-UNIK3D-DISTORTED" = "UniK3D 判断镜头有明显畸变：按无畸变镜头近似，误差中位约 {pinhole:.1f} px。输出相机的 Focal Length 只是近似，拿它摆三维会对不齐；精确的几何以「点云」「距离图」「射线场」为准，知道实拍 Focal Length 就填「Focal Length」"
+"W-UNIK3D-DISTORTED" = "UniK3D 判断镜头有明显畸变：按无畸变镜头近似，误差中位约 {pinhole:.1f} px。「深度图」按针孔相机反投影会对不齐；精确的几何以「点云」「距离图」「射线场」为准。知道实拍 Focal Length 就填「已知 Focal Length」"

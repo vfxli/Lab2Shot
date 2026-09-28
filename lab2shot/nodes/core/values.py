@@ -14,16 +14,14 @@ import numpy as np
 from ...errors import Invalid
 from ...messages import Msg
 from ..base import NodeDef, NodeParams, P, Port
-from ...data.values import BOOL, FLOAT, INT, TEXT, VECTOR, value_list_packet, value_meta, value_packet
+from ...data.values import BOOL, FLOAT, INT, TEXT, VECTOR, value_meta, value_packet
 
 Unit = Literal["", "mm", "cm", "m", "px", "°", "帧", "秒", "EV"]
 UNIT_LABELS = {"": "无", "mm": "mm", "cm": "cm", "m": "m", "px": "px", "°": "°", "帧": "帧", "秒": "秒", "EV": "EV"}
 
 
 def unit_param(default: str = "") -> str:
-    return P(default, label="单位", group="数值", option_labels=UNIT_LABELS,
-             help="这个值的单位，和数值一起传下去：接到毫米的参数上，厘米、米会换算；像素和毫米不能换算，接上时会标红说明。"
-                  "无单位的数照原样交给接它的参数")
+    return P(default, label="单位", group="数值", option_labels=UNIT_LABELS)
 
 
 class Constant(NodeDef):
@@ -49,7 +47,7 @@ class FloatValue(Constant):
     value_type = FLOAT
 
     class Params(NodeParams):
-        value: float = P(0.0, label="值", group="数值", help="这个小数。接到的参数有范围时，超出范围会在那个节点上标红说明")
+        value: float = P(0.0, label="值", group="数值")
         unit: Unit = unit_param()
 
 
@@ -60,7 +58,7 @@ class IntValue(Constant):
     value_type = INT
 
     class Params(NodeParams):
-        value: int = P(0, label="值", group="数值", help="这个整数。接到的参数有范围时，超出范围会在那个节点上标红说明")
+        value: int = P(0, label="值", group="数值")
         unit: Unit = unit_param()
 
 
@@ -70,7 +68,7 @@ class BoolValue(Constant):
     value_type = BOOL
 
     class Params(NodeParams):
-        value: bool = P(False, label="值", group="数值", help="开或关：接到开关参数上，那个参数就跟着它开关")
+        value: bool = P(False, label="值", group="数值")
 
 
 class VectorValue(Constant):
@@ -80,7 +78,7 @@ class VectorValue(Constant):
     value_type = VECTOR
 
     class Params(NodeParams):
-        value: tuple[float, float, float] = P((0.0, 0.0, 0.0), label="值", widget="vec3", group="数值", help="X 轴、Y 轴、Z 轴三个小数，比如位置（厘米）或朝向（度）")
+        value: tuple[float, float, float] = P((0.0, 0.0, 0.0), label="值", widget="vec3", group="数值")
         unit: Unit = unit_param()
 
 
@@ -90,16 +88,14 @@ class TextValue(Constant):
     value_type = TEXT
 
     class Params(NodeParams):
-        value: str = P("", label="值", group="数值", help="这段文字，原样交给接它的参数（人物编号 1,3、类别名……）")
+        value: str = P("", label="值", group="数值")
 
 
 # ------------------------------------------------------------------ values taken out of data
 
 
 def _per_frame_param():
-    return P(True, label="逐帧", group="数值",
-             help="打开：Focal Length、位置、旋转每帧一个值，跟着变焦和运动；关闭：整段取一个中值。"
-                  "定焦镜头解算出的 Focal Length 逐帧有细小跳动，接到只收一个值的参数（大多数节点的 Focal Length）上时关掉")
+    return P(True, label="逐帧", group="数值")
 
 
 class SplitCamera(NodeDef):
@@ -159,8 +155,7 @@ class CurveChannel(NodeDef):
     on_node = ("curve", "unit")
 
     class Params(NodeParams):
-        curve: str = P("", label="曲线", group="数值", placeholder="第一条",
-                      help="要取的那条曲线：名字（如 jawOpen），或者从 1 数的序号；留空取第一条。上游算过以后，视图的曲线条里能看到每条的名字")
+        curve: str = P("", label="曲线", group="数值", placeholder="第一条")
         unit: Unit = unit_param()
 
     @classmethod

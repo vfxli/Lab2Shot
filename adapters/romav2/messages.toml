@@ -1,7 +1,7 @@
 # RoMa v2 图像对位（adapters/romav2）。一行一条：编号 = 模板。
 
 # ---- 配对
-"N-ROMAV2-NOSHAREDFRAMES" = "「画面」（第 {first}–{last} 帧）和「参考图」（第 {other_first}–{other_last} 帧）没有相同的帧号，这次输出是空的：两段按帧号配对（参考图是一张照片时和每一帧配对），让两段的帧号对上再算"
-"N-ROMAV2-UNPAIRED" = "「画面」有 {count:d} 帧在「参考图」里没有同帧号的帧：这些帧不输出匹配"
+"N-ROMAV2-NOSHAREDFRAMES" = "「RGB」（第 {first}–{last} 帧）和「参考图」（第 {other_first}–{other_last} 帧）没有相同的帧号，这次输出是空的：两段按帧号配对（参考图是一张照片时和每一帧配对），让两段的帧号对上再算"
+"N-ROMAV2-UNPAIRED" = "「RGB」有 {count:d} 帧在「参考图」里没有同帧号的帧：这些帧不输出匹配"
 "E-ROMAV2-NOPAIRS" = "「RoMa v2 图像对位」没有收到要匹配的帧：节点和它的 worker 对不上，请把参数面板里这个节点的日志发给开发者"
 "E-ROMAV2-REFERENCESIZE" = "「参考图」第 {frame} 帧是 {width}×{height}，和它其他帧的 {other_width}×{other_height} 不一样大：参考图的每一帧必须同样大小"

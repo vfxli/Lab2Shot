@@ -11,8 +11,8 @@
    `repo/sam2`（`extension.py` 的 `worker_env`），不是 site-packages。这一条在 `EnvSpec.places` 里登记着，
    `lab2shot ext place seganymo` 可以只做「放回去」这一步。
 
-编出来覆盖哪些架构由 `cuda_build_env` 按这台机器上真有的显卡定（`worker_sdk` 的 `compute_caps`），
-不写死卡型：谁的机器上装，就按谁的卡编。
+编出来覆盖哪些架构由 `cuda_build_env` 定：安装器传来的编译目标（设置「编译目标架构」与扩展声明的
+env_archs 两边都有的），与编译这台机器插的是什么卡无关；这里不写死架构。
 """
 
 from __future__ import annotations
@@ -51,8 +51,8 @@ if build.exists():
 shutil.copytree(repo / "sam2", build,
                 ignore=lambda folder, names: [n for n in names if n in (".git", "checkpoints", "demo", "notebooks")])
 
-# `cuda_build_env` 已经按这台机器上真有的显卡设好 TORCH_CUDA_ARCH_LIST（worker_sdk build.compute_caps），
-# 所以这里不自己写架构：谁的机器上装，就按谁的卡编。
+# `cuda_build_env` 已经按安装器传来的编译目标架构设好 TORCH_CUDA_ARCH_LIST（worker_sdk build.cuda_build_env），
+# 所以这里不自己写架构。
 env = cuda_build_env(prefix) | {
     "SAM2_BUILD_CUDA": "1",
     "SAM2_BUILD_ALLOW_ERRORS": "0",   # 编不过就当场失败，绝不静默跳过

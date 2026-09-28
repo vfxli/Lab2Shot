@@ -28,15 +28,15 @@ SAM 3 是一个可提示分割的统一基础模型，画面和视频都管：�
 
 **我们怎么接的**
 
-- 「图像」口 = 上游的那段视频；「提示词」参数 = 上游的文字提示（只认英文短语）；
+- 「RGB」口 = 上游的那段视频；「提示词」参数 = 上游的文字提示（只认英文短语）；
   「人物框」口 = 上游的框提示：每个人第一次出现那一帧的框作为他这个 id 的提示，接了框之后文字提示就不起作用（`adapters/sam3/worker.py:6-16`）。
-- 「遮罩」= 上游 `out_binary_masks` 合成一张；「物体分割」= `out_obj_ids` 那一套编号（两个口由分割家族 `lab2shot/nodes/families/segmentation.py` 给，`adapters/sam3/nodes.py:39-41`）。
+- 「遮罩」= 上游 `out_binary_masks` 合成一张；「物体分割」= `out_obj_ids` 那一套编号（两个口由分割家族 `lab2shot/nodes/families/segmentation.py` 给，`adapters/sam3/nodes.py:35-36`）。
 - **不一样的两点**：① 上游三种提示里的**点提示和遮罩提示我们没有做成口**，节点上只有文字和框两种；
   ② 上游一次算一整段，我们把长镜头切成有重叠的段、一段一个推理会话（显存按段长封顶而不是按镜头长度），
   文字那一路在共享帧上按遮罩重叠把编号接起来，框那一路把上一段的最后一张遮罩当作下一段的遮罩提示。
 
 **出处**：简介抽自 `third_party/sam3/repo/README.md:49`（「SAM 3 is a unified foundation model for promptable segmentation…」那两句）；
-输入输出依据同一行、`third_party/sam3/repo/sam3/model/sam3_base_predictor.py:119-245` 和 `adapters/sam3/nodes.py:39-41`、`adapters/sam3/worker.py:6-26`。
+输入输出依据同一行、`third_party/sam3/repo/sam3/model/sam3_base_predictor.py:119-245` 和 `adapters/sam3/nodes.py:35-36`、`adapters/sam3/worker.py:6-26`。
 
 ## 在 Lab2Shot 里怎么用
 

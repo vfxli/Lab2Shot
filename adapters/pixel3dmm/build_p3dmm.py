@@ -6,7 +6,7 @@ the checkouts and this does next to them:
 1. the code base env_paths expects, composed out of symlinks (codebase.py);
 2. pytorch3d, compiled from the pinned checkout with the environment's CUDA 13.2
    compiler, minus its point renderer "pulsar" — pulsar's explicit template
-   instantiations no longer produce host symbols with a CUDA 13 nvcc, so `_C` fails
+   instantiations produce no host symbols with a CUDA 13 nvcc, so `_C` fails
    to link. Only its header constants (`_C.EPS`, `_C.MAX_UINT`, read at import time by
    pytorch3d.renderer.points.pulsar) are kept; `_C.PulsarRenderer` is gone, and
    nothing here renders points. What Pixel3DMM uses is knn_points / knn_gather,

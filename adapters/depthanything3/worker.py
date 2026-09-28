@@ -4,7 +4,7 @@ pinned repo's src/ on sys.path; never imports Lab2Shot core.
     python worker.py <job.json>
 
 job["node"] == "depthanything3.geometry": each frame on its own (monocular). Params:
-    model       "da3nested-giant-large-1.1" (default) | "da3-large-1.1" | "da3-base" | "da3metric-large".
+    model       "da3metric-large" (default) | "da3nested-giant-large-1.1" | "da3-large-1.1" | "da3-base".
                 The any-view network (Giant 1.1 / Large 1.1 / Base) gives depth + camera and
                 DA3METRIC-LARGE the metric scale (upstream's "nested" scheme; the official Giant
                 checkpoint bundles both). "da3metric-large" alone predicts no camera: needs fov_x_deg.
@@ -13,8 +13,8 @@ job["node"] == "depthanything3.geometry": each frame on its own (monocular). Par
     fov_x_deg   known horizontal field of view (degrees) or null. DA3 cannot take a focal length
                 alone as a condition (its camera encoder needs poses too): a given FOV replaces the
                 predicted intrinsics and sets the metric scale (metric depth = focal x output / 300).
-    resolution  long image side the network works at, 252-1512 px (default 504, what DA3 is
-                trained at; rounded to a multiple of 14). Output is always the input size.
+    resolution  long image side the network works at: 252 / 378 / 504 px (default 504, what DA3
+                is trained at; rounded to a multiple of 14). Output is always the input size.
     ray_pose    default false: intrinsics from the camera-token head (upstream default, faster);
                 true: from the ray head.
   -> raw/frame_<n>.npz per lab2shot_worker.mono_geometry (points, depth, mask, intrinsics,
@@ -23,9 +23,9 @@ job["node"] == "depthanything3.geometry": each frame on its own (monocular). Par
 job["node"] == "depthanything3.reconstruct": the whole shot in multi-view passes (depth that
 agrees across frames, a camera per frame, metric scale), through the shared feed-forward
 reconstruction driver lab2shot_worker.feedforward (chunks with overlap for long shots,
-raw/cameras.npz + frame_<n>.npz). Params: weights = "da3nested-giant-large-1.1"
-(default) | "da3-large-1.1" | "da3-base", and the driver's max_frames / step / resolution
-(long side, default 504). Cameras from DA3's ray head (upstream: more accurate).
+raw/cameras.npz + frame_<n>.npz). Params: model = "da3-large-1.1" (default) |
+"da3nested-giant-large-1.1" | "da3-base", and the driver's max_frames / step / resolution
+(long side, default 504) / loops. Cameras from DA3's ray head (upstream: more accurate).
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ import torch.nn.functional as F
 
 from lab2shot_worker import check_node, fail, fit_size, load_job, recon, require_weights, resident, serve
 
-from lab2shot_worker.feedforward import Backend, run
+from lab2shot_worker.feedforward import Backend, run as run_feedforward  # main() binds `run` to its own Run below
 from lab2shot_worker.mono_geometry import begin, finish_geometry, frame_arrays, pinhole_from_fov, run_frames, unproject_frame
 
 ANYVIEW = ("da3nested-giant-large-1.1", "da3-large-1.1", "da3-base")
@@ -124,8 +124,8 @@ def run_nested(net, x: torch.Tensor, k_user: torch.Tensor | None, ray_pose: bool
     """NestedDepthAnything3Net.forward, except a known focal replaces the predicted one
     before the metric scaling. Returns (output, sky probability, predicted intrinsics)."""
     out = net.da3(x, None, None, export_feat_layers=[], infer_gs=False, use_ray_pose=ray_pose,
-                  # 上游的默认（`api.py:141 ref_view_strategy: str = "saddle_balanced"`）；单视图（S ≤ 2）
-                  # 不重排（api.py:171-172）
+                  # upstream's default (api.py:141 ref_view_strategy: str = "saddle_balanced"); with
+                  # S <= 2 views nothing is reordered (api.py:171-172)
                   ref_view_strategy="saddle_balanced")
     metric = metric_chunked(net.da3_metric, x)
     k_model = out.intrinsics.clone()
@@ -167,7 +167,7 @@ def to_input(depth, conf, sky, k_proc: np.ndarray, size: tuple[int, int]):
     k[0] *= ww / w
     k[1] *= hh / h
     depth = up(depth)
-    sky_p = up(sky)  # 模型自己的天空概率：mask 用它判，原图也交出去
+    sky_p = up(sky)  # the model's own sky probability: the mask comes from it, and it is output as is
     return depth, None if conf is None else up(conf), sky_p < SKY_THRESHOLD, k, sky_p
 
 
@@ -230,7 +230,7 @@ def make_backend(job) -> Backend:
         valid = (sky < SKY_THRESHOLD) & (conf >= torch.quantile(conf.flatten()[::97], CONF_PERCENTILE / 100))
         return recon.Chunk(cam_to_world=torch.linalg.inv(w2c).cpu().numpy(), K=k.cpu().numpy(),
                            depth=depth.cpu().numpy(), confidence=conf.cpu().numpy(), usable=valid.cpu().numpy(),
-                           # 天空概率原样带出去
+                           # the sky probability, output as is
                            extra={"sky": sky.float().cpu().numpy()})
 
     return Backend(
@@ -250,7 +250,7 @@ def make_backend(job) -> Backend:
 def main(job_path: str) -> None:
     job = load_job(job_path)
     if check_node(job, "depthanything3.geometry", "depthanything3.reconstruct") == "depthanything3.reconstruct":
-        run(job_path, "depthanything3.reconstruct", make_backend)
+        run_feedforward(job_path, "depthanything3.reconstruct", make_backend)
         return
     run = begin(job, "depthanything3.geometry", "Depth Anything 3", src="src")
     params = run.params

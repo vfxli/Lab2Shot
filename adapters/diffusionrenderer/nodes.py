@@ -11,6 +11,10 @@ from lab2shot.sdk import (Official, UNIT, measured_param, MissingFrames, RawOutp
                           Licence, Measured, working_space)
 
 RUNTIME = "diffusionrenderer"
+# Peak VRAM at the default settings (canvas 1280×704, 41 frames a window), RTX 4090: 19.1 GB on a 70-frame shot cut
+# into two windows (docs.md; a single 24-frame window peaked at 17.5). The two measured settings and both nodes'
+# Cost say this one number, so the scheduler and the node's rating never count on less.
+DEFAULT_VRAM_GB = 19.1
 LICENSE = ("代码 Apache-2.0，模型 NVIDIA Open Model License：可以商用。对外分发模型要附许可证和 NVIDIA 声明；"
            "用到它的产品或服务要写明 “Built on NVIDIA Cosmos”。")
 
@@ -18,23 +22,20 @@ class DiffusionParams(NodeParams):
     """What both models share: the working canvas, the windows the shot is cut into, the sampler."""
 
     resolution: Literal[1280, 1024, 960, 768, 640, 512] = measured_param(
-        "处理分辨率", {1280: Measured("每段 41 帧：24 帧和 70 帧两段都实测过", gb=19.1), 1024: Measured("比实测的一档省", below=1280), 960: Measured("比实测的一档省", below=1280), 768: Measured("比实测的一档省", below=1280), 640: Measured("比实测的一档省", below=1280), 512: Measured("比实测的一档省", below=1280)},
+        "处理分辨率", {1280: Measured(gb=DEFAULT_VRAM_GB), 1024: Measured(below=1280), 960: Measured(below=1280), 768: Measured(below=1280), 640: Measured(below=1280), 512: Measured(below=1280)},
         default=1280, group="模型",
         option_labels={"1280": "1280×704", "1024": "1024×576", "960": "960×528", "768": "768×432", "640": "640×352", "512": "512×288"},
-        help="模型内部画布的大小，永远是 16:9；原画面按比例放进去，边缘镜像填满，算完再裁回原尺寸。小一点更快更省显存，细节变少",
     )
     max_frames: Literal[1, 9, 17, 25, 33, 41, 49, 57] = measured_param(
-        "每段最多帧数", {1: Measured("逐帧", below=41), 9: Measured("比实测的一档省", below=41), 17: Measured("比实测的一档省", below=41), 25: Measured("比实测的一档省", below=41), 33: Measured("比实测的一档省", below=41), 41: Measured("画布 1280：约 10 秒/帧", gb=19.1), 49: Measured("网络和编解码器轮流用显存，同 57", below=57), 57: Measured("网络临时挪到内存（内存多约 15 GB）、9.3 秒/帧", gb=17.8)},
+        "每段最多帧数", {1: Measured(below=41), 9: Measured(below=41), 17: Measured(below=41), 25: Measured(below=41), 33: Measured(below=41), 41: Measured(gb=DEFAULT_VRAM_GB), 49: Measured(below=57), 57: Measured(gb=17.8)},
         default=41, group="时序", option_labels={str(n): f"{n} 帧" for n in (1, 9, 17, 25, 33, 41, 49, 57)},
-        help="镜头切成一段一段来算，每段这么多帧一起算，段内前后帧一致。57 是训练长度、最稳；1 = 逐帧，会闪",
     )
     overlap: Literal[0, 4, 8, 12] = measured_param(
-        "段间重叠", {0: Measured("不过渡", flat=True), 4: Measured("少算 4 帧", flat=True), 8: Measured("默认", flat=True), 12: Measured("sh010 70 帧两段：736 秒", flat=True)}, default=8, group="时序",
-        help="相邻两段重叠的帧数，接缝在重叠处线性过渡，看不出跳变。不能超过每段帧数的一半")
+        "段间重叠", {0: Measured(flat=True), 4: Measured(flat=True), 8: Measured(flat=True), 12: Measured(flat=True)}, default=8, group="时序")
     steps: Literal[5, 10, 15] = measured_param(
-        "去噪步数", {5: Measured("时间约为 15 步的三分之一", flat=True), 10: Measured("时间约为 15 步的三分之二", flat=True), 15: Measured("官方默认：24 帧 224–232 秒", flat=True)},
-        default=15, group="模型", help="扩散模型的去噪步数，越多越慢；15 是官方默认，一般不用改")
-    seed: int = P(1000, label="随机种子", ge=0, le=2**31 - 1, group="模型", help="同一个种子出来的结果基本一样（显卡计算本身有微小随机性，个别细节每次会略有不同）；结果不满意可以换一个试试")
+        "去噪步数", {5: Measured(flat=True), 10: Measured(flat=True), 15: Measured(flat=True)},
+        default=15, group="模型")
+    seed: int = P(1000, label="随机种子", ge=0, le=2**31 - 1, group="模型")
 
 
 def _check(params: dict) -> None:
@@ -55,8 +56,8 @@ class Inverse(NodeDef):
     on_node = ("resolution", "max_frames")
     version = 2
     # ram_gb: the 7B checkpoint is read into memory before it goes to the GPU (22–29 GB)
-    # vram_gb: RTX 4090，默认 1280×704 / 每段 41 帧
-    cost = Cost(gpu=True, vram_gb=17.5, seconds_per_frame=9.7, ram_gb=32)
+    # vram_gb: RTX 4090，默认 1280×704 / 每段 41 帧（DEFAULT_VRAM_GB）
+    cost = Cost(gpu=True, vram_gb=DEFAULT_VRAM_GB, seconds_per_frame=9.7, ram_gb=32)
     licence = Licence(note=LICENSE)
     # 默认每段 41 帧、段间重叠 8 帧，段内时序稳定；深度是每段各自归一化的相对值，不是米制
     inputs = (Port("image", "image.3", "RGB"),)
@@ -97,13 +98,13 @@ class Relight(NodeDef):
         takes={"image": "dataset_path", "hdri": "envlight_path"},
         gives={"image": "output"},
         note="上游的 --dataset_path「should point to the output of the inverse renderer」（第 88 行）："
-             "我们的「图像」口进来的是画面，材质通道由 worker 先跑一遍拆解再送进正向模型。"
+             "我们的「RGB」口进来的是画面，材质通道由 worker 先跑一遍拆解再送进正向模型。"
              "HDRI 走 --use_custom_envmap 那一路（process_environment_map，第 232 行）。",
     )
     version = 2  # image packets carry whether they have an alpha
     on_node = ("env_rotate", "exposure")
-    # vram_gb: RTX 4090，同一 7B 模型，正向渲染而不是拆解
-    cost = Cost(gpu=True, vram_gb=17.5, seconds_per_frame=11.7, ram_gb=32)
+    # vram_gb: RTX 4090，同一 7B 模型、同一套分段参数（DEFAULT_VRAM_GB），正向渲染而不是拆解
+    cost = Cost(gpu=True, vram_gb=DEFAULT_VRAM_GB, seconds_per_frame=11.7, ram_gb=32)
     licence = Licence(note=LICENSE)
     # 默认每段 41 帧、段间重叠 8 帧；真实镜头上的结果仍有斑块和彩色噪点，属实验功能
     inputs = (Port("image", "image.3", "RGB"), Port("hdri", "image.3", "HDRI", expects=(FrameCount(most=1), HighDynamicRange())))
@@ -111,9 +112,8 @@ class Relight(NodeDef):
     runtime = RUNTIME
 
     class Params(DiffusionParams):
-        env_rotate: float = P(0.0, label="环境光旋转", unit="°", ge=-360, le=360, group="环境光",
-                                help="绕竖直轴转动环境光：+90 把原来正前方的光转到镜头左边")
-        exposure: float = P(0.0, label="曝光", unit="EV", ge=-20, le=20, group="环境光", help="环境光整体加减曝光：+1 亮一倍，-1 暗一半")
+        env_rotate: float = P(0.0, label="环境光旋转", unit="°", ge=-360, le=360, group="环境光")
+        exposure: float = P(0.0, label="曝光", unit="EV", ge=-20, le=20, group="环境光")
 
     @classmethod
     def cook(cls, ctx):

@@ -109,8 +109,8 @@ function RestartNotice() {
 }
 
 /** What every page of the site shows at its top, stacked (site.tsx renders it once): the administrator's notice, then
- * the server's own state. They float under the top bar, so no page has to reserve space for them and none of them
- * covers a control: the stack is centred and only as tall as its visible content.
+ * the server's own state. The stack sits in the page's flow at the very top, full width (ui/banner.css .site-notices),
+ * so it pushes the page down instead of covering a control, and is only as tall as its visible content.
  *
  * `restart={false}` omits the server's own state: the admin page is where the server is restarted, and it reports that
  * itself (admin/Restart.tsx). The administrator's notice is shown on every page regardless. */

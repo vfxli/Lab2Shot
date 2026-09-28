@@ -1,9 +1,12 @@
 """Viewer handles: how a node is worked on in the viewer.
 
 A handle is bound to parameters, as in Houdini: when the node is the active one the viewer shows its handles in their
-stage, and using a handle edits those parameters (undoable, cooked again like any edit). Nodes only declare
-handles; the viewer has one tool per kind, so a new paper that needs clicks or a gizmo reuses a kind, and a new
-kind is written once for every node.
+stage, and using a handle edits those parameters (undoable). A handle only displays: while it is dragged, clicked or
+drawn the viewer shows the results already there with the handle's current parameters (the picks, outlines and
+figures drawn on the picture, the chosen people lit, the scene placed by the current matrix), and releasing it only
+stores the parameters. Nothing is cooked; computing is right-click 「计算」 (webui/src/view/plan.ts underHandles says
+what each kind shows). Nodes only declare handles; the viewer has one tool per kind, so a new paper that needs clicks
+or a gizmo reuses a kind, and a new kind is written once for every node.
 """
 
 from __future__ import annotations
@@ -45,8 +48,9 @@ HANDLE_KINDS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...], str]] = {
 }
 
 # The 18 joints drawn on the stick figure, as (SMPL joint name, UI label). The order is the order of the coordinate
-# pairs in a "figure" handle entry; the bone connections on the web side (view/handles2d.ts FIGURE_BONES) use the same
-# order. Labels name where the point is on the body (points are drawn, not bones), so 「左胯」 is not called 「左大腿」:
+# pairs in a "figure" handle entry; the bone connections on the web side (webui/src/view/figure2d.ts FIGURE_BONES)
+# use the same order. Labels name where the point is on the body (points are drawn, not bones), so 「左胯」 is not
+# called 「左大腿」:
 # data/joints.py part_label names a bone and this table names a point; the two are not interchangeable.
 # The body has 22 joints (the first 22 SMPL joints of lab2shot_shared.smpl); the 4 omitted ones (spine2, spine3 and
 # both shoulders) lie on the lines between drawn points and are filled in by the algorithm rather than drawn.
@@ -69,7 +73,9 @@ def figure_handle(param: str) -> "Handle":
 class Handle:
     kind: str  # one of HANDLE_KINDS
     params: dict[str, str]  # role -> the node's parameter it edits, e.g. {"points": "picks"}
-    source: str | None = None  # the input the handle works on (e.g. "boxes" for "person")
+    # the input the handle works on (e.g. "boxes" for "person"): the viewer shows its upstream result with the handle,
+    # so the handle has something to work on before the node is computed
+    source: str | None = None
     # only while it holds (nodes/applies.py: Param("mode").one_of("picked")); the status reply names the handles that
     # apply now (Graph.handles), the page never checks it itself
     when: Cond | None = None
@@ -88,9 +94,11 @@ class Handle:
 class Places(Handle):
     """The transform handle, and where the node places what it gives: one declaration
     of the parameters that move (cm, Y up), turn (degrees, X then Y then Z) and scale it (a factor; "" none). The
-    handle edits them, the viewer applies `placement()` to the data it already shows while the handle or a parameter
-    is dragged, and the cook applies `matrix` of the same parameters, so the result lands where the preview was. A node
-    declares it among its handles; NodeDef.places is that handle."""
+    handle edits them; the viewer shows what is there (the node's own result, or before the node has a current one its
+    `source` input) placed by `placement()` of the current parameters, and the cook applies `matrix` of the same
+    parameters, so the result lands where the display was. The two are the same matrix written twice (Python here,
+    webui/src/model/places.ts placeMatrix for the viewer); `lab2shot check places` runs both on a set of parameters and
+    compares them. A node declares it among its handles; NodeDef.places is that handle."""
 
     kind: str = field(default="transform", init=False)
     params: dict[str, str] = field(default_factory=dict, init=False)

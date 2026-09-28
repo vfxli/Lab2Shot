@@ -193,7 +193,7 @@ def _prepared(p: Packet, names: dict[str, str], path: Path, group: str = "") -> 
     times = sorted({t for op in ops for t in op.GetTimeSamples()}) or [Usd.TimeCode.Default()]
     for child in shot.GetPrim().GetChildren() if ops else []:
         if not child.IsA(UsdGeom.Xformable):
-            child.SetTypeName("Xform")  # a scope holding things: now it can carry the transform
+            child.SetTypeName("Xform")  # a scope holding things: as an Xform it can carry the transform
         xf = UsdGeom.Xformable(child)
         if xf.GetResetXformStack():  # it ignores its parents' transforms already
             continue
@@ -269,7 +269,8 @@ def place_through(src: Packet, out: Path, mats: np.ndarray, frames: list[int]) -
                         **{k: v for k, v in src.meta.items() if k != "frames"})
 
 
-def export(src: Packet, path: Path, unit: str, fps: float, provenance: dict | None = None) -> Path:
+def export(src: Packet, path: Path, unit: str, fps: float, may_draw_on: Callable[[Path, Path], bool],
+           provenance: dict | None = None) -> Path:
     """Flatten to one standalone file, as it is (what kinds it holds is the graph's: 「烘焙成模型」 makes point caches);
     cm -> m. `provenance` goes into the layer's metadata.
 
@@ -292,14 +293,20 @@ def export(src: Packet, path: Path, unit: str, fps: float, provenance: dict | No
     data["lab2shot"] = usd.layer_data(info)
     stage.GetRootLayer().customLayerData = data
     path.parent.mkdir(parents=True, exist_ok=True)
-    _localize_textures(stage, path)
+    _localize_textures(stage, path, src.path(SCENE_FILE), may_draw_on)
     if not stage.GetRootLayer().Export(str(path)):
         raise FileProblem(Msg("E-USD-WRITE", path=str(path)))
     return path
 
 
-def _localize_textures(stage: Usd.Stage, path: Path) -> None:
-    """Textures referenced from the cache (e.g. a dome light's HDRI) are copied next to the file, linked relatively."""
+def _localize_textures(stage: Usd.Stage, path: Path, layer: Path, may_draw_on: Callable[[Path, Path], bool]) -> None:
+    """Textures referenced from the cache (e.g. a dome light's HDRI) are copied next to the file, linked relatively.
+
+    Only a texture the scene may draw on is opened (`may_draw_on`, the caller's: transfer/uploads.py may_draw_on through
+    nodes/services.py PlanEnv, since this layer does not import the transfer layer): a cook of this server wrote it,
+    so a node's own HDRI is copied out, but an absolute server path carried in by a user's uploaded scene (another
+    account's upload, cache or task file, or any file the server can read) is not — it is reduced to its bare name, so
+    no bytes and no server path leave in the delivery."""
     import shutil
 
     tex_dir = path.parent / f"{path.stem}_textures"
@@ -310,6 +317,9 @@ def _localize_textures(stage: Usd.Stage, path: Path) -> None:
             value = attr.Get()
             src = Path(value.path) if value and value.path else None
             if src is None or not src.is_absolute() or not src.is_file():
+                continue
+            if not may_draw_on(layer, src):  # not this server's own result: never opened, and the path is dropped
+                attr.Set(Sdf.AssetPath(src.name))
                 continue
             tex_dir.mkdir(exist_ok=True)
             target = tex_dir / f"{prim.GetName()}_{src.name}"

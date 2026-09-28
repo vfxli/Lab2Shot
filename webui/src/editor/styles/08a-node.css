@@ -26,12 +26,11 @@
 .gnode {
   /* 状态词格的宽度：按最长的状态预留，不截断文字。实测宽度（Geist + 思源黑体回退，
      字号 --fs-2xs 10.5px，tabular-nums，含左内边距 4）：「计算中…」41.5、「999/999」46.8、「9999/9999」59.5。
-     取 60：镜头不会超过一万帧（9999 帧 @24fps 已约 7 分钟）。
-     tests/test_tools.py NODE_HEAD_CHROME 使用同一数值，两处须同步修改。 */
+     取 60：镜头不会超过一万帧（9999 帧 @24fps 已约 7 分钟）。 */
   --node-state-w: 60px;
   min-width: 240px;
   width: max-content;
-  position: relative; /* 警告角标位于右上角，进度条位于底边，均不占布局 */
+  position: relative; /* 进度条的定位父：它贴在底边，不占布局 */
   border-radius: var(--r-node);
   background: var(--lifted);
   border: 1px solid var(--hair-strong);
@@ -139,11 +138,6 @@
   color: var(--error);
 }
 
-/* 「输出」 delivered, waiting for the submitting computer to fetch it */
-.gnode-state.pending {
-  color: var(--orange);
-}
-
 /* 在视图中显示 and 展开: not in the design's title row, which carries only the name and the state. The two switches stay
    (the editor cannot do without them) but keep out of the way: they hold their room, so no node ever changes width or
    jumps, and only show while the pointer is over the node, while it is selected, or while the switch itself is on. */
@@ -165,7 +159,7 @@
 /* The node's own three icon marks (展开, 在视图中显示, 数据信息) are written one way: a square box with the icon
    exactly in its middle. A <button> brings its own padding and its own content layout, which leaves the icon a pixel or
    two off centre inside its square; the reset below makes the two centres coincide.
-   tests/ui/walk_common.py ICONS_CENTRED measures every icon-only control of the site against it. */
+   Every icon-only control of the site follows the same rule. */
 .display-flag,
 .expand-flag,
 .gnode-info {
@@ -292,8 +286,8 @@
 
 /* one line box of its own, whatever sits in it (a note, a file name, the 非商用 badge, the cost tag, 数据信息's mark)
    and whatever font the machine falls back to: 4 + 15 + 4 = 23 px plus the border, the same on every node
-   (tests/test_tools.py NODE_FOOT counts it; a tag that only shows once its extension is installed must never make a
-   node taller, and tests/ui/walk_templates.py measures that nothing in it is taller than the line) */
+   (a tag that only shows once its extension is installed must never make a node taller, and nothing in it may be
+   taller than the line) */
 .gnode-foot {
   border-top: 1px solid var(--hair);
   padding: 4px 8px;
@@ -324,8 +318,8 @@
   margin-left: auto;
 }
 
-/* 数据信息: a small circled 「i」 at the node's bottom right. Every item of the footer must stay inside its one line
-   (tests/ui/walk_templates.py measures it), so it is exactly the line's height. */
+/* 数据信息: a small circled 「i」 at the node's bottom right. Every item of the footer must stay inside its one line,
+   so it is exactly the line's height. */
 .gnode-info {
   border-radius: 50%;
 }
@@ -363,7 +357,7 @@
 }
 
 /* 计算量档位：低/中/高/超高，bottom-left of the node, before whatever the footer already says (file / status). Its box
-   stays inside the footer's one line (tests/ui/walk_templates.py measures it), so it carries its own line height. */
+   stays inside the footer's one line, so it carries its own line height. */
 .gnode-compute {
   flex: none;
   font-size: 10px;
@@ -393,11 +387,11 @@
 /* 标题行与端口行决定节点宽度：其余部分宽度归零，再撑满计算得到的宽度（见 .gnode 的注释）。
    这是全站唯一控制节点各部分宽度的规则，不得在其他文件（如 29-node-chrome.css）重复定义，
    否则修改此处时会被另一份规则覆盖。
-   进度条不在此列：它不参与布局（绝对定位于底边，12-preview-bar.css），
+   进度条不在此列：它不参与布局（绝对定位于底边，12-node-progress.css），
    再为其设置 width: 0 / min-width: 100% 会形成两套规则控制同一属性。
    该规则同时保证节点内的元素不超出节点：宽度恰为节点内容宽（max-width），左右外边距一律为 0；
    在 `min-width: 100%` 之外再加左右外边距，实际宽度为 100% 加边距，会超出节点右边。需要内缩时使用 padding。
-   tests/ui/walk_templates.py 逐个节点测量。此处不设任何允许超出的例外，也不得添加。 */
+   此处不设任何允许超出的例外，也不得添加。 */
 .gnode > :not(.gnode-head):not(.gnode-ports):not(.gnode-progress) {
   width: 0;
   min-width: 100%;
@@ -409,7 +403,7 @@
   margin-inline: 0;
 }
 
-/* 该端口当前不可用（由服务器计算，nodes/base.py Port.applies）：置灰、位置不变、悬停说明原因，且无法连线。
+/* 该端口当前不可用（由服务器计算，nodes/port.py Port.applies）：置灰、位置不变、悬停说明原因，且无法连线。
    不区分 `.in` / `.out`：输入与输出遵循同一规则；若只写 `.in`，输出口只有 class 而无样式，应置灰的端口会与正常端口一样显示。 */
 .port-row.inactive {
   opacity: 0.4;

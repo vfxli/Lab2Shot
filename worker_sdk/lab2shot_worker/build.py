@@ -45,7 +45,11 @@ def pip_cuda_home(prefix: Path) -> Path | None:
 
 def cuda_build_env(prefix: Path) -> dict[str, str]:
     """Environment for compiling CUDA extensions inside an EnvSpec.build script with the pip CUDA toolkit of the
-    extension's environment: the installer hands build scripts a CPU-only environment."""
+    extension's environment: the installer hands build scripts a CPU-only environment. The architectures compiled for
+    are the ones the installer chose (ARCHS_ENV: the setting build.archs, narrowed to the extension's env_archs); only a
+    script run by hand, without the installer, falls back to this machine's cards."""
+    from lab2shot_shared.gpu_arch import ARCHS_ENV
+
     home = pip_cuda_home(prefix)
     if home is None:
         from . import fail
@@ -53,12 +57,12 @@ def cuda_build_env(prefix: Path) -> dict[str, str]:
         fail("E-WORKER-NONVCC")
     env = os.environ.copy()
     env.update(CUDA_HOME=str(home), PATH=f"{home / 'bin'}:{env.get('PATH', '')}", FORCE_CUDA="1", MAX_JOBS=MAX_JOBS,
-               TORCH_CUDA_ARCH_LIST=";".join(compute_caps()) or "8.9")
+               TORCH_CUDA_ARCH_LIST=os.environ.get(ARCHS_ENV) or ";".join(compute_caps()) or "8.9")
     return env
 
 
 def modernize_torch_sources(folder: Path) -> int:
-    """Old CUDA extensions (DPVO, DROID-SLAM, lietorch) written for torch 1.x, fixed in a
+    """Old CUDA extensions (DPVO, DROID-SLAM, lietorch, pointops2) written for torch 1.x, fixed in a
     copy of their sources for torch 2.9: tensor.type() passed to the AT_DISPATCH macros
     becomes tensor.scalar_type() (device().type() is left alone), and the C++ frontend's
     removed torch::linalg:: namespace becomes the ATen functions (torch::linalg_<name>).

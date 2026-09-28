@@ -30,21 +30,10 @@
   gap: var(--sp-3);
 }
 
-.rts-note,
-.rts-warn {
+.rts-note {
   margin: 0;
   font-size: var(--fs-sm);
-}
-
-.rts-note {
   color: var(--text-3);
-}
-
-.rts-warn {
-  padding: var(--sp-2) var(--sp-3);
-  border-radius: var(--r-ctl);
-  background: var(--raised);
-  color: var(--orange);
 }
 
 /* the ticks: one scroll of its own, so the sheet's buttons stay where they are however long the table grows.

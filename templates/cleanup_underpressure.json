@@ -16,11 +16,6 @@
    "target": "read.path"
   },
   {
-   "name": "output",
-   "label": "保存到",
-   "target": "deliver.path"
-  },
-  {
    "name": "skeleton",
    "label": "骨骼",
    "target": "feet.skeleton"
@@ -229,17 +224,10 @@
    "id": "deliver",
    "type": "core.output",
    "label": "输出",
-   "params": {
-    "mode": "tar",
-    "path": "",
-    "name": ""
-   },
+   "params": {},
    "ui": {
     "x": 980,
-    "y": 100,
-    "on_node": [
-     "mode"
-    ]
+    "y": 100
    }
   }
  ],

@@ -57,7 +57,7 @@ export function ResidentSection() {
       }
       actions={
         <>
-          <Button tip="常驻模型留多久、留几个、怎么让路，在「设置」的「队列与显存」里改" tone="ghost" onClick={() => go("settings")}>
+          <Button tip="常驻模型留多久、留几个、怎么让路，在「计算与显卡」里改" tone="ghost" onClick={() => go("settings-compute")}>
             改设置
           </Button>
           <Button tip="重新读取常驻进程" tone="ghost" onClick={reload}>

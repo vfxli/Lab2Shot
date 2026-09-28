@@ -13,11 +13,11 @@ import { addCatalogue } from "./messages/format";
 import { CATALOGUE } from "./messages/generatedCatalogue";
 
 /** The page behind the login (the gate loads it once the browser is logged in): /admin is the administrator's page
- * (no link to it from the others); everything else is the node editor. The admin page is a file of its own that the server hands out only to the administrator
+ * (the account menu opens it for an administrator); everything else is the node editor. The admin page is a file of its own that the server hands out only to the administrator
  * (server/access.py): it loads after the admin login. There is no help page; extension installation lives on the
  * admin page. */
 
-const App = lazy(() => import("./editor/App")); // the editor (and, when a 3D result is shown, three.js) loads with its page, not with the login (P8)
+const App = lazy(() => import("./editor/App")); // the editor (and, when a 3D result is shown, three.js) loads with its page, not with the login
 const AdminPage = lazy(() => import("./admin/AdminApp"));
 
 // 登录之后才发的那一份消息模板（登录门只带它自己用得到的那几条）：必须在任何页面画出来之前注册

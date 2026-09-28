@@ -1,4 +1,4 @@
-/* The one table of the site (ui/Table.tsx): the datasets page, the admin pages, the benchmark lists. Headings are a
+/* The one table of the site (ui/Table.tsx): the admin pages, the item list under a node in 数据信息. Headings are a
    faint small row, the rules are hairlines, figures line up (tabular), a row that can be picked lights on hover.
    Docked, so solid — never glass. */
 
@@ -50,7 +50,7 @@
   font-size: var(--fs-md);
 }
 
-/* a row for something no longer in use (a deleted account, a sample taken out): still readable, a step back */
+/* a row for something no longer in use (a deleted account, an invite used up): still readable, a step back */
 .tbl tr.dim td {
   color: var(--text-3);
 }

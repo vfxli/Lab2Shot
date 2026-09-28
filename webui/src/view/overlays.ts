@@ -25,7 +25,7 @@ export interface Frame {
 }
 
 const FONT = "600 11px -apple-system, 'PingFang SC', 'Microsoft YaHei UI', sans-serif";
-export const PEOPLE = "#BF5AF2";
+const PEOPLE = "#BF5AF2";
 
 /** A colour at the quiet overlay's strength (a handle's input, not lit). */
 const dimmed = (hex: string): string =>

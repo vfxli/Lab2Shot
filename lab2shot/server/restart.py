@@ -10,6 +10,10 @@ config ...), and a server that misbehaves starts clean.
 Either way nothing waiting is lost: the next server queues the waiting jobs again under their own ids (farm/queue.py
 park), and the pages following them carry on (their event streams reconnect with Last-Event-ID, server/farm.py).
 
+The same steps can end in a stop instead (`then` "stop": the configuration menu's 停止服务 and the one-click update
+before it changes the code stop the service this way, cli/service.py stop): the waiting jobs are parked all the same,
+and the next server that starts queues them again; the process ends instead of replacing itself.
+
 The restart itself: the worker processes kept loaded end first (they end with the server's process, but exec keeps
 its id), then the server stops listening, then the process replaces itself with exactly what started it: the
 interpreter, command line, current folder and environment taken the moment serve() began (Launch), never what the
@@ -45,8 +49,8 @@ RESTART_ROOT = "LAB2SHOT_RESTART_ROOT"  # set only for the process a restart bec
 @dataclass(frozen=True)
 class Launch:
     """How this server started, taken once as serve() begins. A restart becomes exactly this again: the same
-    interpreter, command line, folder, environment and checkout, whatever the running process changed since (an
-    in-process LAB2SHOT_WORK_DIR, a chdir)."""
+    interpreter, command line, folder, environment, checkout and cores, whatever the running process changed since (an
+    in-process LAB2SHOT_WORK_DIR, a chdir, the reservation process.apply_reservation narrowed it to)."""
 
     executable: str
     argv: tuple[str, ...]
@@ -62,7 +66,11 @@ class Launch:
         return cls(sys.executable, tuple(sys.orig_argv), os.getcwd(), env, str(ROOT))
 
     def replace_process(self) -> None:
+        from ..process import GIVEN_CPUS
+
         os.chdir(self.cwd)
+        if hasattr(os, "sched_setaffinity"):  # the cores it started with, not the share 「保留核心数」 narrowed it to
+            os.sched_setaffinity(0, set(GIVEN_CPUS))
         os.execve(self.executable, list(self.argv), {**self.env, RESTART_ROOT: self.root})
 
 
@@ -87,11 +95,12 @@ class Restarter:
     stop_server: Callable[[], None] | None = None
     state: str = ""  # "" / draining (waiting for what runs) / restarting
     mode: str = ""  # drain / now
+    then: str = "restart"  # restart / stop: what follows once nothing runs (stop: the process ends, serve below)
     since: float = 0.0
     lock: threading.Lock = field(default_factory=threading.Lock)
     _waiter: threading.Thread | None = None
 
-    def request(self, mode: str) -> None:
+    def request(self, mode: str, then: str = "restart") -> None:
         if mode not in ("drain", "now"):
             raise Invalid(Msg("E-RESTART-MODE", mode=mode))
         if self.stop_server is None:
@@ -101,8 +110,11 @@ class Restarter:
                 return
             if not self.state:
                 self.since = time.time()
-            self.state, self.mode = "draining", mode
-        logs.say(log, Msg("I-RESTART-ASKEDNOW" if mode == "now" else "I-RESTART-ASKEDDRAIN"))
+            self.state, self.mode, self.then = "draining", mode, then
+        if then == "stop":
+            logs.say(log, Msg("I-RESTART-ASKEDSTOPNOW" if mode == "now" else "I-RESTART-ASKEDSTOPDRAIN"))
+        else:
+            logs.say(log, Msg("I-RESTART-ASKEDNOW" if mode == "now" else "I-RESTART-ASKEDDRAIN"))
         self.farm().hold()
         if mode == "now":
             self.farm().stop_running(NOW_REASON.text)
@@ -118,6 +130,7 @@ class Restarter:
             if self.state != "draining":
                 return
             self.state = self.mode = ""
+            self.then = "restart"
         self.farm().release()
 
     def _wait(self) -> None:
@@ -134,9 +147,13 @@ class Restarter:
             self.state = "restarting"
         self.farm().park()
         self.pool().shutdown()
-        logs.say(log, Msg("I-RESTART-GOING"))
+        logs.say(log, Msg("I-RESTART-STOPPING" if self.then == "stop" else "I-RESTART-GOING"))
         assert self.stop_server is not None
         self.stop_server()
+
+    def replacing(self) -> bool:
+        """Whether the process becomes the next server once it stops listening (a restart), rather than ending."""
+        return self.state == "restarting" and self.then == "restart"
 
     def view(self) -> dict | None:
         """What the pages show (None: no restart coming)."""
@@ -182,8 +199,7 @@ _DUMPS = None
 def import_everything():
     """The whole application imported on the thread that starts the server, before any background task runs (an
     install, say), and returns the ASGI app. An import holds a lock: a task importing something
-    while the next server starts after a restart's exec makes that start wait on it (test_restart fails
-    intermittently over exactly that). Every module of ours (adapters.import_core walks the package: not a list
+    while the next server starts after a restart's exec makes that start wait on it. Every module of ours (adapters.import_core walks the package: not a list
     of what tasks happen to reach today), then the node catalogue with every extension's nodes (adapters, the SDK,
     USD). The rule: after this returns, no thread but this one may be the first to import a module of ours."""
     from ..adapters import import_core
@@ -196,7 +212,7 @@ def import_everything():
     return application
 
 
-RECORD = "server.json"  # <work>/server.json: {"pid", "address"} of the server running on this work folder (cli/setup.py reads it)
+RECORD = "server.json"  # <work>/server.json: {"pid", "address"} of the server running on this work folder (cli/service.py reads it)
 
 
 def _record(host: str | None, port: int = 0, https: bool = False) -> None:
@@ -219,12 +235,31 @@ def _record(host: str | None, port: int = 0, https: bool = False) -> None:
         pass
 
 
+def recorded_address() -> str | None:
+    """Where the server running on this work folder said it listens (RECORD); None when none is running. A record
+    whose process no longer exists is stale (a crash or a kill) and is ignored."""
+    import json
+
+    from ..config import settings
+
+    try:
+        said = json.loads((settings().work_dir / RECORD).read_text(encoding="utf-8"))
+        os.kill(int(said["pid"]), 0)
+        return str(said["address"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def serve(host: str, port: int, ssl: dict) -> None:
     """Run the server (`lab2shot ui`) until it stops; when it stopped to restart, become the next one."""
     if problem := restarted_elsewhere():
         sys.exit(said_line(Msg("E-SERVER-NOSTART", reason=problem).json()))
     os.environ.pop(RESTART_ROOT, None)
     launch = Launch.now()
+    from ..process import apply_memory_reuse
+    from ..engine.cook import FRAME_THREADS
+
+    memory = apply_memory_reuse(start=True, arenas=FRAME_THREADS)  # 「内存复用」: set before the queue's and the network's threads start, so the arena limit holds for them too
 
     import uvicorn
 
@@ -245,19 +280,26 @@ def serve(host: str, port: int, ssl: dict) -> None:
         db(upgrade=True).backup_if_due()  # the database opens: this checkout's, checked, brought up to date
     except (DatabaseError, WorkDirError) as exc:
         sys.exit(said_line(Msg("E-SERVER-NOSTART", reason=exc).json()))
-    farm()  # the queue starts now: jobs held over a restart go on at once
-    from ..config import apply_reservation
+    try:
+        farm()  # the queue starts now: jobs held over a restart go on at once
+    except Unavailable as exc:  # another process has this work folder's queue (farm/queue.py _own_queue)
+        sys.exit(said_line(Msg("E-SERVER-NOSTART", reason=exc).json()))
+    from ..process import apply_reservation, apply_thread_pools
 
-    apply_reservation()  # 「保留核心数」：服务器进程自己也关进留给计算的那几个核（轻量计算在它里面跑）
+    apply_reservation()  # 「保留核心数」: the server process itself is kept to the cores left for computing (light cooks run in it)
+    pools = apply_thread_pools()  # the math libraries' own thread pools: per-frame parallelism is the engine's alone
     logs.say(log, Msg("I-RESTART-STARTED", host=host, listen=port, pid=os.getpid()))
+    if memory:
+        logs.say(log, memory)
+    logs.say(log, pools)
     _thread_dumps()
     _record(host, port, bool(ssl))
     try:
         server.run()
     finally:
-        if r.state != "restarting":
+        if not r.replacing():
             _record(None)
-    if r.state != "restarting":
+    if not r.replacing():
         return
     close_all()  # everything written is in the database file before the next server opens it
     sys.stdout.flush()

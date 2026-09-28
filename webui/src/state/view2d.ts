@@ -1,11 +1,12 @@
 // The 2D view (视图 state): its zoom and pan per slot, and the navigation hook that drives them. Re-exported by
-// state/viewer.ts; its owners are declared in state/owners.ts.
+// state/viewer.ts.
 
 import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import { fitTransform, oneToOneTransform, panBy, toPercent, zoomAt, type Mode, type Transform2D } from "../model/view2d";
 import { useElementSize } from "../platform/size";
 import { useShortcut } from "../platform/keys";
+import { followDrag } from "../platform/drag";
 
 // ------------------------------------------------------------------ the 2D view
 
@@ -169,18 +170,14 @@ export function useView2DNav(el: HTMLElement | null, width: number, height: numb
       e.preventDefault(); // no page autoscroll on the middle button, no text selection on Alt+drag
       setCursor("grabbing");
       let last = { x: e.clientX, y: e.clientY };
-      const onMove = (ev: MouseEvent) => {
-        const [dx, dy] = [ev.clientX - last.x, ev.clientY - last.y];
-        change((t) => panBy(t, dx, dy));
-        last = { x: ev.clientX, y: ev.clientY };
-      };
-      const onUp = (ev: MouseEvent) => {
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
-        setCursor(ev.altKey ? "grab" : null);
-      };
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
+      followDrag(
+        (ev) => {
+          const [dx, dy] = [ev.clientX - last.x, ev.clientY - last.y];
+          change((t) => panBy(t, dx, dy));
+          last = { x: ev.clientX, y: ev.clientY };
+        },
+        (ev) => setCursor(ev?.altKey ? "grab" : null),
+      );
       return true;
     },
   };

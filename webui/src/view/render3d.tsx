@@ -35,7 +35,13 @@ export function Pipeline({ o }: { o: ViewOptions }) {
     passes.composer.setPixelRatio(dpr);
     passes.composer.setSize(size.width, size.height);
   }, [passes, dpr, size.width, size.height]);
-  useEffect(() => () => passes?.composer.dispose(), [passes]);
+  // the composer frees its own two targets only; each pass holds GPU resources of its own (SMAA's edge and weight
+  // targets and textures, the shader materials), freed with it when the anti-aliasing changes or the view closes
+  useEffect(() => () => {
+    if (!passes) return;
+    for (const pass of passes.composer.passes) pass.dispose();
+    passes.composer.dispose();
+  }, [passes]);
 
   useFrame((state) => {
     if (passes) {

@@ -26,11 +26,11 @@ SMIRK 从单目画面解出三维人脸，面部几何能忠实还原极端、�
 
 **我们怎么接的**
 
-- 「图像」口 = 上游 `--input_path` 那段素材，逐帧走上游 demo 的流水线；「裁切」参数 = 上游的 `--crop`
-  （自动：MediaPipe 找脸后按 1.4 倍裁成方形再缩到 224 × 224；不裁：整幅画面补成方形再缩）。
+- 「RGB」口 = 上游 `--input_path` 那段素材，逐帧走上游 demo 的流水线；「裁切」参数 = 上游的 `--crop`
+  （自动找脸：MediaPipe 找脸后按 1.4 倍裁成方形再缩到 224 × 224；整幅画面：整幅补成方形再缩）。
 - 「蒙皮角色」= 官方那整套 FLAME 参数装成的蒙皮角色（脸型锁成整段中位数的静止网格 + 五根骨头的骨骼动画），
   「网格」= 每帧顶点，「表情曲线」= 50 个表情分量加两个眼皮。
-- **不一样的两点**：① SMIRK 的相机是正交的，我们按「Focal Length」「Filmback」把它换算成一台针孔相机（正交缩放换成距离），
+- **不一样的两点**：① SMIRK 的相机是正交的，我们按「已知 Focal Length」「Filmback」把它换算成一台针孔相机（正交缩放换成距离），
   头才能摆进相机空间；**节点上没有「相机」输出口**，因为上游给的不是一台相机；
   ② `--use_smirk_generator` 那一步是它做可视化用的，我们不执行。
 
@@ -42,7 +42,7 @@ SMIRK 从单目画面解出三维人脸，面部几何能忠实还原极端、�
 
 - 典型接法：读取序列 → SMIRK 解算 → USD 输出设置 / Alembic 输出设置 → 输出，导进 Maya / Houdini 做面部动画参考、表情驱动或替换头的对位。
 - 「裁切」选「自动找脸」（默认）：用 MediaPipe 在每帧找脸，按官方演示的方式裁成正方形再算，脸在画面里多大都行。画面本身已经是裁好的大头特写时可以选「整幅画面」，但一般自动更准。
-- Focal Length 尽量填（「Focal Length (mm)」配合「Filmback」）：SMIRK 自己用的是正交相机，Lab2Shot 按 Focal Length 把头放到对应的距离上；不填时按全画幅 50 mm 镜头估算。Focal Length 只影响头离镜头的远近，头在画面上的位置和轮廓都对得上。
+- Focal Length 尽量填（「已知 Focal Length」配合「Filmback」）：SMIRK 自己用的是正交相机，Lab2Shot 按 Focal Length 把头放到对应的距离上；不填时按全画幅 50 mm 镜头估算。Focal Length 只影响头离镜头的远近，头在画面上的位置和轮廓都对得上。
 - **节点上没有「相机」的进出口**：官方的 `outputs['cam']` 是 224 裁切上的弱透视三个数，不是一台相机，上游也不吃相机。结果留在相机空间；要把头摆进某台相机（ViPE / 3DE）的世界，后面接核心节点「相机空间转换」（`core.camera_space`）。
 - 输出：带 52 个表情形变（50 个 FLAME 表情 + 2 个眼皮）的 USD 头，表情权重做成动画，DCC 里能继续调；另有 52 条表情曲线（CSV / .chan）。模板「面部动作 · SMIRK」就是这条链。
 - 适合：脸够大、正脸到大半侧脸、光线正常的镜头。完全侧脸、脸很小或被手挡住时 MediaPipe 找不到脸（这些帧沿用最近一帧的裁切，结果仅供参考）。
@@ -62,7 +62,7 @@ SMIRK 从单目画面解出三维人脸，面部几何能忠实还原极端、�
 ## 模型下载和安装
 
 - 自动安装：`lab2shot ext install smirk`。下载原始仓库、独立 Python 3.10 环境（torch 2.8 + CUDA 12.8）和权重：SMIRK 预训练模型 134 MB（作者 Google Drive）、MediaPipe 面部动作关键点模型 3.6 MB。几分钟就能装好。
-- 需要手动下载：FLAME 面部模型。到 https://flame.is.tue.mpg.de 注册登录，在 Download 页面下载「FLAME 2020」（FLAME2020.zip），压缩包原样放进 Lab2Shot 的 `downloads/` 文件夹（不用解压、不用改名，「帮助与扩展包」页面的「手动下载」写着这个文件夹在哪），Lab2Shot 会自动解压并找到里面的 `generic_model.pkl`。必须是 FLAME 2020：SMIRK 是按它训练的，FLAME 2023 的系数对不上。
+- 需要手动下载：FLAME 面部模型。到 https://flame.is.tue.mpg.de 注册登录，在 Download 页面下载「FLAME 2020」（FLAME2020.zip），压缩包原样放进 Lab2Shot 的 `downloads/` 文件夹（不用解压、不用改名，后台管理页「扩展包」里的「手动下载」写着这个文件夹在哪），Lab2Shot 会自动解压并找到里面的 `generic_model.pkl`。必须是 FLAME 2020：SMIRK 是按它训练的，FLAME 2023 的系数对不上。
 
 ## 许可证说明
 

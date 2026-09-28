@@ -3,8 +3,9 @@
 Some things the installer cannot fetch: their page wants a registration (SMPL, SMPL-X, MANO, FLAME) or a person to
 accept a licence (the Autodesk FBX SDK). The user downloads them and drops each file as it came (not unpacked, not
 renamed) into the inbox, INBOX = <Lab2Shot>/downloads/. check() recognises every file there by what is inside it and
-installs what installs by itself (the help page, the installer); state() says where an item stands without installing
-anything (the extensions' install status, nodes, the command line); view() is what the help page's 手动下载 shows.
+installs what installs by itself (the admin page, the installer, the setup menu); state() says where an item stands
+without installing anything (the extensions' install status, nodes, the command line); view() is what the admin page's
+「扩展包」 手动下载 shows.
 
 items() is the registry, assembled from the shared body-model table and from what the loaded extensions declare
 (Extension.manual_items), never hand-written here. An item says what it is, where it is downloaded and what that page asks of the user, how its
@@ -43,9 +44,9 @@ from .spec import Weight
 
 INBOX = ROOT / "downloads"
 DONE = "installed"  # INBOX/installed/: the originals of what was installed
-# INBOX/datasets/: the dataset catalogue's own data folder (lab2shot/datasets/descriptor.py project_library reads it as the
-# root "downloads/datasets"), not a hand-downloaded package; it is never walked or listed here: it holds datasets of tens of
-# thousands of files (P3M-10k, AMASS), and walking them made every page that asks for the extensions' state take seconds
+# INBOX/datasets/: a folder of datasets, not a hand-downloaded package; it is never walked or listed here: it holds
+# datasets of tens of thousands of files (P3M-10k, AMASS), and walking them would make every page that asks for the
+# extensions' state take seconds
 DATASETS = "datasets"
 README = "README.txt"
 README_TEXT = """\
@@ -102,7 +103,7 @@ class Install:
 @dataclass(frozen=True)
 class BodyModelFiles(Install):
     """A body model: unpacked into third_party/_body_models/<model>/ (a file on its own is copied there), where the
-    workers find it (lab2shot_worker.body_models)."""
+    workers find it (lab2shot_shared.body_models find)."""
 
     model: str
 
@@ -577,7 +578,8 @@ def licence(name: str) -> dict:
 
 def accept(name: str, shown_sha256: str, who: dict) -> dict:
     """The user accepted the licence they were shown (its sha256) for an inbox file: record who, when, what and
-    which version in the database (consents), then install it. Only the page's 同意并安装 calls this."""
+    which version in the database (consents), then install it. Only the user's own acceptance calls this: the page's
+    同意并安装, or the licence shown in full and agreed to at the command line (cli/setup.py _consent_pending)."""
     from ..database import db, json_text
 
     with _lock:
@@ -596,8 +598,3 @@ def accept(name: str, shown_sha256: str, who: dict) -> dict:
         return check()
 
 
-def consents() -> list[dict]:
-    """Every licence acceptance recorded, oldest first."""
-    from ..database import db, json_of
-
-    return [json_of(r["record"]) for r in db().rows("SELECT record FROM consents ORDER BY id")]

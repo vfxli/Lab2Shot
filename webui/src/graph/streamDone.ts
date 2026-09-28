@@ -19,7 +19,7 @@ const prefetchKind = (type: string): PrefetchKind | null =>
 
 /** A node finished cooking. If the event still answers this page (same graph, and the cook-inputs version the job was
  * submitted at is still the page's) and carries the
- * fresh fingerprints, they go straight into `results`; otherwise mark the new result and ask the server once. What is
+ * fresh fingerprints, they go straight into `results`; otherwise the server is asked once. What is
  * shown now switches by itself (the plan re-reads results); the other outputs go to the prefetch queue. */
 export function onNodeDone(e: CookEvent, node: string, refresh: () => void): void {
   const ci = useCookInputs.getState();
@@ -28,7 +28,7 @@ export function onNodeDone(e: CookEvent, node: string, refresh: () => void): voi
   if (sameGraph && trusted && e.outputs) {
     useResults.getState().applyNodeDone(node, e.outputs);
   } else {
-    refresh(); // 标「有新结果」: the next status reply picks up the fresh fingerprints
+    refresh(); // the next status reply picks up the fresh fingerprints
   }
   schedulePrefetch(node, e.outputs);
 }

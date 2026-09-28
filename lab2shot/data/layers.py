@@ -35,8 +35,6 @@ HEADER = "layers"  # lab2shot:layers in an EXR written by this project: per laye
 _ALIASES = {"red": "R", "green": "G", "blue": "B", "alpha": "A", "r": "R", "g": "G", "b": "B", "a": "A",
             "x": "X", "y": "Y", "z": "Z", "u": "U", "v": "V", "w": "W"}
 _ORDER = "RGBXYZUVW"  # channel order inside a layer; then A, then the rest by name
-# common ST-map layer names (preferred by stmap_layout when choosing a channel pair); no meaning is guessed from other names
-STMAP_NAMES = ("stmap", "st", "distort", "undistort", "distortion")
 
 
 def role(channel: str) -> str:
@@ -93,57 +91,6 @@ def _motion_layers(layers: dict[str, list[str]]) -> dict[str, list[str]]:
         elif not (name.endswith("backward") and name.removesuffix("backward") in pairs):
             out[name] = channels
     return out
-
-
-def is_motion(channels: list[str]) -> bool:
-    """A layer _motion_layers made: forward u, v then backward u, v."""
-    parts = [c.rsplit(".", 1)[0] for c in channels]
-    return len(channels) == 4 and all(p.endswith("forward") for p in parts[:2]) and all(p.endswith("backward") for p in parts[2:])
-
-
-STMAP_DIRECTIONS = ("undistort", "distort")  # what an ST-map does
-
-
-def stmap_direction_of_name(name: str) -> str:
-    """The direction a file or layer name says, as 3DE and Nuke name them (lens_undistort.exr, redistort): "undistort",
-    "distort", or "" when it says neither."""
-    n = name.lower()
-    if "undistort" in n:
-        return "undistort"
-    return "distort" if "distort" in n else ""
-
-
-def stmap_layout(channels: list[str], direction: str = "") -> tuple[list[str], str]:
-    """The one rule for which channels of a file hold an ST-map: the (u, v) channels
-    and the direction the channels themselves say ("" when they say none).
-
-    - NukeX LensDistortion's motion layer: forward.u / forward.v undistort, backward.u / backward.v distort (the channel
-      names decide; with both, `direction` picks, else forward);
-    - otherwise one layer's pair (the channels grouped as group() groups them): R and G (3DE's ST-maps, Nuke's STMap,
-      this project's) or u and v (stmap.u, stmap.v); a layer named for an ST-map (stmap, st, undistort ...) first, then a u v
-      pair, then the picture's own R G. Several pairs left alike, or none, are refused (E-LAYER-STMAPCHANNELS): an
-      ST-map is never taken from whichever two channels come first."""
-    def uv(side: str) -> list[str]:
-        got = {role(c): c for c in channels if c.rsplit(".", 1)[0].lower().endswith(side) and role(c) in ("U", "V")}
-        return [got["U"], got["V"]] if len(got) == 2 else []
-
-    forward, backward = uv("forward"), uv("backward")
-    if forward or backward:
-        if backward and (not forward or direction == "distort"):
-            return backward, "distort"
-        return forward, "undistort"
-    pairs = []  # (rank, the pair): lower is preferred
-    for layer, members in group(list(channels)).items():
-        roles = {role(c): c for c in members}
-        named = re.sub(r"[^a-z0-9]", "", layer.rsplit(".", 1)[-1].lower()) in STMAP_NAMES
-        for rank, (a, b) in ((1, ("U", "V")), (2, ("R", "G"))):
-            if a in roles and b in roles:
-                pairs.append((0 if named else rank, [roles[a], roles[b]]))
-                break
-    best = sorted(pairs, key=lambda p: p[0])
-    if best and (len(best) == 1 or best[0][0] < best[1][0]):
-        return best[0][1], ""
-    raise Invalid(Msg("E-LAYER-STMAPCHANNELS", channels=list(channels)))
 
 
 def channels_named(channels: list[str], picked: list[str]) -> list[str]:
@@ -374,11 +321,6 @@ NUKE_CHANNELS = {
     "disparityL": ("x", "y"), "disparityR": ("x", "y"),
     MOTION: ("forward.u", "forward.v", "backward.u", "backward.v"),
 }
-
-
-def layer_for_port(port: str) -> str:
-    """The EXR layer an output port is delivered as (the port's own name when there is no conventional name)."""
-    return LAYER_FOR_PORT.get(port, port)
 
 
 # fallback layer name by channel count when a row names none (the page normally fills it in from the source port)

@@ -102,8 +102,8 @@ class ViPE(Extension):
         # lietorch, DROID-SLAM correlation/BA, GroundingDINO deformable attention, ...
         compiled=(f"nvidia-vipe @ git+{VIPE_URL}@{VIPE_COMMIT}",),
     )
-    # Laid out like torch.hub's cache: the worker sets TORCH_HOME=weights/torch,
-    # and runs offline, so nothing but these files can ever be loaded.
+    # Laid out like torch.hub's cache: every worker runs with TORCH_HOME=weights/torch and
+    # offline (Extension.base_env), so nothing but these files can ever be loaded.
     weights = (
         Weight(
             key="droid-slam",
@@ -139,7 +139,7 @@ class ViPE(Extension):
             key="bert-base-uncased",
             kind="hf",
             source="google-bert/bert-base-uncased",
-            # 钉住到已装好并通过自检的快照（weights/bert-base-uncased/.cache 里的下载记录）
+            # pinned to the snapshot installed and self-checked (the download record in weights/bert-base-uncased/.cache)
             revision="86b5e0934494bd15c9632b12f734a8a67f723594",
             dest="bert-base-uncased",
             files=("config.json", "vocab.txt", "tokenizer.json", "tokenizer_config.json", "model.safetensors"),

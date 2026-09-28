@@ -2,7 +2,7 @@
 in-the-wild videos. Masked DROID-SLAM (people removed with ViTDet + SAM + DEVA)
 gives the camera, ZoeDepth its metric scale, SPEC the gravity direction; VIMO
 (ViT-H video transformer) gives each person's SMPL body in the camera, placed in
-the world through the camera. An input camera replaces the whole camera part.
+the world through that camera. There is no camera input: the camera is what TRAM solves.
 
 Needs the SMPL model file, which the user downloads after registering
 (lab2shot.extensions.manual).

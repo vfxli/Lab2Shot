@@ -7,7 +7,7 @@ import { useLook } from "../state/look";
 export interface NodeMenuFacts {
   id: string; // the node right-clicked
   typeId: string;
-  delivers: boolean; // cooking it hands files over (the server's policy): an 「输出」, or an output-settings node
+  delivers: boolean; // cooking it collects and packs files for download (the server's policy): an 「输出」
   busy: boolean; // this graph already has a job in the queue
   blocked: boolean; // 计算任务 off (state/pause.ts) 或配额满了 (state/quota.ts)：都让「计算」变灰，原因写在 cookTip 里
   cookTip: string; // what the cook is, in words (graph/rules.ts cookWords) with the switches' note
@@ -19,7 +19,7 @@ export interface NodeMenuFacts {
   mergeIds: string[]; // 序列图输出设置 nodes this click would merge (none: the row is not there)
 }
 
-export interface NodeMenuItem {
+interface NodeMenuItem {
   key: string;
   when: (f: NodeMenuFacts) => boolean;
   label: (f: NodeMenuFacts) => string;
@@ -30,7 +30,7 @@ export interface NodeMenuItem {
 }
 
 /** The keys that cook the node shown, as the one registry has them (editor/App.tsx useShortcut mod+enter). */
-export const COOK_KEYS = "Ctrl+Enter";
+const COOK_KEYS = "Ctrl+Enter";
 
 const BUSY_TIP = "这个节点图已经有一个任务在算，等它算完或先取消";
 
@@ -40,15 +40,15 @@ export const NODE_MENU: NodeMenuItem[] = [
     // queue takes a node, not an instance), so the row says so rather than letting anyone expect otherwise
     key: "cook",
     when: () => true,
-    label: (f) => (f.delivers ? "提交" : f.items ? "计算（全部条目）" : "计算"),
-    desc: (f) => (f.delivers ? "" : f.items ? `${f.items} 条` : COOK_KEYS),
+    label: (f) => (f.items ? "计算（全部条目）" : "计算"),
+    desc: (f) => (f.items ? `${f.items} 条` : COOK_KEYS),
     off: (f) => f.busy || f.blocked,
     tip: (f) =>
       f.busy
         ? BUSY_TIP
         : [f.cookTip,
            f.delivers
-             ? "只交付这一份「输出」，节点图里其他的「输出」不算"
+             ? "只整理打包这一个「输出」（节点图里其他的「输出」不算）：把接进来的结果收集成一个文件夹、打包成 zip，好了在节点上「下载」"
              : f.items
                ? `这个节点在「逐项处理」块里：一次算完全部 ${f.items} 条，算好以后在视图底部换条目就能逐条看${f.itemName ? `（现在看的是 ${f.itemName}）` : ""}`
                : `算到这个节点为止，并在视图里显示它（${COOK_KEYS}：计算视图里显示的节点）`,
@@ -60,7 +60,7 @@ export const NODE_MENU: NodeMenuItem[] = [
     when: () => true,
     label: () => "显示",
     desc: () => "双击",
-    tip: () => "在视图里显示这个节点（双击节点也一样）；只用到轻量节点时它自己算",
+    tip: () => "在视图里显示这个节点（双击节点也一样）：只看已经算好的结果，不会自己算；要算就右键「计算」",
     run: (f) => useLook.getState().setDisplay(f.id),
   },
   {

@@ -20,8 +20,7 @@ import { CameraTab, CAMERA_KEYS, LinesTab, LINE_KEYS, MeshesTab, MESH_KEYS, Poin
  * 页中的每一行始终存在（不适用的置灰并注明原因），因此切换显示的节点时面板不跳动、不变形，位置保持不变。
  * 当前页由用户首选项记录，记录的页不属于当前舞台时回退到该舞台的第一页。
  *
- * 画质（画面的传输方式）不在此处：它是时间线上「画质」下拉框读写的首选项 pictureQuality，一个值只在一处设置。
- * 「渲染」页中的抗锯齿属于渲染质量，与画质不同，因此不称为「画质」，以免同名异义造成混淆。 */
+ * 画面没有画质设置：二维始终经由视图代理。「渲染」页中的抗锯齿属于渲染质量，因此不称为「画质」，以免同名异义造成混淆。 */
 type Tab = "points" | "lines" | "meshes" | "camera" | "scene" | "quality";
 const TABS: Record<Tab, string> = { points: "点", lines: "线", meshes: "模型", camera: "相机", scene: "场景", quality: "渲染" };
 const STAGE_TABS: Record<"2d" | "3d", Tab[]> = {
@@ -76,7 +75,8 @@ export function DisplayOptions({ stage, shows, preview }:
 
   return (
     <div className="vo-anchor vo-opts" ref={box}>
-      <Toggle hud on={open} onChange={setOpen} tip={only2d ? "视图设置：画面上人物框、跟踪点、手柄的线宽和着色（画质在时间线上那个下拉里切）" : `显示选项：${has("points") ? "点、" : ""}线${has("model", "character") ? "、模型" : ""}怎么画，相机、网格、背景、灯光、抗锯齿`}>
+      {/* the button sits in the viewer's toolbar, which shows no tips; the panel it opens is mounted on body and keeps its own */}
+      <Toggle hud on={open} onChange={setOpen}>
         视图设置
       </Toggle>
       {open && at && createPortal(

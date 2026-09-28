@@ -71,12 +71,9 @@ class PlaneTrack(NodeDef):
         corners: list[str] = P(
             [], label="四个角", widget="picks", group="平面", worker=False,
             placeholder="显示本节点，在 2D 视图里拖出平面",
-            help="显示这个节点时，在 2D 视图里拖一个框当作平面，再把四个角分别拖到平面真正的角上（屏幕、招牌的四个角，"
-                 "地面上一块砖的四个角）。框在哪一帧，就从哪一帧开始，前后都会跟过去：选平面整个看得见、没被挡住的一帧",
         )
         resolution: Literal[960, 1920] | None = measured_param(
-            "处理分辨率", {960: Measured("比实测的一档省", below=1920), 1920: Measured("1080×1920 每帧 0.41–0.45 秒", gb=10.1)}, auto="原尺寸", group="平面",
-            help="长边缩到这个像素再跟踪，结果放回原尺寸。留空 = 原尺寸，最准；长边超过 1920 时按 1920 算")
+            "处理分辨率", {960: Measured(below=1920), 1920: Measured(gb=10.1)}, auto="原尺寸", group="平面")
 
     @classmethod
     def cook(cls, ctx):

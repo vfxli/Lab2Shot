@@ -13,7 +13,7 @@ Results leave in small pieces (lab2shot_worker.recon.Stitcher) and go straight
 to disk: memory does not grow with the length of the shot.
 
 Output: the reconstruction contract (lab2shot_worker.recon; node side
-lab2shot/nodes/results.py reconstruction()):
+lab2shot/nodes/families/depth_camera.py WholeShotDepthCamera):
 
     raw/cameras.npz   frames [F], K [F,3,3] (pixels at the input resolution, fx / fy from the
                       model's per-frame horizontal / vertical field of view, principal point at
@@ -38,8 +38,8 @@ Long shots (upstream's two inference modes):
 
 LingBot-Map has no input for masks: it sees the whole frame, moving objects
 included, and nothing is taken out afterwards. To reconstruct only part of the
-picture, black the rest out before the 「图像」 input (人物检测 → 人物框转遮罩 →
-图像相乘), where it is visible on the node graph.
+picture, black the rest out before the 「RGB」 input (「ViTDet 人物框」 → 「人物框转遮罩」 →
+「图像合成」 set to 留下), where it is visible on the node graph.
 """
 
 from __future__ import annotations
@@ -79,8 +79,8 @@ SKY_THRESHOLD = 0.1  # upstream: non-sky confidence above this is kept
 # 5480 px) while the long side stays the closer one. Turning portrait plates 90 degrees instead makes the camera path
 # worse (13.6 % vs 3.3 % RMS against ViPE). Both raw estimates go to result.json (focal_px_model).
 
-# Upstream's defaults, kept: the first frames the stream anchors its scale on (the node's smallest segment, 16
-# frames, is twice this), and the camera head's refinement passes (its maximum).
+# Upstream's defaults, kept: the first frames the stream anchors its scale on (the node's smallest segment, 100
+# frames, is well above this), and the camera head's refinement passes (its maximum).
 ANCHOR_FRAMES = 8
 CAMERA_ITERATIONS = 4
 
@@ -274,7 +274,7 @@ def main(job_path: str) -> None:
         cam = np.linalg.inv(w2c)  # camera-to-world, what cam_to_world below and every consumer expects (adapters/vggt/worker.py does the same)
         k = intr[0, 0].double().cpu().numpy()
         focal_model[i] = k[0, 0] * sx, k[1, 1] * sy  # input pixels
-        f = focal_model[i, 0] if mw >= mh else focal_model[i, 1]  # see "Focal" above PARAMS
+        f = focal_model[i, 0] if mw >= mh else focal_model[i, 1]  # see "Focal" at the top of this file
         depth = np.nan_to_num(pred["depth"][0, j, ..., 0].float().cpu().numpy(), nan=0.0, posinf=0.0, neginf=0.0)
         conf = pred["depth_conf"][0, j].float().cpu().numpy()
         K = np.array([[f / sx, 0, mw / 2], [0, f / sy, mh / 2], [0, 0, 1.0]])  # model pixels; square at the input

@@ -40,7 +40,7 @@ const own = new Fills();
 
 /** 舞台开始查看该源：取回其整段数据（`frame` / `dir`：起始帧与向外排序的方向）。 */
 export function fillWhole(source: FrameSource, frame: number, dir: number): void {
-  if (!source.fill) return; // 本机文件、浏览器计算的结果：本身不经过网络
+  if (!source.fill) return; // 本机文件：本身不经过网络
   const had = own.per.get(source.id);
   // 同一 id 换了新的源对象：重置「已取回」表。查找原件的请求以「没有」结束时源会重建，id 完全相同
   // （本机没有该文件，id 中的 local 段仍为空）；但原有的 `done` 已包含每一帧：查找期间 `fill` 返回
@@ -53,9 +53,6 @@ export function fillWhole(source: FrameSource, frame: number, dir: number): void
 export function stopFilling(id: string): void {
   own.per.delete(id);
 }
-
-/** 当前正在取回整段的源数量与在途帧数（仅供测试使用：验证完成后该表为空）。 */
-export const fillingNow = (): { sources: number; inFlight: number } => ({ sources: own.per.size, inFlight: own.now.size });
 
 function pump(): void {
   while (own.now.size < AT_ONCE) {

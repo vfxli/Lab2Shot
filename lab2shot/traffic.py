@@ -6,7 +6,7 @@
 
 统计的是实际发出的字节：计数层位于服务器最外层（server/traffic.py `Meter`，即 server/app.py 最后添加的那一层），
 此时压缩已完成，计得的即线上传输的字节。响应头不计入（每条数百字节，与正文不在一个量级）。
-本文件只负责计数、存储和读取，不涉及 HTTP，因此可在服务器层以下使用（lab2shot/resources.py 的「流量」页签即读取它；
+本文件只负责计数、存储和读取，不涉及 HTTP，因此可在服务器层以下使用（后台用户页的「流量」即读取它；
 分层规则：本包不 import server）。
 
 开销很小：每个请求不访问数据库，按 (账号, 日期) 在内存中累加（`_PENDING`），最多每 `FLUSH_S` 秒写盘一次，服务停止时
@@ -25,6 +25,7 @@ import threading
 import time
 
 from .database import db
+from .periods import Periods
 
 FLUSH_S = 60.0  # 内存中的计数最多累积这么久即写盘（重启时丢失的即为这一段）
 SCOPE_USER = "lab2shot_user"  # server/access.py Guard 将本次请求的归属写在 ASGI 的 scope 上，server/traffic.py Meter 读取
@@ -122,6 +123,15 @@ def per_day(user_id: int) -> list[dict]:
     for row in _rows(user_id):
         found[row["day"]] = found.get(row["day"], 0) + row["bytes"]
     return [{"day": day, "bytes": n} for day, n in sorted(found.items(), reverse=True)]
+
+
+def totals(p: Periods) -> dict:
+    """Bytes sent to every account together in 今日, 近 7 天 and 本月 (the admin overview's 流量): what is on disk from
+    the periods' first day on, and what is still in memory."""
+    kept = db().rows("SELECT day, SUM(bytes) AS n FROM traffic WHERE day >= ? GROUP BY day", (p.start,))
+    with _LOCK:
+        waiting = [(d, n) for (_, d), n in _PENDING.items()]
+    return p.sums([*((r["day"], r["n"]) for r in kept), *waiting], ("today", "days7", "month"))
 
 
 def of_users() -> dict[int, dict]:

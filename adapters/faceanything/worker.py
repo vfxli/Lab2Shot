@@ -1,4 +1,4 @@
-"""FaceAnything worker. Runs inside third_party/faceanything/.venv with the
+"""FaceAnything worker. Runs inside third_party/faceanything/.venv-ada-blackwell with the
 original repo's src/ on PYTHONPATH; never imports Lab2Shot core.
 
     python worker.py <job.json>
@@ -16,13 +16,13 @@ more consistent than frame by frame). Consecutive chunks share OVERLAP frames;
 each chunk's depth is rescaled to agree with the previous chunk on those shared
 frames (the model's depth has no fixed scale between separate calls), and the
 shared frames keep the earlier chunk's result. Out of GPU memory, the worker
-SDK's one policy (lab2shot_worker.fit_memory) decides, on 每段帧数 in chunk
+SDK's one policy (lab2shot_worker.fit_memory) decides, on 每段最多帧数 in chunk
 mode and on 处理分辨率 one frame at a time.
 
 RTX 4090 (24 GB), resolution 504, peak memory reserved by this process:
 one frame 8.6 GB, chunk 8 13.2 GB, 16 14.4-15.6 GB, 24 18.8 GB, 40 20.4 GB.
-Chunk 16 is the default (about 0.13 s/frame); at resolution 700 use chunk 8,
-at 1008 one_by_one.
+Chunk 16 is the default (about 0.19 s/frame). 504 is the only resolution the
+node offers (the model's training size, the only one measured).
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from lab2shot_worker.run import Run
 NODE = "faceanything.solve"
 # what the memory grows with: the node's options (chunk 8 / 16 / 24 = 13.2 / 15.0 / 18.8 GB at 504 px)
 CHUNK = MemoryBound.parameter("max_frames", (24, 16, 8))
-RESOLUTION = MemoryBound.parameter("resolution", (1008, 700, 504))  # one frame at a time
+RESOLUTION = MemoryBound.parameter("resolution", (504,))  # one frame at a time: the one resolution offered
 OVERLAP = 2  # frames shared by consecutive chunks (depth scale alignment)
 BASE_MODEL = "da3-giant"  # the DA3 preset FaceAnything is finetuned from (config in repo/src)
 GIANT_FEATURE_DIM = 3072

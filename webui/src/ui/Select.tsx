@@ -11,7 +11,7 @@ import { IconChevron } from "./icons";
  * 用法与原生相同：`value` 为当前值，`options` 为 {value, label} 列表，`onPick` 返回新值。
  * 每个选项都应有说明（`tip`：每个参数和选项都有悬停提示）；未提供时使用选项自身的文字。
  *
- * 其他属性（`data-field`：界面走查据此查找该下拉框；`data-user-data`：内容为用户或文件提供的文字，允许截断，
+ * 其他属性（`data-field`：从页面外据此找到该下拉框；`data-user-data`：内容为用户或文件提供的文字，允许截断，
  * 完整文字在悬停提示中，见 styles/01-user-data.css）原样附加到触发器上，写法与 ui/Button.tsx 的 Chip 相同。 */
 
 export interface SelectOption {
@@ -31,7 +31,7 @@ export function Select({ value, options, onPick, label, tip, className = "", dis
   className?: string;
   disabled?: boolean;
   width?: number; // 弹出列表的最小宽度（默认与触发器同宽；选项名更长时按选项名扩展，不截断）
-  layout?: string; // 界面走查据此查找该列表；不代表特定样式
+  layout?: string; // 该列表在页面里的名字，从页面外据此找到它；不代表特定样式
 }) {
   const { "data-user-data": userData, ...attrs } = rest as Record<string, unknown>;
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);

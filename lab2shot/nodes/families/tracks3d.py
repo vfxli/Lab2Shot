@@ -13,7 +13,7 @@ from ...messages import Msg
 from ..base import Port
 from ..handles import Handle
 from .base import Job, RawOutput, WorkerNode
-from ..kit.cameras import camera_port, pass_camera, send_camera, solved_camera
+from ..kit.cameras import camera_port, send_camera, solved_camera
 from ..kit.ports import plate_mask_port, point_size_param
 from .tracks import TrackParams, track_queries, tracks
 from ..applies import Cost
@@ -29,11 +29,12 @@ class PointTracks3DParams(TrackParams):
 class PointTracker3D(WorkerNode):
     """3D point tracking: points (grid, or clicked in the viewer) followed through the shot in 3D, in the world of the
     plate's camera: a tracked point cloud (each point keeps its id, says where it is seen, carries its velocity:
-    locators to pin CG to in Houdini / Maya), the same points on the picture, and the camera they are in. A method
+    locators to pin CG to in Houdini / Maya), and, when the method gives them, the same points on the picture and its
+    own camera. A method
     that tracks in a given depth and camera takes them from any depth and camera node (TAPIP3D: its inputs are
     required); one that solves its own lands in a connected camera's world when there is one (Track4World).
 
-    `queries`, where the points start: "grid" an n×n grid (网格点数) on 起始帧 and points clicked on any frame (TAPIP3D);
+    `queries`, where the points start: "grid" an n×n grid (网格点数) on 参考帧 and points clicked on any frame (TAPIP3D);
     "dense" every few pixels of 参考帧 (the method's own spacing) and points clicked on that frame only (Track4World).
 
     Raw contract (lab2shot_worker.point_tracks, 3D): raw/tracks3d.npz xyz [N,F,3] metres, and raw/tracks.npz the same
@@ -43,8 +44,8 @@ class PointTracker3D(WorkerNode):
 
     Outputs the tracked points (cm; every point on every frame with its id, whether it is seen and its velocity,
     coloured from the plate where it starts; their scale the depth's they were tracked in, else the method's, relative
-    when brought into a connected camera's world), the 2D tracks, and the camera they are in: the connected one passed
-    on, or the method's own. Job.notes: none."""
+    when brought into a connected camera's world), the 2D tracks (gives_tracks2d), and the method's own camera
+    (solves_camera). Job.notes: none."""
     lens = "pinhole"  # treats the plate as a lens without distortion: says it needs undistorted plates
 
     inputs = (Port("image", "image.3", "RGB"), plate_mask_port("遮罩", every_frame=False), camera_port())
@@ -145,7 +146,7 @@ class PointTracker3D(WorkerNode):
                                           info={"extension": cls.runtime}, fy_px=K[:, 1, 1],
                                           principal_px=K[:, :2, 2])
         else:
-            xyz = xyz * M_TO_CM  # 接进来那台相机的世界：相机本身不再交出去（solves_camera=False，从它的来源接）
+            xyz = xyz * M_TO_CM  # 接进来那台相机的世界：相机本身不交出去（solves_camera=False，从它的来源接）
         depth = next((ctx.input(p.name) for p in cls.inputs if p.name == "depth"), None)
         if depth is not None:
             scale = meant(ctx, depth, "scale", "深度图")

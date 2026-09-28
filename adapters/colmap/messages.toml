@@ -2,19 +2,19 @@
 
 # ---- 节点（nodes.py）
 "E-COLMAP-EXHAUSTIVE" = "「匹配方式」选了「所有帧两两」：要匹配的画面对数是帧数的平方，{frames} 帧太多，会极慢或占满内存。视频改成「相邻帧」，或者把「隔帧」调大、缩短镜头范围"
-"B-COLMAP-FISHEYEINCREMENTAL" = "「镜头模型」选了鱼眼（{model}）而 Focal Length 没填：鱼眼在焦距未知时只能用「全局」解算方式（增量解算起不来，2026-09-25 实测）。把「解算方式」改成「全局」，或者填一个 Focal Length"
+"B-COLMAP-FISHEYEINCREMENTAL" = "「镜头模型」选了鱼眼（{model}）而「已知 Focal Length」没填：鱼眼在焦距未知时只能用「全局」解算方式（增量解算起不来）。把「解算方式」改成「全局」，或者填上「已知 Focal Length」"
 "E-COLMAP-MODEL" = "COLMAP 给出的镜头模型是 {model}，Lab2Shot 的畸变模型表里没有算法相同的模型（不近似换算）：在「镜头模型」里选 Lab2Shot 镜头表里有的那几档"
 "I-COLMAP-SOLVED" = "COLMAP 注册了 {solved}/{frames} 帧，平均重投影误差 {error:.2f} 像素，{lens}，稀疏点云 {points:,} 个点"
 
 # ---- 解算（worker.py）
 "I-COLMAP-TWOSTAGE" = "焦距未知、镜头模型带畸变：先按针孔验证匹配（畸变模型下用猜的焦距验证会把匹配全判成外点），再换成 {model} 建图并解畸变"
 "N-COLMAP-NOGPU" = "「显卡提取特征」打开了，但这台机器上 COLMAP 找不到可用的 CUDA 显卡：SIFT 特征提取和匹配改用 CPU，结果一样，只是慢很多"
-"W-COLMAP-VIEWGRAPH" = "COLMAP 从匹配的画面对估 Focal Length（视图图标定）失败了：全局解算只能从默认猜的 Focal Length 开始，解出的 Focal Length 和相机位置可能不准。知道实拍 Focal Length 的话，在「Focal Length」里填上"
+"W-COLMAP-VIEWGRAPH" = "COLMAP 从匹配的画面对估 Focal Length（视图图标定）失败了：全局解算只能从默认猜的 Focal Length 开始，解出的 Focal Length 和相机位置可能不准。知道实拍 Focal Length 的话，在「已知 Focal Length」里填上"
 "N-COLMAP-NOMATCHES" = "COLMAP 只解算出 {registered} 帧的相机，这次相机和点云是空的：画面之间找不到可靠的匹配点（{pairs} 对画面都匹配失败）。画面缺少纹理、太模糊、变化太快或被运动物体占满；可以把「隔帧」调小，或者换用「ViPE 相机解算」"
-"E-COLMAP-NOPARALLAX" = "COLMAP 只解算出 {registered} 帧的相机：相机没有位移（{rotation}/{pairs} 对画面之间只有纯旋转，或整个画面是一个平面，没有视差），特征点相机解算三角化不出三维点。这段素材不满足 COLMAP 的前提：相机真的在移动（推轨、手持走动）的素材才能用它；固定机位、纯摇镜头换「相机解算 · ViPE」模板，或者导入已经解算好的相机"
-"E-COLMAP-WEAKPARALLAX" = "COLMAP 只解算出 {registered} 帧的相机：画面之间视差不足或匹配太少（有视差的画面对只有 {parallax}/{pairs}）。可以试试：接上相机属性（「相机属性」节点、AnyCalib 或一台相机）、「解算方式」换成「{other_mapper}」、「匹配方式」换成「所有帧两两」、把「隔帧」调小，或者换「相机解算 · ViPE」模板"
+"E-COLMAP-NOPARALLAX" = "COLMAP 只解算出 {registered} 帧的相机：相机没有位移（{rotation}/{pairs} 对画面之间只有纯旋转，或整个画面是一个平面，没有视差），特征点相机解算三角化不出三维点。这段素材不满足 COLMAP 的前提：相机真的在移动（推轨、手持走动）的素材才能用它；固定机位、纯摇镜头换「ViPE 相机解算」（模板「深度图 · ViPE」），或者导入已经解算好的相机"
+"E-COLMAP-WEAKPARALLAX" = "COLMAP 只解算出 {registered} 帧的相机：画面之间视差不足或匹配太少（有视差的画面对只有 {parallax}/{pairs}）。可以试试：接上相机属性（「创建相机」节点、AnyCalib 或一台相机）、「解算方式」换成「{other_mapper}」、「匹配方式」换成「所有帧两两」、把「隔帧」调小，或者换「ViPE 相机解算」（模板「深度图 · ViPE」）"
 "W-COLMAP-SPLIT" = "COLMAP 解算出 {count} 段互不相连的相机（每段 {sizes} 帧），只保留了最大的一段，其余帧的相机是插值出来的：中间可能有快速运动、模糊或画面被遮挡。可以把「解算方式」换成「全局」再算一次"
-"W-COLMAP-NOBASELINE" = "COLMAP 解出的相机位移太小：位移只有景深的 {ratio:.3f} 倍，三角化角中位数 {angle:.2f}°。镜头几乎只摇不移或固定不动，Focal Length 和相机位置都不可靠：这段素材不太满足 COLMAP 的前提，建议换「相机解算 · ViPE」模板，或在「Focal Length」里填实拍 Focal Length"
-"W-COLMAP-LONGLENS" = "COLMAP 解出的是长焦镜头（长边视场角 {fov:.1f}°，Focal Length {focal:.0f} px）：长焦画面几乎没有透视，Focal Length 很难只靠画面解准，误差可能超过 10%。知道实拍 Focal Length 请在「Focal Length」里填上；手机视频（已去畸变）可以把「拟合模型」选成 SIMPLE_PINHOLE"
+"W-COLMAP-NOBASELINE" = "COLMAP 解出的相机位移太小：位移只有景深的 {ratio:.3f} 倍，三角化角中位数 {angle:.2f}°。镜头几乎只摇不移或固定不动，Focal Length 和相机位置都不可靠：这段素材不太满足 COLMAP 的前提，建议换「ViPE 相机解算」（模板「深度图 · ViPE」），或在「已知 Focal Length」里填实拍 Focal Length"
+"W-COLMAP-LONGLENS" = "COLMAP 解出的是长焦镜头（长边视场角 {fov:.1f}°，Focal Length {focal:.0f} px）：长焦画面几乎没有透视，Focal Length 很难只靠画面解准，误差可能超过 10%。知道实拍 Focal Length 请在「已知 Focal Length」里填上；手机视频（已去畸变）可以把「镜头模型」选成 SIMPLE_PINHOLE"
 "W-COLMAP-ROTATION" = "COLMAP 匹配的 {rotation}/{verified} 对画面之间几乎只有旋转（视差很小）：解出的相机位置和 Focal Length 可能不可靠，建议和「ViPE 相机解算」的结果对比"
 "W-COLMAP-UNREGISTERED" = "COLMAP 有 {missing}/{used} 帧没能解算出相机（模糊、遮挡或和别的帧差别太大）：这些帧的相机是插值出来的"

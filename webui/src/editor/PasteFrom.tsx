@@ -29,10 +29,12 @@ export function PasteFrom({ nodeId, def }: { nodeId: string; def: NodeTypeDef })
   const read = (text: string) => {
     if (!text.trim()) return;
     setBusy(true);
+    const graph = useCookInputs.getState().graphId; // the answer belongs to this graph's node, not to a namesake in another opened meanwhile
     void api.paste(def.id, text).then(
       (got) => {
         setBusy(false);
         setTyping(null);
+        if (useCookInputs.getState().graphId !== graph) return;
         setParams(nodeId, got);
         say(msg("N-WEB-PASTED", { app, count: Object.keys(got).length }), nodeId);
         // 画面宽高是这张表里粘不进来的两个数（LD_3DE4 的旋钮里没有），而畸变的坐标要靠它们。
@@ -58,14 +60,12 @@ export function PasteFrom({ nodeId, def }: { nodeId: string; def: NodeTypeDef })
         <textarea
           className="field" rows={4} autoFocus value={typing} data-field="paste-text"
           aria-label={`${app} 的节点文字`}
-          data-tip={`${app} 里复制的节点文字（3DE 导出的 Nuke 脚本也行）：粘进来按「读进来」，一次填好这个节点的参数`}
           placeholder={`在 ${app} 里选中节点按 Ctrl+C，在这里按 Ctrl+V`}
           onChange={(e) => setTyping(e.target.value)}
         />
         <div className="paste-row">
-          <Button size="sm" disabled={busy || !typing.trim()} tip={`读这段文字，一次填好这个节点的参数（可以撤销）`}
-            onClick={() => read(typing)}>读进来</Button>
-          <Button size="sm" tone="ghost" tip="不粘了" onClick={() => setTyping(null)}>取消</Button>
+          <Button size="sm" disabled={busy || !typing.trim()} onClick={() => read(typing)}>读进来</Button>
+          <Button size="sm" tone="ghost" onClick={() => setTyping(null)}>取消</Button>
         </div>
       </div>
     );
@@ -74,7 +74,6 @@ export function PasteFrom({ nodeId, def }: { nodeId: string; def: NodeTypeDef })
   return (
     <div className="paste-from">
       <Button size="sm" disabled={busy} data-field="paste-from"
-        tip={`把 ${app} 里复制的节点文字读进来，一次填好这个节点的参数（可以撤销）`}
         onClick={() => void readClipboard().then((text) => (text.trim() ? read(text) : setTyping("")))}>
         从 {app} 粘贴
       </Button>

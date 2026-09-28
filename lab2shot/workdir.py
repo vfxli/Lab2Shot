@@ -1,6 +1,6 @@
 """Which copy of Lab2Shot a work folder belongs to.
 
-A work folder (work/: the database, the cache, uploads, deliveries) is used by one checkout of Lab2Shot: the code
+A work folder (work/: the database, the cache, uploads, task folders) is used by one checkout of Lab2Shot: the code
 that migrates its database and writes its files. It says which one in work/owner.json ({"root": <the checkout>}).
 Whatever opens the folder's records (database.Database, the one door) calls `own()` first:
 
@@ -75,21 +75,3 @@ def main_checkout() -> Path:
     return Path(common).resolve().parent
 
 
-def live_work_dirs() -> set[Path]:
-    """The work folders a production server may be live on: the main checkout's work/, and this checkout's own default.
-    Tools that must never touch them (tests, walks, measuring) and commands that only the go-live procedure may point
-    at them ask here."""
-    return {(main_checkout() / "work").resolve(), (ROOT / "work").resolve()}
-
-
-def git_revision() -> tuple[str, bool]:
-    """(short commit, whether the working tree has changes) of this checkout; ("", False) without git."""
-    import subprocess
-
-    try:
-        rev = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10)
-        dirty = subprocess.run(["git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=no"],
-                               capture_output=True, text=True, timeout=10)
-        return rev.stdout.strip(), bool(dirty.stdout.strip())
-    except (OSError, subprocess.SubprocessError):
-        return "", False

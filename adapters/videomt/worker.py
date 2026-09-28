@@ -1,5 +1,5 @@
 """VidEoMT worker: video panoptic segmentation (VIPSeg, 124 classes) with ids that stay the same through the shot. Runs
-inside third_party/videomt/.venv; never imports Lab2Shot core.
+inside third_party/videomt/.venv-ada-blackwell (Extension.env_archs); never imports Lab2Shot core.
 
     python worker.py <job.json>
 

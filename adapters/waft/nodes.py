@@ -26,8 +26,7 @@ class Flow(OpticalFlow):
 
     class Params(OpticalFlowParams):
         resolution: Literal[960, 1920] | None = flow_resolution_param(
-            {960: Measured("训练尺寸：1080×1920 0.33 秒/帧，和原尺寸一样准", gb=2.2), 1920: Measured("1080×1920 原尺寸 2.30 秒/帧", gb=14.3)}, default=960,
-            note="默认 960：WAFT 在长边 960 的画面上训练，1080p 素材在 960 上算和原尺寸一样准；留空 = 原尺寸（长边超过 1920 时按 1920 算）")
+            {960: Measured(gb=2.2), 1920: Measured(gb=14.3)}, default=960)
 
 
 NODES = (Flow,)

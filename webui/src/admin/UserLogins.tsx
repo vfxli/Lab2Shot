@@ -30,7 +30,7 @@ export function LoginsSummary({ user }: { user: number }) {
   return (
     <div className="usr-logins">
       <div className="adm-tiles">
-        <div className="adm-tile" data-tip={`一个浏览器和一台电脑上的 DCC 插件 / 命令行可以同时在线，各算一处\n${where.join("\n") || "现在不在线"}`}>
+        <div className="adm-tile" data-tip={`一个浏览器和一台电脑上的 DCC 插件 / 命令行可以同时在线，各算一处；最近一两分钟内向服务器发过请求才算在线\n${where.join("\n") || "现在不在线"}`}>
           <span className="adm-tile-label">现在在线</span>
           <b>{data.online.length ? data.online.map((o) => KIND_LABEL[o.kind] ?? o.kind).join("、") : "不在线"}</b>
         </div>

@@ -4,7 +4,7 @@ import { localFile } from "./local";
 import { fileKeyOf } from "./localProxy";
 
 /** 本机原件：统一回答「该数据在用户本机上是否有原件」。
- * 视图数据的来源按每条输入分别判定：本地有原件即使用原件，无需传输且保持全精度；读取类节点和输出节点的文件
+ * 视图数据的来源按每条输入分别判定：本地有原件即使用原件，无需传输且保持全精度；读取类节点的文件
  * 本就位于用户本机，不使用压缩预览。
  *
  * 查询单位是「一份数据」而非「一个节点」：键即包的指纹（`fp`），
@@ -40,14 +40,16 @@ export interface Originals {
   keys?: Map<number, string>;
 }
 
-// 不另建表：登记到页面唯一的缓存（`transfer/cache.ts`），与浏览器计算的结果
-// （`transfer/computed.ts`）、包说明（`manifestOf`）使用同一机制；模块级 Map 不做长期存储
+// 不另建表：登记到页面唯一的缓存（`transfer/cache.ts`），与包说明（`manifestOf`）使用同一机制；模块级 Map 不做长期存储
 const key = (fp: string) => `orig:${fp}`;
 
 interface Held {
   originals: Originals | null;
   looking: boolean; // 仍在查找（打开文件句柄、列目录、识别包均为异步操作）
+  asked: number; // 哪一次查找（`lookingFor` 的编号）：较早的一次后到时不覆盖较新的结果
 }
+
+let asks = 0;
 
 /** 开始查找该数据的原件：在结果确定之前，不取回整段代理。
  *
@@ -59,14 +61,18 @@ interface Held {
  *
  * 不会卡住：`useOriginals` 查找结束后必定调用一次 `keepOriginals`（找到则传入该原件，
  * 未找到则传入 null），即使组件已卸载也会调用，因此该状态不会停留在「一直查找」。 */
-export function lookingFor(fp: string): void {
-  cache.register(key(fp), { originals: null, looking: true } satisfies Held);
+export function lookingFor(fp: string): number {
+  const asked = ++asks;
+  cache.register(key(fp), { originals: null, looking: true, asked } satisfies Held);
+  return asked;
 }
 
-/** 查找结束（`one` 为 null 表示该数据没有原件，照常使用服务器代理）。 */
-export function keepOriginals(fp: string, one: Originals | null): void {
-  if (one) cache.register(key(fp), { originals: one, looking: false } satisfies Held);
-  else cache.unregister(key(fp));
+/** 查找结束（`one` 为 null 表示该数据没有原件，照常使用服务器代理）。`asked`：`lookingFor` 给的编号。同一数据先后
+ * 查找两次（例如授权了新的目录）时，先开始的那次可能后结束：它的结果已被较新的一次取代，不再登记。 */
+export function keepOriginals(fp: string, one: Originals | null, asked: number): void {
+  const held = cache.registered<Held>(key(fp));
+  if (held && held.asked > asked) return;
+  cache.register(key(fp), { originals: one, looking: false, asked } satisfies Held);
 }
 
 /** 该数据是否仍在查找原件（查找期间不取回整段代理）。 */
@@ -75,8 +81,8 @@ export const stillLooking = (fp: string): boolean => cache.registered<Held>(key(
 /** 该包在用户机器上是否有原件。
  *
  * 按以下顺序查询两个来源：
- * 1. 已授权的本机目录或「输出」自身保存位置中找到的文件（由 `files/localDirs.ts` 查找、
- *    `view/useOriginals.ts` 登记）：句柄存于 IndexedDB，刷新后仍保留。
+ * 1. 已授权的本机目录中找到的读取节点的文件（由 `files/localDirs.ts` 查找、`view/useOriginals.ts` 登记）：
+ *    句柄存于 IndexedDB，刷新后仍保留。
  * 2. 本标签页中刚选择的文件（`transfer/local.ts`）：服务器在包说明中写入每一帧的 sha256
  *    （`blobs`），页面持有相同内容的文件时即使用该文件，内容逐字节一致。刷新后失效
  *    （浏览器只在用户亲自选择时将文件交给页面）。

@@ -10,9 +10,9 @@
  * The answer comes with the node's status (`applies`), the login state (`applies`) and each row of 用户 (`applies`).
  * The viewer's display options are the browser's own state (what only changes how things look never waits for the
  * server), so their table (model/viewControls.ts) is resolved here into the same answer (resolveLocal).
- * Components only ask by id; none looks at a role, a capability or the lists themselves (tests/test_roles.py greps).
+ * Components only ask by id; none looks at a role, a capability or the lists themselves.
  *
- * Pure: types only, so node's own test runner reads it as it is (webui/tests/applies.test.ts). */
+ * Pure: types only. */
 
 export interface MessageJson {
   code: string;
@@ -21,7 +21,7 @@ export interface MessageJson {
   params?: Record<string, unknown>;
 }
 
-/** The resolved answer (availability.Availability.json()). */
+/** The resolved answer (lab2shot/availability.py Availability.json()). */
 export interface Availability {
   available: string[];
   inactive: Record<string, MessageJson>;
@@ -43,7 +43,7 @@ export const greyed = (a: Answer, id: string): boolean => !!a && id in a.inactiv
 
 /** A node type as a subject (server/available.py: `node:<type id>`): usable now, or installed but not usable with why
  * (E-EXT-NOTINSTALLED, E-EXT-OUTDATED, ...); a type the account may not use is in neither, and not in the catalogue. */
-export const nodeSubject = (typeId: string): string => `node:${typeId}`;
+const nodeSubject = (typeId: string): string => `node:${typeId}`;
 export const nodeUsable = (a: Answer, typeId: string): boolean => usable(a, nodeSubject(typeId));
 export const nodeWhy = (a: Answer, typeId: string): string => why(a, nodeSubject(typeId));
 

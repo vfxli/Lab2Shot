@@ -37,8 +37,6 @@ from ..messages import Msg
 if TYPE_CHECKING:
     from .base import NodeDef, Port
 
-# What running a node costs (Cost.lane, Resolved.cost.lane): a moment in the main process, long CPU work, a GPU.
-LIGHT, HEAVY, GPU = "light", "heavy", "gpu"
 CLIPBOARD = "clipboard"  # the subject id of 「复制到 Nuke」 on a node (Pasteable.clipboard_when)
 MEASURED_ON = "RTX 4090 24 GB"  # the card the nodes' VRAM and time were measured on (Cost.measured_on; card information)
 
@@ -115,20 +113,11 @@ class Param:
         return ParamSuffix(self.name, tuple(suffixes))
 
     def gt(self, x: float) -> ParamCmp:
-        return ParamCmp(self.name, "gt", x)
+        return ParamCmp(self.name, x)
 
     def wired(self) -> "ParamWired":
         """The parameter is driven by a wire (its own promoted input port is connected)."""
         return ParamWired(self.name)
-
-    def ge(self, x: float) -> ParamCmp:
-        return ParamCmp(self.name, "ge", x)
-
-    def lt(self, x: float) -> ParamCmp:
-        return ParamCmp(self.name, "lt", x)
-
-    def le(self, x: float) -> ParamCmp:
-        return ParamCmp(self.name, "le", x)
 
 
 def _is_set(value: Any) -> bool:
@@ -247,26 +236,23 @@ class ParamSuffix(Cond):
         return frozenset({self.name}), frozenset(), frozenset()
 
 
-_CMP = {"gt": lambda a, b: a > b, "ge": lambda a, b: a >= b, "lt": lambda a, b: a < b, "le": lambda a, b: a <= b}
 
 
 @dataclass(frozen=True)
 class ParamCmp(Cond):
-    """A number parameter compared with a value (an empty one does not compare)."""
+    """A number parameter greater than a value (an empty one does not compare)."""
 
     name: str
-    op: str
     value: float
 
     def holds(self, f: NodeFacts) -> bool | None:
         v = f.params.get(self.name)
         if v is WIRED:
             return None
-        return v is not None and _CMP[self.op](v, self.value)
+        return v is not None and v > self.value
 
     def why(self, f: NodeFacts, t: type[NodeDef]) -> Msg:
-        code = {"gt": "I-APPLIES-GT", "ge": "I-APPLIES-GE", "lt": "I-APPLIES-LT", "le": "I-APPLIES-LE"}[self.op]
-        return Msg(code, name=_param_label(t, self.name), value=self.value)
+        return Msg("I-APPLIES-GT", name=_param_label(t, self.name), value=self.value)
 
     def names(self):
         return frozenset({self.name}), frozenset(), frozenset()
@@ -399,7 +385,7 @@ def incoming(port: str, name: str) -> IncomingName:
 
 @dataclass(frozen=True)
 class FactName:
-    """A fact to state a condition on: Fact("segments").gt(2)."""
+    """A fact to state a condition on: fact("segments").gt(2)."""
 
     name: str
 
@@ -454,21 +440,20 @@ class FactCmp(Cond):
 
 @dataclass(frozen=True)
 class Cost:
-    """What running a node costs: `lane` LIGHT or HEAVY off a GPU ("" by where it runs: the main environment is light,
-    an extension's heavy), `gpu` it always runs on one, the peak VRAM (GB) and seconds per frame measured on an
-    RTX 4090 at its default parameters, the system memory its worker takes at its peak when that is a lot (the queue
-    starts it only with that much free), and a note for the rating's tooltip. `whole`: why it has no seconds per frame
-    (one picture, a pair, a whole clip at once); a node that works frame by frame gives the number instead. `vram_measured`: False when its VRAM is an estimate, not a measurement on a card (the GPU
-    full test measures those: tools/vram_measure.py reads this, never the note's words). vram_gb is the whole
-    card's peak over its idle baseline (what tools/vram_measure.py samples from nvidia-smi, the card to itself),
-    never torch's own max_memory_reserved / max_memory_allocated: those count one process's allocator, leave out the
-    CUDA context and anything not allocated through torch, and so come out lower; underestimating is the dangerous error,
-    since the queue puts two jobs on one card by this number. A worker's own note may quote torch's reserved
-    peak as a reference; it is not this number. `measured_on`: the card the numbers were measured on. The VRAM figures
-    and the card are card information: no text a node shows carries them; the resolved cost gives them structurally
-    for the server to gate."""
+    """What running a node costs: `gpu` it always runs on one (else it takes a CPU slot: farm/scheduler), the peak VRAM
+    (GB) and seconds per frame measured on an RTX 4090 at its default parameters, the system memory its worker takes at
+    its peak when that is a lot (the queue starts it only with that much free), and a note beside those numbers on the
+    administrator's card page (farm/cards.py).
+    `whole`: why it has no seconds per frame (one picture, a pair, a whole clip at once); a node that works frame by
+    frame gives the number instead. `vram_measured`: False when its VRAM is an estimate, not a measurement on a card
+    (this flag says so, never the note's words). vram_gb is the whole card's peak over its idle baseline (as nvidia-smi
+    samples it, the card to itself), never torch's own max_memory_reserved / max_memory_allocated: those count one
+    process's allocator, leave out the CUDA context and anything not allocated through torch, and so come out lower;
+    underestimating is the dangerous error, since the scheduler starts a node on a card only when this much is free
+    there. A worker's own note may quote torch's reserved peak as a reference; it is not this number. `measured_on`:
+    the card the numbers were measured on. The VRAM figures and the card are card information: no text a node shows
+    carries them; the resolved cost gives them structurally for the server to gate."""
 
-    lane: str = ""
     gpu: bool = False
     vram_gb: float = 0.0
     seconds_per_frame: float | None = None
@@ -480,7 +465,7 @@ class Cost:
 
     @property
     def said(self) -> str:
-        """What the rating's tooltip adds: why there is no seconds per frame, then the note."""
+        """What the card page says beside the numbers: why there is no seconds per frame, then the note."""
         return "，".join(x for x in (self.whole, self.note) if x)
 
 
@@ -495,8 +480,8 @@ class Licence:
 @dataclass(frozen=True)
 class OptionTrait:
     """What a parameter value changes about a node: on a GPU, non-commercial parts, measured VRAM / seconds per frame
-    (only ever dearer than the default), system memory. What changes the lane or the
-    licence is a choice (Param(...).one_of): the catalogue lists it per option (option_traits)."""
+    (only ever dearer than the default), system memory. What changes the GPU or the licence is a choice
+    (Param(...).one_of): the catalogue lists it per option (option_traits)."""
 
     when: Cond
     gpu: bool | None = None
@@ -512,18 +497,17 @@ class OptionTrait:
 
 @dataclass(frozen=True)
 class ResolvedCost:
-    lane: str
-    gpu: bool
+    gpu: bool  # it runs on a GPU (the scheduler gives it a card), else on a CPU slot
     vram_gb: float  # the best measured peak with these parameters (0 off a GPU): where the scheduler places it
     seconds_per_frame: float | None
     ram_gb: float
-    rating: dict | None  # {"tier", "tip"} 低/中/高/超高 (nodes/compute.py); None off a GPU
+    rating: dict | None  # {"tier"} 低/中/高/超高 (nodes/compute.py); None off a GPU
     vram_measured: bool = True  # False: vram_gb is an estimate (Cost.vram_measured)
     measured_on: str = ""  # the card vram_gb and seconds_per_frame were measured on ("" off a GPU)
 
     def describe(self) -> dict:
         """vram_gb, vram_measured and measured_on are card information: the server shows them only behind farm.cards."""
-        return {"lane": self.lane, "gpu": self.gpu, "vram_gb": self.vram_gb, "seconds_per_frame": self.seconds_per_frame,
+        return {"gpu": self.gpu, "vram_gb": self.vram_gb, "seconds_per_frame": self.seconds_per_frame,
                 "ram_gb": self.ram_gb, "rating": self.rating, "vram_measured": self.vram_measured, "measured_on": self.measured_on}
 
 
@@ -552,9 +536,7 @@ class Resolved:
     params: Availability
     # Outputs that are currently inactive -> the reason (Port.applies; the port stays in place, greyed, with the reason
     # on hover, and cannot be wired). Same conditions and resolver as inputs and parameters (available / inactive,
-    # never hidden). Resolved here rather than in engine/graph.py: graph.ports() and the port golden files both read
-    # this, so the golden files pin which ports are greyed, and with which message, for every node and parameter
-    # setting.
+    # never hidden). Resolved here with the rest of the node's declarations; engine/graph.py ports() reads it.
     out_inactive: Mapping[str, Msg]
     cost: ResolvedCost
     licence: ResolvedLicence
@@ -575,7 +557,6 @@ def all_outputs(t: type[NodeDef]) -> tuple[Port, ...]:
 def output_ports(t: type[NodeDef], params: Mapping[str, Any]) -> tuple[Port, ...]:
     """The outputs with these parameters: the declared ones whose `when` holds, then one per entry of the ports_from
     parameter. Only parameters: the graph asks it while it checks wires, before anything else is known."""
-    from .base import Port
 
     f = NodeFacts(params)
     declared = tuple(p for p in all_outputs(t) if level(p.when, f) is AVAILABLE)
@@ -619,6 +600,28 @@ def supplying_port(cond: Cond | None) -> str:
 def param_conditions(t: type[NodeDef]) -> dict[str, Cond]:
     """Every parameter of the node type that declares when it applies -> its condition, in field order."""
     return model_conditions(t.Params)
+
+
+def lost_output_params(t: type[NodeDef]) -> list[str]:
+    """The parameters that only shape an output (applies=WiredOut(port)) which this node's family declares but this
+    node does not have: the family's 「点云」 made from depth + camera stays only on a node with a native point cloud
+    (nodes/base.py __init_subclass__), and its spacing and point size, inherited with the family's parameters, could
+    then never do anything. The node class drops them (nodes/base.py) so they are not shown, sent or saved.
+
+    Only an output some class in its ancestry declares: a WiredOut naming an output no class declares is a typo, which
+    check_declarations refuses rather than dropping the parameter silently. Only a condition that is that one output
+    (with or without an authored reason): one that combines it with anything else is refused there as well."""
+    from ..availability import Because
+
+    have = {p.name for p in all_outputs(t)}
+    declared = {p.name for k in t.__mro__ for p in vars(k).get("outputs", ())}
+    out = []
+    for name, cond in param_conditions(t).items():
+        while isinstance(cond, Because):
+            cond = cond.cond
+        if isinstance(cond, WiredOut) and cond.port not in have and cond.port in declared:
+            out.append(name)
+    return out
 
 
 def option_conditions(t: type[NodeDef]) -> dict[str, Cond]:
@@ -679,11 +682,10 @@ class _Row:
         return self._specs
 
 
-def _rating(vram: float, seconds: float | None, note: str) -> dict:
-    from .compute import compute_tier, compute_tip
+def _rating(vram: float, seconds: float | None) -> dict:
+    from .compute import compute_tier
 
-    tier = compute_tier(vram, seconds)
-    return {"tier": tier, "tip": compute_tip(tier, seconds, note)}
+    return {"tier": compute_tier(vram, seconds)}
 
 
 def resolve_cost(t: type[NodeDef], f: NodeFacts) -> ResolvedCost:
@@ -694,19 +696,19 @@ def resolve_cost(t: type[NodeDef], f: NodeFacts) -> ResolvedCost:
     gpu = c.gpu or any(tr.gpu for tr in held)
     ram = max([c.ram_gb, *(tr.ram_gb for tr in held if tr.ram_gb is not None)])
     if not gpu:
-        return ResolvedCost(c.lane or (LIGHT if t.runtime == "core" else HEAVY), False, 0.0, None, ram, None)
+        return ResolvedCost(False, 0.0, None, ram, None)
     points = [(tr.vram_gb if tr.vram_gb is not None else c.vram_gb, tr.seconds_per_frame if tr.seconds_per_frame is not None else c.seconds_per_frame)
               for tr in held if tr.vram_gb is not None or tr.seconds_per_frame is not None]
-    worst = max(points or [(c.vram_gb, c.seconds_per_frame)], key=lambda p: TIERS.index(_rating(*p, "")["tier"]))
+    worst = max(points or [(c.vram_gb, c.seconds_per_frame)], key=lambda p: TIERS.index(_rating(*p)["tier"]))
     vram = max([c.vram_gb, *(tr.vram_gb for tr in held if tr.vram_gb is not None), *setting_vram(t, f).values()])
-    return ResolvedCost(GPU, True, float(vram), worst[1], ram, _rating(worst[0], worst[1], c.said), c.vram_measured, c.measured_on)
+    return ResolvedCost(True, float(vram), worst[1], ram, _rating(worst[0], worst[1]), c.vram_measured, c.measured_on)
 
 
 def setting_vram(t: type[NodeDef], f: NodeFacts) -> dict[str, float]:
     """The heavy parameters set to a measured setting -> the most VRAM that setting takes (GB): what the scheduler
-    places the job by (farm/scheduler/requirements.py reads the resolved cost: every declared setting is offered,
-    the scheduler finds a card that holds it, never lowers it). An empty value (自动) or a
-    setting that changes the time only adds nothing."""
+    places the node by (engine/cook.py asks for a card by the resolved cost: every declared setting is offered, the
+    scheduler finds a card that holds it, never lowers it). An empty value (自动) or a setting that changes the time only
+    adds nothing."""
     out = {}
     for spec in t.param_specs():
         value = f.params.get(spec["name"])
@@ -759,7 +761,7 @@ def facts_for(t: type[NodeDef], params: Mapping[str, Any], wired: Mapping[str, t
 
 def resolve_params(t: type[NodeDef], params: Mapping[str, Any], connected=()) -> Resolved:
     """resolve() when only the parameters and which inputs are connected are known (no types: a catalogue, a template
-    listing, a test)."""
+    listing, a worker job's memory)."""
     return resolve(t, facts_for(t, params, {p: ("",) for p in connected}))
 
 
@@ -777,12 +779,11 @@ def effective_params(t: type[NodeDef], params: Mapping[str, Any], resolved: Reso
 
 def declared_cost(t: type[NodeDef]) -> dict:
     """What a node type declares running it costs, for the catalogue's lookup table (the web page, before a status):
-    the lane off a GPU, whether it always runs on one, the rating its own measured numbers give (a choice's own is in
-    option_traits)."""
+    whether it always runs on a GPU, the rating its own measured numbers give (a choice's own is in option_traits)."""
     c = t.cost
     may_gpu = c.gpu or any(tr.gpu for tr in t.traits)
-    return {"lane": c.lane or (LIGHT if t.runtime == "core" else HEAVY), "gpu": c.gpu,
-            "rating": _rating(c.vram_gb, c.seconds_per_frame, c.said) if may_gpu else None}
+    return {"gpu": c.gpu,
+            "rating": _rating(c.vram_gb, c.seconds_per_frame) if may_gpu else None}
 
 
 def option_key(value: Any) -> str:
@@ -804,7 +805,7 @@ def option_traits(t: type[NodeDef]) -> dict[str, dict[str, dict]]:
             row["noncommercial"] = row["noncommercial"] or tr.noncommercial
             if tr.vram_gb is not None or tr.seconds_per_frame is not None:
                 row["rating"] = _rating(tr.vram_gb if tr.vram_gb is not None else t.cost.vram_gb,
-                                        tr.seconds_per_frame if tr.seconds_per_frame is not None else t.cost.seconds_per_frame, t.cost.said)
+                                        tr.seconds_per_frame if tr.seconds_per_frame is not None else t.cost.seconds_per_frame)
     return out
 
 
@@ -867,12 +868,12 @@ def standing_marks(t: type[NodeDef]) -> list[dict]:
 
 def check_declarations(t: type[NodeDef]) -> None:
     """When a node class is made: every condition the node declares, wherever it is declared, names parameters,
-    inputs and facts the node really has; its lens assumption is one of LENSES, and only one that solves the lens says
-    when it solves none.
+    inputs, outputs and facts the node really has; its lens assumption is one of LENSES, and only one that solves the
+    lens says when it solves none.
 
     The check must cover every declaration site. A misspelled name in a condition (a renamed parameter, a removed
-    input) otherwise fails silently: no exception, no page error, unit and golden tests still pass, the condition
-    never holds, and a greyed reason may name a raw port that does not exist on the page. `conditions_of()` therefore
+    input) otherwise fails silently: no exception, no page error, the condition never holds, and a greyed reason may
+    name a raw port that does not exist on the page. `conditions_of()` therefore
     lists every site (a parameter's `applies`, `option_applies`, an input's `applies`, an output's `when` and
     `applies`, traits, handles, `pinhole_when`, `clipboard_when`); a new declaration site is added there as one line."""
     if t.ops:  # declared ops must exist in the catalogue (a wrong id fails at class creation, not at cook time)
@@ -898,11 +899,15 @@ def check_declarations(t: type[NodeDef]) -> None:
     # row has wired into it (Graph.facts)
     ports = {p.name for p in t.inputs} | ({t.ports_from} if t.ports_from and t.ports_from_side == "inputs" else set())
     facts = set(t.fact_labels)
+    outputs = {p.name for p in all_outputs(t)}
     for where, cond in conditions_of(t):
         if any(leaf.kind == CAPABILITY for leaf in cond.leaves()):
             raise TypeError(f"{t.__name__}: {where}'s condition asks a capability: a node does not know who looks at it")
         ps, qs, fs = cond.names()
         missing = [f"parameter {x}" for x in ps - params] + [f"input {x}" for x in qs - ports] + [f"fact {x}" for x in fs - facts]
+        # an output a parameter shapes must be one the node has: one it lacks makes the parameter never apply
+        # (lost_output_params takes such inherited parameters off before this check)
+        missing += [f"output {x}" for x in {c.port for c in cond.leaves() if isinstance(c, WiredOut)} - outputs]
         if missing:
             raise TypeError(f"{t.__name__}: {where}'s condition names {', '.join(missing)}, which the node does not have")
     for p in t.outputs:

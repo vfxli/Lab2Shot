@@ -5,7 +5,7 @@ the answer gets 304 and the handler never runs, and another request with the sam
 names everything the answer reads, each part cheap to look at (names, sizes and times of files, a count in the database),
 never the answer itself:
 
-    code(request)      this run of the server and its work folder, the node types it loaded, the template files (engine/templates.py
+    code(request)      this run of the server and its work folder, the node types it loaded, the template files (lab2shot/library.py
                        reads them again when they change)
     account(request)   what of the answer is this account's: its licence tags (nodes/tags.py), its role, whether it
                        sees the server's folders (access.py scrub), the answer fields it gets (available.py FIELDS)

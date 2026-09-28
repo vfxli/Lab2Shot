@@ -2,7 +2,7 @@
    (a button, a segmented choice, a chip, a tab, a menu item), a thin rainbow light runs once around its edge and fades;
    it never loops. One implementation: a conic gradient on the control's own ring (a mask keeps only the border), its
    angle an animated custom property. Duration, width and palette are tokens (ui/tokens.css). Nothing moves for a viewer
-   who asked for less motion (webui/tests/uiKit.test.ts). */
+   who asked for less motion. */
 
 @property --glow-angle {
   syntax: "<angle>";

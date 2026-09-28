@@ -19,6 +19,7 @@ import { useConfirm } from "../ui/Confirm";
 import { IconMore, IconPlus } from "../ui/icons";
 import { Menu } from "../ui/Menu";
 import { NameSheet, TextSheet, type Naming } from "../ui/NameSheet";
+import { composing } from "../platform/keys";
 
 /** What a menu row adds: one node type, or several added together, each feeding the next (the last takes the wire). */
 type Offer = NodeTypeDef[];
@@ -328,7 +329,7 @@ export function NodeMenu() {
             }
             if (e.key === "ArrowDown") (setActive((a) => Math.min(a + 1, results.length - 1)), e.preventDefault());
             else if (e.key === "ArrowUp") (setActive((a) => Math.max(a - 1, 0)), e.preventDefault());
-            else if (e.key === "Enter") pick(results[active]);
+            else if (e.key === "Enter" && !composing(e)) pick(results[active]);
             else if (e.key === "Escape") openMenu(null);
           }}
         />

@@ -111,7 +111,7 @@ def read_images(used: list[tuple[int, Path]], geo: Geometry, read_frame, progres
 
 
 def moving_at_model_size(job, frames: list[int], geo: Geometry, width: int, height: int) -> np.ndarray:
-    """可选的「运动物体」输入缩到网络尺寸：[帧数, h, w] 的布尔数组，True = 这个像素上有在动的东西。
+    """可选的「运动物体遮罩」输入缩到网络尺寸：[帧数, h, w] 的布尔数组，True = 这个像素上有在动的东西。
 
     没接这个输入、或者某一帧没有遮罩时，那一帧整帧 False。
 
@@ -125,14 +125,6 @@ def moving_at_model_size(job, frames: list[int], geo: Geometry, width: int, heig
         if f in moving_in:
             out[i] = geo.mask(moving_in.get(f))
     return out
-
-
-def moving_kinds(job) -> list[str]:
-    """接进来的「运动物体」是哪几种（"mask" / "boxes"），写进 result.json 的 moving_objects 用（只有 MonST3R 用）。
-
-    规则只在 `recon.MovingMasks.kinds` 写一次，这里只是转发。
-    """
-    return recon.MovingMasks(job, 1, 1).kinds
 
 
 # ---------------------------------------------------------------------- outputs
@@ -150,8 +142,8 @@ def model_K(focal: np.ndarray, pp: np.ndarray) -> np.ndarray:
 def write_outputs(raw: Path, frames: list[int], geo: Geometry, stitched: list[recon.Frame], focal: np.ndarray,
                   progress=None) -> dict:
     """raw/cameras.npz + raw/frame_<n>.npz at the input resolution from the stitched frames; `focal` [n] in model
-    pixels (per frame, or one shared value). Extra maps are written too: 「points」 (the model's own three-channel
-    point map, CUT3R) goes out as float, every other one is a selection and goes out as bool (MonST3R's 「moving」).
+    pixels (per frame, or one shared value). Extra maps are written too: `points` (the model's own three-channel
+    point map, CUT3R) goes out as float, every other one is a selection and goes out as bool (MonST3R's `moving`).
     Returns recon.summary numbers."""
     c2w = np.stack([f.cam_to_world for f in stitched])
     K = np.stack([geo.intrinsics(float(fo), (float(f.K[0, 2]), float(f.K[1, 2]))) for fo, f in zip(focal, stitched)])

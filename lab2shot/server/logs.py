@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from .routes import Access, Limit, Router
 from .. import logs
 from ..messages import Msg
+from . import auth
 from .farm import client_of
 from .wire import off_loop
 
@@ -28,7 +29,7 @@ def install(app: FastAPI) -> None:
     @app.middleware("http")
     async def log_requests(request: Request, call_next):
         started = time.time()
-        who = request.client.host if request.client else "?"
+        who = auth.client_ip(request)
         if (s := request.scope.get("lab2shot_session")) is not None:  # the account, once resolved by the guard
             who = f"{s.user.username}@{who}"
         try:
@@ -71,7 +72,8 @@ def admin_security() -> dict:
     return {**auth.guards().watch.view(), "online": accounts.online(), "limits": {
         "rate_per_s": auth.RATE_PER_S, "burst": auth.RATE_BURST, "block_after": auth.BLOCK_AFTER,
         "block_window_min": auth.BLOCK_WINDOW_S // 60, "block_min": auth.BLOCK_S // 60, "free": auth.FREE,
-        "client_lock": auth.CLIENT_LOCK, "global_lock": auth.GLOBAL_LOCK, "window_min": auth.WINDOW_S // 60}}
+        "client_lock": auth.CLIENT_LOCK, "address_free": auth.ADDRESS_FREE, "address_lock": auth.ADDRESS_LOCK,
+        "subject_free": auth.SUBJECT_FREE, "max_wait_s": auth.MAX_WAIT_S, "window_min": auth.WINDOW_S // 60}}
 
 
 class Unblock(BaseModel):

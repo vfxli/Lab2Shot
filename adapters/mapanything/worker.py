@@ -7,7 +7,8 @@ imports Lab2Shot core.
 node "mapanything.reconstruct". Frames (every `step`-th, plus always the last)
 -> chunks of at most `max_frames` views -> MapAnything.infer() per chunk (one
 forward pass sees every view of the chunk) -> chunks aligned into one world ->
-the reconstruction contract (lab2shot/nodes/results.py, reconstruction()):
+the reconstruction contract (lab2shot_worker.recon; node side
+lab2shot/nodes/families/depth_camera.py WholeShotDepthCamera):
 
     raw/cameras.npz
         frames        int64   [F]      the reconstructed frames (every step-th + the last)
@@ -39,8 +40,8 @@ The world scale is the first chunk's metric scale.
 
 MapAnything has no input for masks: it sees the whole frame, moving objects
 included, and nothing is taken out afterwards. To reconstruct only part of the
-picture, black the rest out before the 「图像」 input (人物检测 → 人物框转遮罩 →
-图像相乘), where it is visible on the node graph.
+picture, black the rest out before the 「RGB」 input (「ViTDet 人物框」 → 「人物框转遮罩」 →
+「图像合成」 set to 留下), where it is visible on the node graph.
 """
 
 from __future__ import annotations
@@ -72,7 +73,7 @@ WEIGHTS = {  # params["model"] -> folder in weights/, licence
 # 16:9 plates: 150 frames peak 18.5 GB, 200 frames 23.5 GB (the limit), 300 do not fit.
 DEFAULT_TOKENS = 150 * 777  # default max_frames: 150 frames at 16:9, 112 at 4:3, 85 square
 MAX_TOKENS = 200 * 777
-# what the memory grows with, when it runs out: 每段最多帧数 within the node's 8..200
+# what the memory grows with, when it runs out: 每段最多帧数, stepping down from 200 to 8
 MAX_FRAMES = MemoryBound.parameter("max_frames", (200, 150, 100, 64, 32, 16, 8))
 RESOLUTION_SET = 518  # upstream's default: longest side 518 px, aspect from a fixed list
 PATCH = 14

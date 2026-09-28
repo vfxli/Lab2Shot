@@ -2,7 +2,7 @@
  *
  * 页面缓存键由结构体生成（transfer/ident.ts），生成号是其组成部分之一：同一指纹重算后得到另一组键，
  * 旧帧因此不会被命中。服务器删除或重算数据包后，页面在下一次状态回复中即可得知，无需等待 LRU 淘汰旧帧。
- * 本模块维护一张表（fp -> created），由 state/results.ts 在每次状态回复后合并；空串表示尚未知晓（包说明未到或服务器版本较旧）。
+ * 本模块维护一张表（fp -> created），由 state/results.ts 在每次状态回复后合并；空串表示尚未知晓（状态回复尚未带来该包的生成号）。
  * 本模块是一个 zustand 仓库，舞台据此重建帧源（view/stageSources.ts 的 memo 将其列为依赖）。 */
 import { create } from "zustand";
 

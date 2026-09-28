@@ -32,10 +32,10 @@ Mocha Remove 那条流程。代码和权重都是 MIT，可以商用。
 
 **我们怎么接的**
 
-- 「图像」口就是上游的 `rgbs`，「参考帧」参数就是 `--query_frame`，「处理分辨率」就是 `--image_size`。
+- 「RGB」口就是上游的 `rgbs`，「参考帧」参数就是 `--query_frame`，「处理分辨率」就是 `--image_size`。
 - 「ST-map」口（2 通道）就是 `traj_maps_e`，「置信度」口就是 `visconf_maps_e`，
   「2D 跟踪点」口是按「网格点数」在参考帧上撒点、从稠密结果上取值得到的（对应 demo 的 `--rate` 抽样）。
-- **上游没有、节点上也没有**：遮罩口。要只跟一块区域，在节点图上接「人物框转遮罩 → 图像相乘」把画面挡住再送进来。
+- **上游没有、节点上也没有**：遮罩口。要只跟一块区域，在节点图上接「人物框转遮罩」→「图像合成」（留下）把画面挡住再送进「RGB」口。
 
 出处：简介来自 `third_party/alltracker/repo/README.md`；输入输出依据 `third_party/alltracker/repo/demo.py`
 和 `nets/alltracker.py`，以及 `adapters/alltracker/nodes.py`、`worker.py`。

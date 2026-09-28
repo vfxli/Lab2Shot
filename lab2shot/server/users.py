@@ -1,4 +1,4 @@
-"""后台「用户」页：管理账号（lab2shot/accounts.py）。管理员或二级管理员可以创建账号，设置初始密码、姓名、部门、
+"""后台「用户」页：管理账号（lab2shot/accounts.py）。管理员或二级管理员可以创建账号，设置初始密码、姓名、环节、
 有效期，重设密码，停用和延期；管理员还可以设置其可用范围（tags）、角色，以及删除账号。谁可以对谁执行哪些操作由
 lab2shot/roles.py 决定（路由所需能力由守卫检查，对目标账号的 roles.manages 在此处检查）；页面提供的操作见
 server/available.py。每次修改都连同消息代码写入服务器日志（access.audit）。"""
@@ -66,7 +66,7 @@ def _view(request: Request) -> dict:
             "roles": [{"id": r.id, "label": r.label, "tip": r.tip} for r in roles.ROLES.values() if r.id in visible]}
 
 
-@admin.get("/users", access=Access.admin("users.manage_normal"), summary="用户：看得到的每个账号（二级管理员只看得到普通用户）的用户名、中文名、部门、角色、到期时间、能不能用、能用哪些标签的节点、最近登录、任务数、在不在线、用掉的网络流量（今天 / 近 7 天 / 总计），和这个登录能对它做什么；部门表、标签表、能新建的角色")
+@admin.get("/users", access=Access.admin("users.manage_normal"), summary="用户：看得到的每个账号（二级管理员只看得到普通用户）的用户名、中文名、环节、角色、到期时间、能不能用、能用哪些标签的节点、最近登录、任务数、在不在线、用掉的网络流量（今天 / 近 7 天 / 总计），和这个登录能对它做什么；环节表、标签表、能新建的角色")
 def users(request: Request) -> dict:
     return _view(request)
 
@@ -110,7 +110,7 @@ class NewUser(BaseModel):
     role: str = roles.DEFAULT
 
 
-@admin.post("/users", access=Access.admin("users.manage_normal"), summary="新建账号：用户名、第一次的密码、中文名、部门、到期时间；管理员另外选角色和能用哪些标签的节点（不给：只有可商用）。二级管理员只能新建普通用户，不能设标签")
+@admin.post("/users", access=Access.admin("users.manage_normal"), summary="新建账号：用户名、第一次的密码、中文名、环节、到期时间；管理员另外选角色和能用哪些标签的节点（不给：只有可商用）。二级管理员只能新建普通用户，不能设标签")
 def create(req: NewUser, request: Request) -> dict:
     s = _session(request)
     role = roles.check(req.role)
@@ -120,7 +120,7 @@ def create(req: NewUser, request: Request) -> dict:
     u = accounts.create(req.username, req.password, req.name, req.department, req.expires, given, role=role,
                         by=roles.label(s.user.role))
     audit(Msg("I-AUDIT-USERCREATED", who=s.user.label, role=roles.label(s.user.role), target=roles.label(u.role),
-              username=u.username, name=u.name, department=u.department, expires=_day(u.expires),
+              username=u.username, name=u.name, department=u.department, expires=day_text(u.expires),
               tags="、".join(tags.TAGS[t].label for t in sorted(u.tags)) or "只有基础"),
           session=s, method="POST", path=str(request.url.path))
     return {"user": u.full(), **_view(request)}
@@ -135,7 +135,7 @@ class Change(BaseModel):
     role: str | None = None  # 仅在具有 admins.manage 时可设置
 
 
-@admin.put("/users/{user_id}", access=Access.admin("users.manage_normal"), summary="改一个账号：中文名、部门、到期时间（延期）、停用或启用；管理员另外改能用哪些标签和角色。停用、到期或降了角色马上生效")
+@admin.put("/users/{user_id}", access=Access.admin("users.manage_normal"), summary="改一个账号：中文名、环节、到期时间（延期）、停用或启用；管理员另外改能用哪些标签和角色。停用、到期或降了角色马上生效")
 def change(user_id: int, req: Change, request: Request) -> dict:
     s = _session(request)
     target = accounts.get(user_id)
@@ -162,7 +162,7 @@ def reset(user_id: int, req: Reset, request: Request) -> dict:
     _managed(s, u)
     if u.deleted:
         raise Invalid(Msg("E-USERS-DELETED"))
-    # 内置管理员账号（ADMIN_ID）任何人都不得修改（roles.py）：`accounts.update` / `delete` 均有此保护，重设密码也必须保护，
+    # 内置管理员账号（ADMIN_ID）不得由他人修改（roles.py）：`accounts.update` / `delete` 均有此保护，重设密码也必须保护，
     # 否则拥有 admins.manage 的二级管理员可以为内置管理员设置新密码，从而接管该账号。
     # 内置管理员本人可以修改（浏览器上自己的那一行、本机命令行的机器令牌都以 ADMIN_ID 登录）；忘记密码时使用口令或 lab2shot admin password
     if u.owner and s.user.id != u.id:
@@ -181,7 +181,7 @@ def delete(user_id: int, request: Request) -> dict:
     _managed(s, u)
     done = accounts.delete(user_id)
     audit(Msg("I-AUDIT-USERDELETED", who=s.user.label, role=roles.label(s.user.role), target=roles.label(u.role),
-              username=u.username, name=u.name, jobs=done["jobs_stopped"], deliveries=done["deliveries"]),
+              username=u.username, name=u.name, jobs=done["jobs_stopped"], outputs=done["outputs"]),
           session=s, method="DELETE", path=str(request.url.path))
     return {**done, **_view(request)}
 
@@ -200,19 +200,18 @@ def purge(user_id: int, request: Request) -> dict:
     return {**done, **_view(request)}
 
 
-# ------------------------------------------------------------------ 全局登录锁：由本机命令行解除
+# ------------------------------------------------------------------ 输错密码的计数：由本机命令行清零
 
 
-@admin.post("/security/unlock", access=Access.admin("security.manage"), summary="解开「错误的密码太多，谁都不能登录」的全局锁，输错的计数清零：只有这台服务器上的命令行（机器令牌）能调，浏览器上的管理员登录不行")
+@admin.post("/security/unlock", access=Access.admin("security.manage"), summary="输错密码的计数全部清零（被拖慢的账号、被锁住的来源马上可以再试）：只有这台服务器上的命令行（机器令牌）能调，浏览器上的管理员登录不行")
 def unlock_logins(request: Request) -> dict:
-    """15 分钟内 30 次密码错误会锁定所有人的登录（server/auth.py GLOBAL_LOCK）：经 frp 访问时所有人共用一个 IP，
-    一个人反复试错即可将全公司锁在外面，且可以持续锁定。该锁用于防止猜测密码，因此保留；此处为内置管理员提供一条
-    无需更换密码的解除途径：由本机命令行使用机器令牌调用此路由。只接受机器令牌：被锁定的正是密码登录本身，
-    若浏览器上的管理员登录可以从外部解锁，就会成为另一条绕过锁定的途径。"""
+    """输错密码按账号、按来源计数（server/auth.py Limiter）：从没登录过的设备把一个账号试错多了，之后每次都要等。
+    此处为内置管理员提供一条无需更换密码的清零途径：由本机命令行使用机器令牌调用此路由。只接受机器令牌：计数挡的
+    正是用密码猜，若浏览器上的管理员登录可以清零，就会成为另一条绕过它的途径。"""
     s = _session(request)
     if not auth.machine(request):
         raise Forbidden(Msg("E-LOGIN-UNLOCKMACHINE"))
-    cleared = auth.guards().limiter.clear_lock()
+    cleared = auth.guards().limiter.clear()
     audit(Msg("I-AUDIT-LOGINUNLOCKED", who=s.user.label, count=cleared), session=s, method="POST", path=str(request.url.path))
     return {"cleared": cleared}
 
@@ -268,5 +267,6 @@ def reset_rights(role: str, request: Request) -> dict:
     return _rights(request)
 
 
-def _day(t: float | None) -> str:
+def day_text(t: float | None) -> str:
+    """An expiry date as the audit lines say it."""
     return "不过期" if t is None else time.strftime("%Y-%m-%d", time.localtime(t))

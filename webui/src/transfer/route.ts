@@ -3,18 +3,19 @@ import { CHANNEL_NAMES, VALID } from "./plane";
 
 /** 决定一侧所需通道的传输方式，是全项目唯一的判定点。无论解算器输出多少通道，只传输使用者正在查看的通道。
  *
- * 仅有两条路径：
- * - 图片路径（`/frame/{f}.png`）：同时查看三条颜色通道时使用。该图是三条通道经 OCIO 显示变换后
- *   编码的无损图像，是其最小载体（一张实拍帧约 1.3 MB，三条 float32 通道约 3.8 MB）；
- *   单独查看某一颜色通道（R / G / B）时也使用此路径，因为显示变换是三维查找表，三条通道须一起查表，且该图通常已在本地。
- * - 通道路径（`/frame/{f}/channel/{name}`）：其余所有情况，包括 alpha、遮罩、深度、编号、视频的单条通道，
- *   以及数值图的整体查看（数值图不经过色彩管理，每条通道独立着色，不需要三维查找表）。
+ * 仅有两条路径，按「查看器拿到数之后要不要再换算」来分：
+ * - 图片路径（`/frame/{f}.png`，内容是 8 位有损 WebP 代理）：彩色画面（素材、合成、抠像、重打光、HDRI、视频）。
+ *   屏幕是 8 位 sRGB，彩色结果拿来就显示，8 位就够，一张图是三条通道最小的载体（约为按数值发送三条通道的十分之一）。
+ *   单看其中一条颜色通道（R / G / B）时也用这张图（通常已在本地），不为它另发数值。除 HDRI（线性）外所有结果
+ *   都已是 sRGB，原样显示；HDRI 在服务器生成这张图时转成 sRGB。
+ * - 通道路径（`/frame/{f}/channel/{name}`）：数值图（alpha、遮罩、深度、法线、运动矢量、编号）与视频的单条通道。
+ *   查看器要按黑白点把数重新换算成灰度、显示读数，需要原始精度：把一小段数值拉满黑到白时，8 位只剩寥寥几级灰。
  *
  * 单独成文件的原因：显示界面（`view/Stage2D.tsx`）与后台整段预取（`transfer/prefetchLive.ts`）
  * 必须使用同一判定规则，否则舞台只需一条通道时，后台预取仍会逐帧下载整张显示图，造成流量浪费。 */
 
-/** 判断该数据包是否不经过色彩管理（与服务器 `server/packets.py packet_lut` 的判定一致）。 */
-export const rawOf = (m: Manifest | null): boolean =>
+/** 判断该数据包是否不经过色彩管理：视频、数值图，或没有色彩空间的包。 */
+const rawOf = (m: Manifest | null): boolean =>
   m?.type === "video" || !!m?.meta.values || !m?.meta.colorspace;
 
 /** 该侧使用通道路径时需要的通道列表（空数组表示使用图片路径）。
@@ -30,7 +31,7 @@ export function channelsFor(m: Manifest | null, index: number | null): string[] 
     // 拆分发送只会更大，因此不能仅以是否经过色彩管理作为判定依据。
     return m?.meta.values ? names.filter((n) => n !== VALID).slice(0, 3) : [];
   }
-  if (index < 3 && !rawOf(m)) return [];              // 单独查看颜色通道时同样需要经过三维显示变换表
+  if (index < 3 && !rawOf(m)) return [];              // 单看彩色画面的一条颜色通道：用那张图，不另发数值
   const one = CHANNEL_NAMES[index];
   return one && names.includes(one) ? [one] : [];
 }

@@ -58,8 +58,8 @@ FBX 没有点云、也没有逐帧的顶点缓存：导入节点里没有点云�
 ## 效果和局限
 
 - 只用 CPU，很快。
-- 测试：`tests/integration/test_scene_formats.py` 用 FBX SDK 写一个像 DCC 里做出来的镜头（层级里各处的相机、静止的模型、两个带 blend shape 的蒙皮角色、一个只有骨骼的动捕骨架，都挂在有动画的父级下；厘米 Y 轴向上和米 Z 轴向上两种），导入后和独立算出的真值逐帧比对；还有和 USD、Alembic 之间互相转。`tests/integration/test_fbx_worker.py` 检查 worker 自己：写出的文件用 FBX SDK 读回来，检查单位、坐标系、骨骼、蒙皮、blend shape 的权重曲线和相机。
-- **没有在 Maya / Unreal 里核对过**：FBX 相机默认沿自己的 +X 轴看，Lab2Shot 的相机沿 -Z 看，读写时各转 90 度（按 FBX SDK 自己的约定）。测试都是用 FBX SDK 读回来比对的，没有在 Maya、Unreal 里打开核对过。
+- 安装时编译完会自检一次（`build.py`）：写一个 FBX 文件，用 FBX SDK 读回来，检查节点、单位和上轴。
+- **没有在 Maya / Unreal 里核对过**：FBX 相机默认沿自己的 +X 轴看，Lab2Shot 的相机沿 -Z 看，读写时各转 90 度（按 FBX SDK 自己的约定），没有在 Maya、Unreal 里打开核对过。
 - 蒙皮按 FBX SDK 的线性蒙皮（clusters）读写；双四元数蒙皮、约束、IK 不带。
 
 ## 团队
@@ -70,7 +70,7 @@ FBX 最早是 Kaydara 为 MotionBuilder 设计的格式，2006 年 Autodesk 收�
 
 没有模型要下载，但要先装 FBX SDK：
 
-- FBX SDK 不在任何软件源里，要你自己下载，并本人同意 Autodesk 的许可协议。到 Autodesk 的 FBX SDK 页面下载 Linux 版（`fbx2020310_fbxsdk_gcc_linux.tar.gz`），原样放进项目的 `downloads/` 收件文件夹；在「帮助与扩展包」首页的「手动下载」里看许可协议，点「同意并安装」，它装到 `third_party/_fbx_sdk/2020.3.10/`。
+- FBX SDK 不在任何软件源里，要你自己下载，并本人同意 Autodesk 的许可协议。到 Autodesk 的 FBX SDK 页面下载 Linux 版（`fbx2020310_fbxsdk_gcc_linux.tar.gz`），原样放进项目的 `downloads/` 收件文件夹；在后台管理页「扩展包」里的「手动下载」看许可协议，点「同意并安装」，它装到 `third_party/_fbx_sdk/2020.3.10/`。
 - 然后运行 `uv run lab2shot ext install fbx`：建一个 conda-forge 环境（Python 3.12、numpy、FBX SDK 要的 libxml2 2.x），用 pybind11 编译一个小模块（`adapters/fbx/fbxio.cpp`），把 FBX SDK 静态链接进去。编译约 7 秒，环境约 370 MB。
 - **需要本机有 C++ 编译器**，在 `config/local.toml` 的 `[build]` 段里设置 `cxx`（例如 `g++-14`）。
 

@@ -1,4 +1,4 @@
-"""图像处理：色彩转换、STMap、遮罩转 Alpha、合并通道、FrameHold、拆网格图、Crop、方向场。"""
+"""图像处理：STMap、遮罩转 Alpha、合并通道、图像合成、FrameHold、拆网格图、Crop、方向场。"""
 
 from __future__ import annotations
 
@@ -12,12 +12,11 @@ from ...messages import Msg
 from ...data.contracts import Shape, warped_by
 from ..base import Info, NodeDef, NodeParams, P, Port
 from ..expects import SameShot
-from ..applies import Param
 
 
 class StmapWarp(NodeDef):
     id = "core.stmap_warp"
-    version = 4  # 结果说明已变更，旧缓存作废
+    version = 4  # 结果变化时递增，work/ 中的旧结果随之不再命中缓存（engine/cook.py）
     category = "img_warp"
     picture = "src"
     inputs = (Port("src", "image", "源", alpha=True), Port("stmap", "image.2", "ST-map"))
@@ -84,7 +83,7 @@ class StmapWarp(NodeDef):
         one_st = read_map(jobs[0][2], st_box)[0] if jobs and len({j[2] for j in jobs}) == 1 else None
 
         def warp(job):
-            """一帧的全部工作：读取源图、读取 ST-map、重采样。只涉及本帧，多帧可并发计算（ctx.each_done）。"""
+            """一帧的全部工作：读取源图、读取 ST-map、重采样、写出。只涉及本帧，多帧可并发计算（ctx.each_done）。"""
             frame, src_path, st_path = job
             values, alpha = read_src(src_path) if one_src is None else one_src
             stmap = read_map(st_path, st_box)[0] if one_st is None else one_st
@@ -96,12 +95,10 @@ class StmapWarp(NodeDef):
                                      alpha=alpha if keeps_alpha else None, nearest=labels)
             # 该帧没有任何像素取到值时，额外测量该 ST-map 的指向范围（仅在结果为空时计算）
             span = None if valid.any() else _off_the_source(stmap, src_window.plate, src_window.offset, values.shape[:2])
-            return frame, out, valid, span
-
-        off = []
-        for frame, out, valid, span in ctx.each_done(jobs, warp):  # 结果按帧号顺序返回，文件仍在主线程中按顺序写出
             writer.add(frame, out, valid)
-            off.append(span)
+            return span
+
+        off = list(ctx.each_done(jobs, warp))  # 各帧的说明按帧号顺序返回
         # 整段每一帧均为空，且每一帧都指向源图之外时，在输出空图之前说明原因。
         # 取样落在源图内部却为空（源图该区域本身无值）的情况不在此处说明，那属于上游的问题。
         if off and all(span is not None for span in off):
@@ -149,19 +146,19 @@ class AlphaMerge(NodeDef):
         same_size({"图像": image, "Alpha": matte})
         cfg = load_config()
         window = window_of(image)
-        # 画面已处于工作色彩空间（由读取节点转换）；声明为其他色彩空间的旧数据包在读取时转换。
-        # 本节点不做额外转换，只附加 alpha。
+        # 画面按其声明的色彩空间转到工作色彩空间（读取节点的输出本就在工作空间中），本节点只附加 alpha。
         out = ExrWriter(ctx.outputs["image"], 4, half=True, colorspace=working_space(cfg), alpha=True,
                         window=window)
-        lacking = []
-        for f in ctx.each(image.meta["frames"]):
+        def merge(f):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）；返回该帧是否缺少遮罩
             picture = to_working_picture(read_picture(image, file_at(image, f)), cfg, image.meta["colorspace"])
             rgb = np.ascontiguousarray(images.unpremultiply(picture) if has_alpha(image) else picture)  # 非预乘颜色
             got = map_at(matte, f, window.data)  # 静态遮罩：作用于每一帧，使用画面自身的窗口
-            if got is None:
-                lacking.append(f)
             a = np.zeros(rgb.shape[:2], np.float32) if got is None else np.clip(got[0][..., 0], 0.0, 1.0)
             out.add(f, np.concatenate([rgb * a[..., None], a[..., None]], axis=-1))
+            return got is None
+
+        frames = image.meta["frames"]
+        lacking = [f for f, gap in zip(frames, ctx.each_done(frames, merge)) if gap]
         if lacking:
             ctx.say("N-ALPHA-GAP", count=len(lacking), first=lacking[0])
         packet = out.packet()
@@ -192,13 +189,15 @@ class ChannelMerge(NodeDef):
         same_size({"R": r, "G": g, "B": b})
         window = window_of(r)
         out = ExrWriter(ctx.outputs["image"], 3, half=False, colorspace=working_space(), window=window)
-        lacking = []
-        for f in ctx.each(r.meta["frames"]):
+        def merge(f):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）；返回该帧是否缺少某条通道
             planes = [map_at(p, f, window.data) for p in (r, g, b)]  # 静帧作用于每一帧，使用 R 自身的窗口
             if any(p is None for p in planes):
-                lacking.append(f)
-                continue
+                return True
             out.add(f, np.stack([p[0][..., 0] for p in planes], axis=-1).astype(np.float32))
+            return False
+
+        frames = r.meta["frames"]
+        lacking = [f for f, gap in zip(frames, ctx.each_done(frames, merge)) if gap]
         if lacking:
             ctx.say("N-CHANNELMERGE-GAP", count=len(lacking), first=lacking[0])
         packet = out.packet()
@@ -219,13 +218,13 @@ class ImageMerge(NodeDef):
 
         人物检测 → 「人物框转遮罩」→（需要羽化时再接「遮罩调整」）→ 「图像合成」相乘 → 解算器的「图像」端口
 
-    遮挡在送入解算器之前完成，在节点图上可见。重建节点不再各自带一个「遮罩」端口在模型计算之后擦除结果像素
+    遮挡在送入解算器之前完成，在节点图上可见。重建节点不各自带一个在模型计算之后擦除结果像素的「遮罩」端口
     （那样使用者无法看到，出现问题也难以排查）；本实现由所有解算器共用。
     """
 
     id = "core.image_merge"
     # 不使用单独的「Merge」作为名称：Merge 在 Nuke 中指 2D 合成，在 Houdini 中指 3D 合并，含义不同。
-    # 3D 合并已命名为「合成场景」（core.usd_pack），因此本 2D 节点的名称包含「图像」。
+    # 3D 合并是「合成场景」（core.usd_pack），因此本 2D 节点的名称包含「图像」。
     category = "img_channel"
     on_node = ("operation",)
     # B 固定为单通道遮罩类型：若两个端口都声明为通用的「图像」，1 通道遮罩可能接入 3 通道端口，
@@ -234,27 +233,18 @@ class ImageMerge(NodeDef):
               Port("b", "image.1", "遮罩", expects=(SameShot("a"),),
                    help="一条通道的遮罩，自动铺到图像的每条通道上"))
     outputs = (Port("image", "image", "图像", type_from="input:a"),)
-    # 算法定义不在此处，而在算法目录（lab2shot/ops/ops.toml）中：六种运算各占一条，服务器与浏览器按同一份描述
-    # 分别执行（webui/src/ops/run.ts）。本节点只负责读取像素和写出结果。
+    # 算法定义不在此处，而在算法目录（lab2shot/ops/ops.toml）中：六种运算各占一条（image.merge.<运算>）。
+    # 本节点只负责读取像素和写出结果。
     ops = tuple(f"image.merge.{k}" for k in MERGE_OPERATIONS)
 
     class Params(NodeParams):
         operation: Literal["multiply", "stencil", "plus", "minus", "min", "max"] = P(
-            "multiply", label="运算", group="合成", option_labels=MERGE_OPERATIONS,
-            help="和 Nuke 的 Merge 同名：留下 = 图像 × 遮罩（只保留遮罩里的那块，其余变黑）；"
-                 "挡掉 = 图像 ×（1 − 遮罩）（Nuke 的 stencil，把遮罩里的那块抹黑，比如解相机前挡掉走动的人）；"
-                 "相加、相减、取小、取大照字面算。逐像素，不看 alpha")
-
-    @classmethod
-    def browser_ops(cls, params, types):
-        """合成在浏览器中计算：A 的各通道按地址获取一次后保留在本地，切换运算或遮罩时无需重新传输数据。
-        所用运算由「运算」参数决定，算法定义位于算法目录中。"""
-        return ({"op": f"image.merge.{params['operation']}", "args": {}},)
+            "multiply", label="运算", group="合成", option_labels=MERGE_OPERATIONS)
 
     @classmethod
     def cook(cls, ctx):
         from ...data.contracts import own_meta
-        from ...data.payloads import (ExrWriter, file_at, has_alpha, has_validity, is_data, read_map, read_picture,
+        from ...data.payloads import (ExrWriter, file_at, has_validity, is_data, read_map, read_picture,
                                       window_of)
         from ...data.maps import map_at, same_size
         from ...data.types import channels_of
@@ -262,8 +252,7 @@ class ImageMerge(NodeDef):
 
         a, b = ctx.input("a"), ctx.input("b")
         same_size({"A": a, "B": b})
-        op = ctx.params["operation"]
-        merge_op = cls.browser_ops(ctx.params, {})[0]["op"]  # 所用算法只由 browser_ops 决定
+        merge_op = f"image.merge.{ctx.params['operation']}"
         window = window_of(a)
         n = channels_of(a.type)
         # A 接受任意二维数据，而不仅是画面（端口类型为通用的「图像」）：深度图、法线图、ST-map、分割图、遮罩
@@ -280,8 +269,8 @@ class ImageMerge(NodeDef):
                         # 源图声明的最小值和最大值不再有效，由写出方重新测量
                         colorspace=a.meta.get("colorspace") if picture else None,
                         window=window, **own_meta(a))  # 深度尺度、法线坐标系、分割类别表原样传递
-        lacking, anything = [], False
-        for f in ctx.each(a.meta["frames"]):
+        def merge(f):
+            """一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）。返回（该帧是否缺少 B，结果是否有内容）。"""
             path = file_at(a, f)
             if picture:
                 pa, valid = np.asarray(read_picture(a, path), np.float32), None
@@ -290,21 +279,24 @@ class ImageMerge(NodeDef):
                 pa, valid = np.asarray(values, np.float32), (ok if keeps_valid else None)
             got = map_at(b, f, window.data)  # 静态 B（整段一张图）作用于每一帧
             if got is None:
-                lacking.append(f)
                 out.add(f, pa, valid)
-                anything = anything or bool(np.any(pa))
-                continue
+                return True, bool(np.any(pa))
             pb = np.asarray(got[0], np.float32)[..., :1]  # 端口类型保证其为单通道（image.1）
             # 单通道遮罩广播到图像各通道由执行器完成
             merged = run_op(merge_op, {"a": pa, "b": pb})["value"]
             out.add(f, merged, valid)
-            anything = anything or bool(np.any(merged))
+            return False, bool(np.any(merged))
+
+        frames = a.meta["frames"]
+        found = list(ctx.each_done(frames, merge))
+        lacking = [f for f, (gap, _) in zip(frames, found) if gap]
+        anything = any(some for _, some in found)
         if lacking:  # B 缺少部分帧：这些帧原样输出并给出提示
             ctx.say("N-IMGMERGE-GAP", count=len(lacking), first=lacking[0])
         # 整段合成结果处处为 0 不属于错误（上游未检测到任何内容时即会如此，例如与没有天空的天空概率图相乘），
         # 但对全黑结果不加说明会使使用者难以判断问题出在哪一步。
         if not anything:
-            ctx.say("N-IMGMERGE-EMPTY", operation=MERGE_OPERATIONS[op])
+            ctx.say("N-IMGMERGE-EMPTY", operation=MERGE_OPERATIONS[ctx.params["operation"]])
         packet = out.packet()
         if a.meta.get("still") and b.meta.get("still"):
             packet.meta["still"] = True
@@ -318,8 +310,7 @@ class FrameHold(NodeDef):
     outputs = (Port("image", "image", "图像", type_from="input:image"),)
 
     class Params(NodeParams):
-        frame: int | None = P(None, label="帧", placeholder="中间帧",
-                              help="定在哪一帧；留空 = 镜头中间那一帧。填的帧号要在接进来的范围里")
+        frame: int | None = P(None, label="帧", placeholder="中间帧")
 
     on_node = ("frame",)
 
@@ -386,15 +377,11 @@ class SplitGrid(NodeDef):
     frame_source = True
 
     class Params(NodeParams):
-        rows: int = P(2, label="行", ge=1, le=64, group="网格",
-                      help="网格图横着分成几行：一行一行数过去，和「列」一起决定拆出多少帧（行 × 列）")
-        cols: int = P(2, label="列", ge=1, le=64, group="网格",
-                      help="网格图竖着分成几列：一列一列数过去，和「行」一起决定拆出多少帧（行 × 列）")
+        rows: int = P(2, label="行", ge=1, le=64, group="网格")
+        cols: int = P(2, label="列", ge=1, le=64, group="网格")
         order: Literal["row", "col"] = P(
-            "row", label="顺序", group="网格", option_labels={"row": "先横后竖", "col": "先竖后横"},
-            help="第几格是第几帧：先横后竖 = 从左上角一行一行往下读（最常见）；先竖后横 = 一列一列往右读")
-        margin: int = P(0, label="边距", unit="px", ge=0, le=512, group="网格",
-                        help="每一格四周要去掉的像素：拼图带分隔线或留白时填，切出来不带边")
+            "row", label="顺序", group="网格", option_labels={"row": "先横后竖", "col": "先竖后横"})
+        margin: int = P(0, label="边距", unit="px", ge=0, le=512, group="网格")
 
     @classmethod
     def cells(cls, params: dict, width: int, height: int) -> list[tuple[int, int, int, int]]:
@@ -445,12 +432,14 @@ class SplitGrid(NodeDef):
         path = file_at(src, src.meta["frames"][0])
         values, valid = (read_picture(src, path), None) if picture else read_map(path)
         first = int(src.meta["frames"][0])
-        got = False
-        for i, (x, y, cw, ch) in enumerate(ctx.each(boxes)):
+
+        def cut(job):  # 一格：各格互不相干，由引擎并行写出（ctx.each_done）；返回该格是否有内容
+            i, (x, y, cw, ch) = job
             cell = values[y:y + ch, x:x + cw]
-            got = got or bool(np.any(cell))
             writer.add(first + i, cell, None if valid is None else valid[y:y + ch, x:x + cw])
-        if not got:  # 拆出的每一格都为 0：空结果不属于错误，但需说明原因
+            return bool(np.any(cell))
+
+        if not any(list(ctx.each_done(enumerate(boxes), cut))):  # 拆出的每一格都为 0：空结果不属于错误，但需说明原因
             ctx.say("N-GRID-EMPTY", rows=p["rows"], cols=p["cols"], margin=p["margin"], param="rows")
         return {"image": writer.packet()}
 
@@ -466,10 +455,10 @@ class Crop(NodeDef):
                     shape=Shape(window="node", lens="unknown", said="I-SHAPE-CROP")),)
 
     class Params(NodeParams):
-        left: int = P(0, label="左", unit="px", ge=0, group="裁剪", help="从左边切掉多少像素，填 0 这条边不切")
-        right: int = P(0, label="右", unit="px", ge=0, group="裁剪", help="从右边切掉多少像素，填 0 这条边不切")
-        top: int = P(0, label="上", unit="px", ge=0, group="裁剪", help="从上边切掉多少像素，填 0 这条边不切")
-        bottom: int = P(0, label="下", unit="px", ge=0, group="裁剪", help="从下边切掉多少像素，填 0 这条边不切")
+        left: int = P(0, label="左", unit="px", ge=0, group="裁剪")
+        right: int = P(0, label="右", unit="px", ge=0, group="裁剪")
+        top: int = P(0, label="上", unit="px", ge=0, group="裁剪")
+        bottom: int = P(0, label="下", unit="px", ge=0, group="裁剪")
 
     on_node = ("left", "right", "top", "bottom")
 
@@ -519,13 +508,15 @@ class Crop(NodeDef):
         # 待裁剪区域在画面框坐标中：与数据窗口求交，不相交部分补 0
         x0, y0 = max(cut["left"], dx), max(cut["top"], dy)
         x1, y1 = min(w - cut["right"], dx + dw), min(h - cut["bottom"], dy + dh)
-        for f in ctx.each(src.meta["frames"]):
+        def crop(f):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             picture = read_picture(src, file_at(src, f))
             tile = np.zeros((new_h, new_w, channels), np.float32)
             if x1 > x0 and y1 > y0:
                 tile[y0 - cut["top"]:y1 - cut["top"], x0 - cut["left"]:x1 - cut["left"]] = \
                     picture[y0 - dy:y1 - dy, x0 - dx:x1 - dx, :channels]
             out.add(f, tile)
+
+        list(ctx.each_done(src.meta["frames"], crop))
         packet = out.packet()
         if src.meta.get("still"):
             packet.meta["still"] = True
@@ -545,15 +536,10 @@ class OrientationField(NodeDef):
                     help="第一条通道是方向，单位度，0–180；第二条是可信度 0–1。角度量的是纹理本身的走向"),)
 
     class Params(NodeParams):
-        period: float = P(3.0, label="纹理周期", unit="px", ge=1.0, le=64.0,
-                          help="要找的纹理有多粗：一根发丝加它旁边的空隙大约多少像素。1000 px 宽的人像大概 3，"
-                               "4K 上同样的头发要按比例调大。设小了会去找噪点，设大了会把一撮头发当成一根")
-        reach: int = P(31, label="取样范围", unit="px", ge=5, le=201,
-                       help="每个像素往周围看多远来判断方向。大一点更稳、更平滑，小一点更贴合细节和转弯处；"
-                            "一般取纹理周期的 8–12 倍")
+        period: float = P(3.0, label="纹理周期", unit="px", ge=1.0, le=64.0)
+        reach: int = P(31, label="取样范围", unit="px", ge=5, le=201)
         angles: Literal[90, 180, 360] = P(180, label="角度数", group="精度",
-                                          option_labels={"90": "90 档", "180": "180 档", "360": "360 档"},
-                                          help="把 0–180° 分成多少档来试。档数越多角度越细，耗时成正比增加；一般 180 就够")
+                                          option_labels={"90": "90 档", "180": "180 档", "360": "360 档"})
 
     on_node = ("period", "reach")
 
@@ -568,10 +554,10 @@ class OrientationField(NodeDef):
         window = window_of(image)
         out = ExrWriter(ctx.outputs["orientation"], 2, window=window)
         reach = int(ctx.params["reach"]) | 1  # 卷积核需要中心格，因此取奇数
-        for f in ctx.each(image.meta["frames"]):
+        def measure(f):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             got = map_at(image, f, window.data)
             if got is None:
-                continue
+                return
             values = got[0]
             # 接受任意通道数：方向只取决于明暗变化，因此合并为单通道。三个及以上通道按亮度（照片的正确算法），
             # 单通道原样使用，两个通道（ST-map、方向场等数值图）取平均，因其没有亮度的概念。
@@ -588,6 +574,8 @@ class OrientationField(NodeDef):
                 confidence = np.where(keep, np.clip(confidence, 0.0, 1.0), 0.0).astype(np.float32)
             degrees = direction * (180.0 / HALF_TURN)
             out.add(f, np.stack([degrees, confidence], axis=-1).astype(np.float32))
+
+        list(ctx.each_done(image.meta["frames"], measure))
         return {"orientation": out.packet()}
 
 

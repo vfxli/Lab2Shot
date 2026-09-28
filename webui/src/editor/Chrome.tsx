@@ -2,22 +2,22 @@ import { useEffect, useState } from "react";
 import { api, type ServerLoad } from "../api";
 import { noteServer } from "../state/server";
 import { useUnseenErrors } from "../state/log";
-import { submitWords, waitText } from "../graph/nodes";
-import { cancelCook, deliverAll, frameLimitProblemNow, redo, rangeProblemNow, setCookRange, undo } from "../graph/actions";
-import { snapshotNow } from "../graph/snapshot";
+import { waitText } from "../graph/nodes";
+import { cancelCook, frameLimitProblemNow, redo, rangeProblemNow, setCookRange, undo } from "../graph/actions";
 import { useCookInputs } from "../state/cookInputs";
 import { useResults } from "../state/results";
-import { canWrite } from "../files/handles";
-import { addDir, authorisedDirs, canPickFolder } from "../files/localDirs";
-import { BrandMark, IconGrid, IconLog, IconQueue, IconRedo, IconUndo } from "../ui/icons";
+import { addDir, authorisedDirs } from "../files/localDirs";
+import { canReadFolder } from "../files/handles";
+import { BrandMark, IconGrid, IconRedo, IconUndo } from "../ui/icons";
 import { useCatalog } from "../state/catalog";
 import { useViewer } from "../state/viewer";
 import { editorContext, FeedbackButton } from "../ui/Feedback";
+import { ReleasesButton } from "../ui/Releases";
 import { AccountChip } from "../ui/Account";
 import { etaText } from "../ui/Queue";
-import { roughlyText } from "../platform/format";
 import { usePoll } from "../platform/poll";
 import { Button, IconButton } from "../ui/Button";
+import { MessageText } from "../ui/MessageText";
 import { Kbd, Menu, type MenuRow } from "../ui/Menu";
 import { QueueSheet } from "./ChromeSheets";
 import { SaveToLibrarySheet } from "./MyTemplates";
@@ -59,7 +59,7 @@ export function TopBar({ onOpen, onSave }: { onOpen: () => void; onSave: (saveAs
   // /api/load 附带返回的服务状态写入共享状态后，服务状态自身的轮询退为每五分钟一次。
   useEffect(() => {
     if (server?.server) noteServer(server.server);
-  }, [server?.server?.boot, server?.server?.ui, server?.server?.restart, server?.server?.notice]);
+  }, [server?.server?.boot, server?.server?.ui, server?.server?.restart, server?.server?.notice, server?.server?.account]);
   const setQueueSwitches = useResults((s) => s.setQueueSwitches);
   const setMaxFrames = useResults((s) => s.setMaxFrames);
   const setStorage = useResults((s) => s.setStorage);
@@ -86,7 +86,6 @@ export function TopBar({ onOpen, onSave }: { onOpen: () => void; onSave: (saveAs
     : job.stopping
       ? "正在停止…"
       : [job.position == null ? "计算中" : waitText(job), eta].filter(Boolean).join(" · ");
-  const cpuJobs = queue?.limits.heavy ?? 0;
   const viewer = useViewer((s) => s.role === "viewer"); // tabs.ts: this graph is being edited in another tab
   const viewerTip = "这张节点图在另一个标签页里编辑：这里改不了";
   // 具有模板管理权限的账号可在「文件」菜单中保存预设模板
@@ -96,9 +95,8 @@ export function TopBar({ onOpen, onSave }: { onOpen: () => void; onSave: (saveAs
 
   return (
     <div className="topbar">
-      <div className="brand">
+      <div className="brand" aria-label="Lab2Shot">
         <BrandMark />
-        Lab2Shot
       </div>
       <FileMenu onOpen={onOpen} onSave={onSave} viewer={viewer} viewerTip={viewerTip} preset={preset} />
       <UndoRedo />
@@ -117,19 +115,18 @@ export function TopBar({ onOpen, onSave }: { onOpen: () => void; onSave: (saveAs
           {templates > 0 && <span className="bar-count tnum">{templates}</span>}
         </Button>
         <span className="bar-sep" />
-        {/* 队列 / 日志 / 反馈 are icons alone (队列 carries the count as a badge), so the bar reads as one entry
-            (模板), a few marks and one main button (提交). */}
-        <IconButton tip="队列：自己的任务排第几、大概多久，算完的也在同一张表里，「加载」打开当时的节点图" aria-label="队列"
-          tone="ghost" layout="bar-icon" onClick={() => setQueueOpen(true)}>
-          <IconQueue size={15} />
-          {busy > 0 && <span className="q-badge bar-badge tnum">{busy}</span>}
-        </IconButton>
+        {/* how busy the server is, then 队列 / 日志 / 提交反馈 / 更新说明 as words (队列 and 日志 with their count) */}
         <LoadPill load={server} />
-        <IconButton tip="日志：出现过的提示、计算经过和错误；出问题时复制给技术人员" aria-label="日志" tone="ghost" layout="bar-icon" onClick={() => setLogOpen(true)}>
-          <IconLog size={15} />
-          {errors > 0 && <span className="q-badge log-badge bar-badge tnum">{errors}</span>}
-        </IconButton>
+        <Button tip="队列：自己的任务排第几、大概多久，算完的也在同一张表里，「加载」打开当时的节点图" tone="ghost" onClick={() => setQueueOpen(true)}>
+          队列
+          {busy > 0 && <span className="q-badge bar-count-badge tnum">{busy}</span>}
+        </Button>
+        <Button tip="日志：出现过的提示、计算经过和错误；出问题时复制给技术人员" tone="ghost" onClick={() => setLogOpen(true)}>
+          日志
+          {errors > 0 && <span className="q-badge log-badge bar-count-badge tnum">{errors}</span>}
+        </Button>
         <FeedbackButton tone="ghost" context={editorContext} />
+        <ReleasesButton />
         {/* No help entry here: there is no help site; extensions are installed on the admin page
             (admin/Extensions.tsx). The 「操作说明」 "?" in the graph's corner is a different thing (editor/GraphHelp.tsx). */}
         <span className="bar-sep" />
@@ -145,7 +142,9 @@ export function TopBar({ onOpen, onSave }: { onOpen: () => void; onSave: (saveAs
               </Button>
             </>
           ) : (
-            <SubmitButton cpuJobs={cpuJobs} viewer={viewer} viewerTip={viewerTip} />
+            <>
+              <SubmitRefusal />
+            </>
           )}
         </div>
       </div>
@@ -205,15 +204,15 @@ function FileMenu({ onOpen, onSave, viewer, viewerTip, preset }: { onOpen: () =>
                 } satisfies MenuRow]
               : []),
             {
-              // 授权后，视图直接从本机文件夹读取素材与交付文件的原件（`files/localDirs.ts`）：全精度、无需传输，
+              // 授权后，视图直接从本机文件夹读取素材的原件（`files/localDirs.ts`）：全精度、无需传输，
               // 刷新页面后授权仍然有效。浏览器不支持文件夹对话框时，该项显示为不可用。
               key: "originals",
               label: "授权本机素材文件夹…",
-              tip: canPickFolder
-                ? `指一个文件夹给视图直接读：素材放在哪儿、交付包下到哪儿，指过之后**视图就从你自己那份文件画**——满精度、不下载，刷新之后还认得。${dirs.length ? `\n现在指过的：${dirs.join("、")}\n再指一个会一起用；指过的文件夹里找不到对应的文件时，照旧从服务器取预览` : "\n还没指过：视图现在从服务器取预览"}`
+              tip: canReadFolder
+                ? `指一个素材所在的文件夹给视图直接读，指过之后视图就从你自己那份素材画——满精度、不下载，刷新之后还认得。${dirs.length ? `\n现在指过的：${dirs.join("、")}\n再指一个会一起用；指过的文件夹里找不到对应的文件时，照旧从服务器取预览` : "\n还没指过：视图现在从服务器取预览"}`
                 : "这个浏览器没有文件夹对话框（要 Chrome 或 Edge，地址是 localhost 或 https）：视图从服务器取预览",
               desc: dirs.length ? <span className="tnum">{dirs.length}</span> : undefined,
-              off: !canPickFolder,
+              off: !canReadFolder,
               run: () => void addDir().then((name) => name && setDirs((had) => (had.includes(name) ? had : [...had, name]))),
             },
           ]}
@@ -255,28 +254,32 @@ const useServerLoad = () =>
     identity: (v) => [v.queue, v.slots, v.switches, v.max_frames, v.storage, v.server],
   }).data;
 
-/** How busy the server is, next to the queue — 「排队 N · 计算 x/y 忙」, in the colour of idle / busy / full,
- * with the machine's CPU and memory and every compute slot on hover. `cards` is only in the answer of an account that
- * may see the cards (the route takes the field out for everyone else), so this reads the key and never a role. */
+/** How busy the server is, left of 队列 — 「排队 N · CPU a/b · GPU c/d」, in the colour of idle / busy / full, with
+ * what a 计算位 is, the machine's CPU and memory and every card on hover. Everyone sees all of it, the
+ * cards included. */
 function LoadPill({ load }: { load: ServerLoad | null | undefined }) {
   if (!load) return null;
   const { queue, slots } = load;
-  const state = slots.busy >= slots.total && slots.total > 0 ? "full" : slots.busy > 0 || queue.waiting > 0 ? "busy" : "idle";
+  const busy = slots.cpu.busy + slots.gpu.busy;
+  const total = slots.cpu.total + slots.gpu.total;
+  const state = busy >= total && total > 0 ? "full" : busy > 0 || queue.waiting > 0 ? "busy" : "idle";
   const lines = [
-    `排队 ${queue.waiting} 个，正在算 ${queue.running} 个`,
-    `计算位 ${slots.busy} / ${slots.total} 忙`,
-    `CPU ${pct(load.cpu_pct)} · 内存 ${pct(load.ram_pct)}`,
+    `排队：${queue.waiting} 个任务在等（所有人的）`,
+    `正在算：${queue.running} 个任务`,
+    "",
+    "同时能算几个节点：",
+    `CPU：${slots.cpu.busy} / ${slots.cpu.total} 在用`,
+    `GPU：${slots.gpu.busy} / ${slots.gpu.total} 在用`,
+    "",
+    `服务器：CPU ${pct(load.cpu_pct)} · 内存 ${pct(load.ram_pct)}`,
     ...(load.cards ?? []).map((c, i) => `显卡 ${i + 1}：${c.busy ? "有任务" : "空闲"} · 显存 ${pct(c.mem_pct)}`),
   ];
   return (
     <span className="load-pill tnum" data-state={state} data-tip={lines.join("\n")}>
-      排队 {queue.waiting} · 计算 {slots.busy}/{slots.total}
+      排队 {queue.waiting} · CPU {slots.cpu.busy}/{slots.cpu.total} · GPU {slots.gpu.busy}/{slots.gpu.total}
     </span>
   );
 }
-
-const RANGE_TIP =
-  "这次计算哪些帧：默认是输入序列的全部帧，几段输入长短不同时从最早的第一帧到最晚的最后一帧。可以改小，只算其中一段，上游节点也只算这些帧；算过的整段和一小段各自留在缓存里。计算范围随节点图保存，时间线上是它下面的橙色细条";
 
 /** One end of the frame range: typed freely, taken when the field is left (or Enter). */
 function RangeEnd({ value, label, disabled, bad, onCommit }: { value: string; label: string; disabled: boolean; bad: boolean; onCommit: (text: string) => void }) {
@@ -286,7 +289,6 @@ function RangeEnd({ value, label, disabled, bad, onCommit }: { value: string; la
     <input
       className={`field num tl-field${bad ? " bad" : ""}`}
       value={text}
-      data-tip={`${label}（原始帧号）`}
       aria-label={label}
       placeholder="—"
       inputMode="numeric"
@@ -299,8 +301,10 @@ function RangeEnd({ value, label, disabled, bad, onCommit }: { value: string; la
   );
 }
 
-/** The frames the cook takes: the inputs' whole range until the user narrows it. It sits on the timeline (where the
- * frames are), next to the playback range it looks like. */
+/** The frames the cook takes (in the shot's own frame numbers): the inputs' whole range until the user narrows it, and
+ * then only those frames are cooked, upstream too, each range cached on its own; it is saved with the graph. It sits
+ * on the timeline (where the frames are), next to the playback range it looks like, and like the rest of the timeline
+ * shows no tips: a range the inputs do not cover is marked red here and said when 提交 refuses it. */
 export function CookRange() {
   const cookRange = useCookInputs((s) => s.cookRange);
   const full = useResults((s) => s.plan?.range ?? null);
@@ -312,13 +316,13 @@ export function CookRange() {
   const commit = (end: 0 | 1, text: string) =>
     setCookRange(end ? [shown[0], text.trim() || whole?.[1] || ""] : [text.trim() || whole?.[0] || "", shown[1]]);
   return (
-    <div className={`tl-group cook-range${problem ? " bad" : ""}`} data-tip={problem ? `${problem.text}\n\n${RANGE_TIP}` : full || cookRange ? RANGE_TIP : "接上序列图输入后，这里可以选只算其中一段帧"}>
+    <div className={`tl-group cook-range${problem ? " bad" : ""}`}>
       <span className="tl-label">计算</span>
       <RangeEnd value={shown[0]} label="计算起始帧" disabled={off} bad={!!problem} onCommit={(t) => commit(0, t)} />
       <span className="tl-dash">–</span>
       <RangeEnd value={shown[1]} label="计算结束帧" disabled={off} bad={!!problem} onCommit={(t) => commit(1, t)} />
       {cookRange && (
-        <Button tip="回到输入的全部帧" tone="ghost" size="sm" disabled={busy} onClick={() => setCookRange(null)}>
+        <Button tone="ghost" size="sm" disabled={busy} onClick={() => setCookRange(null)}>
           全部
         </Button>
       )}
@@ -326,51 +330,18 @@ export function CookRange() {
   );
 }
 
-/** 提交：the one main button of the top bar — every 「输出」 in the graph cooked and delivered, together, as
- * one job (graph/actions.ts deliverAll). Greyed while the graph has no 「输出」 (its tooltip says what to do); with one
- * that has nowhere to save to it stays clickable and the click marks the node. A node is cooked from its own right-click
- * menu instead (editor/FlowParts.tsx), or with Ctrl+Enter for the node shown. The estimate of how long it takes rides
- * in the same tooltip, so the bar itself carries no second reading of the cook. */
-function SubmitButton({ cpuJobs, viewer, viewerTip }: { cpuJobs: number; viewer: boolean; viewerTip: string }) {
-  useCookInputs((s) => s.version);
-  useResults((s) => s.results);
-  const queueSwitches = useResults((s) => s.queueSwitches);
-  const plan = useResults((s) => s.plan);
-  const storage = useResults((s) => s.storage);
-  const words = submitWords(snapshotNow(), queueSwitches, canWrite, cpuJobs, storage);
-  const over = useResults((s) => s.maxFrames) && frameLimitProblemNow();  // 帧数超上限：灰掉并写清楚为什么
-  const { warn } = words;
-  const tip = over ? `${over.text}\n\n${words.tip}` : words.tip;
-  const off = words.off || !!over;
+/** Why the server refused this graph (state/results.ts `refused`), in its own words, in the top bar for as long as it
+ * stands: a graph it cannot read says so as soon as it is opened, and a refused submission right where it was made,
+ * not only as a count on the log. Cut to the bar's width; the whole text is in its tip and in the log. */
+function SubmitRefusal() {
+  const refused = useResults((s) => s.refused);
+  if (!refused) return null;
   return (
-    <Button tip={[tipOf(viewer, viewerTip, tip), estimateLines(plan)].filter(Boolean).join("\n\n")} tone="primary" warn={warn && !off} disabled={viewer || off} onClick={() => void deliverAll()}>
-      提交
-    </Button>
+    <span className="bar-refused" role="alert" data-tip={refused.text}>
+      <MessageText message={refused} />
+    </span>
   );
 }
 
-const tipOf = (viewer: boolean, viewerTip: string, tip: string) => (viewer ? viewerTip : `${tip}（Ctrl+Shift+Enter）`);
 
 /** How long this cook should take, from the records of earlier cooks, per node — inside the 提交 tooltip. */
-function estimateLines(plan: ReturnType<typeof useResults.getState>["plan"]): string {
-  if (!plan || plan.error) return "";
-  const known = plan.nodes.length - plan.unknown;
-  const time = !plan.nodes.length
-    ? "全部已缓存"
-    : !known
-      ? "没有记录，无法预计"
-      : `预计${plan.unknown ? "至少" : "约"} ${roughlyText(plan.seconds)}`;
-  const frames = plan.frames ? `帧 ${plan.frames[0]}–${plan.frames[1]}，` : "";
-  return [
-    time,
-    plan.nodes.length ? `${frames}要算 ${plan.nodes.length} 个节点${plan.cached ? `，另有 ${plan.cached} 个已缓存` : ""}：` : `${frames}要的结果都已缓存，不用算`,
-    ...plan.nodes.map((n) =>
-      n.seconds == null ? `${n.label} · 没有记录` : `${n.label} · 约 ${roughlyText(n.seconds)} · 按 ${n.device} 上 ${n.records} 次的用时`,
-    ),
-    "",
-    "按以往同样节点的用时，按帧数和分辨率换算。第一次算的节点没有记录，算过一次以后就能预计",
-  ].join("\n");
-}
-
-/** Sent to the editor (App.tsx) to open a graph as a new unsaved document: it asks first when the one open has unsaved
- * changes. */

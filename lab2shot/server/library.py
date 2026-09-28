@@ -25,7 +25,7 @@ def _view(username: str, user_id: int) -> dict:
     """返回「我的模板」页面数据，并附带磁盘占用，使页面无需另行请求。"""
     from . import quota
 
-    return {"mine": library.user_cards(username), "bin": library.user_cards(username, bin_=True), "usage": quota.usage(user_id)}
+    return {"mine": library.user_cards(username), "usage": quota.usage(user_id)}
 
 
 class Saved(BaseModel):
@@ -35,7 +35,7 @@ class Saved(BaseModel):
     id: str = ""  # 要覆盖的已有模板 id；为空时新建
 
 
-@router.get("/api/my/templates", access=Access.user("编辑器：自己存在服务器上的节点图"), summary="「我的模板」：这个账号存在服务器上的节点图（换台电脑登录也在）、回收站里的，和这个账号的磁盘占用")
+@router.get("/api/my/templates", access=Access.user("编辑器：自己存在服务器上的节点图"), summary="「我的模板」：这个账号存在服务器上的节点图（换台电脑登录也在），和这个账号的磁盘占用")
 def my_templates(request: Request) -> dict:
     u = auth.me(request)
     return _view(u.username, u.id)
@@ -62,14 +62,6 @@ def bin_mine(gid: str, request: Request) -> dict:
     u = auth.me(request)
     _, username, stem = library.parse_id(gid)
     library.user_bin(username, stem, "user")
-    return _view(u.username, u.id)
-
-
-@router.post("/api/my/templates/{gid}/restore", access=Access.user("编辑器：把自己的一张模板从回收站拿回来", owned=owners.saved_graph), summary="把自己的一张模板从回收站拿回来（管理员放进去的拿不回来）")
-def restore_mine(gid: str, request: Request) -> dict:
-    u = auth.me(request)
-    _, username, stem = library.parse_id(gid)
-    library.user_restore(username, stem, by="user")
     return _view(u.username, u.id)
 
 

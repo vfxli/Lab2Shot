@@ -1,5 +1,5 @@
-"""Alembic (.abc), a format module: read cameras, models and point clouds from DCC files; write models (point caches),
-cameras and point clouds.
+"""Alembic (.abc), a format module: read cameras, models, point clouds and curves from DCC files; write models (point
+caches), cameras, point clouds and curves.
 
 The official Alembic library with its Python bindings (PyAlembic) is not on PyPI
 (the PyPI / conda-forge package called "alembic" is an unrelated database tool)
@@ -14,7 +14,6 @@ from lab2shot.sdk import BASIC, EnvSpec, Extension, GitSource, LicenseInfo
 
 ALEMBIC_URL = "https://github.com/alembic/alembic.git"
 ALEMBIC_COMMIT = "6f59e4d0c9012c67e242da510b31d96504db8e01"  # tag 1.8.12
-# Imath v3.2.3 (PyImath) is pinned in build.py, which fetches and builds it.
 
 
 class Alembic(Extension):

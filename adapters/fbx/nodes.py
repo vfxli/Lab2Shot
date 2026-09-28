@@ -15,16 +15,13 @@ SUFFIXES = (".fbx",)
 
 class ImportFbx(WorkerImport):
     id = "fbx.import"
-    # 相机是从文件里读出来的，不是这个节点解算的
     runtime = "fbx"
     suffixes = SUFFIXES
     cost = replace(WorkerImport.cost, whole="读一个文件，时间看文件里有多少东西，不按帧算（只用 CPU）")
 
     class Params(NodeParams):  # FBX holds cameras, models, skeletons and skinned characters: no point clouds
-        path: str = import_file_param(SUFFIXES, " FBX 文件（.fbx）")
-        take: str = P("", label="动画段", widget="choice", group="文件", choices_from=("path",), placeholder="最长的一段",
-                      help="FBX 里读哪一段动画（take）。留空读有动画的最长一段（Mixamo 下载的第一段「Take 001」是空的）；"
-                           "几段都有动画时节点上会提醒一次，在这里选别的段")
+        path: str = import_file_param(SUFFIXES)
+        take: str = P("", label="动画段", widget="choice", group="文件", choices_from=("path",), placeholder="最长的一段")
         camera: str = selection_param("camera")
         models: list[str] = selection_param("models")
         skeletons: list[str] = selection_param("skeletons")
@@ -42,11 +39,11 @@ class FbxOutput(OutputSettings):
     on_node = ("name",)
     writes = {
         "model": Writes.static("FBX 没有逐帧的顶点缓存", lost="网格的分区。FBX 里没有面集，只能借材质分面，那会凭空造出材质；要保住分区写 USD 或 Alembic"),
-        "camera": Writes.full("Focal Length 逐帧，Filmback 和分辨率一起写"),
+        "camera": Writes.full(),
         "points": Writes.no("FBX 没有点云"),
         "curves": Writes.no("FBX 这一版不读写曲线"),
-        "skeleton": Writes.full("关节和逐帧的关节动画"),
-        "character": Writes.full("骨骼、逐帧的骨骼动画、蒙皮和 blend shape 的权重曲线都保留", lost="网格的分区，同「模型」"),
+        "skeleton": Writes.full(),
+        "character": Writes.full(lost="网格的分区，同「模型」"),
     }
 
     class Params(NodeParams):

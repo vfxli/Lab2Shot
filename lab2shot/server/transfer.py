@@ -1,32 +1,34 @@
-"""Files between the user's machine and this server (lab2shot/transfer): uploads in, deliveries out (what 「输出」
-delivers: one archive, or files into a folder, and what became of it). The web page, DCC plugins and `lab2shot cook`
-all use these. A delivery is only for the account whose cook made it and the administrator (server/access.py mine);
-an upload only for the account that sent it (transfer/uploads.py). A file goes up in parts that survive a dropped
-line (lab2shot/transfer/uploads.py); it is at most storage.upload_gb big, and none is taken while the disk would keep
-less than KEEP_FREE_GB."""
+"""Files between the user's machine and this server (lab2shot/transfer): uploads in, outputs out (what 「输出」
+packed in a task: its zip, downloaded by the browser itself, and the same files unpacked, fetched one by one by DCC
+plugins and `lab2shot cook`). An output is only for the account whose task it is and a login holding data.others
+(server/access.py mine); an upload only for the account that sent it (transfer/uploads.py). A file goes up in parts
+that survive a dropped line (lab2shot/transfer/uploads.py); one file is at most 单任务上传上限 (tasks.upload_gb) big,
+since a task never carries more than that of uploads, and none is taken while the disk would keep less than KEEP_FREE_GB."""
 
 from __future__ import annotations
 
+import re
+import shutil
 from urllib.parse import quote
 
 from fastapi import Request
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
-
-import shutil
 
 from .routes import Access, Limit, Router
 from .. import logs
 from ..config import settings
-from ..errors import Conflict, Invalid, TooLarge
+from ..errors import Conflict, TooLarge
 from ..messages import Msg
-from ..transfer import deliveries, uploads
-from . import auth, owners, wire
+from ..text import file_part
+from ..transfer import outputs, uploads
+from . import auth, owners
 
 log = logs.get("uploads")
 
+GB = 1 << 30
 KEEP_FREE_GB = 10  # uploads stop before the disk of the work folder has less than this left
 CHECK_EVERY = 1 << 30  # bytes between looks at the disk while an upload comes in
 WRITE_BATCH = 1 << 20  # bytes a request brings that are written to the part at once, on a thread (never on the loop)
@@ -70,13 +72,19 @@ def _grouped(names: list[str]) -> dict:
             "singles": [at[n] for n in g.singles], "junk": [at[n] for n in g.junk]}
 
 
+def task_upload_limit() -> int:
+    """单任务上传上限 in bytes: what one task may carry of uploads (farm/queue.py checks a task against it when it is
+    submitted; one file above it is refused here as it comes in)."""
+    return int(float(settings()["tasks.upload_gb"]) * GB)
+
+
 def _upload_problem(size: int, who: int | None = None) -> Msg | None:
     """Why an upload of `size` bytes (so far, or as announced) can't be taken (None it can): the one file's limit, the
     machine's free disk, and — with `who` — that account's own quota (server/quota.py; the sentence says what it uses,
     what its limit is and where it can free space itself, never a bare 「失败」)."""
-    limit = int(settings()["storage.upload_gb"]) << 30
-    if size > limit:
-        return Msg("E-UPLOAD-TOOBIG", gb=limit >> 30)
+    limit = task_upload_limit()
+    if size > limit:  # one file bigger than a whole task may carry can never be used by a task
+        return Msg("E-UPLOAD-TOOBIG", gb=limit / GB)
     uploads.root().mkdir(parents=True, exist_ok=True)
     if shutil.disk_usage(uploads.root()).free - size < KEEP_FREE_GB << 30:
         return Msg("E-UPLOAD-DISKFULL", gb=KEEP_FREE_GB)
@@ -259,79 +267,45 @@ def describe_upload(ref: str, request: Request) -> dict:
     return uploads.describe(ref)
 
 
-@router.get("/deliveries", access=Access.user("自己的结果"), summary="自己的「输出」结果（最新的在前）：状态（待取回 / 已保存 / 已下载 / 不要了 / 已过期）、什么时候过期")
-def delivery_list(request: Request) -> list[dict]:
-    return deliveries.listing(auth.me(request).id)
+def attachment(name: str) -> str:
+    """A download's Content-Disposition: the file name as the user's machine saves it, RFC 5987 (filename*=UTF-8''…)
+    with a plain ASCII filename= beside it (RFC 6266); path separators and control characters never go out, whatever
+    the name holds."""
+    stem, dot, ext = str(name).rpartition(".")
+    clean = (f"{file_part(stem, 200) or 'Lab2Shot'}.{file_part(ext, 10)}" if dot
+             else (file_part(name, 200) or "Lab2Shot"))
+    fallback = re.sub(r"[^A-Za-z0-9._-]", "_", clean)
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(clean, safe='')}"
 
 
-@router.get("/deliveries/{run}/{node}", access=Access.user("自己的一份结果", owned=owners.delivery), summary="自己的一份结果：怎么取回（tar / tar.gz / 文件夹）、有哪些文件、现在的状态")
-def delivery_record(run: str, node: str, request: Request) -> dict:
-    return request.state.owned
+@router.get("/outputs", access=Access.user("自己的结果"), summary="自己各任务里「输出」打包好的结果（最新的在前）：哪个任务、哪个节点、下载的文件名、多大、什么时候随任务删除")
+def my_outputs(request: Request) -> list[dict]:
+    return outputs.of_account(auth.me(request).id)
 
 
-@router.get("/deliveries/{run}/{node}/file/{name:path}", access=Access.user("取回自己结果里的一个文件", owned=owners.delivery), summary="取回自己结果里的一个文件（结果的记录里列出了每个文件；「文件夹」方式一个一个取）")
-def delivery_file(run: str, node: str, name: str, request: Request) -> FileResponse:
-    f = deliveries.file(run, node, name)
-    return FileResponse(f, filename=f.name)  # a download, never shown as a page of this site
+@router.get("/tasks/{task_id}/outputs", access=Access.user("自己一个任务的结果", owned=owners.task), summary="自己一个任务里「输出」打包好的结果（先打包的在前）")
+def task_outputs(task_id: str, request: Request) -> list[dict]:
+    return outputs.of_task(task_id)
 
 
-@router.get("/deliveries/{run}/{node}/archive", access=Access.user("取回自己的整份结果", owned=owners.delivery), summary="自己的整份结果打成一个 tar（tar.gz 方式压缩），边打包边发；download=1 表示是浏览器下载，发完记为已下载")
-def delivery_archive(run: str, node: str, request: Request, download: bool = False) -> Response:
-    """The archive from its first byte, or from where a cut-off download got to: one byte range (Range), taken only
-    while the archive is still the one the download began (If-Range with its ETag, deliveries.archive_tag); the page's
-    browser and the DCC client (lab2shot/client.py) resume the same way. A file of a folder delivery resumes by
-    FileResponse's own ranges."""
+@router.get("/tasks/{task_id}/outputs/{pkg}", access=Access.user("自己的一份结果", owned=owners.task_output), summary="自己的一份结果：没打包的文件夹里有哪些文件（DCC 插件按需一个个取）、下载的文件名、多大")
+def output_record(task_id: str, pkg: str, request: Request) -> dict:
+    return outputs.record(task_id, pkg, files=True)
+
+
+@router.get("/tasks/{task_id}/outputs/{pkg}/file/{name:path}", access=Access.user("取回自己结果里的一个文件", owned=owners.task_output), summary="取回自己结果里的一个文件（服务器上没打包的那一份；结果的记录里列出了每个文件），支持断点续传（Range）")
+def output_file(task_id: str, pkg: str, name: str, request: Request) -> FileResponse:
+    f = outputs.file(task_id, pkg, name)
+    return FileResponse(f, headers={"Content-Disposition": attachment(f.name)})  # a download, never shown as a page of this site
+
+
+@router.get("/tasks/{task_id}/outputs/{pkg}/zip", access=Access.user("下载自己的整份结果", owned=owners.task_output), summary="下载自己的整份结果：打包好的 zip（浏览器原生下载），支持断点续传（Range / If-Range，ETag）")
+def output_zip(task_id: str, pkg: str, request: Request) -> FileResponse:
+    """The zip as it is on the disk, from its first byte or from where a cut-off download got to: the browser's own
+    download, the DCC client (lab2shot/client.py) and anything else resume by Range, taken only while the zip is still
+    the one the download began (If-Range with its ETag or Last-Modified): Starlette's FileResponse answers 206 / 416
+    and Accept-Ranges itself. The zip never changes once written (transfer/outputs.py), so a resumed download is
+    always the same bytes."""
     r = request.state.owned
-    gz = r["mode"] == "tar.gz"
-    name = r["name"] if r["mode"] != "folder" else deliveries.delivered_name(r["name"], "tar")
-    done = (lambda: _downloaded(run, node)) if download else None
-    tag = f'"{deliveries.archive_tag(run, node, gz)}"'
-    media = "application/gzip" if gz else "application/x-tar"
-    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}", "ETag": tag, "Accept-Ranges": "bytes"}
-    asked = request.headers.get("range")
-    if asked and request.headers.get("if-range", tag) == tag:
-        size = deliveries.archive_size(run, node, gz)
-        try:
-            span = wire.byte_range(asked, size)
-        except wire.Unsatisfiable:
-            return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
-        if span is not None:
-            start, end = span
-            part = {**headers, "Content-Range": f"bytes {start}-{end}/{size}", "Content-Length": str(end - start + 1)}
-            body = deliveries.archive_stream(run, node, gz, done if end == size - 1 else None, start, end - start + 1)
-            return StreamingResponse(body, status_code=206, headers=part, media_type=media)
-    if not gz:
-        headers["Content-Length"] = str(deliveries.archive_size(run, node))
-    return StreamingResponse(deliveries.archive_stream(run, node, gz, done), headers=headers, media_type=media)
-
-
-@router.get("/deliveries/{run}/{node}/batch", access=Access.user("取回自己一个「输出」的全部结果", owned=owners.delivery_batch), summary="一个「输出」在这次计算里交付的全部包（块内逐项处理每条一个包）打成一个总包：里面每条一个子文件夹，一次下载拿全（文件夹方式和 DCC 插件按 /deliveries 列表一个个取，不用这个）")
-def delivery_batch(run: str, node: str, request: Request) -> Response:
-    """A browser download cannot be asked N times, so the N packages of a block's items go out as one
-    package holding them (a plain tar, whatever each package's own mode is: it is a download, not the user's chosen
-    way of saving). The list itself — which packages there are — is /api/deliveries and the job's output events."""
-    found = request.state.owned
-    name = deliveries.delivered_name(f"{found[0]['label']}_全部", "tar")
-    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}", "Accept-Ranges": "none",
-               "ETag": f'"{deliveries.archive_tag(run, node, False, group=True)}"',
-               "Content-Length": str(deliveries.archive_size(run, node, False, group=True))}
-    return StreamingResponse(deliveries.archive_stream(run, node, False, group=True), headers=headers,
-                             media_type="application/x-tar")
-
-
-def _downloaded(run: str, node: str) -> None:
-    try:
-        deliveries.mark(run, node, "downloaded")
-    except (OSError, ValueError):  # gone meanwhile (NotFound is a ValueError): nothing to note
-        pass
-
-
-class DeliveryState(BaseModel):
-    state: str  # saved: the client wrote its copy; dismissed: the user doesn't want it
-
-
-@router.post("/deliveries/{run}/{node}/state", access=Access.user("报告自己的结果存好了或不要了", owned=owners.delivery), summary="报告自己的一份结果：已经存好（saved，写完之后才报）或者不要了（dismissed）")
-def delivery_state(run: str, node: str, req: DeliveryState, request: Request) -> dict:
-    if req.state not in ("saved", "dismissed"):
-        raise Invalid(Msg("E-DELIVERY-STATE", state=req.state))
-    return deliveries.mark(run, node, req.state)
+    return FileResponse(outputs.zip_file(task_id, pkg), media_type="application/zip",
+                        headers={"Content-Disposition": attachment(r["name"])})

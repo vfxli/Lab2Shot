@@ -1,6 +1,6 @@
 """模板的管理路由，界面在前台的模板弹窗里（后台没有单独的模板管理页）。
 
-存储全在文件里（lab2shot/library.py：templates/ 是项目预设，adapters/<包名>/templates/ 是兼容层自带的、只读）。
+存储全在文件里（lab2shot/library.py：templates/ 是项目预设，adapters/<包名>/templates/ 是接入层自带的、只读）。
 这里的每条路由就是一个文件操作：新建、复制、删除、开关、拖动归类、改名字和简介。一项能力管全部：`templates.create`
 （roles.py「管理模板」）——一级管理员天然有，二级管理员看一级给不给。每一步写一条「管理操作」留底（server/access.py audit）。
 """
@@ -102,7 +102,7 @@ def copy(template_id: str, req: Copy, request: Request) -> dict:
     return {"id": found["id"], "name": found["name"]}
 
 
-@admin.delete("/templates/{template_id}", access=Access.admin("templates.create"), summary="删掉一个项目预设（templates/ 下的那个文件）；兼容层自带的删不了，只能关闭")
+@admin.delete("/templates/{template_id}", access=Access.admin("templates.create"), summary="删掉一个项目预设（templates/ 下的那个文件）；接入层自带的删不了，只能关闭")
 def delete(template_id: str, request: Request) -> dict:
     found = library.delete_preset(template_id)
     audit(Msg("I-AUDIT-TEMPLATEDELETED", who=auth.label(request), name=found["name"]),

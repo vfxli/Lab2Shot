@@ -263,7 +263,7 @@ export function ParamCurve({ fp, title }: { fp: string; title: string }) {
   const now = drawn.map((i) => formatValue(values[i][k], (hi - lo) / 100 || 0.01)).join(" · ");
   const left = x(at) < SPARK.w * 0.6;
   return (
-    <div className="param-curve" data-tip={`${title}：接进来的是逐帧的值，${first}–${last} 共 ${frames.length} 帧；竖线是当前帧，点旁边是它这一帧的值`}>
+    <div className="param-curve">
       <span className="param-curve-name">{title}</span>
       <svg viewBox={`0 0 ${SPARK.w} ${SPARK.h}`} role="img" aria-label={`${title} 的曲线`} preserveAspectRatio="none">
         {[0.25, 0.5, 0.75].map((p) => (
@@ -284,7 +284,7 @@ export function ParamCurve({ fp, title }: { fp: string; title: string }) {
           {at}
         </text>
       </svg>
-      <span className="param-curve-names" data-tip={names.join("、")} data-user-data>
+      <span className="param-curve-names" data-user-data>
         {names.join(" · ")}
       </span>
     </div>

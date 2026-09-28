@@ -4,6 +4,7 @@ import { useLook } from "../state/look";
 import { useViewer } from "../state/viewer";
 import { BrandMark, IconGrid, IconOpen } from "../ui/icons";
 import { useMenuAt } from "./NodeEditor";
+import { ProjectNotice } from "./ProjectNotice";
 
 /** The node graph while it is empty (the first opening in a browser, or every node deleted): what to do first — a
  * template, a node of one's own (the node menu, as Tab opens it), or a graph file. Gone with the first node; the
@@ -51,6 +52,7 @@ export function Welcome({ onOpen }: { onOpen: () => void }) {
             <span className="welcome-desc">本机上存过的节点图文件</span>
           </button>
         </div>
+        <ProjectNotice className="welcome-notice" />
         <p className="welcome-legal">{COPYRIGHT}</p>
       </div>
     </div>

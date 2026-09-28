@@ -4,8 +4,8 @@ Each is a Task of the farm, sharing one job table, one progress format and one "
 when the server does:
 
     Kind      what a subsystem declares once about its tasks: its title, whether 计算任务 (queue.compute_jobs) holds it,
-              which group runs one at a time and what a second one gets (refused, saying which is busy, or queued behind
-              it, a queued one taking later requests in), and the messages it ends with (failed, cancelled)
+              which group runs one at a time (a second one is refused, saying which is busy), and the messages it ends
+              with (failed, cancelled)
     Task      one of them: its state, progress (done of total, the step it is on), what it said, its result, its output
               lines (an install's), why it waits; json() is the one progress format every page and client reads
     Tasks     the farm's (Farm.tasks): submit, get, cancel, wait, running; each task runs on a thread of the farm
@@ -32,7 +32,6 @@ log = logs.get("farm")
 
 KEEP = 50  # finished tasks remembered for the pages
 LINES = 400  # output lines a task keeps (the newest)
-REFUSE, QUEUE = "refuse", "queue"
 
 
 class Cancelled(Exception):
@@ -42,15 +41,14 @@ class Cancelled(Exception):
 @dataclass(frozen=True)
 class Kind:
     """What one kind of task is. `title(subject)` names a task of it (a message); `group`: tasks of one group run one
-    at a time (None: no limit); `busy`: when one of its group is active, REFUSE (`refused(the active task)` says why) or
-    QUEUE (wait for it; a request while one is already waiting joins that one); `compute`: waits while 计算任务 is off;
-    `failed(task, why)` and `cancelled(task)`: the result of a task that failed or was cancelled; `lasting`: it runs for
-    the server's whole life (the daily benchmark rerun), so a restart that waits for tasks does not wait for it."""
+    at a time (None: no limit), and one asked while another of its group is active is refused (`refused(the active
+    task)` says why); `compute`: waits while 计算任务 is off;
+    `failed(task, why)` and `cancelled(task)`: the result of a task that failed or was cancelled; `lasting`: a restart
+    that waits for tasks does not wait for it (filling in a packet's view proxies ahead: server/wire.py ahead)."""
 
     id: str
     title: Callable[[str], Msg]
     group: str | None = None
-    busy: str = REFUSE
     refused: Callable[[Task], Msg] | None = None
     compute: bool = False
     failed: Callable[[Task, Msg], Msg] | None = None
@@ -137,17 +135,14 @@ class Tasks:
 
     def submit(self, kind: Kind, subject: str, by: str, work: Callable[[Task], Msg | None]) -> Task:
         """A task of `kind` about `subject`, asked by `by`, doing `work`. Refused (Invalid, kind.refused) when its group
-        is busy and its kind refuses; the waiting one returned when its kind queues and one already waits."""
+        is busy."""
         if self.farm.ending:
             raise Unavailable(Msg("E-QUEUE-RESTARTING"))
         with self.cond:
             if kind.group is not None:
                 active = [t for t in self._tasks.values() if t.active and t.kind.group == kind.group]
-                if active and kind.busy == REFUSE:
+                if active:
                     raise Invalid(kind.refused(active[0]) if kind.refused else Msg("E-TASK-BUSY", running=active[0].title()))
-                waiting = next((t for t in active if t.state == "queued" and t.kind is kind), None)
-                if waiting is not None:
-                    return waiting
             task = Task(kind, subject, by, work=work)
             self._tasks[task.id] = task
             for old in [t for t in self._tasks.values() if not t.active][:-KEEP]:

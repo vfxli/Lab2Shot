@@ -138,9 +138,9 @@ class TrackParams(NodeParams):
     """Parameters every point tracker shares; each adds its own model mode, processing size and 网格点数 (grid: the
     settings measured on that tracker, nodes/kit/ports.py measured_param)."""
 
-    query_frame: int | None = P(None, label="参考帧", help="网格点撒在哪一帧（帧号）。留空 = 第一帧。选一帧要跟的物体清楚可见的帧；点往前往后都跟得过去", group="跟踪", placeholder="第一帧")
-    picks: list[str] = P([], label="手动点", help="显示这个节点时，在 2D 视图里点哪就在哪加一个跟踪点（记下帧号和位置）；点歪了直接拖着调，右键删掉。名字是 user_01…，导出时排在最前面。「网格点数」不是 0 时，网格点也一起跟，结果里就不止你点的这几个", widget="picks", group="跟踪", placeholder="显示本节点，在 2D 视图里点要跟的位置", worker=False)
-    min_confidence: float | None = P(None, label="可见门槛", help="点被判为「可见」的最低置信度（0–1）。留空 = 模型自己的判断。衣服、头发上的点被误判为遮挡就调低（如 0.5）；想只留非常可靠的点就调高。只影响可见标记，不改变点的位置", ge=0.05, le=0.95, group="跟踪", placeholder="模型默认", worker=False)
+    query_frame: int | None = P(None, label="参考帧", group="跟踪", placeholder="第一帧")
+    picks: list[str] = P([], label="手动点", widget="picks", group="跟踪", placeholder="显示本节点，在 2D 视图里点要跟的位置", worker=False)
+    min_confidence: float | None = P(None, label="可见门槛", ge=0.05, le=0.95, group="跟踪", placeholder="模型默认", worker=False)
 
 
 class PointTracker(WorkerNode):

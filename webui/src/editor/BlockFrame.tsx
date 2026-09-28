@@ -19,11 +19,10 @@ import "./styles/27-blocks.css";
  *
  * The frames are drawn in the canvas's own layer (xyflow's ViewportPortal), not as nodes: a frame's size follows the
  * sizes of the nodes inside it, and a node whose size is measured by the same observer that the frame would then
- * resize is exactly the loop the browser reports as 「ResizeObserver loop completed with undelivered notifications」
- * (tests/ui/walk_blocks.py checks the page logs nothing). Nothing measures the frame, nothing
- * selects it, and every click goes through it to the canvas below. */
+ * resize is exactly the loop the browser reports as 「ResizeObserver loop completed with undelivered notifications」.
+ * Nothing measures the frame, nothing selects it, and every click goes through it to the canvas below. */
 
-export interface BlockData {
+interface BlockData {
   scope: Scope;
   rect: Rect; // where it is, in the canvas's own coordinates
   kind: string; // what one item is called (逐个：人物)
@@ -32,7 +31,7 @@ export interface BlockData {
 }
 
 /** The title pill's words, made of the catalogue's lines (no sentence is written here). */
-export function blockWords(data: BlockData): { title: string; count: string; done: string; failed: string } {
+function blockWords(data: BlockData): { title: string; count: string; done: string; failed: string } {
   const { count } = data;
   return {
     title: render("I-EACH-TITLE", { kind: data.kind }),

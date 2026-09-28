@@ -127,18 +127,3 @@ def channel_blob(values) -> bytes:
     return bytes(head) + data.tobytes()
 
 
-def read_channel_blob(blob: bytes):
-    """channel_blob 的逆过程：(值 [H, W] float32, 编码方式)。浏览器做的是同样的处理
-    （它无需转为 float32，直接将该数据映射为纹理）；本函数供自检和服务器自身使用。"""
-
-    import numpy as np
-
-    if len(blob) < CHANNEL_HEAD or blob[0:4] != CHANNEL_MAGIC:
-        raise ValueError("not a Lab2Shot channel blob")
-    code = blob[4]
-    said = {"format": code, "trimmed": bool(blob[5] & CHANNEL_TRIMMED),
-            "width": int.from_bytes(blob[8:12], "little"), "height": int.from_bytes(blob[12:16], "little")}
-    data = np.frombuffer(blob, CHANNEL_DTYPE[code], offset=CHANNEL_HEAD)
-    top = CHANNEL_SCALE[code]
-    values = _from_words(data, top) if top != 1.0 else data.astype(np.float32)
-    return values.reshape(said["height"], said["width"]), said

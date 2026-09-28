@@ -7,7 +7,7 @@ import { shown, usable, why } from "../api/applies";
 import { useSignedIn } from "../state/session";
 import { whenText } from "../platform/format";
 
-/** 管理员通知 section: a single line shown at the top of the editor, the help page and the admin page — plain text,
+/** 管理员通知 section: a single line shown at the top of the editor and the admin page — plain text,
  * a colour indicating its severity, and an on/off switch. It is server state (lab2shot/server/notice.py, meta
  * server.notice); every page picks up changes through its existing poll of the server state, so nothing is pushed.
  *
@@ -48,7 +48,9 @@ export function NoticeCard() {
   const left = CHARS - [...text].length;
   // Input the server would reject is reported here first, so a visible error never leaves the page.
   const blocked = left < 0 ? `通知最多 ${CHARS} 个字，现在多了 ${-left} 个` : on && !text.trim() ? "打开了通知，但没有写内容" : "";
-  const dirty = !saved || saved.text !== text.trim() || saved.tone !== tone || saved.on !== on;
+  // Nothing is saved before the live notice has been read: an empty form saved over it would wipe it.
+  const unread = saved ? "" : problem ? "没读到现在的通知，保存会把它盖掉：刷新页面再试" : "正在读现在的通知";
+  const dirty = !!saved && (saved.text !== text.trim() || saved.tone !== tone || saved.on !== on);
 
   const save = async () => {
     setSaving(true);
@@ -86,8 +88,10 @@ export function NoticeCard() {
           />
         </span>
         <span className="set-tags">
-          <span className={`chip tnum${left < 0 ? " set-over" : ""}`} data-tip={`还能写 ${left} 个字`}>
-            {left}
+          <span className="set-what">
+            <span className={`chip tnum${left < 0 ? " set-over" : ""}`} data-tip={`还能写 ${left} 个字`}>
+              {left}
+            </span>
           </span>
         </span>
       </div>
@@ -106,14 +110,13 @@ export function NoticeCard() {
         <span className="set-ctl" data-tip="关掉以后文字还留着，下次打开就又是它">
           <Switch on={on} label="显示通知" tip={on ? "关掉：所有页面顶部不再显示这条通知，文字留着" : "打开：所有页面顶部显示这条通知"} onChange={setOn} />
         </span>
-        <span className="set-tags">
-          {saved?.updated ? (
-            <span className="dim" data-tip={`${saved.by ?? "管理员"} 在 ${whenText(saved.updated)} 改的`}>
-              {saved.by ?? "管理员"} · {whenText(saved.updated)}
-            </span>
-          ) : (
-            <span className="dim">还没有设过</span>
-          )}
+      </div>
+      <div className="set-row set-status">
+        <span className="set-label" data-tip="谁、什么时候最后一次保存了这条通知">
+          上次保存
+        </span>
+        <span className="set-ctl set-static" data-user-data>
+          {saved?.updated ? `${saved.by ?? "管理员"} · ${whenText(saved.updated)}` : "还没有设过"}
         </span>
       </div>
       <div className="set-row notice-preview">
@@ -136,11 +139,11 @@ export function NoticeCard() {
         <span className="set-ctl">
           {/* Not the page's primary (filled) button: 设置 already has one, and a page has at most one. */}
           <Button
-            tip={blocked || why(state?.applies, "settings.notice") || "保存并立刻生效：所有打开着的页面在下一次查服务器状态时换上"}
-            disabled={saving || !dirty || !!blocked || !usable(state?.applies, "settings.notice")}
+            tip={unread || blocked || why(state?.applies, "settings.notice") || "保存并立刻生效：所有打开着的页面在下一次查服务器状态时换上"}
+            disabled={saving || !dirty || !!unread || !!blocked || !usable(state?.applies, "settings.notice")}
             onClick={() => void save()}
           >
-            {saving ? "保存中…" : dirty ? "保存通知" : "已保存"}
+            {saving ? "保存中…" : dirty || !saved ? "保存通知" : "已保存"}
           </Button>
         </span>
       </div>

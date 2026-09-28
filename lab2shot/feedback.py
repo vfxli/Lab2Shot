@@ -35,8 +35,9 @@ from pathlib import Path
 from . import logs
 from .config import settings
 from .database import LIKE_ESCAPE, contains, db, json_of, json_text
-from .errors import Invalid, NotFound
+from .errors import Invalid, NotFound, TooMany
 from .messages import Msg
+from .periods import Periods, local_day
 
 log = logs.get("feedback")
 
@@ -46,6 +47,10 @@ MAX_IMAGES = 3
 MAX_IMAGE = 5 << 20  # bytes of one screenshot
 LOG_LINES = 200  # of a node's error log, of the server's log per job, of the server's log at the end
 JOBS = 20  # recent jobs of the user attached
+# One feedback can take ~20 MB of disk (screenshots, the diagnostics, the logs attached): one account may send DAY_MAX
+# within a day, and have OPEN_MAX not yet solved at once; the administrator solving or deleting them makes room.
+DAY_MAX = 20
+OPEN_MAX = 50
 
 CATEGORIES = {"": "", **dict(error="出错了", usage="用法不明白", idea="建议")}  # labels of the categories (vocabulary, not messages)
 STATUS = {"new": "新", "seen": "已看", "solved": "已解决"}
@@ -143,7 +148,7 @@ def jobs_of(user_id: int, asked: list[str]) -> list[dict]:
     for r in ordered:
         error_log = _inside_work(r.get("error_log"))
         out.append({k: r.get(k) for k in ("id", "title", "targets", "state", "frames", "submitted", "started", "finished",
-                                          "gpu_name", "error", "reason")}
+                                          "cards", "error", "reason")}
                    | {"error_log": {"file": str(error_log), "lines": _tail(error_log)} if error_log else None,
                       "server_log": about[r["id"]]})
     return out
@@ -216,6 +221,10 @@ def submit(text: str, category: str, user_id: int, client: dict, page: dict, ima
         raise Invalid(Msg("E-FEEDBACK-CATEGORY", category=category))
     if len(images) > MAX_IMAGES:
         raise Invalid(Msg("E-FEEDBACK-IMAGES", max=MAX_IMAGES))
+    if db().row("SELECT COUNT(*) AS n FROM feedback WHERE user_id = ? AND at >= ?", (user_id, time.time() - 86400))["n"] >= DAY_MAX:
+        raise TooMany(Msg("E-FEEDBACK-TOOOFTEN", max=DAY_MAX))
+    if db().row("SELECT COUNT(*) AS n FROM feedback WHERE user_id = ? AND status != 'solved'", (user_id,))["n"] >= OPEN_MAX:
+        raise TooMany(Msg("E-FEEDBACK-TOOMANYOPEN", max=OPEN_MAX))
     shots = [_image(item, i) for i, item in enumerate(images, 1)]
     if len(json.dumps(page, ensure_ascii=False).encode("utf-8")) > MAX_BUNDLE:
         raise Invalid(Msg("E-FEEDBACK-BUNDLEBIG", max=MAX_BUNDLE >> 20))
@@ -297,6 +306,15 @@ def listing(status: str | None = None, since: float | None = None, until: float 
 
 def new_count() -> int:
     return db().row("SELECT COUNT(*) AS n FROM feedback WHERE status = 'new'")["n"]
+
+
+def counts_in(p: Periods) -> dict:
+    """The admin overview's 反馈: how many are not solved yet (新 and 已看) and of them not yet looked at (新), and how
+    many came in 今日, 近 7 天 and 本月 (every feedback sent then, whatever its status now; a deleted one no more)."""
+    rows = db().rows(f"SELECT {local_day('at')} AS day, COUNT(*) AS n FROM feedback WHERE at >= ? GROUP BY 1", (p.since,))
+    open_ = db().row("SELECT COUNT(*) AS n, COALESCE(SUM(status = 'new'), 0) AS new FROM feedback WHERE status != 'solved'")
+    came = p.sums(((r["day"], r["n"]) for r in rows), ("today", "days7", "month"))
+    return {"open": open_["n"], "new": open_["new"], **{k: {"came": n} for k, n in came.items()}}
 
 
 def detail(fid: str) -> dict:

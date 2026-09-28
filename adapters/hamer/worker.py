@@ -295,7 +295,7 @@ def main(job_path: str) -> None:
     width, height = frames.width, frames.height
 
     if job.inputs.get("boxes"):
-        # 接了「人物框」：按框找手，不再自己检人（官方 ViTPoseModel.predict_pose 收人框，nodes.py official 注 ⓪）
+        # 接了「人物框」：按框找手，不自己检人（官方 ViTPoseModel.predict_pose 收人框，nodes.py official 注 ⓪）
         tracks_in = [(int(pid), {int(f): np.asarray(b[:4], np.float64) for f, b in boxes.items()}) for pid, boxes in job.people().items()]
     else:
         detector = run.model("ViTDet 模型", load_detector, weights / "vitdet" / "model_final_f05665.pkl")
@@ -365,7 +365,7 @@ def main(job_path: str) -> None:
         track_id="file person_<2 * person_id + (1 right, 0 left)>.npz, stable for the whole shot",
         focal_px=focal,
         rescale_factor=rescale,
-        people_found=len(tracks_in),  # ViTDet 找到的人（上游自己的检测器）
+        people_found=len(tracks_in),  # 接了「人物框」是框里的人，否则是上游 ViTDet 找到的人
         width=width,
         height=height,
         frames=frames.numbers,  # the whole list, not the standard [first, last]

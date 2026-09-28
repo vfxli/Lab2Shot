@@ -16,11 +16,6 @@
    "target": "read.path"
   },
   {
-   "name": "output",
-   "label": "保存到",
-   "target": "deliver.path"
-  },
-  {
    "name": "faces",
    "label": "面数",
    "target": "solve.faces"
@@ -103,16 +98,10 @@
    "id": "deliver",
    "type": "core.output",
    "label": "输出",
-   "params": {
-    "mode": "tar",
-    "path": ""
-   },
+   "params": {},
    "ui": {
     "x": 1220,
-    "y": 120,
-    "on_node": [
-     "mode"
-    ]
+    "y": 120
    }
   }
  ],

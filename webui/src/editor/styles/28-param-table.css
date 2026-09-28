@@ -120,7 +120,7 @@
 }
 
 /* ---------------------------------------------------------------- a parameter row's label and its three pins
-   (moved here from 13-group-boxes.css and 08-node-graph.css: they are the parameter panel's, not the graph's) */
+   (here, not with the graph's styles: they are the parameter panel's) */
 
 /* a parameter's label: its help is the page's one tooltip, on hover or on focus. No underline:
    the label reads as plain text. */

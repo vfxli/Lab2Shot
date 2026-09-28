@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Checklist, type InstallTask, type InstallStep } from "../api";
 import { shown, usable, why, type Availability } from "../api/applies";
-import { controlKind, currentStep, installButton, taskLive } from "./installState";
+import { controlKind, currentStep, installButton } from "./installState";
+import { taskLive } from "../api/tasks";
 import { Sheet } from "../ui/Sheet";
 import { msg, reasonOf } from "../messages/message";
+import { CODE } from "../messages/format";
 import { Loading } from "../ui/Loading";
 import { Button } from "../ui/Button";
 import { startPolling } from "../platform/poll";
@@ -13,13 +15,13 @@ import { useConfirm } from "../ui/Confirm";
  *
  * What a login may do here is the server's answer
  * (server/available.py extension: `actions`), never a role check: an account that does not install gets no actions, and
- * its uninstalled card shows only 「未安装」 (the corner mark); this component renders nothing for it.
+ * its uninstalled row shows only 「未安装」 in the 状态 column; this component renders nothing for it.
  *
  * An install is a background task of the farm: 安装 opens the checklist (preflight: hand downloads, licences, Hugging
  * Face access, disk, cards), 开始安装 starts it when nothing blocks, and the sheet follows the task with a step bar and the
  * whole log, resuming from where it left off after a reload (the task is the server's: `p.job`). */
 
-export interface Installable {
+interface Installable {
   name: string;
   title: string;
   installed: boolean;
@@ -29,13 +31,13 @@ export interface Installable {
   job: InstallTask | null;
 }
 
-export { taskLive };
 
 // UI vocabulary: a job's and a step's state in one or two words
 const JOB_STATE: Record<InstallTask["state"], string> = { queued: "排队中", running: "安装中", done: "已完成", failed: "失败", cancelled: "已取消" };
 const STEP_STATE: Record<InstallStep["state"], string> = { waiting: "等待", running: "进行中", done: "完成", skipped: "跳过", failed: "失败", cancelled: "已取消" };
 
-/** The card's and the project page's install control. `full`: the project page (reinstall, rollback, uninstall). */
+/** The install control of one row of the admin page's 「扩展包」 table. `full` (the table passes it): also reinstall,
+ * rollback and uninstall. */
 export function InstallControl({ p, onChange, full = false }: { p: Installable; onChange: () => void; full?: boolean }) {
   const [open, setOpen] = useState<{ force: boolean } | null>(null);
   const [ask, confirmSheet] = useConfirm();
@@ -48,9 +50,9 @@ export function InstallControl({ p, onChange, full = false }: { p: Installable; 
   const a = p.actions;
   const kind = controlKind(p, full);
   const sheet = open && <InstallSheet p={p} force={open.force} onClose={() => setOpen(null)} onChange={onChange} />;
-  // Not this login's, or nothing to do: nothing at all, except a sheet still open on a job that just ended (the card
-  // lights up underneath it; the log stays until the administrator closes it). The sheet keeps one place in the tree
-  // whatever the card shows, so it is never remounted (a remount would open the checklist instead of the finished job).
+  // Not this login's, or nothing to do: nothing at all, except a sheet still open on a job that just ended (the row
+  // updates underneath it; the log stays until the administrator closes it). The sheet keeps one place in the tree
+  // whatever the row shows, so it is never remounted (a remount would open the checklist instead of the finished job).
   if (kind === "none") return <>{false}{sheet}</>;
   const job = p.job;
   const active = kind === "progress";
@@ -116,7 +118,7 @@ export function InstallControl({ p, onChange, full = false }: { p: Installable; 
   );
 }
 
-/** The steps as one bar: a segment per step, coloured by its state; `compact` (a card) without the step names. */
+/** The steps as one bar: a segment per step, coloured by its state; `compact` (in the table row) without the step names. */
 function StepBar({ steps, compact = false }: { steps: InstallStep[]; compact?: boolean }) {
   return (
     <div className={`inst-steps${compact ? " compact" : ""}`}>
@@ -191,8 +193,12 @@ function InstallSheet({ p, force, onClose, onChange }: { p: Installable; force: 
   );
 }
 
-/** A log line that carries a message's code ("[W-INSTALL-RETRY] ..."): its level, for the colour. */
-const level = (line: string): string => line.match(/^\[([EWNIB])-[A-Z0-9-]+\]/)?.[1] ?? "";
+/** A log line that carries a message's code ("[W-INSTALL-RETRY] ..."): its level, for the colour. A code is what
+ * messages/format.ts CODE says (the server's own rule, lab2shot/messages CODE, with its level letters). */
+const level = (line: string): string => {
+  const code = /^\[([^\]]+)\]/.exec(line)?.[1] ?? "";
+  return CODE.test(code) ? code[0] : "";
+};
 
 /** A sentence with its web addresses as links (a request page, a download page). */
 function Linked({ text }: { text: string }) {
@@ -229,7 +235,8 @@ function JobView({ id, onEnded, onRetry }: { id: string; onEnded: () => void; on
     // it ends
     const asking = startPolling({
       read: () => api.installs.job(id, next.current),
-      every: (last, failed) => (failed ? 3000 : taskLive(last) || last?.lines.length ? 1000 : 0),
+      every: (last) => (taskLive(last) || last?.lines.length ? 1000 : 0),
+      afterError: 3000,
       until: (view) => !taskLive(view) && !view.lines.length,
       onValue: (view) => {
         next.current = view.next;

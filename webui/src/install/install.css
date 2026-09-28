@@ -49,6 +49,10 @@
   color: var(--yellow);
 }
 
+.inst-log .lv-P {
+  color: var(--production-risk);
+}
+
 /* 步骤条：一步一段，颜色说它的状态 */
 .inst-steps {
   display: flex;

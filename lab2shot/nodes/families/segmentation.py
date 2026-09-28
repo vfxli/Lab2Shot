@@ -12,7 +12,7 @@
 找到 / 没找到时报哪条消息（`found`）。
 
 这个家族不是抠像（`families/matte.py`）：那边出软边 alpha（发丝、半透明边缘），
-这边出 0/1 选区。两边节点的 `mask_edge` 都声明为 `hard`。
+这边出 0/1 选区。
 """
 
 from __future__ import annotations

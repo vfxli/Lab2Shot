@@ -33,7 +33,7 @@
   border-bottom: 1px solid var(--hair);
 }
 
-/* 当前显示的节点：位于工具栏最左侧，不再使用胶囊样式（工具栏本身已形成层次，无须再加一层玻璃效果） */
+/* 当前显示的节点：位于工具栏最左侧，不用胶囊样式（工具栏本身已形成层次，无须再加一层玻璃效果） */
 .view-bar-name {
   display: flex;
   align-items: center;
@@ -46,7 +46,7 @@
 }
 
 /* 节点名过长时收在工具栏内，不撑开也不换行。省略号由 ui 中统一的 [data-user-data] 规则处理，
-   此处不单独定义（webui/tests/uiKit.test.ts 只允许 [data-user-data] 选择器截断） */
+   此处不单独定义（只有 [data-user-data] 选择器截断文字） */
 .view-bar-name span {
   min-width: 0;
   white-space: nowrap;
@@ -161,8 +161,7 @@
 }
 
 /* 黑点 / 白点填写的是数据自身范围的 0 到 1（如「0.35」，四个字符）。宽 52 px、高 24 px：
-   可点击性优先于节省空间，不为减少换行而收窄。是否换行由 tests/ui/walk_text_layout.py
-   在 1280 与 1920 两种宽度下测量。 */
+   可点击性优先于节省空间，不为减少换行而收窄。 */
 .hud-tools .hud-num input.num {
   width: 52px;
   height: 24px;
@@ -192,7 +191,7 @@
 }
 
 /* 背景下拉中「棋盘格」项的小方块：绘制为真实的格子，以便区别于颜色选项。
-   由两条 45 度渐变拼成格子；`conic-gradient` 仅允许在 ui/glow.css 中使用（webui/tests/uiKit.test.ts） */
+   由两条 45 度渐变拼成格子；`conic-gradient` 只在 ui/glow.css 中使用 */
 .tint-bar.checker-bar {
   background-color: var(--checker-dark);
   background-image:

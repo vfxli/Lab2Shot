@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from lab2shot.sdk import (Official, PERSON_ID, ROOT_PATH, SCENE_FILE, CameraLensParams, NodeDef, NodeParams, P, Port, character_of_model, people_port,
-                          SkinnedCharacter, WorldHumans, create_stage, focal_param, save_stage,
-                          scene_packet, write_boxes, write_character, write_mesh, Cost)
+from lab2shot.sdk import (Official, PERSON_ID, SCENE_FILE, CameraLensParams, NodeDef, NodeParams, P, Port, character_of_model, people_port,
+                          WorldHumans, create_stage, focal_param, save_stage,
+                          scene_packet, write_boxes, write_character, Cost)
 
 
 class DetectPeople(NodeDef):
@@ -25,7 +25,7 @@ class DetectPeople(NodeDef):
     cost = Cost(gpu=True, vram_gb=3.0, vram_measured=False, note="显存是按 ViTDet 检测器量级估的保守值")
 
     class Params(NodeParams):
-        threshold: float = P(0.8, label="检测阈值", help="认定「这是一个人」的把握门槛（0–1）。人被漏掉（远处、遮挡、背影）就调低到 0.5–0.6；把雕像、海报当成人就调高", ge=0.0, le=1.0, group="检测", widget="slider")
+        threshold: float = P(0.8, label="检测阈值", ge=0.0, le=1.0, group="检测", widget="slider")
 
     @classmethod
     def cook(cls, ctx):
@@ -66,11 +66,11 @@ class Solve(WorldHumans):
              "所以自己建了 HumanDetector（:44-49）。「ViTDet 人物框」用的就是那同一个检测器，接进来的仍是官方的框，"
              "中间多的只有「选人」这一步（→ 这个口）。不接框时 worker 走 demo 的路自己检人。"
              "遮罩那条链（「人物框转遮罩」→「图像合成」）留给官方函数**不**收框的项目。"
-             "① **官方的整套 MHR 参数就是「人物」这个口**，没有另立类型、也没有另加口（SMPL / SMPL-X / MANO / FLAME / MHR "
+             "① **官方的整套 MHR 参数就是「蒙皮角色」这个口**，没有另立类型、也没有另加口（SMPL / SMPL-X / MANO / FLAME / MHR "
              "这类参数化人体就是「蒙皮 + 权重 + 骨架动画」，装成「蒙皮角色」，不另立数据类型；具体多少个点、"
              "多少节骨架不影响这一点）。逐项对上（sam3dbody.py solve_person / "
              "evaluate / rig_data）：`global_rot` + `body_pose_params` + `hand_pose_params` + `scale_params` + "
-             "`shape_params` 原样送回 MHR（head.mhr_forward → head.mhr）算出每帧的骨架状态，变成「人物」骨架"
+             "`shape_params` 原样送回 MHR（head.mhr_forward → head.mhr）算出每帧的骨架状态，变成「蒙皮角色」骨架"
              "每帧的关节矩阵（npz joint_world）；`mhr_model_params` 就是这一步 mhr_forward 返回的那一份中间参数，"
              "我们用的是同一个函数的同一份输出，不是另一份数据；`shape_params` 还变成这个人的静止网格"
              "（npz rest_vertices），配 MHR 自己的蒙皮权重和绑定姿势（npz skin_weights / skin_indices / bind_world）；"
@@ -79,7 +79,7 @@ class Solve(WorldHumans):
              "同一份姿势，不是另一份数据。**一个参数都没丢。**"
              "`expr_params` 是**上游自己永远置零的**（`sam_3d_body/models/heads/mhr_head.py:316 "
              "pred_face = pred[:, count : count + self.num_face_comps] * 0`，同一段 :306-307 连下巴也置零），"
-             "所以「人物」上没有表情 blendShape——不是我们丢的，是官方就不出。"
+             "所以「蒙皮角色」上没有表情 blendShape——不是我们丢的，是官方就不出。"
              "`mask` 只有调用方自己传遮罩进去、或者打开 use_mask 让 SAM2 现算时才有"
              "（sam_3d_body_estimator.py:135-153），我们两样都不做（worker.py node_solve 只传 bboxes 和 "
              "cam_int），所以它在我们这条路上永远是 None。"
@@ -87,12 +87,10 @@ class Solve(WorldHumans):
              "**这一项装不进蒙皮角色**（它是画面上的点，不是骨架）。"
              "② **节点没有「相机」输出口**（我们自己造出来的输出口不留）：官方只给 focal_length（内参）和 pred_cam_t（人在相机里的位移），从来没解出一台相机；按这两样拼出来的相机是我们造的。要一台相机，从真正解相机的节点（ViPE、TRAM）接，或者用「导入 USD」自己导入；要把人摆进那台相机的世界，接核心节点「相机空间转换」（core.camera_space）。"
              "③ cam_int（sam_3d_body_estimator.py:69）只是内参：内参（焦距、主点）不是相机输入，完整的内参加外参才算相机；"
-             "它对应的是「Focal Length」「Filmback」两个参数，不是相机输入。",
+             "它对应的是「已知 Focal Length」「Filmback」两个参数，不是相机输入。",
     )
-    # Benchmark figures shown as the inputs' tooltips.
-    measured = {
-        "focal_mm": "实测（3DPW 6 个镜头）：填真实 Focal Length，人在镜头里的位置误差少 61%（5 好 1 差）；接 AnyCalib 估的 Focal Length 反而多 150%（6 个全变差）",
-    }
+    # 公开基准上的实测（接不接、接什么的差别）：
+    #   focal_mm：实测（3DPW 6 个镜头）：填真实 Focal Length，人在镜头里的位置误差少 61%（5 好 1 差）；接 AnyCalib 估的 Focal Length 反而多 150%（6 个全变差）
     # 结果在相机空间，运动镜头要先解出相机、再用核心节点「相机空间转换」摆进世界；单帧估计 + 平滑
     on_node = ("focal_mm", "smoothing", "hand_refine")
     # 「人物框」可选：接了就按框解（官方的 process_one_image 本来就收 bboxes），不接就自己检出画面里所有人
@@ -103,13 +101,12 @@ class Solve(WorldHumans):
     cost = Cost(gpu=True, vram_gb=4.2, seconds_per_frame=0.6, vram_measured=False, note="显存沿用同一模型家族 Fast SAM 3D Body 的实测，SAM 3D Body 本身还没量过")
 
     class Params(CameraLensParams):
-        # a zoom: a focal length wired one per frame is followed frame by frame
         # 节点上没有「相机」进出口（官方不吃整台相机、也不出相机），所以 Focal Length 就是一个普通参数。
         # per_frame：可以一帧一个值（跟变焦）
         focal_mm: float | None = focal_param(per_frame=True)
-        hand_refine: bool = P(True, label="手部精修", help="用专门的手部模型细化手指，手势更准，每帧慢约 30%；手不重要或看不清时可以关", group="质量")
-        lock_shape: bool = P(True, label="锁定体型", help="整段镜头同一个人用同一个体型（高矮胖瘦不随帧变化），推荐打开；关闭则每帧体型单独估计，会忽胖忽瘦", group="质量")
-        smoothing: float = P(0.5, label="平滑强度", help="减少动作抖动：0 不平滑（保留全部细节，会抖），0.5 适中，1 很平滑（快速动作会变软、脚可能滑）", ge=0.0, le=1.0, group="质量", widget="slider")
+        hand_refine: bool = P(True, label="手部精修", group="质量")
+        lock_shape: bool = P(True, label="锁定体型", group="质量")
+        smoothing: float = P(0.5, label="平滑强度", ge=0.0, le=1.0, group="质量", widget="slider")
 
     @classmethod
     def convert(cls, ctx, raw, job):

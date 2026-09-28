@@ -3,7 +3,7 @@ Stable Diffusion U-Net — a rough mask or a box points at the subject, no trima
 
 from __future__ import annotations
 
-from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight, hf_file
+from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, hf_file
 
 SDMATTE_URL = "https://github.com/vivoCameraResearch/SDMatte.git"
 SDMATTE_COMMIT = "c3ea6949f270d253539a2bda2ad290e127934de9"  # main

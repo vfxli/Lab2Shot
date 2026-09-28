@@ -5,7 +5,7 @@ import type { Bounds } from "../model/math3d";
 import type { GridRef, CameraRef, CharacterMeshRef, CharacterRef, CloudRef, CurveRef, ModelRef, Typed } from "../model/viewFormat";
 
 export interface CloudSample {
-  points: Float32Array | null; // for a depth cloud: null until requested (bounds, picking); the worker reconstructs them (sceneData)
+  points: Float32Array | null; // for a depth cloud: null until requested (bounds, picking); the worker reconstructs them (view/scene.ts Scene.wantBounds)
   colors: Float32Array | Uint8Array | Uint16Array; // bytes: k/255, words: k/65535, the same numbers
   widths: Float32Array | null; // a size per point, when they differ
   count: number;
@@ -17,8 +17,8 @@ export interface CloudSample {
  * single colour), and the camera of that frame.
  *
  * `gw` / `gh` / `step` belong to this frame, not to the cloud: a frame over the 点云上限 has points dropped
- * (server/view_data.py drop_grid), so it is a smaller grid of the same picture. Frames of both qualities coexist in
- * the same cloud, so switching back redraws the full frames without fetching them again. */
+ * (server/view_data.py _thin), so it is a smaller grid of the same picture; frames with different steps can coexist
+ * in the same cloud. */
 export interface GridSample {
   ref: GridRef;
   gw: number;
@@ -72,12 +72,12 @@ export interface CloudData {
   focal: Float32Array | null; // a depth cloud's camera per sample
   cams: Float32Array | null;
   principals: Float32Array | null; // (cx, cy) per sample, when the camera wrote a principal point
-  scene: Scene; // the view owning this cloud: the target for requests of worker-derived data (bounds, speeds, grid points)
+  scene: Scene; // the view owning this cloud: the target for requests of worker-derived data (bounds, grid points)
 }
 
 /** One sample of a set of 三维曲线: how many points each curve has, its points one curve after another, their
- * colours and, when they differ, a width per point. `segments` is the drawing form (pairs of points), made once per
- * sample and kept with it. */
+ * colours and, when they differ, a width per point. The drawing form (pairs of points) is made from it by
+ * view/curves3d.tsx (lines3d.tsx polylineSegments). */
 export interface CurveSample {
   vertexCounts: Typed;
   points: Float32Array;

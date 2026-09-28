@@ -36,10 +36,8 @@ def points_params(default_step: int = 4):
     from ..base import P
 
     return {
-        "point_step": P(default_step, label="点云间隔", ge=1, le=64, group="点云", worker=False, applies=WiredOut("points"),
-                        help="每隔几个像素取一个点。4 够预览和导出；调小点更密、文件更大（1 = 每个像素都要）"),
-        "point_size": P(0.5, label="点的大小", unit="cm", gt=0, le=100, group="点云", worker=False, applies=WiredOut("points"),
-                        help="点在视图和 DCC 里画多大（Houdini 里是点的 pscale / width）"),
+        "point_step": P(default_step, label="点云间隔", ge=1, le=64, group="点云", worker=False, applies=WiredOut("points")),
+        "point_size": P(0.5, label="点的大小", unit="cm", gt=0, le=100, group="点云", worker=False, applies=WiredOut("points")),
     }
 
 

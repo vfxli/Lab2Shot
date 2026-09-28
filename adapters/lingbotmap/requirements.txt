@@ -5,8 +5,8 @@
 # safetensors, opencv-python, tqdm, scipy); none of the viser / GLB / render
 # extras (kaolin, open3d, ...).
 #
-# Attention runs on PyTorch SDPA (upstream's --use_sdpa, fixed for long sequences
-# on 2026-06-28). FlashInfer (upstream's faster default) is left out: it JIT-compiles
+# Attention runs on PyTorch SDPA (upstream's --use_sdpa, which handles long
+# sequences at the pinned commit). FlashInfer (upstream's faster default) is left out: it JIT-compiles
 # CUDA kernels (CUDA 12.x headers do not build on glibc 2.43) or needs a 1.2 GB
 # precompiled kernel wheel plus the CUTLASS DSL stack.
 
@@ -22,5 +22,6 @@ huggingface-hub==0.36.2
 
 # Sky segmentation (mask_sky), CPU is enough at 320x320.
 onnxruntime==1.23.2
-# Reads the float EXR masks of the "mask" input (moving objects).
+# EXR reading in lab2shot_worker.files (read_mask); this node has no mask input,
+# so the worker does not call it.
 OpenEXR==3.4.15

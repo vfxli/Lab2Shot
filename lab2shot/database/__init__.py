@@ -1,12 +1,13 @@
 """The server's records in one SQLite database: jobs and how their nodes served them (usage statistics), node timings,
-the accounts and their sessions, what 「输出」 delivered, licences accepted, the queue's small state,
-users' feedback. Big payloads stay files (cache packets, uploads, delivered files, feedback's diagnostics and
+the accounts and their sessions, tasks, licences accepted, the queue's small state,
+users' feedback. Big payloads stay files (cache packets, uploads, task folders, feedback's diagnostics and
 screenshots); settings stay in config/local.toml.
 
     work/db/lab2shot.db              the database (with -wal and -shm next to it while it is open)
-    work/db/backups/                 online copies: daily, before every migration and every name merge; the newest
-                                     storage.db_backups are kept. Each has a <name>.files/ folder beside it with the
-                                     files rows point to (FILED: work/feedback/), hard links where the disk allows
+    work/db/backups/                 online copies: daily, before every migration and every update, and on request; the
+                                     newest database.backups (数据库备份份数) are kept. Each has a <name>.files/ folder
+                                     beside it with the files rows point to (FILED: work/feedback/), hard links where
+                                     the disk allows
     work/db/lab2shot.lock            held by every process that has the database open (restoring needs it free)
 
 Data safety comes first:
@@ -37,7 +38,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .. import logs, workdir
-from ..config import ROOT, settings
+from ..config import settings
 from ..errors import MessageError
 from ..io.files import link_or_copy
 from ..messages import Msg
@@ -76,36 +77,6 @@ def contains(text: str) -> str:
     return f"%{typed}%"
 
 
-# a path column's roots: every stored path names its root, never guessed from another column (the work folder and
-# the checkout may move, or be read from another machine)
-PATH_ROOTS = ("work", "checkout", "absolute")
-
-
-def path_text(path: Path, work_dir: Path) -> str:
-    """A path as a path column stores it, its root first: "work:<relative>" under the work folder (it moves with the
-    folder), else "checkout:<relative>" under the checkout (a dataset's data in input/bench), else "absolute:<path>"
-    (a dataset folder listed outside both). The one place a path becomes a column. A root reached through a symbolic
-    link (a branch's input/ linked to another checkout's) still counts as that root: the path and each root are tried
-    both as they are written and as they resolve."""
-    forms = [Path(path).absolute(), Path(path).resolve()]
-    for root, base in (("work", Path(work_dir)), ("checkout", ROOT)):
-        for under in (base.absolute(), base.resolve()):
-            for form in forms:
-                try:
-                    return f"{root}:{form.relative_to(under).as_posix()}"
-                except ValueError:
-                    pass
-    return f"absolute:{forms[1].as_posix()}"
-
-
-def path_of(text: str, work_dir: Path) -> Path:
-    """A path column read back (path_text), against this work folder. A value without one of PATH_ROOTS is refused
-    (ValueError): there is no second way of writing one."""
-    root, sep, rest = text.partition(":")
-    if not sep or root not in PATH_ROOTS or not rest:
-        raise ValueError(f"not a stored path (root:path, root one of {PATH_ROOTS}): {text!r}")
-    return Path(work_dir) / rest if root == "work" else ROOT / rest if root == "checkout" else Path(rest)
-
 FILE = "lab2shot.db"
 DAILY_S = 86400
 
@@ -138,11 +109,11 @@ def _fsync(path: Path) -> None:
         os.close(fd)
 
 
-FILED = ("feedback", "bench")  # work/<name>/: files the database's rows point to (feedback screenshots, benchmark plates and truth), kept with every backup
+FILED = ("feedback",)  # work/<name>/: files the database's rows point to (feedback screenshots), kept with every backup
 
 
 def _files_of(backup: Path) -> Path:
-    """Where a backup keeps the files its rows point to (work/feedback/...): next to it, <backup>.files/."""
+    """Where a backup keeps the files its rows point to (work/feedback/...): next to it, its name with .files for .db."""
     return backup.with_suffix(".files")
 
 
@@ -189,6 +160,45 @@ def _checked(problem: Msg | str) -> dict:
     return {"at": time.time(), "ok": not problem, "detail": problem.text if problem else "ok", "code": problem.code if problem else ""}
 
 
+def _backup_file(path: Path, work_dir: Path, reason: str) -> Path:
+    """A checked copy of the database at `path` in the backups folder (SQLite's backup API: one consistent snapshot of
+    what has committed, while a writer may go on), with the files its rows point to; then the oldest beyond
+    数据库备份份数 go."""
+    target = backups_folder(work_dir) / f"lab2shot-{time.strftime('%Y%m%d-%H%M%S')}-{reason}.db"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    n = 1
+    while target.exists():
+        n += 1
+        target = target.with_name(f"{target.stem.rsplit('~', 1)[0]}~{n}.db")
+    partial = target.with_suffix(".partial")
+    src = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    dst = sqlite3.connect(partial)
+    try:
+        # a new file of its own: no journal of its own, one fsync once it is whole (below), not one per page run
+        dst.execute("PRAGMA journal_mode=OFF")
+        dst.execute("PRAGMA synchronous=OFF")
+        src.backup(dst)
+        # the backup copies the source's page 1, WAL mode with it: back to one file, or checking it below would leave
+        # a -wal and -shm beside it that no longer match its name once it is renamed
+        dst.execute("PRAGMA journal_mode=DELETE")
+    finally:
+        dst.close()
+        src.close()
+    if problem := check_file(partial):
+        partial.unlink(missing_ok=True)
+        raise DatabaseError(Msg("E-DB-BACKUPFAILED", reason=problem))
+    _fsync(partial)
+    partial.replace(target)
+    _fsync(target.parent)
+    _keep_files(work_dir, target)
+    keep = int(settings()["database.backups"])
+    for old in sorted(backups_folder(work_dir).glob("*.db"))[:-keep]:
+        old.unlink()
+        shutil.rmtree(_files_of(old), ignore_errors=True)
+    logs.say(log, Msg("I-DB-BACKEDUP", name=target.name))
+    return target
+
+
 class Database:
     """One database file, opened once per process."""
 
@@ -232,8 +242,6 @@ class Database:
         # as it was, byte for byte
         if version > schema.VERSION:
             raise DatabaseError(Msg("E-DB-NEWER", path=str(self.path), version=version, known=schema.VERSION))
-        if 0 < version < schema.FIRST:  # older than the first version this code migrates from (schema.py)
-            raise DatabaseError(Msg("E-DB-TOOOLD", path=str(self.path), version=version, first=schema.FIRST))
         upgrading = schema.FIRST <= version < schema.VERSION  # records to keep
         if upgrading:
             # only on purpose (the server starting, `lab2shot db upgrade`), only with the database to itself (a server
@@ -287,13 +295,22 @@ class Database:
             self._depth, self._writer = 1, threading.get_ident()
             try:
                 yield self.conn
-            except BaseException:
-                self.conn.execute("ROLLBACK")
-                raise
-            else:
                 self.conn.execute("COMMIT")
+            except BaseException:
+                self._roll_back()
+                raise
             finally:
                 self._depth, self._writer = 0, 0
+
+    def _roll_back(self) -> None:
+        """End a failed transaction, the COMMIT itself among the failures (a deferred constraint, a full disk): the
+        writer never stays inside it, or every later write would be refused. SQLite may have ended it already; a
+        rollback that fails too says nothing the first error has not, so it never takes that error's place."""
+        if self.conn.in_transaction:
+            try:
+                self.conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
 
     def _reader(self) -> tuple[sqlite3.Connection, threading.Lock]:
         """This thread's read-only connection and its lock (made the first time it reads; those of threads that ended
@@ -353,39 +370,9 @@ class Database:
 
     def backup(self, reason: str) -> Path:
         """An online copy (SQLite's backup API: consistent while the server runs), checked before it counts; then
-        the oldest beyond storage.db_backups go."""
-        target = backups_folder(self.work_dir) / f"lab2shot-{time.strftime('%Y%m%d-%H%M%S')}-{reason}.db"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        n = 1
-        while target.exists():
-            n += 1
-            target = target.with_name(f"{target.stem.rsplit('~', 1)[0]}~{n}.db")
-        partial = target.with_suffix(".partial")
-        # a reader of its own takes the copy in one step: one consistent snapshot of what has committed, while the
-        # writer goes on (WAL)
-        src = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)
-        dst = sqlite3.connect(partial)
-        try:
-            # a new file of its own: no journal of its own, one fsync once it is whole (below), not one per page run
-            dst.execute("PRAGMA journal_mode=OFF")
-            dst.execute("PRAGMA synchronous=OFF")
-            src.backup(dst)
-        finally:
-            dst.close()
-            src.close()
-        if problem := check_file(partial):
-            partial.unlink(missing_ok=True)
-            raise DatabaseError(Msg("E-DB-BACKUPFAILED", reason=problem))
-        _fsync(partial)
-        partial.replace(target)
-        _fsync(target.parent)
-        _keep_files(self.work_dir, target)
+        the oldest beyond 数据库备份份数 (database.backups) go."""
+        target = _backup_file(self.path, self.work_dir, reason)
         self.set_meta("backup.last", {"at": time.time(), "file": target.name, "reason": reason})
-        keep = int(settings()["storage.db_backups"])
-        for old in sorted(backups_folder(self.work_dir).glob("*.db"))[:-keep]:
-            old.unlink()
-            shutil.rmtree(_files_of(old), ignore_errors=True)
-        logs.say(log, Msg("I-DB-BACKEDUP", name=target.name))
         return target
 
     def backup_if_due(self) -> Path | None:
@@ -401,14 +388,12 @@ class Database:
         return self.checked
 
     def status(self) -> dict:
-        """For the admin page: where, how big, which version, the last check and backup, the backups kept, and the
-        `import` meta entry (the one-time import of the record files that preceded the database, where it happened)."""
+        """For the admin page: where, how big, which version, the last check and backup, the backups kept."""
         size = sum(p.stat().st_size for p in self.path.parent.glob(FILE + "*") if p.is_file())
         kept = sorted(backups_folder(self.work_dir).glob("*.db"), reverse=True)
         return {"path": str(self.path), "bytes": size, "version": self.version, "checked": self.checked,
-                "last_backup": self.meta("backup.last"), "keep": int(settings()["storage.db_backups"]),
-                "backups": [{"name": p.name, "bytes": p.stat().st_size, "at": p.stat().st_mtime} for p in kept],
-                "imported": self.meta("import")}
+                "last_backup": self.meta("backup.last"), "keep": int(settings()["database.backups"]),
+                "backups": [{"name": p.name, "bytes": p.stat().st_size, "at": p.stat().st_mtime} for p in kept]}
 
     def close(self) -> None:
         """Close every connection: each reader once the read in progress on it (another thread's) has ended; reads after

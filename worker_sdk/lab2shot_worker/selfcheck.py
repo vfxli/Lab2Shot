@@ -1,7 +1,8 @@
 """The installer's self-check, run inside a freshly built extension environment: `python -m lab2shot_worker.selfcheck`.
 
 On the CPU (the installer hides the GPUs), with no footage: imports the modules named in LAB2SHOT_SELFCHECK_MODULES (a
-JSON list: the worker SDK, the pinned torch / torchvision, what the extension declares in EnvSpec.imports) and, when
+JSON list: the worker SDK, the pinned torch / torchvision, what the extension declares in EnvSpec.imports, the
+extension's own compiled modules) and, when
 torch is among them, sums a tiny tensor. Prints one line, `LAB2SHOT_SELFCHECK {json}`: the Python version, torch's
 version, and every module that failed with why (lab2shot/installer/run.py reads it; nothing else is printed there).
 """

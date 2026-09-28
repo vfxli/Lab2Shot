@@ -19,7 +19,7 @@ export function logMessage(m: Message, nodeLabel = ""): void {
  *
  * 所有消息统一写入日志，没有其他落点：本函数不向任何面板写入内容，也不打开任何面板。
  * 与 `logMessage` 的唯一区别：本函数接收节点 id，由其在 `cookInputs` 中查找名称；
- * `logMessage` 接收已查好的名称（安装、扩展等场合没有节点 id）。
+ * `logMessage` 接收已查好的名称（任务结束等消息没有节点 id）。
  *
  * 节点计算完成后的角标及「数据信息」中的「消息」组走另一条路径：服务器随结果一并保存的
  * `results[节点].messages`（`state/results.ts`），与此处互不依赖。 */

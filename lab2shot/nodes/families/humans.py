@@ -9,8 +9,7 @@ from ...errors import Invalid, NothingToCook
 from ...messages import Msg
 from ...data.packet import Packet
 from ...data.payloads import SCENE_FILE, scene_packet
-from ...data.skeleton import body_character, body_vertices, model_regions
-from ...data.types import DEFORMING
+from ...data.skeleton import body_character, model_regions
 from ...data.units import M_TO_CM
 from ..base import P, Port
 from ..lens import CameraLensParams, without_camera_conditions
@@ -32,10 +31,7 @@ class WorldHumansParams(CameraLensParams):
     # 默认值为 (0,0,0) 而非可空：向量参数只有不可空时才能接线（`core.transform` 的「移动」「旋转」写法相同，
     # 判据见 `nodes/base.py param_port`）。「未接线」与「接入全 0 的连线」可由 `ctx.values` 区分。
     camera_rotate: tuple[float, float, float] = P(
-        (0.0, 0.0, 0.0), label="相机旋转", unit="°", group="镜头", widget="vec3", per_frame=True, worker=False, wired=True,
-        help="相机每帧怎么转（XYZ 欧拉角）。**这个方法只用相机的旋转，不用它的位置**——"
-             "从「拆分相机」的「旋转」口接过来。留空：方法自己估相机的转动。"
-             "要把人搬进整台相机的世界，图上再接一个「相机空间转换」")
+        (0.0, 0.0, 0.0), label="相机旋转", unit="°", group="镜头", widget="vec3", per_frame=True, worker=False, wired=True)
 
 
 def _with_least_frames(params: type) -> type:
@@ -49,11 +45,7 @@ def _with_least_frames(params: type) -> type:
 
     # `worker=False`：这是节点侧的筛选条件，不是解算参数；不发送给 worker，调整时复用模型的原始结果
     # （nodes/base.py），不会重新解算。若发送给 worker 则会进入任务指纹，每次修改都会重跑数分钟的 GPU 计算。
-    field = P(None, label="最少解出帧数", group="人物", ge=2, placeholder="自动", worker=False,
-              help="一个人要交出来，**真正解出来的帧**至少要有这么多；不到就不交他，节点上写明去掉了谁。"
-                   "留空＝自动（这个方法自己的下限，没有就按他那一段的四分之一）。"
-                   "**最少 2 帧**：只解出 1 帧的人插不出动作，会变成一个贴在镜头上、整段不动的人。"
-                   "调小＝宁可多交（可能有几乎全靠补出来的人），调大＝只要解得实在的人")
+    field = P(None, label="最少解出帧数", group="人物", ge=2, placeholder="自动", worker=False)
     return create_model(f"{params.__name__}WithLeastFrames", __base__=params, least_frames=(int | None, field))
 
 
@@ -170,8 +162,7 @@ class WorldHumans(WorkerNode):
         # 该端口定义在家族上：声明了 keypoints 的节点自动增加「2D 关键点」，适配器中只需一行声明
         if cls.keypoints is not None and not any(p.name == "keypoints" for p in cls.outputs):
             cls.outputs = (*cls.outputs, cls.keypoints.port(cls))
-        # 「相机」输入端口只在上游确实接受整台相机（`camera_to_worker == "camera"`）时存在；端口的悬停提示按
-        # `camera_to_worker` 生成（cameras.py TAKES_CAMERA 四档），适配器修改声明后提示自动随之改变。
+        # 「相机」输入端口只在上游确实接受整台相机（`camera_to_worker == "camera"`）时存在。
         # `"rotation"`（GVHMR / WHAM）只接受旋转，通过「相机旋转」参数连线（见 WorldHumansParams）；
         # `"focal"`（SAM 3D Body / Fast SAM 3D Body）和 `None`（HaMeR / SMIRK / TRAM / Pixel3DMM）只接受 Focal Length，
         # 那是「Focal Length」参数，不是相机。将相机空间的结果放入使用者的相机世界是一个显式步骤：
@@ -189,8 +180,8 @@ class WorldHumans(WorkerNode):
             if not any(p.name == "ref_camera" for p in cls.outputs):
                 cls.outputs = (*cls.outputs, Port(
                     "ref_camera", "scene.camera", "参照相机",
-                    help="**这不是成品相机，别交付、别当解算用的相机接给别人**。它是这一段结果在"
-                         "**它自己的世界**里配着的那一台：人和实拍对得上就是靠它。"
+                    help="这不是成品相机，别交付、别当解算用的相机接给别人。它是这一段结果在"
+                         "它自己的世界里配着的那一台：人和实拍对得上就是靠它。"
                          "把它接进「相机空间转换」的「来源相机」，你自己那台接「目标相机」，"
                          "那个节点把人搬到你那台相机的世界里对上画面。"
                          "要一台能用的相机，从真正解相机的节点（ViPE、TRAM）或者「导入 USD」接"))
@@ -206,8 +197,6 @@ class WorldHumans(WorkerNode):
         # 「相机旋转」参数只属于接受旋转的档位：其他档位（TRAM 的 None）的 worker 不读取它，参数不应出现在面板上（见 _without_camera_rotate 的说明）
         if cls.camera_to_worker != "rotation":
             cls.Params = _without_camera_rotate(cls.Params)
-        cls.inputs = tuple(camera_port(optional=p.optional, takes=cls.camera_to_worker) if p.name == "camera" else p
-                           for p in cls.inputs)
         # 「最少解出帧数」加在家族上：每个人体解算节点都具备，新接入的项目自动具备（见 _with_least_frames 的说明）。
         # 已自行声明同名参数的节点保持不变。
         if "least_frames" not in cls.Params.model_fields:
@@ -219,7 +208,9 @@ class WorldHumans(WorkerNode):
 
     @classmethod
     def prepare(cls, ctx) -> Job:
-        image, camera = ctx.input("image"), ctx.input("camera")
+        image = ctx.input("image")
+        # 只有 `camera_to_worker == "camera"` 的节点有「相机」输入口（见 __init_subclass__），其余的没有可读的相机
+        camera = ctx.input("camera") if cls.camera_to_worker == "camera" else None
         frames = image.meta["frames"]
         lens = plate_lens(ctx, image, default_mm=cls.default_focal_mm)
         extra = {"focal_px": lens.focal_px}
@@ -273,16 +264,16 @@ class WorldHumans(WorkerNode):
     def people_solved_enough(cls, ctx, raw: RawOutput, people: list[dict]) -> list[dict]:
         """几乎没有解出任何帧的人物不予输出（否则会出现贴在相机上的巨大人物或远处孤立的骨架）。
 
-        一份实现，由四处调用：家族自身的 `convert`，以及三个自行实现 `convert` 的节点
-        （`sam_3d_body.solve`、`smirk.face`、`pixel3dmm.face`）。
+        一份实现，由两处调用：家族自身的 `convert`（`smirk.face`、`pixel3dmm.face` 在其结果上追加输出，同样经过它），
+        以及自行实现 `convert` 的 `sam_3d_body.solve`（`fast_sam_3d_body.solve` 继承之）。
         判据见 `least_solved_frames`，参数位于节点上（「最少解出帧数」，由家族自动添加）。
 
         未写出 `solved` 时立即报错，不静默放行（`E-HUMANS-NOSOLVED`）：原始数据约定
         （`lab2shot_worker/world_humans.py` 模块开头）要求每个人的 npz 都明确记录实际解出的帧；
-        若缺少时按全部解出处理，后续接入项目时遗漏该字段，这一漏洞会无声地再次出现。
+        若缺少时按全部解出处理，新接入的项目遗漏该字段时，这一漏洞会无声出现。
 
-        填补缺帧本身没有问题：漏检一两帧时按前后帧插值是正确的（照常给出 `N-SAM3DBODY-INTERPOLATED`）。
-        此处拦截的只是用 1 帧撑成整段的情况。"""
+        漏检一两帧本身没有问题：没解出的帧上这个人不显示，不插值（照常给出 `N-SAM3DBODY-UNSOLVEDFRAMES`）。
+        此处拦截的只是几乎整段都没解出的情况。"""
         kept: list[dict] = []
         for person in people:
             d = raw.arrays(person["file"])
@@ -348,7 +339,7 @@ class WorldHumans(WorkerNode):
             poses[:, :3, 3] *= M_TO_CM
             info = result["camera"] if isinstance(result.get("camera"), dict) else {}
             # principal_px：只有同时解算镜头中心的方法才会写出（如在画面裁切区域内拟合的面部跟踪器）；
-            # 未写出时镜头中心为画面中心，与以前相同。
+            # 未写出时镜头中心为画面中心。
             out[camera_port_name] = solved_camera(
                 ctx, image, c["frames"], c["focal_px"], poses, filmback_mm=lens.filmback_mm,
                 principal_px=c["principal_px"] if "principal_px" in c.files else None,

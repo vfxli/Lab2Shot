@@ -87,7 +87,7 @@ def fill_gap(models, positions: np.ndarray, rotations: np.ndarray, transition: i
     from motion_inbetween.train import context_model as ctx_mdl
     from motion_inbetween.train import detail_model as det_mdl
 
-    (ctx, ctx_config, ctx_stats), (det, det_config, det_stats) = models["context"], models["detail"]
+    (ctx, _ctx_config, ctx_stats), (det, det_config, det_stats) = models["context"], models["detail"]
     window = CONTEXT + transition + 2
     target = CONTEXT + transition
     pos, rot, pos_offset, rot_offset = data_utils.to_start_centered_data(

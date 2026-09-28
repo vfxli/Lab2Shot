@@ -74,14 +74,9 @@ class PanopticSegment(NodeDef):
 
     class Params(NodeParams):
         resolution: Literal[360, 480, 720] = measured_param(
-            "处理分辨率", {360: Measured("比实测的一档省", below=720), 480: Measured("比实测的一档省", below=720), 720: Measured("作者评测尺寸：1280×534，显存 48 帧和 192 帧一样", gb=1.8)}, default=720, group="分割",
-            help="画面短边缩到这个像素再分割（长边最多是它的 1.85 倍）。720 是作者评测用的尺寸，最稳；分割图始终是原画面大小")
-        threshold: float = P(0.8, label="检测阈值", ge=0.3, le=0.99, group="分割", widget="slider",
-                             help="一个物体整段的类别把握要超过它才输出（作者默认 0.8）。有东西没分出来就调低（如 0.6），"
-                                  "分出了不存在的东西、类别乱跳就调高")
-        min_coverage: float = P(0.8, label="完整度门槛", ge=0.1, le=1.0, group="分割",
-                           help="一个物体自己的遮罩里，至少要有这么大比例的像素最后归它，否则整段去掉（作者默认 0.8）。"
-                                "被别的物体大面积盖住的东西也想留下就调低")
+            "处理分辨率", {360: Measured(below=720), 480: Measured(below=720), 720: Measured(gb=1.8)}, default=720, group="分割")
+        threshold: float = P(0.8, label="检测阈值", ge=0.3, le=0.99, group="分割", widget="slider")
+        min_coverage: float = P(0.8, label="完整度门槛", ge=0.1, le=1.0, group="分割")
 
     @classmethod
     def cook(cls, ctx):

@@ -11,12 +11,15 @@ import { usePoll } from "../platform/poll";
 import { reasonOf } from "../messages/message";
 import { Button, ButtonLink, Segmented } from "../ui/Button";
 import { useConfirm } from "../ui/Confirm";
+// the feedback's own look (the detail's header, its groups, the status chips) is one file shared with 提交反馈 (ui/Feedback.tsx);
+// the admin page does not load that component, so it brings the file itself
+import "../ui/feedback.css";
 
 /** 用户反馈 section: submissions from 提交反馈 (lab2shot/feedback.py): sender, time, text, attached screenshots
  * and diagnostics. Supports answering (a status and a reply visible in 我的反馈, plus a private note), downloading
  * everything, and deleting. */
 
-export const FEEDBACK_STATUS: Record<FeedbackStatus, { label: string; tip: string }> = {
+const FEEDBACK_STATUS: Record<FeedbackStatus, { label: string; tip: string }> = {
   new: { label: "新", tip: "还没看过" },
   seen: { label: "已看", tip: "看过了，还没解决（打开一条新反馈就算看过）" },
   solved: { label: "已解决", tip: "问题解决了，或者建议处理了" },
@@ -28,7 +31,8 @@ const PERIODS = [
   { id: "month", label: "30 天", days: 30 },
 ];
 
-const full = (t: number | null | undefined) => (t ? stampText(t > 1e11 ? t / 1000 : t) : "—");
+const full = (t: number | null | undefined) => (t ? stampText(t) : "—"); // the server's times: seconds
+const pageTime = (ms: number) => stampText(ms / 1000); // the page's own diagnostics (its log, errors, requests): milliseconds
 
 export function FeedbackSection() {
   const { problem, refreshOverview } = useAdmin();
@@ -68,7 +72,7 @@ export function FeedbackSection() {
               <tr>
                 <th data-tip="提交的时间">时间</th>
                 <th data-tip="提交反馈的账号（删掉的账号显示「已删除的用户」）">提交人</th>
-                <th data-tip="提交时选的部门">部门</th>
+                <th data-tip="账号的环节">环节</th>
                 <th data-tip="用户选的类别（可以不选）">类别</th>
                 <th data-tip="写的问题的第一行；点一行看全部">内容</th>
                 <th data-tip="截图张数">截图</th>
@@ -257,11 +261,11 @@ function FeedbackSheet({ id, onClose, onChanged }: { id: string; onClose: () => 
                 {page.graph !== undefined && <Pre value={page.graph} />}
               </Group>
               <Group label="页面日志" tip="用户页面日志里最近的记录" count={`${(page.log ?? []).length} 条`}>
-                <Pre value={(page.log ?? []).map((e) => `${full(e.t)}${e.count ? `  ×${e.count}，到 ${full(e.last)}` : ""}  [${e.level}]  ${e.text}`).join("\n") || "没有记录"} />
+                <Pre value={(page.log ?? []).map((e) => `${pageTime(e.t)}${e.count && e.last ? `  ×${e.count}，到 ${pageTime(e.last)}` : ""}  [${e.level}]  ${e.text}`).join("\n") || "没有记录"} />
               </Group>
               <Group label="错误" tip="页面打开以来自己出的错，和服务器拒绝或没连上的请求" count={`${(page.errors ?? []).length + (page.requests ?? []).length} 个`}>
-                <Pre value={(page.errors ?? []).map((e) => `${full(e.t)}${e.count > 1 ? `  ×${e.count}，到 ${full(e.last)}` : ""}  ${e.kind === "rejection" ? "未处理的异步错误" : "页面出错"}：${e.message}${e.where ? `（${e.where}）` : ""}${e.stack ? `\n${e.stack}` : ""}`).join("\n\n") || "页面没有出错"} />
-                <Pre value={(page.requests ?? []).map((r) => `${full(r.t)}  ${r.method} ${r.url} → ${r.status || "没连上"}（${r.ms} ms）  ${r.message}`).join("\n") || "没有失败的请求"} />
+                <Pre value={(page.errors ?? []).map((e) => `${pageTime(e.t)}${e.count > 1 ? `  ×${e.count}，到 ${pageTime(e.last)}` : ""}  ${e.kind === "rejection" ? "未处理的异步错误" : "页面出错"}：${e.message}${e.where ? `（${e.where}）` : ""}${e.stack ? `\n${e.stack}` : ""}`).join("\n\n") || "页面没有出错"} />
+                <Pre value={(page.requests ?? []).map((r) => `${pageTime(r.t)}  ${r.method} ${r.url} → ${r.status || "没连上"}（${r.ms} ms）  ${r.message}`).join("\n") || "没有失败的请求"} />
               </Group>
               <Group label="任务" tip="这个用户最近的任务：状态、报错、出错节点的日志、服务日志里和它有关的行" count={`${(server.jobs ?? []).length} 个`}>
                 {(server.jobs ?? []).length ? (

@@ -13,7 +13,7 @@
   角色，因此先按世界坐标将其合并为一张三角网格（`one_mesh`），并记录顶点来自哪个网格（`Meshes.owner`）；
 * 权重如何放回：按 `Meshes.owner` 将逐顶点权重拆回各个网格，写入原有的 USD
   （`data/scene.py bind_skin`），UV、法线、分区、材质均保持不变，只增加一副骨架和蒙皮；
-* 骨骼如何命名和定轴：经过 `data/skeleton.py character_of_model`（与解算器输出蒙皮角色使用同一处），
+* 骨骼如何命名和定轴：经过 `data/skeleton.py rig_of_model`（与解算器输出蒙皮角色使用同一处），
   可识别的部位换为 CG 名称，关节轴按 CG 惯例摆正。
 
 每点受影响的骨骼数（Maya 的 maxInfluences）也是家族共有的参数：它是交付的属性，而非某个模型的属性。
@@ -37,8 +37,8 @@ from .base import Job, RawOutput, WorkerNode
 def one_mesh(src: Packet, frame: int | None = None) -> Meshes:
     """一个「模型」数据包中所有网格合并成的一张三角网格（世界坐标、厘米、Y 向上）。
 
-    `frame`：逐帧变形的点缓存取哪一帧的形状（默认为第一帧）。四边形和多边形按 USD 自身的方式三角化
-    （io/usd.py triangulated），点的编号不变，因此权重可以原样放回。"""
+    `frame`：逐帧变形的点缓存取哪一帧的形状（默认为第一帧）。四边形和多边形按与读写 USD 相同的扇形方式三角化
+    （data/evaluate.py triangulate），点的编号不变，因此权重可以原样放回。"""
     from ...data.scene import mesh_arrays
 
     return mesh_arrays(src, frame)
@@ -46,17 +46,14 @@ def one_mesh(src: Packet, frame: int | None = None) -> Meshes:
 
 def influences_param():
     """「影响骨骼数」：每个顶点最多受几根骨骼驱动（Maya 的 maxInfluences、USD 的 elementSize）。"""
-    return P(4, label="影响骨骼数", widget="choice", group="蒙皮", option_labels={"1": "1 · 刚性", "2": "2", "4": "4 · 常用", "8": "8 · 精细"},
-             help="每个顶点最多由几根骨骼带动（Maya 的 maxInfluences）。权重最大的几根留下，其余归零后重新归一。"
-                  "4 是影视和游戏里最常用的；关节窝、肩膀这些地方要更细腻就用 8；1 是刚性绑定，整块跟着一根骨头走")
+    return P(4, label="影响骨骼数", widget="choice", group="蒙皮", option_labels={"1": "1 · 刚性", "2": "2", "4": "4 · 常用", "8": "8 · 精细"})
 
 
 class AutoRigParams(NodeParams):
     """所有自动绑定节点共有的参数；各节点另外添加其模型自身的参数。"""
 
     influences: Literal[1, 2, 4, 8] = influences_param()
-    character: str = P("", label="角色名", group="蒙皮", placeholder="按接进来的模型",
-                  help="交付的蒙皮角色在 USD 里叫什么（Maya、Houdini 里看到的那个名字）。留空就用接进来的模型自己的名字")
+    character: str = P("", label="角色名", group="蒙皮", placeholder="按接进来的模型")
 
 
 class AutoRig(WorkerNode):

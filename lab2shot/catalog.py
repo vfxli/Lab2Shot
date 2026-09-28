@@ -2,8 +2,8 @@
 
 install() hands the lower layers what only the top layer can give (nodes/services.py): the node types of the
 extensions that loaded (lab2shot/adapters.py), where an upload reference is (lab2shot/transfer/uploads.py) and a
-worker job run outside any cook (engine/external.py ask_worker). The server, the command line, the tests and the tool
-scripts call it when they start, before they read a node type.
+worker job run outside any cook (engine/external.py ask_worker). The server (server/app.py) and the command line
+(cli/base.py) call it when they start, before they read a node type.
 
 describe() is a node type as the catalogue lists it: its own declarations (NodeDef.describe) with what the top layer
 knows of its project: the project's name and the tags that decide who may use it. Whether it is usable now is the
@@ -34,6 +34,11 @@ class _PlanEnv:
         if not uploads.is_ref(ref):
             return None
         return uploads.head_described(ref[len(uploads.PREFIX):].partition("/")[0])
+
+    def may_draw_on(self, layer: Path, file: Path) -> bool:
+        from .transfer import uploads
+
+        return uploads.may_draw_on(layer, file)
 
     def declared_layers(self, path: Path) -> dict | None:
         from .transfer import uploads
@@ -77,13 +82,13 @@ def install() -> None:
 
 
 def describe(node_type) -> dict:
-    """A node type as the catalogue lists it (/api/nodes, the node table): NodeDef.describe with its project's name and
+    """A node type as the catalogue lists it (/api/catalog, through server/access.py describe_for): NodeDef.describe with its project's name and
     its tags (nodes/tags.py: the chips on the node, and who may use it)."""
     ext = node_type.project.extension
     # 三方节点额外附带项目的仓库与主页（参数面板标题行的 GitHub 标签）以及许可证（显示在面板底部，仅供参考，
     # 不参与可用性判断）
     links = ({"repo": ext.source.url, "homepage": ext.homepage,
-              "licence": {"name": ext.license.name, "url": ext.license.url, "summary": ext.license.summary}}
+              "licence": {"name": ext.license.name, "url": ext.license.url}}
              if ext is not None else None)
     return {**node_type.describe(), "project": node_type.project.title, "tags": sorted(tags.node_tags(node_type)),
             **({"links": links} if links else {})}

@@ -1,7 +1,7 @@
-"""The world-humans family (GVHMR, WHAM, TRAM, HaMeR, SMIRK): SMPL-family bodies, hands and faces placed in a
-world or a camera, the user's body-model files, and the shared raw contract. Numpy only (what the SDK declares); each
-worker runs it inside its own extension environment, never with Lab2Shot core. Node side: lab2shot/nodes/results.py
-(world_humans(), WorldHumans). What the SMPL family's skeleton is and how its parameters become a skeletal
+"""The world-humans family (GVHMR, WHAM, TRAM, HaMeR, SMIRK, Pixel3DMM, SAM 3D Body): SMPL-family bodies, hands and
+faces placed in a world or a camera, the user's body-model files, and the shared raw contract. Numpy only (what the
+SDK declares); each worker runs it inside its own extension environment, never with Lab2Shot core. Node side:
+lab2shot/nodes/families/humans.py (WorldHumans). What the SMPL family's skeleton is and how its parameters become a skeletal
 animation (both directions) is lab2shot_shared.smpl, one implementation shared by the workers and the core.
 
 The raw contract (write_humans):
@@ -11,12 +11,13 @@ The raw contract (write_humans):
     person_<id>.npz     the rig and the model's own vertices (save_person, or the method's own for MANO / FLAME);
                         a method whose own detector found 2D keypoints on the plate also writes keypoints_2d
                         [F,K,3] (x, y in the plate's pixels, confidence 0..1) and keypoint_names [K]; the node
-                        family turns them into 「2D 跟踪点」, one group per person (NodeDef.keypoints);
+                        family turns them into its 「2D 关键点」 output, one group per person
+                        (WorldHumans.keypoints);
                         solved [S] int64, required: the frames of `frames` that were actually solved (the rest were
                         filled in). A method that fills no gaps writes `solved = frames` (save_person does so).
 
                         Why it is required and may not be omitted: a person may have only one or two frames actually
-                        solved in the whole shot, with the rest filled in (`N-SAM3DBODY-INTERPOLATED`);
+                        solved in the whole shot, with the rest filled in;
                         `lab2shot_shared/poses.py interpolate_poses` holds at both ends, so a single solved frame is
                         held over the whole shot, producing a large static figure stuck to the camera. The node side
                         must know how many frames were actually solved to judge whether a person is almost entirely
@@ -76,7 +77,7 @@ BODY_CONVENTION = ("v = R(global_orient) (v_rest - root_rest) + root_rest + tran
 # --------------------------------------------------------------------------- body models
 
 def body_model_file(model: str, used_by: str, link: Path | None = None) -> Path:
-    """The model's file (lab2shot_worker.body_models), also linked at `link` (where upstream reads it) when given;
+    """The model's file (lab2shot_shared.body_models), also linked at `link` (where upstream reads it) when given;
     otherwise fail() with what to download. (The node is greyed out with the same instructions before it gets here.)"""
     found = body_models.find(model)
     if found is None:

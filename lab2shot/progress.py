@@ -7,11 +7,11 @@
 
 做法：
 
-1. 分母在开始时固定（`farm/queue.py Job.fix_budget`，在 `_start` 中确定显卡之后计算一次）：该任务要计算的
+1. 分母在开始时固定（`farm/queue.py Job.fix_budget`，任务的第一个节点拿到名额时计算一次）：该任务要计算的
    每个节点实例（`farm/timings.py planned()` 列出的 `Work`）按历史记录预测的秒数之和即为分母。这与
    队列上「剩余约 X」使用同一份预测（`Job.left` / `Job.remaining`），进度条与剩余时间不会互相矛盾。
-2. 分子只增不减：已完成的节点实例累加其自身份额（`Job.spent`），正在计算的实例再加上已运行的秒数，
-   并以其自身份额为上限。该上限保证实例完成时分子不回退，因此 `at` 单调不减由构造保证，而不依赖前端
+2. 分子只增不减：已完成的节点实例累加其自身份额（`Job.spent`），正在计算的实例（一个任务里可以同时有几个）
+   各自再加上已运行的秒数，并以其自身份额为上限。该上限保证实例完成时分子不回退，因此 `at` 单调不减由构造保证，而不依赖前端
    「只取最大值」来弥补。
 3. 无法估计时不显示刻度：任一节点没有历史记录（首次计算）时 `at` 为 `None`，页面显示往复移动的不定
    进度条，不使用编造的分数。
@@ -22,7 +22,7 @@
 
 | 阶段 | 判据 |
 |---|---|
-| `queued` 排队中 | 任务仍在队列中（`Job.state == "queued"`） |
+| `queued` 排队中 | 任务仍在队列中（`Job.state == "queued"`），或已开始、但此刻没有节点在算（下一个节点在等名额） |
 | `loading` 加载模型 | `engine/external.py run_job` 启动 worker 进程之前发出的 `phase`：此阶段启动进程、加载权重、读取素材 |
 | `computing` 计算 | 第一条 `progress`（开始有可计数的内容）。当前步骤由 worker 自身的 `stage` 名称说明，显示在旁边的文字中 |
 | `fetching` 取回结果 | worker 写完 `result.json`、`run_job` 返回之后发出的 `phase`：核心将 raw 转换为数据包并写盘 |
@@ -41,7 +41,6 @@ QUEUED = "queued"
 LOADING = "loading"
 COMPUTING = "computing"
 FETCHING = "fetching"
-PHASES = (QUEUED, LOADING, COMPUTING, FETCHING)
 
 # 计算进行中时进度条最多显示到此处：估计时间用完而计算仍在进行时，停在此处等待实际完成。
 # 显示满 100% 后继续转动会误导使用者（估计只是估计），回缩则更不可接受。
@@ -53,16 +52,16 @@ BLANK: dict = {"phase": QUEUED, "node": "", "label": "", "note": "", "done": 0, 
 PUBLIC = ("phase", "node", "label", "note", "done", "total")  # 对外发送的字段（`at` 每次按当前时间另行计算）
 
 
-def fraction(spent: float, running: float, share: float | None, budget: float | None) -> float | None:
+def fraction(spent: float, running: list[tuple[float, float | None]], budget: float | None) -> float | None:
     """整个任务的完成比例（0–1），`None` 表示无法估计。
 
-    `spent` 为已完成实例的预测秒数之和，`running` 为正在计算的实例已运行的秒数，
-    `share` 为正在计算实例自身的预测秒数（`None`：当前没有计算任何内容），`budget` 为开始时固定的分母。
+    `spent` 为已完成实例的预测秒数之和，`running` 为正在计算的每个实例的（已运行的秒数，自身的预测秒数；
+    `None`：没有预测），`budget` 为开始时固定的分母。
 
-    单调不减由此处的构造保证：`spent` 只增不减；`running` 以 `share` 为上限，因此实例完成、
-    `spent` 计入 `share` 的时刻，数值恰好衔接，不会回退。
+    单调不减由此处的构造保证：`spent` 只增不减；每个正在计算的实例以其自身份额为上限，因此实例完成、
+    `spent` 计入该份额的时刻，数值恰好衔接，不会回退。
     """
     if not budget or budget <= 0:
         return None
-    done = spent + (min(max(running, 0.0), share) if share else 0.0)
+    done = spent + sum(min(max(ran, 0.0), share) for ran, share in running if share)
     return round(min(done / budget, NEARLY), 4)

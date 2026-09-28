@@ -20,13 +20,12 @@ class ImportPly(ArraysImport):
     on_node = ("unit",)
 
     class Params(NodeParams):
-        path: str = import_file_param(SUFFIXES, " PLY 文件（.ply）")
+        path: str = import_file_param(SUFFIXES)
         points: list[str] = selection_param("points")
         models: list[str] = selection_param("models")
-        unit: Literal["cm", "m"] = P("m", label="单位", group="PLY", option_labels=UNIT_LABELS, worker=False,
-                                     help="PLY 不记录单位：扫描和摄影测量软件导出的一般是米。读进来都换成厘米")
+        unit: Literal["cm", "m"] = P("m", label="单位", group="PLY", option_labels=UNIT_LABELS, worker=False)
         up: Literal["y", "z"] = P("y", label="上轴", group="PLY", option_labels={"y": "Y 轴向上", "z": "Z 轴向上"},
-                                  worker=False, help="PLY 不记录哪个轴朝上：COLMAP 和多数扫描软件是 Y 轴向上，RealityCapture、Metashape 常是 Z 轴向上。读进来一律转成 Y 轴向上")
+                                  worker=False)
     outputs = selection_ports(Params)
 
     @classmethod

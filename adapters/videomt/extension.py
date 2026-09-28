@@ -29,8 +29,8 @@ class VidEoMT(Extension):
             "只用 MIT 的网络部分"
         ),
     )
-    # cu126 的官方 wheel 没有为 sm_120（Blackwell）编译，也没打 PTX；不是版本旧，是这个 CUDA 大版本的 build
-    # 没覆盖到。换到同一个 torch 补丁版本的 cu128 build 就行，不用跳大版本号。装在 .venv-ada-blackwell，不碰已有的 .venv
+    # torch 的 cu128 build 带 sm_120（Blackwell）的 kernel（cu126 的没有，也没打 PTX），所以 Ada 和 Blackwell 都能跑；
+    # 环境装在 .venv-ada-blackwell，调度只把任务派到这两种架构的卡上
     env_archs = ("sm_89", "sm_120")  # Ada and Blackwell: third_party/videomt/.venv-ada-blackwell
     env = EnvSpec(
         python="3.12",

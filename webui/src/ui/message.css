@@ -1,6 +1,6 @@
 /* One message, wherever it is said: a square in the level's
-   colour, the node it is about, the words, and its code at the end. The 「消息」 panel beside the node graph lists them
-   by node; nothing else draws a message row of its own. Red belongs to the production-risk level alone. */
+   colour, the words, and its code at the end. 数据信息 lists a node's messages under 提醒; nothing else draws a
+   message row of its own. Red belongs to the production-risk level alone. */
 
 .msg-row {
   display: flex;
@@ -10,17 +10,6 @@
   line-height: 1.5;
   color: var(--text-2);
   cursor: default;
-}
-
-/* a row in a list that takes the reader to what it is about (the 「消息」 panel): a row of its own to click. One that
-   is only read (the information card's 提醒) sits in the text around it and stays still. */
-.msg-row.go {
-  padding: 5px 12px;
-  cursor: pointer;
-}
-
-.msg-row.go:hover {
-  background: var(--raised);
 }
 
 .msg-dot {

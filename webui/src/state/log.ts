@@ -4,13 +4,13 @@ import { clientInfo } from "../platform/client";
 import { readLocalJSON, writeLocal } from "../platform/util";
 import { stampText } from "../platform/format";
 
-/** The page's log: every message the page showed (messages/say.ts, with its code), each cook's progress and the page's
+/** The page's log: every message the page showed (state/say.ts, with its code), each cook's progress and the page's
  * own errors, kept in the browser (it survives a reload) so the user can open it, copy it for support, or send it to the
  * server's log. It only records and makes no decisions. */
 
 export type Level = "info" | "ok" | "warn" | "error";
 
-export interface LogEntry {
+interface LogEntry {
   t: number;
   level: Level;
   text: string;

@@ -1,7 +1,7 @@
 """FaceAnything: per-pixel face depth + canonical facial coordinates from plates.
 
 Research release only: code and weights are CC BY-NC 4.0 (non-commercial).
-Nodes only (adapters/faceanything/nodes.py): no `lab2shot run faceanything` job.
+One node, faceanything.solve (adapters/faceanything/nodes.py).
 """
 
 from __future__ import annotations
@@ -39,12 +39,11 @@ class FaceAnything(Extension):
         ),
     )
     import_repo = "src"  # imported as `faceanything` / `depth_anything_3` from repo/src
-    # Blackwell（sm_120）支持受限于预编译的 xformers（含 flash_attn_3）：0.0.33.post1 只到 sm_90a，0.0.34 起才有。
-    # xformers 每个版本精确绑死一个 torch 版本（0.0.33.post1 -> torch==2.9.0，0.0.34 -> torch==2.10.0），
-    # 所以升级 xformers 必须连 torch/torchvision 一起换成匹配的一对，不是只换 xformers 一个包。
+    # Blackwell（sm_120）：xformers 0.0.35 没有自带的 CUDA 核心，走 torch 的 scaled_dot_product_attention，
+    # torch 支持的架构它都支持（更早版本的预编译核心没有 sm_120，见 requirements.txt）；它要求 torch>=2.10。
     env_archs = ("sm_89", "sm_120")  # Ada and Blackwell: third_party/faceanything/.venv-ada-blackwell
     env = EnvSpec(
-        # torch 2.10.0 (CUDA 12.8) 是 xformers 0.0.34 精确绑定的版本；torchvision 0.25.0 是与它配对的版本。
+        # torch 2.10.0（CUDA 12.8）满足 xformers 0.0.35 的 torch>=2.10；torchvision 0.25.0 是与它配对的版本。
         python="3.11",
         torch=("torch==2.10.0", "torchvision==0.25.0"),
         torch_backend="cu128",

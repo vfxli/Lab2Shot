@@ -1,4 +1,3 @@
-import { reachable } from "../platform/http";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { InstallTask } from "../api";
@@ -7,7 +6,8 @@ import type { RestartState } from "../api";
 import { nextOrigin, pollServer, useServer } from "../state/server";
 import { adminApi } from "../api/admin";
 import { useAdmin } from "./common";
-import { startPolling } from "../platform/poll";
+import { useSignedIn } from "../state/session";
+import { usable } from "../api/applies";
 import { Button } from "../ui/Button";
 
 /** Server restart from the admin page (lab2shot/server/restart.py): a confirmation stating whether running jobs are
@@ -16,11 +16,15 @@ import { Button } from "../ui/Button";
 
 export function RestartDialog({ onClose }: { onClose: () => void }) {
   const { queue, overview, problem } = useAdmin();
+  const state = useSignedIn();
   const [installing, setInstalling] = useState<InstallTask | null>(null);
   const [busy, setBusy] = useState(false);
+  // an install under way is only this login's to see with the right to install (the same routes as 扩展包); without
+  // it the list is not asked for at all: the refusal would count against the session
+  const installs = usable(state.applies, "extensions");
   useEffect(() => {
-    api.installs.list().then((r) => setInstalling(r.jobs.find((j) => j.state === "running") ?? null), () => undefined);
-  }, []);
+    if (installs) api.installs.list().then((r) => setInstalling(r.jobs.find((j) => j.state === "running") ?? null), () => undefined);
+  }, [installs]);
   const running = queue?.jobs.filter((j) => j.state === "running") ?? [];
   const waiting = queue?.jobs.filter((j) => j.state === "queued") ?? [];
   const pending = overview?.pending ?? [];
@@ -47,12 +51,12 @@ export function RestartDialog({ onClose }: { onClose: () => void }) {
           重启一般十几秒：先卸载常驻的模型，再停止监听，然后用同样的命令重新启动。正在用网页的人会看到「服务器正在重启」，回来后自动接上；DCC
           插件和命令行重试一次即可。任务记录、显卡授权、使用统计和设置都不受影响。
         </p>
-        {pending.length > 0 && <p className="rs-note">重启后生效：{pending.join("、")}。</p>}
+        {pending.length > 0 && <p className="rs-note">重启后生效：{pending.map((p) => p.label).join("、")}。</p>}
         {works && (
           <ul className="rs-list">
             {running.map((j) => (
               <li key={j.id}>
-                计算中：{j.client?.who ?? ""} ·「{j.title}」{j.gpu_name && ` · ${j.gpu_name}`}
+                计算中：{j.client?.who ?? ""} ·「{j.title}」{!!j.cards?.length && ` · ${j.cards.join("、")}`}
               </li>
             ))}
             {installing && <li>正在安装：{installing.title.text}</li>}
@@ -66,14 +70,14 @@ export function RestartDialog({ onClose }: { onClose: () => void }) {
               <span>
                 不再开始新的任务，新提交的先排队；{running.length ? `计算中的 ${running.length} 个任务` : ""}
                 {running.length && installing ? "和" : ""}
-                {installing ? `${installing.title} 的安装` : ""}完成后自动重启。{kept}什么都不会丢。
+                {installing ? `${installing.title.text} 的安装` : ""}完成后自动重启。{kept}什么都不会丢。
               </span>
             </button>
             <button className="rs-choice danger" data-tip="马上重启：正在算的任务会停下，重新提交要从头算" disabled={busy} onClick={() => void go("now")}>
               <b>立即重启</b>
               <span>
                 {running.length > 0 && `马上停下计算中的 ${running.length} 个任务：记为已取消，已经算完的节点留在缓存里，再算时从那里接着，没算完的那部分要重新算。`}
-                {installing && `${installing.title} 的安装中断，再点安装会接着装。`}
+                {installing && `${installing.title.text} 的安装中断，再点安装会接着装。`}
                 {kept}
               </span>
             </button>
@@ -126,7 +130,7 @@ export function RestartBanner() {
   return (
     <div className="adm-banner pending" role="status">
       <span>
-        {overview.pending.join("、")} 改了，重启服务后生效
+        {overview.pending.map((p) => p.label).join("、")} 改了，重启服务后生效
       </span>
       <Button tip="改过的设置要重启服务才生效：先看会影响哪些任务再决定" tone="primary" onClick={askRestart}>
         重启服务
@@ -135,8 +139,10 @@ export function RestartBanner() {
   );
 }
 
-/** Overlay shown while the server restarts or does not respond; reloads the page once it is back (at the new
- * address if the restart moved it). */
+/** Overlay shown while the server restarts or does not respond; reloads the page once it is back. A restart that
+ * moves the server (another port, HTTPS switched) cannot be followed from here: the page's own security policy
+ * (connect-src 'self', lab2shot/server/access.py) lets it ask nothing of another address, so the new address is
+ * given as a link to open once the server is up. */
 export function RestartVeil() {
   const { info, down, restarted } = useServer();
   const last = useRef<RestartState | null>(null);
@@ -158,17 +164,6 @@ export function RestartVeil() {
     if (restarted && !down) window.location.reload();
   }, [restarted, down]);
 
-  // Address changed: the old address will not respond again, so poll the new one (it responds even if the browser does not allow the page to read the response).
-  useEffect(() => {
-    if (!away || !moved) return;
-    return startPolling({
-      read: () => reachable(`${moved}/api/server`),
-      every: 1000,
-      until: () => true,
-      onValue: () => (window.location.href = `${moved}/admin`),
-    }).stop;
-  }, [away, moved]);
-
   if (!away) return null;
   const seconds = since ? Math.round((now - since) / 1000) : 0;
   const restarting = !!last.current;
@@ -178,13 +173,14 @@ export function RestartVeil() {
         <i className="spin big" />
         <h2>{restarting ? "正在重启…" : "连不上服务器"}</h2>
         <p>
-          {restarting ? "卸载常驻的模型、停止监听、重新启动，一般十几秒。回来后这一页自动刷新。" : "服务可能正在重启或已经停了。回来后这一页自动刷新。"}
+          {!restarting ? "服务可能正在重启或已经停了。回来后这一页自动刷新。"
+            : moved ? "卸载常驻的模型、停止监听、换到新地址重新启动，一般十几秒。原来的地址不会再回来，这一页不会自己刷新。"
+            : "卸载常驻的模型、停止监听、重新启动，一般十几秒。回来后这一页自动刷新。"}
           {seconds > 0 && ` 已等 ${seconds} 秒。`}
         </p>
         {moved && (
           <p>
-            重启后的地址是 <a href={`${moved}/admin`}>{moved}</a>
-            {seconds > 20 && "：一直没有跳过去的话，点这个地址（HTTPS 的证书要先装好）"}
+            重启后的地址是 <a href={`${moved}/admin`}>{moved}</a>：等十几秒服务起来以后点这个地址（HTTPS 的证书要先装好）
           </p>
         )}
         {!moved && seconds > 60 && <p className="rs-note">超过一分钟还没回来：到服务器上查看 lab2shot ui 的输出或服务日志 work/logs/lab2shot.log。</p>}

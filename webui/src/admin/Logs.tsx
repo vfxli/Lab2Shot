@@ -32,7 +32,7 @@ export function LogsSection() {
       lede={`最近 ${LINES} 行，最新的在最后：任务、上传、出错的请求、程序异常、管理员的操作，还有用户从网页「日志」里发来的内容。完整文件在服务器的 ${log?.file ?? "work/logs/lab2shot.log"}。`}
       actions={
         <>
-          <Button tip="日志多大换新文件、留几份、要不要详细日志，在「设置」的「存储与清理」里改" tone="ghost" onClick={() => go("settings")}>
+          <Button tip="日志多大换新文件、留几份、要不要详细日志，在「存储与视图」里改" tone="ghost" onClick={() => go("settings-storage")}>
             日志设置
           </Button>
           <Button tip="把显示的日志复制到剪贴板" tone="ghost" onClick={() => void copy()}>

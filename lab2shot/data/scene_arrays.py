@@ -1,4 +1,4 @@
-"""Scene arrays (worker SDK lab2shot_worker/scene_arrays.py: the layout) and Lab2Shot's packets, both ways, for every
+"""Scene arrays (lab2shot_shared/scene_arrays.py: the layout) and Lab2Shot's packets, both ways, for every
 format module read or written by its extension's worker:
 
 - items_to_packets: what a reader found, the items the user selected, as packets: centimetres, Y up, every parent

@@ -6,8 +6,9 @@ pass over a chunk of frames); this module does everything else:
 
     frames (every `step`-th, plus the last) -> model input size -> chunks of at most
     `max_frames` frames with overlap -> one forward pass per chunk -> chunks joined
-    by a similarity transform (Umeyama, scale included) fitted on the overlap frames'
-    3D points -> world = first frame's camera -> raw/ at the INPUT resolution.
+    by a similarity transform fitted on the overlap frames (recon.Stitcher: rotation
+    from their cameras, scale and translation from their 3D points), loops closed
+    when asked -> world = first frame's camera -> raw/ at the INPUT resolution.
 
 Outputs (raw/):
 
@@ -32,7 +33,7 @@ Outputs (raw/):
 These models take no mask input: they see the whole frame, moving people included,
 and nothing is taken out of the result afterwards. To reconstruct only part of the
 picture, black the rest out before the 「图像」 input (人物检测 → 人物框转遮罩 →
-图像相乘), where it is visible on the node graph.
+图像合成, multiplied), where it is visible on the node graph.
 """
 
 from __future__ import annotations
@@ -51,11 +52,11 @@ from . import MemoryBound, fail, progress, read_frame, recon, say
 from .frame_io import FrameReader
 from .run import Run
 
-PATCH = 14  # both models are ViT-L/14: input sides are multiples of 14
+PATCH = 14  # every model driven here is a ViT with 14 px patches: input sides are multiples of 14
 OVERLAP_FRACTION = 0.25  # chunk overlap for long shots (at least 2 frames)
 LOOP_WINDOW = 16  # frames on each side of a loop chunk (fewer when a chunk is shorter)
 LOOP_CHUNKS = "loop_chunks"  # the scratch folder in the job folder where chunks wait until loops are closed (then deleted)
-# what the memory grows with, when it runs out: 每段最多帧数, within every model's node ceiling (DA3 110, VGGT 130, Pi3 200)
+# what the memory grows with, when it runs out: 每段最多帧数, within every model's node ceiling (DA3 110, VGGT 130, Pi3 150)
 MAX_FRAMES = MemoryBound.parameter("max_frames", (100, 64, 32, 16, 8))
 
 
@@ -79,8 +80,8 @@ class Backend:
     confidence: str  # what the confidence numbers mean (result.json)
     models: list[str] = field(default_factory=list)
     licence: str = ""
-    # 这个模型自己预测的三维点图叫什么（上游符号名，写进 result.json）。非空 = infer() 会在
-    # Chunk.extra["points"] 里交出相机空间点图，驱动把它写进每帧的 npz；"" = 模型只出深度。
+    # The upstream name of the model's own 3D point map (written into result.json). Non-empty: infer() returns a
+    # camera-space point map in Chunk.extra["points"] and the driver writes it into every frame's npz; "": depth only.
     points: str = ""
 
 
@@ -113,7 +114,7 @@ def model_image(path: Path, w: int, h: int, pad_w: int, pad_h: int) -> np.ndarra
 
 
 def run(job_path: str, node: str, make_backend: Callable[[object], Backend]) -> None:
-    """`make_backend(job)` validates job.params["weights"] and loads the model."""
+    """`make_backend(job)` validates job.params["model"] and loads the model."""
     run = Run.start(job_path, node, node.split(".")[0])
     job, params = run.job, run.params
     step, resolution = params["step"], params["resolution"]

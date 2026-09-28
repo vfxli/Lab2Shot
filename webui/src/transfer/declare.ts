@@ -6,6 +6,7 @@ import { clientInfo } from "../platform/client";
 import { useUploads, type UploadTask } from "../state/uploads";
 import { rememberLocal } from "./local";
 import { cancelUpload, keepTask, patchTask, sendWith, sentHere } from "./uploads";
+import { randomId } from "../platform/randomId";
 
 /** 选择文件后的处理流程：此时不传输任何字节。选择图片时不上传、不显示计算中，
  * 直到下游确实需要且用户点击「计算」时才上传。
@@ -16,7 +17,7 @@ import { cancelUpload, keepTask, patchTask, sendWith, sentHere } from "./uploads
  * 2. 申报（`POST /api/uploads/declare`）：发送清单及第一个文件的前数十 KB。
  *    服务器使用其 `describe_file` 读取图层，并返回最终的引用；
  *    参数随即写入，节点上的端口随之出现，用户即可连线。若头部数据不足，服务器会返回所需的字节数，此处据此补发。
- * 3. 停留在 `picked`：字节仍在用户机器上，点击「计算」时才上传（`graph/actions.ts sendPicked`）。
+ * 3. 停留在 `picked`：字节仍在用户机器上，点击「计算」时才上传（`graph/apply.ts sendPicked`）。
  *
  * 本模块不自行计算该 id：服务器有同一公式（`lab2shot/transfer/uploads.py set_id`），
  * 且以服务器结果为准。网页预先推算没有收益，推算错误还需修正参数；一次申报往返仅数百字节。
@@ -29,8 +30,8 @@ import { cancelUpload, keepTask, patchTask, sendWith, sentHere } from "./uploads
  * abc / usd / fbx）。若不作区分，选择 `.usd` 后点击「选择…」将无法挑选层级，且会报出「上传的文件已经不在
  * 服务器上了」这一错误提示，而该文件实际从未上传。
  *
- * 超过 HASH_MAX 的大文件同样沿用旧流程：`crypto.subtle.digest` 需将整个文件读入内存，数 GB 的视频会导致
- * 浏览器崩溃。此时仍在选择后立即上传（服务器边接收边计算 sha），功能不受影响，只是无法省去这次上传。 */
+ * 超过 HASH_MAX 的大文件同样在选择后立即上传：`crypto.subtle.digest` 需将整个文件读入内存，数 GB 的视频会导致
+ * 浏览器崩溃。此时由服务器边接收边计算 sha，功能不受影响，只是无法省去这次上传。 */
 const HASH_MAX = 512 << 20; // 超过此大小的文件不在浏览器中计算指纹（需将整个文件读入内存）
 const HEAD_FIRST = 256 << 10; // 申报时首次发送的头部字节数（仅发送一次，取值偏大）
 const HASH_AT_ONCE = 4; // 同时读取的文件数
@@ -41,7 +42,7 @@ async function sha256(f: File): Promise<string> {
   return hex(await crypto.subtle.digest("SHA-256", await f.arrayBuffer()));
 }
 
-/** The page's action once an upload is declared (store.ts: writes the reference into the node's parameter). */
+/** The page's action once an upload is declared (graph/apply.ts: writes the reference into the node's parameter). */
 let declaredTo: ((t: UploadTask, ref: string) => void) | null = null;
 export const onDeclared = (f: typeof declaredTo) => void (declaredTo = f);
 
@@ -50,7 +51,7 @@ export function startUpload(item: Item, folder: string, target: { graph: string;
   const origin = [folder, item.name].filter(Boolean).join("/");
   // any upload in progress for this parameter is dropped (its parts stay on the server and resume if picked again)
   for (const t of Object.values(useUploads.getState().tasks)) if (t.node === target.node && t.param === target.param) cancelUpload(t.key, false);
-  const key = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
+  const key = randomId(8);
   // 以下两种情况在选择后立即上传：① 服务器必须获得完整文件才能处理该节点（`headEnough` 为假，
   // 见上方说明）；② 文件过大，浏览器无法计算内容指纹（HASH_MAX）
   const big = !headEnough || item.files.some((f) => f.size > HASH_MAX) || typeof crypto.subtle === "undefined";
@@ -117,7 +118,7 @@ const b64 = async (blob: Blob): Promise<string> => {
   return btoa(s);
 };
 
-/** 第 3 步：点击「计算」时上传字节（`graph/actions.ts sendPicked`）。上传完成后同样组装为一份输入
+/** 第 3 步：点击「计算」时上传字节（`graph/apply.ts sendPicked`）。上传完成后同样组装为一份输入
  * （`POST /api/uploads`，与申报得到的引用相同），因此下游无需任何修改。
  * 返回 false 表示上传失败（网络故障、服务器拒绝，或刷新后已无法访问文件）。 */
 export async function sendUpload(key: string): Promise<boolean> {

@@ -59,9 +59,10 @@ OFFLINE_POINT_BYTES = 81e3
 FNET_BYTES_PER_PIXEL = 443.0
 OFFLINE_MAX_WINDOW = 240
 OFFLINE_MIN_WINDOW = 48
-# 段与段只重叠一帧：上一段在这一帧上算出来的位置，就是下一段里这些点的查询点 (t, x, y)。
-# 上游 offline predictor 本身是整段一次、没有分段；这里只改喂数据的方式，不改模型里的任何一步
-#（不做多帧重叠的交叉淡化，也不替换 get_track_feat 之类的内部方法）。
+# Consecutive windows share one frame: the positions the previous window found on it are the
+# next window's query points (t, x, y). Upstream's offline predictor runs a clip in one go;
+# only the frames fed to it are cut into windows, the model itself is unchanged and
+# windows are not blended.
 OFFLINE_OVERLAP = 1
 OFFLINE_MAX_POINTS = 1536  # points per pass (joint attention); more points: several passes
 
@@ -120,8 +121,9 @@ def offline_sweep(model, video: pt.Frames, q_t: np.ndarray, q_xy: np.ndarray, su
                   window: int, device, tick) -> tuple:
     """Track points through `video` (processing order) window by window, forwards.
 
-    段与段只重叠一帧：上一段在这一帧上算出来的位置作为下一段的查询点 (t, x, y) 喂给上游 predictor；
-    模型内部不做任何改动，段间也不做混合。
+    Windows share one frame: the positions the previous window found on it are
+    fed to the upstream predictor as the next window's query points (t, x, y);
+    windows are not blended.
 
     Returns xy [N, F, 2] (model pixels, centre-at-integer), vis, conf [N, F]
     (probabilities) and start [N], the first frame each point has values for
@@ -141,7 +143,7 @@ def offline_sweep(model, video: pt.Frames, q_t: np.ndarray, q_xy: np.ndarray, su
             prev_end = e
             continue
         ov = max(0, prev_end - s)  # frames shared with the previous window (OFFLINE_OVERLAP)
-        # 续上的点：上一段在重叠帧上算出来的位置就是这一段的查询点，查询帧即重叠的那一帧
+        # carried points: their query is the previous window's position on the shared frame (frame 0 here)
         seed = xy[carried_ids, s] if len(carried_ids) else np.zeros((0, 2), np.float32)
         rows = [np.stack([q_t[fresh_ids] - s, q_xy[fresh_ids, 0], q_xy[fresh_ids, 1]], -1),
                 np.concatenate([np.zeros((len(carried_ids), 1)), seed], -1)]
@@ -156,11 +158,11 @@ def offline_sweep(model, video: pt.Frames, q_t: np.ndarray, q_xy: np.ndarray, su
         ids = np.concatenate([fresh_ids, carried_ids])
         m = len(ids)
         coords, v, c = coords[:m], v[:m], c[:m]
-        # 重叠帧上保留上一段的答案（续点的查询点就来自它），这一段从它之后接着写，不做混合
+        # the shared frame keeps the previous window's values (the carried queries come from them); this window writes after it
         for arr, new in ((xy, coords), (vis, v), (conf, c)):
             arr[ids, s + ov:e] = new[:, ov:]
             fresh = start[ids] < 0
-            if fresh.any():  # 这一段里第一次出现的点：重叠那一帧也归它
+            if fresh.any():  # points new in this window also take the shared frame
                 arr[ids[fresh], s:s + ov] = new[fresh, :ov]
         start[fresh_ids] = np.where(start[fresh_ids] >= 0, start[fresh_ids], s)
         tick(e - max(s, prev_end))

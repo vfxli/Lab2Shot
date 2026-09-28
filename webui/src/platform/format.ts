@@ -103,9 +103,6 @@ export const dayText = (t: number): string => at(t).toLocaleDateString("zh-CN", 
 /** 1001–1124 */
 export const rangeText = (first: number, last: number): string => `${first}–${last}`;
 
-/** 第 1001–1124 帧 */
-export const framesLabel = (first: number, last: number): string => `第 ${rangeText(first, last)} 帧`;
-
 /** 格式化点数或计数：一万以上以「万」、一亿以上以「亿」为单位，保留一位小数
  * （「30 万 / 100 万」比「300000」易读）。页面中所有点数的显示均须使用本函数，不得各处自行调用 toLocaleString。 */
 export function countText(n: number): string {

@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { api } from "../api";
 import { cardsApi, type CardNode, type CardRow, type CardsConsequences, type CardTier, type CardWaiting } from "../api/cards";
 import { usable, type MessageJson } from "../api/applies";
-import { reasonOf } from "../messages/message";
+import { MessageError, reasonOf } from "../messages/message";
 import { gbText } from "../platform/format";
 import { usePoll } from "../platform/poll";
 import { useSignedIn } from "../state/session";
@@ -17,10 +17,10 @@ import { Section, useAdmin } from "./common";
 /** 显卡 section. Artists never see or choose a card; this section gathers all card information for the
  * administrator and previews the effect of a change before applying it. It lists every card of this machine
  * (lab2shot/farm/cards.py view) with its load, running jobs, the GPU extensions assigned to it and why; the
- * parameter tiers and the cards that run them; waiting GPU jobs and whether any authorised card can run them;
- * and the measured VRAM of every GPU node. Switching a card first asks the server for the consequences
- * (cards/consequences) and applies the change only after confirmation. Permissions come from the server
- * (applies); the page performs no role checks. */
+ * hourly use of each card (GpuHours.tsx); the parameter tiers and the cards that run them; the GPU nodes waiting
+ * for a card and whether any authorised card can run them; and the VRAM recorded for every GPU node (measured or
+ * estimated). Switching a card first asks the server for the consequences (cards/consequences) and applies the change
+ * only after confirmation. Permissions come from the server (applies); the page performs no role checks. */
 
 const BUSY_GB = 2; // Memory (GB) held by other programs on a card with no Lab2Shot job above which the card is reported as in use (e.g. training or rendering).
 
@@ -47,15 +47,26 @@ export function CardsSection() {
       setBusy("");
     }
   };
+  // the full list the server is to hold: every card as it stands now, this one switched
+  const nextOf = (cards: CardRow[], card: CardRow, on: boolean) => cards.filter((c) => (c.uuid === card.uuid ? on : c.authorized)).map((c) => c.uuid);
   const ask = (card: CardRow, on: boolean) =>
     run(card.uuid, async () => {
-      const next = (data?.cards ?? []).filter((c) => (c.uuid === card.uuid ? on : c.authorized)).map((c) => c.uuid);
+      const next = nextOf(data?.cards ?? [], card, on);
       setAsking({ card, on, next, answer: await cardsApi.cardConsequences(next) });
     });
+  // The server takes the whole list. Read again at 确认: if another card was switched meanwhile (another administrator,
+  // the command line), the list asked about is stale and would switch that one back, so the consequences are asked
+  // again for the list as it is now instead of sending the old one.
   const apply = () =>
     asking &&
     run(asking.card.uuid, async () => {
-      await api.admin.authorize(asking.next);
+      const next = nextOf((await cardsApi.cards()).cards, asking.card, asking.on);
+      if ([...next].sort().join() !== [...asking.next].sort().join()) {
+        setAsking({ ...asking, next, answer: await cardsApi.cardConsequences(next) });
+        reload();
+        throw new MessageError("W-CARDS-CHANGED");
+      }
+      await api.admin.authorize(next);
       setAsking(null);
       reload();
       refreshQueue();
@@ -87,9 +98,10 @@ export function CardsSection() {
     },
   ];
   const waitingColumns: Column<CardWaiting>[] = [
-    { id: "title", label: "任务", tip: "排队的显卡任务", cell: (w) => <span data-user-data data-tip={w.title}>{w.title}</span> },
+    { id: "title", label: "任务", tip: "有显卡节点在等卡的任务", cell: (w) => <span data-user-data data-tip={w.title}>{w.title}</span> },
+    { id: "node", label: "节点", tip: "在等卡的显卡节点", cell: (w) => <span data-user-data data-tip={w.node}>{w.node}</span> },
     { id: "who", label: "提交者", tip: "谁提交的", cell: (w) => <span data-user-data data-tip={w.who}>{w.who}</span> },
-    { id: "vram", label: "显存", tip: "这个任务要的显存", cell: (w) => gbText(w.vram_gb), className: "tnum" },
+    { id: "vram", label: "显存", tip: "这个节点要的显存", cell: (w) => gbText(w.vram_gb), className: "tnum" },
     { id: "why", label: "在等什么", tip: "服务器说它为什么还没开始", cell: (w) => said(w.reason) || "轮到就开始" },
     {
       id: "ever",
@@ -121,7 +133,11 @@ export function CardsSection() {
         }
       >
         {data.cards.length > 0 && data.cards.every((c) => !c.authorized) && (
-          <div className="notice">还没有授权任何显卡：用到显卡的任务会一直排队。打开一张卡的开关，它就开始接任务。</div>
+          <div className="notice">
+            {/* what to do about it is what this login can do: switch a card on, or ask someone who may */}
+            还没有授权任何显卡：用到显卡的任务会一直排队。
+            {canSwitch ? "打开一张卡的开关，它就开始接任务。" : "这个登录改不了显卡的开关：请管理员打开一张卡，它就开始接任务。"}
+          </div>
         )}
         {data.cards.length ? (
           <div className="q-gpus">
@@ -158,8 +174,8 @@ export function CardsSection() {
           {(rows) => <Table rows={rows} columns={tierColumns} rowKey={(t) => t.id} empty="" />}
         </Folds>
       </Section>
-      <Section title="排队的显卡任务" lede="还没开始的显卡任务，它们在等什么，以及现在接任务的卡里有没有能跑它的。">
-        <Table rows={data.waiting} columns={waitingColumns} rowKey={(w) => w.job} empty="没有排队的显卡任务" />
+      <Section title="等卡的显卡节点" lede="任务里在等显卡的节点，它们在等什么，以及现在接任务的卡里有没有能跑它的。">
+        <Table rows={data.waiting} columns={waitingColumns} rowKey={(w) => `${w.job}-${w.node}`} empty="没有在等卡的显卡节点" />
       </Section>
       <Section title="节点显存" lede="每个用显卡的节点记下的显存：调度按它挑卡，参数档位也按它算。按扩展包折起来，每包一行写它最吃显存的节点。">
         <Folds
@@ -239,7 +255,7 @@ function CardTile({ card, busy, onToggle }: { card: CardRow; busy: boolean; onTo
       </div>
       <div className="q-gpu-job">
         {card.running
-          ? `正在算：${[card.running.who, card.running.title].filter(Boolean).join(" · ")}`
+          ? `正在算：${[card.running.who, card.running.title, card.running.node].filter(Boolean).join(" · ")}`
           : card.authorized
             ? "空闲"
             : "不接 Lab2Shot 的任务"}
@@ -250,7 +266,7 @@ function CardTile({ card, busy, onToggle }: { card: CardRow; busy: boolean; onTo
   );
 }
 
-/** Confirmation before switching a card: shows the server's description of the consequences, then 确定 or 取消. */
+/** Confirmation before switching a card: shows the server's description of the consequences, then 打开 / 关掉 or 取消. */
 function Consequences({ asking, busy, onApply, onClose }: { asking: { card: CardRow; on: boolean; answer: CardsConsequences }; busy: boolean; onApply: () => void; onClose: () => void }) {
   const { card, on, answer } = asking;
   const other = on && !card.running && card.load.used_gb > BUSY_GB;

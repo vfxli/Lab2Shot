@@ -11,9 +11,10 @@ Two stages, both in this one environment:
 Upstream drives both stages through `run.py` (a Lightning `predict`) and reads and writes the mesh with Blender
 (`bpy`, `src/data/extract.py`, `src/inference/merge.py`). Lab2Shot does neither: the mesh comes out of Lab2Shot's own USD
 packet and the skin goes back into it, so the original UVs, normals, subsets and materials survive
-(adapters/unirig/worker.py). Nothing in the pinned checkout is modified: the config tree `run.py` reads is built
-from symlinks next to it (codebase.py), and this adapter's `runner.py` is upstream's own predict path without the
-`bpy` import that `run.py` carries for its command-line mode.
+(adapters/unirig/worker.py). Nothing in the pinned checkout is modified: the tree `run.py` reads is composed in each
+job's own folder, `src` a symlink to the checkout and `configs` a copy with this adapter's overrides (codebase.py),
+and this adapter's `runner.py` is upstream's own predict path without the `bpy` import that `run.py` carries for its
+command-line mode.
 """
 
 from __future__ import annotations
@@ -48,13 +49,13 @@ class UniRig(Extension):
         summary=(
             "可商用。UniRig 自己的代码和两个权重都是 MIT（权重在 Hugging Face VAST-AI/UniRig，模型卡写明 MIT），"
             "训练数据是 Articulation-XL 2.0（从 Objaverse-XL 里筛出来的带骨骼模型）。"
-            "**要注意**：仓库里带的形状编码器 src/model/michelangelo 是 GPL-3.0（两个阶段都用它），"
+            "要注意：仓库里带的形状编码器 src/model/michelangelo 是 GPL-3.0（两个阶段都用它），"
             "Pointcept 点云 transformer 是 MIT。GPL-3.0 不限制拿结果去做商业镜头，限制的是再分发这份软件本身；"
             "Lab2Shot 只在本机运行、不分发它，所以交付物可以商用。"
             "其余依赖：spconv Apache-2.0、FlashAttention BSD-3-Clause、Open3D MIT、trimesh MIT"
         ),
     )
-    import_repo = None  # the worker puts the composed code base on sys.path itself (codebase.py), not the checkout
+    import_repo = None  # worker.py puts the composed tree (codebase.compose) on sys.path itself, not the checkout
     worker_modules = ("codebase.py", "runner.py")
     env = EnvSpec(
         python="3.11",  # upstream's own version; the only one with prebuilt flash_attn and torch_scatter wheels here
@@ -76,10 +77,10 @@ class UniRig(Extension):
     def worker_env(self) -> dict[str, str]:
         cache = self.paths.root / "cache"
         return {
-            # the composed tree lives next to the checkout; the worker cd's into a copy of it per job
+            # not read by worker.py, which composes its tree in each job's own folder (codebase.compose)
             "UNIRIG_CODE_BASE": str(self.paths.root / "codebase"),
-            # upstream writes its __pycache__ next to the source file, and every source file of the composed tree is a
-            # symlink into the pinned checkout, which must stay unmodified, including .pyc files
+            # upstream writes its __pycache__ next to the source file, and the composed tree's `src` is a symlink
+            # into the pinned checkout, which must stay unmodified, including .pyc files
             "PYTHONDONTWRITEBYTECODE": "1",
             "MPLBACKEND": "Agg",
             "WANDB_MODE": "offline",

@@ -25,7 +25,7 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 
-# 网页前端：依赖与构建产物（克隆后执行 `cd webui && npm install && npm run build`）
+# 网页前端：依赖与构建产物（克隆后执行 `cd webui && npm ci && npm run build`）
 node_modules/
 /webui/dist/
 
@@ -36,3 +36,6 @@ node_modules/
 
 # 分类文件（lab2shot/categories.py）最近一次修改前的版本：仅用于手动回退一步，不作为历史记录
 *.bak
+
+# 一键更新（./setup.sh update）覆盖受管文件之前，本地改动的原地副本：更新完可选择从它还原
+*.old

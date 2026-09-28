@@ -26,7 +26,7 @@ def log_file() -> Path:
 
 
 class WorkLogHandler(logging.Handler):
-    """Appends to the current work folder's log (resolved per record: tests and servers each use their own), by the
+    """Appends to the current work folder's log (resolved per record: each server uses its own), by the
     settings as they are now."""
 
     def filter(self, record: logging.LogRecord) -> bool:

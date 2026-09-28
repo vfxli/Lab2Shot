@@ -15,15 +15,14 @@ export type { CameraData, CharacterData, CharacterMeshData, CloudData, CloudSamp
  * furthest from the current frame are released and requested again when that frame is revisited). */
 
 import { Scene } from "./scene";
-// `memoryBytes`（一份场景可保留的逐帧数据字节上限）与 `Scene` 本身定义于 view/scene.ts，
-// 此处原样转出：三维画面的显示选项与之属于同一范畴
+// `memoryBytes`（一份场景可保留的逐帧数据字节上限）与 `Scene` 本身定义于 view/scene.ts，此处原样转出
 export { memoryBytes, Scene } from "./scene";
 
 /** 已查看的场景保存在页面唯一的缓存中（transfer/cache.ts），键为其地址，大小按基础数据计算。
  *
  * 不另建按个数淘汰的缓存：按个数保留时，两份大场景即占用两份 `memoryBytes` 的内存且不受约束；
  * 在多个节点间来回对比时又会丢弃整份场景，描述和基础数据都需重新下载。
- * 它与画面帧、包描述共用同一份预算和同一套 LRU：小场景可保留十余份，大场景在需要时才被释放。
+ * 它与已解码的画面帧共用解码层的预算和同一套 LRU：小场景可保留十余份，大场景在需要时才被释放。
  *
  * 重新获取一份场景需要一次网络往返加一次服务器重建（视图工作进程需重新读取 USD），是此处开销最大的操作。 */
 const SCENE_KEY = "3d:scene:";
@@ -44,8 +43,8 @@ function kept(key: string, load: () => Promise<Scene>): Promise<Scene> {
       size(s);
       // 解码或释放一块时占用的字节随之变化：同步报告给该预算，保留的场景数量才能按字节决定。
       // 若不报告，此处只按基础数据计算大小，便可保留任意多份场景，且每份各自持有整份内存预算（memoryBytes）
-      // 的逐帧样本，预算约束随之失效
-      s.subscribe(() => size(s));
+      // 的逐帧样本，预算约束随之失效。不作为订阅者登记：订阅者是正在绘制它的视图，失败的块只在有视图时重试
+      s.onBytes = () => size(s);
     },
     () => cache.get<Promise<Scene>>(at) === loading && cache.forget(at), // 获取失败的不记录：再次查看时重新尝试
   );
@@ -69,13 +68,13 @@ export const loadScene = (fp: string) => kept(fp, () => view(fp, api.sceneUrl(fp
  *
  * 与计算完成的结果使用同一套机制：同一个 Scene、同一条取块路径、同一个缓存、同一套删点策略。
  * 两处差异均在服务器端（view_data.partial_points_view）：有文件的帧为实时扫描，块为每帧一块。 */
-export const partialPointsKey = (job: string, node: string, port: string, camera: string | null) =>
+const partialPointsKey = (job: string, node: string, port: string, camera: string | null) =>
   `partial|${job}|${node}|${port}|${camera ?? ""}`;
 
 const partialPointsUrl = (job: string, node: string, port: string, camera: string | null) =>
   `/api/jobs/${job}/partial/${encodeURIComponent(node)}/${encodeURIComponent(port)}/points${camera ? `?camera=${camera}` : ""}`;
 
-export const loadPartialPoints = (job: string, node: string, port: string, camera: string | null) => {
+const loadPartialPoints = (job: string, node: string, port: string, camera: string | null) => {
   const key = partialPointsKey(job, node, port, camera);
   return kept(key, () => view(key, partialPointsUrl(job, node, port, camera)));
 };
@@ -84,7 +83,7 @@ export const loadPartialPoints = (job: string, node: string, port: string, camer
  *
  * 这些地址包含任务号和节点名而非内容地址，因此不能像计算完成的结果那样长期保留：
  * 同一节点再次计算时，地址相同而数据已更新。与二维的 `dropSource` 为同一操作、同一时机。 */
-export function forgetPartialPoints(job: string, node: string, port: string, camera: string | null): void {
+function forgetPartialPoints(job: string, node: string, port: string, camera: string | null): void {
   cache.forget(SCENE_KEY + partialPointsKey(job, node, port, camera));
   cache.forgetAll(PART_KEY + `/api/jobs/${job}/partial/${encodeURIComponent(node)}/${encodeURIComponent(port)}/points/`);
 }

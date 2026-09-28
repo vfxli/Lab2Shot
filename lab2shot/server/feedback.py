@@ -6,7 +6,6 @@ and deletes submissions."""
 
 from __future__ import annotations
 
-import json
 import os
 import platform
 import subprocess
@@ -19,7 +18,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from .routes import Access, Limit, Router
+from .routes import Access, Limit, Router, read_json
 from .. import __version__, feedback, logs
 from ..config import ROOT, machine_memory_gb
 from ..database import db
@@ -82,10 +81,7 @@ async def submit(request: Request) -> dict:
         body += chunk
         if len(body) > MAX_REQUEST:
             raise Invalid(Msg("E-FEEDBACK-REQUESTLIMIT", max=MAX_REQUEST >> 20))
-    try:
-        data = json.loads(body)
-    except ValueError:
-        raise Invalid(Msg("E-FEEDBACK-UNREADABLE")) from None
+    data = read_json(body)  # read here, not by FastAPI: the size is checked while it arrives
     if not isinstance(data, dict):
         raise Invalid(Msg("E-FEEDBACK-UNREADABLE"))
     declared = data.get("client") if isinstance(data.get("client"), dict) else {}

@@ -4,8 +4,8 @@ never imports Lab2Shot core.
 
     python worker.py <job.json>
 
-Node pixel3dmm.face, upstream's own five steps, called in this process instead of through
-its os.system scripts (scripts/run_preprocessing.py, network_inference.py, track.py):
+Node pixel3dmm.face, upstream's own five steps, each in a process of its own (steps.py), as its
+os.system scripts run them (scripts/run_preprocessing.py, network_inference.py, track.py):
 
   1. cropping    PIPNet's FaceBoxes detector on every frame -> ONE square crop box for the
                  whole shot (upstream's static_crop: the mean box, 1.42x), each frame
@@ -75,7 +75,6 @@ from lab2shot_worker import (
     progress,
     reason,
     save_npz,
-    say,
     serve,
     stage,
 )
@@ -84,8 +83,8 @@ from lab2shot_worker.run import Run
 
 from codebase import Layout
 
-# 三个档位：迭代次数和提前结束的阈值一起变（upstream configs/tracking.yaml 的 iters / global_iters /
-# early_stopping_delta）。节点只给这三档，不给随便填的数字
+# The three quality settings: iteration counts and the early-stopping threshold change together (upstream
+# configs/tracking.yaml iters / global_iters / early_stopping_delta). The node offers these three, no free numbers
 QUALITY = {
     "fast": {"iters": 100, "global_iters": 1500, "early_stopping_delta": 10.0},
     "standard": {"iters": 200, "global_iters": 5000, "early_stopping_delta": 5.0},  # upstream's defaults
@@ -391,8 +390,8 @@ def main(job_path: str) -> None:
         + np.array([rect[2], rect[0]])
 
     raw = Path(job.raw_dir)
-    # `solved`：真正解出来的那些帧（契约：lab2shot_worker/world_humans.py）。Pixel3DMM 逐帧拟合，
-    # 跟到哪几帧就交哪几帧（`numbers`），中间不补洞，所以和 frames 一样
+    # `solved`: the frames actually solved (contract: lab2shot_worker/world_humans.py). Pixel3DMM fits every
+    # frame of the shot or stops, so it is the same list as `frames`
     save_npz(raw / "person_01.npz", frames=np.asarray(numbers, np.int64), solved=np.asarray(numbers, np.int64),
              body_model=np.array("flame"), landmarks_2d=landmarks.astype(np.float32), **person)
     wh.save_camera(raw, numbers, focal_plate, principal_px=principal)
@@ -404,9 +403,6 @@ def main(job_path: str) -> None:
     for line in Path(os.environ["PIXEL3DMM_PEAKS"]).read_text(encoding="utf-8").splitlines():
         said = json.loads(line)
         peaks[said["step"]] = max(peaks.get(said["step"], 0), said["mb"])
-    off = float(np.hypot(principal[0] - width / 2, principal[1] - height / 2) / width)
-    if job.params.get("has_camera") and off > 0.02:
-        say("N-PIXEL3DMM-OFFCENTRE", percent=round(off * 100, 1))
     wh.write_humans(
         run, numbers, [{"name": "person_01_face", "file": "person_01.npz"}], None,
         body_model="flame",

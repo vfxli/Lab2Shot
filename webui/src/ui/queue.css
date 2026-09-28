@@ -1,5 +1,5 @@
 /* The queue, as the editor window and the admin page show it (ui/Queue.tsx, ui/QueueTables.tsx): the running job, the line
-   behind it and the deliveries a finished job left. The cards are ui/gpus.css, the waiting deliveries ui/deliveries.css. */
+   behind it and what a finished job's 「输出」 packed (its downloads). The cards are ui/gpus.css. */
 
 .q-eta {
   color: var(--text-2);
@@ -94,14 +94,14 @@
   margin: 0;
 }
 
-/* a finished job's deliveries: name, what became of it, a download */
-.q-deliveries {
+/* a finished job's outputs: the zip's name and its download */
+.q-outputs {
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
 
-.q-delivery {
+.q-output {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -114,9 +114,6 @@
   overflow: hidden;
   white-space: nowrap;
 }
-
-
-/* ------------------------------------------------------------------ the queue window's own rows */
 
 /* ------------------------------------------------------------------ queue (editor 队列 window and /admin) */
 
@@ -172,54 +169,12 @@
   color: var(--text-3);
 }
 
-/* 计算单元: a job of a 逐项处理 block says how many of its items are through, and how many cards it is on */
-.q-units {
-  color: var(--text-2);
-  white-space: nowrap;
-}
-
-/* 拖拽插队 (ui/rowDrag.ts)：管理员的队列每行左边一个手柄，能拖的可以抓，不能拖的变灰留在原位不跳 */
-.q-grip-cell {
-  width: 22px;
-  padding-right: 0;
-}
-
-.q-grip {
-  display: inline-block;
-  cursor: grab;
-  color: var(--text-3);
-  font-size: var(--fs-sm);
-  line-height: 1;
-  padding: 0 2px;
-  user-select: none;
-}
-
-.q-grip:hover {
-  color: var(--text);
-}
-
-.q-grip.off {
-  cursor: default;
-  opacity: 0.35;
-}
-
-.q-grip.off:hover {
-  color: var(--text-3);
-}
-
-.q-table tr.drag-over > td {
-  border-top: 1px dashed var(--text-3);
-}
-
-
 /* 一律不折行（结果那一列只是一个状态标记，列都排得下）；只有节点图的名字（用户自己的数据）
    放不下时省略号 + 悬停看全名。 */
 .q-table th,
 .q-table td {
   white-space: nowrap;
 }
-
-
 
 .q-out {
   display: inline-flex;
@@ -233,13 +188,8 @@
   color: var(--error-text);
 }
 
-.chip.q-ahead {
-  margin-left: 8px;
-  color: var(--text-2);
-}
-
 /* 节点图的名字是用户自己的数据：它带 data-user-data，切字和整句提示由 styles/01-user-data.css
-   一处统一管（uiKit 测试查的是选择器本身，页面不能自己再写一份省略号）。这里只给它一个宽度上限。 */
+   一处统一管（页面不能自己再写一份省略号）。这里只给它一个宽度上限。 */
 .q-table td .q-title[data-user-data] {
   display: inline-block;
   /* 放不下时由它让位（只有用户的数据可以截断，悬停看全名），表格不冒横向滚动条。 */

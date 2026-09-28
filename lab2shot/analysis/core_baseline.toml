@@ -2,15 +2,15 @@
 # 契约检查、用法检查、手柄、作用域和特例，和这里比。数变多了就是核心在长，要有意为之：改这里的数，
 # 并在 reason 里写一句为什么。
 
-reason = "核心概念的当前基线：数据类型、核心节点、家族、控件、契约检查、用法检查、手柄、作用域、特例各有多少"
+reason = "数据类型 20、控件 13、特例 12：12 个特例都是镜头畸变模型按来源命名的约定（COLMAP 的相机模型、AnyCalib、GeoCalib），在 data/lens_models.py、data/values.py、nodes/core/lens_distortion.py、nodes/lens.py；要把它们挪出核心时再改这里"
 
 [concepts]
-types = 19
+types = 20
 core_nodes = 82
 families = 11
-widgets = 16
-contracts = 9
+widgets = 13
+contracts = 2
 expects = 11
 handles = 7
 scopes = 1
-special_cases = 0
+special_cases = 12

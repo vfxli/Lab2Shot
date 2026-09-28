@@ -16,11 +16,6 @@
    "target": "read.path"
   },
   {
-   "name": "output",
-   "label": "保存到",
-   "target": "deliver.path"
-  },
-  {
    "name": "format",
    "label": "格式",
    "target": "out.format"
@@ -94,16 +89,10 @@
    "id": "deliver",
    "type": "core.output",
    "label": "输出",
-   "params": {
-    "mode": "tar",
-    "path": ""
-   },
+   "params": {},
    "ui": {
     "x": 980,
-    "y": 0,
-    "on_node": [
-     "mode"
-    ]
+    "y": 0
    }
   }
  ],

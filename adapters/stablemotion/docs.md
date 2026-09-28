@@ -39,7 +39,7 @@ StableMotion 是一套训练动捕清理模型的方法：动捕数据常因为�
 
 ## 在 Lab2Shot 里怎么用
 
-- 典型接法：「导入 FBX」（动捕棚交来的 take）→ **StableMotion 动捕清理** →「FBX 输出设置」→「输出」。模板「动捕清理 · StableMotion」就是这套；问题帧那条曲线一起交出去（`broken_frames_ML_StableMotion`）。
+- 典型接法：「导入 FBX」（动捕棚交来的 take）→ **StableMotion 动捕清理** →「FBX 输出设置」→「输出」。模板「动捕清理 · StableMotion」就是这套；问题帧那条曲线一起交出去（`broken_frames_ML_Lab2Shot_StableMotion`）。
 - **只改问题帧**（默认开）：模型判好的帧，动画一帧不动，只重画判坏的那些，前后各 3 帧平滑过渡。这是官方自己的流程，也是动画师要的——干净的表演不该被模型重写一遍。想看模型眼里这段动作「应该」是什么样，就关掉它。
 - **检测阈值**：先看「问题帧」这条曲线再调。调低多修一些（连轻微的抖动一起），调高只修最明显的。
 - **质量**：「基本」是官方 README 的第一条命令（检测一遍、修一遍）；「增强」是第二条（多次采样定问题帧、多采几版按脚滑挑最好的一版、去噪时加脚锁引导），论文主结果用的就是增强档，慢很多。先用基本档，修不干净再换。
@@ -78,7 +78,7 @@ StableMotion 是一套训练动捕清理模型的方法：动捕数据常因为�
 ## 模型下载和安装
 
 - 自动安装：`lab2shot ext install stablemotion`。
-- **权重要自己下载一次**（程序下不了）：作者把 `stablemotion_ckpt_seed3407.tar.gz`（270 MB）放在 OneDrive 网盘，要浏览器点过才给文件。到仓库 README 的「Pretrained Checkpoint」那一节点那个链接，下载好的文件**原样**放进 Lab2Shot 的 `downloads` 文件夹（不用解压、不用改名），帮助页的「手动下载」会认出它并装好。
+- **权重要自己下载一次**（程序下不了）：作者把 `stablemotion_ckpt_seed3407.tar.gz`（270 MB）放在 OneDrive 网盘，要浏览器点过才给文件。到仓库 README 的「Pretrained Checkpoint」那一节点那个链接，下载好的文件**原样**放进 Lab2Shot 的 `downloads` 文件夹（不用解压、不用改名），后台管理页「扩展包」里的「手动下载」会认出它并装好。
 - 模型的**归一化统计量**（`mean.pt` / `std.pt`）就在上游仓库里，随代码一起检出，不另外下载任何东西。
 - 磁盘：仓库 13 MB + 权重 145 MB + 环境约 6 GB。
 

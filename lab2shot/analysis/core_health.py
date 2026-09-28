@@ -25,7 +25,6 @@ import time
 import tokenize
 import tomllib
 from collections import defaultdict
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -157,9 +156,8 @@ def concepts(files: dict[str, str], special: int | None = None) -> dict[str, int
 
 
 # Files exempt from the special-case check: the manual-downloads registry, which names user-supplied assets (body
-# models, the SDK a format module builds on) by design, and help.py, whose licence notices (版权与许可声明) must
-# reproduce the wording each licence requires, including third-party names.
-REGISTRIES = {"lab2shot/extensions/manual.py", "lab2shot/server/help.py"}
+# models, the SDK a format module builds on) by design.
+REGISTRIES = {"lab2shot/extensions/manual.py"}
 
 
 def extension_formats(files: dict[str, str]) -> set[str]:
@@ -169,7 +167,7 @@ def extension_formats(files: dict[str, str]) -> set[str]:
 
 
 def special_cases(files: dict[str, str], settings: CoreSettings) -> list[dict]:
-    """Find places in the core's code (lab2shot/, excluding this analysis and the benchmarks) that name a third-party
+    """Find places in the core's code (lab2shot/, excluding this analysis and the REGISTRIES files) that name a third-party
     project, one of its node types, or a format only an extension handles, either in a string literal or in an
     identifier. Comments and docstrings are ignored; each line is reported at most once."""
     projects = _projects(files)
@@ -179,7 +177,7 @@ def special_cases(files: dict[str, str], settings: CoreSettings) -> list[dict]:
     formats = extension_formats(files)
     hits: dict[tuple[str, int], list[str]] = {}
     for path, text in sorted(files.items()):
-        if not path.startswith("lab2shot/") or not path.endswith(".py") or path.startswith(("lab2shot/analysis/", "lab2shot/bench/")) or path in REGISTRIES:
+        if not path.startswith("lab2shot/") or not path.endswith(".py") or path.startswith("lab2shot/analysis/") or path in REGISTRIES:
             continue
         for kind, value, line in _code_tokens(text):
             if kind == tokenize.STRING:
@@ -451,7 +449,7 @@ def measure(settings: CoreSettings, cache_file: Path | None = None) -> Health:
 
 
 def concept_count(counts: dict[str, int]) -> int:
-    """Return the total concept count, excluding special cases (which are a test gate, not a concept)."""
+    """Return the total concept count, excluding special cases (held to their target of 0, not a concept)."""
     return sum(v for k, v in counts.items() if k != "special_cases")
 
 

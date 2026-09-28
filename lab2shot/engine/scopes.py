@@ -1,9 +1,8 @@
 """Scopes and node instances. This module is the single place where the rules of a 逐项处理 block are derived, from
 the graph alone; they are never stored in the graph file and never recomputed by a page.
 
-A scope is one block: `Scope(kind, name, begin, ends, members, parent)`. In this version `kind` is always "each"
-(SCOPE_KINDS; subnets are intended as a further kind). The rules (`rules(graph)`, stored on the Graph as
-`graph.scopes`):
+A scope is one block: `Scope(kind, name, begin, ends, members, parent)`. `kind` is "each", the one kind in
+SCOPE_KINDS. The rules (`rules(graph)`, stored on the Graph as `graph.scopes`):
 1. Pairing: a node declaring a scope begin pairs with the nodes declaring a scope end by kind and block name (a
    parameter); exactly one begin and at least one end. Any other configuration is B-EACH-UNPAIRED on that node.
 2. Members: the begin and every node reachable downstream from its outputs, stopping at the scope's ends. The ends
@@ -25,20 +24,20 @@ items holding the same data under different names are distinct instances.
 
 Declarations on node types (implemented by the nodes in nodes/core/flow.py). The engine reads these class attributes
 and class methods; nodes/base.py does not reference them:
-- ScopeBegin: `scope_role = "begin"`, `scope_kind`, `scope_name(params)`, `item_input` (the input port supplying the
+- a block's begin: `scope_role = "begin"`, `scope_kind`, `scope_name(params)`, `item_input` (the input port supplying the
   items), `item_output` (the output port that yields the item itself; its packet is the item's packet and is never
   rewritten), `scope_items(params, packet)` (the items of the packet wired into `item_input`, in order),
   `item_outputs(params, item, list_packet)` (the remaining outputs: port -> (packet fingerprint, value)). A begin
   instance is cooked like any other node with `CookContext.item` set (an ItemAt) and writes those outputs. Each output
-  is addressed by what it depends on (`port_fp`): 名字 = (the item's packet, the port), 序号 = (the item's packet, the
-  port, the index), 总数 = (the list's packet, the port). Adding an item therefore never re-cooks existing items, while
-  moving an item gives its 序号 a different packet. Outputs not taken by any wire are not written
+  is addressed by what it depends on (data/items.py `port_fp`): 名字 = (the item's packet, the port), 序号 = (the
+  item's packet, the port, the index), 总数 = (the list's packet, the port). Adding an item therefore never re-cooks
+  existing items, while moving an item gives its 序号 a different packet. Outputs not taken by any wire are not written
   (Evaluation.needed_outputs, CookContext.wanted).
-- ScopeEnd: `scope_role = "end"`, `scope_kind`, `scope_name(params)`. An end instance receives, on each input, the
+- a block's end: `scope_role = "end"`, `scope_kind`, `scope_name(params)`. An end instance receives, on each input, the
   packets of the items that have a result, item by item (wire by wire within an item), and `CookContext.items`
   (ItemAt, in the same order). An item whose result on any input failed or was skipped is omitted and reported
   (W-EACH-FAILED); when no items remain, the end is skipped.
-- Chooses (a switch): `condition_input` (the input port whose value makes the choice) and
+- a switch: `condition_input` (the input port whose value makes the choice) and
   `chosen_inputs(params, condition_packet) -> the input ports it needs`. It is called only once the condition is
   known; until then the instance is pending on it. Unchosen inputs are treated as unwired: nothing upstream of them is
   planned, cooked, failed or skipped on this instance's behalf, and a node needed only by them is "unused".
@@ -74,13 +73,11 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, Protocol
+from typing import TYPE_CHECKING, Any, NamedTuple
 
-from ..data.items import Item, port_fp  # noqa: F401 (part of the protocol; defined in the data layer so nodes can implement it)
 from ..messages import Msg
 
 if TYPE_CHECKING:
-    from ..data.packet import Packet
     from .graph import Graph
 
 SCOPE_KINDS = ("each",)  # available scope kinds (counted by core_health); subnets are intended as the next kind
@@ -123,37 +120,6 @@ class Pending:
 
 
 # ------------------------------------------------------------------ node type declarations
-
-
-class ScopeBegin(Protocol):
-    scope_role: ClassVar[str]  # "begin"
-    scope_kind: ClassVar[str]
-    item_input: ClassVar[str]
-    item_output: ClassVar[str]
-
-    @classmethod
-    def scope_name(cls, params: dict) -> str: ...
-
-    @classmethod
-    def scope_items(cls, params: dict, packet: Packet) -> list[Item]: ...
-
-    @classmethod
-    def item_outputs(cls, params: dict, item: ItemAt, list_packet: str) -> dict[str, tuple[str, Any]]: ...
-
-
-class ScopeEnd(Protocol):
-    scope_role: ClassVar[str]  # "end"
-    scope_kind: ClassVar[str]
-
-    @classmethod
-    def scope_name(cls, params: dict) -> str: ...
-
-
-class Chooses(Protocol):
-    condition_input: ClassVar[str]
-
-    @classmethod
-    def chosen_inputs(cls, params: dict, condition: Packet) -> frozenset[str]: ...
 
 
 def role(node_type: Any) -> str:

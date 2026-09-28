@@ -1,25 +1,25 @@
 import { create } from "zustand";
 import type { Dir } from "../model/timelineMath";
+import { randomId } from "../platform/randomId";
 
 export { useView2D, useView2DNav } from "./view2d";
 export type { Nav2D, View2D, ViewSlot } from "./view2d";
 export { VIEW_NAMES, useCurveView, useRulerView, useStageNotes, useStagePicture, useViewCamera, useViewLoads, useViewOptions, useViewerNote } from "./viewTools";
 export type { FrameWindow, ViewName } from "./viewTools";
 
-/** 视图: everything that belongs to the browser tab looking at the document, never the document itself — switching
- * which node is displayed, panning the 2D view, tumbling the 3D camera, picking a matte mode, opening a menu, the
- * 「消息」 panel. None of it is undoable, none of it is sent to the server, none of it makes state/results.ts stop
+/** 视图: everything that belongs to the browser tab looking at the document, never the document itself — selecting a
+ * node, panning the 2D view, tumbling the 3D camera, picking the 2D view's mode, opening a menu, the log. None of it is undoable, none of it is sent to the server, none of it makes state/results.ts stop
  * trusting a result, and nothing here has a `version`: nothing here decides whether anything else is stale. Only the
  * display options are kept (in localStorage); everything else resets when the tab closes.
  *
  * This file gathers the viewer's zustand stores (the 2D view and the display-option stores are re-exported from
- * view2d.ts and viewTools.ts) and the viewer fields: selection, the panel's tab, menus, the 「消息」 panel, playback,
+ * view2d.ts and viewTools.ts) and the viewer fields: selection, menus, playback,
  * expanded nodes, the parameter panel's flash, where a new node should pan the view, the templates and log sheets,
  * and this tab's editing role. `canvas` is the node editor's own per-id ephemera (selected/dragging/measured): xyflow
  * needs them, but they are no more part of the undoable document than a mouse hovering over a node is, so they are
  * kept apart from position and params and history.ts does not count them. */
 
-export interface Reveal {
+interface Reveal {
   node: string;
   param: string;
   focus: boolean;
@@ -32,7 +32,7 @@ export interface LooseWire {
   side: "source" | "target";
 }
 
-export interface CanvasNode {
+interface CanvasNode {
   selected?: boolean;
   dragging?: boolean;
   measured?: { width?: number; height?: number };
@@ -126,7 +126,7 @@ export const useViewer = create<State>((set, get) => ({
   fps: 24,
   loads: 0,
 
-  docId: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  docId: randomId(),
   role: "editor",
   peerBanner: null,
   file: null,
@@ -166,7 +166,7 @@ export const useViewer = create<State>((set, get) => ({
       // xyflow reports a "dimensions" NodeChange (ResizeObserver) each time a node's box is (re)measured, sometimes
       // repeatedly for the same, unchanged size; without this equality check, an identical measurement (same
       // width/height, in a freshly allocated object) would still replace `canvas` with a new object, which
-      // graph/index.ts's composed node array would treat as new node content, needlessly rebuilding and
+      // editor/NodeEditor.tsx's `liveNodes` would treat as new node content, needlessly rebuilding and
       // re-measuring. Compared field by field, `measured` by its width/height rather than object identity.
       const same =
         !!before &&

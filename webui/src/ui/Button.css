@@ -1,6 +1,6 @@
-/* The page's buttons and icon buttons (ui/Button.tsx). Only this file styles them: a page places them (layout), never sizes or colours them (webui/tests/uiKit.test.ts). Every value
+/* The page's buttons and icon buttons (ui/Button.tsx). Only this file styles them: a page places them (layout), never sizes or colours them. Every value
    is a token (ui/tokens.css). The kit's other small controls — the segmented control, the switch, the chip, the key cap
-   — are ui/parts.css: the login page shows none of them, and what the gate loads is capped (tests/bundle.test.ts). */
+   — are ui/parts.css: the login page shows none of them, and what the gate loads is kept small. */
 
 .btn {
   height: 28px;
@@ -49,8 +49,17 @@ a.btn {
   font-weight: 600;
 }
 
-.btn.primary:hover {
+.btn.primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent-fill) 82%, var(--accent));
+}
+
+/* a primary that cannot be used yet (提交 before there is a graph, 改密码 before both fields are filled): the fill
+   drops to a dim tint of the accent so it plainly is not ready, and the words stay readable on it, since they are
+   still what the button will do. The generic half-transparency below would leave grey on half-blue, unreadable. */
+.btn.primary:disabled {
+  opacity: 1;
+  background: color-mix(in srgb, var(--accent-fill) 22%, var(--panel));
+  color: var(--text-2);
 }
 
 .btn.primary:active:not(:disabled) {
@@ -120,8 +129,7 @@ a.btn {
   font-size: var(--fs-xs);
 }
 
-/* 节点底行那一条线正好 16 px（.gnode-foot line-height），里面的每一样东西都要装得下，否则被裁
-   （tests/ui/walk_templates.py 会量）。xs（20 px）放进去会让底行超高，所以零件自己多一档；
+/* 节点底行那一条线正好 16 px（.gnode-foot line-height），里面的每一样东西都要装得下，否则被裁。xs（20 px）放进去会让底行超高，所以零件自己多一档；
    页面只做布局，不在页面里改零件的高度 */
 .btn.xxs {
   height: 16px;

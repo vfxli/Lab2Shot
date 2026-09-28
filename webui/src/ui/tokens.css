@@ -1,14 +1,13 @@
 /* Lab2Shot's design tokens — the one place a colour, a space, a radius, a type size or a layer is a value.
- Components and pages use var(--…) only;
- webui/tests/uiKit.test.ts counts the values written anywhere else. Canvas and WebGL code that needs numbers reads
- platform/palette.ts, checked against these by the same test.
+ Components and pages use var(--…) only. Canvas and WebGL code that needs numbers reads platform/palette.ts, whose
+ values must match these.
 
  Three rules the values carry:
  - what is docked is solid (--window … --lifted-2, --field-bg), only what floats is glass (--glass-*);
  - colour says two things: a state (--green 完成, --orange 警告, --error 错误, --production-risk 生产风险,
    --accent 选中和信息) and a data type (the wire colours, api/catalog.ts, fixed after release); everything else is
    a neutral grey with a cold cast;
- - sizes sit on a 4 px grid, the type scale has five steps, the radii four. */
+ - spacing sits on a 4 px grid; type sizes and radii are the short fixed scales below. */
 
 @import "./fonts.css";
 
@@ -166,7 +165,7 @@
   --sp-5: 24px;
 
   /* layers, lowest first: marks over the viewer, controls over the canvas, a popover, a sheet over the page, the menu
-     it opened, the unsaved-delivery notice, the restart veil, the server banner, the login over the page, the tooltip.
+     it opened, the restart veil, the server banner, the login over the page, the tooltip.
      菜单在弹窗之上：Menu 挂在 document.body 上（portal），弹窗里点开的下拉如果排在弹窗下面，就被遮罩挡住点不开。
      菜单是开它的那一层开的，永远压在它上面。 */
   --z-under: -1;
@@ -178,7 +177,6 @@
   --z-popover: 40;
   --z-sheet: 60;
   --z-menu: 70; /* 弹窗里开的菜单要压在弹窗上（上面那段） */
-  --z-notice: 85;
   --z-veil: 900;
   --z-server-banner: 950;
   --z-login: 990;
@@ -197,7 +195,7 @@
 }
 
 /* the two design values the editor's own surfaces add. The sizes a node has (title row 26, port row 16, port dot 8, the 3 px category bar) are geometry, not design
-   values, and stay in editor/styles/08-node-graph.css beside the shape they make. */
+   values, and stay in editor/styles/08a-node.css beside the shape they make. */
 :root {
   --fs-2xs: 10.5px; /* below --fs-xs: a node's footer, its state word, a block's title */
   --r-node: 8px;

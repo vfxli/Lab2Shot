@@ -1,6 +1,6 @@
 """Composing the tree a pinned checkout's own scripts expect, **beside** it, out of symlinks.
 
-原始仓库永远不改：several upstream installers clone extra repositories *into* their checkout,
+Several upstream installers clone extra repositories *into* their checkout,
 copy replacement files over its files, download weights into it and compile C extensions in
 place. Lab2Shot never writes into a pinned checkout, so the tree they expect is built next to
 it: every entry is a symlink to the original, and only the folders that must hold something

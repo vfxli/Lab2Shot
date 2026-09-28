@@ -3,23 +3,31 @@
 Every user logs in with an account. Each account has a role (lab2shot/roles.py: 管理员, 二级管理员, 普通用户), which
 determines what it may do beyond the editor. The built-in administrator account (admin, ADMIN_ID; it has no password
 until one is set with `./setup.sh`) is always 管理员. The 管理员 and 二级管理员 create other accounts on the admin page
-(用户). Each account has a username; a password initially set by the administrator (the user may change it by
-supplying the old one); a Chinese name and a department (setting people.departments, used by the statistics); an
-expiry date (after which login is refused and live sessions end immediately; the administrator can extend it); an
-enabled flag; and the tags of what it may use (nodes/tags.py: 可商用 unless the administrator grants more). A user sees
-only their own jobs, deliveries, uploads, results and feedback (server/access.py); the administrator sees everything.
+(用户); while 开放注册 is on, people also make their own on the login page (lab2shot/registration.py), through the
+same create() and with the same checks. Each account has a username; a password initially set by the administrator
+(the user may change it by supplying the old one); a Chinese name and a 环节 (setting people.departments, used by the
+statistics); an expiry date (after which login is refused and live sessions end immediately; the administrator can
+extend it); an enabled flag; and the tags of what it may use (nodes/tags.py: 可商用 unless the administrator grants
+more). A user sees only their own jobs, outputs, uploads, results and feedback (server/access.py); the administrator
+sees everything.
 
-Each account may be online in only one place per kind; the admin page reports whether an account is online, never a
-raw session count. A new login of kind "web" (a browser) or "client" (a DCC plugin or `lab2shot login`) immediately
-ends every other session of the same account and kind (start()). The displaced page learns this on its next request
+Each account may be logged in in only one place per kind. 在线 means real presence, not a live login: the server keeps
+in memory when each web/client session last made a request (session(), on every request; nothing is written for
+it), and a session that made one within ONLINE_S is online (presence()). An open page always makes one at least once a
+minute (its poll of the server's state), so a page left open counts and a closed one drops out within ONLINE_S. After
+a restart that memory is empty, and the last activity shown falls back to sessions.seen (written at most every
+SEEN_EVERY_S) and the last login. The admin page reports this per account, never a raw session count.
+
+A new login of kind "web" (a browser) or "client" (a DCC plugin or `lab2shot login`) immediately ends every other
+session of the same account and kind (start()). The displaced page learns this on its next request
 (a 401 stating when, from where and from which device the new login came: server/access.py, server/auth.py) and
 offers 重新登录, which in turn displaces the newer session. The machine token (kind "machine") is exempt and never
-counts as online.
+counts as online, nor as anyone's activity.
 
-Stored in the database (migration 6); passwords are kept only as salted slow hashes (scrypt), never in plaintext:
+Stored in the database (database/schema.py); passwords are kept only as salted slow hashes (scrypt), never in plaintext:
 
     users       the accounts; a deleted account row remains (its jobs appear in the statistics as 「已删除的用户」)
-                and its username becomes available again
+                and keeps its username: nobody can take it until the account is purged (create)
     sessions    the credential a browser (a cookie), a client (DCC plugin or command line: a token in ~/.lab2shot/)
                 or the command line on this machine (kind "machine": machine_token) holds after login, stored as its
                 sha256 only. A session lasts SESSION_S (TOKEN_S for a client) from its last use; a machine-token
@@ -29,7 +37,8 @@ Stored in the database (migration 6); passwords are kept only as salted slow has
                 by a later login of the same account is kept for a while with `replaced_at`/`replaced_by`, which the
                 displaced page reads, and then removed (prune_logins)
     login_log   every login attempt (successful or not, with the reason), for the 用户 page's 最近登录; kept for
-                LOGIN_LOG_KEPT_S, then removed (prune_logins, the queue's tidy)
+                LOGIN_LOG_KEPT_S, then removed (prune_logins, the queue's tidy); of the failed ones only the newest
+                FAILED_KEPT per account, and of usernames that are no account (log_login)
     meta        the 口令 (recovery for the administrator's password; set only by `lab2shot admin passphrase` on
                 this machine)
 
@@ -54,8 +63,9 @@ from .database import db, json_of, json_text
 from .errors import Invalid, NotFound
 from .messages import Msg
 from .nodes import tags as node_tags
+from .periods import Periods, local_day
 
-ADMIN_ID = 1  # migration 5 creates the administrator's account first; legacy records are attributed to it
+ADMIN_ID = 1  # the baseline migration creates the administrator's account first (database/schema.py)
 ADMIN_NAME = "admin"  # the built-in administrator's username on a new installation
 DELETED = "已删除的用户"  # label under which a deleted account's jobs are counted
 
@@ -64,11 +74,17 @@ SESSION_S = 30 * 86400  # a browser stays logged in this long after its last use
 TOKEN_S = 180 * 86400  # the same for a DCC plugin or the command line
 ADMIN_S = 3 * 86400  # duration of administrator rights on a browser, from password entry
 SEEN_EVERY_S = 600  # a session's last use is written at most this often
+# 在线: a web/client session that made a request within this many seconds (presence()). An open page asks the server
+# at least once a minute (the editor's /api/load poll, webui/src/editor/Chrome.tsx, backs off to 60 s at most; a page
+# without it polls webui/src/state/server.ts, which then does the same), so the window is that minute plus room for a
+# slow answer; a tab the browser hides stops asking and drops out.
+ONLINE_S = 90
 MACHINE_S = 7 * 86400  # lifetime of a machine-token session from creation
 MACHINE_ROTATE_S = 86400  # a machine token older than this is replaced on request (the old one ends immediately)
 MACHINE_FILE = "auth/machine-token"  # plaintext token under the work folder, mode 0600, never in the database
 
 LOGIN_LOG_KEPT_S = 180 * 86400  # login_log entries older than this are removed (prune_logins, the queue's tidy)
+FAILED_KEPT = 1000  # failed attempts kept in login_log per account, and for usernames that are no account (log_login)
 ENDED_LOGGED = 20  # at most this many displaced sessions are listed in one login_log row
 REPLACED_KEPT_S = 86400  # retention of a displaced session row (its notice) or a lapsed one
 
@@ -93,7 +109,7 @@ _NAME = re.compile(rf"^[{_HAN}]+(·[{_HAN}]+)*$")
 
 
 def now() -> float:
-    """The clock for accounts, sessions and expiry (tests replace it)."""
+    """The clock for accounts, sessions, registrations and expiry."""
     return time.time()
 
 
@@ -270,7 +286,7 @@ class User:
         administrator account without a password) and `state_tip`."""
         problem = self.usable_now()
         state = "未设密码" if self.no_password else problem.text if problem else "可以用"
-        tip = "还没设密码：在服务器上执行 ./setup.sh，选「管理员密码」" if self.no_password else state
+        tip = "还没设密码：在服务器上执行 ./setup.sh，选「账号与安全 → 设置管理员密码」" if self.no_password else state
         return {**self.public(), "owner": self.owner, "all_nodes": self.allowed is None, "enabled": self.enabled, "deleted": self.deleted, "created": self.created,
                 "last_login": self.last_login, "password_set": self.password_set, "password_by": self.password_by,
                 "no_password": self.no_password, "usable_now": problem is None, "state": state, "state_tip": tip}
@@ -301,20 +317,20 @@ def by_username(username: str) -> User | None:
 
 
 def listing() -> list[dict]:
-    """Every account (deleted ones last), each with its job count, its last job and whether it is online now (in a
-    browser, a client, both or neither; never a raw session count). The username on the 用户 page opens 最近登录 for
-    details."""
+    """Every account (deleted ones last), each with its job count, its last job and its presence (presence(): where
+    it is online now, a request within ONLINE_S, and otherwise when and where it was last active; never a raw session
+    count). The username on the 用户 page opens 最近登录 for details."""
     rows = db().rows("""
         SELECT u.*, (SELECT COUNT(*) FROM jobs j WHERE j.user_id = u.id) AS jobs,
-               (SELECT MAX(submitted) FROM jobs j WHERE j.user_id = u.id) AS last_job,
-               (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.kind = 'web' AND s.expires > ? AND s.replaced_at IS NULL) AS web,
-               (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.kind = 'client' AND s.expires > ? AND s.replaced_at IS NULL) AS client
-        FROM users u ORDER BY u.deleted IS NOT NULL, CASE u.role WHEN 'admin' THEN 0 WHEN 'deputy' THEN 1 ELSE 2 END, u.created""", (now(), now()))
+               (SELECT MAX(submitted) FROM jobs j WHERE j.user_id = u.id) AS last_job
+        FROM users u ORDER BY u.deleted IS NOT NULL, CASE u.role WHEN 'admin' THEN 0 WHEN 'deputy' THEN 1 ELSE 2 END, u.created""")
+    here = presence()
+    nobody = {"online": [], "active": None, "where": None}
     return [{**_user(r).full(), "jobs": r["jobs"], "last_job": r["last_job"],
              # the account's own disk quota (None: the default from the settings). Usage requires a disk scan and is
              # requested separately by the detail page (server/quota.py)
              "quota_gb": r["quota_gb"],
-             "online": {"browser": bool(r["web"]), "client": bool(r["client"])}} for r in rows]
+             "presence": here.get(r["id"], nobody)} for r in rows]
 
 
 def create(username: str, password: str, name: str, department: str, expires: float, allowed: object,
@@ -331,6 +347,10 @@ def create(username: str, password: str, name: str, department: str, expires: fl
 
     if by_username(username) or username in RESERVED_USERNAMES:  # admin / adapter are the other two template folders (library.py)
         raise Invalid(Msg("E-ACCOUNT-USERNAMETAKEN", username=username))
+    # A deleted account keeps its username until it is purged: what is kept under the username (its templates,
+    # work/users/<username>/, library.py) is still the deleted account's, and purging it removes that folder.
+    if db().row("SELECT 1 FROM users WHERE username = ?", (username,)):
+        raise Invalid(Msg("E-ACCOUNT-USERNAMEDELETED", username=username))
     t = now()
     with db().write() as c:
         uid = c.execute("INSERT INTO users (username, hash, name, department, role, tags, expires, enabled, created, "
@@ -388,40 +408,43 @@ def password_hash(user_id: int) -> str:
 
 
 def delete(user_id: int) -> dict:
-    """Delete an account (never the built-in administrator account). Its sessions end, its live jobs stop, and its
-    deliveries, upload references and packet grants are removed; its job records remain for the statistics (as
-    「已删除的用户」) and its feedback remains for the administrator. Returns what was removed."""
+    """Delete an account (never the built-in administrator account). In this order: it is switched off and its
+    sessions end (nothing new comes from it), its live jobs stop and are waited for until they have ended (nothing of
+    theirs is written any more; E-QUEUE-STILLSTOPPING, the account left switched off, when one does not end), then its
+    tasks' outputs are removed (transfer/outputs.py; its cache, uploads and task folders go by housekeeping:
+    farm/disk.py) and it is marked deleted. Its job records remain for the statistics (as 「已删除的用户」) and its
+    feedback remains for the administrator. Returns what was removed."""
     u = get(user_id)
     if u.owner:
         raise Invalid(Msg("E-ACCOUNT-ADMINDELETE", username=u.username))
     if u.deleted:
         raise NotFound(Msg("E-ACCOUNT-NOUSER"))
     from .farm import farm
-    from .transfer import deliveries
+    from .transfer import outputs
 
-    stopped = farm().stop_user(user_id)
-    gone = deliveries.remove_user(user_id)
     with db().write() as c:
-        c.execute("UPDATE users SET deleted = ?, enabled = 0 WHERE id = ?", (now(), user_id))
+        c.execute("UPDATE users SET enabled = 0 WHERE id = ?", (user_id,))
         c.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
-        c.execute("DELETE FROM uploads WHERE user_id = ?", (user_id,))
-        c.execute("DELETE FROM grants WHERE user_id = ?", (user_id,))
-    return {"jobs_stopped": stopped, "deliveries": gone}
+    stopped = farm().stop_user(user_id)
+    gone = outputs.remove_account(user_id)
+    with db().write() as c:
+        c.execute("UPDATE users SET deleted = ? WHERE id = ?", (now(), user_id))
+    return {"jobs_stopped": stopped, "outputs": gone}
 
 
 # On permanent deletion, these tables only record who did something: the column pointing at the account is cleared
 # and the rows are kept (shown as 「已删除的用户」; the account row is gone and the username may be reused). The
-# statistics already use LEFT JOIN users and count a missing account as 「已删除的用户」 (farm/usage.py _uses), so they
-# need no change. The other three tables (sessions, uploads, grants) are declared ON DELETE CASCADE and are removed
-# with the account row, as permanent deletion requires; the confirmation dialog states this. Node graphs saved on the
-# server are files (work/users/<username>/templates/, lab2shot/library.py), as are the graphs its jobs were submitted
-# with (work/users/<username>/jobs/, lab2shot/farm/queue.py); both are deleted with the account's folder, so the job
-# records kept afterwards no longer have a graph.
-KEEPS_RECORDS = ("jobs", "deliveries", "feedback", "login_log", "admin_actions")
+# statistics use LEFT JOIN users and count a missing account as 「已删除的用户」 (farm/usage.py _uses). The other tables that name the account (sessions, tasks, task_group_names, registrations) are
+# declared ON DELETE CASCADE and are removed with the account row, as permanent deletion requires; the confirmation
+# dialog states this. Node graphs saved on the server are files (work/users/<username>/templates/,
+# lab2shot/library.py), deleted with the account's folder; its task folders, its cache and its uploads are deleted with
+# it (farm/disk.py forget_account), so the job records kept afterwards no longer have a graph.
+KEEPS_RECORDS = ("jobs", "feedback", "login_log", "admin_actions")
 
 
 def purge(user_id: int) -> dict:
-    """Permanently delete an already deleted account: the account row is removed and the username may be reused.
+    """Permanently delete an already deleted account: the account row is removed and the username may be reused (not
+    before: create).
 
     Job records, feedback, login records and the admin action log are kept (KEEPS_RECORDS) but no longer identify the
     account; the statistics show them as 「已删除的用户」. Returns the number of rows kept per table, which the
@@ -434,10 +457,18 @@ def purge(user_id: int) -> dict:
         raise Invalid(Msg("E-ACCOUNT-ADMINDELETE", username=u.username))
     if not u.deleted:
         raise Invalid(Msg("E-ACCOUNT-NOTDELETED", username=u.username))
+    from .farm import farm
+    from .farm.disk import forget_account
     from .library import remove_user
+
+    # a job of it still to finish would write into (and make again) the cache and folders removed below; a deleted
+    # account gets no new one (no session, and a held job is not queued again for it: farm/queue.py _unpark)
+    if live := farm().live_of(user_id):
+        raise Invalid(Msg("E-ACCOUNT-JOBSLIVE", username=u.username, count=len(live)))
 
     kept = {t: db().row(f"SELECT COUNT(*) AS n FROM {t} WHERE user_id = ?", (user_id,))["n"] for t in KEEPS_RECORDS}
     graphs = remove_user(u.username)
+    forget_account(user_id)  # its tasks, cache and uploads: an id SQLite may reuse never finds anything of it
     with db().write() as c:
         for table in KEEPS_RECORDS:
             c.execute(f"UPDATE {table} SET user_id = NULL WHERE user_id = ?", (user_id,))
@@ -458,11 +489,16 @@ def login(username: str, password: str) -> User | None:
 # ------------------------------------------------------------------ sessions
 
 
+# The kinds of session (sessions.kind, login_log.kind) and the word the 用户 page shows each by: a browser, a client
+# (a DCC plugin or `lab2shot login`), the command line on this machine (machine_token)
+SESSION_KINDS = {"web": "浏览器", "client": "插件", "machine": "本机令牌"}
+
+
 @dataclass(frozen=True)
 class Session:
     token: str  # sha256 of the token
     user: User
-    kind: str  # web / client / machine
+    kind: str  # a key of SESSION_KINDS
     expires: float
     admin_until: float  # rights beyond the editor last until then (roles.py); for a browser, ADMIN_S from password entry
 
@@ -546,8 +582,8 @@ def session(token: str) -> Session | None:
     if not token or len(token) > 100:
         return None
     key = sha(token)
-    r = db().row("SELECT s.kind, s.expires AS s_expires, s.admin_until, s.seen, u.* FROM sessions s "
-                 "JOIN users u ON u.id = s.user_id WHERE s.token = ?", (key,))
+    r = db().row("SELECT s.kind, s.expires AS s_expires, s.admin_until, s.seen, s.device AS s_device, "
+                 "s.hostname AS s_hostname, u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?", (key,))
     t = now()
     if r is None or r["s_expires"] <= t:
         return None
@@ -555,6 +591,8 @@ def session(token: str) -> Session | None:
     if user.usable_now():
         return None
     expires = r["s_expires"]
+    if r["kind"] != "machine":  # 在线: this request, in memory only (the machine token is nobody's presence)
+        _ACTIVE[key] = _Active(t, user.id, r["kind"], r["s_device"] or "", r["s_hostname"] or "")
     if r["kind"] != "machine" and t - r["seen"] > SEEN_EVERY_S:  # in use: renew from now
         # start() writes only web / client / machine (machine is excluded above). The renewal length must depend on
         # the kind; otherwise a client token would shrink from TOKEN_S to SESSION_S on its first renewal.
@@ -575,51 +613,126 @@ def end_all() -> int:
         return c.execute("DELETE FROM sessions").rowcount
 
 
+@dataclass(frozen=True)
+class _Active:
+    """A web/client session's latest request (session()): when, whose, and where from (its device and computer)."""
+    at: float
+    user_id: int
+    kind: str
+    device: str
+    hostname: str
+
+
+# session key (sha256 of the token) -> its latest request; memory only, empty after a restart (presence() then falls
+# back to sessions.seen). Written by request threads one key at a time; readers take a copy.
+_ACTIVE: dict[str, _Active] = {}
+
+
+def _where(kind: str, device: str, hostname: str) -> dict:
+    return {"kind": kind, "device": device, "hostname": hostname}
+
+
+def presence() -> dict[int, dict]:
+    """Per account (only those with any web/client activity on record): {"online": [where...], "active": time of the
+    last activity or None, "where": where that was}. `where` is {kind, device, hostname}: a browser as
+    "Chrome · Windows", a DCC plugin or the command line by its app and computer. Online: a request within ONLINE_S on
+    a session still live (not ended, expired or replaced); the machine token never counts. The last activity is the
+    newest of the requests remembered since this server started, sessions.seen and the last login."""
+    t = now()
+    seen = dict(_ACTIVE)  # a copy: request threads keep writing
+    out: dict[int, dict] = {}
+
+    def note(user_id: int, at: float | None, where: dict | None) -> dict:
+        p = out.setdefault(user_id, {"online": [], "active": None, "where": None})
+        if at and (p["active"] is None or at > p["active"]):
+            p["active"], p["where"] = at, where
+        return p
+
+    for r in db().rows("SELECT token, user_id, kind, device, hostname, seen, expires, replaced_at FROM sessions "
+                       "WHERE kind IN ('web', 'client')"):
+        a = seen.pop(r["token"], None)
+        where = _where(r["kind"], a.device if a else r["device"] or "", a.hostname if a else r["hostname"] or "")
+        p = note(r["user_id"], max(r["seen"] or 0, a.at if a else 0), where)
+        if a and t - a.at <= ONLINE_S and r["expires"] > t and r["replaced_at"] is None:
+            p["online"].append(where)
+    for a in seen.values():  # a session since ended (logged out, displaced, pruned): still its account's activity
+        note(a.user_id, a.at, _where(a.kind, a.device, a.hostname))
+    for r in db().rows("SELECT id, last_login FROM users WHERE last_login IS NOT NULL"):
+        note(r["id"], r["last_login"], None)  # nothing else on record (a restart, the session long gone): the login
+    for p in out.values():
+        p["online"].sort(key=lambda w: w["kind"] != "web")  # the browser first
+    return out
+
+
 def online(roles_shown: set[str] | None = None) -> dict:
-    """Accounts online now (a live web or client session; the machine token never counts), with browsers and
-    clients counted separately (start()): a count of each and who/where, for the admin overview's 在线 tile and
-    tooltip. A raw session count is not used, since machine-token logins from a restart script would be counted as
-    online."""
-    rows = [r for r in db().rows("SELECT u.name, u.username, u.department, u.role, s.kind, s.device FROM sessions s "
-                                 "JOIN users u ON u.id = s.user_id "
-                                 "WHERE s.kind IN ('web', 'client') AND s.expires > ? AND s.replaced_at IS NULL", (now(),))
-            if roles_shown is None or r["role"] in roles_shown]  # `roles_shown`: only accounts of these roles (those the viewer manages)
+    """Accounts online now (presence(): a request within ONLINE_S; the machine token never counts), with browsers
+    and clients counted separately (start()): a count of each and who/where, for the admin overview's 在线 tile and
+    tooltip. `roles_shown`: only accounts of these roles (those the viewer manages)."""
+    here = {i: p["online"] for i, p in presence().items() if p["online"]}
+    if not here:
+        return {"count": 0, "browser": 0, "client": 0, "who": {"browser": [], "client": []}, "window_s": ONLINE_S}
+    marks = ",".join("?" * len(here))  # placeholders only: the ids are the server's own integers
+    users = [r for r in db().rows(f"SELECT id, name, username, department, role FROM users WHERE id IN ({marks})",
+                                  tuple(here)) if roles_shown is None or r["role"] in roles_shown]
 
-    def line(r) -> str:
-        return f"{r['name']}（{r['username']}）{' · ' + r['department'] if r['department'] else ''} · {r['device']}"
+    def line(r, w: dict) -> str:
+        at = f" · {w['hostname']}" if w["kind"] == "client" and w["hostname"] else ""
+        return f"{r['name']}（{r['username']}）{' · ' + r['department'] if r['department'] else ''} · {w['device']}{at}"
 
-    browser = [line(r) for r in rows if r["kind"] == "web"]
-    client = [line(r) for r in rows if r["kind"] == "client"]
-    return {"count": len(rows), "browser": len(browser), "client": len(client),
-            "who": {"browser": browser, "client": client}}
-
-
-GRANTS_KEPT_S = 90 * 86400  # a result grant (server/access.py grant) not renewed within this period is removed
-
-
-def grants_of(user_id: int) -> list[dict]:
-    """The results granted to this account (server/access.py grants), newest first; listed by lab2shot/resources.py."""
-    return [{"fp": r["fp"], "at": r["at"]} for r in
-            db().rows("SELECT fp, at FROM grants WHERE user_id = ? ORDER BY at DESC", (user_id,))]
+    browser = [line(r, w) for r in users for w in here[r["id"]] if w["kind"] == "web"]
+    client = [line(r, w) for r in users for w in here[r["id"]] if w["kind"] == "client"]
+    return {"count": len(users), "browser": len(browser), "client": len(client),
+            "who": {"browser": browser, "client": client}, "window_s": ONLINE_S}
 
 
-def forget_old_grants() -> None:
-    """Housekeeping (the queue's tidy): remove grants not renewed for GRANTS_KEPT_S."""
-    with db().write() as c:
-        c.execute("DELETE FROM grants WHERE at < ?", (now() - GRANTS_KEPT_S,))
+def logins_in(p: Periods) -> dict:
+    """The admin overview's 访问: accounts online now (online()), and in 今日, 近 7 天 and 本月 the accounts that logged
+    in, their successful logins and the failed attempts (login_log: browsers and clients alike, the administrator's own
+    too; a failure counts whether or not the username was an account, each keeping only its newest FAILED_KEPT)."""
+    day = local_day("at")
+    ok = db().rows(f"SELECT {day} AS day, user_id, COUNT(*) AS n FROM login_log WHERE at >= ? AND ok = 1 GROUP BY 1, 2",
+                   (p.since,))
+    failed = db().rows(f"SELECT {day} AS day, COUNT(*) AS n FROM login_log WHERE at >= ? AND ok = 0 GROUP BY 1", (p.since,))
+    shown = ("today", "days7", "month")
+    people = p.distinct(((r["day"], r["user_id"]) for r in ok), shown)
+    logins = p.sums(((r["day"], r["n"]) for r in ok), shown)
+    fails = p.sums(((r["day"], r["n"]) for r in failed), shown)
+    return {"online": online(),
+            **{k: {"people": people[k], "logins": logins[k], "failed": fails[k]} for k in shown}}
 
 
 def prune_logins() -> None:
     """Housekeeping (the queue's tidy): remove login_log entries older than LOGIN_LOG_KEPT_S, and session rows kept
-    only for a displacement notice (replaced_at) or that lapsed long ago without renewal."""
+    only for a displacement notice (replaced_at) or that lapsed long ago without renewal; and forget the remembered
+    requests of sessions gone from the table, except each account's newest (its last activity)."""
     t = now()
     with db().write() as c:
         c.execute("DELETE FROM login_log WHERE at < ?", (t - LOGIN_LOG_KEPT_S,))
         c.execute("DELETE FROM sessions WHERE replaced_at IS NOT NULL AND replaced_at < ?", (t - REPLACED_KEPT_S,))
         c.execute("DELETE FROM sessions WHERE kind != 'machine' AND replaced_at IS NULL AND expires < ?", (t - REPLACED_KEPT_S,))
+        live = {r["token"] for r in c.execute("SELECT token FROM sessions").fetchall()}
+    # the in-memory latest requests of sessions no longer on record: only each account's newest is kept (its last
+    # activity, presence())
+    newest: dict[int, str] = {}
+    for key, a in sorted(dict(_ACTIVE).items(), key=lambda kv: kv[1].at):
+        if key not in live:
+            if (old := newest.get(a.user_id)) is not None:
+                _ACTIVE.pop(old, None)
+            newest[a.user_id] = key
 
 
 # ------------------------------------------------------------------ login_log: every attempt, for 最近登录
+
+
+DEVICE_ID_MIN = 16  # a shorter device id is never taken as known (an empty one least of all)
+
+
+def known_device(user_id: int, device_id: str) -> bool:
+    """Has this account logged in from this device (the random id its browser or client keeps and sends at every
+    login) within LOGIN_LOG_KEPT_S? server/auth.py counts such a try apart from strangers' wrong passwords, so none of
+    those ever slows the account's owner on their own device."""
+    return len(device_id) >= DEVICE_ID_MIN and db().row(
+        "SELECT 1 FROM login_log WHERE user_id = ? AND ok = 1 AND device_id = ? LIMIT 1", (user_id, device_id[:100])) is not None
 
 
 def log_login(username: str, user_id: int | None, ok: bool, reason: str, kind: str, ip: str, agent: str, device: str,
@@ -633,6 +746,9 @@ def log_login(username: str, user_id: int | None, ok: bool, reason: str, kind: s
                   "hostname, ended) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                   (now(), username[:64], user_id, int(ok), reason[:200], kind, ip[:100], agent[:300], device[:60],
                    device_id[:100], hostname[:100], json_text(ended)))
+        if not ok:  # strangers' failures, however many, keep only the newest FAILED_KEPT per account (and of unknown names)
+            c.execute("DELETE FROM login_log WHERE ok = 0 AND user_id IS ? AND id <= (SELECT id FROM login_log "
+                      "WHERE ok = 0 AND user_id IS ? ORDER BY id DESC LIMIT 1 OFFSET ?)", (user_id, user_id, FAILED_KEPT))
 
 
 def login_recent(user_id: int, limit: int = 50) -> list[dict]:
@@ -644,11 +760,14 @@ def login_recent(user_id: int, limit: int = 50) -> list[dict]:
 
 
 def online_now(user_id: int) -> list[dict]:
-    """Where this account is online now: at most one row per kind (a browser and a client may be live together,
-    start()), each {kind, ip, device, hostname, seen}. An empty list means 不在线."""
-    rows = db().rows("SELECT kind, ip, device, hostname, seen FROM sessions WHERE user_id = ? AND kind IN ('web', 'client') "
-                     "AND expires > ? AND replaced_at IS NULL ORDER BY kind", (user_id, now()))
-    return [dict(r) for r in rows]
+    """Where this account is online now (a request within ONLINE_S, presence()): at most one row per kind (a browser
+    and a client may be live together, start()), each {kind, ip, device, hostname, seen}, `seen` its latest request.
+    An empty list means 不在线."""
+    t, seen = now(), dict(_ACTIVE)
+    rows = db().rows("SELECT token, kind, ip, device, hostname FROM sessions WHERE user_id = ? AND kind IN ('web', 'client') "
+                     "AND expires > ? AND replaced_at IS NULL ORDER BY kind", (user_id, t))
+    return [{"kind": r["kind"], "ip": r["ip"], "device": r["device"], "hostname": r["hostname"], "seen": a.at}
+            for r in rows if (a := seen.get(r["token"])) is not None and t - a.at <= ONLINE_S]
 
 
 def login_summary(user_id: int) -> dict:
@@ -711,6 +830,5 @@ def machine_token() -> str:
         c.execute("INSERT INTO sessions (token, user_id, kind, created, expires, admin_until, seen, ip, agent) "
                   "VALUES (?, ?, 'machine', ?, ?, ?, ?, '', '本机命令行')",
                   (sha(plain), ADMIN_ID, t, t + MACHINE_S, t + MACHINE_S, t))
-        c.execute("DELETE FROM meta WHERE key = 'auth.machine'")  # legacy location of the plaintext
     os.replace(fresh, path)
     return plain

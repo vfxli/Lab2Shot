@@ -6,8 +6,8 @@
 #                          PyTorch RMSNorm / RoPE / scaled_dot_product_attention),
 #                          so no CUDA compilation at install time
 #   megatron-core       -> only parallel_state is used (single GPU): shims.py
-#   nvdiffrast          -> NVIDIA non-commercial licence; the HDRI projection it did is
-#                          re-implemented in the worker with torch.grid_sample
+#   nvdiffrast          -> NVIDIA non-commercial licence; the HDRI projection upstream does
+#                          with it is re-implemented in the worker with torch.grid_sample
 #   guardrail / T5 / prompt upsampler deps (retinaface, better-profanity, nltk,
 #   sentencepiece, transformers, peft): upstream disables them for DiffusionRenderer
 

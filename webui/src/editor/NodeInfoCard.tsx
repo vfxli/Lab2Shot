@@ -13,8 +13,8 @@ import "./styles/28-node-info-card.css";
  * the way in). The card itself, beside the node: a glass card floating over the canvas, listing what every input and every output of
  * this node holds now, and — for a node inside a 逐项处理 block — every item.
  *
- * It writes none of that: the rows are editor/DataInfo.tsx's DataGroup, the one place the server's summary is laid out
- * (the parameter panel's 数据信息 tab shows the same rows). This file is only where it floats and how it shuts.
+ * It writes none of that: the rows are editor/DataInfo.tsx's DataGroup, the one place the server's summary is laid
+ * out. This file is only where it floats and how it shuts.
  *
  * It hangs in a portal on <body>, like the site's menu: the node graph, the panels and the top bar all clip what is
  * inside them, and a card drawn inside a node would be cut by the first of them it reached. */
@@ -102,7 +102,6 @@ export function NodeInfoButton({ node, label, level }: { node: string; label: st
         tabIndex={0}
         aria-label="数据信息"
         aria-expanded={!!at}
-        data-tip={`数据信息：这个节点每个口上的数据是什么（帧范围、尺寸、条目）${level ? "，以及这次留下的全部提醒" : ""}`}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();

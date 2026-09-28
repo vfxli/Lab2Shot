@@ -62,27 +62,6 @@
   }
 }
 
-/* 信息: rows of a name, a value and a note */
-.info-row {
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: 8px;
-  min-height: 22px;
-  padding: 1px 0;
-  font-size: var(--fs-sm);
-  line-height: 1.45;
-  border-radius: var(--r-ctl);
-}
-
-.info-row.link {
-  cursor: pointer;
-}
-
-.info-row.link:hover {
-  background: var(--raised);
-}
-
 .info-label {
   color: var(--text-3);
   text-align: right;
@@ -100,10 +79,6 @@
 
 .info-value.wrap {
   white-space: normal;
-}
-
-.info-row > .info-value.wrap:first-child {
-  grid-column: 1 / span 2;
 }
 
 a.info-value {

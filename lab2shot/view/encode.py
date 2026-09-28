@@ -1,10 +1,10 @@
 """A picture for the viewer is made once: however many pages ask for the same frame at the same moment, one of them
 makes it and the others wait for that one; once it is there nobody makes it again. The editor's
+frames, data maps and decoded video frames (view/frames.py) and the proxies (view/proxy.py) are all written through
+here.
 
-frames and data maps (view/frames.py), video frames and light textures (server/view.py) and the proxies (view/proxy.py)
-are all written through here.
-
-    once(target, make, made)   run make() unless made() (default: target exists), one caller at a time per target
+    once(target, make, made)   run make() unless made() (default: target exists and is not empty), one caller at a time
+                               per target
     write_once(target, write)  write(part) to a file beside it, moved in place when whole; returns target"""
 
 from __future__ import annotations

@@ -1,5 +1,5 @@
 """Meta Sapiens2: human-centric dense prediction (body-part segmentation, surface
-normals, human alpha matte) from single frames, at 1024x768 per person crop."""
+normals, human alpha matte) from single frames, the whole frame at 1024x768."""
 
 from __future__ import annotations
 

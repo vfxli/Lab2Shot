@@ -72,7 +72,7 @@ export function DatabaseSection() {
           <b>{d.last_backup ? `${lastedText(d.last_backup.at)}前` : "没有"}</b>
           <span className="adm-tile-sub">{d.last_backup ? reasonText(d.last_backup.reason) : ""}</span>
         </div>
-        <div className="adm-tile" data-tip="自动留几份在「设置」的「存储与清理」里改">
+        <div className="adm-tile" data-tip="自动留几份在「存储与视图」里改">
           <span className="adm-tile-label">备份</span>
           <b className="tnum">{d.backups.length} 份</b>
           <span className="adm-tile-sub">最多留 {d.keep} 份</span>

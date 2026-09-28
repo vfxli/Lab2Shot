@@ -6,7 +6,7 @@
 // matrices (translation in [:3, 3]); the SDK stores them transposed (translation in its fourth row), and its matrix
 // product composes the same way (parent * child). Time crosses as frame numbers at the scene's frame rate.
 //
-// Built at install time by build.py against the SDK the user installed (lab2shot.extensions.manual "fbx_sdk"),
+// Built at install time by build.py against the SDK the user installed (the manual download "fbx_sdk", extension.py),
 // linked statically; the SDK's libxml2 2.x comes from the extension's conda environment.
 
 #include <fbxsdk.h>
@@ -70,12 +70,17 @@ public:
 
     // --- open / create
 
+    // The file is a user's upload: it is read as FBX and nothing else, and reading it writes nothing. Left to itself the
+    // SDK picks a reader by the file (its OBJ reader follows mtllib to any path on the server; .dxf, .3ds and others
+    // have readers too) and unpacks the media embedded in an FBX into <name>.fbm/ beside it.
     static std::unique_ptr<Scene> open(const std::string& path) {
         FbxManager* manager = FbxManager::Create();
         FbxIOSettings* ios = FbxIOSettings::Create(manager, IOSROOT);
+        ios->SetBoolProp(IMP_FBX_EXTRACT_EMBEDDED_DATA, false);
         manager->SetIOSettings(ios);
+        const int fbx_reader = manager->GetIOPluginRegistry()->FindReaderIDByExtension("fbx");
         FbxImporter* importer = FbxImporter::Create(manager, "");
-        if (!importer->Initialize(path.c_str(), -1, manager->GetIOSettings())) {
+        if (fbx_reader < 0 || !importer->Initialize(path.c_str(), fbx_reader, ios)) {
             std::string why = importer->GetStatus().GetErrorString();
             manager->Destroy();
             throw std::runtime_error("cannot open: " + why);
@@ -631,7 +636,7 @@ public:
     }
 
     // Skins the node's mesh: per cluster (joint id, control point indices, weights, the mesh's global matrix at bind,
-    // the joint's global matrix at bind), linear skinning, weights normalised per point.
+    // the joint's global matrix at bind), linear skinning, link mode "total one" (a point's weights add up to one).
     void add_skin(int id, const py::list& clusters) {
         FbxMesh* m = node(id)->GetMesh();
         if (!m) throw std::invalid_argument("node has no mesh");
@@ -825,8 +830,9 @@ private:
 PYBIND11_MODULE(fbxio, m) {
     m.doc() = "A thin binding over the Autodesk FBX SDK for Lab2Shot's FBX worker (column-vector [4,4] matrices, frames).";
     // the binding's API version: 2 = takes() / set_take() / add_take(); 3 = a camera's lens centre, squeeze and user
-    // properties (camera(), set_camera()). worker.py refuses an older build (E-FBX-REBUILD)
-    m.attr("API") = 3;
+    // properties (camera(), set_camera()); 4 = open() reads FBX only and unpacks no embedded media. worker.py refuses an
+    // older build (E-FBX-REBUILD)
+    m.attr("API") = 4;
     m.def("sdk_version", []() { return std::string(FbxManager::GetVersion(true)); }, "The FBX SDK's version.");
     m.def("open", &Scene::open, py::arg("path"), "Read an FBX file into a Scene (no take chosen: set_take() makes one current).");
     m.def("create", &Scene::create, py::arg("fps"), py::arg("start"), py::arg("stop"),

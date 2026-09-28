@@ -8,6 +8,10 @@ from typing import Literal
 from lab2shot.sdk import (Official, measured_param, MissingFrames, RawOutput, NodeDef, NodeParams, P, Port, basecolor_map,
                           basecolor_port, frame_maps, Cost, Licence, Measured)
 
+# Peak VRAM, RTX 4090: 6.6 GB on a 1920×1080 plate (docs.md; 5.4 GB at 1280×534, 6.4 GB at 772×855). Frame by frame, so
+# it does not grow with the shot; the measured setting and Cost say this one number.
+PEAK_VRAM_GB = 6.6
+
 
 class Delight(NodeDef):
     id = "opendelight.delight"
@@ -27,17 +31,16 @@ class Delight(NodeDef):
     # 和 DiffusionRenderer 的「基础色」是同一样东西
     outputs = (basecolor_port(), Port("mask", "image.1", "遮罩"))
     runtime = "opendelight"
-    # RTX 4090 / 5090（1280×534 48 帧，默认参数）：峰值 5.36 / 5.43 GB（其中 PyTorch 2.79），逐帧算、不随帧数涨
-    cost = Cost(gpu=True, vram_gb=5.5, seconds_per_frame=0.15)
+    # 峰值见 PEAK_VRAM_GB（1920×1080 最高）；逐帧算、不随帧数涨
+    cost = Cost(gpu=True, vram_gb=PEAK_VRAM_GB, seconds_per_frame=0.15)
     licence = Licence(note="OpenDelight 代码是 GPL-3.0，权重没有声明许可证且训练数据仅限学术：按非商用对待，只能用于研究和评估。")
 
     class Params(NodeParams):
-        enhancer: bool = P(True, label="细节增强", help="多跑一个增强网络，毛孔、皱纹等细节更好，每帧慢约 20%；只要大致颜色时可以关", group="去光照")
+        enhancer: bool = P(True, label="细节增强", group="去光照")
         resolution: Literal[512] = measured_param(
-            "处理分辨率", {512: Measured("772×855 0.15 秒/帧；1920×1080 0.34 秒/帧", gb=6.6)}, default=512,
-            group="去光照",
-            help="脸部裁切后送进网络的尺寸。512 是上游默认，也是目前唯一一档")
-        smooth_landmarks: bool = P(True, label="关键点平滑", help="视频输入时平滑每帧的脸部定位，减少裁切框抖动；自动识别镜头切换和不相关的照片，不会把它们混在一起", group="去光照")
+            "处理分辨率", {512: Measured(gb=PEAK_VRAM_GB)}, default=512,
+            group="去光照")
+        smooth_landmarks: bool = P(True, label="关键点平滑", group="去光照")
 
     @classmethod
     def cook(cls, ctx):

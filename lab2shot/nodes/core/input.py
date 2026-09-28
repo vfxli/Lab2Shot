@@ -1,10 +1,10 @@
-"""输入：读取序列、视频、视频转序列。来自 DCC 文件的三维数据由格式模块的导入节点读入（lab2shot/nodes/formats.py）。"""
+"""输入：读取序列、读取图片、读取多条序列、读取视频、视频转序列、Constant。来自 DCC 文件的三维数据由格式模块的导入节点读入（lab2shot/nodes/formats.py）。"""
 
 from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import numpy as np
 
@@ -12,9 +12,8 @@ from ...data.units import DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH
 from ...errors import Invalid
 from ...io.sequence import IMAGE_EXTS, VIDEO_EXTS
 from ...messages import Msg
-from ..base import HEAVY, Info, NodeDef, NodeParams, P, Port, ReadsFile, colorspace_param
+from ..base import Info, NodeDef, NodeParams, P, Port, ReadsFile, colorspace_param
 from ...data.contracts import Shape
-from ..applies import Cost, Param
 
 def _short_names(channels: list[str]) -> list[str]:
     """读取该图层时各通道使用的名称：通常为短名称（R、Z、u）。短名称在该层内重复时
@@ -24,6 +23,14 @@ def _short_names(channels: list[str]) -> list[str]:
 
     short = [role(c) for c in channels]
     return list(channels) if len(set(short)) != len(short) else short
+
+
+def _grey(layer: str, channels: list[str]) -> bool:
+    """该层是否为一张灰度画面：rgba 层除 A 外只有灰度通道 Y（灰度 PNG / JPG / TIFF、黑白 EXR；
+    OpenImageIO 与 OpenEXR 都把灰度通道叫 Y，data/layers.py group 因此把它归入 rgba）。"""
+    from ...data.layers import role
+
+    return layer == "rgba" and [role(c) for c in channels if role(c) != "A"] == ["Y"]
 
 
 def _outputs_of(found: dict[str, dict]) -> list[tuple[str, str, str, list[str]]]:
@@ -40,8 +47,12 @@ def _outputs_of(found: dict[str, dict]) -> list[tuple[str, str, str, list[str]]]
         picked = ["id"] if "manifest" in info else _short_names(info["channels"])
         if info.get("validity") and len(picked) > 1:  # 最后的 A 通道表示有效区域，不是数据通道
             picked = picked[:-1]
-        # 端口名称表明其内容：单通道的 rgba 层（灰度 PNG、单通道 TIFF）不是图像，命名为「Mask」，
-        # 双通道为「UV」，三或四通道为 RGB / RGBA，与端口类型的名称一致。其他层沿用文件中的图层名。
+        # 端口类型按读出的通道数，唯一的例外在此：灰度画面仍是拍下来的画面，不是 Mask（Mask 是数值：遮罩、深度、编号），
+        # 灰度通道读作 R = G = B，端口为 RGB（带 A 为 RGBA），与 Nuke 读灰度图、「读取多条序列」、io/images.py read_rgb
+        # 相同。其余 rgba 层按通道数：一个（只有 A 的遮罩、单通道的数值图）为「Mask」，两个为「UV」，三或四个为
+        # RGB / RGBA，与端口类型的名称一致。其他层沿用文件中的图层名。
+        if _grey(layer, info["channels"]):
+            picked = [picked[0]] * 3 + picked[1:]
         label = layer if layer != "rgba" else {1: "Mask", 2: "UV", 3: "RGB"}.get(len(picked), "RGBA")
         out.append((name, label, layer, picked))
     return out
@@ -104,9 +115,17 @@ def _declared(params) -> dict | None:
         return None
 
 
+def _colorspace_filled(node, params):
+    """读取节点的「色彩空间」留空即取按格式确定的值（node.choices 提供给页面的 default）：填写与否对应同一个指纹。"""
+    if params.get("colorspace"):
+        return params
+    guessed = (node.choices(params, {}).get("colorspace") or {}).get("default")
+    return {**params, "colorspace": guessed} if guessed else params
+
+
 class ReadSequence(ReadsFile, NodeDef):
     id = "core.read_sequence"
-    version = 4  # 图像数据包现在总会注明是否带 alpha
+    version = 4  # 图像数据包总会注明是否带 alpha
     frame_source = True
     no_file = "没有选择序列图"
     # 选择文件后不上传任何字节（`base.py ReadsFile.head_is_enough`）：
@@ -116,7 +135,7 @@ class ReadSequence(ReadsFile, NodeDef):
     category = "read_plate"
 
     class Params(NodeParams):
-        path: str = P("", label="序列图", help="从你的电脑选择序列图：在对话框里把所有帧一起选中，或者选整个文件夹，也可以直接拖进来；帧号在名字哪里都认得（plate.1001.exr、000001_left.png）。文件夹里有好几段序列（左右眼、不同的 pass）时列出来让你选。名字里没有数字的一张图（HDRI、照片）当作一帧。文件会上传到服务器，同样的文件只传一次。命令行和 DCC 插件里写路径时，plate.####.exr、plate.%04d.exr、plate.$F4.exr 这些写法都认得。只算其中一段帧用计算按钮旁的帧范围", widget="sequence", group="文件", accept=sorted(IMAGE_EXTS))
+        path: str = P("", label="序列图", widget="sequence", group="文件", accept=sorted(IMAGE_EXTS))
         colorspace: str | None = colorspace_param(choices_from=("path",))  # 其「自动」项显示按文件规则得到的色彩空间
 
     @classmethod
@@ -152,7 +171,7 @@ class ReadSequence(ReadsFile, NodeDef):
     @classmethod
     def made_ports(cls, params) -> tuple[Port, ...]:
         """输出端口 = 所选文件中的全部图层，按名称逐一列出。端口类型按该层读出的通道数确定
-        （一个为 Mask，两个为 UV，三个为 RGB，四个为 RGBA）。
+        （一个为 Mask，两个为 UV，三个为 RGB，四个为 RGBA；灰度画面读作 RGB，见 `_outputs_of`）。
 
         尚未选择文件或文件暂时无法读取（正在上传、误选了视频）时，先提供一个家族类型的「图像」端口：
         模板中的连线接的即是该端口（家族类型可先接入任何接受二维数据的端口，data/types.py accepts），
@@ -212,11 +231,7 @@ class ReadSequence(ReadsFile, NodeDef):
 
     @classmethod
     def fingerprint_params(cls, params):
-        """「色彩空间」留空即取按格式确定的值（choices 提供给页面的 default）：填写与否对应同一个指纹。"""
-        if params.get("colorspace"):
-            return params
-        guessed = (cls.choices(params, {}).get("colorspace") or {}).get("default")
-        return {**params, "colorspace": guessed} if guessed else params
+        return _colorspace_filled(cls, params)
 
     @classmethod
     def foresee(cls, params, info):
@@ -287,17 +302,19 @@ class ReadSequence(ReadsFile, NodeDef):
             cs = p["colorspace"] or info.get("colorspace") or guessed
             crypto = {k: info[k] for k in ("manifest", "classes")} if "manifest" in info else None
             whole = _short_names(info["channels"])
-            # 完整彩色画面且未挑选通道时，文件原样作为结果，包括 alpha（不重新写出）。
-            # 必须同时满足三个前提：
-            #  1. 三或四个通道：灰度 PNG 或只有 R G 的 ST-map EXR 的端口为 image.1 / image.2，
+            # 完整的画面（彩色或灰度）且未挑选通道时，文件原样作为结果，包括 alpha（不重新写出；原样引用的灰度图
+            # 以 Y 代替 R G B，view/frames.py channel_in_file、io/images.py read_rgb）。必须同时满足三个前提：
+            #  1. 读作三或四个通道：只有 R G 的 ST-map EXR、只有 A 的遮罩的端口为 image.2 / image.1，
             #     原样直通会使数据包变为 image.3，与端口不一致；
             #  2. 该层即整个文件：多层渲染 EXR 的 rgba 层只是其中四个通道，原样直通会交出
             #     二十余个通道的完整文件，下游按数据包声明的四个通道读取时会直接出错（而非被拒绝）；
             #  3. 不是立体文件的某一只眼，也不是 Cryptomatte。
             one_layer = len(found) == 1 and len(info["channels"]) == len(images.channel_names(str(first)))
-            if layer == "rgba" and picked == whole and len(whole) in (3, 4) and one_layer and view is None and crypto is None:
+            whole_picture = (picked == whole and len(whole) in (3, 4)) or _grey(layer, info["channels"])
+            if layer == "rgba" and whole_picture and one_layer and view is None and crypto is None:
                 alpha = any(layers.role(c) == "A" for c in info["channels"])
-                packet = ingest_picture(ctx.outputs[name], files, w, h, cs, alpha, window, each=lambda items: ctx.each(items, "转到工作空间"))
+                packet = ingest_picture(ctx.outputs[name], files, w, h, cs, alpha, window,
+                                        each_done=lambda jobs, work: ctx.each_done(jobs, work, "转到工作空间"))
             else:
                 # 文件自身记录的信息（本项目写出的 EXR 的 lab2shot:layers 头）原样保留：这些来自文件本身，
                 # 而非使用者的指定，包括尺度、坐标系、投影方式、方向以及置信度的来源。
@@ -313,13 +330,16 @@ class ReadSequence(ReadsFile, NodeDef):
                                    colorspace=working_space(cfg) if picture else None, window=window,
                                    **({"alpha": True} if picture and count == 4 else {}), **said)
                 ingest = picture and not is_working(cs, cfg)  # 场景参考的画面层：读取时转换
-                labels: set[int] = set()
-                for f, path in ctx.each(files.items(), f"图层 {layer}"):
+
+                def read(job):
+                    """一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）；返回其中的编号（Cryptomatte）。"""
+                    f, path = job
                     data, valid = layers.read(path, channels, crypto, view, box=window.data,
                                               says_valid=bool(info.get("validity")))
                     writer.add(f, to_working_picture(data, cfg, cs) if ingest else data, valid)
-                    if crypto is not None:
-                        labels.update(int(v) for v in np.unique(data) if v > 0)
+                    return {int(v) for v in np.unique(data) if v > 0} if crypto is not None else set()
+
+                labels: set[int] = set().union(*ctx.each_done(files.items(), read, f"图层 {layer}"))
                 packet = writer.packet()
                 if crypto is not None:  # 类别表：取文件自带的（Cryptomatte），否则按找到的 id 各建一项
                     classes = info.get("classes") or [{"index": v, "name": f"id {v}"} for v in sorted(labels)]
@@ -342,10 +362,7 @@ class ReadPicture(ReadSequence):
     no_file = "没有选择图像"
 
     class Params(ReadSequence.Params):
-        path: str = P("", label="文件", widget="file", group="文件", accept=sorted(IMAGE_EXTS),
-                      help="从你的电脑选一张图：HDRI、照片、参考图、在参考帧上画好的修补都行。"
-                           "选中的是一段序列（名字里带帧号的一批文件）时会拒绝，并告诉你共几帧——那种要用「读取序列」。"
-                           "文件会上传到服务器，同样的文件只传一次")
+        path: str = P("", label="文件", widget="file", group="文件", accept=sorted(IMAGE_EXTS))
 
     @classmethod
     def _source(cls, params):
@@ -360,10 +377,10 @@ class SequenceEntry(NodeParams):
     """「读取多条序列」在文件夹中找到的一条序列：对应哪条序列、在列表中的名称以及是否读取。`pattern` 是标识该行
     对应序列的唯一依据；`frames` 仅记录列目录时找到的帧，因此镜头后续渲染了更多帧时仍是同一行。"""
 
-    pattern: str = P(..., label="序列", widget="fixed", help="文件夹里认出的这一段序列，帧号写成 ####")
-    frames: str = P("", label="帧", widget="fixed", help="列出这个文件夹时这一段有哪些帧、共几帧；只是说明，换了帧数还是同一段")
-    name: str = P("", label="名字", help="这一条在列表里的名字：写出的层级名、交付的文件夹名。默认用序列名（在子文件夹里的用子文件夹名）")
-    use: bool = P(True, label="读", help="勾上的才读进来。用不到的取消勾选，计算更快")
+    pattern: str = P(..., label="序列", widget="fixed")
+    frames: str = P("", label="帧", widget="fixed")
+    name: str = P("", label="名字")
+    use: bool = P(True, label="读")
 
 
 class ReadSequences(ReadsFile, NodeDef):
@@ -375,13 +392,10 @@ class ReadSequences(ReadsFile, NodeDef):
     outputs = (Port("list", "image.3[]", "列表"),)
 
     class Params(NodeParams):
-        folder: str = P("", label="文件夹", widget="sequence", group="文件", accept=sorted(IMAGE_EXTS),
-                      help="从你的电脑选一个文件夹：里面的每一段序列图都是列表里的一条，子文件夹里的也认得（shots/sh010/plate.####.exr）。"
-                           "文件会上传到服务器，同样的文件只传一次")
+        folder: str = P("", label="文件夹", widget="sequence", group="文件", accept=sorted(IMAGE_EXTS))
         colorspace: str | None = colorspace_param(choices_from=("folder",))
         sequences: list[SequenceEntry] = P(
-            [], label="序列", widget="table", group="序列", derived_from=("folder",), validate_default=True,
-            help="文件夹里认出的每一段序列，勾上的读进来。选了文件夹自动列出")
+            [], label="序列", widget="table", group="序列", derived_from=("folder",), validate_default=True)
 
     @classmethod
     def path(cls, params) -> Path:
@@ -446,11 +460,7 @@ class ReadSequences(ReadsFile, NodeDef):
 
     @classmethod
     def fingerprint_params(cls, params):
-        """「色彩空间」留空即取按格式确定的值（choices 提供给页面的 default）：填写与否对应同一个指纹。"""
-        if params.get("colorspace"):
-            return params
-        guessed = (cls.choices(params, {}).get("colorspace") or {}).get("default")
-        return {**params, "colorspace": guessed} if guessed else params
+        return _colorspace_filled(cls, params)
 
     @classmethod
     def source_identity(cls, params):
@@ -478,7 +488,7 @@ class ReadSequences(ReadsFile, NodeDef):
     @classmethod
     def cook(cls, ctx):
         from ...data import layers
-        from ...data.packet import Packet, item_fingerprint, items_meta, produce, valid
+        from ...data.packet import Packet, item_fingerprint, items_meta, produce
         from ...data.payloads import ingest_picture
         from ...data.windows import Window
         from ...io import images
@@ -517,12 +527,24 @@ class ReadSequences(ReadsFile, NodeDef):
         return {"list": Packet(ctx.outputs["list"], ctx.output_types["list"], items_meta(parts))}
 
 
+# 「视频转序列」写出 PNG 的 zlib 级别（0–9）。PNG 无损，级别只决定压缩花的力气：像素逐个相同，读回的时间也相同。
+# 实测 300 帧 1920×1080（MOT17-11），8 个进程：
+#            写出用的 CPU    文件         单帧写出（一个线程）   读回一帧
+#   6 级         77 秒     449 MB           220 毫秒            23 毫秒
+#   3 级         43 秒     493 MB           105 毫秒            22 毫秒
+#   1 级         36 秒     529 MB            89 毫秒            23 毫秒   <- 采用
+# 用 1 级：写出的 CPU 不到 6 级的一半，文件大 18%。节点的墙钟时间三者相同（约 15 秒），它卡在把解码出的帧交给
+# 工作进程上；CPU 省下的部分留给同时在算的其他任务。
+SEQUENCE_PNG_LEVEL = 1
+
+
 def _convert_frame(rgb, ocio_uri: str, colorspace: str, out: str) -> None:
     """工作进程：一帧视频 → 数据包中的显示用 sRGB PNG。"""
     from ...io import images
     from ...io.color import load_config, to_srgb8
 
-    images.write_png(out, to_srgb8(rgb, load_config(ocio_uri), colorspace))  # SDR 视频原样输出；HDR 视频做一次色调映射
+    # SDR 视频原样输出；HDR 视频做一次色调映射
+    images.write_png(out, to_srgb8(rgb, load_config(ocio_uri), colorspace), compress_level=SEQUENCE_PNG_LEVEL)
 
 
 class ReadVideo(ReadsFile, NodeDef):
@@ -532,7 +554,7 @@ class ReadVideo(ReadsFile, NodeDef):
     outputs = (Port("video", "video", "视频"),)
 
     class Params(NodeParams):
-        path: str = P("", label="视频", help="从你的电脑选择 mov、mp4 等视频文件（也可以直接拖进来），会上传到服务器，同样的文件只传一次。手机竖拍会自动转正，HDR（HLG / PQ）视频会自动转成正常显示的画面", widget="file", group="文件", accept=sorted(VIDEO_EXTS))
+        path: str = P("", label="视频", widget="file", group="文件", accept=sorted(VIDEO_EXTS))
 
     @classmethod
     def info(cls, params, inputs):
@@ -567,9 +589,7 @@ SCALES = {"full": 1.0, "half": 0.5, "quarter": 0.25}
 
 class VideoToSequence(NodeDef):
     id = "core.video_to_sequence"
-    version = 2  # 图像数据包现在总会注明是否带 alpha
-    # 开销：解码整段视频并写出每一帧，使用多个进程
-    cost = Cost(lane=HEAVY)
+    version = 2  # 图像数据包总会注明是否带 alpha
     frame_source = True
     on_node = ("range_sec", "step", "downscale")
     category = "read_plate"
@@ -580,17 +600,15 @@ class VideoToSequence(NodeDef):
     outputs = (Port("image", "image.3", "RGB", shape=Shape(window="node")),)
 
     class Params(NodeParams):
-        range_sec: str | None = P(None, label="区间", unit="秒", help="视频里哪一段是这个镜头，单位秒：如 0-10 取前 10 秒，5-8 取第 5 到 8 秒；留空取整段。起始帧号从这一段的开头数。只想先算镜头里的几帧，用计算按钮旁的帧范围", group="区间", placeholder="整段")
+        range_sec: str | None = P(None, label="区间", unit="秒", group="区间", placeholder="整段")
         step: Literal[1, 2, 3] = P(
             1, label="隔帧", group="区间",
             option_labels={"1": "每帧", "2": "每 2 帧取 1", "3": "每 3 帧取 1"},
-            help="高帧率视频（如 60fps）可以隔帧取，后面的计算快一倍；帧号保持连续（一秒里的帧数少一半，写文件时在输出设置里填帧率）",
         )
-        start_frame: int = P(1001, label="起始帧号", help="转出的第一帧用哪个帧号，影视习惯从 1001 开始。写进 USD 和序列图文件名的帧号都从这里数", group="区间")
+        start_frame: int = P(1001, label="起始帧号", group="区间")
         downscale: Literal["full", "half", "quarter"] = P(
             "full", label="分辨率", group="画面",
             option_labels={"full": "原始", "half": "一半", "quarter": "四分之一"},
-            help="缩小后再往下传：4K 素材先用一半分辨率试参数更快；最终结果建议用原始分辨率",
         )
 
     @staticmethod
@@ -622,6 +640,7 @@ class VideoToSequence(NodeDef):
 
     @classmethod
     def cook(cls, ctx):
+        from ...data.packet import file_path
         from ...data.payloads import image_packet
         from ...io.parallel import process_pool
         from ...io import images
@@ -630,7 +649,7 @@ class VideoToSequence(NodeDef):
 
         p = ctx.params
         video = ctx.input("video")
-        path = file_path(video, video.meta["path"])  # 相对于数据包的位置（旧数据包为绝对路径，file_path 两种均可识别）
+        path = file_path(video, video.meta["path"])  # meta 中记录的视频路径，按数据包的位置解析（file_path）
         src = open_source(path, 0)  # 视频帧从 0 开始编号；序列保留图片自身的编号
         fps = src.fps or DEFAULT_FPS
         # 源的自身帧号 → 镜头帧号，仅限计算帧范围选中的帧（按整个镜头编号）。_indices 统计的是在源中的位置，
@@ -674,21 +693,16 @@ class Constant(NodeDef):
     outputs = (Port("image", "image.3", "RGB"),)
 
     class Params(NodeParams):
-        width: int = P(DEFAULT_WIDTH, label="画面宽度", unit="px", gt=0, le=4096, group="画面",
-                       help="这段画面多宽，单位像素。画布只是给你画东西的底，画大画小不改变结果，够看清就行")
-        height: int = P(DEFAULT_HEIGHT, label="画面高度", unit="px", gt=0, le=4096, group="画面",
-                        help="这段画面多高，单位像素。和「画面宽度」一起决定这张空画布的尺寸")
-        first: int = P(1001, label="首帧", group="帧", help="第一帧的帧号，和整个项目一样用原始帧号")
+        width: int = P(DEFAULT_WIDTH, label="画面宽度", unit="px", gt=0, le=4096, group="画面")
+        height: int = P(DEFAULT_HEIGHT, label="画面高度", unit="px", gt=0, le=4096, group="画面")
+        first: int = P(1001, label="首帧", group="帧")
         # 帧数只提供若干档位，不允许任意填写：每一帧都会实际写出一张 EXR，一万帧将占用数十 GB。
         # 最长 192 帧，恰好在「Sketch2Anim 动作生成」可生成的范围内（9.8 秒）。
         frames: Literal[24, 48, 96, 144, 192] = P(
             96, label="帧数", group="帧",
             option_labels={"24": "24 帧 · 1 秒", "48": "48 帧 · 2 秒", "96": "96 帧 · 4 秒",
-                           "144": "144 帧 · 6 秒", "192": "192 帧 · 8 秒"},
-            help="一共几帧。后面那个秒数是按电影的 24 帧每秒算的。"
-                 "「Sketch2Anim 动作生成」生成的动作就是这么长")
-        colour: tuple[float, float, float] = P((0.46, 0.46, 0.46), label="颜色", widget="vec3", parts=("R", "G", "B"), group="画面",
-                                               help="画面的颜色，0–1 的 sRGB 值，和屏幕上看到的一样（0.46 是中灰，线性的 0.18）。画火柴人、画遮罩时中灰最好看")
+                           "144": "144 帧 · 6 秒", "192": "192 帧 · 8 秒"})
+        colour: tuple[float, float, float] = P((0.46, 0.46, 0.46), label="颜色", widget="vec3", parts=("R", "G", "B"), group="画面")
 
     @classmethod
     def info(cls, params, inputs):
@@ -706,8 +720,8 @@ class Constant(NodeDef):
         one[:] = np.asarray(p["colour"], np.float32)
         # 画面按工作色彩空间写出（sRGB 值即工作色彩空间的值，io/color.py），不是数值图
         writer = ExrWriter(ctx.outputs["image"], 3, colorspace=working_space())
-        for frame in ctx.frames:
-            writer.add(frame, one)
+        # 逐帧写出走引擎唯一的帧循环（ctx.each_done）：各帧并行，取消后不再开始新的一帧
+        list(ctx.each_done(ctx.frames, lambda frame: writer.add(frame, one)))
         return {"image": writer.packet()}
 
 

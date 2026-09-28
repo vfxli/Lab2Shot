@@ -1,5 +1,5 @@
-"""Robbyant LingBot-Map: streaming feed-forward reconstruction (per-frame camera,
-depth and point cloud) for very long shots."""
+"""Robbyant LingBot-Map: streaming feed-forward reconstruction (per-frame camera
+and depth) for very long shots."""
 
 from __future__ import annotations
 

@@ -5,7 +5,6 @@
   inset: 0;
 }
 
-/* seen through the scene's camera: the picture in the plate's shape */
 /* looking through a camera: its resolution gate, the outside dimmed (Houdini's and Maya's gate mask) */
 .gate {
   position: absolute;

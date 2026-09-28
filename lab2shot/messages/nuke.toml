@@ -3,10 +3,6 @@
 
 # ---- 错误
 "E-NUKE-VALUE" = "旋钮「{knob}」要写进 Nuke 脚本的值是 {value}，不是有限的数字：Nuke 读不了这样的脚本。请检查上游解算出的相机或镜头"
-"E-NUKE-NOSTMAP" = "畸变模型「{model}」在 Nuke 里没有对应的 LD_3DE4 节点，也没有给「{direction}」方向的 ST-map 文件：这个方向无法写进脚本。请先用「LensDistortion」生成这张 ST-map 再交付"
-"E-NUKE-STMAPDIR" = "Nuke 脚本里「{node}」读的「{file}」，文件名没有写出方向：ST-map 的方向不能从画面内容判断，脚本读进来会用错方向。请把文件名改成带 undistort 或 distort 的写法"
-"E-NUKE-NOSTMAPINPUT" = "Nuke 脚本里「{node}」的第二个输入不是读 ST-map 的 Read 节点：读不出它用的是哪个 ST-map 文件。请把 ST-map 的 Read 接到 STMap 的第二个输入上"
-"E-NUKE-NOLENSFOCAL" = "这颗镜头是「{model}」，没有 Focal Length：Nuke 没有这个模型的节点，只能写成 Camera3，而 Camera3 至少要有 Focal Length。请在节点上填 Focal Length，或改用 3DE 的模型（Nuke 有它们的 LD_3DE4 节点）"
 
 # ---- 提醒
 
@@ -16,9 +12,6 @@
 
 # ---- 读进来的 Nuke 脚本（lab2shot/formats/nuke/parse.py；「LensDistortion」粘贴 3DE / Nuke 镜头数据要它）
 
-"E-NUKE-NOCAMERAINFILE" = "Nuke 文件里没有叫「{name}」的相机：有 {have}"
-"E-NUKE-ORDER" = "相机「{name}」的旋转顺序 {rot} / 变换顺序 {xform} 读不了：在 Nuke 里烘焙成 SRT 顺序再导出"
-"E-NUKE-UNIT" = "场景单位「{unit}」不认识：可选 {units}"
 "E-NUKE-LDNODE" = "Nuke 文件里没有叫「{name}」的镜头畸变节点：有 {have}"
 "E-NUKE-LDMODEL" = "镜头畸变节点「{name}」的模型 {cls} 还读不了：能读 {models}"
 "E-NUKE-LDVALUE" = "镜头畸变节点「{name}」的 {knob} = 「{value}」看不懂：要数字或关键帧曲线，表达式先在 Nuke 里烘焙"

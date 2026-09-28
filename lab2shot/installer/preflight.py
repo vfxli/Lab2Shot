@@ -66,12 +66,19 @@ def toolchain_check(ext: Extension) -> list[Check]:
     """An extension that compiles CUDA ops — through EnvSpec.compiled (compiled_cuda) or in its build script
     (EnvSpec.build: lab2shot_worker.build.cuda_build_env, FORCE_CUDA, CUDA_HOME) — the nvcc that will compile (its own
     from pip, EnvSpec.cuda_toolkit, else the machine toolkit the settings point at) must accept the machine's C
-    compiler (installer/toolchain.py). One that compiles nothing has no row here."""
+    compiler (installer/toolchain.py), and the compile targets (envbuild.target_archs) must not be empty. One that
+    compiles nothing has no row here."""
+    from lab2shot_shared.gpu_arch import target_label
+
     from . import toolchain
+    from .envbuild import target_archs
 
     env = ext.env
     if not compiles_cuda(ext):
         return []
+    if not target_archs(ext):  # the setting's architectures and the extension's own have nothing in common
+        return [Check("toolchain", BLOCKED, Msg("E-INSTALL-NOARCH", title=ext.title,
+                                                declared=[target_label(a) for a in ext.env_archs]))]
     state, why = toolchain.problem(toolchain.pip_nvcc_release(env.cuda_toolkit))
     return [Check("toolchain", {"ok": OK, "warning": WARNING, "blocked": BLOCKED}[state], why)]
 

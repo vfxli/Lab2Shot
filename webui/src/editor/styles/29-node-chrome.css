@@ -1,14 +1,14 @@
-/* ------------------------------------- what surrounds a node on the canvas (split out of styles/08-node-graph.css)
-   The wires' own look, the canvas's controls, the wire the pointer carries, 操作说明, a key cap and the corner mark. */
+/* ------------------------------------- what surrounds a node on the canvas
+   The canvas's controls, 操作说明, the project notice, the wire the pointer carries and the ports it can end on, a key cap. */
 
 .react-flow__controls {
   box-shadow: none !important;
 }
 
-/* the canvas's own controls sit beside the 「?」 in the bottom left corner, not opposite it */
+/* the canvas's own controls sit beside the 「?」 in the bottom right corner; the bottom left is the notice's */
 .flow-controls {
   position: absolute;
-  left: 46px;
+  right: 46px;
   bottom: 10px;
   z-index: var(--z-canvas-ui);
   display: flex;
@@ -17,11 +17,11 @@
   border-radius: var(--r-md);
 }
 
-/* 操作说明: the 「?」 in the graph's bottom left corner with the canvas's
+/* 操作说明: the 「?」 in the graph's bottom right corner with the canvas's
    own controls beside it, and the table of what the mouse does opened by the pointer resting on it */
 .graph-help {
   position: absolute;
-  left: 12px;
+  right: 12px;
   bottom: 10px;
   z-index: var(--z-canvas-ui);
 }
@@ -32,7 +32,7 @@
 
 .graph-help-panel {
   position: absolute;
-  left: 0;
+  right: 0;
   bottom: 34px; /* above the button and its own tooltip */
   width: 340px;
   max-height: calc(100vh - 120px); /* a short window: it scrolls rather than running off the top */
@@ -59,6 +59,35 @@
   color: var(--text-2);
   font-size: var(--fs-xs);
   line-height: 1.5;
+}
+
+/* the project's word to the research authors (editor/ProjectNotice.tsx): the graph's bottom left corner, or under
+   the welcome card while the graph is empty */
+.graph-notice {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  max-width: calc(100% - 260px); /* clear of the controls in the bottom right */
+  z-index: var(--z-canvas-ui);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-3);
+  pointer-events: none; /* over everything, and every click, drag and wheel goes through to what is under it */
+  user-select: none;
+}
+
+.panel:has(> .welcome) .graph-notice {
+  display: none; /* the welcome card carries it while the graph is empty */
+}
+
+.welcome-notice {
+  margin: 0;
+  text-align: center;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-3);
+  pointer-events: none;
+  user-select: none;
 }
 
 /* the wire the pointer carries: a dashed line over the graph, in the pane's own pixels */
@@ -101,5 +130,5 @@ kbd {
   color: var(--text-2);
 }
 
-/* 节点各块的宽度规则**只在 08a-node.css 末尾那一条**，别在这里再写一份：两份规则管同一件事会互相打架，
+/* 节点各块的宽度规则**只在 08a-node.css 的 `.gnode > :not(.gnode-head)…` 那一条**，别在这里再写一份：两份规则管同一件事会互相打架，
    把端口块钉成节点宽，输出口整列伸到节点外面。 */

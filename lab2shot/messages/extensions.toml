@@ -18,7 +18,7 @@
 "E-INSTALL-BUSY" = "正在安装 {name}，等它装完再装下一个"
 "I-INSTALL-TASK" = "安装扩展包 {name}"
 "E-INSTALL-FAILED" = "{name} 没装好：{why}"
-"E-TOOLCHAIN-NONVCC" = "没有 CUDA 编译器：{folder}/bin/nvcc 不存在。装 CUDA Toolkit，或在后台「设置」→「CUDA 路径」（lab2shot setup 的内核配置）指到装好的那份"
+"E-TOOLCHAIN-NONVCC" = "没有 CUDA 编译器：{folder}/bin/nvcc 不存在。装 CUDA Toolkit，或在后台「网络与安装」→「CUDA 路径」（./setup.sh 的「扩展包编译与下载设置」）指到装好的那份"
 "E-TOOLCHAIN-NOCC" = "没有 C 编译器：找不到 {compiler}。装 gcc，或在「C 编译器」设置里写对名字"
 "E-TOOLCHAIN-GCCTOONEW" = "编译器太新：nvcc {nvcc} 最多接受 GCC {max:d}，现在是 {compiler}。装一个旧一点的 gcc（比如 gcc-{max:d}），在「C 编译器」「C++ 编译器」设置里写上（gcc-{max:d} / g++-{max:d}）"
 "W-TOOLCHAIN-NOTGCC" = "编译器 {compiler} 不是 GCC，看不出版本：能不能和 nvcc 一起用要试了才知道"
@@ -29,7 +29,7 @@
 "E-INSTALL-NONVCC" = "扩展包声明了要装 CUDA 工具包（cuda_toolkit），但环境里没有装上 nvcc：扩展包的环境声明有问题，请把安装日志发给开发者"
 "E-INSTALL-WEIGHTKIND" = "扩展包声明了不认识的权重来源「{kind}」：扩展包的声明有问题，请发给开发者"
 "E-INSTALL-CHECKSUM" = "权重 {weight} 下载不完整或已损坏（sha256 不符），已删除：点「重试」重新下载（扩展包 {name}）"
-"E-INSTALL-DOWNLOAD" = "下载失败：{url}。试过的来源 {sources} 都不行（{detail}）。检查服务器的网络，或在管理页「设置 → 安装」加一个可信的镜像；点「重试」会接着已下载的部分"
+"E-INSTALL-DOWNLOAD" = "下载失败：{url}。试过的来源 {sources} 都不行（{detail}）。检查服务器的网络，或在管理页「网络与安装」的「下载」里加一个可信的镜像；点「重试」会接着已下载的部分"
 "N-INSTALL-NORANGES" = "这个来源不支持分段下载（整个文件一次回来）：{url}。改成单线程从头下"
 "N-INSTALL-NEWVERSION" = "{what} 已经有一份，但不是现在钉住的那一版（扩展包换了 sha256）：旧的先留着不动，新的下到旁边，核对通过再换上去"
 "E-INSTALL-FORBIDDEN" = "官方来源拒绝了下载（HTTP {code:d}）：{url}。这个文件要先申请访问权限（到 {page} 登录并申请，服务器上要有 hf auth login 的令牌），但扩展包没把它标成 gated：批下来后点「重试」；请开发者给这个权重加上 gated=True"
@@ -59,6 +59,9 @@
 "N-INSTALL-NOTINSTALLED" = "{title} 还没有安装"
 "N-INSTALL-INUSE" = "有 {count:d} 个正在算的任务在用 {title}：等它们算完"
 "I-INSTALL-SOURCE" = "{what} 来自 {source}"
+"I-INSTALL-LOCALOK" = "{what} 已在本地，校验通过，没有下载"
+"I-INSTALL-ARCHS" = "CUDA 代码按这几代架构编译：{archs}"
+"E-INSTALL-NOARCH" = "{title} 只支持 {declared}，编译目标架构（设置「编译目标架构」）里一个都没有，没法编译：把其中一个加进编译目标，或者不装它"
 "I-INSTALL-SELFCHECKOK" = "{title} 自检通过：{modules} 都能导入；支持的显卡架构 {archs}"
 
 # ---- 登记一份手工装好的环境（lab2shot ext adopt）
@@ -83,7 +86,7 @@
 "B-INSTALL-NEEDSEXT" = "{title} 建立在扩展包 {needs} 上，它不在或没有加载成功：先把 adapters/ 里它的文件夹放好"
 "I-INSTALL-NEEDSOK" = "要用的扩展包 {needs} 都在"
 "B-INSTALL-MANUAL" = "缺少 {title}：到 {page} 下载「{download}」（文件名像 {filename}），原样放进 Lab2Shot 的 {inbox} 文件夹，不用解压、不用改名，放好后点「重新检查」"
-"B-INSTALL-CONSENT" = "{title} 已经放好，等本人看过许可协议、在它的卡片上点「同意并安装」"
+"B-INSTALL-CONSENT" = "{title} 已经放好，等本人看过许可协议、在它的卡片上点「同意并安装」，或在 ./setup.sh 的「安装与环境 → 安装手动下载的文件」中阅读并同意"
 "I-INSTALL-GATEDOK" = "Hugging Face 已批准访问 {page}"
 "B-INSTALL-HFTOKEN" = "服务器上没有 Hugging Face 登录令牌，下载不了要申请的权重：在服务器上执行 hf auth login（或设置 HF_TOKEN），再到 {page} 申请访问"
 "B-INSTALL-GATED" = "这些权重要先申请：到 {page} 登录并申请访问，批下来后点「重新检查」"
@@ -98,7 +101,7 @@
 
 # ---- 手动下载（extensions/manual.py）：收件文件夹 downloads/ 里的文件
 "E-MANUAL-MISSING" = "缺少 {title}（{what}）：到 {page} 下载「{download}」，原样放进 Lab2Shot 的 downloads 文件夹（后台管理页的「扩展包」里的「手动下载」写着它在哪）"
-"N-MANUAL-CONSENT" = "{title} 已经放好，等本人在后台管理页的「扩展包」里的「手动下载」看过许可协议、点「同意并安装」"
+"N-MANUAL-CONSENT" = "{title} 已经放好，等本人在后台管理页的「扩展包」里的「手动下载」看过许可协议、点「同意并安装」，或在 ./setup.sh 的「安装与环境 → 安装手动下载的文件」中阅读并同意"
 "N-MANUAL-DOWNLOADING" = "还没下载完：等浏览器下载完再放进来"
 "W-MANUAL-UNREADABLE" = "读不了：{detail}"
 "W-MANUAL-UNSUPPORTEDARCHIVE" = "这个压缩包解不开（{detail}）：加了密码，或用了这里不支持的压缩方式。重新下载官方的原始文件放进来，不要自己重新打包"
@@ -121,7 +124,7 @@
 # ---- 数据库（lab2shot/database）：服务启动时和 lab2shot db 命令
 "E-DB-MISSING" = "数据库文件 {path} 不见了，但有它的备份。{hint}；不会自动建一个空的数据库"
 "E-DB-DAMAGED" = "数据库 {path} 损坏了（{reason}）。{hint}"
-"E-DB-NEWER" = "数据库 {path} 是更新的版本（第 {version} 版）建的，这个版本的 Lab2Shot 只认识到第 {known} 版：用更新的 Lab2Shot，或者恢复一个旧的备份"
+"E-DB-NEWER" = "数据库 {path} 是第 {version} 版，这个版本的 Lab2Shot 只认识到第 {known} 版：不是这个版本建的数据库，没有动它。恢复一个这个版本的备份（lab2shot db status 列出备份）"
 "E-DB-OLDER" = "数据库 {path} 是第 {version} 版，这个版本的 Lab2Shot 要第 {known} 版：只有启动服务（lab2shot ui）或执行 lab2shot db upgrade 时才会升级（先自动备份），别的命令和测试不会顺手升级它"
 "E-DB-UPGRADEBUSY" = "数据库 {path} 要从第 {version} 版升级到第 {known} 版，但别的进程正开着它（比如还在运行的服务）：升级后旧代码就打不开了，所以没有升级。先停掉那个进程，再启动这个版本"
 
@@ -145,18 +148,21 @@
 "E-CONFIG-UNKNOWN" = "{file}：没有 [{section}] {name} 这个设置"
 "E-CONFIG-VALUE" = "{file}：[{section}] {name}：{reason}"
 
-# ---- 管理页面的「设置」（lab2shot/config.py、server/settings.py）：保存时逐项检查
+# ---- 管理页面「设置」一组的各页（lab2shot/config.py、server/settings.py）：保存时逐项检查
 "E-SETTINGS-INVALID" = "设置没有保存：{problems}"
+"E-SETTINGS-NEEDS" = "「{setting}」要有「{label}」这项权限才能改（{roles}有）"
 "E-SETTINGS-NOTHERE" = "「{key}」不能在这里改"
 "E-SETTINGS-FILEONLY" = "「{setting}」只能在 {file} 里改"
 "E-SETTINGS-NOTBOOL" = "「{setting}」只能是开或关"
 "E-SETTINGS-NOTNUMBER" = "「{setting}」要填数字"
 "E-SETTINGS-NOTINT" = "「{setting}」要填整数"
-"E-SETTINGS-RANGE" = "「{setting}」要在 {min:g} 到 {max:g}{unit} 之间"
+# 单位放在句末（{unit} 由调用处带上与数字之间的空格，没有单位时为空）：单位后面不再接字，中文单位（分钟）与英文单位（GB）都不用管后面空不空格
+"E-SETTINGS-RANGE" = "「{setting}」要填 {min:g} 到 {max:g}{unit}"
 "E-SETTINGS-NOTLIST" = "「{setting}」要写一串名字"
 "E-SETTINGS-EMPTYLIST" = "「{setting}」至少要有一个"
 "E-SETTINGS-DUPLICATES" = "「{setting}」里有重复的：{items}"
-"E-SETTINGS-BADITEMS" = "「{setting}」每一项是 12 个字以内的字母、数字或中文，不能有空格和标点：{items}"
+"E-SETTINGS-BADITEMS" = "「{setting}」每一项是 12 个字以内的字母、数字或中文，只能再用 - _ / · 和括号，不能有空格和别的标点：{items}"
+"E-SETTINGS-PROXY" = "「{item}」不是一个 IP 地址或网段：写成 127.0.0.1、::1 或 10.0.0.0/8 这样，用空格隔开"
 "E-SETTINGS-NOTTEXT" = "「{setting}」要填文字"
 "E-SETTINGS-CHOICE" = "「{setting}」只能选 {options}"
 "E-SETTINGS-CHECK" = "「{setting}」：{reason}"
@@ -164,11 +170,11 @@
 "E-SETTINGS-PORTBUSY" = "端口 {number} 已经被别的程序占用"
 "E-SETTINGS-HOSTNAME" = "「{name}」不是域名或 IP 地址"
 "E-SETTINGS-GPUORDER" = "显卡优先顺序应填写 CUDA 编号（非负整数），以逗号分隔：「{item}」不是编号"
-"E-SETTINGS-CLOCK" = "「{value}」不是一天里的时间：写成 时:分，24 小时制，比如 02:00"
 "E-SETTINGS-OCIO" = "OCIO 读不了这个配置：{detail}"
 "E-SETTINGS-MIRRORS" = "镜像要写成 https:// 开头的网址，用空格隔开：{items} 不是"
 "E-SETTINGS-NONVCC" = "{folder} 里没有 bin/nvcc：不是 CUDA 工具包的文件夹"
 "E-SETTINGS-NOCOMPILER" = "服务器上找不到编译器 {compiler}"
+"E-SETTINGS-ARCH" = "不认识的编译目标架构：{items}；可选的有 {known}"
 "E-SETTINGS-RESTARTPORT" = "重启后要用的{reason}：换一个端口再重启"
 
 # ---- 服务器日志（每行日志带编号）

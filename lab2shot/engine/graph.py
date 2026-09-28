@@ -14,7 +14,7 @@ from typing import Any
 from ..errors import GraphError
 from ..messages import Msg
 from ..data.types import element_of, is_list, list_of, type_label
-from ..nodes import DATA_TYPES, accepts, node_types
+from ..nodes import accepts, node_types
 from ..nodes.applies import NodeFacts, Resolved, facts_for, output_ports, resolve, waiting_port
 from ..nodes.base import NodeDef, Port
 from ..nodes.port import PARAM
@@ -22,7 +22,7 @@ from ..nodes.output import FILES
 from .scopes import Scopes, rules
 
 SCHEMA = "lab2shot.graph/1"
-_BAD_NAME = re.compile(r'[\\/:*?"<>|]')
+_BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
 
 
 def _takes_files(node: GNode, port: str) -> bool:
@@ -33,17 +33,6 @@ def _common(types: list[str]) -> str:
     """The type every one of these carries: the widest of them that takes all the others (data/types.py accepts),
     "" when they have nothing in common."""
     return next((t for t in types if all(accepts(t, other) for other in types)), "")
-
-
-def _shown_as_inputs(data_type: str) -> bool:
-    """The viewer shows data of this type as what it was made from (nodes/types.py ROLES_2D "inputs": files).
-
-    `data_type` is empty while the port does not exist yet (`Graph.output_type` returns `""` for an unknown port, e.g.
-    a wire from an import node before the user has picked in its hierarchy); this counts as not shown as inputs, and
-    `""` must not be used to index `DATA_TYPES`, otherwise the KeyError surfaces as a 500 from /api/status."""
-    kind = element_of(data_type.split("|")[0])
-    got = DATA_TYPES.get(kind)
-    return got is not None and got.in_2d == "inputs"
 
 
 def _list_node(role: str) -> str:
@@ -62,6 +51,21 @@ class GNode:
     label: str
     params: dict[str, Any]
     promoted: tuple[str, ...] = ()  # parameters driven by a wire: each has an input "param:<name>" (NodeDef.param_port)
+
+
+def _named(label: str, node_id: str, labels: list[str]) -> str:
+    """How a message about reading the graph names a node: by its label, and with its id after it only when another
+    node of the graph (`labels`: every node's) has the same label, so the one meant can still be found."""
+    return f"{label}（{node_id}）" if labels.count(label) > 1 else label
+
+
+def _check_file_name(node) -> str:
+    """An output-settings node's 名字, which names its files and its sub-folder: one plain file name, never a path.
+    Returns it; GraphError when it is empty, "." / "..", or holds a separator or a character a file name may not."""
+    name = str(node.params.get("name") or "").strip()
+    if not name or name in (".", "..") or _BAD_NAME.search(name):
+        raise GraphError(Msg("B-DELIVER-BADNAME", node=node.label, name=name))
+    return name
 
 
 @dataclass
@@ -108,6 +112,7 @@ class Graph:
                                        and all(isinstance(f, int) and not isinstance(f, bool) for f in frames) and frames[0] <= frames[1]):
             raise GraphError(Msg("E-GRAPH-FRAMES", frames=str(frames)))
         registry = node_types()
+        labels = [n.get("label") or registry[n["type"]].label for n in data["nodes"] if n["type"] in registry]
         nodes: dict[str, GNode] = {}
         for n in data["nodes"]:
             node_type = registry.get(n["type"])
@@ -115,6 +120,7 @@ class Graph:
                 from ..nodes.registry import why_missing
 
                 raise GraphError(Msg("E-GRAPH-UNKNOWNTYPE", type=n["type"], reason=why_missing(n["type"])))
+            label = n.get("label") or node_type.label
             try:
                 params = node_type.load_params(n.get("params", {}))
                 # the node type's permanent wired ports (NodeDef.wired_ports) combined with the parameters this
@@ -124,10 +130,8 @@ class Graph:
                 for name in promoted:
                     node_type.param_port(name)  # a parameter it has, one a wire can drive
             except ValueError as exc:  # unknown or invalid parameters (pydantic's ValidationError is a ValueError)
-                raise GraphError(Msg("E-GRAPH-PARAMS", node=n["id"], reason=exc)) from exc
-            if len(set(promoted)) != len(promoted):
-                raise GraphError(Msg("E-GRAPH-PROMOTEDTWICE", node=n["id"]))
-            nodes[n["id"]] = GNode(n["id"], node_type, n.get("label") or node_type.label, params, promoted)
+                raise GraphError(Msg("E-GRAPH-PARAMS", node=_named(label, n["id"], labels), reason=exc)) from exc
+            nodes[n["id"]] = GNode(n["id"], node_type, label, params, promoted)
         g = cls(nodes, {}, tuple(frames) if frames else None)
         for e in data["edges"]:
             (src, sport), (dst, dport) = e["from"], e["to"]
@@ -166,13 +170,24 @@ class Graph:
         """The node's promoted parameters that have a wire -> the output it comes from (node, port)."""
         return {name: wires[0] for name in self.nodes[node_id].promoted if (wires := self.inputs.get((node_id, PARAM + name)))}
 
+    def name(self, node_id: str) -> str:
+        """The node as a message about reading the graph names it (_named); one that is not in the graph (the end of
+        a wire that points nowhere) by the id it was given."""
+        if node_id not in self.nodes:
+            return node_id
+        return _named(self.nodes[node_id].label, node_id, [n.label for n in self.nodes.values()])
+
     def _connect(self, src: str, sport: str, dst: str, dport: str) -> None:
         if src not in self.nodes or dst not in self.nodes:
-            raise GraphError(Msg("E-GRAPH-NOSUCHWIRENODE", source=src, target=dst))
+            raise GraphError(Msg("E-GRAPH-NOSUCHWIRENODE", source=self.name(src), target=self.name(dst)))
         inp = self.input_port(dst, dport)
         if inp is None:
-            code = "E-GRAPH-NOTPROMOTED" if dport.startswith(PARAM) else "E-GRAPH-NOSUCHPORT"
-            raise GraphError(Msg(code, source=src, output=sport, target=dst, input=dport))
+            out = next((p.label for p in self.outputs(src) if p.name == sport), sport)
+            if dport.startswith(PARAM):
+                spec = next((p for p in self.nodes[dst].type.param_specs() if p["name"] == dport[len(PARAM):]), None)
+                raise GraphError(Msg("E-GRAPH-NOTPROMOTED", source=self.name(src), output=out, target=self.name(dst),
+                                     input=spec["label"] if spec else dport[len(PARAM):]))
+            raise GraphError(Msg("E-GRAPH-NOSUCHPORT", source=self.name(src), output=out, target=self.name(dst), input=dport))
         wires = self.inputs.setdefault((dst, dport), [])
         if wires and not inp.multi:
             raise GraphError(Msg("B-GRAPH-ONEWIRE", node=self.nodes[dst].label, input=inp.label))
@@ -284,8 +299,8 @@ class Graph:
         an import node, the kinds selected); for a port that follows an input (type_from), what that input carries;
         a single-kind type, its kind and the port's `kinds`; the umbrella 场景, what the node's 3D inputs carry (「USD
         打包」: all of them together; 3D nodes that pass their input on the same). Empty: not 3D data, or nothing known.
-        The one derivation the wiring check, the output checks and the viewer use (the editor reads it from the status reply, Graph.ports; was store.ts
-        sceneKinds). Memoized by (node, port): only at the outermost call (`_seen` empty), never for a call still
+        The one derivation the wiring check, the output checks and the viewer use (the editor reads it from the status
+        reply, Graph.ports). Memoized by (node, port): only at the outermost call (`_seen` empty), never for a call still
         inside another's recursion: a cycle guard mid-walk (`node_id in _seen`) gives a truncated answer that is
         only valid at that point in that particular walk, not a fact about the node worth remembering."""
         if not _seen and (cached := self._scene_kinds.get((node_id, port))) is not None:
@@ -382,7 +397,7 @@ class Graph:
         for a node just added, before the status reply for it arrives (the catalogue's `at_defaults`).
 
         Without what the pointer says over each port (`tip`): that sentence repeats every type's description on every
-        port, which on 122 node types is 34 KB of the catalogue every first load. It travels with a
+        port, which over every node type adds tens of KB to the catalogue on every first load. It travels with a
         graph's own ports instead (`ports`), and a node just added says its own description for the moment before its
         status arrives."""
         g = cls.from_json({"schema": SCHEMA, "nodes": [{"id": "n", "type": type_id, "params": {}}], "edges": []})
@@ -564,20 +579,6 @@ class Graph:
         """The node's input ports that have a wire."""
         return self.inputs_by_node.get(node_id, frozenset())
 
-    def wired_types(self, node_id: str) -> dict[str, str]:
-        """The data type each port actually carries in this graph (port name -> type id): inputs by the wire feeding
-        them, outputs by `output_type`. Generic nodes (ports declared as any data) depend on it: `core.split_items`
-        carrying 人物框 can be split in the browser, while carrying a scene it requires USD and stays on the server
-        (`types` of NodeDef.browser_ops)."""
-        # input and output ports may share a name (「选人」 uses boxes on both sides): outputs are set first and
-        # inputs override them, since type-dependent decisions always concern what is wired in
-        out = {port.name: self.output_type(node_id, port.name) for port in self.outputs(node_id)}
-        for port in self.input_ports(node_id):
-            wires = self.inputs.get((node_id, port.name)) or ()
-            if wires:
-                out[port.name] = self.output_type(*wires[0])
-        return out
-
     def check_inputs(self, node_id: str) -> None:
         """The node can be planned: its wires are right (see _check_wires), every required input has one, and it keeps
         the rules of writing files (check_delivery)."""
@@ -620,19 +621,19 @@ class Graph:
         return list(dict.fromkeys(dst for dst, port in self.outputs_by_node.get(node_id, ()) if _takes_files(self.nodes[dst], port)))
 
     def cook_targets(self, target: str) -> list[str]:
-        """What cooking `target` means: a node that writes files is cooked by delivering them, through the 「输出」 it
-        is wired into (not wired: itself, which the rules then refuse)."""
-        return (self.delivered_by(target) or [target]) if self.gives_files(target) else [target]
+        """What cooking `target` means: that node and what it needs, whichever node it is (computing is one thing,
+        only how much differs). An output-settings node writes its files as its result; only cooking the 「输出」 it
+        is wired into collects and packs them for download: download belongs to the output node alone."""
+        return [target]
 
     def deliveries(self) -> list[str]:
-        """Every 「输出」 in the graph (NodeDef.delivers), in node order: what 交付 (POST /api/jobs with deliver) cooks
-        together, one job for all of them."""
+        """Every 「输出」 in the graph (NodeDef.delivers), in node order: what POST /api/jobs with `deliver: []` cooks
+        together (a DCC plugin, `lab2shot cook`), one task for all of them."""
         return [nid for nid, node in self.nodes.items() if node.type.delivers]
 
     def computed_by(self, target: str) -> list[str]:
-        """The nodes whose results cooking `target` computes: an 「输出」 only delivers what the settings nodes wired
-        into it wrote (no work of its own), so its cook is theirs. What the time estimate covers, before a place to deliver to
-        is chosen."""
+        """The nodes whose results cooking `target` computes: an 「输出」 only collects and packs what the settings
+        nodes wired into it wrote, so its cook is theirs. What the time estimate covers."""
         out = []
         for t in self.cook_targets(target):
             fed = [src for p in self.nodes[t].type.input_ports(self.nodes[t].params) if p.type == FILES
@@ -640,41 +641,23 @@ class Graph:
             out += fed or [t]
         return list(dict.fromkeys(out))
 
-    def shown_by(self, target: str) -> list[str]:
-        """The nodes whose results the viewer shows for `target` (webui/src/view/plan.ts displayPlan): its own; a result shown as
-        what it was made from (the files an output-settings node wrote) and a node without results (「输出」) show
-        what is wired into it, the same way. Showing a node cooks these: a delivery is never among them."""
-        made = [_shown_as_inputs(self.output_type(target, p.name)) for p in self.outputs(target)]
-        own = [target] if not all(made) else []
-        return list(dict.fromkeys(own + (self._made_from(target) if not made or any(made) else [])))
-
-    def _made_from(self, node_id: str) -> list[str]:
-        """The nodes whose results are wired into the node's inputs (its declared ones, and one per row of a
-        ports_from table that makes inputs: 「多层 EXR 输出设置」's 图层), through results shown as what they were made
-        from."""
-        return [n for port in self.input_ports(node_id) for src, sport in self.inputs.get((node_id, port.name), [])
-                for n in (self._made_from(src) if _shown_as_inputs(self.output_type(src, sport)) else [src])]
-
     def check_delivery(self, node_id: str) -> None:
-        """An output-settings node's files go into an 「输出」; an 「输出」 has somewhere to deliver to, and the settings
-        nodes wired into it are named so each gets a folder of its own (a valid, distinct name). Raises GraphError
-        saying what to change."""
+        """An output-settings node's files go into an 「输出」, and the settings nodes wired into one are named so each
+        gets a folder of its own (a valid, distinct name). Raises GraphError saying what to change."""
         node = self.nodes[node_id]
-        if self.gives_files(node_id) and not self.delivered_by(node_id):
-            raise GraphError(Msg("B-DELIVER-NOTWIRED", node=node.label))
+        if self.gives_files(node_id):
+            # its own name is checked whenever it is cooked, not only when an 「输出」 is: the name becomes a file name
+            _check_file_name(node)
+            if not self.delivered_by(node_id):
+                raise GraphError(Msg("B-DELIVER-NOTWIRED", node=node.label))
         for port in self.input_ports(node_id):
             if not _takes_files(node, port.name):
                 continue
             named: dict[str, list[str]] = {}
             for src, _ in self.inputs.get((node_id, port.name), []):
                 out = self.nodes[src]
-                name = str(out.params.get("name") or "").strip()
-                if not name or name in (".", "..") or _BAD_NAME.search(name):
-                    raise GraphError(Msg("B-DELIVER-BADNAME", node=out.label, name=name))
+                name = _check_file_name(out)
                 named.setdefault(name.lower(), []).append(f"「{out.label}」")
             same = [Msg("B-DELIVER-NAMED", outputs=labels, name=name) for name, labels in named.items() if len(labels) > 1]
             if same:
                 raise GraphError(Msg("B-DELIVER-SAMENAME", node=node.label, same=same))
-        for spec in node.type.param_specs() if any(_takes_files(node, p.name) for p in self.input_ports(node_id)) else ():
-            if spec["widget"] == "deliver" and not node.params.get(spec["name"]):
-                raise GraphError(Msg("B-DELIVER-NOPATH", node=node.label, setting=spec["label"]))

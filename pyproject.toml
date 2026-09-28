@@ -21,6 +21,9 @@ dependencies = [
     # installed into every extension environment and depends only on NumPy.
     "lab2shot-worker",
     "cryptography>=45",
+    # EXR writer (lab2shot_shared/exr.py) for a 32-bit unsigned integer channel (an ID pass) beside channels of
+    # another type: OpenImageIO converts between pixel types through float32 and cannot write those exactly.
+    "openexr>=3.4",
 ]
 
 [project.scripts]

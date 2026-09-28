@@ -15,7 +15,7 @@ class Matte(GuidedMatte):
         takes={"image": "rgb", "mask": "aux_input"},
         gives={"alpha": "output"},
         note="aux_input 就是「粗遮罩」那一路：aux_input_type 取 mask / bbox_mask / point_mask，"
-             "节点的「提示方式」选的就是它。上游只出 alpha。",
+             "节点的「提示」选的就是它。上游只出 alpha。",
     )
     on_node = ("guide", "resolution")  # 家族默认的 erode_dilate 不是这个节点的关键参数
     # 逐帧独立计算；官方按 1024×1024 方图计算再缩回原尺寸，所以 2K/4K 素材的发丝细节到此为止；
@@ -29,15 +29,13 @@ class Matte(GuidedMatte):
     class Params(NodeParams):
         guide: Literal["mask", "box"] = P(
             "mask", label="提示", group="抠像",
-            option_labels={"mask": "遮罩", "box": "框"},
-            help="遮罩：把粗遮罩整张交给模型指路，形状复杂、有镂空时更准；框：只取粗遮罩的外接矩形，粗遮罩本身很糙时反而更稳")
+            option_labels={"mask": "遮罩", "box": "框"})
         # 1024（官方测试尺寸）保留峰值 14.5 GB（见 cost）；再大官方没验证过效果，不给填
         resolution: Literal[512, 768, 1024] = measured_param(
-            "处理分辨率", {512: Measured("实测 0.15 秒/帧", below=1024), 768: Measured("比最大的一档省", below=1024),
-                         1024: Measured("官方测试尺寸，最稳：0.67 秒/帧", gb=14.5)},
-            default=1024, group="抠像",
-            help="画面先压成这么大的方图再算，结果缩回原尺寸。1024 是官方尺寸，最稳；调小只为省显存，模型没在别的尺寸上验证过")
-        transparent: bool = P(False, label="半透明主体", help="要抠的是玻璃、烟、纱、水这类整体半透明的主体就打开：模型换一套不透明度先验，边界不再当成实心物体。抠人、动物、实体道具保持关闭", group="抠像")
+            "处理分辨率", {512: Measured(below=1024), 768: Measured(below=1024),
+                         1024: Measured(gb=14.5)},
+            default=1024, group="抠像")
+        transparent: bool = P(False, label="半透明主体", group="抠像")
         fp16: bool = fp16_param("抠像", default=False)  # 上游 inference.py 全程 fp32：不替上游做这个决定
 
 

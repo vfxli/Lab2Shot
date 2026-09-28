@@ -5,9 +5,10 @@ opens and saves them in the browser, and `lab2shot cook` reads them locally. The
 graph files (templates/, adapters/<name>/templates/, work/users/<name>/templates/; see lab2shot/library.py) whose
 "exposed" list names the parameters intended to be set externally (the web UI, the command line, DCC plugins).
 
-A template is used as a tool: set its exposed parameters, cook its 「输出」 nodes, and receive their deliverables (a
-single archive, or files written to a folder). File parameters are handled by the client, which uploads the given
-input files and fetches the deliverables (see lab2shot/client.py); file_params() identifies those parameters.
+A template is used as a tool: set its exposed parameters, cook its 「输出」 nodes, and receive what they pack (one zip
+per 「输出」, and the same files unpacked on the server, lab2shot/transfer/outputs.py). File parameters are handled by the
+client, which uploads the given input files and fetches the results (see lab2shot/client.py); file_params() identifies
+those parameters.
 """
 
 from __future__ import annotations
@@ -42,9 +43,8 @@ def load_graph(path: str | Path) -> dict:
 
 
 def templates() -> list[dict]:
-    """Return every preset card (from adapters and the project) via lab2shot/library.py presets(), the single loader of
-    template files for all three folders. Kept here as the entry point used by the engine, the command line and the
-    routes."""
+    """Return every preset card (the project's templates/ and each adapter's) via lab2shot/library.py presets(), the
+    single loader of template files."""
     from ..library import presets
 
     return presets()
@@ -83,11 +83,13 @@ def order(cards: list[dict]) -> list[dict]:
 
 
 def core_project(data: dict, types) -> str:
-    """返回该卡片的核心第三方项目：从图末端的输出节点（「输出」，或任意格式的输出设置节点，即 OutputSettings 的
-    子类）向上游遍历，遇到的第一个第三方节点所属的项目。该节点产出卡片的交付物；卡片涉及多个项目时只取这一个。
-    仅依据节点图判断，不考虑卡片所属分类（分类由管理员设置，与交付物无关）。
-    未连接到输出的游离第三方节点不计入。没有输出节点的卡片从所有末端节点开始遍历；末端上游没有第三方节点时，取图中
-    第一个第三方节点的项目；完全由核心节点构成的卡片没有项目，因而也没有年份。"""
+    """The card's core third-party project: walking upstream from the graph's output nodes (「输出」, or an
+    output-settings node of any format, a subclass of OutputSettings), the project of the first third-party node met.
+    That node produces the card's deliverable; a card involving several projects takes only this one. Judged from the
+    node graph alone, never from the card's category (the administrator sets categories; they say nothing of the
+    deliverable). A third-party node wired to no output does not count. A card without an output node walks up from
+    every end node; with no third-party node above the ends, it takes the project of the graph's first third-party node;
+    a card made only of core nodes has no project, and so no year (server/app.py)."""
     from ..nodes.output import OutputSettings
 
     nodes = data.get("nodes", [])
@@ -161,13 +163,14 @@ def exposed_params(data: dict) -> list[dict]:
     return out
 
 
-# parameter widget -> file direction ("deliver": the destination of 「输出」, a file or a folder)
-FILE_WIDGETS = {"file": "in", "sequence": "in", "deliver": "out"}
+# parameter widget -> file direction: every file parameter is one the client uploads (what 「输出」 packs is fetched
+# from its task: lab2shot/transfer/outputs.py)
+FILE_WIDGETS = {"file": "in", "sequence": "in"}
 
 
 def file_params(data: dict) -> list[dict]:
     """Return every file parameter of the graph: key (node.param), exposed name if any, direction ("in": the client
-    uploads a file for it; "out": 「输出」 delivers there and the client fetches it), widget and label."""
+    uploads a file for it), widget and label."""
     from ..nodes import node_types
 
     registry = node_types()
@@ -216,10 +219,9 @@ def apply_values(data: dict, values: dict[str, Any]) -> dict:
 
 
 def pick_targets(graph: Graph, targets: list[str] | None = None) -> list[str]:
-    """Return the nodes to cook: `targets` (an output-settings node resolves to the 「输出」 it is wired into, see
-    Graph.cook_targets), or by default every 「输出」 with a delivery destination set."""
+    """Return the nodes to cook: `targets` (Graph.cook_targets), or by default every 「输出」."""
     if targets is None:
-        targets = [nid for nid in graph.nodes if any(p == "out" for p in _delivers(graph, nid))]
+        targets = graph.deliveries()
         if not targets:
             raise GraphError(Msg("B-TEMPLATE-NOTARGET"))
     for t in targets:
@@ -227,8 +229,3 @@ def pick_targets(graph: Graph, targets: list[str] | None = None) -> list[str]:
             raise GraphError(Msg("E-GRAPH-NONODE", node=t))
     return list(dict.fromkeys(c for t in targets for c in graph.cook_targets(t)))
 
-
-def _delivers(graph: Graph, nid: str) -> list[str]:
-    """Return "out" once for each delivery destination set on the node."""
-    node = graph.nodes[nid]
-    return [FILE_WIDGETS[s["widget"]] for s in node.type.param_specs() if FILE_WIDGETS.get(s["widget"]) == "out" and node.params.get(s["name"])]

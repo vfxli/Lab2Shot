@@ -4,6 +4,17 @@
 
 const DELAY_MS = 350;
 
+/** The element whose tip a pointer or focus on `node` shows: the nearest with data-tip, unless it sits inside a
+ * [data-no-tips] area, which shows none: the nodes on the graph canvas (editor/GraphNode.tsx, editor/UnknownNode.tsx),
+ * the parameter panel (editor/ParamPanel.tsx), the viewer's toolbar (editor/ViewerFrame.tsx) and the timeline
+ * (editor/Timeline.tsx). A menu is a menu wherever it opens: one inside such an area (the toolbar's 视角 menu) shows its
+ * tips, so the nearer of the two decides. */
+const tipTarget = (node: Element | null | undefined): HTMLElement | null => {
+  const el = node?.closest<HTMLElement>("[data-tip]") ?? null;
+  const area = el?.closest('[data-no-tips], [role="menu"]');
+  return el && (!area || area.getAttribute("role") === "menu") ? el : null;
+};
+
 export function installTips(): void {
   const tip = document.createElement("div");
   tip.className = "tip glass";
@@ -22,7 +33,7 @@ export function installTips(): void {
   const show = (armed: HTMLElement) => {
     if (target !== armed) return;
     // the page may have drawn the element again meanwhile: take the one under the pointer now
-    const el = armed.isConnected ? armed : document.elementFromPoint(pointer.x, pointer.y)?.closest<HTMLElement>("[data-tip]");
+    const el = armed.isConnected ? armed : tipTarget(document.elementFromPoint(pointer.x, pointer.y));
     const text = el?.dataset.tip;
     if (!el || !text) return;
     tip.textContent = text;
@@ -54,17 +65,17 @@ export function installTips(): void {
     hide();
     window.clearTimeout(settle);
     if (!inside) return;
-    settle = window.setTimeout(() => arm(document.elementFromPoint(pointer.x, pointer.y)?.closest<HTMLElement>("[data-tip]") ?? null), 120);
+    settle = window.setTimeout(() => arm(tipTarget(document.elementFromPoint(pointer.x, pointer.y))), 120);
   };
 
-  document.addEventListener("pointerover", (e) => arm((e.target as Element).closest<HTMLElement>("[data-tip]")));
+  document.addEventListener("pointerover", (e) => arm(tipTarget(e.target as Element)));
   document.addEventListener("pointermove", (e) => ((pointer = { x: e.clientX, y: e.clientY }), (inside = true)), { passive: true });
   document.documentElement.addEventListener("pointerleave", () => (inside = false));
   // a tip on focus is for someone moving by keyboard: a text field is always :focus-visible, so a page that focuses
   // its first field as it opens (the login) would otherwise open a tip over its own form before anyone touched a key
   let byKey = false;
   document.addEventListener("focusin", (e) => {
-    const el = (e.target as Element).closest<HTMLElement>("[data-tip]");
+    const el = tipTarget(e.target as Element);
     if (byKey && el?.matches(":focus-visible")) arm(el);
   });
   document.addEventListener("focusout", hide);

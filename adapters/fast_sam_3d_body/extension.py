@@ -78,9 +78,9 @@ class FastSam3DBody(Extension):
             "LAB2SHOT_DINOV3_DIR": str(root / "dinov3"),
             # Any value disables the optional pymomentum path: use the TorchScript MHR shipped with the weights.
             "MOMENTUM_ENABLED": "0",
-            # YOLO_CONFIG_DIR / YOLO_OFFLINE 由 Extension.base_env() 统一设置（每个用 ultralytics 的 worker 都有）。
-            # 上游比的是 `str(os.getenv("YOLO_OFFLINE","")).lower() != "true"`（ultralytics/utils/__init__.py:516）：
-            # 值必须是 "True"，写 "1" 是个无声的空操作。
+            # YOLO_CONFIG_DIR / YOLO_OFFLINE come from Extension.base_env() (every ultralytics worker gets them).
+            # Ultralytics compares `str(os.getenv("YOLO_OFFLINE","")).lower() != "true"` (ultralytics/utils/__init__.py:516):
+            # the value must be "True"; "1" would silently do nothing.
         }
 
     def post_install(self, run, paths) -> None:

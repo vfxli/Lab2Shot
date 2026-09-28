@@ -1,4 +1,4 @@
-/* The view's 显示 popover (ui/DisplayOptions.tsx): the floating panel and its rows of switches, sliders and
+/* The view's 「视图设置」 popover (ui/DisplayOptions.tsx): the floating panel and its rows of switches, sliders and
    choices; `popover` is the floating panel every small menu of the viewer uses. */
 
 /* a floating panel opened from a control (the viewer's display options) */
@@ -58,8 +58,8 @@
 .vo-ctl .seg.stretch {
   max-width: 100%; /* 按内容宽，放不下才收缩 */
   /* 放不下就换行，不是把字挤掉（界面文字既不换行也不截断成省略号——换行的是这一排按钮，
-     每个按钮自己的字照旧一行）。面板 324 px、控件区约 240 px，而「自动 / 关 / FXAA / MSAA / SMAA」
-     五个按钮光左右内边距就 160 px，必然装不下；FXAA / MSAA / SMAA 是行业通用词，换不了更短的 */
+     每个按钮自己的字照旧一行）。面板 324 px、控件区约 220 px，而「关 / MSAA / FXAA / SMAA」
+     这样四个按钮的一排加上左右内边距就可能装不下；FXAA / MSAA / SMAA 是行业通用词，换不了更短的 */
   flex-wrap: wrap;
 }
 

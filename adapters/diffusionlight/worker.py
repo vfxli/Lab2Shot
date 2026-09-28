@@ -1,5 +1,5 @@
 """DiffusionLight-Turbo worker: HDR light probe from one frame. Runs inside
-third_party/diffusionlight/.venv with the pinned repo on sys.path; never imports
+third_party/diffusionlight/.venv-ada-blackwell with the pinned repo on sys.path; never imports
 Lab2Shot core.
 
     python worker.py <job.json>

@@ -3,9 +3,9 @@ import { readPref, writePref } from "../platform/storage";
 import type { LoopMode } from "../model/timelineMath";
 
 /** 用户首选项: how this browser likes its tools set up, the same across every node graph, never undone, never sent
- * to the server. Every remembered tool setting lives here (panel widths, the minimap, recent nodes, the display
- * options' last page, the timeline strip's height and open state, the playback loop mode) so `stateOwners.test.ts`
- * can see each one declares 用户首选项.
+ * to the server. The remembered tool settings live here (panel widths, the minimap, recent nodes, the display
+ * options' last page, the timeline strip's height and open state, the playback loop mode); the display options
+ * themselves are kept by state/viewTools.ts's useViewOptions (model/viewOptions.ts).
  *
  * There is no picture-quality setting: the 2D view always goes through the view proxy, and point clouds are always
  * thinned to the admin page's 「点云上限」, with no switch. */
@@ -13,12 +13,12 @@ import type { LoopMode } from "../model/timelineMath";
 export type { LoopMode };
 
 interface Preferences {
-  split: number; // % height of the viewer+panel row vs. the node graph (App.tsx's horizontal splitter)
+  split: number; // % height of the viewer vs. the node graph in the left column (editor/App.tsx's horizontal splitter)
   inspectorWidth: number | null; // px, set by dragging the divider; null: fit the parameters
   minimap: boolean;
   recentNodes: string[]; // node type ids, most recent first (NodeMenu.tsx, 6 kept)
-  displayOptionsTab: string; // the 显示 options popup's last page (view/DisplayOptions.tsx TABS; "": its first)
-  browseGroup: string; // the templates panel's and the help page's current 大类 (分类排版); "": the first
+  displayOptionsTab: string; // the 显示 options popup's last page (ui/DisplayOptions.tsx TABS; "": its first)
+  browseGroup: string; // the templates panel's current 大类 (分类排版); "": the first
   timelineOpen: boolean; // the curve strip under the stage
   timelineHeight: number;
   playbackMode: LoopMode;

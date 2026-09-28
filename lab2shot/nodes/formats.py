@@ -10,8 +10,8 @@ own node and data type) gives:
 - its import node: an ImportNode below (one per format: 「导入 USD」 and the extensions' 「导入 …」);
 - its output-settings node: an OutputSettings (nodes/output.py) with what it writes per kind (`writes`) and write();
 - its units and axes: recorded by the file (USD metersPerUnit and upAxis) or said by the node's parameters.
-A module read and written by its extension's worker hands the core scene arrays (worker SDK scene_arrays.py) and gets
-them back (engine/scene_arrays.py): WorkerImport below does the reading side.
+A module read and written by its extension's worker hands the core scene arrays (lab2shot_shared/scene_arrays.py) and
+gets them back (data/scene_arrays.py): WorkerImport below does the reading side.
 
 The core owns the kinds, what a port carries (Graph.scene_kinds), 「输出」 and delivery, and the checks; it never
 mentions a format (no format name appears in the core).
@@ -22,18 +22,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import cached_property, lru_cache
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
 from ..errors import Invalid
 from ..messages import Msg
-from .base import LIGHT, Info, NodeDef, P, Port, ReadsFile
+from .base import Info, NodeDef, P, Port, ReadsFile
 from ..data.types import DEFORMING, SCENE_KINDS
-from .applies import Cost
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ..data.packet import Packet
 
 # the kinds an import node selects, each a parameter and an output port of that name: 相机 one, the others any number
@@ -114,11 +114,8 @@ def selection_param(port: str, listing_from: tuple[str, ...] = ("path",)) -> Any
     changes; picking a file selects the only entry of a kind (NodeDef.derive)."""
     kind = SCENE_KINDS[SELECTIONS[port]]
     many = port != "camera"
-    help = (f"文件里的哪些{kind.label}：点「选择…」在文件的层级里选，点一下选中，按住 Ctrl 加选，Shift 连选，选一个组可以选中它下面所有的{kind.label}"
-            if many else "文件里的哪台相机：点「选择…」在文件的层级里选一台") + \
-        f"。选了才有「{kind.label}」输出口；文件里只有一个时自动选上。换了文件以后选的不在新文件里，节点会报错并列出文件里有的"
     return P([] if many else "", label=kind.label, widget="hierarchy", group="层级", choices_from=listing_from, derived_from=("path",),
-             worker=False, help=help)
+             worker=False)
 
 
 def selection_ports(params: type) -> tuple[Port, ...]:
@@ -133,10 +130,8 @@ def selection_ports(params: type) -> tuple[Port, ...]:
                  for port in SELECTIONS if port in params.model_fields)
 
 
-def import_file_param(suffixes: tuple[str, ...], what: str) -> Any:
-    return P("", label="文件", widget="file", group="文件", accept=list(suffixes),
-             help=f"从你的电脑选择{what}（会上传到服务器，同样的文件只传一次）。选好以后在下面「选择…」里按层级选文件里的相机、模型、点云、三维曲线、骨架动画和蒙皮角色，"
-                  "选了哪种就多一个那种的输出口")
+def import_file_param(suffixes: tuple[str, ...]) -> Any:
+    return P("", label="文件", widget="file", group="文件", accept=list(suffixes))
 
 
 class ImportNode(ReadsFile, NodeDef):
@@ -146,12 +141,20 @@ class ImportNode(ReadsFile, NodeDef):
     holds, the settings its format does not record —, `outputs = selection_ports(Params)`, listing() and read()."""
 
     category = "read_scene"
-    # cost: reading a file, whichever environment reads it
-    cost = Cost(lane=LIGHT)
     named_result = True  # its entries go under /shot/<the node's name, or the file's stem>/... (io/usd.py import_group)
     no_file = "没有选择文件"
     suffixes: ClassVar[tuple[str, ...]] = ()
     fact_labels = {"models.kinds": "选的模型"}
+
+    @classmethod
+    def path(cls, params: dict) -> Path:
+        """The picked file, only when its name ends in one of the format's `suffixes`: the page's file picker offers
+        only those, but a request may name any upload, and a format library picks its reader by the file (the FBX
+        SDK reads .obj, .dxf, .3ds ... too). Checked here, before any reader sees the file."""
+        found = super().path(params)
+        if found.suffix.lower() not in cls.suffixes:
+            raise Invalid(Msg("E-FORMAT-SUFFIX", name=found.name, suffixes=" ".join(cls.suffixes)))
+        return found
 
     @classmethod
     def selections(cls) -> list[str]:
@@ -237,8 +240,8 @@ class ImportNode(ReadsFile, NodeDef):
 
     @classmethod
     def info(cls, params, inputs):
-        """What the node gives, known before it is cooked: the selected entries' frames, the file's rate, the chosen
-        camera's picture size (the nodes after it plan their picture by it)."""
+        """What the node gives, known before it is cooked: the selected entries' frames and the chosen camera's
+        picture size (the nodes after it plan their picture by it)."""
         chosen = cls.chosen(params)
         entries = [e for es in chosen.values() for e in es]
         camera = next(iter(chosen.get("camera", [])), None)

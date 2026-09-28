@@ -33,22 +33,26 @@ def db_backup() -> None:
 
 @group.command("check")
 def db_check() -> None:
-    """检查数据库的完整性。"""
+    """检查数据库的完整性。发现问题时以状态码 1 结束（一键更新据此判断，cli/update.py）。"""
     from ..database import db
 
     found = db().check()
     console.print("[green]完好[/green]" if found["ok"] else f"[red]发现问题：{found['detail']}[/red]")
+    if not found["ok"]:
+        raise typer.Exit(1)
 
 
 @group.command("upgrade")
 def db_upgrade() -> None:
     """将数据库升级至当前 Lab2Shot 版本（升级前自动备份）：必须先停止服务。启动服务时也会自动执行此步骤。"""
+    import sqlite3
+
     from ..database import DatabaseError, db
     from ..workdir import WorkDirError
 
     try:
         d = db(upgrade=True)
-    except (DatabaseError, WorkDirError) as exc:
+    except (DatabaseError, WorkDirError, sqlite3.Error) as exc:  # a migration that fails in SQLite: said, not traced
         failed(exc)
     console.print(f"[green]数据库版本为第 {d.version} 版[/green]：{d.path}")
 

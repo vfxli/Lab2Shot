@@ -12,7 +12,7 @@ The rig comes in as joint-to-world transforms on its own frames (cm, Y up, the s
   2. resamples to the rate the network was trained at, and only that one (feeding 24 frames a second straight in
      reads as a near-static pose and labels almost everything a contact: measured 69 % agreement with the
      resampled result, a silently wrong result rather than an error);
-  3. converts cm / Y up to the project's own metres / Z up, builds the global unit quaternions (w, x, y, z) its FK
+  3. converts cm / Y up to UnderPressure's own metres / Z up, builds the global unit quaternions (w, x, y, z) its FK
      expects, and runs the network for the per-cell vertical ground reaction forces and the foot contacts;
   4. runs upstream's `footskate.Cleaner` (its own optimisation-based IK, at its published weights) and sends the
      cleaned motion back on the contract's timeline, with the contacts as the contract's [T,4];
@@ -117,7 +117,7 @@ def model_skeleton() -> mo.Skeleton:
 def to_underpressure(world: np.ndarray, root: np.ndarray) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """The model's world rotations [T,23,3,3] and root position [T,3] (cm, Y up) as what its FK reads:
     global unit quaternions (w, x, y, z), the rest skeleton, and the pelvis trajectory (metres, Z up)."""
-    turn = Y_TO_Z @ np.asarray(world, np.float64) @ Z_TO_Y  # the same rotation, expressed in the project's axes
+    turn = Y_TO_Z @ np.asarray(world, np.float64) @ Z_TO_Y  # the same rotation, expressed in UnderPressure's axes
     quats = mo.matrix_to_quat(turn)  # (w, x, y, z), which is util.SU2's own layout
     skeleton = torch.as_tensor(SKELETON_M, dtype=torch.float32)[None]
     trajectory = torch.as_tensor(np.asarray(root, np.float64) @ Y_TO_Z.T / M_TO_CM, dtype=torch.float32)[:, None]

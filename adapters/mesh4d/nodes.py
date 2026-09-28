@@ -66,22 +66,13 @@ class Solve(WorkerNode):
         quality: Literal["fast", "standard", "fine"] = P(
             "standard", label="质量", group="计算",
             option_labels={"fast": "快速", "standard": "标准", "fine": "精细"},
-            help="形变扩散采样多少步：快速 25 步、标准 50 步（官方那一档）、精细 75 步。"
-                 "步数只影响时间，不影响显存；每 6 帧一段的时间大致按步数成正比",
         )
         faces: Literal["full", "100k", "20k"] = P(
             "full", label="面数", group="计算",
             option_labels={"full": "原样", "100k": "10 万", "20k": "2 万"},
-            help="生成的网格有几十万个面，整段点缓存会很大。「原样」是官方的做法，一个面都不减；"
-                 "另两档在形变之前用官方自己的减面先减到这个面数，整段共用减完的拓扑。"
-                 "减面只做一次，不是逐帧抽稀",
         )
-        seed: int = P(0, label="随机种子", ge=0, le=2**31 - 1, group="计算",
-                      help="生成网格和解形变都是扩散采样，同一个种子出来的结果基本一样"
-                           "（显卡计算本身有微小随机性，个别细节每次会略有不同）；结果不满意可以换一个试试")
-        unit_cm: float = unit_cm_param(
-            "Mesh4D 不解相机、也不知道物体多大：结果归一化到 1 个单位以内，默认 1 单位 = 1 米（物体约 90 厘米高）。"
-            "量出真实物体最长的那一边，把这里改成它的厘米数")
+        seed: int = P(0, label="随机种子", ge=0, le=2**31 - 1, group="计算")
+        unit_cm: float = unit_cm_param()
 
     @classmethod
     def prepare(cls, ctx) -> Job:

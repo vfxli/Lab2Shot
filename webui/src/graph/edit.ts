@@ -1,16 +1,17 @@
-/** Editing the graph: nodes, chains, wires, table rows, parameters, labels,
+/** Editing the graph: nodes, chains, wires, table rows, parameters, labels, copy / paste / duplicate,
  * exposed values, deleting, group boxes; each edit touches state/cookInputs.ts and state/look.ts together and is one
  * undo step (document.ts noticed()). graph/actions.ts re-exports what components call. */
 
-import { api, type NodeTypeDef, type PickedFrom, type SaveTo } from "../api";
+import { api, type NodeTypeDef, type PickedFrom } from "../api";
 import { getCatalog, getLayerPorts, getNodeDefs, getTypes } from "../state/catalog";
 import { useCookInputs, type CookNode, type Wire } from "../state/cookInputs";
-import { useLook, type Box } from "../state/look";
+import { useLook, type Box, type Pos } from "../state/look";
 import { useResults } from "../state/results";
 import { useViewer, type LooseWire } from "../state/viewer";
 import { BOX_COLORS, BOX_HEAD, boxContents, chosenOnNode, nodeSize, wouldCycle } from "./nodes";
 import { PARAM, converter, inputPort, loosePort, looseType, outputPort, outputType, portAccepts, tableRows, wireKey } from "./rules";
 import { snapshotNow } from "./snapshot";
+import { pastedWires, takeCopy, uniqueCopyValue, type Copied } from "./clipboard";
 import { absorbNextChange } from "./history";
 import type { GNode } from "../state/graph";
 import { msg, reasonOf, say } from "../state/say";
@@ -99,8 +100,8 @@ export function insertNode(target: string, port: string, typeId: string): void {
 }
 
 /** A default row label for a ports_from-input table (「多层 EXR 输出设置」's 图层), derived from which port is wired in
- * (data/layers.py LAYER_FOR_PORT, sent in the catalogue as layer_ports: image → rgba, alpha → mask, normal → N,
- * position → P; anything else keeps its own name, such as depth, stmap, confidence), numbered on when it is already one
+ * (data/layers.py LAYER_FOR_PORT, sent in the catalogue as layer_ports: image → rgba, alpha / mask → mask, normal → N,
+ * position → P, flow → motion; anything else keeps its own name, such as depth, stmap, confidence), numbered on when it is already one
  * of `taken` (mirrors data/layers.py layer_names). */
 function defaultRowLabel(fromPort: string, dataType: string, taken: string[]): string {
   const base = getLayerPorts()[fromPort] || fromPort || getTypes()[dataType.split("|")[0]]?.layer_default || "layer";
@@ -192,7 +193,7 @@ export function connect(c: { source: string | null; sourceHandle?: string | null
   if (!srcType || !port) return;
   const converterOk = port.name.startsWith(PARAM) ? false : !!converter(snap.catalog, srcType, port.type);
   const at = { source: snap.nodes.find((n) => n.id === c.source)?.data.label ?? c.source, node: dst.data.label, input: port.label };
-  // 该端口当前不可用（由服务器计算，nodes/base.py Port.applies）：任何途径都无法连接。
+  // 该端口当前不可用（由服务器计算，nodes/port.py Port.applies）：任何途径都无法连接。
   // 在此处统一拦截，而非在拖线处拦截：拖线、从端口拖出后在菜单中选择节点、检查中的一键插入均经由此 connect()。
   // 源输出口同样可能不可用（解算器接入相机后，其「相机」输出仅原样透传），在同一处拦截。
   const out = outputPort(snap, c.source, c.sourceHandle ?? null);
@@ -248,7 +249,7 @@ export function setParams(id: string, changes: Record<string, unknown>): void {
 /** A node's parameters change (with whatever else of its data goes with them, `extra`: e.g. pickFile's own `picked`
  * record): the parameters derived from them (P(derived_from): an import node's singleton-kind auto-selection,
  * 「LensDistortion」's 畸变参数 from its 镜头模型) are requested from the server first, so the whole change is one edit.
- * `extra` is computed against the node as it was before `changes`, exactly like `apply`'s own `node.params` base. */
+ * `extra` is computed against the node as it was before `changes`. */
 function editParams(id: string, changes: Record<string, unknown>, extra: (node: CookNode) => Partial<CookNode> = () => ({})): void {
   const ci = useCookInputs.getState();
   const node = ci.nodes[id];
@@ -280,7 +281,7 @@ function editParams(id: string, changes: Record<string, unknown>, extra: (node: 
 }
 
 /** 提升到节点 / 取消提升（参数面板中的按钮）：
- * 提升后该参数在节点上增加输入口 `param:<name>`，同一行上也可直接编辑（GraphNode.tsx nodeRows）。
+ * 提升后该参数在节点上增加输入口 `param:<name>`，同一行上也可直接编辑（graph/nodes.ts nodeRows）。
  * 取消提升时，接在该端口上的连线一并断开。 */
 export function togglePromoted(id: string, name: string): void {
   const ci = useCookInputs.getState();
@@ -297,8 +298,7 @@ export function togglePromoted(id: string, name: string): void {
  *
  * 使用者可以移除作者默认显示的行：名单初始为类型声明各行的副本（chosenOnNode），
  * 点击即从副本中移除。因此每一行上的标记均可操作；否则作者默认的行（通常正是占用空间的行）
- * 点击后没有反应。恢复为与类型声明完全一致时保存为 undefined：文件中不写 `ui.on_node`，
- * 此后节点作者修改默认值时，该节点随之变化。 */
+ * 点击后没有反应。 */
 export function toggleOnNode(id: string, name: string): void {
   const def = getNodeDefs()[useCookInputs.getState().nodes[id]?.typeId ?? ""];
   if (!def) return;
@@ -309,9 +309,8 @@ export function toggleOnNode(id: string, name: string): void {
 }
 
 // Picking a file is a parameter change like any other (editParams): an import node's singleton-kind selection (the
-// one camera, the one skeleton animation) is derived by the server from the file. Bypassing editParams here (as a bare
-// setNode once did) would silently drop that derivation, leaving every port that depends on it blank until something
-// else touches the node's params again.
+// one camera, the one skeleton animation) is derived by the server from the file. A bare setNode here would silently
+// drop that derivation, leaving every port that depends on it blank until something else touches the node's params.
 // 「读取序列」没有图层表：端口直接由文件中的图层生成（nodes/core/input.py made_ports），
 // 因此选定文件后，只要参数变化并返回一次状态，端口即可生成。
 export function pickFile(id: string, name: string, picked: PickedFrom | null): void {
@@ -337,10 +336,6 @@ export async function deriveParams(id: string, params?: Record<string, unknown>)
 
 export function setLabel(id: string, label: string): void {
   useCookInputs.getState().setNode(id, { label });
-}
-
-export function setSaveTo(id: string, to: SaveTo): void {
-  useCookInputs.getState().setNode(id, { saveTo: to });
 }
 
 export function toggleExposed(nodeId: string, param: string, label: string): void {
@@ -369,6 +364,110 @@ export function deleteElements(nodes: string[], boxes: string[], wireIds: string
   }
   const ci = useCookInputs.getState();
   if (wireIds.some((w) => ci.edges.some((e) => e.id === w))) ci.setEdges(ci.edges.filter((e) => !wireIds.includes(e.id)));
+}
+
+// ------------------------------------------------------------------ copy, paste, duplicate
+
+// what Ctrl+C took (graph/clipboard.ts); kept by the page, so it pastes into another graph opened here as well
+let clipboard: Copied | null = null;
+let pastes = 0; // pastes of this copy not placed at the pointer: each lands one step further, never on the last one
+
+const PASTE_GAP = 40;
+
+/** The selected nodes (and group boxes, with the nodes inside them, as dragging one moves them) as a copy; null when
+ * nothing is selected. 「未知节点」 are not copied: they are the file's, never the editor's. */
+function selectionCopy(): Copied | null {
+  const ci = useCookInputs.getState();
+  const look = useLook.getState();
+  const view = useViewer.getState();
+  const boxes = look.boxes.filter((b) => view.selectedBoxIds.includes(b.id));
+  const nodes = snapshotNow().nodes;
+  const ids = new Set(ci.order.filter((id) => view.canvas[id]?.selected));
+  for (const b of boxes) for (const id of boxContents(b, nodes)) if (ci.nodes[id]) ids.add(id);
+  if (!ids.size && !boxes.length) return null;
+  const order = ci.order.filter((id) => ids.has(id)); // file order: the copies keep it
+  return takeCopy(ci.graphId, order, boxes, ci.nodes, look.positions, look.onNode, ci.edges);
+}
+
+/** Ctrl+C: the selection is copied (false: nothing selected, the key is the browser's). */
+export function copySelection(): boolean {
+  const copied = selectionCopy();
+  if (!copied) return false;
+  clipboard = copied;
+  pastes = 0;
+  return true;
+}
+
+/** Ctrl+V: what was copied, added to this graph as one step and selected. `at` (flow coordinates, the pointer over the
+ * node graph): the copy's top left lands there; without it the copy lands below where the copied nodes stood, one
+ * step further for every paste. False: nothing copied. */
+export function pasteCopied(at?: Pos): boolean {
+  if (!clipboard) return false;
+  pasteInto(clipboard, at ?? ++pastes);
+  return true;
+}
+
+/** Ctrl+D: the selection duplicated right below itself, as one step (what Ctrl+C holds stays as it is). */
+export function duplicateSelection(): boolean {
+  const copied = selectionCopy();
+  if (!copied) return false;
+  pasteInto(copied, 1);
+  return true;
+}
+
+/** The copy's extent in the graph: its nodes (at their measured size) and boxes. */
+function extent(copied: Copied): { x: number; y: number; h: number } {
+  const canvas = useViewer.getState().canvas;
+  const rects = [
+    ...copied.nodes.map((n) => ({ ...n.pos, ...nodeSize({ measured: canvas[n.id]?.measured as GNode["measured"] }) })),
+    ...copied.boxes.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.collapsed ? BOX_HEAD : b.h })),
+  ];
+  const y = Math.min(...rects.map((r) => r.y));
+  return { x: Math.min(...rects.map((r) => r.x)), y, h: Math.max(...rects.map((r) => r.y + r.h)) - y };
+}
+
+/** Adds a copy: new ids named like any new node's (graph/edit.ts addNode), labels, parameters, promoted parameters and
+ * body rows as copied, unique parameters numbered on, the wires graph/clipboard.ts pastedWires keeps; the copies
+ * become the selection. `place`: where its top left goes, or how many steps below the copied nodes. */
+function pasteInto(copied: Copied, place: Pos | number): void {
+  const box = extent(copied);
+  const d = typeof place === "number" ? { x: 0, y: place * (box.h + PASTE_GAP) } : { x: place.x - box.x, y: place.y - box.y };
+  const ci = useCookInputs.getState();
+  const renamed = new Map<string, string>();
+  for (const n of copied.nodes) {
+    const def = getNodeDefs()[n.data.typeId];
+    const now = useCookInputs.getState();
+    const base = n.data.typeId.split(".").pop() ?? "node";
+    let id = `${base}${++nodeSerial}`;
+    while (now.nodes[id] || now.kept.nodes.some((k) => k.id === id)) id = `${base}${++nodeSerial}`;
+    const params = { ...n.data.params };
+    for (const p of def?.params ?? []) {
+      if (!p.unique) continue;
+      const taken = new Set(now.order.map((o) => String(now.nodes[o].params[p.name] ?? "").toLowerCase()));
+      params[p.name] = uniqueCopyValue(String(params[p.name] ?? def!.defaults[p.name] ?? p.name), taken);
+    }
+    now.insertNode(id, { ...structuredClone(n.data), params });
+    useLook.getState().setPosition(id, n.pos.x + d.x, n.pos.y + d.y);
+    if (n.onNode) useLook.getState().setOnNode(id, [...n.onNode]);
+    renamed.set(n.id, id);
+  }
+  const wires = pastedWires(copied, renamed, copied.graphId === ci.graphId, (id) => !!useCookInputs.getState().nodes[id]);
+  if (wires.length) useCookInputs.getState().setEdges([...useCookInputs.getState().edges, ...wires]);
+  const boxIds: string[] = [];
+  for (const b of copied.boxes) {
+    const taken = useLook.getState().boxes;
+    let k = taken.length + 1;
+    while (taken.some((x) => x.id === `box:${k}`)) k++;
+    boxIds.push(`box:${k}`);
+    useLook.getState().addBox({ ...b, id: `box:${k}`, x: b.x + d.x, y: b.y + d.y, members: b.members.map((m) => renamed.get(m)!).filter(Boolean) });
+  }
+  const view = useViewer.getState();
+  const ids = [...renamed.values()];
+  view.setSelectedNodes(ids);
+  view.setSelectedBoxes(boxIds);
+  view.setSelectedEdges([]);
+  // the parameter panel follows: the copy of the node it showed, else the first copy
+  useViewer.setState({ selectedId: renamed.get(view.selectedId ?? "") ?? ids[0] ?? null, menu: null });
 }
 
 // ------------------------------------------------------------------ group boxes

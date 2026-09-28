@@ -1,7 +1,7 @@
 import { MessageError } from "../messages/message";
 
 /** Request-and-response plumbing shared by every worker the page uses (the EXR decoder, the 3D scene's arithmetic,
- * the 2D stage's matte loops; each is its own script, all addressed the same way). `start` creates the worker; its
+ * the local proxy maker, the registration's proof of work; each is its own script, all addressed the same way). `start` creates the worker; its
  * `new Worker(new URL("…", import.meta.url), { type: "module" })` is written out at the call site, where the bundler
  * can see the script's address (a URL passed around cannot be bundled). It is called on the first request, never at
  * load. Every request carries its message, and every response resolves the promise for the id it returns with. The
@@ -22,7 +22,7 @@ import { MessageError } from "../messages/message";
 
 /** What may be sent to or from a worker: anything structured cloning supports, with no ArrayBuffer anywhere in it (a
  * typed array is sent as itself). `M & Sendable<M>` is `never` where M contains a buffer, so sending one does not compile. */
-export type Sendable<T> = T extends ArrayBuffer | SharedArrayBuffer
+type Sendable<T> = T extends ArrayBuffer | SharedArrayBuffer
   ? never
   : T extends ArrayBufferView | ImageBitmap
     ? T
@@ -73,7 +73,7 @@ export function packed(message: unknown, given: (v: object) => boolean): { messa
 
 /** The page side: a request function for the worker created by `start`. `given`: the arrays and bitmaps in the message
  * that the page no longer needs (transferred where possible; everything else is copied). */
-export type Asker<Answer> = <M extends object>(message: M & Sendable<M>, given?: readonly object[]) => Promise<Answer>;
+type Asker<Answer> = <M extends object>(message: M & Sendable<M>, given?: readonly object[]) => Promise<Answer>;
 
 export function workerAsks<Answer>(start: () => Worker): Asker<Answer> {
   let worker: Worker | null = null;

@@ -16,11 +16,6 @@
    "target": "read.path"
   },
   {
-   "name": "output",
-   "label": "保存到",
-   "target": "deliver.path"
-  },
-  {
    "name": "track_step",
    "label": "跟踪点间隔",
    "target": "track.track_step"
@@ -89,16 +84,10 @@
    "id": "deliver",
    "type": "core.output",
    "label": "输出",
-   "params": {
-    "mode": "tar",
-    "path": ""
-   },
+   "params": {},
    "ui": {
     "x": 1000,
-    "y": 40,
-    "on_node": [
-     "mode"
-    ]
+    "y": 40
    }
   }
  ],

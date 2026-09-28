@@ -1,7 +1,8 @@
-/** Where a node places what it gives (lab2shot/nodes/handles.py Places, G17): the parameters that move (cm, Y up), turn
+/** Where a node places what it gives (lab2shot/nodes/handles.py Places): the parameters that move (cm, Y up), turn
  * (degrees, in the declared order) and scale it (a factor; null none), declared once on the node type and repeated per
- * node in the status. The viewer previews with the same matrix the cook applies (lab2shot/data/scene.py trs_matrix),
- * so a dragged object lands where it was let go (webui/tests/placePreview.test.ts). */
+ * node in the status. The viewer shows what the handle places with the same matrix the cook applies (lab2shot/data/scene.py
+ * trs_matrix), so a result lands where the display showed it: `lab2shot check places` runs placeMatrix and the cook's
+ * matrix on the same parameters and compares them. */
 export interface Places {
   translate: string;
   rotate: string;

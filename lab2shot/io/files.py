@@ -2,11 +2,13 @@
 a file named by a sample) is resolved to a path only inside the folder it belongs to; this is the single check, and
 every reader of such names goes through it.
 
-    numbered(names)      file name -> frame number, as the sequence reader (「读取序列」, io/sequence.py) reads a folder:
-                         the number where the names differ, including TartanAir's 000000_left.png; names without a
-                         number are omitted
     link_or_copy(src, dst)  give dst the bytes of src: a hard link on the same file system, a copy (metadata preserved)
                          across file systems; the single implementation of this operation
+    stats(folder, seen)  every regular file under a folder with its lstat (symbolic links neither followed nor
+                         counted); with `seen`, each inode once (hard links to one set of bytes count once)
+    folder_bytes(folders)  what these folders take on the disk together, by `stats` across all of them: the single
+                         measure of a folder's size (tasks, cache entries, uploads, quotas)
+    mtime(path)          a file's modification time, 0.0 when it is not there
     inside(base, name)   base / name resolved (symlinks followed); rejected (E-SOURCE-OUTSIDE) when name is empty or
                          absolute, or when the result falls outside base (via .. or a link pointing out of it)
     members(path)        the member names of a zip, a tar (any compression), a folder (relative file paths) or a file
@@ -16,18 +18,18 @@ every reader of such names goes through it.
                          junk files excluded); `match` restricts results to names matching this wildcard
     unpack(path, folder, keep)  extract the contents into folder (only names accepted by keep()); a tar never writes
                          outside folder (the "data" filter) and zipfile sanitises zip member names. This is the single
-                         place where archives are unpacked (installer weights, manually downloaded files, benchmark
-                         data scripts).
+                         place where archives are unpacked (installer weights, manually downloaded files).
 """
 
 from __future__ import annotations
 
 import os
-from fnmatch import fnmatch
 import shutil
+import stat
 import tarfile
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
+from fnmatch import fnmatch
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
@@ -46,12 +48,39 @@ def inside(base: Path | str, name: str) -> Path:
     return path
 
 
-def numbered(names) -> dict[str, int]:
-    """Imports only the standard library and lab2shot's messages, so a tool running in an extension's own environment
-    can call it with the project on its path."""
-    from .sequence import group_names
+def stats(folder: Path, seen: set[tuple[int, int]] | None = None) -> Iterator[tuple[Path, os.stat_result]]:
+    """Every regular file under `folder` with its lstat; with `seen` (the inodes already met, shared by several
+    walks), each inode once: hard links to one set of bytes count once. Symbolic links, to files or folders, are
+    neither followed nor counted."""
+    for base, _, names in os.walk(folder):
+        for name in names:
+            f = os.path.join(base, name)
+            try:
+                st = os.lstat(f)
+            except OSError:
+                continue
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            if seen is not None:
+                if (st.st_dev, st.st_ino) in seen:
+                    continue
+                seen.add((st.st_dev, st.st_ino))
+            yield Path(f), st
 
-    return {name: frame for _, _, _, frames in group_names(names).sequences for frame, name in frames.items()}
+
+def folder_bytes(folders: Iterable[Path]) -> int:
+    """What these folders take on the disk together, each inode once across them (a task's footage is linked, not
+    copied; an upload's files are links to its blobs)."""
+    seen: set[tuple[int, int]] = set()
+    return sum(st.st_size for folder in folders for _, st in stats(folder, seen))
+
+
+def mtime(path: Path) -> float:
+    """`path`'s modification time; 0.0 when it is not there."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def link_or_copy(src: Path | str, dst: Path | str) -> None:

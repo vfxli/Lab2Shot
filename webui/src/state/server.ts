@@ -1,15 +1,16 @@
 import { useSyncExternalStore } from "react";
 import type { RestartState, ServerInfo } from "../api";
-import { json } from "../platform/http";
+import { json, sawAccount } from "../platform/http";
 import { startPolling } from "../platform/poll";
 
 /** The server itself, as seen by every page (GET /api/server, lab2shot/server/settings.py): which server process
- * answers (a restart yields a new `boot`), whether a restart is pending, and whether it answers at all. One poll for the
+ * answers (a restart yields a new `boot`), whether a restart is pending, whether it answers at all, and which account this
+ * browser is logged in as now (another than the page's: the page opens again). One poll for the
  * whole page: every second while a restart is pending or the server does not answer; otherwise every 5 s, and less often
- * (up to 30 s) while the response stays the same (a 304 without a body). */
+ * (up to 60 s) while the response stays the same (a 304 without a body). */
 
 
-export interface ServerWatch {
+interface ServerWatch {
   info: ServerInfo | null; // the latest response
   down: boolean; // the latest request received no response
   restarted: boolean; // a different server process answers than when this page loaded
@@ -31,6 +32,13 @@ const own: { first: ServerInfo | null; fedAt: number; started: boolean; polling:
  * 「是否已重启、界面是否已更新」只在一处判断，不在两处重复实现。 */
 export function noteServer(info: ServerInfo): void {
   own.fedAt = Date.now();
+  answered(info);
+}
+
+/** 一次「服务本身」的回复，不论来自本轮询还是 /api/load：是否已重启、界面是否已更新；回复里登录的账号已不是这一页的，
+ * 页面重新打开（platform/http.ts sawAccount：别的窗口换了账号）。 */
+function answered(info: ServerInfo): void {
+  if (sawAccount(info.account)) return;
   own.first ??= info;
   set({ info, down: false, restarted: info.boot !== own.first.boot, newPage: info.ui !== own.first.ui });
 }
@@ -51,12 +59,10 @@ function begin(): void {
   own.polling = startPolling<ServerInfo>({
     read: () => json<ServerInfo>("GET", "/api/server"),
     every: () => (hurried() ? 1000 : Date.now() - own.fedAt < FED_FRESH_MS ? 60_000 : 5000),
+    afterError: 1000, // down: every second, so the page notices at once when it is back
     // 有外部提供时降至每五分钟一次（仅作兜底）；否则每分钟一次
     slowest: () => (hurried() ? 1000 : Date.now() - own.fedAt < FED_FRESH_MS ? 300_000 : 60_000),
-    onValue: (info) => {
-      own.first ??= info;
-      set({ info, down: false, restarted: info.boot !== own.first.boot, newPage: info.ui !== own.first.ui });
-    },
+    onValue: answered,
     onError: () => set({ ...watch, down: true }),
   });
 }

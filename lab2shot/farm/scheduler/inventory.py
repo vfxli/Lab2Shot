@@ -1,7 +1,7 @@
 """Live GPU inventory: one background thread reads nvidia-smi every INVENTORY_S seconds; every other reader
-(farm/queue.py's lanes, the admin page) only reads the latest Snapshot. nvidia-smi never runs while the queue's
-lock is held: a queue held for an `nvidia-smi` subprocess call would block every lane, light jobs included, for
-however long the driver takes to answer, worse under load.
+(farm/scheduler/pools.py, the admin page) only reads the latest Snapshot. nvidia-smi never runs while a lock of the
+farm is held: a queue or a dispatcher held for an `nvidia-smi` subprocess call would stop every task for however
+long the driver takes to answer, worse under load.
 
 Host is the seam for the future: this machine is LocalHost; a second workstation or a remote render node would be a Host implementation of its own that farm/scheduler/placement.py never has to know
 about; it only asks a Host for a Snapshot and to authorize UUIDs. Not built here: today there is exactly one Host,
@@ -37,7 +37,7 @@ HOURS_KEPT = 24 * 7  # retention of the hourly average GPU utilisation
 class GpuState:
     """One GPU as the scheduler sees it. `used_mb` is nvidia-smi's memory.used: every program on the card.
 
-    On a card no farm job is running on (the only ones `place()` ever considers) that usage is two things:
+    On a card no node of ours is running on (the only ones placement.place() ever considers) that usage is two things:
     `ours_mb`, what this server's own idle kept-loaded models hold there (engine/resident.py: they always move to
     RAM or end when a job starts on that card, so it is memory the job can have), and the rest, a foreign
     program's. Counting the farm's own kept-loaded models as foreign would make a job needing nearly the whole card wait
@@ -112,8 +112,8 @@ class Host:
 
 @dataclass
 class LocalHost(Host):
-    """This machine's GPUs (nvidia-smi), authorized by UUID (kept in the database, lab2shot/farm/gpus.py) exactly
-    as before this module existed. The first snapshot is read synchronously (a caller never sees an empty one);
+    """This machine's GPUs (nvidia-smi), authorized by UUID (kept in the database, lab2shot/farm/gpus.py). The
+    first snapshot is read synchronously (a caller never sees an empty one);
     afterwards a daemon thread refreshes it every INVENTORY_S seconds.
 
     `reclaimable`: GPU UUID -> MB this server's own idle kept-loaded models hold there (farm/queue.py passes

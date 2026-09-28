@@ -17,7 +17,7 @@ import "./resources.css";
  * kind of user resource requires one registry entry and no page changes.
  *
  * Used in two places: the 用户 detail page (one tab per kind) and each resource's own list page, where
- * 「按用户筛选」 selects an account and shows the identical table. */
+ * the 「按人」 filter (ByUser) selects an account and shows the identical table. */
 
 const PAGE = 50;
 
@@ -131,8 +131,9 @@ export function ResourceTable({ user, kind }: { user: number; kind: string }) {
     setAgain((n) => n + 1);
   };
 
-  if (problem) return <Empty title={problem} hint="换一个页签，或者刷新页面再试。" />;
-  if (!page) return <Loading what="这个账号名下的记录" />;
+  // a page that never came is replaced by why; a refused action on a page that is there is said above it, and the
+  // table (with its filters and checked rows) stays
+  if (!page) return problem ? <Empty title={problem} hint="换一个页签，或者刷新页面再试。" /> : <Loading what="这个账号名下的记录" />;
 
   const idKeyAll = page.columns[0]?.key ?? "";
   const canPick = page.acts.length > 0;  // Row selection is needed only when actions exist.
@@ -199,6 +200,7 @@ export function ResourceTable({ user, kind }: { user: number; kind: string }) {
 
   return (
     <div className="res">
+      {problem && <div className="notice" role="alert">{problem}</div>}
       {/* Bar shown only when rows are selected: applies an action to all of them.
           The available actions are computed by the server for the current login; for example, a secondary administrator does not see 「永久删除」 because that route requires data.others. */}
       {canPick && picked.size > 0 && (
@@ -284,19 +286,10 @@ export function ResourceTable({ user, kind }: { user: number; kind: string }) {
   );
 }
 
-/** 「按用户筛选」: appended to every section that lists a registered resource. It selects an account and shows
- * exactly what the account's own page shows, through the same listing function. It receives only the section it
- * belongs to; the resources of that section come from the registry (each account tab carries its `section`), so
- * no page names a resource kind and adding a new kind requires no page changes.
- *
- * It fetches the account list itself and renders nothing when this login may not see accounts; the server's answer
- * decides, not a role check here. */
-export function ByUser({ section }: { section: string }) {
+/** The accounts this login may see (deleted ones left out): [] when it may see none, the server's answer decides,
+ * not a role check here; null while loading. */
+export function useAccounts(): UserRow[] | null {
   const [users, setUsers] = useState<UserRow[] | null>(null);
-  const [chosen, setChosen] = useState<number | null>(null);
-  const [kinds, setKinds] = useState<UserResourceTab[]>([]);
-  const [kind, setKind] = useState("");
-
   useEffect(() => {
     let live = true;
     adminApi.users().then(
@@ -307,6 +300,40 @@ export function ByUser({ section }: { section: string }) {
       live = false;
     };
   }, []);
+  return users;
+}
+
+/** An account as a person is named where one is picked: 中文名（用户名）, as 使用统计 names them (lab2shot/farm/usage.py).
+ * Two people may share a Chinese name; the username is what tells them apart. */
+const personText = (u: UserRow) => (u.name ? `${u.name}（${u.username}）` : u.username);
+
+/** The 「按人」 row: 全部 and one chip per account; `allTip` says what 全部 shows where it is used. */
+export function UserChips({ users, chosen, onChoose, allTip }: { users: UserRow[]; chosen: number | null; onChoose: (id: number | null) => void; allTip: string }) {
+  return (
+    <FilterRow label="按人">
+      <Chip size="md" tip={allTip} on={chosen === null} onClick={() => onChoose(null)}>
+        全部
+      </Chip>
+      {users.map((u) => (
+        <Chip key={u.id} size="md" tip={`只看 ${personText(u)} 名下的`} on={chosen === u.id} onClick={() => onChoose(u.id)}>
+          {personText(u)}
+        </Chip>
+      ))}
+    </FilterRow>
+  );
+}
+
+/** The 「按人」 filter: appended to every section that lists a registered resource. It selects an account and shows
+ * exactly what the account's own page shows, through the same listing function. It receives only the section it
+ * belongs to; the resources of that section come from the registry (each account tab carries its `section`), so
+ * no page names a resource kind and adding a new kind requires no page changes.
+ *
+ * It fetches the account list itself and renders nothing when this login may not see accounts. */
+export function ByUser({ section }: { section: string }) {
+  const users = useAccounts();
+  const [chosen, setChosen] = useState<number | null>(null);
+  const [kinds, setKinds] = useState<UserResourceTab[]>([]);
+  const [kind, setKind] = useState("");
 
   useEffect(() => {
     if (chosen === null) return;
@@ -329,16 +356,7 @@ export function ByUser({ section }: { section: string }) {
   return (
     <div className="res-by-user">
       <Filters>
-        <FilterRow label="按人">
-          <Chip size="md" tip="不按账号筛选：上面按它本来的样子列出" on={chosen === null} onClick={() => setChosen(null)}>
-            全部
-          </Chip>
-          {users.map((u) => (
-            <Chip key={u.id} size="md" tip={`只看 ${u.name || u.username} 名下的`} on={chosen === u.id} onClick={() => setChosen(u.id)}>
-              {u.name || u.username}
-            </Chip>
-          ))}
-        </FilterRow>
+        <UserChips users={users} chosen={chosen} onChoose={setChosen} allTip="不按账号筛选：上面按它本来的样子列出" />
         {chosen !== null && kinds.length > 1 && (
           <FilterRow label="看哪种">
             {kinds.map((k) => (

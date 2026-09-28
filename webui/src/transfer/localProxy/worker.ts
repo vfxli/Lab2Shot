@@ -2,12 +2,12 @@
 /** 生成一帧的本机代理：解码用户自己的文件，将每一层缩放到指定档位并压缩，
  * 返回字节；页面一侧将其写入私有文件系统（`store.ts`）。
  *
- * - EXR：`transfer/exr/decode.ts` 一次解出全部通道（ZIP / PIZ 的一个块内混有所有通道，解压是主要开销，
- *   多一条通道只增加缩放与编码的数毫秒）。颜色层（含 R、G、B）经显示变换生成一张 8 位 WebP；
- *   其余每条通道生成一张半精度平面，采用 `L2C1` 格式（与服务器发送的通道完全相同，`transfer/plane.ts readPlane` 可直接读取）后再 gzip。
+ * - EXR：`transfer/exr/decode.ts` 只解出本次需要的通道（颜色层的 R G B A，以及 `planes` 所列通道；解压仍按整块进行）。
+ *   颜色层（含 R、G、B）经显示变换生成一张 8 位 WebP；`planes` 所列的其余通道各生成一张半精度平面，采用 `L2C1` 格式
+ *   （与服务器发送的通道完全相同，`transfer/plane.ts readPlane` 可直接读取）后再 gzip。
  * - PNG / JPG：由浏览器解码、缩放后生成 WebP；其像素本身处于显示空间，不经过显示变换。 */
 import { workerAnswers } from "../../platform/work";
-import type { Lut } from "../../ops/lut";
+import type { Lut } from "../lookup";
 import { decodeExrPlanes, exrHeader, halfToFloat, type ExrPlane } from "../exr/decode";
 
 export interface LayerSpec { name: string; channels: string[] }
@@ -20,7 +20,7 @@ export interface ProxyAsk {
   lut: Lut | null; // EXR 的显示变换（PNG / JPG 不用）
   layers: LayerSpec[]; // EXR 的层（申报时由服务器读出；为空时按通道名自行分层）
   pictures: boolean; // 是否生成颜色层的显示图
-  planes: string[]; // 需生成半精度平面的通道（第一遍不生成：只生成显示图，数值通道在用户查看时按需生成；该分支目前尚无调用方，见 `index.ts localPlane`）
+  planes: string[]; // 需生成半精度平面的通道（页面的两个入口均传空：只生成显示图，见 `index.ts`）
   // 2K 22 通道全部生成时一帧 12 MB、耗时 0.7 秒，200 帧需 2.4 GB、两分多钟；只生成显示图快十倍、体积小五十倍
 }
 
@@ -105,7 +105,7 @@ async function webpOf(rgba: Uint8ClampedArray, w: number, h: number, quality: nu
   return new Uint8Array(await blob.arrayBuffer());
 }
 
-/** 对整张图查显示变换表（与 `ops/lut.ts lookup` 使用同一张表、同一套三线性插值，只是批量执行，不逐像素创建闭包：
+/** 对整张图查显示变换表（与 `transfer/lookup.ts lookup` 使用同一张表、同一套三线性插值，只是批量执行，不逐像素创建闭包：
  * 逐像素调用 `lookup` 处理一张 1024² 图需一秒以上，批量执行只需数十毫秒）。结果写入 `rgba` 的 R G B（0..255）。 */
 function lookupAll(lut: Lut, r: Float32Array, g: Float32Array, b: Float32Array, rgba: Uint8ClampedArray): void {
   const n = r.length;

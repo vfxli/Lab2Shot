@@ -1,7 +1,7 @@
 """The machine's build kit for compiled extensions: the CUDA toolkit and the C/C++ compiler the settings point at,
 and whether nvcc accepts that compiler — nvcc refuses a GCC newer than it knows ("unsupported GNU version"), the one
 compile failure users hit most and cannot read out of a page of build output. One table, used by the installer's
-preflight (a check on every extension that compiles CUDA) and by `lab2shot setup` (内核配置 → 工具链检查)."""
+preflight (a check on every extension that compiles CUDA) and by `lab2shot setup` (扩展包编译与下载设置 → 检查编译工具)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .. import config
 from ..messages import Msg
 
 # nvcc release (major, minor) -> the newest GCC major it accepts (NVIDIA's "supported host compilers" per release).
-# 元组不是浮点：12.10 当浮点是 12.1，会排到 12.4 前面去
+# tuples, not floats: 12.10 as a float is 12.1 and would sort before 12.4
 MAX_GCC = (((13, 0), 15), ((12, 8), 14), ((12, 4), 13), ((12, 0), 12), ((11, 4), 11), ((11, 1), 10), ((11, 0), 9), ((10, 2), 8))
 
 Release = tuple[int, int]

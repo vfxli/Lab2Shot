@@ -36,25 +36,25 @@ def job_record(request: Request, job_id: str) -> dict:
     return row
 
 
-def delivery(request: Request, run: str, node: str) -> dict:
-    """Return a delivery record (transfer/deliveries.py), owned by the account whose cook produced it."""
-    from ..transfer import deliveries
+def task(request: Request, task_id: str) -> str:
+    """Return a task's id (transfer/tasks.py), owned by the account that submitted it: its outputs are fetched only by
+    that account (and a login holding data.others); anyone else is told there is no such result."""
+    from ..transfer import tasks
 
-    record = deliveries.record(run, node)
-    mine(request, record.get("user"), Msg("E-DELIVERY-GONE", days=deliveries.keep_days()))
-    return record
+    try:
+        owner = tasks.owner(task_id)
+    except NotFound:
+        raise NotFound(Msg("E-OUTPUT-GONE", days=tasks.keep_days())) from None
+    mine(request, owner, Msg("E-OUTPUT-GONE", days=tasks.keep_days()))
+    return task_id
 
 
-def delivery_batch(request: Request, run: str, node: str) -> list[dict]:
-    """Return every package one 「输出」 node delivered in one run (one per item of a 逐项处理 block), owned by the
-    account whose cook produced them."""
-    from ..transfer import deliveries
+def task_output(request: Request, task_id: str, pkg: str) -> dict:
+    """Return one finished output of a task (transfer/outputs.py record), owned as the task is (`task`)."""
+    from ..transfer import outputs
 
-    found = deliveries.batch(run, node)
-    if not found:
-        raise NotFound(Msg("E-DELIVERY-GONE", days=deliveries.keep_days()))
-    mine(request, found[0].get("user"), Msg("E-DELIVERY-GONE", days=deliveries.keep_days()))
-    return found
+    task(request, task_id)
+    return outputs.record(task_id, pkg)
 
 
 def saved_graph(request: Request, gid: str) -> dict:

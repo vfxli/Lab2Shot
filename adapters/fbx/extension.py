@@ -1,7 +1,8 @@
 """FBX (.fbx): read cameras, models and skinned characters out of FBX files, write them for Maya and Unreal.
 
 The Autodesk FBX SDK is not on any package index: the user downloads it and accepts Autodesk's licence in
-「手动下载」（条目 FBX_SDK 就声明在这个文件里，装法 FbxSdk 也是），which installs it under third_party/_fbx_sdk/<version>/.
+「手动下载」 (the item FBX_SDK and its installer FbxSdk are declared in this file), which installs it under
+third_party/_fbx_sdk/<version>/.
 Installing this extension compiles a small pybind11 module (fbxio.cpp, build.py) against that SDK into the
 extension's own conda-forge environment: Python 3.12, numpy, and the libxml2 2.x the SDK links to (the machine's
 libxml2 is a newer, incompatible one). The SDK is linked in statically, so the worker needs nothing else of it.
@@ -29,7 +30,7 @@ class FbxSdk(Install):
     """The Autodesk FBX SDK for Linux: a tar.gz holding Autodesk's installer program (fbx<version>_fbxsdk_linux),
     which prints its END USER LICENSE AGREEMENT and installs only when it is answered "yes". Lab2Shot shows that
     text on the page, and runs the installer answering "yes" only when the user clicked 同意并安装.
-    装 FBX SDK 是这个扩展自己的事，核心只提供「要用户同意」的机制。"""
+    Installing the SDK is this extension's own code; the core only provides the consent mechanism."""
     consent = True
     PROGRAM = re.compile(r"(?:^|/)fbx(\d{4})(\d)(\d*)_fbxsdk_linux$", re.IGNORECASE)
     AGREE_PROMPT = b"To continue installing the software"
@@ -98,7 +99,7 @@ class FbxSdk(Install):
         return done.stdout
 
 
-# 要用户自己去 Autodesk 下载、同意许可的那一份：由这个扩展自己声明，核心不写它的名字
+# The file the user downloads from Autodesk and accepts the licence of: declared by this extension, never named by the core
 FBX_SDK = ManualItem(
     key="fbx_sdk", title=TITLE, what="读写 FBX 文件的开发库", page="https://aps.autodesk.com/developer/overview/fbx-sdk",
     download="FBX SDK 的 Linux 版（gcc）", filename="fbx2020310_fbxsdk_gcc_linux.tar.gz",
@@ -112,7 +113,7 @@ class Fbx(Extension):
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "Autodesk FBX SDK"
     summary = "Autodesk 的免费 C++ SDK：用它编写插件、转换器和应用，借 FBX 技术转换和交换三维资产"
-    format_module = True  # 场景格式的读写
+    format_module = True  # reads and writes scene formats
     homepage = "https://aps.autodesk.com/developer/overview/fbx-sdk"
     source = GitSource(url=PYBIND11_URL, commit=PYBIND11_COMMIT)
     license = LicenseInfo(

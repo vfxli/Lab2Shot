@@ -15,8 +15,10 @@ import json
 import os
 import shutil
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -29,11 +31,11 @@ from ..progress import FETCHING as PROGRESS_FETCHING, LOADING as PROGRESS_LOADIN
 from ..io.atomic import flush_tree, mark, write_text
 from ..io.digest import sha256
 from ..data.locks import exclusive
-from ..data.packet import CACHE_VERSION, WORKER_COMPLETE, Packet, cache_root, packet_dir, used, worker_done
+from ..data.packet import CACHE_VERSION, WORKER_COMPLETE, Packet, cache_root, note, packet_dir, used, worker_done
 from ..data.payloads import frames_for_worker, image_files, is_data
 from ..data.units import DEFAULT_FPS
 from ..messages import Msg, worker_params
-from ..errors import NothingToCook
+from ..errors import CookCancelled, NothingToCook
 
 STACK_LINES = 12  # number of trailing worker log lines (the stack) included in an error, unedited
 
@@ -274,7 +276,7 @@ class RunnerEnv(Protocol):
 
 def run_worker(ctx: CookContext, image: Packet | None, *, extra: dict | None = None, inputs: dict | None = None,
                reuse: bool = True, params: dict | None = None,
-               record: dict | None = None) -> Path:
+               record: dict | None = None, env: RunnerEnv | None = None) -> Path:
     """Run the cooking node's worker; returns the raw folder it wrote into. `image`: the frames to process (None for
     file-only nodes). The worker gets the node's worker parameters (NodeDef.worker_params: the node's definition is
     their only one) with `extra` on top: values the node computes (a lens from a connected camera, the chosen probe
@@ -283,20 +285,94 @@ def run_worker(ctx: CookContext, image: Packet | None, *, extra: dict | None = N
     `inputs`: other files it reads. reuse=False always runs it (workers that write a delivery). The job file also
     records where the node's values came from (`record`, e.g. the lens it worked out, and CookContext.sources: every
     parameter driven by a wire or overriding an input), outside the job key: the same job from values that came another
-    way reuses the model's results."""
+    way reuses the model's results. `env`: what the job reports to and is stopped by, when not the cook's context
+    itself (a streaming node's worker: Halting)."""
     job = WorkerJob(ctx.node_type, job_params(ctx, extra) if params is None else params, image,
                     {k: Path(v) for k, v in (inputs or {}).items()}, reuse, job_record(ctx, record), ctx.ram_gb)
-    return run_job(job, ctx)
+    return run_job(job, env or ctx)
+
+
+class _EitherStop(threading.Event):
+    """Set by itself or by `also`. Only is_set() looks at both, and is_set() is all a job asks of its stop."""
+
+    def __init__(self, also: threading.Event) -> None:
+        super().__init__()
+        self.also = also
+
+    def is_set(self) -> bool:
+        return super().is_set() or self.also.is_set()
+
+
+class Halting:
+    """A cook's job run on a thread of its own (a streaming node's worker, farm/streaming.py; RunnerEnv): it reports
+    through the cook's context and stops when the node stops, or when the node gives up on it (`halt`: its convert()
+    failed). Setting the node's own stop instead would make that failure read as the node being stopped."""
+
+    def __init__(self, ctx: CookContext) -> None:
+        self.ctx = ctx
+        self.node_id, self.label, self.gpu = ctx.node_id, ctx.label, ctx.gpu
+        self.stop = _EitherStop(ctx.stop)
+
+    def halt(self) -> None:
+        self.stop.set()
+
+    @property
+    def reused(self) -> bool:
+        return self.ctx.reused
+
+    @reused.setter
+    def reused(self, value: bool) -> None:
+        self.ctx.reused = value
+
+    def stage(self, name: str) -> None:
+        self.ctx.stage(name)
+
+    def phase(self, name: str) -> None:
+        self.ctx.phase(name)
+
+    def progress(self, done: int, total: int, message: str = "") -> None:
+        self.check_stop()
+        self.ctx.progress(done, total, message)
+
+    def say(self, code: str, /, **params: Any) -> None:
+        self.ctx.say(code, **params)
+
+    def check_stop(self) -> None:
+        if self.stop.is_set():
+            raise CookCancelled()
+
+    @contextmanager
+    def exclusive(self, key: str, waiting: str) -> Iterator[None]:
+        start = time.time()
+        with exclusive(key, lambda: self.stage(waiting), self.check_stop):
+            self.ctx.waited += time.time() - start  # waiting for another cook is not the node's computing (CookContext.exclusive)
+            yield
+
+
+# the stop of the cook this thread is running (Engine.cook sets it): a job run outside any node while it runs stops with it
+_cook_stop: ContextVar[threading.Event | None] = ContextVar("lab2shot_cook_stop", default=None)
+
+
+@contextmanager
+def stopped_by(stop: threading.Event) -> Iterator[None]:
+    """A job run outside any node's cook from here on (ask_worker: an import node inside a 逐项处理 block, planned only
+    once the cook knows its file) stops when `stop` is set, and so does its wait for another cook of the same job."""
+    token = _cook_stop.set(stop)
+    try:
+        yield
+    finally:
+        _cook_stop.reset(token)
 
 
 class _Quiet:
-    """A job run outside any cook: nothing follows its progress, no GPU, nothing stops it (RunnerEnv)."""
+    """A job run outside any node's cook: nothing follows its progress, no GPU; it stops with the cook it runs in
+    (stopped_by), when it runs in one (RunnerEnv)."""
 
     node_id = "ask"
     gpu = ""
 
     def __init__(self, label: str) -> None:
-        self.label, self.stop, self.reused = label, threading.Event(), False
+        self.label, self.stop, self.reused = label, _cook_stop.get() or threading.Event(), False
 
     def stage(self, name: str) -> None:
         pass
@@ -311,11 +387,12 @@ class _Quiet:
         pass
 
     def check_stop(self) -> None:
-        pass
+        if self.stop.is_set():
+            raise CookCancelled()
 
     @contextmanager
     def exclusive(self, key: str, waiting: str) -> Iterator[None]:
-        with exclusive(key):
+        with exclusive(key, check=self.check_stop):
             yield
 
 
@@ -355,6 +432,7 @@ def _run_job(ctx: RunnerEnv, ext: Extension, node: str, key: str, spec: WorkerJo
     image, params, inputs, reuse, record = spec.image, spec.params, spec.inputs, spec.reuse, spec.record
     raw = raw_folder(key)
     job_dir = raw.parent
+    note(job_dir.name)  # the job's task references the model's raw results, reused or made now (data/packet.py note)
     done_marker = raw / WORKER_COMPLETE
     if reuse and worker_done(raw):
         ctx.stage("复用已完成的计算")
@@ -424,7 +502,7 @@ def _run_job(ctx: RunnerEnv, ext: Extension, node: str, key: str, spec: WorkerJo
         keep_free = keep_free_gb(spec.ram_gb)
 
         def run():
-            # only this place knows the 「加载模型」 phase (the second of the four in lab2shot/farm/progress.py):
+            # only this place knows the 「加载模型」 phase (the second of the four in lab2shot/progress.py):
             # starting the process, loading weights to the GPU and reading the material all happen before the first
             # progress line. When a progress line arrives, progress moves to 「计算」 by itself, without guessing from
             # stage names

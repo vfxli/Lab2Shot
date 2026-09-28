@@ -2,14 +2,15 @@ import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from "reac
 import "./Button.css";
 
 /** The page's buttons: every clickable control is a Button, an IconButton, a ButtonLink or a Segmented, styled only
- * here (ui/Button.css) and never restyled or resized by a page (webui/tests/uiKit.test.ts). A tip is required: `tip` is
- * the pointer's tooltip (data-tip). */
+ * here (ui/Button.css) and never restyled or resized by a page. `tip` is the pointer's tooltip (data-tip). It is
+ * optional because some areas show no tips at all (the nodes on the canvas, the parameter panel, the viewer's toolbar,
+ * the timeline, the node graph's 「?」: platform/tips.ts); everywhere else a button says what it does in its tip. */
 
 type Tone = "default" | "primary" | "ghost" | "link";
 type Size = "lg" | "md" | "sm" | "xs" | "xxs"; // 38 (a page that is only a form), 28, 22, 20, 16 px
 
 interface Look {
-  tip: string;
+  tip?: string;
   tone?: Tone;
   size?: Size;
   danger?: boolean; // an action that removes or ends something
@@ -28,7 +29,7 @@ export const HUD_SEG = "hud-seg glass static sm";
 const classOf = ({ tone = "default", size = "md", danger, warn, on, entry, layout }: Look, shape?: string) =>
   cls("btn", tone !== "default" && tone, size !== "md" && size, shape, danger && "danger", warn && "warn", on && "on", entry && "entry", layout);
 
-export interface ButtonProps extends Look, Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "children"> {}
+interface ButtonProps extends Look, Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "children"> {}
 
 export function Button({ tip, tone, size, danger, warn, on, entry, layout, type = "button", ...rest }: ButtonProps) {
   return (
@@ -63,12 +64,12 @@ export function ButtonLink({ tip, tone, size, danger, warn, on, layout, ...rest 
 export interface SegmentOption<T extends string> {
   value: T;
   label: ReactNode;
-  tip: string;
+  tip?: string;
   disabled?: string | false | null; // why it cannot be chosen now (shown as its tip)
-  field?: string; // data-field: the identifier UI tests use to find it
+  field?: string; // data-field: the identifier that finds it from outside the page
 }
 
-export interface SegmentedProps<T extends string> {
+interface SegmentedProps<T extends string> {
   label: string; // what the group chooses (aria-label)
   value: T | ReadonlySet<T>; // a set: several may be on at once (shown layers)
   options: readonly SegmentOption<T>[];
@@ -107,7 +108,7 @@ export function Segmented<T extends string>({ label, value, options, onChange, s
 }
 
 /** A single on/off control that reads as a word (实时, 曲线, 显示): a segmented control with one option. */
-export function Toggle({ on, onChange, tip, hud, layout, children }: { on: boolean; onChange: (on: boolean) => void; tip: string; hud?: boolean; layout?: string; children: ReactNode }) {
+export function Toggle({ on, onChange, tip, hud, layout, children }: { on: boolean; onChange: (on: boolean) => void; tip?: string; hud?: boolean; layout?: string; children: ReactNode }) {
   return (
     <div className={cls("seg", hud && HUD_SEG, layout)}>
       <button type="button" className={on ? "on" : undefined} aria-pressed={on} data-tip={tip} onClick={() => onChange(!on)}>
@@ -135,7 +136,7 @@ export function Switch({ on, onChange, tip, label, mini, disabled }: { on: boole
 
 /** A pill that selects or filters: sm among values (a class to keep, a group to open), md in a filter row (with the
  * colour of what it filters and the count). */
-export function Chip({ tip, on, size = "sm", color, count, layout, children, type = "button", style, ...rest }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> & { tip: string; on?: boolean; size?: "sm" | "md"; color?: string; count?: number; layout?: string }) {
+export function Chip({ tip, on, size = "sm", color, count, layout, children, type = "button", style, ...rest }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> & { tip?: string; on?: boolean; size?: "sm" | "md"; color?: string; count?: number; layout?: string }) {
   return (
     <button
       type={type}

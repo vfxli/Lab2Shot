@@ -6,7 +6,7 @@ from typing import Literal
 
 
 from lab2shot.sdk import (Official, plate_mask_port, measured_param, CV_TO_GL, Invalid, SolvedLensParams, Msg, NodeDef, P, Packet, Port,
-                          external_camera, FLOAT, LENS, LENS_HELP, LENS_TABLE, COLMAP_MODELS, PINHOLE_MODELS, lens_note,
+                          external_camera, FLOAT, LENS, LENS_HELP, LENS_TABLE, PINHOLE_MODELS, lens_note,
                           opencv_poses_to_usd, packed_lens, plate_lens, points_packet, solved_camera, unit_cm_param, value_packet,
                           window_of, Cost, Licence, OptionTrait, Param, Measured, external_distorting, only_when_distorting)
 
@@ -30,24 +30,22 @@ DISTORTING = external_distorting(*OFFERED)
 
 class CameraSolve(NodeDef):
     id = "colmap.camera_solve"
-    version = 2  # 「镜头内参」值包含组名和公式表 id（nodes/lens.py packed_lens）；更早版本的缓存不含这些字段
+    version = 2  # 版本 2：「镜头内参」值包含组名和公式表 id（nodes/lens.py packed_lens）
     # 本节点自行解算镜头：输出的相机带有解出的畸变。选择无畸变模型时（模板先去畸变再以默认的 SIMPLE_PINHOLE 解算）
-    # 与普通针孔节点相同。具体属于哪种由「镜头模型」决定，用法检查只读取这一处声明（nodes/expects.py SolvesLens）
+    # 与普通针孔节点相同。具体属于哪种由「镜头模型」决定（pinhole_when；取值见 nodes/applies.py LENSES）
     lens = "solves"
     pinhole_when = Param("fit_model").one_of(*PINHOLES)  # 两种无畸变模型下按普通针孔节点处理
-    # 公开基准上的实测结果，见各输入的提示
-    measured = {
-        "focal_mm": "实测（9 个镜头）：填真实 Focal Length 或接 AnyCalib，相机轨迹没区别",
-        "mask": "实测（3–4 个有运动物体的镜头）：相机轨迹没区别",
-    }
+    # 公开基准上的实测（接不接、接什么的差别）：
+    #   focal_mm：实测（9 个镜头）：填真实 Focal Length 或接 AnyCalib，相机轨迹没区别
+    #   mask：实测（3–4 个有运动物体的镜头）：相机轨迹没区别
     on_node = ("focal_mm", "mapper", "step")
     # 视图下方的控件只放「镜头模型」参数；解出的 Focal Length、Filmback、镜头内参已在视图中显示
     # （「已知 Focal Length」「Filmback」两个参数未填写时为空，不放入控件）
     strip = {"fit_model": "镜头模型"}
-    # 画面必须有视差，固定机位和纯摇镜头会直接报错。本方法为纯几何方法，运动物体须通过「遮罩」口排除。
+    # 画面必须有视差，固定机位和纯摇镜头会直接报错。本方法为纯几何方法，运动物体须通过「运动物体遮罩」口排除。
     # 尺度任意（默认 1 单位 = 1 米）；Focal Length 已知时与 ViPE 相差 2.8 cm / 0.37°，自行解算 Focal Length 时偏长约 20%（7.7 cm / 2.51°）。
     # 不提供「人物框」输入口：上游只接受遮罩图（--ImageReader.mask_path，黑色处不提取特征）。需要排除人物时，在节点图上连接
-    # 人物检测 →「人物框转遮罩」→ 本节点的「遮罩」口（worker 侧 worker_sdk/lab2shot_worker/recon.py MovingMasks 仅合成布尔图）。
+    # 「ViTDet 人物框」→「人物框转遮罩」→ 本节点的「运动物体遮罩」口（worker 侧 worker_sdk/lab2shot_worker/recon.py MovingMasks 仅合成布尔图）。
     # 对 COLMAP 而言，遮挡与运动物体遮罩的处理方式相同：黑色区域不提取特征。
     # COLMAP 不属于重建家族（使用独立的 NodeDef），因此输入口在此处声明，不使用 takes_mask
     inputs = (Port("image", "image.3", "RGB"), plate_mask_port("运动物体遮罩"))
@@ -64,7 +62,7 @@ class CameraSolve(NodeDef):
                # 上游 cameras.txt 的 PARAMS 第一项为 Focal Length（px）（doc/format.rst:106），
                # 按节点的「Filmback」换算为毫米；仅做单位换算，不改变官方结果
                Port("focal", FLOAT, "Focal Length", unit="mm",
-                    help="COLMAP 解出的 Focal Length，毫米（按节点上的「Filmback」换算）。接「LensDistortion」的「Focal Length」，"
+                    help="COLMAP 解出的 Focal Length，毫米（按节点上的「Filmback」换算）。接「LensDistortion」的「已知 Focal Length」，"
                          "或者接任何要 Focal Length 的解算器"),
                # 「Filmback」原样输出节点参数。该值并非上游计算结果，而是传递给下游，
                # 避免在两个节点上重复填写且不一致（Focal Length 的毫米值按此换算）
@@ -81,11 +79,10 @@ class CameraSolve(NodeDef):
         takes={"image": "--image_path", "mask": "--ImageReader.mask_path"},
         gives={"camera": "images.txt", "points": "points3D.txt", "focal": "cameras.txt", "lens": "cameras.txt"},
         ours={"filmback": "filmback_mm"},  # 节点的「Filmback」参数原样传给下游
-        note="遮罩是官方的输入（mask_path，黑色处不提特征）。**「人物框」输入口已删**："
-             "上游只有遮罩图这一种形式，框是我们在 worker 里栅格化成那张图的（隐式的一步）；"
-             "现在要挡人就接「人物框转遮罩」，那一步在节点图上看得见。"
-             "「镜头内参」（模型 + 畸变系数 + 主点 + 像素比）就是 cameras.txt 里那一行的 MODEL 和 PARAMS"
-             "（doc/format.rst:106）打成一份，「相机」是 images.txt 的四元数加位移（doc/format.rst:144）",
+        note="遮罩是官方的输入（mask_path，黑色处不提特征）。没有人物框输入口：上游只收遮罩图这一种形式；"
+             "要挡人就接「人物框转遮罩」到「运动物体遮罩」口，那一步在节点图上看得见。「镜头内参」（模型 + "
+             "畸变系数 + 主点 + 像素比）就是 cameras.txt 里那一行的 MODEL 和 PARAMS（doc/format.rst:106）"
+             "打成一份，「相机」是 images.txt 的四元数加位移（doc/format.rst:144）",
     )
     # COLMAP 无法用少于 3 个视图建立模型（worker MIN_REGISTERED，按隔帧后的帧数计），提交前拒绝
     min_frames, min_frames_step = 3, "step"
@@ -102,32 +99,24 @@ class CameraSolve(NodeDef):
         mapper: Literal["global", "incremental"] = P(
             "global", label="解算方式", group="解算",
             option_labels={"global": "全局", "incremental": "增量"},
-            help="全局：一次性解整段，快，比增量稳，整条轨迹不漂（推荐）；增量：一帧帧加进来，慢 1–4 倍，两次运行结果可能差很多，"
-                 "有时断成几段（只保留最大的一段）；全局解不出来时再试。两种都是多线程，视差很小时两次运行的结果都会不同",
         )
         matcher: Literal["sequential", "exhaustive"] = P(
             "sequential", label="匹配方式", group="解算",
             option_labels={"sequential": "相邻帧", "exhaustive": "所有帧两两"},
-            help="相邻帧：视频用，快；所有帧两两：帧数少（几十帧）或镜头来回走回原处时用，帧多会非常慢",
         )
         # 参数名为「镜头模型」（输出口名为「镜头内参」，二者不重名），对应上游的 `--ImageReader.camera_model`，
         # 指定 COLMAP 解算所用的模型。选项为 COLMAP 模型名，与「LensDistortion」的选项完全一致
         fit_model: Literal[OFFERED] = P(  # type: ignore[valid-type]
             "SIMPLE_PINHOLE", label="镜头模型", group="镜头",
             option_labels={m: LENS_TABLE[m].label for m in OFFERED},
-            help="让 COLMAP 按哪种镜头模型去解（COLMAP 官方的模型名，括号里是适用什么镜头）。画面已经去畸变（模板里「LensDistortion」之后）"
-                 "用 SIMPLE_PINHOLE；原始画面上让 COLMAP 自己解畸变选 SIMPLE_RADIAL 起的那几档，解出的镜头内参从「镜头内参」口交出，"
-                 "接「LensDistortion」（那边选同一个模型）。手机和长焦镜头畸变小，用无畸变更准（长焦时 Focal Length 和畸变会互相抵消）；"
-                 "填了 Focal Length（或接了一个）时 Focal Length 固定只解畸变。"
-                 "鱼眼的三档在焦距未知时只能用「全局」解算（增量解算起不来，提交前拦下）",
         )
-        step: int = P(1, label="隔帧", help="每隔几帧解算一次，其余帧的相机插值得到。长镜头设 2–3 能快很多，快速运动的镜头保持 1", ge=1, le=10, group="解算")
+        step: int = P(1, label="隔帧", ge=1, le=10, group="解算")
         # 更高的处理分辨率及其显存占用未经测试，上限取保守值
         resolution: Literal[1000, 1500, 2000] = measured_param(
-            "处理分辨率", {1000: Measured("特征点更少、更快", flat=True), 1500: Measured("特征点更少、更快", flat=True), 2000: Measured("1080×1920 隔 2 帧共 150 帧 68 秒（CPU 提取特征）", flat=True)},
-            default=2000, group="解算", help="画面长边缩到这个像素再找特征点。越大越准越慢；4K 素材 2000 通常够用")
-        unit_cm: float = unit_cm_param("COLMAP 的结果没有真实尺度：先按米（100）放，和 ViPE 或实测距离对比后再调")
-        sift_gpu: bool = P(False, label="显卡提取特征", help="用显卡提取和匹配特征点，快一点，但用到的 SiftGPU 仅限教育和研究（非商用）；关闭时用 CPU，结果一样", group="解算")
+            "处理分辨率", {1000: Measured(flat=True), 1500: Measured(flat=True), 2000: Measured(flat=True)},
+            default=2000, group="解算")
+        unit_cm: float = unit_cm_param()
+        sift_gpu: bool = P(False, label="显卡提取特征", group="解算")
 
     @classmethod
     def foresee(cls, params: dict, info) -> list:
@@ -152,7 +141,6 @@ class CameraSolve(NodeDef):
         if ctx.params["matcher"] == "exhaustive" and used_frames > 300:
             raise Invalid(Msg("E-COLMAP-EXHAUSTIVE", frames=used_frames))
         # 遮罩（值 > 0.5 表示运动物体）区域内的特征被忽略
-        # （对已去畸变的画面再解算畸变会在计算前被拒绝：B-LENS-SOLVEDUNDISTORTED）
         used = plate_lens(ctx, image)
         raw = ctx.run_worker(image, extra={"focal_px": used.focal_px}, inputs=ctx.input_files("mask"), record=used.record())
 
@@ -163,7 +151,7 @@ class CameraSolve(NodeDef):
         got = external_camera(cams["model"], cams["params"])  # 经由统一的镜头模型表
         if got is None:
             raise Invalid(Msg("E-COLMAP-MODEL", model=cams["model"]))
-        # COLMAP 按「处理尺寸」处理传入的全部像素，包括 overscan 区域（去畸变后的画面位于画布上）。
+        # COLMAP 按「处理分辨率」处理传入的全部像素，包括 overscan 区域（去畸变后的画面位于画布上）。
         # 其结果以自身像素为单位，因此按其所见画布缩放，再将主点移到描述相机所用的画面坐标系上
         window = window_of(image)
         (canvas_w, _), (left, top) = window.canvas, window.offset

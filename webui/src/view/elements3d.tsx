@@ -12,7 +12,7 @@ export { CameraPath, ShotCamera, cameraAt } from "./cameras3d";
 
 /** Scene objects on the 3D stage: models (static, transform-animated, or point caches), skinned characters (skinned
  * on the GPU from bind pose, skin weights, blend shapes and joints, matching the server's evaluation), skeletons,
- * cameras with frustum and path, and dome lights. Lines use the configured width; every object can be picked and
+ * cameras with frustum and path (view/cameras3d.tsx, re-exported here). Lines use the configured width; every object can be picked and
  * framed. Meshes are always drawn double-sided and normals are not displayed. */
 
 // UV checker texture, created once.
@@ -280,5 +280,3 @@ function Bones({ c, frame, o, pickKey }: { c: CharacterData; frame: number; o: V
   if (!segments.length) return null;
   return <FatLines segments={segments} color={o.boneColor} width={o.lineWidth * 1.3} overlay opacity={0.95} />;
 }
-
-/** Camera state at a frame: camera-to-world matrix and the half extents of the resolution gate at depth 1. */

@@ -1,5 +1,0 @@
-# FaceAnything 的消息（adapters/faceanything）。
-
-# ---- 参数组合（nodes.py：24 GB 显卡上实测安全的组合）
-"E-FACEANYTHING-ONEBYONEONLY" = "这么高的「处理分辨率」在 24 GB 显存上只能配「逐帧」：把「方式」改成逐帧，或者把「处理分辨率」调回 504"
-"E-FACEANYTHING-CHUNKTOOBIG" = "「处理分辨率」超过 504 时，「每段最多帧数」只能选 8，否则显存不够：把「每段最多帧数」改成 8，或者把「方式」改成逐帧"

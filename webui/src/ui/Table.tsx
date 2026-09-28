@@ -3,7 +3,7 @@ import "./table.css";
 
 /** A list as a table: columns declared once with their header, hover help and cell;
  * a row can be picked (the one picked is marked) and a row can be dimmed (no longer in use: a deleted account, an
- * expired sample). Both are the component's own states — a page never adds a class of its own to a row. */
+ * invite that can no longer be used). Both are the component's own states — a page never adds a class of its own to a row. */
 
 export interface Column<T> {
   id: string;

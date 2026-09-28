@@ -24,11 +24,6 @@
    "name": "ref_frame",
    "label": "参考帧",
    "target": "track.query_frame"
-  },
-  {
-   "name": "output",
-   "label": "保存到",
-   "target": "deliver.path"
   }
  ],
  "nodes": [
@@ -122,16 +117,10 @@
    "id": "deliver",
    "type": "core.output",
    "label": "输出",
-   "params": {
-    "mode": "tar",
-    "path": ""
-   },
+   "params": {},
    "ui": {
     "x": 1280,
-    "y": 0,
-    "on_node": [
-     "mode"
-    ]
+    "y": 0
    }
   }
  ],

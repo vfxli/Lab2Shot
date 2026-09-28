@@ -13,7 +13,7 @@ from ..database import db
 from ..errors import Invalid
 from ..messages import Msg
 
-QUERY_TIMEOUT_S = 10.0  # 一次 nvidia-smi 最长等多久（清点线程停下来时按它算，inventory.py stop）
+QUERY_TIMEOUT_S = 10.0  # the longest one nvidia-smi call may take (inventory.py stop waits by it)
 QUERY = "index,name,uuid,memory.total,memory.used,utilization.gpu,temperature.gpu,compute_cap"
 
 

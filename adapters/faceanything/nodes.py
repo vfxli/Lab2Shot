@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, measured_param, Confidence, Invalid, PerFrameDepthCamera, Msg, NodeParams, P, Port, frame_maps, points_params,
+from lab2shot.sdk import (Official, measured_param, Confidence, PerFrameDepthCamera, NodeParams, P, Port, frame_maps,
                           Cost, Licence, OptionTrait, Param, Measured)
 
 # 每段帧数 / 处理分辨率只给 24 GB 显卡上验证过的几档，不接受任意数字——
 # 一个改过的节点图存了超出这些值的数字会被服务器拒绝（Params 的 Literal），不会真的跑起来撑爆显存。
 CHUNK_CHOICES = {"8": "8", "16": "16", "24": "24"}
-MAX_SIDE_CHOICES = {"504": "标准 504", "700": "更高 700", "1008": "最高 1008"}
+MAX_SIDE_CHOICES = {"504": "标准 504"}
 
 
 class Solve(PerFrameDepthCamera):
@@ -45,31 +45,16 @@ class Solve(PerFrameDepthCamera):
     # 每段帧数三档各自的显存（处理分辨率 504）：选更贵的一档时节点上的计算量档位跟着变
 
     class Params(NodeParams):
-        # 「点云」口上接了东西才起作用（points_params 的 applies=WiredOut("points")）
-        point_step: int = points_params()["point_step"]
-        point_size: float = points_params()["point_size"]
         mode: Literal["chunk", "one_by_one"] = P(
             "chunk", label="方式", group="解算",
             option_labels={"chunk": "分段", "one_by_one": "逐帧"},
-            help="分段：几帧一起算，前后帧一致，视频推荐；逐帧：每帧单独算，细节略多但会闪，适合单张照片，显存最省",
         )
         max_frames: Literal[8, 16, 24] = measured_param(
-            "每段最多帧数", {8: Measured("0.15 秒/帧", gb=13.2), 16: Measured("0.19 秒/帧", gb=15.0), 24: Measured("显存最多的一档", gb=18.8)}, default=16,
-            group="解算", option_labels=CHUNK_CHOICES, applies=Param("mode").one_of("chunk"),
-            help="分段处理时一次送进模型的帧数（处理分辨率 504 实测）；更大的没测过、不给选，显存不够就选小一档")
+            "每段最多帧数", {8: Measured(gb=13.2), 16: Measured(gb=15.0), 24: Measured(gb=18.8)}, default=16,
+            group="解算", option_labels=CHUNK_CHOICES, applies=Param("mode").one_of("chunk"))
         resolution: Literal[504] = measured_param(
-            "处理分辨率", {504: Measured("训练尺寸：显存看每段帧数", flat=True)}, default=504,
-            group="解算", option_labels=MAX_SIDE_CHOICES,
-            help="长边像素。504 是模型训练尺寸，也是 24 GB 显卡上实测过的唯一一档；更高的没测过、不给选")
-
-    @classmethod
-    def prepare(cls, ctx):
-        params = ctx.params
-        if params["resolution"] >= 1008 and params["mode"] != "one_by_one":
-            raise Invalid(Msg("E-FACEANYTHING-ONEBYONEONLY"))
-        if params["resolution"] > 504 and params["mode"] == "chunk" and params["max_frames"] != 8:
-            raise Invalid(Msg("E-FACEANYTHING-CHUNKTOOBIG"))
-        return super().prepare(ctx)
+            "处理分辨率", {504: Measured(flat=True)}, default=504,
+            group="解算", option_labels=MAX_SIDE_CHOICES)
 
     @classmethod
     def convert(cls, ctx, raw, job):

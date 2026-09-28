@@ -35,7 +35,7 @@ from pathlib import Path
 
 import numpy as np
 
-from lab2shot_worker import fail, progress, save_npz, serve, set_seed, stub_module
+from lab2shot_worker import WEIGHTS_ENV, fail, progress, save_npz, serve, set_seed, stub_module
 from lab2shot_worker.files import read_frame, read_mask
 from lab2shot_worker.run import Run
 from lab2shot_worker.serving import resident
@@ -43,6 +43,9 @@ from lab2shot_worker.serving import resident
 NODE = "mesh4d.solve"
 
 WINDOW = 6  # the model's window (configs num_frames / length_sequence): not a setting
+
+# The dinov2-large weight's dest in extension.py (under weights/): the installer downloads it there as plain files
+DINOV2 = "hf/hub/models--facebook--dinov2-large"
 
 
 def _code_base() -> Path:
@@ -62,6 +65,21 @@ def _shapegen():
     return Hunyuan3DDiTFlowMatchingPipeline.from_pretrained("tencent/Hunyuan3D-2.1")
 
 
+def _dinov2_from_weights(params: dict) -> None:
+    """Point the image encoder at the DINOv2 files the installer wrote, when they are there.
+
+    upstream's infer.yaml names the encoder by repository (`version: 'facebook/dinov2-large'`), which
+    transformers resolves in the Hugging Face cache layout (refs/, snapshots/) under HF_HOME. The
+    installer downloads the weight as plain files into its dest (snapshot_download(local_dir=...)), so on a
+    fresh install that name resolves to nothing and loading fails offline. The version handed to upstream's
+    own ImageEncoder (AutoModel.from_pretrained(version)) becomes that folder instead; only the config this
+    worker read is changed, never upstream's files. Without the files (an environment that holds only the
+    cache layout) the name is left as it is."""
+    folder = Path(os.environ.get(WEIGHTS_ENV, "")) / DINOV2
+    if (folder / "config.json").is_file() and (folder / "model.safetensors").is_file():
+        params["cond_stage_config"]["params"]["main_image_encoder"]["kwargs"]["version"] = str(folder)
+
+
 @resident
 def _deform(weights: str):
     """Mesh4D's deformation pipeline, built exactly as infer.py builds it, except that the
@@ -75,6 +93,7 @@ def _deform(weights: str):
     from hy3dshape.utils.misc import instantiate_from_config, instantiate_non_trainable_model
 
     params = yaml.safe_load(open("./configs/infer.yaml", encoding="utf-8"))["model"]["params"]
+    _dinov2_from_weights(params)
     model = instantiate_from_config(params["denoiser_cfg"])
     missing, _ = model.load_state_dict(load_file(weights), strict=False)
     if missing:

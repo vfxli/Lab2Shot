@@ -6,9 +6,9 @@ import { gbText, sizeText } from "../platform/format";
  * 一条消息、一条「本次点击将遇到的限制」的说明、一个「当前是否可点击」的判断。三处（顶栏的「提交」、节点菜单的「计算」、
  * 实际提交前）均读取此处，页面中不得另写一套判断。
  *
- * 规则与服务器完全一致（lab2shot/server/farm.py submit → quota.refuse_if_full）：点击触发的计算和交付一律拦下，
- * 视图自动触发的计算照常进行，否则用户无法查看数据，也就无法判断应清理哪一部分。 */
-export const fullMessage = (s: StorageGate): Message =>
+ * 规则与服务器完全一致（lab2shot/server/farm.py submit → quota.refuse_if_full）：「计算」与「提交」一律拦下；
+ * 查看已有的结果不受影响，用户仍能看到数据，据此判断应清理哪一部分。 */
+const fullMessage = (s: StorageGate): Message =>
   msg("B-STORAGE-FULL", { used: sizeText(s.total), limit: s.limit ? gbText(s.limit / 2 ** 30) : "不限" });
 
 /** 配额是否已满（尚未查询过队列时按未满处理：服务器端仍会拦截）。 */

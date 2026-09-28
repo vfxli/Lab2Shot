@@ -7,11 +7,11 @@
   (OutputSettings.out_file); they are the node's result (type files, cached like any other), shown in the viewer as what
   they were made from. A 3D one declares per kind of 3D data what its format holds (`writes`): a kind it can't hold is
   refused on the wire, never dropped and never turned into something else on the quiet.
-- 「输出」 (nodes/core/output.py) takes the files of the settings nodes wired into it and delivers them to the user,
-  one sub-folder per 名字, as an archive or into a folder: CookContext.delivery (nodes/services.py DeliverySink) and
-  lab2shot/transfer/deliveries.py.
-  The rules (a settings node in a cook is wired into an 「输出」, which has somewhere to deliver to, and the names under
-  it differ) are Graph.check_delivery.
+- 「输出」 (nodes/core/output.py) takes the files of the settings nodes wired into it and collects them for the user
+  into its task's folder, one sub-folder per 名字, then packs that folder into one zip: CookContext.collector
+  (nodes/services.py OutputSink) and lab2shot/transfer/outputs.py.
+  The rules (a settings node in a cook is wired into an 「输出」, and the names under it differ) are
+  Graph.check_delivery.
 
 Nothing here, in 「输出」 or in the engine knows a format.
 """
@@ -25,18 +25,18 @@ from pathlib import Path
 from typing import Any, ClassVar, Literal
 
 from ..errors import Invalid
+from ..io.files import inside
 from ..messages import Msg
-from .base import LIGHT, NodeDef, P, Port
+from .base import NodeDef, P, Port
 from .clipboard import Pasteable, clipboard_meta
 from ..data.types import DATA_TYPES, DEFORMING, KIND_ORDER, kind_label, kind_of
-from .applies import Cost
 
 def _either(items: list, code: str):
     """Alternatives as one message: the first, or (code: E-OUTPUT-OR / E-OUTPUT-ORELSE) the rest."""
     return items[0] if len(items) == 1 else Msg(code, first=items[0], then=_either(items[1:], code))
 
 
-ML_MARK = "ML_Lab2Shot"  # in the name of every file (and delivery) a machine-learning model made
+ML_MARK = "ML_Lab2Shot"  # in the name of every file (and output's download) a machine-learning model made
 
 
 def learned_projects(provenance: dict) -> list[str]:
@@ -49,8 +49,8 @@ def marked(name: str, projects: list[str]) -> str:
     """A delivered file's or delivery's name with the mark that a model made it (metadata goes unseen, the name is
     what a production artist sees): `名字_ML_Lab2Shot_<项目>[-<项目>…]`, the project titles in
     ASCII (「Pi3 (π³)」 → Pi3, 「SAM 3D Body」 → SAM3DBody); a name without projects stays as it is, as does one that
-    already carries the mark. The one rule for every file (OutputSettings.out_file) and delivery
-    (transfer/deliveries.py)."""
+    already carries the mark. The one rule for every file (OutputSettings.out_file) and output's download
+    (transfer/outputs.py)."""
     if not projects or ML_MARK in name:
         return name
     names = [n for n in dict.fromkeys(re.sub(r"[^A-Za-z0-9]", "", re.sub(r"\(.*?\)", "", p)) for p in projects) if n]
@@ -63,9 +63,7 @@ FILES_OUT = Port("files", FILES, "文件")
 
 def name_param(default: str) -> Any:
     """A settings node's 名字: 「输出」 puts its files in a sub-folder of that name and names them after it."""
-    return P(default, label="名字", group="文件", unique=True,
-             help=f"「输出」里它的子文件夹和文件名，如 {default} → {default}/{default}.…；接到同一个「输出」的名字不能重复，"
-                  "也不能带文件名里不能用的字符（/ \\ : * ? \" < > |）")
+    return P(default, label="名字", group="文件", unique=True)
 
 
 # 帧率：整个 Lab2Shot 里唯一说得出帧率的地方。帧率是项目级别的东西，这里没有项目的概念，所以只在输出时指定。
@@ -75,9 +73,7 @@ def fps_param(*, applies=None) -> Any:
     """A settings node's 帧率, when its format stores time: written onto the file it delivers, nothing else."""
     from ..data.units import DEFAULT_FPS
 
-    return P(DEFAULT_FPS, label="帧率", unit="fps", group="文件", gt=0, applies=applies,
-             help="写进文件的帧率：帧号不动，只告诉 DCC 这些帧一秒放几个（23.976、24、25、30……）。"
-                  "Lab2Shot 内部只用帧号，帧率只在这里说一次")
+    return P(DEFAULT_FPS, label="帧率", unit="fps", group="文件", gt=0, applies=applies)
 
 
 TAKE = "core.take"  # 「按种类取出」: a scene by kind (nodes/core/scene.py Take), the fix for a wire that carries some kinds a format holds
@@ -86,20 +82,21 @@ TAKE = "core.take"  # 「按种类取出」: a scene by kind (nodes/core/scene.p
 @dataclass(frozen=True)
 class Writes:
     """What a 3D settings node's format holds of one kind of 3D data (OutputSettings.writes): all of it, only still ones
-    (模型: a format without per-frame vertex caches), or none (`note` says why; `via` names a node that turns this kind
-    into one the format holds: 「烘焙成模型」 for a 蒙皮角色 into a format without skeletons)."""
+    (模型: a format without per-frame vertex caches), or none. `note` says why a wire is refused (a kind it cannot
+    hold, a deforming 模型 into a format that holds still ones only); `via` names a node that turns this kind into one
+    the format holds: 「烘焙成模型」 for a 蒙皮角色 into a format without skeletons."""
 
     how: Literal["full", "static", "no"]
     note: str = ""
     via: str = ""  # a node type to put in front, as the refusal says
     # what this format cannot carry through of a kind it does take (a format that holds a 模型 but has no way to keep
-    # the 分区 on its mesh): said in 支持的数据 and the input's tooltip, never in a refusal — the data still gets
-    # written, part of it does not. A format that drops something says so, it never drops it on the quiet
+    # the 分区 on its mesh): marked 部分 in 支持的数据, never a refusal — the data still gets written, part of it does
+    # not. A format that drops something says so, it never drops it on the quiet
     lost: str = ""
 
     @classmethod
-    def full(cls, note: str = "", lost: str = "") -> Writes:
-        return cls("full", note, lost=lost)
+    def full(cls, lost: str = "") -> Writes:
+        return cls("full", lost=lost)
 
     @classmethod
     def static(cls, note: str, lost: str = "") -> Writes:
@@ -121,10 +118,8 @@ class OutputSettings(Pasteable, NodeDef):
     # 每个子类自己声明它写的是哪一类（categories.py 的「输出」下面：三维 / 画面与数据），
     # 基类不替它猜——漏了就是没分类（节点菜单按 menu/nodes.json 归类，不看它）
     outputs = (FILES_OUT,)
-    # cost: writing files, whichever environment writes them; 「输出」 is what delivers them (Output.delivers)
-    cost = Cost(lane=LIGHT)
     # a 3D one: what its format holds of each kind of 3D data (types.SCENE_KINDS), every kind declared. The editor
-    # shows it (支持的数据, the input's tooltip); a wire carrying a kind it can't hold is a wiring problem (refuses),
+    # shows it (支持的数据); a wire carrying a kind it can't hold is a wiring problem (refuses),
     # and what reaches write() anyway (a scene the graph could not tell) fails the cook with the same words
     writes: ClassVar[dict[str, Writes]] = {}
     # 「复制到 Nuke」 is declared by the Pasteable mixin (nodes/clipboard.py): an output-settings node writes the
@@ -143,7 +138,9 @@ class OutputSettings(Pasteable, NodeDef):
         名字_ML_Lab2Shot_ViPE.usd; a sequence: one per frame, 名字_ML_Lab2Shot_SAM3.1001.exr, frame numbers as they
         are, four digits at least) in its files packet, which 「输出」 delivers. The one place a delivered file is named."""
         name = cls.stem(ctx)
-        return ctx.outputs["files"] / (f"{name}.{frame:04d}{suffix}" if frame is not None else f"{name}{suffix}")
+        # the graph's check keeps 名字 one plain file name (engine/graph.py check_delivery); `inside` makes sure the file
+        # lands in the node's own result folder even if a name got past it
+        return inside(ctx.outputs["files"], f"{name}.{frame:04d}{suffix}" if frame is not None else f"{name}{suffix}")
 
     @classmethod
     def stem(cls, ctx) -> str:
@@ -164,7 +161,7 @@ class OutputSettings(Pasteable, NodeDef):
 
         prov = ctx.provenance
         out, name = ctx.outputs["files"], ctx.params["name"]
-        (out / f"{name}.lab2shot.json").write_text(json.dumps({"file": main, **prov}, ensure_ascii=False, indent=2), encoding="utf-8")
+        inside(out, f"{name}.lab2shot.json").write_text(json.dumps({"file": main, **prov}, ensure_ascii=False, indent=2), encoding="utf-8")
         made_from = next((p.type for ps in ctx.inputs.values() for p in ps), "")
         written = sorted(f.relative_to(out).as_posix() for f in out.rglob("*") if f.is_file())
         # the file this result can be pasted from, when the node wrote one this time (a settings node whose Nuke
@@ -253,6 +250,5 @@ class OutputSettings(Pasteable, NodeDef):
     @classmethod
     def describe(cls) -> dict[str, Any]:
         return {**super().describe(),
-                # 「reason」 only where there is one (a kind the format can't hold says why): most rows are just「how」
-                "writes": {kind: {"how": w.how, **({"reason": w.note} if w.note else {}),
-                                  **({"lost": w.lost} if w.lost else {})} for kind, w in cls.writes.items()}}
+                # 「lost」 only where the format drops part of what it takes (支持的数据 marks it 部分)
+                "writes": {kind: {"how": w.how, **({"lost": True} if w.lost else {})} for kind, w in cls.writes.items()}}

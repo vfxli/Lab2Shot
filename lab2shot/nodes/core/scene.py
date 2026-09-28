@@ -1,5 +1,5 @@
-"""场景：合成场景、取出、3D 变换、自动落地（可先按重力方向放平）、重定时、重采样曲线、标准人、烘焙成模型、提取骨架、
-线性蒙皮变形、场景投影成 2D。"""
+"""场景：合成场景、按种类取出、按分区取出、删除属性、相机空间转换、3D 变换、自动落地（可先按重力方向放平）、重定时、
+重采样曲线、标准人、烘焙成模型、提取骨架、线性蒙皮变形、场景投影成 2D。"""
 
 from __future__ import annotations
 
@@ -9,13 +9,13 @@ import numpy as np
 
 from ...errors import Invalid
 from ...messages import Msg
-from ..base import HEAVY, Info, NodeDef, NodeParams, P, Port
+from ..base import Info, NodeDef, NodeParams, P, Port
 from ..tags import RESEARCH
 from ..expects import DistinctNames, SameShot
 from ..handles import Places
 from ...data.types import DEFORMING
 from ...availability import Not
-from ..applies import Cost, Licence, Param, Wired, fact
+from ..applies import Licence, Param, Wired, fact
 
 
 class UsdPack(NodeDef):
@@ -119,10 +119,7 @@ class CameraSpaceConvert(NodeDef):
             "per_frame", label="贴合方式", group="转换",
             option_labels={"per_frame": "逐帧贴合", "whole": "整段平滑"},
             # 来源相机留空即单位相机，没有可拟合的轨迹，只能逐帧贴合
-            applies=Wired("source_camera"),
-            help="逐帧贴合：每一帧按两台相机算一个变换，画面上严格对上，静止镜头也成立，但前后距离可能跟着解算器抖。"
-                 "整段平滑：两条相机轨迹拟合一个常量变换（带尺度），动作连贯、脚不滑，但每帧不严格贴；"
-                 "拟合剩下的误差会报出来。来源相机留空时只有逐帧一种")
+            applies=Wired("source_camera"))
 
     LENS_TOLERANCE = 0.02  # 两台相机的视角相差超过此比例即视为不是同一镜头
     MOVED_CM = 10.0  # 相机中心的散布（均方根）至少达到此值，整段平滑模式才从轨迹读取比例
@@ -153,7 +150,7 @@ class CameraSpaceConvert(NodeDef):
         from lab2shot_shared.poses import rotation_deg, scaled_align
 
         # 两台相机都确实移动过才从轨迹读取比例：相机中心散布（均方根）不足 MOVED_CM 时比例按 1 处理并给出提示。
-        # 在几厘米长的轨迹上读出的比例只是噪声（近似静止的镜头上曾拟合出 0.034，人物被缩小到 3%），只有旋转和平移可信。
+        # 在几厘米长的轨迹上读出的比例只是噪声（近似静止的镜头上可拟合出 0.034，人物被缩小到 3%），只有旋转和平移可信。
         spreads = [cls._spread(m) for m in (fr_mats, to_mats)]
         moved = min(spreads) >= cls.MOVED_CM
         fix, scale, spread, turn_off, left_cm = scaled_align(fr_mats, to_mats, fit_scale=moved)
@@ -200,12 +197,13 @@ class Transform3D(NodeDef):
     category = "scene_build"
     inputs = (Port("scene", "scene", "场景"),)
     outputs = (Port("scene", "scene", "场景", type_from="input:scene"),)
-    handles = (Places(translate="translate", rotate="rotate", scale="scale"),)  # 变换手柄，以及计算时的放置方式
+    # 变换手柄，以及计算时的放置方式。手柄作用于输入的场景：还没算（或已过期）时视图按当前参数摆放上游的场景
+    handles = (Places(translate="translate", rotate="rotate", scale="scale", source="scene"),)
 
     class Params(NodeParams):
-        translate: tuple[float, float, float] = P((0.0, 0.0, 0.0), label="移动", help="整个场景（相机和人一起）平移，单位厘米，Y 向上。比如脚在地面下 10 厘米就 Y 填 10", widget="vec3", group="变换")
-        rotate: tuple[float, float, float] = P((0.0, 0.0, 0.0), label="旋转", help="整个场景绕原点旋转，单位度，按 X、Y、Z 顺序（和 Houdini 默认一致）。常用来把地面转平或调整朝向", widget="vec3", group="变换")
-        scale: float = P(1.0, label="缩放", help="整个场景统一缩放（相机位置一起缩放，画面对位不变）。人物尺寸不对时用，如 1.05 放大 5%", gt=0, group="变换")
+        translate: tuple[float, float, float] = P((0.0, 0.0, 0.0), label="移动", widget="vec3", group="变换")
+        rotate: tuple[float, float, float] = P((0.0, 0.0, 0.0), label="旋转", widget="vec3", group="变换")
+        scale: float = P(1.0, label="缩放", gt=0, group="变换")
 
     @classmethod
     def cook(cls, ctx):
@@ -228,23 +226,16 @@ class AutoGround(NodeDef):
     class Params(NodeParams):
         gravity: tuple[float, float, float] | None = P(
             None, label="重力方向", widget="vec3", group="放平", per_frame=True,
-            help="每帧相机里朝上的方向（相机坐标：X 右、Y 上、Z 朝向看画面的人）。一般接 GeoCalib 的「重力方向」"
-                 "（点参数旁边的「提升到节点」），每帧一个；留空 = 不转正。相机从场景里找，"
-                 "场景里不止一台相机时会拒绝并说清怎么挑（接「按种类取出」留下要的那一台）",
         )
         gravity_error: float | None = P(
             None, label="重力误差", unit="°", ge=0, group="放平", per_frame=True, applies=Param("gravity").set(),
-            help="每帧重力方向可能差多少度（接 GeoCalib 的「重力误差」）：误差大的帧少算一些；留空 = 每帧一样看待",
         )
         source: Literal["people", "points", "none"] = P(
             "people", label="地面依据", group="地面",
             option_labels={"people": "人物脚底", "points": "点云", "none": "不落地"},
-            help="人物脚底：人走在地上时最准；点云：场景里没有人物时，取相机下方的点里最密的那一层高度当地面（地面、路面），"
-                 "场景要是正的（给了重力方向，或者本来就是 Y 朝上），否则斜的地面分不出一层；不落地：只按重力方向转正，"
-                 "不上下移动（比如只有一台相机）",
         )
         percentile: float = P(
-            10.0, label="落地帧比例", help="用多少比例的帧判断地面：取脚最低的这部分帧当作踩在地上（跳起来的帧不算）。人一直在走就用 10；经常跳就调低到 3–5", ge=1.0, le=50.0, group="地面", widget="slider",
+            10.0, label="落地帧比例", ge=1.0, le=50.0, group="地面", widget="slider",
             applies=Param("source").one_of("people"),
         )
 
@@ -282,8 +273,6 @@ class AutoGround(NodeDef):
             ctx.say("I-GROUND-LEVELED", tilt=found["tilt_deg"], frames=found["frames"], spread=found["spread_deg"], dropped=dropped)
             if found["spread_deg"] > SPREAD_WARN_DEG:
                 ctx.say("W-GROUND-SPREAD", spread=found["spread_deg"], port="gravity")
-        elif ctx.input("camera") is not None:
-            ctx.say("N-GROUND-CAMERAUNUSED", port="camera")
         source = ctx.params["source"]
         if source == "none" and gravity is None:
             raise Invalid(Msg("E-GROUND-NOTHING"))
@@ -317,9 +306,7 @@ class CurvesResample(NodeDef):
         # 误填 100000 会使一个有 10 万条的发型变成 100 亿个点。
         per_curve: Literal[8, 16, 24, 32, 48, 64, 100] = P(
             24, label="每条点数", group="曲线",
-            option_labels={"8": "8", "16": "16", "24": "24", "32": "32", "48": "48", "64": "64", "100": "100"},
-            help="每条曲线重采样成多少个点。发丝交给 DCC 一般 16–32 个点就够看不出差别；要保住细小的卷曲用 48 以上。"
-                 "这几档是实测过、不会把内存撑爆的值")
+            option_labels={"8": "8", "16": "16", "24": "24", "32": "32", "48": "48", "64": "64", "100": "100"})
 
     @classmethod
     def cook(cls, ctx):
@@ -341,9 +328,7 @@ class TakeSubset(NodeDef):
 
     class Params(NodeParams):
         subset: str = P("", label="分区", widget="choice", group="网格", choices_from=("model",),
-                        placeholder="先接上模型",
-                        help="取网格上的哪一个分区（选项是接进来的网格自己带的分区名，如 FLAME 的 scalp、face、neck）。"
-                             "网格上有哪些分区、各多少面，在节点的「数据信息」里看得到")
+                        placeholder="先接上模型")
 
     @classmethod
     def choices(cls, params: dict, inputs: dict) -> dict:
@@ -383,10 +368,7 @@ class AttribDelete(NodeDef):
     outputs = (Port("scene", "scene", "场景", type_from="input:scene"),)
 
     class Params(NodeParams):
-        attributes: str = P("", label="属性名", group="属性", placeholder="先接上数据",
-                       help="要删掉哪些属性：空格或逗号分开，可以用 * 通配（如 `track_*` 删掉所有跟踪点的编号，"
-                            "`*` 删掉全部）。这份数据上现在有哪些属性，在节点的「数据信息」里看得到；"
-                            "填了但没命中的名字，算完会在节点上说一句")
+        attributes: str = P("", label="属性名", group="属性", placeholder="先接上数据")
 
     @classmethod
     def cook(cls, ctx):
@@ -530,10 +512,7 @@ class StandardHuman(NodeDef):
         # 下游的「3D 变换」也能缩放，但那需要使用者先知道模型自身的高度并自行计算比例。
         # 未提供体型（胖瘦）参数：SMPL-X 的体型由 300 个 betas 表示，官方未定义哪个方向、多少算「胖」，不自行设定档位。
         height_cm: float | None = P(None, label="身高", unit="cm", ge=100.0, le=250.0, group="人物",
-                                    placeholder="模型的 172",
-                                    help="这个人多高，单位厘米（脚底在 y = 0，整个人等比缩放）。"
-                                         "留空 = SMPL-X 中性体型自己的身高 172 厘米。"
-                                         "「线性蒙皮变形」按目标自己的骨头长度算比例，所以这个数也决定套上来那段动作的步子有多大")
+                                    placeholder="模型的 172")
 
     @classmethod
     def info(cls, params, inputs):
@@ -567,8 +546,6 @@ STANDARD_HUMAN_FRAME = 1001  # 静止姿势只占一帧；帧号按影视惯例�
 
 class SceneRender(NodeDef):
     id = "core.scene_render"
-    # 开销：在每一帧光栅化所有网格和点
-    cost = Cost(lane=HEAVY)
     on_node = ("width", "height")
     keeps_overscan = False  # 渲染到相机所见的画面框内
     category = "scene_convert"
@@ -581,12 +558,11 @@ class SceneRender(NodeDef):
 
     class Params(NodeParams):
         width: int | None = P(None, label="画面宽度", unit="px", ge=16, le=16384, group="画面", placeholder="相机的",
-                              applies=Not(Wired("image")), help="没接画面时输出多宽；留空用相机记下的分辨率。接了画面就和画面一样大、一样的帧")
+                              applies=Not(Wired("image")))
         height: int | None = P(None, label="画面高度", unit="px", ge=16, le=16384, group="画面", placeholder="相机的",
-                               applies=Not(Wired("image")), help="没接画面时输出多高；留空用相机记下的分辨率")
+                               applies=Not(Wired("image")))
         space: Literal["camera", "world"] = P("camera", label="法线坐标系", group="法线",
-                                              option_labels={"camera": "相机", "world": "世界"},
-                                              help="相机：X 向右、Y 向上、Z 朝向镜头；世界：场景的世界方向，镜头动了法线也不变。点云没有法线，只进遮罩和深度图")
+                                              option_labels={"camera": "相机", "world": "世界"})
 
     @classmethod
     def info(cls, params, inputs):
@@ -656,14 +632,10 @@ class Retime(NodeDef):
     outputs = (Port("scene", "scene", "场景", type_from="input:scene"),)
 
     class Params(NodeParams):
-        offset: int = P(0, label="偏移", unit="帧", group="时间",
-                        help="结果整体往后挪几帧，负数往前。1001 起的镜头填 +12 就从 1013 起")
-        speed: float = P(1.0, label="速度", group="时间", gt=0,
-                         help="一帧走几帧源上的帧，和 Nuke Retime 的 speed 一样。1 = 不动一帧；"
-                              "1.25 = 30 帧的动作放进 24 帧的镜头（30 ÷ 24），中间的帧插出来；0.5 = 慢一半、帧数翻倍")
+        offset: int = P(0, label="偏移", unit="帧", group="时间")
+        speed: float = P(1.0, label="速度", group="时间", gt=0)
         anchor: int | None = P(None, label="对齐帧", unit="帧", group="时间", placeholder="第一帧",
-                               applies=SPEED_CHANGES,
-                               help="改速度时哪一帧保持不动。留空 = 接进来的第一帧")
+                               applies=SPEED_CHANGES)
 
     fact_labels = {"speed_changes": "速度不是 1"}
 
@@ -675,7 +647,7 @@ class Retime(NodeDef):
 
     @classmethod
     def info(cls, params, inputs):
-        """输出的帧及其速率：重定时是唯一一个结果覆盖的帧与输入不同的节点，因此需要告知节点图（base.py info）。"""
+        """输出的帧：重定时的结果覆盖的帧与输入不同，因此需要告知节点图（base.py info）。"""
         got = Info.merge(inputs.get("scene") or [])
         if not got.frames:
             return got

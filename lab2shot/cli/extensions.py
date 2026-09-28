@@ -8,7 +8,7 @@ import typer
 from rich.table import Table
 
 from ..extensions import broken_extensions, extensions, get_extension
-from .base import console, failed
+from .base import console
 from .base import group as _group
 
 group = _group("扩展包管理：列出、查看、安装。")

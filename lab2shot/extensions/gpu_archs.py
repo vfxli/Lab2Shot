@@ -1,7 +1,7 @@
-"""Which GPU architectures an extension's environment (or the core's own) can run: probed once (lab2shot_worker.
+"""Which GPU architectures an extension's environment (or the core's own) can run: probed once (lab2shot_shared.
 gpu_arch, no GPU touched; see its docstring), kept with the extension's install record and invalidated when the
-environment changes (the same fingerprint step_env() already keeps). Missing (an environment installed before this
-existed) is filled in the first time anything asks, here, not guessed.
+environment changes (the fingerprint step_env() records). An environment with no record gets one the first time
+anything asks (ensure), not a guess.
 
 Why this exists: a torch build compiled for older GPUs only (e.g. torch 2.3, sm_50..sm_90) raises "no kernel image
 is available for execution on the device" on a newer one (RTX 5090, sm_120, Blackwell) instead of computing, and
@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from lab2shot_shared.gpu_arch import SCAN_VERSION, ArchRecord, kernel_archs, probe_torch_archs
+from lab2shot_shared.gpu_arch import SCAN_VERSION, kernel_archs, probe_torch_archs
 
 from ..io import atomic
 
@@ -34,7 +34,7 @@ class ExtensionArchRecord:
     archs: tuple[str, ...] | None  # None: unknown (torch missing, or the probe could not tell)
     kernels: dict[str, tuple[str, ...]] | None  # None: cuobjdump was not available to scan for these
     fingerprint: str  # the environment's step_env() fingerprint (the scanner's version is `scan`)
-    scan: int = 0  # lab2shot_shared.gpu_arch.SCAN_VERSION this was scanned with (0: before it existed)
+    scan: int = 0  # lab2shot_shared.gpu_arch.SCAN_VERSION this was scanned with (0: none recorded)
 
     def to_json(self) -> dict:
         return {**asdict(self), "kernels": None if self.kernels is None else dict(self.kernels)}
@@ -46,10 +46,6 @@ class ExtensionArchRecord:
         return cls(raw.get("torch_version") or "", tuple(archs) if archs else None,
                    None if kernels is None else {k: tuple(v) for k, v in kernels.items()}, raw.get("fingerprint", ""),
                    int(raw.get("scan") or 0))
-
-    @property
-    def torch_record(self) -> ArchRecord:
-        return ArchRecord(self.torch_version, self.archs)
 
 
 def probe(python: Path, root: Path, fingerprint: str) -> ExtensionArchRecord:
@@ -108,42 +104,57 @@ def compiled_modules(kernels: dict[str, tuple[str, ...]] | None, roots: tuple[st
 def _current(cached: dict | None, fingerprint: str) -> bool:
     """Whether the record is still valid: the environment is unchanged and it was scanned with the current scan rules.
 
-    The environment fingerprint alone is insufficient: when the scan rules change (e.g. adding the rule that skips
-    NVIDIA's bundled libraries) while the environment is byte-for-byte unchanged, a record from the old rules would
-    stay in use, usable cards would be judged unusable and tasks would stall in the queue. Therefore
+    The environment fingerprint alone is insufficient: when the scan rules change while the environment is
+    byte-for-byte unchanged, a record from the old rules would stay in use, usable cards would be judged unusable and
+    tasks would stall in the queue. Therefore
     `lab2shot_shared.gpu_arch.SCAN_VERSION` is compared as well: changing it rescans every extension on its next query."""
     return bool(cached) and cached.get("fingerprint") == fingerprint and int(cached.get("scan") or 0) == SCAN_VERSION
 
 
 def record(ext) -> ExtensionArchRecord:
     """Probe `ext`'s environment now and save it with its install state (the installer's self-check records it too,
-    once the environment is ready; also used to fill in an environment installed before this existed).
+    once the environment is ready; ensure() fills in an environment that has no record yet).
 
     Only adds an entry to the record and never replaces the whole record. The install record identifies this
     environment (which repository, which packages, whether weights were verified, whether the self-check ran);
     `Extension.install_state()` returns `{}` when it cannot be read, and writing `{}` back would erase it. After that
-    `built_for()` returns None and the extension shows as needing reinstallation on the help page even though the
+    `built_for()` returns None and the extension shows as needing reinstallation on the admin page even though the
     environment and weights are present, and its nodes fail when cooked. Therefore, when the file exists but cannot be
-    read (partially written or corrupt), nothing is written and the probe result is returned directly. Writes use an
-    atomic replace, as the installer does (installer/run.py), so readers never see a partial file."""
-    state = ext.install_state()
-    fingerprint = state.get("env", {}).get("fingerprint", "")
+    read (partially written or corrupt), nothing is written and the probe result is returned directly.
+
+    The probe takes seconds and the installer may save the record meanwhile: the record is read again after the
+    probe and the entry merged into it, both under the record's one-writer lock (spec.state_writing), so nothing the
+    installer wrote is lost; an environment that changed during the probe (another fingerprint) is not described by
+    it, and nothing is written. Writes use an atomic replace, as the installer does, so readers never see a partial
+    file."""
+    from .spec import state_writing
+
+    fingerprint = ext.install_state().get("env", {}).get("fingerprint", "")
     found = probe(ext.paths.python, ext.paths.root, fingerprint)
-    if not state and ext.paths.state_file.exists():
-        return found  # an unreadable record must not be overwritten by this entry
-    state["gpu_archs"] = found.to_json()
-    atomic.write_text(ext.paths.state_file, json.dumps(state, indent=2, ensure_ascii=False))
+    with state_writing(ext.paths):
+        state = ext.install_state()
+        if not state and ext.paths.state_file.exists():
+            return found  # an unreadable record must not be overwritten by this entry
+        if state.get("env", {}).get("fingerprint", "") != fingerprint:
+            return found  # the environment changed while it was probed: this is not its record
+        state["gpu_archs"] = found.to_json()
+        atomic.write_text(ext.paths.state_file, json.dumps(state, indent=2, ensure_ascii=False))
     return found
+
+
+def recorded(ext) -> ExtensionArchRecord | None:
+    """`ext`'s recorded architectures when the record is there and still current, else None (to be probed:
+    `ensure`); never probes."""
+    state = ext.install_state()
+    cached = state.get("gpu_archs")
+    return ExtensionArchRecord.from_json(cached) if _current(cached, state.get("env", {}).get("fingerprint", "")) else None
 
 
 def ensure(ext) -> ExtensionArchRecord | None:
     """`ext`'s recorded architectures, probing (and saving) now if there is none yet or the environment changed
     since; None when the environment is not installed at all (nothing to probe)."""
-    state = ext.install_state()
-    fingerprint = state.get("env", {}).get("fingerprint", "")
-    cached = state.get("gpu_archs")
-    if _current(cached, fingerprint):
-        return ExtensionArchRecord.from_json(cached)
+    if (found := recorded(ext)) is not None:
+        return found
     if not ext.paths.python.exists():
         return None
     return record(ext)
@@ -165,21 +176,27 @@ def _probe_core(fingerprint: str) -> ExtensionArchRecord:
     """Only torch's own build is probed for the core: it never compiles a CUDA extension of its own (the core holds
     no project- or format-specific code), so scanning its whole environment for compiled kernels
     (as an extension's install folder gets: gpu_archs.probe) would only cost time for nothing. Cached in-process too
-    (not just in the database): the fingerprint cannot change within one running server or test process."""
+    (not just in the database): the fingerprint cannot change within one process."""
     torch = probe_torch_archs(Path(sys.executable))
     return ExtensionArchRecord(torch.torch_version, torch.archs, None, fingerprint, SCAN_VERSION)
 
 
-def ensure_core() -> ExtensionArchRecord:
-    """The main environment's own architectures (a GPU node declared in the core, not an extension; none exist
-    today, but the mechanism does not assume that): cached in the database, reprobed when the interpreter or its
-    torch changes."""
+def recorded_core() -> ExtensionArchRecord | None:
+    """The main environment's recorded architectures when the database has them and they are still current, else
+    None (to be probed: `ensure_core`); never probes."""
     from ..database import db
 
-    fingerprint = core_fingerprint()
     cached = db().meta(CORE_KEY, None)
-    if _current(cached, fingerprint):
-        return ExtensionArchRecord.from_json(cached)
-    found = _probe_core(fingerprint)
+    return ExtensionArchRecord.from_json(cached) if _current(cached, core_fingerprint()) else None
+
+
+def ensure_core() -> ExtensionArchRecord:
+    """The main environment's own architectures (for a GPU node declared in the core rather than in an
+    extension): cached in the database, reprobed when the interpreter or its torch changes."""
+    from ..database import db
+
+    if (found := recorded_core()) is not None:
+        return found
+    found = _probe_core(core_fingerprint())
     db().set_meta(CORE_KEY, found.to_json())
     return found

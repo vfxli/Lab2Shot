@@ -12,7 +12,9 @@ import re
 import typing
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+import json
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic_core import PydanticUndefined
 
 from ..availability import Cond
@@ -26,13 +28,18 @@ class NodeParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class OutputEntry(NodeParams):
-    """One entry of a parameter that makes output ports (NodeDef.ports_from): the port's name and label. What type
-    the port is, the node says in `row_type`: 「读取序列」 counts the channels the row picked; a node whose rows
-    name their type outright adds a `type` field of its own."""
+def without_params(model: type[NodeParams], names: list[str]) -> type[NodeParams]:
+    """The same parameters without `names`, as a new model class: pydantic can add fields to a subclass but not take
+    them away, so the others are copied onto NodeParams, in their order. Copied, not shared: every node inheriting one
+    Params shares its FieldInfo objects, and this model is this node's own."""
+    import copy
 
-    name: str = Field(title="端口", description="输出端口的名字：节点图文件里的连线用它指明接的是哪个输出", json_schema_extra={"widget": "fixed"})
-    label: str = Field(title="名称", description="节点上、视图的输出菜单里显示的这个输出的名字", json_schema_extra={"widget": "fixed"})
+    from pydantic import create_model
+
+    if not names:
+        return model
+    kept = {n: (f.annotation, copy.deepcopy(f)) for n, f in model.model_fields.items() if n not in names}
+    return create_model(model.__name__, __base__=NodeParams, __module__=model.__module__, **kept)
 
 
 def _defaults(model: type[BaseModel]) -> dict:
@@ -50,7 +57,7 @@ def _entry_model(annotation) -> type[BaseModel] | None:
 def _param_list(model: type[BaseModel], schema: dict) -> list[dict]:
     """Flatten the pydantic schema into what a parameter panel needs, in field order. A list of entries (a table,
     e.g. 读取序列's layers) lists the fields of one entry as `items`; `wire` is the value type a wire into the
-    parameter carries ("" it cannot be driven by one: nodes/values.py param_type)."""
+    parameter carries ("" it cannot be driven by one: data/values.py param_type)."""
     from ..data.values import param_type
 
     out = _fields(model, schema)
@@ -61,6 +68,38 @@ def _param_list(model: type[BaseModel], schema: dict) -> list[dict]:
 
 
 # the most parameters a node declares for its body (NodeDef.on_node): the node stays compact
+def range_said(spec: dict) -> Msg:
+    """A parameter's range as its message says it (E-PARAM-BETWEEN ...; E-PARAM-REFUSED when it has none)."""
+    lo, hi = spec["minimum"], spec["maximum"]
+    if lo is not None and hi is not None:
+        return Msg("E-PARAM-BETWEEN", lo=lo, hi=hi)
+    if lo is not None:
+        return Msg("E-PARAM-ABOVE", lo=lo) if lo == 0 else Msg("E-PARAM-ATLEAST", lo=lo)
+    if hi is not None:
+        return Msg("E-PARAM-ATMOST", hi=hi)
+    return Msg("E-PARAM-REFUSED")
+
+
+_RANGE_ERRORS = {"greater_than", "greater_than_equal", "less_than", "less_than_equal"}
+
+
+def refusal(specs: list[dict], exc: ValidationError) -> Msg:
+    """What a person reads when parameter values do not validate: the first parameter pydantic refused, by its label,
+    with the value given and what it takes. This is the only place pydantic's own words would become user text, and
+    they never do: they are English and list every option of a choice, including the ones an account may not use
+    (server/access.py hides those). A choice not among the options, a value of the wrong kind or a row of a table that
+    does not fit is simply refused (E-PARAM-REFUSED); the page offers what fits."""
+    error = exc.errors()[0]
+    name = str(error["loc"][0]) if error["loc"] else ""
+    spec = next((s for s in specs if s["name"] == name), None)
+    label = spec["label"] if spec else name
+    whole = len(error["loc"]) == 1  # not a cell of a table parameter, whose range is the column's
+    reason = range_said(spec) if spec and whole and error["type"] in _RANGE_ERRORS else Msg("E-PARAM-REFUSED")
+    value = error.get("input")
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+    return Msg("E-PARAM-INVALID", name=label, value=text if len(text) <= 40 else text[:39] + "…", reason=reason)
+
+
 ON_NODE_MAX = 4
 _SIMPLE_WIDGETS = (None, "slider", "select", "vec3")  # multi-option choices always use a dropdown; there is no segmented control
 
@@ -99,7 +138,6 @@ def _fields(model: type[BaseModel], schema: dict) -> list[dict]:
             {
                 "name": name,
                 "label": field.title or name,
-                "description": field.description or "",
                 "default": None if default is PydanticUndefined else default,
                 "type": target.get("type", "string"),
                 "nullable": any(a.get("type") == "null" for a in prop.get("anyOf", [])),
@@ -118,7 +156,6 @@ def _fields(model: type[BaseModel], schema: dict) -> list[dict]:
                 "derived_from": list(extra.get("derived_from", ())),
                 "choices_from": list(extra.get("choices_from", ())),
                 "unique": extra.get("unique", False),
-                "option_needs": extra.get("option_needs") or {},
                 "measured": extra.get("measured") or {},  # setting -> the most VRAM it takes (GB), None time only
                 "per_frame": extra.get("per_frame", False),
                 # What the parameter amounts to when left empty ("按全画幅 36 mm 算"). Empty does not mean inactive:
@@ -150,7 +187,7 @@ class _Extra(dict):
     option_applies: dict | None = None
 
 
-def P(default: Any = ..., *, label: str, help: str = "", group: str = "", widget: str | None = None, applies: Cond | None = None,
+def P(default: Any = ..., *, label: str, group: str = "", widget: str | None = None, applies: Cond | None = None,
       option_applies: dict | None = None, **kw) -> Any:
     """A node parameter. Beyond pydantic's own arguments:
     applies: when it does anything (nodes/applies.py: Wired("confidence"), Not(Wired("camera")) (a connected camera
@@ -160,7 +197,9 @@ def P(default: Any = ..., *, label: str, help: str = "", group: str = "", widget
     worker=False: the node applies it (units, thresholds, point density, a lens it converts): not sent to the
     worker, so changing it reuses the model's raw results.
     accept: for a file parameter, the file name suffixes it takes (the system's file dialog shows only those).
-    unit: shown inside a number field (mm, °, px, EV, 帧): labels carry no brackets, explanations go in `help`.
+    unit: shown inside a number field (mm, °, px, EV, 帧): labels carry no brackets.
+    A parameter carries no help text: the parameter panel shows no tips (webui/src/platform/tips.ts), so what a
+    parameter means is in its label, its unit, its placeholder and its options' names.
     derived_from: parameters the node works this one out from (NodeDef.derive): the editor asks the server when one of
     them changes and sets both at once (读取序列's layers, from its file).
     choices_from: what its options come from (NodeDef.choices): other parameters and input ports (an import node's camera: the
@@ -168,8 +207,6 @@ def P(default: Any = ..., *, label: str, help: str = "", group: str = "", widget
     them as a dropdown, the empty value first (自动: what it comes to here); a table's field with widget "choice" lists
     its table's. The editor asks the server again when one of them changes.
     unique: a node added in the editor gets a value no other node of the graph has (its default, numbered on).
-    option_needs: {choice: what the client must be able to do for it} ("folders": write into a folder the user
-    chose); a client that cannot shows the choice disabled, with why.
     option_applies: {choice: when that one choice can be picked}, the same conditions as `applies`, one level down
     (nodes/applies.py option_conditions). A choice that is for one shape of data says so with
     incoming("<input>", "<fact>") (「2D 跟踪点输出设置」's CornerPin: exactly four points). The server resolves it and
@@ -189,10 +226,10 @@ def P(default: Any = ..., *, label: str, help: str = "", group: str = "", widget
     is taken as it is (CookContext.values) instead of being refused when it changes.
     wired=True: its input port is on the node from the start, on every node that has this parameter; the
     parameter declares it once (nodes/lens.py focal_param / filmback_param: 「已知 Focal Length」「Filmback」) instead of every
-    node repeating the name in its own `wired_ports` (22 nodes, and a copied list is a list that goes stale).
+    node repeating the name in its own `wired_ports` (a copied list is a list that goes stale).
     NodeDef.wired_ports is where this and a node's own list are resolved into the ports.
     panel=False: the parameter is not in the parameter panel: it has no value to type, only a wire drives it
-    (「输出」's 名字: the delivery is named after 保存到, unless 「逐项开始」's 名字 is wired in, one package per item).
+    (a value that only another node's result can give).
     Its input port is there as always (NodeDef.param_port), so a wire dropped on the node still finds it
     (webui/src/graph/rules.ts loosePort), and a graph file that sets it still cooks with that value.
     Any number, switch, vector or free text parameter can be driven by a wire of its value type (NodeDef.param_port)."""
@@ -202,11 +239,11 @@ def P(default: Any = ..., *, label: str, help: str = "", group: str = "", widget
     if widget:
         extra["widget"] = widget
     for key in ("option_labels", "affects_result", "placeholder", "worker", "accept", "unit", "derived_from",
-                "choices_from", "unique", "option_needs", "overrides", "per_frame", "measured", "panel", "parts",
+                "choices_from", "unique", "overrides", "per_frame", "measured", "panel", "parts",
                 "wired", "assumed", "lines"):
         if key in kw:
             extra[key] = kw.pop(key)
-    return Field(default, title=label, description=help, json_schema_extra=extra, **kw)
+    return Field(default, title=label, json_schema_extra=extra, **kw)
 
 
 def always_wired(params: type[BaseModel]) -> tuple[str, ...]:
@@ -220,26 +257,21 @@ def always_wired(params: type[BaseModel]) -> tuple[str, ...]:
 # Common parameters are defined once so every node spells and places them the same.
 
 
-def colorspace_param(help: str = "这个文件的色彩空间：选文件时按格式填好（EXR 是 ACEScg，PNG / JPG 是 sRGB，视频是 Rec.709），"
-                                 "填错的（LogC 素材、ACES2065-1 的 EXR）在这里改。读进来一律转到工作空间 sRGB，后面的节点不再管颜色",
-                     **kw) -> Any:
+def colorspace_param(**kw) -> Any:
     """The 「色彩空间」 parameter, without an 「自动」 option: the value is always an actual colour space name. The
     default depends on the format and is provided by the node's choices to the web page ("default"), which writes it
     into the parameter so that users can see and change it; the cook applies the same format rule as a fallback (when
     the graph file does not contain it yet). Reader nodes state what the file is; output nodes state what to write."""
-    return P(None, label="色彩空间", help=help, group="色彩", widget="colorspace", placeholder="按格式", **kw)
+    return P(None, label="色彩空间", group="色彩", widget="colorspace", placeholder="按格式", **kw)
 
 
-# Parameters several nodes share: one definition each, the node adds what is specific to it (`note`).
+# Parameters several nodes share: one definition each.
 
 
-FP16_HELP = "用半精度计算，更快更省显存，结果几乎一样；只有怀疑精度问题时才关"
-
-
-def fp16_param(group: str, note: str = "", default: bool = True) -> Any:
+def fp16_param(group: str, default: bool = True) -> Any:
     """Half precision. `default=False`: projects whose upstream does not enable half precision (for example, where the
     upstream documentation states it is numerically unstable) follow upstream; this decision is not overridden."""
-    return P(default, label="半精度", help=FP16_HELP + note, group=group)
+    return P(default, label="半精度", group=group)
 
 
 def typed_list(text: str) -> list[str]:

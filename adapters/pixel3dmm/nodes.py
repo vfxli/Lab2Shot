@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Literal
 
 from lab2shot.sdk import (Official, 
-    NORMALIZE,
     CameraLensParams,
     Cost,
     Licence,
@@ -15,7 +14,6 @@ from lab2shot.sdk import (Official,
     Port,
     WorldHumans,
     camera_normals,
-    camera_port,
     curves_packet,
     frame_maps,
     measured_param,
@@ -35,18 +33,18 @@ class Face(WorldHumans):
               "third_party/pixel3dmm/repo/scripts/network_inference.py:55-160"),
         takes={"image": "Image.open"},
         gives={"character": "shape", "expressions": "exp", "camera": "cam_params", "normal": "normals", "uv": "uv_map"},
-        note="① **官方的整套 FLAME 参数就是「人物」这个口**，没有另立类型、也没有另加口（SMPL / SMPL-X / MANO / FLAME / MHR "
+        note="① **官方的整套 FLAME 参数就是「蒙皮角色」这个口**，没有另立类型、也没有另加口（SMPL / SMPL-X / MANO / FLAME / MHR "
              "这类参数化人体就是「蒙皮 + 权重 + 骨架动画」，装成「蒙皮角色」，不另立数据类型）。"
              "逐项对上（worker.py head_in_camera）：`shape`（300 个，整段一个）变成这张脸的静止网格和静止骨架"
              "（npz rest_vertices / rest_joints），配 FLAME 自己的蒙皮权重（npz skin_weights）；"
              "`R` 和 `t`（头每帧的旋转和位移，连同相机的 R_base / t_base）变成根关节每帧的旋转和位移"
              "（npz local_rotations[:, 0] 和 transl）；`neck` 变成脖子关节（local_rotations[:, 1]）、"
              "`jaw` 变成下巴关节（[:, 2]）、`eyes` 变成左右眼球两个关节（[:, 3:5]）；`exp`（100 个）和 "
-             "`eyelids`（2 个）变成「人物」上的 102 条 blendShape（npz blendshapes / blendshape_names / "
+             "`eyelids`（2 个）变成「蒙皮角色」上的 102 条 blendShape（npz blendshapes / blendshape_names / "
              "blendshape_weights），同一份数字另外走「表情曲线」这个口。`joint_transforms` 是上游把这些关节"
              "旋转按骨架层级乘起来的结果，我们这边由同一批 local_rotations 算出来（npz joints），不是另一份数据。"
              "**一个参数都没丢。**"
-             "② 「图像」输入口是官方的：`scripts/network_inference.py:121 img` "
+             "② 「RGB」输入口是官方的：`scripts/network_inference.py:121 img` "
              "（还有 tracker.py:586 images）。"
              "③ 「法线图」「UV 坐标图」两个输出口同样是官方的："
              "`scripts/network_inference.py:146-154 output['uv_map'] / output['normals']`。"
@@ -55,7 +53,7 @@ class Face(WorldHumans):
     on_node = ("focal_mm", "quality")
     # 适用于面部足够大的特写，每一帧都须有人脸；整段联合解算，最多 1000 帧；
     # 相机为方法自行解出的一台固定相机（Focal Length + 镜头中心），头部相对其运动
-    inputs = (Port("image", "image.3", "RGB"), camera_port())
+    inputs = (Port("image", "image.3", "RGB"),)
     # 第二阶段每次联合计算 16 帧，少于 16 帧时上游会崩溃，因此在提交前拦截（nodes/expects.py FrameCount）。
     # 1000 帧上限由 tracker.py 固定，worker 启动时即按此拒绝（「一次最多 N 帧」提示的一键修正
     # 是用「FrameHold」选取一帧，不适用于此情形，因此不声明 most_frames）
@@ -87,18 +85,11 @@ class Face(WorldHumans):
 
     class Params(CameraLensParams):
         quality: Literal["fast", "standard", "fine"] = measured_param(
-            "质量", {"fast": Measured("3.7 秒/帧", flat=True), "standard": Measured("6.2 秒/帧", flat=True),
-                    "fine": Measured("11.4 秒/帧", flat=True)},
-            default="standard", group="拟合", option_labels=QUALITY_LABELS,
-            help="拟合迭代多少步：快 = 逐帧 100 步 + 联合 1500 步，标准 = 200 + 5000（官方默认），"
-                 "精细 = 400 + 10000。越精细贴得越紧、抖得越少，时间成倍增长，显存不变（峰值在分割那一步）")
+            "质量", {"fast": Measured(flat=True), "standard": Measured(flat=True),
+                    "fine": Measured(flat=True)},
+            default="standard", group="拟合", option_labels=QUALITY_LABELS)
 
-    @classmethod
-    def prepare(cls, ctx):
-        """家族的任务，另附是否接入了相机：接入相机的镜头中心为画面中心，而本方法的镜头中心为裁切区域中心，
-        两者相距较远时由 worker 提示。"""
-        job = super().prepare(ctx)
-        return job.with_(extra={"has_camera": ctx.input("camera") is not None})
+
 
     @classmethod
     def convert(cls, ctx, raw, job):
@@ -137,7 +128,7 @@ class Face(WorldHumans):
         normal_kind, normal_read, normal_opts, normal_resample = camera_normals("normal", "valid")
         maps = {
             "normal": (normal_kind, onto_plate(normal_read), normal_opts, normal_resample),
-            # FLAME 官方的 UV 展开，并非按几何投影得到（区别于核心「规范坐标转 UV」的三种方式），因此 projection 为「未知」
+            # FLAME 官方的 UV 展开，并非按几何投影得到（区别于核心「规范坐标转 UV」的三种方式），因此 projection 为 unknown
             "uv": ("image.2", onto_plate(lambda d: (d["uv"], d["valid"])), {"projection": "unknown"}),
         }
         out |= frame_maps(ctx, raw, image, maps, stage="写出法线图和 UV 坐标图")

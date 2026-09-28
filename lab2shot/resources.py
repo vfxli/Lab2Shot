@@ -125,34 +125,30 @@ def _feedback(user_id: int, offset: int, limit: int, q: str) -> tuple[int, list[
     return _take(rows, KINDS["feedback"].columns, offset, limit, q)
 
 
-def _deliveries(user_id: int, offset: int, limit: int, q: str) -> tuple[int, list[dict]]:
-    from .transfer.deliveries import listing
+def _outputs(user_id: int, offset: int, limit: int, q: str) -> tuple[int, list[dict]]:
+    """该账号各任务里「输出」打包好的结果（transfer/outputs.py）：随任务保留。"""
+    from .transfer.outputs import of_account
 
-    rows = [{**d, "files": len(d.get("files") or [])} for d in listing(user_id)]
-    return _take(rows, KINDS["deliveries"].columns, offset, limit, q)
-
-
-# 页面上登录方式的显示名称（accounts.py 保存其键：web / client）
-WAYS = {"web": "浏览器", "client": "插件", "token": "本机令牌"}
+    return _take(of_account(user_id), KINDS["outputs"].columns, offset, limit, q)
 
 
 def _logins(user_id: int, offset: int, limit: int, q: str) -> tuple[int, list[dict]]:
-    from .accounts import login_recent
+    from .accounts import SESSION_KINDS, login_recent
 
-    rows = [{**r, "kind": WAYS.get(r["kind"], r["kind"])} for r in login_recent(user_id, LOGINS)]
+    rows = [{**r, "kind": SESSION_KINDS[r["kind"]]} for r in login_recent(user_id, LOGINS)]
     return _take(rows, KINDS["login_log"].columns, offset, limit, q)
 
 
 def _sessions(user_id: int, offset: int, limit: int, q: str) -> tuple[int, list[dict]]:
-    from .accounts import online_now
+    from .accounts import SESSION_KINDS, online_now
 
-    rows = [{**r, "kind": WAYS.get(r["kind"], r["kind"])} for r in online_now(user_id)]
+    rows = [{**r, "kind": SESSION_KINDS[r["kind"]]} for r in online_now(user_id)]
     return _take(rows, KINDS["sessions"].columns, offset, limit, q)
 
 
 def _admin_actions(user_id: int, offset: int, limit: int, q: str) -> tuple[int, list[dict]]:
     """某个管理员自身的操作记录，按时间倒序（server/access.py audit()；该表只增不减）。语句按消息目录在此处
-    生成：页面从不拼接文字，其中来自用户的内容（用户名、部门）作为文本处理，不作为标记。"""
+    生成：页面从不拼接文字，其中来自用户的内容（用户名、环节）作为文本处理，不作为标记。"""
     from .database import db, json_of
     from .messages import render
 
@@ -182,35 +178,50 @@ def _templates(user_id: int, offset: int, limit: int, q: str) -> tuple[int, list
     return _take(rows_for_account(accounts.get(user_id).username), KINDS["templates"].columns, offset, limit, q)
 
 
+def _template_usage(user_id: int, offset: int, limit: int, q: str) -> tuple[int, list[dict]]:
+    """该账号用过的模板（farm/usage.py templates，与「使用统计」的「按模板」同一份）：每张模板提交过几次任务、成功和失败
+    各几次、最近一次（「失败」只数出错结束的，部分完成和取消的只算在次数里）；模板删掉了按最后用时的名字列出并灰显，
+    自己搭的节点图合在最后一行。只算记下来源以后提交的任务。"""
+    from .farm.usage import templates
+
+    rows = [{**t, "state": "已删除" if t["deleted"] else "自己搭的" if not t["id"] else "在用", "__dim": t["deleted"]}
+            for t in templates(user_id=user_id)]
+    return _take(rows, KINDS["template_usage"].columns, offset, limit, q)
+
+
 def _traffic(user_id: int, offset: int, limit: int, q: str) -> tuple[int, list[dict]]:
-    """该账号每天从服务器取走的数据量（server/traffic.py）。「用户」栏给出今天 / 近 7 天 / 总计，
+    """该账号每天从服务器取走的数据量（traffic.py）。「用户」栏给出今天 / 近 7 天 / 总计，
     此处按天列出：公网通过 frp 按流量计费，需要能查出哪天用量较大。"""
     from .traffic import per_day
 
     return _take(per_day(user_id), KINDS["traffic"].columns, offset, limit, q)
 
 
-def _grants(user_id: int, offset: int, limit: int, q: str) -> tuple[int, list[dict]]:
-    from .accounts import grants_of
+def _tasks(user_id: int, offset: int, limit: int, q: str) -> tuple[int, list[dict]]:
+    """该账号的任务文件夹（transfer/tasks.py）：任务号、是否已结束、占多大（配额按它算）、何时提交与结束。"""
+    from .transfer.tasks import of_account
 
-    return _take(grants_of(user_id), KINDS["grants"].columns, offset, limit, q)
+    return _take(of_account(user_id), KINDS["tasks"].columns, offset, limit, q)
 
 
 HISTORY = 500  # 登记表回溯查看的单个账号的任务数
 LOGINS = 200
-RUNS = 100
 ACTIONS = 1000  # 登记表回溯查看的单个账号的管理操作数
 MOST = 5000  # 单次筛选列表在截取一页之前最多检查的行数
 
 REGISTRY: tuple[Resource, ...] = (
     Resource("jobs", "任务", "jobs", "queue.manage", "queue",
              (("id", "任务"), ("title", "节点图"), ("targets", "算的节点"), ("state", "状态"), ("submitted", "提交"), ("finished", "结束")), _jobs, when="submitted", state="state"),
-    Resource("uploads", "上传的素材", "uploads", "data.others", "disk",
+    Resource("tasks", "任务文件夹", "tasks", "data.others", "disk",
+             (("id", "任务"), ("state", "状态"), ("bytes", "大小", "size"), ("created", "提交"), ("ended", "结束")), _tasks,
+             when="created", state="state"),
+    Resource("uploads", "上传的素材", "", "data.others", "disk",
              (("key", "素材"), ("kind", "种类"), ("at", "上传")), _uploads, when="at", state="kind"),
     Resource("feedback", "反馈", "feedback", "feedback.reply", "feedback",
              (("id", "反馈"), ("category", "类别"), ("text", "内容"), ("status", "状态"), ("at", "提交")), _feedback, when="at", state="status"),
-    Resource("deliveries", "交付", "deliveries", "data.others", "disk",
-             (("run", "运行"), ("node", "节点"), ("name", "名字"), ("files", "文件数"), ("state", "状态"), ("created", "交付")), _deliveries, when="created", state="state"),
+    Resource("outputs", "输出的结果", "", "data.others", "disk",
+             (("name", "结果"), ("task", "任务"), ("label", "节点"), ("count", "文件数"), ("bytes", "大小", "size"), ("finished", "打包")),
+             _outputs, when="finished"),
     Resource("login_log", "登录记录", "login_log", "logins.view", "users",
              (("at", "时间"), ("ok", "成功"), ("reason", "原因"), ("kind", "方式"), ("ip", "地址"), ("device", "设备")), _logins, when="at", state="kind"),
     Resource("sessions", "在线的登录", "sessions", "logins.view", "users",
@@ -228,8 +239,10 @@ REGISTRY: tuple[Resource, ...] = (
                        "POST /api/admin/graphs/{gid}/bin"),
                    Act("purge", "永久删除", "彻底删掉这张模板：删了就找不回来了",
                        "DELETE /api/admin/graphs/{gid}", danger=True))),
-    Resource("grants", "取回过的结果", "grants", "data.others", "disk",
-             (("fp", "结果"), ("at", "取回")), _grants, when="at", state=""),
+    # 用过的模板：提交任务时节点图是从哪张模板打开的（按模板统计），和「使用统计」同一项权限
+    Resource("template_usage", "用过的模板", "", "stats.view", "usage",
+             (("name", "模板"), ("state", "状态"), ("count", "次数"), ("done", "成功"), ("failed", "失败"), ("last", "最近一次")),
+             _template_usage, state="state", dim=True),
     # 流量：每天一行。「用户」栏和用户页上方的「网络流量」给出今天 / 近 7 天 / 总计，本页签为其明细
     Resource("traffic", "流量", "traffic", "users.manage_normal", "users",
              (("day", "日期"), ("bytes", "流量", "size")), _traffic),

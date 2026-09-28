@@ -41,7 +41,7 @@ JOBS = (GENERATE, CLEANUP)
 
 GROUND_TOLERANCE_CM = 15.0  # 按键帧计算的最低脚部关节距 y = 0 超过此距离时，节点给出警告
 ON_RIG = Wired("character")  # 这些参数只在接入动画时生效：它们描述的都是结果如何回到该骨骼上
-OFF_RIG = Not(ON_RIG)  # 相反：只在未接入动画时生效的参数（帧数、帧率、起始帧）
+OFF_RIG = Not(ON_RIG)  # 相反：只在未接入动画时生效的参数（起始帧号、结束帧号）
 PERSON = "generated_01"  # 生成人物在 USD 中的名称（与 Sketch2Anim 的 sketch_01 做法相同）
 CONTACT_CURVES = ("左脚跟", "左脚尖", "右脚跟", "右脚尖")  # 约定中的 contacts [T,4]，顺序与之一致
 BAD_FRAME_SHARE = 0.6  # 判为有问题的帧超过此比例时，节点提示该动作可能超出模型的适用范围
@@ -54,40 +54,29 @@ class MotionGenParams(NodeParams):
     """接入动画时使用的参数（关键帧、结果如何回到骨骼上）。各成员再添加自己的关节对照表和模型参数。
 
     只能接入动画的成员使用本类（Two-stage Transformer）：其「动画」端口为必需输入，这些参数始终生效，
-    因此不写 applies（为必需端口写 `Wired(...)` 相当于一个恒成立的条件，会被检查测试拦下）。
+    因此不写 applies（为必需端口写 `Wired(...)` 相当于一个恒成立的条件）。
     可以不接入动画的成员使用下方的 FreeMotionParams。"""
 
-    skeleton: str | None = skeleton_param("给哪一个的骨骼生成动作")
-    keys: str = P("", label="关键帧", group="关键帧", placeholder="自动", worker=False,
-                  help="哪些帧是动画师的关键帧，其余的帧由模型补出来。留空：文件里动画有记录的帧（Maya 导出时只导关键帧就行）；"
-                       "也可以写帧号，如 1001, 1012, 1030，或 1001-1100x8（每 8 帧一个）。每一帧都有记录的文件（烘焙过的动画）要在这里写")
-    exact: bool = P(True, label="关键帧精确", group="结果", worker=False,
-                    help="打开：每个关键帧和原来的姿势完全一样（模型结果在关键帧上的偏差平滑地分摊到前后的帧里，没有跳变）。"
-                         "关闭：看模型原本给出的样子")
-    foot_lock: bool = P(True, label="脚锁定", group="结果", worker=False,
-                        help="模型判断脚踩在地上的那几帧，用两骨 IK 把脚踝钉在原地，去掉滑步（关键帧本身不动）。"
-                             "脚本来就该滑动的动作（滑冰、拖步）关掉")
+    skeleton: str | None = skeleton_param()
+    keys: str = P("", label="关键帧", group="关键帧", placeholder="自动", worker=False)
+    exact: bool = P(True, label="关键帧精确", group="结果", worker=False)
+    foot_lock: bool = P(True, label="脚锁定", group="结果", worker=False)
 
 
 class FreeMotionParams(MotionGenParams):
     """可以不接入动画、只按文字生成的成员（`unconstrained = True`）的参数：上述参数只在接入动画时生效
-    （此处为其添加 applies，未接入动画时置灰并说明原因，位置不变），另加镜头的起止帧和帧率，
-    这些只在未接入动画时生效（接入动画时帧范围和帧率由该动画决定，显式优先于隐式）。
+    （此处为其添加 applies，未接入动画时置灰并说明原因，位置不变），另加镜头的起止帧，
+    它们只在未接入动画时生效（接入动画时帧范围由该动画决定，显式优先于隐式）。
 
     帧范围以起始帧号 / 结束帧号表示，而非「帧数」：这是 Nuke / Houdini 中定义镜头区间的方式，
     「起始帧号」与「读取视频」中的用语相同；而「帧数」在本项目中专指「模型一次处理的帧数」这类
     可能耗尽显存的参数，不用于描述镜头长度。"""
 
-    keys: str = P("", label="关键帧", group="关键帧", placeholder="自动", worker=False, applies=ON_RIG,
-                  help=MotionGenParams.model_fields["keys"].description)
-    exact: bool = P(True, label="关键帧精确", group="结果", worker=False, applies=ON_RIG,
-                    help=MotionGenParams.model_fields["exact"].description)
-    foot_lock: bool = P(True, label="脚锁定", group="结果", worker=False, applies=ON_RIG,
-                        help=MotionGenParams.model_fields["foot_lock"].description)
-    start_frame: int = P(1001, label="起始帧号", group="时间", worker=False, applies=OFF_RIG,
-                         help="生成出来的第一帧是第几帧，影视习惯从 1001 开始。和镜头的帧号对齐，交到 DCC 里时间轴就对得上")
-    end_frame: int = P(1120, label="结束帧号", group="时间", worker=False, applies=OFF_RIG,
-                       help="生成到第几帧为止（含这一帧）。模型一次生成 10 秒，更长的分段生成、后一段接着前一段的最后几帧往下长")
+    keys: str = P("", label="关键帧", group="关键帧", placeholder="自动", worker=False, applies=ON_RIG)
+    exact: bool = P(True, label="关键帧精确", group="结果", worker=False, applies=ON_RIG)
+    foot_lock: bool = P(True, label="脚锁定", group="结果", worker=False, applies=ON_RIG)
+    start_frame: int = P(1001, label="起始帧号", group="时间", worker=False, applies=OFF_RIG)
+    end_frame: int = P(1120, label="结束帧号", group="时间", worker=False, applies=OFF_RIG)
 
 
 # ------------------------------------------------------------------ 清理一侧的参数
@@ -96,21 +85,16 @@ class FreeMotionParams(MotionGenParams):
 class CleanupParams(NodeParams):
     """所有「动作清理」节点共有的参数；成员另外添加其关节对照表（mapping_param）和模型自身的参数。"""
 
-    skeleton: str | None = skeleton_param("清理哪一个角色的动作")
+    skeleton: str | None = skeleton_param()
 
 
 class DetectCleanupParams(CleanupParams):
     """声明了 `judges` 的成员：它逐帧作出判断，因此动画师可以指定如何使用该判断。
-    这与是否存在对应输出端口（`detects`）是两回事：UnderPressure 能计算出脚滑，但上游不输出该项，
-    因此其 judges=True、detects=()，即有参数而无输出端口。"""
+    这与是否存在对应输出端口（`detects`）是两回事：judges=True、detects=() 的成员有参数而无输出端口。
+    UnderPressure 两者都没有（上游只给触地和足底力，没有逐帧判断）：judges=False，整段都按模型改。"""
 
-    only_bad: bool = P(True, label="只改问题帧", group="结果", worker=False,
-                       help="打开：模型判断没问题的帧，动画一帧不动，只改它认为有问题的那些帧（前后各 3 帧平滑过渡，不会跳）。"
-                            "干净的表演不该被模型重写一遍——实测已经不滑的动捕整段清一遍，脚反而会多滑一点。"
-                            "关掉：整段都按模型改一遍，用来看模型眼里这段动作「应该」是什么样")
-    threshold: float = P(0.5, label="检测阈值", group="结果", ge=0.05, le=0.95, worker=False,
-                         help="模型给每帧打 0 到 1 分，超过这个数就算「有问题」。调低：多改一些（连轻微的抖动、轻微的脚滑一起），"
-                              "调高：只改最明显的。不确定就先看节点交出的那条曲线（「问题帧」或「脚滑」）再调")
+    only_bad: bool = P(True, label="只改问题帧", group="结果", worker=False)
+    threshold: float = P(0.5, label="检测阈值", group="结果", ge=0.05, le=0.95, worker=False)
 
 
 # ------------------------------------------------------------------ 家族
@@ -150,10 +134,10 @@ class RigMotion(RigModel, WorkerNode):
 
     # --- 仅 does = "cleanup" 的成员声明 ---
     detects: tuple[str, ...] = ()  # 该模型逐帧给出的判断（为空表示无，即没有「问题帧」输出）
-    # 能否逐帧判断与该判断是否为上游输出是两回事：UnderPressure 的「脚滑」由上游的触地信号派生，
-    # 不作为输出端口；但仍需要「只改问题帧」「检测阈值」两个参数，否则整段都会被模型修改，
-    # 原本不滑的动捕反而会出现滑动。因此拆为两项声明：`detects` 决定是否有输出端口，
-    # `judges` 决定是否有这两个参数及相应逻辑。声明了 detects 的必然也 judges（在 __init_subclass__ 中补上）。
+    # 能否逐帧判断与该判断是否为上游输出是两回事：一个成员可以逐帧判断却不把判断交出去，
+    # 这时仍需要「只改问题帧」「检测阈值」两个参数，否则整段都会被模型修改，原本不滑的动捕反而会出现滑动。
+    # 因此拆为两项声明：`detects` 决定是否有输出端口，
+    # `judges` 决定是否有这两个参数及相应逻辑（UnderPressure 两者都没有：judges=False）。声明了 detects 的必然也 judges（在 __init_subclass__ 中补上）。
     judges: bool = False
     contacts: bool = False  # 该模型是否判断哪只脚着地（否：没有「脚接触」输出）
 
@@ -186,7 +170,7 @@ class RigMotion(RigModel, WorkerNode):
             cls.inputs = tuple(
                 Port(p.name, p.type, p.label, optional=True, applies=cls.rig_when,
                      help="接上动画：它的关键帧就是约束，模型只补关键帧之间的动作，结果回到这副骨骼上。"
-                          "不接：只按文字和「帧数」生成一整段新动作，交出模型自己的骨架动画")
+                          "不接：只按文字和「起始帧号」「结束帧号」生成一整段新动作，交出模型自己的骨架动画")
                 if p.name == "character" else p for p in cls.inputs)
 
     @classmethod
@@ -319,7 +303,7 @@ class RigMotion(RigModel, WorkerNode):
     @classmethod
     def free_animation(cls, ctx, result: dict, job: Job) -> dict[str, Packet]:
         """未接入动画时的结果：模型自身骨架的一段骨架动画，骨骼名和关节轴换为 CG 约定（rig_of_model），
-        与「SMPL 转骨架动画」「Sketch2Anim 动作生成」的输出类型相同，重定向时可被 HumanIK 识别。"""
+        与「提取骨架」「Sketch2Anim 动作生成」的输出类型相同，重定向时可被 HumanIK 识别。"""
         from ...data.payloads import SCENE_FILE, scene_packet
         from ...data.skeleton import rig_of_model
         from ...io.usd import create_stage, save_stage, write_rig

@@ -27,16 +27,16 @@ Video Depth Anything 建在 Depth Anything V2 之上，任意长的视频都能�
 
 **我们怎么接的**
 
-- 「图像」= 上游那段素材；「模型」参数 = 上游的 `--encoder` 加 `--metric`（Small 可商用，Base / Large 和真实尺度版非商用）；
+- 「RGB」= 上游那段素材；「模型」参数 = 上游的 `--encoder` 加 `--metric`（Small 可商用，Base / Large 和真实尺度版非商用）；
   「处理分辨率」= `--resolution`；「半精度」= 上游默认的 float16（它的 `--fp32` 是反过来那个开关）。
 - 「深度图」和「视差图」**是同一样官方数据的两种情形**，不是我们多加的第二种结果：真实尺度那一版走「深度图」口（米），
   相对那一版走「视差图」口，另一个口空着（`adapters/videodepthanything/nodes.py` 的 `official`）。
 - **不一样的一点**：上游的 `infer_video_depth` 把每一帧和每张全分辨率深度图都留在内存里，
   我们把同样的窗口流程改成流式，任意长的镜头只留大约 40 帧——算法一步不改，用的是它自己的常数和函数
-  （`adapters/videodepthanything/worker.py:6-14`）。
+  （`adapters/videodepthanything/worker.py:11-14`）。
 
 **出处**：简介抽自 `third_party/videodepthanything/repo/README.md:19`（「This work presents Video Depth Anything based on Depth Anything V2, which can be applied to arbitrarily long videos without compromising quality, consistency, or generalization ability…」两句）；
-输入输出依据同一份 README、`repo/run.py:24-57` 和 `adapters/videodepthanything/nodes.py` 的 `official`、`worker.py:1-16`。
+输入输出依据同一份 README、`repo/run.py:24-57` 和 `adapters/videodepthanything/nodes.py` 的 `official`、`worker.py:1-15`。
 
 ## 在 Lab2Shot 里怎么用
 
@@ -46,7 +46,7 @@ Video Depth Anything 建在 Depth Anything V2 之上，任意长的视频都能�
   - **真实尺度 Base / Large、相对 Base / Large**：**非商用**（仅限研究），模型更大，细节和远近层次一般更好，但更慢、更吃显存，稳定性不一定更好（见下面实测）。
   - 要放进三维场景、和相机对齐 → 选真实尺度；只要合成里的深度图效果 → 相对就够。
 - 素材：普通焦段、画面清楚的实拍效果最好；画幅比 16:9 更宽的素材会被自动缩小处理（官方的显存限制）。它不解算相机，真实尺度是网络"估"的，不同模型之间可以差 20–40%，要精确尺度请用 ViPE 的相机 + 深度图或实测距离校正。
-- 关键参数：「处理分辨率」默认 518（训练尺寸，最稳）。调大细节更多，但显存涨得很快：**Large 在 24 GB 显卡上最多约 756**，Base 可以到 1036，Small 到 1036 约 11 GB。
+- 关键参数：「处理分辨率」默认 518（训练尺寸，最稳）。调大细节更多，但显存涨得很快：**Large 最多按 686 算、Base 最多按 868 算**（选得更大时按这个上限算，节点上会提醒），Small 到 1036 约 11 GB。
 
 ## 效果和局限
 

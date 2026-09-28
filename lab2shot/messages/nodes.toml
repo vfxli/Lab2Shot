@@ -11,7 +11,7 @@
 "E-NODETYPE-UNMET" = "扩展包 {extension} 还不能用：{reason}"
 "E-NODETYPE-NOTINEXTENSION" = "扩展包 {extension} 里没有这个节点"
 
-# ---- 相机（core/camera.py、families/cameras.py）
+# ---- 相机（core/camera.py、kit/cameras.py）
 "W-CAMERA-NOFOCAL" = "没有 Focal Length（没填、没接，也没有带 Focal Length 的相机属性）：没有造相机，接着的节点照没接相机算。要相机就在「Focal Length」填镜头的 Focal Length，或接「相机属性」"
 "N-CAMERA-ONEPOSE" = "相机只有一个位置（没有帧或只有一帧）：没有抖动可去，原样输出"
 "N-CAMERA-INTERPOLATED" = "{count} 帧没有逐帧解出（隔帧或没解上），相机由前后帧插值"
@@ -24,12 +24,12 @@
 "I-COMPARE-SHARE" = "（参考相机行程的 {share:.1f}%）"
 "I-COMPARE-SCALE" = "，比例 {scale:.3f}"
 
-# ---- 相机去抖（core/camera.py DeshakeCamera、data/deshake.py）
+# ---- 相机去抖（core/camera.py DeshakeCamera、kit/deshake.py）
 "I-DESHAKE-RESULT" = "去抖：位置最多改了 {moved:.1f} cm、转动最多 {turned:.2f}°；按 {distance:.0f} cm 远的物体算，画面上相当于 {shift:.2f} px"
 "W-DESHAKE-OFFPLATE" = "去掉的可能是画面里真实的手持晃动，不只是解算噪声：按 {distance:.0f} cm 远的物体算，合成时 CG 会和画面滑开 {shift:.1f} px（第 {frame} 帧）。要去的只是解算噪声就把「强度」调小；真要稳定画面，合成时把画面一起稳"
 "N-DESHAKE-SUDDEN" = "{count} 帧的急停急转留着没磨（第 {frames} 帧）：那几帧的加速度突变是真的。不想留就关掉「保留急停」"
 
-# ---- 锁定 Focal Length（core/camera.py LockFocal、data/lock_focal.py）
+# ---- 锁定 Focal Length（core/camera.py LockFocal、kit/lock_focal.py）
 "I-FOCAL-RESULT" = "解算出的 Focal Length {low:.1f}–{high:.1f} mm，锁成 {locked:.1f} mm（{said}）；相机位置最多挪了 {moved:.1f} cm；挪相机补不回来的部分中位 {median:.2f} px、最大 {max:.2f} px"
 "I-FOCAL-MEASURED" = "用了真实的画面观测：每帧约 {count} 个跟踪点（不是按原相机投出来的位置）"
 "W-FOCAL-REPROJ" = "把 {low:.0f}–{high:.0f} mm 抖动的 Focal Length 锁成 {locked:.0f} mm 后，挪相机补不回来的部分中位 {median:.1f} px、最大 {max:.1f} px（第 {frame} 帧）：透视本身差得多。建议在上游解算节点的「Focal Length」填 {locked:.0f} mm 重新解算"
@@ -37,7 +37,7 @@
 "N-FOCAL-NOFRAMES" = "接进来的相机没有帧（不动的相机）：Focal Length 本来就是一个定值，没有逐帧位置要重算，原样输出"
 "N-FOCAL-FEWANCHORS" = "{count} 帧的锚点不到 {least} 个：那几帧只用了闭式估计，没有逐点精修。点云在那几帧太少或者不在画面里"
 
-# ---- 重定时（core/scene.py Retime、data/retime.py）
+# ---- 重定时（core/scene.py Retime、kit/retime.py）
 "I-RETIME-MAP" = "速度 {speed:g} · 偏移 {offset:d} 帧 · {was} → {now}"
 "N-RETIME-INTERP" = "{total} 帧里有 {count} 帧不在原来的帧上，是插出来的：相机位置线性、朝向球面插值，关节旋转球面插值"
 "N-RETIME-NEAREST" = "{count} 帧的点数逐帧不同，没法插值：取了最近一帧的点"
@@ -99,7 +99,7 @@
 "E-SUBSET-MISSING" = "接进来的网格上没有叫「{name}」的分区（换过上游？）。现在有的是：{names}"
 "I-SUBSET-TOOK" = "取出分区「{name}」：{meshes} 个网格、{faces} 个面"
 "I-CURVES-RESAMPLED" = "重采样了 {strands} 条曲线，每条 {each} 个点，一共 {points} 个点"
-# 配对全靠按名字和层级猜，这一版还改不了（身体是接进来的，行数随输入变，已有的表格控件是定行数的）。
+# 配对全靠按名字和层级猜，节点上没有改配对的地方（身体是接进来的，行数随输入变，已有的表格控件是定行数的）。
 # 所以至少要让用户看见猜成了什么：一句说明 + 一个区域一行 + 没配上的一行，都是 I（不弹出，写在节点的数据信息里）
 "I-SMPL-GUESS" = "下面是按关节名和层级猜出来的配对（Maya HumanIK、Mixamo、Unreal、SMPL 这几套命名都认得）：猜错了在 DCC 里把骨骼名改对再导一次，这一版还不能在节点上改"
 "I-SMPL-PAIRED" = "{region}：{pairs}"
@@ -168,14 +168,13 @@
 "I-GROUND-LEVELED" = "世界转了 {tilt:.1f}° 让 Y 轴朝上（用了 {frames} 帧的重力方向，它们在世界里相差中位 {spread:.1f}°{dropped}）"
 "I-GROUND-DROPPED" = "，{count} 帧和其余的差得远没有用"
 "W-GROUND-SPREAD" = "各帧的重力方向放进世界以后相差较大（中位 {spread:.1f}°）：相机的转动和画面对不上，或者重力方向来自另一段镜头"
-"N-GROUND-CAMERAUNUSED" = "没给重力方向：相机只用来把重力方向转进世界，这里没有用上"
 "E-GROUND-NOTHING" = "没给重力方向，又选了不落地：这样什么都不会动。接上重力方向，或者选一个地面依据"
 "I-GROUND-POINTS" = "地面高度 {floor:.1f} cm（相机下方 {share:.0%} 的点在这一层），整体上移 {lift:.1f} cm"
 "W-GROUND-FEWPOINTS" = "相机下方只有 {share:.0%} 的点在找到的这一层：画面里地面很少，或者场景不是正的，地面高度可能不对。检查落地后的场景，或者接上重力方向"
 "I-GROUND-HEIGHT" = "地面高度 {floor:.1f} cm，整体上移 {lift:.1f} cm"
 
 # ---- 人体解算家族（nodes/families/humans.py）：几乎什么都没解出来的人不交
-"N-HUMANS-THINPERSON" = "{who}：交出来的 {own} 帧里**只真正解出 {solved} 帧**（少于 {least} 帧），已去掉。补几帧洞是对的，拿这么少的帧撑满一整段不是——那样出来的是一个贴在镜头上、整段不动的人。要留下他，把「最少解出帧数」调小；要他解得实在，换一段他露脸更久、没被挡住的镜头"
+"N-HUMANS-THINPERSON" = "{who}：交出来的 {own} 帧里只真正解出 {solved} 帧（少于 {least} 帧），已去掉。补几帧洞是对的，拿这么少的帧撑满一整段不是——那样出来的是一个贴在镜头上、整段不动的人。要留下他，把「最少解出帧数」调小；要他解得实在，换一段他露脸更久、没被挡住的镜头"
 "I-HUMANS-PEOPLE" = "这段画面里解出 {found} 个人，交出 {kept} 个，去掉 {dropped} 个"
 "N-HUMANS-NOBODYLEFT" = "解出来的 {found} 个人真正解出的帧都太少，一个都没交（每个人为什么去掉，见上面几条）：这次输出是空的。换一段人出现得更久、没被挡住的镜头，或者把「最少解出帧数」调小"
 "E-HUMANS-NOSOLVED" = "「{node}」的 {file} 里没有 solved：这个扩展包的 worker 没有按 raw 契约说清真正解出来哪几帧（契约在 worker_sdk/lab2shot_worker/world_humans.py 开头，用 save_person 就自动带上）。这是扩展包代码的问题，请把这条发给开发者"
@@ -255,6 +254,7 @@
 "N-TRACKS3D-PICKSIGNORED" = "有 {count} 个手动点不在参考帧（第 {frame} 帧）上：「{node}」只从参考帧出发算，这些点没有用上。要算它们，在第 {frame} 帧上重新点，或者把「参考帧」改成它们所在的帧"
 
 # ---- 三维文件的选择（nodes/formats.py）
+"E-FORMAT-SUFFIX" = "「{name}」不是这个节点读的文件：只读 {suffixes}，换一个文件"
 "E-FORMAT-NOTINFILE" = "文件里没有{kind} {missing}：在「{kind}」里重新选（文件里有{kind} {have}）"
 "E-FORMAT-NONEINFILE" = "文件里没有{kind} {missing}：在「{kind}」里重新选（这个文件里没有{kind}）"
 
@@ -276,9 +276,6 @@
 "I-APPLIES-PARAMUNWIRED" = "接了「{name}」，由那条线决定，这里不起作用"
 "I-APPLIES-UNSET" = "「{name}」留空时才用"
 "I-APPLIES-GT" = "「{name}」大于 {value:g} 时才用"
-"I-APPLIES-GE" = "「{name}」不小于 {value:g} 时才用"
-"I-APPLIES-LT" = "「{name}」小于 {value:g} 时才用"
-"I-APPLIES-LE" = "「{name}」不大于 {value:g} 时才用"
 "I-APPLIES-WIREDTYPE" = "「{input}」接的是{want}时才用（现在接的是{got}）"
 "I-APPLIES-FACTGT" = "{fact}大于 {value:g} 时才用（这次是 {now}）"
 "I-APPLIES-FACTEQ" = "{fact}是 {value} 时才用（这次是 {now}）"

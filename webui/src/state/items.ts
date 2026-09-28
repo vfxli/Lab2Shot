@@ -3,7 +3,7 @@ import type { DataType, Scope, ScopeItem, ScopeList, StatusReply } from "../api"
 
 /** 逐项处理 blocks as read by the page. Every rule of a block (its membership, nesting, item count and item names) is
  * computed once on the server (lab2shot/engine/scopes.py) and delivered in the status reply's `scopes`. Nothing here
- * traverses wires to find a block's members; `blocksOf` only reads that list, which webui/tests/blocks.test.ts enforces.
+ * traverses wires to find a block's members; `blocksOf` only reads that list.
  *
  * The page owns only which item each block is showing: 「当前条目」 is view state. Changing it does not change the cook
  * inputs, cooks nothing, and leaves every result intact. It is sent with the next status request (`view`,
@@ -125,8 +125,8 @@ export interface Rect {
   h: number;
 }
 
-export const BLOCK_HEAD = 26; // the title pill's row above the nodes
-export const BLOCK_PAD = 18; // padding around the nodes inside the frame
+const BLOCK_HEAD = 26; // the title pill's row above the nodes
+const BLOCK_PAD = 18; // padding around the nodes inside the frame
 
 /** The frame around a block's nodes: the bounding box of all of them, with padding and its title row on top. null when
  * none of them has a position yet. */
@@ -142,7 +142,7 @@ export function frameOf(ids: string[], boxes: Record<string, Rect | undefined>):
 
 /** The number of colours a block frame is chosen from (ui/tokens.css --block-1..4: neutral and cool, none of them a
  * status colour or a data type colour, since a block name says nothing about state). */
-export const BLOCK_COLOURS = 4;
+const BLOCK_COLOURS = 4;
 
 /** The colour a block receives: derived from its name, so the same name has the same colour in every graph and two
  * blocks in one graph rarely share one. The colour itself is defined in the style sheet (the frame carries the index). */
@@ -161,7 +161,7 @@ interface Items {
   reset: () => void;
 }
 
-/** 当前条目 per block: a view setting (state/owners.ts 视图). Cleared when another graph is opened. */
+/** 当前条目 per block: a 视图 setting (state/viewer.ts). Cleared when another graph is opened. */
 export const useItems = create<Items>((set) => ({
   view: {},
   setItem: (begin, key) => set((s) => (s.view[begin] === key ? {} : { view: { ...s.view, [begin]: key } })),

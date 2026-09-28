@@ -30,7 +30,7 @@ def ui(
     inbox = manual.ensure_inbox()  # the one folder for everything downloaded by hand
     console.print(f"手动下载的文件请放入 {inbox.relative_to(ROOT)}（位于 Lab2Shot 项目文件夹下）")
     if not WEBUI_DIST.is_dir():
-        console.print("[yellow]界面尚未构建，请执行：cd webui && npm install && npm run build[/yellow]")
+        console.print("[yellow]界面尚未构建，请执行：cd webui && npm ci && npm run build[/yellow]")
     ssl = {}
     if https:
         cert, key = tls.ensure()

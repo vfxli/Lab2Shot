@@ -16,11 +16,6 @@
    "target": "read.path"
   },
   {
-   "name": "output",
-   "label": "保存到",
-   "target": "deliver.path"
-  },
-  {
    "name": "resolution",
    "label": "处理分辨率",
    "target": "flow.resolution"
@@ -108,16 +103,10 @@
    "id": "deliver",
    "type": "core.output",
    "label": "输出",
-   "params": {
-    "mode": "tar",
-    "path": ""
-   },
+   "params": {},
    "ui": {
     "x": 1280,
-    "y": 120,
-    "on_node": [
-     "mode"
-    ]
+    "y": 120
    }
   }
  ],

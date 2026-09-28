@@ -1,7 +1,8 @@
 """What of the admin side is there for a session: its subjects and their conditions, declared once as data (the one
 availability mechanism, lab2shot/availability.py, resolves them; lab2shot/roles.py gives the conditions on who looks).
 
-    SECTIONS  a section of the admin page (webui/src/admin/sections.tsx, by id): route(the route it reads)
+    SECTIONS  a section of the admin page (webui/src/admin/sections.tsx, by id): route(the route it reads); the 设置
+              band has one section per settings page (config.PAGES), settings-<page>
     ACTIONS   what the pages offer besides reading a section: route(the route it calls), or capability(...) for what is
               only a field of a route (licence tags, a role)
     PAGES     a page as a whole: AnyOf its sections (there when any of them is; greyed when the best of them is)
@@ -13,7 +14,7 @@ fresh: a role without the capability does not see it (hidden), a browser whose t
 why (N-ACCESS-RIGHTSAGAIN). The answer (availability.Availability.json(), under `applies` in the login state and on
 every row of 用户) is read by the web page through one module (webui/src/api/applies.ts); no component looks at a role.
 
-A branch adding a control declares it here: the queue's cancel button is ACTIONS["queue.cancel"]; the installer
+Every control is declared here: the queue's cancel button is ACTIONS["queue.cancel"]; the installer
 declares its own subjects and conditions and calls availability.resolve the same way."""
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from typing import Any
 from dataclasses import dataclass
 from ..messages import Msg
 from ..accounts import Session
+from .. import config
 from ..availability import DATA, All, AnyOf, Availability, Cond, resolve
 from ..roles import Can, Manages, NotOwnersAccount, RightsFresh, SessionFacts
 from . import routes
@@ -47,7 +49,7 @@ class RouteCan(Can):
 
     @property
     def capability(self) -> str:  # type: ignore[override]
-        if self.key not in routes.DECLARED:  # asked before the server's modules declared their routes (a script, a test)
+        if self.key not in routes.DECLARED:  # asked before the server's modules declared their routes (a script)
             from . import app  # noqa: F401
         return routes.DECLARED[self.key].needs
 
@@ -72,22 +74,48 @@ SECTIONS: dict[str, Cond] = {
     "database": route("GET /api/admin/db"),
     "security": route("GET /api/admin/security"),
     "logs": route("GET /api/admin/log"),
-    "settings": route("GET /api/admin/settings"),
 }
+
+# The 设置 band: a settings page is there when the login reads the settings. Two pages also hold parts with a right
+# of their own, and are there for a login with only such a right too: 注册设置 the 用户协议与隐私政策 and the invite
+# codes, 账号设置 the 管理员通知.
+_SETTINGS = route("GET /api/admin/settings")
+_PARTS_OF_PAGE = {"register": (route("GET /api/admin/terms"), route("GET /api/admin/invites")),
+                  "accounts": (route("GET /api/admin/notice"),)}
+SECTIONS |= {f"settings-{page}": AnyOf(_SETTINGS, *_PARTS_OF_PAGE.get(page, ())) for page in config.PAGES}
+
+
+def settings_pages() -> list[dict]:
+    """The 设置 band of the admin side list as the page lays it out: each settings page's id (its section is
+    settings-<id>), name and hover text, in order (config.PAGES; which of them a login sees is its `applies`)."""
+    return [{"id": page, "label": p.label, "tip": p.tip} for page, p in config.PAGES.items()]
+
 
 ACTIONS: dict[str, Cond] = {
     # 机器可读的接口描述（写插件和脚本的人用）
     "openapi": route("GET /api/admin/openapi.json"),
     "server.status": route("GET /api/admin/overview"),
     "server.restart": route("POST /api/admin/restart"),
+    # the parts of a settings page (SECTIONS settings-<page>): its settings, and on 账号设置 the 管理员通知
+    "settings.values": _SETTINGS,
     "settings.notice": route("PUT /api/admin/notice"),
+    # 「注册设置」页上的用户协议与隐私政策：看和改走同一个能力
+    "terms.edit": route("PUT /api/admin/terms"),
     "queue.cancel": route("POST /api/admin/jobs/{job_id}/cancel"),
     "queue.switches": route("PUT /api/admin/queue/switches"),
-    # 拖拽插队: the queue table is draggable only for a login the server says may move a job
-    "queue.reorder": route("POST /api/admin/jobs/{job_id}/place"),
+    # 插队: the queue table's 「插队」 button is there only for a login the server says may move a job
+    "queue.first": route("POST /api/admin/jobs/{job_id}/first"),
+    # 队列里别人的任务：删除一条、删除一组、给组改名（改的是别人的数据，路由要 data.others）
+    "queue.forget": route("DELETE /api/admin/jobs/{job_id}"),
+    "queue.forgetgroup": route("DELETE /api/admin/task-groups/{user_id}/{key}"),
+    "queue.rename": route("PUT /api/admin/task-groups/{user_id}/{key}/name"),
     "queue.authorize": route("PUT /api/admin/gpus"),
     "queue.graph": route("GET /api/admin/jobs/{job_id}/graph"),
     "users.create": route("POST /api/admin/users"),
+    # 「注册设置」页下面的邀请码：列表，改码（新建、改、停用、删除走同一个能力，按新建这一条判断）和批量停用自己注册的账号
+    "invites.list": route("GET /api/admin/invites"),
+    "invites.edit": route("POST /api/admin/invites"),
+    "registrations.disable": route("POST /api/admin/registrations/disable"),
     # 模板的后台管理：改分类树、把一张节点图录入成模板
     "categories.edit": route("PUT /api/admin/categories"),
     "categories.remove": route("DELETE /api/admin/categories/{cid}"),
@@ -95,7 +123,7 @@ ACTIONS: dict[str, Cond] = {
     "templates.switch": route("PUT /api/admin/templates/{template_id}"),
     "templates.place": route("PUT /api/admin/templates/{template_id}/place"),
     "templates.copy": route("POST /api/admin/templates/{template_id}/copy"),
-    # 录入模板做在前台：编辑器右上角头像菜单里那一项，把当前这张节点图直接录成一张卡片
+    # 录入模板做在前台：编辑器文件菜单的「保存为预设模板」，把当前这张节点图直接录成一张卡片
     "templates.create": route("POST /api/admin/templates"),
     "menu.edit": route("PUT /api/admin/menu/categories"),
     "menu.place": route("PUT /api/admin/menu/nodes/{type_id}/place"),
@@ -133,6 +161,7 @@ ACCOUNT: dict[str, Cond] = {
     "account.role": All(Manages(), capability("admins.manage"), _FIXED),
     "account.password": All(Manages(), route("POST /api/admin/users/{user_id}/password"), NotOwnersAccount(password=True)),
     "account.delete": All(Manages(), route("DELETE /api/admin/users/{user_id}"), NotOwnersAccount(delete=True)),
+    "account.purge": All(Manages(), route("DELETE /api/admin/users/{user_id}/purge")),  # 已删除 的账号的「永久删除」
     "account.logins": All(Manages(), route("GET /api/admin/users/{user_id}/logins")),
     # 磁盘配额（在用户管理页面里）：看这个账号占了多少、按账号改上限
     "account.quota": All(Manages(), route("GET /api/admin/users/{user_id}/quota")),
@@ -195,7 +224,6 @@ def extension(s: Session | None, facts: dict) -> dict:
     such an account sees an uninstalled card with 「未安装」 only. Cancel and the progress are there only while there
     is a job to cancel or show; the rest greyed with why (an install of it running now, nothing to roll back to, no
     environment to remove, jobs using it)."""
-    caps = s.capabilities if s is not None else frozenset()
     job = facts.get("job")
     active = job is not None and job["state"] in ("queued", "running")
     queued = Msg("N-INSTALL-QUEUED", title=facts["title"]) if active else None
@@ -237,11 +265,15 @@ FIELDS: dict[str, Cond] = {
     # to act (farm/queue.py `_told`: N-QUEUE-NOMACHINEEVER / NOCARD / PAUSED, none of which names a card). The routes
     # carrying them: their `hides`.
     "farm.cards": capability("farm.cards"),
-    # 测出来的结论（模板上的结论、节点口和参数上的 `finding`）：只给管得了模板的账号看，其他账号的模板、节点、
-    # 参数上都不带
-    "templates.create": capability("templates.create"),
     "menu.edit": capability("menu.edit"),
 }
+
+# 概览「今天和最近」 (GET /api/admin/overview/recent): each group of numbers and the section it opens. A group is a field
+# given only to a login that may open that section, since its numbers are a summary of what the section shows (the
+# logins on 安全, the accounts and their traffic on 用户, every account's jobs on 队列, the feedback on 用户反馈).
+RECENT: dict[str, str] = {"access": "security", "accounts": "users", "tasks": "queue", "traffic": "users",
+                          "feedback": "feedback"}
+FIELDS |= {f"recent.{group}": SECTIONS[section] for group, section in RECENT.items()}
 
 
 def hidden_paths(s: Session | None, method: str, path: str) -> tuple[str, ...]:

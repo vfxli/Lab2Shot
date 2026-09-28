@@ -11,7 +11,7 @@ export interface UsageCounts {
   last: number | null; // last used since the last reset, in the range or before it
 }
 
-export interface UsageNode extends UsageCounts {
+interface UsageNode extends UsageCounts {
   id: string;
   label: string;
 }
@@ -32,14 +32,14 @@ export interface UsageShare extends UsageCounts {
 }
 
 /** A person as a department sees them, with their projects. */
-export interface UsageMember extends UsageCounts {
+interface UsageMember extends UsageCounts {
   name: string;
   projects: UsageShare[];
 }
 
 export interface UsageDepartment extends UsageCounts {
   name: string;
-  listed: boolean; // in the settings' list (false: a department taken off it since, or 未分部门)
+  listed: boolean; // in the settings' list (false: a department taken off it since, or 未分环节)
   daily: UsageProject["daily"];
   people: UsageMember[];
 }
@@ -60,5 +60,18 @@ export interface UsageStats {
   projects: UsageProject[]; // third-party projects, the most used first, then the core
   departments: UsageDepartment[]; // every listed department, the busiest first; others after
   people: UsagePerson[]; // who submitted in the range, the most compute first
-  nobody: string; // the row of accounts without a department (未分部门)
+  nobody: string; // the row of accounts without a department (未分环节)
+  templates: UsageTemplate[]; // 按模板: the most used first, the graphs built by hand last
+}
+
+/** One template the jobs of the range were opened from (lab2shot/farm/usage.py templates), by when they were submitted. */
+export interface UsageTemplate {
+  id: string; // the template's card id; "" for the graphs built by hand
+  name: string; // its name now; a deleted one's at its last use; 「自己搭的」 for id ""
+  deleted: boolean;
+  count: number; // jobs, however they ended
+  done: number;
+  failed: number;
+  last: number; // when the last one was submitted
+  users: number; // how many accounts
 }

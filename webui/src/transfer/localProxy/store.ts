@@ -115,6 +115,11 @@ export async function writeProxy(fileKey: string, tierKey: string, name: string,
   return true;
 }
 
+/** 淘汰了一份（文件 × 档位）时告诉谁：登记「已就绪」的一方（localProxy/index.ts）据此撤销标记，
+ * 否则时间线仍把磁盘上已不存在的代理算作本机可播放的帧。 */
+let dropped: (fileKey: string, tierKey: string) => void = () => undefined;
+export const onDropped = (f: typeof dropped): void => void (dropped = f);
+
 /** 总量超出上限时，按最久未使用优先整份（文件 × 档位）淘汰，正在写入的份除外。 */
 export async function trim(capBytes: number, keep = ""): Promise<void> {
   const idx = await index();
@@ -132,6 +137,7 @@ export async function trim(capBytes: number, keep = ""): Promise<void> {
     } catch { /* 目录已不存在：仍删除索引条目 */ }
     delete idx[k];
     total -= e.bytes;
+    dropped(fileKey, tierKey);
   }
   flushLater();
 }
@@ -139,9 +145,4 @@ export async function trim(capBytes: number, keep = ""): Promise<void> {
 /** 磁盘上已生成图片代理的全部 `文件键/档位-显示变换` 条目（页面启动时查询一次，调用方按当前档位筛选，据此视为已在本地）。 */
 export async function madeKeys(): Promise<string[]> {
   return Object.entries(await index()).filter(([, e]) => e.names.some((n) => n.endsWith(".webp"))).map(([k]) => k);
-}
-
-/** 当前占用的总字节数（供状态栏与诊断使用）。 */
-export async function proxyStoreBytes(): Promise<number> {
-  return Object.values(await index()).reduce((n, e) => n + e.bytes, 0);
 }

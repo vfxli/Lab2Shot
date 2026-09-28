@@ -1,5 +1,5 @@
 // The 3D view's display options (kept in this browser), its camera, the viewer's short notices, the load state, and
-// the ruler's window (视图 state). Re-exported by state/viewer.ts; owners are declared in state/owners.ts.
+// the ruler's window (视图 state). Re-exported by state/viewer.ts.
 
 import { create } from "zustand";
 import type { NoticeKind } from "../model/viewNotices";
@@ -46,7 +46,7 @@ interface CameraState {
   frameAsk: { what: "all" | "selected"; n: number };
   viewAsk: number;
   /** 场景中的相机列表及当前选中项：由三维舞台计算后存放于此，工具栏据此绘制「视角」控件。
-   * 视角与框显属于视图工具，与 2D / 3D、画质等位于同一排工具栏，不浮在画面上。 */
+   * 视角与框显属于视图工具，与 2D / 3D 等位于同一排工具栏，不浮在画面上。 */
   cameras: { key: string; label: string; width: number; height: number }[];
   selected: string | null;  // 视图中选中物体的名称（「框显选中」据此启用或置灰）
   setView: (v: ViewName) => void;
@@ -103,8 +103,8 @@ if (typeof window !== "undefined") (window as unknown as { __l2s_loads?: () => u
 /** 二维舞台当前绘制的画面尺寸（图像像素，而非屏幕像素；null 表示当前没有二维舞台）。
  *
  * 用途：部分控件不在舞台内，却需要在画面像素坐标中放置内容。例如参数面板的「添加帧」
- * 按下后需在画面正中放置一个火柴人，因此需要知道画面尺寸（`view/handles2d.ts tposeIn`）。
- * 舞台计算出的宽高（`view/Stage2D.tsx` 的 `pictureSize`）是唯一来源，
+ * 按下后需在画面正中放置一个火柴人，因此需要知道画面尺寸（`view/figure2d.ts tposeIn`）。
+ * 二维舞台（`view/Stage2D.tsx`，按 `model/view2d.ts pictureSize`）算出的宽高是唯一来源，
  * 不在其他位置重复计算。其性质与上方「已载入视图」相同：
  * 舞台绘制时发布该值，舞台卸载时清除。 */
 export const useStagePicture = create<{ size: { width: number; height: number } | null }>(() => ({ size: null }));

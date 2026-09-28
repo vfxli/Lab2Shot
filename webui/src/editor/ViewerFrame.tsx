@@ -16,7 +16,9 @@ import { ViewNotices, type Notice } from "../ui/ViewNotices";
  * 底部只保留非通知类内容：光标读数（随鼠标变化的测量值）与手柄提示（手柄用法说明）。
  *
  * 此处只负责排版，舞台上显示的内容由 Viewer.tsx 决定。胶囊只显示一句短文字（界面文字不换行、不截断），
- * 原因写在其悬停提示中。 */
+ * 原因写在其悬停提示中。
+ *
+ * 上方的工具栏不显示悬停提示（data-no-tips，platform/tips.ts）；它打开的菜单照常显示。 */
 export function ViewerFrame({
   plan,
   tools,
@@ -34,9 +36,9 @@ export function ViewerFrame({
   strip?: React.ReactNode;
   stage2d?: boolean;
   shown?: string | null; // the node the viewer is on: its 逐项处理 blocks get the item bar
-  proxy?: Notice[] | null; // 点云代理显示 / 超出显示预算（由 view/points.ts 计算）
+  proxy?: Notice[] | null; // 点云代理显示（倍数由 view/kinds3d.ts useCloudProxy 计算，文字在 Viewer.tsx 生成）
 }) {
-  // 画面上没有「压缩预览」角标，也没有画质下拉：二维只有视图代理一种方式，查看原始数据需下载交付后在 DCC 中查看。
+  // 二维只有视图代理一种画质，没有可切换的档位，也就没有角标或下拉；查看原始数据需下载交付后在 DCC 中查看。
   const did = useTransientNote();
   // 视图通知区的全部内容集中计算于此（ViewNotices 只负责绘制与排序），画面上的每一条说明均在此汇总：
   // 舞台写入 state 的条目（本机画面、相机、显示的错误、三维手柄提示）以及本层自身掌握的信息。
@@ -52,10 +54,10 @@ export function ViewerFrame({
   return (
     <div className="viewer">
       {/* 画面上方的独立工具栏，与视图同宽（参照 Nuke）：不得绝对定位浮于画面上，否则会遮挡画面右上角。 */}
-      <div className="view-bar">
+      <div className="view-bar" data-no-tips>
         <div className="view-bar-name">
           <IconEye size={12} color="var(--accent)" />
-          <span data-user-data data-tip={plan ? plan.node.data.label : "未选择显示节点"}>{plan ? plan.node.data.label : "未选择显示节点"}</span>
+          <span data-user-data>{plan ? plan.node.data.label : "未选择显示节点"}</span>
         </div>
         <div className="hud-tools">{tools}</div>
       </div>
@@ -71,7 +73,7 @@ export function ViewerFrame({
   );
 }
 
-/** 视图刚刚自动执行的操作（viewOptions.ts 的 useViewerNote），4 秒后自动消失，是通知区中唯一会自动消失的一类：
+/** 视图刚刚自动执行的操作（state/viewTools.ts 的 useViewerNote），4 秒后自动消失，是通知区中唯一会自动消失的一类：
  * 「已自动切换模式」一类的提示过一段时间即失去意义，而「当前显示的并非数据本身」一类的提示必须持续显示。 */
 function useTransientNote(): Notice | null {
   const note = useViewerNote((s) => s.note);

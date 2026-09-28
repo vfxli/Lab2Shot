@@ -12,7 +12,7 @@ from __future__ import annotations
 from lab2shot.sdk import NONCOMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight, body_model_weight
 
 SMIRK_URL = "https://github.com/georgeretsi/smirk.git"
-SMIRK_COMMIT = "c7de404c4389f073906a6db1adabf62efcea3f35"  # latest
+SMIRK_COMMIT = "c7de404c4389f073906a6db1adabf62efcea3f35"  # latest commit when pinned
 
 # quick_install.sh: the pretrained model from the authors' Google Drive
 # (encoder + neural generator; the worker loads only the encoder).

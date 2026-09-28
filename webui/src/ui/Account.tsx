@@ -7,20 +7,16 @@ import "./account.css";
 import { dayText } from "../platform/format";
 import { Button } from "./Button";
 import { Menu, type MenuRow } from "./Menu";
+import { MIN_CHARS, passwordProblem } from "../platform/accountRules";
 
 /** The account this page is logged in with, at the end of the top bar: its name and department; a click opens a
  * small menu — change the password (with the current one), log out, and the admin page when it is this login's.
  *
- * `extra`: rows only the page it sits on can offer (the editor's 「录入模板」 needs the graph that is open). They go
- * above 退出登录, in the order given; whether each is there at all is the page's own call, from the same one
- * availability answer (api/applies.ts) — this component looks at no role either.
- *
  * 我的占用 is not here: it lives in the 队列 window, next to the jobs whose results take the room. */
 
-const MIN_CHARS = 8; // lab2shot/accounts.py MIN_CHARS
 const MENU_WIDTH = 220;
 
-export function AccountChip({ extra = [] }: { extra?: MenuRow[] }) {
+export function AccountChip() {
   const state = useSession((s) => s.state);
   const logout = useSession((s) => s.logout);
   // where the menu opens (under the chip, its right edge on the chip's): null while it is closed. The site's one Menu
@@ -41,7 +37,6 @@ export function AccountChip({ extra = [] }: { extra?: MenuRow[] }) {
     ...(shown(state?.applies, "page.admin")
       ? [{ key: "admin", label: "管理页面", tip: "管理页面：用户、队列、设置……（新标签页打开）", run: () => void window.open("/admin", "_blank", "noreferrer") }]
       : []),
-    ...extra,
     { key: "logout", label: "退出登录", tip: "退出登录：这个浏览器要重新登录才能用；没保存的节点图留在这个浏览器里，登录后还在", run: () => void logout() },
   ];
   return (
@@ -71,7 +66,7 @@ function PasswordSheet({ onClose }: { onClose: () => void }) {
   const [problem, setProblem] = useState("");
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
-  const rule = !next ? "" : next.length < MIN_CHARS ? `新密码至少要 ${MIN_CHARS} 个字符` : !next.trim() ? "新密码不能全是空格" : again && again !== next ? "两次输入的新密码不一样" : "";
+  const rule = passwordProblem(next, again);
   const ready = !!current && !!next && next === again && !rule;
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();

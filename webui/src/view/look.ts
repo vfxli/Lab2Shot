@@ -24,15 +24,15 @@ export interface Merge {
  * 因此数据仍存于缓存中，显示方式一律实时计算：切换着色、拖动黑白点不产生任何缓存项，也不发任何请求。
  *
  * 一侧的数据有两种来源，此处同等处理：
- * - `picture`：服务器生成的显示图（RGBA，已完成 OCIO 显示变换）。只有需要色彩管理的颜色才走此路径：
- *   三条颜色通道经显示变换编码为一张无损图，是其最小载体（约为三条 float32 通道的三分之一）；
+ * - `picture`：服务器生成的显示图（RGBA，8 位有损 WebP 代理，已完成显示变换）。彩色画面走此路径（规则见
+ *   transfer/route.ts）：一张图是三条颜色通道的最小载体；
  * - `planes`：一到三条通道的数据本身（transfer/plane.ts）。值为数据自身的值，
  *   范围映射（`range`）、黑白点、着色、合成均在此计算。数值图、alpha、视频的单条通道均走此路径，
  *   按需发送所需的通道。
  *
  * 两条路径的计算结果像素差 ≤ 1/255 即可，不要求逐位一致。 */
 
-export interface SideLook {
+interface SideLook {
   index: number | null; // 选取的通道序号（null：多条一起查看，颜色即数据本身）。走 planes 路径时不使用
   black: number;
   white: number;
@@ -55,7 +55,7 @@ export interface SideSource {
   range?: readonly [number, number] | null;
 }
 
-export interface LookAsk {
+interface LookAsk {
   width: number; // 画布（画面框）的尺寸
   height: number;
   left: SideSource;
@@ -98,7 +98,7 @@ float mapped(sampler2D tex, vec2 q, vec2 range) {
 }
 
 // pix：以左上角为原点的画布像素坐标。WebGL 画布原点位于左下角，而图像、画面框（data_window）及
-// 整条二维链的坐标均以左上角为原点，不统一会导致上下颠倒（三维背板曾出现同样的问题）。
+// 整条二维链的坐标均以左上角为原点，不统一会导致上下颠倒（三维背板的取样同理）。
 vec4 side(sampler2D tex, sampler2D p1, sampler2D p2, sampler2D validTex, sampler2D lut,
           vec2 pix, vec4 box, int planes, vec2 range, int hasValid,
           int index, vec2 grade, float solid, int asWeight) {
@@ -169,6 +169,9 @@ interface Gl {
   at: Record<string, WebGLUniformLocation | null>;
   luts: Map<string, WebGLTexture>;
   tex: Record<Slot, WebGLTexture>;
+  // 每个单元当前纹理里装的是哪一份数据（图片或通道对象本身）：同一份不再上传。拖动手柄、鼠标悬停都会重画，
+  // 若每次都重新上传，一张 4K 浮点图每次移动鼠标要传 30 多 MB 给显卡
+  holds: Partial<Record<Slot, ImageBitmap | Plane>>;
 }
 
 /** 本模块唯一的可变状态（与 `transfer/frames.ts` 的 `Fetching` 做法相同）：已创建的 GPU 资源，
@@ -223,9 +226,7 @@ function make(): Gl | null {
     // 最近邻从不产生原数据中不存在的值。双线性会：遮罩和「编号」这类标签图在 1 和 2 之间插出 1.5，
     // 该值不属于任何类别；深度会在边缘产生不存在的中间深度。
     // 颜色放大超过代理档位时，最近邻呈现为硬像素块，这与 Nuke / RV 放大到 800% 时的效果相同，
-    // 属于 DCC 惯例而非缺陷；此外 GPU 路径与 CPU 路径（`view/lookOnCpu.ts`）
-    // 必须给出相同的数值（由 `webui/tests/look.check.py` 检查，判据为屏幕值相差不超过一档），
-    // 若只将颜色改为双线性则无法一致。因此两侧统一遵循一条规则：不插值。
+    // 属于 DCC 惯例而非缺陷。因此两侧统一遵循一条规则：不插值。
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -236,12 +237,14 @@ function make(): Gl | null {
   };
   const tex = Object.fromEntries(PIXEL_SLOTS.map((k) => [k, blank()])) as Gl["tex"];
   // 查色表的两个单元也需要纹理对象（下方 lutTexture 按「着色 + 上界」各建一张，这两个单元只负责绑定）
-  return { canvas, gl, program, at, luts: new Map(), tex: { ...tex, leftLut: blank(), rightLut: blank() } };
+  return { canvas, gl, program, at, luts: new Map(), tex: { ...tex, leftLut: blank(), rightLut: blank() }, holds: {} };
 }
 
 /** 一条色标的 256 档查色表，生成为 256×1 的纹理（颜色本身取自 model/view2d.ts，不另写一套）。 */
 function lutTexture(g: Gl, tint: Tint, top: number): WebGLTexture {
-  const key = `${tint}|${top}`;
+  // only the id colouring depends on the largest id (tintLut); every other one is the same table whatever the data's
+  // range, so one texture per tint, not one more for every range met
+  const key = tint === "id" && top > 0 ? `${tint}|${top}` : tint;
   const got = g.luts.get(key);
   if (got) return got;
   const table = tintLut(tint, top);
@@ -264,7 +267,7 @@ function lutTexture(g: Gl, tint: Tint, top: number): WebGLTexture {
 }
 
 /** 将 u16 档转换为 float32：GPU 的核心格式中没有 16 位归一化格式（属于 EXT_texture_norm16），
- * 半精度又无法表示 65535。数值不做任何修改（k/65535，与 server/wire.py `_fits` 对应），
+ * 半精度又无法表示 65535。数值不做任何修改（k/65535，与 lab2shot/view/channels.py `_fits` 对应），
  * 同一条通道只转换一次（转换结果缓存于此，播放时不会每帧重复计算）。 */
 const asFloat = new WeakMap<Plane, Float32Array>();
 function floats(p: Plane): Float32Array {
@@ -284,7 +287,7 @@ export const noGpu = (): boolean => gpu.broken;
 const solidOf = (tint: Tint): number => (tintAlpha(tint, 0.5) === 0.5 ? 1 : 0); // 纯色：浓淡随值变化
 
 /** 一路是否有可绘制的内容。 */
-export const hasPixels = (s: SideSource | null | undefined): boolean =>
+const hasPixels = (s: SideSource | null | undefined): boolean =>
   !!s && (!!s.picture || !!s.planes?.some((p) => p));
 
 /** 当前显示结果的图像（画布尺寸等于画面框）。null 表示本机无法创建 WebGL2 上下文，或左侧一路尚无数据；
@@ -307,11 +310,14 @@ export function drawLook(ask: LookAsk): HTMLCanvasElement | null {
   };
   const putPicture = (slot: Slot, image: ImageBitmap) => {
     bind(slot);
+    if (g.holds[slot] === image) return;
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+    g.holds[slot] = image;
   };
   const putPlane = (slot: Slot, p: Plane | null | undefined) => {
     bind(slot);
-    if (!p) return;
+    if (!p || g.holds[slot] === p) return;
+    g.holds[slot] = p;
     const [internal, type, data] =
       p.format === 0 ? [gl.R8, gl.UNSIGNED_BYTE, p.data as Uint8Array]
       : p.format === 2 ? [gl.R16F, gl.HALF_FLOAT, p.data as Uint16Array]

@@ -17,11 +17,10 @@ convention and resized to envmap_width ->
     raw/result.json
 
 Parameters (job["params"]):
-    frame            int | null   reference frame (null = the middle of the frames given)
     seed             int >= 0     0
     envmap_width     even int >= 64, default 1024 (the model's own map is 256 x 128; larger is interpolated)
     lora_scale       0..1, default 0.8 (upstream's real-scene setting; 0 = synthetic-domain model)
-    steps            int 10..100, default 50 (upstream's setting)
+    steps            20 | 30 | 50 | null, null = 50 (upstream's setting)
     guidance_scale   1..10, default 2.5
     resolution       "auto" | "480x720" | "512x512" | "720x480" (height x width), default auto
 

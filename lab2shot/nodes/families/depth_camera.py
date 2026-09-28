@@ -123,10 +123,7 @@ class PerFrameDepthCamera(DepthCamera):
     # 该相机由 worker 将其 `rays` 以最小二乘拟合为针孔模型得到，不属于上游输出。
     # 该相机本就位于原点且静止，不输出也不影响点云数值：家族内部仍用它进行反投影和放置。
     solves_camera: bool = True
-    version = 5  # 5：声明了 sky_map 的节点增加一个「天空遮罩」端口
-    # 4：点云输出的去飞点改为依照上游实现（深度跳变且法线折角），结果改变，旧缓存作废
-    # 3：声明了 native_points 的节点输出模型自身的三维点；点云增加来源说明
-    # 2：模型置信度作为独立输出（复用模型的原始结果）
+    version = 5  # 计算方式改变时加一，缓存的结果随之重算（NodeDef.version）
 
     def __init_subclass__(cls, **kw):
         # 上游不输出内参时不应存在「相机」输出端口（见上方 solves_camera 声明）
@@ -205,7 +202,7 @@ class WholeShotParams(NodeParams):
     """所有整段节点共用的参数；各节点另外添加其权重及自身的「每段最多帧数」
     （max_frames_param，上限按该模型实测）。"""
 
-    step: int = P(1, label="隔帧", help="每隔几帧算一次，其余帧的相机插值得到（深度图和点云只有算过的那些帧）。长镜头设 2–3 更快、一段能放下更多时间；快速运动的镜头、要每帧深度图时保持 1", ge=1, le=10, group="解算")
+    step: int = P(1, label="隔帧", ge=1, le=10, group="解算")
     point_step: int = points_params()["point_step"]
     point_size: float = points_params()["point_size"]
 
@@ -232,15 +229,10 @@ class WholeShotDepthCamera(DepthCamera):
     on_node = ("step", "max_frames")
     missing_frames = MissingFrames.SKIP
     fact_labels = {"segments": "镜头分段数"}  # worker 将镜头切分的段数（CookContext.fact，convert）
-    # 上游实际接受遮罩图时填写（端口标签，如「运动物体遮罩」）：COLMAP 的 `--ImageReader.mask_path`、
-    # MonST3R 的 `dynamic_mask_path`。为空表示上游不接受，节点上不显示该端口。
+    # 上游实际接受遮罩图时填写（端口标签，如「运动物体遮罩」）：如 MonST3R 的 `dynamic_mask_path`。为空表示上游不接受，节点上不显示该端口。
     # 默认没有该端口，由成员声明添加；若默认存在再由成员各自过滤，每个成员都要写过滤代码，新增端口时需多处修改。
     takes_mask: str = ""
-    version = 6  # 6：声明了 sky_map 的节点增加一个「天空遮罩」端口
-    # 5：点云输出的去飞点改为依照上游实现（深度跳变且法线折角），结果改变，旧缓存作废
-    # 4：深度图输出上游原值，不再被「深度边缘 / 运动物体」置为 0（飞点过滤移至「深度转点云」）
-    # 3：点云增加来源说明（points_from）
-    # 2：模型置信度作为独立输出（复用模型的原始结果）
+    version = 6  # 计算方式改变时加一，缓存的结果随之重算（NodeDef.version）
 
     def __init_subclass__(cls, **kw):
         # 该端口定义在家族上：声明了 takes_mask 的节点自动增加对应的遮罩输入端口

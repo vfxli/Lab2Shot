@@ -8,7 +8,7 @@
 # the old setup.py files of chumpy and insightface import pkg_resources
 setuptools==80.10.2  # < 81
 wheel==0.48.0
-ninja==1.13.2  # torch's JIT compiler for nvdiffrast's plugin
+ninja==1.13.2  # torch's cpp_extension builds (pytorch3d, nvdiffrast)
 cython==3.3.0  # PIPNet's FaceBoxes NMS, insightface
 
 # chumpy (FLAME pickles) and the upstream code use the numpy 1.x names
@@ -33,7 +33,7 @@ matplotlib==3.10.9
 tensorboard==2.21.0
 wandb==0.30.0
 tyro==1.0.16
-iopath==0.1.9  # pytorch3d.io reads through it（--no-deps 装的，要自己列出来）
+iopath==0.1.9  # pytorch3d.io reads through it (pytorch3d is installed with --no-deps, so it is listed here)
 environs==15.2.0
 h5py==3.16.0
 

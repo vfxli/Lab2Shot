@@ -1,7 +1,6 @@
-/** The two alert colours needed as values by canvases and inline styles (CSS uses the tokens in ui/tokens.css, which
- * webui/tests/nodeMarks.test.ts keeps equal to these). Red is reserved for production risk (message level P); ordinary
- * errors (a wrong wire, a missing port, a failed or blocked node) are purple. */
-export const PRODUCTION_RISK_COLOR = "#ff5b4f"; // --production-risk
+/** The error colour needed as a value by canvases and inline styles (CSS uses the token in ui/tokens.css): an ordinary
+ * error — a wrong wire, a missing port, a failed or blocked node — is purple (production risk, message level P, is a
+ * separate red token used only in CSS). */
 export const ERROR_COLOR = "#b98cff"; // --error
 
 /** The colour of a node the catalogue does not place anywhere (an unknown type, a node whose extension was removed):
@@ -27,7 +26,7 @@ export const bgColourOf = (picked: string): string => picked || BG_CHOICES[0].va
 
 /** 透明区域棋盘格的两种灰色：二维舞台用画布绘制（view/overlays.ts drawBackground），
  * 背景下拉框中的色样用 CSS 绘制。值只在此处定义，令牌 `--checker-light` / `--checker-dark`
- * 须与之保持一致（由 webui/tests/nodeMarks.test.ts 检查，做法与 --production-risk 相同）。 */
+ * 须与之保持一致（做法与 ERROR_COLOR / --error 相同）。 */
 export const CHECKER_LIGHT = "#4a4a4e"; // --checker-light
 export const CHECKER_DARK = "#323234"; // --checker-dark
 

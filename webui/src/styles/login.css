@@ -1,6 +1,6 @@
 /* The login gate's own page rules (gate.tsx, admin/Auth.tsx's login): the card, its fields and actions, the brand and the
-   top line it shares with the admin page. main.tsx loads only these with the tokens, the base and the field; site.tsx
-   loads the rest of the page stylesheet once the login is through. */
+   top line it shares with the admin page. main.tsx loads only these with the kit's tokens, base, field, forms, tip and
+   glass; site.tsx loads the rest of the page stylesheet once the login is through. */
 
 .adm-top {
   display: flex;
@@ -20,7 +20,7 @@
   gap: 10px;
 }
 
-/* 登录: the admin page's top bar over one card, in the middle of the window (admin/Auth.tsx) */
+/* the login page: one card in the middle of the window (gate.tsx; admin/Auth.tsx puts the admin page's top bar over it) */
 .login-page {
   position: relative;
   height: 100%;
@@ -144,14 +144,7 @@
   width: 100%;
 }
 
-.login-first {
-  padding: 8px 10px;
-  border-radius: var(--r-ctl);
-  background: rgba(255, 159, 10, 0.12);
-  color: #ffc56b;
-}
-
-/* the code asked for again over a page that stays underneath (gate.tsx) */
+/* the login or the agreement asked for over a page that stays underneath (gate.tsx) */
 .login-page.over {
   position: fixed;
   inset: 0;
@@ -174,4 +167,89 @@
   font-weight: 700;
   font-size: 14px;
   text-decoration: none;
+}
+
+/* 注册 (register.tsx): a field's problem under it, and the decoy field — out of sight and out of reach (no tab stop,
+   hidden from assistive technology), never display:none, which some form-filling bots skip */
+.login-why {
+  color: var(--error);
+  font-size: var(--fs-sm);
+  font-style: normal;
+}
+.login-trap {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.register-card .login-field {
+  margin-bottom: 10px;
+}
+/* the registration form is twice as tall as the login: it starts higher, and the page scrolls when it must */
+.login-main.tall {
+  padding-top: 5vh;
+}
+
+/* 用户协议 and 隐私政策 (terms.tsx): the box to tick, its titles links that open each text; the card that asks for
+   the agreement; the text itself, in its sheet and in the admin page's preview (admin/Terms.tsx) */
+.terms-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin: 4px 0 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.terms-box label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.terms-box input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+.terms-box .btn.link {
+  font-size: var(--fs-sm);
+  color: var(--accent-text);
+}
+.terms-box.bad label span {
+  color: var(--error);
+}
+.terms-card {
+  width: min(400px, 100%);
+}
+.terms-text {
+  font-size: var(--fs-md);
+  line-height: 1.75;
+  color: var(--text);
+  user-select: text;
+}
+.terms-text h1 {
+  margin: 0 0 10px;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+}
+.terms-text h2 {
+  margin: 18px 0 6px;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+.terms-text p {
+  margin: 0 0 10px;
+  color: var(--text-2);
+}
+.terms-text ul {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+.terms-text li {
+  margin: 3px 0;
+  color: var(--text-2);
+}
+.terms-text strong {
+  color: var(--text);
+  font-weight: 600;
 }

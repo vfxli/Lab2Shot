@@ -1,11 +1,11 @@
-import { newDocId } from "../graph/nodes";
+import { randomId } from "../platform/randomId";
 import { useViewer } from "../state/viewer";
 
 /** The same graph open in another tab of this browser: never let two tabs autosave over each other (the user's work
  * must not be lost). Tabs of this browser tell each other apart with BroadcastChannel, keyed by the graph's saved
  * file (state/viewer.ts's file.handle, stable across tabs once a file is opened: files/handles.ts dedupes by
  * isSameEntry) or, for an unsaved graph, its working copy's id (state/viewer.ts's docId — two tabs share it exactly
- * when one is resuming the very autosaved state the other is holding, see graph/actions.ts's loadGraph's docId
+ * when one is resuming the very autosaved state the other is holding, see graph/document.ts's loadGraph's docId
  * argument).
  *
  * Whichever tab is on this key first is its "editor" (autosave.ts only ever writes from one); a later tab starts as
@@ -18,7 +18,7 @@ interface Msg {
   type: "hello" | "alive" | "claim" | "bye";
   from: string;
   key: string;
-  since: number; // this tab's startedAt for the current key: the earliest wins the editor role on a race
+  since: number; // when this tab started on the current key: the earliest wins the editor role on a race
 }
 
 const CHANNEL = "lab2shot.tabs";
@@ -26,7 +26,7 @@ const GATHER_MS = 350; // long enough for every already-open tab to answer a "he
 const HEARTBEAT_MS = 4000;
 const STALE_MS = 11000;
 
-const tabId = newDocId();
+const tabId = randomId();
 
 const docKey = (): string => {
   const s = useViewer.getState();
@@ -92,7 +92,7 @@ export function startTabSync(): () => void {
     send(useViewer.getState().role === "editor" ? "hello" : "alive");
   }, HEARTBEAT_MS);
 
-  // claiming editing (the user clicked 在这里编辑, graph/actions.ts's claimEditing) tells every other tab on this
+  // claiming editing (the user clicked 在这里编辑, state/viewer.ts's claimEditing) tells every other tab on this
   // graph to yield
   const unsubscribe = useViewer.subscribe((s, p) => {
     if (docKey() !== key) reset();

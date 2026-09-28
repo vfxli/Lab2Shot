@@ -320,6 +320,12 @@ def disabled() -> frozenset[str]:
 
 
 def user_dir(username: str) -> Path:
+    """The account's own templates folder. `username` must be a username by the accounts' rule (accounts.USERNAME):
+    anything else (「..」, a path) names no folder, whoever calls."""
+    from .accounts import USERNAME
+
+    if not USERNAME.match(username):
+        raise NotFound(Msg("E-LIBRARY-NOSUCH"))
     return settings().work_dir / "users" / username / "templates"
 
 
@@ -396,14 +402,11 @@ def user_bin(username: str, stem: str, by: str) -> dict:
     return _user_row(target, username, True)
 
 
-def user_restore(username: str, stem: str, by: str = "admin") -> dict:
-    """Out of the bin. One the administrator binned is not the user's to take back (E-LIBRARY-ADMINBINNED)."""
+def user_restore(username: str, stem: str) -> dict:
+    """Out of the bin, by the administrator (templates.restore): the user has no bin of their own to take it from."""
     path, binned = _user_file(username, stem)
     if not binned:
         return _user_row(path, username, False)
-    row = _user_row(path, username, True)
-    if by == "user" and row["deleted_by"] == "admin":
-        raise Invalid(Msg("E-LIBRARY-ADMINBINNED", name=row["name"]))
     target = user_dir(username) / path.name
     data = _load(path)
     _write(target, data, {**(data.get("meta") or {}), "deleted": None, "deleted_by": ""})
@@ -423,24 +426,51 @@ def user_bytes(username: str) -> int:
     return sum(r["bytes"] for r in user_cards(username))
 
 
-def user_graphs(username: str) -> list[dict]:
-    """Every graph of the account, the binned ones too (server/quota.py: the uploads they name stay)."""
-    out = []
-    for bin_ in (False, True):
-        for r in user_cards(username, bin_):
-            try:
-                out.append(user_get(username, r["stem"])["graph"])
-            except Exception:  # noqa: BLE001
-                pass
-    return out
-
-
 def remove_user(username: str) -> int:
-    """An account is purged (lab2shot/accounts.py purge): its folder goes with it, including its templates and the graph
-    files of its jobs (jobs/, lab2shot/farm/queue.py graph_file). Returns how many templates it held."""
+    """An account is purged (lab2shot/accounts.py purge): its folder goes with it, and its templates with it. Returns how
+    many templates it held."""
     n = len(user_cards(username)) + len(user_cards(username, bin_=True))
     shutil.rmtree(settings().work_dir / "users" / username, ignore_errors=True)
     return n
+
+
+# ---- which template a job came from (the usage statistics' 按模板, farm/usage.py templates)
+
+
+def current_names(cards) -> dict[str, str]:
+    """Card id -> the template's name now, for the ids given that are still a template: a preset, or a user's template
+    that is not in the bin. The ones missing are deleted (or never were one)."""
+    wanted = {c for c in cards if isinstance(c, str) and c}
+    found = {t["id"]: t["name"] for t in presets() if t["id"] in wanted}
+    for card in wanted - found.keys():
+        try:
+            kind, who, stem = parse_id(card)
+        except NotFound:
+            continue
+        if kind == "user" and "/" not in who and not who.startswith("."):  # a name, never a way out of work/users
+            try:
+                path, binned = _user_file(who, stem)
+            except NotFound:
+                continue
+            if not binned:
+                found[card] = _user_row(path, who, False)["name"]
+    return found
+
+
+def opened_from(graph: dict, username: str) -> tuple[str, str]:
+    """The template a graph was opened from (its meta.template, which the template panel sets): (card id, its name now),
+    or ("", "") for a graph built by hand. Only a template this account could have opened counts (a preset, or one
+    of its own): a template since deleted, or an id the graph was given by hand, counts as built by hand."""
+    meta = graph.get("meta") if isinstance(graph.get("meta"), dict) else {}
+    card = str(meta.get("template") or "")
+    try:
+        kind, who, _ = parse_id(card)
+    except NotFound:
+        return "", ""
+    if kind == "user" and who != username:
+        return "", ""
+    name = current_names([card]).get(card)
+    return (card, name) if name is not None else ("", "")
 
 
 def rows_for_account(username: str) -> list[dict]:

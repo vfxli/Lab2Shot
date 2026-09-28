@@ -86,7 +86,7 @@ def adapters() -> Adapters:
 
 
 def load(folders: list[Path]) -> Adapters:
-    """The extensions of these adapter folders (tests load all but one: removing an extension breaks nothing else)."""
+    """The extensions of these adapter folders, loaded."""
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
     specs: dict[str, Extension] = {}

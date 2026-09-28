@@ -3,14 +3,16 @@
 One module per family of commands; this file is the one place that puts them together. The commands of a module
 register themselves on `base.app` when it is imported (in this order), its group (`lab2shot db ...`) is added below.
 
-    extensions  lab2shot ext list | info | install
     tools       lab2shot gpus | color | inspect
     serve       lab2shot ui
-    setup       lab2shot setup（交互式配置：环境、管理员密码、设置、显卡、启动/停止）
-    check       lab2shot check（项目不变量：端口与引文、分类、消息、模板、通道、缓存、删除入口、路由）
+    setup       lab2shot setup（交互式配置：环境、管理员密码、设置、显卡、启动/停止）；它用到的服务启停在 service.py，
+                一键更新在 update.py（二者都不注册命令）
+    check       lab2shot check（项目不变量：端口与引文、节点体参数、分类、消息、模板、通道、缓存、地址代次、删除入口、路由、
+                网页与计算的两处同一规则、更新说明）
     accounts    lab2shot login | logout, lab2shot admin ...
-    database    lab2shot db ...
     jobs        lab2shot templates | cook
+    extensions  lab2shot ext list | info | install | preflight | selfcheck | adopt | place | rollback | uninstall
+    database    lab2shot db ...
 """
 
 from __future__ import annotations

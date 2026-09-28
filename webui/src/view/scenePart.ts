@@ -18,24 +18,19 @@ import { sizeText } from "../platform/format";
 import { cache } from "../transfer/cache";
 
 /** 单个数据块的大小上限；超过时浏览器无法容纳，须说明实际大小与上限，不得静默截断。 */
-export const MAX_PART = 1.5e9;
+const MAX_PART = 1.5e9;
 
 /** 三维数据在页面唯一缓存中的前缀（节点图关闭时据此整体释放）。 */
 export const PART_KEY = "3d:part:";
 
-/* 地址中不含画质：删点始终在服务器端进行（按后台的「点云上限」），一个地址即对应一个字节序列，
+/* 删点始终在服务器端进行（按后台的「点云上限」）：数据块的地址由服务器在描述中给出，一个地址即对应一个字节序列，
  * 页面端不拼接任何内容。 */
 
 /** 在途请求：同一地址被同时请求两次（两个场景共用一份基础块，或已释放的分块被再次请求）时只传输一次。
  *
  * 在构造上即有上限：条目只在传输期间存在，到达（成功或失败）后立即删除。
- * 模块级 `Map` 默认不允许使用，此类在途登记表为明确豁免的例外
- * （`tools/rule_counts.py INFLIGHT_REGISTRIES`），条件是必须有测试验证：
- * 即下方供 `webui/tests/registries.test.ts` 使用的 `partsInFlight`。 */
+ * 模块级 `Map` 一般不用于长期存储；此表条目只活到请求结束，因此可以用。 */
 const asking = new Map<string, Promise<Uint8Array>>();
-
-/** 当前在途的请求数（仅供测试使用：验证完成后该表为空）。 */
-export const partsInFlight = (): number => asking.size;
 
 async function load(at: string): Promise<Uint8Array> {
   const r = await request(at); // 因未登录被拒的请求交由登录门处理
@@ -51,7 +46,7 @@ async function load(at: string): Promise<Uint8Array> {
 
 /** 一个三维数据块：已持有则直接返回，否则向服务器请求，取回后记录在页面唯一的缓存中。
  *
- * 记录档位为 `fetched`（已下载、当前未被绘制的数据），与预取的画面帧同档：
+ * 记录档位为 `fetched`（已下载、当前未被绘制的数据）：
  * 实际绘制的是 sceneData.ts 解码出的样本，字节本身并不在屏幕上。预算紧张时优先释放，
  * 释放后只需下次重新请求，不会移除正在查看的内容。 */
 export function fetchPart(url: string): Promise<Uint8Array> {
@@ -63,11 +58,13 @@ export function fetchPart(url: string): Promise<Uint8Array> {
   if (held) return Promise.resolve(held.slice());
   const already = asking.get(key);
   if (already) return already.then((bytes) => bytes.slice());
+  // 在途的请求共享的是原件（与缓存中的同一份），每个请求方各取一份拷贝：若共享的是第一个请求方的拷贝，
+  // 它先一步 transfer 给解析线程后，后来者再拷贝得到的是空壳
   const going = load(at).then(
     (bytes) => {
       asking.delete(key);
       cache.keep(key, bytes, bytes.byteLength, "fetched");
-      return bytes.slice();
+      return bytes;
     },
     (e) => {
       asking.delete(key); // 失败的不记录：再次请求时重新尝试
@@ -75,5 +72,5 @@ export function fetchPart(url: string): Promise<Uint8Array> {
     },
   );
   asking.set(key, going);
-  return going;
+  return going.then((bytes) => bytes.slice());
 }

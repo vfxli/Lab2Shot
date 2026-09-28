@@ -26,6 +26,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..config import provide_choices
+
 BASIC, COMMERCIAL, NONCOMMERCIAL, RESEARCH, REGISTRATION = "basic", "commercial", "noncommercial", "research", "registration"
 LICENCES = (BASIC, COMMERCIAL, NONCOMMERCIAL, RESEARCH)  # the licence classes: every node has exactly one
 IMPLIED = frozenset({BASIC})  # every user has these
@@ -46,6 +48,15 @@ TAGS: dict[str, Tag] = {
     RESEARCH: Tag("仅限研究", "许可证只允许学术研究：比非商用更严，不能用于任何生产"),
     REGISTRATION: Tag("需注册", "要用每个人在官网注册后才能下载的人体、手或面部模型（SMPL、SMPL-X、MANO、FLAME），它们的许可证也只许非商用科研"),
 }
+
+
+def account_choices() -> tuple[tuple[str, str], ...]:
+    """What an account may be given (every tag but the implied ones), as 用户's 可用 offers it: also the options of the
+    setting 注册可用模型类别 (lab2shot/config.py provide_choices, below)."""
+    return tuple((k, t.label) for k, t in TAGS.items() if not t.implied)
+
+
+provide_choices("account_tags", account_choices)
 
 
 def describe() -> dict[str, dict]:

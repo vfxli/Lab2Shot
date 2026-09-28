@@ -15,8 +15,8 @@ Per frame -> raw/frame_<n>.npz (see lab2shot_worker.mono_geometry): points (= ra
 distance, the true geometry for any lens), depth (camera Z; pixels looking backwards,
 Z <= 0, are outside the mask), mask, confidence, and intrinsics = the least-squares
 PINHOLE APPROXIMATION of the predicted rays (exact when fov_x_deg is given). Plus the
-network's own two arrays the node now has ports for (unik3d.py:394, 397): distance
-(along each ray, metres) and rays (the unit ray field itself, OpenCV camera space).
+network's own two arrays behind the node's 「距离图」 and 「射线场」 ports (unik3d.py:394, 397):
+distance (along each ray, metres) and rays (the unit ray field itself, OpenCV camera space).
 
 raw/camera.json keeps UniK3D's own camera model per frame, in input pixels (u, v are
 continuous pixel coordinates, pixel centres at +0.5):
@@ -135,8 +135,8 @@ def main(job_path: str) -> None:
         "rsh_cart_3": "unik3d/utils/sht.py at the pinned UniK3D commit",
         "lens_fits": "pinhole: u=fx*x/z+cx, v=fy*y/z+cy; residuals in pixels over every 4th pixel",
         "intrinsics_in_npz": "user pinhole" if fov_x else "pinhole fit",
-        "width": job.width or None,
-        "height": job.height or None,
+        "width": run.job.width or None,
+        "height": run.job.height or None,
         "frames": {str(f): c for f, c in cameras.items()},
     }, indent=1), encoding="utf-8")
 

@@ -2,15 +2,13 @@ import { useEffect, useState } from "react";
 import type { ParamDef } from "../api";
 import { Select } from "./Select";
 import { Switch } from "./Button";
-import { cannot } from "../files/handles";
 import { why as whyOf, type Availability } from "../api/applies";
 
-/** 选项当前是否可选，不可选时给出原因。两类原因使用同一条消息：当前浏览器无法实现
- * （ParamDef.option_needs：写入文件夹），或接入的数据不是该档所需的类型（由服务器按节点的
+/** 选项当前是否可选，不可选时给出原因：接入的数据不是该档所需的类型（由服务器按节点的
  * option_applies 计算，id 为 "<参数>=<选项>"，lab2shot/nodes/applies.py option_conditions）。
  * 统一在一处计算，节点上的下拉框、参数面板的下拉框、提交前的拦截三处读取同一结果，页面本身不对数据做任何判断。 */
 export function optionOff(p: ParamDef, answer: Availability | null | undefined, o: unknown): string {
-  return cannot(p.option_needs[String(o)])?.text || whyOf(answer, `${p.name}=${String(o)}`);
+  return whyOf(answer, `${p.name}=${String(o)}`);
 }
 
 // The input fields for parameters, shared by the parameter panel and the rows on a node's body: a single commit method

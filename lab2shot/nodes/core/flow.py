@@ -33,8 +33,7 @@ BOTH = f"{ANY}|{ANY_LIST}"  # port type accepting either a single value or a lis
 
 
 def _block_param() -> str:
-    return P("A", label="块名", group="块", affects_result=False,
-             help="这个块的名字：「逐项开始」和「逐项结束」的块名相同才算一个块。一个图里有几个块时，各起一个名字")
+    return P("A", label="块名", group="块", affects_result=False)
 
 
 def _list_type(ctx, port: str = "list") -> str:
@@ -100,7 +99,7 @@ class EachBegin(NodeDef):
 
     @classmethod
     def item_outputs(cls, params: dict, item, list_packet: str) -> dict:
-        """Return the per-item outputs. 名字 depends only on the item, 序号 on the item and its position, and 总数 on
+        """Return the per-item outputs. 名字 depends only on the item, 序号 on the item and its position, and 条数 on
         the whole list, so appending an item does not invalidate existing items or anything cooked from them."""
         from ...data.items import port_fp
 
@@ -170,19 +169,15 @@ class TakeOne(NodeDef):
     inputs = (Port("list", ANY_LIST, "列表"),)
     outputs = (Port("item", ANY, "条目", type_from="input:list#item"),)
     on_node = ("by", "index", "name")
-    # 算法定义在算法目录（lab2shot/ops/ops.toml）：按序号或名字选取条目由 items.take_one 实现，
-    # 浏览器依据同一描述执行（webui/src/ops/run.ts）。未选中时该算法只返回事实（超出范围 / 名字不存在），
-    # 由本节点决定输出哪条消息
+    # 算法定义在算法目录（lab2shot/ops/ops.toml）：按序号或名字选取条目由 items.take_one 实现。
+    # 未选中时该算法只返回事实（超出范围 / 名字不存在），由本节点决定输出哪条消息
     ops = ("items.take_one",)
 
     class Params(NodeParams):
         by: Literal["index", "name"] = P("index", label="按", group="条目",
-                                         option_labels={"index": "序号", "name": "名字"},
-                                         help="按位置取（第几条），还是按名字取（sh020）。名字更稳：列表增删以后位置会变")
-        index: int = P(1, label="序号", ge=1, group="条目", applies=Param("by").one_of("index"),
-                       help="第几条，从 1 数。超出列表的条数会报错说明一共有几条")
-        name: str = P("", label="名字", group="条目", applies=Param("by").one_of("name"),
-                      help="条目的名字，和列表里写的一样（序列名、person_01……）")
+                                         option_labels={"index": "序号", "name": "名字"})
+        index: int = P(1, label="序号", ge=1, group="条目", applies=Param("by").one_of("index"))
+        name: str = P("", label="名字", group="条目", applies=Param("by").one_of("name"))
 
     @classmethod
     def cook(cls, ctx) -> dict:
@@ -209,9 +204,7 @@ class MakeList(NodeDef):
     outputs = (Port("list", ANY_LIST, "列表", type_from="input:items#list"),)
 
     class Params(NodeParams):
-        names: str = P("", label="名字", group="条目", placeholder="按顺序，逗号分开",
-                       help="每条一个名字，按接线的顺序，用逗号分开（sh010,sh020）。留空的条目用上游「命名」起的名字，"
-                            "没有就按序号编号；同一条列表里名字不能重复")
+        names: str = P("", label="名字", group="条目", placeholder="按顺序，逗号分开")
 
     @classmethod
     def cook(cls, ctx) -> dict:
@@ -230,34 +223,14 @@ class SplitItems(ItemsOnly, NodeDef):
     list_role = "split"
     inputs = (Port("data", ANY, "数据"),)
     outputs = (Port("list", ANY_LIST, "列表", type_from="input:data#list"),)
-    # 可在浏览器中拆分的类型：
-    #
-    # 人物框：支持。数据为每人每帧四个浮点数，浏览器为绘制框已持有完整数据（`/api/packet/{fp}/boxes`），
-    # 拆分只需将该 JSON 按人物分组，无需额外传输。
-    #
-    # 场景（scene）：不支持。拆分需要读取 USD 并按 /shot 下的组重写文件（data/items.py `_scene_split`），
-    # 属于格式模块的职责，不纳入算法目录。
-    #
-    # 2D 跟踪点、分割图：不支持。其上游为解算器（结果只在服务器计算后产生），链路上没有可即时调整的参数，
-    # 在浏览器中计算不带来即时反馈。分割图还需按类别编号从像素中提取图层，而算法目录的词汇表仅包含三种运算
-    # （逐像素算术 / 按框绘制 / 选取条目），不含按编号提取图层；如需支持，应先扩展 `ops/vocab.py` 的词汇表。
-    IN_BROWSER = ("boxes",)
-
-    @classmethod
-    def browser_ops(cls, params, types):
-        """按泛型端口的实际类型判断：人物框由浏览器拆分，其他类型由服务器处理。
-        拆分只是分离条目而非运算，不使用算法目录中的算法，因此返回空元组。空元组与 `None` 含义不同：
-        空元组表示浏览器可以计算。"""
-        return () if types.get("data") in cls.IN_BROWSER else None
 
     @classmethod
     def cook(cls, ctx) -> dict:
         from ...data.items import as_items
 
         data = ctx.input("data")
-        # 拆分逻辑只在 data/items.py 中实现（as_items），「选人」输出列表时使用同一段代码，
-        # 因此两者的列表包逐字节一致，视图只需处理一种情况
-        parts = as_items(data, cls.id, cls.version)
+        # 拆分逻辑只在 data/items.py 中实现（as_items）：每种数据类型的拆法都在那里
+        parts = as_items(data, cls.id, cls.version, ctx.each_done)
         if not parts:  # no items (e.g. no person detected): an empty list, not an error
             ctx.say("N-LIST-NOTHING", node=ctx.label, kind=type_label(data.type))
         return {"list": Packet(ctx.outputs["list"], _list_type(ctx), items_meta(parts))}
@@ -278,7 +251,7 @@ class MergeItems(ItemsOnly, NodeDef):
         parts = _item_packets(ctx.input("list"))
         if not parts:
             return {"data": empty_packet(ctx, "data")}
-        return {"data": merge(parts, ctx.outputs["data"])}
+        return {"data": merge(parts, ctx.outputs["data"], ctx.each_done)}
 
 
 class NameIt(NodeDef):
@@ -290,9 +263,7 @@ class NameIt(NodeDef):
     on_node = ("name",)
 
     class Params(NodeParams):
-        name: str = P("名字", label="名字", group="名字",
-                      help="这份数据的名字：写进 USD 的层级名（/shot/<名字>）、交付的文件夹名、列表里的条目名。"
-                           "接上「逐项开始」的「名字」就按条目命名")
+        name: str = P("名字", label="名字", group="名字")
 
     @classmethod
     def cook(cls, ctx) -> dict:
@@ -333,7 +304,7 @@ class Switch(NodeDef):
 
     @classmethod
     def chosen_inputs(cls, params: dict, condition) -> frozenset[str]:
-        """Return the branch selected by the condition (engine/scopes.py Chooses): a boolean selects the first branch
+        """Return the branch selected by the condition (engine/scopes.py: a switch): a boolean selects the first branch
         when on and the second when off; a number selects that branch, counting from 1."""
         value = read(condition).one()
         if isinstance(value, bool):
@@ -360,8 +331,7 @@ class Logic(NodeDef):
 
     class Params(NodeParams):
         operation: Literal["and", "or", "not"] = P("and", label="运算", group="运算",
-                                                   option_labels={"and": "与", "or": "或", "not": "非"},
-                                                   help="与：接进来的都开才开；或：有一个开就开；非：把第一根线反过来")
+                                                   option_labels={"and": "与", "or": "或", "not": "非"})
 
     @classmethod
     def cook(cls, ctx) -> dict:
@@ -384,8 +354,7 @@ class Compare(NodeDef):
 
     class Params(NodeParams):
         operation: Literal["gt", "ge", "lt", "le", "eq", "ne"] = P(
-            "gt", label="运算", group="运算", option_labels=COMPARISONS,
-            help="甲和乙的关系：大于、不小于、小于、不大于、等于、不等于。文字和开关只能比等于、不等于")
+            "gt", label="运算", group="运算", option_labels=COMPARISONS)
 
     @classmethod
     def param_refuses(cls, data_type: str, params: dict) -> Msg | None:
@@ -437,11 +406,9 @@ class Math(NodeDef):
 
     class Params(NodeParams):
         operation: Literal["add", "subtract", "multiply", "divide", "min", "max", "round", "abs"] = P(
-            "add", label="运算", group="运算", option_labels=OPERATIONS,
-            help="按接线顺序算：减和除是第一根线减去（除以）后面的；取整和绝对值只看第一根线")
+            "add", label="运算", group="运算", option_labels=OPERATIONS)
         unit: Literal["", "mm", "cm", "m", "px", "°", "帧", "秒", "EV"] = P(
-            "", label="单位", group="运算", option_labels=UNITS,
-            help="结果的单位：接进来的值先换算成它（毫米和厘米能换，像素和毫米不能，会报错说明）。选「无」就照原样算")
+            "", label="单位", group="运算", option_labels=UNITS)
 
     @classmethod
     def cook(cls, ctx) -> dict:
@@ -491,9 +458,7 @@ class DataInfo(NodeDef):
     main = "frames"
 
     class Params(NodeParams):
-        item: str = P("", label="取哪一项", widget="choice", group="信息", choices_from=("data",), placeholder="先接上数据",
-                      help="「值」和「文字」两个输出取数据说明里的哪一行（Focal Length、尺度、点数……）。"
-                           "帧数、首帧、末帧、宽、高、条数各有自己的输出口，不用在这里选")
+        item: str = P("", label="取哪一项", widget="choice", group="信息", choices_from=("data",), placeholder="先接上数据")
 
     @classmethod
     def choices(cls, params: dict, inputs: dict) -> dict:

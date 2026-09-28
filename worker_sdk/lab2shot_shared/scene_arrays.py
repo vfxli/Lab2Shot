@@ -1,6 +1,7 @@
 """Scene arrays: how 3D data crosses between the core and a format module's worker (Alembic, FBX, the next file
 format), in both directions, as one .npz of plain numpy arrays. The format family's contract: a reader writes what a
-file holds in it, the core makes our packets of it (lab2shot/nodes/formats.py); a writer gets our scene in it.
+file holds in it, the core makes our packets of it (lab2shot/data/scene_arrays.py items_to_packets); a writer gets
+our scene in it (scene_arrays there).
 
 Every item is one thing of one kind, as a DCC's outliner shows it:
 
@@ -41,13 +42,17 @@ curves         counts [S] points per sample (S = 1 or T) and points [sum,3] loca
                curve_vertex_counts [sum_curves] points per curve (the samples' one after another, cut by the running
                sum of curve_counts). Optional widths [sum] (lengths, one per point: hair is thick at the root and
                thin at the tip), colors [sum,3] (0-1) and normals [sum,3] (local, the curve's own orientation)
-camera         focal_mm [T], h_aperture_mm [T], v_aperture_mm [T], optional resolution [2] (px, when the file records
-               one). Its world may carry a parent's scale: the core keeps only position and orientation
+camera         focal_mm [T], h_aperture_mm [T], v_aperture_mm [T], center_mm [T,2] (the lens centre's offset),
+               pixel_aspect, overscan [4] (left, top, right, bottom, as parts of the picture's width and height),
+               properties [str] (the named lens properties as JSON), optional resolution [2] (px, when the file
+               records one) and plate [str] (its backplate). Its world may carry a parent's scale: the core keeps only
+               position and orientation
 character      joints [J] names, parents [J] (-1: a root; parents come first), bind [J,4,4] joint-to-world in the
                pose the meshes are bound in, anim [T,J,4,4] joint-to-world per frame, n_meshes; per mesh
                <kind><i>_mesh<k>_: name, counts, indices, points [V,3] (bind pose, world), optional uv, uv_indices,
                joint_indices [V,K] + joint_weights [V,K] (skin), shapes [B] names, shape_offsets [B,V,3] (world,
-               added to the bind points before skinning), shape_weights [T,B] (0-1)
+               added to the bind points before skinning), shape_weights [T,B] (0-1);
+               optional root_at_path (true: its path ends at the root joint itself, not at a group of its own)
 
 Units and axes are the file's in what a reader writes (the core converts: centimetres, Y up); what the core gives a
 writer is in the unit its output settings chose, Y up. Only numpy is needed on either side.

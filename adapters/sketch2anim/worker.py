@@ -28,8 +28,9 @@ What goes out (raw/motion.npz): the model's 22 joints turned into a skeleton wit
 (`visualization/joints2bvh.py Joint2BVHConvertor`, the template skeleton it ships), resampled to the frame rate the
 node asked for, in centimetres. The node turns that into a USD skeletal animation.
 
-Parameters (job["params"]): prompt, length (model frames at 20 fps), fps, seed, steps, guidance, control,
-angle_x, angle_y, foot_lock.
+Parameters (job["params"]): prompt, seed, steps, text_guidance, control, foot_lock, plus what the node adds:
+angle_x, angle_y (the sketch view), fps and out_frames (the frame range). The length in model frames (20 fps)
+comes with the sketch.
 """
 
 from __future__ import annotations
@@ -237,8 +238,8 @@ def to_rig(joints: np.ndarray, foot_lock: bool):
 
 def resample(rot: np.ndarray, root: np.ndarray, fps: float, count: int) -> tuple[np.ndarray, np.ndarray]:
     """The model's 20 fps result on the shot's own frames: exactly `count` samples at `fps` (lab2shot_shared.motion,
-    the same resampling every other node uses): rotations by slerp, the root position linearly. The node sends the
-    frames its plate has, and what comes back covers those and no others."""
+    the same resampling every other node uses): rotations by slerp, the root position linearly. The node sends how
+    many frames its start / end range has, and what comes back covers those and no others."""
     if len(rot) == count and abs(fps - MODEL_FPS) < 1e-6:
         return rot, root
     times = np.arange(len(rot)) / MODEL_FPS

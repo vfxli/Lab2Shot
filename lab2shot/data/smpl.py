@@ -11,17 +11,14 @@ SMPL / SMPL-X / MANO / FLAME / MHR 本质上是「蒙皮 + 权重 + 骨架动画
 
 from __future__ import annotations
 
-from pathlib import Path
 
 import numpy as np
-from lab2shot_shared import smpl as S
 
 from ..errors import Invalid
 from ..messages import Msg
-from .packet import Packet
 
 # 支持的身体仅限 SMPL 家族的三种（lab2shot_shared.smpl 的 BODIES，契约据此检查）。MANO 的手和 FLAME 的脸
-# 各为模型的一部分，将其组合回身体属于计划中的「合并 SMPL 部位」节点的职责，本模块不处理
+# 各为模型的一部分，将其组合回身体不在本模块处理
 FILE = "smpl.npz"
 
 
@@ -98,20 +95,3 @@ def rows_of(body) -> list[tuple[str, str]]:
         rows += [(body.names[j], part) for j in (where if isinstance(where, list) else [where])]
     return rows
 
-
-def match(body, rig_names: list[str], rig_parents) -> tuple[list[tuple[int, int]], list, tuple[int, int, int, int], list[Msg]]:
-    """确定模型（SMPL 家族的身体）的每个关节由 rig 的哪个关节驱动：两侧均用 data/joints.py guess() 识别部位，
-    相同部位配为一对。返回 Retarget.align 所需的 (pairs, aims, legs)，以及描述推测配对的消息
-    （`pairing_notes`，由节点原样显示）。无法识别腿部或根关节时拒绝，并列出缺失的部位。"""
-    from .joints import auto_mapping, part_label
-
-    rows = rows_of(body)
-    at = {n: i for i, n in enumerate(body.names)}
-    mapped = auto_mapping(rows, rig_names, np.asarray(rig_parents, np.int64))
-    pairs = sorted((at[m], rig_names.index(r)) for m, r in mapped.items() if r)
-    need = {p: n for n, p in rows}
-    missing = [part_label(p) for p in ("hips", *LEG_PARTS)
-               if p not in need or at[need[p]] not in dict(pairs)]
-    if missing:
-        raise Invalid(Msg("E-SMPL-MISSINGPARTS", parts=missing))
-    return pairs, aims_of(body.parents), tuple(at[need[p]] for p in LEG_PARTS), pairing_notes(rows, mapped)

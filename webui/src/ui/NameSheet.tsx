@@ -1,15 +1,19 @@
 import { useState } from "react";
 import { Button } from "./Button";
 import { Sheet } from "./Sheet";
+import { composing } from "../platform/keys";
 
 /** A single name entered in a small sheet (a new category, a rename): the only text input a manager uses here; the
- * templates panel's and the node menu's categories both use it. */
-export function NameSheet({ title, label, initial, save, onClose }: {
+ * templates panel's and the node menu's categories both use it, and a task group's rename (ui/QueueTables.tsx).
+ * `max`: the most characters (the server's limit for this kind of name). `empty`: saving an empty name is allowed and
+ * means this (the field's placeholder says it); without it a name is required. */
+export function NameSheet({ title, label, initial, save, onClose, max = 10, empty }: {
   title: string; label: string; initial: string; save: (name: string) => Promise<void>; onClose: () => void;
+  max?: number; empty?: string;
 }) {
   const [name, setName] = useState(initial);
   const [busy, setBusy] = useState(false);
-  const ready = !!name.trim() && name.trim() !== initial && !busy;
+  const ready = (!!name.trim() || empty !== undefined) && name.trim() !== initial && !busy;
   const go = async () => {
     if (!ready) return;
     setBusy(true);
@@ -25,12 +29,13 @@ export function NameSheet({ title, label, initial, save, onClose }: {
       <div className="lib-form">
         <label className="login-field">
           <span data-tip={label}>{label}</span>
-          <input className="field" value={name} autoFocus maxLength={10} aria-label={label} data-tip="最多 10 个字：界面上一行放得下"
-            onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void go()} />
+          <input className="field" value={name} autoFocus maxLength={max} aria-label={label} placeholder={empty}
+            data-tip={max === 10 ? "最多 10 个字：界面上一行放得下" : `最多 ${max} 个字`}
+            onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !composing(e) && void go()} />
         </label>
         <div className="dialog-row">
           <Button tip="不改了" tone="ghost" onClick={onClose}>取消</Button>
-          <Button tip={ready ? "保存" : "先填个名字"} tone="primary" disabled={!ready} onClick={() => void go()}>{busy ? "保存中…" : "保存"}</Button>
+          <Button tip={ready ? "保存" : empty !== undefined ? "名字没改" : "先填个名字"} tone="primary" disabled={!ready} onClick={() => void go()}>{busy ? "保存中…" : "保存"}</Button>
         </div>
       </div>
     </Sheet>

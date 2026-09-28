@@ -1,6 +1,6 @@
 """How answers travel: one place for what the network carries back.
 
-- Caching: nothing any shared cache may keep. A tunnel in front of this server (Cloudflare's caches `.js` and `.png`
+- Caching: nothing any shared cache may keep. A tunnel in front of this server (Cloudflare caches `.js` and `.png`
   by default) must never hand code or pictures behind a login to someone without one, so every answer is
   `private`. Content-addressed answers (the page's hashed scripts, a packet's frames) are kept by the browser permanently
   (IMMUTABLE); everything else is asked again (`no-cache`) and, for JSON, answered 304 without a body when it has not
@@ -10,8 +10,8 @@
   (server/app.py); pictures and archives already are compressed, and files keep their size.
 - Every frame the viewer shows is a proxy: when a solve finishes, frames are scaled proportionally to the tier the
   administrator set, compressed and stored (lab2shot/view/proxy.py). One address is one file and one sequence of
-  bytes, with no lossless / lossy tiers to switch between; lossless viewing is done by downloading the delivery and
-  viewing it in Nuke or a DCC. The 3D path is not here (server/view_data.py: skeletons, point clouds, thinning).
+  bytes, with no lossless / lossy tiers to switch between; lossless viewing is done by downloading the output (its
+  zip) and viewing it in Nuke or a DCC. The 3D path is not here (server/view_data.py: skeletons, point clouds, thinning).
 """
 
 from __future__ import annotations
@@ -34,19 +34,13 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..errors import NotFound
 from ..messages import Msg
+from ..serving import carried
 
 IMMUTABLE = "private, max-age=31536000, immutable"  # content-addressed: the same URL is always the same bytes
 FRESH = "private, no-cache"  # asked again every time (a 304 when unchanged)
 NEVER = "private, no-store"  # never kept by any cache (what a result holds is asked for again each time)
 HSTS = "max-age=15552000"  # 180 days of "this host is https only"; never for localhost or an address (it would hold for every port of it)
-VIEW_DATA = "application/vnd.lab2shot.view"  # binary view data (3D, points): compressed on the way like JSON
 ETAG_MAX = 8 << 20  # JSON answers up to this size get an ETag (bigger ones are streamed as they are)
-
-
-def kept_for(seconds: int) -> str:
-    """The Cache-Control of an address that names no version (a light's texture, say): the browser asks
-    again once this long has passed."""
-    return f"private, max-age={seconds}"
 
 
 def admin_answer(said: str) -> str:
@@ -70,33 +64,6 @@ async def off_loop(fn: Callable[..., T], *args) -> T:
         limiter = anyio.CapacityLimiter(OFF_LOOP_THREADS)
         _off_loop.set(limiter)
     return await anyio.to_thread.run_sync(fn, *args, limiter=limiter)
-
-
-class Unsatisfiable(Exception):
-    """A byte range that starts past the end (answered 416 with the size)."""
-
-
-def byte_range(value: str, size: int) -> tuple[int, int] | None:
-    """The one byte range a Range header asks for, as (first, last) inclusive: "bytes=a-b", "bytes=a-", "bytes=-n".
-    None for anything else, several ranges included (the answer is then the whole: a server may ignore a Range);
-    Unsatisfiable when it starts past the end. Files answer ranges themselves (Starlette's FileResponse, the same
-    rules); streamed answers made here (a delivery's archive) take theirs from this."""
-    unit, _, spec = value.partition("=")
-    if unit.strip() != "bytes" or "," in spec or "-" not in spec:
-        return None
-    first, _, last = (p.strip() for p in spec.partition("-"))
-    if not (first.isdigit() or last.isdigit()) or (first and not first.isdigit()) or (last and not last.isdigit()):
-        return None
-    if not first:
-        n = int(last)
-        if n == 0:
-            raise Unsatisfiable
-        return max(0, size - n), size - 1
-    start = int(first)
-    end = min(int(last), size - 1) if last else size - 1
-    if start >= size:
-        raise Unsatisfiable
-    return (start, end) if start <= end else None
 
 
 def _etag(body: bytes) -> str:
@@ -204,19 +171,23 @@ def _ahead_kind():
 
 
 def ahead(subject: str, pictures: Callable[[], list[Callable[[], object]]]) -> None:
-    """Fill in, in the background, whatever is missing from a packet's proxies (one background task per packet and
-    tier, `subject`).
+    """Fill in, in the background, whatever is missing from a packet's proxies (one background task per account, packet
+    and tier: `subject`, the packet and tier, which ahead scopes to the account).
 
     Normally there is nothing to do: proxies are made in the same job when a solve finishes (`view/proxy.py build`).
-    This path covers two cases: the packet was computed before proxies existed, or the administrator has just changed
-    the tier (the old tier is obsolete and the new one is generated on demand). Each proxy is made only once
+    This path covers two cases: a packet whose proxies of this tier were never made, or a tier the administrator
+    changed to (proxies of the new tier are made on demand). Each proxy is made only once
     (view/encode.py), so the requested frame is made immediately and the rest follow in the background, and playback
     does not overtake it.
     Never in the way of the answer: a server ending takes none (they are made when asked), and a restart does not
     wait for it."""
     from ..errors import MessageError
     from ..farm import farm
+    from ..serving import account
 
+    # one task per account too: each account has its own cache (another account's copy of the same packet being done
+    # says nothing about this one's), and one account's tasks tell nothing of another's
+    subject = f"{subject}@{account().user_id}"
     kind, tasks = _ahead_kind(), farm().tasks
     last = tasks.latest(kind, subject)
     if last is not None and last.state in ("queued", "running", "done"):
@@ -233,7 +204,7 @@ def ahead(subject: str, pictures: Callable[[], list[Callable[[], object]]]) -> N
         with ThreadPoolExecutor(FRAME_THREADS) as pool:
             for i in range(0, len(todo), FRAME_THREADS):
                 task.check()
-                for _ in pool.map(lambda make: make(), todo[i:i + FRAME_THREADS]):
+                for _ in pool.map(carried(lambda make: make()), todo[i:i + FRAME_THREADS]):  # the viewer's account's cache
                     done += 1
                 task.progress(done, len(todo))
 

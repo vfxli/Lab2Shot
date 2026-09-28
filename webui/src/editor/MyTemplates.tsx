@@ -134,22 +134,23 @@ export function SaveToLibrarySheet({ onClose, onSaved, preset = false }: { onClo
   );
 }
 
-/** 「我的模板」区域的卡片：用户保存的模板，以及回收站中的模板（灰显，仅提供「恢复」）。 */
-export function MyTemplateCards({ view, bin, onOpen, onChanged }: {
+/** 「我的模板」区域的卡片：用户保存的模板。 */
+export function MyTemplateCards({ view, onOpen, onChanged }: {
   view: MyTemplates;
-  bin: boolean;
   onOpen: (g: GraphJSON) => void;
   onChanged: (v: MyTemplates) => void;
 }) {
   const [busy, setBusy] = useState("");
   const [ask, confirmSheet] = useConfirm();
-  const items = bin ? view.bin : view.mine;
+  const items = view.mine;
 
   const open = async (g: SavedGraph) => {
     setBusy(g.id);
     try {
       const got = await api.openTemplate(g.id);
-      onOpen(got.graph);
+      // the graph says which card it was opened from, as a preset's does (Templates.tsx): its task's group, and the
+      // usage statistics' 按模板
+      onOpen({ ...got.graph, meta: { ...got.graph.meta, template: g.id } });
     } catch (e) {
       say(msg("E-REQUEST-REFUSED", { status: 0, detail: reasonOf(e as Error) }));
     } finally {
@@ -177,15 +178,15 @@ export function MyTemplateCards({ view, bin, onOpen, onChanged }: {
   if (!items.length) {
     return (
       <Empty
-        title={bin ? "回收站是空的" : "还没有存过自己的模板"}
-        hint={bin ? "在「我的模板」里删掉的会先放到这里。" : "搭好一张节点图，在「文件」菜单里点「保存到我的模板」。"}
+        title="还没有存过自己的模板"
+        hint="搭好一张节点图，在「文件」菜单里点「保存到我的模板」。"
       />
     );
   }
   return (
     <div className="tpl-grid">
       {items.map((g) => (
-        <article key={g.id} className={`tpl-card lib-card${bin ? " dim" : ""}`}>
+        <article key={g.id} className="tpl-card lib-card">
           <h5 className="tpl-name">
             <span className="tpl-name-text" data-user-data data-tip={g.name}>
               {g.name}
@@ -196,23 +197,15 @@ export function MyTemplateCards({ view, bin, onOpen, onChanged }: {
           </p>
           <div className="lib-meta dim tnum">
             <span data-tip={`这张模板占 ${sizeText(g.bytes)}，算在你的磁盘配额里`}>{sizeText(g.bytes)}</span>
-            <span data-tip={bin ? "放进回收站的时间" : "最近一次保存的时间"}>{agoText(bin ? (g.deleted ?? g.updated) : g.updated)}</span>
+            <span data-tip="最近一次保存的时间">{agoText(g.updated)}</span>
           </div>
           <div className="lib-acts">
-            {bin ? (
-              <Button tip="拿回「我的模板」" tone="ghost" size="sm" disabled={busy === g.id} onClick={() => void act(g, () => api.restoreTemplate(g.id))}>
-                恢复
-              </Button>
-            ) : (
-              <>
-                <Button tip="用这张模板新建一张节点图" tone="primary" size="sm" disabled={busy === g.id} onClick={() => void open(g)}>
-                  打开
-                </Button>
-                <Button tip="删掉这张模板；删错了找管理员，他在后台还能帮你恢复" tone="ghost" size="sm" disabled={busy === g.id} onClick={() => void remove(g)}>
-                  删除
-                </Button>
-              </>
-            )}
+            <Button tip="用这张模板新建一张节点图" tone="primary" size="sm" disabled={busy === g.id} onClick={() => void open(g)}>
+              打开
+            </Button>
+            <Button tip="删掉这张模板；删错了找管理员，他在后台还能帮你恢复" tone="ghost" size="sm" disabled={busy === g.id} onClick={() => void remove(g)}>
+              删除
+            </Button>
           </div>
         </article>
       ))}

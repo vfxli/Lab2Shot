@@ -1,12 +1,14 @@
 import { clientInfo } from "../platform/client";
 import { run } from "../platform/db";
-import type { Upload } from "../api/deliveries";
+import type { Upload } from "../api/files";
 import { ApiError, json, LOGGED_IN, refusedLogin } from "../platform/http";
 import { useUploads, type UploadState, type UploadTask } from "../state/uploads";
 import { rememberLocal } from "./local";
 import { CODE } from "../messages/format";
 import { MessageError, fromServer, msg, type Message } from "../messages/message";
 import { item } from "./uploadText";
+import { randomId } from "../platform/randomId";
+import { backoff } from "../platform/backoff";
 
 export { eta, howFar, uploadBlocker, uploadLine, uploadNote, uploadStopsClick } from "./uploadText";
 
@@ -112,7 +114,7 @@ if (typeof window !== "undefined") {
   }, BEAT_MS);
 }
 
-/** The page's action for a finished upload (store.ts: writes it into the node's parameter). */
+/** The page's action for a finished upload (graph/apply.ts: writes it into the node's parameter). */
 let finished: ((t: UploadTask | undefined, up: Upload & { folder: string }) => void) | null = null;
 export const onUploaded = (f: typeof finished) => void (finished = f);
 
@@ -185,6 +187,7 @@ export function retryUpload(key: string): void {
   const t = useUploads.getState().tasks[key];
   const here = sentHere.get(key);
   if (!t || !here) return;
+  here.stop(); // whatever of the failed round is still going stops first: one round of workers at a time
   sentHere.delete(key);
   patchTask(key, { state: "sending", error: "" });
   void sendWith(useUploads.getState().tasks[key], here.files);
@@ -215,17 +218,16 @@ const fileKey = (origin: string, f: File) => `${origin}|${f.name}|${f.size}|${f.
 
 export async function sendWith(task: UploadTask, files: File[]): Promise<void> {
   const key = task.key;
-  let stopped = false;
+  let stopped = false; // cancelled, or one file failed: every worker stops
+  let cancelled = false; // cancelUpload: nothing is reported
   const inflight = new Set<XMLHttpRequest>();
-  sentHere.set(key, { files, stop: () => ((stopped = true), inflight.forEach((x) => x.abort())) });
+  const wakes = new Set<() => void>(); // the workers waiting for the line (lineWait)
+  const halt = () => ((stopped = true), inflight.forEach((x) => x.abort()), wakes.forEach((w) => w()));
+  sentHere.set(key, { files, stop: () => ((cancelled = true), halt()) });
   const confirmed = new Map<string, number>(); // file name -> bytes the server has
   const flying = new Map<string, number>(); // file name -> bytes of the request in transit
   const shas: Record<string, string> = {};
   let attempt = 0;
-  let wake: (() => void) | null = null;
-  const online = () => wake?.();
-  window.addEventListener("online", online);
-  window.addEventListener(LOGGED_IN, online); // logged in again (the session had expired): resume immediately
   const heart = window.setInterval(() => beat(key, true), BEAT_MS);
   beat(key, true);
 
@@ -252,18 +254,11 @@ export async function sendWith(task: UploadTask, files: File[]): Promise<void> {
     }
   };
 
-  // the connection dropped: wait (longer each time, immediately when the browser is back online), then resume
+  // the connection dropped: wait (lineWait), with the rate measured afresh once sending resumes
   const waitForLine = async (why: string) => {
-    const s = Math.min(MAX_WAIT_S, 2 ** attempt++);
-    patchTask(key, { state: "waiting", error: why, retryAt: Date.now() + s * 1000, rate: 0 });
     samples.length = 0;
     report();
-    await new Promise<void>((r) => {
-      const t = window.setTimeout(r, s * 1000);
-      wake = () => (window.clearTimeout(t), r());
-    });
-    wake = null;
-    if (!stopped) patchTask(key, { state: "sending", error: "" });
+    await lineWait(key, attempt++, why, () => stopped, wakes);
   };
 
   const request = (method: string, url: string, body: Blob | null, name = "") => {
@@ -283,7 +278,7 @@ export async function sendWith(task: UploadTask, files: File[]): Promise<void> {
         if (part && !at) at = await request("GET", `/api/uploads/parts/${part}`, null);
         if (!part) {
           // its name is saved before the first byte is sent: a reload midway still finds what the server has
-          const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+          const id = randomId();
           await run("uploads", "readwrite", (s) => s.put(id, `part:${fk}`)).catch(() => undefined);
           part = id;
           at = await request("POST", `/api/uploads/parts?size=${f.size}&id=${id}`, f.slice(0, CHUNK), f.name);
@@ -342,40 +337,47 @@ export async function sendWith(task: UploadTask, files: File[]): Promise<void> {
     });
     report();
     const worker = async () => {
-      for (let f = queue.shift(); f && !stopped; f = queue.shift()) await sendFile(f);
+      try {
+        for (let f = queue.shift(); f && !stopped; f = queue.shift()) await sendFile(f);
+      } catch (e) {
+        halt(); // one file failed, so the task has: the other workers stop with it (重试 starts a new round)
+        throw e;
+      }
     };
     await Promise.all(Array.from({ length: Math.min(PARALLEL, queue.length) }, worker));
     if (stopped) return;
     await completeSet(task, files, shas, () => stopped);
   } catch (e) {
-    if (!stopped) patchTask(key, { state: "failed", error: (e as Error).message, rate: 0 });
+    if (!cancelled) patchTask(key, { state: "failed", error: (e as Error).message, rate: 0 });
     channel?.postMessage({ key, task: useUploads.getState().tasks[key] });
   } finally {
-    window.removeEventListener("online", online);
-    window.removeEventListener(LOGGED_IN, online);
     window.clearInterval(heart);
     if (useUploads.getState().tasks[key]?.state !== "failed") beat(key, false);
     else void keepTask(useUploads.getState().tasks[key]);
   }
 }
 
-/** 连接中断（或服务器未响应）：等待后重试，间隔逐次加长直至 30 秒；浏览器报告恢复在线或重新登录后立即重试。
- * `sendWith` 中另有一份带进度采样的实现，本函数供 `completeSet` / `sendBytes` 使用同一等待策略。 */
-async function lineWait(key: string, attempt: number, why: string): Promise<void> {
-  const s = Math.min(MAX_WAIT_S, 2 ** attempt);
-  patchTask(key, { state: "waiting", error: why, retryAt: Date.now() + s * 1000, rate: 0 });
+/** 连接中断（或服务器未响应）：等待后重试，间隔逐次加长直至 30 秒；浏览器报告恢复在线或重新登录后立即重试，
+ * 任务被停下时（`wakes` 中的每一个都被唤醒）立即结束。每个等待者各自监听，同时等待的几个上传工作者一起被唤醒。
+ * 整份上传（`sendWith`）、通道级上传（`sendBytes`）与最后一步（`completeSet`）共用这一种等待；结束时任务已停下则
+ * 不再改回「上传中」。 */
+async function lineWait(key: string, attempt: number, why: string, stopped: () => boolean, wakes?: Set<() => void>): Promise<void> {
+  const ms = backoff(attempt + 1, 1000, MAX_WAIT_S * 1000);
+  patchTask(key, { state: "waiting", error: why, retryAt: Date.now() + ms, rate: 0 });
   await new Promise<void>((r) => {
-    const t = window.setTimeout(done, s * 1000);
+    const t = window.setTimeout(done, ms);
     function done() {
       window.clearTimeout(t);
       window.removeEventListener("online", done);
       window.removeEventListener(LOGGED_IN, done);
+      wakes?.delete(done);
       r();
     }
     window.addEventListener("online", done);
     window.addEventListener(LOGGED_IN, done);
+    wakes?.add(done);
   });
-  patchTask(key, { state: "sending", error: "" });
+  if (!stopped()) patchTask(key, { state: "sending", error: "" });
 }
 
 /** 字节全部到达后的最后一步，整份上传与通道级上传共用：组装该输入（`POST /api/uploads`，与申报得到的
@@ -392,7 +394,7 @@ export async function completeSet(task: UploadTask, files: File[], shas: Record<
     } catch (e) {
       if (stopped()) return;
       if (e instanceof ApiError && e.code === "E-UPLOAD-NOTSENT") throw new Refused(e.said); // files the server does not have: not a dropped connection
-      await lineWait(key, attempt++, (e as Error).message);
+      await lineWait(key, attempt++, (e as Error).message, stopped);
     }
   }
   for (const f of files) rememberLocal(key, undefined, shas[f.name], f);
@@ -409,7 +411,7 @@ export async function completeSet(task: UploadTask, files: File[], shas: Record<
  * 返回服务器计算的 sha256。断线时同样等待后续传（`lineWait`）；`progress` 接收已上传的字节数。
  * 服务器拒绝（Refused）时原样抛出；`stopped()` 为真时放弃并返回 ""。 */
 export async function sendBytes(key: string, blob: Blob, progress: (sent: number) => void, stopped: () => boolean): Promise<string> {
-  const fresh = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+  const fresh = () => randomId();
   let id = fresh();
   let at: PartState | null = null;
   for (let attempt = 0; ; ) {
@@ -436,7 +438,7 @@ export async function sendBytes(key: string, blob: Blob, progress: (sent: number
         at = null; // 服务器已丢弃该数据（已清理）：换用新名称从头上传
         id = fresh();
       }
-      await lineWait(key, attempt++, (e as Error).message);
+      await lineWait(key, attempt++, (e as Error).message, stopped);
     }
   }
 }

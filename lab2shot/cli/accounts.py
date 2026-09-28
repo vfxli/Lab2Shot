@@ -34,7 +34,7 @@ def login(
         user = Lab2Shot(server, app="cli").login(name, typer.prompt("密码", hide_input=True))
     except Lab2ShotError as exc:
         failed(exc)
-    console.print(f"[green]已登录[/green]：{user['name']}（{user['username']} · {user['department'] or '未分配部门'}），令牌已保存至 {tokens_file()}")
+    console.print(f"[green]已登录[/green]：{user['name']}（{user['username']} · {user['department'] or '未分环节'}），令牌已保存至 {tokens_file()}")
 
 
 @app.command()
@@ -82,18 +82,18 @@ def admin_passphrase() -> None:
 
 @admin.command("status")
 def admin_status() -> None:
-    """显示管理员密码是否仍为默认值、口令是否已设置、账号数量以及当前登录数量。"""
+    """显示管理员密码是否仍为默认值、口令是否已设置、账号数量（谁在线只有运行中的服务知道：看后台「用户」页）。"""
     from .. import accounts
 
     owner, phrase = accounts.admin(), accounts.passphrase()
     if owner.no_password:
-        console.print(f"管理员    {owner.username}，[yellow]尚未设置密码，无法登录：请执行 ./setup.sh 并选择「管理员密码」[/yellow]")
+        console.print(f"管理员    {owner.username}，[yellow]尚未设置密码，无法登录：请执行 ./setup.sh 并选择「账号与安全 → 设置管理员密码」[/yellow]")
     else:
         console.print(f"管理员    {owner.username}，密码于 {when(owner.password_set or 0)} 由{owner.password_by}修改")
     console.print(f"我的口令  {'未设置：运行 lab2shot admin passphrase 进行设置' if phrase is None else when(phrase['set']) + ' 设置'}")
     users = [u for u in accounts.listing() if not u["deleted"]]
-    n = accounts.online()
-    console.print(f"账号      {len(users)} 个（在「用户」中新建），当前在线：浏览器 {n['browser']} 个 · 插件 {n['client']} 个")
+    # 在线是运行中的服务在内存里记的（accounts.presence）：命令行这个进程看不到，只指向后台页面
+    console.print(f"账号      {len(users)} 个（在「用户」中新建），谁在线看后台「用户」页")
 
 
 @admin.command("logout")
@@ -113,17 +113,21 @@ def local_client():
 
     HTTPS 是一项设置（server.https），因此协议取自服务读取的同一设置，不固定为「http://」：开启 HTTPS 时，
     http 请求会被直接断开连接，所有管理命令（查看队列、重启）都将失败。证书由本服务器自有的
-    证书颁发机构签发（server/tls.py），默认不受信任，因此向客户端提供该机构的证书文件，而不是跳过验证。"""
+    证书颁发机构签发（server/tls.py），默认不受信任，因此向客户端提供该机构的证书文件，而不是跳过验证。
+
+    地址优先取运行中的服务自己记下的地址（server/restart.py recorded_address）：端口与 HTTPS 须重启才生效，
+    设置文件里的值未必是服务正在用的。没有运行中的服务时取设置的当前值（Settings.value），不取本进程启动时的值：
+    配置菜单在同一次会话里改了端口或 HTTPS、再启动服务后，仍须连得上。"""
     from .. import accounts
     from ..client import Lab2Shot
     from ..config import settings
     from ..server import tls
+    from ..server.restart import recorded_address
 
     s = settings()
-    https = bool(s["server.https"])
-    ca = tls.authority_file() if https else None
-    return Lab2Shot(f"{'https' if https else 'http'}://127.0.0.1:{s['server.port']}", app="cli",
-                    machine=accounts.machine_token(), cafile=str(ca) if ca else None)
+    address = recorded_address() or f"{'https' if s.value('server.https') else 'http'}://127.0.0.1:{s.value('server.port')}"
+    ca = tls.authority_file() if address.startswith("https:") else None
+    return Lab2Shot(address, app="cli", machine=accounts.machine_token(), cafile=str(ca) if ca else None)
 
 
 @admin.command("restart")
@@ -159,15 +163,15 @@ def admin_restart_cmd(
 
 @admin.command("unlock")
 def admin_unlock_cmd() -> None:
-    """解除因密码错误次数过多而禁止所有登录的全局锁（15 分钟内 30 次错误密码触发），并将错误计数清零。仅能在本服务器上解除（机器令牌），
-    浏览器上的管理员登录无法解除，因为被锁定的正是密码登录。"""
+    """将输错密码的计数清零：被陌生设备试错而拖慢的账号、被锁住的来源马上可以再试。仅能在本服务器上执行（机器令牌），
+    浏览器上的管理员登录无法清零，因为计数挡的正是用密码猜。"""
     from ..client import Lab2ShotError
 
     try:
         got = local_client().admin_unlock()
     except Lab2ShotError as exc:
         failed(exc)
-    console.print(f"[green]已解锁[/green]：已清除 {got.get('cleared', 0)} 条密码错误记录，所有使用者均可重新登录。")
+    console.print(f"[green]已清零[/green]：已清除 {got.get('cleared', 0)} 次输错密码的记录。")
 
 
 @admin.command("gpus")
@@ -217,7 +221,7 @@ def admin_authorize_cmd(
 @admin.command("switches")
 def admin_switches_cmd(
     gpu: Optional[bool] = typer.Option(None, "--gpu/--no-gpu", help="显卡任务开关（queue.gpu_jobs）：关闭后显卡任务仅排队，不开始计算"),
-    compute: Optional[bool] = typer.Option(None, "--compute/--no-compute", help="计算任务开关（queue.compute_jobs）：关闭后仅执行查看结果等立即计算"),
+    compute: Optional[bool] = typer.Option(None, "--compute/--no-compute", help="计算任务开关（queue.compute_jobs）：关闭后不再接新的计算任务"),
 ) -> None:
     """显卡任务与计算任务两个开关（使用本机令牌）。不带参数时仅显示当前状态。正在计算的任务不受影响，会继续运行至完成。"""
     from ..client import Lab2ShotError
@@ -261,10 +265,14 @@ def admin_joblog_cmd(
     """
     import json
 
-    from ..data.packet import cache_root
+    from ..data.store import current
 
-    root = cache_root()
-    hits = sorted(root.glob(f"{code}*_job"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not code.isalnum():  # an error number is hexadecimal: nothing but letters and digits goes into the glob pattern
+        console.print(f"[yellow]编号格式不对：{code}[/yellow]")
+        raise typer.Exit(4)
+    store = current()  # every account's own cache (data/store.py): the administrator looks through all of them
+    hits = sorted((d for uid in store.cached_accounts() for d in store.cache_of(uid).glob(f"{code}*_job")),
+                  key=lambda p: p.stat().st_mtime, reverse=True)
     if not hits:
         console.print(f"[yellow]未找到编号 {code}[/yellow]：缓存中没有该任务（可能已被清除，或编号有误）")
         raise typer.Exit(4)
@@ -345,22 +353,16 @@ def admin_jobs_cmd(
     """查看队列历史，或使用 `--clear` 清除所有已结束的任务。
 
     队列面板上有「删除全部」按钮，但需要密码登录，而一个账号同一时间只能在一处登录，密码登录会使管理员浏览器中的
-    登录失效。此命令直接调用 farm 模块，不涉及登录。
+    登录失效。此命令使用本机令牌，通过本机正在运行的服务操作（哪些任务还在排队或计算只有服务知道），不涉及登录；
+    服务没有运行时不做任何删除。
 
-    删除路径与页面按钮相同（`server/farm.py forget_all`：`quota.drop_for_job` + `farm.forget_job`），
-    不另写 SQL，因此规则一致：
+    删除路径与页面按钮相同（`server/farm.py forget_finished`：`quota.drop_for_job` + `farm.forget_job`），因此规则一致：
       · 排队中或计算中的任务不删除（取消后才视为「已结束」），结果中说明跳过的条数；
-      · 仅释放确实不再被使用的空间（交付包、仅由该账号取回过的缓存、
-        未被其他任务和模板引用的上传素材）；
-      · 整批一起删除（`going` 传给 drop_for_job）：否则同批任务相互引用，无法释放任何空间。
+      · 每个任务的文件夹（节点图、素材、输出、日志）整个删除；只被它引用的缓存由随后的清理带走
+        （farm/disk.py：没有别的任务引用、也没有任务在用的才删）。
     """
-    import lab2shot.catalog as catalog
-
-    catalog.install()
     from ..accounts import listing as accounts_listing
-    from ..errors import Invalid, NotFound
-    from ..farm import farm, forget_job, history, job_row
-    from ..server import quota
+    from ..client import Lab2ShotError
 
     people = {str(u["username"]): int(u["id"]) for u in accounts_listing()}
     name = user or accounts_admin_name()
@@ -368,45 +370,38 @@ def admin_jobs_cmd(
         console.print(f"账号不存在：{name}（现有账号：{'、'.join(sorted(people))}）")
         raise typer.Exit(1)
     uid = people[name]
-    rows = history(limit=1000, user_id=uid)
-    live = farm().active_ids()
+    lab = local_client()
+    try:
+        rows = lab.admin_history(uid)
+    except Lab2ShotError as exc:
+        failed(exc)
+    active = ("queued", "running")
     if not clear:
         if not rows:
             console.print(f"{name} 的队列历史为空")
             return
-        console.print(f"{name} 的队列历史 {len(rows)} 条（运行中 {sum(1 for r in rows if r.get('id') in live)} 条）：")
+        console.print(f"{name} 的队列历史 {len(rows)} 条（排队或计算中 {sum(1 for r in rows if r.get('state') in active)} 条）：")
         for r in rows[:30]:
             when_ = time.strftime("%Y-%m-%d %H:%M", time.localtime(r.get("finished") or r.get("submitted") or 0))
-            console.print(f"  {str(r.get('id') or ''):<14}{when_}  {str(r.get('state') or ''):<10}{str(r.get('label') or '')[:40]}")
+            console.print(f"  {str(r.get('id') or ''):<14}{when_}  {str(r.get('state') or ''):<10}{str(r.get('title') or '')[:40]}")
         if len(rows) > 30:
             console.print(f"  …… 另有 {len(rows) - 30} 条")
         console.print("\n[dim]如需全部删除：uv run lab2shot admin jobs --clear[/dim]")
         return
 
-    going = {str(r.get("id") or "") for r in rows if r.get("id") and str(r["id"]) not in live}
-    if not going:
+    ended = sum(1 for r in rows if r.get("id") and r.get("state") not in active)
+    if not ended:
         console.print("没有可删除的已结束任务（排队中或计算中的任务须先取消）")
         return
-    if not yes and not typer.confirm(f"确认删除 {name} 的 {len(going)} 条已结束任务并释放其占用的空间？此操作不可撤销"):
+    if not yes and not typer.confirm(f"确认删除 {name} 的 {ended} 条已结束任务并释放其占用的空间？此操作不可撤销"):
         console.print("已取消，未删除任何内容")
         raise typer.Exit(1)
-    done, freed, skipped = 0, 0, 0
-    for jid in [str(r.get("id") or "") for r in rows]:
-        if not jid or jid not in going:
-            skipped += 1
-            continue
-        try:
-            row = job_row(jid)
-        except (NotFound, KeyError, ValueError):
-            continue
-        try:
-            freed += int(quota.drop_for_job(jid, row, going).get("bytes") or 0)
-            forget_job(jid, uid)
-        except Invalid:          # 该任务在此期间重新开始运行：跳过，其余照常删除
-            skipped += 1
-            continue
-        done += 1
-    console.print(f"已删除 {done} 条任务，释放 {freed / 1e6:.1f} MB" + (f"；跳过 {skipped} 条（排队中或计算中）" if skipped else ""))
+    try:
+        done = lab.admin_forget_finished(uid)
+    except Lab2ShotError as exc:
+        failed(exc)
+    skipped = done.get("skipped") or 0
+    console.print(f"已删除 {done['jobs']} 条任务，释放 {done['bytes'] / 1e6:.1f} MB" + (f"；跳过 {skipped} 条（排队中或计算中）" if skipped else ""))
 
 
 def _sweep_orphans() -> None:

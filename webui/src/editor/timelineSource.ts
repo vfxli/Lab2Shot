@@ -4,19 +4,19 @@ import { joinLayers, markLayers, type MarkLayer } from "../model/timelineMath";
 import { useDisplayPlan } from "../view/plan";
 import { manifestOf } from "../transfer/frames";
 
-/** What the timeline follows for the displayed node: the frames and rate of its first result (or of the plate it works
- * on), the frames its own results have (the cache bar), the marks they carry (their "keys" and "marks") and, for a
- * node being drawn on right now, the frames its stick-figure handle already has a pose on.
+/** What the timeline follows for the displayed node: the frames of its first result (or of the plate it works on),
+ * the marks its own results carry (their "keys" and "marks") and, for a node being
+ * drawn on right now, the frames its stick-figure handle already has a pose on.
  *
  * 最后一项用于在绘制一段后切换帧检查连续性。它读取的是参数而非计算结果，因此点击「添加帧」后
- * 标尺上立即出现标记，无须先计算（计算后这些帧同样位于「已算好」的绿色区域中，两者不冲突）。使用的是标尺上
+ * 标尺上立即出现标记，无须先计算（计算后结果自身带的标记与之合并，两者不冲突）。使用的是标尺上
  * 已有的标记机制（`tl-mark`，与 `markLayers` 同一路径），不增加新控件。 */
-export function useSource(): { cooked: number[]; layers: MarkLayer[] } {
+export function useSource(): { layers: MarkLayer[] } {
   const plan = useDisplayPlan();
   const follows = plan?.frames ?? null;
   const own = plan ? plan.items.filter((it) => it.fp && !it.context).map((it) => it.fp!) : [];
   const key = own.join("|");
-  const [got, setGot] = useState<{ key: string; cooked: number[]; layers: MarkLayer[] }>({ key: "", cooked: [], layers: [] });
+  const [got, setGot] = useState<{ key: string; layers: MarkLayer[] }>({ key: "", layers: [] });
 
   useEffect(() => {
     // 切换到没有帧的节点（只输出数值或尚未计算）：清空帧列表，不沿用上一个节点的帧，否则标尺上仍显示旧节点的帧号，
@@ -36,13 +36,13 @@ export function useSource(): { cooked: number[]; layers: MarkLayer[] } {
     let alive = true;
     void Promise.all(key ? key.split("|").map((fp) => manifestOf(fp).catch(() => null)) : []).then((all) => {
       const metas = all.flatMap((m) => (m ? [m.meta] : []));
-      if (alive) setGot({ key, cooked: [...new Set(metas.flatMap((m) => m.frames ?? []))].sort((a, b) => a - b), layers: joinLayers(metas.flatMap(markLayers)) });
+      if (alive) setGot({ key, layers: joinLayers(metas.flatMap(markLayers)) });
     });
     return () => {
       alive = false;
     };
   }, [key]);
-  // 当前火柴人手柄已绘制的帧（参数中每一条目都记录其所在帧，nodes/base.py parse_figures）。
+  // 当前火柴人手柄已绘制的帧（参数中每一条目都记录其所在帧，nodes/handles.py parse_figures）。
   // 仅处理火柴人：其他二维手柄（点、框、轮廓）在标尺上标记帧没有意义，手绘遮罩对整段镜头生效，
   // 点与框是提供给解算器的提示，不表示该帧已绘制完成
   const figure = plan?.handles.find((h) => h.stage === "2d" && h.kind === "figure") ?? null;
@@ -55,6 +55,6 @@ export function useSource(): { cooked: number[]; layers: MarkLayer[] } {
       .filter((f) => Number.isInteger(f)).sort((a, b) => a - b);
     return frames.length ? [{ name: "关键姿势", frames }] : [];
   }, [posedKey]);
-  const mine = got.key === key ? got : { cooked: [], layers: [] };
-  return drawn.length ? { cooked: mine.cooked, layers: joinLayers([...mine.layers, ...drawn]) } : mine;
+  const mine = got.key === key ? got.layers : [];
+  return { layers: drawn.length ? joinLayers([...mine, ...drawn]) : mine };
 }

@@ -6,7 +6,11 @@ One sink interface, three watchers:
                  task's progress (done of total, the step it is on), log lines its output lines, coded lines its lines
                  and what it said, a download a line every tenth — the one progress format of farm/tasks.py
     ConsoleSink  the command line (lab2shot ext install): the same, printed
-    Recorder     keeps every event (tests read what an install said)
+    Recorder     keeps every event, for a caller that reads back what an install said
+
+and LogFile, which passes every event on to one of them and also writes it to a file: every install is logged under
+work/logs/installs/ (run.install), however it was started, so what it downloaded, unpacked, linked and compiled can be
+read afterwards.
 
 An event is a plain dict:
 
@@ -29,9 +33,11 @@ from ..messages import Msg, said_line
 from .plan import LABELS
 
 STATES = ("waiting", "running", "done", "skipped", "failed", "cancelled")
+STATE_WORDS = {"waiting": "等待", "running": "开始", "done": "完成", "skipped": "已完成，跳过", "failed": "失败",
+               "cancelled": "已取消"}  # a step's state in the install log file (LogFile)
 PERCENT_STEP = 10  # a download is a line every this many percent (the task's output lines, the console)
 
-__all__ = ["STATES", "Cancelled", "ConsoleSink", "Recorder", "Sink", "TaskSink"]
+__all__ = ["STATES", "Cancelled", "ConsoleSink", "LogFile", "Recorder", "Sink", "TaskSink"]
 
 
 class Sink:
@@ -151,3 +157,39 @@ class ConsoleSink(Sink):
             self.console.print(f"[{colour}]{text}[/{colour}]" if colour else text, markup=bool(colour), highlight=False)
         elif kind == "progress" and (percent := self._tenths(event)) is not None:
             self.console.print(f"[dim]{event['what']} {percent}%[/dim]")
+
+
+class LogFile(Sink):
+    """Another sink's events, passed on unchanged and also written to `file` (an open text file), one timestamped
+    line each: steps, log lines (every line of the commands it runs), coded lines with their code, downloads every
+    tenth. Cancelling is the other sink's (the same event)."""
+
+    def __init__(self, inner: Sink, file, labels: dict[str, str] = LABELS) -> None:
+        super().__init__(inner.cancel)
+        self.inner = inner
+        self.file = file
+        self.labels = labels
+        self._tenths = _Tenths()
+
+    def _write(self, text: str) -> None:
+        self.file.write(f"{time.strftime('%H:%M:%S')} {text}\n")
+        self.file.flush()
+
+    def emit(self, event: dict) -> None:
+        self.inner.emit(event)
+        kind = event["type"]
+        if kind == "plan":
+            self._write("步骤：" + "、".join(s["label"] for s in event["steps"]))
+        elif kind == "step":
+            label = self.labels.get(event["step"], event["step"])
+            text = event.get("message", {}).get("text", "")
+            self._write(f"== {label}：{STATE_WORDS.get(event['state'], event['state'])}" + (f"  {text}" if text else ""))
+        elif kind == "log":
+            self._write((f"[{event['code']}] " if event.get("code") else "") + event["text"])
+        elif kind == "progress" and (percent := self._tenths(event)) is not None:
+            self._write(f"{event['what']} {percent}%")
+
+    def say(self, message: Msg) -> None:
+        """The other sink's own handling of a coded line (a task keeps what it said), and the line in the file."""
+        self.inner.say(message)
+        self._write(f"[{message.code}] {message.text}")

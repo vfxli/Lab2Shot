@@ -1,7 +1,7 @@
 import { json } from "../platform/http";
-import { workerAsks } from "../platform/work";
 import { useUploads } from "../state/uploads";
 import type { PlanesAnswer } from "./exrWorker";
+import { exrPlanes } from "./exr";
 import { completeSet, patchTask, sendBytes, sentHere } from "./uploads";
 
 /** 通道级上传：点击「计算」时，一份 EXR 素材只上传已连线通道的原始像素，而非整个文件；
@@ -28,8 +28,6 @@ import { completeSet, patchTask, sendBytes, sentHere } from "./uploads";
 const AT_ONCE = 2; // 同时解码的帧数（解码在 worker 中进行，单帧平面达数十 MB，避免同时占用过多内存）
 const BYTES = { half: 2, float: 4, uint: 4 } as const;
 
-const decode = workerAsks<PlanesAnswer>(() => new Worker(new URL("./exrWorker.ts", import.meta.url), { type: "module" }));
-
 class Undecodable extends Error {
   constructor(readonly file: string, reason: string) {
     super(reason);
@@ -47,7 +45,7 @@ async function planesOf(file: File, take: string[]): Promise<{ blob: Blob; decod
   const bytes = new Uint8Array(await file.arrayBuffer());
   let decoded: PlanesAnswer;
   try {
-    decoded = await decode({ file: bytes, planes: take }, [bytes]);
+    decoded = await exrPlanes(bytes, take);
   } catch (e) {
     throw new Undecodable(file.name, (e as Error).message);
   }
@@ -72,7 +70,7 @@ async function planesOf(file: File, take: string[]): Promise<{ blob: Blob; decod
 
 /** 处理结果：上传成功（`sent` 为压缩后经网络传输的字节数）、失败（原因记录在任务上），或该数据无法解码须整份上传
  * （`whole`：哪一帧及原因；调用方给出提示并改为整份上传，见 `graph/apply.ts sendPicked`）。 */
-export type PlanesResult = { ok: true; sent: number } | { ok: false } | { whole: { file: string; reason: string } };
+type PlanesResult = { ok: true; sent: number } | { ok: false } | { whole: { file: string; reason: string } };
 
 /** 该素材（一个任务：一段序列或一张图）只上传已连线的通道。`ref`：参数中的引用 `upload:<id>/…`（服务器按 id 查找申报的文件头）；
  * `channels`：服务器给出的通道清单。上传成功时该输入已组装完成（`completeSet`）。 */
@@ -84,10 +82,12 @@ export async function sendPlanes(key: string, ref: string, channels: { take: str
   const shaOf = new Map(task.files.map((f) => [f.name, f.sha]));
   if (files.some((f) => !shaOf.get(f.name))) return { whole: { file: task.name, reason: "还没算出文件的内容指纹" } };
   const sid = ref.slice("upload:".length).split("/")[0];
-  let stopped = false;
+  let stopped = false; // cancelled (cancelUpload)
+  let failed = false; // one frame failed: the other workers stop with it
   sentHere.set(key, { files, stop: () => (stopped = true) });
   patchTask(key, { state: "sending", error: "", sent: 0, done: 0 });
-  const isStopped = () => stopped || !useUploads.getState().tasks[key];
+  const cancelled = () => stopped || !useUploads.getState().tasks[key];
+  const isStopped = () => failed || cancelled();
   try {
     const shas = files.map((f) => shaOf.get(f.name)!);
     const { missing } = await json<{ missing: Record<string, string[]> }>("POST", "/api/uploads/planes/have", { shas, channels: channels.write });
@@ -119,18 +119,24 @@ export async function sendPlanes(key: string, ref: string, channels: { take: str
         channels: take.map((t, i) => ({ take: t, write: write[i], type: types[i] })),
         display: decoded.displayWindow ?? null, data: decoded.dataWindow ?? null,
       });
+      if (isStopped()) return;
       done++;
       report(0);
     };
     const worker = async () => {
-      for (let f = queue.shift(); f && !isStopped(); f = queue.shift()) await one(f);
+      try {
+        for (let f = queue.shift(); f && !isStopped(); f = queue.shift()) await one(f);
+      } catch (e) {
+        failed = true; // the task goes on as one (whole, or failed): no worker of this round sends any more
+        throw e;
+      }
     };
     await Promise.all(Array.from({ length: Math.min(AT_ONCE, queue.length) }, worker));
     if (isStopped()) return { ok: false };
     await completeSet(task, files, Object.fromEntries(files.map((f) => [f.name, shaOf.get(f.name)!])), isStopped);
     return useUploads.getState().tasks[key] ? { ok: false } : { ok: true, sent }; // 上传完成时任务即被删除：任务仍存在表示未成功
   } catch (e) {
-    if (isStopped()) return { ok: false };
+    if (cancelled()) return { ok: false };
     if (e instanceof Undecodable) {
       // 整份上传前将任务恢复为 `picked` 状态：字节数为整个文件的大小，进度从零开始（`sendUpload` 随后执行整份上传）
       patchTask(key, { state: "picked", error: "", sent: 0, done: 0, bytes: files.reduce((n, f) => n + f.size, 0) });

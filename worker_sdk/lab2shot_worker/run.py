@@ -2,7 +2,7 @@
 
 This module contains no algorithm. It covers only: the start time, how long loading the model took and how much VRAM
 it uses, per-frame time, progress, and the set of standard fields in result.json (seconds / load_seconds /
-seconds_per_frame / count / frames / gpu_model_mb / gpu_peak_mb / gpu_peak_allocated_mb). A third-party developer
+seconds_per_frame / count / frames / gpu_model_mb / gpu_peak_mb / gpu_peak_allocated_mb / gpu_cap_mb). A third-party developer
 adding a per-frame model is left with loading the model, inferring each frame and writing each frame's output in
 main(); no bookkeeping code is needed and field names stay consistent.
 
@@ -15,7 +15,7 @@ Usage (adapters/birefnet/worker.py and adapters/sapiens2/worker.py are working e
     for i, (frame, path) in run.each(job.frames, "抠像"):   # progress reported automatically
         with run.frame():                 # this frame's time (measured after synchronize)
             ...inference, file writing...
-    run.finish(frames=[f for f, _ in job.frames], kind="matte", ...)  # standard fields + the worker's own -> result.json
+    run.finish([f for f, _ in job.frames], kind="matte", ...)  # standard fields + the worker's own -> result.json
 
 The steps every main() starts with are here as well::
 
@@ -149,7 +149,7 @@ class Run:
 
     def fit(self, bound: MemoryBound, run, value=None):
         """One GPU step under the one out-of-memory policy (fit_memory): stop and say the smaller safe values in real use,
-        step down under the GPU test harness."""
+        step down in a test run (step_down_allowed)."""
         return fit_memory(self.job, bound, run, value)
 
     @contextmanager

@@ -2,7 +2,7 @@
 
 # ---- 解算相机（worker.py）
 "E-VIPE-PRESET" = "ViPE 的配置 {preset} 要用 {instance} / {depth} / {post}，不是这个扩展包安装的模型：这次没有计算。扩展包的代码和 ViPE 版本对不上，管理员重新执行 lab2shot ext install vipe"
-"W-VIPE-FOCALJUMP" = "ViPE 解出的 Focal Length {solved:.0f} px，和单帧估计（GeoCalib 估的 {single:.0f} px）差了 {diff:.0%}：镜头几乎不动或只摇不移时，捆绑调整解不准 Focal Length，人和物体的大小、相机前后移动的幅度都可能跟着错。在「Focal Length」参数里填实拍 Focal Length（说明书或手机相册的 EXIF 里能查到）"
+"W-VIPE-FOCALJUMP" = "ViPE 解出的 Focal Length {solved:.0f} px，和单帧估计（GeoCalib 估的 {single:.0f} px）差了 {diff:.0%}：镜头几乎不动或只摇不移时，捆绑调整解不准 Focal Length，人和物体的大小、相机前后移动的幅度都可能跟着错。在「已知 Focal Length」里填实拍 Focal Length（说明书或手机相册的 EXIF 里能查到）"
 "W-VIPE-PRINCIPAL" = "ViPE 解出的主点不在画面中心：cx={cx:.1f} cy={cy:.1f} px（画面中心是 {center_x:.1f}, {center_y:.1f}）"
 
 # ---- 深度（「ViPE 深度图」nodes.py / worker.py）

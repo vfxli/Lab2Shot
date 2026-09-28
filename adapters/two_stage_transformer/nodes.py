@@ -20,7 +20,7 @@ class TSTInbetween(RigMotion):
         takes={"character": "positions"},
         gives={"character": "pos_new"},
         note="接进来的动画在上游是 positions + rotations 一对（同一段 515-520），补出来的是 pos_new + rot_new "
-             "一对（584）：一个「人物」口对应的就是这一对，不是两样东西。post_process 是官方的参数（517）。",
+             "一对（584）：一个「动画」口对应的就是这一对，不是两样东西。post_process 是官方的参数（517）。",
     )
     # 不声明 `unconstrained`：该模型以相邻两个关键帧之间为一段（见 worker.py 模块说明），
     # 没有关键帧时无法划分任何一段。因此「动画」口仍为必需输入，引擎在计划阶段拒绝未接入的情况。
@@ -33,9 +33,7 @@ class TSTInbetween(RigMotion):
 
     class Params(MotionGenParams):
         mapping: list[JointMap] = mapping_param(JOINTS)
-        post_process: bool = P(True, label="衔接平滑", group="模型",
-                               help="Two-stage Transformer 自带的后处理：把补出的曲线整体微调，让它在前一个关键帧之后和后一个关键帧之前的走势"
-                                    "（速度）接得更顺。一般保持打开")
+        post_process: bool = P(True, label="衔接平滑", group="模型")
 
 
 NODES = (TSTInbetween,)

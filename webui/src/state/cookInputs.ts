@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { GraphJSON, PickedFrom, SaveTo } from "../api";
+import type { GraphJSON, PickedFrom } from "../api";
 
 /** 计算输入: what the server's check of the graph (status: fingerprints, cached, errors) reads. Changing any of it
  * is a cook change: `version` bumps, and everything that trusts a result (state/results.ts's `useTrustedResults`)
@@ -14,7 +14,6 @@ export interface CookNode {
   params: Record<string, unknown>;
   promoted?: string[]; // parameters driven by a wire: each has an input "param:<name>" (NodeTypeDef.param_ports)
   picked?: Record<string, PickedFrom>; // input file parameters: what was picked, as the parameter shows it
-  saveTo?: SaveTo; // 「输出」: the file or folder of the user's machine its delivery is saved into
   // choices the file has that this account may not use (a non-commercial model): the node shows and cooks the first
   // choice it may use, and the file keeps its own value until the parameter is changed (checkGraph, fileJSON)
   stored?: Record<string, unknown>;
@@ -41,7 +40,7 @@ interface State {
 
   load: (p: { graphId: string; meta: Omit<GraphJSON["meta"], "id">; exposed: GraphJSON["exposed"]; cookRange: [string, string] | null; nodes: Record<string, CookNode>; order: string[]; edges: Wire[]; kept: State["kept"] }) => void;
   // the graph's own identity: never a cook change on its own — 另存为 gives the copy a fresh id
-  // (graph/actions.ts's newGraphId) without disturbing any computed result
+  // (model/graphId.ts's newGraphId, set by graph/graphFile.ts) without disturbing any computed result
   setGraphId: (id: string) => void;
   setMeta: (patch: Partial<State["meta"]>) => void;
   setExposed: (exposed: GraphJSON["exposed"]) => void;

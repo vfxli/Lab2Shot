@@ -18,7 +18,8 @@ subset, webui/src/messages/format.ts). A list is joined with 、; a parameter th
 is its text, so a reason can be a message of its own. `port`, `param` and `fix` are anchors a message is said at (the
 input, the parameter, the node that puts it right), never template parameters (ANCHORS).
 
-The catalogue and the code stay in step: every code the code raises is in the catalogue, and no user-facing text is written in code.
+The catalogue and the code stay in step: every code the code raises is in the catalogue (`lab2shot check messages`), and no
+user-facing text is written in code.
 """
 
 from __future__ import annotations
@@ -30,7 +31,8 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-CODE = re.compile(r"^([EWNIBP])-([A-Z][A-Z0-9]*)-([A-Z][A-Z0-9]*)$")
+from lab2shot_shared.protocol import CODE  # the one rule, shared with the workers
+
 # A message that can end up on a node's one-line footer also declares a short form, 「<CODE>.short」 beside it in the
 # same file. The whole sentence then only shows where there is room for it — the node's 数据信息 card, the parameter
 # panel, the log. SHORT_WIDTH is the limit, counted in full-width characters (a Latin letter or a digit is half of
@@ -89,8 +91,9 @@ class Msg:
 
 
 def worker_params(params: dict[str, Any]) -> dict[str, Any]:
-    """worker 用 JSON 交上来的参数：里面嵌的消息（lab2shot_worker.reason 交的 {"message": 编号, "params": {...}}）
-    还原成 Msg，这样 worker 也能像核心一样把一条消息当成另一条的参数（模板里的 {why}）。"""
+    """A worker's parameters as it sent them in JSON, with every message inside them (lab2shot_worker.reason's
+    {"message": code, "params": {...}}) made a Msg again, so a worker can pass one message as another's parameter
+    (a template's {why}) the way the core does."""
     return {k: _from_worker(v) for k, v in params.items()}
 
 
@@ -172,11 +175,6 @@ def merge(sections: list[tuple[str, dict[str, str], str | None]]) -> dict[str, s
                 raise CatalogueError(f"{code} is in both {where[code]} and {name}")
             out[code], where[code] = template, name
     return out
-
-
-def core_catalogue() -> dict[str, str]:
-    """The core's codes alone (no extension, and no 「<CODE>.short」 keys)."""
-    return {k: v for k, v in merge([(p.name, _read(p), None) for p in core_files()]).items() if not k.endswith(SHORT_SUFFIX)}
 
 
 def extension_section(name: str, folder: Path) -> dict[str, str]:

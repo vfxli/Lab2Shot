@@ -1,9 +1,10 @@
 """The rig-and-model contract: the node sends a production rig's world poses, the worker answers with the model's
 motion on that rig. Both sides use this module (numpy only).
 
-Two families send through it (lab2shot/nodes/kit/rig.py). 动作补帧 (Kimodo, Two-stage Transformer) sends the
-animator's key frames and gets the motion between them; 动作清理 (StableMotion, UnderPressure) sends every frame and
-gets the repaired motion back, plus `labels`: what the model thought was wrong with each frame.
+Both tasks of the 骨骼动作 family send through it (lab2shot/nodes/families/rig_motion.py, lab2shot/nodes/kit/rig.py).
+Generation (Kimodo, Two-stage Transformer) sends the animator's key frames and gets the motion between them; cleanup
+(StableMotion, UnderPressure) sends every frame and gets the repaired motion back, plus `labels`: what the model
+thought was wrong with each frame.
 
 Node -> worker, the job input "motion" (write_job):
     motion.npz   names [J], parents [J], rest [J,4,4]   the rig: its bind pose in the world (joint-to-world, cm, Y up)
@@ -14,7 +15,7 @@ Node -> worker, the job input "motion" (write_job):
                  legs [4]                                the model's left thigh, left shin, right thigh, right shin
 Worker -> node (write_result / read_result):
     raw/motion.npz  keys [K]             where each sent frame sits on the model's timeline, in model frames
-                                         (model_frames for 动作补帧, model_times for 动作清理: it need not be whole);
+                                         (model_frames for generation, model_times for cleanup: it need not be whole);
                                          the model's own frames are 0 ... T-1
                     joints [P]           rig joints the model moved
                     rotations [T,P,3,3]  their world rotations
@@ -24,7 +25,7 @@ Worker -> node (write_result / read_result):
                                          thing it judges (a cleanup model that judges nothing writes none)
     raw/result.json root_joint (that rig joint), model_fps, scale, label_names [L], and what the model was given
 
-The path without a production rig (the 「动作生成」 family generates from text only) goes through write_model_result: it
+The path without a production rig (a generating node given text only, no animation) goes through write_model_result: it
 returns the model's own skeleton, and the file layout is described in that function's docstring.
 """
 

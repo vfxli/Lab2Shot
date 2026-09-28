@@ -1,33 +1,39 @@
-"""使用者上传的文件：画面、视频、相机文件。按内容保存，相同的字节无论上传多少次、由谁上传都只存一份。
+"""使用者上传的文件：画面、视频、相机文件。每个账号各自一份，按内容保存：同一账号相同的字节无论上传多少次都只存一份，
+不同账号之间从不共用、从不去重（用户隔离）。
 
-    work/uploads/blobs/<sha[:2]>/<sha>      一个文件的字节（sha256）
-    work/uploads/sets/<account>/<id>/       节点所见的一份上传：其文件以各自的名称存放（硬链接到 blob），
-                                            因此所有读取方都按普通路径处理
-    work/uploads/sets/<account>/<id>.json   {"name", "files": {name: sha}, "origins": [上传者及来源]}
-    work/uploads/sets/<account>/<id>.declared.json / .layers.json / .head
-                                            字节到达之前已申报的上传（见下文相应部分）
-    work/uploads/parts/<who>/<id>           正在上传的文件：已收到的字节，包括中断的请求所传的部分
-    work/uploads/parts/<who>/<id>.json      增长期间为 {"size", "who"（账号）, "time"}
-    work/uploads/parts/<who>/done/<id>.json 同上，另加 "sha" 和 "done"：其字节已成为 blob（保留 DONE_KEEP_S，
-                                            以便途中丢失的响应可再次查询）
+    <数据位置>/uploads/<account>/blobs/<sha[:2]>/<sha>      该账号上传的一个文件的字节（sha256），写完即只读
+    <数据位置>/uploads/<account>/sets/<id>/                节点所见的一份上传：其文件以各自的名称存放（硬链接到 blob），
+                                                         因此所有读取方都按普通路径处理
+    <数据位置>/uploads/<account>/sets/<id>.json            {"name", "files": {name: sha}, "origins": [上传者及来源]}
+    <数据位置>/uploads/<account>/sets/<id>.declared.json / .layers.json / .head
+                                                         字节到达之前已申报的上传（见下文相应部分）
+    <数据位置>/uploads/<account>/parts/<id>                正在上传的文件：已收到的字节，包括中断的请求所传的部分
+    <数据位置>/uploads/<account>/parts/<id>.json           增长期间为 {"size", "who"（账号）, "time"}
+    <数据位置>/uploads/<account>/parts/done/<id>.json      同上，另加 "sha" 和 "done"：其字节已成为 blob（保留 DONE_KEEP_S，
+                                                         以便途中丢失的响应可再次查询）
+    <数据位置>/uploads/<account>/subsets/<sha[:2]>/<sha>.json
+                                                         该账号对一个原文件的通道子集（见「通道级上传」）
 
 文件分段上传：open_part(size)，然后每个请求依次调用 begin(offset) / add(chunk) / end()；
-连接中断不造成损失，发送方调用 part_state() 后从该字节继续。完整的分段在 end() 中成为 blob 并归属到其账号
-（claim()），这是上传完成时唯一经过的位置。
+连接中断不造成损失，发送方调用 part_state() 后从该字节继续。完整的分段在 end() 中成为该账号的 blob，这是上传完成时
+唯一经过的位置。blob 写完即设为只读：它会被硬链接到上传文件夹和任务文件夹（transfer/tasks.py footage/），
+任何名字的内容都不能原地改动，否则所有名字看到的内容都会跟着变。
 
 节点参数以 "upload:<id>/<name>" 引用上传，<name> 为上传中的文件或序列模式（plate.####.exr）。
-id 由文件内容和名称计算得出：再次上传相同的文件得到相同的引用。
+id 由文件内容和名称计算得出：同一账号再次上传相同的文件得到相同的引用。
 
-归属：上传位于某账号的文件夹（`sets/<account>/`）即属于该账号，此外不做其他记录，因此不存在与磁盘
-不一致的表，也不存在账号未发送字节即可登记的 id。两个账号上传相同的文件得到相同的 id（由内容计算）和两个
-文件夹，各自链接该账号所发送的字节（完整文件或其自身的通道子集）：一方之后发送的内容不会改变另一方读取的内容。
-字节本身（blob）无论由谁发送都只存一份；谁发送了哪些字节记录在数据库的 uploads 表中（`claim`，本模块是唯一
-读写该表的位置），只有发送过文件字节的账号才能链接它们（`_blob_for`）。决定账号可读取内容的位置只有一处：
-`resolve()`，所有读取方都经过它（节点经过 PlanEnv.upload，见 lab2shot/catalog.py）。它针对当前服务的账号
-回答（lab2shot/serving.py，一个 Account）：其他账号的上传视为不存在，与已被清理的上传完全相同：相同的消息、
-相同的节点级失败，且其文件不会被打开，甚至不用于识别。上层不单独询问归属。仅知道 sha 或上传 id 也不够
-（kept、has_blob、part_state 同样需要账号）。为某账号接收完文件字节的一方为其 claim 这些字节（end()：分段在
-最后一块到达、且其 sha 由服务器保存的内容计算得出时 claim）。
+归属：上传位于某账号的文件夹（`uploads/<account>/`）即属于该账号，此外不做任何记录（没有与磁盘不一致的表）。
+两个账号上传相同的文件得到相同的 id（由内容计算）、两个文件夹、两份字节，各自只链接该账号自己发送的字节：
+一方之后发送的内容不会改变另一方读取的内容，一方也无法通过「上传瞬间完成」推断另一方有没有这个文件（`kept` 只看
+本账号的 blob）。决定账号可读取内容的位置只有一处：`resolve()`，所有读取方都经过它（节点经过 PlanEnv.upload，见
+lab2shot/catalog.py）。它针对当前服务的账号回答（lab2shot/serving.py，一个 Account）：其他账号的上传视为不存在，
+与已被清理的上传完全相同：相同的消息、相同的节点级失败，且其文件不会被打开，甚至不用于识别。上层不单独询问归属。
+仅知道 sha 或上传 id 也不够（kept、has_blob、part_state 同样需要账号）。
+
+保留：选文件时上传的素材先归属于节点图；任务提交时，其节点图引用的上传被硬链接进任务文件夹（transfer/tasks.py），
+并记入任务（task_uploads）。任务还在时它引用的上传一直保留；没有任何任务用到的上传，最后一次使用超过
+任务保留天数后清理（farm/disk.py）。blob 只在没有任何名字链接它时（nlink 为 1）才删除，因此任务文件夹里的
+一份硬链接仍在时，同一账号再选同一文件无需重新上传。
 """
 
 from __future__ import annotations
@@ -46,10 +52,9 @@ from pathlib import Path
 import numpy as np
 
 from ..data.packet import used
-from ..data.store import current
 from ..errors import Invalid, NotFound
 from ..io.atomic import write_text
-from ..io.files import link_or_copy
+from ..io.files import folder_bytes, link_or_copy, mtime, stats
 from ..io.sequence import IMAGE_EXTS, FrameSequence, find_sequence, is_pattern, sequence_of
 from ..messages import Msg
 from ..serving import account
@@ -61,35 +66,33 @@ _ID = re.compile(rf"^[0-9a-f]{{{ID_LEN}}}$")
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 
 
-
-
 def root() -> Path:
-    """素材存放位置：设置中的「素材位置」（config.py paths.uploads_dir，生产环境指向数据盘），为空时为工作文件夹中的 uploads。"""
+    """素材存放位置：设置中「数据位置」（config.py paths.data_dir，生产环境指向数据盘）里的 uploads，每个账号一个文件夹。"""
     from ..config import settings
 
-    return settings().uploads_dir
+    return settings().data_dir / "uploads"
 
 
-def blob_path(sha: str) -> Path:
+ORIGINS_KEPT = 20  # 一份上传的来源（清单中的 "origins"）：无论重复发送多少次，只保留最新的这么多条
+
+
+def home_of(user_id: int) -> Path:
+    """某账号的全部上传：`uploads/<账号 id>/`。这是账号上传位置的唯一命名处。"""
+    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
+        raise NotFound(GONE)
+    return root() / str(int(user_id))
+
+
+def blob_path(sha: str, user_id: int) -> Path:
+    """该账号的一份字节。"""
     if not _SHA.match(sha):
         raise Invalid(Msg("E-UPLOAD-BADSHA", sha=sha))
-    return root() / "blobs" / sha[:2] / sha
-
-
-def claim(user_id: int, sha: str) -> None:
-    """某账号发送了这些字节（blob 的 sha256）：此后可将其链接到自己的上传中。"""
-    from ..database import db
-
-    with db().write() as c:
-        c.execute("INSERT INTO uploads (user_id, key, at) VALUES (?, ?, ?) ON CONFLICT (user_id, key) DO UPDATE SET at = excluded.at",
-                  (user_id, sha, time.time()))
+    return home_of(user_id) / "blobs" / sha[:2] / sha
 
 
 def of_account(user_id: int) -> list[dict]:
-    """某账号上传的内容，按时间倒序（lab2shot/resources.py 的登记表用它列出「上传的素材」）：每项为 {key, kind,
-    at}，即一份上传（其在账号 `sets/` 中的文件夹，key 为 upload:<id>/<name>）或一个文件的字节（其 sha256）。"""
-    from ..database import db
-
+    """某账号的上传，按时间倒序（lab2shot/resources.py 的登记表用它列出「上传的素材」）：每项为 {key, kind, at}，
+    即一份上传（其在账号 `sets/` 中的文件夹，key 为 upload:<id>/<name>）。"""
     out = []
     for manifest in _manifests(_sets(user_id)):
         try:
@@ -97,27 +100,23 @@ def of_account(user_id: int) -> list[dict]:
             out.append({"key": f"{PREFIX}{manifest.stem}/{data.get('name') or ''}", "kind": "上传", "at": manifest.stat().st_mtime})
         except (OSError, ValueError):
             pass
-    out += [{"key": r["key"], "kind": "文件", "at": r["at"]}
-            for r in db().rows("SELECT key, at FROM uploads WHERE user_id = ?", (user_id,))]
     return sorted(out, key=lambda r: -float(r["at"] or 0))
 
 
-def owns(user_id: int, sha: str) -> bool:
-    """该账号是否亲自发送过这些字节。"""
-    from ..database import db
-
-    return db().row("SELECT 1 FROM uploads WHERE user_id = ? AND key = ?", (user_id, sha)) is not None
-
-
 def _sets(user_id: int) -> Path:
-    """某账号的上传：`sets/<账号id>/`。上传的归属即其所在位置（见模块说明）。"""
-    return root() / "sets" / str(int(user_id))
+    """某账号的上传：`uploads/<账号id>/sets/`。上传的归属即其所在位置（见模块说明）。"""
+    return home_of(user_id) / "sets"
+
+
+def accounts() -> list[int]:
+    """有上传文件夹的每个账号（清理按账号逐个进行）。"""
+    base = root()
+    return sorted(int(d.name) for d in base.iterdir() if d.is_dir() and d.name.isdigit() and int(d.name) > 0) if base.is_dir() else []
 
 
 def _accounts() -> list[Path]:
-    """`sets/` 下的所有账号文件夹。"""
-    sets = root() / "sets"
-    return sorted(d for d in sets.iterdir() if d.is_dir() and d.name.isdigit()) if sets.is_dir() else []
+    """各账号的 `sets/` 文件夹。"""
+    return [d for d in (_sets(u) for u in accounts()) if d.is_dir()]
 
 
 def _manifests(home: Path) -> list[Path]:
@@ -130,15 +129,17 @@ def _has(home: Path, sid: str) -> bool:
 
 
 def _home(sid: str) -> Path | None:
-    """针对当前服务的账号（serving()），存放上传 `sid`（已组装，或已申报并等待字节）的账号文件夹；没有时为 None，
-    与已清理的上传给出相同的回答。服务所有账号的管理员（all_accounts）可访问任何账号的上传，优先查找自己的。
+    """针对当前服务的账号（serving()），存放上传 `sid`（已组装，或已申报并等待字节）的账号 `sets/` 文件夹；没有时为 None，
+    与已清理的上传给出相同的回答。服务所有账号的管理员（all_accounts）可访问任何账号的上传，优先查找自己的；
+    没有指明账号时（serving.ANYONE）什么都找不到。
     这是查找上传所属账号的唯一位置：resolve、declared、describe 以及 head/plane 辅助函数都经过此处。"""
     if not _ID.match(sid):
         return None
     who = account()
-    mine = _sets(who.user_id)
-    if _has(mine, sid):
-        return mine
+    if who.user_id > 0:
+        mine = _sets(who.user_id)
+        if _has(mine, sid):
+            return mine
     if who.all_accounts:
         for d in _accounts():
             if _has(d, sid):
@@ -146,9 +147,25 @@ def _home(sid: str) -> Path | None:
     return None
 
 
-def has_blob(sha: str, user_id: int | None = None) -> bool:
-    """这些字节是否存在（指定账号时：是否由该账号发送）。"""
-    return blob_path(sha).is_file() and (user_id is None or owns(user_id, sha))
+def set_folder(sid: str) -> Path | None:
+    """上传 `sid` 已组装的文件夹，针对当前服务的账号（与 `resolve` 同一规则：其他账号的视为不存在）；没有时为 None。
+    任务提交时由此找到要硬链接进任务文件夹的素材（transfer/tasks.py）。"""
+    home = _home(sid)
+    folder = home / sid if home is not None else None
+    return folder if folder is not None and folder.is_dir() else None
+
+
+def has_blob(sha: str, user_id: int) -> bool:
+    """该账号是否持有这些字节（亲自上传过，仍在服务器上）。"""
+    return blob_path(sha, user_id).is_file()
+
+
+def _readonly(path: Path) -> None:
+    """写完的字节从此只读：它们会被硬链接（上传文件夹、任务文件夹），任何名字都不得原地改动。"""
+    try:
+        os.chmod(path, 0o444)
+    except OSError:
+        pass
 
 
 GONE = Msg("E-UPLOAD-GONE")
@@ -189,7 +206,7 @@ def _parts(who: int) -> Path:
 
     若所有记录位于同一个平铺文件夹中，打开分段就要读取全部记录：开销随服务器上的记录数增长
     （2000 条时约 18 ms，并行上传读取同样的记录时更多），长序列的上传将是 O(N²)，远低于线路的带宽。"""
-    return root() / "parts" / str(who)
+    return home_of(who) / "parts"
 
 
 def _done(who: int) -> Path:
@@ -340,24 +357,24 @@ def _finish(pid: str, who: int) -> str:
             while block := src.read(1 << 24):
                 h.update(block)
         sha = h.hexdigest()
-    target = blob_path(sha)
+    target = blob_path(sha, who)
     target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
+    if target.exists():  # 该账号之前发送过这些字节：只存一份（从不用其他账号的）
         f.unlink()
     else:
         os.replace(f, target)
+        _readonly(target)
     # 记录移出 `open_part` 读取的文件夹，因此已完成的分段不会拖慢下一个文件
     going = f.with_suffix(".json")
     _done(who).mkdir(parents=True, exist_ok=True)
     write_text(_done(who) / f"{pid}.json", json.dumps({**json.loads(going.read_text(encoding="utf-8")), "sha": sha, "done": time.time()}))
     going.unlink(missing_ok=True)
-    claim(who, sha)
     return sha
 
 
 def kept(shas: list[str], who: int) -> list[str]:
-    """账号之前发送过且服务器仍保存的内容（浏览器在发送之前询问哪些内容已发送过）。其他账号的内容不予告知：
-    仅知道 sha 不够。"""
+    """账号之前发送过且服务器仍保存的内容（浏览器在发送之前询问哪些内容已发送过，有的就不再上传）。只看该账号自己的
+    字节：其他账号有没有同样的内容不予告知，也无从推断（「上传瞬间完成」只对自己传过的内容发生）。"""
     return [s for s in shas if _SHA.match(s) and has_blob(s, who)]
 
 
@@ -365,11 +382,10 @@ def prune_parts() -> int:
     """丢弃 PART_KEEP_DAYS 内无人追加的分段，以及超过 DONE_KEEP_S 的已完成分段记录；返回数量。记录可能在此期间
     消失（各账号仍在上传）：已消失的记录即少丢弃一个，不属于错误。"""
     now, gone = time.time(), 0
-    everyone = root() / "parts"
-    for folder in sorted(everyone.iterdir()) if everyone.is_dir() else []:
-        if not (folder.is_dir() and folder.name.isdigit()):
+    for who in accounts():
+        folder = _parts(who)
+        if not folder.is_dir():
             continue
-        who = int(folder.name)
         for record in list(folder.glob("*.json")) + list((folder / "done").glob("*.json")):
             try:
                 r = json.loads(record.read_text(encoding="utf-8"))
@@ -443,8 +459,8 @@ def make_set(name: str, files: dict[str, str], origin: dict, user_id: int) -> st
             os.replace(fresh, target)
     manifest = folder.with_suffix(".json")
     data = json.loads(manifest.read_text(encoding="utf-8")) if manifest.exists() else {"name": name, "files": files, "origins": []}
-    data["origins"].append({**origin, "time": time.time()})
-    # 哪些文件链接的是子集 EXR（`declared_layers_for` 据此得知端口需按申报的原文件生成；`drop_sets` 据此回收子集 blob）
+    data["origins"] = [*data["origins"], {**origin, "time": time.time()}][-ORIGINS_KEPT:]
+    # 哪些文件链接的是子集 EXR（`declared_layers_for` 据此得知端口需按申报的原文件生成）
     subsets = {}
     for rel, sha in files.items():
         if not has_blob(sha, user_id) and (rec := subset_of(sha, user_id)) is not None:
@@ -467,8 +483,7 @@ def make_set(name: str, files: dict[str, str], origin: dict, user_id: int) -> st
 # 使用者也就无法连接通道，不上传与有端口之间形成死结。
 #
 # 解决方法：EXR 的头位于文件最前面，`data/layers.py describe_file` 只读头即可统计出全部图层
-# （`input/testdata/exr_multilayer/Beachball/singlepart.0001.exr` 的前 8192 字节即可统计出 9 个图层，
-# 整个文件为 2 347 698 字节）。因此：
+# （例如一个 9 个图层、共 2 347 698 字节的多层 EXR，前 8192 字节即可统计出全部图层）。因此：
 #
 #   申报（选择文件时）：网页上传「该上传包含哪些文件、各自内容的 sha256」以及第一帧开头的几十 KB。
 #   服务器计算该上传的 id（`set_id`，与 `make_set` 使用同一公式），记录清单，
@@ -502,11 +517,11 @@ def _declared_path(home: Path, sid: str) -> Path:
 DECLARED_SIDE = (".declared.json", ".layers.json", ".head")
 
 
-def declared_shas() -> set[str]:
-    """所有已申报且仍在等待字节的上传的内容（sha256）：其 blob 可能已在磁盘上但尚无任何链接
+def declared_shas(user_id: int) -> set[str]:
+    """该账号已申报且仍在等待字节的上传的内容（sha256）：其 blob 可能已在磁盘上但尚无任何链接
     （farm/disk.py 的孤儿清理不得将其删除）。"""
     out: set[str] = set()
-    for said in (root() / "sets").glob("*/*.declared.json") if (root() / "sets").is_dir() else []:
+    for said in _sets(user_id).glob("*.declared.json") if _sets(user_id).is_dir() else []:
         try:
             out |= set((json.loads(said.read_text(encoding="utf-8")).get("files") or {}).values())
         except (OSError, ValueError):
@@ -546,7 +561,7 @@ def declare_set(name: str, files: dict[str, str], origin: dict, user_id: int, si
     at = _declared_path(_sets(user_id), sid)
     at.parent.mkdir(parents=True, exist_ok=True)
     had = json.loads(at.read_text(encoding="utf-8")) if at.is_file() else {"name": name, "files": files, "origins": []}
-    had["origins"] = [*had.get("origins", []), {**origin, "time": time.time()}][-20:]
+    had["origins"] = [*had.get("origins", []), {**origin, "time": time.time()}][-ORIGINS_KEPT:]
     if sizes:
         had["sizes"] = {_name(k): int(v) for k, v in sizes.items()}
     write_text(at, json.dumps(had, ensure_ascii=False, indent=1))
@@ -716,13 +731,12 @@ def describe_head(sid: str, first: str, head: bytes, whole: int) -> dict:
 #   只含这些通道的 EXR：通道名、像素类型、压缩方式与原文件一致，不带任何元数据；按内容寻址存入 blob 库。
 #
 # 存储位置与记录方式：
-#   work/uploads/subsets/<原文件 sha[:2]>/<原文件 sha>.<账号 id>.json
+#   <数据位置>/uploads/<账号 id>/subsets/<原文件 sha[:2]>/<原文件 sha>.json
 #       {"blob": 子集 EXR 的 sha256, "channels": [写入的通道名], "types": {通道名: half|float|uint},
 #        "width", "height", "display": [x, y, w, h], "data": [x, y, w, h], "compression", "time"}
 #       每个原文件、每个账号只有一份当前子集：之后接入新通道时只上传缺少的通道，服务器将并集重写为新 blob，
 #       记录随之替换（旧 blob 没有其他文件夹链接时即成为孤儿，由 `farm/disk.py` 清理时按 nlink 回收）。
-#       按账号分别记录：若全服务器只记一份，其他账号上传同一原文件的子集会覆盖这一份，
-#       且并集会把一个账号上传的像素并入另一个账号的文件夹，只要知道 sha 和文件头即可获得他人上传的通道。
+#       按账号分别记录（在该账号自己的文件夹里）：一个账号上传的像素从不并入另一个账号的文件夹。
 #   sets/<id>.json 中增加一项 "subsets": {文件名: {"channels": [...], "blob": 子集 sha}}，表示该上传的文件夹中
 #       哪些文件链接的是子集 EXR 而非原文件。`make_set` 每次都会核对：并集换成新 blob 时，文件夹中的硬链接
 #       原地替换为新的（`os.replace`，读取方要么看到旧的完整文件，要么看到新的完整文件）。
@@ -736,12 +750,19 @@ def describe_head(sid: str, first: str, head: bytes, whole: int) -> dict:
 # `nodes/core/input.py _layers_of` 先查询此处的 `declared_layers_for(path)`：文件夹中该文件为子集时，
 # 返回申报时从头部读出的图层（`sets/<id>.layers.json`），而非子集文件自身的图层。
 #
-# 归属：上传子集的账号只 claim 子集 blob，从不 claim 原文件的 sha：`has_blob(原文件 sha, 账号)` 只检查
-# 「已登记且完整 blob 存在」，若两者都 claim，在其他账号上传过完整文件、本账号只上传了一个通道（甚至是伪造的）时，
-# `make_set` 会把完整原文件硬链接到本账号的文件夹中。完整文件只有亲自上传过才属于本账号。
-# `available()` 是本部分判断「该账号持有该文件」的唯一依据：完整 blob 由其亲自上传，或其自身的子集存在。
+# 归属：子集 blob 以其自身的 sha 存进该账号的 blob 库，原文件的 sha 只有亲自上传过完整文件时才在其中：
+# `has_blob(原文件 sha, 账号)` 只看该账号自己的 blob 库，因此只上传了一个通道（甚至是伪造的）不会让完整原文件进入
+# 该账号的文件夹。`available()` 是本部分判断「该账号持有该文件」的唯一依据：完整 blob 由其亲自上传，或其自身的子集存在。
 
+# 每个像素每条通道的字节数：传输的平面与内存里还原出的平面相同（half → float16，float → float32，uint → uint32，
+# 各通道保持自己的类型，写回 EXR 逐位不变）
 _TYPE_BYTES = {"half": 2, "float": 4, "uint": 4}
+# 一帧在内存里还原成的平面（add_planes 的 planes，已有子集并进来的通道也算）最多
+# 这么大，同时最多还原 PLANES_AT_ONCE 帧：一份几 MB 的 gzip 能膨胀成任意大，宽高又是请求自己报的，不设上限一个请求就能
+# 让网页服务的进程耗尽内存。8K 的一帧七条 float 通道约 1 GB；第一帧头部就超过的，channel_plan 让它整份上传。
+PLANES_MAX = 1 << 30
+PLANES_AT_ONCE = 2
+_planes_slots = threading.BoundedSemaphore(PLANES_AT_ONCE)
 # 子集 EXR 的压缩方式沿用原文件，但仅限无损方式：此路径传输的是原始无损像素，
 # 将解出的像素再经过有损压缩（B44、DWA，或对 32 位浮点使用 PXR24）后便不再是原文件的像素。
 # 有损方式一律改为 ZIPS（与 Nuke 默认相同，无损）。RLE 虽然无损，但写入器不支持，同样改为 ZIPS。
@@ -751,7 +772,7 @@ _LOSSLESS = ("none", "zips", "zip", "piz")
 def _subset_path(sha: str, user_id: int) -> Path:
     if not _SHA.match(sha):
         raise Invalid(Msg("E-UPLOAD-BADSHA", sha=sha))
-    return root() / "subsets" / sha[:2] / f"{sha}.{int(user_id)}.json"
+    return home_of(user_id) / "subsets" / sha[:2] / f"{sha}.json"
 
 
 def subset_of(sha: str, user_id: int) -> dict | None:
@@ -762,7 +783,7 @@ def subset_of(sha: str, user_id: int) -> dict | None:
         rec = json.loads(at.read_text(encoding="utf-8")) if at.is_file() else None
     except (OSError, ValueError):
         return None
-    if rec is None or not _SHA.match(str(rec.get("blob", ""))) or not blob_path(rec["blob"]).is_file():
+    if rec is None or not _SHA.match(str(rec.get("blob", ""))) or not blob_path(rec["blob"], user_id).is_file():
         return None
     return rec
 
@@ -778,13 +799,13 @@ def available(sha: str, user_id: int) -> bool:
 def _blob_for(sha: str, user_id: int) -> Path:
     """文件夹中该文件应链接的字节：完整 blob 由本账号上传时链接完整 blob，否则链接其自身当前的子集 EXR。
     （若不考虑上传者、只要完整 blob 存在就链接，只上传了一个通道的账号也会获得完整原文件，见上方「归属」部分。）"""
-    whole = blob_path(sha)
-    if whole.is_file() and owns(user_id, sha):
+    whole = blob_path(sha, user_id)
+    if whole.is_file():
         return whole
     rec = subset_of(sha, user_id)
     if rec is None:
         raise NotFound(GONE)
-    return blob_path(rec["blob"])
+    return blob_path(rec["blob"], user_id)
 
 
 def _head_facts(sid: str) -> dict | None:
@@ -846,6 +867,9 @@ def channel_plan(sid: str, wanted: list[str]) -> dict | None:
         return None  # 所需通道不在文件头中：此路径无法处理，整份上传，读取时照常报错
     if len(set(take)) >= facts["nchannels"]:
         return None  # 所需的已是文件中的全部通道
+    _, box = facts["windows"]
+    if box[2] * box[3] * len(wanted) * max(_TYPE_BYTES.values()) > PLANES_MAX:
+        return None  # 一帧还原出来超过 PLANES_MAX（add_planes）：整份上传
     return {"take": take, "write": list(wanted)}
 
 
@@ -866,7 +890,7 @@ def planes_missing(shas: list[str], wanted: list[str], user_id: int) -> dict[str
 
 
 def _read_native(path: Path) -> tuple[dict[str, np.ndarray], dict[str, str]]:
-    """子集 EXR 中各通道的像素，以能原样容纳的 numpy 类型表示（half → float32，uint → float64，
+    """子集 EXR 中各通道的像素，各按自己的类型原样读出（half → float16，float → float32，uint → uint32，
     `write_exr` 写回时逐位不变），以及各通道的像素类型名。"""
     import OpenImageIO as oiio
 
@@ -881,7 +905,7 @@ def _read_native(path: Path) -> tuple[dict[str, np.ndarray], dict[str, str]]:
             fmt = spec.channelformat(i)
             kind = "uint" if fmt == oiio.TypeDesc(oiio.UINT32) else "half" if fmt == oiio.TypeDesc(oiio.HALF) else "float"
             kinds[name] = kind
-            px = inp.read_image(0, 0, i, i + 1, oiio.DOUBLE if kind == "uint" else oiio.FLOAT)
+            px = inp.read_image(0, 0, i, i + 1, {"half": oiio.HALF, "float": oiio.FLOAT, "uint": oiio.UINT32}[kind])
             out[name] = np.asarray(px).reshape(spec.height, spec.width)
         return out, kinds
     finally:
@@ -902,9 +926,8 @@ def add_planes(sid: str, sha: str, blob: str, channels: list[dict], width: int, 
     返回 `{"sha": 原文件 sha, "channels": [子集当前包含的通道], "blob": 子集 blob}`。同一帧重复上传是幂等的：
     所需通道在子集中均已存在时，即使平面 blob 不存在也视为成功（浏览器未收到上一次响应时会再次请求）。"""
     import gzip
-    import tempfile
 
-    from lab2shot_shared.exr import EXR_COMPRESSIONS, PIXEL_TYPES, write_exr
+    from lab2shot_shared.exr import PIXEL_TYPES
 
     if not _SHA.match(sha) or not _ID.match(sid):
         raise Invalid(Msg("E-UPLOAD-BADSHA", sha=sha))
@@ -929,31 +952,10 @@ def add_planes(sid: str, sha: str, blob: str, channels: list[dict], width: int, 
         return {"sha": sha, "channels": had["channels"], "blob": had["blob"]}  # 幂等：所需通道均已存在
     if not _SHA.match(blob) or not has_blob(blob, user_id):
         raise NotFound(Msg("E-UPLOAD-PLANESBLOB", blob=blob[:12]))
-    # ---- 还原平面：先计算应有的字节数，只解压到该字节数再多一个字节（一份小 gzip 可能膨胀到数十 GB，不能整段读入内存后再比较长度）
-    w, h = int(width), int(height)
-    expected = sum(_TYPE_BYTES[c["type"]] * w * h for c in channels)
-    if expected <= 0 or expected > BODY_MAX * 64:
-        raise Invalid(Msg("E-UPLOAD-PLANESSIZE", file=file, channels=len(channels), width=w, height=h, expected=expected, got=0))
-    with gzip.open(blob_path(blob), "rb") as f:
-        raw = f.read(expected + 1)
-    if len(raw) != expected:
-        raise Invalid(Msg("E-UPLOAD-PLANESSIZE", file=file, channels=len(channels), width=w, height=h, expected=expected, got=len(raw)))
-    planes: dict[str, np.ndarray] = {}
-    kinds: dict[str, str] = {}
-    at = 0
-    for c in channels:
-        n = _TYPE_BYTES[c["type"]] * w * h
-        chunk = raw[at:at + n]
-        at += n
-        if c["type"] == "half":
-            arr = np.frombuffer(chunk, np.float16).astype(np.float32)
-        elif c["type"] == "float":
-            arr = np.frombuffer(chunk, np.float32)
-        else:
-            arr = np.frombuffer(chunk, np.uint32).astype(np.float64)
-        planes[c["write"]] = arr.reshape(h, w)
-        kinds[c["write"]] = c["type"]
     # ---- 窗口：浏览器提供时按其提供，否则按第一帧的头部推断
+    w, h = int(width), int(height)
+    if len(set(wanted)) != len(wanted) or w <= 0 or h <= 0:
+        raise Invalid(Msg("E-UPLOAD-PLANESSIZE", file=file, channels=len(channels), width=w, height=h, expected=0, got=0))
     if display and data and len(display) == 4 and len(data) == 4:
         full, box = tuple(int(v) for v in display), tuple(int(v) for v in data)
     else:
@@ -965,63 +967,88 @@ def add_planes(sid: str, sha: str, blob: str, channels: list[dict], width: int, 
             else:
                 raise Invalid(Msg("E-UPLOAD-PLANESWINDOW", file=file, width=w, height=h, dw=box[2], dh=box[3], fw=full[2], fh=full[3]))
     if (box[2], box[3]) != (w, h):
-        raise Invalid(Msg("E-UPLOAD-PLANESSIZE", file=file, channels=len(channels), width=w, height=h, expected=expected, got=len(raw)))
-    # ---- 合并：已有子集中的通道原样保留（同名通道以新上传的为准）
-    order: list[str] = []
-    if had is not None:
-        old, old_kinds = _read_native(blob_path(had["blob"]))
-        for n in had["channels"]:
-            if n in old and n not in planes:
-                planes[n], kinds[n] = old[n], old_kinds[n]
-                order.append(n)
-    order += [n for n in wanted if n not in order]
-    order = [n for _, n in pairs if n in planes] or order  # 通道顺序与原文件一致
+        raise Invalid(Msg("E-UPLOAD-PLANESSIZE", file=file, channels=len(channels), width=w, height=h, expected=0, got=0))
+    # ---- 这一帧还原出来多大：先算清楚，超过 PLANES_MAX 就不解压（一份小 gzip 能膨胀到数十 GB，宽高又是请求自己报的）
+    kinds = {c["write"]: c["type"] for c in channels}
+    size = w * h * sum(_TYPE_BYTES[k] for k in kinds.values())
+    if size > PLANES_MAX:
+        raise Invalid(Msg("E-UPLOAD-PLANESTOOBIG", file=file, channels=len(channels), width=w, height=h,
+                          gb=size / (1 << 30), most=PLANES_MAX / (1 << 30)))
+    with _planes_slots:
+        # 已有子集中的通道原样并入（同名通道以新上传的为准），按原文件的通道顺序，放得下 PLANES_MAX 的为止：
+        # 放不下的不留在子集里，以后用到时 planes_missing 让浏览器再传一次
+        planes: dict[str, np.ndarray] = {}  # 通道名 -> [H, W] 平面，各为自己的类型
+        if had is not None:
+            got, old_kinds = _read_native(blob_path(had["blob"], user_id))
+            for n in [n for _, n in pairs if n in had["channels"] and n in got and n not in kinds]:
+                if got[n].shape == (h, w) and size + w * h * _TYPE_BYTES[old_kinds[n]] <= PLANES_MAX:
+                    planes[n], kinds[n] = got[n], old_kinds[n]
+                    size += w * h * _TYPE_BYTES[old_kinds[n]]
+            del got
+        order = [n for _, n in pairs if n in kinds]  # 通道顺序与原文件一致
+        # ---- 还原平面：逐条通道从 gzip 读出，每条只读它应有的字节数，读完不许还有剩余；各通道保持自己的类型
+        expected = sum(_TYPE_BYTES[c["type"]] * w * h for c in channels)
+        with gzip.open(blob_path(blob, user_id), "rb") as f:
+            at = 0
+            for c in channels:
+                n = _TYPE_BYTES[c["type"]] * w * h
+                chunk = f.read(n)
+                at += len(chunk)
+                if len(chunk) != n:
+                    raise Invalid(Msg("E-UPLOAD-PLANESSIZE", file=file, channels=len(channels), width=w, height=h, expected=expected, got=at))
+                dtype = {"half": np.float16, "float": np.float32, "uint": np.uint32}[c["type"]]
+                planes[c["write"]] = np.frombuffer(chunk, dtype).reshape(h, w)
+                del chunk
+            if f.read(1):
+                raise Invalid(Msg("E-UPLOAD-PLANESSIZE", file=file, channels=len(channels), width=w, height=h, expected=expected, got=expected + 1))
+        return _write_subset(sha, blob, [planes[n] for n in order], order, kinds, full, box, compression, user_id)
+
+
+def _write_subset(sha: str, blob: str, planes: list[np.ndarray], order: list[str], kinds: dict[str, str], full: tuple,
+                  box: tuple, compression: str, user_id: int) -> dict:
+    """把还原好的平面（按 `order`，各为自己类型的 [H, W]）写成子集 EXR，按内容寻址存下，替换该原文件的子集记录（add_planes）。"""
+    import tempfile
+
+    from lab2shot_shared.exr import EXR_COMPRESSIONS, write_exr
+
+    h, w = planes[0].shape
     comp = str(compression or "zips").lower()
     if comp not in _LOSSLESS and not (comp == "pxr24" and all(kinds[n] != "float" for n in order)):
         comp = "zips"
     if comp not in EXR_COMPRESSIONS:
         comp = "zips"
-    stack = np.stack([planes[n] for n in order], axis=-1)
-    root().mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=root()) as tmp:
+    home_of(user_id).mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=home_of(user_id)) as tmp:  # 位于该账号自己的磁盘上：写完后改名放入
         out = Path(tmp) / "subset.exr"
         # windows 按 write_exr 的约定：画幅为 (x, y, w, h)，数据窗口的 x, y 从画幅左上角计算。
         # 不带任何元数据：OpenImageIO 写 EXR 时会自动添加 DateTime（写入时刻），传入空值即不添加；
         # 其余的 compression、lineOrder、pixelAspectRatio、screenWindow* 是 EXR 头中的必需字段，不属于元数据。
-        write_exr(out, stack, order, compression=comp, types=[kinds[n] for n in order], header={"DateTime": ""},
+        write_exr(out, planes, order, compression=comp, types=[kinds[n] for n in order], header={"DateTime": ""},
                   windows=((full[0], full[1], full[2], full[3]), (box[0] - full[0], box[1] - full[1], w, h)))
         digest = hashlib.sha256()
         with out.open("rb") as f:
             while block := f.read(1 << 24):
                 digest.update(block)
         new = digest.hexdigest()
-        target = blob_path(new)
+        target = blob_path(new, user_id)
         target.parent.mkdir(parents=True, exist_ok=True)
         if not target.exists():
             os.replace(out, target)
+            _readonly(target)
     rec = {"blob": new, "channels": order, "types": {n: kinds[n] for n in order}, "width": w, "height": h,
            "display": list(full), "data": list(box), "compression": comp, "time": time.time()}
     at_ = _subset_path(sha, user_id)
     at_.parent.mkdir(parents=True, exist_ok=True)
     write_text(at_, json.dumps(rec, ensure_ascii=False, indent=1))
-    claim(user_id, new)  # 只 claim 自己写出的子集，不 claim 原文件的 sha（原因见上方「归属」部分）
-    # 包含平面的 blob 用完即删除（它只属于本帧的本次上传）；该账号的登记行一并撤销，否则会占用其额度
+    # 包含平面的 blob 用完即删除（它只属于本帧的本次上传）
     _drop_blob(blob, user_id)
     return {"sha": sha, "channels": order, "blob": new, "bytes": target.stat().st_size}
 
 
 def _drop_blob(sha: str, user_id: int) -> None:
-    """撤销本账号对该 blob 的登记；没有任何账号再登记它时才删除文件。
-    不能不考虑账号就全部删除后再 unlink：按内容寻址时，完全相同的平面 blob 即为同一份，其他账号可能也登记着并正在使用。"""
-    from ..database import db
-
-    with db().write() as c:
-        c.execute("DELETE FROM uploads WHERE user_id = ? AND key = ?", (user_id, sha))
-        left = c.execute("SELECT 1 FROM uploads WHERE key = ? LIMIT 1", (sha,)).fetchone() is not None
-    if left:
-        return
+    """删除该账号的一份 blob（装平面的那份用完即删）；它被别处链接着时（nlink > 1）只是少一个名字，那一份仍在。"""
     try:
-        blob_path(sha).unlink(missing_ok=True)
+        blob_path(sha, user_id).unlink(missing_ok=True)
     except OSError:
         pass
 
@@ -1052,16 +1079,25 @@ def _placed(path: Path | str) -> tuple[Path, str, str] | None:
     此处只解析目录结构，不做账号校验：调用方从 `resolve` 获得该路径，`resolve` 已针对其账号作答。"""
     p = Path(path)
     try:
-        rel = p.relative_to(root() / "sets")
+        rel = p.relative_to(root())
     except ValueError:
         return None
-    if len(rel.parts) < 3 or not rel.parts[0].isdigit() or not _ID.match(rel.parts[1]):
+    # <account>/sets/<id>/<name>
+    if len(rel.parts) < 4 or not rel.parts[0].isdigit() or rel.parts[1] != "sets" or not _ID.match(rel.parts[2]):
         return None
-    return root() / "sets" / rel.parts[0], rel.parts[1], "/".join(rel.parts[2:])
+    return root() / rel.parts[0] / "sets", rel.parts[2], "/".join(rel.parts[3:])
 
 
 def is_ref(value: str) -> bool:
     return value.startswith(PREFIX)
+
+
+def ref_parts(ref: str) -> tuple[str, str] | None:
+    """`upload:<id>/<name>` 的 (id, name)；不是合法引用时为 None。"""
+    if not isinstance(ref, str) or not is_ref(ref):
+        return None
+    sid, _, name = ref[len(PREFIX):].partition("/")
+    return (sid, name) if _ID.match(sid) else None
 
 
 def resolve(ref: str) -> Path:
@@ -1103,13 +1139,61 @@ def _manifest(home: Path, sid: str) -> dict:
     return _manifest_at(manifest, manifest.stat().st_mtime)
 
 
+def files_of(sid: str, user_id: int) -> dict[str, str] | None:
+    """该账号的上传 `sid` 包含的文件：{名称: sha256}（已组装的清单或申报的清单都算，与字节是否已到齐无关）。
+    只看这个账号自己的文件夹（任务分组，transfer/groups.py：分组只在账号内部）；没有时为 None。"""
+    if not _ID.match(sid or ""):
+        return None
+    home = _sets(user_id)
+    for manifest in (home / f"{sid}.json", _declared_path(home, sid)):
+        try:
+            files = _manifest_at(manifest, manifest.stat().st_mtime)["files"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if isinstance(files, dict):
+            return {str(k): str(v) for k, v in files.items()}
+    return None
+
+
+def picked_name(sid: str, user_id: int) -> str:
+    """该账号的上传 `sid` 在用户那边叫什么：上传时选的文件夹名（序列、整个文件夹），或文件名（视频、单个文件），
+    例如 `sh030_plate`、`dance.mp4`（任务分组的组名，transfer/groups.py）。取自清单里最近一次的来源
+    （`origins[].path`：网页给的「文件夹/名称」，本机脚本和 DCC 给的本机路径）；来源没给路径时用节点读取的名称。
+    只是一段文字，原样交给调用方清理（groups.clean_name）；该账号没有这份上传时为 ""。"""
+    if not _ID.match(sid or ""):
+        return ""
+    home = _sets(user_id)
+    found = []
+    for manifest in (home / f"{sid}.json", _declared_path(home, sid)):
+        try:
+            found.append(_manifest_at(manifest, manifest.stat().st_mtime))
+        except FileNotFoundError:
+            continue
+    if not found:
+        return ""
+    item = found[0]["name"].rsplit("/", 1)[-1]  # 节点读取的：一个文件、一个序列图案，或 "" 表示整个文件夹
+    latest = max((o for data in found for o in data["origins"]), key=lambda o: o["time"])
+    parts = [p for p in re.split(r"[\\/]", latest["path"]) if p]
+    if not parts:
+        return item
+    if not item:  # 整个文件夹：来源就是那个文件夹
+        return parts[-1]
+    if not is_pattern(item) and len(found[0]["files"]) == 1:  # 一个文件：它自己的名字
+        return item
+    # 一段序列（节点读的是图案，或者其中一帧）：来源是「文件夹/图案」或其中一帧（最后一段和它同一个扩展名），
+    # 或者就是那个文件夹
+    if Path(parts[-1]).suffix.lower() == Path(item).suffix.lower():
+        return parts[-2] if len(parts) > 1 else item
+    return parts[-1]
+
+
 def boundary(path: Path) -> Path:
     """使用者上传的文件除自身之外可引用的内容（USD 文件的子层和引用、其引用的图片）：只能是与其一起上传的文件，
     不得是本服务器上的其他任何内容。存储之外的文件（服务器上脚本或测试自带的文件）只能引用其自身所在的文件夹。"""
     p = path.resolve()
-    sets = (root() / "sets").resolve()
-    if sets in p.parents and len(rel := p.relative_to(sets).parts) >= 2:
-        return sets / rel[0] / rel[1]  # sets/<账号>/<id>：仅限该上传
+    base = root().resolve()
+    if base in p.parents and len(rel := p.relative_to(base).parts) >= 4 and rel[1] == "sets":
+        return base / rel[0] / "sets" / rel[2]  # <账号>/sets/<id>：仅限该上传
     return p.parent
 
 
@@ -1122,7 +1206,7 @@ def may_draw_on(layer: Path, file: Path) -> bool:
         这些都位于同一工作文件夹中；
       - 本项目计算写出的层可以引用结果存储：该路径由本项目的节点写出，而非他人发送的文件
         （「灯光」将 HDRI 作为自己的数据包写在引用它的场景旁边，因此结果可以合理地引用另一个数据包的文件）。
-        账号能读取其中哪些结果与本问题无关：路由会先检查授权（server/access.py readable）。
+        账号能读取其中哪些结果与本问题无关：每个账号只读得到自己缓存里的结果（server/access.py readable）。
 
     其他情况（既非上述两者的层，或位于两者之外的文件）一律不可。"""
     from ..data.packet import cooked_here
@@ -1131,24 +1215,6 @@ def may_draw_on(layer: Path, file: Path) -> bool:
     if limit in target.parents:
         return True
     return cooked_here(layer) and cooked_here(file)
-
-
-def put_local(path: Path | str, origin: dict | None = None, sequence: bool = True, user_id: int = 1) -> str:
-    """将本机的文件、序列或文件夹按客户端的发送方式放入存储（客户端的 local_files 规则：序列模式或其中一帧
-    会带上整个序列，除非 `sequence` 为 False，即单文件参数，如与 hero_v002.usd 并存的 hero_v003.usd），
-    归属于指定账号（默认为管理员）；返回其引用。供在服务器本机上运行的脚本和测试使用。"""
-    from ..client import local_files
-
-    def send(local: str) -> str:
-        pid = open_part(os.path.getsize(local), user_id)["id"]
-        token = begin(pid, 0, user_id)
-        with open(local, "rb") as f:
-            while chunk := f.read(1 << 24):
-                add(pid, token, chunk, user_id)
-        return end(pid, token, user_id)["sha"]
-
-    name, files = local_files(str(path), sequence)
-    return make_set(name, {rel: send(f) for rel, f in files.items()}, {"path": str(path), **(origin or {})}, user_id)
 
 
 def _describe_declared(ref: str, said: dict) -> dict:
@@ -1225,42 +1291,39 @@ def refs_in(value: object) -> set[str]:
 
 def on_disk() -> list[dict]:
     """服务器上的每份上传，供磁盘页和自动清理使用（farm/disk.py）：每项为
-    `{"user_id", "sid", "path", "bytes", "used"}`，`path` 为上传的文件夹（sets/<account>/<id>，无论是否已组装），
+    `{"user_id", "sid", "path", "bytes", "used"}`，`path` 为上传的文件夹（<account>/sets/<id>，无论是否已组装），
     `bytes` 为仅由其持有的字节（只链接到它的文件，或申报的头部），`used` 为最后使用时间（其清单的 mtime：
-    data/packet.py `used` 会更新它）或申报时间。除本模块自身的辅助函数外，这是唯一了解目录结构的位置。"""
+    data/packet.py `used` 会更新它，任务提交时也更新：transfer/tasks.py）或申报时间。除本模块自身的辅助函数外，
+    这是唯一了解目录结构的位置。"""
     out = []
-    for home in _accounts():
+    for user_id in accounts():
+        home = _sets(user_id)
         seen = set()
         for manifest in _manifests(home):
             sid = manifest.stem
             seen.add(sid)
             folder = home / sid
-            own = 0
-            for f in folder.rglob("*") if folder.is_dir() else []:
-                try:
-                    if f.is_file() and f.stat().st_nlink <= 2:
-                        own += f.stat().st_size
-                except OSError:
-                    pass
-            out.append({"user_id": int(home.name), "sid": sid, "path": folder, "bytes": own, "used": _mtime(manifest)})
-        for said in sorted(home.glob("*.declared.json")):
+            own = sum(st.st_size for _, st in stats(folder, set()) if st.st_nlink <= 2)
+            out.append({"user_id": user_id, "sid": sid, "path": folder, "bytes": own, "used": mtime(manifest)})
+        for said in sorted(home.glob("*.declared.json")) if home.is_dir() else []:
             sid = said.name[: -len(".declared.json")]
             if sid in seen or not _ID.match(sid):
                 continue  # 已组装：即上一行（其附属说明文件在 remove_set 中一并删除）
             head = home / f"{sid}.head"
-            out.append({"user_id": int(home.name), "sid": sid, "path": home / sid,
-                        "bytes": head.stat().st_size if head.is_file() else 0, "used": _mtime(said)})
+            out.append({"user_id": user_id, "sid": sid, "path": home / sid,
+                        "bytes": head.stat().st_size if head.is_file() else 0, "used": mtime(said)})
     return out
 
 
-def orphan_blobs() -> list[Path]:
-    """不再被任何上传链接（nlink 1）且不会被链接的 blob：既未被申报并等待字节，也不在 DONE_KEEP_S 内完成
-    （刚完成的分段在 `make_set` 链接之前是 blob，发送方可能仍在进行中）。供磁盘清理（farm/disk.py clean）使用，
-    清理时在队列的保护下逐个通过 `drop_blob` 删除。"""
-    declared = declared_shas()
+def orphan_blobs(user_id: int) -> list[Path]:
+    """该账号不再被任何名字链接（nlink 1：没有上传文件夹、也没有任务文件夹链接它）且不会被链接的 blob：既未被申报
+    并等待字节，也不在 DONE_KEEP_S 内完成（刚完成的分段在 `make_set` 链接之前是 blob，发送方可能仍在进行中）。
+    供磁盘清理（farm/disk.py）使用，清理时在队列的保护下逐个通过 `drop_blob` 删除。"""
+    declared = declared_shas(user_id)
     young = time.time() - DONE_KEEP_S
+    base = home_of(user_id) / "blobs"
     out = []
-    for blob in (root() / "blobs").rglob("*") if (root() / "blobs").is_dir() else []:
+    for blob in base.rglob("*") if base.is_dir() else []:
         try:
             st = blob.stat()
         except OSError:
@@ -1271,107 +1334,39 @@ def orphan_blobs() -> list[Path]:
 
 
 def drop_blob(blob: Path) -> int:
-    """删除一个孤儿 blob（`orphan_blobs`）及各账号对其的登记（登记即该账号对这些字节的使用，
-    server/quota.py _upload_bytes 计入该值）；返回释放的字节数。"""
-    from ..database import db
-
+    """删除一个孤儿 blob（`orphan_blobs`）；返回释放的字节数（它此时已没有别的名字：nlink 为 1）。"""
     try:
-        size = blob.stat().st_size
+        size = blob.stat().st_size if blob.stat().st_nlink == 1 else 0
         blob.unlink()
     except OSError:
         return 0
-    with db().write() as c:
-        c.execute("DELETE FROM uploads WHERE key = ?", (blob.name,))
     return size
 
 
-def _mtime(p: Path) -> float:
-    try:
-        return p.stat().st_mtime
-    except OSError:
-        return 0.0
-
-
 def remove_set(user_id: int, sid: str) -> tuple[int, int]:
-    """上传离开服务器的唯一途径（账号删除其素材，server/quota.py；自动清理，farm/disk.py）：删除其文件夹、清单和
-    申报附属文件，以及读取节点从中生成的所有缓存数据包（若保留这些数据包，已不存在的文件会显示为「已缓存」）。
-    返回（仅由该文件夹持有的字节数, 删除的缓存数据包数）。blob 不在此处删除：它们按内容共享，由 `drop_sets` 释放孤儿。"""
+    """上传离开服务器的唯一途径（自动清理，farm/disk.py；账号的数据清理）：删除其文件夹、清单和申报附属文件，以及
+    读取节点从中生成的该账号缓存数据包（若保留这些数据包，已不存在的文件会显示为「已缓存」）。任务文件夹里对这些
+    字节的硬链接不受影响（它们是另外的名字）。返回（仅由该文件夹持有的字节数, 删除的缓存数据包数）。
+    blob 不在此处删除：由孤儿清理在没有任何名字链接它时释放。"""
     from ..data import packet as packets
 
     home = _sets(user_id)
     if not _ID.match(sid) or not _has(home, sid):
         return 0, 0
     folder = home / sid
-    freed = _folder_size(folder)
+    freed = folder_bytes([folder])
     shutil.rmtree(folder, ignore_errors=True)
     (home / f"{sid}.json").unlink(missing_ok=True)
     _forget_declared(home, sid)
-    marker = f"/sets/{int(user_id)}/{sid}/"  # 该账号中该上传的文件夹，无论 paths.uploads_dir 将存储放在何处
-    dropped = packets.remove_referring(lambda ref: marker in ref, "upload")
+    marker = f"/{int(user_id)}/sets/{sid}/"  # 该账号中该上传的文件夹，无论「数据位置」在何处
+    from ..serving import Account, serving
+
+    with serving(Account(user_id)):  # 读取它的缓存数据包只在该账号自己的缓存里（data/store.py）
+        dropped = packets.remove_referring(lambda ref: marker in ref, "upload")
     return freed, dropped
 
 
-def drop_sets(user_id: int, sids: set[str]) -> tuple[int, int]:
-    """删除该账号的这些上传（`remove_set`），以及不再被任何上传使用的 blob。返回（份数, 字节数）。
-
-    blob 按内容共享（相同的字节只存一份，发送者记录在 `uploads` 表中）：一份 blob 只有在没有任何账号文件夹的清单
-    引用它、也没有任何账号登记它时才删除，否则会删除他人（或该账号另一份素材）正在使用的字节。"""
-    from ..database import db
-
-    removed, freed, shas = 0, 0, set()
-    for sid in sids:
-        home = _sets(user_id)
-        if not _ID.match(sid) or not _has(home, sid):
-            continue
-        try:
-            shas |= _blobs_named(json.loads((home / f"{sid}.json").read_text(encoding="utf-8")))
-        except (OSError, ValueError):
-            pass
-        got, _ = remove_set(user_id, sid)
-        freed += got
-        removed += 1
-    if not removed:
-        return 0, 0
-    kept = set()
-    for home in _accounts():
-        for other in _manifests(home):
-            try:
-                kept |= _blobs_named(json.loads(other.read_text(encoding="utf-8")))
-            except (OSError, ValueError):
-                pass
-    # 这些内容已不再被任何上传使用：先撤销本账号对它们的登记（登记即其占用，
-    # `server/quota.py _upload_bytes` 按登记的 sha 计算字节：不撤销登记，删除素材后占用也不会减少）。
-    # 撤销后仍有其他账号登记时保留字节：相同内容在全服务器只存一份，删除会损坏他人的素材。
-    orphan = shas - kept
-    if orphan:
-        with db().write() as c:
-            c.executemany("DELETE FROM uploads WHERE user_id = ? AND key = ?", [(user_id, s) for s in orphan])
-    for sha in orphan:
-        if db().row("SELECT 1 FROM uploads WHERE key = ? LIMIT 1", (sha,)) is not None:
-            continue  # 仍有账号登记了该内容本身：保留文件
-        p = blob_path(sha)
-        try:
-            freed += p.stat().st_size
-            p.unlink()
-        except OSError:
-            pass
-        _subset_path(sha, user_id).unlink(missing_ok=True)  # 该账号对原文件的通道子集记录（子集 blob 本身在孤儿清理中另行处理）
-    return removed, freed
-
-
-def _blobs_named(manifest: dict) -> set[str]:
-    """一份上传的清单所引用的全部内容：原文件的 sha，以及链接到文件夹中的子集 EXR 的 sha（`subsets`）。"""
-    found = {str(v) for v in (manifest.get("files") or {}).values()}
-    found |= {str(s.get("blob")) for s in (manifest.get("subsets") or {}).values() if s.get("blob")}
-    return found
-
-
-def _folder_size(folder: Path) -> int:
-    total = 0
-    for f in folder.rglob("*") if folder.is_dir() else []:
-        try:
-            if f.is_file() and not f.is_symlink():
-                total += f.stat().st_size
-        except OSError:
-            pass
-    return total
+def forget_account(user_id: int) -> None:
+    """账号被永久删除（lab2shot/accounts.py purge，经 farm/disk.py forget_account）：它的全部上传（字节、分段、上传、子集）
+    立即删除，SQLite 之后可能把同一个 id 给新账号，新账号不得看到其中任何内容。任务文件夹里的硬链接此前已随任务删除。"""
+    shutil.rmtree(home_of(user_id), ignore_errors=True)

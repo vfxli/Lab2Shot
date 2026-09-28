@@ -32,7 +32,6 @@ if TYPE_CHECKING:
 FLOAT, INT, BOOL, VECTOR, TEXT = "value.float", "value.int", "value.bool", "value.vector", "value.text"
 # 镜头内参：{"model": 镜头模型 id, "params": {系数名: 数}}（data/types.py 那条说明；Focal Length 和 Filmback 不在里面）
 LENS = "value.lens"
-VALUE_TYPES = (FLOAT, INT, BOOL, VECTOR, TEXT, LENS)
 
 # how close numbers of a per-frame value must be to count as the same all along (a camera read back from USD)
 SAME = 1e-6
@@ -203,8 +202,8 @@ def value_list_packet(directory: Path, type_: str, values: list[tuple[str, Any]]
 def _json(type_: str, v: Any) -> Any:
     if type_ == VECTOR:
         return [float(c) for c in v]
-    if type_ == LENS:  # 组和公式表 id 跟着走（nodes/lens.py packed_lens）：没有的（旧值）按 COLMAP 组、表 id = 模型名
-        return {"group": str(v.get("group") or "colmap"), "model": str(v["model"]), "table": str(v.get("table") or v["model"]),
+    if type_ == LENS:  # 组和公式表 id 跟着走（nodes/lens.py packed_lens）
+        return {"group": str(v["group"]), "model": str(v["model"]), "table": str(v["table"]),
                 "params": {str(k): float(x) for k, x in dict(v["params"]).items()}}
     if type_ == FLOAT:
         return float(v)
@@ -231,7 +230,7 @@ def _problem(type_: str, v: Any) -> Msg | None:
         return Msg("E-VALUES-NOTVECTOR", value=repr(v))
     if type_ == TEXT and not isinstance(v, str):
         return Msg("E-VALUES-NOTTEXT", value=repr(v))
-    if type_ == LENS and not (isinstance(v, dict) and isinstance(v.get("model"), str) and v["model"]
+    if type_ == LENS and not (isinstance(v, dict) and all(isinstance(v.get(k), str) and v[k] for k in ("group", "model", "table"))
                               and isinstance(v.get("params"), dict) and all(isinstance(k, str) and number(x) for k, x in v["params"].items())):
         return Msg("E-VALUES-NOTLENS", value=repr(v)[:80])
     return None
@@ -282,7 +281,7 @@ def _one(type_: str, v: Any) -> str:
     if type_ == TEXT:
         return f"「{v}」"
     if type_ == LENS:  # 「AnyCalib · simple_kb:4」k1 -0.012 k2 0.003：组 · 模型按它自己的名字，系数按模型自己的顺序
-        who = {"colmap": "COLMAP", "3de4": "3DE4", "anycalib": "AnyCalib", "geocalib": "GeoCalib"}.get(str(v.get("group") or "colmap"), str(v.get("group")))
+        who = {"colmap": "COLMAP", "3de4": "3DE4", "anycalib": "AnyCalib", "geocalib": "GeoCalib"}.get(v["group"], v["group"])
         return f"「{who} · {v.get('model', '')}」" + "".join(f" {k} {_num(x)}" for k, x in dict(v.get("params") or {}).items() if k not in ("center_x_mm", "center_y_mm", "pixel_aspect"))
     if type_ == VECTOR:
         return "(" + ", ".join(_num(c) for c in v) + ")"

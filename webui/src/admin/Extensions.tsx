@@ -7,16 +7,16 @@ import { usePoll } from "../platform/poll";
 import { reasonOf } from "../messages/message";
 import { Section, useAdmin } from "./common";
 import { InstallControl } from "../install/Install";
-import { InboxNote, ManualCardControl, useManualView } from "../install/Manual";
+import { InboxNote, ManualRowControl, useManualView } from "../install/Manual";
 import { Table, type Column } from "../ui/Table";
 import { Button } from "../ui/Button";
 import { Loading } from "../ui/Loading";
 
 /** 扩展包：各第三方项目的安装状态、缺失项及安装操作（lab2shot/installer，GET /api/admin/extensions）。
  *
- * 安装仅限管理员（本区读写的路由均要求 installs.run），因此整个功能位于后台，帮助页不提供入口。
+ * 安装仅限管理员（本区读写的路由均要求 installs.run），因此整个功能位于后台。
  *
- * 安装控件本身为 install/Install.tsx，手动下载为 install/Manual.tsx，帮助页的项目卡片和项目页共用同一实现。
+ * 安装控件本身为 install/Install.tsx，手动下载为 install/Manual.tsx。
  * 本区只负责布局：一张表加手动下载区块。
  *
  * 能否安装、卸载、回退均由服务器计算（server/available.py extension → 每行的 `actions`），此处不做角色判断。 */
@@ -156,7 +156,7 @@ function ManualBlock({ view, can, onChange }: {
       label: "操作",
       tip: "去官网下载、看许可协议原文并同意、放好文件后再查一遍",
       width: "21rem",
-      cell: (m) => <ManualCardControl manualKey={m.key} downloadPage={m.page} view={view} can={can} onChange={onChange} />,
+      cell: (m) => <ManualRowControl manualKey={m.key} downloadPage={m.page} view={view} can={can} onChange={onChange} />,
     },
   ];
   if (!view) return null;

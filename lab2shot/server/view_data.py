@@ -15,7 +15,8 @@ shared through a tunnel) as a few megabytes instead of hundreds, and the viewer 
   NaN) and its colours as bytes, with the camera per frame once: the viewer's graphics card rebuilds the points with the
   same float32 arithmetic (viewFormat.ts gridPoints). Every frame is rebuilt here first and compared with the cloud's
   own points; a frame that does not give them (within GRID_TOLERANCE: float32's own rounding) goes as its points;
-- nothing thinned, nothing rounded: every point, float32 as the evaluation gives it. Compression is lossless only: the
+- nothing rounded: every point sent is float32 as the evaluation gives it (only a point cloud over the 「点云上限」 is
+  thinned, and the viewer says so: see below). Compression is lossless only: the
   bytes of each float array sorted by significance (all first bytes, then all second ...), a point cache's frames as
   the bit differences (XOR) from the frame before, then gzip. Colours that are all whole 255ths (from 8-bit pictures)
   go as those bytes, which are the same numbers;
@@ -38,6 +39,7 @@ import threading
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -85,19 +87,6 @@ def pack(a: np.ndarray, xor_size: int = 0) -> tuple[bytes, str]:
         diff[1:] ^= rows[:-1]
         bits, code = diff.reshape(-1), "x"
     return bits.view(np.uint8).reshape(-1, 4).T.tobytes(), code
-
-
-def unpack(data: bytes, dtype: str, code: str, xor_size: int = 0) -> np.ndarray:
-    """pack() undone (the viewer does the same in viewFormat.ts; this one is for the tests)."""
-    if code == "":
-        return np.frombuffer(data, {"f32": np.float32, "u32": np.uint32, "u16": np.uint16, "u8": np.uint8}[dtype]).copy()
-    planes = np.frombuffer(data, np.uint8).reshape(4, -1)
-    bits = np.ascontiguousarray(planes.T).view(np.uint32).reshape(-1)
-    if code == "x":
-        rows = bits.reshape(-1, xor_size)
-        for i in range(1, len(rows)):
-            rows[i] ^= rows[i - 1]
-    return bits.view(np.float32)
 
 
 COLOUR_WORDS = ((255, np.uint8), (65535, np.uint16))  # whole steps of an 8-bit or a 16-bit picture
@@ -328,7 +317,7 @@ def _curve_arrays(vertex_counts, points, cols, widths) -> dict[str, np.ndarray]:
 def encode(frames: list[int], items: dict[str, list[dict]], resolution: tuple[int, int],
            lights: list[dict] | None = None, reader: Callable[[str, dict], Callable[[int], dict]] | None = None,
            one_frame_chunks: bool = False) -> View:
-    """A scene's items (engine/scene_arrays.py, with samples=False: per-frame things marked `per_frame`) as a view.
+    """A scene's items (data/scene_arrays.py, with samples=False: per-frame things marked `per_frame`) as a view.
     `reader(kind, item)` gives the function that reads a per-frame item at a frame."""
     frames = [int(f) for f in frames]
     b = Base()
@@ -471,7 +460,7 @@ def scene_view(p) -> View:
     from ..data.units import DEFAULT_HEIGHT, DEFAULT_WIDTH
 
     size = (int(p.meta.get("width", DEFAULT_WIDTH)), int(p.meta.get("height", DEFAULT_HEIGHT)))
-    if p.meta.get("empty"):  # nothing this time (「相机属性」 without a focal length): nothing to show
+    if p.meta.get("empty"):  # nothing this time (「创建相机」 without a focal length): nothing to show
         return encode([], {}, size)
     frames = [int(f) for f in p.meta["frames"]]
     stage = open_scene([p])  # kept open by the readers below while the view is kept
@@ -714,7 +703,7 @@ def _load(fp: str):
 
 
 def points_view(depth_fp: str, camera_fp: str | None) -> View:
-    """A finished Mask that can be viewed as a point cloud (together with the camera it is seen from)."""
+    """A finished depth or position map viewed as a point cloud (together with the camera it is seen from)."""
     from ..data.payloads import image_files
 
     p = _load(depth_fp)
@@ -743,8 +732,6 @@ def partial_points_view(directory: str, type_: str, width: int, space: str,
     This code knows neither jobs nor nodes: the web server works out which folder, type, size and frame count
     (server/farm.py partial_points) and passes them in; the view worker only turns the frames present in the folder
     into points."""
-    from pathlib import Path
-
     from ..data.payloads import partial_frames
 
     d = Path(directory)
@@ -754,7 +741,7 @@ def partial_points_view(directory: str, type_: str, width: int, space: str,
 
 
 def _points_view(*, type_: str, width: int, space: str | None, span, frames: list[int],
-                 files_of: Callable[[], dict[int, "Path"]], camera_fp: str | None,
+                 files_of: Callable[[], dict[int, Path]], camera_fp: str | None,
                  one_frame_chunks: bool = False) -> View:
     """One set of points per frame, coloured by value: every pixel with a value is included, and only the frames the
     viewer asks for are read.
@@ -860,8 +847,8 @@ def respond_description(text: str, accept_encoding: str):
 
 def respond(gz: bytes, accept_encoding: str, kept: bool = True):
     """A part as the browser takes it: gzipped when it can read gzip, kept by the browser permanently (a base part's URL
-    carries its content's hash; a chunk's, the result's fingerprint, the format and its frames: the same URL is always
-    the same bytes), so a chunk let go and asked for again comes from the browser's own cache, not the network.
+    carries its content's hash; a chunk's, the result's fingerprint and generation, the format, its frames and the
+    「点云上限」: the same URL is always the same bytes), so a chunk let go and asked for again comes from the browser's own cache, not the network.
 
     `kept=False`: a partial result (server/farm.py partial_points_part). Its address carries the job id, node and frame
     number rather than a content address, so it cannot be marked immutable; avoiding re-downloads relies on the page's

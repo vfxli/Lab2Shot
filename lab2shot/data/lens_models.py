@@ -55,7 +55,6 @@ _STEP = 1e-30  # complex step for the Jacobian
 _CHUNK = 1 << 19  # points per batch (complex temporaries stay well under a gigabyte)
 
 INVALID = -1.0  # an ST-map entry with no value: R = G = INVALID
-INVERSE_TOL_PX = 1e-4  # an ST-map inverse converged: the forward map of its answer is this close to the pixel, pixels
 OVERSCAN_CAP = 0.25  # automatic overscan grows the canvas by at most this much of the plate, per axis
 OVERSCAN_MARGIN_PX = 2  # automatic overscan's sampling margin on each side, pixels
 
@@ -152,7 +151,7 @@ def _anamorphic_std_deg4(x, y, p, aspect):
 def _brown(x, y, k1=0.0, k2=0.0, p1=0.0, p2=0.0, k3=0.0):
     """OpenCV's pinhole distortion with k1 k2 p1 p2 k3 (calib3d.hpp, "Detailed Description"): distort. COLMAP's
     SIMPLE_RADIAL / RADIAL / OPENCV are this with the terms they have (src/colmap/sensor/models.h, the Distortion()
-    of each: SimpleRadial :1360, Radial :1444, OpenCV :1530)."""
+    of each: SimpleRadial :1393, Radial :1475, OpenCV :1560)."""
     r2 = x * x + y * y
     radial = 1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2
     return (x * radial + 2 * p1 * x * y + p2 * (r2 + 2 * x * x),
@@ -183,8 +182,8 @@ def _atan_over_r(s):
 def _fisheye(x, y, k1=0.0, k2=0.0, k3=0.0, k4=0.0):
     """OpenCV's fisheye (Kannala-Brandt, calib3d.hpp namespace fisheye): theta = atan(r), theta_d = theta (1 + k1
     theta^2 + k2 theta^4 + k3 theta^6 + k4 theta^8), x' = (theta_d / r) x. Distort. COLMAP's OPENCV_FISHEYE is this
-    (src/colmap/sensor/models.h OpenCVFisheye :1620), SIMPLE_RADIAL_FISHEYE / RADIAL_FISHEYE the first terms of it
-    (:1965, :2063)."""
+    (src/colmap/sensor/models.h OpenCVFisheye :1661), SIMPLE_RADIAL_FISHEYE / RADIAL_FISHEYE the first terms of it
+    (:2014, :2107)."""
     s = x * x + y * y
     f = _atan_over_r(s)
     t2 = s * f * f
@@ -693,9 +692,6 @@ class Lens:
             return np.stack(back(np.asarray(ox, np.float64), np.asarray(oy, np.float64)), -1), fold
         return _mapped(points, one)
 
-    def distort_px(self, points: np.ndarray, frame: int | None = None) -> np.ndarray:
-        return self.map_px(points, "distort", frame).points
-
     def undistort_px(self, points: np.ndarray, frame: int | None = None) -> np.ndarray:
         return self.map_px(points, "undistort", frame).points
 
@@ -869,150 +865,3 @@ def apply_stmap(values: np.ndarray, st: np.ndarray, plate: tuple[int, int], wind
     return out, valid
 
 
-def _bilinear(field_: np.ndarray, qx: np.ndarray, qy: np.ndarray):
-    """A [h, w, 2] field of positions at continuous pixel positions (centres at +0.5), bilinear, extrapolated linearly by
-    up to half a pixel past the outer centres -> (value [n, 2], d/dqx [n, 2], d/dqy [n, 2]); nan outside or where a
-    corner has no value."""
-    h, w = field_.shape[:2]
-    gx, gy = qx - 0.5, qy - 0.5
-    inside = (gx >= -0.5) & (gx <= w - 0.5) & (gy >= -0.5) & (gy <= h - 0.5)
-    i0 = np.clip(np.floor(np.nan_to_num(gx)), 0, w - 2).astype(np.int64)
-    j0 = np.clip(np.floor(np.nan_to_num(gy)), 0, h - 2).astype(np.int64)
-    tx, ty = (gx - i0)[:, None], (gy - j0)[:, None]
-    p00, p10, p01, p11 = field_[j0, i0], field_[j0, i0 + 1], field_[j0 + 1, i0], field_[j0 + 1, i0 + 1]
-    value = p00 * (1 - tx) * (1 - ty) + p10 * tx * (1 - ty) + p01 * (1 - tx) * ty + p11 * tx * ty
-    dx = (p10 - p00) * (1 - ty) + (p11 - p01) * ty
-    dy = (p01 - p00) * (1 - tx) + (p11 - p10) * tx
-    bad = ~inside | ~np.isfinite(value).all(-1)
-    return np.where(bad[:, None], np.nan, value), dx, dy
-
-
-def _solve_field(field_: np.ndarray, targets: np.ndarray, start: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Positions q [n, 2] on a [h, w, 2] field of positions with bilinear(field, q) = targets [n, 2]: Newton's method from
-    `start`, every step kept on the field (projected back when it leaves it) -> (q, how far the field at q lands from
-    the target in pixels (nan: no value there), where q sits on a fold)."""
-    h, w = field_.shape[:2]
-    domain = np.array([w, h], np.float64)  # the field's pixel centres, extrapolated half a pixel out
-    q = np.clip(np.asarray(start, np.float64), 0.0, domain)
-    for _ in range(MAX_ITER):
-        value, dx, dy = _bilinear(field_, q[:, 0], q[:, 1])
-        r = value - targets
-        res = np.hypot(r[:, 0], r[:, 1])
-        live = np.isfinite(res) & (res >= INVERSE_TOL_PX * 1e-2)
-        if not live.any():
-            break
-        with np.errstate(all="ignore"):
-            det = dx[:, 0] * dy[:, 1] - dy[:, 0] * dx[:, 1]
-            sx = (dy[:, 1] * r[:, 0] - dy[:, 0] * r[:, 1]) / det
-            sy = (-dx[:, 1] * r[:, 0] + dx[:, 0] * r[:, 1]) / det
-        step = np.stack([np.where(live, sx, 0.0), np.where(live, sy, 0.0)], -1)
-        step = np.where(np.isfinite(step), step, 0.0)
-        q = np.clip(q - step, 0.0, domain)  # a step off the field is projected back onto it, never lost
-    value, dx, dy = _bilinear(field_, q[:, 0], q[:, 1])
-    err = np.hypot(*(value - targets).T)
-    det = dx[:, 0] * dy[:, 1] - dy[:, 0] * dx[:, 1]
-    return q, err, np.isfinite(err) & ~(det > 0)
-
-
-def _landing_offset(field_: np.ndarray) -> np.ndarray:
-    """Where a field's entries land relative to their own pixels, the median: Newton's start for its inverse."""
-    return np.nanmedian((pixel_centres(field_.shape[1], field_.shape[0]) - field_).reshape(-1, 2), axis=0)
-
-
-@dataclass(frozen=True)
-class Inverse:
-    """An ST-map worked out from the other direction's: the map (INVALID where there is none), how far the
-    forward map of its answers lands from the pixels (pixels: median and max over the pixels that have one, the
-    round trip), the share of pixels that have one, and how many sit on a fold."""
-
-    stmap: np.ndarray
-    median_px: float
-    max_px: float
-    coverage: float
-    folded: int
-
-
-def invert_stmap(st: np.ndarray, direction: str, canvas: Window) -> Inverse:
-    """The other ST-map of a lens given as one ST-map: `st` is an undistort map (on the canvas) or a distort map (on the
-    plate) for `canvas`. Each target pixel is solved for by Newton's method on the given map's bilinear interpolation,
-    started from where the given map's own entries land (nearest splat), every step kept on the map (projected back
-    when it leaves it)."""
-    plate, window = canvas.plate, canvas.offset
-    if direction == "undistort":  # canvas pixel -> plate position; want plate pixel -> canvas position
-        field_, target, back_window = decode(st, plate), plate, window
-    else:  # plate pixel -> canvas position; want canvas pixel -> plate position
-        field_, target, back_window = decode(st, plate, window), canvas.canvas, (0, 0)
-    h, w = field_.shape[:2]
-    tw, th = target
-    centres = pixel_centres(w, h)
-    # start: every given entry puts its own pixel into the target pixel it lands in, moved by the landing offset
-    start = pixel_centres(tw, th) + _landing_offset(field_)
-    ok = np.isfinite(field_).all(-1)
-    land = np.floor(field_[ok]).astype(np.int64)
-    keep = (land[:, 0] >= 0) & (land[:, 0] < tw) & (land[:, 1] >= 0) & (land[:, 1] < th)
-    src, land = centres[ok][keep], land[keep]
-    start[land[:, 1], land[:, 0]] = src + (land + 0.5 - field_[ok][keep])
-    t = pixel_centres(tw, th).reshape(-1, 2)
-    q, err, folded = _solve_field(field_, t, start.reshape(-1, 2))
-    good = (err < INVERSE_TOL_PX) & ~folded
-    positions = np.where(good[:, None], q, np.nan).reshape(th, tw, 2)
-    stmap = encode(positions, plate, back_window)
-    return Inverse(stmap, float(np.median(err[good])) if good.any() else math.nan, float(err[good].max()) if good.any() else math.nan,
-                   float(good.mean()), int(folded.sum()))
-
-
-@dataclass(frozen=True)
-class StmapLens:
-    """A lens given as ST-maps only (STMAP_MODEL on a camera): its maps ({frame: entries [h, w, 2]}, or one
-    for every frame under None), the direction they were made in, the plate they belong to and where the plate frame's
-    top left corner sits in the canvas (an undistort map covers the canvas). It maps pixel positions as a Lens does: in
-    the map's own direction by its bilinear interpolation, the other way by Newton's method on it (as invert_stmap)."""
-
-    maps: Mapping[int | None, np.ndarray]
-    direction: str
-    plate: tuple[int, int]
-    window: tuple[int, int] = (0, 0)
-
-    def __post_init__(self) -> None:
-        if self.direction not in ("undistort", "distort"):
-            raise ValueError(f"an ST-map's direction is undistort or distort, not {self.direction!r}")
-
-    @property
-    def raster(self) -> tuple[int, int]:
-        return self.plate
-
-    def entries(self, frame: int | None = None) -> np.ndarray:
-        """The map at a frame: the one for every frame, else that frame's (no frame: the first)."""
-        if None in self.maps:
-            return self.maps[None]
-        if frame is None:
-            return self.maps[min(self.maps)]  # type: ignore[type-var]
-        if frame not in self.maps:
-            raise Invalid(Msg("B-LENS-STMAPFRAMES", count=1, first=frame))
-        return self.maps[frame]
-
-    def map_px(self, points: np.ndarray, direction: str, frame: int | None = None) -> Mapped:
-        """Pixel positions [..., 2] of one picture -> where they are in the other ("distort": undistorted positions in
-        the plate frame to the plate, "undistort": the plate's to the undistorted picture's plate frame)."""
-        # an undistort map is indexed by canvas pixels and holds plate positions; a distort map is indexed by plate
-        # pixels and holds positions in the canvas's plate frame
-        field_ = decode(self.entries(frame), self.plate)
-        offset = np.array(self.window if self.direction == "undistort" else (0, 0), np.float64)
-        own = "distort" if self.direction == "undistort" else "undistort"
-        start = _landing_offset(field_)
-
-        def one(part: np.ndarray):
-            if direction == own:
-                q = part + offset
-                value, dx, dy = _bilinear(field_, q[:, 0], q[:, 1])
-                with np.errstate(invalid="ignore"):
-                    return value, np.isfinite(value).all(-1) & ~(dx[:, 0] * dy[:, 1] - dy[:, 0] * dx[:, 1] > 0)
-            q, err, fold = _solve_field(field_, part, part + start)
-            return np.where(((err < INVERSE_TOL_PX) & ~fold)[:, None], q - offset, np.nan), fold
-        return _mapped(points, one)
-
-    def distort_px(self, points: np.ndarray, frame: int | None = None) -> np.ndarray:
-        return self.map_px(points, "distort", frame).points
-
-    def undistort_px(self, points: np.ndarray, frame: int | None = None) -> np.ndarray:
-        return self.map_px(points, "undistort", frame).points

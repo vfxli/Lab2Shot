@@ -5,9 +5,10 @@
 .welcome {
   position: absolute;
   inset: 0;
-  z-index: var(--z-canvas-card); /* over the canvas, under the flow controls and the hint line */
+  z-index: var(--z-canvas-card); /* over the canvas, under the canvas's controls and 操作说明 */
   display: grid;
-  place-items: center;
+  place-items: safe center; /* a short graph pane: it scrolls from the top rather than running under the controls */
+  overflow-y: auto;
   padding: 24px 24px 44px;
   pointer-events: none;
   animation: fade var(--t-med) var(--ease);

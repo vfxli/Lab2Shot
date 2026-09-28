@@ -26,7 +26,7 @@ from ..values import FLOAT
 # 「Focal Length」端口的说明，两个成员共用。上游给出像素单位的 Focal Length，此处换算为项目标准单位毫米后输出：
 # 将上游的值转换为标准表示和标准单位不属于二次加工（与 SMPL 参数写入「蒙皮角色」属于同一类）。
 FOCAL_HELP = (
-    "Focal Length（mm）。**上游给的是 Focal Length（px）**（用「一个感光点有多宽」当尺子量出来的长度），这里换成毫米交出去。"
+    "Focal Length（mm）。上游给的是 Focal Length（px）（用「一个感光点有多宽」当尺子量出来的长度），这里换成毫米交出去。"
     "换算用的是节点上的「Filmback」：Focal Length（mm）= Focal Length（px）÷ 画面宽度 × Filmback。"
 )
 # 「Filmback」即节点参数原样输出。上游没有该项；透传是为了让下游（LensDistortion、创建相机）无需重复填写，
@@ -47,7 +47,7 @@ class LensCalibration(NodeDef):
     """镜头标定节点的共同声明：输入一张画面，输出该镜头的若干参数。
 
     成员通过 `outputs = LensCalibration.outputs + (...)` 追加上游额外提供的端口（GeoCalib 的重力方向和重力误差；
-    AnyCalib 的主点已并入「镜头内参」）。此处的端口均由各成员的上游实际提供（AnyCalib 取 `pred["intrinsics"]`，
+    AnyCalib 的主点包含在「镜头内参」中）。此处的端口均由各成员的上游实际提供（AnyCalib 取 `pred["intrinsics"]`，
     GeoCalib 取 `camera` 对象），「Filmback」除外：它是节点参数的透传，由成员在 `Official(ours=...)` 中登记。
     """
 
@@ -57,13 +57,13 @@ class LensCalibration(NodeDef):
     outputs = (
         Port("focal", FLOAT, "Focal Length", unit="mm", help=FOCAL_HELP),
         Port("filmback", FLOAT, "Filmback", unit="mm", help=FILMBACK_HELP),
-        # 镜头模型、畸变系数、主点、像素比打包为一份「镜头内参」（nodes/lens.py packed_lens），不再各设一个端口
+        # 镜头模型、畸变系数、主点、像素比打包为一份「镜头内参」（nodes/lens.py packed_lens），而非各设一个端口
         Port("lens", LENS, "镜头内参", help=LENS_HELP),
     )
 
     # 「拟合模型」中确实会解出畸变的档位：「镜头内参」端口只在这些档位下有值，其他档位输出空数据包，
     # 因此在其他档位下该端口置灰且不可用（nodes/lens.py only_when_distorting），而不是隐藏。
-    # 成员必须从自身的模型表推导该名单（AnyCalib 的 `LensModel` 即核心表的 id，GeoCalib 的 `TABLE_MODELS`），
+    # 成员必须从自身的模型表推导该名单（AnyCalib 由其镜头内参组 `GROUP` 算出，GeoCalib 的 `TABLE_MODELS`），
     # 不得手写：这样新增拟合模型档位时无需回来修改此处。
     distorting_models: ClassVar[tuple[str, ...]] = ()
 

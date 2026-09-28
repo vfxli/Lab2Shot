@@ -1,5 +1,5 @@
 /* The graphics cards as the queue and the admin page show them (ui/GpuFits.tsx, ui/Queue.tsx, admin/Cards.tsx): one
-   card per GPU with its meter, what is on it now, and which extensions fit it. Split out of ui/queue.css (G09). */
+   card per GPU with its meter, what is on it now, and which extensions fit it. */
 
 
 .q-gpus {

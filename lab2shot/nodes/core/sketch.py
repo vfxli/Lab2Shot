@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from ...errors import Invalid
 from ...messages import Msg
-from typing import Literal
 
 from ..base import NodeDef, NodeParams, P, Port, parse_figures
 from ...data.units import DEFAULT_HEIGHT, DEFAULT_WIDTH
@@ -28,8 +27,8 @@ from ..handles import FIGURE_JOINTS, figure_handle
 
 class DrawFigure(NodeDef):
     id = "core.draw_figure"
-    # 2：输出帧由「已绘制的帧」改为「覆盖整段序列」。计算结果变化时必须递增版本，
-    # 否则 work/ 中的旧结果仍会命中缓存（指纹由 type id + version + 参数构成，见 engine/cook.py）。
+    # 计算结果变化时必须递增版本，否则 work/ 中的旧结果仍会命中缓存
+    # （指纹由 type id + version + 参数构成，见 engine/cook.py）。
     version = 2
     # 跟踪点归「几何」类（火柴人的 18 个关节即一组跟踪点），不单独设分类。
     category = "geometry_tools"
@@ -51,11 +50,7 @@ class DrawFigure(NodeDef):
         # 视图中只负责拖动关节。不使用 widget「canvas」（手画遮罩所用）：拖框创建容易产生失真的人体比例，
         # 且在同一帧上创建第二个会替换第一个。
         poses: list[str] = P([], label="关键姿势", widget="figure", group="草图",
-                             placeholder="点「添加帧」放第一个姿势",
-                             help="一帧一个关键姿势。在这里点「添加帧」，当前帧上出现一个站好的火柴人（T-pose，"
-                                  "比例是写死的真人比例，不用自己拖出来）；已经画过前面的帧时，"
-                                  "「基于前一帧」把上一个姿势原样复制过来再改。放下之后在 2D 视图里拖关节摆姿势、"
-                                  "拖髋关节整体移动、右键删掉。两个火柴人的髋关节之间就是身体走的路线")
+                             placeholder="点「添加帧」放第一个姿势")
 
     @classmethod
     def cook(cls, ctx):

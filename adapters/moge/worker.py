@@ -25,7 +25,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from lab2shot_worker import resident, say, serve
+from lab2shot_worker import fail, resident, say, serve
 from lab2shot_worker.mono_geometry import begin, finish_geometry, frame_arrays, run_frames
 
 REFINE_STEPS = 3  # MoGe-3's sparse 3D refinement updates (upstream default)
@@ -35,7 +35,7 @@ USE_FP16 = True
 
 @resident
 def load_model(checkpoint: Path, device: torch.device):
-    """The checkpoint's own config decides the model class (v1 / v2 / v3); the repo is on sys.path (start())."""
+    """The checkpoint's own config decides the model class (v1 / v2 / v3); the repo is on sys.path (mono_geometry.begin)."""
     from moge.model import import_model_class_by_version
 
     ckpt = torch.load(checkpoint, map_location="cpu", weights_only=True, mmap=True)

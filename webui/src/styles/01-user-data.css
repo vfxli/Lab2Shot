@@ -1,8 +1,10 @@
 /* ------------------------------------------------------------------ the user's data, cut */
 
 /* The one rule that cuts text: only the user's own data — a file name, a path, a name they typed, a value from their
-   file — and the element carrying it has its whole text in data-tip (checked by webui/tests/uiKit.test.ts, which finds
-   such elements by the data-user-data attribute). The interface's own words are never cut: they fit, or get a shorter word. */
+   file — marked with the data-user-data attribute, and the element carrying it has its whole text in data-tip. The
+   exceptions are the areas that show no hover tips at all ([data-no-tips], platform/tips.ts): the nodes on the graph
+   canvas, the parameter panel, the viewer's toolbar and the timeline. There a cut text carries no data-tip. The
+   interface's own words are never cut: they fit, or get a shorter word. */
 [data-user-data] {
   min-width: 0;
   overflow: hidden;

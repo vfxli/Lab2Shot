@@ -9,6 +9,7 @@ import { type CameraData } from "./sceneData";
 import { project, usePickable, type PickRay } from "./stageState";
 import { sampleAt } from "../model/viewFormat";
 
+/** Camera state at a frame: camera-to-world matrix and the half extents of the resolution gate at depth 1. */
 export function cameraAt(cam: CameraData, frame: number): { matrix: THREE.Matrix4; focalMm: number; tanX: number; tanY: number } {
   const i = sampleAt(cam.ref.frames, frame);
   const at = (a: Float32Array) => a[Math.min(i, a.length - 1)];

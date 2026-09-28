@@ -10,8 +10,5 @@
 "E-PIXEL3DMM-PRIOR" = "{kind} 只预测出 {got} / {count} 帧：显存不够或素材有坏帧，看日志里这一步的报错"
 "E-PIXEL3DMM-NOTRACK" = "第 {frame} 帧没有拟合结果：拟合中途停了，看日志里最后一条报错"
 
-# ---- 提醒（worker.py）
-"N-PIXEL3DMM-OFFCENTRE" = "脸偏离画面中心 {percent}%：Pixel3DMM 的镜头中心跟着裁切框走，接进来的相机镜头中心在画面正中，放进那台相机的世界后头的位置会差一点。不接相机时交付的相机带着正确的镜头中心，没有这个问题"
-
 # ---- 某一步的进程停了（worker.py run_step：上游每一步各跑一个进程，和它官方脚本一样）
 "E-PIXEL3DMM-STEP" = "「{step}」这一步停了（退出码 {code}）：看日志里这一步最后的报错"

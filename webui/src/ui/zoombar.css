@@ -1,7 +1,8 @@
 
 
-/* The zoom bar over a ruler (ui/ZoomBar.tsx): the frame window's two fields and the buttons around them; the
-   timeline lays its own row out with the same parts. */
+/* The timeline row's small parts: the narrow number field (.tl-field: the timeline's frame fields, the cook range's
+   two ends in editor/Chrome.tsx), a group of controls (.tl-group), and the zoom bar's 适应 / 1:1 / percent
+   (ui/ZoomBar.tsx, .tl-zoom*). */
 .field.num.tl-field {
   width: 54px;
   height: 22px;

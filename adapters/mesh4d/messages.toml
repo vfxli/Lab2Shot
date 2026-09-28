@@ -1,7 +1,7 @@
 # Mesh4D（adapters/mesh4d/nodes.py、worker.py）。
 
 # ---- worker：环境和素材的前提
-"E-MESH4D-NOCODEBASE" = "Mesh4D 的代码目录没有传给 worker（缺 {name}）：这个扩展还没有装好，在「扩展」页面重新安装一次"
+"E-MESH4D-NOCODEBASE" = "Mesh4D 的代码目录没有传给 worker（缺 {name}）：这个扩展还没有装好，在后台管理页的「扩展包」里重新安装一次"
 "E-MESH4D-EMPTYMASK" = "第 {frame} 帧的「前景遮罩」里一个像素都没有。Mesh4D 要先把物体抠出来才算得了：它按遮罩把物体裁出来居中，全黑的一帧裁不出画面。检查这一帧遮罩是不是断了，或者把物体出画的那几帧剪掉"
 "E-MESH4D-STEP" = "Mesh4D 的「{step}」这一步失败了。它最后说的是：\n{detail}"
 

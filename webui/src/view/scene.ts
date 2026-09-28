@@ -3,6 +3,7 @@ import { boundsInWorker, gridPointsOf, parseChunk } from "./sceneWork";
 import { fetchPart } from "./scenePart";
 import type { Bounds } from "../model/math3d";
 import type { CameraData, CharacterData, CloudData, CloudSample, CurveData, CurveSample, GridSample, ModelData } from "./sceneTypes";
+import { backoff } from "../platform/backoff";
 
 /** 一份三维数据在浏览器中的表示：基础数据（静止网格、蒙皮权重、骨骼动画、相机曲线）加按帧到达的数据块。
  *
@@ -15,7 +16,7 @@ type Listener = () => void;
  *
  * - 页面唯一的缓存（transfer/cache.ts）记录下载的字节：场景的描述、基础数据以及每个数据块。
  *   键即其地址，地址中含内容的 sha 或结果指纹 + 帧号，因此已持有的数据不会再向服务器请求。
- * - 内存预算（memoryBytes，固定为「自动」）管理当前已解码的帧数：
+ * - 内存预算（memoryBytes，按标签页的堆上限计算）管理当前已解码的帧数：
  *   超出时释放距当前帧最远的样本块（drop）。被释放的块其字节仍在上述缓存中，回到这些帧只需重新解码（毫秒级），
  *   不重新下载任何字节，也不依赖浏览器自身的 HTTP 缓存是否保留。 */
 
@@ -24,7 +25,7 @@ const AHEAD = 3;
 
 /** 视图每份场景可保留的逐帧数据字节上限：按当前标签页的堆上限计算，而非按机器内存
  * （`navigator.deviceMemory` 按规范上限为 8，据此每份可达 4 GB，而一个标签页的堆约为 4 GB；堆接近上限时
- * 新建位图会静默失败，导致着色与运算失效、浏览器卡顿）。只有「自动」一档，不可设置。 */
+ * 新建位图会静默失败，导致着色与运算失效、浏览器卡顿）。 */
 export function memoryBytes(): number {
   const limit = (performance as { memory?: { jsHeapSizeLimit?: number } }).memory?.jsHeapSizeLimit;
   return Math.min(1e9, Math.max(0.25e9, (limit ?? 2e9) / 4));
@@ -64,7 +65,9 @@ export class Scene {
   readonly cameras: CameraData[];
   version = 0;
   error: string | null = null;
-  private listeners = new Set<Listener>();
+  private listeners = new Set<Listener>(); // the views drawing it: a failed chunk is asked again only while there is one
+  // the page cache's size report (sceneData.ts kept): told of every change, but not a view, so it keeps no retry going
+  onBytes: (() => void) | null = null;
   // failedAt / fails：该块上次拉取失败的时间及连续失败次数（0：未失败），退避时长见 `holdOff`
   private chunks: { name: string; url: string; frames: [number, number]; state: "idle" | "loading" | "here"; bytes: number; failedAt: number; fails: number }[];
   private base: Record<string, Uint8Array>;
@@ -140,7 +143,7 @@ export class Scene {
 
   /** 拉取失败后的重试间隔（毫秒）：按连续失败次数翻倍，1 秒、2 秒、4 秒……最多半分钟。 */
   private static holdOff(c: Scene["chunks"][number]): number {
-    return Math.min(30_000, 1000 * 2 ** Math.max(0, c.fails - 1));
+    return backoff(c.fails, 1000, 30_000);
   }
 
   /** 该块拉取失败且仍在退避期内：期间不拉取，也不让播放器等待它（`pending`）。 */
@@ -155,6 +158,7 @@ export class Scene {
 
   private changed() {
     this.version++;
+    this.onBytes?.();
     for (const fn of this.listeners) fn();
   }
 

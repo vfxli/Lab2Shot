@@ -123,11 +123,6 @@ export function ViewCamera({ o, frameKey, selected, lens, gate, onLeave }: Props
   const keepRef = useRef(keep);
   keepRef.current = keep;
   useEffect(() => () => keepRef.current(), []);
-  useEffect(() => {
-    // for the browser walks (tests/ui/ui_smoke.py): the viewer camera's world matrix and lens, to verify that switching
-    // nodes leaves it unchanged
-    (window as unknown as { lab2shotCamera?: () => number[] }).lab2shotCamera = () => [...active.matrixWorld.toArray(), active === orthoCam ? orthoCam.zoom : persp.fov];
-  }, [active, orthoCam, persp]);
   useLayoutEffect(() => {
     if (lens && gate) {
       if (!wasLooking.current) freePose.current = { position: persp.position.clone(), pivot: pivot.current.clone() }; // to return to later
@@ -302,7 +297,7 @@ export function ViewCamera({ o, frameKey, selected, lens, gate, onLeave }: Props
   const locked = view !== "persp" && !lens; // straight down an axis: the left button pans, as in Houdini
   const buttons = {
     LEFT: locked ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE,
-    // while looking through a camera, the middle button and the wheel move the canvas (view2dState.ts), not the camera
+    // while looking through a camera, the middle button and the wheel move the canvas (state/view2d.ts), not the camera
     MIDDLE: lens ? (-1 as THREE.MOUSE) : THREE.MOUSE.DOLLY,
     RIGHT: THREE.MOUSE.PAN,
   };

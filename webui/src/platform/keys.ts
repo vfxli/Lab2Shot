@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef } from "react";
 
 /** The page's keyboard shortcut registry: a single window listener dispatches each key to the shortcut that should
- * receive it; no component listens for keys on its own (webui/tests/uiKit.test.ts).
+ * receive it; no component listens for keys on its own.
  *
  * Dispatch order:
  *   1. only the topmost layer's shortcuts (a sheet, a popover, a menu: while one is open, nothing beneath it receives keys);
@@ -11,7 +11,7 @@ import { createContext, useContext, useEffect, useRef } from "react";
  * While the user is typing (a text field, a text area, a pull-down, editable text) only shortcuts marked `inText` run
  * (Ctrl+S, Ctrl+Enter, a layer's Esc); a slider, checkbox, radio or button keeps the keys that operate it. */
 
-export interface Shortcut {
+interface Shortcut {
   keys: string[]; // keyName(): "mod+s", "mod+shift+z", "shift+o", "space", "arrowleft", "f", "escape", "tab"; "*": any key without a modifier
   run: (e: KeyboardEvent) => void | boolean; // false: declined (the next shortcut receives the key)
   inText?: boolean; // also runs while typing
@@ -23,8 +23,16 @@ export interface Entry {
   shortcut: () => Shortcut;
 }
 
+/** Whether a key press belongs to an input method still composing (pinyin being turned into characters): its Enter or
+ * Escape confirms or drops the characters and is not the field's or the page's key. Safari reports that Enter with
+ * keyCode 229 instead of isComposing. The one test every Enter handler and the registry below use. */
+export function composing(e: Pick<KeyboardEvent, "isComposing" | "keyCode"> | { nativeEvent: Pick<KeyboardEvent, "isComposing" | "keyCode"> }): boolean {
+  const n = "nativeEvent" in e ? e.nativeEvent : e;
+  return n.isComposing || n.keyCode === 229;
+}
+
 /** The key of an event as shortcuts name it: modifiers (mod = Ctrl, or ⌘ on a Mac; alt; shift) then the key. */
-export function keyName(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey">): string {
+function keyName(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey">): string {
   const key = e.key === " " ? "space" : e.key.toLowerCase();
   return [e.ctrlKey || e.metaKey ? "mod" : "", e.altKey ? "alt" : "", e.shiftKey ? "shift" : "", key].filter(Boolean).join("+");
 }
@@ -33,7 +41,7 @@ const OPERATES = /^(arrow(left|right|up|down)|space|enter|home|end|pageup|pagedo
 
 /** Whether the focused element consumes this key itself: "typing" (every key except inText shortcuts), "control" (a
  * slider's arrows, a button's space), or null. */
-export function ownsKey(el: EventTarget | null, name: string): "typing" | "control" | null {
+function ownsKey(el: EventTarget | null, name: string): "typing" | "control" | null {
   if (typeof HTMLElement === "undefined" || !(el instanceof HTMLElement)) return null;
   if (el.isContentEditable || el.tagName === "TEXTAREA" || el.tagName === "SELECT") return "typing";
   if (el.tagName === "INPUT") {
@@ -50,8 +58,8 @@ const depth = (el: Element | null) => {
   return n;
 };
 
-/** The shortcuts that may take a key, in the order they are tried (pure; webui/tests/shortcuts.test.ts). */
-export function candidates(list: Entry[], name: string, owner: "typing" | "control" | null, under: (el: Element) => boolean): Shortcut[] {
+/** The shortcuts that may take a key, in the order they are tried (pure). */
+function candidates(list: Entry[], name: string, owner: "typing" | "control" | null, under: (el: Element) => boolean): Shortcut[] {
   if (owner === "control") return [];
   const top = Math.max(0, ...list.map((e) => e.layer));
   const here = list.filter((e) => e.layer === top);
@@ -76,6 +84,7 @@ function install(): void {
   installed = true;
   window.addEventListener("pointermove", (e) => (pointer = { x: e.clientX, y: e.clientY }), { passive: true, capture: true });
   window.addEventListener("keydown", (e) => {
+    if (composing(e)) return; // the input method's own key
     const name = keyName(e);
     const under = (el: Element) => {
       if (!pointer) return false;
@@ -96,8 +105,8 @@ function install(): void {
  * release with no drag in between still toggles 播放 / 暂停, so the playhead keeps working while the pointer rests over
  * the graph. `did`: whether the held key did its work (something was dragged); `again`: re-dispatches the key to the
  * shortcut that would otherwise have received it (the registry sees an ordinary press). The key release is observed
- * here, in the only place that listens for keys (webui/tests/shortcuts.test.ts); `stop` removes that listener.
- * Pure over `did` and `again` (webui/tests/wiring.test.ts drives it without a browser). */
+ * here, in the only place that listens for keys; `stop` removes that listener.
+ * Pure over `did` and `again`. */
 export function heldKey(key: string, did: () => boolean, again: () => void) {
   let held = false;
   let sending = false;
@@ -129,15 +138,12 @@ export function heldKey(key: string, did: () => boolean, again: () => void) {
 }
 
 /** Adds a shortcut to the registry (installing the single window listener on first use); the returned function removes
- * it. A subscriber registry: it holds only what is mounted (webui/tests/registries.test.ts). */
+ * it. A subscriber registry: it holds only what is mounted. */
 export function register(entry: Entry): () => void {
   install();
   entries.add(entry);
   return () => void entries.delete(entry);
 }
-
-/** The number of shortcuts currently registered. */
-export const registeredShortcuts = (): number => entries.size;
 
 /** The layer the component sits in (a sheet or a popover provides it to what it holds); 0: the page. */
 export const KeyLayer = createContext(0);

@@ -1,6 +1,6 @@
 """The light-probe family (DiffusionLight, LuxDiT): one lat-long convention, the probe frame, the result files and
-statistics, shared by every worker that estimates an HDRI from a plate. Node side: lab2shot/nodes/results.py
-light_probe(). The raw contract (save_probe):
+statistics, shared by every worker that estimates an HDRI from a plate. Node side: lab2shot/nodes/families/light.py
+(LightProbe). The raw contract (save_probe):
 
     raw/envmap.exr    float32 RGB lat-long HDR, scene-linear Rec.709, width = 2 x height, camera-relative (ORIENTATION)
     raw/preview.png   what the node shows next to it (sRGB): the method's own picture of the light

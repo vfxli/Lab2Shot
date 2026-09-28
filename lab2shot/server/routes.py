@@ -6,7 +6,7 @@ and nothing else lists routes again.
 
     Access.open(why)                 anyone, before logging in (the gate, logging in, whether the server is up)
     Access.user(why, needs=...)      whoever logged in; `needs`: a capability besides (lab2shot/roles.py), for a product
-                                     page's action that is not everyone's (no route uses it at present)
+                                     page's action that is not everyone's (no route uses it)
     Access.admin(capability)         a route under /api/admin/, for a role with that capability and fresh rights
     Access.page(why)                 the built web page (outside /api/)
     limit=Limit(...)                 the route's own body size and rate, instead of the guard's defaults
@@ -19,18 +19,22 @@ from __future__ import annotations
 
 import functools
 import inspect
+import json
 import re
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from fastapi import APIRouter
+from fastapi.routing import APIRoute
 from fastapi.encoders import jsonable_encoder
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import compile_path
 
+from ..errors import Invalid
+from ..messages import Msg
 from ..transfer import BODY_MAX
 
 ADMIN = "/api/admin/"
@@ -39,7 +43,9 @@ ADMIN = "/api/admin/"
 # (a number that can blow up memory or time is not left to a settings form) — they are declared here, once, and the one
 # place that enforces each is named next to it. A limit that stops a real piece of work is a bug: raise the limit.
 MAX_BODY = BODY_MAX  # bytes one request may carry: a graph, a form — far below this (declared in transfer/__init__.py: uploads size the head by it)
+OPEN_BODY = 64 << 10  # bytes a request to an open route may carry (logging in, registering: a form): Access.open
 MAX_NODES = 1000  # nodes one graph may hold (the biggest template is far below this): server/access.py admit()
+MAX_DEPTH = 64  # levels of nesting a JSON body may have (a graph is under ten): read_json, for every route (Route) and feedback
 MAX_STREAMS = 16  # event streams one account may keep open at once (a page follows a few jobs): server/auth.py Streams
 
 
@@ -73,7 +79,9 @@ class Access:
 
     @classmethod
     def open(cls, why: str, limit: Limit | None = None) -> Access:
-        return cls("open", why, None, limit)
+        """Anyone's, before logging in: whatever else its Limit says, its body is never more than OPEN_BODY (a stranger
+        may not make this server take MAX_BODY at every login attempt)."""
+        return cls("open", why, None, replace(limit or Limit(), body=OPEN_BODY))
 
     @classmethod
     def user(cls, why: str, needs: str | None = None, limit: Limit | None = None,
@@ -83,8 +91,8 @@ class Access:
 
     @classmethod
     def admin(cls, needs: str, limit: Limit | None = None, hides: Mapping[str, tuple[str, ...]] | None = None,
-              owned: Callable[..., object] | None = None) -> Access:
-        return cls("admin", "", needs, limit, hides or {}, None, owned)
+              owned: Callable[..., object] | None = None, keyed: Callable[[Request], str] | None = None) -> Access:
+        return cls("admin", "", needs, limit, hides or {}, keyed, owned)
 
     @classmethod
     def page(cls, why: str) -> Access:
@@ -169,8 +177,52 @@ def _owner_first(handler: Callable, owned: Callable[..., object], key: str) -> C
     return answer
 
 
+def read_json(body: bytes | bytearray):
+    """A request's JSON body, or Invalid: not JSON, or nested deeper than MAX_DEPTH. Python's parser and everything
+    after it (validation, its error answer, the handlers) walk a body recursively; one nested thousands deep would stop
+    them with a RecursionError, a 500, so the depth is bounded here, once, without recursing."""
+    try:
+        value = json.loads(body)
+    except RecursionError:
+        raise Invalid(Msg("E-ACCESS-TOODEEP", most=MAX_DEPTH)) from None
+    except ValueError:
+        raise Invalid(Msg("E-ACCESS-NOTJSON")) from None
+    level = [(value, 1)]
+    while level:
+        item, depth = level.pop()
+        if isinstance(item, (dict, list)):
+            if depth > MAX_DEPTH:
+                raise Invalid(Msg("E-ACCESS-TOODEEP", most=MAX_DEPTH))
+            level.extend((v, depth + 1) for v in (item.values() if isinstance(item, dict) else item))
+    return value
+
+
+def _json_typed(request: Request) -> bool:
+    """The body is one FastAPI reads as JSON: application/json or application/*+json (without a type it does not)."""
+    kind = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    return kind == "application/json" or (kind.startswith("application/") and kind.endswith("+json"))
+
+
+class Route(APIRoute):
+    """Every route's JSON body is read here (read_json) before FastAPI reads it: a bad one is answered like any other
+    bad input (400 with its message) instead of by FastAPI's own words or a 500."""
+
+    def get_route_handler(self) -> Callable:
+        handle = super().get_route_handler()
+
+        async def handler(request: Request) -> Response:
+            if _json_typed(request) and (body := await request.body()):
+                request._json = read_json(body)  # starlette's Request.json(), which FastAPI calls next, answers with it
+            return await handle(request)
+
+        return handler
+
+
 class Router(APIRouter):
-    """FastAPI's router whose routes each declare their access (see the module doc)."""
+    """FastAPI's router whose routes each declare their access (see the module doc), and read their body (Route)."""
+
+    def __init__(self, **kw) -> None:
+        super().__init__(route_class=Route, **kw)
 
     def _declared(self, method: str, path: str, access: Access, register: Callable) -> Callable:
         declare(method, self.prefix + path, access)

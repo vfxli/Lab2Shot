@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { Lane, NodeStatus as Status, Plan, StatusReply } from "../api";
-import type { DeliveryState } from "../api/deliveries";
+import type { NodeStatus as Status, Plan, StatusReply } from "../api";
+import type { Output } from "../api/files";
 import type { StorageGate } from "../api/library";
 import type { JobProgress } from "../api/progress";
 import type { Message } from "../messages/message";
@@ -15,15 +15,15 @@ onGenChanged((changed) => changed.forEach(forgetManifest));
 /** 计算结果: the server's latest report about this graph, kept only as a cache of a server response; it is never
  * undone and is never the source of truth. `reply` is the latest status reply and `forCookInputs` the
  * state/cookInputs.ts version it answers.
- * `useTrustedResults` (and `trustedResultsNow` for code outside a component) is the single gate every reader of a
- * result goes through, so a change of the cook inputs since the request is detected in one place.
+ * `useTrustedResults` (and `resultsAreTrusted` / `trustedReplyNow` for code outside a component) is how a reader of a
+ * result checks that the cook inputs have not changed since the request.
  *
  * The reply is kept whole even after it no longer answers the current version: what the editor draws before the next
  * reply arrives (a node's ports, a wire's colour) stays unchanged instead of flickering (graph/rules.ts pendingPorts);
  * what a cook decision depends on (cached, errors, policy) is read only while trusted.
  *
- * Opening another graph clears results, per-node cook status and deliveries: `deliveries` is keyed by
- * `graphId:nodeId` and `reset()` is called from graph/actions.ts's loadGraph. */
+ * Opening another graph clears results, per-node cook status and outputs: `outputs` is keyed by
+ * `graphId:nodeId` and `reset()` is called from graph/document.ts's loadGraph. */
 
 export interface NodeCookStatus {
   status: import("./graph").NodeStatus;
@@ -35,37 +35,29 @@ export interface CookJob {
   id: string;
   target: string;
   position: number | null;
-  lane: Lane;
-  gpus: number;
   stopping: boolean;
-}
-
-export interface NodeDelivery {
-  run: string;
-  state: DeliveryState;
-  name: string;
-  mode: "tar" | "tar.gz" | "folder";
-  bytes: number;
-  at: number; // seconds since epoch, when this state was last known
 }
 
 /** 一条消息（`messages/message.ts`）。此处不保存已显示消息的清单：所有消息统一写入日志
  * （`state/log.ts`）；节点上常驻的标记读取 `results[节点].messages`（服务器将其与结果一并保存）。 */
 export type { Message };
 
-const deliveryKey = (graphId: string, node: string) => `${graphId}:${node}`;
+const outputKey = (graphId: string, node: string) => `${graphId}:${node}`;
 
 interface State {
   reply: StatusReply | null; // the latest accepted status reply (kept after it stops answering the current version)
   results: Record<string, Status>; // its nodes (a cook's messages are added as they arrive)
   forCookInputs: number; // the cookInputs.version that `reply` answers (older versions may no longer hold)
   plan: Plan | null; // the shown node's plan, from `reply` (plan.node: which node it is for)
-  statusProblem: Message | null; // why the latest status request failed, in the server's text (its code and detail);
-  // null when the server never answered with text (the connection dropped) or a later reply arrived. 计算 shows this
-  // instead of guessing「刚改过，或者网络断了」when clicked before any reply has arrived
-  // 计算进度只有一套（api/progress.ts）：服务器发来的数据原样存放于此，节点与队列面板绘制同一份数据。
-  // null 表示当前没有任何节点在计算
-  now: JobProgress | null;
+  // Why the server refused this graph, in its own text (its code and detail): the latest status request, or the last
+  // submission (计算, 提交). null when nothing was refused, the server never answered with text (the connection dropped),
+  // or a later status reply arrived. Shown next to 提交 while it stands (editor/Chrome.tsx SubmitRefusal): a graph the
+  // server cannot read says so the moment it is opened. A click on 计算 says it again instead of guessing
+  // 「刚改过，或者网络断了」.
+  refused: Message | null;
+  // 计算进度（api/progress.ts），按节点各存一份：服务器发来的数据原样存放于此。一个任务的几个节点可以同时在算，
+  // 每个节点只读自己的那一份；节点算完、出错、跳过或任务结束时移除
+  running: Record<string, JobProgress>;
   job: CookJob | null;
   queueSwitches: { gpu?: boolean; compute: boolean }; // gpu: only for users permitted to see the cards
   maxFrames: number; // 单次提交允许计算的最大帧数（随队列响应返回；0 表示尚未查询，不拦截）
@@ -77,15 +69,18 @@ interface State {
   // click and to those cook inputs: it persists until they change, not until the next status reply, because a reply
   // arrives on every edit and also on every view change (showing another node requests again), and showing another node does not change the cook inputs
   blockedAt: number;
-  deliveries: Record<string, NodeDelivery>; // `${graphId}:${node}` -> its latest known delivery
+  // `${graphId}:${node}` -> what that 「输出」 last packed (its own cook finished: its zip is there to download). From the
+  // output event of the job this page follows, or the server's list when the graph is opened (graph/outputs.ts)
+  outputs: Record<string, Output>;
 
   setReply: (reply: StatusReply) => void;
   clearResults: () => void;
   /** A `node_done` event whose graph and cook-inputs version still match this page: writes the node's new output
    * fingerprints directly into `results` without a status round-trip. */
   applyNodeDone: (node: string, outputs: Record<string, string>) => void;
-  setStatusProblem: (problem: Message | null) => void;
-  setNow: (p: JobProgress | null) => void;
+  setRefused: (why: Message | null) => void;
+  setProgress: (p: JobProgress) => void;
+  endProgress: (node: string) => void;
   setJob: (job: CookJob | null) => void;
   patchJob: (patch: Partial<CookJob>) => void;
   setQueueSwitches: (sw: { gpu?: boolean; compute: boolean }) => void;
@@ -93,9 +88,9 @@ interface State {
   setStorage: (storage: StorageGate | null) => void;
   setNodeStatus: (id: string, patch: Partial<NodeCookStatus>) => void;
   removeNodeStatus: (ids: string[]) => void;
-  setDelivery: (graphId: string, node: string, d: NodeDelivery) => void;
-  deliveryFor: (graphId: string, node: string) => NodeDelivery | undefined;
-  reset: () => void; // another graph was loaded: no results, status or deliveries of the previous one carry over
+  setOutput: (graphId: string, node: string, o: Output) => void;
+  outputFor: (graphId: string, node: string) => Output | undefined;
+  reset: () => void; // another graph was loaded: no results, status or outputs of the previous one carry over
 }
 
 export const useResults = create<State>((set, get) => ({
@@ -103,18 +98,18 @@ export const useResults = create<State>((set, get) => ({
   results: {},
   forCookInputs: -1,
   plan: null,
-  now: null,
+  running: {},
   job: null,
   queueSwitches: { gpu: true, compute: true },
   maxFrames: 0,
   storage: null,
   byNode: {},
   blockedAt: -1,
-  statusProblem: null,
-  deliveries: {},
+  refused: null,
+  outputs: {},
 
   setReply: (reply) => {
-    set({ reply, results: reply.nodes, forCookInputs: reply.cook_inputs, plan: reply.plan, statusProblem: null });
+    set({ reply, results: reply.nodes, forCookInputs: reply.cook_inputs, plan: reply.plan, refused: null });
     // 每个包的生成号计入缓存键：重算后的指纹对应的包说明随之失效
     const gens: Record<string, string> = {};
     for (const st of Object.values(reply.nodes))
@@ -122,11 +117,12 @@ export const useResults = create<State>((set, get) => ({
     setGens(gens);
     // 记录有包的节点（state/stale.ts：参数修改后「过期」档绘制的即是此记录）
     const ci = useCookInputs.getState();
-    for (const [id, st] of Object.entries(reply.nodes)) rememberGood(ci.graphId, (n) => ci.nodes[n], ci.edges, id, st.fingerprint, st.outputs, st.present);
+    const trusted = reply.cook_inputs === ci.version; // 回复的就是当前版本：节点现在的参数即其结果的参数
+    for (const [id, st] of Object.entries(reply.nodes)) rememberGood(ci.graphId, (n) => ci.nodes[n], ci.edges, id, st.fingerprint, st.outputs, st.present, trusted);
   },
   // the server could not answer: nothing is trusted; the latest reply remains for drawing in the meantime
-  clearResults: () => set({ results: {}, forCookInputs: -1, plan: null, statusProblem: null }),
-  setStatusProblem: (problem) => set({ statusProblem: problem }),
+  clearResults: () => set({ results: {}, forCookInputs: -1, plan: null, refused: null }),
+  setRefused: (why) => set({ refused: why }),
   applyNodeDone: (node, outputs) =>
     set((s) => {
       const cur = s.results[node];
@@ -135,10 +131,17 @@ export const useResults = create<State>((set, get) => ({
       const present = Array.from(new Set([...(cur.present ?? []), ...Object.keys(outputs)]));
       const next: Status = { ...cur, outputs: { ...(cur.outputs ?? {}), ...outputs }, present, cached: true, outcome: undefined };
       const ci = useCookInputs.getState();
-      rememberGood(ci.graphId, (n) => ci.nodes[n], ci.edges, node, next.fingerprint, next.outputs, present);
+      // 只在事件回答页面当前版本时才调用（graph/streamDone.ts onNodeDone）：此时节点现在的参数即算出结果的参数
+      rememberGood(ci.graphId, (n) => ci.nodes[n], ci.edges, node, next.fingerprint, next.outputs, present, true);
       return { results: { ...s.results, [node]: next } };
     }),
-  setNow: (p) => set({ now: p }),
+  setProgress: (p) => set((s) => ({ running: { ...s.running, [p.node]: p } })),
+  endProgress: (node) =>
+    set((s) => {
+      if (!(node in s.running)) return {};
+      const { [node]: _, ...rest } = s.running;
+      return { running: rest };
+    }),
   setJob: (job) => set({ job }),
   patchJob: (patch) => set((s) => (s.job ? { job: { ...s.job, ...patch } } : {})),
   setQueueSwitches: (sw) => set({ queueSwitches: sw }),
@@ -151,26 +154,20 @@ export const useResults = create<State>((set, get) => ({
       for (const id of ids) delete byNode[id];
       return { byNode };
     }),
-  setDelivery: (graphId, node, d) => set((s) => ({ deliveries: { ...s.deliveries, [deliveryKey(graphId, node)]: d } })),
-  deliveryFor: (graphId, node) => get().deliveries[deliveryKey(graphId, node)],
-  reset: () => set({ reply: null, results: {}, forCookInputs: -1, plan: null, statusProblem: null, now: null, byNode: {}, blockedAt: -1, deliveries: {} }),
+  setOutput: (graphId, node, o) => set((s) => ({ outputs: { ...s.outputs, [outputKey(graphId, node)]: o } })),
+  outputFor: (graphId, node) => get().outputs[outputKey(graphId, node)],
+  reset: () => set({ reply: null, results: {}, forCookInputs: -1, plan: null, refused: null, running: {}, byNode: {}, blockedAt: -1, outputs: {} }),
 }));
 
 const NO_RESULTS: Record<string, Status> = {};
 
-/** The single gate every reader of a result goes through: null once state/cookInputs.ts's version has moved past the
- * version these results answer ("拿不准就当要算"). Use this rather than reading `useResults((s) => s.results)` directly. */
+/** The results while they answer the current cook inputs: an empty record once state/cookInputs.ts's version has moved
+ * past the version these results answer ("拿不准就当要算"). Use this rather than reading `useResults((s) => s.results)` directly. */
 export function useTrustedResults(): Record<string, Status> {
   const version = useCookInputs((s) => s.version);
   const forCookInputs = useResults((s) => s.forCookInputs);
   const results = useResults((s) => s.results);
   return forCookInputs === version ? results : NO_RESULTS;
-}
-
-/** useTrustedResults(), for code outside a component (event handlers, other stores' actions). */
-export function trustedResultsNow(): Record<string, Status> {
-  const r = useResults.getState();
-  return r.forCookInputs === useCookInputs.getState().version ? r.results : NO_RESULTS;
 }
 
 export const resultsAreTrusted = (): boolean => useResults.getState().forCookInputs === useCookInputs.getState().version;

@@ -35,7 +35,7 @@ from lab2shot_worker.matte import GUIDE_THRESHOLD, GuideMasks, Output, frame_rea
 from lab2shot_worker.run import Run
 
 MULTIPLE = 2  # the network pads to multiples of 16 itself; keep the size even
-# what the memory grows with: 最大处理尺寸 within the node's 256..1920 (1920: 7.5 GB)
+# what the memory grows with: 处理分辨率 (node options 960 / 1280 / 1920; 1920: 7.5 GB)
 RESOLUTION = MemoryBound.parameter("resolution", (1920, 1280, 960, 640))
 
 

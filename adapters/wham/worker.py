@@ -404,7 +404,7 @@ def main(job_path: str) -> None:
     # with zero translation, since upstream uses only the rotation
     # (`third_party/wham/repo/lib/data/datasets/dataset_custom.py:19 quat = traj[:, 3:]`). The world merge therefore
     # runs as if no input camera were given: no alignment as a whole, and the world stays the method's own gravity
-    # world. Placing the people into a given camera requires an explicit 「对齐到相机」 node in the graph.
+    # world. Placing the people into a given camera requires an explicit 「相机空间转换」 node in the graph.
     as_camera = None if cam is None or cam.rotation_only else cam
     track, world_info = wh.one_world("WHAM", people, frame_numbers, rot_hint, static, as_camera,
                                      follow_camera)
@@ -413,7 +413,7 @@ def main(job_path: str) -> None:
     out = [wh.save_person(raw, person, "smpl", body.model) for person in people]
     # raw/camera.npz: the reference camera of this result (the node's 「参照相机」 output,
     # families/humans.py `reference_camera`). It is not a production camera; its only use is as the reference for
-    # the core node 「对齐到相机」, which computes the correction that moves the result into the user's camera world.
+    # the core node 「相机空间转换」, which computes the correction that moves the result into the user's camera world.
     #
     # This camera comes entirely from upstream outputs, not from the body:
     #   (1) upstream runs SLAM to solve the camera: `third_party/wham/repo/demo.py:56`

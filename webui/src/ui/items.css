@@ -1,4 +1,4 @@
-/* 条目选择条 (view/ItemsBar.tsx): the glass pill at the bottom middle of the viewer — which item of each
+/* 条目选择条 (ui/ItemsBar.tsx): the glass pill at the bottom middle of the viewer — which item of each
    逐项处理 block the view is on. A view setting: nothing here starts a cook. */
 
 .items-bar {

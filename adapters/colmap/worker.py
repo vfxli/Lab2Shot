@@ -4,7 +4,7 @@ third_party/colmap/.venv (official pycolmap-cuda12 wheel); never imports Lab2Sho
     python worker.py <job.json>
 
 Frames (every `step`-th) -> SIFT features (CPU / VLFeat by default, GPU / SiftGPU
-on request; moving people masked out) ->
+on request; moving objects masked out) ->
 sequential / exhaustive matching -> global (GLOMAP) or incremental mapper ->
 raw/cameras.json (lens + camera-to-world per registered frame), raw/points.npz
 (sparse point cloud), raw/sparse/ (the COLMAP binary model, same world).
@@ -277,7 +277,7 @@ def main(job_path: str) -> None:
 
     run.stage("准备画面")
     names = link_images(used, work / "images")
-    moving = recon.MovingMasks(job, width, height)  # people boxes / moving-object masks: no features there
+    moving = recon.MovingMasks(job, width, height)  # the node's moving-object masks: no features there
     masked = {name: moving.get(frame) for name, frame in names.items() if frame in moving}
     if masked:
         share = float(np.mean([m.mean() for m in masked.values()]))

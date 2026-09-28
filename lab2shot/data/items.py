@@ -5,9 +5,12 @@ of points, 分割图 several objects. 「逐项开始」 processes them one at a
 「取一条」 extracts one. All of this goes through this module: a type declares the items it holds (`DataType.items`, the
 Chinese word for one item) and registers here how to name, split and merge them. Nodes never do this themselves.
 
-    names(packet)                 the items' names, in order (meta only: no file opened)
-    split(packet, name, out)      one item as a packet of the same type, holding only it
-    merge([(name, packet)], out)  the items back into one packet of the type
+    names(packet)                       the items' names, in order (meta only: no file opened)
+    split(packet, name, out, each)      one item as a packet of the same type, holding only it
+    merge([(name, packet)], out, each)  the items back into one packet of the type
+
+`each` is the cook's frame loop (engine/cook.py CookContext.each_done): a kind that works frame by frame (分割图)
+does each frame through it, so its frames run in parallel and a stopped cook starts no further frame.
 
 Names are a first-class property: two items of one list may not share a name (B-NAME-SAME), and nothing is
 ever renamed silently; the user sees the name and can change it («命名»).
@@ -15,8 +18,7 @@ ever renamed silently; the user sees the name and can change it («命名»).
 
 from __future__ import annotations
 
-import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -52,13 +54,17 @@ def port_fp(*parts) -> str:
     return key(["item-output", *parts], 24)
 
 
+# the cook's frame loop, (items, work) -> work(item) for each, in order (CookContext.each_done)
+FrameLoop = Callable[[Iterable, Callable], Iterator]
+
+
 @dataclass(frozen=True)
 class ItemKind:
     """How one type's items are named, taken apart and put back together."""
 
     names: Callable[[Mapping], list[str]]  # (meta) -> the items' names, in order
-    split: Callable[[Packet, str, Path], Packet]
-    merge: Callable[[list[tuple[str, Packet]], Path], Packet]
+    split: Callable[[Packet, str, Path, FrameLoop], Packet]
+    merge: Callable[[list[tuple[str, Packet]], Path, FrameLoop], Packet]
 
 
 # ------------------------------------------------------------------ 人物框: one person each
@@ -72,7 +78,7 @@ def _boxes_names(meta: Mapping) -> list[str]:
     return [_person_name(p) for p in meta.get("people") or ()]
 
 
-def _boxes_split(p: Packet, name: str, out: Path) -> Packet:
+def _boxes_split(p: Packet, name: str, out: Path, each: FrameLoop) -> Packet:
     from .payloads import read_boxes, write_boxes
 
     people = [q for q in read_boxes(p) if _person_name(q["id"]) == name]
@@ -81,7 +87,7 @@ def _boxes_split(p: Packet, name: str, out: Path) -> Packet:
     return write_boxes(out, people, p.meta["width"], p.meta["height"], p.meta["frames"], chosen=True)
 
 
-def _boxes_merge(parts: list[tuple[str, Packet]], out: Path) -> Packet:
+def _boxes_merge(parts: list[tuple[str, Packet]], out: Path, each: FrameLoop) -> Packet:
     from .payloads import read_boxes, write_boxes
 
     _refuse_same_names(parts, "boxes")
@@ -109,8 +115,7 @@ def _tracks_names(meta: Mapping) -> list[str]:
     return [g["name"] for g in _track_groups(meta)]
 
 
-def _tracks_split(p: Packet, name: str, out: Path) -> Packet:
-    import numpy as np
+def _tracks_split(p: Packet, name: str, out: Path, each: FrameLoop) -> Packet:
 
     from .payloads import read_tracks, tracks_packet
 
@@ -130,7 +135,7 @@ def _tracks_split(p: Packet, name: str, out: Path) -> Packet:
                          **{k: p.meta[k] for k in ("pixel_aspect",) if k in p.meta})
 
 
-def _tracks_merge(parts: list[tuple[str, Packet]], out: Path) -> Packet:
+def _tracks_merge(parts: list[tuple[str, Packet]], out: Path, each: FrameLoop) -> Packet:
     import numpy as np
 
     from .payloads import read_tracks, tracks_packet
@@ -157,7 +162,7 @@ def _class_names(meta: Mapping) -> list[str]:
     return [str(c.get("name") or c["index"]) for c in meta.get("classes") or () if int(c.get("index", 0)) > 0]
 
 
-def _segmentation_split(p: Packet, name: str, out: Path) -> Packet:
+def _segmentation_split(p: Packet, name: str, out: Path, each: FrameLoop) -> Packet:
     import numpy as np
 
     from .maps import map_at
@@ -169,13 +174,15 @@ def _segmentation_split(p: Packet, name: str, out: Path) -> Packet:
     index = int(entry["index"])
     writer = ExrWriter(out, 1, window=window_of(p), value_range=(0.0, float(index)),
                        classes=[dict(entry)], **{k: p.meta[k] for k in ("pixel_aspect",) if k in p.meta})
-    for f in p.meta["frames"]:
+    def one(f):
         labels = map_at(p, f)[0]
         writer.add(f, np.where(np.rint(labels) == index, labels, 0.0))
+
+    list(each(p.meta["frames"], one))
     return writer.packet()
 
 
-def _segmentation_merge(parts: list[tuple[str, Packet]], out: Path) -> Packet:
+def _segmentation_merge(parts: list[tuple[str, Packet]], out: Path, each: FrameLoop) -> Packet:
     import numpy as np
 
     from .maps import map_at
@@ -187,7 +194,7 @@ def _segmentation_merge(parts: list[tuple[str, Packet]], out: Path) -> Packet:
     writer = ExrWriter(out, 1, window=window_of(first),
                        value_range=(0.0, float(max((int(c["index"]) for c in classes), default=1))), classes=classes,
                        **{k: first.meta[k] for k in ("pixel_aspect",) if k in first.meta})
-    for f in first.meta["frames"]:
+    def one(f):
         merged = None
         for _, packet in parts:
             labels = np.rint(map_at(packet, f)[0])
@@ -198,6 +205,8 @@ def _segmentation_merge(parts: list[tuple[str, Packet]], out: Path) -> Packet:
                 raise Invalid(Msg("E-ITEMS-OVERLAP", frame=f))
             merged = np.where(labels > 0, labels, merged)
         writer.add(f, merged)
+
+    list(each(first.meta["frames"], one))
     return writer.packet()
 
 
@@ -208,7 +217,7 @@ def _scene_names(meta: Mapping) -> list[str]:
     return [str(n) for n in meta.get("top") or ()]
 
 
-def _scene_split(p: Packet, name: str, out: Path) -> Packet:
+def _scene_split(p: Packet, name: str, out: Path, each: FrameLoop) -> Packet:
     from .scene import only_group
 
     got = only_group(p, name, out)
@@ -217,10 +226,10 @@ def _scene_split(p: Packet, name: str, out: Path) -> Packet:
     return got
 
 
-def _scene_merge(parts: list[tuple[str, Packet]], out: Path) -> Packet:
+def _scene_merge(parts: list[tuple[str, Packet]], out: Path, each: FrameLoop) -> Packet:
     """Merge named scenes into one. The result keeps the type the parts share (three merged cameras are 相机, not the
     generic 场景), so it can be used wherever one of them could (the output of 「列表合并」 carries its items' type).
-    Differing types have only 場景 in common, which is the purpose of 场景."""
+    Differing types have only 场景 in common, which is the purpose of 场景."""
     from .scene import join_named
 
     _refuse_same_names(parts, "scene")
@@ -271,15 +280,15 @@ def names(p: Packet) -> list[str]:
     return kind.names(p.meta) if kind is not None and not p.meta.get("empty") else []
 
 
-def split(p: Packet, name: str, out: Path) -> Packet:
+def split(p: Packet, name: str, out: Path, each: FrameLoop) -> Packet:
     """One item as a packet of the same type, holding only it."""
     kind = kind_of(p.type)
     if kind is None:
         raise Invalid(Msg("E-ITEMS-NOITEMS", kind=DATA_TYPES[p.type].label))
-    return kind.split(p, name, out)
+    return kind.split(p, name, out, each)
 
 
-def as_items(p: Packet, by: str, version: int, only: Sequence[str] | None = None) -> list[tuple[str, str]]:
+def as_items(p: Packet, by: str, version: int, each: FrameLoop, only: Sequence[str] | None = None) -> list[tuple[str, str]]:
     """The items of `p`, each as a packet of its own: [(name, its fingerprint)] in `p`'s own order, exactly as a list
     packet names them (data/packet.py items_meta). `only`: restrict to these names (「选人」 passes on the chosen
     people); None: every item.
@@ -300,12 +309,12 @@ def as_items(p: Packet, by: str, version: int, only: Sequence[str] | None = None
         if wanted is not None and name not in wanted:
             continue
         fp = item_fingerprint(by, version, p.fingerprint, name)
-        produce(fp, lambda d, name=name: split(p, name, d).commit(by))  # under the entry's lock (data/packet.py produce)
+        produce(fp, lambda d, name=name: split(p, name, d, each).commit(by))  # under the entry's lock (data/packet.py produce)
         parts.append((name, fp))
     return parts
 
 
-def merge(parts: list[tuple[str, Packet]], out: Path) -> Packet:
+def merge(parts: list[tuple[str, Packet]], out: Path, each: FrameLoop) -> Packet:
     """Named items back into one packet of their type (they must be of one type, and their names must differ)."""
     if not parts:
         raise Invalid(Msg("E-ITEMS-NOPARTS"))
@@ -313,7 +322,7 @@ def merge(parts: list[tuple[str, Packet]], out: Path) -> Packet:
     kind = kind_of(type_id)
     if kind is None:
         raise Invalid(Msg("E-ITEMS-NOITEMS", kind=DATA_TYPES[type_id].label))
-    return kind.merge(parts, out)
+    return kind.merge(parts, out, each)
 
 
 def holds_nothing(type_id: str, meta: dict) -> bool:

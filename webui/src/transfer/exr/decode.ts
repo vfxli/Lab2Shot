@@ -5,7 +5,8 @@ import { parseExr } from "./exrCore.js";
  * half 保持为 `Uint16Array`（不转为 float，与文件逐位一致），float 为 `Float32Array`，uint 为 `Uint32Array`。
  * 行序自上而下（与 three 的纹理相反），按 `data[y * width + x]` 索引。
  *
- * 使用方：本机代理（`transfer/localProxy/worker.ts`，用于显示）与通道级上传（`transfer/planes.ts`，用于上传）。 */
+ * 使用方：本机代理（`transfer/localProxy/worker.ts`）与 EXR worker（`transfer/exrWorker.ts`：本机代理不可用时的显示解码，
+ * 以及通道级上传 `transfer/planes.ts` 所需的平面）。 */
 export interface ExrPlane {
   name: string;
   type: "half" | "float" | "uint";

@@ -1,5 +1,5 @@
 # HaMeR environment (torch comes from EnvSpec). Follows upstream setup.py at the
-# pinned commit; mmcv, mmpose (ViTPose) and chumpy are built afterwards
+# pinned commit; detectron2, mmcv, mmpose (ViTPose) and chumpy are built afterwards
 # without build isolation (EnvSpec.compiled), so their runtime deps are listed here.
 
 # build helpers; the old setup.py files import pkg_resources (removed in setuptools 81)
@@ -43,3 +43,15 @@ matplotlib==3.9.4
 
 # chumpy runtime deps
 six
+
+# detectron2 runtime deps (it is installed with --no-deps). The ViTDet LazyConfig
+# (hamer/configs/cascade_mask_rcnn_vitdet_h_75ep.py) loads model_zoo's COCO data
+# config, which imports detectron2.data / evaluation (pycocotools). Versions as in
+# the environment the hamer template runs in.
+iopath==0.1.9
+fvcore==0.1.5.post20221221
+omegaconf==2.3.0
+cloudpickle==3.1.2
+tabulate==0.10.0
+termcolor==3.3.0
+pycocotools==2.0.10

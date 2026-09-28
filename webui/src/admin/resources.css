@@ -1,4 +1,4 @@
-/* 后台里按账号列出的表格和它上面的那几块（admin/Resources.tsx、UserQuota.tsx、Categories.tsx、EnterTemplate.tsx）：
+/* 后台里按账号列出的表格和它上面的那几块（admin/Resources.tsx、UserQuota.tsx）：
    只有布局，颜色、圆角、字号都是 ui/tokens.css 的。 */
 
 /* ---------------------------------------------------------------- 一种资源的一页 (admin/Resources.tsx) */
@@ -113,37 +113,7 @@
   font-size: var(--fs-sm);
 }
 
-/* the field's own width here (the subject is the input, never the kit's .field: ui/Button.css owns how it looks) */
+/* the field's own width here (the subject is the input, never the kit's .field: ui/field.css owns how it looks) */
 .usr-quota-field input {
   width: 88px;
-}
-
-/* ---------------------------------------------------------------- 分类和录入模板 (admin/Categories.tsx, EnterTemplate.tsx) */
-.cat-adm {
-  margin-top: var(--sp-5);
-  padding-top: var(--sp-4);
-  border-top: 0.5px solid var(--hair);
-}
-
-.cat-adm-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--sp-3);
-  margin-bottom: var(--sp-3);
-}
-
-.cat-adm-head h3 {
-  margin: 0;
-  font-size: var(--fs-lg);
-}
-
-.cat-adm-head p {
-  margin: 0;
-  flex: 1;
-  min-width: 0;
-  font-size: var(--fs-sm);
-}
-
-.cat-adm-name {
-  color: var(--text);
 }

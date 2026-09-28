@@ -1,6 +1,6 @@
 /* The kit's other small controls (ui/Button.tsx): the segmented control, the switch, the chip and the key cap. They
    are defined here rather than in ui/Button.css because the login page uses none of them: the gate's bundle size is
-   measured and capped (webui/tests/bundle.test.ts), so a control the login page never shows is loaded with the page
+   kept small, so a control the login page never shows is loaded with the page
    behind the gate (styles/index.css). Only this file styles them; every value is a token. */
 
 /* ------------------------------------------------------------------ segmented control */
@@ -164,11 +164,6 @@
   display: inline-block;
 }
 
-/* a chip whose full explanation is in its tooltip (a licence, a shot condition) */
-.chip[data-tip] {
-  /* 不设 cursor: help：悬停提示由 data-tip 负责，光标保持默认，与全站一致 */
-}
-
 /* a chip that is a link (a project's page, a website): still a chip, never underlined */
 a.chip {
   text-decoration: none;
@@ -214,7 +209,7 @@ a.chip.link:hover {
   white-space: nowrap;
 }
 
-/* 可点击的胶囊（帮助页「安装 / 许可证」一排筛选）：底色比静态标签深一档，否则在无边框时看似纯文字，
+/* 可点击的胶囊（模板面板、后台列表上方一排筛选）：底色比静态标签深一档，否则在无边框时看似纯文字，
    无法识别为可点击 */
 button.chip,
 .chip-md {
@@ -275,40 +270,7 @@ button.chip.on,
   }
 }
 
-/* 下拉框的触发器（ui/Select.tsx）：外观为一个 field，右侧带一个小箭头。
-   弹出列表使用站点的菜单组件（玻璃、圆角、暗色），而非系统绘制的白底直角列表 */
-.select-trigger {
-  line-height: 1; /* 同 .btn：单行文字，行框等于字高，以保证居中准确 */
-  padding-top: 1px; /* 同 .btn：中文字形偏上，向下补偿至中心 */
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  text-align: left;
-  cursor: pointer;
-}
-
-/* 一行中有多个控件的位置（视图上方一排）：下拉框按自身文字宽度，不随整排压缩，
-   否则文字会被截断（界面文字既不换行也不截断）。面板和表单中的下拉框不使用此类，
-   仍占满所在格，与输入框对齐 */
-.select-trigger.fit {
-  width: auto;
-  flex: none; /* .field 的 min-width: 0 会使其被同排控件压缩至窄于文字 */
-}
-
-.select-trigger:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
-.select-now {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-/* 小一号的控件（用于视图工具栏）：尺寸由组件自身决定，页面只添加 class，不得在页面样式中修改组件外观
-   （由 uiKit.pageCssRestylingKit 检查）。
+/* 小一号的控件（用于视图工具栏）：尺寸由组件自身决定，页面只添加 class，不得在页面样式中修改组件外观。
 
    视图上方一排统一使用此档：按钮 22 px、外壳 22 + 2×2 = 26 px、圆角 --r-xs / --r-ctl、字号 --fs-xs。
    进入该排的控件，class 一律使用 ui/Button.tsx 导出的 HUD_SEG（或为 Segmented / Toggle 传入 `hud`），
@@ -331,8 +293,7 @@ button.chip.on,
 
 /* ------------------------------------------------------------------ 年份小标签
 
-   项目的论文或发布年份，用于直观区分新旧。同一个类用于两处：帮助页的项目列表和项目页，
-   以及模板面板每张卡片的右上角。 */
+   项目的论文或发布年份，用于直观区分新旧：模板面板每张卡片底行的最右侧（editor/Templates.tsx）。 */
 
 .year-tag {
   flex: none;
@@ -346,7 +307,7 @@ button.chip.on,
   background: var(--orange-soft);
 }
 
-/* 位于一行末尾：用于帮助页的项目列表。标题行按 baseline 排列，标签自身居中 */
+/* 位于一行末尾（模板卡片的底行）：该行按 baseline 排列，标签自身居中 */
 .year-tag.at-end {
   margin-left: auto;
   align-self: center;

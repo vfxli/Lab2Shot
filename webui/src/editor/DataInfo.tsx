@@ -11,7 +11,7 @@ import { CopyToNuke } from "../ui/CopyToNuke";
 import { ItemsList } from "../ui/ItemsList";
 import { MessageText } from "../ui/MessageText";
 
-/** 数据信息 (the middle-click panel): what each of a node's ports holds, i.e. the one summary
+/** 数据信息 (the card the mark at a node's bottom right opens): what each of a node's ports holds, i.e. the one summary
  * the server makes from the data type's own declaration (lab2shot/data/summary.py), the same answer the port's
  * tooltip and 「取信息」 read. The page writes none of it. */
 
@@ -40,7 +40,7 @@ function useManifests(fps: string[]): Record<string, Manifest> {
  * 一个不会出现的数值。判据与该处相同：节点已计算（`cached`）而该端口不在 `present` 中，即表示无人需要。 */
 const whyNothing = (status: { cached?: boolean; present?: string[] } | undefined, r: { side: string; name: string }) =>
   // 传递消息对象而非其文字：编号通过 `data-code` 写到元素上，截图即可确定是哪一条消息
-  // （`webui/tests/messages.test.ts`：a message's `.text` is for a tooltip; anywhere else the message itself goes）
+  // （a message's `.text` is for a tooltip; anywhere else the message itself goes）
   r.side === "输出" && status?.cached && !(status.present ?? []).includes(r.name)
     ? msg("I-VALUE-NOTASKED")
     : msg("I-VALUE-NOTCOOKED");
@@ -62,7 +62,7 @@ function portRows(snap: ReturnType<typeof useGraphSnapshot>, id: string): { side
   return rows;
 }
 
-/** 数据信息 (the middle-click panel): every input and every output of this node, one row each, with what the
+/** 数据信息 (the card beside the node, editor/NodeInfoCard.tsx): every input and every output of this node, one row each, with what the
  * data actually is: the one summary the server makes from the data type's declaration (data/summary.py), the same
  * answer the port's own tooltip and 「取信息」 read. Nothing here is written by the page.
  *
@@ -71,8 +71,8 @@ function portRows(snap: ReturnType<typeof useGraphSnapshot>, id: string): { side
  *
  * 提醒 is the last part: everything this node has to say right now, in full. The node's own footer has room for a few
  * words only, so the sentences live here, in the site's one message row (ui/MessageRow.tsx) with
- * its level square and its code. The parameter panel's 数据信息 tab and the information card beside the node render
- * this same component from the same status reply: one place, one list, nothing requested twice. */
+ * its level square and its code. The information card beside the node renders this component from the status
+ * reply: one place, one list, nothing requested twice. */
 export function DataGroup({ node }: { node: GNode }) {
   const snap = useGraphSnapshot();
   const rows = portRows(snap, node.id);

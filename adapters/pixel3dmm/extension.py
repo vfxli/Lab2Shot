@@ -42,7 +42,7 @@ MICA = GitSource(url="https://github.com/Zielon/MICA.git",
 PIPNET = GitSource(url="https://github.com/jhb86253817/PIPNet.git",
                    commit="b9eab58816437403a34aa5bc3adeafe5081fd36b")
 # pytorch3d is compiled from source by build_p3dmm.py (knn_points, load_obj, Meshes), not pip-installed:
-# its point renderer "pulsar" no longer links with a CUDA 13 compiler and is dropped from the build.
+# its point renderer "pulsar" does not link with a CUDA 13 compiler and is dropped from the build.
 PYTORCH3D = GitSource(url="https://github.com/facebookresearch/pytorch3d.git",
                       commit="33824be3cbc87a7dd1db0f6a9a9de9ac81b2d0ba")  # tag v0.7.9
 
@@ -144,7 +144,7 @@ class Pixel3DMM(Extension):
             "HOME": str(cache / "home"),
             "TORCH_EXTENSIONS_DIR": str(cache / "torch_extensions"),  # nothing should compile at cook time; if it tries, not in $HOME
             # the composed tree symlinks each source file, so Python would write its __pycache__ next to the real
-            # file — inside the pinned checkouts. 原始仓库永远不改，连 .pyc 也不留
+            # file — inside the pinned checkouts, which are never written to, not even a .pyc
             "PYTHONDONTWRITEBYTECODE": "1",
             "MPLBACKEND": "Agg",  # upstream imports pyplot; there is no display
             "WANDB_MODE": "offline",  # it imports wandb but never calls init

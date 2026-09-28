@@ -1,8 +1,9 @@
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Background, BackgroundVariant, MiniMap, ReactFlow, SelectionMode, useReactFlow, useStore as useFlow, type Edge, type EdgeChange, type IsValidConnection, type NodeChange } from "@xyflow/react";
+import { Background, BackgroundVariant, MiniMap, ReactFlow, SelectionMode, useReactFlow, useStore as useFlow, type Edge, type EdgeChange, type IsValidConnection, type Node, type NodeChange } from "@xyflow/react";
 import { nodeCategory, type NodeTypeDef } from "../api";
 import { addBox, connect, deleteElements } from "../graph/actions";
+import { ProjectNotice } from "./ProjectNotice";
 import { GraphHelp } from "./GraphHelp";
 import { CLICK_PX, canWire, useGraphPointer } from "./graphPointer";
 import { snapshotNow } from "../graph/snapshot";
@@ -21,6 +22,7 @@ import { getNodeDefs as nodeDefsCached } from "../state/catalog";
 import { IconButton } from "../ui/Button";
 import { ConnectionLine, NodeMenu, TypedEdge, zoomClass } from "./FlowParts";
 import { GRAPH_DOT_COLOR } from "../platform/palette";
+import { useShortcut } from "../platform/keys";
 
 const nodeTypes = { l2s: GraphNode, box: NetworkBox, unknown: UnknownNode };
 
@@ -64,6 +66,7 @@ export function NodeEditor() {
   const minimap = usePreferences((s) => s.minimap);
   const toggleMinimap = usePreferences((s) => s.toggleMinimap);
   const dragMembers = useRef<Record<string, string[]>>({}); // box id -> nodes riding along while it is dragged
+  const boxed = useRef<Node[]>([]); // what the selection box holds while it is drawn (onSelectionChange)
   const [nodeMenu, setNodeMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const closeNodeMenu = useCallback(() => setNodeMenu(null), []);
 
@@ -179,6 +182,18 @@ export function NodeEditor() {
     },
     [kept],
   );
+  // Delete / Backspace remove the selection, as one step. Through the page's single key registry (platform/keys.ts):
+  // an open sheet, popover or menu takes the key first, whereas xyflow's own deleteKeyCode listens on the whole
+  // document and would delete the nodes behind it
+  useShortcut({
+    keys: ["delete", "backspace"],
+    run: () => {
+      const v = useViewer.getState();
+      const picked = Object.entries(v.canvas).filter(([, c]) => c.selected).map(([id]) => ({ id }));
+      if (viewer || !(picked.length || v.selectedBoxIds.length || v.selectedEdgeIds.length)) return false;
+      onDelete({ nodes: [...picked, ...v.selectedBoxIds.map((id) => ({ id }))], edges: v.selectedEdgeIds.map((id) => ({ id })) });
+    },
+  });
   const isValidConnection: IsValidConnection = useCallback(
     (c) => !!c.source && !!c.target && canWire(snapshotNow(), { node: c.source, port: c.sourceHandle ?? "" }, { node: c.target, port: c.targetHandle ?? "" }),
     [],
@@ -240,6 +255,13 @@ export function NodeEditor() {
         onNodeClick={(_, n) => n.type !== "unknown" && !isBox(n.id) && select(n.id)}
         onNodeDoubleClick={(_, n) => n.type !== "unknown" && !isBox(n.id) && setDisplay(n.id)}
         onPaneClick={() => select(null)}
+        // a selection box that ends on exactly one node opens it in the parameter panel, as a click does; several leave
+        // the panel as it is
+        onSelectionChange={({ nodes: picked }) => (boxed.current = picked)}
+        onSelectionEnd={() => {
+          const real = boxed.current.filter((n) => n.type !== "unknown" && !isBox(n.id));
+          if (real.length === 1) select(real[0].id);
+        }}
         connectOnClick={false} // a click on a port is the wiring machine's (editor/wiring.ts), not two machines at once
         connectionDragThreshold={CLICK_PX} // under it the gesture is a click: the wire is carried, not dragged
         noPanClassName="l2s-nopan" // nothing has it: a middle-drag pans over a node as well as over the empty pane
@@ -255,7 +277,7 @@ export function NodeEditor() {
         nodesDraggable={!viewer}
         nodesConnectable={!viewer}
         edgesReconnectable={!viewer}
-        deleteKeyCode={viewer ? [] : ["Delete", "Backspace"]}
+        deleteKeyCode={null} // Delete / Backspace go through the page's key registry (the shortcut above)
         minZoom={0.2}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
@@ -287,6 +309,7 @@ export function NodeEditor() {
       <svg className="wire-line" aria-hidden={!pointer.carrying}>
         <path ref={pointer.line} />
       </svg>
+      <ProjectNotice className="graph-notice" />
       <GraphHelp />
       <div className="flow-controls glass">
         <IconButton tip="小地图" tone="ghost" on={minimap} onClick={toggleMinimap}>

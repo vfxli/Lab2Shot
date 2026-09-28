@@ -123,9 +123,8 @@ fieldset.gctl {
 高度固定（该行属于节点形状的一部分）：文字数量、换行数与缩放档位均不得改变节点高度
 （见 08a-node.css 顶部的不变量）。
 94 = 上下内边距 3+3 + 标签一行 14 + 间距 2 + 文本框 72（4 行 × 11px × 1.45 + 内边距 6 + 边框 2）。
-tests/test_tools.py PARAM_ROW_MULTI 使用同一数值（排版按其计算，两处须同步修改）。
 宽度仍不参与撑宽节点：文本框宽度由该格决定（ui/field.css .field 的 width:100% + min-width:0），
-节点宽度仅由标题行决定（见 08a-node.css 末尾的规则）。 */
+节点宽度仅由标题行与端口行决定（见 08a-node.css 的宽度归零规则）。 */
 .gprow.multi {
   height: 94px;
   flex-direction: column;
@@ -210,7 +209,7 @@ tests/test_tools.py PARAM_ROW_MULTI 使用同一数值（排版按其计算，�
   background: none;
 }
 
-/* 展开 / 收起: every simple parameter on the node for now (its box and its icon: styles/08-node-graph.css) */
+/* 展开 / 收起: every simple parameter on the node for now (its box and its icon: styles/08a-node.css) */
 .expand-flag:hover {
   background: var(--raised);
   color: var(--text-2);

@@ -2,8 +2,9 @@
 (read_job) and the node reads the answer (read_result); the worker's writing of it is
 lab2shot_worker.rig_motion.write_result. The layout is in lab2shot_worker/rig_motion.py.
 
-One contract, two families (lab2shot/nodes/kit/rig.py): 动作补帧 sends the animator's keys and gets the motion
-between them, 动作清理 sends every frame and gets the repaired motion back. `frames` is what the node sent — the key
+One contract for both kinds of work of the rig-motion family (lab2shot/nodes/families/rig_motion.py, the shared
+node side in lab2shot/nodes/kit/rig.py): 动作补帧 sends the animator's keys and gets the motion between them, 动作清理
+sends every frame and gets the repaired motion back. `frames` is what the node sent — the key
 frames for one, all of the rig's frames for the other — so both sides are the same code."""
 
 from __future__ import annotations

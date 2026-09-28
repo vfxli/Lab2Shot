@@ -54,12 +54,6 @@ class PointCloud:
 # ------------------------------------------------------------------ geometry
 
 
-def face_normals(p_cam: np.ndarray, faces: np.ndarray) -> np.ndarray:
-    v = p_cam[faces]
-    n = np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0])
-    return n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
-
-
 def vertex_normals(p: np.ndarray, faces: np.ndarray) -> np.ndarray:
     """Smooth normals: each vertex averages its faces' normals, weighted by their area."""
     v = p[faces]
@@ -224,20 +218,6 @@ class ZBuffer:
     def triangles(self, xy: np.ndarray, depth: np.ndarray, faces: np.ndarray) -> None:
         for pixel, tri, bary, iz in triangle_fragments(xy, depth, faces, self.width, self.height):
             self.add(pixel, iz, tri, bary)
-
-
-def rasterize(xy: np.ndarray, depth: np.ndarray, faces: np.ndarray, width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
-    """Nearest face per pixel of triangles in front of the camera. Returns (face_id [H,W] or -1, inverse depth [H,W])."""
-    zb = ZBuffer(width, height)
-    zb.triangles(xy, depth, faces)
-    return zb.owner.reshape(height, width), zb.iz.reshape(height, width)
-
-
-def _downsample(img: np.ndarray, s: int) -> np.ndarray:
-    if s == 1:
-        return img
-    h, w = img.shape[0] // s, img.shape[1] // s
-    return img[: h * s, : w * s].reshape(h, s, w, s, *img.shape[2:]).mean(axis=(1, 3))
 
 
 def supersampling(width: int, height: int) -> int:

@@ -161,7 +161,7 @@
   gap: 2px;
 }
 
-/* the label column is sized to fit every label (ParamPanel.tsx fitPanelWidth), capped at 206px: a label longer than
+/* the label column is sized to fit every label (ParamControls.tsx fitWidth), capped at 206px: a label longer than
    that is a naming problem to fix (a shorter word), not something to hide behind an ellipsis; this is only the
    safety net for the moment before the fit runs, or a value typed in by the user (a renamed parameter group) */
 .plabel-text {

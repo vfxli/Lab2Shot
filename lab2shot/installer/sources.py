@@ -20,7 +20,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
@@ -202,6 +201,9 @@ def fetch_checked(url: str, dest: Path, sha256: str, sink: Sink, policy: Policy,
         sink.check()
         if not src.official:
             sink.say(Msg("N-INSTALL-MIRROR", what=dest.name, mirror=src.name))
+        # fetch() skips a complete file already at the target: then nothing is downloaded and the log must not say
+        # the file came from this source (it only says it was checked)
+        local = target.exists() and target.stat().st_size > 0
         try:
             retry(lambda: download(src.url, target, sink), dest.name, sink, policy)
         except urllib.error.HTTPError as exc:
@@ -231,7 +233,7 @@ def fetch_checked(url: str, dest: Path, sha256: str, sink: Sink, policy: Policy,
             continue
         if target != dest:
             target.replace(dest)  # the old version is replaced only after verification
-        sink.say(Msg("I-INSTALL-SOURCE", what=dest.name, source=src.name))
+        sink.say(Msg("I-INSTALL-LOCALOK", what=dest.name) if local else Msg("I-INSTALL-SOURCE", what=dest.name, source=src.name))
         return src
     if refused is not None:
         # The official source refused (401/403) a file not marked gated: neither the network nor a mirror can help, so

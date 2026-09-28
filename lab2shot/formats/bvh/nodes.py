@@ -18,10 +18,10 @@ class ImportBvh(ArraysImport):
     on_node = ("unit",)
 
     class Params(NodeParams):
-        path: str = import_file_param(SUFFIXES, " BVH 文件（.bvh）")
+        path: str = import_file_param(SUFFIXES)
         skeletons: list[str] = selection_param("skeletons")
         unit: Literal["cm", "m"] = P("cm", label="单位", group="BVH", option_labels={"cm": "厘米", "m": "米"},
-                                     worker=False, help="BVH 不记录单位：多数动捕软件导出的是厘米。读进来都换成厘米")
+                                     worker=False)
     outputs = selection_ports(Params)
 
     @classmethod

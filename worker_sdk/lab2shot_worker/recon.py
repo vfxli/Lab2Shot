@@ -1,5 +1,5 @@
 """Chunked multi-view reconstruction, shared by every worker that writes the `reconstruction` contract (VGGT, Pi3,
-Depth Anything 3, MapAnything, CUT3R, MonST3R, COLMAP masks). Needs numpy only.
+Depth Anything 3, MapAnything, CUT3R, MonST3R, LingBot-Map, COLMAP masks). Needs numpy only.
 
 A shot longer than one forward pass / optimisation is cut into overlapping chunks (plan_chunks). Each chunk is
 solved in its own world; the Stitcher brings every chunk into the first one's world by a similarity transform:
@@ -19,16 +19,16 @@ Chained chunk after chunk, the fits' errors add up. Loop closure (Stitcher(keep=
 that see the same place are reconstructed together as loop chunks, and the chunk transforms are optimised over every
 fit (optimize_chunks) before any frame is placed (see Stitcher).
 
-The raw contract (node side: lab2shot/nodes/results.py reconstruction()):
+The raw contract (node side: lab2shot/nodes/families/depth_camera.py):
 
     raw/cameras.npz      frames [F] int64, K [F,3,3] pixels at the input resolution (pixel (i, j) covers
-                         [j, j+1] x [i, i+1]), cam_to_world [F,4,4] OpenCV camera, world = first frame's camera
+                         [j, j+1] x [i, i+1]), cam_to_world [F,4,4] OpenCV camera, world = first frame's camera,
+                         width, height (the input resolution)
     raw/frame_<n>.npz    depth [H,W] camera Z, confidence [H,W], mask [H,W] bool (reliable static geometry)
 """
 
 from __future__ import annotations
 
-import bisect
 import math
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -42,7 +42,6 @@ from lab2shot_shared.poses import (blend_poses, interpolate_poses, mean_rotation
 
 from . import Job, fail, read_mask, save_npz
 
-BOX_MARGIN = 0.10  # people boxes grow by 10 % of their width / height on every side (arms, hair, shadows)
 MASK_THRESHOLD = 0.5  # mask input value above which a pixel belongs to a moving object
 ALIGN_SAMPLES = 200_000  # 3D point pairs used to fit one chunk-to-world similarity
 MIN_PAIRS = 100
@@ -57,41 +56,28 @@ CONVENTION = (
 
 
 class MovingMasks:
-    """frame -> bool [H,W] at the input resolution, True on moving objects: the job's "mask" input (> 0.5) and its
-    "boxes" input (people boxes grown by BOX_MARGIN). Read on demand, so long shots never hold every mask."""
+    """frame -> bool [H,W] at the input resolution, True on moving objects: the job's "mask" input (> 0.5), the
+    node's moving-object mask port (people are masked by wiring 「人物框转遮罩」 into it). Read on demand, so long
+    shots never hold every mask."""
 
     def __init__(self, job: Job, width: int, height: int) -> None:
         self.width, self.height = width, height
         self.files = job.listing("mask")
-        self.boxes: dict[int, list] = {}
-        for boxes in job.people().values():
-            for frame, box in boxes.items():
-                self.boxes.setdefault(frame, []).append(box)
-        self.kinds = [k for k in ("mask", "boxes") if k in job.inputs]  # for result.json
 
     def __len__(self) -> int:
-        return len(set(self.files) | set(self.boxes))
+        return len(self.files)
 
     def __contains__(self, frame: int) -> bool:
-        return frame in self.files or frame in self.boxes
+        return frame in self.files
 
     def get(self, frame: int) -> np.ndarray | None:
         if frame not in self:
             return None
-        w, h = self.width, self.height
-        moving = np.zeros((h, w), dtype=bool)
-        if frame in self.files:
-            m = read_mask(self.files[frame]) > MASK_THRESHOLD
-            if m.shape != (h, w):
-                m = m[np.arange(h) * m.shape[0] // h][:, np.arange(w) * m.shape[1] // w]  # nearest, no OpenCV needed
-            moving |= m
-        for x1, y1, x2, y2 in self.boxes.get(frame, ()):
-            mx, my = BOX_MARGIN * (x2 - x1), BOX_MARGIN * (y2 - y1)
-            c0, c1 = max(0, int(np.floor(x1 - mx))), min(w, int(np.ceil(x2 + mx)))
-            r0, r1 = max(0, int(np.floor(y1 - my))), min(h, int(np.ceil(y2 + my)))
-            if c1 > c0 and r1 > r0:
-                moving[r0:r1, c0:c1] = True
-        return moving
+        h, w = self.height, self.width
+        m = read_mask(self.files[frame]) > MASK_THRESHOLD
+        if m.shape != (h, w):
+            m = m[np.arange(h) * m.shape[0] // h][:, np.arange(w) * m.shape[1] // w]  # nearest, no OpenCV needed
+        return m
 
 
 # ---------------------------------------------------------------------- chunks
@@ -542,18 +528,17 @@ class Stitcher:
 
 @dataclass
 class InputCamera:
-    """A camera of the plate a node sends its worker (results.send_camera): per frame its focal length and where it
+    """A camera of the plate a node sends its worker (kit/cameras.py send_camera): per frame its focal length and where it
     is, in the camera's own world (the shot's, Y up), OpenCV camera axes, metres."""
 
     frames: np.ndarray  # [F] frame numbers
     focal_px: np.ndarray  # [F], principal point at the image centre
     cam_to_world: np.ndarray  # [F,4,4] OpenCV, metres
     rotation_only: bool = False
-    """True 时**这不是一台相机，只是每帧的旋转**（kit/cameras.py send_rotation 写的）：
-    位移全是 0，因为节点上根本没有「相机」输入口，用户接的是「相机旋转」那一个参数（真要每帧旋转时
-    不能直接接一台相机，那会把它的位移一起丢掉）。
-    **拿它当一台相机用的地方必须先看这个标志**：把人整体搬到「这台相机的世界」那种事，
-    对着一台位移恒为 0 的相机做是没有意义的。"""
+    """True: **not a camera, only a rotation per frame** (written by kit/cameras.py send_rotation): every position is
+    0, because the node has no 「相机」 input: the user wired only a rotation to its 「相机旋转」 parameter (from
+    「拆分相机」). **Code that uses it as a camera must check this flag first**: moving people into "this camera's
+    world" means nothing for a camera whose position is always 0."""
 
     def at(self, frames) -> tuple[np.ndarray, np.ndarray]:
         """(focal [N], cam_to_world [N,4,4]) at these frame numbers (nearest sample for missing ones)."""

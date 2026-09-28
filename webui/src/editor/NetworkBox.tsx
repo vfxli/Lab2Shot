@@ -4,6 +4,7 @@ import { toggleBox } from "../graph/actions";
 import { useLook, type Box } from "../state/look";
 import { BOX_COLORS, BOX_HEAD } from "../graph/nodes";
 import { Swatches } from "../ui/Swatches";
+import { composing } from "../platform/keys";
 
 export type BoxNode = Node<{ box: Box }, "box">;
 
@@ -47,7 +48,7 @@ export const NetworkBox = memo(function NetworkBox({ id, data, selected }: NodeP
               setEditing(false);
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              if (e.key === "Enter" && !composing(e)) (e.target as HTMLInputElement).blur();
               if (e.key === "Escape") setEditing(false);
               e.stopPropagation();
             }}

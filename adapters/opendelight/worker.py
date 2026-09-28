@@ -1,4 +1,4 @@
-"""OpenDelight worker: face delighting. Runs inside third_party/opendelight/.venv
+"""OpenDelight worker: face delighting. Runs inside third_party/opendelight/.venv-ada-blackwell
 with the original repo on sys.path; never imports Lab2Shot core.
 
     python worker.py <job.json>
@@ -351,6 +351,7 @@ def main(job_path: str) -> None:
         lms, smoothed = smooth_landmarks([f for f, _ in frames], lms, sizes, thumbs)
 
     run.stage("去光照")
+    delight_started = time.time()
     raw = job.raw_dir
     with Writer(threads=2, max_pending=8) as writer:
         for _n, (frame, path) in run.each(frames, "去光照"):
@@ -377,7 +378,7 @@ def main(job_path: str) -> None:
         smooth_landmarks=smooth,
         smoothed_frames=smoothed,  # frames inside continuous shots (photos / cuts are left alone)
         basecolor="display-referred sRGB-encoded diffuse base colour (albedo), float32 0..1, input frame size",
-        seconds_frames=round(time.time() - run.t_frames, 1),  # the 去光照 stage, writing included
+        seconds_frames=round(time.time() - delight_started, 1),  # the 去光照 stage, writing included
         # whole process (torch + onnxruntime), sampled after every frame; excludes the CUDA context itself
         # (overrides the standard gpu_peak_mb, which is torch's reserved memory only)
         gpu_peak_mb=round(peak_used - base_used),

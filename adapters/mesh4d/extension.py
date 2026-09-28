@@ -22,8 +22,8 @@ MESH4D_URL = "https://github.com/jzr99/Mesh4D"
 MESH4D_COMMIT = "30269e31f193b13131cfdc3bf9ec8a3595c1ac4e"  # the only commit of the release
 
 # The authors' two checkpoints (their README's two `gdown` lines). Both are full Lightning
-# training checkpoints (the denoiser is 24 GB on disk), so the build step writes the weights
-# out once as fp16 safetensors and the worker loads those instead (build_mesh4d.py).
+# training checkpoints (the denoiser is 24 GB on disk), so the build step writes the denoiser's
+# weights out once as fp16 safetensors and the worker loads those instead (build_mesh4d.py).
 _DRIVE = "https://drive.usercontent.google.com/download?id={}&export=download&confirm=t"
 CKPTS = {
     "deform_vae": (_DRIVE.format("1e9YGQAuFr5BDN2--srDEMnoULb4ZP5sx"), "ckpt/deform_vae.ckpt",
@@ -54,10 +54,10 @@ class Mesh4D(Extension):
         url="https://github.com/jzr99/Mesh4D",
         summary=(
             "仅限研究，标签按宁严勿松取最严的一档，三条理由叠在一起："
-            "① Mesh4D 仓库本身**没有任何许可证文件**，作者也没在别处声明授权条款——没有授权就等于"
+            "① Mesh4D 仓库本身没有任何许可证文件，作者也没在别处声明授权条款——没有授权就等于"
             "没有给出使用许可，只能当作论文附带的研究代码；两个权重（形变 VAE、去噪网络）同样没有声明。"
             "② 它的推理代码整个是腾讯 Hunyuan3D-2.1（hy3dshape / hy3dpaint），受「Tencent Hunyuan 3D 2.1"
-            "社区许可协议」约束：该协议明确**不适用于欧盟、英国和韩国**，并禁止在这些地区使用它的代码、"
+            "社区许可协议」约束：该协议明确不适用于欧盟、英国和韩国，并禁止在这些地区使用它的代码、"
             "权重和输出结果；生成网格用的 hunyuan3d-dit-v2-1 权重也是这一份许可。"
             "③ 环境里的 PyMeshLab 是 GPL-3.0。"
             "另：Hunyuan3D-2.1 的 NOTICE 里列出的第三方组件（Stable Diffusion 的 MIT + CreativeML Open "
@@ -66,19 +66,21 @@ class Mesh4D(Extension):
     )
     import_repo = None  # the worker imports from the composed tree (worker_env PYTHONPATH), not from repo/
     worker_modules = ("codebase.py",)
-    # torch 2.5.1 is the version pinned upstream and has no sm_120 (RTX 5090) kernels; this build runs on Ada (4090)
-    # only. A newer torch would require replacing the pytorch-lightning 1.9.5 and torch_cluster wheels too (untested).
-    env_archs = ("sm_89",)
+    # upstream pins torch 2.5.1+cu124, which has neither sm_120 binaries nor PTX: it cannot run on Blackwell at all.
+    # torch 2.8.0+cu128 covers Ada (sm_89) and Blackwell (sm_120); upstream's code runs on it unchanged. Measured on
+    # the same clip: Ada and Blackwell differ as much as two runs on one card do (the method is not deterministic);
+    # docs.md has the numbers. Its environment is .venv-ada-blackwell.
+    env_archs = ("sm_89", "sm_120")
     disk_gb = 45.0  # environment ~12 GB + weights ~36 GB (denoiser 24 GB + deformation VAE 3.3 GB + Hunyuan3D 8 GB)
     env = EnvSpec(
         python="3.10",  # upstream: Python 3.10.18
-        torch=("torch==2.5.1", "torchvision==0.20.1"),  # upstream: PyTorch 2.5.1+cu124
-        torch_backend="cu124",
+        torch=("torch==2.8.0", "torchvision==0.23.0"),  # upstream: PyTorch 2.5.1+cu124 (no sm_120, see env_archs)
+        torch_backend="cu128",
         # torch_cluster (missing from upstream requirements.txt, imported by attention_blocks_deform.py):
         # the PyG wheel prebuilt for this torch / CUDA pair, so no CUDA kernels are compiled at install time
         compiled=(
-            "torch_cluster @ https://data.pyg.org/whl/torch-2.5.0%2Bcu124/"
-            "torch_cluster-1.6.3%2Bpt25cu124-cp310-cp310-linux_x86_64.whl",
+            "torch_cluster @ https://data.pyg.org/whl/torch-2.8.0%2Bcu128/"
+            "torch_cluster-1.6.3%2Bpt28cu128-cp310-cp310-linux_x86_64.whl",
         ),
         compiled_cuda=False,  # prebuilt wheel: nvcc is not needed at install time
         build="build_mesh4d.py",

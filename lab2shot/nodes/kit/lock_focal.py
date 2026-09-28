@@ -27,7 +27,6 @@ from __future__ import annotations
 import numpy as np
 
 GRID_X, GRID_Y = 32, 18  # the picture's cells, one anchor each: an even spread with no random numbers
-MOST_ANCHORS = 2000
 MOST_CONSIDERED = 200_000  # points of a static cloud looked at per frame (a stride over a bigger one, deterministic)
 FEW_ANCHORS = 30  # under this a frame is only worth the closed-form start
 NEAR_CM = 1.0  # a point nearer than this is behind the lens as far as a projection is concerned
@@ -56,7 +55,7 @@ def _even_over_the_picture(uv: np.ndarray, width: int, height: int) -> np.ndarra
     away = np.linalg.norm(uv - centre, axis=1)
     order = np.lexsort((away, cell))  # by cell, then by how close to its centre
     first = np.concatenate([[True], cell[order][1:] != cell[order][:-1]])
-    return np.sort(order[first])[:MOST_ANCHORS]
+    return np.sort(order[first])
 
 
 def _skew(v: np.ndarray) -> np.ndarray:

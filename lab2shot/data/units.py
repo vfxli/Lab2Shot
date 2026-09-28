@@ -6,7 +6,7 @@ USD without a film back, 「创建相机」 without a picture): everything downs
 DEFAULT_FPS is not a fallback at all; see its comment below. CV_TO_GL and M_TO_CM are
 the one OpenCV <-> USD axis-and-scale conversion (a worker's world, metres, +Y down -> the project's, Y up, centimetres),
 their numbers from lab2shot_shared.units, which the workers convert with too;
-UNITS is the one units-of-a-value table (nodes/values.py, data/layers.py's file units): units of the same kind
+UNITS is the one units-of-a-value table (data/values.py, a file's length unit through to_cm): units of the same kind
 convert to one another, of different kinds never.
 
 The rule: 36.0 / 24.0 / 1920 / 1080 are written nowhere else in lab2shot/ or the adapters' node modules, nor is any
@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import NamedTuple
 
 import numpy as np
-from lab2shot_shared.units import CV_TO_GL, DEFAULT_FPS, M_TO_CM  # the worker side uses the same numbers: one home
+from lab2shot_shared.units import CV_TO_GL, DEFAULT_FPS, M_TO_CM  # noqa: F401  re-exported (DEFAULT_FPS); shared with workers
 
 FILMBACK_MM = 36.0  # full frame: the film back of a lens nothing says more about
 # In Lab2Shot the frame rate is not a property of data: DCCs have no frame rate when reading a sequence either; it is
@@ -43,7 +43,7 @@ class Unit(NamedTuple):
     per_base: float  # how many of the kind's base unit (cm for length, px for pixels, ...) one of this unit is
 
 
-# the one units-of-a-value table: nodes/values.py's parameter units, data/layers.py's file-recorded length units
+# the one units-of-a-value table: parameter units (data/values.py) and the conversions formats read with it (formats/nuke/parse.py)
 UNITS: dict[str, Unit] = {
     "mm": Unit("length", 0.1),
     "cm": Unit("length", 1.0),
@@ -58,7 +58,7 @@ UNIT_KINDS = {"length": "长度", "pixels": "像素", "angle": "角度", "frames
 
 
 def to_cm(unit: str) -> float:
-    """A length unit's factor to centimetres (a file's recorded unit: a 3D format's own scale, an EXR depth/position layer)."""
+    """A length unit's factor to centimetres (a file's recorded unit: a 3D format's own scale)."""
     return UNITS[unit].per_base
 
 
@@ -105,7 +105,7 @@ def usd_points_to_opencv_m(xyz: np.ndarray) -> np.ndarray:
     The counterpart of `usd_poses_to_opencv_m` (that one for cameras, this one for points). The axis-flip matrix is
     defined only in this module; adapters must not apply it themselves (back-projection and normal flipping each have a
     single implementation in the project).
-    First used by ViPE: 「ViPE 相机解算」 outputs SLAM points as 「点云」, and 「ViPE 深度图」 sends them back upstream."""
+    Used by ViPE: 「ViPE 相机解算」 outputs SLAM points as 「点云」, and 「ViPE 深度图」 sends them back upstream."""
     return np.asarray(xyz, np.float64) * CV_TO_GL / M_TO_CM
 
 

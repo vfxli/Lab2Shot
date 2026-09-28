@@ -28,7 +28,7 @@ year = 2026
 
 **我们怎么接的**
 
-- 「图像」口 = `batch['image']`，「前景遮罩」口 = `batch['mask']`（官方的输入：官方读的就是 RGBA 的那条通道）。
+- 「RGB」口 = `batch['image']`，「前景遮罩」口 = `batch['mask']`（官方的输入：官方读的就是 RGBA 的那条通道）。
 - 「静止网格」口 = `registered_gen_mesh`，「网格」口 = `deformed_verts_gen`：一一对上。
 - 「尺度」参数是 Lab2Shot 这一侧的：上游的结果没有真实尺寸，要摆进场景就得给一个尺度。
 
@@ -106,9 +106,15 @@ Mesh4D 2026 年 1 月放出第一版，是这条线上第一篇把「生成一�
   Hugging Face 上腾讯 Hunyuan3D-2.1 的生成网络和形状 VAE（8.1 GB），Meta 的 DINOv2-Large（1.2 GB）。
 - 安装时在这个环境里编译 im2mesh 的 5 个 Cython 模块（不需要 CUDA 编译器），
   并把 24 GB 的训练存档压成推理权重。原仓库一个字都不改：它的脚本要的那棵目录树是用符号链接在旁边拼出来的。
-- 环境按官方钉死：Python 3.10、PyTorch 2.5.1+cu124。**只支持 Ada 架构（RTX 4090）**
-  （`.venv-ada`）：torch 2.5.1 没有 Blackwell（RTX 5090，sm_120）的核，
-  要上 5090 得连 PyTorch、pytorch-lightning 和 torch_cluster 的轮子一起换，尚未验证。
+- 环境：Python 3.10（官方）、PyTorch 2.8.0+cu128（官方钉的是 2.5.1+cu124）。官方那一版既没有 Blackwell
+  （sm_120）的机器码也没有 PTX，在 Blackwell 上根本跑不起来；2.8.0 同时覆盖 Ada（sm_89）和 Blackwell，
+  上游代码不改一行照常运行（`.venv-ada-blackwell`，torch_cluster 换成 PyG 为 pt28cu128 预编译的轮子）。
+  实测（「抠像与遮罩/08_狗在跑」前 12 帧）：Ada 与 Blackwell 的结果之差（倒角距离平均 1.6%）与同一张卡连跑两次之差
+  （1.4%）相当——这个方法本身每次运行不完全一样；与 2.5.1 的结果差 2.3%～2.6%（换 torch 以后生成的是另一个样本，
+  拓扑也不同）。用时 Ada 148 秒、Blackwell 151 秒，2.5.1 为 157 秒。
+- 官方 requirements.txt 之外还要 `rich`（数据集模块 `util/console.py` 导入）和 `setuptools<81`（worker 路径上用到
+  `pkg_resources`，setuptools 81 起不再附带），两者都在本目录的 requirements.txt 里钉死；缺了它们，全新安装的
+  环境一跑就报 ModuleNotFoundError。
 
 ## 许可证说明
 

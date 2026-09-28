@@ -1,5 +1,5 @@
 /** Wiring by clicks, as one state machine: pure state and transitions, so the editor component only feeds it
- * what happened and carries out what it answers (webui/tests/wiring.test.ts drives every transition without a browser).
+ * what happened and carries out what it answers.
  *
  * Houdini's way: a click on a port picks the wire up instead of holding the mouse down; a dashed line then follows the
  * pointer until the next click says where it goes. Dragging a wire is the node editor's own (@xyflow/react); this is
@@ -31,7 +31,7 @@ export type Wiring = null | {
   detached: End | null;
 };
 
-export type WireEvent =
+type WireEvent =
   /** A port was clicked. `wired`: for an input, the output whose wire ends there (the nearest one on a multi input), else null. */
   | { at: "port"; end: End; side: "output" | "input"; wired: End | null }
   /** Empty canvas was clicked, at this point on the screen. */
@@ -39,7 +39,7 @@ export type WireEvent =
   /** Escape, or a right click that did not move: whatever is being wired is let go. */
   | { at: "cancel" };
 
-export type WireAction =
+type WireAction =
   | { do: "nothing" }
   /** Make the wire. `was`: the input it was taken off (its old wire goes with the move), null when it is a new wire. */
   | { do: "connect"; from: End; to: End; was: End | null }

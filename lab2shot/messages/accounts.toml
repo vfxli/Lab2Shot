@@ -1,5 +1,5 @@
-# 账号、登录、用户管理、用户反馈、帮助页（lab2shot/accounts.py、lab2shot/feedback.py、lab2shot/server/auth.py、
-# server/users.py、server/feedback.py、server/help.py）。
+# 账号、登录、用户管理、用户反馈（lab2shot/accounts.py、lab2shot/feedback.py、lab2shot/server/auth.py、
+# server/users.py、server/feedback.py）。
 # 一行一条：编号 = 模板。写法：谁估的、和什么比、数字和单位、意味着什么、怎么办。
 
 # ---- 密码和口令的规则（accounts.rule_problem；网页提交前查的是同一套）
@@ -10,15 +10,16 @@
 # ---- 新建和修改账号（accounts.py）
 "E-ACCOUNT-USERNAME" = "用户名要 3 到 32 个字符：小写英文字母开头，只用小写字母、数字和 _ . -"
 "E-ACCOUNT-USERNAMETAKEN" = "用户名 {username} 已经有人用了：换一个"
+"E-ACCOUNT-USERNAMEDELETED" = "用户名 {username} 属于一个已删除的账号：在「用户」里把它彻底删除之后才能再用，或者换一个"
 "E-ACCOUNT-NONAME" = "要填中文名：{min:d} 到 {max:d} 个字"
 "E-ACCOUNT-NAMESPACE" = "名字「{name}」里有空格：中文名中间不用空格，少数民族名字用 · 隔开，如 阿依·买买提"
 "E-ACCOUNT-NAMELATIN" = "名字「{name}」要写中文名，不是拼音或英文名"
 "E-ACCOUNT-NAMECHARS" = "名字「{name}」只能是中文字，名字之间可以用 · 隔开（如 阿依·买买提）"
 "E-ACCOUNT-NAMELENGTH" = "名字「{name}」有 {count:d} 个字：中文名要 {min:d} 到 {max:d} 个字"
-"E-ACCOUNT-DEPARTMENT" = "部门只能是 {departments} 之一（管理员在设置里维护这张表）"
+"E-ACCOUNT-DEPARTMENT" = "环节要从这张表里选一个：{departments}（管理员在后台「账号设置」→「环节」里维护这张表）"
 "E-ACCOUNT-TAGS" = "没有这些标签：{tags}"
 "E-ACCOUNT-EXPIRYPAST" = "到期时间要在以后：选一个今天之后的日期"
-"E-ACCOUNT-ADMINFIXED" = "主人的账号 {username} 一直是管理员：不会过期、不能停用、不能改角色，什么都能用；只能改它的中文名和部门"
+"E-ACCOUNT-ADMINFIXED" = "主人的账号 {username} 一直是管理员：不会过期、不能停用、不能改角色，什么都能用；只能改它的中文名和环节"
 "E-ACCOUNT-ADMINDELETE" = "主人的账号 {username} 不能删除"
 "E-ACCOUNT-ADMINPASSWORD" = "主人的账号 {username} 的密码只有主人自己能改：忘了密码，在登录页用口令找回，或者在服务器上执行 lab2shot admin password"
 
@@ -29,6 +30,7 @@
 "E-ROLES-TAGS" = "账号能用哪些标签（许可）只有管理员能设：{role}新建的普通用户用默认的「{default}」，要改找管理员"
 "E-ACCOUNT-NOUSER" = "没有这个用户：可能已经删除，刷新用户列表"
 "E-ACCOUNT-NOTDELETED" = "{username} 还没有删除：永久删除只对「已删除」里的账号有效，先点「删除」"
+"E-ACCOUNT-JOBSLIVE" = "{username} 还有 {count:d} 个任务没有结束：等它们停下之后再永久删除"
 
 # ---- 二级管理员的权限由管理员分配（lab2shot/roles.py、server/users.py 的 /api/admin/rights）
 "E-RIGHTS-FIXEDROLE" = "{role}的权限改不了：管理员永远什么都能做，普通用户只用编辑器；能分配的只有 {roles}"
@@ -48,13 +50,47 @@
 "E-LOGIN-WAITMINUTES" = "输错的次数太多，{minutes:d} 分钟后再试"
 "E-LOGIN-KICKED" = "这个账号在别处登录了：{when}，{ip}，{device}。要接着用就重新登录（那边的登录会退出）"
 "E-LOGIN-NOPASSPHRASE" = "还没有设置口令：在服务器上执行 uv run lab2shot admin passphrase 设置"
-"W-LOGIN-FAILED" = "{what}不对（这个来源第 {count:d} 次，所有来源 {total:d} 次，{minutes:d} 分钟内）"
+"W-LOGIN-FAILED" = "{what}不对（{minutes:d} 分钟内{whose}第 {count:d} 次）"
 "W-LOGIN-BLOCKED" = "{minutes:d} 分钟内 {count:d} 次可疑请求"
+
+# ---- 工作量证明（server/auth.py Challenges：注册页的浏览器先算一两秒）
+"E-CHALLENGE-STALE" = "页面的安全验证过期了或已经用过：页面正在重新验证，一两秒后再提交"
+"E-CHALLENGE-BUSY" = "这会儿来注册的请求太多，服务器暂时不发新的安全验证：过几分钟再试"
+
+# ---- 自己注册（lab2shot/registration.py、server/register.py）。邀请码不对、停用、过期、用完是同一句：不让人试出哪个码存在
+"E-REGISTER-CLOSED" = "现在不开放注册：要账号请找管理员"
+"E-REGISTER-PAUSED" = "这段时间注册的人太多，注册自动暂停了：过一会儿再来，或者找管理员要账号"
+"E-REGISTER-ADDRESS" = "从你这个网络注册的账号太多了：过一段时间再来，或者找管理员要账号"
+"E-REGISTER-AGAIN" = "两次输入的密码不一样"
+"E-REGISTER-NOINVITE" = "要填邀请码：向邀请你来的人要"
+"E-REGISTER-INVITE" = "这个邀请码用不了：看看有没有输错，或者向给你邀请码的人再要一个"
+"E-REGISTER-TOOFAST" = "提交得太快了：再核对一遍填的内容，几秒后再提交"
+"E-REGISTER-FAILED" = "注册没有成功：刷新页面再试一次"
+"E-REGISTER-FILTER" = "要选一个邀请码，或者一段注册时间"
+"E-REGISTER-NONETODISABLE" = "这些条件下没有还开着、你又管得着的自己注册的账号"
+"I-REGISTER-DONE" = "{user} 自行注册并登录：{where}，邀请码 {invite}"
+"W-REGISTER-PAUSED" = "注册自动暂停：最近{window}已有 {count:d} 个账号自己注册，到了上限 {most:d}（后台「注册设置」里改）；过了这段时间自己恢复"
+"E-REGISTER-TERMS" = "要先阅读并勾选同意《用户协议》和《隐私政策》才能注册"
+
+# ---- 用户协议与隐私政策（lab2shot/terms、server/terms.py、server/access.py）
+"E-TERMS-OWED" = "《用户协议》和《隐私政策》有了新版本（或者你还没有同意过）：在网页上登录，阅读并同意以后才能接着用"
+"E-TERMS-CHANGED" = "《用户协议》和《隐私政策》刚刚又改过：刷新页面，读一遍新的再同意"
+"E-TERMS-EMPTY" = "《{title}》不能是空的"
+"E-TERMS-TOOLONG" = "《{title}》最多 {most:d} 个字：删短一些"
+"I-TERMS-AGREED" = "{user} 同意了用户协议和隐私政策（第 {version:d} 版）：{where}"
+
+# ---- 邀请码（lab2shot/registration.py、server/invites.py）
+"E-INVITE-CODE" = "自己填的邀请码要 {min:d} 到 {max:d} 个英文字母或数字（空格和 - 不算）；不填就随机生成一个"
+"E-INVITE-TAKEN" = "这个邀请码已经有了：换一个，或者留空随机生成"
+"E-INVITE-NONE" = "没有这个邀请码：可能已经删除，刷新页面"
+"E-INVITE-USES" = "可用次数要填 1 到 {most:d} 的整数，留空表示不限"
+"E-INVITE-USESBELOW" = "这个码已经用了 {used:d} 次：可用次数不能比这还少；不想再让人用就停用它"
+"E-INVITE-EXPIRYPAST" = "到期时间要在以后；想马上不让用就停用它"
 
 # ---- 用户管理（server/users.py）
 "E-USERS-DELETED" = "这个账号已经删除了：不能再设密码"
-"E-LOGIN-UNLOCKMACHINE" = "解开登录的全局锁只能在这台服务器上用本机命令行（机器令牌）做：浏览器上的管理员登录不行——锁住的就是用密码登录这件事"
-"I-AUDIT-LOGINUNLOCKED" = "{who}在服务器上用本机命令行解开了登录的全局锁（清掉 {count:d} 次输错的记录）"
+"E-LOGIN-UNLOCKMACHINE" = "清掉输错密码的计数只能在这台服务器上用本机命令行（机器令牌）做：浏览器上的管理员登录不行——计数挡的就是用密码登录这件事"
+"I-AUDIT-LOGINUNLOCKED" = "{who}在服务器上用本机命令行清掉了输错密码的计数（{count:d} 次）"
 
 
 # ---- 用户反馈（lab2shot/feedback.py、server/feedback.py）
@@ -68,6 +104,8 @@
 "E-FEEDBACK-BUNDLEBIG" = "诊断资料太大（超过 {max:d} MB）：刷新页面后再提交"
 "E-FEEDBACK-REQUESTBIG" = "反馈太大：{size:.1f} MB，最多 {max:d} MB（截图少附几张或小一些）"
 "E-FEEDBACK-REQUESTLIMIT" = "反馈太大：最多 {max:d} MB（截图少附几张或小一些）"
+"E-FEEDBACK-TOOOFTEN" = "24 小时内最多提交 {max:d} 条反馈：已经到了，明天再提交；急的话直接找管理员"
+"E-FEEDBACK-TOOMANYOPEN" = "你还有 {max:d} 条反馈管理员没处理完：等处理掉一些再提交；急的话直接找管理员"
 "E-FEEDBACK-UNREADABLE" = "反馈的内容读不出来：刷新页面后再提交一次"
 "E-FEEDBACK-NOTFOUND" = "没有这条反馈：可能已经删除，刷新页面"
 "E-FEEDBACK-GONE" = "没有这条反馈：可能已经删除，刷新页面"
@@ -75,8 +113,6 @@
 "E-FEEDBACK-ANSWERLONG" = "{what}太长了：{count:d} 个字，最多 {max:d} 个字"
 "E-FEEDBACK-NOSHOT" = "没有这张截图：可能已经删除，刷新页面"
 "E-FEEDBACK-NOEXTENSION" = "没有这个扩展包：可能已经卸载，刷新页面"
-
-# ---- 帮助页（server/help.py）
 
 # ---- 服务器日志（每行日志带编号）
 
@@ -89,7 +125,7 @@
 "I-LOGIN-RECOVERED" = "管理员密码用口令重设了：{where}；别处的登录都退出了"
 "W-LOGIN-SUSPICIOUS" = "可疑：{account} {whom} {kind} {method} {path}（{detail}）"
 "I-LOGIN-OUT" = "{user} 退出登录：{where}"
-"W-LOGIN-LOCKED" = "错误的密码太多（{minutes:d} 分钟内 {count:d} 次）：{minutes:d} 分钟内谁都不能登录；在服务器上执行 lab2shot admin password 可以马上解开，不想换密码就在服务器上执行 lab2shot admin unlock 只清计数"
+"W-LOGIN-SLOWED" = "账号 {subject} 的{what}在 {minutes:d} 分钟内被从没登录过的设备输错 {count:d} 次：之后这类尝试一次比一次等得久，最长 {wait:d} 秒；登录过这个账号的浏览器和客户端不受影响。在服务器上执行 lab2shot admin unlock 可以清掉计数"
 "W-LOGIN-PROBEBLOCKED" = "可疑：{account} {whom} 被暂时封住 {minutes:d} 分钟（{window:d} 分钟内 {count:d} 次可疑请求）"
 "I-LOGIN-CLIRESET" = "管理员密码已在服务器上用命令行重设；管理员的登录都作废，输错的次数清零"
 "I-LOGIN-CLIPASSPHRASECHANGED" = "「我的口令」已在服务器上用命令行换成新的"

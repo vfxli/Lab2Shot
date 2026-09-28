@@ -19,11 +19,13 @@ import { OPEN_GRAPH, TabBanner, TemplatesSheet, TopBar, UnsavedSheet } from "./C
 import { msg, reasonOf, say } from "../state/say";
 import { LogSheet } from "./LogSheet";
 import { Welcome } from "./Welcome";
-import { keepAside, lastWorking, startAutosave } from "./autosave";
+import { lastWorking, startAutosave } from "./autosave";
 import { startTabSync } from "./tabs";
 import { openGraphFile, saveGraphFile, type GraphFile } from "../graph/graphFile";
 import { LOGGED_IN } from "../platform/http";
 import { useShortcut } from "../platform/keys";
+import { signedIn } from "../state/session";
+import { followDrag } from "../platform/drag";
 
 /** 工作区版面：
  *
@@ -47,7 +49,7 @@ import { useShortcut } from "../platform/keys";
  * 高 = 工作区高 × `--split`），因此切换显示节点时画面的屏幕位置与缩放不变。
  *
  * 不设单独的「消息」栏：所有消息统一进入日志（顶栏的日志图标，出错时显示红色计数），另加节点自身的两处：
- * 底行的「注意 / 提醒」角标，以及右下角「数据信息」中的「消息」组。不得在视图或节点图上添加第二个通知控件。 */
+ * 底行的「注意 / 提醒」角标，以及右下角「数据信息」中的「提醒」组。不得在视图或节点图上添加第二个通知控件。 */
 
 /** 参数面板的宽度：固定默认值，不随选中节点变化。
  *
@@ -61,7 +63,8 @@ const INSPECTOR_WIDTH = 440; // px：未拖动时的宽度。所有节点的参�
 const INSPECTOR_MIN = 400; // px：双击「按参数撑开」时的最小宽度
 
 export default function App() {
-  const [ready, setReady] = useState(false);
+  const [owner, setOwner] = useState<number | null>(null); // the account whose working copy this page keeps (autosave.ts); set once the graph is in
+  const ready = owner !== null;
   const displayId = useLook((s) => s.displayId);
   const selectedId = useViewer((s) => s.selectedId);
   const viewer = useViewer((s) => s.role === "viewer");
@@ -91,7 +94,6 @@ export default function App() {
     const next = pending;
     setPending(null);
     if (!next || choice === "cancel") return;
-    await keepAside();
     if (choice === "save" && !(await saveGraphFile().catch((e) => (saveFailed(e), false)))) return;
     loadGraph(next.g, next.file, false, undefined, { freshId: next.freshId });
   };
@@ -109,40 +111,41 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const catalog = await api.catalog();
-        const saved = lastWorking();
+        const [catalog, me] = await Promise.all([api.catalog(), signedIn()]);
+        const saved = lastWorking(me.id);
         setCatalog(catalog);
-        // the last working state on this machine comes back as it was (unsaved changes marked); the first opening in
-        // a browser is an empty graph, the welcome over it (a template, a node, a graph file)
+        // this account's last working state on this machine (this tab's own, after a reload) comes back as it was
+        // (unsaved changes marked); the first opening is an empty graph, the welcome over it (a template, a node, a
+        // graph file)
         if (saved) {
           loadGraph(saved.graph, saved.file, saved.dirty, saved.id);
           if (saved.dirty) say(msg("N-GRAPH-RESTORED"));
         }
-        setReady(true);
+        setOwner(me.id);
       } catch (e) {
         setError(String((e as Error).message));
       }
     })();
   }, []);
 
-  // from the moment the graph is on screen, every edit is kept in this browser (a refresh loses nothing), and a job
-  // this browser has queued or running are followed again, and what was delivered meanwhile is saved or listed
+  // from the moment the graph is on screen, every edit is kept in this browser (a refresh loses nothing), this graph's
+  // job still queued or running is followed again, and what this graph's 「输出」 packed is offered for download
   useEffect(() => {
-    if (!ready) return;
+    if (owner === null) return;
     void resumeJobs();
     // Logged in again over the page (a login that ran out mid-job, the gate's own prompt): what is still queued or
-    // running is followed again; the job itself never went away (graph/actions.ts onlogin).
+    // running is followed again; the job itself never went away (graph/follow.ts onlogin).
     const again = () => void resumeJobs();
     window.addEventListener(LOGGED_IN, again);
     startUploads(); // a finished upload into its parameter; those a reload interrupted, paused
-    const stopAutosave = startAutosave();
+    const stopAutosave = startAutosave(owner);
     const stopTabSync = startTabSync();
     return () => {
       window.removeEventListener(LOGGED_IN, again);
       stopAutosave();
       stopTabSync();
     };
-  }, [ready]);
+  }, [owner]);
 
   // back from the package page (another tab): installed extensions make their nodes usable right away
   useEffect(() => {
@@ -201,13 +204,7 @@ export default function App() {
       const r = left.current!.getBoundingClientRect();
       setSplit(Math.min(80, Math.max(22, ((e.clientY - r.top) / r.height) * 100)));
     };
-    const up = () => setDragging(false);
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
+    return followDrag(move, () => setDragging(false));
   }, [dragging, setSplit]);
 
   // 竖分割线：整个工作区的左右分配（左栏 | 参数面板）。拖动设置宽度，双击按当前节点的参数撑开一次
@@ -217,13 +214,7 @@ export default function App() {
       const r = workspace.current!.getBoundingClientRect();
       setInspector(Math.round(Math.min(r.width * 0.7, Math.max(280, r.right - e.clientX))));
     };
-    const up = () => setResizing(false);
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
+    return followDrag(move, () => setResizing(false));
   }, [resizing, setInspector]);
   const inspectorWidth = inspector ?? INSPECTOR_WIDTH; // 固定宽度；`fit` 仅用于双击分割线（见上方注释）
 

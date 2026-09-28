@@ -1,7 +1,7 @@
 /** Node-level prefetch: as soon as a node is done, its display data is fetched ahead of being shown. What is on screen
  * now (priority 0) goes first, then the shown node's upstream (1), then the rest of the job (2); switching nodes or
  * scrubbing aborts lower-priority work that is not near the new focus. The frames are stored in the page's single cache
- * (transfer/cache.ts) under the key the view reads, so webui/tests/prefetch.test.ts drives the queue without a server.
+ * (transfer/cache.ts) under the key the view reads.
  *
  * 预取取回的是压缩字节，不解码，且无论网络快慢都取回整段（见下方 `windowFrames`）。
  * 当前查看的源由舞台自行整段取回（`transfer/fill.ts`），本模块取回的是其他数据包。 */
@@ -26,22 +26,22 @@ export interface Want {
  *
  * 不是解码后的位图（存储压缩态而非解码态）：预取只负责取回字节，
  * 解码发生在需要绘制的时刻（`transfer/sources.ts fromServer` / `fromChannel`）。 */
-export interface Fetched<V> {
+interface Fetched<V> {
   value: V | null;
   bytes: number;
 }
 
-/** Where a fetched frame is stored: the page's single cache (transfer/cache.ts), or a stand-in in the tests. */
-export interface PrefetchStore<V> {
+/** Where a fetched frame is stored: the page's single cache (transfer/cache.ts). */
+interface PrefetchStore<V> {
   isCached: (key: string) => boolean;
   keep: (key: string, value: V, bytes: number) => void;
 }
 
-/** How the prefetcher obtains frames, abstracted so that the tests can drive it. */
+/** How the prefetcher obtains frames: passed in, so the queue itself knows nothing of the network. */
 export interface PrefetchSource<V> {
   /** The frames a want covers, most wanted first (async: the manifest may still be in transit). */
   frames(want: Want): Promise<number[]>;
-  /** Fetches one decoded frame; it may be aborted while in flight (the promise should then reject). */
+  /** Fetches one frame's compressed bytes; it may be aborted while in flight (the promise should then reject). */
   load(want: Want, frame: number, signal: AbortSignal): Promise<Fetched<V>>;
   /** The key a fetched frame is stored under, when it is not `${fp}:${frame}`: the view reads exactly the same key, so
    * everything the view puts in the id is included here too (transfer/sources.ts: the packet, the channel and the proxy tier). */
@@ -56,7 +56,7 @@ const NEAR = 2;
 interface Job {
   want: Want;
   order: number; // newest first within a priority
-  fetched: Set<string>; // `${fp}:${frame}` already requested for this packet: never fetched again (even if evicted)
+  fetched: Set<string>; // the frame keys (`keyOf`) already requested for this packet: never fetched again (even if evicted)
 }
 
 export class Prefetcher<V> {
@@ -163,9 +163,11 @@ export class Prefetcher<V> {
       const got = await this.source.load(job.want, next, ctrl.signal);
       if (!ctrl.signal.aborted && got.value !== null) this.cache.keep(k, got.value, got.bytes);
     } catch {
-      /* aborted, or the server has no such frame: neither is requested again for this want */
+      /* the server has no such frame: not requested again for this want (an aborted one is, below) */
     } finally {
-      job.fetched.add(k);
+      // an aborted frame was never fetched: after a pause (the tab hidden) it is asked for again; a focus change that
+      // aborted it has dropped the want itself
+      if (!ctrl.signal.aborted) job.fetched.add(k);
       this.inflight.delete(k);
       this.pump();
     }

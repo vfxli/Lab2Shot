@@ -1,6 +1,6 @@
 """The view worker: the 3D viewer's data (server/view_data.py) is made in processes of their own, never in the web
-server's. Reading a production scene takes time and memory; made in the server, one user's big file once held it for
-minutes and grew it by gigabytes while the page took half a minute to open for everyone else. So:
+server's. Reading a production scene takes time and memory; made in the server, one user's big file would hold it for
+minutes and grow it by gigabytes while the page took half a minute to open for everyone else. So:
 
 - LANES processes; a view is always made, kept and served by the same one (chosen by its key), which takes one
   request at a time; they run niced: the web server comes first;
@@ -8,7 +8,9 @@ minutes and grew it by gigabytes while the page took half a minute to open for e
 - making a view, or a part of it, takes at most BUILD_S, and the process at most MEMORY_GB of memory: beyond, the
   process is ended (the next request starts a new one) and the viewer is told why, in words. The data is never cut
   down to fit: the view has to show what the data holds;
-- a worker keeps the views it made (VIEWS, the least recently used let go first) and their chunks.
+- a worker keeps the views it made (VIEWS, the least recently used let go first) and their chunks;
+- every question names the account it is asked for (lab2shot/serving.py): the worker reads that account's own cache
+  (data/store.py) and keeps its views apart, so one account's view is never answered to another.
 
 The web server's side waits in the thread its request runs in (the routes are plain functions), so waiting holds
 nothing else up either."""
@@ -49,7 +51,7 @@ def _settings_now() -> tuple:
     thinning step (`server/view_data.py _budget`). Without sending the settings with each request, a changed limit would
     silently have no effect.
 
-    No subset is selected: a selection list would need manual maintenance, and any omission would reopen the same gap.
+    No subset is selected: a selection list would need manual maintenance, and a setting left out of it would again have no effect.
     The whole set is sent and the worker overrides its own with it, so it sees exactly what the server sees."""
     from ..config import SCHEMA, settings
 
@@ -103,7 +105,10 @@ class _Lane:
         thread pool, and a view that takes two minutes to make would hold a thread for two minutes; a few of them and
         no request of anyone's is served. Past that the request answers E-VIEW-PREPARING (503) while the
         question goes on being answered here; the page asks again and finds the answer kept (`_recent`) or nearly there."""
-        key = (how, op, arg)
+        from ..serving import account
+
+        who = account().user_id  # whose cache the view is made from: part of every key, here and in the worker
+        key = (who, how, op, arg)
         with self._guard:
             kept = self._recent.pop(key, None)
             if kept is not None:
@@ -113,17 +118,17 @@ class _Lane:
                 if len(self._pending) >= PENDING_MAX:
                     raise Unavailable(Msg("E-VIEW-BUSY"))
                 a = self._pending[key] = _Ask()
-                threading.Thread(target=self._answer, args=(key, a), daemon=True, name="view-ask").start()
+                threading.Thread(target=self._answer, args=(key, a), daemon=True, name="view-ask").start()  # the key names the account
         if not a.done.wait(ANSWER_S):
             raise Unavailable(Msg("E-VIEW-PREPARING"))
         return a.result()
 
     def _answer(self, key: tuple, a: _Ask) -> None:
-        how, op, arg = key
+        who, how, op, arg = key
         try:
             with self.lock:
                 self.start()
-                self.conn.send((tuple((k, os.environ.get(k)) for k in ENV), _settings_now(), how, op, arg))
+                self.conn.send((tuple((k, os.environ.get(k)) for k in ENV), _settings_now(), who, how, op, arg))
                 reply = self.wait(BUILD_S, "准备三维显示数据")
             a.value = self._value(how, reply)
         except BaseException as exc:  # noqa: BLE001 — carried to the request that asked (or the one that comes back)
@@ -185,8 +190,8 @@ class _Lane:
 
 
 def _generation(how: tuple) -> tuple:
-    """The generation of each packet `how` names: the modification time of its manifest file (recomputing the same
-    fingerprint makes data/packet.py fresh_dir swap in a new folder and rewrite the manifest, i.e. a new generation).
+    """The generation of each packet `how` names: `created` in its manifest (recomputing the same fingerprint makes
+    data/packet.py fresh_dir swap in a new folder and rewrite the manifest, i.e. a new generation).
     Built views must be keyed by (how, generation): View.source holds the USD stage, and keyed by how alone a recomputed
     packet would keep showing old data in this process. The streaming view (points_partial) names a folder that is
     scanned each time and has no generation."""
@@ -204,10 +209,9 @@ def _generation(how: tuple) -> tuple:
     for fp in fps:
         try:
             path = packet_dir(fp) / MANIFEST if fp else None
-            # generation = `created` in the manifest (the g in page addresses is the same; older packets without it fall
-            # back to the file's modification time)
-            stamps.append((json.loads(path.read_text(encoding="utf-8")).get("created") or path.stat().st_mtime_ns) if path else 0)
-        except (OSError, ValueError):  # the packet does not exist (build reports it itself), or the fingerprint is invalid
+            # generation = `created` in the manifest (the g in page addresses is the same)
+            stamps.append(json.loads(path.read_text(encoding="utf-8"))["created"] if path else 0)
+        except (OSError, ValueError, KeyError, TypeError):  # the packet does not exist (build reports it itself), the fingerprint is invalid, or the manifest is not one Packet.commit wrote
             stamps.append(0)
     return tuple(stamps)
 
@@ -238,6 +242,7 @@ def _serve(conn) -> None:
     except OSError:
         pass
     from ..config import settings
+    from ..serving import Account, serving
     from .view_data import Refused, build
 
     views: OrderedDict = OrderedDict()
@@ -245,11 +250,11 @@ def _serve(conn) -> None:
     conn.send(("ready",))
     while True:
         try:
-            env, conf, how, op, arg = conn.recv()
+            env, conf, who, how, op, arg = conn.recv()
         except (EOFError, OSError):
             return
         try:
-            if env != env_now:  # another work folder (a test's): what was kept belongs to the old one
+            if env != env_now:  # another work folder or config: what was kept belongs to the old one
                 for k, v in env:
                     if v is None:
                         os.environ.pop(k, None)
@@ -271,18 +276,19 @@ def _serve(conn) -> None:
                         s.running[k] = v
                 views.clear()
                 conf_now = conf
-            key = (how, _generation(how))
-            view = views.pop(key, None) or build(how)
-            views[key] = view
-            while len(views) > VIEWS:
-                views.popitem(last=False)
-            if op == "describe":
-                out = view.json(arg)
-            else:
-                try:
-                    out = view.part(*arg)
-                except KeyError:
-                    raise Refused(NotFound(Msg("E-VIEW-NOPART", part=arg))) from None
+            with serving(Account(who)):  # the asking account's own cache (data/store.py), nobody else's
+                key = (who, how, _generation(how))
+                view = views.pop(key, None) or build(how)
+                views[key] = view
+                while len(views) > VIEWS:
+                    views.popitem(last=False)
+                if op == "describe":
+                    out = view.json(arg)
+                else:
+                    try:
+                        out = view.part(*arg)
+                    except KeyError:
+                        raise Refused(NotFound(Msg("E-VIEW-NOPART", part=arg))) from None
             conn.send(("ok", out))
         except Refused as exc:
             conn.send(("refused", type(exc.error), exc.error.message))

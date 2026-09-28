@@ -15,20 +15,24 @@ events, offline model loading (load_job refuses the network; local_hub, hf_dest)
     run.py            one job's bookkeeping (Run): timing, GPU memory, progress and result.json's standard fields,
                       the same for every main()
     files.py          frame / mask / depth reading, sizes, EXR and atomic result files
-    body_models.py    the body, hand and face models people download by hand (SMPL, SMPL-X, MANO, FLAME)
+    frame_io.py       frames read ahead of the GPU and result files written behind it, on threads
     build.py          helpers for extensions compiled from source at install time (EnvSpec.build scripts)
+    codetree.py       the tree a pinned checkout's own scripts expect, composed beside it out of symlinks
+    selfcheck.py      the installer's import check inside a freshly built environment
     recon.py          the reconstruction contract (chunked multi-view solves), pose interpolation
     feedforward.py    the feed-forward reconstruction driver (VGGT, Pi3, Depth Anything 3)
     mono_geometry.py  the per-frame geometry contract (MoGe, UniDepth, UniK3D, DA3, FaceAnything)
-    world_humans.py   the world-humans contract (GVHMR, WHAM, TRAM, HaMeR, SMIRK)
+    world_humans.py   the world-humans contract (GVHMR, WHAM, TRAM, HaMeR, SMIRK, Pixel3DMM, SAM 3D Body)
     tracking.py       people-box tracking and temporal smoothing
-    matte.py          the mask-guided matting contract (MatAnyone 2, VideoMaMa)
+    matte.py          the mask-guided matting contract (MatAnyone 2, VideoMaMa, SDMatte)
     point_tracks.py   the point-track contract: 2D (TAPNext++, CoTracker3, AllTracker's sampled points, WOFTSAM's
                       plane corners) and 3D (TAPIP3D, Track4World)
     optical_flow.py   the optical-flow contract (MEMFOF, WAFT)
     correspondence.py the dense-correspondence contract: where each plate pixel is in another picture (AllTracker,
                       RoMa v2)
     light_probe.py    the light-probe contract (DiffusionLight, LuxDiT)
+    rigging.py        the auto-rigging contract (a mesh in, a skeleton and skin weights out)
+    rig_motion.py     the rig-and-model contract of the 骨骼动作 family (motion generation and cleanup)
 
 What only one project and the ones built on it use stays in that project's adapter (Extension.worker_modules; an
 extension that requires it imports it from there): SAM 3D Body's solve and rig (adapters/sam_3d_body/sam3dbody.py),
@@ -474,14 +478,14 @@ def limit_gpu_memory(margin_mb: int = 768) -> int:
     return cap // 2**20
 
 
-STEP_DOWN_ENV = "LAB2SHOT_OOM_STEP_DOWN"  # "1" only under the GPU test harness (tests/integration/conftest.py)
+STEP_DOWN_ENV = "LAB2SHOT_OOM_STEP_DOWN"  # test-only: "1" lets fit_memory lower a parameter by itself (never set by the product)
 TEST_GPU_CAP_ENV = "LAB2SHOT_TEST_GPU_CAP_MB"  # test-only: limit_gpu_memory caps PyTorch at this many MB
 
 
 def step_down_allowed() -> bool:
-    """Whether a size that changes the result may be lowered automatically after running out of memory. Only in
-    tests: in real use the artist decides (tests may retry one step lower automatically; in real use the step stops,
-    states the reason and offers safe options for the user to choose from)."""
+    """Whether a size that changes the result may be lowered automatically after running out of memory: only when a
+    test run sets STEP_DOWN_ENV. In real use the step stops, states the reason and offers safe options for the artist
+    to choose from."""
     import os
 
     return os.environ.get(STEP_DOWN_ENV) == "1"
@@ -495,7 +499,7 @@ class MemoryBound:
     """What one GPU step's memory grows with, declared where the worker runs the step (fit_memory). Made by one of:
 
         MemoryBound.parameter(name, steps)  a node parameter the artist sets (每段帧数, 处理尺寸): a smaller value gives
-                                            a different result, so only the GPU test harness lowers it by itself
+                                            a different result, so only a test run lowers it by itself
         MemoryBound.batch(steps)            how many frames the worker sends at once, each computed on its own: a
                                             smaller batch only takes longer, lowered in real use too
         MemoryBound.shot(frames, people)    the input itself, all at once (nothing splits it): nothing to lower
@@ -550,8 +554,8 @@ def _largest_first(steps: Sequence[int]) -> tuple[int, ...]:
 def fit_memory(job: Job, bound: MemoryBound, run: Callable[[int | None], T], value: int | None = None) -> T:
     """Run one GPU step, run(value), under the one out-of-memory policy of every worker (tests may retry one step
     lower automatically; in real use the step stops, states the reason and offers safe options for the user to
-    choose from). `value`: what the bound is
-    now (the parameter as the node resolved it, the batch size); None for the input itself.
+    choose from). `value`: what the bound is now (the parameter as the node resolved it, the batch size); None for
+    the input itself.
 
     `run` does the whole step from its start with the value it is given (never half a shot with one value and the rest
     with another) and returns what the worker needs from it, the value too when the worker records it. Any error but
@@ -559,14 +563,15 @@ def fit_memory(job: Job, bound: MemoryBound, run: Callable[[int | None], T], val
     a spill into RAM), the cached blocks are freed and then:
 
         a parameter   real use stops (E-WORKER-VRAMSIZE): the smaller safe values to choose on the node (the message
-                      is said at the parameter; the card's total and free memory go to the log only, I-WORKER-VRAMCARD). The GPU test harness (step_down_allowed) says so
-                      (W-WORKER-VRAMTESTSTEP) and runs the step again at the next smaller value.
+                      is said at the parameter; the card's total and free memory go to the log only,
+                      I-WORKER-VRAMCARD). A test run (step_down_allowed) says so (W-WORKER-VRAMTESTSTEP) and runs
+                      the step again at the next smaller value.
         a batch       runs again at the next smaller size, in either mode (W-WORKER-VRAMBATCH).
         no smaller    stops in either mode: E-WORKER-VRAMFLOOR (a parameter), E-WORKER-VRAMONEBATCH (a batch).
         the input     stops at once: E-WORKER-VRAMSHOT, E-WORKER-VRAMFRAME (what to take out of the input).
 
     Every stop is an out-of-memory failure (is_oom): next to models kept loaded, the core runs the job once more alone
-    on the card (engine/external.py). The only place a worker handles running out of memory (tests/test_boundaries.py)."""
+    on the card (engine/external.py). The only place a worker handles running out of memory."""
     while True:
         try:
             return run(value)
@@ -609,8 +614,8 @@ def _card_after_oom() -> tuple[float, float]:
 
 # --------------------------------------------------------------------------- GPU errors: full, or the wrong card
 
-# torch.OutOfMemoryError exists only from 2.0, torch.cuda.OutOfMemoryError from 2.2; an environment pinned to an
-# older torch raises AttributeError just from writing `except torch.OutOfMemoryError:`, and that AttributeError is
+# torch.OutOfMemoryError and torch.cuda.OutOfMemoryError exist only in newer torch releases; an environment pinned to
+# an older torch raises AttributeError just from writing `except torch.OutOfMemoryError:`, and that AttributeError is
 # what the user sees instead of the real error. is_oom() below never touches a version-specific attribute: every
 # torch version raises a RuntimeError (OutOfMemoryError included: it subclasses RuntimeError) whose type name or text
 # says what happened.

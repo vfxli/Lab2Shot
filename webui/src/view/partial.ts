@@ -24,7 +24,7 @@ import { useCookInputs } from "../state/cookInputs";
  * - Once the node is done (`node_done`, or the status reply marks the output `present`), the view switches to the
  *   content address `/api/packet/{fp}/frame/{n}.png`, which the browser caches permanently. */
 
-export const PARTIAL_EVERY = 500; // ms between asks while a node is being cooked
+const PARTIAL_EVERY = 500; // ms between asks while a node is being cooked
 
 export interface Partial {
   frames_done: number[]; // the frames written so far, in order
@@ -38,7 +38,7 @@ const url = (job: string, node: string, port: string) => `/api/jobs/${job}/parti
 
 /** Cache id for a running node's frames, built from the job, node and port. The packet fingerprint is not used, as
  * it addresses the finished result. */
-export const partialId = (job: string, node: string, port: string) => `partial:${job}:${node}:${port}`;
+const partialId = (job: string, node: string, port: string) => `partial:${job}:${node}:${port}`;
 
 /** The frames of a partial result, exposed as a regular frame source for the 2D stage. */
 export function partialFrames(job: string, node: string, port: string, frames: number[]): FrameSource {
@@ -55,7 +55,7 @@ export function usePartial(nodeId: string | null, port: string, cooked: boolean)
   // Progress has a single source (state/results.ts `now`, api/progress.ts). Only its `done` count is used here, as a
   // gate on whether the node has written its first frame; this avoids requesting a partial that cannot exist yet,
   // which the browser would log as an error. It is not used to draw progress (that is the role of `at`).
-  const done = useResults((s) => (nodeId && s.now?.node === nodeId ? s.now.done : 0));
+  const done = useResults((s) => (nodeId ? s.running[nodeId]?.done ?? 0 : 0));
   const [found, setFound] = useState<{ id: string; info: Partial } | null>(null);
   // The node type writes final frames incrementally and the node is not inside a block (no per-item partial).
   const shows = !!typeId && !!getNodeDefs()[typeId]?.streams && !chainOf(blocksOf(reply), nodeId ?? "").length;

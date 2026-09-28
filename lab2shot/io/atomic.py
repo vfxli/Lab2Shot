@@ -41,28 +41,63 @@ def write_text(path: Path, text: str) -> None:
     _fsync_dir(path.parent)
 
 
+def put_in_place(part: Path, target: Path) -> None:
+    """Rename a file written aside (`part`, complete and closed) to `target`, durably: its data reaches the disk
+    before the rename and the rename after it, so `target` is never an empty or partial file after a crash."""
+    _fsync_file(str(part))
+    os.replace(part, target)
+    _fsync_dir(target.parent)
+
+
+# How many files flush_tree hands to the disk at once. One at a time, every fsync waits for its own journal commit;
+# issued together the file system commits them in a few batches. 100 finished 1080p frames (3 MB each), ext4:
+# one at a time 0.35 s, sixteen at once 0.11 s. (syncfs, one call for the whole file system, is as fast, but it also
+# waits for whatever else is being written on that disk, another cook's frames or an upload.)
+FLUSH_THREADS = 16
+
+
+def _fsync_file(path: str) -> None:
+    try:
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            return
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return  # removed meanwhile (a temporary file) or not readable
+    try:
+        os.fsync(fd)
+    except OSError as exc:
+        if exc.errno not in _UNSUPPORTED:
+            raise
+    finally:
+        os.close(fd)
+
+
 def flush_tree(folder: Path, skip: tuple[str, ...] = ("_partial",)) -> None:
     """Flush every regular file under `folder` and the folders themselves to the disk. Symbolic links, pipes and other
     special files are left alone; folders named in `skip` (temporary content about to be removed) are not descended
-    into. Called before a completion marker is written, so that a marker never survives a crash without its data."""
-    for root, dirs, files in os.walk(folder, followlinks=False):
+    into. Called before a completion marker is written, so that a marker never survives a crash without its data.
+
+    The files are flushed together (FLUSH_THREADS at once), then the folders (their entries: the renames that put the
+    files in place); it returns once every one of them is on the disk, and raises the first error of any, so what
+    the marker vouches for is exactly what it was when each was flushed one by one."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    files, folders = [], []
+    for root, dirs, names in os.walk(folder, followlinks=False):
         dirs[:] = [d for d in dirs if d not in skip]
-        for name in files:
-            path = os.path.join(root, name)
-            try:
-                if not stat.S_ISREG(os.lstat(path).st_mode):
-                    continue
-                fd = os.open(path, os.O_RDONLY)
-            except OSError:
-                continue  # removed meanwhile (a temporary file) or not readable
-            try:
-                os.fsync(fd)
-            except OSError as exc:
-                if exc.errno not in _UNSUPPORTED:
-                    raise
-            finally:
-                os.close(fd)
-        _fsync_dir(Path(root))
+        files += [os.path.join(root, name) for name in names]
+        folders.append(Path(root))
+    if len(files) < 2:
+        for path in files:
+            _fsync_file(path)
+        for root in folders:
+            _fsync_dir(root)
+        return
+    with ThreadPoolExecutor(min(FLUSH_THREADS, len(files)), thread_name_prefix="l2s-flush") as pool:
+        for _ in pool.map(_fsync_file, files):  # map raises the first error once every flush is done
+            pass
+        for _ in pool.map(_fsync_dir, folders):
+            pass
 
 
 def mark(marker: Path) -> None:

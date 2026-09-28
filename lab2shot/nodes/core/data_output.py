@@ -12,7 +12,6 @@ from ..output import OutputSettings, Writes, fps_param, learned_projects, name_p
 from ..applies import incoming, Param
 
 ORIGIN_LABELS = {"bottom_left": "左下", "top_left": "左上"}
-ORIGIN_HELP = "像素坐标从哪个角算起。Nuke、3DE、Houdini 用左下角；图像处理和 OpenCV 用左上角"
 
 
 class BoxesOutput(OutputSettings):
@@ -28,14 +27,9 @@ class BoxesOutput(OutputSettings):
         name: str = name_param("boxes")
         format: Literal["json", "csv", "tracker"] = P(
             "json", label="格式", group="文件", option_labels={"json": "JSON", "csv": "CSV", "tracker": "Tracker"},
-            help="JSON：画面大小、帧号，和每个人的编号、显眼程度、每帧的框 [x1, y1, x2, y2]；"
-                 "CSV：每行 帧号、编号、x1、y1、x2、y2；"
-                 "Tracker：每个人在 Nuke 的 Tracker 节点里占一条，跟的是**框的中心**，每帧一个关键帧，"
-                 "那一帧没检测到这个人就把那一帧关掉。写成 名字.nk，用节点上的「复制到 Nuke」粘贴进合成",
         )
         origin: Literal["top_left", "bottom_left"] = P("top_left", label="坐标原点", group="文件",
                                                        option_labels=ORIGIN_LABELS,
-                                                       help=ORIGIN_HELP + "。左下时 y1 是框的下边。Nuke 的 Tracker 总是左下角",
                                                        applies=Param("format").one_of("json", "csv"))
 
     @classmethod
@@ -113,16 +107,11 @@ class TracksOutput(OutputSettings):
             # 输入点数不为四时该选项置灰并注明当前点数，避免选择后在计算末尾才报错
             option_applies={"cornerpin": incoming("tracks", "points").eq(4)},
             option_labels={"3de": "3DE", "csv": "CSV", "tracker": "Tracker", "cornerpin": "CornerPin"},
-            help="3DEqualizer：3DE 的「Import 2D Tracks」能直接读，只写可见的帧，文件是 名字.txt；CSV：每行 帧号、点名、x、y、是否可见（跟点的节点给了置信度时再加一列 0–1 的置信度），"
-                 "任何软件都能读；Tracker：每个点在 Nuke 的 Tracker 节点里占一条，每帧一个关键帧，挡住的帧关掉；"
-                 "CornerPin：正好四个点（平面的四个角，如 WOFTSAM 平面跟踪）写成一个 CornerPin2D 节点，from 是起始帧的四个角，to 每帧一个关键帧。"
-                 "两种 Nuke 格式都写成 名字.nk，用节点上的「复制到 Nuke」粘贴进合成，或在 Nuke 里 File → Import Script",
         )
         origin: Literal["bottom_left", "top_left"] = P(
-            "bottom_left", label="坐标原点", group="文件", option_labels=ORIGIN_LABELS,
-            help=ORIGIN_HELP + "。3DEqualizer、Tracker、CornerPin 总是左下角", applies=Param("format").one_of("csv"),
+            "bottom_left", label="坐标原点", group="文件", option_labels=ORIGIN_LABELS, applies=Param("format").one_of("csv"),
         )
-        min_visible: int = P(5, label="最少可见帧数", help="可见帧数少于这个的点不写出（太短的点对相机解算没用，还会添乱）；跟踪点一共不到这么多帧（一对图的匹配点）时，在全部帧上都可见才写出", ge=1, group="筛选",
+        min_visible: int = P(5, label="最少可见帧数", ge=1, group="筛选",
                              applies=Param("format").one_of("3de", "csv", "tracker"))
 
     @classmethod
@@ -191,7 +180,6 @@ class CurvesOutput(OutputSettings):
         format: Literal["csv", "chan", "json", "usd"] = P(
             "csv", label="格式", group="文件",
             option_labels={"csv": "CSV", "chan": ".chan", "json": "JSON", "usd": "USD"},
-            help="CSV：第一行是曲线名，之后每行一帧，Excel、Maya 脚本都能读；.chan：Houdini 的 File CHOP、Nuke 能直接读；JSON：给脚本用；USD：/shot/curves 上每条曲线一个带动画的属性",
         )
         # 仅 USD 按时间存储（timeCodesPerSecond）；CSV / .chan / JSON 按行对应帧，不写帧率
         fps: float = fps_param(applies=Param("format").one_of("usd"))

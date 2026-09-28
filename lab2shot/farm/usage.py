@@ -1,19 +1,20 @@
 """Usage statistics: how much each third-party project, and each of its nodes, is used over a time range, and by which
 department and which account — for the administrator to see which projects earn their place and who uses what (the
-admin page's 使用统计: 按项目, 按部门, 按人).
+admin page's 使用统计: 按项目, 按环节, 按人), and which templates the jobs were opened from (按模板, `templates`: counted
+by when a job was submitted, not by when it ended).
 
 Nothing is logged apart for them. When a job ends, the database keeps per node type how its nodes served it
 (job_usage): runs (they computed: the seconds, the part of them on a GPU, the frames) and reuses (answered without
 computing: a cached result, or a worker's raw results from an earlier run — a reuse is still a use). Who asked is the
-job's account and the account's department (lab2shot/accounts.py; a deleted account counts as 「已删除的用户」, jobs
-from before accounts as the administrator's), when is the job's end. A job the server was stopped in the middle of (a
+job's account and the account's department (lab2shot/accounts.py; a deleted account, or one whose row is gone, counts as
+「已删除的用户」), when is the job's end. A job the server was stopped in the middle of (a
 restart) has no end and is not counted.
 
 Every installed project is listed with every one of its node types, used or not: the ones never used in the range show
 zero. The core's nodes are listed apart ("core").
 
-Every finished job counts, light ones too (engine/policy.py: reading a file, a value, delivering what is cached).
-An account without a department counts under 未分部门.
+Every finished job counts, the small ones too (reading a file, a value, delivering what is cached).
+An account without a department counts under 未分环节.
 
 A reset starts the statistics again from now; the starts it replaced are kept (undo_reset puts the last one back).
 Nothing is deleted.
@@ -26,10 +27,11 @@ import time
 from ..database import db
 from ..errors import Invalid
 from ..messages import Msg
+from ..periods import Periods, local_day
 
 DAY_S = 86400
 MAX_DAYS = 3660  # a per-day series is at most ten years long
-NOBODY = "未分部门"  # an account without a department (the administrator until they choose one)
+NOBODY = "未分环节"  # an account without a department (the administrator until they choose one)
 COUNTS = ("runs", "reuses", "seconds", "gpu_seconds", "frames")
 
 
@@ -59,6 +61,54 @@ def undo_reset() -> float | None:
     return history[-1]
 
 
+ENDS = ("done", "partial", "failed", "cancelled")  # how a job ended (farm/queue.py Job.state)
+
+
+def jobs_in(p: Periods) -> dict:
+    """The admin overview's 任务: the jobs submitted in 今日, 近 7 天 and 本月 (every account's, every kind: a render and
+    a file read alike), all of them and by how each ended; the ones still queued or running count in `all` only. A job
+    deleted since (by its account or an administrator) no longer counts; one whose task folder expired still does."""
+    rows = db().rows(f"SELECT {local_day('submitted')} AS day, state, COUNT(*) AS n FROM jobs WHERE submitted >= ? "
+                     "GROUP BY 1, 2", (p.since,))
+    shown = ("today", "days7", "month")
+    total = p.sums(((r["day"], r["n"]) for r in rows), shown)
+    ended = {s: p.sums(((r["day"], r["n"]) for r in rows if r["state"] == s), shown) for s in ENDS}
+    return {k: {"all": total[k], **{s: ended[s][k] for s in ENDS}} for k in shown}
+
+
+HAND_BUILT = "自己搭的"  # the row of the jobs whose graph was not opened from a template
+
+
+def templates(since: float | None = None, until: float | None = None, user_id: int | None = None) -> list[dict]:
+    """按模板: per template the jobs were opened from (jobs.template, written at submission since that column exists;
+    the jobs before it are not counted), submitted from `since` to `until` (None: open), of one account or (`user_id`
+    None) of every one: how many (every job, whatever came of it), how many ended done and failed, when last submitted,
+    and how many accounts. A template is named as it is now; one no longer there by the name it had at its last use,
+    marked deleted. The graphs built by hand are one row of their own (id "", HAND_BUILT), after the templates."""
+    from ..library import current_names
+
+    where, args = ["template IS NOT NULL"], []
+    for sql, value in (("submitted >= ?", since), ("submitted < ?", until), ("user_id = ?", user_id)):
+        if value is not None:
+            where.append(sql)
+            args.append(value)
+    # the bare template_name beside MAX(submitted) is SQLite's: the value of the row that has the maximum, i.e. the
+    # name at the template's last use
+    rows = db().rows(f"""
+        SELECT template, template_name, COUNT(*) AS count, SUM(state = 'done') AS done, SUM(state = 'failed') AS failed,
+               MAX(submitted) AS last, COUNT(DISTINCT user_id) AS users
+        FROM jobs WHERE {' AND '.join(where)} GROUP BY template""", tuple(args))
+    names = current_names(r["template"] for r in rows)
+    out = []
+    for r in rows:
+        card = r["template"]
+        now = names.get(card)
+        out.append({"id": card, "name": now or (r["template_name"] if card else HAND_BUILT),
+                    "deleted": bool(card) and now is None, "count": r["count"], "done": r["done"],
+                    "failed": r["failed"], "last": r["last"], "users": r["users"]})
+    return sorted(out, key=lambda t: (not t["id"], -t["count"], -t["last"], t["name"]))
+
+
 def _counts() -> dict:
     return {**dict.fromkeys(COUNTS, 0), "users": set(), "last": None}
 
@@ -68,10 +118,6 @@ def _add(row: dict, use: dict, who: str) -> None:
         row[k] += use[k]
     if who:
         row["users"].add(who)
-
-
-# a benchmark run's jobs (client app "bench"; no longer produced, but old records may still be in the table) are the administrator testing the software, not a department using a project: never counted in usage
-NOT_BENCH = "COALESCE(json_extract(j.record, '$.client.app'), '') != 'bench'"
 
 
 def _done(row: dict) -> dict:
@@ -88,17 +134,17 @@ def _uses() -> list[tuple[float, str, str, str, dict]]:
         SELECT j.finished, a.name, a.username, a.deleted, COALESCE(a.department, '') AS department, u.node_type,
                {', '.join('u.' + k for k in COUNTS)}
         FROM job_usage u JOIN jobs j ON j.id = u.job_id LEFT JOIN users a ON a.id = j.user_id
-        WHERE j.finished IS NOT NULL AND {NOT_BENCH} ORDER BY j.finished""")
+        WHERE j.finished IS NOT NULL ORDER BY j.finished""")
     return [(r[0], DELETED if r["deleted"] or r["username"] is None else f"{r['name']}（{r['username']}）", r["department"],
              r["node_type"], {k: r[k] for k in COUNTS}) for r in rows]
 
 
 def stats(since: float | None = None, until: float | None = None, tz_minutes: int = 0) -> dict:
     """Usage from `since` to `until` (seconds since the epoch; None: since the last reset / until now), per project
-    and per node type, per department (and its people, and theirs projects) and per person (and their projects): runs,
+    and per node type, per department (and its people, and their projects) and per person (and their projects): runs,
     reuses, compute seconds (and on a GPU), frames, who asked, when last used (since the last reset, in the range or
-    before it), and per-day series of runs, reuses and seconds. Days are counted in the viewer's time zone
-    (`tz_minutes` east of UTC)."""
+    before it), and per-day series of runs, reuses and seconds; and per template (`templates`, the same range). Days
+    are counted in the viewer's time zone (`tz_minutes` east of UTC)."""
     from ..extensions import extensions
     from ..extensions.status import extension_status
     from ..accounts import departments
@@ -215,4 +261,5 @@ def stats(since: float | None = None, until: float | None = None, tz_minutes: in
     people_out = order({**_done(finish_series(p)), "departments": sorted(p["departments"]),
                         "projects": order(_done(x) for x in p["projects"].values())} for p in people.values())
     return {"since": lo, "until": until, "start": begun, "undo": bool(db().meta("usage.history")), "days": days,
-            "projects": out, "departments": dept_out, "people": people_out, "nobody": NOBODY}
+            "projects": out, "departments": dept_out, "people": people_out, "nobody": NOBODY,
+            "templates": templates(lo, until)}

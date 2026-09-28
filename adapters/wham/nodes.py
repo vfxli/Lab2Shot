@@ -28,7 +28,7 @@ class Solve(WorldHumans):
              "官方脚本只收一段画面（demo.py:182 `--video`），框由它自己的 YOLOv8x 检测 + ViTPose 跟踪出"
              "（demo.py:65 `detector.track(img, fps, length)`，lib/models/preproc/detector.py DetectionModel）。"
              "所以节点没有「人物框」输入口：把接进来的框塞进上游同一个结构 detector.tracking_results['bbox'] 里、"
-             "顶替掉它自己的检测，是我们自己开的口，不是官方的输入。要只解其中某一个人，在上游把别人从画面里去掉，再接进「图像」口："
+             "顶替掉它自己的检测，是我们自己开的口，不是官方的输入。要只解其中某一个人，在上游把别人从画面里去掉，再接进「RGB」口："
              "「ViTDet 人物框」→「选人」→「人物框转遮罩」→「图像合成」。"
              "② **「参照相机」**：WHAM 交出来的人在**它自己的"
              "世界**里（原点在这个人起点的髋部），那个世界里配着一台相机，人和实拍对得上就是靠它。"
@@ -40,22 +40,18 @@ class Solve(WorldHumans):
              "DPVO（demo.py:56 `SLAMModel(...)`、:76 `slam.process()`、:88 `joblib.dump(slam_results, ...)`）。"
              "这个口必须有：没有它，模板上的对齐只剩相机空间那一档，相机的运动会被加两遍。"
              "要一台**能用**的相机，还是从真正解相机的节点（ViPE、TRAM）或「导入 USD」接。"
-             "③ 「人物」（蒙皮角色）是 CG 形态，官方吐的是 SMPL 参数 + 顶点。"
+             "③ 「蒙皮角色」是 CG 形态，官方吐的是 SMPL 参数 + 顶点。"
              "④ cam_angvel 只用相机的**旋转**；官方的 --calib（demo.py:189）只是内参，不是相机。",
     )
-    # 公开基准实测结果，用作输入的提示
-    measured = {
-        "focal_mm": "实测（3DPW 6 个镜头）：填真实 Focal Length，人在镜头里的位置误差少 36%（4 好 2 差）；接 AnyCalib 估的 Focal Length 更差（2 好 4 差）",
-        # 键为「相机旋转」的参数名（measured 按输入口名和参数名挂载提示，nodes/base.py describe）。
-        # 该数据在接入完整 ViPE 相机时测得，上游仅使用其旋转
-        "camera_rotate": "实测（3DPW 6 个镜头，接的是整台 ViPE 相机、上游只用其旋转）：人在镜头里的位置误差少 40%（5 好 1 差）；接真实相机少 31%",
-    }
+    # 公开基准上的实测（接不接、接什么的差别）：
+    #   focal_mm：实测（3DPW 6 个镜头）：填真实 Focal Length，人在镜头里的位置误差少 36%（4 好 2 差）；接 AnyCalib 估的 Focal Length 更差（2 好 4 差）
+    #   camera_rotate：实测（3DPW 6 个镜头，接的是整台 ViPE 相机、上游只用其旋转）：人在镜头里的位置误差少 40%（5 好 1 差）；接真实相机少 31%
     on_node = ("focal_mm", "static_camera")
     # 相机仅估计旋转，位置由人物反推；固定机位有专用开关；人物须连续出现 30 帧以上；
     # 填写真实 Focal Length 可使人物位置误差降低 36%，接入 ViPE 相机可降低 40%（3DPW 6 个镜头）
     runtime = "wham"
     # 上游仅使用相机逐帧旋转（转换为 cam_angvel 输入网络），不使用位移，
-    # 可在 third_party/wham/repo 中核实。输入口提示按此档位生成（kit/cameras.py TAKES_CAMERA）
+    # 可在 third_party/wham/repo 中核实。因此没有「相机」输入口，旋转接到「相机旋转」参数上（families/humans.py）
     camera_to_worker = "rotation"
     smpl_body = "smpl"  # worker 解算的人体模型（worker.py save_person）；仅作声明，不增加输出口（families/humans.py smpl_body）
     # 「参照相机」输出口：结果所在世界中对应的相机，仅供「相机空间转换」作为参照，不能作为成品相机使用
@@ -72,7 +68,7 @@ class Solve(WorldHumans):
 
     class Params(WorldHumansParams):
         follow_camera: bool = follow_camera_param()
-        smplify: bool = P(False, label="SMPLify 细化", help="用 2D 关键点再优化一遍身体姿势，手脚位置更贴画面，但更慢（每人多几十秒），偶尔会把快速动作优化坏", group="人物")
+        smplify: bool = P(False, label="SMPLify 细化", group="人物")
 
 
 NODES = (Solve,)

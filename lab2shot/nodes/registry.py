@@ -30,7 +30,7 @@ def converter(data_type: str, port_type: str) -> str:
 
 
 def type_tables() -> dict:
-    """type_tables_of the node types there are now (worked out once per set of them)."""
+    """_type_tables of the node types there are (worked out once per set of them)."""
     return _type_tables(tuple(sorted(node_types())))
 
 

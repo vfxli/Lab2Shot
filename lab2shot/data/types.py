@@ -46,7 +46,7 @@ class DataType:
     # 摘要包含的行（data/summary.py ITEMS 的 id），按显示顺序排列：输入口提示、中键信息面板和「取信息」均读取此项。
     # 类型也会显示其父类型的摘要行
     summary: tuple[str, ...] = ()
-    # 多层 EXR 中该类型的默认图层名（data/layers.py DEFAULT_NAMES；「多层 EXR 输出设置」的图层表在新增行时建议此名，
+    # 多层 EXR 中该类型的默认图层名（「多层 EXR 输出设置」的图层表在新增行时建议此名：webui/src/graph/edit.ts，
     # 已被占用时追加编号）；"" 表示该类型不会成为 EXR 图层
     layer_default: str = ""
 
@@ -178,7 +178,7 @@ DATA_TYPES: Mapping[str, DataType] = MappingProxyType({
                  end="交给 DCC 的动画数据：表情权重写成 CSV、.chan 或 USD，相机对比的误差画成曲线", summary=('curves', 'frames')),
         DataType("files", "要输出的文件", colour_of("files"), "输出设置节点按它的名字和格式写好的文件，接到「输出」交给你：每个输出设置一个子文件夹", "inputs", "inputs",
                  end="写好的文件，只交给「输出」", summary=('name', 'main', 'files', 'commercial', 'learned')),
-        # 基本数值（nodes/values.py）：单个值或逐帧值；单位（mm、px、°）属于数据的一部分
+        # 基本数值（data/values.py）：单个值或逐帧值；单位（mm、px、°）属于数据的一部分
         DataType("value", "数值", colour_of("value"), "一个值，或者每帧一个值（带帧号）；单位写在数据里", "value", "value", summary=('value', 'frames')),
         DataType("value.float", "浮点", colour_of("value.float"), "一个小数，或者每帧一个（一条曲线），可以带单位（mm、px、°……）：Focal Length、Filmback、强度", "value", "value"),
         DataType("value.int", "整数", colour_of("value.int"), "一个整数，或者每帧一个，可以带单位：分辨率、帧号、数量", "value", "value"),
@@ -238,19 +238,18 @@ class SceneKind:
     id: str
     label: str
     type: str  # 单独传递时的数据类型：决定其颜色及可承载的连线
-    description: str
 
 
 # 按编辑器的列出顺序排列（支持的数据）。新增三维数据种类时在此添加一行，每个三维输出设置节点随后须声明其写出方式。
 SCENE_KINDS: Mapping[str, SceneKind] = MappingProxyType({
     k.id: k
     for k in (
-        SceneKind("model", "模型", "scene.model", "网格：静止的、跟着变换动的，或每帧变形的（点缓存），带 UV 和法线"),
-        SceneKind("camera", "相机", "scene.camera", "带动画的相机：每帧位置、Focal Length、Filmback"),
-        SceneKind("points", "点云", "scene.points", "逐帧的点和颜色"),
-        SceneKind("curves", "三维曲线", "scene.curves", "一组三维曲线：每条曲线的点，以及它自己的属性（宽度、颜色、朝向、每帧位置）；发丝、毛发导向线、运动轨迹都是它"),
-        SceneKind("skeleton", "骨架动画", "scene.skeleton", "关节层级和逐帧的关节变换，没有网格（Maya 的 joint、USD 的 Skeleton + SkelAnimation）"),
-        SceneKind("character", "蒙皮角色", "scene.character", "蒙皮在骨架动画上的网格和它的 blend shape（Maya 的 skinCluster + blendShape、USD 的 SkelRoot）"),
+        SceneKind("model", "模型", "scene.model"),
+        SceneKind("camera", "相机", "scene.camera"),
+        SceneKind("points", "点云", "scene.points"),
+        SceneKind("curves", "三维曲线", "scene.curves"),
+        SceneKind("skeleton", "骨架动画", "scene.skeleton"),
+        SceneKind("character", "蒙皮角色", "scene.character"),
     )
 })
 # 逐帧变化的模型（点缓存）：与 "model" 一同传递；写出节点可以只接受静止模型

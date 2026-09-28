@@ -2,11 +2,11 @@
 # Lab2Shot 配置入口。本脚本不执行任何自动操作：仅列出步骤，由使用者选择后执行对应步骤。
 #
 #   ./setup.sh              # 进入菜单
-#   ./setup.sh <step>       # 直接执行指定步骤（步骤名见 ./setup.sh --help，例如 wizard、env、web、check、downloads、password、start、db-backup、db-restore）
+#   ./setup.sh <step>       # 直接执行指定步骤（步骤名见 ./setup.sh --help，例如 wizard、update、env、web、check、downloads、password、start、db-backup、db-restore）
 #
 # 菜单由 `lab2shot setup`（Python）实现，其运行依赖 uv 与 Python 环境；本脚本仅负责这两项的引导，
 # 同样由使用者选择后执行，不自动安装。每一步失败时均提供替代方案（镜像或其他安装方式）。
-# 仅执行使用者明确选择的步骤：进入菜单时使用 `uv run --no-sync`，不会联网同步环境（同步环境请选择菜单第 1 项）。
+# 仅执行使用者明确选择的步骤：进入菜单时使用 `uv run --no-sync`，不会联网同步环境（同步环境请选择「安装与环境 → 安装 Python 依赖」）。
 set -e
 cd "$(dirname "$0")"
 
@@ -73,6 +73,6 @@ if [ ! -x .venv/bin/python ]; then
   sync_env || exit 1
 fi
 
-# 此后的菜单由 Python 实现（网页、内核、管理员、服务器、启动等），每一项仅在使用者选择后执行。
-# --no-sync：`uv run` 默认会先联网同步环境；同步为菜单第 1 项，仅在选择后执行。
+# 此后的菜单由 Python 实现（网页、扩展包编译与下载设置、管理员、服务器、启动等），每一项仅在使用者选择后执行。
+# --no-sync：`uv run` 默认会先联网同步环境；同步为菜单「安装与环境 → 安装 Python 依赖」，仅在选择后执行。
 exec uv run --no-sync lab2shot setup "$@"

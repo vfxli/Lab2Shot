@@ -4,9 +4,35 @@
   white-space: nowrap;
 }
 
+/* a name or a department longer than four characters is cut (the whole of it on hover), so the list fits a
+   1100-wide window with every column: how many tasks an account has is on its own page, under 任务 */
+.usr-cut {
+  display: inline-block;
+  max-width: 4em;
+  vertical-align: bottom;
+}
 
 .usr-past {
   color: var(--error);
+}
+
+/* 在线 (Users.tsx Presence): the list's only coloured column — green while online, grey otherwise */
+.usr-online {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--green);
+}
+
+.usr-online-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.usr-offline {
+  color: var(--text-3);
 }
 
 .chip.usr-admin {
@@ -56,7 +82,7 @@
   gap: 2px;
 }
 
-/* 用户对话框里的一行就是公共表单行 `.who-row`（ui/account.css）：标签右对齐成一列、控件左对齐按内容宽。
+/* 用户对话框里的一行就是公共表单行 `.who-row`（ui/forms.css）：标签右对齐成一列、控件左对齐按内容宽。
    不另写一套：各弹窗共用同一份表单行，左右边缘才对得齐。 */
 .usr-form {
   --form-label-w: 80px;
@@ -107,11 +133,6 @@
 
 .usr-made-text code {
   user-select: all;
-}
-
-.usr-online {
-  white-space: nowrap;
-  color: var(--accent);
 }
 
 .usr-logins {
@@ -192,8 +213,11 @@
   gap: var(--sp-2);
 }
 
+/* 页签一行放不下时（账号的资源种类多、窗口窄）折到下一行，不伸出页面 */
 .usr-detail .usr-tabs {
   align-self: flex-start;
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .usr-tab-count {
@@ -218,54 +242,4 @@
 .notice-preview .set-ctl {
   display: block;
   min-width: 0;
-}
-
-/* ---------------------------------------------------------------- 后台「模板」页 (admin/Templates.tsx) */
-.tpl-adm-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  margin-top: var(--sp-4);
-}
-
-.tpl-adm-group h3 {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  margin: 0;
-  font-size: var(--fs-lg);
-}
-
-.tpl-adm-group h3 i {
-  width: 3px;
-  height: 14px;
-  border-radius: var(--r-xs);
-  background: var(--c, var(--text-3));
-}
-
-.tpl-adm-name {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-2);
-  min-width: 0;
-}
-
-.tpl-adm-ok,
-.tpl-adm-bad {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-2);
-  white-space: nowrap;
-}
-
-.tpl-adm-ok {
-  color: var(--green);
-}
-
-.tpl-adm-bad {
-  color: var(--error-text);
-}
-
-.tpl-adm-table td {
-  white-space: nowrap;
 }

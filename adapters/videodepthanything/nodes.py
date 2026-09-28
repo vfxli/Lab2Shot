@@ -1,4 +1,4 @@
-"""Nodes provided by the Video Depth Anything extension (Small models only: Apache-2.0)."""
+"""Nodes provided by the Video Depth Anything extension (Small models Apache-2.0; Base / Large CC-BY-NC-4.0)."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ class Depth(NodeDef):
     id = "videodepthanything.depth"
     on_node = ("model", "resolution")
     # docs.md + worker.py：官方 32 帧重叠窗口在这里改写成流式，任何长度的镜头只在内存里留约 40 帧；
-    # 默认「米制 Small」，米制尺度只是估计（同一面墙各模型差 5.7 / 6.7 / 7.9 米）
+    # 默认「真实 · Small」，米制尺度只是估计（同一面墙各模型差 5.7 / 6.7 / 7.9 米）
     inputs = (Port("image", "image.3", "RGB"),)
     outputs = (Port("depth", "image.1", "深度图", means=("scale",)), Port("disparity", "image.1", "视差图", means=("scale",)))
     runtime = "videodepthanything"
@@ -34,7 +34,7 @@ class Depth(NodeDef):
              "选「相对」的权重时它是相对视差（走「视差图」口），另一个口空着 —— 两个口是同一样官方数据的两种情形，"
              "不是我们多加的第二种结果",
     )
-    # vram_gb: RTX 4090 上测得（docs.md），默认「米制 Small」
+    # vram_gb: RTX 4090 上测得（docs.md），默认「真实 · Small」
     cost = Cost(gpu=True, vram_gb=2.8, seconds_per_frame=0.028)
     licence = Licence(note="代码和 Small 两个模型都是 Apache-2.0，可以商用；Base 和 Large 四个模型是 CC-BY-NC-4.0，只能研究用。"
         "米制模型的训练数据含 Virtual KITTI（CC BY-NC-SA），有潜在的训练数据许可风险。")
@@ -55,13 +55,10 @@ class Depth(NodeDef):
                 "metric_base": "真实 · Base", "base": "相对 · Base",
                 "metric_large": "真实 · Large", "large": "相对 · Large",
             },
-            help="真实：真实尺度的距离（厘米），可以放进三维场景；相对：只有远近关系，适合合成里的深度效果。"
-                 "Base / Large 细节更多但只能研究用；实测它们并不比 Small 更稳，远近尺度三种模型也各不相同，Small 最稳",
         )
         resolution: Literal[518, 686, 868, 1036] = measured_param(
-            "处理分辨率", {518: Measured("训练尺寸（Small、Base、Large 都实测过）", gb=2.8), 686: Measured("Large 的上限", below=1036), 868: Measured("Base 的上限", below=1036), 1036: Measured("Small 的上限（Base、Large 按各自上限算）", gb=11.0)},
-            default=518, group="深度",
-            help="短边缩放到这个尺寸再计算。518 是训练尺寸，最稳；调大细节更多、更慢、显存更高。超过模型上限时按上限算并在节点上提醒")
+            "处理分辨率", {518: Measured(gb=2.8), 686: Measured(below=1036), 868: Measured(below=1036), 1036: Measured(gb=11.0)},
+            default=518, group="深度")
         fp16: bool = fp16_param("深度")
 
     @classmethod

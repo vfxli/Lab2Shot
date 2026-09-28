@@ -1,22 +1,24 @@
 import { answer } from "./http";
 
-/** Follows a Server-Sent Events stream. This is the only place that opens an EventSource (webui/tests/eventStream.test.ts
- * and tools/rule_counts.py web.event_source). The browser repairs a dropped connection by itself: it reconnects and
+/** Follows a Server-Sent Events stream. This is the only place that opens an EventSource. The browser repairs a dropped connection by itself: it reconnects and
  * resumes from the last event received (Last-Event-ID; the server numbers every event permanently and answers a
- * reconnect with the events that followed, lab2shot/server/farm.py events), so a drop is not reported. A stream the
- * browser has given up on (readyState CLOSED: the server refused the reconnect) is indistinguishable by itself, so it is
- * probed once through the shared request layer, which applies the single 401 policy: an expired login is handed to the
- * gate, which asks for it again over the page (`onlogin`: the followed resource is unaffected), and only a stream the
- * server reports as no longer present (a 4xx) triggers `ongone`. A stream that still opens was a transient refusal; a
+ * reconnect with the events that followed, lab2shot/server/farm.py events), so a drop is not reported. A stream opened
+ * again here (a stalled line, a refused one) is a new EventSource, which sends no Last-Event-ID: the last id received
+ * goes as the `last_event_id` query parameter instead, so it too resumes where it was. A stream the browser has given
+ * up on (readyState CLOSED: the server refused the reconnect) is indistinguishable by itself, so it is probed once
+ * through the shared request layer, which applies the single 401 policy: an expired login is handed to the gate, which
+ * asks for it again over the page, and following stops (`onlogin`: the followed resource is unaffected; the caller
+ * follows it again after the new login), and only a stream the server reports as no longer present (a 4xx) triggers
+ * `ongone`. A stream that still opens was a transient refusal; a
  * probe that never reached the server (the network is down) or a server error (5xx: failing or restarting) says nothing
  * about the stream. In all three cases the stream is followed again with increasing delay. */
 
-export interface EventFollowing {
+interface EventFollowing {
   /** Every event as received: its data and its id ("" when the server supplied none). */
   onmessage: ((data: string, id: string) => void) | null;
   /** The stream has ended permanently (the followed resource no longer exists on the server); the caller reports it in its own words. */
   ongone: (() => void) | null;
-  /** The login expired: the gate asks for it again; the followed resource is unaffected. */
+  /** The login expired: following has stopped and the gate asks for it again; the followed resource is unaffected. */
   onlogin: (() => void) | null;
   /** Stops following (normal completion): the stream is closed and nothing further is reported. */
   close(): void;
@@ -37,14 +39,15 @@ export function followEvents(url: string): EventFollowing {
   let stopped = false;
   let tries = 0;
   let es: EventSource;
+  let lastId = ""; // the last event received: where a stream opened again here resumes
   const out: EventFollowing = {
     onmessage: null,
     ongone: null,
     onlogin: null,
     close: () => stop(),
   };
-  /** 结束对该连接的跟随，仅此一处。必须清除无数据计时器：在浏览器中残留的计时器仅是空耗
-   * （触发时发现 stopped 即返回），但会使 Node 的测试进程无法退出。 */
+  /** 结束对该连接的跟随，仅此一处。同时清除无数据计时器：否则它在连接结束后仍会触发
+   * （发现 stopped 即返回，只是空耗）。 */
   const stop = () => {
     stopped = true;
     clearTimeout(silence);
@@ -56,12 +59,12 @@ export function followEvents(url: string): EventFollowing {
     if (stopped) return;
     silence = setTimeout(() => {
       if (stopped) return;
-      es.close();  // 连接已僵死：关闭后重新打开，浏览器会携带 last-event-id 从上次位置继续
+      es.close();  // 连接已僵死：关闭后重新打开，从收到的最后一个事件之后继续（见 open）
       open();
     }, SILENT_MS);
   };
   const open = () => {
-    es = new EventSource(url);
+    es = new EventSource(lastId ? `${url}${url.includes("?") ? "&" : "?"}last_event_id=${encodeURIComponent(lastId)}` : url);
     heard();
     es.onopen = heard;
     // 心跳为注释行（`: keep-alive`），浏览器不会作为 message 交付，但其到达会刷新连接状态；
@@ -69,13 +72,15 @@ export function followEvents(url: string): EventFollowing {
     es.onmessage = (e) => {
       tries = 0;
       heard();
+      if (e.lastEventId) lastId = e.lastEventId;
       out.onmessage?.(e.data, e.lastEventId);
     };
     es.onerror = () => {
       if (stopped) return;
       // CONNECTING: the connection dropped or the server is restarting; the browser reconnects by itself from the last event's id
       if (es.readyState === EventSource.CONNECTING) return heard();
-      void refused(); // CLOSED: the server refused to open the stream again
+      clearTimeout(silence); // CLOSED: nothing arrives any more; what happens next is the probe's to decide
+      void refused(); // the server refused to open the stream again
     };
   };
   open();
@@ -90,7 +95,10 @@ export function followEvents(url: string): EventFollowing {
       /* nothing received: the stream is still retried below */
     }
     if (stopped) return;
-    if (status === 401) return void out.onlogin?.(); // the login expired; this does not end the followed resource
+    if (status === 401) {
+      stop(); // the login expired: this does not end the followed resource, which is followed again after a new login
+      return void out.onlogin?.();
+    }
     if (status >= 400 && status < 500) {
       stop(); // the server answered and has no such stream: ended permanently
       return void out.ongone?.();

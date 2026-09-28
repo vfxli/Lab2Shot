@@ -32,7 +32,7 @@
   align-items: baseline;
   gap: var(--sp-2);
   padding: 0 var(--sp-2);
-  min-width: 0;
+  min-width: 10em; /* the graph's name stays readable: a narrow bar takes its room from .bar-actions */
 }
 
 .doc-title .name {
@@ -52,7 +52,7 @@
   max-width: 28vw;
 }
 
-/* how many templates there are, on the 模板 entry; how busy the server is, next to 队列 */
+/* how many templates there are, on the 模板 entry (.bar-count); how busy the server is, next to 队列 (.load-pill) */
 .bar-count {
   color: var(--text-3);
   font-size: var(--fs-xs);
@@ -95,6 +95,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  min-width: 0; /* a narrow bar takes its room from the refusal next to 提交 (.bar-refused), never from a button */
 }
 
 .bar-sep {
@@ -105,26 +106,15 @@
   background: var(--hair);
 }
 
-/* 队列 / 日志 / 反馈 / 帮助 are marks, not words: the icon alone, with what it is on hover, and 队列's
-   count as a badge on the corner of its own square. 模板 keeps its word at every width — it is the page's one entry. */
-.bar-icon {
-  position: relative;
-}
-
-.bar-icon.icon-link {
-  width: 28px;
-  padding: 0;
+/* 模板, the page's one entry: a third wider than its words need, the words centred */
+.bar-actions .btn.entry {
+  min-width: 113px;
   justify-content: center;
 }
 
-.topbar .fb-button .bar-label {
-  display: none;
-}
-
-.bar-actions .bar-badge {
-  position: absolute;
-  top: 3px;
-  right: 3px;
+/* 队列 and 日志 are words with their count beside them */
+.bar-actions .bar-count-badge {
+  margin-left: 4px;
   min-width: 14px;
   height: 14px;
   padding: 0 3px;
@@ -136,6 +126,19 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+
+/* why the server refused this graph, next to 提交 (editor/Chrome.tsx SubmitRefusal): one line, cut to what the bar
+   leaves; the whole text is its tip */
+.bar-refused {
+  max-width: 320px;
+  min-width: 4em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--error-text);
+  font-size: var(--fs-sm);
 }
 
 .bar-history {

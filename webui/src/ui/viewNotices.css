@@ -28,15 +28,14 @@
   text-shadow: var(--text-on-picture);
 }
 
-/* 「你现在看到的不是数据本身」那三种，用同一个颜色（橙，不是红——红留给可能造成生产事故的提醒）。
+/* 「你现在看到的不是数据本身」那两种（本机画面、点云代理），用同一个颜色（橙，不是红——红留给可能造成生产事故的提醒）。
    「还没齐」和「我刚替你做了一下」用正常的文字色：它们说的不是质量问题。 */
 .view-notices .notice-proxy,
 .view-notices .notice-local {
   color: var(--orange-text);
 }
 
-/* 三维的每秒帧数、点数、手柄提示：说的不是质量问题，用次一级的文字色，不抢画面 */
-.view-notices .notice-stats,
+/* 手柄提示、透过的相机：说的不是质量问题，用次一级的文字色，不抢画面 */
 .view-notices .notice-hint,
 .view-notices .notice-camera {
   color: var(--text-3);

@@ -1,6 +1,6 @@
 /* 从模板新建: the category rail on the left with the sheet's own name over it, the chosen category's cards on the
-   right in sections of its subcategories, with one flowing line of shot filters over them. Only layout here — the
-   rail, the filter rows, the chips and the fields are ui/; every colour, radius and size is a token. */
+   right in sections of its subcategories, with the search field and, when a project narrows them, its chip over
+   them. Only layout here — the rail, the filter rows, the chips and the fields are ui/; every colour, radius and size is a token. */
 
 .tpl-browse {
   display: grid;
@@ -50,7 +50,7 @@
   margin-right: var(--sp-5); /* the way out sits in this corner (ui/Sheet.tsx bare) */
 }
 
-/* a category whose filter bar carries nothing worth pressing (state/shotFilter.ts): the hairline under the head is
+/* a category whose filter bar carries nothing worth pressing: the hairline under the head is
    still the one that separates it from the cards */
 .tpl-head + .tpl-cards {
   border-top: 1px solid var(--hair);
@@ -91,7 +91,7 @@
 
 /* a card is as tall as what it says (a fixed height would cut the bottom row of a card in half); the cards of one
    row are one height because the grid stretches them, and the bottom row sits at the bottom of each.
-   Nothing here is cut: name, what it does, the conditions its category shows, 适合 / 不适合, and one bottom row. */
+   Nothing here is cut: name, what it does, and one bottom row. */
 .tpl-card {
   position: relative;
   display: flex;
@@ -120,7 +120,7 @@
   outline-offset: 1px;
 }
 
-/* does not suit the shot the filter describes — dimmed, and the reason takes the intro's line */
+/* a template taken out of use (a manager sees it), or one of 我的模板 in the bin: dimmed */
 .tpl-card.dim {
   opacity: 0.45;
 }
@@ -143,7 +143,6 @@
 .tpl-name-text {
   min-width: 0;
 }
-
 
 /* 「交付物 · 项目名」: the project half reads quieter, so the eye finds what the card delivers first */
 .tpl-built {
@@ -172,28 +171,8 @@
   gap: var(--sp-1);
 }
 
-/* 适合 / 不适合, one line each, the label in its own narrow column */
-.tpl-fit {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr); /* 「不适合」 is three characters: the label column fits it */
-  gap: 2px var(--sp-2);
-  margin: 0;
-  font-size: var(--fs-sm);
-}
-
-.tpl-fit dt {
-  color: var(--text-3);
-  white-space: nowrap;
-}
-
-.tpl-fit dd {
-  margin: 0;
-  color: var(--text-2);
-  min-width: 0;
-}
-
-/* the one bottom row: the strictest licence word, 实测 when it was measured, and the compute bar
-   at the right end. What it is built on is in the card's hover, not in a row of chips. */
+/* the one bottom row: the strictest licence word, and the year at the right end. What it is built on is in the
+   card's hover, not in a row of chips. */
 .tpl-foot {
   margin-top: auto;
   padding-top: 7px;
@@ -204,60 +183,6 @@
   min-width: 0;
   font-size: var(--fs-xs);
   color: var(--text-3);
-}
-
-.tpl-measured {
-  flex: none;
-  color: var(--text-3);
-  /* 不用 cursor: help：停留提示是 data-tip 那一套的事，和光标无关 */
-}
-
-/* 计算量四格: one cell lit per tier (低 · 中 · 高 · 超高) */
-.tpl-cost {
-  margin-left: auto;
-  display: flex;
-  gap: 2px;
-  flex: none;
-  /* 不用 cursor: help：停留提示是 data-tip 那一套的事，和光标无关 */
-}
-
-.tpl-cost i {
-  width: 5px;
-  height: 9px;
-  background: var(--hair-strong);
-}
-
-.tpl-cost i.on {
-  background: var(--text-2);
-}
-
-/* 计算量档位：模板卡片底部一行的右端（几个节点里最贵的那个）。和第三方标签同一行（.tpl-foot），
-   不再绝对定位盖住标签——margin-left: auto 把它推到这一行的最右边，标签换到第二行也不会钻到它底下。 */
-.tpl-compute {
-  flex: none;
-  align-self: flex-start;
-  margin-left: auto;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: var(--r-ctl);
-  color: var(--green);
-  background: color-mix(in srgb, var(--green) 16%, transparent);
-}
-
-.tpl-compute[data-tier="中"] {
-  color: var(--yellow);
-  background: color-mix(in srgb, var(--yellow) 16%, transparent);
-}
-
-.tpl-compute[data-tier="高"] {
-  color: var(--orange);
-  background: color-mix(in srgb, var(--orange) 16%, transparent);
-}
-
-.tpl-compute[data-tier="超高"] {
-  color: var(--error);
-  background: color-mix(in srgb, var(--error) 16%, transparent);
 }
 
 /* ---------------------------------------------------------------- 我的模板 (editor/MyTemplates.tsx)

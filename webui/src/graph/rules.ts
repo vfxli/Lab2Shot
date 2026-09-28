@@ -1,5 +1,4 @@
-import { kindOf } from "../ops/run";
-import type { Catalog, CookCase, CookKind, HandleDef, NodePorts, NodeStatus, NodeTypeDef, PortDef, ResolvedCost, StatusReply, WireStatus } from "../api";
+import type { Catalog, CookCase, HandleDef, NodePorts, NodeStatus, NodeTypeDef, PortDef, ResolvedCost, StatusReply, WireStatus } from "../api";
 import type { LooseWire } from "../state/viewer";
 
 /** What the editor knows of the graph's rules: nothing here works a rule out.
@@ -9,11 +8,10 @@ import type { LooseWire } from "../state/viewer";
  * what has to be answered before a status reply can: a wire still being drawn, a node just added, the drawing between
  * an edit and its reply (the last reply is kept meanwhile, so nothing flashes: pendingPorts).
  *
- * webui/tests/graphRules.test.ts checks these read what the server resolves for every template
- * (tests/test_applies.py test_the_editor_reads_what_the_server_resolves), and that no copy of a server rule comes back.
- * Pure: types only, so node's test runner loads it as it is. */
+ * These read what the server resolves; no copy of a server rule is kept here.
+ * Pure: types only. */
 
-/** The input a promoted parameter gets: "param:<name>" (nodes/base.py PARAM). */
+/** The input a promoted parameter gets: "param:<name>" (nodes/port.py PARAM). */
 export const PARAM = "param:";
 
 /** The graph as the lookups read it: a snapshot (graph/snapshot.ts) has all of it. */
@@ -42,10 +40,10 @@ export function portAccepts(catalog: Catalog | null | undefined, portType: strin
 export const converter = (catalog: Catalog | null | undefined, dataType: string, portType: string): string => catalog?.converters[dataType]?.[portType] ?? "";
 
 /** Why a node type can't take data of this type ("" it can): its catalogue entry's `refuses`. */
-export const refusedBy = (def: NodeTypeDef | undefined, dataType: string): string => def?.refuses[dataType] ?? "";
+const refusedBy = (def: NodeTypeDef | undefined, dataType: string): string => def?.refuses[dataType] ?? "";
 
 /** Can a value in unit `have` drive a parameter in unit `want`? The catalogue's units: those of one kind convert. */
-export function unitFits(catalog: Catalog | null | undefined, have: string, want: string): boolean {
+function unitFits(catalog: Catalog | null | undefined, have: string, want: string): boolean {
   if (!have || !want || have === want) return true;
   const a = catalog?.units[have];
   return !!a && a.kind === catalog?.units[want]?.kind;
@@ -80,13 +78,15 @@ export function pendingPorts(s: GraphView, id: string): NodePorts {
 
 export const outputsOf = (s: GraphView, id: string): PortDef[] => pendingPorts(s, id).outputs;
 
-/** A node's main result: the output the node declares as it (NodeTypeDef.main), which the viewer shows and a label
- * names when nothing else was chosen. Never the first output by position: the ports are ordered by data type,
- * so what comes first is whatever type sorts first. */
+/** A node's main result, which the viewer shows and a label names when nothing else was chosen: the output its type
+ * names (NodeTypeDef.main) when the node has that output now, else its first output — the server's rule
+ * (nodes/base.py main_output). The fallback is needed: 读取序列's outputs are the file's layers, so its type names
+ * none, and an importer's named output (the camera) is there only when the file holds one. The page asks here and
+ * nowhere else. */
 export const mainOutput = (s: GraphView, id: string): PortDef | undefined => {
   const outputs = outputsOf(s, id);
-  const main = s.nodeDefs[s.nodes.find((n) => n.id === id)?.data.typeId ?? ""]?.main;
-  return outputs.find((p) => p.name === main) ?? outputs.at(0); // the fallback goes when every node declares `main`
+  const main = s.nodeDefs[typeOf(s, id)]?.main;
+  return outputs.find((p) => p.name === main) ?? outputs.at(0);
 };
 
 /** The rows of a node's input table (a ports_from table landing on inputs: 「多层 EXR 输出设置」's 图层), each a port
@@ -98,11 +98,6 @@ export function tableRows(def: NodeTypeDef | undefined, params: Record<string, u
   return ((params?.[def.ports_from] as { name: string; label: string }[] | undefined) ?? []).filter((r) => r && typeof r.name === "string");
 }
 
-/** A node's inputs: its declared ones (as the last reply resolved them), one per row of its input table in the
- * document's row order, then the input of each parameter it has promoted now, in the order promoted (the catalogue's
- * `param_ports`). The rows and the promoted list are the document's own, so a row just added (a wire dropped on the
- * node's body: graph/actions.ts addPortRow) or a parameter just promoted takes a wire before the next reply comes; a
- * row the reply already has keeps the reply's port. With no parameters known (a bare view) the reply's rows stand. */
 /** The parameters that have an input on the node, in the order they sit there: the type's standing ones
  * (NodeDef.wired_ports, e.g. AnyCalib's six numbers into 「LensDistortion」) and then the ones this node promoted.
  * The one place that list is built: the ports drawn, the wires a graph file may name, and where a parameter's value
@@ -112,6 +107,11 @@ export function paramPortNames(def: NodeTypeDef | undefined, promoted: string[] 
   return [...(def?.wired_ports ?? []), ...own].filter((n) => def?.param_ports[n]);
 }
 
+/** A node's inputs: its declared ones (as the last reply resolved them), one per row of its input table in the
+ * document's row order, then the input of each parameter that has one (paramPortNames: the type's standing ones,
+ * then those promoted; the catalogue's `param_ports`). The rows and the promoted list are the document's own, so a
+ * row just added (a wire dropped on the node's body: graph/edit.ts addPortRow) or a parameter just promoted takes a wire before the next reply comes; a
+ * row the reply already has keeps the reply's port. With no parameters known (a bare view) the reply's rows stand. */
 export function inputsOf(s: GraphView, id: string): PortDef[] {
   const node = s.nodes.find((n) => n.id === id);
   const def = s.nodeDefs[node?.data.typeId ?? ""];
@@ -129,7 +129,7 @@ export function inputsOf(s: GraphView, id: string): PortDef[] {
   return [...own.filter((p) => declared.has(p.name)), ...rows, ...promoted];
 }
 
-const ROW_PORT: PortDef = { name: "", type: "", type_label: "", label: "", optional: false, multi: false, list: false, type_from: "", inserts: "", unit: "", help: "" };
+const ROW_PORT: PortDef = { name: "", type: "", type_label: "", label: "", optional: false, multi: false, list: false, type_from: "", inserts: "", unit: "" };
 
 export const outputPort = (s: GraphView, id: string, port: string | null | undefined): PortDef | undefined =>
   port == null ? undefined : outputsOf(s, id).find((p) => p.name === port);
@@ -138,10 +138,6 @@ export const inputPort = (s: GraphView, id: string, port: string | null | undefi
   port == null ? undefined : inputsOf(s, id).find((p) => p.name === port);
 
 export const outputType = (s: GraphView, id: string, port: string | null | undefined): string | undefined => outputPort(s, id, port)?.type;
-
-/** The declared output `port` absent until a parameter has a value (what brings it: `waits`). */
-export const waitingPort = (s: GraphView, id: string, port: string | null | undefined): PortDef | undefined =>
-  pendingPorts(s, id).waiting.find((p) => p.name === port);
 
 /** What running the node costs with its parameters: the last reply's, else its type's at its defaults. */
 export function costOf(s: GraphView, id: string): ResolvedCost | undefined {
@@ -163,7 +159,7 @@ export function handlesOf(s: GraphView, id: string): HandleDef[] {
 
 // ------------------------------------------------------------------ wires
 
-/** A wire's id in the editor (graph/actions.ts connect): its two ends. */
+/** A wire's id in the editor (graph/edit.ts connect): its two ends. */
 export const wireKey = (source: string, sourceHandle: string, target: string, targetHandle: string): string => `${source}.${sourceHandle}->${target}.${targetHandle}`;
 
 const WIRES = new WeakMap<StatusReply, Map<string, WireStatus>>();
@@ -234,47 +230,24 @@ export function looseFix(s: GraphView, w: LooseWire): string {
 
 // ------------------------------------------------------------------ cooking
 
-export const INTERACTIVE: CookKind = { lane: "light", delivers: false, queues: false, by_itself: true, case: "interactive" };
-
-/** What a click on 计算 for the node is (the last reply's policy; before any, at once), and whether it computes nothing. */
-export function clickKind(s: GraphView, id: string): { kind: CookKind; nothing: boolean } {
-  return caseWords(s.reply?.nodes[id]?.policy.click);
+/** What a click on 计算 for the node is (the last reply's policy): whether it delivers, and whether it computes
+ * nothing (everything is cached). */
+export function clickKind(s: GraphView, id: string): { delivers: boolean; nothing: boolean } {
+  return caseWords(s.reply?.nodes[id]?.policy);
 }
 
-export const caseWords = (c: CookCase | null | undefined): { kind: CookKind; nothing: boolean } => ({ kind: c?.kind ?? INTERACTIVE, nothing: !!c && !c.computes.length });
+const caseWords = (c: CookCase | null | undefined): { delivers: boolean; nothing: boolean } =>
+  ({ delivers: !!c?.delivers, nothing: !!c && !c.computes.length });
 
-/** How the page says a cook: the 计算 button's tooltip, the estimate's first word. `cpuJobs`: how many heavy jobs the
- * server runs at once (the queue says; 0 not known). Only words: what the cook is comes from the server. */
-export function cookWords(kind: CookKind, nothing: boolean, cpuJobs = 0): { short: string; tip: string } {
-  const lane = kind.lane === "gpu" ? "要显卡" : "CPU";
-  const queued =
-    kind.lane === "gpu"
-      ? "进队列排队，轮到了在接任务的显卡上算"
-      : `进 CPU 队列排队${cpuJobs ? `，同时最多算 ${cpuJobs} 个` : ""}`;
-  if (kind.delivers)
-    return kind.queues
-      ? { short: `提交 · 排队（${lane}）`, tip: `提交：上游还有要${kind.lane === "gpu" ? "显卡" : "算很久"}的节点没算过，整个任务${queued}，算完把文件交出来（存到「保存到」选的位置）` }
-      : { short: "提交", tip: `提交：${nothing ? "上游都已缓存" : "上游要算的都是轻量节点"}，马上把文件交出来（存到「保存到」选的位置），不用排队` };
-  if (kind.queues)
-    return { short: `排队（${lane}）`, tip: `排队（${lane}）：要算的节点里有${kind.lane === "gpu" ? "要显卡" : "要算很久"}的，任务${queued}` };
+// how every cook runs, said once (lab2shot/farm/queue.py, farm/scheduler/pools.py)
+const QUEUED = "进队列排队，每个节点轮到了就在空着的显卡或 CPU 名额上算，互不依赖的节点同时算";
+
+/** How the page says a cook: the 计算 button's tooltip, the estimate's first word. Only words: what the cook is comes
+ * from the server. */
+export function cookWords(delivers: boolean, nothing: boolean): { short: string; tip: string } {
+  if (delivers)
+    return { short: "打包", tip: `整理打包：${nothing ? "上游都已缓存，" : ""}${QUEUED}，算完把接进「输出」的结果整理成一个文件夹、打包成 zip，好了在节点上「下载」` };
   return nothing
-    ? { short: "已缓存", tip: "立即计算：要的结果都已缓存，不用算" }
-    : { short: "立即计算", tip: "立即计算：要算的都是轻量节点（读文件、数值、遮罩调整……），马上在服务器上算，不用排队；显示它时也会自己算" };
+    ? { short: "已缓存", tip: "要的结果都已缓存，不用算" }
+    : { short: "计算", tip: `计算：${QUEUED}` };
 }
-
-
-/** 判断浏览器能否自行计算该节点：只依据声明，不依据节点类型名。需同时满足两点：
- * 1. 服务器确认可以计算：状态回复中带有 `ops`（`NodeDef.browser_ops` 的结果：所用算法及由参数确定的参数）；
- * 2. 所用算法均属于浏览器可执行的运算（词汇表 `lab2shot/ops/vocab.py` 的 `KINDS`，
- *    实现位于 `ops/recipe.ts runStep`，每种一段）。空序列同样视为可计算（「拆成列表」只拆分条目，不做运算）。
- * 不按节点名维护名单：否则每新增一个同类节点都需修改网页。
- *
- * 使用方有两处，判据仅此一份：向上游求值的链（`view/evaluate.ts`），以及是否交由服务器计算
- * （`graph/actions.ts`：显示节点时会顺带计算该节点，但这些步骤浏览器可当场完成，交由服务器重算
- * 只会多等一次队列；修改选人不应提交任何计算）。 */
-export const browserCanCompute = (status: { ops?: { op: string }[] } | undefined): boolean =>
-  !!status?.ops && status.ops.every((o) => BROWSER_KINDS.includes(kindOf(o.op)));
-
-/** 浏览器可执行的运算种类（`ops/recipe.ts runStep`，每种一段）。
- * 词汇表是封闭的：新增运算时两个执行器都须修改（`lab2shot/ops/vocab.py`），此处同步增加一行。 */
-const BROWSER_KINDS = ["pixel", "boxes.paint", "items.pick"];

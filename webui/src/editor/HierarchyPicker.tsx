@@ -40,8 +40,7 @@ function useKinds(nodeId: string) {
 }
 
 /** What the file's selection of this kind is, in the panel: 「没有选」 or the count and the first entries as chips
- * (their path and what tells them apart on hover, one the file no longer has marked), 「选择…」 for the tree, and a
- * button that clears it. */
+ * (one the file no longer has marked), 「选择…」 for the tree, and a button that clears it. */
 export function HierarchyParam({ nodeId, p, value, set }: { nodeId: string; p: ParamDef; value: string | string[]; set: (v: unknown) => void }) {
   const all = useChoiceSet(nodeId, p);
   const kinds = useKinds(nodeId);
@@ -53,27 +52,25 @@ export function HierarchyParam({ nodeId, p, value, set }: { nodeId: string; p: P
   const known = useMemo(() => new Set(options), [options]);
   const unit = many ? "个" : "台";
   const none = !all ? "先选择文件" : options.length ? `没有选 · 文件里有 ${options.length.toLocaleString()} ${unit}` : (choice?.empty ?? "先选择文件");
-  const tip = (path: string) => (known.has(path) || !all ? [path, choice?.details?.[path]].filter(Boolean).join("\n") : `${path}\n文件里没有它了：重新选，或者换回原来的文件`);
   return (
     <div className="hier">
       <div className="hier-sum">
-        {chosen.length === 0 && <span className="hier-none" data-tip={none}>{none}</span>}
+        {chosen.length === 0 && <span className="hier-none">{none}</span>}
         {many && chosen.length > 0 && <span className="hier-count">{chosen.length.toLocaleString()} 个</span>}
         {chosen.slice(0, SHOWN).map((path) => (
-          <span key={path} className={`chip hier-chip${known.has(path) || !all ? "" : " gone"}`} data-user-data data-tip={tip(path)}>
+          <span key={path} className={`chip hier-chip${known.has(path) || !all ? "" : " gone"}`} data-user-data>
             <i style={{ background: kinds[p.name]?.color }} />
             {short(path)}
           </span>
         ))}
         {chosen.length > SHOWN && (
-          <span className="hier-more" data-tip={chosen.slice(SHOWN, SHOWN + 20).join("\n") + (chosen.length > SHOWN + 20 ? "\n……" : "")}>
+          <span className="hier-more">
             +{(chosen.length - SHOWN).toLocaleString()}
           </span>
         )}
       </div>
       <div className="hier-actions">
         <Button
-          tip={options.length ? `在文件的层级里选${p.label}` : none}
           layout="hier-open"
           disabled={!options.length}
           onClick={() => setOpen(true)}
@@ -81,7 +78,7 @@ export function HierarchyParam({ nodeId, p, value, set }: { nodeId: string; p: P
           选择…
         </Button>
         {chosen.length > 0 && (
-          <IconButton tip={`不要${p.label}了（没有「${p.label}」输出口）`} tone="ghost" onClick={() => set(many ? [] : "")} aria-label="清掉">
+          <IconButton tone="ghost" onClick={() => set(many ? [] : "")} aria-label="清掉">
             <IconClose size={10} />
           </IconButton>
         )}

@@ -1,5 +1,5 @@
 import type { GraphJSON } from "../api";
-import { fileJSON, markSaved } from "./actions";
+import { fileJSON, savePoint } from "./actions";
 import { newGraphId } from "../model/graphId";
 import { useCookInputs } from "../state/cookInputs";
 import { MessageError, msg } from "../messages/message";
@@ -53,8 +53,12 @@ export async function saveGraphFile(saveAs = false): Promise<boolean> {
   // 另存为 makes a new document, never sharing the id of the one it was copied from. The id is assigned only once a write
   // is actually about to happen, never eagerly: a cancelled system dialog must leave the still-open original document
   // exactly as it was, id included.
+  // what is written is what is marked saved (savePoint), taken together: an edit made while the file is being
+  // written is not in it and stays unsaved
+  let written: () => void = () => undefined;
   const serialize = () => {
     if (saveAs) useCookInputs.getState().setGraphId(newGraphId());
+    written = savePoint();
     return JSON.stringify(fileJSON(), null, 2);
   };
   if (!canWrite) {
@@ -63,7 +67,7 @@ export async function saveGraphFile(saveAs = false): Promise<boolean> {
     download(url, name);
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
     useViewer.getState().setFile({ name });
-    markSaved();
+    written();
     return true;
   }
   const saved = async (h: FileSystemFileHandle) => {
@@ -71,7 +75,7 @@ export async function saveGraphFile(saveAs = false): Promise<boolean> {
     await w.write(serialize());
     await w.close();
     useViewer.getState().setFile({ name: h.name, handle: await keep(h) });
-    markSaved();
+    written();
     say(msg("I-GRAPH-SAVED", { file: h.name }));
     return true;
   };

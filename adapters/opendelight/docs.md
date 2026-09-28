@@ -30,7 +30,7 @@ OpenDelight 是一个完全开源、高性能的去光照先验，面向面部�
 
 **我们怎么接的**
 
-- 「图像」口就是 `--data_root` 那一段画面，「处理分辨率」= `--img_size`、「细节增强」= `--use_enhancer`、
+- 「RGB」口就是 `--data_root` 那一段画面，「处理分辨率」= `--img_size`、「细节增强」= `--use_enhancer`、
   「关键点平滑」是 Lab2Shot 这一侧按序列做的（上游逐张独立算，脸的对齐会逐帧抖）。
 - 「基础色」口 = `output_face_torch`，「遮罩」口 = `final_mask`：官方存成一张 RGBA 的两样，
   节点拆成两个口，数值一个字节不改。**上游那张图在论文和代码里叫 albedo / diffuse，这里的口叫「基础色」**

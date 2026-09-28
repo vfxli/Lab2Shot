@@ -1,23 +1,22 @@
 /** What the install control (install/Install.tsx) shows for one extension, decided from the server's answer alone (its
  * `actions`, resolved by lab2shot/server/available.py extension, and its latest job): no role is looked at here.
  *
- * Pure functions over the answer (the one `shown` rule from api/applies.ts); Node's test runner reads it through
- * tests/support/tsExtResolve.mjs (webui/tests/installState.test.ts). */
+ * Pure functions over the answer (the one `shown` rule from api/applies.ts). */
 import { shown, type Availability } from "../api/applies";
 import type { InstallTask } from "../api";
 import { taskLive } from "../api/tasks";
 
-export interface InstallFacts {
+interface InstallFacts {
   installed: boolean;
   ready: boolean;
   actions: Availability;
   job: InstallTask | null;
 }
 
-export { taskLive };  // the one "still to finish" rule, every background task's (api/tasks.ts)
 
-/** "none": nothing at all (a login that does not install, or a ready card with no job running); "progress": the job
- * runs or waits; "button": what can be started. `full`: the project page, which also offers reinstall on a ready one. */
+/** "none": nothing at all (a login that does not install, or a ready extension without `full`); "progress": the job
+ * runs or waits; "button": what can be started. `full` (the admin page's 「扩展包」 table): also offers reinstall on a
+ * ready one. */
 export function controlKind(p: InstallFacts, full: boolean): "none" | "progress" | "button" {
   if (taskLive(p.job) && shown(p.actions, "progress")) return "progress";  // an install running now: follow it
   if (!shown(p.actions, "install")) return "none";

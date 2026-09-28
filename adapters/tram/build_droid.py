@@ -6,7 +6,7 @@ DEVA) at the commits TRAM records. thirdparty/DROID-SLAM is copied to
 <ext root>/build/DROID-SLAM (repo/ stays untouched) and built with the
 environment's pip CUDA 13.2 toolkit. Changes to the copy: setup.py's
 hard-coded -gencode list (sm_60 ... sm_86; CUDA 13 no longer supports sm_60 /
-sm_70) is dropped so torch builds for this machine's GPUs (TORCH_CUDA_ARCH_LIST),
+sm_70) is dropped so torch builds for the chosen compile targets (TORCH_CUDA_ARCH_LIST),
 its two setup() calls (droid_backends, lietorch) are installed one after the
 other, and tensor.type() in the dispatch macros becomes tensor.scalar_type()
 for torch 2.9 (lab2shot_worker.build.modernize_torch_sources).

@@ -27,7 +27,7 @@ def pair_rigs(target, source) -> tuple[list[tuple[int, int]], list, tuple[int, i
     髋、脊椎、颈部、头、四肢与手指，同一部位配为一对；链状部位按位置分配。
     目标 rig 无法识别髋或四段腿骨时抛出 E-RETARGET-MISSINGPARTS：Retarget 依据腿部确定朝向与长度比例，缺失则无法对齐。"""
     from ...data.joints import CHAINS, guess, part_label, spread
-    from ...data.smpl import LEG_PARTS, REGIONS, _driving
+    from ...data.smpl import LEG_PARTS
 
     a = guess(list(target.names), target.parents)
     b = guess(list(source.names), source.parents)

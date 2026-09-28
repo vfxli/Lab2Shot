@@ -11,5 +11,5 @@ einops==0.8.2
 safetensors==0.7.0
 # vggt.models.vggt imports PyTorchModelHubMixin (weights are always loaded from local files)
 huggingface_hub==0.36.2
-# Reads the float EXR masks of the "mask" input.
+# EXR reader of lab2shot_worker.files.read_mask (this node has no mask input).
 OpenEXR==3.4.15

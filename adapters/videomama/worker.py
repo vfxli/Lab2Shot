@@ -44,7 +44,7 @@ from lab2shot_worker.matte import GUIDE_THRESHOLD, GuideMasks, Output, frame_rea
 from lab2shot_worker.run import Run
 
 MULTIPLE = 64  # VAE /8, then three UNet downsamplings
-# what the memory grows with: 处理尺寸 within the node's 256..1024 in 64s (1024 measured 12-15 GB, docs.md)
+# what the memory grows with: 处理尺寸 within the node's 512 / 768 / 1024 (1024 measured 12-15 GB, docs.md)
 RESOLUTION = MemoryBound.parameter("resolution", (1024, 768, 512))
 WINDOW = 16  # frames per UNet call (upstream --num_frames default)
 OVERLAP = 4  # frames shared by consecutive windows, cross-faded
@@ -147,7 +147,7 @@ def main(job_path: str) -> None:
     frames = run.frames()
     numbers, height, width = frames.numbers, frames.height, frames.width
     guides = GuideMasks(job, height, width)
-    no_guide = guides.missing(numbers)  # result.json 记下缺了几帧
+    no_guide = guides.missing(numbers)  # how many frames lack a mask goes into result.json
 
     device = torch.device("cuda")
     vae, unet = run.model("VideoMaMa", load_models, weights, device, dtype)

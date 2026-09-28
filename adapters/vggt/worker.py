@@ -5,13 +5,14 @@ third_party/vggt/.venv with the pinned repo on PYTHONPATH; never imports Lab2Sho
 
 job["node"] == "vggt.reconstruct"; job["params"]:
 
-    weights     "original" (VGGT-1B, CC BY-NC 4.0, default) | "commercial" (VGGT-1B-Commercial)
-    max_frames  frames per forward pass (1-2000). Default: what fits a 24 GB GPU at the input
-                size (180k 14x14 patches: 231 frames at 518x294, 131 at 518x518 = padded portrait);
-                longer shots are split into overlapping chunks joined by a similarity transform
-    step        use every Nth frame (1-1000, default 1; the last frame is always used)
-    resolution  long side of the model input (140-1036, rounded to a multiple of 14; default 518,
-                VGGT's training size). Landscape: width = resolution. Portrait: height =
+    model       "original" (VGGT-1B, CC BY-NC 4.0, default) | "commercial" (VGGT-1B-Commercial)
+    max_frames  frames per forward pass (the node offers 32 / 64 / 130). Null: what fits a 24 GB
+                GPU at the input size (180k 14x14 patches: 231 frames at 518x294, 131 at 518x518 =
+                padded portrait); longer shots are split into overlapping chunks joined by a
+                similarity transform
+    step        use every Nth frame (default 1; the last frame is always used)
+    resolution  long side of the model input, rounded to a multiple of 14 (default 518, VGGT's
+                training size). Landscape: width = resolution. Portrait: height =
                 resolution, padded white to a square (VGGT's own "pad" mode; it was trained on
                 landscape / square images only)
 

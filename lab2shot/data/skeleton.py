@@ -69,7 +69,7 @@ def rig_of_model(joint_names, parents, bind_world: np.ndarray, anim_world: np.nd
     """将模型自身的骨架转换为 CG 约定：返回 (CG 骨骼名, 调整朝向后的 bind_world, 调整朝向后的 anim_world)。
     骨骼名由 joints.cg_names（Mixamo 命名）生成，关节轴由 cg_orientations 规范化。
 
-    这是整个项目中唯一执行该转换的位置：蒙皮角色经由 character_of_model，仅含骨骼的交付（「SMPL 转骨架动画」）
+    这是整个项目中唯一执行该转换的位置：蒙皮角色经由 character_of_model，仅含骨骼的交付（families/rig_motion.py、families/rigging.py 与 Sketch2Anim）
     直接调用此处，两条路径得到的名称和轴向完全一致，同一人物在两种交付物中可以对应。
     `lone_side` ("l" / "r")：仅解算一只手且关节名不含左右的模型（MANO）由此声明是哪只手。"""
     from .joints import cg_names
@@ -159,12 +159,6 @@ def model_regions(d, faces) -> dict[str, np.ndarray]:
         if len(picked):
             out[str(name)] = picked
     return out
-
-
-def body_vertices(d, place: np.ndarray | None = None) -> np.ndarray:
-    """person_<id>.npz 的逐帧精确顶点 [F,V,3]（厘米，模型自身的网格，包含修正形变），摆放方式与其角色相同。"""
-    cache = d["vertices"].astype(np.float64) * M_TO_CM
-    return cache if place is None else cache @ np.swapaxes(place[:, :3, :3], 1, 2) + place[:, None, :3, 3]
 
 
 # ------------------------------------------------------------------ 标准人（核心节点「标准人」所用的身体）

@@ -1,8 +1,8 @@
 # GVHMR environment (torch from EnvSpec, as upstream's requirements.txt at the
 # pinned commit). pytorch3d is built from source against the pinned torch
-# (EnvSpec.compiled): Meta stopped publishing a prebuilt wheel for this
-# Python/torch/CUDA combination once torch moved past the wheel's original
-# py310_cu121_pyt230 build, which has no Blackwell (RTX 5090) kernels. DPVO (optional upstream, "not
+# (build_pytorch3d.py): Meta publishes no prebuilt wheel for this
+# Python/torch/CUDA combination; the py310_cu121_pyt230 wheel upstream uses
+# has no Blackwell (RTX 5090) kernels. DPVO (optional upstream, "not
 # recommended") is not installed: camera rotation comes from upstream's default
 # SimpleVO.
 
@@ -21,10 +21,8 @@ opencv-python==4.10.0.84
 ffmpeg-python==0.2.0
 scikit-image==0.24.0
 termcolor==3.3.0
-# hmr4d/network/hmr2/ imports yacs.config.CfgNode directly; upstream's requirements.txt never
-# pins it (some transitive dependency of the old torch 2.3 stack pulled it in incidentally —
-# not true anymore once torch/numpy move, 2026-09-14 RTX 5090 upgrade). Same version the old
-# environment had.
+# hmr4d/network/hmr2/ imports yacs.config.CfgNode directly; upstream's requirements.txt does
+# not list it (upstream's torch 2.3 stack pulls it in transitively, this one does not).
 yacs==0.1.8
 einops==0.8.2
 imageio==2.34.1
@@ -39,7 +37,7 @@ smplx==0.1.28
 # an offline worker cannot do). ultralytics as upstream pins it; lapx (upstream leaves it
 # unpinned) at 0.5.11, which ships a cp310 manylinux wheel — nothing to compile.
 # cython_bbox (upstream's third entry there) is left out:
-# ultralytics 8.2 does not import it — it belongs to the older tracker upstream no longer uses.
+# ultralytics 8.2 does not import it — it belongs to an older tracker upstream does not use.
 ultralytics==8.2.42
 lapx==0.5.11
 wis3d==1.0.1

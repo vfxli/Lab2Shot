@@ -11,7 +11,8 @@ pretrained model are ticked and are what this adapter uses).
 
 The model's own conventions, which the worker converts from: 22 HumanML3D joints (the SMPL body joints), metres,
 Y up, 20 fps, at most 196 frames. The 2D sketch lives in the same metric world seen through an orthographic
-camera rotated by Rx(20°)·Ry(30°) (upstream `utils.py project2D`), which is why the node's canvas coordinates are
+camera rotated by Rx(angle_x)·Ry(angle_y) (upstream `utils.py project2D`; the node's 草图视角 picks the angles, by
+default Rx(20°)·Ry(30°)), which is why the node's canvas coordinates are
 fitted to a standing body's size before they are handed over.
 """
 

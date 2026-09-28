@@ -19,9 +19,10 @@ from ..nodes import describe_layer_ports, describe_scene_kinds, describe_types, 
 from ..nodes.registry import type_tables
 from ..data.values import UNIT_KINDS, UNITS
 from .. import categories as trees  # the two category trees and the node placements (data files)
-from . import access, auth, categories, farm, feedback, installs, library, logs, notice, packets, quota, records, settings, tools, traffic, transfer, users, view, wire  # noqa: F401 (installs, users: admin routes)
+from . import access, auth, categories, farm, feedback, installs, invites, library, logs, notice, packets, quota, records, register, settings, terms, tools, traffic, transfer, users, view, wire  # noqa: F401 (installs, users: admin routes)
 from . import templates as admin_templates  # its own admin routes: the 模板 page's switches
 from . import revisions
+from . import releases
 from .graphs import UnknownGraph
 from .routes import Access, Router, mount
 
@@ -35,8 +36,8 @@ app.add_middleware(wire.Wire)  # private caching, ETags and 304s, on the answer 
 # answers travel compressed where it pays (JSON, view data); the page's scripts and styles come compressed from the
 # build (wire.Assets); pictures and archives already are, and files keep their size (a download shows its progress).
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5,
-                   exclude_content_types=(*DEFAULT_EXCLUDED_CONTENT_TYPES, "image/*", "application/octet-stream", "application/x-tar",
-                                          "application/gzip"))  # a part of a file (206) is never compressed either
+                   exclude_content_types=(*DEFAULT_EXCLUDED_CONTENT_TYPES, "image/*", "application/octet-stream"))
+# a part of a file (206) is never compressed either; zip and gzip are among the defaults
 # The outermost layer counts the bytes actually sent for a request and attributes them to the requesting account
 # (server/traffic.py). Placed outside compression, it counts the bytes that actually go over the wire: port 8765 is
 # exposed through frp and billed by traffic, so 后台「用户」 must show who used how much.
@@ -74,7 +75,7 @@ pages = Router()  # the built web page: after every other route
 
 # The machine-readable API description, for plugin and script authors (there is no help page; installing extensions
 # from 后台「扩展包」 is a separate feature, server/installs.py)
-@admin.get("/openapi.json", access=Access.admin("developer.view"), summary="HTTP 接口的机器可读描述（OpenAPI），给写插件和脚本的开发人员")
+@admin.get("/openapi.json", access=Access.admin("openapi.view"), summary="HTTP 接口的机器可读描述（OpenAPI），给写插件和脚本的开发人员")
 def openapi() -> dict:
     return app.openapi()
 
@@ -89,21 +90,20 @@ app.include_router(settings.public)
 app.include_router(notice.router)
 app.include_router(feedback.router)
 app.include_router(auth.router)
+app.include_router(register.router)  # the login page's 「注册」 (lab2shot/registration.py)
+app.include_router(terms.router)  # 用户协议 and 隐私政策 (lab2shot/terms), and agreeing to them
 app.include_router(library.router)  # 我的模板 (user templates): saving to the server, opening, moving to the bin, restoring
 app.include_router(quota.router)  # the account's own disk usage and cleanup
-for part in (farm, installs, records, settings, notice, feedback, logs, users, admin_templates, library, categories, quota):  # each module's own admin routes
+app.include_router(releases.router)  # the top bar's 「更新说明」 (lab2shot/releases.py)
+for part in (farm, installs, records, settings, notice, terms, feedback, logs, users, invites, admin_templates, library, categories, quota):  # each module's own admin routes
     app.include_router(part.admin)
 app.include_router(admin)
 
 
 @router.get("/api/catalog", access=Access.user("编辑器：数据类型和这个账号能用的节点类型", hides={
-    # card figures ENG declares (nodes/applies.py ResolvedCost; a setting's measured VRAM in its parameter spec)
-    "farm.cards": ("nodes[].cost.rating.tip", "nodes[].at_defaults.cost.rating.tip", "nodes[].at_defaults.cost.vram_gb",
-                   "nodes[].at_defaults.cost.vram_measured", "nodes[].at_defaults.cost.measured_on",
-                   "nodes[].params[].measured", "nodes[].option_traits.*.*.rating.tip"),
-    # Benchmark findings (NodeDef.measured as `finding` on ports and parameters): like measured template findings,
-    # shown only to accounts that manage templates
-    "templates.create": ("nodes[].inputs[].finding", "nodes[].params[].finding")}, keyed=revisions.catalog), tags=["节点图"], summary="所有数据类型、场景里的几种数据、节点菜单（两个区、分类树、每个节点归在哪）、数值的单位、标签，和这个账号能用的节点类型（端口、参数、参数的输入口、帮助文字、3D 输出设置写得了什么）")
+    # GPU figures only 显卡详情 (farm.cards) sees (nodes/applies.py ResolvedCost; a setting's measured VRAM in its parameter spec)
+    "farm.cards": ("nodes[].at_defaults.cost.vram_gb", "nodes[].at_defaults.cost.vram_measured",
+                   "nodes[].at_defaults.cost.measured_on", "nodes[].params[].measured")}, keyed=revisions.catalog), tags=["节点图"], summary="所有数据类型、场景里的几种数据、节点菜单（两个区、分类树、每个节点归在哪）、数值的单位、标签，和这个账号能用的节点类型（端口、参数、参数的输入口、3D 输出设置写得了什么）")
 def catalog(request: Request) -> dict:
     from ..nodes import text
     from ..nodes.registry import node_types
@@ -245,7 +245,7 @@ def tls_authority() -> FileResponse:
 @router.get("/api/ocio", access=Access.user("编辑器：色彩空间列表"), tags=["设置"], summary="当前 OCIO 配置的色彩空间和工作空间")
 def ocio() -> dict:
     """The 「色彩空间」 dropdown options and the working space name (io/color.py: input is converted to it and output is
-    converted from it; display devices and views are no longer used, since the working space is the sRGB shown on screen)."""
+    converted from it; no display or view transform applies, since the working space is the sRGB shown on screen)."""
     from ..io.color import load_config, working_space
 
     cfg = load_config()

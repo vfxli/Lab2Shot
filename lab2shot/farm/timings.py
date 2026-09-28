@@ -23,14 +23,14 @@ from ..io.digest import key
 from ..database import Database, db
 
 KEEP = 20  # newest matching records an estimate uses
-SHOT_WIDGETS = {"file", "sequence", "deliver", "picks"}  # parameters that differ per shot, not per setting
+SHOT_WIDGETS = {"file", "sequence", "picks"}  # parameters that differ per shot, not per setting
 CPU = "CPU"
 
 
 def setting(node_type, params: dict) -> str:
     """The parameters that change the node's work, as one short hash (files and picks differ per shot: left out)."""
     keep = sorted(p["name"] for p in node_type.param_specs() if p["affects_result"] and p["widget"] not in SHOT_WIDGETS)
-    return key({k: params.get(k) for k in keep}, 12)  # the same 12 characters the records have always been made of
+    return key({k: params.get(k) for k in keep}, 12)  # 12 characters, like every record's setting
 
 
 def device(gpu: bool, gpu_name: str) -> str:
@@ -152,7 +152,7 @@ def _instances(engine, node_id: str) -> list:
     except PLAN_ERRORS:
         return []
     # a block whose item list is not known yet (the node above it has not cooked): the node is still counted once, so
-    # what the job needs (a card, its VRAM: farm/scheduler/requirements.py) is known before anything of it has run
+    # what the job needs (a card, its VRAM: engine/resources.py Need) is known before anything of it has run
     return paths or [()]
 
 

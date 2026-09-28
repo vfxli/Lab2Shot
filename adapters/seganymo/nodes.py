@@ -34,13 +34,10 @@ class MovingObjects(Segmentation):
 
     class Params(NodeParams):
         resolution: Literal[640, 1000] = measured_param(
-            "处理分辨率", {640: Measured("比实测的一档省", below=1000), 1000: Measured("原作者的效率模式：1280×534，显存 48 帧和 100 帧一样", gb=7.0)}, default=1000, group="分析",
-            help="画面长边缩到这个像素再分析（原作者的效率模式是 1000）。遮罩始终输出原画面大小")
+            "处理分辨率", {640: Measured(below=1000), 1000: Measured(gb=7.0)}, default=1000, group="分析")
         analysis_frames: Literal[50, 100] = measured_param(
-            "分析帧数", {50: Measured("更快", below=100), 100: Measured("原作者的效率模式：显存和 48 帧一样", gb=7.0)}, default=100, group="分析",
-            help="判断谁在动时看多少帧，从整段里均匀挑（原作者的效率模式是 100）；遮罩还是每帧都有")
-        query_step: int = P(10, label="查询间隔", ge=1, le=30, group="分析",
-                      help="每隔多少个分析帧撒一次跟踪点（原作者默认 10）。有物体只在很短的时间里出现或动时调小，更容易抓到它，但更慢")
+            "分析帧数", {50: Measured(below=100), 100: Measured(gb=7.0)}, default=100, group="分析")
+        query_step: int = P(10, label="查询间隔", ge=1, le=30, group="分析")
 
     @classmethod
     def found(cls, ctx, raw, objects) -> None:
@@ -56,7 +53,7 @@ class MovingObjects(Segmentation):
 
     @classmethod
     def label_map(cls, ctx, image, objects):
-        """raw/frame_<n>.npz: labels uint8 [H,W]，0 = 不动，k = 第 k 个运动物体（`adapters/seganymo/worker.py:453-463`）。"""
+        """raw/frame_<n>.npz: labels uint8 [H,W]，0 = 不动，k = 第 k 个运动物体（`adapters/seganymo/worker.py` main，写出遮罩那一段）。"""
         import numpy as np
 
         return lambda d: d["labels"].astype(np.float32)

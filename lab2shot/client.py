@@ -4,15 +4,16 @@ Standard library only, Python 3.7+, and nothing else from lab2shot, so it runs i
 copy this one file next to your plugin as lab2shot_client.py.
 
 Files stay on your side: the client uploads the input files you name (local disk or a shared drive; the same bytes are
-sent only once) and writes what the graph's 「输出」 delivers where you say: one archive (tar / tar.gz, which it can
-also unpack for you), or the files straight into a folder. Every delivery has the same layout, one sub-folder per
-output named after it, and a lab2shot.json saying what is inside (see docs: DCC 插件). The server never reads or
-writes your paths. Every run is a job of your account on the server: log in once with the username and password the
-administrator gave you (python lab2shot_client.py login, or Lab2Shot(..., username=, password=)); the client keeps a
-token for that server in ~/.lab2shot/tokens.json (readable by you only) and sends it with every request. Your jobs,
-uploads and results are yours only; what you haven't fetched yet is kept for you (pending(): a plugin reconnecting
-after Maya was closed fetches it then). The client also tells the server which application, computer and OS user it
-comes from (for the administrator).
+sent only once) and fetches what the graph's 「输出」 packed in the task where you say: its zip (which it can also
+unpack for you), or only the files you need of it, straight into a folder (the server keeps the same files unpacked for
+that). Every output has the same layout: one folder, inside it one sub-folder per output-settings node named after it,
+and a lab2shot.json saying what is inside (see docs: DCC 插件). The server never reads or writes your paths. Every
+run is a job of your account on the server: log in once with the username and password the administrator gave you
+(python lab2shot_client.py login, or Lab2Shot(..., username=, password=)); the client keeps a token for that server in
+~/.lab2shot/tokens.json (readable by you only) and sends it with every request. Your jobs, uploads and results are yours
+only; they are kept with their task for a few days after it ended (outputs(): a plugin reconnecting after Maya was
+closed fetches them then). The client also tells the server which application, computer and OS user it comes from
+(for the administrator).
 
     from lab2shot_client import Lab2Shot
 
@@ -22,21 +23,23 @@ comes from (for the administrator).
 
     written = lab.run(
         "sam_3d_body_moving_camera",
-        {"input": "Z:/shots/sh030/plate.mov", "output": "Z:/shots/sh030/sh030.tar", "unit": "m"},
+        {"input": "Z:/shots/sh030/plate.mov", "unit": "m"},
         on_event=print,
+        out_dir="Z:/shots/sh030",  # where the zip goes (named as the server names it: <graph>_u<account>_<task>.zip)
         frames="1001-1020",  # optional: only these frames (default: every frame the input has)
-        extract="Z:/shots/sh030/lab2shot",  # optional: also unpack it (scene/scene.usd, plate/plate.1001.png, ...)
+        extract="Z:/shots/sh030/lab2shot",  # optional: unpack it (<its folder>/scene/scene.usd, .../plate/plate.1001.png)
     )
 
-    for d in lab.pending():  # finished while nobody was fetching
-        lab.fetch(d, "Z:/shots/sh030/" + d["name"])
+    for o in lab.outputs():  # every output still kept, newest first
+        record = lab.output(o)  # its files: lab2shot.json, scene/scene.usd, ...
+        lab.fetch_files(o, "Z:/shots/sh030/lab2shot", only=["scene/scene.usd"])  # just the ones needed
 
 Command line (for testing):
     python lab2shot_client.py --server http://render-box:8765 login   # once: asks your username and password
     python lab2shot_client.py --server http://render-box:8765 tools
-    python lab2shot_client.py run sam_3d_body_moving_camera -s input=... -s output=sh030.tar --extract sh030 --frames 1001-1020
+    python lab2shot_client.py run sam_3d_body_moving_camera -s input=... --out sh030 --extract sh030 --frames 1001-1020
     python lab2shot_client.py queue
-    python lab2shot_client.py pending [--fetch FOLDER]
+    python lab2shot_client.py outputs [--fetch FOLDER]
 """
 
 import getpass
@@ -49,10 +52,10 @@ import re
 import socket
 import ssl
 import sys
-import tarfile
 import time
 import urllib.error
 import urllib.request
+import zipfile
 
 __all__ = ["Lab2Shot", "Lab2ShotError", "frame_range", "local_files", "parse_value"]
 
@@ -61,7 +64,7 @@ TRANSFER_TIMEOUT = 3600.0  # seconds for one file up or down (plates are big)
 _TOKEN = re.compile(r"#+|%0?(\d*)d|\$F(\d*)")
 # a file's shape: its name with every digit run left out (a minus sign after a dot, an underscore or the start is part
 # of the run), the extension kept whole. Frames of one sequence share it. A standard-library copy of
-# lab2shot.io.sequence.shape_of (a test holds them equal): which run is the frame number the server decides.
+# lab2shot.io.sequence.shape_of (the two must stay equal): which run is the frame number the server decides.
 _RUN = re.compile(r"(?<![^._])-\d+(?![\dA-Za-z])|\d+(?![\dA-Za-z])")
 _EXT = re.compile(r"\.[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*$")
 
@@ -475,25 +478,34 @@ class Lab2Shot(object):
             os.remove(kept)
         return target
 
-    def fetch(self, delivery, dest, extract=None):
-        """Write what an 「输出」 delivered (an "output" event, an entry of a job's outputs, or of pending()) to `dest`:
-        the archive file for tar / tar.gz, the folder its files go into for 文件夹. `extract`: also unpack the archive
-        into this folder (a DCC plugin imports the files from there). Tells the server it is saved; returns the paths
-        written (the archive, then what was unpacked)."""
-        # an 「输出」 inside a 逐项处理 block delivers one package per item, each with its own address: fetch them one by
-        # one into the same folder (the browser, which cannot be asked N times, takes them as one .../batch package)
-        base = "/api/deliveries/%s/%s" % (delivery["run"], delivery.get("address") or delivery["node"])
-        if delivery["mode"] == "folder":
-            # what the server names is written under `dest` and nowhere else: the client never lets an answer decide
-            # where on this machine a file lands
-            written = [self._download("%s/file/%s" % (base, urllib.request.quote(rel)), under(dest, rel))
-                       for rel in delivery["files"] if under(dest, rel)]
-        else:
-            written = [self._download(base + "/archive", dest)]
-            if extract:
-                written += unpack(dest, extract)
-        self._request("POST", base + "/state", {"state": "saved"})
+    def _output_url(self, output):
+        return "/api/tasks/%s/outputs/%s" % (urllib.request.quote(output["task"]), urllib.request.quote(output["pkg"]))
+
+    def output(self, output):
+        """One output with every file of its unpacked folder (`files`, relative: lab2shot.json first) and what each
+        output-settings node wrote (`outputs`: name, main, files); `output` is an "output" event, an entry of a job's
+        outputs, or of outputs()."""
+        return self._request("GET", self._output_url(output))
+
+    def fetch(self, output, dest, extract=None):
+        """Download an output's zip (an "output" event, an entry of a job's outputs, or of outputs()) to the file
+        `dest`, going on from where a broken download stopped. `extract`: also unpack it into this folder (its one top
+        folder, named like the zip, lands inside). Returns the paths written (the zip, then what was unpacked)."""
+        written = [self._download(self._output_url(output) + "/zip", dest)]
+        if extract:
+            written += unpack(dest, extract)
         return written
+
+    def fetch_files(self, output, folder, only=None):
+        """Fetch files of an output one by one from the server's unpacked copy into `folder` (sub-folders kept), for a
+        plugin that needs only part of it: `only` names them as output() lists them (None: every one). Returns the
+        paths written."""
+        base = self._output_url(output)
+        names = self.output(output)["files"] if only is None else list(only)
+        # what the server names is written under `folder` and nowhere else: the client never lets an answer decide
+        # where on this machine a file lands
+        return [self._download("%s/file/%s" % (base, urllib.request.quote(rel)), under(folder, rel))
+                for rel in names if under(folder, rel)]
 
     # ------------------------------------------------------------------ api
 
@@ -508,12 +520,31 @@ class Lab2Shot(object):
         for jobs running to finish first (new ones still queue), "now" stops them at once. Returns server_state()."""
         return self._request("POST", "/api/admin/restart", {"mode": mode})
 
+    def admin_stop(self, mode):
+        """Stop the server (the configuration menu's 停止服务 and the one-click update, cli/service.py stop): "drain"
+        waits for the jobs running to finish first, "now" stops them at once; the waiting jobs are kept for the next
+        server. Returns server_state()."""
+        return self._request("POST", "/api/admin/stop", {"mode": mode})
+
+    def admin_restart_cancel(self):
+        """Call off a restart (or a stop) still waiting for the jobs running: the queue goes on. Returns server_state()."""
+        return self._request("POST", "/api/admin/restart/cancel", {})
+
     def admin_queue(self):
         """The whole queue, every job in full (the administrator only): {"gpus", "jobs", ...}."""
         return self._request("GET", "/api/admin/queue")
 
+    def admin_history(self, user_id, limit=1000):
+        """One account's task history, newest first (the administrator only): its jobs as the admin 任务记录 lists them."""
+        return self._request("GET", "/api/admin/history?user=%d&limit=%d" % (int(user_id), int(limit)))
+
+    def admin_forget_finished(self, user_id):
+        """Delete every finished job of one account, each task whole (the administrator only; queued and computing
+        ones are left): {"jobs", "skipped", "bytes"}."""
+        return self._request("DELETE", "/api/admin/users/%d/jobs" % int(user_id))
+
     def admin_unlock(self):
-        """Clear the global login lock (too many wrong passwords): the machine token only (lab2shot admin unlock)."""
+        """Clear the counts of wrong passwords (server/auth.py Limiter): the machine token only (lab2shot admin unlock)."""
         return self._request("POST", "/api/admin/security/unlock", {})
 
     def admin_cards(self):
@@ -562,13 +593,13 @@ class Lab2Shot(object):
 
     def packet(self, fingerprint):
         """A result packet's type and metadata (what a cooked node gave: its fingerprint is in a status answer);
-        fetch() is for what an 「输出」 delivered (GET /api/packet/<fp>)."""
+        fetch() is for what an 「输出」 packed (GET /api/packet/<fp>)."""
         return self._request("GET", "/api/packet/" + urllib.request.quote(fingerprint))
 
     def submit(self, template, values=None, targets=None, force=False, frames=None):
         """Queue a run as it is (file values must already be upload references and file names; run() prepares them);
         returns the job id (POST /api/jobs). `template`: template id or name, or the graph itself (a dict); `targets`: the
-        「输出」 to deliver (default: every one). `frames`: only these
+        「输出」 to cook, each collecting and packing what is wired into it (default: every one). `frames`: only these
         frames, "1001-1020" or (1001, 1020), within those the inputs have; default: the graph's range (every frame)."""
         graph = template if isinstance(template, dict) else None
         body = {"template": None if graph else template, "graph": graph, "values": values or {},
@@ -586,22 +617,19 @@ class Lab2Shot(object):
 
     def queue(self):
         """{"gpus": [...], "jobs": [...], "history": [...]}: your jobs, and of everyone else's only how many wait or
-        run (anonymous)."""
-        return self._request("GET", "/api/queue")
+        run (anonymous). The history is its own answer on the server (the page polls the queue without it)."""
+        q = self._request("GET", "/api/queue")
+        q["history"] = self._request("GET", "/api/queue/history")["history"]
+        return q
 
-    def pending(self):
-        """What 「输出」 delivered to your account that has not been fetched yet, newest first: each with run, node,
-        label, title (the graph), name (the archive or folder), mode, files, bytes and expires (seconds since the
-        epoch; the server keeps deliveries a few days). fetch() one to keep it, dismiss() it if it is not wanted."""
-        ds = self._request("GET", "/api/deliveries")
-        return [d for d in ds if d["state"] == "pending"]
-
-    def dismiss(self, delivery):
-        """Say a delivery is not wanted: it no longer shows as pending."""
-        self._request("POST", "/api/deliveries/%s/%s/state" % (delivery["run"], delivery["node"]), {"state": "dismissed"})
+    def outputs(self):
+        """Every output of your tasks still kept on the server, newest first: each with task, pkg, node, label, title
+        (the graph), name (the zip's file name), bytes, count (its files) and expires (seconds since the epoch; None
+        while its task runs). fetch() one, or fetch_files() part of it."""
+        return self._request("GET", "/api/outputs")
 
     def wait(self, job, on_event=None, interval=1.0):
-        """Block until the job ends; returns what its 「输出」 nodes delivered. Raises Lab2ShotError on failure."""
+        """Block until the job ends; returns what its 「输出」 nodes packed. Raises Lab2ShotError on failure."""
         since = 0
         while True:
             state = self.poll(job, since)
@@ -617,40 +645,30 @@ class Lab2Shot(object):
                 return state["outputs"]
             time.sleep(interval)
 
-    def prepare(self, template, values=None, out_dir=None, on_event=None):
-        """The values to send, and where each 「输出」's delivery goes on this machine. Input files named in `values`
-        (or left as local paths in a graph you bring) are uploaded; a delivery given as a path goes there (the node
-        gets only its name: the archive's file name, or the folder's), one not given goes into `out_dir` (default:
-        the current folder), named after the template or the node."""
+    def prepare(self, template, values=None, on_event=None):
+        """The values to send: input files named in `values` (or left as local paths in a graph you bring) are
+        uploaded and replaced by their references."""
         info = self._request("POST", "/api/tools/describe", {"graph": template}) if isinstance(template, dict) else self.tool(template)
         graph = template if isinstance(template, dict) else info["graph"]
         params = {"%s.%s" % (n["id"], k): v for n in graph["nodes"] for k, v in n.get("params", {}).items()}
         values = dict(values or {})
-        places = {}
         for f in info["files"]:
             given = [k for k in (f["name"], f["key"]) if k and k in values]
             value = values.pop(given[0]) if given else params.get(f["key"])
-            node = f["key"].split(".")[0]
-            if f["direction"] == "out":
-                if not value:
-                    value = os.path.join(out_dir or os.getcwd(), template if isinstance(template, str) else node)
-                values[f["key"]] = os.path.basename(os.path.normpath(value))
-                places[node] = os.path.abspath(os.path.expanduser(value))
-            elif not value:
+            if not value:
                 continue
-            elif f["direction"] == "in" and not str(value).startswith(UPLOAD):
+            if not str(value).startswith(UPLOAD):
                 values[f["key"]] = self.upload(value, on_event, sequence=f["widget"] != "file")
             else:
                 values[f["key"]] = value
-        return values, places
+        return values
 
     def run(self, template, values=None, targets=None, force=False, on_event=None, out_dir=None, frames=None, extract=None):
-        """Upload the input files, run, wait, and fetch what the 「输出」 delivered (see prepare() and fetch()): an
-        archive is written where it was asked for (its name completed with .tar / .tar.gz), a folder delivery into
-        that folder. `extract`: also unpack the archives into this folder. `frames` as for submit(). Returns the
-        paths written on this machine."""
+        """Upload the input files, run, wait, and fetch what each 「输出」 packed (see prepare() and fetch()): its zip
+        into `out_dir` (default: the current folder), named as the server names it. `extract`: also unpack every zip
+        into this folder (each its own top folder). `frames` as for submit(). Returns the paths written on this machine."""
         frames = frame_range(frames)  # a mistake shows before anything is uploaded
-        values, places = self.prepare(template, values, out_dir, on_event)
+        values = self.prepare(template, values, on_event)
         job = self.submit(template, values, targets, force, frames)
         try:
             outputs = self.wait(job, on_event)
@@ -659,10 +677,9 @@ class Lab2Shot(object):
             raise
         written = []
         for o in outputs:
-            place = places.get(o["node"], os.path.join(out_dir or os.getcwd(), o["name"]))
-            if o["mode"] != "folder":  # the name the server completed (sh030 -> sh030.tar)
-                place = os.path.join(os.path.dirname(place), o["name"])
-            written += self.fetch(o, place, extract)
+            place = under(out_dir or os.getcwd(), os.path.basename(str(o["name"]).replace("\\", "/")))
+            if place:
+                written += self.fetch(o, place, extract)
         return written
 
 
@@ -678,16 +695,16 @@ def under(folder, name):
 
 
 def unpack(archive, folder):
-    """Unpack a delivery's tar / tar.gz into `folder` (sub-folders kept); returns the files written. Nothing may land
-    outside `folder`."""
+    """Unpack an output's zip into `folder` (its top folder and sub-folders kept); returns the files written. Nothing
+    may land outside `folder`."""
     written = []
-    with tarfile.open(archive, "r:*") as tar:
-        for member in tar.getmembers():
-            target = under(folder, member.name)
-            if not member.isfile() or target is None:
+    with zipfile.ZipFile(archive) as zf:
+        for member in zf.infolist():
+            target = under(folder, member.filename)
+            if member.is_dir() or target is None:
                 continue
             os.makedirs(os.path.dirname(target), exist_ok=True)
-            with tar.extractfile(member) as src, open(target, "wb") as dst:
+            with zf.open(member) as src, open(target, "wb") as dst:
                 for chunk in iter(lambda: src.read(1 << 22), b""):
                     dst.write(chunk)
             written.append(target)
@@ -708,13 +725,14 @@ def _main(argv=None):
     sub.add_parser("logout", help="log out and forget the token")
     sub.add_parser("tools")
     sub.add_parser("queue")
-    pending = sub.add_parser("pending")
-    pending.add_argument("--fetch", help="write them into this folder")
+    kept = sub.add_parser("outputs")
+    kept.add_argument("--fetch", help="download their zips into this folder")
     run = sub.add_parser("run")
     run.add_argument("template")
     run.add_argument("-s", "--set", action="append", default=[], help="name=value")
     run.add_argument("--frames", help="first-last, e.g. 1001-1020")
-    run.add_argument("--extract", help="also unpack the archive into this folder")
+    run.add_argument("--out", help="download the zips into this folder (default: the current one)")
+    run.add_argument("--extract", help="also unpack the zips into this folder")
     run.add_argument("--force", action="store_true")
     args = ap.parse_args(argv)
     lab = Lab2Shot(args.server, app="script")
@@ -742,15 +760,16 @@ def _main(argv=None):
         for g in q.get("gpus", []):  # present only for accounts that may see the graphics cards
             print("GPU %d %s %s" % (g["index"], g["short_name"], "接任务" if g["authorized"] else "不接任务"))
         for j in q["jobs"]:
-            where = "第 %d 位" % j["position"] if j["position"] else (j.get("gpu_name") or "计算中")
+            where = "第 %d 位" % j["position"] if j["position"] else ("、".join(j.get("cards") or []) or "计算中")
             print("%-9s %-8s %s" % (j["state"], where, j.get("title") or "别人的任务"))
         return 0
-    if args.cmd == "pending":
-        for d in lab.pending():
-            left = (d["expires"] - time.time()) / 3600
-            print("%s  %s · %s  %s  (%.0f 小时后过期)" % (d["run"], d["title"], d["label"], d["name"], left))
-            if args.fetch:
-                for path in lab.fetch(d, os.path.join(args.fetch, d["name"])):
+    if args.cmd == "outputs":
+        for o in lab.outputs():
+            left = "" if o.get("expires") is None else "  (%.0f 小时后删除)" % ((o["expires"] - time.time()) / 3600)
+            print("%s  %s · %s  %s%s" % (o["task"], o["title"], o["label"], o["name"], left))
+            place = under(args.fetch, os.path.basename(str(o["name"]))) if args.fetch else None
+            if place:
+                for path in lab.fetch(o, place):
                     print("✓ %s" % path)
         return 0
     if args.cmd == "run":
@@ -770,7 +789,8 @@ def _main(argv=None):
                 print("! [%s] %s" % (e["code"], e["text"]))
 
         try:
-            for path in lab.run(args.template, values, force=args.force, on_event=show, frames=args.frames, extract=args.extract):
+            for path in lab.run(args.template, values, force=args.force, on_event=show, out_dir=args.out, frames=args.frames,
+                                extract=args.extract):
                 print("✓ %s" % path)
         except Lab2ShotError as exc:
             print("失败：%s" % exc)

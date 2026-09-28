@@ -19,6 +19,6 @@ trimesh==4.8.3
 addict==2.4.0
 safetensors==0.6.2
 huggingface_hub==0.35.3
-# the mask the node sends (EXR), as the other extensions read it
+# lab2shot_worker.files reads EXR masks with it (this node has no mask input)
 OpenEXR==3.4.15
 # (the authors' utils3d fork is a pinned checkout, Extension.extra_sources)

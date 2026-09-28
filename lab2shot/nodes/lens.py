@@ -2,7 +2,7 @@
 
 节点使用的 Focal Length 按以下顺序确定：
   1. 节点上已设置的 Focal Length，手填或接自任何输出浮点的节点（AnyCalib、「拆分相机」、「浮点」）；
-  2. 否则取所接相机的值（「创建相机」取所接「相机属性」的值）；
+  2. 否则取所接相机的值；
   3. 否则由方法自行估计（或采用方法假定的镜头，如 HaMeR、SMIRK）。
 Filmback 同理：节点上的 Filmback，否则取相机的值，否则按 36 mm 全画幅。以毫米表示的 Focal Length 必须配合 Filmback
 才有意义，换算为像素为 Focal Length (mm) / Filmback (mm) × 画面宽度。
@@ -25,22 +25,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 
 from ..data.lens_models import MODELS, STMAP_MODEL, distortion, distorts
-from ..data.values import LENS
 from ..data.units import FILMBACK_MM
 from ..availability import All, Because, Cond, Not
 from ..messages import Msg
 from .applies import Param, Wired
 from .base import NodeParams, P
-
-FOCAL_HELP = ("镜头的 Focal Length，毫米。留空 = 自动：接了相机就用相机的，否则由方法自己估。填了（或者接一个浮点，比如 AnyCalib 的 Focal Length）"
-              "就用它，接着的相机只给位置和朝向。手机素材填等效 Focal Length（Filmback 保持 36）")
-FILMBACK_HELP = ("相机传感器的水平宽度，毫米，和 Focal Length 一起才定得了视角：Focal Length（px）= Focal Length ÷ Filmback × 画面宽度。留空 = 接着的相机"
-                 "的，没有就按全画幅 36。Super 35 约 24.9；手机按等效 Focal Length 时保持 36")
 
 # ------------------------------------------------------------------ 以下两个参数不设置 `assumed`
 #
@@ -50,7 +44,7 @@ FILMBACK_HELP = ("相机传感器的水平宽度，毫米，和 Focal Length 一
 # 仍按 `FILMBACK_MM` 计算，解算出的相机仍带有实际的 Focal Length 与 Filmback。
 
 
-def focal_param(help: str = FOCAL_HELP, *, overrides: tuple[str, ...] = (), per_frame: bool = False,
+def focal_param(*, overrides: tuple[str, ...] = (), per_frame: bool = False,
                 applies: Cond | None = None, label: str = "已知 Focal Length") -> Any:
     """接收镜头的节点的「已知 Focal Length」参数，留空表示自动。
 
@@ -65,18 +59,18 @@ def focal_param(help: str = FOCAL_HELP, *, overrides: tuple[str, ...] = (), per_
 
     `label`：对于自身也输出「Focal Length」的节点（标定节点：AnyCalib、GeoCalib、COLMAP），该参数表示调用方已知的
     Focal Length（上游支持将已知内参作为先验传入），输出口表示估计结果，二者含义不同，不使用同一名称。"""
-    return P(None, label=label, unit="mm", help=help, gt=0, group="镜头", placeholder="自动", worker=False,
+    return P(None, label=label, unit="mm", gt=0, group="镜头", placeholder="自动", worker=False,
              overrides=overrides, per_frame=per_frame, applies=applies, wired=True)
 
 
-def filmback_param(help: str = FILMBACK_HELP, *, overrides: tuple[str, ...] = (), applies: Cond | None = None) -> Any:
-    return P(None, label="Filmback", unit="mm", help=help, gt=0, group="镜头", placeholder="36", worker=False,
+def filmback_param(*, overrides: tuple[str, ...] = (), applies: Cond | None = None) -> Any:
+    return P(None, label="Filmback", unit="mm", gt=0, group="镜头", placeholder="36", worker=False,
              overrides=overrides, applies=applies, wired=True)
 
 
 # ------------------------------------------------------------------ 手填的镜头表
 # 对应 3DE 或标定程序提供的镜头表：模型及其系数、测量畸变时的画面尺寸、Focal Length、Filmback、主点。
-# 「相机属性」与「LensDistortion」使用同一张表，因此只定义一份。
+# 「LensDistortion」的参数即这张表（LensSheetParams），镜头表只定义这一份。
 
 # 可填写的模型：核心模型表中所有具有公式的模型。「ST-map（查表）」不在其中：测得的映射是一张图像，由「STMap」处理。
 LENS_MODELS = tuple(m for m in MODELS if m != STMAP_MODEL)
@@ -191,15 +185,16 @@ DISTORTION_OUTPUTS = ("lens",)  # 仅在有畸变时有意义的输出口（「�
 
 # ------------------------------------------------------------------ 「镜头内参」：镜头除 Focal Length、Filmback 之外的全部内参，合为一份
 # Focal Length 与 Filmback 因使用频繁而单独提供；其余内参合为一份，接收端核对模型，不一致时报错。
-# 数据类型为 value.lens（data/types.py）：{"model": 镜头表中的 id, "params": {系数名: 数值, 以及主点和像素比}}。
+# 数据类型为 value.lens（data/types.py）：{"group": 镜头内参组, "model": 组内的模型名, "table": 公式表的模型 id,
+# "params": {系数名: 数值, 以及主点和像素比}}（packed_lens）。
 # 系数使用模型自身的名称（COLMAP 的 k、k1、p1 等），主点和像素比使用镜头表上的三个固定键。接收端（「LensDistortion」）
-# 将 model 与其所选「镜头模型」比对，不一致时在提交前拦截（B-LENS-MODELMISMATCH）。
+# 将 (group, model) 与其所选「镜头内参组」「镜头模型」比对，不一致时在提交前拦截（B-LENS-MODELMISMATCH）。
 SHEET_KEYS = ("center_x_mm", "center_y_mm", "pixel_aspect")  # 镜头表上随系数一并传递的三项
 LENS_HELP = ("这颗镜头除了 Focal Length、Filmback 之外的全部：镜头模型的名字、它的畸变系数、主点 X / Y（毫米）和像素比，打成一份。"
              "接「LensDistortion」的「镜头内参」：那边选的「镜头模型」要和这里的一样才能算，不一样提交前就拦下")
 
 
-def packed_lens(dist: dict, center_mm=(0.0, 0.0), pixel_aspect: float = 1.0, *, group: str = "colmap", name: str | None = None) -> dict:
+def packed_lens(dist: dict, center_mm=(0.0, 0.0), pixel_aspect: float = 1.0, *, group: str, name: str | None = None) -> dict:
     """由 {"model", "params"}（data/lens_models.py distortion() 的返回值，使用公式表的模型）、主点、像素比以及组和模型名
     构造一份「镜头内参」的值：{"group", "model"（组内名称）, "table"（公式表 id）, "params"（表参数名及主点、像素比）}。
     未提供 `name` 时使用表 id 本身（COLMAP 组的模型名即表 id）。"""
@@ -209,13 +204,13 @@ def packed_lens(dist: dict, center_mm=(0.0, 0.0), pixel_aspect: float = 1.0, *, 
 
 
 def lens_identity(value: dict) -> tuple[str, str]:
-    """「镜头内参」值所属的 (组, 模型名)。旧格式的值不含组，按 COLMAP 组和表 id 处理。"""
-    return str(value.get("group") or "colmap"), str(value.get("model") or "")
+    """「镜头内参」值所属的 (组, 模型名)。"""
+    return str(value["group"]), str(value["model"])
 
 
 def unpacked_lens(value: dict) -> tuple[str, dict, tuple[float, float], float]:
     """「镜头内参」值 → (公式表的模型 id, 该模型的系数, 主点 (x, y)（毫米）, 像素比)。缺失的键分别取 0 / 1。"""
-    model = str(value.get("table") or value.get("model") or "")
+    model = str(value["table"])
     got = dict(value.get("params") or {})
     names = MODELS[model].names if model in MODELS else tuple(k for k in got if k not in SHEET_KEYS)
     coeffs = {n: float(got.get(n, 0.0)) for n in names}
@@ -226,7 +221,7 @@ def unpacked_lens(value: dict) -> tuple[str, dict, tuple[float, float], float]:
 def sheet_field(name: str, wired: str):
     """镜头表的某一项（沿用 LensSheetParams 中的声明），并附加条件「接入 `wired` 输入口时变灰」：
     接入「镜头内参」时，系数、主点、像素比均取自该值，表中对应各项不再使用（变灰并显示原因，位置不变）。
-    声明一处、用于两处：「LensDistortion」用它覆盖自身的对应项；「相机属性」没有该输入口，沿用原声明。"""
+    「LensDistortion」用它覆盖自身的对应项；LensSheetParams 中的原声明保持不变。"""
     import copy
 
     field = copy.deepcopy(LensSheetParams.model_fields[name])
@@ -241,7 +236,7 @@ def only_when_distorting(outputs: tuple, *models: str) -> tuple:
     """为仅在有畸变时有意义的输出口（DISTORTION_OUTPUTS）设置条件：「拟合模型」选择带畸变的选项时才可用（`Port.applies`）。
 
     `models`：该节点「拟合模型」中会解出畸变的选项。名单不手写，而由各节点自身的选项到核心镜头表模型的映射计算得出
-    （COLMAP 使用 `external_distorting`，AnyCalib 使用其 `LensModel`，GeoCalib 使用其 `TABLE_MODELS`），
+    （COLMAP 使用 `external_distorting`，AnyCalib 使用其镜头内参组 `GROUP`，GeoCalib 使用其 `TABLE_MODELS`），
     新增选项时无需修改此处。
 
     变灰时的原因由条件自动生成（`I-APPLIES-CHOICE`：「「拟合模型」选「径向 k1」…时才用」），不另写文案；
@@ -269,71 +264,51 @@ def external_distorting(*models: str) -> tuple[str, ...]:
 class LensParamEntry(NodeParams):
     """畸变参数表的一行：参数名（沿用测量软件的命名，如 3DE；行随「镜头模型」变化）及镜头表上的数值。"""
 
-    name: str = P(..., label="参数", widget="fixed", help="镜头模型的参数名，和 3DE / OpenCV 里写的一模一样，照抄数值即可")
-    value: float = P(0.0, label="值", help="镜头表上这个参数的数值（3DE 的镜头表、OpenCV 的标定结果）")
+    name: str = P(..., label="参数", widget="fixed")
+    value: float = P(0.0, label="值")
 
 
 class LensSheetParams(NodeParams):
-    """镜头表的参数，按面板顺序排列。画面宽度 / 高度留空表示跟随输入画面（「相机属性」没有输入画面，
-    留空即视为未测量，由其 lens_of 说明）。"""
+    """镜头表的参数，按面板顺序排列。画面宽度 / 高度留空表示跟随输入画面（lens_of 此时不含「raster」）。"""
 
-    # 默认「无畸变」：该表为共用表，「相机属性」手填镜头表时应默认留空（按所填内容计算）。
-    # 「LensDistortion」将其覆盖为 OpenCV Brown，因为该节点的用途即为去畸变。
+    # 默认「无畸变」（SIMPLE_PINHOLE）；「LensDistortion」将其覆盖为 SIMPLE_RADIAL（见其 Params）。
     #
-    # 命名为 `lens_model` 而非 `distortion_model`：该参数接收「AnyCalib 镜头标定」「GeoCalib 镜头标定」名为
-    # `lens_model` 的输出口的值，二者为同一个值、同一张核心镜头表（data/lens_models.py MODELS）的模型 id、同一个
-    # 界面标签「镜头模型」，连线表示为 `lens_model → param:lens_model`。
+    # 命名为 `lens_model` 而非 `distortion_model`：它是组内的模型名，与「镜头内参」值里的 `model`
+    # （packed_lens；「AnyCalib 镜头标定」「GeoCalib 镜头标定」「COLMAP 相机解算」的「镜头内参」输出口交出的）
+    # 是同一个名字，界面标签同为「镜头模型」。
     # 它与 AnyCalib / GeoCalib / COLMAP 上的 `fit_model` 含义不同，因此分别命名：`fit_model`「拟合模型」表示
     # 要求按何种模型拟合（请求），本参数表示模型本身（结果，用于去畸变 / 加畸变）。
     # 两级下拉（见上文「镜头内参组」）：先选择组（COLMAP / AnyCalib / GeoCalib / 3DE4），
     # 再选择该组的模型名。二者均为 choice 控件，选项由 LensSheet.choices 按已安装的扩展提供，不在代码中写死。
     lens_group: str = P(
-        "colmap", label="镜头内参组", group="镜头", widget="choice",
-        help="镜头模型按谁的叫法：COLMAP、AnyCalib、GeoCalib 各有自己的模型名，3DE4 是 3DE 镜头表上的三个。"
-             "接哪个解算器的「镜头内参」就选哪个组，两边的组和模型都一样才能算，不一样提交前拦下")
+        "colmap", label="镜头内参组", group="镜头", widget="choice")
     # derived_from=("lens_group",)：切换组时重新计算该值（不在新组中则改为该组的第一个模型，见 LensSheet.derive），
     # 否则旧值会以「· 找不到了」显示在列表首行。
     lens_model: str = P(
-        "SIMPLE_PINHOLE", label="镜头模型", group="镜头", widget="choice", choices_from=("lens_group",), derived_from=("lens_group",),
-        help="这个组里的哪个模型：COLMAP 的那几档和「COLMAP 相机解算」上的一字不差，AnyCalib 的就是它的 cam_id，"
-             "3DE 的三个和 3DE 镜头表里的一模一样。剧组给的是 ST-map 文件时不用填这里，用「读取序列」读进来接「STMap」")
+        "SIMPLE_PINHOLE", label="镜头模型", group="镜头", widget="choice", choices_from=("lens_group",), derived_from=("lens_group",))
     distortion: list[LensParamEntry] = P(
         [], label="畸变参数", widget="table", group="镜头", derived_from=("lens_group", "lens_model"), validate_default=True,
-        applies=DISTORTED, help="选了模型后自动列出它的参数，照镜头表逐个填数；没填的按 0（= 这一项没有畸变）。"
-                                "整条也可以接上游的畸变系数列表（AnyCalib、「拆分相机属性」）")
+        applies=DISTORTED)
     # 接入「图像」后以下两个参数变灰，使用框架提供的参数与输入互斥机制（Param.applies + Wired）。
     # 未接入图像时可手填，使节点可独立使用：从 3DE 抄录一组镜头参数，无需素材即可烘焙 ST-map。
     # 画面宽高即烘焙出的 ST-map 尺寸（ST-map 的一个像素对应画面的一个像素），因此不另设「输出分辨率」参数。
     # 命名为 `width` / `height`，与项目中其他节点的「画面宽度 / 画面高度」参数一致。
     width: int | None = P(None, label="画面宽度", unit="px", gt=0, group="镜头",
-                          applies=All(DISTORTED, Not(Wired("image"))), placeholder="跟画面",
-                          help="这份畸变是在多大的画面上量的，也就是烘出来的 ST-map 多大："
-                               "畸变只对这个尺寸（和同比例的代理）成立。接了「图像」就跟它走，这里变灰；"
-                               "没接图像时手填，这个节点就能单独用（从 3DE 抄一组镜头参数直接烘 ST-map）")
+                          applies=All(DISTORTED, Not(Wired("image"))), placeholder="跟画面")
     height: int | None = P(None, label="画面高度", unit="px", gt=0, group="镜头",
-                           applies=All(DISTORTED, Not(Wired("image"))), placeholder="跟画面",
-                           help="这份畸变是在多大的画面上量的：高度，像素。和宽度一起决定畸变的坐标，"
-                                "也决定烘出来的 ST-map 多大。接了「图像」就跟它走，这里变灰")
-    pixel_aspect: float = P(1.0, label="像素比", gt=0, group="镜头", applies=DISTORTED,
-                            help="一个像素的宽比高：变形宽银幕 2，标清素材 1.33 或 1.5，普通素材 1（和 3DE 的 pixel aspect 一样）")
+                           applies=All(DISTORTED, Not(Wired("image"))), placeholder="跟画面")
+    pixel_aspect: float = P(1.0, label="像素比", gt=0, group="镜头", applies=DISTORTED)
     # 参数统一命名为「已知 Focal Length」（见 focal_param：输出口名为「Focal Length」，参数为调用方提供的先验值）
-    focal_mm: float | None = P(None, label="已知 Focal Length", unit="mm", gt=0, group="镜头", placeholder="不知道",
-                               help="这份畸变对应的 Focal Length，毫米。OpenCV 的模型按 Focal Length 归一化（Focal Length（px）= Focal Length ÷ Filmback × 画面宽度），"
-                                    "不填算不了；3DE 的模型不用它，但填上有助于把镜头交付到别处")
-    filmback_mm: float = P(FILMBACK_MM, label="Filmback", unit="mm", gt=0, group="镜头",
-                           help="相机传感器的水平宽度，毫米，和 Focal Length 一起才定得了视角：Focal Length（px）= Focal Length ÷ Filmback × 画面宽度。"
-                                "3DE 的模型按底片的半对角线归一化，OpenCV 的和 Focal Length 一起用。全画幅 36，Super 35 约 24.9")
+    focal_mm: float | None = P(None, label="已知 Focal Length", unit="mm", gt=0, group="镜头", placeholder="不知道")
+    filmback_mm: float = P(FILMBACK_MM, label="Filmback", unit="mm", gt=0, group="镜头")
     # 使用「主点」一词：与标定程序的输出以及 AnyCalib、COLMAP 输出口的命名一致，不使用「镜头中心」。
-    center_x_mm: float = P(0.0, label="主点 X", unit="mm", group="镜头", applies=DISTORTED,
-                           help="镜头光轴打在底片上的位置，离画面中心的水平偏移，毫米，向右为正。"
-                                "就是 3DE 面板上的 lens center offset（3DE 里是厘米，这里填毫米：×10）；实拍素材基本是 0")
-    center_y_mm: float = P(0.0, label="主点 Y", unit="mm", group="镜头", applies=DISTORTED,
-                           help="同上，垂直方向，向上为正")
+    center_x_mm: float = P(0.0, label="主点 X", unit="mm", group="镜头", applies=DISTORTED)
+    center_y_mm: float = P(0.0, label="主点 Y", unit="mm", group="镜头", applies=DISTORTED)
 
 
 class LensSheet:
-    """用于参数为镜头表的节点（「相机属性」「LensDistortion」）的 mixin：提供所选模型的参数行，并将镜头表读回为
-    镜头描述。两个节点共用同一实现，从而以相同的名称、顺序和方式读取数值。"""
+    """用于参数为镜头表的节点（「LensDistortion」）的 mixin：提供所选模型的参数行，并将镜头表读回为
+    镜头描述。"""
 
     @classmethod
     def table_model(cls, params: dict) -> str:
@@ -428,7 +403,7 @@ def without_camera_conditions(params: type[NodeParams]) -> type[NodeParams]:
 
     返回新的模型类，而不是就地清除字段的 `applies`：所有继承 CameraLensParams 的节点共享同一个 FieldInfo 对象，
     就地修改会使其他节点上的参数也不再变灰。规则是：有相机输入口的节点一律使用相机的镜头并将参数变灰。
-    各节点自身的帮助文字、per_frame 等属性均保留：复制字段，仅去除 `applies`。"""
+    各节点自身的 per_frame 等属性均保留：复制字段，仅去除 `applies`。"""
     import copy
 
     from pydantic import create_model

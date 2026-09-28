@@ -1,4 +1,5 @@
-"""What every command of `lab2shot` shares: the one Typer app, the terminal, and how a command stops on an error."""
+"""What every command of `lab2shot` shares: the one Typer app, the terminal, and how a command stops on an error;
+and the output conventions of the interactive menu (`lab2shot setup`, its one-click update)."""
 
 from __future__ import annotations
 
@@ -6,7 +7,10 @@ import time
 from typing import NoReturn
 
 import typer
+from rich import box
 from rich.console import Console
+from rich.markup import escape
+from rich.table import Table
 
 from .. import __version__, catalog
 
@@ -37,3 +41,57 @@ def when(t: float) -> str:
 def group(help: str) -> typer.Typer:
     """A command group (`lab2shot db ...`); lab2shot/cli/__init__.py puts it in the tree."""
     return typer.Typer(help=help, no_args_is_help=True)
+
+
+# ------------------------------------------------------------------ output conventions
+
+# One colour and one symbol per kind of message, used by every item of the menu (cli/setup.py, cli/service.py,
+# cli/update.py): success, warning, error, and neutral notes.
+
+
+def ok(text: str) -> None:
+    console.print(f"[green]✓[/green] {text}")
+
+
+def warn(text: str) -> None:
+    console.print(f"[yellow]![/yellow] {text}")
+
+
+def err(text: str) -> None:
+    console.print(f"[red]✗[/red] {text}")
+
+
+def note(text: str) -> None:
+    console.print(f"[dim]{text}[/dim]")
+
+
+def mark(state: bool | None) -> str:
+    """A table cell for a check: passed, failed, or not applicable."""
+    return "" if state is None else ("[green]✓[/green]" if state else "[red]✗[/red]")
+
+
+def menu_table(rows: list[tuple[str, str, str]]) -> Table:
+    """A menu as a table: number, name, description."""
+    table = Table(box=box.SIMPLE_HEAD, show_edge=False, pad_edge=False, header_style="bold")
+    table.add_column("编号", justify="right", style="bold cyan", no_wrap=True)
+    table.add_column("名称", no_wrap=True)
+    table.add_column("说明")
+    for key, name, text in rows:
+        table.add_row(key, name, text)
+    return table
+
+
+def pick(default: str = "0") -> str:
+    """Read a menu number. Ctrl-C and end of input propagate (typer.Abort / click.Abort) to the caller."""
+    return typer.prompt("请输入编号", default=default).strip().lower()
+
+
+def abort_types() -> tuple[type[BaseException], ...]:
+    import click
+
+    return (KeyboardInterrupt, typer.Abort, click.Abort)  # typer 0.27 has its own Abort, distinct from click's
+
+
+def say(msg, quiet: bool = False) -> None:
+    """A message of the catalogue, in the colour of its kind (a notice as a success, or `quiet` as a neutral note)."""
+    {"E": err, "W": warn, "B": err, "P": err}.get(msg.level, note if quiet else ok)(escape(msg.text))

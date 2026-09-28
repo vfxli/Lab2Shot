@@ -17,8 +17,8 @@ their shared frames (lab2shot_worker.recon) -> the raw `reconstruction` contract
 
 Moving objects: CUT3R has no mask input (it was trained on dynamic scenes and sees the
 whole frame), and nothing is taken out of the result afterwards. To reconstruct only part
-of the picture, black the rest out before the 「图像」 input (人物检测 → 人物框转遮罩 →
-图像相乘), where it is visible on the node graph.
+of the picture, black the rest out before the 「RGB」 input (「ViTDet 人物框」 → 「人物框转遮罩」 →
+「图像合成」 set to 留下), where it is visible on the node graph.
 """
 
 from __future__ import annotations
@@ -41,7 +41,8 @@ CHECKPOINT = "cut3r_512_dpt_4_64.pth"
 # the 512 model was trained on 4-64 views, its state forgets / drifts on much longer runs. TTT3R's state update holds
 # on far longer runs, but not on any: on a 792-frame take a single pass loses its orientation, 200-frame chunks work.
 MAX_FRAMES = {"cut3r": 64, "ttt3r": 200}
-# what the memory grows with, when it runs out: 每段最多帧数 (the node's 8..1000; at most the longest measured default)
+# what the memory grows with, when it runs out: 每段最多帧数 (the node offers 32..792; the steps start at the longest
+# measured default, 200)
 MAX_FRAMES_STEPS = (200, 128, 64, 32, 16, 8)
 RESOLUTION = 512  # long side of the network input: the training size
 

@@ -1,4 +1,4 @@
-"""GVHMR worker: world-grounded SMPL-X motion. Runs inside third_party/gvhmr/.venv
+"""GVHMR worker: world-grounded SMPL-X motion. Runs inside third_party/gvhmr/.venv-ada-blackwell
 with the pinned repo on PYTHONPATH; never imports Lab2Shot core.
 
     python worker.py <job.json>        (node "gvhmr.solve")
@@ -368,7 +368,7 @@ def main(job_path: str) -> None:
     # with zero translation, since upstream uses only the rotation
     # (`third_party/gvhmr/repo/tools/demo/demo.py:197 compute_cam_angvel(R_w2c)`). The world merge therefore runs
     # as if no input camera were given: no alignment as a whole, and the world stays the method's own gravity world.
-    # Placing the people into a given camera requires an explicit 「对齐到相机」 node in the graph.
+    # Placing the people into a given camera requires an explicit 「相机空间转换」 node in the graph.
     as_camera = None if cam is None or cam.rotation_only else cam
     track, world_info = wh.one_world("GVHMR", people, frame_numbers, np.swapaxes(r_w2c, -1, -2), static, as_camera,
                                      follow_camera)
@@ -377,7 +377,7 @@ def main(job_path: str) -> None:
     out = [wh.save_person(raw, person, "smplx", bm.bm) for person in people]
     # raw/camera.npz: the reference camera of this result (the node's 「参照相机」 output,
     # families/humans.py `reference_camera`). It is not a production camera; its only use is as the reference for the
-    # core node 「对齐到相机」, which computes the correction that moves the result into the world of the user's camera.
+    # core node 「相机空间转换」, which computes the correction that moves the result into the world of the user's camera.
     # It comes from upstream's own results, not from the body:
     #   (1) rotation: upstream solves the camera rotation itself (SimpleVO by default, DPVO with `--use_dpvo`):
     #      `third_party/gvhmr/repo/tools/demo/demo.py:149-150`

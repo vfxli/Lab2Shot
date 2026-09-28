@@ -1,15 +1,11 @@
-# FaceAnything environment (torch 2.9.0 / torchvision 0.24.0 cu128 come from EnvSpec).
-# Upstream requirements.txt at the pinned commit, same versions (gdown dropped:
+# FaceAnything environment (torch 2.10.0 / torchvision 0.25.0 cu128 come from EnvSpec).
+# Upstream requirements.txt at the pinned commit, same versions except xformers (gdown dropped:
 # the installer downloads the checkpoint).
-# 0.0.33.post1's compiled _C.so / flash_attn_3/_C.so stop at sm_90a, no RTX 5090 (sm_120)
-# kernels and no PTX (显卡兼容_GVHMR失败.md 五). 0.0.34 (checked with cuobjdump, see
-# 升级环境_4090与5090.md) turned out worse for this: its _C.so/flash_attn_3 only cover
-# sm_75/sm_80 (sm_89 the RTX 4090 still runs via the same-major-version binary rule, but
-# sm_120 the RTX 5090 has nothing). 0.0.35 ships no compiled CUDA kernels of its own at all
-# (a ~3 MB wheel vs. 0.0.34's ~110 MB) -- it is a thin layer over torch's own
-# scaled_dot_product_attention, so whatever architectures the pinned torch supports (both
-# sm_89 and sm_120 here), xformers does too. Needs torch>=2.10 (not pinned to one exact
-# version like the older releases).
+# xformers: the prebuilt kernels of 0.0.33.post1 (_C.so / flash_attn_3/_C.so) stop at sm_90a with
+# no PTX, and those of 0.0.34 cover only sm_75/sm_80 (checked with cuobjdump): neither has anything
+# for sm_120 (RTX 5090). 0.0.35 ships no compiled CUDA kernels of its own (a ~3 MB wheel): it is a
+# thin layer over torch's scaled_dot_product_attention, so it runs on every architecture the pinned
+# torch supports (sm_89 and sm_120 here). Needs torch>=2.10.
 xformers==0.0.35
 
 numpy==1.26.4

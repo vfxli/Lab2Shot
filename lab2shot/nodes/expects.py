@@ -4,18 +4,18 @@ A type determines what can connect. Some connections cook without error yet are 
 intended, or silently rely on an assumption: a detection of five people wired directly into a per-person solver, a
 camera from another shot, a relative depth interpreted in centimetres. A node declares its expectations of an input on
 the port (Port(expects=...)); a single engine function (engine/lint.py) checks every wire against them using what is
-known of the data. Before the upstream node is cooked, that is the graph's own information (Info: frames, frame
-rate); afterwards, it is the packet's description (meta: the people in boxes, a depth's scale, the picture size).
+known of the data. Before the upstream node is cooked, that is the graph's own information (Info: frames, whether
+it is a still); afterwards, it is the packet's description (meta: the people in boxes, a depth's scale, the picture size).
 
 A failed expectation is a warning, never an error: the node is marked yellow, the page lists the warning when a cook is
 submitted, and the cook reports it when the node starts. When inserting one node in front of the input resolves it
 (`fix`), the parameter panel offers the insertion as a single action, and the node menu lists that node first for a
 wire drawn out of the input.
 
-The only exception is a precondition of the method that is known before cooking and that no cook can satisfy
-(FrameCount(least=): a temporal model given fewer frames than it requires). Its message uses a B- code, and the node is
-refused before cooking, like a node whose file is missing (engine/evaluation.py plan); the message states the measured
-count and the corrective action.
+The exceptions are preconditions known before cooking that no cook can satisfy (FrameCount: a temporal model given
+fewer frames than it requires, or a method given more than it takes; DistinctNames: two items of one name; OneValue: a
+condition that varies between frames). Their messages use B- codes, and the node is refused before cooking, like a
+node whose file is missing (engine/evaluation.py plan); the message states what was found and the corrective action.
 """
 
 from __future__ import annotations
@@ -71,8 +71,8 @@ class Checked:
 @dataclass(frozen=True)
 class Expect:
     """One expectation of an input. check() returns a message describing what is probably wrong with the data `got`
-    (a W- code of the catalogue), or None when nothing is wrong or the data is not yet known. The message is shown on
-    the node itself, so it names the data rather than the node."""
+    (a W- code of the catalogue, a B- code for a precondition), or None when nothing is wrong or the data is not yet
+    known. The message is shown on the node itself, so it names the data rather than the node."""
 
     fix: ClassVar[str] = ""  # node type that resolves the issue when inserted between the input and its source
     per_wire: ClassVar[bool] = True  # True: judges each wire independently, so `fix` is also offered by the node menu
@@ -82,16 +82,6 @@ class Expect:
     def check(self, got: Seen, node: Checked) -> Msg | None:
         raise NotImplementedError
 
-    def wants_fix(self, means: Mapping[str, str]) -> bool:
-        """Whether this expectation requires the `fix` node for incoming data that declares these meanings (such as
-        「尺度」; data/contracts.py MEANING).
-
-        The default is True: the port always needs the node regardless of the data (「选人」: detected person boxes
-        wired into a per-person solver always require a selection first). Subclasses that need it only for certain
-        data override this (「深度对齐」 is needed only when the data declares itself as disparity). The editor's
-        one-click insertion depends on check() reporting a message, not on this method."""
-        return True
-
 
 @dataclass(frozen=True)
 class EachPerson(Expect):
@@ -100,8 +90,8 @@ class EachPerson(Expect):
     and tracks broken by a cut. A single person is accepted, as are people selected in 「选人」, even if all are selected.
 
     「选人」 outputs one 人物框 (the selected people, with `chosen` set), so inserting it between a detection and this
-    port resolves the warning; it is therefore the `fix`. The node menu also lists 「选人」 first for a wire drawn out of
-    such an input, via the port's `recommend` (kit/ports.py people_port)."""
+    port resolves the warning; it is therefore the `fix`. The check judges each wire on its own, so the node menu also
+    lists 「选人」 first for a wire drawn out of such an input (Port.describe inserts)."""
 
     fix: ClassVar[str] = "core.select_people"
 
@@ -208,9 +198,6 @@ class NotDisparity(Expect):
         if (got.meta or {}).get("scale") != "disparity":
             return None
         return Msg("W-DEPTH-DISPARITY", source=got.source)
-
-    def wants_fix(self, means: Mapping[str, str]) -> bool:
-        return means.get("scale") == "disparity"  # metric depth needs no alignment, so nothing is inserted
 
 
 @dataclass(frozen=True)

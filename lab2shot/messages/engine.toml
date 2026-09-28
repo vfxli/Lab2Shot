@@ -3,11 +3,11 @@
 
 # ---- 计算一个节点（engine/cook.py）
 "E-COOK-FAILED" = "「{node}」出错：{reason}"
-"E-COOK-NODELIVERY" = "「{node}」没有地方交付：这次计算不是从队列提交的（脚本或测试绕过队列调用了引擎），交付要经过队列，结果才能交给提交的人"
+"E-COOK-NODELIVERY" = "「{node}」没有地方收集结果：这次计算不是从队列提交的任务（脚本或测试绕过队列调用了引擎）；整理和打包要放进任务的文件夹，结果才能交给提交的人"
 "E-COOK-PROBLEM" = "{detail}"
 "N-COOK-NOTHINGIN" = "「{node}」这次没有算：必需的「{input}」是空的（「{source}」这次没有给出数据，看它的提醒）。它的输出也是空的；上游给出数据以后再算就有了"
 "N-COOK-SKIPPED" = "「{node}」已跳过：它必需的「{input}」来自出错的「{root}」。先看「{root}」的错误，改好后再算"
-"E-COOK-UNAVAILABLE" = "「{node}」现在用不了：{reason}。接在它后面的节点跳过；「输出」照常交出其他接好的结果"
+"E-COOK-UNAVAILABLE" = "「{node}」现在用不了：{reason}。接在它后面的节点跳过；它所在的线接进的「输出」不打包，其他分支照常计算"
 "N-COOK-OVERSCAN" = "「{node}」只处理画面里的像素：输入「{input}」画面外还有 左 {left} 上 {top} 右 {right} 下 {bottom} 像素（overscan），这些没有算，往下交付的结果里也没有"
 "W-INPUT-UNUSED" = "「{node}」没有用上「{input}」：{reason}。主结果照常算出，只是少了它；修好后再算会用上"
 "N-INPUT-NOTHING" = "「{node}」的「{input}」是空的（「{source}」这次没有给出数据），当作没接：结果照常算出"
@@ -54,11 +54,10 @@
 "E-GRAPH-NOTGRAPH" = "这不是 Lab2Shot 节点图：文件里没有节点图的格式标记，打开的可能是别的 JSON 文件"
 "E-GRAPH-FRAMES" = "帧范围要写成 [起始帧, 结束帧]，都是整数，起始帧不大于结束帧：现在是 {frames}"
 "E-GRAPH-UNKNOWNTYPE" = "未知节点类型 {type}：{reason}"
-"E-GRAPH-PARAMS" = "节点 {node} 的参数不对：{reason}"
-"E-GRAPH-PROMOTEDTWICE" = "节点 {node}：promoted 里有重复的参数"
-"E-GRAPH-NOSUCHWIRENODE" = "连线指向不存在的节点：{source} → {target}"
-"E-GRAPH-NOSUCHPORT" = "端口不存在：{source}.{output} → {target}.{input}"
-"E-GRAPH-NOTPROMOTED" = "端口不存在：{source}.{output} → {target}.{input}（这个参数没有提升到节点：节点的 promoted 里要有它）"
+"E-GRAPH-PARAMS" = "「{node}」的参数不对：{reason}"
+"E-GRAPH-NOSUCHWIRENODE" = "连线指向不存在的节点：「{source}」→「{target}」"
+"E-GRAPH-NOSUCHPORT" = "「{target}」没有输入「{input}」：「{source}」的「{output}」接不上去"
+"E-GRAPH-NOTPROMOTED" = "「{target}」的「{input}」没有提升到节点上：「{source}」的「{output}」接不上去"
 "E-GRAPH-NONODE" = "节点图里没有节点 {node}"
 "E-GRAPH-BADJSON" = "{file} 不是有效的 JSON：{detail}"
 "E-GRAPH-SCHEMA" = "{file} 不是 Lab2Shot 节点图（schema 不是 {schema}）"
@@ -84,10 +83,13 @@
 "W-EACH-FAILED" = "「{node}」收集时缺少 {count} 个条目：{items}。这些条目在块内出错或已跳过，不在收集的列表中；其余条目照常收集。"
 "I-EACH-ITEMFAILED" = "{name}（根源是「{root}」）"
 
-# ---- 交付文件的规矩（engine/graph.py check_delivery）
-# 服务器这一句也给命令行和 DCC 插件看，所以带“给一个路径”；网页自己拦下时说 web.toml 的 B-DELIVER-NOPLACE / NONAME
-"B-DELIVER-NOPATH" = "「{node}」还没有设置「{setting}」：选一个保存的位置（命令行和 DCC 插件给一个路径）"
-"B-DELIVER-NOTWIRED" = "「{node}」没有接到「输出」：它只设置怎么写，文件由「输出」交付，把它的「文件」接到一个「输出」上"
+# ---- 「输出」只打包完整的线：任何一条接进来的线上有失败，它就失败，说清是哪条线、哪个节点（engine/evaluation.py _chains_broken）
+"E-OUTPUT-CHAINFAILED" = "「{node}」没有打包：接进来的线里有 {count} 条不完整：{chains}。把出错的那条线断开，或者改好它，再计算「{node}」"
+"I-OUTPUT-CHAIN" = "「{chain}」这条线上的「{root}」出错了"
+"I-OUTPUT-CHAINITEM" = "「{chain}」这条线上的「{root}」在条目「{item}」出错了"
+
+# ---- 输出文件的规矩（engine/graph.py check_delivery）
+"B-DELIVER-NOTWIRED" = "「{node}」没有接到「输出」：它只设置怎么写，文件由「输出」收集打包、供下载，把它的「文件」接到一个「输出」上"
 "B-DELIVER-BADNAME" = "「{node}」的名字「{name}」不能当文件夹名：不能空着，不能带 / \\ : * ? \" < > |"
 "B-DELIVER-NAMED" = "{outputs}都叫 {name}"
 "B-DELIVER-SAMENAME" = "「{node}」里有同名的（{same}）：每个一个子文件夹，名字要不一样"
@@ -98,9 +100,10 @@
 "E-TEMPLATE-NOEXPOSED" = "没有参数「{key}」：这张图没有对外参数，参数用 节点id.参数名"
 "E-TEMPLATE-WIRED" = "参数「{key}」由连线决定（接的是{wire}），在这里改不了：改上游的值，或者在节点图里断开这根线"
 "E-TEMPLATE-DERIVE" = "「{node}」的设置没能从参数推出来：{reason}"
-"B-TEMPLATE-NOTARGET" = "没有要交出的结果：没有设置了「保存到」的「输出」"
+"B-TEMPLATE-NOTARGET" = "没有要交出的结果：节点图里没有「输出」"
 
-# ---- 参数和帧范围（engine/evaluation.py）
+# ---- 参数和帧范围（nodes/params.py refusal、engine/evaluation.py）
+"E-PARAM-INVALID" = "「{name}」是 {value}：{reason}"
 "E-PARAM-WIREDRANGE" = "「{name}」接的{where}是 {value}：{reason}"
 "E-PARAM-BETWEEN" = "这个参数要在 {lo:g}–{hi:g} 之间"
 "E-PARAM-ABOVE" = "这个参数要大于 {lo:g}"

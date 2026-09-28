@@ -51,7 +51,7 @@ MIN_CLIP = 16  # the model's window
 # last level must keep at least 2 -> 1/8 map >= 32 -> short side >= 256
 # (repo/track4world/nets/model.py:602 corr_levels=5, nets/blocks.py:150 scale_factor=0.5)
 MIN_SIDE = 256
-# the parameter memory grows with: 每段帧数 within the node's 16..120 (120 frames: 18.7 GB at 512 px)
+# the parameter memory grows with: 每段最多帧数, stepping down 120, 64, 32, 16 (120 frames: 18.7 GB at 512 px)
 MAX_FRAMES = MemoryBound.parameter("max_frames", (120, 64, 32, MIN_CLIP))
 
 

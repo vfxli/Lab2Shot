@@ -31,12 +31,12 @@ export function Menu({ at, rows, label, onClose, width, layout }: {
   label: string; // what this menu is about (aria-label)
   onClose: () => void;
   width?: number; // 最小宽度（使下拉列表与触发器对齐）；某一行文字更长时按文字宽度扩展，菜单中的文字不得截断
-  layout?: string; // the page's own name for this menu (UI walks locate it by this); never a style of its own
+  layout?: string; // the page's own name for this menu (it can be found from outside the page by this); never a style of its own
 }) {
   const box = useRef<HTMLDivElement>(null);
   // 无论在何处打开，菜单都必须完整位于窗口内：`at` 只是打开位置，菜单自身高度须测量后才能得知。
   // 测量后回夹一次：下方空间不足时贴窗口下沿，右侧空间不足时贴右沿。
-  // 弹层沿固定方向展开，超出即越界（tests/popoverDirection.test.ts），越界的行用户无法点击，
+  // 弹层沿固定方向展开，超出即越界，越界的行用户无法点击，
   // 表现为点击无反应。在此统一处理一次，所有使用菜单的位置均正确
   // （节点右键菜单、账号、文件、时间线，以及每个 ui/Select.tsx 的下拉框）；
   // 画面底部「切换人」的下拉框紧贴窗口下沿，人数达到数十时列表的一半会在窗口外。
@@ -92,7 +92,7 @@ export function Menu({ at, rows, label, onClose, width, layout }: {
         <div
           key={r.key}
           role="menuitem"
-          data-key={r.key} // 界面测试据此查找一行（下拉框中即该项的值）：tests/ui/walk_common.py pick()
+          data-key={r.key} // 这一行的键（下拉框中即该项的值），写在元素上，从页面外可以按它找到这一行
           aria-disabled={r.off || undefined}
           className={r.off ? "menu-item off" : "menu-item"}
           data-tip={r.tip}

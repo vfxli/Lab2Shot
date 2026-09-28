@@ -1,12 +1,12 @@
-"""SegAnyMo worker: masks of the objects that really move in a shot. Runs inside third_party/seganymo/.venv with the
-pinned repo's core/, its SAM 2 copy (sam2/) and its PyTorch TAPIR (preproc/tapnet_torch) on PYTHONPATH; never
-imports Lab2Shot core.
+"""SegAnyMo worker: masks of the objects that really move in a shot. Runs inside third_party/seganymo/.venv-ada-blackwell
+with the pinned repo's core/, its SAM 2 copy (sam2/) and its PyTorch TAPIR (preproc/tapnet_torch) on PYTHONPATH;
+never imports Lab2Shot core.
 
     python worker.py <job.json>
 
 Upstream's three command-line steps (core/utils/run_inference.py --depths --tracks --dinos, --motion_seg_infer,
 --sam2), run in one process on frames in memory instead of through folders of files. Upstream's models and functions
-are used as they are; what the worker does itself is upstream's glue, query_step by query_step:
+are used as they are; what the worker does itself is upstream's glue, step by step:
 
 1. Frames at the processing size: the long side down to params.resolution (upstream's efficiency mode --e: 1000 px,
    cv2 INTER_AREA). Motion is analysed on up to params.analysis_frames of them, spread evenly over the shot (--e keeps 100
@@ -111,15 +111,6 @@ def moseg_config(repo: Path):
     from core.utils.utils import load_config_file
 
     return load_config_file(str(repo / "configs" / "example_train.yaml"))
-
-
-def load(run: Run, what: str, loader, *args):
-    """run.model for a worker of five models: Run.loading keeps the last load's time only, so the earlier loads' time
-    is added back (load_seconds = all of them)."""
-    before = run.load_seconds
-    model = run.model(what, loader, *args)
-    run.load_seconds += before
-    return model
 
 
 # --------------------------------------------------------------------------- frames
@@ -229,13 +220,13 @@ def dynamic_tracks(run: Run, frames: np.ndarray, depth: list[torch.Tensor], quer
     grid_yx = grid(h, w)
     owner, index = choose_points(len(grid_yx[0]), queries, rng)
 
-    tapir = load(run, "BootsTAPIR", load_tapir, weights / "bootstapir" / "bootstapir_checkpoint_v2.pt")
+    tapir = run.model("BootsTAPIR", load_tapir, weights / "bootstapir" / "bootstapir_checkpoint_v2.pt")
     run.stage("跟踪点（BootsTAPIR）")
     tracks_2d = torch.from_numpy(track_points(tapir, frames, queries, owner, index, grid_yx, size))
     track_2d, occs, dists = tracks_2d[..., :2], tracks_2d[..., 2], tracks_2d[..., 3]
     visibles, _, confidences, visib_value, confi_value = parse_tapir_track_info(occs, dists, 0.5)
 
-    model = load(run, "moseg", load_moseg, weights / "moseg" / "moseg.pth", repo / "configs" / "example_train.yaml")
+    model = run.model("moseg", load_moseg, weights / "moseg" / "moseg.pth", repo / "configs" / "example_train.yaml")
     run.stage("判断哪些点在动")
     dino = None
     if cfg.dino:
@@ -305,7 +296,7 @@ def objects(run: Run, frame_dir: Path, shot: list[int], traj: np.ndarray, visibl
     import run_sam2
 
     run_sam2.args = SimpleNamespace(vis=False)  # process_points_with_memory reads the script's global args
-    predictor = load(run, "SAM 2", load_sam2, run.job.weights_dir / "sam2-hiera-large" / "sam2_hiera_large.pt")
+    predictor = run.model("SAM 2", load_sam2, run.job.weights_dir / "sam2-hiera-large" / "sam2_hiera_large.pt")
     mapped = ShotFrames(predictor, shot)
     _, _, t_count = traj.shape
     max_iterations = min(max(len(range(0, t_count, 2 * 8)), 5), 10)
@@ -400,7 +391,7 @@ def main(job_path: str) -> None:
 
         from core.utils.run_depth import get_depth_anything_disp
 
-        pipe = load(run, "Depth Anything V2 Small", load_depth_model, weights / "Depth-Anything-V2-Small-hf")
+        pipe = run.model("Depth Anything V2 Small", load_depth_model, weights / "Depth-Anything-V2-Small-hf")
         run.stage("深度（Depth Anything V2 Small）")
         depth = []
         for n, i in enumerate(shot):
@@ -410,7 +401,7 @@ def main(job_path: str) -> None:
 
         from torchvision import transforms
 
-        extractor = load(run, "DINOv2", load_dino, dinov2)
+        extractor = run.model("DINOv2", load_dino, dinov2)
         run.stage("DINOv2 特征")
         shape = ((h + 13) // 14 * 14, (w + 13) // 14 * 14)  # dino_feat.py: a multiple of 14
         prep = transforms.Compose([transforms.ToTensor(), transforms.Resize(list(shape)),

@@ -14,7 +14,7 @@ links into `weights/`.
         weights/
             ckpt/              deform_vae.ckpt, denoiser.ckpt (the authors' Google Drive)
             hy3dgen/tencent/Hunyuan3D-2.1/   HY3DGEN_MODELS: the Hunyuan3D-2.1 shape weights
-            realesrgan/        RealESRGAN_x4plus.pth (only the texture pass wants it)
+            realesrgan/        RealESRGAN_x4plus.pth (only the texture pass wants it; not downloaded)
             hf/                the Hugging Face cache (DINOv2-large, the image encoder)
         codebase/              built here
             ckpt/              -> weights/ckpt/*.ckpt

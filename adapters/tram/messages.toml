@@ -7,4 +7,4 @@
 "N-TRAM-SHORTTRACK" = "人物 {person} 没有连续出现 {frames} 帧以上的片段，「TRAM 全身动作」算不了他，这个人跳过"
 
 # ---- 相机
-"W-TRAM-STATIC" = "「TRAM 全身动作」判断这段是固定机位（DROID-SLAM 解算时没有产生第二个关键帧），相机按不动处理：如果镜头其实在动，人在世界里的位置会跟着画面漂，检查这段素材有没有真正的位移（纯摇、长焦压缩的镜头视差很小），并在「Focal Length」里填实拍 Focal Length"
+"W-TRAM-STATIC" = "「TRAM 全身动作」判断这段是固定机位（DROID-SLAM 解算时没有产生第二个关键帧），相机按不动处理：如果镜头其实在动，人在世界里的位置会跟着画面漂，检查这段素材有没有真正的位移（纯摇、长焦压缩的镜头视差很小），并在「已知 Focal Length」里填实拍 Focal Length"

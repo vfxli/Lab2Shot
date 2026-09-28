@@ -46,7 +46,7 @@ SAM2_FILE = "sam2.1-hiera-large/sam2.1_hiera_large.pt"
 # Frames per chunk that keep the batched global alignment under ~18 GB of GPU memory at 288 x 512
 # (measured: 40 frames -> 18.9 GB peak); scaled by pixel count for other input sizes.
 FRAMES_AT_288X512 = 36
-# the parameter memory grows with, reported when memory runs out: 每段最多帧数 within the node's 9..40 (40 measured 18.9 GB)
+# the parameter memory grows with, reported when memory runs out: 每段最多帧数, stepping down 40, 32, 24, 16, 12 (40 measured 18.9 GB)
 MAX_FRAMES = MemoryBound.parameter("max_frames", (40, 32, 24, 16, 12))
 # Upstream demo settings, kept unchanged (not tuned per shot):
 WINDOW = 5  # scene graph "swinstride-5": each frame paired with the next 5 frames at stride 2
@@ -336,7 +336,7 @@ def main(job_path: str) -> None:
         # The solve additionally uses the upstream internal union (plus wired masks), which is not exported
         moving_objects="SAM 2.1" if p["sam2_refine"] else "MonST3R flow check",
         solve_mask="MonST3R flow check" + (" + SAM 2.1" if p["sam2_refine"] else "")
-        + ("".join(f" + job {k}" for k in di.moving_kinds(job))),
+        + (" + job mask" if "mask" in job.inputs else ""),
         params=p,
         focal_source="user" if p["focal_px"] else "monst3r (first chunk; later chunks keep it)",
         frames=frames,  # the whole list, not the standard [first, last]: the converter reads every frame's file by it

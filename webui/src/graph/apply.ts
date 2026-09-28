@@ -41,7 +41,7 @@ export function startUploads(): void {
 
 /** 本次实际计算的节点中，哪些素材仍在使用者本机上（`picked`：已申报、字节未传输）。
  *
- * 本次计算涉及的节点由服务器给出（状态回复的 `policy.click.computes` / `policy.shown.computes`，
+ * 本次计算涉及的节点由服务器给出（状态回复的 `policy.computes` 与 `deliver.computes`，
  * `lab2shot/engine/evaluation.py _case`）：结果已缓存的读取节点不在其中，其素材无须传输任何字节。
  * 网页不按连线自行反推，否则会产生第二份答案。 */
 export function pickedFor(_ctx: BlockContext, cook: CookCase) {

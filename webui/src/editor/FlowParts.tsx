@@ -3,8 +3,7 @@
 import { portColor, UNKNOWN_COLOR } from "../graph/nodes";
 import { useMemo } from "react";
 import { BaseEdge, getBezierPath, type ConnectionLineComponentProps, type EdgeProps } from "@xyflow/react";
-import { blockedByCompute, pauseNote } from "../state/pause";
-import { blockedByQuota, quotaNote } from "../state/quota";
+import { cookBlocked, cookNote } from "../state/pause";
 import { NODE_MENU, type NodeMenuFacts } from "./nodeActions";
 import { snapshotNow } from "../graph/snapshot";
 import { useCookInputs } from "../state/cookInputs";
@@ -71,21 +70,21 @@ const ZOOM_FAR = 0.45;
 export const zoomClass = (zoom: number) => (zoom < ZOOM_FAR ? " zoom-far" : zoom < ZOOM_TEXT ? " zoom-text" : "");
 
 /** A node's right-click menu, drawn from the one table of what it offers (editor/nodeActions.ts NODE_MENU): 计算 (cook
- * it and what it needs, and show it, at once or queued, as the server's policy says) on an ordinary node; 提交 on a
- * node whose cook hands files over, i.e. an 「输出」 itself (that one 「输出」 alone, not the whole graph) or an
- * output-settings node (the 「输出」 it is wired into). Then 显示. Closes on any click, Escape or scroll. */
+ * it and what it needs, and show it; on a node whose cook hands files over, i.e. an 「输出」, it packs that one
+ * 「输出」 alone, not the whole graph), 显示, and 合并成多层 EXR on 序列图输出设置 nodes. Closes on any click,
+ * Escape or scroll. */
 export function NodeMenu({ at, onClose }: { at: { x: number; y: number; id: string }; onClose: () => void }) {
   const busy = useResults((s) => !!s.job);
   const queueSwitches = useResults((s) => s.queueSwitches);
-  const storage = useResults((s) => s.storage); // 配额已满：此处的「计算」「提交」与顶栏一样置灰并说明原因
+  const storage = useResults((s) => s.storage); // 配额已满：此处的「计算」与顶栏的「提交」一样置灰并说明原因
   const typeId = useCookInputs((s) => s.nodes[at.id]?.typeId ?? "");
   const snap = useMemo(() => snapshotNow(), [at.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const kind = clickKind(snap, at.id);
-  const delivers = kind.kind.delivers;
-  const short = cookWords(kind.kind, kind.nothing).short;
-  // the same 显卡任务 / 计算任务 note (pause.ts) the top bar's 提交 gives, so a click here is not a surprise
-  const tip = cookWords(kind.kind, kind.nothing).tip + pauseNote(queueSwitches, kind.kind) + quotaNote(storage);
-  const blocked = blockedByCompute(queueSwitches, kind.kind) || blockedByQuota(storage);
+  const delivers = kind.delivers;
+  const short = cookWords(kind.delivers, kind.nothing).short;
+  // the same rule and note (state/pause.ts) as the top bar's 提交, so a click here is not a surprise
+  const tip = cookWords(kind.delivers, kind.nothing).tip + cookNote(queueSwitches, storage);
+  const blocked = cookBlocked(queueSwitches, storage);
   // 序列图输出设置 nodes to merge: the ones selected together with the one right-clicked, or just that node if it is not
   // part of a multi-selection. It is always included, since a right click never clears the canvas selection on its own.
   // Computed once when the menu opens (like `snap` above): the menu closes on any pointerdown/wheel/Escape, so the

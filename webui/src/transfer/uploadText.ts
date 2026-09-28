@@ -51,7 +51,7 @@ export function uploadNote(t: UploadTask): string {
            elsewhere: `上传中 ${howFar(t)}`, failed: "上传失败" }[t.state];
 }
 
-/** 素材仍在本机不构成拦截：点击「计算」时先上传，完成后自动继续计算（`graph/actions.ts sendPicked`），
+/** 素材仍在本机不构成拦截：点击「计算」时先上传，完成后自动继续计算（`graph/apply.ts sendPicked`），
  * 因此 `picked` / `reading` 不视为 blocker。页面刷新后浏览器已失去文件访问权的情况为 `paused`，仍须拦截
  * （使用者需重新选择同一文件）。 */
 export const uploadStopsClick = (t: UploadTask): boolean => t.state !== "picked" && t.state !== "reading";

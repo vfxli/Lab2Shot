@@ -13,18 +13,27 @@ Its account must be usable now (enabled, not expired, not deleted): checked on e
 their expiry ends their sessions at once. The administrator's rights on a browser last accounts.ADMIN_S from typing
 the password; after that the admin page asks for it again and the editor goes on.
 
-Wrong passwords cost more and more (Limiter): after FREE of them from one client each further try waits longer,
-CLIENT_LOCK within WINDOW_S locks that client out, GLOBAL_LOCK from everyone locks every check for WINDOW_S (behind a
-tunnel every client may look alike, so the global count is what really stops guessing). A new administrator password
-set on this machine clears the counts: that is how the administrator gets back in during a lockout. A wrong username and a
-wrong password get the same answer, in the same time (no one learns which accounts exist). Every failure, and
-everything else that looks like probing (server/access.py), goes into the suspicious-activity list of the admin page
-(Watch).
+Wrong passwords cost more and more (Limiter), counted per account and per client, never over everyone: nothing a
+stranger does can lock every login. A try from a device that has logged in to the account before (its random device id,
+accounts.known_device) is counted on its own only; any other try on an account waits longer and longer once strangers
+have got it wrong SUBJECT_FREE times, up to MAX_WAIT_S from all of them together, so a guess at one account stays slow
+however many addresses it comes from. Where addresses tell clients apart (a trusted proxy's, client_source), one address
+is also held to its own counts, on each account and over all of them. A new administrator password set on this machine
+clears the counts, and so does `lab2shot admin unlock`. A wrong username and a wrong password get the same answer, in
+the same time (no one learns which accounts exist). Every failure, and everything else that looks like probing
+(server/access.py), goes into the suspicious-activity list of the admin page (Watch).
 """
 
 from __future__ import annotations
 
+import base64
 import collections
+import functools
+import hashlib
+import hmac
+import ipaddress
+import json
+import secrets
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,7 +44,7 @@ from pydantic import BaseModel
 from .routes import Access, Router
 from .. import accounts, logs
 from ..accounts import Session, User, now
-from ..config import settings
+from ..config import proxy_networks, settings
 from ..errors import Invalid, NotSignedIn, TooManyTries
 from ..messages import Msg
 
@@ -44,11 +53,13 @@ log = logs.get("auth")
 COOKIE = "lab2shot"
 MACHINE_HEADER = "x-lab2shot-machine"
 
-FREE = 3  # wrong passwords from one client before it has to wait
-CLIENT_LOCK = 10  # wrong passwords from one client within WINDOW_S: it is locked out until the window passes
-GLOBAL_LOCK = 30  # wrong passwords from everyone within WINDOW_S: every check stops for WINDOW_S
+FREE = 3  # wrong ones from one client (a known device, or an address) on one account before it has to wait
+CLIENT_LOCK = 10  # wrong ones from one client on one account within WINDOW_S: it is locked out until the window passes
+ADDRESS_FREE = 20  # wrong ones from one address over every account before it has to wait (only where addresses tell apart)
+ADDRESS_LOCK = 60  # ... within WINDOW_S: that address is locked out until the window passes
+SUBJECT_FREE = 10  # wrong ones on one account from every unknown device together before each further one waits
 WINDOW_S = 15 * 60
-MAX_WAIT_S = 60
+MAX_WAIT_S = 60  # the longest wait between tries; the per-account one never becomes a lock
 WRONG = Msg("E-LOGIN-WRONG")  # the same for a username that is not there
 
 
@@ -139,18 +150,110 @@ def can(request: Request, capability: str) -> bool:
 
 
 def https(request: Request) -> bool:
-    """Served over HTTPS: by this server, or by the tunnel in front of it (a false claim only makes the cookie one its
-    own browser won't send back over http)."""
-    forwarded = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-    return request.url.scheme == "https" or forwarded == "https"
+    """Served over HTTPS: by this server, or by a trusted proxy in front of it that says so (client_source)."""
+    return request.url.scheme == "https" or client_source(request).proto == "https"
+
+
+def host(request: Request) -> str:
+    """The host the browser asked for: a trusted proxy's X-Forwarded-Host (client_source), else the Host header."""
+    return client_source(request).host or request.headers.get("host", "").lower()
+
+
+def host_known(request: Request) -> bool:
+    """Was this request sent to one of this server's own names? Against DNS rebinding: a page of another site whose name
+    now points at this server sends its requests with that name as the Host, and would otherwise pass for this site
+    (access.same_site compares Origin with Host). An address always is one (rebinding needs a name); a name must be
+    one tls.host_names gives (localhost, this machine's host name, setting server.names). A request that came through
+    a trusted proxy is the proxy's to route: it is only asked which name it forwarded for (host)."""
+    from urllib.parse import urlsplit
+
+    from .tls import host_names
+
+    if client_source(request).via:
+        return True
+    try:
+        name = urlsplit(f"//{request.headers.get('host', '')}").hostname or ""
+    except ValueError:
+        return False
+    return _address(name) is not None or name.rstrip(".") in host_names()
+
+
+@functools.lru_cache(maxsize=4)
+def _trusted(listed: str) -> tuple:
+    return tuple(proxy_networks(listed))
+
+
+def _address(text: str):
+    try:
+        return ipaddress.ip_address(text.strip().strip("[]"))
+    except ValueError:
+        return None
+
+
+@dataclass(frozen=True)
+class Source:
+    """Where a request comes from, as far as this server can tell (client_source)."""
+
+    ip: str  # the client's address: what every count, limit and record uses
+    apart: bool  # it tells this client apart from others: False for loopback, and for a trusted proxy's own address
+    via: str = ""  # the trusted proxy it came through ("" none)
+    ignored: bool = False  # it carried forwarded headers that did not count (its connection is no trusted proxy)
+    proto: str = ""  # a trusted proxy's X-Forwarded-Proto (lower case; "" none)
+    host: str = ""  # a trusted proxy's X-Forwarded-Host (lower case; "" none)
+
+
+def client_source(request: Request) -> Source:
+    """Where a request comes from: the one place every count, limit and record of the server takes the address from.
+
+    The connection's own address, unless it comes from a proxy listed in 可信代理 (server.trusted_proxies): then the
+    address that proxy says it forwarded — X-Forwarded-For read from the right, each hop a listed proxy skipped, the
+    first that is not one is the client (whatever a client writes to the left of it was only passed along); without
+    X-Forwarded-For, X-Real-IP. The same rule holds for every forwarded header: X-Forwarded-Proto (https()) and
+    X-Forwarded-Host (host()) are taken only from a trusted proxy too, the value the nearest one set (the last).
+    From any other connection none of them counts: anyone can send them, and a new address in each request would be
+    a new bucket for every per-client count. The server itself runs without uvicorn's proxy handling
+    (server/restart.py proxy_headers=False), so request.client is always the connection.
+
+    Two addresses tell nobody apart (`apart` False): this machine's loopback, which is what every request looks like
+    when a tunnel on this machine only passes the connection through (frp TCP to this server's own port: there is
+    no header to read, and uvicorn has no PROXY protocol), and a trusted proxy's own address, when it forwarded none.
+    Per-client limits that would lump everyone into one (registration's per-address limits, the wrong invite code
+    count) leave those out; the site-wide ones still count."""
+    peer = request.client.host if request.client else ""
+    trusted = _trusted(str(settings()["server.trusted_proxies"]))
+    here = _address(peer)
+    headers = any(h in request.headers for h in ("x-forwarded-for", "x-real-ip", "x-forwarded-proto", "x-forwarded-host"))
+    if here is None:
+        return Source(peer or "?", False, ignored=headers)
+    if not any(here in net for net in trusted):
+        return Source(str(here), not here.is_loopback, ignored=headers)
+    hops = [h for h in (x.strip() for x in ",".join(request.headers.getlist("x-forwarded-for")).split(",")) if h]
+    if not hops and (real := request.headers.get("x-real-ip", "").strip()):
+        hops = [real]
+    client, apart = here, False
+    for hop in reversed(hops):
+        ip = _address(hop)
+        if ip is None:  # not an address: the proxy passed along what a client wrote, so it names no one
+            break
+        client = ip
+        if not any(ip in net for net in trusted):
+            apart = not ip.is_loopback
+            break
+    def last(name: str) -> str:
+        return ",".join(request.headers.getlist(name)).split(",")[-1].strip().lower()[:200]
+
+    return Source(str(client), apart, via=str(here), proto=last("x-forwarded-proto"), host=last("x-forwarded-host"))
+
+
+def client_ip(request: Request) -> str:
+    """The client's address (client_source)."""
+    return client_source(request).ip
 
 
 def who(request: Request) -> str:
-    """The client, as far as the connection tells: its address, and the first address a proxy says it forwarded (it
-    may lie: that only splits the per-client count, the global one still counts every try)."""
-    ip = request.client.host if request.client else "?"
-    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()[:64]
-    return f"{ip}（转发自 {forwarded}）" if forwarded else ip
+    """The client, for what the server records and shows (the login log, the suspicious-activity list, a job's
+    details): its address (client_ip)."""
+    return client_ip(request)
 
 
 def details(request: Request, declared: dict | None = None) -> dict:
@@ -164,9 +267,11 @@ def details(request: Request, declared: dict | None = None) -> dict:
 def client_key(request: Request) -> str:
     """Whose requests these are, for counting: the session's token when it opens a live session, else its address.
 
-    只认真开得了会话的令牌：随手编一个 Bearer 就换一个桶的话，匿名洪水每个请求换一个令牌，永远碰不到 429，
-    还把 Watch.per / Rate.buckets 撑到没边。没有会话的一律按地址算（隧道后面大家一个地址，所以匿名的不封、
-    只限速：见 Watch）。`session` 每个请求只查一次（缓存在 scope 里），这里不多花一次数据库。"""
+    Only a token that opens a live session counts: if any made-up Bearer got a bucket of its own, an anonymous flood
+    would send a new token with every request, never reach 429, and grow Watch.per / Rate.buckets without end.
+    Everything without a session is counted by address (behind a tunnel everyone shares one, so anonymous clients are
+    only rate-limited, never blocked: see Watch). `session` is looked up once per request (cached in the scope), so
+    this costs no extra database read."""
     s = session(request)
     return f"s:{s.token[:16]}" if s is not None else f"a:{who(request)}"
 
@@ -194,10 +299,11 @@ class Watch:
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def note(self, request: Request, kind: str, detail: str = "", counts: bool = True) -> None:
-        """`counts` False: 记下来给后台的「安全」看，但不算进封禁的 BLOCK_AFTER 条。
+        """`counts` False: recorded for the admin page's 「安全」, but not counted toward BLOCK_AFTER.
 
-        给页面自己发出来的、打到一个这台服务器没有的接口上的请求用（升级窗口里网页新、服务器旧，或者反过来）：
-        那不是探测，是版本对不上；算进去会把正在用的人锁在门外 BLOCK_S。"""
+        For a logged-in request from a page of this site to an endpoint this server does not have (server/access.py
+        refusal): during an upgrade the page may be newer than the server, or older, and counting that would lock a
+        person who is working out for BLOCK_S."""
         t, key, whom = now(), client_key(request), who(request)
         u = request.scope.get("lab2shot_session")
         account = u.user.username if u else ""
@@ -208,7 +314,7 @@ class Watch:
             if counts and key.startswith("s:"):
                 tries = [x for x in self.per.get(key, []) if t - x < BLOCK_WINDOW_S] + [t]
                 self.per[key] = tries
-                if len(self.per) > PER_KEPT:  # 只留窗口内还有记录的（不然一天换一个令牌的客户端把这张表越攒越大）
+                if len(self.per) > PER_KEPT:  # keep only keys with events inside the window (clients changing tokens would grow it)
                     self.per = {k: v for k, v in self.per.items() if v and t - v[-1] < BLOCK_WINDOW_S}
                     self.blocked = {k: v for k, v in self.blocked.items() if v["until"] > t}
                 if len(tries) >= BLOCK_AFTER and key not in self.blocked:
@@ -267,66 +373,92 @@ class Rate:
             return True
 
 
+RULES = {"k": (FREE, CLIENT_LOCK), "c": (FREE, CLIENT_LOCK), "a": (ADDRESS_FREE, ADDRESS_LOCK), "s": (SUBJECT_FREE, None)}
+COUNTED_AS = {"k": "登录过的这台设备", "c": "这个来源", "s": "从没登录过的设备一共"}  # a wrong one's first key, in the list
+LIMITER_KEPT = 20_000  # keys counted at once; above it the ones longest untouched are forgotten
+
+
 @dataclass
 class Limiter:
-    """Wrong passwords at one work folder's server: per client and from everyone, within WINDOW_S."""
+    """Wrong secrets at one work folder's server, counted within WINDOW_S under the keys of a try (keys): the try waits
+    for the longest wait among them, and a wrong one counts under each. The kinds of key (RULES: when waiting starts,
+    and when it becomes a lock):
+      - "k:<known>|<subject>": a try from a known device (one that has logged in to this account before, or a live
+        session of it: the caller says which, `known`) is counted under this alone. Whatever strangers do, the account's
+        owner on their own device is never slowed by it;
+      - "c:<address>|<subject>" and "a:<address>" (one address on one account, and over every account): only where the
+        address tells clients apart (client_source) — behind a TCP tunnel every client is loopback, and a count of it
+        would be everyone's;
+      - "s:<subject>": one account from every unknown device together (`per_subject`). It only slows, up to MAX_WAIT_S
+        between tries, never locks: from as many addresses as they like, strangers get one guess per MAX_WAIT_S at an
+        account, and cannot shut anyone out of it.
+    Nothing counts every try together: no number of wrong ones locks everyone out. `per_subject` False for a secret
+    that is not an account's (the invite codes of registering, Guards.invites): one count for everyone there would only
+    let a stranger slow registering for all."""
 
+    per_subject: bool = True
     per: dict[str, list[float]] = field(default_factory=dict)
-    everyone: list[float] = field(default_factory=list)
-    locked_until: float = 0.0  # every check, after GLOBAL_LOCK
     seen: str = ""  # the administrator's password these counts are about: a new one clears them
     lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def keys(self, source: Source, subject: str, known: str) -> list[str]:
+        if known:
+            return [f"k:{known[:100]}|{subject}"]
+        out = [f"c:{source.ip}|{subject}", f"a:{source.ip}"] if source.apart else []
+        return out + [f"s:{subject}"] if self.per_subject else out
 
     def _fresh(self, t: float) -> None:
         stored = accounts.password_hash(accounts.ADMIN_ID)
         if stored != self.seen:
             self.per.clear()
-            self.everyone.clear()
-            self.locked_until, self.seen = 0.0, stored
-        self.everyone = [x for x in self.everyone if t - x < WINDOW_S]
+            self.seen = stored
         for k in list(self.per):
             self.per[k] = [x for x in self.per[k] if t - x < WINDOW_S]
             if not self.per[k]:
                 del self.per[k]
+        if len(self.per) > LIMITER_KEPT:  # a flood of made-up usernames: forget the ones longest untouched
+            kept = sorted(self.per, key=lambda k: self.per[k][-1])[-LIMITER_KEPT // 2:]
+            self.per = {k: self.per[k] for k in kept}
 
-    def wait(self, client: str) -> float:
-        """Seconds before `client` may try again (0: now)."""
+    def _wait(self, key: str, t: float) -> float:
+        free, lock = RULES[key[0]]
+        tries = self.per.get(key, [])
+        if lock is not None and len(tries) >= lock:
+            return tries[-lock] + WINDOW_S - t
+        if len(tries) >= free:
+            return max(0.0, tries[-1] + min(2 ** (len(tries) - free + 1), MAX_WAIT_S) - t)
+        return 0.0
+
+    def wait(self, keys: list[str]) -> float:
+        """Seconds before a try under these keys may be checked (0: now)."""
         t = now()
         with self.lock:
             self._fresh(t)
-            if self.locked_until > t:
-                return self.locked_until - t
-            tries = self.per.get(client, [])
-            if len(tries) >= CLIENT_LOCK:
-                return tries[-CLIENT_LOCK] + WINDOW_S - t
-            if len(tries) >= FREE:
-                return max(0.0, tries[-1] + min(2 ** (len(tries) - FREE + 1), MAX_WAIT_S) - t)
-            return 0.0
+            return max((self._wait(k, t) for k in keys), default=0.0)
 
-    def failed(self, client: str) -> tuple[int, int, bool]:
-        """Count a wrong one: (this client's, everyone's, whether everything is locked now)."""
+    def failed(self, keys: list[str]) -> dict[str, int]:
+        """Count a wrong one under each key: how many each has now."""
         t = now()
         with self.lock:
-            self.per.setdefault(client, []).append(t)
-            self.everyone.append(t)
-            n, total = len(self.per[client]), len(self.everyone)
-            locked = total >= GLOBAL_LOCK and self.locked_until <= t
-            if locked:
-                self.locked_until = t + WINDOW_S
-            return n, total, locked
+            for k in keys:
+                self.per[k] = (self.per.get(k, []) + [t])[-ADDRESS_LOCK:]
+            return {k: len(self.per[k]) for k in keys}
 
-    def passed(self, client: str) -> None:
+    def passed(self, keys: list[str]) -> None:
+        """The right secret: its client's and its account's counts start over (not its address's: one account of its
+        own that it logs in to now and then must not wipe what an address tried on the others)."""
         with self.lock:
-            self.per.pop(client, None)
+            for k in keys:
+                if not k.startswith("a:"):
+                    self.per.pop(k, None)
 
-    def clear_lock(self) -> int:
-        """本机命令行解开全局锁（server/users.py 的 POST /api/admin/security/unlock）：锁解开、每个来源的计数清零，
-        不用像 `_fresh` 那样换掉管理员密码。返回清掉了几次失败（留底里写的那个数）。"""
+    def clear(self) -> int:
+        """Forget every count, for the local command line (POST /api/admin/security/unlock, server/users.py), without
+        replacing the administrator's password as `_fresh` does. Returns how many failures were cleared (the number the
+        audit line records): each failure is counted under exactly one "k:" or "s:" key."""
         with self.lock:
-            cleared = len(self.everyone)
+            cleared = sum(len(v) for k, v in self.per.items() if k[0] in "ks")
             self.per.clear()
-            self.everyone.clear()
-            self.locked_until = 0.0
             return cleared
 
 
@@ -356,11 +488,66 @@ class Streams:
                 self.open.pop(user_id, None)
 
 
+CHALLENGE_S = 15 * 60  # a proof-of-work challenge is good for this long after it was given
+CHALLENGE_KEPT = 200_000  # answered challenges remembered at once (~30 MB); beyond it none is given until the oldest lapse
+ANSWER_MAX = 16  # digits of an answer
+
+
+@dataclass
+class Challenges:
+    """Proof of work (工作量证明): a challenge this server signed, which a browser answers by trying numbers until
+    sha256("<nonce>:<number>") starts with `bits` zero bits (webui/src/platform/powWorker.ts: about a second or two),
+    and which the server then checks with one hash. Signed (HMAC with a key of this run: a restart only asks the page
+    for a new one), short-lived (CHALLENGE_S), and single-use: a challenge is used up the first time it is redeemed
+    with its answer, and every later attempt needs a new one (a wrong answer registers nothing either). What else a
+    form needs to carry unforged rides in it (`carry`: the decoy field's name, and the moment it was given, for the
+    minimum time to fill a form). No outside captcha service is involved."""
+
+    key: bytes = field(default_factory=lambda: secrets.token_bytes(32))
+    used: dict[str, float] = field(default_factory=dict)  # nonce -> until when it would have been good
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def _sign(self, body: str) -> str:
+        return base64.urlsafe_b64encode(hmac.new(self.key, body.encode(), hashlib.sha256).digest()).decode().rstrip("=")
+
+    def issue(self, bits: int, carry: dict) -> dict:
+        """A new challenge: the token to send back, and what the page needs to answer it."""
+        t = now()
+        with self.lock:
+            self.used = {n: until for n, until in self.used.items() if until > t}
+            if len(self.used) >= CHALLENGE_KEPT:
+                raise TooManyTries(Msg("E-CHALLENGE-BUSY"))
+        nonce = secrets.token_hex(16)
+        body = base64.urlsafe_b64encode(json.dumps({"n": nonce, "t": t, "b": bits, **carry}).encode()).decode().rstrip("=")
+        return {"token": f"{body}.{self._sign(body)}", "nonce": nonce, "bits": bits, **carry}
+
+    def redeem(self, token: str, answer: str) -> dict:
+        """Use a challenge up with its answer: what it carries, with "t" the moment it was given, or
+        E-CHALLENGE-STALE when it is not this server's, lapsed, answered wrong, or used before. Only an answered
+        challenge is remembered as used: remembering unanswered ones would let anyone fill the memory for free."""
+        body, _, mac = str(token or "")[:1000].partition(".")
+        if not body or not hmac.compare_digest(mac.encode(), self._sign(body).encode()):
+            raise Invalid(Msg("E-CHALLENGE-STALE"))
+        said = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+        answer = str(answer or "")
+        digest = hashlib.sha256(f"{said['n']}:{answer}".encode()).digest()
+        if not (answer.isascii() and answer.isdigit() and len(answer) <= ANSWER_MAX) or int.from_bytes(digest, "big") >> (256 - said["b"]):
+            raise Invalid(Msg("E-CHALLENGE-STALE"))
+        t = now()
+        with self.lock:
+            if said["n"] in self.used or t - said["t"] > CHALLENGE_S:
+                raise Invalid(Msg("E-CHALLENGE-STALE"))
+            self.used[said["n"]] = said["t"] + CHALLENGE_S
+        return said
+
+
 @dataclass
 class Guards:
     """The counters of one work folder's server."""
 
     limiter: Limiter = field(default_factory=Limiter)
+    invites: Limiter = field(default_factory=lambda: Limiter(per_subject=False))  # wrong invite codes (server/register.py)
+    challenges: Challenges = field(default_factory=Challenges)
     watch: Watch = field(default_factory=Watch)
     rate: Rate = field(default_factory=Rate)
     streams: Streams = field(default_factory=Streams)
@@ -376,7 +563,7 @@ def guards() -> Guards:
 
 
 def _wait(seconds: float) -> Msg:
-    """输错太多：还要等多久。"""
+    """Too many wrong tries: how long to wait."""
     if seconds < 90:
         return Msg("E-LOGIN-WAITSECONDS", seconds=int(seconds) + 1)
     return Msg("E-LOGIN-WAITMINUTES", minutes=int(seconds / 60) + 1)
@@ -385,27 +572,33 @@ def _wait(seconds: float) -> Msg:
 _checking = threading.Lock()  # one check at a time: tries sent together still wait their turn and count
 
 
-def guarded(request: Request, what: str, check, wrong: Msg | None = None, subject: str = ""):
+def guarded(request: Request, what: str, check, wrong: Msg | None = None, subject: str = "", limiter: Limiter | None = None,
+            kind: str = "登录失败", known: str = ""):
     """Run a check of a secret (`check()`: what it found, falsy when wrong), counting a wrong one; TooManyTries while
-    this client (or everyone) must wait, NotSignedIn (`wrong`, else E-LOGIN-WRONGSECRET about `what`, the word for the secret) when it is wrong.
-    `subject`: whose secret (the username tried, the account changing its password): the per-client count is per
-    (client, subject) — behind a tunnel a whole company shares one address, and one colleague's ten wrong passwords
-    must not lock everyone out for 15 minutes. Everyone's count (GLOBAL_LOCK) still counts every try."""
-    client = f"{request.client.host if request.client else '?'}|{subject[:64]}"  # never X-Forwarded-For: anyone sends it, and a new one each try would be a new bucket
+    this try must wait (Limiter), NotSignedIn (`wrong`, else E-LOGIN-WRONGSECRET about `what`, the word for the secret)
+    when it is wrong. `subject`: whose secret (the username tried, the account changing its password); `known`: the
+    device (or session) this try comes from, when it is one the account has used before ('' a stranger: Limiter.keys).
+    `limiter`: whose counts (the passwords' by default; Guards.invites for invite codes), `kind`: how the
+    suspicious-activity list names a wrong one."""
     g = guards()
+    counts = g.limiter if limiter is None else limiter
+    keys = counts.keys(client_source(request), subject[:64], known)
     with _checking:
-        wait = g.limiter.wait(client)
+        wait = counts.wait(keys)
         if wait > 0:
             g.watch.note(request, "试错太多被挡", what)
             raise TooManyTries(_wait(wait))
         found = check()
         if not found:
-            n, total, locked = g.limiter.failed(client)
-            g.watch.note(request, "登录失败", Msg("W-LOGIN-FAILED", what=what, count=n, total=total, minutes=WINDOW_S // 60).text)
-            if locked:
-                logs.say(log, Msg("W-LOGIN-LOCKED", minutes=WINDOW_S // 60, count=total))
+            got = counts.failed(keys)
+            if keys:
+                g.watch.note(request, kind, Msg("W-LOGIN-FAILED", what=what, whose=COUNTED_AS[keys[0][0]], count=got[keys[0]],
+                                                minutes=WINDOW_S // 60).text)
+            if got.get(f"s:{subject[:64]}") == SUBJECT_FREE:
+                logs.say(log, Msg("W-LOGIN-SLOWED", what=what, subject=subject[:64], minutes=WINDOW_S // 60, count=SUBJECT_FREE,
+                                  wait=MAX_WAIT_S))
             raise NotSignedIn(wrong or Msg("E-LOGIN-WRONGSECRET", what=what))
-        g.limiter.passed(client)
+        counts.passed(keys)
         return found
 
 
@@ -417,12 +610,16 @@ router = Router(prefix="/api/auth", tags=["登录"])
 def state_of(s: Session | None) -> dict:
     """What a page is told about its browser: logged in or not, the account, what applies to it on the admin side
     (`applies`: server/available.py session, the one availability answer) and until when its rights last; for the
-    administrator's own account (User.owner), whether the default password is still in use and whether the 口令 is set."""
+    administrator's own account (User.owner), whether the 口令 is set.
+    `settings_pages`: the admin side list's 设置 band (available.settings_pages), for a signed-in page to lay out.
+    `terms`: the version of the 用户协议 and 隐私政策 the account must agree to before it goes on (lab2shot/terms owed)."""
+    from .. import terms
     from . import available
 
     if s is None:
         return {"user": None, "applies": available.session(None).json()}
-    out = {"user": s.user.public(), "expires": s.user.expires, "admin_until": s.admin_until, "applies": available.session(s).json()}
+    out = {"user": s.user.public(), "expires": s.user.expires, "admin_until": s.admin_until, "applies": available.session(s).json(),
+           "settings_pages": available.settings_pages(), "terms": terms.owed(s.user)}
     if s.user.owner:
         out |= {"passphrase": accounts.passphrase() is not None}
     return out
@@ -446,8 +643,18 @@ def state(request: Request) -> dict:
     return out
 
 
-def _set_cookie(request: Request, response: Response, token: str) -> None:
-    response.set_cookie(COOKIE, token, max_age=accounts.SESSION_S, path="/", httponly=True, samesite="strict", secure=https(request))
+def browser_https(request: Request) -> bool:
+    """Does the browser behind this request talk HTTPS? What https() knows, or the page's own Origin says so: a browser
+    always sends it on the requests that set the cookie (logging in, registering, a new password) and a page cannot
+    write it, so a proxy that forgot X-Forwarded-Proto still gets a Secure cookie."""
+    from urllib.parse import urlsplit
+
+    return https(request) or urlsplit(request.headers.get("origin", "")).scheme == "https"
+
+
+def set_cookie(request: Request, response: Response, token: str) -> None:
+    response.set_cookie(COOKIE, token, max_age=accounts.SESSION_S, path="/", httponly=True, samesite="strict",
+                        secure=browser_https(request))
 
 
 def _check_login(request: Request, username: str, password: str, kind: str, device_id: str = "", hostname: str = "",
@@ -466,7 +673,9 @@ def _check_login(request: Request, username: str, password: str, kind: str, devi
         logged(False, "管理员还没设密码", existing.id)
         raise NotSignedIn(Msg("E-LOGIN-NOPASSWORD", user=existing.username))
     try:
-        u = guarded(request, "密码", lambda: accounts.login(username, password), WRONG, subject=username)
+        known = device_id if existing is not None and accounts.known_device(existing.id, device_id) else ""
+        u = guarded(request, "密码", lambda: accounts.login(username, password), WRONG, subject=username.strip().lower(),
+                    known=known)  # the subject as accounts.login reads it: "Admin " is the same account as "admin"
     except TooManyTries:
         existing = accounts.by_username(username)
         logged(False, "试错太多，暂时锁住", existing.id if existing else None)
@@ -492,7 +701,7 @@ def login(req: Login, request: Request, response: Response) -> dict:
     u = _check_login(request, req.username, req.password, "web", req.device_id)
     token, s = accounts.start(u, "web", who(request), request.headers.get("user-agent", ""), replaces=_cookie(request),
                               device_id=req.device_id)
-    _set_cookie(request, response, token)
+    set_cookie(request, response, token)
     logs.say(log, Msg("I-LOGIN-IN", user=u.username, where=who(request)))
     return state_of(s)
 
@@ -518,7 +727,7 @@ def logout(request: Request, response: Response) -> dict:
         accounts.end(token)
     if s is not None:
         logs.say(log, Msg("I-LOGIN-OUT", user=s.user.username, where=who(request)))
-    response.delete_cookie(COOKIE, path="/", httponly=True, samesite="strict", secure=https(request))
+    response.delete_cookie(COOKIE, path="/", httponly=True, samesite="strict", secure=browser_https(request))
     request.scope["lab2shot_session"] = None
     return state_of(None)
 
@@ -533,10 +742,11 @@ def change_password(req: PasswordChange, request: Request, response: Response) -
     u = me(request)
     if problem := accounts.rule_problem(req.new, "新密码"):
         raise Invalid(problem)
-    guarded(request, "现在的密码", lambda: accounts.matches(req.current, accounts.password_hash(u.id)), subject=str(u.id))
+    guarded(request, "现在的密码", lambda: accounts.matches(req.current, accounts.password_hash(u.id)), subject=str(u.id),
+            known=f"session {session(request).token[:16]}")  # only a live session of the account gets here
     accounts.set_password(u.id, req.new, "本人")
     token, s = accounts.start(accounts.get(u.id), "web", who(request), request.headers.get("user-agent", ""))
-    _set_cookie(request, response, token)
+    set_cookie(request, response, token)
     logs.say(log, Msg("I-LOGIN-PASSWORDCHANGED", user=u.username, where=who(request)))
     return state_of(s)
 
@@ -544,6 +754,7 @@ def change_password(req: PasswordChange, request: Request, response: Response) -
 class Recover(BaseModel):
     passphrase: str
     new: str
+    device_id: str = ""  # as at login: a browser the administrator has logged in from is not slowed by strangers' tries
 
 
 @router.post("/recover", access=Access.open("管理员忘了密码：用主人的口令设新密码（输错多了要等）"), summary="管理员忘了密码：用主人在服务器上设的口令设一个新的管理员密码，并且登录")
@@ -553,9 +764,10 @@ def recover(req: Recover, request: Request, response: Response) -> dict:
     kept = accounts.passphrase()
     if kept is None:
         raise Invalid(Msg("E-LOGIN-NOPASSPHRASE"))
-    guarded(request, "口令", lambda: accounts.matches(req.passphrase, kept["hash"]), subject="passphrase")
+    guarded(request, "口令", lambda: accounts.matches(req.passphrase, kept["hash"]), subject="passphrase",
+            known=req.device_id if accounts.known_device(accounts.ADMIN_ID, req.device_id) else "")
     accounts.set_password(accounts.ADMIN_ID, req.new, "口令")  # the counts of wrong tries start again with it
     token, s = accounts.start(accounts.admin(), "web", who(request), request.headers.get("user-agent", ""), replaces=_cookie(request))
-    _set_cookie(request, response, token)
+    set_cookie(request, response, token)
     logs.say(log, Msg("I-LOGIN-RECOVERED", where=who(request)))
     return state_of(s)

@@ -1,4 +1,4 @@
-/* feedback: the kit component's own rules (K10), next to it in ui/; loaded in the page's cascade order by styles/index.css */
+/* feedback: the kit component's own rules, next to it in ui/; loaded in the page's cascade order by styles/index.css */
 
 .fb-form .tpl-desc,
 .fb-done .tpl-desc {
@@ -134,7 +134,7 @@
   color: var(--text-2);
 }
 
-/* 我的反馈 (components/Feedback.tsx): the unread dot, the dialog's two tabs, the user's own feedback with the reply;
+/* 我的反馈 (ui/Feedback.tsx): the unread dot, the dialog's two tabs, the user's own feedback with the reply;
    the admin page's answer (回复 the user sees, 内部备注 they don't) */
 
 .fb-unread {
@@ -255,7 +255,7 @@ textarea.field.fb-note {
   user-select: text;
 }
 
-/* 弹窗里的每一行都按同一套表单行排（ui/account.css .who-row）：标签一列、控件一列。
+/* 弹窗里的每一行都按同一套表单行排（ui/forms.css .who-row）：标签一列、控件一列。
    独占一行的东西（说明、文本框、图片、按钮组）缩进到控件那一列的左边缘，整屏才有一条线 */
 .fb-form {
   --form-label-w: 56px;
@@ -275,7 +275,7 @@ textarea.field.fb-note {
 }
 
 
-/* 按钮和它旁边那句说明：说明不是控件，靠文字颜色退到后面，不再和按钮抢同一种框 */
+/* 按钮和它旁边那句说明：说明不是控件，靠文字颜色退到后面，不和按钮用同一种框 */
 .fb-row {
   display: flex;
   align-items: center;

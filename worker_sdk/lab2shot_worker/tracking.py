@@ -1,5 +1,5 @@
 """Sequence logic single-image methods lack: people-box tracking over a shot and zero-phase temporal smoothing
-(the SAM 3D Body family and its ViTDet people detector node; the core's camera smoothing). Pure numpy."""
+(the SAM 3D Body family and its ViTDet people detector node, HaMeR). Pure numpy."""
 
 from __future__ import annotations
 

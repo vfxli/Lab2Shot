@@ -1,73 +1,82 @@
-import { useCallback, useEffect, useState } from "react";
-import { ByUser } from "./Resources";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { UserChips, useAccounts } from "./Resources";
 import { api, type JobRecord } from "../api";
-import { fromRecord, JobTable, QueueView } from "../ui/Queue";
+import { QueueView } from "../ui/Queue";
 import { adminApi } from "../api/admin";
 import { useSignedIn } from "../state/session";
 import { usable } from "../api/applies";
 import { Section, useAdmin } from "./common";
 import { Button } from "../ui/Button";
+import { Filters } from "../ui/Categories";
 
 /** 队列 section: all users' jobs with full information about who started them (the same queue component as the
- * editor's 队列 window), cancellation of any job, and the job log. */
+ * editor's 队列 window), cancellation of any job, and the job log. One table: the jobs waiting and running first, then
+ * the finished ones and the job log, each job once; 「按人」 above it narrows the whole table to one account. */
 export function QueueSection() {
   const { queue, refreshQueue, problem } = useAdmin();
   const state = useSignedIn();
+  const users = useAccounts();
+  const [who, setWho] = useState<number | null>(null);
+  // the job log: every unexpired task (a group is never cut in half), read by the server for the chosen account; the
+  // queue is polled whole and narrowed below. The poll carries the log's version (farm/queue.py listed_version): the
+  // log is read again only when it changed, or when another account is chosen
   const [history, setHistory] = useState<JobRecord[] | null>(null);
-  const loadHistory = useCallback(() => api.admin.history().then(setHistory, (e: Error) => problem(e.message)), [problem]);
-  useEffect(() => void loadHistory(), [loadHistory]);
+  const shown = useRef(who); // an answer for an account no longer chosen arrives late and is dropped
+  shown.current = who;
+  const loadHistory = useCallback(
+    () => api.admin.history(who).then((h) => shown.current === who && setHistory(h), (e: Error) => problem(e.message)),
+    [problem, who],
+  );
+  useEffect(() => {
+    setHistory(null);
+  }, [who]);
+  const version = queue?.history_version;
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory, version]);
+  const refresh = () => (refreshQueue(), void loadHistory());
 
-  const cancel = (id: string) =>
-    api.admin.cancel(id).then(
-      () => (refreshQueue(), void loadHistory()),
-      (e: Error) => problem(e.message),
-    );
+  const cancel = (id: string) => api.admin.cancel(id).then(refresh, (e: Error) => problem(e.message));
 
-  // Drag to reorder: the server logs who moved which job from which position to which (admin action log) and returns the updated queue.
-  const reorder = (job: { id: string }, position: number) =>
-    api.admin.place(job.id, position).then(refreshQueue, (e: Error) => problem(e.message));
+  // 插队: the server logs who moved which job to the front, from which position (admin action log), and returns the
+  // updated queue.
+  const first = (job: { id: string }) => api.admin.first(job.id).then(refreshQueue, (e: Error) => problem(e.message));
 
   const setSwitch = (key: "gpu" | "compute", on: boolean) =>
     adminApi.queueSwitches({ [key]: on }).then(refreshQueue, (e: Error) => problem(e.message));
   const graphUrl = usable(state?.applies, "queue.graph") ? api.admin.graphUrl : undefined;
 
   return (
-    <>
-      <Section title="队列" lede="所有人的任务，按真正要算的顺序排：每张接任务的显卡同时算一个，几个账号轮流来。点一行看提交者的全部记录。">
-        {queue ? (
-          <>
-            <QueueView
-              data={queue}
-              admin
-              onCancel={cancel}
-              onSwitch={usable(state?.applies, "queue.switches") ? setSwitch : undefined}
-              onReorder={usable(state?.applies, "queue.reorder") ? reorder : undefined}
-              graphUrl={graphUrl}
-            />
-          </>
-        ) : (
-          <p className="adm-lede">读取中…</p>
-        )}
-      </Section>
-      <Section
-        title="任务记录"
-        lede="所有任务，最新的在前：谁、在哪台机器、什么时候、算了什么、结果如何。服务重启时正在算、又没排回队列的任务记为「中断」。"
-        actions={
-          <Button tip="重新读取任务记录" tone="ghost" onClick={() => void loadHistory()}>
-            刷新
-          </Button>
-        }
-      >
-        {history === null ? (
-          <p className="adm-lede">读取中…</p>
-        ) : history.length ? (
-          <JobTable jobs={history.map((r) => ({ job: fromRecord(r) }))} admin onCancel={cancel} onForgotten={() => (refreshQueue(), void loadHistory())} graphUrl={graphUrl} />
-        ) : (
-          <p className="adm-empty">还没有任务：有人提交计算以后，这里列出来</p>
-        )}
-        {/* Filter by user: the same table and listing function as the 用户 detail page. */}
-        <ByUser section="queue" />
-      </Section>
-    </>
+    <Section
+      title="队列"
+      lede="所有人的任务：进行中的按排队的顺序排在前面（先来先到，「插队」的在最前；每个节点轮到了就在空着的显卡或 CPU 名额上算，一张卡同时算一个节点），结束的接在后面，最新的在前。服务重启时正在算、又没排回队列的任务记为「中断」。点一行看提交者的全部信息。"
+      actions={
+        <Button tip="重新读取队列和任务记录" tone="ghost" onClick={refresh}>
+          刷新
+        </Button>
+      }
+    >
+      {/* Filter by user: narrows the table below to one account's jobs. */}
+      {!!users?.length && (
+        <Filters>
+          <UserChips users={users} chosen={who} onChoose={setWho} allTip="不按账号筛选：列出所有人的任务" />
+        </Filters>
+      )}
+      {queue && history ? (
+        <QueueView
+          data={who === null ? queue : { ...queue, jobs: queue.jobs.filter((j) => j.client?.user === who) }}
+          history={history}
+          admin
+          applies={state?.applies}
+          onCancel={cancel}
+          onRefresh={refresh}
+          onSwitch={usable(state?.applies, "queue.switches") ? setSwitch : undefined}
+          onFirst={usable(state?.applies, "queue.first") ? first : undefined}
+          graphUrl={graphUrl}
+        />
+      ) : (
+        <p className="adm-lede">读取中…</p>
+      )}
+    </Section>
   );
 }

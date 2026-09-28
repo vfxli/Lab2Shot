@@ -229,8 +229,8 @@ class CameraSamples:
         `cam_to_world` is kept exactly as given, not broadcast: write() hands it straight to usd.write_camera, whose
         own ndim check distinguishes a constant transform (a single [4,4]: an un-animated camera, regardless of
         `frames`) from a per-frame one and authors nothing when it is None; that is the only place this is decided. The callers
-        (CreateCamera, pass_camera and solved_camera in kit/cameras.py, the sam_3d_body and mediapipe_face adapters)
-        write a solved CameraSamples out without reading its cam_to_world again.
+        (CreateCamera and the other camera nodes, nodes/kit/cameras.py solved_camera) write a solved CameraSamples out
+        without reading its cam_to_world again.
 
         The intrinsics beyond the focal length, pixels at `width` x `height` with centres at +0.5: `fy_px` (None: fx)
         becomes the pixel aspect, f_y / f_x (one for the camera: the median over the frames; f_y = a f_x), as every

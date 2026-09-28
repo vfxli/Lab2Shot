@@ -41,7 +41,7 @@ GATED = {"smplx"}  # 受限仓库：要用户本人在 Hugging Face 页面点同
 # 六个是 `nvidia-open-model-license`（可商用），只有 Kimodo-SMPLX-RP-v1 是
 # `nvidia-internal-scientific-research-and-development-model-license`（只限研究）。许可只是标签，如实标出，不因此少接一档。
 RESEARCH_ONLY = {"smplx"}
-LICENCES = {True: "NVIDIA Internal Scientific Research and Development Model License，**只限研究**",
+LICENCES = {True: "NVIDIA Internal Scientific Research and Development Model License，只限研究",
             False: "NVIDIA Open Model License，可商用"}
 # 每个权重在安装记录里的名字：一旦有人装过就不能再改（见 MODELS 上面那段说明）
 KEYS = {"rp": "soma-rp", "seed": "soma-seed", "rp_v1": "soma-rp-v1", "seed_v1": "soma-seed-v1",
@@ -67,7 +67,7 @@ class Kimodo(Extension):
         url="https://github.com/nv-tlabs/kimodo/blob/main/LICENSE",
         summary=(
             "可商用。代码 Apache-2.0；七个权重里六个是 NVIDIA Open Model License，允许商用，训练数据是 Bones Studio "
-            "授权的动捕。**只有 Kimodo-SMPLX-RP-v1 那一档不一样**：它是 NVIDIA Internal Scientific Research and "
+            "授权的动捕。只有 Kimodo-SMPLX-RP-v1 那一档不一样：它是 NVIDIA Internal Scientific Research and "
             "Development Model License，只限研究，而且是受限仓库，要本人在 Hugging Face 页面申请访问。"
             "可选的文字描述要用 Meta Llama 3 8B Instruct（Llama 3 社区许可证：月活超过 7 亿的公司另需 Meta 授权，须标注 "
             "“Built with Meta Llama 3”，遵守使用政策），需先在 Hugging Face 申请访问；LLM2Vec 适配权重 MIT。"

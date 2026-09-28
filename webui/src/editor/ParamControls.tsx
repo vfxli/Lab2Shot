@@ -7,7 +7,7 @@ import { getNodeDefs } from "../state/catalog";
 import { useCookInputs } from "../state/cookInputs";
 import { noncommercialValues } from "../graph/rules";
 import { IconClose } from "../ui/icons";
-import { DeliverParam, InputFileParam } from "./FileParam";
+import { InputFileParam } from "./FileParam";
 import { NumberField, optionOff, optionText, TextField, vecLabels } from "../ui/controls";
 import { useChoices } from "../ui/choices";
 import { HierarchyParam } from "./HierarchyPicker";
@@ -49,7 +49,6 @@ export function Control({ nodeId, p, value, set, choice }: { nodeId: string; p: 
 
   if (p.widget === "file" || p.widget === "sequence") return <InputFileParam nodeId={nodeId} p={p} value={(value as string) ?? ""} />;
   if (p.widget === "table") return <TableParam nodeId={nodeId} p={p} value={value} set={set} />;
-  if (p.widget === "deliver") return <DeliverParam nodeId={nodeId} p={p} value={(value as string) ?? ""} set={set} />;
 
   if (p.type === "boolean") {
     return <Switch on={!!value} onChange={set} label={p.label} />;
@@ -57,7 +56,7 @@ export function Control({ nodeId, p, value, set, choice }: { nodeId: string; p: 
   if (p.options) {
     // a choice the node declares non-commercial says so the same way on every node
     const text = (o: string) => optionText(p, o, nc);
-    // 多档选择一律使用下拉（不绘制分段控件），节点上与参数面板中外观一致；浏览器不支持的选项置灰并说明原因（option_needs）。
+    // 多档选择一律使用下拉（不绘制分段控件），节点上与参数面板中外观一致；不可用的选项置灰并说明原因（option_applies）。
     // 空值一档必须有名称且可重新选中：值为空时触发器上不得将 null 显示为字面量 "null"，
     // 列表中也必须包含空值项，否则选中数字后将无法回到空值。参数声明了 placeholder
     // （P(placeholder=…) / measured_param(auto=…)）时以其作为该项名称并列于最前；未声明时不提供该项
@@ -70,7 +69,7 @@ export function Control({ nodeId, p, value, set, choice }: { nodeId: string; p: 
     });
     const empty = value === null || value === undefined;
     return (
-      <Select value={empty ? "" : String(value)} label={p.label} tip={empty ? blank || p.label : text(String(value))}
+      <Select value={empty ? "" : String(value)} label={p.label}
         options={blank ? [{ value: "", label: blank, tip: blank }, ...rows] : rows}
         onPick={(v) => set(v === "" ? null : p.options!.find((o) => String(o) === v) ?? v)} />
     );
@@ -96,7 +95,7 @@ export function Control({ nodeId, p, value, set, choice }: { nodeId: string; p: 
       <div className="slider">
         <input
           type="range"
-          data-tip={`${p.label}：拖动，或在右边输入`}
+          aria-label={p.label}
           min={p.minimum}
           max={p.maximum}
           step={p.type === "integer" ? 1 : (p.maximum - p.minimum) / 100}
@@ -148,7 +147,7 @@ function ColorspaceParam({ nodeId, p, ocio, value, set }: { nodeId: string; p: P
   const choice = useChoices(nodeId, p);
   const empty = choice?.empty || p.placeholder || "按格式";
   return (
-    <Select className="names" data-user-data label={p.label} value={value ?? ""} tip={value || empty}
+    <Select className="names" data-user-data label={p.label} value={value ?? ""}
       options={[...(value ? [] : [{ value: "", label: empty, tip: empty }]),
                 ...ocio.colorspaces.map((c) => ({ value: c, label: c, tip: c === ocio.working ? `${c}（工作空间）` : c }))]}
       onPick={(v) => set(v || null)} />
@@ -185,7 +184,6 @@ function ChoiceSelect({ p, choice, value, set }: { p: ParamDef; choice: CellChoi
       label={p.label}
       value={current}
       disabled={!options.length && !choice?.none && current === EMPTY}
-      tip={current === EMPTY ? auto : current === NONE ? choice?.none : name(current)}
       options={rows}
       onPick={(v) => set(v === EMPTY ? empty : v === NONE ? "" : v)}
     />
@@ -199,21 +197,20 @@ function ChoiceParam({ nodeId, p, value, set }: { nodeId: string; p: ParamDef; v
 
 /** What the user drew in the 2D view, kept as this node's parameter: widget "picks" (one click each) and widget
  * "canvas" (one hand-drawn outline each, nodes/handles.py). One row of chips for both: the drawing happens in the
- * view, and the panel only lists what is there and lets a wrong one be removed. An entry is "frame:x,y…" (nodes/base.py):
- * a click is short enough to show as it is; an outline is dozens of numbers, so its chip is the parameter's own name and
- * its number (「形状 1」, no second wording), with the frame and the point count on hover. Panel text never wraps, and is
- * never cut off. */
+ * view, and the panel only lists what is there and lets a wrong one be removed. An entry is "frame:x,y…"
+ * (nodes/handles.py parse_picks / parse_shapes): a click is short enough to show as it is; an outline is dozens of
+ * numbers, so its chip is the parameter's own name and its number (「形状 1」, no second wording). Panel text never
+ * wraps, and is never cut off. */
 function DrawnList({ p, value, set }: { p: ParamDef; value: unknown; set: (v: unknown) => void }) {
   const list = (value as string[]) ?? [];
   const shapes = p.widget === "canvas";
-  const points = (entry: string) => Math.floor((entry.split(":")[1] ?? "").split(",").length / 2);
   return (
     <div className="picks">
       {list.length === 0 && <span style={{ color: "var(--text-3)", fontSize: 12 }}>{p.placeholder}</span>}
       {list.map((k, i) => (
-        <span className="chip" key={`${i}:${k}`} data-tip={shapes ? `${k.split(":")[0]} · ${points(k)} 个点` : k}>
+        <span className="chip" key={`${i}:${k}`}>
           {shapes ? `${p.label} ${i + 1}` : k}
-          <button onClick={() => set(list.filter((_, j) => j !== i))} aria-label="移除" data-tip="从列表里移除">
+          <button onClick={() => set(list.filter((_, j) => j !== i))} aria-label="移除">
             <IconClose size={9} />
           </button>
         </span>
@@ -229,16 +226,15 @@ function DrawnList({ p, value, set }: { p: ParamDef; value: unknown; set: (v: un
  * 3. 已绘制的帧：每帧一个 chip，点击后时间线跳到该帧（便于切换检查连续性，
  *    比在时间线上定位更快），✕ 删除该帧的姿势。
  *
- * 不可用的按钮置灰并说明原因，位置不变，不隐藏。 */
+ * 不可用的按钮置灰，位置不变，不隐藏：还不知道画面尺寸时两个都不可用，还没有画过的帧时「基于前一帧」不可用。 */
 function FigureFrames({ p, value, set }: { p: ParamDef; value: unknown; set: (v: unknown) => void }) {
   const list = (value as string[]) ?? [];
   // 画面尺寸（图像像素）由二维舞台提供，此处不另行计算（state/viewTools.ts useStagePicture）
   const size = useStagePicture((s) => s.size);
   const frames = figureFrames(list);
-  // 该区域不得随当前帧重绘（webui/tests/playbackFrameTime.test.ts：参数面板不随时钟更新，
+  // 该区域不得随当前帧重绘（参数面板不随时钟更新，
   // 否则播放时每秒重绘 24 次）。因此两个按钮是否可用只取决于已绘制的帧，与当前所在帧无关；
   // 当前帧在按下按钮时才读取（`useViewer.getState()`），随后跳到目标帧，使用者可直接看到添加的位置
-  const why = !size ? "还不知道画面多大：接一段序列进「图像」口，或者先点「计算」，2D 视图里有画面了再添加" : "";
   const add = (basedOnPrevious: boolean) => {
     if (!size) return;
     const got = addFigure(list, useViewer.getState().frame, size, basedOnPrevious);
@@ -249,13 +245,10 @@ function FigureFrames({ p, value, set }: { p: ParamDef; value: unknown; set: (v:
   return (
     <div className="fig-frames">
       <div className="picks">
-        <Button size="sm" disabled={!!why} onClick={() => add(false)}
-                tip={why || "在当前帧放一个站好的火柴人（T-pose，真人比例），再在 2D 视图里拖关节摆姿势。这一帧已经画过了就放到后面第一个没画的帧上"}>
+        <Button size="sm" disabled={!size} onClick={() => add(false)}>
           添加帧
         </Button>
-        <Button size="sm" disabled={!!why || frames.length === 0} onClick={() => add(true)}
-                tip={why || (frames.length === 0 ? "前面还没有画过的帧：第一帧只能是默认 T-pose"
-                                                 : "把前一帧那个姿势原样复制到当前帧，再在它基础上改")}>
+        <Button size="sm" disabled={!size || frames.length === 0} onClick={() => add(true)}>
           基于前一帧
         </Button>
       </div>
@@ -265,8 +258,8 @@ function FigureFrames({ p, value, set }: { p: ParamDef; value: unknown; set: (v:
             两者均由通用组件绘制（ui/Button.tsx 的 Chip 与 IconButton），此处只负责成对排列 */}
         {frames.map((f) => (
           <span className="fig-frame" key={f}>
-            <Chip tip={`跳到第 ${f} 帧看这个姿势`} onClick={() => useViewer.getState().setFrame(f)}>第 {f} 帧</Chip>
-            <IconButton size="xxs" tone="ghost" aria-label="移除" tip={`删掉第 ${f} 帧的姿势`}
+            <Chip onClick={() => useViewer.getState().setFrame(f)}>第 {f} 帧</Chip>
+            <IconButton size="xxs" tone="ghost" aria-label="移除"
                         onClick={() => set(list.filter((s) => Number(s.split(":")[0]) !== f))}>
               <IconClose size={9} />
             </IconButton>
@@ -293,7 +286,7 @@ function ClassesParam({ nodeId, p, value, set }: { nodeId: string; p: ParamDef; 
       {choice && choice.options.length > 0 && (
         <div className="picks">
           {choice.options.map((o) => (
-            <Chip key={o} tip={[...(choice.aliases?.[o] ?? []).slice(0, 1), o].join(" · ")} on={has(o)} onClick={() => toggle(o)}>
+            <Chip key={o} on={has(o)} onClick={() => toggle(o)}>
               {choice.labels?.[o] ?? o}
             </Chip>
           ))}
@@ -327,16 +320,16 @@ export function fitWidth(body: HTMLElement): number {
   let control = 170;
   for (const ctl of body.querySelectorAll<HTMLElement>(".prow .ctl")) {
     const select = ctl.querySelector<HTMLSelectElement>("select");
-    const file = ctl.querySelector<HTMLElement>(".fp-line, .fp-where");
+    const file = ctl.querySelector<HTMLElement>(".fp-line");
     if (select) {
       const font = getComputedStyle(select).font;
       control = Math.max(control, ...[...select.options].map((o) => textWidth(o.text, font) + 34));
     } else if (file) {
-      // a file parameter: its buttons and the whole line saying what was chosen (an output: its folder and a name)
-      const parts = file.classList.contains("fp-line") ? ([...file.children] as HTMLElement[]) : [file];
+      // a file parameter: its buttons and the whole line saying what was chosen
+      const parts = [...file.children] as HTMLElement[];
       const text = parts.reduce((w, el) => w + textWidth(el.textContent ?? "", getComputedStyle(el).font) + 12, 0);
-      const buttons = [...ctl.querySelectorAll<HTMLElement>("button:not(.fp-where)")].reduce((w, b) => w + b.offsetWidth + 6, 0);
-      control = Math.max(control, Math.min(480, text + buttons + (file.classList.contains("fp-where") ? 190 : 0)));
+      const buttons = [...ctl.querySelectorAll<HTMLElement>("button")].reduce((w, b) => w + b.offsetWidth + 6, 0);
+      control = Math.max(control, Math.min(480, text + buttons));
     }
   }
   return Math.ceil(label + 10 + control + 10 + 32 + 10); // row gaps, group padding, scrollbar

@@ -6,8 +6,8 @@ import { useCatalog } from "../state/catalog";
 import { usePreferences } from "../state/preferences";
 import { useSession } from "../state/session";
 import { useViewer } from "../state/viewer";
-import { CategoryRail, FilterRow, Filters, type RailBand, type RailManage } from "../ui/Categories";
-import { Button, Chip, IconButton } from "../ui/Button";
+import { CategoryRail, type RailBand, type RailManage } from "../ui/Categories";
+import { Button, IconButton } from "../ui/Button";
 import { useConfirm } from "../ui/Confirm";
 import { Empty } from "../ui/Empty";
 import { IconMore, IconPlus } from "../ui/icons";
@@ -24,10 +24,9 @@ import "./templates.css";
 
 export { refreshTemplates, useTemplates } from "./templatesList";
 
-// 「我的模板」一段中的两项：自己保存的节点图与回收站中的节点图。它们不属于交付物分类，
+// 「我的模板」一段：自己保存的节点图。它们不属于交付物分类，
 // 因此在分类栏中单独成段，不混入服务器提供的分类树。
 const MINE = "mine";
-const BIN = "bin";
 const LOOSE = "_none"; // the rail's row for 未分类 (a card whose file names no place, or a place the tree no longer has)
 const CARD_TYPE = "application/x-lab2shot-template"; // a card in a drag: its template id
 const SUB_TYPE = "application/x-lab2shot-subcategory"; // a subcategory heading in a drag: its id
@@ -44,7 +43,7 @@ const LOOSE_CAT: TreeCategory = { id: "", label: "未分类", tip: "还没有归
  *
  * 管理功能同样位于此处，而非后台：具有模板管理权限的登录（由服务器计算的 templates.create，此处不检查角色）可使用以下操作，
  * 其他使用者均不可见：
- *   - 卡片可拖到左栏的一级分类或右侧的二级分类标题上以归入该分类；卡片右上角菜单提供开 / 关、复制、属性、删除；
+ *   - 卡片可拖到左栏的一级分类或右侧的二级分类标题上以归入该分类；卡片右上角菜单提供开 / 关、复制、编辑、属性、删除；
  *   - 左栏的一级分类可拖动排序、重命名、删除，底部为「新建分类」；
  *   - 右侧的二级分类标题可拖动排序、重命名、删除，末尾为「新建二级分类」；
  *   - 文件菜单中的「保存为预设模板」只需填写名称（Chrome.tsx），保存的卡片位于「未分类」，再拖入某个分类。 */
@@ -64,9 +63,6 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
   const group = usePreferences((s) => s.browseGroup);
   const setGroup = usePreferences((s) => s.setBrowseGroup);
   const [typed, setTyped] = useState("");
-  // which project the help page asked to show ("" none): the cards are narrowed to those that use it, with one chip
-  // saying so and taking it off again
-  const [project, setProject] = useState("");
   const my = useMyTemplates(open); // 每次打开模板面板时重新读取「我的模板」
   const applies = useSession((st) => st.state)?.applies;
   const manage = shown(applies, "templates.create"); // this login manages the templates: the server says so
@@ -110,7 +106,7 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
 
   const rail = railOf(tree, list, manage);
   const looseCount = list.filter((t) => !t.category).length;
-  const own = group === MINE || group === BIN; // 「我的模板」一段：自己保存的节点图，不属于交付物分类
+  const own = group === MINE; // 「我的模板」一段：自己保存的节点图，不属于交付物分类
   const chosen = rail.find((c) => c.id === group) ?? (group === LOOSE && (manage || looseCount) ? LOOSE_CAT : own ? undefined : rail[0]);
   const cat = chosen ?? null;
   const loosely = cat?.id === ""; // 未分类 is the chosen "category"
@@ -119,13 +115,11 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
   const mineBand = [
     { id: MINE, label: "我的模板", tip: "自己存到服务器上的节点图：换台电脑登录也在", count: my.view?.mine.length ?? 0 },
   ];
-  const all = list.filter((t) => t.category === (cat?.id ?? "\0")); // the whole category, whatever the search box or a project chip narrows it to
+  const all = list.filter((t) => t.category === (cat?.id ?? "\0")); // the whole category, whatever the search box narrows it to
   const needle = typed.trim().toLowerCase();
-  const of = project ? list.find((t) => t.projects.some((p) => p.name === project))?.projects.find((p) => p.name === project) : undefined;
-  const mine = all.filter((t) => !project || t.projects.some((p) => p.name === project));
   const found = needle
-    ? mine.filter((t) => [t.name, t.intro, ...t.projects.map((p) => p.title)].some((s) => s.toLowerCase().includes(needle)))
-    : mine;
+    ? all.filter((t) => [t.name, t.intro, ...t.projects.map((p) => p.title)].some((s) => s.toLowerCase().includes(needle)))
+    : all;
   // a manager sees every subcategory of the category (an empty one is a drop target); everyone else only the ones with cards
   const subs = cat ? cat.subs.filter((s) => manage || found.some((t) => t.deliverable === s.id)) : [];
   const loose = found.filter((t) => !subs.some((s) => s.id === t.deliverable));
@@ -209,7 +203,7 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
           manage={railManage}
         />
         <div className="tpl-main">
-          {/* 我的模板 / 回收站：自己保存在服务器上的节点图，不参与镜头筛选 */}
+          {/* 我的模板：自己保存在服务器上的节点图，不参与搜索与项目筛选 */}
           {own ? (
             <>
               <div className="tpl-head">
@@ -223,7 +217,6 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
                 {my.view && (
                   <MyTemplateCards
                     view={my.view}
-                    bin={group === BIN}
                     onOpen={(g) => (onOpen(g), setOpen(false))}
                     onChanged={my.set}
                   />
@@ -248,15 +241,6 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
             />
           </div>
           {problem && <p className="tpl-problem" role="alert">{problem}</p>}
-          {project && (
-            <Filters>
-              <FilterRow label="项目">
-                <Chip size="md" on tip="只看用到这个项目的模板：再点一次取消，看这一类的全部模板" onClick={() => setProject("")}>
-                  {of?.title ?? project}
-                </Chip>
-              </FilterRow>
-            </Filters>
-          )}
           <div className="tpl-cards">
             {sections.map((s) => (
               <Section
@@ -285,7 +269,7 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
               </div>
             )}
             {!found.length && (!manage || loosely) && (
-              <Empty title={needle ? "没有符合搜索的模板" : loosely ? "没有未分类的模板" : "这个分类还没有模板"} hint={needle ? "换一个搜索词，或者点左边别的分类" : loosely ? "新存的预设模板和新装的兼容层带来的模板会先出现在这里" : "在节点图里点右键添加节点，自己接一张"} />
+              <Empty title={needle ? "没有符合搜索的模板" : loosely ? "没有未分类的模板" : "这个分类还没有模板"} hint={needle ? "换一个搜索词，或者点左边别的分类" : loosely ? "新存的预设模板和新装的接入层带来的模板会先出现在这里" : "在节点图里点右键添加节点，自己接一张"} />
             )}
           </div>
           </>
@@ -306,7 +290,7 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
               run: () => void act(async () => { const got = await adminApi.copyTemplate(menu.t.id); say(msg("I-TEMPLATES-COPIED", { name: got.name })); }) },
             { key: "edit", label: "编辑", tip: "改这张卡的名字和简介：写进它自己的文件", run: () => setEditing(menu.t) },
             { key: "props", label: "属性", tip: "这张卡的全部属性：来源、文件、谁创建的、什么时候、分类、用到的项目、许可", run: () => setProps(menu.t) },
-            { key: "delete", label: "删除", tip: menu.t.owner === ADMIN ? "删掉这个项目预设：它的文件从 templates/ 里删掉" : "兼容层自带的模板删不了，只能关闭或拖到别的分类", off: menu.t.owner !== ADMIN,
+            { key: "delete", label: "删除", tip: menu.t.owner === ADMIN ? "删掉这个项目预设：它的文件从 templates/ 里删掉" : "接入层自带的模板删不了，只能关闭或拖到别的分类", off: menu.t.owner !== ADMIN,
               run: async () => {
                 if (!(await ask({ title: "删掉预设模板", say: msg("N-TEMPLATES-DELETE", { name: menu.t.name }), yes: "删掉", tip: "文件从 templates/ 里删掉，找不回来", danger: true }))) return;
                 void act(() => adminApi.deleteTemplate(menu.t.id));
@@ -410,7 +394,7 @@ function Section({ section, heading, manage, dropWhere, onDropCard, onDropSub, o
 function PropsSheet({ t, tree, catalog, onClose }: { t: TemplateInfo; tree: TreeCategory[]; catalog: NonNullable<ReturnType<typeof useCatalog>>; onClose: () => void }) {
   const at = placeIn(tree, t.deliverable);
   const where = at.id ? [at.label, at.subLabel].filter(Boolean).join(" › ") : t.deliverable ? `未分类（原来归在 ${t.deliverable}，那个分类已经删了）` : "未分类";
-  const source = t.owner === ADMIN ? "项目预设（templates/ 文件夹，管理员存的）" : t.owner === "adapter" ? `兼容层自带（${t.adapter} 的兼容层，只读）` : `用户 ${t.owner}`;
+  const source = t.owner === ADMIN ? "项目预设（templates/ 文件夹，管理员存的）" : t.owner === "adapter" ? `接入层自带（${t.adapter} 的接入层，只读）` : `用户 ${t.owner}`;
   const kb = t.bytes / 1024;
   const rows: [string, string][] = [
     ["名字", t.name],
@@ -453,7 +437,7 @@ function Card({ t, catalog, manage, onMenu, onOpen }: {
   t: TemplateInfo; catalog: NonNullable<ReturnType<typeof useCatalog>>; manage: boolean;
   onMenu: (t: TemplateInfo, at: { x: number; y: number }) => void; onOpen: (g: GraphJSON) => void;
 }) {
-  // 名称为「交付物 · 项目名」（服务器生成的完整字符串，nodes/templates），卡片上将两部分对调：
+  // 名称为「交付物 · 项目名」（模板文件自身的完整字符串，templates/*.json），卡片上将两部分对调：
   // 主标题为第三方扩展包名称（ViPE、COLMAP、MonST3R 等），副标题为交付物名称。
   const cut = t.name.indexOf(" · ");
   const [what, built] = cut < 0 ? [t.name, ""] : [t.name.slice(cut + 3), ` · ${t.name.slice(0, cut)}`];

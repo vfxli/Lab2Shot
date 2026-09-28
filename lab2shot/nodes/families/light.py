@@ -34,10 +34,10 @@ def probe_plate(ctx, image: Packet, frame: int) -> Packet:
 class LightProbeParams(NodeParams):
     """Parameters every light-probe node shares; each adds its model's own."""
 
-    seed: int = P(0, label="随机种子", help="随机种子。结果对它很敏感：环境不像画面里的场景、主光方向和画面阴影对不上时，换个数字重算", ge=0, group="环境光")
+    seed: int = P(0, label="随机种子", ge=0, group="环境光")
     envmap_width: Literal[512, 1024, 2048] = P(
         1024, label="环境图宽度", group="环境光",
-        option_labels={"512": "512", "1024": "1024", "2048": "2048"}, help="输出经纬图的宽度，高度是它的一半。模型本身的分辨率不高，超过 1024 不会更清晰，只是文件更大",
+        option_labels={"512": "512", "1024": "1024", "2048": "2048"},
     )
 
 
@@ -51,11 +51,10 @@ class LightProbe(WorkerNode):
 
     Raw contract (lab2shot_worker.light_probe): raw/envmap.exr, a lat-long HDR in the camera's frame, its centre column
     where the camera looks, top = up; raw/preview.png. Only the probe frame is sent (Job.send); the outputs span the
-    plate's frames. Job.notes: "frame", the frame sampled (the chosen one, or the middle one)."""
+    plate's frames. Job.notes: "frame", the frame sampled (the plate's one frame)."""
 
     on_node = ("envmap_width",)
-    # No camera input: the worker never reads one. Rotating the dome to a camera is a separate, explicit step
-    # (connect 「对齐到相机」 downstream).
+    # No camera input: the worker never reads one. The HDRI is in the plate camera's frame (see the raw contract).
     inputs = (Port("image", "image.3", "RGB"),)
     # the HDRI and its display-referred PNG are pictures of their own, not the plate's geometry
     outputs = (Port("hdri", "image.3", "HDRI", shape=NEW_PICTURE),
@@ -91,7 +90,7 @@ class LightProbe(WorkerNode):
         from ...io import images
         from ...io.color import working_space, space
 
-        image, frame = job.plate, job.notes["frame"]
+        image = job.plate
         frames = image.meta["frames"]
 
         ctx.stage("写出 HDRI")

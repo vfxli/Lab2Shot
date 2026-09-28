@@ -24,8 +24,7 @@ class Flow(OpticalFlow):
 
     class Params(OpticalFlowParams):
         resolution: Literal[960, 1920] | None = flow_resolution_param(
-            {960: Measured("0.15 秒/帧", gb=0.6), 1920: Measured("1080×1920 原尺寸 0.48 秒/帧", gb=2.3)},
-            note="留空 = 原尺寸，最准（长边超过 1920 时按 1920 算）")
+            {960: Measured(gb=0.6), 1920: Measured(gb=2.3)})
 
 
 NODES = (Flow,)

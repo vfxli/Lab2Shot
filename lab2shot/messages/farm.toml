@@ -1,19 +1,16 @@
-# 队列和显卡调度（lab2shot/farm）、上传和交付（lab2shot/transfer）、加载扩展包（lab2shot/adapters.py）。
+# 队列和显卡调度（lab2shot/farm）、上传和输出（lab2shot/transfer）、加载扩展包（lab2shot/adapters.py）。
 # 一行一条：编号 = 模板。写法：谁估的、和什么比、数字和单位、意味着什么、怎么办。
-# E-JOB-GONE、E-JOB-NOGRAPH、E-DELIVERY-GONE 和服务器接口共用，在 server.toml；B-QUEUE-PAUSED 在 web.toml。
+# E-JOB-GONE、E-JOB-NOGRAPH、E-OUTPUT-GONE 和服务器接口共用，在 server.toml；B-QUEUE-PAUSED 在 web.toml。
 
 # ---- 提交和排队（farm/queue.py）
-"B-QUEUE-SHOWNDELIVERS" = "显示一个节点只算轻量的节点，不交付文件；这次要交付文件：点「计算」"
-"B-QUEUE-SHOWNQUEUES" = "显示一个节点只算轻量的节点，不交付文件；这次要排队（{lane}）：点「计算」"
 "E-QUEUE-RESTARTING" = "服务器正在重启：十几秒后再提交"
-"E-QUEUE-TOOMANYMINE" = "这个账号已经有 {count} 个立即计算的任务没算完：等它们算完再提交"
-"E-QUEUE-FULL" = "服务器正忙，立即计算的任务排满了：稍后再提交"
-"E-QUEUE-TOOFAST" = "提交得太快了：立即计算每分钟最多 {count} 次，稍等再试"
+"E-QUEUE-CLOSED" = "队列已经关闭（服务正在结束）：服务再启动之后再提交"
+# 一个工作文件夹的队列只在一个进程里（服务）：命令行要动队列，走正在运行的服务（本机令牌），自己不另开一个
+"E-QUEUE-OWNED" = "这个工作文件夹（{folder}）的队列已经由另一个进程（pid {pid}）在管：同一个工作文件夹只能运行一个服务；命令行请通过正在运行的服务操作"
 "E-QUEUE-UNPARK" = "服务重启后排不回队列：{reason}"
-"E-QUEUE-NOTWAITING" = "任务 {job} 已经不在排队了：可能刚刚开始算，或者被取消了；刷新页面看现在的队列"
+"E-QUEUE-NOTWAITING" = "任务 {job} 已经不在队列里了：可能刚刚算完或被取消了；刷新页面看现在的队列"
 "E-QUEUE-STILLRUNNING" = "这个任务还在算，删不掉：先点「取消」，停下来之后再删"
 "E-QUEUE-NOJOB" = "队列里没有任务 {job}：可能已经删掉了；刷新页面看现在的队列"
-"E-QUEUE-BADPOSITION" = "位置 {position} 不在队列里：这条队列现在有 {count} 个任务；刷新页面再试"
 "N-QUEUE-PAUSED" = "服务器暂停接任务：排着的任务先等着，管理员重新打开计算任务后接着算"
 # 没有「等待可用的机器」这一条，也不要加：卡在忙是等一等就自己好的事，用户看了什么也做不了，而且排第几位
 # 界面上本来就画着，所以一个字都不说，对用户就是「排队中」。要有人去做点什么的那几种照说，见下面三条和
@@ -26,9 +23,15 @@
 "N-QUEUE-BEHIND" = "排队中：前面还有 {ahead:d} 个任务，轮到它就自动开始"
 "N-QUEUE-GPUOFF" = "显卡任务暂停中（管理员关了显卡）：排着的任务先等着，管理员重新打开显卡任务后接着算"
 "N-QUEUE-WAITRAM" = "等内存：要 {need:.0f} GB，现在可用 {free:.0f} GB"
+"W-QUEUE-NEVERRAM" = "「{node}」要 {need:.0f} GB 内存，这台机器一共只有 {total:.0f} GB：它永远等不到，别的节点不等它。请取消任务，换一档更省内存的参数，或者请管理员检查这个节点声明的内存"
 "N-QUEUE-ACCOUNTDELETED" = "这个账号已被管理员删除"
+"E-QUEUE-STILLSTOPPING" = "这个账号还有 {count:d} 个任务在 {seconds:.0f} 秒内没有停下：账号已停用，过一会儿再删除一次"
 "N-QUEUE-SERVEREND" = "服务结束，任务停下了：算好的节点留在缓存里，再点「计算」接着算"
-"W-QUEUE-TIMELIMIT" = "立即计算最多算 {minutes:g} 分钟，这次超过了，已经停下；算好的节点留在缓存里，再点「计算」从停下的地方接着算。单个节点就要这么久的，请管理员在设置里调长「立即计算限时」"
+# 按节点调度（farm/scheduler/pools.py）：节点等名额时为什么还在等。都是等一等自己就好的，只写进管理员那一格
+"N-QUEUE-TASKGPUS" = "这个任务已经同时占着 {most:d} 张卡（单任务最多占卡数）：等它的一个显卡节点算完"
+"N-QUEUE-TASKCPUS" = "这个任务已经同时在算 {most:d} 个不用显卡的节点（单任务 CPU 节点上限）：等其中一个算完"
+"N-QUEUE-CPUBUSY" = "整台机器同时最多算 {most:d} 个不用显卡的节点（全局 CPU 节点上限），现在都满着：等一个算完"
+"E-QUEUE-NODETIMEOUT" = "「{node}」算了超过 {minutes:g} 分钟（单节点超时），已经停下：用到它的节点跳过，别的照常算完。确实要算这么久的，请管理员在设置里调长「单节点超时」"
 
 # ---- 后台任务（farm/tasks.py）：导入数据集、安装扩展包、重算组合率……不是节点图的活
 "E-TASK-BUSY" = "「{running}」还没做完，同一时间只做一件：等它做完再开始"
@@ -51,11 +54,11 @@
 # ---- 显卡调度：为什么还在等（farm/scheduler/placement.py、compat.py）
 "N-GPU-NOCARD" = "还没有授权接任务的显卡：在显卡页打开一张卡的开关，要显卡的任务才会开始"
 "N-GPU-WAITSEVERAL" = "{problems}"
+"N-GPU-PROBING" = "正在探测 {project} 的环境支持哪些显卡架构（几秒钟）：探测完就接着排"
 "N-GPU-WAITBUSY" = "等 {gpus} 算完手上的任务"
 "N-GPU-WAITBUSYOTHERS" = "等 {gpus} 算完手上的任务：{projects} 只能在 {gpus} 上跑，{idle} 空着但跑不了它"
 "N-GPU-WAITVRAM" = "要约 {need:.0f} GB 显存，{gpu} 空闲 {free:.0f} GB：等它空出来"
 "N-GPU-WAITVRAMFOREIGN" = "要约 {need:.0f} GB 显存，{gpu} 空闲 {free:.0f} GB（被别的程序占了 {foreign:.0f} GB）：等它空出来"
-"N-GPU-WAITSHARE" = "已经占着 {held} 张卡（一个账号最多 {cap} 张，共 {cards} 张接任务），别人也在排队：等自己的任务算完一个再接着算"
 "W-GPU-INVENTORYFAILED" = "这一次读显卡（nvidia-smi）失败，沿用上一次的结果，下一次再读：{error}"
 "W-GPU-NOTPROBED" = "{project} 的扩展包环境还没装好或没探测过支持哪些显卡：先安装（或重装）这个扩展包"
 "W-GPU-KERNELS" = "{project} 编译的 CUDA 核心（{kernels}）不支持 {gpus}：需要针对这块显卡重新编译，或重装这个扩展包"
@@ -74,7 +77,7 @@
 "E-USAGE-RANGE" = "统计区间的结束要晚于开始"
 "E-USAGE-TOOLONG" = "统计区间太长：最多 {days} 天"
 
-# ---- 上传和交付（transfer/）
+# ---- 上传和输出（transfer/）
 "E-UPLOAD-BADNAME" = "文件名只写名字（可以带子文件夹），不能带盘符、绝对路径、.. 或控制字符：{name}"
 "E-UPLOAD-NAMETOOLONG" = "文件名太长，硬盘存不下：每一段最多 {most} 字节，整个名字最多 {whole} 字节（中文一个字算 3 字节）。在本机改短再选：{name}"
 "E-UPLOAD-BADSHA" = "不是文件内容的 sha256：{sha}"
@@ -91,11 +94,12 @@
 "E-UPLOAD-PLANESSIZE" = "「{file}」的通道数据长度不对：{channels} 条通道、{width}×{height}，应当 {expected} 字节，收到 {got} 字节"
 "E-UPLOAD-PLANESTYPE" = "「{file}」的通道 {channel} 像素类型 {type} 不认识：只能是 half、float 或 uint"
 "E-UPLOAD-PLANESWINDOW" = "「{file}」这一帧的像素是 {width}×{height}，和第一帧的数据窗口 {dw}×{dh}、画幅 {fw}×{fh} 都对不上，而浏览器没给出它的数据窗口：整份文件传上来"
+"E-UPLOAD-PLANESTOOBIG" = "「{file}」这一帧的 {channels} 条通道（{width}×{height}）在服务器上还原要 {gb:.1f} GB，超过一次最多的 {most:.0f} GB：整份文件传上来"
 "E-UPLOAD-PLANESNAME" = "「{file}」的通道 {channel} 不在这份文件申报的通道里"
 "I-UPLOAD-PLANES" = "{user} 传来 {file} 的 {count:d} 条通道（{channels}，{kb:.0f} KB）→ 子集 EXR {blob}"
 "E-UPLOAD-SERVERPATH" = "文件要从本机选择（上传到服务器），不能写服务器上的路径：{path}"
-"E-DELIVERY-MARK" = "不认识的状态 {state}：只能是 saved、downloaded 或 dismissed"
-"E-DELIVER-INCOMPLETE" = "「{node}」要交付的结果还没写完：这一次没有交付，重新计算它"
+"E-OUTPUT-INCOMPLETE" = "「{node}」要收集的结果还没写完：这一次没有打包，重新计算它"
+"E-OUTPUT-PACKED" = "「{node}」已经打包好了，这一条来晚了没有放进去：重新计算「{node}」"
 
 # ---- 加载扩展包（adapters.py）：写扩展包的人看的
 "E-ADAPTER-NOSPEC" = "extension.py 要定义 EXTENSION = <Extension>"
@@ -112,33 +116,37 @@
 # ---- 服务器日志（每行日志带编号）
 
 "I-DISK-STALEPACKETS" = "上传的素材 {sid} 清掉了，从它算出的缓存包也删了 {count:d} 份（读取节点要重新上传）"
-"I-DISK-AUTOCLEANED" = "自动清理「{area}」：{count:d} 条，{mb:.1f} MB"
 "I-QUEUE-GPUSAUTHORIZED" = "管理员授权接任务的显卡：{gpus}"
 "I-QUEUE-NOGPUAUTHORIZED" = "管理员授权接任务的显卡：（无）"
-"I-QUEUE-JOBSTARTED" = "任务 {job} 开始（{where}）"
+"I-QUEUE-JOBSTARTED" = "任务 {job} 开始：它的第一个节点拿到了名额"
 "I-QUEUE-CANCELLEDBYADMIN" = "任务 {job} 被管理员取消"
 "I-QUEUE-CANCELLEDBYOWNER" = "任务 {job} 被提交的人取消"
 "I-QUEUE-HOLDING" = "队列暂停：服务要重启，不再开始新任务"
 "I-QUEUE-RELEASED" = "队列继续：不重启了"
 "I-QUEUE-PARKED" = "服务重启：{count:d} 个排队的任务留到重启后接着排"
-"I-QUEUE-SUBMITTED" = "任务 {job} 提交：{title} ·「{targets}」，{lane}，来自 {who}（{ip}）"
-"I-QUEUE-SUBMITTEDDELIVERS" = "任务 {job} 提交：{title} ·「{targets}」，{lane}，交付，来自 {who}（{ip}）"
-"I-QUEUE-REQUEUED" = "任务 {job} 重启后接着排队：{title} ·「{targets}」，{lane}，来自 {who}（{ip}）"
-"I-QUEUE-REQUEUEDDELIVERS" = "任务 {job} 重启后接着排队：{title} ·「{targets}」，{lane}，交付，来自 {who}（{ip}）"
+"I-QUEUE-SUBMITTED" = "任务 {job} 提交：{title} ·「{targets}」，来自 {who}（{ip}）"
+"I-QUEUE-SUBMITTEDDELIVERS" = "任务 {job} 提交：{title} ·「{targets}」，打包输出，来自 {who}（{ip}）"
+"I-QUEUE-REQUEUED" = "任务 {job} 重启后接着排队：{title} ·「{targets}」，来自 {who}（{ip}）"
+"I-QUEUE-REQUEUEDDELIVERS" = "任务 {job} 重启后接着排队：{title} ·「{targets}」，打包输出，来自 {who}（{ip}）"
 "W-QUEUE-JOBFAILED" = "任务 {job} 出错（用时 {seconds:.1f} 秒）：{error}"
+"W-QUEUE-JOBPARTIAL" = "任务 {job} 部分失败（用时 {seconds:.1f} 秒）：有节点出错，用不到它的照常算完；最后一个错误：{error}"
 "I-QUEUE-JOBDONE" = "任务 {job} 完成（用时 {seconds:.1f} 秒）"
 "I-QUEUE-JOBCANCELLED" = "任务 {job} 已取消（用时 {seconds:.1f} 秒）：{reason}"
 "E-QUEUE-JOBINTERNAL" = "任务 {job} 内部错误：任务记为出错，队列照常；错误堆栈在后面，把它发给开发者"
 "E-QUEUE-HOUSEKEEPING" = "自动清理或数据库备份出错：下一轮再试，错误堆栈在后面"
 "W-QUEUE-TIMINGNOTKEPT" = "任务 {job}：记不下「{node}」的用时：{why}"
+"W-QUEUE-REFSNOTKEPT" = "任务 {job}：这次没记下「{node}」算出和用到的缓存（留到下一次一起记，最晚在任务结束时）：{why}"
 "E-QUEUE-RECORDFAILED" = "任务 {job} 结束时写记录出错：任务照样按结束处理（不然它会永远显示在算、显卡再接不到活），错误堆栈在后面"
-"E-QUEUE-ENDEDFAILED" = "任务 {job} 结束后的记录出错：任务本身已经结束，错误堆栈在后面"
 "W-QUEUE-NOTREQUEUED" = "任务 {job} 重启后排不回队列：{why}"
-"W-QUEUE-GRAPHMISSING" = "任务 {job} 的节点图文件读不到（{path}）：按没有节点图处理"
 "I-UPLOAD-CUTOFF" = "上传的连接断了，收到的留着：{part} 到第 {offset:d} 字节"
 "I-UPLOAD-SENT" = "{user} 上传 {what}（{files:d} 个文件，{mb:.1f} MB）→ {ref}"
 "I-DISK-ADMINCLEANED" = "管理员清理「{area}」里 {days:g} 天没用过的：{count:d} 条，{mb:.1f} MB"
 "I-USAGE-RESETBYADMIN" = "管理员把使用统计清零（可以撤销）"
 "I-USAGE-RESETUNDONE" = "管理员撤销了使用统计清零"
-# 计算单元（farm/units.py）：一个任务的条目可以同时在几张卡上算
-"I-QUEUE-CARDLEFT" = "任务 {job} 的显卡 {gpu} 退出了这次计算：{why}"
+
+# ---- 任务（transfer/tasks.py）与按任务的清理（farm/disk.py）
+"B-TASK-UPLOADTOOBIG" = "这个任务带的上传素材一共 {mb:.1f} MB，超过了单任务上传上限 {most:g} GB（{most_mb:.1f} MB），服务器没有接收：少选一些帧或素材分成几个任务算；确实需要时请管理员在设置的「单任务上传上限」里调大"
+"I-TASK-EXPIRED" = "任务 {task} 结束已超过 {days:d} 天，整个清理：腾出 {mb:.1f} MB"
+"I-TASK-STRAY" = "任务文件夹 {task} 已没有对应的任务记录，删除：腾出 {mb:.1f} MB"
+"I-DISK-CACHECOLLECTED" = "清理缓存：{count:d} 项已没有任何任务引用、也没有任务正在用（{mb:.1f} MB）"
+"I-DISK-UPLOADSCLEARED" = "清理素材：{count:d} 份上传超过 {days:d} 天没有任务用到，删除（{mb:.1f} MB）"

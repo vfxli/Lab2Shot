@@ -71,11 +71,9 @@ def part_labels(joints: tuple[ModelJoint, ...]) -> list[str]:
 class JointMap(NodeParams):
     """A row of the joint table: a model joint and the rig joint that drives it."""
 
-    name: str = P(..., label="模型关节", widget="fixed", help="模型骨骼里的关节名（鼠标停在这一行的部位名上显示）")
-    label: str = P(..., label="部位", widget="fixed", help="这个模型关节是身体的哪一部分，表格每行左边显示的名字")
-    joint: str | None = P(None, label="人物关节", widget="choice",
-                          help="人物骨骼里带动这个模型关节的关节。自动：按关节名和层级猜（Maya HumanIK、Mixamo、Unreal、SMPL 这些命名都认得）；"
-                               "不映射：模型的这个关节跟着上一级走。猜错了就在这里选对的关节")
+    name: str = P(..., label="模型关节", widget="fixed")
+    label: str = P(..., label="部位", widget="fixed")
+    joint: str | None = P(None, label="人物关节", widget="choice")
 
 
 def mapping_rows(joints: tuple[ModelJoint, ...]) -> list[dict]:
@@ -91,15 +89,13 @@ def mapping_param(joints: tuple[ModelJoint, ...], follows: tuple[str, ...] = ())
     `joints_of(params)`, and `derive` rebuilds the rows from it. This is the same mechanism by which LensDistortion's
     distortion parameters follow 「镜头模型」; the framework provides only P(derived_from) for this purpose."""
     return P(mapping_rows(joints), label="关节映射", widget="table", group="人物", choices_from=("character", "skeleton"),
-             worker=False, validate_default=True, derived_from=follows,
-             help="模型骨骼的每个关节由人物的哪个关节带动。默认全部自动（按名字和层级猜，接上人物后每行显示猜到的关节），猜错了在下拉里改。"
-                  "没有列出的人物关节（手指、面部、扭转骨骼……）保持原来的动画不动")
+             worker=False, validate_default=True, derived_from=follows)
 
 
-def skeleton_param(what: str):
+def skeleton_param():
     """The 骨骼 choice every rig-driven node has: which character in the scene this node works on."""
     return P(None, label="骨骼", widget="choice", group="人物", choices_from=("character",), worker=False,
-             placeholder="第一个", help=f"场景里有几个角色时，{what}（其余角色原样保留）。留空用找到的第一个")
+             placeholder="第一个")
 
 
 class RigModel:
@@ -215,7 +211,8 @@ def body_joints(body: str) -> tuple[ModelJoint, ...]:
 
     `humanoid_joints` provides the same table written by hand for Mixamo-style naming; this function derives it from
     the body itself, using the table data/smpl.py maintains (rows_of, aims_of), so that a node's editable joint table
-    and the automatic guess behind 「骨架动画转 SMPL」 list the same joints in the same order."""
+    and the automatic guess that fills it (RigModel.choices / mapping: auto_mapping over the same rows) list the same
+    joints in the same order. Read by 「StableMotion 动捕清理」 (SMPL) and 「Kimodo 动作生成」 (its SMPL-X 22 weights)."""
 
     from lab2shot_shared import smpl as S
 

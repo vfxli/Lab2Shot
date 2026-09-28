@@ -7,22 +7,22 @@ import { useEffect, useState } from "react";
  * size that makes a component re-render and resize what is watched is answered in the next frame, never inside the
  * observer's own delivery (the browser's "ResizeObserver loop completed with undelivered notifications"), and dragging a
  * splitter costs one update per frame per element however many notifications the browser sends.
- * webui/tests/size.test.ts runs it on fake frames; it also keeps `new ResizeObserver` out of every other file. */
+ * No other file creates a ResizeObserver. */
 
 export interface Size {
   w: number;
   h: number;
 }
 
-export const NO_SIZE: Size = Object.freeze({ w: 0, h: 0 });
+const NO_SIZE: Size = Object.freeze({ w: 0, h: 0 });
 
 interface Watched {
   size: Size;
   listeners: Set<(s: Size) => void>;
 }
 
-/** The browser facilities the watcher needs (tests supply fakes). */
-export interface SizeHost {
+/** The browser facilities the watcher needs, handed in rather than reached for (`browser()` below supplies them). */
+interface SizeHost {
   observe: (onChange: (elements: Element[]) => void) => { observe: (el: Element) => void; unobserve: (el: Element) => void };
   measure: (el: Element) => Size;
   frame: (run: () => void) => void;
@@ -39,7 +39,7 @@ const browser = (): SizeHost => ({
 
 /** A page's size watcher: `watch(el, f)` calls `f` with the element's size now and whenever its rounded size changes,
  * at most once per frame; returns what stops it. */
-export function sizeWatcher(host: SizeHost) {
+function sizeWatcher(host: SizeHost) {
   const watched = new Map<Element, Watched>();
   const dirty = new Set<Element>();
   let scheduled = false;

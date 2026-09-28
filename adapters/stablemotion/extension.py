@@ -7,8 +7,7 @@ Two things it needs are not in its git repository:
 
 * the checkpoint (StableMotion-BrokenAMASS, `stablemotion_ckpt_seed3407.tar.gz`, 270 MB). Its authors put it on a
   OneDrive share, which hands the file out only after a browser handshake, so the installer cannot fetch it: it is a
-  hand-downloaded item (lab2shot.extensions.manual "stablemotion"): the weights sit on a file-sharing site
-  the program cannot fetch, so the user downloads them by hand into downloads/.
+  hand-downloaded item (lab2shot.extensions.manual "stablemotion") the user puts into downloads/.
 * the normalizer: the per-channel statistics of the BrokenAMASS training features. Upstream produces them by
   preprocessing all of AMASS, which needs a registered AMASS download and the SMPL+H body model, and even then the
   corruption pass is seeded differently from the released one. The two vectors ship inside the upstream repository
@@ -62,7 +61,7 @@ class StableMotion(Extension):
         python="3.11",
         torch=("torch==2.8.0",),
         torch_backend="cu128",  # RTX 4090 and RTX 5090 (sm_120) both run this build
-        pickled_checkpoints=True,  # upstream's checkpoint is a pickled torch.save, verified by sha256 on install
+        pickled_checkpoints=True,  # upstream's checkpoint is a pickled torch.save: loaded with weights_only off
         imports=("diffusers", "einops"),
     )
     # The normalisation statistics are not downloaded: the upstream repository contains `dataset/meta_.../mean.pt` and

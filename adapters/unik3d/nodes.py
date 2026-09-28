@@ -20,10 +20,8 @@ class Geometry(PerFrameDepthCamera):
     # 官方的 `rays` 和 `distance` 各有输出口；需要相机时由使用者自行拟合或提供。
     solves_camera = False
     lens = "any"  # 逐像素射线，可处理畸变镜头（「射线场」输出即模型自身的镜头）
-    # 公开基准实测结果，用作输入的提示
-    measured = {
-        "focal_mm": "实测（10 个镜头）：填真实 Focal Length 略好，AbsRel 0.098 → 0.087（5 好 4 差）。接 AnyCalib 估的 Focal Length 更差（3 好 7 差）",
-    }
+    # 公开基准上的实测（接不接、接什么的差别）：
+    #   focal_mm：实测（10 个镜头）：填真实 Focal Length 略好，AbsRel 0.098 → 0.087（5 好 4 差）。接 AnyCalib 估的 Focal Length 更差（3 好 7 差）
     # docs.md：逐帧独立计算，无时序平滑；适用于鱼眼及未去畸变的素材；
     # 填写真实 Focal Length 略有改善（AbsRel 0.098 → 0.087，5 好 4 差）；自身针孔近似的 Focal Length 在常规焦段偏长、长焦偏短
     runtime = "unik3d"
@@ -34,17 +32,13 @@ class Geometry(PerFrameDepthCamera):
         cite="third_party/unik3d/repo/unik3d/models/unik3d.py:284-398",
         takes={"image": "rgb"},
         gives={"depth": "depth", "points": "points", "distance": "distance", "rays": "rays"},
-        note=""
-             "①「镜头模型」「畸变系数」「主点 X」「主点 Y」四个口删掉了——它们是同一片 rays（unik3d.py:397）的"
-             "Kannala-Brandt（OpenCV 鱼眼）最小二乘拟合，拟合那一步是我们自己在 worker.py fit_lenses 里做的，"
-             "上游没有这一项；要鱼眼镜头参数请接显式的标定节点（「AnyCalib 镜头标定」）。"
-             "②「距离图」（distance，unik3d.py:394）和「射线场」（rays，unik3d.py:397）是官方算了、我们原来丢掉的两样，"
-             "这一次补上（「官方结果一个字节都不许丢」）。"
-             "③ 家族口「相机」也删了：UniK3D 上游不出 intrinsics，那台相机是 worker 把 rays 最小二乘拟合成的"
-             "针孔近似，不是官方结果。删的办法是家族上的一句声明 `solves_camera = False`"
-             "（lab2shot/nodes/families/depth_camera.py PerFrameDepthCamera），"
-             "因为那台相机家族内部还要拿去做反投影和摆位——现在它写进这次计算的临时文件夹，不当输出口交出去。"
-             "所以这里 gives 里没有 camera",
+        note="没有镜头内参一类的口：UniK3D 的镜头就是射线场 rays（unik3d.py:397），"
+             "上游不出镜头模型和畸变系数；要鱼眼镜头参数请接显式的标定节点（「AnyCalib 镜头标定」）。"
+             "「距离图」是 distance（unik3d.py:394），「射线场」是 rays（unik3d.py:397）。没有「相机」输出口："
+             "上游不出 intrinsics，家族反投影用的那台针孔相机是 worker 把 rays 最小二乘拟合出来的（worker.py "
+             "fit_pinhole），不是官方结果；节点因此声明 `solves_camera = "
+             "False`（lab2shot/nodes/families/depth_camera.py PerFrameDepthCamera），"
+             "那台相机只写进这次计算的临时文件夹。所以 gives 里没有 camera",
     )
     confidence = Confidence("log_error")  # 模型置信度的表示方式（CONFIDENCE_SCALES）
     # vram_gb：在 RTX 4090 上以默认 ViT-L 测得（docs.md）
@@ -65,7 +59,6 @@ class Geometry(PerFrameDepthCamera):
         model: Literal["unik3d-vitl", "unik3d-vitb", "unik3d-vits"] = P(
             "unik3d-vitl", label="模型", group="几何",
             option_labels={"unik3d-vitl": "ViT-L", "unik3d-vitb": "ViT-B", "unik3d-vits": "ViT-S"},
-            help="越大越准：ViT-L 最稳；ViT-B / ViT-S 更快、更省，适合预览",
         )
         resolution_level: int = precision_level_param()
 

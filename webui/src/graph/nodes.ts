@@ -1,25 +1,19 @@
 import type { DataType, NodeStatus as Status, NodeTypeDef, ParamDef, Plan, SceneKind, ServerMessage, StatusReply, WritesPart } from "../api";
 import { fromServer, msg, type Message } from "../messages/message";
 import { greyed, nodeUsable, nodeWhy, why as whyOf } from "../api/applies";
-import { caseWords, cookWords } from "./rules";
-import { pauseNote } from "../state/pause";
-import { blockedByQuota, quotaNote } from "../state/quota";
-import type { StorageGate } from "../api/library";
 import type { GBox, GNode, GraphState, NodeData } from "../state/graph";
 
 /** Pure graph-reading helpers: functions that read a plain snapshot of the graph (nodes, edges, node definitions, the last
  * status reply) and answer a question the page itself owns, such as a node's rows on its body, a group box's members, or
  * what still prevents a click from being submitted. None reads a store, and none works out a rule of the server's (whether
- * a wire fits, a node's ports, what a cook is): those are read from the status reply and the catalogue (graph/rules.ts;
- * webui/tests/graphRules.test.ts keeps copies of server rules out of this file). */
+ * a wire fits, a node's ports, what a cook is): those are read from the status reply and the catalogue (graph/rules.ts),
+ * and no copy of a server rule is kept in this file. */
 
 
 export const BOX_COLORS = ["#8E8E93", "#0A84FF", "#30D158", "#FF9F0A", "#BF5AF2", "#FF375F"];
 export const BOX_HEAD = 34; // header height; a collapsed box consists of its header only
 
 export const nodeSize = (n: Pick<GNode, "measured">) => ({ w: n.measured?.width ?? 240, h: n.measured?.height ?? 96 });
-
-export const newDocId = (): string => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
 /** Nodes whose centre lies inside the box: they move, collapse and hide with it. */
 export function boxContents(box: GBox, nodes: GNode[]): string[] {
@@ -52,19 +46,6 @@ export function portColor(types: Record<string, DataType>, portType: string): st
 export function writesTable(kinds: SceneKind[], def: NodeTypeDef): (WritesPart & { kind: SceneKind })[] {
   const writes = def.writes ?? {};
   return kinds.filter((k) => writes[k.id]).map((k) => ({ kind: k, ...writes[k.id] }));
-}
-
-export function writesText(kinds: SceneKind[], def: NodeTypeDef): string {
-  const table = writesTable(kinds, def);
-  const names = (how: WritesPart["how"]) => table.filter((r) => r.how === how).map((r) => r.kind.label).join("、");
-  return [
-    names("full") && `能写：${names("full")}`,
-    ...table.filter((r) => r.how === "static").map((r) => `${r.kind.label}只写静止的：${r.reason}`),
-    ...table.filter((r) => r.how === "no").map((r) => `写不了${r.kind.label}：${r.reason}`),
-    ...table.filter((r) => r.lost).map((r) => `${r.kind.label}带不过去：${r.lost}`),
-  ]
-    .filter(Boolean)
-    .join("\n");
 }
 
 /** 该节点自身「提升到节点」的参数（不含节点类型声明的常驻接线口），其端口绘制在参数所在行上。
@@ -138,8 +119,7 @@ export function cookSpan(cookRange: [string, string] | null, plan: Pick<Plan, "r
 }
 
 /** 单次提交可计算的最大帧数（由管理员在后台「设置」中配置，随队列响应返回；`most` 为 0 表示尚未获取，不做限制）。
- * 网页据此在点击前拦截；服务器在 farm/queue.py submit 中独立再次校验，因此绕过网页直接提交同样会被拒绝。
- * 查看图像不受此限制：它属于 shown 的轻量计算，服务器同样放行。 */
+ * 网页据此在点击前拦截；服务器在 farm/queue.py _submit 中独立再次校验，因此绕过网页直接提交同样会被拒绝。 */
 export function frameLimitProblem(span: [number, number] | null, most: number): Message | null {
   if (!span || most <= 0) return null;
   const frames = span[1] - span[0] + 1;
@@ -152,14 +132,8 @@ export const STATUS_TEXT: Record<import("../state/graph").NodeStatus, string> = 
 /** A node its job is still working on: waiting in the queue (its note: why, as the server says) or cooking. */
 export const isLive = (status: import("../state/graph").NodeStatus | undefined): boolean => status === "queued" || status === "cooking";
 
-/** 任务开始后的执行位置（对应日志中「任务 xxx 开始（…）」一句，见 graph/follow.ts）。
- * gpu 档显示「在服务器上算」而非「排队」：任务已经开始，此时并不在排队
- * （与 ui/Queue.tsx LANE_WHERE 含义与用词相同；「排队第 N 位」由 waitText 负责）。 */
-export const LANE_TEXT: Record<import("../api").Lane, string> = { light: "立即计算", heavy: "CPU 队列", gpu: "在服务器上算" };
-
-export function waitText(job: { position: number | null; lane: import("../api").Lane }): string {
-  if (job.lane === "light") return "等空位：立即计算的任务正满";
-  return `${job.lane === "heavy" ? "CPU 队列" : "排队"}第 ${job.position} 位`;
+export function waitText(job: { position: number | null }): string {
+  return job.position == null ? "排队中" : `排队第 ${job.position} 位`;
 }
 
 /** Every 「输出」 in the graph, in node order: what 提交 delivers, together, as one job. */
@@ -169,58 +143,9 @@ export function deliveryNodes(nodes: GNode[], nodeDefs: Record<string, NodeTypeD
 
 const FILE_IN = ["file", "sequence"];
 
-/** 交付的完整结构：包（或文件夹）名，其下为每个接入该「输出」的输出设置对应的子文件夹（以其「名字」命名）。
- * 浏览器无法获取本机完整路径（仅提供文件名或文件夹名，见 FileParam.tsx NO_PATH），因此「完整路径」仅包括
- * 包名及包内各层。此处不包含任何格式知识：子文件夹名即输出设置节点自身的「名字」参数。 */
-export function deliveryLayout(nodes: GNode[], edges: { source: string; target: string }[], nodeDefs: Record<string, NodeTypeDef>, deliverId: string): string[] {
-  const into = new Set(edges.filter((e) => e.target === deliverId).map((e) => e.source));
-  return nodes
-    .filter((n) => into.has(n.id))
-    .map((n) => {
-      // 输出设置节点的「名字」：nodes/output.py name_param 是唯一声明 unique 的参数（同一「输出」下不得重名）
-      const p = nodeDefs[n.data.typeId]?.params.find((q) => q.unique);
-      const name = p ? String(n.data.params[p.name] ?? "") : "";
-      return name ? `${name}/` : "";
-    })
-    .filter(Boolean);
-}
-
-export function deliverBlocked(nodes: GNode[], nodeDefs: Record<string, NodeTypeDef>, canWrite: boolean, outputs = deliveryNodes(nodes, nodeDefs)): Blocker | null {
-  if (!outputs.length) return { node: "", message: msg("B-DELIVER-NOOUTPUT") };
-  for (const id of outputs) {
-    const node = nodes.find((n) => n.id === id)!;
-    const p = nodeDefs[node.data.typeId]?.params.find((q) => q.widget === "deliver");
-    if (p && !node.data.params[p.name]) return { node: id, message: msg(canWrite ? "B-DELIVER-NOPLACE" : "B-DELIVER-NONAME", { node: node.data.label, setting: p.label }, { param: p.name }) };
-  }
-  return null;
-}
-
-export function firstPlateName(nodes: GNode[], nodeDefs: Record<string, NodeTypeDef>): string {
-  for (const n of nodes) {
-    for (const p of nodeDefs[n.data.typeId]?.params ?? []) {
-      if (!FILE_IN.includes(p.widget ?? "")) continue;
-      // the server names the plate (its sequence rule, the upload's stem): the page never reads frame numbers itself
-      const picked = n.data.picked?.[p.name];
-      if (picked?.stem) return picked.stem;
-      if (picked?.folder) return picked.folder.split("/").pop() || picked.folder;
-    }
-  }
-  return "";
-}
-
-/** 将名称转换为可用作文件名的形式：先删除文件名中不允许的字符，再将分隔符（空格、间隔号）合并为一个下划线。
- * 间隔号同样视为分隔符：若只替换空格，「相机解算 · MonST3R」会变为 `相机解算_·_MonST3R`。 */
-export function fileNameOf(name: string): string {
-  return name
-    .replace(/[\\/:*?"<>|]/g, "")       // 文件名中不允许的字符
-    .replace(/[\s·・‧•‧]+/g, "_")        // 空格与各种间隔号均视为分隔符，合并为一个下划线
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "") || "lab2shot";
-}
-
-export function deliverDefaultName(nodes: GNode[], nodeDefs: Record<string, NodeTypeDef>, name: string, suffix: string): string {
-  const base = (name !== "未命名" && name) || firstPlateName(nodes, nodeDefs) || name || "lab2shot";
-  return fileNameOf(base) + suffix;
+/** 「提交」 has something to cook only when the graph has an 「输出」: every one of them collects and packs, together. */
+export function deliverBlocked(nodes: GNode[], nodeDefs: Record<string, NodeTypeDef>, outputs = deliveryNodes(nodes, nodeDefs)): Blocker | null {
+  return outputs.length ? null : { node: "", message: msg("B-DELIVER-NOOUTPUT") };
 }
 
 /** Why a cook or a delivery can't be submitted yet (a B- message of lab2shot/messages/web.toml, or the server's own
@@ -231,27 +156,25 @@ export interface Blocker {
 }
 
 /** What blockers() and standing() read beyond GraphState: the status reply for these cook inputs (trusted: a click
- * waits for it, graph/actions.ts currentReply), the shown node's plan, and what only the page knows (uploads going up,
- * what this browser can do) as plain callbacks, so this file need not import transfer/uploads.ts or files/handles.ts. */
+ * waits for it, graph/actions.ts currentReply), the shown node's plan, and what only the page knows (uploads going up)
+ * as a plain callback, so this file need not import transfer/uploads.ts. */
 export interface BlockContext extends GraphState {
   reply: StatusReply;
   cookRange: [string, string] | null;
   plan: Plan | null;
   uploadBlocked: (id: string, param: string, label: string) => Message | undefined; // undefined: nothing going up
-  cannotChoose: (value: string | undefined) => Message | null; // null: allowed (files/handles.ts cannot())
-  canWrite: boolean;
   applies: import("../api/applies").Availability | null | undefined; // the login's answer: which node types are usable now
 }
 
 /** 本次计算涉及的节点（目标及其全部上游），仅供本文件检查问题与汇总消息使用。
  *
  * 不用于决定计算前上传哪些素材：上传哪些素材、每份上传哪些通道由服务器决定，即状态回复中的
- * `policy.click.computes`（本次实际计算的节点）与各节点的 `channels`（`graph/apply.ts pickedFor / sendPicked`）。
+ * `policy.computes`（本次实际计算的节点）与各节点的 `channels`（`graph/apply.ts pickedFor / sendPicked`）。
  * 网页按连线自行反推会产生第二份答案；该判断仅在服务器 `needed_outputs` 中进行。 */
 const nodesCooked = (ctx: GraphState, targets: string[]) => [...new Set(targets.flatMap((t) => upstream(t, ctx.edges).reverse()))];
 
 /** Why cooking `targets` (the reply's policy says which) can't be submitted yet: what the page sees before sending
- * anything (a range typed wrong, a file not chosen or still going up, a choice this browser can't make), the wires the
+ * anything (a range typed wrong, a file not chosen or still going up, a choice the data wired in can't take), the wires the
  * server judged wrong, and a node's own error from the server. */
 export function blockers(ctx: BlockContext, targets: string[]): Blocker[] {
   const range = rangeProblem(ctx.cookRange, ctx.plan);
@@ -271,10 +194,9 @@ export function blockers(ctx: BlockContext, targets: string[]): Blocker[] {
       const going = FILE_IN.includes(p.widget ?? "") ? ctx.uploadBlocked(id, p.name, name) : undefined;
       if (going) own.push({ ...going, param: p.name });
       else if (!value && FILE_IN.includes(p.widget ?? "")) own.push(msg("B-COOK-NOFILE", { node: name, what: p.label }, { param: p.name }));
-      else if (!value && p.widget === "deliver") own.push(msg(ctx.canWrite ? "B-DELIVER-NOPLACE" : "B-DELIVER-NONAME", { node: name, setting: p.label }, { param: p.name }));
-      // 当前选中的选项不可用：浏览器无法支持（option_needs），或接入的数据类型不符合要求
-      // （option_applies，由服务器计算，id 为 "<参数>=<选项>"）。两种情况均在提交前拦截，不交由服务器报错
-      const why = ctx.cannotChoose(p.option_needs[String(value)]) || whyOf(status?.applies, `${p.name}=${String(value)}`);
+      // 当前选中的选项不可用：接入的数据类型不符合要求（option_applies，由服务器计算，id 为 "<参数>=<选项>"）。
+      // 在提交前拦截，不交由服务器报错
+      const why = whyOf(status?.applies, `${p.name}=${String(value)}`);
       if (why) own.push(msg("B-COOK-OPTION", { node: name, setting: p.label, option: p.option_labels?.[String(value)] ?? String(value), reason: why }, { param: p.name }));
     }
     // the server's error stops the click only when the node can't be planned (a required input not wired, a refused
@@ -322,25 +244,3 @@ export function upstream(id: string, edges: { source: string; target: string }[]
   return out;
 }
 
-/** What the top bar's 提交 says and whether it can be clicked. */
-export interface SubmitView {
-  nodes: GNode[];
-  nodeDefs: Record<string, NodeTypeDef>;
-  reply: StatusReply | null;
-}
-
-/** 提交's tooltip: why it cannot be submitted yet (no 「输出」 at all, `off`: the button is greyed; an 「输出」 with
- * nowhere to save to, `warn`: it is clickable and the click names the node), else the same words a cook would say for
- * every 「输出」 together (the status reply's `deliver`), and which ones. */
-export function submitWords(s: SubmitView, queueSwitches: { compute: boolean }, canWrite: boolean, cpuJobs: number,
-                            storage: StorageGate | null = null): { tip: string; warn: boolean; off: boolean } {
-  const outputs = deliveryNodes(s.nodes, s.nodeDefs);
-  const missing = deliverBlocked(s.nodes, s.nodeDefs, canWrite, outputs);
-  if (missing) return { tip: missing.message.text, warn: true, off: missing.message.code === "B-DELIVER-NOOUTPUT" };
-  const { kind, nothing } = caseWords(s.reply?.deliver); // every 「输出」 together, as the server judged it
-  const { tip } = cookWords(kind, nothing, cpuJobs);
-  const names = outputs.map((id) => s.nodes.find((n) => n.id === id)?.data.label ?? id).join("、");
-  // 「计算任务暂停」与「配额已满」是同一结果的两种原因：统一在此说明，按钮置灰，位置不变
-  const note = pauseNote(queueSwitches, kind) + quotaNote(storage);
-  return { tip: `${tip}\n\n提交：${names}${note}`, warn: !!note, off: blockedByQuota(storage) };
-}

@@ -8,7 +8,7 @@
 }
 
 /* a node whose wiring cooks but probably not as meant (usage checks, engine/lint.py): a yellow mark, never a block */
-/* 这一轮计算留下的提醒 / 警告，写在节点标题行里的一个短词（`node-mark` 那一套的一员，样式在
+/* 这一轮计算留下的提醒 / 警告，写在节点底行里的一个短词（`node-mark` 那一套的一员，样式在
    11-sheets.css）。用文字而不用圆圈加感叹号：图标看着像占位图，而且会盖住「已缓存」。黄色只用在「能算但结果可能不是预期的」那一档，N 级提醒用普通字色（26-messages.css）。 */
 .warn-mark {
   color: var(--yellow);

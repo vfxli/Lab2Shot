@@ -3,10 +3,10 @@ import { api, type Manifest, type Through, type Version } from "../api";
 import { cache } from "./cache";
 import { originalsFor, stillLooking, type Originals } from "./originals";
 import { readPlane, squeeze, unsqueeze, type Pixels, type Plane } from "./plane";
-import { isLocal, localPlane, localSource } from "./computed";
 import { fileKeyOf, localPicture, proxyReady } from "./localProxy";
-import { FROM, channelIdent, identOf, packetKey } from "./ident";
+import { FROM, channelIdent, identOf, mergedIdent, packetKey, pickedIdent } from "./ident";
 import { genOf } from "./gens";
+import { shortHash } from "../platform/digest";
 
 /** 单帧的来源与解码方式，位于取帧账本（`transfer/frames.ts`）之下一层。
  *
@@ -22,7 +22,7 @@ import { genOf } from "./gens";
  * 两项职责，两个接口（存储压缩态，不存储解码态）：
  * - `load`：立即需要绘制。已持有字节则直接解码，否则走网络。解码后的位图进入解码层（有预算，会被淘汰）。
  * - `fill`：取回压缩字节但不解码。选中后即开始在后台取回整段。
- *   已持有则不做任何操作。没有 `fill` 的源（用户自选的文件、浏览器计算的结果）本身不经过网络。 */
+ *   已持有则不做任何操作。没有 `fill` 的源（用户自选的文件）本身不经过网络。 */
 export type FrameSource = {
   id: string;
   frames: number[];
@@ -43,7 +43,7 @@ class Fetches {
   readonly localFrames = new Map<string, { frames: number[]; keyOf?: (frame: number) => string | undefined }>();
   /** 当前仅取字节的在途请求（键 -> 该次请求）：同一帧被舞台、后台填充、跨包预取同时请求时只发一次。
    * 在构造上即有上限：条目只在传输期间存在，到达（成功或失败）后立即删除
-   * （与 view/scenePart.ts 的 `asking` 同类，登记于 `tools/rule_counts.py INFLIGHT_REGISTRIES`）。 */
+   * （与 view/scenePart.ts 的 `asking` 同类）。 */
   readonly filling = new Map<string, Promise<void>>();
   /** 服务器无法提供的帧（`Gone`：该帧不存在或该结果已失效）：后台取回不再重复请求。
    *
@@ -84,21 +84,18 @@ export function abortUnder(prefix: string): void {
 const BITMAP: ImageBitmapOptions = { premultiplyAlpha: "none", colorSpaceConversion: "none" };
 
 
-/** 源 id 中表示「该帧字节来源」一段的起始标记。
+/** 源 id 的前半段：「数据包 · 计算批次 · 代理档位 · 去畸变相机」，即压缩字节存放的前缀（transfer/ident.ts packetKey）。
  *
- * 源 id 分为两段：前半段为「数据包 · 代理档位」（`fp` + `@512`），
- * 后半段为「来源」（本机原件或服务器代理）。
- * 后半段不可缺少：解码后的帧按完整 id 存储，来源改变而 id 不变时会绘制旧图
+ * 源 id 以 `FROM`（`#from:`，transfer/ident.ts）分为两段：前半段即上述内容，后半段为「来源」（本机原件或
+ * 服务器代理）。后半段不可缺少：解码后的帧按完整 id 存储，来源改变而 id 不变时会绘制旧图
  * （见下方 `serverFrames` 的说明）。
  *
  * 压缩字节只与前半段有关：它们是服务器该档代理的字节，与该帧是否从磁盘读取无关。
  * 因此时间线的「已载入视图」按前半段查找字节（`transfer/frames.ts loadedFrames`），
  * 否则一个包只要有本机原件，该行报告的帧就会偏少（不会报错，只是数值偏小）。
  *
- * 使用 `#` 开头是因为它不会出现在 id 的其他位置：包指纹为十六进制，代理档位为 `@512`，
- * 通道名为 R G B A / valid；通道路径的 id 中已含有 `|`（`ch:<fp>|<通道>`），
- * 因此分隔符不能使用 `|`。 */
-/** 源 id 的前半段：「数据包 · 计算批次 · 代理档位」，即压缩字节存放的前缀（transfer/ident.ts packetKey）。 */
+ * 分隔符 `#from:` 不会出现在前半段中（包指纹为十六进制，批次紧跟在单个 `#` 之后，代理档位为 `@512`）；
+ * 通道路径的 id 中已含有 `|`（`ch:<fp>|<通道>`），因此分隔符不能使用 `|`。 */
 export const packetPart = (id: string): string => {
   const at = id.indexOf(FROM);
   return at < 0 ? id : id.slice(0, at);
@@ -127,7 +124,7 @@ const refusal = (e: unknown): unknown =>
  *
  * 已持有该帧（字节或已解码的位图）时不做任何操作，不发出任何请求，
  * 因此用户切回时不会重复取回。 */
-export function fillBytes(url: string, key: string, squeezed: boolean): Promise<void> {
+function fillBytes(url: string, key: string, squeezed: boolean): Promise<void> {
   const already = own.filling.get(key);
   if (already) return already;
   if (cache.has(bytesKey(key)) || cache.has(key) || isGone(key)) return Promise.resolve();
@@ -154,11 +151,9 @@ export function fillBytes(url: string, key: string, squeezed: boolean): Promise<
   return run;
 }
 
-/** 当前仅取字节的在途请求数（仅供测试使用：验证完成后该表为空）。 */
-export const fillsInFlight = (): number => own.filling.size;
-
-/** A picture fetched from the server (the proxy: lossy WebP or PNG), decoded off the page's thread. */
-/** `under`：在途请求所记录的键（默认即 `key`）。图片路径的字节键为「数据包 · 代理档位」前半段（`server_key`），两个源共用一个包
+/** A picture fetched from the server (the proxy: lossy WebP or PNG), decoded off the page's thread.
+ *
+ * `under`：在途请求所记录的键（默认即 `key`）。图片路径的字节键为「数据包 · 代理档位」前半段（`server_key`），两个源共用一个包
  * 时会产生相同的键：一个源的取消会中止另一个源的在途帧，`abortUnder(源 id)` 也无法找到任何条目；因此按完整源 id 的键记录。 */
 function fromServer(url: string, key: string, under = key): () => Promise<ImageBitmap> {
   return async () => {
@@ -206,9 +201,9 @@ function fromChannel(url: string, key: string): () => Promise<Plane> {
  *
  * `rules`：整段序列查询色彩空间时使用的文件名（默认为该帧自身的文件名）。
  * 一段序列只有一个色彩空间，读取节点本身也按第一个文件推断
- * （`lab2shot/nodes/core/input.py:260` `colorspace_for_file(str(first))`），
+ * （`lab2shot/nodes/core/input.py` 中的 `colorspace_for_file(str(first))`），
  * 因此整段使用同一文件名查询，一张表即可。不传入时每帧使用各自的文件名，即每帧一张表（见 `transfer/exr.ts`）。 */
-export function fromFile(file: File, space = "", rules = ""): () => Promise<ImageBitmap> {
+function fromFile(file: File, space = "", rules = ""): () => Promise<ImageBitmap> {
   return async () => {
     try {
       // 优先使用本机代理（`transfer/localProxy`：本机显示同样不是无损，使用一份本地压缩缓存）：
@@ -237,7 +232,7 @@ export const localFramesOf = (id: string): number[] => {
   return mine.frames.filter((f) => { const k = mine.keyOf?.(f); return !!k && proxyReady(k); });
 };
 
-export function markLocalSource(id: string, frames: number[], keyOf?: (frame: number) => string | undefined): void {
+function markLocalSource(id: string, frames: number[], keyOf?: (frame: number) => string | undefined): void {
   const mine = own.localFrames;
   if (mine.size >= LOCAL_MAX && !mine.has(id)) mine.delete(mine.keys().next().value as string);
   mine.set(id, { frames, keyOf });
@@ -254,16 +249,13 @@ export function markLocalSource(id: string, frames: number[], keyOf?: (frame: nu
  * 因此同一帧使用原件或代理时在屏幕上占据相同的矩形，只有清晰度不同
  * （切换节点时画面尺寸不得变化）。 */
 export function serverFrames(it: { fp: string; type: string; through?: Through | null }, manifest: Manifest | null): FrameSource | null {
-  // 浏览器计算的结果：每一帧由其实时计算（view/useLocal.ts），不经过网络传输
-  // （遮罩图与合成图既不在服务器生成，也不回传）
-  if (isLocal(it.fp)) return localSource(it.fp);
   if (!manifest) return null;
   const frames = Array.isArray(manifest.meta.frames) ? (manifest.meta.frames as number[]) : [];
   // 代理档位计入 id（缓存键须包含「数据包 · 帧 · 通道 · 代理档位」四项）。管理员更改档位后，服务器发送的是另一份字节，键也随之改变，
   // 不会将旧档位的字节当作新档位使用。用户本机文件不受影响：它是用户磁盘上的原件，不经过网络传输
   const t = tierTag(manifest);
   // 透过带畸变的相机查看时，不得使用本机原件：原件是带畸变的实拍，此时需要服务器按该相机镜头去畸变后的结果。
-  // 「透过的相机」同样计入 id 和每一帧的键：键由结构体生成（transfer/ident.ts），不再手工拼接
+  // 「透过的相机」同样计入 id 和每一帧的键：键由结构体生成（transfer/ident.ts），不手工拼接
   const through = it.through ?? null;
   const own = through ? null : originalsFor(it.fp, manifest);
   const head = { fp: it.fp, gen: genOf(it.fp), tier: t, through };
@@ -273,12 +265,12 @@ export function serverFrames(it: { fp: string; type: string; through?: Through |
   //
   // 解码后的帧存放在 `${源 id}:${帧}` 下（`transfer/frames.ts`）。查找原件是异步的：画面先用服务器数据
   // 绘制，原件稍后才登记；此时源已更换、`load` 已改为读取本机，但若 id 不变，
-  // 账本发现缓存中已有该帧即直接使用旧图，屏幕上将一直是模糊的代理图，既不报错，测试也无法发现。
+  // 账本发现缓存中已有该帧即直接使用旧图，屏幕上将一直是模糊的代理图，且不报错。
   // 因此本机帧数及对应的原件均写入 id；更换原件即对应另一组键，不会将旧数据当作新数据使用。
   // 文件组成及解码所用的色彩空间均包含在结构体中（transfer/ident.ts）：两段序列帧数相同、目录名相同、
   // 节点未重算因而 `fp` 也相同时，只能依靠这些字段区分，否则已查看过的数十帧会从缓存中原样返回上一段的画面
   const id = identOf({ ...head, local: own ? { digest: filesDigest(own), where: own.where, frames: own.frames.length, space: own.space } : null });
-  // 位于本机的帧（用户选择的文件，或交付写入用户磁盘的文件）：它们在磁盘上，播放时无需等待
+  // 位于本机的帧（用户选择的素材文件）：它们在磁盘上，播放时无需等待
   const mine = frames.filter((f) => here.has(f));
   const keyOf = (f: number) => own?.keys?.get(f);
   if (mine.length) markLocalSource(id, mine, keyOf);
@@ -315,12 +307,8 @@ function filesDigest(own: Originals): string {
   return digestOf(own.frames.map((f) => `${f}=${own.keys!.get(f) ?? ""}`));
 }
 
-/** 若干字符串的短散列（FNV-1a），用作缓存键的一部分。 */
-function digestOf(parts: readonly string[]): string {
-  let h = 2166136261;
-  for (const p of parts) for (const ch of `${p};`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
-  return (h >>> 0).toString(36);
-}
+/** 若干字符串的短散列（platform/digest.ts），用作缓存键的一部分。 */
+const digestOf = (parts: readonly string[]): string => shortHash(parts.map((p) => `${p};`).join(""));
 
 /** 该帧走图片路径的地址（视频与序列图为两条路由，其余完全相同）。 */
 const pictureUrl = (it: { fp: string; type: string }, frame: number, through: Through | null = null, v?: Version): string =>
@@ -334,21 +322,18 @@ const pxOfTag = (tier: string): number | undefined => (tier.startsWith("@") ? Nu
  * 到达后成为另一个 id 并重新获取一次，这优于用错误档位的字节绘制。 */
 export const tierTag = (manifest: Manifest | null): string => (manifest?.proxy ? `@${manifest.proxy.px}` : "");
 
+/** 单条通道帧源的 id：「数据包 · 通道 · 代理档位」（帧号由账本附加在后）。
+ * 后台整段填充与跨包预取按同一 id 存储（transfer/fill.ts、transfer/prefetchLive.ts），
+ * 因此切换离开再切回时命中缓存，无需再传输任何字节。 */
+export const channelId = channelIdent;
+
 /** 一条通道的所有帧（按通道取数路径）：`name` 为通道名（R G B A，或 `valid`）。
  *
  * 与 `serverFrames` 属于同一账本中的同类数据，窗口、预算、取消、时间线均不作区分
  * （缓存键即「包指纹 + 帧 + 通道」）。
  * 代理档位计入 id，因此管理员更改档位即对应另一组键，不会将旧档位的字节当作新档位使用；切换离开再切回时使用缓存中
  * 的数据，无需再走网络。 */
-/** 单条通道帧源的 id：「数据包 · 通道 · 代理档位」（帧号由账本附加在后）。
- * 后台整段填充与跨包预取按同一 id 存储（transfer/frames.ts、transfer/prefetchLive.ts），
- * 因此切换离开再切回时命中缓存，无需再传输任何字节。 */
-export const channelId = channelIdent;
-
 export function channelFrames(fp: string, name: string, frames: number[], tier: string): FrameSource {
-  // 浏览器计算的结果：该通道由其实时计算，不经过网络传输（transfer/computed.ts）
-  const mine = isLocal(fp) ? localPlane(fp, name) : null;
-  if (mine) return mine;
   const id = channelId(fp, name, tier);
   const have = new Set(frames);
   const v: Version = { g: genOf(fp), px: pxOfTag(tier) };
@@ -362,12 +347,11 @@ export function channelFrames(fp: string, name: string, frames: number[], tier: 
 
 /** 用户在本标签页中选择的文件本身即构成一个帧源：
  * 帧到文件的对应关系由浏览器自行建立，无需等待服务器。`space`：EXR 解码所用的色彩空间。 */
-export function pickedFrames(given: string, item: { kind: string; frames: number[]; files: File[] }, space = "", still = 1001): FrameSource {
+export function pickedFrames(node: string, item: { kind: string; frames: number[]; files: File[] }, space = "", still = 1001): FrameSource {
   const frames = item.kind === "sequence" ? item.frames : [still];
-  // 文件组成同样须计入 id：若 id 只有 `picked:<节点>`，更换文件后 id 完全相同，解码后的帧按 `${id}:${帧}`
-  // 从缓存原样取出，显示的将是上一段的画面（读取另一个序列或重新选择均无法更新）。
-  // 将文件键（名称、大小、修改时间）拼接后的短散列计入 id，更换文件即对应另一组缓存键
-  const id = `${given}#${digestOf(item.files.map(fileKeyOf))}#${space}`;  // 色彩空间也计入键：同一文件换用不同色彩空间即为另一张图
+  // 文件组成同样须计入 id：若 id 只有节点，更换文件后 id 完全相同，解码后的帧按 `${id}:${帧}` 从缓存原样取出，
+  // 显示的将是上一段的画面（读取另一个序列或重新选择均无法更新）
+  const id = pickedIdent({ node, digest: digestOf(item.files.map(fileKeyOf)), space });
   // 这些帧位于用户本机磁盘上，无需等待（规则见 `transfer/frames.ts loadedFrames` 上方说明）。
   // 若遗漏此句：位图被预算淘汰后即判为「该帧不在浏览器中」，播放器（`editor/Timeline.tsx`
   // 的 `keepingUp`）将停下来等待一个本就在磁盘上的帧，且不报错。
@@ -401,7 +385,7 @@ export function pickedFrames(given: string, item: { kind: string; frames: number
 export function localFirst(server: FrameSource | null, local: FrameSource | null, exact: boolean): FrameSource | null {
   if (!local) return server;
   if (!server) return local;
-  const id = `${server.id}${FROM}${exact ? "本机优先" : "服务器优先"} ${local.id}`;
+  const id = mergedIdent({ server: server.id, local: local.id, exact });
   const here = new Set(local.frames);
   // 合并后是一个新源，因此「哪些帧在本机」「整段是否需要取回」须在新 id 上重新声明。
   // 遗漏任何一项都不会报错：① `markLocalSource` 记录在 `server.id` / `local.id` 上，合并后的 id
@@ -425,11 +409,8 @@ export function localFirst(server: FrameSource | null, local: FrameSource | null
   };
 }
 
-/** Frames fetched by address (a benchmark sample's frames: the files' own bytes on the server). */
+/** Frames fetched by address (a running node's frames already written, view/partial.ts). */
 export function urlFrames(id: string, frames: number[], url: (frame: number) => string): FrameSource {
   const have = new Set(frames);
   return { id, frames, load: (f) => (have.has(f) ? fromServer(url(f), `${id}:${f}`) : undefined) };
 }
-
-/** The frames of a source currently in the browser, whether fetched by the view or by the prefetcher (one cache, one key
- * for both): what a ruler marks as loaded and what the timeline's 已载入视图 row reads, so the row fills as prefetch proceeds. */

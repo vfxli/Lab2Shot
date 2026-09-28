@@ -1,30 +1,43 @@
 /** The queue's tables: a job row with its client, the job log, the account's finished jobs with their cache marks. */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../api";
-import type { CacheMark, JobRecord, QueueJob } from "../api";
-import { fullTimeText, roughlyText } from "../platform/format";
+import type { CacheMark, JobRecord, JobState, QueueJob, TaskGroup } from "../api";
+import { clockText, fullTimeText, roughlyText, sizeText } from "../platform/format";
 import { Button, ButtonLink } from "./Button";
 import { useConfirm } from "./Confirm";
 import { msg, reasonOf, textOf } from "../messages/message";
 import { say } from "../state/say";
-import { ClientDetail, LANE_WHERE, Outcome, Progress, StateChip, elapsed, submittedAt } from "./Queue";
-import { DRAG_QUEUED_ONLY, DRAG_QUEUE_TIP, useRowDrag } from "./rowDrag";
+import { ClientDetail, Outcome, Progress, StateChip, elapsed, submittedAt, whereOf } from "./Queue";
+import { NameSheet } from "./NameSheet";
+import { shown, why, type Availability } from "../api/applies";
 
-/** 该任务计算的帧范围。目标节点属于节点图内部信息，查看者并不关心，因此放在节点图一格的悬停提示中。 */
+/** Whether a row offers an action on its task (delete, delete the group, rename the group), and why not now. In the
+ * editor the account acts on its own tasks through its own routes: always there. On the admin page it goes through an
+ * admin route, as the server resolved it for this login (`actionId`, server/available.py ACTIONS): not there when the
+ * login does not hold the route's right, greyed with why when its rights ran out. */
+function offer(admin: boolean, applies: Availability | null | undefined, actionId: string): { there: boolean; why: string } {
+  if (!admin) return { there: true, why: "" };
+  return { there: shown(applies, actionId), why: why(applies, actionId) };
+}
+
+/** 该任务计算的帧范围。目标节点属于节点图内部信息，查看者并不关心，因此放在名称的悬停提示中。 */
 const framesText = (j: { frames?: [number, number] | null }): string =>
   j.frames ? (j.frames[0] === j.frames[1] ? `${j.frames[0]}` : `${j.frames[0]}–${j.frames[1]}`) : "全部";
 
-function JobRow({ job, now, admin, onCancel, onForgotten, onLoad, cache, graphUrl, grip }: { job: QueueJob; now: number; admin: boolean; onCancel: (id: string) => void; onForgotten?: () => void; onLoad?: (id: string) => void; cache?: CacheMark | null; graphUrl?: (id: string) => string; grip?: GripProps }) {
+function JobRow({ job, now, admin, applies, onCancel, onForgotten, onLoad, cache, graphUrl, onFirst, inGroup = false }: { job: QueueJob; now: number; admin: boolean; applies?: Availability | null; onCancel: (id: string) => void; onForgotten?: () => void; onLoad?: (id: string) => void; cache?: CacheMark | null; graphUrl?: (id: string) => string; onFirst?: (job: QueueJob) => void; inGroup?: boolean }) {
   const [open, setOpen] = useState(false);
   const [ask, confirmSheet] = useConfirm();
   const active = job.state === "queued" || job.state === "running";
-  const canDrag = job.state === "queued";
   // 任务记录 keeps a job's state but not its position in the line (fromRecord: position null): a job that was still
   // waiting when the record was written must not display 「第 null 位」
-  const where = job.state === "queued" ? `${job.lane === "heavy" ? "CPU 队列" : job.lane === "light" ? "等空位" : ""}${job.position == null ? "排队中" : `第 ${job.position} 位`}${[textOf(job.waiting), textOf(job.waiting_detail)].filter(Boolean).map((w) => ` · ${w}`).join("")}` : LANE_WHERE[job.lane];
+  const where = job.state === "queued" ? `${job.position == null ? "排队中" : `第 ${job.position} 位`}${[textOf(job.waiting), textOf(job.waiting_detail)].filter(Boolean).map((w) => ` · ${w}`).join("")}` : whereOf(job);
+  // 插队（lab2shot/farm/queue.py Farm.first）：排队中或计算中的任务挪到队首。
+  // 按钮始终在，不能插队时置灰并写明原因，位置不变
+  const firstWhy = !active ? "这个任务已经结束了" : job.stopping ? "这个任务正在停止" : "";
   const client = job.client;
   const [forgetting, setForgetting] = useState(false);
+  const may = offer(admin, applies, "queue.forget");
   const forget = async () => {
     if (!(await ask({ title: "删除任务", say: msg("N-JOB-FORGET", { title: job.title || "这个任务" }), yes: "删除", danger: true,
                       tip: "删了找不回来" }))) return;
@@ -41,23 +54,15 @@ function JobRow({ job, now, admin, onCancel, onForgotten, onLoad, cache, graphUr
   };
   return (
     <>
-      <tr className={`${job.mine ? "mine" : ""}${admin ? " expandable" : ""}${grip?.over ? " drag-over" : ""}`} onClick={admin ? () => setOpen(!open) : undefined} {...(grip?.row ?? {})}>
-        {grip && (
-          // 拖拽插队：手柄始终存在，不可拖动时置灰并注明原因，位置不变
-          <td className="q-grip-cell">
-            <span className={`q-grip${canDrag ? "" : " off"}`} data-tip={canDrag ? DRAG_QUEUE_TIP : DRAG_QUEUED_ONLY} onClick={(e) => e.stopPropagation()} {...(canDrag ? grip.handle : {})}>
-              ⠿
-            </span>
-          </td>
-        )}
+      <tr className={[admin && "expandable", inGroup && "q-member"].filter(Boolean).join(" ") || undefined} onClick={admin ? () => setOpen(!open) : undefined}>
         <td>
           <StateChip state={job.state} />
         </td>
         <td className="q-body">
           {/* 每一行固定为两行：上方为名称，下方为一排数值。名称与数值不能放在同一个会换行的 flex 中：
               内容多的行会折到第二行，内容少的行（中断且无耗时、无交付、无缓存）则挤在名称右侧不换行，
-              同一列内容在各行中位置不一致，无法对齐。名称单独一行、数值单独一行，数值行为固定的四列网格
-              （帧范围 | 提交 | 用时 | 剩余），各列跨行对齐；缺少的值留空，位置不变。 */}
+              同一列内容在各行中位置不一致，无法对齐。名称单独一行、数值单独一行，数值行为固定的五列网格
+              （帧范围 | 提交 | 用时 | 交付 | 缓存，queueRow.css .q-line-facts），各列跨行对齐；缺少的值留空，位置不变。 */}
           <div className="q-line-name">
             {/* 名称：用户自己的数据，是唯一可截断的项，占用整行宽度 */}
             <span className="q-title" data-user-data={job.title ? "" : undefined} data-tip={job.title
@@ -70,7 +75,7 @@ function JobRow({ job, now, admin, onCancel, onForgotten, onLoad, cache, graphUr
                 {client ? (
                   <>
                     <span className="q-who">{client.who}</span>
-                    {client.department && <span className="chip q-dept" data-tip="账号的部门">{client.department}</span>}
+                    {client.department && <span className="chip q-dept" data-tip="账号的环节">{client.department}</span>}
                     {job.mine && <span className="chip q-mine">我的</span>}
                     {client.app !== "web" && <span className="q-app">{client.app}</span>}
                   </>
@@ -82,7 +87,7 @@ function JobRow({ job, now, admin, onCancel, onForgotten, onLoad, cache, graphUr
           </div>
           <div className="q-line-facts tnum">
             <span className="q-f" data-tip="算的是哪几帧">{framesText(job)}</span>
-            {/* 悬停提示中显示年月日：表中只显示时分（列窄且跨行对齐），但最近 30 条可能跨越多天，
+            {/* 悬停提示中显示年月日：表中只显示时分（列窄且跨行对齐），但列出的任务可能跨越多天，
                 仅凭「17:26」无法判断日期 */}
             <span className="q-f" data-tip={`提交时间：${fullTimeText(job.submitted)}`}>{submittedAt(job)}</span>
             <span className="q-f" data-tip="用了多久">{elapsed(job, now)}</span>
@@ -91,7 +96,7 @@ function JobRow({ job, now, admin, onCancel, onForgotten, onLoad, cache, graphUr
                 每行只有一个进度区域 */}
             {active ? (
               <span className="q-f q-run">
-                {/* 排队位置只在排队中的行显示。后台表格有独立的「位置」列，此处不重复 */}
+                {/* 排队位置只在编辑器中排队的行显示；后台表格不显示它 */}
                 {!admin && job.state === "queued" && where && <span data-tip="排在第几位">{where}</span>}
                 <Progress job={job} now={now} />
               </span>
@@ -106,6 +111,15 @@ function JobRow({ job, now, admin, onCancel, onForgotten, onLoad, cache, graphUr
           </div>
         </td>
         <td className="q-act">
+          {onFirst && (
+            <Button
+              tip={firstWhy || "插队：把这个任务挪到队首，之后空出来的显卡和 CPU 名额先给它；它正在算的和别的任务正在算的节点都不受影响"}
+              disabled={!!firstWhy}
+              onClick={(e) => (e.stopPropagation(), onFirst(job))}
+            >
+              插队
+            </Button>
+          )}
           <Button
             tip={!active ? "这个任务已经结束了，没什么可取消的" : !(job.mine || admin) ? "别人的任务只有他自己和管理员能取消"
               : job.state === "queued" ? "移出队列" : "停下这个任务（已经算好的节点保留在缓存里）"}
@@ -117,18 +131,20 @@ function JobRow({ job, now, admin, onCancel, onForgotten, onLoad, cache, graphUr
           >
             {job.stopping ? "停止中…" : "取消"}
           </Button>
-          {/* 删除：仅对已结束的任务可用，计算中的任务须先「取消」。这是腾出空间的操作：该行记录、交付包、
+          {/* 删除：仅对已结束的任务可用，计算中的任务须先「取消」。这是腾出空间的操作：该行记录、输出的文件夹和 zip、
               仅被该任务使用的缓存及上传素材一并删除；其他任务或模板仍在引用的一律保留
               （server/quota.py drop_for_job）。不提供单独清理缓存的按钮，腾出空间只有这一途径。 */}
-          <Button
-            tip={active ? "这个任务还在算，删不掉：先点「取消」，停下来之后再删"
-              : !(job.mine || admin) ? "别人的任务只有他自己和管理员能删"
-                : "把这一行从队列里删掉，连同它占的空间：交付包、只有它用到的缓存、只有它用到的上传素材（别的任务和模板还用得上的留着）"}
-            disabled={active || !(job.mine || admin) || forgetting}
-            onClick={(e) => (e.stopPropagation(), void forget())}
-          >
-            {forgetting ? "删除中…" : "删除"}
-          </Button>
+          {may.there && (
+            <Button
+              tip={active ? "这个任务还在算，删不掉：先点「取消」，停下来之后再删"
+                : !(job.mine || admin) ? "别人的任务只有他自己和管理员能删"
+                  : may.why || "把这一行从队列里删掉，连同它占的空间：输出的文件夹和 zip、只有它用到的缓存、只有它用到的上传素材（别的任务和模板还用得上的留着）"}
+              disabled={active || !(job.mine || admin) || !!may.why || forgetting}
+              onClick={(e) => (e.stopPropagation(), void forget())}
+            >
+              {forgetting ? "删除中…" : "删除"}
+            </Button>
+          )}
           {onLoad && (
             <Button
               tip={active ? "还在算，算完了才能把它当时的节点图打开" : "打开这个任务提交时的节点图（节点、参数、连线、视图），作为一张新的还没保存的节点图；结果还在缓存里的马上就能看"}
@@ -143,7 +159,7 @@ function JobRow({ job, now, admin, onCancel, onForgotten, onLoad, cache, graphUr
       {confirmSheet}
       {admin && open && client && (
         <tr className="q-expanded">
-          <td colSpan={grip ? 4 : 3}>
+          <td colSpan={3}>
             <ClientDetail client={client} />
             {job.error && <pre className="q-error-full">{job.error}</pre>}
             {graphUrl && (
@@ -161,7 +177,7 @@ function JobRow({ job, now, admin, onCancel, onForgotten, onLoad, cache, graphUr
 /** A job from the job log, shown like a finished job of the queue. */
 export const fromRecord = (r: JobRecord, mine = false): QueueJob => ({
   ...r,
-  outputs: (r.outputs ?? []).filter((o) => typeof o === "object" && Array.isArray(o?.files)), // records from before deliveries listed plain paths are skipped
+  outputs: (r.outputs ?? []).filter((o) => typeof o === "object" && !!o?.pkg), // only an output packed into its task (lab2shot/transfer/outputs.py)
   eta: null,
   position: null,
   waiting: null,
@@ -173,41 +189,63 @@ export const fromRecord = (r: JobRecord, mine = false): QueueJob => ({
   mine,
 });
 
-/** What a draggable row needs: the handle's props, the row's props, and whether the pointer is over it. */
-interface GripProps {
-  handle: Record<string, unknown>;
-  row: Record<string, unknown>;
-  over: boolean;
-}
-
-export function JobTable({ jobs, admin, onCancel, onForgotten, onLoad, graphUrl, onReorder }: {
+export function JobTable({ jobs, admin, applies, onCancel, onForgotten, onLoad, graphUrl, onFirst }: {
   jobs: { job: QueueJob; cache?: CacheMark | null }[];
   admin: boolean;
+  applies?: Availability | null; // the admin page: which actions on others' tasks this login has (offer)
   onCancel: (id: string) => void;
   onForgotten?: () => void; // 删除了一行：重新读取队列（该行已移除，占用也可能变化）
   // 编辑器：一张表即全部内容（计算中、排队中、已完成只是状态不同），因此行中增加「缓存」和「加载」
   onLoad?: (id: string) => void;
   graphUrl?: (id: string) => string;
-  // 拖拽插队 (lab2shot/farm/queue.py Farm.reorder): the dragged job and the position within its own lane where it was
-  // dropped (1-based). Omitted: the table is not draggable (the editor's 队列 window, the job log).
-  onReorder?: (job: QueueJob, position: number) => void;
+  // 插队 (lab2shot/farm/queue.py Farm.first): put a task still to finish at the front of the queue. Omitted: no row
+  // offers it (the editor's 队列 window, a login that may not move jobs).
+  onFirst?: (job: QueueJob) => void;
 }) {
+  // the clock the rows' 用时 and progress read: it moves only while a task is queued or running, so a table of
+  // finished tasks is not redrawn every second
   const [now, setNow] = useState(Date.now() / 1000);
+  const live = jobs.some(({ job }) => isActive(job));
   useEffect(() => {
+    if (!live) return;
+    setNow(Date.now() / 1000);
     const t = window.setInterval(() => setNow(Date.now() / 1000), 1000);
     return () => window.clearInterval(t);
-  }, []);
-  // a drag moves a job within its own lane, so it may only be dropped on that lane's other waiting jobs, and its new
-  // position is counted among them. Any other target is refused during the drag (rowDrag's `can`: the row is not
-  // highlighted and the pointer shows 禁止); a drop is never silently ignored.
-  const at = (i: number) => jobs[i]?.job;
-  const waitingWith = (moved: QueueJob) => jobs.filter(({ job: j }) => j.state === "queued" && j.lane === moved.lane).map((r) => r.job);
-  const canDrop = (from: number, to: number) =>
-    at(from)?.state === "queued" && at(to)?.state === "queued" && at(to)!.lane === at(from)!.lane;
-  const drag = useRowDrag((from, to) => {
-    const moved = at(from);
-    if (moved) onReorder?.(moved, waitingWith(moved).indexOf(at(to)!) + 1);
-  }, canDrop);
+  }, [live]);
+  // 默认按组显示（lab2shot/transfer/groups.py：同一份素材，或没有素材时同一个模板的同一个两小时时段）：每组一行，
+  // 点开才列出组里的每个任务。只有已结束的任务进组：进行中（排队、计算中）的不分组，按队列的顺序平铺在最上面，
+  // 始终看得见、能插队；结束之后才归入它的组。组排在它最靠前的那个已结束任务的位置上（结束的按新到旧，顺序不变）。
+  // 不是任务的行（别人的匿名任务）照常一行一个
+  const blocks = blocksOf(jobs.map((r) => r.job));
+  // 每组还有几个任务在进行中（平铺在上面的那些）：组那一行照样说出来
+  const going = new Map<string, number>();
+  for (const { job: j } of jobs) if (j.group && isActive(j)) going.set(groupId(j), (going.get(groupId(j)) ?? 0) + 1);
+  const grouped = new Set(blocks.flatMap((b) => (b.group ? b.rows : [])));
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (id: string) => setOpen((was) => {
+    const next = new Set(was);
+    if (!next.delete(id)) next.add(id);
+    return next;
+  });
+  const row = (i: number) => {
+    const { job: j, cache } = jobs[i];
+    return (
+      <JobRow
+        key={j.id || `load-${i}`}
+        job={j}
+        cache={cache}
+        now={now}
+        admin={admin}
+        applies={applies}
+        onCancel={onCancel}
+        onForgotten={onForgotten}
+        onLoad={onLoad}
+        graphUrl={graphUrl}
+        inGroup={grouped.has(i)}
+        onFirst={onFirst}
+      />
+    );
+  };
   return (
     <div className="q-table-wrap">
       <table className="q-table q-jobs">
@@ -217,30 +255,187 @@ export function JobTable({ jobs, admin, onCancel, onForgotten, onLoad, graphUrl,
               因此只设三格：状态 | 主体 | 操作。主体格内容可以换行，名称是唯一可截断的项
               （用户自己的数据），操作靠右且不压缩。任何内容、任何宽度下均不会溢出。 */}
           <tr>
-            {onReorder && <th className="q-grip-cell" />}
             <th>状态</th>
             <th>任务</th>
             <th />
           </tr>
         </thead>
         <tbody>
-          {jobs.map(({ job: j, cache }, i) => (
-            <JobRow
-              key={j.id || `load-${i}`}
-              job={j}
-              cache={cache}
-              now={now}
-              admin={admin}
-              onCancel={onCancel}
-              onForgotten={onForgotten}
-              onLoad={onLoad}
-              graphUrl={graphUrl}
-              grip={onReorder ? { handle: drag.grip(i), row: drag.row(i), over: drag.over === i } : undefined}
-            />
-          ))}
+          {blocks.map((b) => b.group ? (
+            <GroupRows key={b.id} group={b.group} jobs={b.rows.map((i) => jobs[i].job)} going={going.get(b.id) ?? 0} open={open.has(b.id)} onToggle={() => toggle(b.id)}
+                       admin={admin} applies={applies} onForgotten={onForgotten}>
+              {b.rows.map(row)}
+            </GroupRows>
+          ) : row(b.rows[0]))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+const isActive = (j: QueueJob) => j.state === "queued" || j.state === "running";
+
+/** A group's id on the page: the account is part of it (the key is made with the account in it all the same). */
+const groupId = (j: QueueJob) => `group-${j.client?.user ?? ""}-${j.group?.key ?? ""}`;
+
+/** The table as it is drawn: a group's finished rows together under its one line, at the place of its first finished
+ * row; every other row on its own, a waiting or running task among them (it is never put in a group: it stays where
+ * the queue has it, in sight, its 插队 at hand). `rows` are indices into the table's own list. */
+function blocksOf(jobs: QueueJob[]): { id: string; group: TaskGroup | null; rows: number[] }[] {
+  const out: { id: string; group: TaskGroup | null; rows: number[] }[] = [];
+  const at = new Map<string, number>();
+  jobs.forEach((j, i) => {
+    if (!j.group || isActive(j)) {
+      out.push({ id: `job-${j.id || i}`, group: null, rows: [i] });
+      return;
+    }
+    const id = groupId(j);
+    const found = at.get(id);
+    if (found === undefined) {
+      at.set(id, out.length);
+      out.push({ id, group: j.group, rows: [i] });
+    } else out[found].rows.push(i);
+  });
+  return out;
+}
+
+/** 没有素材的一组是哪个两小时时段：「9月28日 14:00–16:00」（按这台电脑的时区显示服务器分的时段）。 */
+const slotText = (start: number): string => {
+  const d = new Date(start * 1000);
+  const end = new Date((start + 2 * 3600) * 1000);
+  const hm = (t: Date) => `${String(t.getHours()).padStart(2, "0")}:00`;
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${hm(d)}–${end.getHours() === 0 ? "24:00" : hm(end)}`;
+};
+
+/** 一组的状态：组里只有已结束的任务（进行中的平铺在上面），即最新那个的状态。 */
+const groupState = (jobs: QueueJob[]): JobState => jobs[0].state;
+
+/** 组名。同一个账号有两个按素材分的组同名时，后面加上这组第一个任务的时间：「sh030_plate · 9月28日 14:05」（只在显示上区分）。
+ * 改过名的组照原样显示用户起的名字（服务器不会给它 twin）。 */
+const groupName = (group: TaskGroup): string => {
+  const name = group.name || "未命名";
+  if (!group.twin) return name;
+  const d = new Date(group.first * 1000);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${name} · ${d.getMonth() + 1}月${d.getDate()}日 ${two(d.getHours())}:${two(d.getMinutes())}`;
+};
+
+/** A group's one line (collapsed by default) and, open, its finished tasks' rows (`children`, drawn by the table);
+ * `going`: how many of its tasks are waiting or running (listed flat above). 改名: the name it is shown by (the
+ * server's PUT /api/task-groups/<key>/name, an administrator's for anyone's group; empty: the automatic name again);
+ * the grouping stays. 删除组: every finished task of the group, each the way a single 删除 removes it (the server's
+ * DELETE /api/task-groups: the tasks still queued or computing are left and said). `onForgotten`: re-read the table
+ * (after either). The group's name is the user's own data: plain text only. */
+function GroupRows({ group, jobs, going, open, onToggle, admin, applies, onForgotten, children }: {
+  group: TaskGroup;
+  jobs: QueueJob[];
+  going: number;
+  open: boolean;
+  onToggle: () => void;
+  admin: boolean;
+  applies?: Availability | null;
+  onForgotten?: () => void;
+  children: ReactNode;
+}) {
+  const [ask, confirmSheet] = useConfirm();
+  const [forgetting, setForgetting] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const first = jobs[0];
+  const client = first.client;
+  const name = groupName(group);
+  const listed = jobs.length + going;
+  const owner = first.mine || admin;
+  const mayForget = offer(admin, applies, "queue.forgetgroup");
+  const mayRename = offer(admin, applies, "queue.rename");
+  const latest = Math.max(...jobs.map((j) => j.submitted));
+  const forget = async () => {
+    if (!(await ask({ title: "删除这一组", say: msg("N-GROUP-FORGET", { name, count: group.count }), yes: "删除这一组", danger: true,
+                      tip: "删了找不回来" }))) return;
+    setForgetting(true);
+    try {
+      const got = admin && client?.user !== undefined ? await api.admin.forgetGroup(client.user, group.key) : await api.forgetGroup(group.key);
+      say(msg("I-GROUP-FORGOTTEN", { name, jobs: got.jobs, size: sizeText(got.bytes) }));
+      if (got.skipped) say(msg("W-GROUP-SKIPPED", { name, skipped: got.skipped }));
+      onForgotten?.();
+    } catch (e) {
+      say(msg("E-JOB-FORGETFAILED", { reason: reasonOf(e as Error) }));
+    } finally {
+      setForgetting(false);
+    }
+  };
+  const rename = async (to: string) => {
+    try {
+      const got = admin && client?.user !== undefined ? await api.admin.renameGroup(client.user, group.key, to) : await api.renameGroup(group.key, to);
+      say(msg("I-GROUP-RENAMED", { name: got.name }));
+      onForgotten?.();
+    } catch (e) {
+      say(msg("E-GROUP-RENAMEFAILED", { reason: reasonOf(e as Error) }));
+    }
+  };
+  return (
+    <>
+      <tr className="q-group expandable" onClick={onToggle} aria-expanded={open}>
+        <td>
+          <StateChip state={groupState(jobs)} />
+        </td>
+        <td className="q-body">
+          <div className="q-line-name">
+            {/* 展开标记和组名同在一行：组名再长也只在自己那一格里切字，标记不会被挤到上一行 */}
+            <span className="q-group-name">
+              <span className="q-group-toggle" aria-hidden>{open ? "▾" : "▸"}</span>
+              <span className="q-title" data-user-data=""
+                    data-tip={[name, group.renamed ? "这个名字是改过的：分组还是原来的，之后进这一组的任务也用这个名字" : "",
+                               group.slot == null ? "按素材分组：这些任务读的素材内容一样。换了素材、增删输入节点就是新的一组"
+                                 : `没有素材的任务：同一个模板、同一个两小时时段（${slotText(group.slot)}）算一组`].filter(Boolean).join("\n")}>
+                {name}
+              </span>
+            </span>
+            {admin && client && (
+              <span className="q-facts">
+                <span className="q-who">{client.who}</span>
+                {client.department && <span className="chip q-dept" data-tip="账号的环节">{client.department}</span>}
+              </span>
+            )}
+          </div>
+          <div className="q-group-facts tnum">
+            <span data-tip={[listed < group.count ? `这里列出 ${listed} 个，这一组一共 ${group.count} 个任务` : "这一组的任务数",
+                             going ? "进行中的不放进组里，平铺在最上面，结束了才归到这一组" : ""].filter(Boolean).join("\n")}>
+              {group.count} 个任务{going ? ` · ${going} 个进行中` : ""}
+            </span>
+            {group.slot != null && <span data-tip="没有素材的任务按固定的两小时时段分组">{slotText(group.slot)}</span>}
+            <span data-tip={`最近一次提交：${fullTimeText(latest)}`}>最近 {clockText(latest)}</span>
+          </div>
+        </td>
+        <td className="q-act">
+          {mayRename.there && (
+            <Button
+              tip={!owner ? "别人的组只有他自己和管理员能改名" : mayRename.why || "给这一组改个名字：只改显示的名字，分组不变；之后进这一组的任务也用这个名字"}
+              disabled={!owner || !!mayRename.why}
+              onClick={(e) => (e.stopPropagation(), setRenaming(true))}
+            >
+              改名
+            </Button>
+          )}
+          {mayForget.there && (
+            <Button
+              tip={!owner ? "别人的任务只有他自己和管理员能删"
+                : mayForget.why || `把这一组的 ${group.count} 个任务都删掉，连同它们占的空间（和一条一条删一样）；正在排队和计算的不动`}
+              disabled={!owner || !!mayForget.why || forgetting}
+              onClick={(e) => (e.stopPropagation(), void forget())}
+            >
+              {forgetting ? "删除中…" : "删除这一组"}
+            </Button>
+          )}
+        </td>
+      </tr>
+      {confirmSheet}
+      {renaming && (
+        <NameSheet title="给这一组改名" label="组名" initial={group.renamed ? group.name : ""} max={64}
+                   empty={group.renamed ? "留空：回到自动起的名字" : `留空：用自动起的名字（${group.name || "未命名"}）`}
+                   save={rename} onClose={() => setRenaming(false)} />
+      )}
+      {open && children}
+    </>
   );
 }
 
@@ -250,7 +445,7 @@ const MARK: Record<CacheMark["mark"], [string, string]> = {
   none: ["已清理", "var(--text-3)"],
 };
 
-/** 清理后重新计算所需时间的完整描述，统一在一处生成：缓存标记的悬停提示与「清缓存」确认框均原样使用
+/** 重新计算所需时间的完整描述，整句在一处生成，缓存标记的悬停提示原样使用
  * （拼接半句会产生「大概 多久还不知道」这类不通顺的文字）。 */
 const againText = (cache: CacheMark): string =>
   cache.seconds > 0
@@ -259,9 +454,8 @@ const againText = (cache: CacheMark): string =>
       ? "重新算要多久还不知道：有节点还没有用时记录"
       : "重新算很快";
 
-/** Whether a finished job's results are still cached (determined by the server from the job's graph), and 清理: frees
- * this job's own cached results on behalf of the account (lab2shot/server/quota.py clean_job). 清理后该节点图仍可正常
- * 加载和计算，只是需要重新计算。 */
+/** Whether a finished job's results are still cached (determined by the server from the job's graph), and how long
+ * cooking them again would take. */
 function CacheCell({ cache }: { cache: CacheMark | null }) {
   // 不提供「清理」按钮：腾出空间的操作均在任务上，该行的「删除」已同时移除仅被它使用的缓存；
   // 再设一个仅清理缓存的按钮会使同一操作有两个入口，且清理后仍留下一行空任务，用户会误以为空间未释放。

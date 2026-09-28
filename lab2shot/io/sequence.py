@@ -151,7 +151,7 @@ def _split(name: str) -> _Name:
 
 def shape_of(name: str) -> str:
     """Names of one shape differ in their digit runs only: render_0001_beauty.exr and render_0002_beauty.exr are
-    render_#_beauty.exr. (lab2shot/client.py keeps a standard-library copy of this rule; a test holds them equal.)"""
+    render_#_beauty.exr. (lab2shot/client.py _shape keeps a standard-library copy of this rule; the two must stay equal.)"""
     return "#".join(p.replace("#", "##") for p in _split(name).pieces)
 
 

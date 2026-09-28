@@ -25,5 +25,5 @@ einops==0.8.1
 jaxtyping==0.3.2
 timm==1.0.20
 scipy==1.17.1
-# Reads the float EXR masks of the "mask" input (moving objects).
+# lab2shot_worker.files reads EXR masks with it (this node has no mask input).
 OpenEXR==3.4.15

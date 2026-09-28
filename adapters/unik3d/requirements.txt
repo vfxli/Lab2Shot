@@ -1,4 +1,4 @@
-# UniDepth V2 environment (torch comes from EnvSpec); UniK3D uses this same file
+# UniK3D environment (torch comes from EnvSpec): an identical copy of UniDepth V2's
 # (same author, same dependency list). Inference-only subset of upstream
 # requirements.txt: gradio / wandb / h5py / tables / pandas / trimesh are for the
 # demo app, training logs and datasets. The worker never imports those code paths

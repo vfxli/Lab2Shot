@@ -17,23 +17,55 @@ from . import FileProblem
 
 
 def said(path: str | Path, detail: str) -> str:
-    """返回读写库（OpenImageIO / OpenEXR）的原始错误信息，其中的服务器路径替换为文件名。
+    """The image library's (OpenImageIO / OpenEXR) own error text, with the server's folder taken out of it.
 
-    原始信息常含完整路径（`"/home/…/uploads/sets/…/plate.exr" is not an OpenEXR file`），
-    该路径是文件在服务器上的位置，对使用者无意义，且不应暴露。"""
+    That text often holds the full path (`"/home/…/uploads/sets/…/plate.exr" is not an OpenEXR file`): where the
+    file is on the server means nothing to the user and is not shown to them."""
     text = str(detail or "").strip()
     folder = str(Path(path).parent)
     return text.replace(folder + "/", "").replace(folder, "") if folder not in ("", ".") else text
 
 
+# What one read of a picture may make in memory (float32), whatever its header claims: a file of a few hundred bytes can
+# declare a display window of 30000x30000, and the read places its pixels in an array of that size. 1 << 28 pixels is a
+# 16384x16384 picture; 4 GB is such a picture's RGB in float32. Checked before any pixel is read (_fits).
+PIXELS_MAX = 1 << 28
+READ_MAX = 4 << 30
+
+
+def _fits(path: str | Path, spec, target: Window, channels: int) -> None:
+    """Refuse (E-IMAGE-TOOBIG) a read whose data window or target window would be more than PIXELS_MAX pixels, or
+    more than READ_MAX bytes over `channels` float32 channels."""
+    for w, h in ((spec.width, spec.height), (target[2], target[3])):
+        if w * h > PIXELS_MAX or w * h * channels * 4 > READ_MAX:
+            raise FileProblem(Msg("E-IMAGE-TOOBIG", file=Path(path).name, width=w, height=h, channels=channels,
+                                  pixels=PIXELS_MAX / 1e6, gb=READ_MAX / (1 << 30)))
+
+
+def _open(path: str | Path):
+    """An open OpenImageIO input for `path`; close it when done (a file that cannot be opened raises)."""
+    inp = oiio.ImageInput.open(str(path))
+    if inp is None:  # the file cannot be opened (as opposed to opened with no pixels to read)
+        raise FileProblem(Msg("E-IMAGE-OPEN", file=Path(path).name, detail=said(path, oiio.geterror())))
+    return inp
+
+
+def _rgb_names(names: list[str]) -> list[str]:
+    """The three channels read_rgb returns, from a file's channel names: R, G, B by name, else the first three, else
+    the first one three times."""
+    return ["R", "G", "B"] if all(c in names for c in "RGB") else names[:3] if len(names) >= 3 else names[:1] * 3
+
+
 def read_rgb(path: str | Path, box: tuple | None = None) -> np.ndarray:
     """Read the picture as float32 HxWx3: channels R, G, B by name (a multi-layer EXR may hold other layers alongside
     them). A file without them yields its first three channels; a single-channel file repeats that channel three
-    times. `box`: as in read_named."""
-    names = channel_names(path)
-    pick = ["R", "G", "B"] if all(c in names for c in "RGB") else names[:3] if len(names) >= 3 else names[:1] * 3
-    named = read_named(path, list(dict.fromkeys(pick)), box=box)
-    return np.stack([named[c] for c in pick], axis=-1)
+    times. `box`: as in read_named. The file is opened once (its channel names and its pixels from the same open)."""
+    inp = _open(path)
+    try:
+        parts = _parts(inp)
+        return _read_block(inp, path, parts, _rgb_names([n for names in parts for n in names if n is not None]), box)
+    finally:
+        inp.close()
 
 
 ALPHA_NAMES = ("A", "alpha")  # the picture's own alpha: an unprefixed A (a PNG's fourth channel, an EXR's rgba layer)
@@ -45,12 +77,20 @@ def has_alpha(path: str | Path) -> bool:
 
 
 def read_rgba(path: str | Path, box: tuple | None = None) -> np.ndarray:
-    """Read the picture as float32 HxWx4: R, G, B premultiplied by A, then A (1 when the file has no alpha)."""
-    rgb = read_rgb(path, box)
-    names = channel_names(path)
-    a = next((n for n in ALPHA_NAMES if n in names), None)
-    alpha = read_named(path, [a], box=box)[a] if a else np.ones(rgb.shape[:2], np.float32)
-    return np.concatenate([rgb, alpha[..., None]], axis=-1).astype(np.float32)
+    """Read the picture as float32 HxWx4: R, G, B premultiplied by A, then A (1 when the file has no alpha). One open
+    of the file, one read of its colour and its alpha."""
+    inp = _open(path)
+    try:
+        parts = _parts(inp)
+        names = [n for part in parts for n in part if n is not None]
+        a = next((n for n in ALPHA_NAMES if n in names), None)
+        pick = _rgb_names(names)
+        block = _read_block(inp, path, parts, pick + [a] if a else pick, box)
+    finally:
+        inp.close()
+    if a is None:
+        block = np.concatenate([block, np.ones((*block.shape[:2], 1), np.float32)], axis=-1)
+    return block.astype(np.float32, copy=False)
 
 
 def read_picture(path: str | Path, alpha: bool, box: tuple | None = None) -> np.ndarray:
@@ -59,51 +99,10 @@ def read_picture(path: str | Path, alpha: bool, box: tuple | None = None) -> np.
     return read_rgba(path, box) if alpha else read_rgb(path, box)
 
 
-def read_own(path: str | Path, *, channels: int | None = None, scale8: bool = True,
-             scale16: bool = True) -> tuple[np.ndarray, tuple[int, int, int, str]]:
-    """Read the picture as stored, without conversion to three channels as in read_rgb: the file's own channel count
-    (capped at `channels`), pixels as float32. `scale8` / `scale16`: whether integers of an 8- or 16-bit file are
-    scaled to 0..1 (colour) or kept as raw values (instance ids, 16-bit depth); floating-point files are always
-    returned as stored. Also returns the file header: (width, height, channel count, type). The data QA
-    (datasets/qa.py) and the ground-truth reading blocks (datasets/blocks/image.py) use this function as their single
-    entry point to OpenImageIO."""
-    inp = oiio.ImageInput.open(str(path))
-    if inp is None:
-        raise FileProblem(Msg("E-IMAGE-OPEN", file=Path(path).name, detail=said(path, oiio.geterror())))
-    try:
-        spec = inp.spec()
-        base = spec.format.basetype
-        n = spec.nchannels if channels is None else min(channels, spec.nchannels)
-        keep = base in (oiio.UINT8, oiio.UINT16) and not (scale8 if base == oiio.UINT8 else scale16)
-        a = inp.read_image(0, 0, 0, n, base if keep else oiio.FLOAT)  # read as float: integers are normalised to 0..1
-        if a is None:
-            raise FileProblem(Msg("E-IMAGE-READ", file=Path(path).name, detail=said(path, inp.geterror())))
-        px = np.asarray(a, np.float32)
-        header = (spec.width, spec.height, spec.nchannels, str(spec.format))
-    finally:
-        inp.close()
-    if px.ndim == 2:
-        px = px[..., None]
-    return px, header
-
-
 def unpremultiply(rgba: np.ndarray) -> np.ndarray:
     """Convert premultiplied HxWx4 to straight colour HxWx3 (where alpha is 0 the colour is left unchanged, i.e. black)."""
     a = rgba[..., 3:4]
     return np.where(a > 0, rgba[..., :3] / np.maximum(a, 1e-8), rgba[..., :3]).astype(np.float32)
-
-
-def header(path: str | Path) -> tuple[int, int, int, str]:
-    """Return the file header: width, height, channel count and type name ("uint8", "half" ...), with a single open
-    for checks that need several fields. Used by the data QA's detection; pixels are read by read_own / read_rgb."""
-    inp = oiio.ImageInput.open(str(path))
-    if inp is None:
-        raise FileProblem(Msg("E-IMAGE-OPEN", file=Path(path).name, detail=said(path, oiio.geterror())))
-    try:
-        spec = inp.spec()
-        return spec.width, spec.height, spec.nchannels, str(spec.format)
-    finally:
-        inp.close()
 
 
 def image_size(path: str | Path) -> tuple[int, int]:
@@ -128,6 +127,18 @@ def stores_float(path: str | Path) -> bool:
         return inp.spec().format.basetype in (oiio.HALF, oiio.FLOAT, oiio.DOUBLE)
     finally:
         inp.close()
+
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def is_rgb_png(path: str | Path) -> bool:
+    """Return whether the file is a PNG of three samples per pixel, 8 or 16 bit: colour type 2 in its IHDR chunk, not
+    grey, grey + alpha, palette or RGBA. Read from the file's first 26 bytes (signature, IHDR length and name, width,
+    height, bit depth, colour type), nothing decoded: payloads.worker_ready asks it of every frame of a plate."""
+    with open(path, "rb") as f:
+        head = f.read(26)
+    return len(head) == 26 and head[:8] == PNG_SIGNATURE and head[12:16] == b"IHDR" and head[24] in (8, 16) and head[25] == 2
 
 
 Window = tuple[int, int, int, int]  # x, y, width, height (data/windows.py Window describes what a packet stores)
@@ -240,16 +251,17 @@ def views(path: str | Path) -> list[str]:
 
 
 def _view_of(channel: str, multi_view: list[str]) -> str:
-    """返回单部分多视角 EXR 中该通道所属的视角，遵循 OpenEXR 的约定（ImfMultiView viewFromChannelName）：
-    通道名按点分段，倒数第二段为视角名时属于该视角，否则属于第一个视角（hero view）。
-    因此 left.R、forward.left.u、whitebarmask.left.mask 属于左眼，disparityL.x 和 Z 属于 hero 视角。
-    不得只判断第一段，否则 forward.left.u 这类通道会被错误归入 hero 视角。"""
+    """The view a channel of a single-part multi-view EXR belongs to, by OpenEXR's rule (ImfMultiView
+    viewFromChannelName): split at the dots, a channel whose second-to-last segment is a view name belongs to that view,
+    any other to the first view (the hero view). So left.R, forward.left.u and whitebarmask.left.mask are the left
+    eye's, disparityL.x and Z the hero view's. Looking at the first segment alone would put forward.left.u in the hero
+    view."""
     parts = channel.split(".")
     return parts[-2] if len(parts) >= 2 and parts[-2] in multi_view else multi_view[0]
 
 
 def _without_view(channel: str, view: str) -> str:
-    """去掉通道名中的视角名一段，返回该通道在此视角内的原名：forward.left.u -> forward.u，left.R -> R。"""
+    """The channel's name within its view, the view segment taken out: forward.left.u -> forward.u, left.R -> R."""
     parts = channel.split(".")
     if len(parts) >= 2 and parts[-2] == view:
         del parts[-2]
@@ -280,7 +292,7 @@ def _parts(inp, view: str | None = None) -> list[list[str | None]]:
         raw: list[str | None] = list(spec.channelnames)
         if view is not None:
             part = re.sub(rf"[._]{re.escape(own)}$", "", part) if own else part
-            if not own and len(together) > 1:  # 单个部分包含所有视角：按 OpenEXR 的约定选出该视角的通道
+            if not own and len(together) > 1:  # one part holds every view: this view's channels, by OpenEXR's rule
                 raw = [(_without_view(n, view) if _view_of(n, together) == view else None) for n in raw]
         names = [None if n is None else n if "." in n or not part else f"{part}.{n}" for n in raw]
         present = {n for n in names if n is not None}
@@ -323,31 +335,82 @@ def read_named(path: str | Path, names: list[str] | None = None, view: str | Non
     `box` (x, y, w, h) is relative to the display window's top-left corner, as in a packet's data window
     (data/windows.py): every channel is returned at that size, with the file's pixels in place and 0 elsewhere. None
     selects the display window (the picture's format, as used by nodes operating on the plate frame)."""
-    inp = oiio.ImageInput.open(str(path))
-    if inp is None:  # 文件无法打开（区别于打开后读不到像素）
-        raise FileProblem(Msg("E-IMAGE-OPEN", file=Path(path).name, detail=said(path, oiio.geterror())))
-    out: dict[str, np.ndarray] = {}
+    inp = _open(path)
     try:
-        full, _ = _windows(inp)
-        target = full if box is None else (full[0] + int(box[0]), full[1] + int(box[1]), int(box[2]), int(box[3]))
-        for sub, channels in enumerate(_parts(inp, view)):
-            wanted = [i for i, n in enumerate(channels) if n is not None and (names is None or n in names)]
-            if not wanted:
-                continue
-            lo, hi = wanted[0], wanted[-1] + 1  # read the whole span at once (a layer's channels are contiguous)
-            pixels = inp.read_image(sub, 0, lo, hi, oiio.FLOAT)
-            if pixels is None:
-                raise FileProblem(Msg("E-IMAGE-READ", file=Path(path).name, detail=said(path, inp.geterror())))
-            data = np.asarray(pixels, np.float32).reshape(pixels.shape[0], pixels.shape[1], hi - lo)
-            inp.seek_subimage(sub, 0)
-            data = _placed(data, inp.spec(), target)
-            out.update({channels[i]: data[..., i - lo] for i in wanted})
+        return _read(inp, path, _parts(inp, view), names, box)
     finally:
         inp.close()
+
+
+def _target(inp, box: tuple | None) -> Window:
+    """What read_named returns of an open file, in file coordinates: the display window of its first part (that of
+    _windows), or `box` placed in it."""
+    inp.seek_subimage(0, 0)
+    spec = inp.spec()
+    full = (spec.full_x, spec.full_y, spec.full_width, spec.full_height)
+    return full if box is None else (full[0] + int(box[0]), full[1] + int(box[1]), int(box[2]), int(box[3]))
+
+
+def read_stack(path: str | Path, pick, box: tuple | None = None) -> tuple[np.ndarray, list[str]]:
+    """Channels of one file as a float32 [H, W, C] array in a single open: `pick(names)` chooses them (a list, a name
+    may repeat) from every channel name the file has (channel_names); returns the array and the names it chose. The
+    values are read_named's (`box` as there), without a copy per channel when they lie side by side in the file."""
+    inp = _open(path)
+    try:
+        parts = _parts(inp)
+        chosen = pick([n for part in parts for n in part if n is not None])
+        return _read_block(inp, path, parts, chosen, box), chosen
+    finally:
+        inp.close()
+
+
+def _read(inp, path: str | Path, parts: list[list[str | None]], names: list[str] | None,
+          box: tuple | None) -> dict[str, np.ndarray]:
+    """read_named on an open file whose parts' channel names (`_parts`) are known: each part holding a wanted channel
+    is read once, over the span of its wanted channels."""
+    target = _target(inp, box)
+    out: dict[str, np.ndarray] = {}
+    for sub, channels in enumerate(parts):
+        wanted = [i for i, n in enumerate(channels) if n is not None and (names is None or n in names)]
+        if not wanted:
+            continue
+        lo, hi = wanted[0], wanted[-1] + 1  # read the whole span at once (a layer's channels are contiguous)
+        inp.seek_subimage(sub, 0)
+        _fits(path, inp.spec(), target, hi - lo)
+        pixels = inp.read_image(sub, 0, lo, hi, oiio.FLOAT)
+        if pixels is None:
+            raise FileProblem(Msg("E-IMAGE-READ", file=Path(path).name, detail=said(path, inp.geterror())))
+        data = np.asarray(pixels, np.float32).reshape(pixels.shape[0], pixels.shape[1], hi - lo)
+        inp.seek_subimage(sub, 0)
+        data = _placed(data, inp.spec(), target)
+        out.update({channels[i]: data[..., i - lo] for i in wanted})
     missing = [n for n in names or () if n not in out]
     if missing:
         raise FileProblem(Msg("E-IMAGE-NOCHANNEL", file=Path(path).name, channels=", ".join(missing)))
     return out
+
+
+def _read_block(inp, path: str | Path, parts: list[list[str | None]], names: list[str],
+                box: tuple | None) -> np.ndarray:
+    """`names` (a name may repeat) of an open file as one float32 [H, W, len(names)] array, the values read_named gives.
+    When they are one part's channels in the file's own order (R G B, R G B A: nearly every picture and map) that span
+    is read and returned as it is, without taking it apart into channels and stacking them again."""
+    for sub, channels in enumerate(parts):
+        if names and names[0] in channels:
+            lo = channels.index(names[0])
+            if channels[lo:lo + len(names)] == names:
+                target = _target(inp, box)
+                inp.seek_subimage(sub, 0)
+                _fits(path, inp.spec(), target, len(names))
+                pixels = inp.read_image(sub, 0, lo, lo + len(names), oiio.FLOAT)
+                if pixels is None:
+                    raise FileProblem(Msg("E-IMAGE-READ", file=Path(path).name, detail=said(path, inp.geterror())))
+                data = np.asarray(pixels, np.float32).reshape(pixels.shape[0], pixels.shape[1], len(names))
+                inp.seek_subimage(sub, 0)
+                return _placed(data, inp.spec(), target)
+            break  # every name is in one part only (_parts): the others need not be looked at
+    named = _read(inp, path, parts, list(dict.fromkeys(names)), box)
+    return np.stack([named[n] for n in names], axis=-1)
 
 
 def write_png(path: str | Path, rgb: np.ndarray, straight: bool = False, *, compress_level: int = 6, quality: int = 95) -> None:

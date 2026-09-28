@@ -14,20 +14,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from ..errors import Invalid, NotFound
 from ..messages import Msg
 from ..availability import Cond
-from .applies import GPU, HEAVY, LIGHT, Cost, Fact, Licence, OptionTrait, standing_marks  # noqa: F401 (re-exported)
+from .applies import Cost, Fact, Licence, OptionTrait, standing_marks  # noqa: F401 (re-exported)
 from .handles import HANDLE_KINDS, Handle, parse_corners, parse_figures, parse_picks, parse_shapes  # noqa: F401 (re-exported)
 from .port import PARAM, Port  # noqa: F401 (re-exported)
 from .params import (  # noqa: F401 (re-exported)
-    FP16_HELP, ON_NODE_MAX, NodeParams, OutputEntry, P, _defaults, _entry_model, _param_list, always_wired, colorspace_param,
-    fp16_param, person_ids, simple_kind, typed_list,
+    ON_NODE_MAX, NodeParams, P, _defaults, _entry_model, _param_list, always_wired, colorspace_param,
+    fp16_param, person_ids, refusal, simple_kind, typed_list, without_params,
 )
 from .services import CORE_PROJECT, ProjectFacts, services, unloaded_project
 from ..data.types import DATA_TYPES, KIND_ORDER, SCENE_KINDS, channels_of, element_of, in_port_order, type_label
@@ -115,17 +114,11 @@ class NodeDef:
     # label 「已知 Focal Length」).
     strip: ClassVar[dict[str, str]] = {}
 
-    # what connecting an optional input did on the public benchmarks, by input name, a parameter's by the parameter's
-    # ("focal_mm"): the catalogue's `finding`, which only the accounts that run benchmarks receive (describe(),
-    # server/app.py catalog hides)
-    measured: ClassVar[dict[str, str]] = {}
-
-    # what running it costs (nodes/applies.py Cost): the lane off a GPU ("" derives it: the main environment is light, a
-    # worker environment heavy), whether it always runs on a GPU, the VRAM and seconds per frame measured on an RTX 4090
-    # at its default parameters (every node that can run on a GPU gives them: test_compute_rating.py; taken from the measurements in
-    # its adapter's docs.md, never guessed), the system memory its worker takes at its peak when that is a lot. What a
-    # cook is (immediate, in the CPU lane, or waiting for a GPU) follows from the resolved cost alone
-    # (engine/policy.py).
+    # what running it costs (nodes/applies.py Cost): whether it always runs on a GPU, the VRAM and seconds per frame
+    # measured on an RTX 4090 at its default parameters (every node that can run on a GPU gives them, taken from the
+    # measurements in its adapter's docs.md, never guessed), the system memory its
+    # worker takes at its peak when that is a lot. Where each of its instances runs (a card, or a CPU slot) follows
+    # from the resolved cost alone (engine/cook.py, farm/scheduler).
     cost: ClassVar[Cost] = Cost()
 
     # its licence class when it differs from its extension's (nodes/tags.py), and why it is what it is
@@ -164,7 +157,7 @@ class NodeDef:
     #      (「LensDistortion」's 镜头模型, distortion parameters, principal point);
     #   2. `P(wired=True)` declared by the parameter itself, for parameters that need a port on every node that has
     #      them, without each node having to list them (nodes/lens.py focal_param / filmback_param: 「已知 Focal
-    #      Length」 and 「Filmback」 appear on more than twenty nodes, and listing them per node is error-prone).
+    #      Length」 and 「Filmback」 appear on many nodes, and listing them per node is error-prone).
     # The criterion is therefore whether the node has the parameter, not a hand-maintained list.
     wired_ports: ClassVar[tuple[str, ...]] = ()
 
@@ -327,7 +320,10 @@ class NodeDef:
             raise Invalid(Msg("E-NODE-NOPARAM", node=cls.label, names=unknown))
         from .applies import output_ports
 
-        loaded = cls.Params(**params).model_dump()
+        try:
+            loaded = cls.Params(**params).model_dump()
+        except ValidationError as exc:
+            raise Invalid(refusal(cls.param_specs(), exc)) from None
         names = [p.name for p in output_ports(cls, loaded)]
         if len(set(names)) != len(names):
             raise Invalid(Msg("E-NODE-DUPOUTPUT", node=cls.label, names=sorted({n for n in names if names.count(n) > 1})))
@@ -339,11 +335,10 @@ class NodeDef:
     @classmethod
     def expectations(cls, port: Port) -> tuple[Expect, ...]:
         """What the node expects of its input `port` beyond its type (checked by engine/lint.py): what the port
-        declares, and what the node's own declarations imply (an output-settings node: a scene it can write; min_frames:
-        enough frames of 图像; a pinhole lens: the plate's lens state, with 「LensDistortion」 the one click that puts it right)."""
+        declares, and, on 图像, what its frame-count declarations imply (min_frames / most_frames: FrameCount)."""
         # There are no lens-state checks (raw / undistorted / unknown, pixel aspect, undistortion): CG artists know
-        # whether their input was undistorted. The NodeDef.lens declaration is kept as data (needed when delivering
-        # cameras) but produces no messages.
+        # whether their input was undistorted. The NodeDef.lens declaration is kept as data (sent in the catalogue)
+        # but produces no messages.
         implied = ()
         if port.name == "image" and (cls.min_frames or cls.most_frames):
             from .expects import FrameCount
@@ -464,12 +459,12 @@ class NodeDef:
 
     # the lens model the node assumes for the picture (nodes/applies.py LENSES): declared by the family, overridable
     # per node. No message is derived from it (CG artists know whether their input was undistorted); it is a
-    # declaration used by templates and documentation
+    # declaration, sent in the catalogue
     lens: ClassVar[str] = ""
 
     # a node that solves the lens itself (lens "solves"): when it solves no distortion at all and is a pinhole node
-    # after all, as a condition on its own parameters (COLMAP: 「拟合模型」 on a model without distortion). The usage
-    # checks read it, so no component works out what a camera model means (nodes/expects.py SolvesLens)
+    # after all, as a condition on its own parameters (COLMAP: 「镜头模型」 on a model without distortion). Checked with
+    # the node's other conditions (nodes/applies.py conditions_of; check_declarations: every "solves" node has one)
     pinhole_when: ClassVar[Any] = None
 
     # its cooked result depends on the node's name as the artist sees it (an import node's folder is the renamed node's
@@ -489,27 +484,10 @@ class NodeDef:
     # names each; a condition or a port's kinds_from can only name these
     fact_labels: ClassVar[dict[str, str]] = {}
 
-    # the ops the node uses (ids in lab2shot/ops/ops.toml). The node declares only this line; the algorithms are defined
-    # in the ops catalogue and run by one generic executor each on the server and in the browser. A node that declares
-    # ops performs no arithmetic or numpy computation in its cook.
+    # the ops the node uses (ids in lab2shot/ops/ops.toml), checked against the catalogue when the class is made
+    # (nodes/applies.py check_declarations). The algorithms are defined in the catalogue and run by its executor
+    # (ops/run.py); the node's cook reads its inputs, runs them and writes the results.
     ops: ClassVar[tuple[str, ...]] = ()
-
-    @classmethod
-    def browser_ops(cls, params: Mapping[str, Any], types: Mapping[str, str]) -> tuple[dict, ...] | None:
-        """The ops catalogue entries and their arguments when the browser computes this node. `None`: the browser
-        cannot compute it and uses the server's result; `()`: it can, without any catalogue op (「拆成列表」 splitting
-        person boxes only separates items and computes nothing).
-
-        `params` are the node's current parameters and `types` the data type each port actually carries in this graph
-        (port name -> type id); generic nodes decide by type through it: `core.split_items` holding person boxes can be
-        split in the browser, while holding a scene it has to split USD and stays on the server.
-
-        The cook uses it as well to obtain op arguments, so the mapping from parameters to op arguments exists in one
-        place only (this defines wiring, not algorithms). Each entry returned is `{"op": op id, "args": {values set
-        by the parameters}}`; it carries no data (each side takes the data it holds: the server reads packets, the
-        browser uses what it computed upstream).
-        """
-        return None
 
     @classmethod
     def facts(cls, params: dict) -> dict[str, Fact]:
@@ -529,9 +507,9 @@ class NodeDef:
         """What the node itself says of the shot its pictures come from (data/contracts.py SHOT_KEYS), from its
         parameters alone: 「读取序列」/「读取视频」's 镜头状态 and 像素比, 「LensDistortion」's direction. An output takes it
         for the keys its Shape declares "node" for; the others come from the node's picture input (contracts.shot_of).
-        Pure and cheap: the graph works out what a picture will say before anything is cooked (the usage checks warn
-        about a raw plate on a pinhole solver without waiting for a cook), and the node writes the same thing into its
-        packets when it does cook. {} by default: the node says nothing of its own."""
+        Pure and cheap: the graph works out what a picture will say before anything is cooked (Evaluation.shot), and
+        the node writes the same thing into its packets when it does cook. {} by default: the node says nothing of its
+        own."""
         return {}
 
     @classmethod
@@ -566,7 +544,7 @@ class NodeDef:
     @classmethod
     def known_outputs(cls, params: dict) -> dict[str, dict]:
         """Outputs the node gives from its parameters alone, as their description (meta), known before it is cooked
-        (a constant value, 「相机属性」): a parameter they drive shows and checks its value right away. Cheap."""
+        (a constant value): a parameter they drive shows and checks its value right away. Cheap."""
         return {}
 
     @classmethod
@@ -600,6 +578,11 @@ class NodeDef:
         if getattr(cls, "id", "") and not getattr(cls, "native_points", ""):
             cls.outputs = tuple(p for p in cls.outputs if not (p.name == "points" and p.made_from))
         cls.outputs = in_port_order(cls.outputs)
+        # The outputs are final: a parameter inherited for an output the node does not have (the 「点云」's spacing and
+        # point size on a node without it) could never apply, so the node does not have it either (lost_output_params)
+        from .applies import lost_output_params
+
+        cls.Params = without_params(cls.Params, lost_output_params(cls))
         # Always-on parameter ports, resolved in one place: the node's own list plus parameters declaring
         # P(wired=True) (see the wired_ports comment). Deduplicated in order: the node's own names first
         # (「LensDistortion」's Focal Length and Filmback keep their positions), then those declared by parameters.
@@ -627,6 +610,10 @@ class NodeDef:
         if len(placing) > 1:
             raise TypeError(f"{cls.__name__}: one transform handle places a node, it declares {len(placing)}")
         cls.places = placing[0] if placing else None
+        # the input a handle works on is shown with it (webui/src/view/plan.ts): a misspelt one would show nothing, silently
+        unknown = [h.source for h in cls.handles if h.source and h.source not in {p.name for p in cls.inputs}]
+        if unknown:
+            raise TypeError(f"{cls.__name__}: handle source {unknown} is not one of its inputs")
 
         check_declarations(cls)
 
@@ -643,14 +630,8 @@ class NodeDef:
             "label": cls.label,
             "category": cls.category,  # the tool subcategory its author suggests (a word; its place is menu/nodes.json)
             "description": cls.description,
-            # `finding`: what a benchmark found about connecting this input or setting this parameter (cls.measured).
-            # A field of its own, never joined into the help: benchmark conclusions are for the accounts that run the
-            # benchmarks, so the catalogue route takes it out for everyone else (server/app.py hides).
-            # Only where a benchmark found something: the catalogue is downloaded by every browser before the editor
-            # opens, so empty strings are not worth sending
             # 2. Ports
-            "inputs": [{**p.describe(), "help": _joined(p.help, p.alpha_note()),
-                        **({"finding": found} if (found := cls.measured.get(p.name, "")) else {})} for p in cls.inputs],
+            "inputs": [p.describe() for p in cls.inputs],
             "outputs": [p.describe() for p in all_outputs(cls)],
             "main": cls.main_output(),
             # the input each parameter that can be driven by a wire gets once promoted
@@ -667,12 +648,11 @@ class NodeDef:
             "ports_from": cls.ports_from,
             "ports_from_side": cls.ports_from_side,
             # 3. Usage
-            "lens": cls.lens,
-            "marks": standing_marks(cls),  # standing marks from its declarations (Port.shape.said; currently unused by any node)
+            "marks": standing_marks(cls),  # standing marks from its declarations (Port.shape.said, e.g. Crop's I-SHAPE-CROP)
             "ports_from_type": cls.ports_from_type,
             # the type every row's port carries, named by the server (the page never spells a type's name)
             "ports_from_type_label": type_label(cls.ports_from_type) if cls.ports_from_type else "",
-            "params": [{**p, **({"finding": found} if (found := cls.measured.get(p["name"], "")) else {})} for p in cls.param_specs()],
+            "params": cls.param_specs(),
             "defaults": _defaults(cls.Params),
             "runtime": cls.runtime,
             "handles": [h.describe() for h in cls.handles],
@@ -681,7 +661,7 @@ class NodeDef:
             "delivers": cls.delivers,
             # what it costs and whose licence it is at its default parameters (a node not in a graph yet: the catalogue's
             # card); a node in a graph reads its status (Evaluation.status), resolved with its own parameters
-            "cost": declared_cost(cls),  # what it declares: the lane off a GPU, always on one, its own rating
+            "cost": declared_cost(cls),  # what it declares: always on a GPU, its own rating
             "at_defaults": {"cost": at_defaults.cost.describe(), "licence": at_defaults.licence.describe()},
             # the choices that change something, as a lookup table: parameter -> value -> gpu / noncommercial / rating
             "option_traits": option_traits(cls),
@@ -700,10 +680,6 @@ class NodeDef:
 
 def _text(said: Msg | None) -> str:
     return said.text if said is not None else ""
-
-
-def _joined(*texts: str | None) -> str:
-    return "\n".join(t for t in texts if t)
 
 
 _SPECS: dict[type, list[dict]] = {}
@@ -761,7 +737,7 @@ class ReadsFile:
         `Evaluation.source_missing` would mark the node E-UPLOAD-GONE (the node shows an error and everything
         downstream is skipped) although the user did nothing wrong. The identity is still the reference: its id is
         derived from the file name and content only, so the cache fingerprint does not change when the bytes arrive.
-        An actual cook requires all bytes and goes through `path()` as before."""
+        An actual cook requires all bytes and goes through `path()`."""
         try:
             cls.path(params)  # a reference that is still on this server
         except NotFound:
@@ -771,7 +747,7 @@ class ReadsFile:
 
 
 def empty_packet(ctx, port: str):
-    """An output with nothing in it this time (e.g. the depth port of a node set to give disparity, 「相机属性」 without a
+    """An output with nothing in it this time (e.g. the depth port of a node set to give disparity, 「创建相机」 without a
     focal length): downstream it counts as not connected (a parameter it drives keeps its own value)."""
     from ..data.packet import Packet
 

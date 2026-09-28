@@ -49,8 +49,9 @@ function Watch({ view, onUnblock }: { view: SecurityView | null; onUnblock: (cli
       <h3 className="adm-h3">可疑请求</h3>
       <p className="adm-lede">
         输错密码、访问没开放的接口、带 .. 之类的路径、请求太频繁，都记在这里（最近 1000 条，重启后清空；服务日志里也有）。
-        同一个登录 {l.block_window_min} 分钟内有 {l.block_after} 次，就被封 {l.block_min} 分钟。输错密码：同一来源 {l.free} 次以后越等越久，{l.client_lock} 次锁住；
-        所有来源 {l.window_min} 分钟内一共 {l.global_lock} 次，谁都登录不了 {l.window_min} 分钟（在服务器上执行 uv run lab2shot admin password 马上解开）。
+        同一个登录 {l.block_window_min} 分钟内有 {l.block_after} 次，就被封 {l.block_min} 分钟。输错密码（{l.window_min} 分钟内）：同一来源在一个账号上 {l.free} 次以后越等越久，{l.client_lock} 次锁住；
+        同一来源在所有账号上 {l.address_free} 次以后越等越久，{l.address_lock} 次锁住（这两条只在看得到每个人真实 IP 时算）；一个账号被从没登录过的设备一共输错 {l.subject_free} 次以后，
+        这类尝试一次比一次等得久，最长 {l.max_wait_s} 秒，不会锁死；登录过这个账号的浏览器和客户端只算自己的次数，谁都拖不慢它（在服务器上执行 uv run lab2shot admin unlock 马上清零）。
       </p>
       {Object.keys(view.counts).length > 0 && (
         <div className="sec-row">
@@ -107,7 +108,7 @@ function Watch({ view, onUnblock }: { view: SecurityView | null; onUnblock: (cli
                 <tr key={`${e.t}-${i}`}>
                   <td className="tnum">{whenSecondsText(e.t)}</td>
                   <td data-tip={e.counted ? "算进封禁：同一个登录 10 分钟里攒够 40 条就封 30 分钟"
-                    : "不算进封禁：我们自己的页面打到这台服务器还没有的接口上，是版本对不上，不是探测"}>
+                    : "不算进封禁：已登录、请求自称来自本站页面，却要了这台服务器没有的接口。升级前后页面和服务器版本不一致会这样，拿着这个登录的脚本也会这样；看账号和请求判断"}>
                     {e.kind}{e.counted ? "" : " · 不计"}
                   </td>
                   <td className="mono" data-tip={e.client.startsWith("s:") ? "带着登录凭证的请求（按凭证区分）" : "没有凭证：按地址区分；经过内网穿透时大家的地址可能一样"}>

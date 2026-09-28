@@ -1,6 +1,6 @@
 /* ------------------------------------------------- 数据信息卡 (editor/NodeInfoCard.tsx)
    The glass card beside a node, opened by the mark at its bottom right. Floating, so glass; it hangs
-   on <body>, so nothing on the page can clip it. Its rows are the parameter panel's own (editor/DataInfo.tsx). */
+   on <body>, so nothing on the page can clip it. Its rows are editor/DataInfo.tsx's DataGroup. */
 
 .node-info-card {
   position: fixed;
@@ -53,7 +53,7 @@
   display: none;
 }
 
-/* 卡片是按内容定宽的，所以这里的值整句显示，撑到上限就换行——不裁。参数面板那边宽度是固定的，那里照旧一行加悬停看全文。 */
+/* 卡片是按内容定宽的，所以这里的值整句显示，撑到上限就换行——不裁。 */
 .node-info-card .data-port-said,
 .node-info-card .data-port-name,
 .node-info-card .node-info-what {

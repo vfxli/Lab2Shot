@@ -55,22 +55,3 @@ export function diff(a: Json, b: Json, path: string[] = [], out: Op[] = []): Op[
   return out;
 }
 
-/** `ops` applied to a copy of `a` (what the server does, for the tests). */
-export function apply(a: Json, ops: Op[]): Json {
-  let root: Json = structuredClone(a);
-  for (const { p, v } of ops) {
-    if (!p.length) {
-      root = v === undefined ? null : structuredClone(v);
-      continue;
-    }
-    let at = root as Obj;
-    for (const k of p.slice(0, -1)) {
-      if (!isObj(at[k])) at[k] = {};
-      at = at[k] as Obj;
-    }
-    const last = p[p.length - 1];
-    if (v === undefined) delete at[last];
-    else at[last] = structuredClone(v);
-  }
-  return root;
-}

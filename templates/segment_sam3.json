@@ -19,11 +19,6 @@
    "name": "prompt",
    "label": "要分割的东西",
    "target": "seg.prompt"
-  },
-  {
-   "name": "output",
-   "label": "保存到",
-   "target": "deliver.path"
   }
  ],
  "nodes": [
@@ -101,16 +96,10 @@
    "id": "deliver",
    "type": "core.output",
    "label": "输出",
-   "params": {
-    "mode": "tar",
-    "path": ""
-   },
+   "params": {},
    "ui": {
     "x": 940,
-    "y": 140,
-    "on_node": [
-     "mode"
-    ]
+    "y": 140
    }
   }
  ],

@@ -20,11 +20,6 @@
    "name": "reference",
    "label": "参考图",
    "target": "ref.path"
-  },
-  {
-   "name": "output",
-   "label": "保存到",
-   "target": "deliver.path"
   }
  ],
  "nodes": [
@@ -153,16 +148,10 @@
    "id": "deliver",
    "type": "core.output",
    "label": "输出",
-   "params": {
-    "mode": "tar",
-    "path": ""
-   },
+   "params": {},
    "ui": {
     "x": 1260,
-    "y": 200,
-    "on_node": [
-     "mode"
-    ]
+    "y": 200
    }
   }
  ],

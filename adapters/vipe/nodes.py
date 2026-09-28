@@ -32,9 +32,6 @@ from lab2shot.sdk import (CameraSamples, Official, Invalid, MissingFrames, Msg, 
                           opencv_poses_to_usd, plate_lens, points_packet, send_camera, solved_camera, Cost, Licence)
 
 
-# 两个节点的「Focal Length」共用的评估结论（12 个镜头）
-MEASURED_FOCAL = "实测（12 个镜头）：填真实 Focal Length，相机轨迹和深度没区别；接 AnyCalib 估的 Focal Length 4 个镜头变差"
-
 SKY = "sky"  # 上游 VideoFrame.SKY_PROMPT（streams/base.py:64）：唯一不属于运动物体的实例
 PATTERN = "instance_{}.npz"  # worker 写出实例编号的文件名，每帧一个文件
 
@@ -55,7 +52,7 @@ class ViPE(NodeDef):
 
         Focal Length 只有一个来源：「ViPE 相机解算」没有相机输入口，Focal Length 作为参数经 `extra` 传递；
         「ViPE 深度图」必须接入相机，Focal Length 取自该相机，由 `send_camera` 写入 camera_in.npz，
-        节点上不提供「Focal Length」参数。上游 post 阶段读取的也是 `slam_output.intrinsics`，
+        节点上不提供「已知 Focal Length」参数。上游 post 阶段读取的也是 `slam_output.intrinsics`，
         不单独接受 Focal Length（输入与上游解算器保持一致）。"""
         return RawOutput(ctx.run_worker(image, extra=extra, inputs=inputs, record=record),
                          MissingFrames.SKIP)
@@ -65,7 +62,8 @@ class CameraSolve(ViPE):
     id = "vipe.camera_solve"
     on_node = ("focal_mm", "mode")
     main = "camera"  # 输出口按类型顺序排列，主输出口标明节点的主要产出
-    measured = {"focal_mm": MEASURED_FOCAL}
+    # 公开基准上的实测（接不接、接什么的差别）：
+    #   focal_mm：实测（12 个镜头）：填真实 Focal Length，相机轨迹和深度没区别；接 AnyCalib 估的 Focal Length 4 个镜头变差
     # 相机须有位移；固定机位或纯摇镜头下自动 Focal Length 不可靠（sh010 解为 1052 px，实际约 588 px）；
     # 自动识别画面中运动的人和物体并在解算时排除；尺度接近米制；填写真实 Focal Length 对相机轨迹无影响（12 个镜头）。
     # 「点云」为整段共用一套：slam_map 中的所有点位于同一 SLAM 世界坐标系（slam/interface.py:27-38 dense_disp_xyz，
@@ -106,7 +104,6 @@ class CameraSolve(ViPE):
         mode: Literal["pose_only", "pose_only_long"] = P(
             "pose_only", label="方式", group="解算",
             option_labels={"pose_only": "标准", "pose_only_long": "长镜头"},
-            help="标准：几百帧以内的镜头；长镜头：上千帧时用，分段解算再拼接，内存更省",
         )
 
     @classmethod
@@ -126,7 +123,7 @@ class Depth(ViPE):
 
     id = "vipe.depth"
     on_node = ("model",)
-    # 深度位于接入相机的世界坐标系中；运动物体由上游自行分割（是否接入「物体分割」均可计算）
+    # 深度位于接入相机的世界坐标系中；运动物体取自接入的「物体分割」（不接入也可计算）
     main = "depth"
     inputs = (
         Port("image", "image.3", "RGB"),
@@ -164,13 +161,12 @@ class Depth(ViPE):
         "Depth-Anything-V2-Base（CC-BY-NC-4.0）的 Prior-Depth-Anything；DA3 模式用 Depth Anything 3 Giant（CC-BY-NC-4.0）。")
 
     class Params(NodeParams):
-        # 不提供「Focal Length」「Filmback」：本节点必须接入相机，内参取自该相机
+        # 不提供「已知 Focal Length」「Filmback」：本节点必须接入相机，内参取自该相机
         # （上游 post 阶段读取 slam_output.intrinsics，`default.py:90-92`）。
         # 若另设 Focal Length 参数，同一个值将有两个来源进入 worker，优先级不明确
         model: Literal["default", "dav3"] = P(
             "default", label="模型", group="深度",
             option_labels={"default": "标准", "dav3": "Depth Anything 3"},
-            help="标准：深度随时间最稳，推荐；Depth Anything 3：细节更多，但在长焦镜头上远近会跳，显存要得多",
         )
 
     @classmethod
@@ -269,7 +265,7 @@ def _instances(ctx, raw, image):
 
     编号图的格式与「SAM 3 视频分割」相同：编号即像素值，
     名称写入「类别表」，写多层 EXR 时对应 Cryptomatte 的 person_01。
-    需要遮罩（例如仅保留运动物体）时，在节点图上接入「分割转遮罩」`core.segmentation_key`。
+    需要遮罩（例如仅保留运动物体）时，在节点图上接入「分割转遮罩」`core.segment_select`。
     该节点是独立的显式工具，并非上游产物，因此不在本节点上设输出口（节点输出与上游一一对应）。"""
     import re
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type Manifest, type TracksData } from "../api";
+import { api, type BoxesData, type Manifest, type TracksData } from "../api";
 import { msg, textOf } from "../messages/message";
 import { setParam } from "../graph/actions";
 import { useStageNotes, useStagePicture, useViewer, useViewLoads } from "../state/viewer";
@@ -7,14 +7,12 @@ import { drawLoading, useDecodedFrames, useLoadedFrames } from "../transfer/fram
 import { isPlane } from "../transfer/plane";
 import type { LocalPicture } from "./localPick";
 import { manifestOf } from "../transfer/frames";
-import { clickHandle, dragHandle, dragStart, drawHandle, moveDrag, personAt, removeAt, type Drag, type Pt } from "./handles2d";
+import { clickHandle, dragHandle, dragStart, drawHandle, moveDrag, personAt, pickedPeople, removeAt, type Drag, type Pt } from "./handles2d";
 import { drawBackground, drawBoxes, drawTracks, type Frame } from "./overlays";
 import { drawLook, noGpu, type Box, type Merge, type Side } from "./look";
 import type { DisplayPlan, ViewItem } from "./plan";
 import { useStageSources } from "./stageSources";
-// 人物框整段只获取一次，与浏览器计算积木节点使用同一处（view/evaluate.ts）
-import { boxesOf } from "./evaluate";
-import type { Boxes } from "../ops/recipe";
+import { cache } from "../transfer/cache";
 import { useViewOptions } from "../state/viewer";
 import { DEFAULTS } from "../model/viewOptions";
 import { CHANNEL_KEYS, channelsOf, lookIndex, mixOf, pictureSize, singleChannel, type Mode, type Tint } from "../model/view2d";
@@ -25,8 +23,8 @@ import type { Partial as PartialResult } from "./partial";
 /** The 2D stage: 左侧为原图、右侧为该节点的结果，按当前档位（仅原图 / 运算 / 仅结果）绘制，
  * 并叠加自带数据的叠加物（人物框、跟踪点）及节点的二维手柄。
  *
- * 主源（带预取、时间线跟随的一侧）在「仅结果」档中为右侧，其他档中为左侧；另一侧按地址逐帧获取，
- * 两侧均到达后由 worker 合成（view/overlays.ts）。 */
+ * 主源（时间线跟随的一侧）在「仅结果」档中为右侧，其他档中为左侧；另一侧同样经取帧账本获取（view/stageSources.ts），
+ * 两侧均到达后在 GPU 上合成（view/look.ts）。 */
 
 interface Props {
   plan: DisplayPlan;
@@ -39,7 +37,7 @@ interface Props {
   onChannel: (index: number | null) => void; // 键盘 R G B A 切换的是当前一侧的通道
   // 边算边看 (view/partial.ts): while this node is being cooked, the frames it has already written are shown instead
   // of the plate, and disappear as soon as the result itself is available
-  // 用户在本标签页中选择的文件（view/LocalPlate.tsx useLocalPicture）：画面优先使用这些文件，
+  // 用户在本标签页中选择的文件（view/localPick.ts useLocalPicture）：画面优先使用这些文件，
   // 不等待服务器
   local?: LocalPicture | null;
   partial?: { info: PartialResult; job: string; node: string; port: string } | null;
@@ -57,7 +55,9 @@ function useEach<T>(fps: readonly string[], load: (fp: string) => Promise<T>): T
   useEffect(() => {
     if (!key) return;
     let alive = true;
-    void Promise.all(key.split(",").map(load)).then((values) => alive && setGot({ key, values }));
+    // a part that could not be read is drawn without (the request's failure is kept for the feedback report,
+    // platform/http.ts); left uncaught it would be reported again as a page error
+    Promise.all(key.split(",").map(load)).then((values) => alive && setGot({ key, values }), () => undefined);
     return () => {
       alive = false;
     };
@@ -68,10 +68,20 @@ const EMPTY: never[] = []; // 常量空数组：无数据的渲染不应每次�
 
 /** 将多份人物框合并为一份：列表拆出的各条本就是同一画面中的多个人物（宽高、帧均相同，
  * 编号保持不变：`lab2shot/data/items.py` `_boxes_split` 只挑选人物，不修改编号）。 */
-const joinBoxes = (all: (Boxes | null)[]): Boxes | null => {
-  const got = all.filter((b): b is Boxes => !!b);
-  return got.length ? { ...got[0], people: got.flatMap((b) => b.people) } : null;
-};
+const joinBoxes = (all: BoxesData[]): BoxesData | null =>
+  all.length ? { ...all[0], people: all.flatMap((b) => b.people) } : null;
+
+/** 一个包的人物框，整段获取一次后保留在页面缓存中。
+ * 保留的是 Promise 而非结果，否则同一时刻的两次请求会发出两个网络请求。 */
+function boxesOf(fp: string): Promise<BoxesData> {
+  const key = `boxes:${fp}`;
+  const had = cache.get<Promise<BoxesData>>(key);
+  if (had) return had;
+  const asking = api.boxes(fp);
+  cache.keep(key, asking, 1024, "small");
+  asking.catch(() => cache.forget(key));
+  return asking;
+}
 
 /** 将多组跟踪点合并为一份（同上：`_tracks_split` 按组挑选点，宽高和帧不变）。
  * 分数与平面四角为可选项：仅当每一份都具备时才拼接，否则两侧无法对应；宁可不绘制，也不绘制错误结果。 */
@@ -88,7 +98,7 @@ function useData<T>(fp: string | null, load: (fp: string) => Promise<T>): T | nu
   useEffect(() => {
     if (!fp) return;
     let alive = true;
-    void load(fp).then((value) => alive && setData({ fp, value }));
+    load(fp).then((value) => alive && setData({ fp, value }), () => undefined); // as useEach: drawn without it
     return () => {
       alive = false;
     };
@@ -117,11 +127,8 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
   // 左侧为原图（上游最近的画面；无上游画面时，该节点自身输出的画面即为原图，二者是同一规则而非分支），
   // 右侧为该节点计算出的层。当前档位绘制哪两张图只在此处计算一次：
   //   仅原图 → 左；仅结果 → 右；运算 → 左 ⊕ 右。
-  // 主源（`mainFp`）带预取、时间线跟随；另一侧（`overFp`）按地址逐帧获取，两侧均到达后才合成。
-  // 服务器尚未计算该层而浏览器可自行计算时，右侧显示浏览器计算的结果（view/evaluate.ts）：
-  // 它有自己的标识（`local:…`）、包说明和帧源，两条取数路径遇到该前缀时
-  // 直接从本地读取，不发请求（transfer/frames.ts manifestOf / serverFrames）
-  const rightFp = partial ? null : picture?.fp ?? picture?.local?.manifest.fingerprint ?? null;
+  // 主源（`mainFp`）由时间线跟随；另一侧（`overFp`）与它共用取帧账本，两侧均到达后才合成。
+  const rightFp = partial ? null : picture?.fp ?? null;
   const leftFp = plan.plate ?? rightFp;
   const mainFp = mode === "result" ? rightFp ?? leftFp : leftFp;
   const overFp = mode === "over" && rightFp && rightFp !== leftFp ? rightFp : null;
@@ -138,18 +145,11 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
   // 手柄跟随跟踪结果，不受「叠加物隐藏」开关影响：开关隐藏的是画面上的轮廓，四角手柄仍须位于跟踪到的位置，
   // 否则关闭叠加物后手柄会回到起始帧的像素位置。因此结果按该节点自身输出的每一份获取，绘制轮廓时才检查开关
   const ownTracksItems = plan.overlays.filter((o) => o.type === "tracks2d" && o.from.own);
-  const tracksStale = ownTracksItems.some((o) => o.stale); // 参数已修改但尚未重算：手柄绘制的是上一次跟踪到的位置（view/plan.ts resultOf）
-  // 人物框：服务器计算的向服务器请求，浏览器计算的（「选人」改变所选人物）直接使用本地数据
   const boxesGot = useEach(boxesItems.flatMap((o) => (o.fp ? [o.fp] : [])), boxesOf);
   const sourceGot = useEach(sourceBoxesItems.flatMap((o) => (o.fp ? [o.fp] : [])), boxesOf);
   const tracksGot = useEach(ownTracksItems.flatMap((o) => (o.fp ? [o.fp] : [])), tracksOf);
-  const localKey = (items: typeof boxesItems) => items.map((o) => o.local?.manifest.fingerprint ?? "").join();
-  const boxesLocalKey = localKey(boxesItems);
-  const sourceLocalKey = localKey(sourceBoxesItems);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const boxes = useMemo(() => joinBoxes([...boxesGot, ...boxesItems.map((o) => o.local?.boxes ?? null)]), [boxesGot, boxesLocalKey]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const sourceBoxes = useMemo(() => joinBoxes([...sourceGot, ...sourceBoxesItems.map((o) => o.local?.boxes ?? null)]), [sourceGot, sourceLocalKey]);
+  const boxes = useMemo(() => joinBoxes(boxesGot), [boxesGot]);
+  const sourceBoxes = useMemo(() => joinBoxes(sourceGot), [sourceGot]);
   const tracks = useMemo(() => joinTracks(tracksGot), [tracksGot]);
   const tracksShown = tracksItems.length ? tracks : null; // 绘制在画面上的数据：叠加物隐藏时不绘制（手柄仍跟随 `tracks`）
   // 数据的通道数及其为数值还是画面：均取自包自带的信息（类型 id 即通道数），不依据类型名
@@ -159,11 +159,15 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
   // 这样当前画面始终只有一个舞台，无需另设「本机画面」组件，因为两个组件之间切换必然出现一帧空白
   const [localSize, setLocalSize] = useState<{ w: number; h: number } | null>(null);
   // 画面在舞台上的尺寸只由该帧的画面范围决定，而非由图像的像素数决定
-  // （规格与原因见 `model/view2d.ts pictureSize` 的注释，由 webui/tests/originals.test.ts 检查）
+  // （规格与原因见 `model/view2d.ts pictureSize` 的注释）
   const { w: width, h: height } = pictureSize({ partial: partial?.info, meta: manifest?.meta,
                                                 overlays: [boxes, sourceBoxes, tracks], decoded: localSize });
   const handleValues = (h: (typeof plan.handles)[number]) => (plan.node.data.params[Object.values(h.params)[0]] as string[] | undefined) ?? [];
-  const chosen = sourceBoxesItem && boxes ? new Set(boxes.people.map((p) => p.id)) : null;
+  // 手柄输入上的人物框里高亮哪些人：节点自己的结果（选中的人）；没有与点选相符的结果时（还没算、已过期，view/plan.ts
+  // underHandles），按点选当前的参数高亮点到的人（只是显示，不计算）
+  const personHandle = plan.handles.find((h) => h.kind === "person") ?? null;
+  const chosen = !sourceBoxesItem ? null : boxes ? new Set(boxes.people.map((p) => p.id))
+    : personHandle ? pickedPeople(sourceBoxes, handleValues(personHandle)) : null;
   // the viewer's pan/zoom (state/view2d.ts: the same for every node, and for a 3D result seen through its camera);
   // R G B A 切换当前一侧的通道，再按一次回到「整体」（与 Nuke 相同），仅在指针位于舞台上时生效
   const nav = useView2DNav(el, width, height, {
@@ -252,7 +256,7 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
   // the timeline's 已载入视图 row for 2D: every frame of this packet held by the browser, whether fetched by the view or
   // by the prefetcher (one cache, transfer/cache.ts), so the row fills as prefetch proceeds; cleared when the 2D stage
   // unmounts (the 3D stage sets its own).
-  // 主源的 id 由 view/stageSources.ts 提供（并非包指纹：它包含画质信息，transfer/picture.ts）。
+  // 主源的 id 由 view/stageSources.ts 提供（并非包指纹：它还包含代理档位等信息，transfer/ident.ts）。
   // 走通道路径时主源即第一条通道，「该帧是否在浏览器中」即指绘制该帧所需的数据是否已就绪。
   const loaded = useLoadedFrames(loadedId);
   const decoded = useDecodedFrames(loadedId); // 播放器依据此项等待（见 state/viewTools.ts useViewLoads 的说明）
@@ -319,7 +323,7 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
     if (sourceBoxes && !hidden.has(sourceBoxesItem!.key)) drawBoxes({ ...f, quiet: true }, sourceBoxes, hover, chosen, byPerson);
     else if (boxes) drawBoxes(f, boxes, hover, null, byPerson);
     if (tracksShown) drawTracks(f, tracksShown);
-    for (const h of plan.handles) if (h.stage === "2d") drawHandle(h, f, handleValues(h), drag, tracks, tracksStale);
+    for (const h of plan.handles) if (h.stage === "2d") drawHandle(h, f, handleValues(h), drag, tracks);
   }, [frame, width, height, main?.fp, overFp, mainHas.ready, overHas.ready, picture?.fp, partial?.info.frames_done.length, overlays.map((o) => o.key).join(), boxes, sourceBoxes, tracks, hover, drag, plan, line, lookKey, mergeKey, channels, bg, bgColor, byPerson, plate.image, plate.loading, plate.window.join(), el, at?.x, at?.y, at?.s, nav.box]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handle = plan.handles.find((h) => h.stage === "2d") ?? null;
@@ -331,9 +335,6 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
   };
   const edit = (next: string[] | null) => handle && next && setParam(plan.node.id, Object.values(handle.params)[0], next);
 
-  // 光标下的真值：服务器输出的原始帧（而非屏幕上经过调色的结果），按该数据自身的范围还原；
-  // 黑白点、着色、运算的调整均不影响它。无论处于何种模式，每条通道都会报告并标明名称：
-  // 若只报告一个数值而不说明通道，查看无 alpha 的原图时报告的 R 会被误认为 alpha。选取单条通道时只报告该通道。
   // a drag that has just ended must not also count as a click: otherwise grabbing a point to move it would
   // add a second point where it was released
   const justDragged = useRef(false);
@@ -354,6 +355,9 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
         nav.onMouseLeave();
         setHover(null);
       }}
+      // every press keeps the pointer until it is released (pointer capture; the mouse events follow it): a drag
+      // released outside the canvas still ends here, instead of leaving the handle stuck to the pointer
+      onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
       onMouseDown={(e) => {
         if (nav.onMouseDown(e)) return; // middle-drag or Alt+left-drag pans (Nuke-style), not the handle
         if (e.button === 0 && handle) setDrag(dragStart(handle, handleValues(handle), frame, pointAt(e), at?.s ?? 1));

@@ -92,8 +92,8 @@ def load_model(repo: Path, checkpoint: Path, device: torch.device, fp16: bool):
 def input_size(model_id: str, resolution: int, height: int, width: int) -> tuple[int, int]:
     """(height, width) the network sees.
 
-    `resolution` is always a number (the node's 「处理分辨率」 has no automatic option), so there is no
-    `resolution or native` fallback: the network runs at the value shown to the user."""
+    `resolution` is always a number (the node's 「处理分辨率」 has no automatic option): the network runs at the
+    value shown to the user."""
     native = MODELS[model_id][1]
     if native is not None:  # trained on square inputs (the frame is squeezed, as upstream does)
         side = fit_size(native, native, resolution, MULTIPLE)[0]

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TYPE_CHECKING, ClassVar, Literal
@@ -114,7 +116,7 @@ class Weight:
     revision: str = ""  # hf: the commit to fetch (must be pinned: a branch can change at any time)
     option: tuple[str, object] | None = None  # needed only when node parameter option[0] == option[1] (e.g. a model choice)
     notice: str = ""  # this weight's licence requires crediting it once it is actually there ("Built on NVIDIA Cosmos"):
-    # help.py's 版权与许可声明 shows it, generically, for whichever weight of whichever extension declares one
+    # server/installs.py attribution_notice shows it on the extension's row, for whichever weight declares one
 
     def __post_init__(self) -> None:
         # an hf snapshot without a revision follows main: once the repository author pushes new files, the next install
@@ -224,6 +226,22 @@ class ExtensionPaths:
         return self.root / ("install_state.json" if not self.env else f"install_state-{self.env}.json")
 
 
+@contextmanager
+def state_writing(paths: ExtensionPaths) -> Iterator[None]:
+    """One writer of an install record (`paths.state_file`) at a time, on this machine: the installer saving it and
+    gpu_archs.record adding its probe both read, change and write it back, so neither may write between the other's
+    read and write. An flock beside the record, taken by both."""
+    import fcntl
+
+    paths.root.mkdir(parents=True, exist_ok=True)
+    with paths.state_file.with_name(paths.state_file.name + ".lock").open("w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(held, fcntl.LOCK_UN)
+
+
 class Extension:
     """Base class for adapters. Subclass in adapters/<name>/extension.py."""
 
@@ -269,9 +287,6 @@ class Extension:
     # and the scheduler places its jobs only on cards of these architectures (farm/scheduler/compat.py), whatever card
     # model they are. Never a card name: a machine mixes models of one architecture.
     env_archs: ClassVar[tuple[str, ...]] = ()
-    # Why it combines with no other project, one line (a format library, a colour-chart detector ...). Only for a
-    # project whose nodes connect to no other project's by the type rules. Informational: no code reads it.
-    standalone: ClassVar[str] = ""
     # Disk the environment takes, in GB, for the installer's check before it starts (lab2shot/installer/preflight.py);
     # 0: estimated from the spec (a torch or conda environment about 15 GB, a plain one 3 GB). Model files come on top.
     disk_gb: ClassVar[float] = 0.0
@@ -283,8 +298,7 @@ class Extension:
     @property
     def year(self) -> int | None:
         """The paper / release year, written at the top of the project's own docs.md (`year = 2024`); None when absent.
-        Read in one place: both the help page badge and the template card badge use it, so the year is not written
-        twice."""
+        The template card's year badge shows it (server/app.py)."""
         import tomllib
 
         path = self.adapter_dir / "docs.md"
@@ -405,7 +419,8 @@ class Extension:
         """
         import os
 
-        from ..config import WORKER_SDK_DIR, cpu_budget
+        from ..config import WORKER_SDK_DIR
+        from ..process import cpu_budget
 
         paths = paths or self.paths
         env = clean_environ()
@@ -445,7 +460,7 @@ class Extension:
         if gpu is not None:
             env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
             env["CUDA_VISIBLE_DEVICES"] = gpu
-        # a cook must not occupy the whole machine (the admin setting 「保留核心数」, config.py worker_cpus): numeric
+        # a cook must not occupy the whole machine (the admin setting 「保留核心数」, process.py worker_cpus): numeric
         # libraries read these limits. Set here so the self-check and workers get the same values; core affinity is the
         # hard limit (engine/resident.py hold_back). LAB2SHOT_CPU_BUDGET is read by projects with their own thread
         # parameter (COLMAP's num_threads defaults to -1 = machine core count, which oversubscribes after pinning)
@@ -461,6 +476,12 @@ class Extension:
         ptxas = paths.venv / "bin" / "ptxas"
         if ptxas.exists():
             env.setdefault("TRITON_PTXAS_BLACKWELL_PATH", str(ptxas))
+        # a prebuilt CUDA library that carries PTX but no binary for the card (torch_scatter, spconv, xformers on sm_120)
+        # is JIT-compiled by the driver at first use and cached. The driver's cache is one per user (~/.nv/ComputeCache,
+        # 1 GiB by default), shared by every extension and every Lab2Shot checkout: full, it evicts, and the same kernels
+        # are compiled again in every new worker process. Each extension keeps its own, at the driver's maximum size.
+        env.setdefault("CUDA_CACHE_PATH", str(paths.root / "cache" / "nv"))
+        env.setdefault("CUDA_CACHE_MAXSIZE", str(4 * 1024**3))
         return env
 
     def post_install(self, run, paths: ExtensionPaths) -> None:

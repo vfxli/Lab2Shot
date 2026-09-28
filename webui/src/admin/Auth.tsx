@@ -5,17 +5,18 @@ import { Loading } from "../ui/Loading";
 import { pageAccess } from "../api/applies";
 import { useSession, useSessionWatch, useSignedIn } from "../state/session";
 import { Button, ButtonLink, Segmented } from "../ui/Button";
+import { MIN_CHARS, passwordProblem } from "../platform/accountRules";
+import { changedAccount, sawAccount } from "../platform/http";
 
 /** Gate for the admin pages (/admin; lab2shot/server/auth.py). The user is already logged in through the site
  * gate; whether a page is available to this login is decided by the server (applies.ts pageAccess): open, a
- * password prompt (the resulting rights last three days), or a notice for accounts whose role has no access.
- * When the login expires or ends elsewhere, the login form is shown over the page; the current section and any
- * unsaved setting are preserved. The help page is gated as well, because only the administrator installs
- * extensions. The administrator's 口令 is configured on the server only and is never displayed. */
+ * password prompt (the resulting rights last three days, lab2shot/accounts.py ADMIN_S), or a notice for accounts whose
+ * role has no access. When the site login itself expires or ends elsewhere, the site gate (gate.tsx) asks for it over
+ * the page, so the current section and any unsaved setting are kept; when only the administrator rights run out, this
+ * gate's password prompt takes the page's place. The administrator's 口令 is configured on the server only and is never
+ * displayed. */
 
-const MIN_CHARS = 8; // Must match lab2shot/accounts.py MIN_CHARS / MAX_CHARS.
-const MAX_CHARS = 128;
-export const ADMIN_NAME = "admin"; // lab2shot/accounts.py ADMIN_NAME: the built-in administrator of a new installation.
+const ADMIN_NAME = "admin"; // lab2shot/accounts.py ADMIN_NAME: the built-in administrator of a new installation.
 
 export const PASSPHRASE_TIP =
   "「我的口令」是主人自己的备用钥匙：只能在服务器上执行 uv run lab2shot admin passphrase 设置，网页上永远看不到、也改不了。" +
@@ -23,17 +24,6 @@ export const PASSPHRASE_TIP =
 
 
 const auth = api.auth;
-
-/** Returns the reason a new password is rejected, or "" if it is acceptable. Checked before sending. */
-export function passwordProblem(text: string, again: string): string {
-  if (!text) return "";
-  if (text.length < MIN_CHARS) return `新密码至少要 ${MIN_CHARS} 个字符`;
-  if (text.length > MAX_CHARS) return `新密码最多 ${MAX_CHARS} 个字符`;
-  if (!text.trim()) return "新密码不能全是空格";
-  if (again && again !== text) return "两次输入的新密码不一样";
-  return "";
-}
-
 
 /** Renders the children once the page is available to this login; otherwise the login form, or a notice for an
  * account without access. `what`: the guarded page; `page`: its id in the server's availability map (page.admin). */
@@ -44,8 +34,16 @@ export function AdminGate({ what, page, children }: { what: string; page: string
   if (!state) return <Loading what="登录状态" fill />;
   const access = pageAccess(state, page);
   if (access === "not-yours" && state.user) return <NotYours what={what} user={state.user} />;
-  if (access !== "open") return <LoginPage what={what} known={state.user} onIn={set} />;
+  if (access !== "open") return <LoginPage what={what} known={state.user} onIn={(s) => signedIn(s, set)} />;
   return <>{children}</>;
+}
+
+/** A login on the admin page's own form (the password again, or a new one with the 口令): the other tabs of this browser
+ * follow it, and a login of another account than the page's opens the page again (platform/http.ts). */
+function signedIn(s: AuthState, set: (s: AuthState) => void): void {
+  const id = s.user?.id ?? null;
+  changedAccount(id);
+  if (!sawAccount(id)) set(s);
 }
 
 function Top() {
@@ -238,7 +236,7 @@ function NewPassword({ next, again, onNext, onAgain }: { next: string; again: st
   );
 }
 
-/** 设置 → 管理员密码: changes the administrator's password, authorised by the current password or the server-side 口令 (「我的口令」). */
+/** 账号设置 → 管理员密码: changes the administrator's password, authorised by the current password or the server-side 口令 (「我的口令」). */
 export function PasswordCard() {
   const state = useSignedIn();
   const set = useSession((s) => s.set);
@@ -310,18 +308,21 @@ export function PasswordCard() {
         <span />
       </label>
       {(rule || problem) && (
-        <p className="pw-note bad" role="alert">
+        <p className="set-why bad" role="alert">
           {rule || problem}
         </p>
       )}
-      {done && <p className="pw-note ok">密码已改好：管理员在别处的登录都已退出，这个浏览器继续登录着。</p>}
-      <div className="pw-actions">
-        <span className="pw-hint" data-tip={PASSPHRASE_TIP}>
-          口令只能在服务器上设
+      {done && <p className="set-why ok">密码已改好：管理员在别处的登录都已退出，这个浏览器继续登录着。</p>}
+      <div className="set-row">
+        <span className="set-label" />
+        <span className="set-ctl">
+          <Button tip={ready ? "改成新密码；管理员在别处的登录都要重新登录" : "先填好证明和两次一样的新密码"} tone="primary" type="submit" disabled={!ready || busy}>
+            {busy ? "修改中…" : "改密码"}
+          </Button>
+          <span className="pw-hint" data-tip={PASSPHRASE_TIP}>
+            口令只能在服务器上设
+          </span>
         </span>
-        <Button tip={ready ? "改成新密码；管理员在别处的登录都要重新登录" : "先填好证明和两次一样的新密码"} tone="primary" type="submit" disabled={!ready || busy}>
-          {busy ? "修改中…" : "改密码"}
-        </Button>
       </div>
     </form>
   );

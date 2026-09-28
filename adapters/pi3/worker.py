@@ -6,14 +6,14 @@ The driver (frames, chunks, alignment, outputs) is lab2shot_worker.feedforward.
 
 job["node"] == "pi3.reconstruct"; job["params"]:
 
-    weights     "pi3x" (Pi3X, default: smoother, approximate metric scale) | "pi3" (original π³,
+    model       "pi3x" (Pi3X, default: smoother, approximate metric scale) | "pi3" (original π³,
                 arbitrary scale). Both CC BY-NC 4.0 (non-commercial)
-    max_frames  frames per forward pass (1-2000). Default: what fits a 24 GB GPU at the input
-                size (260k 14x14 patches: 200 frames at 672x378); longer
+    max_frames  frames per forward pass (the node offers 50 / 100 / 150). Null: what fits a 24 GB
+                GPU at the input size (260k 14x14 patches: 200 frames at 672x378); longer
                 shots are split into overlapping chunks joined by a similarity transform
-    step        use every Nth frame (1-1000, default 1; the last frame is always used)
-    resolution  long side of the model input (140-1036, rounded to a multiple of 14). Default:
-                Pi3's own rule, the input aspect within 255,000 pixels (e.g. 672x378 for 16:9)
+    step        use every Nth frame (default 1; the last frame is always used)
+    resolution  long side of the model input, rounded to a multiple of 14. Null: Pi3's own
+                rule, the input aspect within 255,000 pixels (e.g. 672x378 for 16:9)
 
 Output: see lab2shot_worker.feedforward (frame_<n>.npz: depth, confidence, mask, points). Pi3X
 depth / translations are approximately metres (its metric head); original Pi3 is scale-free.
@@ -103,10 +103,10 @@ def make_backend(job) -> Backend:
         K = torch.zeros(len(local), 3, 3, dtype=torch.float64)
         K[:, 0, 0], K[:, 1, 1] = fx.double().cpu(), fy.double().cpu()
         K[:, 0, 2], K[:, 1, 2], K[:, 2, 2] = w / 2, h / 2, 1.0
-        # 官方的世界点图 points 就是 camera_poses @ local_points（pi3.py:211），所以这里交出
-        # local_points 本身（相机空间点图，pi3.py:212），由 recon.Stitcher 跟深度一起换到整片的尺度上
-        # （Chunk.scaled），节点那边再按相机摆回世界：和官方的 points 是同一份数据，只是没提前乘一次
-        # 每段自己的位姿
+        # Upstream's world points are camera_poses @ local_points (pi3.py:211), so local_points itself (the
+        # camera-space point map, pi3.py:212) is handed over: recon.Stitcher scales it with the depth
+        # (Chunk.scaled) and the node places it in the world by camera. The same data as the official points,
+        # without each chunk's own poses applied first.
         return recon.Chunk(
             cam_to_world=poses.cpu().numpy(),
             K=K.numpy(),

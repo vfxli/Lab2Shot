@@ -92,7 +92,8 @@
   border-bottom: 1px solid var(--hair);
 }
 
-/* over the page, under the top bar of every page: the other-tab notice, and each of the site's own notices */
+/* over the page, under the top bar: the other-tab notice (inside .site-notices the stack's rule above lays a banner
+   out instead) */
 .banner.float {
   position: fixed;
   top: 54px;

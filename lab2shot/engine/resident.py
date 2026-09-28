@@ -40,9 +40,10 @@ from lab2shot_worker import PREFIX, REPO_ENV, WEIGHTS_ENV
 from lab2shot_worker.serving import available_gb
 
 from .. import logs
-from ..config import settings, worker_cpus
+from ..config import settings
 from ..errors import Invalid, NotFound
 from ..messages import Msg
+from ..process import worker_cpus
 
 if TYPE_CHECKING:
     from ..extensions import Extension
@@ -92,7 +93,7 @@ def hold_back(pid: int) -> None:
 
     The priority is only lowered relative to the server, not forced to NICE: on Linux an unprivileged process can
     raise its nice value but not lower it (that requires CAP_SYS_NICE). With the server at nice 0 the worker gets
-    NICE (5); with the server wrapped by `tools/heavy.sh` at nice 19, the kernel rejects this setpriority (EACCES)
+    NICE (5); with the server started at nice 19 (`nice -n 19`), the kernel rejects this setpriority (EACCES)
     and the worker stays at 19, which is still correct as it is not ahead of the server. The result is
     `max(NICE, this process's nice)`; it must not be forced to 5."""
     try:
@@ -153,7 +154,7 @@ class Process:
             # 「已取消」 while the GPU is still busy
             start_new_session=True,
         )
-        hold_back(proc.pid)  # 「保留核心数」: it runs only on the cores left for computation (config.py worker_cpus)
+        hold_back(proc.pid)  # 「保留核心数」: it runs only on the cores left for computation (process.py worker_cpus)
         p = cls(ext, gpu, identity, keep, proc)
         p.reader = threading.Thread(target=p._read, daemon=True, name=f"worker-{ext.name}")
         p.reader.start()
@@ -225,25 +226,27 @@ class Process:
         self._close()
 
     def kill(self) -> None:
-        """Stop it now (a stopped job): ask the operating system first, then kill the whole process group, so a
-        program the worker started for the job (Pixel3DMM / UniRig run steps in a child process) dies with it and the
-        card is free at once; STOP_GRACE_S between the ask and the kill."""
+        """Stop it now (a stopped job, a worker that died): ask the operating system first, then kill the whole process
+        group, so a program the worker started for the job (Pixel3DMM / UniRig run steps in a child process) dies with
+        it and the card is free at once; STOP_GRACE_S between the ask and the kill. The group is killed even when the
+        worker itself has already ended: what it started may still hold the card."""
         self.state = "ending"
-        if self.alive:
-            self._signal(signal.SIGTERM)
-            try:
-                self.proc.wait(STOP_GRACE_S)
-            except subprocess.TimeoutExpired:
-                self._signal(signal.SIGKILL)
-                self.proc.wait()
+        self._signal(signal.SIGTERM)
+        try:
+            self.proc.wait(STOP_GRACE_S)
+        except subprocess.TimeoutExpired:
+            pass
+        self._signal(signal.SIGKILL)
+        self.proc.wait()
         self._close()
 
     def _signal(self, sig: int) -> None:
-        """`sig` to the worker's process group (start(): its own session), or to the process alone where there is no
-        such thing; a process already gone is nothing to signal."""
+        """`sig` to the worker's process group, or to the process alone where there is no such thing; a group already
+        gone is nothing to signal. The group is named by the worker's pid (start(): a session of its own), which
+        stays valid while anything in the group lives, the worker ended or not."""
         try:
             if hasattr(os, "killpg"):
-                os.killpg(os.getpgid(self.proc.pid), sig)
+                os.killpg(self.proc.pid, sig)
             else:
                 self.proc.send_signal(sig)
         except (ProcessLookupError, PermissionError, OSError):
@@ -318,6 +321,9 @@ class Pool:
                 try:
                     line = p.lines.get(timeout=0.5)
                 except queue.Empty:
+                    # ended while a program it started still holds its output open: the end of the output never comes
+                    if not p.alive:
+                        break
                     continue
                 if line is None:  # it ended without finishing the job (what it printed says why)
                     break
@@ -331,7 +337,7 @@ class Pool:
             raise
         if reply is None or not reply["ok"]:
             self._forget(p)
-            p.kill() if stop.is_set() else p.end()
+            p.kill() if stop.is_set() or not p.alive else p.end()  # a worker that died: what it started goes too
             return Outcome(False, (reply or {}).get("error"), bool((reply or {}).get("oom")), clean)
         with self.lock:
             p.report(reply)
@@ -529,30 +535,32 @@ class Pool:
         return found
 
     def _idle(self, pid: str) -> Process:
-        with self.lock:
-            p = next((p for p in self.procs if p.id == pid), None)
-            if p is None:
-                raise NotFound(Msg("E-RESIDENT-GONE"))
-            if p.state != "idle":
-                raise Invalid(Msg("E-RESIDENT-BUSY"))
-            return p
+        """(Holding the lock) the idle process `pid`: what the administrator acts on. The caller marks it in the same
+        hold, so a job never takes it between the check and the mark (_take)."""
+        p = next((p for p in self.procs if p.id == pid), None)
+        if p is None:
+            raise NotFound(Msg("E-RESIDENT-GONE"))
+        if p.state != "idle":
+            raise Invalid(Msg("E-RESIDENT-BUSY"))
+        return p
 
     def offload(self, pid: str) -> None:
         """The administrator moves a process's models to RAM."""
-        p = self._idle(pid)
-        if not p.on_gpu:
-            return
         free, keep = available_gb(), keep_free_gb()
-        if free - p.vram_mb / 1024 < keep:
-            raise Invalid(Msg("E-RESIDENT-NORAM", need=p.vram_mb / 1024, free=free, keep=keep))
         with self.lock:
+            p = self._idle(pid)
+            if not p.on_gpu:
+                return
+            if free - p.vram_mb / 1024 < keep:
+                raise Invalid(Msg("E-RESIDENT-NORAM", need=p.vram_mb / 1024, free=free, keep=keep))
             p.state = "moving"
         logs.say(log, Msg("I-RESIDENT-TORAM", title=p.ext.title))
         self._offload(p, keep)
 
     def unload(self, pid: str) -> None:
-        """The administrator ends a process: its RAM and GPU memory are free."""
-        p = self._idle(pid)
+        """The administrator ends a process: its RAM and GPU memory are free (_end_where ends it only while idle)."""
+        with self.lock:
+            p = self._idle(pid)
         self._end_where(lambda o: o is p, "管理员完全卸载")
 
 

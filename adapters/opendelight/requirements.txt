@@ -13,10 +13,9 @@ timm==1.0.29
 # repo-root utils.py imports it at module level
 pathspec==1.1.1
 # DAViD soft foreground matte (ONNX). Upstream pins 1.22.0, whose CUDA execution
-# provider has no RTX 5090 (sm_120, Blackwell) kernels (显卡兼容_GVHMR失败.md 五).
-# 1.23.2 (checked with cuobjdump on the shipped .so, see 升级环境_4090与5090.md) still
-# stops at sm_90; 1.30.0 is the version this branch found to add sm_120 kernels.
-# Still CUDA 12 / cuDNN 9, matching the torch 2.8.0+cu128 pinned above.
+# provider has no RTX 5090 (sm_120, Blackwell) kernels; 1.23.2 (checked with
+# cuobjdump on the shipped .so) still stops at sm_90; 1.30.0 has sm_120 kernels.
+# Still CUDA 12 / cuDNN 9, matching the torch 2.8.0+cu128 in EnvSpec.
 onnxruntime-gpu==1.30.0
 # FaRL face parsing (facer)
 pyfacer==0.0.5

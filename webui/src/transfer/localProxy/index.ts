@@ -3,26 +3,29 @@
  *
  * 用户选择序列后（或视图首次需要绘制用户机器上的某一帧时），本模块在后台将每一帧的每一层缩放到管理员设定的档位并压缩，
  * 写入浏览器私有文件系统（`store.ts`）；视图从该缓存绘制（`transfer/sources.ts fromFile`）。
- * 第一遍只生成各颜色层的显示图（以空间换流畅度，但不为无人查看的层占用磁盘）；数值通道（深度、遮罩、法线等）
- * 在用户查看时按需生成（`localPlane`，该接口目前尚无调用方，见下文）。当前查看的帧优先，其余按顺序处理（`worker.ts`）。
+ * 只生成各颜色层的显示图（以空间换流畅度，但不为无人查看的层占用磁盘）；数值通道（深度、遮罩、法线等）不生成：
+ * 两个入口（`prepareLocalProxies`、`localPicture`）的 `planes` 均为空。当前查看的帧优先，其余按顺序处理（`worker.ts`）。
  *
  * 内存中只保存已显示的帧：本模块的产出均在磁盘上，读入内存的只有视图实际需要绘制的帧（由取帧账本的预算管理）。 */
 import { create } from "zustand";
 import { workerAsks } from "../../platform/work";
 import { onServerChange, serverNow } from "../../state/server";
 import { lutOfFile } from "../lut";
-import type { Lut } from "../../ops/lut";
+import type { Lut } from "../lookup";
 import type { LayerSpec, ProxyAnswer, ProxyAsk } from "./worker";
-import { madeKeys, proxiesMade, proxyStoreAvailable, readProxy, writeProxy } from "./store";
+import { madeKeys, onDropped, proxiesMade, proxyStoreAvailable, readProxy, writeProxy } from "./store";
 import { cache } from "../cache";
+import { shortHash } from "../../platform/digest";
 
 // 已在磁盘上生成本机代理的文件：登记到页面唯一的缓存（不另建表），账本据此判断某帧是否已持有
 // （`transfer/sources.ts localFramesOf`），时间线的绿色随生成进度推进（与 Nuke 一样可见缓存进度）
 // 就绪标记包含档位：管理员更改本机代理尺寸后，旧档位生成的代理不计为已持有；
-// 登记层（cache.ts registry）不计入预算、不会被淘汰
+// 登记层（transfer/cache.ts registry）不计入预算、不会被淘汰
 const READY = (fileKey: string, tier = localTier()) => `proxy:${fileKey}|${tier}`;
 export const proxyReady = (fileKey: string): boolean => cache.registered(READY(fileKey)) === true;
 const markReady = (fileKey: string, tier = localTier()) => { if (cache.registered(READY(fileKey, tier)) !== true) cache.register(READY(fileKey, tier), true); };
+// a proxy trimmed off the disk (over the local cache's size) is not ready any more: made again when it is wanted
+onDropped((fileKey, tierKey) => cache.unregister(READY(fileKey, Number(tierKey.split("-")[0]))));
 
 export type { LayerSpec };
 
@@ -31,25 +34,18 @@ const DEFAULT_CAP_GB = 10;
 const QUALITY = 0.9;
 const PLANE = ".l2c1.gz";
 
-/** 管理员设定的两个数值（随 `/api/server` 返回；旧版服务未提供时使用默认值）。 */
-export const localTier = (): number => serverNow()?.view?.local_px ?? DEFAULT_PX;
-const capBytes = (): number => (serverNow()?.view?.local_cache_gb ?? DEFAULT_CAP_GB) * (1 << 30);
+/** 管理员设定的两个数值（随 `/api/server` 返回；服务器第一次回答之前使用默认值）。 */
+const localTier = (): number => serverNow()?.view.local_px ?? DEFAULT_PX;
+const capBytes = (): number => (serverNow()?.view.local_cache_gb ?? DEFAULT_CAP_GB) * (1 << 30);
 
 /** 文件键：名称、大小、修改时间（`File` 均具备，刷新后或从授权目录重新获取时保持一致）。
  * 不使用内容指纹：指纹在申报步骤中异步计算，视图首次绘制时尚不可用，使用它会导致同一文件被处理两次。 */
-export const fileKeyOf = (file: File): string => {
-  let h = 2166136261;
-  for (const ch of `${file.name}|${file.size}|${file.lastModified}`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
-  return `n_${(h >>> 0).toString(36)}`;
-};
+export const fileKeyOf = (file: File): string => `n_${shortHash(`${file.name}|${file.size}|${file.lastModified}`)}`;
 
 /** 显示变换的标识（表相同则代理相同）：模式、网格、范围及数据的短散列。 */
 function lutKey(lut: Lut | null): string {
   if (!lut) return "raw";
-  let h = 2166136261;
-  const d = lut.data;
-  for (let i = 0; i < d.length; i += 97) h = Math.imul(h ^ d[i], 16777619);
-  return `${lut.mode}${lut.size}_${(h >>> 0).toString(36)}`;
+  return `${lut.mode}${lut.size}_${shortHash(lut.data, 97)}`;
 }
 
 const isExr = (name: string) => name.toLowerCase().endsWith(".exr");
@@ -70,7 +66,7 @@ interface Job {
   space: string;
   rules: string; // 整段按同一文件名请求显示变换表
   layers: LayerSpec[];
-  planes: string[]; // 本次需生成平面的通道（第一遍为空：只生成显示图）
+  planes: string[]; // 本次需生成平面的通道（两个入口均传空：只生成显示图）
   task: string; // 进度记录的键（节点|参数）
   order: number; // 值越小越优先
   waiters: ((ok: boolean) => void)[];
@@ -194,19 +190,3 @@ export async function localPicture(file: File, layer = "rgba", space = "", rules
   const ok = await enqueue({ fileKey: key, file, space, rules, layers: [], planes: [], task: `on-demand` }, true);
   return ok ? readProxy(key, tierKey, `${layer}.webp`) : null;
 }
-
-/** 一条通道的半精度平面（gzip 压缩的 `L2C1`）；同上，不存在时即时生成。该接口目前尚无调用方（数值通道走服务器路径，
- * `transfer/sources.ts channelFrames`）；worker 中生成平面的分支同样暂无调用，保留供数值通道使用本机代理，并非死代码。 */
-export async function localPlane(file: File, channel: string, space = "", rules = ""): Promise<Blob | null> {
-  if (!proxyStoreAvailable()) return null;
-  const key = fileKeyOf(file);
-  const lut = isExr(file.name) ? await lutOfFile(space, rules || file.name).catch(() => null) : null;
-  const tierKey = tierKeyOf(lut);
-  const had = await readProxy(key, tierKey, `${channel}${PLANE}`);
-  if (had) return had;
-  const ok = await enqueue({ fileKey: key, file, space, rules, layers: [], planes: [channel], task: `on-demand` }, true);
-  return ok ? readProxy(key, tierKey, `${channel}${PLANE}`) : null;
-}
-
-/** 后台尚未处理的帧数（供状态格与探针使用）。 */
-export const proxiesPending = (): number => own.queue.size + own.running.size;

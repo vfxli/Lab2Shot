@@ -3,6 +3,8 @@
 export const GATE_CATALOGUE: Readonly<Record<string, string>> = {
   "E-GATE-NOANSWER": "服务器没有回答（HTTP {status}），稍后刷新再试",
   "E-GATE-UNREACHABLE": "连不上服务器：稍后刷新再试；一直连不上就找管理员看服务是否正在运行",
+  "E-THREAD-CRASHED": "视图的后台计算线程意外停止：{detail}。本次显示中止，下一次显示会重新启动该线程。如果反复出现，请在「日志」中复制记录提交反馈。",
+  "E-THREAD-FAILED": "视图的后台计算没有完成：{detail}。本次显示中止。",
   "E-REQUEST-REFUSED": "服务器拒绝了请求（HTTP {status}）：{detail}",
   "E-PAGE-ERROR": "页面出错：{detail}。这是网页的问题，打开「日志」复制给技术人员",
   "I-PAGE-LOADING": "正在读取{what}…",

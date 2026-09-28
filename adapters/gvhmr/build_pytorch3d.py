@@ -17,8 +17,7 @@ GVHMR itself only imports `pytorch3d.transforms` (rotation conversions) and
 `pytorch3d.ops.knn` (nothing under `pytorch3d.renderer.points.pulsar`), so instead of
 teaching pytorch3d's build about `-dlink`, this build removes Pulsar entirely. Only the
 throwaway copy is edited (deleted at the end of this script); the installer's pinned
-checkout is never written. build_dpvo.py's modernize_torch_sources patches DPVO's CUDA
-sources the same way.
+checkout is never written (WHAM's build_dpvo.py patches its DPVO copy the same way).
 """
 
 from __future__ import annotations

@@ -9,8 +9,8 @@ import { Button } from "../ui/Button";
 import { useConfirm } from "../ui/Confirm";
 import { msg, type Message } from "../messages/message";
 
-/** 硬盘 section: disk usage of the cache, uploads and deliveries on the server, and cleanup of unused data.
- * Automatic cleanup (retention in days, cache size) is configured in 设置. */
+/** 硬盘 section: disk usage of the task folders (their outputs inside), every account's cache and uploads on the server, and cleanup
+ * of what is older. Everything is kept per task (lab2shot/farm/disk.py): 任务保留天数 is configured in 设置. */
 export function DiskSection() {
   const { problem, go, overview } = useAdmin();
   const read = useCallback(() => api.admin.disk(), []);
@@ -37,13 +37,14 @@ export function DiskSection() {
       title="硬盘"
       lede={
         <>
-          这些都能重新得到：缓存会重新算，素材由用户重新选文件上传，结果从缓存再算一次。队列里有任务时不清理。
+          一切按任务保存：任务结束后过了保留天数整个删除，缓存和素材跟着没有任务再用的时候清掉。这里的「清理」按同样的规则，
+          不会动还有任务在用的内容；队列里有任务时不清理缓存和素材。
           {disk && ` 工作文件夹 ${disk.path} 所在的盘还剩 ${sizeText(disk.free)}，共 ${sizeText(disk.total)}。`}
         </>
       }
       actions={
         <>
-          <Button tip="结果保留几天、素材和缓存多少天没用就自动删、缓存上限，在「设置」的「存储与清理」里改" tone="ghost" onClick={() => go("settings")}>
+          <Button tip="任务保留天数、单任务上传上限、数据位置，在「存储与视图」里改" tone="ghost" onClick={() => go("settings-storage")}>
             自动清理设置
           </Button>
           <Button tip="重新读取磁盘占用" tone="ghost" onClick={reload}>

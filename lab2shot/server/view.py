@@ -15,7 +15,7 @@ from ..messages import Msg
 from . import wire
 from .access import packets_readable
 
-router = Router(prefix="/api/view", tags=["视图"], dependencies=[Depends(packets_readable)])  # 只提供已授权的结果（server/access.py）
+router = Router(prefix="/api/view", tags=["视图"], dependencies=[Depends(packets_readable)])  # 只提供本账号自己缓存里的结果（server/access.py）
 
 
 def _packet(fp: str) -> Packet:
@@ -53,12 +53,12 @@ LUT_SIZE, LUT_LO, LUT_HI = 48, -10.0, 8.0  # 浏览器使用的表：每边的�
 
 def lut_for(space: str | None) -> dict:
     """将「转到工作空间」的变换烘焙为浏览器可查询的表：对数网格上每个点的 RGB，0..65535，小端，base64。
-    浏览器没有 OCIO，因此变换烘焙一次后发送，而不是逐帧烘焙进像素（本机预览 EXR 一直采用此方式，webui/src/transfer/exr.ts）。
+    浏览器没有 OCIO，因此变换烘焙一次后发送，而不是逐帧烘焙进像素（本机预览 EXR 也用这张表，webui/src/transfer/exr.ts）。
     工作空间即屏幕显示的 sRGB（io/color.py），因此「转到工作空间」即屏幕上的显示效果，没有额外的显示变换。
 
     `space` 为 None，或该色彩空间本身即工作空间（PNG、视频帧、读取节点已转换的数据包）、或不经过色彩管理（数值图）时，
     mode 返回 "raw"：像素值即屏幕上的值，浏览器原样绘制。该表只与（色彩空间, 工作空间）两项有关，与具体数据包无关，
-    因此浏览器按 head 中的这几项缓存一份即可。`display` / `view` 两个键保留作为浏览器的缓存键，值为工作空间。"""
+    因此浏览器按 head 中的这几项缓存一份即可。`display`（工作空间名）和 `view`（"working"）是浏览器的缓存键。"""
     import base64
 
     from ..io.color import load_config, working_space, working_table
@@ -75,11 +75,11 @@ def lut_for(space: str | None) -> dict:
     return {**head, "colorspace": space, "mode": "lut", "data": base64.b64encode(data).decode("ascii")}
 
 
-@router.get("/lut", access=Access.user("本地预览 EXR：服务器的显示变换烤成的查找表"), summary="本地预览 EXR 用的显示变换：服务器的 OCIO 显示变换在对数网格上烤成的查找表（space：节点的色彩空间，空着按文件名规则）")
+@router.get("/lut", access=Access.user("本地预览 EXR：服务器「转到工作空间」的变换烤成的查找表"), summary="本地预览 EXR 用的查找表：服务器的 OCIO「转到工作空间」变换在对数网格上烤成（工作空间就是屏幕显示的 sRGB，没有另外的显示变换；space：节点的色彩空间，空着按文件名规则）")
 def display_lut(space: str = "", file: str = "") -> dict:
-    """使用者选择的 EXR 经本服务器显示与视图变换后的效果，供浏览器在服务器取得文件之前显示
+    """使用者选择的 EXR 经本服务器「转到工作空间」变换后的效果（lut_for），供浏览器在服务器取得文件之前显示
     （webui/src/transfer/exr.ts）：每个网格点的 RGB，0..65535，小端，base64。
-    mode "raw"：按原值显示（显示参考或数据），与服务器的处理一致。"""
+    mode "raw"：按原值显示（已是工作空间或数值图），与服务器的处理一致。"""
     from ..io.color import load_config
 
     from pathlib import PurePosixPath

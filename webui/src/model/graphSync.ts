@@ -1,4 +1,5 @@
 import { diff, opsSize, same, size, tree, type Json, type Op } from "./graphPatch";
+import { randomId } from "../platform/randomId";
 
 /** The graph goes to the server once per version. Each version the page asks about
  * gets a name (a key); the first ask of it carries a patch against the version the server confirmed last (or the
@@ -15,7 +16,7 @@ export interface GraphRef {
   patch?: Op[];
 }
 
-const SESSION = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, "0")).join("");
+const SESSION = randomId(6);
 let serial = 0;
 let confirmed: { key: string; tree: Obj } | null = null; // the version the server said it has
 let current: { key: string; tree: Obj } | null = null; // the version being asked about

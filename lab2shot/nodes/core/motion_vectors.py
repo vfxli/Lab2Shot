@@ -23,9 +23,7 @@ RELATIVE = 0.01  # forward-backward check: the part of the vectors' length two w
 
 
 def tolerance_param():
-    return P(1.0, label="容差", unit="px", ge=0.05, le=20.0, group="检查",
-             help="前后一致性检查：一个像素顺着运动矢量到邻帧、再顺着邻帧的矢量回来，差得超过这么多像素（外加矢量长度的 1%）"
-                  "就算被挡住或新露出来。噪点多、遮挡边缘太碎就调大；漏掉了细的遮挡就调小")
+    return P(1.0, label="容差", unit="px", ge=0.05, le=20.0, group="检查")
 
 
 def _grid(h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
@@ -57,7 +55,7 @@ def neighbours(frames: list[int]) -> dict[int, tuple[int | None, int | None]]:
 class MotionWarp(NodeDef):
     id = "core.motion_warp"
     picture = "src"
-    version = 2  # image packets now always say whether they have an alpha
+    version = 2  # image packets always say whether they have an alpha
     category = "img_warp"
     on_node = ("direction",)
     inputs = (Port("src", "image", "源", alpha=True), Port("flow", "image.4", "运动矢量", expects=(SameShot(of="src"),)))
@@ -65,9 +63,7 @@ class MotionWarp(NodeDef):
 
     class Params(NodeParams):
         direction: Literal["next", "previous"] = P(
-            "next", label="取哪一帧", group="变形", option_labels={"next": "下一帧", "previous": "上一帧"},
-            help="下一帧：每一帧取下一帧的内容，用 forward 矢量对齐到这一帧（最后一帧没有下一帧，不输出）；"
-                 "上一帧：取上一帧的内容，用 backward 矢量（第一帧不输出）")
+            "next", label="取哪一帧", group="变形", option_labels={"next": "下一帧", "previous": "上一帧"})
 
     @classmethod
     def cook(cls, ctx):
@@ -99,7 +95,8 @@ class MotionWarp(NodeDef):
         if not frames:
             raise Invalid(Msg("E-MOTION-NOFRAMES"))
         x, y = _grid(motion.meta["height"], motion.meta["width"])
-        for f in ctx.each(frames):
+
+        def warp(f):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             path = file_at(src, near[f])
             if picture:  # an alpha pulled along with the picture (premultiplied: sampled as it is)
                 values, alpha = read_picture(src, path, src_box), None
@@ -110,6 +107,8 @@ class MotionWarp(NodeDef):
             out, valid = sample(values, x + v[..., 0], y + v[..., 1], alpha if keeps_alpha else None,
                                 nearest=labels)
             writer.add(f, out, valid)
+
+        list(ctx.each_done(frames, warp))
         return {"image": writer.packet()}
 
 
@@ -140,18 +139,25 @@ class MotionOcclusion(NodeDef):
 
         window = window_of(motion)
         out = {port: ExrWriter(ctx.outputs[port], 1, value_range=UNIT, half=True, window=window) for port in ("occluded", "revealed")}
-        got = {port: False for port in out}
-        for f in ctx.each(frames):
+
+        def check(f):
+            """一帧的两张遮罩，返回各自是否判出了像素：各帧互不相干，由引擎逐帧并行（ctx.each_done）。"""
+            found = {}
             for port, backward in (("occluded", False), ("revealed", True)):
                 other = near[f][0 if backward else 1]
                 if other is None:  # the end of the shot: nothing to check against
                     out[port].add(f, np.zeros((h, w), np.float32))
+                    found[port] = False
                     continue
                 there = _vectors(motion, f, backward)
                 back, inside = sample(_vectors(motion, other, not backward), x + there[..., 0], y + there[..., 1])
                 picked = ~consistent(there, back, inside > 0, tol)
-                got[port] = got[port] or bool(picked.any())
+                found[port] = bool(picked.any())
                 out[port].add(f, picked)
+            return found
+
+        found = list(ctx.each_done(frames, check))
+        got = {port: any(one[port] for one in found) for port in out}
         empty = [cls.outputs[i].label for i, port in enumerate(("occluded", "revealed")) if not got[port]]
         if empty:  # 一个像素都没判出来：交出空遮罩并留一句（空结果不是错误，但要留提醒）
             ctx.say("N-MOTION-NOOCCLUSION", which="、".join(empty), tolerance=tol)
@@ -168,9 +174,7 @@ class MotionStmap(NodeDef):
     outputs = (Port("stmap", "image.2", "ST-map", shape=Shape(lens="unknown")), Port("valid", "image.1", "有效区域"))
 
     class Params(NodeParams):
-        query_frame: int | None = P(None, label="参考帧", group="传播", placeholder="第一帧",
-                                  help="在哪一帧上画（帧号）。每一帧的 ST-map 都指回这一帧；选一帧要修补的物体清楚、正对镜头的帧，"
-                                       "前后都会串过去")
+        query_frame: int | None = P(None, label="参考帧", group="传播", placeholder="第一帧")
         tolerance: float = tolerance_param()
 
     @classmethod

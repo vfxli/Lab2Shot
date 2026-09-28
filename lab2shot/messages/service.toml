@@ -1,0 +1,8 @@
+# 停止服务（lab2shot/cli/service.py 的 stop：配置菜单「服务 → 停止服务」与一键更新第 4 步共用）。
+# 一行一条：编号 = 模板。写法：谁估的、和什么比、数字和单位、意味着什么、怎么办。
+
+"E-SERVICE-NOPID" = "服务在 {address} 回答，但看不到它的进程号（通常是别的系统用户启动的，ss 只显示自己的进程；或者系统里没有 ss 命令）：请由启动服务的用户停止它"
+"E-SERVICE-STOPREFUSED" = "服务没有接受停止的请求：{reason}"
+"E-SERVICE-STILLUP" = "等了 {seconds:d} 秒，端口 {listen:d} 上的服务还没有退出：稍候再看，或自行检查该进程"
+"E-SERVICE-NOPERMISSION" = "没有权限结束进程 {pid:d}：它是别的系统用户启动的，请以该用户（或 sudo）执行 kill {pid:d}"
+"N-SERVICE-STOPCANCELLED" = "已取消停止：服务不再等待停止，队列照常继续"

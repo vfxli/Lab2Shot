@@ -21,7 +21,8 @@ export interface ResourceAct {
 export interface UserRow {
   applies: Availability;
   // what this login may do to the account (account.edit, account.expiry, account.enable, account.tags, account.role,
-  // account.password, account.delete, account.logins): server/available.py account()
+  // account.password, account.delete, account.purge, account.logins, account.quota, account.quota_set):
+  // server/available.py ACCOUNT, resolved by account()
   id: number;
   username: string;
   name: string; // Chinese name
@@ -46,7 +47,33 @@ export interface UserRow {
   last_job: number | null;
   quota_gb: number | null; // 该账号自身的磁盘配额（null：使用设置中的默认值）
   traffic: Traffic; // 该账号使用的网络流量（lab2shot/server/traffic.py）
-  online: { browser: boolean; client: boolean }; // never a raw session count (最近登录 has the real detail)
+  presence: Presence; // 在线 (lab2shot/accounts.py presence()); never a raw session count (最近登录 has the real detail)
+}
+
+/** Where a request came from: a browser as its name and system ("Chrome · Windows"), a DCC plugin or the command line
+ * by its app and computer. */
+export interface Place {
+  kind: "web" | "client";
+  device: string;
+  hostname: string;
+}
+
+/** An account's 在线 (lab2shot/accounts.py presence()): where it made a request within the last `window_s` seconds
+ * (OnlineSummary), and otherwise when and where it was last active (null: never). */
+export interface Presence {
+  online: Place[];
+  active: number | null;
+  where: Place | null;
+}
+
+/** The overview's 在线 tile: accounts that made a request within the last `window_s` seconds (lab2shot/accounts.py
+ * online()). */
+export interface OnlineSummary {
+  count: number;
+  browser: number;
+  client: number;
+  who: { browser: string[]; client: string[] };
+  window_s: number;
 }
 
 /** Where an account is online right now: at most one row per kind (a browser and a DCC plugin/command line may both
@@ -91,7 +118,7 @@ export interface UsersView {
   allowed_new: string[];
   roles: { id: string; label: string; tip: string }[]; // the roles this login may give
   default_role: string; // a new account's, unless one is picked
-  online: { count: number; browser: number; client: number; who: { browser: string[]; client: string[] } };
+  online: OnlineSummary;
 }
 
 export interface NewUser {

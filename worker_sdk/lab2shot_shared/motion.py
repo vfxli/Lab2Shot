@@ -1,4 +1,4 @@
-"""Skeletal motion math, numpy only, shared by the core and the in-betweening workers (one implementation for both
+"""Skeletal motion math, numpy only, shared by the core and the motion workers (one implementation for both
 sides). Rotations are unit quaternions (w, x, y, z) or 3x3 matrices (column vectors, p' = R @ p); a hierarchy lists
 parents before children (-1 for a root).
 

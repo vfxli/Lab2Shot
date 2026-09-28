@@ -28,17 +28,17 @@ Pixel3DMM 做的是从单张 RGB 画面还原三维人脸：一组高度泛化�
 
 **我们怎么接的**
 
-- 「图像」口就是上游那个画面文件夹：worker 把每帧按 `00000.png` 这样链过去（不重编码），上游自己那五步在一个进程里依次执行，
-  不落中间文件夹（`adapters/pixel3dmm/worker.py:7-24`）。
+- 「RGB」口就是上游那个画面文件夹：worker 把每帧按 `00000.png` 这样链过去（不重编码），上游自己那五步依次执行，
+  和上游脚本一样每步一个独立进程（`adapters/pixel3dmm/worker.py` 的 `run_step`、`steps.py`）。
 - 「法线图」「UV 坐标图」= 上游两个 ViT 预测头那两张（`scripts/network_inference.py:146-154` 的 `output['normals']` / `output['uv_map']`）；
   「蒙皮角色」「网格」「表情曲线」「相机」都来自 `track.py` 拟合出的那份 FLAME 和那台相机。
 - **不一样的两点**：① 上游的法线在 FLAME 坐标系里，我们按 README:116 那句把它转成相机空间再交出去
-  （`adapters/pixel3dmm/worker.py:337-338`），和别的法线图节点一个约定；
-  ② 上游靠环境变量和三条命令分三次算、写到磁盘，我们在一个进程里连着算。
-- 上游 tracker 一次最多 1000 帧、且要求每帧都找得到脸，这两条我们照搬，在网页上先拦下。
+  （`adapters/pixel3dmm/worker.py` 的 `write_maps`），和别的法线图节点一个约定；
+  ② 上游是三条命令分三次跑，我们在一次解算里把五步依次跑完。
+- 上游 tracker 一次最多 1000 帧、且要求每帧都找得到脸，这两条我们照搬：不足 16 帧在网页上提交前就拦下，超过 1000 帧在开始解算时就报错。
 
 **出处**：简介抽自论文摘要前三句（arXiv 2505.00615：「We address the 3D reconstruction of human faces from a single RGB image…」）；
-输入输出依据 `third_party/pixel3dmm/repo/README.md:100-121、:136、:115-116` 和 `adapters/pixel3dmm/nodes.py:33-53`、`worker.py:7-24、337-338`。
+输入输出依据 `third_party/pixel3dmm/repo/README.md:100-121、:136、:115-116` 和 `adapters/pixel3dmm/nodes.py` 的 `Official`、`worker.py` 的模块说明和 `write_maps`。
 
 ## 在 Lab2Shot 里怎么用
 
@@ -46,13 +46,13 @@ Pixel3DMM 做的是从单张 RGB 画面还原三维人脸：一组高度泛化�
 - **要求整段每一帧都有一张清晰的脸**：它先用 PIPNet 在每帧找脸，按整段的平均框裁出**一个固定的正方形裁切框**，再算。有一帧找不到脸（人出画、完全侧脸、被手挡住）就会停下来报错，让你把帧范围缩到脸一直在的那一段。
 - **一次最多 1000 帧**（上游 tracker.py 写死的上限）；不足 16 帧也算不了（第二阶段一次要取 16 帧一起算）。少于 16 帧在网页上就会拦下。
 - 「精度」三档：快 / 标准 / 精细，改的是迭代步数（逐帧 100 / 200 / 400 步，联合 1500 / 5000 / 10000 步）。标准就是官方默认。显存三档一样，时间成倍差。
-- Focal Length：不填的话它自己解（整段一个 Focal Length，联合优化时一起解）；填了「Focal Length」或接上相机，就用你给的那个并锁住不再动——这时它只解头的位置和姿态。节点上写着这一次的 Focal Length 是谁给的。
+- Focal Length：不填的话它自己解（整段一个 Focal Length，联合优化时一起解）；填了「已知 Focal Length」（或接一条 Focal Length 进来），就用你给的那个并锁住不再动——这时它只解头的位置和姿态。节点上写着这一次的 Focal Length 是谁给的。
 - 输出：
   - **人物**：带 102 个表情形变（100 个 FLAME 表情 + 左右眼皮）和五根骨头（头、脖子、下巴、两个眼球）的蒙皮头，表情权重做成动画，DCC 里能继续调；
   - **网格**：每帧的精确网格（点缓存），和画面贴得最紧的那一份；
   - **相机**：它解出来的那台相机——**一台固定相机**，头在它前面动。Focal Length 是解出来的；镜头中心跟着裁切框走，所以脸不在画面正中时，交付的相机带一个镜头中心偏移（USD 的 aperture offset），Nuke / Maya 里照样对得上；
   - **表情曲线**：102 条（CSV / .chan）；
-  - **法线图**：相机空间的单位法线（和「MoGe」「Sapiens 2」同一个约定），只在裁切框那一块有值；
+  - **法线图**：相机空间的单位法线（和 MoGe、Sapiens2 同一个约定），只在裁切框那一块有值；
   - **UV 坐标图**：FLAME 官方的 UV 展开，0–1 两通道，只在裁切框那一块有值。Nuke 里用 STMap 贴图，Houdini / Maya 里做纹理传递——它自己就给出这一张，不用再接「规范坐标转 UV」。
 
 ## 效果和局限
@@ -95,7 +95,7 @@ RTX 5090，sh030 面部特写（772×855，整段 113 帧），裁切框 676×67
 | | SMIRK 面部动作 | Pixel3DMM 面部动作 |
 |---|---|---|
 | 误差（NeRSemble 单视角带表情，Chamfer L1） | 2.276 mm | **1.659 mm** |
-| 速度 | **0.13 秒/帧** | 约 1.9 秒/帧（标准档） |
+| 速度 | **0.13 秒/帧** | 约 6.2 秒/帧（标准档） |
 | 时序 | 每帧单独算，会抖 | 整段联合优化 + 时序平滑，稳 |
 | 表情 | 50 个 FLAME 表情 + 2 眼皮 | 100 个 FLAME 表情 + 2 眼皮，另有脖子和眼球转动 |
 | 相机 | 正交相机换算成的针孔，Focal Length 要你填 | 自己解出 Focal Length 和镜头中心 |
@@ -111,7 +111,7 @@ RTX 5090，sh030 面部特写（772×855，整段 113 帧），裁切框 676×67
 ## 模型下载和安装
 
 - 自动安装：`lab2shot ext install pixel3dmm`。下载原始仓库和三个预处理仓库（facer、MICA、PIPNet，都钉死版本）、独立 Python 3.10 环境（torch 2.9 + CUDA 13.0），编译 pytorch3d 和 nvdiffrast，再下载权重：Pixel3DMM 的两个预测网络 2.1 GB + 1.4 GB、MICA 身份网络 479 MB、InsightFace antelopev2 344 MB、PIPNet 关键点 47 MB，外加几个小模型。一共约 4.5 GB，环境加权重约 13 GB。编译要十几分钟。
-- 需要手动下载：FLAME 面部模型。到 https://flame.is.tue.mpg.de 注册登录，在 Download 页面下载「FLAME 2020」（FLAME2020.zip），压缩包原样放进 Lab2Shot 的 `downloads/` 文件夹（不用解压、不用改名，「帮助与扩展包」页面的「手动下载」写着这个文件夹在哪），Lab2Shot 会自动解压并找到里面的 `generic_model.pkl`。
+- 需要手动下载：FLAME 面部模型。到 https://flame.is.tue.mpg.de 注册登录，在 Download 页面下载「FLAME 2020」（FLAME2020.zip），压缩包原样放进 Lab2Shot 的 `downloads/` 文件夹（不用解压、不用改名，后台管理页「扩展包」里的「手动下载」写着这个文件夹在哪），Lab2Shot 会自动解压并找到里面的 `generic_model.pkl`。
 - 安装和上游官方脚本的两处不同（都不改原仓库）：
   1. 官方的 `install_preprocessing_pipeline.sh` 用 SSH（`git@github.com`）克隆 facer / MICA / PIPNet，并把它自己的替换文件拷进那三个仓库里。Lab2Shot 改用 https 按提交号钉死克隆，再用符号链接**在旁边**拼出上游期望的那棵目录树（`third_party/pixel3dmm/codebase/`），四个检出一个字节都不改。
   2. pytorch3d 从源码编译时**去掉了它的点渲染器 pulsar**：pulsar 的显式模板实例化在 CUDA 13 的 nvcc 下生成不出主机端符号，`_C` 链接不过；Pixel3DMM 用到的是 knn / load_obj / Meshes，和 pulsar 无关。只保留 pulsar 头文件里的两个常量（`_C.EPS`、`_C.MAX_UINT`，pytorch3d 自己导入时要读）。

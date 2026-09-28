@@ -22,7 +22,8 @@ The rig comes in as joint-to-world transforms on its own frames (cm, Y up, the s
 `labels` go back through the contract beside the motion: the node shows them as 「问题帧」 and, by default, keeps the
 frames the model called good exactly as the artist brought them in.
 
-Parameters: quality ("basic" / "best": upstream's plain path, or its ensemble selection), seed.
+Parameters: quality ("basic" / "best": upstream's plain path, or its ensemble selection), seed; threshold and
+repaint_all come from the family's 「检测阈值」 / 「只改问题帧」 (rig_motion.py cleanup_job).
 """
 
 from __future__ import annotations

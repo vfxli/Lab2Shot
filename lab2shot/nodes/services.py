@@ -6,15 +6,16 @@ can do, as a declaration it reads, never an import upwards (the layering has no 
                    spec its worker runs from. Nodes, tags and the engine read `cls.project`, never the registry.
     PlanEnv        what planning needs from outside a cook: the file an upload reference names, and a quick worker job
                    run outside any cook (an import node's listing).
-    DeliverySink   where 「输出」 hands its files over: built per run by whoever submits the cook (the farm), given only to
-                   a node that delivers (CookContext.delivery).
+    OutputSink     where 「输出」 collects its files and packs them: built per task by whoever submits the cook (the
+                   farm), given only to a node that delivers (CookContext.collector).
     Services       the extension nodes and the plan environment of this process, installed once by the top layer
-                   (lab2shot/catalog.py install(): the server, the command line, the tests and tools call it before
-                   they read a node type). Reading them before that is an error that says so, never core nodes only.
+                   (lab2shot/catalog.py install(): the server and the command line call it before they read a
+                   node type). Reading them before that is an error that says so, never core nodes only.
 """
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,7 +86,12 @@ class PlanEnv(Protocol):
         the ports would change without any message (see `nodes/core/input.py _view`).
 
         It is used only to create ports and fill options, never for computation: an actual cook requires all bytes and
-        goes through `upload()` as before."""
+        goes through `upload()`."""
+        ...
+
+    def may_draw_on(self, layer: Path, file: Path) -> bool:
+        """Whether the scene file `layer` may reference `file` (lab2shot/transfer/uploads.py may_draw_on): a delivered
+        scene copies in only textures that pass it, so an uploaded scene can never carry another file out."""
         ...
 
     def declared_layers(self, path: Path) -> dict | None:
@@ -118,12 +124,16 @@ class PlanEnv(Protocol):
         ...
 
 
-class DeliverySink(Protocol):
-    """Where 「输出」 hands its files over (lab2shot/transfer/deliveries.py Sink): it makes the delivery, reports it as the
-    run's "output" event and returns its record (commercial, files, bytes ...)."""
+class OutputSink(Protocol):
+    """Where 「输出」 collects the files wired into it and packs them (lab2shot/transfer/outputs.py Collector): into its
+    task's folder, then one zip of it, told as the task's "output" event."""
 
-    def deliver(self, node_id: str, label: str, outputs: list[Packet], name: str, mode: str,
-                item: str = "") -> dict[str, Any]: ...  # `item`: the instance's item path ("" outside every block)
+    # `stop`: the node's own (its cook stopped, or it ran past its time limit): collecting and packing stop there;
+    # `path`/`names`: the instance's items ("" outside every block)
+    def collect(self, node_id: str, label: str, outputs: list[Packet], stop: threading.Event, path: tuple = (),
+                names: tuple[str, ...] = ()) -> dict[str, Any]: ...
+
+    def pack(self, node_id: str, label: str, stop: threading.Event) -> dict[str, Any]: ...  # by the engine, once every instance collected
 
 
 @dataclass(frozen=True)
@@ -143,6 +153,6 @@ def install(services: Services) -> None:
 
 def services() -> Services:
     if _installed is None:
-        raise RuntimeError("no Lab2Shot services installed: call lab2shot.catalog.install() first (the server, the command line, "
-                           "the tests and the tool scripts do it when they start)")
+        raise RuntimeError("no Lab2Shot services installed: call lab2shot.catalog.install() first (the server and the "
+                           "command line do it when they start)")
     return _installed

@@ -33,6 +33,8 @@ export function KeepContext() {
   return null;
 }
 
+/** Requests a new frame whenever React redraws the stage (a new frame, an option) or the canvas is resized (which
+ * clears it): the canvas only draws when something has changed. */
 export function Redraw() {
   const invalidate = useThree((s) => s.invalidate);
   const size = useThree((s) => s.size);

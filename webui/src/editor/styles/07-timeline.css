@@ -1,13 +1,12 @@
 /* ------------------------------------------------------------------ timeline */
 
-/* the ruler's layers, restyled here in one place: the data's frames, the playback range and its handles, the cook
-   range, the cache bar, the marks, the frames missing, the current frame */
+/* the ruler's layers, restyled here in one place: the data's frames, the playback range and its handles, the cache
+   bar, the marks, the frames missing, the current frame */
 .timeline {
   --tl-bg: var(--panel); /* 停靠在视图下方：使用实色，与其他面板相同的灰色，不另设偏暖色调 */
   --tl-data: rgba(120, 120, 128, 0.26);
   --tl-play: rgba(10, 132, 255, 0.3);
   --tl-grip: #4da3ff;
-  --tl-cache: var(--green);
   --tl-stale: var(--orange); /* 过期：可以播放，但不是最新结果 */
   --tl-loaded: #b6f5c6;
   --tl-gap: color-mix(in srgb, var(--error) 55%, transparent);
@@ -140,8 +139,6 @@
   background: var(--tl-mark-2);
 }
 
-/* the cook range: its own colour, under the data; dim while it is every frame of the inputs */
-/* the cache bar: the frames the displayed node has results for */
 /* 一条色带：绿 = 已在浏览器中、可实时播放；土黄 = 可实时播放但为上一次的结果（见 editor/Timeline.tsx 相关注释） */
 .tl-cache {
   top: 26px;
@@ -221,7 +218,7 @@
   color: var(--orange);
 }
 
-/* a narrow viewer keeps the row on one line: the less needed parts go first (they are all in 更多 as well) */
+/* a narrow viewer keeps the row on one line: the less needed parts go first (the rate, the 计算 label, the zoom bar) */
 @container (max-width: 900px) {
   .tl-fps {
     display: none;

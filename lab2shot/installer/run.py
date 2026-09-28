@@ -24,7 +24,7 @@ import tempfile
 import threading
 import time
 from collections import deque
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -34,17 +34,17 @@ from lab2shot_worker.serving import available_gb
 from .. import config
 from ..errors import MessageError, Unavailable, message_of
 from ..extensions import gpu_archs
-from ..extensions.spec import Extension, ExtensionPaths, InstallError, Weight, clean_environ
+from ..extensions.spec import Extension, ExtensionPaths, InstallError, Weight, clean_environ, state_writing
 from ..messages import Msg
 from . import envbuild, plan, sources
-from .events import Cancelled, Sink
+from .events import Cancelled, LogFile, Sink
 from .sources import Gated, NetworkFailure, Policy
 
 SELFCHECK_TIMEOUT_S = 600
 SWITCH_POLL_S = 5.0  # how often a switch waiting for running jobs looks again
 READ_S = 0.5  # how often a quiet command looks whether the install was cancelled
 IDLE_S = 900  # a git transfer (fetch / submodule, with --progress) that prints nothing this long is stalled: stopped and retried.
-# 15 minutes rather than 3: git runs with --progress, and a normal transfer is never silent that long. Applies only to
+# 15 minutes: git runs with --progress, and a normal transfer is never silent that long. Applies only to
 # git (run with idle=True): when uv pip's stdout is a pipe it prints nothing while downloading a multi-GB wheel or
 # building a package from source; applying this timeout would kill it as stalled, restart from scratch and finally
 # report a network failure. In those cases the install either waits or lets the compile error report itself
@@ -52,11 +52,13 @@ IDLE_S = 900  # a git transfer (fetch / submodule, with --progress) that prints 
 
 @dataclass
 class Live:
-    """What the running server knows. busy(name): jobs running now that use the extension; switched(name): its new
+    """What the running server knows. busy(name): jobs running now that use the extension; holding(name): while it
+    lasts no node of the extension starts (its environment is checked and switched inside it); switched(name): its new
     environment went live (end kept-loaded processes of the old one); free_ram(gb): make memory by ending idle kept
     processes."""
 
     busy: Callable[[str], int] = field(default=lambda name: 0)
+    holding: Callable[[str], AbstractContextManager] = field(default=lambda name: nullcontext())
     switched: Callable[[str], None] = field(default=lambda name: None)
     free_ram: Callable[[float], None] = field(default=lambda gb: None)
 
@@ -96,9 +98,10 @@ class Context:
         for key in [k for k in verified if not (self.paths.root / k).exists()]:
             del verified[key]
         self.paths.root.mkdir(parents=True, exist_ok=True)
-        tmp = self.paths.state_file.with_name(self.paths.state_file.name + ".tmp")
-        tmp.write_text(json.dumps(self.state, indent=2, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(self.paths.state_file)
+        with state_writing(self.paths):  # never between gpu_archs.record's read and write
+            tmp = self.paths.state_file.with_name(self.paths.state_file.name + ".tmp")
+            tmp.write_text(json.dumps(self.state, indent=2, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(self.paths.state_file)
 
     def mark_building(self) -> None:
         self.state["plan"] = plan.env_fingerprint(self.ext)
@@ -444,7 +447,6 @@ def _download(ctx: Context, w: Weight, dest: Path) -> None:
             sources.fetch_checked(w.source, dest, w.sha256, ctx.sink, ctx.policy, gated=w.gated)
         _verify(ctx, w, dest)
     elif w.kind == "zip":
-        import zipfile
 
         archive = ctx.ext.paths.weights / "_downloads" / Path(w.source).name
         if not sources.share(w.sha256, archive):
@@ -518,8 +520,7 @@ def step_post(ctx: Context) -> None:
 def step_selfcheck(ctx: Context) -> None:
     """In the new environment, on the CPU, with no footage: the worker SDK, the pinned torch (and a tiny tensor sum)
     and the modules the extension declares import; its required weights are there; its GPU architectures recorded."""
-    ext, paths = ctx.ext, ctx.paths
-    env_fp = plan.env_fingerprint(ext)
+    env_fp = plan.env_fingerprint(ctx.ext)
     try:
         _selfcheck(ctx, env_fp)
     except MessageError as exc:
@@ -640,12 +641,27 @@ def step_switch(ctx: Context) -> None:
             plan.write_pointer(ext, ptr)
         return
     said = False
-    while (n := ctx.live.busy(ext.name)) > 0:
+    while True:
+        with ctx.live.holding(ext.name):  # nothing of it starts between the check and the switch
+            if (n := ctx.live.busy(ext.name)) == 0:
+                ptr = _go_live(ext, paths, live, ptr, extras)
+                ctx.live.switched(ext.name)
+                break
         if not said:
             ctx.sink.say(Msg("N-INSTALL-WAITJOBS", title=ext.title, count=n))
             said = True
         ctx.sink.cancel.wait(SWITCH_POLL_S)
         ctx.sink.check()
+    _tidy(ext, ptr)
+    if paths != live:
+        ctx.sink.say(Msg("I-INSTALL-SWITCHED", title=ext.title))
+    if extras:
+        ctx.sink.say(Msg("I-INSTALL-EXTRASWITCHED", title=ext.title, folders=list(extras)))
+
+
+def _go_live(ext: Extension, paths: ExtensionPaths, live: ExtensionPaths, ptr: dict, extras: dict) -> dict:
+    """Point the extension at the environment `paths` built (the one before kept for rollback) and put the extra
+    sources checked out beside their folders in their place; the pointer written."""
     if paths != live:
         before = plan.slot(live) if live.python.exists() else None
         ptr = {"current": plan.slot(paths), "previous": before if before != plan.slot(paths) else ptr.get("previous"),
@@ -657,12 +673,7 @@ def step_switch(ctx: Context) -> None:
         # extra source drops the key: the environment before *that* switch ran with the folders as they are now
         ptr["extras_previous"] = _swap_extras(ext, extras)
     plan.write_pointer(ext, ptr)
-    ctx.live.switched(ext.name)
-    _tidy(ext, ptr)
-    if paths != live:
-        ctx.sink.say(Msg("I-INSTALL-SWITCHED", title=ext.title))
-    if extras:
-        ctx.sink.say(Msg("I-INSTALL-EXTRASWITCHED", title=ext.title, folders=list(extras)))
+    return ptr
 
 
 def _tidy(ext: Extension, ptr: dict) -> None:
@@ -713,10 +724,16 @@ def _step_done(ctx: Context, step: plan.Step) -> bool:
 
 def install(ext: Extension, sink: Sink, *, force: bool = False, live: Live | None = None, only: tuple[str, ...] = (),
             policy: Policy | None = None) -> ExtensionPaths:
-    """Every step of `ext`'s install (or just `only`), from where it stopped; returns the environment it built."""
+    """Every step of `ext`'s install (or just `only`), from where it stopped; returns the environment it built. Everything
+    it says is also written to work/logs/installs/<extension>-<time>.log (events.LogFile)."""
     live = live or Live()
     policy = policy or Policy.from_settings()
-    with locked(ext):
+    folder = config.settings().work_dir / "logs" / "installs"
+    folder.mkdir(parents=True, exist_ok=True)
+    log = folder / f"{ext.name}-{time.strftime('%Y%m%d-%H%M%S')}.log"
+    with locked(ext), log.open("a", encoding="utf-8") as file:
+        sink = LogFile(sink, file)
+        sink.log(f"安装日志：{log}")
         paths = ext.paths if only == ("selfcheck",) else plan.target(ext, force)
         ctx = Context(ext, paths, sink, policy, live, force)
         todo = [s for s in plan.steps(ext) if not only or s.id in only]
@@ -777,9 +794,9 @@ def rollback(ext: Extension, live: Live | None = None) -> None:
     extras = [f for f in plan.pointer(ext).get("extras_previous", ()) if f in ext.extra_sources and _extra_prev(root / f).is_dir()]
     if prev is None and not extras:
         raise Unavailable(Msg("N-INSTALL-NOPREVIOUS", title=ext.title))
-    if n := live.busy(ext.name):
-        raise Unavailable(Msg("N-INSTALL-INUSE", title=ext.title, count=n))
-    with locked(ext):
+    with live.holding(ext.name), locked(ext):  # nothing of it starts between the check and the switch
+        if n := live.busy(ext.name):
+            raise Unavailable(Msg("N-INSTALL-INUSE", title=ext.title, count=n))
         ptr = plan.pointer(ext)
         for folder in extras:
             _exchange(root / folder, _extra_prev(root / folder))
@@ -791,21 +808,21 @@ def rollback(ext: Extension, live: Live | None = None) -> None:
         if extras:
             ptr["extras_previous"] = extras
         plan.write_pointer(ext, ptr)
-    live.switched(ext.name)
+        live.switched(ext.name)
 
 
 def uninstall(ext: Extension, live: Live | None = None) -> None:
     """Environments, checkouts, extra code, caches and install records go; model files stay (other extensions may
     share them by hash, and a reinstall does not download them again)."""
     live = live or Live()
-    if n := live.busy(ext.name):
-        raise Unavailable(Msg("N-INSTALL-INUSE", title=ext.title, count=n))
     root = ext.paths.root
-    with locked(ext):
+    with live.holding(ext.name), locked(ext):  # nothing of it starts between the check and the removal
+        if n := live.busy(ext.name):
+            raise Unavailable(Msg("N-INSTALL-INUSE", title=ext.title, count=n))
         for d in [*root.glob(".venv*"), *root.glob("repo*"), root / "cache",
                   *(root / (f + tail) for f in ext.extra_sources for tail in ("", ".new", ".prev", ".swap"))]:
             if d.is_dir():
                 shutil.rmtree(d, ignore_errors=True)
         for f in [*root.glob("install_state*.json"), *root.glob("cuda_toolkit_overrides*.txt"), root / plan.ACTIVE_FILE]:
             f.unlink(missing_ok=True)
-    live.switched(ext.name)
+        live.switched(ext.name)

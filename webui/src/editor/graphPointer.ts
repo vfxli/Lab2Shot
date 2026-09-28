@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useOnViewportChange, type OnConnectEnd, type useReactFlow } from "@xyflow/react";
-import { addBox, addPortRow, connect, deleteElements } from "../graph/actions";
+import { addBox, addPortRow, connect, copySelection, deleteElements, duplicateSelection, pasteCopied } from "../graph/actions";
 import { snapshotNow } from "../graph/snapshot";
 import { useCookInputs } from "../state/cookInputs";
 import { useViewer } from "../state/viewer";
@@ -13,11 +13,13 @@ import { wiring, type End, type Wiring } from "./wiring";
  * returns the handlers the pane spreads onto itself, the dashed line's path element, and whether a wire is being carried.
  *
  *   左键  point: select a node, or clear the selection; drag: a selection box on empty canvas (selectionOnDrag),
- *         or move a node (both handled by @xyflow/react); on a port: a wire (a drag is @xyflow/react's, a click is this module's)
+ *         or move a node, a selected one with the whole selection (both handled by @xyflow/react; as in Nuke and
+ *         Houdini there is no outline around a selection to drag it by: styles/08-node-graph.css); on a port: a wire
+ *         (a drag is @xyflow/react's, a click is this module's)
  *   中键  drag: pan the canvas, over a node as well as over empty canvas (@xyflow/react's panOnDrag=[1]); the browser's
  *         own auto-scroll never starts. A middle click opens nothing.
- *   右键  one click in place only: the menu that adds a node on empty canvas, the node's own menu (计算 / 提交) on a
- *         node. A right drag does nothing.
+ *   右键  a click: the menu that adds a node on empty canvas, the node's own menu (editor/nodeActions.ts NODE_MENU)
+ *         on a node. A press and a release on two different targets open nothing.
  *   滚轮  zoom (@xyflow/react's own), and 空格 + 左键 pans like 中键 does
  *   数据信息  the mark at a node's bottom right (editor/GraphNode.tsx), never a key and never a click of the pointer's */
 
@@ -37,7 +39,7 @@ function nodeUnder(el: HTMLElement): string | null {
 export function canWire(s: ReturnType<typeof snapshotNow>, from: End, to: End): boolean {
   const t = outputType(s, from.node, from.port);
   const port = inputPort(s, to.node, to.port);
-  // 该端口当前不可用（由服务器计算，nodes/base.py Port.applies）：连线无法接入，而非接入后绘制为虚线
+  // 该端口当前不可用（由服务器计算，nodes/port.py Port.applies）：连线无法接入，而非接入后绘制为虚线
   if (port?.inactive) return false;
   return !!t && !!port && from.node !== to.node && (portAccepts(s.catalog, port.type, t) || (!port.name.startsWith(PARAM) && !!converter(s.catalog, t, port.type)));
 }
@@ -51,6 +53,9 @@ function portAt(el: Element | null): { end: End; side: "output" | "input" } | nu
 
 const isBox = (id: string) => id.startsWith("box:");
 
+/** Text is selected on the page (the log, a message): Ctrl+C is the browser's copy of it, not the nodes'. */
+const textSelected = () => !(window.getSelection()?.isCollapsed ?? true);
+
 const handleSelector = (end: End, side: "output" | "input") =>
   `.react-flow__handle.${side === "output" ? "source" : "target"}[data-nodeid="${CSS.escape(end.node)}"][data-handleid="${CSS.escape(end.port)}"]`;
 
@@ -60,7 +65,7 @@ function centreIn(box: DOMRect, el: Element): { x: number; y: number } {
   return { x: r.left + r.width / 2 - box.left, y: r.top + r.height / 2 - box.top };
 }
 
-export interface GraphPointer {
+interface GraphPointer {
   /** A wire dragged out of a port and let go where no port took it (@xyflow/react's own gesture). */
   onConnectEnd: OnConnectEnd;
   handlers: {
@@ -270,6 +275,25 @@ export function useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds, onNode
     { keys: ["tab"], run: () => menuAt(mouse.current.x, mouse.current.y) },
     { over: () => wrap.current, enabled: !viewer }, // the pointer over another pane (the parameter panel): Tab is its own there
   );
+  // Ctrl+C copies the selected nodes, Ctrl+V pastes them (at the pointer while it is over the graph), Ctrl+D duplicates
+  // them in place (graph/edit.ts). Typing in a field the keys stay the field's (platform/keys.ts: not inText), and text
+  // selected on the page (the log, a message) is copied by the browser as usual; nothing selected, the key is declined.
+  useShortcut({ keys: ["mod+c"], run: () => (textSelected() ? false : copySelection()) });
+  useShortcut(
+    {
+      keys: ["mod+v"],
+      run: () => {
+        const r = wrap.current?.getBoundingClientRect();
+        const { x, y } = mouse.current;
+        const over = !!r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+        return pasteCopied(over ? flow.screenToFlowPosition(mouse.current) : undefined);
+      },
+    },
+    { enabled: !viewer }, // tabs.ts: editing here is off
+  );
+  // Ctrl+D is always the graph's, even with nothing selected or in a tab that only views: declined, it would reach the
+  // browser as its 「加入书签」
+  useShortcut({ keys: ["mod+d"], run: () => (viewer || duplicateSelection(), true) });
 
 
   return {
@@ -292,10 +316,10 @@ export function useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds, onNode
         // 中键: the canvas pans (@xyflow/react's panOnDrag = [1]), over a node as well. Nothing is done to the press
         // here, and in particular its default is NOT prevented: preventDefault() on a pointerdown tells the browser to
         // send no compatibility mouse events for it, and @xyflow/react pans from `mousedown` (d3-zoom), so the pan
-        // would never start (a browser driven through CDP still gets its mousedown, so automated tests do not catch
-        // this). The browser's own middle-click auto-scroll is stopped on the mouse event instead (onMouseDownCapture / onAuxClick below).
+        // would never start (a browser driven through CDP still gets its mousedown, so the fault shows only with a real
+        // mouse). The browser's own middle-click auto-scroll is stopped on the mouse event instead (onMouseDownCapture / onAuxClick below).
         if (e.button === 1) return;
-        // 右键: the browser's own menu is refused for this gesture wherever the event lands (see the guard below)
+        // 右键: the browser's own menu is refused for this gesture wherever the event lands (see the guard above)
         if (e.button === 2) armed.current = performance.now();
         if (!wire.current) {
           // 左键按在已接线的输入口上：拿起该连线，与点击效果相同，因此拖动时带走的是该连线的端点，

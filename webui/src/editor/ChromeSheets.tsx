@@ -11,6 +11,8 @@ import { Button } from "../ui/Button";
 import { Banner } from "../ui/Banner";
 import { Loading } from "../ui/Loading";
 
+/** Sent to the editor (App.tsx) to open a graph as a new unsaved document: it asks first when the one open has unsaved
+ * changes. */
 export const OPEN_GRAPH = "lab2shot:open-graph";
 
 export function QueueSheet({ data, onRefresh, onClose }: { data: QueueData | null; onRefresh: () => void; onClose: () => void }) {
@@ -34,21 +36,20 @@ export function QueueSheet({ data, onRefresh, onClose }: { data: QueueData | nul
   );
 }
 
-/** Replacing a graph that has unsaved changes asks first, like a DCC opening another scene. Whatever is chosen,
- * the changes are also kept in the autosave history. */
+/** Replacing a graph that has unsaved changes asks first, like a DCC opening another scene. */
 export function UnsavedSheet({ onChoice }: { onChoice: (choice: "save" | "discard" | "cancel") => void }) {
   const file = useViewer((s) => s.file);
   return (
     <Sheet title="当前节点图有还没保存的修改" width={520} onClose={() => onChoice("cancel")}>
       <p className="tpl-desc" style={{ fontSize: 13 }}>
         {file ? `打开新的节点图之前，要先把修改存进 ${file.name} 吗？` : "这个节点图还没有存成文件。打开新的节点图之前，可以先保存。"}
-        不保存的话，这些修改也会留在这个浏览器的自动保存历史里。
+        不保存的话，这些修改就丢了。
       </p>
       <div className="dialog-row" style={{ justifyContent: "flex-end" }}>
         <Button tip="不打开新的节点图，留在当前这个" tone="ghost" onClick={() => onChoice("cancel")}>
           取消
         </Button>
-        <Button tip="不保存修改，打开新的节点图（修改留在自动保存历史里）" onClick={() => onChoice("discard")}>
+        <Button tip="不保存修改，打开新的节点图：这些修改就丢了" onClick={() => onChoice("discard")}>
           不保存打开
         </Button>
         <Button tip="先保存当前节点图，再打开新的" tone="primary" onClick={() => onChoice("save")} autoFocus>

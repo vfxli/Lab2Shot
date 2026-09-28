@@ -3,14 +3,14 @@ import { readChunk, gridPoints, type Piece, type Typed } from "../model/viewForm
 import { spanBounds, type Bounds } from "../model/math3d";
 import { workerAnswers } from "../platform/work";
 
-/** The 3D viewer's arithmetic, off the page's thread (G25): parsing a chunk's bytes (readChunk — the byte-plane and
+/** The 3D viewer's arithmetic, off the page's thread: parsing a chunk's bytes (readChunk — the byte-plane and
  * bit-difference unpacking, the biggest plain loops in the viewer), rebuilding a depth cloud's points (gridPoints,
  * exactly the arithmetic the graphics card does) and a cloud's bounds. It asks nothing and keeps nothing:
  * every ask carries its own arrays in, every answer carries its arrays out (platform/work.ts: each array exactly its
  * own bytes, whatever larger buffer it was a view of), so the page holds the one copy the graphics card draws. Called
- * only through view/sceneWork.ts (webui/tests/workers.test.ts keeps these functions out of the page's thread). */
+ * only through view/sceneWork.ts, so these functions never run on the page's thread. */
 
-export type SceneAsk =
+type SceneAsk =
   | { chunk: Uint8Array } // a chunk's bytes as they came
   | { grid: { depth: Float32Array; gw: number; step: number; width: number; height: number; focal: number; cam: Float32Array; principal: Float32Array | null } }
   | { bounds: { points: Float32Array } }; // a still cloud's points

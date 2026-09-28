@@ -1,21 +1,19 @@
 import { api, type StatusReply } from "../api";
+import { absorbNextChange } from "./history";
 import type { CookCase } from "../api/status";
 import { follow } from "./follow";
-import { canWrite, cannot } from "../files/handles";
-import { readyToSave, rememberDestinations, watchJob } from "../files/deliver";
+import { loadOutputs } from "./outputs";
 import { readyForPause } from "../state/pause";
 import { readyForQuota } from "../state/quota";
 import { useCookInputs } from "../state/cookInputs";
 import { useLook } from "../state/look";
 import { planFor, trustedReplyNow, useResults, type CookJob } from "../state/results";
-import { browserCanCompute } from "./rules";
-import { hasLocalFile } from "../transfer/local";
 import { useViewer } from "../state/viewer";
 import { taskFor, uploadBlocker, uploadStopsClick, useUploads } from "../transfer/uploads";
 import { pickedFor, sendPicked } from "./apply";
 import { type BlockContext, type Blocker, blockers, dedupeBlockers, deliverBlocked, deliveryNodes, cookSpan, frameLimitProblem, isLive, rangeProblem, standing } from "./nodes";
 import { snapshotNow } from "./snapshot";
-import { fromServer, logMessage, msg, reasonOf, say, type Message } from "../state/say";
+import { fromServer, msg, reasonOf, say, type Message } from "../state/say";
 import { ApiError } from "../platform/http";
 import { toJSON, stopStatusRefresh } from "./document";
 import { wireKey } from "./rules";
@@ -23,8 +21,8 @@ import { getNodeDefs } from "../state/catalog";
 import { useSession } from "../state/session";
 import { blocksOf, useItems, viewForAsk } from "../state/items";
 
-export { fileJSON, loadGraph, markSaved, redo, toJSON, undo } from "./document";
-export { addBox, addChain, addNode, addPortRow, connect, deleteElements, deriveParams, insertNode, mergeToExr, pickFile, setLabel, setParam, setSaveTo, toggleBox, toggleExposed, toggleOnNode, togglePromoted } from "./edit";
+export { fileJSON, loadGraph, redo, savePoint, toJSON, undo } from "./document";
+export { addBox, addChain, addNode, addPortRow, connect, copySelection, deleteElements, duplicateSelection, deriveParams, insertNode, mergeToExr, pasteCopied, pickFile, setLabel, setParam, setParams, toggleBox, toggleExposed, toggleOnNode, togglePromoted } from "./edit";
 
 /** Cross-store operations: a user action like "add a node" or
  * "connect a wire" touches state/cookInputs.ts (its data) and state/look.ts (its position) together, and "cook"
@@ -37,7 +35,7 @@ export { addBox, addChain, addNode, addPortRow, connect, deleteElements, deriveP
 /** Wires connected since the last status reply: the reply that judges them says what is wrong with one, once. */
 export const justWired = new Set<string>();
 
-export function sayJudgedWires(reply: StatusReply): void {
+function sayJudgedWires(reply: StatusReply): void {
   for (const w of reply.wires) {
     const id = wireKey(w.from[0], w.from[1], w.to[0], w.to[1]);
     if (!justWired.delete(id) || w.state === "ok" || !w.problem) continue;
@@ -64,8 +62,6 @@ function blockContext(reply: StatusReply): BlockContext {
       const going = taskFor(upload(), id, param);
       return going && uploadStopsClick(going) ? uploadBlocker(going, label) : undefined;
     },
-    cannotChoose: (need) => cannot(need),
-    canWrite,
     applies: useSession.getState().state?.applies,
   };
 }
@@ -94,8 +90,8 @@ const status = { asked: 0, answered: 0 };
 
 /** Ask the server about the graph as it is: one request per edit, the shown
  * node's plan with it. A reply for cook inputs that have moved on since, or older than one already taken, is dropped.
- * `autoCook`: once it is in, what the shown node shows cooks by itself when that is light work delivering nothing. */
-export async function refreshStatus(autoCook = true): Promise<void> {
+ * Nothing is ever cooked by it: the viewer only shows what is computed, computing is a click on 「计算」. */
+export async function refreshStatus(): Promise<void> {
   const ci = useCookInputs.getState();
   if (!ci.order.length) return;
   const version = ci.version;
@@ -108,7 +104,7 @@ export async function refreshStatus(autoCook = true): Promise<void> {
     useResults.getState().clearResults();
     // The server's own words for why it could not answer (its code and detail) are kept: 计算 reports them instead of
     // guessing「刚改过，或者网络断了」, which is never the reason when the answer keeps refusing the same way.
-    useResults.getState().setStatusProblem(e instanceof ApiError && e.code ? fromServer({ code: e.code, text: e.message }) : null);
+    useResults.getState().setRefused(e instanceof ApiError && e.code ? fromServer({ code: e.code, text: e.message }) : null);
     for (const id of ci.order) {
       const st = useResults.getState().byNode[id];
       if (!isLive(st?.status)) useResults.getState().setNodeStatus(id, { status: "idle" });
@@ -139,37 +135,22 @@ export async function refreshStatus(autoCook = true): Promise<void> {
   if (ranged && shownRange) {
     const now = cookSpan(ranged, useResults.getState().plan ?? null);
     if (now && (String(now[0]) !== ranged[0].trim() || String(now[1]) !== ranged[1].trim())) {
+      absorbNextChange(); // the footage moved it, not the user: no step to undo, the graph is not marked changed by it
       setCookRange([String(now[0]), String(now[1])]);
     }
   }
-  // Houdini-style: what the shown node shows cooks by itself, when that is light work delivering nothing
-  const disp = useLook.getState().displayId;
-  const shown = disp ? results[disp]?.policy.shown : undefined;
-  if (!autoCook || !disp || !shown || useResults.getState().job) return;
-  const pending = shown.computes.filter((id) => results[id]?.fingerprint);
-  const retry = pending.some((id) => results[id]?.outcome); // failed or skipped: tried again on a click, never by showing
-  // 浏览器可自行计算的步骤不交由服务器：在「选人」上更改选择不提交任何计算，遮罩图与合成图不在服务器生成，
-  // 也不回传，画面立即更新。这些步骤（选人、拆成列表、人物框转遮罩、图像合成）由浏览器当场计算（view/evaluate.ts），
-  // 交由服务器重算只会让使用者多等一次队列。点击「计算」或提交时仍使用服务器的结果，该结果具有权威性
-  const mine = pending.length > 0 && pending.every((id) => browserCanCompute(results[id]));
-  // 文件位于使用者本机的，一律不交由服务器：双击读取序列节点时，视图播放的是无损原图，节点上不应显示「计算中」。
-  // 判据为 `transfer/local.ts hasLocalFile`（定义见 `view/origin.ts` 开头）：
-  // 确实持有原件时才跳过，无法获取时照常计算（不显示空白画面）。
-  const local = pending.length > 0 && pending.every((id) => hasLocalFile(id, results[id]?.fingerprint));
-  if (pending.length && !retry && !mine && !local && shown.kind.by_itself) void cook(disp, true);
 }
 
 /** 当前条目 changed (the item bar, the item list): the view now stands on another item of a 逐项处理 block
  * (`where` is its 逐项开始). The server is asked again, with the new `view`, and answers with that item's state for
- * every node inside it. It is a view setting: nothing is cooked (`autoCook` false), the cook inputs do not move and no
- * result goes stale.
+ * every node inside it. It is a view setting: nothing is cooked, the cook inputs do not move and no result goes stale.
  *
  * 列表的结果不经过此处：视图会绘制列表中的每一条（view/plan.ts 的 `expand`），
  * 不存在「当前条目」，因此不会有非块的 `where` 进入此处。 */
 export function showItem(where: string, key: string): void {
   if (useItems.getState().view[where] === key) return;
   useItems.getState().setItem(where, key);
-  void refreshStatus(false);
+  void refreshStatus();
 }
 
 /** The status reply for the cook inputs as they are: the one in hand, else asked now (a click right after an edit
@@ -179,7 +160,7 @@ async function currentReply(): Promise<StatusReply | null> {
   if (now) return now;
   stopStatusRefresh();
 
-  await refreshStatus(false);
+  await refreshStatus();
   return trustedReplyNow();
 }
 
@@ -194,67 +175,58 @@ async function afterSending(ctx: BlockContext, wanted: CookCase): Promise<BlockC
   if (!(await sendPicked(ctx, wanted))) return null;
   const fresh = await currentReply();
   if (fresh) return blockContext(fresh);
-  say(useResults.getState().statusProblem ?? msg("B-COOK-NOSTATUS"));
+  say(useResults.getState().refused ?? msg("B-COOK-NOSTATUS"));
   return null;
 }
 
-export async function cook(target: string, auto = false): Promise<void> {
+/** A click on 「计算」: the node and what it needs, as the server's reply says (its `policy`), as a task in the queue. */
+export async function cook(target: string): Promise<void> {
   if (useResults.getState().job) {
-    if (!auto) say(msg("B-COOK-BUSY"));
+    say(msg("B-COOK-BUSY"));
     return;
   }
-  const reply = auto ? trustedReplyNow() : await currentReply();
-  const policy = reply?.nodes[target]?.policy;
-  if (!reply || !policy) {
-    if (!auto) say(useResults.getState().statusProblem ?? msg("B-COOK-NOSTATUS"));
+  const reply = await currentReply();
+  const wanted = reply?.nodes[target]?.policy;
+  if (!reply || !wanted) {
+    say(useResults.getState().refused ?? msg("B-COOK-NOSTATUS"));
     return;
   }
-  const wanted = auto ? policy.shown : policy.click;
-  const { targets, kind } = wanted;
-  if (auto && (!targets.length || !kind.by_itself)) return;
+  const { targets } = wanted;
   let ctx = blockContext(reply);
   // 仍在使用者本机上的素材先行上传，完成后自动继续计算（实现见 `graph/apply.ts sendPicked`；上传哪些素材、每份上传
   // 哪些通道均由服务器在本次回复中给出：`wanted.computes` 与各节点的 `channels`）。
-  // 由显示节点触发的轻量计算在素材未上传时不执行任何操作：既不应在后台上传数 GB 素材，也不应强行
-  // 发送给服务器，因为服务器无法打开尚未上传的素材，只会在日志中多出一条「文件已经不在服务器上了」
-  if (auto && pickedFor(ctx, wanted).length) return;
   const after = await afterSending(ctx, wanted);
   if (after === null) return;
   ctx = after;
   const found = blockers(ctx, targets);
   if (found.length) {
-    if (auto) return;
     sayBlocked(found);
     return;
   }
   // 帧数超过服务器上限：在发送前说明，不发送给服务器（服务器同样会独立拒绝）
   const over = frameLimitProblemNow();
-  if (!auto && over !== null) {
+  if (over !== null) {
     say(over);
     return;
   }
-  if (!auto) startSummary(standing(ctx, targets)); // 对于点击发起的计算，先将节点上尚存的提示输出一遍（写入日志）
-  if (!auto && !(await readyForPause(useResults.getState().queueSwitches, kind, (m) => say(m)))) return;
-  // 配额已满：点击发起的计算在此停止，不发送给服务器（服务器按同一规则再次拦截）
-  if (!auto && !readyForQuota(useResults.getState().storage, (m) => say(m))) return;
+  startSummary(standing(ctx, targets)); // 先将节点上尚存的提示输出一遍（写入日志）
+  if (!(await readyForPause(useResults.getState().queueSwitches, (m) => say(m)))) return;
+  // 配额已满：在此停止，不发送给服务器（服务器按同一规则再次拦截）
+  if (!readyForQuota(useResults.getState().storage, (m) => say(m))) return;
   const busy = await jobInTheWay();
   if (busy) {
-    if (!auto) say(busy);  // 由「显示该节点」触发的轻量计算不输出提示，点击发起的提交则始终输出
+    say(busy);
     return;
   }
-  const packs = auto ? [] : targets.map((id) => ctx.nodes.find((n) => n.id === id)!).filter((n) => ctx.nodeDefs[n.data.typeId]?.params.some((p) => p.widget === "deliver"));
-  if (!auto) void readyToSave(packs, ctx.nodeDefs);
   try {
     // the port the viewer shows, when it shows one: the server cooks only what it needs (`show`)
     const shownPort = useLook.getState().displayPort;
-    const { job } = await api.cook(toJSON(), useCookInputs.getState().version, target, auto, shownPort ? [shownPort] : []);
+    const { job } = await api.cook(toJSON(), useCookInputs.getState().version, target, shownPort ? [shownPort] : []);
     const label = ctx.nodes.find((n) => n.id === target)?.data.label ?? target;
-    say(msg(auto ? "I-JOB-SHOW" : "I-JOB-COOK", { node: label, job }));
-    await rememberDestinations(job, packs);
+    say(msg("I-JOB-COOK", { node: label, job }));
     follow(job, target);
   } catch (e) {
-    if (auto) logMessage(msg("W-JOB-SHOWNOTCOOKED", { node: ctx.nodes.find((n) => n.id === target)?.data.label ?? target, reason: reasonOf(e) }));
-    else say(msg("E-JOB-SUBMITFAILED", { reason: reasonOf(e) }));
+    submitRefused(e);
   }
 }
 
@@ -269,19 +241,19 @@ export async function deliverAll(): Promise<void> {
     return;
   }
   const snap = snapshotNow();
-  const missing = deliverBlocked(snap.nodes, snap.nodeDefs, canWrite, deliveryNodes(snap.nodes, snap.nodeDefs));
+  const missing = deliverBlocked(snap.nodes, snap.nodeDefs, deliveryNodes(snap.nodes, snap.nodeDefs));
   if (missing) {
     sayBlocked([missing]);
     return;
   }
   const reply = await currentReply();
   if (!reply?.deliver) {
-    say(useResults.getState().statusProblem ?? msg("B-COOK-NOSTATUS"));
+    say(useResults.getState().refused ?? msg("B-COOK-NOSTATUS"));
     return;
   }
-  const { targets, kind } = reply.deliver; // the 「输出」 nodes this delivery writes, as the server resolved them
+  const { targets } = reply.deliver; // the 「输出」 nodes this submission packs, as the server resolved them
   let ctx = blockContext(reply);
-  const after = await afterSending(ctx, reply.deliver);  // 仍在使用者本机上的素材先行上传（提交没有「自动」档）
+  const after = await afterSending(ctx, reply.deliver);  // 仍在使用者本机上的素材先行上传（与「计算」相同）
   if (after === null) return;
   ctx = after;
   const found = blockers(ctx, targets);
@@ -294,27 +266,31 @@ export async function deliverAll(): Promise<void> {
     say(over);
     return;
   }
-  startSummary(standing(ctx, targets)); // this delivery's summary starts
-  if (!(await readyForPause(useResults.getState().queueSwitches, kind, (m) => say(m)))) return;
+  startSummary(standing(ctx, targets)); // this submission's summary starts
+  if (!(await readyForPause(useResults.getState().queueSwitches, (m) => say(m)))) return;
   if (!readyForQuota(useResults.getState().storage, (m) => say(m))) return;
   const busy = await jobInTheWay();
   if (busy) {
     say(busy);
     return;
   }
-  const packs = targets.map((id) => ctx.nodes.find((n) => n.id === id)!).filter((n) => ctx.nodeDefs[n.data.typeId]?.params.some((p) => p.widget === "deliver"));
-  void readyToSave(packs, ctx.nodeDefs);
   try {
     const { job } = await api.deliver(toJSON(), useCookInputs.getState().version);
     say(msg("I-JOB-DELIVER", { job }));
-    await rememberDestinations(job, packs);
     follow(job, targets[0]); // the job is followed at its first 「输出」
   } catch (e) {
-    say(msg("E-JOB-SUBMITFAILED", { reason: reasonOf(e) }));
+    submitRefused(e);
   }
 }
 
-/** A click's cook or delivery says, once, what still stands on its nodes (into the log). */
+/** The server refused a submission (计算, 提交): said in the log, and next to 提交 until it answers about the graph again. */
+function submitRefused(e: unknown): void {
+  const why = msg("E-JOB-SUBMITFAILED", { reason: reasonOf(e) });
+  useResults.getState().setRefused(why);
+  say(why);
+}
+
+/** A click's cook (of a node, or of every 「输出」) says, once, what still stands on its nodes (into the log). */
 function startSummary(said: Blocker[]): void {
   for (const b of said) say(b.message, b.node);
 }
@@ -329,7 +305,7 @@ function sayBlocked(found: Blocker[]): void {
   for (const b of found) if (b.node) useResults.getState().setNodeStatus(b.node, { blocked: b.message.text });
   for (const b of dedupeBlockers(found)) say(b.message, b.node);
   // And take the user there: the graph selects the node that stops it and the parameter panel goes to the setting it
-  // names (an 「输出」 with no 保存到). Nothing was sent to the server.
+  // names. Nothing was sent to the server.
   const first = found.find((b) => b.node);
   if (!first) return;
   const viewer = useViewer.getState();
@@ -368,16 +344,18 @@ export async function cancelCook(): Promise<void> {
   }
 }
 
-/** The page was opened (or reloaded): this browser's jobs still queued or running are followed again. */
+/** The page was opened (or reloaded): this graph's job still queued or running is followed again (another graph's
+ * jobs need no following: what their 「输出」 packed waits in the queue, 队列 → 下载), and what this graph's 「输出」
+ * packed before is read from the server (graph/outputs.ts). */
 export async function resumeJobs(): Promise<void> {
   const queue = await api.queue().catch(() => null);
   const ci = useCookInputs.getState();
   for (const j of queue?.jobs ?? []) {
     if (!j.mine || (j.state !== "queued" && j.state !== "running")) continue;
-    const ours = j.title === ci.meta.name && !!j.nodes?.length && j.nodes.every((id) => !!ci.nodes[id]);
+    const ours = j.graph === ci.graphId && !!j.nodes?.length && j.nodes.every((id) => !!ci.nodes[id]);
     if (ours && !useResults.getState().job) follow(j.id, j.nodes![0]);
-    else watchJob(j.id);
   }
+  void loadOutputs();
 }
 
 export type { CookJob };

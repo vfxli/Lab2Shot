@@ -28,7 +28,7 @@ class Port:
     # an output that carries the type of what is wired into an input ("input:src": 「STMap」 gives back the kind
     # of data it warps); until that input is wired it stays open between the alternatives of `type`
     type_from: str = ""
-    # an input: what the node means by it beyond its type (nodes/expects.py), checked by engine/lint.py as warnings
+    # an input: what the node means by it beyond its type (nodes/expects.py), checked by engine/lint.py
     expects: tuple[Expect, ...] = ()
     # a value's unit (nodes/values.py): what a value output gives ("param:<name>": the unit its node's parameter says,
     # as the constant nodes do) or a parameter's input takes; "" none or not a value
@@ -36,7 +36,7 @@ class Port:
     # an input: the node type the node menu offers first for a wire drawn out of it (a parameter's input: the constant
     # node of its type), besides the one its expectations insert (`fix`)
     recommend: str = ""
-    # an optional input: what connecting it does, in the port's tooltip (what a benchmark found is NodeDef.measured)
+    # an optional input: what connecting it does, in the port's tooltip (数据信息)
     help: str = ""
     # When the port applies (e.g. once 「图像」 is wired the rgba ports do not, and vice versa). A port is a control and
     # follows the parameter mechanism: when the condition does not hold it is greyed with the reason and keeps its
@@ -60,7 +60,7 @@ class Port:
     # selected deform): the fact's name
     kinds_from: str = ""
     # an output the node makes out of another of its own outputs (点云 is unprojected from 深度图 + 相机): those
-    # names. Wanting this one wants them too (engine/cook.py _wanted), so a node that only writes what is wanted
+    # names. Wanting this one wants them too (Evaluation.demand), so a node that only writes what is wanted
     # still has what it needs (without it, a node whose 点云 is wanted but whose 深度图 is not gets an empty depth
     # packet and fails while unprojecting)
     made_from: tuple[str, ...] = ()
@@ -108,7 +108,7 @@ class Port:
 
     def describe(self) -> dict:  # noqa: D401
         """As front ends read it: `inserts`, the node type the node menu offers first for a wire drawn out of this
-        input: the one it recommends, else the one a per-wire check puts in front of it (「LensDistortion」, 「挑人」); a
+        input: the one it recommends, else the one a per-wire check puts in front of it (「LensDistortion」, 「选人」); a
         check's own one click travels with the check (engine/lint.py, errors.Refused), not with the port. `when`, the
         name of the parameter whose value brings the output (a label's link: the hierarchy picker shows that kind's
         colour). Whether the output is there is never worked out from it: the status reply lists the outputs as they
@@ -117,7 +117,8 @@ class Port:
         a raw id like "scene[]" in a tooltip."""
         from ..data.types import is_list
 
-        out = {k: v for k, v in self.__dict__.items() if k not in ("expects", "recommend", "when", "shape")}
+        # `help` travels inside the port's tip (Port.tip, the status reply), never on its own
+        out = {k: v for k, v in self.__dict__.items() if k not in ("expects", "recommend", "when", "shape", "help")}
         when = getattr(self.when, "name", "") if self.when is not None else ""
         # a list port: the editor draws it as a list of its items' type, never as another colour
         return {**out, "when": when, "list": all(is_list(t) for t in self.type.split("|")),
@@ -145,8 +146,6 @@ class Port:
         """What an image input does with a picture's alpha, for its tooltip ("" a port that never carries one).
         Ports with one or two channels (depth, mask, ST-map, ...) have no alpha to describe; only ports with three or
         four channels, and ports that accept any 2D data, describe it."""
-        from ..data.types import channels_of, element_of
-
         roots = {element_of(t).split(".")[0] for t in self.type.split("|")}
         if roots != {"image"} or channels_of(self.type) in (1, 2):
             return ""

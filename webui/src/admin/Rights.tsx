@@ -5,14 +5,13 @@ import type { Availability } from "../api/applies";
 import { Button, Switch } from "../ui/Button";
 import { Sheet } from "../ui/Sheet";
 import { Loading } from "../ui/Loading";
-import { msg, reasonOf } from "../messages/message";
-import { MessageText } from "../ui/MessageText";
+import { reasonOf } from "../messages/message";
 import { whenText } from "../platform/format";
 import "./rights.css";
 
 /** 二级管理员权限：一级管理员为二级管理员开放的权限，每一项为可查看、可修改或不可见。
  *
- * 每条权限本身即对应「可查看 / 可修改 / 不可见」三档之一：部分权限仅允许查看（如查看统计），部分允许修改（如素材与真值），
+ * 每条权限本身即对应「可查看 / 可修改 / 不可见」三档之一：部分权限仅允许查看（如查看统计），部分允许修改（如回复反馈），
  * 未勾选任何权限的后台区块不显示（可见性由服务器按权限计算，lab2shot/availability.py 中 CAPABILITY 档 =
  * 隐藏）。因此此处不另设三态开关，只提供一列勾选框，每项附带说明，表明勾选后授予的是查看还是修改。
  *
@@ -20,14 +19,15 @@ import "./rights.css";
  * 不分组、不计数、不识别任何权限名称，也不检查角色；是否显示仅由 rights.edit 决定。 */
 export function Rights({ applies }: { applies: Availability | null | undefined }) {
   const [view, setView] = useState<RightsView | null>(null);
+  const [problem, setProblem] = useState("");
   const may = shown(applies, "rights.edit");
 
   useEffect(() => {
     if (!may) return;
     let live = true;
     adminApi.rights().then(
-      (v) => live && setView(v),
-      () => live && setView(null),
+      (v) => live && (setView(v), setProblem("")),
+      (e) => live && (setView(null), setProblem(reasonOf(e))),
     );
     return () => {
       live = false;
@@ -35,6 +35,7 @@ export function Rights({ applies }: { applies: Availability | null | undefined }
   }, [may]);
 
   if (!may) return null;
+  if (problem) return <div className="notice" role="alert">没读到二级管理员的权限表：{problem}</div>;
   return (
     <>
       {(view?.sheets ?? [null]).map((s, i) => (
@@ -89,9 +90,6 @@ function RightsSheet({ sheet, onClose, onSaved }: {
   const [problem, setProblem] = useState("");
   const chosen = new Set(picked);
   const same = picked.length === start.length && start.every((c) => chosen.has(c));
-  // 授予该权限等同于使该角色成为管理员（其说明中写明可分配权限），因此勾选时须给出明确提示。
-  // 提示文字位于消息目录（N-RIGHTS-ADMINS），此处不重复定义，也不依赖其代号。
-  const risky = sheet.groups.flatMap((g) => g.items).find((x) => x.what.includes("分配二级管理员的权限"));
 
   const toggle = (id: string, on: boolean) => {
     setPicked((was) => (on ? [...was, id] : was.filter((x) => x !== id)));
@@ -131,11 +129,6 @@ function RightsSheet({ sheet, onClose, onSaved }: {
             </div>
           ))}
         </div>
-        {risky && chosen.has(risky.id) && (
-          <p className="rts-warn" role="status">
-            <MessageText message={msg("N-RIGHTS-ADMINS")} />
-          </p>
-        )}
         {problem && (
           <p className="login-problem" role="alert">
             {problem}

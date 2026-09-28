@@ -8,8 +8,7 @@ import "./items.css";
 
 /** 条目选择条: the glass pill at the bottom centre of the viewer, with one row per 逐项处理 block containing the shown
  * node, selecting which item the view is on. As a viewer control it sits in the kit beside ui/ZoomBar.tsx and
- * ui/DisplayOptions.tsx (webui/tests/layers.test.ts: view/ is below ui/, so a component built from kit components
- * cannot live under view/).
+ * ui/DisplayOptions.tsx (view/ is below ui/, so a component built from kit components cannot live under view/).
  *
  * It is view state (state/items.ts): changing it cooks nothing, marks no result stale and is never undone; it is only
  * sent with the next status request so that the node answers for that item. It appears only while the shown node is

@@ -41,9 +41,9 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 2000,
     sourcemap: false, // Source maps are not published: the site is public, the source code is not.
-    // The server serves each file according to its access level (lab2shot/server/access.py): the gate to everyone,
-    // the main page after the access code, and the admin and developer pages to administrators. It reads the
-    // file-to-level mapping from this manifest.
+    // The server serves each file according to its access level (lab2shot/server/access.py): the gate's to everyone,
+    // the admin page's to administrators, everything else to a logged-in user. It reads the file-to-level mapping
+    // from this manifest.
     manifest: true,
     rolldownOptions: { output: { postBanner: NOTICE } },
   },

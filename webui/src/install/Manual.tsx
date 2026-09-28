@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Licence, type ManualView } from "../api";
 import { Sheet } from "../ui/Sheet";
-import { copyText, host } from "../platform/util";
+import { copyText, host, webAddress } from "../platform/util";
 import { Button, ButtonLink } from "../ui/Button";
 
 /** 手动下载 (lab2shot/extensions/manual.py)：扩展安装的一部分。许多扩展的权重须由使用者自行从官网下载，
@@ -9,10 +9,10 @@ import { Button, ButtonLink } from "../ui/Button";
  * 因此它与安装控件放在一起，由后台「扩展包」区域使用。
  *
  * One folder holds everything the user downloads by hand (SMPL, SMPL-X, MANO, FLAME, the Autodesk FBX SDK ...). Each
- * item is its own card; this is only what goes inside such a card's control area: where to download it, 重新检查,
+ * item is a row of the 手动下载 table (admin/Extensions.tsx); this is only what goes in its 操作 cell: where to download it, 重新检查,
  * and 看许可协议 when a dropped file is waiting for the user to accept its licence. `version` bumps when the page
- * should recheck the inbox (an install finished, the user pressed 重新检查). `can`: the availability answers for
- * looking at the inbox and accepting a licence (InstallerCan, read through applies.ts). */
+ * should recheck the inbox (an install finished, the user pressed 重新检查). `can`: whether this login may look at the inbox
+ * (the availability answer help.manual, read through api/applies.ts). */
 export function useManualView(version: number, can: boolean): ManualView | null {
   const [view, setView] = useState<ManualView | null>(null);
   useEffect(() => {
@@ -22,7 +22,7 @@ export function useManualView(version: number, can: boolean): ManualView | null 
   return can ? view : null;
 }
 
-/** The one folder every hand-downloaded file goes into, shown once (not per card, as it is the same folder for all of
+/** The one folder every hand-downloaded file goes into, shown once (not per row, as it is the same folder for all of
  * them), with id="manual" so a "#manual" link lands on it. */
 export function InboxNote({ view }: { view: ManualView | null }) {
   const [copied, setCopied] = useState(false);
@@ -37,7 +37,7 @@ export function InboxNote({ view }: { view: ManualView | null }) {
   const folder = view.inbox.path;
   return (
     <section className="manual-inbox" id="manual" ref={section}>
-      <span>要手动下载的文件（下面标着「要手动下载」的卡片）放进这个文件夹，不用解压、不用改名：Lab2Shot 按文件内容认出它。</span>
+      <span>要手动下载的文件（下面表格里的每一行）放进这个文件夹，不用解压、不用改名：Lab2Shot 按文件内容认出它。</span>
       <code className="manual-path" data-tip={`在服务器上：${view.inbox.open}`}>{folder}</code>
       <Button tip="复制能直接打开的完整路径，粘贴到资源管理器的地址栏" onClick={() => void copyText(view.inbox.open).then(() => setCopied(true))}>
         {copied ? "已复制" : "复制"}
@@ -59,13 +59,13 @@ export function InboxNote({ view }: { view: ManualView | null }) {
   );
 }
 
-export function ManualCardControl({ manualKey, downloadPage, view, can, onChange }: { manualKey: string; downloadPage: string; view: ManualView | null; can: { manual: boolean; consent: boolean }; onChange: () => void }) {
+export function ManualRowControl({ manualKey, downloadPage, view, can, onChange }: { manualKey: string; downloadPage: string; view: ManualView | null; can: { manual: boolean; consent: boolean }; onChange: () => void }) {
   const [licence, setLicence] = useState(false);
   const item = view?.items.find((i) => i.key === manualKey);
   const consentFile = item?.files.find((f) => f.state === "consent");
   return (
     <div className="inst-ctl">
-      {downloadPage && (
+      {webAddress(downloadPage) && (
         <ButtonLink tip={`到 ${host(downloadPage)} 下载，放进这台电脑的手动下载文件夹`} size="sm" tone="ghost" href={downloadPage} target="_blank" rel="noreferrer">
           去下载
         </ButtonLink>

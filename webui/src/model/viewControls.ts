@@ -7,7 +7,7 @@ import type { ViewOptions } from "./viewOptions";
  * 不适用的控件置灰并说明原因（`WHY_OFF`），不随条件显示或隐藏。各面板包含哪些分页按二维 / 三维划分（属于结构），
  * 而非依靠控件消失。节点参数仍由服务器计算。
  *
- * Pure: no imports but types, so node's own test runner reads it as it is (webui/tests/viewControls.test.ts);
+ * Pure: no imports but types;
  * 本文件不含中文文本：`WHY_OFF` 只写消息编号，模板位于 lab2shot/messages/web.toml。 */
 
 export interface ViewFacts {
@@ -17,13 +17,13 @@ export interface ViewFacts {
   channels: number; // 右侧数据的通道数（0 表示尚无图像）
   single: boolean; // 右侧只取单通道：屏幕颜色由映射产生，着色才有意义
   ready: boolean; // 该帧已到达
-  // What the stage draws that a control changes: 3D kinds (points, model, character, skeleton, camera, light) or, on the
+  // What the stage draws that a control changes: 3D kinds (points, model, character, skeleton, camera, curves) or, on the
   // 2D stage, its overlays (boxes, tracks2d) and a node's handle.
   shows: ReadonlySet<string>;
   options: ViewOptions;
 }
 
-export type ViewWidget = "axesGizmo" | "fitRange";
+type ViewWidget = "axesGizmo" | "fitRange";
 export type ViewControl = keyof ViewOptions | ViewWidget;
 type Applies = (f: ViewFacts) => boolean;
 
@@ -43,7 +43,7 @@ const hasRight: Applies = (f) => in2d(f) && f.mode !== "plate";
 const merging: Applies = (f) => in2d(f) && f.mode === "over";
 
 export const VIEW_CONTROLS: Record<ViewControl, Applies> = {
-  // 2D 预览链：集中声明，各处不再单独判断
+  // 2D 预览链：集中声明，各处不单独判断
   op: merging,
   // 强度仅对「加」有意义：「乘」用于按遮罩预览抠像，固定为 1（model/view2d.ts mixOf）
   mix: (f) => merging(f) && f.options.op === "add",
@@ -91,7 +91,7 @@ export const VIEW_CONTROLS: Record<ViewControl, Applies> = {
  * 中文模板位于消息目录（`lab2shot/messages/web.toml` 的 `I-VIEW-OFF*`，代码中只写编号）；
  * 文字经由 `view/available.ts` 获取。
  *
- * 每个控件都必须在此有对应条目（由 webui/tests/viewControls.test.ts 检查），以保证置灰的同时说明原因；
+ * 每个控件都必须在此有对应条目（`Record<ViewControl, string>`，缺一项即类型检查不过），以保证置灰的同时说明原因；
  * 遗漏条目会导致控件置灰却无说明。编号按条件划分，而非每个控件一条：
  * 条件相同的控件共用一条（没有点云、没有模型、属于另一视图的选项等）。 */
 export const WHY_OFF: Record<ViewControl, string> = {
@@ -120,7 +120,7 @@ export const WHY_OFF: Record<ViewControl, string> = {
   uvChecker: "I-VIEW-OFFNOMESH",
   overlayOpacity: "I-VIEW-OFFNOMESH",
   overlayTint: "I-VIEW-OFFNOMESH",
-  // 相机、场景、画质：三维视图始终具备，在二维画面上属于另一视图的选项
+  // 相机、场景、渲染：三维视图始终具备，在二维画面上属于另一视图的选项
   antialias: "I-VIEW-OFFONLY3D",
   near: "I-VIEW-OFFONLY3D",
   far: "I-VIEW-OFFONLY3D",

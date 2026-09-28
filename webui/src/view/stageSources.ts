@@ -14,7 +14,7 @@ import { useGens } from "../transfer/gens";
 /** 当前画面所需数据的来源：所需通道、传输路径、本机文件能否直接使用、
  * 十个源如何一起进入取帧账本。`view/Stage2D.tsx` 只负责获取后如何绘制。 */
 
-export interface StageSourcesAsk {
+interface StageSourcesAsk {
   plan: DisplayPlan;
   main: { fp: string; type: string } | null;
   manifest: Manifest | null;
@@ -39,7 +39,7 @@ export function useStageSources(ask: StageSourcesAsk) {
   // PNG / JPEG 始终使用本机文件（服务器提供的显示图即为该文件本身），EXR 只在服务器数据到达前使用
   // （服务器须按 OCIO 执行显示变换，以所见即所得为优先）。
   const picked = useMemo(
-    () => (local ? pickedFrames(`picked:${plan.node.id}`, local.item, local.space, frame) : null),
+    () => (local ? pickedFrames(plan.node.id, local.item, local.space, frame) : null),
     [local, plan.node.id, local?.item.kind === "sequence" ? 0 : frame], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // 只有绘制的是原图时才使用本机文件：本机文件是用户选择的画面，而非节点计算的结果。
@@ -48,20 +48,18 @@ export function useStageSources(ask: StageSourcesAsk) {
   // 节点尚无任何层计算过（`main` 为 null）时，按所选是否为主画面层判断：
   // 多层 EXR 的读取节点不自动计算，每层的 `fp` 均为空、`main` 也为 null；若无条件使用本机文件，
   // 选择「depth」时绘制出的是本机文件解码得到的彩色图，而标签显示为 depth，且没有任何提示。
-  // 浏览器只能从本机 EXR 中解出其 RGBA 通道（`transfer/exr.ts` 使用 three 的 EXRLoader），
-  // 无法提供其他层，因此只有查看主画面层时才使用本机文件。
+  // 浏览器只从本机 EXR 中解出其颜色通道（`transfer/exr/decode.ts`，经本机代理或 `transfer/exr.ts`），
+  // 不提供其他层，因此只有查看主画面层时才使用本机文件。
   const onPlate = main ? !plan.plate || main.fp === plan.plate : fileStandsFor(plan.filePort, shownPort);
   const exact = onPlate && !!local && !local.item.files.some((f) => f.name.toLowerCase().endsWith(".exr"));
-  const playing = useViewer((s) => s.playing);
-  const fps = useViewer((s) => s.fps);
 
   // ---------------------------------------------------------------- 该侧所需的通道及其传输方式
   //
   // 仅有两条路径：
-  //   图片路径：同时查看三条颜色通道时使用。该图是三条通道经 OCIO 显示变换后编码的无损图，
-  //     是其最小载体（约为三条 float32 通道的三分之一）。
-  //   通道路径：其余所有情况：只查看一条通道（alpha、遮罩、深度、编号、视频的单条通道），或数值图的整体
-  //     （数值图不经过色彩管理，每条通道一种颜色，相互独立，不需要三维查找表）。按需发送所需通道，
+  //   图片路径：彩色画面（整体查看，或单看其中一条颜色通道 R / G / B）。该图是 8 位有损 WebP 代理，
+  //     是三条通道的最小载体。
+  //   通道路径：数值图（alpha、遮罩、深度、编号，单看一条或整体查看）与视频的单条通道
+  //     （数值图不经过色彩管理，每条通道一种颜色，相互独立，不需要三维查找表）。判定见 transfer/route.ts。按需发送所需通道，
   //     值为数据自身的值，范围映射、黑白点、着色、合成均在浏览器中计算（view/look.ts）。
   //
   // 无论解算器输出多少条通道，只传输用户查看的通道；客户端已有的 rgb 不再发送。
@@ -122,13 +120,13 @@ export function useStageSources(ask: StageSourcesAsk) {
   }, [overFp, overNames.join(), overManifest, overTier, overGen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 十格均使用同一账本（`useFrames`）：已解码保留的帧数取决于预算，
-  // 整段的压缩字节在选中后即开始取回（transfer/frames.ts fillWhole），不等待播放
+  // 整段的压缩字节在选中后即开始取回（transfer/fill.ts fillWhole），不等待播放
   const sources = [
     mainPicture, mainPlanes[0] ?? null, mainPlanes[1] ?? null, mainPlanes[2] ?? null, mainValid,
     overPicture, overPlanes[0] ?? null, overPlanes[1] ?? null, overPlanes[2] ?? null, overValid,
   ];
   const scrubbing = useViewer((s) => s.scrubbing);
-  const got = useFrames(sources, frame, playDir, playing, fps, scrubbing);
+  const got = useFrames(sources, frame, playDir, scrubbing);
   // 单侧：正在使用的格、是否全部到达、仍在等待哪些
   const gather = (from: number) => {
     const on = [0, 1, 2, 3, 4].map((k) => from + k).filter((i) => sources[i]);
@@ -155,5 +153,5 @@ export function useStageSources(ask: StageSourcesAsk) {
 
   // 时间线的「已载入视图」跟随主源所在的格（而非包指纹：id 中还含有通道名和代理档位）
   const loadedId = sources[mainHas.primary]?.id ?? null;
-  return { picked, plate, mainHas, overHas, sideSource, playing, fps, mainNames, overNames, loadedId };
+  return { picked, plate, mainHas, overHas, sideSource, mainNames, overNames, loadedId };
 }

@@ -16,7 +16,7 @@ import json
 import re
 import shutil
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 PROBE_TIMEOUT_S = 60
@@ -37,7 +37,11 @@ KERNEL_SKIP = ("/torch/lib/", "/nvidia/", "/triton/")
 # torchvision/_C.so of torch 2.4.0+cu121, which stops at sm_90), rejecting an active environment that supports sm_120
 # and leaving the queue with no eligible machine. Therefore only the active environment (`env`) and the extension's
 # own compiled code are scanned.
-SCAN_VERSION = 3
+SCAN_VERSION = 4
+# PTX is told by cuobjdump's "PTX file" lines, never by the module's name: cuobjdump names an embedded PTX module
+# "<lib>.1.sm_50.ptx" (never compute_50), and taking that for binary code of sm_50 would lose PTX's forward
+# compatibility: unirig (torch_scatter, torch_cluster, spconv, open3d, all with PTX) and faceanything (xformers, PTX
+# compute_80) would be judged unable to run on sm_120 although the driver JIT-compiles their PTX there.
 # The conda counterpart of the same rule: conda environments (EnvSpec.conda) place the package manager's C libraries
 # under <prefix>/lib (libmagma, libnccl, VTK's libviskores_*, ...), while the extension's own compiled code lives in
 # <prefix>/lib/pythonX.Y/site-packages. Like torch/lib in a uv environment, the former is not the extension's own
@@ -126,6 +130,22 @@ def other_envs(root: Path, env: Path | None) -> frozenset[str]:
     return frozenset(out)
 
 
+def listed_archs(text: str) -> tuple[str, ...]:
+    """The architectures in `cuobjdump --list-elf --list-ptx` output: an "ELF file" line is binary code (sm_XY), a
+    "PTX file" line is PTX (compute_XY), whatever its file name says (cuobjdump names PTX "<lib>.1.sm_50.ptx"). A line
+    without either prefix is read by its token alone."""
+    archs: set[str] = set()
+    for line in text.splitlines():
+        head = line.lstrip()
+        if head.startswith("PTX file"):
+            archs |= {f"compute_{m}" for m in _SM_RE.findall(line) + _COMPUTE_RE.findall(line)}
+        elif head.startswith("ELF file"):
+            archs |= {f"sm_{m}" for m in _SM_RE.findall(line)}
+        else:
+            archs |= {f"sm_{m}" for m in _SM_RE.findall(line)} | {f"compute_{m}" for m in _COMPUTE_RE.findall(line)}
+    return tuple(sorted(archs))
+
+
 def kernel_archs(root: Path, env: Path | None = None, cuobjdump: str | None = None) -> dict[str, tuple[str, ...]] | None:
     """Return {relative .so path -> embedded architectures (sm_XY / compute_XY)} for every compiled CUDA extension
     under `root` (an extension's install folder), read with `cuobjdump` (static analysis; no GPU is accessed).
@@ -159,8 +179,7 @@ def kernel_archs(root: Path, env: Path | None = None, cuobjdump: str | None = No
         text = out.stdout
         if not text.strip():
             continue
-        archs = tuple(sorted({f"sm_{m}" for m in _SM_RE.findall(text)} | {f"compute_{m}" for m in _COMPUTE_RE.findall(text)}))
-        found[rel] = archs
+        found[rel] = listed_archs(text)
     return found
 
 
@@ -182,6 +201,26 @@ def cap_to_sm(compute_cap: str) -> str:
 # names or declarations.
 FAMILIES = {"sm_75": "turing", "sm_80": "ampere", "sm_86": "ampere", "sm_87": "ampere", "sm_89": "ada", "sm_90": "hopper",
             "sm_100": "blackwell", "sm_120": "blackwell"}
+
+# The architectures CUDA code can be compiled for (the setting build.archs), each named by its platform, never by a
+# graphics card: what is compiled depends on these, not on the cards the building machine happens to have.
+TARGET_LABELS = {"sm_75": "Turing", "sm_80": "Ampere 数据中心", "sm_86": "Ampere", "sm_89": "Ada Lovelace",
+                 "sm_90": "Hopper", "sm_100": "Blackwell 数据中心", "sm_120": "Blackwell"}
+# How the installer hands the chosen architectures to a build script (EnvSpec.build), which runs in the extension's own
+# environment and cannot read the settings: "8.9;12.0", the form of TORCH_CUDA_ARCH_LIST
+# (lab2shot_worker.build.cuda_build_env reads it)
+ARCHS_ENV = "LAB2SHOT_CUDA_ARCHS"
+
+
+def target_label(token: str) -> str:
+    """A compile target as the menu and the admin page show it: 「Ada Lovelace（sm_89）」."""
+    return f"{TARGET_LABELS.get(token, token)}（{token}）"
+
+
+def cap_of(token: str) -> str:
+    """sm_89 -> "8.9", sm_120 -> "12.0": the form TORCH_CUDA_ARCH_LIST takes."""
+    major, minor = _cc(token) or (0, 0)
+    return f"{major}.{minor}"
 
 
 def env_name(archs) -> str:

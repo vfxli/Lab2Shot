@@ -16,13 +16,13 @@ class Face(WorldHumans):
               "third_party/smirk/repo/src/FLAME/FLAME.py:160-190"),
         takes={"image": "img"},
         gives={"character": "shape_params", "expressions": "expression_params"},
-        note="① **官方的整套 FLAME 参数就是「人物」这个口**，没有另立类型、也没有另加口（SMPL / SMPL-X / MANO / FLAME / MHR "
+        note="① **官方的整套 FLAME 参数就是「蒙皮角色」这个口**，没有另立类型、也没有另加口（SMPL / SMPL-X / MANO / FLAME / MHR "
              "这类参数化人体就是「蒙皮 + 权重 + 骨架动画」，装成「蒙皮角色」，不另立数据类型）。"
              "逐项对上（worker.py face_rig）：`shape_params`（300 个，整段锁成中位数）变成这张脸的静止网格和"
              "静止骨架（npz rest_vertices / rest_joints），配 FLAME 自己的蒙皮权重（npz skin_weights）；"
              "`pose_params`（头的旋转）变成骨架根关节每帧的旋转（npz local_rotations[:, 0]，含 FLAME 空间转"
              "相机空间的那一次固定旋转）；`jaw_params` 变成下巴关节的旋转（local_rotations[:, 2]）；"
-             "`expression_params`（50 个）和 `eyelid_params`（2 个）变成「人物」上的 52 条 blendShape"
+             "`expression_params`（50 个）和 `eyelid_params`（2 个）变成「蒙皮角色」上的 52 条 blendShape"
              "（npz blendshapes / blendshape_names / blendshape_weights），同一份数字另外走「表情曲线」这个口。"
              "**一个参数都没丢。**"
              "② `cam` 不在 gives 里，因为它**不是**官方的相机：它是 224×224 裁切上的弱透视三个数"
@@ -37,7 +37,7 @@ class Face(WorldHumans):
     on_node = ("focal_mm", "crop")
     # 脸够大、正脸到大半侧脸；每帧单独计算，没有时序平滑；
     # Focal Length 只决定头离镜头的远近（不填按全画幅 50 mm 估算）。
-    # 只有「图像」一个输入口：官方的 SmirkEncoder 只吃一张裁好的脸，相机一个字节都进不去；
+    # 只有「RGB」一个输入口：官方的 SmirkEncoder 只吃一张裁好的脸，相机一个字节都进不去；
     # 也没有「相机」输出口：官方的 cam 是裁切上的弱透视三个数，不是相机
     inputs = (Port("image", "image.3", "RGB"),)
     outputs = WorldHumans.outputs + (Port("expressions", "curves", "表情曲线"),)
@@ -52,7 +52,6 @@ class Face(WorldHumans):
         crop: Literal["auto", "none"] = P(
             "auto", label="裁切", group="面部",
             option_labels={"auto": "自动找脸", "none": "整幅画面"},
-            help="自动找脸：先用 MediaPipe 找到脸再裁切（一般素材）；整幅画面：画面已经是裁好的正脸特写时用，省去找脸",
         )
 
     @classmethod

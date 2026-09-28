@@ -91,7 +91,7 @@ def resize(values: np.ndarray, width: int, height: int) -> np.ndarray:
 #     full frame  226.5    92.2    923.7   350.3    149.2    87.1     72.8    32.5
 # Smaller bands are faster single-threaded (intermediates stay in cache), but the number of numpy calls per frame
 # multiplies, and with eight frames in parallel their interpreter overhead contends (the 65536 row is slower with 8
-# threads than with 1). Nodes always process several frames in parallel (engine/cook.py FRAME_THREADS = 8), so the
+# threads than with 1). Nodes always process several frames in parallel (engine/cook.py FRAME_THREADS: up to 8), so the
 # choice follows the 8-thread columns: 262144 (1080p split into 8 bands of 136 rows) is fastest in three of the four
 # modes and 12% slower than the fastest for bicubic; single-threaded it is 5-12% slower than the fastest.
 def alpha_of(values: np.ndarray, alpha: np.ndarray | None, nearest: bool = False) -> np.ndarray | None:
@@ -148,7 +148,7 @@ def sample_band(values: np.ndarray, xs: np.ndarray, ys: np.ndarray, a: np.ndarra
 
 
 def same_size(packets: dict[str, Packet | None]) -> None:
-    """2D data used together comes from the same plate (rule 2: maps are the plate's size): packets (what the user
+    """2D data used together comes from the same plate (maps are the plate's size): packets (what the user
     calls them -> packet, None: not connected) of another size than the first are refused, saying which."""
     sized = [(label, p.meta["width"], p.meta["height"]) for label, p in packets.items()
              if p is not None and not p.meta.get("empty")]  # a packet with nothing in it has no size to compare
@@ -208,16 +208,34 @@ def grow(a: np.ndarray, pixels: float) -> np.ndarray:
 
 def _box(a: np.ndarray, k: int, axis: int) -> np.ndarray:
     """Mean over the 2k + 1 pixels centred on each pixel along `axis`; at the picture's edge only the pixels inside
-    count (no darkening towards the border)."""
+    count (no darkening towards the border).
+
+    Running sums along `axis` in place (no transposed copy), and each window's sum is the difference of two runs of
+    them taken as slices, not gathered pixel by pixel: the same float64 sums, differences and division as indexing
+    them one by one, so the result is bit for bit the same, in a fraction of the memory traffic."""
     if k <= 0:
         return a
-    a = np.moveaxis(a, axis, 0)
-    n = a.shape[0]
-    cs = np.concatenate([np.zeros((1, *a.shape[1:]), np.float64), np.cumsum(a, axis=0, dtype=np.float64)])
+    n = a.shape[axis]
+
+    def along(rows) -> tuple:  # an index selecting `rows` along `axis`
+        return (slice(None),) * axis + (rows,)
+
+    cs = np.empty(a.shape[:axis] + (n + 1,) + a.shape[axis + 1:], np.float64)
+    cs[along(slice(0, 1))] = 0.0
+    np.cumsum(a, axis=axis, dtype=np.float64, out=cs[along(slice(1, None))])
     i = np.arange(n)
     lo, hi = np.clip(i - k, 0, n), np.clip(i + k + 1, 0, n)
-    count = (hi - lo).reshape(-1, *([1] * (a.ndim - 1)))
-    return np.moveaxis(((cs[hi] - cs[lo]) / count).astype(np.float32), 0, axis)
+    total = np.empty(a.shape, np.float64)
+    # the window [lo, hi) of each pixel: its ends move one step per pixel except where they stop at the edges, so the
+    # pixels fall into at most three runs, in each of which both ends are a slice (or one fixed row)
+    cuts = sorted({0, n, *(c for c in (k, n - k - 1) if 0 < c < n)})
+    for start, stop in zip(cuts, cuts[1:]):
+        def ends(e):  # the run's ends as a slice of cs, or the one row they all share
+            first, last = int(e[start]), int(e[stop - 1])
+            return along(slice(first, last + 1)) if last - first == stop - 1 - start else along(slice(first, first + 1))
+        total[along(slice(start, stop))] = cs[ends(hi)] - cs[ends(lo)]
+    count = (hi - lo).reshape((1,) * axis + (-1,) + (1,) * (a.ndim - axis - 1))
+    return (total / count).astype(np.float32)
 
 
 def blur(a: np.ndarray, sigma: float) -> np.ndarray:

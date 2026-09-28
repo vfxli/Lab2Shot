@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lab2shot.sdk import (Official, Cost, CleanupParams, CleanupParams, JointMap, Licence, ModelJoint, RigMotion, P, Port,
+from lab2shot.sdk import (Official, Cost, CleanupParams, JointMap, Licence, ModelJoint, RigMotion, P, Port,
                           curves_packet, mapping_param)
 
 # 官方 vGRFs 的形状为 [T, 左右 2, 每只脚 16 个鞋垫单元]（models.py:116 vGRFs -> data.py:183 的 "[...] x F x LR x 16"），
@@ -43,16 +43,13 @@ class UnderPressureFootskate(RigMotion):
         cite=("third_party/underpressure/repo/demo.py:18-40", "third_party/underpressure/repo/demo.py:120-141"),
         takes={"character": "angles"},
         gives={"character": "angles", "contacts": "contacts", "vgrfs": "vGRFs"},
-        note="① 「人物」进出都是同一组 angles + skeleton + trajectory（demo.py:135：cleaner(item[\"angles\"], "
-             "item[\"skeleton\"], item[\"trajectory\"])）。"
-             "② 「脚滑」输出口删掉了——官方只给 contacts 和 vGRFs 两样，"
-             "脚滑的量是我们自己按「钉住的脚在地面上跑多快」算出来的（原来在 worker.py 的 sliding()，已删）。"
-             "**连带没了一件事**：「只改问题帧」「检测阈值」两个参数跟着没了（它们靠那条脚滑曲线挑帧，"
-             "家族 lab2shot/nodes/families/rig_motion.py 里 keep 的判断是 `if cls.detects`），"
-             "所以现在整段都会按模型改一遍。要把「只改滑的那几帧」找回来，得做成显式的核心节点"
-             "（量脚滑 → 一条曲线 → 清理节点的一个接线参数），不在本节点的范围内。"
-             "③ 「足底力」是这一次补上的官方输出（demo.py:22 model.vGRFs(...)）：原来算了只拿去判着地，"
-             "没给口，等于把官方结果丢了。",
+        note="① 「动画」进出都是同一组 angles + skeleton + trajectory（demo.py:135：cleaner(item[\"angles\"], "
+             "item[\"skeleton\"], item[\"trajectory\"])）。② 没有「脚滑」输出口：官方只给 contacts 和 vGRFs 两样，"
+             "没有逐帧的脚滑判断。所以节点声明 judges = False，没有「只改问题帧」「检测阈值」"
+             "两个参数（lab2shot/nodes/families/rig_motion.py 的 _cleaned 只在 judges 时挑帧），"
+             "整段都按模型改一遍。只改滑的那几帧要做成显式的核心节点（量脚滑 → 一条曲线 → "
+             "清理节点的一个接线参数），不在本节点的范围内。③ 「足底力」是官方的 vGRFs（demo.py:22 "
+             "model.vGRFs(...)），「脚接触」是官方的 contacts。",
     )
     # docs.md：不读取画面，整段联合处理（接触依据前后若干帧的运动判断）；模型按 100 帧/秒训练，帧率由节点换算
     runtime = "underpressure"
@@ -74,10 +71,7 @@ class UnderPressureFootskate(RigMotion):
     # 使用 CleanupParams 而非 DetectCleanupParams：没有「脚滑」曲线，「只改问题帧」「检测阈值」缺少判据（同上文 `judges = False`）
     class Params(CleanupParams):
         mapping: list[JointMap] = mapping_param(JOINTS)
-        contact_margin: int = P(5, label="接触余量", group="清理", ge=0, le=20,
-                        help="每段着地的前后各多算几帧算作着地（官方用 5）。脚离地的瞬间还在抖就调大；"
-                             "脚步很碎、原地小跳的动作调小，免得把该抬起来的脚也钉住。"
-                             "这几帧是渐进的：脚在这段里慢慢钉住、慢慢放开，不会突然卡死")
+        contact_margin: int = P(5, label="接触余量", group="清理", ge=0, le=20)
 
     @classmethod
     def convert(cls, ctx, raw, job):

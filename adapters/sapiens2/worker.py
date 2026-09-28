@@ -26,7 +26,7 @@ Sapiens2 works on 1024x768 (H x W). The whole frame goes in, as upstream's demos
 and nothing else). Segmentation and matting stretch the frame to 1024x768; normals keep the aspect ratio and pad.
 Each follows upstream's own test_pipeline (seg / matting: keep_ratio=False; normal: NormalResizePadImage), and the
 result is scaled back to the full frame size. To process only one person, mask out the rest in the node graph
-before this node (「人物框转遮罩」 -> 「图像相乘」); no cropping is done here.
+before this node (「ViTDet 人物框」 -> 「人物框转遮罩」 -> 「图像合成」 set to 留下); no cropping is done here.
 """
 
 from __future__ import annotations
@@ -96,8 +96,8 @@ def load_model(repo: Path, weights: Path, task: str, size: str, device: torch.de
     return model.to(device=device, dtype=dtype).eval()
 
 def full_frame_region(width: int, height: int) -> tuple[int, int, int, int]:
-    """The full frame padded to 3:4. Used for normals and albedo: upstream `NormalResizePadImage` /
-    `AlbedoResizePadImage` keep the aspect ratio and pad."""
+    """The full frame padded to 3:4. Used for normals: upstream `NormalResizePadImage` keeps the aspect ratio and
+    pads."""
     cx, cy = width / 2, height / 2
     w, h = float(width), float(height)
     if w / h > ASPECT:

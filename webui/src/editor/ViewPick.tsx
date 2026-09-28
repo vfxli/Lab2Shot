@@ -7,10 +7,8 @@ import { useViewCamera, VIEW_NAMES, type ViewName } from "../state/viewer";
  *
  * 位于画面上方的工具栏中，而非画面左下角：视角与框显属于视图工具，与 2D / 3D、显示种类、视图设置位于同一行。
  *
- * 不放在 view/StageHud.tsx 中：该文件依赖三维舞台的状态（stageState → three.js），
- * 而此工具栏须在不加载 three.js 的情况下绘制；放在该文件中会将 three.js 引入首屏包
- * （webui/tests/bundle.test.ts 检查登录包中不含 three.js）。
- * 所需的两项信息（场景中的相机列表与当前选中项）由三维舞台计算后写入 state/viewTools.ts。 */
+ * 此工具栏须在不加载 three.js 的情况下绘制（three.js 只随三维舞台按需加载，见 editor/Viewer.tsx 的 Stage3D），
+ * 因此不引用三维舞台的任何模块：所需的两项信息（场景中的相机列表与当前选中项）由三维舞台计算后写入 state/viewTools.ts。 */
 const VIEW_TIPS: Record<ViewName, string> = {
   persp: "透视：自由转动的视角",
   top: "顶视图：从上往下看，正交；左键平移",
@@ -38,7 +36,7 @@ export function ViewButtons() {
     <>
       <div className="vo-anchor" ref={anchor}>
         <div className={`seg ${HUD_SEG}`}>
-          <button className={`view-menu-button${open ? " on" : ""}`} onClick={() => setOpen(!open)} data-tip="视角：透视、顶、前、侧，或透过场景里的一台相机看">
+          <button className={`view-menu-button${open ? " on" : ""}`} onClick={() => setOpen(!open)}>
             {current && <span className="dim">相机</span>}
             {label} ▾
           </button>
@@ -82,10 +80,11 @@ export function ViewButtons() {
         )}
       </div>
       <div className={`seg ${HUD_SEG}`}>
-        <button onClick={() => frame("all")} data-tip="把显示的内容都放进视图（鼠标在视图里时按 H）">
+        {/* H / F frame the same way while the pointer is over the view */}
+        <button onClick={() => frame("all")}>
           框显全部
         </button>
-        <button onClick={() => frame("selected")} disabled={!selected} data-tip={selected ? `把选中的「${selected}」放进视图（F）。按 Esc 取消选中` : "先在视图里点选一个物体，再按 F 或点这里看它"}>
+        <button onClick={() => frame("selected")} disabled={!selected}>
           框显选中
         </button>
       </div>

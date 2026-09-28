@@ -1,8 +1,8 @@
 """Data packets: the only thing that flows between nodes.
 
-A packet is a folder in the cache named by its fingerprint:
+A packet is a folder in its account's cache (data/store.py: <数据位置>/cache/<account id>/) named by its fingerprint:
 
-    work/cache/<fingerprint>/
+    <cache>/<fingerprint>/
         manifest.json     type, producing node, metadata (frames, colorspace, ...)
         ...               payload in a standard format (PNG/EXR, JSON, USD)
         .complete         written last; a packet without it is garbage
@@ -26,6 +26,7 @@ from .. import logs
 from ..errors import Invalid
 from ..messages import Msg
 from ..io.atomic import flush_tree, mark
+from ..serving import uses
 from .store import current
 
 MANIFEST = "manifest.json"
@@ -33,23 +34,42 @@ COMPLETE = ".complete"
 DEPS = "deps"  # the dependency list in the manifest
 log = logs.get("cache")
 # In every cache key (a node's fingerprint, engine/evaluation.py; a worker job's key, engine/external.py): raised when
-# what a cache entry holds changes shape, so an older entry is simply never found again (no reading of old formats).
-# 2: packets name their files relative to their folder (file_ref).
-# 3: EXR channel names follow the channel count as R G B A (plus valid) instead of the type. Cache files written under
-# the old rule raise KeyError: 'R' in read_map, so the key must change and old entries are recooked, never read as valid.
+# what a cache entry holds changes shape, so an entry of another shape is never found (no reading of other formats).
+# The shape at this version: packets name their files relative to their folder (file_ref), and EXR channel names
+# follow the channel count as R G B A (plus valid; read_map reads them by those names).
 CACHE_VERSION = 3
 # Version of the fact fields: raised when the shape of the facts core code writes into result meta changes (a camera's
 # backplate, lens, a point cloud's cloud conditions, ...). It enters every node's fingerprint (the blob in
 # engine/evaluation.py _plan), so old packets are recooked rather than read as valid.
-# 0 = never raised (not part of the fingerprint, so introducing it does not invalidate the whole cache); raising it to 1
-# recooks everything once, and later raises happen only when the fact fields change again.
-# The places that write facts (kit/cameras.py, data/camera.py write, the meta fields of data/payloads.py) must raise it
+# At 0 it is left out of the fingerprint; raising it (to 1, then on) recooks everything once.
+# The places that write facts (nodes/kit/cameras.py, data/camera.py write, the meta fields of data/payloads.py) must raise it
 # together with any change to them.
 FACTS_VERSION = 0
 
 
 def cache_root() -> Path:
+    """The cache of the account whose work is being done now (data/store.py): each account's own."""
     return current().cache
+
+
+def base_of(name: str) -> str:
+    """The entry a cache folder belongs to: a packet's fingerprint for the packet and what hangs off it (SIBLINGS:
+    `<fp>_display`, `<fp>_work`, `<fp>_failed`), a worker job's folder (`<key>_job`) for itself. What a task references
+    and what cleaning keeps are named this way (farm/disk.py)."""
+    for suffix in SIBLINGS:
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
+def note(name: str) -> None:
+    """The job being done now computed or reused this cache entry (lab2shot/serving.py Uses; nothing outside a job):
+    its task references it from now on, and it is not cleaned while the job runs. Called where an entry is made or
+    used: a packet committed or used (Packet.commit, Packet.used, produce), a node's cook beginning (its `_work`,
+    `_failed`), a worker job run or reused (engine/external.py)."""
+    into = uses()
+    if into is not None:
+        into.add(base_of(name))
 
 
 def _manifest_state(directory: Path) -> str:
@@ -130,7 +150,6 @@ class Packet:
         list in daily use invalid."""
         _touch(directory, set())
 
-
     def commit(self, node_type: str, messages: list[dict] = ()) -> Packet:
         """Write the manifest and mark the packet complete. `messages`: what the node said while it made it
         (lab2shot/messages, as Msg.json() with their anchors), kept with the result so its marks outlive the cook.
@@ -157,11 +176,13 @@ class Packet:
         shutil.rmtree(self.dir / "_partial", ignore_errors=True)
         self.node = node_type
         self.created = manifest["created"]
+        note(self.dir.name)
         return self
 
 
 def _touch(directory: Path, seen: set[str]) -> None:
     used(directory / COMPLETE)
+    note(directory.name)
     seen.add(directory.name)
     try:
         deps = json.loads((directory / MANIFEST).read_text(encoding="utf-8")).get(DEPS) or {}
@@ -184,13 +205,15 @@ def file_ref(directory: Path, path: Path) -> str:
 
 def file_path(p: Packet, ref: str) -> Path:
     """A file a packet's meta names (file_ref), at its place."""
-    return Path(os.path.normpath(p.dir / ref))
+    return _target(p.dir, ref)
 
 
 def _target(directory: Path, ref: str) -> Path:
-    """Where a meta reference points: relative to the packet's folder, or absolute (older packets keep a video's
-    path absolute; file_path reads it the same way)."""
-    return Path(ref) if os.path.isabs(ref) else Path(os.path.normpath(directory / ref))
+    """Where a meta reference points: relative to the packet's folder (file_ref). An absolute path is not a reference
+    file_ref writes: ValueError, rather than a path taken as it is."""
+    if os.path.isabs(ref):
+        raise ValueError(f"a packet names its files relative to its folder (file_ref), not {ref!r}")
+    return Path(os.path.normpath(directory / ref))
 
 
 def deps_of(directory: Path, meta: dict, record: bool = True) -> dict:
@@ -244,9 +267,9 @@ def deps_of(directory: Path, meta: dict, record: bool = True) -> dict:
 @dataclass(frozen=True)
 class Verdict:
     """Whether a cached packet may be used. `why`: "" (ok), "missing" (not there, or not
-    complete), "source" (a file it reads outside its folder is gone or changed), "packet" (a packet it names is gone,
-    i.e. its folder does not exist; one present without `.complete` is being written, not gone). `what`: the reference
-    that failed."""
+    complete), "deps" (its manifest has no dependency list: not written by Packet.commit), "source" (a file it reads
+    outside its folder is gone or changed), "packet" (a packet it names is gone, i.e. its folder does not exist; one
+    present without `.complete` is being written, not gone). `what`: the reference that failed."""
 
     ok: bool
     why: str = ""
@@ -255,25 +278,21 @@ class Verdict:
 
 def check(directory: Path) -> Verdict:
     """THE one judgement of a cached packet's validity: complete, every outside file still there with the size and
-    time recorded at commit, every named packet still complete. A packet committed before the deps list existed is
-    judged on its meta (files must exist; no size/time to compare)."""
+    time recorded at commit, every named packet still complete."""
     if not (directory / COMPLETE).exists():
         return Verdict(False, "missing")
     try:
         manifest = json.loads((directory / MANIFEST).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return Verdict(False, "missing")
-    deps = manifest.get(DEPS)
-    if deps is None:
-        try:
-            deps = deps_of(directory, manifest.get("meta") or {}, record=False)
-        except Exception:  # noqa: BLE001 (a packet that cannot be judged is invalid, without compatibility handling; the check itself never raises)
-            return Verdict(False, "deps")
+    deps = manifest.get(DEPS) if isinstance(manifest, dict) else None
+    if not isinstance(deps, dict):
+        return Verdict(False, "deps")
     for f in deps.get("files") or ():
         ref = f.get("ref", "")
         try:
             st = _target(directory, ref).stat()
-        except OSError:
+        except (OSError, ValueError):
             return Verdict(False, "source", ref)
         if "size" in f and (st.st_size != f["size"] or int(st.st_mtime) != f["mtime"]):
             return Verdict(False, "source", ref)
@@ -310,7 +329,7 @@ _on_removed: list[Callable[[str, str], None]] = []
 
 def on_removed(hook: Callable[[str, str], None]) -> None:
     """Register what must happen whenever a packet is removed: hook(fingerprint, why). The data layer imports nothing
-    above it, so the layers above register themselves (today one hook: engine/evaluations.py bumps the evaluations'
+    above it, so the layers above register themselves (one hook: engine/evaluations.py bumps the evaluations'
     generation, so plans and status read before the removal are not handed out again)."""
     _on_removed.append(hook)
 
@@ -318,10 +337,10 @@ def on_removed(hook: Callable[[str, str], None]) -> None:
 def remove(name: str, why: str) -> bool:
     """Remove a cache entry and, for a packet, everything that hangs off it (SIBLINGS); tell the hooks. `name` is a
     packet fingerprint, or one entry's folder name (`<fp>_display`, `<key>_job`) to remove that entry alone. `why`:
-    who asked: "clean", "quota", "upload" (its upload is gone), "recook", "incomplete", "invalid:<why>".
-    Every path that deletes a cache entry comes through here (farm/disk.py, server/quota.py, transfer/uploads.py
-    drop_sets, fresh_dir). A node's own scratch is not an entry: engine/cook.py clears its `<node fp>_work` once the cook
-    is done, and engine/external.py its raw worker folder, directly."""
+    who asked: "clean", "upload" (its upload is gone), "recook", "incomplete", "invalid:<why>".
+    Every path that deletes a cache entry comes through here (farm/disk.py, transfer/uploads.py
+    remove_set through remove_referring, discard_invalid, fresh_dir). A node's own scratch is not an entry:
+    engine/cook.py clears its `<node fp>_work` once the cook is done, and engine/external.py its raw worker folder, directly."""
     d = packet_dir(name)
     plain = not any(name.endswith(s) for s in (*SIBLINGS, "_job"))
     folders = [d, *(d.with_name(name + s) for s in SIBLINGS)] if plain else [d]
@@ -364,7 +383,7 @@ def remove_referring(match: Callable[[str], bool], why: str) -> int:
             m = json.loads(manifest.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        deps = m.get(DEPS) or deps_of(manifest.parent, m.get("meta") or {}, record=False)
+        deps = m.get(DEPS) or {}
         if any(match(str(f.get("ref", "")).replace("\\", "/")) for f in deps.get("files") or ()):
             if remove(manifest.parent.name, why):
                 dropped += 1
@@ -389,12 +408,14 @@ def packet_dir(fingerprint: str) -> Path:
 
 def fresh_dir(fingerprint: str) -> Path:
     """Empty working folder for a packet about to be produced. What was there before goes through `remove`, so a
-    recook also drops the display copy made from the old pixels (`<fp>_display`): without that a recook that changed
-    the pixels left the viewer and the workers reading the stale copy.
+    recook also drops the display copy made from the old pixels (`<fp>_display`): without that a recook that changes
+    the pixels would leave the viewer and the workers reading the stale copy.
 
     Called only under the entry's lock: by a cook on its outputs (engine/cook.py Outputs) and by `produce`, nowhere
     else (enforced by lab2shot check). Two producers of one entry without the lock: the second one's `fresh_dir` removes
-    the first one's half-written folder from under it."""
+    the first one's half-written folder from under it. A complete packet removed here (a forced recook) and its
+    `_display` are read by no cook meanwhile: a cook holds the lock of every packet it reads shared (engine/cook.py
+    _compute), so the recook waits for it."""
     d = packet_dir(fingerprint)
     if d.exists():
         remove(fingerprint, "recook")
@@ -450,13 +471,6 @@ def items_meta(items: list[tuple[str, Packet]] | list[tuple[str, str]]) -> dict:
 
 def _items_type(items) -> str:
     return next((p.type for _, p in items if not isinstance(p, str)), "")
-
-
-def list_packet(directory: Path, type_: str, items: list[tuple[str, Packet]], **meta) -> Packet:
-    """A list packet of `type_` (the items' type with "[]"), naming `items` in order: nothing is copied."""
-    from .types import list_of
-
-    return Packet(directory, list_of(type_), {**items_meta(items), **meta})
 
 
 def items_of(p: Packet) -> list[tuple[str, str]]:

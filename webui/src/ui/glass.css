@@ -7,7 +7,7 @@
    graph's 操作说明, the view's HUD panels: a denser tint so words stay readable over a plate), `glass static` (over the
    WebGL view: nothing to re-blur every frame), `glass solid` (a window of tables and long lists), `veil` (the whole
    window dimmed behind what stops the page). Values are tokens (ui/tokens.css), solid for a viewer who asked for less
-   transparency; nothing else sets a backdrop-filter (webui/tests/uiKit.test.ts). */
+   transparency; nothing else sets a backdrop-filter. */
 
 .glass {
   --text-2: rgba(235, 235, 245, 0.72); /* the faint text colours a step brighter inside it: the backdrop is dimmed */

@@ -5,23 +5,22 @@
   POST /api/tools/describe    the same for a graph the client brings along
   POST /api/jobs              set parameters (and a frame range), queue a cook of its 「输出」 nodes (a job):
                               {template, values, deliver: [], frames} (server/farm.py JobRequest)
-  GET  /api/jobs/{job}/state?since  poll progress; output events say which files to fetch
+  GET  /api/jobs/{job}/state?since  poll progress; output events say what each 「输出」 packed
+  GET  /api/tasks/{task}/outputs/{pkg}[/zip | /file/<name>]   an output: its file list, its zip, one of its files
 
 File parameters travel through the client: it uploads the input files (/api/uploads) and puts the references it gets
-into the values, and fetches the files its 「输出」 nodes deliver (/api/deliveries) to where the user asked for them.
+into the values, and fetches what its 「输出」 nodes packed (server/transfer.py: the zip whole, or the files it needs
+from the unpacked folder) to where the user asked for them.
 """
 
 from __future__ import annotations
 
-from typing import Any
 
 from fastapi import Request
 from pydantic import BaseModel
 
 from .routes import Access, Router
 from .. import __version__
-from ..engine.graph import GraphError
-from ..messages import Msg
 from ..engine.templates import exposed_params, file_params, template
 from . import auth
 from .access import admit, templates_for

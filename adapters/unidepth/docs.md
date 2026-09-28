@@ -27,11 +27,11 @@ UniDepthV2 只凭跨领域的单张画面，就还原出真实尺度的三维场
 
 **我们怎么接的**
 
-- 「图像」= 上游那张画面，逐帧各算各的（它没有时序模型）。
-- 「Focal Length」「Filmback」= 上游那台**可选**相机：填了就按针孔造一台（主点在画面中心）喂进去、也照它返回；不填就让网络自己预测。
+- 「RGB」= 上游那张画面，逐帧各算各的（它没有时序模型）。
+- 「已知 Focal Length」「Filmback」= 上游那台**可选**相机：填了就按针孔造一台（主点在画面中心）喂进去、也照它返回；不填就让网络自己预测。
   **这两个是参数，不是一台相机**——上游只用内参，所以节点上没有「相机」输入口。
 - 「深度图」= `depth`，「点云」= `points`，「置信度」= 那一路不确定度，「相机」输出 = `intrinsics`（**只有内参，没有外参**）。
-- **不一样的一点**：上游没有天空 / 无效区域这一路输出，所以我们的有效区域就是「深度图为有限正值」的那些像素（`adapters/unidepth/worker.py:20-22`）。
+- **不一样的一点**：上游没有天空 / 无效区域这一路输出，所以我们的有效区域就是「深度图为有限正值」的那些像素（`adapters/unidepth/worker.py:14-16`）。
 
 **出处**：简介抽自论文摘要（arXiv 2502.20110：`We propose a new model, UniDepthV2, capable of reconstructing metric 3D scenes from solely single images across domains`；
 `UniDepthV2 implements a self-promptable camera module predicting a dense camera representation to condition depth features`；
@@ -42,7 +42,7 @@ UniDepthV2 只凭跨领域的单张画面，就还原出真实尺度的三维场
 ## 在 Lab2Shot 里怎么用
 
 - 典型接法：读取序列 → UniDepth 深度图 → 深度图 / 位置图 / 点云，导进 Houdini / Nuke 做深度图合成、雾效、摆放参考白模；接上相机（ViPE 解算或读取的相机）时用相机的 Focal Length。
-- 知道镜头就一定填"水平视场角"：UniDepth 会把这个 Focal Length 当作条件输入网络（不是事后缩放），尺度明显更可信；长焦镜头它自己估的 Focal Length 偏短。
+- 知道镜头就一定填「已知 Focal Length」「Filmback」：UniDepth 会把这个 Focal Length 当作条件输入网络（不是事后缩放），尺度明显更可信；长焦镜头它自己估的 Focal Length 偏短。
 - "精度等级" 0–9（默认 9）：网络内部计算的分辨率（0.2–0.6 百万像素之间），降低更快、细节更少；输出始终是原图大小。
 - 模型：ViT-L（默认，最好）、ViT-B、ViT-S（小而快，效果差一些）。
 - 每帧单独计算，没有时序平滑，深度图会轻微闪动；要稳定的整段深度图用 Video Depth Anything 或 Depth Anything 3 深度与相机。

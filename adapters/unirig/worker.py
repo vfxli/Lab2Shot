@@ -55,7 +55,7 @@ def fit_similarity(src: np.ndarray, dst: np.ndarray) -> tuple[float, np.ndarray,
     src = np.asarray(src, np.float64).reshape(-1, 3)
     dst = np.asarray(dst, np.float64).reshape(-1, 3)
     if len(src) < 2 or len(src) != len(dst) or not float(((src - src.mean(0)) ** 2).sum()) > 0:
-        fail("E-UNIRIG-FRAME", residual="点数对不上")
+        fail("E-UNIRIG-FRAMEPOINTS", before=len(src), after=len(dst))
     a, b = src - src.mean(0), dst - dst.mean(0)
     denom = float((a * a).sum())
     scale = float((a * b).sum() / denom)

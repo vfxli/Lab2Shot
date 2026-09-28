@@ -41,8 +41,8 @@ ViPE 从未受约束的原始视频估计相机内参、相机运动，以及稠
     每帧投到画面上当深度图的提示，见 `vipe/pipeline/processors.py`）、
     **物体分割**（可选，上游读的是同一帧上的 `frame.mask`）。
     输出口一个：**深度图** = `metric_depth`。
-- 「Focal Length」「Filmback」参数 = 给定内参时替掉它自己的 GeoCalib 估计（只有「ViPE 相机解算」有这两个参数）；
-  「模式」/「深度图模型」= 上游的流水线名字。
+- 「已知 Focal Length」「Filmback」参数 = 给定内参时替掉它自己的 GeoCalib 估计（只有「ViPE 相机解算」有这两个参数）；
+  「方式」/「模型」= 上游的流水线名字。
   **「ViPE 深度图」上没有 Focal Length 和 Filmback**：它必接一台相机，内参就是那台相机的
   （上游那一段读的也是 `slam_output.intrinsics`）。
 - **不一样的三点**：
@@ -60,7 +60,7 @@ ViPE 从未受约束的原始视频估计相机内参、相机运动，以及稠
      解出来的尺度锚和上游一趟跑完 `default` / `dav3` 时不一样。
   3. **没有「遮罩」输出口**。官方落盘的是 `instance` 编号图和它的词表两样，
      「把会动的物体合成一张遮罩」是额外的用法，所以做成图上一个显式的小工具节点
-     （「分割转遮罩」`core.segmentation_key`），不占解算器的口。
+     （「分割转遮罩」`core.segment_select`），不占解算器的口。
 
 **出处**：简介来自 `third_party/vipe/repo/README.md`（`ViPE estimates camera intrinsics, camera motion, and dense near-metric depth maps from unconstrained raw videos, including pinhole, wide-angle, and 360-degree panorama footage.`）；
 输入输出依据同一份 README、`repo/vipe/streams/base.py`、`repo/vipe/utils/io.py`、`repo/vipe/pipeline/pose_only.py`、
@@ -78,15 +78,15 @@ ViPE 从未受约束的原始视频估计相机内参、相机运动，以及稠
   节点上会写一句「没用上什么、为什么」，深度图照常算。
 - 「ViPE 相机解算」的「物体分割」是它解算时本来就要算的那份（官方自己就把它和词表存成文件）：
   - 每个物体一个编号，编号的名字来自官方的词表（GroundingDINO 找的是 person、animal、vehicle、ball、balloon、gun、pet、car、bus，另加 sky），接「多层 EXR 输出设置」写成 Cryptomatte，Nuke 里按 person_01 这样的名字取。
-  - 要一张遮罩（比如「只要会动的物体」）就接「分割转遮罩」，在参数里点类别；再接「图像合成」（运算选「相乘」）
+  - 要一张遮罩（比如「只要会动的物体」）就接「分割转遮罩」，在参数里点类别；再接「图像合成」（运算选「留下」）
     就能把运动物体那块遮掉送给别的解算器。
   - 边是硬边（0 / 1 的选区），不是发丝级抠像；要软边接「MatAnyone 2 精细抠像」精修。它按 GroundingDINO 的那几个词找物体，词表里没有的运动物体找不出来。
 - 「ViPE 相机解算」的「点云」是 SLAM 的地图，**每个关键帧一份**（上游就是按关键帧分块存的）：
   在三维视图里能看见它解算时抓到的那些点，也是判断这次解算靠不靠谱的依据。
 - 模式：
-  - 「ViPE 相机解算」的「模式」——**标准（pose_only）**：几百帧以内的镜头；
+  - 「ViPE 相机解算」的「方式」——**标准（pose_only）**：几百帧以内的镜头；
     **长镜头（pose_only_long）**：上千帧，分段解算、内存有上限。
-  - 「ViPE 深度图」的「深度图模型」——**标准（default）**：ViPE 官方默认流程，深度图用
+  - 「ViPE 深度图」的「模型」——**标准（default）**：ViPE 官方默认流程，深度图用
     Video-Depth-Anything-Small 保证时序稳定；**Depth Anything 3（dav3）**：用 Depth-Anything-3 Giant
     按解好的相机算多视角深度图，细节更多，长焦镜头上远近会跳，显存要得多。
 - 素材要求：相机要有位移（有视差）；不支持变焦镜头；不处理镜头畸变（广角素材先去畸变）；固定机位或纯摇镜头自动 Focal Length 不可靠。

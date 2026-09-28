@@ -17,8 +17,8 @@ class LightProbe(LightProbeBase):
              "HDRI 是第三步 exposure2hdr.py 写进 <output_dir>/hdr 的 .exr（exposure2hdr.py:90 hdr_rgb）。"
              "上游不吃相机、不吃遮罩。",
     )
-    version = 2  # image packets now always say whether they have an alpha
-    # 整段镜头只算一帧（默认镜头中间那一帧），挑环境最完整、遮挡最少的一帧；环境看得比较全的广一点的镜头最好
+    version = 2  # image packets always say whether they have an alpha; version 1 results do not
+    # 只收一帧（前面接「FrameHold」选），挑环境最完整、遮挡最少的一帧；环境看得比较全的广一点的镜头最好
     outputs = tuple(p for p in LightProbeBase.outputs if p.name != "preview") + (Port("preview", "image.3", "铬球", shape=NEW_PICTURE),)
     runtime = "diffusionlight"
     # vram_gb: RTX 4090，1280×534、默认参数、全新进程：PyTorch 保留峰值 13.69 GB（分配 12.46）
@@ -31,8 +31,8 @@ class LightProbe(LightProbeBase):
 
     @classmethod
     def prepare(cls, ctx):
-        """The lens unfolds the chrome ball correctly: its Focal Length, else the connected camera's, else the ball is unfolded
-        as seen from infinitely far (a small error at usual focal lengths)."""
+        """The lens unfolds the chrome ball correctly: its Focal Length (the node has no camera input), else the ball is
+        unfolded as seen from infinitely far (a small error at usual focal lengths)."""
         job = super().prepare(ctx)
         return job.with_(extra={"fov_deg": job.lens.fov_x_deg})
 

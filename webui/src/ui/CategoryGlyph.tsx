@@ -4,7 +4,7 @@ import React from "react";
  * category id — a drawing per id, not a list of nodes or projects: what belongs to a category is the server's
  * answer. An id with no drawing yet shows the plain dot, never an empty box. */
 // a data-tree id that draws as another's mark: the tools band's 「遮罩」 is tools_mask in menu/categories.json (the
-// delivery band's 抠像与遮罩 subcategory took the id mask); the icon table below is keyed by the drawn word
+// delivery band's 抠像与遮罩 has a subcategory with the id mask); the icon table below is keyed by the drawn word
 const ALIAS: Record<string, string> = { tools_mask: "mask" };
 
 export function CategoryGlyph({ category, color }: { category: string; color: string }) {
@@ -49,7 +49,7 @@ export function CategoryGlyph({ category, color }: { category: string; color: st
       </>
     ),
     output: <path d="M3.5 8h7M7.5 5l3 3-3 3M2.8 3.5v9" transform="translate(16 0) scale(-1 1)" />,
-    // ---- the lower band: the ten delivery categories, in the tree's order
+    // ---- the lower band: the delivery categories, in the tree's order (formats has no drawing: the plain dot)
     camera_track: (
       <>
         <rect x="6.6" y="6.2" width="6.6" height="5.2" rx="1.2" />

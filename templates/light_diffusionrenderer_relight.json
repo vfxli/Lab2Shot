@@ -21,11 +21,6 @@
    "target": "sky.path"
   },
   {
-   "name": "output",
-   "label": "保存到",
-   "target": "deliver.path"
-  },
-  {
    "name": "rotation",
    "label": "环境旋转",
    "target": "relight.env_rotate"
@@ -101,16 +96,10 @@
    "id": "deliver",
    "type": "core.output",
    "label": "输出",
-   "params": {
-    "mode": "tar",
-    "path": ""
-   },
+   "params": {},
    "ui": {
     "x": 1040,
-    "y": 80,
-    "on_node": [
-     "mode"
-    ]
+    "y": 80
    }
   }
  ],

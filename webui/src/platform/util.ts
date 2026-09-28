@@ -9,11 +9,31 @@ export function readLocal(key: string): string | null {
   }
 }
 
-export function writeLocal(key: string, value: string): void {
+/** Whether it was kept: false in private mode, and when the browser's storage for this site is full
+ * (QuotaExceededError). A preference simply isn't remembered then; the working copy (editor/autosave.ts) says so. */
+export function writeLocal(key: string, value: string): boolean {
   try {
     localStorage.setItem(key, value);
+    return true;
   } catch {
-    /* private mode: the preference is not remembered */
+    return false;
+  }
+}
+
+export function removeLocal(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* storage blocked: nothing was kept either */
+  }
+}
+
+/** The keys kept under `prefix` (all of them, in no order). */
+export function localKeys(prefix: string): string[] {
+  try {
+    return Object.keys(localStorage).filter((k) => k.startsWith(prefix));
+  } catch {
+    return [];
   }
 }
 
@@ -23,14 +43,6 @@ export function readLocalJSON<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
-}
-
-/** The frame under a pointer on a horizontal track spanning frames[0]..frames[last] (nearest existing frame). */
-export function frameAt(frames: number[], clientX: number, rect: DOMRect): number {
-  const first = frames[0] ?? 0;
-  const last = frames.at(-1) ?? first;
-  const target = first + Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * (last - first);
-  return frames.reduce((a, b) => (Math.abs(b - target) < Math.abs(a - target) ? b : a), first);
 }
 
 /** Hands the browser something to save as a file (a URL or a blob URL; uses the browser's download). */
@@ -57,12 +69,12 @@ export async function copyText(text: string): Promise<void> {
   }
 }
 
+/** Whether an address from the server's data (a project's repository, licence, download page) may be a link: a web
+ * address only. Anything else (javascript:, data:, a path) is shown as text, never followed. */
+export const webAddress = (url: string | null | undefined): url is string => !!url && /^https?:\/\/[^\s]+$/i.test(url);
+
 /** A site's name for a link's text: smpl-x.is.tue.mpg.de for https://smpl-x.is.tue.mpg.de/download.php. */
 export const host = (url: string) => url.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-
-/** Every link from the editor to the help pages opens the same tab (and navigates it), never a new tab per click.
- * Same-origin links without rel="noopener", so the browser finds the tab it opened before. */
-export const HELP_TAB = "lab2shot-help";
 
 /** The reason a node cannot be cooked, for places where the node is already named (its footer, the viewer showing it):
  * the name prefix is removed (「导入 USD」出错：文件里没有模型 /set/gone… → 文件里没有模型 /set/gone…) so only the reason shows. */

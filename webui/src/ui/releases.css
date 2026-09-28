@@ -1,0 +1,73 @@
+/* 「更新说明」 (ui/Releases.tsx): the top bar's button with its dot, and the dialog's list of versions. The dot and the
+   cards look like 我的反馈's (ui/feedback.css); the address is a link chip like a project's GitHub (ui/parts.css). */
+
+.rn-button {
+  position: relative;
+}
+
+.rn-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--orange);
+}
+
+.rn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rn-project {
+  align-self: flex-start;
+}
+
+.rn-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--raised);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+  user-select: text;
+}
+
+.rn-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.rn-name {
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.rn-date {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.rn-about {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.rn-changes {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.rn-admin {
+  margin: 4px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}

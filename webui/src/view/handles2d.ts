@@ -2,10 +2,12 @@ import type { BoxesData, HandleDef, TracksData } from "../api";
 import type { Frame } from "./overlays";
 import { ERROR_COLOR } from "../platform/palette";
 import { CORNER_COLOR, type Entry, type Pt, parse } from "./handleParts";
+import { personAt } from "../model/people";
 // 火柴人类手柄的全部逻辑位于 view/figure2d.ts
 import { drawFigure, figureBox, figureEntry, figureFrames, joints } from "./figure2d";
 
 export type { Pt };
+export { personAt };
 export { addFigure, figureAdd, figureFrames } from "./figure2d";
 
 /** The 2D handles (nodes/handles.py): one tool per kind, bound to a list parameter of the node. A tool draws the
@@ -46,8 +48,7 @@ function insidePolygon(p: Pt, poly: Pt[]): boolean {
   return inside;
 }
 
-/** `noteColor`：说明文字的颜色（默认与框同色；结果过期时使用错误色）。 */
-function drawQuad(f: Frame, pts: Pt[], faint: boolean, note: string, noteColor = CORNER_COLOR) {
+function drawQuad(f: Frame, pts: Pt[], faint: boolean, note: string) {
   const { ctx, at } = f;
   const xy = pts.map((q) => [at.x + q.x * at.s, at.y + q.y * at.s]);
   ctx.save();
@@ -67,13 +68,13 @@ function drawQuad(f: Frame, pts: Pt[], faint: boolean, note: string, noteColor =
     ctx.strokeRect(x - 5, y - 5, 10, 10);
     ctx.fillText(String(k + 1), x + 8, y - 7);
   });
-  if (note) { ctx.fillStyle = noteColor; ctx.fillText(note, xy[0][0], xy[0][1] - 20); }
+  if (note) { ctx.fillStyle = CORNER_COLOR; ctx.fillText(note, xy[0][0], xy[0][1] - 20); }
   ctx.restore();
 }
 
-/** `tracked`: this node's own result, when it has one (a planar track's outline per frame, overlays.ts drawTracks);
- * `stale`: that result predates the parameter change (view/plan.ts `stale`), so it shows the last tracked position rather than the current one. */
-export function drawHandle(h: HandleDef, f: Frame, values: string[], drag: Drag | null, tracked: TracksData | null = null, stale = false) {
+/** `tracked`: this node's own result, when it is current (a planar track's outline per frame, overlays.ts drawTracks;
+ * view/plan.ts underHandles leaves a result out while it does not match the handle). */
+export function drawHandle(h: HandleDef, f: Frame, values: string[], drag: Drag | null, tracked: TracksData | null = null) {
   const { ctx, at, frame } = f;
   ctx.font = FONT;
   if (h.kind === "points") {
@@ -121,14 +122,12 @@ export function drawHandle(h: HandleDef, f: Frame, values: string[], drag: Drag 
       // 计算出结果后，其他帧上的手柄跟随结果（与 Nuke 平面跟踪的做法相同）：起始帧以外的帧画面已经移动，
       // 若仍按起始帧的像素位置淡色绘制，框下方已是其他内容。有该帧跟踪结果时绘制在结果位置，只有起始帧可拖动
       const followed = e.frame !== frame && tracked?.outline ? tracked.outline[tracked.frames.indexOf(frame)] : undefined;
-      // 结果过期时仍跟随绘制，但须明确标示：参数已修改但尚未重算时绘制的是上一次跟踪到的位置，以错误色标注，避免将旧结果误认为新结果
-      if (followed && stale) drawQuad(f, followed.corners.map(([x, y]) => ({ x, y })), true, `四个角在第 ${e.frame} 帧画的，上一次跟踪到的位置（参数改过，结果已过期）`, ERROR_COLOR);
-      else if (followed) drawQuad(f, followed.corners.map(([x, y]) => ({ x, y })), true, `四个角在第 ${e.frame} 帧画的，这是跟踪到的位置`);
+      if (followed) drawQuad(f, followed.corners.map(([x, y]) => ({ x, y })), true, `四个角在第 ${e.frame} 帧画的，这是跟踪到的位置`);
       else drawQuad(f, pts, e.frame !== frame, e.frame !== frame ? `四个角在第 ${e.frame} 帧` : "");
     }
   } else if (h.kind === "canvas") {
     // every outline is shown on every frame, with a faint fill and a solid edge: a hand-drawn matte applies to the whole
-    // shot (nodes/core/roto.py), so what is on screen is exactly the mask
+    // shot (nodes/core/mask.py), so what is on screen is exactly the mask
     ctx.save();
     ctx.lineWidth = f.line;
     ctx.strokeStyle = ctx.fillStyle = DRAWN_COLOR;
@@ -166,15 +165,21 @@ export function drawHandle(h: HandleDef, f: Frame, values: string[], drag: Drag 
                  e.frame === next ? 1 : 0);
     }
   }
-  // "person": its picks are shown as the chosen people's boxes (the overlay of the node's input)
+  // "person": its picks are shown as the chosen people's boxes (the overlay of the node's input, pickedPeople)
 }
 
-export function personAt(boxes: BoxesData | null, frame: number, p: Pt): number | null {
-  const hits = (boxes?.people ?? []).flatMap((t) => {
-    const b = t.boxes?.[String(frame)];
-    return b && p.x >= b[0] && p.x <= b[2] && p.y >= b[1] && p.y <= b[3] ? [{ id: t.id, area: (b[2] - b[0]) * (b[3] - b[1]) }] : [];
-  });
-  return hits.sort((a, b) => a.area - b.area)[0]?.id ?? null; // the smallest box: the person in front
+/** The people a "person" handle's picks point at: each pick ("frame:x,y") chooses the person whose box holds it
+ * (model/people.ts personAt: the server's at_point rule, which the cook of 「选人」 runs). What the 2D stage lights on
+ * the input's boxes while the node's own result does not match the picks (view/plan.ts underHandles): a display of the
+ * parameters, not a computation. */
+export function pickedPeople(boxes: BoxesData | null, picks: string[]): Set<number> {
+  const out = new Set<number>();
+  for (const text of picks) {
+    const e = parse(text);
+    const id = personAt(boxes, e.frame, { x: e.v[0], y: e.v[1] });
+    if (id !== null) out.add(id);
+  }
+  return out;
 }
 
 /** A click: the new entries, or null when it adds nothing. `label`: the points label chosen in the toolbar. */
@@ -184,8 +189,8 @@ export function clickHandle(h: HandleDef, values: string[], frame: number, p: Pt
   return null;
 }
 
-/** Where a drag of this handle starts: on a corner of the quad of this frame (moves it), else a new box or quad;
- * null where nothing can be dragged. */
+/** Where a drag of this handle starts: on a point, a corner of this frame's quad or a joint of this frame's figure
+ * (moves it), a new freehand outline (canvas), else a new box or quad; null where nothing can be dragged. */
 export function dragStart(h: HandleDef, values: string[], frame: number, p: Pt & { inside: boolean }, scale: number): Drag | null {
   if (h.kind === "points") {
     // 点偏后可拖回，无需删除重点。抓取当前帧上距离指针最近的点，
@@ -280,7 +285,6 @@ export function removeAt(h: HandleDef, values: string[], frame: number, p: Pt, s
 export const HANDLE_HINT: Record<HandleDef["kind"], string> = {
   // 每条提示都须在窄窗口中放得下：该文字绘制在视图底部的药丸中，`white-space: nowrap`，
   // 放不下时不得换行或使用省略号，只能换用更短的措辞：最长一条约 330 px，1100 宽的窗口也能容纳。
-  // 由 tests/ui/walk_text.py 检查（视图上药丸的 scrollWidth 不得超过 clientWidth）。
   points: "点一下加一个点 · 拖动调位置 · 右键删掉",
   box: "拖出一个框，右键框里删掉",
   canvas: "按住左键拖一圈圈出范围，松手闭合 · 右键删掉",

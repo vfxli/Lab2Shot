@@ -18,19 +18,12 @@ export const IconPlay = ({ size = 14, color = "currentColor", back = false }: P 
   </svg>
 );
 
-/** To the start (back) or the end of the playback range: two chevrons against a bar. */
-export const IconJump = ({ size = 14, color = "currentColor", back = false }: P & { back?: boolean }) =>
-  base(size, color, back ? <path d="M3.5 3.5v9M8 4 4.5 8 8 12M12.5 4 9 8l3.5 4" /> : <path d="M12.5 3.5v9M8 4l3.5 4L8 12M3.5 4 7 8l-3.5 4" />);
-
 export const IconPause = ({ size = 14, color = "currentColor" }: P) => (
   <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden>
     <rect x="3.5" y="2.5" width="3.2" height="11" rx="1" fill={color} />
     <rect x="9.3" y="2.5" width="3.2" height="11" rx="1" fill={color} />
   </svg>
 );
-
-export const IconStep = ({ size = 14, color = "currentColor", back = false }: P & { back?: boolean }) =>
-  base(size, color, back ? <path d="M11 3.5 6.5 8l4.5 4.5M4.5 3.5v9" /> : <path d="M5 3.5 9.5 8 5 12.5M11.5 3.5v9" />);
 
 export const IconEye = ({ size = 13, color = "currentColor" }: P) =>
   base(size, color, (
@@ -47,14 +40,6 @@ export const IconGrid = ({ size = 14, color = "currentColor" }: P) =>
       <rect x="9" y="2.5" width="4.5" height="4.5" rx="1.2" />
       <rect x="2.5" y="9" width="4.5" height="4.5" rx="1.2" />
       <rect x="9" y="9" width="4.5" height="4.5" rx="1.2" />
-    </>
-  ));
-
-export const IconSave = ({ size = 14, color = "currentColor" }: P) =>
-  base(size, color, (
-    <>
-      <path d="M3 2.8h8l2.2 2.2v8.2H3z" />
-      <path d="M5.5 2.8v3h4.5v-3M5.5 13.2V9.5h5v3.7" />
     </>
   ));
 
@@ -90,12 +75,9 @@ export const IconMinus = ({ size = 14, color = "currentColor" }: P) => base(size
 
 export const IconClose = ({ size = 12, color = "currentColor" }: P) => base(size, color, <path d="m4 4 8 8M12 4l-8 8" />);
 
-/** Three dots: 「还有别的」, the timeline's 更多 menu. */
+/** Three dots: 「还有别的」, the action menu of a template card, a node menu row or a category. */
 export const IconMore = ({ size = 13, color = "currentColor" }: P) =>
   base(size, color, <path d="M4 8h.01M8 8h.01M12 8h.01" />);
-
-/** A tick: 「做这件事」 on the editor's main button (提交). */
-export const IconCheck = ({ size = 13, color = "currentColor" }: P) => base(size, color, <path d="M4 8.5 7 11l5-6" />);
 
 /** 「i」 in a circle: 「这里有说明」, the mark at a node's bottom right that opens 数据信息. It is never an exclamation mark:
  * that shape denotes a warning on this page (the corner mark), and the two must remain distinct. */
@@ -140,7 +122,7 @@ export const IconBone = ({ size = 13, color = "currentColor" }: P) =>
     </>
   ));
 
-// category glyphs drawn inside the tinted square on each node
+// a file parameter's buttons (editor/FileParam.tsx): a folder, a file, an image sequence
 export const IconFolder = ({ size = 14, color = "currentColor" }: P) =>
   base(size, color, <path d="M2 4.5c0-.6.4-1 1-1h3.2l1.4 1.5H13c.6 0 1 .4 1 1v6.5c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1V4.5Z" />);
 
@@ -170,32 +152,8 @@ export const IconOpen = ({ size = 14, color = "currentColor" }: P) =>
   ));
 
 /** Lines of text: the log. */
-export const IconLog = ({ size = 14, color = "currentColor" }: P) =>
-  base(size, color, <path d="M3 4h10M3 8h10M3 12h6" />);
-
-/** Jobs waiting in line: the queue. */
-export const IconQueue = ({ size = 14, color = "currentColor" }: P) =>
-  base(size, color, (
-    <>
-      <rect x="2.5" y="2.5" width="11" height="3.2" rx="1" />
-      <path d="M3.5 9h9M4.5 12.5h7" />
-    </>
-  ));
-
-/** The app's mark: two nodes wired, on a small dark tile (the top bars, the welcome). */
 export const BrandMark = ({ big = false, hero = false }: { big?: boolean; hero?: boolean }) => (
   <img className={`brand-mark${big ? " big" : ""}${hero ? " hero" : ""}`} src={big || hero ? markBig : markSmall} alt="" aria-hidden />
 );
 
-/** Save as: the disk with a plus. */
-export const IconSaveAs = ({ size = 14, color = "currentColor" }: P) =>
-  base(size, color, (
-    <>
-      <path d="M8.5 13.2H3V2.8h8l2.2 2.2v3" />
-      <path d="M5.5 2.8v3h4.5v-3M12 10v4.5M9.8 12.2h4.4" />
-    </>
-  ));
-
 /** A speech bubble: 提交反馈. */
-export const IconFeedback = ({ size = 14, color = "currentColor" }: P) =>
-  base(size, color, <path d="M3.5 3h9c.6 0 1 .4 1 1v6c0 .6-.4 1-1 1H7.5L4.5 13.5V11h-1c-.6 0-1-.4-1-1V4c0-.6.4-1 1-1ZM5.5 6.5h5M5.5 8.5h3" />);

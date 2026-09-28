@@ -2,7 +2,7 @@
 one place.
 
 A subject is one thing a page shows: a node's parameter, a node's output, a section or a button of the admin page,
-an action on an account's row, and later the installer's and the benchmarks' controls. Each subject declares a
+an action on an account's row. Each subject declares a
 condition (Cond) as plain, three-valued data: holds() returns True, False or None (unknown). Each condition has one
 kind, and the kind alone determines the effect when the condition does not hold (POLICY):
 
@@ -130,6 +130,9 @@ class Because(Cond):
     def names(self):
         return self.cond.names()
 
+    def leaves(self) -> Iterator[Cond]:
+        yield from self.cond.leaves()
+
 
 def _union(conds) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
     parts = [c.names() for c in conds]
@@ -232,6 +235,9 @@ class Not(Cond):
     def names(self):
         return self.cond.names()
 
+    def leaves(self) -> Iterator[Cond]:
+        yield from self.cond.leaves()
+
 
 def level(cond: Cond | None, f: Any) -> Level:
     """The level `cond` gives its subject (available when there is no condition)."""
@@ -256,9 +262,6 @@ class Availability:
     def json(self) -> dict:
         return {"available": sorted(self.available), "inactive": {k: m.json() for k, m in self.inactive.items()},
                 "pending": {k: m.json() for k, m in self.pending.items()}}
-
-
-NOTHING = Availability()
 
 
 def resolve(subjects: Mapping[str, Cond], f: Any, words: Any = None, prefix: str = "") -> Availability:

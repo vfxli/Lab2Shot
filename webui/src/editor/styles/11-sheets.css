@@ -1,8 +1,8 @@
 /* What the editor's sheets share. The templates panel has its own rules next to it (editor/templates.css). */
 
-/* a standing mark (src/ui/nodeMarks.ts): one short word on the node's bottom row, the sentence in its tooltip; no
-   taller than the 非商用 badge beside it (no padding, the row's own line height), so a node with it is drawn at the
-   size the layout checker gives every node (onnode walk). Its level gives it its colour: the production-risk red only
+/* a standing mark (ui/nodeMarks.ts): one short word on the node's bottom row, the sentence in its tooltip; no
+   taller than the 非商用 badge beside it (no padding, the row's own line height), so a node with it keeps the same
+   fixed height as every other node. Its level gives it its colour: the production-risk red only
    for P, the ordinary notice colour for the rest */
 .node-mark {
   flex: none;
@@ -39,6 +39,6 @@
 
   .adm-tile:hover,
   .welcome-act:hover {
-    transform: none !important; /* the lifts and presses are defined later in the file */
+    transform: none !important; /* the lifts and presses are defined in 09-welcome.css and admin/styles/17-admin-1.css */
   }
 }

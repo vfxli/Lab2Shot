@@ -5,15 +5,18 @@ import type { Catalog, DataType, NodeTypeDef } from "../api";
  * every 3D kind. It is not this document's, this browser's or this account's own choices but the server's schema, the
  * same for every graph and every browser signed in as this account, fetched once and refreshed when another tab
  * installs an extension (App.tsx's focus handler). That is why it lives outside webui/src/state/'s zustand stores, as
- * a small hand-rolled external store: `stateOwners.test.ts` only has to account for state that is really owned by the
- * page. */
+ * a small hand-rolled external store: the zustand stores hold only state that is really owned by the page. */
 
 let catalog: Catalog | null = null;
+let text = ""; // the catalogue as last taken: the same answer again (every window focus reads it) changes nothing
 let types: Record<string, DataType> = {};
 let nodeDefs: Record<string, NodeTypeDef> = {};
 const listeners = new Set<() => void>();
 
 export function setCatalog(c: Catalog): void {
+  const now = JSON.stringify(c);
+  if (now === text) return; // unchanged: no node of the graph is redrawn for it
+  text = now;
   catalog = c;
   types = Object.fromEntries(c.types.map((t) => [t.id, t]));
   nodeDefs = Object.fromEntries(c.nodes.map((n) => [n.id, n]));
@@ -32,4 +35,3 @@ export const getNodeDefs = (): Record<string, NodeTypeDef> => nodeDefs;
 
 export const useCatalog = (): Catalog | null => useSyncExternalStore(subscribe, getCatalog);
 export const useTypes = (): Record<string, DataType> => useSyncExternalStore(subscribe, getTypes);
-export const useNodeDefs = (): Record<string, NodeTypeDef> => useSyncExternalStore(subscribe, getNodeDefs);

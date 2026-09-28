@@ -6,7 +6,7 @@ No skeleton is hard-coded: joint names, parents and the neutral pose are read fr
 weight (`third_party/kimodo/repo/kimodo/skeleton/base.py:72-101`), and upstream also decides which weights return
 their result on a different skeleton (see `unpack`; only SOMA does).
 
-    python worker.py <job.json>        (node "kimodo.inbetween")
+    python worker.py <job.json>        (node "kimodo.motion")
 
 Two tasks (job["params"]["task"]):
 

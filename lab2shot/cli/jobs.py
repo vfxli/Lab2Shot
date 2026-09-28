@@ -48,11 +48,10 @@ def _progress(bar: Progress, task) -> callable:
         if kind == "upload":
             bar.reset(task, total=e["total"], completed=e["done"], description=f"上传 {Path(e['path']).name}")
         elif kind == "queued":
-            where = {"heavy": "CPU 队列", "light": "立即计算"}.get(e["lane"], "")
-            bar.reset(task, total=None, description=f"{where}排队第 {e['position']} 位" +
-                      ("（尚无已授权的显卡）" if e["lane"] == "gpu" and e.get("gpus") == 0 else ""))
+            said = (e.get("waiting") or {}).get("text") or ""  # only what needs someone to act (farm/queue.py _told)
+            bar.reset(task, total=None, description=f"排队第 {e['position']} 位" + (f"（{said}）" if said else ""))
         elif kind == "started":
-            bar.reset(task, total=None, description=f"开始计算{'（' + e['gpu'] + '）' if e.get('gpu') else ''}")
+            bar.reset(task, total=None, description="开始计算")
         elif kind == "node_start":
             labels[e["node"]] = e["label"]
             bar.reset(task, total=None, description=e["label"])
@@ -80,18 +79,19 @@ def _progress(bar: Progress, task) -> callable:
 def cook(
     graph: str = typer.Argument(..., help="节点图 .json 文件或模板名（可通过 lab2shot templates 列出）"),
     set_: Optional[list[str]] = typer.Option(None, "--set", "-s", help="设置参数，格式为 对外参数名=值 或 节点id.参数名=值；可指定多次"),
-    node: Optional[list[str]] = typer.Option(None, "--node", "-n", help="仅计算指定节点（输出设置节点的结果由其连接的「输出」交付）；默认计算所有已设置保存位置的「输出」"),
+    node: Optional[list[str]] = typer.Option(None, "--node", "-n", help="仅计算指定节点（只有「输出」整理打包出可取回的结果）；默认计算节点图里所有的「输出」"),
     frames: Optional[str] = typer.Option(None, "--frames", "-f", help="仅计算指定帧段，例如 1001-1020，必须位于输入的帧范围内；默认使用节点图中保存的帧范围，未保存时使用输入的全部帧"),
     force: bool = typer.Option(False, "--force", help="目标节点不使用缓存，重新计算"),
-    out: Optional[Path] = typer.Option(None, "--out", "-o", help="未指定「保存到」的「输出」保存到此文件夹，默认为当前文件夹，按模板名命名"),
-    extract: Optional[Path] = typer.Option(None, "--extract", "-x", help="取回 tar 包后解压到此文件夹（每个输出设置对应一个子文件夹）"),
+    out: Optional[Path] = typer.Option(None, "--out", "-o", help="每个「输出」打包好的 zip 下载到此文件夹，默认为当前文件夹，文件名由服务器给出（节点图名_u账号_任务号.zip）"),
+    extract: Optional[Path] = typer.Option(None, "--extract", "-x", help="下载后把 zip 解压到此文件夹（每个 zip 是一个同名的文件夹，里面每个输出设置对应一个子文件夹）"),
     server: Optional[str] = typer.Option(None, "--server", help="Lab2Shot 服务地址，默认为本机 <server.port>（启用 HTTPS 时使用 https），以管理员身份计算；连接其他服务前须先执行 lab2shot login --server 地址"),
 ) -> None:
-    """计算节点图：以模板和对外参数批量处理镜头。输入文件从本机上传（相同文件仅上传一次），「输出」交付的结果取回到本机：
-    保存为一个 tar 包（每个输出设置对应一个子文件夹），或直接写入一个文件夹。任务进入服务的队列，与网页和 DCC 插件的任务
-    共同排队并共用缓存。在服务器本机上以管理员身份计算；连接其他服务（--server）时使用经 lab2shot login 登录的账号。
+    """计算节点图：以模板和对外参数批量处理镜头。输入文件从本机上传（相同文件仅上传一次），每个「输出」整理打包的结果
+    （一个 zip，里面是和它同名的一个文件夹，每个输出设置对应一个子文件夹）下载到本机，断了会接着下载，可同时解压。任务进入
+    服务的队列，与网页和 DCC 插件的任务共同排队并共用缓存。在服务器本机上以管理员身份计算；连接其他服务（--server）时
+    使用经 lab2shot login 登录的账号。
 
-    示例：lab2shot cook sam_3d_body_moving_camera -s input=shots/sh030.mov -s output=shots/sh030/sh030.tar -x shots/sh030/lab2shot
+    示例：lab2shot cook sam_3d_body_moving_camera -s input=shots/sh030.mov -o shots/sh030 -x shots/sh030/lab2shot
     """
     from ..client import Lab2Shot, Lab2ShotError, parse_value
     from ..engine.graph import GraphError

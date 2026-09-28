@@ -1,6 +1,6 @@
 // 模板和节点菜单的管理（lab2shot/server/templates.py、server/categories.py），做在前台的模板弹窗和节点菜单里
 // （分类不写死在代码里，管理员在面板上分）。模板全是文件（lab2shot/library.py：templates/ 项目预设、
-// adapters/<包>/templates/ 兼容层自带、work/users/<用户名>/templates/ 用户自己的）；两棵分类树和节点归属也是文件
+// adapters/<包>/templates/ 接入层自带、work/users/<用户名>/templates/ 用户自己的）；两棵分类树和节点归属也是文件
 // （lab2shot/categories.py）。Re-exported by api/admin.ts.
 
 import { json } from "../platform/http";
@@ -29,7 +29,7 @@ export const templatesApi = {
   editTemplate: (id: string, name: string, intro: string) => json<{ id: string; name: string; intro: string }>("PUT", `/api/admin/templates/${enc(id)}/text`, { name, intro }),
   // 复制成一张新的预设卡（名字后加「副本」，归同一分类）
   copyTemplate: (id: string, name = "") => json<{ id: string; name: string }>("POST", `/api/admin/templates/${enc(id)}/copy`, { name }),
-  // 删掉一个项目预设（templates/ 下的那个文件）；兼容层自带的删不了，只能关闭
+  // 删掉一个项目预设（templates/ 下的那个文件）；接入层自带的删不了，只能关闭
   deleteTemplate: (id: string) => json<{ id: string }>("DELETE", `/api/admin/templates/${enc(id)}`),
   // 「保存为预设模板」（文件菜单）：只填名字，进「未分类」；写成 templates/ 下的一个文件
   createTemplate: (entry: { name: string; intro?: string; deliverable?: string; graph: unknown }) =>

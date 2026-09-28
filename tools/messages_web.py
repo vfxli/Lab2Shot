@@ -26,6 +26,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from lab2shot_shared.protocol import CODE, CODE_CANDIDATE  # noqa: E402  (the one rule; the finder is looser, see there)
+
 SOURCE = ROOT / "lab2shot" / "messages" / "web.toml"
 WEB_SRC = ROOT / "webui" / "src"
 TARGET = WEB_SRC / "messages" / "generatedCatalogue.ts"
@@ -33,7 +35,6 @@ GATE_TARGET = WEB_SRC / "messages" / "generatedGateCatalogue.ts"
 GATE_ENTRY = "main.tsx"  # 登录前浏览器加载的入口（webui/index.html）
 
 STATIC = re.compile(r"(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\sfrom\s+)?[\"']([^\"']+)[\"']")
-CODE_LITERAL = re.compile(r"[\"']([EWNIBP]-[A-Z][A-Z0-9]*-[A-Z][A-Z0-9]*)[\"']")
 
 
 # 页面在提交前自行给出的服务器拒绝消息（编号、文本与模板均与服务器相同）。这些消息归服务器目录所有，
@@ -77,7 +78,7 @@ def gate_codes() -> set[str]:
     for f in gate_files():
         if f.name in (TARGET.name, GATE_TARGET.name):
             continue
-        out |= {m.group(1) for m in CODE_LITERAL.finditer(f.read_text(encoding="utf-8"))}
+        out |= {c for c in CODE_CANDIDATE.findall(f.read_text(encoding="utf-8")) if CODE.match(c)}
     return out
 
 

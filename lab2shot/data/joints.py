@@ -31,7 +31,9 @@ PART_LABELS = {"hips": "髋", "spine": "脊柱", "chest": "胸", "neck": "颈", 
 
 def part_label(part: str) -> str:
     """The display name of a body part: "l.thigh" -> 左大腿, "hips" -> 髋. This is the project's only table of body
-    part display names (read by the in-betweening family's joint mapping table and by 「骨架动画转 SMPL」's pairing notes)."""
+    part display names, read by the joint mapping table of the skeleton-motion nodes (nodes/kit/rig.py part_labels:
+    「StableMotion 动捕清理」, 「Kimodo 动作生成」, 「Two-stage Transformer 动作补帧」, 「UnderPressure 脚滑清理」) and by
+    「线性蒙皮变形」's rig pairing and its notes (nodes/kit/retarget.py pair_rigs, data/smpl.py pairing_notes)."""
     side, _, name = part.rpartition(".")
     return {"l": "左", "r": "右", "": ""}[side] + PART_LABELS[name]
 

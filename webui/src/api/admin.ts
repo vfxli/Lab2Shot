@@ -1,13 +1,13 @@
 import type { QueueView, ServerInfo, ServerNoticeText } from ".";
 import { ApiError, json } from "../platform/http";
-import { accountsApi, type NewUser, type ResourceAct, type UserChange, type UserLogins, type UserRow, type UsersView } from "./accounts";
+import { accountsApi, type NewUser, type OnlineSummary, type ResourceAct, type UserChange, type UserLogins, type UserRow, type UsersView } from "./accounts";
 import { templatesApi } from "./templates";
 
 export type { AdminCategory, CategoryEdit } from "./templates";
-export type { LoginAttempt, LoginWindow, NewUser, OnlinePlace, ResourceAct, RightItem, RightsSheetView, RightsView, UserChange, UserLogins, UserRow, UsersView } from "./accounts";
+export type { LoginAttempt, LoginWindow, NewUser, OnlinePlace, OnlineSummary, Place, Presence, ResourceAct, RightItem, RightsSheetView, RightsView, UserChange, UserLogins, UserRow, UsersView } from "./accounts";
 
 /** The admin page's own calls: settings (lab2shot/config.py SCHEMA, server/settings.py), the overview and restarting
- * the server (server/restart.py). The queue, disk, models kept loaded, usage and log are in api.ts (api.admin). */
+ * the server (server/restart.py). The queue, disk, models kept loaded, usage and log are in api/index.ts (api.admin). */
 
 export type SettingValue = number | boolean | string | string[];
 
@@ -24,7 +24,7 @@ export interface SettingDef {
   default_text: string;
   value_text: string;
   running_text: string;
-  kind: "number" | "int" | "bool" | "choice" | "text" | "list";
+  kind: "number" | "int" | "bool" | "choice" | "text" | "list" | "multi"; // multi: any of the options
   min: number | null;
   max: number | null;
   unit: string;
@@ -32,6 +32,7 @@ export interface SettingDef {
   restart: boolean; // takes effect after the server restarts
   why: string; // and why
   admin: boolean; // false: changed in the file only
+  locked: string; // why this login may not change it, as the server says ("" it may): a right it lacks (lab2shot/roles.py setting_needs)
   only_if: string; // a switch it needs on to matter
   empty: string; // text: what leaving it empty means
   value: SettingValue; // what the settings file sets (or the default): what the page edits
@@ -49,9 +50,17 @@ export interface StatusRow {
   tip: string;
 }
 
+/** A settings page (lab2shot/config.py PAGES): its groups, one card each, in order. */
+export interface SettingsPage {
+  id: string; // the page's id; its section of the admin page is settings-<id>
+  label: string;
+  tip: string;
+  groups: { id: string; label: string }[];
+}
+
 export interface SettingsView {
   file: string;
-  groups: { id: string; label: string }[];
+  pages: SettingsPage[];
   settings: SettingDef[];
   pending: string[]; // keys saved that wait for a restart
   status: Record<string, StatusRow[]>;
@@ -62,8 +71,77 @@ export interface Overview {
   disk: { path: string; total: number; free: number };
   resident: { processes: number; vram_mb: number };
   server: { version: string; boot: string; started: number; pid: number; address: string; command: string };
-  pending: string[]; // labels of settings waiting for a restart
-  feedback_new: number; // users' feedback not yet looked at
+  pending: { label: string; page: string }[]; // settings waiting for a restart, each with the settings page it is on
+  feedback_new?: number; // users' feedback not yet looked at (only for a login that may open 用户反馈)
+  registering: Registering;
+}
+
+/** 概览的「今天和最近」 (GET /api/admin/overview/recent; server/settings.py admin_overview_recent). The first day of
+ * each period (server's local time), and each group of numbers with the section it opens; a group the login may not
+ * open that section for is not in the answer at all. */
+export interface RecentView {
+  days: Record<RecentPeriod, string>;
+  access?: { section: string; online: OnlineSummary } & Record<"today" | "days7" | "month", { people: number; logins: number; failed: number }>;
+  accounts?: { section: string } & Record<"today" | "week" | "month", { all: number; self: number }>;
+  tasks?: { section: string } & Record<"today" | "days7" | "month", { all: number; done: number; partial: number; failed: number; cancelled: number }>;
+  traffic?: { section: string } & Record<"today" | "days7" | "month", number>;
+  feedback?: { section: string; open: number; new: number } & Record<"today" | "days7" | "month", { came: number }>;
+}
+
+export type RecentPeriod = "today" | "days7" | "week" | "month";
+
+/** 自行注册 now (lab2shot/registration.py counts): open or not, registrations lately against the site-wide limits,
+ * and whether that paused registering ("hour" / "day"; "" not paused). */
+export interface Registering {
+  open: boolean;
+  invite: boolean;
+  hour: number;
+  day: number;
+  per_hour: number;
+  per_day: number;
+  paused: "" | "hour" | "day";
+}
+
+/** 邀请码 (server/invites.py): a code as the list shows it, the code itself included (the page copies it). */
+export interface Invite {
+  id: number;
+  code: string; // as it is handed out
+  hint: string; // its first characters: what logs and audit lines name it by
+  note: string;
+  uses_max: number | null; // null: no limit
+  used: number;
+  expires: number | null; // null: never
+  enabled: boolean;
+  created: number;
+  created_by: string;
+  state: string; // 可以用 / 已停用 / 已过期 / 已用完
+  usable: boolean;
+  accounts: { id: number; username: string; name: string; at: number; ip: string; enabled: boolean; deleted: number | null }[];
+}
+
+export interface InvitesView {
+  invites: Invite[];
+  registering: Registering;
+  rules: { min: number; max: number; note_most: number; uses_most: number }; // what a typed code, a note and a use limit may be
+}
+
+export interface Registered {
+  id: number;
+  username: string;
+  name: string;
+  department: string;
+  role: string;
+  enabled: boolean;
+  registered: number;
+  invite: string; // the code's first characters ('' without one)
+  ip: string;
+  managed: boolean; // this login may disable it
+}
+
+export interface RegisteredFilter {
+  invite?: number;
+  since?: number;
+  until?: number;
 }
 
 /** The server refused some changes: key -> why. */
@@ -79,7 +157,7 @@ export class SettingsRefused extends Error {
 /** 用户反馈 (lab2shot/feedback.py). */
 export type FeedbackStatus = "new" | "seen" | "solved";
 
-export interface FeedbackItem {
+interface FeedbackItem {
   id: string;
   at: number;
   user: number; // the account that sent it
@@ -105,7 +183,7 @@ export interface FeedbackItem {
 }
 
 /** What came with a feedback: what the page collected (diagnostics.ts) and what the server added. */
-export interface FeedbackBundle {
+interface FeedbackBundle {
   page: {
     collected?: number;
     page?: string;
@@ -148,7 +226,7 @@ export interface DatabaseView {
 }
 
 /** What looked like probing (auth.Watch). */
-export interface SuspiciousEvent {
+interface SuspiciousEvent {
   t: number;
   kind: string;
   detail: string;
@@ -164,7 +242,7 @@ export interface SecurityView {
   events: SuspiciousEvent[];
   counts: Record<string, number>;
   blocked: { client: string; until: number; who: string; user: string; why: string }[];
-  online: { count: number; browser: number; client: number; who: { browser: string[]; client: string[] } };
+  online: OnlineSummary;
   limits: Record<string, number>;
 }
 
@@ -196,12 +274,26 @@ export interface UserResourcePage {
 
 /** What a resource list asks for: the search, the state chip and the time chip (the server filters, so the
  * 用户 detail page and a resource's own list page ask the same way). */
-export interface ResourceQuery {
+interface ResourceQuery {
   offset?: number;
   limit?: number;
   q?: string;
   since?: number; // only rows at or after this moment (0: all of them)
   state?: string; // only rows whose state column is this ("" all of them)
+}
+
+/** 用户协议 and 隐私政策 as the administrator edits them (lab2shot/server/terms.py): the texts as written, the
+ * placeholders they may use with what each says now, and how many of the accounts that must agree did. */
+export interface TermsAdminView {
+  version: number;
+  at: number;
+  by: string; // who saved this version; "" for the program's own text
+  edited: boolean; // the administrator's copy is in effect
+  most: number; // characters one text may have
+  documents: { id: "agreement" | "privacy"; title: string; text: string }[];
+  fills: Record<string, string>; // placeholder -> what it says now
+  accounts: number;
+  agreed: number;
 }
 
 export const adminApi = {
@@ -214,7 +306,7 @@ export const adminApi = {
   createUser: (u: NewUser) => json<UsersView & { user: UserRow }>("POST", "/api/admin/users", u),
   changeUser: (id: number, change: UserChange) => json<UsersView & { user: UserRow }>("PUT", `/api/admin/users/${id}`, change),
   resetPassword: (id: number, password: string) => json<UsersView>("POST", `/api/admin/users/${id}/password`, { password }),
-  deleteUser: (id: number) => json<UsersView & { jobs_stopped: number; deliveries: number }>("DELETE", `/api/admin/users/${id}`),
+  deleteUser: (id: number) => json<UsersView & { jobs_stopped: number; outputs: number }>("DELETE", `/api/admin/users/${id}`),
   // 永久删除已删除的账号：账号行被移除，用户名可供新账号重用；
   // 任务记录、反馈、登录记录保留，统计中显示为「已删除的用户」；保存在服务器上的节点图一并删除
   purgeUser: (id: number) => json<UsersView & { jobs: number; feedback: number; graphs: number }>("DELETE", `/api/admin/users/${id}/purge`),
@@ -231,6 +323,19 @@ export const adminApi = {
       throw e instanceof ApiError && e.status === 400 ? new SettingsRefused(e.message, (e.body?.errors as Record<string, string>) ?? {}) : e;
     }),
   overview: () => json<Overview>("GET", "/api/admin/overview"),
+  recent: () => json<RecentView>("GET", "/api/admin/overview/recent"),
+  invites: () => json<InvitesView>("GET", "/api/admin/invites"),
+  createInvite: (i: { code: string; note: string; uses_max: number | null; expires: number | null }) =>
+    json<InvitesView & { made: Invite }>("POST", "/api/admin/invites", i),
+  changeInvite: (id: number, i: { note: string; uses_max: number | null; expires: number | null; enabled: boolean }) =>
+    json<InvitesView>("PUT", `/api/admin/invites/${id}`, i),
+  deleteInvite: (id: number) => json<InvitesView>("DELETE", `/api/admin/invites/${id}`),
+  registered: (f: RegisteredFilter) =>
+    json<{ accounts: Registered[] }>("GET", `/api/admin/registrations?${new URLSearchParams(Object.entries(f).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))}`),
+  disableRegistered: (f: RegisteredFilter) => json<InvitesView & { disabled: string[] }>("POST", "/api/admin/registrations/disable", f),
+  terms: () => json<TermsAdminView>("GET", "/api/admin/terms"),
+  saveTerms: (t: { agreement: string; privacy: string }) => json<TermsAdminView>("PUT", "/api/admin/terms", t),
+  resetTerms: () => json<TermsAdminView>("DELETE", "/api/admin/terms"),
   notice: () => json<ServerNoticeText>("GET", "/api/admin/notice"),
   setNotice: (n: { text: string; tone: string; on: boolean }) => json<ServerNoticeText>("PUT", "/api/admin/notice", n),
   queueSwitches: (switches: { gpu?: boolean; compute?: boolean }) => json<QueueView>("PUT", "/api/admin/queue/switches", switches),

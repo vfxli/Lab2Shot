@@ -14,6 +14,7 @@ import platform
 import re
 import shutil
 
+from lab2shot_shared.gpu_arch import ARCHS_ENV, cap_of, target_label
 from lab2shot_worker.build import MAX_JOBS, compute_caps, pip_cuda_home
 
 from .. import config
@@ -34,7 +35,27 @@ def tools_dir():
     return config.THIRD_PARTY_DIR / "_tools"
 
 
-def build_env(cuda: bool = True, cuda_home: str | None = None) -> dict[str, str]:
+def target_archs(ext) -> list[str]:
+    """The architectures `ext`'s CUDA code is compiled for: the setting build.archs, narrowed to the ones the extension
+    declares when it declares any (Extension.env_archs: a torch without sm_120, say). Never the building machine's
+    cards: what an install compiles depends on the repository and the settings only. [] when the two have nothing in
+    common (the preflight blocks such an install, E-INSTALL-NOARCH)."""
+    archs = list(config.settings().value("build.archs"))
+    return [a for a in archs if a in ext.env_archs] if ext.env_archs else archs
+
+
+def target_caps(ctx) -> list[str]:
+    """target_archs as TORCH_CUDA_ARCH_LIST wants them ("8.9", "12.0"), said in the install's log; InstallError when
+    there is none (a declaration and a setting with nothing in common)."""
+    ext = ctx.ext
+    archs = target_archs(ext)
+    if not archs:
+        raise InstallError(Msg("E-INSTALL-NOARCH", title=ext.title, declared=[target_label(a) for a in ext.env_archs]))
+    ctx.sink.say(Msg("I-INSTALL-ARCHS", archs=[target_label(a) for a in archs]))
+    return [cap_of(a) for a in archs]
+
+
+def build_env(cuda: bool = True, cuda_home: str | None = None, caps: list[str] | None = None) -> dict[str, str]:
     """Toolchain for compiled torch extensions (detectron2 & co.). `cuda_home`: a toolkit inside the extension's own
     environment (EnvSpec.cuda_toolkit); default is the machine toolkit from the settings. On the same base as every
     other environment an extension's Python runs in (spec.clean_environ), never os.environ.copy(): that would carry
@@ -54,7 +75,8 @@ def build_env(cuda: bool = True, cuda_home: str | None = None) -> dict[str, str]
     cuda_home = cuda_home or s["build.cuda_home"] or env.get("CUDA_HOME") or "/usr/local/cuda"
     env["CUDA_HOME"] = cuda_home
     env["PATH"] = f"{cuda_home}/bin:{env.get('PATH', '')}"
-    if caps := compute_caps():
+    # `caps`: the compile targets (target_caps); only a caller without an extension falls back to this machine's cards
+    if caps := caps if caps is not None else compute_caps():
         env["TORCH_CUDA_ARCH_LIST"] = ";".join(caps)
     env["FORCE_CUDA"] = "1"
     return env
@@ -89,8 +111,8 @@ def step_packages(ctx) -> None:
     lock = lock if lock.is_file() else None
     wanted = ["-r", str(lock), "--require-hashes"] if lock else (["-r", str(req_file)] if req_file.is_file() else [])
     backend = ["--torch-backend", env.torch_backend] if env.torch_backend else []
-    # `--require-hashes` 要求命令行上的每一个包都带哈希：torch 和 CUDA 工具包是按名字给的，和锁文件放在同一条命令里
-    # pip 当场拒绝。有锁就分两条：先按名字装的，再按锁装的
+    # `--require-hashes` wants a hash for every package on the command line: torch and the CUDA toolkit are given by
+    # name, so in one command with the lock pip refuses at once. With a lock there are two rounds: by name, then the lock
     rounds = [[*env.torch, *toolkit], wanted] if lock and (env.torch or toolkit) else [[*env.torch, *toolkit, *wanted]]
     rounds = [r for r in rounds if r]
     if rounds:
@@ -117,10 +139,13 @@ def step_packages(ctx) -> None:
             if home is None:
                 raise InstallError(Msg("E-INSTALL-NONVCC"))
             cuda_home = str(home)
-        # 不开 run 的 idle 静默超时（retry_command 默认就不开）：uv 从源码编一个包、或者拉一个几 GB 的 wheel 时，stdout
-        # 是管道就一个字都不打，nice 19 下编几十分钟很正常——开了就会被当成卡住杀掉、从零重来、最后报成「连不上」。
-        # 编译失败要让它自己的报错说话（E-INSTALL-COMMAND）；只有末尾明明白白写着下载/连接错误才当网络重试
-        ctx.retry_command([*pip, "--no-build-isolation", "--no-deps", *env.compiled], "编译的包", env=build_env(env.compiled_cuda, cuda_home))
+        # no idle timeout (retry_command leaves it off): uv prints nothing to a pipe while it compiles a package from
+        # source or fetches a multi-GB wheel, and tens of minutes at nice 19 are normal; with it on the compile would be
+        # killed as stalled, started over and reported as a network failure. A failed compile speaks for itself
+        # (E-INSTALL-COMMAND); only output that clearly ends in a download or connection error is retried as the network
+        caps = target_caps(ctx) if env.compiled_cuda else None
+        ctx.retry_command([*pip, "--no-build-isolation", "--no-deps", *env.compiled], "编译的包",
+                          env=build_env(env.compiled_cuda, cuda_home, caps))
     ctx.retry_command([*pip, "-e", config.WORKER_SDK_DIR], "Lab2Shot worker SDK")
     if not ext.env.build:  # the environment is finished here (else after its build script)
         ctx.record_env()
@@ -142,6 +167,10 @@ def build_script_env(ctx) -> dict[str, str]:
         env["CONDA_PREFIX"] = str(paths.venv)
     else:
         env.pop("CONDA_PREFIX", None)
+    from .preflight import compiles_cuda
+
+    if compiles_cuda(ext):  # the script compiles CUDA through lab2shot_worker.build.cuda_build_env, which reads this
+        env[ARCHS_ENV] = ";".join(target_caps(ctx))
     env["LAB2SHOT_EXT_ROOT"] = str(paths.root)
     env["LAB2SHOT_EXT_REPO"] = str(paths.repo)
     env["LAB2SHOT_EXT_PREFIX"] = str(paths.venv)

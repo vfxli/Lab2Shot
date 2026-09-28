@@ -18,9 +18,8 @@ class _Params(NodeParams):
     model_size: Literal["1b", "0.4b"] = P(
         "1b", label="模型大小", group="模型",
         option_labels={"1b": "1B", "0.4b": "0.4B"},
-        help="1B 边缘和细节更好；0.4B 快约 2 倍、更省显存，适合快速预览",
     )
-    fp16: bool = fp16_param("模型", "（这里用 bf16，和全精度的差别在 0.1% 以内）")
+    fp16: bool = fp16_param("模型")  # 半精度用 bf16，和全精度的差别在 0.1% 以内
 
 
 def _inputs():
@@ -62,7 +61,7 @@ class Segment(Matting, NodeDef):
     licence = Licence(note=LICENSE_NOTE)
 
     class Params(_Params):
-        matte: bool = P(True, label="精细抠像", help="用 Sapiens2 的抠像模型出 alpha，头发、包带等边缘最好，速度慢一倍；关掉就用分割结果推出 alpha（有空洞、边缘硬）", group="模型")
+        matte: bool = P(True, label="精细抠像", group="模型")
 
     @classmethod
     def cook(cls, ctx):
@@ -98,7 +97,7 @@ class Normal(NodeDef):
              "交出去的就是官方 np.save 的那一份，不加工（和前馈重建家族的深度图同一条规则）。",
     )
     on_node = ("model_size",)
-    version = 3  # 3: 法线是官方原值，背景不再被另跑的分割抹掉（「遮罩」输出口一并删了）
+    version = 3  # 3：法线是官方原值，背景不抹掉，没有「遮罩」输出口；更早版本的缓存不能复用
     # 每帧单独算，边缘和部位分界会有轻微闪动；只认人；法线是官方原值（背景处也有值，只是没有意义）
     inputs = _inputs()
     main = "normal"

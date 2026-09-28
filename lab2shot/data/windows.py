@@ -90,10 +90,6 @@ class Window:
         return cls(int(meta["width"]), int(meta["height"]), tuple(meta.get("data_window") or (0, 0, 0, 0)))  # type: ignore[arg-type]
 
     @classmethod
-    def of_size(cls, width: int, height: int) -> Window:
-        return cls(width, height)
-
-    @classmethod
     def of_files(cls, paths, width: int, height: int) -> Window:
         """The window of a sequence in a `width` x `height` format: the union of its files' data windows (headers
         only), so every frame of the packet is read in one box."""
@@ -107,14 +103,6 @@ class Window:
             return cls(width, height)
         x0, y0, x1, y1 = box
         return cls(width, height, (x0, y0, x1 - x0, y1 - y0))
-
-    @classmethod
-    def of_file(cls, path) -> Window:
-        """One file's own windows: its display window is the plate frame, its data window the canvas."""
-        from ..io import images
-
-        (_, _, w, h), data = images.windows(path)
-        return cls(w, h, data)
 
     @classmethod
     def canvas_of(cls, plate: tuple[int, int], size: tuple[int, int], offset: tuple[int, int]) -> Window:

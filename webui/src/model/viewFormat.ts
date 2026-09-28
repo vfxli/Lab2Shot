@@ -1,15 +1,15 @@
 /** The 3D viewer's data as the server sends it (lab2shot/server/view_data.py): its description, how its arrays are
  * packed (losslessly: float32 bytes sorted by significance, point caches as bit differences from the frame before,
- * gzip on the wire), and the skinning the graphics card does, written out here for the parts of the viewer that need
- * skinned points on the CPU (normals, bounds) and for the tests (webui/tests/tools/view_check.ts).
+ * gzip on the wire), and the arithmetic the viewer does on it off the graphics card (depth clouds rebuilt, samples
+ * picked, matrices, bones, UVs).
  *
- * Pure: no imports, so node's own test runner reads it as it is. */
+ * Pure: no imports. */
 
-export type TypeName = "f32" | "u32" | "u16" | "u8";
+type TypeName = "f32" | "u32" | "u16" | "u8";
 export type Typed = Float32Array | Uint32Array | Uint16Array | Uint8Array;
 
 /** A base array: in which part, where, how many elements, of what type, how packed. */
-export interface ArrayRef {
+interface ArrayRef {
   part: string;
   o: number;
   n: number;
@@ -17,7 +17,7 @@ export interface ArrayRef {
   e: "" | "s" | "x";
 }
 
-export interface PartRef {
+interface PartRef {
   url: string;
   bytes?: number; // on the wire (base parts; chunks are read when asked for)
   raw?: number;
@@ -114,7 +114,7 @@ export interface CameraRef extends Item {
    * `api.packetFrameUrl` 的 `through`）：解算节点选择了带畸变的镜头模型时，三维视图不使用原图作为底图。 */
   distortion?: string;
   /** 该相机的背板：解算该相机所用的画面（或手动为其指定的画面）对应数据包的指纹（`lab2shot/io/usd.py PLATE`）。
-   * 透过该相机观看时，三维舞台以此为底图；为空或缺失表示没有背板（导入的相机、旧版本解算的相机）。 */
+   * 透过该相机观看时，三维舞台以此为底图；为空或缺失表示没有背板（导入的相机）。 */
   plate?: string;
   focal_mm: ArrayRef;
   h_aperture_mm: ArrayRef;
@@ -148,7 +148,7 @@ const SIZE: Record<TypeName, number> = { f32: 4, u32: 4, u16: 2, u8: 1 };
 
 /** Packed bytes back to their array. `xorSize`: the elements of one sample ("x": each sample was sent as its bits'
  * difference from the one before). */
-export function unpack(bytes: Uint8Array, t: TypeName, e: "" | "s" | "x", xorSize = 0): Typed {
+function unpack(bytes: Uint8Array, t: TypeName, e: "" | "s" | "x", xorSize = 0): Typed {
   const n = bytes.length / SIZE[t];
   if (e === "") {
     const copy = bytes.slice().buffer;
@@ -191,8 +191,8 @@ export function readChunk(bytes: Uint8Array): { piece: Piece; flat: Typed; sampl
 }
 
 /** A depth cloud's points, rebuilt from its depths as the server made them (server/view_data.py grid_points) and as
- * the graphics card does it (points3d.tsx GRID): float32 in the same order of operations (a pinhole at the picture's
- * centre, pixel centres at +0.5, OpenCV to GL axes, then the camera; `cam`: 4x4 rows). The kept pixels (not NaN) in
+ * the graphics card does it (points3d.tsx GRID): float32 in the same order of operations (a pinhole at the camera's
+ * principal point, else the picture's centre; pixel centres at +0.5, OpenCV to GL axes, then the camera; `cam`: 4x4 rows). The kept pixels (not NaN) in
  * row-major order: the cloud's own order. */
 export function gridPoints(depth: Float32Array, gw: number, step: number, width: number, height: number, focal: number, cam: ArrayLike<number>, principal: ArrayLike<number> | null = null): Float32Array {
   const f = Math.fround;
@@ -220,7 +220,7 @@ export function gridPoints(depth: Float32Array, gw: number, step: number, width:
 
 /** Frames as they come: runs of consecutive frames, [first, count] each (thousands of props need not spell out 250
  * frames each), spelt out. */
-export function expandRuns(runs: [number, number][]): number[] {
+function expandRuns(runs: [number, number][]): number[] {
   const out: number[] = [];
   for (const [first, n] of runs) for (let k = 0; k < n; k++) out.push(first + k);
   return out;
@@ -286,65 +286,6 @@ export function invertAffine(m: number[]): number[] {
   const t = [m[12], m[13], m[14]];
   const out = [inv[0], inv[3], inv[6], 0, inv[1], inv[4], inv[7], 0, inv[2], inv[5], inv[8], 0, 0, 0, 0, 1];
   for (let row = 0; row < 3; row++) out[12 + row] = -(inv[row * 3] * t[0] + inv[row * 3 + 1] * t[1] + inv[row * 3 + 2] * t[2]);
-  return out;
-}
-
-/** The skinning matrices of one sample, as the graphics card gets them (float32, column-major, joint after joint):
- * each joint's transform on the frame times the inverse of its bind transform. */
-export function skinningMatrices(bind: Float32Array, anim: Float32Array, sample: number, joints: number): Float32Array {
-  const out = new Float32Array(joints * 16);
-  for (let j = 0; j < joints; j++) {
-    const m = multiply(columnMajor(anim, sample * joints + j, 3), invertAffine(columnMajor(bind, j, 4)));
-    out.set(m, j * 16);
-  }
-  return out;
-}
-
-const f = Math.fround;
-
-/** Skinned points of one sample in float32 arithmetic, as the graphics card does it: blend shapes added to the bind
- * points (their weights on the sample), then the four joints' skinning matrices, weighted. */
-export function skinPoints(
-  points: Float32Array,
-  jointIndices: Typed,
-  jointWeights: Float32Array,
-  matrices: Float32Array,
-  shapeOffsets?: Float32Array,
-  shapeWeights?: ArrayLike<number>,
-): Float32Array {
-  const v = points.length / 3;
-  const out = new Float32Array(points.length);
-  const shapes = shapeWeights ? shapeWeights.length : 0;
-  for (let i = 0; i < v; i++) {
-    let x = points[i * 3];
-    let y = points[i * 3 + 1];
-    let z = points[i * 3 + 2];
-    for (let b = 0; b < shapes; b++) {
-      const w = shapeWeights![b];
-      if (!w) continue;
-      const o = (b * v + i) * 3;
-      x = f(x + f(shapeOffsets![o] * w));
-      y = f(y + f(shapeOffsets![o + 1] * w));
-      z = f(z + f(shapeOffsets![o + 2] * w));
-    }
-    let sx = 0;
-    let sy = 0;
-    let sz = 0;
-    for (let k = 0; k < 4; k++) {
-      const w = jointWeights[i * 4 + k];
-      if (!w) continue;
-      const m = jointIndices[i * 4 + k] * 16;
-      const px = f(f(f(matrices[m] * x) + f(matrices[m + 4] * y)) + f(f(matrices[m + 8] * z) + matrices[m + 12]));
-      const py = f(f(f(matrices[m + 1] * x) + f(matrices[m + 5] * y)) + f(f(matrices[m + 9] * z) + matrices[m + 13]));
-      const pz = f(f(f(matrices[m + 2] * x) + f(matrices[m + 6] * y)) + f(f(matrices[m + 10] * z) + matrices[m + 14]));
-      sx = f(sx + f(px * w));
-      sy = f(sy + f(py * w));
-      sz = f(sz + f(pz * w));
-    }
-    out[i * 3] = sx;
-    out[i * 3 + 1] = sy;
-    out[i * 3 + 2] = sz;
-  }
   return out;
 }
 

@@ -202,7 +202,7 @@ def main(job_path: str) -> None:
         width=width, height=height, p=p, user_points=n_user, query_offset_px=offset_px,
         read_seconds=load_frames_s, track_seconds=track_s,
         model="TAPNext++",
-        checkpoint_choice=p.model,  # 节点上的「模型」参数：512 / 256 那两个权重里的哪一个
+        checkpoint_choice=p.model,  # the node's 「模型」 parameter: which of the two checkpoints (512 / 256)
         checkpoint=ckpt_name,
         visible_rule="visibility logit > 0 (upstream default)",
         confidence_rule="sigmoid(visibility logit) x TAPNext certainty (probability mass within 8/256 of the frame)",

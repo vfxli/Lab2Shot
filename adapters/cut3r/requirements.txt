@@ -27,5 +27,5 @@ trimesh==4.12.2
 imageio==2.37.4
 seaborn==0.13.2
 pandas==3.0.5
-# Reads the float EXR masks of the "mask" input.
+# MonST3R reads the float EXR masks of its 「运动物体遮罩」 input.
 OpenEXR==3.4.15

@@ -40,36 +40,27 @@
   font-weight: 500;
 }
 
-/* 设置 → 管理密码 */
-.pw-card .set-row {
-  cursor: default;
+/* 设置 (admin/Settings.tsx, and the cards that sit among its cards: 管理员通知, 管理员密码, the invite codes).
+   One column of cards, all as wide as the page's column, which stops at a width a line stays readable at. Every row
+   of every card is the same three-column grid, so the columns line up from card to card and from page to page:
+   the label, right-aligned, one width; the control, starting on one line, a number one width, a text (and a list's
+   rows) the whole control column, so one width too; the marks of the setting (需重启 / 已改 / ↺), a column of fixed
+   width that is there even when a row has none. */
+.settings {
+  --set-w: 840px; /* the page's column: cards, the config file line, the save bar */
+  --form-label-w: 124px; /* the longest label（「单任务 CPU 节点上限」）on one line */
+  --set-num-w: 150px;
+  --set-tags-w: 204px; /* when (需重启 / 待重启) · what (启动参数 or 环境变量, and 已改 or 按本机算: both at once) · ↺ */
 }
 
-.pw-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 0 6px;
-  border-top: 0.5px solid var(--hair);
-}
-
-.pw-hint {
-  color: var(--text-3);
-  font-size: var(--fs-xs);
-  /* 不给问号光标（cursor: help）：停留提示是 data-tip 那一套的事，和光标没关系 */
-}
-
-/* 设置 */
-/* the groups flow down two columns (in their order), each card whole */
 .set-groups {
-  column-width: 520px;
-  column-gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: var(--set-w);
 }
 
 .set-card {
-  break-inside: avoid;
-  margin-bottom: 16px;
   display: flex;
   flex-direction: column;
   padding: 14px 18px 8px;
@@ -84,20 +75,19 @@
   font-weight: 600;
 }
 
-/* 设置的一行和弹窗、参数面板同一副长相：标签右对齐成一列，控件跟着一条线开始。
-   第三列是这一项的标记（需重启、启动参数、已改过）。 */
+/* a line of the card's own under its heading (what the 管理员通知 is) */
+.set-card > .adm-lede {
+  margin: 0 0 8px;
+}
+
 .set-row {
   display: grid;
-  grid-template-columns: var(--form-label-w) minmax(0, 1fr) auto;
+  grid-template-columns: var(--form-label-w) minmax(0, 1fr) var(--set-tags-w);
   align-items: center;
   column-gap: var(--sp-3);
   min-height: 42px;
   padding: 5px 0;
   border-top: 0.5px solid var(--hair);
-}
-
-.set-card {
-  --form-label-w: 112px;
 }
 
 .set-label {
@@ -109,9 +99,11 @@
   /* 不给问号光标（cursor: help）：停留提示是 data-tip 那一套的事，和光标没关系 */
 }
 
+/* the control: switches, choices and buttons at its left edge, fields at their one width */
 .set-ctl {
   display: flex;
   align-items: center;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -127,7 +119,7 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  width: 150px;
+  width: var(--set-num-w);
 }
 
 .set-num .field {
@@ -149,12 +141,26 @@
   white-space: nowrap;
 }
 
+/* the marks, each kind in a place of its own, so the same kind of mark sits on one vertical line down the page */
 .set-tags {
-  display: flex;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 24px;
+  grid-template-areas: "when what reset";
   align-items: center;
+  column-gap: 4px;
+}
+
+.set-when {
+  grid-area: when;
+  justify-self: start;
+}
+
+.set-what {
+  grid-area: what;
+  display: flex;
   justify-content: flex-end;
-  gap: 5px;
-  min-width: 52px;
+  gap: 4px;
+  min-width: 0;
 }
 
 .chip.set-restart {
@@ -174,6 +180,7 @@
 }
 
 .set-reset {
+  grid-area: reset;
   width: 24px;
   height: 24px;
   padding: 0;
@@ -181,6 +188,7 @@
   color: var(--text-2);
 }
 
+/* a line under a row (why it is refused, which switch it needs), under the control; outside a row, the same place */
 .set-why {
   grid-column: 2 / -1;
   padding-bottom: 3px;
@@ -188,8 +196,17 @@
   color: var(--text-3);
 }
 
+.set-card > .set-why {
+  margin: 0;
+  padding: 4px 0 6px calc(var(--form-label-w) + var(--sp-3));
+}
+
 .set-why.bad {
   color: var(--error-text);
+}
+
+.set-why.ok {
+  color: var(--green);
 }
 
 .set-row.bad .field {
@@ -200,9 +217,104 @@
   opacity: 0.4;
 }
 
+/* a list setting (admin/ListField.tsx): one row per item, the label level with the first row */
+.set-row.tall {
+  align-items: start;
+}
+
+.set-row.tall .set-label {
+  line-height: 28px;
+}
+
+.set-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+/* the item's field starts where every control starts and, with the grip and × after it, ends where a text field ends */
+.set-list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.set-list-row.drag-over {
+  outline: 1px dashed var(--text-3);
+  outline-offset: 2px;
+}
+
+.set-list-grip {
+  cursor: grab;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1;
+  padding: 0 4px;
+  user-select: none;
+}
+
+.set-list-grip:hover {
+  color: var(--text);
+}
+
+.set-list-row .field.bad {
+  border-color: var(--error);
+}
+
+.set-list-add {
+  align-self: flex-start;
+}
+
 .set-status .set-label,
 .set-status .set-static {
   color: var(--text-3);
+}
+
+/* where the settings are kept: under the page's description, above the cards */
+.set-file {
+  max-width: var(--set-w);
+}
+
+/* 账号设置 → 管理员密码: its rows are <label>s, which are not links */
+.pw-card .set-row {
+  cursor: default;
+}
+
+.pw-hint {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  /* 不给问号光标（cursor: help）：停留提示是 data-tip 那一套的事，和光标没关系 */
+}
+
+/* 注册设置 → 邀请码: a card of the column too, its heading with its buttons */
+.set-part {
+  gap: 10px;
+  max-width: var(--set-w);
+}
+
+.set-part-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+}
+
+.set-part-head h3 {
+  flex: 1;
+  margin: 0;
+}
+
+.set-part > .adm-lede {
+  margin: 0 0 10px;
+}
+
+/* a long note is cut (hover shows it all), so the list of codes keeps to the card's width */
+.inv-note {
+  display: inline-block;
+  max-width: 12em;
+  vertical-align: bottom;
 }
 
 .set-bar {
@@ -212,6 +324,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  max-width: var(--set-w);
   padding: 10px 14px;
   border-radius: var(--r-card);
 }
@@ -292,4 +405,17 @@
 .rs-choice span {
   font-size: var(--fs-sm);
   color: var(--text-2);
+}
+
+/* 注册设置 → 用户协议与隐私政策 (admin/Terms.tsx): each text the kit's text area (ui/field.css textarea.field.area),
+   a page of it at once; its placeholders a row of chips that wraps */
+textarea.field.area.terms-edit {
+  min-height: 240px;
+  font-size: var(--fs-sm);
+}
+
+.set-ctl.terms-fills {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
 }

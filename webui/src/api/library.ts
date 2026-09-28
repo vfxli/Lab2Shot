@@ -17,8 +17,8 @@ export interface SavedGraph {
   deleted_by: string; // user / admin
 }
 
-/** 磁盘占用中的一项：占用量、内容说明、使用者自行清理可释放的空间（0 表示该项不允许自行清理）。 */
-export interface StorageArea {
+/** 磁盘占用中的一项：名称、占用量、内容说明（其中写明何时释放）。 */
+interface StorageArea {
   id: string;
   label: string;
   bytes: number;
@@ -35,7 +35,7 @@ export interface Traffic {
 }
 
 /** 判断是否仍可写入的三个数（lab2shot/server/quota.py gate）：队列轮询中只包含这些。
- * 四项明细与流量不在其中：它们在计算过程中持续变化，若纳入每 1.5–30 秒一次的轮询，本应返回 304 的回答每次都会完整重发。
+ * 三项明细与流量不在其中：它们在计算过程中持续变化，若纳入每 1.5–30 秒一次的轮询，本应返回 304 的回答每次都会完整重发。
  * 明细位于 StorageUsage，由「我的占用」自行查询一次。 */
 export interface StorageGate {
   total: number;
@@ -43,7 +43,7 @@ export interface StorageGate {
   over: boolean;
 }
 
-/** 账号占用的资源（lab2shot/server/quota.py usage）：硬盘四项与上限，不含流量：
+/** 账号占用的资源（lab2shot/server/quota.py usage）：硬盘三项与上限，不含流量：
  * 前台（队列窗口中的「我的占用」、删除任务后的更新）获得的即为此数据。 */
 export interface StorageUsage extends StorageGate {
   user: number;
@@ -61,7 +61,6 @@ export interface AccountUsage extends StorageUsage {
 
 export interface MyTemplates {
   mine: SavedGraph[];
-  bin: SavedGraph[];
   usage: StorageUsage;
 }
 
@@ -71,6 +70,5 @@ export const libraryApi = {
     json<MyTemplates>("POST", "/api/my/templates", { intro: "", id: "", ...t }),
   openTemplate: (id: string) => json<SavedGraph & { graph: GraphJSON }>("GET", `/api/my/templates/${encodeURIComponent(id)}`),
   binTemplate: (id: string) => json<MyTemplates>("DELETE", `/api/my/templates/${encodeURIComponent(id)}`),
-  restoreTemplate: (id: string) => json<MyTemplates>("POST", `/api/my/templates/${encodeURIComponent(id)}/restore`, {}),
   storage: () => json<StorageUsage>("GET", "/api/my/storage"),
 };

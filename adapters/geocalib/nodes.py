@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (FILMBACK_MM, Official, FLOAT, LENS, LENS_TABLE, VECTOR, LensCalibration, LensParams, P, Port, distorts,
+from lab2shot.sdk import (FILMBACK_MM, Official, FLOAT, LENS, VECTOR, LensCalibration, LensParams, P, Port, distorts,
                           distortion, empty_packet, focal_px_to_mm, focal_param, lens_note, packed_lens, plate_lens, value_packet, Cost)
 
 # GeoCalib 自己的三个相机模型 → 核心公式表：lens.py 的 GROUP（也是「LensDistortion」上 GeoCalib 那一组）
@@ -19,14 +19,14 @@ class Calibrate(LensCalibration):
     strip = {"fit_model": "镜头模型"}  # 视图小控件，和 COLMAP 一样：参数只放这一个，解出的值视图本来就显示
     # 默认每帧都估计重力（隔帧参数）；填了 Focal Length 就固定用它、只估重力方向，放平后地面的残余倾斜明显更小
     main = "gravity"  # what the node is for: its ports are listed by type order, and this one goes first
-    # 「图像」进、Focal Length / Filmback / 镜头模型 / 畸变系数 出，都由「镜头标定」家族声明
+    # 「RGB」进、Focal Length / Filmback / 镜头内参 出，都由「镜头标定」家族声明
     # （families/lens_calibration.py），和 AnyCalib 一致。重力方向和它的不确定度是上游多给的（AnyCalib 没有），
     # 排在家族那几个前面：它们是这个节点的主结果（`main = "gravity"`），最常单独用的放最上
     outputs = (
         Port("gravity", VECTOR, "重力方向"),
         Port("gravity_error", FLOAT, "重力误差", unit="°"),
     ) + LensCalibration.outputs
-    # 「拟合模型」里真的会解出畸变的那几档（家族的 `distorting_models`），从 TABLE_MODELS 算出来：
+    # 「镜头模型」里真的会解出畸变的那几档（家族的 `distorting_models`），从 TABLE_MODELS 算出来：
     # 对应到镜头表上真有系数的模型（distorts()）。径向 k1 = SIMPLE_RADIAL；除法模型 = SIMPLE_DIVISION，
     # 镜头表里有这一档它才算畸变档，没有就当无畸变交（那时「镜头内参」交空）。
     # 这几档之外「镜头内参」口变灰，用户不会接上一根永远是空的线
@@ -57,21 +57,15 @@ class Calibrate(LensCalibration):
     cost = Cost(gpu=True, vram_gb=6.5, seconds_per_frame=0.06)
 
     class Params(LensParams):
-        # 「拟合模型」是要求（上游的 `camera_model`：要它按哪种模型去拟合），输出口 `lens_model` 是结果
-        # （它认出来是哪一种），两件事，名字不能撞。档位和标签都从 lens.py 的 GROUP 取，
+        # 「镜头模型」是要求（上游的 `camera_model`：要它按哪种模型去拟合），「镜头内参」口里带的模型名是结果
+        # （它认出来是哪一种），两件事。档位和标签都从 lens.py 的 GROUP 取，
         # 和「LensDistortion」上 GeoCalib 那一组必须一一对上
         fit_model: Literal[tuple(GROUP.models)] = P(  # type: ignore[valid-type]
             "pinhole", label="镜头模型", group="镜头",
             option_labels={m: gm.label for m, gm in GROUP.models.items()},
-            help="无畸变：普通镜头、手机、长焦（用普通镜头的权重，最准）；径向 k1：广角、畸变明显的镜头；鱼眼：GoPro、鱼眼镜头"
-                 "（后两种用畸变镜头的权重）",
         )
-        step: int = P(1, label="隔帧", ge=1, le=100, group="重力",
-                      help="每隔几帧估计一次重力方向（最后一帧总会估计）。每帧估计能看出相机每一帧的倾斜；只为放平整个场景，"
-                           "长镜头设 5–10 就够，快很多")
-        focal_mm: float | None = focal_param(
-            help="实拍镜头的 Focal Length，毫米：填了（或者接一个浮点）就固定用它，只估重力方向（更准）；留空 = 自动，GeoCalib 自己估"
-            "（长焦镜头会估短）。手机按等效 Focal Length 填，Filmback 保持 36")
+        step: int = P(1, label="隔帧", ge=1, le=100, group="重力")
+        focal_mm: float | None = focal_param()
 
     @classmethod
     def cook(cls, ctx):

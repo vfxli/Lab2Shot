@@ -14,7 +14,7 @@ a jaw and two eyes (SMPL-X). A method that speaks any of them hands over the sam
               so the core can convert without it.
 
 `to_motion` turns those into joint-to-world transforms [F,J,4,4] (a skeletal animation, the form every DCC works in),
-and `from_motion` turns joint-to-world transforms back into parameters. They are exact inverses (tests/test_smpl.py).
+and `from_motion` turns joint-to-world transforms back into parameters. They are exact inverses.
 
 A rig that is not an SMPL body (an animator's production rig, other joints, other bone lengths, another rest
 pose) reaches the same place through the retargeting in motion.py, and this module meets it there:

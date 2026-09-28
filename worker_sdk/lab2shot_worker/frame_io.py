@@ -1,5 +1,5 @@
-"""Reading frames ahead of the GPU and writing results behind it: the one implementation every worker uses
-(tests/test_boundaries.py keeps thread pools out of the workers).
+"""Reading frames ahead of the GPU and writing results behind it: the one implementation every worker uses (a
+worker starts no thread pool of its own).
 
     FrameReader  frames read a few ahead on threads, in the order the worker says it will ask for them; what was read
                  and not taken yet stays under a byte budget, so a long or large shot never fills the RAM

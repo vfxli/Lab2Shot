@@ -132,12 +132,11 @@ def track_one_way(conf, predictor, tracker, frames: list[np.ndarray], init: np.n
                     state = FLOW if found[:1] == [True] else REFOUND if found[1:2] == [True] else UNSURE
                 except Exception:  # upstream's loop keeps the last pose too
                     h_cur2init, state = last, UNSURE
-            # `last` 只能是**上一帧算成功的那个**位姿：若在求逆之前就覆盖成这一帧的，
-            # `except` 里 `inv(last)` 会对刚抛异常的那个奇异矩阵再求一次逆，异常逃出去、整个任务失败。
-            # 上游 `demo.py:75-77` 的兜底是沿用上一帧
+            # `last` is the last pose that inverted: set before the inversion, `inv(last)` below would invert the
+            # same singular matrix again and fail the job. Upstream (demo.py:75-77) also keeps the previous pose
             try:
                 h = np.linalg.inv(h_cur2init)
-                last = h_cur2init   # 成功了才记下来当「上一帧」
+                last = h_cur2init   # only a pose that inverted becomes the fallback
             except np.linalg.LinAlgError:
                 h, state = np.linalg.inv(last), UNSURE
             tick()

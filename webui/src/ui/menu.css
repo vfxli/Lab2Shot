@@ -38,8 +38,7 @@
 /* 搜索框固定高，不被压缩。`.menu` 是列向 flex，input 默认 `flex-shrink: 1`；菜单框的高是写死的
    （NodeMenu.tsx 的 MENU_TALL），下面浏览区某些分类要的最小高度多一点，flex 就会压它，
    鼠标在一级分类之间滑动时下面的内容整块跟着上下抖。
-   不变量：框高写死 → 第一行（搜索框）固定高不压缩，剩下的全归浏览区，浏览区自己内部滚动。
-   tests/ui/walk_nodemenu.py 逐个分类悬停，量的那一串里就有这个 input 的高度。 */
+   不变量：框高写死 → 第一行（搜索框）固定高不压缩，剩下的全归浏览区，浏览区自己内部滚动。 */
 .menu input {
   flex: 0 0 auto;
   height: 40px;
@@ -55,7 +54,7 @@
 .menu-list {
   overflow-y: auto;
   /* 滚动条那道宽度永远留着：不然内容超没超高会让它出现 / 消失，菜单看着就是忽大忽小的。
-     editor/styles/12-preview-bar.css 的左栏同理 */
+     editor/styles/12-node-progress.css 的左栏同理 */
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
   min-height: 0;
@@ -85,7 +84,7 @@
   opacity: 0.5;
 }
 
-/* the row's own name (a walk finds a menu's rows by it) */
+/* the row's own name */
 .menu-label {
   min-width: 0;
 }
@@ -96,12 +95,6 @@
   margin-left: auto;
   font-size: var(--fs-xs);
   color: var(--text-3);
-}
-
-.menu-sep {
-  border: 0;
-  border-top: 1px solid var(--hair);
-  margin: 4px 6px;
 }
 
 /* the node menu's rows carry a category line and a sentence: they may run two lines */
@@ -115,17 +108,12 @@
   white-space: normal;
 }
 
-.menu-cat,
-.menu-group {
+.menu-cat {
   font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.06em;
   color: var(--text-3);
   padding: 8px 8px 4px;
-}
-
-.menu-group:first-of-type {
-  padding-top: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,5 +1,4 @@
-// 本文件只允许类型导入，不得 import 任何有运行时副作用的模块：`webui/tests/origin.test.ts` 直接导入本文件进行校验，
-// 引入 react 或状态库会导致该测试无法运行。
+// 本文件只允许类型导入，不得 import 任何有运行时副作用的模块（react、状态库等）：这里只有纯判断。
 import type { LocalPicture } from "./localPick";
 import type { ViewItem } from "./plan";
 
@@ -10,18 +9,17 @@ import type { ViewItem } from "./plan";
  *
  * ## 定义
  *
- * 输出口的来源恰为以下五种之一，按优先级排列（`Where`）：
+ * 输出口的来源恰为以下四种之一，按优先级排列（`Where`）：
  *
  * | 来源 | 含义 | 判定依据 |
  * |---|---|---|
  * | `"server"` | 服务器计算得到的包 | `ViewItem.fp`（状态回复中该输出口为 `present`） |
- * | `"browser"` | 浏览器本地计算的结果（积木节点） | `ViewItem.local`（`view/useLocal.ts`） |
  * | `"file"` | 使用者本机的文件，且由该节点读取 | `useLocalPicture` 返回的文件，其 `node` 等于该输出口所属节点 |
  * | `"plate"` | 同样是本机文件，但由上游节点读取，仅作为衬底，不属于该输出口自身 | 同上，但 `node` 为某个上游节点 |
- * | `"none"` | 无内容 | 以上四种均不成立 |
+ * | `"none"` | 无内容 | 以上三种均不成立 |
  *
  * 调用方不得自行编写「是否有内容」的布尔判断，只使用以下两个字段：
- * - `own`：该输出口自身有内容可显示，即 `server` / `browser` / `file`。
+ * - `own`：该输出口自身有内容可显示，即 `server` / `file`。
  *   「结果通道」下拉中的「还没算」提示、2D/3D 舞台选择、叠加显示开关均以此为准。
  *   非自身内容也不压暗显示，因为使用者无法判断压暗的时机与原因。
  * - `any`：屏幕上该输出口有内容可显示，即 `own` 或上游提供的衬底（`plate`）。
@@ -40,16 +38,16 @@ import type { ViewItem } from "./plan";
  * ## 身份：答案所依赖的每一项都必须包含在身份中
  *
  * `Source.key` 是该答案的身份，来源一旦变化即随之变化。它参与取数层的备忘依赖（`view/stageSources.ts`）
- * 以及 `DisplayPlan.sourceKey`。遗漏任何一项都会使画面停留在旧来源上，且既不报错也不会使测试失败。 */
+ * 以及 `DisplayPlan.sourceKey`。遗漏任何一项都会使画面停留在旧来源上，且不会报错。 */
 
-export type Where = "server" | "browser" | "file" | "plate" | "none";
+type Where = "server" | "file" | "plate" | "none";
 
 export interface Source {
   /** 内容的来源（见上表）。 */
   where: Where;
   /** 显示的是上一次的结果（参数已修改但结构未变，`state/stale.ts`）：时间线显示为土黄色，节点右上角标注「已过期」。 */
   stale: boolean;
-  /** 该输出口自身有内容可显示（服务器的包、浏览器计算结果，或该节点自身读取的本机文件）。 */
+  /** 该输出口自身有内容可显示（服务器的包，或该节点自身读取的本机文件）。 */
   own: boolean;
   /** 屏幕上该输出口有内容可显示：`own`，或以上游读取的本机文件作为衬底。 */
   any: boolean;
@@ -72,7 +70,7 @@ export const pictureKey = (p: LocalPicture): string =>
 
 /** 判断使用者本机文件能否代表视图中的某个输出口。`filePort` 为本机文件可代表的输出口名，`""` 表示不能代表任何输出口。
  *
- * 浏览器使用 three 的 EXRLoader 解码本机 EXR（`transfer/exr.ts`），只能得到文件自身的颜色通道，即节点主画面所在的层；
+ * 浏览器解码本机 EXR（`transfer/exr/decode.ts`，经本机代理或 `transfer/exr.ts`）时只取文件自身的颜色通道，即节点主画面所在的层；
  * 文件中的其他层（depth、法线、运动矢量、遮罩）无法取得。
  *
  * 若不加此限制，多层 EXR 的读取节点不会自动计算、各层的包尚不存在，无条件使用本机文件会在「depth」层下显示彩色图，
@@ -80,7 +78,7 @@ export const pictureKey = (p: LocalPicture): string =>
  *
  * 不硬编码 `"image"`：那是服务器端的输出口命名规则（`lab2shot/nodes/core/input.py _outputs_of`：`rgba` 层命名为 `image`），
  * 页面不重复服务器的规则（见 `graph/rules.ts`）。此处使用视图自身的主输出口（`graph/rules.ts mainOutput`：
- * 节点声明的主输出口，未声明时取第一个；「取第一个」的规则全项目仅在该处实现，由 `webui/tests/mainOutput.test.ts` 保证）。 */
+ * 节点声明的主输出口，未声明时取第一个；「取第一个」的规则全项目仅在该处实现）。 */
 export const fileStandsFor = (filePort: string, port: string): boolean => !!filePort && port === filePort;
 
 /** 返回输出口当前显示内容的来源，定义见模块说明。
@@ -92,7 +90,7 @@ export function sourceOf(it: ViewItem, file: LocalPicture | null, filePort: stri
   // 只有该节点自身读取的文件才是其自身结果；上游读取的文件仅作为衬底（见上文 file 与 plate 的区分）。
   const own = mine && mine.node === it.nodeId ? mine : null;
   const plate = mine && !own ? mine : null;
-  const where: Where = it.fp ? "server" : it.local ? "browser" : own ? "file" : plate ? "plate" : "none";
+  const where: Where = it.fp ? "server" : own ? "file" : plate ? "plate" : "none";
   if (where === "none") return NOTHING;
   return {
     where,
@@ -100,14 +98,10 @@ export function sourceOf(it: ViewItem, file: LocalPicture | null, filePort: stri
     own: where !== "plate",
     any: true,
     file: mine,
-    // 身份随来源变化，必须包含包、浏览器计算结果和本机文件三项。
-    key: `${where}${it.stale ? "~" : ""}|${it.fp ?? ""}|${it.local?.manifest.fingerprint ?? ""}|${mine ? pictureKey(mine) : ""}`,
+    // 身份随来源变化，必须包含包和本机文件两项。
+    key: `${where}${it.stale ? "~" : ""}|${it.fp ?? ""}|${mine ? pictureKey(mine) : ""}`,
   };
 }
 
-/** 同一判断的另一个入口是 `transfer/local.ts hasLocalFile`，用于尚无 `ViewItem` 的场景
- * （判断节点是否需要自动计算，`graph/actions.ts`）。
- *
- * 该入口不放在本文件中，原因是网页分层约束（`webui/tests/layers.test.ts`）：`graph` 层位于 `view` 层之下，不得导入本模块。
- * `transfer/` 层负责管理使用者本机文件的可用性，因此放在该层。两处使用同一判据（`drawable`：浏览器能否解码该文件），
- * 本文件不重复实现。 */
+/** 本机文件能否绘制的判据（`drawable`：浏览器能否解码该文件）位于 `transfer/local.ts`，由 `view/localPick.ts` 使用：
+ * `transfer/` 层负责管理使用者本机文件的可用性，位于 `view` 层之下的 `graph` 层也能导入它。本文件不重复实现。 */

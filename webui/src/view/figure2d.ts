@@ -8,8 +8,7 @@ import { CORNER_COLOR, type Entry, type Pt, parse } from "./handleParts";
  * 或原样复制前一帧的姿势。不通过拖框创建，以免人体比例变形；新增姿势不得覆盖已有姿势。 */
 
 /** 火柴人的骨骼连接（「figure」，见 nodes/handles.py FIGURE_JOINTS）：哪些关节之间构成骨骼。
- * 关节编号按 FIGURE_JOINTS 顺序；关节名称来自手柄的 `labels`，本文件不写任何身体部位名称，
- * 两侧长度一致由 tests/test_figure_handle.py 保证。 */
+ * 关节编号按 FIGURE_JOINTS 顺序；关节名称来自手柄的 `labels`，本文件不写任何身体部位名称。 */
 const FIGURE_BONES: [number, number][] = [
   [0, 1], [0, 2], [0, 3], [3, 10], [10, 13],
   [1, 4], [4, 6], [6, 8], [2, 5], [5, 7], [7, 9],
@@ -33,8 +32,7 @@ const FIGURE_TPOSE: [number, number][] = [
   [0.285, 0.165], [-0.285, 0.165], [0.430, 0.165], [-0.430, 0.165],
 ];
 /** 一个火柴人绘制的关节数，等于上表的行数；其他位置不得另写常量 18
- * （服务器端的表在 `lab2shot/nodes/handles.py FIGURE_JOINTS`，两端一致性由
- * `tests/test_catalog_reaches_the_page.py::test_the_page_draws_as_many_joints_as_the_server_says` 保证）。 */
+ * （服务器端的表在 `lab2shot/nodes/handles.py FIGURE_JOINTS`，两端的关节数须一致）。 */
 export const FIGURE_COUNT = FIGURE_TPOSE.length;
 
 const TPOSE_SPAN = 0.86; // 指尖跨度（单位为身高，对应上表 ±0.43），用于判断放入画面时是否超出宽度

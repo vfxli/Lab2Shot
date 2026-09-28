@@ -1,6 +1,6 @@
-/** The timeline's arithmetic, kept free of the page (no imports) so it is tested on its own (webui/tests): the frame
+/** The timeline's arithmetic, kept free of the page (no imports): the frame
  * ruler's ticks, the visible window's zoom and pan, the playback range, runs and gaps of frames, and playback itself
- * (loop, once, ping-pong; real time or every frame). Frames are the shot's own numbers (1001–1124), never indices. */
+ * (loop, once, ping-pong; in real time). Frames are the shot's own numbers (1001–1124), never indices. */
 
 export type Range = [number, number]; // first and last frame, both included
 export type LoopMode = "loop" | "once" | "bounce";
@@ -21,7 +21,7 @@ function* steps(): Generator<number> {
 }
 
 /** The frames between numbered ticks: the smallest of 1, 5, 10, 50 … whose labels stay `minPx` apart. */
-export function tickStep(pxPerFrame: number, minPx = 44): number {
+function tickStep(pxPerFrame: number, minPx = 44): number {
   if (!(pxPerFrame > 0)) return 1;
   for (const s of steps()) if (s * pxPerFrame >= minPx || s >= 1e9) return s;
   return 1;
@@ -29,7 +29,7 @@ export function tickStep(pxPerFrame: number, minPx = 44): number {
 
 /** The frames between the small ticks under the numbered ones (0: none): the smallest step that divides `major` and
  * stays `minPx` apart. */
-export function minorStep(major: number, pxPerFrame: number, minPx = 6): number {
+function minorStep(major: number, pxPerFrame: number, minPx = 6): number {
   for (const s of steps()) {
     if (s >= major) return 0;
     if (major % s === 0 && s * pxPerFrame >= minPx) return s;
@@ -37,7 +37,7 @@ export function minorStep(major: number, pxPerFrame: number, minPx = 6): number 
   return 0;
 }
 
-export interface Ticks {
+interface Ticks {
   step: number; // frames between numbered ticks
   major: number[]; // numbered frames, multiples of step
   minor: number[]; // small ticks (not on a numbered one)
@@ -190,7 +190,7 @@ export function advance(frames: number[], range: Range, frame: number, dir: Dir,
 
 // ------------------------------------------------------------------ the playback clock
 
-export interface Clock {
+interface Clock {
   t0: number; // seconds: when the frame counted as step 0 was due
   done: number; // steps taken since
 }

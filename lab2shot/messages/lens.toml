@@ -6,7 +6,6 @@
 
 # ---- 提交前拦截
 "W-LENS-NOLENS" = "「{node}」的畸变系数还都是 0，画面原样通过（零畸变的重采样只会让画面变软）：把「AnyCalib 镜头标定」的「镜头模型」和「畸变系数」接到节点上的同名输入口，或者照 3DE、标定程序的数逐个填。现成的 ST-map 用「STMap」，不用这个节点"
-"B-LENS-STMAPFRAMES" = "逐帧的 ST-map 缺画面要用的 {count:d} 帧（从第 {first:d} 帧起）：补齐 ST-map，或者换成整段一张的定焦 ST-map"
 "B-LENS-MODELMISMATCH" = "「{node}」选的镜头模型是「{here}」，接进来的「镜头内参」（{source}）是「{upstream}」：两边要选同一个模型才能算——把这里的「镜头模型」改成「{upstream}」，或者让上游按「{here}」解"
 "B-LENS-RASTER" = "画面是 {width:d}×{height:d}，镜头是在 {lens_width:d}×{lens_height:d} 的画面上定的：宽高比不同，这份镜头对这个画面不成立"
 

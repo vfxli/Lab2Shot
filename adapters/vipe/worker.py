@@ -267,7 +267,7 @@ def save_slam_points(slam, raw: Path) -> dict:
     （`third_party/vipe/repo/vipe/slam/interface.py:27-38`：`dense_disp_xyz` 为所有点的拼接，
     `dense_disp_packinfo` 记录各块起止，`dense_disp_frame_inds` 记录各块对应的流内帧序号）。
     官方同样单独保存该数据（`pose_only.py:104-106` 的 save_slam_map）。
-    此处原样输出，供「ViPE 深度」还原：深度计算时逐帧将其投影到画面上作为提示
+    此处原样输出，供「ViPE 深度图」还原：深度计算时逐帧将其投影到画面上作为提示
     （`processors.py:297`、`:320` 的 project_map）。"""
     if slam.slam_map is None:
         fail("E-VIPE-NOSLAMMAP")
@@ -396,19 +396,14 @@ def given_objects(job, frame_numbers: list[int]):
     解算节点已输出编号图，因此此处按上游同一行公式重新计算 mask，不重新运行三个模型。
     输入为 None（未接入「物体分割」）时 mask 为空；上游两处均为 `if frame.mask is not None`，计算照常进行。
 
-    编号图采用项目中向 worker 传图的统一方式：一份 JSON 清单（`{"frames": {帧号: 路径}}`），
-    每帧一张单通道图，像素值即编号。天空编号由参数 `sky` 提供（节点侧根据类别表计算）。"""
-    import json
-
+    编号图采用项目中向 worker 传图的统一方式：一份 JSON 清单（`{"frames": {帧号: 路径}}`，由 `job.listing` 读取，
+    路径相对清单所在文件夹），每帧一张单通道图，像素值即编号。天空编号由参数 `sky` 提供（节点侧根据类别表计算）。"""
     from lab2shot_worker.files import read_mask
     from vipe.streams.base import FrameAttribute, VideoFrame
     from vipe.utils.cameras import CameraType
     from vipe.utils.morph import erode
 
-    listing = job.inputs.get("objects")
-    paths: dict[int, str] = {}
-    if listing is not None:
-        paths = {int(f): p for f, p in json.loads(Path(listing).read_text(encoding="utf-8"))["frames"].items()}
+    paths = job.listing("objects")
     sky = {int(i) for i in (job.params.get("sky") or [])}
 
     class _Given:
@@ -510,7 +505,7 @@ def main(job_path: str) -> None:
     cfg = compose_config(mode, raw, focal_px_given is not None)
     pipeline = make_pipeline(cfg.pipeline)
     if with_depth:
-        # 「ViPE 深度」：相机和三维点由输入接入，此处不重新解算，仅运行 post 阶段
+        # 「ViPE 深度图」：相机和三维点由输入接入，此处不重新解算，仅运行 post 阶段
         run_depth(run, pipeline, mode, raw, frames, frame_numbers)
         return
 
@@ -552,8 +547,8 @@ def main(job_path: str) -> None:
     video = ProcessedVideoStream(stream, [])
     if mode == "pose_only":
         run.stage("读取序列")
-        video = video.cache(desc="Reading frames")  # 与 `vipe infer` 的行为一致；长镜头模式改为流式读取
-    # default / dav3 同样流式读取帧（任务的 PNG 数量已知，GeoCalib 的随机访问由 ViPE 自身缓存），
+        video = video.cache(desc="Reading frames")  # 与 `vipe infer` 的行为一致
+    # 长镜头模式流式读取帧（任务的 PNG 数量已知，GeoCalib 的随机访问由 ViPE 自身缓存），
     # 可在内存中少保留一份全分辨率副本。
     run.stage("估计 Focal Length / 加载模型")
     t_solve = time.time()

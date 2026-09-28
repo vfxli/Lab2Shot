@@ -5,7 +5,6 @@ lives here, once. The server makes the summary; the port's tooltip, the middle-c
 「取信息」 node all read the same answer, and no extension writes a word of it.
 
     describe(packet)              what a cooked result is: every item its type declares that its meta has
-    describe_info(type, info)     what is known before it is cooked (Info: frames, size, frame rate)
 
 It reads a packet's meta and nothing else — no file is opened, so a tooltip is instant. What the summary needs is
 therefore in the meta: the packet constructors put it there (data/payloads.py, data/camera.py), which is what the
@@ -319,17 +318,6 @@ def describe(packet) -> dict:
         return {"type": packet.type, "label": kind.label if kind else packet.type, "known": "empty", "items": []}
     return {"type": packet.type, "label": kind.label if kind else packet.type, "known": "cooked",
             "items": [line for item in items_of(packet.type) if (line := _line(ITEMS[item], ITEMS[item].read(meta)))]}
-
-
-def describe_info(type_id: str, info) -> dict:
-    """What is known before it is cooked (the node's Info): the same items, as far as they are known."""
-    kind = DATA_TYPES.get(type_id)
-    lines = []
-    for item in items_of(type_id):
-        entry = ITEMS[item]
-        if entry.before is not None and (line := _line(entry, entry.before(info))):
-            lines.append(line)
-    return {"type": type_id, "label": kind.label if kind else type_id, "known": "planned", "items": lines}
 
 
 def _line(item: Item, value: Any) -> dict | None:

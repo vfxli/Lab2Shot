@@ -1,17 +1,15 @@
 """Graph status and cooked results (packets) for the viewer. Cooks are submitted through the farm (server/farm.py).
-A graph is first admitted for the requesting account; its status response grants the account access to the results it
-references, and a result can be read only once granted (server/access.py)."""
+A graph is first admitted for the requesting account and answered from that account's own cache (data/store.py); a
+result is read only from the requesting account's own cache (server/access.py packets_readable)."""
 
 from __future__ import annotations
 
-import json
 
 import numpy as np
 from fastapi import Depends, Request
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import Field
 
-from pathlib import Path
 
 from .routes import Access, Router
 from ..engine import EVALUATIONS, Evaluation, Graph, Packet
@@ -19,11 +17,12 @@ from ..engine.evaluations import content_key
 from ..data.packet import packet_dir
 from ..errors import Invalid, NotFound, Unviewable
 from ..io import FileProblem
+from ..io.files import inside
 from ..messages import Msg
 from . import auth, graphs, wire
 from .graphs import GraphRequest
 
-from .access import account_of, admit, grant_packets, grant_status, packets_readable
+from .access import account_of, admit, packets_readable
 
 router = Router(prefix="/api", tags=["节点状态与结果"], dependencies=[Depends(packets_readable)])
 
@@ -57,7 +56,7 @@ class StatusRequest(GraphRequest):
 
 
 @router.post("/status", access=Access.user("编辑器：自己节点图的每个节点有没有缓存、能不能算", hides={
-    "farm.cards": ("nodes.*.cost.vram_gb", "nodes.*.cost.vram_measured", "nodes.*.cost.measured_on", "nodes.*.cost.rating.tip")}), summary="编辑器一次编辑只问这一个：每个节点有没有缓存、能不能算、为什么不能算，端口、连线、计算策略，和显示节点的计划（节点图每一版只发一次：graph、或 key / base + patch，见 server/graphs.py）")
+    "farm.cards": ("nodes.*.cost.vram_gb", "nodes.*.cost.vram_measured", "nodes.*.cost.measured_on")}), summary="编辑器一次编辑只问这一个：每个节点有没有缓存、能不能算、为什么不能算，端口、连线、计算策略，和显示节点的计划（节点图每一版只发一次：graph、或 key / base + patch，见 server/graphs.py）")
 def status(req: StatusRequest, request: Request) -> dict:
     """Return Evaluation.status plus server-side information: the graph version answered (its key and the echoed
     cook-input version) and the plan of the displayed node (farm/timings.py look)."""
@@ -65,7 +64,6 @@ def status(req: StatusRequest, request: Request) -> dict:
 
     ev = evaluation_of(req, request)
     found = ev.status(view=req.view or None)
-    grant_status(request, ev, found)  # the account may read these results, since they come from its own graph
     plan = timings.look(ev, req.display, False, farm().models()) if req.display in ev.graph.nodes else None
     return {"graph": req.key or content_key(ev.graph), "cook_inputs": req.cook_inputs, **found, "plan": plan}
 
@@ -85,7 +83,6 @@ def node_items(graph: str, node: str, request: Request, offset: int = 0, limit: 
     if offset < 0 or limit < 1:
         raise Invalid(Msg("E-STATUS-ITEMSPAGE", most=ITEMS_MOST))
     found = ev.items(node, offset, min(limit, ITEMS_MOST))
-    grant_packets(request, ev, (fp for i in found["items"] for fp in (i.get("outputs") or {}).values()))
     return {"graph": graph, "node": node, **found}
 
 
@@ -143,11 +140,11 @@ def manifest(fp: str) -> dict:
 def _shown_blobs(p: Packet) -> dict[str, str]:
     """Return, per frame, the sha256 of the uploaded file shown unchanged in the viewer, so the page can use its local
     copy when it has one. Empty when frames are converted for viewing."""
-    from ..data.payloads import image_files, worker_ready
+    from ..data.payloads import image_files, shown_as_is
     from ..io.color import load_config
     from ..transfer import uploads
 
-    if not worker_ready(p, load_config()):
+    if not shown_as_is(p, load_config()):
         return {}
     shas = {str(f): uploads.sha_of(path) for f, path in image_files(p).items()}
     return {f: sha for f, sha in shas.items() if sha}
@@ -168,15 +165,16 @@ def frame(fp: str, frame: int, through: str = "", at: str = "", g: str = "", px:
     (`view/proxy.py through_picture_file`) so that it matches the 3D projection. Without them the plain proxy is
     returned. The 3D stage passes them when viewing through a distorted camera (`webui/src/view/Stage3D.tsx`).
 
-    This route serves views that combine several colour channels (decided by `webui/src/transfer/route.ts`; the
-    picture is the smallest carrier of the three channels after the OCIO display transform). Single-channel views use
-    frame_channel below.
+    This route serves colour pictures (decided by `webui/src/transfer/route.ts`): the screen is 8-bit sRGB and a colour
+    result is shown as it is, so one 8-bit lossy WebP is the smallest carrier of its three channels (about a tenth of
+    the channel values). Everything but an HDRI is sRGB already; an HDRI is converted to sRGB when its proxy is made.
+    Value maps and single channels use frame_channel below.
 
     There is a single quality level: the proxy is already compressed, with no lossless variant.
 
     The proxy is normally built at cook time (`view/proxy.py build`, handed to the Engine by
-    `lab2shot/farm/queue.py`). It is built here on demand in two cases: the packet predates proxies, or the
-    administrator has just changed the tier. The requested frame is built first and the rest follow in the background
+    `lab2shot/farm/queue.py`). It is built here on demand in two cases: the packet's proxies of this tier
+    were never made, or the administrator changed the tier. The requested frame is built first and the rest follow in the background
     (`wire.ahead`)."""
     from ..data.payloads import channel_list
     from ..view import proxy
@@ -205,9 +203,9 @@ def frame(fp: str, frame: int, through: str = "", at: str = "", g: str = "", px:
 # ------------------------------------------------------------------ per-channel data (not rendered pictures)
 
 # `/frame/{frame}.png` above serves a rendered display picture (the smallest carrier for combined colour channels).
-# The two routes below serve raw data and the display transform; all viewing operations are computed in the browser.
-# Both serve proxies, whose size and compression are defined solely in lab2shot/view/proxy.py.
-# Which route a view uses is decided solely by webui/src/transfer/route.ts.
+# The route below serves one channel's raw values; picking a channel, black / white points, tinting and compositing
+# are done by the browser's display code (webui/src/view/look.ts). It serves proxies, whose size and compression are
+# defined solely in lab2shot/view/proxy.py. Which route a view uses is decided solely by webui/src/transfer/route.ts.
 
 
 @router.get("/packet/{fp}/frame/{frame}/channel/{name}", access=Access.user("看结果：一帧里的一条通道"), summary="一帧里**一条通道**的代理数据（不是做好的图）：浏览器拿它自己画——取通道、黑白点、着色、合成都在浏览器算，切看法一次网络都不用。头 16 字节说清格式（u8 / u16 / 半精度 / float32，对应显卡的 R8 / R16 / R16F / R32F）和宽高，后面是宽×高个值。尺寸是管理员设定的那一档（「设置 · 视图 · 视图代理尺寸」）。内容按地址不变，浏览器一直留着")
@@ -219,8 +217,7 @@ def frame_channel(fp: str, frame: int, name: str, request: Request, g: str = "",
     read and no file is touched otherwise.
 
     Proxies keep the channel structure: each channel produced by the solver is resized, compressed and served
-    separately, and only the requested channel is sent. Values are the data's own values with no view applied: linear
-    images stay linear (the display transform is the table from /api/packet/{fp}/lut, applied in the browser), value
+    separately, and only the requested channel is sent. Values are the data's own values with no view applied: value
     maps stay numeric (display range in meta.range, mapped in the browser), and images with alpha are premultiplied.
 
     There is a single quality level: the proxy is already compressed."""
@@ -249,23 +246,6 @@ def frame_channel(fp: str, frame: int, name: str, request: Request, g: str = "",
     return wire.channel_answer(blob, request.headers.get("accept-encoding", ""), kept)
 
 
-@router.get("/packet/{fp}/lut", access=Access.user("看结果：这个数据包的显示变换（查找表）"), summary="这个数据包的显示变换，烤成浏览器能查的一张表（每个包要一次，不逐帧烤进像素）：OCIO 的显示变换在对数网格上的 RGB。数值图和本来就是显示空间的像素回 mode=raw（原样画）")
-def packet_lut(fp: str) -> dict:
-    """Return the packet's display transform baked into a lookup table. The browser has no OCIO, so the transform is
-    baked once here and applied per frame in the browser (same format as /api/view/lut for local EXR preview).
-
-    Value maps (depth, masks, normals and similar) are not colour managed, and video already carries display pixels;
-    both return mode "raw"."""
-    from ..data.payloads import channel_list, is_data
-    from .view import lut_for
-
-    p = _packet(fp)
-    if not channel_list(p):
-        raise Invalid(Msg("E-VIEW-NOTIMAGE"))
-    raw = p.type == "video" or is_data(p) or not p.meta.get("colorspace")
-    return lut_for(None if raw else p.meta["colorspace"])
-
-
 @router.get("/packet/{fp}/clipboard", access=Access.user("看结果：复制到别的软件的节点文字"),
             summary="结果里带的节点文字（Nuke 的 .nk 片段）：网页的「复制到 Nuke」把它放进剪贴板")
 def clipboard(fp: str) -> dict:
@@ -280,14 +260,17 @@ def clipboard(fp: str) -> dict:
     got = p.meta.get("clipboard") or {}
     name = str(got.get("file") or "")
     # Only a file inside this result is accepted (a delivered file of an output-settings node, or the file written by
-    # put_clipboard); paths leading outside the packet are rejected.
-    inside = bool(name) and ".." not in name and not name.startswith("/") and p.path(name).is_file()
-    if not got.get("app") or not inside:
+    # put_clipboard); a name leading outside the packet, by its path or through a link, is none.
+    try:
+        f = inside(p.dir, name)
+    except Invalid:
+        f = None
+    if not got.get("app") or f is None or not f.is_file():
         raise NotFound(Msg("E-CLIPBOARD-NONE"))
     # A message to show when copying (for content the target application cannot represent). The node records the code
     # and parameters; the text comes from the server's message catalogue (messages/) and the page only displays it.
     said = got.get("said")
-    return {"app": got["app"], "file": name, "text": p.path(name).read_text(encoding="utf-8"),
+    return {"app": got["app"], "file": name, "text": f.read_text(encoding="utf-8"),
             **({"said": Msg(said["code"], **(said.get("params") or {})).json()} if said else {})}
 
 

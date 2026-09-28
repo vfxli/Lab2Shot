@@ -16,11 +16,10 @@ import type { ViewOptions } from "../model/viewOptions";
  * The display budget is the total number of points. A curve set within the budget is drawn in full, every curve and
  * every point. A set over the budget is drawn as its bounding box only, and the viewer reports the reason together
  * with the curve and point counts. Curves are never thinned (所见即所得); data, cook and delivery are unaffected.
- * Budgets may only decrease (tests/display_budgets.json, webui/tests/budgets.test.ts). */
+ * Budgets may only decrease. */
 
-/** Maximum number of points of one curve set drawn by the 3D view. Must equal tests/display_budgets.json
- * scene.curves.points_max, which is the single source of this number; a test keeps the two in sync. */
-export const CURVE_POINTS_MAX = 500_000;
+/** Maximum number of points of one curve set drawn by the 3D view. */
+const CURVE_POINTS_MAX = 500_000;
 
 interface Props {
   src: CurveData;

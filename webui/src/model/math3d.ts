@@ -1,6 +1,6 @@
 /** The 3D viewer's maths that needs no three.js: bounds and framing.
  *
- * Pure: no imports, so node's own test runner reads it as it is. */
+ * Pure: no imports. */
 
 export interface Bounds {
   min: [number, number, number];
@@ -35,10 +35,3 @@ export function fitDistance(radius: number, fovDeg: number, aspect: number, marg
 
 /** The orthographic zoom (pixels per scene unit) that shows a sphere whole with a margin in a view of w x h pixels. */
 export const fitZoom = (radius: number, w: number, h: number, margin = 1.15) => Math.min(w, h) / (2 * Math.max(radius, 1e-6) * margin);
-
-/** Counts written short: 1234 -> "1234", 45_600 -> "4.6万", 2_300_000 -> "230万". */
-export function shortCount(n: number): string {
-  if (n < 10_000) return String(n);
-  if (n < 100_000_000) return `${Number((n / 10_000).toFixed(n < 100_000 ? 1 : 0))}万`;
-  return `${Number((n / 100_000_000).toFixed(1))}亿`;
-}

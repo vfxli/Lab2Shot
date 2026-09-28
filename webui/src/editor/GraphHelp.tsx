@@ -4,7 +4,8 @@ import { MessageText } from "../ui/MessageText";
 import { IconButton } from "../ui/Button";
 
 /** 操作说明: a 「?」 in the node graph's corner; the pointer over it opens the short table of what the mouse and the
- * keys do — one line each, the gesture on the left and what it does on the right. The sentences are the message
+ * keys do — one line each, the gesture on the left and what it does on the right. The 「?」 itself has no tip: the
+ * table is what it says. The sentences are the message
  * catalogue's (lab2shot/messages/web.toml I-EDIT-*); the gestures' own names are UI vocabulary and sit here, beside
  * what they name.
  *
@@ -25,7 +26,7 @@ export function GraphHelp() {
   const [open, setOpen] = useState(false);
   return (
     <div className="graph-help" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <IconButton tip="操作说明：鼠标分工、连线、快捷键" tone="ghost" size="xs" layout="graph-help-mark" aria-label="操作说明" aria-expanded={open}
+      <IconButton tone="ghost" size="xs" layout="graph-help-mark" aria-label="操作说明" aria-expanded={open}
         onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} onClick={() => setOpen((o) => !o)}>
         ?
       </IconButton>

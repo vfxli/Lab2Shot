@@ -5,7 +5,7 @@ FBX SDK); never imports Lab2Shot core.
 
 job["node"]:
     fbx.import   inputs.file (.fbx) -> raw/scene.npz: every camera, model and character of the file as scene arrays
-                 (lab2shot_worker/scene_arrays.py), in the file's unit and axes (top level unit_cm and axes say them)
+                 (lab2shot_shared/scene_arrays.py), in the file's unit and axes (top level unit_cm and axes say them)
     fbx.output   inputs.scene (scene arrays: cm, Y up) -> params.file (.fbx: cm, Maya Y-up axes written explicitly)
 
 What an FBX file holds, as the scene arrays name it:
@@ -44,7 +44,7 @@ from lab2shot_worker import fail, progress, say, serve, shown
 from lab2shot_worker.run import Run
 from lab2shot_shared.scene_arrays import SceneArrays, load, text, texts
 
-API = 3  # the fbxio binding this worker is written for (fbxio.cpp m.attr("API")): takes(), and a camera's lens centre, squeeze and user properties
+API = 4  # the fbxio binding this worker is written for (fbxio.cpp m.attr("API")): takes(), a camera's lens centre, squeeze and user properties, and an upload opened as FBX only, writing nothing
 OVERSCAN = "lab2shot:lens:overscan"  # FBX has no overscan: a user property, parts of the picture (left, top, right, bottom) as JSON
 
 
@@ -307,10 +307,10 @@ def read_fbx(run: Run) -> None:
 class Names:
     """Sibling-unique node names (FBX allows repeats, DCCs rename them on import: better unique from the start).
 
-    冒号留着：FBX 和 Maya 都用冒号做命名空间（Mixamo 的 mixamorig:Hips），换成下划线，Maya 的 HumanIK 和重定向
-    就认不出这套骨骼了。别的字符照旧换成下划线。"""
+    Colons are kept: FBX and Maya use them for namespaces (Mixamo's mixamorig:Hips), and with underscores in their
+    place Maya's HumanIK and retargeting no longer recognise the skeleton. Every other character becomes an underscore."""
 
-    KEEP = "_:"  # 字母数字之外还能留的字符
+    KEEP = "_:"  # the characters kept besides letters and digits
 
     def __init__(self) -> None:
         self.used: dict[int, set[str]] = {}

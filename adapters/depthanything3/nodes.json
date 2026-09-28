@@ -1,7 +1,7 @@
 {
  "depthanything3.geometry": {
   "label": "Depth Anything 3 深度图",
-  "description": "画面 → 逐帧估计的深度图（字节 Depth Anything 3）。逐帧单独算，远近会跳；知道 Focal Length（填「Focal Length」或从上游接一条线过来）用 Metric-Large 最稳。要整段前后稳定的深度图和相机，用「Depth Anything 3 深度与相机」。"
+  "description": "画面 → 逐帧估计的深度图（字节 Depth Anything 3）。逐帧单独算，远近会跳；知道 Focal Length（填「已知 Focal Length」或从上游接一条线过来）用 Metric-Large 最稳。要整段前后稳定的深度图和相机，用「Depth Anything 3 深度与相机」。"
  },
  "depthanything3.reconstruct": {
   "label": "Depth Anything 3 深度与相机",

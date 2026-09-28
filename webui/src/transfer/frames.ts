@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api, type Manifest } from "../api";
 import { aheadFor, order } from "./frameWindow";
 import { PIXELS_BUDGET, cache } from "./cache";
 import { freePixels, sizeOf, type Pixels, type Plane } from "./plane";
-import { Gone, abortUnder, localFramesOf, packetPart } from "./sources";
+import { Gone, abortUnder, bytesKey, localFramesOf, packetPart } from "./sources";
 import type { FrameSource } from "./sources";
-import { isLocal, localManifest } from "./computed";
 import { fillWhole, stopFilling } from "./fill";
-export { fillingNow } from "./fill";
+import { backoff } from "../platform/backoff";
 
 // 单帧的获取方式位于 transfer/sources.ts（下一层）：本模块只负责账本，即当前应取哪些帧、
 // 取到何时、先后顺序及何时取消。取数层的导出在此原样转出，调用方无需了解两层的分界。
@@ -44,7 +43,7 @@ const FAIL_TTL = 30_000;
 /** 一次失败后的重试间隔（毫秒）。非 Gone 的失败同样需要退避：服务器 5xx、断线、本机文件无法解码时，
  * 若不退避，`finally` 中的 `pump()` 会立即再次请求同一个键；6 路并发且每次失败都触发重绘，
  * 一个坏帧即可使页面陷入死循环。按连续失败次数翻倍：1 秒、2 秒、4 秒……最多 FAIL_TTL；到期后重试一次。 */
-const holdOff = (e: Asked): number => (e.gone ? FAIL_TTL : Math.min(FAIL_TTL, 1000 * 2 ** Math.max(0, e.fails - 1)));
+const holdOff = (e: Asked): number => (e.gone ? FAIL_TTL : backoff(e.fails, 1000, FAIL_TTL));
 const stillFailed = (e: Asked | undefined): boolean => !!e && e.failedAt > 0 && Date.now() - e.failedAt < holdOff(e);
 
 /** What is being fetched now, for whom, and what is pending from a worker: the module's state in one place.
@@ -149,16 +148,13 @@ function release(id: string, keys: string[]): void {
 
 // ------------------------------------------------------------------ a packet's description
 
-/** A packet's description (its meta: frames, size, rate), fetched once and kept by fingerprint; the 2D stage, the
- * timeline and the prefetcher read the same copy. A refusal is not kept (requested again when needed again). */
 /** 该包的说明当前是否已持有（同步，不发请求）：取数层据此同步判断本次查看的路径
  * （`transfer/prefetchLive.ts keyOf`）。`manifestOf` 取回后即存放于此缓存。 */
 export const manifestNow = (fp: string): Manifest | null => cache.get<Manifest>(`manifest:${fp}`) ?? null;
 
+/** A packet's description (its meta: frames, size, rate), fetched once and kept by fingerprint; the 2D stage, the
+ * timeline and the prefetcher read the same copy. A refusal is not kept (requested again when needed again). */
 export function manifestOf(fp: string): Promise<Manifest> {
-  // 浏览器计算的结果：其说明已在本地，不发请求（transfer/computed.ts）
-  const mine = isLocal(fp) ? localManifest(fp) : undefined;
-  if (mine) return Promise.resolve(mine);
   const key = `manifest:${fp}`;
   const got = cache.get<Manifest>(key);
   if (got) return Promise.resolve(got);
@@ -182,10 +178,10 @@ export function manifestOf(fp: string): Promise<Manifest> {
 
 /** 一个源中无需网络即可获得的帧：本机文件路径始终全部计入，服务器路径取决于字节是否在缓存中。
  *
- * 本机原件（本标签页中刚选择的、已授权的本机目录中的、交付写入用户磁盘的文件，由 `transfer/originals.ts`
+ * 本机原件（本标签页中刚选择的、已授权的本机目录中的文件，由 `transfer/originals.ts`
  * 判断）直接从磁盘读取，不经过服务器。若判断某帧是否可用时只看缓存中是否有已解码的位图，位图被预算
  * 淘汰后即判为不可用，播放将停下来等待一个本就在磁盘上的帧，循环回到第一帧时表现为卡死。 */
-export function loadedFrames(id: string): number[] {
+function loadedFrames(id: string): number[] {
   // 「在浏览器中」指字节存在，而非已解码的位图尚未被淘汰。位图体积大、会被预算淘汰；字节体积小、整段保留；
   // 字节存在即无需走网络，数毫秒即可解码绘制。时间线上的「已载入视图」表示的也是这一含义。
   const out = new Set<number>();
@@ -193,18 +189,17 @@ export function loadedFrames(id: string): number[] {
     const n = Number(key.slice(from));
     if (Number.isInteger(n)) out.add(n);
   };
-  for (const key of cache.keysUnder(id + ":")) add(key, id.length + 1);
   // 压缩字节按 id 的前半段存储（`transfer/sources.ts packetPart`），即「数据包 · 代理档位」的字节，
-  // 与该帧是否从磁盘读取无关。缺少此句时，一个包只要有本机原件，此行报告的帧就会不完整
+  // 与该帧是否从磁盘读取无关。缺少此项时，一个包只要有本机原件，此行报告的帧就会不完整
   const bytesAt = `bytes:${packetPart(id)}:`;
-  for (const key of cache.keysUnder(bytesAt)) add(key, bytesAt.length);
+  for (const key of cache.keysUnder(id + ":", bytesAt)) add(key, key.startsWith(bytesAt) ? bytesAt.length : id.length + 1);
   for (const f of localFramesOf(id)) out.add(f);  // 本机文件：位于磁盘上，随时可读
   return [...out].sort((a, b) => a - b);
 }
 
 /** 一个源中已解码、可立即绘制的帧（位图或通道平面在缓存中）：播放器等待的是此项，而非 `loadedFrames`
  * （后者还包括字节及磁盘上的原件，它们须先解码才能绘制）。 */
-export function decodedFrames(id: string): number[] {
+function decodedFrames(id: string): number[] {
   const out: number[] = [];
   for (const key of cache.keysUnder(id + ":")) {
     const n = Number(key.slice(id.length + 1));
@@ -213,16 +208,28 @@ export function decodedFrames(id: string): number[] {
   return out.sort((a, b) => a - b);
 }
 
-export function useDecodedFrames(id: string | null): number[] | null {
-  const version = useSyncExternalStore((f) => cache.onChange(f), () => cache.changes());
-  return useMemo(() => (id ? decodedFrames(id) : null), [id, version]);
+/** 某个源的帧清单：缓存每次变化时重读，但只在清单内容变了时交给 React 一个新值（才重绘）。其他源的帧到达、
+ * 别处的条目被释放，都不会重绘读它的视图（Stage2D 每次缓存变化都重绘时，播放中每一帧都要重画整个舞台）。 */
+function useCachedFrames(id: string | null, read: (id: string) => number[]): number[] | null {
+  const last = useRef<{ id: string | null; version: number; text: string; value: number[] | null } | null>(null);
+  return useSyncExternalStore(
+    (f) => cache.onChange(f),
+    () => {
+      const version = cache.changes();
+      const was = last.current;
+      if (was && was.id === id && was.version === version) return was.value;
+      const value = id ? read(id) : null;
+      const text = value ? value.join() : "";
+      last.current = was && was.id === id && was.text === text ? { ...was, version } : { id, version, text, value };
+      return last.current.value;
+    },
+  );
 }
 
+export const useDecodedFrames = (id: string | null): number[] | null => useCachedFrames(id, decodedFrames);
+
 /** The frames of a source present in the browser, kept up to date as they arrive (the timeline's 已载入视图 row). */
-export function useLoadedFrames(id: string | null): number[] | null {
-  const version = useSyncExternalStore((f) => cache.onChange(f), () => cache.changes());
-  return useMemo(() => (id ? loadedFrames(id) : null), [id, version]);
-}
+export const useLoadedFrames = (id: string | null): number[] | null => useCachedFrames(id, loadedFrames);
 
 /** 播放即将到达的帧当前是否有请求在读取（任何源均计入：视图自身的窗口即为取帧清单）。
  *
@@ -236,31 +243,10 @@ export function onItsWay(frame: number): boolean {
   return false;
 }
 
-/** 立即获取一个源的某一帧（不进入窗口、不排队）：已持有则直接使用，否则获取一次并以同一个键保存。
- *
- * 浏览器计算积木节点时所需的通道经由此函数（`view/evaluate.ts`：「图像合成」需要 A 的 R G B），
- * 使用同一账本、同一套键、同一份预算，不另建绕过账本的取数路径。
- * 与视图路径的唯一区别：它不属于任何窗口，因此不预取，也不会因窗口移动而被取消。 */
-export async function fetchNow(source: FrameSource, frame: number): Promise<Pixels | null> {
-  const key = `${source.id}:${frame}`;
-  const had = cache.get<Pixels>(key);
-  if (had) return had;
-  const load = source.load(frame);
-  if (!load) return null;
-  const got = await load();
-  cache.keep(key, got, sizeOf(got), "fetched", { free: freePixels });
-  return got;
-}
-
-/** A frame of a source that is already decoded (null: not yet): what a player drawing against its clock requests each tick. */
-export function peek(source: FrameSource, frame: number): Pixels | null {
-  return picture(`${source.id}:${frame}`) ?? null;
-}
-
 /** The frames a source keeps around `frame`, most wanted first: the current one, then frames ahead in the direction of
  * play as far as its share of the byte budget allows, and a few behind (frameWindow.ts). A single computation, so the
  * frames the view fetches and the frames it draws are the same. */
-export function windowFrames(source: FrameSource, frame: number, dir: number, playing: boolean, fps: number): number[] {
+export function windowFrames(source: FrameSource, frame: number, dir: number): number[] {
   // 单帧解码后的大小：取到达时记录的值（`hold`）；尚无记录时（切回时所有帧都已在缓存中，无需再取）才扫描缓存找一张并记录
   let big = fetching.bigOf.get(source.id);
   if (big === undefined) {
@@ -269,14 +255,13 @@ export function windowFrames(source: FrameSource, frame: number, dir: number, pl
     if (one) fetching.bigOf.set(source.id, big);
   }
   const others = [...windows.keys()].filter((id) => id !== source.id).length;
-  return order(source.frames, frame, dir || 1, aheadFor(big, PIXELS_BUDGET, others + 1, fps, playing));
+  return order(source.frames, frame, dir || 1, aheadFor(big, PIXELS_BUDGET, others + 1));
 }
 
 /** Starts loading a source's window from `frame` outward; the returned function removes the window again (frames no
- * window wants any more stop loading). The single way a view or a player requests frames (useFrame), and what
- * webui/tests/frames.test.ts drives. */
-export function watchFrames(source: FrameSource, frame: number, dir: number, playing: boolean, fps: number): () => void {
-  const list = windowFrames(source, frame, dir, playing, fps).flatMap((f) => {
+ * window wants any more stop loading). The single way a view or a player requests frames (useFrames). */
+function watchFrames(source: FrameSource, frame: number, dir: number): () => void {
+  const list = windowFrames(source, frame, dir).flatMap((f) => {
     const load = source.load(f);
     return load ? [{ key: `${source.id}:${f}`, load }] : [];
   });
@@ -288,13 +273,13 @@ export function watchFrames(source: FrameSource, frame: number, dir: number, pla
   return () => release(source.id, keys);
 }
 
-export interface Shown {
+interface Shown {
   image: Pixels | null; // what to draw: the frame, or the last drawn frame while it loads
   frame: number | null; // the frame that `image` shows
   loading: boolean; // the requested frame has not arrived yet
   failed: boolean;
-  window: number[]; // the frames this source keeps around the one shown, most wanted first: the frames the view
-  // 即视图接下来要绘制的帧（显示方式每帧实时计算，不存在预先生成的图）
+  window: number[]; // the frames this source keeps around the one shown, most wanted first: the frames the view draws
+  // next (the look is computed every frame; no processed picture is stored)
 }
 
 /** 同时跟踪多个源：一侧要绘制的内容可能是一张显示图（图片路径），也可能是一到三条通道加一条
@@ -303,7 +288,7 @@ export interface Shown {
  *
  * 数组长度每次可以不同（以 `null` 占位表示本轮不需要该格）。返回顺序与传入顺序一一对应。
  * 取帧规则与单个源相同：未到达时保留该源上一张已到达的图（标记 loading），从不绘制黑帧。 */
-export function useFrames(sources: (FrameSource | null)[], frame: number, dir = 1, playing = false, fps = 24, hold = false): Shown[] {
+export function useFrames(sources: (FrameSource | null)[], frame: number, dir = 1, hold = false): Shown[] {
   const [, redraw] = useState(0);
   const last = useRef(new Map<string, { image: Pixels; frame: number }>());
   const ids = sources.map((x) => x?.id ?? "").join("|");
@@ -322,7 +307,7 @@ export function useFrames(sources: (FrameSource | null)[], frame: number, dir = 
       if (!source) continue;
       // `hold`（拖动时间线期间）：不拉取任何帧，拖过的帧大多只是经过，逐帧拉取会浪费流量
       // （三维的 Stage3D 做法相同）。已解码的帧照常绘制；松开后 hold 变为 false，此 effect 再次执行，拉取停止处的帧
-      if (!hold) stops.push(watchFrames(source, frame, dir, playing, fps));
+      if (!hold) stops.push(watchFrames(source, frame, dir));
       const key = `${source.id}:${frame}`;
       const e = asked.get(key);
       if (!e) continue;
@@ -334,11 +319,11 @@ export function useFrames(sources: (FrameSource | null)[], frame: number, dir = 
     }
     if (came) f();
     return () => stops.forEach((stop) => stop());
-  }, [ids, gen, keys.join("|"), frame, dir, playing, fps, hold]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ids, gen, keys.join("|"), frame, dir, hold]); // eslint-disable-line react-hooks/exhaustive-deps
   return sources.map((source, i) => {
     if (!source) return { image: null, frame: null, loading: false, failed: false, window: [] };
     const key = keys[i];
-    const keeping = windowFrames(source, frame, dir, playing, fps);
+    const keeping = windowFrames(source, frame, dir);
     const failed = stillFailed(asked.get(key));
     const image = picture(key);
     if (image) {
@@ -351,11 +336,11 @@ export function useFrames(sources: (FrameSource | null)[], frame: number, dir = 
   });
 }
 
-/** The picture of `frame` from `source`, with the surrounding frames loading (`playing` at `fps`: as far ahead as the
- * source's share of the budget allows). While it loads, the last picture drawn from the same source stays (marked
+/** The picture of `frame` from `source`, with the surrounding frames loading (as far ahead as the source's share of
+ * the budget allows). While it loads, the last picture drawn from the same source stays (marked
  * loading). 单个源的版本，即只跟踪一个源的 `useFrames`。 */
-export function useFrame(source: FrameSource | null, frame: number, dir = 1, playing = false, fps = 24): Shown {
-  return useFrames([source], frame, dir, playing, fps)[0];
+export function useFrame(source: FrameSource | null, frame: number, dir = 1): Shown {
+  return useFrames([source], frame, dir)[0];
 }
 
 /** 「加载中 1005」 over the picture's corner (or its centre when nothing is drawn yet): the requested frame is in
@@ -377,15 +362,17 @@ export function drawLoading(ctx: CanvasRenderingContext2D, at: { x: number; y: n
   ctx.restore();
 }
 
-/** Forgets everything about a source (for tests and for a source that changed). */
 /** 该指纹已重算（生成号改变，transfer/gens.ts）：其包说明失效，下次重新向服务器请求；旧帧的键含旧生成号，因此不会再命中。 */
 export function forgetManifest(fp: string): void {
   cache.forget(`manifest:${fp}`);
   fetching.manifests.delete(fp);
 }
 
+/** Forgets everything about a source (a running node's provisional frames once it is done, view/partial.ts): its
+ * pictures, its compressed bytes (kept under bytes:<id>:, transfer/sources.ts bytesKey) and what was asked. */
 export function dropSource(id: string): void {
   cache.forgetAll(id + ":");
+  cache.forgetAll(bytesKey(id + ":"));
   for (const key of [...asked.keys()]) if (key.startsWith(id + ":")) asked.delete(key);
   abortUnder(id + ":");
 }

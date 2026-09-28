@@ -1,4 +1,4 @@
-"""深度与几何：深度转世界位置、深度转点云、深度转法线、法线空间转换、深度对齐。各项目的深度节点（包括今后新增的）
+"""深度与几何：深度转世界位置、深度转点云、深度转法线、法线空间转换、跟踪点转 3D、深度对齐。各项目的深度节点（包括今后新增的）
 只输出深度及其观察相机；世界位置、点云和法线统一在本模块生成，相对深度、视差等各类深度也在本模块对齐到公制参考。"""
 
 from __future__ import annotations
@@ -82,9 +82,6 @@ def normals_from_positions(p: np.ndarray, valid: np.ndarray) -> tuple[np.ndarray
     return np.where(ok[..., None], n / np.maximum(length, 1e-12)[..., None], 0.0).astype(np.float32), ok
 
 
-SPACE_HELP = "世界：放进相机所在的世界（和相机、人物、点云对得上）；相机：以相机为原点，X 右、Y 上、镜头朝 -Z"
-NORMAL_SPACE_HELP = ("相机：X 向右、Y 向上、Z 朝向镜头，贴在画面上（合成里常用）；世界：放进相机所在的世界，镜头动了法线也不变，"
-                     "Nuke 里按世界方向重新打光要用它")
 SPACE_LABELS = {"world": "世界", "camera": "相机"}
 NORMAL_SPACES = tuple((k, f"{v}空间的法线") for k, v in SPACE_LABELS.items())
 
@@ -99,11 +96,11 @@ class WorldPosition(NodeDef):
 
     class Params(NodeParams):
         space: Literal["world", "camera"] = P("world", label="坐标系", group="位置",
-                                              option_labels=SPACE_LABELS, help=SPACE_HELP)
+                                              option_labels=SPACE_LABELS)
 
     @classmethod
     def cook(cls, ctx):
-        from ...data.payloads import SIGNED, ExrWriter, image_files, read_map
+        from ...data.payloads import ExrWriter, image_files, read_map
         from ..kit.unproject import unproject_depth
 
         depth, camera = _depth_and_camera(ctx)
@@ -113,9 +110,13 @@ class WorldPosition(NodeDef):
         out = ExrWriter(ctx.outputs["position"], 3, validity=True, space=ctx.params["space"])
         files = image_files(depth)
         ctx.stage("计算位置图")
-        for i, f in enumerate(ctx.each(frames)):
+
+        def position(job):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
+            i, f = job
             z, alpha = read_map(files[f])
             out.add(f, unproject_depth(z[..., 0], float(focal[i]), mats[i], rows, cols, pp[i]).reshape(h, w, 3), alpha)
+
+        list(ctx.each_done(enumerate(frames), position))
         return {"position": out.packet()}
 
 
@@ -205,7 +206,7 @@ def camera_grid(z: np.ndarray, focal_px: float) -> np.ndarray:
 def points_from_depth(ctx, depth, camera, image, mask, step: int, point_size: float, space: str, confidence=None,
                       min_confidence: float = 0.5, native=None, scale_cm: float = M_TO_CM):
     """深度图 + 相机（+ 可选的颜色、排除遮罩、置信度）→ 点云 Packet（单位厘米，颜色取自 `image`）。这是 `DepthToPoints`
-    的核心逻辑，单独拆出供同一家族的其他节点（如单帧几何节点自带的点云输出口）直接调用。`mask`：值 > 0.5
+    的核心逻辑，单独拆出供家族节点自带的点云输出口（kit/maps.py family_points）和扩展（lab2shot/sdk）直接调用。`mask`：值 > 0.5
     的像素不进入点云（用于排除运动物体等）；`confidence`：置信度低于 `min_confidence` 的像素不进入点云；
     `depth`/`camera`/`image` 为已计算好的 Packet，不经过 ctx.input。
 
@@ -218,16 +219,17 @@ def points_from_depth(ctx, depth, camera, image, mask, step: int, point_size: fl
     from ...data.payloads import display_rgb, file_at, image_files, points_packet, read_map
     from ...data.maps import map_at, same_size
     from ..kit.unproject import unproject_depth
-    from ...data.units import CV_TO_GL, M_TO_CM
+    from ...data.units import CV_TO_GL
 
     same_size({"深度图": depth, "排除遮罩": mask, "置信度": confidence})
     frames, w, h = depth.meta["frames"], depth.meta["width"], depth.meta["height"]
     focal, mats, pp = _view(camera, frames, w, space == "world")
     files = image_files(depth)
-    pts, cols = [], []
-    from_native = 0
     ctx.stage("生成点云")
-    for i, f in enumerate(ctx.each(frames)):
+
+    def points(job):
+        """一帧的点（及颜色、是否取自模型的点图）：各帧互不相干，由引擎逐帧并行（ctx.each_done），按帧序收集。"""
+        i, f = job
         z, alpha = read_map(files[f])
         keep = alpha[::step, ::step] > 0
         # 飞点：前后景交界处反投影出的点悬在半空。判据需要整幅三维点（法线条件需要邻居），因此先按模型点图或
@@ -249,15 +251,18 @@ def points_from_depth(ctx, depth, camera, image, mask, step: int, point_size: fl
             # OpenCV 轴向（+Y 向下、+Z 向前）-> 内部轴向（+Y 向上、+Z 朝向相机），再按该帧相机放入世界。
             # 与 camera_points 反投影之后的步骤相同，因此两条路径落在同一坐标系中。
             got = np.asarray(model, np.float64)[r, c] * CV_TO_GL * scale_cm
-            pts.append((got @ mats[i][:3, :3].T + mats[i][:3, 3]).astype(np.float32))
-            from_native += 1
+            placed = (got @ mats[i][:3, :3].T + mats[i][:3, 3]).astype(np.float32)
         else:
-            pts.append(unproject_depth(z[..., 0], float(focal[i]), mats[i], r, c, pp[i]).astype(np.float32))
+            placed = unproject_depth(z[..., 0], float(focal[i]), mats[i], r, c, pp[i]).astype(np.float32)
         colored = image is not None and file_at(image, f) is not None
         # 未连接「颜色」时按深度着色（中性灰无法体现远近）：近亮远暗，
         # 范围取该帧保留点的 2%–98% 分位，以避开个别飞点。
         rgb = display_rgb(image, f, w, h)[r, c] if colored else _depth_shade(z[..., 0][r, c])
-        cols.append(rgb.astype(np.float32))
+        return placed, rgb.astype(np.float32), model is not None
+
+    made = list(ctx.each_done(enumerate(frames), points))
+    pts, cols = [p for p, _, _ in made], [c for _, c, _ in made]
+    from_native = sum(own for _, _, own in made)
     # 声明了原生点图却有帧未写出时，静默改用反投影会掩盖差异，因此不这样处理。点的来源不在此处以消息说明：
     # 它是该数据恒定的属性，写入 meta 的 points_from，由「数据信息」常驻显示；计算消息在命中缓存时不会再出现。
     if native is not None and from_native != len(frames):
@@ -276,7 +281,7 @@ def points_from_depth(ctx, depth, camera, image, mask, step: int, point_size: fl
 class DepthToPoints(NodeDef):
     id = "core.depth_points"
     on_node = ("point_step", "space")
-    version = 5  # 去飞点判据和点云 meta 已变更，旧缓存作废
+    version = 5  # 结果变化时递增，work/ 中的旧结果随之不再命中缓存（engine/cook.py）
     keeps_overscan = False  # 通过相机在画面框内计算：框外像素在三维中没有对应位置
     category = "geometry_tools"
     inputs = (
@@ -291,14 +296,11 @@ class DepthToPoints(NodeDef):
     outputs = (Port("points", "scene.points", "点云"),)
 
     class Params(NodeParams):
-        point_step: int = P(4, label="点云间隔", ge=1, le=64, group="点云",
-                      help="每隔几个像素取一个点。4 够预览和导出；调小点更密、文件更大（1 = 每个像素都要，1080p 每帧约 200 万点）")
-        point_size: float = P(0.5, label="点的大小", unit="cm", gt=0, le=100, group="点云", help="点在视图和 DCC 里画多大")
+        point_step: int = P(4, label="点云间隔", ge=1, le=64, group="点云")
+        point_size: float = P(0.5, label="点的大小", unit="cm", gt=0, le=100, group="点云")
         space: Literal["world", "camera"] = P("world", label="坐标系", group="点云",
-                                              option_labels=SPACE_LABELS, help=SPACE_HELP)
-        conf_threshold: float = P(0.5, label="置信度门槛", ge=0, le=1, group="点云", applies=Wired("confidence"),
-                                  help="接了「置信度」时才起作用：置信度低于它的点不要（0–1）。飞点多就调高；点云空洞太多就调低。"
-                                       "只和同一个模型的置信度比，换了深度节点要重新挑")
+                                              option_labels=SPACE_LABELS)
+        conf_threshold: float = P(0.5, label="置信度门槛", ge=0, le=1, group="点云", applies=Wired("confidence"))
 
     @classmethod
     def cook(cls, ctx):
@@ -319,7 +321,7 @@ class DepthNormal(NodeDef):
 
     class Params(NodeParams):
         space: Literal["camera", "world"] = P("camera", label="坐标系", group="法线",
-                                              option_labels=SPACE_LABELS, help=NORMAL_SPACE_HELP)
+                                              option_labels=SPACE_LABELS)
 
     @classmethod
     def cook(cls, ctx):
@@ -335,11 +337,15 @@ class DepthNormal(NodeDef):
         out = ExrWriter(ctx.outputs["normal"], 3, validity=True, value_range=SIGNED, half=True, space=ctx.params["space"])
         files = image_files(depth)
         ctx.stage("计算法线")
-        for i, f in enumerate(ctx.each(frames)):
+
+        def normal(job):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
+            i, f = job
             z, alpha = read_map(files[f])
             p = unproject_depth(z[..., 0], float(focal[i]), np.eye(4), rows, cols, pp[i]).reshape(h, w, 3)
             n, ok = normals_from_positions(p, alpha > 0)
             out.add(f, n @ rotations[i].T if world else n, ok)
+
+        list(ctx.each_done(enumerate(frames), normal))
         return {"normal": out.packet()}
 
 
@@ -353,7 +359,7 @@ class NormalSpace(NodeDef):
 
     class Params(NodeParams):
         space: Literal["world", "camera"] = P("world", label="转到", group="法线",
-                                              option_labels=SPACE_LABELS, help=NORMAL_SPACE_HELP)
+                                              option_labels=SPACE_LABELS)
 
     @classmethod
     def cook(cls, ctx):
@@ -366,11 +372,15 @@ class NormalSpace(NodeDef):
         out = ExrWriter(ctx.outputs["normal"], 3, validity=True, value_range=SIGNED, half=True, space=target)
         files = image_files(normal)
         ctx.stage("转换法线")
-        for i, f in enumerate(ctx.each(frames)):
+
+        def turn(job):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
+            i, f = job
             n, alpha = read_map(files[f])
             n = n[..., :3]  # 四通道输入可接入三通道端口（第四通道 alpha 随行）：此处只转换前三个通道
             r = np.eye(3) if source == target else rotations[i] if target == "world" else rotations[i].T
             out.add(f, n @ r.T, alpha)
+
+        list(ctx.each_done(enumerate(frames), turn))
         return {"normal": out.packet()}
 
 
@@ -407,8 +417,8 @@ class TracksToPoints(NodeDef):
 
     class Params(NodeParams):
         space: Literal["world", "camera"] = P("world", label="坐标系", group="点",
-                                              option_labels=SPACE_LABELS, help=SPACE_HELP)
-        point_size: float = P(1.0, label="点的大小", unit="cm", gt=0, le=100, group="点", help="点在视图和 DCC 里画多大")
+                                              option_labels=SPACE_LABELS)
+        point_size: float = P(1.0, label="点的大小", unit="cm", gt=0, le=100, group="点")
 
     @classmethod
     def cook(cls, ctx):
@@ -432,17 +442,27 @@ class TracksToPoints(NodeDef):
         xyz = np.full((n, len(frames), 3), np.nan)
         seen = t["visible"].copy()
         ctx.stage("取深度，放进相机的世界")
-        for j, f in enumerate(ctx.each(frames)):
+
+        def place(job):
+            """一帧：（该帧可见的点，其中取到深度的，它们的位置）；该帧没有深度时为 None。各帧互不相干，
+            由引擎逐帧并行（ctx.each_done），结果按帧序填入。"""
+            j, f = job
             if f not in files:
-                seen[:, j] = False
-                continue
+                return None
             z, alpha = read_map(files[f])
             on = np.flatnonzero(t["visible"][:, j])
             d = depth_under(z[..., 0], alpha > 0, t["tracks"][on, j])
             ok = np.isfinite(d)
-            seen[on[~ok], j] = False
             xy = t["tracks"][on[ok], j]
-            xyz[on[ok], j] = camera_points(d[ok], xy[:, 0], xy[:, 1], float(focal[j]), w, h, mats[j], pp[j])
+            return on, ok, camera_points(d[ok], xy[:, 0], xy[:, 1], float(focal[j]), w, h, mats[j], pp[j])
+
+        for j, got in enumerate(ctx.each_done(enumerate(frames), place)):
+            if got is None:
+                seen[:, j] = False
+                continue
+            on, ok, placed = got
+            seen[on[~ok], j] = False
+            xyz[on[ok], j] = placed
         lost = int((~np.isfinite(xyz).all(-1).any(1)).sum())
         if lost:
             ctx.say("N-POINTS-NODEPTH", count=lost)
@@ -556,18 +576,13 @@ class DepthAlign(NodeDef):
     outputs = (Port("depth", "image.1", "深度图", means=("scale",)),)
 
     class Params(NodeParams):
-        # 参数名为 depth_is 而非 source：同一参数名在全项目中只能指一件事，「自动地面」上的 source 已表示「地面依据」
+        # 参数名为 depth_is 而非 source：同一参数名在全项目中只能指一件事，「自动落地」上的 source 已表示「地面依据」
         depth_is: Literal["auto", "disparity", "relative", "affine"] = P(
             "auto", label="待对齐的是", group="对齐",
             option_labels={"auto": "自动", "disparity": "视差", "relative": "只差比例", "affine": "只差比例和偏移"},
-            help="接进来这张图是哪一种，决定怎么拟合。自动：按数据自己写的尺度（我们自己算出来的深度图都写着），"
-                 "没写就按视差待（更安全的那一边）。别家渲染的 EXR 不写这一句——它其实是真实尺度或只差比例时，"
-                 "在这里挑，不然会按视差拟合、算出相反的远近",
         )
         fit: Literal["shot", "frame"] = P(
             "shot", label="拟合", group="对齐", option_labels={"shot": "整段一次", "frame": "逐帧"},
-            help="整段一次：整个镜头用同一个比例（和偏移），保持输入原有的稳定，不闪（默认，适合 Video Depth Anything 这类"
-                 "稳定的深度图）；逐帧：每帧单独对齐，输入每帧的尺度自己在变时才用（参考不够的帧用整段的结果）",
         )
 
     @classmethod
@@ -611,10 +626,13 @@ class DepthAlign(NodeDef):
         summary = {"model": model, "fit": ctx.params["fit"], "scale": s, "offset": t, "frames": len(pairs),
                    "pixels": int(len(x_all)), "error_pct": float(np.median(errors))}
         out = ExrWriter(ctx.outputs["depth"], 1, validity=True, scale=out_scale, aligned=summary)
-        for f in ctx.each(frames):
+
+        def align(f):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             x, alpha = map_at(src, f)
             z, ok = apply_fit(model, *fits[f], x[..., 0].astype(np.float64))
             out.add(f, z.astype(np.float32), (alpha > 0) & ok)
+
+        list(ctx.each_done(frames, align))
         code, said = cls._message(model, s, t, summary, sorted({fs for fs, _ in fits.values()}))
         ctx.say(code, **said)
         return {"depth": out.packet()}
@@ -647,12 +665,12 @@ class DepthAlign(NodeDef):
         """逐帧：两者均有值（且置信度不为 0）的像素处的（源值、参考深度、权重）采样。"""
         from ...data.maps import map_at
 
-        pairs = {}
         ctx.stage("读取参考深度")
-        for f in ctx.each(src.meta["frames"]):
+
+        def sample(f):  # 一帧的点对：各帧互不相干，由引擎逐帧并行（ctx.each_done），按帧序收集
             got = map_at(ref, f)
             if got is None:
-                continue
+                return None
             (x, xa), (z, za) = map_at(src, f), got
             weight = cls._weights(ctx, f, x.shape[:2])
             ok = (xa > 0) & (za > 0) & (z[..., 0] > 0) & cls._usable(model, x[..., 0]) & (weight > 0)
@@ -660,8 +678,10 @@ class DepthAlign(NodeDef):
             if region is not None:
                 ok &= region
             pick = _evenly(int(ok.sum()), SAMPLES_PER_FRAME)
-            pairs[f] = (x[..., 0][ok][pick].astype(np.float64), z[..., 0][ok][pick].astype(np.float64), weight[ok][pick])
-        return pairs
+            return x[..., 0][ok][pick].astype(np.float64), z[..., 0][ok][pick].astype(np.float64), weight[ok][pick]
+
+        frames = src.meta["frames"]
+        return {f: got for f, got in zip(frames, ctx.each_done(frames, sample)) if got is not None}
 
     @classmethod
     def _pairs_from_points(cls, ctx, src, points, model: str) -> dict[int, tuple[np.ndarray, np.ndarray, np.ndarray]]:

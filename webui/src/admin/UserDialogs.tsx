@@ -1,13 +1,14 @@
-/** 用户's dialogs: 新建用户, 修改, 重设密码, 删除 (what each does is the server's: lab2shot/accounts.py). */
+/** 用户's dialogs: 新建用户, 修改, 重设密码, 删除, 永久删除 (what each does is the server's: lab2shot/accounts.py). */
 
 import { useState } from "react";
 import { Sheet } from "../ui/Sheet";
 import { adminApi, type UserChange, type UserRow, type UsersView } from "../api/admin";
-import { passwordProblem } from "./Auth";
+import { nameProblem, passwordProblem, tidyName, usernameProblem } from "../platform/accountRules";
 import { shown, usable, why, type Availability } from "../api/applies";
 import { Button } from "../ui/Button";
-import { DAY_S, ROLE_TIP, dateValue, endOf, nameProblem, now, tidyName, usernameProblem } from "./Users";
-import { Departments, Roles, Row, TAGS_TIP, Tags } from "./userFields";
+import { DAY_S, dateValue, endOf, now, roleTip } from "./Users";
+import { Roles, Row, TAGS_TIP, Tags } from "./userFields";
+import { StageSelect } from "../ui/StageSelect";
 
 export function NewUserDialog({ view, a, onClose, onMade }: { view: UsersView; a: Availability | null; onClose: () => void; onMade: (v: UsersView, made: { username: string; password: string }) => void }) {
   const [pick, setPick] = useState(view.default_role);
@@ -26,7 +27,7 @@ export function NewUserDialog({ view, a, onClose, onMade }: { view: UsersView; a
     password: password ? passwordProblem(password, again).replace("新密码", "密码") : "要填初始密码",
     again: password && again !== password ? "两次输入的密码不一样" : "",
     name: nameProblem(name),
-    dept: dept ? "" : `要选部门：${view.departments.join(" / ")}`,
+    dept: dept ? "" : "要选环节",
     expires: !expires ? "要选到期时间" : endOf(expires) <= now() ? "到期时间要在以后" : "",
   };
   const bad = Object.values(wrong).some(Boolean);
@@ -70,14 +71,14 @@ export function NewUserDialog({ view, a, onClose, onMade }: { view: UsersView; a
         <Row label="中文名" tip="他的中文名，2 到 6 个字；少数民族名字的几部分用 · 隔开。统计和队列里都显示它" why={show("name")}>
           <input className={`field${show("name") ? " bad" : ""}`} value={name} placeholder="如 张三" data-tip="2 到 6 个中文字" onChange={(e) => (setName(e.target.value), setRefused(""))} />
         </Row>
-        <Row label="部门" tip="使用统计按它分部门；部门表在「设置」→ 人员里改" why={show("dept")}>
-          <Departments list={view.departments} value={dept} onPick={(d) => (setDept(d), setRefused(""))} />
+        <Row label="环节" tip="他在制作里属于哪个环节，使用统计按它分环节；环节表在「账号设置」的「环节」里改" why={show("dept")}>
+          <StageSelect list={view.departments} value={dept} bad={!!show("dept")} onPick={(d) => (setDept(d), setRefused(""))} />
         </Row>
         <Row label="到期" tip="这天过完就登录不了，已经登录的也马上退出；以后可以延期" why={show("expires")}>
           <input className={`field${show("expires") ? " bad" : ""}`} type="date" value={expires} min={dateValue(now())} data-tip="默认 30 天以后" onChange={(e) => setExpires(e.target.value)} />
         </Row>
         {usable(a, "users.role") && (
-          <Row label="角色" tip={ROLE_TIP}>
+          <Row label="角色" tip={roleTip(view.roles)}>
             <Roles list={view.roles} value={pick} onPick={setPick} />
           </Row>
         )}
@@ -136,11 +137,11 @@ export function EditDialog({ view, u, onClose, onDone }: { view: UsersView; u: U
         <Row label="中文名" tip="统计和队列里显示的中文名，2 到 6 个字" why={wrong.name}>
           <input className={`field${wrong.name ? " bad" : ""}`} value={name} autoFocus data-tip="2 到 6 个中文字" onChange={(e) => (setName(e.target.value), setRefused(""))} />
         </Row>
-        <Row label="部门" tip="使用统计按它分部门；以前的任务也跟着算到新部门">
-          <Departments list={view.departments} value={dept} onPick={(d) => (setDept(d), setRefused(""))} />
+        <Row label="环节" tip="他在制作里属于哪个环节；使用统计按它分环节，以前的任务也跟着算到新环节">
+          <StageSelect list={view.departments} value={dept} onPick={(d) => (setDept(d), setRefused(""))} />
         </Row>
         {shown(u.applies, "account.role") && (
-          <Row label="角色" tip={ROLE_TIP}>
+          <Row label="角色" tip={roleTip(view.roles)}>
             {usable(u.applies, "account.role") ? <Roles list={view.roles} value={pick} onPick={setPick} /> : <span className="usr-static" data-tip={why(u.applies, "account.role")}>{u.role_label}</span>}
           </Row>
         )}
@@ -234,7 +235,7 @@ export function PurgeDialog({ u, onClose, onDone }: { u: UserRow; onClose: () =>
     <Sheet title={`永久删除 ${u.username}`} width={480} onClose={onClose}>
       <div className="usr-form">
         <p className="tpl-desc">
-          永久删除 {u.name}（{u.username}）：账号从列表里彻底消失，**用户名可以给新人重用**；他存在服务器上的节点图一起删掉。
+          永久删除 {u.name}（{u.username}）：账号从列表里彻底消失，用户名可以给新人重用；他存在服务器上的节点图一起删掉。
           任务记录、反馈和登录记录留着，统计里显示成「已删除的用户」。不能撤销。
         </p>
         {refused && <div className="usr-why">{refused}</div>}

@@ -48,7 +48,7 @@ export class MessageError extends Error {
  * page's, or the browser's refusal), never a bare text. */
 export const messageOf = (e: unknown): Message => (e instanceof MessageError ? e.said : msg("E-PAGE-ERROR", { detail: e instanceof Error ? e.message : String(e) }));
 
-/** An error caught from a request (api.ts ok(): its `code` when the server gave one) or from the page itself, as the
+/** An error caught from a request (platform/http.ts ApiError: its `code` when the server gave one) or from the page itself, as the
  * reason a message of the page's own names. */
 export const reasonOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 

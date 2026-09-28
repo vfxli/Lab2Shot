@@ -22,6 +22,7 @@ from typing import Literal
 
 import numpy as np
 
+from ...errors import Invalid
 from ...messages import Msg
 from ..applies import LENS_ANY
 from ..base import Info, NodeDef, P, Port, empty_packet
@@ -40,8 +41,6 @@ from ...data.windows import Window
 # 画面的镜头状态：原始拍摄、已去畸变、未声明
 RAW, UNDISTORTED, UNKNOWN = "raw", "undistorted", "unknown"
 OVERSCAN = {"auto": "auto", "none": "none", "5": 0.05, "10": 0.10, "20": 0.20}
-ROUNDTRIP_NOTICE_PX, ROUNDTRIP_WARNING_PX = 0.05, 0.5  # ST-map 反函数最差的往返误差，单位为像素
-MIN_COVERAGE = 0.5  # 有效值像素占比低于此值的反函数被拒绝（E-LENS-NOINVERSE）
 LEVEL_SAID = {"measured": "I-LENS-MEASURED", "solved": "I-LENS-SOLVED", "estimated": "P-LENS-ESTIMATED"}
 STMAP_PORTS = (("undistort_stmap", "undistort"), ("distort_stmap", "distort"))
 
@@ -117,8 +116,8 @@ class LensDistortion(Pasteable, LensSheet, NodeDef):
               Port("lens", LENS, "镜头内参", optional=True, applies=DISTORTED, expects=(LensModelMatches(),),
                    help="上游解出来的镜头内参（COLMAP、AnyCalib、GeoCalib 的「镜头内参」口）：模型 + 畸变系数 + 主点 + 像素比一份。"
                         "接了它，表上的畸变参数、主点、像素比就从它来（变灰）；它的模型要和这里选的「镜头模型」一样，不一样提交前拦下"))
-    # 视图下方的数值控件：显示所用镜头的三个参数，与 COLMAP 相同；显示的是参数当前的值（填写的或由连线提供的）。
-    # 这些值不作为透传输出端口：输出等于输入的端口无法表明是否经过隐式处理，需要这三个值时从上游获取。
+    # 视图下方的数值控件：显示所用镜头的四项参数（Focal Length、Filmback、镜头内参组、镜头模型）当前的值（填写的或由连线提供的）。
+    # 这些值不作为透传输出端口：输出等于输入的端口无法表明是否经过隐式处理，需要这些值时从上游获取。
     strip = {"focal_mm": "Focal Length", "filmback_mm": "Filmback", "lens_group": "镜头内参组", "lens_model": "镜头模型"}
     # 两张 ST-map 是本节点唯一的输出。ST-map 本身不是该镜头的画面（没有镜头状态），但它携带烘焙所用的镜头：
     # 「STMap」据此变形得到的画面因此同样携带该畸变，在该画面上解出的相机交付时可以带回畸变，无需使用者重新填写。
@@ -130,28 +129,21 @@ class LensDistortion(Pasteable, LensSheet, NodeDef):
 
     class Params(LensSheetParams):
         # 默认使用有畸变的模型：这样新建节点时系数和内参不会全部置灰（置灰参数的端口无法操作，「镜头模型」也无法接入），
-        # 且 AnyCalib 默认的「径向 k1」映射到核心表正是 OpenCV Brown，连接后两端一致。
+        # 且 AnyCalib 默认的「径向 k1」映射到核心表正是 SIMPLE_RADIAL，连接后两端一致。
         lens_model: str = P(
-            "SIMPLE_RADIAL", label="镜头模型", group="镜头", widget="choice", choices_from=("lens_group",), derived_from=("lens_group",),
-            help="镜头畸变按哪个模型算：先在「镜头内参组」选谁的叫法，这里列的就是那个组的模型。COLMAP 的那几档和「COLMAP 相机解算」上的一字不差，两边选一样的就对得上（接进来的「镜头内参」"
-                 "模型不一样会在提交前拦下）；3DE 的三个和 3DE 镜头表里的一模一样。默认 SIMPLE_RADIAL（COLMAP 的默认）；剧组给的是 ST-map 文件时用「STMap」")
+            "SIMPLE_RADIAL", label="镜头模型", group="镜头", widget="choice", choices_from=("lens_group",), derived_from=("lens_group",))
         # 系数行随默认模型一同给出：新建节点的面板中即显示 k，无需等待编辑器向服务器查询
         distortion: list[LensParamEntry] = P(
             [{"name": spec.name, "value": float(spec.default)} for spec in MODELS["SIMPLE_RADIAL"].params],
             label="畸变参数", widget="table", group="镜头", derived_from=("lens_group", "lens_model"), validate_default=True,
-            applies=All(DISTORTED, Not(Wired("lens"))),
-            help="选了模型后自动列出它的参数，照镜头表逐个填数；没填的按 0（= 这一项没有畸变）。"
-                 "接了「镜头内参」就从它来，这里变灰")
+            applies=All(DISTORTED, Not(Wired("lens"))))
         # 主点和像素比：接入「镜头内参」时同样取自该输入（同一份声明，增加一条置灰条件；nodes/lens.py sheet_field）
         center_x_mm: float = sheet_field("center_x_mm", "lens")
         center_y_mm: float = sheet_field("center_y_mm", "lens")
         pixel_aspect: float = sheet_field("pixel_aspect", "lens")
         overscan: Literal["auto", "none", "5", "10", "20"] = P(
             "auto", label="扩边", group="畸变",
-            option_labels={"auto": "自动", "none": "无", "5": "5%", "10": "10%", "20": "20%"},
-            help="去畸变 ST-map 的画布比原画面四边多出来的像素。自动：刚好装下原始画面每个像素拉直后的位置，"
-                 "每边再留 2 像素，最多大 25%；无：和原画面一样大，桶形畸变的边角会空。"
-                 "加畸变 ST-map 永远是原画面的大小，不受它影响")
+            option_labels={"auto": "自动", "none": "无", "5": "5%", "10": "10%", "20": "20%"})
 
     @classmethod
     def read_pasted(cls, text: str) -> dict:
@@ -160,14 +152,13 @@ class LensDistortion(Pasteable, LensSheet, NodeDef):
         生产中镜头由 3DE 反求得出，交付形式为 Nuke 脚本或一段 LD_3DE4 节点文本；手工抄写
         十几个数值既慢又容易出错，因此整个镜头一次填满，一步即可撤销。
 
-        本函数不解析 Nuke 语法：解析在 `formats/nuke/parse.py` 中完成（基准测试的「镜头真值」使用同一实现），
+        本函数不解析 Nuke 语法：解析在 `formats/nuke/parse.py` 中完成，
         此处只负责将解析结果映射到本表的参数。文本中有几个镜头即为几个，
         多于一个时不做猜测（E-NUKE-PASTEMANY）：一次粘贴一个镜头由使用者明确，猜错则会产生无提示的错误数值。
 
         画面宽高不从文本中推测：LD_3DE4 的参数中不含宽高，3DE 导出的脚本中即使有 Reformat 也可能是代理
         尺寸。留空时，接入「图像」则跟随画面，未接入则按镜头表手动填写（由 N-NUKE-PASTEDRASTER 提示）。
         """
-        from ...errors import Invalid
         from ...formats.nuke import parse
 
         found = parse.lens_nodes(text)
@@ -214,7 +205,7 @@ class LensDistortion(Pasteable, LensSheet, NodeDef):
     @classmethod
     def _sheet(cls, ctx) -> dict:
         """本次使用的镜头表：取节点上填写的值；接入「镜头内参」时系数、主点、像素比改用其值（模型不一致已在提交前拦下，
-        若在此处仍出现不一致，说明绕过了页面，同样拒绝，E-LENS-MODELMISMATCH）。"""
+        若在此处仍出现不一致，说明绕过了页面，同样拒绝，B-LENS-MODELMISMATCH）。"""
         params = dict(ctx.params)
         wired = cls._wired_lens(ctx)
         if wired is None:

@@ -20,7 +20,9 @@ export function UserQuota({ user, applies }: { user: number; applies: Availabili
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const may = shown(applies, "account.quota");
   useEffect(() => {
+    if (!may) return; // not this login's to see: not asked (the refusal would count against the session)
     let live = true;
     setView(null);
     adminApi.userQuota(user).then(
@@ -30,9 +32,9 @@ export function UserQuota({ user, applies }: { user: number; applies: Availabili
     return () => {
       live = false;
     };
-  }, [user]);
+  }, [user, may]);
 
-  if (!shown(applies, "account.quota")) return null;
+  if (!may) return null;
   if (problem) return <div className="usr-quota dim">{problem}</div>;
   if (!view) return <Loading what="这个账号占了多少" />;
 
@@ -59,7 +61,7 @@ export function UserQuota({ user, applies }: { user: number; applies: Availabili
   return (
     <div className="usr-quota">
       <div className="usr-quota-head">
-        <span className="usr-quota-what" data-tip="上传的素材、待取回的结果、算好的缓存和存在服务器上的模板加起来">
+        <span className="usr-quota-what" data-tip="这个账号所有任务的文件夹（上传的素材、输出）、还没有任务用到的上传和存在服务器上的模板加起来；缓存不算">
           磁盘占用
         </span>
         <span className="tnum" data-tip={`占了 ${sizeText(view.total)}，上限 ${view.limit ? gbText(view.limit / 2 ** 30) : "不限"}`}>

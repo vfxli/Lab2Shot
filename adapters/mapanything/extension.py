@@ -48,7 +48,7 @@ class MapAnything(Extension):
     )
     env = EnvSpec(
         python="3.12",
-        # Upstream pins no torch; 2.9.0 / CUDA 13.0 as ViPE on this machine (torchaudio,
+        # Upstream pins no torch; 2.9.0 / CUDA 13.0, the same pair as adapters/vipe (torchaudio,
         # which UniCeption declares, is last released for torch 2.11).
         torch=("torch==2.9.0", "torchvision==0.24.0"),
         torch_backend="cu130",

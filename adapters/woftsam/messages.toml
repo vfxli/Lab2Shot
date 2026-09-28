@@ -7,7 +7,7 @@
 "E-WOFTSAM-TOOSMALL" = "「四个角」围成的平面只有 {area:,} 平方像素，太小，平面跟踪跟不住：框出整个平面再算"
 "E-WOFTSAM-OUTSIDE" = "「四个角」要都在画面里（{width}×{height} 像素）：在平面整个看得见的一帧上重新框"
 "E-WOFTSAM-FRAMEOUT" = "「四个角」框在第 {frame} 帧，这段镜头只有第 {first}–{last} 帧：在镜头里的一帧上重新框"
-"E-WOFTSAM-ONEFRAME" = "平面跟踪至少要两帧：「图像」接的是一张图，接一段序列"
+"E-WOFTSAM-ONEFRAME" = "平面跟踪至少要两帧：「RGB」接的是一张图，接一段序列"
 
 # ---- 跟踪结果
 "W-WOFTSAM-UNSURE" = "WOFTSAM 在第 {frames} 帧（共 {count} 帧）没能确认平面（被挡住、出画或变化太大）：这些帧的四个角标成不可见，位置是估计的，交付前检查这些帧"

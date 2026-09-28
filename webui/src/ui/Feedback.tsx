@@ -9,7 +9,6 @@ import { useSession } from "../state/session";
 import { msg, reasonOf, say, type Message } from "../state/say";
 import { snapshotPage } from "./snapshot";
 import { readLocalJSON, writeLocal } from "../platform/util";
-import { IconFeedback } from "./icons";
 import { Sheet } from "./Sheet";
 import { sizeText, stampText } from "../platform/format";
 import { startPolling } from "../platform/poll";
@@ -28,7 +27,10 @@ export { editorContext } from "./feedbackContext";
 const MAX_TEXT = 10_000; // the server's limits (lab2shot/feedback.py)
 const MAX_IMAGES = 3;
 const MAX_IMAGE = 5 << 20;
-const DRAFT = "lab2shot.feedbackDraft";
+// the images the server takes (lab2shot/feedback.py _IMAGES, by their first bytes): anything else is refused here, before
+// the whole feedback is sent and refused there
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+const draftKey = (account: number | undefined) => `lab2shot.feedbackDraft.${account}`; // one per account: never shown to the next person on this browser
 
 interface Picture {
   name: string;
@@ -75,14 +77,16 @@ const POLL_MS = 60_000;
 
 /** The account's own feedback: read when a page opens, every minute while the tab is visible, and when it becomes
  * visible again. */
-export const useMine = create<{ items: MyFeedback[] | null; unread: number; load: () => Promise<void>; read: () => Promise<void> }>((set) => ({
+export const useMine = create<{ items: MyFeedback[] | null; unread: number; problem: string; load: () => Promise<void>; read: () => Promise<void> }>((set) => ({
   items: null,
   unread: 0,
+  problem: "", // why the list could not be read (the last try); the polling asks again later
   load: async () => {
     try {
-      set(await json<{ items: MyFeedback[]; unread: number }>("GET", "/api/feedback/mine"));
-    } catch {
-      /* server unavailable: requested again later */
+      set({ ...(await json<{ items: MyFeedback[]; unread: number }>("GET", "/api/feedback/mine")), problem: "" });
+    } catch (e) {
+      set({ problem: reasonOf(e) });
+      throw e; // the polling backs off (platform/poll.ts)
     }
   },
   read: async () => {
@@ -112,8 +116,7 @@ export function FeedbackButton({ context, tone }: { context?: () => Record<strin
         layout="fb-button"
         onClick={() => setOpen(true)}
       >
-        <IconFeedback size={13} />
-        <span className="bar-label">提交反馈</span>
+        提交反馈
         {unread > 0 && <span className="fb-unread" aria-label={`${unread} 条新回复`} />}
       </Button>
       {open && <FeedbackDialog context={context} onClose={() => setOpen(false)} />}
@@ -157,7 +160,8 @@ function FeedbackDialog({ context, onClose }: { context?: () => Record<string, u
 
 /** 写反馈: the text, the images and the accompanying diagnostics; the draft is kept until sent. */
 function WriteFeedback({ context, onClose, onMine }: { context?: () => Record<string, unknown>; onClose: () => void; onMine: () => void }) {
-  const draft = readLocalJSON<{ text?: string }>(DRAFT, {});
+  const draftAt = draftKey(useSession.getState().state?.user?.id);
+  const draft = readLocalJSON<{ text?: string }>(draftAt, {});
   const [text, setText] = useState(draft.text ?? "");
   // 不提供类别选择器；服务器端空字符串是合法的「未选择」，因此发送空值
   const category = "";
@@ -177,7 +181,7 @@ function WriteFeedback({ context, onClose, onMine }: { context?: () => Record<st
   pics.current = pictures;
 
   const addPicture = (blob: Blob, name: string, page = false) => {
-    if (!blob.type.startsWith("image/")) return setProblem(msg("B-FEEDBACK-NOTIMAGE", { name }));
+    if (!IMAGE_TYPES.includes(blob.type)) return setProblem(msg("B-FEEDBACK-NOTIMAGE", { name }));
     if (blob.size > MAX_IMAGE) return setProblem(msg("B-FEEDBACK-IMAGETOOBIG", { name, size: sizeText(blob.size), max: sizeText(MAX_IMAGE) }));
     if (pics.current.length >= MAX_IMAGES) return setProblem(msg("B-FEEDBACK-TOOMANY", { max: MAX_IMAGES }));
     setProblem(null);
@@ -209,14 +213,14 @@ function WriteFeedback({ context, onClose, onMine }: { context?: () => Record<st
   }, []);
 
   useEffect(() => {
-    if (!sent) writeLocal(DRAFT, JSON.stringify({ text }));
+    if (!sent) writeLocal(draftAt, JSON.stringify({ text }));
   }, [text, sent]);
 
   useEffect(() => {
     const paste = (e: ClipboardEvent) => {
       for (const item of Array.from(e.clipboardData?.items ?? [])) {
         const f = item.kind === "file" ? item.getAsFile() : null;
-        if (f && f.type.startsWith("image/")) {
+        if (f && f.type.startsWith("image/")) { // an image of another format is said so (addPicture)
           e.preventDefault();
           addPicture(f, f.name || "粘贴的图像.png");
         }
@@ -237,8 +241,8 @@ function WriteFeedback({ context, onClose, onMine }: { context?: () => Record<st
       const images = await Promise.all(pictures.map(async (p) => ({ name: p.name, data: await toBase64(p.blob) })));
       const done = await json<{ id: string; at: number }>("POST", "/api/feedback", { text, category, client: clientInfo(), diagnostics: { ...diag, sent: Date.now() }, images });
       setSent(done);
-      writeLocal(DRAFT, "{}");
-      void useMine.getState().load();
+      writeLocal(draftAt, "{}");
+      useMine.getState().load().catch(() => undefined); // a failed read is kept in the store (problem) and asked again
       say(msg("I-FEEDBACK-SENT", { id: done.id, first: text.trim().split("\n")[0].slice(0, 60) }));
     } catch (e) {
       setProblem(msg("E-FEEDBACK-SENDFAILED", { reason: reasonOf(e) }));
@@ -322,7 +326,7 @@ function WriteFeedback({ context, onClose, onMine }: { context?: () => Record<st
           <input
             ref={fileInput}
             type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
+            accept={IMAGE_TYPES.join(",")}
             multiple
             hidden
             onChange={(e) => {

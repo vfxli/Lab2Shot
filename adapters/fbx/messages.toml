@@ -19,6 +19,6 @@
 
 # ---- 安装时编译（build.py）
 "E-FBX-NOCOMPILER" = "找不到编译器 {name}：装上 C++ 编译器，或在 config/local.toml 的 [build] 段 cxx 里填编译器的名字，再执行 lab2shot ext install fbx"
-"E-FBX-SDKINCOMPLETE" = "FBX SDK 不完整：{path} 里要有 include/fbxsdk.h 和 lib/release/libfbxsdk.a。在帮助页的「手动下载」里重新安装 Autodesk FBX SDK"
+"E-FBX-SDKINCOMPLETE" = "FBX SDK 不完整：{path} 里要有 include/fbxsdk.h 和 lib/release/libfbxsdk.a。重新安装 Autodesk FBX SDK：后台管理页的「扩展包」里的「手动下载」，或 ./setup.sh 的「安装与环境 → 安装手动下载的文件」"
 "E-FBX-REBUILD" = "FBX 扩展包的代码更新了（要第 {needed} 版的 fbxio），装好的环境还是按旧代码编译的（第 {built} 版）：管理员重新安装（lab2shot ext install fbx），它会按新代码重新编译"
 "E-FBX-NOPYBIND" = "没有 pybind11 的头文件：{path}/include 里找不到。重新执行 lab2shot ext install fbx（它会重新取 pybind11）"

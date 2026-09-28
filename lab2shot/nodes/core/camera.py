@@ -15,7 +15,7 @@ from ..kit.align import align_paths
 from ..kit.deshake import CUTOFF_DEFAULT, CUTOFF_MAX, CUTOFF_MIN
 from ...data.units import DEFAULT_HEIGHT, DEFAULT_WIDTH, FILMBACK_MM, PERCENT
 from ...availability import Not
-from ..applies import Param, Wired
+from ..applies import Wired
 
 
 class CreateCamera(NodeDef):
@@ -23,7 +23,7 @@ class CreateCamera(NodeDef):
     lens = "given"  # the lens comes from parameter values; a wired image supplies only its size
     on_node = ("focal_mm", "filmback_mm")
     category = "camera_tools"
-    # 不设单独的「相机属性」输入口：Focal Length 与 Filmback 为可接线的数值参数，相机为输出
+    # Focal Length 与 Filmback 为可接线的数值参数，相机为输出
     inputs = (Port("image", "image.3", "RGB", optional=True),)
     outputs = (Port("camera", "scene.camera", "相机"),)
     handles = (Places(translate="translate", rotate="rotate"),)  # viewport gizmo for the camera placement
@@ -31,21 +31,14 @@ class CreateCamera(NodeDef):
     wired_ports = ("focal_mm", "filmback_mm", "center_x_mm", "center_y_mm")
 
     class Params(NodeParams):
-        focal_mm: float | None = focal_param("相机的 Focal Length，毫米。留空 = 接进来的那个；填了（或者接一个浮点）就用它")
-        filmback_mm: float | None = filmback_param("相机传感器的水平宽度，毫米：Focal Length（px）= Focal Length ÷ Filmback × 画面宽度。"
-                                                   "留空 = 接进来的那个，没有就按全画幅 36")
-        center_x_mm: float = P(0.0, label="主点 X", unit="mm", group="镜头",
-                               help="镜头光轴打在底片上的位置，离画面中心的水平偏移。实拍素材基本是 0，"
-                                    "裁切过的素材或移轴镜头才有值；接「AnyCalib 镜头标定」的「主点 X」")
-        center_y_mm: float = P(0.0, label="主点 Y", unit="mm", group="镜头", help="同上，垂直方向，向上为正")
-        translate: tuple[float, float, float] = P((0.0, 0.0, 0.0), label="位置", unit="cm", widget="vec3", group="相机",
-                                                  help="相机在场景里的位置，厘米，Y 向上；也可以在 3D 视图里拖手柄")
-        rotate: tuple[float, float, float] = P((0.0, 0.0, 0.0), label="旋转", unit="°", widget="vec3", group="相机",
-                                               help="相机的旋转，度，按 X、Y、Z 顺序（和 Houdini 默认一致）；全 0 时朝 -Z 看")
-        width: int = P(DEFAULT_WIDTH, label="画面宽度", unit="px", gt=0, group="画面", applies=Not(Wired("image")),
-                       help="没接画面时相机的分辨率；接了画面用画面的")
-        height: int = P(DEFAULT_HEIGHT, label="画面高度", unit="px", gt=0, group="画面", applies=Not(Wired("image")),
-                        help="没接画面时相机的分辨率；接了画面用画面的")
+        focal_mm: float | None = focal_param()
+        filmback_mm: float | None = filmback_param()
+        center_x_mm: float = P(0.0, label="主点 X", unit="mm", group="镜头")
+        center_y_mm: float = P(0.0, label="主点 Y", unit="mm", group="镜头")
+        translate: tuple[float, float, float] = P((0.0, 0.0, 0.0), label="位置", unit="cm", widget="vec3", group="相机")
+        rotate: tuple[float, float, float] = P((0.0, 0.0, 0.0), label="旋转", unit="°", widget="vec3", group="相机")
+        width: int = P(DEFAULT_WIDTH, label="画面宽度", unit="px", gt=0, group="画面", applies=Not(Wired("image")))
+        height: int = P(DEFAULT_HEIGHT, label="画面高度", unit="px", gt=0, group="画面", applies=Not(Wired("image")))
 
     @classmethod
     def info(cls, params, inputs):
@@ -84,17 +77,11 @@ class DeshakeCamera(NodeDef):
     outputs = (Port("camera", "scene.camera", "相机"), Port("curves", "curves", "前后对比"))
 
     class Params(NodeParams):
-        strength: float = P(CUTOFF_DEFAULT, label="强度", unit="帧", group="去抖", widget="slider", ge=CUTOFF_MIN, le=CUTOFF_MAX,
-                            help="周期短于这么多帧的抖动去掉，更慢的运动原样留着。6 去掉逐帧抖动、留住手持的晃动；"
-                                 "调大（12–20）连手持的晃动一起去掉，像上了稳定器；2 几乎不动它")
-        keep_sudden: bool = P(True, label="保留急停", group="去抖",
-                              help="急停、甩镜这种真实的加速度突变留着不磨。关掉就一视同仁地平滑，急停会被磨圆，和画面对不上")
-        rotation: bool = P(True, label="平滑转动", group="去抖",
-                           help="转动也一起去抖。只想去掉位置抖动、保留原始转动时关掉")
+        strength: float = P(CUTOFF_DEFAULT, label="强度", unit="帧", group="去抖", widget="slider", ge=CUTOFF_MIN, le=CUTOFF_MAX)
+        keep_sudden: bool = P(True, label="保留急停", group="去抖")
+        rotation: bool = P(True, label="平滑转动", group="去抖")
         focal: Literal["keep", "smooth"] = P(
             "keep", label="Focal Length", group="去抖", option_labels={"keep": "原样", "smooth": "一起去抖"},
-            help="原样：不动 Focal Length；一起去抖：变焦镜头的 Focal Length 也按同样强度去抖。定焦镜头解算出的 Focal Length 跳动用「锁定 Focal Length」，"
-                 "那里会连位置一起重算，画面对位才不会错",
         )
 
     @classmethod
@@ -174,11 +161,8 @@ class LockFocal(NodeDef):
     class Params(NodeParams):
         # 留空时锁定到解算 Focal Length 的整段中值（nodes/lens.py lens()：未填写时取输入相机的值，即中位数）；
         # 填写或接线时锁定到该值。与其他读取镜头的节点规则一致，不另设「来源」选项
-        focal_mm: float | None = focal_param("锁定用的 Focal Length，毫米。留空 = 解算出来的 Focal Length 的整段中值；知道真实镜头就填真的，比中值准。"
-                                             "也可以接线：「AnyCalib 镜头标定」的「Focal Length」、「拆分相机」",
-                                             overrides=("camera",))
-        filmback_mm: float | None = filmback_param("相机传感器的水平宽度，毫米：Focal Length（px）= Focal Length ÷ Filmback × 画面宽度。留空用接进来的相机的",
-                                                   overrides=("camera",))
+        focal_mm: float | None = focal_param(overrides=("camera",))
+        filmback_mm: float | None = filmback_param(overrides=("camera",))
 
     @classmethod
     def cook(cls, ctx):
@@ -217,7 +201,7 @@ class LockFocal(NodeDef):
         return {"camera": out, "curves": before_after(ctx.outputs["curves"], frames, pairs)}
 
 
-FEW_ANCHORS = 30  # the threshold used by data/lock_focal.py, reported in the message
+FEW_ANCHORS = 30  # the threshold of nodes/kit/lock_focal.py FEW_ANCHORS, reported in the message
 REPROJ_MEDIAN_PX, REPROJ_MAX_PX = 1.0, 4.0  # above either, repositioning the camera could not compensate for the lock
 
 
@@ -235,8 +219,6 @@ class CompareCameras(NodeDef):
     class Params(NodeParams):
         align: Literal["similarity", "rigid", "none"] = P(
             "similarity", label="对齐", group="对比", option_labels=ALIGN_LABELS,
-            help="比例+旋转+位置：两套解算的世界和尺度各不相同时（大多数情况）；旋转+位置：两边都是真实尺度，只差坐标系；"
-                 "不对齐：两台相机本来就在同一个世界里（比如同一台相机去抖前后）",
         )
 
     @classmethod

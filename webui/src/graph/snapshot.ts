@@ -25,7 +25,7 @@ export interface Snapshot extends GraphState {
 const IDLE: NodeCookStatus = { status: "idle", note: "" };
 
 function toNodeData(n: CookNode, onNode: string[] | undefined, status: NodeCookStatus | undefined): NodeData {
-  return { typeId: n.typeId, label: n.label, params: n.params, promoted: n.promoted, picked: n.picked, saveTo: n.saveTo, stored: n.stored, onNode, ...(status ?? IDLE) };
+  return { typeId: n.typeId, label: n.label, params: n.params, promoted: n.promoted, picked: n.picked, stored: n.stored, onNode, ...(status ?? IDLE) };
 }
 
 /** The imperative equivalent of useGraphSnapshot(), for event handlers and other stores' actions. */

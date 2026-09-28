@@ -16,11 +16,6 @@
    "target": "read.path"
   },
   {
-   "name": "output",
-   "label": "保存到",
-   "target": "deliver.path"
-  },
-  {
    "name": "fit_model",
    "label": "拟合模型",
    "target": "lens.fit_model"
@@ -147,16 +142,10 @@
    "id": "deliver",
    "type": "core.output",
    "label": "输出",
-   "params": {
-    "mode": "tar",
-    "path": ""
-   },
+   "params": {},
    "ui": {
     "x": 1620,
-    "y": 340,
-    "on_node": [
-     "mode"
-    ]
+    "y": 340
    }
   },
   {

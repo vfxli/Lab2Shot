@@ -10,9 +10,10 @@ from lab2shot.sdk import (Official, measured_param, Job, NodeParams, P, Port, pe
 
 class Segment(Segmentation):
     id = "sam3.segment"
-    # 上游两条路（worker.py）：提示词走视频预测器 start_session(resource_path=画面) + add_prompt(text_str)
-    # -> {"out_obj_ids", "out_binary_masks"}；人物框走它的跟踪器（SAM 2 那一套）：init_state(images) 后每个人
-    # add_new_points_or_box(box=) 一个框提示，丢了的人在下一段用上一段的遮罩 add_new_mask 接上
+    # 上游两条路（worker.py）：提示词走视频预测器 start_session(resource_path=画面)（worker 直接调它内部的
+    # model.init_state）+ add_prompt(text_str) -> {"out_obj_ids", "out_binary_masks"}；人物框走它的跟踪器（SAM 2
+    # 那一套）：init_state 后每个人 add_new_points_or_box(box=) 一个框提示，段尾还在的人在下一段用上一段的遮罩
+    # add_new_mask 接上，丢了的人从他的下一个框重新接
     official = Official(
         cite=("third_party/sam3/repo/sam3/model/sam3_base_predictor.py:119-245",
               "third_party/sam3/repo/sam3/model/sam3_tracking_predictor.py:57-60",
@@ -23,10 +24,8 @@ class Segment(Segmentation):
         note="文字提示（text_str）是上游预测器的提示，我们做成了节点参数「提示词」而不是输入口；"
              "人物框不是预测器的 bounding_boxes 提示，而是跟踪器的框提示（add_new_points_or_box），每人一个、按人分会话跑。",
     )
-    # Benchmark figures shown as the inputs' tooltips.
-    measured = {
-        "boxes": "实测（CRGNN 实拍、VideoMatte 绿幕共 8 个人像镜头）：用 ViTDet 人物框代替提示词，人物遮罩 J&F 整体没区别（0.967 → 0.970），但各镜头不一：2 个更好、1 个框错了人明显更差",
-    }
+    # 公开基准上的实测（接不接、接什么的差别）：
+    #   boxes：实测（CRGNN 实拍、VideoMatte 绿幕共 8 个人像镜头）：用 ViTDet 人物框代替提示词，人物遮罩 J&F 整体没区别（0.967 → 0.970），但各镜头不一：2 个更好、1 个框错了人明显更差
     on_node = ("prompt", "threshold")
     # 按提示词或人物框整段跟踪；它分的是「哪块是这个物体」，不是精细抠像，边是 0 / 1 的选区；
     # 长镜头按物体数自动分段（8 个物体时一段约 800 帧），显存不随镜头变长
@@ -39,11 +38,10 @@ class Segment(Segmentation):
     licence = Licence(note="SAM License：可以商用；禁止军事、武器等用途；发表时注明使用了 SAM 3；再分发要附许可证原文。")
 
     class Params(NodeParams):
-        prompt: str = P("person", label="提示词", help="要分割什么，用英文短语描述，如 person、car、red umbrella、the dog on the left。接了人物框时按框跟踪，这里不起作用", group="分割", lines=4, applies=Not(Wired("boxes")))
+        prompt: str = P("person", label="提示词", group="分割", lines=4, applies=Not(Wired("boxes")))
         max_objects: Literal[1, 2, 4, 8] = measured_param(
-            "最多物体数", {1: Measured("最快", below=2), 2: Measured("接人物框 2 个人：300 帧 65 秒", gb=5.1), 4: Measured("介于 2 个和 8 个之间", below=8), 8: Measured("提示词找到 7 个人：300 帧 80 秒", gb=6.1)}, default=8, group="分割",
-            help="最多输出几个物体，按出现的帧数多少挑选。只要主要角色就调小（快）；长镜头按物体数自动分段，显存不随镜头变长")
-        threshold: float = P(0.5, label="检测阈值", help="找物体时的把握程度门槛（0–1）。有物体没被找到就调低（如 0.35），把不相关的东西也选进来就调高", ge=0.05, le=0.95, group="分割", widget="slider", applies=Not(Wired("boxes")))
+            "最多物体数", {1: Measured(below=2), 2: Measured(gb=5.1), 4: Measured(below=8), 8: Measured(gb=6.1)}, default=8, group="分割")
+        threshold: float = P(0.5, label="检测阈值", ge=0.05, le=0.95, group="分割", widget="slider", applies=Not(Wired("boxes")))
 
     @classmethod
     def prepare(cls, ctx) -> Job:
@@ -69,7 +67,7 @@ class Segment(Segmentation):
 
     @classmethod
     def label_map(cls, ctx, image, objects):
-        """raw/frame_<n>.npz: masks uint8 [K,H,W] 0/255，每帧同一个物体顺序（`adapters/sam3/worker.py:466`）。
+        """raw/frame_<n>.npz: masks uint8 [K,H,W] 0/255，每帧同一个物体顺序（`adapters/sam3/worker.py` main，写出遮罩那一段）。
         第 k 个物体的编号是 k + 1（0 是背景）；重叠时后面的物体压在前面的上面。"""
         import numpy as np
 

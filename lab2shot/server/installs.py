@@ -48,12 +48,14 @@ INSTALL = Kind("install", title=lambda name: Msg("I-INSTALL-TASK", name=_title(n
 
 
 def busy(name: str) -> int:
-    """Return the number of running jobs that compute a node of this extension."""
+    """Return the number of jobs that use this extension: running jobs that compute a node of it, and any job one of
+    whose nodes of it holds a place (granted a moment before its job is marked running)."""
     from ..farm import farm
     from ..nodes import node_types
 
     types = node_types()
-    return sum(1 for job in farm().running() if any(w.type in types and types[w.type].runtime == name for w in job.works))
+    jobs = {job.id for job in farm().running() if any(w.type in types and types[w.type].runtime == name for w in job.works)}
+    return len(jobs | {t.task for t in farm().pools.now() if t.granted and t.need.runtime == name})
 
 
 def _switched(name: str) -> None:
@@ -72,12 +74,15 @@ def _changed() -> None:
 def live() -> Live:
     from ..engine.resident import pool
 
-    return Live(busy=busy, switched=_switched, free_ram=lambda gb: pool().free_ram(gb))
+    from ..farm import farm
+
+    return Live(busy=busy, holding=lambda name: farm().pools.withholding(name), switched=_switched,
+                free_ram=lambda gb: pool().free_ram(gb))
 
 
 def _work(name: str, force: bool):
     """Return the task work that installs `name`, resuming from the last completed step and reporting to the task
-    (events.TaskSink)."""
+    (installer/events.py TaskSink)."""
 
     def work(task: Task) -> Msg:
         ext = get_extension(name)

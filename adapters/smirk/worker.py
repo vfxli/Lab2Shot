@@ -17,6 +17,7 @@ raw/person_01.npz (one face; every input frame)；结果在相机空间，不写
 
     frames          int  [F]
     body_model      str  "flame"
+    solved          int  [S]        the frames where `found` is true
     found           bool [F]        MediaPipe found the face (crop auto); other frames reuse the nearest crop
     shape           f32  [300]      identity, locked for the shot (median of the frames)
     shape_per_frame f32  [F,300]    SMIRK's own per-frame estimates

@@ -25,17 +25,17 @@ SegAnyMo 做的是运动物体分割。以往的做法主要靠光流给运动�
 
 **我们怎么接的**
 
-- 「图像」口 = 上游的那段素材。上游那三步在一个进程里连着算，帧留在内存里，不写中间文件夹（`adapters/seganymo/worker.py:7-9`）。
+- 「RGB」口 = 上游的那段素材。上游那三步在一个进程里连着算，帧留在内存里，不写中间文件夹（`adapters/seganymo/worker.py:7-9`）。
   **深度图、轨迹、DINO 特征都是上游自己从同一份画面算出来的**，所以节点上除画面以外没有别的输入口。
 - 「运动物体遮罩」= 上游 SAM 2 加密后合成的一张；「物体分割」= `out_obj_ids` 那一套编号（口的标签就叫「物体分割」：「运动」是这个**节点**的事，不是这个**口**的事）。
 - 「处理分辨率」= 上游 `--e` 的长边，「分析帧数」= 上游 `--e` 保多少帧做运动分析（遮罩仍然补到每一帧），「查询间隔」= 隔几帧取一个查询帧。
 - **不一样的一点**：上游第一步用 Depth Anything V2 Large（CC BY-NC），我们换成 Small。
   实测在 DAVIS / FBMS / SegTrackV2 每个序列上遮罩不变——它的分类器几乎不用那张深度图
-  （`traj_oa_depth.gather_point` 按已经归一化到 -1..1 的轨迹去取值，取到的位置是错的，`adapters/seganymo/worker.py:14-21`）。
+  （`traj_oa_depth.gather_point` 按已经归一化到 -1..1 的轨迹去取值，取到的位置是错的，`adapters/seganymo/worker.py:14-20`）。
 
 **出处**：简介抽自论文摘要（arXiv 2503.22268：`We propose a novel approach for moving object segmentation that combines long-range trajectory motion cues with DINO-based semantic features and leverages SAM2 for pixel-level mask densification through an iterative prompting strategy.`
 和紧接着那句 Spatio-Temporal Trajectory Attention / Motion-Semantic Decoupled Embedding）；
-输入输出依据 `third_party/seganymo/repo/README.md:15-18、:84-88`、`repo/sam2/run_sam2.py:595-700` 和 `adapters/seganymo/nodes.py:33-37`（口由分割家族 `lab2shot/nodes/families/segmentation.py` 给）、`adapters/seganymo/worker.py:7-33`。
+输入输出依据 `third_party/seganymo/repo/README.md:15-18、:84-88`、`repo/sam2/run_sam2.py:595-700` 和 `adapters/seganymo/nodes.py:24-26`（口由分割家族 `lab2shot/nodes/families/segmentation.py` 给）、`adapters/seganymo/worker.py:7-33`。
 
 ## 在 Lab2Shot 里怎么用
 
@@ -69,7 +69,7 @@ SegAnyMo 做的是运动物体分割。以往的做法主要靠光流给运动�
 - 运行 `uv run lab2shot ext install seganymo`，会下载：
   - 运动分类模型 moseg.pth（14 MB，Hugging Face Changearthmore/moseg）；
   - SAM 2 Hiera-L（0.9 GB）、BootsTAPIR（0.2 GB）、DINOv2 ViT-B/14（0.3 GB）、Depth Anything V2 Small（0.1 GB）；
-  - 一个独立的 Python 环境（PyTorch 2.4，约 5 GB），不用编译任何东西。
+  - 一个独立的 Python 环境（PyTorch 2.9 + CUDA 13），安装时现场编译 SAM 2 的 CUDA 核（填洞用），需要几分钟。
 
 ## 许可证说明
 

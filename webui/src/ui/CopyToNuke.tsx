@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { api, type NodeTypeDef } from "../api";
 import { useResults } from "../state/results";
-import { why as whyOf } from "../api/applies";
-import { render } from "../messages/format";
+import { greyed } from "../api/applies";
 import { fromServer, msg, reasonOf, say } from "../state/say";
 import { Button } from "./Button";
 
@@ -12,14 +11,13 @@ import { Button } from "./Button";
  * the application's name and the file come from the result itself.
  *
  * It is shown only for a result whose meta declares a clipboard, so a node that writes nothing pasteable never shows a
- * button that does nothing. It appears in 数据信息, on the view's toolbar and in the delivery list: one component in
- * three places. */
-export function CopyToNuke({ fp, app, what, size = "sm", off = "" }: {
+ * button that does nothing. It appears in 数据信息 and on the node: one component in both places. */
+export function CopyToNuke({ fp, app, what, size = "sm", off = false }: {
   fp: string;
   app: string; // the application that reads it, from the result's meta ("nuke")
   what: string; // what is being copied, for the notice ("Camera3", the node's name)
   size?: "sm" | "xs" | "xxs";
-  off?: string; // why it cannot be pressed now ("": it can). The button stays in place, greyed, with the reason
+  off?: boolean; // it cannot be pressed now: the button stays in place, greyed
 }) {
   const [busy, setBusy] = useState(false);
   const copy = async () => {
@@ -42,7 +40,7 @@ export function CopyToNuke({ fp, app, what, size = "sm", off = "" }: {
       size={size}
       tone="ghost"
       disabled={busy || !!off}
-      tip={off || `把这个结果写的节点文字放进剪贴板，到 ${APPS[app] ?? app} 里粘贴（Ctrl+V）：单位、坐标、Focal Length 都已经换算好`}
+      tip={`把这个结果写的节点文字放进剪贴板，到 ${APPS[app] ?? app} 里粘贴（Ctrl+V）：单位、坐标、Focal Length 都已经换算好`}
       onClick={() => void copy()}
     >
       复制到 {APPS[app] ?? app}
@@ -64,8 +62,8 @@ export function NodeCopyToNuke({ node, def, what }: { node: string; def: NodeTyp
   const answer = useResults((s) => s.results[node]?.applies);
   if (!def.clipboard) return null;
   // 按钮不得时隐时现，只区分可用与不可用。两种不可用的情况：当前设置下节点不写出 Nuke 数据（服务器按
-  // Pasteable.clipboard_when 计算，主题 id 为 "clipboard"），或尚未计算出结果。位置不变，原因写在按钮自身的悬停提示中
-  const off = whyOf(answer, "clipboard") || (fp ? "" : render("I-CLIPBOARD-NOTCOOKED"));
+  // Pasteable.clipboard_when 计算，主题 id 为 "clipboard"），或尚未计算出结果。位置不变，置灰
+  const off = greyed(answer, "clipboard") || !fp;
   // xxs：节点底行为 16 px 高的一行，容纳不下 20 px 的 xs
   return <CopyToNuke fp={fp ?? ""} app={def.clipboard} what={what} size="xxs" off={off} />;
 }

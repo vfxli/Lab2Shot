@@ -1,13 +1,12 @@
 /** 页面唯一的缓存：二维舞台、三维舞台、播放器、预取所持有的每一张图、每一条通道、
- * 每一份包说明都存放于此，按字节计量。其他位置不得另建缓存
- * （测试 `webui/tests/frames.test.ts` 统计实现数量，须为 1）。
+ * 每一份包说明都存放于此，按字节计量。其他位置不得另建缓存。
  *
  * 分为两层，各有预算（见下方 `PIXELS_BUDGET` / `BYTES_BUDGET`）：
  * 压缩字节层可容纳整段数据（成本低），已解码位图层只保留播放头附近的少量帧。
  *
  * 同一层内，优先释放重新获取成本最低的条目，`Keep` 即此顺序：
  *
- *   fetched  预先取回、当前未被绘制的图（解码层）
+ *   fetched  按地址取回、当前未被绘制的数据（解码层）
  *   near     当前绘制帧附近的帧（解码层）
  *   viewing  当前绘制的帧（解码层）
  *   small    一帧的压缩字节、一份包说明（字节层，与上面三档不在同一层，互不挤占）
@@ -19,14 +18,14 @@
  * 只存储实际获取到的数据：获取失败的帧不存储（下次需要时重新获取）。 */
 
 /** 条目的保留价值，由低到高：
- *   `fetched` 按地址取回的图（遮罩预览图、灯光贴图）
+ *   `fetched` 按地址取回、当前未被绘制的数据（三维数据块的字节、解码后的场景）
  *   `near`    窗口内但非当前绘制的帧
  *   `small`   体积小且整段保留的数据（包说明、一帧的压缩字节、一条通道的压缩数据），体积很小，丢弃最不划算
  *   `viewing` 当前绘制的帧
  *
  * 缓存层只存储数据（键为包指纹 + 帧 + 通道），不存储任何显示方式的结果：显示方式每帧在 GPU 上实时计算
  * （view/look.ts）。 */
-export type Keep = "fetched" | "small" | "near" | "viewing";
+type Keep = "fetched" | "small" | "near" | "viewing";
 
 const ORDER: Record<Keep, number> = { fetched: 0, near: 1, small: 2, viewing: 3 };
 
@@ -58,7 +57,7 @@ export const PIXELS_BUDGET = clamp((deviceGB() / 8) * (1 << 30), 128 << 20, 1 <<
 
 /** 压缩字节的预算上限：本机内存的十六分之一，范围 64 MB 至 512 MB。
  * 一帧代理为数十 KB，因此 512 MB 可容纳多条通道的整段数据；其成本低，故预算较大。 */
-export const BYTES_BUDGET = clamp((deviceGB() / 16) * (1 << 30), 64 << 20, 512 << 20);
+const BYTES_BUDGET = clamp((deviceGB() / 16) * (1 << 30), 64 << 20, 512 << 20);
 
 /** 条目所属的层：`small`（包说明、一帧的压缩字节）属于字节层，其余均属于解码层。 */
 const layerOf = (keep: Keep): "bytes" | "pixels" => (keep === "small" ? "bytes" : "pixels");
@@ -80,8 +79,8 @@ class ByteCache {
   private listeners = new Set<() => void>();
   private pinned: () => ReadonlySet<string> = () => new Set();
 
-  /** 登记层：小型登记条目（原件登记 `orig:`、浏览器计算结果 `computed:`、本机代理就绪 `proxy:`）不计入预算、不被淘汰。
-   * 它们不能与帧字节同层：否则会被 LRU 淘汰，淘汰后视图将静默退回服务器代理，浏览器计算的结果也不再登记。
+  /** 登记层：小型登记条目（原件登记 `orig:`、本机代理就绪 `proxy:`）不计入预算、不被淘汰。
+   * 它们不能与帧字节同层：否则会被 LRU 淘汰，淘汰后视图将静默退回服务器代理。
    * 此类条目总共数百个小对象，内存占用可忽略。 */
   private registry = new Map<string, unknown>();
 
@@ -149,9 +148,9 @@ class ByteCache {
     for (const key of [...this.held.keys()]) if (key.startsWith(prefix)) this.forget(key);
   }
 
-  /** The keys held under this prefix. */
-  keysUnder(prefix: string): string[] {
-    return [...this.held.keys()].filter((k) => k.startsWith(prefix));
+  /** The keys held under any of these prefixes, in one pass over what is held. */
+  keysUnder(...prefixes: string[]): string[] {
+    return [...this.held.keys()].filter((k) => prefixes.some((p) => k.startsWith(p)));
   }
 
   /** Notifies listeners whenever the held entries change (a frame arrived, an entry was released): the timeline's
@@ -174,18 +173,6 @@ class ByteCache {
     for (const e of [...this.held.values()]) {
       if (layerOf(e.keep) === "pixels" && !keepAll.has(e.key)) this.forget(e.key);
     }
-  }
-
-  /** The entries currently held, for the tests and the page's diagnostics. */
-  stats(): { bytes: number; pixels: number; budget: number; pixelsBudget: number; count: number; byKeep: Record<Keep, number> } {
-    const byKeep = { fetched: 0, small: 0, near: 0, viewing: 0 } as Record<Keep, number>;
-    for (const e of this.held.values()) byKeep[e.keep] += e.bytes;
-    return { bytes: this.bytes.bytes, pixels: this.bytes.pixels, budget: BYTES_BUDGET, pixelsBudget: PIXELS_BUDGET, count: this.held.size, byKeep };
-  }
-
-  /** Releases everything (used when a test restarts). */
-  forgetEverything(): void {
-    for (const key of [...this.held.keys()]) this.forget(key);
   }
 
   private changed(): void {

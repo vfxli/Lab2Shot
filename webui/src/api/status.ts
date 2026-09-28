@@ -5,13 +5,13 @@ import type { Availability, MessageJson } from "./applies";
 import type { Level } from "../messages/format";
 import type { Places } from "../model/places";
 import type { NodePorts, ResolvedCost, ResolvedLicence } from "./catalog";
-import type { JobState, Lane } from "./queue";
+import type { JobState } from "./queue";
 import type { Phase } from "./progress";
 
 /** A standing mark (src/ui/nodeMarks.ts): the short word of a notice a node's declaration always gives it, derived on
  * the server (nodes/applies.py standing_marks). Its level decides its colour: red only for P. */
 export interface StandingMark extends ServerMessage {
-  mark: string; // N-LENS-NEEDSUNDISTORTED: one line on the node's bottom row; `text` is its tooltip
+  mark: string; // the message's short words, one line on the node's bottom row; `text` is its tooltip
 }
 
 /** A message the server says about a node (lab2shot/messages): a usage check that failed (engine/lint.py: the node
@@ -42,13 +42,13 @@ export interface NodeStatus {
   /** 每个已落盘端口的生成号（包提交的时刻）：页面的缓存键包含该值（transfer/gens.ts、transfer/ident.ts） */
   gens?: Record<string, string>;
   // 该节点被需要的输出口：有连线引出的口；没有任何连线时为全部输出口。
-  // 由服务器集中计算（`lab2shot/engine/evaluation.py needed_outputs`），网页不再重复推算。
+  // 由服务器集中计算（`lab2shot/engine/evaluation.py needed_outputs`），网页不重复推算。
   // 用于决定本次计算需要上传哪些通道的字节（根据连线使用的通道启用上传）。
   needed?: string[];
   // 本次需要上传的通道（仅读取文件的节点具有；`lab2shot/nodes/core/input.py ReadSequence.upload_channels`）：
   // `take` 是文件中的通道名（worker 据此解码），`write` 是子集 EXR 中的名称（服务器据此写入）。
   // 缺少该项表示上传整个文件（PNG / JPG 不区分通道，需要全部通道）。端口与通道名的对应关系仅在服务器定义，
-  // 网页不再重复实现（`transfer/planes.ts` 依此执行）
+  // 网页不重复实现（`transfer/planes.ts` 依此执行）
   channels?: { take: string[]; write: string[] };
   applies: Availability; // its parameters that declare a condition: available, greyed with why (I-APPLIES-*), pending a cook (read only through applies.ts)
   cost?: ResolvedCost; // what it costs with its parameters
@@ -65,14 +65,10 @@ export interface NodeStatus {
   // its own: GET /api/status/{graph}/node/{node}/items
   item?: { path: string[]; names: string[] };
   summary?: ItemSummary;
-  // 浏览器能否自行计算该节点，以及需要执行算法目录中的哪些条目（lab2shot/ops/ops.toml 的 id 以及由该节点当前
-  // 参数确定的参数；由 NodeDef.browser_ops 集中计算）。缺少该项表示无法计算，使用服务器的结果。
-  // 页面不解释任何参数：只按 {op, args} 执行（webui/src/view/evaluate.ts）
-  ops?: { op: string; args: Record<string, unknown> }[];
   ports: NodePorts; // its ports in this graph (what its 3D outputs carry: ports.outputs[].kinds)
   handles: number[]; // its viewer handles that apply now, by index into its type's handles
   places?: Places | null; // its placement (its type's, repeated per node)
-  policy: { click: CookCase; shown: CookCase }; // what a click on 计算, and showing it, cook
+  policy: CookCase; // what a click on 计算 cooks
   error?: ServerMessage; // why it can't be planned yet (no file chosen ...), or a wired value it can't take
 }
 
@@ -93,7 +89,7 @@ export interface ItemsPage {
 
 /** How all the items of a node inside a block stand (engine/scopes.py summary): how many instances, and per state
  * (only the states that have any) how many. */
-export interface ItemSummary {
+interface ItemSummary {
   total: number;
   cached?: number;
   todo?: number;
@@ -120,7 +116,7 @@ export interface ScopeList {
 }
 
 export interface Scope {
-  kind: string; // "each" in this version (a subnet is meant to be the next)
+  kind: string; // "each": the only kind of block
   name: string; // the block name that pairs its begin and ends
   begin: string;
   ends: string[];
@@ -129,20 +125,12 @@ export interface Scope {
   lists: ScopeList[];
 }
 
-/** What a cook is (engine/policy.py CookKind): where it runs, whether it delivers, whether showing a node may start it. */
-export interface CookKind {
-  lane: Lane;
-  delivers: boolean;
-  queues: boolean;
-  by_itself: boolean;
-  case: "interactive" | "queue" | "deliver";
-}
-
-/** Cooking some targets (engine/evaluation.py _case): what they are, the nodes it computes (not cached), what it is. */
+/** Cooking some targets (engine/evaluation.py _case): what they are, the nodes it computes (not cached), and whether it
+ * collects and packs files for download (a 「输出」 among them). */
 export interface CookCase {
   targets: string[];
   computes: string[];
-  kind: CookKind;
+  delivers: boolean;
 }
 
 /** A wire as the status reply says it (Graph.wire_states). */
@@ -167,7 +155,7 @@ export interface StatusReply {
 }
 
 /** A node a cook will compute, with its estimate (lab2shot/farm/timings.py). */
-export interface PlanNode {
+interface PlanNode {
   node: string;
   label: string;
   frames: number;
@@ -237,7 +225,7 @@ export interface Manifest {
 /** One line of a result's summary: its value (for 「取信息」 and a page that lays it out in columns), the name of the
  * line and what it says. Made by lab2shot/data/summary.py from the data type's own declaration: the port tooltip,
  * the 数据信息 panel and 「取信息」 all read this one answer and the page writes no sentence of its own. */
-export interface SummaryLine {
+interface SummaryLine {
   id: string;
   code: string; // the message code that said it
   label: string; // the line's name ("" when the sentence stands on its own)
@@ -246,7 +234,7 @@ export interface SummaryLine {
   said: string; // the whole sentence, name included
 }
 
-export interface DataSummary {
+interface DataSummary {
   type?: string;
   label?: string; // the data type's name
   known?: "cooked" | "planned" | "empty";
@@ -296,20 +284,16 @@ export interface CurvesData {
 
 export interface CookEvent {
   type:
-    | "queued" // waiting in its lane (again after every change of the queue): position, lane, gpus
-    | "started" // running (gpu: the GPU's name, "" none; lane)
+    | "queued" // waiting in the queue (again whenever its place or why it waits changes): position, waiting
+    | "started" // its first node got its place
     // 计算进度只有一种事件（api/progress.ts、lab2shot/progress.py）：服务器将 stage / progress / phase
     // 合并为同一份描述后发送，队列面板与节点读取同一数据
     | "node_start" | "node_done" | "progress" | "message" | "error" | "skipped" | "output" | "done"
-    | "units" // 「3/12 条」: a job of a 逐项处理 block, how many of its items are through (farm/units.py Ledger.progress)
     | "stopping" | "cancelled" | "finished";
   position?: number;
-  lane?: Lane;
-  gpus?: number;
   waiting?: MessageJson | null; // queued: why it waits, the server's words
   waiting_detail?: MessageJson | null; // queued: the reason about the cards, when this session may see them
   reason?: string; // cancelled: why, when not by the one who started it
-  gpu?: string;
   state?: JobState;
   node?: string | null;
   label?: string;
@@ -331,14 +315,12 @@ export interface CookEvent {
   param?: string;
   done?: number;
   total?: number;
-  items?: number; // units: how many items the job has so far; `done` how many are through, `running` how many are being cooked
-  running?: number;
   cached?: boolean;
   seconds?: number;
   log?: string | null;
-  // output: what the node delivered (see files/transfer.ts Delivery)
-  run?: string;
-  files?: string[];
-  item?: string; // output: the item path of the instance that delivered ("" outside every block)
-  address?: string; // output: where the package is asked for (transfer/deliveries.py address): the node, or node.<hash> per item
+  // output: what the 「输出」 packed (api/files.ts Output: its task, pkg, name, bytes, count)
+  task?: string;
+  pkg?: string;
+  bytes?: number;
+  count?: number;
 }

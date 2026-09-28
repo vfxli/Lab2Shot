@@ -29,8 +29,6 @@ class MaskMerge(NodeDef):
     class Params(NodeParams):
         mode: Literal["union", "subtract", "intersect"] = P(
             "union", label="方式", group="遮罩", option_labels=MERGE_MODES,
-            help="合并：两个遮罩里有一个是 1 就是 1（取较大值，Nuke 的 max）；相减：A 里去掉 B 盖住的部分（A × (1 − B)，Nuke 的 "
-                 "stencil）；相交：两个都有的部分（取较小值，Nuke 的 min）。软边照样保留",
         )
 
     @classmethod
@@ -50,16 +48,18 @@ class MaskMerge(NodeDef):
             got = map_at(mask, frame, window.data)
             return blank if got is None else got[0][..., 0]
 
-        had = left = False  # 分别记录输入是否有内容、输出是否有内容（空结果不属于错误，但需说明原因）
-        for f in ctx.each(shot_frames([a, b])):
+        def merge(f):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             ma, mb = at(a, f), at(b, f)
             # 遮罩取值为 0..1（该端口的值域声明为 UNIT）：相减后截断，不写出无效像素；
             # 输入不是遮罩时（两张深度图相减可达 -3e5），半精度会溢出为 inf。
             merged = np.clip(np.maximum(ma, mb) if mode == "union" else ma * (1.0 - mb) if mode == "subtract"
                              else np.minimum(ma, mb), 0.0, 1.0)
-            had = had or bool(ma.any()) or bool(mb.any())
-            left = left or bool(merged.any())
             out.add(f, merged)
+            return bool(ma.any()) or bool(mb.any()), bool(merged.any())
+
+        found = list(ctx.each_done(shot_frames([a, b]), merge))
+        # 分别记录输入是否有内容、输出是否有内容（空结果不属于错误，但需说明原因）
+        had, left = any(h for h, _ in found), any(k for _, k in found)
         if had and not left:  # 输入有内容而输出为空：数据在本节点中丢失，必须给出提示
             ctx.say("N-MASK-EMPTYMERGE", mode=MERGE_MODES[mode])
         return {"mask": out.packet()}
@@ -73,11 +73,9 @@ class MaskAdjust(NodeDef):
     outputs = (Port("mask", "image.1", "遮罩"),)
 
     class Params(NodeParams):
-        grow: float = P(0.0, label="扩缩", unit="px", ge=-500, le=500, group="遮罩",
-                        help="正数向外扩（圆形笔刷，软边整体外移，Nuke 的 Erode 取负值），负数向内收。给跟踪、修补留余量常用 10–30")
-        feather: float = P(0.0, label="羽化", unit="px", ge=0, le=500, group="遮罩",
-                           help="边缘变软的宽度：边缘从 0 过渡到 1 大约用这么多像素。0 = 保持原样")
-        invert: bool = P(False, label="反转", group="遮罩", help="最后把遮罩反过来：1 变 0、0 变 1，比如从「人」得到「人以外的背景」")
+        grow: float = P(0.0, label="扩缩", unit="px", ge=-500, le=500, group="遮罩")
+        feather: float = P(0.0, label="羽化", unit="px", ge=0, le=500, group="遮罩")
+        invert: bool = P(False, label="反转", group="遮罩")
 
     @classmethod
     def cook(cls, ctx):
@@ -86,9 +84,11 @@ class MaskAdjust(NodeDef):
 
         src, p = ctx.input("mask"), ctx.params
         out = ExrWriter(ctx.outputs["mask"], 1, value_range=UNIT, half=True, window=window_of(src))
-        for f in ctx.each(src.meta["frames"]):
+        def adjust(f):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             m = feather(grow(map_at(src, f)[0][..., 0], p["grow"]), p["feather"])
             out.add(f, np.clip(1.0 - m if p["invert"] else m, 0.0, 1.0))
+
+        list(ctx.each_done(src.meta["frames"], adjust))
         return {"mask": out.packet()}
 
 
@@ -99,21 +99,11 @@ class BoxesMask(NodeDef):
     inputs = (Port("boxes", "boxes", "人物框", expects=(KnownPeople(),)),)
     outputs = (Port("mask", "image.1", "遮罩"),)
     # 算法定义不在此处，而在算法目录（lab2shot/ops/ops.toml）中：
-    # 选人使用 people.select（此处只用其「按编号」规则），框的抗锯齿覆盖率使用 boxes.to_mask。
-    # 浏览器按同一份描述执行（webui/src/ops/run.ts），因此修改框之后画面立即更新，无需提交计算。
+    # 选人使用 people.select（此处只用其「按编号」与「全部」规则），框的抗锯齿覆盖率使用 boxes.to_mask。
     ops = ("people.select", "boxes.to_mask")
 
     class Params(NodeParams):
-        ids: str = P("", label="编号", group="人物", placeholder="全部",
-                     help="只要这些人：填人物编号，多个用逗号，如 1,3（1 号最显眼，2D 视图里框上有标）；留空 = 框里的所有人")
-
-    @classmethod
-    def browser_ops(cls, params, types):
-        """框转遮罩在浏览器中由若干浮点数绘制出整张遮罩：输入为人物框，
-        无需传输任何像素，因此修改框或编号后画面立即更新。"""
-        ids = sorted(person_ids(params["ids"]))  # 框中不存在的编号由端口的用法检查提示（KnownPeople）
-        return ({"op": "people.select", "args": {"rule": "ids" if ids else "all", "ids": ids}},
-                {"op": "boxes.to_mask", "args": {}})
+        ids: str = P("", label="编号", group="人物", placeholder="全部")
 
     @classmethod
     def cook(cls, ctx):
@@ -122,15 +112,16 @@ class BoxesMask(NodeDef):
 
         src = ctx.input("boxes")
         people = read_boxes(src)
-        # 参数到算法参数的转换只在 browser_ops 一处定义：浏览器使用同一结果
-        pick, paint = cls.browser_ops(ctx.params, {})
-        chosen = run_op(pick["op"], {"items": people, **pick["args"]})
+        ids = sorted(person_ids(ctx.params["ids"]))  # 框中不存在的编号由端口的用法检查提示（KnownPeople）
+        chosen = run_op("people.select", {"items": people, "rule": "ids" if ids else "all", "ids": ids})
         people = [people[i] for i in chosen["indices"]]
         w, h = src.meta["width"], src.meta["height"]
         out = ExrWriter(ctx.outputs["mask"], 1, value_range=UNIT, half=True)
-        for f in ctx.each(src.meta["frames"]):
+        def draw(f):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             boxes = [person["boxes"][str(f)] for person in people if str(f) in person["boxes"]]
-            out.add(f, run_op(paint["op"], {"boxes": boxes, "width": w, "height": h, **paint["args"]})["mask"])
+            out.add(f, run_op("boxes.to_mask", {"boxes": boxes, "width": w, "height": h})["mask"])
+
+        list(ctx.each_done(src.meta["frames"], draw))
         return {"mask": out.packet()}
 
 
@@ -142,11 +133,8 @@ class SegmentSelect(NodeDef):
     handles = (Handle("points", {"points": "picks"}, source="segmentation"),)
 
     class Params(NodeParams):
-        classes: str = P("", label="类别", widget="classes", group="选区", placeholder="全部物体", choices_from=("segmentation",),
-                         help="要哪些类别：上游算过以后点下面列出的类别；也可以填类别名或编号，多个用逗号，如 Hair, Face_Neck 或 1,3。"
-                              "类别和点选都空着 = 除背景以外的全部")
-        picks: list[str] = P([], label="点选", widget="picks", group="选区", placeholder="在 2D 视图里点要的区域",
-                             help="在 2D 视图里点分割图上的区域，点到哪一类就加上哪一类（和「类别」一起算）；点错了在这里删掉")
+        classes: str = P("", label="类别", widget="classes", group="选区", placeholder="全部物体", choices_from=("segmentation",))
+        picks: list[str] = P([], label="点选", widget="picks", group="选区", placeholder="在 2D 视图里点要的区域")
 
     @classmethod
     def cook(cls, ctx):
@@ -167,13 +155,13 @@ class SegmentSelect(NodeDef):
                 continue
             chosen = (chosen or set()) | {label}
         out = ExrWriter(ctx.outputs["mask"], 1, value_range=UNIT, half=True, window=window_of(src))
-        got_any = False
-        for f in ctx.each(src.meta["frames"]):
+        def select(f):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             labels = np.rint(map_at(src, f)[0][..., 0]).astype(np.int64)
             picked = (labels > 0) if chosen is None else np.isin(labels, list(chosen))
-            got_any = got_any or bool(picked.any())
             out.add(f, picked)
-        if not got_any:  # 未选中任何像素：输出空遮罩并给出提示（空结果不属于错误，但需提示）
+            return bool(picked.any())
+
+        if not any(list(ctx.each_done(src.meta["frames"], select))):  # 未选中任何像素：输出空遮罩并给出提示（空结果不属于错误，但需提示）
             ctx.say("N-MASK-NOPIXELS", classes="、".join(sorted(str(c) for c in chosen)) if chosen else "背景以外的全部")
         return {"mask": out.packet()}
 
@@ -215,14 +203,10 @@ class DepthKey(NodeDef):
     outputs = (Port("mask", "image.1", "遮罩"),)
 
     class Params(NodeParams):
-        near: float = P(0.0, label="近", unit="cm", ge=0, group="距离",
-                        help="从多远开始算（离相机的距离，沿镜头方向）。真实尺度的深度填厘米；要手动缩放的深度按视图里显示的数值填")
-        far: float | None = P(None, label="远", unit="cm", gt=0, group="距离", placeholder="无限远",
-                              help="到多远为止；留空 = 一直到最远。比如近 0、远 300 抠出离相机 3 米以内的物体")
-        soft: float = P(10.0, label="软边", unit="cm", ge=0, group="距离",
-                        help="范围外面再过渡这么远，从 1 渐变到 0，边缘不生硬。0 = 硬边")
-        include_empty: bool = P(False, label="含无值像素", group="距离",
-                                help="深度图里没有值的像素（天空、太远或模型没把握的地方）也算进遮罩。「远」留空、想抠整个背景连天空时打开")
+        near: float = P(0.0, label="近", unit="cm", ge=0, group="距离")
+        far: float | None = P(None, label="远", unit="cm", gt=0, group="距离", placeholder="无限远")
+        soft: float = P(10.0, label="软边", unit="cm", ge=0, group="距离")
+        include_empty: bool = P(False, label="含无值像素", group="距离")
 
     @classmethod
     def cook(cls, ctx):
@@ -233,17 +217,17 @@ class DepthKey(NodeDef):
         if p["far"] is not None and p["far"] <= p["near"]:
             raise Invalid(Msg("E-MASK-FARNEAR", far=p["far"], near=p["near"]))
         out = ExrWriter(ctx.outputs["mask"], 1, value_range=UNIT, half=True, window=window_of(src))
-        found = False
-        for f in ctx.each(src.meta["frames"]):
+        def key(f):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             z, alpha = map_at(src, f)
             z = z[..., 0]
             m = smoothstep(p["near"] - p["soft"], p["near"], z)
             if p["far"] is not None:
                 m *= 1.0 - smoothstep(p["far"], p["far"] + p["soft"], z)
             m = np.where(alpha > 0, m, 1.0 if p["include_empty"] else 0.0)
-            found = found or bool((m > 0).any())
             out.add(f, m)
-        if not found:
+            return bool((m > 0).any())
+
+        if not any(list(ctx.each_done(src.meta["frames"], key))):
             if p["far"] is not None:
                 ctx.say("N-MASK-EMPTYRANGE", near=p["near"], far=p["far"])
             else:
@@ -261,14 +245,10 @@ class ConfidenceMask(NodeDef):
     # 本节点的功能是按门槛二值化、软边和反选，而不是类型转换。
 
     class Params(NodeParams):
-        conf_threshold: float = P(0.5, label="置信度门槛", ge=0, le=1, group="遮罩",
-                             help="置信度高于它算可信（0–1）。只和同一个模型的置信度比：换了模型要重新挑。显示上游的置信度时，"
-                                  "鼠标放在画面上，右下角写着那里的值，照着挑")
-        soft: float = P(0.0, label="软边", ge=0, le=0.5, group="遮罩",
-                        help="门槛上下这么宽的一段置信度从 0 渐变到 1，遮罩边缘不生硬；0 = 硬边（不是 0 就是 1）")
+        conf_threshold: float = P(0.5, label="置信度门槛", ge=0, le=1, group="遮罩")
+        soft: float = P(0.0, label="软边", ge=0, le=0.5, group="遮罩")
         keep: Literal["trusted", "doubtful"] = P(
-            "trusted", label="区域", group="遮罩", option_labels={"trusted": "可信的", "doubtful": "不可信的"},
-            help="可信的：置信度高的地方是 1（只在这些地方跟点、对齐、建点云）；不可信的：反过来，标出模型没把握的地方（去修补、排除）")
+            "trusted", label="区域", group="遮罩", option_labels={"trusted": "可信的", "doubtful": "不可信的"})
 
     @classmethod
     def cook(cls, ctx):
@@ -278,13 +258,13 @@ class ConfidenceMask(NodeDef):
         src, p = ctx.input("confidence"), ctx.params
         t, soft = p["conf_threshold"], p["soft"]
         out = ExrWriter(ctx.outputs["mask"], 1, value_range=UNIT, half=True, window=window_of(src))
-        found = False
-        for f in ctx.each(src.meta["frames"]):
+        def threshold(f):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             trusted = smoothstep(t - soft, t + soft, map_at(src, f)[0][..., 0])
             m = trusted if p["keep"] == "trusted" else 1.0 - trusted
-            found = found or bool((m > 0).any())
             out.add(f, m)
-        if not found:
+            return bool((m > 0).any())
+
+        if not any(list(ctx.each_done(src.meta["frames"], threshold))):
             ctx.say("N-MASK-NOTRUSTED" if p["keep"] == "trusted" else "N-MASK-NODOUBTFUL", threshold=t, param="conf_threshold")
         packet = out.packet()
         if src.meta.get("still"):
@@ -296,17 +276,14 @@ class Roto(NodeDef):
     id = "core.draw_mask"
     category = "mask_make"
     # 节点上不显示参数：形状是绘制出的一组条目，不是可在节点上修改的数值或开关
-    # （nodes/base.py simple_kind；「分割转遮罩」的「点选」同样只在面板中）。
+    # （nodes/params.py simple_kind；「分割转遮罩」的「点选」同样只在面板中）。
     inputs = (Port("image", "image", "图像", alpha=True),)
     outputs = (Port("mask", "image.1", "遮罩"),)
     # 画布属于现有手柄体系中的一种（nodes/handles.py），不另建交互：在视图中绘制，完成后写入该参数
     handles = (Handle("canvas", {"shapes": "shapes"}),)
 
     class Params(NodeParams):
-        shapes: list[str] = P([], label="形状", widget="canvas", group="遮罩", placeholder="在 2D 视图里拖出轮廓",
-                              help="手画的轮廓：在 2D 视图里按住左键沿着要的范围拖一圈，松手就闭合成一个形状；"
-                                   "右键点形状里面删掉它。可以画好几个，合在一起是一张遮罩。"
-                                   "每个形状记着是在哪一帧画的，但整段镜头都算数")
+        shapes: list[str] = P([], label="形状", widget="canvas", group="遮罩", placeholder="在 2D 视图里拖出轮廓")
 
     @classmethod
     def cook(cls, ctx):

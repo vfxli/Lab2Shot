@@ -3,19 +3,17 @@
  * Kept per browser in localStorage.
  *
  * 点始终绘制为圆片，仅有大小一个参数。大小和线宽的唯一单位是屏幕像素，二维、三维的线和三维曲线共用
- * `lineWidth`。localStorage 中可能存有已停用的键（`pointUnit`、`pointCm`、`adaptive`、`pathDashed`、
- * `trackColor`、`curveWidth`、`cull`、`normals`、`navigation`、`resolution`、`stats`、`memory`、`pointMode`）
- * 或旧取值，均予忽略（`sanitize` 只按 `DEFAULTS` 的键读取，取值不在 `CHOICES` 中时恢复默认值）。
+ * `lineWidth`。localStorage 中不认识的键或取值均予忽略（`sanitize` 只按 `DEFAULTS` 的键读取，取值不在 `CHOICES` 中时
+ * 恢复默认值）。
  *
- * Pure: only a type import (erased at run time), so node's own test runner reads it as it is
- * (webui/tests/view3dOptions.test.ts). */
+ * Pure: only a type import (erased at run time). */
 
-export type PointColor = "color" | "constant";
-export type Shading = "smooth" | "flat" | "wire" | "wireShaded";
-export type Antialias = "off" | "msaa" | "fxaa" | "smaa";
+type PointColor = "color" | "constant";
+type Shading = "smooth" | "flat" | "wire" | "wireShaded";
+type Antialias = "off" | "msaa" | "fxaa" | "smaa";
 export type Background = "solid" | "gradient";
-export type Lighting = "headlight" | "rig";
-export type CurveColor = "color" | "constant";
+type Lighting = "headlight" | "rig";
+type CurveColor = "color" | "constant";
 // 二维预览链的取值及其算法定义在 model/view2d.ts；本模块只保存用户的选择
 import type { Bg, Op, Tint } from "./view2d";
 export type { Bg, Op, Tint } from "./view2d";
@@ -30,7 +28,7 @@ export interface ViewOptions {
   tint: Tint; // 右：查看单通道时的着色（若干色标和纯色；画面本身不着色，颜色即数据）
   bg: Bg; // 背景：棋盘格或纯色（与运算完全解耦，三种模式下均可用）
   // 背景为纯色时的颜色。此处不写颜色字面量：空值表示色板第一档，颜色值只在
-  // platform/palette.ts 中定义（本文件须保持纯净，node 测试直接读取它）
+  // platform/palette.ts 中定义（本文件须保持纯净，不 import 页面模块）
   bgColor: string;
   // points
   pointPx: number; // size in screen pixels: near and far alike
@@ -51,7 +49,7 @@ export interface ViewOptions {
   overlayByPerson: boolean; // "按人物": each person has its own colour by id (boxes on the 2D stage, characters in 3D)
   // picture
   antialias: Antialias;
-  // camera (the mouse always orbits: left tumbles, middle dollies, right pans)
+  // camera (left tumbles, middle dollies, right pans; view/camera3d.tsx)
   near: number; // clipping, cm
   far: number;
   // scene aids
@@ -71,7 +69,7 @@ export const OVERLAY_SWATCHES = ["#e8e8ec", "#FFD60A", "#FF9F0A", "#FF375F", "#6
 
 /** "按人物": the colours assigned to people in turn. This is the overlay palette without its white, so that no person
  * (including id 0) looks like an uncoloured model. */
-export const PEOPLE_SWATCHES = OVERLAY_SWATCHES.slice(1);
+const PEOPLE_SWATCHES = OVERLAY_SWATCHES.slice(1);
 
 /** "按人物": one person's colour, keyed by the person's id. Boxes (2D) and characters (lab2shot:person_id, 3D) carry
  * the same id, so a person has one colour on both stages. */
@@ -96,8 +94,7 @@ export const DEFAULTS: ViewOptions = {
   cameraColor: "#FFD60A",
   boneColor: "#FF375F",
   curveColor: "color",
-  // 橙色，即「三维曲线」的类型色（lab2shot/data/types.py scene.curves），便于识别所绘为曲线。
-  // 取自共用色板，不另写颜色字面量（颜色值只在一处定义）
+  // 橙色，取自共用色板，不另写颜色字面量（颜色值只在一处定义）
   curveTint: OVERLAY_SWATCHES[2],
   shading: "smooth",
   uvChecker: false,
@@ -220,9 +217,6 @@ export function loadOptions(storage: Store | null | undefined): ViewOptions {
   try {
     const text = storage?.getItem(STORAGE_KEY);
     const raw = text ? (JSON.parse(text) as Record<string, unknown>) : null;
-    // 坐标轴的旧默认值为 80。saveOptions 只保存与默认值不同的项，因此存储中的 80 来自旧默认值而非用户选择，
-    // 丢弃后该浏览器将使用新默认值
-    if (raw && raw.axesSize === 80) delete raw.axesSize;
     return sanitize(raw);
   } catch {
     return { ...DEFAULTS };

@@ -62,12 +62,13 @@ class GVHMR(Extension):
     import_repo = ""
     # 上游 requirements.txt 钉的 torch 2.3.0+cu121 只编到 sm_50-90、没打 PTX，在 Blackwell（sm_120）显卡上
     # 一启动就崩；所以 torch 用带 sm_120 的版本，pytorch3d（Meta 没有对应新 torch/CUDA 组合的预编译 wheel）
-    # 改成源码编译，TORCH_CUDA_ARCH_LIST 由 lab2shot_worker.build.compute_caps() 按机器上实际插的显卡算出。
-    # 装在 .venv-ada-blackwell，不碰旧的 .venv。
+    # 从源码编译，TORCH_CUDA_ARCH_LIST 取设置「编译目标架构」与下面 env_archs 两边都有的（installer/envbuild.py
+    # target_archs，经 lab2shot_worker.build.cuda_build_env 传给编译脚本），与编译这台机器插的卡无关。
+    # 装在 .venv-ada-blackwell。
     env_archs = ("sm_89", "sm_120")  # Ada and Blackwell: third_party/gvhmr/.venv-ada-blackwell
     env = EnvSpec(
         python="3.10",
-        # torch 2.9.0+cu130: the system CUDA (12.9, EnvSpec.compiled's default toolkit) cannot
+        # torch 2.9.0+cu130: the machine's CUDA ([build] cuda_home, 12.9 here) cannot
         # compile pytorch3d against this glibc ("error: exception specification" in
         # bits/mathcalls.h — the glibc >= 2.43 issue CUDA_13_2_TOOLKIT's docstring names), so the
         # pip CUDA 13.2 toolkit is used instead (as tram/vipe/wham do for their own CUDA kernels),
@@ -76,9 +77,9 @@ class GVHMR(Extension):
         torch=("torch==2.9.0", "torchvision==0.24.0"),
         torch_backend="cu130",
         cuda_toolkit=CUDA_13_2_TOOLKIT,
-        # Not EnvSpec.compiled: pytorch3d's Pulsar renderer needs NVCC_FLAGS=-rdc=true to
-        # link when built for two architectures at once, and only a build script can pass
-        # that through to its setup.py (see build_pytorch3d.py).
+        # Not EnvSpec.compiled: built for two architectures at once, pytorch3d's Pulsar
+        # renderer does not link, and only a build script can remove Pulsar from the
+        # sources first (see build_pytorch3d.py).
         build="build_pytorch3d.py",
         # 没接「人物框」时 worker 调上游自己的 YOLOv8x 跟踪器（hmr4d/utils/preproc/tracker.py Tracker），
         # 它经 ultralytics 8.2.42 的 `torch.load(file, map_location="cpu")`（ultralytics/nn/tasks.py:775）

@@ -12,7 +12,7 @@ year = 2026
 
 上游自己的话（Overview）：Kimodo 是一个运动学动作扩散模型（kinematic motion diffusion model），在大规模（700 小时）、可商用的光学动捕数据上训练；它生成高质量的三维人体和机器人动作，控制方式是文字提示，外加一整套约束——全身姿态关键帧、末端位置和旋转、2D 路径、2D 路点。
 
-在 Lab2Shot 里，它是「Kimodo 动作补帧」：动画师只 K 关键姿势，中间的动作由 Kimodo 生成，关键帧保持原样；也可以再加一句英文描述，说这段动作是什么、什么风格。不接动画时它还能只按一句文字生成一整段（上游 `constraint_lst` 自己写的「unconstrained generation」）。代码和七个权重里的六个可以商用，SMPL-X 那一档只限研究（见下面「许可」）。
+在 Lab2Shot 里，它是「Kimodo 动作生成」：动画师只 K 关键姿势，中间的动作由 Kimodo 生成，关键帧保持原样；也可以再加一句英文描述，说这段动作是什么、什么风格。不接动画时它还能只按一句文字生成一整段（上游 `constraint_lst` 自己写的「unconstrained generation」）。代码和七个权重里的六个可以商用，SMPL-X 那一档只限研究（见下面「许可」）。
 
 ## 输入输出
 
@@ -35,7 +35,7 @@ year = 2026
   上游的 `prompt` 本来就是一句文字。
 - 「动画」输出口是 `local_rot_mats` 加根位置转成的骨骼动画，和官方吐的是同一份数据。
 - 「模型」参数对应 `--model` 那七个权重、三副骨架（SOMA 30 关节四个、SMPL-X 22 关节一个、G1 机器人 34 关节两个；
-  `third_party/kimodo/repo/kimodo/skeleton/definitions.py`），「步数」= `--diffusion_steps`、
+  `third_party/kimodo/repo/kimodo/skeleton/definitions.py`），「去噪步数」= `--diffusion_steps`、
   「贴合关键帧」= `--cfg_weight` 那一路、「模型后处理」= `--no-postprocess` 的反面、「随机种子」= `--seed`。
 - 上游还有、节点没有开口的：`foot_contacts`、`global_root_heading`、`smooth_root_pos`。
 
@@ -44,10 +44,10 @@ year = 2026
 
 ## 在 Lab2Shot 里怎么用
 
-- 典型接法：「导入 USD」或「导入 FBX」（Maya 导出的角色，只导关键帧那几帧；骨架动画、蒙皮角色都行）→ **Kimodo 动作补帧** → 「USD 输出设置」→「输出」。模板「动作补帧 · Kimodo」就是这套。
+- 典型接法：「导入 USD」或「导入 FBX」（Maya 导出的角色，只导关键帧那几帧；骨架动画、蒙皮角色都行）→ **Kimodo 动作生成** → 「USD 输出设置」→「输出」。模板「动作补帧 · Kimodo」就是这套。
 - **关键帧**：留空时，文件里动画有记录的帧就是关键帧；动画每帧都烘焙过的文件，在「关键帧」里写要保留的帧，如 `1001, 1012, 1030` 或 `1001-1100x8`。
 - **关节映射**：骨架跟着「模型」走——默认的四个 Rigplay / SEED 权重是 NVIDIA 的 SOMA（30 个关节），SMPL-X 那一档是 SMPL-X 的 22 个身体关节（接 SMPL 人体不用猜关节），G1 机器人那两档是 Unitree G1 的 34 个关节（一条腿三个独立的髋关节轴，人物骨骼对不上，所以**只能用来生成、「动画」口是灰的**）。接上人物后，表格每一行显示自动猜到的人物关节，猜错了在下拉里选。Maya HumanIK、Mixamo、Unreal、SMPL 这些命名都认得；扭转骨骼、手指、面部骨骼不参与，**保持原来的动画不动**（Kimodo 本身也不动手指）。绑定姿势是 T-pose 还是 A-pose、关节怎么定向都没关系。
-- **文字描述**（可选）：一句英文，最好以「A person …」开头，比如「A person walks forward cautiously」。不写就只按关键帧补（Kimodo 官方基准里「无文字约束」的用法，关键帧命中和写了文字一样好），这时完全不需要文字模型。写了描述时，Lab2Shot 用 Kimodo 自己的文字编码器（LLM2Vec + Meta Llama 3 8B）在 CPU 上把这句话算成一个向量，**同一句话只算一次**，以后任何镜头用同一句都复用（Kimodo 自己的演示程序也是这样缓存的）。第一次约一两分钟，要占约 16 GB 内存。
+- **提示词**（可选）：一句英文，最好以「A person …」开头，比如「A person walks forward cautiously」。不写就只按关键帧补（Kimodo 官方基准里「无文字约束」的用法，关键帧命中和写了文字一样好），这时完全不需要文字模型。写了描述时，Lab2Shot 用 Kimodo 自己的文字编码器（LLM2Vec + Meta Llama 3 8B）在 CPU 上把这句话算成一个向量，**同一句话只算一次**，以后任何镜头用同一句都复用（Kimodo 自己的演示程序也是这样缓存的）。第一次约一两分钟，要占约 16 GB 内存。
 - **关键帧精确**（默认开）：每个关键帧和原来的姿势完全一样；**脚锁定**（默认开）：Kimodo 判断脚着地的帧，用两骨 IK 把脚踝钉住。**模型后处理**（默认开）是 Kimodo 自己的脚滑清理。
 - **随机种子**：扩散模型每次结果不同，同一个种子得到同一个结果；不满意换个数字重算。
 - **地面**：模型默认人站在 y = 0 的地面上（Y 轴向上）。视频解出来的人物先接「自动落地」。
@@ -68,7 +68,7 @@ NVIDIA 研究院多伦多 AI 实验室和空间智能实验室（Sanja Fidler、
 - 自动安装：`lab2shot ext install kimodo`，下载：
   - 锁定版本的官方代码，和它的动作后处理模块 MotionCorrection（C++，安装时编译）；
   - 独立 Python 环境（PyTorch 2.8 + CUDA 12.8）；
-  - Kimodo-SOMA-RP-v1.1（默认）和 Kimodo-SOMA-SEED-v1.1 两个模型（Hugging Face，各 1.1 GB）；
+  - 七个 Kimodo 模型（Hugging Face，各 1.1 GB；Kimodo-SOMA-RP-v1.1 是默认，SMPL-X 那一档是受限仓库，要先申请访问）；
   - 文字编码器（只在写文字描述时用）：两个 LLM2Vec 适配权重（330 MB）和 Meta Llama 3 8B Instruct（16 GB）。Llama 3 在 Hugging Face 上要先申请：打开 https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct 同意 Meta 的条款，通过后再运行一次安装。没有它也能用，只是不能写文字描述。
 - 装好后完全离线运行（Kimodo 自己默认会先连一个网上的文字编码服务，Lab2Shot 关掉了）。
 

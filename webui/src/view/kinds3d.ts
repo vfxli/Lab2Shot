@@ -2,11 +2,11 @@ import { loadScene, useLoaded, type Scene } from "./sceneData";
 import type { DisplayPlan } from "./plan";
 
 /** 三维数据的种类及其显示名称，顺序与视图的显示 / 隐藏开关一致。 */
-export const KINDS = { camera: "相机", model: "模型", character: "蒙皮角色", skeleton: "骨架", points: "点云", curves: "三维曲线", lights: "灯光" } as const;
+export const KINDS = { camera: "相机", model: "模型", character: "蒙皮角色", skeleton: "骨架", points: "点云", curves: "三维曲线" } as const;
 export type Kind = keyof typeof KINDS;
 
 /** 场景中包含的数据种类。 */
-export function kindsOf(d: Scene): Set<Kind> {
+function kindsOf(d: Scene): Set<Kind> {
   const out = new Set<Kind>();
   if (d.cameras.length) out.add("camera");
   if (d.models.length) out.add("model");
@@ -36,7 +36,7 @@ export function useSceneKinds(plan: DisplayPlan): Kind[] {
  * 抽稀仅作用于显示副本，坐标不做任何修改，计算与交付的点数不受影响。
  * `every` 大于 1 时视图通知区必须持续标示（「显示了 N / 共 M 点」），不得静默抽稀。
  * 本函数仅提供数值，提示文字由编辑器层生成（view 层不依赖 ui 层）。 */
-export interface CloudProxy {
+interface CloudProxy {
   every: number;  // 抽样间隔（总点数 ÷ 绘制点数）；1 表示未抽稀
   shown: number;  // 视图中实际绘制的点数（所有点云合计）
   total: number;  // 数据中的总点数

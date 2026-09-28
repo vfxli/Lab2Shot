@@ -24,11 +24,6 @@
    "name": "seed",
    "label": "随机种子",
    "target": "rig.seed"
-  },
-  {
-   "name": "output",
-   "label": "保存到",
-   "target": "deliver.path"
   }
  ],
  "nodes": [
@@ -86,17 +81,10 @@
    "id": "deliver",
    "type": "core.output",
    "label": "输出",
-   "params": {
-    "mode": "tar",
-    "path": "",
-    "name": ""
-   },
+   "params": {},
    "ui": {
     "x": 900,
-    "y": 0,
-    "on_node": [
-     "mode"
-    ]
+    "y": 0
    }
   }
  ],

@@ -5,7 +5,7 @@
  * `transfer/cache.ts` 的另一项预算管理。字节存放在视图读取的键下（`bytes:${源 id}:${帧}`），
  * 因此视图绘制时无需发出请求，直接就地解码。
  *
- * 分工：当前查看的源由舞台自行整段预取（`transfer/frames.ts fillWhole`：选中即整段）；
+ * 分工：当前查看的源由舞台自行整段预取（`transfer/fill.ts fillWhole`：选中即整段）；
  * 本模块预取其他数据包，即显示链上游及同一任务中的其余结果，使使用者切换过去时数据已在本地。
  * 两侧使用同一组键，且均先检查本地是否已有，因此不会重复预取。 */
 
@@ -72,7 +72,7 @@ const source: PrefetchSource<Blob> = {
   },
 };
 
-export const prefetcher = new Prefetcher<Blob>(prefetchStore, source);
+const prefetcher = new Prefetcher<Blob>(prefetchStore, source);
 
 let watching = false;
 

@@ -5,8 +5,8 @@ import type { GBox, GNode } from "../state/graph";
 import { same as sameJson, type Json } from "../model/graphPatch";
 
 /** One of a node's outputs as the editor has them now (graph/rules.ts): the named port, or, when `port` is null, the node's
- * main result (NodeTypeDef.main, never the first by position). Names a shown port in a step's label. */
-export type OutputOf = (nodeId: string, port: string | null) => { name: string; label: string } | undefined;
+ * main result (graph/rules.ts mainOutput). Names a shown port in a step's label. */
+type OutputOf = (nodeId: string, port: string | null) => { name: string; label: string } | undefined;
 
 /** Undo and redo of the node graph. What is undone is the document: what the graph file holds, apart
  * from the current frame: nodes with their parameters, names, positions, picked files, save folders, the parameters
@@ -52,15 +52,7 @@ if (typeof window !== "undefined") {
   for (const type of ["focusin", "focusout"]) window.addEventListener(type, () => pressed || gesture++, true);
 }
 
-export const EMPTY_DOC: Doc = { meta: { name: "未命名" }, exposed: [], nodes: [], edges: [], boxes: [], displayId: null, displayPort: null, cookRange: null };
-
-const FIELDS = Object.keys(EMPTY_DOC) as (keyof Doc)[];
-
-/** The document of a state (the same objects). */
-export const docOf = (s: Doc): Doc => Object.fromEntries(FIELDS.map((k) => [k, s[k]])) as unknown as Doc;
-
-/** Is it possibly another document? (by reference: cheap; a new object may still hold the same content) */
-export const docTouched = (s: Doc, p: Doc) => FIELDS.some((k) => s[k] !== p[k]);
+const EMPTY_DOC: Doc = { meta: { name: "未命名" }, exposed: [], nodes: [], edges: [], boxes: [], displayId: null, displayPort: null, cookRange: null };
 
 // the document's values are JSON (what a graph file holds): compared as trees, never as strings of them
 const same = (a: unknown, b: unknown) => sameJson(a as Json, b as Json);
@@ -76,7 +68,6 @@ const sameNode = (a: GNode, b: GNode | undefined) =>
     a.position.x === b.position.x &&
     a.position.y === b.position.y &&
     !changedParams(a.data.params, b.data.params).length &&
-    same(a.data.saveTo, b.data.saveTo) &&
     same(a.data.picked, b.data.picked) &&
     same(a.data.promoted ?? [], b.data.promoted ?? []) &&
     same(a.data.onNode ?? null, b.data.onNode ?? null));
@@ -94,7 +85,7 @@ function sameList<T extends { id: string }>(a: T[], b: T[], eq: (x: T, y: T | un
   return a.every((x) => eq(x, other.get(x.id)));
 }
 
-export const sameDoc = (a: Doc, b: Doc) =>
+const sameDoc = (a: Doc, b: Doc) =>
   a.displayId === b.displayId &&
   a.displayPort === b.displayPort &&
   same(a.cookRange, b.cookRange) &&
@@ -137,9 +128,11 @@ function describe(a: Doc, b: Doc, defs: Record<string, NodeTypeDef>, outputOf: O
   }
 
   const wire = (e: Edge) => `${name(e.source)}→${name(e.target)}`;
-  const joined = b.edges.filter((e) => !a.edges.some((f) => f.id === e.id));
+  const edgesWas = new Set(a.edges.map((e) => e.id));
+  const edgesNow = new Set(b.edges.map((e) => e.id));
+  const joined = b.edges.filter((e) => !edgesWas.has(e.id));
   if (joined.length) return step(count(joined, (e) => `连接${wire(e)}`, "连接 # 条线"), `wire+${ids(joined)}`);
-  const cut = a.edges.filter((e) => !b.edges.some((f) => f.id === e.id));
+  const cut = a.edges.filter((e) => !edgesNow.has(e.id));
   if (cut.length) return step(count(cut, (e) => `断开${wire(e)}`, "断开 # 条线"), `wire-${ids(cut)}`);
 
   const edited = b.nodes.filter((n) => !sameNode(n, was.get(n.id)));
@@ -157,8 +150,6 @@ function describe(a: Doc, b: Doc, defs: Record<string, NodeTypeDef>, outputOf: O
   }
   const renamed = edited.filter((n) => n.data.label !== was.get(n.id)!.data.label);
   if (renamed.length) return step(count(renamed, (n) => `重命名节点${name(n.id)}`, "重命名 # 个节点"), `label ${ids(renamed)}`);
-  const saveTo = edited.filter((n) => !same(n.data.saveTo, was.get(n.id)!.data.saveTo));
-  if (saveTo.length) return step(count(saveTo, (n) => `设置${name(n.id)}的保存位置`, "设置 # 个节点的保存位置"), `saveTo ${ids(saveTo)}`);
   const picked = edited.filter((n) => !same(n.data.picked, was.get(n.id)!.data.picked)); // the same files from another folder
   if (picked.length) return step(count(picked, (n) => `重新选择${name(n.id)}的文件`, "重新选择 # 个节点的文件"), `picked ${ids(picked)}`);
   // 在节点上显示 / 不再显示（一行参数进出节点；提升到节点是上方的独立一步）
@@ -230,8 +221,9 @@ export function restore(s: Doc & { selectedId: string | null }, d: Doc): Doc & {
   };
 }
 
-// 推导出的修改不计为一步：editor/ColorspaceFill.tsx 按文件格式填写空缺的「色彩空间」，这不是使用者的操作。
-// 若记为一步：撤销后参数变空，随即又被填写，撤销永远无效且重做栈被清空；打开色彩空间为空的旧图时
+// 推导出的修改不计为一步，它们不是使用者的操作：editor/ColorspaceFill.tsx 按文件格式填写空缺的「色彩空间」、
+// 服务器推导出的参数（graph/edit.ts editParams）、随素材收缩的计算范围（graph/actions.ts refreshStatus）。
+// 以色彩空间为例，若记为一步：撤销后参数变空，随即又被填写，撤销永远无效且重做栈被清空；打开色彩空间为空的旧图时
 // 也会立即被标记为已修改。因此填写前设置此标记，紧随其后的 record（document.ts 在同一微任务中调用）将变化并入
 // current 而不记为一步；若文件原本与 current 一致，saved 同步移动，节点图不被标记为已修改。
 let absorbing = false;

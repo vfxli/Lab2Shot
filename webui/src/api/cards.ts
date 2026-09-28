@@ -3,7 +3,7 @@ import { json } from "../platform/http";
 import type { MessageJson } from "./applies";
 
 /** 显卡 (lab2shot/farm/cards.py view): every card of this machine, every parameter tier and the cards that run it, every
- * GPU node's measured VRAM, every waiting GPU job and whether an authorised card could ever run it. */
+ * GPU node's measured VRAM, every GPU node waiting for a card and whether an authorised card could ever run it. */
 export interface CardRow {
   uuid: string;
   index: number;
@@ -13,7 +13,7 @@ export interface CardRow {
   arch: string;
   authorized: boolean;
   load: { utilization: number; used_gb: number; temperature: number };
-  running: { job: string; title: string; who: string } | null;
+  running: { job: string; title: string; who: string; node: string } | null; // the node on it now, and its job
   extensions: Record<GpuFitState, GpuFitItem[]>;
   tiers: string[];
 }
@@ -43,10 +43,12 @@ export interface CardNode {
   note: string | MessageJson | null;
 }
 
+/** One GPU node waiting for a card (lab2shot/farm/cards.py _waiting_row): the job it is of, and the node. */
 export interface CardWaiting {
   job: string;
   title: string;
   who: string;
+  node: string; // the node's label
   vram_gb: number;
   runtimes: string[];
   reason: MessageJson | null;
@@ -61,7 +63,7 @@ export interface CardHour {
   running?: boolean;
 }
 
-export interface CardsView {
+interface CardsView {
   cards: CardRow[];
   tiers: CardTier[];
   nodes: CardNode[];

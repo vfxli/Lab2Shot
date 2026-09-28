@@ -10,8 +10,7 @@ import { Button } from "../ui/Button";
 
 /** The page's log window: what happened, to copy for whoever helps, or to send to the server's log.
  *
- * 这是「说过的话」唯一的落点（没有单独的消息栏），所以每行都画出消息编号：用户要把编号发给管理员
- * （`uv run lab2shot admin joblog <编号>`）。编号存在 `state/log.ts` 的 `LogEntry.code` 里、「复制全部」也带着它；
+ * 这是「说过的话」唯一的落点（没有单独的消息栏），所以每行都画出消息编号：用户转述时带上它，开发者按它搜索。编号存在 `state/log.ts` 的 `LogEntry.code` 里、「复制全部」也带着它；
  * 画出来用的是全站那个编号的样子（`ui/message.css` 的 `.msg-code`），不新造一种。 */
 export function LogSheet() {
   const open = useViewer((s) => s.logOpen);

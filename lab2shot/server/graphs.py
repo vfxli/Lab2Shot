@@ -132,9 +132,3 @@ def resolve(req: GraphRequest, request: Request | None) -> dict:
     raise Invalid(Msg("E-GRAPH-MISSING"))
 
 
-def forget_all() -> None:
-    """Clear all kept versions, as on a fresh start. Intended for tests."""
-    global _size
-    with _lock:
-        _kept.clear()
-        _size = 0

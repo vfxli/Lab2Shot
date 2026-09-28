@@ -9,16 +9,19 @@ Symmetric by construction: nothing here is specific to any one GPU generation, s
 major generation "8": CUDA's own binary-compatibility guarantee, not PTX — see gpu_arch.compatible's docstring) and
 only fails on the RTX 5090 (sm_120, a different major generation the build has nothing for).
 
-能不能跑只由声明决定：扩展包声明的架构（Extension.env_archs / extensions/gpu_archs.py 装机时的记录）加这里的
-静态判断，没有别的来源，免得两处结论打架。
+Whether it runs is decided by declarations alone: the architectures the extension declares (Extension.env_archs,
+and the install-time record of extensions/gpu_archs.py) plus the static judgement here. There is no other source, so
+two places never come to different conclusions.
 """
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 from lab2shot_shared.gpu_arch import cap_to_sm, compatible, kernels_incompatible
 
+from ... import logs
 from ...extensions import extensions, gpu_archs
 from ...messages import Msg
 from .inventory import GpuState
@@ -32,6 +35,7 @@ class Fit:
     ok: bool | None  # True / False / None (unknown: treat as not fitting, but say so differently)
     bad_kernels: tuple[str, ...] = ()  # compiled .so files that do not cover this architecture (even if torch does)
     undeclared: tuple[str, ...] = ()  # refused: the extension's environment declares these architectures, not this one
+    probing: bool = False  # unknown for a moment: the environment is being probed now (runtime_record)
 
     @property
     def known(self) -> bool:
@@ -44,15 +48,77 @@ def runtime_title(runtime: str) -> str:
     return project_of(runtime).title
 
 
+PROBING = "probing"  # runtime_record: the environment is being probed now, on a thread of its own
+
+
+def _stamp(ext) -> tuple:
+    """What says an extension's install record changed: the file's time and size (a probe or an install writes it),
+    and whether the environment is there at all."""
+    try:
+        st = ext.paths.state_file.stat()
+        written = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        written = None
+    return written, ext.paths.python.exists()
+
+
+class _Records:
+    """The runtimes' recorded architectures as everything here reads them (the dispatcher holding the pools' lock
+    for every GPU node it places, the cards page on a request's thread). A record is read from the extension's install
+    record (the core's: the database) and kept while that file is unchanged, so a pass of the dispatcher reads no file.
+    One missing or out of date is probed (gpu_archs: a subprocess, seconds) on a thread of its own, never on the
+    caller's; until it is through, the runtime reads PROBING (a wait that ends by itself)."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.kept: dict[str, tuple[tuple, object]] = {}  # runtime -> (its stamp when read, its record or None)
+        self.probing: set[str] = set()
+
+    def get(self, runtime: str):
+        ext = None if runtime == "core" else extensions().get(runtime)
+        if runtime != "core" and ext is None:
+            return None
+        stamp = ("core",) if ext is None else _stamp(ext)  # the core's cannot change within one process
+        with self.lock:
+            hit = self.kept.get(runtime)
+            if hit is not None and hit[0] == stamp:
+                return hit[1]
+            if runtime in self.probing:
+                return PROBING
+        if ext is not None and not stamp[1]:
+            found = None  # not installed: nothing to probe
+        else:
+            found = gpu_archs.recorded_core() if ext is None else gpu_archs.recorded(ext)
+            if found is None:  # never probed, or its environment changed since
+                with self.lock:
+                    if runtime not in self.probing:
+                        self.probing.add(runtime)
+                        threading.Thread(target=self._probe, args=(runtime, ext), daemon=True,
+                                         name=f"gpu-archs-{runtime}").start()
+                return PROBING
+        with self.lock:
+            self.kept[runtime] = (stamp, found)
+        return found
+
+    def _probe(self, runtime: str, ext) -> None:
+        try:
+            found = gpu_archs.ensure_core() if ext is None else gpu_archs.ensure(ext)
+        except Exception as exc:  # noqa: BLE001 (the record could not be written: unknown, never guessed compatible)
+            logs.say(logs.get("farm"), Msg("E-FARM-INTERNAL", detail=f"{runtime}: {exc}"), logs.error_text(exc))
+            found = gpu_archs.ExtensionArchRecord("", None, None, "")
+        with self.lock:
+            self.probing.discard(runtime)
+            self.kept[runtime] = (("core",) if ext is None else _stamp(ext), found)
+
+
+_RECORDS = _Records()
+
+
 def runtime_record(runtime: str):
-    """This runtime's recorded architectures (lab2shot.extensions.gpu_archs), probing it now if it never was.
-    None: the extension is not installed (nothing to probe)."""
-    if runtime == "core":
-        return gpu_archs.ensure_core()
-    ext = extensions().get(runtime)
-    if ext is None:
-        return None
-    return gpu_archs.ensure(ext)
+    """This runtime's recorded architectures (lab2shot.extensions.gpu_archs); PROBING while a probe of its
+    environment runs (started here when it never was probed, or its environment changed since: `_Records`). None:
+    the extension is not installed (nothing to probe)."""
+    return _RECORDS.get(runtime)
 
 
 def declared_archs(runtime: str) -> tuple[str, ...]:
@@ -68,6 +134,8 @@ def fit(runtime: str, gpu: GpuState) -> Fit:
     does have a torch build (were one ever added) is checked like an extension's."""
     if runtime == "core":
         core = runtime_record("core")
+        if core is PROBING:
+            return Fit(None, probing=True)
         if core is None or not core.torch_version:
             return Fit(True)
     if not gpu.compute_cap:
@@ -77,6 +145,8 @@ def fit(runtime: str, gpu: GpuState) -> Fit:
         return Fit(True)
     target = cap_to_sm(gpu.compute_cap)
     rec = runtime_record(runtime)
+    if rec is PROBING:
+        return Fit(None, probing=True)
     if rec is None:
         # No record at all: the extension is not in the registry (a node type that reached the queue with no such
         # extension would already have failed to load, so this is not a real production case) or not installed yet
@@ -136,6 +206,8 @@ def explain(runtime: str, gpu: GpuState) -> tuple[str, Msg]:
     title = runtime_title(runtime)
     target = cap_to_sm(gpu.compute_cap)
     rec = runtime_record(runtime)
+    if rec is PROBING:
+        return UNKNOWN_STATE, Msg("N-GPU-PROBING", project=title)
     if rec is None:
         return UNKNOWN_STATE, Msg("W-GPU-NOTPROBED", project=title)
     got = fit(runtime, gpu)
@@ -178,6 +250,8 @@ def wait_reason(runtimes: set[str], authorized: list[GpuState], inventory: list[
 def _runtime_problem(runtime: str, authorized: list[GpuState], inventory: list[GpuState]) -> Msg:
     title = runtime_title(runtime)
     rec = runtime_record(runtime)
+    if rec is PROBING:  # not known yet: a wait that ends by itself when the probe is through
+        return Msg("N-GPU-PROBING", project=title)
     authed_names = "、".join(sorted({g.short_name for g in authorized}))
     declared = declared_archs(runtime) if runtime != "core" else ()
     if declared and all(fit(runtime, g).undeclared for g in authorized):
@@ -187,7 +261,7 @@ def _runtime_problem(runtime: str, authorized: list[GpuState], inventory: list[G
         return Msg("W-GPU-NOTPROBED", project=title)
     if rec.archs is None:
         if not rec.torch_version and rec.kernels:
-            # No torch at all here (a C++/CUDA tool, e.g. COLMAP): judged by its own compiled CUDA 核心 directly.
+            # No torch at all here (a C++/CUDA tool, e.g. COLMAP): judged by its own compiled CUDA kernels directly.
             bad = next((kernels_incompatible(rec.kernels, cap_to_sm(g.compute_cap)) for g in authorized
                        if kernels_incompatible(rec.kernels, cap_to_sm(g.compute_cap))), ())
             return Msg("W-GPU-KERNELS", project=title, kernels=list(bad[:3]) or "未知", gpus=authed_names)

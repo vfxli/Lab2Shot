@@ -1,6 +1,6 @@
 import "./admin.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "../api";
+import { api, type SettingsPageEntry } from "../api";
 import { BrandMark } from "../ui/icons";
 import { useServer } from "../state/server";
 import { adminApi } from "../api/admin";
@@ -8,45 +8,58 @@ import { useSession, useSignedIn } from "../state/session";
 import { shown, visible } from "../api/applies";
 import { Admin, type AdminContext } from "./common";
 import { RestartBanner, RestartDialog, RestartVeil } from "./Restart";
-import { BAND_OF, SECTIONS } from "./sections";
+import { bandsOf, sectionsFor, type AdminSection } from "./sections";
 import { lastedText } from "../platform/format";
 import { usePoll } from "../platform/poll";
 import { reasonOf } from "../messages/message";
 import { Button } from "../ui/Button";
 
-/** The /admin page. It is not linked from user pages and is served only after the administrator login
- * (Auth.tsx AdminGate, via site.tsx). A side list of sections (sections.tsx) shows one section at a time; the
- * address /admin#<id> preserves the selection across reloads and logins. The header shows the server state, the
+/** The /admin page. User pages link to it only from an administrator's account menu; it is served only after the
+ * administrator login (Auth.tsx AdminGate, via site.tsx). A side list of sections (sections.tsx) shows one section at
+ * a time; the address /admin#<id> preserves the selection across reloads and logins. The header shows the server state, the
  * restart button and logout, and a banner while a restart is pending. */
 
 const TITLE = "Lab2Shot 管理";
 
 const noOverview = async () => null; // Logins without server.status do not read the overview.
+const noQueue = async () => null; // Logins without queue.manage do not read the whole queue.
+const QUEUE_WATCHED = 1500; // the 队列 section or the restart dialog is open: what runs now, as it changes
+const QUEUE_BADGE = 15_000; // any other section: only the count on the side list
 
-const sectionOf = () => {
-  const id = window.location.hash.slice(1).split("/")[0]; // A section id may be followed by further path segments (e.g. #benchmarks/<kind>).
-  return SECTIONS.some((s) => s.id === id) ? id : SECTIONS[0].id;
+/** The section the address names (/admin#<id>); the first one when it names none of them. */
+const sectionOf = (sections: readonly AdminSection[]) => {
+  const id = window.location.hash.slice(1).split("/")[0]; // A section id may be followed by further path segments (e.g. #users/<id>).
+  return sections.some((s) => s.id === id) ? id : sections[0].id;
 };
 
 export default function AdminPage() {
   const state = useSignedIn();
   const logout = useSession((s) => s.logout);
-  const sections = visible(SECTIONS, state?.applies); // Sections visible to this login (applies.ts).
-  const [section, setSection] = useState(sectionOf);
+  // the fixed sections and the 设置 band (the server's pages); keyed by what the pages say, so the login state read
+  // again does not make every section a new component (which would reset the one open)
+  const pages = JSON.stringify(state?.settings_pages ?? []);
+  const all = useMemo(() => sectionsFor(JSON.parse(pages) as SettingsPageEntry[]), [pages]);
+  const bands = useMemo(() => bandsOf(all), [all]);
+  const sections = visible(all, state?.applies); // Sections visible to this login (applies.ts).
+  const [section, setSection] = useState(() => sectionOf(all));
   const [problem, setProblem] = useState<string | null>(null);
   const [queueVersion, setQueueVersion] = useState(0);
-  const { data: queue, error: queueFailed } = usePoll(api.admin.queue, 1500, { key: queueVersion });
+  const [asking, setAsking] = useState(false);
+  const queueShown = shown(state?.applies, "queue");
+  const { data: queue, error: queueFailed } = usePoll(queueShown ? api.admin.queue : noQueue, section === "queue" || asking ? QUEUE_WATCHED : QUEUE_BADGE, {
+    key: queueVersion,
+  });
   const queueError = queueFailed ? reasonOf(queueFailed) : null;
   const { data: overview, reload: refreshOverview } = usePoll(shown(state?.applies, "server.status") ? adminApi.overview : noOverview, 5000, { onError: (e) => setProblem(reasonOf(e)) });
-  const [asking, setAsking] = useState(false);
   const { info } = useServer();
 
   useEffect(() => {
     document.title = TITLE;
-    const follow = () => setSection(sectionOf());
+    const follow = () => setSection(sectionOf(all));
+    follow(); // the settings pages arrive with the login state: an address naming one is taken once they are known
     window.addEventListener("hashchange", follow);
     return () => window.removeEventListener("hashchange", follow);
-  }, []);
+  }, [all]);
 
   const go = useCallback((id: string) => {
     setProblem(null);
@@ -73,9 +86,8 @@ export default function AdminPage() {
     <Admin.Provider value={ctx}>
       <div className="adm">
         <header className="adm-top">
-          <a className="help-brand" href="/admin#overview">
+          <a className="help-brand" href="/admin#overview" aria-label={TITLE}>
             <BrandMark />
-            {TITLE}
           </a>
           <div className="adm-top-right">
             {overview && (
@@ -108,8 +120,8 @@ export default function AdminPage() {
               const badge = s.badge?.(ctx);
               // Band heading: shown only when the previous visible section belongs to another band, so a band hidden
               // from this login leaves no empty heading.
-              const mine = BAND_OF[s.id];
-              const band = mine && mine !== (i ? BAND_OF[sections[i - 1].id] : "") ? mine : "";
+              const mine = bands[s.id];
+              const band = mine && mine !== (i ? bands[sections[i - 1].id] : "") ? mine : "";
               return (
                 <div key={s.id} style={{ display: "contents" }}>
                   {band && <div className="adm-nav-group">{band}</div>}

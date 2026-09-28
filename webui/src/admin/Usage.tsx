@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSignedIn } from "../state/session";
 import { shown } from "../api/applies";
 import { api, type UsageCounts, type UsageStats } from "../api";
 import { Section } from "./common";
 import { GroupView } from "./UsageGroups";
+import { TemplateView } from "./UsageTemplates";
 import { durationText, fullTimeText, hoursText } from "../platform/format";
 import { Button, Chip, Segmented } from "../ui/Button";
 import { useConfirm } from "../ui/Confirm";
@@ -14,20 +15,22 @@ export { DailyChart, ProjectBars } from "./UsageCharts";
 export type { BarRow } from "./UsageCharts";
 
 /** 使用统计 on /admin: how much each third-party project, and each of its nodes, was used in a time range (so the
- * administrator can see which projects earn their place), and by which department and which account (按部门, 按人,
- * UsageGroups.tsx). A run computed; a reuse was answered without computing (a cached result, or a worker's raw results
- * from before). In 按项目 the tiles and charts count third-party projects; the core's nodes come last in the table. */
+ * administrator can see which projects earn their place), and by which department and which account (按环节, 按人,
+ * UsageGroups.tsx), and which template card the jobs were opened from (按模板, UsageTemplates.tsx). A run computed;
+ * a reuse was answered without computing (a cached result, or a worker's raw results from before). In 按项目 the tiles
+ * and charts count third-party projects; the core's nodes come last in the table. */
 
-// the marks' colors, validated together on the page's dark surface (the dataviz palette check): runs, reuses, hours
+// the marks' colors, chosen together to stay distinct on the page's dark surface: runs, reuses, hours
 export const RUNS = "#0a84ff";
 export const REUSES = "#199e70";
 export const HOURS = "#d95926";
 
-type View = "projects" | "departments" | "people";
+type View = "projects" | "departments" | "people" | "templates";
 const VIEWS: [View, string, string][] = [
   ["projects", "按项目", "每个三方项目和它的每个节点用了多少"],
-  ["departments", "按部门", "每个部门用了多少，点开看它的人和他们用的项目"],
+  ["departments", "按环节", "每个环节用了多少，点开看它的人和他们用的项目"],
   ["people", "按人", "每个账号用了多少，点开看他用的项目"],
+  ["templates", "按模板", "每张模板卡片提交了几次任务、成功失败各几次、几个人用过"],
 ];
 
 type Preset = "7" | "30" | "90" | "all" | "custom";
@@ -93,17 +96,23 @@ export function UsageSection() {
   const [view, setView] = useState<View>("projects");
   const range = rangeOf(preset, from, to);
 
+  // Only the answer to the latest request is shown: switching the range while an earlier one is still on its way
+  // (a long range answers slower than a short one) must not have the earlier answer land last and stay
+  const latest = useRef(0);
   const load = useCallback(async () => {
     const asked = rangeOf(preset, from, to); // a preset counts back from today, whenever it is read
     if (typeof asked === "string") return;
+    const n = ++latest.current;
     setLoading(true);
     try {
-      setData(await api.admin.usage(...asked));
+      const got = await api.admin.usage(...asked);
+      if (n !== latest.current) return;
+      setData(got);
       setError(null);
     } catch (e) {
-      setError((e as Error).message);
+      if (n === latest.current) setError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (n === latest.current) setLoading(false);
     }
   }, [preset, from, to]);
   useEffect(() => void load(), [load]);
@@ -166,11 +175,14 @@ export function UsageSection() {
         <>
           {view === "projects"
             ? "每个三方项目和它的每个节点被用了多少：真正算了一遍记一次「计算」，沿用以前的结果记一次「复用」，时间按任务结束的时候算。" +
-              "装了的项目都列出来，这段时间没用过的是 0。上面的数字和图只算三方项目，核心节点在表格最后。马上算的轻量计算也都算在内。"
+              "装了的项目都列出来，这段时间没用过的是 0。上面的数字和图只算三方项目，核心节点在表格最后。每一次计算都算在内。"
             : view === "departments"
-              ? "每个部门用了多少，点一个部门看它的人，再点一个人看他用的项目。部门是账号的部门（在「用户」里改），核心节点也算在内；设置里的部门都列出来，已经不在列表里的部门排在后面。" +
-                "没选部门的账号（比如管理员自己）记在「未分部门」一行。"
-              : "每个账号用了多少，点一个账号看他用的项目。核心节点也算在内。删掉的账号合在「已删除的用户」一行；有账号以前的任务都算在管理员名下。"}
+              ? "每个环节用了多少，点一个环节看它的人，再点一个人看他用的项目。环节是账号的环节（在「用户」里改），核心节点也算在内；设置里的环节都列出来，已经不在列表里的环节排在后面。" +
+                "没选环节的账号（比如管理员自己）记在「未分环节」一行。"
+              : view === "people"
+                ? "每个账号用了多少，点一个账号看他用的项目。核心节点也算在内。删掉的账号合在「已删除的用户」一行；有账号以前的任务都算在管理员名下。"
+                : "每张模板卡片被用来提交了几次任务：节点图从哪张模板打开，任务就记在哪张名下，不管后来改了多少；不是从模板打开的记在「自己搭的」。" +
+                  "时间按任务提交的时候算；从这一版起才开始记，以前的任务不算。模板改了名按现在的名字，删掉的按最后一次用时的名字并标「已删除」。"}
           {data?.start ? `上次重置在 ${fullTimeText(data.start)}，统计从那时算起。` : ""}
         </>
       }
@@ -191,6 +203,10 @@ export function UsageSection() {
       {error && <div className="notice">{error}</div>}
       {data === null ? (
         <p className="help-muted">读取中…</p>
+      ) : view === "templates" ? (
+        <div className={`u-body${loading ? " u-loading" : ""}`}>
+          <TemplateView data={data} />
+        </div>
       ) : view !== "projects" ? (
         <div className={`u-body${loading ? " u-loading" : ""}`}>
           <GroupView data={data} by={view} />

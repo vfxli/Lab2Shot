@@ -210,7 +210,7 @@ def _from_working_processor(cfg: ColorConfig, dst: str) -> OCIO.CPUProcessor | N
 
 def convert_picture(picture: np.ndarray, cfg: ColorConfig, src: str, dst: str) -> np.ndarray:
     """Convert a picture in `src` to `dst` via the working space (used by output nodes writing files). `src` is the
-    working space for every picture a reader creates, or the colour space recorded by an older packet."""
+    colour space the packet records (the working space for every picture a reader creates)."""
     return from_working(to_working_picture(picture, cfg, src), cfg, dst)
 
 

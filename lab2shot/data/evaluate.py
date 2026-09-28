@@ -111,26 +111,6 @@ def triangulate(counts: np.ndarray, idx: np.ndarray) -> np.ndarray:
     return np.array(tris, np.int64).reshape(-1, 3)
 
 
-def skeleton_joints(stage: Usd.Stage, time: Usd.TimeCode) -> list[tuple[Usd.Prim, list[str], np.ndarray, np.ndarray]]:
-    """Every skeleton at `time`: (its prim, joint names, world-space joint positions [J,3], parent indices [J])."""
-    cache = UsdSkel.Cache()
-    xf_cache = UsdGeom.XformCache(time)
-    out = []
-    for prim in stage.Traverse():
-        if not prim.IsA(UsdSkel.Skeleton):
-            continue
-        skel = UsdSkel.Skeleton(prim)
-        query = cache.GetSkelQuery(skel)
-        xforms = query.ComputeJointWorldTransforms(xf_cache)
-        if not xforms:
-            continue
-        joints = [str(j) for j in query.GetJointOrder()]
-        names = [str(n) for n in (skel.GetJointNamesAttr().Get() or [])] or [j.rsplit("/", 1)[-1] for j in joints]
-        pos = np.array([np.array(m)[3, :3] for m in xforms])
-        out.append((prim, names, pos, np.array(query.GetTopology().GetParentIndices())))
-    return out
-
-
 def _apply(points: np.ndarray, row_matrix: np.ndarray) -> np.ndarray:
     homo = np.concatenate([points, np.ones((len(points), 1))], axis=1)
     return (homo @ row_matrix)[:, :3]

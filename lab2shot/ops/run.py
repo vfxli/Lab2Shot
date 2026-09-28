@@ -1,7 +1,4 @@
-"""算法目录的服务器端执行器（numpy），按 `ops.toml` 的描述执行。
-
-浏览器端执行器 `webui/src/ops/run.ts` 执行同一份描述。两端结果以 `vocab.DISPLAY_TOLERANCE` 为一致性判据
-（像素最大差 ≤ 1/255；视图仅用于预览，不要求逐位一致）。
+"""算法目录的执行器（numpy），按 `ops.toml` 的描述执行。
 
 执行器不产生用户消息：未选中条目、绘制结果为空等情况原样返回给节点，由节点决定是否提示及提示内容
 （消息由消息目录按编号统一管理）。
@@ -10,6 +7,7 @@
 from __future__ import annotations
 
 import tomllib
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +37,19 @@ def describe(op_id: str) -> dict:
 # ------------------------------------------------------------------ 公式（逐像素算术，亦供「按框涂」使用）
 
 
+@lru_cache(maxsize=None)
+def _tree(expr: str) -> tuple:
+    """公式的语法树。目录中的公式是固定的几条，每条只解析一次：逐帧调用的节点（「人物框转遮罩」「图像合成」）
+    不必每帧、每个框重新解析。语法树由元组组成，不可修改，多个线程共用同一棵树是安全的。"""
+    return parse(expr)
+
+
+@lru_cache(maxsize=None)
+def _names(expr: str) -> frozenset[str]:
+    return frozenset(variables(_tree(expr)))
+
+
+
 def _eval(tree: tuple, values: dict[str, Any]) -> Any:
     kind = tree[0]
     if kind == "num":
@@ -62,9 +73,9 @@ def _eval(tree: tuple, values: dict[str, Any]) -> Any:
 
 
 def _pixel(desc: dict, args: dict) -> dict:
-    tree = parse(desc["expr"])
+    tree = _tree(desc["expr"])
     values = {}
-    for name in variables(tree):
+    for name in _names(desc["expr"]):
         if name not in args:
             raise BadOp(f"算法要 {name!r}，调用时没给")
         v = args[name]
@@ -78,16 +89,38 @@ def _pixel(desc: dict, args: dict) -> dict:
 
 
 def _boxes_paint(desc: dict, args: dict) -> dict:
-    axis, combine = parse(desc["axis"]), parse(desc["combine"])
+    axis, combine = _tree(desc["axis"]), _tree(desc["combine"])
     w, h = int(args["width"]), int(args["height"])
     cols, rows = np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32)
-    out = np.full((h, w), np.float32(desc["base"]), np.float32)
-    for box in args["boxes"]:
-        x1, y1, x2, y2 = (float(v) for v in box)
-        cx = _eval(axis, {"p": cols, "lo": np.float32(x1), "hi": np.float32(x2)})
-        cy = _eval(axis, {"p": rows, "lo": np.float32(y1), "hi": np.float32(y2)})
-        one = _eval(combine, {"x": np.asarray(cx)[None, :], "y": np.asarray(cy)[:, None]})
-        out = np.maximum(out, one)  # desc["accumulate"] == "max"（词汇表目前仅支持此一种）
+    base = np.float32(desc["base"])
+    out = np.full((h, w), base, np.float32)
+    boxes = np.asarray([[float(v) for v in box] for box in args["boxes"]], np.float64).reshape(-1, 4)
+    if not len(boxes):
+        return {"mask": out}
+    # 所有框一起算两条轴上的覆盖（每个框一行，逐元素运算，数值与逐框计算相同），不按框逐个调用：
+    # 一帧十几个人时，逐框的几十次小运算比运算本身还费时，多帧并行时更甚（每次运算都要交还再取回解释器锁）
+    x1, y1, x2, y2 = (boxes[:, [i]].astype(np.float32) for i in range(4))
+    cx = np.broadcast_to(_eval(axis, {"p": cols[None, :], "lo": x1, "hi": x2}), (len(boxes), w))
+    cy = np.broadcast_to(_eval(axis, {"p": rows[None, :], "lo": y1, "hi": y2}), (len(boxes), h))
+    # 只计算每个框所覆盖的那一块：一个框只占画面的一小块，块外各像素沿某条轴的覆盖为 0。只要这些像素的合成值
+    # 不超过底色（逐行、逐列核对；公式里任何一处不满足，该框就退回整幅计算），取较大值后它们保持原值，
+    # 因此结果与整幅计算逐位相同
+    zero = np.float32(0)
+    off_x = np.broadcast_to(_eval(combine, {"x": zero, "y": cy}), cy.shape)  # 覆盖为 0 的列上，每一行的合成值
+    off_y = np.broadcast_to(_eval(combine, {"x": cx, "y": zero}), cx.shape)  # 覆盖为 0 的行上，每一列的合成值
+    blocks = np.all(off_x <= base, axis=1) & np.all(off_y <= base, axis=1)  # NaN 不满足，同样退回整幅计算
+    on_x, on_y = cx != 0, cy != 0
+    seen = on_x.any(axis=1) & on_y.any(axis=1)  # 框至少覆盖画面内的一个像素
+    left, right = on_x.argmax(axis=1), w - on_x[:, ::-1].argmax(axis=1)
+    top, bottom = on_y.argmax(axis=1), h - on_y[:, ::-1].argmax(axis=1)
+    for i in range(len(boxes)):
+        if not blocks[i]:
+            one = _eval(combine, {"x": cx[i][None, :], "y": cy[i][:, None]})
+            out = np.maximum(out, one)  # desc["accumulate"] == "max"（词汇表目前仅支持此一种）
+        elif seen[i]:  # 框完全在画面外（且块外不超过底色）：对结果没有影响
+            ys, xs = slice(top[i], bottom[i]), slice(left[i], right[i])
+            one = _eval(combine, {"x": cx[i][None, xs], "y": cy[i][ys, None]})
+            np.maximum(out[ys, xs], one, out=out[ys, xs])
     return {"mask": np.asarray(out, np.float32)}
 
 

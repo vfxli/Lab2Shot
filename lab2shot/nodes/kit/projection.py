@@ -44,10 +44,6 @@ class Box:
     def size(self) -> np.ndarray:
         return np.asarray(self.high, np.float64) - np.asarray(self.low, np.float64)
 
-    @property
-    def is_empty(self) -> bool:
-        return not np.all(np.asarray(self.high) >= np.asarray(self.low))
-
     def json(self) -> dict:
         return {"low": [float(v) for v in self.low], "high": [float(v) for v in self.high]}
 

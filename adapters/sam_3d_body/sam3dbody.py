@@ -18,7 +18,7 @@ import numpy as np
 import roma
 import torch
 
-from lab2shot_worker import fail, nothing, progress, read_frame, stage
+from lab2shot_worker import nothing, progress, read_frame, stage
 from lab2shot_worker import tracking as pp
 from lab2shot_shared.motion import quat_to_matrix
 from lab2shot_shared.units import CV_TO_GL, M_TO_CM
@@ -105,7 +105,7 @@ def evaluate(head, global_rot, body, hand, scale, shape) -> dict:
         # （third_party/sam_3d_body/repo/sam_3d_body/models/heads/mhr_head.py:316
         #  `pred_face = pred[:, count : count + self.num_face_comps] * 0`，同一段 :306-307 连下巴也置零；
         #  fast_sam_3d_body 的同名文件 :442、:508、:901 一样）。
-        # 所以 estimator 吐的 expr_params 永远是一串 0，送不送进来结果一个字节都不差；「人物」上没有表情 blendShape。
+        # 所以 estimator 吐的 expr_params 永远是一串 0，送不送进来结果一个字节都不差；「蒙皮角色」上没有表情 blendShape。
         expr = torch.zeros(n, head.num_face_comps, device=device)
         _, model_params = head.mhr_forward(
             global_trans=torch.zeros(n, 3, device=device),
@@ -161,7 +161,8 @@ def intrinsics(focal_px: float, width: int, height: int) -> torch.Tensor:
 
 def shot_camera(job, load_measure) -> tuple:
     """(intrinsics: one tensor for the shot or a function of the frame, focal px, where it came from).
-    The "camera" input (per-frame focal) when connected, else estimate_focal_px()."""
+    The per-frame focals the node sends as inputs["camera"] when a focal length is wired per frame, else
+    estimate_focal_px()."""
     camera_npz = job.inputs.get("camera")
     if camera_npz is None:
         focal_px, source = estimate_focal_px(job, load_measure)
@@ -196,7 +197,7 @@ def people_tracks(detections: dict[int, np.ndarray]) -> list[tuple[int, pp.Track
     接了走上面的 given_people()，这里不跑。
 
     没接框、又只想算画面里的某一个人，也可以走显式的那条链：
-        「ViTDet 人物框」 -> 「选人」 -> 「人物框转遮罩」 -> 「图像合成」（留下）-> 解算器的「图像」口
+        「ViTDet 人物框」 -> 「选人」 -> 「人物框转遮罩」 -> 「图像合成」（留下）-> 解算器的「RGB」口
     相乘之后画面上只剩那个人，上游自己的检测器自然只会找到他。
     """
     tracks = pp.track_boxes(detections)
@@ -270,11 +271,11 @@ def write_people(job, per_person: dict[int, dict[int, dict]], head, focal_px: fl
         data = solve_person(outputs, head, params, rig)
         name = f"person_{pid:02d}.npz"
         # `solved`：真正解出来的那几帧（契约：lab2shot_worker/world_humans.py 模块开头的 raw 契约）。
-        # `data["frames"]` 是 `job.frames`，补完之后的：从它身上看不出这个人有几帧是插值编出来的
+        # solve_person 只收有结果的帧，所以这里 `solved` 与 `data["frames"]` 相同
         save_npz(job.raw_dir / name, solved=np.asarray(sorted(int(f) for f in outputs), np.int64), **data)
         missing = len(job.frames) - len(outputs)
         if missing:
-            say("N-SAM3DBODY-INTERPOLATED", person=int(pid), missing=int(missing), frames=len(job.frames))
+            say("N-SAM3DBODY-UNSOLVEDFRAMES", person=int(pid), missing=int(missing), frames=len(job.frames))
         out.append({"id": pid, "file": name, "frames": [int(f) for f in data["frames"]]})
         progress(n + 1, len(per_person))
     write_result(job, people=out, camera={"focal_px": focal_px, "source": focal_source, "width": job.width, "height": job.height})

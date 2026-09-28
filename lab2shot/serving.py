@@ -28,8 +28,10 @@ class Account:
     all_accounts: bool = False
 
 
-ANYONE = Account(0, all_accounts=True)  # no account is being served: this process's own work (the command line, a
-# tool script, a test, a worker). A server request and a farm job always name one.
+ANYONE = Account(0)  # no account is being served: this process's own work (the command line, a tool script, a
+# worker). It reads no account's files: a server request and a farm job always name one, and code that forgot to
+# carry theirs onto its thread must find nothing rather than every account's (all_accounts is only ever given on
+# purpose: server/access.py account_of, for a login holding data.others).
 NOBODY = Account(-1)  # a request without a session: it owns nothing (account ids start at 1)
 
 _serving: ContextVar[Account] = ContextVar("lab2shot_serving", default=ANYONE)
@@ -48,3 +50,72 @@ def serving(who: Account):
         yield who
     finally:
         _serving.reset(token)
+
+
+# ------------------------------------------------------------------ what a job touches in its account's cache
+
+
+class Uses:
+    """The cache entries one job computed or reused (their names in its account's cache: a packet fingerprint, a worker
+    job's `<key>_job`), noted as the engine goes (data/packet.py note). The farm keeps one per job: a task writes them
+    down as its references (transfer/tasks.py, the tasks' task_cache), and while any job runs what it noted is never
+    cleaned away under it (farm/disk.py)."""
+
+    def __init__(self) -> None:
+        import threading
+
+        self._lock = threading.Lock()
+        self._names: set[str] = set()
+        self._told: set[str] = set()
+
+    def add(self, name: str) -> None:
+        with self._lock:
+            self._names.add(name)
+
+    def names(self) -> frozenset[str]:
+        with self._lock:
+            return frozenset(self._names)
+
+    def write_down(self, write) -> None:
+        """Hand the names noted and not written down yet to `write` (the task's references: transfer/tasks.py
+        reference), outside the lock; they count as written only once it returned, so a write that fails leaves them
+        for the next one."""
+        with self._lock:
+            new = sorted(self._names - self._told)
+        if not new:
+            return
+        write(new)
+        with self._lock:
+            self._told.update(new)
+
+
+_uses: ContextVar[Uses | None] = ContextVar("lab2shot_uses", default=None)
+
+
+def uses() -> Uses | None:
+    """The job being done now notes its cache entries here (None: no job, e.g. a status request)."""
+    return _uses.get()
+
+
+@contextmanager
+def noting(into: Uses | None):
+    """Note the cache entries what follows touches into `into`."""
+    token = _uses.set(into)
+    try:
+        yield into
+    finally:
+        _uses.reset(token)
+
+
+def carried(fn):
+    """`fn` as it runs on another thread, doing the same account's work (and noting into the same job) as the thread
+    that hands it over now: a thread pool's or a new thread's worker starts with nobody's context otherwise, and a
+    cache or an upload would then be looked for as nobody's. Every hand-over of work to another thread goes through
+    this (the farm's threads, the engine's per-frame threads, the viewer's)."""
+    who, into = account(), uses()
+
+    def run(*args, **kwargs):
+        with serving(who), noting(into):
+            return fn(*args, **kwargs)
+
+    return run

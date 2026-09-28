@@ -42,12 +42,9 @@ class Track(PointTracker3D):
 
     class Params(PointTracks3DParams):
         grid: Literal[0, 10, 16] = measured_param(
-            "网格点数", {0: Measured("只跟手动点", below=16), 10: Measured("100 个点", below=16), 16: Measured("256 个点：1080×1920 200 帧 0.08 秒/帧", gb=10.0)}, default=0, group="跟踪",
-            help="每边的点数：在起始帧上均匀撒 n×n 个点一起跟踪（16 = 256 个点）；默认 0 = 只跟你在 2D 视图里点的那些点（点完可以拖着调位置）；撒网格点就选 10 / 16，网格点和手动点一起跟，导出时手动点排最前面。接了遮罩时网格只撒在遮罩里")
+            "网格点数", {0: Measured(below=16), 10: Measured(below=16), 16: Measured(gb=10.0)}, default=0, group="跟踪")
         resolution: Literal["standard", "fine"] = P(
             "fine", label="处理分辨率", group="模型", option_labels={"standard": "标准", "fine": "精细"},
-            help="标准：模型训练的 384×512（论文评测用的，最快）；精细：543×724（上游默认，细节更准，显存和时间约翻倍）。"
-                 "画面都缩放到这个尺寸再跟踪，三维位置不受缩放影响",
         )
 
 

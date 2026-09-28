@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { workerAnswers } from "../platform/work";
-import { lookup, type Lut } from "../ops/lut";
+import { lookup, type Lut } from "./lookup";
 import { decodeExrPlanes, exrHeader, halfToFloat, type ExrDecoded } from "./exr/decode";
 
 /** The page's EXR worker. It answers two kinds of request:
@@ -8,9 +8,8 @@ import { decodeExrPlanes, exrHeader, halfToFloat, type ExrDecoded } from "./exr/
  * 1. `{ file, lut }` (display): decodes a user-selected EXR with the page's single decoder (`exr/decode.ts`,
  *    adapted from three's EXRLoader; supports PIZ, ZIP, RLE, PXR24, B44, DWA) and applies the display transform
  *    supplied by the server (exr.ts). Decoding runs off the main thread so that a 4K frame does not block the editor.
- *    The local proxy (`transfer/localProxy`) is the primary path; this request is used only when the browser has no
- *    origin private file system. The table lookup itself is shared with browser-computed images (view/evaluate.ts)
- *    via ops/lut.ts `lookup`.
+ *    The local proxy (`transfer/localProxy`) is the primary path; this request is used only when it cannot supply the
+ *    frame (no origin private file system, or its generation failed). The table lookup is transfer/lookup.ts `lookup`.
  * 2. `{ file, planes }` (upload): returns the raw planes of the requested channels only (`planes`: the file's own
  *    channel names, taken from the status reply's `channels.take`), as half / float / uint as stored, with no display
  *    transform and no resizing. Channel-level upload sends these instead of the whole file (transfer/planes.ts).
@@ -18,7 +17,7 @@ import { decodeExrPlanes, exrHeader, halfToFloat, type ExrDecoded } from "./exr/
 
 export type { Lut };
 
-export type ExrAsk = { file: Uint8Array; lut: Lut; planes?: undefined } | { file: Uint8Array; planes: string[]; lut?: undefined };
+type ExrAsk = { file: Uint8Array; lut: Lut; planes?: undefined } | { file: Uint8Array; planes: string[]; lut?: undefined };
 
 /** Answer to request 2: `exr/decode.ts` ExrDecoded as is (planes are typed arrays, transferred per platform/work.ts). */
 export type PlanesAnswer = ExrDecoded;

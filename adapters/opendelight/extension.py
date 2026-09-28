@@ -52,9 +52,8 @@ class OpenDelight(Extension):
             "以独立进程运行，GPL 不影响 Lab2Shot 本身"
         ),
     )
-    # torch 本身支持 sm_120（Blackwell）；onnxruntime-gpu 1.22.0 的预编译 CUDA provider 只到 sm_90，
-    # 所以 requirements.txt 里的 onnxruntime-gpu 是更新的版本。环境装在 .venv-ada-blackwell
-    # （见 Extension.env_archs），不碰旧的 .venv。
+    # torch 本身支持 sm_120（Blackwell）；上游钉的 onnxruntime-gpu 1.22.0 预编译 CUDA provider 只到 sm_90，
+    # 所以 requirements.txt 用带 sm_120 kernel 的版本。环境装在 .venv-ada-blackwell（见 Extension.env_archs）。
     env_archs = ("sm_89", "sm_120")  # Ada and Blackwell: third_party/opendelight/.venv-ada-blackwell
     env = EnvSpec(
         python="3.11",

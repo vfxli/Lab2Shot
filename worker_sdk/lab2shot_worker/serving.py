@@ -31,7 +31,7 @@ seeds gets the same numbers whether its models were loaded just now or kept. A f
 
 Protocol (--serve): commands are JSON lines on the process's original stdin (the worker's own stdin is /dev/null):
 {"cmd": "job", "job": path, "keep_free_gb": n}, {"cmd": "offload", "keep_free_gb": n}, {"cmd": "exit"}. Replies are
-events: job_end {ok, error, oom, models, vram_mb} and offloaded {models, vram_mb}.
+events: job_end {ok, error, oom, incompatible_gpu, models, vram_mb} and offloaded {models, vram_mb}.
 """
 
 from __future__ import annotations
@@ -132,7 +132,8 @@ def _frozen(value: Any):
 
 
 def _label(fn: Callable, args: tuple, kwargs: dict) -> str:
-    """What the admin page shows: the loader's file and name arguments (a Path by its last two parts)."""
+    """What the admin page shows: the loader's Path arguments (by their last two parts) and short string arguments
+    other than a device; the loader's name when there are none."""
     parts = []
     for v in (*args, *kwargs.values()):
         if isinstance(v, Path):
@@ -319,7 +320,7 @@ def serve(main: Callable[[str], None]) -> None:
     """A worker script's entry point: `if __name__ == "__main__": serve(main)`, `main(job_path)` runs one job."""
     from . import _pin_channel
 
-    _pin_channel()  # 上游代码换掉 sys.stdout 也不影响我们和核心说话（见 _pin_channel）
+    _pin_channel()  # upstream code replacing sys.stdout cannot cut the worker off from the core (see _pin_channel)
     args = sys.argv[1:]
     if args == ["--serve"]:
         _serve(main)

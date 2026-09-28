@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-/** The user's files going up. The store lives here so that every `create(` call is under webui/src/state/; the
+/** The user's files going up. The store lives here with the page's other stores; the
  * transport logic (chunking, retrying, the BroadcastChannel between tabs) stays in transfer/uploads.ts, which imports
  * the type and the store from here. Tagged 计算结果: an upload's progress is the same kind of thing as a job's
  * progress (state/results.ts) — a background operation under way, never saved, never part of the undo history. */
@@ -8,7 +8,7 @@ import { create } from "zustand";
 export type UploadState =
   // 选完文件之后先停在这两档，一个字节都不传：字节只在下游有节点要算、按连线用到的通道才上传
   | "reading" // 正在读他机器上那些文件、算内容指纹（sha256）：为的是把这份上传申报上去，好让节点长出口来
-  | "picked" // 申报完了，节点上的口都在，字节还在他机器上：点「计算」才传（`graph/actions.ts sendPicked`）
+  | "picked" // 申报完了，节点上的口都在，字节还在他机器上：点「计算」才传（`graph/apply.ts sendPicked`）
   | "sending" // going up
   | "waiting" // the line dropped (or the server is away): trying again by itself
   | "finishing" // every file is in: the server puts the set together
@@ -38,7 +38,7 @@ export interface UploadTask {
   retryAt: number; // waiting: when it asks again (ms since the epoch)
 }
 
-export interface Uploads {
+interface Uploads {
   tasks: Record<string, UploadTask>;
 }
 
