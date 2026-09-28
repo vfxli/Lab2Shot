@@ -97,7 +97,9 @@ VIDEO_OPTIONS = {"format_whitelist": "mov,matroska,avi,mxf", "protocol_whitelist
 
 def open_video(path: Path) -> av.container.InputContainer:
     try:
-        return av.open(str(path), options=VIDEO_OPTIONS)
+        # the container's text tags (handler names and the like) may be in any encoding, GBK from a Chinese QuickTime
+        # for one; nothing here reads them, so a byte that is not UTF-8 is replaced instead of failing the whole file
+        return av.open(str(path), options=VIDEO_OPTIONS, metadata_errors="replace")
     except av.error.FFmpegError as exc:
         raise Invalid(Msg("E-VIDEO-UNREADABLE", file=path.name)) from exc
 
