@@ -1,4 +1,4 @@
-"""相机：创建相机、相机去抖、锁定 Focal Length、相机对比。"""
+"""相机：创建相机、设置背板、相机去抖、锁定 Focal Length、相机对比。"""
 
 from __future__ import annotations
 
@@ -67,6 +67,47 @@ class CreateCamera(NodeDef):
         samples = CameraSamples.solved(frames, w, h, used.focal_px, pose, filmback_mm=used.filmback_mm,
                                        principal_px=principal, info={"lens": used.said}, plate=image.fingerprint if image is not None else "")
         return {"camera": samples.write(ctx.outputs["camera"])}
+
+
+
+class SetPlate(NodeDef):
+    """Give a camera a plate: the same camera out, its plate (the picture the 3D view shows through it, as in a DCC's
+    camera image plane) now the wired image. Any camera (imported from abc / USD / FBX, solved, created) and any
+    image (colour, grey, with alpha). The camera's file is copied unchanged apart from that one attribute, so an
+    imported camera stays exactly what the user brought in. The plate is looked up by frame number, so the camera's
+    and the image's frames should agree."""
+
+    id = "core.set_plate"
+    category = "camera_tools"
+    inputs = (Port("camera", "scene.camera", "相机"), Port("image", "image", "图像", alpha=True))
+    outputs = (Port("camera", "scene.camera", "相机"),)
+
+    class Params(NodeParams):
+        pass
+
+    @classmethod
+    def info(cls, params, inputs):
+        """The camera's frames and size: the image only lends its picture."""
+        return Info.merge(inputs["camera"])
+
+    @classmethod
+    def cook(cls, ctx):
+        import shutil
+
+        from pxr import Usd
+
+        from ...data.packet import Packet
+        from ...data.payloads import SCENE_FILE
+        from ...data.scene import the_camera
+        from ...io import usd
+
+        camera, image = ctx.input("camera"), ctx.input("image")
+        target = ctx.outputs["camera"] / SCENE_FILE
+        shutil.copyfile(camera.path(SCENE_FILE), target)
+        stage = Usd.Stage.Open(str(target))
+        the_camera(stage, "相机输入").SetCustomDataByKey(usd.PLATE, image.fingerprint)
+        stage.GetRootLayer().Save()
+        return {"camera": Packet(ctx.outputs["camera"], camera.type, {**camera.meta, "plate": image.fingerprint})}
 
 
 class DeshakeCamera(NodeDef):
@@ -281,4 +322,4 @@ class CompareCameras(NodeDef):
 
 
 
-NODES = (CreateCamera, DeshakeCamera, LockFocal, CompareCameras)
+NODES = (CreateCamera, SetPlate, DeshakeCamera, LockFocal, CompareCameras)

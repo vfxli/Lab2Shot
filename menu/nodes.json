@@ -17,6 +17,7 @@
  "core.confidence_mask": "mask_make",
  "core.constant": "read_plate",
  "core.create_camera": "camera_tools",
+ "core.set_plate": "camera_tools",
  "core.crop": "img_adjust",
  "core.curve_channel": "value",
  "core.curves_resample": "scene_convert",
