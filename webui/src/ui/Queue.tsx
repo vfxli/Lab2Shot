@@ -6,7 +6,7 @@ import { PHASE_TEXT, progressTip } from "../api";
 import type { Output } from "../api/files";
 import type { Availability } from "../api/applies";
 import { OutputDownload, outputTip } from "./OutputDownload";
-import { clockText, durationText, roughlyText } from "../platform/format";
+import { clockText, durationText } from "../platform/format";
 import { api } from "../api";
 import { Button, Switch } from "./Button";
 import { useConfirm } from "./Confirm";
@@ -19,14 +19,12 @@ import { StoragePanel } from "./Storage";
 
 export { JobTable, fromRecord } from "./QueueTables";
 
-/** The farm's queue, implemented once: the editor's 队列 window and the admin page (/admin) both render it with this
- * component. One table, never two sections: a running, waiting or finished job is the same entity in a different 状态,
- * so all jobs form one row set; the editor's own finished jobs carry 缓存 and 加载 in the same table. The admin page
- * shows every job, its job log merged in the same way, and adds 谁, the GPU switches and everything known about who
- * started each. */
+/** 计算农场的队列，只实现一次：编辑器的「队列」窗口和后台（/admin）都用这个组件绘制。
+ * 单一表格，不分两部分：计算中、排队中、已完成的任务是同一类东西，区别只在「状态」，因此所有任务是同一组行；
+ * 编辑器中自己已完成的任务在同一张表里带「缓存」和「加载」。后台列出全部任务，任务记录按同样方式并入，
+ * 并增加「谁」、显卡开关，以及关于每个任务提交者的全部已知信息。 */
 
-/** Where a running job runs: the cards its nodes are on now (only for whoever may see the cards), or just
- * 「在服务器上算」. */
+/** 计算中的任务在哪里算：其节点当前所在的显卡（仅对有权查看显卡的人），否则只写「在服务器上算」。 */
 export const whereOf = (job: QueueJob): string => (job.cards?.length ? job.cards.join("、") : "在服务器上算");
 
 const STATE: Record<JobState, [string, string]> = {
@@ -49,15 +47,6 @@ export function StateChip({ state }: { state: JobState }) {
   );
 }
 
-
-/** When a running job is expected to finish, or a waiting one to start ("" when unknown). */
-export function etaText(job: QueueJob, now: number): string {
-  if (!job.eta || (job.state !== "running" && job.state !== "queued")) return "";
-  const left = job.eta.at - now;
-  if (left < 1) return job.state === "running" ? "快算完了" : "马上开始";
-  const about = job.eta.partial ? "至少" : "约";
-  return job.state === "running" ? `剩余${about} ${roughlyText(left)}` : `${about} ${roughlyText(left)}后开始`;
-}
 
 /** 提交时刻与耗时，分为两列。 */
 export const submittedAt = (j: QueueJob): string => clockText(j.submitted);
@@ -87,9 +76,7 @@ export function Outcome({ job }: { job: QueueJob }) {
   );
 }
 
-const ETA_TIP = "按以往同样节点的用时，按帧数和分辨率换算；计算中的任务再按当前进度修正。“至少”表示有节点还没有用时记录";
-
-/** What a finished job's 「输出」 packed: each zip's name, and its download while the task keeps it. */
+/** 已完成任务的「输出」打包出的内容：每个 zip 的名称，以及任务保留期间的下载。 */
 function Outputs({ outputs }: { outputs: Output[] }) {
   return (
     <div className="q-outputs">
@@ -105,12 +92,11 @@ function Outputs({ outputs }: { outputs: Output[] }) {
   );
 }
 
-export function Progress({ job, now }: { job: QueueJob; now: number }) {
+// 不显示预计还要多久、多久后开始：按以往用时推算的时间不准。排队的行只有「已等」（elapsed），计算中的行是进度条和「已算」。
+export function Progress({ job }: { job: QueueJob }) {
   if (job.outputs?.length && (job.state === "done" || job.state === "partial" || job.state === "cancelled")) return <Outputs outputs={job.outputs} />;
   if (job.state === "failed" || job.state === "partial") return <span className="q-error" data-tip={job.error ?? ""}>{job.error}</span>;
   if (job.state === "cancelled" && job.reason) return <span className="q-muted" data-tip={job.reason}>{job.reason}</span>;
-  const eta = etaText(job, now);
-  if (job.state === "queued") return eta ? <span className="q-eta tnum" data-tip={ETA_TIP}>{eta}</span> : null;
   if (job.state !== "running") return null;
   // 计算进度只有一套（api/progress.ts）：节点读取的也是同一份，服务器只发送这一份
   const live = "phase" in job.now ? (job.now as JobProgress) : null;
@@ -126,19 +112,18 @@ export function Progress({ job, now }: { job: QueueJob; now: number }) {
           <i className={live.at == null ? "indeterminate" : ""} style={live.at == null ? { width: "30%" } : { width: `${live.at * 100}%` }} />
         </span>
       )}
-      {eta && <span className="q-eta tnum" data-tip={ETA_TIP}>{eta}</span>}
     </div>
   );
 }
 
-// what the request revealed and what clients report about themselves (lab2shot/server/auth.py details,
-// webui/src/platform/client.ts, lab2shot/client.py)
+// 请求本身透露的信息，以及客户端自报的信息（lab2shot/server/auth.py details、
+// webui/src/platform/client.ts、lab2shot/client.py）
 const DETAIL_LABELS: Record<string, string> = {
   ip: "IP 地址", user_agent: "User-Agent", hostname: "计算机名", user: "系统用户", platform: "平台", language: "语言",
   timezone: "时区", screen: "屏幕", python: "Python 版本", pid: "进程号",
 };
 
-/** Everything known about who started a job (the administrator's view): the account, then what the request revealed. */
+/** 关于任务提交者的全部已知信息（管理员视图）：先是账号，然后是请求透露的信息。 */
 export function ClientDetail({ client }: { client: JobClient }) {
   const rows: [string, unknown][] = [
     ["账号", client.username],
@@ -203,19 +188,18 @@ export function QueueView({
 }: {
   data: QueueData;
   admin?: boolean;
-  // the admin page: the job log (GET /api/admin/history), merged into the same table after the queue's own jobs
+  // 后台：任务记录（GET /api/admin/history），并入同一张表，排在队列自身的任务之后
   history?: JobRecord[] | null;
   onCancel: (id: string) => void;
-  onLoad?: (id: string) => void; // the editor: open one of the account's jobs again
-  // re-read the queue immediately (the editor's poll): after cleanup, the 我的占用 bar and the row's 缓存 mark
-  // must be correct immediately rather than at the next tick
+  onLoad?: (id: string) => void; // 编辑器：重新打开本账号的某个任务
+  // 立即重读队列（编辑器的轮询）：腾出空间后，「我的占用」条和该行的「缓存」标记必须立即正确，而非等到下一次轮询
   onRefresh?: () => void;
   onSwitch?: (key: "gpu" | "compute", on: boolean) => void;
   graphUrl?: (id: string) => string;
-  // 插队, admin page only: put a task still to finish at the front of the queue (lab2shot/farm/queue.py Farm.first)
+  // 插队，仅后台：把尚未结束的任务挪到队首（lab2shot/farm/queue.py Farm.first）
   onFirst?: (job: QueueJob) => void;
-  // the admin page: the login's availability answer, which says whether it may delete others' tasks and rename their
-  // groups (server/available.py ACTIONS queue.forget / queue.forgetgroup / queue.rename)
+  // 后台：本次登录的可用性答复，说明能否删除他人的任务、为他人的组改名
+  // （server/available.py ACTIONS queue.forget / queue.forgetgroup / queue.rename）
   applies?: Availability | null;
 }) {
   const active = data.jobs.filter((j) => j.state === "queued" || j.state === "running");
@@ -243,7 +227,7 @@ export function QueueView({
   const waiting = rows.some(({ job }) => job.state === "queued");
   const ahead = active.filter((j) => j.state === "queued" && !j.mine).length;  // 排在前面的他人任务数
   // 腾出空间后（删除一条任务或「删除全部」）：占用条自行重读，队列也重读一次，表中各行
-  // 以及顶栏「提交」是否置灰随之更新，无需等待下一次轮询
+  // 以及「计算」是否置灰（graph/actions.ts cookHold）随之更新，无需等待下一次轮询
   const [cleaned, setCleaned] = useState(0);
   const cleanedOnce = () => {
     setCleaned((n) => n + 1);
@@ -321,7 +305,7 @@ export function QueueView({
         // 不写「有人提交计算后在此列出」：账号之间相互隔离，他人的任务本就不会出现在此处。
         // 为空时只显示一项有用的信息：当前排队的任务数。
         <div className="q-empty">
-          {onLoad ? "你还没有提交过计算：在节点上「计算」或点右上角「提交」以后，这里列出来" : "队列里没有任务"}
+          {onLoad ? "你还没有提交过计算：点「计算」「打包」以后，这里列出来" : "队列里没有任务"}
           {ahead > 0 ? `；前面排队的有 ${ahead} 个` : ""}
         </div>
       )}

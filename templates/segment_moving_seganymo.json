@@ -7,13 +7,118 @@
   "author": "Lab2Shot",
   "created": "2026-09-13T12:00:00",
   "deliverable": "mask",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T08:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "name": "analysis_frames",
+   "label": "分析帧数",
+   "target": "seg.analysis_frames"
+  },
+  {
+   "name": "query_step",
+   "label": "查询间隔",
+   "target": "seg.query_step"
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "resolution",
+     "label": "处理分辨率",
+     "target": "seg.resolution"
+    }
+   ]
+  },
+  {
+   "name": "cook_seg",
+   "label": "分割",
+   "target": "seg.cook"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out_o.name"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "out_o.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -23,11 +128,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 240
+    "y": 24
    }
   },
   {
@@ -40,26 +147,8 @@
     "query_step": 10
    },
    "ui": {
-    "x": 320,
-    "y": 240
-   }
-  },
-  {
-   "id": "out_m",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "name": "moving_mask",
-    "format": "exr",
-    "colorspace": null
-   },
-   "ui": {
-    "x": 680,
-    "y": 0,
-    "on_node": [
-     "name",
-     "format"
-    ]
+    "x": 400,
+    "y": 4
    }
   },
   {
@@ -67,18 +156,26 @@
    "type": "core.output_exr",
    "label": "多层 EXR 输出设置",
    "params": {
-    "name": "moving_objects",
+    "name": "moving_mask",
     "layers": [
      {
       "name": "layer1",
-      "label": "CryptoObject"
+      "label": "alpha",
+      "channels": "A"
+     },
+     {
+      "name": "layer2",
+      "label": "CryptoObject",
+      "channels": ""
      }
     ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
     "colorspace": null
    },
    "ui": {
-    "x": 680,
-    "y": 260,
+    "x": 800,
+    "y": 0,
     "on_node": [
      "name"
     ]
@@ -90,8 +187,8 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1000,
-    "y": 140
+    "x": 1200,
+    "y": 0
    }
   }
  ],
@@ -112,8 +209,8 @@
     "mask"
    ],
    "to": [
-    "out_m",
-    "image"
+    "out_o",
+    "layer1"
    ]
   },
   {
@@ -123,17 +220,7 @@
    ],
    "to": [
     "out_o",
-    "layer1"
-   ]
-  },
-  {
-   "from": [
-    "out_m",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
+    "layer2"
    ]
   },
   {

@@ -5,7 +5,8 @@ import { type Bounds } from "../model/math3d";
 import type { ViewOptions } from "../model/viewOptions";
 import { matrixAt } from "./matrix3d";
 import { type CloudData, type CloudSample, type GridSample } from "./sceneData";
-import { columnMajor, heldSample, sampleAt } from "../model/viewFormat";
+import {columnMajor, heldSample } from "../model/viewFormat";
+import { sampleAt } from "../model/timelineMath";
 import { project, usePickable, type PickRay } from "./stageState";
 import { COLOR_MODES, POINTS_FRAG, POINTS_VERT } from "./pointShaders";
 
@@ -38,6 +39,9 @@ function uniforms() {
     uRgb: { value: null as THREE.Texture | null },
     uHasRgb: { value: 0 },
     uGridTint: { value: new THREE.Vector3(0.7, 0.7, 0.7) },
+    uRamp: { value: new THREE.Vector3(0, 1, 0) },
+    uRampNear: { value: new THREE.Vector3() },
+    uRampSlope: { value: new THREE.Vector3() },
     uGrid: { value: new THREE.Vector4(1, 1, 1, 1) },
     uFocal: { value: 1 },
     uPrincipal: { value: new THREE.Vector2() },
@@ -61,7 +65,7 @@ function placeholder(n: number): THREE.BufferAttribute {
 /** A depth cloud's frame as two textures: its depths (32-bit float) and its colours with alpha 1 where a pixel is a
  * point (bytes when the colours are bytes, else float: 16-bit words as k/65535). */
 function gridTextures(g: GridSample): THREE.DataTexture[] {
-  const { gw, gh } = g; // 该帧自身的尺寸：超过「点云上限」时服务器已删减点，网格更小
+  const { gw, gh } = g; // this frame's own size: over 「点云上限」 the server has dropped points and the grid is smaller
   const n = gw * gh;
   const depth = new THREE.DataTexture(g.depth, gw, gh, THREE.RedFormat, THREE.FloatType);
   const bytes = !g.colors || g.colors instanceof Uint8Array;
@@ -113,8 +117,8 @@ interface Props {
 export function Cloud({ src, frame, o, pickKey, version }: Props) {
   const { gl, size, invalidate } = useThree();
   const i = sampleAt(src.frames, frame);
-  // 该帧尚未到达时绘制最近可用的一份，不绘制为空（否则来回拖动时间线时会闪烁）。
-  // 当前显示的帧由统一的视图通知区说明，此处只保证画面不为空
+  // A frame not yet arrived draws the nearest available sample, never nothing (otherwise scrubbing the timeline flickers).
+  // The frame actually shown is stated by the one view notice area; this only keeps the picture from going empty
   const sample = src.still ?? heldSample(src.samples, i)?.sample ?? null;
   const count = sample ? sample.count : 0;
   const grid = !!sample?.grid;
@@ -179,6 +183,13 @@ export function Cloud({ src, frame, o, pickKey, version }: Props) {
       u.uRgb.value = rgbTex;
       u.uHasRgb.value = gs.colors ? 1 : 0;
       if (gs.tint) u.uGridTint.value.set(gs.tint[0], gs.tint[1], gs.tint[2]);
+      const ramp = gs.ref.ramp;
+      const colour = gs.ref.ramp_colour;  // the ramp comes from the server (view_data.py RAMP_NEAR / RAMP_SLOPE)
+      u.uRamp.value.set(ramp ? ramp[0] : 0, ramp ? ramp[1] : 1, ramp && colour ? 1 : 0);
+      if (colour) {
+        u.uRampNear.value.fromArray(colour[0]);
+        u.uRampSlope.value.fromArray(colour[1]);
+      }
       u.uGrid.value.set(gs.gw, gs.step, gs.ref.width, gs.ref.height);
       u.uFocal.value = gs.focal;
       u.uPrincipal.value.set(gs.principal ? gs.principal[0] : gs.ref.width * 0.5, gs.principal ? gs.principal[1] : gs.ref.height * 0.5);

@@ -1,8 +1,9 @@
-"""BiRefNet worker: matte of the main subject(s), frame by frame. Runs inside
+"""BiRefNet worker: two nodes, one worker (main() branches on the job's node). Runs inside
 third_party/birefnet/.venv with the pinned repo on sys.path; never imports Lab2Shot core.
 
     python worker.py <job.json>
 
+birefnet.matte -- matte of the main subject(s), frame by frame, on the GPU.
 Frames (display-referred sRGB PNGs) -> resize to the model's input size ->
 official BiRefNet (models.birefnet at the pinned commit, weights from weights/)
 -> sigmoid of the final prediction -> bilinear back to the frame size ->
@@ -12,6 +13,18 @@ raw/frame_<n>.npz:
 
 Each frame on its own (BiRefNet has no temporal model); frames go through the
 network in batches sized to the free GPU memory.
+
+birefnet.foreground -- the official refine_foreground (FB blur fusion, image_proc.py), frame by frame, on the CPU
+(FB_blur_fusion_foreground_estimator_cpu_2, cv2.blur: measured fast enough that it need not hold a whole card, see
+foreground()). Frames (sRGB PNGs) + job["inputs"]["mask"] (0..1 alpha per frame, GuideMasks) -> raw/frame_<n>.npz:
+
+    foreground  float32 [H,W,3]  the refined (unmixed) colour x alpha: premultiplied sRGB 0..1
+    plate       float32 [H,W,3]  the frame as this worker read it x alpha: premultiplied sRGB 0..1 (the
+                                 uncorrected foreground: foreground - plate is the correction, nonzero only where
+                                 0 < alpha < 1)
+    alpha       float32 [H,W]    0..1, the input alpha at the frame's size
+
+A frame without an alpha is skipped (no file; W-BIREFNET-NOALPHA says which).
 """
 
 from __future__ import annotations
@@ -25,8 +38,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from lab2shot_worker import MemoryBound, fail, fit_size, progress, read_frame, reason, resident, serve, say
+from lab2shot_worker import MemoryBound, check_node, fail, fit_size, load_job, progress, read_frame, reason, resident, serve, say
 from lab2shot_worker.frame_io import FrameReader, Writer
+from lab2shot_worker.matte import GuideMasks
 from lab2shot_worker.run import Run
 
 # model param -> (Hugging Face repo, native input size: square side or None = any shape)
@@ -38,6 +52,7 @@ MODELS = {
     "dynamic": ("ZhengPeng7/BiRefNet_dynamic", None),
 }
 DYNAMIC_MAX = 2304  # BiRefNet_dynamic was trained on 256x256 .. 2304x2304
+DYNAMIC_MIN = 256  # ... and is meant to be fed images at their own resolution, not resized to a fixed side
 MULTIPLE = 32  # Swin-L: four stride-2 stages after a stride-4 patch embed
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -89,17 +104,19 @@ def load_model(repo: Path, checkpoint: Path, device: torch.device, fp16: bool):
     return model.float()
 
 
-def input_size(model_id: str, resolution: int, height: int, width: int) -> tuple[int, int]:
-    """(height, width) the network sees.
+def input_size(model_id: str, height: int, width: int) -> tuple[int, int]:
+    """(height, width) the network sees: the model's own training size, no resolution parameter.
 
-    `resolution` is always a number (the node's 「处理分辨率」 has no automatic option): the network runs at the
-    value shown to the user."""
+    Square models run at their training side (the frame is squeezed, as upstream does). The any-shape model
+    runs at the frame's own resolution (its model card says not to resize), only scaled into the training
+    range: down to the range's top when bigger, up to its bottom when smaller."""
     native = MODELS[model_id][1]
-    if native is not None:  # trained on square inputs (the frame is squeezed, as upstream does)
-        side = fit_size(native, native, resolution, MULTIPLE)[0]
-        return side, side
-    # Any shape: keep the frame's aspect ratio, `resolution` is the long side.
-    w, h = fit_size(width, height, min(resolution, DYNAMIC_MAX), MULTIPLE)
+    if native is not None:  # trained on square inputs: 1024 / 2048, both multiples of 32
+        return native, native
+    # Any shape: the frame's own size (rounded to a multiple of 32) when it is inside the training range --
+    # bigger frames are scaled down to the range's top, tiny ones lifted to its bottom (upscale=False:
+    # frames inside the range are never resized to 2304).
+    w, h = fit_size(width, height, DYNAMIC_MAX, MULTIPLE, upscale=False, minimum=DYNAMIC_MIN)
     return h, w
 
 
@@ -130,11 +147,80 @@ class Matte:
         return pred[:, 0].clamp_(0.0, 1.0)
 
 
+def foreground(job_path: str) -> None:
+    """birefnet.foreground: the official refine_foreground (FB blur fusion, image_proc.py) per frame, its CPU path
+    FB_blur_fusion_foreground_estimator_cpu_2 called on float32 arrays straight (the official refine_foreground wraps
+    the same math in PIL round-trips).
+
+    On the CPU, not the GPU: measured with default radius 90 (Ryzen 9 9950X3D; one cv2 thread and 32 alike), 1080p
+    0.095 s/frame and 4K 0.43-0.50 s/frame (0.13 / 0.68 in a real job, frames read and results written meanwhile) --
+    within the rule set for this (1080p <= 0.2 s, 4K <= 0.8 s), so the node
+    no longer holds a whole card for two box blurs (the GPU path: 0.020 / 0.114 s). The two differ only where the
+    official GPU mean_blur pads an even kernel (90, 6) one pixel the other way from cv2.blur; with odd kernels they
+    agree to 2e-6.
+
+    raw/frame_<n>.npz: foreground and plate float32 [H,W,3] premultiplied sRGB 0..1, alpha float32 [H,W] 0..1."""
+    run = Run.start(job_path, "birefnet.foreground", "BiRefNet", gpu=False)
+    job, params = run.job, run.params
+    radius = params["radius"]
+
+    frames = run.frames()
+    numbers, height, width = frames.numbers, frames.height, frames.width
+    raw = job.raw_dir
+
+    # image_proc imports only numpy / cv2 / PIL / torch: no repo-internal imports, so unlike models.birefnet
+    # (whose config.py wants the repo as the working directory) putting the repo on sys.path is enough here.
+    if str(job.repo_dir) not in sys.path:
+        sys.path.insert(0, str(job.repo_dir))
+    from image_proc import FB_blur_fusion_foreground_estimator_cpu_2
+
+    alphas = GuideMasks(job, height, width)
+    # frames without an alpha are skipped, not matted from an empty one: this node's own words, not the guided-matte
+    # family's W-MATTE-NOGUIDE (which speaks of 「粗遮罩」 and of empty masks)
+    no_alpha = [f for f in numbers if f not in alphas]
+    if no_alpha:
+        say("W-BIREFNET-NOALPHA", count=len(no_alpha), frames=no_alpha[:10], more="……" if len(no_alpha) > 10 else "")
+
+    run.stage("前景估计")
+    with FrameReader(frames.paths, lambda path: read_frame(path, "float32"), threads=4, ahead=8) as reader, \
+            Writer(threads=2, max_pending=16) as writer:
+        # only the frames with an alpha are read, read-ahead included (reader[i] would read the next frames in order,
+        # skipped ones too)
+        todo = [i for i, number in enumerate(numbers) if number in alphas]
+        for k, i in enumerate(todo):
+            number = numbers[i]
+            rgb = reader.get(i, todo[k + 1:])
+            if rgb.shape[:2] != (height, width):
+                fail("E-WORKER-FRAMESIZE", width=rgb.shape[1], height=rgb.shape[0],
+                     where=reason("I-WORKER-ATFRAME", frame=number), first_width=width, first_height=height)
+            alpha = alphas.get(number)
+            if alpha is None:
+                continue
+            t = run.frame_started()
+            rgb = np.ascontiguousarray(rgb, dtype=np.float32)
+            fg = FB_blur_fusion_foreground_estimator_cpu_2(rgb, alpha, radius)  # straight colour [H,W,3], 0..1
+            # straight FG colour -> the family's premultiplied-sRGB convention (foreground_entry); the plate the same
+            # way, from the very pixels the estimator saw, so the two differ only where the estimator changed colour
+            a = alpha[..., None]
+            fg = np.clip(fg * a, 0.0, 1.0).astype(np.float32, copy=False)
+            plate = np.clip(rgb * a, 0.0, 1.0).astype(np.float32, copy=False)
+            run.frame_done(t)
+            writer.npz(raw / f"frame_{number}.npz", foreground=fg, plate=plate, alpha=alpha)
+            progress(i + 1, len(numbers), "前景")
+
+    run.finish(numbers, kind="foreground", radius=radius, width=width, height=height, skipped=no_alpha,
+               device="cpu",
+               files="frame_<n>.npz: foreground, plate float32 [H,W,3] premultiplied sRGB 0..1, alpha float32 [H,W] 0..1")
+
+
 def main(job_path: str) -> None:
+    if check_node(load_job(job_path), "birefnet.matte", "birefnet.foreground") == "birefnet.foreground":
+        foreground(job_path)
+        return
     run = Run.start(job_path, "birefnet.matte", "BiRefNet")  # timing, GPU memory, progress and the standard result.json fields are recorded by Run
     job, params = run.job, run.params
 
-    model_id, resolution, fp16 = params["model"], params["resolution"], params["fp16"]
+    model_id, fp16 = params["model"], params["fp16"]
 
     repo_id = MODELS[model_id][0]
     weights = job.weights_dir
@@ -152,7 +238,7 @@ def main(job_path: str) -> None:
 
     model = run.model("BiRefNet 模型", load_model, job.repo_dir, checkpoint, device, fp16)
 
-    size = input_size(model_id, resolution, height, width)
+    size = input_size(model_id, height, width)
     matte = Matte(model, size, fp16, device)
 
     run.stage("抠像")

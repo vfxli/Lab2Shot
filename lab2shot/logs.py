@@ -66,6 +66,9 @@ def get(area: str) -> logging.Logger:
     return root.getChild(area)
 
 
+CONTINUED = "    | "  # how each line after a record's first begins (say)
+
+
 def say(logger: logging.Logger, message, detail: str = "", *, about: str = "", debug: bool = False) -> None:
     """One line of the server's log, by its message: the only way anything of Lab2Shot writes a line (no logger call
     outside this function). "[CODE] about text", at the level its letter says
@@ -75,7 +78,11 @@ def say(logger: logging.Logger, message, detail: str = "", *, about: str = "", d
     code, text, letter = ((message.code, message.text, message.level) if isinstance(message, Msg)
                           else (message["code"], message["text"], message["code"][0]))
     level = logging.DEBUG if debug else {"E": logging.ERROR, "W": logging.WARNING}.get(letter, logging.INFO)
-    logger.log(level, "[%s] %s%s%s", code, f"{about} " if about else "", text, f"\n{detail}" if detail else "")
+    # every line after a record's first is marked as its continuation: what came from outside (a page's log window, a
+    # name) can never write a line that reads as a record of its own
+    body = f"{about} " if about else ""
+    body += text + (f"\n{detail}" if detail else "")
+    logger.log(level, "[%s] %s", code, body.replace("\r", "").replace("\n", "\n" + CONTINUED))
 
 
 def error_text(exc: BaseException) -> str:

@@ -37,7 +37,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Literal
@@ -47,10 +47,9 @@ from ..data.units import PERCENT
 from ..database import Database, db, json_of, json_text
 from ..engine import EVALUATIONS, CookCancelled, CookError, Engine, Evaluation, Graph, GraphError
 from ..engine.cook import FRAME_THREADS
-from ..engine.evaluation import Inst
 from ..engine.evaluations import content_key
 from ..engine.resident import pool as resident
-from ..engine.resources import CPU, GPU
+from ..engine.scopes import Inst
 from ..errors import Invalid, MessageError, NotFound, Unavailable, message_of
 from ..io.digest import sha256
 from ..messages import Msg
@@ -76,6 +75,7 @@ def _eval_for(graph: Graph, account: Account) -> Evaluation:
 KEEP_FINISHED = 100  # finished jobs the queue still shows
 ACTIVE = ("queued", "running")
 TIDY_S = 3600.0  # the disk is cleaned by the settings at least this often (and after every job)
+DISK_STALE_S = 600.0  # the 硬盘 page's figures are measured again when older than this (Farm.disk)
 STOP_WAIT_S = 60.0  # how long deleting an account waits for its stopped jobs to end (a worker is killed at once)
 TELL_S = 1.0  # how often the waiting tasks are told again why they wait (the scheduler's reasons change by themselves)
 # the frames of a packet whose proxies are made holding its lock at once (_proxies_of): four rounds of the threads a part
@@ -129,9 +129,21 @@ def _told(detail: Msg | None) -> Msg | None:
     return NOMACHINE_NOCARD if code.startswith(NOCARD_CODES) else None
 
 
-EVENT_CAP = 1000  # events a job keeps (Job._prune): a long cook's progress would grow them without end
+EVENT_CAP = 1000  # events a job keeps as a rule (Job._prune): a long cook's progress would grow them without end
+EVENT_MOST = 5000  # events a job keeps whatever they are: beyond, the oldest go
 PASSING = ("progress",)  # the events a later one of the same node replaces (computation progress has this single
 # outward event type, lab2shot/progress.py: stage / progress / phase are folded into Job.now and sent as one description)
+ITEM_EVENTS = ("node_start", "node_done")  # of an item's instance (逐项处理): the node's later one says as much for it
+
+
+def _passing(event: dict) -> tuple | None:
+    """What a later event replaces this one for (the node's latest of its kind), or None when it is kept for good: a
+    node's progress, and the start or end of one item's instance of a node inside a 逐项处理 block (thousands of items
+    are thousands of each; the page shows a node's state, which its latest one gives)."""
+    kind = event.get("type")
+    if kind in PASSING or (kind in ITEM_EVENTS and event.get("path")):
+        return kind, event.get("node")
+    return None
 
 
 def _at(event: dict) -> tuple[str, tuple]:
@@ -155,13 +167,12 @@ class Job:
     # wired on from them (engine/cook.py CookContext.wanted)
     version: int | None = None  # the page's cook-inputs version it was submitted at (JobRequest.version): every event carries it
     # back, so a page tells whether a result still answers what it shows now (None: a submitter that sends none)
-    template: tuple[str, str] = ("", "")  # the template it was opened from (lab2shot/library.py opened_from): its card id and
-    # its name then, ("", "") for a graph built by hand; its record in the database keeps both (usage.py templates)
     # the one read-only Evaluation of this job: everything the queue asks about the graph (its frame
     # range, the parameters the usage record keeps, the partial packets a page follows, the folders a stopped job
     # leaves) is asked of this one object, built once when the job was admitted, for the account that submitted it
     # (Evaluation.account: another account's upload is not there). The cook builds its own on top of the same graph
     # (Engine, which mutates one as it cooks and shares it with nobody).
+    ran: dict = field(default_factory=dict)  # Engine.ran of its cook: instance -> what it ran with (plan, params, gpu)
     eval: Evaluation = None  # type: ignore[assignment]  # Farm.submit hands over the one it checked the job with;
     # without one (a Job built directly) the job builds its own for its account, below
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -175,13 +186,15 @@ class Job:
     uses: Uses = field(default_factory=Uses)
     events: list[dict] = field(default_factory=list)
     next_n: int = 0  # the number the next event gets: events are numbered for good (poll since, the stream's ids)
+    prune_at: int = EVENT_CAP  # the number of events that makes _prune run next
+    begun: set[tuple] = field(default_factory=set)  # (node, item path) of every instance it began (node_start)
     outputs: list[dict] = field(default_factory=list)  # what its 「输出」 packed: {task, node, label, pkg, name, bytes, count}
     error: str | None = None
     error_log: str | None = None  # the failed node's log (a worker's output): feedback attaches it
     reason: str = ""  # why it was cancelled, when not by the one who started it
     # computation progress, a single description (lab2shot/progress.py) used by the queue and the node alike, and the
     # only one the server sends: the phase (排队中 / 加载模型 / 计算 / 取回结果), the node, the current step's name and
-    # its count (as text only), plus two internal timestamps (since / stage_since, used for remaining). Several of a
+    # its count (as text only), plus two internal timestamps (since / stage_since). Several of a
     # task's nodes may run at once: each running instance has its own (`active`), and `now` is the one that last said
     # something. The outward copy is computed by progress_json() on demand (`at` uses the current clock).
     now: dict = field(default_factory=lambda: dict(progress.BLANK))
@@ -201,9 +214,8 @@ class Job:
     waiting_detail: Msg | None = None
     position: int | None = None  # its place among the waiting tasks, as it was last told (Farm._announce_positions)
     works: list[timings.Work] = field(default_factory=list)  # the nodes it computes, as their estimates need them
-    left: dict[str, float | None] = field(default_factory=dict)  # nodes still to compute -> estimated seconds (None: no record)
     usage: dict[str, dict] = field(default_factory=dict)  # node type -> how its nodes served the job (_serve)
-    served: set[str] = field(default_factory=set)  # the nodes counted in `usage`
+    served: set[tuple[str, tuple]] = field(default_factory=set)  # the node instances counted in `usage` (_at)
     stop: threading.Event = field(default_factory=threading.Event)
     db: Database | None = field(default=None, repr=False)  # where its records go: its farm's database
     # 插队 (Farm.first): its place in the queue's order. Its submission time, unless the administrator put it at the
@@ -255,10 +267,6 @@ class Job:
             with self.cond:
                 self._wakers.discard(wake)
 
-    def gpu(self) -> bool:
-        """Whether a node it computes runs on a GPU (what its estimate of when it starts goes by)."""
-        return any(w.gpu for w in self.works)
-
     @property
     def labels(self) -> list[str]:
         return [self.graph.nodes[t].label for t in self.targets]
@@ -269,11 +277,11 @@ class Job:
         the graph and targets never change after submission) the full range its inputs cover."""
         if self.graph.frames:
             return list(self.graph.frames)
-        if self._frames is False:
+        if self._frames is False and self.eval is not None:
             with serving(self.eval.account):  # its account's cache, whoever looks at the queue
                 full = self.eval.frame_range(self.targets)
             self._frames = list(full) if full else None
-        return self._frames
+        return self._frames or None
 
     def emit(self, event: dict) -> None:
         kind = event.get("type")
@@ -287,14 +295,17 @@ class Job:
             if kind in ("message", "error") and event.get("level") in ("E", "W"):  # the server's log carries the code
                 label = self.graph.nodes[event["node"]].label if event.get("node") in self.graph.nodes else ""
                 logs.say(log, event, about=f"{self.id}「{label}」" if label else self.id)
+            elif kind == "node_start":
+                self.begun.add(_at(event))
             elif kind == "node_done":
                 for fp in (event.get("outputs") or {}).values():  # computed or reused: its outputs are the job's
                     self.uses.add(fp)
                 if event.get("gpu_name"):
                     self.ran_on.add(event["gpu_name"])
-                self.left.pop(event["node"], None)
-                if event["node"] not in self.served:  # a node several targets share serves the job once
-                    self.served.add(event["node"])
+                # each instance serves the job once (a node in a 逐项处理 block: once per item, each its own run or
+                # reuse; one cooked again for outputs wanted later, Engine._wanting_more: counted the first time)
+                if _at(event) not in self.served:
+                    self.served.add(_at(event))
                     timed = self._serve(event)
             # computation progress: stage / progress / phase events only update this one description
             # (lab2shot/progress.py) and are not forwarded as they are; the folded description is sent, and the queue
@@ -313,7 +324,7 @@ class Job:
             for one in out:
                 self.events.append({"graph": self.graph_id, "version": self.version, **one, "t": round(t, 2), "n": self.next_n})
                 self.next_n += 1
-            if len(self.events) > EVENT_CAP:
+            if len(self.events) > self.prune_at:
                 self._prune()
             self.notify()
         if timed is not None:
@@ -344,7 +355,10 @@ class Job:
             return
         if kind == "node_done":
             left = self.share.get(event["node"])
-            self.spent += left.pop(0) if left else 0.0  # unplanned instances (already cached) count in neither the denominator nor the numerator
+            # every instance of a node the plan computes has its share in the denominator (timings.planned: a cached one
+            # too, since planned counts the node's instances); each done one moves its share over, cached or not, so the
+            # two stay in step. An instance the plan did not count (a block's item not known at submission) has no share
+            self.spent += left.pop(0) if left else 0.0
             # the finished instance is no longer `now` (its row shows 「用时 N 秒」, which would otherwise be
             # overwritten): the one still running that last said something is; with none, the task's next node waits
             # for its place (排队中) or comes the next moment
@@ -393,20 +407,23 @@ class Job:
         return {**{k: self.now.get(k, progress.BLANK[k]) for k in progress.PUBLIC}, "at": at}
 
     def _prune(self) -> None:
-        """Keep a job's events bounded: a node's progress events that a later one of the same node
-        replaces go, oldest first, until three quarters of EVENT_CAP are left; everything else (what started, finished,
-        was said, delivered or failed) stays. Numbers never change: a page asking from its last number gets what came
-        after it, the latest progress included. (`stage` is folded into the `progress` description; there is no
-        `stage` event on the wire, see PASSING.)"""
-        latest = {(e["type"], e.get("node")): i for i, e in enumerate(self.events) if e.get("type") in PASSING}
+        """Keep a job's events bounded: the ones a later event replaces (`_passing`: a node's progress, an item
+        instance's start or end) go, oldest first, until three quarters of EVENT_CAP are left; the rest (a node's start
+        and end outside a block, what was said, delivered or failed) stays, up to EVENT_MOST. Numbers never change: a
+        page asking from its last number gets what came after it, each node's latest included. The next pruning waits
+        until a quarter of EVENT_CAP more have come (`prune_at`), so however many events stay, pruning costs each one
+        a bounded share."""
+        keys = [_passing(e) for e in self.events]
+        latest = {k: i for i, k in enumerate(keys) if k is not None}
         drop = len(self.events) - EVENT_CAP * 3 // 4
         kept = []
         for i, e in enumerate(self.events):
-            if drop > 0 and e.get("type") in PASSING and latest[(e["type"], e.get("node"))] != i:
+            if drop > 0 and keys[i] is not None and latest[keys[i]] != i:
                 drop -= 1
                 continue
             kept.append(e)
-        self.events = kept
+        self.events = kept[-EVENT_MOST:]
+        self.prune_at = max(EVENT_CAP, len(self.events) + EVENT_CAP // 4)
 
     def after(self, n: int) -> list[dict]:
         """The events numbered `n` and later (the ones a page that has everything before `n` still needs)."""
@@ -424,7 +441,10 @@ class Job:
         if done["cached"] or done["reused"] or done.get("nothing"):  # nothing computed: no time to learn from
             use["reuses"] += 1
             return None
-        params, gpu, card = self.eval.params(nid), self.graph.resolved(nid).cost.gpu, done.get("gpu_name", "")
+        path = tuple(done.get("path", ()))
+        ran = self.ran.get(Inst(nid, path))  # as the cook ran it (Engine.ran): its real parameters and cost
+        gpu = ran.gpu if ran is not None else self.graph.resolved(nid).cost.gpu
+        params, card = (ran.params if ran is not None else {}), done.get("gpu_name", "")
         use["runs"] += 1
         use["frames"] += done["frames"]
         use["seconds"] = round(use["seconds"] + done["seconds"], 1)
@@ -434,38 +454,12 @@ class Job:
 
     def estimate(self, models: list[str]) -> None:
         """Estimate its nodes on these GPU models (the ones that take jobs), from the timing records, when it is
-        submitted: what the queue says is left (`left`) and, once it starts, its progress budget (`fix_budget`) are
-        this one prediction."""
-        history = timings.records(self.db)
-        seconds = [timings.predict(w, models, history)["seconds"] for w in self.works]
+        submitted: only the progress bar's denominator (`fix_budget`, once it starts) uses this prediction. The page
+        shows no time left or time to start: a time predicted from earlier cooks is not reliable."""
+        history = timings.records({w.type for w in self.works}, self.db)
+        seconds = [timings.predict(w, models, history.get(w.type, []))["seconds"] for w in self.works]
         with self.cond:
             self.predicted = seconds
-            self.left = {w.node: s for w, s in zip(self.works, seconds)}
-
-    def remaining(self, t: float) -> tuple[float, bool] | None:
-        """(seconds still to compute, whether that is only a lower bound), None when nothing can be said. A node
-        running takes the longer of what its estimate leaves and what the progress of its current stage says that
-        stage still needs; a node without records, or running past its estimate with no progress to go by, makes the
-        rest a lower bound. Nodes that run at once are counted one after the other: a bound from above."""
-        with self.cond:
-            running = {a["node"]: dict(a) for a in self.active.values()}
-            left = dict(self.left)
-        seconds, partial = 0.0, False
-        for nid, est in left.items():
-            now = running.get(nid)
-            if now is None:
-                seconds += est or 0.0
-                partial = partial or est is None
-                continue
-            guesses = [] if est is None else [est - (t - now["since"])]
-            done, total = now.get("done", 0), now.get("total", 0)
-            if done and total:
-                guesses.append((t - now["stage_since"]) * (total - done) / done)
-            if guesses and max(guesses) > 0:
-                seconds += max(guesses)
-            else:
-                partial = True
-        return None if partial and not seconds else (seconds, partial)
 
     def wait_for(self, detail: Msg | None) -> bool:
         """Why it waits now: the scheduler's reason (None: it does not, or nothing needs saying), kept for whoever may
@@ -488,17 +482,16 @@ class Job:
             return {"state": self.state, "done": self.done, "error": self.error, "outputs": list(self.outputs),
                     "events": self.after(since), "next": self.next_n}
 
-    def view(self, viewer: int | None, admin: bool, eta: dict | None = None, cards: list[str] = ()) -> dict | None:
-        """`eta`: when it should finish (running) or start (waiting), {"at": time, "partial": at the earliest};
-        `cards`: the cards its nodes are on now. A job is shown whole to its account (`viewer`) and the administrator;
-        to anyone else only while it waits or runs, as anonymous load: its place and when it should end (no id, no
+    def view(self, viewer: int | None, admin: bool, cards: list[str] = ()) -> dict | None:
+        """`cards`: the cards its nodes are on now. A job is shown whole to its account (`viewer`) and the
+        administrator; to anyone else only while it waits or runs, as anonymous load: its state and place (no id, no
         account, nothing of what it cooks). None: nothing of it for this viewer (someone else's finished job)."""
         mine = viewer is not None and viewer == self.client.user
         frames = self.frames if mine or admin else None  # worked out once, outside the lock (it may read the inputs)
         # one moment of it, taken under its lock: its node threads change what it is running and what it made
         with self.cond:
             running = self.state == "running"
-            base = {"state": self.state, "position": self.position if self.state == "queued" else None, "eta": eta,
+            base = {"state": self.state, "position": self.position if self.state == "queued" else None,
                     "cards": list(cards), "submitted": self.submitted, "started": self.started,
                     "finished": self.finished, "stopping": self.stop.is_set() and running, **self.waiting_json()}
             if not (mine or admin):
@@ -523,7 +516,7 @@ class Job:
                     "submitted": self.submitted, "started": self.started, "finished": self.finished,
                     "cards": sorted(self.ran_on), "error": self.error, "error_log": self.error_log, "reason": self.reason,
                     "outputs": list(self.outputs), "client": self.client.full(), "usage": {t: dict(u) for t, u in self.usage.items()},
-                    "nodes": self.targets, "version": self.version}
+                    "nodes": self.targets, "version": self.version, "show": sorted(self.show) if self.show else None}
 
 
 def _percent(part: float, whole: float) -> int:
@@ -572,17 +565,27 @@ class Farm:
     """The queue of one work folder: its records go to that folder's database, whatever happens to be current when
     a job ends (close() waits for every thread it started). Only one process has it (`_own_queue`)."""
 
-    def __init__(self) -> None:
+    def __init__(self, scene_done: Callable[[str], None] | None = None) -> None:
+        """`scene_done`: called with a scene.* packet's fingerprint once a job computed it (_proxies_of), to make its 3D
+        view ahead (the server's view worker: farm() passes what the server gave on_scene_done; farm does not know the
+        server). None (the command line, a test's own farm): nothing is made ahead, the view is made when looked at."""
+        self.scene_done = scene_done
         self._owner = _own_queue()  # before anything of the work folder is touched
         self.db = db()
         self._threads: set[threading.Thread] = set()
         self._ended = threading.Event()  # close(): the threads of this queue finish
         self.cond = threading.Condition()
         self.jobs: dict[str, Job] = {}  # in submission order
-        # a single removal by disk cleaning and submit placing a job into jobs are mutually exclusive (`removing`):
-        # measuring the disk takes minutes, and checking busy() only at the start cannot stop jobs submitted meanwhile.
-        # This lock is taken before cond on both sides, in the same order, so there is no deadlock
-        self._cleaning = threading.Lock()
+        # a single removal of one account's things by disk cleaning and submit placing a job of that account into jobs
+        # are mutually exclusive (`removing`): cleaning takes minutes, and checking the queue only at the start cannot
+        # stop jobs submitted meanwhile. One lock per account (_cleaning_of): a job reads only its own account's
+        # things, so removing one account's never holds up another's submit. Taken before cond on both sides, in the
+        # same order, so there is no deadlock
+        self._cleaning: dict[int, threading.Lock] = {}
+        self._cleaning_lock = threading.Lock()
+        self._came: dict[int, float] = {}  # account -> when a job of it last came into the queue (`removing`)
+        self._disk: dict = {"areas": None, "at": None, "measuring": False}  # the 硬盘 page's figures (`disk`)
+        self._disk_lock = threading.Lock()
         # this machine's GPUs (farm/scheduler/inventory.py), the farm's own idle kept-loaded models told apart: its own background
         self.host = scheduler.LocalHost(reclaimable=lambda: resident().idle_vram_mb())
         self.authorized = self.host.authorized_uuids()  # thread, never the queue's lock, refreshes it
@@ -629,20 +632,21 @@ class Farm:
     # ------------------------------------------------------------------ jobs
 
     def submit(self, data: dict, graph: Graph, targets: list[str], client: Client, force: bool = False,
-               held: dict | None = None, account: Account | None = None, version: int | None = None,
-               show: frozenset[str] | set[str] | None = None, template: tuple[str, str] = ("", "")) -> Job:
+               held: dict | None = None, version: int | None = None,
+               show: frozenset[str] | set[str] | None = None) -> Job:
         """Queue a cook of `targets` of `graph` (read from `data`, which the job log keeps) as a task. Raises GraphError / CookError
         when the graph can't be cooked as it is. `held`: a job the server before a restart kept waiting (its id and
-        when it was submitted, park). `account`: whose uploads the graph's files are (lab2shot/serving.py Account; the
-        submitter's own by default); one that is not theirs is not there, so its node fails and the rest cooks as usual.
-        `version`: the page's cook-inputs version, carried back on every event (Job.version); `show`: the outputs of the
-        shown node the viewer displays (Job.show); `template`: the template it was opened from (Job.template)."""
-        who = account or Account(client.user)
-        with serving(who):  # everything it asks of the graph, in the account's own cache (data/store.py), whoever submits
-            return self._submit(data, graph, targets, client, force, held, who, version, show, template)
+        when it was submitted, park). The job is its submitter's (`client.user`) and runs as that account only
+        (lab2shot/serving.py Account, never every account's, whatever rights the submitter has): it reads that account's
+        uploads and cache, the same before and after a restart; an upload that is not theirs is not there, so its node
+        fails and the rest cooks as usual. `version`: the page's cook-inputs version, carried back on every event
+        (Job.version); `show`: the outputs of the shown node the viewer displays (Job.show)."""
+        who = Account(client.user)
+        with serving(who):  # everything it asks of the graph, in the account's own cache (data/store.py)
+            return self._submit(data, graph, targets, client, force, held, who, version, show)
 
     def _submit(self, data: dict, graph: Graph, targets: list[str], client: Client, force: bool, held: dict | None,
-                account: Account, version: int | None, show, template: tuple[str, str]) -> Job:
+                account: Account, version: int | None, show) -> Job:
         stored = len(json_text(data).encode("utf-8"))
         if stored > GRAPH_MAX_BYTES:  # the job log keeps the graph: a graph of this size is data, not a node graph
             raise GraphError(Msg("E-JOB-GRAPHTOOBIG", mb=stored / 2**20, most=GRAPH_MAX_BYTES >> 20))
@@ -653,7 +657,11 @@ class Farm:
 
         forget_all()
         ev = Evaluation(graph, account)  # this job's own, read-only: Job.eval
-        ev.check_frames(targets)
+        # the one answer: refused as a whole, or what it computes (Evaluation.readiness), for the outputs it shows as
+        # its cook will be given them (Job.show -> Engine.cook)
+        ready = ev.readiness(targets, force, frozenset(show or ()))
+        if ready.refused is not None:
+            raise GraphError(ready.refused)
         # global frame limit: the maximum number of frames per submission, a single value in the admin 「设置」.
         # Enforced here, so the page, DCC plug-ins, scripts and the command line follow the same rule (direct
         # submissions bypassing the page are refused as well)
@@ -661,8 +669,6 @@ class Farm:
             count = span[1] - span[0] + 1
             if count > (most := policy.max_frames()):
                 raise Invalid(Msg("B-JOB-TOOMANYFRAMES", frames=count, most=most, first=span[0], last=span[1]))
-        if (problem := timings.unplannable(ev, targets)) is not None:
-            raise problem  # nothing of this cook can even be planned: refused now, in the words of the first target
         # a task brings its footage into its folder: at most 单任务上传上限 of uploads, refused here whoever submits
         # (transfer/tasks.py). A job held over a restart has its folder already.
         footage = tasks.footage_of(data) if held is None else {}
@@ -675,29 +681,32 @@ class Farm:
         title = data.get("meta", {}).get("name") or "节点图"
         graph_id = str(data.get("meta", {}).get("id") or "")
         delivers = any(graph.nodes[t].type.delivers for t in targets)
-        job = Job(title, graph, targets, client, force, delivers, graph_id, version=version, template=template,
-                  show=None if show is None else frozenset(show), eval=ev, works=timings.planned(ev, targets, force),
+        job = Job(title, graph, targets, client, force, delivers, graph_id, version=version,
+                  show=None if show is None else frozenset(show), eval=ev, works=timings.planned(ev, targets, force, ready),
                   db=self.db, **(held or {}))
         job.estimate(self.models())
         if held is None:  # its record before the scheduler can see it, and never under the queue's lock
             _log_submitted(job, data, footage)
-        with self._cleaning, self.cond:  # _cleaning: not between a disk cleaner's check and its removal (`removing`)
-            if self.closed:  # the server began restarting (or the queue closing) while its record was written: it never queued
-                if held is None:
-                    self.cond.release()
-                    try:
-                        _log_finished(job, "cancelled", time.time())
-                    finally:
-                        self.cond.acquire()
-                raise Unavailable(Msg("E-QUEUE-CLOSED" if self.ending else "E-QUEUE-RESTARTING"))
-            logs.say(log, Msg({(False, False): "I-QUEUE-SUBMITTED", (False, True): "I-QUEUE-SUBMITTEDDELIVERS", (True, False): "I-QUEUE-REQUEUED",
-                               (True, True): "I-QUEUE-REQUEUEDDELIVERS"}[(bool(held), delivers)], job=job.id, title=title,
-                              targets="、".join(job.labels), who=client.who, ip=client.details.get("ip", "")))
-            self.jobs[job.id] = job
-            self._announce_positions()
+        with self._cleaning_of(client.user), self.cond:  # not between a disk cleaner's check and its removal (`removing`)
+            closed = self.closed  # checked and the job put in under the one lock: none comes in once it closed
+            if not closed:
+                self._enqueue(job, client, held, delivers, title)
+        if closed:  # the server began restarting (or the queue closing) while its record was written: it never queued
+            if held is None:
+                _log_finished(job, "cancelled", time.time())  # a database write: never under the queue's locks
+            raise Unavailable(Msg("E-QUEUE-CLOSED" if self.ending else "E-QUEUE-RESTARTING"))
         self._spawn(self._run, job, name=f"job-{job.id}")  # its cook: its nodes ask for their places as they come
         self.pools.wake()
         return job
+
+    def _enqueue(self, job: Job, client: Client, held: dict | None, delivers: bool, title: str) -> None:
+        """(Holding its account's cleaning lock and the queue's lock) put an admitted job into the queue."""
+        logs.say(log, Msg({(False, False): "I-QUEUE-SUBMITTED", (False, True): "I-QUEUE-SUBMITTEDDELIVERS", (True, False): "I-QUEUE-REQUEUED",
+                           (True, True): "I-QUEUE-REQUEUEDDELIVERS"}[(bool(held), delivers)], job=job.id, title=title,
+                          targets="、".join(job.labels), who=client.who, ip=client.details.get("ip", "")))
+        self.jobs[job.id] = job
+        self._came[client.user] = time.time()
+        self._announce_positions()
 
     def _line(self) -> list[tuple[str, bool]]:
         """The tasks still to finish in the queue's order (插队 first, then as they came in), each with whether it
@@ -781,11 +790,12 @@ class Farm:
         collector = outputs.Collector(job.id, owner, job.emit)  # its task's outputs (transfer/outputs.py)
         engine = Engine(job.graph, stop=job.stop, collector=collector, evaluation=Evaluation(job.graph, job.eval.account),
                         stream_worker=partial(streaming.run, self))  # streaming: a streaming node's worker runs on a farm thread
+        # what the cook found of each instance it ran (its real plan and parameters: Engine.ran), read while it runs by
+        # a streaming node's partial folder and the timing records, never the plan from before the cook
+        job.ran = engine.ran
         try:
-            # `show` is about the one node the viewer shows: it applies when that node is what this job cooks
             cooked = engine.cook(job.targets, lambda event: self._seen(job, event),
-                                 scheduler.TaskResources(self.pools, job.id), force=job.force,
-                                 show=job.show if len(job.targets) == 1 else None)
+                                 scheduler.TaskResources(self.pools, job.id), force=job.force, show=job.show)
         except CookCancelled:
             return "cancelled"
         except (GraphError, ValueError, OSError, MessageError) as exc:
@@ -822,12 +832,15 @@ class Farm:
         from ..data.locks import exclusive
         from ..data.packet import Packet, packet_dir, valid
         from ..data.store import POLL_S
-        from ..view.proxy import build, frames_of
+        from ..view.proxy import build, frames_of, has_proxy
 
         def one(fp: str) -> None:
             try:
                 with exclusive(fp):
-                    frames = frames_of(Packet.load(packet_dir(fp))) if valid(packet_dir(fp)) else []
+                    # only picture packets have proxies (has_proxy): a node's other outputs (an 「输出设置」's package,
+                    # whose `files` is a list of what it packed; a camera, a scene) have no frames to list
+                    p = Packet.load(packet_dir(fp)) if valid(packet_dir(fp)) else None
+                    frames = frames_of(p) if p is not None and has_proxy(p) else []
                 for at in range(0, len(frames), PROXY_FRAMES):
                     if at:
                         time.sleep(POLL_S)  # a cook waiting for the packet takes the lock now
@@ -838,8 +851,22 @@ class Farm:
             except Exception as exc:  # noqa: BLE001 (proxies only affect viewing; the result itself is already written)
                 logs.say(log, Msg("E-QUEUE-JOBINTERNAL", job=job.id), logs.error_text(exc))
 
+        def scene(fp: str) -> None:
+            """A scene packet (点云、点缓存、逐帧曲线…): its 3D view's chunks made ahead and kept on disk, by whatever
+            the farm was given (`scene_done`: the server's view worker, in its background process), so that playing it
+            back later is sending files; a scene with nothing per frame has no chunks and costs one look."""
+            hook = self.scene_done
+            if hook is None:
+                return
+            try:
+                if valid(packet_dir(fp)) and Packet.load(packet_dir(fp)).type.split(".")[0] == "scene":
+                    hook(fp)
+            except Exception as exc:  # noqa: BLE001 (made ahead only to be faster: made on request otherwise)
+                logs.say(log, Msg("E-QUEUE-JOBINTERNAL", job=job.id), logs.error_text(exc))
+
         for fp in event["outputs"].values():
             self.pools.later(carried(partial(one, fp)))  # in the job's account's cache
+            self.pools.later(carried(partial(scene, fp)))
 
     def _finish(self, job: Job, state: str) -> None:
         """A job ends. Its record goes into the database first (its jobs row and how its nodes served it); only then is
@@ -858,6 +885,7 @@ class Farm:
             if state == "cancelled":
                 job.emit({"type": "cancelled", "reason": job.reason})
             job.emit({"type": "finished", "state": state})
+            job.eval = None  # what it knew of its graph (tens of MB for a large block) is not kept with a finished job
             ended = [j for j in self.jobs.values() if j.done]
             for old in ended[:-KEEP_FINISHED]:
                 del self.jobs[old.id]
@@ -876,31 +904,22 @@ class Farm:
     def _clean_partial(self, job: Job) -> None:
         """A job that ended without finishing (cancelled, failed, partly failed) leaves the packet folders it was
         writing incomplete: they are not results, so they are removed, each under its fingerprint's lock so a
-        concurrent identical cook's folder is never touched. Only the instances this job's own targets need
-        (Evaluation.order), never every node of the graph: another branch's folder is another cook's business.
+        concurrent identical cook's folder is never touched. The folders are those of the plans the cook ran them with
+        (Job.ran: an item's instance, a node after a pending switch, with the fingerprints the cook found).
 
-        Only the instances this job itself began (its own node_start events): a job that never ran wrote nothing,
+        Only the instances this job itself began (Job.begun, its own node_start events): a job that never ran wrote nothing,
         and an instance it never reached is nobody's partial folder of its own. Otherwise cancelling a job that has
         not started would clean every output packet of its plan; when the same graph is submitted twice, or two
         accounts cook the same material, the folder of the other job still cooking would be deleted and its commit
         would raise FileNotFoundError."""
         with job.cond:
-            begun = {(e.get("node"), tuple(e.get("path") or ())) for e in job.events if e.get("type") == "node_start"}
+            begun = set(job.begun)
         if not begun:
             return
-        ev = job.eval
-        try:
-            order, _behind = ev.order(job.targets)
-        except (GraphError, CookError, OSError, ValueError):
-            return
-        for inst in order:
-            if (inst.node, tuple(inst.path)) not in begun:
+        for node, path in sorted(begun):
+            if (ran := job.ran.get(Inst(node, tuple(path)))) is None:
                 continue
-            try:
-                plan = ev.plan(*inst)
-            except (GraphError, CookError, OSError, ValueError):
-                continue
-            for fp in plan.outputs.values():
+            for fp in ran.plan.outputs.values():
                 disk.clean_incomplete(fp)
 
     def cancel(self, job_id: str, user_id: int | None, reason: str = "") -> None:
@@ -926,26 +945,53 @@ class Farm:
             with self.cond:
                 self._announce_positions()
 
-    def busy(self) -> bool:
-        """Whether anything is cooking or waiting to cook."""
-        with self.cond:
-            return any(not j.done for j in self.jobs.values())
-
     def wake(self) -> None:
         """The settings changed: the scheduler decides again at once, and background tasks waiting for 计算任务
         look again."""
         self.pools.wake()
         self.tasks.wake()
 
+    def _cleaning_of(self, user_id: int) -> threading.Lock:
+        """The lock between a disk cleaner's removal of an account's things and a job of that account coming in."""
+        with self._cleaning_lock:
+            return self._cleaning.setdefault(user_id, threading.Lock())
+
     @contextmanager
-    def removing(self, seen: set[str] | None = None) -> Iterator[bool]:
-        """One removal by a disk cleaner (farm/disk.py clean, tidy), and whether it may go ahead: the
-        queue has nothing to finish, or, with `seen` (the active jobs known when the cleaner worked out what is
-        safe), no job has come in since. Held while the removal happens, and `submit` takes the same lock to put a job
-        in: a job is either there before the check or comes after the removal, never in between."""
-        with self._cleaning:
-            active = self.active_ids()
-            yield (not active) if seen is None else active <= seen
+    def removing(self, user_id: int, since: float) -> Iterator[bool]:
+        """One removal of an account's cache entry, upload or task folder by a disk cleaner (farm/disk.py clean,
+        tidy), and whether it may go ahead: the account has no job to finish, and none of it came into the queue since
+        the cleaner began (`since`: what it worked out as safe then still is). A job reads only its own account's
+        (Farm.submit), so another account's jobs never stop it. Held while the removal happens, and `submit` takes
+        the same lock to put a job in: a job is either there before the check or comes after the removal, never in
+        between."""
+        with self._cleaning_of(user_id):
+            yield not self.live_of(user_id) and self._came.get(user_id, 0.0) < since
+
+    def cleaner(self) -> Callable[[int], AbstractContextManager[bool]]:
+        """The guard of one cleaning pass beginning now (farm/disk.py Guard)."""
+        since = time.time()
+        return lambda user_id: self.removing(user_id, since)
+
+    def disk(self, fresh: bool = False) -> dict:
+        """The 硬盘 page's figures (farm/disk.py usage): {"areas", "at" (when measured; None never), "measuring"}.
+        Measuring walks the whole data disk and may take minutes, so it runs on a thread of this queue and the caller
+        gets what was measured last: a new measurement starts when there is none yet, when it is older than
+        DISK_STALE_S, or when asked (`fresh`: 刷新, and after cleaning); one at a time."""
+        with self._disk_lock:
+            at = self._disk["at"]
+            if not self._disk["measuring"] and (fresh or at is None or time.time() - at > DISK_STALE_S):
+                self._disk["measuring"] = True
+                self._spawn(self._measure_disk, name="farm-disk")
+            return dict(self._disk)
+
+    def _measure_disk(self) -> None:
+        try:
+            areas = disk.usage()
+            with self._disk_lock:
+                self._disk.update(areas=areas, at=time.time())
+        finally:
+            with self._disk_lock:
+                self._disk["measuring"] = False
 
     def active_ids(self) -> set[str]:
         """The ids of every job still to finish (queued and running)."""
@@ -969,7 +1015,7 @@ class Farm:
             self._tidying = True
         while True:
             try:
-                disk.tidy(idle=not self.busy(), guard=self.removing)
+                disk.tidy(guard=self.cleaner())
                 self.db.backup_if_due()
             except Exception as exc:  # housekeeping never stops the queue
                 logs.say(log, Msg("E-QUEUE-HOUSEKEEPING"), logs.error_text(exc))
@@ -1132,8 +1178,7 @@ class Farm:
                 client = Client.from_record(record.get("client", {}), account)
                 data = job_graph(h["job_id"])
                 self.submit(data, Graph.from_json(data), json_of(h["targets"]), client, bool(h["force"]),
-                            held={"id": h["job_id"], "submitted": h["submitted"]}, account=Account(h["user_id"]),
-                            version=record.get("version"))
+                            held={"id": h["job_id"], "submitted": h["submitted"]}, version=record.get("version"), show=record.get("show"))
             except (NotFound, GraphError, CookError, ValueError, OSError) as exc:
                 logs.say(log, Msg("W-QUEUE-NOTREQUEUED", job=h["job_id"], why=str(exc)))
                 record.update(state="failed", finished=time.time(), error=Msg("E-QUEUE-UNPARK", reason=exc).text)
@@ -1165,7 +1210,6 @@ class Farm:
         running = sorted((j for j in jobs if j.state == "running"), key=lambda j: j.order)
         finished = sorted((j for j in jobs if j.done), key=lambda j: -(j.finished or 0))
         order = running + waiting + finished
-        etas = self._etas(running, waiting, time.time())
         on = self._cards_now()
         snapshot = self.host.snapshot()
         names = {g.uuid: g.short_name for g in snapshot.gpus}
@@ -1183,8 +1227,7 @@ class Farm:
             # refuses independently in submit
             "max_frames": policy.max_frames(),
             "switches": {"gpu": policy.gpu_enabled(), "compute": policy.compute_enabled()},
-            "jobs": _grouped([v for j in order if (v := j.view(viewer, admin, etas.get(j.id),
-                                                                [names.get(c, c) for c in on.get(j.id, [])])) is not None]),
+            "jobs": _grouped([v for j in order if (v := j.view(viewer, admin, [names.get(c, c) for c in on.get(j.id, [])])) is not None]),
         }
 
     def _mine(self, job_id: str | None, viewer: int | None) -> bool:
@@ -1228,37 +1271,6 @@ class Farm:
                       for g in self.host.snapshot().gpus],
         }
 
-    def _etas(self, running: list[Job], waiting: list[Job], t: float) -> dict[str, dict]:
-        """When each running job should finish, and each waiting one start. A waiting task starts when a task ahead of
-        it that needs the same kind of place frees one: tasks with GPU nodes take the authorized cards (one each), the
-        others the CPU slots (单任务 CPU 节点上限 each), each task lasting what its estimate says. A rough answer by
-        construction (a task's nodes use both kinds, one after another): "partial", no earlier than that, when a task
-        ahead has nodes without records."""
-        etas = {}
-        for j in running:
-            left = j.remaining(t)
-            if left:
-                etas[j.id] = {"at": t + left[0], "partial": left[1]}
-
-        def free(busy: Job | None) -> list:  # a place: [when it is free, whether that is a lower bound]
-            eta = etas.get(busy.id) if busy else {"at": t, "partial": False}
-            return [eta["at"], eta["partial"]] if eta else [t, True]
-
-        places = {GPU: max(1, len(self.authorized)), CPU: max(1, policy.cpu_nodes() // policy.task_cpus())}
-        for kind, count in places.items():
-            busy = [j for j in running if j.gpu() == (kind == GPU)]
-            slots = [free(j) for j in busy] + [free(None)] * max(count - len(busy), 0)
-            for j in (w for w in waiting if w.gpu() == (kind == GPU)):
-                if not slots:
-                    break
-                slot = min(slots, key=lambda s: s[0])
-                if slot[0] > t:
-                    etas[j.id] = {"at": slot[0], "partial": slot[1]}
-                left = j.remaining(t)
-                slot[0] += left[0] if left else 0.0
-                slot[1] = slot[1] or not left or left[1]
-        return etas
-
 # ------------------------------------------------------------------ job log (the database's jobs and job_usage)
 
 GRAPH_MAX_BYTES = 4 << 20  # the largest node graph a job may carry; the same limit as a template file (library.MAX_BYTES)
@@ -1284,8 +1296,8 @@ def _log_submitted(job: Job, data: dict, footage: dict) -> None:
     tasks.create(job.id, json_text(data), footage)
     try:
         with job.db.write() as c:
-            c.execute("INSERT INTO jobs (id, submitted, state, record, user_id, template, template_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                      (job.id, job.submitted, job.state, json_text(job.record()), job.client.user, *job.template))
+            c.execute("INSERT INTO jobs (id, submitted, state, record, user_id) VALUES (?, ?, ?, ?, ?)",
+                      (job.id, job.submitted, job.state, json_text(job.record()), job.client.user))
             tasks.record(c, job.id, job.client.user, job.submitted, footage, group)
     except BaseException:
         tasks.discard(job.id)
@@ -1340,8 +1352,19 @@ def forget_job(job_id: str, user_id: int | None) -> int:
     with queue.cond:  # the scheduler (_line) and every reader walk `jobs` under this lock: popping without it breaks a walk
         queue.jobs.pop(job_id, None)
     if not queue.ending:
-        queue._spawn(queue._tidy, name="farm-tidy-now")  # the cache only it referenced goes (when the queue is idle)
+        queue._spawn(queue._tidy, name="farm-tidy-now")  # the cache only it referenced goes (once the account has no job to finish)
     return freed
+
+
+def finished_of(user_id: int) -> list[str]:
+    """Every job of the account that the queue window lists (its task is still kept) and that is not queued or running,
+    newest first, however many: what 「删除全部」 removes and what the quota's message counts (a page of `history` has a
+    limit; this has none)."""
+    queue = farm()
+    live = queue.active_ids()
+    rows = queue.db.rows("SELECT j.id FROM jobs j WHERE j.user_id = ? AND EXISTS (SELECT 1 FROM tasks t WHERE t.id = j.id) "
+                         "ORDER BY j.submitted DESC", (user_id,))
+    return [r["id"] for r in rows if r["id"] not in live]
 
 
 def history(limit: int = 200, user_id: int | None = None) -> list[dict]:
@@ -1416,23 +1439,15 @@ def job_row(job_id: str) -> dict:
 MARK_S = 30.0  # a job's cache mark is worked out again at most this often
 
 
-def _done_for(ev: Evaluation, node_id: str, targets: list[str]) -> bool:
-    """Whether every instance of the node still has what cooking `targets` wants of it (`Evaluation.demand` /
-    `satisfied`, the same rule the cook and the status use: Evaluation._case). A node inside a 逐项处理 block has one per item
-    (engine/scopes.py), so it is never asked about at the empty path."""
-    paths, pending = ev.instances(node_id)
-    d = ev.demand(targets)
-    return not pending and bool(paths) and all(ev.satisfied(Inst(node_id, p), d.get(Inst(node_id, p), frozenset())) for p in paths)
-
-
 def _targets_of(ev: Evaluation, record: dict) -> list[str]:
     """The nodes a finished job cooked to, as its record kept them (by id, or by the labels it wrote)."""
     return record.get("nodes") or [n for n, g in ev.graph.nodes.items() if g.label in record.get("targets", [])]
 
 
 def _needed(ev: Evaluation, targets: list[str]) -> list[str]:
-    """The nodes a cook of `targets` keeps results for: 「输出」 keeps nothing of its own."""
-    return [n for n in ev.graph.needed(targets) if not ev.graph.nodes[n].type.delivers]
+    """The nodes a cook of `targets` keeps results for: 「输出」 keeps nothing of its own, and a node on a route a switch
+    does not take was never cooked (Evaluation.needed), so it does not make the mark 「部分」."""
+    return [n for n in ev.needed(targets) if not ev.graph.nodes[n].type.delivers]
 
 
 def in_use() -> dict[int, set[str]]:
@@ -1450,41 +1465,47 @@ def forget_marks() -> None:
     farm()._marks.clear()
 
 
-def cache_mark(job_id: str, graph: dict | None, record: dict, account: Account) -> dict:
+def cache_mark(job_id: str, graph: dict | None, record: dict, owner: int) -> dict:
     """Are a finished job's results still in the cache, worked out from its graph's plan (never guessed from dates):
-    {"mark": "all" (全在) / "some" (部分) / "none" (已清理), "cached", "nodes", "seconds": what computing the rest
-    again should take (timings), "why": when it can't be planned any more (its uploads were cleaned)}. The nodes
-    counted are those whose results the job showed or delivered from (「输出」 keeps nothing of its own). `account`:
-    whose it is asked for (the job's own account, or an administrator's: lab2shot/serving.py Account). `graph`: the
-    job's graph when the caller has it already; None reads it (`job_graph`) only when the mark is worked out again."""
+    {"mark": "all" (全在) / "some" (部分) / "none" (已清理), "cached", "nodes", "why": when it can't be planned any
+    more (its uploads were cleaned)}. No estimate of how long computing the rest again would take: one predicted from
+    earlier cooks is not reliable, and the page shows none. The nodes counted are those the job's cook needed (「输出」
+    keeps nothing of its own), judged by the same readiness its cook read: its targets and the outputs it showed. `owner`: the
+    account that submitted the job; the mark is always of its cache, whoever asks (an administrator opening someone's
+    job sees what its owner has), so one mark per job is right for everyone. `graph`: the job's graph when the caller
+    has it already; None reads it (`job_graph`) only when the mark is worked out again."""
     queue = farm()
     hit = queue._marks.get(job_id)
     if hit and time.time() - hit[0] < MARK_S:
         return hit[1]
-    with serving(account):  # in that account's own cache (data/store.py), whoever asks
-        mark = _mark(job_id, graph, record, account, queue)
+    account = Account(owner)
+    with serving(account):  # in the owner's own cache (data/store.py)
+        mark = _mark(job_id, graph, record, account)
     queue._marks[job_id] = (time.time(), mark)
     if len(queue._marks) > 2000:
         queue._marks.clear()
     return mark
 
 
-def _mark(job_id: str, graph: dict | None, record: dict, account: Account, queue: Farm) -> dict:
+def _mark(job_id: str, graph: dict | None, record: dict, account: Account) -> dict:
     try:
         if not (graph := (job_graph(job_id) if graph is None else graph)):
             raise NotFound(Msg("E-JOB-NOGRAPH"))
         ev = _eval_for(Graph.from_json(graph), account)
         targets = _targets_of(ev, record)
+        if not targets:  # none of what it cooked is in its graph any more: nothing can be told of its results
+            raise NotFound(Msg("E-JOB-NOTARGETS"))
         needed = _needed(ev, targets)
-        missing = [n for n in needed if not _done_for(ev, n, targets)]
-        history_ = timings.records(queue.db)
-        works = [w for w in timings.planned(ev, needed) if w.node in missing]
-        guesses = [timings.predict(w, queue.models(), history_)["seconds"] for w in works]
+        # the one answer (Evaluation.readiness), for the cook the job was: its targets and the outputs it showed
+        ready = ev.readiness(targets, False, frozenset(record.get("show") or ()))
+        if ready.refused is not None:  # it can't be told what is there (the graph can't be planned now): never 「全在」
+            raise GraphError(ready.refused)
+        computing = {i.node for i in (*ready.computing, *ready.failing, *ready.skipped)}  # what it has no result of
+        missing = [n for n in needed if n in computing]
         mark = {"mark": "all" if not missing else "none" if len(missing) == len(needed) else "some",
-                "cached": len(needed) - len(missing), "nodes": len(needed),
-                "seconds": round(sum(g for g in guesses if g is not None), 1), "unknown": sum(g is None for g in guesses), "why": ""}
+                "cached": len(needed) - len(missing), "nodes": len(needed), "why": ""}
     except (NotFound, GraphError, CookError, ValueError, OSError) as exc:  # an upload cleaned, a node type gone
-        mark = {"mark": "none", "cached": 0, "nodes": 0, "seconds": 0, "unknown": 0, "why": str(exc)}
+        mark = {"mark": "none", "cached": 0, "nodes": 0, "why": str(exc)}
     return mark
 
 
@@ -1496,9 +1517,19 @@ class _TheFarm:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.made: Farm | None = None
+        self.scene_done: Callable[[str], None] | None = None  # what the farm is made with (on_scene_done)
 
 
 _THE_FARM = _TheFarm()
+
+
+def on_scene_done(hook: Callable[[str], None]) -> None:
+    """The server's hook for a computed scene packet (server/view_worker.py scene_done), given to this process's farm
+    when it is made (Farm scene_done): the upper layer hands it down, as lab2shot/catalog.py install() does."""
+    with _THE_FARM.lock:
+        _THE_FARM.scene_done = hook
+        if _THE_FARM.made is not None:
+            _THE_FARM.made.scene_done = hook
 
 
 def farm() -> Farm:
@@ -1508,7 +1539,7 @@ def farm() -> Farm:
         return made
     with _THE_FARM.lock:
         if _THE_FARM.made is None:
-            _THE_FARM.made = Farm()
+            _THE_FARM.made = Farm(scene_done=_THE_FARM.scene_done)
         return _THE_FARM.made
 
 

@@ -1,5 +1,7 @@
-"""How long nodes take: every node that really computes in the queue is timed, and cooks are estimated from those
-records before they are submitted and while they wait or run.
+"""How long nodes take: every node that really computes in the queue is timed; a submitted job's nodes are estimated
+from those records for its progress bar's denominator only (farm/queue.py Job.estimate / fix_budget, lab2shot/progress.py).
+No estimated time is shown anywhere (no time left, no time to start, no 预计用时 before submitting): a time predicted
+from earlier cooks is not reliable. The look before submitting (`look`) says what a cook takes, not how long.
 
 A record (the database's timings table) keeps the node type, the GPU model it ran on ("CPU" for a node
 that uses none), its setting (a hash of the parameters that change the work, per-shot files and picks left out), the
@@ -23,6 +25,7 @@ from ..io.digest import key
 from ..database import Database, db
 
 KEEP = 20  # newest matching records an estimate uses
+KEPT_PER_NODE = 200  # records kept per node type, the newest (record): enough for KEEP on each card and setting in use
 SHOT_WIDGETS = {"file", "sequence", "picks"}  # parameters that differ per shot, not per setting
 CPU = "CPU"
 
@@ -40,7 +43,6 @@ def device(gpu: bool, gpu_name: str) -> str:
 
 
 FIELDS = ("t", "node", "gpu", "setting", "frames", "width", "height", "seconds")
-_read: dict = {}  # database file -> (its newest record id, the records): read again only when there are new ones
 
 
 def record(node_type, params: dict, gpu: bool, gpu_name: str, done: dict, database: Database | None = None) -> None:
@@ -50,17 +52,21 @@ def record(node_type, params: dict, gpu: bool, gpu_name: str, done: dict, databa
              "setting": setting(node_type, params), **{k: done[k] for k in ("frames", "width", "height", "seconds")}}
     with (database or db()).write() as c:
         c.execute(f"INSERT INTO timings ({', '.join(FIELDS)}) VALUES ({', '.join('?' * len(FIELDS))})", [entry[k] for k in FIELDS])
+        c.execute("DELETE FROM timings WHERE node = ? AND id <= (SELECT id FROM timings WHERE node = ? ORDER BY id DESC "
+                  "LIMIT 1 OFFSET ?)", (entry["node"], entry["node"], KEPT_PER_NODE))  # the table never grows past it
 
 
-def records(database: Database | None = None) -> list[dict]:
-    """Every record, oldest first (of `database`; default: the current work folder's)."""
-    d = database or db()
-    newest = d.row("SELECT MAX(id) AS id FROM timings")["id"]
-    seen, kept = _read.get(d.path, (None, []))
-    if seen != newest:
-        kept = [dict(r) for r in d.rows(f"SELECT {', '.join(FIELDS)} FROM timings ORDER BY id")]
-        _read[d.path] = (newest, kept)
-    return kept
+def records(node_types: set[str], database: Database | None = None) -> dict[str, list[dict]]:
+    """The records of these node types, oldest first, per type (of `database`; default: the current work folder's):
+    what estimating a job's nodes needs, never the whole table (index timings_node)."""
+    if not node_types:
+        return {}
+    found: dict[str, list[dict]] = {}
+    names = sorted(node_types)
+    for r in (database or db()).rows(f"SELECT {', '.join(FIELDS)} FROM timings WHERE node IN ({', '.join('?' * len(names))}) "
+                                     "ORDER BY id", names):
+        found.setdefault(r["node"], []).append(dict(r))
+    return found
 
 
 @dataclass(frozen=True)
@@ -77,10 +83,10 @@ class Work:
     height: int
 
 
-def predict(work: Work, gpus: list[str], history: list[dict]) -> dict:
+def predict(work: Work, gpus: list[str], same: list[dict]) -> dict:
     """{"seconds": estimate or None without records, "records": how many it rests on, "device": the GPU model (or
-    "CPU") they are from}. `gpus`: the GPU models the cook may run on (the ones that take jobs, or the one it got)."""
-    same = [r for r in history if r["node"] == work.type]
+    "CPU") they are from}. `gpus`: the GPU models the cook may run on (the ones that take jobs, or the one it got);
+    `same`: the records of its node type, oldest first (`records`)."""
     if work.gpu:
         pool = [r for r in same if r["gpu"] in gpus] or [r for r in same if r["gpu"] != CPU]
     else:
@@ -124,87 +130,75 @@ def _line(work: list[float], seconds: list[float]) -> tuple[float, float]:
     return 0.0, sum(w * s for w, s in zip(work, seconds)) / sum(w * w for w in work)
 
 
-def planned(engine, targets: list[str], force: bool = False) -> list[Work]:
-    """The nodes cooking `targets` will compute (Engine.computes), with what their estimates need."""
+def planned(ev, targets: list[str], force: bool = False, ready=None) -> list[Work]:
+    """What cooking `targets` computes (Evaluation.readiness: its `computing`), each with what its estimate needs: one
+    Work per instance; a node in a block whose items are not known yet (a prefix behind what is pending) once, from the
+    node's own parameters, its cost the graph's (no instance exists yet to plan, so no frames or size)."""
     from ..engine.evaluation import PLAN_ERRORS
 
-    out = []
-    for nid in engine.computes(targets, force):
-        node = engine.graph.nodes[nid]
-        for path in _instances(engine, nid):  # a node inside a 逐项处理 block computes once per item: each is its own work
-            try:
-                params, size = engine.params(nid, path), engine.work(nid, path)
-            except PLAN_ERRORS:  # a node that can't be planned (its file is not there) still runs, and fails at itself:
-                continue  # there is nothing to estimate for it, and the cook's estimate is the other nodes'
-            out.append(Work(nid, node.label, node.type.id, engine.graph.resolved(nid).cost.gpu, setting(node.type, params),
-                            len(size.frames), size.width, size.height))
+    out, seen = [], set()
+
+    def of_node(nid: str) -> None:  # the node from its own parameters, once: no instance to plan (yet)
+        if nid not in seen:
+            seen.add(nid)
+            node = ev.graph.nodes[nid]
+            out.append(Work(nid, node.label, node.type.id, ev.graph.resolved(nid).cost.gpu, setting(node.type, node.params), 0, 0, 0))
+
+    for inst in (ready or ev.readiness(targets, force)).computing:
+        nid, path = inst
+        node = ev.graph.nodes[nid]
+        if len(path) != ev.graph.scopes.depth(nid):  # not an instance yet (a block's items not known)
+            of_node(nid)
+            continue
+        try:  # the instance's cost, as the engine places it (Evaluation.resolved: without the wires it goes without)
+            params, size, gpu = ev.params(nid, path), ev.work(nid, path), ev.resolved(nid, path).cost.gpu
+        except PLAN_ERRORS:  # it can't be planned (its file is not there): it still runs, and fails at itself
+            of_node(nid)
+            continue
+        out.append(Work(nid, node.label, node.type.id, gpu, setting(node.type, params), len(size.frames), size.width, size.height))
     return out
 
 
-def _instances(engine, node_id: str) -> list:
-    """The item paths of a node in this graph (engine/scopes.py): the one empty path outside every block. An item list
-    that is not known yet leaves the node with none: it is estimated once its items are."""
-    from ..engine.evaluation import PLAN_ERRORS
-
-    evaluation = getattr(engine, "eval", engine)
-    try:
-        paths = evaluation.instances(node_id)[0]
-    except PLAN_ERRORS:
-        return []
-    # a block whose item list is not known yet (the node above it has not cooked): the node is still counted once, so
-    # what the job needs (a card, its VRAM: engine/resources.py Need) is known before anything of it has run
-    return paths or [()]
-
-
-def estimate(engine, targets: list[str], force: bool, gpus: list[str]) -> dict:
-    """Before a cook: the frame range its inputs cover and the one it takes, the nodes it computes with their
-    estimates (in cook order), how many are cached, and the sum of what can be estimated."""
-    full = engine.frame_range(targets)
-    works = planned(engine, targets, force)
-    history = records()
-    nodes = [{**asdict(w), **predict(w, gpus, history)} for w in works]
-    upstream = engine.graph.needed(targets)
+def estimate(ev, targets: list[str], force: bool, ready=None) -> dict:
+    """Before a cook: the frame range its inputs cover and the one it takes, the instances it computes (in cook order)
+    and how many it needs are cached, both counted from the one answer (Evaluation.readiness). No time: see the
+    module's docstring."""
+    ready = ready or ev.readiness(targets, force)
+    full = ev.frame_range(targets)
     return {
         "range": list(full) if full else None,
-        "frames": list(engine.graph.frames or full) if full else None,
-        "nodes": nodes,
-        "cached": len(upstream) - len(works),
-        "seconds": round(sum(n["seconds"] for n in nodes if n["seconds"] is not None), 1),
-        "unknown": sum(n["seconds"] is None for n in nodes),
+        "frames": list(ev.graph.frames or full) if full else None,
+        "nodes": [asdict(w) for w in planned(ev, targets, force, ready)],
+        "cached": len(ready.cached),
     }
 
 
-def unplannable(engine, targets: list[str]):
-    """The error of the first target that cannot be planned at all (its file is not there, a precondition it can't get
-    past), None when at least one of them can. The queue refuses a cook only when NOTHING of it can be planned — one
-    broken branch among others is queued, fails at its own node and lets the rest finish — and the look
-    before submitting shows that same error on the page, instead of an estimate of nothing."""
+def look(ev, target: str, force: bool, show=None) -> dict:
+    """A look at cooking `target` before submitting it: the estimate of what submitting it would queue, from the same
+    Readiness submitting reads (farm/queue.py _submit), so what the look accepts is what is accepted; `show` the
+    outputs of it the viewer shows, as submitting it would send them. It never
+    fails the page: a cook refused as a whole (Evaluation.readiness: a B- error of the graph) says why ("error": its
+    message, {code, level, text, params}), with the frame range its inputs cover when that is known; a fault of the
+    program is said as E-FARM-INTERNAL the same way (Evaluation.guarded), never a 500. The shown node's look comes with
+    every status reply (server/packets.py); /api/plan gives it to scripts and DCC clients."""
     from ..engine.evaluation import PLAN_ERRORS
+    from ..errors import message_of
 
-    first = None
-    for target in targets:
+    def refused(said: dict) -> dict:
+        full = ev.guarded("look range", lambda: ev.frame_range([target]), None) if target in ev.graph.nodes else None
+        return {"range": list(full) if full else None, "frames": None, "nodes": [], "cached": 0, "node": target, "error": said}
+
+    def answer() -> dict:
         try:
-            for path in _instances(engine, target) or [()]:
-                engine.plan(target, path)
-            return None
-        except PLAN_ERRORS as exc:
-            first = first or exc
-    return first
+            targets = [target]
+            ready = ev.readiness(targets, force, frozenset(show or ()))
+            if ready.refused is not None:
+                return refused(ready.refused.json())
+            # the instances it will fail at (their own error; the rest is cooked): said beside the plan, never instead
+            failing = [{"node": i.node, "path": list(i.path), "error": o.message}
+                       for i in sorted(ready.failing, key=repr) if (o := ev.outcome(*i)) is not None]
+            return {**estimate(ev, targets, force, ready), "node": target, "error": None, "failing": failing}
+        except PLAN_ERRORS as exc:  # something on the way can't be planned at all: said, as the status says it
+            return refused(message_of(exc).json())
 
-
-def look(engine, target: str, force: bool, gpus: list[str]) -> dict:
-    """A look at cooking `target` before submitting it (estimate, for what it computes: Graph.computed_by). It never
-    fails the page: a graph that can't be planned yet says why ("error": its message, {code, level, text, params}), with the frame range its inputs cover when
-    that is known. The shown node's look comes with every status reply (server/packets.py); /api/plan gives it to
-    scripts and DCC clients."""
-    from ..errors import CookError, message_of
-
-    try:
-        targets = engine.graph.computed_by(target)
-        if (problem := unplannable(engine, targets)) is not None:
-            raise problem  # said as it is, at its node: never an estimate of a cook that cannot even be planned
-        return {**estimate(engine, targets, force, gpus), "node": target, "error": None}
-    except (ValueError, CookError, OSError) as exc:  # GraphError is a ValueError
-        full = engine.frame_range([target]) if target in engine.graph.nodes else None
-        return {"range": list(full) if full else None, "frames": None, "nodes": [], "cached": 0, "seconds": 0,
-                "unknown": 0, "node": target, "error": message_of(exc).json()}
+    return ev.guarded("look", answer, lambda said: refused(said.json()))

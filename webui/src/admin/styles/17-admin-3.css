@@ -1,3 +1,6 @@
+/* ------------------------------------------------------------------ 后台页面（/admin），接 17-admin-2.css
+   （admin/admin.css 按顺序加载三部分）：重启遮罩、人员、数据库、硬盘与常驻模型、扩展包、显卡页按扩展包折起的行 */
+
 .rs-veil {
   position: fixed;
   inset: 0;
@@ -48,7 +51,7 @@ i.spin.big {
   border-top-color: var(--accent);
 }
 
-/* 人员: merging names */
+/* 人员：合并姓名 */
 .merge-bar {
   display: flex;
   align-items: center;
@@ -163,7 +166,7 @@ i.spin.big {
   }
 }
 
-/* the admin page's disk cleaning and resident workers (admin/Disk.tsx, admin/Resident.tsx) */
+/* 后台的硬盘清理和常驻模型（admin/Disk.tsx、admin/Resident.tsx） */
 
 
 
@@ -230,7 +233,7 @@ i.spin.big {
   font-weight: 600;
 }
 
-/* rows folded by extension (admin/Cards.tsx Folds): one closed line per extension, the table inside once opened */
+/* 按扩展包折起的行（admin/Cards.tsx Folds）：每个扩展包收起时一行，展开后是里面的表格 */
 .adm-folds {
   display: flex;
   flex-direction: column;

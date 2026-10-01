@@ -41,7 +41,7 @@ import secrets
 import unicodedata
 
 from . import accounts, logs, roles, terms
-from .accounts import User, now
+from .accounts import Actor, User, now
 from .config import settings
 from .database import db
 from .errors import Forbidden, Invalid, NotFound, TooManyTries
@@ -146,7 +146,7 @@ def invite(invite_id: int) -> dict:
     return next(i for i in invites() if i["id"] == invite_id)
 
 
-def create_invite(code: str | None, note: object, uses_max: object, expires: object, by: str) -> dict:
+def create_invite(code: str | None, note: object, uses_max: object, expires: object, by: Actor) -> dict:
     """A new code: the one typed (checked, and never one that exists already) or a random one (kept in groups of four,
     as it is handed over). Returns the code's row, which holds the code."""
     t = now()
@@ -156,8 +156,9 @@ def create_invite(code: str | None, note: object, uses_max: object, expires: obj
     with db().write() as c:
         if c.execute("SELECT 1 FROM invites WHERE code_hash = ?", (_hash(kept),)).fetchone():
             raise Invalid(Msg("E-INVITE-TAKEN"))
-        new = c.execute("INSERT INTO invites (code, code_hash, hint, note, uses_max, used, expires, enabled, created, created_by) "
-                        "VALUES (?, ?, ?, ?, ?, 0, ?, 1, ?, ?)", (shown, _hash(kept), kept[:HINT], text, uses, until, t, by)).lastrowid
+        new = c.execute("INSERT INTO invites (code, code_hash, hint, note, uses_max, used, expires, enabled, created, created_by, "
+                        "created_by_id) VALUES (?, ?, ?, ?, ?, 0, ?, 1, ?, ?, ?)",
+                        (shown, _hash(kept), kept[:HINT], text, uses, until, t, by.label, by.id)).lastrowid
     return invite(new)
 
 
@@ -268,8 +269,9 @@ def register(username: object, name: object, department: object, password: str, 
              agreed: int, ip: str, apart: bool) -> tuple[User, dict | None]:
     """Make the account of someone registering themself, if registering is open, they agreed to the 用户协议 and
     隐私政策 and no limit stands in the way: accounts.create with the settings' expiry and tags and the role 普通用户,
-    the invite code's use (when codes are required), the agreement (lab2shot/terms) and the record of where it came
-    from, all in one transaction (the caller may widen it). `agreed`: the version of the texts the form showed with
+    the invite code's use (when codes are required), the agreement (lab2shot/terms), its quota and the record of where
+    it came from, all in one transaction, which the new password is hashed before (accounts.new_password: never under
+    the database's one writer). `agreed`: the version of the texts the form showed with
     its box ticked (0: not ticked); one that is no longer current is refused, to be read again. Returns the account and
     the code's row it used (None without one). `apart`: whether `ip` tells this client apart from others
     (server/auth.py client_source); only then do the per-address limits count. The caller has checked the proof of
@@ -283,18 +285,20 @@ def register(username: object, name: object, department: object, password: str, 
         raise Invalid(Msg("E-REGISTER-AGAIN"))
     if s["register.invite"] and not str(code or "").strip():
         raise Invalid(Msg("E-REGISTER-NOINVITE"))
-    expires = t + int(s["register.days"]) * DAY
+    expires, hashed = t + int(s["register.days"]) * DAY, accounts.new_password(password)
     with db().write() as c:  # the limits are read under the write lock: two registrations at once never both pass the last place
         if problem := paused(t):
             raise TooManyTries(problem)
         if apart and (problem := address_problem(ip, t)):
             raise TooManyTries(problem)
         used = _claim(c, str(code or ""), t) if s["register.invite"] else None
-        user = accounts.create(str(username or ""), password, str(name or ""), str(department or ""), expires,
+        user = accounts.create(str(username or ""), hashed, str(name or ""), str(department or ""), expires,
                                list(s["register.tags"]), role=roles.DEFAULT, by="本人")
         c.execute("INSERT INTO registrations (user_id, at, invite_id, invite_hint, ip, net) VALUES (?, ?, ?, ?, ?, ?)",
                   (user.id, t, used["id"] if used else None, used["hint"] if used else "", ip[:100], net_of(ip)))
         terms.record(c, user.id, agreed, ip)
+        # its quota, the settings' for a self-registered account (server/quota.py reads users.quota_gb)
+        c.execute("UPDATE users SET quota_gb = ? WHERE id = ?", (float(s["register.quota_gb"]), user.id))
     after = counts(t + 0.001)
     if after["paused"]:  # this one reached a site-wide limit: registering pauses from now on
         window = "一小时" if after["paused"] == "hour" else "一天"

@@ -32,6 +32,8 @@ OWNER = "owner.json"
 class WorkDirError(MessageError, RuntimeError):
     """This process may not use this work folder; the message says whose it is and what to do."""
 
+    status = 500
+
 
 def owner(work_dir: Path) -> str | None:
     """The checkout the work folder belongs to (None: it does not say)."""

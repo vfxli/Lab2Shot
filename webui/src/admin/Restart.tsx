@@ -112,7 +112,7 @@ export function RestartBanner() {
       (e: Error) => problem(e.message),
     );
   if (r?.state === "draining") {
-    const what = [r.running ? `${r.running} 个计算中的任务` : "", ...r.tasks.map((task) => task.text)].filter(Boolean).join("和");
+    const what = [r.running ? `${r.running} 个计算中的任务` : "", ...(r.tasks ?? []).map((task) => task.text)].filter(Boolean).join("和");
     return (
       <div className="adm-banner draining" role="status">
         <i className="spin" />

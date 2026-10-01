@@ -7,8 +7,10 @@ never the answer itself:
 
     code(request)      this run of the server and its work folder, the node types it loaded, the template files (lab2shot/library.py
                        reads them again when they change)
-    account(request)   what of the answer is this account's: its licence tags (nodes/tags.py), its role, whether it
-                       sees the server's folders (access.py scrub), the answer fields it gets (available.py FIELDS)
+    account(request)   what of the answer is this account's: the account itself (what of another's it may see is
+                       its own: access.manages), its licence tags (nodes/tags.py), its role, the
+                       capabilities its role has now and those this session holds (a 二级管理员's are data: granted or
+                       taken back, the next answer follows; roles.py), the answer fields it gets (available.py FIELDS)
     installs(request)  what the extensions' and hand downloads' state is read from: each extension's environment and
                        install record, the inbox (downloads/), what the hand downloads installed
                        (extensions/manual.py), the accepted licences, and the install tasks running now (server/installs.py
@@ -76,7 +78,8 @@ def account(request: Request) -> tuple:
     if s is None:
         return (None,)
     allowed = None if s.user.allowed is None else tuple(sorted(s.user.allowed))
-    return (allowed, s.user.role, s.can("logs.view"), tuple(resolve(available.FIELDS, SessionFacts.of(s)).available))
+    return (s.user.id, allowed, s.user.role, tuple(sorted(s.user.capabilities)), tuple(sorted(s.capabilities)),
+            tuple(resolve(available.FIELDS, SessionFacts.of(s)).available))
 
 
 def installs(request: Request) -> tuple:
@@ -101,13 +104,13 @@ def of(*parts: Callable[[Request], tuple]) -> Callable[[Request], str]:
 
 def kept(request: Request) -> tuple:
     """What the administrator keeps in files and every account is handed: the template files and their tree, the two
-    category trees and the node placements (lab2shot/categories.py), and every node's name and description
-    (nodes/text.py)."""
-    from .. import categories, library
+    category trees and the node placements (lab2shot/categories.py), every node's name and description
+    (nodes/text.py), and the accounts' names the cards say who saved them by (accounts.revision)."""
+    from .. import accounts, categories, library
     from ..nodes import text
 
     try:
-        return (library.changed_at(), categories.changed_at(), text.stamp())
+        return (library.changed_at(), categories.changed_at(), text.stamp(), accounts.revision())
     except Exception:  # no work folder yet (the page before a login)
         return ()
 

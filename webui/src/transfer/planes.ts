@@ -1,8 +1,8 @@
-import { json } from "../platform/http";
+import { ApiError, json } from "../platform/http";
 import { useUploads } from "../state/uploads";
 import type { PlanesAnswer } from "./exrWorker";
 import { exrPlanes } from "./exr";
-import { completeSet, patchTask, sendBytes, sentHere } from "./uploads";
+import { completeSet, lineWait, patchTask, sendBytes, sending, sentHere } from "./uploads";
 
 /** 通道级上传：点击「计算」时，一份 EXR 素材只上传已连线通道的原始像素，而非整个文件；
  * N 个通道未全部使用时，下游计算只上传所用的通道。
@@ -82,23 +82,50 @@ export async function sendPlanes(key: string, ref: string, channels: { take: str
   const shaOf = new Map(task.files.map((f) => [f.name, f.sha]));
   if (files.some((f) => !shaOf.get(f.name))) return { whole: { file: task.name, reason: "还没算出文件的内容指纹" } };
   const sid = ref.slice("upload:".length).split("/")[0];
-  let stopped = false; // cancelled (cancelUpload)
-  let failed = false; // one frame failed: the other workers stop with it
-  sentHere.set(key, { files, stop: () => (stopped = true) });
+  let stopped = false; // 已取消（cancelUpload）
+  let failed = false; // 有一帧失败：其余工作者随之停下
+  const inflight = new Set<XMLHttpRequest>(); // 在途的分段：取消时立刻中止，不再把余下的发完
+  const wakes = new Set<() => void>(); // 等线路恢复的（lineWait）：取消时立刻叫醒
+  sentHere.set(key, { files, stop: () => ((stopped = true), inflight.forEach((x) => x.abort()), wakes.forEach((w) => w())) });
   patchTask(key, { state: "sending", error: "", sent: 0, done: 0 });
   const cancelled = () => stopped || !useUploads.getState().tasks[key];
   const isStopped = () => failed || cancelled();
+  const sizes = new Map<string, number>(); // 每帧压缩后的大小：进度条据此计算，而非按整个文件计算
+  let sent = 0;
+  let done = 0;
+  // 在途字节按帧分开记：两路（AT_ONCE）同时在发，各报各的，合计才是进度
+  const flying = new Map<string, number>();
+  // 与整份上传同一套簿记（uploads.ts sending）：心跳、每秒量速度与进度、广播给别的标签页、定期落盘
+  const book = sending(key, () => {
+    const going = sent + [...flying.values()].reduce((a, b) => a + b, 0);
+    const known = [...sizes.values()];
+    const avg = known.length ? known.reduce((a, b) => a + b, 0) / known.length : 0;
+    return { sent: going, done, bytes: Math.max(1, Math.round(going + avg * (files.length - known.length))) };
+  });
+  const report = book.report;
+  // 与服务器的一问一答（查缺哪些通道、登记一帧的平面）：断线、服务器忙、登录过期都等线路恢复后续问（同 completeSet），
+  // 不一断就把整份任务判为失败；服务器明确拒绝的照样报错
+  let attempt = 0;
+  const ask = async <T,>(what: () => Promise<T>): Promise<T> => {
+    for (;;) {
+      try {
+        const got = await what();
+        attempt = 0;
+        return got;
+      } catch (e) {
+        if (isStopped()) throw e;
+        const status = e instanceof ApiError ? e.status : 0;
+        if (status && status < 500 && status !== 401 && status !== 408 && status !== 429) throw e;
+        book.reset();
+        await lineWait(key, attempt++, (e as Error).message, isStopped, wakes);
+        if (isStopped()) throw e;
+      }
+    }
+  };
   try {
     const shas = files.map((f) => shaOf.get(f.name)!);
-    const { missing } = await json<{ missing: Record<string, string[]> }>("POST", "/api/uploads/planes/have", { shas, channels: channels.write });
-    const sizes = new Map<string, number>(); // 每帧压缩后的大小：进度条据此计算，而非按整个文件计算
-    let sent = 0;
-    let done = 0;
-    const report = (flying: number) => {
-      const known = [...sizes.values()];
-      const avg = known.length ? known.reduce((a, b) => a + b, 0) / known.length : 0;
-      patchTask(key, { sent: sent + flying, done, bytes: Math.max(1, Math.round(sent + flying + avg * (files.length - known.length))) });
-    };
+    const said = await ask(() => json<{ missing?: Record<string, string[]> }>("POST", "/api/uploads/planes/have", { shas, channels: channels.write }));
+    const missing = said.missing ?? {}; // 服务器回复缺这一项时按「全都缺」
     const queue = [...files];
     const one = async (f: File) => {
       const sha = shaOf.get(f.name)!;
@@ -111,23 +138,24 @@ export async function sendPlanes(key: string, ref: string, channels: { take: str
       const write = channels.write.filter((w) => lacking.has(w));
       const { blob, decoded, types } = await planesOf(f, take);
       sizes.set(f.name, blob.size);
-      const got = await sendBytes(key, blob, report, isStopped);
+      const got = await sendBytes(key, blob, (n) => void flying.set(f.name, n), isStopped, inflight);
+      flying.delete(f.name);
       if (isStopped()) return;
       sent += blob.size;
-      await json("POST", "/api/uploads/planes", {
+      await ask(() => json("POST", "/api/uploads/planes", {
         sid, sha, blob: got, width: decoded.width, height: decoded.height, compression: decoded.compression,
         channels: take.map((t, i) => ({ take: t, write: write[i], type: types[i] })),
         display: decoded.displayWindow ?? null, data: decoded.dataWindow ?? null,
-      });
+      }));
       if (isStopped()) return;
       done++;
-      report(0);
+      report();
     };
     const worker = async () => {
       try {
         for (let f = queue.shift(); f && !isStopped(); f = queue.shift()) await one(f);
       } catch (e) {
-        failed = true; // the task goes on as one (whole, or failed): no worker of this round sends any more
+        failed = true; // 整个任务统一改走一条路（整份上传或判失败）：本轮的工作者都不再发送
         throw e;
       }
     };
@@ -145,5 +173,7 @@ export async function sendPlanes(key: string, ref: string, channels: { take: str
     }
     patchTask(key, { state: "failed", error: (e as Error).message, rate: 0 });
     return { ok: false };
+  } finally {
+    book.end();
   }
 }

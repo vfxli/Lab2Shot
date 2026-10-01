@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 from lab2shot.sdk import (Official, measured_param, Confidence, LensWholeShotParams, P, Port, WholeShotDepthCamera,
-                          conf_threshold_param, frame_maps, resolution_param, unit_cm_param, Cost, Licence,
+                          conf_threshold_param, frame_maps, resolution_param, unit_cm_param, Cost,
                           max_frames_param, Measured)
 
 
@@ -40,7 +40,6 @@ class Reconstruct(WholeShotDepthCamera):
     confidence = Confidence("exp_plus_one")  # how its model gives its confidence (CONFIDENCE_SCALES)
     # RTX 4090，默认每段约 36 帧
     cost = Cost(gpu=True, vram_gb=17.0, seconds_per_frame=3.0)
-    licence = Licence(note="代码和权重 CC-BY-NC-SA-4.0（含 DUSt3R / CroCo 代码），只能研究用；光流 SEA-RAFT（BSD-3）和 SAM 2（Apache-2.0）可以商用。")
 
     class Params(LensWholeShotParams):
         # 24G 显卡：40 帧（288×512）18.9 GB，显存随帧数线性增长；40 是测过的最大点，再多就是外推，不给填

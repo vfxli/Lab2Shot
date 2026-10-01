@@ -1,10 +1,10 @@
 import { createContext, useContext } from "react";
 import type { QueueView } from "../api";
-import type { OnlineSummary, Overview, Place } from "../api/admin";
+import type { OnlineSummary, Overview, Place, SettingsView } from "../api/admin";
 import { agoText, clockText, fullTimeText, whenText } from "../platform/format";
 
-/** What the admin page's sections share: the page-wide notice, going to another section, the queue and the overview
- * (read once for the whole page) and asking for a restart. Switching cards is the 显卡 section's alone (Cards.tsx). */
+/** What the admin page's sections share: the page-wide notice, going to another section, the queue, the overview and
+ * the settings (each read once for the whole page) and asking for a restart. Switching cards is the 显卡 section's alone (Cards.tsx). */
 export interface AdminContext {
   problem: (text: string | null) => void;
   go: (section: string) => void;
@@ -12,6 +12,8 @@ export interface AdminContext {
   refreshQueue: () => void;
   overview: Overview | null;
   refreshOverview: () => void;
+  settings: SettingsView | null; // read while a section that shows settings is open (常驻模型, the settings pages)
+  settingsSaved: (view: SettingsView) => void; // what saving answered: every section reads the same copy
   askRestart: () => void;
 }
 

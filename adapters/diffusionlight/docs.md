@@ -46,7 +46,7 @@ year = 2025
 
 ## 在 Lab2Shot 里怎么用
 
-- 典型接法（模板「HDRI · DiffusionLight」）：读取序列 →「FrameHold」（定住一帧）→ **DiffusionLight** →「HDRI」接序列图输出设置写 EXR，在 DCC 里挂成穹顶灯（Houdini Solaris、Maya）。「铬球」输出是画出来的球，用来一眼判断结果靠不靠谱。节点没有相机口、也不出灯光口。
+- 典型接法（模板「HDRI · DiffusionLight」）：读取图片 → **DiffusionLight** →「HDRI」接序列图输出设置写 EXR，在 DCC 里挂成穹顶灯（Houdini Solaris、Maya）。「铬球」输出是画出来的球，用来一眼判断结果靠不靠谱。节点没有相机口、也不出灯光口。
 - 挂灯时要注意方向：**经纬图正中间那一列就是镜头看的方向**，顶上是画面的上方；在 DCC 里需要自己旋转灯的 Y 轴对齐。
 - 什么素材好：环境看得比较全的一帧（广一点的镜头、人挡得少）。只算一帧，所以选帧很重要。
 - **只吃一帧**：接进来的是一段序列会被拒绝（`E-LIGHT-ONEFRAME`），前面接「FrameHold」选一帧——挑环境最完整、前景遮挡最少的那一帧。

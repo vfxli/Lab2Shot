@@ -3,7 +3,9 @@
  * gzip on the wire), and the arithmetic the viewer does on it off the graphics card (depth clouds rebuilt, samples
  * picked, matrices, bones, UVs).
  *
- * Pure: no imports. */
+ * Pure: imports only the pure frame arithmetic (model/timelineMath.ts). */
+
+import { closer } from "./timelineMath";
 
 type TypeName = "f32" | "u32" | "u16" | "u8";
 export type Typed = Float32Array | Uint32Array | Uint16Array | Uint8Array;
@@ -74,22 +76,30 @@ export interface GridRef {
   focal: ArrayRef; // pixels, per sample
   cam: ArrayRef; // camera-to-world per sample, 4x4 row after row
   principal?: ArrayRef; // (cx, cy) pixels per sample: the camera's principal point (the picture's centre unless the solver wrote one)
-  // 代理显示（server/view_data.py _proxy_step）：每 proxy 个格子取一个。
-  // 1（或缺失）表示完整发送。大于 1 时视图通知区必须明确提示，不得静默抽稀。
+  // Proxy display (server/view_data.py _proxy_step): one cell in every `proxy`.
+  // 1 (or absent): sent in full. Above 1 the view's notice area must say so; the cloud is never thinned silently.
   proxy?: number;
+  // A distance map seen directly as a cloud (server/view_data.py _distance_grid_view): depths only, coloured by a ramp over
+  // distance; `ramp` is the [near, far] value range. The ramp itself comes from the server (ramp_colour = [NEAR, SLOPE],
+  // colour = clamp(NEAR + v × SLOPE); view_data.py RAMP_NEAR / RAMP_SLOPE is the one definition) and the shader follows it
+  // (pointShaders.tsx): the page keeps no formula of its own
+  ramp?: [number, number];
+  ramp_colour?: [[number, number, number], [number, number, number]];
 }
 
 export interface CloudRef extends Item {
   width: number | null;
   per_frame: boolean;
   grid?: GridRef;
-  count?: number; // 逐帧点云：第一帧的点数（「显示了 N / 共 M 点」据此显示）
-  // 每 every 个点取一个（server/view_data.py _point_step）：超过后台「点云上限」时删减，且始终生效。
-  // 缺少该项表示不删减任何点。大于 1 时视图通知区持续显示「显示了 N / 共 M 点」
+  count?: number; // per-frame cloud: the first frame's point count (what 「显示了 N / 共 M 点」 reports)
+  // One point in every `every` (server/view_data.py _point_step): applied whenever the cloud exceeds the 「点云上限」
+  // setting. Absent: no point dropped. Above 1 the view's notice area keeps showing 「显示了 N / 共 M 点」
   every?: number;
   speed?: boolean; // the same points on every frame: they have a speed (server/view_data.py), 着色 · 速度 applies
   points?: ArrayRef;
-  colors?: ArrayRef; // float32, or bytes (k/255: the same numbers)
+  // float32, or bytes (k/255 within float32 precision). A per-frame cloud: the first frame's colours, sent once; a
+  // frame whose colours are the same comes without them (server/view_data.py encode)
+  colors?: ArrayRef;
   widths?: ArrayRef;
 }
 
@@ -110,15 +120,21 @@ export interface CurveRef extends Item {
 export interface CameraRef extends Item {
   width: number;
   height: number;
-  /** 该相机带有的畸变（镜头模型 id；不带畸变时为空或缺失）。透过该相机观看时，底图按其镜头去畸变（view/Stage3D.tsx、
-   * `api.packetFrameUrl` 的 `through`）：解算节点选择了带畸变的镜头模型时，三维视图不使用原图作为底图。 */
+  /** The camera's distortion (a lens model id; empty or absent when it has none). Looking through the camera, the
+   * backdrop is undistorted with its lens (view/Stage3D.tsx, `through` in `transfer/frameKey.ts pictureUrl`): when the
+   * solve chose a distorting lens model, the 3D view never uses the raw picture as its backdrop. */
   distortion?: string;
-  /** 该相机的背板：解算该相机所用的画面（或手动为其指定的画面）对应数据包的指纹（`lab2shot/io/usd.py PLATE`）。
-   * 透过该相机观看时，三维舞台以此为底图；为空或缺失表示没有背板（导入的相机）。 */
+  /** The camera's plate: the fingerprint of the packet holding the pictures it was solved from (or the pictures assigned
+   * to it by hand) (`lab2shot/io/usd.py PLATE`). Looking through the camera, the 3D stage uses it as the backdrop; empty
+   * or absent: no plate (an imported camera). */
   plate?: string;
   focal_mm: ArrayRef;
   h_aperture_mm: ArrayRef;
   v_aperture_mm: ArrayRef;
+  /** The lens centre (principal point) off the picture's centre, mm, +x right +y up, (x, y) per sample or one pair
+   * for all (`lab2shot/data/camera.py center_mm`): a camera solved inside a crop of the plate has one. Looking through
+   * the camera, the picture sits off the lens axis by the opposite amount (view/camera3d.tsx frustum, ImagePlane). */
+  center_mm?: ArrayRef;
 }
 
 
@@ -228,37 +244,38 @@ function expandRuns(runs: [number, number][]): number[] {
 
 /** A description as the server sends it (every item's frames as runs) as the viewer reads it. */
 export function readDescription(wire: unknown): ViewDescription {
-  const d = wire as ViewDescription;
+  // a list the server did not send counts as empty (filled in here only: everywhere else relies on it being there)
+  const w = (wire ?? {}) as Partial<ViewDescription>;
+  const d: ViewDescription = {
+    ...w, format: w.format ?? 0, frames: w.frames ?? [], parts: w.parts ?? {},
+    models: w.models ?? [], characters: w.characters ?? [], clouds: w.clouds ?? [], curves: w.curves ?? [], cameras: w.cameras ?? [],
+  };
   for (const items of [d.models, d.characters, d.clouds, d.curves, d.cameras])
-    for (const it of items as Item[]) it.frames = expandRuns(it.frames as unknown as [number, number][]);
+    for (const it of items as Item[]) it.frames = expandRuns((it.frames ?? []) as unknown as [number, number][]);
   return d;
 }
 
-/** The sample of `frame` among an item's `frames`: the frame itself, else the nearest end (a still thing holds
- * everywhere). */
-export const sampleAt = (frames: number[], frame: number) => {
-  const i = frames.indexOf(frame);
-  if (i >= 0) return i;
-  return frames.length ? (frame < frames[0] ? 0 : frames.length - 1) : 0;
-};
 
-/** 返回该帧尚未到达时应绘制的帧：`samples` 中与 `i` 最近的一份，没有任何一份时返回 undefined。
+/** The sample to draw while frame `i` has not arrived: the one in `samples` nearest to `i`; undefined when there is none.
  *
- * 若该帧未到达时绘制 0 个点，拖动时间线时画面会持续闪烁，只有全部缓存后才稳定。但保持显示其他帧也并非当前帧，
- * 因此绘制与提示分开处理：此处只保证画面不为空，实际显示的帧号由统一的视图通知区说明
- * （ui/ViewNotices.tsx）。
+ * Drawing 0 points for a frame not yet arrived would make the picture flicker while the timeline is scrubbed, settling
+ * only once everything is cached. Yet another frame held on screen is not the current frame either, so drawing and
+ * telling are kept apart: this only keeps the picture from going empty, and the frame actually shown is stated by the
+ * one view notice area (ui/ViewNotices.tsx).
  *
- * 取最近的一份而非前一份：向回拖动时，前一份可能比后一份远得多。 */
+ * The nearest, not the previous one: scrubbing backwards, the previous sample can be much farther than the next. The
+ * nearest by model/timelineMath.ts nearest's rule (`closer`), what arrived here being a picture's frames, not samples. */
 export function heldSample<T>(samples: Map<number, T>, i: number): { sample: T; at: number } | undefined {
   const here = samples.get(i);
   if (here !== undefined) return { sample: here, at: i };
-  let best: { sample: T; at: number } | undefined;
-  for (const [k, v] of samples) if (best === undefined || Math.abs(k - i) < Math.abs(best.at - i)) best = { sample: v, at: k };
-  return best;
+  let at: number | undefined;
+  for (const k of samples.keys()) if (at === undefined || closer(k, at, i)) at = k; // one pass, nearest's own rule
+  return at === undefined ? undefined : { sample: samples.get(at)!, at };
 }
 
 /** Row-major 4x4 (or 3x4 with 0 0 0 1 below) at `i` as column-major elements (three.js's Matrix4.elements). */
 export function columnMajor(rows: Float32Array, i: number, height: 3 | 4 = 4): number[] {
+  if (i < 0) return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]; // no sample (sampleAt -1): no transform, never a row read from the end
   const r = rows.subarray(i * height * 4, (i + 1) * height * 4);
   const at = (row: number, col: number) => (row < height ? r[row * 4 + col] : row === 3 && col === 3 ? 1 : 0);
   const out: number[] = [];
@@ -266,31 +283,9 @@ export function columnMajor(rows: Float32Array, i: number, height: 3 | 4 = 4): n
   return out;
 }
 
-/** 4x4 (column-major) product a · b. */
-export function multiply(a: number[], b: number[]): number[] {
-  const out = new Array<number>(16).fill(0);
-  for (let col = 0; col < 4; col++)
-    for (let row = 0; row < 4; row++) {
-      let s = 0;
-      for (let k = 0; k < 4; k++) s += a[k * 4 + row] * b[col * 4 + k];
-      out[col * 4 + row] = s;
-    }
-  return out;
-}
-
-/** 4x4 (column-major) inverse, of an affine matrix. */
-export function invertAffine(m: number[]): number[] {
-  const [a, b, c, d, e, f, g, h, i] = [m[0], m[4], m[8], m[1], m[5], m[9], m[2], m[6], m[10]];
-  const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
-  const inv = [(e * i - f * h) / det, (c * h - b * i) / det, (b * f - c * e) / det, (f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det, (d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det];
-  const t = [m[12], m[13], m[14]];
-  const out = [inv[0], inv[3], inv[6], 0, inv[1], inv[4], inv[7], 0, inv[2], inv[5], inv[8], 0, 0, 0, 0, 1];
-  for (let row = 0; row < 3; row++) out[12 + row] = -(inv[row * 3] * t[0] + inv[row * 3 + 1] * t[1] + inv[row * 3 + 2] * t[2]);
-  return out;
-}
-
 /** A skeleton's bones on one sample: from each joint to its parent, [x0 y0 z0 x1 y1 z1] per bone. */
 export function boneSegments(anim: Float32Array, parents: number[], sample: number): Float32Array {
+  if (sample < 0) return new Float32Array(0); // no sample (sampleAt -1): no bones
   const joints = parents.length;
   const bones = parents.filter((p) => p >= 0).length;
   const out = new Float32Array(bones * 6);
@@ -322,3 +317,20 @@ export const baseBytes = (d: ViewDescription) =>
   Object.entries(d.parts)
     .filter(([name]) => !name.startsWith("c") && name !== "uv")
     .reduce((a, [, p]) => a + (p.raw ?? 0), 0);
+
+/** How far a skinned mesh's points reach from the joint that carries each (the heaviest of its four influences:
+ * `skinIndex` / `skinWeight` packed four per point, in no promised order — a USD skin's influences come unsorted, and
+ * padding is index 0 at weight 0), in the bind pose: the largest such distance. A point turns and moves with that joint,
+ * keeping its distance, so the joints' box widened this much holds the mesh in any pose of rigid joints
+ * (view/elements3d.tsx SkinnedBody bounds). */
+export function skinReach(points: ArrayLike<number>, skinIndex: ArrayLike<number>, skinWeight: ArrayLike<number>, jointAt: readonly (readonly number[])[]): number {
+  if (!jointAt.length) return 0;
+  let reach = 0;
+  for (let v = 0; v * 3 < points.length; v++) {
+    let c = v * 4;
+    for (let k = v * 4 + 1; k < v * 4 + 4; k++) if (skinWeight[k] > skinWeight[c]) c = k;
+    const q = jointAt[skinIndex[c]] ?? jointAt[0];
+    reach = Math.max(reach, Math.hypot(points[v * 3] - q[0], points[v * 3 + 1] - q[1], points[v * 3 + 2] - q[2]));
+  }
+  return reach;
+}

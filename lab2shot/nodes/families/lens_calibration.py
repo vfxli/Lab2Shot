@@ -15,13 +15,12 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
-
-from ..base import NodeDef, Port
-from ..lens import LENS_HELP, only_when_distorting
+from ..kit.ports import rgb_port
+from ..base import Port
+from .base import WorkerNode
+from ..lens import LENS_HELP
 from ...data.values import LENS
 from ..values import FLOAT
-
 
 # 「Focal Length」端口的说明，两个成员共用。上游给出像素单位的 Focal Length，此处换算为项目标准单位毫米后输出：
 # 将上游的值转换为标准表示和标准单位不属于二次加工（与 SMPL 参数写入「蒙皮角色」属于同一类）。
@@ -36,14 +35,7 @@ FILMBACK_HELP = (
     "接这一根就不用再填一遍，两边永远是同一个数"
 )
 
-
-def focal_px_to_mm(focal_px: float, width: int | float, filmback_mm: float) -> float:
-    """Focal Length（px）→ Focal Length（mm）。`width` 必须是 worker 写出的画面宽度，而非节点侧的宽度：
-    两者目前相等，但不应依赖这一点。"""
-    return float(focal_px) / float(width) * float(filmback_mm)
-
-
-class LensCalibration(NodeDef):
+class LensCalibration(WorkerNode):
     """镜头标定节点的共同声明：输入一张画面，输出该镜头的若干参数。
 
     成员通过 `outputs = LensCalibration.outputs + (...)` 追加上游额外提供的端口（GeoCalib 的重力方向和重力误差；
@@ -53,30 +45,12 @@ class LensCalibration(NodeDef):
 
     # 该节点自行从画面估计畸变，因此不假定输入画面已去畸变（nodes/applies.py LENSES）
     lens = "any"
-    inputs = (Port("image", "image.3", "RGB"),)
+    inputs = (rgb_port(),)
     outputs = (
         Port("focal", FLOAT, "Focal Length", unit="mm", help=FOCAL_HELP),
         Port("filmback", FLOAT, "Filmback", unit="mm", help=FILMBACK_HELP),
         # 镜头模型、畸变系数、主点、像素比打包为一份「镜头内参」（nodes/lens.py packed_lens），而非各设一个端口
+        # every choice gives one, a pinhole too (no coefficients: an identity ST-map downstream): a port's type never
+        # changes with a value
         Port("lens", LENS, "镜头内参", help=LENS_HELP),
     )
-
-    # 「拟合模型」中确实会解出畸变的档位：「镜头内参」端口只在这些档位下有值，其他档位输出空数据包，
-    # 因此在其他档位下该端口置灰且不可用（nodes/lens.py only_when_distorting），而不是隐藏。
-    # 成员必须从自身的模型表推导该名单（AnyCalib 由其镜头内参组 `GROUP` 算出，GeoCalib 的 `TABLE_MODELS`），
-    # 不得手写：这样新增拟合模型档位时无需回来修改此处。
-    distorting_models: ClassVar[tuple[str, ...]] = ()
-
-    def __init_subclass__(cls, **kw) -> None:
-        # 条件在此处施加，而不是在成员的 outputs 中：这些端口是家族声明的同一份，成员通过
-        # `outputs = LensCalibration.outputs + (...)` 追加，无法在类体中修改家族的那一份。
-        # 施加后得到新的 Port 对象（Port 为 frozen，使用 `dataclasses.replace`），赋给 `cls.outputs` 只在子类上生效，
-        # 不会就地修改家族的那一份而影响其他成员。
-        if "fit_model" in cls.Params.model_fields:
-            if not cls.distorting_models:
-                raise TypeError(f"{cls.__name__}: a node with a fit_model must declare `distorting_models` (which of "
-                                f"its choices really solve a distortion), worked out from its own model table; without "
-                                f"it the 镜头内参 output stays live on the choices that give nothing "
-                                f"(lab2shot/nodes/families/lens_calibration.py)")
-            cls.outputs = only_when_distorting(cls.outputs, *cls.distorting_models)
-        super().__init_subclass__(**kw)  # 条件施加完成后再由 NodeDef 检查声明：check_declarations 需核对条件中的参数名是否存在

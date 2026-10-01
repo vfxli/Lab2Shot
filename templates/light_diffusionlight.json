@@ -3,17 +3,123 @@
  "meta": {
   "id": "6d070fb1093ab80b2203f327dd3d8987",
   "name": "HDRI · DiffusionLight",
-  "intro": "DiffusionLight 把光照估计改写成「在画面里补画一颗镜面铬球」的问题，从一张低动态范围（LDR）画面估计光照。这张卡交付环境 HDRI 和 USD 穹顶灯。",
+  "intro": "DiffusionLight 把光照估计改写成「在画面里补画一颗镜面铬球」的问题，从一张低动态范围（LDR）画面估计光照。这张卡交付环境 HDRI（经纬图，EXR 的 rgba）；填已知 Focal Length 按透视展开铬球，结果不理想就换随机种子。",
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "env_light",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入图片",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "kind": "group",
+   "label": "镜头",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "focal",
+     "label": "已知 Focal Length",
+     "target": "light.focal_mm"
+    },
+    {
+     "name": "filmback",
+     "label": "Filmback",
+     "target": "light.filmback_mm",
+     "disable_when": "not focal"
+    }
+   ]
+  },
+  {
+   "name": "seed",
+   "label": "随机种子",
+   "target": "light.seed"
+  },
+  {
+   "name": "envmap_width",
+   "label": "环境图宽度",
+   "target": "light.envmap_width"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out.name"
+    },
+    {
+     "name": "colorspace_out_exr",
+     "label": "输出色彩空间（HDRI EXR）",
+     "target": "out.colorspace"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_bit_depth",
+       "label": "EXR 位深",
+       "target": "out.exr_bit_depth"
+      },
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "out.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "计算",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -27,7 +133,7 @@
    },
    "ui": {
     "x": 0,
-    "y": 0
+    "y": 34
    }
   },
   {
@@ -35,31 +141,16 @@
    "type": "diffusionlight.light_probe",
    "label": "DiffusionLight HDRI",
    "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
     "seed": 0,
     "envmap_width": 1024
    },
    "ui": {
-    "x": 320,
+    "x": 400,
     "y": 0,
     "on_node": [
      "envmap_width"
-    ]
-   }
-  },
-  {
-   "id": "out_h",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "hdri"
-   },
-   "ui": {
-    "x": 680,
-    "y": 0,
-    "on_node": [
-     "name",
-     "format"
     ]
    }
   },
@@ -69,8 +160,30 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1000,
-    "y": 0
+    "x": 1200,
+    "y": 10
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "hdri",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "rgba",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 800,
+    "y": 10
    }
   }
  ],
@@ -91,13 +204,13 @@
     "hdri"
    ],
    "to": [
-    "out_h",
-    "image"
+    "out",
+    "layer1"
    ]
   },
   {
    "from": [
-    "out_h",
+    "out",
     "files"
    ],
    "to": [

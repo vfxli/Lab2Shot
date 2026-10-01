@@ -14,7 +14,9 @@ from .base import app, console, failed
 
 @app.command()
 def templates() -> None:
-    """列出模板及其对外参数（lab2shot cook 与 DCC 插件使用这些参数名）。"""
+    """列出模板及其对外参数（lab2shot cook 与 DCC 插件使用这些参数名），按模板的参数界面分组缩进。"""
+    import json
+
     from rich.markup import escape
 
     from ..engine.templates import exposed_params, templates as all_templates
@@ -23,11 +25,31 @@ def templates() -> None:
         console.print(f"[bold]{t['id']}[/bold]  {t['name']}")
         if t["intro"]:
             console.print(f"  {t['intro']}")
+        shown: list[str] = []  # 已经列出的组（参数界面是一棵树：组名一级一级缩进，组里的参数再缩进一级）
         for x in exposed_params(t["graph"]):
+            path = x["group"]
+            same = next((i for i, (a, b) in enumerate(zip(shown, path)) if a != b), min(len(shown), len(path)))
+            for depth in range(same, len(path)):
+                console.print("  " * (depth + 1) + f"[bold]▸ {escape(path[depth])}[/bold]")
+            shown = list(path)
             spec = x["param"] or {}
-            line = f"  --set [cyan]{x['name']}[/cyan]=…  {x['label']}"
-            if spec.get("options"):
+            if spec.get("widget") == "button":  # 按钮（计算、下载）：网页上点，不用 --set 传值
+                line = "  " * (len(path) + 1) + f"[dim]按钮[/dim] {escape(x['label'])}"
+                if x.get("hide_when"):
+                    line += "  [dim]" + escape(f"Hide When {x['hide_when']}") + "[/dim]"
+                console.print(line)
+                continue
+            line = "  " * (len(path) + 1) + f"--set [cyan]{escape(x['name'])}[/cyan]=…  {escape(x['label'])}"
+            if x.get("widget") == "menu" and x.get("options"):  # 参数界面给了下拉：列出自己填的值和显示名
+                line += "  [dim]" + escape("可选 " + " | ".join(f"{json.dumps(o['value'], ensure_ascii=False)}={o['label']}" for o in x["options"])) + "[/dim]"
+            elif spec.get("options"):
                 line += "  [dim]" + escape("可选 " + " | ".join(map(str, spec["options"]))) + "[/dim]"
+            if x.get("hide_when"):
+                line += "  [dim]" + escape(f"Hide When {x['hide_when']}") + "[/dim]"
+            if x.get("show_on_change"):
+                line += "  [dim]改了显示节点[/dim]"
+            if x.get("disable_when"):
+                line += "  [dim]" + escape(f"Disable When {x['disable_when']}") + "[/dim]"
             if x["value"] not in (None, ""):
                 line += "  [dim]" + escape(f"当前 {x['value']!r}") + "[/dim]"
             console.print(line)

@@ -111,11 +111,14 @@ def carried(fn):
     """`fn` as it runs on another thread, doing the same account's work (and noting into the same job) as the thread
     that hands it over now: a thread pool's or a new thread's worker starts with nobody's context otherwise, and a
     cache or an upload would then be looked for as nobody's. Every hand-over of work to another thread goes through
-    this (the farm's threads, the engine's per-frame threads, the viewer's)."""
-    who, into = account(), uses()
+    this (the farm's threads, the engine's per-frame threads, the viewer's). The store `using` put in place (data/store.py) goes
+    with it the same way: a check cooking in a scratch cache keeps its threads in that cache."""
+    from .data.store import using_now, using
+
+    who, into, store = account(), uses(), using_now()
 
     def run(*args, **kwargs):
-        with serving(who), noting(into):
+        with serving(who), noting(into), using(store):
             return fn(*args, **kwargs)
 
     return run

@@ -26,7 +26,7 @@
   margin: 0;
   padding: 28px;
   border-radius: var(--r-card);
-  /* 凹陷的面，不是虚线框 */
+  /* a recessed surface, not a dashed box */
   background: var(--field-bg);
   border: 0.5px solid transparent;
   color: var(--text-3);

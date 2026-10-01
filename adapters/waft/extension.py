@@ -29,7 +29,7 @@ class Waft(Extension):
         name="BSD-3-Clause（代码）；权重没有写明许可（非商用）",
         url="https://github.com/princeton-vl/WAFT/blob/waftv2/LICENSE",
         summary=(
-            "代码 BSD-3，可商用。权重放在作者的 Google Drive 上，没有单独写许可证，而且是用 Sintel、KITTI、Spring、"
+            "非商用：代码 BSD-3 本身可商用，但权重放在作者的 Google Drive 上，没有单独写许可证，而且是用 Sintel、KITTI、Spring、"
             "TartanAir 等只许研究使用的数据集训练的，所以按非商用处理。骨干 Depth Anything V2 ViT-S 本身是 Apache-2.0"
         ),
     )

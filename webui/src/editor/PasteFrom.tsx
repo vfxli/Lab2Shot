@@ -5,9 +5,10 @@ import { setParams } from "../graph/edit";
 import { say, msg, messageOf } from "../state/say";
 import { readClipboard } from "../platform/util";
 import { useCookInputs } from "../state/cookInputs";
+import { useWriteLock } from "../ui/writeLock";
 import type { NodeTypeDef } from "../api/catalog";
 
-/** 从别的软件粘一组参数进来（3DE / Nuke 镜头数据）。
+/** 从别的软件粘贴一组参数（3DE / Nuke 镜头数据）：本模块负责「粘贴参数」按钮与剪贴板读不到时的手动粘贴框。
  *
  * 节点声明了 `paste`（是哪个软件）才画这个按钮；一次改完 = 一步撤销——粘进来的一整颗镜头十几个数，
  * 撤销一次全回去，不是撤十几次。
@@ -23,13 +24,14 @@ const APPS: Record<string, string> = { nuke: "Nuke" };
 export function PasteFrom({ nodeId, def }: { nodeId: string; def: NodeTypeDef }) {
   const [typing, setTyping] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  if (!def.paste) return null;
+  const readOnly = !!useWriteLock(); // 写不了：粘贴会改参数，不给
+  if (!def.paste || readOnly) return null;
   const app = APPS[def.paste] ?? def.paste;
 
   const read = (text: string) => {
     if (!text.trim()) return;
     setBusy(true);
-    const graph = useCookInputs.getState().graphId; // the answer belongs to this graph's node, not to a namesake in another opened meanwhile
+    const graph = useCookInputs.getState().graphId; // 结果属于这张图的节点，而非期间打开的另一张图中的同名节点
     void api.paste(def.id, text).then(
       (got) => {
         setBusy(false);
@@ -38,7 +40,7 @@ export function PasteFrom({ nodeId, def }: { nodeId: string; def: NodeTypeDef })
         setParams(nodeId, got);
         say(msg("N-WEB-PASTED", { app, count: Object.keys(got).length }), nodeId);
         // 画面宽高是这张表里粘不进来的两个数（LD_3DE4 的旋钮里没有），而畸变的坐标要靠它们。
-        // 现在就说，不等到计算时才发现；接了「图像」就跟画面走，那时不用说
+        // 粘贴时即说明，不等到计算时才发现；接了「图像」就跟画面走，那时不用说
         const ci = useCookInputs.getState();
         const n = ci.nodes[nodeId];
         const hasImage = Object.values(ci.edges).some((e) => e.target === nodeId && e.targetHandle === "image");

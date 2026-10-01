@@ -1,9 +1,8 @@
-/* The kit's other small controls (ui/Button.tsx): the segmented control, the switch, the chip and the key cap. They
-   are defined here rather than in ui/Button.css because the login page uses none of them: the gate's bundle size is
-   kept small, so a control the login page never shows is loaded with the page
-   behind the gate (styles/index.css). Only this file styles them; every value is a token. */
+/* 组件库的其余小控件（ui/Button.tsx）：分段控件、开关、胶囊标签和键帽。它们定义在这里而不在 ui/Button.css，
+   因为登录页一个都不用：登录门的包要保持小，登录页从不显示的控件随登录后的页面加载（styles/index.css）。
+   只有本文件为它们定样式；所有取值均为令牌。 */
 
-/* ------------------------------------------------------------------ segmented control */
+/* ------------------------------------------------------------------ 分段控件 */
 
 .seg {
   display: inline-flex;
@@ -15,6 +14,10 @@
 }
 
 .seg button {
+  /* 按钮被压窄后文字仍按整个按钮居中，避免文字宽于内容区时向右偏。 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
   background: transparent;
   border-radius: var(--r-xs);
@@ -78,7 +81,7 @@
   border-radius: var(--r-md);
 }
 
-/* ------------------------------------------------------------------ switch */
+/* ------------------------------------------------------------------ 开关 */
 
 .switch {
   width: 30px;
@@ -133,18 +136,17 @@
   transform: translateX(11px);
 }
 
-/* ------------------------------------------------------------------ chip: a label, or a pill that picks or filters
+/* ------------------------------------------------------------------ 胶囊（chip）：标签，或用于选择、筛选的胶囊
 
-   A span is the label (a licence, a state, a count beside a name); a button is the pill that selects or filters (its
-   md size carries the colour of what it filters and the count). They share one name because they are the same element
-   in two forms: a word in a pill, read-only or clickable.
+   span 是标签（许可、状态、名称旁的计数）；button 是用于选择或筛选的胶囊（其 md 尺寸带有所筛选内容的颜色和计数）。
+   两者共用一个名称，因为它们是同一元素的两种形态：胶囊里的一个词，只读或可点击。
 
-   The label's shape: 18 px high, a small radius, a faint film, no rim. */
+   标签的形状：高 18 px、小圆角、淡色底膜、无描边。 */
 
 .chip {
   display: inline-flex;
   align-items: center;
-  line-height: 1;
+  line-height: 1.3; /* 中文字形上下略出字高：行框只有字高时会被裁边 */
   padding-top: 1px;
   gap: 5px;
   height: 18px;
@@ -164,7 +166,7 @@
   display: inline-block;
 }
 
-/* a chip that is a link (a project's page, a website): still a chip, never underlined */
+/* 作为链接的胶囊（项目主页、网站）：仍是胶囊外观，从不加下划线 */
 a.chip {
   text-decoration: none;
 }
@@ -196,7 +198,7 @@ a.chip.link:hover {
   background: color-mix(in srgb, var(--error) 14%, transparent);
 }
 
-/* a key cap in a menu row or a tooltip: the key to press, never a descriptive word */
+/* 菜单行或悬停提示中的键帽：写要按的键，从不写描述性文字 */
 .kbd {
   font-family: var(--mono);
   font-size: var(--fs-xs);
@@ -221,7 +223,7 @@ button.chip,
   height: 24px;
   padding: 0 10px;
   border-radius: 999px;
-  /* 标签有底色、无描边：透明底加描边是旧式标签的样式。带颜色的标签（许可、状态）在下方各自将底色设为自身颜色 */
+  /* 标签有底色、无描边（不用透明底加描边的样式）。带颜色的标签（许可、状态）在下方各自将底色设为自身颜色 */
   border: 1px solid transparent;
   background: var(--raised);
   color: var(--text-2);

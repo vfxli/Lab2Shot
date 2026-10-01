@@ -1,4 +1,20 @@
-import { mixOf, tintAlpha, tintLut, type Op, type Tint } from "../model/view2d";
+/** 二维画面的显示层（本模块是它的唯一实现：取通道、黑白点、着色、合成）：每一帧在 GPU 上实时计算，不存储任何处理后的图像。
+ *
+ * 不采用异步生成处理后的图像并存入缓存的原因：每调整一次控件就多一张图，内存紧张时全部丢弃，丢弃后只能静默绘制原图；
+ * 在途的图像到达时当前显示方式可能已改变；且同一逻辑会在 worker 和服务器各有一份实现。
+ * 因此数据仍存于缓存中，显示方式一律实时计算：切换着色、拖动黑白点不产生任何缓存项，也不发任何请求。
+ *
+ * 一侧的数据有两种来源，此处同等处理：
+ * - `picture`：服务器生成的显示图（RGBA，8 位有损 WebP 代理，已完成显示变换）。彩色画面走此路径（规则见
+ *   transfer/route.ts）：一张图是三条颜色通道的最小载体；
+ * - `planes`：一到三条通道的数据本身（transfer/plane.ts）。值为数据自身的值，
+ *   范围映射（`range`）、黑白点、着色、合成均在此计算。数值图、alpha、视频的单条通道均走此路径，
+ *   按需发送所需的通道。
+ *
+ * 两条路径的计算结果像素差 ≤ 1/255 即可，不要求逐位一致。 */
+
+import { useSyncExternalStore } from "react";
+import { lutTop, mixOf, tintAlpha, tintLut, type Op, type Tint } from "../model/view2d";
 import { isPlane, type Pixels, type Plane } from "../transfer/plane";
 
 /** 一块画面在画布中的位置（x, y, 宽, 高）：取包自带的 data_window，每一路据此回到原位。 */
@@ -16,21 +32,6 @@ export interface Merge {
   op: Op;
   mix: number;
 }
-
-/** 显示层：每一帧在 GPU 上实时计算，不存储任何处理后的图像。
- *
- * 不采用异步生成处理后的图像并存入缓存的原因：每调整一次控件就多一张图，内存紧张时全部丢弃，丢弃后只能静默绘制原图；
- * 在途的图像到达时当前显示方式可能已改变；且同一逻辑会在 worker 和服务器各有一份实现。
- * 因此数据仍存于缓存中，显示方式一律实时计算：切换着色、拖动黑白点不产生任何缓存项，也不发任何请求。
- *
- * 一侧的数据有两种来源，此处同等处理：
- * - `picture`：服务器生成的显示图（RGBA，8 位有损 WebP 代理，已完成显示变换）。彩色画面走此路径（规则见
- *   transfer/route.ts）：一张图是三条颜色通道的最小载体；
- * - `planes`：一到三条通道的数据本身（transfer/plane.ts）。值为数据自身的值，
- *   范围映射（`range`）、黑白点、着色、合成均在此计算。数值图、alpha、视频的单条通道均走此路径，
- *   按需发送所需的通道。
- *
- * 两条路径的计算结果像素差 ≤ 1/255 即可，不要求逐位一致。 */
 
 interface SideLook {
   index: number | null; // 选取的通道序号（null：多条一起查看，颜色即数据本身）。走 planes 路径时不使用
@@ -56,8 +57,12 @@ export interface SideSource {
 }
 
 interface LookAsk {
-  width: number; // 画布（画面框）的尺寸
+  width: number; // 画面框的尺寸（图像像素）：着色器里的坐标按它算
   height: number;
+  // 这张图在屏幕上画多大（设备像素）：GL 画布按它建——不按图像尺寸建，否则超宽的数据超过显卡的最大渲染尺寸时被静默夹小
+  // （画面错位、裁切），4K 数据在「适应」档下每帧也要算屏幕 4 倍的片元。缺省即图像尺寸
+  drawWidth?: number;
+  drawHeight?: number;
   left: SideSource;
   right?: SideSource | null;
   merge?: { op: Op; mix: number } | null;
@@ -87,6 +92,8 @@ uniform float leftSolid, rightSolid;  // 1：纯色（浓淡随值变化），0�
 uniform int leftAlpha, rightAlpha;    // 1：该通道的值作为运算强度
 uniform int hasRight, op;             // op 0 加 · 1 乘 Alpha · 2 乘 RGBA（model/view2d.ts Op）
 uniform float mix_;
+uniform float leftLutTop, rightLutTop;  // 查色表的最大下标（model/view2d.ts lutTop）：色标 255，「编号」为最大编号
+uniform vec2 leftLutSize, rightLutSize; // 查色表纹理的宽高（格数超过显卡最大纹理宽度时折成几行）
 
 float graded(float v, vec2 g) { return (v - g.x) / max(g.y - g.x, 1e-6); }
 
@@ -101,7 +108,7 @@ float mapped(sampler2D tex, vec2 q, vec2 range) {
 // 整条二维链的坐标均以左上角为原点，不统一会导致上下颠倒（三维背板的取样同理）。
 vec4 side(sampler2D tex, sampler2D p1, sampler2D p2, sampler2D validTex, sampler2D lut,
           vec2 pix, vec4 box, int planes, vec2 range, int hasValid,
-          int index, vec2 grade, float solid, int asWeight) {
+          int index, vec2 grade, float solid, int asWeight, float lutTop, vec2 lutSize) {
   vec2 q = (pix - box.xy) / max(box.zw, vec2(1.0));
   if (q.x < 0.0 || q.y < 0.0 || q.x > 1.0 || q.y > 1.0) return vec4(0.0);
   float raw;
@@ -123,9 +130,11 @@ vec4 side(sampler2D tex, sampler2D p1, sampler2D p2, sampler2D validTex, sampler
     raw = mapped(tex, q, range) * ok;
   }
   float t = clamp(graded(raw, grade), 0.0, 1.0);
-  // 取第 round(t*255) 档，不在两档之间插值：与 model/view2d.ts 的 tintLut(...)[Math.round(t*255)]
-  // 等价。（「编号」档尤其不得插值：插值得到的颜色不属于任何类别。）
-  vec3 rgb = texture(lut, vec2((t * 255.0 + 0.5) / 256.0, 0.5)).rgb;
+  // 取第 round(t*lutTop) 格，不在两格之间插值：与 model/view2d.ts 的 tintLut(...)[Math.round(t*lutTop)] 等价。
+  // 色标 lutTop = 255（256 档）；「编号」lutTop = 最大编号，t = 编号 / 最大编号，取到的就是这个编号自己的一格
+  // （插值得到的颜色不属于任何类别；也不能几个编号共用一格，否则相邻编号同色）。格数超过纹理宽度时按行折叠。
+  float cell = floor(t * lutTop + 0.5);
+  vec3 rgb = texture(lut, (vec2(mod(cell, lutSize.x), floor(cell / lutSize.x)) + 0.5) / lutSize).rgb;
   float a = asWeight == 1 ? t : mix(1.0, t, solid);   // tintAlpha：纯色的浓淡即为数值，色标自带数值信息
   return vec4(rgb, a);
 }
@@ -133,14 +142,17 @@ vec4 side(sampler2D tex, sampler2D p1, sampler2D p2, sampler2D validTex, sampler
 void main() {
   vec2 pix = vec2(uv.x, 1.0 - uv.y) * canvas;   // 以左上角为原点（见 side 上方的注释）
   vec4 l = side(left, leftP1, leftP2, leftValid, leftLut, pix, leftBox, leftPlanes, leftRange,
-                leftHasValid, leftIndex, leftGrade, leftSolid, leftAlpha);
+                leftHasValid, leftIndex, leftGrade, leftSolid, leftAlpha, leftLutTop, leftLutSize);
   vec4 out_ = l;
   if (hasRight == 1) {
     vec4 r = side(right, rightP1, rightP2, rightValid, rightLut, pix, rightBox, rightPlanes, rightRange,
-                  rightHasValid, rightIndex, rightGrade, rightSolid, rightAlpha);
+                  rightHasValid, rightIndex, rightGrade, rightSolid, rightAlpha, rightLutTop, rightLutSize);
     if (op == 0) {                          // 加：右侧按其自身强度叠加，透明度不变
       float k = r.a * mix_;
       out_ = vec4(l.rgb + r.rgb * k, l.a);
+    } else if (op == 3) {                   // 盖上（over）：右侧按其 alpha 盖住原图（未预乘的颜色，model/view2d.ts merged）
+      float k = r.a * mix_;
+      out_ = vec4(mix(l.rgb, r.rgb, k), l.a * (1.0 - k) + k);
     } else {                                // 乘：mix 将乘数向 1 拉回
       float k = 1.0 - mix_ + mix_ * r.a;
       out_ = op == 1 ? vec4(l.rgb, l.a * k) : vec4(l.rgb * k, l.a * k);
@@ -167,25 +179,65 @@ interface Gl {
   gl: WebGL2RenderingContext;
   program: WebGLProgram;
   at: Record<string, WebGLUniformLocation | null>;
-  luts: Map<string, WebGLTexture>;
+  luts: Map<string, Lut>;
   tex: Record<Slot, WebGLTexture>;
-  // 每个单元当前纹理里装的是哪一份数据（图片或通道对象本身）：同一份不再上传。拖动手柄、鼠标悬停都会重画，
+  // 每个单元当前纹理里装的是哪一份数据（图片或通道对象本身）：同一份不重复上传。拖动手柄、鼠标悬停都会重画，
   // 若每次都重新上传，一张 4K 浮点图每次移动鼠标要传 30 多 MB 给显卡
-  holds: Partial<Record<Slot, ImageBitmap | Plane>>;
+  // 弱引用：只用来认「是不是同一份」，不因此留住已被缓存淘汰的位图 / 平面
+  holds: Partial<Record<Slot, WeakRef<ImageBitmap | Plane>>>;
 }
 
+/** 一张查色表：纹理及其形状（最大下标、纹理宽高），着色器按它取格。 */
+interface Lut { tex: WebGLTexture; top: number; width: number; height: number }
+
 /** 本模块唯一的可变状态（与 `transfer/frames.ts` 的 `Fetching` 做法相同）：已创建的 GPU 资源，
- * 以及「本机无法创建 WebGL2 上下文」这一事实（检测一次后记录，之后由 `Stage2D` 决定如何处理）。 */
-const gpu: { own: Gl | null; broken: boolean } = { own: null, broken: false };
+ * 「本机用不了 WebGL2」（建不出上下文，或着色器编译 / 链接失败：检测一次后记录，之后不重试、不重抛），
+ * 以及「上下文中途丢了」（驱动重置、显存紧张：丢了清掉资源，恢复后下一次绘制重建）。Stage2D 经 `useGpuState` 读。 */
+const gpu: { own: Gl | null; broken: boolean; lost: boolean } = { own: null, broken: false, lost: false };
+const gpuListeners = new Set<() => void>();
+const gpuChanged = () => gpuListeners.forEach((f) => f());
 
 function make(): Gl | null {
-  if (gpu.broken) return null;
+  if (gpu.broken || gpu.lost) return null;
   const canvas = document.createElement("canvas");
   const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false });
   if (!gl) {
     gpu.broken = true;
+    gpuChanged();
     return null;
   }
+  canvas.addEventListener("webglcontextlost", (e) => {
+    e.preventDefault(); // 要求浏览器之后恢复它
+    gpu.own = null;
+    gpu.lost = true;
+    gpuChanged();
+  });
+  // 恢复的是同一个上下文：在它上面把资源重建一遍（不另建 canvas 和上下文：浏览器的上下文数有上限，旧的要等回收才放）
+  canvas.addEventListener("webglcontextrestored", () => {
+    gpu.lost = false;
+    gpu.own = built(canvas, gl);
+    gpuChanged();
+  });
+  return built(canvas, gl);
+}
+
+/** 在这个上下文上建着色器与纹理。编不过：上下文这时又丢了的，是一过性的——记为丢失、等下一次恢复；
+ * 否则记为用不了（这台机器上结果不会变：不每次绘制都再编、再抛）。 */
+function built(canvas: HTMLCanvasElement, gl: WebGL2RenderingContext): Gl | null {
+  try {
+    return build(canvas, gl);
+  } catch (e) {
+    if (gl.isContextLost()) gpu.lost = true;
+    else {
+      gpu.broken = true;
+      console.error("view/look.ts: WebGL2 shader", e);
+    }
+    gpuChanged();
+    return null;
+  }
+}
+
+function build(canvas: HTMLCanvasElement, gl: WebGL2RenderingContext): Gl {
   const compile = (kind: number, src: string) => {
     const sh = gl.createShader(kind)!;
     gl.shaderSource(sh, src);
@@ -206,6 +258,7 @@ function make(): Gl | null {
   gl.enableVertexAttribArray(p);
   gl.vertexAttribPointer(p, 2, gl.FLOAT, false, 0, 0);
   const names = ["leftBox", "rightBox", "canvas", "leftIndex", "rightIndex", "leftGrade", "rightGrade",
+                 "leftLutTop", "rightLutTop", "leftLutSize", "rightLutSize",
                  "leftSolid", "rightSolid", "leftAlpha", "rightAlpha", "hasRight", "op", "mix_",
                  "leftPlanes", "rightPlanes", "leftRange", "rightRange", "leftHasValid", "rightHasValid",
                  ...Object.keys(UNIT)];
@@ -240,16 +293,20 @@ function make(): Gl | null {
   return { canvas, gl, program, at, luts: new Map(), tex: { ...tex, leftLut: blank(), rightLut: blank() }, holds: {} };
 }
 
-/** 一条色标的 256 档查色表，生成为 256×1 的纹理（颜色本身取自 model/view2d.ts，不另写一套）。 */
-function lutTexture(g: Gl, tint: Tint, top: number): WebGLTexture {
-  // only the id colouring depends on the largest id (tintLut); every other one is the same table whatever the data's
-  // range, so one texture per tint, not one more for every range met
+/** 一条色标的查色表，生成为纹理（颜色本身取自 model/view2d.ts tintLut，不另写一套）。色标与纯色 256×1；
+ * 「编号」每个编号一格（最大编号 + 1 格），超过显卡最大纹理宽度时折成几行（着色器按 lutSize 换算行列）。 */
+function lutTexture(g: Gl, tint: Tint, top: number): Lut {
+  // 只有「编号」着色取决于最大编号（tintLut）；其余各档不论数据范围如何都是同一张表，因此每种着色一张纹理，
+  // 而不是每遇到一种范围再建一张
   const key = tint === "id" && top > 0 ? `${tint}|${top}` : tint;
   const got = g.luts.get(key);
   if (got) return got;
   const table = tintLut(tint, top);
-  const px = new Uint8Array(256 * 4);
-  for (let v = 0; v < 256; v++) {
+  const n = table.length;
+  const width = Math.min(n, g.gl.getParameter(g.gl.MAX_TEXTURE_SIZE) as number);
+  const height = Math.ceil(n / width);
+  const px = new Uint8Array(width * height * 4);
+  for (let v = 0; v < n; v++) {
     const [r, gg, b] = table[v];
     px.set([r, gg, b, 255], v * 4);
   }
@@ -257,13 +314,14 @@ function lutTexture(g: Gl, tint: Tint, top: number): WebGLTexture {
   // 在专用单元上创建：若不指定，会绑定到当时激活的单元，替换画面一路的纹理
   g.gl.activeTexture(g.gl.TEXTURE0 + SCRATCH);
   g.gl.bindTexture(g.gl.TEXTURE_2D, t);
-  g.gl.texImage2D(g.gl.TEXTURE_2D, 0, g.gl.RGBA, 256, 1, 0, g.gl.RGBA, g.gl.UNSIGNED_BYTE, px);
+  g.gl.texImage2D(g.gl.TEXTURE_2D, 0, g.gl.RGBA, width, height, 0, g.gl.RGBA, g.gl.UNSIGNED_BYTE, px);
   g.gl.texParameteri(g.gl.TEXTURE_2D, g.gl.TEXTURE_MIN_FILTER, g.gl.NEAREST);
   g.gl.texParameteri(g.gl.TEXTURE_2D, g.gl.TEXTURE_MAG_FILTER, g.gl.NEAREST);
   g.gl.texParameteri(g.gl.TEXTURE_2D, g.gl.TEXTURE_WRAP_S, g.gl.CLAMP_TO_EDGE);
   g.gl.texParameteri(g.gl.TEXTURE_2D, g.gl.TEXTURE_WRAP_T, g.gl.CLAMP_TO_EDGE);
-  g.luts.set(key, t);
-  return t;
+  const lut = { tex: t, top: lutTop(tint, top), width, height };
+  g.luts.set(key, lut);
+  return lut;
 }
 
 /** 将 u16 档转换为 float32：GPU 的核心格式中没有 16 位归一化格式（属于 EXT_texture_norm16），
@@ -281,8 +339,12 @@ function floats(p: Plane): Float32Array {
   return f;
 }
 
-/** 当前浏览器是否无法创建 WebGL2 上下文（尝试一次后才能得知）。调用方据此在通知区提示，不得静默降级。 */
-export const noGpu = (): boolean => gpu.broken;
+/** 显卡能不能用：`broken` 本机用不了 WebGL2（尝试一次后才能得知），`lost` 上下文中途丢了、等恢复。
+ * 调用方据此在通知区提示，不得静默降级；变化时重绘（丢失 / 恢复发生在渲染之外）。 */
+export type GpuState = "ok" | "broken" | "lost";
+const gpuState = (): GpuState => (gpu.broken ? "broken" : gpu.lost ? "lost" : "ok");
+export const useGpuState = (): GpuState =>
+  useSyncExternalStore((f) => (gpuListeners.add(f), () => void gpuListeners.delete(f)), gpuState);
 
 const solidOf = (tint: Tint): number => (tintAlpha(tint, 0.5) === 0.5 ? 1 : 0); // 纯色：浓淡随值变化
 
@@ -297,11 +359,14 @@ export function drawLook(ask: LookAsk): HTMLCanvasElement | null {
   if (!g || !hasPixels(ask.left)) return null;
   const { gl, at } = g;
   const [w, h] = [Math.max(1, Math.round(ask.width)), Math.max(1, Math.round(ask.height))];
-  if (g.canvas.width !== w || g.canvas.height !== h) {
-    g.canvas.width = w;
-    g.canvas.height = h;
+  const most = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number;
+  const fit = Math.min(1, most / Math.max(ask.drawWidth ?? w, 1), most / Math.max(ask.drawHeight ?? h, 1));
+  const [cw, ch] = [Math.max(1, Math.round((ask.drawWidth ?? w) * fit)), Math.max(1, Math.round((ask.drawHeight ?? h) * fit))];
+  if (g.canvas.width !== cw || g.canvas.height !== ch) {
+    g.canvas.width = cw;
+    g.canvas.height = ch;
   }
-  gl.viewport(0, 0, w, h);
+  gl.viewport(0, 0, cw, ch);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); // 一条通道的一行字节数不一定是 4 的倍数（R8 奇数宽度）
   const bind = (slot: Slot) => {
     gl.activeTexture(gl.TEXTURE0 + UNIT[slot]);
@@ -310,14 +375,14 @@ export function drawLook(ask: LookAsk): HTMLCanvasElement | null {
   };
   const putPicture = (slot: Slot, image: ImageBitmap) => {
     bind(slot);
-    if (g.holds[slot] === image) return;
+    if (g.holds[slot]?.deref() === image) return;
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-    g.holds[slot] = image;
+    g.holds[slot] = new WeakRef(image);
   };
   const putPlane = (slot: Slot, p: Plane | null | undefined) => {
     bind(slot);
-    if (!p || g.holds[slot] === p) return;
-    g.holds[slot] = p;
+    if (!p || g.holds[slot]?.deref() === p) return;
+    g.holds[slot] = new WeakRef(p);
     const [internal, type, data] =
       p.format === 0 ? [gl.R8, gl.UNSIGNED_BYTE, p.data as Uint8Array]
       : p.format === 2 ? [gl.R16F, gl.HALF_FLOAT, p.data as Uint16Array]
@@ -342,8 +407,10 @@ export function drawLook(ask: LookAsk): HTMLCanvasElement | null {
     // 顺序颠倒会使查色表绑定到该单元，而本单元仍保留上一次使用的色标。
     const lut = lutTexture(g, side?.tint ?? "grey", side?.top ?? 0);
     gl.activeTexture(gl.TEXTURE0 + UNIT[`${prefix}Lut` as Slot]);
-    gl.bindTexture(gl.TEXTURE_2D, lut);
+    gl.bindTexture(gl.TEXTURE_2D, lut.tex);
     gl.uniform1i(at[`${prefix}Lut`]!, UNIT[`${prefix}Lut` as Slot]);
+    gl.uniform1f(at[`${prefix}LutTop`]!, lut.top);
+    gl.uniform2f(at[`${prefix}LutSize`]!, lut.width, lut.height);
     const box = s?.box ?? [0, 0, 1, 1];
     gl.uniform4f(at[`${prefix}Box`]!, box[0], box[1], box[2], box[3]);
     gl.uniform1i(at[`${prefix}Index`]!, side?.index ?? -1);
@@ -360,8 +427,8 @@ export function drawLook(ask: LookAsk): HTMLCanvasElement | null {
   const r = ask.right && ask.merge && hasPixels(ask.right) ? ask.right : null;
   gl.uniform1i(at.hasRight!, r ? 1 : 0);
   put(r, "right");
-  // 0 加 · 1 乘 Alpha · 2 乘 RGBA：与着色器中的两个 if 分支一一对应（三档名称见 model/view2d.ts Op）
-  gl.uniform1i(at.op!, !r || ask.merge!.op === "add" ? 0 : ask.merge!.op === "mulAlpha" ? 1 : 2);
+  // 0 加 · 1 乘 Alpha · 2 乘 RGBA · 3 盖上：与着色器中的分支一一对应（四档名称见 model/view2d.ts Op）
+  gl.uniform1i(at.op!, !r || ask.merge!.op === "add" ? 0 : ask.merge!.op === "over" ? 3 : ask.merge!.op === "mulAlpha" ? 1 : 2);
   gl.uniform1f(at.mix_!, r ? mixOf(ask.merge!.op, ask.merge!.mix) : 0);
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);

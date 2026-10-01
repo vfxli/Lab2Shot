@@ -1,4 +1,5 @@
-/* ------------------------------------------------------------------ viewer */
+/* 视图（editor/Viewer.tsx）的版面：画面上方的工具栏与预览链控件、舞台、停靠在舞台下方的曲线编辑器与值条、
+   舞台底部的提示与读数、二维舞台的画布。 */
 
 .viewer {
   display: flex;
@@ -10,7 +11,7 @@
 .view-stage {
   position: relative;
   flex: 1;
-  min-height: 240px; /* its control bar, its foot and the axes always have room: a tall curve editor gives way */
+  min-height: 240px; /* 控件栏、底部与坐标轴始终有空间：曲线编辑器过高时由它让出 */
   overflow: hidden;
 }
 
@@ -210,7 +211,7 @@
   flex-wrap: wrap;
 }
 
-/* the curve editor docked under the stage (the stage gives up the room: nothing drawn over it), its top edge dragged */
+/* 停靠在舞台下方的曲线编辑器（舞台让出空间，不覆盖在画面上），拖动其上边缘改变高度 */
 .curve-strip {
   position: relative;
   flex: 0 1 auto;
@@ -233,7 +234,7 @@
   background: linear-gradient(transparent 3px, var(--accent-soft) 3px, var(--accent-soft) 5px, transparent 5px);
 }
 
-/* curves that are all a node gives: the whole stage under its control bar */
+/* 节点只给出曲线时：曲线占据控件栏下方的整个舞台 */
 .curves-board {
   position: absolute;
   inset: 52px 10px 10px;
@@ -243,7 +244,7 @@
   background: var(--field-bg);
 }
 
-/* the node's basic values: the stage (a node that gives only values) or a strip under it */
+/* 节点的基本数值：占据整个舞台（节点只给出数值时），或作为舞台下方的一条 */
 .values-board {
   position: absolute;
   inset: 52px 16px 16px;
@@ -318,7 +319,7 @@
   min-height: 0;
 }
 
-/* The first thing in the stage's foot, on the left; the foot's own controls stay on the right (in a narrow view, on a row of their own).
+/* 舞台底部最左侧的第一项；底部自身的控件留在右侧（视图较窄时单独占一行）。
    不得被压缩（`flex: none`）：它设置了 nowrap，盒子窄于文字时文字会超出药丸框。
    文字放不下时应改用更短的词（handles2d.ts HANDLE_HINT），而不是缩小盒子。 */
 .view-hint {
@@ -343,8 +344,18 @@
   pointer-events: none;
 }
 
-.canvas2d {
+/* 二维舞台（view/Stage2D.tsx）：外层占满、被量尺寸；画布按量到的像素定宽高贴在左上角（不用 100%）——容器变了、
+   还没重画的那一两帧，旧画面只会被裁掉或露出空白，不会被拉伸成别的比例 */
+.canvas2d-box {
+  position: relative;
   width: 100%;
   height: 100%;
+  overflow: hidden;
+}
+
+.canvas2d {
+  position: absolute;
+  left: 0;
+  top: 0;
   display: block;
 }

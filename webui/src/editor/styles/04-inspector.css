@@ -1,4 +1,5 @@
-/* ------------------------------------------------------------------ inspector */
+/* 参数面板（ParamPanel.tsx 的 .inspector）的版面：标题区、分组、参数行（标签列 + 控件列）、
+   「支持的数据」、关键姿势与「从其他软件粘贴」区域。控件本身的外观由 ui/ 的通用样式负责。 */
 
 .inspector {
   display: flex;
@@ -21,7 +22,12 @@
   gap: 8px;
 }
 
-/* the node's category as a small square of its colour, before its name */
+/* 没选中节点时的标题行：名字在左，「编辑参数界面」的小按钮顶到最右 */
+.insp-title-graph .btn.insp-interface {
+  margin-left: auto;
+}
+
+/* 名称前的小方块：节点分类的颜色 */
 .insp-swatch {
   flex: none;
   width: 8px;
@@ -111,8 +117,7 @@
   background-clip: padding-box;
 }
 
-/* A section is a line of small type with a hairline running off to the right, with no rule between sections and no box;
-   the space between them separates them. */
+/* 分组标题为一行小号字，右侧延伸一条细线；分组之间没有分隔线也没有外框，靠间距区分。 */
 .group {
   padding: 8px 16px 4px;
   display: flex;
@@ -148,7 +153,11 @@
   min-height: 30px;
 }
 
+/* .plabel 是 fieldset（只读标签页里整组标记 disabled，ParamPanel.tsx ParamRow）：清掉 fieldset 自带的边框与内外边距 */
 .prow > .plabel {
+  border: 0;
+  margin: 0;
+  padding: 0;
   position: relative;
   color: var(--text-2);
   font-size: var(--fs-sm);
@@ -161,9 +170,8 @@
   gap: 2px;
 }
 
-/* the label column is sized to fit every label (ParamControls.tsx fitWidth), capped at 206px: a label longer than
-   that is a naming problem to fix (a shorter word), not something to hide behind an ellipsis; this is only the
-   safety net for the moment before the fit runs, or a value typed in by the user (a renamed parameter group) */
+/* 标签列宽按全部标签计算（ParamControls.tsx fitWidth），上限 206px：超过此宽度的标签属于命名问题，应改用更短的词，
+   而不是用省略号隐藏；此处的截断只是兜底，用于宽度计算尚未执行时，或使用者自行输入的文字（重命名的参数分组） */
 .plabel-text {
   min-width: 0;
   white-space: nowrap;
@@ -192,7 +200,7 @@
   padding-top: 4px;
 }
 
-/* a parameter this node's connections or settings make irrelevant (the engine ignores it too) */
+/* 因本节点的连线或设置而不起作用的参数（引擎同样忽略它） */
 .prow.inactive .plabel-text {
   color: var(--text-3);
 }
@@ -201,7 +209,7 @@
   opacity: 0.38;
 }
 
-/* 支持的数据: what a 3D output-settings node writes of a scene (OutputSettings.writes); how or why not on hover */
+/* 「支持的数据」：3D 输出设置节点会写出场景中的哪些内容（OutputSettings.writes）；写法或不写的原因见悬停提示 */
 .writes {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
@@ -322,7 +330,7 @@
   font-size: var(--fs-xs);
 }
 
-/* a dropdown of options from a file or an input with nothing to choose yet (先选择相机文件): its text stays readable */
+/* 选项来自文件或输入、尚无可选项的下拉框（先选择相机文件）：文字保持可读 */
 .field.choice:disabled {
   opacity: 1;
   color: var(--text-2);

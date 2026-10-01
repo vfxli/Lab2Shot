@@ -1,5 +1,6 @@
 import { messageOf, msg, type Message } from "./messages/message";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazyRetry } from "./platform/lazyRetry";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { deviceId } from "./platform/client";
 import { COPYRIGHT } from "./platform/brand";
 import { ApiError, belongsTo, changedAccount, fromGate, json, loggedIn, NEED_LOGIN, NEED_TERMS, sawAccount } from "./platform/http";
@@ -23,7 +24,7 @@ import { TermsCard } from "./terms";
  * is asked to before the page loads, or over it when the server refuses the page's requests for it (NEED_TERMS).
  * Kept small on purpose: no other part of the page's code is in here. */
 
-const Site = lazy(() => import("./site"));
+const Site = lazyRetry(() => import("./site"));
 
 /** What was in it, when the login this browser had was ended by another one (lab2shot/accounts.py, server/auth.py):
  * when, from where, what device. */

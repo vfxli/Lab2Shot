@@ -8,7 +8,7 @@ from ...errors import Invalid
 from ...messages import Msg
 from ..base import NodeDef, NodeParams, P, Port, parse_picks, person_ids
 from ..expects import KnownPeople
-from ..handles import Handle
+from ..handles import Handle, say_bad_entries
 from ..applies import Param
 
 # 参数上的五种选择方式 → 算法目录中的五条规则（lab2shot/ops/ops.toml 的 people.select）。
@@ -18,6 +18,7 @@ RULES = {"largest": "first", "top": "top", "all": "all", "ids": "ids", "picked":
 
 class SelectPeople(NodeDef):
     id = "core.select_people"
+    same_on_cards = True  # 各卡上公开的这块参数一样（NodeDef.same_on_cards）
     version = 5  # 输出为一份「人物框」，而非「人物框[]」
     category = "mask_edit"
     inputs = (Port("boxes", "boxes", "人物框", expects=(KnownPeople(),), takes_empty=False),)  # 未检测到任何人时无可选择
@@ -56,7 +57,8 @@ class SelectPeople(NodeDef):
         elif mode == "ids":  # 框中不存在的编号由端口的用法检查提示
             args["ids"] = sorted(person_ids(p["ids"]))
         elif mode == "picked":
-            args["picks"] = [[frame, x, y] for frame, x, y in parse_picks(p["picks"])]
+            say_bad_entries(ctx, "picks")  # the grammar of the handle bound to it (Kind "person")
+            args["picks"] = [[q.frame, q.x, q.y] for q in parse_picks(cls, "picks", p["picks"])]
         got = run_op("people.select", {"items": people, **args})
         for miss in got["missed"]:  # 点击位置为空：算法返回事实，提示内容由节点决定（消息位于消息目录中）
             ctx.say("N-PEOPLE-PICKMISS", frame=miss["frame"], x=miss["x"], y=miss["y"], param="picks")

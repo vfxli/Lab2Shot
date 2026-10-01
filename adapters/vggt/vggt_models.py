@@ -16,3 +16,6 @@ MODELS = {
     "commercial": ("facebook/VGGT-1B-Commercial", "ebb29a532abe92960eeb6903a5530f16990ef4ab", "model.safetensors",
                    5026367224, "2b766b284359bc47ce26be107254621f685b758a0282082ff109f3ff02788b53"),
 }
+# 「模型」的哪些取值受许可限制、到哪一档（nodes/tags.py 的等级）：原版权重 CC-BY-NC-4.0 非商用。节点的 OptionTrait
+# 从这里生成（licence_traits）
+OPTION_LICENCES = {"model": {"original": "noncommercial"}}

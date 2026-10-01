@@ -28,6 +28,7 @@ import math
 import re
 import shutil
 import time
+from collections.abc import Collection
 from pathlib import Path
 
 from .config import MENU_DIR, TEMPLATES_DIR
@@ -307,8 +308,11 @@ def changed_at() -> tuple:
     return (templates.changed_at(), menu.changed_at(), nodes.changed_at())
 
 
-def describe_menu() -> dict:
-    """The node menu as the catalogue sends it: its two bands, its tree, where every node sits, and whether a file is
-    broken (in which case the menu shows everything as 未分类 and reports the problem)."""
-    return {"sections": list(MENU_SECTIONS), "categories": menu.tree(), "placed": nodes.rows(),
+def describe_menu(shown: Collection[str] | None = None) -> dict:
+    """The node menu as the catalogue sends it: its two bands, its tree, where each node sits, and whether a file is
+    broken (in which case the menu shows everything as 未分类 and reports the problem). `shown`: the node types the
+    account asking may use (server/access.py node_types_for), the only ones placed; None every one (the admin pages)."""
+    placed = nodes.rows()
+    return {"sections": list(MENU_SECTIONS), "categories": menu.tree(),
+            "placed": placed if shown is None else {k: v for k, v in placed.items() if k in shown},
             "problem": menu.problem() or nodes.problem()}

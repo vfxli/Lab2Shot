@@ -346,7 +346,9 @@ def main(job_path: str) -> None:
                       "frames": len(hand_frames)})
     if not hands:
         nothing("N-HAMER-NOHANDS")
-    # 不写 camera.npz：节点上没有「相机」输出口（官方只有一个 scaled_focal_length，没有解相机），
+    # plate_camera.npz：放手用的那台针孔相机（原点、不动，focal = 上面用的那个，主点在画面中心），节点的「相机」口
+    wh.save_camera(raw, frames.numbers, focal, name=wh.PLATE_CAMERA)
+    # 不写 camera.npz：没有解出来的相机（官方只有一个 scaled_focal_length，没有解相机），
     # 家族的 convert 也只在 solves_camera 的节点上读它。手就留在相机空间
 
     wh.write_humans(

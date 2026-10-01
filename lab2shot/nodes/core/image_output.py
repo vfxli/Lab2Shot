@@ -12,13 +12,14 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from ..port import EITHER
 from ...availability import All, AnyOf
 from ...data.types import channels_of
 from ...errors import Invalid
 from ...messages import Msg
 from ..base import NodeParams, P, Port, colorspace_param
 from ..output import OutputSettings, name_param
-from ..applies import Param, Wired, WiredType
+from ..applies import Param, Wired, WiredPicture
 
 # 「序列图输出设置」每个通道一个端口：名称采用 CG 通用写法（与 Nuke 一致），接入哪个端口即写为哪个通道
 CHANNEL_PORTS = ("R", "G", "B", "A")
@@ -28,11 +29,12 @@ PICTURE_LETTERS = (["R", "G", "B"], ["R", "G", "B", "A"])
 
 def writes_a_picture():
     """「序列图输出设置」本次写出的是否为画面（PNG / JPG 可容纳的 RGB / RGBA）：
-    「图像」端口接入了三或四通道的整张图，或 R G B 三个端口均已单独接入。
+    「图像」端口接入了画面（WiredPicture：来源端口声明它不是数值图，engine/graph.py output_data），
+    或 R G B 三个端口均已单独接入。
 
     其他情况（数据图原样复制、只接入 A 等零散通道、未接入任何内容）只能写为 EXR，
     因此「格式」和「色彩空间」在这些情况下置灰并说明原因。"""
-    return AnyOf(All(Wired("image"), WiredType("image", "image.3", "image.4")),
+    return AnyOf(WiredPicture("image"),
                  All(Wired("R"), Wired("G"), Wired("B")))
 
 # ------------------------------------------------------------------ EXR / PNG / JPG 共用的格式参数
@@ -48,9 +50,9 @@ PNG_ALPHA_LABELS = {"auto": "自动", "yes": "带", "no": "不带"}
 
 def exr_bit_depth_param(*, images: bool) -> Any:
     """`images`：用于「序列图输出设置」（其唯一输入可以是数据图，数据图文件总是原样复制，此参数只影响画面）；
-    否则用于「多层 EXR 输出设置」（数据层无论此参数如何都写为 32 位浮点）。"""
+    否则用于「多层 EXR 输出设置」（数据层无论此参数如何都写为 32 位浮点，所以只在接了画面时生效）。"""
     return P("half", label="位深", group="文件", option_labels=EXR_BIT_DEPTH_LABELS,
-              **({"applies": Param("format").one_of("exr")} if images else {}))
+             applies=Param("format").one_of("exr") if images else WiredPicture("layers"))
 
 
 def exr_compression_param(*, images: bool) -> Any:
@@ -60,6 +62,7 @@ def exr_compression_param(*, images: bool) -> Any:
 
 class ImageOutput(OutputSettings):
     id = "core.output_images"
+    version = 2  # 2：转色彩空间时 alpha 为 0 的像素保留颜色（io/color.py apply_premultiplied），原来被清成 0
     category = "out_picture"
     # 一个节点支持两种接法：
     #   1.「图像」：整张图（RGB、RGBA 或一张数据图）原样写出；
@@ -67,7 +70,7 @@ class ImageOutput(OutputSettings):
     #     （只接 A 则只写出 A，接入 R G B 则为 RGB，四个都接则为 RGBA）。
     # 两种接法只能使用一种（见下方 input_choice）：接入「图像」后 R G B A 四个端口置灰且不可连接；
     # 单独接入任一通道后「图像」置灰。两种都未使用时在提交前拦下。
-    inputs = (Port("image", "image", "图像", optional=True, alpha=True,
+    inputs = (Port("image", "image", "图像", optional=True, alpha=True, data=EITHER,
                    help="一整张图照原样写：RGB、RGBA，或深度、遮罩这类数据图（按通道写出）。"
                         "要逐条接通道就用右边的 R G B A，两种接法只能用一种"),
               *(Port(c, "image.1", c, optional=True,
@@ -98,7 +101,7 @@ class ImageOutput(OutputSettings):
                                                     applies=Param("format").one_of("png"))
         jpg_quality: int = P(95, label="质量", group="文件", ge=1, le=100, applies=Param("format").one_of("jpg"))
         colorspace: str | None = colorspace_param(choices_from=("format",),
-                                                  applies=All(Wired("image"), WiredType("image", "image.3", "image.4")))
+                                                  applies=WiredPicture("image"))
 
     @classmethod
     def choices(cls, params: dict, inputs: dict) -> dict:
@@ -165,6 +168,9 @@ class ImageOutput(OutputSettings):
         out_names = layers.layer_channels(layer, names, False, labelled) if data else []
         # 未填写图层名时原样复制（速度快且不改动任何字节）；填写后才按交付约定重写通道名
         rename = data and exr and bool(ctx.params["layer"]) and out_names != list(layers.CHANNEL_LETTERS[: len(out_names)])
+        # 编号图填了图层名：通道名是 Cryptomatte 的一组（layer_channels），像素也要编成 Cryptomatte、带上清单，
+        # 和「多层 EXR 输出设置」写编号图的做法相同；不填图层名时原样复制编号图本身（整数编号，float32）
+        crypto = layers.crypto_layer_header(layer, src.meta.get("classes") or []) if labelled and rename else None
         def write(job):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             frame, path = job
             if data and not rename:
@@ -172,8 +178,11 @@ class ImageOutput(OutputSettings):
                 return
             if data:  # 像素不变，仅改为交付用的通道名
                 values, valid = read_map(path, window.data)
-                block = np.concatenate([values, valid[..., None]], axis=-1) if len(out_names) > values.shape[-1] else values
-                write_exr(target(frame), np.ascontiguousarray(block, np.float32), out_names, half=False,
+                if crypto is not None:  # 编号图写为 Cryptomatte（见上）
+                    block = layers.crypto_encode(values[..., 0], src.meta["classes"])
+                else:
+                    block = np.concatenate([values, valid[..., None]], axis=-1) if len(out_names) > values.shape[-1] else values
+                write_exr(target(frame), np.ascontiguousarray(block, np.float32), out_names, half=False, header=crypto,
                           compression=ctx.params["exr_compression"], windows=window.exr_windows if window.has_overscan else None)
                 return
             picture = read_picture(src, path, window.data if kept else window.display_box)  # 有 alpha 时为预乘 RGBA
@@ -304,10 +313,12 @@ class ExrLayerEntry(NodeParams):
 
 class ExrOutput(OutputSettings):
     id = "core.output_exr"
+    version = 2  # 2：转色彩空间时 alpha 为 0 的像素保留颜色（io/color.py apply_premultiplied），原来被清成 0
     category = "out_picture"
     ports_from = "layers"
     ports_from_side = "inputs"
     ports_from_type = "image"
+    ports_from_word = "层"  # 「加一层」
     on_node = ("name",)
 
     class Params(NodeParams):
@@ -317,7 +328,7 @@ class ExrOutput(OutputSettings):
         )
         exr_bit_depth: Literal["half", "float"] = exr_bit_depth_param(images=False)
         exr_compression: Literal["none", "zips", "zip", "piz", "pxr24", "dwaa", "dwab"] = exr_compression_param(images=False)
-        colorspace: str | None = colorspace_param(applies=WiredType("layers", "image.3", "image.4"))
+        colorspace: str | None = colorspace_param(applies=WiredPicture("layers"))
 
     @classmethod
     def choices(cls, params: dict, inputs: dict) -> dict:
@@ -354,9 +365,14 @@ class ExrOutput(OutputSettings):
         from ...data.contracts import own_meta
 
         p = ctx.params
-        rows = p["layers"]
+        # 加了行但还没接线的图层（网页上点「＋」/「添加」加的空行；行的口都是可选口，nodes/base.py made_ports）：
+        # 跳过这一行，提示一次（列出所有跳过的图层名），不报错。一行都没接上时与表为空相同
+        unwired = [e for e in p["layers"] if ctx.input(e["name"]) is None]
+        rows = [e for e in p["layers"] if ctx.input(e["name"]) is not None]
         if not rows:
             raise Invalid(Msg("E-LAYERS-EMPTY"))
+        if unwired:
+            ctx.say("N-LAYERS-UNWIRED", layers="、".join(e["label"] or e["name"] for e in unwired), count=len(unwired))
         results = [ctx.input(e["name"]) for e in rows]
         sizes = sorted({(q.meta["width"], q.meta["height"]) for q in results})
         if len(sizes) > 1:
@@ -388,9 +404,7 @@ class ExrOutput(OutputSettings):
                     **({"validity": True} if a and not pic else {})}
                 for n, q, pic, a in zip(names, results, pictures, extra)}
         header = {key: v for n, q, lab in zip(names, results, labelled) if lab
-                  for key, v in layers.crypto_header(
-                      n, list(layers.class_names([c for c in (q.meta.get("classes") or []) if c["index"] > 0]).values())
-                  ).items()}
+                  for key, v in layers.crypto_layer_header(n, q.meta.get("classes") or []).items()}
         # 任一输入包含的所有帧；静帧（整个镜头只有一张图）出现在每一帧中
         shots = [q for q in results if not q.meta.get("still")]
         frames = sorted({f for q in shots or results for f in q.meta["frames"]})

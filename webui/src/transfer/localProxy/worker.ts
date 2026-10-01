@@ -71,7 +71,7 @@ function floatToHalf(src: Float32Array): Uint16Array {
       if (m & 0x1000) m += 0x2000;
       out[i] = sign | (m >> 13);
     } else if (e === 0x8f) {
-      out[i] = sign | 0x7c00 | (m ? 0x200 : 0); // inf / nan
+      out[i] = sign | 0x7c00 | (m ? 0x200 : 0); // 无穷大 / NaN
     } else {
       if (m & 0x1000) { m += 0x2000; if (m & 0x800000) { m = 0; e += 1; } }
       out[i] = e >= 31 ? sign | 0x7c00 : sign | (e << 10) | (m >> 13);

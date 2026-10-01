@@ -1,11 +1,12 @@
 import { create } from "zustand";
+import { nearest } from "../model/timelineMath";
 import type { Dir } from "../model/timelineMath";
 import { randomId } from "../platform/randomId";
 
 export { useView2D, useView2DNav } from "./view2d";
 export type { Nav2D, View2D, ViewSlot } from "./view2d";
-export { VIEW_NAMES, useCurveView, useRulerView, useStageNotes, useStagePicture, useViewCamera, useViewLoads, useViewOptions, useViewerNote } from "./viewTools";
-export type { FrameWindow, ViewName } from "./viewTools";
+export { VIEW_NAMES, VIEWER_SLOT, slotCamera, useCurveView, useRulerView, useStageNotes, useStagePicture, useViewCamera, useViewLoads, useViewOptions, useViewerNote } from "./viewTools";
+export type { FrameWindow, SlotCamera, ViewName } from "./viewTools";
 
 /** 视图: everything that belongs to the browser tab looking at the document, never the document itself — selecting a
  * node, panning the 2D view, tumbling the 3D camera, picking the 2D view's mode, opening a menu, the log. None of it is undoable, none of it is sent to the server, none of it makes state/results.ts stop
@@ -52,11 +53,12 @@ interface State {
   frames: number[]; // the frames the timeline follows: the displayed node's results (or the plate it works on)
   frame: number;
   playing: boolean;
-  // 正在拖时间线：拖动时不取帧，松手才取。拖过去的帧多半只是路过，为每一帧去拉一块是白花流量（带宽有限）
+  // the timeline is being dragged: no frames are fetched until release. Frames dragged across are mostly just passed
+  // through, and fetching each would waste traffic (bandwidth is limited)
   scrubbing: boolean;
   playDir: Dir;
-  // 播多快：视图设置，不是数据。镜头没有「帧率」这回事（帧率只在输出设置节点上说一次），
-  // 所以这个数不从包里来、不进节点图、不影响写出去的文件
+  // playback speed: a view setting, not data. A shot has no frame rate of its own (the rate is stated once, on the output
+  // settings node), so this number comes from no packet, is not in the graph and does not affect written files
   fps: number;
   loads: number; // bumps whenever another graph is loaded (NodeEditor.tsx fits the view)
 
@@ -146,8 +148,12 @@ export const useViewer = create<State>((set, get) => ({
   openMenu: (m) => set({ menu: m }),
   setTemplatesOpen: (o) => set({ templatesOpen: o }),
   setLogOpen: (open) => set({ logOpen: open }),
-  setFrame: (f) => set({ frame: f }),
-  setFrames: (fr, current) => set({ frames: fr, frame: fr.includes(current) ? current : (fr[0] ?? current) }),
+  // the current frame is one the timeline has (as setFrames keeps it): a frame asked for between them (a figure's frame
+  // chip, a typed number) lands on the nearest, so stepping from it goes the way asked
+  setFrame: (f) => set((s) => ({ frame: s.frames.length ? nearest(s.frames, f) : f })),
+  // the frame shown stays as near as the new frames allow (model/timelineMath.ts nearest, the timeline's one rule for
+  // landing on a frame: scrubbing, stepping and curves use it too), not thrown back to the first
+  setFrames: (fr, current) => set({ frames: fr, frame: nearest(fr, current) }),
   setScrubbing: (scrubbing) => set({ scrubbing }),
   togglePlay: () => set((s) => ({ playing: !s.playing })),
   play: (dir) => set((s) => ({ playing: !(s.playing && s.playDir === dir), playDir: dir })),
@@ -197,7 +203,7 @@ export const useViewer = create<State>((set, get) => ({
   reset: () =>
     set((s) => ({
       selectedId: null, expanded: [], reveal: null, menu: null, canvas: {}, selectedEdgeIds: [], selectedBoxIds: [],
-      frame: 1001, playing: false, scrubbing: false, playDir: 1, fps: 24, loads: s.loads + 1,
+      frames: [], frame: 1001, playing: false, scrubbing: false, playDir: 1, fps: 24, loads: s.loads + 1,
     })),
 }));
 

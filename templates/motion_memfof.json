@@ -7,18 +7,108 @@
   "author": "Lab2Shot",
   "created": "2026-09-13T09:00:00",
   "deliverable": "motion",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
   },
   {
    "name": "resolution",
    "label": "处理分辨率",
    "target": "flow.resolution"
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "occlusion_tolerance",
+     "label": "遮挡容差",
+     "target": "occ.tolerance"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out.name"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "out.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "计算",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -28,11 +118,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 140
+    "y": 111
    }
   },
   {
@@ -43,8 +135,8 @@
     "resolution": null
    },
    "ui": {
-    "x": 320,
-    "y": 140,
+    "x": 400,
+    "y": 77,
     "on_node": [
      "resolution"
     ]
@@ -58,7 +150,7 @@
     "tolerance": 1.0
    },
    "ui": {
-    "x": 620,
+    "x": 800,
     "y": 0,
     "on_node": [
      "tolerance"
@@ -74,26 +166,32 @@
     "layers": [
      {
       "name": "layer1",
-      "label": "motion"
+      "label": "motion",
+      "channels": ""
      },
      {
       "name": "layer2",
-      "label": "confidence"
+      "label": "confidence",
+      "channels": ""
      },
      {
       "name": "layer3",
-      "label": "occluded"
+      "label": "occluded",
+      "channels": ""
      },
      {
       "name": "layer4",
-      "label": "revealed"
+      "label": "revealed",
+      "channels": ""
      }
     ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
     "colorspace": null
    },
    "ui": {
-    "x": 960,
-    "y": 120,
+    "x": 1200,
+    "y": 144,
     "on_node": [
      "name"
     ]
@@ -105,8 +203,8 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1280,
-    "y": 120
+    "x": 1600,
+    "y": 144
    }
   }
  ],

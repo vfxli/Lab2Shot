@@ -27,9 +27,10 @@ export interface LocalPicture {
 export function useUploadHint(nodeId: string | null): string | null {
   const tasks = useUploads((s) => s.tasks);
   const edges = useCookInputs((s) => s.edges);
+  const graph = useCookInputs((s) => s.graphId);
   if (!nodeId) return null;
   const ids = new Set(upstream(nodeId, edges));
-  const t = Object.values(tasks).find((x) => ids.has(x.node));
+  const t = Object.values(tasks).find((x) => x.graphId === graph && ids.has(x.node)); // 只认这份文档的任务
   return t ? uploadLine(t) : null;
 }
 
@@ -42,8 +43,9 @@ export function useLocalPicture(nodeId: string | null): LocalPicture | null {
   const tasks = useUploads((s) => s.tasks);
   const nodes = useCookInputs((s) => s.nodes);
   const edges = useCookInputs((s) => s.edges);
+  const graph = useCookInputs((s) => s.graphId);
   const last = useRef<LocalPicture | null>(null);
-  const next = nodeId ? lookFor(nodeId, tasks, nodes, edges) : null;
+  const next = nodeId ? lookFor(graph, nodeId, tasks, nodes, edges) : null;
   if (!next || !last.current || pictureKey(next) !== pictureKey(last.current)) last.current = next;
   return last.current;
 }
@@ -52,7 +54,9 @@ type Tasks = ReturnType<typeof useUploads.getState>["tasks"];
 type Nodes = ReturnType<typeof useCookInputs.getState>["nodes"];
 type Edges = ReturnType<typeof useCookInputs.getState>["edges"];
 
-function lookFor(nodeId: string, tasks: Tasks, nodes: Nodes, edges: Edges): LocalPicture | null {
+/** `graph`：打开的文档（graphId）。任务和上传完的本机文件都只认这份文档的：模板的读取节点都叫 `read`，
+ * 不比对文档就会画出上一份文档选的序列。 */
+function lookFor(graph: string, nodeId: string, tasks: Tasks, nodes: Nodes, edges: Edges): LocalPicture | null {
   const defs = getNodeDefs();
   for (const id of upstream(nodeId, edges)) {
     const node = nodes[id];
@@ -61,11 +65,11 @@ function lookFor(nodeId: string, tasks: Tasks, nodes: Nodes, edges: Edges): Loca
     const space = String(node.params.colorspace ?? "");
     for (const p of def.params) {
       if (!FILE_IN.includes(p.widget ?? "")) continue;
-      const task = taskFor(tasks, id, p.name);
+      const task = taskFor(tasks, id, p.name, graph);
       const picked = task && pickedItem(task.key);
       if (task && picked && picked.files.some((f) => drawable(f.name))) return { node: id, item: picked, space };
       const value = String(node.params[p.name] ?? "");
-      const done = uploadedItem(id, p.name, value);  // 参数尚未写入时也返回（见 transfer/local.ts 中的说明）
+      const done = uploadedItem(graph, id, p.name, value);  // 参数尚未写入时只对刚完成的那一份返回（见 transfer/local.ts 中的说明）
       if (done && done.files.some((f) => drawable(f.name))) return { node: id, item: done, space };
     }
   }

@@ -64,9 +64,10 @@ const SECTIONS: AdminSection[] = [
   },
   { id: "usage", label: "使用统计", tip: "每个三方项目和节点、每个环节、每个账号用了多少，看哪些项目有用、谁在用", Component: UsageSection },
 
-  // 数据。后台没有「模板」页：模板的管理全在编辑器的「模板」弹窗里（editor/Templates.tsx，管模板的账号
-  // 多出那些操作）。装扩展只有管理员做得了（这一区的路由一律要 installs.run），所以扩展包在后台，
-  // 见 admin/Extensions.tsx
+  // 数据. The admin page has no templates section: templates are managed entirely in the editor's 模板 dialog
+  // (editor/Templates.tsx; an account that manages templates gets the extra actions there). Installing extensions is
+  // the administrator's alone (every route of that section needs installs.run), so 扩展包 lives here; see
+  // admin/Extensions.tsx
   {
     id: "extensions",
     group: "数据",

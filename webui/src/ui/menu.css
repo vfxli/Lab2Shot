@@ -1,6 +1,5 @@
-/* The site's one menu (ui/Menu.tsx): the node menu (with its search line), a right-click menu, the account menu, the
-   file menu. It floats, so it is glass; a row is 28 px high and a shortcut sits at its right end. Every value is a
-   token. */
+/* 站点唯一的菜单（ui/Menu.tsx）：节点菜单（带搜索行）、右键菜单、账号菜单、文件菜单。它是浮层，因此为玻璃效果；
+   行高 28 px，快捷键位于行的右端。所有取值均为令牌。 */
 
 .menu {
   position: fixed;
@@ -26,9 +25,8 @@
   animation: pop var(--t-med) var(--ease);
 }
 
-/* the node menu searches and browses: a line at the top, the list under it, and a size of its own (it holds two
-   columns, and a name and a sentence per row). Its height comes from the component (NodeMenu.tsx MENU_TALL), which
-   also places it, so the box and the window always agree. */
+/* 节点菜单可搜索、可浏览：顶部一行搜索，下方是列表，并有自己的尺寸（它容纳两栏，每行一个名称加一句说明）。
+   其高度由组件给出（NodeMenu.tsx MENU_TALL），组件也负责放置它，因此菜单框与窗口始终一致。 */
 .menu.wide {
   max-width: none;
   max-height: 700px;
@@ -84,12 +82,12 @@
   opacity: 0.5;
 }
 
-/* the row's own name */
+/* 该行自身的名称 */
 .menu-label {
   min-width: 0;
 }
 
-/* what the row is about, after its name: a shortcut, a count, a word of explanation — at the right end, faint */
+/* 名称之后说明该行的内容：快捷键、计数、一个说明词——位于右端，淡色 */
 .menu-desc,
 .menu-item .kbd {
   margin-left: auto;
@@ -97,7 +95,7 @@
   color: var(--text-3);
 }
 
-/* the node menu's rows carry a category line and a sentence: they may run two lines */
+/* 节点菜单的行带有一行分类和一句说明：可以占两行 */
 .menu.wide .menu-item {
   align-items: flex-start;
   padding: 6px 8px;

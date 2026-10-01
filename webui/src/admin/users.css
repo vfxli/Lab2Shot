@@ -82,8 +82,9 @@
   gap: 2px;
 }
 
-/* 用户对话框里的一行就是公共表单行 `.who-row`（ui/forms.css）：标签右对齐成一列、控件左对齐按内容宽。
-   不另写一套：各弹窗共用同一份表单行，左右边缘才对得齐。 */
+/* a row of the 用户 dialogs is the shared form row `.who-row` (ui/forms.css): labels right-aligned in one column,
+   controls left-aligned at their content width. No second set of rules: every dialog shares the one form row, which is
+   what keeps their left and right edges aligned. */
 .usr-form {
   --form-label-w: 80px;
 }
@@ -94,7 +95,7 @@
   min-width: 0;
 }
 
-/* 独占一行的东西（说明、按钮行）缩进到控件那一列的左边缘，整张表单才有一条线 */
+/* what takes a line of its own (a note, the button row) is indented to the control column's left edge, so the whole form keeps one line */
 .usr-form > .usr-why,
 .usr-form > .dialog-row {
   margin-left: calc(var(--form-label-w) + var(--sp-3));
@@ -119,7 +120,7 @@
   margin-bottom: 14px;
   padding: 12px 16px;
   border-radius: var(--r-card);
-  /* 面已经是信息蓝了，不再描边 */
+  /* the fill is already the info blue: no border */
   background: var(--accent-soft);
 }
 
@@ -145,7 +146,7 @@
   margin: 0;
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--r-card);
-  /* 染成自己那种颜色的面，不描边 */
+  /* a fill in its own colour, no border */
   background: var(--orange-soft);
   color: var(--orange-text);
   font-size: var(--fs-md);
@@ -213,7 +214,7 @@
   gap: var(--sp-2);
 }
 
-/* 页签一行放不下时（账号的资源种类多、窗口窄）折到下一行，不伸出页面 */
+/* tabs that do not fit one line (many resource kinds, a narrow window) wrap to the next line rather than overflow the page */
 .usr-detail .usr-tabs {
   align-self: flex-start;
   flex-wrap: wrap;

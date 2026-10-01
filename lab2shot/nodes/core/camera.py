@@ -6,6 +6,7 @@ from typing import Literal
 
 import numpy as np
 
+from ..kit.ports import rgb_port
 from ...messages import Msg
 from ..base import Info, NodeDef, NodeParams, P, Port, empty_packet
 from ...errors import Invalid
@@ -20,12 +21,14 @@ from ..applies import Wired
 
 class CreateCamera(NodeDef):
     id = "core.create_camera"
+    version = 2  # an unknown focal length gives no camera without a warning
+    same_on_cards = True  # 各卡上公开的这块参数一样（NodeDef.same_on_cards）
     lens = "given"  # the lens comes from parameter values; a wired image supplies only its size
     on_node = ("focal_mm", "filmback_mm")
     category = "camera_tools"
     # Focal Length 与 Filmback 为可接线的数值参数，相机为输出
-    inputs = (Port("image", "image.3", "RGB", optional=True),)
-    outputs = (Port("camera", "scene.camera", "相机"),)
+    inputs = (rgb_port(optional=True),)
+    outputs = (Port("camera", "scene.camera", "相机", may_be_empty=True),)
     handles = (Places(translate="translate", rotate="rotate"),)  # viewport gizmo for the camera placement
     # 与镜头标定节点（AnyCalib）的四个数值输出一一对应的常驻接线口，节点创建后即可连接
     wired_ports = ("focal_mm", "filmback_mm", "center_x_mm", "center_y_mm")
@@ -56,8 +59,9 @@ class CreateCamera(NodeDef):
         else:
             frames, w, h = [], p["width"], p["height"]
         used = lens(ctx, w, frames, port="image")
-        if used.focal_px is None:  # no focal length available: output no camera; downstream nodes run without one
-            ctx.say("W-CAMERA-NOFOCAL", param="focal_mm")
+        # no focal length: no camera, as if unwired. The port may be empty (may_be_empty), so its empty packet is no news
+        # downstream (engine/cook.py expected): what reads it directly goes without or quietly gives nothing
+        if used.focal_px is None:
             return {"camera": empty_packet(ctx, "camera")}
         pose = cls.places.matrix(p)  # the declared placement, also previewed by the viewer while the handle is dragged
         # 主点：参数为相对画面中心的偏移（毫米，向上为正），相机中存储像素位置
@@ -79,7 +83,7 @@ class SetPlate(NodeDef):
 
     id = "core.set_plate"
     category = "camera_tools"
-    inputs = (Port("camera", "scene.camera", "相机"), Port("image", "image", "图像", alpha=True))
+    inputs = (Port("camera", "scene.camera", "相机"), Port("image", "image", "图像", alpha=True, data=False))
     outputs = (Port("camera", "scene.camera", "相机"),)
 
     class Params(NodeParams):
@@ -115,7 +119,7 @@ class DeshakeCamera(NodeDef):
     on_node = ("strength", "keep_sudden")
     category = "camera_tools"
     inputs = (Port("camera", "scene.camera", "相机"),)
-    outputs = (Port("camera", "scene.camera", "相机"), Port("curves", "curves", "前后对比"))
+    outputs = (Port("camera", "scene.camera", "相机"), Port("curves", "curves", "前后对比", may_be_empty=True))
 
     class Params(NodeParams):
         strength: float = P(CUTOFF_DEFAULT, label="强度", unit="帧", group="去抖", widget="slider", ge=CUTOFF_MIN, le=CUTOFF_MAX)
@@ -196,7 +200,7 @@ class LockFocal(NodeDef):
         Port("tracks", "tracks2d", "2D 跟踪点", optional=True,
              help="和「点云」出自同一个节点、一一对应的画面观测。接上就用真实观测代替「按原相机投出来的位置」"),
     )
-    outputs = (Port("camera", "scene.camera", "相机"), Port("curves", "curves", "前后对比"))
+    outputs = (Port("camera", "scene.camera", "相机"), Port("curves", "curves", "前后对比", may_be_empty=True))
     wired_ports = ("focal_mm", "filmback_mm")
 
     class Params(NodeParams):
@@ -218,10 +222,7 @@ class LockFocal(NodeDef):
         if not frames:  # a static camera without frames already has a single focal length and no poses to re-solve
             ctx.say("N-FOCAL-NOFRAMES")
             return {"camera": pass_camera(ctx, camera), "curves": empty_packet(ctx, "curves")}
-        used = lens(ctx, w, frames)
-        if not used.given:
-            ctx.say("W-CAMERA-NOFOCAL", param="focal_mm")
-            return {"camera": empty_packet(ctx, "camera"), "curves": empty_packet(ctx, "curves")}
+        used = lens(ctx, w, frames)  # the wired camera always has a focal length, so one is always known
         out, report = lock_focal(camera, points, tracks, ctx.outputs["camera"], used.focal_px,
                                  info={"focal_mm": used.focal_mm, "source": used.said})
         low, high = report["range_mm"]
@@ -264,7 +265,7 @@ class CompareCameras(NodeDef):
 
     @classmethod
     def cook(cls, ctx):
-        from lab2shot_worker.recon import rotation_deg
+        from lab2shot_shared.poses import rotation_deg
 
         from ...data.camera import CameraSamples
         from ...data.payloads import curves_packet

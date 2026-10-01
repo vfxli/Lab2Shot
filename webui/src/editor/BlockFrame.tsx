@@ -9,9 +9,9 @@ import { useResults } from "../state/results";
 import { useViewer } from "../state/viewer";
 import "./styles/27-blocks.css";
 
-/** 逐项处理 blocks drawn behind the nodes: a dashed rounded frame around the nodes of one block, coloured by the
- * block's name, with one title pill (「逐项处理 · 逐个：人物 · 3 条 · 2/3 已算」)。不提供折叠：块折叠后连线
- * 也随之消失，无法看出哪些数据进入或离开该块。
+/** Owns how 逐项处理 blocks are drawn on the node graph: behind the nodes, a dashed rounded frame around the nodes of
+ * one block, coloured by the block's name, with one title pill (「逐项处理 · 逐个：人物 · 3 条 · 2/3 已算」). There is
+ * no fold: with a block folded its wires would vanish too, and nothing would show what data enters or leaves it.
  *
  * Which nodes belong to a block, how many items it has and what they are called are the server's answer
  * (engine/scopes.py, the status reply's `scopes`, read through state/items.ts): this file draws it and works out

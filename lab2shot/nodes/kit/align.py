@@ -144,8 +144,9 @@ def align_paths(pa: np.ndarray, pb: np.ndarray, ra: np.ndarray, rb: np.ndarray) 
     """(s, R, t, note): the similarity putting camera A's path on reference B's, pb ≈ s R pa + t, from positions
     (`similarity`) where the paths span a plane or more. A path that stays in place or runs along a line leaves the
     rotation about it unknown: the turn then comes from the cameras' orientations (rb ≈ R ra), the scale from the
-    positions along the line, and `note` (a message code, "" none) says so."""
-    from lab2shot_shared.poses import mean_rotation
+    positions along the line (its size: two paths along the line run opposite ways are not mirrored onto each other,
+    W-COMPARE-REVERSED says so), and `note` (a message code, "" none) says so."""
+    from lab2shot_shared.poses import mean_rotation, track_scale
 
     fit = similarity(pa, pb)
     if fit.degenerate == "point":  # a camera that hardly moves: its centre says nothing of turn or scale
@@ -155,6 +156,6 @@ def align_paths(pa: np.ndarray, pb: np.ndarray, ra: np.ndarray, rb: np.ndarray) 
     if fit.degenerate == "line":  # along a line (a straight dolly or truck)
         R = mean_rotation(rb @ np.swapaxes(ra, 1, 2))
         xa, xb = (pa - pa.mean(0)) @ R.T, pb - pb.mean(0)
-        s = float((xa * xb).sum() / (xa * xa).sum())
-        return s, R, pb.mean(0) - s * R @ pa.mean(0), "N-COMPARE-LINE"
+        s, reversed_ = track_scale(xa, xb)  # the scale's size; a path run the other way is said, not mirrored
+        return s, R, pb.mean(0) - s * R @ pa.mean(0), "W-COMPARE-REVERSED" if reversed_ else "N-COMPARE-LINE"
     return fit.s, fit.R, fit.t, ""

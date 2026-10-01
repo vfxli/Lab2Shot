@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import type { DataType, HandleDef, NodeTypeDef } from "../api";
+import { packetOf } from "../state/results";
+import type { DataType, HandleDef, Manifest, NodeTypeDef } from "../api";
 import { useLook } from "../state/look";
 import { elementOf, isList, typeOf } from "../state/items";
-import { manifestOf } from "../transfer/frames";
+import { useDescribed } from "../transfer/described";
 import { useGraphSnapshot, type Snapshot } from "../graph/snapshot";
 import { upstream } from "../graph/nodes";
 import type { GNode } from "../state/graph";
@@ -100,11 +101,8 @@ type S = Snapshot;
  * 场景都会消失一下再出现。只用于画：要不要计算、能不能计算只看可信的回复（state/results.ts useTrustedResults）。 */
 const drawnResults = (s: S) => (s.resultsAreTrusted ? s.results : s.reply?.nodes ?? {});
 
-// 只有状态回复标记为 `present` 的输出才真正有包：`outputs` 列出每个输出口的指纹，但未被请求的输出从未写出（输出按需生成）。
-const cookedFp = (s: S, nodeId: string, port: string) => {
-  const r = drawnResults(s)[nodeId];
-  return r?.present?.includes(port) ? r.outputs?.[port] ?? null : null;
-};
+// 只有状态回复标记为 `present` 的输出才真正有包（state/results.ts packetOf）
+const cookedFp = (s: S, nodeId: string, port: string) => packetOf(drawnResults(s)[nodeId], port);
 
 /** 该输出口当前显示的数据：当前指纹对应的包；若无，则使用上一次的结果（过期，规则由 `state/stale.ts` 定义）。 */
 function resultOf(s: S, nodeId: string, port: string): { fp: string | null; stale: boolean } {
@@ -184,10 +182,19 @@ function inputItems(s: S, node: GNode, port: string, context: boolean): ViewItem
     });
 }
 
+/** 手柄所作用的那个输入（HandleDef.source）上现在的数据包：接进来的第一条线的结果（与视图画手柄输入的是同一个，
+ * 沿用 resultOf 的过期规则）。参数面板和节点上把「点选」说成「N 号」时用（editor/pickedPeople.tsx）。 */
+export function handleSourceFp(s: S, nodeId: string, port: string): { fp: string | null; list: boolean } {
+  const node = s.nodes.find((n) => n.id === nodeId);
+  const it = node ? inputItems(s, node, port, true)[0] : undefined;
+  return { fp: it?.fp ?? null, list: !!it && isList(it.type) };
+}
+
 /** 节点接收数据的输入（不含提升为输入的参数），即其结果的来源。 */
 const dataInputs = (s: S, id: string) => inputsOf(s, id).filter((p) => !p.name.startsWith(PARAM));
 
-function displayPlan(s: S, nodeId: string | null, expand?: (it: ViewItem) => ViewItem[], emptyList = false,
+/** 显示节点 → 画什么（导出只为离线用例：它是纯函数，读快照不读仓库）。 */
+export function displayPlan(s: S, nodeId: string | null, expand?: (it: ViewItem) => ViewItem[], emptyList = false,
                             spaceOf: (fp: string) => string | null = () => null, originals = "",
                             file: LocalPicture | null = null): DisplayPlan | null {
   const node = s.nodes.find((n) => n.id === nodeId);
@@ -196,12 +203,12 @@ function displayPlan(s: S, nodeId: string | null, expand?: (it: ViewItem) => Vie
   const types = s.types;
   const handles = handlesOf(s, node.id); // 按服务器判定当前生效的手柄（Handle.when）
 
-  // 节点自身的结果；输出设置节点显示其写出的内容（其文件按来源数据显示，即 "inputs" 角色：「输出」显示接进它的全部内容）；
-  // 手柄的源输入也一并显示，供手柄操作。
+  // 节点自身的结果；输出设置节点显示其写出的内容（其文件按来源数据显示，即 "inputs" 角色）；手柄的源输入也一并显示，
+  // 供手柄操作。没有别的穿透：激活哪个节点就显示哪个节点自己的输出口，切换也按它自己的 out 口
   const madeFrom = (items: ViewItem[]): ViewItem[] =>
     items.flatMap((it) => {
-      if (typeOf(types, it.type)?.in_2d !== "inputs") return [it];   // 联合类型同样需要识别
       const src = s.nodes.find((n) => n.id === it.nodeId);
+      if (typeOf(types, it.type)?.in_2d !== "inputs") return [it];   // 联合类型同样需要识别
       if (!src) return [];
       return madeFrom(dataInputs(s, src.id).flatMap((p) => inputItems(s, src, p.name, false)));
     });
@@ -211,14 +218,16 @@ function displayPlan(s: S, nodeId: string | null, expand?: (it: ViewItem) => Vie
   // 本机文件可代表的层：该节点的主输出。浏览器解码本机 EXR 时只取文件自身的颜色通道，即主画面所在的层，
   // 无法取得文件中的其他层（详见 `view/origin.ts fileStandsFor`）。
   const filePort = mainPort;
-  const shown = underHandles(s, node.id, handles, madeFrom(outputs.map((p) => item(s, node.id, p.name, p.label, p.type, false, !!p.inactive))));
+  // 「骨架姿势」手柄只画它那一侧输入的骨架（舞台的手柄层，数据来自状态回复 handle_data），不改显示什么：与没有手柄同一规则
+  const placing = handles.filter((h) => h.kind !== "skeleton_pose");
+  const shown = underHandles(s, node.id, placing, madeFrom(outputs.map((p) => item(s, node.id, p.name, p.label, p.type, false, !!p.inactive))));
   const own = shown.own;
-  const written = outputs.length ? [] : madeFrom(dataInputs(s, node.id).flatMap((p) => inputItems(s, node, p.name, false)));
-  const sources = shown.sources ? handles.flatMap((h) => (h.source ? inputItems(s, node, h.source, true) : [])) : [];
+  // 没有输出口的节点（「输出」：收文件、打包）没有自己的结果，就不画结果：显示的永远是激活节点自己的输出
+  const sources = shown.sources ? placing.flatMap((h) => (h.source ? inputItems(s, node, h.source, true) : [])) : [];
   // 结果为列表时在此拆分为各个元素（useDisplayPlan 读取其包说明之后）。每个元素使用自己的包和类型，
   // 后续处理与节点输出多份并列结果没有区别。不为列表单独提供「选择第几项」的控件：拆分列表的节点是普通运算节点，
   // 显示内容仍为原图加上各个结果。
-  const raw = expand ? [...sources, ...own, ...written].flatMap(expand) : [...sources, ...own, ...written];
+  const raw = expand ? [...sources, ...own].flatMap(expand) : [...sources, ...own];
   // 来源在此统一计算一次（`view/origin.ts`）：后续各行以及视图的其他文件都只读取 `it.from`。
   const sourced = (it: ViewItem): ViewItem => ({ ...it, from: sourceOf(it, file, filePort) });
   const items = raw.map(sourced);
@@ -289,8 +298,16 @@ function displayPlan(s: S, nodeId: string | null, expand?: (it: ViewItem) => Vie
   const shortly: Record<Stage, string | null> = { "2d": missing["2d"]?.[0] ?? null, "3d": missing["3d"]?.[0] ?? null };
   // 节点的预览标签（NodeTypeDef.preview，由服务器统一计算：lab2shot/nodes/base.py default_preview）：
   // 一个标签同时决定两种舞台，`scene` 对应三维，其余三个对应二维的三个档位（仅原图 / 运算 / 仅结果）。
-  const preview: Mode = def.preview === "compute" ? "over" : def.preview === "scene" ? "plate" : def.preview;
-  const preferred: Stage = def.preview === "scene" ? "3d" : "2d";
+  // 显示的是「由什么做成的」（输出设置写出的、「输出」收来的：上面 madeFrom 换成的来源节点的结果）时，按那个来源节点
+  // 自己的预览标签：这类节点自己的标签是「仅原图」（服务器 default_preview：没有画面输出），照它就只看得到原图、看不到结果
+  const lead = items.find((it) => !it.context && it.nodeId !== node.id);
+  const tag = (lead && s.nodeDefs[s.nodes.find((n) => n.id === lead.nodeId)?.data.typeId ?? ""]?.preview) || def.preview;
+  const preview: Mode = tag === "compute" ? "over" : tag === "scene" ? "plate" : tag;
+  // 默认舞台跟着主结果走：主结果是三维数据（in_3d 为 element：场景、点云、相机……）且已经有结果时进三维，即使节点
+  // 带二维手柄（「3D 跟踪点」在画面上点要跟的点）——手柄的舞台只决定「二维也可用」（上面 draws2D），不决定默认。
+  // 还没有结果时（点还没点、没算过）三维里什么都没有，照标签进二维点点
+  const mainIn3d = items.some((it) => !it.context && !!it.fp && it.port === mainPort && it.nodeId === node.id && role(it)?.in_3d === "element");
+  const preferred: Stage = tag === "scene" || mainIn3d ? "3d" : "2d";
   const defaultStage: Stage = why[preferred] === null ? preferred : why[preferred === "2d" ? "3d" : "2d"] === null ? (preferred === "2d" ? "3d" : "2d") : preferred;
   const frames = items.find((it) => it.fp && !it.context)?.fp ?? items.find((it) => it.fp)?.fp ?? plate;
   const sourceKey = sourceKeyOf(items, plateItem, originals);
@@ -307,28 +324,32 @@ function displayPlan(s: S, nodeId: string | null, expand?: (it: ViewItem) => Vie
 export function useDisplayPlan(): DisplayPlan | null {
   const snap = useGraphSnapshot();
   const displayId = useLook((s) => s.displayId);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   // 本机是否持有该节点的画面（使用者在当前标签页中选择的文件）：它决定 2D 档位是否有内容，
   // 因此需要纳入显示计划（原因见上方 `missing["2d"]` 部分）。
   const localPicture = useLocalPicture(displayId);
-  const base = useMemo(() => displayPlan(snap, displayId, undefined, false, undefined, "", localPicture), [snap, displayId, localPicture]);
-  // 各点云数据声明的坐标系（meta.space）：不用于判断哪些数据可作点云，仅用于判断是否需要相机。
-  const spaces = usePointSpaces(base?.pointMaps.flatMap((it) => (it.fp ? [it.fp] : [])) ?? []);
-  const spaceOf = (fp: string) => spaces[fp] ?? null;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const plain = useMemo(() => displayPlan(snap, displayId, undefined, false, spaceOf, "", localPicture), [snap, displayId, spaces, localPicture]);  // eslint-disable-line react-hooks/exhaustive-deps
+  // 各点云数据声明的坐标系（meta.space）：只用来判断要不要相机，不影响哪些数据算点云——所以按上一次算出的 pointMaps
+  // 去读，读到了再算一遍（不为拿 pointMaps 另算一遍整张计划）
+  const [pointFps, setPointFps] = useState<string[]>([]);
+  const spaces = usePointSpaces(pointFps);
+  const plain = useMemo(
+    () => displayPlan(snap, displayId, undefined, false, (fp) => spaces[fp] ?? null, "", localPicture),
+    [snap, displayId, spaces, localPicture],
+  );
+  const fpsNow = (plain?.pointMaps ?? []).flatMap((it) => (it.fp ? [it.fp] : []));
+  useEffect(() => {
+    setPointFps((was) => (was.join() === fpsNow.join() ? was : fpsNow));
+  }, [fpsNow.join()]); // eslint-disable-line react-hooks/exhaustive-deps
   // 视图中属于列表的条目（服务器已计算的列表：有包，包中记录其所含元素）
   const listFps = useMemo(() => (plain?.items ?? []).flatMap((it) => (!it.context && it.fp && !it.inactive && isList(it.type) ? [it.fp] : [])), [plain]);
   const parts = useListParts(listFps);
   // 在使用者本机为视图所需的每份数据查找原件（`view/useOriginals.ts`）：找到后登记，取帧路径会自行查询。
   // 返回的字符串参与下方的备忘依赖；登记是异步的，缺少该依赖时登记完成后视图不会重新计算。
-  // 衬底也需要查询：`plain.items` 只包含该节点自身的输出口和手柄相关条目（`displayPlan` 的 `sources + own + written`），
+  // 衬底也需要查询：`plain.items` 只包含该节点自身的输出口和手柄相关条目（`displayPlan` 的 `sources + own`），
   // 不包含上游衬底画面，而二维舞台左侧和三维背板显示的正是衬底。若不单独查询，下游节点的衬底将始终是服务器代理数据；
   // 读取节点位于本机时，下游使用其作为衬底也应从本机读取，无需传输且保持完整精度。
   // 同一个包只查询一次（`useOriginals asksFor` 按 `fp` 去重），因此节点自身输出该画面时不会重复查询。
   const originals = useOriginals(displayId, useMemo(
     () => (plain ? (plain.plateItem ? [...plain.items, plain.plateItem] : plain.items) : []), [plain]));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => {
     if (!plain) return plain;
     const read = listFps.filter((fp) => parts[fp]); // 包说明已读取的列表
@@ -352,49 +373,26 @@ export function useDisplayPlan(): DisplayPlan | null {
       // 名称仍使用该输出口的名称：叠加显示开关和画面下拉均按输出口计一项，各元素的区分已在画面上标注（1 号、2 号），不依赖名称。
       return inside.map((one) => ({ ...it, key: `${it.key}#${one.name}`, type: elementOf(it.type), fp: one.packet }));
     };
-    return displayPlan(snap, displayId, expand, emptyList, spaceOf, originals, localPicture);
+    return displayPlan(snap, displayId, expand, emptyList, (fp) => spaces[fp] ?? null, originals, localPicture);
   }, [plain, listFps, parts, originals, snap, displayId, spaces, localPicture]);  // 依赖列表必须包含结果所依赖的全部输入
 }
 
-/** 读取每个列表自身的包说明（`meta.items`），获取所含元素及其对应的包。不传输任何数据字节，
- * 已读取的结果保存在页面缓存中（transfer/frames.ts manifestOf），写法与 `usePointSpaces` 相同。
- * 读取失败时视为空列表（而不是一直处于未读取状态）：空结果不是错误，由舞台显示说明。 */
+/** 每个列表自身的包说明（`meta.items`）：所含元素及其对应的包，不传输任何数据字节。
+ * 读到了才算数（服务器说是空列表才是空，由舞台说明）；读失败的由 transfer/described.ts 退避后再读。 */
 function useListParts(fps: string[]): Record<string, { name: string; packet: string }[]> {
-  const [parts, setParts] = useState<Record<string, { name: string; packet: string }[]>>({});
-  const key = fps.join();
-  useEffect(() => {
-    let alive = true;
-    const keep = (fp: string, inside: { name: string; packet: string }[]) =>
-      alive && setParts((had) => (had[fp] ? had : { ...had, [fp]: inside }));
-    for (const fp of key ? key.split(",") : [])
-      void manifestOf(fp).then(
-        (m) => keep(fp, (m.meta.items as { name: string; packet: string }[] | undefined) ?? []),
-        () => keep(fp, []),
-      );
-    return () => {
-      alive = false;
-    };
-  }, [key]);
-  return parts;
+  const got = useDescribed<Manifest>("manifest", fps);
+  return useMemo(() => Object.fromEntries(fps.flatMap((fp, i) => {
+    const m = got[i];
+    return m ? [[fp, (m.meta.items as { name: string; packet: string }[] | undefined) ?? []]] : [];
+  })), [got]); // eslint-disable-line react-hooks/exhaustive-deps -- got 与 fps 一一对应
 }
-
 
 /** 各点云预览包声明的坐标系（`meta.space`：world / camera / canonical；未声明时视为 world）。
  * 含义来自包自身携带的信息，而非类型名（2D 数据只有通道数）：视图只区分单通道和三通道，是否需要相机放入场景由包自身声明。
- * 每份包说明只读取一次，并保存在页面缓存中（transfer/frames.ts manifestOf）。 */
+ * 包说明经 transfer/described.ts 读（页面缓存里按代次的一份）。 */
 function usePointSpaces(fps: string[]): Record<string, string> {
-  const [spaces, setSpaces] = useState<Record<string, string>>({});
-  const key = fps.join();
-  useEffect(() => {
-    let alive = true;
-    for (const fp of key ? key.split(",") : [])
-      void manifestOf(fp).then(
-        (m) => alive && setSpaces((had) => (had[fp] ? had : { ...had, [fp]: String(m.meta.space ?? "world") })),
-        () => undefined, // 读取失败时视为未声明，三维舞台仍会说明缺少的内容
-      );
-    return () => {
-      alive = false;
-    };
-  }, [key]);
-  return spaces;
+  const got = useDescribed<Manifest>("manifest", fps);
+  // 读不到的视为未声明（不列出），三维舞台仍会说明缺少的内容
+  return useMemo(() => Object.fromEntries(fps.flatMap((fp, i) => (got[i] ? [[fp, String(got[i]!.meta.space ?? "world")]] : []))),
+    [got]); // eslint-disable-line react-hooks/exhaustive-deps -- got 与 fps 一一对应
 }

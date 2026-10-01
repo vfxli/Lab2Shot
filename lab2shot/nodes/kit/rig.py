@@ -1,12 +1,12 @@
 """Driving a model's own skeleton from a production rig, and transferring the model's motion back onto that rig.
 
 Both tasks of the rig-motion family (families/rig_motion.py), motion generation and cleanup, follow the same steps:
-the node reads the character's skeleton from the scene, matches the rig's joints to the model's through the joint
-table, sends the rig's world poses through the shared worker contract (lab2shot_worker.rig_motion), and applies the
+the node reads the character's skeleton from the scene, matches the rig's joints to the model's through its
+「对应关系」 (the body parts of the two skeletons), sends the rig's world poses through the shared worker contract (lab2shot_worker.rig_motion), and applies the
 result to the rig, leaving joints the model does not have untouched. Only the middle step differs: one generates
 motion (between an animator's keys, or from a text prompt alone), the other repairs broken frames.
 
-This module therefore holds the shared parts (the joint table, joint matching, skeleton choice and the job), and the
+This module therefore holds the shared parts (the 「对应关系」, joint matching, skeleton choice and the job), and the
 family adds only its parameters and its interpretation of the result. `RigModel` is a building block rather than a
 node family, so it does not subclass NodeDef (the family is `class RigMotion(RigModel, WorkerNode)`), and it lives
 in kit/ rather than families/, which holds only node families that nodes subclass.
@@ -18,12 +18,14 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ...data.joints import LANDMARKS, LEGS
 from ...errors import Invalid
 from ...messages import Msg
 
-from ...data.units import DEFAULT_FPS
-from ..base import NodeParams, P, Port
+from ..base import P, Port
 from ..families.base import Job
+from ..handles import Poses
+from .rig_map import bind_handle, pose_handle, rig_map_choice, rig_map_param, rig_side, skeleton_choice
 
 
 @dataclass(frozen=True)
@@ -39,7 +41,6 @@ class ModelJoint:
 
 ARM_PARTS = ("clavicle", "upperarm", "forearm", "hand")
 LEG_PARTS = ("thigh", "shin", "foot", "toe")
-LEGS = ("l.thigh", "l.shin", "r.thigh", "r.shin")
 REQUIRED_PARTS = ("hips", *LEGS, "l.foot", "r.foot")
 
 
@@ -57,7 +58,7 @@ def humanoid_joints(trunk: tuple[tuple[str, str, str | None], ...], legs: tuple[
 
 
 def part_labels(joints: tuple[ModelJoint, ...]) -> list[str]:
-    """The label of each model joint as shown in the joint table (左大腿, 脊柱 2, ...)."""
+    """The label of each model joint in messages (左大腿, 脊柱 2, ...)."""
     from ...data.joints import part_label
 
     out = []
@@ -68,28 +69,17 @@ def part_labels(joints: tuple[ModelJoint, ...]) -> list[str]:
     return out
 
 
-class JointMap(NodeParams):
-    """A row of the joint table: a model joint and the rig joint that drives it."""
+def mapping_param(follows: tuple[str, ...] = ()):
+    """The 「对应关系」 of a node that drives a model's skeleton: which of the person's rig joints drives each body part
+    of its model, in the editor every such node shares with 「动作重定向」 (kit/rig_map.py, widget "rig_map"): the
+    person's skeleton on one side, the model's joints on the other, fixed by the node. Empty = every part guessed.
 
-    name: str = P(..., label="模型关节", widget="fixed")
-    label: str = P(..., label="部位", widget="fixed")
-    joint: str | None = P(None, label="人物关节", widget="choice")
-
-
-def mapping_rows(joints: tuple[ModelJoint, ...]) -> list[dict]:
-    """关节对照表的行，模型的每个关节对应一行。"""
-    return [{"name": j.name, "label": label, "joint": None} for j, label in zip(joints, part_labels(joints))]
-
-
-def mapping_param(joints: tuple[ModelJoint, ...], follows: tuple[str, ...] = ()):
-    """The joint table of a node that drives a model's skeleton: one row per joint of its model.
-
-    `follows`: the parameters of this node whose change replaces the whole table (Kimodo's 「模型」 selects among
+    `follows`: the parameters of this node whose change replaces the model's side (Kimodo's 「模型」 selects among
     three skeletons: SOMA with 30 joints, SMPL-X with 22, G1 with 34). A node that declares them implements
-    `joints_of(params)`, and `derive` rebuilds the rows from it. This is the same mechanism by which LensDistortion's
-    distortion parameters follow 「镜头模型」; the framework provides only P(derived_from) for this purpose."""
-    return P(mapping_rows(joints), label="关节映射", widget="table", group="人物", choices_from=("character", "skeleton"),
-             worker=False, validate_default=True, derived_from=follows)
+    `joints_of(params)`, and `derive` rebuilds the rows from it (the same mechanism by which LensDistortion's
+    distortion parameters follow 「镜头模型」; the framework provides only P(derived_from) for this purpose)."""
+    # the parameters it follows go with the question too: the editor's model side is the model those select
+    return rig_map_param(("character", "skeleton", *follows), follows)
 
 
 def skeleton_param():
@@ -103,79 +93,107 @@ class RigModel:
 
     The family mixes it in ahead of WorkerNode: `class RigMotion(RigModel, WorkerNode)`. It declares the ports common
     to both tasks (a bare skeleton or a skinned character, as stored in the file; the output is of the same kind), the
-    joint table's rows (`joints`), and the three shared steps: reading the rig (`rig`), matching the joints
+    model's joints (`joints`), and the three shared steps: reading the rig (`rig`), matching the joints
     (`driven`) and writing the job for the worker (`send`).
     """
 
     # A bare skeleton or a skinned character, as stored in the file; the output is of the same kind.
     inputs = (Port("character", "scene.skeleton|scene.character", "动画"),)
     outputs = (Port("character", "scene.skeleton|scene.character", "动画", type_from="input:character"),)
-    joints: tuple[ModelJoint, ...] = ()  # the model joints a rig can drive (its joint table's rows)
+    joints: tuple[ModelJoint, ...] = ()  # the model joints a rig can drive (the model side of its 「对应关系」)
+    # the person's skeleton on the stage, only shown: the 「对应关系」 editor draws it as 「动作重定向」 draws its two
+    handles = (Poses(pose=None, source="character", skeleton="skeleton"),)
 
     @classmethod
     def joints_of(cls, params: dict) -> tuple[ModelJoint, ...]:
         """本次使用的模型骨架。默认返回节点声明的骨架；每套权重对应一副骨架的节点（Kimodo：
-        SOMA 30 / SMPL-X 22 / G1 34）按「模型」参数返回对应骨架，关节对照表随之更换
+        SOMA 30 / SMPL-X 22 / G1 34）按「模型」参数返回对应骨架，「对应关系」里模型那一侧随之更换
         （mapping_param(follows=…) + derive）。"""
         return cls.joints
 
     @classmethod
-    def derive(cls, params: dict) -> dict:
-        """「模型」变化时重新生成关节对照表；已选定的人物关节按模型关节名保留（两副骨架中同名的关节
-        无需重选）。仅对声明了 follows 的节点调用。"""
-        spec = next((q for q in cls.param_specs() if q["name"] == "mapping"), None)
-        if not spec or not spec["derived_from"]:
-            return {}
-        chosen = {r["name"]: r.get("joint") for r in params.get("mapping") or [] if isinstance(r, dict)}
-        return {"mapping": [{**row, "joint": chosen.get(row["name"])} for row in mapping_rows(cls.joints_of(params))]}
+    def model_parts(cls, params: dict) -> dict[str, list[str]]:
+        """The model's joints by body part, in its order (a chain part: its joints from the root outwards)."""
+        out: dict[str, list[str]] = {}
+        for j in cls.joints_of(params):
+            out.setdefault(j.part, []).append(j.name)
+        return out
 
     @classmethod
-    def rows(cls, params: dict) -> list[tuple[str, str]]:
-        return [(j.name, j.part) for j in cls.joints_of(params)]
+    def derive(cls, params: dict) -> dict:
+        """「模型」变化时重建对应关系里模型那一侧：每个部位已选的人物关节（src）保留，模型关节（dst）换成新模型的，
+        新模型没有的部位去掉。值为空（全自动）时不用动。仅对声明了 follows 的节点调用。"""
+        spec = next((q for q in cls.param_specs() if q["name"] == "mapping"), None)
+        if not spec or not spec["derived_from"] or params.get("mapping") is None:
+            return {}
+        parts = cls.model_parts(params)
+        chosen = {r["part"]: r.get("src") or [] for r in params["mapping"] if isinstance(r, dict) and "part" in r}
+        return {"mapping": [{"part": p, "src": list(chosen[p]), "dst": joints} for p, joints in parts.items()
+                            if p in chosen]}
 
     @classmethod
     def choices(cls, params: dict, inputs: dict) -> dict:
-        from ...data.animation import skeletons
-        from ...data.joints import auto_mapping
-
+        """The 骨骼 choice, and for the 「对应关系」 editor the person's skeleton (the side one picks joints in) and the
+        model's joints by part (fixed, read only)."""
         src = inputs.get("character")
-        found = skeletons(src) if src is not None else []
-        if not found:
+        if src is None:
             return {}
-        chosen = next((s for s in found if s["path"] == params.get("skeleton")), found[0])
-        auto = auto_mapping(cls.rows(params), chosen["joints"], chosen["parents"])
-        return {"skeleton": {"options": [s["path"] for s in found], "auto": found[0]["path"]},
-                "mapping": {"options": chosen["joints"], "auto": {n: v or "" for n, v in auto.items()}, "none": "不映射"}}
+        out = skeleton_choice(src, "skeleton")
+        if not out["skeleton"]["options"]:
+            return {}
+        model = {"label": "模型", "fixed": True, "names": [j.name for j in cls.joints_of(params)],
+                 "parts": cls.model_parts(params), "handle": None}
+        out["mapping"] = rig_map_choice(rig_side(src, params.get("skeleton"), "人物", pose_handle(cls, "character")),
+                                        model, REQUIRED_PARTS)
+        return out
+
+    @classmethod
+    def handle_data(cls, params: dict, inputs: dict) -> dict[int, dict]:
+        """The person's skeleton in its bind pose for the read-only skeleton handle (kit/rig_map.py bind_handle)."""
+        src = inputs.get("character")
+        got = bind_handle(src, params.get("skeleton"), params.get("mapping")) if src is not None else None
+        return {0: got} if got else {}
 
     @classmethod
     def mapping(cls, params: dict, names: list[str], parents) -> dict[str, int]:
-        """Model joint -> rig joint index. Choices in the table take precedence over the automatic guess; the body
-        parts required by every model are validated."""
-        from ...data.joints import auto_mapping
+        """Model joint -> rig joint index. A part the 「对应关系」 lists takes the rig joints given there, every other
+        part the guess (data/joints.py guess); a chain part's model joints go over its rig joints by their place along
+        it (joints.spread), so the result reverses exactly back onto the rig (motion.Retarget.to_production) — the
+        spreading by length of 「动作重定向」 is not reversible and does not apply here. The body parts every model needs
+        are validated; one rig joint may drive one model joint only. The worker gets the result as a table model joint
+        -> rig joint (lab2shot_worker.rig_motion.write_job)."""
+        from ...data.joints import CHAINS, auto_rows, check_mapping, merged_rows, part_joints, part_label, part_names, spread
 
         joints = cls.joints_of(params)
         labels = dict(zip((j.name for j in joints), part_labels(joints)))
-        chosen = {r["name"]: r["joint"] for r in params["mapping"]}
-        unknown = sorted(set(chosen) - set(labels))
+        parts = cls.model_parts(params)
+        given = params["mapping"] or []
+        unknown = sorted({n for r in given for n in r["dst"]} - set(labels))
         if unknown:
             raise Invalid(Msg("E-RIG-UNKNOWNJOINTS", joints=unknown))
-        auto = auto_mapping(cls.rows(params), names, parents)
+        names = list(names)
+        # the rows a cook uses and their joints: the same two functions as 「动作重定向」 (merged_rows, part_joints);
+        # only the person's side is read, the model's side is the node's own
+        rows, _ = merged_rows([{**r, "dst": []} for r in given], auto_rows(part_names(names, parents), {}))
+        check_mapping(rows, {"src": (names, parents, "人物")})
+        rig_parts = part_joints(rows, names, parents, "src")
         out: dict[str, int] = {}
-        for j in joints:
-            name = auto[j.name] if chosen.get(j.name) is None else chosen[j.name] or None
-            if name is None:
-                continue
-            if name not in names:
-                raise Invalid(Msg("E-RIG-NOJOINT", part=labels[j.name], joint=name))
-            out[j.name] = names.index(name)
-        parts = {j.part: j.name for j in joints}
-        missing = [labels[parts[p]] for p in REQUIRED_PARTS if parts.get(p) not in out]
+        for part, model in parts.items():
+            rig = rig_parts.get(part, [])
+            picks = spread(len(model), rig) if part in CHAINS else [rig[0] if rig else None] * len(model)
+            for m, r in zip(model, picks):
+                if r is not None:
+                    out[m] = r
+        last = {j.part: j.name for j in joints}
+        missing = [labels[last[p]] for p in REQUIRED_PARTS if last.get(p) not in out]
         if missing:
             raise Invalid(Msg("E-RIG-MISSINGPARTS", parts=missing))
+        part_of = {j.name: j.part for j in joints}
         taken: dict[int, str] = {}
         for m, r in out.items():
             if r in taken:
-                raise Invalid(Msg("E-RIG-SHARED", first=labels[taken[r]], second=labels[m], joint=names[r]))
+                raise Invalid(Msg("E-MAP-SHARED", first=part_label(part_of[taken[r]]), second=part_label(part_of[m]),
+                                  joint=names[r], side="人物"))
             taken[r] = m
         return out
 
@@ -190,7 +208,18 @@ class RigModel:
     def driven(cls, ctx, rig) -> tuple[dict[str, int], dict[str, str]]:
         """The match between the rig's joints and the model's: (model joint -> rig joint index, body part -> model
         joint)."""
-        return cls.mapping(ctx.params, rig.names, rig.parents), {j.part: j.name for j in cls.joints_of(ctx.params)}
+        from lab2shot_shared import motion as mo
+
+        pairs, parts = cls.mapping(ctx.params, rig.names, rig.parents), {j.part: j.name for j in cls.joints_of(ctx.params)}
+        # the worker aligns the rig by its body (motion.Retarget.align: Body.of_hierarchy); a rig with no trunk to find
+        # is taken as standing, which a folded rest pose is not
+        legs = [pairs[parts[x]] for x in LEGS]
+        marks = [pairs[parts[x]] for x in LANDMARKS if x in parts and parts[x] in pairs]
+        # the same body the worker aligns by: the same landmarks, the rig's rest as sent (rig.skeleton())
+        if not mo.Body.of_hierarchy(rig.parents, (legs[0], legs[2]), (legs[1], legs[3]), marks,
+                                    rig.skeleton().rest_positions).trunk:
+            ctx.say("W-BODY-NOTRUNK", rig="人物")
+        return pairs, parts
 
     @classmethod
     def send(cls, ctx, rig, pairs: dict[str, int], parts: dict[str, str], frames: list[int],
@@ -198,28 +227,29 @@ class RigModel:
         """The job for the worker: the rig, the given frames, and the rig's world pose on each of them."""
         from lab2shot_worker.rig_motion import write_job
 
-        # DEFAULT_FPS 为固定时基（帧号即时间码）；模型重采样需要以秒为单位的时间线
-        motion = write_job(ctx.work / "motion.npz", rig.skeleton(), frames, poses, DEFAULT_FPS,
+        # 「帧率」（families/rig_motion.py motion_fps_param）：worker 按它把帧号换算成秒，再放到模型自己的时间轴上
+        motion = write_job(ctx.work / "motion.npz", rig.skeleton(), frames, poses, float(ctx.params["fps"]),
                            pairs, {j.name: j.aim for j in cls.joints_of(ctx.params) if j.aim},
-                           tuple(parts[x] for x in LEGS))
+                           tuple(parts[x] for x in LEGS), tuple(parts[x] for x in LANDMARKS if x in parts))
         return Job(None, inputs={"motion": motion}, notes={"rig": rig, "keys": frames, "pairs": pairs, "parts": parts})
 
 
 def body_joints(body: str) -> tuple[ModelJoint, ...]:
-    """The joint table of a model whose skeleton belongs to the SMPL family ("smpl", "smplh", "smplx"): every joint
+    """The joints of a model whose skeleton belongs to the SMPL family ("smpl", "smplh", "smplx"): every joint
     of that body, its body part, and the joint its bone points at.
 
     `humanoid_joints` provides the same table written by hand for Mixamo-style naming; this function derives it from
-    the body itself, using the table data/smpl.py maintains (rows_of, aims_of), so that a node's editable joint table
-    and the automatic guess that fills it (RigModel.choices / mapping: auto_mapping over the same rows) list the same
+    the body itself, using the table data/smpl.py maintains (rows_of) and the hierarchy (motion.aims_toward), so that the model side of a node's 「对应关系」
+    and the automatic guess that fills it (RigModel.choices / mapping: guess() over the same body) list the same
     joints in the same order. Read by 「StableMotion 动捕清理」 (SMPL) and 「Kimodo 动作生成」 (its SMPL-X 22 weights)."""
 
+    from lab2shot_shared import motion as mo
     from lab2shot_shared import smpl as S
 
-    from ...data.smpl import aims_of, rows_of
+    from ...data.smpl import rows_of
 
     b = S.body(body)
     part_of = dict(rows_of(b))
-    aims = aims_of(b.parents)
+    aims = mo.aims_toward(b.parents)
     return tuple(ModelJoint(name, part_of[name], None if aims[j] is None else b.names[aims[j]])
                  for j, name in enumerate(b.names) if name in part_of)

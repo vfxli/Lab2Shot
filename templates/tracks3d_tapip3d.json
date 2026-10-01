@@ -3,17 +3,79 @@
  "meta": {
   "id": "b8c051e8d91826ceb552fe1af7d68ad4",
   "name": "3D 跟踪点 · TAPIP3D",
-  "intro": "TAPIP3D 做单目 RGB 和 RGB-D 画面的长时前馈三维点跟踪：把画面特征抬进持久的世界坐标特征云，抵掉相机自身的运动，跨帧轨迹估计更准。这张卡由 ViPE 给出相机和深度图，交付 3D 跟踪点 USD。",
+  "intro": "TAPIP3D 做单目 RGB 和 RGB-D 画面的长时前馈三维点跟踪：把画面特征抬进持久的世界坐标特征云，抵掉相机自身的运动，跨帧轨迹估计更准。这张卡由 ViPE 给出相机和深度图，交付 3D 跟踪点 USD（里面同时带 ViPE 的相机）。TAPIP3D 本身可商用，整张卡标非商用是因为 ViPE 的深度。",
   "author": "Lab2Shot",
   "created": "2026-09-13T12:00:00",
   "deliverable": "tracks3d",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": "相机与深度",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "focal",
+     "label": "已知 Focal Length",
+     "target": "vipe.focal_mm"
+    },
+    {
+     "name": "filmback",
+     "label": "Filmback",
+     "target": "vipe.filmback_mm",
+     "disable_when": "not focal"
+    },
+    {
+     "name": "vipe_mode",
+     "label": "ViPE 方式",
+     "target": "vipe.mode"
+    },
+    {
+     "name": "depth_model",
+     "label": "深度模型",
+     "target": "vipe_depth.model"
+    },
+    {
+     "name": "cook_camera",
+     "label": "解算相机与深度",
+     "target": "vipe_depth.cook"
+    }
+   ]
+  },
+  {
+   "name": "picks",
+   "label": "跟踪点",
+   "target": "track.picks",
+   "show_on_change": true
+  },
+  {
+   "name": "picks_pick",
+   "label": "在视图里点选",
+   "target": "track.picks_pick"
   },
   {
    "name": "grid",
@@ -21,14 +83,69 @@
    "target": "track.grid"
   },
   {
-   "name": "unit",
-   "label": "单位",
-   "target": "usd.unit"
+   "name": "ref_frame",
+   "label": "参考帧",
+   "target": "track.query_frame",
+   "disable_when": "grid == 0"
   },
   {
-   "name": "focal",
-   "label": "Focal Length",
-   "target": "vipe.focal_mm"
+   "name": "resolution",
+   "label": "处理分辨率",
+   "target": "track.resolution"
+  },
+  {
+   "name": "min_confidence",
+   "label": "可见门槛",
+   "target": "track.min_confidence"
+  },
+  {
+   "name": "point_size",
+   "label": "点的大小",
+   "target": "track.point_size"
+  },
+  {
+   "name": "cook_track",
+   "label": "跟踪",
+   "target": "track.cook"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "usd.name"
+    },
+    {
+     "name": "unit",
+     "label": "单位",
+     "target": "usd.unit"
+    },
+    {
+     "name": "fps",
+     "label": "帧率",
+     "target": "usd.fps"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -38,11 +155,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 360
+    "y": 185
    }
   },
   {
@@ -50,11 +169,13 @@
    "type": "vipe.camera_solve",
    "label": "ViPE 相机解算",
    "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
     "mode": "pose_only"
    },
    "ui": {
-    "x": 320,
-    "y": 160,
+    "x": 400,
+    "y": 127,
     "on_node": [
      "focal_mm",
      "mode"
@@ -69,7 +190,7 @@
     "model": "default"
    },
    "ui": {
-    "x": 620,
+    "x": 830,
     "y": 0,
     "on_node": [
      "model"
@@ -81,16 +202,16 @@
    "type": "tapip3d.track",
    "label": "TAPIP3D 3D 跟踪点",
    "params": {
-    "grid": 10,
     "query_frame": null,
     "picks": [],
     "min_confidence": null,
     "point_size": 1.0,
+    "grid": 10,
     "resolution": "fine"
    },
    "ui": {
-    "x": 940,
-    "y": 360,
+    "x": 1230,
+    "y": 231,
     "on_node": [
      "grid",
      "query_frame",
@@ -105,16 +226,20 @@
    "params": {
     "name": "tracks3d",
     "format": "usd",
-    "unit": "cm"
+    "unit": "cm",
+    "fps": 24.0
    },
    "ui": {
-    "x": 1260,
-    "y": 240,
+    "x": 1630,
+    "y": 261,
     "on_node": [
      "name",
      "unit"
     ]
-   }
+   },
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "deliver",
@@ -122,8 +247,8 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1560,
-    "y": 240
+    "x": 2030,
+    "y": 289
    }
   }
  ],
@@ -241,7 +366,7 @@
  ],
  "boxes": [],
  "view": {
-  "display": "track",
+  "display": "usd",
   "frame": null
  }
 }

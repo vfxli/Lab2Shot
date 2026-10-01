@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
+from ..kit.ports import rgb_port
 from ...data.camera import CameraSamples
 from ...errors import Invalid, NothingToCook
 from ...messages import Msg
@@ -12,6 +15,11 @@ from ...data.payloads import SCENE_FILE, scene_packet
 from ...data.skeleton import body_character, model_regions
 from ...data.units import M_TO_CM
 from ..base import P, Port
+
+PLATE_CAMERA_FILE = "plate_camera.npz"  # WorldHumans.plate_camera
+PLATE_CAMERA_HELP = ("放人用的那台相机：原点、不动的针孔相机，焦距 = 节点的「Focal Length」（留空时用解算器自己估的或默认的），"
+                     "主点在画面中心。不是解出来的相机：人就放在它的空间里，透过它看背板人和画面对得上。"
+                     "当「解算器的相机」用，或接「相机空间转换」的目标")
 from ..lens import CameraLensParams, without_camera_conditions
 from .base import Job, RawOutput, WorkerNode
 from ..kit.cameras import camera_port, plate_lens, rotation_is_still, send_camera, send_rotation, solved_camera
@@ -129,7 +137,7 @@ class WorldHumans(WorkerNode):
     # 上游不接受人物框的节点若只需计算某一人，使用显式的节点链：
     #     人物检测 → 选人 → 人物框转遮罩 → 图像合成（留下）→ 「图像」端口
     # 相乘后画面中只剩该人，上游自身的检测器便只会找到此人。
-    inputs = (Port("image", "image.3", "RGB"), camera_port())
+    inputs = (rgb_port(), camera_port())
     # 每个人一项输出：蒙皮角色（骨架 + 动画 + 蒙在骨架上的网格，可在 DCC 中二次修正），见类的文档字符串
     main = "character"
     outputs = (Port("character", "scene.character", "蒙皮角色"), Port("camera", "scene.camera", "相机"))
@@ -156,6 +164,13 @@ class WorldHumans(WorkerNode):
     #     此用途。它由上游的两份输出唯一确定（同一身体在相机空间中 + 在世界中）。
     # 两者同时声明为 True 是矛盾的（确实解算出成品相机时应输出成品相机），__init_subclass__ 会立即拒绝。
     reference_camera: bool = False
+    # 放人用的那台相机：解算器内部把画面当作一台原点静止的针孔相机拍的（焦距按节点的「Focal Length」，留空时用方法自己估的 /
+    # 默认的；主点在画面中心），人就放在这台相机的空间里。声明为 True 的节点把它交出来，端口名「相机」（worker 写
+    # raw/plate_camera.npz：frames、focal_px、cam_to_world 为单位阵）。它不是解出来的相机（solves_camera 是），也不是
+    # 「参照相机」；三维视图透过它看背板人和画面对得上，模板把它当「解算器的相机」一路（「相机空间转换」的目标）。
+    # 与 solves_camera 互斥（真解出相机的就交那台）；可与 reference_camera 并存（GVHMR / WHAM：世界里的参照相机 +
+    # 相机空间的这台）。
+    plate_camera: bool = False
     default_focal_mm: float | None = None  # 既未提供焦距也未提供相机时假定的镜头（None：使用方法自身的镜头）
 
     def __init_subclass__(cls, **kw):
@@ -168,8 +183,13 @@ class WorldHumans(WorkerNode):
         # 那是「Focal Length」参数，不是相机。将相机空间的结果放入使用者的相机世界是一个显式步骤：
         # 核心节点「相机空间转换」（core.camera_space）。
         # 上游不解算相机时不应存在「相机」输出端口（见上方 solves_camera 声明）。
-        if not cls.solves_camera:
+        if cls.plate_camera and cls.solves_camera:
+            raise TypeError(f"{cls.__name__}: declare solves_camera or plate_camera, not both - a method that really "
+                            f"solves a camera gives that one")
+        if not cls.solves_camera and not cls.plate_camera:
             cls.outputs = tuple(p for p in cls.outputs if p.name != "camera")
+        elif cls.plate_camera:
+            cls.outputs = tuple(replace(p, help=PLATE_CAMERA_HELP) if p.name == "camera" else p for p in cls.outputs)
         # 「参照相机」（声明见 reference_camera）：仅供「相机空间转换」作为参照，不是成品相机
         if cls.reference_camera:
             if cls.solves_camera:
@@ -292,6 +312,57 @@ class WorldHumans(WorkerNode):
         return kept
 
     @classmethod
+    def cameras_out(cls, ctx, raw: RawOutput, job: Job, in_camera: bool) -> dict[str, Packet]:
+        """The node's camera outputs (solves_camera / reference_camera / plate_camera), from the worker's camera files.
+        `in_camera`: the results are in camera space (their world is the GL-flipped camera space); False for results
+        in a world. A node with its own convert (SAM 3D Body) calls this too, as it calls
+        people_solved_enough, so every camera output is made here and nowhere else."""
+        from ...data.units import CV_TO_GL
+
+        image, lens = job.plate, job.lens
+        result = raw.result()
+        flip = np.diag([*CV_TO_GL, 1.0])
+        out: dict[str, Packet] = {}
+        # 输出相机的三种声明使用同一段代码：`camera`（solves_camera）是上游解算的成品相机、`ref_camera`
+        # （reference_camera）仅供「相机空间转换」作为参照，都读 raw/camera.npz；`camera`（plate_camera）是放人用的
+        # 原点静止针孔相机，读 raw/plate_camera.npz（可与参照相机并存）。
+        cameras = ([("camera", "camera.npz")] if cls.solves_camera else []) \
+            + ([("ref_camera", "camera.npz")] if cls.reference_camera else []) \
+            + ([("camera", PLATE_CAMERA_FILE)] if cls.plate_camera else [])
+        for camera_port_name, camera_file in cameras:
+            # 输出的始终是上游自身解算的相机，不存在「接入相机时原样透传」的分支：有「相机」输出端口的节点
+            # （`tram.solve`、`pixel3dmm.face`）均为 `camera_to_worker=None`，没有相机输入端口，`job.camera` 始终为 None。
+            # 需要将某台相机透传到输出时，由使用者从其来源（ViPE / 「导入 USD」）自行连线。
+            c = raw.arrays(camera_file)
+            poses = np.asarray(c["cam_to_world"], np.float64) @ flip  # GL 相机轴向
+            if in_camera:
+                poses = flip @ poses  # OpenCV（相机空间）世界：世界坐标同样翻转
+            poses[:, :3, 3] *= M_TO_CM
+            info = result["camera"] if isinstance(result.get("camera"), dict) else {}
+            # principal_px：只有同时解算镜头中心的方法才会写出（如在画面裁切区域内拟合的面部跟踪器）；
+            # 未写出时镜头中心为画面中心。
+            out[camera_port_name] = solved_camera(
+                ctx, image, c["frames"], c["focal_px"], poses, filmback_mm=lens.filmback_mm,
+                principal_px=c["principal_px"] if "principal_px" in c.files else None,
+                port=camera_port_name,
+                info={"extension": cls.runtime, **info, "lens": lens.said})
+        return out
+
+    @classmethod
+    def stage_info(cls, result: dict, lens) -> dict:
+        """What the character stage records of the solve (usd.create_stage): the extension and the world it is in."""
+        return {"extension": cls.runtime, "world": result["world"]}
+
+    @classmethod
+    def person_character(cls, person: dict, d, place) -> tuple[str, object, object]:
+        """One person of the worker's result (its entry in result.json `people`, its npz `d`) as (USD name, character,
+        the model's regions): the body arrays of the family's raw contract (body_character), placed by `place` (per
+        frame, None for a result in a world), with the model's own regions (FLAME / SMPL: scalp, face, lips, ears…).
+        A method whose worker writes its rig in another form (SAM 3D Body's MHR) overrides this, nothing else."""
+        character = body_character(d, place)
+        return person["name"], character, model_regions(d, character.faces)
+
+    @classmethod
     def convert(cls, ctx, raw: RawOutput, job: Job) -> dict[str, Packet]:
         from ...data.units import CV_TO_GL
         from ...io import usd
@@ -307,44 +378,23 @@ class WorldHumans(WorkerNode):
                          else np.repeat(flip[None], len(frames), 0))
         index = {f: i for i, f in enumerate(frames)}
         ctx.stage("写出 USD 人物和相机")
-        stage = usd.create_stage(frames, {"extension": cls.runtime, "world": result["world"]})
+        stage = usd.create_stage(frames, cls.stage_info(result, lens))
         names, found = [], []
         for person in ctx.each(cls.people_solved_enough(ctx, raw, result["people"])):
-            name, d = person["name"], raw.arrays(person["file"])
+            d = raw.arrays(person["file"])
             own = [int(f) for f in d["frames"]]
+            place = place_all[[index[f] for f in own]] if place_all is not None else None
+            name, character, subsets = cls.person_character(person, d, place)  # 2D 关键点按同一个人名记
             if cls.keypoints is not None and {"keypoints_2d", "keypoint_names"} <= set(d):
                 kp = np.asarray(d["keypoints_2d"], np.float32)  # [F,K,3]：x、y 像素坐标及置信度
                 found.append(PersonKeypoints(name, own, kp[..., :2], kp[..., 2] if kp.shape[-1] > 2 else None,
                                              tuple(str(n) for n in d["keypoint_names"])))
-            place = place_all[[index[f] for f in own]] if place_all is not None else None
-            character = body_character(d, place)
-            # 模型自带的分区（FLAME / SMPL 的头皮、脸、脖子、嘴唇、鼻子、左右耳等）随蒙皮角色输出
-            usd.write_character(stage, name, character, own, subsets=model_regions(d, character.faces), shot=frames)  # 未解出的帧上不可见
+            usd.write_character(stage, name, character, own, subsets=subsets, shot=frames)  # 未解出的帧上不可见
             names.append(name)
         usd.save_stage(stage, ctx.outputs["character"] / SCENE_FILE)
         character = scene_packet(ctx.outputs["character"], frames, "scene.character", people=names, width=w, height=h)
         out = {"character": character}
-        # 输出相机的两种节点使用同一段代码：端口名称不同，读取的都是 raw/camera.npz。
-        # `camera`（solves_camera）是上游解算的成品相机；`ref_camera`（reference_camera）仅供「相机空间转换」
-        # 作为参照，两项声明互斥（由 __init_subclass__ 保证）。
-        camera_port_name = "camera" if cls.solves_camera else ("ref_camera" if cls.reference_camera else "")
-        if camera_port_name:
-            # 输出的始终是上游自身解算的相机，不存在「接入相机时原样透传」的分支：有「相机」输出端口的节点
-            # （`tram.solve`、`pixel3dmm.face`）均为 `camera_to_worker=None`，没有相机输入端口，`job.camera` 始终为 None。
-            # 需要将某台相机透传到输出时，由使用者从其来源（ViPE / 「导入 USD」）自行连线。
-            c = raw.arrays("camera.npz")
-            poses = np.asarray(c["cam_to_world"], np.float64) @ flip  # GL 相机轴向
-            if place_all is not None:
-                poses = flip @ poses  # OpenCV（相机空间）世界：世界坐标同样翻转
-            poses[:, :3, 3] *= M_TO_CM
-            info = result["camera"] if isinstance(result.get("camera"), dict) else {}
-            # principal_px：只有同时解算镜头中心的方法才会写出（如在画面裁切区域内拟合的面部跟踪器）；
-            # 未写出时镜头中心为画面中心。
-            out[camera_port_name] = solved_camera(
-                ctx, image, c["frames"], c["focal_px"], poses, filmback_mm=lens.filmback_mm,
-                principal_px=c["principal_px"] if "principal_px" in c.files else None,
-                port=camera_port_name,
-                info={"extension": cls.runtime, **info, "lens": lens.said})
+        out.update(cls.cameras_out(ctx, raw, job, place_all is not None))
         if cls.keypoints is not None and "keypoints" in ctx.wanted:  # 仅在需要时写出
             out.update(keypoints2d(ctx, "keypoints", image, found, extension=cls.runtime))
         return out

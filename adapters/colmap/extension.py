@@ -3,7 +3,7 @@ sparse point cloud) for shots whose camera moves (parallax)."""
 
 from __future__ import annotations
 
-from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo
+from lab2shot.sdk import COMMERCIAL, NONCOMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo
 
 COLMAP_URL = "https://github.com/colmap/colmap.git"
 COLMAP_COMMIT = "be5e29168d4aff238409d60424812df66aac919f"  # tag 4.2.0 (= the pycolmap 4.2.0 wheels)
@@ -11,6 +11,9 @@ COLMAP_COMMIT = "be5e29168d4aff238409d60424812df66aac919f"  # tag 4.2.0 (= the p
 
 from .lens import GROUP
 
+
+# 哪些选项用到非商用部分：「显卡提取特征」开着时用 SiftGPU（仅限教育和研究）。节点的 OptionTrait 从这里生成
+OPTION_LICENCES = {"sift_gpu": {True: NONCOMMERCIAL}}
 
 class Colmap(Extension):
     name = "colmap"

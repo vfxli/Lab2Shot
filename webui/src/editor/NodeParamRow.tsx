@@ -1,4 +1,4 @@
-/** 节点上的一行参数。 */
+/** 节点本体上的参数行：一个参数在节点上的名称、控件、接线后的来源说明与缩小后的文字形式，均由本模块绘制。 */
 
 import { Handle, Position } from "@xyflow/react";
 import type { MouseEvent } from "react";
@@ -6,12 +6,14 @@ import type { ParamDef, PortDef } from "../api";
 import { setParam } from "../graph/actions";
 import { useTypes } from "../state/catalog";
 import { useViewer } from "../state/viewer";
+import { useWriteLock } from "../ui/writeLock";
 import { portColor } from "../graph/nodes";
 import { multiline, NodeControl, valueText } from "../ui/controls";
 import { useResults } from "../state/results";
+import { ButtonParam } from "./buttonActions";
 
-/** One parameter on the node's body: its name, and its value, edited directly here (the same value as the panel's).
- * 提升到节点 的参数，其输入口位于该行（下方 `param:<name>` 的 Handle）。
+/** 节点本体上的一个参数：名称与取值，可在此直接编辑（与参数面板中的是同一个值）。
+ * 「提升到节点」的参数，其输入口位于该行（下方 `param:<name>` 的 Handle）。
  *
  * 接入连线后，该行的控件置灰，取值以连线传入的值为准。置灰的格中显示连线传入的值
  * （尚未计算时显示「待计算」），前面一小行灰字说明来源（「← AnyCalib」），完整说明在参数面板中。
@@ -20,19 +22,20 @@ import { useResults } from "../state/results";
  * 控件不隐藏，只区分可用与不可用：该行的第二格始终是控件形状的元素，可编辑时为实际控件，
  * 不可编辑时为同尺寸的灰色格，位置不变。
  *
- * Clicking the row finds the parameter in the panel; a double click on the value puts the keyboard in the panel's
- * field. Zoomed out, the whole value reads as plain text (NodeEditor's zoom classes: `.gctl` 收起、`.gprow-text` 出现). */
+ * 点击该行在参数面板中定位该参数；双击取值则把键盘焦点交给面板中的对应输入框。
+ * 缩小后整个取值显示为纯文字（NodeEditor 的缩放类：`.gctl` 收起、`.gprow-text` 出现）。 */
 export function NodeParam({ nodeId, p, value, promoted, port, wired, why, nc }: {
-  nodeId: string; p: ParamDef; value: unknown; promoted: boolean; port?: PortDef; wired: { source: string; value: string } | null;
-  why?: string; nc: unknown[];
+  nodeId: string; p: ParamDef; value: unknown; promoted: boolean; port?: PortDef; wired: { source: string; value: string; fallback?: boolean } | null;
+  why?: string; nc: Record<string, string>;
 }) {
   const reveal = useViewer((s) => s.revealParam);
+  const readOnly = !!useWriteLock(); // 写不了：节点上的控件真正禁用，不只是样式置灰
   const types = useTypes();
-  // 选项是否可选与参数面板中查询的结果相同（由服务器按声明计算，ui/controls.tsx optionOff）
+  // 选项是否可选与参数面板中查询的结果相同（由服务器按声明计算，ui/controls.tsx optionView）
   const answer = useResults((s) => s.results[nodeId]?.applies);
   // 缩小后整行显示为一句文字（`.gprow-text`，仅在 zoom-text / zoom-far 下出现）
-  const text = wired ? `← ${wired.source}${wired.value ? ` · ${wired.value}` : ""}` : valueText(p, value);
-  // a double click on the value: the keyboard in the panel's field (not 在视图中显示, which the rest of the node does)
+  const text = wired ? `← ${wired.source}${wired.value ? ` · ${wired.value}` : ""}` : valueText(p, value, nc);
+  // 双击取值：键盘焦点进入面板中的输入框（而非节点其余部分双击时的「在视图中显示」）
   const toPanel = (e: MouseEvent) => {
     e.stopPropagation();
     reveal(nodeId, p.name, true);
@@ -56,12 +59,14 @@ export function NodeParam({ nodeId, p, value, promoted, port, wired, why, nc }: 
         <span className="gctl gwired" onDoubleClick={toPanel}>
           <small className="gwired-from" data-user-data>← {wired.source}</small>
           <span className="field mini gwired-val" data-user-data>
-            {wired.value || "待计算"}
+            {/* 可能没有值的口（Port.may_be_empty）：没有时用节点上填的 */}
+            {wired.value || (wired.fallback ? valueText(p, value, nc) : "待计算")}
           </span>
         </span>
       ) : (
-        <fieldset className="gctl nodrag" disabled={!!why} onDoubleClick={toPanel}>
-          <NodeControl p={p} value={value} set={(v) => setParam(nodeId, p.name, v)} nc={nc} answer={answer} />
+        <fieldset className="gctl nodrag" disabled={!!why || readOnly} onDoubleClick={toPanel}>
+          {p.widget === "button" ? <ButtonParam nodeId={nodeId} p={p} mini />
+            : <NodeControl p={p} value={value} set={(v) => setParam(nodeId, p.name, v)} nc={nc} answer={answer} />}
         </fieldset>
       )}
     </div>

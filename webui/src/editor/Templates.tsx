@@ -1,3 +1,20 @@
+/** 从模板新建: the single owner of the template browser. The first-level categories run down the left with how many
+ * cards each holds, and the chosen one's cards sit on the right in sections of its subcategories.
+ *
+ * Every word of the tree comes from the server (/api/templates: the administrator's file templates/_categories.json,
+ * lab2shot/categories.py). Nothing about a category is written here or anywhere in code: where a card sits is its own
+ * file's word (meta.deliverable), and a card whose file names no place (a newly saved preset, or one whose category was
+ * removed) is 未分类 until a manager drags it somewhere.
+ *
+ * Management lives here as well, not on the admin page: a login that manages templates (templates.create, computed by
+ * the server; no role is checked here) gets the following operations, which nobody else sees:
+ *   - a card can be dragged onto a first-level category in the left rail or onto a subcategory heading on the right to
+ *     place it there; the menu at the card's top right offers on / off, copy, edit, properties and delete;
+ *   - first-level categories in the left rail can be dragged to reorder, renamed and deleted; 「新建分类」 is at the bottom;
+ *   - subcategory headings on the right can be dragged to reorder, renamed and deleted; 「新建二级分类」 comes last;
+ *   - 「保存为预设模板」 in the file menu asks only for a name (Chrome.tsx); the saved card lands in 「未分类」 and is then
+ *     dragged into a category. */
+
 import { useState } from "react";
 import { placeIn, type GraphJSON, type TemplateInfo, type TreeCategory } from "../api";
 import { adminApi } from "../api/admin";
@@ -22,31 +39,25 @@ import { MyTemplateCards, MyTemplatesState, useMyTemplates } from "./MyTemplates
 import { refreshTemplates, useTemplates } from "./templatesList";
 import "./templates.css";
 
+/** 「默认路线」一行的提示，按页面上实际有的字写：卡片的许可词（服务器的 nodes/tags.py strictest，一处拼成，如「非商用 · 需注册」），
+ * 与下拉里选项名后面的许可词（ui/controls.tsx optionView：受限的选项跟「· 非商用」这类，不受限的什么都不带）。 */
+function routeTip(t: { licence_word?: string | null; best_licence_word?: string | null; best_commercial?: boolean | null }): string {
+  const lead = "模板里的选项（模型、方法）换一种，结果的许可会不同：";
+  return t.best_commercial
+    ? `${lead}在参数的下拉里选名称后面不带许可词的那一项，结果可商用`
+    : `${lead}在参数的下拉里换掉名称后面带许可词的那一项，许可最宽能到「${t.best_licence_word}」（默认是「${t.licence_word}」）`;
+}
+
 export { refreshTemplates, useTemplates } from "./templatesList";
 
-// 「我的模板」一段：自己保存的节点图。它们不属于交付物分类，
-// 因此在分类栏中单独成段，不混入服务器提供的分类树。
+// 「我的模板」 band: graphs this account saved itself. They belong to no deliverable category, so they form a band of
+// their own in the rail, apart from the server's category tree.
 const MINE = "mine";
-const LOOSE = "_none"; // the rail's row for 未分类 (a card whose file names no place, or a place the tree no longer has)
+const LOOSE = "_none"; // the rail's row for 未分类 (a card whose file names no place, or a place missing from the tree)
 const CARD_TYPE = "application/x-lab2shot-template"; // a card in a drag: its template id
 const SUB_TYPE = "application/x-lab2shot-subcategory"; // a subcategory heading in a drag: its id
 const ADMIN = "admin"; // TemplateInfo.owner of a project preset (lab2shot/library.py): the one kind an administrator may delete
 const LOOSE_CAT: TreeCategory = { id: "", label: "未分类", tip: "还没有归到任何分类的模板：管理员把它拖到左边的分类上", color: "#8E8E93", rank: 0, section: "", subs: [] };
-
-/** 从模板新建: the first-level categories down the left with how many cards each holds, and the chosen one's cards on the
- * right in sections of its subcategories.
- *
- * Every word of the tree comes from the server (/api/templates: the administrator's file templates/_categories.json,
- * lab2shot/categories.py). Nothing about a category is written here or anywhere in code: where a card sits is its own
- * file's word (meta.deliverable), and a card whose file names no place (a newly saved preset, or one whose category was
- * removed) is 未分类 until a manager drags it somewhere.
- *
- * 管理功能同样位于此处，而非后台：具有模板管理权限的登录（由服务器计算的 templates.create，此处不检查角色）可使用以下操作，
- * 其他使用者均不可见：
- *   - 卡片可拖到左栏的一级分类或右侧的二级分类标题上以归入该分类；卡片右上角菜单提供开 / 关、复制、编辑、属性、删除；
- *   - 左栏的一级分类可拖动排序、重命名、删除，底部为「新建分类」；
- *   - 右侧的二级分类标题可拖动排序、重命名、删除，末尾为「新建二级分类」；
- *   - 文件菜单中的「保存为预设模板」只需填写名称（Chrome.tsx），保存的卡片位于「未分类」，再拖入某个分类。 */
 
 /** Which categories the templates panel shows, each with how many cards it holds. */
 function railOf(tree: TreeCategory[], list: TemplateInfo[], every: boolean): TreeCategory[] {
@@ -58,12 +69,12 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
   const open = useViewer((s) => s.templatesOpen);
   const setOpen = useViewer((s) => s.setTemplatesOpen);
   const [again, setAgain] = useState(0);
-  const page = useTemplates(open ? `${open}:${again}` : null); // 每次打开模板面板时重新读取（刚保存的卡片打开即可见）
+  const page = useTemplates(open ? `${open}:${again}` : null); // read again every time the panel opens (a card just saved shows at once)
   const catalog = useCatalog();
   const group = usePreferences((s) => s.browseGroup);
   const setGroup = usePreferences((s) => s.setBrowseGroup);
   const [typed, setTyped] = useState("");
-  const my = useMyTemplates(open); // 每次打开模板面板时重新读取「我的模板」
+  const my = useMyTemplates(open); // 「我的模板」 is read again every time the panel opens
   const applies = useSession((st) => st.state)?.applies;
   const manage = shown(applies, "templates.create"); // this login manages the templates: the server says so
   const [naming, setNaming] = useState<Naming | null>(null);
@@ -106,29 +117,39 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
 
   const rail = railOf(tree, list, manage);
   const looseCount = list.filter((t) => !t.category).length;
-  const own = group === MINE; // 「我的模板」一段：自己保存的节点图，不属于交付物分类
+  const own = group === MINE; // the 「我的模板」 band: graphs saved by this account, outside the deliverable categories
   const chosen = rail.find((c) => c.id === group) ?? (group === LOOSE && (manage || looseCount) ? LOOSE_CAT : own ? undefined : rail[0]);
   const cat = chosen ?? null;
   const loosely = cat?.id === ""; // 未分类 is the chosen "category"
-  // 前台不设回收站（对使用者而言删除即删除）。回收站位于后台：使用者需要恢复时，管理员可在「用户」页
-  // 查看其删除的内容，并点击「恢复」找回
+  // There is no recycle bin here (to the user a delete is a delete). The bin is on the admin side: when something must
+  // come back, an administrator sees what the user deleted on the 「用户」 page and restores it with 「恢复」
   const mineBand = [
     { id: MINE, label: "我的模板", tip: "自己存到服务器上的节点图：换台电脑登录也在", count: my.view?.mine.length ?? 0 },
   ];
-  const all = list.filter((t) => t.category === (cat?.id ?? "\0")); // the whole category, whatever the search box narrows it to
+  const all = list.filter((t) => t.category === (cat?.id ?? "\0")); // the whole category
   const needle = typed.trim().toLowerCase();
-  const found = needle
-    ? all.filter((t) => [t.name, t.intro, ...t.projects.map((p) => p.title)].some((s) => s.toLowerCase().includes(needle)))
-    : all;
-  // a manager sees every subcategory of the category (an empty one is a drop target); everyone else only the ones with cards
-  const subs = cat ? cat.subs.filter((s) => manage || found.some((t) => t.deliverable === s.id)) : [];
-  const loose = found.filter((t) => !subs.some((s) => s.id === t.deliverable));
-  // cards placed on the category itself (not in a subcategory) get a band of their own only when there are any: a card is
-  // dropped on the category through the rail on the left, so an empty band here would only repeat the category's name
-  const sections: { id: string; label: string; tip: string; items: TemplateInfo[] }[] = [
-    ...subs.map((s) => ({ ...s, items: found.filter((t) => t.deliverable === s.id) })),
-    ...(loose.length ? [{ id: "", label: cat?.label ?? "", tip: cat?.tip ?? "", items: loose }] : []),
-  ];
+  const matches = (t: TemplateInfo) => [t.name, t.intro, ...t.projects.map((p) => p.title)].some((s) => s.toLowerCase().includes(needle));
+  // a search looks through every category (the person typing a name does not know which category holds it); the
+  // results are banded by category › subcategory, and a band drops a card into that subcategory or category as usual
+  const found = needle ? list.filter(matches) : all;
+  type Band = { key: string; id: string; sub: boolean; label: string; tip: string; items: TemplateInfo[] };
+  const bandsOf = (c: { id: string; label: string; tip: string; subs: { id: string; label: string; tip: string }[] } | null, items: TemplateInfo[], prefix: string): Band[] => {
+    // a manager sees every subcategory of the chosen category (an empty one is a drop target); everyone else only the
+    // ones with cards. Cards placed on the category itself get a band of their own only when there are any: a card is
+    // dropped on the category through the rail on the left, so an empty band here would only repeat the category's name
+    const subs = c ? c.subs.filter((s) => (manage && !needle) || items.some((t) => t.deliverable === s.id)) : [];
+    const loose = items.filter((t) => !subs.some((s) => s.id === t.deliverable));
+    return [
+      ...subs.map((s) => ({ key: s.id, id: s.id, sub: true, label: prefix + s.label, tip: s.tip, items: items.filter((t) => t.deliverable === s.id) })),
+      ...(loose.length ? [{ key: c?.id || "loose", id: c?.id ?? "", sub: false, label: c?.label ?? "未分类", tip: c?.tip ?? "", items: loose }] : []),
+    ];
+  };
+  const sections: Band[] = needle
+    ? [
+        ...tree.flatMap((c) => bandsOf(c, found.filter((t) => t.category === c.id), `${c.label} › `)),
+        ...bandsOf(null, found.filter((t) => !t.category), ""),
+      ]
+    : bandsOf(cat && !loosely ? cat : null, found, "");
 
   // ---- the manager's operations (every one asks the server and reads back; the page decides nothing about who may)
   const railManage: RailManage | undefined = manage
@@ -203,7 +224,7 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
           manage={railManage}
         />
         <div className="tpl-main">
-          {/* 我的模板：自己保存在服务器上的节点图，不参与搜索与项目筛选 */}
+          {/* 我的模板: graphs saved on the server by this account; not part of the search or the project filter */}
           {own ? (
             <>
               <div className="tpl-head">
@@ -236,7 +257,7 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
               value={typed}
               aria-label="搜索模板"
               placeholder="搜索模板、项目"
-              data-tip="只列出名字、简介或项目名里有这些字的模板"
+              data-tip="在全部分类里找名字、简介或项目名里有这些字的模板"
               onChange={(e) => setTyped(e.target.value)}
             />
           </div>
@@ -244,15 +265,15 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
           <div className="tpl-cards">
             {sections.map((s) => (
               <Section
-                key={s.id || "loose"}
+                key={s.key}
                 section={s}
-                heading={(sections.length > 1 || manage) && !loosely}
-                manage={manage}
-                dropWhere={s.id || cat?.id || ""}
+                heading={(sections.length > 1 || manage || !!needle) && !loosely}
+                manage={manage && !needle}
+                dropWhere={s.id}
                 onDropCard={place}
                 onDropSub={reorderSub}
-                onRename={s.id ? () => renameSub(s.id) : undefined}
-                onRemove={s.id ? () => void removeSub(s.id) : undefined}
+                onRename={s.sub ? () => renameSub(s.id) : undefined}
+                onRemove={s.sub ? () => void removeSub(s.id) : undefined}
               >
                 <div className="tpl-grid">
                   {s.items.map((t) => (
@@ -269,7 +290,7 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
               </div>
             )}
             {!found.length && (!manage || loosely) && (
-              <Empty title={needle ? "没有符合搜索的模板" : loosely ? "没有未分类的模板" : "这个分类还没有模板"} hint={needle ? "换一个搜索词，或者点左边别的分类" : loosely ? "新存的预设模板和新装的接入层带来的模板会先出现在这里" : "在节点图里点右键添加节点，自己接一张"} />
+              <Empty title={needle ? "没有符合搜索的模板" : loosely ? "没有未分类的模板" : "这个分类还没有模板"} hint={needle ? "换一个搜索词：搜的是全部分类里模板的名字、简介和项目名" : loosely ? "新存的预设模板和新装的接入层带来的模板会先出现在这里" : "在节点图里点右键添加节点，自己接一张"} />
             )}
           </div>
           </>
@@ -437,12 +458,12 @@ function Card({ t, catalog, manage, onMenu, onOpen }: {
   t: TemplateInfo; catalog: NonNullable<ReturnType<typeof useCatalog>>; manage: boolean;
   onMenu: (t: TemplateInfo, at: { x: number; y: number }) => void; onOpen: (g: GraphJSON) => void;
 }) {
-  // 名称为「交付物 · 项目名」（模板文件自身的完整字符串，templates/*.json），卡片上将两部分对调：
-  // 主标题为第三方扩展包名称（ViPE、COLMAP、MonST3R 等），副标题为交付物名称。
+  // The name is 「deliverable · project」 (the template file's own full string, templates/*.json); the card swaps the two:
+  // the main title is the third-party extension's name (ViPE, COLMAP, MonST3R …), the subtitle the deliverable.
   const cut = t.name.indexOf(" · ");
   const [what, built] = cut < 0 ? [t.name, ""] : [t.name.slice(cut + 3), ` · ${t.name.slice(0, cut)}`];
-  // the graph says which template it came from, so a job submitted from it counts towards this card
-  const open = () => onOpen({ ...t.graph, meta: { ...t.graph.meta, template: t.id } });
+  // the graph opens as it is: it never records which template it came from (saved again, it is an ordinary graph)
+  const open = () => onOpen(t.graph);
   return (
     <article
       className={`tpl-card${t.enabled === false ? " dim" : ""}${manage ? " managed" : ""}`}
@@ -475,13 +496,19 @@ function Card({ t, catalog, manage, onMenu, onOpen }: {
         )}
       </h5>
       <p className="tpl-intro">{t.intro}</p>
+      {/* 默认的选择下许可更严、换一种选择有更宽的路线时（服务器给的 best_licence_word / best_commercial）：一小行说出来 */}
+      {t.best_licence_word && t.best_licence_word !== t.licence_word && (
+        <p className="tpl-route" data-tip={routeTip(t)}>
+          默认路线 {t.licence_word || "—"}；{t.best_commercial ? "有可商用路线" : `有「${t.best_licence_word}」路线`}
+        </p>
+      )}
       <div className="tpl-foot">
         {t.licence_word && (
           <span className={`chip${t.commercial ? " ok" : " nc"}`} data-tip={licenceTip(catalog, t)}>
             {t.licence_word}
           </span>
         )}
-        {/* 年份位于该行最右侧 */}
+        {/* the year sits at the far right of the row */}
         {t.year != null && <span className="chip year-tag at-end" data-tip="论文 / 发布年份">{t.year}</span>}
       </div>
     </article>

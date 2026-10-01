@@ -7,23 +7,119 @@
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "face_anim",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "curves_format",
-   "label": "曲线格式",
-   "target": "out_c.format"
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
   },
   {
-   "name": "unit",
-   "label": "单位",
-   "target": "out_h.unit"
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "name": "max_faces",
+   "label": "最多几张脸",
+   "target": "mp.max_faces"
+  },
+  {
+   "name": "mode",
+   "label": "方式",
+   "target": "mp.mode"
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "threshold",
+     "label": "检测阈值",
+     "target": "mp.threshold"
+    },
+    {
+     "name": "min_tracking_confidence",
+     "label": "跟住门槛",
+     "target": "mp.min_tracking_confidence",
+     "hide_when": "mode != \"video\""
+    },
+    {
+     "name": "min_presence_confidence",
+     "label": "存在阈值",
+     "target": "mp.min_presence_confidence",
+     "hide_when": "mode != \"video\""
+    }
+   ]
+  },
+  {
+   "name": "cook_face",
+   "label": "解算面部",
+   "target": "mp.cook"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "usd_name",
+     "label": "文件名（面具 / 角色 USD）",
+     "target": "out_h.name"
+    },
+    {
+     "name": "curves_name",
+     "label": "文件名（表情曲线）",
+     "target": "out_c.name"
+    },
+    {
+     "name": "unit",
+     "label": "单位",
+     "target": "out_h.unit"
+    },
+    {
+     "name": "fps",
+     "label": "帧率",
+     "target": "fps.value"
+    },
+    {
+     "name": "curves_format",
+     "label": "曲线格式",
+     "target": "out_c.format"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -33,11 +129,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 140
+    "y": 406
    }
   },
   {
@@ -52,8 +150,8 @@
     "min_presence_confidence": 0.5
    },
    "ui": {
-    "x": 320,
-    "y": 140,
+    "x": 400,
+    "y": 348,
     "on_node": [
      "max_faces",
      "mode"
@@ -65,34 +163,43 @@
    "type": "core.output_curves",
    "label": "曲线输出设置",
    "params": {
+    "name": "curves",
     "format": "csv",
-    "name": "curves"
+    "fps": 24.0
    },
    "ui": {
-    "x": 660,
-    "y": 180,
+    "x": 800,
+    "y": 354,
     "on_node": [
      "name",
      "format"
     ]
-   }
+   },
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "out_h",
    "type": "core.output_usd",
    "label": "USD 输出设置",
    "params": {
+    "name": "head",
+    "format": "usd",
     "unit": "cm",
-    "name": "head"
+    "fps": 24.0
    },
    "ui": {
-    "x": 660,
-    "y": 0,
+    "x": 840,
+    "y": 736,
     "on_node": [
      "name",
      "unit"
     ]
-   }
+   },
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "deliver",
@@ -100,9 +207,25 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 980,
-    "y": 100
+    "x": 1200,
+    "y": 382
    }
+  },
+  {
+   "id": "fps",
+   "type": "core.value_float",
+   "label": "帧率",
+   "params": {
+    "value": 24.0,
+    "unit": ""
+   },
+   "ui": {
+    "x": 440,
+    "y": 0
+   },
+   "promoted": [
+    "value"
+   ]
   }
  ],
  "edges": [
@@ -128,7 +251,27 @@
   },
   {
    "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "out_h",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
     "out_c",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "out_h",
     "files"
    ],
    "to": [
@@ -138,7 +281,7 @@
   },
   {
    "from": [
-    "out_h",
+    "out_c",
     "files"
    ],
    "to": [

@@ -28,7 +28,7 @@ export function Roles({ list, value, onPick }: { list: UsersView["roles"]; value
   );
 }
 
-/** Any of a few options, each a box to tick (an account's tags; a setting of kind multi, admin/Settings.tsx). */
+/** 几个选项任选其一或多个，每项一个勾选框（账号的标签；多选类设置，admin/Settings.tsx）。 */
 export function Checks({ options, value, onChange }: { options: { id: string; label: string; tip: string }[]; value: string[]; onChange: (v: string[]) => void }) {
   return (
     <span className="usr-tags">

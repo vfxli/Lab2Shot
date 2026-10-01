@@ -22,6 +22,7 @@ from typing import ClassVar
 
 import numpy as np
 
+from ..kit.ports import rgb_port
 from ...data.packet import Packet
 from ..applies import Cost
 from ..base import Port
@@ -50,7 +51,7 @@ class Segmentation(WorkerNode):
 
     mask_label: ClassVar[str] = "遮罩"
     mask_half: ClassVar[bool] = False
-    inputs = (Port("image", "image.3", "RGB"),)
+    inputs = (rgb_port(),)
     outputs = ()  # 每个成员在 __init_subclass__ 里按 mask_label 建；口名、类型、objects 的标签是家族给的
     cost = Cost(gpu=True)
     missing_frames = MissingFrames.SKIP

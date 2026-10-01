@@ -19,15 +19,19 @@ from .flow import (
 )
 from .depth_camera import DepthCamera, LensWholeShotParams, PerFrameDepthCamera, WholeShotDepthCamera, WholeShotParams
 from .humans import WorldHumans, WorldHumansParams
-from .lens_calibration import LensCalibration, focal_px_to_mm
-from .rig_motion import CleanupParams, DetectCleanupParams, FreeMotionParams, MotionGenParams, RigMotion
-from ..kit.rig import JointMap, ModelJoint, RigModel, body_joints, humanoid_joints, mapping_param, part_labels, skeleton_param
+from .lens_calibration import LensCalibration
+from .rig_motion import CleanupParams, DetectCleanupParams, FreeMotionParams, MotionGenParams, RigMotion, motion_fps_param
+from ..kit.rig import ModelJoint, RigModel, body_joints, humanoid_joints, mapping_param, part_labels, skeleton_param
+from ..kit.rig_map import PartMap
 from .light import LightProbe, LightProbeParams
 from ..kit.maps import (LINEAR, MOTION, NEAREST, NORMALIZE, RESAMPLING, basecolor_map, camera_normals, depth_maps, family_points, fit, native_points_of,
                    frame_maps, points_params)
 from .matte import GuidedMatte, MatteNode, Matting, foreground_entry, matte
 from ..kit.ports import (
     basecolor_port,
+    normal_port,
+    rgb_port,
+    values_port,
     conf_threshold_param,
     flow_resolution_param,
     follow_camera_param,
@@ -48,15 +52,15 @@ from .tracks import Keypoints2D, PersonKeypoints, PointTracker, TrackParams, key
 from .tracks3d import PointTracker3D, PointTracks3DParams
 
 __all__ = [
-    "CleanupParams", "Confidence", "DetectCleanupParams", "GuidedMatte", "MatteNode", "LensCalibration", "RigMotion", "Keypoints2D", "Matting", "PersonKeypoints", "Job", "MotionGenParams", "FreeMotionParams", "JointMap", "LensWholeShotParams", "LightProbe", "AutoRig", "AutoRigParams",
+    "CleanupParams", "Confidence", "DetectCleanupParams", "GuidedMatte", "MatteNode", "LensCalibration", "RigMotion", "motion_fps_param", "Keypoints2D", "Matting", "PersonKeypoints", "Job", "MotionGenParams", "FreeMotionParams", "LensWholeShotParams", "LightProbe", "AutoRig", "AutoRigParams",
     "LightProbeParams", "MissingFrames", "ModelJoint", "DepthCamera", "PerFrameDepthCamera", "OpticalFlow", "OpticalFlowParams", "PointTracker",
     "Segmentation", "PointTracker3D", "PointTracks3DParams", "RawOutput", "WholeShotDepthCamera", "WholeShotParams", "RigModel", "TrackParams", "WorkerNode",
     "WorldHumans", "WorldHumansParams",
-    "basecolor_map", "basecolor_port", "body_joints", "camera_normals", "camera_port", "clamped_flow_side", "conf_threshold_param", "correspondence", "Meshes", "one_mesh", "top_influences",
+    "basecolor_map", "basecolor_port", "normal_port", "rgb_port", "values_port", "body_joints", "camera_normals", "camera_port", "clamped_flow_side", "conf_threshold_param", "correspondence", "Meshes", "one_mesh", "top_influences",
     "depth_maps", "family_points", "fit", "native_points_of", "foreground_entry", "points_params",
     "LINEAR", "NEAREST", "NORMALIZE", "MOTION", "RESAMPLING",
-    "flow_resolution_param", "focal_px_to_mm", "follow_camera_param", "frame_maps", "humanoid_joints", "lens_note", "lens_stmaps", "loops_param",
-    "mapping_param", "matte", "skeleton_param", "Measured", "max_frames_param", "measured_param", "part_labels", "pass_camera", "people_port", "plate_lens",
+    "flow_resolution_param", "follow_camera_param", "frame_maps", "humanoid_joints", "lens_note", "lens_stmaps", "loops_param",
+    "PartMap", "mapping_param", "matte", "skeleton_param", "Measured", "max_frames_param", "measured_param", "part_labels", "pass_camera", "people_port", "plate_lens",
     "plate_mask_port", "point_size_param", "precision_level_param", "resolution_param", "solved_camera",
     "keypoints2d", "track_queries", "tracks", "unit_cm_param",
 ]

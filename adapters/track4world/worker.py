@@ -21,7 +21,7 @@ solves them itself (demo.py output[0]['camera_poses']) and takes no camera in.
 Output: the 3D point-track contract (lab2shot_worker.point_tracks); the 2D tracks are the model's own 2D tracks; and,
 per frame, raw/frame_<n>.npz with the rest of upstream's same return (demo.py:519-520): world_points [h,w,3] (metres,
 that world: world_points = c2w @ points, nets/model.py:193) and mask [h,w] (where it has usable geometry), plus the
-rgb [h,w,3] uint8 the points are coloured with.
+rgb [h,w,3] uint8 the points are coloured with, and valid: that mask back in the plate's proportions (float32).
 """
 
 from __future__ import annotations
@@ -108,10 +108,21 @@ def run_clip(model, frames: np.ndarray, device) -> dict:
     geo, motion = out
     h, w = frames.shape[1:3]
     vis = motion["visconf_maps_e"][0].float()
-    k = geo["intrinsics"][0, 0].float().cpu().numpy()
+    ks = geo["intrinsics"][0].float().cpu().numpy()  # [T, 3, 3], normalised (principal point 0.5, 0.5)
+    k = ks[0]
+    xyz = motion["flow_3d"][0].float().cpu().numpy()
+    # Upstream unprojects the tracked 2D positions as x / w (nets/model.py:2399-2405, flow2d_c: pixel centres at
+    # integers), while its own points and intrinsics put pixel x at (x + 0.5) / w (utils3d image_uv, depth_to_points):
+    # the 3D tracks sit half a model pixel up-left of the 2D tracks and of the dense points (measured: 3D tracks
+    # projected through the delivered camera land 0.5 x (plate / model) pixels short on both axes, dense points on the
+    # pixel centres). Moved to where upstream's own convention puts them: (x + 0.5) / w at the same depth, i.e. in
+    # camera space + z * 0.5 / (fx_n * w) sideways and + z * 0.5 / (fy_n * h) down (fx_n, fy_n normalised focals)
+    kt = ks[np.minimum(np.arange(len(xyz)), len(ks) - 1)]
+    xyz[..., 0] += xyz[..., 2] * (0.5 / (kt[:, 0, 0] * w))[:, None, None]
+    xyz[..., 1] += xyz[..., 2] * (0.5 / (kt[:, 1, 1] * h))[:, None, None]
     return {
         "flow2d": motion["flow_2d"][0].float().permute(0, 2, 3, 1).cpu().numpy(),
-        "xyz": motion["flow_3d"][0].float().cpu().numpy(),
+        "xyz": xyz,
         "vis": (vis[:, 0] * vis[:, 1]).cpu().numpy(),
         "points": geo["points"][0].float().cpu().numpy(),
         "mask": geo["mask"][0].cpu().numpy(),
@@ -136,6 +147,30 @@ def sample(maps: np.ndarray, xy: np.ndarray) -> np.ndarray:
 def to_world(c2w: np.ndarray, cam: np.ndarray) -> np.ndarray:
     """Camera-space points [..., 3] of one camera -> its world."""
     return cam @ c2w[:3, :3].T + c2w[:3, 3]
+
+
+def to_camera(c2w: np.ndarray, pts: np.ndarray) -> np.ndarray:
+    """World points [..., 3] -> that camera's space (to_world undone; c2w's rotation has no scale)."""
+    return (pts - c2w[:3, 3]) @ c2w[:3, :3]
+
+
+def crossfade(c2w: np.ndarray, before: np.ndarray, cam: np.ndarray, t: float) -> np.ndarray:
+    """World points [N, 3]: `before` (world) -> `cam` (camera c2w's space) at t (0..1), mixed in that camera so their
+    projection moves linearly with t as the 2D tracks do (depth and x/z, y/z each linear; a straight line in 3D would
+    project unevenly when the depths differ). A point not finite on either side (upstream marks lost points inf) is
+    mixed in the world as it is, so it stays inf."""
+    after = to_world(c2w, cam)
+    out = (1 - t) * before + t * after
+    ok = np.isfinite(before).all(-1) & np.isfinite(after).all(-1)
+    a, b = to_camera(c2w, before[ok]), cam[ok]
+    z = (1 - t) * a[:, 2] + t * b[:, 2]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        xy = ((1 - t) * a[:, :2] / a[:, 2:] + t * b[:, :2] / b[:, 2:]) * z[:, None]
+    good = np.isfinite(xy).all(-1)
+    mixed = out[ok]
+    mixed[good] = to_world(c2w, np.c_[xy[good], z[good]])
+    out[ok] = mixed
+    return out
 
 
 def similarity_to(world: dict, clip: dict, idx: list[int]) -> tuple[float, np.ndarray, np.ndarray]:
@@ -196,13 +231,25 @@ def chain(model, video: np.ndarray, order: list[int], seeds: np.ndarray, world: 
         shared = prev_end - start  # frames the previous clip tracked too
         for j, g in enumerate(idx):
             p2 = sample(clip["flow2d"][j], pos)
-            p3 = s * (to_world(clip["c2w"][j], sample(clip["xyz"][j], pos)) @ R.T) + t
+            # the 3D tracks go into the world through the camera delivered for frame g (world[g]), so that they
+            # project through it onto the 2D tracks. On this clip's own frames that camera is this clip's, taken into
+            # the result's world: the same as s * R @ (this clip's world) + t. On the frames the previous clip had
+            # (the overlap) it is that clip's camera: this clip's points are placed in it where this clip saw them
+            # (its camera-space points, with its focal instead of that camera's). Taken through this clip's own camera
+            # there instead, where the fitted (s, R, t) is off by a little, the cross-faded 3D tracks stopped landing on
+            # the 2D tracks (measured 640x480 at 640: |error| 95% 11 px on the overlap frames, 0.16 px elsewhere)
+            cam = sample(clip["xyz"][j], pos) * s
+            if clip["focal"] != world[g]["focal"]:
+                cam[:, :2] *= clip["focal"] / world[g]["focal"]
             sure = sample(clip["vis"][j][..., None], pos)[:, 0] * alive
             v = sure > VISIBLE
             if j < shared:
                 a = (j + 1) / (shared + 1)
-                p2, p3, v = (1 - a) * xy[g] + a * p2, (1 - a) * xyz[g] + a * p3, vis[g] if a < 0.5 else v
+                p2, v = (1 - a) * xy[g] + a * p2, vis[g] if a < 0.5 else v
+                p3 = crossfade(world[g]["c2w"], xyz[g], cam, a)
                 sure = (1 - a) * score[g] + a * sure
+            else:
+                p3 = to_world(world[g]["c2w"], cam)
             xy[g], xyz[g], vis[g], score[g] = p2, p3, v, sure
         tick(len(idx) - max(0, shared))
         if k + 1 < len(plan):  # handed over on the next clip's first frame: where this clip put them there
@@ -231,6 +278,10 @@ def main(job_path: str) -> None:
     # multiples of 64, so its padding is always 0 and this case does not occur there.
     _scale = params["resolution"] / max(width, height)
     w, h = max(64, (int(width * _scale) // 64) * 64), max(64, (int(height * _scale) // 64) * 64)
+    # Flooring each side on its own squeezes the picture (640x480 at 640 is fed as 640x448, 1920x1080 as 640x320):
+    # the plate's proportions at the model's scale, before that flooring, are what the per-frame maps go back to
+    # (the core then brings them to the plate's size, and refuses any other proportions: E-FAMILY-ASPECT)
+    plate_w, plate_h = round(width * _scale), round(height * _scale)
     # A short side that is too small after resizing makes the model fail, so it is rejected here first.
     # The correlation pyramid has 5 levels (`repo/track4world/nets/model.py:602` corr_levels=5), each halving the
     # 1/8-resolution feature map (`nets/blocks.py:150`, `F.interpolate(fmap2, scale_factor=0.5)`).
@@ -300,21 +351,32 @@ def main(job_path: str) -> None:
     confidence = np.clip(np.stack([score[g][keep] for g in range(n)], 1), 0.0, 1.0).astype(np.float32)
     confidence[:, ref] = 1.0  # where each point was placed
     c2w = np.stack([world[g]["c2w"] for g in range(n)])
-    focal = np.array([world[g]["focal"] for g in range(n)]) * sx
+    # the model's pixels are square (its intrinsics: fx_n * w == fy_n * h); flooring both sides to 64 separately
+    # stretched the plate by sx across and sy down, so the plate's focal is focal * sx across and focal * sy down
+    # (and the principal point, the model's centre, is the plate's centre on each axis). Equal when nothing was
+    # squeezed; the core camera keeps both (kit/cameras.py solved_camera fy_px)
+    focal = np.array([world[g]["focal"] for g in range(n)])
 
     queries = pt.Queries(tracks[:, ref].copy(), np.full(len(seeds), ref, np.int64), np.arange(len(seeds)) < len(clicked))
     pt.save_tracks3d(job.raw_dir, points, tracks, seen, confidence, queries, numbers)
     K = np.zeros((n, 3, 3))
-    K[:, 0, 0] = K[:, 1, 1] = focal
+    K[:, 0, 0], K[:, 1, 1] = focal * sx, focal * sy
     K[:, 0, 2], K[:, 1, 2], K[:, 2, 2] = width / 2, height / 2, 1.0
     save_cameras(job.raw_dir, numbers, K, c2w, width, height)
     # the rest of the same upstream return (demo.py:519-520): dense per-frame world points and the validity mask,
-    # delivered unchanged (world_points = c2w @ points, nets/model.py:193). rgb is the point colour: the frame fed to the model
+    # delivered unchanged (world_points = c2w @ points, nets/model.py:193). rgb is the point colour: the frame fed to the model.
+    # These three stay on the model's grid (the point cloud is sampled there; it gives world positions only). valid is
+    # the same mask as a picture of the plate: unsqueezed to the plate's proportions (plate_w x plate_h above),
+    # bilinear as the core resizes masks (kit/maps.py LINEAR); already in proportion, it is the mask itself
     run.stage("写出稠密点和有效遮罩")
     for g, _ in run.each(range(n), "写出稠密点"):
         world_pts = to_world(c2w[g], np.asarray(world[g]["points"], np.float64))
+        mask = np.asarray(world[g]["mask"], bool)
+        valid = mask.astype(np.float32)
+        if (plate_w, plate_h) != (w, h):
+            valid = cv2.resize(valid, (plate_w, plate_h), interpolation=cv2.INTER_LINEAR)
         save_npz(job.raw_dir / f"frame_{numbers[g]}.npz", compression=1,
-                 world_points=world_pts.astype(np.float32), mask=np.asarray(world[g]["mask"], bool), rgb=video[g])
+                 world_points=world_pts.astype(np.float32), mask=mask, rgb=video[g], valid=valid)
     run.finish(
         numbers,
         kind="point_tracks_3d",

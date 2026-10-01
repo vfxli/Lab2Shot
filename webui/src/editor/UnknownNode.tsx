@@ -2,8 +2,8 @@ import { memo } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import "./unknown.css";
 
-/** A node of a type this server does not have for this account (an extension not installed, one the account may not
- * use, one removed): drawn as a plain 「未知节点」 box with its wires, saying nothing about what it is. It keeps its data
+/** The one drawing of a node of a type this server does not have for this account (an extension not installed, one
+ * the account may not use, one removed): drawn as a plain 「未知节点」 box with its wires, saying nothing about what it is. It keeps its data
  * as the file had it (state/cookInputs.ts `kept`), is written back when the graph is saved, and is never sent to the server; it
  * can't be moved, changed, connected or cooked. Like every node on the canvas it shows no hover tips ([data-no-tips]). */
 

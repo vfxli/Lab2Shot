@@ -7,7 +7,7 @@ installed too: the worker takes the skeleton (bone offsets) and a standing refer
 
 from __future__ import annotations
 
-from lab2shot.sdk import NONCOMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight
+from lab2shot.sdk import RESEARCH, EnvSpec, Extension, GitSource, LicenseInfo, Weight
 
 TST_URL = "https://github.com/victorqin/motion_inbetweening.git"
 TST_COMMIT = "fa9b6dc5f0791fd28bfccb6783e6bfd26d578515"  # 2023-06-07 (license added)
@@ -23,11 +23,12 @@ class TwoStageTransformer(Extension):
     homepage = "https://github.com/victorqin/motion_inbetweening"
     source = GitSource(url=TST_URL, commit=TST_COMMIT)
     license = LicenseInfo(
-        tag=NONCOMMERCIAL,
-        name="MIT（代码）+ LaFAN1 CC BY-NC-ND 4.0（权重和数据）",
+        tag=RESEARCH,  # its weights are research only: stricter than 非商用 (nodes/tags.py)
+        uses=("LaFAN1",),
+        name="MIT（代码）+ LaFAN1 CC BY-NC-ND 4.0（权重和数据）+ 权重仅限研究",
         url="https://github.com/victorqin/motion_inbetweening/blob/master/LICENSE.txt",
         summary=(
-            "非商用。代码是 MIT，但官方预训练权重是用 Ubisoft 的 LaFAN1 动捕数据训练的，LaFAN1 是 CC BY-NC-ND 4.0（署名、非商用、"
+            "仅限研究。代码是 MIT，但官方预训练权重是用 Ubisoft 的 LaFAN1 动捕数据训练的，LaFAN1 是 CC BY-NC-ND 4.0（署名、非商用、"
             "禁止演绎），所以权重和补出来的动作只能用于研究和评估。安装时同时下载 LaFAN1 数据集（worker 从中读取骨骼和参考站姿）。"
             "要商用得用有授权的动捕数据重新训练"
         ),

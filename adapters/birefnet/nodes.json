@@ -2,5 +2,9 @@
  "birefnet.matte": {
   "label": "BiRefNet 抠像",
   "description": "逐帧抠出画面主体（人、物体、动物），输出 0–1 的 alpha。不用点选，模型自己判断主体；每帧单独计算。要发丝级软边接「MatAnyone 2 精细抠像」或「VideoMaMa 精细抠像」精修，要按提示词挑物体用「SAM 3 视频分割」。"
+ },
+ "birefnet.foreground": {
+  "label": "BiRefNet 边缘解混合",
+  "description": "图 + Alpha → 把边缘半透明带里混进来的背景色（含绿幕溢色）反解掉，输出去污染的前景图（预乘 alpha 的 RGBA），写成 EXR 在 Nuke 里直接当前景合成。另出一路「未修正前景」（原图 × alpha），两路相减就是修正量，合成师可以在 Nuke 里按比例叠回自己的 plate。只处理 alpha 0–1 的边缘带，实心区域原样直通——主体上的绿反光要用别的去溢色方法。配任何抠像节点的 Alpha 都能用，不挑来源。在 CPU 上算，不占显卡。"
  }
 }

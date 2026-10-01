@@ -22,12 +22,13 @@ export const isList = (type: string): boolean => type.endsWith(LIST);
 /** The type of one item (`image[]` -> `image`); a non-list type maps to itself. */
 export const elementOf = (type: string): string => (isList(type) ? type.slice(0, -LIST.length) : type);
 
-/** 端口声明的类型对应到目录中的数据类型。端口类型可以是联合类型（`scene.skeleton|scene.character`：
- * 骨骼动作系列的「动画」端口，类型取决于所接的数据），而目录中只有单一类型，因此取第一个类型。
- * 联合中的各类型在视图中属于同一类（均为三维元素）。
+/** The catalogue's data type for a port's declared type. A port type may be a union (`scene.skeleton|scene.character`:
+ * the 「动画」 port of the skeleton-motion family, whose type depends on what is wired to it), while the catalogue has
+ * single types only, so the first one is taken. The members of a union belong to the same class in the view (all are
+ * 3D elements).
  *
- * 所有按端口类型查询目录的位置都必须经过此函数：直接以 `types[portType]` 查询无法命中联合类型，
- * 节点结果会被视图判定为既非画面也非三维元素。 */
+ * Every lookup of the catalogue by port type goes through this function: `types[portType]` misses a union, and the view
+ * would then judge the node's result to be neither a picture nor a 3D element. */
 export const typeOf = (types: Record<string, DataType>, portType: string): DataType | undefined =>
   types[elementOf(portType).split("|")[0]];
 

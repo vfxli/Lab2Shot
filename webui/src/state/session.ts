@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { create } from "zustand";
+import { same as sameJson, type Json } from "../model/graphPatch";
 import { api, type Account, type AuthState } from "../api";
 import { NOTHING } from "../api/applies";
 import { changedAccount, LOGGED_IN, sawAccount, SIGNED_OUT } from "../platform/http";
@@ -19,7 +20,7 @@ interface SessionState {
 }
 
 const same = (a: AuthState | null, b: AuthState) =>
-  !!a && JSON.stringify(a.applies) === JSON.stringify(b.applies) && a.passphrase === b.passphrase &&
+  !!a && sameJson(a.applies as unknown as Json, b.applies as unknown as Json) && a.passphrase === b.passphrase &&
   a.user?.id === b.user?.id && a.user?.name === b.user?.name && a.user?.department === b.user?.department && a.expires === b.expires;
 
 export const useSession = create<SessionState>((set, get) => ({

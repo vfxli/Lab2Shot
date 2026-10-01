@@ -108,3 +108,18 @@ export function useRefSize(ref: { current: Element | null }): Size {
   useEffect(() => setEl(ref.current), [ref]);
   return useElementSize(el);
 }
+
+/** The screen's device pixel ratio (it changes when the window moves to a screen of another DPR, or the page is
+ * zoomed): a change re-renders, and canvases rebuild their buffers at the new ratio. */
+export function useDevicePixelRatio(): number {
+  const [dpr, setDpr] = useState(() => (typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1));
+  useEffect(() => {
+    // matchMedia can only ask "is it exactly this ratio": after a change, listen again at the new ratio
+    const q = window.matchMedia?.(`(resolution: ${dpr}dppx)`);
+    if (!q) return;
+    const changed = () => setDpr(window.devicePixelRatio || 1);
+    q.addEventListener("change", changed);
+    return () => q.removeEventListener("change", changed);
+  }, [dpr]);
+  return dpr;
+}

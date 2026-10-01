@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type SettingsPageEntry } from "../api";
 import { BrandMark } from "../ui/icons";
 import { useServer } from "../state/server";
-import { adminApi } from "../api/admin";
+import { adminApi, type SettingsView } from "../api/admin";
 import { useSession, useSignedIn } from "../state/session";
 import { shown, visible } from "../api/applies";
 import { Admin, type AdminContext } from "./common";
@@ -23,6 +23,7 @@ const TITLE = "Lab2Shot 管理";
 
 const noOverview = async () => null; // Logins without server.status do not read the overview.
 const noQueue = async () => null; // Logins without queue.manage do not read the whole queue.
+const noSettings = async () => null; // no open section shows settings
 const QUEUE_WATCHED = 1500; // the 队列 section or the restart dialog is open: what runs now, as it changes
 const QUEUE_BADGE = 15_000; // any other section: only the count on the side list
 
@@ -52,6 +53,11 @@ export default function AdminPage() {
   const queueError = queueFailed ? reasonOf(queueFailed) : null;
   const { data: overview, reload: refreshOverview } = usePoll(shown(state?.applies, "server.status") ? adminApi.overview : noOverview, 5000, { onError: (e) => setProblem(reasonOf(e)) });
   const { info } = useServer();
+  // the settings, one copy for the page: the settings pages edit them, 常驻模型 shows its policy from them
+  const wantsSettings = section === "resident" || section.startsWith("settings-");
+  const { data: settingsRead } = usePoll(wantsSettings ? adminApi.settings : noSettings, null, { key: wantsSettings, onError: (e) => setProblem(reasonOf(e)) });
+  const [settings, settingsSaved] = useState<SettingsView | null>(null);
+  useEffect(() => void (settingsRead && settingsSaved(settingsRead)), [settingsRead]);
 
   useEffect(() => {
     document.title = TITLE;
@@ -74,9 +80,11 @@ export default function AdminPage() {
       refreshQueue: () => setQueueVersion((v) => v + 1),
       overview,
       refreshOverview,
+      settings,
+      settingsSaved,
       askRestart: () => setAsking(true),
     }),
-    [go, queue, overview, refreshOverview],
+    [go, queue, overview, refreshOverview, settings],
   );
 
   const current = sections.find((s) => s.id === section) ?? sections[0];

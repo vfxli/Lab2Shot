@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (DEFAULT_FPS, Official, SCENE_FILE, Cost, Invalid, Job, Licence, Measured, MissingFrames, Msg, NodeParams, P,
+from lab2shot.sdk import (motion_fps_param, Official, SCENE_FILE, Cost, Invalid, Job, Measured, MissingFrames, Msg, NodeParams, P,
                           Port, RawOutput,
                           WorkerNode, create_stage, measured_param, rig_of_model,
                           save_stage, scene_packet, write_rig)
 
-MODEL_FPS = 20.0  # HumanML3D：发布权重的生成帧率（worker.py 重采样到镜头帧率）
-MAX_MODEL_FRAMES = 196  # cfg.DATASET.SAMPLER.MAX_LEN
-MIN_MODEL_FRAMES = 40  # cfg.DATASET.SAMPLER.MIN_LEN：短于此长度的动作不在训练范围内
+# worker.py uses the same
+from .model_spec import MAX_MODEL_FRAMES, MIN_MODEL_FRAMES, MODEL_FPS, model_frames, shot_frames
 # 视角：草图是经 Rx(俯角)·Ry(偏角) 旋转的正交相机所见的人体（上游 utils.py rotate_pose）。训练时俯角在 0–30°、
 # 偏角在 -45–45° 之间随机采样（dataset.py 469-473），因此仅提供以下三档，均在训练范围内
 VIEWS = {"front": (15.0, 0.0), "side30": (20.0, 30.0), "side45": (20.0, 45.0)}
@@ -52,6 +51,7 @@ class Sketch2AnimMotion(WorkerNode):
     蒙皮角色使用同一转换，Maya 中的重定向可以识别）。"""
 
     id = "sketch2anim.motion"
+    version = 2  # 2：按「帧率」重采样（1 版固定按 24；默认 24 时结果不变）
     # 引用官方 demo_kp_traj_2d.py 传给模型的 batch 及其输出：
     # 输入关键姿势（pose / pose_2d）、轨迹（hint / hint_2d）和一句文字（text），输出 joints_pred。
     official = Official(
@@ -68,7 +68,7 @@ class Sketch2AnimMotion(WorkerNode):
              "画火柴人的是「手画简笔画」`core.draw_figure`（「手画简笔画」的「图像」口是**可选**的底图），"
              "底图可以来自「拆网格图」`core.split_grid`（棋盘格图）或「读取序列」。"
              "帧范围由这个节点自己的两个参数说了算（起始帧号 / 结束帧号，"
-             "和骨骼动作家族 `FreeMotionParams` 同一套说法）。**没有「帧率」**：帧率只在输出设置节点上出现。",
+             "和骨骼动作家族 `FreeMotionParams` 同一套说法）；「帧率」与 Kimodo 的同名同义（motion_fps_param）：动作按它的帧密度生成。",
     )
     # 单次最长 196 个模型帧（20 帧/秒下为 9.8 秒）
     runtime = "sketch2anim"
@@ -81,16 +81,15 @@ class Sketch2AnimMotion(WorkerNode):
     on_node = ("prompt", "sketch_view")
     missing_frames = MissingFrames.FAIL
     # cost 的 vram_gb 与耗时在 RTX 4090 上测得
-    licence = Licence(note="Sketch2Anim 的代码是 MIT，但官方权重用 HumanML3D 训练，HumanML3D 的动作来自 AMASS，"
-                           "AMASS 只许学术研究和非商业用途：生成出来的动作只能用于研究和评估。")
     cost = Cost(gpu=True, vram_gb=1.6, whole="一整段一次生成，不是逐帧的活：4 秒的动作去噪 0.5 秒，头一次还要读模型 6 秒")
 
     class Params(NodeParams):
         # 帧范围：本节点不读取画面，长度由这两个参数决定，含义与骨骼动作家族的 FreeMotionParams 相同。
-        # 不提供「帧率」参数（帧率仅在输出设置节点上出现）：模型帧率为 20 帧/秒（HumanML3D，
-        # worker.py MODEL_FPS = 20.0），重采样后的帧数由起止帧号决定
+        # 「帧率」：模型按 20 帧/秒生成（HumanML3D，worker.py MODEL_FPS），按它重采样到起止帧号之间的每一帧；
+        # 与交付的帧率不一致时动作会变快或变慢，所以模板用一个「帧率」数值节点同时接这里和输出设置
         start_frame: int = P(1001, label="起始帧号", group="时间", worker=False)
         end_frame: int = P(1120, label="结束帧号", group="时间", worker=False)
+        fps: float = motion_fps_param()
         prompt: str = P("a person walks forward.", label="提示词", group="草图", lines=4)
         sketch_view: Literal["front", "side30", "side45"] = P(
             "side30", label="草图视角", group="草图",
@@ -109,18 +108,19 @@ class Sketch2AnimMotion(WorkerNode):
         import numpy as np
 
         # 动作长度等于节点设置的帧范围（上游不读取画面，长度由参数决定）
-        fps = DEFAULT_FPS  # 模型帧率为 20 帧/秒，按此默认帧率重采样；节点不提供帧率参数
+        fps = float(ctx.params["fps"])  # 模型的 20 帧/秒按它重采样（worker.py resample）
         first, last = int(ctx.params["start_frame"]), int(ctx.params["end_frame"])
         if last < first:
             raise Invalid(Msg("E-SKETCH2ANIM-BADRANGE", start=first, end=last))
         shot = list(range(first, last + 1))
         frames = len(shot)
-        length = max(int(round(frames / fps * MODEL_FPS)), 1)
+        length = model_frames(frames, fps)
+        least, most = shot_frames(fps)  # 提示里的帧数和判断用同一个换算（model_spec）
         if length > MAX_MODEL_FRAMES:
-            raise Invalid(Msg("E-SKETCH2ANIM-TOOLONG", frames=frames, most=int(MAX_MODEL_FRAMES / MODEL_FPS * fps),
-                              fps=fps, seconds=round(MAX_MODEL_FRAMES / MODEL_FPS, 1)))
+            raise Invalid(Msg("E-SKETCH2ANIM-TOOLONG", frames=frames, most=most, fps=fps,
+                              seconds=round(MAX_MODEL_FRAMES / MODEL_FPS, 1)))
         if length < MIN_MODEL_FRAMES:  # 短于训练中的最短动作：仍然计算，但给出警告
-            ctx.say("W-SKETCH2ANIM-SHORT", frames=frames, least=int(MIN_MODEL_FRAMES / MODEL_FPS * fps), fps=fps)
+            ctx.say("W-SKETCH2ANIM-SHORT", frames=frames, least=least, fps=fps)
         # 从接入的草图读取（由「手画简笔画」`core.draw_figure` 绘制）：
         # tracks2d 中每个关节一条轨迹，仅绘制过的帧 `visible` 为真
         drawn = figures_in(ctx.input("sketch"))

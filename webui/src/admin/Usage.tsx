@@ -4,7 +4,6 @@ import { shown } from "../api/applies";
 import { api, type UsageCounts, type UsageStats } from "../api";
 import { Section } from "./common";
 import { GroupView } from "./UsageGroups";
-import { TemplateView } from "./UsageTemplates";
 import { durationText, fullTimeText, hoursText } from "../platform/format";
 import { Button, Chip, Segmented } from "../ui/Button";
 import { useConfirm } from "../ui/Confirm";
@@ -16,7 +15,7 @@ export type { BarRow } from "./UsageCharts";
 
 /** 使用统计 on /admin: how much each third-party project, and each of its nodes, was used in a time range (so the
  * administrator can see which projects earn their place), and by which department and which account (按环节, 按人,
- * UsageGroups.tsx), and which template card the jobs were opened from (按模板, UsageTemplates.tsx). A run computed;
+ * UsageGroups.tsx). A run computed;
  * a reuse was answered without computing (a cached result, or a worker's raw results from before). In 按项目 the tiles
  * and charts count third-party projects; the core's nodes come last in the table. */
 
@@ -25,12 +24,11 @@ export const RUNS = "#0a84ff";
 export const REUSES = "#199e70";
 export const HOURS = "#d95926";
 
-type View = "projects" | "departments" | "people" | "templates";
+type View = "projects" | "departments" | "people";
 const VIEWS: [View, string, string][] = [
   ["projects", "按项目", "每个三方项目和它的每个节点用了多少"],
   ["departments", "按环节", "每个环节用了多少，点开看它的人和他们用的项目"],
   ["people", "按人", "每个账号用了多少，点开看他用的项目"],
-  ["templates", "按模板", "每张模板卡片提交了几次任务、成功失败各几次、几个人用过"],
 ];
 
 type Preset = "7" | "30" | "90" | "all" | "custom";
@@ -203,10 +201,6 @@ export function UsageSection() {
       {error && <div className="notice">{error}</div>}
       {data === null ? (
         <p className="help-muted">读取中…</p>
-      ) : view === "templates" ? (
-        <div className={`u-body${loading ? " u-loading" : ""}`}>
-          <TemplateView data={data} />
-        </div>
       ) : view !== "projects" ? (
         <div className={`u-body${loading ? " u-loading" : ""}`}>
           <GroupView data={data} by={view} />

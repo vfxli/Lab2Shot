@@ -1,4 +1,4 @@
-import type { Catalog, CookCase, HandleDef, NodePorts, NodeStatus, NodeTypeDef, PortDef, ResolvedCost, StatusReply, WireStatus } from "../api";
+import type { Catalog, CookCase, HandleDef, NodePorts, NodeStatus, NodeTypeDef, ParamDef, PortDef, ResolvedCost, StatusReply, WireStatus } from "../api";
 import type { LooseWire } from "../state/viewer";
 
 /** What the editor knows of the graph's rules: nothing here works a rule out.
@@ -28,6 +28,14 @@ export interface GraphView {
 
 const ACCEPTS = new WeakMap<Catalog, Map<string, Set<string>>>();
 
+/** Does an input declared `portType` take what output `out` carries? The server's rule (engine/graph.py Graph.takes), the one
+ * every way of wiring asks (dragging a wire: editor/graphPointer.ts canWire; dropping it: graph/edit.ts connect; moving a
+ * bundle: graph/rewire.ts): its type fits, or it is one of several ways (「切换」: `ways`) and every way fits (「动作重定向」's
+ * 动作 takes 骨架动画 or 蒙皮角色, so a switch between the two, whose common kind is 场景, goes straight in). */
+export function takes(catalog: Catalog | null | undefined, portType: string, out: { type: string; ways?: string[] }): boolean {
+  return portAccepts(catalog, portType, out.type) || (!!out.ways?.length && out.ways.every((w) => portAccepts(catalog, portType, w)));
+}
+
 /** Does a port declared as `portType` take data of `dataType`? (catalogue `accepts`, nodes/registry.py type_tables) */
 export function portAccepts(catalog: Catalog | null | undefined, portType: string, dataType: string): boolean {
   if (!catalog) return false;
@@ -49,21 +57,27 @@ function unitFits(catalog: Catalog | null | undefined, have: string, want: strin
   return !!a && a.kind === catalog?.units[want]?.kind;
 }
 
-/** Parameter -> the values (as String) that switch the node type to non-commercial parts (catalogue `option_traits`). */
-export function noncommercialChoices(def: NodeTypeDef): Record<string, string[]> {
-  const kept = NC_CACHE.get(def);
+/** Parameter -> String(value) -> the licence class that value switches the node to (catalogue `option_traits`:
+ * lab2shot/nodes/tags.py noncommercial / research), for the values that switch it at all. */
+export function licensedChoices(def: NodeTypeDef): Record<string, Record<string, string>> {
+  const kept = LICENSED.get(def);
   if (kept) return kept;
-  const made: Record<string, string[]> = {};
+  const made: Record<string, Record<string, string>> = {};
   for (const [name, rows] of Object.entries(def.option_traits)) {
-    const values = Object.entries(rows).filter(([, r]) => r.noncommercial).map(([v]) => v);
-    if (values.length) made[name] = values;
+    const values = Object.fromEntries(Object.entries(rows).filter(([, r]) => r.licence).map(([v, r]) => [v, r.licence]));
+    if (Object.keys(values).length) made[name] = values;
   }
-  NC_CACHE.set(def, made);
+  LICENSED.set(def, made);
   return made;
 }
-const NC_CACHE = new WeakMap<NodeTypeDef, Record<string, string[]>>();
-const NO_VALUES: string[] = [];
-export const noncommercialValues = (def: NodeTypeDef | undefined, name: string): string[] => (def ? noncommercialChoices(def)[name] ?? NO_VALUES : NO_VALUES);
+const LICENSED = new WeakMap<NodeTypeDef, Record<string, Record<string, string>>>();
+const NO_VALUES: Record<string, string> = {};
+export const licensedValues = (def: NodeTypeDef | undefined, name: string): Record<string, string> =>
+  (def ? licensedChoices(def)[name] ?? NO_VALUES : NO_VALUES);
+
+/** An option's name as the node type declares it (`option_labels`), else the value itself: the one place the name is
+ * read, for a pull-down (ui/controls.tsx optionView adds the licence word and why it is off) and a message alike. */
+export const optionName = (p: Pick<ParamDef, "option_labels">, o: unknown): string => p.option_labels?.[String(o)] ?? String(o);
 
 // ------------------------------------------------------------------ a node's ports, cost, licence, handles
 
@@ -98,6 +112,14 @@ export function tableRows(def: NodeTypeDef | undefined, params: Record<string, u
   return ((params?.[def.ports_from] as { name: string; label: string }[] | undefined) ?? []).filter((r) => r && typeof r.name === "string");
 }
 
+/** Whether one more row fits in a node's input table: a node that names its rows itself (`ports_from_names`,
+ * 「切换」's a…j) has as many as it has names; any other takes as many as wanted. False for a node without one. */
+export function rowsLeft(def: NodeTypeDef | undefined, params: Record<string, unknown> | undefined): boolean {
+  if (!def || def.ports_from_side !== "inputs" || !def.ports_from) return false;
+  const names = def.ports_from_names;
+  return !names || tableRows(def, params).length < names.length;
+}
+
 /** The parameters that have an input on the node, in the order they sit there: the type's standing ones
  * (NodeDef.wired_ports, e.g. AnyCalib's six numbers into 「LensDistortion」) and then the ones this node promoted.
  * The one place that list is built: the ports drawn, the wires a graph file may name, and where a parameter's value
@@ -110,32 +132,55 @@ export function paramPortNames(def: NodeTypeDef | undefined, promoted: string[] 
 /** A node's inputs: its declared ones (as the last reply resolved them), one per row of its input table in the
  * document's row order, then the input of each parameter that has one (paramPortNames: the type's standing ones,
  * then those promoted; the catalogue's `param_ports`). The rows and the promoted list are the document's own, so a
- * row just added (a wire dropped on the node's body: graph/edit.ts addPortRow) or a parameter just promoted takes a wire before the next reply comes; a
+ * row just added (「＋」 clicked, a wire dropped on 「＋」 or on the node's body: graph/edit.ts addEmptyRow / connect) or a parameter just promoted takes a wire before the next reply comes; a
  * row the reply already has keeps the reply's port. With no parameters known (a bare view) the reply's rows stand. */
 export function inputsOf(s: GraphView, id: string): PortDef[] {
   const node = s.nodes.find((n) => n.id === id);
   const def = s.nodeDefs[node?.data.typeId ?? ""];
   const own = pendingPorts(s, id).inputs.filter((p) => !p.name.startsWith(PARAM));
-  // 参数的输入口：节点类型声明的常驻口（NodeDef.wired_ports，即 AnyCalib 的六个数值接入「LensDistortion」处），
-  // 以及该节点自身「提升到节点」的参数。服务器回复中二者都包含，但上一行已过滤掉所有 param: 口，因此在此按名称补回；
-  // 若只取 promoted，常驻口将被遗漏
+  // the parameters' inputs: the standing ones the node type declares (NodeDef.wired_ports, e.g. where AnyCalib's six
+  // numbers go into 「LensDistortion」) and the parameters this node promoted itself. The server's reply has both, but
+  // the line above filtered out every param: port, so they are added back here by name; taking only `promoted` would
+  // miss the standing ones
   const promoted = paramPortNames(def, node?.data.promoted).map((name) => def!.param_ports[name]);
   if (!def || def.ports_from_side !== "inputs" || !node?.data.params) return [...own, ...promoted];
   const declared = new Set(def.inputs.map((p) => p.name));
   const replied = new Map(own.map((p) => [p.name, p]));
+  // a row's name (the layer name) is the document's: a rename on the node shows at once, without waiting for the next reply
   const rows = tableRows(def, node.data.params).map(
-    (r): PortDef => replied.get(r.name) ?? { ...ROW_PORT, name: r.name, label: r.label, type: def.ports_from_type, type_label: def.ports_from_type_label },
+    (r): PortDef => ({ ...(replied.get(r.name) ?? { ...ROW_PORT, name: r.name, type: def.ports_from_type, type_label: def.ports_from_type_label }), label: r.label }),
   );
   return [...own.filter((p) => declared.has(p.name)), ...rows, ...promoted];
 }
 
-const ROW_PORT: PortDef = { name: "", type: "", type_label: "", label: "", optional: false, multi: false, list: false, type_from: "", inserts: "", unit: "" };
+// inputs made from a table are all optional: a row added but not wired yet is skipped by the node, said once
+// (nodes/base.py made_ports)
+const ROW_PORT: PortDef = { name: "", type: "", type_label: "", label: "", optional: true, multi: false, list: false, type_from: "", inserts: "", unit: "" };
+
+/** The port name of 「＋」: the one port that always stands at the end of the input list of a node whose inputs are
+ * made from a table (`ports_from_side === "inputs"`, e.g. 「多层 EXR 输出设置」; editor/GraphNode.tsx). It is not a row
+ * of the table, is not in `inputsOf` and never appears in a graph file's wires: a wire dropped on it makes `connect()`
+ * (graph/edit.ts) add a row first and connect to the new row's port. A click on it adds an empty row.
+ * Judged by the declaration, so every such node has it, not one particular node. A row's port name is `row1`… (the
+ * node's own names where it names its rows, 「切换」's a…j) or an older file's name, never "+". A full table
+ * (`rowsLeft` false) has no 「＋」. */
+export const ADD_ROW = "+";
+
+/** 「＋」 as a port: its type is the type of every row of the table (`ports_from_type`), so whether a wire being drawn
+ * or carried may land on it is the same rule as for an existing row (the type checks of canWire and connect apply as
+ * usual). undefined for a node that is not of this kind. */
+function addRowPort(s: GraphView, id: string): PortDef | undefined {
+  const def = s.nodeDefs[typeOf(s, id)];
+  // a table that is full (「切换」 with its ten ways) has no 「＋」: nothing lands there
+  if (!def || !rowsLeft(def, s.nodes.find((n) => n.id === id)?.data.params)) return undefined;
+  return { ...ROW_PORT, name: ADD_ROW, label: "＋", type: def.ports_from_type, type_label: def.ports_from_type_label };
+}
 
 export const outputPort = (s: GraphView, id: string, port: string | null | undefined): PortDef | undefined =>
   port == null ? undefined : outputsOf(s, id).find((p) => p.name === port);
 
 export const inputPort = (s: GraphView, id: string, port: string | null | undefined): PortDef | undefined =>
-  port == null ? undefined : inputsOf(s, id).find((p) => p.name === port);
+  port == null ? undefined : port === ADD_ROW ? addRowPort(s, id) : inputsOf(s, id).find((p) => p.name === port);
 
 export const outputType = (s: GraphView, id: string, port: string | null | undefined): string | undefined => outputPort(s, id, port)?.type;
 
@@ -173,7 +218,7 @@ export function wireState(s: GraphView, e: { source: string; sourceHandle: strin
 }
 
 /** Where a parameter driven by a wire gets its value, as the parameter shows it. */
-export function wiredFrom(s: GraphView & { results: Record<string, NodeStatus> }, id: string, name: string): { from: string; node: string; source: string; value: string } | null {
+export function wiredFrom(s: GraphView & { results: Record<string, NodeStatus> }, id: string, name: string): { from: string; node: string; source: string; value: string; fallback: boolean } | null {
   const e = s.edges.find((x) => x.target === id && x.targetHandle === PARAM + name);
   if (!e) return null;
   const src = s.nodes.find((n) => n.id === e.source);
@@ -185,6 +230,9 @@ export function wiredFrom(s: GraphView & { results: Record<string, NodeStatus> }
     node: label,
     source: def && def.runtime !== "core" && label === def.label ? def.project : label,
     value: s.results[e.source]?.values?.[e.sourceHandle ?? ""] ?? "",
+    // the output may give nothing (Port.may_be_empty, as the server says with the port): the parameter keeps its own
+    // value for that case and stays editable — the same rule apply_values keeps (engine/templates.py)
+    fallback: !!out?.may_be_empty,
   };
 }
 
@@ -242,7 +290,7 @@ const caseWords = (c: CookCase | null | undefined): { delivers: boolean; nothing
 // how every cook runs, said once (lab2shot/farm/queue.py, farm/scheduler/pools.py)
 const QUEUED = "进队列排队，每个节点轮到了就在空着的显卡或 CPU 名额上算，互不依赖的节点同时算";
 
-/** How the page says a cook: the 计算 button's tooltip, the estimate's first word. Only words: what the cook is comes
+/** How the page says a cook: the 计算 button's tooltip and its short word. Only words: what the cook is comes
  * from the server. */
 export function cookWords(delivers: boolean, nothing: boolean): { short: string; tip: string } {
   if (delivers)

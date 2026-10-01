@@ -9,12 +9,11 @@
 from __future__ import annotations
 
 from fastapi import Request
-from pydantic import BaseModel
 
 from .. import logs, terms
 from ..messages import Msg
 from . import auth
-from .routes import Access, Router
+from .routes import Access, Body, Router
 
 log = logs.get("auth")
 
@@ -31,14 +30,14 @@ def read() -> dict:
     return _public(terms.current())
 
 
-class Agree(BaseModel):
+class Agree(Body):
     version: int  # the version the page showed
 
 
 @router.post("/auth/terms", access=Access.user("同意用户协议和隐私政策（改过以后第一次用之前）"), summary="同意用户协议和隐私政策：带上页面显示的版本号；这期间文字又改了就要重新读过再同意")
 def agree(req: Agree, request: Request) -> dict:
     u = auth.me(request)
-    ip = auth.client_ip(request)
+    ip = auth.who(request)
     terms.agree(u.id, req.version, ip)
     logs.say(log, Msg("I-TERMS-AGREED", user=u.username, version=req.version, where=ip))
     return auth.state_of(auth.session(request))
@@ -56,16 +55,16 @@ def admin_read() -> dict:
     return _view(terms.current())
 
 
-class Texts(BaseModel):
+class Texts(Body):
     agreement: str
     privacy: str
 
 
 @admin.put("/terms", access=Access.admin("terms.edit"), summary="改用户协议和隐私政策：两份一起存（纯文字，每份最多 2 万字）；和现在不一样就是新的一版，所有账号下次使用前要重新同意")
 def admin_save(req: Texts, request: Request) -> dict:
-    return _view(terms.edit({"agreement": req.agreement, "privacy": req.privacy}, auth.label(request)))
+    return _view(terms.edit({"agreement": req.agreement, "privacy": req.privacy}, auth.actor(request)))
 
 
 @admin.delete("/terms", access=Access.admin("terms.edit"), summary="用户协议和隐私政策恢复成程序自带的文字：和现在不一样就是新的一版，所有账号下次使用前要重新同意")
 def admin_reset(request: Request) -> dict:
-    return _view(terms.reset(auth.label(request)))
+    return _view(terms.reset(auth.actor(request)))

@@ -80,6 +80,21 @@
   display: none; /* the welcome card carries it while the graph is empty */
 }
 
+/* 应用模式 (app mode): the same notice sits in the viewer stage's bottom left corner, leaving room on the left for the
+   3D axes */
+.view-notice {
+  position: absolute;
+  left: 12px;
+  bottom: 12px; /* equal distance from the left and bottom edges; the 3D axes move up to make room (view/render3d.tsx Axes lift) */
+  max-width: calc(100% - 24px);
+  z-index: var(--z-canvas-ui);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-3);
+  pointer-events: none;
+  user-select: none;
+}
+
 .welcome-notice {
   margin: 0;
   text-align: center;
@@ -120,6 +135,17 @@
   opacity: 0.35;
 }
 
+/* Ctrl picks up wires (editor/graphPointer.ts): the port they were picked up from gets an accent ring, the picked-up
+   wires are drawn faint (each has its own dashed line following the pointer) */
+.graph.wiring .gnode .react-flow__handle.wire-held {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.graph.wiring .react-flow__edge.held .edge-path,
+.graph.wiring .react-flow__edge.held .edge-list-core {
+  opacity: 0.25;
+}
+
 kbd {
   font-family: var(--font);
   font-size: var(--fs-2xs);
@@ -130,5 +156,6 @@ kbd {
   color: var(--text-2);
 }
 
-/* 节点各块的宽度规则**只在 08a-node.css 的 `.gnode > :not(.gnode-head)…` 那一条**，别在这里再写一份：两份规则管同一件事会互相打架，
-   把端口块钉成节点宽，输出口整列伸到节点外面。 */
+/* The width rule for a node's parts lives **only in 08a-node.css's `.gnode > :not(.gnode-head)…` rule**; do not write a
+   second copy here: two rules governing the same thing fight each other, pin the port block to the node's width and
+   push the whole output column out past the node's edge. */

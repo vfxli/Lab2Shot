@@ -1,23 +1,17 @@
-// 上传任务的文字表述：剩余时间估计、进度、状态行与节点注记，以及阻止计算的原因。
+// 上传任务的文字表述：进度、状态行与节点注记，以及阻止计算的原因（不估计剩余时间：按瞬时速度推算的时间不准）。
 
 import type { UploadTask } from "../state/uploads";
 import { msg, type Message } from "../messages/message";
-import { leftText, rateText } from "../platform/format";
+import { rateText } from "../platform/format";
 
 export const item = (t: UploadTask) => t.name;
 
 // ------------------------------------------------------------------ 文字表述
 
-export function eta(t: UploadTask): string {
-  if (!t.rate || t.rate < 1) return "";
-  const s = (t.bytes - t.sent) / t.rate;
-  return leftText(s);
-}
-
 /** 进度：序列按帧数计，单个文件按已传比例计。 */
 export const howFar = (t: UploadTask) => (t.sequence ? `${t.done}/${t.files.length} 帧` : `${Math.floor((t.sent / Math.max(t.bytes, 1)) * 100)}%`);
 
-/** 任务的单行描述，用于参数栏（如「上传中 37/124 帧 · 0.24 MB/s · 约 2 分钟」）。 */
+/** 任务的单行描述，用于参数栏（如「上传中 37/124 帧 · 0.24 MB/s」）。 */
 export function uploadLine(t: UploadTask): string {
   switch (t.state) {
     case "reading":
@@ -26,7 +20,7 @@ export function uploadLine(t: UploadTask): string {
     case "picked":
       return "素材在你机器上，还没上传 · 点「计算」时自动传上去";
     case "sending":
-      return ["上传中", howFar(t), t.rate ? rateText(t.rate) : "", eta(t)].filter(Boolean).join(" · ").replace("上传中 · ", "上传中 ");
+      return ["上传中", howFar(t), t.rate ? rateText(t.rate) : ""].filter(Boolean).join(" · ").replace("上传中 · ", "上传中 ");
     case "waiting":
       return `网络断了，恢复后自动继续 · 已传 ${howFar(t)}`;
     case "finishing":

@@ -6,6 +6,7 @@ from typing import Literal
 
 from lab2shot_worker.light_probe import ENVMAP, PREVIEW
 
+from ..kit.ports import rgb_port
 from ...data.contracts import NEW_PICTURE
 
 from ...data.packet import Packet
@@ -46,8 +47,8 @@ class LightProbe(WorkerNode):
     A method that unfolds with the lens has the lens parameters (LensParams): its Focal Length, else the camera's, at that frame
     (Job.lens; the method adds what it sends of it in prepare, DiffusionLight its fov_deg).
 
-    There is no "light" output and no light data type: a USD DomeLight wrapping the HDRI would carry no new
-    information and no renderer-neutral guarantee. The HDRI image itself is what every renderer accepts.
+    The output is the HDRI image itself, what every renderer accepts: no light object is made of it (one light cannot
+    suit every renderer; the HDRI is the deliverable).
 
     Raw contract (lab2shot_worker.light_probe): raw/envmap.exr, a lat-long HDR in the camera's frame, its centre column
     where the camera looks, top = up; raw/preview.png. Only the probe frame is sent (Job.send); the outputs span the
@@ -55,7 +56,7 @@ class LightProbe(WorkerNode):
 
     on_node = ("envmap_width",)
     # No camera input: the worker never reads one. The HDRI is in the plate camera's frame (see the raw contract).
-    inputs = (Port("image", "image.3", "RGB"),)
+    inputs = (rgb_port(),)
     # the HDRI and its display-referred PNG are pictures of their own, not the plate's geometry
     outputs = (Port("hdri", "image.3", "HDRI", shape=NEW_PICTURE),
                Port("preview", "image.3", "显示图", shape=NEW_PICTURE,

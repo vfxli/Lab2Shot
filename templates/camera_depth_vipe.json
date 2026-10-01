@@ -2,33 +2,168 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "3ed1cf8c3b75bce2e84e2b4ade392abe",
-  "name": "深度图 · ViPE",
-  "intro": "ViPE 官方自述：从无约束的原始视频估计相机内参、相机运动和接近真实尺度的稠密深度图。官方把它分成两段跑——先解位姿，再在位姿上估计深度图；这张卡就照这两段接成两个节点，交付相机和与它对齐的深度图。",
+  "name": "相机与深度 · ViPE",
+  "intro": "ViPE 官方自述：从无约束的原始视频估计相机内参、相机运动和接近真实尺度的稠密深度图。官方把它分成两段跑——先解位姿，再在位姿上估计深度图；这张卡就照这两段接成两个节点，交付相机（USD 与 Nuke 相机）和与它对齐的深度图。",
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "depth_solved",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "unit",
-   "label": "单位",
-   "target": "cam.unit"
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
   },
   {
-   "name": "model",
-   "label": "模型",
-   "target": "depth.model"
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
   },
   {
-   "name": "focal",
-   "label": "Focal Length",
-   "target": "solve.focal_mm"
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": "镜头",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "focal",
+     "label": "已知 Focal Length",
+     "target": "solve.focal_mm"
+    },
+    {
+     "name": "filmback",
+     "label": "Filmback",
+     "target": "solve.filmback_mm",
+     "disable_when": "not focal"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "相机解算",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "vipe_mode",
+     "label": "ViPE 方式",
+     "target": "solve.mode"
+    },
+    {
+     "name": "cook_camera",
+     "label": "解算相机",
+     "target": "solve.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "深度图",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "depth_model",
+     "label": "深度模型",
+     "target": "depth.model"
+    },
+    {
+     "name": "cook_depth",
+     "label": "计算深度图",
+     "target": "depth.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "exr_name",
+     "label": "文件名（深度 EXR）",
+     "target": "exr.name"
+    },
+    {
+     "name": "usd_name",
+     "label": "文件名（相机 USD）",
+     "target": "cam.name"
+    },
+    {
+     "name": "nuke_name",
+     "label": "文件名（Nuke 相机）",
+     "target": "nuke.name"
+    },
+    {
+     "name": "unit",
+     "label": "单位",
+     "target": "cam.unit"
+    },
+    {
+     "name": "fps",
+     "label": "帧率",
+     "target": "cam.fps"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "exr.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -38,11 +173,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 200
+    "y": 115
    }
   },
   {
@@ -50,11 +187,13 @@
    "type": "vipe.camera_solve",
    "label": "ViPE 相机解算",
    "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
     "mode": "pose_only"
    },
    "ui": {
-    "x": 320,
-    "y": 200,
+    "x": 400,
+    "y": 118,
     "on_node": [
      "focal_mm",
      "mode"
@@ -69,8 +208,8 @@
     "model": "default"
    },
    "ui": {
-    "x": 640,
-    "y": 40,
+    "x": 830,
+    "y": 0,
     "on_node": [
      "model"
     ]
@@ -81,34 +220,22 @@
    "type": "core.output_usd",
    "label": "USD 输出设置",
    "params": {
+    "name": "camera",
+    "format": "usd",
     "unit": "cm",
-    "name": "camera"
+    "fps": 24.0
    },
    "ui": {
-    "x": 980,
-    "y": 300,
+    "x": 1270,
+    "y": 506,
     "on_node": [
      "name",
      "unit"
     ]
-   }
-  },
-  {
-   "id": "dep",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "depth"
    },
-   "ui": {
-    "x": 980,
-    "y": 40,
-    "on_node": [
-     "name",
-     "format"
-    ]
-   }
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "deliver",
@@ -116,8 +243,8 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1320,
-    "y": 280
+    "x": 1630,
+    "y": 30
    }
   },
   {
@@ -128,11 +255,33 @@
     "name": "camera_nuke"
    },
    "ui": {
-    "x": 980,
-    "y": 480,
+    "x": 1270,
+    "y": 882,
     "on_node": [
      "name"
     ]
+   }
+  },
+  {
+   "id": "exr",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "depth",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "depth",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 1230,
+    "y": 30
    }
   }
  ],
@@ -199,12 +348,32 @@
   },
   {
    "from": [
+    "solve",
+    "camera"
+   ],
+   "to": [
+    "nuke",
+    "camera"
+   ]
+  },
+  {
+   "from": [
     "depth",
     "depth"
    ],
    "to": [
-    "dep",
-    "image"
+    "exr",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "exr",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
    ]
   },
   {
@@ -215,26 +384,6 @@
    "to": [
     "deliver",
     "files"
-   ]
-  },
-  {
-   "from": [
-    "dep",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
-   ]
-  },
-  {
-   "from": [
-    "solve",
-    "camera"
-   ],
-   "to": [
-    "nuke",
-    "camera"
    ]
   },
   {

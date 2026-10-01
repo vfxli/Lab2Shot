@@ -6,7 +6,7 @@ from __future__ import annotations
 import shutil
 from typing import Literal
 
-from lab2shot.sdk import (Official, UNIT, measured_param, MissingFrames, RawOutput, camera_normals, HighDynamicRange, Invalid, Msg, NodeDef,
+from lab2shot.sdk import (rgb_port, Official, normal_port, UNIT, measured_param, MissingFrames, Param, Job, camera_normals, HighDynamicRange, Invalid, Msg, WorkerNode,
                           NodeParams, FrameCount, P, Port, basecolor_map, basecolor_port, frame_maps, image_files, image_packet, Cost,
                           Licence, Measured, working_space)
 
@@ -18,6 +18,9 @@ DEFAULT_VRAM_GB = 19.1
 LICENSE = ("代码 Apache-2.0，模型 NVIDIA Open Model License：可以商用。对外分发模型要附许可证和 NVIDIA 声明；"
            "用到它的产品或服务要写明 “Built on NVIDIA Cosmos”。")
 
+MAX_FRAMES = (1, 9, 17, 25, 33, 41, 49, 57)  # 「每段最多帧数」的档（8k+1：tokenizer 按块编码）
+
+
 class DiffusionParams(NodeParams):
     """What both models share: the working canvas, the windows the shot is cut into, the sampler."""
 
@@ -26,12 +29,15 @@ class DiffusionParams(NodeParams):
         default=1280, group="模型",
         option_labels={"1280": "1280×704", "1024": "1024×576", "960": "960×528", "768": "768×432", "640": "640×352", "512": "512×288"},
     )
-    max_frames: Literal[1, 9, 17, 25, 33, 41, 49, 57] = measured_param(
+    max_frames: Literal[MAX_FRAMES] = measured_param(  # type: ignore[valid-type]
         "每段最多帧数", {1: Measured(below=41), 9: Measured(below=41), 17: Measured(below=41), 25: Measured(below=41), 33: Measured(below=41), 41: Measured(gb=DEFAULT_VRAM_GB), 49: Measured(below=57), 57: Measured(gb=17.8)},
         default=41, group="时序", option_labels={str(n): f"{n} 帧" for n in (1, 9, 17, 25, 33, 41, 49, 57)},
     )
+    # 重叠最多是每段帧数的一半（worker 的分段 plan_windows 要求）：每一档只在「每段最多帧数」够两倍时可选，
+    # 网页提交前就把这一档变灰、写清原因（option_applies，同 depthanything3 的做法）；计算时 _check 仍是最后一道
     overlap: Literal[0, 4, 8, 12] = measured_param(
-        "段间重叠", {0: Measured(flat=True), 4: Measured(flat=True), 8: Measured(flat=True), 12: Measured(flat=True)}, default=8, group="时序")
+        "段间重叠", {0: Measured(flat=True), 4: Measured(flat=True), 8: Measured(flat=True), 12: Measured(flat=True)}, default=8, group="时序",
+        option_applies={v: Param("max_frames").one_of(*(n for n in MAX_FRAMES if n >= 2 * v)) for v in (4, 8, 12)})
     steps: Literal[5, 10, 15] = measured_param(
         "去噪步数", {5: Measured(flat=True), 10: Measured(flat=True), 15: Measured(flat=True)},
         default=15, group="模型")
@@ -39,11 +45,12 @@ class DiffusionParams(NodeParams):
 
 
 def _check(params: dict) -> None:
+    """重叠不超过每段帧数的一半：提交前网页按 option_applies 拦下，这里是命令行和绕过网页时的最后一道。"""
     if params["overlap"] * 2 > params["max_frames"]:
         raise Invalid(Msg("E-DIFFUSIONRENDERER-OVERLAP", overlap=params["overlap"], max_frames=params["max_frames"], half=params["max_frames"] // 2))
 
 
-class Inverse(NodeDef):
+class Inverse(WorkerNode):
     id = "diffusionrenderer.inverse"
     # 上游 inference_inverse_renderer.py：--dataset_path（画面）-> --inference_passes 的五个通道
     official = Official(
@@ -60,10 +67,10 @@ class Inverse(NodeDef):
     cost = Cost(gpu=True, vram_gb=DEFAULT_VRAM_GB, seconds_per_frame=9.7, ram_gb=32)
     licence = Licence(note=LICENSE)
     # 默认每段 41 帧、段间重叠 8 帧，段内时序稳定；深度是每段各自归一化的相对值，不是米制
-    inputs = (Port("image", "image.3", "RGB"),)
+    inputs = (rgb_port(),)
     outputs = (
         basecolor_port(),  # 口名和标签在 kit/ports.py 写一次，和 OpenDelight 那个口是同一样东西
-        Port("normal", "image.3", "法线图", means=("space",)),
+        normal_port(),
         Port("depth", "image.1", "深度图", means=("scale",)),
         Port("roughness", "image.1", "粗糙度"),
         Port("metallic", "image.1", "金属度"),
@@ -73,24 +80,28 @@ class Inverse(NodeDef):
     class Params(DiffusionParams):
         pass
 
+    missing_frames = MissingFrames.SKIP
+    # the maps each output is written from (convert), and so which passes the worker runs (prepare)
+    MAPS = {
+        "basecolor": basecolor_map("basecolor"),  # the model gives it like a texture, sRGB-encoded
+        "normal": camera_normals("normal"),  # the one turn into our camera (nodes/kit/maps.py)
+        "depth": ("image.1", lambda d: (d["depth"], d["depth"] >= 0), {"scale": "affine"}),
+        "roughness": ("image.1", "roughness", {"value_range": UNIT, "half": True}),  # 0..1
+        "metallic": ("image.1", "metallic", {"value_range": UNIT, "half": True}),  # 0..1
+    }
+
     @classmethod
-    def cook(cls, ctx):
+    def prepare(cls, ctx) -> Job:
         _check(ctx.params)
-        image = ctx.input("image")
-        maps = {
-            "basecolor": basecolor_map("basecolor"),  # the model gives it like a texture, sRGB-encoded
-            "normal": camera_normals("normal"),  # the one turn into our camera (nodes/kit/maps.py)
-            "depth": ("image.1", lambda d: (d["depth"], d["depth"] >= 0), {"scale": "affine"}),
-            "roughness": ("image.1", "roughness", {"value_range": UNIT, "half": True}),  # 0..1
-            "metallic": ("image.1", "metallic", {"value_range": UNIT, "half": True}),  # 0..1
-        }
         # each channel is a run of the 7B video model (about ten seconds a frame): only the ones something is wired to
-        wanted = sorted(p for p in maps if p in ctx.wanted)
-        raw = RawOutput(ctx.run_worker(image, extra={"passes": wanted}), MissingFrames.SKIP)
-        return frame_maps(ctx, raw, image, maps, stage="写出材质通道")
+        return Job(ctx.input("image"), extra={"passes": sorted(p for p in cls.MAPS if p in ctx.wanted)})
+
+    @classmethod
+    def convert(cls, ctx, raw, job):
+        return frame_maps(ctx, raw, job.plate, cls.MAPS, stage="写出材质通道")
 
 
-class Relight(NodeDef):
+class Relight(WorkerNode):
     id = "diffusionrenderer.relight"
     # 上游 inference_forward_renderer.py：dataset_path（材质通道）+ envlight_path（HDRI）-> output（重新打光的画面）
     official = Official(
@@ -107,7 +118,7 @@ class Relight(NodeDef):
     cost = Cost(gpu=True, vram_gb=DEFAULT_VRAM_GB, seconds_per_frame=11.7, ram_gb=32)
     licence = Licence(note=LICENSE)
     # 默认每段 41 帧、段间重叠 8 帧；真实镜头上的结果仍有斑块和彩色噪点，属实验功能
-    inputs = (Port("image", "image.3", "RGB"), Port("hdri", "image.3", "HDRI", expects=(FrameCount(most=1), HighDynamicRange())))
+    inputs = (rgb_port(), rgb_port("HDRI", name="hdri", expects=(FrameCount(most=1), HighDynamicRange())))
     outputs = (Port("image", "image.3", "重新打光"),)
     runtime = RUNTIME
 
@@ -116,17 +127,21 @@ class Relight(NodeDef):
         exposure: float = P(0.0, label="曝光", unit="EV", ge=-20, le=20, group="环境光")
 
     @classmethod
-    def cook(cls, ctx):
+    def prepare(cls, ctx) -> Job:
         _check(ctx.params)
-        image, hdri = ctx.input("image"), ctx.input("hdri")
-        hdri_files = image_files(hdri)
-        raw = ctx.run_worker(image, inputs={"hdri": hdri_files[min(hdri_files)]})
+        hdri_files = image_files(ctx.input("hdri"))
+        return Job(ctx.input("image"), inputs={"hdri": hdri_files[min(hdri_files)]})
+
+    @classmethod
+    def convert(cls, ctx, raw, job):
+        image = job.plate
         ctx.stage("写出重新打光的画面")
         out = ctx.outputs["image"]
         files = {}
         for f in ctx.each(image.meta["frames"]):
             files[f] = out / f"frame.{f}.png"
-            shutil.copyfile(raw / f"frame_{f}.png", files[f])
+            # a frame the worker did not write stops the cook naming the file (E-FAMILY-NORAW), not a traceback
+            shutil.copyfile(raw.file(f"frame_{f}.png"), files[f])
         m = image.meta
         return {"image": image_packet(out, files, m["width"], m["height"], working_space())}  # PNG the model wrote: sRGB = the working space
 

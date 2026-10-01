@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { ORDER } from "./drawOrder";
 import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
@@ -69,7 +70,7 @@ export function FatLines({ segments, color, colors = null, width, opacity = 1, d
     m.depthTest = !overlay;
     m.depthWrite = !overlay;
     m.needsUpdate = true;
-    line.renderOrder = renderOrder ?? (overlay ? 3 : 0);
+    line.renderOrder = renderOrder ?? (overlay ? ORDER.lines : 0);
     invalidate();
   }, [line, painted, color, width, opacity, dashed, dash, overlay, renderOrder, invalidate]);
   return <primitive object={line} />;

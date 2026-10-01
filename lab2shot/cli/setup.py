@@ -1324,14 +1324,14 @@ STEP_LIST: tuple[Step, ...] = (
          "依次引导执行安装扩展包的三个步骤，每一步均可跳过", "安装各算法所在的扩展包，以及它们所需的模型与手动下载的文件",
          "取决于所执行的步骤", PROJECT, lambda: _wizard("扩展包安装向导", "扩展包安装", EXT_WIZARD)),
     # 一键更新
-    Step("update", "一键更新", "从远程仓库更新到最新版本：预检、备份、停止服务、拉取、同步环境、构建网页、检查、启动；任何一步失败即回退",
-         "依次执行预检（工作区是否干净、能否连上远程仓库）、记录现状（git 版本、设置文件）、备份本地改动过的受管文件、"
-         "停止服务（可选等当前任务算完）后备份数据库、git pull（只允许快进）、uv sync、npm ci 与构建网页、lab2shot check、数据库升级与完整性检查、"
-         "启动服务并确认其正常响应；任何一步失败，即回退到记录的 git 版本、恢复数据库备份、重新同步环境与构建网页，用旧版本上线",
-         "把这台服务器更新到远程仓库的最新版本，不会停在新旧混杂的状态",
-         "项目目录中的代码（git pull）、.venv/、webui/node_modules/ 与 webui/dist/；work/db（更新前备份一份）；"
-         "work/updates/<时间>/ 中的更新记录与设置文件副本；本地改动过的 menu/*.json、templates/*.json 旁的 .old",
-         "项目目录与工作目录内；更新期间服务停止几分钟；不自动重装扩展包", one_click_update),
+    Step("update", "一键更新", "先停止服务并手动 git pull --ff-only，再升级已拉取的本地代码：备份、同步环境、构建网页、检查、迁移、启动；失败回退",
+         "使用刚拉取的新版升级程序，检查工作区与停服状态，记录上次部署版本（首次升级从最近一次手动拉取记录取得）、"
+         "备份设置、本地受管文件与旧版数据库，执行 uv sync、npm ci 与构建网页、lab2shot check、数据库升级与完整性检查、"
+         "启动服务并确认其正常响应；环境同步之后失败，即恢复记录的代码、数据库和环境，用旧版本上线",
+         "完成已拉取代码的部署；git pull 由管理员在运行本步骤之前手动执行",
+         ".venv/、webui/node_modules/ 与 webui/dist/；work/db（更新前备份一份）；work/installed.json 中的部署版本；"
+         "work/updates/<时间>/ 中的更新记录、设置文件与本地受管文件副本；失败回退时恢复项目代码",
+         "项目目录与工作目录内；请先用原版本停止服务再拉取；不自动重装扩展包", one_click_update),
     # 安装与环境
     Step("env", "安装 Python 依赖", "按 uv.lock 创建服务与命令行所用的 Python 环境（uv sync）",
          "执行 uv sync，按 uv.lock 安装依赖", "提供服务与命令行的运行环境", ".venv/；包缓存位于 ~/.cache/uv", PROJECT, sync_env),
@@ -1450,7 +1450,7 @@ MENU: tuple[Group, ...] = (
     Group("1", "首次安装向导", f"从全新检出到可以登录使用：依赖、网页、网络、启动、管理员密码、显卡（{len(WIZARD)} 步）", single="wizard"),
     Group("2", "扩展包编译与下载设置向导", f"编译目标架构、编译器与 CUDA、下载镜像与重试、Alembic 与 FBX 模块（{len(BUILD_SETUP)} 步）", single="build-wizard"),
     Group("3", "扩展包安装向导", f"Hugging Face 登录、手动下载的文件、安装扩展包（{len(EXT_WIZARD)} 步）", single="ext-wizard"),
-    Group("4", "一键更新", "从远程仓库更新到最新版本；任何一步失败即回退到更新前的版本并重新上线", single="update"),
+    Group("4", "一键更新", "停服并手动拉取后，升级本地代码；失败回退并重新上线", single="update"),
     Group("5", "安装与环境", "Python 依赖、网页界面、运行条件、扩展包编译与下载设置、Hugging Face、手动下载的文件、扩展包",
           ("env", "web", "check", "build-setup", "hf-login", "downloads", "extensions")),
     Group("6", "服务", "网络与端口，启动、重启、停止服务，选择计算用显卡", ("server", "start", "start-fg", "restart", "stop", "gpus")),

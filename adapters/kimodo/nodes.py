@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, measured_param, RigMotion, FreeMotionParams, MissingFrames, RawOutput,
-                          JointMap, P, Param, Wired, Because, body_joints, humanoid_joints, mapping_param, Cost, OptionTrait,
+from .extension import MODELS as WEIGHTS, OPTION_LICENCES
+from lab2shot.sdk import (Official, licence_traits, measured_param, RigMotion, FreeMotionParams, MissingFrames, RawOutput,
+                          PartMap, P, Param, Wired, Because, body_joints, humanoid_joints, mapping_param, Cost, OptionTrait,
                           Measured, ModelJoint)
 
 # SOMA 的 30 关节骨架（kimodo.skeleton.SOMASkeleton30），去掉末端点（下巴、眼睛、指尖跟随父关节），即骨骼绑定驱动的关节。
@@ -24,18 +25,19 @@ SMPLX22 = tuple(ModelJoint(j.name, j.part, j.aim if any(k.name == j.aim for k in
 # 空表表示没有可配对的关节
 G1: tuple[ModelJoint, ...] = ()
 
-# 每个权重对应一副骨架：关节对照表随所选模型切换（mapping_param(follows=("model",)) + joints_of）
+# 每个权重对应一副骨架：「对应关系」里模型那一侧随所选模型切换（mapping_param(follows=("model",)) + joints_of）
 SKELETONS = {"soma": SOMA, "smplx": SMPLX22, "g1": G1}
-MODELS = {"rp": ("Kimodo-SOMA-RP-v1.1", "soma"), "seed": ("Kimodo-SOMA-SEED-v1.1", "soma"),
-          "rp_v1": ("Kimodo-SOMA-RP-v1", "soma"), "seed_v1": ("Kimodo-SOMA-SEED-v1", "soma"),
-          "smplx": ("Kimodo-SMPLX-RP-v1", "smplx"),
-          "g1": ("Kimodo-G1-RP-v1", "g1"), "g1_seed": ("Kimodo-G1-SEED-v1", "g1")}
+# 「模型」选项 -> (权重文件夹名, 骨架)：由 extension.py 的 MODELS（唯一的一张表）派生
+MODELS = {k: (repo.split("/")[-1], skeleton) for k, (repo, _rev, _note, skeleton, _label) in WEIGHTS.items()}
+# 许可受限的选项（SMPL-X：仅限研究）由编辑器按 option_traits 统一注明（webui ui/controls.tsx optionText），名字里不另写
+MODEL_LABELS = {k: label for k, (*_, label) in WEIGHTS.items()}
 ON_RIG_MODELS = tuple(k for k, (_, s) in MODELS.items() if SKELETONS[s])  # 可由人物骨骼驱动的模型
 TEXT_RAM_GB = 20  # 文字编码时以 bfloat16 读入内存的 Llama 3 8B（16 GB）及 worker 其余部分
 
 
 class KimodoMotion(RigMotion):
     id = "kimodo.motion"
+    version = 2  # 2：帧号按节点的「帧率」换算成时间（默认 24 与 1 版的固定时基相同）
     does = "generate"  # 生成动作（骨骼动作家族的两类任务之一，lab2shot/nodes/families/rig_motion.py）
     # 引用官方 post_process_motion 的签名及其声明的返回值：输入约束（关键帧姿势，即接入的动画），
     # 输出 local_rot_mats / root_positions / posed_joints / global_rot_mats。
@@ -61,20 +63,18 @@ class KimodoMotion(RigMotion):
     on_node = ("prompt", "keys", "exact")
     joints = SOMA
     # 显存在 RTX 4090 上测得
-    traits = (OptionTrait(Param("prompt").set(), ram_gb=TEXT_RAM_GB),)  # 仅在有提示词时才将文字编码器读入内存
+    # 有提示词时才把文字编码器读入内存；SMPL-X 权重只限研究（extension.py OPTION_LICENCES）
+    traits = (OptionTrait(Param("prompt").set(), ram_gb=TEXT_RAM_GB), *licence_traits(OPTION_LICENCES))
     cost = Cost(gpu=True, vram_gb=1.2, whole="一段 10 秒的镜头几秒钟就出，不是逐帧的活")
 
     @classmethod
     def joints_of(cls, params: dict) -> tuple[ModelJoint, ...]:
-        """「模型」一换，关节对照表就换一套：SOMA 30 关节、SMPL-X 22 关节，G1 机器人没有（不能被骨骼带动）。"""
+        """「模型」一换，「对应关系」里模型那一侧就换一套：SOMA 30 关节、SMPL-X 22 关节，G1 机器人没有（不能被骨骼带动）。"""
         return SKELETONS[MODELS.get(params.get("model") or "rp", MODELS["rp"])[1]]
 
     class Params(FreeMotionParams):
-        mapping: list[JointMap] = mapping_param(SOMA, follows=("model",))
-        model: Literal["rp", "seed", "rp_v1", "seed_v1", "smplx", "g1", "g1_seed"] = P(
-            "rp", label="模型", group="模型",
-            option_labels={"rp": "Rigplay", "seed": "SEED", "rp_v1": "Rigplay 旧版", "seed_v1": "SEED 旧版",
-                           "smplx": "SMPL-X", "g1": "G1 机器人", "g1_seed": "G1 机器人 SEED"})
+        mapping: list[PartMap] | None = mapping_param(follows=("model",))
+        model: Literal[tuple(MODELS)] = P("rp", label="模型", group="模型", option_labels=MODEL_LABELS)  # type: ignore[valid-type]
         prompt: str = P("", label="提示词", group="模型", placeholder="不写：只按关键帧补", lines=4)
         steps: Literal[25, 50, 100] = measured_param(
             "去噪步数", {25: Measured(flat=True), 50: Measured(flat=True), 100: Measured(flat=True)}, default=100,
@@ -89,7 +89,8 @@ class KimodoMotion(RigMotion):
     def prepare(cls, ctx):
         """主任务负责生成；有提示词时另读取提示词的嵌入，该嵌入由一个仅以提示词为键的独立任务计算
         （同一提示词只编码一次，与所用镜头无关）。"""
-        job = super().prepare(ctx).with_(extra={"task": "generate"})
+        # checkpoint：所选权重的文件夹名（worker 不另存一张权重表）
+        job = super().prepare(ctx).with_(extra={"task": "generate", "checkpoint": MODELS[ctx.params["model"]][0]})
         prompt = ctx.params["prompt"].strip()
         if not prompt:
             return job

@@ -22,7 +22,7 @@ export function UserQuota({ user, applies }: { user: number; applies: Availabili
 
   const may = shown(applies, "account.quota");
   useEffect(() => {
-    if (!may) return; // not this login's to see: not asked (the refusal would count against the session)
+    if (!may) return; // 这个登录无权查看时不去请求（被拒绝会计入该会话）
     let live = true;
     setView(null);
     adminApi.userQuota(user).then(

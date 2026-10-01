@@ -1,6 +1,6 @@
 import { drawFigure, FIGURE_COUNT } from "./figure2d";
 import type { BoxesData, TracksData } from "../api";
-import { ERROR_COLOR } from "../platform/palette";
+import { ACCENT_COLOR, ERROR_COLOR } from "../platform/palette";
 import { type Bg } from "../model/view2d";
 import { CHECKER_DARK, CHECKER_LIGHT } from "../platform/palette";
 import { personTint } from "../model/viewOptions";
@@ -28,33 +28,41 @@ const FONT = "600 11px -apple-system, 'PingFang SC', 'Microsoft YaHei UI', sans-
 const PEOPLE = "#BF5AF2";
 
 /** A colour at the quiet overlay's strength (a handle's input, not lit). */
-const dimmed = (hex: string): string =>
-  `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},0.55)`;
+const dimmed = (hex: string, alpha = 0.55): string =>
+  `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${alpha})`;
 
+/** People boxes. `chosen` (the input of a 「选人」 whose picks point at these people, or the node's own result): who is
+ * picked, drawn so the difference is plain at a glance — the picked in the accent colour (ACCENT_COLOR = --accent), a
+ * solid thicker line and a solid label with white text; the others thin and half transparent, their label on a dark
+ * translucent chip so the number stays readable. Hover lifts one to full strength (not the accent: it is not picked yet).
+ * Without `chosen` (a node's own boxes) every box is drawn the same, in the people colour or per person. */
 export function drawBoxes(f: Frame, data: BoxesData, hover: number | null, chosen: Set<number> | null, byPerson = false) {
   const { ctx, at, frame } = f;
   for (const t of data.people) {
     const b = t.boxes?.[String(frame)];
     if (!b) continue;
-    const lit = hover === t.id || chosen?.has(t.id);
-    // "按人物" mode: each person gets its own colour from the overlay palette; the lit state (hovered, picked) still applies
+    // "按人物" mode: each person gets its own colour from the overlay palette
     const base = byPerson ? personTint(t.id) : PEOPLE;
-    const color = f.quiet && !lit ? dimmed(base) : lit ? "#D68CFF" : base;
+    const picked = !!chosen?.has(t.id);
+    const hovered = hover === t.id;
+    const other = !!chosen && !picked && !hovered; // picking, and this one is not picked: pushed back
+    const color = picked ? ACCENT_COLOR : hovered ? base : other || f.quiet ? dimmed(base, other ? 0.4 : 0.55) : base;
     const [x1, y1, x2, y2] = [at.x + b[0] * at.s, at.y + b[1] * at.s, at.x + b[2] * at.s, at.y + b[3] * at.s];
-    ctx.lineWidth = lit ? f.line * 1.6 : f.line;
+    ctx.lineWidth = picked ? f.line * 2.4 : hovered ? f.line * 1.6 : other ? Math.max(1, f.line * 0.75) : f.line;
     ctx.strokeStyle = color;
     ctx.beginPath();
     ctx.roundRect(x1, y1, x2 - x1, y2 - y1, 6);
     ctx.stroke();
-    const label = `${t.id} 号`;
+    const label = picked ? `${t.id} 号 ✓` : `${t.id} 号`;
     ctx.font = FONT;
     const w = ctx.measureText(label).width + 14;
     const ly = Math.max(at.y + 2, y1 - 22);
-    ctx.fillStyle = color;
+    // the label: solid colour with white text; a pushed-back one on a dark chip, its text still near white
+    ctx.fillStyle = other ? "rgba(0, 0, 0, 0.6)" : color;
     ctx.beginPath();
     ctx.roundRect(x1, ly, w, 18, 9);
     ctx.fill();
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = other ? "rgba(255, 255, 255, 0.82)" : "#fff";
     ctx.fillText(label, x1 + 7, ly + 13);
   }
 }

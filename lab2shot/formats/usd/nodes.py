@@ -16,6 +16,8 @@ from . import SUFFIXES
 
 class ImportUsd(ImportNode):
     id = "core.import_usd"
+    # 原名从 customData 读取；外来文件里像转写的名字（Bone_u0041）保持原样。
+    version = 5  # 相机片门偏移按 USD 定义读取，取反得到镜头中心偏移。
     suffixes = SUFFIXES
 
     class Params(NodeParams):  # USD can hold every kind found in a DCC file
@@ -26,7 +28,8 @@ class ImportUsd(ImportNode):
         curves: list[str] = selection_param("curves")
         skeletons: list[str] = selection_param("skeletons")
         characters: list[str] = selection_param("characters")
-    outputs = selection_ports(Params)
+    # timeCodesPerSecond: import reads one time code as one frame (reader.py _frames)
+    outputs = selection_ports(Params, fps="USD 记的帧率（timeCodesPerSecond）")
 
     @classmethod
     def listing(cls, params):
@@ -55,6 +58,8 @@ class ImportUsd(ImportNode):
 
 class UsdOutput(OutputSettings):
     id = "core.output_usd"
+    # 相机片门偏移取镜头中心偏移的相反数；换单位时同步换算相机、基本体和实例的位置尺寸。
+    version = 3
     category = "out_scene"
     inputs = (Port("scene", "scene|scene[]", "场景", multi=True,
                    expects=(DistinctNames(),)),)
@@ -66,6 +71,7 @@ class UsdOutput(OutputSettings):
         "curves": Writes.full(),
         "skeleton": Writes.full(),
         "character": Writes.full(),
+        "light": Writes.full(),  # 穹顶灯的 HDRI 随文件拷进 <名字>_textures/（data/scene.py _localize_textures）
     }
 
     class Params(NodeParams):

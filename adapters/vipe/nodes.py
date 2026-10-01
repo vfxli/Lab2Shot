@@ -26,36 +26,30 @@ from __future__ import annotations
 from typing import Literal
 
 
-from lab2shot.sdk import (CameraSamples, Official, Invalid, MissingFrames, Msg, NodeParams, usd_points_to_opencv_m,
-                          RawOutput, LensParams, NodeDef, open_scene, P, scene_points,
+from lab2shot.sdk import (rgb_port, CameraSamples, Official, Invalid, MissingFrames, Msg, NodeParams, usd_points_to_opencv_m,
+                          Job, LensParams, WorkerNode, open_scene, P, scene_points,
                           Port, SameShot, camera_port, depth_maps, empty_packet, frame_maps, opencv_points_to_usd,
-                          opencv_poses_to_usd, plate_lens, points_packet, send_camera, solved_camera, Cost, Licence)
+                          opencv_poses_to_usd, plate_lens, points_packet, send_camera, solved_camera, Cost, Licence, NONCOMMERCIAL)
 
 
 SKY = "sky"  # 上游 VideoFrame.SKY_PROMPT（streams/base.py:64）：唯一不属于运动物体的实例
 PATTERN = "instance_{}.npz"  # worker 写出实例编号的文件名，每帧一个文件
 
 
-class ViPE(NodeDef):
-    """两个 ViPE 节点的共用声明：相同的运行环境、针孔相机前提和许可证说明。
+class ViPE(WorkerNode):
+    """两个 ViPE 节点的共用声明：相同的运行环境、针孔相机前提、许可证说明和缺帧处理（跳过）。
+
+    Focal Length 只有一个来源：「ViPE 相机解算」没有相机输入口，Focal Length 作为参数经 `extra` 传递；
+    「ViPE 深度图」必须接入相机，Focal Length 取自该相机，由 `send_camera` 写入 camera_in.npz，
+    节点上不提供「已知 Focal Length」参数。上游 post 阶段读取的也是 `slam_output.intrinsics`，
+    不单独接受 Focal Length（输入与上游解算器保持一致）。
 
     该类没有 `id`，不是节点（也不在 `NODES` 中），仅用于集中共用声明。
     """
 
     lens = "pinhole"  # 将画面视为无畸变镜头，要求输入已去畸变的画面
     runtime = "vipe"
-    licence = Licence(note="含 AGPL 代码（Segment-and-Track-Anything，运动物体遮罩，每个模式都会用到）")
-
-    @classmethod
-    def run(cls, ctx, image, inputs=None, extra=None, record=None):
-        """两个节点以相同方式运行 worker：传入当前镜头。
-
-        Focal Length 只有一个来源：「ViPE 相机解算」没有相机输入口，Focal Length 作为参数经 `extra` 传递；
-        「ViPE 深度图」必须接入相机，Focal Length 取自该相机，由 `send_camera` 写入 camera_in.npz，
-        节点上不提供「已知 Focal Length」参数。上游 post 阶段读取的也是 `slam_output.intrinsics`，
-        不单独接受 Focal Length（输入与上游解算器保持一致）。"""
-        return RawOutput(ctx.run_worker(image, extra=extra, inputs=inputs, record=record),
-                         MissingFrames.SKIP)
+    missing_frames = MissingFrames.SKIP
 
 
 class CameraSolve(ViPE):
@@ -69,12 +63,12 @@ class CameraSolve(ViPE):
     # 「点云」为整段共用一套：slam_map 中的所有点位于同一 SLAM 世界坐标系（slam/interface.py:27-38 dense_disp_xyz，
     # 按关键帧分块仅记录来源帧），而非每帧位于各自相机空间。
     # ViPE 自行检测运动的人和物体（GroundingDINO + SAM），因此不提供遮罩 / 人物框输入
-    inputs = (Port("image", "image.3", "RGB"),)
+    inputs = (rgb_port(),)
     outputs = (Port("camera", "scene.camera", "相机"),
                Port("points", "scene.points", "点云",
                     help="ViPE 解算时 SLAM 建出来的三维点，每个关键帧一份（上游的 slam_map）。"
                          "接「ViPE 深度图」算深度图要的就是它"),
-               Port("objects", "image.1", "物体分割"))
+               Port("objects", "image.1", "物体分割", may_be_empty=True))
     # 输入输出与上游解算器一一对应：
     # 本节点运行官方的 pose_only / pose_only_long 两个预设，它们只运行到 SLAM 为止
     # （vipe/pipeline/pose_only.py:34-41：跳过 depth 的 post 处理和写盘），
@@ -107,10 +101,14 @@ class CameraSolve(ViPE):
         )
 
     @classmethod
-    def cook(cls, ctx):
+    def prepare(cls, ctx) -> Job:
         image = ctx.input("image")
         used = plate_lens(ctx, image)
-        raw = cls.run(ctx, image, extra={"focal_px": used.focal_px}, record=used.record())
+        return Job(image, extra={"focal_px": used.focal_px}, lens=used)
+
+    @classmethod
+    def convert(cls, ctx, raw, job):
+        image, used = job.plate, job.lens
         out = {"camera": _camera(ctx, raw, image, used)}
         if "points" in ctx.wanted:
             out["points"] = _slam_points(ctx, raw, image)
@@ -126,7 +124,7 @@ class Depth(ViPE):
     # 深度位于接入相机的世界坐标系中；运动物体取自接入的「物体分割」（不接入也可计算）
     main = "depth"
     inputs = (
-        Port("image", "image.3", "RGB"),
+        rgb_port(),
         camera_port(optional=False),
         Port("points", "scene.points", "点云", expects=(SameShot("image"),),
              help="「ViPE 相机解算」交出来的那份点云（上游的 slam_map）：深度那一步靠它定尺度"),
@@ -157,7 +155,8 @@ class Depth(ViPE):
     )
     # vram_gb：在 RTX 4090 上以默认「标准」深度模型测得
     cost = Cost(gpu=True, vram_gb=9.7, seconds_per_frame=0.15)
-    licence = Licence(note="ViPE 代码是 Apache-2.0，但这两个模式用到的深度模型只能研究用：标准模式用 UniDepth-V2（CC-BY-NC-4.0）和含 "
+    # both of its modes run non-commercial depth models; 「ViPE 相机解算」's modes use none (the extension is 可商用)
+    licence = Licence(NONCOMMERCIAL, note="非商用：ViPE 代码是 Apache-2.0，但这两个模式用到的深度模型非商用：标准模式用 UniDepth-V2（CC-BY-NC-4.0）和含 "
         "Depth-Anything-V2-Base（CC-BY-NC-4.0）的 Prior-Depth-Anything；DA3 模式用 Depth Anything 3 Giant（CC-BY-NC-4.0）。")
 
     class Params(NodeParams):
@@ -170,7 +169,7 @@ class Depth(ViPE):
         )
 
     @classmethod
-    def cook(cls, ctx):
+    def prepare(cls, ctx) -> Job:
         image = ctx.input("image")
         camera, points, objects = ctx.input("camera"), ctx.input("points"), ctx.input("objects")
         frames = image.meta["frames"]
@@ -184,8 +183,11 @@ class Depth(ViPE):
             extra = {"sky": _sky_ids(objects)}
         else:  # 可选输入未接入或为空：主结果照常计算，并在节点上说明未使用的输入
             ctx.say("N-VIPE-NOOBJECTS")
-        raw = cls.run(ctx, image, inputs=sent, extra=extra)
-        return {"depth": depth_maps(ctx, raw, image, "depth_{}.npz")}
+        return Job(image, inputs=sent, extra=extra or {})
+
+    @classmethod
+    def convert(cls, ctx, raw, job):
+        return {"depth": depth_maps(ctx, raw, job.plate, "depth_{}.npz")}
 
 
 def _slam_points(ctx, raw, image):

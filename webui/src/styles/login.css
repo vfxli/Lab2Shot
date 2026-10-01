@@ -116,7 +116,7 @@
 }
 .login-field > span {
   color: var(--text-2);
-  /* 不设 cursor: help：停留提示由 data-tip 负责，光标保持默认，全站一致 */
+  /* no cursor: help: hover tips come from data-tip and the cursor stays the default, the same across the site */
   align-self: flex-start;
 }
 

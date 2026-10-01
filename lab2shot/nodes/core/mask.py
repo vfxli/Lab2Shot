@@ -7,9 +7,11 @@ from typing import Literal
 
 import numpy as np
 
+from ..port import EITHER
 from ...errors import Invalid
 from ...messages import Msg
 from ..base import NodeDef, NodeParams, P, Port, parse_picks, parse_shapes, person_ids, typed_list
+from ..handles import say_bad_entries
 from ..expects import KnownPeople, Metric, SameShot
 from ..handles import Handle
 
@@ -143,7 +145,8 @@ class SegmentSelect(NodeDef):
 
         src = ctx.input("segmentation")
         chosen = cls.chosen(ctx.params["classes"], src.meta.get("classes") or [])
-        for frame, x, y in parse_picks(ctx.params["picks"]):
+        say_bad_entries(ctx, "picks")
+        for frame, x, y, _ in parse_picks(cls, "picks", ctx.params["picks"]):
             got = map_at(src, frame)
             h, w = src.meta["height"], src.meta["width"]
             if got is None or not (0 <= x < w and 0 <= y < h):
@@ -277,7 +280,7 @@ class Roto(NodeDef):
     category = "mask_make"
     # 节点上不显示参数：形状是绘制出的一组条目，不是可在节点上修改的数值或开关
     # （nodes/params.py simple_kind；「分割转遮罩」的「点选」同样只在面板中）。
-    inputs = (Port("image", "image", "图像", alpha=True),)
+    inputs = (Port("image", "image", "图像", alpha=True, data=EITHER),)
     outputs = (Port("mask", "image.1", "遮罩"),)
     # 画布属于现有手柄体系中的一种（nodes/handles.py），不另建交互：在视图中绘制，完成后写入该参数
     handles = (Handle("canvas", {"shapes": "shapes"}),)
@@ -296,7 +299,8 @@ class Roto(NodeDef):
         w, h = src.meta["width"], src.meta["height"]
         window = window_of(src)  # 输入画面带扩边时，输出遮罩覆盖同一画布（端口声明为「跟随画面」）
         ox, oy = window.offset  # 绘制坐标以画面左上角为原点，有扩边时画布原点位于其外侧
-        shapes = parse_shapes(ctx.params["shapes"])
+        say_bad_entries(ctx, "shapes")
+        shapes = parse_shapes(cls, "shapes", ctx.params["shapes"])
         mask = polygon_coverage([[(x + ox, y + oy) for x, y in shape] for shape in shapes], *window.canvas)
         if not shapes:  # 未绘制任何形状：输出空遮罩并给出提示（空结果不属于错误）
             ctx.say("N-ROTO-NOSHAPES", param="shapes")

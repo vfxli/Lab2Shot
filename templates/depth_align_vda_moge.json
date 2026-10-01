@@ -3,27 +3,190 @@
  "meta": {
   "id": "c0747e33821e116ef571f349249e04a5",
   "name": "深度图 · Video Depth Anything 定尺度",
-  "intro": "Video Depth Anything 官方自述：基于 Depth Anything V2，任意长度的视频都能算，质量、一致性和泛化能力不打折。这张卡再按 MoGe 的真实尺度深度图把它定到厘米。",
+  "intro": "Video Depth Anything 官方自述：基于 Depth Anything V2，任意长度的视频都能算，质量、一致性和泛化能力不打折。这张卡再按 MoGe 的真实尺度深度图把它定到厘米。Video Depth Anything 模型选 Base / Large 时按非商用算。",
   "author": "Lab2Shot",
   "created": "2026-09-12T12:00:00",
   "deliverable": "depth_video",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00",
+  "project": "videodepthanything"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "fit",
-   "label": "拟合",
-   "target": "align.fit"
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
   },
   {
-   "name": "focal",
-   "label": "Focal Length",
-   "target": "moge.focal_mm"
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": "镜头",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "focal",
+     "label": "已知 Focal Length",
+     "target": "moge.focal_mm"
+    },
+    {
+     "name": "filmback",
+     "label": "Filmback",
+     "target": "moge.filmback_mm",
+     "disable_when": "not focal"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "深度",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "model",
+     "label": "Video Depth Anything 模型",
+     "target": "vda.model",
+     "widget": "menu",
+     "options": [
+      {
+       "value": "metric_small",
+       "label": "真实 · Small"
+      },
+      {
+       "value": "metric_base",
+       "label": "真实 · Base"
+      },
+      {
+       "value": "metric_large",
+       "label": "真实 · Large"
+      },
+      {
+       "value": "small",
+       "label": "相对 · Small"
+      },
+      {
+       "value": "base",
+       "label": "相对 · Base"
+      },
+      {
+       "value": "large",
+       "label": "相对 · Large"
+      }
+     ]
+    },
+    {
+     "name": "resolution",
+     "label": "处理分辨率",
+     "target": "vda.resolution"
+    },
+    {
+     "name": "fit",
+     "label": "拟合",
+     "target": "align.fit"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "fp16",
+       "label": "半精度",
+       "target": "vda.fp16"
+      },
+      {
+       "name": "moge_model",
+       "label": "MoGe 模型",
+       "target": "moge.model"
+      },
+      {
+       "name": "moge_resolution_level",
+       "label": "MoGe 精度等级",
+       "target": "moge.resolution_level"
+      },
+      {
+       "name": "depth_is",
+       "label": "待对齐的是",
+       "target": "align.depth_is"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "exr.name"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "exr.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "计算",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -33,11 +196,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 200
+    "y": 422
    }
   },
   {
@@ -50,7 +215,7 @@
     "fp16": true
    },
    "ui": {
-    "x": 320,
+    "x": 451,
     "y": 0,
     "on_node": [
      "model",
@@ -63,12 +228,16 @@
    "type": "moge.geometry",
    "label": "MoGe 深度图与法线",
    "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "point_step": 4,
+    "point_size": 0.5,
     "model": "Ruicheng/moge-3-vitl",
     "resolution_level": 9
    },
    "ui": {
-    "x": 320,
-    "y": 200,
+    "x": 400,
+    "y": 354,
     "on_node": [
      "focal_mm",
      "model"
@@ -80,30 +249,14 @@
    "type": "core.depth_align",
    "label": "深度对齐",
    "params": {
+    "depth_is": "auto",
     "fit": "shot"
    },
    "ui": {
-    "x": 720,
-    "y": 100,
+    "x": 830,
+    "y": 348,
     "on_node": [
      "fit"
-    ]
-   }
-  },
-  {
-   "id": "out",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "depth"
-   },
-   "ui": {
-    "x": 1020,
-    "y": 100,
-    "on_node": [
-     "name",
-     "format"
     ]
    }
   },
@@ -113,8 +266,30 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1340,
-    "y": 100
+    "x": 1630,
+    "y": 398
+   }
+  },
+  {
+   "id": "exr",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "depth",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "depth",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 1230,
+    "y": 398
    }
   }
  ],
@@ -142,7 +317,7 @@
   {
    "from": [
     "vda",
-    "disparity"
+    "depth"
    ],
    "to": [
     "align",
@@ -165,13 +340,13 @@
     "depth"
    ],
    "to": [
-    "out",
-    "image"
+    "exr",
+    "layer1"
    ]
   },
   {
    "from": [
-    "out",
+    "exr",
     "files"
    ],
    "to": [

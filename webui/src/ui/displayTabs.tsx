@@ -1,10 +1,12 @@
-import { OVERLAY_SWATCHES, RANGES } from "../model/viewOptions";
-import { useViewCamera } from "../state/viewer";
+import { OVERLAY_SWATCHES, INTEGERS, RANGES } from "../model/viewOptions";
+import { slotCamera, useViewCamera, VIEWER_SLOT } from "../state/viewer";
 import { Segmented, Switch } from "./Button";
 import { Swatches } from "./Swatches";
-import { choices, Num, Row, Slider, type Has, type Off, type O, type Patch } from "./displayRows";
+import { Num } from "./controls";
+import { choices, Row, Slider, type Has, type Off, type O, type Patch } from "./displayRows";
+import { msg, textOf } from "../messages/message";
 
-/** 「视图设置」面板的几页：点、线、模型、相机、场景、渲染。
+/** 「视图设置」面板的几页：点、线、模型、骨骼、相机、场景、渲染。
  * 一页一个组件，每页只排自己的行；行的样子和变灰都在 ui/displayRows.tsx。
  * 大小和线宽只有屏幕像素一种单位；曲线和其它线共用一个线宽。
  *
@@ -15,9 +17,13 @@ const SWATCHES = ["#FFD60A", "#FF9F0A", "#FF375F", "#BF5AF2", "#0A84FF", "#64D2F
 const BACKGROUNDS = ["#0c0c0e", "#1c1c20", "#2a2d34", "#3a3d45", "#5b5f68", "#8e9199"];
 
 export const POINT_KEYS: (keyof O)[] = ["pointPx", "pointColor", "pointTint"];
-export const LINE_KEYS: (keyof O)[] = ["lineWidth", "cameraColor", "boneColor", "curveColor", "curveTint", "overlayByPerson"];
-export const MESH_KEYS: (keyof O)[] = ["shading", "uvChecker", "overlayOpacity", "overlayTint"];
-export const CAMERA_KEYS: (keyof O)[] = ["near", "far"];
+export const LINE_KEYS: (keyof O)[] = ["lineWidth", "cameraColor", "curveColor", "curveTint", "overlayByPerson"];
+export const BONE_KEYS: (keyof O)[] = ["boneColor", "boneStyle", "boneWidth", "jointSize", "jointAdaptive", "jointNames", "jointNamePx"];
+export const MESH_KEYS: (keyof O)[] = ["shading", "backFaces", "uvChecker", "overlayOpacity", "overlayTint"];
+/** 消息表里的一段文字（面板上新加的几行走消息表，lab2shot/messages/web.toml）。 */
+const said = (code: string) => textOf(msg(code));
+
+export const CAMERA_KEYS: (keyof O)[] = ["near", "far", "cameraPath"];
 export const SCENE_KEYS: (keyof O)[] = ["grid", "gridSpacing", "gridSize", "axes", "axesSize", "background", "backgroundColor", "lighting", "exposure"];
 export const QUALITY_KEYS: (keyof O)[] = ["antialias"];
 
@@ -52,11 +58,8 @@ export function LinesTab({ o, set, only2d, has, off }: { o: O; set: Patch; only2
       <Row label="线宽" tip={what ? `${what}的线宽，屏幕像素；二维三维共用` : "画面上线的宽度，屏幕像素；二维三维共用"} off={off("lineWidth")}>
         <Slider value={o.lineWidth} onChange={(lineWidth) => set({ lineWidth })} min={lo} max={hi} unit="px" digits={1} disabled={!!off("lineWidth")} />
       </Row>
-      <Row label="相机颜色" tip="相机和它路径（实线）的颜色" off={off("cameraColor")}>
+      <Row label="相机颜色" tip="相机和相机路径（实线）的颜色" off={off("cameraColor")}>
         <Swatches label="相机颜色" value={o.cameraColor} colors={SWATCHES} onChange={(cameraColor) => set({ cameraColor })} disabled={off("cameraColor")} />
-      </Row>
-      <Row label="骨骼颜色" tip="骨架的颜色" off={off("boneColor")}>
-        <Swatches label="骨骼颜色" value={o.boneColor} colors={SWATCHES} onChange={(boneColor) => set({ boneColor })} disabled={off("boneColor")} />
       </Row>
       <Row label="曲线着色" tip="三维曲线（发丝、毛发导向线、运动轨迹）用自己带的颜色，还是全部一种颜色；宽度就是上面的线宽" off={off("curveColor")}>
         <Segmented label="曲线着色" stretch value={o.curveColor} options={choices("curveColor", off("curveColor"))} onChange={(curveColor) => set({ curveColor })} />
@@ -77,6 +80,9 @@ export function MeshesTab({ o, set, off }: { o: O; set: Patch; off: Off }) {
       <Row label="着色" tip="平滑：光滑的明暗；平面：每个面一个明暗，看得清面；线框：只画边；带线框：明暗上画出边" off={off("shading")}>
         <Segmented label="着色" stretch value={o.shading} options={choices("shading", off("shading"))} onChange={(shading) => set({ shading })} />
       </Row>
+      <Row label="显示背面" tip="关掉后只画朝向相机的面：透过相机看时把叠加透明度调低，就是柔和的一层叠在画面上" off={off("backFaces")}>
+        <Switch on={o.backFaces} onChange={(backFaces) => set({ backFaces })} disabled={!!off("backFaces")} />
+      </Row>
       <Row label="UV 棋盘格" tip="用棋盘格贴图看 UV：格子均匀说明 UV 展得好，蓝色角是 UV 的原点。没有 UV 的网格照常显示" off={off("uvChecker")}>
         <Switch on={o.uvChecker} onChange={(uvChecker) => set({ uvChecker })} disabled={!!off("uvChecker")} />
       </Row>
@@ -92,7 +98,7 @@ export function MeshesTab({ o, set, off }: { o: O; set: Patch; off: Off }) {
 }
 
 export function CameraTab({ o, set, off }: { o: O; set: Patch; off: Off }) {
-  const ortho = useViewCamera((s) => s.ortho);
+  const ortho = useViewCamera((s) => slotCamera(s, VIEWER_SLOT).ortho); // the toolbar's camera tab sets the viewer's
   const setOrtho = useViewCamera((s) => s.setOrtho);
   return (
     <>
@@ -105,6 +111,37 @@ export function CameraTab({ o, set, off }: { o: O; set: Patch; off: Off }) {
       </Row>
       <Row label="远裁剪" tip="比这更远的内容不画，厘米" off={off("far")}>
         <Num value={o.far} onChange={(far) => set({ far: Math.max(far, o.near * 2) })} min={RANGES.far[0]} max={RANGES.far[1]} unit="cm" digits={0} disabled={!!off("far")} />
+      </Row>
+      <Row label={said("I-VIEW-CAMERAPATH")} tip={said("I-VIEW-CAMERAPATHWHY")} off={off("cameraPath")}>
+        <Switch on={o.cameraPath} onChange={(cameraPath) => set({ cameraPath })} disabled={!!off("cameraPath")} />
+      </Row>
+    </>
+  );
+}
+
+export function BonesTab({ o, set, off }: { o: O; set: Patch; off: Off }) {
+  return (
+    <>
+      <Row label="骨骼颜色" tip="骨架的颜色：骨点比它亮一档" off={off("boneColor")}>
+        <Swatches label="骨骼颜色" value={o.boneColor} colors={SWATCHES} onChange={(boneColor) => set({ boneColor })} disabled={off("boneColor")} />
+      </Row>
+      <Row label={said("I-VIEW-BONESTYLE")} tip={said("I-VIEW-BONESTYLEWHY")} off={off("boneStyle")}>
+        <Segmented label={said("I-VIEW-BONESTYLE")} stretch value={o.boneStyle} options={choices("boneStyle", off("boneStyle"))} onChange={(boneStyle) => set({ boneStyle })} />
+      </Row>
+      <Row label={said("I-VIEW-BONEWIDTH")} tip={said("I-VIEW-BONEWIDTHWHY")} off={off("boneWidth")}>
+        <Slider value={o.boneWidth} onChange={(boneWidth) => set({ boneWidth })} min={RANGES.boneWidth[0]} max={RANGES.boneWidth[1]} unit="×" log digits={2} disabled={!!off("boneWidth")} />
+      </Row>
+      <Row label={said("I-VIEW-JOINTSIZE")} tip={said("I-VIEW-JOINTSIZEWHY")} off={off("jointSize")}>
+        <Slider value={o.jointSize} onChange={(jointSize) => set({ jointSize })} min={RANGES.jointSize[0]} max={RANGES.jointSize[1]} unit="×" log digits={2} disabled={!!off("jointSize")} />
+      </Row>
+      <Row label={said("I-VIEW-JOINTADAPTIVE")} tip={said("I-VIEW-JOINTADAPTIVEWHY")} off={off("jointAdaptive")}>
+        <Switch on={o.jointAdaptive} onChange={(jointAdaptive) => set({ jointAdaptive })} disabled={!!off("jointAdaptive")} />
+      </Row>
+      <Row label={said("I-VIEW-JOINTNAMES")} tip={said("I-VIEW-JOINTNAMESWHY")} off={off("jointNames")}>
+        <Switch on={o.jointNames} onChange={(jointNames) => set({ jointNames })} disabled={!!off("jointNames")} />
+      </Row>
+      <Row label={said("I-VIEW-JOINTNAMEPX")} tip={said("I-VIEW-JOINTNAMEPXWHY")} off={off("jointNamePx")}>
+        <Slider value={o.jointNamePx} onChange={(jointNamePx) => set({ jointNamePx })} min={RANGES.jointNamePx[0]} max={RANGES.jointNamePx[1]} integer={INTEGERS.has("jointNamePx")} unit="px" digits={0} disabled={!!off("jointNamePx")} />
       </Row>
     </>
   );
@@ -126,7 +163,7 @@ export function SceneTab({ o, set, off }: { o: O; set: Patch; off: Off }) {
         <Switch on={o.axes} onChange={(axes) => set({ axes })} disabled={!!off("axes")} />
       </Row>
       <Row label="坐标轴大小" tip="左下角坐标轴有多大，像素" off={off("axesSize")}>
-        <Slider value={o.axesSize} onChange={(axesSize) => set({ axesSize: Math.round(axesSize) })} min={RANGES.axesSize[0]} max={RANGES.axesSize[1]} unit="px" digits={0} disabled={!!off("axesSize")} />
+        <Slider value={o.axesSize} onChange={(axesSize) => set({ axesSize })} min={RANGES.axesSize[0]} max={RANGES.axesSize[1]} integer={INTEGERS.has("axesSize")} unit="px" digits={0} disabled={!!off("axesSize")} />
       </Row>
       <Row label="背景" tip="背景是纯色还是上亮下暗的渐变。透过相机看时背景是原始画面" off={off("background")}>
         <Segmented label="背景" stretch value={o.background} options={choices("background", off("background"))} onChange={(background) => set({ background })} />
@@ -138,7 +175,7 @@ export function SceneTab({ o, set, off }: { o: O; set: Patch; off: Off }) {
         <Segmented label="灯光" stretch value={o.lighting} options={choices("lighting", off("lighting"))} onChange={(lighting) => set({ lighting })} />
       </Row>
       <Row label="曝光" tip="灯光亮度，档：+1 亮一倍，-1 暗一半。只影响受光的模型" off={off("exposure")}>
-        <Slider value={o.exposure} onChange={(exposure) => set({ exposure })} min={-4} max={4} unit="档" digits={1} disabled={!!off("exposure")} />
+        <Slider value={o.exposure} onChange={(exposure) => set({ exposure })} min={RANGES.exposure[0]} max={RANGES.exposure[1]} unit="档" digits={1} disabled={!!off("exposure")} />
       </Row>
     </>
   );

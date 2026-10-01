@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..kit.ports import rgb_port
 from ...data.packet import Packet
 from ...errors import Invalid
 from ...messages import Msg
@@ -71,8 +72,8 @@ class OpticalFlow(WorkerNode):
     A missing frame fails. Job.notes: none."""
 
     on_node = ("resolution",)
-    inputs = (Port("image", "image.3", "RGB"),)
-    outputs = (Port("flow", "image.4", "运动矢量"),)
+    inputs = (rgb_port(),)
+    outputs = (Port("flow", "image.4", "运动矢量", data=True),)
     confidence = Confidence("probability", help="运动矢量模型自己估的每个矢量有多可信（0–1，越大越可信；前后两个方向取低的）。"
                                                 "只在这个模型的结果之间比高低；当遮罩用先接「置信度转遮罩」，要遮挡的地方用「遮挡遮罩」")
     cost = Cost(gpu=True)

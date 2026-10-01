@@ -3,14 +3,17 @@ vectors, blending and interpolating camera-to-world poses, and pixels to world p
 [j, j+1] x [i, i+1], its centre at +0.5). One implementation for the core and the workers.
 
 A rotation as an axis times an angle is motion.rotvec_to_matrix / matrix_to_rotvec (the same pair the SMPL family's
-parameters are written in): one implementation, not one per line of work."""
+parameters are written in): one implementation, not one per line of work. So are the "XYZ" Euler angles and the
+translate / rotate / scale matrix built from them (euler_xyz_matrix, xyz_euler_deg, trs_matrix): 「3D 变换」, the
+transform handles, 「初始姿势」 and camera angles all read and write rotations this way."""
 
 from __future__ import annotations
 
 import bisect
-import math
 
 import numpy as np
+
+from .motion import axis_angle, matrix_to_quat, quat_to_matrix, slerp
 
 
 def rays_at(K: np.ndarray, x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -96,6 +99,19 @@ def rigid_align(src: np.ndarray, dst: np.ndarray) -> tuple[np.ndarray, float, fl
     return big_t, float(np.sqrt(np.mean(ang**2))), float(np.sqrt(np.mean(pos**2)))
 
 
+def track_scale(xs: np.ndarray, xd: np.ndarray) -> tuple[float, bool]:
+    """The scale putting centred points `xs` [N,3] (already turned) on `xd` by least squares, and whether the two ran
+    opposite ways (the fit came out negative): (|s|, reversed). The one fit of a scale between two tracks
+    (scaled_align; lab2shot/nodes/kit/align.py align_paths): a negative scale is a mirror no camera path means, so the
+    size is kept and the caller says the direction. 1 where the points do not spread or the fit is no number."""
+    xs, xd = np.asarray(xs, np.float64), np.asarray(xd, np.float64)
+    denom = float((xs ** 2).sum())
+    s = float((xd * xs).sum() / denom) if denom > 1e-12 else 1.0
+    if not np.isfinite(s) or s == 0:
+        return 1.0, False
+    return abs(s), s < 0
+
+
 def scaled_align(src: np.ndarray, dst: np.ndarray, fit_scale: bool = True) -> tuple[np.ndarray, float, float, float, float]:
     """One similarity T (s·R, t) with dst[i] ≈ T @ src[i] for two tracks of cam_to_world poses [N,4,4] of the same
     shot: what 「相机空间转换」's 「整段平滑」 hangs on a scene (lab2shot/nodes/core/scene.py CameraSpaceConvert).
@@ -119,9 +135,7 @@ def scaled_align(src: np.ndarray, dst: np.ndarray, fit_scale: bool = True) -> tu
     xs, xd = cs - cs.mean(0), cd - cd.mean(0)
     denom = float((xs**2).sum())
     spread = float(np.sqrt(denom / max(len(cs), 1)))
-    s = float((xd * (xs @ r.T)).sum() / denom) if fit_scale and denom > 1e-12 else 1.0
-    if not np.isfinite(s) or s <= 0:
-        s = 1.0
+    s = track_scale(xs @ r.T, xd)[0] if fit_scale else 1.0
     t = cd.mean(0) - s * (r @ cs.mean(0))
     big_t = np.eye(4)
     big_t[:3, :3], big_t[:3, 3] = s * r, t
@@ -132,18 +146,11 @@ def scaled_align(src: np.ndarray, dst: np.ndarray, fit_scale: bool = True) -> tu
 
 
 def blend_poses(a: np.ndarray, b: np.ndarray, t: float) -> np.ndarray:
-    """Camera-to-world a -> b by t: rotation along the shortest arc, translation linear."""
-    Ra, Rb = a[:3, :3], b[:3, :3]
-    rel = Ra.T @ Rb
-    angle = math.acos(np.clip((np.trace(rel) - 1) / 2, -1.0, 1.0))
-    out = b.copy()
-    if angle > 1e-9:
-        axis = np.array([rel[2, 1] - rel[1, 2], rel[0, 2] - rel[2, 0], rel[1, 0] - rel[0, 1]]) / (2 * math.sin(angle))
-        k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
-        th = t * angle
-        out[:3, :3] = Ra @ (np.eye(3) + math.sin(th) * k + (1 - math.cos(th)) * k @ k)
-    else:
-        out[:3, :3] = Ra
+    """Camera-to-world a -> b by t: rotation along the shortest arc (motion.slerp, the one rotation interpolation),
+    translation linear."""
+    q = slerp(matrix_to_quat(np.asarray(a[:3, :3], np.float64)), matrix_to_quat(np.asarray(b[:3, :3], np.float64)), t)
+    out = np.array(b, np.float64)
+    out[:3, :3] = quat_to_matrix(q)
     out[:3, 3] = (1 - t) * a[:3, 3] + t * b[:3, 3]
     return out
 
@@ -162,3 +169,36 @@ def interpolate_poses(known: dict[int, np.ndarray], frames) -> np.ndarray:
         out.append(blend_poses(np.asarray(known[a], np.float64), np.asarray(known[b], np.float64),
                                0.0 if a == b else (f - a) / (b - a)))
     return np.stack(out)
+
+
+# ------------------------------------------------------------------ Euler angles and TRS
+
+_X, _Y, _Z = np.eye(3)
+
+
+def euler_xyz_matrix(rotate_deg) -> np.ndarray:
+    """Houdini / Maya "XYZ" order: rotate about X first, then Y, then Z (column vectors). [...,3] degrees ->
+    [...,3,3]: three turns about the axes (motion.axis_angle), not a separate formula."""
+    r = np.radians(np.asarray(rotate_deg, np.float64))
+    return axis_angle(_Z, r[..., 2]) @ axis_angle(_Y, r[..., 1]) @ axis_angle(_X, r[..., 0])
+
+
+def xyz_euler_deg(rotations: np.ndarray) -> np.ndarray:
+    """Rotations [F,3,3] -> "XYZ" angles in degrees [F,3], the inverse of euler_xyz_matrix (at a gimbal lock, Z is 0),
+    unwrapped over the frames so a turn past 180° goes on instead of jumping."""
+    r = np.asarray(rotations, np.float64).reshape(-1, 3, 3)
+    ry = np.arcsin(np.clip(-r[:, 2, 0], -1.0, 1.0))
+    locked = np.abs(np.cos(ry)) < 1e-8
+    rx = np.where(locked, np.arctan2(-r[:, 1, 2], r[:, 1, 1]), np.arctan2(r[:, 2, 1], r[:, 2, 2]))
+    rz = np.where(locked, 0.0, np.arctan2(r[:, 1, 0], r[:, 0, 0]))
+    return np.degrees(np.unwrap(np.stack([rx, ry, rz], -1), axis=0))
+
+
+def trs_matrix(translate=(0.0, 0.0, 0.0), rotate=(0.0, 0.0, 0.0), scale=1.0) -> np.ndarray:
+    """4x4 (column vectors): scale (one number, or one per axis), then rotate ("XYZ", degrees), then translate. The
+    viewer builds the same matrix while a handle is dragged (webui model/places.ts placeMatrix; lab2shot check places
+    runs both)."""
+    m = np.eye(4)
+    m[:3, :3] = euler_xyz_matrix(rotate) @ np.diag(np.broadcast_to(np.asarray(scale, np.float64), 3))
+    m[:3, 3] = translate
+    return m

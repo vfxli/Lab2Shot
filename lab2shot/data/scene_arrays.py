@@ -78,16 +78,6 @@ def frames_of(items: list[dict]) -> list[int]:
     return sorted({f for item in items for f in item_frames(item)})
 
 
-def _free(stage: Usd.Stage, path: str) -> str:
-    """Where an imported item goes: its import path, numbered when the file held two things at the same path (some
-    formats let siblings share a name): table, table2."""
-    out, n = path, 1
-    while stage.GetPrimAtPath(out):
-        n += 1
-        out = f"{path}{n}"
-    return out
-
-
 def _place(prim, frames: list[int], world: np.ndarray) -> None:
     """A transform op on `prim`: its local-to-world, one sample (still) or one per frame."""
     op = UsdGeom.Xformable(prim).AddTransformOp()
@@ -96,6 +86,13 @@ def _place(prim, frames: list[int], world: np.ndarray) -> None:
     else:
         for f, m in zip(frames, world):
             op.Set(Gf.Matrix4d(m.T.tolist()), Usd.TimeCode(f))
+
+
+def hide(prim, item: dict) -> None:
+    """The frames the item's file hides it on (`visible`: a delivery of a solve with gaps, an animator's hide), every
+    kind alike."""
+    if "visible" in item:
+        usd.set_visible(prim, item_frames(item), np.asarray(item["visible"]).reshape(-1))
 
 
 def item_subsets(item: dict) -> dict[str, np.ndarray]:
@@ -116,7 +113,7 @@ def model_stage(stage: Usd.Stage, items: list[dict], axes: Axes, group: str) -> 
         frames, pts = item_frames(item), axes.points(item["points"]).astype(np.float32)
         uv = (item["uv"], item["uv_indices"]) if "uv" in item else (None, None)
         source = sa.text(item["path"])
-        path = _free(stage, usd.import_path(group, source))
+        path = usd.free_path(stage, usd.import_path(group, source))
         usd.place(stage, path)
         mesh = usd.write_mesh(stage, path, pts[0] if len(pts) == 1 else pts,
                               np.asarray(item["indices"]), frames, *uv, counts=np.asarray(item["counts"]),
@@ -125,6 +122,7 @@ def model_stage(stage: Usd.Stage, items: list[dict], axes: Axes, group: str) -> 
             mesh.CreateNormalsAttr(Vt.Vec3fArray.FromNumpy(np.asarray(item["normals"], np.float32)))
             mesh.SetNormalsInterpolation(UsdGeom.Tokens.faceVarying)
         _place(mesh.GetPrim(), frames, axes.matrices(item["world"]))
+        hide(mesh.GetPrim(), item)
         mesh.GetPrim().SetCustomDataByKey("lab2shot:object", source)
         usd.place(stage, path, source)
 
@@ -138,7 +136,7 @@ class _PerPoint:
         self.frames = item_frames(item)
         self.cuts = np.cumsum(np.asarray(item["counts"]).reshape(-1))[:-1]
         self.source = sa.text(item["path"])
-        self.path = _free(stage, usd.import_path(group, self.source))
+        self.path = usd.free_path(stage, usd.import_path(group, self.source))
         usd.place(stage, self.path)
 
     def split(self, key: str, dtype, cm: bool = False):
@@ -150,6 +148,7 @@ class _PerPoint:
 
     def place(self, stage: Usd.Stage, geom) -> None:
         _place(geom.GetPrim(), self.frames, self.axes.matrices(self.item["world"]))
+        hide(geom.GetPrim(), self.item)
         geom.GetPrim().SetCustomDataByKey("lab2shot:object", self.source)
         usd.place(stage, self.path, self.source)
 
@@ -160,7 +159,7 @@ def points_stage(stage: Usd.Stage, items: list[dict], axes: Axes, group: str) ->
     for item in items:
         got = _PerPoint(item, axes, stage, group)
         widths = axes.points(item["widths"]) if "widths" in item else np.ones(0)
-        visible = got.split("visible", np.int32)
+        visible = got.split("point_visible", np.int32)
         cloud = usd.write_points(stage, got.path, got.frames, got.split("points", np.float32, cm=True), got.split("colors", np.float32),
                                  primvars={"visible": visible} if visible is not None else None,
                                  width_cm=float(np.median(widths)) if len(widths) else 1.0,
@@ -197,8 +196,12 @@ def character_stage(stage: Usd.Stage, items: list[dict], axes: Axes, group: str)
         source = sa.text(item["path"])
         root = usd.write_rig(stage, sa.text(item["name"]), sa.texts(item["joints"]), np.asarray(item["parents"]),
                              axes.matrices(item["bind"]), axes.matrices(item["anim"]), frames, meshes,
-                             path=_free(stage, usd.import_path(group, source)), source=source)
+                             path=usd.free_path(stage, usd.import_path(group, source)), source=source)
         root.GetPrim().SetCustomDataByKey("lab2shot:object", source)
+        hide(root.GetPrim(), item)
+        skins = [p for p in root.GetPrim().GetChildren() if p.IsA(UsdGeom.Mesh)]  # written in the item's order
+        for prim, mesh in zip(skins, item["meshes"]):  # one hidden on its own (a LOD)
+            hide(prim, {"frames": item["frames"], **({"visible": mesh["visible"]} if "visible" in mesh else {})})
         # the reader said whether that path ends at the root joint itself or at a group of its own: kept here, so
         # writing it back never has to guess from the names
         root.GetPrim().SetCustomDataByKey(usd.ROOT_AT_PATH, bool(np.asarray(item.get("root_at_path", False)).reshape(-1)[0])
@@ -241,15 +244,19 @@ def items_to_packets(npz: Path, chosen: dict[str, list[str]], axes: Axes, width:
     `group` (io/usd.py import_group, import_path)."""
     top, items = sa.load(npz)
     stored = {"skeleton": "character"}  # bones alone are a character item without meshes in the arrays
-    picked = {kind: [i for i in items[stored.get(kind, kind)] if sa.text(i["path"]) in paths] for kind, paths in chosen.items()}
+    picked = {kind: [i for i in items[stored.get(kind, kind)] if sa.text(i["key"]) in paths] for kind, paths in chosen.items()}
     out: dict[str, Packet] = {}
     for kind, folder in outs.items():
         these = picked.get(kind) or []
         if kind == "camera":
             samples = camera_from_arrays(these[0], axes, width, info)
             source = samples.info["object"]
+            def customize(cam, item=these[0]):
+                usd.mark_group(cam.GetPrim().GetStage(), group, owner)
+                hide(cam.GetPrim(), item)
+
             out[kind] = samples.write(folder, name=source.rsplit("/", 1)[-1] or "camera", path=usd.import_path(group, source), source=source,
-                                      customize=lambda cam: usd.mark_group(cam.GetPrim().GetStage(), group, owner))
+                                      customize=customize)
             continue
         frames = frames_of(these)
         stage = usd.create_stage(frames, info)
@@ -306,6 +313,24 @@ def _moves(prim) -> bool:
     from .evaluate import changes
 
     return changes(prim)
+
+
+def _hides(prim) -> bool:
+    """Whether the prim's visibility, its own or an ancestor's, is authored as anything but shown (an animator's hide,
+    a baked person on the frames its solve did not reach): then its item is sampled on every frame and carries
+    `visible`, as a character does."""
+    while prim and not prim.IsPseudoRoot():
+        attr = UsdGeom.Imageable(prim).GetVisibilityAttr() if prim.IsA(UsdGeom.Imageable) else None
+        if attr and attr.HasAuthoredValue() and (attr.ValueMightBeTimeVarying() or attr.Get() == UsdGeom.Tokens.invisible):
+            return True
+        prim = prim.GetParent()
+    return False
+
+
+def _shown(prim, frames: list[int]) -> dict:
+    """The item's `visible` on its frames when it is hidden on some of them (usd.visible_at), else nothing."""
+    on = usd.visible_at(prim, frames)
+    return {} if on.all() else {"visible": on.astype(np.int32)}
 
 
 def _mesh_arrays(mesh: UsdGeom.Mesh, times, scale: float) -> dict:
@@ -373,7 +398,7 @@ def _sampled_at(src: Packet, prim, samples: bool) -> tuple[list[int], list[int],
     """(the frames a 点云 or a set of 三维曲线 has, the frames read now, whether its points change): read at every
     frame when they do, else once; with `samples=False` (the 3D viewer, which asks for a chunk at a time) only its
     first sample comes with the base."""
-    frames = _frames_where(src, _moves(prim))
+    frames = _frames_where(src, _moves(prim) or _hides(prim))
     changing = UsdGeom.PointBased(prim).GetPointsAttr().ValueMightBeTimeVarying()
     return frames, (frames if changing and samples else frames[:1]), changing
 
@@ -403,9 +428,10 @@ def scene_arrays(src: Packet, scale: float = 1.0, samples: bool = True, stage: U
         if prim.IsA(UsdGeom.Mesh) and prim.GetPath() not in skinned:
             mesh = UsdGeom.Mesh(prim)
             deforming = mesh.GetPointsAttr().ValueMightBeTimeVarying()
-            frames = _frames_where(src, _moves(prim))
+            frames = _frames_where(src, _moves(prim) or _hides(prim))
             times = [Usd.TimeCode(f) for f in frames] if deforming and samples else [Usd.TimeCode(frames[0])]
-            item = out.add("model", prim.GetName(), path, frames, worlds(prim, frames), **_mesh_arrays(mesh, times, scale))
+            item = out.add("model", usd.name_of(prim), path, frames, worlds(prim, frames), shown=usd.shown_path(prim),
+                           **_mesh_arrays(mesh, times, scale), **_shown(prim, frames))
             if deforming and not samples:
                 item["per_frame"] = np.array(True)
         elif prim.IsA(UsdGeom.Points) or prim.IsA(UsdGeom.BasisCurves):
@@ -420,33 +446,36 @@ def scene_arrays(src: Packet, scale: float = 1.0, samples: bool = True, stage: U
             else:
                 read = [cloud_sample(prim, f, scale) for f in taken]
                 arrays = _tracked(prim, taken, [len(p) for p, _, _ in read], scale)
-            item = out.add("curves" if curves else "points", prim.GetName(), path, frames, worlds(prim, frames),
+            item = out.add("curves" if curves else "points", usd.name_of(prim), path, frames, worlds(prim, frames),
+                           shown=usd.shown_path(prim),
                            counts=np.array([len(p) for p, _, _ in read], np.int64), points=np.concatenate([p for p, _, _ in read]),
                            colors=np.concatenate([c for _, c, _ in read]), widths=np.concatenate([w for _, _, w in read]),
-                           **arrays)
+                           **arrays, **_shown(prim, frames))
             if changing and not samples:
                 item["per_frame"] = np.array(True)
         elif prim.IsA(UsdGeom.Camera):
             cam = UsdGeom.Camera(prim)
             lens_moves = any(a.ValueMightBeTimeVarying() for a in (cam.GetFocalLengthAttr(), cam.GetHorizontalApertureOffsetAttr(),
                                                                      cam.GetVerticalApertureOffsetAttr()))
-            frames = _frames_where(src, _moves(prim) or lens_moves)
+            frames = _frames_where(src, _moves(prim) or lens_moves or _hides(prim))
             res = usd.camera_resolution(prim)
             s = CameraSamples.from_prim(prim, frames, width=res[0] if res else 0, height=res[1] if res else 0)
             mats = s.cam_to_world.copy()
             mats[:, :3, 3] *= scale
-            out.add("camera", prim.GetName(), path, frames, mats, focal_mm=s.focal_mm, h_aperture_mm=s.h_aperture_mm,
-                    v_aperture_mm=s.v_aperture_mm, resolution=np.array(res, np.int64) if res else None, **camera_arrays(s))
+            out.add("camera", usd.name_of(prim), path, frames, mats, shown=usd.shown_path(prim), focal_mm=s.focal_mm, h_aperture_mm=s.h_aperture_mm,
+                    v_aperture_mm=s.v_aperture_mm, resolution=np.array(res, np.int64) if res else None, **camera_arrays(s),
+                    **_shown(prim, frames))
     return out
 
 
 def _tracked(prim, frames: list[int], counts: list[int], scale: float) -> dict:
     """A point cloud's per-point identity and motion, when it has them (3D tracks, locators): ids, velocities (local,
-    lengths × `scale` per second) and visible, each only when every sample has one for every point."""
+    lengths × `scale` per second) and point_visible (its primvar visible), each only when every sample has one for every
+    point."""
     cloud = UsdGeom.Points(prim)
     visible = UsdGeom.PrimvarsAPI(prim).GetPrimvar("visible")
     found = {"ids": (cloud.GetIdsAttr(), np.int64, 1.0), "velocities": (cloud.GetVelocitiesAttr(), np.float32, scale),
-             "visible": (visible.GetAttr() if visible else None, np.int32, 1.0)}
+             "point_visible": (visible.GetAttr() if visible else None, np.int32, 1.0)}
     out = {}
     for name, (attr, dtype, factor) in found.items():
         if attr is None or not attr.HasAuthoredValue():
@@ -467,8 +496,7 @@ def _character(out: sa.SceneArrays, stage: Usd.Stage, skel: UsdSkel.Skeleton, qu
     blend shapes and their weights per frame."""
     prim = skel.GetPrim()
     order = [str(j) for j in query.GetJointOrder()]
-    given = [str(n) for n in skel.GetJointNamesAttr().Get() or []]
-    names = given if len(given) == len(order) else [j.split("/")[-1] for j in order]
+    names = usd.joint_names(skel)
     topo = query.GetTopology()
     parents = np.asarray(topo.GetParentIndices(), np.int32)
     first = Usd.TimeCode(frames[0])
@@ -486,14 +514,18 @@ def _character(out: sa.SceneArrays, stage: Usd.Stage, skel: UsdSkel.Skeleton, qu
     anim = np.stack(anim)
     anim[..., :3, 3] *= scale
     owner = prim.GetParent() if prim.GetParent().IsA(UsdSkel.Root) else prim
-    item = out.add("character", owner.GetName(), str(owner.GetPath()), frames, joints=np.array(names),
+    # shown where its root is and any of its meshes is; a mesh hidden on its own (a LOD, a proxy) carries its `visible`
+    meshes_on = [usd.visible_at(t.GetPrim(), frames) for t in targets]
+    shown_on = usd.visible_at(owner, frames) & (np.any(meshes_on, axis=0) if meshes_on else True)
+    item = out.add("character", usd.name_of(owner), str(owner.GetPath()), frames, shown=usd.shown_path(owner),
+                   visible=None if shown_on.all() else shown_on.astype(np.int32), joints=np.array(names),
                    parents=parents, bind=bind_world, anim=anim,
                    root_at_path=bool(owner.GetCustomDataByKey(usd.ROOT_AT_PATH)))
     anim_query = query.GetAnimQuery()
     anim_shapes = [str(s) for s in (anim_query.GetBlendShapeOrder() if anim_query else [])]
     shape_weights = np.stack([np.asarray(anim_query.ComputeBlendShapeWeights(Usd.TimeCode(f)), np.float64) for f in frames]) \
         if anim_shapes else np.zeros((len(frames), 0))
-    for target in targets:
+    for target, mesh_on in zip(targets, meshes_on):
         mesh = UsdGeom.Mesh(target.GetPrim())
         arrays = _mesh_arrays(mesh, [first], 1.0)
         geom = np.array(target.GetGeomBindTransform(first)).T
@@ -520,4 +552,6 @@ def _character(out: sa.SceneArrays, stage: Usd.Stage, skel: UsdSkel.Skeleton, qu
             arrays.update(shapes=np.array(names), shape_offsets=offsets @ to_world[:3, :3].T * scale,
                           shape_weights=np.stack([shape_weights[:, anim_shapes.index(n)] if n in anim_shapes else np.zeros(len(frames))
                                                   for n in names], -1))
-        sa.SceneArrays.add_mesh(item, mesh.GetPrim().GetName(), **arrays)
+        if not (mesh_on == shown_on).all():
+            arrays["visible"] = mesh_on.astype(np.int32)
+        sa.SceneArrays.add_mesh(item, usd.name_of(mesh.GetPrim()), **arrays)

@@ -66,9 +66,10 @@
 
 /* the site's own notices, stacked under the top bar of every page: the administrator's notice, then the server's state
    (ui/Banner.tsx SiteNotices). The stack does the placing, so its banners are laid out, not fixed. */
-/* 管理员通知和「服务器正在重启」：整页最上面的一条条幅，在正常文档流里，把下面的内容顶下去。
-   不浮在内容上——浮着会居中飘在距顶 54 px 处，正好压在视图上，看着像视图自己的东西。
-   和视图工具栏同一条规矩：在正常文档流里，一个像素都不挡内容。 */
+/* The administrator's notice and 「服务器正在重启」 are a strip at the very top of the page, in normal document flow,
+   pushing the content below it down. They never float over the content: floating, they would sit centred 54 px from
+   the top, right over the view, and read as part of the view. The same rule as the view's toolbar: in normal document
+   flow, covering not a single pixel of content. */
 .site-notices {
   flex: none;
   display: grid;
@@ -79,7 +80,7 @@
   display: none;
 }
 
-/* 条幅铺满整页宽，不是居中一小块：一眼看得出这是全站的通知，不是某个面板的提示 */
+/* the strip spans the full page width, not a small centred box: at a glance it is a site-wide notice, not a panel's hint */
 .site-notices .banner,
 .site-notices .banner.float {
   position: static;

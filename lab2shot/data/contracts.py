@@ -96,6 +96,8 @@ META: Mapping[str, Mapping[str, frozenset | None]] = MappingProxyType({
     # 3D curves require no keys: curve and point counts are counted when the packet is made
     # (data/payloads.py _scene_contents), which also holds for scenes copied unchanged from DCC files
     "scene.curves": {},
+    # a dome light (an imported USD's): its texture and colour space travel in the scene file itself
+    "scene.light": {},
     # what an output-settings node wrote: its 名字 (the sub-folder 「输出」 puts it in), the main file (a sequence as ####),
     # every file relative to the packet (the provenance sidecar too), whether all of it may be used commercially
     "files": {"name": ANY, "main": ANY, "files": ANY, "commercial": ANY, "learned": ANY},

@@ -43,7 +43,7 @@ from ..extensions.manual import (ExtensionWeights, Install, ManualError, ManualI
                                  unwrap_licence)
 from ..io.files import open_member
 from ..config import THIRD_PARTY_DIR
-from ..nodes.tags import BASIC, COMMERCIAL, NONCOMMERCIAL, RESEARCH
+from ..nodes.tags import BASIC, COMMERCIAL, NONCOMMERCIAL, RESEARCH, label as licence_label
 from ..extensions.spec import (
     CUDA_13_2_TOOLKIT,
     EnvSpec,
@@ -55,10 +55,11 @@ from ..extensions.spec import (
     hf_file,
     hf_weights,
 )
+from ..extensions import downloads  # files several extensions download, pinned once (Download.weight)
 from ..io.color import working_space
 from ..io.images import read_named
-from ..data.units import (usd_points_to_opencv_m, CV_TO_GL, DEFAULT_FPS, DEFAULT_WIDTH, FILMBACK_MM, M_TO_CM, opencv_points_to_usd,
-                          opencv_poses_to_usd, to_cm)
+from ..data.units import (usd_points_to_opencv_m, CV_TO_GL, DEFAULT_FPS, DEFAULT_WIDTH, FILMBACK_MM, M_TO_CM, focal_mm,
+                          opencv_points_to_usd, opencv_poses_to_usd, to_cm)
 from ..io.usd import (
     PERSON_ID,
     ROOT_PATH,
@@ -71,16 +72,18 @@ from ..io.usd import (
 )
 from ..data.skeleton import character_of_model, rig_of_model
 from ..data.contracts import KEEPS, NEW_PICTURE, PLATE_FRAME, STMAP_SHAPE, Shape, warped_by
-from ..nodes.base import NodeDef, NodeParams, P, Port, empty_packet, fp16_param, parse_corners, parse_figures
+from ..nodes.base import (EITHER, NodeDef, NodeParams, P, Port, empty_packet, fp16_param, parse_corners, parse_figures,
+                          say_bad_entries)
 from ..availability import All, AnyOf, Because, Not
-from ..nodes.applies import Cost, Fact, Licence, OptionTrait, Param, Wired, WiredType, fact, incoming
+from ..nodes.applies import (Cost, Fact, Licence, OptionTrait, Param, Wired, WiredPicture, WiredType, fact, incoming,
+                             licence_traits)
 from ..nodes.core.geometry import points_from_depth
 from ..nodes.expects import DistinctNames, FrameCount, HighDynamicRange, OwnCamera, SameShot
 from ..nodes.handles import FIGURE_JOINTS, Handle, figure_handle
 from ..nodes.clipboard import Pasteable, put_clipboard
 from ..nodes.official import Official  # 每个三方节点声明「官方的口 + 上游行号」
 from ..nodes.lens import (CAMERA_HAS_LENS, NO_LENS, CameraLensParams, SolvedLensParams, LensParams, focal_param,
-                         external_distorting, only_when_distorting, packed_lens, unpacked_lens, LENS_HELP,
+                         packed_lens, unpacked_lens, LENS_HELP,
                          LensGroup, GroupModel, lens_groups, table_of, lens_identity, core_group)
 from ..data.values import LENS
 from ..nodes.formats import WorkerImport, import_file_param, selection_param, selection_ports
@@ -110,9 +113,10 @@ from ..nodes.families import (
     DetectCleanupParams,
     body_joints,
     RigMotion,
+    motion_fps_param,
     MotionGenParams,
     FreeMotionParams,
-    JointMap,
+    PartMap,
     ModelJoint,
     LensCalibration,
     LensWholeShotParams,
@@ -132,13 +136,15 @@ from ..nodes.families import (
     WorldHumansParams,
     basecolor_map,
     basecolor_port,
+    normal_port,
+    rgb_port,
+    values_port,
     camera_port,
     clamped_flow_side,
     conf_threshold_param,
     correspondence,
     depth_maps,
     flow_resolution_param,
-    focal_px_to_mm,
     follow_camera_param,
     foreground_entry,
     frame_maps,
@@ -179,25 +185,22 @@ __all__ = [
     "NothingToCook",
     # the extension spec (extension.py)
     "CUDA_13_2_TOOLKIT", "EnvSpec", "Extension", "GitSource", "InstallError", "LicenseInfo", "Weight", "hf_file",
-    "hf_weights", "manual_weight", "body_model_weight", "ManualItem", "Install", "ExtensionWeights", "ManualError",
+    "hf_weights", "downloads", "manual_weight", "body_model_weight", "ManualItem", "Install", "ExtensionWeights", "ManualError",
     "unwrap_licence", "open_member", "THIRD_PARTY_DIR",
     # licence classes (nodes/tags.py): LicenseInfo(tag=), and NodeDef.licence for a node that differs from its extension
-    "BASIC", "COMMERCIAL", "NONCOMMERCIAL", "RESEARCH",
+    "BASIC", "COMMERCIAL", "NONCOMMERCIAL", "RESEARCH", "licence_label",
     # node definitions (nodes.py)
-    "FIGURE_JOINTS", "Handle", "NodeDef", "NodeParams", "P", "Port", "empty_packet", "figure_handle",
-    "parse_corners", "parse_figures", "fp16_param",
+    "EITHER", "FIGURE_JOINTS", "Handle", "NodeDef", "NodeParams", "P", "Port", "empty_packet", "figure_handle",
+    "parse_corners", "parse_figures", "say_bad_entries", "fp16_param",
     "KEEPS", "NEW_PICTURE", "PLATE_FRAME", "STMAP_SHAPE", "Shape", "warped_by",
     # what applies (nodes/applies.py): when a parameter does something, what a node costs and whose licence it is, what a
     # choice changes about it
-    "All", "AnyOf", "Because", "Cost", "Fact", "Licence", "Not", "OptionTrait", "Param", "Wired", "WiredType", "fact", "incoming",
+    "All", "AnyOf", "Because", "Cost", "Fact", "Licence", "Not", "OptionTrait", "licence_traits", "Param", "Wired", "WiredPicture", "WiredType", "fact", "incoming",
     # the lens (nodes/lens.py): its parameters, the rule that picks it and says where it came from
     "Official",
     "CAMERA_HAS_LENS", "CameraLensParams", "LensParams", "SolvedLensParams", "NO_LENS", "focal_param", "plate_lens",
-    # 「拟合模型」选到带畸变的那几档，「镜头模型」「畸变系数」两个口才用得上（nodes/lens.py）
-    "only_when_distorting", "external_distorting",
     # Focal Length（px）→ Focal Length（mm）（「镜头标定」家族 nodes/families/lens_calibration.py 的一处算法）：AnyCalib、GeoCalib 的「Focal Length」口
     # 交出去之前都走它
-    "focal_px_to_mm",
     # another program's camera model read through the one model table (data/lens_models.py EXTERNAL_MODELS)
     "external_camera", "distortion", "COLMAP_MODELS", "PINHOLE_MODELS", "LENS_TABLE", "distorts",
     "packed_lens", "unpacked_lens", "LENS", "LENS_HELP", "LensGroup", "GroupModel", "lens_groups", "table_of", "lens_identity", "core_group",
@@ -220,16 +223,16 @@ __all__ = [
     "AutoRig", "AutoRigParams", "GuidedMatte", "MatteNode", "LensCalibration", "Keypoints2D", "Matting", "LensWholeShotParams", "LightProbe", "LightProbeParams", "PerFrameDepthCamera",
     "OpticalFlow", "OpticalFlowParams", "PointTracker", "PointTracker3D", "PointTracks3DParams", "WholeShotDepthCamera",
     "WholeShotParams", "Segmentation", "TrackParams", "WorldHumans", "WorldHumansParams",
-    "RigMotion", "MotionGenParams", "FreeMotionParams", "JointMap", "ModelJoint", "humanoid_joints", "mapping_param", "skeleton_param",
+    "RigMotion", "motion_fps_param", "MotionGenParams", "FreeMotionParams", "PartMap", "ModelJoint", "humanoid_joints", "mapping_param", "skeleton_param",
     "CleanupParams", "DetectCleanupParams", "body_joints",
-    "basecolor_port", "camera_port", "focal_px_to_mm", "people_port", "plate_mask_port",
+    "basecolor_port", "normal_port", "rgb_port", "values_port", "camera_port", "people_port", "plate_mask_port",
     "conf_threshold_param", "flow_resolution_param", "follow_camera_param", "loops_param", "Measured", "max_frames_param", "measured_param",
     "point_size_param", "precision_level_param", "resolution_param", "unit_cm_param",
     "basecolor_map", "camera_normals", "clamped_flow_side", "correspondence", "depth_maps", "family_points", "native_points_of", "foreground_entry", "frame_maps",
     "LINEAR", "NEAREST", "NORMALIZE", "MOTION",  # frame_maps 的第四项：这张结果图怎么重采样（nodes/kit/maps.py）
     "UNIT",  # 0..1：一张图的值就在这个范围里时声明出来（遮罩、alpha、置信度、粗糙度、金属度），
              # 视图就按它显示，不用按整段的 1%–99% 分位去猜（一张 0.2–0.8 的 alpha 会被拉成 0–1 来看）
-    "focal_px_to_mm", "lens_note", "lens_stmaps", "matte", "pass_camera", "points_params",
+    "lens_note", "lens_stmaps", "matte", "pass_camera", "points_params",
     # 「复制到 <软件>」：结果里带一段别的软件能粘贴的文字（nodes/clipboard.py）
     "Pasteable", "put_clipboard",
     "solved_camera", "track_queries", "tracks",
@@ -243,6 +246,6 @@ __all__ = [
 
     "working_space",
     # scenes: writing USD, a camera's samples
-    "CV_TO_GL", "DEFAULT_FPS", "DEFAULT_WIDTH", "FILMBACK_MM", "M_TO_CM", "to_cm", "PERSON_ID", "ROOT_PATH", "SkinnedCharacter", "character_of_model", "rig_of_model", "write_rig", "create_stage", "opencv_points_to_usd", "opencv_poses_to_usd", "usd_points_to_opencv_m", "save_stage", "DEFORMING",
+    "CV_TO_GL", "DEFAULT_FPS", "focal_mm", "DEFAULT_WIDTH", "FILMBACK_MM", "M_TO_CM", "to_cm", "PERSON_ID", "ROOT_PATH", "SkinnedCharacter", "character_of_model", "rig_of_model", "write_rig", "create_stage", "opencv_points_to_usd", "opencv_poses_to_usd", "usd_points_to_opencv_m", "save_stage", "DEFORMING",
     "write_character", "write_mesh",
 ]

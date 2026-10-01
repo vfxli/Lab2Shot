@@ -1,8 +1,28 @@
-/* ------------------------------------------------------------------ 3D stage and its display options */
+/* The 3D stage (view/Stage3D.tsx) and everything drawn over it: joint labels, the camera gate mask, the view menu, the
+   'too large to show' note and the skeleton-pose handle panel. */
 
 .stage3d {
   position: absolute;
   inset: 0;
+}
+
+/* joint names beside the joints (view/elements3d.tsx JointLabels): one layer at the canvas's top-left, each name moved
+   by transform in canvas pixels */
+.joint-labels {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  line-height: 1.2;
+  font-family: var(--font);
+  text-shadow: 0 0 2px #000, 0 0 2px #000, 0 1px 1px #000;
+}
+.joint-labels > span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  will-change: transform;
 }
 
 /* looking through a camera: its resolution gate, the outside dimmed (Houdini's and Maya's gate mask) */
@@ -24,10 +44,11 @@
   white-space: nowrap;
 }
 
-/* 视角菜单：透视 / 顶 / 前 / 侧，和场景里的每一台相机。
-   从按钮的下面、左边往下挂：工具栏在画面顶部，朝上弹（`bottom: calc(100% + 8px)`）会把菜单弹到窗口
-   上边缘之外，落回来的几项又被顶栏盖住点不到。高度也按窗口夹住，菜单再长也不许长到窗口外面去
-   （和 ui/displayoptions.css 的 `.vo-panel` 同一条）。 */
+/* The view menu: perspective / top / front / side, and every camera in the scene.
+   It hangs down from the button's lower left: the toolbar is at the top of the picture, so opening upwards
+   (`bottom: calc(100% + 8px)`) would push the menu past the window's top edge, and the items that fall back in would be
+   covered by the top bar and unclickable. Its height is clamped to the window too, so however long the menu is it never
+   extends outside the window (the same rule as ui/displayoptions.css `.vo-panel`). */
 .view-menu {
   top: calc(100% + 8px);
   bottom: auto;
@@ -100,4 +121,108 @@
   color: var(--orange);
   max-width: 46ch;
   white-space: normal;
+}
+
+/* The 「骨架姿势」 handle panel (view/skeletonPose.tsx SkeletonPosePanel): the selected joint's translate / rotate / scale
+   values, mirror, reset. In the main viewer it floats at the stage's top right; with the stage in a dialog
+   (view/HandleStage.tsx) it sits below the stage. */
+.stage3d > .pose-panel {
+  position: absolute;
+  top: 44px;
+  right: 8px;
+  z-index: var(--z-hud);
+  width: 300px;
+}
+
+.pose-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--r-panel);
+  background: var(--panel);
+  border: 1px solid var(--hair);
+  font-size: var(--fs-sm);
+}
+
+.pose-head,
+.pose-joint,
+.pose-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pose-dim {
+  color: var(--text-3);
+}
+
+.pose-row > .pose-dim {
+  width: 96px;
+  flex: none;
+}
+
+.pose-num {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-3);
+  min-width: 0;
+}
+
+.pose-num input {
+  width: 56px;
+}
+
+.pose-warn {
+  color: var(--orange-text);
+}
+
+/* The stage in a dialog (view/HandleStage.tsx): a bordered 3D view (its height given by the dialog), with the handle
+   modes and the panel below it */
+.handle-stage-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* below a dialog stage: the handle modes (when it can be edited) and its own 框显 */
+.handle-stage-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+
+.handle-stage {
+  position: relative;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  border: 1px solid var(--hair);
+}
+
+.handle-stage > .stage3d-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-3);
+  padding: 12px;
+  text-align: center;
+}
+
+/* a menu row that cannot be chosen now (the reference menu's outputs not cooked yet): greyed, the reason in its tip */
+.view-menu-item:disabled {
+  color: var(--text-3);
+}
+
+.view-menu-item:disabled:hover {
+  background: transparent;
+}
+
+.view-menu-item .dim {
+  margin-left: 6px;
 }

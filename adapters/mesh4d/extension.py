@@ -65,7 +65,7 @@ class Mesh4D(Extension):
         ),
     )
     import_repo = None  # the worker imports from the composed tree (worker_env PYTHONPATH), not from repo/
-    worker_modules = ("codebase.py",)
+    worker_modules = ("codebase.py", "model_spec.py")
     # upstream pins torch 2.5.1+cu124, which has neither sm_120 binaries nor PTX: it cannot run on Blackwell at all.
     # torch 2.8.0+cu128 covers Ada (sm_89) and Blackwell (sm_120); upstream's code runs on it unchanged. Measured on
     # the same clip: Ada and Blackwell differ as much as two runs on one card do (the method is not deterministic);

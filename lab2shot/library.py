@@ -100,11 +100,20 @@ SEP = "~"  # between the parts of a card id: safe in a file name (a delivery is 
 
 
 def card_id(owner: str, stem: str, adapter: str = "") -> str:
+    """A preset's card id (owner admin / adapter). A user's template has its own, `user_card_id`: the owner word cannot
+    tell them apart, because the built-in administrator's username is also `admin` (accounts.ADMIN_NAME)."""
     if owner == OWNER_ADAPTER:
         return f"{OWNER_ADAPTER}{SEP}{adapter}{SEP}{stem}"
     if owner == OWNER_ADMIN:
         return f"{OWNER_ADMIN}{SEP}{stem}"
-    return f"user{SEP}{owner}{SEP}{stem}"
+    return user_card_id(owner, stem)
+
+
+def user_card_id(username: str, stem: str) -> str:
+    """A user's template ("我的模板"): always `user~<username>~<stem>`, whatever the username. The built-in administrator
+    is called `admin` (accounts.ADMIN_NAME); through `card_id` its templates got `admin~<stem>`, which `parse_id` reads as
+    a project preset, so they could be neither opened nor deleted (E-LIBRARY-NOSUCH)."""
+    return f"user{SEP}{username}{SEP}{stem}"
 
 
 def parse_id(card: str) -> tuple[str, str, str]:
@@ -184,9 +193,8 @@ def _card(path: Path, owner: str, adapter: str) -> dict:
     """One file as a card. Where it sits is its own meta.deliverable, read against the templates tree
     (lab2shot/categories.py): a place the tree no longer has is 未分类. Nothing is derived from the graph."""
     from .categories import templates as tree
-    from .engine.templates import core_project
+    from .engine.templates import card_tags, core_project, route_tags
     from .nodes import node_types
-    from .nodes.tags import graph_tags
 
     data = _load(path)
     meta = data.get("meta") or {}
@@ -203,10 +211,28 @@ def _card(path: Path, owner: str, adapter: str) -> dict:
             "follows": str(meta.get("follows", "")),
             "graph": data,
             "runtimes": [r for r in runtimes if r != "core"],
-            "licence": sorted(graph_tags(data)),  # nodes/tags.py: its chips, and who may use it
+            "licence": sorted(card_tags(data)),  # its chip: what its deliveries are made from with its defaults
+            # every route a user can take through it (its menus' values), each's tags: who may use it is anyone one
+            # route is open to (server/access.py templates_for); its best one is said beside the chip
+            "route_licences": [sorted(r) for r in route_tags(data)],
             "enabled": meta.get("enabled") is not False,
-            "author": str(meta.get("author") or ""), "created": str(meta.get("created") or ""),
+            # who saved it: an account id (author_of names it when asked), or, in a file saved before ids, a name
+            "author_id": meta.get("author_id"), "author": str(meta.get("author") or ""), "created": str(meta.get("created") or ""),
             "updated": st.st_mtime, "bytes": st.st_size}
+
+
+def author_of(card: dict) -> str:
+    """Who saved a card, as a page shows it: its account's label (DELETED once that account is gone), or the name a
+    file saved before ids holds."""
+    from .accounts import DELETED, get
+    from .errors import NotFound
+
+    if card.get("author_id") is None:
+        return card["author"]
+    try:
+        return get(int(card["author_id"])).label
+    except (NotFound, ValueError, TypeError):
+        return DELETED
 
 
 def preset(card: str) -> dict:
@@ -232,9 +258,10 @@ def _edit_meta(path: Path, **values) -> None:
 # ---- the administrator's operations (server/templates.py)
 
 
-def save_preset(graph: dict, name: str, intro: str = "", deliverable: str = "", author: str = "") -> dict:
+def save_preset(graph: dict, name: str, intro: str = "", deliverable: str = "", author: int | None = None) -> dict:
     """"保存为预设模板" (save as preset): a new file under templates/. `deliverable`: where its card sits ("" for 未分类);
-    `author`: who saved it."""
+    `author`: the account that saved it, by id: the file never holds a person's name, which permanent deletion of the
+    account could not take back out of a file of the repository (author_of names it while the account is there)."""
     name = _text(name, NAME_CHARS, "名字")
     if not name:
         raise Invalid(Msg("E-LIBRARY-NONAME"))
@@ -242,8 +269,40 @@ def save_preset(graph: dict, name: str, intro: str = "", deliverable: str = "", 
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
     _write(TEMPLATES_DIR / f"{stem}.json", graph,
            {"name": name, "intro": _text(intro, TEXT_CHARS, "简介"), "owner": OWNER_ADMIN, "deliverable": str(deliverable or ""),
-            "author": str(author or ""), "created": now, "updated": now})
+            "author_id": author, "created": now, "updated": now})
     return preset(card_id(OWNER_ADMIN, stem))
+
+
+def same_name_preset(name: str) -> dict | None:
+    """「保存为预设模板」同名时要覆盖的那张：名字（去掉首尾空白）相同、归管理员的项目预设（owner admin）。有几张同名时
+    取最近改过的（节点图不记来自哪张模板：从模板存出来的就是一张普通的图）。只有接入层自带的同名时 E-TEMPLATES-SAMENAMEREADONLY
+    （它的文件不能改，沿用 E-TEMPLATES-READONLY 的口径）；没有同名的返回 None（新建）。"""
+    name = str(name or "").strip()
+    same = [t for t in presets() if t["name"].strip() == name]
+    if not same:
+        return None
+    own = [t for t in same if t["owner"] == OWNER_ADMIN]
+    if not own:
+        raise Invalid(Msg("E-TEMPLATES-SAMENAMEREADONLY", template=name))
+    return max(own, key=lambda t: t["updated"])
+
+
+def replace_preset(card: str, graph: dict, name: str, intro: str = "", deliverable: str = "") -> dict:
+    """覆盖一张项目预设（「保存为预设模板」同名、管理员确认之后）：节点图换成 `graph`，名字、简介、分类按表单；文件名
+    （卡片 id）不变，`created`、`author`、文件自己的 `id`、开关、`follows`（排在谁后面）和声明的主项目 `project` 保留原值，
+    `updated` 更新。
+    接入层自带的不能覆盖（E-TEMPLATES-READONLY）。"""
+    name = _text(name, NAME_CHARS, "名字")
+    if not name:
+        raise Invalid(Msg("E-LIBRARY-NONAME"))
+    _found, path = _own(card)
+    old = _load(path).get("meta") or {}
+    kept = {k: old[k] for k in ("id", "enabled", "follows", "project") if k in old}
+    _write(path, graph,
+           {"name": name, "intro": _text(intro, TEXT_CHARS, "简介"), "owner": OWNER_ADMIN, "deliverable": str(deliverable or ""),
+            **{k: old[k] for k in ("author", "author_id") if k in old}, "created": str(old.get("created") or ""), **kept,
+            "updated": time.strftime("%Y-%m-%dT%H:%M:%S")})
+    return preset(card)
 
 
 def edit_preset(card: str, name: str, intro: str) -> dict:
@@ -256,7 +315,7 @@ def edit_preset(card: str, name: str, intro: str) -> dict:
     return preset(card)
 
 
-def copy_preset(card: str, name: str = "", author: str = "") -> dict:
+def copy_preset(card: str, name: str = "", author: int | None = None) -> dict:
     """A card's graph as a new project preset ("<name> 副本" unless named), placed where the original is."""
     found = preset(card)
     copy_name = name
@@ -336,7 +395,7 @@ def _user_row(path: Path, username: str, bin_: bool) -> dict:
     except (OSError, ValueError):
         meta = {}
     st = path.stat()
-    return {"id": card_id(username, path.stem), "stem": path.stem, "name": str(meta.get("name") or path.stem),
+    return {"id": user_card_id(username, path.stem), "stem": path.stem, "name": str(meta.get("name") or path.stem),
             "intro": str(meta.get("intro") or ""), "bytes": st.st_size, "updated": st.st_mtime,
             "deleted": float(meta.get("deleted") or st.st_mtime) if bin_ else None,
             "deleted_by": str(meta.get("deleted_by") or "") if bin_ else ""}
@@ -358,6 +417,16 @@ def _user_file(username: str, stem: str) -> tuple[Path, bool]:
     if binned.is_file():
         return binned, True
     raise NotFound(Msg("E-LIBRARY-NOSUCH"))
+
+
+def user_same_name(username: str, name: str) -> str:
+    """「保存到我的模板」同名时要覆盖的那张的文件名（stem）：这个账号自己的、不在回收站里的、名字相同的一张；有几张同名时
+    取最近改过的。没有同名的返回 ""（新建）。"""
+    name = str(name or "").strip()
+    same = [r for r in user_cards(username) if r["name"].strip() == name]  # newest first
+    if not same:
+        return ""
+    return same[0]["stem"]
 
 
 def user_get(username: str, stem: str) -> dict:
@@ -390,7 +459,8 @@ def user_save(username: str, graph: dict, name: str, intro: str = "", stem: str 
 
 
 def user_bin(username: str, stem: str, by: str) -> dict:
-    """Into the bin (`by`: user / admin). Nothing is lost; the administrator (or the user, when they binned it) restores it."""
+    """Into the bin (`by`: user / admin). Nothing is lost: only an administrator restores it (user_restore), whoever binned
+    it, since the user has no bin of their own to take it from."""
     path, binned = _user_file(username, stem)
     if binned:
         return _user_row(path, username, True)
@@ -422,8 +492,9 @@ def user_purge(username: str, stem: str) -> dict:
 
 
 def user_bytes(username: str) -> int:
-    """What the account's templates take (the bin does not count against it: it is kept for the administrator)."""
-    return sum(r["bytes"] for r in user_cards(username))
+    """What the account's templates take (the bin does not count against it: it is kept for the administrator): their
+    files' sizes, without reading them."""
+    return sum(f.stat().st_size for f in _json_files(user_dir(username)))
 
 
 def remove_user(username: str) -> int:
@@ -434,43 +505,7 @@ def remove_user(username: str) -> int:
     return n
 
 
-# ---- which template a job came from (the usage statistics' 按模板, farm/usage.py templates)
-
-
-def current_names(cards) -> dict[str, str]:
-    """Card id -> the template's name now, for the ids given that are still a template: a preset, or a user's template
-    that is not in the bin. The ones missing are deleted (or never were one)."""
-    wanted = {c for c in cards if isinstance(c, str) and c}
-    found = {t["id"]: t["name"] for t in presets() if t["id"] in wanted}
-    for card in wanted - found.keys():
-        try:
-            kind, who, stem = parse_id(card)
-        except NotFound:
-            continue
-        if kind == "user" and "/" not in who and not who.startswith("."):  # a name, never a way out of work/users
-            try:
-                path, binned = _user_file(who, stem)
-            except NotFound:
-                continue
-            if not binned:
-                found[card] = _user_row(path, who, False)["name"]
-    return found
-
-
-def opened_from(graph: dict, username: str) -> tuple[str, str]:
-    """The template a graph was opened from (its meta.template, which the template panel sets): (card id, its name now),
-    or ("", "") for a graph built by hand. Only a template this account could have opened counts (a preset, or one
-    of its own): a template since deleted, or an id the graph was given by hand, counts as built by hand."""
-    meta = graph.get("meta") if isinstance(graph.get("meta"), dict) else {}
-    card = str(meta.get("template") or "")
-    try:
-        kind, who, _ = parse_id(card)
-    except NotFound:
-        return "", ""
-    if kind == "user" and who != username:
-        return "", ""
-    name = current_names([card]).get(card)
-    return (card, name) if name is not None else ("", "")
+# ---- the administrator's registry of an account's templates (lab2shot/resources.py)
 
 
 def rows_for_account(username: str) -> list[dict]:

@@ -1,3 +1,6 @@
+/* ------------------------------------------------------------------ admin page (/admin), continued from 17-admin-1.css
+   (admin/admin.css loads the three parts in order): the login form, 安全, 设置 with the cards among its cards, restarting */
+
 .login-field .field {
   height: 32px;
   font-size: var(--fs-md);
@@ -96,7 +99,7 @@
   color: var(--text-2);
   white-space: nowrap;
   overflow: hidden;
-  /* 不给问号光标（cursor: help）：停留提示是 data-tip 那一套的事，和光标没关系 */
+  /* no question-mark cursor (cursor: help): hover help belongs to the data-tip mechanism, not to the cursor */
 }
 
 /* the control: switches, choices and buttons at its left edge, fields at their one width */
@@ -285,7 +288,7 @@
 .pw-hint {
   color: var(--text-3);
   font-size: var(--fs-xs);
-  /* 不给问号光标（cursor: help）：停留提示是 data-tip 那一套的事，和光标没关系 */
+  /* no question-mark cursor (cursor: help): hover help belongs to the data-tip mechanism, not to the cursor */
 }
 
 /* 注册设置 → 邀请码: a card of the column too, its heading with its buttons */

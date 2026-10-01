@@ -34,8 +34,8 @@ export interface SceneKind {
  * or none; `reason` says how or why not. */
 export interface WritesPart {
   how: "full" | "static" | "no";
-  // 该数据可以写出，但格式无法保留其中一部分（FBX 可写出模型，但无法保留网格分区）：
-  // 「支持的数据」中标「部分」，不构成拒绝的理由（nodes/output.py Writes.lost）；仅在为真时下发
+  // the data can be written but the format cannot keep part of it (FBX writes a model but not its mesh partitions):
+  // marked 「部分」 in 「支持的数据」, never a reason to refuse (nodes/output.py Writes.lost); sent only when true
   lost?: boolean;
 }
 
@@ -99,11 +99,13 @@ export function nodeCategory(catalog: Catalog | null | undefined, def: { id: str
 
 /** A viewer handle bound to the node's parameters (nodes/handles.py). */
 export interface HandleDef {
-  kind: "points" | "box" | "corners" | "person" | "canvas" | "figure" | "transform";
+  kind: "points" | "box" | "corners" | "person" | "canvas" | "figure" | "transform" | "skeleton_pose";
   stage: "2d" | "3d";
-  params: Record<string, string>; // role -> the parameter it edits
+  params: Record<string, string>; // role -> the parameter it edits (skeleton_pose: "pose" -> the list of joint corrections)
   source: string | null; // the input it works on
   labels: string[]; // points: what a click means (the first by default); figure: the joints, in order
+  skeleton?: string; // skeleton_pose: the parameter naming the skeleton path on `source`
+  readonly?: boolean; // skeleton_pose: drawn only (no parameter to edit: no gizmo, mirror or reset)
 }
 
 export interface PortDef {
@@ -116,13 +118,20 @@ export interface PortDef {
   multi: boolean;
   list: boolean; // it takes or gives a list of its type (X[]): a square socket and a double wire
   type_from: string; // "input:<port>": the output carries the type of what is wired into that input
+  // an output that may give nothing (nodes/port.py Port.may_be_empty: 「读取序列」's 帧率 on a PNG sequence): a parameter it
+  // drives stays editable, its value used when the wire gives none (graph/rules.ts wiredFrom `fallback`)
+  may_be_empty?: boolean;
+  // an output that is one of several ways (「切换」, "#common"), in a status reply: the type each way carries (engine/graph.py
+  // ways; only when there are two or more). `type` is then their common kind (场景 over 骨架动画 and 蒙皮角色), and an input
+  // that takes every one of the ways takes it too (graph/rules.ts takes, the same rule as Graph.takes)
+  ways?: string[];
   inserts: string; // an input: the node type offered first for a wire drawn out of it (inserted in front of it, or a parameter's constant) ("" none); a check's own one click comes with the check, not from here
   unit: string; // a value's unit: what a value output gives ("param:<name>": its node's parameter says) or a parameter's input takes
-  // 该端口当前是否不可用及其原因（由服务器计算，nodes/base.py Port.applies）：节点上置灰、位置不变，
-  // 悬停说明原因，且不允许连线（例如接入「图像」后，下方的 rgba 口不可用）。
-  // 输入口与输出口都可能置灰：解算器接入相机后，其「相机」输出仅原样透传该相机，
-  // 若从该处再连线，将无法区分交付中的相机来源，因此不允许从该端口连出。
-  // 仅存在于图中的端口上（catalog 中没有：它描述的是当前这张图的状态）
+  // whether the port is unusable now, and why (computed by the server, nodes/base.py Port.applies): greyed on the node
+  // in its place, the reason on hover, and no wire may be drawn to it (e.g. with 「图像」 wired in, the rgba port below
+  // is unusable). Inputs and outputs alike may be greyed: with a camera wired into a solver, its 「相机」 output only
+  // passes that camera through, and a wire from there would leave the delivered camera's source ambiguous, so none may
+  // be drawn out of it. Only on the ports of a graph (not in the catalogue: it describes the state of this graph)
   inactive?: MessageJson;
   // what the pointer says over the port, written by the server (nodes/port.py Port.tip): the type's name and unit,
   // what that type is, what this port means, and what it does with a picture's alpha. Only on the ports of a graph
@@ -141,31 +150,35 @@ export interface NodePorts {
   waiting: PortDef[];
 }
 
-type SimpleKind = "" | "toggle" | "options" | "number" | "vector" | "text";
+type SimpleKind = "" | "toggle" | "options" | "number" | "vector" | "text" | "button";
 
 export interface ParamDef {
   name: string;
   label: string;
-  type: "string" | "number" | "integer" | "boolean" | "array";
+  type: "string" | "number" | "integer" | "boolean" | "array" | "button"; // "button": a button parameter (widget "button"), no value
   nullable: boolean;
   minimum: number | null;
   maximum: number | null;
+  open_minimum: boolean; // the minimum itself is not allowed (gt): a value must be greater
+  open_maximum: boolean; // the maximum itself is not allowed (lt)
   multiple_of: number | null; // a number must be a multiple of it
   options: string[] | null;
   option_labels: Record<string, string> | null;
   widget: string | null;
-  parts: string[];  // widget "vec3" 三个输入格的名称（默认 X Y Z；颜色为 R G B）
-  // 文字参数的行数：1 = 单行输入框，2 及以上 = 自动换行的多行文本框，高度为该行数（如提示词）。
-  // 这不是另一种控件（nodes/base.py P(lines=...)）：`simple` 仍为 "text"，`wire` 仍为文字连线，
-  // 只是 ui/controls.tsx 的 TextField 绘制为 <textarea>，参数面板与节点上由同一份声明绘制同一个控件
+  parts: string[];  // widget "vec3": the names of its three fields (X Y Z by default; R G B for a colour)
+  // a text parameter's line count: 1 = a one-line field, 2 or more = a wrapping multi-line box that many lines high (a
+  // prompt, say). It is not another control (nodes/base.py P(lines=...)): `simple` stays "text" and `wire` a text wire;
+  // only ui/controls.tsx's TextField draws a <textarea>, the same control from the same declaration in the parameter
+  // panel and on the node
   lines: number;
   group: string;
   affects_result: boolean;
   placeholder: string;
   accept: string[]; // a file parameter: the suffixes it takes (.exr, .mov ...)
-  // 文件参数：选定文件、服务器只取得文件头时，该节点能否给出结果
-  // （服务器端声明 `nodes/base.py ReadsFile.head_is_enough`，该处说明了默认值为「不能」的原因）。
-  // 真 → 选定后不传输任何字节（先申报，点击「计算」时才传输）；假 → 选定后立即传输（transfer/declare.ts）
+  // a file parameter: whether the node can give its result once a file is picked and the server has only its head
+  // (declared on the server, `nodes/base.py ReadsFile.head_is_enough`, which says why the default is "no").
+  // true -> picking transfers no bytes (declared first, sent when 「计算」 is clicked); false -> picking transfers at
+  // once (transfer/declare.ts)
   head_enough?: boolean;
   unit: string; // shown inside a number field (mm, °, px ...)
   derived_from: string[]; // parameters the node works this one out from (asked from the server when they change)
@@ -177,6 +190,10 @@ export interface ParamDef {
   panel: boolean; // false: not in the parameter panel; only a wire drives it (its input port is there as always)
   overrides: string[]; // input ports whose own say it overrides when it is set (a focal length over the camera's)
   items: ParamDef[] | null; // a list of entries (a table): the fields of one entry
+  // a button parameter (widget "button", lab2shot/nodes/params.py Button): the page's action it runs (editor/buttonActions.tsx)
+  action?: string;
+  // a button that works on another parameter (「在视图里点选」, action pick_in_view: the picks / canvas parameter it picks for)
+  target?: string;
 }
 
 export interface NodeTypeDef {
@@ -191,6 +208,12 @@ export interface NodeTypeDef {
   ports_from_side: "outputs" | "inputs"; // which side ports_from's entries land on (读取序列: outputs; 多层 EXR 输出设置: inputs)
   ports_from_type: string; // the port type every row gets when ports_from_side is "inputs" (a row has no `type` of its own then)
   ports_from_type_label: string; // and how that type is said (the server's words)
+  // an input table whose rows the node names itself (「切换」's ways): the port names its rows take, a new row the first
+  // one not yet used, and the n-th row's default label; as many rows as names, no more. Absent: rows named here
+  // (row1, row2…) and labelled after what is wired in (「多层 EXR 输出设置」's 图层)
+  ports_from_names?: string[];
+  ports_from_labels?: string[];
+  ports_from_word: string; // what one row of an input table is called (「加一层」, 「加一路」); "" for any other node
   main: string; // its main result's port: what the viewer shows and a label names by default (ports go by data type)
   marks: StandingMark[]; // the standing marks its declaration gives it (a crop that decides its own size: I-SHAPE-CROP)
   params: ParamDef[];
@@ -199,7 +222,7 @@ export interface NodeTypeDef {
   project: string;
   handles: HandleDef[];
   places: Places | null; // where it places what it gives, when its effect on the viewer is a transform
-  // 预览标签（由 nodes/base.py default_preview 集中计算，同一取值适用于 2D、3D 两个舞台）
+  // the preview tag (worked out in one place, nodes/base.py default_preview; one value for both the 2D and 3D stages)
   preview: "plate" | "compute" | "result" | "scene";
   // what it declares running it costs (nodes/applies.py Cost): whether it always runs on a GPU, the rating its own
   // measured numbers give (a choice may change them: option_traits)
@@ -208,16 +231,17 @@ export interface NodeTypeDef {
   // and its ports and handles on its own (Graph.at_defaults): what a node just added shows until its status arrives
   at_defaults: { cost: ResolvedCost; licence: ResolvedLicence; ports: NodePorts; handles: number[] };
   // the choices that change something, as a lookup table: parameter -> String(value) -> what choosing it does
-  option_traits: Record<string, Record<string, { gpu: boolean; noncommercial: boolean; rating: ComputeRating | null }>>;
+  // licence: the class the choice switches the node to (lab2shot/nodes/tags.py: noncommercial / research), "" none
+  option_traits: Record<string, Record<string, { gpu: boolean; licence: string; rating: ComputeRating | null }>>;
   delivers: boolean; // it hands files to the user (「输出」): a click only, never by showing
   streams?: boolean; // its frames are final as they are written (nodes/families/base.py WorkerNode.streams): while it
   // is being cooked the viewer may show what is there already (边算边看, view/partial.ts). Only a worker node says it.
   tags: string[]; // lab2shot/nodes/tags.py: its licence class, 需注册 ...
-  // 仅三方节点具有：项目的代码仓库与主页（标题行的 GitHub 标签）、许可证（面板底部，仅作信息展示）
+  // third-party nodes only: the project's repository and homepage (the GitHub chip in the title row) and its licence (at the panel's foot, information only)
   links?: { repo: string; homepage: string; licence: { name: string; url: string } };
   word: string; // the one word to show for them (tags.strictest, on the server): 仅限研究 / 非商用 / 需注册 / …
   on_node: string[]; // its key parameters, shown on its body (the node author's default; a node instance may choose others: its ui.on_node)
-  strip?: string[]; // 视图值条上显示的参数（NodeDef.strip；值由状态回复的 `strip` 提供，不是输出口）
+  strip?: string[]; // the parameters shown on the viewer's value strip (NodeDef.strip; their values come in the status reply's `strip`, not from output ports)
   writes?: Record<string, WritesPart>; // a 3D output-settings node: what its format holds of each kind (empty: 2D data)
   // nodes/clipboard.py Pasteable: a node whose result carries a snippet another application reads from
   // its clipboard, such as 「2D 跟踪点输出设置」 at Tracker / CornerPin, 「LensDistortion」 and 「AnyCalib 镜头标定」 (the lens
@@ -225,13 +249,14 @@ export interface NodeTypeDef {
   clipboard?: string;
   // which output port's result holds that snippet; missing: the node's `main` result
   clipboard_port?: string;
-  // 反向路径（Pasteable.paste）：该节点可将哪个软件的一段文本解析为自身的一组参数（"nuke"）。
-  // 声明后才绘制「从 Nuke 粘贴」按钮（editor/PasteFrom.tsx）
+  // the reverse path (Pasteable.paste): which application's text this node can parse into a set of its own parameters
+  // ("nuke"). The 「从 Nuke 粘贴」 button is drawn only when it is declared (editor/PasteFrom.tsx)
   paste?: string;
-  // 节点类型声明的常驻参数接线口（NodeDef.wired_ports）：端口始终存在于节点上，面板中的「提升到节点」针脚固定开启且不可取消
+  // parameter inputs the node type declares as permanent (NodeDef.wired_ports): the port is always on the node, and the panel's 「提升到节点」 pin is fixed on and cannot be unset
   wired_ports?: string[];
-  // 这些端口共同构成一项要求（nodes/base.py NodeDef.needs_any）：它们不标注「可选」，
-  // 因为标注不正确（全部不接不可行），而标注「至少一个」又是冗余信息。一个都未接入时在提交前拦截
+  // these ports together make one requirement (nodes/base.py NodeDef.needs_any): none is marked 「可选」, which would be
+  // wrong (leaving all unwired is not possible), and 「至少一个」 would be redundant. With none wired, submission is
+  // stopped before it is sent
   needs_any?: string[];
   refuses: Record<string, string>; // data types it can't take, and why: a wire of one is wrong
   converts: string[]; // [from type, to type]: a generic conversion, the one click on a wire of the one into an input of the other
@@ -252,10 +277,10 @@ export interface ResolvedLicence {
   tags: string[];
   commercial: boolean;
   note: string; // why it is what it is
-  word: string; // 服务器计算出的许可词（nodes/tags.py strictest）：仅限研究 / 非商用 / 需注册 / 可商用
+  word: string; // the licence word the server worked out (nodes/tags.py strictest): 仅限研究 / 非商用 / 需注册 / 可商用
 }
 
-/** 低/中/高/超高：GPU 节点的计算量档位（lab2shot/nodes/compute.py）。 */
+/** 低/中/高/超高: a GPU node's compute rating (lab2shot/nodes/compute.py). */
 interface ComputeRating {
   tier: "低" | "中" | "高" | "超高";
 }
@@ -270,7 +295,7 @@ export interface TagInfo {
 export interface Catalog {
   version: string;
   types: DataType[];
-  // 输出口名称 → 交付为 EXR 时的图层（data/layers.py LAYER_FOR_PORT）：向「多层 EXR 输出设置」拖入连线时据此填写图层名
+  // output port name -> its layer when delivered as EXR (data/layers.py LAYER_FOR_PORT): fills in the layer name when a wire is dragged into 「多层 EXR 输出设置」
   layer_ports: Record<string, string>;
   scene_kinds: SceneKind[];
   menu: MenuInfo; // the node menu: its bands, its tree and where every node sits (lab2shot/categories.py: data files)
@@ -298,7 +323,8 @@ interface GraphNodeJSON {
   promoted?: string[]; // 提升到节点: each gets an input "param:<name>" and a row on the node's body
   // editor only: where the node's files came from (by parameter); the parameters its body shows when the
   // user chose others than its type's (NodeTypeDef.on_node, 「在节点上显示」, ParamPanel.tsx OnNodePin)
-  ui: { x: number; y: number; picked?: Record<string, PickedFrom>; on_node?: string[] };
+  // may be absent from the file (a hand-written or older graph): every reader treats absence as the default (graph/document.ts loadGraph / checkGraph)
+  ui?: { x: number; y: number; picked?: Record<string, PickedFrom>; on_node?: string[] };
 }
 
 /** A group box around nodes (Houdini network box). Members are listed only while it is collapsed. */
@@ -314,6 +340,50 @@ export interface BoxJSON {
   members: string[];
 }
 
+/** A template's parameter interface (the graph's `exposed`, in the manner of Houdini's Edit Parameter Interface): a
+ * tree, each array item a parameter or a group, and a group again such an array (a subgroup is a group in a group). An
+ * older file's flat list is a tree without groups and is used as read (lab2shot/engine/templates.py module docstring).
+ *
+ * A parameter: `name` its outside name (lab2shot cook --set and the DCC plugins pass values by it:
+ * engine/templates.py apply_values), `label` its display name, `target` "<node id>.<parameter name>"; `widget`
+ * overrides the control: `menu` a dropdown (`options` values and labels filled in by the template's author, values
+ * of the target parameter's type), `checkbox` a checkbox (the target is a boolean, or an integer whose options are
+ * exactly 0 / 1: ticked = 1); two condition expressions (platform/conditions.ts), Houdini's Hide When / Disable When:
+ * while `hide_when` is true the item is hidden (a group whose items are all hidden is hidden too), while
+ * `disable_when` is true it is greyed and cannot be changed. The `when` that older files write (true: may be changed)
+ * is read as disable_when = not (when) (state/cookInputs.ts readExposed). `target` may also be a button parameter
+ * ("<node id>.cook" to cook, "<output id>.download" to download): a button takes neither menu nor checkbox. */
+export interface ExposedParam {
+  name: string;
+  label: string;
+  target: string;
+  widget?: "menu" | "checkbox";
+  options?: ExposedOption[];
+  hide_when?: string;
+  disable_when?: string;
+  // show the node in the viewer on change: once it is changed in the parameter panel's exposed tree or in app mode (any
+  // control; every click of a pick counts), the viewer switches to the target node (as a double click does). A pick or
+  // drawing control shows it as soon as its row is touched. Defaults to false (editor/ParamPanel.tsx)
+  show_on_change?: boolean;
+}
+
+export interface ExposedOption {
+  value: unknown;
+  label: string;
+  // this option's own Hide When (the same syntax as an item's, platform/conditions.ts): while true the dropdown leaves it out; a parameter whose value is this option keeps it, and it stays listed
+  hide_when?: string;
+}
+
+/** A group of the parameter interface: collapsible (`collapsed` is its default state on opening), and may hold further groups. */
+export interface ExposedGroup {
+  kind: "group";
+  label: string;
+  collapsed?: boolean;
+  children: ExposedEntry[];
+}
+
+export type ExposedEntry = ExposedParam | ExposedGroup;
+
 export interface GraphJSON {
   schema: "lab2shot.graph/1";
   // id: the graph's own identity, 128 random bits as 32 hex
@@ -323,11 +393,11 @@ export interface GraphJSON {
   // Jobs and outputs carry it, so the page only ever draws an output on the graph it belongs to. Two graphs from
   // the same template never share one; the id inside a template file (templates/*.json) exists only so the file
   // itself always has one, and is never inherited by a graph created from it.
-  // `template`: the file stem of the built-in template this graph was made from (the templates panel writes it when
-  // a card is opened). It rides with the graph a job is submitted with; the queue groups a job without footage by it
-  // (lab2shot/transfer/groups.py). A graph of one's own has none.
-  meta: { id?: string; name: string; description?: string; author?: string; created?: string; category?: string; tags?: string[]; template?: string };
-  exposed: { name: string; label: string; target: string }[];
+  // A graph never records which template it came from: saved from a template, it is an ordinary graph. `intro` and
+  // `deliverable` are a template file's own words (lab2shot/library.py), kept like any key of meta; the save dialogs
+  // prefill from them (editor/MyTemplates.tsx).
+  meta: { id?: string; name: string; description?: string; author?: string; created?: string; category?: string; tags?: string[]; intro?: string; deliverable?: string };
+  exposed: ExposedEntry[]; // the template's parameter interface, a tree (ExposedEntry); an older file's flat list is one with no groups
   frames?: [number, number] | null; // the frames to cook, first and last (null: every frame of the inputs)
   nodes: GraphNodeJSON[];
   edges: { from: [string, string]; to: [string, string] }[];
@@ -338,18 +408,22 @@ export interface GraphJSON {
 export interface TemplateInfo {
   id: string;
   name: string;
-  intro: string; // 简介：所结合的技术及其用途
+  intro: string; // its introduction: the techniques it combines and what it is for
   deliverable: string; // where its card sits (its file's meta.deliverable): a subcategory or first-level category id, "" 未分类
   category: string; // the first-level category it sits in, "" 未分类 (also when its place is no longer in the tree)
   graph: GraphJSON;
   projects: { name: string; title: string }[]; // third-party projects the template uses
-  // 卡片右下角的小标签：核心项目的论文或发布年份（由服务器按声明选出核心项目，页面不自行选择）
+  // the small tag at the card's lower right: the core project's paper or release year (the server picks the core project from the declarations; the page never picks)
   year: number | null;
   licence: string[]; // its tags (lab2shot/nodes/tags.py): every node's and choice's in it
   // the one word the card shows for all of them: the strictest (nodes/tags.py strictest). The page prints it and
   // never picks among the tags itself, nor reads it: whether that word means 可商用 is the boolean beside it.
   licence_word: string;
   commercial: boolean;
+  // the best route another choice of its menus gives (the server's least strict route): its word and whether it means
+  // commercial use; the same as licence_word / commercial when no choice does better
+  best_licence_word: string;
+  best_commercial: boolean;
   owner: string; // where its file lives (lab2shot/library.py): "admin" (templates/, the project's presets; an administrator may delete it) or "adapter" (adapters/<name>/templates/, read-only: turn it off or drag it elsewhere)
   adapter: string; // the adapter it came with ("" for a project preset)
   // An administrator may take a template out of use. It is then absent from an ordinary account's list; the
@@ -371,8 +445,9 @@ export interface TemplatesPage {
   problem: string;
 }
 
-/** GET /api/ocio：「色彩空间」下拉的选项及工作空间名称（lab2shot/io/color.py：读入时一律转换到工作空间，输出时再转换出去；
- * 工作空间即屏幕显示所用的 sRGB，因此不设显示设备与视图层级）。 */
+/** GET /api/ocio: the options of the 「色彩空间」 dropdown and the working space's name (lab2shot/io/color.py: everything is
+ * converted into the working space on read and out of it on write; the working space is the sRGB the screen shows, so
+ * there is no display device or view level). */
 export interface OcioInfo {
   name: string;
   colorspaces: string[];

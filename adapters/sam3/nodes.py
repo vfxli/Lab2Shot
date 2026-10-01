@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, measured_param, Job, NodeParams, P, Port, people_port, Segmentation,
+from lab2shot.sdk import (rgb_port, Official, measured_param, Job, NodeParams, P, Port, people_port, Segmentation,
                           Cost, Licence, Not, Wired, Measured)
 
 
@@ -29,7 +29,7 @@ class Segment(Segmentation):
     on_node = ("prompt", "threshold")
     # 按提示词或人物框整段跟踪；它分的是「哪块是这个物体」，不是精细抠像，边是 0 / 1 的选区；
     # 长镜头按物体数自动分段（8 个物体时一段约 800 帧），显存不随镜头变长
-    inputs = (Port("image", "image.3", "RGB"), people_port(optional=True))  # a matte object per person
+    inputs = (rgb_port(), people_port(optional=True))  # a matte object per person
     # 「遮罩」「物体分割」两个输出口由分割家族给（families/segmentation.py）：mask_label 说这个项目选出来的是什么
     mask_label = "遮罩"
     runtime = "sam3"

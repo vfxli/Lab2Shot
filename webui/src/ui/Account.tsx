@@ -21,7 +21,7 @@ export function AccountChip() {
   const logout = useSession((s) => s.logout);
   // where the menu opens (under the chip, its right edge on the chip's): null while it is closed. The site's one Menu
   // (ui/Menu.tsx) floats over the page in fixed coordinates — a layer of this component's own, positioned inside the
-  // top bar, was cut by the bar (its overflow is hidden so a long graph name never pushes the buttons out)
+  // top bar, would be cut by the bar (its overflow is hidden so a long graph name never pushes the buttons out)
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   const [changing, setChanging] = useState(false);
   const user = state?.user;

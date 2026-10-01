@@ -47,9 +47,10 @@ const MENU_TALL = 700;
  * input whose usage checks name a node to put in front of it (「选人」 before a solver's people) is offered that node
  * first, alone and after each node that can feed it (sam_3d_body.detect_people → core.select_people), as 推荐.
  *
- * 管理功能同样位于此处，与模板面板一致：具有节点分类管理权限的登录
- * （由服务器计算的 menu.edit）在同一菜单中可使用以下操作：分类可拖动排序、重命名、删除，每个区底部为「新建分类」；二级分类
- * 标题相同；将节点拖到左栏的分类或右侧的二级分类标题上即归入该分类；「未分类」中为尚未归类的节点。 */
+ * Management lives here too, as in the template panel: a login allowed to manage the node categories (menu.edit, worked
+ * out by the server) gets these operations in the same menu: categories can be dragged to reorder, renamed and deleted,
+ * with 「新建分类」 at the bottom of each band; subcategory headings likewise; dropping a node on a category in the rail
+ * or on a subcategory heading on the right files it there; 「未分类」 holds the nodes not yet filed. */
 export function NodeMenu() {
   const applies = useSession((s) => s.state?.applies);
   const menu = useViewer((s) => s.menu);

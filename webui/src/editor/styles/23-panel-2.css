@@ -1,3 +1,5 @@
+/* 参数面板第二部分：层级树行的细节与分组选择、「数据信息」卡的端口行与数据说明、「提醒」组。 */
+
 .hdetail {
   margin-left: auto;
   padding-left: 12px;
@@ -49,8 +51,8 @@
   color: var(--error);
 }
 
-/* 数据信息: the node's inputs and its outputs, one row each: the port's name, what the
-   result actually is (the server's summary), and 复制到 Nuke where the result carries text for it. */
+/* 数据信息：节点的输入与输出，每个一行：端口名、结果实际是什么（服务器的摘要），结果带有可复制的文字时还有
+   「复制到 Nuke」。 */
 .data-side {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
@@ -105,9 +107,8 @@
   /* 不使用问号光标（节点上同理，见 08a-node.css）。悬停提示仍然存在，由 data-tip 负责，与光标无关 */
 }
 
-/* 提醒: everything the node has to say now, whole (the node's own footer keeps a short word only).
-   The site's one message row (ui/MessageRow.tsx) draws each of them; a sentence may run to a second line, its level
-   square and its code never do. */
+/* 提醒：节点此刻要说的全部内容，完整显示（节点自身的脚注只放一个短词）。
+   每条由全站统一的消息行（ui/MessageRow.tsx）绘制；句子可以折到第二行，级别方块与编号不折行。 */
 .data-notes {
   display: flex;
   flex-direction: column;

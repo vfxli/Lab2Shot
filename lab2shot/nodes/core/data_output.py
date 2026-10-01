@@ -171,6 +171,7 @@ class TracksOutput(OutputSettings):
 
 class CurvesOutput(OutputSettings):
     id = "core.output_curves"
+    version = 2  # 2：USD 里曲线属性名按 lab2shot_shared/names.py 写，原名存在属性的 customData（io/usd.py named_attr）
     category = "out_picture"
     inputs = (Port("curves", "curves", "曲线"),)
     on_node = ("name", "format")
@@ -214,7 +215,7 @@ class CurvesOutput(OutputSettings):
             stage = usd.create_stage(frames, {"curves": len(names)})
             prim = UsdGeom.Xform.Define(stage, f"{usd.ROOT_PATH}/curves").GetPrim()
             for c, n in enumerate(names):
-                attr = prim.CreateAttribute(f"lab2shot:curve:{usd.valid_name(n)}", Sdf.ValueTypeNames.Float)
+                attr = usd.named_attr(prim, f"lab2shot:curve:{n}", Sdf.ValueTypeNames.Float)
                 for f, v in zip(frames, values[:, c]):
                     attr.Set(float(v), f)
             # 帧率仅写入交付文件（nodes/output.py fps_param）：帧号不变，只设置时基
@@ -237,6 +238,7 @@ class NukeCameraOutput(OutputSettings):
         "curves": Writes.no("Nuke 的相机节点里只有相机，没有三维曲线"),
         "skeleton": Writes.no("Nuke 的相机节点里只有相机，没有骨架"),
         "character": Writes.no("Nuke 的相机节点里只有相机，没有角色"),
+        "light": Writes.no("Nuke 的相机节点里只有相机，没有灯光"),
     }
 
     class Params(NodeParams):

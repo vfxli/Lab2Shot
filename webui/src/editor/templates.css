@@ -131,7 +131,8 @@
 
 .tpl-name {
   margin: 0;
-  /* 这一行只有名字：年份在下面那排角标里（贴在角上会压住名字末尾几个字，而名字一行、不许换行也不许截断）。 */
+  /* this row holds the name only: the year sits in the row of badges below (pinned to the corner it would cover the
+     name's last characters, and the name is one line that may neither wrap nor be truncated). */
   display: flex;
   align-items: baseline;
   gap: var(--sp-2);
@@ -155,7 +156,7 @@
   font-size: var(--fs-xs);
   font-weight: 400;
   color: var(--orange-text);
-  /* 不用 cursor: help：停留提示是 data-tip 那一套的事，和光标无关 */
+  /* no cursor: help: hover tips belong to the data-tip mechanism, not to the cursor */
 }
 
 .tpl-intro {
@@ -186,7 +187,7 @@
 }
 
 /* ---------------------------------------------------------------- 我的模板 (editor/MyTemplates.tsx)
-   自己存在服务器上的节点图：和内置模板同一种卡片，下面多一行大小、时间和两个按钮。 */
+   the user's own graphs stored on the server: the same card as a built-in template, plus one row with size, time and two buttons. */
 .lib-card {
   cursor: default;
 }
@@ -217,7 +218,7 @@
   font-size: var(--fs-sm);
 }
 
-/* 录入模板里的「分类」那一行：下拉和「新建分类」并排，下拉占满剩下的宽度 */
+/* the 「分类」 row when entering a template: the dropdown beside 「新建分类」, the dropdown taking the remaining width */
 .lib-pick {
   display: flex;
   align-items: center;
@@ -229,7 +230,7 @@
   min-width: 0;
 }
 
-/* 管模板的登录（editor/Templates.tsx manage）：卡片能拖，二级分类标题是落点，卡片右上角有菜单 */
+/* a login that manages templates (editor/Templates.tsx manage): cards can be dragged, subcategory titles are drop targets, each card has a menu at its top right */
 .tpl-card.managed {
   cursor: grab;
 }
@@ -303,15 +304,22 @@
   overflow-wrap: anywhere;
 }
 
-/* 保存为预设模板时的分类选择：一级与二级两个下拉等宽并排 */
+/* the category choice when saving as a preset template: the first- and second-level dropdowns side by side, equally wide */
 .lib-form .lib-pick > * {
   flex: 1;
   min-width: 0;
 }
 
-/* 表单里的字号大于默认控件：下拉与同一表单的输入框取同样的高度，文字不被裁切 */
+/* the form's font is larger than the default control's: the dropdown takes the same height as the form's input fields so its text is not clipped */
 .lib-form .select-trigger,
 .lib-form input.field {
   height: 34px;
   line-height: 1.3;
+}
+
+/* under the intro: the licence of the default route and the better route another choice gives (Templates.tsx) */
+.tpl-route {
+  margin: 4px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
 }

@@ -11,8 +11,7 @@
  * 画布上的节点不显示悬停提示（platform/tips.ts `[data-no-tips]`），所以这里只有词，没有补充说明：
  * 上传的进度在底行左侧的灰字里（transfer/uploadText.ts uploadNote），计算进度是节点底边的进度条，数字在队列面板里。
  *
- * 缓存账本的活动（预读中 / 解码中）尚未接入：账本的 `doing` 接口确定后在表中增加两行，位于
- * 「本机缓存」之下、「服务器状态」之上。 */
+ * 表中没有缓存账本的活动（预读中 / 解码中）：这两档若加入，位于「本机缓存」之下、「服务器状态」之上。 */
 import type { NodeStatus } from "./graph";
 import type { UploadTask } from "./uploads";
 import type { Output } from "../api/files";
@@ -41,9 +40,9 @@ interface PhaseInput {
   output?: Output;
   /** 服务器报告的状态（`state/results.ts byNode`） */
   status: NodeStatus;
-  /** 该节点的计算进度（`state/results.ts now`）；未在计算时为 null */
+  /** 该节点的计算进度（`state/results.ts running`）；未在计算时为 null */
   progress?: JobProgress | null;
-  /** 存在上一次的结果可用，但参数已修改（`state/stale.ts useStaleNode`）：视图显示该结果，时间线为土黄色 */
+  /** 存在上一次的结果可用，但参数已修改（`editor/GraphNode.tsx useStaleNode`，规则 `state/stale.ts staleNode`）：视图显示该结果，时间线为土黄色 */
   stale?: boolean;
 }
 

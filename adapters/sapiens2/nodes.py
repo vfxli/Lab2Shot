@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 
-from lab2shot.sdk import (Official, UNIT, MissingFrames, Matting, Param, RawOutput, camera_normals, NodeDef, NodeParams, P, Port,
+from lab2shot.sdk import (rgb_port, Official, normal_port, UNIT, MissingFrames, Matting, Param, camera_normals, WorkerNode, NodeParams, P, Port,
                           foreground_entry, fp16_param, frame_maps, Cost, Licence)
 
 LICENSE_NOTE = (
@@ -25,10 +25,11 @@ class _Params(NodeParams):
 def _inputs():
     # 上游两个演示脚本的 argparse 只有 config / checkpoint / --input / --output / --save_pred / --device：
     # 一张画面进、一张结果出，没有框也没有遮罩（official 里各自写了行号）
-    return (Port("image", "image.3", "RGB"),)
+    return (rgb_port(),)
 
 
-class Segment(Matting, NodeDef):
+class Segment(Matting, WorkerNode):
+    missing_frames = MissingFrames.SKIP
     id = "sapiens2.segment"
     # 引的是官方抠像那条演示路径（vis_matting.py）：一张画面进去，一次前向出 4 个通道 —— 前景色 fgr_rgb 和 alpha。
     official = Official(
@@ -64,12 +65,10 @@ class Segment(Matting, NodeDef):
         matte: bool = P(True, label="精细抠像", group="模型")
 
     @classmethod
-    def cook(cls, ctx):
+    def convert(cls, ctx, raw, job):
         import json
 
-
-        image = ctx.input("image")
-        raw = RawOutput(ctx.run_worker(image), MissingFrames.SKIP)
+        image = job.plate
         classes = json.loads(raw.file("classes.json").read_text(encoding="utf-8"))
         maps = {
             "parts": ("image.1", "labels", {"value_range": (0, max(c["index"] for c in classes)), "classes": classes}),
@@ -80,7 +79,8 @@ class Segment(Matting, NodeDef):
         return frame_maps(ctx, raw, image, maps, stage="写出分割和 alpha")
 
 
-class Normal(NodeDef):
+class Normal(WorkerNode):
+    missing_frames = MissingFrames.SKIP
     id = "sapiens2.normal"
     # 引的是官方法线那条演示路径（vis_normal.py）：一张画面进去，单位化的 normal 出来（存成 .npy）。
     official = Official(
@@ -101,7 +101,7 @@ class Normal(NodeDef):
     # 每帧单独算，边缘和部位分界会有轻微闪动；只认人；法线是官方原值（背景处也有值，只是没有意义）
     inputs = _inputs()
     main = "normal"
-    outputs = (Port("normal", "image.3", "法线图", means=("space",)),)
+    outputs = (normal_port(),)
     runtime = "sapiens2"
     # RTX 4090，默认的 1B 模型
     cost = Cost(gpu=True, vram_gb=6.5, seconds_per_frame=0.26)
@@ -111,9 +111,8 @@ class Normal(NodeDef):
         pass
 
     @classmethod
-    def cook(cls, ctx):
-        image = ctx.input("image")
-        raw = RawOutput(ctx.run_worker(image), MissingFrames.SKIP)
+    def convert(cls, ctx, raw, job):
+        image = job.plate
         # OpenCV camera -> GL camera (Z toward the lens)：唯一的那一步转轴（nodes/kit/maps.py）。
         # 第二个参数留空：官方每个像素都有法线，没有「哪里有值」这回事
         return frame_maps(ctx, raw, image, {"normal": camera_normals("normal", "")}, stage="写出法线")

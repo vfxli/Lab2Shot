@@ -18,7 +18,6 @@ the licence text of a file that requires the user's consent, and the user's 同�
 from __future__ import annotations
 
 from fastapi import Request
-from pydantic import BaseModel
 
 from ..errors import Invalid, Unavailable
 from ..extensions import get_extension, manual
@@ -27,8 +26,9 @@ from ..installer import Live, TaskSink, install, plan, previous, rollback, unins
 from ..installer.preflight import preflight
 from ..messages import Msg
 from . import auth
-from .farm import admin
-from .routes import Access
+from .routes import Access, Body, Router
+
+admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])  # this module's admin routes (app.py includes each module's)
 
 
 def _title(name: str) -> str:
@@ -170,7 +170,7 @@ def _refuse_while_installing(ext) -> None:
         raise Unavailable(Msg("N-INSTALL-QUEUED", title=ext.title))
 
 
-class Start(BaseModel):
+class Start(Body):
     name: str
     force: bool = False  # rerun every step into a fresh environment next to the live one
 
@@ -264,7 +264,7 @@ def manual_licence(file: str) -> dict:
     return manual.licence(file)  # ManualError (a MessageError) names the file and the reason
 
 
-class Accept(BaseModel):
+class Accept(Body):
     file: str  # file name in the inbox
     licence: str  # sha256 of the licence text shown to the user
     client: dict = {}  # client that submitted the consent (see lab2shot/farm/clients.py)

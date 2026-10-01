@@ -6,30 +6,27 @@ touches nothing in work/.
 
     official     every third-party node's declared ports refer to real ports/params, and every upstream symbol it
                  cites is found in the cited lines (nodes/official.py)
-    nodes        every node shows at most ON_NODE_MAX parameters on its body, each a real parameter (nodes/params.py)
+    nodes        every node shows at most ON_NODE_MAX parameters on its body, each a real parameter (nodes/params.py);
+                 its button parameters are named apart from its parameters and each other, and hold no value
+    workers      every extension node runs its worker through WorkerNode (or its family), an import or an output
+                 setting, and no extension class overrides cook
     categories   the two category trees and the node placements read and agree (lab2shot/categories.py)
     messages     every message code the Python code uses exists in a catalogue; the page's generated catalogues
                  are up to date (tools/messages_web.py --check); every .short fits a node's bottom line
     templates    every card loads, wires only existing node types/ports/params, passes the graph checks except
-                 for the inputs a user must fill, and its meta matches the rules
+                 for the inputs a user must fill, its parameter interface (exposed) reads, it keeps the conventions of
+                 templates/_conventions.md (engine/conventions.py), and its meta matches the rules
     channels     the channel-name mapping for pictures referenced as they are (view/frames.py channel_in_file)
-    cache        dependency recording and the validity judgement of the packet cache (data/packet.py), and that
-                 every account's cache is its own
-    identity     an address naming the current generation is cached long, one naming another is 404, one naming
-                 none is not cached long (server/wire.py versioned)
     deletion     cache entries are deleted in exactly one place (data/packet.py remove); every other rmtree in the
                  code is on a known list of non-cache folders
-    routes       every route declares its access, admin routes are admin-only, and the page entry list holds only
-                 pages that exist
-    places       the viewer's placement matrix (webui/src/model/places.ts) equals the cook's (nodes/handles.py Places)
-    people       the viewer's person-pick rule (webui/src/model/people.ts) picks whom the cook's (ops at_point) picks
     releases     the release notes (CHANGELOG.toml) read: an https address, every version complete, newest first,
                  no name twice (lab2shot/releases.py)
+    imports      every `from lab2shot... import name`, the ones inside functions too, names something that is there
+    empties      every output a node's code gives empty by name declares may_be_empty (nodes/port.py)
 """
 
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 import sys
@@ -55,6 +52,9 @@ RMTREE_ALLOWED = {
 # fresh_dir (a packet folder about to be written) is called under the entry's lock only: by a cook on its outputs and by
 # data/packet.py produce(); anyone else writes a packet through produce()
 FRESH_DIR_ALLOWED = {"lab2shot/data/packet.py", "lab2shot/engine/cook.py"}
+# route parameters that name one account's data (a packet, a job, a task, a template): a user route with one declares
+# whose it is (owned=, server/owners.py)
+OWNED_PARAMS = {"fp", "job_id", "task_id", "gid"}
 # graph checks a fresh card is allowed to fail: the inputs a user fills before submitting
 TEMPLATE_WAITS = ("B-READ-", "B-IMPORT-", "B-WIRE-WAIT")
 
@@ -115,7 +115,10 @@ def check_official(r: Report) -> None:
 
 def check_nodes(r: Report) -> None:
     """Every node's 「shown on the body」 list keeps to its limit: at most ON_NODE_MAX parameters (nodes/params.py), and
-    each names a real parameter of the node (a typo would silently show nothing)."""
+    each names a real parameter of the node (a typo would silently show nothing). Its button parameters
+    (nodes/params.py Button, NodeDef.interface_specs: its own, 「在视图里点选」, 「计算」) are named apart from its
+    parameters and from each other (an exposed one is found by name) and hold no value: an action, no default, not in
+    the fingerprint, not sent to the worker."""
     from ..nodes.params import ON_NODE_MAX
     from ..nodes.registry import node_types
 
@@ -123,9 +126,71 @@ def check_nodes(r: Report) -> None:
         params = {p["name"] for p in node.param_specs()}
         if len(node.on_node) > ON_NODE_MAX:
             r.bad(f"on_node {tid}: 节点体上放了 {len(node.on_node)} 个参数，超过 {ON_NODE_MAX}（{'、'.join(node.on_node)}）")
-        if unknown := [p for p in node.on_node if p not in params]:
+        # 节点体上默认显示的可以是参数，也可以是按钮参数（「输出」的「下载」）
+        if unknown := [p for p in node.on_node if p not in {s["name"] for s in node.interface_specs()}]:
             r.bad(f"on_node {tid}: {unknown} 不是该节点的参数")
-    r.ok(f"on_node：{len(node_types())} 个节点体上的参数都不超过 {ON_NODE_MAX} 个")
+        # 按钮参数（nodes/params.py Button）：名字不和参数重、彼此不重（公开时 target 按名字找），且只有动作、没有值
+        buttons = [b for b in node.interface_specs() if b["widget"] == "button"]
+        names = [b["name"] for b in buttons]
+        if clash := sorted(set(names) & params) + sorted({n for n in names if names.count(n) > 1}):
+            r.bad(f"buttons {tid}: 按钮名 {clash} 和参数或别的按钮重名")
+        if bad := [b["name"] for b in buttons if not b.get("action") or b["default"] is not None or b["affects_result"] or b["worker"]]:
+            r.bad(f"buttons {tid}: 按钮 {bad} 要有动作、没有值、不进指纹和 worker")
+    r.ok(f"on_node：{len(node_types())} 个节点体上的参数都不超过 {ON_NODE_MAX} 个；按钮参数不和参数重名、没有值")
+    # 画面还是数值（Port.data）：三或四通道、或任意通道的图像输入口必须说清楚收哪一种（False 画面 / True 数值 /
+    # EITHER 都收），不按缺省猜，否则数值图和照片会混接而无法报错；
+    # 一或两通道的口由类型定为数值，不能声明成只收画面
+    from ..nodes.port import kind_declaration
+
+    undeclared, contrary = [], []
+    for tid, node in sorted(node_types().items()):
+        for p in node.inputs:
+            said = kind_declaration(p)
+            if said == "undeclared":
+                undeclared.append(f"{tid}.{p.name}")
+            elif said == "contrary":
+                contrary.append(f"{tid}.{p.name}")
+    if undeclared:
+        r.bad(f"data: 图像输入口没说收画面还是数值（Port.data：False / True / EITHER）：{undeclared}")
+    if contrary:
+        r.bad(f"data: 一或两通道的输入口声明成只收画面：{contrary}")
+    if not undeclared and not contrary:
+        r.ok("data：每个三 / 四通道和任意通道的图像输入口都声明了收画面、数值还是都收")
+    # 每种数据类型（连同它的上级类型）在包的说明书表里都有一行（data/contracts.py META）：缺一行时，这种包一算出来
+    # 核对就 KeyError，整个计算中断，而不是报在节点上
+    from ..data.contracts import META, lineage
+    from ..data.types import DATA_TYPES
+
+    if missing := sorted({t for d in DATA_TYPES for t in lineage(d) if t not in META}):
+        r.bad(f"contracts: 数据类型 {missing} 在 data/contracts.py META 里没有说明书行")
+    else:
+        r.ok(f"contracts：{len(DATA_TYPES)} 种数据类型都有说明书行")
+
+
+def check_workers(r: Report) -> None:
+    """An extension's node runs its worker through one template: WorkerNode (prepare -> worker -> convert; families
+    inherit it), or the two framework families that run workers their own way — an import (formats.py ImportNode:
+    the file's scene arrays) and an output setting (nodes/output.py OutputSettings: write()). No class an extension
+    defines overrides cook: a second way to run a worker would skip missing-frame handling, streaming and the
+    lens record (nodes/families/base.py)."""
+    from ..nodes.core import CORE_NODES
+    from ..nodes.families.base import WorkerNode
+    from ..nodes.formats import ImportNode
+    from ..nodes.output import OutputSettings
+    from ..nodes.registry import node_types
+
+    core = {n.id for n in CORE_NODES}
+    count = 0
+    for tid, t in sorted(node_types().items()):
+        if tid in core:
+            continue
+        count += 1
+        if not issubclass(t, (WorkerNode, ImportNode, OutputSettings)):
+            r.bad(f"workers {tid}: 接入层节点要继承 WorkerNode（或它的家族）、ImportNode 或 OutputSettings，现在是 {t.__mro__[1].__name__}")
+        own = [c.__name__ for c in t.__mro__ if c.__module__.startswith("adapters.") and "cook" in vars(c)]
+        if own:
+            r.bad(f"workers {tid}: 接入层的类不重写 cook（{'、'.join(own)}）：发什么写在 prepare，读回写在 convert")
+    r.ok(f"workers：{count} 个接入层节点都经 WorkerNode / 导入 / 输出设置跑 worker，没有自己重写 cook")
 
 
 def check_categories(r: Report) -> None:
@@ -163,7 +228,7 @@ def check_categories(r: Report) -> None:
         r.info(f"categories nodes: {len(loose)} 个节点未分类（可在菜单中拖放到分类上）：{'、'.join(loose[:8])}{'……' if len(loose) > 8 else ''}")
     from ..nodes import text
 
-    for p in text.problems():
+    for p in [*text.problems(), *text.limit_problems()]:
         r.bad(f"categories 节点文字: {p}")
     missing = sorted(t for t, cls in types.items() if not text.entries(text.file_for(cls)).get(t, {}).get("label"))
     if missing:
@@ -215,8 +280,57 @@ def check_templates(r: Report) -> None:
     from ..errors import MessageError
     from ..nodes.registry import node_types
 
+    from ..engine import conventions
+    from ..library import TEMPLATES_DIR
+
     types = node_types()
     cards = T.templates()
+    # the conventions for people (templates/_conventions.md), checked where a graph can tell (engine/conventions.py)
+    rules = conventions.read_table(TEMPLATES_DIR / "_conventions.md") if (TEMPLATES_DIR / "_conventions.md").is_file() else None
+    prefixes = conventions.read_prefixes(TEMPLATES_DIR / "_conventions.md") if rules is not None else []
+    for said in conventions.table_problems(rules) if rules is not None else ():  # a row that would check nothing
+        r.bad(f"templates: {said}")
+    # how a row of several names is read: 「a / b」 against one group of targets each, else said (a sample table)
+    with tempfile.TemporaryDirectory() as tmp:
+        sample = Path(tmp) / "t.md"
+        sample.write_text("| 名 | 义 | 目标 | 备注 |\n|---|---|---|---|\n"
+                          "| `a` / `b` | | `core.math.operation` / `core.value_int.value` `unit` | |\n"
+                          "| `c` / `d` | | `core.math.operation` `core.value_int.value` | |\n", encoding="utf-8")
+        got = conventions.read_table(sample)
+        if (got["a"]["targets"], got["b"]["targets"]) != ({("core.math", "operation")}, {("core.value_int", "value"), ("core.value_int", "unit")}) \
+                or not got["c"]["unpaired"] or got["a"]["unpaired"]:
+            r.bad(f"templates: 固定名表的「名字 / 名字」对「目标组 / 目标组」读错了：{got}")
+        # rules 1 / 2 and a menu's meanings, on a sample card: the core node is 「数学」's project (core); an
+        # unprefixed name on another project's node is said, a prefixed or table one is not; a value meaning something
+        # else than the table says is said, a card the notes name as the exception is not
+        sample.write_text("**通则**\n1. 不带前缀\n2. 辅助节点加前缀：`aux_`\n\n| 名 | 义 | 目标 | 备注 |\n|---|---|---|---|\n"
+                          "| `src` | 来源 | `core.value_int.value` | 1 甲 / 2 乙（Odd 例外：2 = 丙） |\n", encoding="utf-8")
+        s_table, s_prefixes = conventions.read_table(sample), conventions.read_prefixes(sample)
+        aux = next(t for t in types.values() if t.runtime != "core" and "width" not in {p["name"] for p in t.param_specs()}
+                   and len(t.param_specs()) >= 2)
+        a1, a2 = [p["name"] for p in aux.param_specs()][:2]
+        card = {"meta": {"name": "样卡", "project": "core"},
+                "nodes": [{"id": "v", "type": "core.value_int", "params": {}}, {"id": "m", "type": "core.math", "params": {}},
+                          {"id": "c", "type": aux.id, "params": {}}],
+                "edges": [],
+                "exposed": [{"name": "src", "target": "v.value", "widget": "menu", "options": [{"value": 1, "label": "甲"}, {"value": 2, "label": "丙"}]},
+                            {"name": "operation", "target": "m.operation"}, {"name": f"aux_{a1}", "target": f"c.{a1}"}, {"name": a2, "target": f"c.{a2}"}]}
+        types_of = {n["id"]: types[n["type"]] for n in card["nodes"]}
+        said = conventions._prefixed(card, card["exposed"], types_of, s_table, s_prefixes) + conventions._meanings(card, card["exposed"], s_table)
+        odd = conventions._meanings({**card, "meta": {"name": "Odd 卡"}}, card["exposed"], s_table)
+        if len(said) != 2 or a2 not in said[0] or "丙" not in said[1] or odd:
+            r.bad(f"templates: 通则 1 / 2 或菜单取值含义的判定不对：{said}；例外卡 {odd}")
+        # 「<内容>_name」 passes only as an output-settings node's name (rule 4): on another node's parameter it is judged
+        # by rules 1 / 2 (a node's character name is no delivery's)
+        sample.write_text("**通则**\n2. 辅助节点加前缀：`aux_`\n4. 同类输出两个以上时按内容 `<内容>_name`\n", encoding="utf-8")
+        named = conventions.read_prefixes(sample)
+        writer = next(t for t in types.values() if "name" in {p["name"] for p in t.param_specs()} and t.id.startswith("core.output_"))
+        card2 = {"meta": {"name": "样卡", "project": "core"},
+                 "nodes": [{"id": "o", "type": writer.id, "params": {}}, {"id": "c", "type": aux.id, "params": {}}], "edges": [],
+                 "exposed": [{"name": "plate_name", "target": "o.name"}, {"name": f"{a2}_name", "target": f"c.{a2}"}]}
+        got = conventions._prefixed(card2, card2["exposed"], {n["id"]: types[n["type"]] for n in card2["nodes"]}, {}, named)
+        if len(got) != 1 or f"{a2}_name" not in got[0]:
+            r.bad(f"templates: 「<内容>_name」只应放行输出设置的 name：{got}")
     for t in cards:
         data = t["graph"]
         name = t["name"]
@@ -241,12 +355,35 @@ def check_templates(r: Report) -> None:
                     r.bad(f"templates {name}: 节点 {n['id']}：{exc}")
             except Exception as exc:  # noqa: BLE001
                 r.bad(f"templates {name}: 节点 {n['id']} 检查时抛出异常：{type(exc).__name__}: {exc}")
+        for m in T.check_exposed(data):  # 参数界面（exposed 树）：结构、目标参数、控件、下拉的值、条件
+            r.bad(f"templates {name}: {m.text}")
+        for said in T.route_problems(data, TEMPLATE_WAITS):  # 每个公开选择的取值下（与 route_tags 同一枚举）都能读图、规划
+            r.bad(f"templates {name}: {said}")
+        for said in T.menu_routes(data):  # 驱动切换的下拉：每个取值都落在切换的某一路上
+            r.bad(f"templates {name}: {said}")
+        for said in conventions.problems(data, rules, prefixes) if rules is not None else ():  # 对外参数名与按钮的约定
+            r.bad(f"templates {name}: {said}")
+        # a declared main project (meta.project, templates.core_project) is one of the card's own nodes' projects
+        if (declared := (data.get("meta") or {}).get("project")) is not None and declared not in {
+                types[n["type"]].runtime for n in data["nodes"] if n["type"] in types}:
+            r.bad(f"templates {name}: meta.project={declared!r} 不是卡上任何节点的项目")
+        # the card's name and intro fit what the library takes when an administrator saves one (library.NAME_CHARS /
+        # TEXT_CHARS): a file written by hand is held to the same, or saving it again from the page would refuse it
+        from .. import library
+
+        for what, text, most in (("名字", t["name"], library.NAME_CHARS), ("简介", t["intro"], library.TEXT_CHARS)):
+            if len(text) > most:
+                r.bad(f"templates {name}: {what} {len(text)} 个字，超过 {most}")
         if t.get("deliverable") and not t.get("category"):
             r.bad(f"templates {name}: meta.deliverable={t.get('deliverable')!r}，模板树中没有该分类（卡将显示在「未分类」中）")
+    for said in T.shared_interfaces([(t["name"], t["graph"]) for t in cards]):  # 同一块参数在各卡上一致（NodeDef.same_on_cards）
+        r.bad(f"templates {said}")
     loose = [t["name"] for t in cards if not t.get("deliverable")]
     if loose:
         r.info(f"templates: {len(loose)} 张卡未分类：{'、'.join(loose[:6])}{'……' if len(loose) > 6 else ''}")
-    r.ok(f"templates：{len(cards)} 张卡的节点、参数、连线与分类")
+    if rules is None:
+        r.info("templates: 没有 templates/_conventions.md，这次不查对外参数名的约定")
+    r.ok(f"templates：{len(cards)} 张卡的节点、参数、连线、参数界面{'、对外参数名约定' if rules is not None else ''}与分类")
 
 
 def check_channels(r: Report) -> None:
@@ -260,76 +397,6 @@ def check_channels(r: Report) -> None:
         if got != want:
             r.bad(f"channels: 文件 {have} 请求 {name} → {got!r}，应为 {want!r}")
     r.ok(f"channels：{len(cases)} 种通道映射")
-
-
-def check_cache(r: Report) -> None:
-    from ..data import packet
-    from ..data.store import Store, using
-    from ..serving import Account, serving
-
-    # a scratch store (never the work folder), as account 1: every cache is an account's own (data/store.py)
-    with tempfile.TemporaryDirectory() as tmp, using(Store(Path(tmp) / "work", Path(tmp) / "data")), serving(Account(1)):
-        root = packet.cache_root()
-        root.mkdir(parents=True)
-        a, b, c = (root / ("a" * 24)), (root / ("b" * 24)), (root / ("c" * 24))
-        for d in (a, b, c):
-            d.mkdir()
-        src = Path(tmp) / "src.txt"  # outside the cache directory: a file inside the cache would be recorded as another packet
-        src.write_text("x")
-        # dependency recording: files as a dict, a list, or with path are all accepted; files of other packets
-        # are recorded as packets; plate is soft. References are relative to the packet's folder (file_ref)
-        src_ref = packet.file_ref(a, src)
-        deps = packet.deps_of(a, {"files": {"1": src_ref}, "plate": "p" * 24}, record=True)
-        if [f["ref"] for f in deps["files"]] != [src_ref] or deps["soft"] != ["p" * 24]:
-            r.bad(f"cache: deps_of 对字典写法的记录有误：{deps}")
-        deps = packet.deps_of(a, {"files": [src_ref, {"path": packet.file_ref(a, b / "f.exr")}]}, record=True)
-        if deps["packets"] != ["b" * 24] or len(deps["files"]) != 1:
-            r.bad(f"cache: deps_of 对列表写法的记录有误：{deps}")
-        # validity: a dependency folder present without .complete is being written and stays valid; a missing
-        # folder invalidates; a changed file invalidates
-        (a / packet.COMPLETE).touch()
-        (a / packet.MANIFEST).write_text(json.dumps({"deps": {"files": [], "packets": ["b" * 24], "soft": []}}))
-        if not packet.check(a).ok:
-            r.bad("cache: 依赖包正在写入（文件夹存在但无 .complete）时，下游被误判为作废")
-        b.rmdir()
-        v = packet.check(a)
-        if v.ok or v.why != "packet":
-            r.bad(f"cache: 依赖包缺失时应判定为 packet 作废，实际得到 {v}")
-        st = src.stat()
-        (c / packet.COMPLETE).touch()
-        (c / packet.MANIFEST).write_text(json.dumps({"deps": {"files": [{"ref": packet.file_ref(c, src), "size": st.st_size, "mtime": int(st.st_mtime)}], "packets": [], "soft": []}}))
-        if not packet.check(c).ok:
-            r.bad("cache: 外部文件未变化却被判定为作废")
-        src.write_text("xy")
-        if packet.check(c).ok:
-            r.bad("cache: 外部文件已变化（大小）却仍被判定为有效")
-        if packet.check(root / ("d" * 24)).why != "missing":
-            r.bad("cache: 不存在的包应判定为 missing")
-        # a packet can be written, committed and read back as valid: this pins the full round trip. A structural
-        # error in packet.py (e.g. a misindented Packet.commit becoming an inner function of another function)
-        # passes compilation and every other check while every cook fails at commit; only this check catches it
-        e = packet.fresh_dir("e" * 24)
-        made = packet.Packet(e, "value.float", {"value": 1.0}).commit("check")
-        if not (isinstance(made, packet.Packet) and packet.valid(e) and packet.Packet.load(e).type == "value.float"):
-            r.bad("cache: 包在 commit 之后无法读回或被判定为无效")
-        got = packet.produce("f" * 24, lambda d: packet.Packet(d, "value.float", {"value": 2.0}).commit("check"))
-        if not (packet.valid(root / ("f" * 24)) and got.meta.get("value") == 2.0):
-            r.bad("cache: produce() 未完整写入包")
-        # every account has a cache of its own: another account never sees these entries, and work done for no
-        # account in particular (ANYONE: the command line, a tool) has no cache at all rather than a guessed one
-        with serving(Account(2)):
-            if packet.cache_root() == root or packet.packet_dir("f" * 24).exists():
-                r.bad("cache: 另一个账号看到了这个账号的缓存（缓存必须按账号分开）")
-        from ..data.store import NoAccount
-        from ..serving import ANYONE
-
-        with serving(ANYONE):
-            try:
-                packet.cache_root()
-                r.bad("cache: 没有指明账号时不应有缓存位置（不能替它猜一个账号）")
-            except NoAccount:
-                pass
-    r.ok("cache：依赖记录与有效性判定、按账号分开")
 
 
 def check_deletion(r: Report, root: Path) -> None:
@@ -355,30 +422,39 @@ def check_deletion(r: Report, root: Path) -> None:
 
 
 # A function of one of the page's own TypeScript files, run by Node on arguments given as JSON (one list of arguments per
-# case): the file is turned into JavaScript by the page's own build tool (vite, installed by npm ci), so any Node the
-# page supports runs it. The file must import nothing (webui/src/model/places.ts, model/people.ts)
-_WEB_JS = """
-import { readFileSync } from "node:fs";
+# case): the file, and the page's own files it imports by relative path (model/places.ts uses model/math3d.ts), are
+# turned into JavaScript by the page's own build tool (vite, installed by npm ci) into a temporary folder, so any Node
+# the page supports runs them. Such a file must import only other pure page files (no packages).
+_WEB_JS = r"""
+import { readFileSync, writeFileSync, mkdtempSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve, relative } from "node:path";
+import { pathToFileURL } from "node:url";
 import { transformWithOxc } from "vite";
 const [file, name, cases] = [process.argv[1], process.argv[2], JSON.parse(process.argv[3])];
-const { code } = await transformWithOxc(readFileSync(file, "utf8"), file, { lang: "ts" });
-const mod = await import("data:text/javascript;base64," + Buffer.from(code).toString("base64"));
+const src = resolve(dirname(file), "..");
+const out = mkdtempSync(join(tmpdir(), "l2s-web-"));
+const done = new Set();
+async function emit(path) {
+  if (done.has(path)) return;
+  done.add(path);
+  const { code } = await transformWithOxc(readFileSync(path, "utf8"), path, { lang: "ts" });
+  const deps = [...code.matchAll(/from\s+["'](\.{1,2}\/[^"']+)["']/g)].map((m) => m[1]);
+  const fixed = code.replace(/from\s+["'](\.{1,2}\/[^"']+)["']/g, (_, p) => `from "${p}.mjs"`);
+  const to = join(out, relative(src, path)).replace(/\.ts$/, ".mjs");
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(dirname(to), { recursive: true });
+  writeFileSync(to, fixed);
+  for (const d of deps) {
+    const next = resolve(dirname(path), d + ".ts");
+    if (existsSync(next)) await emit(next);
+  }
+}
+await emit(resolve(file));
+const mod = await import(pathToFileURL(join(out, relative(src, resolve(file)).replace(/\.ts$/, ".mjs"))).href);
 console.log(JSON.stringify(cases.map((args) => mod[name](...args))));
 """
 
-
-def _run_web(root: Path, file: str, name: str, cases: list) -> list | str:
-    """`name` of webui/src/`file` on each case's arguments: its answers, or why it did not run (a message)."""
-    import shutil
-
-    node = shutil.which("node")
-    if node is None:
-        return "没有找到 node（网页构建也需要它）"
-    got = subprocess.run([node, "--input-type=module", "-e", _WEB_JS, str(root / "webui" / "src" / file), name, json.dumps(cases)],
-                         capture_output=True, text=True, cwd=root / "webui")
-    if got.returncode != 0:
-        return (got.stdout + got.stderr).strip()[:300]
-    return json.loads(got.stdout)
 
 # placements the check runs: translations (cm), rotations about each axis alone and all three (degrees, also past 180
 # and negative, where an order mistake shows), scales
@@ -386,37 +462,6 @@ _PLACED = [((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 1.0), ((12.5, -3.0, 250.0), (0.0, 
            ((0.0, 0.0, 0.0), (30.0, 0.0, 0.0), 1.0), ((0.0, 0.0, 0.0), (0.0, -45.0, 0.0), 1.0),
            ((0.0, 0.0, 0.0), (0.0, 0.0, 190.0), 1.0), ((5.0, 6.0, 7.0), (10.0, 20.0, 30.0), 1.0),
            ((-100.0, 20.0, 3.5), (-75.0, 135.0, -60.0), 2.5), ((1.0, 2.0, 3.0), (89.9, 0.1, -179.0), 0.4)]
-
-
-def check_places(r: Report, root: Path) -> None:
-    """The transform handle's matrix is written twice: the cook's (nodes/handles.py Places.matrix, data/scene.py
-    trs_matrix) and the viewer's, which shows what the handle places while it is dragged and before 计算
-    (webui/src/model/places.ts placeMatrix). Both run here on the same parameters for every node that places what it
-    gives; they must agree, or a result would land elsewhere than the display showed."""
-    import numpy as np
-
-    from ..nodes.registry import node_types
-
-    cases, want, names = [], [], []
-    for tid, t in sorted(node_types().items()):
-        if t.places is None:
-            continue
-        pl = t.places
-        for translate, rotate, scale in _PLACED:
-            params = {pl.translate: list(translate), pl.rotate: list(rotate), **({pl.scale: scale} if pl.scale else {})}
-            cases.append([pl.placement(), params])
-            want.append(pl.matrix(params))
-            names.append(f"{tid} {params}")
-    got = _run_web(root, "model/places.ts", "placeMatrix", cases)
-    if isinstance(got, str):
-        r.bad(f"places: 视图的变换矩阵没能运行：{got}")
-        return
-    for name, m, flat in zip(names, want, got):
-        # placeMatrix is column-major (three.js Matrix4.fromArray order)
-        diff = float(np.max(np.abs(np.asarray(flat, np.float64).reshape(4, 4).T - m)))
-        if diff > 1e-9:
-            r.bad(f"places: {name}：视图的变换矩阵与计算的不一致（最大差 {diff:.3g}）")
-    r.ok(f"places：{len(cases)} 组参数下视图与计算的变换矩阵一致（{len({n.split()[0] for n in names})} 种放置节点）")
 
 
 # people boxes (x1, y1, x2, y2 per frame) and clicks [frame, x, y] the check runs: overlapping boxes (the smaller wins),
@@ -435,65 +480,55 @@ _CLICKS = [[0, 200, 250], [0, 110, 120], [0, 300, 500], [0, 675, 175], [1, 675, 
            [4, 330, 450], [6, 330, 450], [5, 1000, 1000]]
 
 
-def check_people(r: Report, root: Path) -> None:
-    """The rule of which person a click picks is written twice: the cook's (「选人」 in 点选 mode runs ops people.select,
-    rule at_point, lab2shot/ops/run.py) and the viewer's, which accepts a click, lights the person under the pointer and
-    lights the picked people before 计算 (webui/src/model/people.ts personAt). Both run here on the same boxes and clicks
-    and must give the same person (or none) for every click."""
-    from ..ops import run as run_op
+class _AllPlaces:
+    """Resources for the engine cases: every node gets a place at once (no GPU, never expired)."""
 
-    got = _run_web(root, "model/people.ts", "personAt", [[{"people": _PEOPLE}, f, {"x": x, "y": y}] for f, x, y in _CLICKS])
-    if isinstance(got, str):
-        r.bad(f"people: 视图的点选规则没能运行：{got}")
-        return
-    for (f, x, y), web in zip(_CLICKS, got):
-        picked = run_op("people.select", {"items": _PEOPLE, "rule": "at_point", "picks": [[f, x, y]]})["indices"]
-        server = _PEOPLE[picked[0]]["id"] if picked else None
-        if web != server:
-            r.bad(f"people: 第 {f} 帧点在 ({x}, {y})：视图选 {web}，计算选 {server}")
-    r.ok(f"people：{len(_CLICKS)} 次点选中视图与计算选中的人一致")
+    class _Ticket:
+        granted, gpu, gpu_name, expired = True, "", "", None
 
+    def ask(self, need, stop, woken):
+        woken()
+        return self._Ticket()
 
-def check_identity(r: Report) -> None:
-    """Address identity (server/wire.py versioned): a matching generation is immutable, a mismatching one is 404, and
-    none is served without long-term caching."""
-    from types import SimpleNamespace
-
-    from ..errors import NotFound
-    from ..server import wire
-
-    p = SimpleNamespace(created="2026-09-26T10:00:00")
-    if wire.versioned(p, "2026-09-26T10:00:00") is not True:
-        r.bad("identity: 代次一致时应可长期缓存")
-    if wire.versioned(p, "") is not False:
-        r.bad("identity: 未携带代次的地址不应长期缓存")
-    try:
-        wire.versioned(p, "2026-01-01T00:00:00")
-        r.bad("identity: 代次不一致时应返回 404")
-    except NotFound:
+    def done(self, ticket) -> None:
         pass
-    r.ok("identity：地址代次规则")
 
 
-def check_routes(r: Report) -> None:
-    from ..server import app as server_app  # noqa: F401 (registers all routes)
-    from ..server import access, routes
+def check_imports(r: Report, root: Path) -> None:
+    """Every `from lab2shot... import name` in lab2shot/ names something that module has, the ones inside functions
+    too: a name removed from a module is otherwise found only when that function first runs (a route that answers 500)."""
+    import ast
+    import importlib
 
     n = 0
-    for key, acc in routes.DECLARED.items():
-        n += 1
-        method, _, path = key.partition(" ")
-        if path.startswith("/api/admin") and acc.level != "admin":
-            r.bad(f"routes: {key} 位于 /api/admin 下但不是 admin 级（{acc.level}）")
-        if path.startswith("/api/") and acc.level == "page":
-            r.bad(f"routes: {key} 是接口但被声明为页面")
-    for page in ("/", "/admin", "/admin/x"):
-        if not access.PAGE_ENTRY.match(page):
-            r.bad(f"routes: 页面入口应放行 {page}")
-    for page in ("/help", "/developer", "/datasets"):
-        if access.PAGE_ENTRY.match(page):
-            r.bad(f"routes: 页面入口仍放行已删除的 {page}")
-    r.ok(f"routes：{n} 条路由的访问级别与页面入口")
+    for f in sorted((root / "lab2shot").rglob("*.py")):
+        rel = f.relative_to(root)
+        module = ".".join(rel.with_suffix("").parts)
+        package = module.removesuffix(".__init__") if f.name == "__init__.py" else module.rsplit(".", 1)[0]
+        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if node.level:
+                base = package.split(".")[: len(package.split(".")) - node.level + 1]
+                target = ".".join(base + ([node.module] if node.module else []))
+            else:
+                target = node.module or ""
+            if not target.startswith("lab2shot"):
+                continue
+            try:
+                found = importlib.import_module(target)
+            except Exception as exc:  # noqa: BLE001 (reported)
+                r.bad(f"imports {rel}:{node.lineno}: 导入 {target} 失败：{type(exc).__name__}: {exc}")
+                continue
+            for alias in node.names:
+                n += 1
+                if alias.name == "*" or hasattr(found, alias.name):
+                    continue
+                try:
+                    importlib.import_module(f"{target}.{alias.name}")
+                except ImportError:
+                    r.bad(f"imports {rel}:{node.lineno}: {target} 里没有 {alias.name}")
+    r.ok(f"imports：lab2shot 里 {n} 个 from … import 的名字（含函数里延迟导入的）都存在")
 
 
 def check_releases(r: Report) -> None:
@@ -510,16 +545,45 @@ def check_releases(r: Report) -> None:
         r.ok(f"releases：{releases.FILE.name} 的 {len(notes.releases)} 个版本（最新：{notes.releases[0]['name']} {notes.releases[0]['date']}）")
 
 
+def check_empties(r: Report) -> None:
+    """Every output a node type's code gives empty by name (empty_packet(ctx, "port") in its class) declares
+    may_be_empty: the engine and the page treat such a port so (no N-COOK-NOTHINGIN downstream, the parameter it
+    drives left editable); a port given empty by a name worked out at run time is held to the same by empty_packet
+    itself when the cook gives it."""
+    import inspect
+    import re
+
+    from ..nodes.applies import all_outputs
+    from ..nodes.registry import node_types
+
+    gives = re.compile(r"empty_packet\(\s*[\w.]+\s*,\s*[\"']([^\"']+)[\"']")
+    bad, seen = [], 0
+    for type_id, t in sorted(node_types().items()):
+        try:
+            source = inspect.getsource(t)
+        except (OSError, TypeError):
+            continue
+        declared = {p.name: p for p in all_outputs(t)}
+        for port in sorted(set(gives.findall(source))):
+            seen += 1
+            if port in declared and not declared[port].may_be_empty:
+                bad.append(f"{type_id}.{port}")
+    if bad:
+        r.bad(f"empties: 这些输出在计算里会给空包却没有声明 may_be_empty：{'、'.join(bad)}")
+    else:
+        r.ok(f"empties：节点代码里按名字给空包的 {seen} 个输出都声明了 may_be_empty")
+
+
 # ------------------------------------------------------------------ the command
 
 
-CHECKS = ("official", "nodes", "categories", "messages", "templates", "channels", "cache", "identity", "deletion", "routes", "places", "people", "releases")
+CHECKS = ("official", "nodes", "workers", "categories", "messages", "templates", "channels", "deletion", "imports", "releases", "empties")
 
 
 @app.command()
 def check(only: str = typer.Argument("", help="仅运行指定的一项：" + "、".join(CHECKS))) -> None:
-    """项目的不变量检查：端口与引文、节点体参数、分类、消息编号、模板、通道映射、缓存判定、地址代次、删除入口、路由权限、
-    变换手柄与选人在网页和计算两处的同一规则、更新说明。修改代码后应运行；耗时为秒级，不修改 work/。"""
+    """项目的静态不变量检查：端口与引文、节点体参数、分类、消息编号、模板、通道映射、删除入口、导入的名字都存在、更新说明。
+    修改代码后应运行；耗时为秒级，不修改 work/。"""
     from ..config import ROOT
 
     wanted = [only] if only else list(CHECKS)
@@ -531,7 +595,7 @@ def check(only: str = typer.Argument("", help="仅运行指定的一项：" + "�
     for name in wanted:
         fn = globals()[f"check_{name}"]
         try:
-            fn(r, ROOT) if name in ("messages", "deletion", "places", "people") else fn(r)
+            fn(r, ROOT) if name in ("messages", "deletion", "imports") else fn(r)
         except Exception as exc:  # noqa: BLE001 (a check that fails to run is also reported as a problem)
             r.bad(f"{name}: 检查未能完成：{type(exc).__name__}: {exc}")
     for line in r.checked:

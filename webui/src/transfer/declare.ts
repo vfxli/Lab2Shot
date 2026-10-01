@@ -5,7 +5,7 @@ import type { Item } from "../api/sequences";
 import { clientInfo } from "../platform/client";
 import { useUploads, type UploadTask } from "../state/uploads";
 import { rememberLocal } from "./local";
-import { cancelUpload, keepTask, patchTask, sendWith, sentHere } from "./uploads";
+import { cancelUpload, keepTask, patchTask, persist, sendWith, sentHere } from "./uploads";
 import { randomId } from "../platform/randomId";
 
 /** 选择文件后的处理流程：此时不传输任何字节。选择图片时不上传、不显示计算中，
@@ -31,26 +31,42 @@ import { randomId } from "../platform/randomId";
  * 服务器上了」这一错误提示，而该文件实际从未上传。
  *
  * 超过 HASH_MAX 的大文件同样在选择后立即上传：`crypto.subtle.digest` 需将整个文件读入内存，数 GB 的视频会导致
- * 浏览器崩溃。此时由服务器边接收边计算 sha，功能不受影响，只是无法省去这次上传。 */
+ * 浏览器崩溃。此时由服务器边接收边计算 sha，功能不受影响，只是无法省去这次上传。同时读的几个文件按字节合计
+ * 不超过 HASH_BYTES（整页），不按个数。 */
 const HASH_MAX = 512 << 20; // 超过此大小的文件不在浏览器中计算指纹（需将整个文件读入内存）
 const HEAD_FIRST = 256 << 10; // 申报时首次发送的头部字节数（仅发送一次，取值偏大）
-const HASH_AT_ONCE = 4; // 同时读取的文件数
+const HASH_AT_ONCE = 4; // 一份上传同时读取的文件数（小文件多时并行读盘）
+/** 整页同时读进内存算指纹的字节上限（所有正在申报的上传合计）：`digest` 要整份文件在内存里，4 个接近 HASH_MAX 的
+ * 文件同时读就是 2 GB。一个文件本身不超过 HASH_MAX，所以单个总能读；多个按字节排队。 */
+const HASH_BYTES = HASH_MAX;
 
 const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), (n) => n.toString(16).padStart(2, "0")).join("");
 
+// 正在读进内存的字节数与排队等的
+const reading = { bytes: 0, waiting: [] as (() => void)[] };
+
 async function sha256(f: File): Promise<string> {
-  return hex(await crypto.subtle.digest("SHA-256", await f.arrayBuffer()));
+  while (reading.bytes > 0 && reading.bytes + f.size > HASH_BYTES) await new Promise<void>((go) => reading.waiting.push(go));
+  reading.bytes += f.size;
+  try {
+    return hex(await crypto.subtle.digest("SHA-256", await f.arrayBuffer()));
+  } finally {
+    reading.bytes -= f.size;
+    reading.waiting.splice(0).forEach((go) => go());
+  }
 }
 
-/** The page's action once an upload is declared (graph/apply.ts: writes the reference into the node's parameter). */
+/** 申报完成后页面要做的事（graph/apply.ts：把引用写进节点的参数）。 */
 let declaredTo: ((t: UploadTask, ref: string) => void) | null = null;
 export const onDeclared = (f: typeof declaredTo) => void (declaredTo = f);
 
-export function startUpload(item: Item, folder: string, target: { graph: string; node: string; param: string },
+export function startUpload(item: Item, folder: string, target: { graphId: string; graph: string; node: string; param: string },
                             headEnough: boolean): void {
   const origin = [folder, item.name].filter(Boolean).join("/");
-  // any upload in progress for this parameter is dropped (its parts stay on the server and resume if picked again)
-  for (const t of Object.values(useUploads.getState().tasks)) if (t.node === target.node && t.param === target.param) cancelUpload(t.key, false);
+  // 本文档这个参数上进行中的上传一律丢弃（已传的分段留在服务器上，再选同样的文件时续传）；另一份文档里同 id 的节点
+  // 保留它自己的
+  for (const t of Object.values(useUploads.getState().tasks))
+    if (t.graphId === target.graphId && t.node === target.node && t.param === target.param) cancelUpload(t.key, false);
   const key = randomId(8);
   // 以下两种情况在选择后立即上传：① 服务器必须获得完整文件才能处理该节点（`headEnough` 为假，
   // 见上方说明）；② 文件过大，浏览器无法计算内容指纹（HASH_MAX）
@@ -60,7 +76,7 @@ export function startUpload(item: Item, folder: string, target: { graph: string;
     files: item.files.map((f) => ({ name: f.name, size: f.size, modified: f.lastModified })), bytes: item.size,
     state: big ? "sending" : "reading", sent: 0, done: 0, rate: 0, error: "", retryAt: 0,
   };
-  rememberLocal(key, item); // before the task appears: the viewer draws the picked files immediately
+  rememberLocal(key, item); // 在任务出现之前登记：视图立即就能画出所选的文件
   useUploads.setState((s) => ({ tasks: { ...s.tasks, [key]: task } }));
   void keepTask(task);
   if (big) void sendWith(task, item.files); // 文件过大：沿用选择后立即上传的流程（原因见上方 HASH_MAX 的说明）
@@ -88,18 +104,26 @@ async function declare(task: UploadTask, files: File[]): Promise<void> {
     const body = { name: task.name, files: shas, sizes, origin: { path: task.origin, client: clientInfo() } };
     // 头部数据不足时服务器会返回所需字节数，此处据此补发；不得静默返回空图层
     let head = HEAD_FIRST;
-    let said = await api.uploads.declare({ ...body, head_of: files[0].name, head: await b64(files[0].slice(0, head)), head_whole: files[0].size });
+    // 断线、等登录、服务器暂时答不了：与上传同一套分法等一等再申报（transfer/uploads.ts persist），不当场判失败
+    const gone = () => !useUploads.getState().tasks[key];
+    const ask = async () => persist(key, async () => api.uploads.declare({ ...body, head_of: files[0].name, head: await b64(files[0].slice(0, head)), head_whole: files[0].size }), gone, "reading");
+    let said = await ask();
     while (said.need && said.need > head) {
       head = said.need;
-      said = await api.uploads.declare({ ...body, head_of: files[0].name, head: await b64(files[0].slice(0, head)), head_whole: files[0].size });
+      said = await ask();
     }
     if (!useUploads.getState().tasks[key]) return;
     // 本机代理自此在后台生成，覆盖所有通道：
     // 图层取服务器刚从文件头读出的结果；色彩空间取节点自身的参数
     const layers = Object.entries(((said.layers as { layers?: Record<string, { channels?: string[] }> } | undefined)?.layers) ?? {})
       .map(([name, l]) => ({ name, channels: l.channels ?? [] }));
-    const space = String(useCookInputs.getState().nodes[task.node]?.params.colorspace ?? "");
-    prepareLocalProxies(`${task.node}|${task.param}`, files, space, layers);
+    // 进度记录的键带上文档（`节点|参数|graphId`）：打开另一份文档时按它清掉（`transfer/uploads.ts leaveGraph`），
+    // 节点上按 `节点|` 前缀合计（`state/phase.ts proxyOfNode`）——所以进度表里只能有开着的这份文档的条目。
+    // 申报（算指纹、读文件头）期间使用者已经打开了另一份文档：这里不再登记，否则进度会显示在新文档里同 id 的节点上
+    // （模板的读取节点都叫 `read`），代理也会按空的色彩空间生成一份用不上的。回到那份文档时视图按需生成（localPicture）
+    const ci = useCookInputs.getState();
+    if (ci.graphId === task.graphId)
+      prepareLocalProxies(`${task.node}|${task.param}|${task.graphId}`, files, String(ci.nodes[task.node]?.params.colorspace ?? ""), layers);
     patchTask(key, { state: "picked" });
     const now = useUploads.getState().tasks[key];
     if (now) {

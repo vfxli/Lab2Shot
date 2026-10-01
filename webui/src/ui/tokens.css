@@ -25,7 +25,8 @@
   --lifted: #191d22;
   --lifted-2: #20252b;
   --field-bg: #0e1115;
-  /* 控件不靠一圈亮边描出轮廓（在暗底上那是浮雕感），靠面本身的明暗分层。这两个是控件的面：静止和悬停 */
+  /* a control is outlined not by a ring of light (on a dark ground that reads as embossed) but by the brightness of its
+     own surface. These two are a control's surface: at rest and on hover */
   --ctl-face: #21262d;
   --ctl-face-hover: #2a3037;
 
@@ -49,7 +50,8 @@
   --orange: #f2b441;
   /* ordinary errors, refusals, failed and blocked things: purple, never red */
   --error: #b98cff;
-  /* 透明处的棋盘格（二维视图的背景，以及背景下拉里那一格小样）：值在 platform/palette.ts，这里跟着它 */
+  /* the checkerboard behind transparency (the 2D view's background, and its swatch in the background pull-down): the
+     values live in platform/palette.ts and these follow them */
   --checker-light: #4a4a4e;
   --checker-dark: #323234;
   /* red is kept for production-risk marks: an estimated distortion, a plate that never went through
@@ -68,7 +70,7 @@
   --block-4: #8a9196;
 
   /* radii: a tag or a key cap, a control, a field or a menu row, a card or a panel, a dialog.
-     偏大的一套：再小（如 5/6/10/14）在 1× 屏上看着接近直角 */
+     A generous scale: anything smaller (say 5/6/10/14) looks almost square on a 1× screen */
   --r-xs: 5px;
   --r-ctl: 7px;
   --r-md: 9px;
@@ -81,7 +83,8 @@
   --shadow-panel: 0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 12px 32px rgba(0, 0, 0, 0.32);
   --shadow-lift: 0 6px 18px rgba(0, 0, 0, 0.35);
   --shadow-float: 0 18px 48px rgba(0, 0, 0, 0.45);
-  /* 画面上直接写的字（视图通知区）：底下是用户的画面，深浅不定，所以给一道细描边而不是加个浮层底 */
+  /* text written straight onto the picture (the view's notice area): the user's picture beneath it may be light or
+     dark, so it gets a thin outline rather than a floating plate */
   --text-on-picture: 0 1px 2px rgba(0, 0, 0, 0.85), 0 0 2px rgba(0, 0, 0, 0.9);
 
   /* type: a hint, a dense row (tables, node bodies), body text, a section heading, a panel title, a page title */
@@ -126,6 +129,9 @@
      (api/catalog.ts, the product's contract) — here only as decoration, turning once every --entry-turn */
   --entry-palette: #64d2ff, #ffd60a, #ff375f, #bf5af2, #66d4cf, #64d2ff;
   --entry-turn: 6s;
+  /* the rim around the top bar's 「节点模式 / 应用模式」: cool hues (blue, cyan, indigo), a step darker than the rim of
+     「模板」, turning at the same pace (ui/glow.css .mode-switch) */
+  --mode-palette: #2b6fa8, #2c8f8c, #3d5cc2, #5a4fb0, #2a86a3, #2b6fa8;
 
   /* the hover glow: a thin rainbow light runs once around a control's edge (ui/glow.css) */
   --glow-duration: 550ms; /* short: the glow is gone soon after the pointer arrives */
@@ -166,8 +172,9 @@
 
   /* layers, lowest first: marks over the viewer, controls over the canvas, a popover, a sheet over the page, the menu
      it opened, the restart veil, the server banner, the login over the page, the tooltip.
-     菜单在弹窗之上：Menu 挂在 document.body 上（portal），弹窗里点开的下拉如果排在弹窗下面，就被遮罩挡住点不开。
-     菜单是开它的那一层开的，永远压在它上面。 */
+     The menu is above the sheet: Menu is mounted on document.body (a portal), and a pull-down opened inside a sheet
+     that sat below the sheet would be covered by its backdrop and could not be clicked. A menu always lies over the
+     layer that opened it. */
   --z-under: -1;
   --z-hud: 2;
   --z-hud-note: 3;
@@ -176,7 +183,7 @@
   --z-canvas-ui: 5;
   --z-popover: 40;
   --z-sheet: 60;
-  --z-menu: 70; /* 弹窗里开的菜单要压在弹窗上（上面那段） */
+  --z-menu: 70; /* a menu opened in a sheet lies over the sheet (see above) */
   --z-veil: 900;
   --z-server-banner: 950;
   --z-login: 990;

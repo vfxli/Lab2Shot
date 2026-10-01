@@ -1,6 +1,8 @@
 
-/* how far a node's cook has got: one line across the node, inside its border box — never inset with a margin, which
-   would draw it 100 % + the margins wide (see 08a-node.css's sizing rule).
+/* 节点计算进度条，以及节点菜单（Tab / 右键加节点：搜索行、两级分类、分类栏、子分类标题）与「非商用」角标的样式。 */
+
+/* 节点计算到了哪里：横贯节点的一条线，位于节点的边框盒之内——不得用外边距内缩，否则实际宽度为 100% 加边距
+   （见 08a-node.css 的宽度规则）。
 
    它不占布局：贴在节点的底边上，绝对定位。作为流里的一行、只在算的时候才画的话，每个节点一开始算就
    长高几个像素、算完又矮回去。
@@ -67,8 +69,7 @@
   overflow: hidden;
 }
 
-/* 「分类 · 项目」 at the right end of a search row: shown whole, never cut (界面文字不许截断); the menu is wide
-   enough that it does not need to be. */
+/* 搜索结果行右端的「分类 · 项目」：完整显示，不截断（界面文字不许截断）；菜单宽度足以容纳，无须截断。 */
 .menu-project {
   flex: none;
   font-size: 10.5px;
@@ -80,7 +81,7 @@
   color: rgba(255, 255, 255, 0.75);
 }
 
-/* two-level node menu: categories | the category's nodes grouped by subcategory */
+/* 两级节点菜单：分类 | 该分类的节点，按子分类分组 */
 .menu-browse {
   display: grid;
   /* 左栏按内容定宽：170 px 放不下「MonST3R 相机解算」这种名字。上限按最长的节点名算
@@ -90,7 +91,7 @@
      左栏又长回去——左栏宽度被右栏内容带着变，鼠标在一级分类间滑动时整个菜单忽大忽小。
      写成 minmax(0, 1fr) 之后右栏能被压到 0，左栏永远按自己的内容定宽，跟分类无关。 */
   grid-template-columns: minmax(170px, max-content) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr); /* the two columns scroll inside the menu instead of growing past it */
+  grid-template-rows: minmax(0, 1fr); /* 两栏在菜单内部滚动，不撑出菜单 */
   min-height: 0;
   /* `flex: 1 1 0`（basis 0），不是 `1 1 auto`：auto 的时候它的基准是自身内容高度，某个分类的节点多一点
      就要得多一点，列向 flex 只能去压上面那个搜索框，搜索框的高度就跟着分类跳。
@@ -145,8 +146,8 @@
   background: var(--raised-hover);
 }
 
-/* the node menu's category column is the same rail as the templates panel's (ui/Categories.tsx: the same drag,
-   rename, remove and 「新建分类」 in both), fitted to the menu's row height and column padding */
+/* 节点菜单的分类栏与模板面板的分类栏是同一个组件（ui/Categories.tsx：两处拖动、改名、删除与「新建分类」相同），
+   此处只按菜单的行高与栏内边距调整 */
 .menu-cats .cat-rail {
   padding: 0;
   gap: 2px;
@@ -174,7 +175,7 @@
   height: 6px;
 }
 
-/* a subcategory heading in the node list, managed: its count and its menu at the right end */
+/* 节点列表中的子分类标题（可管理）：右端为数量与菜单 */
 .menu-subhead {
   display: flex;
   align-items: center;

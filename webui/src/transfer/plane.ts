@@ -22,8 +22,9 @@ export type Pixels = ImageBitmap | Plane;
 
 export const isPlane = (p: Pixels): p is Plane => (p as Plane).kind === "plane";
 
-/** 该数据占用的字节数（缓存据此计算预算）。位图为解码后的 RGBA，通道为其自身的数组。 */
-export const sizeOf = (p: Pixels): number => (isPlane(p) ? p.data.byteLength : p.width * p.height * 4);
+/** 一份数据在内存里占的字节（记进页面缓存的预算）：位图为解码后的 RGBA，通道为其自身的数组。u16 档（format 1）画的时候还要转出一份 float32（view/look.ts floats，
+ * 是原数据的 2 倍）：一并算上。 */
+export const sizeOf = (p: Pixels): number => (isPlane(p) ? p.data.byteLength * (p.format === 1 ? 3 : 1) : p.width * p.height * 4);
 
 /** 释放该数据（位图占用显存，须显式关闭；通道为普通内存，交由垃圾回收）。 */
 export const freePixels = (p: Pixels): void => {

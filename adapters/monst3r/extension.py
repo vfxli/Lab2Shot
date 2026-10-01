@@ -46,7 +46,7 @@ class MonST3R(Extension):
         name="CC BY-NC-SA 4.0（代码和权重）；附带 SEA-RAFT（BSD-3-Clause）和 SAM 2.1（Apache-2.0）",
         url="https://github.com/Junyi42/monst3r/blob/main/LICENSE",
         summary=(
-            "非商用，仅限研究：MonST3R 代码和权重都按 CC BY-NC-SA 4.0 发布（署名、禁止商用、改编后须以相同许可发布），"
+            "非商用：MonST3R 代码和权重都按 CC BY-NC-SA 4.0 发布（署名、禁止商用、改编后须以相同许可发布），"
             "它基于 Naver DUSt3R / CroCo（同为 CC BY-NC-SA 4.0；CroCo 的 pos_embed.py / blocks.py 另含 Meta MAE 的 CC BY-NC 4.0 "
             "部分和 timm 的 Apache-2.0 部分），权重由 DUSt3R 权重微调而来。"
             "另外用到的两个模型可商用：光流 SEA-RAFT（代码和权重 BSD-3-Clause，普林斯顿）、"

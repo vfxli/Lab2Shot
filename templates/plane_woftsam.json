@@ -7,23 +7,124 @@
   "author": "Lab2Shot",
   "created": "2026-09-13T12:00:00",
   "deliverable": "plane",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
   },
   {
    "name": "corners",
    "label": "四个角",
-   "target": "plane.corners"
+   "target": "plane.corners",
+   "show_on_change": true
   },
   {
-   "name": "format",
-   "label": "格式",
-   "target": "out.format"
+   "name": "corners_pick",
+   "label": "在视图里点选",
+   "target": "plane.corners_pick"
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "resolution",
+     "label": "处理分辨率",
+     "target": "plane.resolution"
+    }
+   ]
+  },
+  {
+   "name": "cook_track",
+   "label": "跟踪",
+   "target": "plane.cook"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out.name"
+    },
+    {
+     "name": "format",
+     "label": "格式",
+     "target": "out.format",
+     "widget": "menu",
+     "options": [
+      {
+       "value": "cornerpin",
+       "label": "Nuke CornerPin（恰好四个点）"
+      },
+      {
+       "value": "tracker",
+       "label": "Nuke Tracker"
+      },
+      {
+       "value": "3de",
+       "label": "3DE"
+      },
+      {
+       "value": "csv",
+       "label": "CSV"
+      }
+     ]
+    },
+    {
+     "name": "origin",
+     "label": "坐标原点",
+     "target": "out.origin",
+     "hide_when": "format != \"csv\""
+    },
+    {
+     "name": "min_visible",
+     "label": "最少可见帧数",
+     "target": "out.min_visible",
+     "hide_when": "format == \"cornerpin\""
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -33,11 +134,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 0
+    "y": 38
    }
   },
   {
@@ -49,8 +152,8 @@
     "resolution": null
    },
    "ui": {
-    "x": 320,
-    "y": 0,
+    "x": 400,
+    "y": 14,
     "on_node": [
      "resolution"
     ]
@@ -67,7 +170,7 @@
     "min_visible": 5
    },
    "ui": {
-    "x": 640,
+    "x": 800,
     "y": 0,
     "on_node": [
      "name",
@@ -81,8 +184,8 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 960,
-    "y": 0
+    "x": 1200,
+    "y": 14
    }
   }
  ],

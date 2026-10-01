@@ -18,8 +18,8 @@ shared through a tunnel) as a few megabytes instead of hundreds, and the viewer 
 - nothing rounded: every point sent is float32 as the evaluation gives it (only a point cloud over the 「点云上限」 is
   thinned, and the viewer says so: see below). Compression is lossless only: the
   bytes of each float array sorted by significance (all first bytes, then all second ...), a point cache's frames as
-  the bit differences (XOR) from the frame before, then gzip. Colours that are all whole 255ths (from 8-bit pictures)
-  go as those bytes, which are the same numbers;
+  the bit differences (XOR) from the frame before, then gzip. Colours that are all whole 255ths within float32
+  precision (from 8-bit pictures; colours() says why "within") go as those bytes;
 - in parts: the base (everything that is not per frame; its large arrays in parts of their own), then the per-frame
   samples in chunks of frames, read from the scene only when asked for: the viewer asks for the chunk of the frame it
   is on first and keeps only as many chunks as it has room for.
@@ -35,6 +35,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import re
 import threading
 import uuid
 from collections import OrderedDict
@@ -47,12 +48,23 @@ import numpy as np
 from ..data.camera import CameraSamples
 from ..errors import Invalid, MessageError, NotFound, message_of
 from ..messages import Msg
+from ..text import decimal
 
-VIEW_FORMAT = 5
+# Colours as bytes within float32 precision, depth clouds as grids, distance maps as grids with a ramp, a
+# per-frame cloud's colours once in the base, fixed-count clouds as XOR differences. The chunk addresses carry it
+# (v=), so bytes the browser kept (immutable) or the disk kept (store_chunk) under the old format are never read as new.
+VIEW_FORMAT = 6
 GRID_TOLERANCE = (1e-3, 1e-5)  # a depth cloud rebuilt as the viewer does may differ from its points by this: cm + relative
 BASE_MAX = 512 * 1024  # a base array bigger than this gets a part of its own, so the small things come first
-CHUNK_BYTES = 4_000_000  # per-frame samples in one chunk part (before gzip), about
+# per-frame samples in one chunk part (before gzip), about. Several frames a chunk: a whole shot is fetched (the viewer
+# caches it all, webui/src/view/scene.ts), and at 4 MB a frame of a dense cloud was a
+# chunk of its own, one request per frame. 16 MB is 8-13 frames of a 640×480 depth cloud, and at most ~4 frames of one at
+# the 「点云上限」 (a chunk made on request is still well within the view worker's ANSWER_S).
+CHUNK_BYTES = 16_000_000
 KEEP_BYTES = 512 * 2**20  # gzipped chunk parts kept in this process, for every view together
+# gzip level of a chunk made on request, which the viewer waits for: on these arrays (float32 byte planes, colour
+# bytes) level 1 is within 3% of level 5 in size and 25-35% faster
+LIVE_GZIP = 1
 
 GRID_BYTES_PER_CELL = 7  # about 7 bytes sent per grid cell: a float32 depth (4) plus three colour bytes (the same figure as PerFrame's estimate)
 CLOUD_BYTES_PER_POINT = 15  # about 15 bytes sent per point: three float32 coordinates plus three colour bytes (the same figure as PerFrame's estimate)
@@ -93,13 +105,21 @@ COLOUR_WORDS = ((255, np.uint8), (65535, np.uint16))  # whole steps of an 8-bit 
 
 
 def colours(c: np.ndarray) -> np.ndarray:
-    """Display colours as sent, the same numbers in fewer bytes: bytes when every value is exactly k/255 (an 8-bit
-    picture's), 16-bit words when k/65535 (a 16-bit picture's), else float32. The viewer reads k back as k/255 or
-    k/65535."""
-    c32 = np.asarray(c, np.float32).reshape(-1)
+    """Display colours as sent, the same numbers in fewer bytes: bytes when every value equals k/255 within float32
+    precision (an 8-bit picture's), 16-bit words when k/65535 (a 16-bit picture's), else float32. The viewer reads k
+    back as k/255 or k/65535.
+
+    「在 float32 精度内等于 k/255」：与 k/255 相差不超过 1 个 float32 精度单位（ulp）。8-bit 画面的颜色经读图 / 显示
+    转换按 float32 算出（例如 k × (1/255)），与 f64 算出的 k/255 常差 1 ulp（实测只有 58% 逐位相同，最大偏差 1.9e-5），
+    这是浮点舍入，不是颜色的差别；逐位比对会让整段颜色按 float32 发，每点多 9 字节。"""
+    c32 = np.ascontiguousarray(np.asarray(c, np.float32).reshape(-1))
     for top, kind in COLOUR_WORDS:
         k = np.rint(c32.astype(np.float64) * top)
-        if c32.size and k.min() >= 0 and k.max() <= top and np.array_equal((k / top).astype(np.float32), c32):
+        if not c32.size or k.min() < 0 or k.max() > top:
+            continue
+        exact = (k / top).astype(np.float32)
+        # 非负 float32 的位模式按整数单调：两者位模式之差就是相差几个 ulp
+        if np.all(np.abs(exact.view(np.int32).astype(np.int64) - c32.view(np.int32).astype(np.int64)) <= 1):
             return k.astype(kind)
     return c32
 
@@ -171,7 +191,7 @@ class View:
         is one sequence of bytes: point thinning is done in the readers, so there is no second (preview) variant."""
         if name in self.parts:
             return self.parts[name][0]  # the base: small, and not per-frame display data
-        if not name.startswith("c") or not name[1:].isdigit() or int(name[1:]) >= len(self.chunks):
+        if not name.startswith("c") or decimal(name[1:]) is None or decimal(name[1:]) >= len(self.chunks):
             raise KeyError(name)
         key = (self.token, name)
         with _kept_lock:
@@ -182,7 +202,7 @@ class View:
             with _kept_lock:
                 if key in _kept:
                     return _kept[key]
-            data = gzip.compress(self._chunk(*self.chunks[int(name[1:])]), 5)
+            data = gzip.compress(self._chunk(*self.chunks[int(name[1:])]), LIVE_GZIP)
         with _kept_lock:
             _kept[key] = data
             while sum(len(v) for v in _kept.values()) > KEEP_BYTES and len(_kept) > 1:
@@ -218,6 +238,62 @@ class View:
         head = json.dumps({"pieces": pieces}).encode()
         head += b" " * ((-len(head)) % 4)
         return len(head).to_bytes(4, "little") + head + b"".join(blobs)
+
+
+# ------------------------------------------------------------------ chunks made ahead and kept on disk
+#
+# A view's chunks are made once, in the background (view_worker.prebuild_later: when the node that computed the packet
+# is through, farm/queue.py _proxies_of, and when a view is first described), and kept in the packet's own folder
+# beside its image proxies (_view/). The web server then answers a chunk by sending that file (server/packets.py
+# scene_part, server/view.py points_part): no view worker lane, nothing made on request. A chunk not there yet is made
+# on request as before. The file's name says everything its bytes depend on: the generation of every packet the view
+# reads (a recompute swaps in a new folder anyway; the name also keeps a late writer of the old generation from being
+# read as the new one), the view format, the 「点云上限」 and the chunk's frames — exactly what the chunk's address says,
+# so one address is still one sequence of bytes.
+
+STORED_GZIP = 5  # made ahead: nobody waits for it, and level 5 is a little smaller than the live path's level 1
+
+
+def _stamp(created) -> str:
+    return re.sub(r"[^0-9A-Za-z]", "", str(created or "0")) or "0"
+
+
+def chunk_file(how: tuple, stamps: tuple, lo: int, hi: int, mb: int) -> Path:
+    """Where the chunk (frames lo..hi, made under a 「点云上限」 of `mb`) of the view `how` is kept: in the scene packet's
+    folder, or the depth / position map's (a point preview: one set of files per camera it is seen from)."""
+    from ..data.packet import packet_dir
+
+    kind = "scene" if how[0] == "scene" else f"points.{how[2] or 'none'}"
+    stamp = "-".join(_stamp(s) for s in stamps)
+    return packet_dir(how[1]) / "_view" / kind / f"{stamp}.v{VIEW_FORMAT}.mb{int(mb)}.f{int(lo)}_{int(hi)}.gz"
+
+
+_FRAMES = re.compile(r"^(-?[0-9]+)-(-?[0-9]+)$")
+
+
+def stored_chunk(how: tuple, stamps: tuple, part: str, query) -> Path | None:
+    """The file of the chunk a page asks for (its address: part c{k}, v=format, f=lo-hi, mb=limit), when it has been
+    made; None otherwise (it is then made on request)."""
+    if not (part.startswith("c") and decimal(part[1:]) is not None) or query.get("v") != str(VIEW_FORMAT):
+        return None
+    got, mb = _FRAMES.match(query.get("f") or ""), query.get("mb") or ""
+    if got is None or decimal(mb) is None:
+        return None
+    path = chunk_file(how, stamps, int(got[1]), int(got[2]), decimal(mb))
+    return path if path.is_file() else None
+
+
+def store_chunk(view: View, how: tuple, stamps: tuple, k: int) -> int:
+    """Make chunk `k` of `view` and keep it on disk (chunk_file), unless it is there already; the bytes written."""
+    from ..view.encode import write_once
+
+    lo, hi = view.chunks[k]
+    path = chunk_file(how, stamps, lo, hi, _budget(POINTS_LIMIT) // 2**20)
+    if path.is_file():
+        return 0
+    data = gzip.compress(view._chunk(lo, hi), STORED_GZIP)
+    write_once(path, lambda part: part.write_bytes(data))
+    return len(data)
 
 
 def runs(frames: list[int]) -> list[list[int]]:
@@ -280,7 +356,7 @@ def chunk_plan(frames: list[int], bytes_per_frame: int, one_frame_chunks: bool =
 def _text(v) -> str:
     v = np.asarray(v)
     x = v.item() if v.ndim == 0 else v.reshape(-1)[0]
-    return x.decode() if isinstance(x, bytes) else str(x)
+    return x.decode("utf-8", "replace") if isinstance(x, bytes) else str(x)  # a label to show: never fails the view
 
 
 def _uv(b: Base, mesh: dict) -> dict | None:
@@ -295,7 +371,12 @@ def _uv(b: Base, mesh: dict) -> dict | None:
     return {"values": b.array(np.asarray(mesh["uv"], np.float32), "uv"), "indices": b.array(indices(uv_idx[corners]), "uv")}
 
 
-def _cloud_arrays(points, cols, widths) -> dict[str, np.ndarray]:
+def _cloud_arrays(points, cols, widths, every: int = 1) -> dict[str, np.ndarray]:
+    """One sample of a cloud as it is sent. `every` > 1: over the 「点云上限」, every `every`-th point is kept (drop_points)
+    first, and only the kept points are converted and have their colours checked (colours()): at 4K that check on every
+    point would cost about 0.4 s a frame before thinning threw most of them away."""
+    kept = drop_points({"points": np.asarray(points), "colors": np.asarray(cols), "widths": np.asarray(widths)}, every)
+    points, cols, widths = kept["points"], kept["colors"], kept["widths"]
     out = {"points": np.asarray(points, np.float32), "colors": colours(cols)}
     w = np.asarray(widths, np.float32).reshape(-1)
     if w.size and not np.all(w == w[0]):
@@ -384,9 +465,11 @@ def encode(frames: list[int], items: dict[str, list[dict]], resolution: tuple[in
             cloud["grid"] = {**{k: info[k] for k in ("width", "height", "step", "gw", "gh")},
                              "focal": b.array(np.asarray(info["focal"], np.float32)), "cam": b.array(rows(info["cam"])),
                              "principal": b.array(np.asarray(info["principal"], np.float32).reshape(-1)),  # (cx, cy) per sample, pixels
-                             "proxy": int(info.get("proxy", 1))}
-            per_frame.append(PerFrame(f"clouds/{i}", cloud["frames"], read, info["gw"] * info["gh"] * GRID_BYTES_PER_CELL,
-                                      xor=True))
+                             "proxy": int(info.get("proxy", 1)),
+                             # 距离图的色带（_distance_grid_view）：[近, 远] 的取值范围，网页着色器按它算颜色
+                             **({"ramp": info["ramp"], "ramp_colour": info["ramp_colour"]} if "ramp" in info else {})}
+            per_frame.append(PerFrame(f"clouds/{i}", cloud["frames"], read,
+                                      info["gw"] * info["gh"] * info.get("bytes_per_cell", GRID_BYTES_PER_CELL), xor=True))
         elif cloud["per_frame"]:
             # The first frame's point count: chunk byte estimates use it, and so does the viewer's 「显示了 N / 共 M 点」
             # (viewFormat.ts CloudRef.count)
@@ -397,10 +480,23 @@ def encode(frames: list[int], items: dict[str, list[dict]], resolution: tuple[in
             cloud["count"] = count
             if every > 1:
                 cloud["every"] = every   # the viewer computes the displayed count from it (webui/src/view/kinds3d.ts)
-            read_points = reader("points", it)
-            per_frame.append(PerFrame(f"clouds/{i}", cloud["frames"],
-                                      (lambda f, r=read_points, e=every: drop_points(r(f), e)) if every > 1 else read_points,
-                                      -(-count // every) * CLOUD_BYTES_PER_POINT))
+            # the reader thins as it reads (_cloud_arrays `every`), before converting and checking colours
+            read_points = reader("points", {**it, "every": every})
+            # 颜色只发一次（点缓存：同一批点、颜色不变）：首帧的颜色放进基础数据（cloud "colors"），
+            # 之后每一帧只有颜色与它逐字节相同时才不发；不同的帧照常带自己的颜色，网页有自己的就用自己的
+            # （webui/src/view/scene.ts apply），所以不会有哪一帧画错颜色
+            if frames_of(it):
+                first = read_points(frames_of(it)[0]).get("colors")
+                if first is not None and np.asarray(first).size:
+                    first = np.asarray(first)
+                    cloud["colors"] = b.array(first)
+                    read_points = (lambda f, r=read_points, c0=first: {k: v for k, v in r(f).items()
+                                                                       if not (k == "colors" and np.asarray(v).dtype == c0.dtype
+                                                                               and np.array_equal(v, c0))})
+            # xor：点数不变的逐帧点云（真正的点缓存，如 3D 跟踪点）位置按与上一帧的位差发，同一块里点数不一样的
+            # 照常发（View._chunk 只在一块内各帧大小相同时才差分），所以对点数逐帧变的点云没有影响
+            per_frame.append(PerFrame(f"clouds/{i}", cloud["frames"], read_points, -(-count // every) * CLOUD_BYTES_PER_POINT,
+                                      xor=True))
         else:
             arrays = _cloud_arrays(it["points"], it.get("colors", np.full((len(np.asarray(it["points"])), 3), 0.7)), w)
             cloud.update({k: b.array(v) for k, v in arrays.items()})
@@ -440,7 +536,9 @@ def encode(frames: list[int], items: dict[str, list[dict]], resolution: tuple[in
                         "world": b.array(rows(it["world"])), "width": int(res[0]), "height": int(res[1]),
                         "focal_mm": b.array(np.asarray(it["focal_mm"], np.float32)),
                         "h_aperture_mm": b.array(np.asarray(it["h_aperture_mm"], np.float32)),
-                        "v_aperture_mm": b.array(np.asarray(it["v_aperture_mm"], np.float32))})
+                        "v_aperture_mm": b.array(np.asarray(it["v_aperture_mm"], np.float32)),
+                        # the lens centre off the picture's centre, mm, +x right +y up (data/camera.py center_mm): [F,2] or [1,2]
+                        "center_mm": b.array(np.asarray(it["center_mm"], np.float32).reshape(-1, 2))})
 
     view = View({"format": VIEW_FORMAT, "frames": frames, "models": models, "characters": characters,
                  "clouds": clouds, "curves": curves, "cameras": cameras, "lights": lights or []}, b.built(),
@@ -456,7 +554,7 @@ def scene_view(p) -> View:
     from ..data.evaluate import mesh_world_points
     from ..data.scene import open_scene
     from ..data.scene_arrays import cloud_sample, curve_sample, model_points, scene_arrays
-    from ..io.usd import PERSON_ID
+    from ..io.usd import PERSON_ID, name_of
     from ..data.units import DEFAULT_HEIGHT, DEFAULT_WIDTH
 
     size = (int(p.meta.get("width", DEFAULT_WIDTH)), int(p.meta.get("height", DEFAULT_HEIGHT)))
@@ -472,13 +570,13 @@ def scene_view(p) -> View:
             return lambda f: {"points": model_points(mesh, [f])[0]}
         if kind == "points":
             prim = stage.GetPrimAtPath(_text(item["path"]))
-            return lambda f: _cloud_arrays(*cloud_sample(prim, f))
+            return lambda f: _cloud_arrays(*cloud_sample(prim, f), every=int(item.get("every", 1)))
         if kind == "curves":
             prim = stage.GetPrimAtPath(_text(item["path"]))
             return lambda f: _curve_arrays(*curve_sample(prim, f))
         root, name = _text(item["path"]), _text(item["mesh"])  # a skinned mesh evaluated: its points in the world
         return lambda f: {"points": next(pts for path, pts in mesh_world_points(stage, Usd.TimeCode(f))
-                                         if str(path).startswith(root) and path.name == name).astype(np.float32)}
+                                         if str(path).startswith(root) and name_of(stage.GetPrimAtPath(path)) == name).astype(np.float32)}
 
     for it in arrays.items.get("character", []):  # which person a character is (the boxes it was solved from), so the
         # 3D view colours it like that person's box in 2D (viewFormat.ts CharacterRef.person); a character that is not
@@ -564,6 +662,27 @@ def depth_grid(prim, frames: list[int]):
     at = {f: i for i, f in enumerate(frames)}
     least = float(given.get("min_confidence", 0.5))
 
+    def _cells_of(mine: np.ndarray, keep: np.ndarray, i: int) -> np.ndarray:
+        """点云的点所在的格（行优先序号），按 grid_points 的逆运算投回：世界 → 相机（OpenCV 轴），像素中心 +0.5。
+        找不到一一对应（越界、不递增、不在 keep 里）时返回空，调用方据此按点发。"""
+        if not len(mine):
+            return np.zeros(0, np.int64)
+        m = np.linalg.inv(np.asarray(mats[i], np.float64))
+        p = np.asarray(mine, np.float64) @ m[:3, :3].T + m[:3, 3]
+        z = -p[:, 2]
+        if not np.all(z > 0):
+            return np.zeros(0, np.int64)
+        f = float(focal[i])
+        cx, cy = float(principal[i][0]), float(principal[i][1])  # principal_px：未写出主点时即画面中心
+        c = np.rint((p[:, 0] / z * f + cx - 0.5) / full_step).astype(np.int64)
+        r = np.rint((-p[:, 1] / z * f + cy - 0.5) / full_step).astype(np.int64)
+        if c.min() < 0 or r.min() < 0 or c.max() >= full_gw or r.max() >= full_gh:
+            return np.zeros(0, np.int64)
+        cells = r * full_gw + c
+        if np.any(np.diff(cells) <= 0) or not np.all(keep.reshape(-1)[cells]):
+            return np.zeros(0, np.int64)
+        return cells
+
     def read(frame: int) -> dict[str, np.ndarray]:
         points, cols, widths = cloud_sample(prim, frame)
         if frame not in files or (widths.size and not np.all(widths == widths[0])):
@@ -576,10 +695,17 @@ def depth_grid(prim, frames: list[int]):
             keep &= sure[0][::full_step, ::full_step, 0] >= least
         idx = np.flatnonzero(keep)
         mine = points.astype(np.float32)
-        rgb = colours(cols).reshape(-1, 3) if len(cols) else np.zeros((0, 3), np.uint8)
+        if keep.shape == (full_gh, full_gw) and len(idx) != len(mine):
+            # 「深度转点云」计算时还剔除了飞点（nodes/core/geometry.py points_from_depth 的 depth_edges），剩下的像素比
+            # 上面的 keep 少，只按 keep 数点就永远对不上、网格发法不会生效。不在这里
+            # 重算 depth_edges（整幅求法线，640×480 每帧约 0.25 秒，4K 十秒量级）：把点云的点按该帧相机投回画面，
+            # 得到每个点所在的格；这些格按行优先严格递增、且都在 keep 里，才当作点云保留的格，其余照旧按点发。
+            # 下面逐点重建比对（GRID_TOLERANCE）仍然把关：格找错了，重建出的点就对不上，同样退回按点发。
+            idx = _cells_of(mine, keep, at[frame])
         one = len(cols) and np.all(cols == cols[0])
         if keep.shape != (full_gh, full_gw) or len(idx) != len(mine):
             return _cloud_arrays(points, cols, widths)
+        rgb = colours(cols).reshape(-1, 3) if len(cols) else np.zeros((0, 3), np.uint8)
         zk = np.asarray(z[::full_step, ::full_step, 0], np.float32).reshape(-1)[idx]
         i = at[frame]
         rebuilt = grid_points(zk, idx, full_gw, full_step, width, height, float(focal[i]), mats[i], principal[i])
@@ -593,7 +719,7 @@ def depth_grid(prim, frames: list[int]):
         if proxy > 1:
             # Proxy: spread the colours back over the whole grid first, then keep every q-th cell together with depth,
             # so colours and kept points still correspond one to one
-            spread = np.zeros((full_gw * full_gh, 3), np.uint8)
+            spread = np.zeros((full_gw * full_gh, 3), rgb.dtype)
             spread[idx] = rgb
             thin_depth = _thin(grid, full_gw, full_gh, proxy)
             thin_rgb = spread.reshape(full_gh, full_gw, 3)[::proxy, ::proxy].reshape(-1, 3)
@@ -616,13 +742,13 @@ def _budget(key: str) -> int:
     return max(1, int(settings()[key])) * 2**20
 
 
-def _proxy_step(cells: int) -> int:
+def _proxy_step(cells: int, per_cell: int = GRID_BYTES_PER_CELL) -> int:
     """The step, per direction, at which a frame's grid cells are kept so that the frame stays within the 「点云上限」
-    (setting view.points_max_mb, editable by administrators). 1: every point is sent."""
+    (setting view.points_max_mb, editable by administrators). 1: every point is sent. `per_cell`: bytes sent per cell."""
     limit = _budget(POINTS_LIMIT)
-    if cells * GRID_BYTES_PER_CELL <= limit:
+    if cells * per_cell <= limit:
         return 1
-    return int(np.ceil(np.sqrt(cells * GRID_BYTES_PER_CELL / limit)))
+    return int(np.ceil(np.sqrt(cells * per_cell / limit)))
 
 
 def _point_step(count: int) -> int:
@@ -672,7 +798,7 @@ def cloud_per_frame(frames: list[int], name: str, read: Callable[[int], tuple[np
     sample = read(at)[0] if at is not None else np.zeros((0, 3))
     item = {"name": np.array(name), "path": np.array(name), "frames": np.array(frames), "world": np.eye(4)[None],
             "counts": np.array([len(sample)]), "points": np.asarray(sample), "per_frame": np.array(True)}
-    return encode(frames, {"points": [item]}, (0, 0), reader=lambda kind, it: lambda f: _cloud_arrays(*read(f), []),
+    return encode(frames, {"points": [item]}, (0, 0), reader=lambda kind, it: lambda f: _cloud_arrays(*read(f), [], every=int(it.get("every", 1))),
                   one_frame_chunks=one_frame_chunks)
 
 
@@ -707,9 +833,10 @@ def points_view(depth_fp: str, camera_fp: str | None) -> View:
     from ..data.payloads import image_files
 
     p = _load(depth_fp)
-    frames = [int(f) for f in p.meta["frames"]]
-    files = image_files(p)
-    return _points_view(type_=p.type, width=p.meta["width"], space=p.meta.get("space"),
+    # what is not a picture has no frames nor width: _points_view refuses it by its type (E-VIEW-NOTPOINTS)
+    frames = [int(f) for f in p.meta.get("frames") or []]
+    files = image_files(p) if frames else {}
+    return _points_view(type_=p.type, width=p.meta.get("width", 0), space=p.meta.get("space"),
                         span=p.meta.get("range") or p.meta.get("full_range"),
                         frames=[f for f in frames if f in files], files_of=lambda: files, camera_fp=camera_fp)
 
@@ -723,7 +850,7 @@ def partial_points_view(directory: str, type_: str, width: int, space: str,
 
     1. which frames have files is checked each time (`partial_frames` scans the folder) rather than fixed as a table
        when the view is built, since the node is still writing and the table would change;
-    2. one frame per chunk (`one_frame_chunks`). The finished view packs chunks of about 4 MB whose boundaries follow
+    2. one frame per chunk (`one_frame_chunks`). The finished view packs chunks of about CHUNK_BYTES whose boundaries follow
        the total frame count; while computing the frame count keeps changing, and every boundary change would change
        all addresses and invalidate everything the browser holds. One-frame chunk addresses depend only on the frame
        number, and a written frame's bytes never change afterwards (that is what `streams=True` means for this node
@@ -782,6 +909,9 @@ def _points_view(*, type_: str, width: int, space: str | None, span, frames: lis
         span = (float(np.min(vals)), float(np.max(vals))) if getattr(vals, "size", 0) else (0.0, 1.0)
     lo, hi = span if span is not None else (0.0, 1.0)
     at = {f: i for i, f in enumerate(frames)}
+    if distances and present:
+        return _distance_grid_view(frames, files_of, read_map, width, here[present[0]], focal, mats, principal, (lo, hi),
+                                   one_frame_chunks)
 
     def read(f: int) -> tuple[np.ndarray, np.ndarray]:
         i = at[f]
@@ -792,8 +922,7 @@ def _points_view(*, type_: str, width: int, space: str | None, span, frames: lis
         r, c = np.nonzero(alpha > 0)
         if distances:
             pts = unproject_depth(data[..., 0], float(focal[i]), mats[i], r, c, principal[i])
-            v = (data[r, c, 0] - lo) / max(hi - lo, 1e-6)
-            col = np.stack([1.0 - v * 0.6, 0.75 - v * 0.35, 0.45 + v * 0.4], 1)  # warm near, cool far
+            col = ramp_colours(data[r, c, 0], lo, hi)
         else:
             pts = data[r, c, :3]
             if in_camera:
@@ -803,6 +932,54 @@ def _points_view(*, type_: str, width: int, space: str | None, span, frames: lis
 
     return cloud_per_frame(frames, POINTS_NAME, read, first=present[0] if present else None,
                            one_frame_chunks=one_frame_chunks)
+
+
+RAMP_BYTES_PER_CELL = 4  # a distance map sent as its grid: the depth alone (float32); its colour is the ramp, drawn on the GPU
+
+# 距离图的色带（近暖远冷）：v = (距离 − 近) / (远 − 近)，颜色 = clamp(NEAR + v × SLOPE, 0, 1)。唯一的定义：网格发法把这两组数
+# 放进描述（grid 的 ramp_colour），网页着色器照它算（webui/src/view/pointShaders.tsx uRampNear / uRampSlope）；
+# 逐点发的那条路（_points_view，边算边看在还没有任何一帧写出时建的视图）用 ramp_colours 算，同一组数
+RAMP_NEAR = (1.0, 0.75, 0.45)
+RAMP_SLOPE = (-0.6, -0.35, 0.4)
+
+
+def ramp_colours(z: np.ndarray, lo: float, hi: float) -> np.ndarray:
+    """距离 [N] 在色带上的颜色 [N, 3]（RAMP_NEAR / RAMP_SLOPE）。"""
+    v = (np.asarray(z, np.float64) - lo) / max(hi - lo, 1e-6)
+    return np.clip(np.asarray(RAMP_NEAR) + v[:, None] * np.asarray(RAMP_SLOPE), 0.0, 1.0)
+
+
+def _distance_grid_view(frames: list[int], files_of: Callable[[], dict[int, Path]], read_map, width: int, sample: Path,
+                        focal, mats, principal, ramp: tuple[float, float], one_frame_chunks: bool) -> View:
+    """「深度直接看点云」（一通道距离图 + 相机）按网格发：每帧只发深度（float32，alpha 为 0 的像素记 NaN），点由网页的
+    显卡按 grid_points 的同一算法重建（与「深度转点云」的网格发法同一条路：viewFormat.ts gridPoints、pointShaders.tsx
+    GRID），颜色是按距离的色带（近暖远冷，`ramp` = 取值范围），也在着色器里算，与按点发时算的色带同一公式。
+
+    每像素只发 4 字节（按显式点发要每点 12 字节坐标 + 12 字节颜色，640×480 每帧 7.4 MB；gzip 后约 0.69 对 4.32 MB/帧）。
+    超过「点云上限」时与网格一样每 proxy 格取一格。"""
+    z0, _ = read_map(sample)
+    height, full_w = int(z0.shape[0]), int(z0.shape[1])
+    gw, gh = full_w, height
+    proxy = _proxy_step(gw * gh, RAMP_BYTES_PER_CELL)
+    step = proxy
+    tgw, tgh = len(range(0, gw, proxy)), len(range(0, gh, proxy))
+
+    def read(f: int) -> dict[str, np.ndarray]:
+        path = files_of().get(f)
+        if path is None:  # this frame is not written yet (the partial result): an empty frame, not an error
+            return {"points": np.zeros((0, 3), np.float32)}
+        data, alpha = read_map(path)
+        z = np.array(data[..., 0], np.float32)
+        z[~(alpha > 0)] = np.nan
+        return {"depth": _thin(z.reshape(-1), gw, gh, proxy)}
+
+    info = {"width": full_w, "height": height, "step": step, "gw": tgw, "gh": tgh, "focal": focal, "cam": mats,
+            "principal": principal, "proxy": proxy, "ramp": [float(ramp[0]), float(ramp[1])],
+            "ramp_colour": [list(RAMP_NEAR), list(RAMP_SLOPE)],
+            "bytes_per_cell": RAMP_BYTES_PER_CELL}
+    item = {"name": np.array(POINTS_NAME), "path": np.array(POINTS_NAME), "frames": np.array(frames), "world": np.eye(4)[None],
+            "counts": np.array([0]), "points": np.zeros((0, 3)), "per_frame": np.array(True), "depth_grid": (info, read)}
+    return encode(frames, {"points": [item]}, (0, 0), one_frame_chunks=one_frame_chunks)
 
 
 POINTS_NAME = "points"  # the name of the points in the scene tree (one set per view; the port name states what it is)
@@ -818,7 +995,12 @@ def build(how: tuple) -> View:
       these out and passes them in.
     """
     if how[0] == "scene":
-        return scene_view(_load(how[1]))
+        from ..data.types import accepts
+
+        p = _load(how[1])
+        if not accepts("scene", p.type):  # asked of a picture or a value: said so, never a KeyError of its meta
+            raise Refused(Invalid(Msg("E-VIEW-NOTSCENE")))
+        return scene_view(p)
     if how[0] == "points_partial":
         return partial_points_view(*how[1:])
     return points_view(how[1], how[2])

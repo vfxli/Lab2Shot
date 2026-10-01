@@ -1,12 +1,12 @@
-/** The viewer's display options (Houdini's display options, in one panel): the 2D stage's preview chain
- * (左 取通道 · 中 运算（加 / 乘 Alpha / 乘 RGBA）· mix · 右 取通道 → 黑白点 → 着色 · 背景), and in 3D how points, lines and meshes are drawn, anti-aliasing, the camera's clipping and the scene aids.
- * Kept per browser in localStorage.
+/** 查看器的显示选项（对应 Houdini 的 display options，集中在一个面板）：二维舞台的预览链
+ * （左 取通道 · 中 运算（加 / 乘 Alpha / 乘 RGBA）· mix · 右 取通道 → 黑白点 → 着色 · 背景），以及三维中点、线、模型的画法、
+ * 抗锯齿、相机的裁剪距离与场景辅助。每个浏览器各自保存在 localStorage 中。
  *
  * 点始终绘制为圆片，仅有大小一个参数。大小和线宽的唯一单位是屏幕像素，二维、三维的线和三维曲线共用
  * `lineWidth`。localStorage 中不认识的键或取值均予忽略（`sanitize` 只按 `DEFAULTS` 的键读取，取值不在 `CHOICES` 中时
  * 恢复默认值）。
  *
- * Pure: only a type import (erased at run time). */
+ * 纯模块：只有类型引用（运行时被擦除）。 */
 
 type PointColor = "color" | "constant";
 type Shading = "smooth" | "flat" | "wire" | "wireShaded";
@@ -14,13 +14,14 @@ type Antialias = "off" | "msaa" | "fxaa" | "smaa";
 export type Background = "solid" | "gradient";
 type Lighting = "headlight" | "rig";
 type CurveColor = "color" | "constant";
+type BoneStyle = "solid" | "wire";
 // 二维预览链的取值及其算法定义在 model/view2d.ts；本模块只保存用户的选择
 import type { Bg, Op, Tint } from "./view2d";
 export type { Bg, Op, Tint } from "./view2d";
 
 export interface ViewOptions {
   // 2D 预览链：左右各取一条通道，中间做一次运算，右侧提供调色工具，背景单独设置。
-  // 所选的层不在此保存：它是当前节点图中的一个端口，随本次编辑保存（state/view2d.ts left / right）
+  // 所选的层与通道不在此保存：右侧的层是显示的端口（state/look.ts displayPort，随节点图保存），两侧各取的通道在 state/view2d.ts left / right
   op: Op; // 中：加、乘 Alpha、乘 RGBA（同一个下拉框的三档，model/view2d.ts Op）
   mix: number; // 中：运算强度（与 Nuke 的 merge 相同，0 表示左侧原样）
   black: number; // 右：黑点，取值相对于该数据自身范围的 0 到 1，而非绝对值
@@ -30,49 +31,58 @@ export interface ViewOptions {
   // 背景为纯色时的颜色。此处不写颜色字面量：空值表示色板第一档，颜色值只在
   // platform/palette.ts 中定义（本文件须保持纯净，不 import 页面模块）
   bgColor: string;
-  // points
-  pointPx: number; // size in screen pixels: near and far alike
+  // 点
+  pointPx: number; // 大小以屏幕像素计：远近一样大
   pointColor: PointColor;
-  pointTint: string; // the constant colour
-  // lines
-  lineWidth: number; // screen pixels, 2D and 3D alike: boxes, tracks, handles, frustums, camera paths, bones, 3D curves, grid
+  pointTint: string; // 单色时的颜色
+  // 线
+  lineWidth: number; // 屏幕像素，二维与三维共用：人物框、跟踪线、手柄、视锥、相机路线、骨骼、三维曲线、网格
   cameraColor: string;
   boneColor: string;
+  // 骨架的画法（view/elements3d.tsx BoneFigure）：实体（八面体 + 球）或线框（棱 + 三环骨点）、八面体骨的粗细倍率、
+  // 骨点大小倍率、骨点是否按相连骨长自适应、骨点旁写不写关节名与字号（屏幕像素）
+  boneStyle: BoneStyle;
+  boneWidth: number;
+  jointSize: number;
+  jointAdaptive: boolean;
+  jointNames: boolean;
+  jointNamePx: number;
   // 三维曲线（发丝、毛发导向线、运动轨迹）：线宽取 lineWidth，着色使用曲线自身颜色或单色
   curveColor: CurveColor;
   curveTint: string;
-  // meshes
+  // 模型
   shading: Shading;
   uvChecker: boolean;
-  overlayOpacity: number; // looking through a camera over the plate: how much of the models and characters shows
-  overlayTint: string; // their colour there (a clay model over the plate)
-  overlayByPerson: boolean; // "按人物": each person has its own colour by id (boxes on the 2D stage, characters in 3D)
-  // picture
+  backFaces: boolean; // 画不画背面：关掉后只画朝向相机的面，叠在背板上调低透明度就是柔和的一层
+  overlayOpacity: number; // 透过相机叠在背板上时：模型与角色的不透明度
+  overlayTint: string; // 此时它们的颜色（叠在背板上的素模）
+  overlayByPerson: boolean; // 「按人物」：每个人按编号各有一种颜色（二维舞台上的人物框、三维中的角色）
+  // 画面
   antialias: Antialias;
-  // camera (left tumbles, middle dollies, right pans; view/camera3d.tsx)
-  near: number; // clipping, cm
+  // 相机（左键旋转、中键平移、右键左右拖动推拉；view/camera3d.tsx）
+  near: number; // 裁剪距离，cm
   far: number;
-  // scene aids
+  cameraPath: boolean; // 有多帧相机时画它走过的路线（相机本身由工具栏的相机按钮管）
+  // 场景辅助
   grid: boolean;
-  gridSpacing: number; // cm between grid lines (every tenth one stronger)
-  gridSize: number; // cm across; 0: without end
+  gridSpacing: number; // 网格线间距，cm（每第十条加粗）
+  gridSize: number; // 网格总宽，cm；0 表示无边
   axes: boolean;
-  axesSize: number; // the corner axes' size, pixels
+  axesSize: number; // 角落坐标轴的大小，像素
   background: Background;
   backgroundColor: string;
   lighting: Lighting;
-  exposure: number; // stops, on the lights
+  exposure: number; // 档（stop），作用于灯光
 }
 
-/** The overlay palette: the tint to choose from; its first colour is the plain white model (the default tint). */
+/** 叠加色板：可选的颜色；第一档是白色素模（默认颜色）。 */
 export const OVERLAY_SWATCHES = ["#e8e8ec", "#FFD60A", "#FF9F0A", "#FF375F", "#64D2FF", "#30D158"];
 
-/** "按人物": the colours assigned to people in turn. This is the overlay palette without its white, so that no person
- * (including id 0) looks like an uncoloured model. */
+/** 「按人物」：依次分给各人的颜色。即叠加色板去掉白色，这样任何人（包括编号 0）都不会看起来像未着色的模型。 */
 const PEOPLE_SWATCHES = OVERLAY_SWATCHES.slice(1);
 
-/** "按人物": one person's colour, keyed by the person's id. Boxes (2D) and characters (lab2shot:person_id, 3D) carry
- * the same id, so a person has one colour on both stages. */
+/** 「按人物」：按人物编号取一个人的颜色。人物框（二维）与角色（lab2shot:person_id，三维）带同一个编号，
+ * 因此同一个人在两个舞台上颜色相同。 */
 export const personTint = (id: number): string => PEOPLE_SWATCHES[Math.abs(Math.trunc(id)) % PEOPLE_SWATCHES.length];
 
 export const DEFAULTS: ViewOptions = {
@@ -93,17 +103,25 @@ export const DEFAULTS: ViewOptions = {
   lineWidth: 1.5,
   cameraColor: "#FFD60A",
   boneColor: "#FF375F",
+  boneStyle: "solid",
+  boneWidth: 1,
+  jointSize: 1,
+  jointAdaptive: true,
+  jointNames: false,
+  jointNamePx: 11,
   curveColor: "color",
   // 橙色，取自共用色板，不另写颜色字面量（颜色值只在一处定义）
   curveTint: OVERLAY_SWATCHES[2],
   shading: "smooth",
   uvChecker: false,
+  backFaces: true,
   overlayOpacity: 0.6,
   overlayTint: "#e8e8ec",
   overlayByPerson: false,
   antialias: "msaa",
   near: 1,
   far: 1_000_000,
+  cameraPath: true,
   grid: true,
   gridSpacing: 10,
   gridSize: 0,
@@ -115,9 +133,9 @@ export const DEFAULTS: ViewOptions = {
   exposure: 0,
 };
 
-/** The choices of each option with a word each: the panel's labels. */
+/** 各选项的取值及各自的名称：即面板上的标签。 */
 export const CHOICES = {
-  op: { add: "加", mulAlpha: "乘 Alpha", mulRgba: "乘 RGBA" },
+  op: { add: "加", over: "盖上（over）", mulAlpha: "乘 Alpha", mulRgba: "乘 RGBA" },
   tint: { grey: "灰度", warm: "冷到暖", id: "编号", red: "红", green: "绿", blue: "蓝", yellow: "黄", cyan: "青", magenta: "品红", white: "白" },
   bg: { checker: "棋盘格", solid: "纯色" },
   pointColor: { color: "自带", constant: "单色" },
@@ -126,6 +144,7 @@ export const CHOICES = {
   background: { solid: "纯色", gradient: "渐变" },
   lighting: { headlight: "头灯", rig: "三点灯" },
   curveColor: { color: "自带", constant: "单色" },
+  boneStyle: { solid: "实体", wire: "线框" },
 } as const satisfies { [K in keyof ViewOptions]?: Record<string, string> };
 
 /** 着色各档的含义：色标表示数值大小，纯色只表示浓淡（以「加」叠加时即为半透明叠加）。 */
@@ -142,10 +161,11 @@ const TINT_TIPS = {
   white: "一整片白，浓淡按值",
 } as const;
 
-/** What each choice does, for its tip. */
+/** 各取值的作用，用作悬停提示。 */
 export const CHOICE_TIPS: { [K in keyof typeof CHOICES]: Record<keyof (typeof CHOICES)[K], string> } = {
   op: {
     add: "右边的结果加到原图上：半透明叠加就是这一档（红色遮罩盖在画面上）",
+    over: "右边的结果按它自己的 alpha 盖在原图上（Nuke 的 over）：贴片、对齐过来的图带 alpha 时，透明的地方露出原图",
     mulAlpha: "原图按遮罩扣一下，只乘 Alpha：颜色一点不动，只改透明度，边缘不变暗",
     mulRgba: "原图按遮罩扣一下，RGB 和 Alpha 一起乘：扣出来的边缘会连颜色一起变暗",
   },
@@ -157,9 +177,10 @@ export const CHOICE_TIPS: { [K in keyof typeof CHOICES]: Record<keyof (typeof CH
   background: { solid: "纯色背景", gradient: "上下渐变的背景" },
   lighting: { headlight: "一盏跟着镜头的灯", rig: "固定的三点布光" },
   curveColor: { color: "用曲线自己带的颜色", constant: "全部一种颜色" },
+  boneStyle: { solid: "八面体骨加小球骨点，有明暗", wire: "只画八面体的棱，骨点是三个正交圆环（Maya 的画法），线宽用「线」页的线宽" },
 };
 
-/** Numeric limits: [min, max]. */
+/** 数值范围：[最小, 最大]。 */
 export const RANGES = {
   black: [-2, 2],
   white: [-2, 2],
@@ -173,25 +194,32 @@ export const RANGES = {
   axesSize: [20, 240],
   overlayOpacity: [0.05, 1],
   exposure: [-8, 8],
+  boneWidth: [0.2, 3],
+  jointSize: [0.2, 5],
+  jointNamePx: [6, 32],
 } as const satisfies { [K in keyof ViewOptions]?: readonly [number, number] };
+
+/** 只取整数的数值项（滑块、输入框、读存储都按它取整）。 */
+export const INTEGERS: ReadonlySet<keyof ViewOptions> = new Set<keyof ViewOptions>(["axesSize", "jointNamePx"]);
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
-/** Options as stored (anything: old, hand-edited, broken) made whole and valid: unknown keys dropped (keys no longer
- * in use are ignored this way), missing or wrong ones back to their defaults, numbers clamped to their range, near
- * kept below far. */
+/** 将存储中的选项（任何内容：旧版、手改、损坏）补全并校正：不认识的键丢弃（已停用的键也由此被忽略），
+ * 缺失或取值不对的恢复默认值，数值夹到各自范围内，并保证 near 小于 far。 */
 export function sanitize(raw: unknown): ViewOptions {
   const src = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const out = { ...DEFAULTS } as Record<string, unknown>;
   for (const key of Object.keys(DEFAULTS) as (keyof ViewOptions)[]) {
     const v = src[key];
     const d = DEFAULTS[key];
-    if (key in CHOICES) {
-      if (typeof v === "string" && v in CHOICES[key as keyof typeof CHOICES]) out[key] = v;
+    // 合法取值只看 CHOICES 表的自有键（「toString」「constructor」这类原型链上的名字不算取值）
+    if (Object.hasOwn(CHOICES, key)) {
+      if (typeof v === "string" && Object.hasOwn(CHOICES[key as keyof typeof CHOICES], v)) out[key] = v;
     } else if (typeof d === "number") {
       if (typeof v === "number" && Number.isFinite(v)) {
         const r = (RANGES as Record<string, readonly [number, number]>)[key];
-        out[key] = r ? Math.min(r[1], Math.max(r[0], v)) : v;
+        const n = INTEGERS.has(key) ? Math.round(v) : v;
+        out[key] = r ? Math.min(r[1], Math.max(r[0], n)) : n;
       }
     } else if (typeof d === "boolean") {
       if (typeof v === "boolean") out[key] = v;
@@ -211,8 +239,7 @@ export const STORAGE_KEY = "lab2shot.view3d";
 
 type Store = Pick<Storage, "getItem" | "setItem">;
 
-/** The options this browser keeps; the defaults when there are none or they can't be read (private window,
- * storage blocked, broken JSON). */
+/** 本浏览器保存的选项；没有或读不出（隐私窗口、存储被禁用、JSON 损坏）时返回默认值。 */
 export function loadOptions(storage: Store | null | undefined): ViewOptions {
   try {
     const text = storage?.getItem(STORAGE_KEY);
@@ -223,8 +250,8 @@ export function loadOptions(storage: Store | null | undefined): ViewOptions {
   }
 }
 
-/** Keeps the options in this browser: only those that differ from the defaults, so a later default reaches
- * everyone who never changed it. False when the browser would not keep them. */
+/** 把选项保存在本浏览器中：只存与默认值不同的项，这样默认值调整后，没改过该项的使用者都会用上新默认值。
+ * 浏览器不肯保存时返回 false。 */
 export function saveOptions(storage: Store | null | undefined, o: ViewOptions): boolean {
   const changed: Partial<Record<keyof ViewOptions, unknown>> = {};
   for (const key of Object.keys(DEFAULTS) as (keyof ViewOptions)[]) if (o[key] !== DEFAULTS[key]) changed[key] = o[key];

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-from lab2shot.sdk import CUDA_13_2_TOOLKIT, NONCOMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight, hf_file
+from lab2shot.sdk import CUDA_13_2_TOOLKIT, COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight, hf_file, downloads
 
 VIPE_URL = "https://github.com/nv-tlabs/vipe.git"
 # First commit with the pose_only / pose_only_long presets (ViPE 1.2.0 + long-sequence SLAM).
@@ -24,13 +24,12 @@ MODES = ("pose_only", "pose_only_long", "default", "dav3")
 # (dest in weights/, Hugging Face repo, revision, file, LFS sha256, licence)
 NC_FILES = {
     "unidepth-v2-vitl14-config": (
-        "hf/unidepth-v2-vitl14/config.json", "lpiccinelli/unidepth-v2-vitl14",
-        "52b349b514bd8b47642f67ac78cb7b5dc5c51dd9", "config.json", None, "CC-BY-NC-4.0",
+        "hf/unidepth-v2-vitl14/config.json", downloads.UNIDEPTH_V2_L_CONFIG.repo, downloads.UNIDEPTH_V2_L_CONFIG.revision,
+        downloads.UNIDEPTH_V2_L_CONFIG.filename, downloads.UNIDEPTH_V2_L_CONFIG.sha256, "CC-BY-NC-4.0",
     ),
     "unidepth-v2-vitl14": (
-        "hf/unidepth-v2-vitl14/model.safetensors", "lpiccinelli/unidepth-v2-vitl14",
-        "52b349b514bd8b47642f67ac78cb7b5dc5c51dd9", "model.safetensors",
-        "ba73d3de735302ccc64a50f1e557122050c4b1893e6060b28dba05d6af3e67c6", "CC-BY-NC-4.0",
+        "hf/unidepth-v2-vitl14/model.safetensors", downloads.UNIDEPTH_V2_L.repo, downloads.UNIDEPTH_V2_L.revision,
+        downloads.UNIDEPTH_V2_L.filename, downloads.UNIDEPTH_V2_L.sha256, "CC-BY-NC-4.0",
     ),
     "prior-depth-anything-dav2-vitb": (
         "hf/prior-depth-anything/depth_anything_v2_vitb.pth", "Rain729/Prior-Depth-Anything",
@@ -44,14 +43,12 @@ NC_FILES = {
     ),
     # torch.hub.load_state_dict_from_url finds it in TORCH_HOME/hub/checkpoints by file name.
     "video-depth-anything-small": (
-        "torch/hub/checkpoints/video_depth_anything_vits.pth", "depth-anything/Video-Depth-Anything-Small",
-        "256875362cff76724b920335dfb4b29dd611f66e", "video_depth_anything_vits.pth",
-        "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609", "Apache-2.0",
+        "torch/hub/checkpoints/video_depth_anything_vits.pth", downloads.VDA_SMALL.repo, downloads.VDA_SMALL.revision,
+        downloads.VDA_SMALL.filename, downloads.VDA_SMALL.sha256, "Apache-2.0",
     ),
     "da3metric-large": (
-        "hf/DA3METRIC-LARGE/model.safetensors", "depth-anything/DA3METRIC-LARGE",
-        "4010e39f3634a45bc60553321fb49fb760bd594e", "model.safetensors",
-        "bbea5b0b3ee389849cffa7ddae89de064a90abd2b055fc5aa99aac68db324776", "Apache-2.0",
+        "hf/DA3METRIC-LARGE/model.safetensors", downloads.DA3METRIC_MODEL.repo, downloads.DA3METRIC_MODEL.revision,
+        downloads.DA3METRIC_MODEL.filename, downloads.DA3METRIC_MODEL.sha256, "Apache-2.0",
     ),
     "da3-giant": (
         "hf/DA3-GIANT/model.safetensors", "depth-anything/DA3-GIANT",
@@ -79,11 +76,11 @@ class ViPE(Extension):
     homepage = "https://github.com/nv-tlabs/vipe"
     source = GitSource(url=VIPE_URL, commit=VIPE_COMMIT)
     license = LicenseInfo(
-        tag=NONCOMMERCIAL,
+        tag=COMMERCIAL,  # the camera solve's modes use only commercial weights; 「ViPE 深度图」 declares its own 非商用
         name="Apache-2.0（pose_only / pose_only_long）；default / dav3 模式含 CC-BY-NC-4.0 非商用模型",
         url="https://github.com/nv-tlabs/vipe/blob/main/LICENSE",
         summary=(
-            "代码 Apache-2.0。pose_only / pose_only_long 模式所用权重均可商用"
+            "可商用（「ViPE 深度图」除外）。代码 Apache-2.0。pose_only / pose_only_long 模式所用权重均可商用"
             "（MoGe-2 MIT、GeoCalib/GroundingDINO/SAM/BERT Apache-2.0、DROID-SLAM/DeAOT BSD-3）。"
             "default 模式非商用：UniDepth-V2 ViT-L（CC-BY-NC-4.0）、Prior-Depth-Anything 内含的 Depth-Anything-V2-Base"
             "（CC-BY-NC-4.0；Prior-Depth-Anything 本身和 Video-Depth-Anything-Small 为 Apache-2.0）。"
@@ -105,14 +102,8 @@ class ViPE(Extension):
     # Laid out like torch.hub's cache: every worker runs with TORCH_HOME=weights/torch and
     # offline (Extension.base_env), so nothing but these files can ever be loaded.
     weights = (
-        Weight(
-            key="droid-slam",
-            sha256="46476ef64cde45a97504910d6f3de2eef7b398ec1c6e4e668815c29076024526",
-            kind="url",
-            source="https://drive.usercontent.google.com/download?id=1PpqVt1H4maBa_GbPJp4NwxRsd9jk-elh&export=download&confirm=t",
-            dest="torch/hub/droid_slam/droid.pth",
-            note="DROID-SLAM 光流/BA 网络（BSD-3-Clause）",
-        ),
+        downloads.DROID_SLAM.weight(key="droid-slam", dest="torch/hub/droid_slam/droid.pth",
+                                    note="DROID-SLAM 光流/BA 网络（BSD-3-Clause）"),
         hf_file(
             "Ruicheng/moge-2-vitl", "39c4d5e957afe587e04eec59dc2bcc3be5ecd968", "model.pt",
             key="moge-2-vitl",
@@ -120,14 +111,8 @@ class ViPE(Extension):
             dest="torch/hub/moge2/moge-2-vitl.pt",
             note="MoGe-2 ViT-L 关键帧度量深度（MIT）",
         ),
-        Weight(
-            key="geocalib-pinhole",
-            sha256="86d6aeacd8bbd974c59ce39f61854e00d36911c732ad89be471476fd708722ac",
-            kind="url",
-            source="https://github.com/cvg/GeoCalib/releases/download/v1.0/geocalib-pinhole.tar",
-            dest="torch/hub/geocalib/pinhole.tar",
-            note="GeoCalib 初始 Focal Length 估计（Apache-2.0）",
-        ),
+        downloads.GEOCALIB_PINHOLE.weight(key="geocalib-pinhole", dest="torch/hub/geocalib/pinhole.tar",
+                                          note="GeoCalib 初始 Focal Length 估计（Apache-2.0）"),
         hf_file(
             "ShilongLiu/GroundingDINO", "a94c9b567a2a374598f05c584e96798a170c56fb", "groundingdino_swint_ogc.pth",
             key="groundingdino-swint",

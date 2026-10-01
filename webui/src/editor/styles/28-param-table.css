@@ -1,8 +1,8 @@
-/* 表格参数 (editor/ParamTable.tsx): a parameter that is a list of entries, such as 「读取多条序列」's sequences,
-   「多层 EXR 输出设置」's 图层, the camera's distortion parameters, or the joint mapping. One line per entry, with every
-   column the server declares: editable ones as controls, the others as plain text. */
+/* 表格参数（editor/ParamTable.tsx）：由多个条目组成的参数，如「读取多条序列」的序列、「多层 EXR 输出设置」的图层、
+   相机的畸变参数或关节映射。每个条目一行，列出服务器声明的每一列：可编辑的列为控件，其余为纯文本。
+   本文件还包含参数行的标签与其三个记号（见下方分节）。 */
 
-/* a list of entries: one line each (「多层 EXR 输出设置」's 图层: 端口, 图层名, 通道); its label at the top */
+/* 条目列表：每条一行（「多层 EXR 输出设置」的图层：端口、图层名、通道）；标签在上方 */
 .prow:has(.ptable) > .plabel {
   align-self: start;
   padding-top: 5px;
@@ -36,8 +36,8 @@
   grid-column: 1 / -1;
 }
 
-/* a row with more in it than one line holds (「读取多条序列」: the sequence and its frames, then its name and 读) runs
-   to a second line: a hairline between rows keeps the two lines reading as one row */
+/* 一行内容多于一行能容纳时（「读取多条序列」：序列与其帧段，然后是名称与「读」）折到第二行：行间的细线使这两行
+   读起来仍是同一行 */
 .ptable-row + .ptable-row {
   border-top: 1px solid var(--hair);
 }
@@ -76,9 +76,8 @@
   color: var(--text);
 }
 
-/* A column the server declares read-only (widget "fixed"): listed like any other, shown as plain text (the row's
-   own sequence, its frames, the layer a port comes from). It is the user's data, so it gives way first:
-   it shrinks and shows its full text on hover, rather than pushing editable content onto another line. */
+/* 服务器声明为只读的列（widget "fixed"）：与其他列一样列出，以纯文本显示（该行自身的序列、帧段、端口来自的图层）。
+   它是使用者的数据，因此最先让出空间：收缩并在悬停时显示全文，而不是把可编辑内容挤到下一行。 */
 .ptable-fixed {
   min-width: 0;
   overflow: hidden;
@@ -101,7 +100,7 @@
   font-size: var(--fs-sm);
 }
 
-/* a cell whose options come from the input (the joint table's 人物关节): its column takes the remaining width */
+/* 选项来自输入的格（关节表的「人物关节」）：其所在列占据剩余宽度 */
 .ptable-cell.wide .field {
   white-space: nowrap;
   overflow: hidden;
@@ -119,11 +118,10 @@
   color: var(--text);
 }
 
-/* ---------------------------------------------------------------- a parameter row's label and its three pins
-   (here, not with the graph's styles: they are the parameter panel's) */
+/* ---------------------------------------------------------------- 参数行的标签与其三个记号
+   （放在这里而非节点图的样式中：它们属于参数面板） */
 
-/* a parameter's label: its help is the page's one tooltip, on hover or on focus. No underline:
-   the label reads as plain text. */
+/* 参数的标签：其说明使用页面唯一的悬停提示，悬停或聚焦时显示。无下划线：标签读起来是普通文字。 */
 .plabel-text {
   /* 不使用问号光标（节点上同理，见 08a-node.css）。悬停提示仍然存在，由 data-tip 负责，与光标无关 */
   outline: none;
@@ -134,7 +132,7 @@
   box-shadow: 0 0 0 2px var(--accent);
 }
 
-/* exposed-parameter pin next to a parameter's label */
+/* 参数标签旁的「公开参数」记号 */
 .expose-pin {
   position: absolute;
   left: -2px;
@@ -167,8 +165,8 @@
   background: var(--raised);
 }
 
-/* 提升到节点 (.socket-pin, ParamPanel.tsx PromotePin): one click puts the parameter on the node's body, as a row with
-   its own input and its control. 其右侧另有标记 .onnode-pin「在节点上显示」（23-panel-1.css）：
+/* 提升到节点（.socket-pin, ParamPanel.tsx PromotePin）：点一下把该参数放到节点身上，成为带自身输入口与控件的一行。
+   其右侧另有标记 .onnode-pin「在节点上显示」（23-panel-1.css）：
    该标记只控制显示，不提供输入口。 */
 .socket-pin {
   position: absolute;
@@ -223,6 +221,14 @@
   grid-column: 1 / -1;
   justify-self: start;
   margin-top: var(--sp-2);
+}
+
+/* 输入侧的表（一行一个输入口）的「添加」：表格末尾单独占一行，靠左（ParamTable.tsx） */
+.ptable > .ptable-add {
+  grid-column: 1 / -1;
+  justify-self: start;
+  height: 24px;
+  font-size: 11.5px;
 }
 
 /* 列头：字号小一档、颜色暗一档。与下方各行使用同一套列对齐（subgrid），不依赖 class 的偶然一致 */

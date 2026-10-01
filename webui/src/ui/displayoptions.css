@@ -1,7 +1,7 @@
-/* The view's 「视图设置」 popover (ui/DisplayOptions.tsx): the floating panel and its rows of switches, sliders and
-   choices; `popover` is the floating panel every small menu of the viewer uses. */
+/* 视图的「视图设置」弹出面板（ui/DisplayOptions.tsx）：浮动面板及其中一行行的开关、滑块和选项；
+   `popover` 是视图所有小菜单共用的浮动面板。 */
 
-/* a floating panel opened from a control (the viewer's display options) */
+/* 由某个控件打开的浮动面板（视图的显示选项） */
 .popover {
   position: absolute;
   z-index: var(--z-popover);

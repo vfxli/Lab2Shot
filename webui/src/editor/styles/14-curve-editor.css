@@ -1,4 +1,4 @@
-/* ---------------------------------------------------------------- curve editor: channels left, graph right */
+/* The curve editor (editor/CurvesView.tsx): channels on the left, the graph on the right. */
 .curves {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);

@@ -55,8 +55,8 @@ export interface CardWaiting {
   runnable_ever: boolean;
 }
 
-/** 一小时内的平均显卡使用率（lab2shot/farm/scheduler/inventory.py hourly）：`hour` 为 Unix 秒 ÷ 3600，
- * `average` 为每张卡 0–100 的数值；`running` 表示该小时尚未结束，当前值按已采集的样本计算。 */
+/** The average GPU use over one hour (lab2shot/farm/scheduler/inventory.py hourly): `hour` is Unix seconds ÷ 3600,
+ * `average` a 0–100 value per card; `running` means the hour is not over yet and the value covers the samples so far. */
 export interface CardHour {
   hour: number;
   average: Record<string, number>;

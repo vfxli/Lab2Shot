@@ -1,34 +1,36 @@
 """Everything a graph's state can tell without cooking anything: fingerprints, cached outputs, effective parameters,
-wired values, sources, usage warnings, the status the editor polls. One `Evaluation` is one version of one graph
+wired values, sources, usage warnings, the status the editor polls. Without cooking a node, not without reading
+files: planning an import reads what its file holds (ImportNode.listing, through its extension's worker for a format
+the core does not read; cached per file), which the engine does ahead, outside its lock (NodeDef.ready). One `Evaluation` is one version of one graph
 (engine/evaluations.py keeps one per graph version): every method here remembers its answer per node instance (a
 node and its item path, engine/scopes.py Inst; a node outside every 逐项处理 block has the one instance with the empty
 path, which is what every `path=()` below means), so asking the same question twice (the parameter panel, the footer,
 the status reply, a second /api/status call with nothing changed) costs nothing the second time. `Engine`
-(engine/cook.py) holds one to plan and answer status from, and cooks on top of it; a plan `Evaluation.plan()` makes is
-the same object `Engine` mutates in place as instances actually cook (`.cached` flips true once its outputs are
-written), so a running cook's `Engine` never shares its `Evaluation` with another one from the cache (see
-EvaluationCache.get in evaluations.py).
+(engine/cook.py) holds one to plan and answer status from, and cooks on top of it, forgetting what each cook changes
+(Demand.forget), so an Engine cooks on an Evaluation of its own, never one from the cache (the farm builds a fresh one
+per cook). Whether an instance is cached is asked when needed (Demand.cached), never kept in its plan. Evaluation is made of parts, each the one place of its concept: presence (is it there), routing (which way a
+switch goes), demand (what a cook needs), status (what the editor is told); this module keeps instances, wires,
+outcomes, parameters, frames and planning.
 
 What can only be known once something above is cooked (a wired parameter's value, a block's items, the input a switch
-chooses) is pending (engine/scopes.py Pending), found by the one function `_known_or_pending`; an instance that waits
-is planned with what is known, never remembered, and planned again once it is (`waits`, `order`).
+chooses) is pending (engine/scopes.py Pending), found by the one function `lookup` (engine/presence.py). The wait passes
+down: an instance that waits gives nothing known (Presence.known), so what reads it waits too. What is worked out for an
+instance that waits (its plan, info, warnings, what its wires bring) is remembered like any other answer; the cook of
+what it waits for forgets it and what follows (Demand.forget), and it is worked out again then (`waits`, `order`).
 
-Nothing here writes to disk: a cached packet's "last used" time is set only where a packet is actually read for
-cooking (Engine._run_node) or shown (server/packets.py's GETs), never by looking at what is cached (see
-Packet.used, data/packet.py)."""
+Looking at the cache never marks a packet used: its "last used" time is set only where a packet is actually read for
+cooking (Engine._run_node) or shown (server/packets.py's GETs) (Packet.used, data/packet.py). Reading writes nothing:
+a packet found invalid is only answered for (NodePlan.has); the cook that needs it writes it again."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
-from pathlib import Path
-from dataclasses import dataclass, replace
-from typing import Any, Generic, TypeVar
-
-from typing import TYPE_CHECKING
+import threading
+from dataclasses import replace
+from typing import TYPE_CHECKING, Any
 
 from ..data.contracts import KEEPS, shot_of
-from ..data.packet import CACHE_VERSION, FACTS_VERSION, Packet, discard_invalid, packet_dir, valid
+from ..data.packet import CACHE_VERSION, FACTS_VERSION, Packet
 from ..errors import CookError, GraphError, Invalid, NotFound, Refused, message_of
 from ..messages import Msg
 from ..nodes.applies import NodeFacts, Resolved, effective_params, resolve, standing_notices
@@ -37,109 +39,29 @@ from ..nodes.port import PARAM
 from ..nodes.formats import ImportNode
 from ..nodes.output import OutputSettings
 from . import scopes as sc
-from .graph import Graph
+from .demand import Demand
+from .graph import Graph, walk, with_table
 from .lint import warnings
+from .presence import Presence, generation, present
+from .records import INSTANCE, KEPT, PLAN_ERRORS, Dropped, Memo, NodePlan, Outcome, Wire, _hash, failure_file, planned
+from .routing import Routing
 from .scopes import BEGIN, END, Inst, ItemAt, ItemPath, Pending
+from .status import Status
 
 if TYPE_CHECKING:
     from ..serving import Account
 
-K = TypeVar("K")
-V = TypeVar("V")
-
-PLAN_ERRORS = (GraphError, CookError, OSError, ValueError)
-Wire = tuple[str, str, ItemPath]  # into an instance: (from node, its port, the from instance's path)
-Dropped = tuple[str, str, str, ItemPath]  # (input, from node, its port, its path)
+__all__ = ["Evaluation", "Inst", "NodePlan", "Outcome", "PLAN_ERRORS", "failure_file"]
 
 
-class Memo(Generic[K, V]):
-    """One table an Evaluation remembers answers in, and the one place its concurrency rule lives. One Evaluation is
-    shared across threads (EvaluationCache: a status request, the queue placing a job, a policy walk), so:
-    - each key is written once: `put` keeps the first value written and hands it back, so two threads that worked the
-      same answer out at once both go on with the same object (computing it twice is wasteful, never wrong);
-    - whoever walks a table walks a snapshot (`items`, `values`), never the live dict;
-    - `drop` / `drop_where` are only for the Engine that owns the evaluation while it cooks (Evaluation.forget), which
-      shares it with nobody (EvaluationCache.get hands a running cook's evaluation to no one else).
-    No lock: every operation here is one atomic dict operation."""
 
-    __slots__ = ("_d",)
+def _again(exc: BaseException) -> BaseException:
+    """A kept error, to be raised again: its value, without the frames of every earlier raise (each raise of the same
+    object adds its own to __traceback__: a kept evaluation polled a thousand times would hold them all)."""
+    exc.__context__ = None
+    return exc.with_traceback(None)
 
-    def __init__(self) -> None:
-        self._d: dict[K, V] = {}
-
-    def __contains__(self, key: K) -> bool:
-        return key in self._d
-
-    def __getitem__(self, key: K) -> V:
-        return self._d[key]
-
-    def __len__(self) -> int:
-        return len(self._d)
-
-    def put(self, key: K, value: V) -> V:
-        """Remember `value` for `key` unless another thread already did; the value kept."""
-        return self._d.setdefault(key, value)
-
-    def items(self) -> list[tuple[K, V]]:
-        return list(self._d.items())
-
-    def values(self) -> list[V]:
-        return list(self._d.values())
-
-    def drop(self, key: K) -> None:
-        self._d.pop(key, None)
-
-    def drop_where(self, gone: Callable[[K], bool]) -> None:
-        for k in [k for k in list(self._d) if gone(k)]:
-            self._d.pop(k, None)
-
-
-def _hash(obj: Any) -> str:
-    from ..io.digest import key
-
-    return key(obj, 24)
-
-
-@dataclass
-class NodePlan:
-    fingerprint: str
-    outputs: dict[str, str]  # port -> packet fingerprint
-    cached: bool  # every output something needs (Evaluation.needed_outputs) is there
-
-    def has(self, ports) -> bool:
-        """The single formula for "the packets of these ports are on disk": `cached` (by who wires it in the whole graph,
-        `needed_outputs`), `Evaluation.satisfied` (by the ports this cook wants of it, `demand`), `still_true` and the
-        cook's `_settled` all call it, with no duplicate. A node without outputs (「输出」) is always False: it always cooks.
-        On disk means valid (data/packet.py check): complete, the external files it reads present and unchanged, the
-        packets it references present. Invalid packets found are removed at once (discard_invalid -> remove); when
-        downstream needs them again they are uploaded and cooked again."""
-        return bool(self.outputs) and all(discard_invalid(packet_dir(o)).ok for port, o in self.outputs.items() if port in ports)
-
-
-def failure_file(fingerprint: str):
-    """Where the error an instance last failed with at this fingerprint is kept (engine/cook.py writes it): a
-    computation's result like its packets (a refresh, another tab, a later status all still see it) until a cook
-    tries it again. The fingerprint is the instance's own (its inputs are its item's), so this is per instance."""
-    return packet_dir(fingerprint + "_failed") / "failed.json"
-
-
-@dataclass(frozen=True)
-class Outcome:
-    """An instance that has no result because of an error: it
-    "failed" (its own error, `message` with its log) or is "skipped" (a required input comes from an instance that
-    failed or was skipped, or what it waits for does: `message` says which, `root` is the node that failed).
-    `failure`: False for what is only outside the frame range (N-EACH-OUTSIDE) and what is skipped behind it: no
-    error anywhere. `chain`: a node that delivers failed because a line into it is broken (_chains_broken): it is
-    never tried, it fails as it stands."""
-
-    state: str
-    root: str
-    message: dict
-    failure: bool = True
-    chain: bool = False
-
-
-class Evaluation:
+class Evaluation(Presence, Routing, Demand, Status):
     """One version of one graph, memoised per node instance."""
 
     def __init__(self, graph: Graph, account: "Account | None" = None) -> None:
@@ -152,49 +74,93 @@ class Evaluation:
         # not even to identify it. Kept here so this evaluation answers the same wherever it is read from (the farm's
         # own thread reads a job's), and part of its cache key (engine/evaluations.py).
         self.account = account or ANYONE
-        # every table it remembers answers in is a Memo (its concurrency rule)
-        self._plans: Memo[Inst, NodePlan] = Memo()
-        self._infos: Memo[Inst, Info] = Memo()  # before the frame range: a frame source's every frame
+        # every table it remembers answers in is a Memo (its concurrency rule), made by _memo: registered, so forget
+        # reaches every one
+        self._tables: list[Memo] = []
+        self.stale = False  # something it planned changed on disk (records.changed): the cache hands it out no more
+        self._plans: Memo[Inst, NodePlan] = self._memo()
+        self._infos: Memo[Inst, Info] = self._memo()  # before the frame range: a frame source's every frame
         # why an instance could not be planned (a refused file, a precondition): kept so status, checks and the plan
         # of what comes after read its file once, not once each
-        self._plan_errors: Memo[Inst, Exception] = Memo()
-        self._manifests: Memo[str, dict | None] = Memo()  # packet fingerprint -> its manifest (type, meta, node), once
-        self._source_identities: Memo[Inst, Any] = Memo()  # its source_identity() the first time plan() saw it
-        self._gone: Memo[Inst, Msg] = Memo()  # its source file is not there (cleaned, or not this account's): why
-        self._source_errors: Memo[Inst, Exception] = Memo()  # its source file could not be read: why (asked once)
-        self._outcomes: Memo[Inst, Outcome | None] = Memo()
-        self._dropped: Memo[Inst, dict[Dropped, Outcome]] = Memo()
-        self._resolved: Memo[Inst, Resolved] = Memo()
-        self._checks: Memo[Inst, list[dict]] = Memo()
-        self._shots: Memo[tuple, dict] = Memo()  # (node, output, path) -> what was photographed, before any cook
-        self._provenance: Memo[Inst, dict] = Memo()
-        self._wires: Memo[Inst, dict[str, list[Wire]]] = Memo()  # input -> the wires the instance takes
-        self._items: Memo[Inst, list[ItemAt]] = Memo()  # a begin and the path its scope sits at -> the items
-        self._orders: Memo[tuple[str, ...], tuple[list[Inst], frozenset[str]]] = Memo()
-        # the ports this cook wants of each instance (`demand`) and whether they are all on disk (`satisfied`):
-        # both tables are invalidated together with order (forget)
-        self._demands: Memo[tuple[tuple[str, ...], frozenset[str]], dict[Inst, frozenset[str]]] = Memo()
-        self._satisfied: Memo[tuple[Inst, frozenset[str]], bool] = Memo()
+        self._plan_errors: Memo[Inst, Exception] = self._memo()
+        self._source_identities: Memo[Inst, Any] = self._memo(KEPT)  # its source_identity() the first time plan() saw it
+        self._gone: Memo[Inst, Msg] = self._memo()  # its source file is not there (cleaned, or not this account's): why
+        self._source_errors: Memo[Inst, Exception] = self._memo()  # its source file could not be read: why (asked once)
+        self._outcomes: Memo[Inst, Outcome | None] = self._memo()
+        self._dropped: Memo[Inst, dict[Dropped, Outcome]] = self._memo()
+        self._resolved: Memo[Inst, Resolved] = self._memo()
+        self._checks: Memo[Inst, list[dict]] = self._memo()
+        self._warnings: Memo[Inst, list[dict]] = self._memo()  # its usage checks (engine/lint.py warnings)
+        self._shots: Memo[tuple, dict] = self._memo(lambda k: Inst(k[0], k[2]))  # (node, output, path) -> what was photographed, before any cook
+        self._provenance: Memo[Inst, dict] = self._memo()
+        self._wires: Memo[Inst, dict[str, list[Wire]]] = self._memo()  # input -> the wires the instance takes
+        self._waits: Memo[Inst, tuple[Pending, ...]] = self._memo()  # what it waits for (forget: once that is cooked)
+        self._items: Memo[Inst, list[ItemAt]] = self._memo()  # a begin and the path its scope sits at -> the items
+        self._warming = threading.local()  # this thread is filling the tables from the sources up (_sources_first)
+        self._open_presence()
+        self._open_routing()
+        self._open_demand()
+        self._open_status()
 
-    # ------------------------------------------------------------------ manifests (read at most once per fingerprint)
+    def _planned(self, inst: Inst) -> bool:
+        return inst in self._plans or inst in self._plan_errors
 
-    def manifest(self, fp: str) -> dict | None:
-        """A packet's manifest (type, meta, node), read from disk at most once per fingerprint in this evaluation's
-        lifetime (packets are immutable once committed, so this never goes stale under it). None: not committed; this is
-        never remembered, since a cook of this evaluation's own graph may commit it in a moment (a packet that is
-        there, on the other hand, stays what it is)."""
-        if fp in self._manifests:
-            return self._manifests[fp]
-        d = packet_dir(fp)
-        if not Packet.exists(d):
-            return None
-        return self._manifests.put(fp, {"type": (p := Packet.load(d)).type, "meta": p.meta, "node": p.node, "messages": p.messages,
-                                        "created": p.created})
+    def _sources_first(self, node_id: str, path: ItemPath, known, *fill) -> None:
+        """Before an answer about an instance that is worked out from its sources' answers (plan, outcome, info,
+        provisional: each asks its sources, which ask theirs), work theirs out first, from the far end of the graph
+        down (walk: no recursion), so the call itself goes one step up, never down a whole chain (a chain of a
+        thousand nodes would overflow Python's stack). `fill`: what to work out for each, in turn; `known(inst)`: its
+        answer is remembered already, so the walk goes no further up from it (what is above was worked out with it).
+        Along the wires the instance takes (`wires`: a switch's route) once known, else every wire the graph draws into
+        it, a block's end into each item's instance (as `deps`), so a chain inside a block is walked too. Once per outermost call, on this thread: the calls it makes find their sources worked out."""
+        if getattr(self._warming, "on", False):
+            return
+        self._warming.on = True
 
-    def packet(self, fp: str) -> Packet | None:
-        """The packet a fingerprint names, from `manifest` (no second read of manifest.json)."""
-        m = self.manifest(fp)
-        return None if m is None else Packet(packet_dir(fp), m["type"], m["meta"], m["node"], m["messages"])
+        start = Inst(node_id, path)
+
+        g = self.graph
+
+        def sources(inst: Inst) -> list[Inst]:
+            if inst != start and known(inst):
+                return []
+            if inst in self._wires:  # the wires it takes, once known (a switch's route)
+                return [Inst(src, p) for ws in self._wires[inst].values() for src, _, p in ws]
+            # else every wire the graph draws into it, where its source is at one instance: working out which it takes
+            # asks its sources' answers itself (a switch's condition), which is what this walk is there to do first
+            out = []
+            for src in dict.fromkeys(g.sources_of(inst.node)):
+                if (at := g.scopes.source_path(src, inst.node, inst.path)) is not None:
+                    out.append(Inst(src, at))
+                elif g.scopes.depth(src) > len(inst.path):  # deeper: a block's end gathers it per item, as deps does
+                    try:
+                        items_of, _ = self.instances(src)
+                    except PLAN_ERRORS:
+                        continue
+                    out += [Inst(src, p) for p in items_of if p[:len(inst.path)] == inst.path]
+            return out
+
+        try:
+            for inst in walk([start], sources)[:-1]:
+                if known(inst):
+                    continue
+                for fn in fill:
+                    try:
+                        fn(*inst)
+                    except PLAN_ERRORS:  # the same error the answer itself meets, and says, when it gets there
+                        pass
+        finally:
+            self._warming.on = False
+
+    def remembered(self) -> int:
+        """How many answers its tables hold: what it costs to keep (EvaluationCache bounds the sum)."""
+        return sum(len(memo) for memo in self._tables)
+
+    def _memo(self, of: Any = INSTANCE) -> Memo:
+        """A new table of this evaluation, registered (Memo.of says what its keys are about, for forget)."""
+        memo = Memo(of)
+        self._tables.append(memo)
+        return memo
 
     # ------------------------------------------------------------------ blocks: instances, items, wires
 
@@ -221,14 +187,10 @@ class Evaluation:
         if key in self._items:
             return self._items[key]
         g, node = self.graph, self.graph.nodes[begin]
-        wires = g.inputs.get((begin, node.type.item_input), [])
-        if not wires:
-            return self._items.put(key, [])
-        src, sport = wires[0]
-        got = self._known_or_pending("items", Inst(src, path[:g.scopes.depth(src)]), sport)
+        got = self.wired_input(begin, node.type.item_input, path, "items")
         if isinstance(got, Pending):
             return got
-        found = [] if got.meta.get("empty") else node.type.scope_items(node.params, got)
+        found = [] if got is None else node.type.scope_items(node.params, got[2])  # none, refused or empty: no items
         return self._items.put(key, [ItemAt(i.name, i.key, i.packet, n, len(found)) for n, i in enumerate(found)])
 
     def item_at(self, begin: str, path: ItemPath) -> ItemAt:
@@ -243,28 +205,6 @@ class Evaluation:
             raise GraphError(Msg("E-GRAPH-NONODE", node=f"{begin}@{'/'.join(path)}"))
         return found
 
-    def _known_or_pending(self, kind: str, on: Inst, port: str) -> Packet | Pending:
-        """THE one place something an instance needs before it can be planned is found out not to be known yet
-        (engine/scopes.py「Pending」): a wired parameter's value ("value"), a block's items ("items"), the input a
-        switch chooses ("condition"). What `on`'s `port` gives when known (Evaluation.known), else what waits for it."""
-        packet = self.known(on.node, port, on.path)
-        return Pending(kind, on, port) if packet is None else packet
-
-    def _chosen(self, node_id: str, path: ItemPath) -> frozenset[str] | Pending | None:
-        """The inputs a switch needs with its condition (None: the node is not a switch)."""
-        g, node = self.graph, self.graph.nodes[node_id]
-        if not sc.chooses(node.type):
-            return None
-        cond = node.type.condition_input
-        wires = g.inputs.get((node_id, cond), [])
-        if not wires:  # no condition wired: its check says so (Graph.check_inputs)
-            return frozenset({cond})
-        src, sport = wires[0]
-        got = self._known_or_pending("condition", Inst(src, path[:g.scopes.depth(src)]), sport)
-        if isinstance(got, Pending):
-            return got
-        return frozenset(node.type.chosen_inputs(node.params, got)) | {cond}
-
     def wires(self, node_id: str, path: ItemPath = ()) -> dict[str, list[Wire]]:
         """Every input of the instance (a promoted parameter's too) -> the wires it takes, each with the path of the
         instance it comes from: the same path cut to that node's depth; into a block's end, one per item of the
@@ -273,6 +213,7 @@ class Evaluation:
         key = Inst(node_id, path)
         if key in self._wires:
             return self._wires[key]
+        self._one_instance(node_id, path)
         g = self.graph
         scopes = g.scopes
         chosen = self._chosen(node_id, path)
@@ -285,164 +226,78 @@ class Evaluation:
             if not isinstance(chosen, Pending) or port.name == g.nodes[node_id].type.condition_input:
                 if chosen is None or isinstance(chosen, Pending) or port.name in chosen:
                     for src, sport in g.inputs.get((node_id, port.name), []):
-                        depth = scopes.depth(src)
                         if inner is not None and not port.param and scopes.chain(src) == inner:
                             taken += [(src, sport, path + (i.key,)) for i in items] if not isinstance(items, Pending) else []
-                        elif depth <= len(path) and scopes.chain(src) == scopes.chain(node_id)[:depth]:
-                            taken.append((src, sport, path[:depth]))
+                        elif (at := scopes.source_path(src, node_id, path)) is not None:
+                            taken.append((src, sport, at))
             out[port.name] = taken
         if isinstance(chosen, Pending) or isinstance(items, Pending):
             return out
         return self._wires.put(key, out)
 
     def waits(self, node_id: str, path: ItemPath = ()) -> tuple[Pending, ...]:
-        """What the instance waits for before it can be planned for good (engine/scopes.py Pending)."""
+        """What the instance waits for before it can be planned for good (engine/scopes.py Pending). Remembered either
+        way: what it waits for changes only when something above it is cooked, and that forgets it (Demand.forget: a
+        value read before planning forgets everything downstream)."""
+        key = Inst(node_id, path)
+        if key in self._waits:
+            return self._waits[key]
+        self._sources_first(node_id, path, self._waits.__contains__, self.waits, self.outcome)
         node = self.graph.nodes[node_id]
         out: list[Pending] = []
         inactive = self.resolved(node_id, path).params.inactive
         for name in node.promoted:
             if name not in inactive and isinstance(w := self._wired_packet(node_id, name, path), Pending):
                 out.append(w)
+        for port in node.type.params_inputs:
+            if isinstance(w := self._input_value(node_id, path, port), Pending):
+                out.append(w)
         if isinstance(chosen := self._chosen(node_id, path), Pending):
             out.append(chosen)
         if (begin := self.graph.scopes.ended.get(node_id)) is not None and isinstance(items := self.item_list(begin, path), Pending):
             out.append(items)
-        return tuple(out)
+        return self._waits.put(key, tuple(out))
 
     def deps(self, inst: Inst) -> list[Inst]:
-        """The instances `inst` needs cooked first: those wired into it (as `wires` takes them) and what it waits for."""
+        """The instances `inst` needs cooked first: those wired into it (as `wires` takes them), what it waits for, and,
+        for a block's end, the list its items come from: that decides them even when there are none (an end over an
+        empty list gathers nothing, and the list and what made it are what said so: used, not left grey)."""
+        g = self.graph
         found = [Inst(src, p) for wires in self.wires(*inst).values() for src, _, p in wires]
         found += [w.on for w in self.waits(*inst)]
+        if (begin := g.scopes.ended.get(inst.node)) is not None:
+            for src, _ in g.inputs.get((begin, g.nodes[begin].type.item_input), [])[:1]:
+                if (at := g.scopes.source_path(src, begin, inst.path)) is not None:
+                    found.append(Inst(src, at))
         return list(dict.fromkeys(found))
-
-    def order(self, targets: list[str]) -> tuple[list[Inst], frozenset[str]]:
-        """Cooking `targets` (every instance of each): the instances it needs, dependencies first, as far as is known
-        now; and the nodes behind what is still pending (a block's items, a switch's condition) that it will need once
-        that is known. Worked out again after every cook that changes what is known (forget)."""
-        key = tuple(targets)
-        if key in self._orders:
-            return self._orders[key]
-        g = self.graph
-        order: list[Inst] = []
-        seen: set[Inst] = set()
-        visiting: set[Inst] = set()
-        behind: set[str] = set()
-
-        def visit(inst: Inst) -> None:
-            if inst in seen:
-                return
-            if inst in visiting:
-                raise GraphError(Msg("B-GRAPH-CYCLE"))
-            visiting.add(inst)
-            for w in self.waits(*inst):
-                if w.kind != "value":  # a value's node is wired in: planned anyway; the rest is behind this
-                    ports = [p for p in g.input_ports(inst.node) if w.kind == "items" or p.name != g.nodes[inst.node].type.condition_input]
-                    behind.update(n for p in ports for src, _ in g.inputs.get((inst.node, p.name), []) for n in g.upstream_order(src))
-            for d in self.deps(inst):
-                visit(d)
-            visiting.discard(inst)
-            seen.add(inst)
-            order.append(inst)
-
-        for t in targets:
-            if t not in g.nodes:
-                raise GraphError(Msg("E-GRAPH-NONODE", node=t))
-            paths, pending = self.instances(t)
-            for p in pending:
-                visit(p.on)
-                behind.update(g.upstream_order(t))
-            for p in paths:
-                visit(Inst(t, p))
-        return self._orders.put(key, (order, frozenset(behind - {i.node for i in order})))
-
-    def needed_outputs(self, node_id: str) -> frozenset[str]:
-        """The outputs of the node something needs: those a wire takes; every one when no wire takes any (what is
-        cooked to be shown or delivered, a sink). What `cached` means (NodePlan)."""
-        taken = {sport for dst, dport in self.graph.outputs_by_node.get(node_id, ())
-                 for src, sport in self.graph.inputs.get((dst, dport), []) if src == node_id}
-        return frozenset(taken) if taken else frozenset(p.name for p in self.graph.outputs(node_id))
-
-    # ------------------------------------------------------------------ what this cook requires (Demand)
-
-    def demand(self, targets: list[str], shown: frozenset[str] = frozenset()) -> dict[Inst, frozenset[str]]:
-        """For cooking `targets`, the ports each instance must give. This is the project's single answer; the cook
-        (Engine._begin, _compute), `computes`, `_case` and the queue's cache marks all ask it. The two sides must not
-        use different criteria: if the cook wrote by the current demand while the status judged by the whole graph's
-        `needed_outputs`, then with node A's port x wired to B and port y to C, cooking only B writes only x, A would
-        count as never cached by the whole graph, and every later cook would compute A again only to find nothing to
-        write.
-
-        An instance's wanted ports = those taken from it by instances in the current order (wires and waits) + those
-        the target itself waits on in blocks not yet expanded + `shown` (the ports shown for the target) + the sources
-        of ports made from another port of the same node (`Port.made_from`).
-        An instance absent from the table: none of its ports are wanted now (`frozenset()`)."""
-        key = (tuple(targets), shown)
-        if key in self._demands:
-            return self._demands[key]
-        want: dict[Inst, set[str]] = {}
-        add = lambda inst, port: want.setdefault(inst, set()).add(port)  # noqa: E731
-        order, _ = self.order(list(targets))
-        # the target's own ports: those shown (`shown`), otherwise all of them (「计算」 wants the whole node);
-        # without this the target itself would always count as satisfied and never cook
-        own = {t: (shown or frozenset(p.name for p in self.graph.outputs(t))) for t in targets}
-        for i in order:
-            for wires in self.wires(*i).values():
-                for src, sport, p in wires:
-                    add(Inst(src, p), sport)
-            for w in self.waits(*i):  # what it is pending on (a block's items, a switch's condition): wanted too
-                add(w.on, w.port)
-            if i.node in own:
-                want.setdefault(i, set()).update(own[i.node])
-        for t in targets:  # the target itself inside a block whose items are not known yet: the list it waits on
-            for p in self.instances(t)[1]:
-                add(p.on, p.port)
-        out: dict[Inst, frozenset[str]] = {}
-        for inst, ports in want.items():
-            outs = {p.name: p for p in self.graph.outputs(inst.node)}
-            for name in list(ports):  # a port made from another of the node's own (point cloud = depth map + camera): its sources too
-                ports.update(n for n in getattr(outs.get(name), "made_from", ()) if n in outs)
-            out[inst] = frozenset(ports)
-        return self._demands.put(key, out)
-
-    def satisfied(self, inst: Inst, wanted: frozenset[str]) -> bool:
-        """Whether the ports this instance must give (per `demand`) are all on disk. A begin's item port is never written
-        (it is the list's packet) and is not counted. An instance that cannot be planned (a file is gone): False; the
-        cook will fail there and say why."""
-        key = (inst, wanted)
-        if key in self._satisfied:
-            return self._satisfied[key]
-        try:
-            plan = self.plan(*inst)
-        except PLAN_ERRORS:
-            return self._satisfied.put(key, False)
-        t = self.graph.nodes[inst.node].type
-        item = t.item_output if sc.role(t) == sc.BEGIN else None
-        return self._satisfied.put(key, plan.has(frozenset(p for p in wanted if p != item)))
 
     # ------------------------------------------------------------------ errors and what they leave out
 
-    def failure(self, node_id: str, path: ItemPath = ()) -> dict | None:
-        """The error the instance last failed with at its current fingerprint (its message, and its log), None when it
-        did not (or can't be planned: that is said as its status error). Before any cook, a node without a result whose
-        extension can't be used now (ProjectFacts.available: not installed, built from older code, weights missing) has
-        failed already (E-COOK-UNAVAILABLE), and so has one whose source file is not there (cleaned away, or not this
-        account's, which is the same answer: source_missing, E-UPLOAD-GONE); what needs it is skipped, a multi input
-        goes on without it."""
+    def failure(self, node_id: str, path: ItemPath = ()) -> Outcome | None:
+        """The instance's own failure, None when it has none (or can't be planned: that is said as its status error).
+        Before any cook, a node without a result whose extension can't be used now (ProjectFacts.available: not
+        installed, built from older code, weights missing) has failed already (E-COOK-UNAVAILABLE), and so has one
+        whose source file is not there (cleaned away, or not this account's, which is the same answer: source_missing,
+        E-UPLOAD-GONE); otherwise the error it last failed with at its current fingerprint (its message, and its log),
+        the one failure the next cook tries again (retryable). What needs it is skipped, a multi input goes on
+        without it."""
         if (gone := self.source_missing(node_id, path)) is not None:
-            return gone
+            return Outcome(sc.FAILED, node_id, gone)
         try:
             plan = self.plan(node_id, path)
         except PLAN_ERRORS:
             return None
         node = self.graph.nodes[node_id]
         project = node.type.project
-        if not plan.cached and project.extension is not None and (why := project.available()) is not None:
-            return Msg("E-COOK-UNAVAILABLE", node=node.label, reason=why).json()  # the one answer the session's node:<type> reads too
+        if project.extension is not None and not self.cached(node_id, path) and (why := project.available()) is not None:
+            return Outcome(sc.FAILED, node_id, Msg("E-COOK-UNAVAILABLE", node=node.label, reason=why).json())  # the one
+            # answer the session's node:<type> reads too
         path_ = failure_file(plan.fingerprint)
-        if not path_.exists():
+        if not path_.exists() or self.cached(node_id, path):  # a record beside the result it lacks: another cook of
+            # it succeeded (the packets on disk are the fact; a record only says why they are not there)
             return None
         try:
-            return json.loads(path_.read_text(encoding="utf-8"))
+            return Outcome(sc.FAILED, node_id, json.loads(path_.read_text(encoding="utf-8")), retryable=True)
         except (OSError, ValueError):
             return None
 
@@ -458,13 +313,19 @@ class Evaluation:
         key = Inst(node_id, path)
         if key in self._outcomes:
             return self._outcomes[key]
+        self._sources_first(node_id, path, self._outcomes.__contains__, self.plan, self.outcome)
         g, node = self.graph, self.graph.nodes[node_id]
+        try:  # its own wiring is wrong: that is its own error, whatever stands above it (the first thing its plan says)
+            g.check_inputs(node_id, only=self.taken_ports(node_id, path))
+        except GraphError as exc:
+            if not self.waits(node_id, path):
+                return self._outcomes.put(key, Outcome(sc.ERROR, node_id, exc.message.json()))
         found = self._outside_frames(node_id, path)
         wires = self.wires(node_id, path)
         for port in g.input_ports(node_id):
-            if port.optional:
+            if not self.requires(node_id, path, port):
                 continue
-            ups = [o for src, _, p in wires[port.name] if (o := self.outcome(src, p)) is not None]
+            ups =[o for src, _, p in wires[port.name] if (o := self.outcome(src, p)) is not None]
             if ups and (not self._gathers(node_id, port) or len(ups) == len(wires[port.name])):
                 found = self._skipped(node, port.label, ups[0])
                 break
@@ -485,8 +346,25 @@ class Evaluation:
                     break
         if node.type.delivers and (broken := self._chains_broken(node_id, path)) is not None:
             found = broken  # 「输出」 packs only whole lines: what stands above it decides before anything else
-        if found is None and (failed := self.failure(node_id, path)) is not None:
-            found = Outcome("failed", node_id, failed)
+        if found is None and not self.waits(node_id, path):  # a value wired into a parameter that it can't take (out of
+            # range, a unit that doesn't convert): known now, whatever is cooked again — its own error, like a plan's
+            try:
+                self.plan(node_id, path)
+                self.wired_values(node_id, path)
+            except ValueError as exc:
+                if not isinstance(exc, (GraphError, CookError)):
+                    found = Outcome(sc.ERROR, node_id, Msg("E-COOK-WIRED", node=node.label, reason=exc).json())
+            except PLAN_ERRORS:
+                pass  # said below
+        if found is None:
+            found = self.failure(node_id, path)
+        if found is None and not self.waits(node_id, path):  # it can't be planned (and waits for nothing that could
+            # change that): its own error, an outcome like a failure, so what needs it is skipped behind it (root: it) and
+            # a block's end gathers without that item (W-EACH-FAILED), never taking its error as their own
+            try:
+                self.plan(node_id, path)
+            except PLAN_ERRORS as exc:
+                found = Outcome(sc.ERROR, node_id, message_of(exc).json())
         return self._outcomes.put(key, found)
 
     def _chains_broken(self, node_id: str, path: ItemPath) -> Outcome | None:
@@ -497,7 +375,7 @@ class Evaluation:
         at its root (and the item, inside a block). None: every line is whole (or not known to be broken yet)."""
         g = self.graph
         seen: set[Inst] = set()
-        said = []
+        said, retryable = [], True
         try:
             wires = self.wires(node_id, path)
         except PLAN_ERRORS:
@@ -507,37 +385,37 @@ class Evaluation:
                 root = self._failure_above(src, p, seen)
                 if root is None:
                     continue
-                at, names = root
+                (at, names), retryable = root[:2], retryable and root[2]
                 chain = g.nodes[src].label
                 said.append(Msg("I-OUTPUT-CHAINITEM", chain=chain, root=g.nodes[at].label, item=" / ".join(names))
                             if names else Msg("I-OUTPUT-CHAIN", chain=chain, root=g.nodes[at].label))
         if not said:
             return None
         msg = Msg("E-OUTPUT-CHAINFAILED", node=g.nodes[node_id].label, count=len(said), chains=said)
-        return Outcome("failed", node_id, msg.json(), chain=True)
+        return Outcome("failed", node_id, msg.json(), chain=True, retryable=retryable)
 
-    def _failure_above(self, node_id: str, path: ItemPath, seen: set[Inst]) -> tuple[str, list[str]] | None:
-        """The first failure at or above the instance (the node at its root and the names of its items), None when
-        there is none: its own outcome, a wire it goes without (dropped: an optional input, a gathered item), then
-        every instance it takes something from or waits for."""
-        inst = Inst(node_id, path)
-        if inst in seen:
-            return None
-        seen.add(inst)
-        try:
-            o = self.outcome(node_id, path)
-            if o is not None and o.failure:
-                return o.root, self._root_names(o.root, path)
-            for (_port, _src, _sport, p), up in self.dropped(node_id, path).items():
-                if up.failure:
-                    return up.root, self._root_names(up.root, p)
-            ups = [(src, p) for ws in self.wires(node_id, path).values() for src, _, p in ws]
-            ups += [(w.on.node, w.on.path) for w in self.waits(node_id, path)]
-        except PLAN_ERRORS:
-            return None
-        for src, p in ups:
-            if (found := self._failure_above(src, p, seen)) is not None:
-                return found
+    def _failure_above(self, node_id: str, path: ItemPath, seen: set[Inst]) -> tuple[str, list[str], bool] | None:
+        """The first failure at or above the instance (the node at its root, the names of its items, whether it is
+        retryable), None when there is none: its own outcome, a wire it goes without (dropped: an optional input, a
+        gathered item), then every instance it takes something from or waits for."""
+        stack = [Inst(node_id, path)]  # depth first, each one's sources in order, without recursion
+        while stack:
+            inst = stack.pop()
+            if inst in seen:
+                continue
+            seen.add(inst)
+            try:
+                o = self.outcome(*inst)
+                if o is not None and o.failure:
+                    return o.root, self._root_names(o.root, inst.path), o.retryable
+                for (_port, _src, _sport, p), up in self.dropped(*inst).items():
+                    if up.failure:
+                        return up.root, self._root_names(up.root, p), up.retryable
+                ups = [Inst(src, p) for ws in self.wires(*inst).values() for src, _, p in ws]
+                ups += [w.on for w in self.waits(*inst)]
+            except PLAN_ERRORS:
+                continue
+            stack.extend(reversed(ups))
         return None
 
     def _root_names(self, root: str, path: ItemPath) -> list[str]:
@@ -568,7 +446,8 @@ class Evaluation:
 
     def _skipped(self, node, input_label: str, up: Outcome) -> Outcome:
         return Outcome("skipped", up.root, Msg("N-COOK-SKIPPED", node=node.label, input=input_label,
-                                               root=self.graph.nodes[up.root].label).json(), failure=up.failure)
+                                               root=self.graph.nodes[up.root].label).json(), failure=up.failure,
+                       retryable=up.retryable)
 
     def dropped(self, node_id: str, path: ItemPath = ()) -> dict[Dropped, Outcome]:
         """The wires whose source failed or was skipped into the instance's optional inputs (a parameter's input too)
@@ -580,7 +459,7 @@ class Evaluation:
             wires = self.wires(node_id, path)
             for port in self.graph.input_ports(node_id):
                 gone = {(port.name, src, sport, p): o for src, sport, p in wires[port.name] if (o := self.outcome(src, p)) is not None}
-                if port.optional or (self._gathers(node_id, port) and len(gone) < len(wires[port.name])):
+                if not self.requires(node_id, path, port) or (self._gathers(node_id, port) and len(gone) < len(wires[port.name])):
                     out.update(gone)
             return self._dropped.put(key, out)
         return self._dropped[key]
@@ -617,7 +496,7 @@ class Evaluation:
             if begin is not None and len(p) > len(path):
                 missing.setdefault(p[len(path)], up)
                 continue
-            reason = (Msg("I-INPUT-FAILED", source=g.nodes[src].label) if up.state == "failed"
+            reason = (Msg("I-INPUT-FAILED", source=g.nodes[src].label) if up.state != "skipped"
                       else Msg("I-INPUT-SKIPPED", source=g.nodes[src].label, root=g.nodes[up.root].label))
             label = g.input_port(node_id, port).label
             said = Msg("W-INPUT-UNUSED", node=node.label, input=label, reason=reason)
@@ -637,23 +516,58 @@ class Evaluation:
         key = Inst(node_id, path)
         if key in self._resolved:
             return self._resolved[key]
+        plain = not self.dropped(node_id, path) and not self._wired_choices(node_id, path)
+        r = self.graph.resolved(node_id) if plain else resolve(self.graph.nodes[node_id].type, self.facts(node_id, path))
+        return self._resolved.put(key, r)
+
+    def _wired_choices(self, node_id: str, path: ItemPath) -> dict[str, Any]:
+        """The parameters with a choice (options, a checkbox) driven by a wire whose value is known: name -> that value.
+        What the node's licence and cost are judged on (nodes/applies.py may_hold: a value still to be cooked counts as
+        the strictest and costliest it may be; one known is the value the node runs with, never the one typed)."""
+        from ..data.values import read
+
+        node = self.graph.nodes[node_id]
+        specs = {p["name"]: p for p in node.type.param_specs()}
+        out = {}
+        for name in node.promoted:
+            spec = specs.get(name)
+            if spec is None or not (spec.get("options") or spec["type"] == "boolean"):
+                continue
+            wire = self._wired_packet(node_id, name, path)
+            if wire is None or isinstance(wire, Pending):
+                continue
+            try:
+                value = read(wire[2]).one()
+            except (ValueError, KeyError, TypeError):
+                continue
+            if spec["type"] == "boolean" or value in (spec.get("options") or ()):
+                out[name] = bool(value) if spec["type"] == "boolean" else value
+        return out
+
+    def facts(self, node_id: str, path: ItemPath = ()) -> NodeFacts:
+        """What the instance's declarations are resolved on (nodes/applies.py): the graph's facts of the node
+        (Graph.facts), without the wires it goes without (dropped). `resolved` resolves these; a cook that learns more
+        about its node (Engine._say_unused: CookContext.fact) resolves them again with that on top, the same basis."""
+        f = self.graph.facts(node_id)
+        if choices := self._wired_choices(node_id, path):  # what the wires set them to, now it is known
+            f = NodeFacts({**f.params, **choices}, f.wired, f.own, f.incoming, f.wired_out, f.wired_data)
         dropped = self.dropped(node_id, path)
         if not dropped:
-            r = self.graph.resolved(node_id)
-        else:
-            node, f = self.graph.nodes[node_id], self.graph.facts(node_id)
-            left = {(port, src, sport) for port, wires in self.wires(node_id, path).items() for src, sport, p in wires
-                    if (port, src, sport, p) not in dropped}
-            wired, params = {}, dict(f.params)
-            for port, types in f.wired.items():
-                wires = self.graph.inputs.get((node_id, port), [])
-                kept = tuple(t for (src, sport), t in zip(wires, types) if (port, src, sport) in left)
-                if kept:
-                    wired[port] = kept
-                elif port.startswith(PARAM):
-                    params[port.removeprefix(PARAM)] = node.params.get(port.removeprefix(PARAM))
-            r = resolve(node.type, NodeFacts(params, wired, f.own, f.incoming, f.wired_out))
-        return self._resolved.put(key, r)
+            return f
+        node = self.graph.nodes[node_id]
+        left = {(port, src, sport) for port, wires in self.wires(node_id, path).items() for src, sport, p in wires
+                if (port, src, sport, p) not in dropped}
+        wired, data, params = {}, {}, dict(f.params)
+        for port, types in f.wired.items():
+            wires = self.graph.inputs.get((node_id, port), [])
+            kept = tuple(t for (src, sport), t in zip(wires, types) if (port, src, sport) in left)
+            if kept:
+                wired[port] = kept
+                data[port] = tuple(d for (src, sport), d in zip(wires, f.wired_data.get(port, ())) if (port, src, sport) in left)
+            elif port.startswith(PARAM):
+                params[port.removeprefix(PARAM)] = node.params.get(port.removeprefix(PARAM))
+        return NodeFacts(params, with_table(node.type, node.params, wired), f.own, f.incoming, f.wired_out,
+                         with_table(node.type, node.params, data))
 
     def provenance(self, node_id: str, path: ItemPath = ()) -> dict:
         """Which third-party projects produced what the instance takes (it and every node above it), whether all of
@@ -663,30 +577,19 @@ class Evaluation:
         if key not in self._provenance:
             sources, values = [], []
             scopes = self.graph.scopes
-            for nid in self.graph.upstream_order(node_id):
+            for nid in self.upstream(node_id, path):  # the routes its switches take: what really went into it
                 n = self.graph.nodes[nid]
                 if n.type.runtime != "core":  # learned: it runs a model (not a format module reading or writing a file)
                     sources.append({"node": n.type.id, "label": n.label, "project": n.type.project.title,
-                                    "commercial": self.graph.resolved(nid).licence.commercial,
+                                    "commercial": self.resolved(nid, at).licence.commercial if (at := scopes.source_path(nid, node_id, path)) is not None
+                                    else self.graph.resolved(nid).licence.commercial,
                                     "learned": not issubclass(n.type, (ImportNode, OutputSettings))})
-                depth = scopes.depth(nid)
-                if depth <= len(path) and scopes.chain(nid) == scopes.chain(node_id)[:depth] and (said := self.sources(nid, path[:depth])):
+                at = scopes.source_path(nid, node_id, path)
+                if at is not None and (said := self.sources(nid, at)):
                     values.append({"node": n.type.id, "label": n.label, "params": said})
             return self._provenance.put(key, {"sources": sources, "commercial": all(s["commercial"] for s in sources),
                                               **({"values": values} if values else {})})
         return self._provenance[key]
-
-    def forget(self, node_ids) -> None:
-        """What this evaluation remembers of every instance of these nodes, dropped: a cook just changed what is known
-        of them (an instance cooked, failed or tried again) and so of what comes after (engine/cook.py)."""
-        gone = set(node_ids)
-        self._shots.drop_where(lambda k: k[0] in gone)  # keyed by (node, output, path), not by instance
-        for memo in (self._plans, self._plan_errors, self._infos, self._outcomes, self._dropped, self._resolved, self._checks,
-                     self._provenance, self._wires, self._items, self._gone, self._source_errors):
-            memo.drop_where(lambda k: k.node in gone)
-        self._orders.drop_where(lambda k: True)
-        self._demands.drop_where(lambda k: True)
-        self._satisfied.drop_where(lambda k: True)
 
     def shot(self, node_id: str, port: str, path: ItemPath = ()) -> dict:
         """What was photographed in the instance's output `port`, as far as the graph can tell before anything is
@@ -697,29 +600,47 @@ class Evaluation:
 
         {} for a key nothing says yet. Once the node is cooked its packet says it instead (engine/lint.py reads the
         manifest first)."""
-        key = (node_id, port, path)
-        if key in self._shots:
-            return self._shots[key]
         g = self.graph
-        node = g.nodes[node_id]
-        shape = next((p.shape for p in g.outputs(node_id) if p.name == port), KEEPS)
-        try:
-            said = node.type.said_shot(self.params(node_id, path))
-        except (OSError, ValueError, KeyError):  # its parameters are not readable yet: it says nothing
-            said = {}
-        upstream: dict = {}
-        follows = shape.follows or node.type.picture
-        if follows:
-            for src, sport, p in self.taken(node_id, path).get(follows, ())[:1]:
-                upstream = self.shot(src, sport, p)
-        return self._shots.put(key, {**said, **shot_of(shape, upstream, said)})
+
+        def step(key: tuple) -> tuple[Any, dict, tuple | None]:  # its shape, what it says itself, the output it follows
+            node_id, port, path = key
+            node = g.nodes[node_id]
+            shape = next((p.shape for p in g.outputs(node_id) if p.name == port), KEEPS)
+            try:
+                said = node.type.said_shot(self.params(node_id, path))
+            except (OSError, ValueError, KeyError):  # its parameters are not readable yet: it says nothing
+                said = {}
+            follows = shape.follows or node.type.picture
+            up = next(iter(self.taken(node_id, path).get(follows, ())), None) if follows else None
+            return shape, said, up
+
+        # up the picture it follows until one is known, then down again (a chain of any length, no recursion)
+        chain, key = [], (node_id, port, path)
+        while key is not None and key not in self._shots:
+            shape, said, up = step(key)
+            chain.append((key, shape, said))
+            key = up
+        upstream = self._shots[key] if key is not None else {}
+        for key, shape, said in reversed(chain):
+            upstream = self._shots.put(key, {**said, **shot_of(shape, upstream, said)})
+        return self._shots[(node_id, port, path)]
+
+    def warnings(self, node_id: str, path: ItemPath = ()) -> list[dict]:
+        """The instance's usage checks (engine/lint.py warnings), worked out once: planning (a B- one refuses it),
+        `checks` (the status) and the cook's context (Engine._context) all read this. Remembered like its plan, while it
+        waits too: what it waits for being cooked forgets it (Demand.forget)."""
+        key = Inst(node_id, path)
+        if key in self._warnings:
+            return self._warnings[key]
+        said = warnings(self, node_id, path)
+        return self._warnings.put(key, said)
 
     def checks(self, node_id: str, path: ItemPath = ()) -> list[dict]:
         """What the instance says before it is cooked: its usage checks (engine/lint.py; a B- one refuses it)
         and what it can foresee from its parameters and what it will cover (NodeDef.foresee: gaps in a sequence)."""
         key = Inst(node_id, path)
         if key not in self._checks:
-            said = warnings(self, node_id, path)
+            said = list(self.warnings(node_id, path))
             node = self.graph.nodes[node_id]
             # what the node always says (applies.py standing_notices: the size a node decides for itself), unless a
             # check of this node already spoke about the same thing: one message per subject, never a standing line
@@ -748,10 +669,47 @@ class Evaluation:
         that is known (the node feeding it cooked, or giving it from its parameters alone, a constant). A wired value
         it can't take leaves the typed one here; the graph status and the cook say why (wired_values)."""
         try:
-            wired = self.wired_values(node_id, path)
+            wired = self.wired_values(node_id, path, inputs=False)  # _set_by_inputs below drops what it can't take
         except ValueError:
             wired = {}
-        return {**self._typed(node_id, path), **{name: one for name, (one, _) in wired.items()}}
+        params = {**self._typed(node_id, path), **{name: one for name, (one, _) in wired.items()}}
+        return {**params, **self._set_by_inputs(node_id, path)} if self.graph.nodes[node_id].type.params_inputs else params
+
+    def _set_by_inputs(self, node_id: str, path: ItemPath, strict: bool = False) -> dict:
+        """The parameters the node's value inputs set (NodeDef.params_inputs / params_from_input), from the value wired
+        into each once it is known; nothing for one not wired, still pending (the instance waits for it: waits) or
+        giving nothing. Held to the node's Params like a wired parameter is (wired_values): values the parameters
+        can't take are not set (the typed ones stay); `strict`: say so instead (E-PARAM-INPUTSET), as the status and
+        the cook do (wired_values asks it)."""
+        from pydantic import ValidationError
+
+        from ..data.values import read
+
+        node = self.graph.nodes[node_id]
+        out: dict = {}
+        for port in node.type.params_inputs:
+            packet = self._input_value(node_id, path, port)
+            if packet is None or isinstance(packet, Pending):
+                continue
+            try:
+                value = read(packet).value
+            except (OSError, ValueError, KeyError):
+                continue
+            got = node.type.params_from_input(port, value)
+            try:
+                node.type.Params(**{**self._typed(node_id, path), **out, **got})
+            except ValidationError as exc:
+                if strict:
+                    where = self._where(*next(iter(self.graph.inputs[(node_id, port)])))
+                    raise Invalid(Msg("E-PARAM-INPUTSET", node=node.label, where=where, reason=exc.errors()[0].get("msg", str(exc)))) from None
+                continue
+            out.update(got)
+        return out
+
+    def _input_value(self, node_id: str, path: ItemPath, port: str) -> Packet | Pending | None:
+        """What the first wire into a parameter-setting input (NodeDef.params_inputs) gives (wired_input); None: nothing."""
+        got = self.wired_input(node_id, port, path, "value")
+        return got if got is None or isinstance(got, Pending) else got[2]
 
     def _wired(self, node_id: str, path: ItemPath = ()) -> dict[str, list[Inst]]:
         """Input port -> the instances wired into it, its declared ones and one per row of a ports_from table that makes
@@ -763,46 +721,11 @@ class Evaluation:
 
     # ------------------------------------------------------------------ parameters driven by wires
 
-    def known(self, node_id: str, port: str, path: ItemPath = ()) -> Packet | None:
-        """What an instance's output gives, when that is known before cooking downstream: its packet once cooked, or
-        what the node gives from its parameters alone (NodeDef.known_outputs: a constant value node, nodes/core/values.py); None not yet."""
-        try:
-            plan = self.plan(node_id, path)
-        except PLAN_ERRORS:
-            plan = None  # it cannot be cooked yet (no picture wired into 「AnyCalib 镜头标定」): a value that comes out
-            # of its own parameters is known all the same (the graph tells it without a cook)
-        if plan is not None and port in plan.outputs and valid(packet_dir(plan.outputs[port])):  # each output on its own (Engine: wanted)
-            try:
-                return self.packet(plan.outputs[port])
-            except FileNotFoundError:  # removed between valid() and the manifest read (a clean, a recook): not known,
-                pass  # like any packet not there; never a 500 on /api/status
-        node = self.graph.nodes[node_id]
-        try:
-            meta = node.type.known_outputs(self.params(node_id, path)).get(port)
-        except PLAN_ERRORS:
-            return None
-        if meta is None:
-            return None
-        # a value read out of its own meta needs no folder; it gets the cache folder it will land in once there is one
-        where = packet_dir(plan.outputs[port]) if plan is not None and port in plan.outputs else Path(".")
-        return Packet(where, self.graph.output_type(node_id, port), meta)
-
     def _wired_packet(self, node_id: str, name: str, path: ItemPath = ()) -> tuple[str, str, Packet] | Pending | None:
         """The wire into a promoted parameter: (node, port, its packet) once known, what it waits for while not; None
         when there is none or it gives nothing (an empty packet counts as not connected: the parameter keeps its own
         value)."""
-        wires = self.wires(node_id, path).get(PARAM + name) or []
-        if not wires:
-            return None
-        src, sport, p = wires[0]
-        if self.graph.wire_problem(src, sport, node_id, PARAM + name):  # a wrong wire gives nothing: its node says why
-            return None
-        if (PARAM + name, src, sport, p) in self.dropped(node_id, path):  # its source failed: the typed value (W-INPUT-UNUSED says so)
-            return None
-        got = self._known_or_pending("value", Inst(src, p), sport)
-        if isinstance(got, Pending):
-            return got
-        return None if got.meta.get("empty") else (src, sport, got)
+        return self.wired_input(node_id, PARAM + name, path, "value")
 
     def _list_values(self, packet: Packet) -> list:
         """The values a list packet holds, in order: what a wire into a table parameter carries (「畸变参数」 driven by
@@ -815,11 +738,12 @@ class Evaluation:
         out = next((p for p in self.graph.outputs(src) if p.name == sport), None)
         return f"「{self.graph.nodes[src].label}」的「{out.label if out else sport}」"
 
-    def wired_values(self, node_id: str, path: ItemPath = ()) -> dict[str, tuple[Any, Any]]:
+    def wired_values(self, node_id: str, path: ItemPath = (), inputs: bool = True) -> dict[str, tuple[Any, Any]]:
         """The instance's active parameters driven by a wire whose value is known (the node feeding it is cooked) ->
         (the value the parameter takes, the Value in the parameter's unit: nodes/values.py for_param). Raises
         ValueError saying what is wrong: a unit that doesn't convert, one value per frame that changes into a parameter
-        taking one, a value out of the parameter's range."""
+        taking one, a value out of the parameter's range; with `inputs`, a value a value input sets (params_inputs) that the
+        parameters can't take (E-PARAM-INPUTSET: the status and the cook say it; params() only leaves it out)."""
         from pydantic import ValidationError
 
         from ..data.values import describe_value, for_param, read, rows_for_param
@@ -853,6 +777,8 @@ class Evaluation:
                 except ValidationError:
                     raise Invalid(Msg("E-PARAM-WIREDRANGE", name=spec["label"], where=where, value=describe_value(value), reason=range_said(spec))) from None
             out[name] = (one, value)
+        if inputs and node.type.params_inputs:  # what the value inputs set is held to the same parameters (said, not only dropped)
+            self._set_by_inputs(node_id, path, strict=True)
         return out
 
     def wired_from(self, node_id: str, path: ItemPath = ()) -> dict[str, str]:
@@ -891,7 +817,7 @@ class Evaluation:
                 # a disabled parameter without indicating whose lens is used
                 port = supplies.get(name) or ""
                 if port and g.inputs.get((node_id, port)):
-                    out[name] = f"{label} · 来自{ports.get(port, port)}（{g.nodes[g.inputs[(node_id, port)][0][0]].label}）"
+                    out[name] = Msg("I-SOURCE-FROMINPUT", label=label, input=ports.get(port, port), node=g.nodes[g.inputs[(node_id, port)][0][0]].label).text
                 continue
             over = [p for p in spec["overrides"] if p in connected]
             wire = self._wired_packet(node_id, name, path)
@@ -908,12 +834,12 @@ class Evaluation:
                     # reported separately
                     choice = option_label(spec, v.value) if not v.per_frame else ""
                     value = " " + (choice or describe_value(v))
-                text = f"{label}{value} · 来自 {g.nodes[src].label}"
+                text = Msg("I-SOURCE-WIRED", label=label, value=value, node=g.nodes[src].label).text
             elif over and params.get(name) is not None:
-                text = f"{label} {say(spec, params[name])} · 手填"
+                text = Msg("I-SOURCE-TYPED", label=label, value=say(spec, params[name])).text
             elif over:
                 src = g.inputs[(node_id, over[0])][0][0]
-                out[name] = f"{label} · 来自{ports[over[0]]}（{g.nodes[src].label}）"
+                out[name] = Msg("I-SOURCE-FROMINPUT", label=label, input=ports[over[0]], node=g.nodes[src].label).text
                 continue
             elif spec["assumed"] and params.get(name) is None:
                 # an empty parameter is not necessarily ineffective: a parameter declaring `assumed` is still computed
@@ -921,12 +847,12 @@ class Evaluation:
                 # is based on. Parameters whose name and placeholder already make this clear (「已知 Focal Length」,
                 # 「Filmback」, nodes/lens.py) do not declare `assumed`; no parameter currently uses it, and the rule is
                 # kept for parameters that would otherwise be unclear.
-                out[name] = f"{label} · {spec['assumed']}"
+                out[name] = Msg("I-SOURCE-ASSUMED", label=label, assumed=spec["assumed"]).text
                 continue
             else:
                 continue
             if over:
-                text += f"（覆盖{'、'.join(ports[p] for p in over)}的{label}）"
+                text += Msg("I-SOURCE-OVERRIDES", inputs="、".join(ports[p] for p in over), label=label).text
             out[name] = text
         return out
 
@@ -938,18 +864,17 @@ class Evaluation:
         key = Inst(node_id, path)
         if key in self._infos:
             return self._infos[key]
+        self._sources_first(node_id, path, self._infos.__contains__, self.info)
         if self.source_missing(node_id, path) is not None:  # its file is not there: nothing of it is read
             return self._infos.put(key, Info())
         node = self.graph.nodes[node_id]
-        self.graph.check_inputs(node_id)
+        self.graph.check_inputs(node_id, only=self.taken_ports(node_id, path))
         inputs = {port: [self.info(*src) for src in srcs] for port, srcs in self._wired(node_id, path).items()}
         try:
             info = node.type.info(self.params(node_id, path), inputs)
         except (OSError, ValueError) as exc:  # e.g. no file chosen: say which node
             raise CookError(node_id, Msg("E-COOK-FAILED", node=node.label, reason=exc)) from exc
-        if not self.waits(node_id, path):
-            return self._infos.put(key, info)
-        return info
+        return self._infos.put(key, info)
 
     def info(self, node_id: str, path: ItemPath = ()) -> Info:
         """What the instance's result will cover (frames, picture size), known before cooking: a frame source keeps the
@@ -965,16 +890,22 @@ class Evaluation:
         return replace(info, frames=kept)
 
     def work(self, node_id: str, path: ItemPath = ()) -> Info:
-        """How much the instance processes: what its inputs cover (a source: what it emits). Timing records and time
-        estimates scale by it."""
+        """How much the instance processes: the frames its result covers (its own `info`, which says which input its
+        frames come from: 「动作重定向」's target and 「线性蒙皮变形」's character only lend a skeleton, often a one-frame rest
+        pose, so their frame 0 is not work), or every frame its inputs cover when its result is one still made from a
+        shot (a point cloud from a whole sequence); the picture size of what it reads (a source: what it emits). Timing
+        records and the progress bar's budget scale by it, and node_done says its frames."""
         ins = [self.info(*src) for srcs in self._wired(node_id, path).values() for src in srcs]
-        return Info.merge(ins) if ins else self.info(node_id, path)
+        if not ins:
+            return self.info(node_id, path)
+        merged, own = Info.merge(ins), self.info(node_id, path)
+        return merged if own.still or not own.frames else replace(merged, frames=own.frames)
 
     def frame_range(self, targets: list[str]) -> tuple[int, int] | None:
         """The frames the inputs of cooking `targets` cover, first and last (several sources: from the earliest
         first to the latest last); None without a frame source. A source that can't be read yet is left out."""
         frames = []
-        for nid in self.graph.needed(targets):
+        for nid in self.needed(targets):
             if self.graph.nodes[nid].type.frame_source:
                 for p in self.instances(nid)[0]:
                     try:
@@ -994,24 +925,31 @@ class Evaluation:
 
     # ------------------------------------------------------------------ planning
 
+    def _one_instance(self, node_id: str, path: ItemPath) -> None:
+        """The path names one instance of the node: as deep as the blocks around it (engine/scopes.py). Asked about
+        otherwise (a node in a block at the top level), E-GRAPH-NONODE: never a plan of an instance that is not there."""
+        if len(path) != self.graph.scopes.depth(node_id):
+            raise GraphError(Msg("E-GRAPH-NONODE", node=f"{node_id}@{'/'.join(path)}"))
+
     def plan(self, node_id: str, path: ItemPath = ()) -> NodePlan:
         key = Inst(node_id, path)
         if key in self._plans:
             return self._plans[key]
+        self._one_instance(node_id, path)
         if key in self._plan_errors:
-            raise self._plan_errors[key]
+            raise _again(self._plan_errors[key])
+        self._sources_first(node_id, path, self._planned, self.plan, self.outcome)
         try:
             return self._plan(node_id, path)
         except PLAN_ERRORS as exc:
-            if not self.waits(node_id, path):  # else tried again once what it waits for is known
-                self._plan_errors.put(key, exc)
+            self._plan_errors.put(key, exc)
             raise
 
     def _plan(self, node_id: str, path: ItemPath) -> NodePlan:
         g = self.graph
         node = g.nodes[node_id]
-        g.check_inputs(node_id)
-        refused = next((w for w in warnings(self, node_id, path) if w["level"] == "B" and not w.get("refused")), None)
+        g.check_inputs(node_id, only=self.taken_ports(node_id, path))
+        refused = next((w for w in self.warnings(node_id, path) if w["level"] == "B" and not w.get("refused")), None)
         if refused is not None:  # a check it can't get past (nodes/expects.py FrameCount, DistinctNames): the whole
             # check travels with the error, so the panel offers the same one click as it does for a refused wire
             raise Refused(refused)
@@ -1029,6 +967,13 @@ class Evaluation:
             list_packet = next(iter(input_fps[node.type.item_input]), "")
             input_fps[node.type.item_input] = [item.packet]
         affecting = node.type.affecting_params()
+        route = None
+        if sc.chooses(node.type):  # a switch: which way it takes, never what decided it (a condition that changes and
+            # still picks the same way leaves it and everything after it cached); what comes in on that way is in inputs
+            cond = node.type.condition_input
+            route = sorted((self.taken_ports(node_id, path) or frozenset()) - {cond})
+            input_fps.pop(cond, None)
+            affecting = affecting - {cond.removeprefix(PARAM)}
         blob = {
             "cache": CACHE_VERSION,
             **({"facts": FACTS_VERSION} if FACTS_VERSION else {}),  # version of the fact fields (data/packet.py FACTS_VERSION)
@@ -1049,6 +994,8 @@ class Evaluation:
             blob["frames"] = list(self.info(node_id, path).frames)
         if node.type.named_result:  # the node's name is in what it gives (an import's folder): renamed, cooked again
             blob["label"] = node.label
+        if route is not None:
+            blob["route"] = route
         if dropped:
             blob["without"] = sorted(f"{port}<-{src}.{sport}" + (f"@{'/'.join(p)}" if p else "") for port, src, sport, p in dropped)
         if item is not None:  # a begin instance: its item (what each output is addressed by is its own, below)
@@ -1061,11 +1008,9 @@ class Evaluation:
             # depend on (engine/scopes.py port_fp)
             outputs[node.type.item_output] = item.packet
             outputs.update({port: fp for port, (fp, _) in node.type.item_outputs(node.params, item, list_packet).items()})
-        plan = NodePlan(fp, outputs, False)
-        plan.cached = plan.has(self.needed_outputs(node_id))
-        if not self.waits(node_id, path):  # else planned again once what it waits for is known
-            return self._plans.put(Inst(node_id, path), plan)
-        return plan
+        plan = NodePlan(fp, outputs)
+        planned(self, self.account.user_id, [fp, *outputs.values()])  # stale once any of them changes (records.changed)
+        return self._plans.put(Inst(node_id, path), plan)
 
     def source_missing(self, node_id: str, path: ItemPath = ()) -> dict | None:
         """Its source file is not there (cleaned away, or, for an upload, not this account's, which is the same thing)
@@ -1087,7 +1032,7 @@ class Evaluation:
         if key in self._source_identities:  # one version of one graph: asked once per instance
             return self._source_identities[key]
         if key in self._source_errors:  # it could not be read: its file is not opened again to hear the same thing
-            raise self._source_errors[key]
+            raise _again(self._source_errors[key])
         node = self.graph.nodes[node_id]
         try:
             with serving(self.account):  # read as the account this evaluation is for, whatever thread asks
@@ -1101,7 +1046,8 @@ class Evaluation:
 
     def still_true(self) -> bool:
         """Whether this evaluation still holds: every external file it has already looked at (NodeDef.source_identity,
-        of the instances `plan()` has actually planned so far) still has the identity it saw, and every packet it found
+        of the instances `plan()` has actually planned so far) still has the identity it saw, every one that was not there
+        (or not this account's) still is not, and every packet it found
         cached is still on disk, a cheap stat check either way (uploads.resolve and Packet.exists touch the file
         system, not the file's bytes or manifest), not a re-read of anything. False: EvaluationCache.get() rebuilds
         rather than reusing this one. The cache generation is not guaranteed to bump when the cache directory changes
@@ -1120,327 +1066,17 @@ class Evaluation:
                     now = None
                 if now != was:
                     return False
-        for inst, plan in self._plans.items():
-            if plan.cached and not plan.has(self.needed_outputs(inst.node)):
+            # a file that was not there (or not this account's, the same answer: _gone): there now, and this evaluation's
+            # E-UPLOAD-GONE is stale. Asked again only for those: a file that was there but could not be read is not
+            # opened again on every look (an import's worker would run each time), a new version of it comes with a
+            # new cache generation
+            for inst, _ in self._gone.items():
+                node = self.graph.nodes[inst.node]
+                try:
+                    node.type.source_identity(node.params)
+                except (OSError, ValueError, NotFound, CookError):
+                    continue
                 return False
-        return True
-
-    def computes(self, targets: list[str], force: bool = False) -> list[str]:
-        """The nodes cooking `targets` runs, dependencies first: those with an instance whose result is not cached
-        (「输出」 always runs: it delivers and keeps nothing), forced targets, and the nodes behind what is still pending
-        (they will run once it is known). An instance that can't even be planned (its file is not there) is one of
-        them: the cook runs it, it fails at its own node and the rest of the cook goes on; a cook is
-        never refused as a whole because one node of it is broken."""
-        order, behind = self.order(targets)
-        d = self.demand(targets)
-        found = [i.node for i in order if not self.satisfied(i, d.get(i, frozenset())) or (force and i.node in targets)]
-        return list(dict.fromkeys(found + [n for n in self.graph.needed(targets) if n in behind]))
-
-    # ------------------------------------------------------------------ status
-
-    def state(self, node_id: str, path: ItemPath, used: set[Inst] | None) -> str:
-        """The instance's state as the editor shows it (engine/scopes.py STATES)."""
-        if used is not None and Inst(node_id, path) not in used:
-            return sc.UNUSED
-        if (o := self.outcome(node_id, path)) is not None:
-            return o.state
-        try:
-            plan = self.plan(node_id, path)
-            self.wired_values(node_id, path)
-        except PLAN_ERRORS:
-            return sc.ERROR
-        if self.waits(node_id, path):
-            return sc.PENDING
-        return sc.CACHED if plan.cached else sc.TODO
-
-    def _used(self) -> tuple[set[Inst], frozenset[str]] | None:
-        """The instances some result of the graph needs (every node no wire leaves, through the inputs switches
-        choose) and the nodes behind what is pending; None when that can't be told (a cycle)."""
-        sinks = [n for n in self.graph.nodes if not self.graph.outputs_by_node.get(n)]
-        try:
-            order, behind = self.order(sinks)
-        except PLAN_ERRORS:
-            return None
-        return set(order), behind
-
-    def _value_outputs(self, nid: str, path: ItemPath, ports: list[str]) -> dict[str, str]:
-        """The instance's value outputs as the panel says them (「38.6 mm」), for those already known: cooked, or known
-        from the node's own parameters (NodeDef.known_outputs). One place, used whether or not it can be planned."""
-        from ..data.values import describe, is_value
-
-        return {port: describe(pk) for port in ports
-                if is_value(self.graph.output_type(nid, port))
-                and (pk := self.known(nid, port, path)) is not None and not pk.meta.get("empty")}
-
-    def _instance_status(self, nid: str, path: ItemPath, state: dict, used: set[Inst] | None) -> dict:
-        """One instance's entry: its plan, outcome, messages and value outputs (the same fields as a node outside every
-        block)."""
-        g, node = self.graph, self.graph.nodes[nid]
-        # every check is listed as it is, B- ones included (the page draws it by its level letter, 「提交前拦下」):
-        # a B- one is also the instance's error below, the same way a refused wire is both
-        entry = {"messages": [*state["messages"], *(m for m in self.checks(nid, path) if m not in state["messages"])]}
-        entry["messages"] += [{**said.json(), **({"port": port} if port else {})} for said, port in self.unused_inputs(nid, path)]
-        try:
-            p = self.plan(nid, path)
-        except PLAN_ERRORS as exc:
-            entry.update({"fingerprint": None, "cached": False, "state": self.state(nid, path, used)})
-            # an instance with no plan at all (its file is not there, a precondition it can't get past) still says
-            # whose error it is: its own when it failed here, the one above it when it is only skipped
-            if (o := self.outcome(nid, path)) is not None:
-                entry["outcome"] = {"state": o.state, "root": o.root}
-                entry["error" if o.state == "failed" else "skipped"] = o.message
-            else:
-                entry["error"] = message_of(exc).json()
-            # an instance that cannot cook may still give values: outputs determined by its own parameters
-            # (NodeDef.known_outputs, e.g. 「镜头模型」 of 「AnyCalib 镜头标定」) are sent as usual, so downstream panels
-            # can show 「OpenCV 鱼眼 · 来自 AnyCalib」 before a picture is wired
-            if values := self._value_outputs(nid, path, [port.name for port in g.outputs(nid)]):
-                entry["values"] = values
-            return entry
-        entry.update({"fingerprint": p.fingerprint, "cached": p.cached, "outputs": p.outputs,
-                      "present": sorted(port for port, fp in p.outputs.items() if valid(packet_dir(fp))),
-                      # the generation of each port on disk (the packet's commit time, data/packet.py created): the
-                      # page includes it in its cache key, so a recook of the same fingerprint gives new keys, and the
-                      # page drops stale packet descriptions when it changes
-                      "gens": {port: (self.manifest(fp) or {}).get("created", "") for port, fp in p.outputs.items() if valid(packet_dir(fp))},
-                      # the ports of this node that are needed (`needed_outputs`: those with outgoing wires, or all
-                      # when none). Sent so the page can decide which channels to upload this time: only wired channels
-                      # are uploaded. The decision is made only in `needed_outputs`; the page follows this list.
-                      "needed": sorted(self.needed_outputs(nid))})
-        # the channels to upload (`NodeDef.upload_channels`, answerable only by file-reading nodes): `{"take", "write"}`;
-        # absent means the whole file is uploaded (PNG / JPG, all channels needed, or nodes that read no file). The
-        # mapping from ports to channel names lives only in the node; the page decodes per this list in a worker and
-        # uploads with the chunked protocol (`webui/src/transfer/planes.ts`)
-        if (planes := self._upload_channels(nid, path)) is not None:
-            entry["channels"] = planes
-        if (o := self.outcome(nid, path)) is not None:  # no result because of an error: its own, or one above it
-            entry["outcome"] = {"state": o.state, "root": o.root}
-            entry["error" if o.state == "failed" else "skipped"] = o.message
-        if p.cached:  # what it said while it was cooked, kept with its result (Packet.commit)
-            said = next((m["messages"] for o in p.outputs.values() if (m := self.manifest(o)) and m["messages"]), [])
-            entry["messages"] = [*entry["messages"], *(m for m in said if m not in entry["messages"])]
-        try:
-            self.wired_values(nid, path)
-        except ValueError as exc:
-            entry["error"] = Msg("E-COOK-WIRED", node=node.label, reason=exc).json()
-        if values := self._value_outputs(nid, path, list(p.outputs)):
-            entry["values"] = values
-        if strip := self.strip_values(nid, path):
-            entry["strip"] = strip
-        entry["state"] = self.state(nid, path, used)
-        return entry
-
-    def strip_values(self, node_id: str, path: ItemPath = ()) -> list[dict]:
-        """Current values of the parameters shown in the strip under the view (NodeDef.strip), one {label, text} each: a
-        wired value as on the wire (the same number `sources` states), an entered value as entered, otherwise empty
-        (the page draws 「—」). These are not output ports (see nodes/base.py strip)."""
-        from ..data.values import describe_value, option_label, read, say, unit_problem
-
-        node = self.graph.nodes[node_id]
-        if not node.type.strip:
-            return []
-        params = self.params(node_id, path)
-        specs = {s["name"]: s for s in node.type.param_specs()}
-        out = []
-        for name, label in node.type.strip.items():
-            spec = specs[name]
-            text = ""
-            wire = self._wired_packet(node_id, name, path)
-            if wire is not None and not isinstance(wire, Pending):
-                v = read(wire[2])
-                v = v.in_unit(spec["unit"]) if spec["unit"] and not unit_problem(v.unit, spec["unit"]) else v
-                text = (option_label(spec, v.value) if not v.per_frame else "") or describe_value(v)
-            elif wire is None and params.get(name) is not None and params.get(name) != "":
-                text = say(spec, params[name])
-            out.append({"label": label, "text": text})
-        return out
-
-    def _upload_channels(self, nid: str, path: ItemPath = ()) -> dict | None:
-        """The channels of this node's source to upload for the current cook (NodeDef.upload_channels; None: upload the
-        whole file, or the node reads no file). A header not read yet, parameters not filled in or an upload already
-        cleaned only mean there is no answer: the whole file is uploaded, and the graph status must not fail."""
-        node = self.graph.nodes[nid]
-        try:
-            return node.type.upload_channels(self.params(nid, path), self.needed_outputs(nid))
-        except Exception:  # noqa: BLE001 no answer means the whole file (reading reports its own errors)
-            return None
-
-    def view_path(self, node_id: str, view: dict[str, str] | None = None) -> ItemPath | None:
-        """The instance of the node the view is on: the item each block around it is showing (`view`: begin -> item
-        key, from the request), the first item of it otherwise; None while an item list is not known yet."""
-        path: ItemPath = ()
-        for n, begin in enumerate(self.graph.scopes.chain(node_id)):
-            items = self.item_list(begin, path[:n])
-            if isinstance(items, Pending) or not items:
-                return None
-            want = (view or {}).get(begin)
-            path += (next((i.key for i in items if i.key == want), items[0].key),)
-        return path
-
-    def items(self, node_id: str, offset: int = 0, limit: int = 50) -> dict:
-        """Item by item for one node inside a block (what the status reply does not carry, asked for on
-        its own): {"total", "offset", "items": [one entry per instance, as the status has it for the view item, with
-        "item": {"path", "names"}]}."""
-        paths, _pending = self.instances(node_id)
-        used = (self._used() or (None, frozenset()))[0]
-        window = paths[offset:offset + limit] if limit else paths[offset:]
-        return {"total": len(paths), "offset": offset,
-                "items": [{**self._instance_status(node_id, p, {"messages": []}, used),
-                           "item": {"path": list(p), "names": self._names(node_id, p)}} for p in window]}
-
-    def status(self, view: dict[str, str] | None = None) -> dict:
-        """The graph as the editor reads it, everything worked out here so the
-        page never derives a rule itself (webui/src/graph/rules.ts only reads it); the shape of the block parts
-        ("scopes", a node's "state", "items", "summary") is written in engine/scopes.py:
-        - "nodes": per node its fingerprint, whether its result is cached, its outputs' packets, the parameters its
-          connections and settings make inactive (with why), its cost and licence with its parameters, its usage
-          warnings (engine/lint.py), where its parameters get their values (sources) and, once cooked, what its value
-          outputs hold ("values": port -> "38.6 mm"); its ports as they are in this graph (Graph.ports), the viewer
-          handles that apply (Graph.handles), what a click on 计算 cooks ("policy") and its state. A wired
-          value it can't take (once known) is its error.
-        - "wires": every wire's type and state (Graph.wire_states).
-        - "scopes": every 逐项处理 block, its members and its item lists.
-        - "deliver": what 交付 cooks (every 「输出」 together), null without one.
-        A node inside a block answers for the item the view is on (`view`: begin -> item key; the first item by
-        default) and says how all its items stand ("summary"); item by item is `items()`.
-        The server adds the graph's key, the page's cook-inputs version and the shown node's plan (server/packets.py)."""
-        g = self.graph
-        used_behind = self._used()
-        used = None if used_behind is None else used_behind[0]
-        behind = frozenset() if used_behind is None else used_behind[1]
-        out = {}
-        for nid in g.nodes:
-            node = g.nodes[nid]
-            inside = bool(g.scopes.depth(nid))
-            r = self.resolved(nid) if not inside else g.resolved(nid)
-            # what its declarations say here (nodes/applies.py): the parameters that do nothing and why, those a cook
-            # still has to tell, what it costs and whose licence it is with these parameters
-            state = {"applies": r.params.json(),
-                     "cost": r.cost.describe(), "licence": r.licence.describe(),
-                     "messages": [], "sources": self.sources(nid) if not inside else {},
-                     "ports": g.ports(nid), "handles": g.handles(nid),
-                     # where a placing node puts what it gives (nodes/handles.py Places), for the viewer's preview
-                     **({"places": node.type.places.placement()} if node.type.places else {})}
-            if not inside:
-                entry = self._instance_status(nid, (), state, used if nid not in behind else None)
-                # a B- check is its error (plan) and is listed among its messages with its one click, like a refused wire
-                out[nid] = {**state, **entry}
-                continue
-            # inside a block: the item the view is on, and how the items stand together (item by item
-            # is `items()`, asked for on its own)
-            paths, pending = self.instances(nid)
-            states = [self.state(nid, p, used) for p in paths]
-            summary = {"total": len(paths), **sc.summary(states)}
-            shown = self.view_path(nid, view)
-            up = next((o for w in pending if (o := self.outcome(*w.on)) is not None), None)
-            entry = ({**self._instance_status(nid, shown, state, used), "item": {"path": list(shown), "names": self._names(nid, shown)},
-                      "sources": self.sources(nid, shown)} if shown is not None
-                     else {"fingerprint": None, "cached": False, "outputs": {}, "messages": [],
-                           "item": {"path": [], "names": []}, "state": sc.PENDING})
-            entry["summary"] = summary
-            entry["cached"] = bool(paths) and all(s == sc.CACHED for s in states)
-            entry["state"] = sc.SKIPPED if up is not None and not paths else sc.node_state(states, bool(pending))
-            if up is not None and not paths:
-                o = self._skipped(node, g.nodes[up.root].label, up)
-                entry.update({"outcome": {"state": o.state, "root": o.root}, "skipped": o.message})
-            out[nid] = {**state, **entry}
-        for nid in g.nodes:
-            out[nid]["policy"] = self._case(self._targets(g.cook_targets, nid))  # what a click on 「计算」 cooks
-        deliveries = g.deliveries()
-        return {"nodes": out, "wires": g.wire_states(), "scopes": self._scopes_status(used),
-                "deliver": self._case(deliveries) if deliveries else None}
-
-    def item_names(self, node_id: str, path: ItemPath) -> list[str]:
-        """The item names of an instance's path, outer block first ([] outside every block)."""
-        return self._names(node_id, path) if path else []
-
-    def _names(self, node_id: str, path: ItemPath) -> list[str]:
-        """The item names of an instance's path, outer first."""
-        names = []
-        for n, begin in enumerate(self.graph.scopes.chain(node_id)):
-            items = self.item_list(begin, path[:n])
-            names.append(next((i.name for i in items if i.key == path[n]), "") if not isinstance(items, Pending) else "")
-        return names
-
-    def _scopes_status(self, used: set[Inst] | None) -> list[dict]:
-        """Every 逐项处理 block: its members, its items and how they stand together. 「3 条 · 2/3 已算」 is worked out
-        here, like every other rule, so the page only shows it."""
-        out = []
-        for begin, s in self.graph.scopes.scopes.items():
-            lists = []
-            for p in self._parent_paths(begin):
-                items = self.item_list(begin, p)
-                lists.append({"path": list(p), "pending": True} if isinstance(items, Pending)
-                             else {"path": list(p), "items": [{"key": i.key, "name": i.name} for i in items],
-                                   "summary": self._scope_summary(s, p, items, used)})
-            out.append({**s.describe(), "lists": lists})
-        return out
-
-    def _scope_summary(self, s: sc.Scope, path: ItemPath, items: list[ItemAt], used: set[Inst] | None) -> dict:
-        """How the items of one block stand: {"total": how many, then the STATES that have any}. An item counts as
-        what its members make of it together, the same rule a node's own instances follow (engine/scopes.py
-        node_state), so a block is 「已算」 only once every node in it has that item's result."""
-        by_item: dict[str, list[str]] = {i.key: [] for i in items}
-        depth = len(path)
-        for nid in s.members:
-            paths, _pending = self.instances(nid)
-            for ip in paths:
-                if len(ip) > depth and ip[:depth] == path and ip[depth] in by_item:
-                    by_item[ip[depth]].append(self.state(nid, ip, used))
-        states = [sc.node_state(v, not v) for v in by_item.values()]
-        return {"total": len(items), **sc.summary(states)}
-
-    def _parent_paths(self, begin: str) -> list[ItemPath]:
-        """The paths the block `begin` starts sits at, as far as the item lists of the blocks around it are known."""
-        scopes = self.graph.scopes
-        chain = scopes.chain(begin)[:-1]
-        paths: list[ItemPath] = [()]
-        for b in chain:
-            deeper = []
-            for p in paths:
-                items = self.item_list(b, p[:scopes.depth(b) - 1])
-                if not isinstance(items, Pending):
-                    deeper += [p + (i.key,) for i in items]
-            paths = deeper
-        return paths
-
-    @staticmethod
-    def _targets(of, node_id: str) -> list[str]:
-        try:
-            return of(node_id)
-        except GraphError:  # a graph the rules refuse (a cycle): the node alone
-            return [node_id]
-
-    def _case(self, targets: list[str]) -> dict:
-        """What cooking `targets` computes, and whether it delivers (collects and packs files: a 「输出」 among them),
-        judged on the nodes it computes: those with an instance that does not have every port this cook wants of it
-        (`demand` / `satisfied`, the same rule `computes` and the queue apply, never the whole graph's `cached`, which
-        would not match what the cook actually writes)."""
-        try:
-            order, behind = self.order(targets)
-            d = self.demand(targets)
-            needed = list(dict.fromkeys([i.node for i in order] + [n for n in self.graph.needed(targets) if n in behind]))
-            done = {n for n in needed if n not in behind and all(self.satisfied(i, d.get(i, frozenset())) for i in order if i.node == n)}
-        except PLAN_ERRORS:  # a cycle: what can be ordered, as a walk that stops where it closes
-            needed = self._walk(targets)
-            done = set()
-        computes = [n for n in needed if n not in done]
-        return {"targets": targets, "computes": computes,
-                "delivers": any(self.graph.nodes[n].type.delivers for n in computes if n in self.graph.nodes)}
-
-    def _walk(self, targets: list[str]) -> list[str]:
-        needed: list[str] = []
-        seen: set[str] = set()
-
-        def visit(n: str) -> None:  # dependencies first, in the order the inputs are declared (a cycle stops)
-            if n in seen:
-                return
-            seen.add(n)
-            for port in self.graph.input_ports(n):
-                for src, _ in self.graph.inputs.get((n, port.name), []):
-                    visit(src)
-            needed.append(n)
-
-        for t in targets:
-            visit(t)
-        return needed
+        # every packet it found an instance cached by is still the one it found (its generation: one stat, not a
+        # re-read of anything; Demand.cached kept which)
+        return all(generation(fp) == gen for _inst, seen in self._cached_seen.items() for fp, gen in seen.items())

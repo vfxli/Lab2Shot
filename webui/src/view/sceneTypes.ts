@@ -103,6 +103,7 @@ export interface CameraData {
   world: Float32Array;
   focalMm: Float32Array;
   hAperture: Float32Array;
+  centerMm: Float32Array | null; // (x, y) mm per sample or one pair: the lens centre off the picture's centre, +x right +y up
   vAperture: Float32Array;
 }
 

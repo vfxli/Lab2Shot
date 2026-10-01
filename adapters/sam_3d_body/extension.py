@@ -3,7 +3,7 @@ people detector (人物框)."""
 
 from __future__ import annotations
 
-from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight, hf_file
+from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, hf_file, downloads
 
 # DINOv3 network code for the backbone. Upstream fetches the moving main branch through
 # torch.hub at run time (network, unpinned); it is pinned and local instead.
@@ -11,8 +11,7 @@ DINOV3 = GitSource(url="https://github.com/facebookresearch/dinov3.git", commit=
 
 MODEL_REPO, MODEL_REVISION = "facebook/sam-3d-body-dinov3", "11aaa346c7204874a1cbafe3d39a979080b2c55a"
 MOGE_REPO, MOGE_REVISION = "Ruicheng/moge-2-vitl-normal", "cb0e8bbd6b1e243589717c78e750b1ba4c093acf"
-# The model and its rig, and the MoGe-2 focal estimate: the fast_sam_3d_body extension pins the same files
-# (the installer keeps one copy of identical files).
+# The model and its rig, and the MoGe-2 focal estimate. The one table: fast_sam_3d_body imports it (and DINOV3).
 MODEL_WEIGHTS = (
     hf_file(MODEL_REPO, MODEL_REVISION, "model.ckpt", key="sam-3d-body-dinov3", dest="sam-3d-body-dinov3/model.ckpt",
             sha256="b5a2f9d305dd02626b967aa2e86021fba07065df66ce7a7e00ffb9664f150abf", gated=True,
@@ -50,7 +49,7 @@ class Sam3DBody(Extension):
         torch=("torch==2.8.0", "torchvision==0.23.0"),
         torch_backend="cu128",
         compiled=(
-            "detectron2 @ git+https://github.com/facebookresearch/detectron2.git@a1ce2f956a1d2212ad672e3c47d53405c2fe4312",
+            downloads.pip_git("detectron2", downloads.DETECTRON2),
         ),
         # The ViTDet detector runs ROIAlign / NMS through torchvision on the GPU;
         # detectron2's own CUDA kernels (deformable conv, rotated boxes) are unused.
@@ -61,14 +60,7 @@ class Sam3DBody(Extension):
     weights = MODEL_WEIGHTS + (
         hf_file(MODEL_REPO, MODEL_REVISION, "model_config.yaml", key="sam-3d-body-config", dest="sam-3d-body-dinov3/model_config.yaml",
                 gated=True, note="SAM 3D Body 网络配置"),
-        Weight(
-            key="vitdet",
-            kind="url",
-            source="https://dl.fbaipublicfiles.com/detectron2/ViTDet/COCO/cascade_mask_rcnn_vitdet_h/f328730692/model_final_f05665.pkl",
-            dest="vitdet/model_final_f05665.pkl",
-            sha256="8601bc52000c8a87960f3db6a9672596c5e06ce33bc30a3b8f96a96efe42ae60",
-            note="人物检测 ViTDet-H（Apache-2.0，2.8 GB）",
-        ),
+        downloads.VITDET_H.weight(key="vitdet", dest="vitdet/model_final_f05665.pkl", note="人物检测 ViTDet-H（Apache-2.0，2.8 GB）"),
     )
 
     def worker_env(self) -> dict[str, str]:

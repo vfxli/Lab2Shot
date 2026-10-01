@@ -1,5 +1,6 @@
 // Backend contract. Shapes mirror lab2shot/nodes/base.py describe() and server/app.py.
 
+import { clipboardUrl } from "../transfer/frameKey";
 import type { Availability, MessageJson } from "./applies";
 import { clientInfo, deviceId } from "../platform/client";
 import { ApiError, json } from "../platform/http";
@@ -9,9 +10,9 @@ import { graphKept, graphRef, unknownGraph, type GraphRef } from "../model/graph
 import type { BackgroundTask } from "./tasks";
 import type { Catalog, GraphJSON, OcioInfo, TemplatesPage } from "./catalog";
 import type { Licence, ManualNeed, ManualView } from "./extensions";
-import type { DiskArea, HistoryJob, JobLoad, JobRecord, QueueView, ResidentView, ServerLoad } from "./queue";
-import type { BoxesData, Choice, ClipboardText, CurvesData, ItemsPage, Manifest, StatusReply, TracksData } from "./status";
-import type { UsageStats } from "./usage";
+import type { DiskUsage, HistoryJob, JobLoad, JobRecord, QueueView, ResidentView, ServerLoad } from "./queue";
+import { normalizeStatus, type Choice, type ClipboardText, type ItemsPage, type StatusReply } from "./status";
+import { usageFilled, type UsageStats } from "./usage";
 import { libraryApi } from "./library";
 
 export * from "./catalog";
@@ -84,24 +85,6 @@ async function askGraph<T>(url: string, graph: GraphJSON, extra: Record<string, 
   return data;
 }
 
-/** 透过指定相机查看一帧底图（`lab2shot/server/packets.py frame` 的 `through` / `at`）：相机包的指纹及该相机在
- * 场景中的路径。相机带畸变时，服务器按其镜头对该帧去畸变后发送（`view/proxy.py through_picture_file`），
- * 不带畸变时发送普通版本。仅在三维舞台透过带畸变的相机观看时使用（view/Stage3D.tsx）。 */
-export interface Through {
-  fp: string;
-  at: string;
-}
-
-/** 地址中用于区分字节内容的两项（lab2shot/server/wire.py versioned）：包的代次 `g`（状态回复中的 gens，
- * 同一指纹重新计算后改变）与代理档位 `px`（包说明中的 proxy.px）。地址包含这两项，服务器才会标记 immutable，
- * 浏览器缓存才不会在重算或更换档位后返回旧字节；页面自身的缓存键（transfer/ident.ts）使用同一对值，两端标识一致。 */
-export interface Version {
-  g: string;
-  px?: number;
-}
-
-const versionQuery = (v?: Version): string[] => (v ? [...(v.g ? [`g=${v.g}`] : []), ...(v.px ? [`px=${v.px}`] : [])] : []);
-const query = (parts: string[]): string => (parts.length ? `?${parts.join("&")}` : "");
 
 /** The queue as the editor's 队列 window reads it: the poll (/api/queue) carries the jobs going and only the version of
  * the account's task history; the history itself (/api/queue/history: every unexpired task, their groups and cache
@@ -131,7 +114,7 @@ async function queueWithHistory(load: boolean): Promise<QueueView> {
 export const api = {
   catalog: () => json<Catalog>("GET", "/api/catalog"),
   templates: () => json<TemplatesPage>("GET", "/api/templates"),
-  // 我的模板与个人磁盘占用 (api/library.ts)
+  // my templates and my disk use (api/library.ts)
   ...libraryApi,
   // installing and what is downloaded by hand: the administrator's (logged in)
   installs: {
@@ -154,14 +137,21 @@ export const api = {
   },
   ocio: () => json<OcioInfo>("GET", "/api/ocio"),
   derive: (typeId: string, params: Record<string, unknown>) => json<Record<string, unknown>>("POST", `/api/nodes/${encodeURIComponent(typeId)}/derive`, { params }),
-  // 反向路径：粘贴的一段文本 → 该节点的一组参数值。服务器不识别格式，由节点自身解析
+  // the reverse path: a pasted piece of text -> a set of this node's parameter values. The server knows no format; the node parses it itself
   paste: (typeId: string, text: string) => json<Record<string, unknown>>("POST", `/api/nodes/${encodeURIComponent(typeId)}/paste`, { text }),
   choices: (typeId: string, params: Record<string, unknown>, inputs: Record<string, string>) =>
     json<Record<string, Choice>>("POST", `/api/nodes/${encodeURIComponent(typeId)}/choices`, { params, inputs }),
   // `view`: which item each 逐项处理 block is showing (state/items.ts). It is a view setting, so the nodes
   // inside a block answer for that item; it never changes what a cook is.
-  status: (graph: GraphJSON, cookInputs: number, display: string | null, view: Record<string, string> = {}) =>
-    askGraph<StatusReply>("/api/status", graph, { cook_inputs: cookInputs, display, ...(Object.keys(view).length ? { view } : {}) }),
+  // `handles`: whose handle data to send (`node`, "" none: state/handleView.ts handleNode) and the key of
+  // the copy the page holds of it (StatusReply handle_data): while that still matches, the reply leaves the (large)
+  // data out
+  // `show`: the displayed node's outputs the viewer shows, as `cook` sends them: its plan is judged as that cook would be
+  status: (graph: GraphJSON, cookInputs: number, display: string | null, view: Record<string, string> = {}, handles: { node: string; key: string } = { node: "", key: "" }, show: string[] = []) =>
+    askGraph<StatusReply>("/api/status", graph, {
+      cook_inputs: cookInputs, display, ...(show.length ? { show } : {}), ...(Object.keys(view).length ? { view } : {}),
+      ...(handles.node ? { handle_node: handles.node } : {}), ...(handles.key ? { handle_key: handles.key } : {}),
+    }).then(normalizeStatus),
   /** Item by item for one node inside a 逐项处理 block: a page at a time, of the graph version the
    * status reply came with. The status reply itself is never one entry per item. */
   nodeItems: (graph: string, node: string, offset = 0, limit = 50) =>
@@ -175,17 +165,18 @@ export const api = {
     askGraph<{ job: string }>("/api/jobs", graph, { cook: target, version, ...(show.length ? { show } : {}), client: clientInfo() }),
   deliver: (graph: GraphJSON, version: number) => askGraph<{ job: string }>("/api/jobs", graph, { deliver: [], version, client: clientInfo() }),
   // the job's events as a stream that mends itself (platform/events.ts: nothing else opens an EventSource)
-  cookEvents: (job: string) => followEvents(`/api/jobs/${job}/events`),
+  // after a refusal, the reason is asked through the job's state (no stream; since at its maximum, so no event comes back)
+  cookEvents: (job: string) => followEvents(`/api/jobs/${job}/events`, `/api/jobs/${job}/state?since=${Number.MAX_SAFE_INTEGER}`),
   cancelCook: (job: string) => json<{ ok: boolean }>("POST", `/api/jobs/${job}/cancel`, {}),
-  /** 删除一条已结束的任务：它的任务文件夹（节点图、素材、输出的文件夹和 zip、日志）整个删除；只被它引用的缓存随后由服务器清理。
-   * 正在计算的任务先取消。 */
+  /** Deletes one finished task: its whole task folder (graph, footage, output folders and zips, log) goes; cache only it
+   * refers to is cleaned by the server afterwards. A task still computing is cancelled first. */
   forgetJob: (job: string) => json<{ ok: boolean }>("DELETE", `/api/jobs/${encodeURIComponent(job)}`),
-  // 一键释放空间：删除自己全部已结束的任务及其占用的空间
+  // free space in one click: delete all of one's own finished tasks and the space they hold
   forgetAllJobs: () => json<{ ok: boolean; jobs: number; skipped: number; bytes: number }>("DELETE", "/api/jobs"),
-  /** 删除自己的一组任务：组里每个已结束的任务都像删一条那样整个删除；正在排队和计算的跳过（`skipped`）。 */
+  /** Deletes one of one's own task groups: each finished task in it goes whole, as a single delete would; tasks waiting or computing are skipped (`skipped`). */
   forgetGroup: (key: string) =>
     json<{ ok: boolean; jobs: number; skipped: number; bytes: number }>("DELETE", `/api/task-groups/${encodeURIComponent(key)}`),
-  /** 给自己的一组任务改名（只改显示，分组不变）；空名字回到自动起的名字。答里是这一组现在显示的名字。 */
+  /** Renames one of one's own task groups (display only; the grouping stays); an empty name returns to the automatic one. The answer is the name the group shows now. */
   renameGroup: (key: string, name: string) =>
     json<{ ok: boolean; name: string }>("PUT", `/api/task-groups/${encodeURIComponent(key)}/name`, { name }),
   // load: with the machine's load (the queue panel open); without it an idle queue's answer stays the same (a 304)
@@ -198,10 +189,11 @@ export const api = {
   outputs: () => json<Output[]>("GET", "/api/outputs"),
   uploads: {
     describe: (ref: string) => json<Upload>("GET", `/api/uploads/describe?ref=${encodeURIComponent(ref)}`),
-    /** 申报一份上传：包含的文件、各文件内容的 sha256（由网页在本机计算），以及第一个文件开头的数十 KB。
-     * 服务器据此计算该上传的 id（与字节传输完成后 `POST /api/uploads` 使用同一公式），用其自身的
-     * describe_file 读取图层，并返回最终引用。此过程不传输任何数据字节。
-     * 提供的文件头不足以读出图层时返回 `need`（需要追加的字节数），由网页补发，不会返回空图层。 */
+    /** Declares an upload: its files, the sha256 of each file's content (computed by the page on the user's machine),
+     * and the first few tens of KB of the first file. From these the server computes the upload's id (the same formula
+     * `POST /api/uploads` uses once the bytes have arrived), reads the layers with its own describe_file, and returns
+     * the final reference. No data bytes are transferred. When the head sent is too short to read the layers, the
+     * answer carries `need` (how many more bytes) and the page sends them; empty layers are never returned. */
     declare: (body: { name: string; files: Record<string, string>; sizes: Record<string, number>; origin: object;
                       head_of?: string; head?: string; head_whole?: number }) =>
       json<{ ref: string; missing: string[]; layers?: Record<string, unknown>; need?: number }>("POST", "/api/uploads/declare", body),
@@ -225,7 +217,7 @@ export const api = {
     first: (job: string) => json<QueueView>("POST", `/api/admin/jobs/${encodeURIComponent(job)}/first`, {}),
     // `user`: only this account's jobs (the queue's 「按人」), filtered by the server
     history: (user: number | null = null) => json<JobRecord[]>("GET", `/api/admin/history${user === null ? "" : `?user=${user}`}`),
-    disk: () => json<DiskArea[]>("GET", "/api/admin/disk"),
+    disk: (fresh = false) => json<DiskUsage>("GET", `/api/admin/disk${fresh ? "?fresh=1" : ""}`),
     log: (lines = 500) => json<{ file: string; lines: string[] }>("GET", `/api/admin/log?lines=${lines}`),
     clean: (area: string, days: number) => json<{ removed: number; bytes: number }>("POST", "/api/admin/disk/clean", { area, days }),
     graphUrl: (job: string) => `/api/admin/jobs/${job}/graph`,
@@ -236,34 +228,14 @@ export const api = {
       const q = new URLSearchParams({ tz: String(-new Date().getTimezoneOffset()) });
       if (since !== null) q.set("since", String(since));
       if (until !== null) q.set("until", String(until));
-      return json<UsageStats>("GET", `/api/admin/usage?${q}`);
+      return json<UsageStats>("GET", `/api/admin/usage?${q}`).then(usageFilled);
     },
     resetUsage: () => json<{ start: number }>("POST", "/api/admin/usage/reset", {}),
     undoReset: () => json<{ start: number | null }>("POST", "/api/admin/usage/reset/undo", {}),
   },
-  manifest: (fp: string) => json<Manifest>("GET", `/api/packet/${fp}`),
-  /** 一帧供视图显示的代理图（`lab2shot/server/packets.py frame`）。
-   *
-   * 视图只使用代理，不区分无损与有损：尺寸为管理员设置的档位（包说明中的 `proxy.px`），
-   * 由服务器在计算完成后生成。不含黑白点参数：黑白点属于显示方式，在浏览器的显卡上计算（view/look.ts）。 */
-  packetFrameUrl: (fp: string, frame: number, through?: Through, v?: Version) =>
-    `/api/packet/${fp}/frame/${frame}.png` + query([...(through ? [`through=${encodeURIComponent(through.fp)}`, `at=${encodeURIComponent(through.at)}`] : []), ...versionQuery(v)]),
-  /** 一帧中单条通道的原始数据（`lab2shot/server/packets.py frame_channel`，格式见 transfer/plane.ts），
-   * 而非生成好的显示图：通道选择、黑白点、着色与合成均在浏览器中计算。
-   * `name` 为 R / G / B / A 或 valid，有效通道见 `/api/packet/{fp}` 的 `channels.names`。
-   * 发送的是代理：按 `proxy.px` 档位缩放并压缩后的版本（没有其他档位可切换）。 */
-  channelUrl: (fp: string, frame: number, name: string, v?: Version) => `/api/packet/${fp}/frame/${frame}/channel/${name}` + query(versionQuery(v)),
-  boxes: (fp: string) => json<BoxesData>("GET", `/api/packet/${fp}/boxes`),
-  tracks: (fp: string) => json<TracksData>("GET", `/api/packet/${fp}/tracks`),
-  curves: (fp: string) => json<CurvesData>("GET", `/api/packet/${fp}/curves`),
   /** The node text an output-settings node wrote for another application to paste: which application reads
    * it, the file it was written as, and the text itself. Only a result whose meta declares one has it. */
-  clipboard: (fp: string) => json<ClipboardText>("GET", `/api/packet/${fp}/clipboard`),
-  /** 视频一帧的代理图。 */
-  videoFrameUrl: (fp: string, frame: number, v?: Version) => `/api/view/${fp}/video/${frame}.png` + query(versionQuery(v)),
-  /** 三维视图的描述（各数据块的地址由服务器提供，均带代次）；`g` 为该包的代次（transfer/gens.ts）。 */
-  sceneUrl: (fp: string, g: string) => `/api/packet/${fp}/scene` + query(g ? [`g=${g}`] : []),
-  pointsUrl: (fp: string, camera: string | null, g: string) => `/api/view/${fp}/points` + query([...(camera ? [`camera=${camera}`] : []), ...(g ? [`g=${g}`] : [])]),
+  clipboard: (fp: string) => json<ClipboardText>("GET", clipboardUrl(fp)),
   sendLog: (text: string) => json<{ ok: boolean }>("POST", "/api/logs", { text, client: clientInfo() }),
   /** Logging in with an account (lab2shot/server/auth.py); the administrator's forgotten password with the 口令. */
   auth: {
@@ -281,23 +253,29 @@ export interface RestartState {
   state: "draining" | "restarting"; // draining: waiting for the jobs running
   mode: "drain" | "now";
   since: number;
-  running: number;
-  tasks: MessageJson[]; // the background tasks still going (their titles): an install, a card's check
+  // what it waits for: only a logged-in page is told (the login page learns only where to connect next)
+  running?: number;
+  tasks?: MessageJson[]; // the background tasks still going (their titles): an install, a card's check
   port: number; // where the next server listens
   https: boolean;
 }
 
+/** Without a login (the login page) only `boot`, `ui`, `restart` (where to connect next) and `account` come. */
 export interface ServerInfo {
   boot: string;
-  started: number;
-  version: string;
+  started?: number;
+  version?: string;
   ui: number; // when the built page was made: another one after a restart means the page should reload
   restart: RestartState | null;
-  notice: number; // when the administrator's notice last changed: another number means reading /api/notice again
+  notice?: number; // when the administrator's notice last changed: another number means reading /api/notice again
   account: number | null; // the account this browser is logged in as now (null: none): another than the page's opens it again
-  // 本机代理的两项参数（管理员设置「视图 · 本机代理尺寸 / 本机缓存上限」，lab2shot/config.py）：
-  // 浏览器据此生成与淘汰本机代理（transfer/localProxy）
-  view: { local_px: number; local_cache_gb: number };
+  // the two local-proxy settings (the administrator's 「视图 · 本机代理尺寸 / 本机缓存上限」, lab2shot/config.py): the
+  // browser makes and evicts its local proxies by them (transfer/localProxy)
+  view?: { local_px: number; local_cache_gb: number };
+  // the administrator's 「任务保留天数」 (lab2shot/config.py tasks.keep_days): how long a paused upload in the browser may
+  // sit untouched before it is purged (transfer/uploads.ts purgeStale); the same number as the server's retention of
+  // tasks and cache, never a separate one. A server that does not send it (an older version): nothing is purged
+  tasks?: { keep_days: number };
 }
 
 /** The administrator's notice (GET /api/notice): one line every page shows at the top while it is on. The type is
@@ -310,18 +288,18 @@ export interface ServerNoticeText {
   by?: string; // which administrator wrote it
 }
 
-/** 后台「扩展包」区域中一个扩展包的条目（GET /api/admin/extensions，lab2shot/server/installs.py
- * extension_list）：安装状态、缺失项、当前登录可执行的操作（`actions`，由服务器计算，网页不检查角色），
- * 以及最近一次安装任务。`manual` 为仍需手动下载的项目。 */
+/** One extension's row in the admin page's 扩展包 section (GET /api/admin/extensions, lab2shot/server/installs.py
+ * extension_list): its install state, what is missing, what this login may do (`actions`, computed by the server; the
+ * page checks no role), and its latest install task. `manual`: the items still to be downloaded by hand. */
 export interface ExtensionRow {
   name: string;
   title: string;
   summary: string;
-  nodes: number; // 该扩展包为编辑器添加的节点数量
+  nodes: number; // how many nodes the extension adds to the editor
   installed: boolean;
   ready: boolean;
-  label: string; // 状态简述：已就绪 / 未安装 / 模型未齐 / 需要重装…
-  reason: string; // 尚不可用的原因（已就绪时为 ""）
+  label: string; // its state in brief: 已就绪 / 未安装 / 模型未齐 / 需要重装…
+  reason: string; // why it is not usable yet ("" when 已就绪)
   manual: ManualNeed[];
   actions: Availability;
   job: InstallTask | null;

@@ -89,7 +89,6 @@
 
 # ---- 用户管理（server/users.py）
 "E-USERS-DELETED" = "这个账号已经删除了：不能再设密码"
-"E-LOGIN-UNLOCKMACHINE" = "清掉输错密码的计数只能在这台服务器上用本机命令行（机器令牌）做：浏览器上的管理员登录不行——计数挡的就是用密码登录这件事"
 "I-AUDIT-LOGINUNLOCKED" = "{who}在服务器上用本机命令行清掉了输错密码的计数（{count:d} 次）"
 
 
@@ -102,11 +101,8 @@
 "E-FEEDBACK-IMAGEBIG" = "第 {index:d} 张截图太大：{size:.1f} MB，最多 {max:d} MB"
 "E-FEEDBACK-NOTIMAGE" = "第 {index:d} 个附件不是图像（只收 PNG、JPG、WebP、GIF）：换一张截图再附上"
 "E-FEEDBACK-BUNDLEBIG" = "诊断资料太大（超过 {max:d} MB）：刷新页面后再提交"
-"E-FEEDBACK-REQUESTBIG" = "反馈太大：{size:.1f} MB，最多 {max:d} MB（截图少附几张或小一些）"
-"E-FEEDBACK-REQUESTLIMIT" = "反馈太大：最多 {max:d} MB（截图少附几张或小一些）"
 "E-FEEDBACK-TOOOFTEN" = "24 小时内最多提交 {max:d} 条反馈：已经到了，明天再提交；急的话直接找管理员"
 "E-FEEDBACK-TOOMANYOPEN" = "你还有 {max:d} 条反馈管理员没处理完：等处理掉一些再提交；急的话直接找管理员"
-"E-FEEDBACK-UNREADABLE" = "反馈的内容读不出来：刷新页面后再提交一次"
 "E-FEEDBACK-NOTFOUND" = "没有这条反馈：可能已经删除，刷新页面"
 "E-FEEDBACK-GONE" = "没有这条反馈：可能已经删除，刷新页面"
 "E-FEEDBACK-STATUS" = "没有「{status}」这个状态"
@@ -123,6 +119,7 @@
 "I-LOGIN-CLIENT" = "{user} 在客户端登录（令牌）：{where}"
 "I-LOGIN-PASSWORDCHANGED" = "{user} 改了自己的密码：{where}；别处的登录都退出了"
 "I-LOGIN-RECOVERED" = "管理员密码用口令重设了：{where}；别处的登录都退出了"
+"W-LOGIN-SUSPICIOUSAGAIN" = "又 {count:d} 次，同上：{line}"
 "W-LOGIN-SUSPICIOUS" = "可疑：{account} {whom} {kind} {method} {path}（{detail}）"
 "I-LOGIN-OUT" = "{user} 退出登录：{where}"
 "W-LOGIN-SLOWED" = "账号 {subject} 的{what}在 {minutes:d} 分钟内被从没登录过的设备输错 {count:d} 次：之后这类尝试一次比一次等得久，最长 {wait:d} 秒；登录过这个账号的浏览器和客户端不受影响。在服务器上执行 lab2shot admin unlock 可以清掉计数"

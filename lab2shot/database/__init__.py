@@ -84,6 +84,8 @@ DAILY_S = 86400
 class DatabaseError(MessageError, RuntimeError):
     """The database can't be used as it is; the message says what to do. The server does not start."""
 
+    status = 500
+
 
 def folder(work_dir: Path | None = None) -> Path:
     return (work_dir or settings().work_dir) / "db"
@@ -160,10 +162,19 @@ def _checked(problem: Msg | str) -> dict:
     return {"at": time.time(), "ok": not problem, "detail": problem.text if problem else "ok", "code": problem.code if problem else ""}
 
 
+BEFORE_KEPT = 5  # backups taken before a change (the database upgraded: before-vN; the program updated: before-update)
+
+
+def _before_change(backup: Path) -> bool:
+    """Was this backup taken before a change (its reason, the last part of its name, starts with before-)?"""
+    return backup.stem.split("-", 3)[-1].split("~", 1)[0].startswith("before-")
+
+
 def _backup_file(path: Path, work_dir: Path, reason: str) -> Path:
     """A checked copy of the database at `path` in the backups folder (SQLite's backup API: one consistent snapshot of
-    what has committed, while a writer may go on), with the files its rows point to; then the oldest beyond
-    数据库备份份数 go."""
+    what has committed, while a writer may go on), with the files its rows point to; then the oldest go: of the ones
+    taken before a change, beyond BEFORE_KEPT; of the others (daily, manual), beyond 数据库备份份数. Counted apart, so
+    the daily ones never push out the copy from before an upgrade."""
     target = backups_folder(work_dir) / f"lab2shot-{time.strftime('%Y%m%d-%H%M%S')}-{reason}.db"
     target.parent.mkdir(parents=True, exist_ok=True)
     n = 1
@@ -191,10 +202,11 @@ def _backup_file(path: Path, work_dir: Path, reason: str) -> Path:
     partial.replace(target)
     _fsync(target.parent)
     _keep_files(work_dir, target)
-    keep = int(settings()["database.backups"])
-    for old in sorted(backups_folder(work_dir).glob("*.db"))[:-keep]:
-        old.unlink()
-        shutil.rmtree(_files_of(old), ignore_errors=True)
+    kept = sorted(backups_folder(work_dir).glob("*.db"))
+    for before, keep in ((False, int(settings()["database.backups"])), (True, BEFORE_KEPT)):
+        for old in [b for b in kept if _before_change(b) == before][:-keep]:
+            old.unlink()
+            shutil.rmtree(_files_of(old), ignore_errors=True)
     logs.say(log, Msg("I-DB-BACKEDUP", name=target.name))
     return target
 
@@ -433,6 +445,22 @@ def close_all() -> None:
         for d in _open.values():
             d.close()
         _open.clear()
+
+
+def backup_stopped(reason: str) -> Path:
+    """Back up a stopped installation before upgrading, including a schema older than this program knows.
+
+    The ownership guard and exclusive database lock apply; no writer is opened and no migration runs.
+    """
+    work = settings().work_dir
+    workdir.own(work)
+    path = folder(work) / FILE
+    with open(path.with_suffix(".lock"), "a") as holder:
+        try:
+            fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise DatabaseError(Msg("E-DB-INUSE")) from None
+        return _backup_file(path, work, reason)
 
 
 def restore(name: str, work_dir: Path | None = None) -> Path:

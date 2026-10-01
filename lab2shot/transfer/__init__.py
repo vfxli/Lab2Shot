@@ -12,16 +12,13 @@ import re
 from pathlib import PurePosixPath
 
 from ..errors import Invalid
+from ..io.files import NAME_MAX, PATH_MAX  # what a name on the disk may be: one rule (io/files.py)
 from ..messages import Msg
 
-# bytes one HTTP request may carry (server/routes.py MAX_BODY reads it from here; server/access.py enforces it): a graph, a
-# form — far below this. It lives in this layer because uploads.py sizes the declared head by it (HEAD_MAX), and transfer
-# may not import server.
+# bytes a request of the upload routes that carry many names or a file's head may take (server/routes.py BIG_BODY, which
+# those routes declare; server/access.py enforces it). It lives in this layer because uploads.py sizes the declared head
+# by it (HEAD_MAX), and transfer may not import server.
 BODY_MAX = 32 << 20
-
-
-NAME_MAX = 255  # bytes one part of a name may take: what every file system this runs on allows (Linux NAME_MAX, NTFS 255)
-PATH_MAX = 1024  # bytes the whole name may take, sub-folders included
 
 
 def relative_name(name: str) -> PurePosixPath:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lab2shot.sdk import Official, RigMotion, MotionGenParams, JointMap, P, humanoid_joints, mapping_param, Cost, Licence
+from lab2shot.sdk import Official, RigMotion, MotionGenParams, PartMap, P, humanoid_joints, mapping_param, Cost, Licence
 
 # LaFAN1 的 22 个关节，均可由骨骼绑定的关节驱动（模型骨架取自其 BVH 文件）
 JOINTS = humanoid_joints((("Hips", "hips", "Spine"), ("Spine", "spine", "Spine1"), ("Spine1", "spine", "Spine2"),
@@ -12,6 +12,7 @@ JOINTS = humanoid_joints((("Hips", "hips", "Spine"), ("Spine", "spine", "Spine1"
 
 class TSTInbetween(RigMotion):
     id = "two_stage_transformer.inbetween"
+    version = 2  # 2：帧号按节点的「帧率」换算成时间（默认 24 与 1 版的固定时基相同）
     does = "generate"  # 生成动作（骨骼动作家族的两类任务之一，lab2shot/nodes/families/rig_motion.py）
     # 引用官方 Detail Transformer 的推理函数：输入关键帧的 positions / rotations / foot_contact，
     # 输出补间后的 pos_new / rot_new / c_out（eval_detail_model.py 使用同一路径）。
@@ -32,7 +33,7 @@ class TSTInbetween(RigMotion):
     joints = JOINTS
 
     class Params(MotionGenParams):
-        mapping: list[JointMap] = mapping_param(JOINTS)
+        mapping: list[PartMap] | None = mapping_param()
         post_process: bool = P(True, label="衔接平滑", group="模型")
 
 

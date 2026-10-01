@@ -3,7 +3,6 @@ import type { Output } from "../api/files";
 import type { NodeStatus } from "../state/graph";
 import type { UploadTask } from "../transfer/uploads";
 import { NodeCopyToNuke } from "../ui/CopyToNuke";
-import { OutputDownload } from "../ui/OutputDownload";
 import { NodeMarks } from "../ui/nodeMarks";
 import { NodeInfoButton, worstLevel } from "./NodeInfoCard";
 import { isLive, STATUS_TEXT } from "../graph/nodes";
@@ -27,11 +26,12 @@ interface NodeFootAsk {
   note: string;
   going: UploadTask | null | undefined;
   file: ParamDef | null | undefined;
-  /** 「输出」: what it last packed (null: nothing yet, its download is greyed); undefined for every other node */
+  /** 「输出」：上一次打包的结果（null：还没有，其「下载」置灰）；其他节点一律为 undefined */
   output?: Output | null;
   outputs: unknown[];
   rawMessages: ServerMessage[];
-  /** 口是从一张表长出来的、而表还空着（「多层 EXR 输出设置」）：底行那句「拖一根线进来加一层」 */
+  /** 口是从一张表长出来的、而表还空着（「多层 EXR 输出设置」）：底行那句「点 ＋ 或把线拖到 ＋ 加一层」
+   * （一行叫什么是节点声明的 `ports_from_word`：层、路） */
   needsFirstRow: boolean;
   fileText: (def: NodeTypeDef, p: ParamDef, params: Record<string, unknown>) => string;
   select: (id: string) => void;
@@ -43,16 +43,16 @@ export function NodeFoot({ id, def, data, commercial, warned, warnings, compute,
                            select, reveal }: NodeFootAsk) {
   return (
       <div className="gnode-foot">
-        {/* the licence in the footer, not the title row: a non-commercial node's official name keeps the room it needs.
-            The word is the server's (ResolvedLicence.word = nodes/tags.py strictest): 「仅限研究」 is stricter than
-            「非商用」 and must not be shown as it — the page never picks among the tags itself. */}
+        {/* 许可标签放在底行而非标题行：非商用节点的正式名称需要保留足够的空间。
+            文字由服务器给出（ResolvedLicence.word = nodes/tags.py strictest）：「仅限研究」比「非商用」更严格，
+            不得显示为后者——页面从不自行在多个标签中挑选。 */}
         {!commercial && (
           <span className="nc-badge">
             {def.at_defaults.licence.word || "非商用"}
           </span>
         )}
-        {/* the standing marks of the node's own declaration (a crop that decides its own size: I-SHAPE-CROP), coloured by
-            their level — red only for a production risk; the sentence is in 数据信息 */}
+        {/* 节点自身声明的常驻标记（自行决定尺寸的裁切：I-SHAPE-CROP），按级别着色——只有生产风险才是红色；
+            完整的句子在「数据信息」中 */}
         <NodeMarks marks={def.marks} />
         {/* 这一轮计算留下的提醒 / 警告，和上面「节点自己声明的标记」是同一种东西（都是这个节点要说的话），
             所以排在一起、同一套样式，在文档流里排，不绝对定位（绝对定位会盖住标题行右端的状态字）。
@@ -70,20 +70,17 @@ export function NodeFoot({ id, def, data, commercial, warned, warnings, compute,
           </span>
         )}
         <NodeCopyToNuke node={id} def={def} what={data.label} />
-        {/* 为什么不能算 is a whole sentence (an extension not installed, a licence this account may not use): it is the
-            node's 数据信息 card and the parameter panel, never its bottom row — that row is one line, and our own words are
-            never cut, so it holds no long text. The title row's state word says
-            that it cannot be computed; the node itself is greyed. */}
+        {/* 「为什么不能算」是一整句话（扩展未安装、该账号不能使用的许可）：它出现在节点的「数据信息」卡片与参数面板中，
+            从不出现在底行——底行只有一行，而页面自己的文字从不截断，因此底行不放长文本。标题行的状态字说明
+            它不能计算；节点本身置灰。 */}
         {isLive(status) ? (
           <span className="gnode-note">{note || STATUS_TEXT[status]}</span>
         ) : going ? (
           <span className={`gnode-file gnode-up ${going.state}`} data-user-data onPointerDown={() => reveal(id, going.param)}>
             {uploadNote(going)}
           </span>
-        ) : output !== undefined ? (
-          // 「输出」 has no parameters: its body's one control is its download (enabled once its own cook packed a zip)
-          <span className="nodrag"><OutputDownload output={output} /></span>
         ) : file ? (
+          // 「输出」的「下载」不在底行：它是按钮参数，默认显示在节点体上（core.output on_node，NodeParamRow.tsx ButtonParam）
           <span className="gnode-file" data-user-data
             onPointerDown={() => reveal(id, file.name)} onDoubleClick={(e) => (e.stopPropagation(), reveal(id, file.name, true))}>
             {fileText(def, file, data.params)}
@@ -97,16 +94,16 @@ export function NodeFoot({ id, def, data, commercial, warned, warnings, compute,
             : status === "cooked" && note
               ? note
               // 口是从一张表长出来的、而表还是空的（如「多层 EXR 输出设置」：一行「图层」一个输入口）：
-              // 这种节点刚放下来时一个输入口都没有，看不出该往哪儿接，底行给一句提示。
+              // 这种节点刚放下来时只有输入口列表末尾的「＋」口（GraphNode.tsx AddRowPort），底行说一句它怎么用。
               // 按声明判（`ports_from_side === "inputs"`），不写死某个节点。
               : needsFirstRow
-                ? "拖一根线进来加一层"
+                ? `点 ＋ 或把线拖到 ＋ 加一${def.ports_from_word}`
                 : !outputs.length && status === "idle"
                   ? def.delivers ? "右键「计算」整理打包" : "右键「计算」算出"
                   : ""}
         </span>
-        {/* 数据信息: the small icon at the node's bottom-right corner is the one way in, no shortcut.
-            It takes the colour of the loudest message the node has, so it is plain to see there is something to read. */}
+        {/* 数据信息：节点右下角的小图标是唯一入口，没有快捷键。
+            它取节点消息中最高级别的颜色，一眼可见有内容可读。 */}
         <NodeInfoButton node={id} label={data.label} level={worstLevel(rawMessages)} />
       </div>
   );

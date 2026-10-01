@@ -11,8 +11,9 @@ Needs the SMPL model file, which the user downloads after registering
 from __future__ import annotations
 
 from lab2shot.sdk import (
+    downloads,
     CUDA_13_2_TOOLKIT,
-    NONCOMMERCIAL,
+    RESEARCH,
     EnvSpec,
     Extension,
     GitSource,
@@ -51,12 +52,11 @@ FILES = {
     "zoedepth-n": ("https://github.com/isl-org/ZoeDepth/releases/download/v1.0/ZoeD_M12_N.pt",
                    "torch/hub/checkpoints/ZoeD_M12_N.pt",
                    "c97f94c4d53c5b788af46c5da0462262aebb37ea116fd70014bcbba93146c33b", "ZoeDepth-N 米制深度定尺度（MIT）"),
-    "droid": (_DRIVE.format("1PpqVt1H4maBa_GbPJp4NwxRsd9jk-elh"), "data/pretrain/droid.pth",
-              "46476ef64cde45a97504910d6f3de2eef7b398ec1c6e4e668815c29076024526", "DROID-SLAM（BSD-3-Clause）"),
+    "droid": (downloads.DROID_SLAM.source, "data/pretrain/droid.pth", downloads.DROID_SLAM.sha256, "DROID-SLAM（BSD-3-Clause）"),
     # detectron2 fetches ViTDet through iopath's cache ($FVCORE_CACHE/<url path>): it is put right there
-    "vitdet-h": ("https://dl.fbaipublicfiles.com/detectron2/ViTDet/COCO/cascade_mask_rcnn_vitdet_h/f328730692/model_final_f05665.pkl",
+    "vitdet-h": (downloads.VITDET_H.source,
                  "iopath/detectron2/ViTDet/COCO/cascade_mask_rcnn_vitdet_h/f328730692/model_final_f05665.pkl",
-                 "8601bc52000c8a87960f3db6a9672596c5e06ce33bc30a3b8f96a96efe42ae60", "ViTDet-H 人物检测（Apache-2.0）"),
+                 downloads.VITDET_H.sha256, "ViTDet-H 人物检测（Apache-2.0）"),
 }
 HUB_CODE = {  # torch.hub code of ZoeDepth and its MiDaS backbone, pinned (loaded with source="local"):
     # key: (GitHub archive of the commit, dest, sha256 of the archive)
@@ -75,11 +75,12 @@ class TRAM(Extension):
     homepage = "https://yufu-wang.github.io/tram4d/"
     source = GitSource(url=TRAM_URL, commit=TRAM_COMMIT)
     license = LicenseInfo(
-        tag=NONCOMMERCIAL,
+        tag=RESEARCH,  # its weights are research only: stricter than 非商用 (nodes/tags.py)
+        uses=("SMPL", "BEDLAM", "3DPW", "Human3.6M"),
         name="MIT（代码）+ SMPL 非商用 + SPEC / DEVA 非商用 + 权重仅限研究",
         url="https://github.com/yufu-wang/tram/blob/main/LICENSE",
         summary=(
-            "非商用。TRAM 代码 MIT，但仓库里的 thirdparty/camcalib（SPEC 相机标定）是马普所专有代码、只许有许可的非商用使用，"
+            "仅限研究。TRAM 代码 MIT，但仓库里的 thirdparty/camcalib（SPEC 相机标定）是马普所专有代码、只许有许可的非商用使用，"
             "其权重 camcalib_sa_biased_l2.ckpt 同样非商用；DEVA 视频跟踪（代码和权重）为 CC BY-NC-SA 4.0 非商用。"
             "运行必须用 SMPL 人体模型（SMPL_NEUTRAL），需要在 smpl.is.tue.mpg.de 注册后自己下载，仅限非商用科研，禁止再分发。"
             "VIMO 权重作者没有单独写许可，训练数据含 BEDLAM、3DPW、Human3.6M 等仅限研究的数据集，只按研究用途使用。"
@@ -95,8 +96,8 @@ class TRAM(Extension):
         torch_backend="cu130",
         cuda_toolkit=CUDA_13_2_TOOLKIT,  # DROID-SLAM's CUDA kernels need headers that compile against glibc >= 2.43
         compiled=(
-            "detectron2 @ git+https://github.com/facebookresearch/detectron2.git@a59f05630a8f205756064244bf5beb8661f96180",
-            "chumpy @ git+https://github.com/mattloper/chumpy.git@580566eafc9ac68b2614b64d6f7aaa84eebb70da",
+            downloads.pip_git("detectron2", downloads.DETECTRON2_TRAM),
+            downloads.pip_git("chumpy", downloads.CHUMPY),
         ),
         # ViTDet runs ROIAlign / NMS through torchvision on the GPU; detectron2's own
         # CUDA kernels are unused (DROID-SLAM is compiled with CUDA by build_droid.py).

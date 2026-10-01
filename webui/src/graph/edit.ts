@@ -4,18 +4,22 @@
 
 import { api, type NodeTypeDef, type PickedFrom } from "../api";
 import { getCatalog, getLayerPorts, getNodeDefs, getTypes } from "../state/catalog";
-import { useCookInputs, type CookNode, type Wire } from "../state/cookInputs";
+import { exposedParams, useCookInputs, withoutTarget, type CookNode, type Wire } from "../state/cookInputs";
 import { useLook, type Box, type Pos } from "../state/look";
 import { useResults } from "../state/results";
 import { useViewer, type LooseWire } from "../state/viewer";
-import { BOX_COLORS, BOX_HEAD, boxContents, chosenOnNode, nodeSize, wouldCycle } from "./nodes";
-import { PARAM, converter, inputPort, loosePort, looseType, outputPort, outputType, portAccepts, tableRows, wireKey } from "./rules";
+import { BOX_COLORS, BOX_HEAD, boxContents, chosenOnNode, nodeSize } from "./nodes";
+import { wireProblem } from "./wireRule";
+import { ADD_ROW, PARAM, inputPort, loosePort, looseType, outputType, portAccepts, rowsLeft, tableRows, wireKey } from "./rules";
 import { snapshotNow } from "./snapshot";
 import { pastedWires, takeCopy, uniqueCopyValue, type Copied } from "./clipboard";
-import { absorbNextChange } from "./history";
+import { absorb, anchor, derived, fillUndone, transaction } from "./history";
+import { same, type Json } from "../model/graphPatch";
+import { rewire, type End as RewireEnd, type Held } from "./rewire";
+import { eachBlocks, layoutGraph } from "./layout";
 import type { GNode } from "../state/graph";
 import { msg, reasonOf, say } from "../state/say";
-import { justWired } from "./actions";
+import { justWired } from "./judged";
 
 let nodeSerial = 0;
 // ------------------------------------------------------------------ editing
@@ -55,8 +59,9 @@ export function addNode(typeId: string, x: number, y: number, wire?: LooseWire):
   const promoted = wire?.side === "source" && port?.startsWith(PARAM) ? [port.slice(PARAM.length)] : undefined;
   useCookInputs.getState().insertNode(id, { typeId, label: def.label, params: { ...def.defaults, ...uniqueValues(ci.order, ci.nodes, def), ...(wire ? givenValue(ci.nodes, wire, def) : {}) }, promoted });
   useLook.getState().setPosition(id, x, y);
-  // 节点上显示的参数行与参数值同源：类型声明的是出厂默认（NodeDef.on_node），在新建时写入该节点
-  // 自身的名单（保存在节点图 json 的 `ui.on_node` 中），此后仅以 json 为准（上一行的参数 `...def.defaults` 采用相同做法）
+  // the rows shown on a node come from the same place as the parameter values: the type declares the factory default
+  // (NodeDef.on_node), written into the node's own list when it is created (kept in the graph json's `ui.on_node`), and
+  // from then on only the json counts (the same as the parameters' `...def.defaults` on the line above)
   if (def.on_node.length) useLook.getState().setOnNode(id, [...def.on_node]);
   useViewer.getState().setSelectedNodes([id]);
   useViewer.setState({ selectedId: id, menu: null });
@@ -99,40 +104,89 @@ export function insertNode(target: string, port: string, typeId: string): void {
   deleteElements([], [], [wire.id]);
 }
 
-/** A default row label for a ports_from-input table (「多层 EXR 输出设置」's 图层), derived from which port is wired in
- * (data/layers.py LAYER_FOR_PORT, sent in the catalogue as layer_ports: image → rgba, alpha / mask → mask, normal → N,
- * position → P, flow → motion; anything else keeps its own name, such as depth, stmap, confidence), numbered on when it is already one
- * of `taken` (mirrors data/layers.py layer_names). */
-function defaultRowLabel(fromPort: string, dataType: string, taken: string[]): string {
-  const base = getLayerPorts()[fromPort] || fromPort || getTypes()[dataType.split("|")[0]]?.layer_default || "layer";
+/** `base`, or `base2`, `base3`… when it is already one of `taken` (mirrors data/layers.py layer_names). */
+function numbered(base: string, taken: string[]): string {
   if (!taken.includes(base)) return base;
   let n = 2;
   while (taken.includes(`${base}${n}`)) n += 1;
   return `${base}${n}`;
 }
 
-/** A fresh, stable row id (the port name) for a ports_from-input table: not already one of `taken`. */
-function freshRowName(taken: string[]): string {
+/** A default row label for a ports_from-input table. A node that names its rows itself (`ports_from_labels`: 「切换」's
+ * 第一路, 第二路…) gives the label of the row's place, whatever is wired in. Otherwise (「多层 EXR 输出设置」's 图层) it is
+ * derived from which port is wired in (data/layers.py LAYER_FOR_PORT, sent in the catalogue as layer_ports: image → rgba,
+ * alpha / mask → mask, normal → N, position → P, flow → motion; anything else keeps its own name, such as depth, stmap,
+ * confidence), numbered on when it is already one of `taken`. Nothing wired in (「＋」 clicked): layer, layer2… */
+function defaultRowLabel(def: NodeTypeDef, fromPort: string, dataType: string, taken: string[]): string {
+  const own = def.ports_from_labels?.[taken.length];
+  if (own) return numbered(own, taken);
+  return numbered(getLayerPorts()[fromPort] || fromPort || getTypes()[dataType.split("|")[0]]?.layer_default || "layer", taken);
+}
+
+/** A fresh, stable row id (the port name) for a ports_from-input table, not already one of `taken`: the first of the
+ * names the node gives its rows (`ports_from_names`, 「切换」's a…j; "" none left), else row1, row2… */
+function freshRowName(def: NodeTypeDef, taken: string[]): string {
+  if (def.ports_from_names) return def.ports_from_names.find((n) => !taken.includes(n)) ?? "";
   let n = 1;
   while (taken.includes(`row${n}`)) n += 1;
   return `row${n}`;
 }
 
-/** A wire dropped on a ports_from-input node's body (not on an existing port): a row added to its table (「多层 EXR
- * 输出设置」's 图层), named after what is wired in, then connected to the new row's port; one step. Not such a node, or
- * the source type is not known yet: does nothing (returns false). */
+/** The node's input table as it is (every field of every row kept: 通道 too), when its type makes inputs from one. */
+function inputTable(nodeId: string): { def: NodeTypeDef; rows: Record<string, unknown>[] } | null {
+  const node = useCookInputs.getState().nodes[nodeId];
+  const def = node && getNodeDefs()[node.typeId];
+  if (!def || def.ports_from_side !== "inputs" || !def.ports_from) return null;
+  return { def, rows: tableRows(def, node.params) as unknown as Record<string, unknown>[] };
+}
+
+/** One row added at the end of a ports_from-input table: its port name fresh, its label the node's own for that place
+ * (「切换」: 第三路…) or from what is wired in (`fromPort`, `dataType`), layer, layer2… with nothing wired. Returns the new
+ * row's port name ("": not such a node, or its table is full: rules.ts rowsLeft). */
+function appendRow(nodeId: string, fromPort = "", dataType = ""): string {
+  const table = inputTable(nodeId);
+  if (!table) return "";
+  const { def, rows } = table;
+  const name = freshRowName(def, rows.map((r) => String(r.name)));
+  if (!name) return "";
+  const label = defaultRowLabel(def, fromPort, dataType, rows.map((r) => String(r.label ?? "")));
+  setParam(nodeId, def.ports_from, [...rows, { name, label }]);
+  return name;
+}
+
+/** A click on 「＋」 (on the node) or on the table's 「添加」 (parameter panel): an empty row at the end of the table, and so
+ * one more input, layer name layer, layer2… (「切换」: 第三路, 第四路…, ports c, d…). A row not wired is skipped when
+ * cooking and said once (the rows of nodes/base.py made_ports are all optional ports); a full table (「切换」's ten ways)
+ * gets nothing (then neither 「＋」 nor 「添加」 is shown). */
+export function addEmptyRow(nodeId: string): void {
+  appendRow(nodeId);
+}
+
+/** Renames a row on the node (its layer name): only that row's `label` changes, its port name `name` does not, so no
+ * wire breaks. An empty name changes nothing. */
+export function renameRow(nodeId: string, rowName: string, label: string): void {
+  const table = inputTable(nodeId);
+  const text = label.trim();
+  if (!table || !text) return;
+  const { def, rows } = table;
+  if (!rows.some((r) => r.name === rowName && r.label !== text)) return;
+  setParam(nodeId, def.ports_from, rows.map((r) => (r.name === rowName ? { ...r, label: text } : r)));
+}
+
+/** A wire dropped on a ports_from-input node's body (not on one of its ports): the same as dropping it on the node's
+ * 「＋」 (graph/rules.ts ADD_ROW): connect() adds a row named after what is wired in and connects there, or says why
+ * the wire does not fit (then no row is added). Not such a node, or the source type is not known yet: does nothing
+ * (returns false). */
 export function addPortRow(targetId: string, fromNode: string, fromPort: string): boolean {
-  const ci = useCookInputs.getState();
-  const target = ci.nodes[targetId];
-  const def = target && getNodeDefs()[target.typeId];
-  if (!target || !def || def.ports_from_side !== "inputs") return false;
-  const t = outputType(snapshotNow(), fromNode, fromPort);
-  if (!t) return false;
-  const rows = tableRows(def, target.params);
-  const name = freshRowName(rows.map((r) => r.name));
-  const label = defaultRowLabel(fromPort, t, rows.map((r) => r.label));
-  setParam(targetId, def.ports_from, [...rows, { name, label }]);
-  connect({ source: fromNode, sourceHandle: fromPort, target: targetId, targetHandle: name });
+  const table = inputTable(targetId);
+  if (!table || !outputType(snapshotNow(), fromNode, fromPort)) return false;
+  const node = useCookInputs.getState().nodes[targetId];
+  if (!rowsLeft(table.def, node.params)) {  // full (「切换」's ten ways): no row to add, said rather than dropped quietly
+    const count = table.def.ports_from_names?.length ?? table.rows.length;
+    say(msg("B-WIRE-ROWSFULL", { node: node.label, count, word: table.def.ports_from_word }), targetId);
+    return true;
+  }
+  connect({ source: fromNode, sourceHandle: fromPort, target: targetId, targetHandle: ADD_ROW });
   return true;
 }
 
@@ -191,33 +245,24 @@ export function connect(c: { source: string | null; sourceHandle?: string | null
   const srcType = outputType(snap, c.source, c.sourceHandle ?? null);
   const port = dst && inputPort(snap, dst.id, c.targetHandle ?? null);
   if (!srcType || !port) return;
-  const converterOk = port.name.startsWith(PARAM) ? false : !!converter(snap.catalog, srcType, port.type);
   const at = { source: snap.nodes.find((n) => n.id === c.source)?.data.label ?? c.source, node: dst.data.label, input: port.label };
-  // 该端口当前不可用（由服务器计算，nodes/port.py Port.applies）：任何途径都无法连接。
-  // 在此处统一拦截，而非在拖线处拦截：拖线、从端口拖出后在菜单中选择节点、检查中的一键插入均经由此 connect()。
-  // 源输出口同样可能不可用（解算器接入相机后，其「相机」输出仅原样透传），在同一处拦截。
-  const out = outputPort(snap, c.source, c.sourceHandle ?? null);
-  if (out?.inactive) {
-    say(msg("B-WIRE-OUTINACTIVE", { source: at.source, output: out.label, why: out.inactive.text }, { port: out.name }), c.source);
-    return;
-  }
-  if (port.inactive) {
-    say(msg("B-WIRE-INACTIVE", { node: at.node, input: port.label, why: port.inactive.text }, { port: port.name }), dst.id);
-    return;
-  }
-  if (!portAccepts(snap.catalog, port.type, srcType) && !converterOk) {
-    say(msg("B-WIRE-MISMATCH", { ...at, got: srcType, want: port.type }, { port: port.name }), dst.id);
-    return;
-  }
+  // whether it may be wired is asked of graph/wireRule.ts only (the same place as the green ports while dragging and
+  // moving a bundle): dragging a wire, picking a node from the menu after dragging out of a port, and one-click insert
+  // all come through here
   const ci = useCookInputs.getState();
-  if (wouldCycle(ci.edges, c.source, c.target)) {
-    say(msg("B-WIRE-CYCLE", { source: at.source, node: at.node }), dst.id);
+  const problem = wireProblem(snap, { node: c.source, port: c.sourceHandle ?? "" }, { node: c.target, port: c.targetHandle ?? "" }, ci.edges);
+  if (problem) {
+    say(problem, problem.code === "B-WIRE-OUTINACTIVE" ? c.source : dst.id);
     return;
   }
-  const targetHandle = c.targetHandle ?? "";
   const sourceHandle = c.sourceHandle ?? "";
-  const old = port.multi ? undefined : ci.edges.find((e) => e.target === c.target && e.targetHandle === targetHandle);
-  const kept = port.multi ? ci.edges : ci.edges.filter((e) => e !== old);
+  // dropped on 「＋」 (graph/rules.ts ADD_ROW): only once the checks above passed is a row added at the end of the table
+  // (named after the source port), and the wire goes to the new row's port
+  const targetHandle = port.name === ADD_ROW ? appendRow(c.target, sourceHandle, srcType) : c.targetHandle ?? "";
+  if (!targetHandle && port.name === ADD_ROW) return;
+  const edges = useCookInputs.getState().edges; // read after the row was added
+  const old = port.multi ? undefined : edges.find((e) => e.target === c.target && e.targetHandle === targetHandle);
+  const kept = port.multi ? edges : edges.filter((e) => e !== old);
   const id = wireKey(c.source, sourceHandle, c.target, targetHandle);
   useCookInputs.getState().setEdges([...kept, { id, source: c.source, sourceHandle, target: c.target, targetHandle }]);
   if (old) {
@@ -226,22 +271,44 @@ export function connect(c: { source: string | null; sourceHandle?: string | null
   justWired.add(id); // what is wrong with it, if anything, is said once the server has judged it (sayJudgedWires)
 }
 
+/** A Ctrl-carried bundle let go (editor/graphPointer.ts): the carried wires all move to `to` (the rule: graph/rewire.ts).
+ * When they cannot, says why and returns false (the wires are still carried); not a landing place (the port they came
+ * from, the other side): null; moved: true. One write of the wires = one undo step 「整组改接」. */
+export function moveWires(held: Held, to: RewireEnd, side: "output" | "input"): boolean | null {
+  const snap = snapshotNow();
+  const got = rewire(snap, useCookInputs.getState().edges, held, to, side);
+  if (!got) return null;
+  if ("refused" in got) {
+    say(got.refused, to.node);
+    return false;
+  }
+  transaction("整组改接", "rewire", () => useCookInputs.getState().setEdges(got.edges));
+  for (const w of got.edges) if (!held.wires.some((h) => h.id === w.id)) justWired.add(w.id); // what is wrong with it, if anything, is said once the server has judged it (as in connect)
+  if (got.replaced) {
+    const port = inputPort(snap, to.node, to.port);
+    say(msg("I-WIRE-REPLACED", { source: snap.nodes.find((n) => n.id === held.wires[0].source)?.data.label ?? held.wires[0].source,
+      node: snap.nodes.find((n) => n.id === to.node)?.data.label ?? to.node, input: port?.label ?? to.port,
+      was: snap.nodes.find((n) => n.id === got.replaced!.source)?.data.label ?? got.replaced.source }), to.node);
+  }
+  return true;
+}
+
 export function setParam(id: string, name: string, value: unknown): void {
   editParams(id, { [name]: value });
 }
 
-/** 写入推导出的参数值（editor/ColorspaceFill.tsx：按文件格式填写空缺的「色彩空间」），
- * 但不计为使用者的一步操作：不进入撤销历史，不将节点图标记为已修改（graph/history.ts absorbNextChange）。若经由 setParam，
- * 撤销后参数变空并被再次填写，导致撤销无效；打开旧图时也会立即被标记为已修改。值未变化时不写入。 */
+/** Writes a derived parameter value (editor/ColorspaceFill.tsx: fills an empty 「色彩空间」 from the file format), not a
+ * user step (graph/history.ts derived: no step, not marked unsaved; as a step, undo would empty it and it would be
+ * filled again, so undo would never work). An unchanged value is not written. */
 export function setDerivedParam(id: string, name: string, value: unknown): void {
   const node = useCookInputs.getState().nodes[id];
   if (!node || node.params[name] === value) return;
-  absorbNextChange();
-  useCookInputs.getState().setNode(id, { params: { ...node.params, [name]: value } });
+  derived(() => useCookInputs.getState().setNode(id, { params: { ...node.params, [name]: value } }));
 }
 
-/** 一次修改一组参数，计为一步撤销（粘贴的镜头包含十余个数值，撤销一次即全部恢复）。
- * 与 setParam 经由同一路径，因此 derived_from 参数（随「镜头模型」变化的畸变参数表）同样会重新计算。 */
+/** Changes a set of parameters at once, as one undo step (a pasted lens holds a dozen values; one undo restores them
+ * all). The same path as setParam, so derived_from parameters (the distortion table that follows 「镜头模型」) are
+ * recomputed as well. */
 export function setParams(id: string, changes: Record<string, unknown>): void {
   editParams(id, changes);
 }
@@ -258,17 +325,34 @@ function editParams(id: string, changes: Record<string, unknown>, extra: (node: 
   const unstored = node.stored && Object.keys(changes).some((k) => k in node.stored!) ? { stored: Object.fromEntries(Object.entries(node.stored).filter(([k]) => !(k in changes))) } : {};
   const derived = def.params.filter((p) => p.derived_from.some((d) => d in changes));
   const asked = { ...node.params, ...changes };
-  // 使用者的修改立即生效（一步撤销）。派生参数等待服务器答复后再写入当时的节点，不计入撤销
-  // （absorbNextChange：它不是使用者的操作）。不得在答复返回后用发送请求时的快照整体写回，否则会覆盖使用者在此期间修改的其他参数
+  // the user's change applies at once (one undo step). The derived parameters are written into the node as it is when
+  // the server answers, joined into the user's step and the ones after it (graph/history.ts absorb: undo / redo carry them). Writing back the
+  // whole snapshot taken when the request was sent would overwrite other parameters the user changed meanwhile
   useCookInputs.getState().setNode(id, { ...extra(node), ...unstored, params: asked });
+  // a row removed from a node whose inputs come from a table (「去掉」 in the parameter panel's table): the wires into
+  // that row's port go too, in the same undo step. Otherwise a wire would point at a port the node no longer has, and
+  // the server could not read the graph at all (engine/graph.py _connect E-GRAPH-NOSUCHPORT)
+  if (def.ports_from_side === "inputs" && def.ports_from && def.ports_from in changes) {
+    const rows = new Set(tableRows(def, asked).map((r) => r.name));
+    const before = tableRows(def, node.params).map((r) => r.name).filter((n) => !rows.has(n));
+    if (before.length) {
+      const edges = useCookInputs.getState().edges;
+      useCookInputs.getState().setEdges(edges.filter((e) => !(e.target === id && before.includes(e.targetHandle))));
+    }
+  }
   if (!derived.length) return;
+  const into = anchor(); // the step this change is recorded in: the answer joins it, whatever the user did meanwhile
   const sources = new Set(derived.flatMap((p) => p.derived_from));
   const land = (more: Record<string, unknown>) => {
     const now = useCookInputs.getState().nodes[id];
     if (!now) return; // the node is gone
-    if ([...sources].some((k) => now.params[k] !== asked[k])) return; // asked about values that have changed since: a later edit's answer applies
-    absorbNextChange();
-    useCookInputs.getState().setNode(id, { params: { ...now.params, ...more } });
+    // asked about values that are not the node's now: its step was undone (the answer still belongs to it: fillUndone,
+    // redo brings it back), or a later edit changed them (that edit's answer applies; fillUndone does nothing)
+    if ([...sources].some((k) => now.params[k] !== asked[k])) return fillUndone(into, id, more, node.params);
+    // only what the user has not set since asking: a derived value typed by hand meanwhile stays (graph/history.ts absorb
+    // stops at that step the same way)
+    const fill = Object.fromEntries(Object.entries(more).filter(([k]) => same(now.params[k] as Json, node.params[k] as Json)));
+    if (Object.keys(fill).length) absorb(into, () => useCookInputs.getState().setNode(id, { params: { ...now.params, ...fill } }));
   };
   void api.derive(def.id, asked).then(
     (got) => land(got),
@@ -280,9 +364,8 @@ function editParams(id: string, changes: Record<string, unknown>, extra: (node: 
   );
 }
 
-/** 提升到节点 / 取消提升（参数面板中的按钮）：
- * 提升后该参数在节点上增加输入口 `param:<name>`，同一行上也可直接编辑（graph/nodes.ts nodeRows）。
- * 取消提升时，接在该端口上的连线一并断开。 */
+/** 提升到节点 / 取消提升 (the parameter panel's button): a promoted parameter gets an input `param:<name>` on the node
+ * and can be edited right on that row (graph/nodes.ts nodeRows). Unpromoting also disconnects the wire into that port. */
 export function togglePromoted(id: string, name: string): void {
   const ci = useCookInputs.getState();
   const node = ci.nodes[id];
@@ -293,26 +376,27 @@ export function togglePromoted(id: string, name: string): void {
   if (on) useCookInputs.getState().setEdges(ci.edges.filter((e) => !(e.target === id && e.targetHandle === PARAM + name)));
 }
 
-/** 在节点上显示 / 不在节点上显示（参数面板中的标记）：
- * 仅控制该行是否显示在节点上，不提供参数输入口；输入口由相邻的「提升到节点」控制（togglePromoted）。
+/** 在节点上显示 on / off (the parameter panel's mark): only whether the row shows on the node, with no input of its
+ * own; the input is the neighbouring 「提升到节点」's (togglePromoted).
  *
- * 使用者可以移除作者默认显示的行：名单初始为类型声明各行的副本（chosenOnNode），
- * 点击即从副本中移除。因此每一行上的标记均可操作；否则作者默认的行（通常正是占用空间的行）
- * 点击后没有反应。 */
+ * The user may remove rows the author shows by default: the list starts as a copy of the type's declared rows
+ * (chosenOnNode), and a click removes from that copy. So the mark on every row works; otherwise the author's default
+ * rows (often exactly the ones taking up space) would not react to a click. */
 export function toggleOnNode(id: string, name: string): void {
   const def = getNodeDefs()[useCookInputs.getState().nodes[id]?.typeId ?? ""];
   if (!def) return;
   const was = chosenOnNode(def, useLook.getState().onNode[id]);
-  // 点击后该节点的名单一律显式保存（即使恢复为与出厂默认完全一致）：以 json 为准，类型上的名单仅作为新建时的
-  // 初值与 json 未写入时的兜底。保存为 undefined 会使该节点此后随出厂默认变化，形成两处数据来源
+  // after a click the node's list is always saved explicitly (even when it equals the factory default again): the json
+  // counts, the type's list is only the initial value on creation and the fallback when the json has none. Saving
+  // undefined would make the node follow the factory default from then on: two sources for one piece of data
   useLook.getState().setOnNode(id, def.params.filter((p) => p.simple && (p.name === name ? !was.includes(name) : was.includes(p.name))).map((p) => p.name));
 }
 
 // Picking a file is a parameter change like any other (editParams): an import node's singleton-kind selection (the
 // one camera, the one skeleton animation) is derived by the server from the file. A bare setNode here would silently
 // drop that derivation, leaving every port that depends on it blank until something else touches the node's params.
-// 「读取序列」没有图层表：端口直接由文件中的图层生成（nodes/core/input.py made_ports），
-// 因此选定文件后，只要参数变化并返回一次状态，端口即可生成。
+// 「读取序列」 has no layer table: its ports are made straight from the file's layers (nodes/core/input.py made_ports),
+// so once a file is picked, one parameter change and one status reply bring the ports.
 export function pickFile(id: string, name: string, picked: PickedFrom | null): void {
   editParams(id, { [name]: picked?.ref ?? "" }, (node) => {
     const { [name]: _drop, ...others } = node.picked ?? {};
@@ -338,14 +422,19 @@ export function setLabel(id: string, label: string): void {
   useCookInputs.getState().setNode(id, { label });
 }
 
+/** Exposes / unexposes a parameter (the pin beside it). The parameter interface is a tree (api/catalog.ts
+ * ExposedEntry): unexposing removes it from its group, which stays; a newly exposed one goes to the end of the root,
+ * and from there is dragged in the parameter panel (the exposed-parameter tree shown with no node selected) or into a
+ * group in the 「编辑参数界面」 dialog (the small button at the far right of the parameter panel's title row). */
 export function toggleExposed(nodeId: string, param: string, label: string): void {
   const ci = useCookInputs.getState();
   const target = `${nodeId}.${param}`;
-  if (ci.exposed.some((x) => x.target === target)) {
-    useCookInputs.getState().setExposed(ci.exposed.filter((x) => x.target !== target));
+  const all = exposedParams(ci.exposed);
+  if (all.some((x) => x.target === target)) {
+    useCookInputs.getState().setExposed(withoutTarget(ci.exposed, target));
     return;
   }
-  const name = ci.exposed.some((x) => x.name === param) ? `${nodeId}_${param}` : param;
+  const name = all.some((x) => x.name === param) ? `${nodeId}_${param}` : param;
   useCookInputs.getState().setExposed([...ci.exposed, { name, label, target }]);
 }
 
@@ -501,4 +590,34 @@ export function toggleBox(id: string): void {
   if (!box) return;
   const members = box.collapsed ? [] : boxContents(box, snapshotNow().nodes);
   useLook.getState().setBox(id, { collapsed: !box.collapsed, members });
+}
+
+/** 「整理节点图」 (bottom right of the canvas, editor/NodeEditor.tsx): layered layout (graph/layout.ts, the same code as
+ * tools/layout_graph.mjs), writing back node positions and group boxes as one undo step 「整理节点图」. With nodes
+ * selected, only those are arranged (with the wires between them) and put back at the top left of their former bounding
+ * box; otherwise the whole graph, its top left at (0, 0). Node sizes are the canvas's measured ones (graph/nodes.ts
+ * nodeSize, as the canvas). */
+export function arrangeGraph(): void {
+  const snap = snapshotNow();
+  const canvas = useViewer.getState().canvas;
+  const picked = snap.nodes.filter((n) => canvas[n.id]?.selected).map((n) => n.id);
+  const only = picked.length > 1 ? new Set(picked) : null;
+  const nodes = snap.nodes.filter((n) => !only || only.has(n.id)).map((n) => {
+    const { w, h } = nodeSize({ measured: canvas[n.id]?.measured });
+    return { id: n.id, x: n.position.x, y: n.position.y, w, h, delivers: !!snap.nodeDefs[n.data.typeId]?.delivers };
+  });
+  if (!nodes.length) return;
+  const ids = new Set(nodes.map((n) => n.id));
+  const edges = snap.edges.filter((e) => ids.has(e.source) && ids.has(e.target))
+    .map((e) => ({ from: e.source, to: e.target, param: (e.targetHandle ?? "").startsWith(PARAM) }));
+  const ci = useCookInputs.getState();
+  const blocks = eachBlocks(ci.order.filter((id) => ids.has(id)).map((id) => ({ id, type: ci.nodes[id].typeId, block: ci.nodes[id].params.block })));
+  const look = useLook.getState();
+  // boxes: their members are taken before arranging (an open box by node centres inside it, a collapsed one by its own
+  // list); when only the selection is arranged, only boxes whose members are all selected move
+  const boxes = look.boxes.map((b) => ({ id: b.id, x: b.x, y: b.y, w: b.w, h: b.h, members: boxContents(b, snap.nodes) }))
+    .filter((b) => b.members.length && b.members.every((m) => ids.has(m)));
+  const anchor = only ? { x: Math.min(...nodes.map((n) => n.x)), y: Math.min(...nodes.map((n) => n.y)) } : { x: 0, y: 0 };
+  const out = layoutGraph({ nodes, edges, blocks, boxes, anchor });
+  transaction("整理节点图", "arrange", () => useLook.getState().place(out.positions, out.boxes));
 }

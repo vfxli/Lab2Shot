@@ -7,18 +7,17 @@
 from __future__ import annotations
 
 from fastapi import Request
-from pydantic import BaseModel
 
 from .. import categories, library
 from ..messages import Msg
 from . import auth
 from .access import audit
-from .routes import Access, Router
+from .routes import Access, Body, Router
 
 admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])
 
 
-class CategoryIn(BaseModel):
+class CategoryIn(Body):
     id: str
     parent: str = ""  # 空：一级分类
     label: str
@@ -28,7 +27,7 @@ class CategoryIn(BaseModel):
     section: str = ""  # 节点菜单的树：一级分类在哪个区（tools / deliver）；模板的树不用
 
 
-class Order(BaseModel):
+class Order(Body):
     ids: list[str]  # the categories under `parent` in their new order
     parent: str = ""  # 空：一级分类
 
@@ -48,7 +47,7 @@ def listing(request: Request) -> dict:
 @admin.put("/categories", access=Access.admin("templates.create"), summary="模板面板：新建一个分类或二级分类，或改一个已有的：名字、说明、颜色、排在第几")
 def upsert(req: CategoryIn, request: Request) -> dict:
     if categories.templates.put(req.id, parent=req.parent, label=req.label, tip=req.tip, color=req.color, rank=req.rank):
-        audit(Msg("I-AUDIT-CATEGORYSET", who=auth.label(request), name=req.label),
+        audit(Msg("I-AUDIT-CATEGORYSET", who=auth.actor(request).label, name=req.label),
               session=auth.session(request), method="PUT", path=str(request.url.path))
     return {"categories": categories.templates.tree()}
 
@@ -56,7 +55,7 @@ def upsert(req: CategoryIn, request: Request) -> dict:
 @admin.put("/categories/order", access=Access.admin("templates.create"), summary="模板面板：一级分类（或一个分类下的二级分类）的新次序，一次写完")
 def order(req: Order, request: Request) -> dict:
     if categories.templates.reorder(req.ids, req.parent):
-        audit(Msg("I-AUDIT-CATEGORYORDER", who=auth.label(request), tree="模板", group=_label(categories.templates, req.parent) if req.parent else "一级", count=len(req.ids)),
+        audit(Msg("I-AUDIT-CATEGORYORDER", who=auth.actor(request).label, tree="模板", group=_label(categories.templates, req.parent) if req.parent else "一级", count=len(req.ids)),
               session=auth.session(request), method="PUT", path=str(request.url.path))
     return {"categories": categories.templates.tree()}
 
@@ -66,10 +65,10 @@ def drop(cid: str, request: Request) -> dict:
     name = _label(categories.templates, cid)
     gone = categories.templates.remove(cid)
     stuck = library.unplace(gone)
-    audit(Msg("I-AUDIT-CATEGORYGONE", who=auth.label(request), name=name),
+    audit(Msg("I-AUDIT-CATEGORYGONE", who=auth.actor(request).label, name=name),
           session=auth.session(request), method="DELETE", path=str(request.url.path))
     if stuck:
-        audit(Msg("I-AUDIT-TEMPLATESTUCK", who=auth.label(request), name=name, count=len(stuck), names="、".join(stuck)),
+        audit(Msg("I-AUDIT-TEMPLATESTUCK", who=auth.actor(request).label, name=name, count=len(stuck), names="、".join(stuck)),
               session=auth.session(request), method="DELETE", path=str(request.url.path))
     # the category is gone either way; files that could not be rewritten still name it (they show as 未分类): said
     # beside the tree, since the removal itself succeeded
@@ -84,7 +83,7 @@ def drop(cid: str, request: Request) -> dict:
 def menu_upsert(req: CategoryIn, request: Request) -> dict:
     if categories.menu.put(req.id, parent=req.parent, label=req.label, tip=req.tip, color=req.color, rank=req.rank,
                            section=req.section):
-        audit(Msg("I-AUDIT-MENUCATEGORYSET", who=auth.label(request), name=req.label),
+        audit(Msg("I-AUDIT-MENUCATEGORYSET", who=auth.actor(request).label, name=req.label),
               session=auth.session(request), method="PUT", path=str(request.url.path))
     return categories.describe_menu()
 
@@ -92,7 +91,7 @@ def menu_upsert(req: CategoryIn, request: Request) -> dict:
 @admin.put("/menu/categories/order", access=Access.admin("menu.edit"), summary="节点菜单：一个区的一级分类（或一个分类下的二级分类）的新次序，一次写完")
 def menu_order(req: Order, request: Request) -> dict:
     if categories.menu.reorder(req.ids, req.parent):
-        audit(Msg("I-AUDIT-CATEGORYORDER", who=auth.label(request), tree="节点菜单", group=_label(categories.menu, req.parent) if req.parent else "一级", count=len(req.ids)),
+        audit(Msg("I-AUDIT-CATEGORYORDER", who=auth.actor(request).label, tree="节点菜单", group=_label(categories.menu, req.parent) if req.parent else "一级", count=len(req.ids)),
               session=auth.session(request), method="PUT", path=str(request.url.path))
     return categories.describe_menu()
 
@@ -103,12 +102,12 @@ def menu_drop(cid: str, request: Request) -> dict:
     name = _label(categories.menu, cid)
     gone = categories.menu.remove(cid)
     categories.nodes.unplace(gone)
-    audit(Msg("I-AUDIT-MENUCATEGORYGONE", who=auth.label(request), name=name),
+    audit(Msg("I-AUDIT-MENUCATEGORYGONE", who=auth.actor(request).label, name=name),
           session=auth.session(request), method="DELETE", path=str(request.url.path))
     return categories.describe_menu()
 
 
-class NodeWords(BaseModel):
+class NodeWords(Body):
     label: str
     description: str = ""
 
@@ -119,12 +118,12 @@ def menu_text(type_id: str, req: NodeWords, request: Request) -> dict:
 
     entry, changed = text.save(type_id, req.label, req.description)
     if changed:
-        audit(Msg("I-AUDIT-NODETEXT", who=auth.label(request), node=type_id, name=entry["label"]),
+        audit(Msg("I-AUDIT-NODETEXT", who=auth.actor(request).label, node=type_id, name=entry["label"]),
               session=auth.session(request), method="PUT", path=str(request.url.path))
     return {"id": type_id, **entry}
 
 
-class PlaceNode(BaseModel):
+class PlaceNode(Body):
     where: str  # a category or subcategory id of the menu tree, or "" (未分类)
 
 
@@ -142,6 +141,6 @@ def menu_place(type_id: str, req: PlaceNode, request: Request) -> dict:
     if req.where and not categories.menu.known(req.where):
         raise NotFound(Msg("E-CATEGORY-NOSUCH", id=req.where))
     if categories.nodes.place(type_id, req.where):
-        audit(Msg("I-AUDIT-NODEPLACED", who=auth.label(request), node=type_id, where=req.where or "未分类"),
+        audit(Msg("I-AUDIT-NODEPLACED", who=auth.actor(request).label, node=type_id, where=req.where or "未分类"),
               session=auth.session(request), method="PUT", path=str(request.url.path))
     return categories.describe_menu()

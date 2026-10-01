@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -165,6 +166,8 @@ def _admin_actions(user_id: int, offset: int, limit: int, q: str) -> tuple[int, 
             what = what[len(head):].lstrip() if head != "（）" and what.startswith(head) else what
         except Exception:  # 目录中已不存在的代码或参数：记录本身不会丢失
             what = r["code"]
+        if r["repeats"] > 1:  # the same refusal again and again, counted on this row (server/access.py audit)
+            what += render("I-AUDIT-REPEATED", {"count": r["repeats"], "last": time.strftime("%m-%d %H:%M", time.localtime(r["last"] or r["at"]))})
         rows.append({"at": r["at"], "what": what, "code": r["code"],
                      "where": f"{r['method']} {r['path']}".strip(), "status": r["status"]})
     return _take(rows, KINDS["admin_actions"].columns, offset, limit, q)
@@ -176,17 +179,6 @@ def _templates(user_id: int, offset: int, limit: int, q: str) -> tuple[int, list
     from .library import rows_for_account
 
     return _take(rows_for_account(accounts.get(user_id).username), KINDS["templates"].columns, offset, limit, q)
-
-
-def _template_usage(user_id: int, offset: int, limit: int, q: str) -> tuple[int, list[dict]]:
-    """该账号用过的模板（farm/usage.py templates，与「使用统计」的「按模板」同一份）：每张模板提交过几次任务、成功和失败
-    各几次、最近一次（「失败」只数出错结束的，部分完成和取消的只算在次数里）；模板删掉了按最后用时的名字列出并灰显，
-    自己搭的节点图合在最后一行。只算记下来源以后提交的任务。"""
-    from .farm.usage import templates
-
-    rows = [{**t, "state": "已删除" if t["deleted"] else "自己搭的" if not t["id"] else "在用", "__dim": t["deleted"]}
-            for t in templates(user_id=user_id)]
-    return _take(rows, KINDS["template_usage"].columns, offset, limit, q)
 
 
 def _traffic(user_id: int, offset: int, limit: int, q: str) -> tuple[int, list[dict]]:
@@ -239,10 +231,6 @@ REGISTRY: tuple[Resource, ...] = (
                        "POST /api/admin/graphs/{gid}/bin"),
                    Act("purge", "永久删除", "彻底删掉这张模板：删了就找不回来了",
                        "DELETE /api/admin/graphs/{gid}", danger=True))),
-    # 用过的模板：提交任务时节点图是从哪张模板打开的（按模板统计），和「使用统计」同一项权限
-    Resource("template_usage", "用过的模板", "", "stats.view", "usage",
-             (("name", "模板"), ("state", "状态"), ("count", "次数"), ("done", "成功"), ("failed", "失败"), ("last", "最近一次")),
-             _template_usage, state="state", dim=True),
     # 流量：每天一行。「用户」栏和用户页上方的「网络流量」给出今天 / 近 7 天 / 总计，本页签为其明细
     Resource("traffic", "流量", "traffic", "users.manage_normal", "users",
              (("day", "日期"), ("bytes", "流量", "size")), _traffic),

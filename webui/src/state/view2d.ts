@@ -6,31 +6,33 @@ import { create } from "zustand";
 import { fitTransform, oneToOneTransform, panBy, toPercent, zoomAt, type Mode, type Transform2D } from "../model/view2d";
 import { useElementSize } from "../platform/size";
 import { useShortcut } from "../platform/keys";
-import { followDrag } from "../platform/drag";
+import { followDrag, followPress } from "../platform/drag";
 
 // ------------------------------------------------------------------ the 2D view
 
 export type ViewSlot = "2d" | "look";
 
-/** 视图的缩放与平移：每个视图一份，仅由用户修改（拖动、滚轮、适应、1:1、百分比）。
+/** A view's zoom and pan: one per view, changed only by the user (drag, wheel, fit, 1:1, a percentage).
  *
- * 变换保持独立：切换显示的节点、画面尺寸或容器尺寸变化时均不修改变换，不做任何补偿性重算。
- * 若视图随数据和容器变化，切换节点或工具栏换行都会导致图像在屏幕上移位，无法在两个节点间来回对比。
- * 仅在切换镜头（`key` 改变）时重新适应一次。 */
+ * The transform stands on its own: switching the displayed node, or a change of picture size or container size, never
+ * alters it, and nothing is recomputed to compensate. A view that followed the data and the container would shift the
+ * image on screen whenever the node changes or the toolbar wraps, making it impossible to compare two nodes back and
+ * forth. It is fitted again only when the shot changes (`key` changes). */
 export interface View2D {
   at: Transform2D;
-  key: string; // 镜头标识（切换镜头时才重新适应一次）
+  key: string; // the shot's identity (the view is fitted again only when it changes)
 }
 
 interface View2DState {
-  // 视图当前的档位：仅原图 / 运算 / 仅结果（model/view2d.ts Mode）。
-  // 双击显示某个节点时，按该节点自带的预览标签切换一次（NodeTypeDef.preview，由服务器计算，一条标签
-  // 同时适用于 2D 和 3D）；之后若用户手动切换，则以用户选择为准，直到切换到下一个节点
+  // the view's current mode: plate only / operation / result only (model/view2d.ts Mode). Double-clicking a node to
+  // display it switches once to that node's own preview tag (NodeTypeDef.preview, computed by the server; one tag
+  // serves both 2D and 3D); after that a manual switch by the user holds until the next node is displayed
   mode: Mode;
   setMode: (mode: Mode) => void;
-  // 左右两侧各自选取的通道（null：整体，多条通道一起查看）。层另行管理：右侧所看节点的层为
-  // `state/look.ts` 的 `displayPort`（需随节点图保存），左侧只有一层（原图），因此此处只保存通道。
-  // 通道属于查看方式，随视图保存，切换节点后仍保留
+  // the channel picked on each side (null: the whole, several channels viewed together). Layers are kept elsewhere: the
+  // right side's layer is `state/look.ts` `displayPort` (saved with the graph), and the left side has only one layer
+  // (the plate), so only channels are kept here. A channel is a way of viewing: it is kept with the view and survives
+  // switching nodes
   left: number | null;
   setLeft: (index: number | null) => void;
   right: number | null;
@@ -69,10 +71,13 @@ export const useView2D = create<View2DState>((set) => ({
 export interface Nav2D {
   at: Transform2D | null;
   box: { w: number; h: number };
-  cursor: "grab" | "grabbing" | null;
+  cursor: "grab" | "grabbing" | "ew-resize" | null;
   onMouseLeave: () => void;
   onMouseMove: (e: React.MouseEvent) => void;
   onMouseDown: (e: React.MouseEvent) => boolean;
+  /** Keeps the browser's menu off the view. It is never the stage's right click: macOS and Linux send it on the press,
+   * before anyone knows whether a zoom drag follows (NavOptions.onRightPress gives the click). */
+  onContextMenu: (e: React.MouseEvent) => void;
 }
 
 interface NavOptions {
@@ -80,25 +85,36 @@ interface NavOptions {
   key?: string;
   keys?: (key: string) => boolean;
   altLeft?: boolean;
+  // asked when the right button goes down: what a right click (platform/drag.ts followPress: released without dragging)
+  // then does, with where it was pressed (the stage removes the point there). Asked at the press, so what it returns is
+  // bound to the stage as it was then (its frame and entries), not as it is at the release (playback may move on)
+  onRightPress?: () => ((at: { clientX: number; clientY: number }) => void) | null;
 }
 
-/** The 2D view's navigation, shared by every way the view is drawn: the wheel zooms around the cursor, a middle-drag
- * (or an Alt+left-drag) pans, and F fits (plus `keys` for the stage's own keys) while the pointer is over `el`; the zoom
- * bar's requests are applied here, where the picture's size (`width` x `height` image pixels) and the stage's size are known. */
-export function useView2DNav(el: HTMLElement | null, width: number, height: number, { slot = "2d", key = "", keys, altLeft = true }: NavOptions = {}): Nav2D {
+/** The 2D view's navigation, shared by every way the view is drawn, with Houdini's buttons: the wheel zooms around the
+ * cursor, a middle-drag (or an Alt+left-drag) pans, a right-drag zooms around the point pressed (to the right zooms in,
+ * to the left out), and F fits (plus `keys` for the stage's own keys) while the pointer is over `el`; the zoom bar's
+ * requests are applied here, where the picture's size (`width` x `height` image pixels) and the stage's size are known. */
+
+/** Right-drag zoom: the scale changes by e^(pixels × this); 200 px to the right is about 2.7×, as the wheel's feel. */
+const ZOOM_PER_PX = 0.005;
+export function useView2DNav(el: HTMLElement | null, width: number, height: number, { slot = "2d", key = "", keys, altLeft = true, onRightPress }: NavOptions = {}): Nav2D {
   const slotView = useView2D((s) => s.views[slot]);
   const stored = slotView && slotView.key === key ? slotView : null;
   const fitAsk = useView2D((s) => s.fitAsk);
   const oneAsk = useView2D((s) => s.oneAsk);
   const goAsk = useView2D((s) => s.goAsk);
   const box = useElementSize(el);
-  const [cursor, setCursor] = useState<"grab" | "grabbing" | null>(null);
+  const [cursor, setCursor] = useState<"grab" | "grabbing" | "ew-resize" | null>(null);
   const keysRef = useRef(keys);
   keysRef.current = keys;
+  const rightPress = useRef(onRightPress);
+  rightPress.current = onRightPress;
 
 
   const ready = !!el && width > 0 && height > 0 && box.w > 0 && box.h > 0;
-  // 已保存的变换原样使用：切换节点、切换档位、工具栏换行、面板拖宽时一律不重算（参见上方 View2D 的注释）
+  // a stored transform is used as is: never recomputed on switching node or mode, a toolbar wrap or a panel resize (see
+  // View2D above)
   const at = ready ? (stored?.at ?? fitTransform(width, height, box.w, box.h)) : null;
   const store = (s: ViewSlot, v: View2D) => useView2D.setState((st) => ({ views: { ...st.views, [s]: v } }));
   const put = (t: Transform2D) => store(slot, { at: t, key });
@@ -166,7 +182,33 @@ export function useView2DNav(el: HTMLElement | null, width: number, height: numb
       if (altLeft && e.altKey !== (cursor === "grab") && cursor !== "grabbing") setCursor(e.altKey ? "grab" : null);
     },
     onMouseDown: (e) => {
-      if (!at || !(e.button === 1 || (altLeft && e.button === 0 && e.altKey))) return false;
+      if (!at) return false;
+      if (e.button === 2) {
+        e.preventDefault();
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const [px, py] = [e.clientX - r.left, e.clientY - r.top];
+        // a click or a zoom drag, as platform/drag.ts followPress decides (on release, the same on every platform); the
+        // click acts where the button was pressed
+        const at0 = { clientX: e.clientX, clientY: e.clientY };
+        // the click acts on the stage as it was when pressed (NavOptions.onRightPress)
+        const click = rightPress.current?.() ?? null;
+        let last = e.clientX;
+        followPress(
+          at0,
+          (ev) => {
+            setCursor("ew-resize");
+            const dx = ev.clientX - last;
+            last = ev.clientX;
+            if (dx) change((t) => zoomAt(t, Math.exp(dx * ZOOM_PER_PX), px, py));
+          },
+          (how, ev) => {
+            setCursor(ev?.altKey ? "grab" : null);
+            if (how === "click") click?.(at0);
+          },
+        );
+        return true;
+      }
+      if (!(e.button === 1 || (altLeft && e.button === 0 && e.altKey))) return false;
       e.preventDefault(); // no page autoscroll on the middle button, no text selection on Alt+drag
       setCursor("grabbing");
       let last = { x: e.clientX, y: e.clientY };
@@ -180,5 +222,6 @@ export function useView2DNav(el: HTMLElement | null, width: number, height: numb
       );
       return true;
     },
+    onContextMenu: (e) => e.preventDefault(),
   };
 }

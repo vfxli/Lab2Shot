@@ -1,6 +1,8 @@
 """The single template for nodes that run a worker, analogous to submitting a render: prepare() fills in the job
 (Job), the worker computes, and convert() turns what it wrote (RawOutput) into packets. Families inherit from it;
-extension nodes that belong to no family inherit from it directly.
+extension nodes that belong to no family inherit from it directly. The only other ways an extension node runs its
+worker are the import (nodes/formats.py ImportNode) and output-setting (nodes/output.py OutputSettings) templates;
+`lab2shot check workers` holds every extension node to that.
 
     cook = prepare(ctx) -> Job -> ctx.run_worker(...) -> convert(ctx, RawOutput, Job)
 

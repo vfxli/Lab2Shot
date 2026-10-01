@@ -10,27 +10,28 @@ import { useDismiss } from "../platform/dismiss";
 import { usePreferences } from "../state/preferences";
 import { Button, Segmented, Toggle } from "./Button";
 import type { Has, Off } from "./displayRows";
-import { CameraTab, CAMERA_KEYS, LinesTab, LINE_KEYS, MeshesTab, MESH_KEYS, PointsTab, POINT_KEYS,
+import { BonesTab, BONE_KEYS, CameraTab, CAMERA_KEYS, LinesTab, LINE_KEYS, MeshesTab, MESH_KEYS, PointsTab, POINT_KEYS,
          QualityTab, QUALITY_KEYS, SceneTab, SCENE_KEYS } from "./displayTabs";
 
-/** The viewer's display options (as in Houdini): a button in the viewer's control bar that opens a small panel. Every
- * change takes effect immediately and is kept in this browser.
+/** 视图的显示选项（与 Houdini 相同）：视图控制栏上的一个按钮，打开一个小面板。
+ * 每项改动立即生效，并保存在本浏览器中。
  *
- * 各舞台包含哪些页由结构定义（`STAGE_TABS`）：二维画面只有「线」，三维视图有点、线、模型、相机、场景、渲染。
+ * 各舞台包含哪些页由结构定义（`STAGE_TABS`）：二维画面只有「线」，三维视图有点、线、模型、骨骼、相机、场景、渲染。
  * 页中的每一行始终存在（不适用的置灰并注明原因），因此切换显示的节点时面板不跳动、不变形，位置保持不变。
  * 当前页由用户首选项记录，记录的页不属于当前舞台时回退到该舞台的第一页。
  *
  * 画面没有画质设置：二维始终经由视图代理。「渲染」页中的抗锯齿属于渲染质量，因此不称为「画质」，以免同名异义造成混淆。 */
-type Tab = "points" | "lines" | "meshes" | "camera" | "scene" | "quality";
-const TABS: Record<Tab, string> = { points: "点", lines: "线", meshes: "模型", camera: "相机", scene: "场景", quality: "渲染" };
+type Tab = "points" | "lines" | "meshes" | "bones" | "camera" | "scene" | "quality";
+const TABS: Record<Tab, string> = { points: "点", lines: "线", meshes: "模型", bones: "骨骼", camera: "相机", scene: "场景", quality: "渲染" };
 const STAGE_TABS: Record<"2d" | "3d", Tab[]> = {
   "2d": ["lines"],
-  "3d": ["points", "lines", "meshes", "camera", "scene", "quality"],
+  "3d": ["points", "lines", "meshes", "bones", "camera", "scene", "quality"],
 };
 const TAB_KEYS: Record<Tab, (keyof ViewOptions)[]> = {
   points: POINT_KEYS,
   lines: LINE_KEYS,
   meshes: MESH_KEYS,
+  bones: BONE_KEYS,
   camera: CAMERA_KEYS,
   scene: SCENE_KEYS,
   quality: QUALITY_KEYS,
@@ -75,7 +76,7 @@ export function DisplayOptions({ stage, shows, preview }:
 
   return (
     <div className="vo-anchor vo-opts" ref={box}>
-      {/* the button sits in the viewer's toolbar, which shows no tips; the panel it opens is mounted on body and keeps its own */}
+      {/* 按钮位于视图工具栏中，该工具栏不显示悬停提示；按钮打开的面板挂载在 body 上，保留其自身的提示 */}
       <Toggle hud on={open} onChange={setOpen}>
         视图设置
       </Toggle>
@@ -91,6 +92,7 @@ export function DisplayOptions({ stage, shows, preview }:
             {shownTab === "points" && <PointsTab o={o} set={set} off={off} />}
             {shownTab === "lines" && <LinesTab o={o} set={set} only2d={only2d} has={has} off={off} />}
             {shownTab === "meshes" && <MeshesTab o={o} set={set} off={off} />}
+            {shownTab === "bones" && <BonesTab o={o} set={set} off={off} />}
             {shownTab === "camera" && <CameraTab o={o} set={set} off={off} />}
             {shownTab === "scene" && <SceneTab o={o} set={set} off={off} />}
             {shownTab === "quality" && (

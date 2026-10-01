@@ -1,5 +1,6 @@
 import type { Manifest } from "../api";
-import { cache } from "./cache";
+import { cache } from "../platform/cache";
+import { originalsKey, originalsSlot } from "./frameKey";
 import { localFile } from "./local";
 import { fileKeyOf } from "./localProxy";
 
@@ -40,8 +41,8 @@ export interface Originals {
   keys?: Map<number, string>;
 }
 
-// 不另建表：登记到页面唯一的缓存（`transfer/cache.ts`），与包说明（`manifestOf`）使用同一机制；模块级 Map 不做长期存储
-const key = (fp: string) => `orig:${fp}`;
+// 不另建表：登记到页面唯一的缓存（`platform/cache.ts` 的登记层），键在 transfer/frameKey.ts；模块级 Map 不做长期存储
+const key = originalsKey;
 
 interface Held {
   originals: Originals | null;
@@ -63,7 +64,7 @@ let asks = 0;
  * 未找到则传入 null），即使组件已卸载也会调用，因此该状态不会停留在「一直查找」。 */
 export function lookingFor(fp: string): number {
   const asked = ++asks;
-  cache.register(key(fp), { originals: null, looking: true, asked } satisfies Held);
+  cache.register(originalsSlot(fp), { originals: null, looking: true, asked } satisfies Held);
   return asked;
 }
 
@@ -72,7 +73,7 @@ export function lookingFor(fp: string): number {
 export function keepOriginals(fp: string, one: Originals | null, asked: number): void {
   const held = cache.registered<Held>(key(fp));
   if (held && held.asked > asked) return;
-  cache.register(key(fp), { originals: one, looking: false, asked } satisfies Held);
+  cache.register(originalsSlot(fp), { originals: one, looking: false, asked } satisfies Held);
 }
 
 /** 该数据是否仍在查找原件（查找期间不取回整段代理）。 */
@@ -88,7 +89,7 @@ export const stillLooking = (fp: string): boolean => cache.registered<Held>(key(
  *    （浏览器只在用户亲自选择时将文件交给页面）。
  *
  * 第 1 项需打开文件句柄，为异步操作，因此由上方的登记表提供；第 2 项可同步得知，在此处实现。 */
-export function originalsFor(fp: string, manifest: Manifest | null, space = ""): Originals | null {
+export function originalsFor(fp: string, manifest: Manifest | null): Originals | null {
   const held = cache.registered<Held>(key(fp));
   if (held?.originals) return held.originals;
   const blobs = (manifest as (Manifest & { blobs?: Record<string, string> }) | null)?.blobs;
@@ -102,7 +103,9 @@ export function originalsFor(fp: string, manifest: Manifest | null, space = ""):
     // 同时登记每一帧的文件键：取帧路径将其拼入源 id（`sources.ts filesDigest`），更换文件即对应另一组缓存键
     keys: new Map(frames.map((f) => [f, fileKeyOf(localFile(blobs[String(f)])!)])),
     fileOf: async (frame) => localFile(blobs[String(frame)]) ?? null,
-    space,
+    // 按包自己声明的色彩空间解码（与已授权目录那条路按节点的色彩空间一致：包的 colorspace 就是读取节点定的那个），
+    // 不按文件名规则猜（服务器只对工作空间里的 PNG 给 blobs；哪天 EXR 也给，这里照样对）
+    space: String(manifest?.meta.colorspace ?? ""),
     where: "picked in this tab",
     name: localFile(blobs[String(frames[0])])?.name,
   };

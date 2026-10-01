@@ -14,17 +14,19 @@ import "./items.css";
  * sent with the next status request so that the node answers for that item. It appears only while the shown node is
  * inside a block; the blocks come from the status reply (engine/scopes.py) and are never derived from the wires here.
  *
- * 每个块一个固定宽度的下拉框。不使用横排分段控件（人数达到数十时会超出画面），也不按人数在两种形式间切换：
- * 人数从 3 变为 4 时界面形式随之改变，用户难以记住控件位置。
+ * One fixed-width drop-down per block. Not a row of segments (with dozens of people it would run off the screen), and
+ * not a switch between two forms by count: if the control changed form when the count went from 3 to 4, users could
+ * not remember where it is.
  *
- * 该布局的不变量：
- *   · 本控件以 `position: absolute` 浮于舞台之上，不参与任何排版，因此其变化不会挤压画布；
- *   · 下拉框触发器宽度固定（items.css 的 `.items-select`），不随人名长短或人数变化；
- *     名称过长时在触发器中截断，悬停显示全名（`data-user-data`，只有用户数据允许截断）；
- *   · 展开的列表由菜单组件负责（ui/Menu.tsx：玻璃效果、圆角、超高时自行滚动、贴近窗口边缘时不越界），
- *     条目达到数十条时只有列表变长，控件本身不移动。 */
+ * Layout invariants:
+ *   · the control floats over the stage with `position: absolute` and takes no part in layout, so its changes never
+ *     squeeze the canvas;
+ *   · the drop-down trigger has a fixed width (items.css `.items-select`) whatever the names' length or count; a long
+ *     name is cut in the trigger, with the full name on hover (`data-user-data`: only user data may be cut);
+ *   · the open list is the menu component's job (ui/Menu.tsx: glass, rounded, scrolls itself when too tall, never
+ *     crosses the window's edge), so with dozens of items only the list grows and the control itself never moves. */
 
-/** 展开的列表比触发器略宽：列表中需完整显示人名（仅在触发器上截断）。 */
+/** The open list is a little wider than the trigger: names show in full in the list (cut only in the trigger). */
 const MENU_WIDE = 240;
 
 function ItemPick({ where, name, kind, items, chosen }: { where: string; name: string; kind: string; items: ScopeItem[]; chosen: string }) {
@@ -52,8 +54,8 @@ function ItemPick({ where, name, kind, items, chosen }: { where: string; name: s
 /** The bar for the shown node: one row per 逐项处理 block containing it, selecting which item of that block the view is
  * on. When no block contains it, nothing is drawn.
  *
- * 列表类结果在此不占任何位置：视图直接绘制列表中的每一条（view/plan.ts 的 `expand`），
- * 因此无需挑选；拆分列表的节点显示的是上游原图，不需要挑选条目的控件。 */
+ * A list result takes no place here: the view draws every entry of the list itself (view/plan.ts `expand`), so there
+ * is nothing to pick; a node that splits a list shows the upstream picture and needs no item picker. */
 export function ItemsBar({ nodeId }: { nodeId: string | null }) {
   const reply = useResults((s) => s.reply);
   const view = useItems((s) => s.view);

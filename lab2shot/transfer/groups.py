@@ -15,9 +15,10 @@ same footage have two groups and neither sees the other's.
                      node, in the graph's node order; with several uploads read, how many: 「sh030_plate 等 2 个素材」.
                      Two of an account's groups that still have the same name are told apart only as they are shown,
                      by the time of each one's first task (of_tasks `twin`, `first`); nothing stored changes.
-    without footage  one account, one template, one fixed two-hour slot of the server's local clock (0-2, 2-4 ... 22-24:
-                     twelve a day). The template is the one the graph was opened from (meta.template); a graph that
-                     came from none is known by its name. The group's name is the graph's name; the page adds the slot.
+    without footage  one account, one graph name, one fixed two-hour slot of the server's local clock (0-2, 2-4 ... 22-24:
+                     twelve a day); a graph does not say which template it came from (saved from a template, it is an
+                     ordinary graph), so it is known by its name. The group's name is the graph's name; the page adds
+                     the slot.
 
 An input node is a node one of whose parameters names an upload (upload:<id>/<name>, transfer/uploads.py refs_in): a
 node with its file not picked yet reads nothing and does not count. There is no starting a group by hand: it would bring
@@ -119,10 +120,9 @@ def of_graph(data: dict, user_id: int, at: float) -> dict:
     if inputs:
         return {"key": _key("footage", int(user_id), sorted(inputs)), "name": footage_name(name, len(footage)), "slot": None}
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
-    template = str(meta.get("template") or "")
     title = str(meta.get("name") or "")
     slot = slot_of(at)
-    return {"key": _key("slot", int(user_id), template or f"graph:{title}", slot), "name": clean_name(title), "slot": slot}
+    return {"key": _key("slot", int(user_id), f"graph:{title}", slot), "name": clean_name(title), "slot": slot}
 
 
 # ------------------------------------------------------------------ the groups an account has

@@ -278,4 +278,19 @@ def write_people(job, per_person: dict[int, dict[int, dict]], head, focal_px: fl
             say("N-SAM3DBODY-UNSOLVEDFRAMES", person=int(pid), missing=int(missing), frames=len(job.frames))
         out.append({"id": pid, "file": name, "frames": [int(f) for f in data["frames"]]})
         progress(n + 1, len(per_person))
-    write_result(job, people=out, camera={"focal_px": focal_px, "source": focal_source, "width": job.width, "height": job.height})
+    # 放人用的那台相机（节点的「相机」口，家族的 plate_camera）：原点、不动，焦距 = 用的那个（接了逐帧焦距就逐帧），主点居中
+    from lab2shot_worker import world_humans as wh
+
+    numbers = [int(f) for f, _ in job.frames]
+    camera_npz = job.inputs.get("camera")
+    if camera_npz is not None:
+        cam = np.load(camera_npz)
+        focal_of = {int(f): float(v) for f, v in zip(cam["frames"], cam["focal_px"])}
+        known = sorted(focal_of)
+        focals = [focal_of.get(f) or focal_of[min(known, key=lambda k: abs(k - f))] for f in numbers]
+    else:
+        focals = [float(focal_px)] * len(numbers)
+    wh.save_camera(job.raw_dir, numbers, focals, name=wh.PLATE_CAMERA)
+    # space / world：家族的结果契约（families/humans.py convert）：人在相机空间里，没有另外的世界
+    write_result(job, people=out, space="camera", world=None,
+                 camera={"focal_px": focal_px, "source": focal_source, "width": job.width, "height": job.height})

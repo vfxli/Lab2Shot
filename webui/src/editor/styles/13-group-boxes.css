@@ -1,4 +1,5 @@
-/* ---------------------------------------------------------------- group boxes */
+/* Group boxes on the node graph (editor/NetworkBox.tsx), plus a few node-body rules that sit with them: a value
+   output's value, where a node's parameters get their values (.gnode-said), and the minimap. */
 .react-flow__node-box {
   pointer-events: none !important; /* clicks in the body reach the canvas: box-select, node menu */
 }
@@ -126,7 +127,7 @@
 
 /* a value output shows its value once known (a constant at once) */
 .port-value {
-  flex: 0 0 auto; /* 它参与节点的宽（08a-node.css 开头的不变量），所以不压缩、不截断 */
+  flex: 0 0 auto; /* it takes part in the node's width (the invariant at the top of 08a-node.css), so it neither shrinks nor truncates */
   margin-right: 6px;
   color: var(--text);
   font-variant-numeric: tabular-nums;

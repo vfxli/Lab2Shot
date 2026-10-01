@@ -27,15 +27,14 @@ from __future__ import annotations
 import secrets
 
 from fastapi import Request, Response
-from pydantic import BaseModel
 
-from .routes import Access, Limit, Router
+from .routes import Access, Body, Limit, Router
+from .wire import SECRETS
 from .. import accounts, logs, registration, roles
 from ..config import settings
-from ..database import db
 from ..errors import Forbidden, Invalid, TooManyTries
 from ..messages import Msg
-from . import auth, quota
+from . import auth
 from .access import audit
 from .users import day_text
 
@@ -66,7 +65,7 @@ def challenge() -> dict:
     return auth.guards().challenges.issue(POW_BITS, {"trap": secrets.choice(TRAPS)})
 
 
-class Register(BaseModel):
+class Register(Body):
     username: str
     name: str
     department: str  # 环节
@@ -85,7 +84,8 @@ def _refused(request: Request, what: str, message: Msg) -> Invalid:
     return Invalid(message)
 
 
-@router.post("/register", access=Access.open("自己注册一个账号，注册好直接登录（有工作量证明、诱饵字段、次数上限）", limit=Limit(burst=10, per_s=1 / 6)),
+@router.post("/register", access=Access.open("自己注册一个账号，注册好直接登录（有工作量证明、诱饵字段、次数上限）", limit=Limit(burst=10, per_s=1 / 6),
+                                             lane=SECRETS),
              summary="自己注册：用户名、中文名、环节、密码两遍，勾选同意的用户协议和隐私政策的版本号，开了邀请码验证时再加邀请码，外加工作量证明的题和答案；规则和管理员建账号完全一样，角色一律普通用户，建好这个浏览器直接登录")
 def register(req: Register, request: Request, response: Response) -> dict:
     if not settings()["register.open"]:
@@ -106,10 +106,8 @@ def register(req: Register, request: Request, response: Response) -> dict:
                          subject="invite", limiter=g.invites, kind="邀请码不对")
         elif not registration.invite_usable(req.invite):  # everyone looks alike: a count would stop them all
             raise _refused(request, "邀请码不对", Msg("E-REGISTER-INVITE"))
-    with db().write():  # the account, its quota and the code's use: all or nothing
-        u, used = registration.register(req.username, req.name, req.department, req.password, req.again, req.invite,
-                                        req.terms, ip, src.apart)
-        quota.set_limit(u.id, float(settings()["register.quota_gb"]))
+    u, used = registration.register(req.username, req.name, req.department, req.password, req.again, req.invite,
+                                    req.terms, ip, src.apart)  # the account, its quota and the code's use: all or nothing
     token, s = accounts.start(u, "web", ip, request.headers.get("user-agent", ""), replaces=auth.token_of(request),
                               device_id=req.device_id)
     auth.set_cookie(request, response, token)
@@ -118,5 +116,5 @@ def register(req: Register, request: Request, response: Response) -> dict:
     audit(Msg("I-AUDIT-SELFREGISTERED", username=u.username, name=u.name, department=u.department,
               expires=day_text(u.expires), quota=settings()["register.quota_gb"], tags=registration.tags_label(u.tags),
               invite=invite, ip=ip, role=roles.label(u.role)),
-          session=s, method="POST", path=str(request.url.path))
+          about=u.id, session=s, method="POST", path=str(request.url.path))
     return auth.state_of(s)

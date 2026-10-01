@@ -35,5 +35,5 @@ export const PHASE_TEXT: Record<Phase, string> = {
 export function progressTip(p: JobProgress): string {
   const step = p.total > 0 ? `${p.note || "这一步"} ${p.done} / ${p.total}` : p.note;
   const line = [p.label, PHASE_TEXT[p.phase], step].filter(Boolean).join(" · ");
-  return p.at === null ? `${line}\n第一次算这个节点，没有历史记录，估不出还要多久` : `${line}\n整个计算走了 ${Math.round(p.at * 100)}%`;
+  return p.at === null ? `${line}\n第一次算这个节点，没有历史记录，算不出走了百分之几` : `${line}\n整个计算走了 ${Math.round(p.at * 100)}%`;
 }

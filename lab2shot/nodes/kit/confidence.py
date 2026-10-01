@@ -67,7 +67,7 @@ def to_confidence(raw: np.ndarray, scale: str) -> np.ndarray:
 def confidence_port(node_type) -> Port:
     """The 置信度 output of a node that declares a Confidence: its tooltip says whose it is and how it was mapped."""
     c = node_type.confidence
-    return Port("confidence", "image.1", "置信度",
+    return Port("confidence", "image.1", "置信度", may_be_empty=True,
                 help=c.help or f"{node_type.label}的模型自己估的每个像素有多可信（0–1，越大越可信）。{CONFIDENCE_SCALES[c.scale].said}。"
                                "只在这个模型的结果之间比高低，和别的模型的置信度不能比；当遮罩用先接「置信度转遮罩」")
 

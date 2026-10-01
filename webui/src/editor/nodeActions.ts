@@ -9,7 +9,7 @@ export interface NodeMenuFacts {
   typeId: string;
   delivers: boolean; // cooking it collects and packs files for download (the server's policy): an 「输出」
   busy: boolean; // this graph already has a job in the queue
-  blocked: boolean; // 计算任务 off (state/pause.ts) 或配额满了 (state/quota.ts)：都让「计算」变灰，原因写在 cookTip 里
+  blocked: boolean; // 计算任务 switched off (state/pause.ts), the storage quota full (state/quota.ts), or the server says this node cannot be cooked now (graph/actions.ts cookHold "unplannable"): each greys 「计算」 out, the reason is in cookTip
   cookTip: string; // what the cook is, in words (graph/rules.ts cookWords) with the switches' note
   cookShort: string;
   // a node inside a 逐项处理 block (engine/scopes.py, the status reply's `summary`): how many items it has and what the

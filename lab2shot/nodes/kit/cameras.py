@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from lab2shot_worker.recon import interpolate_poses
+from lab2shot_shared.poses import interpolate_poses
 
 from ...data import units
 from ...data.camera import CameraSamples, carried_lens
@@ -160,9 +160,9 @@ def send_rotation(ctx, rotate, frames: list[int], focal_px) -> Path:
     可见的连线提供；要将人物放入某台相机的世界，需在图上另接「相机空间转换」。
 
     `rotate`：`ctx.values["camera_rotate"]`，即「拆分相机」输出的「旋转」值：逐帧 XYZ 欧拉角，单位为度，采用本项目的
-    朝向约定（`data/scene.py xyz_euler_deg` 的输出）。此处将其转回旋转矩阵，再换为 worker 读取的 OpenCV 轴向和米
+    朝向约定（`lab2shot_shared/poses.py xyz_euler_deg` 的输出）。此处将其转回旋转矩阵，再换为 worker 读取的 OpenCV 轴向和米
     （与 `send_camera` 使用同一 `units.usd_poses_to_opencv_m`）。欧拉角、四元数、矩阵之间的转换在节点内部完成。"""
-    from ...data.scene import euler_xyz_matrix
+    from lab2shot_shared.poses import euler_xyz_matrix
 
     per = rotate.at(frames).reshape(-1, 3)
     poses = np.repeat(np.eye(4)[None], len(frames), 0)

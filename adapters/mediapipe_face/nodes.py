@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import Literal
 
 
-from lab2shot.sdk import (Official, SCENE_FILE, Msg, NothingToCook, NodeDef, NodeParams, P, Port,
+from lab2shot.sdk import (rgb_port, Official, SCENE_FILE, Msg, NothingToCook, WorkerNode, NodeParams, P, Port,
                           create_stage, curves_packet, save_stage, scene_packet, tracks_packet,
                           write_mesh, Param, Cost)
 
 
-class Face(NodeDef):
+class Face(WorkerNode):
     id = "mediapipe_face.face"
     # 引的是官方 Tasks API 自己定义的结果类型 FaceLandmarkerResult：一张画面进去（detect(image)，同文件
     # 3189-3193），出来 face_landmarks / face_blendshapes / facial_transformation_matrixes 三样，没有别的。
@@ -33,7 +33,7 @@ class Face(NodeDef):
     cost = Cost(seconds_per_frame=0.025, note="只用 CPU")
     # 没有「相机」输入口，也没有「相机」输出口：FaceLandmarkerResult 里没有相机，头部矩阵是相对官方那台
     # 虚拟相机（63° 垂直视场）说的。要把脸放进某台相机的世界，接核心节点「相机空间转换」
-    inputs = (Port("image", "image.3", "RGB"),)
+    inputs = (rgb_port(),)
     outputs = (
         Port("landmarks", "tracks2d", "面部关键点"),
         Port("expressions", "curves", "表情曲线"),
@@ -53,15 +53,14 @@ class Face(NodeDef):
                                            applies=Param("mode").one_of("video"))
 
     @classmethod
-    def cook(cls, ctx):
+    def convert(cls, ctx, raw, job):
         import numpy as np
         from pxr import Gf, UsdGeom
 
-        image = ctx.input("image")
+        image = job.plate
         frames = image.meta["frames"]
         w, h = image.meta["width"], image.meta["height"]
-        raw = ctx.run_worker(image)
-        d = np.load(raw / "faces.npz")
+        d = raw.arrays("faces.npz")
         found = d["found"]  # [F, N]
         if not found.any():  # no face in the whole shot: not an error, nothing to give (engine/cook.py)
             raise NothingToCook(Msg("N-MEDIAPIPEFACE-NOFACE", frames=len(frames)))
@@ -91,7 +90,7 @@ class Face(NodeDef):
         # head: MediaPipe's matrices are canonical face (cm) -> its virtual camera (GL axes, like a USD camera),
         # 相对官方那台虚拟相机（63° 垂直视场，worker.py VIRTUAL_VFOV_DEG）给的，节点原样交出，不按别的相机
         # 换算远近、也不造一台相机出来。要把头摆进某台相机的世界，在图上接核心节点「相机空间转换」
-        canon = np.load(raw / "canonical_face.npz")
+        canon = raw.arrays("canonical_face.npz")
         stage = create_stage(frames, {"extension": "mediapipe_face"})
         for i in slots:
             mats = _hold(d["matrices"][:, i].reshape(len(frames), 16), found[:, i]).reshape(-1, 4, 4).astype(np.float64)

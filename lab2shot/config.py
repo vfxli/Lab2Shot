@@ -366,6 +366,8 @@ class Setting:
 
 _WHEN_IDLE = "只在队列里没有任务时清理。"
 
+QUOTA_GB_MAX = 10_000  # the largest disk quota an account may have, GB: the setting's and one set per account (server/quota.py)
+
 SCHEMA: dict[str, Setting] = {s.key: s for s in (
     # ---------------------------------------------------------------- 注册 (lab2shot/registration.py)
     Setting("register.open", "register", "开放注册", False, kind="bool", help=(
@@ -398,7 +400,7 @@ SCHEMA: dict[str, Setting] = {s.key: s for s in (
         "统计照旧按原名列出（标「已不在列表」）。马上生效。")),
     # The limit shared by every account without its own quota (`users.quota_gb` NULL falls back to this, see
     # server/quota.py), not only new accounts: after a change, existing accounts read the new value on the next read.
-    Setting("storage.quota_gb", "accounts", "账号配额", 100, kind="int", min=1, max=10_000, unit="GB", help=(
+    Setting("storage.quota_gb", "accounts", "账号配额", 100, kind="int", min=1, max=QUOTA_GB_MAX, unit="GB", help=(
         "没单独设过配额的账号能用多少硬盘：它所有任务的文件夹（上传的素材、输出的文件夹和 zip）、还没有任务用到的上传，"
         "加上存在服务器上的模板；缓存不算。满了就不收新上传、不能提交新任务，页面上写明占了多少、上限多少；删掉不要的任务就腾出来。"
         "单个账号的配额在「用户」里按账号改，改了马上生效。")),
@@ -501,8 +503,9 @@ SCHEMA: dict[str, Setting] = {s.key: s for s in (
                 "只能在 config/local.toml 里改：换了以后原来的这些都留在旧文件夹，要一起搬过去。")),
     # ---------------------------------------------------------------- 数据库
     Setting("database.backups", "database", "数据库备份份数", 14, kind="int", min=2, max=365, unit="份", help=(
-        "数据库（账号、任务记录、使用统计……）自动备份留几份：每天一份，另外每次升级数据库前各一份，"
-        "最旧的先删。备份在 work/db/backups/，很小；留多一些，出错时能退回更早的样子。马上生效。")),
+        "数据库（账号、任务记录、使用统计……）自动备份留几份：每天一份（手动备份也算在里面），最旧的先删。"
+        "每次升级数据库、更新程序之前的那一份另外留最近 5 份，不会被每天的挤掉。"
+        "备份在 work/db/backups/，很小；留多一些，出错时能退回更早的样子。马上生效。")),
     # ---------------------------------------------------------------- 日志
     Setting("logs.max_mb", "logs", "日志大小", 10, kind="int", min=1, max=1000, unit="MB", help=(
         "服务日志 work/logs/lab2shot.log 长到这么大就换一个新文件，旧的改名留着。")),
@@ -535,6 +538,7 @@ SCHEMA: dict[str, Setting] = {s.key: s for s in (
                 "比服务器代理清楚，比 Nuke 里无损看要糊一点。改了马上生效，下次看图重新生成。")),
     Setting("view.local_cache_gb", "view", "本机缓存上限", 10, kind="int", min=1, max=500, unit="GB", help=(
                 "浏览器私有文件系统里本机代理最多占用户硬盘多少。满了按最久没看的淘汰。"
+                "三维整段缓存（点云等逐帧数据的块）也算在这份额度里。"
                 "这是硬盘，和浏览器内存无关；内存里只装用户显示过的那几层。")),
     # Point cloud limit: 3D has no compressed-preview switch; a cloud above the limit is always decimated. There is only
     # this limit, no lossless / compressed tiers. The default is small (5 MB) for the same reason the 2D proxy defaults
@@ -691,6 +695,8 @@ def _write(file: Path, values: dict[str, object]) -> None:
 class SettingsError(MessageError, ValueError):
     """config/local.toml can't be read as settings (the server does not start)."""
 
+    status = 500
+
 
 class Settings:
     """This machine's settings, as this process sees them (see the module doc)."""
@@ -834,6 +840,8 @@ class Settings:
 
 class InvalidSettings(MessageError, ValueError):
     """Changes that can't be kept: key -> why (a message each)."""
+
+    status = 400
 
     def __init__(self, problems: dict[str, Msg]) -> None:
         super().__init__(Msg("E-SETTINGS-INVALID", problems=list(problems.values())))

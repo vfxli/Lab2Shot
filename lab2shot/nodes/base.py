@@ -22,10 +22,11 @@ from ..errors import Invalid, NotFound
 from ..messages import Msg
 from ..availability import Cond
 from .applies import Cost, Fact, Licence, OptionTrait, standing_marks  # noqa: F401 (re-exported)
-from .handles import HANDLE_KINDS, Handle, parse_corners, parse_figures, parse_picks, parse_shapes  # noqa: F401 (re-exported)
-from .port import PARAM, Port  # noqa: F401 (re-exported)
+from .handles import (HANDLE_KINDS, Handle, parse_corners, parse_figures, parse_picks, parse_shapes,  # noqa: F401 (re-exported)
+                      say_bad_entries)
+from .port import EITHER, PARAM, Port  # noqa: F401 (re-exported)
 from .params import (  # noqa: F401 (re-exported)
-    ON_NODE_MAX, NodeParams, P, _defaults, _entry_model, _param_list, always_wired, colorspace_param,
+    COOK_BUTTON, PICKED_IN_VIEW, Button, ON_NODE_MAX, pick_button, NodeParams, P, param_defaults, _entry_model, _param_list, always_wired, colorspace_param,
     fp16_param, person_ids, refusal, simple_kind, typed_list, without_params,
 )
 from .services import CORE_PROJECT, ProjectFacts, services, unloaded_project
@@ -104,6 +105,10 @@ class NodeDef:
     # that JSON entry, and template JSON writes it directly (a template card is a node graph). This value is used only
     # when the JSON has no such entry.
     on_node: ClassVar[tuple[str, ...]] = ()
+    # Button parameters of its own (nodes/params.py Button: a panel row that runs an action, holds no value), after its
+    # parameters and after 「计算」 (COOK_BUTTON, which every node has): in the order they are used — cook first, then
+    # what uses its result (「输出」's 「下载」) (interface_specs).
+    buttons: ClassVar[tuple[Button, ...]] = ()
     # Parameters whose values are shown in the value strip below the viewer (Focal Length / Filmback / 镜头模型).
     # The strip normally shows numeric outputs only; a node that uses a lens without outputting one
     # (「LensDistortion」) declares the parameters here so the lens in use is visible. The value shown is the
@@ -160,6 +165,13 @@ class NodeDef:
     #      Length」 and 「Filmback」 appear on many nodes, and listing them per node is error-prone).
     # The criterion is therefore whether the node has the parameter, not a hand-maintained list.
     wired_ports: ClassVar[tuple[str, ...]] = ()
+    # Value inputs that set several of the node's parameters at once (「LensDistortion」's 「镜头内参」: the lens group,
+    # model, coefficients, principal point and pixel aspect of the lens a calibration node solved). Once the wired
+    # value is known (the node feeding it cooked, or gives it from its parameters: known_outputs), the parameters it
+    # sets are what the node is cooked, fingerprinted and described with (engine/evaluation.py params ->
+    # params_from_input): the node follows its source, rather than refusing a model typed differently on it.
+    # The parameters it sets should be greyed while it is wired (applies Not(Wired(port))), so the panel says so.
+    params_inputs: ClassVar[tuple[str, ...]] = ()
 
     # Alternative wirings of the node's inputs: exactly one must be used and at least one is required
     # (「序列图输出设置」: a whole 「图像」, or R G B A wired separately). From this one declaration the framework
@@ -207,6 +219,17 @@ class NodeDef:
     # what it carries is whatever is wired into it, not chosen, unlike an output entry's `type`)
     ports_from_type: ClassVar[str] = ""
 
+    # the rows of an input-making table when the node names them itself: the port names its rows may have, a new row
+    # taking the first one not yet used, and the label the n-th row gets by default (「切换」: a…j, 第一路…第十路, so a
+    # graph's wires to a / b / c keep their meaning however many ways it has). As many rows as names, no more: the page
+    # offers no 「＋」 once they are all used, and the node's own table type refuses more (its row's `name` a Literal
+    # of these, the table's max_length theirs). Empty: rows as many as wanted, named by the page (row1, row2…) and
+    # labelled after what is wired in (「多层 EXR 输出设置」's 图层 depth, mask…).
+    ports_from_names: ClassVar[tuple[str, ...]] = ()
+    ports_from_labels: ClassVar[tuple[str, ...]] = ()
+    # what one row is called where the page offers another (「加一层」, 「加一路」)
+    ports_from_word: ClassVar[str] = "行"
+
     # (from type, to type): it turns data of the one into the other, a generic conversion (「置信度转遮罩」, 「烘焙成模型」).
     # A wire whose type an input does not take, when such a node takes it and gives what the input takes, is kept as a
     # wiring problem with this node as its one click in between (Graph.fix_for; store.ts converterFor): never converted
@@ -226,14 +249,16 @@ class NodeDef:
         """The ports the node has beyond the declared ones, computed from its parameters, on the `ports_from_side`
         side. By default this is the `ports_from` table, one port per row: outputs are typed by `row_type`, inputs are
         always the node's declared `ports_from_type` with alpha (「多层 EXR 输出设置」's 「图层」 table: a picture wired
-        into a row carries its alpha like any other image input).
+        into a row carries its alpha like any other image input). Input rows are optional: a row added on the page
+        (its 「＋」, the table's 「添加」) and not wired yet does not stop the cook; the node skips it and says so once
+        (ExrOutput.write: N-LAYERS-UNWIRED), so every node that makes inputs from a table handles `ctx.input(row)` being None.
 
         Nodes may override it: 「读取序列」 uses no parameter table, and its outputs follow the layers present in the
         file. This method must never raise: it is called for every wire check and every status computation
         (nodes/applies.py output_ports, input_ports)."""
         entries = params.get(cls.ports_from) or () if cls.ports_from else ()
         if cls.ports_from_side == "inputs":
-            return tuple(Port(e["name"], cls.ports_from_type, e["label"], alpha=True) for e in entries)
+            return tuple(Port(e["name"], cls.ports_from_type, e["label"], optional=True, alpha=True, data=EITHER) for e in entries)
         return tuple(Port(e["name"], cls.row_type(e), e["label"]) for e in entries)
 
     @classmethod
@@ -247,13 +272,14 @@ class NodeDef:
 
     @classmethod
     def input_ports(cls, params: dict) -> tuple[Port, ...]:
-        """The node's inputs with these parameters: the declared ones, the ones its `wired_ports` parameters always
-        carry, then one per entry of the ports_from parameter when it makes inputs instead of outputs
-        (「多层 EXR 输出设置」: a port per row of its 图层 table, in row order, which sets the EXR's layer order).
+        """The node's inputs with these parameters: the declared ones, then one per entry of the ports_from parameter
+        when it makes inputs instead of outputs (「多层 EXR 输出设置」: a port per row of its 图层 table, in row order,
+        which sets the EXR's layer order; 「切换」: one per way), then the ones its `wired_ports` parameters always
+        carry (「切换」's 「走哪一路」 under its ways, as the page draws them: webui graph/rules.ts inputsOf).
         Graph.input_ports adds the parameters promoted on this instance on top; the web page reads the resolved ports
         from the status reply, and a row added since that reply from its document (webui graph/rules.ts inputsOf)."""
-        return (cls.inputs + tuple(cls.param_port(n) for n in cls.wired_ports)
-                + (cls.made_ports(params) if cls.ports_from_side == "inputs" else ()))
+        return (cls.inputs + (cls.made_ports(params) if cls.ports_from_side == "inputs" else ())
+                + tuple(cls.param_port(n) for n in cls.wired_ports))
 
     @classmethod
     def param_specs(cls) -> list[dict]:
@@ -273,6 +299,19 @@ class NodeDef:
         return _SPECS[cls]
 
     @classmethod
+    def interface_specs(cls) -> list[dict]:
+        """What the parameter panel lists and a template's parameter interface may expose: every parameter
+        (param_specs), each picks / canvas parameter followed by its own 「在视图里点选」 (pick_button), then the
+        node's buttons in the order they are used (「计算」, then its own, e.g. 「输出」's 「下载」: nodes/params.py Button). Buttons are not parameters: nothing that reads
+        values (loading, the fingerprint, the worker) sees them."""
+        out: list[dict] = []
+        for spec in cls.param_specs():
+            out.append(spec)
+            if spec["widget"] in PICKED_IN_VIEW:
+                out.append(pick_button(spec).spec())
+        return [*out, *(b.spec() for b in (COOK_BUTTON, *cls.buttons))]
+
+    @classmethod
     def param_port(cls, name: str) -> Port:
         """The input a parameter gets when it is driven by a wire (promoted, like a Houdini channel reference or
         ComfyUI's widget turned into an input): "param:<name>", typed by the parameter's kind (a number takes a 浮点
@@ -287,8 +326,15 @@ class NodeDef:
             raise Invalid(Msg("E-NODE-NOPARAM", node=cls.label, names=name))
         if not spec["wire"]:
             raise Invalid(Msg("E-NODE-NOTWIREABLE", node=cls.label, label=spec["label"]))
+        from ..data.values import FLOAT, INT
+
         plate = any(p.name == "image" for p in cls.inputs)
-        return Port(PARAM + name, spec["wire"], spec["label"], optional=True, unit=spec["unit"],
+        # a number with no unit of its own (a count, an index, a factor) takes a plain number only: a value with a
+        # unit wired in would have it dropped on the quiet (2 mm as the second item), so the wire is refused (Port.plain).
+        # Not on a node whose output carries a unit it is given (the constants: unit="param:unit"), which holds any
+        carries = any(o.unit.startswith(PARAM) for o in cls.outputs)
+        plain = not carries and not spec["unit"] and any(t in (INT, FLOAT) for t in spec["wire"].split("|"))
+        return Port(PARAM + name, spec["wire"], spec["label"], optional=True, unit=spec["unit"], plain=plain,
                     expects=(SameShot(),) if plate else (),
                     recommend=CONSTANT_NODES.get(spec["wire"].split("|")[0], "core.make_list"))
 
@@ -368,6 +414,21 @@ class NodeDef:
         return None
 
     @classmethod
+    def wiring_notes(cls, params: dict, wires: dict[str, int]) -> list[tuple[Msg, str]]:
+        """What the node says about how many wires it has (`wires`: input -> how many), beside its parameters: a wire
+        or a setting that does nothing with them, said rather than passed over (「与或非」 set to 非 reads one wire,
+        「合成列表」 more names than items). (message, input) pairs, notices only (engine/lint.py lists them)."""
+        return []
+
+    @classmethod
+    def several_refused(cls, port: str, types: tuple[str, ...]) -> Msg | None:
+        """Why the several wires into multi input `port`, carrying `types` (one per wire, as the graph has them), can't
+        go in together (None: they can): a rule on the wires together, not on any one of them, checked on the graph
+        before a cook (Graph._check_wires) and by the node's own cook on what really came (「逐项结束」: several
+        results of one item pack into a scene only when all are 3D data)."""
+        return None
+
+    @classmethod
     def refusal_fix(cls, data_type: str, kinds: frozenset[str] | None = None) -> str:
         """The node type that turns what the node refuses into what it takes ("" none): offered as one click on the
         refused wire (Graph.fix_for)."""
@@ -405,10 +466,10 @@ class NodeDef:
         what it writes (its input)."""
         from .applies import output_ports
 
-        ports = output_ports(cls, _defaults(cls.Params))
+        ports = output_ports(cls, param_defaults(cls.Params))
         ports = tuple(p for p in ports if p.name == cls.main) + tuple(p for p in ports if p.name != cls.main)
         if cls.handles:
-            stage = HANDLE_KINDS[cls.handles[0].kind][0]
+            stage = HANDLE_KINDS[cls.handles[0].kind].stage
         else:
             first = ports
             if not first or DATA_TYPES[element_of(first[0].type.split("|")[0])].in_3d == "inputs":
@@ -424,16 +485,10 @@ class NodeDef:
             return "plate"  # no picture: pass-through, output settings, tracking, import
         if pixels <= 2:
             return "compute"  # one or two channels (mask, depth, UV, confidence) are not a picture; viewed with the plate
-        if not any(cls._pixel_channels(p.type) for p in cls.inputs):
-            # Source nodes that make their own picture (读取序列, 读取图片, 读取多条序列, 视频转序列, Constant) open on
-            # 「仅结果」. The drawn pixels are identical (the plate of such a node is its own port, view/plan.ts ownImage);
-            # what differs is which channel dropdown is active: 「仅原图」 greys out the 「结果通道」 slot, which holds all
-            # of the file's layers, so a multi-layer EXR would show only 「原图.R/.G/.B/.A」. Output-settings nodes are
-            # unaffected: they have no pixel output and take the `if not pixels` branch above. This matches Nuke's Read,
-            # whose viewer offers a channel dropdown listing all layers and channels of the file.
-            return "result"
-        # channel count follows the input (the `image` family: Crop, STMap, motion-vector warp): its transformed result
-        # is viewed
+        # A picture of three or four channels: its own result, whether it transforms its input (Crop, STMap) or makes
+        # the picture itself (读取序列, 读取图片, 视频转序列, Constant). For a source 「仅结果」 matters: 「仅原图」 would grey
+        # out the 「结果通道」 slot, which holds every layer of the file, so a multi-layer EXR would show only
+        # 「原图.R/.G/.B/.A」 (as Nuke's Read, whose viewer lists every layer and channel of the file).
         return "result"
 
     # ==================================================================== 3. Usage
@@ -444,6 +499,13 @@ class NodeDef:
     # it hands files to the user where they chose (「输出」): a side effect, so it runs on a click only, never because
     # a node is shown
     delivers: ClassVar[bool] = False
+    # a model that finishes another's result (BiRefNet 边缘解混合 on a matte) rather than making the deliverable: never
+    # the card's main project (engine/templates.py core_project, the year its card shows)
+    finishes: ClassVar[bool] = False
+    # the cards that expose its parameters all expose the same ones, named, labelled and hidden alike (a block copied
+    # card to card by hand: `lab2shot check templates`, engine/templates.py shared_interfaces); a card that departs on
+    # purpose declares it in its meta (`own_interface`: the node types)
+    same_on_cards: ClassVar[bool] = False
 
     # the fewest frames of 图像 its method can work with (a temporal network's window, two frames to track between):
     # fewer is refused before cooking, saying how many it got (nodes/expects.py FrameCount); `min_frames_step`: the
@@ -530,9 +592,25 @@ class NodeDef:
         return {}
 
     @classmethod
+    def handle_data(cls, params: dict, inputs: dict) -> dict[int, dict]:
+        """What the stage draws for handles that work on data the node reads from its inputs rather than on the
+        picture (nodes/handles.py Poses: a skeleton, its pose before and after the correction), by the handle's index
+        in `handles`. `inputs` as for `choices` (the packets standing for what is wired in); a handle it cannot give
+        data for yet is left out. Asked for the displayed node only, with the status reply (server/packets.py)."""
+        return {}
+
+    @classmethod
     def source_identity(cls, params: dict) -> Any:
         """Identity of external files a node reads (e.g. size + mtime), folded into its fingerprint."""
         return None
+
+    @classmethod
+    def ready(cls, params: dict) -> None:
+        """What planning this node with these parameters needs that takes a while, done ahead of it: an import reading
+        what its file holds (ImportNode, through its extension's worker). The engine calls it before it plans an
+        instance, outside its lock (engine/cook.py Engine._cook_all), so planning, done under the lock, finds it done
+        and never waits on a worker. Its errors are not said here: planning meets them again and says them where they
+        belong. Nothing for most nodes. (Not `prepare`: that name is a WorkerNode's job builder, families/base.py.)"""
 
     @classmethod
     def info(cls, params: dict, inputs: dict[str, list[Info]]) -> Info:
@@ -540,6 +618,11 @@ class NodeDef:
         packets cook() gets). Sources read it from their files; a frame source gives every frame it can emit (the
         engine cuts them to the cook's range). Cheap: it runs whenever the graph is planned."""
         return Info.merge([i for infos in inputs.values() for i in infos])
+
+    @classmethod
+    def params_from_input(cls, port: str, value: Any) -> dict:
+        """The parameters a known value wired into `port` (one of params_inputs) sets. Must never raise."""
+        return {}
 
     @classmethod
     def known_outputs(cls, params: dict) -> dict[str, dict]:
@@ -610,10 +693,11 @@ class NodeDef:
         if len(placing) > 1:
             raise TypeError(f"{cls.__name__}: one transform handle places a node, it declares {len(placing)}")
         cls.places = placing[0] if placing else None
-        # the input a handle works on is shown with it (webui/src/view/plan.ts): a misspelt one would show nothing, silently
-        unknown = [h.source for h in cls.handles if h.source and h.source not in {p.name for p in cls.inputs}]
-        if unknown:
-            raise TypeError(f"{cls.__name__}: handle source {unknown} is not one of its inputs")
+        # each declaration against this node's parameters and inputs (nodes/handles.py Handle.check); a family's base
+        # class declares handles for parameters only its node types have, so only a node type (with an id) is checked
+        if cls.__dict__.get("id"):
+            for h in cls.handles:
+                h.check(cls)
 
         check_declarations(cls)
 
@@ -621,7 +705,7 @@ class NodeDef:
     def describe(cls) -> dict[str, Any]:
         from .applies import all_outputs, declared_cost, option_traits, resolve_params
 
-        at_defaults = resolve_params(cls, _defaults(cls.Params))
+        at_defaults = resolve_params(cls, param_defaults(cls.Params))
         # Entries of the three sections (matching the three sections of the class body), sent as one dictionary; each
         # group below is headed by the section it belongs to.
         return {
@@ -652,8 +736,13 @@ class NodeDef:
             "ports_from_type": cls.ports_from_type,
             # the type every row's port carries, named by the server (the page never spells a type's name)
             "ports_from_type_label": type_label(cls.ports_from_type) if cls.ports_from_type else "",
-            "params": cls.param_specs(),
-            "defaults": _defaults(cls.Params),
+            # an input table whose rows the node names itself (「切换」's ways): their names and default labels, as
+            # many as it may have; sent only when present, like wired_ports (the page reads `def.ports_from_names?.`)
+            **({"ports_from_names": list(cls.ports_from_names), "ports_from_labels": list(cls.ports_from_labels)}
+               if cls.ports_from_names else {}),
+            "ports_from_word": cls.ports_from_word if cls.ports_from and cls.ports_from_side == "inputs" else "",
+            "params": cls.interface_specs(),  # the parameters, then the buttons (widget "button")
+            "defaults": param_defaults(cls.Params),
             "runtime": cls.runtime,
             "handles": [h.describe() for h in cls.handles],
             "places": cls.places.placement() if cls.places else None,
@@ -748,7 +837,15 @@ class ReadsFile:
 
 def empty_packet(ctx, port: str):
     """An output with nothing in it this time (e.g. the depth port of a node set to give disparity, 「创建相机」 without a
-    focal length): downstream it counts as not connected (a parameter it drives keeps its own value)."""
+    focal length): downstream it counts as not connected (a parameter it drives keeps its own value). A port this cook
+    gives (wanted) must declare it may (Port.may_be_empty): the engine and the page treat such a port so — no
+    N-COOK-NOTHINGIN downstream, the parameter it drives left editable — and an undeclared one would leave a value
+    nobody can see or set; `lab2shot check` (empties) holds every literal port given here to the same."""
     from ..data.packet import Packet
+    from .applies import output_ports
 
+    if port in getattr(ctx, "wanted", ()) and getattr(ctx, "node_type", None) is not None:
+        declared = {p.name: p for p in output_ports(ctx.node_type, ctx.params)}
+        if port in declared and not declared[port].may_be_empty:
+            raise TypeError(f"{ctx.node_type.__name__} gives an empty {port!r}, which does not declare may_be_empty")
     return Packet(ctx.outputs[port], ctx.output_types[port], {"empty": True})

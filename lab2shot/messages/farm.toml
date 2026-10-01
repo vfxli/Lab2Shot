@@ -87,6 +87,8 @@
 "E-UPLOAD-PARTGONE" = "没有这个上传中的文件（服务器清理过没传完的文件）：从头再传"
 "E-UPLOAD-BADSIZE" = "文件大小不对：{size} 字节"
 "E-UPLOAD-OVERSIZE" = "传来的比说好的文件大小（{size} 字节）多：从头再传这个文件"
+"B-UPLOAD-SAMENAME" = "这份上传里有几个名字写法不同、放到服务器上却是同一个文件「{name}」（斜杠方向、多余的斜杠）：只留一个再传"
+"B-UPLOAD-FILEANDFOLDER" = "这份上传里「{name}」既是一个文件，又是「{inside}」所在的文件夹，放不到一起：改掉其中一个的名字再传"
 "E-UPLOAD-NOFILES" = "没有上传任何文件"
 "E-UPLOAD-NOTSENT" = "这些文件还没上传：{files}"
 # 通道级上传（transfer/uploads.py add_planes）：浏览器只传接了线的那几条通道的原始像素，服务器写成只含它们的 EXR
@@ -99,6 +101,8 @@
 "I-UPLOAD-PLANES" = "{user} 传来 {file} 的 {count:d} 条通道（{channels}，{kb:.0f} KB）→ 子集 EXR {blob}"
 "E-UPLOAD-SERVERPATH" = "文件要从本机选择（上传到服务器），不能写服务器上的路径：{path}"
 "E-OUTPUT-INCOMPLETE" = "「{node}」要收集的结果还没写完：这一次没有打包，重新计算它"
+"E-DELIVER-EMPTY" = "「{node}」没有可交付的东西：接进来的输出设置都没有文件"
+"E-OUTPUT-CLASH" = "「{node}」收集时 {file} 已经有另一个文件了：两份结果落到了同一个位置，这一次没有打包。给它们的「名字」各起一个再计算「{node}」"
 "E-OUTPUT-PACKED" = "「{node}」已经打包好了，这一条来晚了没有放进去：重新计算「{node}」"
 
 # ---- 加载扩展包（adapters.py）：写扩展包的人看的

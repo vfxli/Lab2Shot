@@ -1,8 +1,9 @@
 import { useCallback, useState } from "react";
+import { Num } from "../ui/controls";
 import { ByUser } from "./Resources";
 import { api, type DiskArea } from "../api";
 import { Section, useAdmin } from "./common";
-import { sizeText } from "../platform/format";
+import { agoText, sizeText } from "../platform/format";
 import { usePoll } from "../platform/poll";
 import { reasonOf } from "../messages/message";
 import { Button } from "../ui/Button";
@@ -10,11 +11,23 @@ import { useConfirm } from "../ui/Confirm";
 import { msg, type Message } from "../messages/message";
 
 /** 硬盘 section: disk usage of the task folders (their outputs inside), every account's cache and uploads on the server, and cleanup
- * of what is older. Everything is kept per task (lab2shot/farm/disk.py): 任务保留天数 is configured in 设置. */
+ * of what is older. Everything is kept per task (lab2shot/farm/disk.py): 任务保留天数 is configured in 设置. The server
+ * measures in the background (it may take minutes): the section shows the last figures and asks again every
+ * MEASURING_POLL_MS while a measurement runs. */
+const MEASURING_POLL_MS = 2000;
 export function DiskSection() {
   const { problem, go, overview } = useAdmin();
   const read = useCallback(() => api.admin.disk(), []);
-  const { data: areas, reload: reload } = usePoll(read, null, { onError: (e) => problem(reasonOf(e)) });
+  const { data: measured, reload } = usePoll(read, MEASURING_POLL_MS, { until: (d) => !d.measuring, onError: (e) => problem(reasonOf(e)) });
+  const areas = measured?.areas ?? null;
+  const measureAgain = async () => {
+    try {
+      await api.admin.disk(true); // starts a new measurement; the poll follows it until it is through
+      reload();
+    } catch (e) {
+      problem(reasonOf(e));
+    }
+  };
   const [days, setDays] = useState(30);
   const [ask, confirmSheet] = useConfirm();
   const [cleaned, setCleaned] = useState<Message | null>(null);
@@ -38,7 +51,7 @@ export function DiskSection() {
       lede={
         <>
           一切按任务保存：任务结束后过了保留天数整个删除，缓存和素材跟着没有任务再用的时候清掉。这里的「清理」按同样的规则，
-          不会动还有任务在用的内容；队列里有任务时不清理缓存和素材。
+          不会动还有任务在用的内容；有任务在排队或在算的账号，它的缓存和素材这次不清理。
           {disk && ` 工作文件夹 ${disk.path} 所在的盘还剩 ${sizeText(disk.free)}，共 ${sizeText(disk.total)}。`}
         </>
       }
@@ -47,19 +60,25 @@ export function DiskSection() {
           <Button tip="任务保留天数、单任务上传上限、数据位置，在「存储与视图」里改" tone="ghost" onClick={() => go("settings-storage")}>
             自动清理设置
           </Button>
-          <Button tip="重新读取磁盘占用" tone="ghost" onClick={reload}>
+          <Button tip="重新统计磁盘占用（在后台统计，大的盘要几分钟）" tone="ghost" disabled={!!measured?.measuring} onClick={() => void measureAgain()}>
             刷新
           </Button>
         </>
       }
     >
       <div className="disk-days">
-        <label htmlFor="disk-days" data-tip="下面的「清理」按钮删掉这么多天没被用到的内容；0 表示全部">
+        <label data-tip="下面的「清理」按钮删掉这么多天没被用到的内容；0 表示全部">
           清理多少天没用过的
         </label>
-        <input id="disk-days" className="field" type="number" data-tip="下面的「清理」按钮删掉这么多天没被用到的内容；0 表示全部" min={0} value={days} onChange={(e) => setDays(Math.max(0, Number(e.target.value)))} />
+        <Num value={days} min={0} integer label="清理多少天没用过的" tip="下面的「清理」按钮删掉这么多天没被用到的内容；0 表示全部" onChange={setDays} />
         <span>天</span>
       </div>
+      {measured && (measured.measuring || measured.at !== null) && (
+        <p className="adm-lede">
+          {measured.measuring ? "正在重新统计…" : ""}
+          {measured.at !== null && `下面是 ${agoText(measured.at)}统计的结果。`}
+        </p>
+      )}
       {areas ? (
         <div className="q-table-wrap">
           <table className="q-table">

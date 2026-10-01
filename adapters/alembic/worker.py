@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import gc
 import os
-import re
 from pathlib import Path
 
 import json
@@ -52,10 +51,11 @@ import imathnumpy
 from alembic import Abc, AbcCoreAbstract, AbcGeom, Util
 from lab2shot_worker import fail, progress, say, serve, shown
 from lab2shot_worker.run import Run
-from lab2shot_shared.scene_arrays import SceneArrays, load, text
+from lab2shot_shared.names import ORIGINAL, identifier, join_path, split_path, unique
+from lab2shot_shared.scene_arrays import SceneArrays, load, shown_span, text
+from lab2shot_shared.units import DEFAULT_FPS, standard_fps
 
 CM_PER_MM = 0.1
-FALLBACK_FPS = 24.0  # lab2shot.data.units.DEFAULT_FPS: the archive records no rate
 WRAP = Abc.WrapExistingFlag.kWrapExisting
 VARYING = AbcGeom.GeometryScope.kVaryingScope  # one value per point
 FACEVARYING = AbcGeom.GeometryScope.kFacevaryingScope
@@ -131,13 +131,29 @@ def all_objects(obj):
         yield from all_objects(child)
 
 
+def object_name(obj) -> str:
+    """An object's name as it stands for: the original a writer kept in its user property lab2shot:name (names.ORIGINAL,
+    the key USD uses; written where the Alembic name is an identifier made of it), else its own."""
+    schema = (AbcGeom.IXform(obj, WRAP).getSchema() if is_xform(obj) else
+              AbcGeom.IFaceSet(obj, WRAP).getSchema() if AbcGeom.IFaceSet.matches(obj.getMetaData()) else None)
+    props = schema.getUserProperties() if schema is not None else None
+    if props is not None and props.valid() and props.getPropertyHeader(ORIGINAL) is not None:
+        return Abc.IStringProperty(props, ORIGINAL).getValue()
+    return obj.getName()
+
+
 def item_path(obj) -> str:
-    """Where a shape is in the hierarchy, as DCCs show it: its transform (/rig/cam1 for /rig/cam1/cam1Shape) when it is
-    that transform's only shape, else the shape itself."""
+    """Where a shape is in the hierarchy, as DCCs show it, by the names its objects stand for (object_name;
+    names.join_path): its transform (/rig/cam1 for /rig/cam1/cam1Shape) when it is that transform's only shape, else
+    the shape itself."""
     parent = obj.getParent()
     if parent.valid() and parent.getFullName() != "/" and is_xform(parent) and sum(not is_xform(c) for c in children(parent)) == 1:
-        return parent.getFullName()
-    return obj.getFullName()
+        obj = parent
+    chain = []
+    while obj.valid() and obj.getFullName() != "/":
+        chain.append(object_name(obj))
+        obj = obj.getParent()
+    return join_path(reversed(chain))
 
 
 def parent_xforms(obj) -> list:
@@ -170,22 +186,70 @@ def world_matrix(xforms: list, sel) -> np.ndarray:
     return acc.T
 
 
-def item_frames(schema, xforms: list, fps: float, where: str) -> dict[int, float]:
-    """Frame -> the time to read it at: every sample of the shape and its parents when any is animated, else its one
-    sample. Of sub-frame samples (motion blur) the one nearest the frame is kept."""
-    times = sorted({t for s in [schema, *xforms] if s.getNumSamples() > 1 for t in sample_times(s)})
+def visibilities(obj) -> list:
+    """The visibility properties of the object and every object above it (an Alembic object is hidden where its own or
+    an ancestor's is 0)."""
+    out = []
+    while obj.valid() and obj.getFullName() != "/":
+        prop = AbcGeom.GetVisibilityProperty(obj)
+        if prop is not None and prop.valid() and prop.getNumSamples():
+            out.append(prop)
+        obj = obj.getParent()
+    return out
+
+
+SUBFRAME = 1e-3  # a sample this far (in frames) from a whole frame is a sub-frame
+
+
+def item_frames(schema, xforms: list, fps: float, where: str, also=()) -> dict[int, float]:
+    """Frame -> the time to read it at: every sample of the shape and its parents (and `also`: its visibility) when any
+    is animated, else its one sample. Of sub-frame samples (motion blur) the one nearest the frame is kept."""
+    times = sorted({t for s in [schema, *xforms, *also] if s.getNumSamples() > 1 for t in sample_times(s)})
     times = times or sample_times(schema)[:1] or [0.0]
     by_frame: dict[int, float] = {}
     for t in times:
         f = int(round(t * fps))
         if f not in by_frame or abs(t * fps - f) < abs(by_frame[f] * fps - f):
             by_frame[f] = t
-    if len(by_frame) < len(times):
-        say("N-ALEMBIC-SUBFRAMES", path=where, count=len(times) - len(by_frame))
+    # sub-samples belong to the frames they blur: only a frame some sample is on is a frame (the last frame's
+    # sub-samples at 9.33 and 9.67 make no frame 10), unless no sample is on any (a shutter offset off every frame)
+    on = {f: t for f, t in by_frame.items() if abs(t * fps - f) <= SUBFRAME}
+    by_frame = on or by_frame
+    # a sub-frame is a sample off every frame (motion blur), not one the same frame has twice from two samplings
+    # (a transform's and its visibility's: their times differ in the last bits)
+    if off := sum(1 for t in times if abs(t * fps - round(t * fps)) > SUBFRAME):
+        say("N-ALEMBIC-SUBFRAMES", path=where, count=off)
     return dict(sorted(by_frame.items()))
 
 
 # ------------------------------------------------------------------ read
+
+
+DCC_FPS = "_ai_DCC_FPS"  # Alembic's key for the archive's DCC FPS hint (Abc/ArchiveInfo.h kDCCFPSKey)
+
+
+def dcc_fps(archive) -> float:
+    """The archive's DCC FPS hint (GetArchiveInfo's dccFPS), 0 without one. Read by its own key: GetArchiveInfo decodes
+    every text of the archive's info (the application, the user's description) and one that is not UTF-8 (GBK from a
+    Chinese system) would fail the whole file over a text nothing here reads."""
+    try:
+        hint = float(archive.getTop().getMetaData().get(DCC_FPS) or 0.0)
+    except ValueError:
+        return 0.0
+    return standard_fps(hint) if hint > 0 else 0.0  # a hint of 23.976000 is NTSC's 24000/1001
+
+
+def sampled_fps(archive) -> float:
+    """The rate the archive's samples are at when it records no DCC FPS hint (Blender and Houdini write none): the time
+    per cycle of its uniform samplings (a sample a frame) and of its cyclic ones (motion blur: several sub-samples a
+    frame, the cycle a frame), the first, Alembic's default of one second, and acyclic ones aside; the standard rate
+    each stands for (standard_fps), the one most of them have; 0 when none says (a file of one sample)."""
+    rates = []
+    for i in range(1, archive.getNumTimeSamplings()):
+        kind = archive.getTimeSampling(i).getTimeSamplingType()
+        if (kind.isUniform() or kind.isCyclic()) and kind.getTimePerCycle() > 0:
+            rates.append(standard_fps(1.0 / kind.getTimePerCycle()))
+    return max(set(rates), key=rates.count) if rates else 0.0
 
 
 def open_archive(abc: Path):
@@ -203,12 +267,15 @@ class Item:
     def __init__(self, obj, schema, fps: float):
         self.obj, self.schema = obj, schema
         self.path = item_path(obj)
-        self.name = self.path.rsplit("/", 1)[1]
-        xforms = parent_xforms(obj)
-        by_frame = item_frames(schema, xforms, fps, self.path)
+        self.name = split_path(self.path)[-1]
+        xforms, seen = parent_xforms(obj), visibilities(obj)
+        by_frame = item_frames(schema, xforms, fps, self.path, seen)
         self.frames = np.array(list(by_frame), np.int64)
         self.selectors = [Abc.ISampleSelector(float(t)) for t in by_frame.values()]
         self.world = np.stack([world_matrix(xforms, sel) for sel in self.selectors])
+        # its `visible` (scene_arrays: every kind alike), read as write_archive's placed() writes it
+        shown = np.array([all(p.getValue(sel) != 0 for p in seen) for sel in self.selectors])
+        self.visible = {} if shown.all() else {"visible": shown.astype(np.int32)}
 
     def shape_samples(self) -> list:
         """The selectors to read the shape at: one per frame when the shape itself changes, else its one sample."""
@@ -236,7 +303,7 @@ def read_camera(obj, fps: float, out: SceneArrays) -> None:
         say("W-ALEMBIC-FILMBACKOPS", path=it.path)
     props = user_properties(it.schema, fps)
     size = json.loads(props.pop(RESOLUTION, "null"))
-    out.add("camera", it.name, it.path, it.frames, it.world, focal_mm=np.array(lens["focal"], np.float64),
+    out.add("camera", it.name, it.path, it.frames, it.world, **it.visible, focal_mm=np.array(lens["focal"], np.float64),
             h_aperture_mm=np.array(lens["hap"], np.float64), v_aperture_mm=np.array(lens["vap"], np.float64),
             center_mm=np.array([lens["hoff"], lens["voff"]], np.float64).T, pixel_aspect=np.float64(lens["squeeze"][0]),
             overscan=np.array(lens["over"][0], np.float64) / 2.0,
@@ -255,8 +322,11 @@ def user_properties(schema, fps: float) -> dict:
         return out
     for i in range(props.getNumProperties()):
         header = props.getPropertyHeader(i)
-        name = header.getName()
-        if not name.startswith("lab2shot:") or not header.isScalar():
+        try:
+            name = header.getName()
+        except UnicodeDecodeError:  # a DCC's own property named in GBK or the like: not ours (ours are ASCII), not read
+            continue
+        if not name.startswith("lab2shot:") or name == ORIGINAL or not header.isScalar():  # ORIGINAL: object_name's
             continue
         pod = header.getDataType().getPod()
         if pod == Util.POD.kStringPOD:
@@ -315,7 +385,8 @@ def read_model(obj, fps: float, out: SceneArrays) -> None:
         if len(n) == len(indices):
             extra["normals"] = reverse_faces(counts, n)
     extra.update(read_face_sets(obj, len(counts)))
-    out.add("model", it.name, it.path, it.frames, it.world, counts=counts, indices=indices, points=np.stack(points), **extra)
+    out.add("model", it.name, it.path, it.frames, it.world, **it.visible, counts=counts, indices=indices, points=np.stack(points),
+            **extra)
 
 
 def read_face_sets(obj, faces: int) -> dict:
@@ -333,7 +404,7 @@ def read_face_sets(obj, faces: int) -> dict:
         inside = chosen[(chosen >= 0) & (chosen < faces)]
         if len(inside) != len(chosen):
             say("W-ALEMBIC-FACESETRANGE", path=child.getFullName(), dropped=int(len(chosen) - len(inside)))
-        names.append(child.getName())
+        names.append(object_name(child))
         counts.append(len(inside))
         picked.append(inside)
     if not names:
@@ -371,7 +442,7 @@ def per_point(schema, sels, per: list[np.ndarray]) -> dict[str, np.ndarray]:
 
 def tracked(schema, sels, per: list[np.ndarray]) -> dict[str, np.ndarray]:
     """A tracked cloud's ids (when they say more than counting the points of each sample, each once per sample),
-    velocities (v) and visible, each only when every sample has one per point."""
+    velocities (v) and point_visible (its visible), each only when every sample has one per point."""
     out: dict[str, np.ndarray] = {}
     samples = [schema.getValue(sel) for sel in sels]
     ids = [as_numpy(s.getIds(), np.int64).reshape(-1) for s in samples]
@@ -386,7 +457,7 @@ def tracked(schema, sels, per: list[np.ndarray]) -> dict[str, np.ndarray]:
     if header is not None and AbcGeom.IInt32GeomParam.matches(header):
         seen = [as_numpy(AbcGeom.IInt32GeomParam(params, "visible").getExpandedValue(sel).getVals(), np.int32).reshape(-1) for sel in sels]
         if all(len(s) == len(p) for s, p in zip(seen, per)):
-            out["visible"] = np.concatenate(seen)
+            out["point_visible"] = np.concatenate(seen)
     return out
 
 
@@ -398,7 +469,7 @@ def read_cloud(obj, fps: float, out: SceneArrays) -> None:
     per = [as_numpy(it.schema.getValue(sel).getPositions(), np.float32).reshape(-1, 3) for sel in sels]
     extra = per_point(it.schema, sels, per)
     extra.update(tracked(it.schema, sels, per))
-    out.add("points", it.name, it.path, it.frames, it.world, counts=np.array([len(p) for p in per], np.int64),
+    out.add("points", it.name, it.path, it.frames, it.world, **it.visible, counts=np.array([len(p) for p in per], np.int64),
             points=np.concatenate(per).reshape(-1, 3), **extra)
 
 
@@ -414,7 +485,7 @@ def read_curves(obj, fps: float, out: SceneArrays) -> None:
         if int(n.sum()) != len(p):
             fail("E-ALEMBIC-CURVEPOINTS", name=it.name, counted=int(n.sum()), points=len(p))
     extra = per_point(it.schema, sels, per)
-    out.add("curves", it.name, it.path, it.frames, it.world, counts=np.array([len(p) for p in per], np.int64),
+    out.add("curves", it.name, it.path, it.frames, it.world, **it.visible, counts=np.array([len(p) for p in per], np.int64),
             curve_counts=np.array([len(n) for n in strands], np.int64), curve_vertex_counts=np.concatenate(strands),
             points=np.concatenate(per).reshape(-1, 3), **extra)
 
@@ -425,19 +496,29 @@ READERS = ((is_camera, read_camera), (is_mesh, read_model), (is_cloud, read_clou
 def import_file(run: Run) -> None:
     """Every camera, model, point cloud and set of curves of the file (Alembic records no unit and no up axis:
     unit_cm 1, no axes).
-    The rate is the archive's own DCC FPS hint (write_archive and DCC exporters record it); a file without one reads
-    24. It only converts Alembic's seconds into frame numbers; the import node has no frame-rate parameter of its own,
+    The rate is the archive's own DCC FPS hint (write_archive and some DCC exporters record it), else the rate its
+    uniform samplings are at (sampled_fps), else 24, said. It only converts Alembic's seconds into frame numbers; the import node has no frame-rate parameter of its own,
     so the frames found here are the data."""
     job = run.job
     run.stage("读取 Alembic")
-    archive = open_archive(job.inputs["file"])
-    recorded = float(Abc.GetArchiveInfo(archive).get("dccFPS") or 0.0)
-    fps = recorded or FALLBACK_FPS
-    out = SceneArrays(fps, unit_cm=1.0)
-    shapes = [(o, read) for o in all_objects(archive.getTop()) for match, read in READERS if match(o)]
-    for i, (obj, read) in enumerate(shapes):
-        read(obj, fps, out)
-        progress(i + 1, len(shapes), obj.getFullName())
+    # PyAlembic hands every name and text to Python as UTF-8 and fails on anything else (UnicodeDecodeError), with no
+    # way to get at the bytes. The names read here (objects, face sets, the lab2shot: properties) are the items' paths
+    # and parts, so none is guessed at: the file is refused naming it. Texts nothing reads (the archive's description,
+    # a DCC's own properties) are not read at all (dcc_fps, user_properties).
+    try:
+        archive = open_archive(job.inputs["file"])
+        recorded = dcc_fps(archive) or sampled_fps(archive)
+        if not recorded:
+            say("N-ALEMBIC-NOFPS", fps=DEFAULT_FPS)
+        fps = recorded or DEFAULT_FPS  # the frames' rate, to read Alembic's seconds by
+        out = SceneArrays(fps, unit_cm=1.0)
+        out.top["fps_recorded"] = np.array(bool(recorded))  # no rate found: no 「帧率」 (the import node's is empty)
+        shapes = [(o, read) for o in all_objects(archive.getTop()) for match, read in READERS if match(o)]
+        for i, (obj, read) in enumerate(shapes):
+            read(obj, fps, out)
+            progress(i + 1, len(shapes), obj.getFullName())
+    except UnicodeDecodeError:
+        fail("E-ALEMBIC-NAMEENCODING", name=job.inputs["file"].name)
     frames = sorted({int(f) for items in out.items.values() for item in items for f in item["frames"]})
     out.top["frames"] = np.array(frames, np.int64)
     out.save(job.raw_dir / "scene.npz")
@@ -448,26 +529,26 @@ def import_file(run: Run) -> None:
 # ------------------------------------------------------------------ write
 
 
-_NAME_BAD = re.compile(r"[^A-Za-z0-9_]")
-
-
 class Names:
-    """Maya-safe, sibling-unique object names."""
+    """Object names, sibling-unique: Alembic objects take identifiers (Maya reads them as node names; a face set's
+    name with a "/" in it would not even be written), by the same rule and tie-break as the USD writer
+    (lab2shot_shared/names.py identifier, unique), from each part's own name (the scene arrays' `shown` path).
+    keep() writes the name itself beside one that changed, as USD's customData does."""
 
     def __init__(self) -> None:
         self.used: dict[object, set[str]] = {}
 
     def __call__(self, parent_key: object, name: str) -> str:
-        base = _NAME_BAD.sub("_", name.strip()) or "node"
-        if base[0].isdigit():
-            base = "_" + base
         used = self.used.setdefault(parent_key, set())
-        out, n = base, 1
-        while out in used:
-            n += 1
-            out = f"{base}{n}"
+        out = unique(identifier(name or "node"), used)
         used.add(out)
         return out
+
+    @staticmethod
+    def keep(schema, written: str, name: str) -> None:
+        """The original `name` as the object's user property lab2shot:name where `written` differs (object_name reads it)."""
+        if written != name:
+            Abc.OStringProperty(schema.getUserProperties(), ORIGINAL).setValue(name)
 
 
 def matrix_sample(column_vector: np.ndarray):
@@ -498,11 +579,11 @@ class Samplings:
         return self.made[key]
 
 
-def placed(top, names: Names, item: dict, tsidx: int, groups: dict):
+def placed(top, names: Names, item: dict, tsidx: int, groups: dict, samplings):
     """The item's transform, its world per sample, under its path's groups below the scene's /shot (an import's folder and the
     hierarchy its file had: transforms with one identity sample, made once each, so the item's world is its local one
     too); returns (transform, its name)."""
-    parts = [p for p in text(item["path"]).split("/") if p]
+    parts = split_path(text(item["shown"]))
     if parts and parts[0] == "shot":
         parts = parts[1:]
     parent, key = top, "/"
@@ -511,14 +592,22 @@ def placed(top, names: Names, item: dict, tsidx: int, groups: dict):
         if inner not in groups:
             groups[inner] = AbcGeom.OXform(parent, names(key, segment), 0)
             groups[inner].getSchema().set(matrix_sample(np.eye(4)))
+            names.keep(groups[inner].getSchema(), groups[inner].getName(), segment)
         parent, key = groups[inner], inner
-    name = names(key, parts[-1] if parts else text(item["name"]))
+    shown = parts[-1] if parts else text(item["name"])
+    name = names(key, shown)
     world = np.asarray(item["world"], np.float64).reshape(-1, 4, 4)
     if len(world) not in (1, len(item["frames"])):
         fail("E-ALEMBIC-TRANSFORMS", name=name, transforms=len(world), frames=len(item["frames"]))
     xf = AbcGeom.OXform(parent, name, tsidx)
     for m in world:
         xf.getSchema().set(matrix_sample(m))
+    span, on_span = shown_span(item)  # hidden where its `visible` says and in its gaps, every kind alike (as FBX's hide)
+    if not on_span.all():
+        vis = AbcGeom.CreateVisibilityProperty(xf, samplings(span))
+        for on in on_span:
+            vis.setValue(int(AbcGeom.ObjectVisibility.kVisibilityDeferred if on else AbcGeom.ObjectVisibility.kVisibilityHidden))
+    names.keep(xf.getSchema(), name, shown)
     return xf, name
 
 
@@ -554,10 +643,13 @@ def write_face_sets(shape, item: dict) -> None:
     so nothing is turned here; a part may overlap another, so they are written non-exclusive."""
     if "subset_names" not in item:
         return
-    names = [text(n) for n in np.asarray(item["subset_names"]).reshape(-1)]
+    parts = [text(n) for n in np.asarray(item["subset_names"]).reshape(-1)]
     cuts = np.cumsum(np.asarray(item["subset_counts"], np.int64).reshape(-1))[:-1]
-    for name, faces in zip(names, np.split(np.asarray(item["subset_faces"], np.int64).reshape(-1), cuts)):
-        schema = AbcGeom.OFaceSet(shape, name).getSchema()
+    own = Names()  # the mesh's face sets are siblings of each other
+    for name, faces in zip(parts, np.split(np.asarray(item["subset_faces"], np.int64).reshape(-1), cuts)):
+        written = own(None, name)
+        schema = AbcGeom.OFaceSet(shape, written).getSchema()
+        own.keep(schema, written, name)
         schema.setFaceExclusivity(AbcGeom.FaceSetExclusivity.kFaceSetNonExclusive)
         sample = AbcGeom.OFaceSetSchemaSample()
         sample.setFaces(filled(imath.IntArray, faces, np.int32))
@@ -566,7 +658,7 @@ def write_face_sets(shape, item: dict) -> None:
 
 def write_cloud(parent, name: str, item: dict, tsidx: int, report, samplings) -> None:
     """Points per sample with their ids (a tracked cloud's own, else counting them); widths and colours (Cd) one per
-    point; a tracked cloud's velocities (v) and visible."""
+    point; a tracked cloud's velocities (v) and point_visible (as visible)."""
     per = np.asarray(item["counts"], np.int64).reshape(-1)
     points = np.asarray(item["points"], np.float32).reshape(-1, 3)
     if len(per) not in (1, len(item["frames"])) or int(per.sum()) != len(points):
@@ -575,7 +667,7 @@ def write_cloud(parent, name: str, item: dict, tsidx: int, report, samplings) ->
     colors = np.asarray(item["colors"], np.float32).reshape(-1, 3) if "colors" in item else None
     ids = np.asarray(item["ids"]).reshape(-1) if "ids" in item else None
     vel = np.asarray(item["velocities"], np.float32).reshape(-1, 3) if "velocities" in item else None
-    seen = np.asarray(item["visible"], np.int32).reshape(-1) if "visible" in item else None
+    seen = np.asarray(item["point_visible"], np.int32).reshape(-1) if "point_visible" in item else None
     schema = AbcGeom.OPoints(parent, f"{name}Shape", tsidx).getSchema()
     cd = AbcGeom.OC3fGeomParam(schema.getArbGeomParams(), COLOR, False, VARYING, 1, Abc.Argument(tsidx)) if colors is not None else None
     vis = AbcGeom.OInt32GeomParam(schema.getArbGeomParams(), "visible", False, VARYING, 1, Abc.Argument(tsidx)) if seen is not None else None
@@ -667,6 +759,7 @@ WRITERS = {"model": write_model, "points": write_cloud, "curves": write_curves, 
 
 def write_archive(items: dict[str, list[dict]], tmp: Path, fps: float, report) -> dict:
     """Everything Alembic lives in this function: the archive is finished when it returns."""
+    fps = standard_fps(fps)  # a typed 23.976 is written as NTSC's 24000/1001, as the FBX writer does
     archive = Abc.CreateArchiveWithInfo(str(tmp), fps, "Lab2Shot", "Lab2Shot alembic.output")
     top = archive.getTop()
     samplings = Samplings(archive, fps)
@@ -675,7 +768,7 @@ def write_archive(items: dict[str, list[dict]], tmp: Path, fps: float, report) -
     for kind, write in WRITERS.items():
         for item in items[kind]:
             tsidx = samplings(item["frames"])
-            xf, name = placed(top, names, item, tsidx, groups)
+            xf, name = placed(top, names, item, tsidx, groups, samplings)
             write(xf, name, item, tsidx, report, samplings)
     return {kind: len(items[kind]) for kind in WRITERS}
 

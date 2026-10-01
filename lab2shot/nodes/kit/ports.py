@@ -155,3 +155,57 @@ def static_camera_param(rotation_wire: bool = True):
 def follow_camera_param():
     """For methods that solve bodies in their own world and then align it to the camera (GVHMR, WHAM)."""
     return P(False, label="逐帧贴合画面", group="相机")
+
+
+# ------------------------------------------------------------------ 读取节点的「帧率」口
+
+def fps_port(help: str, may_be_empty: bool) -> Port:
+    """读取节点的「帧率」输出口：文件自己记的帧率，接到要帧率的参数上（输出设置的「帧率」、动作模型的「帧率」，
+    data/units.py DEFAULT_FPS 的说明）。may_be_empty：格式可以不记帧率（视频、USD），没记时口给空包，
+    接着的参数照样可填、用填的；总记着的格式（BVH 的 Frame Time）不是。值由 fps_meta / fps_packet 给出。"""
+    from ...data.values import FLOAT
+
+    return Port("fps", FLOAT, "帧率", unit="fps", may_be_empty=may_be_empty, help=help)
+
+
+def fps_meta(fps: float | None) -> dict:
+    """「帧率」口的描述（known_outputs 用：计算前就能在接着的参数上显示）；None：文件没记，空包。不是有限正数的帧率
+    是读取器的错（它该拒收那个文件），报 ValueError，不当成「没记」，也不把 NaN 交给下游。"""
+    import math
+
+    from ...data.values import FLOAT, value_meta
+
+    if fps is None:
+        return {"empty": True}
+    if not math.isfinite(float(fps)) or float(fps) <= 0:
+        raise ValueError(f"a frame rate is a positive number, not {fps!r}")
+    return value_meta(FLOAT, float(fps), unit="fps")
+
+
+def fps_packet(ctx, fps: float | None):
+    """「帧率」口的包（cook 用），与 fps_meta 同一个描述；没记帧率时是 empty_packet（空包只从那一处造）。"""
+    from ...data.packet import Packet
+    from ...data.values import FLOAT
+    from ..base import empty_packet
+
+    if fps is None:
+        return empty_packet(ctx, "fps")
+    return Packet(ctx.outputs["fps"], FLOAT, fps_meta(fps))
+
+
+def normal_port() -> Port:
+    """A normal map output: three channels of values (Port.data), not a picture, and which space they are in said on
+    the packet (means space: 相机 / 世界). One declaration for every node that gives normals."""
+    return Port("normal", "image.3", "法线图", means=("space",), data=True)
+
+
+def rgb_port(label: str = "RGB", name: str = "image", **kw) -> Port:
+    """A picture input (a plate a model looks at): only a picture goes in (Port.data False), a normal map or motion
+    vectors are refused at the wire rather than read as a photograph."""
+    return Port(name, "image.3", label, data=False, **kw)
+
+
+def values_port(name: str, type_: str, label: str, **kw) -> Port:
+    """An input of values (normals, positions, motion vectors: Port.data True): a picture is refused at the wire rather
+    than read as numbers (a photograph's colours taken for motion vectors)."""
+    return Port(name, type_, label, data=True, **kw)

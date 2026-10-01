@@ -3,7 +3,7 @@ import type { Frame } from "./overlays";
 import { ERROR_COLOR } from "../platform/palette";
 import { CORNER_COLOR, type Entry, type Pt, parse } from "./handleParts";
 import { personAt } from "../model/people";
-// 火柴人类手柄的全部逻辑位于 view/figure2d.ts
+// all of the stick-figure handle's logic lives in view/figure2d.ts
 import { drawFigure, figureBox, figureEntry, figureFrames, joints } from "./figure2d";
 
 export type { Pt };
@@ -18,7 +18,34 @@ export { addFigure, figureAdd, figureFrames } from "./figure2d";
 
 const FONT = "600 11px -apple-system, 'PingFang SC', 'Microsoft YaHei UI', sans-serif";
 const POINT_COLORS = ["#FF8FC7", ERROR_COLOR]; // the first label (a point to track, "this"), the second ("not this")
-const near = (a: Pt, b: Pt, s: number) => Math.hypot(a.x - b.x, a.y - b.y) * s < 10;
+/** The 2D handles' one hit rule, in two forms: what the pointer is on is the nearest point within 10 screen pixels
+ * (`pointUnder`), or of the shapes containing it the smallest (`smallest`: a box drawn inside another, an outline inside an
+ * outline); never the first in the list. Grabbing and right-click removing both use them. Index; -1 none; `null`
+ * entries are not candidates. */
+function pointUnder(pts: readonly (Pt | null)[], p: Pt, scale: number): number {
+  let best = -1, d = Infinity;
+  pts.forEach((q, i) => {
+    if (!q) return;
+    const di = Math.hypot(q.x - p.x, q.y - p.y) * scale;
+    if (di < 10 && di < d) (best = i), (d = di);
+  });
+  return best;
+}
+function smallest(shapes: readonly ({ inside: boolean; area: number } | null)[]): number {
+  let best = -1, a = Infinity;
+  shapes.forEach((s, i) => {
+    if (s?.inside && s.area < a) (best = i), (a = s.area);
+  });
+  return best;
+}
+/** The size `smallest` compares, for every kind of shape: the area of its bounding box (a box and a figure are measured
+ * that way anyway). Not the polygon's own area: a self-crossing outline (a figure eight) has lobes that cancel in the
+ * shoelace sum, while `insidePolygon` counts the pointer inside either lobe, so the two would not be about the same shape. */
+const areaOf = (pts: readonly Pt[]): number => {
+  if (!pts.length) return 0;
+  const xs = pts.map((q) => q.x), ys = pts.map((q) => q.y);
+  return (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+};
 const DRAWN_COLOR = "#64D2FF"; // the colour of what the pointer draws on the picture: a box, a freehand outline ("canvas": 「手画遮罩」)
 const CANVAS_STEP = 1.5; // image pixels a freehand drag must travel before another point is added
 
@@ -33,6 +60,10 @@ export interface Drag {
   whole?: boolean;
   point?: number; // which entry of a points handle is being moved (its index in `values`)
 }
+
+/** Where a grabbed point is during / after a drag: where it was, moved by the pointer's travel since the press (grabbing
+ * it a few pixels off does not make it jump under the pointer; the same rule as the 3D handles' increment). */
+const moved = (q: Pt, d: Drag): Pt => ({ x: q.x + d.to.x - d.from.x, y: q.y + d.to.y - d.from.y });
 
 const quad = (e: Entry): Pt[] => [0, 1, 2, 3].map((k) => ({ x: e.v[2 * k], y: e.v[2 * k + 1] }));
 /** An entry's points: a quad's four, an outline's as many as were drawn. */
@@ -72,6 +103,15 @@ function drawQuad(f: Frame, pts: Pt[], faint: boolean, note: string) {
   ctx.restore();
 }
 
+/** Where a four-corner entry is on `frame`, as drawn and as hit (drawHandle, removeAt): on its own frame where it was
+ * drawn; on another frame, once there is a tracked result for it, where the result is (as Nuke's planar tracker does:
+ * away from the start frame the picture has moved, so the start frame's pixel positions would sit over something else);
+ * else at the start frame's positions, faint. Only the start frame can be dragged. */
+function quadShown(e: Entry, frame: number, tracked: TracksData | null): { pts: Pt[]; followed: boolean } {
+  const at = e.frame !== frame && tracked?.outline ? tracked.outline[tracked.frames.indexOf(frame)] : undefined;
+  return at ? { pts: at.corners.map(([x, y]) => ({ x, y })), followed: true } : { pts: quad(e), followed: false };
+}
+
 /** `tracked`: this node's own result, when it is current (a planar track's outline per frame, overlays.ts drawTracks;
  * view/plan.ts underHandles leaves a result out while it does not match the handle). */
 export function drawHandle(h: HandleDef, f: Frame, values: string[], drag: Drag | null, tracked: TracksData | null = null) {
@@ -83,7 +123,7 @@ export function drawHandle(h: HandleDef, f: Frame, values: string[], drag: Drag 
       if (e.frame !== frame) return;
       const label = e.v[2] ?? 0;
       // the one being dragged follows the pointer (the entry is only rewritten when the drag ends)
-      const at_ = drag && drag.point === i ? drag.to : { x: e.v[0], y: e.v[1] };
+      const at_ = drag && drag.point === i ? moved({ x: e.v[0], y: e.v[1] }, drag) : { x: e.v[0], y: e.v[1] };
       const [cx, cy] = [at.x + at_.x * at.s, at.y + at_.y * at.s];
       ctx.strokeStyle = ctx.fillStyle = POINT_COLORS[label] ?? POINT_COLORS[0];
       ctx.lineWidth = f.line;
@@ -117,12 +157,10 @@ export function drawHandle(h: HandleDef, f: Frame, values: string[], drag: Drag 
       const [a, b] = [drag.from, drag.to];
       drawQuad(f, [a, { x: b.x, y: a.y }, b, { x: a.x, y: b.y }], false, "");
     } else if (e) {
-      const pts = quad(e);
-      if (drag?.corner !== undefined && e.frame === frame) pts[drag.corner] = drag.to;
-      // 计算出结果后，其他帧上的手柄跟随结果（与 Nuke 平面跟踪的做法相同）：起始帧以外的帧画面已经移动，
-      // 若仍按起始帧的像素位置淡色绘制，框下方已是其他内容。有该帧跟踪结果时绘制在结果位置，只有起始帧可拖动
-      const followed = e.frame !== frame && tracked?.outline ? tracked.outline[tracked.frames.indexOf(frame)] : undefined;
-      if (followed) drawQuad(f, followed.corners.map(([x, y]) => ({ x, y })), true, `四个角在第 ${e.frame} 帧画的，这是跟踪到的位置`);
+      const shown = quadShown(e, frame, tracked);
+      const pts = shown.pts;
+      if (drag?.corner !== undefined && e.frame === frame) pts[drag.corner] = moved(pts[drag.corner], drag);
+      if (shown.followed) drawQuad(f, pts, true, `四个角在第 ${e.frame} 帧画的，这是跟踪到的位置`);
       else drawQuad(f, pts, e.frame !== frame, e.frame !== frame ? `四个角在第 ${e.frame} 帧` : "");
     }
   } else if (h.kind === "canvas") {
@@ -143,23 +181,21 @@ export function drawHandle(h: HandleDef, f: Frame, values: string[], drag: Drag 
     }
     ctx.restore();
   } else if (h.kind === "figure") {
-    // 当前帧的火柴人实线绘制（并标注正在拖动的关节名称）；另外以淡色叠加前一帧和后一帧各一个，
-    // 即洋葱皮，与二维动画软件中的做法相同，用于逐帧检查连续性。
-    // 不以淡色绘制所有帧：绘制十余帧后会有十余个人形重叠，反而无法判断连续性。
+    // The current frame's figure is drawn solid (with the name of the joint being dragged); the previous and the next
+    // posed frame are laid over it faintly, one each — onion skin, as in 2D animation software, for checking continuity
+    // frame by frame. Not every frame faintly: a dozen overlapping figures make continuity impossible to judge.
     const dragged = drag && drag.joint !== undefined ? drag : null;
     const all = figureFrames(values);
     const prev = all.filter((k) => k < frame).pop();
     const next = all.find((k) => k > frame);
     const noteOf = (at: number) => (at === prev ? `上一帧 ${at}` : at === next ? `下一帧 ${at}` : "");
-    // 先绘制淡色，再绘制实线：当前帧的人形始终位于最上层，指针抓取的也是它
+    // faint ones first, then the solid one: the current frame's figure is always on top, and it is what the pointer grabs
     const order = values.map(parse).filter((e) => e.frame === prev || e.frame === next || e.frame === frame)
                         .sort((a, b) => Number(a.frame === frame) - Number(b.frame === frame));
     for (const e of order) {
       let pts = joints(e);
       if (dragged && e.frame === frame)
-        pts = dragged.whole
-          ? pts.map((q) => ({ x: q.x + dragged.to.x - dragged.from.x, y: q.y + dragged.to.y - dragged.from.y }))
-          : pts.map((q, k) => (k === dragged.joint ? dragged.to : q));
+        pts = pts.map((q, k) => (dragged.whole || k === dragged.joint ? moved(q, dragged) : q));
       drawFigure(f, pts, e.frame !== frame, noteOf(e.frame), h.labels,
                  dragged && e.frame === frame ? (dragged.whole ? 0 : dragged.joint!) : -1,
                  e.frame === next ? 1 : 0);
@@ -193,26 +229,25 @@ export function clickHandle(h: HandleDef, values: string[], frame: number, p: Pt
  * (moves it), a new freehand outline (canvas), else a new box or quad; null where nothing can be dragged. */
 export function dragStart(h: HandleDef, values: string[], frame: number, p: Pt & { inside: boolean }, scale: number): Drag | null {
   if (h.kind === "points") {
-    // 点偏后可拖回，无需删除重点。抓取当前帧上距离指针最近的点，
-    // 与「四个角」抓取角点、火柴人抓取关节的机制相同：手柄是视图组件，使用它的节点无需任何修改
-    const i = values.findIndex((text) => {
-      const e = parse(text);
-      return e.frame === frame && near({ x: e.v[0], y: e.v[1] }, p, scale);
-    });
+    // A misplaced point can be dragged back instead of deleted and placed again. The point on the current frame nearest
+    // the pointer is grabbed, by the same mechanism as the corners of 「四个角」 and a figure's joints: the handle is a
+    // view component, and the nodes using it need nothing of their own
+    const i = pointUnder(values.map((text) => { const e = parse(text); return e.frame === frame ? { x: e.v[0], y: e.v[1] } : null; }), p, scale);
     return i < 0 ? null : { from: p, to: p, point: i };
   }
   if (h.kind === "corners" && values.length) {
     const e = parse(values[0]);
-    const corner = e.frame === frame ? quad(e).findIndex((q) => near(q, p, scale)) : -1;
+    const corner = e.frame === frame ? pointUnder(quad(e), p, scale) : -1;
     if (corner >= 0) return { from: p, to: p, corner };
   }
   if (h.kind === "canvas") return p.inside ? { from: p, to: p, path: [{ x: p.x, y: p.y }] } : null;
   if (h.kind === "figure") {
-    // 只抓取当前帧火柴人的关节，拖动不创建任何内容（拖框创建会使人体比例失真）。
-    // 添加姿势通过参数面板的「添加帧」，比例由 FIGURE_TPOSE 表决定
+    // Only the joints of the current frame's figure are grabbed; a drag creates nothing (creating by dragging a box
+    // would distort the body's proportions). Poses are added with 「添加帧」 in the parameter panel, proportioned by
+    // the FIGURE_TPOSE table
     const here = values.map(parse).find((e) => e.frame === frame);
     if (!here) return null;
-    const j = joints(here).findIndex((q) => near(q, p, scale));
+    const j = pointUnder(joints(here), p, scale);
     return j < 0 ? null : { from: p, to: p, joint: j, whole: j === 0 }; // the pelvis moves the whole body
   }
   return (h.kind === "box" || h.kind === "corners") && p.inside ? { from: p, to: p } : null;
@@ -234,7 +269,8 @@ export function dragHandle(h: HandleDef, values: string[], frame: number, drag: 
     if (drag.point === undefined) return null;
     const e = parse(values[drag.point]);
     const label = e.v.length > 2 ? `,${e.v[2]}` : "";
-    return values.map((text, i) => (i === drag.point ? `${e.frame}:${to.x.toFixed(1)},${to.y.toFixed(1)}${label}` : text));
+    const q = moved({ x: e.v[0], y: e.v[1] }, drag);
+    return values.map((text, i) => (i === drag.point ? `${e.frame}:${q.x.toFixed(1)},${q.y.toFixed(1)}${label}` : text));
   }
   if (h.kind === "canvas") {
     const pts = drag.path ?? [];
@@ -242,19 +278,18 @@ export function dragHandle(h: HandleDef, values: string[], frame: number, drag: 
     return [...values, `${frame}:${pts.map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(",")}`];
   }
   if (h.kind === "figure") {
-    // 拖动只调整姿势，从不创建：若拖动创建新火柴人，同一帧上已有的火柴人会被静默覆盖
+    // a drag only adjusts a pose and never creates one: creating a figure by dragging would silently replace the one already on this frame
     const at = values.findIndex((text) => parse(text).frame === frame);
     if (drag.joint === undefined || at < 0) return null;
     const pts = joints(parse(values[at]));
-    const moved = drag.whole
-      ? pts.map((q) => ({ x: q.x + to.x - from.x, y: q.y + to.y - from.y }))
-      : pts.map((q, k) => (k === drag.joint ? to : q));
-    return values.map((text, i) => (i === at ? figureEntry(frame, moved) : text));
+    const posed = pts.map((q, k) => (drag.whole || k === drag.joint ? moved(q, drag) : q));
+    return values.map((text, i) => (i === at ? figureEntry(frame, posed) : text));
   }
   if (h.kind === "corners" && drag.corner !== undefined) {
     const e = parse(values[0]);
     const v = [...e.v];
-    [v[2 * drag.corner], v[2 * drag.corner + 1]] = [Number(to.x.toFixed(1)), Number(to.y.toFixed(1))];
+    const q = moved({ x: v[2 * drag.corner], y: v[2 * drag.corner + 1] }, drag);
+    [v[2 * drag.corner], v[2 * drag.corner + 1]] = [Number(q.x.toFixed(1)), Number(q.y.toFixed(1))];
     return [`${e.frame}:${v.join(",")}`, ...values.slice(1)];
   }
   if ((h.kind !== "box" && h.kind !== "corners") || Math.abs(to.x - from.x) < 4 || Math.abs(to.y - from.y) < 4) return null;
@@ -265,26 +300,46 @@ export function dragHandle(h: HandleDef, values: string[], frame: number, drag: 
 }
 
 /** A right click: the entries without the one under the pointer on this frame (null: nothing there). */
-export function removeAt(h: HandleDef, values: string[], frame: number, p: Pt, scale: number): string[] | null {
-  const i = values.findIndex((text) => {
+export function removeAt(h: HandleDef, values: string[], frame: number, p: Pt, scale: number, source: BoxesData | null = null, tracked: TracksData | null = null): string[] | null {
+  // 「选人」: what is drawn is the person's box, lit (the pick itself is not drawn): a right click in that box removes the
+  // picks of that person on this frame
+  if (h.kind === "person") {
+    const id = personAt(source, frame, p);
+    if (id === null) return null;
+    const rest = values.filter((text) => { const e = parse(text); return !(e.frame === frame && personAt(source, frame, { x: e.v[0], y: e.v[1] }) === id); });
+    return rest.length === values.length ? null : rest;
+  }
+  if (h.kind === "points") {
+    const i = pointUnder(values.map((text) => { const e = parse(text); return e.frame === frame ? { x: e.v[0], y: e.v[1] } : null; }), p, scale);
+    return i < 0 ? null : values.filter((_, k) => k !== i);
+  }
+  // the shapes as drawn, containing the pointer, the smallest taken (the inner of nested boxes / outlines); the margin
+  // around a figure is 10 screen pixels, the one reach of the 2D handles (pointUnder)
+  const reach = 10 / Math.max(scale, 1e-6);
+  const i = smallest(values.map((text) => {
     const e = parse(text);
-    if (h.kind === "canvas") return insidePolygon(p, polygon(e)); // an outline applies to every frame: it can be removed from any frame
-    if (e.frame !== frame) return false;
+    if (h.kind === "canvas") { const pts = polygon(e); return { inside: insidePolygon(p, pts), area: areaOf(pts) }; } // an outline applies to every frame
+    // a quad is drawn on every frame (its start frame solid, the others dashed or where it was tracked to): removable
+    // from any of them, where it is drawn there (quadShown, the same as drawHandle)
+    if (h.kind === "corners") { const q = quadShown(e, frame, tracked).pts; return { inside: insidePolygon(p, q), area: areaOf(q) }; }
+    if (e.frame !== frame) return null;
     if (h.kind === "figure") {
       const b = figureBox(joints(e));
-      return p.x >= b.x1 - 8 && p.x <= b.x2 + 8 && p.y >= b.y1 - 8 && p.y <= b.y2 + 8;
+      return { inside: p.x >= b.x1 - reach && p.x <= b.x2 + reach && p.y >= b.y1 - reach && p.y <= b.y2 + reach, area: (b.x2 - b.x1 + 2 * reach) * (b.y2 - b.y1 + 2 * reach) };
     }
-    if (h.kind === "box") return p.x >= e.v[0] && p.x <= e.v[2] && p.y >= e.v[1] && p.y <= e.v[3];
-    if (h.kind === "corners") return insidePolygon(p, quad(e));
-    return near({ x: e.v[0], y: e.v[1] }, p, scale);
-  });
+    // a box as drawn, whichever corner the entry starts from
+    const [x1, x2] = [Math.min(e.v[0], e.v[2]), Math.max(e.v[0], e.v[2])];
+    const [y1, y2] = [Math.min(e.v[1], e.v[3]), Math.max(e.v[1], e.v[3])];
+    return { inside: p.x >= x1 && p.x <= x2 && p.y >= y1 && p.y <= y2, area: (x2 - x1) * (y2 - y1) };
+  }));
   return i < 0 ? null : values.filter((_, k) => k !== i);
 }
 
 /** The pointer's action with this handle, for the cursor and the toolbar hint. */
 export const HANDLE_HINT: Record<HandleDef["kind"], string> = {
-  // 每条提示都须在窄窗口中放得下：该文字绘制在视图底部的药丸中，`white-space: nowrap`，
-  // 放不下时不得换行或使用省略号，只能换用更短的措辞：最长一条约 330 px，1100 宽的窗口也能容纳。
+  // Every hint must fit a narrow window: it is drawn in the pill at the bottom of the view, `white-space: nowrap`,
+  // and when it does not fit it may neither wrap nor use an ellipsis, only shorter wording: the longest is about
+  // 330 px, which a 1100-wide window holds.
   points: "点一下加一个点 · 拖动调位置 · 右键删掉",
   box: "拖出一个框，右键框里删掉",
   canvas: "按住左键拖一圈圈出范围，松手闭合 · 右键删掉",
@@ -292,4 +347,5 @@ export const HANDLE_HINT: Record<HandleDef["kind"], string> = {
   corners: "拖框当平面 · 四个角各拖到位 · 右键框里删掉",
   person: "点画面里的人选中（点在人物框里）",
   transform: "拖动手柄移动、旋转、缩放",
+  skeleton_pose: "点关节选中 · 拖手柄转、移、缩放 · 右边面板填数、镜像、复位",
 };

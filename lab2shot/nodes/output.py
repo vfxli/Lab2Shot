@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Literal
@@ -61,14 +62,42 @@ FILES = "files"  # the data type of what a settings node gives 「输出」: the
 FILES_OUT = Port("files", FILES, "文件")
 
 
+# what a file name may not hold (Windows' reserved characters, the separators, control characters)
+_BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
+
+
+# names Windows keeps for devices, with any extension (CON, con.txt): a folder or file of that name can't be unpacked there
+_RESERVED = re.compile(r"(?i)^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$")
+
+
+def name_key(name: str) -> str:
+    """What two names of files or folders are compared by: one on some file system if this is the same (Unicode
+    normalised, NFC, as macOS spells it differently; case folded, as Windows and macOS don't tell 「A」 from 「a」). The
+    one rule: 「输出」's sub-folders per 名字 (engine/graph.py check_delivery, core/output.py), its items' sub-folders
+    (transfer/outputs.py _item_dir)."""
+    return unicodedata.normalize("NFC", name).casefold()
+
+
+def file_name(name, label: str, error: type[Exception] | None = None) -> str:
+    """An output-settings node's 名字 as the name of its files and its sub-folder: one plain file name, never a path.
+    Returns it stripped and NFC-normalised; GraphError (B-DELIVER-BADNAME) when it is empty, "." / "..", holds a separator
+    or a character a file name may not, ends in a dot or a space, or is a name Windows keeps for a device (CON, con.txt). The one rule, for a name the graph knows (engine/graph.py check_delivery) and for one a wire
+    gives, known only when the node cooks (OutputSettings.stem; `error` Invalid there: a node's own error, not the graph's)."""
+    from ..errors import GraphError
+
+    name = unicodedata.normalize("NFC", str(name or "").strip())
+    if not name or name in (".", "..") or _BAD_NAME.search(name) or name.endswith((".", " ")) or _RESERVED.match(name):
+        raise (error or GraphError)(Msg("B-DELIVER-BADNAME", node=label, name=name))
+    return name
+
+
 def name_param(default: str) -> Any:
     """A settings node's 名字: 「输出」 puts its files in a sub-folder of that name and names them after it."""
     return P(default, label="名字", group="文件", unique=True)
 
 
-# 帧率：整个 Lab2Shot 里唯一说得出帧率的地方。帧率是项目级别的东西，这里没有项目的概念，所以只在输出时指定。
-# 只有文件本身按时间存的格式要它（时间码、或者直接按秒存）；序列图、CSV、.chan、
-# Nuke 的关键帧都只认帧号，那些节点上没有这个参数。
+# 交付的帧率（另一处要帧率的是动作模型节点，data/units.py DEFAULT_FPS 的说明）。只有文件本身按时间存的格式要它
+# （时间码、或者直接按秒存）；序列图、CSV、.chan、Nuke 的关键帧都只认帧号，那些节点上没有这个参数。
 def fps_param(*, applies=None) -> Any:
     """A settings node's 帧率, when its format stores time: written onto the file it delivers, nothing else."""
     from ..data.units import DEFAULT_FPS
@@ -144,8 +173,9 @@ class OutputSettings(Pasteable, NodeDef):
 
     @classmethod
     def stem(cls, ctx) -> str:
-        """What every file the node writes is named after: its 名字, marked when a model made it."""
-        return marked(ctx.params["name"], learned_projects(ctx.provenance))
+        """What every file the node writes is named after: its 名字, marked when a model made it. The 名字 is checked here
+        by the graph's own rule (engine/graph.py file_name): a wired one is known only now."""
+        return marked(file_name(ctx.params["name"], ctx.label, Invalid), learned_projects(ctx.provenance))
 
     @classmethod
     def sequence_main(cls, ctx, suffix: str) -> str:
@@ -160,7 +190,7 @@ class OutputSettings(Pasteable, NodeDef):
         from ..data.packet import Packet
 
         prov = ctx.provenance
-        out, name = ctx.outputs["files"], ctx.params["name"]
+        out, name = ctx.outputs["files"], file_name(ctx.params["name"], ctx.label, Invalid)
         inside(out, f"{name}.lab2shot.json").write_text(json.dumps({"file": main, **prov}, ensure_ascii=False, indent=2), encoding="utf-8")
         made_from = next((p.type for ps in ctx.inputs.values() for p in ps), "")
         written = sorted(f.relative_to(out).as_posix() for f in out.rglob("*") if f.is_file())

@@ -7,13 +7,47 @@
   "author": "Lab2Shot",
   "created": "2026-09-13T12:00:00",
   "deliverable": "tracks3d",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "name": "ref_frame",
+   "label": "参考帧",
+   "target": "track.query_frame"
+  },
+  {
+   "name": "picks",
+   "label": "跟踪点",
+   "target": "track.picks",
+   "show_on_change": true
+  },
+  {
+   "name": "picks_pick",
+   "label": "在视图里点选",
+   "target": "track.picks_pick"
   },
   {
    "name": "track_step",
@@ -21,9 +55,70 @@
    "target": "track.track_step"
   },
   {
-   "name": "unit",
-   "label": "单位",
-   "target": "usd.unit"
+   "name": "resolution",
+   "label": "处理分辨率",
+   "target": "track.resolution"
+  },
+  {
+   "name": "point_step",
+   "label": "点云间隔",
+   "target": "track.point_step"
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "max_frames",
+     "label": "每段最多帧数",
+     "target": "track.max_frames"
+    },
+    {
+     "name": "point_size",
+     "label": "点的大小",
+     "target": "track.point_size"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "usd.name"
+    },
+    {
+     "name": "unit",
+     "label": "单位",
+     "target": "usd.unit"
+    },
+    {
+     "name": "fps",
+     "label": "帧率",
+     "target": "usd.fps"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "计算",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -33,11 +128,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 0
+    "y": 92
    }
   },
   {
@@ -50,10 +147,11 @@
     "resolution": 640,
     "max_frames": 64,
     "picks": [],
-    "point_size": 0.5
+    "point_size": 0.5,
+    "point_step": 4
    },
    "ui": {
-    "x": 320,
+    "x": 400,
     "y": 0,
     "on_node": [
      "query_frame",
@@ -69,16 +167,20 @@
    "params": {
     "name": "dense4d",
     "format": "usd",
-    "unit": "cm"
+    "unit": "cm",
+    "fps": 24.0
    },
    "ui": {
-    "x": 700,
+    "x": 809,
     "y": 40,
     "on_node": [
      "name",
      "unit"
     ]
-   }
+   },
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "deliver",
@@ -86,8 +188,8 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1000,
-    "y": 40
+    "x": 1209,
+    "y": 68
    }
   }
  ],
@@ -126,6 +228,16 @@
    "from": [
     "track",
     "camera"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "track",
+    "points"
    ],
    "to": [
     "usd",

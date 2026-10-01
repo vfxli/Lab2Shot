@@ -13,17 +13,19 @@ Node -> worker, the job input "motion" (write_job):
                  model [M], rig [M]                      the model joints the rig has, and their rig joint
                  aim [M]                                 each one's aim joint: a model joint, "up", or "" (its parent's)
                  legs [4]                                the model's left thigh, left shin, right thigh, right shin
+                 landmarks [n]                           the model's hands and head (those it has): where the trunk runs
 Worker -> node (write_result / read_result):
     raw/motion.npz  keys [K]             where each sent frame sits on the model's timeline, in model frames
                                          (model_frames for generation, model_times for cleanup: it need not be whole);
                                          the model's own frames are 0 ... T-1
                     joints [P]           rig joints the model moved
                     rotations [T,P,3,3]  their world rotations
-                    root [T,3]           the world position of the rig joint the model's root follows (cm)
+                    root [T,3]           the rig's hip point in the world: the middle of its two thighs (cm)
                     contacts [T,4]       0..1: left heel, left toe, right heel, right toe on the ground
                     labels [T,L]         0..1 per model frame: how wrong the model found that frame, one column per
                                          thing it judges (a cleanup model that judges nothing writes none)
-    raw/result.json root_joint (that rig joint), model_fps, scale, label_names [L], and what the model was given
+    raw/result.json root_joint (the rig joint moved to place it), thighs [2] (the two rig joints), model_fps, scale,
+                    label_names [L], and what the model was given
 
 The path without a production rig (a generating node given text only, no animation) goes through write_model_result: it
 returns the model's own skeleton, and the file layout is described in that function's docstring.
@@ -57,7 +59,8 @@ def write_result(run: Run, retarget: Retarget, model_fps: float, keys: np.ndarra
     np.savez(raw / MOTION, keys=np.asarray(keys, np.float64), joints=np.asarray(joints, np.int64),
              rotations=rot, root=root, contacts=np.asarray(contacts, np.float32), **arrays)
     return run.finish(list(range(len(rot))), model_fps=model_fps, frames=len(rot), scale=retarget.scale,
-                      root_joint=dict(retarget.pairs)[0], label_names=list(label_names), **info)
+                      root_joint=dict(retarget.pairs)[0], thighs=list(retarget.thighs), label_names=list(label_names),
+                      **info)
 
 
 def write_model_result(run: Run, skeleton, frames: int, rotations: np.ndarray, positions: np.ndarray,

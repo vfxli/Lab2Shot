@@ -28,10 +28,11 @@ class FaceAnything(Extension):
     source = GitSource(url=FACEANYTHING_URL, commit=FACEANYTHING_COMMIT)
     license = LicenseInfo(
         tag=NONCOMMERCIAL,
+        uses=("FLAME",),
         name="CC BY-NC 4.0（非商用）",
         url="https://github.com/kocasariumut/FaceAnything/blob/main/LICENSE",
         summary=(
-            "代码和权重均为 CC BY-NC 4.0：只能用于研究和评估，不能用于商业制作（含商业项目的镜头）。"
+            "非商用：代码和权重均为 CC BY-NC 4.0，不能用于商业制作（含商业项目的镜头）。"
             "模型主干 Depth-Anything-3 DA3-GIANT 同为 CC BY-NC 4.0，训练数据来自 FLAME 模型拟合"
             "（FLAME 许可证同样只允许非商业科研），商用授权需分别联系作者。"
             "背景遮罩用 Robust Video Matting（代码和权重为 GPL-3.0：可商用，但修改后分发需同样以 GPL-3.0 开源）。"

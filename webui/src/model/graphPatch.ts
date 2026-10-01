@@ -19,12 +19,16 @@ export function tree(graph: Obj): Obj {
   return { ...graph, nodes: Object.fromEntries(nodes.map((n) => [String(n.id), n])), node_order: nodes.map((n) => String(n.id)) };
 }
 
+/** Whether two values are the same as JSON: what a graph file would hold for them (a key whose value is undefined is not
+ * there at all, an undefined in a list is null, -0 is 0, and a NaN written twice is the same). The page's one deep
+ * comparison of document values (the history, the "same value, no write" test of state/cookInputs.ts). */
 export function same(a: Json | undefined, b: Json | undefined): boolean {
-  if (a === b) return true;
-  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i) => same(x, b[i]));
+  if (a === b || (a !== a && b !== b)) return true;
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i) => same(x ?? null, b[i] ?? null));
   if (isObj(a) && isObj(b)) {
-    const ka = Object.keys(a);
-    return ka.length === Object.keys(b).length && ka.every((k) => k in b && same(a[k], b[k]));
+    const ka = Object.keys(a).filter((k) => a[k] !== undefined);
+    const kb = Object.keys(b).filter((k) => b[k] !== undefined);
+    return ka.length === kb.length && ka.every((k) => b[k] !== undefined && same(a[k], b[k]));
   }
   return false;
 }

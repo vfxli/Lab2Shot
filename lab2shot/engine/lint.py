@@ -15,8 +15,9 @@ from typing import TYPE_CHECKING
 
 from ..data.contracts import shot_meta
 from ..errors import CookError
-from ..nodes import node_types
+from ..messages import Msg
 from ..nodes.expects import Checked, Seen
+from .graph import insert_fix
 
 if TYPE_CHECKING:
     from .evaluation import Evaluation
@@ -31,12 +32,15 @@ def warnings(ev: Evaluation, node_id: str, path: tuple[str, ...] = ()) -> list[d
     node = g.nodes[node_id]
     if node_id in g.scopes.unpaired:  # a block with only one of its two ends: the fix inserts the missing end
         said, via = g.scopes.unpaired[node_id]
-        fix = {"fix": {"insert": via, "label": f"插入「{node_types()[via].label}」"}} if via else {}
+        fix = {"fix": insert_fix(via)} if via else {}
         return [{**said.json(), "refused": True, **fix}]
-    if node_id in g.wiring:  # a wire from a missing or incompatible output is the only reported problem; a refused
-        # wire that an inserted node would fix is offered as a one-click fix (Graph.fixes)
+    # a wire from a missing or incompatible output is the only reported problem; a refused wire that an inserted node
+    # would fix is offered as a one-click fix (Graph.fixes). Only a wiring problem that counts for this instance: one on
+    # a way its switch does not take is not its problem (Graph.check_inputs(only=…)), and its other checks still run
+    only = ev.taken_ports(node_id, path)
+    if any(only is None or about <= only for about, _ in g.wiring.get(node_id, ())):
         return [{**said.json(), "port": port, "refused": True, "fix": {"insert": via, "label": label}}
-                for port, via, said, label in g.fixes.get(node_id, [])]
+                for port, via, said, label in g.fixes.get(node_id, []) if only is None or port in only]
     taken = ev.taken(node_id, path)  # wires actually taken: excludes wires whose source failed (W-INPUT-UNUSED) and switch
     # inputs not selected; one per item into a block's end
     inputs = {port.name: tuple(s for src, sport, p in taken[port.name] if (s := _seen(ev, src, sport, p)))
@@ -48,8 +52,28 @@ def warnings(ev: Evaluation, node_id: str, path: tuple[str, ...] = ()) -> list[d
             for expect in node.type.expectations(port):
                 said = expect.check(got, checked)
                 if said:
-                    fix = {"fix": {"insert": expect.fix, "label": f"插入「{node_types()[expect.fix].label}」"}} if expect.fix else {}
+                    fix = {"fix": insert_fix(expect.fix)} if expect.fix else {}
                     out.append({**said.json(), "port": port.name, **fix})
+    counts = {p.name: len(g.inputs.get((node_id, p.name), [])) for p in g.input_ports(node_id)}
+    notes = _twice(g, node_id) + node.type.wiring_notes(checked.params, counts)
+    out += [{**said.json(), "port": port} for said, port in notes]
+    return out
+
+
+def _twice(g, node_id: str) -> list[tuple[Msg, str]]:
+    """The very same wire written more than once into a multi input: each counts (the same value summed twice), said
+    so (W-WIRE-TWICE) rather than taken on the quiet. Not for a node that makes a list of its wires (「合成列表」: the
+    same data under two names is two items, on purpose)."""
+    node = g.nodes[node_id]
+    if getattr(node.type, "list_role", "") == "make":
+        return []
+    out = []
+    for port in g.input_ports(node_id):
+        wires = g.inputs.get((node_id, port.name), [])
+        for (src, sport), n in {w: wires.count(w) for w in dict.fromkeys(wires)}.items():
+            if n > 1:
+                label = next((p.label for p in g.outputs(src) if p.name == sport), sport)
+                out.append((Msg("W-WIRE-TWICE", source=g.nodes[src].label, output=label, node=node.label, input=port.label, count=n), port.name))
     return out
 
 

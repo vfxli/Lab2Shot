@@ -1,14 +1,12 @@
-import { useEffect, useState } from "react";
-import { api, type CurvesData, type Manifest } from "../api";
+import type { CurvesData, Manifest } from "../api";
 import { useTrustedResults } from "../state/results";
 import type { DisplayPlan, ViewItem } from "../view/plan";
 import { CurvesView } from "./CurvesView";
-import { manifestOf } from "../transfer/frames";
+import { useDescribed } from "../transfer/described";
 
-/** The node's basic values (浮点, 整数, 向量 ...: the "value" viewer role): one value shows as itself, one per frame as
- * its curve (a vector: X Y Z). `board`: the whole stage, for a node that gives only values (「浮点」, 「拆分相机」);
- * otherwise a strip under the stage, next to the node's other results (AnyCalib's ST-maps and its Focal Length). The values are
- * the server's words for them (graph status), known before cooking for a constant. */
+/** 节点基本数值（浮点、整数、向量……：视图角色 "value"）的显示：单个值显示其本身，逐帧的值显示为曲线（向量：X Y Z）。
+ * `board`：占满整个舞台，用于只给出数值的节点（「浮点」「拆分相机」）；否则为舞台下方的一条，与节点的其他结果并列
+ * （AnyCalib 的 ST-map 及其 Focal Length）。数值为服务器给出的文字（graph status），常量在计算前即已知。 */
 export function ValuesView({ plan, board }: { plan: DisplayPlan; board: boolean }) {
   const said = useTrustedResults();
   // 有值时显示值，无值时显示「—」，计算前同样显示「—」；无值的原因（未连出或尚未计算）在「数据信息」面板中说明，此处不说明
@@ -37,20 +35,12 @@ export function ValuesView({ plan, board }: { plan: DisplayPlan; board: boolean 
   );
 }
 
-/** One value: the server's words for that output, else (for a packet the status has no words about, such as one item of a
- * list being shown) what the packet itself says it holds (its manifest: the value and its unit). */
+/** 一个值：服务器对该输出的文字；status 中没有文字的数据包（例如正在显示的列表中的一项）则取数据包自身声明的内容
+ * （其 manifest：值与单位）。 */
 function ValueCard({ item, text }: { item: ViewItem; text: string }) {
-  const [held, setHeld] = useState<{ fp: string; m: Manifest } | null>(null);
   const fp = !text && item.fp ? item.fp : null;
-  useEffect(() => {
-    if (!fp) return;
-    let alive = true;
-    void manifestOf(fp).then((m) => alive && setHeld({ fp, m }), () => {});
-    return () => {
-      alive = false;
-    };
-  }, [fp]);
-  const shown = text || (held?.fp === fp ? valueOf(held.m) : "");
+  const held = useDescribed<Manifest>("manifest", fp ? [fp] : [])[0];
+  const shown = text || (held ? valueOf(held) : "");
   const tip = shown ? `${item.label}：${shown}` : `${item.label}：—`;
   return (
     <div className={`value-card${shown ? "" : " off"}`} data-tip={tip}>
@@ -60,8 +50,7 @@ function ValueCard({ item, text }: { item: ViewItem; text: string }) {
   );
 }
 
-/** What a value packet says it holds (data/values.py value_meta): its value and unit ("" for a per-frame one: the
- * curve below says it). */
+/** 数值数据包自身声明的内容（data/values.py value_meta）：值与单位（逐帧的值返回 ""：由下方曲线表达）。 */
 function valueOf(m: Manifest): string {
   const v = (m.meta as { value?: unknown }).value;
   const unit = String((m.meta as { unit?: unknown }).unit ?? "");
@@ -74,18 +63,11 @@ function valueOf(m: Manifest): string {
 }
 
 function ValueCurve({ item }: { item: ViewItem }) {
-  const [data, setData] = useState<{ fp: string; value: CurvesData } | null>(null);
-  useEffect(() => {
-    let alive = true;
-    void api.curves(item.fp!).then((value) => alive && setData({ fp: item.fp!, value }), () => {});
-    return () => {
-      alive = false;
-    };
-  }, [item.fp]);
+  const data = useDescribed<CurvesData>("curves", [item.fp!])[0];
   return (
     <div className="value-curve">
       <div className="value-label">{item.label} · 每帧</div>
-      {data?.fp === item.fp ? <CurvesView data={data.value} /> : <div className="empty">读取…</div>}
+      {data ? <CurvesView data={data} /> : <div className="empty">读取…</div>}
     </div>
   );
 }

@@ -47,7 +47,7 @@ import threading
 import time
 import uuid
 from functools import lru_cache
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import numpy as np
 
@@ -61,6 +61,10 @@ from ..serving import account
 from . import BODY_MAX, relative_name
 
 PREFIX = "upload:"
+# an upload's manifest (and its declared one) is read, merged and written back: one request at a time per (account,
+# upload), on a fixed number of locks (different uploads mostly on different ones; the count never grows)
+_SET_LOCKS = tuple(threading.Lock() for _ in range(64))
+BUILDING = "."  # an upload's folder while make_set links it together (sets/.<id>.<random>), before it takes its name
 ID_LEN = 20
 _ID = re.compile(rf"^[0-9a-f]{{{ID_LEN}}}$")
 _SHA = re.compile(r"^[0-9a-f]{64}$")
@@ -188,16 +192,18 @@ class Moved(Exception):
 
 
 class _Growing:
-    """本进程对增长中分段的了解：其累计 sha256，以及当前可以向其追加的请求。"""
+    """本进程对增长中分段的了解：其累计 sha256，以及当前可以向其追加的请求。`lock` 只管这一个分段（谁在写、写盘、
+    累计 sha），不同分段的写入互不等待。"""
 
     def __init__(self, offset: int, size: int) -> None:
         self.sha = hashlib.sha256() if offset == 0 else None  # 重启前的分段：在结束时回读计算
         self.size = size
         self.writer = ""
+        self.lock = threading.Lock()
 
 
 _growing: dict[str, _Growing] = {}
-_lock = threading.Lock()
+_lock = threading.Lock()  # 只保护 _growing 这张表本身（查、放、取走），从不在它里面碰磁盘
 
 
 def _parts(who: int) -> Path:
@@ -290,6 +296,23 @@ def _going_up(who: int) -> list[tuple[float, str]]:
     return sorted(out)
 
 
+def promised(who: int, but: str = "") -> int:
+    """Bytes the account's parts still going up have announced and not yet sent (each part's size less what it has):
+    its quota holds them already (server/quota.py room_for, checked and the part opened as one step: server/transfer.py
+    _open), so opening many parts first, one after another or at once, and sending their bytes later never takes more
+    than it may. `but`: a part not to count (the one being opened again)."""
+    out = 0
+    for _, pid in _going_up(who):
+        if pid == but:
+            continue
+        try:
+            state = part_state(pid, who)
+        except NotFound:  # finished or dropped meanwhile: nothing more to come
+            continue
+        out += max(0, state["size"] - state["offset"]) if not state.get("sha") else 0
+    return out
+
+
 def _drop(pid: str, who: int) -> None:
     with _lock:
         _growing.pop(pid, None)
@@ -307,6 +330,7 @@ def begin(pid: str, offset: int, who: int) -> str:
     token = uuid.uuid4().hex
     with _lock:
         g = _growing.setdefault(pid, _Growing(offset, state["size"]))
+    with g.lock:
         g.writer = token
     return token
 
@@ -316,7 +340,10 @@ def add(pid: str, token: str, chunk: bytes, who: int) -> int:
     f = _part_file(pid, who)
     with _lock:
         g = _growing.get(pid)
-        if g is None or g.writer != token:
+    if g is None:
+        raise Moved(f.stat().st_size if f.exists() else 0)
+    with g.lock:
+        if g.writer != token:
             raise Moved(f.stat().st_size if f.exists() else 0)
         have = f.stat().st_size
         if have + len(chunk) > g.size:
@@ -336,9 +363,12 @@ def end(pid: str, token: str, who: int) -> dict:
     """请求结束（其带来的内容均已保存，连接中断时亦然）：完整的分段成为其 blob。"""
     with _lock:
         g = _growing.get(pid)
-        mine = g is not None and g.writer == token
-        if mine:
-            g.writer = ""
+    mine = False
+    if g is not None:
+        with g.lock:
+            mine = g.writer == token
+            if mine:
+                g.writer = ""
     state = part_state(pid, who)
     if not mine or state.get("sha") or state["offset"] < state["size"]:  # 只有最后的写入者才能完成它
         return state
@@ -380,8 +410,14 @@ def kept(shas: list[str], who: int) -> list[str]:
 
 def prune_parts() -> int:
     """丢弃 PART_KEEP_DAYS 内无人追加的分段，以及超过 DONE_KEEP_S 的已完成分段记录；返回数量。记录可能在此期间
-    消失（各账号仍在上传）：已消失的记录即少丢弃一个，不属于错误。"""
+    消失（各账号仍在上传）：已消失的记录即少丢弃一个，不属于错误。组装到一半就停下的文件夹（`make_set` 的
+    BUILDING：进程在组装时被杀）超过 DONE_KEEP_S 也在这里删掉，它里面的链接不再占着 blob。"""
     now, gone = time.time(), 0
+    for home in _accounts():
+        for building in home.glob(f"{BUILDING}*"):
+            if building.is_dir() and now - mtime(building) > DONE_KEEP_S:
+                shutil.rmtree(building, ignore_errors=True)
+                gone += 1
     for who in accounts():
         folder = _parts(who)
         if not folder.is_dir():
@@ -403,6 +439,22 @@ def _name(name: str) -> str:
     return str(relative_name(name))
 
 
+def _named(files: dict[str, str]) -> dict[str, str]:
+    """An upload's files (name -> sha256) by the names they are kept under (relative_name), or Invalid said in words:
+    a name the disk would refuse, two names that are one on the disk (`x/y.exr` and `x\\y.exr`: one would be lost), or
+    a file that is also the folder of another (`a` and `a/b`: no folder holds a file under its own name). Every way into
+    an upload's names goes through here (set_id, make_set, declare_set)."""
+    named: dict[str, str] = {}
+    for given, sha in files.items():
+        if (name := _name(given)) in named:
+            raise Invalid(Msg("B-UPLOAD-SAMENAME", name=name))
+        named[name] = sha
+    for name in named:
+        if (folder := next((str(p) for p in PurePosixPath(name).parents if str(p) in named), None)) is not None:
+            raise Invalid(Msg("B-UPLOAD-FILEANDFOLDER", name=folder, inside=name))
+    return named
+
+
 def set_id(name: str, files: dict[str, str]) -> str:
     """一份上传的 id：只由其中包含的文件、各文件的内容以及节点读取的对象计算得出
     （sha256 的前 20 位十六进制）。再次上传相同的文件得到同一个引用。
@@ -413,7 +465,7 @@ def set_id(name: str, files: dict[str, str]) -> str:
 
     网页端也会预先计算同样的值（以便参数立即写入引用），但以此处的计算为准：
     申报的响应中带有服务器计算的 `ref`，网页按其写入。 """
-    files = {_name(k): v for k, v in files.items()}
+    files = _named(files)
     key = json.dumps([_name(name) if name else "", sorted(files.items())], ensure_ascii=False)
     return hashlib.sha256(key.encode()).hexdigest()[:ID_LEN]
 
@@ -421,7 +473,7 @@ def set_id(name: str, files: dict[str, str]) -> str:
 def make_set(name: str, files: dict[str, str], origin: dict, user_id: int) -> str:
     """将某账号一起上传的 blob 按名称组装；返回节点使用的引用，此后属于该账号。`name`：节点读取的对象
     （`files` 中的一个文件、一个序列模式，或 "" 表示整份上传作为文件夹）。`origin`：上传者及其在本机上的名称（留作记录）。"""
-    files = {_name(k): v for k, v in files.items()}
+    files = _named(files)
     if not files:
         raise Invalid(Msg("E-UPLOAD-NOFILES"))
     missing = [k for k, sha in files.items() if not available(sha, user_id)]
@@ -434,11 +486,15 @@ def make_set(name: str, files: dict[str, str], origin: dict, user_id: int) -> st
     sources = {rel: _blob_for(sha, user_id) for rel, sha in files.items()}
     if not folder.is_dir():
         folder.parent.mkdir(parents=True, exist_ok=True)
-        building = folder.with_name(f".{sid}.{uuid.uuid4().hex[:8]}")
-        for rel, src in sources.items():
-            target = building / rel
-            target.parent.mkdir(parents=True, exist_ok=True)
-            link_or_copy(src, target)
+        building = folder.with_name(f"{BUILDING}{sid}.{uuid.uuid4().hex[:8]}")
+        try:
+            for rel, src in sources.items():
+                target = building / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                link_or_copy(src, target)
+        except BaseException:  # its links would hold the blobs for good: nothing else ever looks in here
+            shutil.rmtree(building, ignore_errors=True)
+            raise
         try:
             os.rename(building, folder)
         except OSError:  # 其他请求同时组装了相同的集合
@@ -458,18 +514,19 @@ def make_set(name: str, files: dict[str, str], origin: dict, user_id: int) -> st
             link_or_copy(src, fresh)
             os.replace(fresh, target)
     manifest = folder.with_suffix(".json")
-    data = json.loads(manifest.read_text(encoding="utf-8")) if manifest.exists() else {"name": name, "files": files, "origins": []}
-    data["origins"] = [*data["origins"], {**origin, "time": time.time()}][-ORIGINS_KEPT:]
-    # 哪些文件链接的是子集 EXR（`declared_layers_for` 据此得知端口需按申报的原文件生成）
-    subsets = {}
-    for rel, sha in files.items():
-        if not has_blob(sha, user_id) and (rec := subset_of(sha, user_id)) is not None:
-            subsets[rel] = {"channels": rec["channels"], "blob": rec["blob"]}
-    if subsets:
-        data["subsets"] = subsets
-    else:
-        data.pop("subsets", None)
-    write_text(manifest, json.dumps(data, ensure_ascii=False, indent=1))
+    with _SET_LOCKS[hash((user_id, sid)) % len(_SET_LOCKS)]:  # read, merged, written back: one request at a time
+        data = json.loads(manifest.read_text(encoding="utf-8")) if manifest.exists() else {"name": name, "files": files, "origins": []}
+        data["origins"] = [*data["origins"], {**origin, "time": time.time()}][-ORIGINS_KEPT:]
+        # 哪些文件链接的是子集 EXR（`declared_layers_for` 据此得知端口需按申报的原文件生成）
+        subsets = {}
+        for rel, sha in files.items():
+            if not has_blob(sha, user_id) and (rec := subset_of(sha, user_id)) is not None:
+                subsets[rel] = {"channels": rec["channels"], "blob": rec["blob"]}
+        if subsets:
+            data["subsets"] = subsets
+        else:
+            data.pop("subsets", None)
+        write_text(manifest, json.dumps(data, ensure_ascii=False, indent=1))
     return f"{PREFIX}{sid}/{name}"
 
 
@@ -550,7 +607,7 @@ def declare_set(name: str, files: dict[str, str], origin: dict, user_id: int, si
     `sizes`：每个文件在使用者本机上的大小。字节尚未上传时，文件参数行需要显示「8 帧 · 18 MB」，
     而服务器没有任何 blob，无法计算，因此由网页提供（网页持有这些文件）。
     字节到齐后 `describe` 改用 blob 自身的大小，那才是权威值。"""
-    files = {_name(k): v for k, v in files.items()}
+    files = _named(files)
     if not files:
         raise Invalid(Msg("E-UPLOAD-NOFILES"))
     for sha in files.values():
@@ -560,11 +617,12 @@ def declare_set(name: str, files: dict[str, str], origin: dict, user_id: int, si
     sid = set_id(name, files)
     at = _declared_path(_sets(user_id), sid)
     at.parent.mkdir(parents=True, exist_ok=True)
-    had = json.loads(at.read_text(encoding="utf-8")) if at.is_file() else {"name": name, "files": files, "origins": []}
-    had["origins"] = [*had.get("origins", []), {**origin, "time": time.time()}][-ORIGINS_KEPT:]
-    if sizes:
-        had["sizes"] = {_name(k): int(v) for k, v in sizes.items()}
-    write_text(at, json.dumps(had, ensure_ascii=False, indent=1))
+    with _SET_LOCKS[hash((user_id, sid)) % len(_SET_LOCKS)]:  # read, merged, written back: one request at a time
+        had = json.loads(at.read_text(encoding="utf-8")) if at.is_file() else {"name": name, "files": files, "origins": []}
+        had["origins"] = [*had.get("origins", []), {**origin, "time": time.time()}][-ORIGINS_KEPT:]
+        if sizes:
+            had["sizes"] = {_name(k): int(v) for k, v in sizes.items()}
+        write_text(at, json.dumps(had, ensure_ascii=False, indent=1))
     return f"{PREFIX}{sid}/{name}"
 
 
@@ -763,6 +821,9 @@ _TYPE_BYTES = {"half": 2, "float": 4, "uint": 4}
 PLANES_MAX = 1 << 30
 PLANES_AT_ONCE = 2
 _planes_slots = threading.BoundedSemaphore(PLANES_AT_ONCE)
+# 同一份原文件（账号, sha）的子集记录是读改写：两帧通道同时到达时，后写的会盖掉先写的通道。按 (账号, sha) 分到
+# 固定数目的锁上（不同文件多半落在不同的锁上，锁的个数不随文件增长）
+_SUBSET_LOCKS = tuple(threading.Lock() for _ in range(64))
 # 子集 EXR 的压缩方式沿用原文件，但仅限无损方式：此路径传输的是原始无损像素，
 # 将解出的像素再经过有损压缩（B44、DWA，或对 32 位浮点使用 PXR24）后便不再是原文件的像素。
 # 有损方式一律改为 ZIPS（与 Nuke 默认相同，无损）。RLE 虽然无损，但写入器不支持，同样改为 ZIPS。
@@ -914,6 +975,13 @@ def _read_native(path: Path) -> tuple[dict[str, np.ndarray], dict[str, str]]:
 
 def add_planes(sid: str, sha: str, blob: str, channels: list[dict], width: int, height: int, compression: str,
                user_id: int, display: list[int] | None = None, data: list[int] | None = None) -> dict:
+    """见 _add_planes。同一账号的同一份原文件一次只处理一帧（其子集记录要读出、合并、写回）。"""
+    with _SUBSET_LOCKS[hash((user_id, sha)) % len(_SUBSET_LOCKS)]:
+        return _add_planes(sid, sha, blob, channels, width, height, compression, user_id, display, data)
+
+
+def _add_planes(sid: str, sha: str, blob: str, channels: list[dict], width: int, height: int, compression: str,
+                user_id: int, display: list[int] | None = None, data: list[int] | None = None) -> dict:
     """浏览器上传的一帧中的若干通道（一份经 gzip 压缩的 blob，平面按 `channels` 的顺序首尾相接）：
     与该原文件已有的子集合并，写为新的子集 EXR，并替换记录。
 

@@ -14,7 +14,7 @@ import type { GraphState, NodeData } from "../state/graph";
  * parameter panel, the viewer's display plan, the cook-policy blockers list) only need this much. */
 
 export interface Snapshot extends GraphState {
-  graphId: string; // 节点图文件自身的标识（state/cookInputs.ts）：「过期」记录以此为准（state/stale.ts）
+  graphId: string; // the graph file's own id (state/cookInputs.ts): what the stale records are keyed by (state/stale.ts)
   types: Record<string, DataType>;
   results: Record<string, Status>; // trusted: {} while the cook inputs moved on since the last reply
   reply: StatusReply | null; // the last reply, trusted or not: what is drawn until the next one (graph/rules.ts)

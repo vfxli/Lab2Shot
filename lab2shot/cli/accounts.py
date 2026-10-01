@@ -8,7 +8,6 @@ from typing import Optional
 
 import typer
 
-from .. import logs
 from ..messages import Msg
 from .base import app, console, failed, group, when
 
@@ -60,10 +59,10 @@ def _new_secret(what: str) -> str:
 def admin_password() -> None:
     """重设内置管理员账号的密码，用于忘记密码或因输错次数过多被锁定的情况。立即生效：管理员在所有网页上的登录须用新密码重新登录，此前的错误次数清零。"""
     from .. import accounts
-    from ..server import auth
+    from ..server.access import audit
 
     accounts.set_password(accounts.ADMIN_ID, _new_secret("管理员密码"), "命令行")
-    logs.say(auth.log, Msg("I-LOGIN-CLIRESET"))
+    audit(Msg("I-LOGIN-CLIRESET"))  # an administrator's action from the command line: no session, no request
     console.print(f"[green]管理员密码已修改[/green]：用户名 {accounts.admin().username}，立即生效，此前的密码错误次数已清零。")
 
 
@@ -71,11 +70,11 @@ def admin_password() -> None:
 def admin_passphrase() -> None:
     """设置「我的口令」：仅可在本服务器上设置，网页上不可查看或修改。忘记管理员密码时，在登录页点击「忘记密码」，凭口令设置新密码。"""
     from .. import accounts
-    from ..server import auth
+    from ..server.access import audit
 
     had = accounts.passphrase() is not None
     accounts.set_passphrase(_new_secret("口令"))
-    logs.say(auth.log, Msg("I-LOGIN-CLIPASSPHRASECHANGED" if had else "I-LOGIN-CLIPASSPHRASESET"))
+    audit(Msg("I-LOGIN-CLIPASSPHRASECHANGED" if had else "I-LOGIN-CLIPASSPHRASESET"))
     console.print(f"[green]口令已{'更新' if had else '设置'}[/green]：忘记管理员密码时，可在登录页点击「忘记密码」，输入口令后设置新密码。"
                   "系统仅保存口令的不可逆指纹，任何人均无法查看原文，请妥善保管。")
 
@@ -100,10 +99,10 @@ def admin_status() -> None:
 def admin_logout() -> None:
     """使所有网页、DCC 插件和命令行退出登录（所有使用者须重新登录）。怀疑密码泄露时，应先修改密码，再执行此命令。"""
     from .. import accounts
-    from ..server import auth
+    from ..server.access import audit
 
     n = accounts.end_all()
-    logs.say(auth.log, Msg("I-LOGIN-CLIREVOKED", count=n))
+    audit(Msg("I-LOGIN-CLIREVOKED", count=n))
     console.print(f"已使 {n} 个登录会话退出。")
 
 
@@ -338,8 +337,12 @@ def admin_feedback_cmd(
     if not yes and not typer.confirm(f"确认删除 {len(rows)} 条反馈及其截图？此操作不可撤销"):
         console.print("已取消，未删除任何内容")
         raise typer.Exit(1)
+    from ..accounts import Actor
+    from ..server.access import audit
+
     for r in rows:
-        fb.delete(r["id"], by="admin（命令行）")
+        fb.delete(r["id"], by=Actor(None, "命令行"))
+    audit(Msg("I-AUDIT-FEEDBACKCLEARED", count=len(rows)))
     console.print(f"已删除 {len(rows)} 条反馈")
     _sweep_orphans()
 

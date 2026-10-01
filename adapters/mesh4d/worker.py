@@ -36,13 +36,13 @@ from pathlib import Path
 import numpy as np
 
 from lab2shot_worker import WEIGHTS_ENV, fail, progress, save_npz, serve, set_seed, stub_module
+from model_spec import WINDOW  # nodes.py refuses shots shorter than it with the same
 from lab2shot_worker.files import read_frame, read_mask
 from lab2shot_worker.run import Run
 from lab2shot_worker.serving import resident
 
 NODE = "mesh4d.solve"
 
-WINDOW = 6  # the model's window (configs num_frames / length_sequence): not a setting
 
 # The dinov2-large weight's dest in extension.py (under weights/): the installer downloads it there as plain files
 DINOV2 = "hf/hub/models--facebook--dinov2-large"

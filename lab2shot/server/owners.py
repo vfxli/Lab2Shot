@@ -1,10 +1,13 @@
 """Ownership resolvers for route data, declared per route with `owned=` on its access (server/routes.py). The router
 runs the resolver before the handler, and the handler reads the loaded object from request.state.owned. Handlers do
-not check ownership themselves; ownership is always declared, never checked inline.
+not check ownership themselves, and no router or dependency does either: ownership is always declared here, never
+checked inline (`lab2shot check routes` holds every route naming a packet, job, task or template to it).
 
-Data is returned only to the owning account or to sessions holding data.others; any other caller is told the object
-does not exist (access.mine), never that it belongs to someone else. Each resolver receives the request and the
-handler's parameters by name."""
+Two checks decide, both in server/access.py: a record with an owner (a job, a task, a template) is returned only to
+the owning account or to sessions holding the right its route declares for other people's data (access.mine); a
+packet is read only from the asking account's own cache (access.readable). Any other caller is told the object does
+not exist, never that it belongs to someone else. Each resolver receives the request and the handler's parameters by
+name."""
 
 from __future__ import annotations
 
@@ -15,7 +18,7 @@ from starlette.requests import Request
 from ..errors import NotFound
 from ..messages import Msg
 
-from .access import mine
+from .access import mine, readable
 
 
 def job(request: Request, job_id: str):
@@ -27,12 +30,43 @@ def job(request: Request, job_id: str):
     return found
 
 
+def job_seen_through(request: Request, job_id: str, camera: str | None = None):
+    """A job (`job`), and the camera packet a partial result of it is placed with, when the route names one (`packets`)."""
+    found = job(request, job_id)
+    packets(request, camera=camera)
+    return found
+
+
+def packets(request: Request, fp: str | None = None, camera: str | None = None, through: str | None = None) -> None:
+    """The packets a route reads: its {fp}, the camera it places points with (`camera`), the camera it looks through
+    (`through`: its lens undistorts the plate, so reading through another account's camera would read its lens)."""
+    for one in (fp, camera, through):
+        if one:
+            readable(request, one)
+
+
+def packet_inputs(request: Request, req: Any = None) -> None:
+    """The packets a request body names as a node's inputs (`inputs`: port -> fingerprint)."""
+    for fp in (getattr(req, "inputs", None) or {}).values():
+        readable(request, fp)
+
+
 def job_record(request: Request, job_id: str) -> dict:
     """Return a job's stored record and graph (farm.job_row), owned by the submitting account."""
     from ..farm import job_row
 
     row = job_row(job_id)
     mine(request, row["user"], Msg("E-JOB-NOGRAPH"))
+    return row
+
+
+def feedback(request: Request, fid: str) -> dict:
+    """Return a feedback (lab2shot/feedback.py get), to a login that may act on its sender's account (access.mine: an
+    administrator's feedback is not a 二级管理员's to read or answer)."""
+    from .. import feedback as kept
+
+    row = kept.get(fid)
+    mine(request, row["user"], Msg("E-FEEDBACK-NOTFOUND"))
     return row
 
 
@@ -94,7 +128,7 @@ def upload(request: Request, ref: str | None = None, req: Any = None):
         # belongs to this account: its folder does not exist yet, but `declare_set` has recorded it under the account.
         # Without this case the file parameter would report the file as missing although it is still on the user's
         # machine. `declared()` checks the account as strictly as `resolve()`; other accounts' uploads remain absent.
-        sid = ref[len(uploads.PREFIX):].partition("/")[0]
+        sid, _ = uploads.ref_parts(ref) or ("", "")
         if uploads.declared(sid) is None:
             raise
         return sid

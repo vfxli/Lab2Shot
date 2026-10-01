@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lab2shot.sdk import (Official, Cost, CleanupParams, JointMap, Licence, ModelJoint, RigMotion, P, Port,
+from lab2shot.sdk import (Official, Cost, CleanupParams, PartMap, Licence, ModelJoint, RigMotion, P, Port,
                           curves_packet, mapping_param)
 
 # 官方 vGRFs 的形状为 [T, 左右 2, 每只脚 16 个鞋垫单元]（models.py:116 vGRFs -> data.py:183 的 "[...] x F x LR x 16"），
@@ -35,6 +35,7 @@ JOINTS = (
 
 class UnderPressureFootskate(RigMotion):
     id = "underpressure.footskate"
+    version = 2  # 2：帧号按节点的「帧率」换算成时间（默认 24 与 1 版的固定时基相同）
     does = "cleanup"  # 修复动作（骨骼动作家族的两类任务之一，lab2shot/nodes/families/rig_motion.py）
     # 引用官方 demo.py 的三个流程：vGRFs（model.vGRFs 估计每帧每只脚各鞋垫单元承受的力，第 20-22 行）、
     # contacts（model.contacts 据此判断每帧哪只脚着地，第 37、127 行）和 cleanup
@@ -70,7 +71,7 @@ class UnderPressureFootskate(RigMotion):
 
     # 使用 CleanupParams 而非 DetectCleanupParams：没有「脚滑」曲线，「只改问题帧」「检测阈值」缺少判据（同上文 `judges = False`）
     class Params(CleanupParams):
-        mapping: list[JointMap] = mapping_param(JOINTS)
+        mapping: list[PartMap] | None = mapping_param()
         contact_margin: int = P(5, label="接触余量", group="清理", ge=0, le=20)
 
     @classmethod

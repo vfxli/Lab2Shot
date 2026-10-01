@@ -39,7 +39,7 @@ from ..messages import Msg
 
 FILE = "nodes.json"
 LABEL_CHARS = 30  # fits on one line of the node menu (longest existing: 26)
-TEXT_CHARS = 520  # the description is shown in full in the menu (longest existing: 502)
+TEXT_CHARS = 520  # the description is shown in full in the menu; lab2shot check holds every file to it (limit_problems)
 
 
 def file_for(cls) -> Path:
@@ -106,6 +106,19 @@ def problem(path: Path) -> str:
 
 def problems() -> list[str]:
     return [p for f in files() if (p := problem(f))]
+
+
+def limit_problems() -> list[str]:
+    """Every node's words in the files against the limits an edit is held to (_check): a file edited by hand or
+    written by a change past them would have its node refused the next time an administrator saves it unchanged."""
+    out = []
+    for f in files():
+        for type_id, words in entries(f).items():
+            try:
+                _check(str(words.get("label") or type_id), str(words.get("description") or ""))
+            except Invalid as exc:
+                out.append(f"{f.parent.name}/{f.name} {type_id}: {exc}")
+    return out
 
 
 _applied_at: tuple = ()  # stamp() of the files the classes last took their words from

@@ -22,13 +22,13 @@ MOTION = "motion.npz"
 
 
 def write_job(path: Path, rig: Skeleton, frames, poses: np.ndarray, fps: float, pairs: dict[str, int],
-              aims: dict[str, str], legs: tuple[str, str, str, str]) -> Path:
+              aims: dict[str, str], legs: tuple[str, str, str, str], landmarks: tuple[str, ...]) -> Path:
     """The node's side: the rig, the frames it sends and which model joint follows which rig joint (the module doc)."""
     model = list(pairs)
     np.savez(path, names=np.array(rig.names), parents=rig.parents, rest=rig.rest, keys=np.asarray(frames, np.int64),
              poses=np.asarray(poses, np.float64), fps=float(fps), model=np.array(model),
              rig=np.array([pairs[m] for m in model], np.int64), aim=np.array([aims.get(m) or "" for m in model]),
-             legs=np.array(legs))
+             legs=np.array(legs), landmarks=np.array(landmarks, dtype=str))
     return path
 
 
@@ -43,9 +43,11 @@ class MotionJob:
     pairs: dict[str, int]
     aims: dict[str, str]
     legs: list[str]
+    landmarks: list[str]  # the model's hands and head (those it has): where its trunk runs (motion.trunk_of)
 
     def retarget(self, model: Skeleton) -> Retarget:
-        """The rest-pose alignment between the rig and the model's skeleton (motion.Retarget.align)."""
+        """The rest-pose alignment between the rig and the model's skeleton (motion.Retarget.align); a rig whose rest
+        pose is no standing pose (a BVH zero pose) aligns in the most model-like of its own sent poses."""
         index = {n: i for i, n in enumerate(model.names)}
         missing = [m for m in [*self.pairs, *self.legs] if m not in index]
         if missing:
@@ -54,7 +56,8 @@ class MotionJob:
         aims: list = [None] * len(model.names)
         for m, a in self.aims.items():
             aims[index[m]] = "up" if a == "up" else index.get(a)
-        return Retarget.align(model, self.rig, pairs, aims, tuple(index[n] for n in self.legs))
+        return Retarget.align(model, self.rig, pairs, aims, tuple(index[n] for n in self.legs), self.poses,
+                              tuple(index[n] for n in self.landmarks if n in index))
 
     def model_times(self, model_fps: float) -> np.ndarray:
         """Where each sent frame sits on the model's timeline (the first at 0), in model frames, not rounded: the
@@ -76,7 +79,8 @@ def read_job(path: Path) -> MotionJob:
     rig = Skeleton([str(n) for n in d["names"]], d["parents"], d["rest"])
     model = [str(m) for m in d["model"]]
     return MotionJob(rig, d["keys"], d["poses"], float(d["fps"]), dict(zip(model, (int(j) for j in d["rig"]))),
-                     {m: str(a) for m, a in zip(model, d["aim"]) if str(a)}, [str(n) for n in d["legs"]])
+                     {m: str(a) for m, a in zip(model, d["aim"]) if str(a)}, [str(n) for n in d["legs"]],
+                     [str(n) for n in d["landmarks"]])
 
 
 def read_result(raw: Path) -> dict:

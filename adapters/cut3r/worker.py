@@ -324,7 +324,6 @@ def main(job_path: str) -> None:
         convention=recon.CONVENTION,
         metric=True,
         units="metres (CUT3R predicts metric-scale point maps; approximate)",
-        scale_cm=100.0,
         confidence="CUT3R self-view confidence (>= 1, higher = surer)",
         mask="confidence > conf_threshold, inside the network's crop",
         points="CUT3R's own world point map pts3d_in_other_view, stored per frame in that frame's camera, metres",

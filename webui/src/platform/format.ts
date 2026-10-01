@@ -22,9 +22,18 @@ export function gbText(gb: number): string {
 /** An amount given in megabytes (a card's memory, as the server reports it): 512 MB, 4.3 GB, 24 GB. */
 export const mbText = (mb: number): string => (mb < 1024 ? `${Math.round(mb)} MB` : gbText(mb / 1024));
 
-/** A transfer rate in bytes per second: 1.4 MB/s, 320 KB/s. */
-export const rateText = (bytesPerSecond: number): string =>
-  bytesPerSecond >= 1e6 ? `${(bytesPerSecond / 1e6).toFixed(1)} MB/s` : `${Math.max(1, Math.round(bytesPerSecond / 1e3))} KB/s`;
+/** How a transfer speed is written (the only such formatter: the top bar's live traffic and a parameter row's upload
+ * speed both use it): number and unit given separately, the unit B/s, KB/s or MB/s by magnitude, the number always
+ * with two decimals (at most 999.99), so the top bar can give it a fixed width that does not jump. */
+export function rateParts(bytesPerSecond: number): [string, string] {
+  const b = Math.max(0, bytesPerSecond);
+  if (b < 1000) return [b.toFixed(2), "B/s"];
+  if (b < 1e6) return [(b / 1e3).toFixed(2), "KB/s"];
+  return [(b / 1e6).toFixed(2), "MB/s"];
+}
+
+/** The same as one text: 1.40 MB/s. */
+export const rateText = (bytesPerSecond: number): string => rateParts(bytesPerSecond).join(" ");
 
 // ------------------------------------------------------------------ lengths of time
 
@@ -35,17 +44,6 @@ export function durationText(seconds: number): string {
   const m = Math.floor(s / 60);
   return m < 60 ? `${m} 分 ${s % 60} 秒` : `${Math.floor(m / 60)} 小时 ${m % 60} 分`;
 }
-
-/** An estimate, as precisely as it deserves: 40 秒, 12 分, 2 小时 40 分. */
-export function roughlyText(seconds: number): string {
-  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} 秒`;
-  const m = Math.round(seconds / 60);
-  return m < 60 ? `${m} 分` : `${Math.floor(m / 60)} 小时${m % 60 ? ` ${m % 60} 分` : ""}`;
-}
-
-/** Remaining time, approximated: 约 1 分钟内, 约 3 分钟, 约 1.5 小时. */
-export const leftText = (seconds: number): string =>
-  seconds < 60 ? "约 1 分钟内" : seconds < 3600 ? `约 ${Math.ceil(seconds / 60)} 分钟` : `约 ${(seconds / 3600).toFixed(1)} 小时`;
 
 /** Hours of computing: 0.25 小时, 12.5 小时. */
 export function hoursText(seconds: number): string {
@@ -103,8 +101,9 @@ export const dayText = (t: number): string => at(t).toLocaleDateString("zh-CN", 
 /** 1001–1124 */
 export const rangeText = (first: number, last: number): string => `${first}–${last}`;
 
-/** 格式化点数或计数：一万以上以「万」、一亿以上以「亿」为单位，保留一位小数
- * （「30 万 / 100 万」比「300000」易读）。页面中所有点数的显示均须使用本函数，不得各处自行调用 toLocaleString。 */
+/** A point count or other count: from ten thousand in 万, from a hundred million in 亿, with one decimal (30 万 / 100 万
+ * reads more easily than 300000). Every point count on the page is shown through this function, never through a
+ * toLocaleString of its own. */
 export function countText(n: number): string {
   const x = Math.round(n);
   if (x >= 1e8) return `${(x / 1e8).toFixed(1).replace(/\.0$/, "")} 亿`;

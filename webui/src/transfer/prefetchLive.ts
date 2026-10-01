@@ -2,24 +2,20 @@
  * 本模块是唯一将其接入 api 与浏览器的位置，当前显示的节点与帧、页面转入后台等事件均由此传给预取器）。
  *
  * 预取结果为压缩字节，不解码：每帧数十 KB，整段数 MB；解码后的位图占用更大，由
- * `transfer/cache.ts` 的另一项预算管理。字节存放在视图读取的键下（`bytes:${源 id}:${帧}`），
+ * `platform/cache.ts` 的另一项预算管理。字节存放在视图读取的键下（transfer/frameKey.ts 的 frameKey + bytesKey），
  * 因此视图绘制时无需发出请求，直接就地解码。
  *
  * 分工：当前查看的源由舞台自行整段预取（`transfer/fill.ts fillWhole`：选中即整段）；
  * 本模块预取其他数据包，即显示链上游及同一任务中的其余结果，使使用者切换过去时数据已在本地。
  * 两侧使用同一组键，且均先检查本地是否已有，因此不会重复预取。 */
 
-import { api } from "../api";
-import { blob, bytes as fetchBytes } from "../platform/http";
 import { useLook } from "../state/look";
 import { useViewer } from "../state/viewer";
-import { Prefetcher, prefetchStore, type PrefetchSource, type Want } from "./prefetch";
-import { channelId, manifestNow, manifestOf, tierTag } from "./frames";
-import { cache } from "./cache";
-import { bytesKey, versionOf } from "./sources";
-import { packetKey } from "./ident";
-import { genOf } from "./gens";
-import { squeeze } from "./plane";
+import { Paused, Prefetcher, prefetchStore, type PrefetchSource, type Want } from "./prefetch";
+import { manifestNow, manifestOf } from "./frames";
+import { cache } from "../platform/cache";
+import { Gone, Later, NeedLogin, frameBytes, whenAskable } from "./frameStore";
+import { channelId, channelUrl, describedSlot, frameKey, packetKey, pictureUrl, tierOf as tierIn } from "./frameKey";
 import { channelsFor } from "./route";
 import { channelsOf, lookIndex } from "../model/view2d";
 
@@ -32,47 +28,57 @@ const routeOf = (fp: string): string[] => {
   return channelsFor(m, lookIndex(null, channelsOf(String(m?.type ?? ""))));
 };
 
-/** 该数据包在视图中使用的代理档位，以键片段形式返回（与 `transfer/sources.ts` 的规则一致）。 */
-const tierOf = (fp: string): string => tierTag(manifestNow(fp));
+/** 该数据包在视图中的显示档位（与舞台同一份：包说明里的 proxy）。 */
+const tierOf = (fp: string) => tierIn(manifestNow(fp));
 
-const source: PrefetchSource<Blob> = {
+/** 图片路径一帧（与 transfer/sources.ts serverFrames 的字节同一个源：不透过相机）。 */
+const pictureAt = (fp: string, frame: number) => ({ id: packetKey({ fp, tier: tierOf(fp) }), frame });
+
+const source: PrefetchSource = {
   frames: async (want) => {
     if (want.kind !== "frames2d") return [];
-    const m = await manifestOf(want.fp);
+    // 包说明这次没取到（退避、等登录、断线）不是「没有帧」：暂停这份 want，等它能再要时接着；只有服务器说没有（Gone）才是空的
+    const m = await manifestOf(want.fp).catch((e: unknown): never => {
+      if (e instanceof Gone) throw e;
+      throw new Paused((go) => void whenAskable(e instanceof Later ? e.key : describedSlot("manifest", want.fp).key, go));
+    });
     return Array.isArray(m.meta.frames) ? (m.meta.frames as number[]) : [];
   },
   load: async (want, frame, signal) => {
+    // 取字节与舞台、整段取回同一条路（transfer/frameStore.ts frameBytes：同一帧只发一次、同一套存放与失败记忆），
+    // 地址同一个构造（pictureUrl、channelUrl，带版本）；这里只决定预取哪些、什么顺序
     const names = routeOf(want.fp);
-    if (!names.length) {
-      // 图片路径：服务器返回的即为压缩字节，原样保存，不解码
-      const bytes = await blob(api.packetFrameUrl(want.fp, frame, undefined, versionOf(want.fp, manifestNow(want.fp))), { signal, headers: { Accept: "image/webp,image/png" } });
-      return { value: bytes, bytes: bytes.size };
-    }
-    // 通道路径：按当前视图所需的通道逐条获取，每条存放在视图读取的键下（transfer/sources.ts channelId）。
-    // 传输层的 gzip 由浏览器在原生代码中解压，页面只能拿到解压后的数据，因此需自行无损压缩后再存储。
     const tier = tierOf(want.fp);
-    let first: Blob | null = null;
-    let total = 0;
-    for (const name of names) {
-      const key = `${channelId(want.fp, name, tier)}:${frame}`;
-      if (prefetchStore.isCached(key)) continue;
-      const buf = await fetchBytes(api.channelUrl(want.fp, frame, name, versionOf(want.fp, manifestNow(want.fp))), { signal });
-      const packed = await squeeze(buf);
-      if (!packed) continue;  // 浏览器不支持 CompressionStream 时跳过该层，功能不受影响
-      total += packed.size;
-      if (name === names[0]) first = packed;
-      else cache.keep(bytesKey(key), packed, packed.size, "small");  // 第一条由返回值交回，此处不重复存储
+    if (!names.length) {
+      // 类型取包说明的（视频走视频的路由）：与舞台同一个地址，浏览器缓存与服务器的代理文件都是同一份
+      const type = String(manifestNow(want.fp)?.type ?? "");
+      const at = pictureAt(want.fp, frame);
+      await frameBytes(at, pictureUrl({ fp: want.fp, type }, frame, tier), "picture", signal, "later").catch(pausedAt(at));
+      return;
     }
-    return { value: first, bytes: total };
+    // 通道路径：按当前视图所需的通道逐条取，每条存在视图读取的键下（transfer/sources.ts channelId；frameBytes 取到即存）
+    for (const name of names) {
+      const at = { id: channelId(want.fp, name, tier), frame };
+      if (!prefetchStore.isCached(frameKey(at.id, frame)))
+        await frameBytes(at, channelUrl(want.fp, frame, name, tier), "channel", signal, "later").catch(pausedAt(at));
+    }
   },
   keyOf: (want, frame) => {
     const names = routeOf(want.fp);
     const tier = tierOf(want.fp);
-    return names.length ? `${channelId(want.fp, names[0], tier)}:${frame}` : `${packetKey({ fp: want.fp, gen: genOf(want.fp), tier })}:${frame}`;
+    return names.length ? frameKey(channelId(want.fp, names[0], tier), frame) : frameKey(pictureAt(want.fp, frame).id, frame);
   },
 };
 
-const prefetcher = new Prefetcher<Blob>(prefetchStore, source);
+/** 取数层说「现在别要」（等登录、退避期）：不算取过，暂停这份 want，这一帧能再要时接着（frameStore whenAskable）。 */
+const pausedAt = (at: { id: string; frame: number }) => (e: unknown): never => {
+  // 在退避的是取字节的那个键（Later.key），不一定是这里的帧键：等它
+  if (e instanceof Later) throw new Paused((go) => void whenAskable(e.key, go));
+  if (e instanceof NeedLogin) throw new Paused((go) => void whenAskable(frameKey(at.id, at.frame), go));
+  throw e;
+};
+
+const prefetcher = new Prefetcher(prefetchStore, source);
 
 let watching = false;
 
@@ -90,18 +96,19 @@ function watch(): void {
   };
   useLook.subscribe((s, p) => s.displayId !== p.displayId && refocus());
   useViewer.subscribe((s, p) => (s.frame !== p.frame || s.playing !== p.playing) && refocus());
-  // 页面转入后台时暂停预取，并主动释放解码层（保留压缩字节，返回前台后数毫秒即可重新解码）。
-  // `ImageBitmap` 与 GPU 纹理不在 JS 堆中，不显式释放将持续占用。
-  if (typeof document !== "undefined") {
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) {
-        prefetcher.pause();
-        cache.releasePixels();
-      } else {
-        prefetcher.resume();
-      }
-    });
-  }
+}
+
+// 页面转入后台时暂停预取，并主动释放解码层（保留压缩字节，返回前台后数毫秒即可重新解码）。
+// `ImageBitmap` 与 GPU 纹理不在 JS 堆中，不显式释放将持续占用。装在模块加载时：不论有没有预取过，切后台都释放
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      prefetcher.pause();
+      cache.releasePixels();
+    } else {
+      prefetcher.resume();
+    }
+  });
 }
 
 /** 登记一个需要在显示前预取的数据包（graph/streamDone.ts 在 `node_done` 时调用）。 */

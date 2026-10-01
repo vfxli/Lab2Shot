@@ -20,7 +20,8 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import mimetypes
 import os
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from functools import cache
 from pathlib import Path
 from typing import TypeVar
@@ -34,6 +35,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..errors import NotFound
 from ..messages import Msg
+from ..text import decimal
 from ..serving import carried
 
 IMMUTABLE = "private, max-age=31536000, immutable"  # content-addressed: the same URL is always the same bytes
@@ -50,20 +52,74 @@ def admin_answer(said: str) -> str:
     return (said if "private" in said else f"private, {said}") if "immutable" in said else "no-store"
 
 
-OFF_LOOP_THREADS = 16  # the middlewares' own threads: they never wait behind the routes' (anyio's default 40)
-_off_loop: RunVar[anyio.CapacityLimiter] = RunVar("lab2shot_off_loop")  # one per event loop
+# Blocking work a coroutine hands to a thread goes to a lane of its own, each with its own number of threads, so no
+# kind of work waits behind another's, nor behind the sync routes' (anyio's default 40 threads):
+#   MIDDLEWARE  the middlewares' work for every request (the guard's session lookup, a database read; hashing or
+#               scrubbing an answer)
+#   SECRETS     checking a password (scrypt: about 0.1 s and 32 MB each), so a flood of logins slows only logging in;
+#               and the requests without a login hold only a few places of it (stranger_slot), so a flood never
+#               queues up in front of a right login for longer than those few take
+#   WAITS       a route that waits for another process (the view worker's answer) or for a slot (a picture's planes):
+#               however many wait, the other routes still have their threads
+#   UPLOADS     the file work of bytes coming in (server/transfer.py): many uploads at once never hold the routes up
+# A route's handler is put on a lane by declaring it (server/routes.py Access lane).
+MIDDLEWARE, SECRETS, WAITS, UPLOADS = "middleware", "secrets", "waits", "uploads"
+LANE_THREADS = {MIDDLEWARE: 16, SECRETS: 4, WAITS: 16, UPLOADS: 8}
+_lanes: RunVar[dict[str, anyio.CapacityLimiter]] = RunVar("lab2shot_lanes")  # one set per event loop
 T = TypeVar("T")
 
 
-async def off_loop(fn: Callable[..., T], *args) -> T:
-    """Blocking work a middleware must do for every request (the guard's session lookup, a database read; hashing or
-    scrubbing an answer) on a thread, so the event loop goes on serving every other request meanwhile."""
+async def off_loop(fn: Callable[..., T], *args, lane: str = MIDDLEWARE) -> T:
+    """Run blocking `fn(*args)` on a thread of `lane` (LANE_THREADS), so the event loop goes on serving every other
+    request meanwhile. The request's context (whose work it is: lab2shot/serving.py) goes with it."""
     try:
-        limiter = _off_loop.get()
+        lanes = _lanes.get()
     except LookupError:
-        limiter = anyio.CapacityLimiter(OFF_LOOP_THREADS)
-        _off_loop.set(limiter)
-    return await anyio.to_thread.run_sync(fn, *args, limiter=limiter)
+        lanes = {name: anyio.CapacityLimiter(n) for name, n in LANE_THREADS.items()}
+        _lanes.set(lanes)
+    return await anyio.to_thread.run_sync(fn, *args, limiter=lanes[lane])
+
+
+_slots: RunVar[dict[tuple[int, str | None], anyio.Semaphore]] = RunVar("lab2shot_slots")  # one set per event loop
+
+
+@asynccontextmanager
+async def account_slot(user_id: int, lane: str | None, most: int) -> AsyncIterator[None]:
+    """Hold one of an account's `most` slots on `lane` (None: the routes' shared threads; server/routes.py Route,
+    ACCOUNT_SLOTS) while what follows runs; with all of them held, wait for one. Waiting never refuses: the account's
+    requests are answered in turn."""
+    try:
+        slots = _slots.get()
+    except LookupError:
+        slots = {}
+        _slots.set(slots)
+    slot = slots.setdefault((user_id, lane), anyio.Semaphore(most))
+    async with slot:
+        yield
+
+
+_strangers: RunVar[dict[str, int]] = RunVar("lab2shot_strangers")  # one count per event loop
+
+
+@asynccontextmanager
+async def stranger_slot(lane: str, most: int) -> AsyncIterator[None]:
+    """Hold one of the `most` places requests without a login have on `lane` (server/routes.py Route): past them a
+    request is refused at once (TooManyTries), never queued. Behind a tunnel every connection is a client of its own,
+    and a flood of logins would otherwise queue without end for the lane's few threads, a right login behind all of it."""
+    from ..errors import TooManyTries
+
+    try:
+        held = _strangers.get()
+    except LookupError:
+        held = {}
+        _strangers.set(held)
+    if held.get(lane, 0) >= most:
+        raise TooManyTries(Msg("E-ACCESS-LANEBUSY"))
+    held[lane] = held.get(lane, 0) + 1
+    try:
+        yield
+    finally:
+        held[lane] -= 1
 
 
 def _etag(body: bytes) -> str:
@@ -98,7 +154,7 @@ class Wire:
                 headers["Cache-Control"] = _private(headers.get("Cache-Control", FRESH))
                 length = headers.get("content-length", "")
                 if (asking and message["status"] == 200 and "etag" not in headers and headers.get("content-type", "").startswith("application/json")
-                        and length.isdigit() and int(length) <= ETAG_MAX):
+                        and decimal(length) is not None and decimal(length) <= ETAG_MAX):
                     started = message  # held until the body is here: its ETag is of the body
                     return
                 await send(message)
@@ -170,6 +226,18 @@ def _ahead_kind():
     return Kind("view.ahead", title=lambda subject: Msg("I-VIEW-TASKAHEAD", packet=subject.split(":")[0][:12]), lasting=True)
 
 
+AHEAD_PER_ACCOUNT = 2  # packets one account has made ahead at once (ahead)
+AHEAD_MOST = 8  # ... and all accounts together
+
+
+@cache
+def _ahead_pool() -> ThreadPoolExecutor:
+    """The threads every making ahead shares (engine/cook.py FRAME_THREADS of them): however many tasks, never more."""
+    from ..engine.cook import FRAME_THREADS
+
+    return ThreadPoolExecutor(FRAME_THREADS, thread_name_prefix="view-ahead")
+
+
 def ahead(subject: str, pictures: Callable[[], list[Callable[[], object]]]) -> None:
     """Fill in, in the background, whatever is missing from a packet's proxies (one background task per account, packet
     and tier: `subject`, the packet and tier, which ahead scopes to the account).
@@ -187,13 +255,30 @@ def ahead(subject: str, pictures: Callable[[], list[Callable[[], object]]]) -> N
 
     # one task per account too: each account has its own cache (another account's copy of the same packet being done
     # says nothing about this one's), and one account's tasks tell nothing of another's
-    subject = f"{subject}@{account().user_id}"
+    who = account().user_id
+    subject = f"{subject}@{who}"
     kind, tasks = _ahead_kind(), farm().tasks
     last = tasks.latest(kind, subject)
     if last is not None and last.state in ("queued", "running", "done"):
         return
+    # a few at a time, per account and in all: past them nothing is made ahead (each picture is made when it is asked for)
+    active = tasks.running(kind)
+    if len(active) >= AHEAD_MOST or sum(t.subject.endswith(f"@{who}") for t in active) >= AHEAD_PER_ACCOUNT:
+        return
 
     def work(task) -> None:
+        from ..view.frames import stopping
+
+        def make(one):
+            # cancelled: a picture waiting for a video's decoder stops waiting (view/frames.py stopping), and what it
+            # then fails with is the cancellation, not a missing frame
+            try:
+                with stopping(task.stop.is_set):
+                    return one()
+            except Exception:
+                task.check()
+                raise
+
         todo = pictures()
         # Several at a time. Serially, writing the PNG of one 1080p display image takes about 0.2 s, so 150 frames take
         # half a minute and playback would catch up and stall. Parallelism scales almost linearly (OIIO releases the GIL
@@ -201,12 +286,11 @@ def ahead(subject: str, pictures: Callable[[], list[Callable[[], object]]]) -> N
         from ..engine.cook import FRAME_THREADS
 
         done = 0
-        with ThreadPoolExecutor(FRAME_THREADS) as pool:
-            for i in range(0, len(todo), FRAME_THREADS):
-                task.check()
-                for _ in pool.map(carried(lambda make: make()), todo[i:i + FRAME_THREADS]):  # the viewer's account's cache
-                    done += 1
-                task.progress(done, len(todo))
+        for i in range(0, len(todo), FRAME_THREADS):
+            task.check()
+            for _ in _ahead_pool().map(carried(make), todo[i:i + FRAME_THREADS]):  # the viewer's account's cache
+                done += 1
+            task.progress(done, len(todo))
 
     try:
         tasks.submit(kind, subject, "viewer", work)
@@ -220,8 +304,9 @@ def versioned(p, g: str) -> bool:
     answer may be marked immutable; present but not matching -> an old address from before a recompute, 404
     E-VIEW-STALE (the page's next status reply switches to the new generation's address); absent -> False, the answer
     is sent but the browser may not keep it long: marking an address without a generation immutable would leave the
-    browser with old bytes for a year after the same fingerprint is recomputed or the administrator changes the
-    proxy tier."""
+    browser with old bytes for a year after the same fingerprint is recomputed. The routes whose bytes also depend on
+    the proxy tier (packets.py frame / frame_channel, view.py video_frame) keep only addresses that carry `px=` as well:
+    without it the answer is made at the current tier, which the administrator may change."""
     if not g:
         return False
     if g != (p.created or ""):
@@ -246,3 +331,24 @@ def channel_answer(blob_gz: Path, accept_encoding: str, kept: bool = True) -> Re
     if "gzip" in (accept_encoding or ""):
         return FileResponse(blob_gz, media_type=CHANNEL_MEDIA, headers={**said, "Content-Encoding": "gzip"})
     return Response(gzip.decompress(blob_gz.read_bytes()), media_type=CHANNEL_MEDIA, headers=said)
+
+
+def generations(outputs: dict[str, str], user_id: int) -> dict[str, str]:
+    """Each port's packet generation (data/packet.py created) for a node_done event's outputs, read in account
+    `user_id`'s cache (the job's owner): the same `gens` as the status reply (engine/status.py), so a page following
+    the job (webui graph/streamDone.ts) keys the fresh packets by their generation at once, not only after the job
+    ends and the next status reply arrives. A packet not (or no longer) on disk, or a name that is not one, is left out."""
+    from ..data.packet import Packet, packet_dir, valid
+    from ..errors import Invalid
+    from ..serving import Account, serving
+
+    out = {}
+    with serving(Account(user_id)):
+        for port, fp in outputs.items():
+            try:
+                d = packet_dir(fp)
+            except Invalid:
+                continue
+            if valid(d):
+                out[port] = Packet.load(d).created or ""
+    return out

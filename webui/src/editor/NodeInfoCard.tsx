@@ -28,9 +28,10 @@ export function NodeInfoCard({ node, label, at, onClose }: {
   const g = snap.nodes.find((n) => n.id === node);
   const card = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<{ left: number; top: number } | null>(null);
-  // 卡片里的行是等服务器的摘要回来才填的（DataInfo.tsx useManifests）：第一帧只有「读取…」，卡片是窄的。
-  // 内容变长后卡片会从窗口右边长出去、字被裁掉，所以位置跟着卡片自己的大小重算，
-  // 用页面唯一那个尺寸监听（platform/size.ts；这里不自己建观察器）
+  // the card's rows are filled only once the server's summary arrives (DataInfo.tsx useManifests): the first frame holds
+  // only 「读取…」 and the card is narrow. When the content grows the card would run off the window's right edge and its
+  // text be cut, so its position is recomputed from the card's own size, through the page's one size observer
+  // (platform/size.ts; no observer of its own here)
   const size = useRefSize(card);
 
   // it closes the way every floating layer of this page does: a click outside, a scroll, Esc

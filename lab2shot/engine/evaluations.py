@@ -1,18 +1,17 @@
 """Shared cache of Evaluation objects (engine/evaluation.py), one per (session, graph key, cache generation), so that
-repeated queries about the same version of the same graph are evaluated once. Every read-only caller that has a graph
-and a key for it (/api/status, /api/plan, the farm's internal bookkeeping) obtains its Evaluation from this cache
-instead of building one.
+repeated queries about the same version of the same graph are evaluated once. The read-only callers that answer a
+session about a graph it may send again (/api/status, /api/plan) obtain their Evaluation from this cache instead of
+building one. Two keep their own instead, for a reason: a queued job holds one for its whole life (farm/queue.py Job:
+one job, one evaluation, for the account that submitted it; its graph never changes and nothing else asks about it),
+and an Engine cooks on a fresh one (it mutates plans as it cooks: engine/cook.py Engine).
 
-The generation is a single server-wide counter. It is incremented whenever a cached packet that a plan relied on may
-have changed: the engine commits a packet (engine/cook.py, Engine._run_node), the disk cleaner removes cache items or
-uploads (farm/disk.py), or an install switches an extension's environment or finishes (server/installs.py: its nodes
-may behave differently afterwards).
-Incrementing loses nothing: stale Evaluations are no longer handed out, and the next request for their key builds a
-fresh one.
-
-A different kind of staleness, where a graph's external file changes identity (NodeDef.source_identity) without any
-global change and therefore without a new generation, is detected per Evaluation by the inexpensive `still_true()`
-check before the cache returns it."""
+An Evaluation is stale when something it planned changed on disk: a packet committed or removed, a failure record
+written or cleared, in its account's cache (records.changed: each Evaluation is listed under the fingerprints it
+planned, so a cook of another graph, or of another account, leaves it standing). Its external files changing identity
+(NodeDef.source_identity) and a packet it found cached going away are found by the inexpensive `still_true()` check
+before the cache returns it. What changes every graph at once (an extension installed or its environment switched:
+server/installs.py; uploads cleared: farm/disk.py) starts a new generation (`bump`): Evaluations of the ending one are
+no longer handed out, but remain stored until normal eviction."""
 
 from __future__ import annotations
 
@@ -46,19 +45,23 @@ def content_key(graph: Graph) -> str:
 class EvaluationCache:
     """`size`: maximum number of Evaluations kept in total; `per_session`: maximum kept for one session (a browser
     tab, "farm" for the queue's internal bookkeeping, or a script/DCC identity). Eviction drops the session's oldest
-    entries first, then the oldest overall once the total exceeds `size`."""
+    entries first, then the oldest overall once the total exceeds `size`, or once what they remember together
+    (Evaluation.remembered: entries of every table, roughly 0.9 KB each: the default million is about 0.9 GB in all)
+    exceeds `entries`. An evaluation goes on remembering after it was put in (a status read, a look), so the bound is
+    checked on every hit as well as on every insertion; the Engines' and the jobs' own evaluations are not in it."""
 
-    def __init__(self, size: int = 64, per_session: int = 6) -> None:
+    def __init__(self, size: int = 64, per_session: int = 6, entries: int = 1_000_000) -> None:
         self.size = size
         self.per_session = per_session
+        self.entries = entries
         self.generation = 0
         self._lock = threading.Lock()
         self._by_key: OrderedDict[tuple[str, str, int], Evaluation] = OrderedDict()
 
     def bump(self) -> None:
-        """Start a new generation because a cached packet that a plan relied on may have changed. Evaluations of the
-        ending generation are no longer handed out, but remain stored until normal eviction, so a cook in progress
-        that still reads its own Evaluation keeps working (see the Engine docstring)."""
+        """Start a new generation: something every graph may depend on changed (an extension's environment, uploads
+        cleared). Evaluations of the ending generation are no longer handed out, but remain stored until normal
+        eviction."""
         with self._lock:
             self.generation += 1
 
@@ -84,10 +87,13 @@ class EvaluationCache:
             gen = self.generation
             key = (session, f"{graph_key}?{account.user_id}{'+' if account.all_accounts else ''}", gen)
             hit = self._by_key.get(key)
-        if hit is not None and hit.still_true():
+        # a fault of the program while checking it (a node type's source_identity) is said and taken as stale: it is
+        # rebuilt, and the new one's answers say the fault at that node (Status.guarded), never a 500 on every look
+        if hit is not None and not hit.stale and hit.guarded("still true", hit.still_true, False):
             with self._lock:
                 if self._by_key.get(key) is hit:  # not evicted in the meantime
                     self._by_key.move_to_end(key)
+                    self._evict(session)  # what it holds may have grown since it was put in
             return hit
         ev = Evaluation(build(), account)
         with self._lock:
@@ -106,13 +112,21 @@ class EvaluationCache:
             del self._by_key[k]
         while len(self._by_key) > self.size:
             self._by_key.popitem(last=False)
+        held = sum(ev.remembered() for ev in self._by_key.values())
+        while len(self._by_key) > 1 and held > self.entries:  # the oldest first; the newest always stays
+            _key, ev = self._by_key.popitem(last=False)
+            held -= ev.remembered()
 
 
 EVALUATIONS = EvaluationCache()
 
-# a removal from the cache starts a new generation: packet.remove is the one way a cache entry goes, and it tells
-# this module, so no removal path (cook, disk.clean, quota, a reader node's invalidation, deleting tasks and footage)
-# has to call bump itself
-from ..data.packet import on_removed  # noqa: E402
+# a packet committed or removed makes stale only the evaluations that planned it (records.changed, by the account
+# whose cache it is in): packet.commit and packet.remove are the one way an entry comes and goes, and they tell this
+# module, so no path (a cook, cleaning, quota, deleting tasks and footage) has to say it itself; every other graph's,
+# and every other account's, evaluation stays in the cache
+from ..data.packet import on_committed, on_removed  # noqa: E402
+from ..serving import account as _account  # noqa: E402
+from .records import changed as _changed  # noqa: E402
 
-on_removed(lambda _fp, _why: EVALUATIONS.bump())
+on_committed(lambda fp: _changed(_account().user_id, fp))
+on_removed(lambda fp, _why: _changed(_account().user_id, fp))

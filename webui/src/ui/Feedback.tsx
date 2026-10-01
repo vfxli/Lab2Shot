@@ -163,7 +163,7 @@ function WriteFeedback({ context, onClose, onMine }: { context?: () => Record<st
   const draftAt = draftKey(useSession.getState().state?.user?.id);
   const draft = readLocalJSON<{ text?: string }>(draftAt, {});
   const [text, setText] = useState(draft.text ?? "");
-  // 不提供类别选择器；服务器端空字符串是合法的「未选择」，因此发送空值
+  // there is no category picker; the server accepts an empty string as "none chosen", so an empty value is sent
   const category = "";
   const [pictures, setPictures] = useState<Picture[]>([]);
   const [shooting, setShooting] = useState(true);

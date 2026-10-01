@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import type { Manifest } from "../api";
-import { channelFrames, localFirst, pickedFrames, serverFrames, tierTag, useFrames } from "../transfer/frames";
-import { isPlane } from "../transfer/plane";
+import { channelFrames, localFirst, pickedFrames, serverFrames, stillHeld, tierOf, useFrames } from "../transfer/frames";
+import { isPlane, type Pixels } from "../transfer/plane";
+import { PairHold, SideHold } from "../transfer/readiness";
 import { channelsFor, validFor } from "../transfer/route";
 import { useViewer } from "../state/viewer";
 import { partialFrames, type Partial as PartialResult } from "./partial";
@@ -32,15 +33,17 @@ interface StageSourcesAsk {
 
 export function useStageSources(ask: StageSourcesAsk) {
   const { plan, main, manifest, overFp, overManifest, mainSide, rightSide, partial, local, frame, playDir, shownPort } = ask;
-  // the picture's frame, with the surrounding frames loading (transfer/frames.ts: never black, the last frame stays
-  // while the next one loads); while the node is being cooked, the frames it has already written (view/partial.ts), via the job's own address
-  // 本机文件优先（浏览器已持有的数据不再重复请求）：
+  // 画面的当前帧，前后帧同时载入（transfer/frames.ts：不黑屏，下一帧载入期间保留上一帧）；节点计算中时，
+  // 取它已写出的帧（view/partial.ts），经任务自身的地址
+  // 本机文件优先（浏览器已持有的数据不重复请求）：
   // 用户在本标签页中选择的文件，帧到文件的对应关系由浏览器自行建立，不等待服务器的包说明；
   // PNG / JPEG 始终使用本机文件（服务器提供的显示图即为该文件本身），EXR 只在服务器数据到达前使用
   // （服务器须按 OCIO 执行显示变换，以所见即所得为优先）。
+  const timeline = useViewer((s) => s.frames);
+  const still = !!local && local.item.kind !== "sequence";
   const picked = useMemo(
-    () => (local ? pickedFrames(plan.node.id, local.item, local.space, frame) : null),
-    [local, plan.node.id, local?.item.kind === "sequence" ? 0 : frame], // eslint-disable-line react-hooks/exhaustive-deps
+    () => (local ? pickedFrames(plan.node.id, local.item, local.space, still ? timeline : []) : null),
+    [local, plan.node.id, still ? timeline : null], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // 只有绘制的是原图时才使用本机文件：本机文件是用户选择的画面，而非节点计算的结果。
   // 若无此限制，在「仅结果」档查看遮罩时会绘制出原图。
@@ -62,7 +65,7 @@ export function useStageSources(ask: StageSourcesAsk) {
   //     （数值图不经过色彩管理，每条通道一种颜色，相互独立，不需要三维查找表）。判定见 transfer/route.ts。按需发送所需通道，
   //     值为数据自身的值，范围映射、黑白点、着色、合成均在浏览器中计算（view/look.ts）。
   //
-  // 无论解算器输出多少条通道，只传输用户查看的通道；客户端已有的 rgb 不再发送。
+  // 无论解算器输出多少条通道，只传输用户查看的通道；客户端已有的 rgb 不重复发送。
   // 数值图走通道路径，浏览器持有全精度的值，拖动黑白点时即时计算，无需再向服务器请求图像。
   const framesOf = (m: Manifest | null) => (Array.isArray(m?.meta.frames) ? (m!.meta.frames as number[]) : []);
   const rangeOf = (m: Manifest | null): readonly [number, number] => {
@@ -74,8 +77,9 @@ export function useStageSources(ask: StageSourcesAsk) {
   const overNames = overFp ? channelsFor(overManifest, rightSide.index) : [];
   // 代理档位（管理员设置，包说明中的 `proxy.px`）：计入源的 id，从而计入缓存键。
   // 键须包含「数据包 · 帧 · 通道 · 代理档位」四项，切换离开再切回时才能命中缓存
-  const tier = tierTag(manifest);
-  const overTier = tierTag(overManifest);
+  // 显示档位随包说明（同一份包说明同一个值，下面的帧源不因每次渲染重建）
+  const tier = useMemo(() => tierOf(manifest), [manifest]);
+  const overTier = useMemo(() => tierOf(overManifest), [overManifest]);
   // 生成号计入 memo 依赖（transfer/gens.ts）：同一指纹重算后帧源重建，键中含新生成号，旧帧不会再命中
   const mainGen = useGens((s) => (main ? s.gens[main.fp] ?? "" : ""));
   const overGen = useGens((s) => (overFp ? s.gens[overFp] ?? "" : ""));
@@ -127,22 +131,40 @@ export function useStageSources(ask: StageSourcesAsk) {
   ];
   const scrubbing = useViewer((s) => s.scrubbing);
   const got = useFrames(sources, frame, playDir, scrubbing);
-  // 单侧：正在使用的格、是否全部到达、仍在等待哪些
-  const gather = (from: number) => {
+  // 单侧：要用的格都到了这一帧才换（transfer/readiness.ts）；没到齐时整侧沿用上一次完整合成的那一帧，
+  // 不把各格停在不同帧的图拼在一起
+  const mainHold = useRef(new SideHold<Pixels>()).current;
+  const overHold = useRef(new SideHold<Pixels>()).current;
+  const gather = (from: number, hold: SideHold<Pixels>) => {
     const on = [0, 1, 2, 3, 4].map((k) => from + k).filter((i) => sources[i]);
-    const need = on.filter((i) => i !== from + 4); // valid 未到达时不阻止绘制（它只将无值区域涂黑）
+    const need = on.filter((i) => i !== from + 4).map((i) => i - from); // valid 没到不挡绘制（它只把无值处涂黑）
+    const cells = [0, 1, 2, 3, 4].map((k) => got[from + k]);
+    const side = hold.take(on.map((i) => sources[i]!.id).join("\n"), frame, cells, need,
+      (k, f, image) => { const s = sources[from + k]; return !!s && stillHeld(s, f, image); });
     return {
-      ready: need.length > 0 && need.every((i) => got[i].image),
+      ...side,
       loading: on.some((i) => got[i].loading),
+      absent: !!side.absent,
       failed: on.some((i) => got[i].failed),
       primary: on[0] ?? -1,
     };
   };
-  const mainHas = gather(0);
-  const overHas = gather(5);
+  const mainTake = gather(0, mainHold);
+  const overTake = gather(5, overHold);
+  // 两侧（「运算」档）：成对地换（transfer/readiness.ts PairHold）；拼不成时两侧一起停在上一对。一侧本来没有这一帧时
+  // 另一侧照画当前帧，缺的一侧不画（Stage2D 说明）；「加载中」只看真在路上的格
+  const pairHold = useRef(new PairHold<Pixels>()).current;
+  const twoSided = sources.slice(5).some(Boolean);
+  const heldSide = (side: 0 | 1, s: { images: (Pixels | null)[]; frame: number | null }) =>
+    s.frame !== null && s.images.every((p, k) => { const src = sources[side * 5 + k]; return p === null || (!!src && stillHeld(src, s.frame!, p)); });
+  const pair = twoSided ? pairHold.take(sources.map((s) => s?.id ?? "").join("\n"), mainTake, overTake, heldSide) : null;
+  const mainHas = pair?.ready ? { ...mainTake, ...pair.a } : mainTake; // 没有一对（还没到，或右侧缺这一帧）：左侧照画自己的
+  // 一侧本来没有这一帧：另一侧照它自己的画（两边同一规则：左侧缺时右侧单独画，右侧缺时左侧照画）
+  const overHas = pair ? { ...overTake, ...pair.b, ready: pair.ready || (mainTake.absent && overTake.ready) } : overTake;
   const plate = mainHas.primary < 0 ? got[0] : got[mainHas.primary];
-  const asPicture = (i: number) => { const px = sources[i] ? got[i].image : null; return px && !isPlane(px) ? px : null; };
-  const asPlane = (i: number) => { const px = sources[i] ? got[i].image : null; return px && isPlane(px) ? px : null; };
+  const cellOf = (i: number) => (i < 5 ? mainHas.images[i] : overHas.images[i - 5]);
+  const asPicture = (i: number) => { const px = sources[i] ? cellOf(i) : null; return px && !isPlane(px) ? px : null; };
+  const asPlane = (i: number) => { const px = sources[i] ? cellOf(i) : null; return px && isPlane(px) ? px : null; };
   const sideSource = (from: number, look: Side, box: Box, m: Manifest | null): SideSource => ({
     box, side: look,
     picture: asPicture(from),
@@ -153,5 +175,7 @@ export function useStageSources(ask: StageSourcesAsk) {
 
   // 时间线的「已载入视图」跟随主源所在的格（而非包指纹：id 中还含有通道名和代理档位）
   const loadedId = sources[mainHas.primary]?.id ?? null;
-  return { picked, plate, mainHas, overHas, sideSource, mainNames, overNames, loadedId };
+  // 播放器要等的：所有在用的格（两侧、各条通道），每一格都解码了才算这一帧就绪
+  const used = sources.flatMap((x) => (x ? [x] : []));
+  return { picked, plate, mainHas, overHas, sideSource, mainNames, overNames, loadedId, used };
 }

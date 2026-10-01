@@ -5,11 +5,12 @@
 .node-info-card {
   position: fixed;
   z-index: var(--z-popover);
-  /* 按内容定宽（320 px 起）：短的不留空，长的撑到上限，再长就在行里换行，不裁 */
+  /* sized to its content (from 320 px): short content leaves no empty space, long content grows to the cap, anything
+     longer wraps within its row; nothing is cut */
   width: max-content;
   min-width: 320px;
   max-width: min(560px, calc(100vw - 2 * var(--sp-4)));
-  border-radius: var(--r-card); /* 玻璃的亮边跟着这个圆角走（.glass::before 是 border-radius: inherit） */
+  border-radius: var(--r-card); /* the glass rim follows this radius (.glass::before has border-radius: inherit) */
   padding: var(--sp-3) 0 var(--sp-2);
   font-size: var(--fs-xs);
 }
@@ -53,7 +54,7 @@
   display: none;
 }
 
-/* 卡片是按内容定宽的，所以这里的值整句显示，撑到上限就换行——不裁。 */
+/* the card is sized to its content, so a value here is shown as a whole sentence and wraps at the cap — never cut. */
 .node-info-card .data-port-said,
 .node-info-card .data-port-name,
 .node-info-card .node-info-what {

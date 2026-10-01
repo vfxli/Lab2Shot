@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ..kit.ports import rgb_port
 from ...data.packet import Packet
 from ...errors import Invalid, NothingToCook
 from ...messages import Msg
@@ -64,7 +65,7 @@ class Keypoints2D:
     said: str
 
     def port(self, node_type) -> Port:
-        return Port("keypoints", "tracks2d", "2D 关键点",
+        return Port("keypoints", "tracks2d", "2D 关键点", may_be_empty=True,
                     help=f"{self.said}。画面上的点，不是三维结果的投影：可以直接接「2D 跟踪点输出设置」交给 "
                          "3DEqualizer、Nuke，也可以叠在画面上看解出来的人贴不贴。按人分组，一个人一组")
 
@@ -119,11 +120,12 @@ def keypoints2d(ctx, port: str, image: Packet, people: list[PersonKeypoints], **
 
 def track_queries(ctx, image: Packet, picks: list[str]) -> dict[str, Path]:
     """Worker inputs of a point tracker: a mask to place the grid in and the viewer's clicked points (points.json)."""
-    from ..base import parse_picks
+    from ..handles import parse_picks, say_bad_entries
 
     inputs = ctx.input_files("mask")
     points = []
-    for frame, x, y in parse_picks(picks):
+    say_bad_entries(ctx, "picks")
+    for frame, x, y, _ in parse_picks(ctx.node_type, "picks", picks):
         if frame not in image.meta["frames"]:
             ctx.say("N-TRACKS-PICKOUTSIDE", frame=frame, x=x, y=y, param="picks")
         else:
@@ -151,8 +153,8 @@ class PointTracker(WorkerNode):
     # how many points it gives, worked out from its own parameters: the node below it can say which of its choices
     # that suits (nodes/applies.py Incoming — 「2D 跟踪点输出设置」's CornerPin takes exactly four)
     fact_labels = {"points": "跟踪点数"}
-    inputs = (Port("image", "image.3", "RGB"), plate_mask_port("遮罩", every_frame=False))
-    outputs = (Port("tracks", "tracks2d", "2D 跟踪点"),)
+    inputs = (rgb_port(), plate_mask_port("遮罩", every_frame=False))
+    outputs = (Port("tracks", "tracks2d", "2D 跟踪点", may_be_empty=True),)
     cost = Cost(gpu=True)
     handles = (Handle("points", {"points": "picks"}),)
 
@@ -163,10 +165,7 @@ class PointTracker(WorkerNode):
         from ..base import parse_picks
 
         grid = int(params.get("grid") or 0)
-        try:
-            picked = len(parse_picks(list(params.get("picks") or [])))
-        except Exception:  # a half-typed entry: not known rather than wrong
-            return {}
+        picked = len(parse_picks(cls, "picks", list(params.get("picks") or [])))  # an entry that does not read is no point
         return {"points": Fact(grid * grid + picked, cls.fact_labels["points"])}
 
     @classmethod

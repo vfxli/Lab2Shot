@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, Confidence, P, WholeShotDepthCamera, WholeShotParams, loops_param, max_frames_param,
-                          resolution_param, unit_cm_param, Cost, Licence, OptionTrait, Param, Measured)
+from .vggt_models import OPTION_LICENCES
+from lab2shot.sdk import (licence_traits, Official, Confidence, P, WholeShotDepthCamera, WholeShotParams, loops_param, max_frames_param,
+                          resolution_param, unit_cm_param, Cost, Licence, Measured)
 
 
 # 默认设置（原版权重、518、每段 130 帧）下实测的显存峰值：1080×1920 竖幅 150 帧分两段（docs.md 实测表）。
@@ -41,10 +42,8 @@ class Reconstruct(WholeShotDepthCamera):
     confidence = Confidence("exp_plus_one")  # how its model gives its confidence (CONFIDENCE_SCALES)
     # vram_gb: RTX 4090 上测得（docs.md），默认设置（DEFAULT_VRAM_GB）
     cost = Cost(gpu=True, vram_gb=DEFAULT_VRAM_GB, seconds_per_frame=0.2)
-    licence = Licence(note="代码是 VGGT License（可商用，禁止军事用途）；原版权重 CC-BY-NC-4.0 只能研究用，商用版权重（需申请）可以商用。")
-    traits = (
-        OptionTrait(Param('model').one_of('original'), noncommercial=True),
-    )
+    licence = Licence(note="代码是 VGGT License（可商用，禁止军事用途）；原版权重 CC-BY-NC-4.0 非商用，商用版权重（需申请）可以商用。")
+    traits = licence_traits(OPTION_LICENCES)
 
     class Params(WholeShotParams):
         model: Literal["original", "commercial"] = P(

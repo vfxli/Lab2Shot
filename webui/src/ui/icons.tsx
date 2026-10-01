@@ -52,6 +52,18 @@ export const IconRedo = ({ size = 14, color = "currentColor" }: P) =>
 export const IconFit = ({ size = 14, color = "currentColor" }: P) =>
   base(size, color, <path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />);
 
+/** Arrange the graph: three small nodes laid out left to right, chained (editor/NodeEditor.tsx, bottom right). */
+export const IconArrange = ({ size = 14, color = "currentColor" }: P) =>
+  base(size, color, (
+    <>
+      <rect x="1.5" y="6" width="3.5" height="4" rx=".8" />
+      <rect x="6.25" y="2.5" width="3.5" height="4" rx=".8" />
+      <rect x="6.25" y="9.5" width="3.5" height="4" rx=".8" />
+      <rect x="11" y="6" width="3.5" height="4" rx=".8" />
+      <path d="M5 8h1.25M9.75 4.5 11 7M9.75 11.5 11 9" />
+    </>
+  ));
+
 export const IconGroup = ({ size = 14, color = "currentColor" }: P) =>
   base(size, color, (
     <>
@@ -74,6 +86,10 @@ export const IconPlus = ({ size = 14, color = "currentColor" }: P) => base(size,
 export const IconMinus = ({ size = 14, color = "currentColor" }: P) => base(size, color, <path d="M3 8h10" />);
 
 export const IconClose = ({ size = 12, color = "currentColor" }: P) => base(size, color, <path d="m4 4 8 8M12 4l-8 8" />);
+
+/** Three lines with sliders: 「编辑参数界面」 (the small button at the right end of the parameter panel's title row). */
+export const IconSliders = ({ size = 13, color = "currentColor" }: P) =>
+  base(size, color, <path d="M2 4.5h7M11 4.5h3M2 8h3M7 8h7M2 11.5h9M13 11.5h1M9 3v3M5 6.5v3M11 10v3" />);
 
 /** Three dots: 「还有别的」, the action menu of a template card, a node menu row or a category. */
 export const IconMore = ({ size = 13, color = "currentColor" }: P) =>

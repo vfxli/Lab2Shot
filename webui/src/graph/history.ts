@@ -1,6 +1,7 @@
 import type { Edge } from "@xyflow/react";
 import type { GraphJSON, NodeTypeDef } from "../api";
 import { chosenOnNode } from "./nodes";
+import { exposedParams } from "../state/cookInputs";
 import type { GBox, GNode } from "../state/graph";
 import { same as sameJson, type Json } from "../model/graphPatch";
 
@@ -19,7 +20,10 @@ type OutputOf = (nodeId: string, port: string | null) => { name: string; label: 
  * changed. Changes made by one piece of code (one event) are one step, and the same thing changing again within one
  * gesture (a drag, a slider, typing into a field) grows the step it started. A gesture ends at the next pointer press
  * or keyboard focus change. A step is the document before and after it; the state is immutable, so steps share
- * everything they did not change. Opening a graph starts a fresh history. */
+ * everything they did not change. Opening a graph starts a fresh history.
+ *
+ * A write that is not a plain user edit says what it is by the scope it runs in (transaction / absorb / derived /
+ * restoring, below): the one mechanism for named steps, derived values and restores. */
 
 export interface Doc {
   meta: GraphJSON["meta"];
@@ -69,6 +73,7 @@ const sameNode = (a: GNode, b: GNode | undefined) =>
     a.position.y === b.position.y &&
     !changedParams(a.data.params, b.data.params).length &&
     same(a.data.picked, b.data.picked) &&
+    same(a.data.stored ?? null, b.data.stored ?? null) && // the file's own values for choices this account may not use
     same(a.data.promoted ?? [], b.data.promoted ?? []) &&
     same(a.data.onNode ?? null, b.data.onNode ?? null));
 
@@ -83,6 +88,47 @@ function sameList<T extends { id: string }>(a: T[], b: T[], eq: (x: T, y: T | un
   if (a.length !== b.length) return false;
   const other = byId(b);
   return a.every((x) => eq(x, other.get(x.id)));
+}
+
+/** One thing an absorb wrote: a node's parameter, or a document field (the node shown, the range, meta, exposed). That
+ * is all an absorb writes (derived parameters, a hidden pull-down's fill, the view entering picking). */
+type Fill = { node: string; key: string; v: unknown } | { field: (typeof FIELDS)[number]; v: unknown };
+const FIELDS = ["meta", "exposed", "displayId", "displayPort", "cookRange"] as const;
+
+/** What an absorb wrote, from the document before it to the one after. */
+function fillsOf(from: Doc, to: Doc): Fill[] {
+  const was = byId(from.nodes);
+  const out: Fill[] = [];
+  for (const n of to.nodes) {
+    const a = was.get(n.id);
+    if (a) for (const k of changedParams(a.data.params, n.data.params)) out.push({ node: n.id, key: k, v: n.data.params[k] });
+  }
+  for (const f of FIELDS) if (!same(from[f], to[f])) out.push({ field: f, v: to[f] });
+  return out;
+}
+
+const valueIn = (d: Doc, f: Fill): unknown => ("field" in f ? d[f.field] : d.nodes.find((n) => n.id === f.node)?.data.params[f.key]);
+
+/** Whether a step itself changed what `f` fills (the user set that derived parameter by hand in it). */
+const touches = (x: Step, f: Fill): boolean => !same(valueIn(x.before, f), valueIn(x.after, f));
+
+/** `fills` laid onto a document of the history; a node it does not have is left out. */
+function lay(onto: Doc, fills: Fill[]): Doc {
+  if (!fills.length) return onto;
+  const byNode = new Map<string, [string, unknown][]>();
+  const out: Doc = { ...onto };
+  for (const f of fills) {
+    if ("field" in f) (out as unknown as Record<string, unknown>)[f.field] = f.v;
+    else byNode.set(f.node, [...(byNode.get(f.node) ?? []), [f.key, f.v]]);
+  }
+  if (byNode.size) out.nodes = onto.nodes.map((n) => {
+    const f = byNode.get(n.id);
+    if (!f) return n;
+    const params = { ...n.data.params };
+    for (const [k, v] of f) if (v === undefined) delete params[k]; else params[k] = v;
+    return { ...n, data: { ...n.data, params } };
+  });
+  return out;
 }
 
 const sameDoc = (a: Doc, b: Doc) =>
@@ -152,7 +198,7 @@ function describe(a: Doc, b: Doc, defs: Record<string, NodeTypeDef>, outputOf: O
   if (renamed.length) return step(count(renamed, (n) => `重命名节点${name(n.id)}`, "重命名 # 个节点"), `label ${ids(renamed)}`);
   const picked = edited.filter((n) => !same(n.data.picked, was.get(n.id)!.data.picked)); // the same files from another folder
   if (picked.length) return step(count(picked, (n) => `重新选择${name(n.id)}的文件`, "重新选择 # 个节点的文件"), `picked ${ids(picked)}`);
-  // 在节点上显示 / 不再显示（一行参数进出节点；提升到节点是上方的独立一步）
+  // 在节点上显示 on / off (a parameter row enters or leaves the node; 提升到节点 is its own step, above)
   for (const n of edited) {
     const def = defs[n.data.typeId];
     const before = def ? chosenOnNode(def, was.get(n.id)!.data.onNode) : [];
@@ -177,10 +223,14 @@ function describe(a: Doc, b: Doc, defs: Record<string, NodeTypeDef>, outputOf: O
     return step(label, `move ${ids(movedBoxes)} ${ids(moved)}`);
   }
 
-  const pinned = b.exposed.filter((x) => !a.exposed.some((y) => y.target === x.target));
+  // the parameter interface is a tree (groups / parameter items): exposing and unexposing compare its parameter items;
+  // every other change (grouping, order, display, conditions) is 「编辑参数界面」
+  const [pinsWas, pinsNow] = [exposedParams(a.exposed), exposedParams(b.exposed)];
+  const pinned = pinsNow.filter((x) => !pinsWas.some((y) => y.target === x.target));
   if (pinned.length) return step(count(pinned, (x) => `设为对外参数「${x.label}」`, "设 # 个对外参数"), `expose+${pinned.map((x) => x.target)}`);
-  const unpinned = a.exposed.filter((x) => !b.exposed.some((y) => y.target === x.target));
+  const unpinned = pinsWas.filter((x) => !pinsNow.some((y) => y.target === x.target));
   if (unpinned.length) return step(count(unpinned, (x) => `取消对外参数「${x.label}」`, "取消 # 个对外参数"), `expose-${unpinned.map((x) => x.target)}`);
+  if (!same(a.exposed, b.exposed)) return reordered(a.exposed, b.exposed) ? step("调整参数顺序", "order") : step("编辑参数界面", "interface");
 
   if (a.displayId !== b.displayId) return step(b.displayId ? `显示节点${name(b.displayId)}` : "不显示节点", "display");
   if (a.displayPort !== b.displayPort && b.displayId) {
@@ -190,6 +240,18 @@ function describe(a: Doc, b: Doc, defs: Record<string, NodeTypeDef>, outputOf: O
   if (!same(a.cookRange, b.cookRange)) return step(b.cookRange ? `计算范围改成 ${b.cookRange[0]}–${b.cookRange[1]}` : "计算范围改回全部", "range");
   if (!same(a.meta, b.meta)) return step("修改节点图名字", "meta");
   return step("修改节点图", "graph");
+}
+
+/** Only the order and the grouping of the parameter interface changed (a drag in the panel or the editor): the same
+ * parameter items and the same groups (by name and settings), placed differently. */
+function reordered(a: Doc["exposed"], b: Doc["exposed"]): boolean {
+  const parts = (tree: Doc["exposed"]) => {
+    const out: string[] = [];
+    const walk = (xs: Doc["exposed"]) => xs.forEach((x) => ("kind" in x && x.kind === "group" ? (out.push(JSON.stringify({ ...x, children: null })), walk(x.children)) : out.push(JSON.stringify(x))));
+    walk(tree);
+    return out.sort().join("\n");
+  };
+  return parts(a) === parts(b);
 }
 
 /** The state that shows `d`: the document's own fields from it, everything else (selection, sizes, cook status) kept
@@ -221,15 +283,74 @@ export function restore(s: Doc & { selectedId: string | null }, d: Doc): Doc & {
   };
 }
 
-// 推导出的修改不计为一步，它们不是使用者的操作：editor/ColorspaceFill.tsx 按文件格式填写空缺的「色彩空间」、
-// 服务器推导出的参数（graph/edit.ts editParams）、随素材收缩的计算范围（graph/actions.ts refreshStatus）。
-// 以色彩空间为例，若记为一步：撤销后参数变空，随即又被填写，撤销永远无效且重做栈被清空；打开色彩空间为空的旧图时
-// 也会立即被标记为已修改。因此填写前设置此标记，紧随其后的 record（document.ts 在同一微任务中调用）将变化并入
-// current 而不记为一步；若文件原本与 current 一致，saved 同步移动，节点图不被标记为已修改。
-let absorbing = false;
-export function absorbNextChange(): void {
-  absorbing = true;
+// ------------------------------------------------------------------ how a write enters the document: explicit scopes
+
+/** What a write counts as in the undo history. A plain user edit needs no wrapping: the writes of both stores within one
+ * task make one step, named after what changed. Every other write binds "the write" and "what it counts as" together by
+ * being wrapped in one of the functions below:
+ * - `transaction(label, key, fn)`: what fn writes is one step under this name (「整组改接」, 「整理节点图」: one change
+ *   of many things, which a name built from the content would not fit);
+ * - `absorb(into, fn)`: what fn writes joins the current document and also the step `into` (taken with `anchor()` when
+ *   the cause was written) — it is a consequence of that step (the distortion parameters the server derives after
+ *   「镜头模型」 changes, answered after the user went on to other edits), and undo / redo carry it along. The steps after
+ *   `into` get it too, so undoing a later one does not take it back;
+ * - `derived(fn)`: what fn writes joins only the current document, belongs to no step and does not mark it unsaved
+ *   (filling an empty 「色彩空间」 from the file format: recorded as a step, undo would empty it and it would be filled
+ *   again, so undo would never work; an old graph would also show as unsaved the moment it opens);
+ * - `restoring(fn)`: undo / redo / opening a document replace both stores whole and record nothing (the caller then
+ *   calls showing / reset itself). */
+export type RecordAs = { label: string; key: string } | { into: Anchor } | "derived";
+/** A step of the history, as `absorb` names it (opaque outside this file); null: none (nothing recorded yet). */
+export type Anchor = object | null;
+type Scope = RecordAs | "restore";
+
+/** The side that records the document (graph/document.ts: it has the two stores and the History instance): first the
+ * plain edits this task already wrote and not yet recorded become a step of their own (flush), then what fn wrote is
+ * recorded by `as`. */
+interface Recorder {
+  flush(): void;
+  top(): Anchor;
+  fillUndone(into: Anchor, node: string, values: Record<string, unknown>, was: Record<string, unknown>): void;
+  record(as: RecordAs): void;
 }
+let recorder: Recorder | null = null;
+export function bindRecorder(r: Recorder): void {
+  recorder = r;
+}
+
+let scope: Scope | null = null;
+/** Whether a write scope is running (graph/document.ts: store notices within a scope are not recorded as plain edits). */
+export const writing = (): boolean => scope !== null;
+
+function within(as: Scope, fn: () => void): void {
+  if (scope) return fn(); // nested in another scope: the outer one decides
+  recorder?.flush();
+  scope = as;
+  try {
+    fn();
+  } finally {
+    scope = null;
+  }
+  if (as !== "restore") recorder?.record(as);
+}
+export const transaction = (label: string, key: string, fn: () => void): void => within({ label, key }, fn);
+export const absorb = (into: Anchor, fn: () => void): void => within({ into }, fn);
+/** A derived answer that arrives while its step is undone (in the redo list): it still belongs to that step, by its
+ * anchor and nothing else. It goes into the step's "after" and the undone steps after it (stopping where one set the
+ * same parameter itself), never into the document now shown, which is from before the step: redo brings it back. `was`:
+ * the node's parameters when the answer was asked for (a value set by hand since is kept). */
+export const fillUndone = (into: Anchor, node: string, values: Record<string, unknown>, was: Record<string, unknown>): void =>
+  recorder?.fillUndone(into, node, values, was);
+
+/** The step that what was just written belongs to: the plain edits of this task are recorded now (their own step, or the
+ * gesture's step they grow), and that step is returned. Taken outside a write scope, when the cause is written (a
+ * scope's own writes are recorded only when it ends). */
+export function anchor(): Anchor {
+  recorder?.flush();
+  return recorder?.top() ?? null;
+}
+export const derived = (fn: () => void): void => within("derived", fn);
+export const restoring = (fn: () => void): void => within("restore", fn);
 
 export class History {
   private undos: Step[] = [];
@@ -243,20 +364,36 @@ export class History {
     this.redos = [];
     this.current = doc;
     this.saved = saved ? doc : null;
-    absorbing = false; // 切换了节点图：上一张图未消耗的标记不得吞掉新图的第一步
   }
 
-  /** The document as it is now: a new step, or the last step grown. False when the document did not change. */
-  record(doc: Doc, defs: Record<string, NodeTypeDef>, outputOf: OutputOf): boolean {
-    if (absorbing) {
-      absorbing = false;
-      if (this.saved && sameDoc(this.saved, this.current)) this.saved = doc; // 未修改的图填写后仍为未修改状态
+  /** The document as it is now: a new step, or the last step grown. False when the document did not change. `as`: how
+   * to record it (RecordAs above; none: a plain user edit, named after what changed). */
+  record(doc: Doc, defs: Record<string, NodeTypeDef>, outputOf: OutputOf, as?: RecordAs): boolean {
+    if (as === "derived" || (typeof as === "object" && "into" in as)) {
+      if (this.saved && sameDoc(this.saved, this.current)) this.saved = doc; // an unchanged graph stays unchanged after the fill
+      // absorb: joins its step's "after" and every later step (undone ones too), otherwise undo then redo brings back the
+      // new model with the old derived values (the value did not change, so nothing derives again). A step no longer in
+      // the undo list (undone: its cause is not in the document any more; or dropped off the end) is left alone
+      const at = as !== "derived" ? this.undos.findIndex((x) => x === as.into) : -1;
+      if (at >= 0) {
+        // the later steps in the order they were made (the redo stack's top is the earliest undone): a fill goes on until a
+        // step that set the same thing itself (the user typed that derived value by hand): from there on it is the user's
+        let fills = fillsOf(this.current, doc);
+        this.undos[at].after = lay(this.undos[at].after, fills);
+        for (const x of [...this.undos.slice(at + 1), ...[...this.redos].reverse()]) {
+          if (!fills.length) break;
+          const kept = fills.filter((f) => !touches(x, f)); // judged on the step as it was made
+          x.before = lay(x.before, fills);
+          x.after = lay(x.after, kept);
+          fills = kept;
+        }
+      }
       this.current = doc;
       return false;
     }
     const changed = !sameDoc(doc, this.current);
     if (changed) {
-      const { label, key } = describe(this.current, doc, defs, outputOf);
+      const { label, key } = as ?? describe(this.current, doc, defs, outputOf);
       const last = this.undos.at(-1);
       if (last && last.key === key && last.gesture === gesture && !this.redos.length) {
         last.after = doc;
@@ -300,6 +437,30 @@ export class History {
 
   isSaved(doc: Doc): boolean {
     return !!this.saved && sameDoc(doc, this.saved);
+  }
+
+  /** See the exported fillUndone above; nothing when `into` is not undone. */
+  fillUndone(into: Anchor, node: string, values: Record<string, unknown>, was: Record<string, unknown>): void {
+    const at = this.redos.findIndex((x) => x === into);
+    if (at < 0) return;
+    const step = this.redos[at];
+    let fills: Fill[] = Object.entries(values)
+      .filter(([k]) => same(valueIn(step.after, { node, key: k, v: null }), was[k]))
+      .map(([k, v]) => ({ node, key: k, v }));
+    step.after = lay(step.after, fills);
+    // the undone steps made after it: the redo list's top is the earliest, so these sit below it, latest first
+    for (const x of this.redos.slice(0, at).reverse()) {
+      if (!fills.length) break;
+      const kept = fills.filter((f) => !touches(x, f));
+      x.before = lay(x.before, fills);
+      x.after = lay(x.after, kept);
+      fills = kept;
+    }
+  }
+
+  /** The last step (Anchor above). */
+  top(): Anchor {
+    return this.undos.at(-1) ?? null;
   }
 
   get labels(): { undoLabel: string | null; redoLabel: string | null } {

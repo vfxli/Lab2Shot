@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lab2shot.sdk import Official, CameraLensParams, Keypoints2D, P, WorldHumans, Cost, Licence, people_port
+from lab2shot.sdk import Official, CameraLensParams, Keypoints2D, P, WorldHumans, Cost, people_port
 
 
 class Hands(WorldHumans):
@@ -18,6 +18,7 @@ class Hands(WorldHumans):
               "third_party/hamer/repo/vitpose_model.py:60-72"),  # 官方 ViTPoseModel.predict_pose(image, det_results, …)：收人框
         takes={"image": "img_cv2", "boxes": "det_results"},
         gives={"character": "pred_mano_params", "keypoints": "vitposes['keypoints']"},
+        ours={"camera": "放人用的针孔相机：原点、不动，焦距 = 节点的「Focal Length」（留空用解算器自己估的 / 默认的），主点在画面中心（families/humans.py plate_camera）"},
         note="⓪ **「人物框」是可选输入，直接交给官方代码**（规则：官方函数接受人物框就直接把框交给它；不接受框的项目，在节点图上走「人物框转遮罩」）：官方仓库的 "
              "`ViTPoseModel.predict_pose(image, det_results)`（vitpose_model.py:60-72）收的就是人框（xyxy + 分数），"
              "官方 demo 自己也是先用 ViTDet 检出人框（demo.py:47-55、:80-87）再喂给它，由它找出手；包内的 "
@@ -36,9 +37,9 @@ class Hands(WorldHumans):
              "MANO 没有表情，所以「蒙皮角色」上没有 blendShape。"
              "② `character -> pred_mano_params` 这个符号写在 `hamer/models/hamer.py:108`、不在 demo.py 里，"
              "所以这个声明引了三条上游位置（官方入口的 argparse、官方 main、模型吐 MANO 参数那一段）。"
-             "③ **节点没有「相机」输出口**（我们自己造出来的输出口不留）："
-             "官方只有 `demo.py:143 scaled_focal_length`（一个 Focal Length，内参而已），它把手放在这个 Focal Length 的相机空间里，"
-             "并没有解出一台相机。手就留在相机空间；要摆进某台相机的世界，接核心节点「相机空间转换」"
+             "③ 官方只有 `demo.py:143 scaled_focal_length`（一个 Focal Length，内参而已），它把手放在这个 Focal Length 的相机空间里，"
+             "并没有解出一台相机。「相机」口交出的是放手用的那台原点静止针孔相机，登记在 ours。"
+             "手就留在相机空间；要摆进某台相机的世界，接核心节点「相机空间转换」"
              "（core.camera_space）。",
     )
     # 公开基准上的实测（接不接、接什么的差别；没有相机这一条：这个节点没有相机输入，摆进相机的世界是核心节点
@@ -51,10 +52,10 @@ class Hands(WorldHumans):
     # 找手就是靠 ViTPose+ 在画面上找的这 21 个点（demo.py），除了框手之外也交出来
     keypoints = Keypoints2D("ViTPose+ 在画面上找的每只手 21 个点（手腕 + 五指的指节和指尖），HaMeR 就是靠它们找到手的")
     camera_to_worker = None
+    plate_camera = True  # 「相机」：放手用的原点静止针孔相机（families/humans.py plate_camera），不填 Focal Length 按 50 mm
     default_focal_mm = 50.0  # HaMeR's own default lens (5000 px at 256) puts hands ~100 m away
     # RTX 4090 上量得的显存和速度
     cost = Cost(gpu=True, vram_gb=5.9, seconds_per_frame=0.07)
-    licence = Licence(note="代码 MIT，但 MANO 手部模型只能研究用、不可再分发，权重用非商用数据训练，整体按非商用对待。")
 
     class Params(CameraLensParams):
         rescale_factor: float = P(2.0, label="手部框放大", ge=1.0, le=4.0, group="人物")

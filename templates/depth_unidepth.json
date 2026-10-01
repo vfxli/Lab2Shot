@@ -7,23 +7,163 @@
   "author": "Lab2Shot",
   "created": "2026-09-20T10:00:00",
   "deliverable": "depth_image",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "unit",
-   "label": "单位",
-   "target": "out_p.unit"
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
   },
   {
-   "name": "focal",
-   "label": "已知 Focal Length",
-   "target": "geo.focal_mm"
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": "镜头",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "focal",
+     "label": "已知 Focal Length",
+     "target": "geo.focal_mm"
+    },
+    {
+     "name": "filmback",
+     "label": "Filmback",
+     "target": "geo.filmback_mm",
+     "disable_when": "not focal"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "深度",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "model",
+     "label": "模型",
+     "target": "geo.model"
+    },
+    {
+     "name": "resolution_level",
+     "label": "精度等级",
+     "target": "geo.resolution_level"
+    },
+    {
+     "kind": "group",
+     "label": "点云",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "point_step",
+       "label": "点云间隔",
+       "target": "geo.point_step"
+      },
+      {
+       "name": "point_size",
+       "label": "点的大小",
+       "target": "geo.point_size"
+      }
+     ]
+    },
+    {
+     "name": "cook_depth",
+     "label": "计算深度图",
+     "target": "geo.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "exr_name",
+     "label": "文件名（深度 EXR）",
+     "target": "exr.name"
+    },
+    {
+     "name": "usd_name",
+     "label": "文件名（相机与点云 USD）",
+     "target": "out_p.name"
+    },
+    {
+     "name": "unit",
+     "label": "单位",
+     "target": "out_p.unit"
+    },
+    {
+     "name": "fps",
+     "label": "帧率",
+     "target": "out_p.fps"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "exr.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -33,11 +173,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 220
+    "y": 68
    }
   },
   {
@@ -45,32 +187,19 @@
    "type": "unidepth.geometry",
    "label": "UniDepth 深度图",
    "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "point_step": 4,
+    "point_size": 0.5,
     "model": "unidepth-v2-vitl14",
     "resolution_level": 9
    },
    "ui": {
-    "x": 320,
-    "y": 220,
+    "x": 400,
+    "y": 0,
     "on_node": [
      "focal_mm",
      "model"
-    ]
-   }
-  },
-  {
-   "id": "out_d",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "depth"
-   },
-   "ui": {
-    "x": 640,
-    "y": 0,
-    "on_node": [
-     "name",
-     "format"
     ]
    }
   },
@@ -79,17 +208,22 @@
    "type": "core.output_usd",
    "label": "USD 输出设置",
    "params": {
+    "name": "scene",
+    "format": "usd",
     "unit": "cm",
-    "name": "scene"
+    "fps": 24.0
    },
    "ui": {
-    "x": 640,
-    "y": 260,
+    "x": 870,
+    "y": 408,
     "on_node": [
      "name",
      "unit"
     ]
-   }
+   },
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "deliver",
@@ -97,8 +231,30 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 960,
-    "y": 140
+    "x": 1230,
+    "y": 44
+   }
+  },
+  {
+   "id": "exr",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "depth",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "depth",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 830,
+    "y": 44
    }
   }
  ],
@@ -111,26 +267,6 @@
    "to": [
     "geo",
     "image"
-   ]
-  },
-  {
-   "from": [
-    "geo",
-    "depth"
-   ],
-   "to": [
-    "out_d",
-    "image"
-   ]
-  },
-  {
-   "from": [
-    "out_d",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
    ]
   },
   {
@@ -151,6 +287,36 @@
    "to": [
     "out_p",
     "scene"
+   ]
+  },
+  {
+   "from": [
+    "geo",
+    "points"
+   ],
+   "to": [
+    "out_p",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "geo",
+    "depth"
+   ],
+   "to": [
+    "exr",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "exr",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
    ]
   }
  ],

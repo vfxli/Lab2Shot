@@ -18,7 +18,7 @@ export interface ExrPlane {
 export interface ExrDecoded {
   width: number; // 数据窗口的宽高（即平面尺寸）
   height: number;
-  compression: string; // OpenEXR 压缩方式名称（小写）：none rle zips zip piz pxr24 b44 b44a dwaa dwab
+  compression: string; // OpenEXR 压缩方式名称（小写）：none、rle、zips、zip、piz、pxr24、b44、b44a、dwaa、dwab
   dataWindow: [number, number, number, number]; // [x, y, w, h]，取文件自身记录的位置（序列中各帧可以不同）
   displayWindow: [number, number, number, number];
   allChannels: { name: string; type: ExrPlane["type"] }[]; // 文件头中的全部通道（无论是否被请求）

@@ -3,35 +3,34 @@ import { createPortal } from "react-dom";
 import { useKeyLayer, useShortcut } from "../platform/keys";
 import "./menu.css";
 
-/** The site's single menu: a floating list of rows at a point on the screen (a node's context menu, the account menu, a
- * file menu). It closes on any click outside it, on scroll and on Esc, and every row describes its action (`tip`,
- * required). A row is 28 px high; content at its right end (a shortcut, a count, a short explanation) goes in `desc`,
- * and a keyboard shortcut in a <Kbd>.
+/** 站点唯一的菜单：在屏幕上某一点浮出的一列行（节点右键菜单、账号菜单、文件菜单）。点击菜单外任意处、滚动或按 Esc
+ * 即关闭；每一行都说明自己的作用（`tip`，必填）。行高 28 px；行右端的内容（快捷键、计数、简短说明）放在 `desc` 中，
+ * 键盘快捷键用 <Kbd>。
  *
- * Glass, like every floating layer (ui/glass.css); a docked list is not a menu but a panel with rows.
+ * 与所有浮层一样为玻璃效果（ui/glass.css）；停靠在页面中的列表不是菜单，而是带行的面板。
  *
  * 菜单挂载在 document.body 上（portal），而非打开它的控件旁。菜单使用 `position: fixed`，按屏幕坐标定位；
  * 而按 CSS 规范，只要某个祖先带有 `transform`，`fixed` 即改为相对该祖先定位。节点图画布
  * （React Flow 的 `.react-flow__viewport`）始终带有 transform，因此节点上参数下拉框打开的菜单
  * 会被置于缩放坐标系中并落到屏幕外，用户看到的是点击无反应，而菜单实际已打开。
- * 挂载到 body 上即不存在该祖先，一处修改即可使所有使用菜单的位置（节点参数、节点右键菜单、账号、文件、时间线）均正确。 */
+ * 挂载到 body 上即不存在该祖先，所有使用菜单的位置（节点参数、节点右键菜单、账号、文件、时间线）均按屏幕坐标正确定位。 */
 
 export interface MenuRow {
   key: string;
   label: ReactNode;
   tip: string;
   desc?: ReactNode;
-  off?: boolean; // present but unavailable now: greyed, its tip explains why
+  off?: boolean; // 存在但当前不可用：置灰，提示中说明原因
   run?: () => void;
 }
 
 export function Menu({ at, rows, label, onClose, width, layout }: {
   at: { x: number; y: number };
   rows: MenuRow[];
-  label: string; // what this menu is about (aria-label)
+  label: string; // 该菜单的用途（aria-label）
   onClose: () => void;
   width?: number; // 最小宽度（使下拉列表与触发器对齐）；某一行文字更长时按文字宽度扩展，菜单中的文字不得截断
-  layout?: string; // the page's own name for this menu (it can be found from outside the page by this); never a style of its own
+  layout?: string; // 该菜单在页面里的名字（从页面外据此找到它）；不代表特定样式
 }) {
   const box = useRef<HTMLDivElement>(null);
   // 无论在何处打开，菜单都必须完整位于窗口内：`at` 只是打开位置，菜单自身高度须测量后才能得知。
@@ -66,7 +65,7 @@ export function Menu({ at, rows, label, onClose, width, layout }: {
     const close = (e: Event) => {
       if (!(e.target instanceof Node) || !box.current?.contains(e.target)) onClose();
     };
-    // after this click: the click that opened the menu must not close it again
+    // 在本次点击之后再监听：打开菜单的那次点击不得又把它关掉
     const later = setTimeout(() => {
       window.addEventListener("pointerdown", close);
       window.addEventListener("wheel", close);
@@ -77,7 +76,7 @@ export function Menu({ at, rows, label, onClose, width, layout }: {
       window.removeEventListener("wheel", close);
     };
   }, [onClose]);
-  useShortcut({ keys: ["escape"], inText: true, run: () => onClose() }, { layer: useKeyLayer(true) }); // a key layer: keys go to the menu only
+  useShortcut({ keys: ["escape"], inText: true, run: () => onClose() }, { layer: useKeyLayer(true) }); // 独立的按键层：按键只交给菜单
   return createPortal(
     <div
       ref={box}
@@ -115,7 +114,7 @@ export function Menu({ at, rows, label, onClose, width, layout }: {
   );
 }
 
-/** The key to press, in a menu row or a tooltip: always a key, never a descriptive word. */
+/** 菜单行或悬停提示中要按的键：始终写键名，不写描述性文字。 */
 export function Kbd({ children }: { children: ReactNode }) {
   return <span className="kbd">{children}</span>;
 }

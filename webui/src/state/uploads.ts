@@ -6,9 +6,12 @@ import { create } from "zustand";
  * progress (state/results.ts) — a background operation under way, never saved, never part of the undo history. */
 
 export type UploadState =
-  // 选完文件之后先停在这两档，一个字节都不传：字节只在下游有节点要算、按连线用到的通道才上传
-  | "reading" // 正在读他机器上那些文件、算内容指纹（sha256）：为的是把这份上传申报上去，好让节点长出口来
-  | "picked" // 申报完了，节点上的口都在，字节还在他机器上：点「计算」才传（`graph/apply.ts sendPicked`）
+  // after picking, a task rests in these two states with no byte sent: bytes go up only when a node downstream is to
+  // be cooked, and only the channels its wires use
+  | "reading" // reading the files on the user's machine and computing their content fingerprints (sha256), so the upload can be
+  // declared and the node's ports appear
+  | "picked" // declared: the node's ports are there, the bytes are still on the user's machine; they go on 计算 (`graph/apply.ts
+  // sendPicked`)
   | "sending" // going up
   | "waiting" // the line dropped (or the server is away): trying again by itself
   | "finishing" // every file is in: the server puts the set together
@@ -18,7 +21,11 @@ export type UploadState =
 
 export interface UploadTask {
   key: string;
-  graph: string; // the graph's name, and the node and parameter it is for
+  // the document the task belongs to (`state/cookInputs.ts` graphId): nodes of different documents may share an id (every
+  // template's read node is called `read`), so finding a task, writing the parameter back and drawing the local files
+  // all compare it first; another document's task is neither shown nor written
+  graphId: string;
+  graph: string; // the graph's name (for the messages), and the node and parameter it is for
   node: string;
   param: string;
   name: string; // what the node reads: the file, or the sequence's pattern
@@ -26,7 +33,8 @@ export interface UploadTask {
   origin: string; // folder/name: what it is called on the user's machine, as far as the browser says
   sequence: boolean;
   frames: number[];
-  // `sha`: 内容指纹，申报那一步在本机算出来的（`transfer/declare.ts`）；「通道级上传」按它问服务器还缺哪几条通道
+  // `sha`: the content fingerprint computed locally in the declare step (`transfer/declare.ts`); the channel-level upload
+  // asks the server by it which channels are still missing
   files: { name: string; size: number; modified: number; sha?: string }[];
   bytes: number;
   // how far it got (this tab's own, or what the sending tab says)

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from lab2shot.sdk import (Official, PERSON_ID, SCENE_FILE, CameraLensParams, NodeDef, NodeParams, P, Port, character_of_model, people_port,
-                          WorldHumans, create_stage, focal_param, save_stage,
-                          scene_packet, write_boxes, write_character, Cost)
+from lab2shot.sdk import (rgb_port, Official, PERSON_ID, CameraLensParams, WorkerNode, NodeParams, P, Port, character_of_model, people_port,
+                          WorldHumans, focal_param, write_boxes, Cost)
 
 
-class DetectPeople(NodeDef):
+class DetectPeople(WorkerNode):
     id = "sam_3d_body.detect_people"
     # 官方的检测器函数本身：一张画面进去，一批框出来（SAM 3D Body 的 tools/build_detector.py）
     official = Official(
@@ -18,7 +17,7 @@ class DetectPeople(NodeDef):
     version = 2
     # 逐帧检测，机位无关；画面里要有人，没有人就什么都框不出来
     on_node = ("threshold",)
-    inputs = (Port("image", "image.3", "RGB"),)
+    inputs = (rgb_port(),)
     outputs = (Port("boxes", "boxes", "人物框"),)
     runtime = "sam_3d_body"
     # 显存没有单独量过：按 ViTDet 检测器的量级估的保守值
@@ -28,12 +27,11 @@ class DetectPeople(NodeDef):
         threshold: float = P(0.8, label="检测阈值", ge=0.0, le=1.0, group="检测", widget="slider")
 
     @classmethod
-    def cook(cls, ctx):
+    def convert(cls, ctx, raw, job):
         import json
 
-        image = ctx.input("image")
-        raw = ctx.run_worker(image)
-        people = json.loads((raw / "boxes.json").read_text(encoding="utf-8"))["people"]
+        image = job.plate
+        people = json.loads(raw.file("boxes.json").read_text(encoding="utf-8"))["people"]
         if not people:  # nobody in the shot: 人物框 with nobody in them, what comes after decides (Port.takes_empty)
             ctx.say("N-SAM3DBODY-NOPEOPLEFOUND", threshold=float(ctx.params["threshold"]))
         m = image.meta
@@ -59,6 +57,7 @@ class Solve(WorldHumans):
               "third_party/sam_3d_body/repo/sam_3d_body/sam_3d_body_estimator.py:194-216"),  # 它吐出来的每一项
         takes={"image": "image_folder", "boxes": "bboxes"},
         gives={"character": "mhr_model_params"},
+        ours={"camera": "放人用的针孔相机：原点、不动，焦距 = 节点的「Focal Length」（留空用解算器自己估的 / 默认的），主点在画面中心（families/humans.py plate_camera）"},
         note="⓪ **「人物框」是可选输入，直接交给官方函数**（规则：官方函数接受人物框就直接把框交给它；"
              "不接受框的项目，在节点图上走「人物框转遮罩」）。官方包里的 "
              "`SAM3DBodyEstimator.process_one_image(img, bboxes=None, …)`（sam_3d_body_estimator.py:64-75，"
@@ -85,7 +84,9 @@ class Solve(WorldHumans):
              "cam_int），所以它在我们这条路上永远是 None。"
              "上游还给出 `pred_keypoints_2d`（官方自己找的 2D 关键点，worker 已经存进 npz），目前没有对应的输出口；"
              "**这一项装不进蒙皮角色**（它是画面上的点，不是骨架）。"
-             "② **节点没有「相机」输出口**（我们自己造出来的输出口不留）：官方只给 focal_length（内参）和 pred_cam_t（人在相机里的位移），从来没解出一台相机；按这两样拼出来的相机是我们造的。要一台相机，从真正解相机的节点（ViPE、TRAM）接，或者用「导入 USD」自己导入；要把人摆进那台相机的世界，接核心节点「相机空间转换」（core.camera_space）。"
+             "② 官方只给 focal_length（内参）和 pred_cam_t（人在相机里的位移），从来没解出一台相机。「相机」口交出的是放人用的那台"
+             "原点静止针孔相机（焦距就是用的那个），登记在 ours：不是解出来的，三维视图透过它看背板、模板把它当「解算器的相机」一路。"
+             "要一台真的相机，从解相机的节点（ViPE、TRAM）接，或者用「导入 USD」；要把人摆进那台相机的世界，接核心节点「相机空间转换」（core.camera_space）。"
              "③ cam_int（sam_3d_body_estimator.py:69）只是内参：内参（焦距、主点）不是相机输入，完整的内参加外参才算相机；"
              "它对应的是「已知 Focal Length」「Filmback」两个参数，不是相机输入。",
     )
@@ -94,9 +95,10 @@ class Solve(WorldHumans):
     # 结果在相机空间，运动镜头要先解出相机、再用核心节点「相机空间转换」摆进世界；单帧估计 + 平滑
     on_node = ("focal_mm", "smoothing", "hand_refine")
     # 「人物框」可选：接了就按框解（官方的 process_one_image 本来就收 bboxes），不接就自己检出画面里所有人
-    inputs = (Port("image", "image.3", "RGB"), people_port(optional=True, each=False))
+    inputs = (rgb_port(), people_port(optional=True, each=False))
     runtime = "sam_3d_body"
     camera_to_worker = "focal"  # per-frame focal lengths: zooms are followed
+    plate_camera = True  # 「相机」：放人用的原点静止针孔相机（families/humans.py plate_camera）
     # 显存没有单独量过：沿用同一模型家族 Fast SAM 3D Body 的数字
     cost = Cost(gpu=True, vram_gb=4.2, seconds_per_frame=0.6, vram_measured=False, note="显存沿用同一模型家族 Fast SAM 3D Body 的实测，SAM 3D Body 本身还没量过")
 
@@ -109,48 +111,28 @@ class Solve(WorldHumans):
         smoothing: float = P(0.5, label="平滑强度", ge=0.0, le=1.0, group="质量", widget="slider")
 
     @classmethod
-    def convert(cls, ctx, raw, job):
-        image, used = job.plate, job.lens
-        frames = image.meta["frames"]
-        w, h = image.meta["width"], image.meta["height"]
-        result = raw.result()
-        info = {"extension": cls.runtime, "focal_source": result["camera"]["source"], "lens": used.said}
-        ctx.stage("写出 USD")
-        # 只交蒙皮角色一样，没有点缓存的「网格」口：输出的人一定是骨架加蒙皮网格的形式，DCC 里才能二次修正；
-        # 从这份数据里拆出静止的蒙皮人、提取骨架动画是别的节点的事
-        stage = create_stage(frames, info)
-        # 几乎什么都没解出来的人不交：整段只真正解出一两帧、其余靠补的人，会在相机前留下一个超大的人或远处一具
-        # 骨架。判据和参数在家族上（`WorldHumans.people_solved_enough`）：这个节点自己写了 convert，
-        # 走不到家族那一句，所以在这里调同一个函数
-        keep = cls.people_solved_enough(ctx, raw, result["people"])
-        for person in keep:
-            name = f"person_{person['id']:02d}"
-            character, own, _vertices = _character(raw, person)
-            write_character(stage, name, character, own, shot=frames)  # hidden on the frames it was not solved on: no ghost sliding between solves
-        save_stage(stage, ctx.outputs["character"] / SCENE_FILE)
-        people = [p["id"] for p in keep]
-        character = scene_packet(ctx.outputs["character"], frames, "scene.character", people=people, width=w, height=h)
-        # 没有「相机」输出：官方只给 focal_length 和 pred_cam_t，人就留在相机空间里。
-        # 要摆进某台相机的世界，图上接「相机空间转换」
-        return {"character": character}
+    def stage_info(cls, result: dict, lens) -> dict:
+        return {"extension": cls.runtime, "world": result["world"], "focal_source": result["camera"]["source"], "lens": lens.said}
+
+    @classmethod
+    def person_character(cls, person: dict, d, place):
+        """MHR 的人：worker 写的是关节世界矩阵和静止网格（不是家族的 SMPL 式数组），已经在 GL 相机空间里（place 不用）。
+        交的只有蒙皮角色，没有点缓存的「网格」口：拆静止的蒙皮人、提取骨架动画是别的节点的事。"""
+        return f"person_{person['id']:02d}", _character(d, person), None
 
 
-def _character(raw, person: dict):
-    """One solved person as a USD character, the frames it covers and its exact vertices on them [F,V,3].
-    All of it stays in the camera's own space: 官方给的就是相机空间的结果，节点不拿一台相机把它摆进世界
-    （那一步是核心节点「相机空间转换」）。"""
+def _character(data, person: dict):
+    """One solved person's npz as a USD character. All of it stays in the camera's own space: 官方给的就是相机空间的
+    结果，节点不拿一台相机把它摆进世界（那一步是核心节点「相机空间转换」）。"""
     import numpy as np
 
-    data = raw.arrays(person["file"])
     frames = [int(f) for f in data["frames"]]
-    joint_world = np.asarray(data["joint_world"], np.float64)
-    vertices = np.asarray(data["vertices"], np.float64)
     return character_of_model(
         data["joint_names"], data["parents"], bind_world=data["bind_world"],
-        anim_world=joint_world, rest_points=data["rest_vertices"], faces=data["faces"], joint_indices=data["skin_indices"],
-        joint_weights=data["skin_weights"], uv=data["uv"], uv_faces=data["uv_faces"],
+        anim_world=np.asarray(data["joint_world"], np.float64), rest_points=data["rest_vertices"], faces=data["faces"],
+        joint_indices=data["skin_indices"], joint_weights=data["skin_weights"], uv=data["uv"], uv_faces=data["uv_faces"],
         custom_data={PERSON_ID: person["id"], "lab2shot:frames_detected": len(frames)},
-    ), frames, vertices
+    )
 
 
 NODES = (DetectPeople, Solve)

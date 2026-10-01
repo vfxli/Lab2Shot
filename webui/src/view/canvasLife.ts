@@ -33,8 +33,7 @@ export function KeepContext() {
   return null;
 }
 
-/** Requests a new frame whenever React redraws the stage (a new frame, an option) or the canvas is resized (which
- * clears it): the canvas only draws when something has changed. */
+/** React 重绘舞台（换帧、改选项）或画布尺寸变化（会清空画布）时请求重画一帧：画布只在有变化时绘制。 */
 export function Redraw() {
   const invalidate = useThree((s) => s.invalidate);
   const size = useThree((s) => s.size);

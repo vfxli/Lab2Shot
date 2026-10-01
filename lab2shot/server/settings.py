@@ -13,9 +13,8 @@ import sys
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
-from .routes import Access, Router
+from .routes import Access, Body, Router
 from .. import __version__, accounts, feedback, logs, periods, process, registration, roles, traffic
 from ..config import PAGE_OF, SCHEMA, WEBUI_DIST, InvalidSettings, machine_memory_gb, port_problem, settings
 from ..errors import Conflict, message_of
@@ -27,7 +26,7 @@ from ..view import proxy  # noqa: F401  (provides the options of 视图代理尺
 from ..engine.resident import pool as resident
 from ..farm import farm, usage
 from . import auth, available, notice, restart
-from .access import audit
+from .access import audit, manages
 
 log = logs.get("admin")
 
@@ -160,7 +159,7 @@ def admin_settings(request: Request) -> dict:
     return view(request)
 
 
-class SettingsChange(BaseModel):
+class SettingsChange(Body):
     values: dict[str, object]  # key -> new value
 
 
@@ -168,10 +167,10 @@ class SettingsChange(BaseModel):
 def admin_save_settings(req: SettingsChange, request: Request):
     session = auth.session(request)
     if locked := {k: m for k in req.values if (m := _locked(session, k))}:
-        for k in locked:
-            audit(Msg("W-AUDIT-REFUSED", who=session.user.label, role=roles.label(session.user.role),
-                      what=roles.CAPABILITIES[roles.setting_needs(k)].what, method="PUT", path=str(request.url.path),
-                      code="E-SETTINGS-NEEDS"), session=session, method="PUT", path=str(request.url.path))
+        lacking = dict.fromkeys(roles.CAPABILITIES[roles.setting_needs(k)].what for k in locked)  # one request, one row
+        audit(Msg("W-AUDIT-REFUSED", who=session.user.label, role=roles.label(session.user.role), what="、".join(lacking),
+                  method="PUT", path=str(request.url.path), code="E-SETTINGS-NEEDS"),
+              session=session, method="PUT", path=str(request.url.path))
         return JSONResponse({"detail": Msg("E-SETTINGS-INVALID", problems=list(locked.values())).text, "code": "E-SETTINGS-NEEDS",
                              "errors": {k: m.text for k, m in locked.items()}, "codes": {k: m.code for k, m in locked.items()}},
                             status_code=403)
@@ -215,9 +214,11 @@ def admin_overview() -> dict:
            summary="概览的「今天和最近」（按服务器的本地时间：今日从零点、近 7 天含今天、本周从周一、本月从 1 号）："
                    "访问（在线、登录人数、登录次数、登录失败）、注册（新账号，其中自己注册的）、任务（提交的，按结果）、"
                    "流量（发出的字节）、反馈（新收的、未解决的）；每组只给看得了它对应那一页的登录，带那一页的 section")
-def admin_overview_recent() -> dict:
+def admin_overview_recent(request: Request) -> dict:
     p = periods.now()
-    found = {"access": accounts.logins_in(p), "accounts": registration.new_accounts(p), "tasks": usage.jobs_in(p),
+    s = auth.session(request)
+    found = {"access": accounts.logins_in(p, lambda owner, role: manages(s, owner, role)), "accounts": registration.new_accounts(p),
+             "tasks": usage.jobs_in(p),
              "traffic": traffic.totals(p), "feedback": feedback.counts_in(p)}
     return {"days": {k: p.first(k) for k in ("today", "days7", "week", "month")},
             **{g: {"section": available.RECENT[g], **v} for g, v in found.items()}}
@@ -228,7 +229,7 @@ def admin_overview_recent() -> dict:
 public = Router(prefix="/api", tags=["设置"])
 
 
-@public.get("/server", access=Access.open("服务的这次启动和重启：页面据此知道服务在不在、要不要刷新"), summary="服务本身：这次启动的编号（重启后变）、版本、界面的版本、正在进行的重启（没有是 null），和管理员通知上次修改的时间（变了就重新读 /api/notice），以及这个浏览器现在登录的账号（没登录是 null）")
+@public.get("/server", access=Access.open("服务的这次启动和重启：页面据此知道服务在不在、要不要刷新"), summary="服务本身：这次启动的编号（重启后变）、版本、界面的版本、正在进行的重启（没有是 null），和管理员通知上次修改的时间（变了就重新读 /api/notice），以及这个浏览器现在登录的账号（没登录是 null）；没登录时只有启动编号、界面的版本、重启到哪里接着连")
 def server_now(request: Request) -> dict:
     """服务本身这一份：这次启动的编号、版本、界面的版本、正在进行的重启、通知改动时间，和问的这一次登录的账号。
 
@@ -239,15 +240,24 @@ def server_now(request: Request) -> dict:
     同一个浏览器的登录是各个标签页共用的：别的窗口换了账号，这一页的请求就已经是另一个账号的了；页面据此
     发现自己不再属于这个登录，重新打开（webui/src/platform/http.ts sawAccount）。"""
     index = WEBUI_DIST / "index.html"
-    # 本机代理的两个数（管理员的设置，只有浏览器用）也捎在这一份里，页面不为它们另发请求
+    ui = index.stat().st_mtime if index.exists() else 0
+    going = restart.restarter().view()
+    account = request.scope.get(SCOPE_USER) or None
+    if account is None:
+        # 没登录的页面（登录页）只需知道服务换没换、界面换没换、重启到哪里接着连：版本、计算中的任务数、后台任务的标题、
+        # 通知和各项设置都不给不认识的人
+        where = {k: going[k] for k in ("state", "mode", "since", "port", "https")} if going else None
+        return {"boot": restart.BOOT, "ui": ui, "restart": where, "account": None}
+    # 本机代理的两个数（管理员的设置，只有浏览器用）和「任务保留天数」（浏览器里暂停着的上传按同一个天数清，
+    # webui/src/transfer/uploads.ts purgeStale）也捎在这一份里，页面不为它们另发请求
     s = settings()
-    return {"boot": restart.BOOT, "started": restart.STARTED, "version": __version__,
-            "ui": index.stat().st_mtime if index.exists() else 0, "restart": restart.restarter().view(),
-            "notice": notice.changed_at(), "account": request.scope.get(SCOPE_USER) or None,
-            "view": {"local_px": int(s["view.local_px"]), "local_cache_gb": int(s["view.local_cache_gb"])}}
+    return {"boot": restart.BOOT, "started": restart.STARTED, "version": __version__, "ui": ui, "restart": going,
+            "notice": notice.changed_at(), "account": account,
+            "view": {"local_px": int(s["view.local_px"]), "local_cache_gb": int(s["view.local_cache_gb"])},
+            "tasks": {"keep_days": int(s["tasks.keep_days"])}}
 
 
-class RestartRequest(BaseModel):
+class RestartRequest(Body):
     mode: str  # drain: after the jobs running; now: stop them
 
 
@@ -263,7 +273,7 @@ def admin_restart(req: RestartRequest, request: Request) -> dict:
     return server_now(request)
 
 
-@admin.post("/stop", access=Access.admin("server.restart"), summary="停止服务（配置菜单的「停止服务」与一键更新用，只有本机令牌会调它）：drain 等计算中的任务算完（不再开始新任务），now 立即停下它们；排队的任务留给下一次启动的服务接着排")
+@admin.post("/stop", access=Access.admin("server.restart", local=True), summary="停止服务（只有这台服务器上的命令行能调：配置菜单的「停止服务」与一键更新用本机令牌）：drain 等计算中的任务算完（不再开始新任务），now 立即停下它们；排队的任务留给下一次启动的服务接着排")
 def admin_stop(req: RestartRequest, request: Request) -> dict:
     try:
         restart.restarter().request(req.mode, then="stop")

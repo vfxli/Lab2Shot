@@ -1,9 +1,28 @@
+/** 参数面板（工作区右栏）归本模块：选中节点时列出它的参数行（标签、三个标记、控件、来源与置灰原因）与标题信息；
+ * 没选中节点或处于应用模式时画节点图自己的参数界面树（exposed）。控件本身的分发在 editor/ParamControls.tsx。 */
+
+import { packetOf } from "../state/results";
+import type { Availability } from "../api/applies";
+import { licensedValues } from "../graph/rules";
+import { optionView } from "../ui/controls";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { nodeCategory, type NodeTypeDef, type ParamDef, type SceneKind, type WritesPart } from "../api";
 import { insertNode as insertNodeAction, setLabel as setLabelAction, setParam as setParamAction, toggleExposed as toggleExposedAction, toggleOnNode as toggleOnNodeAction, togglePromoted as togglePromotedAction } from "../graph/actions";
 import { useGraphSnapshot } from "../graph/snapshot";
 import { getTypes, useCatalog } from "../state/catalog";
-import { useCookInputs } from "../state/cookInputs";
+import { exposedParams, isGroup, READ_ONLY_WHY, useCookInputs } from "../state/cookInputs";
+import { useWriteLock } from "../ui/writeLock";
+import type { ExposedEntry, ExposedGroup, ExposedParam } from "../api";
+import { conditionNames, parseCondition, condEqual, shownOptions } from "../platform/conditions";
+import { Select } from "../ui/Select";
+import { Switch } from "../ui/Button";
+import { SheetWindow } from "./ParamSheet";
+import { IconButton } from "../ui/Button";
+import { ParamInterface, INTERFACE_PARAM } from "./ParamInterfaceEditor";
+import { useAppMode } from "./AppMode";
+import { enterPicking } from "../state/viewPicking";
+import { useRowDrag } from "../ui/rowDrag";
+import { canDropAt, dropAt, entryDisabled, entryHidden, exposedValues, rowsOf, type Path } from "../graph/exposedTree";
 import { useResults } from "../state/results";
 import { useViewer } from "../state/viewer";
 import { chosenOnNode, nodeMessages, portColor, writesTable } from "../graph/nodes";
@@ -11,42 +30,46 @@ import { commercialOf, costOf, wiredFrom } from "../graph/rules";
 import { why, nodeUsable, nodeWhy } from "../api/applies";
 import { Button } from "../ui/Button";
 import { PasteFrom } from "./PasteFrom";
-import { OutputDownload } from "../ui/OutputDownload";
-import { Control, fitWidth } from "./ParamControls";
-import { IconOnNode } from "../ui/icons";
+import { Control, fitWidth, opensSheet } from "./ParamControls";
+import { IconOnNode, IconSliders } from "../ui/icons";
 import { multiline } from "../ui/controls";
 import { ParamCurve } from "./CurvesView";
 import { useSession } from "../state/session";
 import { webAddress } from "../platform/util";
 
-/** One parameter: label with its expose pin and (for one a wire can drive) its 提升到节点 pin, control, and, when the
- * node's connections or settings make it irrelevant, greyed out with the reason (the server's graph status says which).
- * Driven by a wire, the control is greyed and says where the value comes from ("38.6 mm · 来自 AnyCalib 镜头标定 · Focal Length");
- * `said`: where the node gets its value, when the server's status says (a Focal Length over the camera's, or the camera's).
- * `onNode`: whether the node's body shows this row too (a simple parameter), and the
- * click that changes it. A parameter clicked on the node is brought into view here and flashes (its field focused on a
- * double click).
+/** 一个参数：标签连同其公开标记与（可由连线驱动的参数才有的）「提升到节点」标记、控件；节点的连接或设置使其不起作用时
+ * 置灰并说明原因（由服务器的图状态判定）。由连线驱动时控件置灰，并说明取值来源（"38.6 mm · 来自 AnyCalib 镜头标定 · Focal Length"）；
+ * `said`：服务器状态给出的节点取值来源（Focal Length 覆盖相机的值，或取相机的值）。
+ * `onNode`：节点本体上是否也显示该行（简单参数），以及切换它的点击。在节点上点击的参数会在此处滚动到可见并闪烁
+ * （双击时聚焦其输入框）。
  *
  * 标签后的三个标记各司其职：对外参数（ExposePin）、提升到节点（PromotePin：增加一个输入口）、
  * 在节点上显示（OnNodePin：仅显示，不提供输入口）。
  *
  * 参数面板不显示悬停提示（整块面板带 data-no-tips，platform/tips.ts）。 */
-function ParamRow({ nodeId, p, label, value, set, why, pinned, onPin, socket, said, onNode }: {
+function ParamRow({ nodeId, p, label, value, set, why, pinned, onPin, socket, said, onNode, reason, control, bare }: {
   nodeId: string; p: ParamDef; label: string; value: unknown; set: (v: unknown) => void; why?: string; pinned: boolean; onPin: () => void;
   socket?: { on: boolean; fixed?: boolean; onClick: () => void }; said?: string; onNode?: { on: boolean; onClick: () => void };
+  // 参数界面（exposed 树）给这一项的：`reason` 条件为假时置灰的原因（「由『X』决定」），`control` 覆盖显示的控件（下拉 /
+  // 复选框），`bare` 应用模式：不画三个标记（公开、提升、在节点上显示都是做模板的操作）
+  reason?: string; control?: React.ReactNode; bare?: boolean;
 }) {
+  why = why || reason;
+  // 只读标签页（editor/tabs.ts：这张图正在另一个标签页里编辑）：控件和三个标记真正禁用（disabled），键盘 Tab 进去也改不了；
+  // 样式上的置灰在 styles/21-tooltip.css，只管外观
+  const readOnly = !!useWriteLock();
   const snap = useGraphSnapshot();
   const wired = socket?.on ? wiredFrom(snap, nodeId, p.name) : null;
   const over = said?.match(/（(覆盖[^）]*)）$/)?.[1];
-  // wired: where from; else what the node says of it when an input gives it (「Focal Length · 来自相机（ViPE 相机解算）」)
+  // 接线时说明来自哪里；否则为某个输入提供该值时节点给出的说明（「Focal Length · 来自相机（ViPE 相机解算）」）
   const note = wired ? `← ${wired.from}${wired.value ? ` · ${wired.value}` : ""}` : said && !over ? said : "";
   const reveal = useViewer((s) => (s.reveal?.node === nodeId && s.reveal.param === p.name ? s.reveal : null));
   const row = useRef<HTMLDivElement>(null);
   const [flash, setFlash] = useState(false);
   useEffect(() => {
     if (!reveal || !row.current) return;
-    // After the panel has laid out what it just switched to (another node, a tall table above this row): a scroll
-    // measured at the same moment stops short of the row by the height still growing above it.
+    // 等面板排好刚切换到的内容（另一个节点、该行上方很高的表格）后再滚动：同一时刻测量的滚动位置
+    // 会因上方仍在增长的高度而停在该行之前。
     const el = row.current;
     let raf = requestAnimationFrame(() => {
       raf = requestAnimationFrame(() => {
@@ -61,39 +84,45 @@ function ParamRow({ nodeId, p, label, value, set, why, pinned, onPin, socket, sa
   }, [reveal?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div ref={row} className={`prow${multiline(p) ? " multi" : ""}${why ? " inactive" : ""}${wired && !why ? " wired" : ""}${flash ? " flash" : ""}`} data-param={p.name}>
-      <div className="plabel">
+      <fieldset className="plabel" disabled={readOnly}>
         <span className="plabel-text">{label}</span>
-        <ExposePin on={pinned} onClick={onPin} />
-        {socket && <PromotePin on={socket.on} wired={!!wired} fixed={socket.fixed} onClick={socket.onClick} />}
-        {onNode && <OnNodePin on={onNode.on || !!socket?.on} promoted={!!socket?.on} onClick={onNode.onClick} />}
-      </div>
-      {wired && !why ? (
-        // Driven by a wire: a block in the wire's own colour stating the value and its source, instead of a
-        // field that cannot be typed into.
+        {!bare && <ExposePin on={pinned} onClick={onPin} />}
+        {!bare && socket && <PromotePin on={socket.on} wired={!!wired} fixed={socket.fixed} onClick={socket.onClick} />}
+        {/* 按钮参数也有三个标记：提升到节点对它没有意义（没有值可接），置灰 */}
+        {!bare && !socket && p.widget === "button" && <PromotePin on={false} wired={false} fixed refused="按钮没有值，不能提升到节点" onClick={() => {}} />}
+        {!bare && onNode && <OnNodePin on={onNode.on || !!socket?.on} promoted={!!socket?.on} onClick={onNode.onClick} />}
+      </fieldset>
+      {wired && !why && !wired.fallback ? (
+        // 由连线驱动：以连线自身颜色的一块说明取值及其来源，而不是一个无法输入的输入框。
         <span className="ctl pwired">
           <b data-user-data>{wired.value || "待计算"}</b>
           <small data-user-data>· 来自 {wired.from}</small>
         </span>
       ) : (
-        <fieldset className="ctl" disabled={!!why}>
-          <Control nodeId={nodeId} p={p} value={value} set={set} />
+        // 打开窗的参数（「对应关系」「层级」）不放进禁用的组：打开窗是看，窗里按 lock 只锁写（editor/ParamSheet.tsx）
+        <fieldset className="ctl" disabled={(!!why || readOnly) && !(!control && opensSheet(p))}>
+          {control ?? <Control nodeId={nodeId} p={p} value={value} set={set} lock={readOnly ? READ_ONLY_WHY : why || ""} />}
         </fieldset>
       )}
+      {reason && <div className="pwhy">{reason}</div>}
       {/* 值从哪里来、覆盖了什么，由下方的小号灰字说明 */}
       {!why && !wired && note && <div className="pwhy">{note}</div>}
+      {/* 接进来的口可能没有值（素材没记帧率）：这里填的值照样可改，素材有值用素材的，否则用这里填的 */}
+      {!why && wired?.fallback && (
+        <div className="pwhy">← {wired.from}{wired.value ? ` · ${wired.value}` : ""}：素材有值用素材的，没有就用这里填的</div>
+      )}
       {!why && over && <div className="pwhy pover">{over}</div>}
     </div>
   );
 }
 
-/** 提升到节点 (Houdini's channel reference, ComfyUI's widget turned into an input): one click puts the parameter on
- * the node's body, as an input of its own (`param:<name>`) together with, on the same row, its control to edit it
- * directly; another click removes the row along with its wire. 接入连线后节点上的控件置灰，取值以连线传入的值为准
- * (editor/NodeParamRow.tsx)。 */
-function PromotePin({ on, wired, fixed, onClick }: { on: boolean; wired: boolean; fixed?: boolean; onClick: () => void }) {
+/** 提升到节点（相当于 Houdini 的通道引用、ComfyUI 中把控件转为输入）：点一下把该参数放到节点本体上，成为一个独立的
+ * 输入口（`param:<name>`），同一行带有可直接编辑的控件；再点一下则连同其连线一起去掉该行。接入连线后节点上的控件置灰，取值以连线传入的值为准
+ * （editor/NodeParamRow.tsx）。 */
+function PromotePin({ on, wired, fixed, refused, onClick }: { on: boolean; wired: boolean; fixed?: boolean; refused?: string; onClick: () => void }) {
   return (
-    <button className={`socket-pin${on ? " on" : ""}${wired ? " wired" : ""}${fixed ? " fixed" : ""}`}
-      aria-label={on ? "取消提升" : "提升到节点"} aria-pressed={on} aria-disabled={fixed} onClick={fixed ? undefined : onClick}>
+    <button className={`socket-pin${on ? " on" : ""}${wired ? " wired" : ""}${fixed ? " fixed" : ""}${refused ? " refused" : ""}`}
+      aria-label={refused ?? (on ? "取消提升" : "提升到节点")} aria-pressed={on} aria-disabled={fixed} onClick={fixed ? undefined : onClick}>
       <svg width={11} height={11} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.7}>
         <circle cx="10" cy="8" r="3.6" fill={on ? "currentColor" : "none"} />
         <path d="M1.5 8h5" strokeLinecap="round" />
@@ -120,8 +149,8 @@ const WRITES_MARK: Record<WritesPart["how"], string> = { full: "✓", static: "�
 // 宽度与「静止」相同，位置不跳动；格式丢失的内容必须对使用者可见
 const WRITES_PARTLY = "部分";
 
-/** 支持的数据: what a 3D output-settings node's format holds of each kind of 3D data, from its declaration
- * (OutputSettings.writes): each kind in its type's color, ✓ / 静止 / ✗ / 部分. */
+/** 支持的数据：三维输出设置节点的格式对每种三维数据能保留多少，来自其声明（OutputSettings.writes）：
+ * 每种数据以其类型的颜色标出，✓ / 静止 / ✗ / 部分。 */
 function WritesGroup({ def }: { def: NodeTypeDef }) {
   const catalog = useCatalog();
   const kinds = catalog?.scene_kinds ?? NO_KINDS;
@@ -142,7 +171,7 @@ function WritesGroup({ def }: { def: NodeTypeDef }) {
   );
 }
 
-/** Pin that exposes a parameter on the graph: templates show it up front, lab2shot cook and DCC plugins can set it. */
+/** 把参数公开到节点图的标记：模板会把它放在前面，lab2shot cook 与 DCC 插件可以设置它。 */
 function ExposePin({ on, onClick }: { on: boolean; onClick: () => void }) {
   return (
     <button className={`expose-pin${on ? " on" : ""}`} aria-label="对外参数" aria-pressed={on} onClick={onClick}>
@@ -157,9 +186,8 @@ function ExposePin({ on, onClick }: { on: boolean; onClick: () => void }) {
 
 // 面板不设选项卡，全部为参数；节点的数据信息位于节点右下角 ⓘ 的卡片中（NodeInfoCard）。
 
-/** The parameters of this node a wire drives with a value per frame, and the result to read the curve from
- * (data/values.py says 「（逐帧）」 for a value that changes and 「（逐帧，不变）」 for one that does not: only the
- * first is worth a curve). */
+/** 该节点中由逐帧取值的连线驱动的参数，以及读取曲线所用的结果（data/values.py 对变化的值写「（逐帧）」，
+ * 对不变的值写「（逐帧，不变）」：只有前者值得画曲线）。 */
 function perFrameCurves(snap: ReturnType<typeof useGraphSnapshot>, id: string): { param: string; fp: string; title: string }[] {
   const out: { param: string; fp: string; title: string }[] = [];
   for (const e of snap.edges) {
@@ -168,7 +196,7 @@ function perFrameCurves(snap: ReturnType<typeof useGraphSnapshot>, id: string): 
     const port = e.sourceHandle ?? "";
     const status = snap.results[e.source];
     const said = status?.values?.[port] ?? "";
-    const fp = status?.outputs?.[port] ?? "";
+    const fp = packetOf(status, port) ?? ""; // only a port that has a packet (state/results.ts packetOf)
     if (!fp || !said.includes("（逐帧）")) continue;
     const def = snap.nodeDefs[snap.nodes.find((n) => n.id === id)?.data.typeId ?? ""];
     const label = def?.params.find((q) => q.name === param)?.label ?? param;
@@ -189,21 +217,28 @@ export function ParamPanel() {
   const setLabel = setLabelAction;
   const meta = useCookInputs((s) => s.meta);
   const exposed = useCookInputs((s) => s.exposed);
+  const setExposed = useCookInputs((s) => s.setExposed);
+  const appMode = useAppMode((s) => s.mode === "app");
+  const viewerRole = !!useWriteLock();
+  // 参数界面（分组、顺序、显示名、下拉、Hide / Disable When）谁都能编辑：改的是自己手上这张节点图；能存到哪里才分权限
+  // （预设模板要「管理模板」，自己的存「我的模板」或 json）。应用模式和只读标签页不能改
+  // 只读标签页也能打开来看（窗里只锁写，ParamSheet.tsx）；面板里的参数树照样只在能改时可拖
+  const interfaceRight = !appMode;
+  const [interfaceOpen, setInterfaceOpen] = useState(false);
   const nodes = snap.nodes;
   const nodeDefs = snap.nodeDefs;
   const toggleExposed = toggleExposedAction;
   const togglePromoted = togglePromotedAction;
   const toggleOnNode = toggleOnNodeAction;
   const results = useResults((s) => s.results);
-  const graphId = useCookInputs((s) => s.graphId);
-  // 「输出」: what it last packed (its download is its only control: ui/OutputDownload.tsx)
-  const output = useResults((s) => (selectedId ? s.outputs[`${graphId}:${selectedId}`] : undefined));
+  // 这一次打开的是哪份文档（每次 loadGraph 换一个 docId，同一文件再打开也换；「另存为」只换 graphId、不换它）：参数界面树按它重新挂上
+  const loaded = useViewer((s) => s.docId);
   const insertNode = insertNodeAction;
   const setInspectorFit = useViewer((s) => s.setInspectorFit);
   const body = useRef<HTMLDivElement>(null);
   const commercial = commercialOf(snap, selectedId ?? "");
   const cost = costOf(snap, selectedId ?? "");
-  // its licence as the server resolved it with this node's settings, said in the catalogue's own words
+  // 服务器按该节点设置解析出的许可证，用目录自身的措辞表述
   const licence = (selectedId && results[selectedId]?.licence) || def?.at_defaults.licence;
   const licenceTags = (licence?.tags ?? []).filter((id) => !catalog?.tags[id]?.implied).map((id) => ({ id, label: catalog?.tags[id]?.label ?? id }));
   const params = node?.data.params;
@@ -212,7 +247,7 @@ export function ParamPanel() {
   // （如「已知 Focal Length」加三个标记约 155px）会与标记重叠。
   useLayoutEffect(() => {
     if (body.current) setInspectorFit(fitWidth(body.current));
-  }, [def, params, exposed, setInspectorFit]);
+  }, [def, params, exposed, appMode, setInspectorFit]);
 
   // 「在节点上显示」标记及其点击行为（仅可显示在节点上的参数具备：p.simple）
   const onNodeOf = (nodeId: string, p: ParamDef) => {
@@ -221,38 +256,46 @@ export function ParamPanel() {
     return p.simple && n && nd ? { on: chosenOnNode(nd, n.data.onNode).includes(p.name), onClick: () => toggleOnNode(nodeId, p.name) } : undefined;
   };
 
-  if (!selectedId || !node || !def) {
-    // nothing selected: the graph itself and its exposed parameters
+  // 没选中节点（节点模式）或应用模式（editor/AppMode.tsx，不看选中了哪个节点）：面板就是节点图自己——标题是 meta.name，
+  // 下面是它的参数界面树（分组、顺序、显示方式、Hide / Disable When，InterfaceTree）。两种模式同一份渲染，只差：应用模式
+  // 不画三个标记、不能拖、没有「编辑参数界面」入口（「计算」「下载」也是树里的按钮参数，模板作者公开进来、放在他想放的
+  // 位置，没有任何写死的块），没有公开参数时说切回节点模式；节点模式末尾提示选中节点。
+  if (appMode || !selectedId || !node || !def) {
     return (
       <div className="inspector" data-no-tips>
         <div className="insp-head">
-          <div className="insp-title">
+          {/* 「编辑参数界面」是标题行最右的一个小按钮（Houdini「Edit Parameter Interface」），弹窗框架 editor/ParamSheet.tsx
+              SheetWindow 挂编辑器 ParamInterface，「确定」写回 exposed */}
+          <div className="insp-title insp-title-graph">
             <span style={{ fontSize: 15, fontWeight: 600 }}>{meta.name}</span>
+            {interfaceRight && (
+              <IconButton tip="编辑参数界面：分组、顺序、显示名、下拉 / 复选框、Hide When / Disable When" tone="ghost" size="sm"
+                          layout="insp-interface" aria-label="编辑参数界面" onClick={() => setInterfaceOpen(true)}>
+                <IconSliders />
+              </IconButton>
+            )}
           </div>
           {meta.description && <div className="insp-desc">{meta.description}</div>}
         </div>
         <div className="insp-body" ref={body}>
-          {exposed.length > 0 && (
-            <div className="group">
-              <div className="group-title">对外参数</div>
-              {exposed.map((x) => {
-                const [nid, pname] = x.target.split(".");
-                const n = nodes.find((m) => m.id === nid);
-                const nd = n && nodeDefs[n.data.typeId];
-                const p = nd?.params.find((q) => q.name === pname);
-                if (!n || !nd || !p) return null;
-                return (
-                  <ParamRow key={x.name} nodeId={nid} p={p} label={x.label} value={n.data.params[pname]} set={(v) => setParam(nid, pname, v)}
-                    why={why(results[nid]?.applies, pname)} pinned onPin={() => toggleExposed(nid, pname, x.label)}
-                    socket={n.data.promoted?.includes(pname) ? { on: true, onClick: () => togglePromoted(nid, pname) } : undefined}
-                    said={results[nid]?.sources?.[pname]} onNode={onNodeOf(nid, p)} />
-                );
-              })}
+          {interfaceOpen && interfaceRight && (
+            <SheetWindow kind={ParamInterface} nodeId="" p={INTERFACE_PARAM} value={exposed} choices={{}}
+              set={(v) => setExposed(v as ExposedEntry[])} close={() => setInterfaceOpen(false)} />
+          )}
+          {(appMode ? exposedParams(exposed).length > 0 : exposed.length > 0) && (
+            <InterfaceTree key={loaded} entries={exposed} bare={appMode} editable={interfaceRight && !viewerRole} />
+          )}
+          {appMode ? (
+            exposedParams(exposed).length === 0 && (
+              <div className="empty" style={{ height: "auto", paddingTop: 28 }}>
+                这张节点图没有公开参数，切回节点模式
+              </div>
+            )
+          ) : (
+            <div className="empty" style={{ height: "auto", paddingTop: 28 }}>
+              选中一个节点来调整它的参数
             </div>
           )}
-          <div className="empty" style={{ height: "auto", paddingTop: 28 }}>
-            选中一个节点来调整它的参数
-          </div>
         </div>
       </div>
     );
@@ -268,24 +311,23 @@ export function ParamPanel() {
     <div className="inspector" data-no-tips>
       <div className="insp-head">
         <div className="insp-title">
-          {/* the node's category is a small square of its colour, not an icon in a box */}
+          {/* 节点类别画成其颜色的小方块，而不是框里的图标 */}
           <i className="insp-swatch" style={{ background: cat.color }} />
-          <input value={node.data.label} onChange={(e) => setLabel(node.id, e.target.value)} aria-label="节点名称" />
+          <input value={node.data.label} disabled={viewerRole} onChange={(e) => setLabel(node.id, e.target.value)} aria-label="节点名称" />
         </div>
         {/* 名称下方以小号灰字显示节点类型 id，与节点上的显示一致：
             名称可修改，修改后无法据此识别节点类型；id 不随改名变化，命令行与 DCC 插件使用的正是该 id */}
         <div className="insp-type">{def.id}</div>
-        {/* The node's category, its licence and its cost: the three things to know before touching a
-            parameter. Which environment it runs in is not shown in the title row. */}
+        {/* 节点类别、许可证与开销：动参数之前需要知道的三件事。运行环境不在标题行显示。 */}
         <div className="insp-sub">
           {cat.label && <span className="chip" style={{ ["--c" as string]: cat.color }}>{cat.label}</span>}
-          {/* the licence's own word, from the catalogue's tag table (nodes/tags.py): the page never writes it */}
+          {/* 许可证自身的措辞，来自目录的标签表（nodes/tags.py）：页面不自行书写 */}
           {licenceTags.map((tag) => (
             <span key={tag.id} className={commercial ? "chip ok" : "chip nc"}>
               {tag.label}
             </span>
           ))}
-          {/* what it costs, in the head's own small label: 「GPU · 中」 */}
+          {/* 开销，用标题区自己的小标签：「GPU · 中」 */}
           {cost?.rating && <span className="chip">{cost.gpu ? `GPU · ${cost.rating.tier}` : cost.rating.tier}</span>}
           {/* 三方项目的代码仓库，在新标签页中打开 */}
           {def.links && webAddress(def.links.repo || def.links.homepage) && (
@@ -298,7 +340,7 @@ export function ParamPanel() {
         <div className="notice warn refused" key={(w.port ?? "") + w.text}>
           <span>{w.text}</span>
           {w.fix && (
-            <Button size="sm" layout="notice-fix" onClick={() => insertNode(node.id, w.port ?? "", w.fix!.insert)}>
+            <Button size="sm" layout="notice-fix" disabled={viewerRole} onClick={() => insertNode(node.id, w.port ?? "", w.fix!.insert)}>
               {w.fix.label}
             </Button>
           )}
@@ -309,19 +351,15 @@ export function ParamPanel() {
               粘贴的是整张表，先粘贴再逐项核对，与操作顺序一致 */}
           <PasteFrom nodeId={node.id} def={def} />
           {Object.keys(def.writes ?? {}).length > 0 && <WritesGroup def={def} />}
-          {def.delivers && (
-            <div className="group">
-              <div className="group-title">下载</div>
-              <OutputDownload output={output ?? null} size="sm" />
-            </div>
-          )}
-          {panelParams.length === 0 && !def.delivers && <div className="empty" style={{ height: "auto", paddingTop: 28 }}>这个节点没有参数</div>}
+          {/* 「输出」的「下载」只有一处：它的按钮参数（lab2shot/nodes/core/output.py buttons，editor/buttonActions.tsx download），
+              和「计算」一样在下面的参数组里一行，不另写死一块 */}
+          {panelParams.length === 0 && <div className="empty" style={{ height: "auto", paddingTop: 28 }}>这个节点没有参数</div>}
           {Object.entries(groups).map(([g, ps]) => (
             <div className="group" key={g}>
               <div className="group-title">{g}</div>
               {ps.map((p) => (
                 <ParamRow key={p.name} nodeId={node.id} p={p} label={p.label} value={node.data.params[p.name]} set={(v) => setParam(node.id, p.name, v)}
-                  why={why(results[node.id]?.applies, p.name)} pinned={exposed.some((x) => x.target === `${node.id}.${p.name}`)}
+                  why={why(results[node.id]?.applies, p.name)} pinned={exposedParams(exposed).some((x) => x.target === `${node.id}.${p.name}`)}
                   onPin={() => toggleExposed(node.id, p.name, p.label)}
                   socket={p.wire ? (def.wired_ports?.includes(p.name)
                     // 常驻口：节点类型声明其始终存在（NodeDef.wired_ports，如 Focal Length / Filmback，接镜头标定节点的数值输出），不可关闭
@@ -331,8 +369,7 @@ export function ParamPanel() {
               ))}
             </div>
           ))}
-          {/* A wire carrying a value per frame is drawn as a curve, placed at the end so no parameter row
-              ever moves; a wire carrying one value draws nothing, as the row already states the number. */}
+          {/* 逐帧取值的连线画成曲线，放在最后，使参数行位置不变；只带一个值的连线不画，参数行已写明该数值。 */}
           {perFrameCurves(snap, node.id).map((c) => (
             <ParamCurve key={c.param} fp={c.fp} title={c.title} />
           ))}
@@ -346,4 +383,180 @@ export function ParamPanel() {
       )}
     </div>
   );
+}
+
+// ------------------------------------------------------------------ 参数界面树（exposed，api/catalog.ts ExposedEntry）
+
+interface TreeCtx {
+  bare?: boolean;
+  values: Record<string, unknown>; // 表达式里的名字取的值：每个公开参数现在的值
+  labelOf: (name: string) => string;
+  hidden: (x: ExposedEntry) => boolean; // Hide When 为真（组：里面全都不显示）
+  index: (path: Path) => number; // 这一行在 rowsOf 里的位置（拖动用）
+  drag: ReturnType<typeof useRowDrag> | null; // null：不能拖（应用模式、只读标签页）
+}
+
+/** 公开参数按参数界面树画出来：组可折叠（`collapsed` 是打开时的默认），子组缩进；参数项按它自己的显示名、控件覆盖
+ * （下拉 / 复选框），Hide When 为真的不画（组里全不画时组也不画），Disable When 为真的置灰并说「由『X』决定」。控件是
+ * 目标参数自己的（ParamRow → ParamControls.tsx Control：文件、层级选择、对应关系、表格……与选中节点时同一个分发），只多
+ * 分组、条件和覆盖。节点模式和应用模式（`bare`：不画公开 / 提升 / 在节点上显示三个标记）共用这一份。
+ *
+ * `editable`（节点模式、不是只读标签页；谁都能改自己手上这张图的参数界面，存到哪里才分权限）：每行（参数和组）左边一个
+ * 把手，拖到参数上 = 放到它前面，拖到组的标题上 = 放进这个组（空组照画，也能拖进去），拖到最下面的空条 = 放到最外层
+ * 末尾；规则与「编辑参数界面」弹窗同一套（graph/exposedTree.ts dropAt），写回 exposed，撤销步骤叫「调整参数顺序」
+ * （graph/history.ts）。折叠只是这一次看的状态，不写进节点图。
+ *
+ * 调用处按「这一次打开的文档」（state/viewer.ts docId）给它 key：打开另一份（或重新打开同一份）文档，整棵树重新挂上——
+ * 各组的折叠回到新文档的默认。 */
+function InterfaceTree({ entries, bare, editable }: { entries: ExposedEntry[]; bare?: boolean; editable?: boolean }) {
+  const snap = useGraphSnapshot();
+  const all = exposedParams(entries);
+  const values = exposedValues(entries, (id) => snap.nodes.find((m) => m.id === id)?.data, snap.nodeDefs);
+  const labelOf = (name: string) => all.find((x) => x.name === name)?.label ?? name;
+  const hidden = (x: ExposedEntry): boolean => entryHidden(x, values);
+  const rows = rowsOf(entries);
+  const keys = rows.map((r) => r.path.join("/"));
+  const drag = useRowDrag((from, to) => setExposedNow(dropAt(entries, rows, from, to)[0]), (from, to) => canDropAt(rows, from, to));
+  const ctx: TreeCtx = { bare, values, labelOf, hidden, index: (p) => keys.indexOf(p.join("/")), drag: editable && !bare ? drag : null };
+  return (
+    <>
+      <TreeEntries entries={entries} parent={[]} depth={0} ctx={ctx} />
+      {ctx.drag && <div className={`ptree-end${ctx.drag.over === rows.length ? " drag-over" : ""}`} {...ctx.drag.row(rows.length)} />}
+    </>
+  );
+}
+
+const setExposedNow = (tree: ExposedEntry[]) => useCookInputs.getState().setExposed(tree);
+
+/** 拖动把手（只在能拖时画）。 */
+function Grip({ ctx, i }: { ctx: TreeCtx; i: number }) {
+  return ctx.drag ? <span className="ptree-grip nodrag" aria-label="拖动改顺序" {...ctx.drag.grip(i)}>⋮⋮</span> : null;
+}
+
+function TreeEntries({ entries, parent, depth, ctx }: { entries: ExposedEntry[]; parent: Path; depth: number; ctx: TreeCtx }) {
+  // 根下连着的参数项放在一个没有标题的段里，组各自一段：与节点参数的「组」同一种排版（.group）
+  const runs: { key: string; group?: { g: ExposedGroup; path: Path }; items: { x: ExposedParam; path: Path }[] }[] = [];
+  entries.forEach((x, i) => {
+    const path = [...parent, i];
+    if (ctx.hidden(x)) return;
+    if (isGroup(x)) runs.push({ key: path.join("/"), group: { g: x, path }, items: [] });
+    else if (runs.length && !runs[runs.length - 1].group) runs[runs.length - 1].items.push({ x, path });
+    else runs.push({ key: path.join("/"), items: [{ x, path }] });
+  });
+  return (
+    <>
+      {runs.map((r) =>
+        r.group ? (
+          <TreeGroup key={r.key} g={r.group.g} path={r.group.path} depth={depth} ctx={ctx} />
+        ) : (
+          <div className={depth ? "ptree-items" : "group"} key={r.key}>
+            {r.items.map(({ x, path }) => {
+              const i = ctx.index(path);
+              return (
+                <div key={`${x.name}:${x.target}`} className={`ptree-row${ctx.drag?.over === i ? " drag-over" : ""}`} {...(ctx.drag ? ctx.drag.row(i) : {})}>
+                  <Grip ctx={ctx} i={i} />
+                  <ExposedRow x={x} ctx={ctx} />
+                </div>
+              );
+            })}
+          </div>
+        ),
+      )}
+    </>
+  );
+}
+
+function TreeGroup({ g, path, depth, ctx }: { g: ExposedGroup; path: Path; depth: number; ctx: TreeCtx }) {
+  const [open, setOpen] = useState(!g.collapsed);
+  const i = ctx.index(path);
+  return (
+    <div className={depth ? "ptree-sub" : "group"}>
+      <div className={`ptree-head${ctx.drag?.over === i ? " drag-over" : ""}`} {...(ctx.drag ? ctx.drag.row(i) : {})}>
+        <Grip ctx={ctx} i={i} />
+        <button type="button" className={`group-title ptree-title${open ? " open" : ""}`} aria-expanded={open} onClick={() => setOpen(!open)}>
+          <span className="ptree-caret" aria-hidden>▸</span>
+          <span data-user-data>{g.label}</span>
+        </button>
+      </div>
+      {open && <TreeEntries entries={g.children} parent={path} depth={depth + 1} ctx={ctx} />}
+    </div>
+  );
+}
+
+/** 参数界面里的一项参数：目标节点或参数已经不在的不画（「编辑参数界面」里标红）。 */
+function ExposedRow({ x, ctx }: { x: ExposedParam; ctx: TreeCtx }) {
+  const snap = useGraphSnapshot();
+  const results = useResults((s) => s.results);
+  const [nid, pname] = x.target.split(".");
+  const n = snap.nodes.find((m) => m.id === nid);
+  const nd = n && snap.nodeDefs[n.data.typeId];
+  const p = nd?.params.find((q) => q.name === pname);
+  if (!n || !nd || !p) return null;
+  const set = (v: unknown) => setParamAction(nid, pname, v);
+  const value = n.data.params[pname];
+  // Disable When 为真（能判为真，表达式就一定读得通、用到的名字都在）：说由哪几项决定。写错的不锁（编辑器里标红）
+  const off = entryDisabled(x, ctx.values);
+  const used = off ? conditionNames(parseCondition(x.disable_when)) : [];
+  const reason = !off ? undefined : used.length ? `由${used.map((u) => `「${ctx.labelOf(u)}」`).join("、")}决定` : `Disable When「${x.disable_when}」成立`;
+  const onNode = p.simple && !ctx.bare ? { on: chosenOnNode(nd, n.data.onNode).includes(pname), onClick: () => toggleOnNodeAction(nid, pname) } : undefined;
+  const showOnChange = !!x.show_on_change && p.widget !== "button";
+  return (
+    <>
+    {/* 按钮项：按钮上写的就是模板里给它起的名字（「解算人物」「打包」），左边不重复行标签 */}
+    <ParamRow nodeId={nid} p={p.widget === "button" ? { ...p, label: x.label } : p} label={p.widget === "button" ? "" : x.label}
+      value={value} set={set} why={why(results[nid]?.applies, pname)} pinned
+      onPin={() => toggleExposedAction(nid, pname, x.label)}
+      // 常驻口（NodeDef.wired_ports，如「切换」的「走哪一路」）与提升了的参数一样：真接了线才按线显示（ParamRow wiredFrom），没接线照常可改
+      socket={nd.wired_ports?.includes(pname) ? { on: true, fixed: true, onClick: () => {} }
+        : n.data.promoted?.includes(pname) ? { on: true, onClick: () => togglePromotedAction(nid, pname) } : undefined}
+      said={results[nid]?.sources?.[pname]} onNode={onNode} reason={reason} bare={ctx.bare}
+      control={overrideControl(x, p, value, set, ctx.values, results[nid]?.applies, licensedValues(nd, pname)) ?? (showOnChange && PICKED_IN_VIEW.includes(p.widget ?? "") && !off && !why(results[nid]?.applies, pname)
+        ? <PickRow nodeId={nid} p={p} value={value} set={set} /> : undefined)} />
+    </>
+  );
+}
+
+// 在 2D 视图里用节点的手柄点出来的参数（nodes/handles.py：点选、手绘轮廓）
+const PICKED_IN_VIEW = ["picks", "canvas"];
+
+/** 公开参数树里带手柄的参数（点选、手绘）且「修改后在视图里显示这个节点」（show_on_change）为真：碰到这一行（点 chip、
+ * 点空白处）就进入点选，视图显示这个节点、手柄可用。显式的入口是框架给每个这种参数自动生成的按钮参数「在视图里点选」
+ * （服务端 nodes/params.py pick_button，editor/buttonActions.tsx pick_in_view），在这个参数下一行。 */
+function PickRow({ nodeId, p, value, set }: { nodeId: string; p: ParamDef; value: unknown; set: (v: unknown) => void }) {
+  return (
+    <div className="ppick" onPointerDownCapture={(e) => !(e.target as HTMLElement).closest("button")
+      && enterPicking(nodeId)}>
+      <Control nodeId={nodeId} p={p} value={value} set={set} />
+    </div>
+  );
+}
+
+/** 参数界面给的控件覆盖：下拉（模板作者自填的值和显示名；当前值不在其中的照实列出、标明；某一项自己的 Hide When 成立时
+ * 不列它；当前值不会停在被藏起的项上——条件一变就落到第一个列出的，graph/exposedTree.ts hiddenChoices——万一在那一刻
+ * 之前画到了，照列它）、复选框（布尔：勾 = 真；整数 0 / 1：
+ * 勾 = 1）。没有覆盖的用参数自己的控件（undefined）。`values`：条件里的名字取的值（InterfaceTree）。 */
+function overrideControl(x: ExposedParam, p: ParamDef, value: unknown, set: (v: unknown) => void, values: Record<string, unknown>,
+                         answer: Availability | null | undefined, licensed: Record<string, string>): React.ReactNode | undefined {
+  if (x.widget === "checkbox") {
+    const on = p.type === "boolean" ? !!value : value === 1;
+    return <Switch on={on} onChange={(v) => set(p.type === "boolean" ? v : v ? 1 : 0)} label={x.label} />;
+  }
+  if (x.widget === "menu" && x.options?.length) {
+    const opts = x.options;
+    const at = opts.findIndex((o) => condEqual(o.value, value));
+    const shown = new Set(shownOptions(opts, values));
+    // 作者的显示名只替换名称；许可词与不能选的原因照参数自己的下拉加（ui/controls.tsx optionView）
+    const rows = opts.flatMap((o, i) => {
+      if (i !== at && !shown.has(o)) return [];
+      const view = optionView(p, o.value, answer, licensed, o.label);
+      return [{ value: String(i), label: view.label, tip: view.tip, off: !!view.off }];
+    });
+    const own = `${value === null || value === undefined ? "空" : JSON.stringify(value)} · 不在列表里`;
+    return (
+      <Select value={at < 0 ? "own" : String(at)} label={x.label}
+        options={at < 0 ? [{ value: "own", label: own, tip: own }, ...rows] : rows}
+        onPick={(v) => v !== "own" && set(opts[Number(v)].value)} />
+    );
+  }
+  return undefined;
 }

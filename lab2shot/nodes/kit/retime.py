@@ -45,8 +45,15 @@ class Timing:
     speed: float
     offset: int
     anchor: int
-    first: int  # the source's own first and last frame
-    last: int
+    source: tuple[int, ...]  # the source's own frames, sorted: a gap among them (a solve's missing frames) stays a gap
+
+    @property
+    def first(self) -> int:
+        return self.source[0]
+
+    @property
+    def last(self) -> int:
+        return self.source[-1]
 
     @property
     def changes_speed(self) -> bool:
@@ -65,10 +72,28 @@ class Timing:
         t = np.asarray(source, np.float64)
         return self.offset + self.anchor + (t - self.anchor) / self.ratio
 
-    def frames(self) -> list[int]:
-        """The frames the result has: every whole frame whose source time is inside the source's own range."""
+    def _span(self) -> list[int]:
         lo, hi = self.output_time(self.first), self.output_time(self.last)
         return [int(f) for f in range(int(np.ceil(lo - ON_FRAME)), int(np.floor(hi + ON_FRAME)) + 1)]
+
+    def _covered(self, t: float, have=None) -> bool:
+        """A source time on one of its frames, or between two that follow on one another: not in a gap. `have`: the
+        frames that count (an object's own visible ones, _hidden_between), the source's by default."""
+        have = set(self.source) if have is None else have
+        near = round(t)
+        if abs(t - near) <= ON_FRAME:
+            return near in have
+        return int(np.floor(t)) in have and int(np.floor(t)) + 1 in have
+
+    def frames(self) -> list[int]:
+        """The frames the result has: every whole frame whose source time is on a source frame or between two that
+        follow on one another (a pure 偏移 gives the source's frames moved); one whose source time falls in a gap of
+        the source is missing too (in_gaps), never made up from the frames either side."""
+        return [f for f in self._span() if self._covered(float(self.source_time(f)))]
+
+    def in_gaps(self) -> list[int]:
+        """The frames within the result's range left out because their source time falls in a gap of the source."""
+        return [f for f in self._span() if not self._covered(float(self.source_time(f)))]
 
     def interpolated(self) -> list[int]:
         """The result's frames that fall between two source frames."""
@@ -82,14 +107,6 @@ class Timing:
         additional scaling and this offset expresses the entire mapping."""
         r = self.ratio
         return Sdf.LayerOffset(float(self.offset) + self.anchor * (1.0 - 1.0 / r), 1.0 / r)
-
-
-def _decompose(m: np.ndarray):
-    from lab2shot_shared.motion import matrix_to_quat
-
-    scale = np.linalg.norm(m[:, :3, :3], axis=1)  # column lengths
-    safe = np.where(scale < 1e-12, 1.0, scale)
-    return m[:, :3, 3], matrix_to_quat(m[:, :3, :3] / safe[:, None, :]), scale
 
 
 def _compose(t: np.ndarray, q: np.ndarray, s: np.ndarray) -> np.ndarray:
@@ -111,7 +128,7 @@ def _turn_smoothly(stage: Usd.Stage, out_frames: list[int]) -> int:
 
     The stage already carries the time offset, so key times and output frames are both in stage time here; the
     mapping is applied once, by the layer, and must not be applied again."""
-    from lab2shot_shared.motion import continuous, slerp
+    from lab2shot_shared.motion import continuous, decompose, slerp
 
     written = 0
     for prim in list(stage.Traverse()):
@@ -123,7 +140,7 @@ def _turn_smoothly(stage: Usd.Stage, out_frames: list[int]) -> int:
             continue
         source = np.clip(np.asarray(out_frames, np.float64), keys[0], keys[-1])
         m = _sample_local(prim, keys)
-        t, q, s = _decompose(m)
+        t, q, s = decompose(m)  # motion.decompose: a mirrored joint keeps its mirror
         q = continuous(q)
         key_times = np.asarray(keys, np.float64)
         right = np.clip(np.searchsorted(key_times, source, side="left"), 1, len(keys) - 1)
@@ -175,6 +192,32 @@ def _nearest_frames(stage: Usd.Stage, out_frames: list[int]) -> int:
     return taken
 
 
+def _hidden_between(stage: Usd.Stage, out_frames: list[int], timing: Timing) -> int:
+    """Hide every object with a visibility of its own on the frames whose source time falls between one of its shown
+    frames and one of its hidden ones: its own gap, the same rule as the source's (Timing._covered over the frames it
+    is shown on). USD holds the shown side's token and blends its pose towards the far side of the gap — a pose made
+    up from the frames either side. Returns the number of frames hidden this way that USD would show (of all objects)."""
+    hidden = 0
+    times = timing.source_time(out_frames)
+    for prim in list(stage.Traverse()):
+        attr = UsdGeom.Imageable(prim).GetVisibilityAttr() if prim.IsA(UsdGeom.Imageable) else None
+        if not attr or attr.GetNumTimeSamples() < 2:
+            continue
+        shown = {k for k in timing.source
+                 if attr.Get(Usd.TimeCode(float(timing.output_time(k)))) != UsdGeom.Tokens.invisible}
+        cut = [abs(t - round(t)) > ON_FRAME and timing._covered(t) and not timing._covered(t, shown) for t in times]
+        held = [attr.Get(Usd.TimeCode(f)) for f in out_frames]  # read before the override below is written
+        changed = sum(gone and was != UsdGeom.Tokens.invisible for gone, was in zip(cut, held))
+        if not changed:
+            continue
+        # a stronger layer's samples replace the weaker one's whole: every output frame is written
+        write = UsdGeom.Imageable(stage.OverridePrim(prim.GetPath())).CreateVisibilityAttr()
+        for f, gone, was in zip(out_frames, cut, held):
+            write.Set(UsdGeom.Tokens.invisible if gone else was, Usd.TimeCode(f))
+        hidden += int(changed)
+    return hidden
+
+
 def retime(src, out: Path, timing: Timing):
     """The scene shown at new frame numbers. Returns (packet, report)."""
     from ...data.payloads import SCENE_FILE, scene_packet
@@ -188,8 +231,10 @@ def retime(src, out: Path, timing: Timing):
     root.subLayerOffsets[0] = timing.layer_offset()
     turned = _turn_smoothly(stage, frames) if frames else 0
     nearest = _nearest_frames(stage, frames) if frames else 0
+    hidden = _hidden_between(stage, frames, timing) if frames and timing.changes_speed else 0
     root.Save()
-    report = {"frames": frames, "interpolated": len(timing.interpolated()), "nearest": nearest, "turned": turned,
+    report = {"frames": frames, "interpolated": len(timing.interpolated()), "gaps": len(timing.in_gaps()),
+              "nearest": nearest, "turned": turned, "hidden": hidden,
               "first": frames[0] if frames else 0, "last": frames[-1] if frames else 0}
     keep = {k: v for k, v in src.meta.items() if k not in ("frames", "contents", "top")}
     return scene_packet(out, frames, src.type, **keep), report

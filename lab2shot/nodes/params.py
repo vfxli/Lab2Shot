@@ -42,7 +42,9 @@ def without_params(model: type[NodeParams], names: list[str]) -> type[NodeParams
     return create_model(model.__name__, __base__=NodeParams, __module__=model.__module__, **kept)
 
 
-def _defaults(model: type[BaseModel]) -> dict:
+def param_defaults(model: type[BaseModel]) -> dict:
+    """A node's parameters at their defaults (None for one with none): what a node just added holds, and what a
+    graph's own values are laid over (the catalogue, the cook, a worker job's size, licence tags)."""
     return {k: (None if f.is_required() else f.get_default()) for k, f in model.model_fields.items()}
 
 
@@ -67,16 +69,20 @@ def _param_list(model: type[BaseModel], schema: dict) -> list[dict]:
     return out
 
 
-# the most parameters a node declares for its body (NodeDef.on_node): the node stays compact
 def range_said(spec: dict) -> Msg:
-    """A parameter's range as its message says it (E-PARAM-BETWEEN ...; E-PARAM-REFUSED when it has none)."""
+    """A parameter's range as its message says it, an open end (gt / lt: `open_minimum`, `open_maximum`) as open:
+    E-PARAM-BETWEEN / ABOVE / ATLEAST / BELOW / ATMOST, E-PARAM-REFUSED when it has none."""
     lo, hi = spec["minimum"], spec["maximum"]
+    lo_open, hi_open = spec.get("open_minimum", False), spec.get("open_maximum", False)
     if lo is not None and hi is not None:
+        if lo_open or hi_open:
+            return Msg("E-PARAM-INTERVAL", low=Msg("I-PARAM-GT" if lo_open else "I-PARAM-GE", lo=lo),
+                       high=Msg("I-PARAM-LT" if hi_open else "I-PARAM-LE", hi=hi))
         return Msg("E-PARAM-BETWEEN", lo=lo, hi=hi)
     if lo is not None:
-        return Msg("E-PARAM-ABOVE", lo=lo) if lo == 0 else Msg("E-PARAM-ATLEAST", lo=lo)
+        return Msg("E-PARAM-ABOVE" if lo_open else "E-PARAM-ATLEAST", lo=lo)
     if hi is not None:
-        return Msg("E-PARAM-ATMOST", hi=hi)
+        return Msg("E-PARAM-BELOW" if hi_open else "E-PARAM-ATMOST", hi=hi)
     return Msg("E-PARAM-REFUSED")
 
 
@@ -100,6 +106,7 @@ def refusal(specs: list[dict], exc: ValidationError) -> Msg:
     return Msg("E-PARAM-INVALID", name=label, value=text if len(text) <= 40 else text[:39] + "…", reason=reason)
 
 
+# the most parameters a node declares for its body (NodeDef.on_node): the node stays compact
 ON_NODE_MAX = 4
 _SIMPLE_WIDGETS = (None, "slider", "select", "vec3")  # multi-option choices always use a dropdown; there is no segmented control
 
@@ -143,6 +150,9 @@ def _fields(model: type[BaseModel], schema: dict) -> list[dict]:
                 "nullable": any(a.get("type") == "null" for a in prop.get("anyOf", [])),
                 "minimum": target.get("minimum", target.get("exclusiveMinimum")),
                 "maximum": target.get("maximum", target.get("exclusiveMaximum")),
+                # the bound itself is not allowed (gt / lt): said as 「大于」「小于」, never 「至少」「之间」
+                "open_minimum": "minimum" not in target and "exclusiveMinimum" in target,
+                "open_maximum": "maximum" not in target and "exclusiveMaximum" in target,
                 "multiple_of": target.get("multipleOf"),
                 "options": options,
                 "option_labels": extra.get("option_labels"),
@@ -176,6 +186,50 @@ def _fields(model: type[BaseModel], schema: dict) -> list[dict]:
             }
         )
     return out
+
+
+class Button:
+    """A button parameter (widget "button"): a row of the parameter panel like any other parameter — the same three
+    marks on its left (对外参数, 提升到节点, 在节点上显示), a full-width button on its right — that holds no value.
+    It is not a field of the node's Params: nothing is stored in the graph, nothing reaches the worker, nothing enters
+    the fingerprint (param_specs does not list it; NodeDef.interface_specs does, for the page and the parameter
+    interface). A click runs the page's action `action` (webui/src/editor/buttonActions.ts: action id -> function), on
+    this node. A node declares its own in NodeDef.buttons (「输出」's 「下载」); every node has 「计算」
+    (COOK_BUTTON, declared once on NodeDef). A template exposes one as any parameter, target "<node id>.<button name>"
+    (engine/templates.py); it takes no value (apply_values passes a value given to it over)."""
+
+    def __init__(self, name: str, label: str, action: str, group: str = "操作", target: str = "") -> None:
+        # target: the parameter the action works on (「在视图里点选」: the picks / canvas parameter it picks for)
+        self.name, self.label, self.action, self.group, self.target = name, label, action, group, target
+
+    def spec(self) -> dict:
+        """Its row in the parameter table, in the same shape as a parameter's (_fields): no value, no wire, only
+        `action`; `simple` "button" so it can show on the node's body when asked, or by default where the node lists it in
+        its `on_node` (「输出」's 「下载」)."""
+        return {
+            "name": self.name, "label": self.label, "default": None, "type": "button", "nullable": True,
+            "minimum": None, "maximum": None, "open_minimum": False, "open_maximum": False, "multiple_of": None,
+            "options": None, "option_labels": None,
+            "widget": "button", "group": self.group, "affects_result": False, "placeholder": "", "worker": False,
+            "accept": [], "unit": "", "derived_from": [], "choices_from": [], "unique": False, "measured": {},
+            "per_frame": False, "assumed": "", "parts": [], "lines": 1, "panel": True, "overrides": [], "items": None,
+            "wire": "", "simple": "button", "action": self.action, **({"target": self.target} if self.target else {}),
+        }
+
+
+# every node's 「计算」: cook this node (with what it needs), what its right-click 「计算」 does
+COOK_BUTTON = Button("cook", "计算", "cook")
+
+# parameters worked on with the node's handle in the 2D view (nodes/handles.py: clicks, drawn outlines): each gets its
+# own 「在视图里点选」 button, right after it (NodeDef.interface_specs)
+PICKED_IN_VIEW = ("picks", "canvas")
+
+
+def pick_button(spec: dict) -> Button:
+    """「在视图里点选」 for a picks / canvas parameter: named "<parameter>_pick", action pick_in_view on that parameter
+    (the page shows this node in the view so its handle can be used, and ends it on a 「计算」 or a mode switch:
+    webui/src/editor/viewPicking.ts). A button parameter like any other: exposed, ordered, renamed, conditioned."""
+    return Button(f"{spec['name']}_pick", "在视图里点选", "pick_in_view", group=spec["group"], target=spec["name"])
 
 
 class _Extra(dict):

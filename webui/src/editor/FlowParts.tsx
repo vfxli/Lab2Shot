@@ -1,9 +1,11 @@
-/** What the node graph draws besides nodes: typed wires, the wire being dragged, zoom classes, a node's right-click menu. */
+/** Owns what the node graph draws besides nodes: typed wires, the wire being dragged, zoom classes, a node's right-click menu. */
 
+import { useLook } from "../state/look";
 import { portColor, UNKNOWN_COLOR } from "../graph/nodes";
 import { useMemo } from "react";
 import { BaseEdge, getBezierPath, type ConnectionLineComponentProps, type EdgeProps } from "@xyflow/react";
-import { cookBlocked, cookNote } from "../state/pause";
+import { cookNote } from "../state/pause";
+import { cookHold, planError } from "../graph/actions";
 import { NODE_MENU, type NodeMenuFacts } from "./nodeActions";
 import { snapshotNow } from "../graph/snapshot";
 import { useCookInputs } from "../state/cookInputs";
@@ -36,10 +38,10 @@ export function TypedEdge({ id, sourceX, sourceY, targetX, targetY, sourcePositi
     const w = wireState(snap, e);
     const t = w?.type || outputType(snap, e.source, e.sourceHandle) || "";
     const carries = isList(t.split("|")[0]);
-    if (w?.state === "waiting") return { look: WAITING, list: carries };
+    if (w?.state === "waiting" || w?.state === "unused") return { look: WAITING, list: carries }; // the branch not taken: drawn faint, like a waiting wire
     if (w?.state === "wrong") return { look: WRONG, list: carries };
     // a list is drawn in the colour of what it holds: 图像序列[] is the colour of 图像序列
-    // 列表绘制为双线，颜色也使用列表对应的档位（graph/nodes.ts portColor：同色相、降低饱和度）
+    // drawn as two lines, in the list's own shade of that colour (graph/nodes.ts portColor: same hue, less saturated)
     return { look: t ? portColor(types, t) : UNKNOWN_COLOR, list: carries };
   }, [edges, nodes, reply, types, id]);
   const dash = look === WRONG ? "6 5" : look === WAITING ? "2 5" : undefined;
@@ -74,17 +76,23 @@ export const zoomClass = (zoom: number) => (zoom < ZOOM_FAR ? " zoom-far" : zoom
  * 「输出」 alone, not the whole graph), 显示, and 合并成多层 EXR on 序列图输出设置 nodes. Closes on any click,
  * Escape or scroll. */
 export function NodeMenu({ at, onClose }: { at: { x: number; y: number; id: string }; onClose: () => void }) {
-  const busy = useResults((s) => !!s.job);
+  // whether it can be clicked is the same latch as cook()'s (graph/actions.ts cookHold): greyed while footage uploads
+  // or a submission is under way, just as with a running job
+  const version = useCookInputs((s) => s.version);
+  const port = useLook((s) => s.displayPort);
+  const hold = useResults((s) => cookHold(s, { node: at.id, version, port }));
+  const unplannable = useResults((s) => planError(s, { node: at.id, version, port })?.text ?? "");
+  const busy = hold === "busy" || hold === "submitting";
   const queueSwitches = useResults((s) => s.queueSwitches);
-  const storage = useResults((s) => s.storage); // 配额已满：此处的「计算」与顶栏的「提交」一样置灰并说明原因
+  const storage = useResults((s) => s.storage); // storage full: this 「计算」 is greyed with the reason, like the button parameter's 「计算」
   const typeId = useCookInputs((s) => s.nodes[at.id]?.typeId ?? "");
   const snap = useMemo(() => snapshotNow(), [at.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const kind = clickKind(snap, at.id);
   const delivers = kind.delivers;
   const short = cookWords(kind.delivers, kind.nothing).short;
-  // the same rule and note (state/pause.ts) as the top bar's 提交, so a click here is not a surprise
-  const tip = cookWords(kind.delivers, kind.nothing).tip + cookNote(queueSwitches, storage);
-  const blocked = cookBlocked(queueSwitches, storage);
+  // the same rule and note (state/pause.ts, graph/actions.ts cookHold) as every other 计算 entry, so a click here is not a surprise
+  const tip = (unplannable ? `现在算不了：${unplannable}\n\n` : "") + cookWords(kind.delivers, kind.nothing).tip + cookNote(queueSwitches, storage);
+  const blocked = hold === "paused" || hold === "unplannable";
   // 序列图输出设置 nodes to merge: the ones selected together with the one right-clicked, or just that node if it is not
   // part of a multi-selection. It is always included, since a right click never clears the canvas selection on its own.
   // Computed once when the menu opens (like `snap` above): the menu closes on any pointerdown/wheel/Escape, so the

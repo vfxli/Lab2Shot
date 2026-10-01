@@ -9,7 +9,7 @@
  "camera_traj": {
   "parent": "camera_track",
   "label": "相机轨迹",
-  "tip": "每帧的相机位置、朝向和 Focal Length",
+  "tip": "每帧的相机位置、朝向和 Focal Length；前馈一次出相机和深度的卡在「前馈相机与深度」，解算出来的（ViPE、MonST3R）在「解算相机与深度」",
   "color": "",
   "rank": 0.0
  },
@@ -65,7 +65,7 @@
  "depth_camera": {
   "parent": "depth",
   "label": "前馈相机与深度",
-  "tip": "整段一次前馈，每帧相机和深度一起出，点云每帧一片",
+  "tip": "整段一次前馈，每帧相机和深度一起出；多数带点云（每帧一片）",
   "color": "",
   "rank": 2.0
  },
@@ -177,7 +177,7 @@
  "body": {
   "parent": "",
   "label": "人体动捕",
-  "tip": "从画面解出人怎么动：全身动作、手，以及框出人的位置",
+  "tip": "从画面解出人怎么动：全身动作、手",
   "color": "#FF375F",
   "rank": 6.0
  },
@@ -194,13 +194,6 @@
   "tip": "手的动作和手型",
   "color": "",
   "rank": 1.0
- },
- "boxes": {
-  "parent": "body",
-  "label": "人物框",
-  "tip": "每帧每个人的位置框",
-  "color": "",
-  "rank": 2.0
  },
  "animation": {
   "parent": "",
@@ -285,26 +278,5 @@
   "tip": "去掉光照的面部贴图",
   "color": "",
   "rank": 3.0
- },
- "formats": {
-  "parent": "",
-  "label": "格式与交付",
-  "tip": "读写文件的模块：场景格式、图像与色彩",
-  "color": "#8E8E93",
-  "rank": 10.0
- },
- "scene_format": {
-  "parent": "formats",
-  "label": "场景格式",
-  "tip": "三维场景的读写",
-  "color": "",
-  "rank": 0.0
- },
- "image_color": {
-  "parent": "formats",
-  "label": "图像与色彩",
-  "tip": "图像文件和色彩管理",
-  "color": "",
-  "rank": 1.0
  }
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { partialBase, partialFrameId, partialFrameUrl } from "../transfer/frameKey";
 import { json } from "../platform/http";
 import { startPolling } from "../platform/poll";
 import { dropSource, urlFrames, type FrameSource } from "../transfer/frames";
@@ -34,20 +35,15 @@ export interface Partial {
   type: string;
 }
 
-const url = (job: string, node: string, port: string) => `/api/jobs/${job}/partial/${encodeURIComponent(node)}/${encodeURIComponent(port)}`;
-
-/** Cache id for a running node's frames, built from the job, node and port. The packet fingerprint is not used, as
- * it addresses the finished result. */
-const partialId = (job: string, node: string, port: string) => `partial:${job}:${node}:${port}`;
 
 /** The frames of a partial result, exposed as a regular frame source for the 2D stage. */
 export function partialFrames(job: string, node: string, port: string, frames: number[]): FrameSource {
-  return urlFrames(partialId(job, node, port), frames, (f) => `${url(job, node, port)}/frame/${f}.png`);
+  return urlFrames(partialFrameId(job, node, port), frames, (f) => partialFrameUrl(job, node, port, f));
 }
 
 /** The partial result shown for `node`.`port` while it is being cooked, or null when not running, not this node,
  * nothing written yet, or the finished result is available (served from its content address). */
-export function usePartial(nodeId: string | null, port: string, cooked: boolean): { info: Partial; source: FrameSource } | null {
+export function usePartial(nodeId: string | null, port: string, cooked: boolean): { info: Partial } | null {
   const job = useResults((s) => s.job);
   const status = useResults((s) => (nodeId ? s.byNode[nodeId]?.status : undefined));
   const reply = useResults((s) => s.reply);
@@ -60,18 +56,20 @@ export function usePartial(nodeId: string | null, port: string, cooked: boolean)
   // The node type writes final frames incrementally and the node is not inside a block (no per-item partial).
   const shows = !!typeId && !!getNodeDefs()[typeId]?.streams && !chainOf(blocksOf(reply), nodeId ?? "").length;
   const running = shows && !!job && !!nodeId && !!port && !cooked && status === "cooking" && done > 0;
-  const id = running ? partialId(job!.id, nodeId!, port) : "";
+  const id = running ? partialFrameId(job!.id, nodeId!, port) : "";
   useEffect(() => {
     if (!running) {
       setFound(null);
       return;
     }
-    const ask = async () => {
-      // Uncached: the frame set changes while the node writes (the server also responds with no-store).
-      const info = await json<Partial>("GET", url(job!.id, nodeId!, port), undefined, { cache: "no-store" }).catch(() => null);
-      setFound(info && info.frames_done.length ? { id, info } : null);
-    };
-    const poll = startPolling({ read: ask, every: PARTIAL_EVERY });
+    // Uncached: the frame set changes while the node writes (the server also responds with no-store). A failed round
+    // is poll.ts's to handle (backing off, resting until a new login): what was shown stays — the view does not flash
+    // between the frames written so far and the plate
+    const poll = startPolling<Partial>({
+      read: () => json<Partial>("GET", partialBase(job!.id, nodeId!, port), undefined, { cache: "no-store" }),
+      every: PARTIAL_EVERY,
+      onValue: (info) => setFound(info.frames_done.length ? { id, info } : null),
+    });
     return () => {
       poll.stop();
       dropSource(id); // drop the provisional frames; the finished result is fetched by its own address
@@ -79,5 +77,5 @@ export function usePartial(nodeId: string | null, port: string, cooked: boolean)
     };
   }, [running, id, job?.id, nodeId, port]);
   if (!running || !found || found.id !== id) return null;
-  return { info: found.info, source: partialFrames(job!.id, nodeId!, port, found.info.frames_done) };
+  return { info: found.info };
 }

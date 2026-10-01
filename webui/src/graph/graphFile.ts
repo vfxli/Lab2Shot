@@ -1,5 +1,6 @@
 import type { GraphJSON } from "../api";
-import { fileJSON, savePoint } from "./actions";
+import { cookHold, fileJSON, savePoint } from "./actions";
+import { useResults } from "../state/results";
 import { newGraphId } from "../model/graphId";
 import { useCookInputs } from "../state/cookInputs";
 import { MessageError, msg } from "../messages/message";
@@ -49,6 +50,16 @@ export async function openGraphFile(): Promise<{ graph: GraphJSON; file: GraphFi
 /** Save into the graph's file, or ask where (the first save, 另存为, or when the browser no longer lets the page write
  * it). Resolves true when saved. */
 export async function saveGraphFile(saveAs = false): Promise<boolean> {
+  // 另存为 changes the graphId (serialize below), while the job being followed finds its nodes by the graphId it was
+  // submitted with (graph/follow.ts) and the packed outputs belong to it too (graph/outputs.ts): after a change the
+  // progress, the status and 「下载」 would no longer match. So 另存为 is refused while a job is cooking or being
+  // submitted (the same test as opening another graph: cookHold's busy / submitting); a plain 保存 keeps the id and
+  // goes ahead
+  const hold = saveAs ? cookHold(useResults.getState()) : null;
+  if (hold === "busy" || hold === "submitting") {
+    say(msg("B-GRAPH-SAVEASCOOKING"));
+    return false;
+  }
   const viewer = useViewer.getState();
   // 另存为 makes a new document, never sharing the id of the one it was copied from. The id is assigned only once a write
   // is actually about to happen, never eagerly: a cancelled system dialog must leave the still-open original document

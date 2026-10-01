@@ -10,6 +10,7 @@
 "E-ITEMS-OVERLAP" = "第 {frame} 帧有两个物体压在同一个像素上：分割图合并时不会自动挑一个，先用「命名」或遮罩把它们分开"
 "B-NAME-SAME" = "有{kind}重名：{names}。用「命名」给它们各起一个名字；Lab2Shot 不会自动改名"
 "E-CONTRACT-MISSINGKEY" = "缺少 {key}"
+"E-CONTRACT-DATAKIND" = "端口声明给的是{declared}，写出来的却是{written}（Port.data 与写法不一致）"
 # ---- 列表（data/packet.py：条目不复制数据，只记名字和指纹）
 "E-CONTRACT-NOITEM" = "条目「{name}」的数据不在缓存里：列表只记条目的名字和指纹，条目的数据要先算出来"
 "E-CONTRACT-ITEMTYPE" = "条目「{name}」是 {got}，列表装的是 {want}：一个列表里的条目要是同一种数据"
@@ -24,6 +25,7 @@
 "E-CONTRACT-FRAMESMISSING" = "{count} 帧的文件不存在（如第 {first} 帧）"
 
 # ---- 数值（data/values.py）
+"B-VALUES-PLAIN" = "带着单位 {have}，这里要的是不带单位的数"
 "B-VALUES-UNIT" = "单位是 {have}，这里要 {want}：{have_kind}换算不成{want_kind}"
 "E-VALUES-NOTFLOAT" = "{value} 不是有限的小数"
 "E-VALUES-NOTINT" = "{value} 不是整数"
@@ -44,6 +46,7 @@
 # ---- 骨骼动画（data/animation.py）
 "E-ANIM-NOSKELETON" = "输入里没有骨骼：接一个带骨骼动画的人物（USD 的 UsdSkel，比如 Maya 用 mayaUSD 导出的角色）"
 "E-ANIM-NOSUCHSKELETON" = "输入里没有骨骼 {path}（有 {found}）"
+"E-ANIM-NOBIND" = "骨骼 {path} 没有绑定姿势（bindTransforms、restTransforms 都没有，或者个数和关节对不上）：在 DCC 里重新绑定或按 UsdSkel 重新导出"
 "E-ANIM-ONEFRAME" = "输入只有一帧：要有一段帧范围（USD 文件的起止帧）"
 "E-ANIM-BADFRAMES" = "看不懂「{text}」：写帧号，如 1001, 1012, 1030，或 1001-1100x12（每 12 帧一个）"
 "E-ANIM-BACKWARDS" = "「{text}」：结束帧要大于起始帧"
@@ -79,11 +82,14 @@
 "E-IMAGE-READ" = "{file} 打得开，但取不到像素：多半是这个 EXR 的分部（multi-part）或压缩方式我们读不了。在 Nuke / DCC 里另存一次（单层、ZIP 压缩）再上传。读取库原话：{detail}"
 "E-IMAGE-TOOBIG" = "{file} 太大，读不了：{width}×{height}、{channels:d} 条通道，一次最多读 {pixels:.0f} 百万像素、{gb:.0f} GB（文件头里写的画幅也算：可能是文件头写错了）。在 Nuke / DCC 里缩小或裁掉多余的画幅再上传"
 "E-IMAGE-NOCHANNEL" = "{file} 里没有通道 {channels}"
+"E-IMAGE-NAMEENCODING" = "读不了 {file}：文件里的分部名、视角名或通道名不是 UTF-8 编码（多半是中文系统上的软件按 GBK 写的）。这些名字要拿来连线，不能猜着改：在 Nuke / DCC 里把分部名和通道名改成英文，或者按 UTF-8 重新导出，再上传"
+"E-IMAGE-ATTRENCODING" = "读不了 {file}：文件头里的 {name} 不是 UTF-8 编码（多半是中文系统上的软件按 GBK 写的）。这一项程序要读（Lab2Shot 写的图层说明，或 Cryptomatte 的图层名和物体清单），不能猜着改：在 Nuke / DCC 里把图层名、物体名改成英文，或者按 UTF-8 重新导出，再上传"
 "E-IMAGE-WRITE" = "写不出 {file}：磁盘写入失败（空间不够、没有权限，或者这个格式放不下要写的通道）。读写库原话：{detail}"
 "E-IMAGE-FORMAT" = "不支持的图像格式 {suffix}：请用 EXR、PNG、JPG 或 HDR"
 "E-VIDEO-NOFRAMEFILES" = "视频没有逐帧文件"
 "E-VIDEO-UNREADABLE" = "读不了视频 {file}：不是 mov、mp4、mkv、avi、webm、mxf 视频，或者文件坏了"
 "E-VIDEO-NOTFOUND" = "找不到视频文件：{path}"
+"E-FILE-NAMETOOLONG" = "「{name}…」太长，硬盘上不会有这样的名字：每一段最多 {most} 字节，整个名字最多 {whole} 字节"
 "E-SOURCE-OUTSIDE" = "「{name}」不在这份素材自己的文件夹里：只能读登记的文件夹里面的文件，不能往上走，也不能跟着链接出去"
 "E-SOURCE-FRAMES" = "这些帧不在输入里：{frames}（帧范围超出了素材）"
 "E-SEQUENCE-SEVERAL" = "文件夹 {folder} 里有 {count} 段序列：{listed}。选其中一段：在对话框里只选这一段的帧，或者写成 {example} 这样带帧号占位的路径"
@@ -98,9 +104,15 @@
 # ---- USD（io/usd.py、formats/usd/reader.py）
 "E-USD-WRITE" = "写不出 USD 文件：{path}"
 "E-USD-UNREADABLE" = "读不了 {file}：不是有效的 USD 文件，或者文件不完整"
+"E-USD-NAMEENCODING" = "读不了 {file}：文件里有名字或路径（物体名、贴图路径、骨架的关节名、网格的形变名等）不是 UTF-8 编码（多半是中文系统上的软件按 GBK 写的）。这些名字和路径要拿来找物体、对应关节和形变，不能猜着改：在 DCC 里把名字改成英文，或者按 UTF-8 重新导出 USD，再选这个文件"
 "E-USD-INSTANCERSIZE" = "点实例 {path} 展开成真实网格是 {faces:,} 个面（{instances:,} 个实例），超过导入上限 {limit:,} 个面：没有导入，也没有删减。在 DCC 里把它拆成几份，或者只留要用的实例再导出"
 "E-PLY-UNREADABLE" = "读不了 PLY 文件 {file}：{detail}"
 "E-BVH-UNREADABLE" = "读不了 BVH 文件 {file}：{detail}"
+"W-BVH-NAMEENCODING" = "{name} 里有 {count} 个关节名不是 UTF-8 编码（多半是按 GBK、Shift-JIS 这类本地编码写的），认不出的字换成了 �，例如 {names}：要原名，在 DCC 里改成英文或按 UTF-8 重新导出"
+"W-BVH-EXTRAFRAMES" = "{name} 的动作数据比 Frames: 写的帧数多 {count} 行，多出的没有读：文件多半是导出时截断或拼接过，要这些帧就在 DCC 里重新导出"
+"W-BVH-UNITGUESS" = "「单位」自动：按骨头长度估出每单位 {guess:.2f} cm，离厘米、英寸、分米、米都差 25% 以上，就按这个估计读（人的身材有差别，尺寸可能差一两成）；多半是 CMU 这类约 0.45 英寸一单位的动捕，直接交付前核对一下尺寸"
+"I-BVH-UNITAUTO" = "「单位」自动：按骨头长度判断这份 BVH 是{unit}（估计每单位 {guess:.2f} cm，离{unit}不到 25%）"
+"W-BVH-UNIT" = "按「单位」选的{unit}读，这副骨架从髋到手指尖沿骨头量有 {reach:.0f} cm，不像一个人（成人约 125 cm）：BVH 文件不记单位，照人的大小估大约每单位 {guess:.1f} cm（CMU 动捕约 6）。重定向按腿长缩放不受影响；把「单位」选成「自动（按骨长估计）」就按这个比例读"
 "E-USD-REFERENCES" = "{file} 引用了别的文件：{files}。Lab2Shot 只收展平过的 USD，不去读别的文件：在 Houdini 的 USD ROP 里勾选「Flatten All Layers」，Maya 导出 USD 时选合并成一个文件（Merge / Flatten），或者用 usdcat --flatten 输入.usd -o 输出.usdc，再选展平后的文件"
 "E-USD-MANYREFERENCES" = "{file} 引用了别的文件：{files}……共 {count} 个。Lab2Shot 只收展平过的 USD，不去读别的文件：在 Houdini 的 USD ROP 里勾选「Flatten All Layers」，Maya 导出 USD 时选合并成一个文件（Merge / Flatten），或者用 usdcat --flatten 输入.usd -o 输出.usdc，再选展平后的文件"
 

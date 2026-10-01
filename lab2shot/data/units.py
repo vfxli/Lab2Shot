@@ -22,13 +22,13 @@ import numpy as np
 from lab2shot_shared.units import CV_TO_GL, DEFAULT_FPS, M_TO_CM  # noqa: F401  re-exported (DEFAULT_FPS); shared with workers
 
 FILMBACK_MM = 36.0  # full frame: the film back of a lens nothing says more about
-# In Lab2Shot the frame rate is not a property of data: DCCs have no frame rate when reading a sequence either; it is
-# a project-level setting, and without a project concept here it is specified at output. No solver depends on it, and
-# videos are read frame by frame. Reader nodes therefore have no frame rate and packets (Packet.meta) carry none; only
-# frame numbers flow between nodes.
-# This value (24 fps, film) has two uses: the default of the output-settings node's 「帧率」 parameter, and the time
-# base of scene files (one time code per frame, io/usd.py apply_conventions). It is defined in lab2shot_shared.units,
-# like M_TO_CM
+# In Lab2Shot the frame rate is not a property of data: packets (Packet.meta) carry none, only frame numbers flow
+# between nodes (an image sequence has no frame rate at all). Where a rate matters it is a parameter, 「帧率」, that a
+# wire can drive: on output settings whose format stores time (nodes/output.py fps_param) and on the motion models,
+# which work in seconds (nodes/families/rig_motion.py motion_fps_param). Readers whose file records one give it on a
+# 「帧率」 output for templates to wire there (读取视频, 导入 BVH, 导入 USD).
+# This value (24 fps, film) is the default of those parameters and the time base of scene files (one time code per
+# frame, io/usd.py apply_conventions). It is defined in lab2shot_shared.units, like M_TO_CM
 DEFAULT_WIDTH, DEFAULT_HEIGHT = 1920, 1080  # only when a source records no picture size (a camera whose file has none, 创建相机 without one)
 MASK_THRESHOLD = 0.5
 CM_TO_M = 1.0 / M_TO_CM  # a stage written in metres (USD 输出设置 · 米)
@@ -53,8 +53,10 @@ UNITS: dict[str, Unit] = {
     "帧": Unit("frames", 1.0),
     "秒": Unit("time", 1.0),
     "EV": Unit("exposure", 1.0),
+    "fps": Unit("rate", 1.0),  # a 「帧率」 port or parameter (读取视频 / 导入 BVH / 导入 USD → 输出设置, 动作模型)
 }
-UNIT_KINDS = {"length": "长度", "pixels": "像素", "angle": "角度", "frames": "帧数", "time": "时间", "exposure": "曝光"}
+UNIT_KINDS = {"length": "长度", "pixels": "像素", "angle": "角度", "frames": "帧数", "time": "时间", "exposure": "曝光",
+              "rate": "帧率"}
 
 
 def to_cm(unit: str) -> float:
@@ -75,13 +77,6 @@ def focal_mm(focal_px, filmback_mm, width) -> np.ndarray:
 def fov_x_deg(focal_px, width) -> float:
     """The horizontal field of view, degrees, of a pinhole with this focal length (pixels) at this picture width."""
     return float(np.degrees(2 * np.arctan(width / (2 * np.asarray(focal_px, np.float64)))))
-
-
-def rotations(mats: np.ndarray) -> np.ndarray:
-    """The rotation part of a matrix or a batch of them (...,3,3, or the top-left 3x3 of ...,4,4), its columns made
-    unit length (the one rotation-normalization: a camera-to-world matrix read back is not perfectly orthonormal)."""
-    r = np.asarray(mats, np.float64)[..., :3, :3]
-    return r / np.linalg.norm(r, axis=-2, keepdims=True)
 
 
 def opencv_poses_to_usd(cam_to_world: np.ndarray, unit_cm: float = M_TO_CM) -> np.ndarray:

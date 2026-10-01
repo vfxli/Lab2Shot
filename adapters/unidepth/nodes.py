@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import Official, Confidence, PerFrameDepthCamera, P, precision_level_param, Cost, Licence
+from lab2shot.sdk import Official, Confidence, PerFrameDepthCamera, P, precision_level_param, Cost
 
 
 class Geometry(PerFrameDepthCamera):
@@ -31,7 +31,6 @@ class Geometry(PerFrameDepthCamera):
     confidence = Confidence("exp_error")  # how its model gives its confidence (CONFIDENCE_SCALES)
     # vram_gb: RTX 4090 上测得（docs.md），默认 ViT-L
     cost = Cost(gpu=True, vram_gb=3.2, seconds_per_frame=0.065)
-    licence = Licence(note="代码和权重 CC-BY-NC-4.0，只能研究用。")
 
     class Params(PerFrameDepthCamera.Params):  # 家族的 Params：镜头 + 点云间隔 / 点的大小（口上接了东西才起作用）
         model: Literal["unidepth-v2-vitl14", "unidepth-v2-vitb14", "unidepth-v2-vits14"] = P(

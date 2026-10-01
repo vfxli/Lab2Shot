@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import Official, PerFrameDepthCamera, P, Port, precision_level_param, Cost
+from lab2shot.sdk import Official, normal_port, PerFrameDepthCamera, P, Port, precision_level_param, Cost
 
 
 class Geometry(PerFrameDepthCamera):
@@ -17,7 +17,7 @@ class Geometry(PerFrameDepthCamera):
     version = 2
     # 每帧单独计算，没有前后帧约束，深度会轻微闪动；米制尺度是模型猜出来的，不是测量值
     # （长焦镜头不填 Focal Length 时视角会估宽一倍）
-    outputs = PerFrameDepthCamera.outputs[:1] + (Port("normal", "image.3", "法线图", means=("space",)),) + PerFrameDepthCamera.outputs[1:]
+    outputs = PerFrameDepthCamera.outputs[:1] + (normal_port(),) + PerFrameDepthCamera.outputs[1:]
     runtime = "moge"
     # MoGeModel.infer(image, fov_x=…) 交出 points / intrinsics / depth / mask / normal 五样，这里的四个口
     # 就是其中四样（mask 在家族里当深度的有效位用，不另起一个口）。Focal Length 是参数（fov_x），不是相机输入。

@@ -13,6 +13,8 @@ Every item is one thing of one kind, as a DCC's outliner shows it:
 
 Top level
     fps            frames per second of the file
+    fps_recorded   [bool], optional: false when the file records no rate and `fps` is only what its seconds were read
+                   by (an Alembic without a DCC FPS hint); missing: recorded
     unit_cm        centimetres per unit of every length below (1.0: already cm)
     axes           [3,3] turning the file's axes into Y up, right-handed (identity: already so); may be missing: the
                    node says (Alembic records no axes)
@@ -21,11 +23,17 @@ Top level
     n_models, n_points, n_curves, n_cameras, n_characters
 
 Every item <kind><i>_ (model0_, camera2_ ...)
-    name           [str] its short name (what DCCs call it: the transform's name)
-    path           [str] where it is in the file's hierarchy, as DCCs show it (/rig/cam_main)
+    name           [str] its short name (what DCCs call it: the transform's name), as it is (左眨眼, Body:Geo)
+    path           [str] where it is in the file's hierarchy, as DCCs show it (/rig/cam_main). From the core (a scene
+                   written out) the USD prim path, made of identifiers (lab2shot_shared/names.py), and also
+    shown          [str] the same place by each part's own name (/shot/角色/Body:Geo): what a writer names its groups and
+                   nodes by (FBX as it is, Alembic through identifier); a reader leaves it out
     frames         [T] int, the frames its samples are at (T = 1: it never changes)
     world          [T,4,4] local-to-world, column vectors (translation in [:3, 3]), every parent composed; not for a
                    character, whose joints are in world space already
+    visible        optional [T] int, 1 shown, 0 hidden at that frame (a person a solver did not solve on some frames, the
+                   model baked from it, an animator's hide); missing: shown throughout. Writers hide it there (FBX and
+                   Alembic: visibility keys, held), never blend a pose into it
 
 model          counts [P] corners per face, indices [N] corner points (faces counter-clockwise seen from the front),
                points [S,V,3] local, S = 1 (its shape never changes) or T (deforming: one per frame),
@@ -36,7 +44,7 @@ model          counts [P] corners per face, indices [N] corner points (faces cou
 points         counts [S] points per sample (S = 1 or T), points [sum,3] local, optional colors [sum,3] (0-1),
                widths [sum] (lengths); tracked points (3D tracks) also ids [sum] int (a point keeps its id from
                sample to sample: Houdini's id), velocities [sum,3] (lengths per second, local: Houdini's v) and
-               visible [sum] int (1 seen in the picture at that frame, 0 not)
+               point_visible [sum] int (1 seen in the picture at that frame, 0 not)
 curves         counts [S] points per sample (S = 1 or T) and points [sum,3] local, exactly as a point cloud's, so
                every per-point array is cut the same way; on top of that curve_counts [S] curves per sample and
                curve_vertex_counts [sum_curves] points per curve (the samples' one after another, cut by the running
@@ -51,7 +59,8 @@ character      joints [J] names, parents [J] (-1: a root; parents come first), b
                pose the meshes are bound in, anim [T,J,4,4] joint-to-world per frame, n_meshes; per mesh
                <kind><i>_mesh<k>_: name, counts, indices, points [V,3] (bind pose, world), optional uv, uv_indices,
                joint_indices [V,K] + joint_weights [V,K] (skin), shapes [B] names, shape_offsets [B,V,3] (world,
-               added to the bind points before skinning), shape_weights [T,B] (0-1);
+               added to the bind points before skinning), shape_weights [T,B] (0-1), optional visible [T] (a
+               mesh hidden on its own: a LOD, a proxy; the character is shown where any of its meshes is);
                optional root_at_path (true: its path ends at the root joint itself, not at a group of its own)
 
 Units and axes are the file's in what a reader writes (the core converts: centimetres, Y up); what the core gives a
@@ -64,6 +73,8 @@ import re
 from pathlib import Path
 
 import numpy as np
+
+from .names import unique
 
 KINDS = ("model", "points", "curves", "camera", "character")
 MESH_KEY = re.compile(r"mesh\d+_")
@@ -132,7 +143,7 @@ def plural(kind: str) -> str:
 def load(path: Path | dict) -> tuple[dict, dict[str, list[dict]]]:
     """(top-level values, kind -> its items as dicts of arrays; a character's meshes as its "meshes" list)."""
     data = dict(np.load(path, allow_pickle=False)) if not isinstance(path, dict) else path
-    top = {k: data[k] for k in data if k in ("fps", "unit_cm", "axes", "frames") or k.startswith(("options_", "auto_"))}
+    top = {k: data[k] for k in data if k in ("fps", "fps_recorded", "unit_cm", "axes", "frames") or k.startswith(("options_", "auto_"))}
     items: dict[str, list[dict]] = {}
     for kind in KINDS:
         items[kind] = []
@@ -143,15 +154,36 @@ def load(path: Path | dict) -> tuple[dict, dict[str, list[dict]]]:
                 item["meshes"] = [{k[len(f"{head}mesh{m}_"):]: v for k, v in data.items() if k.startswith(f"{head}mesh{m}_")}
                                   for m in range(int(item.pop("n_meshes", 0)))]
             items[kind].append(item)
+        # an item is chosen by its `key` (an import node's selection, its listing): its path, siblings of one name
+        # (two 「table」 in an FBX, which takes any name twice) told apart by the rule every name follows
+        # (names.unique: table_2). The path stays the file's, its names kept wherever it goes (usd.place)
+        taken: set[str] = set()
+        for item in items[kind]:
+            if "path" in item:
+                item["key"] = np.array(unique(text(item["path"]), taken))
+                taken.add(text(item["key"]))
     return top, items
 
 
 def text(value) -> str:
-    """A string item value (a 0-d array of str or bytes)."""
+    """A string item value (a 0-d array of str or bytes; bytes that are not UTF-8 are replaced, never fail the read:
+    the readers here write str, so only an npz made elsewhere gets there)."""
     value = np.asarray(value)
     v = value.item() if value.ndim == 0 else value.reshape(-1)[0]
-    return v.decode() if isinstance(v, bytes) else str(v)
+    return v.decode("utf-8", "replace") if isinstance(v, bytes) else str(v)
 
 
 def texts(value) -> list[str]:
-    return [v.decode() if isinstance(v, bytes) else str(v) for v in np.asarray(value).reshape(-1).tolist()]
+    return [v.decode("utf-8", "replace") if isinstance(v, bytes) else str(v) for v in np.asarray(value).reshape(-1).tolist()]
+
+
+def shown_span(item: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Every frame from the item's first sample to its last and whether it is shown on each, the one rule every
+    writer keys visibility by, whatever the kind: hidden where `visible` says so and, for an item with more than one
+    sample, on the frames between that it has no sample on (a solve's gap: a format that plays every frame between
+    keys would blend a pose across it and show it). An item of one sample is as its `visible` says throughout."""
+    frames = np.asarray(item["frames"], np.int64).reshape(-1)
+    given = np.asarray(item.get("visible", np.ones(len(frames))), np.int32).reshape(-1)
+    span = np.arange(frames.min(), frames.max() + 1, dtype=np.int64)
+    at = dict(zip(frames.tolist(), given.tolist()))
+    return span, np.array([at.get(int(f), 0) for f in span], np.int32)

@@ -13,7 +13,7 @@ SMIRK's camera is orthographic; it is turned into a pinhole camera at focal_px
 (depth from the orthographic scale), so the head sits in camera space.
 
 Output, the body-model family format (lab2shot_worker.world_humans):
-raw/person_01.npz (one face; every input frame)；结果在相机空间，不写 camera.npz。
+raw/person_01.npz (one face; every input frame)；结果在相机空间；raw/plate_camera.npz 是放脸用的那台针孔相机（原点，focal_px，主点在画面中心）。
 
     frames          int  [F]
     body_model      str  "flame"
@@ -316,8 +316,10 @@ def main(job_path: str) -> None:
         focal_px=np.float64(focal),
         **rig,
     )
-    # 不写 camera.npz：节点上没有「相机」输出口（官方的 outputs['cam'] 是裁切上的弱透视三个数，不是相机），
-    # 家族的 convert 也只在 solves_camera 的节点上读它。脸留在相机空间
+    # plate_camera.npz：脸所在的那台针孔相机（原点、不动；focal_px 就是上面用来把弱透视换成针孔的那个，主点在画面中心）。
+    # 它不是上游解出来的（官方的 outputs['cam'] 是裁切上的弱透视三个数），是本节点放脸用的相机，交出去让三维视图
+    # 透过它看背板、交付时和头对得上（nodes.py official ours）
+    wh.save_camera(raw, numbers, focal, name=wh.PLATE_CAMERA)
 
     wh.write_humans(
         run,

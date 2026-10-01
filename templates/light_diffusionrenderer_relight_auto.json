@@ -3,28 +3,211 @@
  "meta": {
   "id": "d4de2f5b45004faf8155ffb777974836",
   "name": "重新打光 · DiffusionRenderer 估光",
-  "follows": "light_diffusionrenderer_relight",
-  "intro": "Cosmos DiffusionRenderer 的渲染模型不做显式光线传输模拟，从 G-buffer 生成照片级画面。这张卡不用自己准备 HDRI：「FrameHold」取一帧，LuxDiT 按这一帧生成 HDR 环境贴图，再交给 DiffusionRenderer 重新打光。",
+  "intro": "Cosmos DiffusionRenderer 不做显式光线传输模拟，从 G-buffer 生成照片级画面。这张卡不用自备 HDRI：取一帧，LuxDiT 估出 HDR 环境贴图，再交给 DiffusionRenderer 重新打光；交付 EXR 的 rgba。DiffusionRenderer 可商用、LuxDiT 仅限研究，整卡按仅限研究；商用请用「重新打光 · DiffusionRenderer」。",
   "author": "Lab2Shot",
   "created": "2026-09-21T17:00:00",
   "deliverable": "relight",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "probe_frame",
-   "label": "取光的帧",
-   "target": "hold.frame"
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
   },
   {
-   "name": "rotation",
-   "label": "环境旋转",
-   "target": "relight.env_rotate"
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": "估光",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "probe_frame",
+     "label": "取光的帧",
+     "target": "hold.frame",
+     "show_on_change": true
+    },
+    {
+     "name": "probe_lora_scale",
+     "label": "贴近画面程度",
+     "target": "probe.lora_scale"
+    },
+    {
+     "name": "probe_seed",
+     "label": "估光随机种子",
+     "target": "probe.seed"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "probe_envmap_width",
+       "label": "环境图宽度",
+       "target": "probe.envmap_width"
+      },
+      {
+       "name": "probe_steps",
+       "label": "去噪步数",
+       "target": "probe.steps"
+      },
+      {
+       "name": "probe_guidance_scale",
+       "label": "引导强度",
+       "target": "probe.guidance_scale"
+      },
+      {
+       "name": "probe_resolution",
+       "label": "处理分辨率",
+       "target": "probe.resolution"
+      }
+     ]
+    },
+    {
+     "name": "cook_probe",
+     "label": "估算 HDRI",
+     "target": "probe.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "重新打光",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "rotation",
+     "label": "环境旋转",
+     "target": "relight.env_rotate",
+     "tip": "转环境贴图让重新打光的画面满意"
+    },
+    {
+     "name": "exposure",
+     "label": "曝光",
+     "target": "relight.exposure",
+     "tip": "只作用于重打光画面"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "resolution",
+       "label": "处理分辨率",
+       "target": "relight.resolution"
+      },
+      {
+       "name": "max_frames",
+       "label": "每段最多帧数",
+       "target": "relight.max_frames"
+      },
+      {
+       "name": "overlap",
+       "label": "段间重叠",
+       "target": "relight.overlap"
+      },
+      {
+       "name": "steps",
+       "label": "去噪步数",
+       "target": "relight.steps"
+      },
+      {
+       "name": "seed",
+       "label": "随机种子",
+       "target": "relight.seed"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out.name"
+    },
+    {
+     "name": "colorspace_out_exr",
+     "label": "输出色彩空间（EXR）",
+     "target": "out.colorspace"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_bit_depth",
+       "label": "EXR 位深",
+       "target": "out.exr_bit_depth"
+      },
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "out.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -34,11 +217,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 140
+    "y": 97
    }
   },
   {
@@ -49,8 +234,8 @@
     "frame": null
    },
    "ui": {
-    "x": 320,
-    "y": 20,
+    "x": 400,
+    "y": 117,
     "on_node": [
      "frame"
     ]
@@ -69,8 +254,8 @@
     "resolution": "auto"
    },
    "ui": {
-    "x": 620,
-    "y": 0,
+    "x": 800,
+    "y": 112,
     "on_node": [
      "envmap_width"
     ]
@@ -90,28 +275,11 @@
     "exposure": 0.0
    },
    "ui": {
-    "x": 940,
-    "y": 120,
+    "x": 1200,
+    "y": 0,
     "on_node": [
      "env_rotate",
      "exposure"
-    ]
-   }
-  },
-  {
-   "id": "out",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "relit"
-   },
-   "ui": {
-    "x": 1340,
-    "y": 120,
-    "on_node": [
-     "name",
-     "format"
     ]
    }
   },
@@ -121,8 +289,30 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1660,
-    "y": 120
+    "x": 2011,
+    "y": 24
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "relit",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "rgba",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 1611,
+    "y": 24
    }
   }
  ],
@@ -174,7 +364,7 @@
    ],
    "to": [
     "out",
-    "image"
+    "layer1"
    ]
   },
   {

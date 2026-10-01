@@ -100,7 +100,7 @@
 
 # ---- 动作生成（lab2shot_shared/motion.py、rig_motion.py）
 "E-MOTION-NOJOINTS" = "模型骨骼里没有关节 {joints}：节点和 worker 对不上，请把日志发给开发者"
-"E-MOTION-NOROOT" = "模型的根关节（髋）没有对应的人物关节：在关节映射里把髋对上"
+"E-MOTION-NOROOT" = "模型的根关节（髋）没有对应的人物关节：在「对应关系」里把髋对上"
 "E-MOTION-NOLEG" = "模型关节 {joint} 没有对应的人物关节：双腿（大腿、小腿）必须映射"
 "E-MOTION-KEYGAP" = "关键帧 {first} 和 {last} 相隔 {gap} 帧，超过模型一次能生成的 {most} 帧：在中间加关键帧"
 

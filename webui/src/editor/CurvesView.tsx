@@ -1,10 +1,14 @@
+/** Owns how curves are drawn in the editor: the full curve editor (CurvesView) and the small per-frame curve of a
+ * wire-driven parameter in the parameter panel (ParamCurve). The curve maths lives in model/curvesMath.ts. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type CurvesData } from "../api";
+import type { CurvesData } from "../api";
+import { useDescribed } from "../transfer/described";
 import { beforePairs, fitRange, formatValue, mostMoving, pick, search, valueTicks, type PickMode } from "../model/curvesMath";
 import { fullView, nearest, ticks, xFrame, zoomView } from "../model/timelineMath";
 import { useCurveView, useRulerView, useViewer } from "../state/viewer";
 import { useRefSize } from "../platform/size";
 import { Button } from "../ui/Button";
+import { startScrub } from "./scrub";
 
 const FIRST = 6; // channels drawn at first: the ones that move most
 
@@ -107,7 +111,7 @@ const PAD = { left: 52, right: 10, top: 8, bottom: 20 };
 
 function Graph({ data, picked, hover, view, frame, frames, bounds, before, onFrame, onZoom }: {
   data: CurvesData; picked: Set<number>; hover: number | null; view: { start: number; end: number }; frame: number; frames: number[];
-  bounds: { start: number; end: number }; before?: ReadonlyMap<number, number>;  // 显示原始 off: none
+  bounds: { start: number; end: number }; before?: ReadonlyMap<number, number>;  // absent while 显示原始 is off
   onFrame: (f: number) => void; onZoom: (v: { start: number; end: number } | null) => void;
 }) {
   const el = useRef<HTMLDivElement>(null);
@@ -138,10 +142,8 @@ function Graph({ data, picked, hover, view, frame, frames, bounds, before, onFra
   const [lo, hi] = fitRange(data.values, data.frames, [...drawn, ...originals.map(([, j]) => j)], view.start, view.end);
   const x = (f: number) => PAD.left + ((f - view.start) / (view.end - view.start)) * pw;
   const y = (v: number) => PAD.top + (1 - (v - lo) / (hi - lo)) * ph;
-  const scrub = (e: React.PointerEvent) => {
-    const fx = xFrame(view, e.clientX - el.current!.getBoundingClientRect().left - PAD.left, pw);
-    if (frames.length) onFrame(nearest(frames, fx));
-  };
+  // 换帧与时间线同一个做法（editor/scrub.ts：拖动期间不取帧，followDrag 收尾）
+  const frameAt = (cx: number) => (frames.length ? nearest(frames, xFrame(view, cx - el.current!.getBoundingClientRect().left - PAD.left, pw)) : null);
   const k = data.frames.indexOf(frame);
   // the frames in view, with one on each side so a curve runs to the edge
   const first = Math.max(0, data.frames.findIndex((f) => f >= view.start) - 1);
@@ -153,11 +155,7 @@ function Graph({ data, picked, hover, view, frame, frames, bounds, before, onFra
       ref={el}
       className="curves-graph"
       data-tip="点或拖动：换当前帧；滚轮：缩放帧的范围（和时间线一起），双击回到整段"
-      onPointerDown={(e) => {
-        e.currentTarget.setPointerCapture(e.pointerId);
-        scrub(e);
-      }}
-      onPointerMove={(e) => e.buttons === 1 && scrub(e)}
+      onPointerDown={(e) => e.button === 0 && startScrub(e, frameAt, onFrame)}
       onDoubleClick={() => onZoom(null)}
     >
       {pw > 0 && ph > 0 && (
@@ -228,7 +226,7 @@ function Graph({ data, picked, hover, view, frame, frames, bounds, before, onFra
 
 const color = (i: number) => `hsl(${(i * 137.5) % 360} 75% 62%)`;
 
-// ------------------------------------------------------------------ 参数面板中的曲线
+// ------------------------------------------------------------------ curves in the parameter panel
 
 const SPARK = { w: 280, h: 76, pad: 4 };
 
@@ -240,16 +238,9 @@ const SPARK = { w: 280, h: 76, pad: 4 };
  * It follows playback, because it reads 当前帧 from the viewer like everything else on the stage. */
 export function ParamCurve({ fp, title }: { fp: string; title: string }) {
   const frame = useViewer((s) => s.frame);
-  const [data, setData] = useState<{ fp: string; value: CurvesData } | null>(null);
-  useEffect(() => {
-    let alive = true;
-    void api.curves(fp).then((value) => alive && setData({ fp, value }), () => {});
-    return () => {
-      alive = false;
-    };
-  }, [fp]);
-  if (data?.fp !== fp) return null;
-  const { frames, values, names } = data.value;
+  const data = useDescribed<CurvesData>("curves", [fp])[0];
+  if (!data) return null;
+  const { frames, values, names } = data;
   if (!frames.length || !values.length) return null;
   const first = frames[0];
   const last = frames.at(-1)!;
@@ -258,7 +249,7 @@ export function ParamCurve({ fp, title }: { fp: string; title: string }) {
   const [lo, hi] = fitRange(values, frames, drawn, first, last);
   const x = (f: number) => SPARK.pad + ((f - first) / span) * (SPARK.w - 2 * SPARK.pad);
   const y = (v: number) => SPARK.pad + (1 - (v - lo) / (hi - lo || 1)) * (SPARK.h - 2 * SPARK.pad);
-  const k = frames.indexOf(frame) >= 0 ? frames.indexOf(frame) : nearestIndex(frames, frame);
+  const k = frames.indexOf(nearest(frames, frame)); // the curve may not have every frame of the shot
   const at = frames[k];
   const now = drawn.map((i) => formatValue(values[i][k], (hi - lo) / 100 || 0.01)).join(" · ");
   const left = x(at) < SPARK.w * 0.6;
@@ -291,9 +282,3 @@ export function ParamCurve({ fp, title }: { fp: string; title: string }) {
   );
 }
 
-/** The frame of `frames` closest to `f` (the curve may not have every frame of the shot). */
-function nearestIndex(frames: number[], f: number): number {
-  let best = 0;
-  for (let i = 1; i < frames.length; i++) if (Math.abs(frames[i] - f) < Math.abs(frames[best] - f)) best = i;
-  return best;
-}

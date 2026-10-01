@@ -1,21 +1,27 @@
 """场景：合成场景、按种类取出、按分区取出、删除属性、相机空间转换、3D 变换、自动落地（可先按重力方向放平）、重定时、
-重采样曲线、标准人、烘焙成模型、提取骨架、线性蒙皮变形、场景投影成 2D。"""
+重采样曲线、标准人、烘焙成模型、提取骨架、动作重定向、线性蒙皮变形、场景投影成 2D。"""
 
 from __future__ import annotations
 
+import json
 from typing import Literal
 
 import numpy as np
 
+from ..kit.ports import rgb_port
+from ..kit.ports import normal_port
 from ...errors import Invalid
+from ...recent import Recent, packet_key
 from ...messages import Msg
-from ..base import Info, NodeDef, NodeParams, P, Port
-from ..tags import RESEARCH
+from ..base import Info, NodeDef, NodeParams, P, Port, colorspace_param
+from ..tags import NONCOMMERCIAL
 from ..expects import DistinctNames, SameShot
-from ..handles import Places
+from ..handles import Places, Poses
 from ...data.types import DEFORMING
 from ...availability import Not
 from ..applies import Licence, Param, Wired, fact
+from ..kit.rig_map import (JointPose, PartMap, expression_choice, pose_param, rig_map_choice, rig_map_param,
+                           side_parts, skeleton_handle)
 
 
 class UsdPack(NodeDef):
@@ -37,10 +43,10 @@ class Take(NodeDef):
     category = "scene_build"
     inputs = (Port("scene", "scene", "场景"),)
     # 每种类型一个输出，类型与导入节点一致（nodes/formats.py SELECTIONS）
-    outputs = (Port("camera", "scene.camera", "相机", narrows="input:scene"), Port("models", "scene.model", "模型", narrows="input:scene"),
-               Port("points", "scene.points", "点云", narrows="input:scene"), Port("curves", "scene.curves", "三维曲线", narrows="input:scene"),
-               Port("skeletons", "scene.skeleton", "骨架动画", narrows="input:scene"),
-               Port("characters", "scene.character", "蒙皮角色", narrows="input:scene"))
+    outputs = (Port("camera", "scene.camera", "相机", narrows="input:scene", may_be_empty=True), Port("models", "scene.model", "模型", narrows="input:scene", may_be_empty=True),
+               Port("points", "scene.points", "点云", narrows="input:scene", may_be_empty=True), Port("curves", "scene.curves", "三维曲线", narrows="input:scene", may_be_empty=True),
+               Port("skeletons", "scene.skeleton", "骨架动画", narrows="input:scene", may_be_empty=True),
+               Port("characters", "scene.character", "蒙皮角色", narrows="input:scene", may_be_empty=True))
 
     @classmethod
     def cook(cls, ctx):
@@ -95,6 +101,7 @@ class CameraSpaceConvert(NodeDef):
     """
 
     id = "core.camera_space"
+    same_on_cards = True  # 各卡上公开的这块参数一样（NodeDef.same_on_cards）
     version = 1
     on_node = ("fit",)
     # 与「法线空间转换」属于同一类：更换空间，数据本身不变
@@ -180,6 +187,8 @@ class CameraSpaceConvert(NodeDef):
     @classmethod
     def _same_lens(cls, a, b) -> None:
         """两台相机的视角（焦距 / 水平片门）逐帧一致，否则拦下：焦距不同时不存在使两边都与画面对齐的刚性变换。"""
+        from ...data.units import PERCENT
+
         def fov(c):
             ap = np.asarray(c.h_aperture_mm, np.float64)
             return np.asarray(c.focal_mm, np.float64) / np.where(ap > 0, ap, np.nan)
@@ -187,7 +196,7 @@ class CameraSpaceConvert(NodeDef):
         with np.errstate(invalid="ignore", divide="ignore"):
             diff = float(np.nanmax(np.abs(fa / fb - 1.0))) if fa.size else 0.0
         if np.isfinite(diff) and diff > cls.LENS_TOLERANCE:
-            raise Invalid(Msg("B-CAMSPACE-LENS", diff=diff * 100))
+            raise Invalid(Msg("B-CAMSPACE-LENS", diff=diff * PERCENT))
 
 
 class Transform3D(NodeDef):
@@ -435,57 +444,515 @@ class ExtractSkeleton(NodeDef):
         return {"skeleton": skeleton_only(ctx.input("character"), ctx.outputs["skeleton"])}
 
 
-class Retarget(NodeDef):
-    """线性蒙皮变形：将一段骨架动画施加到另一副骨架 / 蒙皮角色上。
+# 包都按 recent.packet_key（账号、指纹、代次）做键，和状态回复的手柄数据同一条：重算过的包重新读，别的账号的不串
+_RIGS: Recent = Recent(8)  # (包, 骨架路径, least_frames) -> Rig：弹窗和手柄反复读同一副骨架
+_BASES: Recent = Recent(8)  # (两个包, 两条骨架路径, 相关参数) -> Retarget._bases 的结果
+_PICKED: Recent = Recent(8)  # (两个包, 两条骨架路径, 除「初始姿势」外的相关参数) -> 动作自动挑的帧（Rests.picked）
 
-    「提取骨架」是正向操作（蒙皮角色 → 骨架动画），本节点为反向操作：将导入的 BVH 或解算得到的动作施加到
-    使用者自己的角色上。数学实现在 `lab2shot_shared.motion.Retarget`，关节配对和正向运动学在 `nodes/kit/retarget.py`，
-    此处只声明端口、参数和说明。
+
+def _stored(packet) -> bool:
+    """包在缓存里（按指纹找得到的就是它）：拆出来放在临时文件夹里的一条（server/app.py representative）不记。"""
+    from ...data.packet import packet_dir
+    from ...data.store import NoAccount
+
+    try:
+        return packet_dir(packet.fingerprint) == packet.dir
+    except NoAccount:  # read outside an account (a script, a test): not remembered
+        return False
+
+
+class Retarget(NodeDef):
+    """动作重定向：一副骨架的动作换到另一副骨架上，交出目标层级上的骨架动画。
+
+    「动作」接骨架动画或蒙皮角色（导入的 BVH、解算出来的人、动作生成的结果），「目标」接要套上动作的骨架或蒙皮角色，
+    只用它的骨架：关节、层级、绑定姿势（对齐方向），以及第一帧每个关节的平移和缩放（骨长、比例）；一帧的角色
+    （「标准人」、刚自动绑定的角色）就够，DCC 里也是这样。交出的只是骨架动画：要看蒙皮效果接「线性蒙皮变形」，
+    要交付骨架接「FBX / USD 输出设置」。
+
+    两边的部位对应在「对应关系」里（HumanIK 式的人形部位槽，NodeDef.choices 给编辑器两副骨架），没写的部位按关节名
+    和层级推测；链状部位（脊柱、颈、手指）两边节数不同时，源链的弯曲按骨长分摊到目标链的每一节。数学在
+    `lab2shot_shared.motion.BodyRetarget` / `hips_path`，对应关系与写回在 `nodes/kit/retarget.py`。
+
+    两边有一边没有髋、都有手时（HaMeR 的 MANO 手、只有手的绑定）只配手：必需部位是手腕和五指；目标只有手时手腕 1 : 1
+    跟着动作，目标的手长在身体上时手腕和手臂保持目标自己的姿势、只传手指；髋高的四个参数不起作用
+    （kit/retarget.py hands_of / retarget_hands）。
     """
 
     id = "core.retarget"
     category = "scene_convert"
-    inputs = (Port("character", "scene.character|scene.skeleton", "目标",
-                   help="动作要套到谁身上：你自己的角色或骨架。交出来的就是它，网格和蒙皮一个字节不动"),
-              Port("motion", "scene.skeleton|scene.character", "动作",
-                   help="动作从哪来：一段骨架动画（导入的 BVH、解算出来的人），或者另一个角色"))
-    outputs = (Port("character", "scene.character|scene.skeleton", "目标", type_from="input:character"),)
+    same_on_cards = True  # 13 张重定向卡的参数块一样（NodeDef.same_on_cards）
+    version = 23  # 进指纹：对齐或写回的算法变了就加一，旧结果重算
+    inputs = (Port("motion", "scene.skeleton|scene.character", "动作",
+                   help="动作从哪来：一段骨架动画（导入的 BVH、动作生成、解算出来的人），或者另一个角色"),
+              Port("target", "scene.character|scene.skeleton", "目标",
+                   help="动作要套到谁身上：你自己的角色或骨架，只用它的骨架和绑定姿势，一帧就够"))
+    outputs = (Port("skeleton", "scene.skeleton", "骨架动画"),)
+    # 两边的基准姿势在 3D 视图里逐关节摆（「初始姿势」，kit/retarget.py corrected）：舞台要的骨架由 handle_data 给
+    handles = (Poses(pose="motion_pose", source="motion", skeleton="motion_skeleton"),
+               Poses(pose="target_pose", source="target", skeleton="target_skeleton"))
+
+    class Params(NodeParams):
+        motion_skeleton: str | None = P(None, label="动作骨骼", widget="choice", group="骨架", choices_from=("motion",),
+                                        placeholder="第一个")
+        target_skeleton: str | None = P(None, label="目标骨骼", widget="choice", group="骨架", choices_from=("target",),
+                                        placeholder="第一个")
+        # scale_by 也在 choices_from 里：编辑器标的「必需」跟着「髋高依据」变（kit/retarget.py required）
+        mapping: list[PartMap] | None = rig_map_param(("motion", "target", "motion_skeleton", "target_skeleton", "scale_by",
+                                                       "motion_rest", "motion_rest_frame", "target_rest", "target_rest_frame",
+                                                       "rest_fix", "motion_pose", "target_pose"), group="骨架")
+        # 两边对齐用的基准姿势（kit/retarget.py rests）：「对应关系」弹窗的 3D 画的就是它们，一份
+        motion_rest: Literal["bind", "first", "frame"] = P(
+            "bind", label="动作基准姿势", group="骨架",
+            option_labels={"bind": "绑定姿势", "first": "第一帧", "frame": "指定帧"},
+            help="动作那副骨架拿哪个姿势当基准和目标对齐：绑定姿势（文件里网格绑定时的样子；不是站姿时——BVH 的零姿势——"
+                 "自动挑动作里最像目标的一帧）、第一帧，或指定的一帧")
+        motion_rest_frame: int | None = P(None, label="动作基准帧", group="骨架", placeholder="帧号",
+                                          applies=Param("motion_rest").one_of("frame"))
+        target_rest: Literal["bind", "first", "frame"] = P(
+            "first", label="目标基准姿势", group="骨架",
+            option_labels={"bind": "绑定姿势", "first": "第一帧", "frame": "指定帧"},
+            help="目标角色拿哪个姿势当基准：第一帧（DCC 打开文件看到的样子）、绑定姿势（网格绑定时的样子：AccuRIG 导出的 FBX "
+                 "绑定姿势是 A、第一帧是 T），或指定的一帧")
+        target_rest_frame: int | None = P(None, label="目标基准帧", group="骨架", placeholder="帧号",
+                                          applies=Param("target_rest").one_of("frame"))
+        rest_fix: Literal["none", "tpose"] = P(
+            "none", label="基准姿势摆正", group="骨架", option_labels={"none": "不摆正", "tpose": "自动摆成 T 姿"},
+            help="两边的基准姿势差很多（A 对 T、折叠的零姿势）时，先按配上的部位把两边的四肢都摆成标准 T 姿（上臂、前臂水平，"
+                 "腿竖直，脚朝前）再对齐")
+        # 基准姿势（选的姿势、摆正之后）上的逐关节修正：对齐按修正后的算（kit/retarget.py rests）
+        motion_pose: list[JointPose] = pose_param("动作初始姿势", "动作")
+        target_pose: list[JointPose] = pose_param("目标初始姿势", "目标")
+        size_by: Literal["none", "height", "manual"] = P(
+            "none", label="角色缩放", group="位移",
+            option_labels={"none": "不缩放", "height": "按身高自动", "manual": "手填倍率"},
+            help="把整个角色（骨架和蒙皮）放大或缩小：按身高自动 = 动作里的人的身高 ÷ 角色的身高（腿长加髋到头，逐帧量取中位数；"
+                 "一边没有头时按腿长）；手填倍率 = 用下面填的。缩放后再算髋高，角色和画面里的人一样大时髋高比例接近 1")
+        size: float = P(1.0, label="缩放倍率", group="位移", ge=0.01, le=100.0, unit="倍",
+                        applies=Param("size_by").one_of("manual"), help="整个角色放大这么多倍，1 = 原大")
+
+        # 水平位移 1 : 1 照抄动作（角色要踩在画面里那个人的位置上：整条轨迹乘比例会越走越偏）；
+        # 只有髋的高度按比例 = 依据量出来的比（目标 ÷ 动作，动作逐帧量、取中位数）× 修正系数，腿长的角色髋抬高、脚才
+        # 落地。依据按镜头选：走路、站立看腿，全身入画看身高，够东西、手接触看臂长；「不缩放」时比例就是修正系数本身。
+        scale_by: Literal["legs", "height", "arms", "none"] = P(
+            "legs", label="髋高依据", group="位移",
+            option_labels={"legs": "按腿长", "height": "按身高", "arms": "按臂长", "none": "不缩放（1 : 1）"},
+            help="髋的高度按哪个量算比例：目标的这个量 ÷ 动作的（逐帧量、取中位数）。走路、站立按腿长；全身入画按身高；"
+                 "够东西、手要接触按臂长；不缩放就只用修正系数。水平位移总是 1 : 1 跟着动作走，角色踩在人的位置上")
+        scale: float | None = P(1.0, label="髋高倍率", group="位移", ge=0.01, le=100.0, unit="倍", placeholder="1",
+                                help="再把髋抬高 / 压低这么多倍（只动髋的高度，不缩放人）；「不缩放」时它就是髋高比例本身")
+        # 固定抬高：髋高 = 动作的髋高 + (比例 − 1) × 髋离地高度的中位数，楼梯、梯子、跳跃都对，深蹲差几厘米；
+        # 按比例：离地高度逐帧乘比例，平地（含蹲）都对，地面一升高（楼梯）就错。
+        height_mode: Literal["lift", "proportional"] = P(
+            "lift", label="髋高跟法", group="位移",
+            option_labels={"lift": "固定抬高（楼梯、梯子、跳跃也对）", "proportional": "按比例（只适合平地）"},
+            help="髋的高度怎么跟着动作：固定抬高 = 动作的髋高加一个固定量，地面升降（楼梯、梯子、跳）都对，深蹲时差几厘米；"
+                 "按比例 = 离地高度逐帧乘比例，平地上蹲下站起都对，地面一升高就错")
+        height_offset: float = P(0.0, label="高度偏移", group="位移", ge=-100.0, le=100.0, unit="cm",
+                                 help="整段再抬高（正）或压低（负）这么多厘米，脚浮空、穿地时直接按看到的量填。两边脚踝离脚底的"
+                                      "高度差已经自动算进去了（两边都有网格时）")
+        # 角色缩放：整个目标（骨架 + 蒙皮）均匀放大到和动作里的人一样大，根关节上加缩放（kit/retarget.py sized）；
+        # 髋高比例按放大后的目标算，所以「按身高自动」时髋高比例接近 1，脚底对齐照常
+
+    @classmethod
+    def info(cls, params, inputs):
+        """帧来自「动作」：目标只提供骨架（常常只有一帧的静止姿势），它的帧不属于结果。"""
+        return Info.merge(inputs.get("motion", []))
+
+    @classmethod
+    def choices(cls, params: dict, inputs: dict) -> dict:
+        from ...data.joints import part_joints
+        from ..kit.retarget import has_body, hands_of, merged_parts, required
+        from ..kit.rig_map import pose_handle, rig_side, skeleton_choice
+
+        out = {}
+        for port, name in (("motion", "motion_skeleton"), ("target", "target_skeleton")):
+            if inputs.get(port) is not None:
+                out.update(skeleton_choice(inputs[port], name))
+        if inputs.get("motion") is not None and inputs.get("target") is not None:
+            src = rig_side(inputs["motion"], params.get("motion_skeleton"), "动作", pose_handle(cls, "motion"))
+            dst = rig_side(inputs["target"], params.get("target_skeleton"), "目标", pose_handle(cls, "target"))
+            # 只有手的两边（hands_of）标手腕和五指、整个身体按「髋高依据」：部位按计算时同一份（推测 + 手配的行）
+            if src and dst:  # the joints' own names (rig_side "joints"), as resolve_mapping reads them
+                rows = merged_parts(params.get("mapping"), src["joints"], src["parents"], dst["joints"], dst["parents"])[0]
+                have = [part_joints(rows, side["joints"], side["parents"], col) for side, col in ((src, "src"), (dst, "dst"))]
+                hands = hands_of(*have, (has_body(src["joints"], src["parents"], have[0]),
+                                         has_body(dst["joints"], dst["parents"], have[1])))
+            else:
+                hands = ()
+            out["mapping"] = rig_map_choice(src, dst, required(params.get("scale_by") or "legs", hands))
+            if "rig" in out["mapping"] and not hands:
+                cls._rest_choice(params, inputs, out["mapping"]["rig"])
+        return out
+
+    @classmethod
+    def _rest_choice(cls, params: dict, inputs: dict, rig: dict) -> None:
+        """弹窗两侧标出对齐用的是哪个基准姿势，并带出两副基准姿势（修正后，kit/retarget.py rests，和计算同一份）里
+        对应骨头的方向差。"""
+        from ..kit.retarget import rest_diffs
+
+        got = cls._bases(params, inputs)
+        if got is None or got[2] is None:
+            return  # 配对还有问题：编辑器照常标红
+        m, r = got[2], got[3]
+        rig["src"]["pose"], rig["dst"]["pose"] = cls._pose_said(r)
+        rig["diffs"] = rest_diffs(r, m)
+
+    @classmethod
+    def _bases(cls, params: dict, inputs: dict):
+        """两副骨架、对应关系和对齐用的基准姿势（kit/retarget.py rests / 只配手时 hand_bases），和计算同一份：
+        (动作 rig, 目标 rig, Mapping, Rests)；对应关系还不成（缺部位、基准帧不对）时后两项是 None，读不到骨架时 None。
+        弹窗（choices）和手柄（handle_data）每改一次参数都要它：按输入包和相关参数记住（_BASES），骨架按包和骨架路径
+        另记（_RIGS），拖一次手柄只重算基准姿势，不重读两副骨架的全部帧。"""
+        from ...data.animation import read_rig
+        from ..kit.retarget import hand_bases, resolve_mapping, rests
+
+        def rig(port: str, path, least: int):
+            packet = inputs.get(port)
+            if packet is None:
+                return None
+            def read():
+                try:
+                    return read_rig(packet, path, least_frames=least)
+                except Invalid:
+                    return None
+
+            key = _stored(packet) and (packet_key(packet), path, least)
+            return _RIGS.get_or(key, read) if key else read()
+
+        source, target = rig("motion", params.get("motion_skeleton"), 2), rig("target", params.get("target_skeleton"), 1)
+        if source is None or target is None:
+            return None
+        args = cls._rest_args(params)
+        rigs = _stored(inputs["motion"]) and _stored(inputs["target"]) and (
+            packet_key(inputs["motion"]), packet_key(inputs["target"]), source.path, target.path)
+        # the frame picked for a folded source depends on neither pose correction: kept apart, so a pose edit does
+        # not compare every frame of the take again
+        chosen = rigs and (rigs, json.dumps([params.get("mapping"), params.get("scale_by"),
+                                             {k: v for k, v in args.items() if not k.endswith("_pose")}],
+                                            sort_keys=True, default=str))
+        key = chosen and (chosen, json.dumps([args["motion_pose"], args["target_pose"]], sort_keys=True, default=str))
+        if key and (kept := _BASES.get(key)) is not None:
+            return kept
+        try:
+            m = resolve_mapping(params.get("mapping"), source, target, params.get("scale_by") or "legs")
+            if m.hands:
+                base = hand_bases(source, target, args)
+            else:
+                base = rests(source, target, m, **args, picked=_PICKED.get(chosen) if chosen else None)
+                if chosen:
+                    _PICKED.put(chosen, base.picked)
+            got = source, target, m, base
+        except Invalid:
+            got = source, target, None, None
+        return _BASES.put(key, got) if key else got
+
+    @staticmethod
+    def _pose_said(r) -> tuple[str, str]:
+        return r.source_said, r.target_said + ("（摆成 T 姿）" if r.fixed else "")
+
+    @staticmethod
+    def _rest_args(params: dict) -> dict:
+        return {"motion_rest": params.get("motion_rest") or "bind", "motion_frame": params.get("motion_rest_frame"),
+                "target_rest": params.get("target_rest") or "first", "target_frame": params.get("target_rest_frame"),
+                "fix": params.get("rest_fix") or "none", "motion_pose": params.get("motion_pose") or [],
+                "target_pose": params.get("target_pose") or []}
+
+    @classmethod
+    def handle_data(cls, params: dict, inputs: dict) -> dict[int, dict]:
+        """两个「骨架姿势」手柄（动作 0、目标 1）要画的（kit/rig_map.py skeleton_handle）：关节、层级、对齐用的基准
+        姿势在「初始姿势」修正之前的局部（正交的轴、cm，根关节含 Skeleton prim 的摆放），左右镜像的关节对，参数里
+        骨架没有的关节名，和蒙皮预览要的包与骨架路径。对应关系还不成时按各自选的姿势画（不挑帧、不摆 T），部位按
+        side_parts。"""
+        from ...data.joints import joint_keys
+        from ..kit.retarget import corrected, rest_pose
+
+        got = cls._bases(params, inputs)
+        if got is None:
+            return {}
+        source, target, m, r = got
+        args = cls._rest_args(params)
+        out = {}
+        for k, (rig, port, key, which, frame, side) in enumerate((
+                (source, "motion", "motion_pose", "motion_rest", "motion_frame", "src"),
+                (target, "target", "target_pose", "target_rest", "target_frame", "dst"))):
+            keys = joint_keys(rig.names, rig.parents)  # how parameters name its joints
+            if r is not None:
+                before = r.source_before if k == 0 else r.target_before
+                pose, unknown = cls._pose_said(r)[k], r.unknown[k]
+                parts = getattr(m, side)
+            else:
+                try:
+                    before = rest_pose(rig, args[which], args[frame], "动作" if k == 0 else "目标")
+                except Invalid:
+                    continue
+                unknown = corrected(before, rig.parents, keys, args[key])[1]
+                pose = ""
+                parts = side_parts(rig.names, rig.parents, params.get("mapping"), side)
+            body = r.bodies[1 - k] if r is not None and r.bodies else None  # bodies: (target, motion)
+            out[k] = skeleton_handle(inputs[port].fingerprint, rig.path, keys, rig.parents, before, parts, pose,
+                                     unknown, body)
+        return out
 
     @classmethod
     def cook(cls, ctx):
-        from ...data.animation import read_rig, write_animation
-        from ..kit.retarget import locals_from_world_rotations, pair_rigs
-        from lab2shot_shared.motion import Retarget as Fit
+        from ...data.animation import read_rig, sole_height
+        from ..kit.retarget import (GROUND_SAID, LEGS_VARY, SCALE_BY, body_up, character_size, ground_of, rests,
+                                    notes, resolve_mapping, retarget)
 
-        target, source = ctx.input("character"), ctx.input("motion")
+        p = ctx.params
+        motion, target = ctx.input("motion"), ctx.input("target")
+        # 目标只需带骨架（least_frames=1）：只读它的关节、层级、绑定姿势和第一帧；动作全部来自「动作」口。
+        # 来源仍要求一段动作（一帧没有可迁移的动作）。
+        source, goal = read_rig(motion, p["motion_skeleton"]), read_rig(target, p["target_skeleton"], least_frames=1)
         ctx.stage("配对关节")
-        # 目标只需带骨架，不要求自带动画（least_frames=1）：此步骤只读取其关节、层级和静止姿势
-        # （Rig.skeleton() 使用 bind 姿势和第一帧的摆放），动作全部来自「动作」端口。
-        # 「自动绑定」刚生成的角色只有一帧静止姿势，按 2 帧要求会在这条链的第一步就被拒绝。
-        # 来源端仍要求一段动作（一帧没有可迁移的动作）。
-        t_rig, s_rig = read_rig(target, least_frames=1), read_rig(source)
-        pairs, aims, legs, notes = pair_rigs(t_rig, s_rig)
-        for note in notes:  # 关节配对是推测得出的：需说明推测结果
+        mapping = resolve_mapping(p["mapping"], source, goal, p["scale_by"])
+        for note in notes(mapping):  # 推测的部位要说清推测成了什么
             ctx.say(note.code, **note.params)
         ctx.stage("换动作")
-        fit = Fit.align(t_rig.skeleton(), s_rig.skeleton(), pairs, aims, legs)
-        rotations, root = fit.to_model(s_rig.world())
-        local = locals_from_world_rotations(t_rig, rotations, root)
-        ctx.say("I-RETARGET-DONE", joints=len(pairs), total=len(t_rig.names), scale=round(float(fit.scale), 3))
-        info = {"retarget": {"joints": len(pairs), "scale": float(fit.scale), "from": s_rig.path}}
-        rig = t_rig.__class__(**{**t_rig.__dict__, "frames": list(s_rig.frames)})
-        # 帧号来自「动作」端口（rig 按 s_rig.frames 构建）：目标只提供骨架和网格。
-        # 帧率不属于数据的属性，写出文件时由输出设置节点指定（data/units.py DEFAULT_FPS）。
-        return {"character": write_animation(target, ctx.outputs["character"], rig, local, info)}
+        if mapping.hands:  # 只配手：没有髋，髋高的四个参数都不起作用
+            r = retarget(source, goal, mapping, p["scale_by"], 1.0, rest=cls._rest_args(p))
+            cls._unknown_joints(ctx, r)
+            ctx.say("I-RETARGET-HANDS", joints=r.joints, total=len(goal.names),
+                    hands="、".join({"l": "左手", "r": "右手"}[s] for s in mapping.hands),
+                    wrist="目标的手长在身体上：手腕和手臂保持目标自己的姿势，只传手指相对手腕的弯曲" if r.wrist_kept
+                    else "手腕 1 : 1 跟着动作")
+            return cls._written(ctx, target, goal, source, r, {"hands": list(mapping.hands)})
+        size = character_size(p["size_by"], p["size"], source, goal, mapping)
+        # 两副基准姿势和两边的身体坐标系取一次（rests）：提示、脚底、对齐都用这一份
+        base = rests(source, goal, mapping, **cls._rest_args(p), size=size.factor)
+        for who, body in (("动作", base.bodies[1]), ("目标", base.bodies[0])):
+            if not body.trunk:  # 躯干定身体的「上」和是不是站着：对齐用的这一个没有，就说
+                ctx.say("W-BODY-NOTRUNK", rig=who)
+        # 脚底对脚底：两边离地参考关节（ground_of：脚踝，没配脚时往下找）离脚底的高度差（两边都有网格才知道；BVH、
+        # 只有关节的解算按一样处理）
+        (ground_s, how_s), (ground_t, how_t) = ground_of(source, mapping.src), ground_of(goal, mapping.dst)
+        soles = (sole_height(motion, source, ground_s, body_up(source, base.bodies[1])),
+                 sole_height(target, goal, ground_t, body_up(goal, base.bodies[0])))
+        if size.basis == "legs":
+            ctx.say("W-RETARGET-SIZELEGS", rig="动作" if "head" not in mapping.src else "目标")
+        if None not in soles:
+            soles = (soles[0], soles[1] * size.factor)  # 目标放大了，踝离脚底也跟着放大
+        sole_delta = soles[1] - soles[0] if None not in soles else 0.0
+        r = retarget(source, goal, mapping, p["scale_by"], p["scale"] if p["scale"] is not None else 1.0,
+                     p["height_mode"] == "lift", sole_delta + p["height_offset"], size.factor, cls._rest_args(p), base)
+        cls._unknown_joints(ctx, r)
+        low, median, high = r.measured_cm
+        if r.by != "none" and high - low > LEGS_VARY * median:
+            ctx.say("W-RETARGET-LEGVARIES", what=r.by_label, low=low, high=high, median=median)
+        factor = f" × 修正 {r.factor:g}" if r.factor != 1.0 else ""
+        how = f"按{r.by_label}：目标 {r.target_cm:.1f} cm ÷ 动作 {median:.1f} cm{factor}" if r.by != "none" else f"不缩放{factor}"
+        for who, said in (("动作", how_s), ("目标", how_t)):
+            if said != "ankles":
+                how += f"；{who}离地高度按{GROUND_SAID[said]}量"
+        if None not in soles:
+            how += f"；脚底对齐 {sole_delta:+.1f} cm（离脚底：目标 {soles[1]:.1f}、动作 {soles[0]:.1f}）"
+        if p["height_offset"]:
+            how += f"；高度偏移 {p['height_offset']:+g} cm"
+        if size.basis in ("height", "legs"):
+            how += (f"；角色缩放 ×{size.factor:.3f}（按{SCALE_BY[size.basis]}：动作 {size.source_cm:.1f} cm ÷ "
+                    f"目标 {size.target_cm:.1f} cm）")
+        elif size.basis == "manual":
+            how += f"；角色缩放 ×{size.factor:g}（手填）"
+        how += f"；{r.rest_said}"
+        ctx.say("I-RETARGET-DONE", joints=r.joints, total=len(goal.names), scale=round(r.scale, 3), how=how)
+        return cls._written(ctx, target, goal, source, r, {"scale": r.scale, "scale_by": r.by, "factor": r.factor,
+                                                            "size": r.size, "size_by": size.basis})
 
+    @staticmethod
+    def _unknown_joints(ctx, r) -> None:
+        """「初始姿势」里写了骨架没有的关节（换了骨架、改了骨骼路径）：跳过，说一声。"""
+        for who, names in zip(("动作", "目标"), r.unknown):
+            if names:
+                ctx.say("W-RETARGET-POSEJOINT", rig=who, joints="、".join(names[:8]) + (" 等" if len(names) > 8 else ""),
+                        count=len(names))
+
+    @classmethod
+    def _written(cls, ctx, target, goal, source, r, said: dict) -> dict:
+        """结果写回目标自己的层级，交出骨架动画（整个身体和只配手共用）。"""
+        from dataclasses import replace
+
+        from ...data.animation import placement_at, skeleton_animation
+        from ..kit.retarget import sized, target_locals
+
+        # 帧号来自「动作」；目标的 Skeleton prim 在这些帧上的摆放（可能被动画过的「3D 变换」挪着）
+        placement = placement_at(target, goal.path, source.frames)
+        local = target_locals(sized(goal, r.size), source.frames, placement, r)
+        info = {"retarget": {"joints": r.joints, **said, "from": source.path}}
+        # 帧率不属于数据的属性，写出文件时由输出设置节点指定（data/units.py DEFAULT_FPS）。
+        rig = replace(goal, frames=list(source.frames))
+        return {"skeleton": skeleton_animation(target, ctx.outputs["skeleton"], rig, local, info)}
+
+
+class LinearSkin(NodeDef):
+    """线性蒙皮变形：把一段骨架动画挂到蒙皮角色的骨架上，交出带这段动画的蒙皮角色。
+
+    只校验、不猜测：两副骨架的关节名和父子关系必须逐一相同（顺序可以不同，按名字对齐），否则报 E-SKIN-HIERARCHY
+    并列出不同之处；动画来自另一副骨架时先接「动作重定向」。蒙皮计算本身不在这里：视图用 GPU 蒙皮，交付走 UsdSkel，
+    要网格缓存接「烘焙成模型」。骨长和角色的不一样时照挂（DCC 里连动画也是这样），只提示 W-SKIN-LENGTHS。
+    """
+
+    id = "core.linear_skin"
+    category = "scene_convert"
+    inputs = (Port("skeleton", "scene.skeleton", "骨架动画",
+                   help="要挂上的动画：骨架层级要和角色的完全一样（通常是「动作重定向」交出的）"),
+              Port("character", "scene.character", "蒙皮角色",
+                   help="挂动画的角色：网格、蒙皮、blend shape 原样，原来的动画被换掉"))
+    outputs = (Port("character", "scene.character", "蒙皮角色"),)
+
+    class Params(NodeParams):
+        skeleton_path: str | None = P(None, label="动画骨骼", widget="choice", group="骨架", choices_from=("skeleton",),
+                                      placeholder="第一个")
+        character_skeleton: str | None = P(None, label="角色骨骼", widget="choice", group="骨架",
+                                           choices_from=("character",), placeholder="第一个")
+
+    @classmethod
+    def info(cls, params, inputs):
+        """帧来自骨架动画：角色常常只有一帧的静止姿势。"""
+        return Info.merge(inputs.get("skeleton", []))
+
+    @classmethod
+    def choices(cls, params: dict, inputs: dict) -> dict:
+        from ..kit.rig_map import skeleton_choice
+
+        out = {}
+        for port, name in (("skeleton", "skeleton_path"), ("character", "character_skeleton")):
+            if inputs.get(port) is not None:
+                out.update(skeleton_choice(inputs[port], name))
+        return out
+
+    @classmethod
+    def cook(cls, ctx):
+        from dataclasses import replace
+
+        from ...data.animation import placement_at, read_rig, same_hierarchy, write_animation
+        from ..kit.retarget import lengths_differ, skin_locals
+
+        p = ctx.params
+        anim = read_rig(ctx.input("skeleton"), p["skeleton_path"])
+        character = read_rig(ctx.input("character"), p["character_skeleton"], least_frames=1)
+        ctx.stage("核对层级")
+        order = same_hierarchy(anim, character)
+        far = lengths_differ(anim, character, order)
+        if far:
+            ctx.say("W-SKIN-LENGTHS", count=len(far), joints="、".join(far[:8]) + (" 等" if len(far) > 8 else ""))
+        ctx.stage("挂动画")
+        placement = placement_at(ctx.input("character"), character.path, anim.frames)
+        local = skin_locals(anim, character, order, placement)
+        ctx.say("I-SKIN-DONE", joints=len(order), frames=len(anim.frames))
+        rig = replace(character, frames=list(anim.frames))
+        info = {"linear_skin": {"from": anim.path}}
+        return {"character": write_animation(ctx.input("character"), ctx.outputs["character"], rig, local, info)}
+
+
+class ExpressionRetarget(NodeDef):
+    """表情重定向（ARKit52）：按 ARKit 52 个 blendshape 的名字配对，不是逐点的面部重定向。一段表情（面部解算的「表情曲线」、或带 blendshape 动画的角色）换到另一个角色的 blendshape 上，交出
+    这段表情动起来的角色。
+
+    「表情」和「目标」按名字对应（「对应关系」，和「动作重定向」同一个编辑器，部位槽换成表情槽）：ARKit 的 52 个名字
+    （MediaPipe 的表情曲线、Character Creator / MetaHuman 的 ARKit 形变）不管大小写、分隔符、L / R 写法都认得，
+    FLAME 的眼皮（eyelid_left）认作 eyeBlinkLeft；FLAME 的 expression_00… 是 PCA 分量，只对得上同样带这些分量的
+    FLAME 角色。认不出、认错的在编辑器里手动配。数值原样搬（0..1 的权重），目标没配上的形变保持 0；关节的动画
+    不动。名字表在 data/expressions.py，写出在 data/animation.py write_blend_weights。
+    """
+
+    id = "core.expression_retarget_arkit52"
+    same_on_cards = True  # 各卡上公开的这块参数一样（NodeDef.same_on_cards）
+    category = "scene_convert"
+    inputs = (Port("expressions", "curves|scene.character", "表情",
+                   help="表情从哪来：面部解算的「表情曲线」（MediaPipe 的 ARKit 52、SMIRK / Pixel3DMM 的 FLAME），或带表情动画的角色"),
+              Port("target", "scene.character", "目标",
+                   help="表情要套到谁脸上：带 blendshape 的蒙皮角色（一帧就够，带着身体动画也行）"))
+    outputs = (Port("character", "scene.character", "蒙皮角色"),)
+
+    class Params(NodeParams):
+        source_skeleton: str | None = P(None, label="表情骨骼", widget="choice", group="表情", choices_from=("expressions",),
+                                        placeholder="第一个有表情的")
+        target_skeleton: str | None = P(None, label="目标骨骼", widget="choice", group="表情", choices_from=("target",),
+                                        placeholder="第一个")
+        mapping: list[PartMap] | None = rig_map_param(("expressions", "target", "source_skeleton", "target_skeleton"),
+                                                      group="表情")
+
+    @classmethod
+    def info(cls, params, inputs):
+        """帧来自「表情」：目标常常只有一帧的静止姿势。"""
+        return Info.merge(inputs.get("expressions", []))
+
+    @classmethod
+    def _curves(cls, packet, path: str | None):
+        """「表情」口的曲线：(所在路径, 名字, 权重 [F,C], 帧)。"""
+        from ...data.animation import blend_weights
+        from ...data.payloads import read_curves
+
+        frames = [int(f) for f in packet.meta.get("frames") or []]
+        if packet.type == "curves":
+            return "表情曲线", [str(n) for n in packet.meta.get("names") or []], read_curves(packet), frames
+        where, names, weights = blend_weights(packet, path)
+        return where, names, weights, frames
+
+    @classmethod
+    def _target(cls, packet, path: str | None) -> tuple[str, list[str]]:
+        from ...data.animation import blend_shapes, skeletons
+
+        found = [s["path"] for s in skeletons(packet)]
+        where = path if path in found else (found[0] if found else "")
+        return where, (blend_shapes(packet, where) if where else [])
+
+    @classmethod
+    def choices(cls, params: dict, inputs: dict) -> dict:
+        from ..kit.rig_map import skeleton_choice
+
+        out = {}
+        src, dst = inputs.get("expressions"), inputs.get("target")
+        if src is not None and src.type != "curves":
+            out.update(skeleton_choice(src, "source_skeleton"))
+        if dst is not None:
+            out.update(skeleton_choice(dst, "target_skeleton"))
+        if src is not None and dst is not None:
+            where, curves, _, _ = cls._curves(src, params.get("source_skeleton"))
+            path, shapes = cls._target(dst, params.get("target_skeleton"))
+            out["mapping"] = expression_choice(curves, shapes, where, path)
+        return out
+
+    @classmethod
+    def cook(cls, ctx):
+        from ...data.animation import write_blend_weights
+        from ...data.expressions import auto_rows, check_mapping, merged_rows
+
+        p = ctx.params
+        where, curves, values, frames = cls._curves(ctx.input("expressions"), p["source_skeleton"])
+        if not curves:
+            raise Invalid(Msg("E-EXPRMAP-NOCURVES"))
+        path, shapes = cls._target(ctx.input("target"), p["target_skeleton"])
+        if not shapes:
+            raise Invalid(Msg("E-EXPRMAP-NOSHAPES", path=path or "（没有骨架）"))
+        ctx.stage("配对表情")
+        rows, guessed = merged_rows(p["mapping"], auto_rows(curves, shapes))
+        check_mapping(rows, curves, shapes)
+        pairs = [(r["src"][0], r["dst"][0]) for r in rows if r["src"] and r["dst"]]
+        if not pairs:
+            raise Invalid(Msg("E-EXPRMAP-NOPAIR", curves="、".join(curves[:4]), shapes="、".join(shapes[:4])))
+        said = [f"{d}←{s}" for s, d in pairs if any(r["part"] in guessed and r["src"] == [s] for r in rows)]
+        if said:
+            ctx.say("I-EXPRMAP-GUESS", count=len(said), pairs="、".join(said[:12]) + (" 等" if len(said) > 12 else ""))
+        ctx.stage("写表情")
+        weights = np.zeros((len(frames), len(shapes)), np.float32)
+        for s, d in pairs:
+            weights[:, shapes.index(d)] = np.nan_to_num(values[:, curves.index(s)])
+        unused = [c for c in curves if c not in {s for s, _ in pairs}]
+        ctx.say("I-EXPRMAP-DONE", driven=len(pairs), total=len(shapes), frames=len(frames),
+                unused=("、".join(unused[:6]) + (" 等" if len(unused) > 6 else "")) if unused else "没有")
+        info = {"expression_retarget": {"from": where, "pairs": len(pairs)}}
+        return {"character": write_blend_weights(ctx.input("target"), ctx.outputs["character"], path, frames, shapes,
+                                                 weights, info)}
 
 
 class StandardHuman(NodeDef):
     """标准人：一个通用的 T-pose 人体，带蒙皮和骨架，无需任何输入即可输出。
 
     只有骨架的结果（Kimodo / Sketch2Anim 动作生成、动捕清理、导入的 BVH）在视图中只显示为若干线段，
-    难以判断动作质量。将动作施加到身体上即可直观判断，该步骤由「线性蒙皮变形」`core.retarget`
-    完成（目标接本节点输出的人体，动作接骨架动画）；本节点提供一个随时可用、符合内部标准的身体。
+    难以判断动作质量。将动作施加到身体上即可直观判断：「动作重定向」`core.retarget`（动作接骨架动画，目标接本节点）
+    把动作换到这副骨架上，「线性蒙皮变形」`core.linear_skin`（骨架动画接重定向的结果，蒙皮角色接本节点）挂回身体；
+    本节点的一个输出口同时连这两处。本节点提供一个随时可用、符合内部标准的身体。
 
     身体读取的是由管理员自行下载并同意许可的 SMPL-X 中性体型（`data/skeleton.py neutral_body`：官方的
     静止姿势网格、蒙皮权重、面片、关节回归器）。骨骼名、关节轴、每点受影响的骨骼数与解算器输出蒙皮角色时
@@ -501,14 +968,14 @@ class StandardHuman(NodeDef):
     # 而不是因为它读取文件（它没有任何文件参数）。
     category = "read_scene"
     on_node = ("height_cm",)
-    licence = Licence(RESEARCH, note="身体是 SMPL-X 的中性体型：模型文件要在 smpl-x.is.tue.mpg.de 注册后自己下载"
-                                     "（后台「扩展包」的「手动下载」），许可只许非商业科研，不许再分发。"
+    licence = Licence(NONCOMMERCIAL, registration=True, uses=("SMPL-X",), note="身体是 SMPL-X 的中性体型：模型文件要在 smpl-x.is.tue.mpg.de 注册后自己下载"
+                                     "（后台「扩展包」的「手动下载」），非商用：许可只许非商业的科研、教学和艺术项目，不许再分发。"
                                      "这个节点本身不带任何模型数据。")
     outputs = (Port("character", "scene.character", "蒙皮角色"),)
 
     class Params(NodeParams):
-        # 只有身高一个参数。「线性蒙皮变形」按目标自身的骨骼长度计算比例，因此身高决定了预览中人物的
-        # 大小以及动作的步幅；需要与镜头中真人的尺寸一致时，只需修改此值。
+        # 只有身高一个参数。「动作重定向」按目标自身的骨骼长度算髋高比例（水平位移 1 : 1 跟着动作），因此身高决定了
+        # 预览中人物的大小和髋的高度；需要与镜头中真人的尺寸一致时，只需修改此值。
         # 下游的「3D 变换」也能缩放，但那需要使用者先知道模型自身的高度并自行计算比例。
         # 未提供体型（胖瘦）参数：SMPL-X 的体型由 300 个 betas 表示，官方未定义哪个方向、多少算「胖」，不自行设定档位。
         height_cm: float | None = P(None, label="身高", unit="cm", ge=100.0, le=250.0, group="人物",
@@ -552,9 +1019,9 @@ class SceneRender(NodeDef):
     inputs = (
         Port("scene", "scene", "场景", multi=True),
         Port("camera", "scene.camera", "相机", optional=True, expects=(SameShot(),)),
-        Port("image", "image.3", "RGB", optional=True),
+        rgb_port(optional=True),
     )
-    outputs = (Port("mask", "image.1", "遮罩"), Port("depth", "image.1", "深度图", means=("scale",)), Port("normal", "image.3", "法线图", means=("space",)))
+    outputs = (Port("mask", "image.1", "遮罩"), Port("depth", "image.1", "深度图", means=("scale",)), normal_port())
 
     class Params(NodeParams):
         width: int | None = P(None, label="画面宽度", unit="px", ge=16, le=16384, group="画面", placeholder="相机的",
@@ -626,6 +1093,7 @@ SPEED_CHANGES = fact("speed_changes").true()
 
 class Retime(NodeDef):
     id = "core.retime"
+    version = 3  # a frame whose source time falls in a gap of the source, or of an object's own, is not made up from either side
     on_node = ("offset", "speed")
     category = "scene_build"
     inputs = (Port("scene", "scene", "场景"),)
@@ -660,11 +1128,10 @@ class Retime(NodeDef):
         """本节点参数在时间上的含义（kit/retime.py Timing）：只定义一处，由 `info` 和 `cook` 读取。"""
         from ..kit.retime import Timing
 
-        first, last = int(frames[0]), int(frames[-1])
+        source = tuple(sorted(int(f) for f in frames))
         anchor = params["anchor"]
         speed = float(params["speed"] or 1.0)
-        return Timing(speed if speed > 0 else 1.0, int(params["offset"]),
-                      first if anchor is None else int(anchor), first, last)
+        return Timing(speed if speed > 0 else 1.0, int(params["offset"]), source[0] if anchor is None else int(anchor), source)
 
     @classmethod
     def cook(cls, ctx):
@@ -686,6 +1153,10 @@ class Retime(NodeDef):
                 was=f"{frames[0]}–{frames[-1]}", now=f"{report['first']}–{report['last']}")
         if report["interpolated"]:
             ctx.say("N-RETIME-INTERP", count=report["interpolated"], total=len(report["frames"]))
+        if report["gaps"]:
+            ctx.say("N-RETIME-GAP", count=report["gaps"])
+        if report["hidden"]:
+            ctx.say("N-RETIME-HIDDEN", count=report["hidden"])
         if report["nearest"]:
             ctx.say("N-RETIME-NEAREST", count=report["nearest"])
         return {"scene": out}
@@ -700,4 +1171,4 @@ def pass_scene(ctx, src):
 
 
 NODES = (UsdPack, Take, TakeSubset, AttribDelete, CameraSpaceConvert, Transform3D, AutoGround, Retime, CurvesResample,
-         StandardHuman, BakeModel, ExtractSkeleton, Retarget, SceneRender)
+         StandardHuman, BakeModel, ExtractSkeleton, Retarget, LinearSkin, ExpressionRetarget, SceneRender)

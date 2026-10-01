@@ -3,8 +3,9 @@ import { downloadOutput } from "../files/outputs";
 import { agoText, sizeText } from "../platform/format";
 import { Button } from "./Button";
 
-/** 「输出」's one control: 下载, the browser's own download of the zip its own cook packed (files/outputs.ts). The
- * node's body, the parameter panel and the queue draw this same button. It can be clicked only once there is a zip:
+/** 下载 in the queue (ui/Queue.tsx): the browser's own download of the zip an 「输出」's cook packed (files/outputs.ts).
+ * On the graph (the node's body, the parameter panel) it is the 「输出」's button parameter 「下载」 instead
+ * (editor/buttonActions.tsx download), one control for it there. It can be clicked only once there is a zip:
  * computing the nodes before it only puts their results on the server; computing the 「输出」 itself collects and
  * packs them, then this is enabled. An output gone with its task (任务保留天数) is greyed and says so. */
 

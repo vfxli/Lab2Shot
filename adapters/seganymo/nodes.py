@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, measured_param, NodeParams, P, Port, Segmentation, Cost,
+from lab2shot.sdk import (rgb_port, Official, measured_param, NodeParams, P, Port, Segmentation, Cost,
                           Licence, Measured)
 
 
@@ -20,7 +20,7 @@ class MovingObjects(Segmentation):
     )
     # 主要用途是给相机解算挡掉运动物体；画面里什么都没动时交出空遮罩并提示；
     # 整段均匀挑 100 帧判断谁在动（遮罩每帧都有）；边来自 SAM 2，适合挡解算、不是精细抠像
-    inputs = (Port("image", "image.3", "RGB"),)
+    inputs = (rgb_port(),)
     # 两个输出口由分割家族给（families/segmentation.py）：口名 `mask` / `objects` 和「物体分割」这个标签是家族定的，
     # 「运动」是这个节点的事（它就叫「SegAnyMo 运动物体遮罩」），不是口的事
     mask_label = "运动物体遮罩"

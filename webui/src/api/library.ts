@@ -8,7 +8,7 @@ import type { GraphJSON } from "./catalog";
  * 名称与简介为使用者填写的文字：绘制时一律按纯文本处理，并带有 data-user-data。 */
 export interface SavedGraph {
   id: string; // user~<用户名>~<文件名>（lab2shot/library.py card_id）
-  stem: string; // the file's name
+  stem: string; // 文件名
   name: string;
   intro: string;
   bytes: number;
@@ -66,8 +66,9 @@ export interface MyTemplates {
 
 export const libraryApi = {
   myTemplates: () => json<MyTemplates>("GET", "/api/my/templates"),
-  saveTemplate: (t: { name: string; intro?: string; graph: GraphJSON; id?: string }) =>
-    json<MyTemplates>("POST", "/api/my/templates", { intro: "", id: "", ...t }),
+  // `replace`：用户已确认覆盖同名的那一张（没有它而同名时服务器回 409 E-LIBRARY-SAMENAME）
+  saveTemplate: (t: { name: string; intro?: string; graph: GraphJSON; id?: string; replace?: boolean }) =>
+    json<MyTemplates & { replaced: boolean }>("POST", "/api/my/templates", { intro: "", id: "", replace: false, ...t }),
   openTemplate: (id: string) => json<SavedGraph & { graph: GraphJSON }>("GET", `/api/my/templates/${encodeURIComponent(id)}`),
   binTemplate: (id: string) => json<MyTemplates>("DELETE", `/api/my/templates/${encodeURIComponent(id)}`),
   storage: () => json<StorageUsage>("GET", "/api/my/storage"),

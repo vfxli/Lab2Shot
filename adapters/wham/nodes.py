@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lab2shot.sdk import Official, Keypoints2D, P, WorldHumans, WorldHumansParams, follow_camera_param, Cost, Licence
+from lab2shot.sdk import Official, Keypoints2D, P, WorldHumans, WorldHumansParams, follow_camera_param, Cost
 
 
 class Solve(WorldHumans):
@@ -19,6 +19,7 @@ class Solve(WorldHumans):
         # `camera_rotate`：「相机旋转」参数的输入口（families/humans.py WorldHumansParams），
         # 上游据此计算 cam_angvel。节点上没有名为 camera 的输入口，此处的键与参数名一致
         takes={"image": "--video", "camera_rotate": "cam_angvel"},
+        ours={"camera": "放人用的针孔相机：原点、不动，焦距 = 节点的「Focal Length」（留空用解算器自己估的 / 默认的），主点在画面中心（families/humans.py plate_camera）"},
         gives={"keypoints": "tracking_results[_id]['keypoints']", "character": "pose_world",
                # 「参照相机」：上游将同一人同时输出在相机空间和世界空间（demo.py:162-167 的
                # results[_id]['pose'] / ['trans'] 为相机空间，['pose_world'] / ['trans_world'] 为世界空间），
@@ -57,6 +58,9 @@ class Solve(WorldHumans):
     # 「参照相机」输出口：结果所在世界中对应的相机，仅供「相机空间转换」作为参照，不能作为成品相机使用
     # （见 families/humans.py reference_camera 的说明及 official 注 ②）。
     reference_camera = True
+    # 「相机」输出口：放人用的那台原点静止针孔相机（相机空间那一份人所在的相机；焦距按「Focal Length」，留空用它自己的默认），
+    # 模板把它当「解算器的相机」一路：「相机空间转换」把世界里的人从参照相机搬到它（families/humans.py plate_camera）
+    plate_camera = True
     # 官方流程的第一步计算 ViTPose 的 17 个关键点（worker detect_and_track），并作为关键点输出
     keypoints = Keypoints2D("ViTPose 在画面上找的全身 17 个点（鼻子、双眼、双耳、肩、肘、腕、髋、膝、踝），WHAM 解算之前就是按它们找的人")
     # 上游 MINIMUM_FRMAES：少于 30 帧的轨迹会被丢弃（worker.py MIN_FRAMES）。在提交前拒绝，
@@ -64,7 +68,6 @@ class Solve(WorldHumans):
     min_frames = 30
     # vram_gb：在 RTX 4090 上测得
     cost = Cost(gpu=True, vram_gb=2.9, seconds_per_frame=0.375)
-    licence = Licence(note="代码 MIT，但 SMPL 人体模型、由它导出的关节回归文件和训练数据都只能研究用，整体按非商用对待。")
 
     class Params(WorldHumansParams):
         follow_camera: bool = follow_camera_param()

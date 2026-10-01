@@ -1,3 +1,6 @@
+/* Upload states on a file parameter row and in a node's footer (waiting, paused, failed; transfer/uploads.ts), and the
+   viewer's centred .view-local note. */
+
 .fp-up.fp-waiting .fp-meta,
 .fp-up.fp-paused .fp-meta,
 .fp-bar.fp-waiting i,

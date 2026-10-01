@@ -10,11 +10,11 @@
  * 走通道路径的数据（alpha、数值图、视频单通道）本身不经过色彩管理（`transfer/route.ts rawOf`）。 */
 
 export interface Lut {
-  mode: "lut" | "raw"; // raw: shown as the values are, clipped (display-referred or data, as the server does)
-  size: number; // points per side of the 3D table
-  lo: number; // its input: log2 of the linear value, from lo to hi stops
+  mode: "lut" | "raw"; // raw：按数值原样显示并截断（显示空间的画面或数据，与服务器做法相同）
+  size: number; // 三维表每边的采样点数
+  lo: number; // 表的输入：线性值的 log2，从 lo 到 hi 档
   hi: number;
-  data: Uint16Array; // RGB per point, 0..65535 = 0..1 display, red fastest
+  data: Uint16Array; // 每点 RGB，0..65535 对应显示值 0..1，红色变化最快
 }
 
 /** 查表一次：线性 `r g b` 转为 0..1 的显示值，写入 `out` 的 `at`、`at+1`、`at+2`。

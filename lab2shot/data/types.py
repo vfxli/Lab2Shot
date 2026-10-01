@@ -56,7 +56,7 @@ class DataType:
 # 规则：
 #   1. 暖色 = 三维数据，冷色 = 二维数据，灰 = Mask，白 = 文件，紫红色系 = 数值；
 #   2. 同组成员使用明显不同的色相或明度，不使用色相的微小偏移（相近色相难以区分）：
-#      相机黄、角色正红、骨架浅粉、模型赭石、点云橙、三维曲线酒红；Mask 灰、UV 青、RGB 蓝、RGBA 海军蓝、任意通道浅蓝；
+#      相机黄、角色正红、骨架浅粉、模型赭石、点云橙、三维曲线酒红、灯光暗金；Mask 灰、UV 青、RGB 蓝、RGBA 海军蓝、任意通道浅蓝；
 #      人物框品红、2D 跟踪点绿、视频灰青；
 #   3. 列表与单值同色：列表已有方形端口和双线区分，不再以饱和度区分；
 #   4. 导入时校验：任意两个类型的色差（CIELAB ΔE76）≥ 18，任一类型与画布底色的色差 ≥ 35；新增类型或修改颜色时若颜色过近，
@@ -65,7 +65,7 @@ class DataType:
 COLOURS: Mapping[str, str] = MappingProxyType({
     # 三维：暖色
     "scene": "#D9A066", "scene.camera": "#FFD60A", "scene.character": "#FF3B30", "scene.skeleton": "#FFB4A8",
-    "scene.model": "#8C4A1E", "scene.points": "#FF8C1A", "scene.curves": "#8B1A4A",
+    "scene.model": "#8C4A1E", "scene.points": "#FF8C1A", "scene.curves": "#8B1A4A", "scene.light": "#C9A227",
     "curves": "#B8E356",  # 动画曲线：黄绿色，介于冷暖之间，因其属于动画数据，兼具两类特征
     # 二维像素：冷色
     "image": "#9FD8FF", "image.1": "#B0B0B6", "image.2": "#2FD5C8", "image.3": "#3E8EF7", "image.4": "#1F3F99",
@@ -172,6 +172,8 @@ DATA_TYPES: Mapping[str, DataType] = MappingProxyType({
         # 后者是逐帧的数值曲线（如 52 条表情权重），前者是三维空间中的曲线
         DataType("scene.curves", "三维曲线", colour_of("scene.curves"), "USD 三维曲线（BasisCurves）：每条曲线的点，以及逐点的宽度、颜色、朝向；发丝、毛发导向线、运动轨迹都是它",
                  None, "element", summary=('strands', 'attributes')),
+        DataType("scene.light", "灯光", colour_of("scene.light"), "USD 灯光：穹顶灯（一张经纬图 HDRI 照亮整个场景，带旋转和强度）；只有 USD 带得走",
+                 None, "element"),
         DataType("tracks2d", "2D 跟踪点", colour_of("tracks2d"), "画面上的一组点，每个点在每一帧的位置、那一帧是否被挡住，给分的跟踪器还带它对每个点每帧的置信度（点跟踪、面部关键点）", "overlay", None,
                  end="交给 3DEqualizer、Nuke 的 2D 跟踪点，由「2D 跟踪点输出设置」写出", items="组", summary=('points', 'frames', 'size')),
         DataType("curves", "动画曲线", colour_of("curves"), "逐帧的数值曲线，每条有名字，如 52 条表情曲线", "strip", "strip",
@@ -250,6 +252,7 @@ SCENE_KINDS: Mapping[str, SceneKind] = MappingProxyType({
         SceneKind("curves", "三维曲线", "scene.curves"),
         SceneKind("skeleton", "骨架动画", "scene.skeleton"),
         SceneKind("character", "蒙皮角色", "scene.character"),
+        SceneKind("light", "灯光", "scene.light"),
     )
 })
 # 逐帧变化的模型（点缓存）：与 "model" 一同传递；写出节点可以只接受静止模型
@@ -263,7 +266,7 @@ KIND_ORDER = (*SCENE_KINDS, DEFORMING)  # 三维连线可承载的内容，按�
 # 三维数据（scene.*）排在一起，与 DCC 中的对象对应；参数类数据（SMPL 人体、动画曲线、数值）排在其后，
 # 因此解算人体的节点上依次为「相机 / 人物 / 网格 / SMPL 人体」，三维交付物在前，算法参数在后
 PORT_ORDER = ("video", "image", "boxes", "tracks2d", "scene.camera",
-              "scene.character", "scene.skeleton", "scene.model", "scene.points", "scene.curves", "scene",
+              "scene.character", "scene.skeleton", "scene.model", "scene.points", "scene.curves", "scene.light", "scene",
               "curves",
               "value", "files")
 

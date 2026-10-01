@@ -8,12 +8,14 @@ import uuid
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
-from .routes import Access, Limit, Router
+from .repeats import Repeats
+from .routes import Access, Body, Limit, Router
 from .. import logs
+from ..errors import Failed
 from ..messages import Msg
 from . import auth
+from .access import manages
 from .farm import client_of
 from .wire import off_loop
 
@@ -25,33 +27,53 @@ http = logs.get("http")
 QUIET = ("/api/status", "/api/uploads/parts", "/api/uploads/have", "/api/queue", "/api/admin/queue", "/api/admin/log")
 
 
+def failed(request: Request, exc: BaseException) -> JSONResponse:
+    """A request the program failed: its reference and traceback in the log, the answer as every error's (errors.py
+    MessageError) with that reference. Whichever layer it failed in: the routes (install), the guard itself
+    (server/access.py Guard)."""
+    ref = uuid.uuid4().hex[:8]
+    logs.say(http, Msg("E-HTTP-FAILED", who=auth.who(request), method=request.method, path=request.url.path, ref=ref),
+             logs.error_text(exc))
+    said = Failed(Msg("E-SERVER-INTERNAL", ref=ref))
+    return JSONResponse(said.answer(), status_code=said.status)
+
+
+REFUSED_S = 600  # one address's refused requests of one status within this long: one log line, counted
+
+
+def _refused_again(said: Msg, count: int, last: float) -> None:
+    logs.say(http, Msg("W-HTTP-REQUESTSAGAIN", line=said.text, count=count))
+
+
+# a client sending what is refused again and again (an address no route has, a flood held back) is in the log once a
+# while, counted (server/repeats.py): never a way to roll the log over what it keeps
+_refused = Repeats(REFUSED_S, lambda key, t, said: logs.say(http, said) or said, _refused_again)
+
+
 def install(app: FastAPI) -> None:
     @app.middleware("http")
     async def log_requests(request: Request, call_next):
         started = time.time()
-        who = auth.client_ip(request)
+        who = auth.who(request)
         if (s := request.scope.get("lab2shot_session")) is not None:  # the account, once resolved by the guard
             who = f"{s.user.username}@{who}"
         try:
             response = await call_next(request)
         except Exception as exc:  # details go to the log only; the response never exposes code or paths
-            ref = uuid.uuid4().hex[:8]
             # Writing a log line is file I/O (including rotation, lab2shot/logs.py) and must not run on the event loop.
-            await off_loop(logs.say, http, Msg("E-HTTP-FAILED", who=who, method=request.method, path=request.url.path, ref=ref),
-                           logs.error_text(exc))
-            said = Msg("E-SERVER-INTERNAL", ref=ref)
-            return JSONResponse({"detail": said.text, "code": said.code}, status_code=500)
+            return await off_loop(failed, request, exc)
         path, status = request.url.path, response.status_code
         changes = request.method not in ("GET", "HEAD") and not path.startswith(QUIET)
-        failed = status >= 400 and not (request.method == "HEAD" and status == 404)  # HEAD 404 means "not uploaded yet"
-        if path.startswith("/api/") and (changes or failed):
-            said = Msg("W-HTTP-REQUEST" if failed else "I-HTTP-REQUEST", who=who, method=request.method, path=path, status=status,
-                       ms=int((time.time() - started) * 1000))
+        if path.startswith("/api/") and status >= 400:
+            said = Msg("W-HTTP-REQUEST", who=who, method=request.method, path=path, status=status, ms=int((time.time() - started) * 1000))
+            await off_loop(_refused.happened, (auth.who(request), status), said)
+        elif path.startswith("/api/") and changes:
+            said = Msg("I-HTTP-REQUEST", who=who, method=request.method, path=path, status=status, ms=int((time.time() - started) * 1000))
             await off_loop(logs.say, http, said)
         return response
 
 
-class ClientLog(BaseModel):
+class ClientLog(Body):
     text: str  # contents of the browser's log window
     client: dict = {}
 
@@ -65,18 +87,19 @@ def post_log(req: ClientLog, request: Request) -> dict:
 
 
 @admin.get("/security", access=Access.admin("security.manage"), summary="安全：最近的可疑请求（登录失败、没开放的接口、可疑的路径、请求太频繁……）、各类的次数、暂时封住的来源、现在有几个登录")
-def admin_security() -> dict:
+def admin_security(request: Request) -> dict:
     from .. import accounts
     from . import auth
 
-    return {**auth.guards().watch.view(), "online": accounts.online(), "limits": {
+    s = auth.session(request)
+    return {**auth.guards().watch.view(), "online": accounts.online(lambda owner, role: manages(s, owner, role)), "limits": {
         "rate_per_s": auth.RATE_PER_S, "burst": auth.RATE_BURST, "block_after": auth.BLOCK_AFTER,
         "block_window_min": auth.BLOCK_WINDOW_S // 60, "block_min": auth.BLOCK_S // 60, "free": auth.FREE,
         "client_lock": auth.CLIENT_LOCK, "address_free": auth.ADDRESS_FREE, "address_lock": auth.ADDRESS_LOCK,
         "subject_free": auth.SUBJECT_FREE, "max_wait_s": auth.MAX_WAIT_S, "window_min": auth.WINDOW_S // 60}}
 
 
-class Unblock(BaseModel):
+class Unblock(Body):
     client: str
 
 

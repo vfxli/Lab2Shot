@@ -12,9 +12,9 @@
  * 右上角状态格均只读取此处的结果。记录中还有该结果是用哪一组参数算出的（`params`）：变换手柄据此把节点自己的
  * 结果按当前参数重新摆放（view/Stage3D.tsx TransformHandle），不必等重新计算。 */
 import { create } from "zustand";
+import { same, type Json } from "../model/graphPatch";
 import { prefKeys, readPref, removePref, writePref } from "../platform/storage";
 import { useCookInputs } from "./cookInputs";
-import { useResults } from "./results";
 
 interface GoodResult {
   structure: string;
@@ -59,13 +59,22 @@ const KEEP_GRAPHS = 20; // 浏览器中保留「上一次有结果」的节点�
 interface State { byGraph: Record<string, Record<string, GoodResult>> }
 export const useLastGood = create<State>(() => ({ byGraph: {} }));
 
-function loaded(graphId: string): Record<string, GoodResult> {
+/** 这张图的记录读进 store（从浏览器存储）：只在渲染之外做——换了文档（订阅 graphId）、写入新记录（rememberGood）时。
+ * 渲染里只读（goodOf），不写 store。 */
+function ensureLoaded(graphId: string): Record<string, GoodResult> {
   const had = useLastGood.getState().byGraph[graphId];
   if (had) return had;
   const fromDisk = readPref<Record<string, GoodResult>>(key(graphId), {});
   useLastGood.setState((s) => ({ byGraph: { ...s.byGraph, [graphId]: fromDisk } }));
   return fromDisk;
 }
+useCookInputs.subscribe((s, p) => {
+  if (s.graphId !== p.graphId) ensureLoaded(s.graphId);
+});
+
+const NONE: Record<string, GoodResult> = {};
+/** 这张图记下的「上一次有结果」（没读进来之前为空：换文档时就读进来了）。 */
+const goodOf = (graphId: string): Record<string, GoodResult> => useLastGood.getState().byGraph[graphId] ?? NONE;
 
 /** 状态回复或 node_done 报告该节点已有包：记录此次的结构与端口（仅在变化时写入）。
  * `trusted`：报告回答的就是页面当前的版本，此时节点现在的参数就是算出这份结果的参数，一并记下；
@@ -73,12 +82,12 @@ function loaded(graphId: string): Record<string, GoodResult> {
 export function rememberGood(graphId: string, nodeOf: Nodes, edges: readonly EdgeLike[], id: string, fingerprint: string | null | undefined,
                              outputs: Record<string, string> | undefined, present: string[] | undefined, trusted: boolean): void {
   if (!fingerprint || !outputs || !present?.length) return;
-  const all = loaded(graphId);
+  const all = ensureLoaded(graphId);
   const had = all[id];
   const params = trusted ? nodeOf(id)?.params : had?.fingerprint === fingerprint ? had.params : undefined;
   const next: GoodResult = { structure: structureKey(nodeOf, edges, id), fingerprint, outputs, present: [...present].sort(), params };
-  if (had && had.structure === next.structure && had.fingerprint === fingerprint && JSON.stringify(had.outputs) === JSON.stringify(next.outputs)
-      && had.present.join() === next.present.join() && JSON.stringify(had.params) === JSON.stringify(params)) return;
+  if (had && had.structure === next.structure && had.fingerprint === fingerprint && same(had.outputs, next.outputs)
+      && had.present.join() === next.present.join() && same(had.params as Json | undefined, params as Json | undefined)) return;
   const merged = { ...all, [id]: next };
   useLastGood.setState((s) => ({ byGraph: { ...s.byGraph, [graphId]: merged } }));
   writePref(key(graphId), merged);
@@ -104,34 +113,17 @@ const isStale = (g: GoodResult | undefined, currentFp: string | null | undefined
 /** 若该端口已过期，返回上一次的包指纹；null 表示未过期。 */
 export function staleFp(graphId: string, nodeOf: Nodes, edges: readonly EdgeLike[], id: string, port: string,
                         currentFp: string | null | undefined): string | null {
-  const g = loaded(graphId)[id];
+  const g = goodOf(graphId)[id];
   if (!g?.present.includes(port)) return null;
   return isStale(g, currentFp, () => structureKey(nodeOf, edges, id)) ? (g.outputs[port] ?? null) : null;
 }
 
 /** 节点上一次有结果时的参数（见 `GoodResult.params`；undefined：不知道）。 */
 export function cookedWith(graphId: string, id: string): Record<string, unknown> | undefined {
-  return loaded(graphId)[id]?.params;
+  return goodOf(graphId)[id]?.params;
 }
 
-/** 该节点当前是否有可用的过期结果（任一端口）。 */
-function staleNode(graphId: string, nodeOf: Nodes, edges: readonly EdgeLike[], id: string, currentFp: string | null | undefined): boolean {
-  return isStale(loaded(graphId)[id], currentFp, () => structureKey(nodeOf, edges, id));
-}
-
-/** 该节点当前是否为「已过期」（供右上角状态格使用）：服务器报告该指纹无包，且上一次结果的结构未变。
- * 状态回复尚未跟上当前版本的节点图时（`forCookInputs` 落后，即参数刚修改后），当前指纹未知，不判定为过期
- * （见上方 `isStale` 的条件 ②）：回复到达后即正确。 */
-export function useStaleNode(id: string): boolean {
-  const graphId = useCookInputs((s) => s.graphId);
-  const version = useCookInputs((s) => s.version);
-  const nodes = useCookInputs((s) => s.nodes);
-  const edges = useCookInputs((s) => s.edges);
-  const byGraph = useLastGood((s) => s.byGraph);
-  const results = useResults((s) => s.results);
-  const forCookInputs = useResults((s) => s.forCookInputs);
-  const trusted = forCookInputs === version;
-  const present = trusted ? (results[id]?.present?.length ?? 0) > 0 : false;
-  void byGraph;
-  return !present && staleNode(graphId, (n) => nodes[n], edges, id, trusted ? results[id]?.fingerprint : undefined);
+/** 该节点当前是否有可用的过期结果（任一端口）。`good`：它记下的那一份（组件用 useLastGood 选出来，随之重画）。 */
+export function staleNode(good: GoodResult | undefined, nodeOf: Nodes, edges: readonly EdgeLike[], id: string, currentFp: string | null | undefined): boolean {
+  return isStale(good, currentFp, () => structureKey(nodeOf, edges, id));
 }

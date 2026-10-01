@@ -15,6 +15,8 @@ SUFFIXES = (".fbx",)
 
 class ImportFbx(WorkerImport):
     id = "fbx.import"
+    # 6：角色的 Visibility 关键帧读进来（隐藏的帧在 USD 里也隐藏）
+    version = 6
     runtime = "fbx"
     suffixes = SUFFIXES
     cost = replace(WorkerImport.cost, whole="读一个文件，时间看文件里有多少东西，不按帧算（只用 CPU）")
@@ -26,11 +28,12 @@ class ImportFbx(WorkerImport):
         models: list[str] = selection_param("models")
         skeletons: list[str] = selection_param("skeletons")
         characters: list[str] = selection_param("characters")
-    outputs = selection_ports(Params)
+    outputs = selection_ports(Params, fps="FBX 记的帧率（场景的时间模式）")
 
 
 class FbxOutput(OutputSettings):
     id = "fbx.output"
+    version = 7  # 7：帧号不连续的角色在空档上隐藏（可见性关键帧），不再读回插值出的姿势；6：同层重名按原名写
     category = "out_scene"
     runtime = "fbx"
     cost = replace(OutputSettings.cost, whole="写一个文件，时间看写多少东西，不按帧算（只用 CPU）")
@@ -44,6 +47,7 @@ class FbxOutput(OutputSettings):
         "curves": Writes.no("FBX 这一版不读写曲线"),
         "skeleton": Writes.full(),
         "character": Writes.full(lost="网格的分区，同「模型」"),
+        "light": Writes.no("这里的 FBX 不写灯光：穹顶灯（HDRI）只有 USD 带得走"),
     }
 
     class Params(NodeParams):

@@ -14,6 +14,9 @@ uniform highp sampler2D uDepth;
 uniform highp sampler2D uRgb; // alpha marks pixels that are points
 uniform float uHasRgb;
 uniform vec3 uGridTint;
+uniform vec3 uRamp; // (near, far, on): a distance map's colour ramp (server/view_data.py _distance_grid_view), warm near, cool far
+uniform vec3 uRampNear; // the ramp's colour at v = 0 and its change per unit v, as the server gives them (grid ramp_colour:
+uniform vec3 uRampSlope; // view_data.py RAMP_NEAR / RAMP_SLOPE, the one definition)
 uniform vec4 uGrid; // grid width, step, picture width, picture height
 uniform float uFocal;
 uniform vec2 uPrincipal; // (cx, cy) in pixels: the camera's principal point (the image centre unless the solver provides one)
@@ -29,7 +32,8 @@ bool gridPoint(int k, inout vec3 p, inout vec3 rgb) {
   float x = (c + 0.5 - uPrincipal.x) / uFocal * z;
   float y = (r + 0.5 - uPrincipal.y) / uFocal * z;
   p = mat3(uCam) * vec3(x, -y, -z) + uCam[3].xyz;
-  rgb = uHasRgb > 0.5 ? c4.rgb : uGridTint;
+  float v = (z - uRamp.x) / max(uRamp.y - uRamp.x, 1e-6);
+  rgb = uRamp.z > 0.5 ? clamp(uRampNear + v * uRampSlope, 0.0, 1.0) : uHasRgb > 0.5 ? c4.rgb : uGridTint;
   return true;
 }
 #endif

@@ -25,7 +25,7 @@ export function Welcome({ onOpen }: { onOpen: () => void }) {
           <p className="welcome-sub">从模板开始最快，也可以自己一个个加节点</p>
         </div>
         <div className="welcome-acts">
-          <button className="welcome-act main" onClick={() => setTemplatesOpen(true)} data-tip="内置的模板：现成的流程，选好素材、点「提交」就能出结果">
+          <button className="welcome-act main" onClick={() => setTemplatesOpen(true)} data-tip="内置的模板：现成的流程，选好素材、按面板上的按钮一步步算就能出结果">
             <span className="welcome-icon">
               <IconGrid size={14} />
             </span>

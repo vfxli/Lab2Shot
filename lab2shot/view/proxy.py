@@ -27,10 +27,11 @@ import numpy as np
 
 from ..config import provide_choices
 from ..data.packet import Packet
-from ..data.payloads import channel_list, image_files
+from ..data.maps import nearest
+from ..data.payloads import channel_list, image_files, is_labels
 from .channels import channel_blob
 from .encode import write_once
-from .frames import VIDEO_AHEAD, channel_key, channel_values, shown_now, video_frames
+from .frames import channel_key, channel_values, shown_now, video_frames
 
 # 管理员可选的三档（长边像素）。本表是唯一数据源：设置项 view.proxy_px 的选项由它提供（config.provide_choices）。
 TIERS = (512, 1024, 2048)
@@ -117,14 +118,20 @@ def _along(a: np.ndarray, axis: int, taps: tuple[np.ndarray, np.ndarray]) -> np.
     return out
 
 
-def shrink(values: np.ndarray, width: int, height: int) -> np.ndarray:
+def shrink(values: np.ndarray, width: int, height: int, labels: bool = False) -> np.ndarray:
     """将 [h, w] 或 [h, w, C] 的 float32 按面积平均缩放到 width × height（已是该尺寸时原样返回）。
 
     NaN 和无穷不参与平均：深度图、位置图中「该像素无值」即写为 NaN，若参与计算会使一大片
-    变为 NaN。某块中没有任何有限值时输出 NaN（仍表示无值）。"""
+    变为 NaN。某块中没有任何有限值时输出 NaN（仍表示无值）。
+
+    `labels`：值是编号不是数量（编号图，`data/payloads.py is_labels`），改用最近邻（`data/maps.py nearest`）：
+    按面积平均会在两个物体交界处算出两者之间的数——既可能是小数，也可能恰好是第三个物体的编号——视图「编号」
+    着色把它画成另一种颜色，就是分割边缘上的一圈杂色。最近邻只取原有的值，每个像素只属于一个编号。"""
     h, w = values.shape[:2]
     if (w, h) == (width, height):
         return np.ascontiguousarray(values, np.float32)
+    if labels:
+        return np.ascontiguousarray(nearest(np.asarray(values, np.float32), width, height))
     flat = np.ascontiguousarray(values, np.float32).reshape(h, w, -1)
     good = np.isfinite(flat)
     wy, wx = _taps(h, height), _taps(w, width)
@@ -146,12 +153,28 @@ def shrink(values: np.ndarray, width: int, height: int) -> np.ndarray:
 # ------------------------------------------------------------------ 单个通道的代理
 
 
-def _blob(values: np.ndarray) -> bytes:
+def _blob(values: np.ndarray, labels: bool = False) -> bytes:
     """单个通道缩放后编码为传输字节（见 `lab2shot/view/channels.py channel_blob` 的格式表）。
 
     代理始终经过压缩，不存在「无损 / 压缩」两种模式，因此 `channel_blob` 只有一种编码方式：8 位数据本身即为
-    一个字节，尾数低位置零既不节省空间也没有意义，它会自行识别。"""
-    return channel_blob(values)
+    一个字节，尾数低位置零既不节省空间也没有意义，它会自行识别。编号图（`labels`）不置零尾数：编号要原样到达。"""
+    return channel_blob(values, exact=labels)
+
+
+def form_of(p: Packet) -> str:
+    """该数据包代理的做法：编号图（`is_labels`）为 "ids"（按最近邻、不置零尾数，见 `shrink`、`_blob`），其余为 ""。
+    唯一的来源：代理文件名（`form_suffix`）、包说明里的 `proxy.form`（server/packets.py describe）和网页的代理地址 /
+    缓存键（webui/src/transfer/sources.ts tierTag、api/index.ts versionQuery 的 `pf=`）都由它得出。
+    做法一变，文件名、地址、浏览器缓存键跟着变，旧做法生成的字节（服务器磁盘上的、浏览器里标了 immutable 的）不会被当成新的用。"""
+    return "ids" if is_labels(p) else ""
+
+
+def form_suffix(p: Packet) -> str:
+    """代理文件名里区分做法的一段（`form_of`）：编号图为 `.ids`，其余为空。数据包自己的代理和边算边看的代理
+    （server/farm.py partial_frame）都用它拼文件名。代理按文件名只生成一次（write_once），
+    改做法之前按面积平均生成的编号图代理因此不会被当成新做法的结果继续用。"""
+    form = form_of(p)
+    return f".{form}" if form else ""
 
 
 def channel_file(p: Packet, frame: int, name: str, px: int | None = None) -> Path:
@@ -170,6 +193,7 @@ def channel_files(p: Packet, frame: int, names: list[str], px: int | None = None
     if key is None:
         raise FileNotFoundError(f"no frame {frame}")
     read: dict[str, np.ndarray] = {}
+    labels = is_labels(p)
 
     def write(name: str, part: Path) -> None:
         import gzip
@@ -178,9 +202,10 @@ def channel_files(p: Packet, frame: int, names: list[str], px: int | None = None
             read.update(channel_values(p, frame, names))
         values = read[name]
         h, w = values.shape[:2]
-        part.write_bytes(gzip.compress(_blob(shrink(values, *sized(w, h, px))), PROXY_GZIP))
+        part.write_bytes(gzip.compress(_blob(shrink(values, *sized(w, h, px), labels=labels), labels), PROXY_GZIP))
 
-    return {name: write_once(p.dir / "_view" / "proxy" / f"{key}.{name}.{px}.bin.gz", lambda part, name=name: write(name, part))
+    return {name: write_once(p.dir / "_view" / "proxy" / f"{key}.{name}.{px}{form_suffix(p)}.bin.gz",
+                             lambda part, name=name: write(name, part))
             for name in names}
 
 
@@ -196,7 +221,9 @@ def picture_file(p: Packet, frame: int, px: int | None = None) -> Path | None:
     key = channel_key(p, frame)
     if key is None:
         return None
-    return picture_of(lambda: _shown(p, frame), p.dir / "_view" / "proxy" / f"{key}.{px}", px)
+    # 编号图的显示图同样按最近邻缩（见 shrink）
+    return picture_of(lambda: _shown(p, frame), p.dir / "_view" / "proxy" / f"{key}.{px}{form_suffix(p)}", px,
+                      labels=is_labels(p))
 
 
 def _shown(p: Packet, frame: int) -> Path | np.ndarray | None:
@@ -207,7 +234,7 @@ def _shown(p: Packet, frame: int) -> Path | np.ndarray | None:
     if p.type == "video":
         if channel_key(p, frame) is None:
             return None
-        video_frames(p, [frame], ahead=VIDEO_AHEAD)
+        video_frames(p, [frame])
         made = p.dir / "_view" / f"frame.{frame}.png"
         return made if made.exists() else None  # 容器头报告的帧数多于实际可解码的帧数：该帧不存在（见 video_frames 的说明）
     return shown_now(p, frame)
@@ -216,14 +243,15 @@ def _shown(p: Packet, frame: int) -> Path | np.ndarray | None:
 def video_picture_file(p: Packet, frame: int, px: int | None = None) -> Path:
     """视频某帧显示图的代理（视频像素位于容器中，先解码为显示 PNG，与「按通道取」读取的是同一张）。"""
     px = tier() if px is None else px
-    video_frames(p, [frame], ahead=VIDEO_AHEAD)
+    video_frames(p, [frame])
     source = p.dir / "_view" / f"frame.{frame}.png"
     if not source.exists():  # 容器头报告的帧数多于实际可解码的帧数：该帧不存在（见 video_frames 的说明）
         raise FileNotFoundError(f"no frame {frame}")
     return picture_of(source, p.dir / "_view" / "proxy" / f"{frame}.{px}", px)
 
 
-def picture_of(source: Path | Callable[[], Path | np.ndarray | None], base: Path, px: int | None = None, write=None) -> Path:
+def picture_of(source: Path | Callable[[], Path | np.ndarray | None], base: Path, px: int | None = None, write=None,
+               labels: bool = False) -> Path:
     """任意显示图的代理。`source`：显示图的文件，或只在需要生成代理时才调用、给出显示图（文件或像素，
     `_shown`）的函数：代理已生成时不必先做出显示图。
 
@@ -235,24 +263,30 @@ def picture_of(source: Path | Callable[[], Path | np.ndarray | None], base: Path
     自称 WebP 的 PNG）。两种格式都是缩放后的结果：不得因编码器不可用而发送原尺寸图。生成一次后保留
     （view/encode.py write_once）。
 
-    `write(source, part, px, kind)`：将该显示图生成为该结果的方式（默认为 `_write_picture`：缩放并编码）。
+    `write(source, part, px, kind)`：将该显示图生成为该结果的方式（默认为 `_write_picture`：缩放并编码；
+    `labels` 时按编号图的做法缩放，即最近邻，见 shrink，并且只写无损 PNG。调用方按数据包的 `is_labels` 给出，
+    文件名由调用方带上 `form_suffix`）。
     通过带畸变的相机查看时（through_picture_file）仍用 `_write_picture`，另给 `warp`：缩放后再按该相机的镜头去畸变。"""
     px = tier() if px is None else px
-    write = _write_picture if write is None else write
+    if write is None:
+        write = (lambda src, part, px_, kind: _write_picture(src, part, px_, kind, labels=True)) if labels else _write_picture
     # 以追加方式拼接，而不使用 `with_suffix`：`base` 的名称中包含档位（`2001.512`），
     # `with_suffix` 会将 `.512` 视为后缀替换掉，导致代理图丢失档位、两个档位互相覆盖。
     webp, png = base.with_name(base.name + ".webp"), base.with_name(base.name + ".png")
     if png.is_file():   # 上次已发现该图无法写为 WebP：不再重复尝试
         return png
+    if labels:  # 编号图：有损 WebP 会在两块编号的交界处振铃出原来没有的值，只写无损 PNG（编号图大片同值，PNG 本来就小）
+        return write_once(png, lambda part: write(source, part, px, ".png"))
     try:
         return write_once(webp, lambda part: write(source, part, px, ".webp"))
     except OSError:
         return write_once(png, lambda part: write(source, part, px, ".png"))
 
 
-def _write_picture(source, part: Path, px: int, kind: str, warp=None) -> None:
+def _write_picture(source, part: Path, px: int, kind: str, warp=None, labels: bool = False) -> None:
     """将显示图（`picture_of` 的 `source`）缩放到该档位并编码为 `kind` 格式（无法写出时抛出 OSError，由 `picture_of`
     改用另一种格式）。`warp(pixels)`：缩放后对该 [h, w, C] float32 执行的附加步骤（去畸变），没有时不执行。
+    `labels`：编号图的显示图，按最近邻缩（见 shrink）。
 
     读用 ImageInput、写用 ImageBuf.write：代理在多个线程上同时生成，而 OpenImageIO 的 Python 接口里
     ImageBuf.get_pixels 与 ImageOutput.close（WebP 写入器在 close 时才编码整张图）执行期间都不释放解释器锁，
@@ -264,7 +298,7 @@ def _write_picture(source, part: Path, px: int, kind: str, warp=None) -> None:
     h, w, channels = pixels.shape
     width, height = sized(w, h, px)
     if (width, height) != (w, h) or warp is not None:
-        pixels = shrink(pixels.astype(np.float32), width, height)
+        pixels = shrink(pixels.astype(np.float32), width, height, labels=labels)
         pixels = np.rint(np.clip(pixels if warp is None else warp(pixels), 0, 255))
     # 必须连续：OIIO 收到通道不连续的数组时返回 False 而不抛出异常，留下一张全黑的图
     pixels = np.ascontiguousarray(pixels, np.uint8).reshape(height, width, channels)
@@ -326,14 +360,17 @@ def through_picture_file(p: Packet, frame: int, camera: Packet, at: str = "", px
         return None
     source = lambda: _shown(p, frame)  # noqa: E731
     when = frame if lens.animated else None  # 镜头整段固定时各帧共用同一张 ST-map；变焦时每帧一张
-    base = p.dir / "_view" / "proxy" / f"{key}.{px}.through-{tag}{'' if when is None else f'.{when}'}"
-    return picture_of(source, base, px, write=lambda src, part, px_, kind: _write_picture(src, part, px_, kind, warp=lambda pixels: _undistort(pixels, lens, when)))
+    base = p.dir / "_view" / "proxy" / f"{key}.{px}{form_suffix(p)}.through-{tag}{'' if when is None else f'.{when}'}"
+    labels = is_labels(p)  # 编号图：缩放和去畸变的取样都用最近邻（shrink、_undistort），并且只写无损 PNG（picture_of）
+    return picture_of(source, base, px, write=lambda src, part, px_, kind: _write_picture(
+        src, part, px_, kind, warp=lambda pixels: _undistort(pixels, lens, when, labels), labels=labels), labels=labels)
 
 
-def _undistort(pixels: np.ndarray, lens, frame: int | None) -> np.ndarray:
+def _undistort(pixels: np.ndarray, lens, frame: int | None, labels: bool = False) -> np.ndarray:
     """将 [h, w, C] 的显示图按 `lens` 去畸变，画布即其自身的框：每个输出像素通过镜头的畸变公式查询「该针孔位置
     在实拍画面上的落点」（data/lens_models.py lens_stmaps 的 undistort 映射，换算为该档位的尺寸），再用与
-    「STMap」节点相同的采样核（apply_stmap，双三次）取样。落在画面之外的像素为黑色。"""
+    「STMap」节点相同的采样核（apply_stmap，双三次）取样。落在画面之外的像素为黑色。
+    `labels`：编号图，取最近邻（和「STMap」节点对带类别表的图的做法相同，nodes/core/image.py），不在编号之间插值。"""
     from ..data.lens_models import apply_stmap, encode, pixel_centres
 
     h, w = pixels.shape[:2]
@@ -341,7 +378,7 @@ def _undistort(pixels: np.ndarray, lens, frame: int | None) -> np.ndarray:
     centres = pixel_centres(w, h) * (raster_w / w, raster_h / h)  # 该档位的像素中心，换算到相机画幅的像素坐标
     mapped = lens.map_px(centres, "distort", frame)  # 针孔位置 -> 实拍画面上的位置（画幅像素）
     st = encode(mapped.points, (raster_w, raster_h))  # 按画幅归一化：乘以该档位的尺寸即为该图上的位置
-    out, valid = apply_stmap(np.ascontiguousarray(pixels, np.float32), st, (w, h), bicubic=True)
+    out, valid = apply_stmap(np.ascontiguousarray(pixels, np.float32), st, (w, h), nearest=labels, bicubic=not labels)
     return np.where(valid[..., None] > 0, out, 0.0)
 
 
@@ -412,9 +449,9 @@ def build(p: Packet, threads: int = 0, frames: list[int] | None = None) -> None:
 
     px, names, frames = tier(), channel_list(p), frames_of(p) if frames is None else frames
     if p.type == "video":
-        # 视频先一次解码完成：其像素位于容器中，逐帧请求意味着将同一文件打开数百次
-        # （`view/frames.py video_frames` 一次解码这些帧，已解码的跳过）。下面每个通道、每张图读取的
-        # 都是解码出的 PNG，因此该步骤必须在启动线程之前执行。
+        # 视频先把这些帧解码完成：其像素位于容器中（`view/frames.py video_frames`：交给该数据包唯一的解码器，
+        # 它接着上一段的位置往后解，已做好的跳过）。下面每个通道、每张图读取的都是解码出的 PNG，
+        # 因此该步骤必须在启动线程之前执行。
         from .frames import video_frames
 
         video_frames(p, list(frames))

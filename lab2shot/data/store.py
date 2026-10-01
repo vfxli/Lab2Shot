@@ -26,6 +26,7 @@ import os
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from ..config import settings
@@ -38,6 +39,8 @@ POLL_S = 0.5
 
 class NoAccount(MessageError, RuntimeError):
     """A cache was asked for while no account's work is being done (a programming error: the caller names the account)."""
+
+    status = 500
 
 
 def _names(path: Path, f) -> bool:
@@ -137,28 +140,35 @@ class Store:
 
 
 _store: Store | None = None
-_using: Store | None = None
+# The store `using` put in place, held per context (contextvars, as serving.py holds the account): a thread judging a
+# template's routes in a scratch cache (engine/templates.py _empty_cache) must never move the cooks running on other
+# threads into that cache, which vanishes with it. A plain global did exactly that.
+_using: ContextVar[Store | None] = ContextVar("lab2shot_store", default=None)
 
 
 def current() -> Store:
     """The store of the work folder as configured now (a changed LAB2SHOT_WORK_DIR gives the store of the new folder),
-    or the one `using` put in place."""
+    or the one `using` put in place in this context."""
     global _store
-    if _using is not None:
-        return _using
+    if (put := _using.get()) is not None:
+        return put
     root, data = settings().work_dir, settings().data_dir
     if _store is None or _store.root != root or _store.data != data:
         _store = Store(root, data)
     return _store
 
 
+def using_now() -> Store | None:
+    """The store `using` put in place in this context, if any (serving.py carried hands it to another thread)."""
+    return _using.get()
+
+
 @contextmanager
-def using(store: Store) -> Iterator[Store]:
-    """Work on `store` instead of the configured one while this lasts (`lab2shot check` cache: a scratch folder, so the
-    check never touches the work folder)."""
-    global _using
-    was, _using = _using, store
+def using(store: Store | None) -> Iterator[Store | None]:
+    """Work on `store` instead of the configured one while this lasts, in this context only (`lab2shot check` cache: a
+    scratch folder, so the check never touches the work folder; a card's routes judged in an empty cache)."""
+    token = _using.set(store)  # None: the configured one, as a thread handed work without an override
     try:
         yield store
     finally:
-        _using = was
+        _using.reset(token)

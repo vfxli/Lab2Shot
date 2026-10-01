@@ -1,7 +1,7 @@
 import "./Swatches.css";
 
-/** Pick one colour of a few (the 3D view's colours, a network box's colour). `disabled`: 现在选不了的原因
- * （控件不消失，变灰并写原因），空字符串或 false 表示能选。 */
+/** Pick one colour of a few (the 3D view's colours, a network box's colour). `disabled`: why it cannot be
+ * picked now (the control never disappears: it greys and says why); an empty string or false means it can. */
 export function Swatches({ value, colors, onChange, label, size = "md", layout, disabled }:
   { value: string; colors: readonly string[]; onChange: (c: string) => void; label: string; size?: "md" | "sm"; layout?: string; disabled?: string | false }) {
   return (

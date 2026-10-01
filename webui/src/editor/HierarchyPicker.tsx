@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Choice, ParamDef } from "../api";
+import type { Choice } from "../api";
 import { getNodeDefs, getTypes } from "../state/catalog";
 import { useCookInputs } from "../state/cookInputs";
 import { portColor } from "../graph/nodes";
 import { IconBone, IconCamera, IconChevron, IconClose } from "../ui/icons";
-import { useChoiceSet } from "../ui/choices";
-import { Sheet } from "../ui/Sheet";
 import { Button, IconButton } from "../ui/Button";
+import { SheetFoot, useDraft, Writes, type SheetEditor, type SheetEditorProps, type SheetSummaryProps } from "./ParamSheet";
 
 // An import node's selection of one kind of 3D data (widget "hierarchy", nodes/formats.py selection_param): in the
 // panel, what is chosen (a count and the first paths); 「选择…」 opens the file's hierarchy as a tree to pick in, as
 // Houdini's scene-graph tree does. Production files hold thousands of prims: the tree is built once per answer of
 // NodeDef.choices (every kind's entries by their paths, what tells them apart) and drawn a screenful at a time.
+//
+// It follows the generic "edit a parameter in a sheet" contract (editor/ParamSheet.tsx): the summary, 「选择…」, 「清掉」,
+// when they are enabled and the tree in the window are registered in `Hierarchy` below; opening, 确定 writing back,
+// cancel not writing back, Esc and a click on the backdrop are the framework's, and so is fetching the data (NodeDef.choices).
 
 const ROW = 24; // px: every row of the tree the same height, so only the rows in view are drawn
 const LIST = 440; // px: the tree's height
@@ -39,57 +42,74 @@ function useKinds(nodeId: string) {
   }, [def, types]);
 }
 
+/** The option set of this kind among the file's answer (null while not known). */
+const choiceOf = ({ p, choices }: SheetSummaryProps) => (choices ? (choices[p.name] ?? choices[""] ?? null) : null);
+/** What is chosen, as a list whether the parameter takes one path or many. */
+const chosenOf = ({ p, value }: SheetSummaryProps): string[] =>
+  p.type === "array" ? ((value as string[] | null) ?? []) : value ? [value as string] : [];
+
 /** What the file's selection of this kind is, in the panel: 「没有选」 or the count and the first entries as chips
- * (one the file no longer has marked), 「选择…」 for the tree, and a button that clears it. */
-export function HierarchyParam({ nodeId, p, value, set }: { nodeId: string; p: ParamDef; value: string | string[]; set: (v: unknown) => void }) {
-  const all = useChoiceSet(nodeId, p);
+ * (an entry missing from the file is marked). */
+function HierarchySummary(x: SheetSummaryProps) {
+  const { nodeId, p, choices: all } = x;
   const kinds = useKinds(nodeId);
-  const [open, setOpen] = useState(false);
-  const choice = all ? (all[p.name] ?? all[""] ?? null) : null;
+  const choice = choiceOf(x);
   const many = p.type === "array";
-  const chosen = many ? ((value as string[] | null) ?? []) : value ? [value as string] : [];
+  const chosen = chosenOf(x);
   const options = choice?.options ?? [];
   const known = useMemo(() => new Set(options), [options]);
   const unit = many ? "个" : "台";
   const none = !all ? "先选择文件" : options.length ? `没有选 · 文件里有 ${options.length.toLocaleString()} ${unit}` : (choice?.empty ?? "先选择文件");
   return (
-    <div className="hier">
-      <div className="hier-sum">
-        {chosen.length === 0 && <span className="hier-none">{none}</span>}
-        {many && chosen.length > 0 && <span className="hier-count">{chosen.length.toLocaleString()} 个</span>}
-        {chosen.slice(0, SHOWN).map((path) => (
-          <span key={path} className={`chip hier-chip${known.has(path) || !all ? "" : " gone"}`} data-user-data>
-            <i style={{ background: kinds[p.name]?.color }} />
-            {short(path)}
-          </span>
-        ))}
-        {chosen.length > SHOWN && (
-          <span className="hier-more">
-            +{(chosen.length - SHOWN).toLocaleString()}
-          </span>
-        )}
-      </div>
-      <div className="hier-actions">
-        <Button
-          layout="hier-open"
-          disabled={!options.length}
-          onClick={() => setOpen(true)}
-        >
-          选择…
-        </Button>
-        {chosen.length > 0 && (
-          <IconButton tone="ghost" onClick={() => set(many ? [] : "")} aria-label="清掉">
-            <IconClose size={10} />
-          </IconButton>
-        )}
-      </div>
-      {open && all && (
-        <TreePicker all={all} port={p.name} kinds={kinds} many={many} label={p.label} initial={chosen}
-          onCancel={() => setOpen(false)} onOk={(paths) => (setOpen(false), set(many ? paths : (paths[0] ?? "")))} />
+    <>
+      {chosen.length === 0 && <span className="hier-none">{none}</span>}
+      {many && chosen.length > 0 && <span className="hier-count">{chosen.length.toLocaleString()} 个</span>}
+      {chosen.slice(0, SHOWN).map((path) => (
+        <span key={path} className={`chip hier-chip${known.has(path) || !all ? "" : " gone"}`} data-user-data>
+          <i style={{ background: kinds[p.name]?.color }} />
+          {choice?.labels?.[path] ?? short(path)}
+        </span>
+      ))}
+      {chosen.length > SHOWN && (
+        <span className="hier-more">
+          +{(chosen.length - SHOWN).toLocaleString()}
+        </span>
       )}
-    </div>
+    </>
   );
 }
+
+/** The button that clears the selection, right of 「选择…」 (only when something is chosen). */
+function HierarchyClear(x: SheetSummaryProps) {
+  if (!chosenOf(x).length) return null;
+  return (
+    <IconButton tone="ghost" onClick={() => x.set(x.p.type === "array" ? [] : "")} aria-label="清掉">
+      <IconClose size={10} />
+    </IconButton>
+  );
+}
+
+/** The window's content: the file's hierarchy as a tree (TreePicker); 确定 writes the picked paths back. */
+function HierarchyEditor({ nodeId, p, value, choices, set, cancel }: SheetEditorProps) {
+  const kinds = useKinds(nodeId);
+  const many = p.type === "array";
+  const initial = chosenOf({ nodeId, p, value, choices, set });
+  return (
+    <TreePicker all={choices ?? {}} port={p.name} kinds={kinds} many={many} label={p.label} initial={initial}
+      onCancel={cancel} onOk={(paths) => set(many ? paths : (paths[0] ?? ""))} />
+  );
+}
+
+/** widget "hierarchy": registered in editor/ParamControls.tsx SHEET_EDITORS. */
+export const Hierarchy: SheetEditor = {
+  editor: HierarchyEditor,
+  title: (p) => `选择${p.label}`,
+  button: "选择…",
+  width: 780,
+  summary: HierarchySummary,
+  actions: HierarchyClear,
+  ready: (x) => !!x.choices && !!choiceOf(x)?.options.length,
+};
 
 interface TNode {
   path: string;
@@ -117,6 +137,8 @@ function buildTree(all: Record<string, Choice>, ports: string[], pick: string) {
     return made;
   };
   for (const port of ports) for (const path of all[port]?.options ?? []) node(path).ports.push(port);
+  // an entry the file names better than its path's last part (a 蒙皮角色 by its mesh, not its root joint: Choice.labels)
+  for (const port of ports) for (const [path, label] of Object.entries(all[port]?.labels ?? {})) if (at.has(path)) at.get(path)!.name = label;
   for (const path of all[pick]?.options ?? []) for (let n: TNode | null = at.get(path)!; n; n = n.parent) n.below += 1;
   return { root, at };
 }
@@ -130,7 +152,7 @@ function visibleRows(root: TNode, expanded: Set<string>, onlyKind: boolean, pick
     const keep = new Set<TNode>();
     const walk = (n: TNode) => {
       for (const c of n.children) {
-        if (c.ports.includes(pick) && c.path.toLowerCase().includes(q)) for (let k: TNode | null = c; k && !keep.has(k); k = k.parent) keep.add(k);
+        if (c.ports.includes(pick) && (c.path.toLowerCase().includes(q) || c.name.toLowerCase().includes(q))) for (let k: TNode | null = c; k && !keep.has(k); k = k.parent) keep.add(k);
         if (c.below) walk(c);
       }
     };
@@ -161,7 +183,7 @@ function KindIcon({ ports, kinds, dim }: { ports: string[]; kinds: Record<string
     <svg width={13} height={13} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       {kind === "model" && <path d="M8 2.2 13.5 5v6L8 13.8 2.5 11V5L8 2.2Zm0 0v5.8m0 0 5.5-3M8 8 2.5 5" />}
       {kind === "points" && [3.5, 8, 12.5].flatMap((x) => [4, 8, 12].map((y) => <circle key={`${x},${y}`} cx={x + (y === 8 ? 1 : 0)} cy={y} r="0.9" fill={color} stroke="none" />))}
-      {/* 三维曲线：从同一端散开的三根线（发丝、毛发导向线），以便与点云、模型区分 */}
+      {/* 3D curves: three lines fanning out from one end (strands, hair guides), to tell them from point clouds and meshes */}
       {kind === "curves" && <path d="M3 13.5C5 9 5.5 5 8 2.5M6.5 13.5C7.5 9.5 8.5 6 10.5 3.6M10 13.5C10.2 9.8 11.4 6.8 13 4.6" />}
       {!kind && <rect x="3" y="3" width="10" height="10" rx="2" />}
     </svg>
@@ -171,7 +193,8 @@ function KindIcon({ ports, kinds, dim }: { ports: string[]; kinds: Record<string
 /** The file's hierarchy to pick entries of one kind in (Houdini's scene-graph tree): collapsible, DCC paths, an icon
  * per kind; the other kinds and the groups greyed, as structure. Click selects, Ctrl+click adds or removes, Shift+click
  * selects the range; a group offers the entries of this kind below it; search by path; expand or collapse all;
- * arrow keys walk the tree (→ ← open and close, space selects, Enter confirms). The camera picker takes one. */
+ * arrow keys walk the tree (→ ← open and close, space selects, Enter confirms). The camera picker takes one. The window
+ * around it (title, Esc, the backdrop) is the framework's (ParamSheet.tsx). */
 function TreePicker({ all, port, kinds, many, label, initial, onOk, onCancel }: {
   all: Record<string, Choice>;
   port: string;
@@ -186,7 +209,7 @@ function TreePicker({ all, port, kinds, many, label, initial, onOk, onCancel }: 
   const { root, at } = useMemo(() => buildTree(all, ports, port), [all, port]); // eslint-disable-line react-hooks/exhaustive-deps
   const entries = all[port]?.options ?? [];
   const details = all[port]?.details ?? {};
-  const [picked, setPicked] = useState(() => new Set(initial));
+  const [picked, setPicked] = useDraft(() => new Set(initial)); // 草稿：只读时改不动（ParamSheet.tsx useDraft）
   const [anchor, setAnchor] = useState<string | null>(initial[0] ?? null);
   const [query, setQuery] = useState("");
   const [onlyKind, setOnlyKind] = useState(true);
@@ -287,7 +310,7 @@ function TreePicker({ all, port, kinds, many, label, initial, onOk, onCancel }: 
   const last = Math.min(rows.length, Math.ceil((top + LIST) / ROW) + 8);
   const count = many ? `已选 ${(picked.size).toLocaleString()} 个${label}` : picked.size ? `已选 ${[...picked][0]}` : "没有选";
   return (
-    <Sheet title={`选择${label}`} width={780} onClose={onCancel}>
+    <>
       <div className="htree-bar">
         <input className="field htree-search" placeholder="按路径搜索" value={query} onChange={(e) => setQuery(e.target.value)}
           data-tip={`只列出路径里有这些字的${label}，和到它们的层级`} />
@@ -320,10 +343,10 @@ function TreePicker({ all, port, kinds, many, label, initial, onOk, onCancel }: 
                 <span className="hname" data-user-data data-tip={n.path}>{n.name}</span>
                 {entry && <span className="hdetail">{details[n.path]}</span>}
                 {!entry && n.below > 0 && many && (
-                  <button className="hgroup-pick" data-tip={`选中「${n.name}」下面所有的${label}（按住 Ctrl 加到已选的里）`}
+                  <Writes><button className="hgroup-pick" data-tip={`选中「${n.name}」下面所有的${label}（按住 Ctrl 加到已选的里）`}
                     onClick={(e) => (e.stopPropagation(), setFocus(i), choose(below(n), e.ctrlKey || e.metaKey))}>
                     选下面的 {n.below.toLocaleString()} 个
-                  </button>
+                  </button></Writes>
                 )}
                 {!entry && n.below > 0 && !many && <span className="hdetail">{n.below} 台</span>}
               </div>
@@ -332,7 +355,7 @@ function TreePicker({ all, port, kinds, many, label, initial, onOk, onCancel }: 
         </div>
         {rows.length === 0 && <div className="htree-empty">{query ? `没有路径里有「${query}」的${label}` : `文件里没有${label}`}</div>}
       </div>
-      <div className="dialog-row htree-foot">
+      <SheetFoot layout="htree-foot" okTip="用勾选的层级" ok={ok} cancel={onCancel}>
         <span className="htree-count" data-tip={many ? [...picked].slice(0, 30).join("\n") : undefined}>{count}</span>
         {gone.length > 0 && (
           <Button tip={gone.join("\n")} tone="ghost" layout="htree-gone" onClick={() => setPicked((was) => new Set([...was].filter((p) => !gone.includes(p))))}>
@@ -344,14 +367,7 @@ function TreePicker({ all, port, kinds, many, label, initial, onOk, onCancel }: 
             全部不选
           </Button>
         )}
-        <span style={{ flex: 1 }} />
-        <Button tip="不改动，关掉这个窗口" tone="ghost" onClick={onCancel}>
-          取消
-        </Button>
-        <Button tip="用勾选的层级" tone="primary" onClick={ok}>
-          确定
-        </Button>
-      </div>
-    </Sheet>
+      </SheetFoot>
+    </>
   );
 }

@@ -31,6 +31,7 @@ import time
 import uuid
 import zipfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import logs
 from .config import settings
@@ -38,6 +39,9 @@ from .database import LIKE_ESCAPE, contains, db, json_of, json_text
 from .errors import Invalid, NotFound, TooMany
 from .messages import Msg
 from .periods import Periods, local_day
+
+if TYPE_CHECKING:
+    from .accounts import Actor
 
 log = logs.get("feedback")
 
@@ -281,9 +285,11 @@ def get(fid: str) -> dict:
     return _row(r)
 
 
-def listing(status: str | None = None, since: float | None = None, until: float | None = None, person: str = "") -> dict:
+def listing(status: str | None = None, since: float | None = None, until: float | None = None, person: str = "",
+            seen=lambda owner: True) -> dict:
     """Feedback, newest first, by status, time and part of an account's name or username; and how many there are of
-    each status."""
+    each status. `seen(owner)`: whether whoever asks may see a sender's feedback at all (server/access.py manages):
+    what it may not see is neither listed nor counted."""
     where, args = [], []
     if status:
         if status not in STATUS:
@@ -299,8 +305,12 @@ def listing(status: str | None = None, since: float | None = None, until: float 
     if person.strip():
         where.append(f"(u.name LIKE ? ESCAPE '{LIKE_ESCAPE}' OR u.username LIKE ? ESCAPE '{LIKE_ESCAPE}')")
         args += [contains(person)] * 2
-    rows = db().rows(f"{ROWS} {'WHERE ' + ' AND '.join(where) if where else ''} ORDER BY f.at DESC", tuple(args))
-    counts = {s: 0 for s in STATUS} | {r["status"]: r["n"] for r in db().rows("SELECT status, COUNT(*) AS n FROM feedback GROUP BY status")}
+    rows = [r for r in db().rows(f"{ROWS} {'WHERE ' + ' AND '.join(where) if where else ''} ORDER BY f.at DESC", tuple(args))
+            if seen(r["user_id"])]
+    counts = {s: 0 for s in STATUS}
+    for r in db().rows("SELECT status, user_id FROM feedback"):
+        if seen(r["user_id"]):
+            counts[r["status"]] += 1
     return {"items": [_row(r) for r in rows], "counts": counts}
 
 
@@ -327,7 +337,7 @@ def detail(fid: str) -> dict:
     return {**row, "bundle": bundle}
 
 
-def answer(fid: str, status: str, reply: str, note: str, by: str) -> dict:
+def answer(fid: str, status: str, reply: str, note: str, by: Actor) -> dict:
     """The administrator's answer: the status and the reply (the user sees both: unread until they look), the note
     (only administrators see it)."""
     old = get(fid)
@@ -338,11 +348,13 @@ def answer(fid: str, status: str, reply: str, note: str, by: str) -> dict:
         if len(text) > MAX_TEXT:
             raise Invalid(Msg("E-FEEDBACK-ANSWERLONG", what=label, count=len(text), max=MAX_TEXT))
     now = time.time()
-    replied = (now if reply else None, by if reply else "") if reply != old["reply"] else (old["replied"], old["replied_by"])
+    replied = ((now, by.label, by.id) if reply else (None, "", None)) if reply != old["reply"] else (
+        old["replied"], old["replied_by"], old["replied_by_id"])
     changed = now if status != old["status"] or reply != old["reply"] else old["changed"]
     with db().write() as c:
-        c.execute("UPDATE feedback SET status = ?, reply = ?, replied = ?, replied_by = ?, note = ?, changed = ?, "
-                  "updated = ?, updated_by = ? WHERE id = ?", (status, reply, *replied, note, changed, now, by, fid))
+        c.execute("UPDATE feedback SET status = ?, reply = ?, replied = ?, replied_by = ?, replied_by_id = ?, note = ?, "
+                  "changed = ?, updated = ?, updated_by = ?, updated_by_id = ? WHERE id = ?",
+                  (status, reply, *replied, note, changed, now, by.label, by.id, fid))
     return get(fid)
 
 
@@ -368,18 +380,18 @@ def mark_read(user_id: int) -> dict:
     return mine(user_id)
 
 
-def delete(fid: str, by: str) -> None:
+def delete(fid: str, by: Actor) -> None:
     row = get(fid)
     with db().write() as c:
         c.execute("DELETE FROM feedback WHERE id = ?", (fid,))
     shutil.rmtree(folder(fid), ignore_errors=True)  # the backups keep theirs until they rotate out
-    logs.say(log, Msg("I-FEEDBACK-DELETED", by=by, id=fid, person=row["person"]))
+    logs.say(log, Msg("I-FEEDBACK-DELETED", by=by.label, id=fid, person=row["person"]))
 
 
-def archive(fid: str) -> bytes:
+def archive(fid: str, trim=lambda row: row) -> bytes:
     """The whole feedback as one zip: feedback.json (what was written, who, status, the diagnostics) and the
-    screenshots."""
-    row = detail(fid)
+    screenshots. `trim(row)`: the feedback as whoever downloads it may see it (server/feedback.py DIAGNOSTICS)."""
+    row = trim(detail(fid))
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("feedback.json", json.dumps(row, ensure_ascii=False, indent=1))

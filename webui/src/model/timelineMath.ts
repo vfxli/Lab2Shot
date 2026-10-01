@@ -96,6 +96,32 @@ export function follow(v: View, f: number, bounds: View): View {
 
 // ------------------------------------------------------------------ frames and ranges
 
+/** The page has two rules for "a frame that is not in the data", one for each kind of data, both here:
+ * - `nearest`: the frames a picture has (2D sources, the decode window, the timeline's current frame, a point cache
+ *   or cloud held while the frame is on its way): the existing frame nearest, ties to the earlier;
+ * - `sampleAt`: the samples of an animated thing (a character, a camera, a model's placement): it holds where it last
+ *   was, so the last sample at or before the frame.
+ * Looking through a camera at a picture with gaps, the two can differ by design: the camera holds, the picture snaps. */
+
+/** The sample of `frame` among an item's `frames` (ascending; runs may leave gaps): the frame itself, else the last
+ * sample before it (inside a gap the thing holds where it last was, not where it ends up), else the first (before the
+ * first sample; a still thing holds everywhere). -1 when the item has no frames at all: nothing per frame to draw
+ * (view/sceneElement.tsx leaves out what needs a sample; a still thing draws its own shape). Binary search: called
+ * every frame for every item. */
+export const sampleAt = (frames: number[], frame: number) => {
+  if (!frames.length) return -1;
+  let lo = 0, hi = frames.length - 1, at = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (frames[mid] <= frame) (at = mid), (lo = mid + 1);
+    else hi = mid - 1;
+  }
+  return at;
+};
+
+/** Whether frame `a` is nearer to `f` than `b` by `nearest`'s rule (ties: the earlier). */
+export const closer = (a: number, b: number, f: number): boolean => Math.abs(a - f) < Math.abs(b - f) || (Math.abs(a - f) === Math.abs(b - f) && a < b);
+
 /** The existing frame nearest to `f` (frames sorted); ties go to the earlier one. */
 export function nearest(frames: number[], f: number): number {
   if (!frames.length) return f;
@@ -162,7 +188,8 @@ export function stepIn(frames: number[], range: Range, frame: number, d: number)
   const list = within(frames, range);
   if (!list.length) return frame;
   const i = list.indexOf(frame);
-  if (i < 0) return frame < range[0] ? list[0] : frame > range[1] ? list.at(-1)! : nearest(list, frame);
+  // not one of the frames (between two of them): the next one the way asked, never one behind
+  if (i < 0) return frame < range[0] ? list[0] : frame > range[1] ? list.at(-1)! : d > 0 ? list.find((f) => f > frame)! : [...list].reverse().find((f) => f < frame)!;
   const n = list.length;
   return list[(((i + d) % n) + n) % n];
 }
@@ -171,21 +198,44 @@ export function stepIn(frames: number[], range: Range, frame: number, d: number)
  * ends). Frames outside the range start again at its beginning (its end when playing backwards). */
 export function advance(frames: number[], range: Range, frame: number, dir: Dir, mode: LoopMode, n = 1): { frame: number; dir: Dir; stopped: boolean } {
   const list = within(frames, range);
-  const L = list.length;
-  if (!L) return { frame, dir, stopped: true };
+  if (!list.length) return { frame, dir, stopped: true };
   const i = list.indexOf(frame);
-  if (i < 0) return { frame: dir > 0 ? list[0] : list[L - 1], dir, stopped: false };
-  if (L === 1) return { frame: list[0], dir, stopped: mode === "once" };
-  if (mode === "loop") return { frame: list[(((i + dir * n) % L) + L) % L], dir, stopped: false };
+  if (i < 0) return { frame: dir > 0 ? list[0] : list[list.length - 1], dir, stopped: false };
+  const to = moveAt(list.length, i, dir, mode, n);
+  return { frame: list[to.i], dir: to.dir, stopped: to.stopped };
+}
+
+/** The move itself, on positions in the range's list of `L` frames (advance above, playOn below). */
+function moveAt(L: number, i: number, dir: Dir, mode: LoopMode, n: number): { i: number; dir: Dir; stopped: boolean } {
+  if (L === 1) return { i: 0, dir, stopped: mode === "once" };
+  if (mode === "loop") return { i: (((i + dir * n) % L) + L) % L, dir, stopped: false };
   if (mode === "once") {
     const j = i + dir * n;
     const end = dir > 0 ? L - 1 : 0;
     const past = dir > 0 ? j >= end : j <= end;
-    return { frame: list[past ? end : j], dir, stopped: past };
+    return { i: past ? end : j, dir, stopped: past };
   }
   const period = 2 * (L - 1); // ping-pong: unfold the back-and-forth into one line
   const u = ((((dir > 0 ? i : period - i) + n) % period) + period) % period;
-  return u <= L - 1 ? { frame: list[u], dir: 1, stopped: false } : { frame: list[period - u], dir: -1, stopped: false };
+  return u <= L - 1 ? { i: u, dir: 1, stopped: false } : { i: period - u, dir: -1, stopped: false };
+}
+
+/** Playback moved on by up to `n` frames one at a time, each one asked `drawable` first: it stops before the first
+ * frame that cannot be drawn yet (`short`: fewer than `n` taken and not stopped at the end), never landing on it. The
+ * range's frames are listed once; each step only moves a position in that list. */
+export function playOn(frames: number[], range: Range, frame: number, dir: Dir, mode: LoopMode, n: number, drawable: (f: number) => boolean): { frame: number; dir: Dir; stopped: boolean; short: boolean } {
+  const list = within(frames, range);
+  let at = { frame, dir, stopped: !list.length };
+  let i = list.indexOf(frame);
+  let went = 0;
+  while (went < n && !at.stopped) {
+    const next = i < 0 ? { i: dir > 0 ? 0 : list.length - 1, dir: at.dir, stopped: false } : moveAt(list.length, i, at.dir, mode, 1);
+    if (!drawable(list[next.i])) break;
+    i = next.i;
+    at = { frame: list[i], dir: next.dir, stopped: next.stopped };
+    went++;
+  }
+  return { ...at, short: went < n && !at.stopped };
 }
 
 // ------------------------------------------------------------------ the playback clock
@@ -202,6 +252,9 @@ interface Clock {
 export function tick(c: Clock, now: number, fps: number): { steps: number; clock: Clock } {
   const due = Math.floor((now - c.t0) * fps + 1e-6) - c.done;
   if (due <= 0) return { steps: 0, clock: c };
+  // more than a second behind: the page was not drawing at all (a tab in the background stops animation frames), not
+  // drawing slowly. That time is not owed: one step, and the clock starts again from now
+  if (due > Math.max(1, fps)) return { steps: 1, clock: { t0: now, done: 0 } };
   return { steps: due, clock: { t0: c.t0, done: c.done + due } };
 }
 

@@ -5,11 +5,17 @@ and nothing else lists routes again.
     and on admin.put("/gpus", ...):                 access=Access.admin("gpu.authorize")
 
     Access.open(why)                 anyone, before logging in (the gate, logging in, whether the server is up)
-    Access.user(why, needs=...)      whoever logged in; `needs`: a capability besides (lab2shot/roles.py), for a product
-                                     page's action that is not everyone's (no route uses it)
+    Access.user(why)                 whoever logged in
     Access.admin(capability)         a route under /api/admin/, for a role with that capability and fresh rights
+    Access.admin(capability, local=True)  ... and only from the command line on this machine (its machine token),
+                                     whatever rights a login in a browser has
     Access.page(why)                 the built web page (outside /api/)
     limit=Limit(...)                 the route's own body size and rate, instead of the guard's defaults
+    lane=...                         the threads its handler runs on, instead of the routes' shared ones (server/wire.py
+                                     LANE_THREADS): a handler that may wait long (for a password check, the view
+                                     worker, a slot) waits there, and never takes a thread every other route needs
+    snapshot=True                    a poll that reads state already kept (the queue, the load): it never waits for
+                                     its account's slots (Route)
 
 A Router (FastAPI's APIRouter) refuses a route without an access, one declared twice, and an admin level off /api/admin/
 (or a route under it without one), when the module is imported. server/access.py's guard looks each request up here
@@ -20,20 +26,27 @@ from __future__ import annotations
 import functools
 import inspect
 import json
+import math
 import re
 import threading
+import types
+import typing
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
+from typing import Annotated
 
 from fastapi import APIRouter
 from fastapi.routing import APIRoute
 from fastapi.encoders import jsonable_encoder
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.fields import FieldInfo
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import compile_path
 
-from ..errors import Invalid
+from ..config import QUOTA_GB_MAX
+from ..errors import Invalid, TooLarge
 from ..messages import Msg
 from ..transfer import BODY_MAX
 
@@ -42,18 +55,22 @@ ADMIN = "/api/admin/"
 # What this server takes from one account at once, whatever it sends. These are safety limits, not product settings
 # (a number that can blow up memory or time is not left to a settings form) — they are declared here, once, and the one
 # place that enforces each is named next to it. A limit that stops a real piece of work is a bug: raise the limit.
-MAX_BODY = BODY_MAX  # bytes one request may carry: a graph, a form — far below this (declared in transfer/__init__.py: uploads size the head by it)
+MAX_BODY = 4 << 20  # bytes a request may carry unless its route declares more (Limit): a graph, a form — far below this; server/access.py
+BIG_BODY = BODY_MAX  # what the upload routes that take many names or a file's head declare (transfer/__init__.py: its head is sized by it)
 OPEN_BODY = 64 << 10  # bytes a request to an open route may carry (logging in, registering: a form): Access.open
 MAX_NODES = 1000  # nodes one graph may hold (the biggest template is far below this): server/access.py admit()
 MAX_DEPTH = 64  # levels of nesting a JSON body may have (a graph is under ten): read_json, for every route (Route) and feedback
 MAX_STREAMS = 16  # event streams one account may keep open at once (a page follows a few jobs): server/auth.py Streams
+ACCOUNT_SLOTS = 2  # handlers one account runs at once on the routes' shared threads, and on each lane; the rest wait: Route
+STRANGER_SLOTS = 8  # requests without a login a lane holds at once, waiting or running (logging in); past it refused: Route
 
 
 @dataclass(frozen=True)
 class Limit:
     """A route's own limits, instead of the guard's defaults. `body`: bytes a request may carry (None: the route checks
-    its own, larger limit as it reads: uploads, feedback). `burst` and `per_s`: requests one client may send to it at
-    once and a second after that (None: only the rate every request counts against, auth.Rate)."""
+    its own, larger limit as it reads: an upload's parts). `burst` and `per_s`: requests one client may send to it at
+    once and a second after that, counted apart from its other requests (None: it counts against the rate every other
+    request does, auth.Rate)."""
 
     body: int | None = MAX_BODY
     burst: float | None = None
@@ -64,7 +81,7 @@ class Limit:
 class Access:
     level: str  # open, user, admin, page
     why: str = ""  # what it is for, said to whoever reads the declarations (the OpenAPI summary)
-    needs: str | None = None  # the capability it needs (admin: always; user: a product page's action)
+    needs: str | None = None  # the capability it needs (admin routes only, always one)
     limit: Limit | None = None
     # fields of its answer not everyone gets: a subject of server/available.py FIELDS -> the JSON paths of those fields
     # (keys by dots, `[]` every item, `*` every value; the last key is removed). The guard strips them for a session
@@ -76,23 +93,31 @@ class Access:
     # whose the data it reads or changes is (server/owners.py): checked before the handler, which finds what it loaded in
     # request.state.owned; no handler checks it itself
     owned: Callable[..., object] | None = None
+    # the lane of threads its (sync) handler runs on (server/wire.py LANE_THREADS); None: the routes' shared threads
+    lane: str | None = None
+    # a poll reading state already kept: answered without waiting for its account's slots (Route)
+    snapshot: bool = False
+    # only the command line on this machine may use it (server/access.py refusal): stopping the server, clearing the
+    # counts of wrong passwords
+    local: bool = False
 
     @classmethod
-    def open(cls, why: str, limit: Limit | None = None) -> Access:
+    def open(cls, why: str, limit: Limit | None = None, lane: str | None = None) -> Access:
         """Anyone's, before logging in: whatever else its Limit says, its body is never more than OPEN_BODY (a stranger
         may not make this server take MAX_BODY at every login attempt)."""
-        return cls("open", why, None, replace(limit or Limit(), body=OPEN_BODY))
+        return cls("open", why, None, replace(limit or Limit(), body=OPEN_BODY), lane=lane)
 
     @classmethod
-    def user(cls, why: str, needs: str | None = None, limit: Limit | None = None,
-             hides: Mapping[str, tuple[str, ...]] | None = None, keyed: Callable[[Request], str] | None = None,
-             owned: Callable[..., object] | None = None) -> Access:
-        return cls("user", why, needs, limit, hides or {}, keyed, owned)
+    def user(cls, why: str, limit: Limit | None = None, hides: Mapping[str, tuple[str, ...]] | None = None,
+             keyed: Callable[[Request], str] | None = None, owned: Callable[..., object] | None = None,
+             lane: str | None = None, snapshot: bool = False) -> Access:
+        return cls("user", why, None, limit, hides or {}, keyed, owned, lane, snapshot)
 
     @classmethod
     def admin(cls, needs: str, limit: Limit | None = None, hides: Mapping[str, tuple[str, ...]] | None = None,
-              owned: Callable[..., object] | None = None, keyed: Callable[[Request], str] | None = None) -> Access:
-        return cls("admin", "", needs, limit, hides or {}, keyed, owned)
+              owned: Callable[..., object] | None = None, keyed: Callable[[Request], str] | None = None,
+              lane: str | None = None, local: bool = False) -> Access:
+        return cls("admin", "", needs, limit, hides or {}, keyed, owned, lane, local=local)
 
     @classmethod
     def page(cls, why: str) -> Access:
@@ -114,9 +139,10 @@ def declare(method: str, path: str, access: Access) -> None:
     if key in DECLARED:
         raise RouteDeclarationError(f"{key} twice")
     admin, page = access.level == "admin", access.level == "page"
-    if admin != path.startswith(ADMIN) or page == path.startswith("/api/") or (admin and access.needs is None) \
-            or (access.level in ("open", "page") and access.needs is not None):
+    if admin != path.startswith(ADMIN) or page == path.startswith("/api/") or admin != (access.needs is not None):
         raise RouteDeclarationError(f"{key} {access.level}")
+    if access.keyed is not None and access.owned is not None:  # a 304 by its key would answer before its owner is checked
+        raise RouteDeclarationError(f"{key}: keyed and owned")
     DECLARED[key] = access
     _table.clear()
 
@@ -161,6 +187,41 @@ def _answered_by_key(handler: Callable, keyed: Callable[[Request], str]) -> Call
     return answer
 
 
+def _answered_here(handler: Callable) -> Callable:
+    """`handler` (a sync route) made to answer with its bytes: what it returns is encoded as JSON on its own thread,
+    never by FastAPI on the event loop (a big answer, tens of MB of names, would hold every request up while it is
+    written). One that sets its answer's headers itself (a `response` it takes: a cookie) is left to FastAPI, which
+    carries them."""
+    hints = typing.get_type_hints(handler)
+    if inspect.iscoroutinefunction(handler) or any(isinstance(t, type) and issubclass(t, Response)
+                                                    for name, t in hints.items() if name != "return"):
+        return handler
+
+    @functools.wraps(handler)
+    def answer(*args, **kwargs):
+        got = handler(*args, **kwargs)
+        if isinstance(got, Response):
+            return got
+        content = jsonable_encoder(got)
+        try:
+            return JSONResponse(content)
+        except ValueError:  # a number JSON cannot say (nan, inf: a packet's meta may hold one): said as null
+            return JSONResponse(_finite(content))
+
+    return answer
+
+
+def _finite(value):
+    """`value` (a JSON value) with every number JSON cannot write (nan, inf) as None."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, list):
+        return [_finite(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _finite(v) for k, v in value.items()}
+    return value
+
+
 def _owner_first(handler: Callable, owned: Callable[..., object], key: str) -> Callable:
     """`handler` (a sync route taking `request`) run after its owner (server/owners.py), what the owner loaded in
     request.state.owned. The owner takes the request and, by name, whichever of the handler's parameters it asks for."""
@@ -177,10 +238,88 @@ def _owner_first(handler: Callable, owned: Callable[..., object], key: str) -> C
     return answer
 
 
+def _on_lane(handler: Callable, lane: str, key: str) -> Callable:
+    """`handler` (a sync route) run on a thread of `lane` (wire.off_loop), the request's context with it."""
+    from .wire import LANE_THREADS, off_loop
+
+    if lane not in LANE_THREADS or inspect.iscoroutinefunction(handler):
+        raise RouteDeclarationError(f"{key}: lane {lane} is for a sync handler, one of {sorted(LANE_THREADS)}")
+
+    @functools.wraps(handler)
+    async def answer(*args, **kwargs):
+        return await off_loop(functools.partial(handler, *args, **kwargs), lane=lane)
+
+    return answer
+
+
+INT_RANGE = (-(1 << 63), (1 << 63) - 1)  # what an SQLite INTEGER holds
+MOMENT_MAX = 253402300799.0  # 9999-12-31 23:59:59 UTC: the latest time every date function can still write
+DAYS_MAX = 36500  # a hundred years
+
+
+def _bound(kind):
+    """`kind` with every number it holds bounded, the one rule for a number a request carries: an int within INT_RANGE,
+    a float finite (never nan or inf, which JSON as Python reads it lets through), whether it stands alone, may be None,
+    or sits in a list or a mapping. A number already Annotated keeps what its kind declares (Moment, Gigabytes, Days,
+    Count). For the path and the query (_bounded) and for every body (Body)."""
+    if kind is int:
+        return Annotated[int, Field(ge=INT_RANGE[0], le=INT_RANGE[1])]
+    if kind is float:
+        return Annotated[float, Field(allow_inf_nan=False)]
+    origin, args = typing.get_origin(kind), typing.get_args(kind)
+    if origin is list and args:
+        return list[_bound(args[0])]
+    if origin is dict and len(args) == 2:
+        return dict[args[0], _bound(args[1])]
+    if origin is types.UnionType or origin is typing.Union:
+        return typing.Union[tuple(_bound(a) for a in args)]
+    return kind
+
+
+class Body(BaseModel):
+    """What every request body is read as: each model a route takes is one of these, and each of its fields is
+    bounded (_bound) where the model is defined. What a number means narrows it further where its kind is declared,
+    once (Moment, Gigabytes, Days, Count), never by a route's own check."""
+
+    model_config = ConfigDict(allow_inf_nan=False)
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kw) -> None:
+        super().__pydantic_init_subclass__(**kw)
+        bounded = {}
+        for name, f in cls.model_fields.items():
+            if f.metadata:  # a kind of its own (Moment ...): its bounds are declared with it
+                continue
+            if (kind := _bound(f.annotation)) != f.annotation:
+                bounded[name] = FieldInfo.merge_field_infos(f, annotation=kind)
+        if bounded:
+            cls.model_fields.update(bounded)
+            cls.model_rebuild(force=True)
+
+
+Moment = Annotated[float, Field(ge=0, le=MOMENT_MAX, allow_inf_nan=False)]  # a time (seconds since 1970): an expiry, a day
+Gigabytes = Annotated[float, Field(ge=0, le=QUOTA_GB_MAX, allow_inf_nan=False)]  # a disk quota, as the settings' own
+Days = Annotated[float, Field(ge=0, le=DAYS_MAX, allow_inf_nan=False)]  # how many days back
+Count = Annotated[int, Field(ge=0, le=INT_RANGE[1])]  # a size in bytes, a number of things
+
+
+def _bounded(handler: Callable) -> Callable:
+    """`handler` with each number it takes from the path or the query bounded where FastAPI reads it (_bound). A
+    request with any other (20 digits, nan, inf) is refused as bad input before the handler runs, whichever route it
+    is: the handlers never see one. Its body is a Body, bounded where that model is defined."""
+    hints = typing.get_type_hints(handler, include_extras=True)
+    sig = inspect.signature(handler)
+    handler.__signature__ = sig.replace(parameters=[p.replace(annotation=_bound(hints.get(p.name, p.annotation)))
+                                                    for p in sig.parameters.values()],
+                                        return_annotation=hints.get("return", sig.return_annotation))
+    return handler
+
+
 def read_json(body: bytes | bytearray):
     """A request's JSON body, or Invalid: not JSON, or nested deeper than MAX_DEPTH. Python's parser and everything
     after it (validation, its error answer, the handlers) walk a body recursively; one nested thousands deep would stop
-    them with a RecursionError, a 500, so the depth is bounded here, once, without recursing."""
+    them with a RecursionError, a 500, so the depth is bounded here, once, without recursing. What a body builds deeper
+    than it is itself (a graph patch's path: each key a level) is bounded where that is declared (graphs.Patch)."""
     try:
         value = json.loads(body)
     except RecursionError:
@@ -197,6 +336,23 @@ def read_json(body: bytes | bytearray):
     return value
 
 
+async def read_body(request: Request, most: int) -> bytes:
+    """A request's body, read as it comes and refused (TooLarge) the moment it is more than `most`, whatever its
+    Content-Length said: the one way a route's body is read (Route). Kept on the request for whatever reads it next."""
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > most:
+            raise TooLarge(Msg("E-ACCESS-TOOBIG", mb=round(most / (1 << 20), 2)))
+    request._body = bytes(body)
+    return request._body
+
+
+def declared_as(method: str) -> str:
+    """The method a request's route is declared under: a HEAD is its GET's (Router.get registers both)."""
+    return "GET" if method == "HEAD" else method
+
+
 def _json_typed(request: Request) -> bool:
     """The body is one FastAPI reads as JSON: application/json or application/*+json (without a type it does not)."""
     kind = request.headers.get("content-type", "").split(";")[0].strip().lower()
@@ -204,16 +360,51 @@ def _json_typed(request: Request) -> bool:
 
 
 class Route(APIRoute):
-    """Every route's JSON body is read here (read_json) before FastAPI reads it: a bad one is answered like any other
-    bad input (400 with its message) instead of by FastAPI's own words or a 500."""
+    """The body of a route that takes one is read here (read_body: never past its Limit, whatever the request says) and,
+    JSON, parsed on a thread (read_json) before FastAPI reads it: a bad one is answered like any other bad input (400
+    with its message) instead of by FastAPI's own words or a 500, and parsing never holds up the event loop. A route
+    that takes no body has none read for it: an upload's part reads its own bytes as they come.
+
+    And here, once, a signed-in account's handler that runs on threads (a sync handler: the routes' shared threads, or
+    its lane's) holds one of that account's ACCOUNT_SLOTS on those threads (server/wire.py account_slot): its other
+    requests there wait their turn. The process has one interpreter and each lane a few threads for everyone: without
+    it, a few requests of one account that are heavy on the CPU (declaring tens of thousands of files) or that wait
+    long (the view worker, a slot for a picture's planes) take what every other account's requests need. Only the
+    handler holds the slot, never the sending of its answer (a download, a stream). A route declared snapshot never
+    waits for one, so a page still sees the queue and the load while its account's heavy requests go on."""
 
     def get_route_handler(self) -> Callable:
+        from ..traffic import SCOPE_USER
+        from .wire import account_slot, off_loop, stranger_slot
+
         handle = super().get_route_handler()
+        declared = [DECLARED.get(f"{declared_as(m)} {self.path}") for m in self.methods]
+        lane = next((a.lane for a in declared if a is not None and a.lane), None)
+        counted = (lane is not None or not inspect.iscoroutinefunction(self.dependant.call)) and all(
+            a is not None and a.level in ("user", "admin") and not a.snapshot for a in declared)
+        # the body is read here only for a route that takes one (a model), never for one that reads its own bytes as
+        # they come (Limit body None: an upload's part, which counts them against the size it declared)
+        reads = bool(self.dependant.body_params)
+        most = next((a.limit.body if a.limit is not None else MAX_BODY for a in declared if a is not None), MAX_BODY)
+        if reads and most is None:
+            raise RouteDeclarationError(f"{self.path}: a route that takes a body declares how big it may be (Limit body)")
+
+        async def read_and_handle(request: Request) -> Response:
+            if reads:
+                body = await read_body(request, most)
+                if _json_typed(request) and body:
+                    # parsed on a thread (wire.off_loop), never on the event loop every account's requests are answered on
+                    request._json = await off_loop(read_json, body)  # starlette's Request.json(), which FastAPI calls next, answers with it
+            return await handle(request)
 
         async def handler(request: Request) -> Response:
-            if _json_typed(request) and (body := await request.body()):
-                request._json = read_json(body)  # starlette's Request.json(), which FastAPI calls next, answers with it
-            return await handle(request)
+            if counted and (user := request.scope.get(SCOPE_USER, 0)):
+                async with account_slot(user, lane, ACCOUNT_SLOTS):  # its body read and parsed in its slot too
+                    return await read_and_handle(request)
+            if lane is not None:  # nobody's (logging in, registering): all of them together hold a few places of it
+                async with stranger_slot(lane, STRANGER_SLOTS):
+                    return await read_and_handle(request)
+            return await read_and_handle(request)
 
         return handler
 
@@ -226,20 +417,30 @@ class Router(APIRouter):
 
     def _declared(self, method: str, path: str, access: Access, register: Callable) -> Callable:
         declare(method, self.prefix + path, access)
-        if access.keyed is None and access.owned is None:
-            return register
 
         def decorate(handler: Callable) -> Callable:
+            handler = _bounded(handler)
+            if access.keyed is None:  # a keyed answer is made into bytes by its key's cache, on the same thread
+                handler = _answered_here(handler)
             if access.owned is not None:
                 handler = _owner_first(handler, access.owned, f"{method} {self.prefix}{path}")
             if access.keyed is not None:
                 handler = _answered_by_key(handler, access.keyed)
+            if access.lane is not None:
+                handler = _on_lane(handler, access.lane, f"{method} {self.prefix}{path}")
             return register(handler)
 
         return decorate
 
     def get(self, path: str, *, access: Access, **kw) -> Callable:  # type: ignore[override]
-        return self._declared("GET", path, access, super().get(path, **kw))
+        # a HEAD is the GET without its body, under the GET's declaration (server/access.py route_of); not listed apart
+        get, head = super().get(path, **kw), super().head(path, **{**kw, "include_in_schema": False})
+
+        def register(handler: Callable) -> Callable:
+            head(handler)
+            return get(handler)
+
+        return self._declared("GET", path, access, register)
 
     def post(self, path: str, *, access: Access, **kw) -> Callable:  # type: ignore[override]
         return self._declared("POST", path, access, super().post(path, **kw))

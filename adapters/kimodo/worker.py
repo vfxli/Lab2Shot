@@ -33,7 +33,8 @@ generate  with an animation wired: the rig's keys turned onto the model's own sk
           model's own skeleton (rig_motion.write_model_result), resampled to the node's frame rate and count.
 
 Parameters: task; text: prompt; generate: model (one of seven: "rp" / "seed" / "rp_v1" / "seed_v1" / "smplx" /
-"g1" / "g1_seed", see MODELS), prompt ("": none), steps, guidance, seed, post_process.
+"g1" / "g1_seed"), checkpoint (that weight's folder under weights/, from the node: extension.py MODELS is the one
+table), prompt ("": none), steps, guidance, seed, post_process.
 """
 
 from __future__ import annotations
@@ -44,19 +45,14 @@ import os
 import numpy as np
 import torch
 
-from lab2shot_worker import check_node, fail, load_job, progress, resident, say, serve, set_seed
+from lab2shot_worker import Failure, check_node, fail, load_job, progress, reason, resident, say, serve, set_seed
 from lab2shot_worker import rig_motion as ib
 from lab2shot_worker.run import Run
 from lab2shot_shared import motion as mo
+from lab2shot_shared.units import M_TO_CM
 
 NODE = "kimodo.motion"
 EXT = "kimodo"
-# The seven official weights on three skeletons (the same table as MODELS in extension.py, which handles the
-# download; this one handles loading)
-MODELS = {"rp": "Kimodo-SOMA-RP-v1.1", "seed": "Kimodo-SOMA-SEED-v1.1",
-          "rp_v1": "Kimodo-SOMA-RP-v1", "seed_v1": "Kimodo-SOMA-SEED-v1",
-          "smplx": "Kimodo-SMPLX-RP-v1", "g1": "Kimodo-G1-RP-v1", "g1_seed": "Kimodo-G1-SEED-v1"}
-M_TO_CM = 100.0
 MODEL_FPS = 30  # the model's own frame rate (its motion is at 30 fps)
 MAX_FRAMES = 300  # 10 s: the longest motion Kimodo generates at once
 TRANSITION = 5  # frames a part takes over from the part before it (Kimodo's num_transition_frames)
@@ -211,7 +207,7 @@ def loaded(run: Run) -> tuple[object, str]:
     """Load the selected weight onto the GPU and attach this job's text embedding (shared by both paths)."""
     job = run.job
     p = job.params
-    name = MODELS[p["model"]]
+    name = p["checkpoint"]  # the selected weight's folder, from the node (the one table is extension.py MODELS)
     run.weights(job.weights_dir / name)
     embedding = np.load(job.inputs["text"]) if p["prompt"].strip() else None
     model = run.model(name, load_kimodo, name, torch.device("cuda"))
@@ -274,6 +270,12 @@ def _rest_cm(rest: np.ndarray) -> np.ndarray:
     return out
 
 
+def _why(exc: Exception):
+    """The {reason} of this node's own message: a Failure's message passed on as a message (its words stay in the
+    catalogue, lab2shot_worker.reason), anything else as its text."""
+    return reason(exc.code, **exc.params) if isinstance(exc, Failure) else str(exc)
+
+
 def generate(run: Run) -> None:
     p = run.params
     motion = ib.read_job(run.job.inputs["motion"])
@@ -281,8 +283,8 @@ def generate(run: Run) -> None:
     run.stage("对齐骨骼")
     try:
         retarget = motion.retarget(model_skeleton(model))
-    except ValueError as exc:
-        fail("E-KIMODO-SKELETON", reason=str(exc))
+    except (Failure, ValueError) as exc:  # MotionJob.retarget / Retarget.align raise Failure (E-MOTION-NOJOINTS / NOROOT / NOLEG)
+        fail("E-KIMODO-SKELETON", reason=_why(exc))
     key_rot, key_root = retarget.to_model(motion.poses)
     keys = motion.model_frames(MODEL_FPS)
     if (np.diff(keys) < 1).any():
@@ -290,8 +292,8 @@ def generate(run: Run) -> None:
         fail("E-KIMODO-KEYSTOOCLOSE", first=int(motion.keys[k]), second=int(motion.keys[k + 1]))
     try:
         parts = mo.windows([int(k) for k in keys], MAX_FRAMES - TRANSITION, MAX_KEYS)
-    except ValueError as exc:
-        fail("E-KIMODO-KEYGAP", reason=str(exc))
+    except (Failure, ValueError) as exc:  # motion.windows raises Failure (E-MOTION-KEYGAP)
+        fail("E-KIMODO-KEYGAP", reason=_why(exc))
 
     total = int(keys[-1]) + 1
     rotations = np.zeros((total, len(retarget.model.names), 3, 3))

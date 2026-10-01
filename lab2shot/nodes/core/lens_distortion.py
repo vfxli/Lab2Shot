@@ -22,14 +22,16 @@ from typing import Literal
 
 import numpy as np
 
+from ..port import EITHER
 from ...errors import Invalid
 from ...messages import Msg
 from ..applies import LENS_ANY
 from ..base import Info, NodeDef, P, Port, empty_packet
 from ..clipboard import Pasteable
 from ..expects import Checked, Expect, Seen
-from ...data.lens_models import MODELS
-from ..lens import DISTORTED, LensParamEntry, LensSheet, LensSheetParams, lens_identity, model_label, sheet_field, table_of, unpacked_lens
+from ...data.lens_models import MODELS, distorts
+from ..lens import (DISTORTED, LensParamEntry, LensSheet, LensSheetParams, group_of, lens_identity, sheet_field, table_of,
+                    unpacked_lens)
 from ...availability import All, Not
 from ...data.lens_models import distorts
 from ...data.values import LENS, read as read_value
@@ -71,7 +73,7 @@ class HasSource(Expect):
     （W-LENS-NOLENS），因为使用者通常先连接节点，再填写参数或接线。"""
 
     def check(self, got: Seen, node: Checked) -> Msg | None:
-        typed = distorts(table_of(str(node.params.get("lens_group") or "colmap"), str(node.params.get("lens_model") or "")))
+        typed = distorts(table_of(group_of(node.params).id, str(node.params.get("lens_model") or "")))
         # 宽和高都填写时才构成画面尺寸（只填一个表示尚未填完，不构成约束）
         w, h = node.params.get("width"), node.params.get("height")
         raster = [w, h] if typed and w and h else None
@@ -81,24 +83,9 @@ class HasSource(Expect):
         return None
 
 
-@dataclass(frozen=True)
-class LensModelMatches(Expect):
-    """接入的「镜头内参」的模型必须与本节点所选的「镜头模型」一致：
-    不一致时在提交前拦下（B- 码），而不是在计算中途才发现。上游尚未计算（模型未知）时不提示。"""
-
-    def check(self, got: Seen, node: Checked) -> Msg | None:
-        value = (got.meta or {}).get("value") if got.meta else None
-        if not isinstance(value, dict) or not value.get("model"):
-            return None
-        upstream = lens_identity(value)
-        here = (str(node.params.get("lens_group") or "colmap"), str(node.params.get("lens_model") or ""))
-        if not here[1] or upstream == here:
-            return None
-        return Msg("B-LENS-MODELMISMATCH", node=node.label, here=model_label(*here), upstream=model_label(*upstream), source=got.source)
-
-
 class LensDistortion(Pasteable, LensSheet, NodeDef):
     id = "core.lens_distortion"
+    version = 2  # a lens without distortion (a pinhole) gives the identity without saying no lens was filled in
     category = "camera_tools"
     lens = LENS_ANY  # 本节点负责去除（或加回）畸变，从不假定针孔模型
     on_node = ("lens_model",)  # 节点上只显示最需要看到的一项：所用的镜头模型
@@ -109,13 +96,14 @@ class LensDistortion(Pasteable, LensSheet, NodeDef):
     # 其余（模型、畸变系数、主点、像素比）打包为「镜头内参」接到下方的 `lens` 输入端口（nodes/lens.py packed_lens）。
     wired_ports = ("focal_mm", "filmback_mm")
     # 「图像」可选：接入时从画面获取分辨率（及像素比），未接入时手动填写「画面宽度 / 画面高度」。
-    # 输入端口的可用性取决于「镜头模型」：选择两种无畸变模型时「镜头内参」端口置灰且不可连接（DISTORTED，与 COLMAP
-    # 端「镜头内参」输出端口置灰的条件相同）；接入后，表中的系数、主点、像素比置灰（见下方 Params 中的 sheet_field 各项）。
-    # 接入的模型与此处所选不一致时在提交前拦下（LensModelMatches → B-LENS-MODELMISMATCH）。
-    inputs = (Port("image", "image", "图像", alpha=True, optional=True, expects=(HasSource(),)),
-              Port("lens", LENS, "镜头内参", optional=True, applies=DISTORTED, expects=(LensModelMatches(),),
+    # 「镜头内参」接进来时，镜头就是它：镜头内参组、镜头模型、畸变系数、主点、像素比都取它的值（params_inputs →
+    # params_from_input，引擎在参数这一层换上，计算、指纹、ST-map 带的镜头说明都按它），表上这几项变灰。
+    # 标定节点改了拟合模型，这里跟着变，不再要求两边手动选成一样。
+    inputs = (Port("image", "image", "图像", alpha=True, optional=True, data=EITHER, expects=(HasSource(),)),
+              Port("lens", LENS, "镜头内参", optional=True,
                    help="上游解出来的镜头内参（COLMAP、AnyCalib、GeoCalib 的「镜头内参」口）：模型 + 畸变系数 + 主点 + 像素比一份。"
-                        "接了它，表上的畸变参数、主点、像素比就从它来（变灰）；它的模型要和这里选的「镜头模型」一样，不一样提交前拦下"))
+                        "接了它，镜头内参组、镜头模型、畸变参数、主点、像素比都从它来（变灰），上游换了模型这里跟着换"))
+    params_inputs = ("lens",)
     # 视图下方的数值控件：显示所用镜头的四项参数（Focal Length、Filmback、镜头内参组、镜头模型）当前的值（填写的或由连线提供的）。
     # 这些值不作为透传输出端口：输出等于输入的端口无法表明是否经过隐式处理，需要这些值时从上游获取。
     strip = {"focal_mm": "Focal Length", "filmback_mm": "Filmback", "lens_group": "镜头内参组", "lens_model": "镜头模型"}
@@ -123,15 +111,17 @@ class LensDistortion(Pasteable, LensSheet, NodeDef):
     # 「STMap」据此变形得到的画面因此同样携带该畸变，在该画面上解出的相机交付时可以带回畸变，无需使用者重新填写。
     # 画布由节点自行决定（window="node"），不附加「尺寸随镜头扩边」的常驻提示。
     outputs = (
-        Port("undistort_stmap", "image.2", "去畸变 ST-map", shape=Shape(window="node", lens="node")),
-        Port("distort_stmap", "image.2", "加畸变 ST-map", shape=Shape(window="node", lens="node")),
+        Port("undistort_stmap", "image.2", "去畸变 ST-map", shape=Shape(window="node", lens="node"), may_be_empty=True),
+        Port("distort_stmap", "image.2", "加畸变 ST-map", shape=Shape(window="node", lens="node"), may_be_empty=True),
     )
 
     class Params(LensSheetParams):
         # 默认使用有畸变的模型：这样新建节点时系数和内参不会全部置灰（置灰参数的端口无法操作，「镜头模型」也无法接入），
         # 且 AnyCalib 默认的「径向 k1」映射到核心表正是 SIMPLE_RADIAL，连接后两端一致。
+        lens_group: str = sheet_field("lens_group", "lens")  # 接入「镜头内参」时取它的组（变灰）
         lens_model: str = P(
-            "SIMPLE_RADIAL", label="镜头模型", group="镜头", widget="choice", choices_from=("lens_group",), derived_from=("lens_group",))
+            "SIMPLE_RADIAL", label="镜头模型", group="镜头", widget="choice", choices_from=("lens_group",), derived_from=("lens_group",),
+            applies=Not(Wired("lens")))
         # 系数行随默认模型一同给出：新建节点的面板中即显示 k，无需等待编辑器向服务器查询
         distortion: list[LensParamEntry] = P(
             [{"name": spec.name, "value": float(spec.default)} for spec in MODELS["SIMPLE_RADIAL"].params],
@@ -203,21 +193,18 @@ class LensDistortion(Pasteable, LensSheet, NodeDef):
         return {"level": "estimated", "by": wired[1]} if wired else {"level": "measured", "by": "节点上填的镜头表"}
 
     @classmethod
-    def _sheet(cls, ctx) -> dict:
-        """本次使用的镜头表：取节点上填写的值；接入「镜头内参」时系数、主点、像素比改用其值（模型不一致已在提交前拦下，
-        若在此处仍出现不一致，说明绕过了页面，同样拒绝，B-LENS-MODELMISMATCH）。"""
-        params = dict(ctx.params)
-        wired = cls._wired_lens(ctx)
-        if wired is None:
-            return params
-        model, coeffs, center, aspect = unpacked_lens(wired[0])
-        here = (str(params.get("lens_group") or "colmap"), str(params.get("lens_model") or ""))
-        if lens_identity(wired[0]) != here:
-            raise Invalid(Msg("B-LENS-MODELMISMATCH", node=cls.label, here=model_label(*here),
-                              upstream=model_label(*lens_identity(wired[0])), source=wired[1]))
-        params["distortion"] = [{"name": n, "value": float(v)} for n, v in coeffs.items()]
-        params["center_x_mm"], params["center_y_mm"], params["pixel_aspect"] = center[0], center[1], aspect
-        return params
+    def params_from_input(cls, port: str, value) -> dict:
+        """接进「镜头内参」的镜头 → 本节点的镜头表：组和模型总是它的；系数、主点、像素比在它带着时（上游算完）也用它的
+        （计算之前标定节点只报出模型：known_outputs，这时系数行按模型给默认，nodes/lens.py lens_of）。"""
+        if port != "lens" or not isinstance(value, dict) or not value.get("model"):
+            return {}
+        group, model = lens_identity(value)
+        out: dict = {"lens_group": group, "lens_model": model}
+        if value.get("params"):
+            _table, coeffs, center, aspect = unpacked_lens(value)
+            out.update(distortion=[{"name": n, "value": float(v)} for n, v in coeffs.items()],
+                       center_x_mm=center[0], center_y_mm=center[1], pixel_aspect=aspect)
+        return out
 
     @classmethod
     def said_shot(cls, params):
@@ -244,7 +231,7 @@ class LensDistortion(Pasteable, LensSheet, NodeDef):
         if size is None:  # 无法确定该镜头适用的画面尺寸：输出空结果，并在节点上说明下一步（空结果不属于错误）
             ctx.say("N-LENS-NOPLATE", node=cls.label)
             return {port: empty_packet(ctx, port) for port, _ in STMAP_PORTS if port in ctx.wanted}
-        sheet = cls._sheet(ctx)  # 节点上填写的值；接入「镜头内参」时系数、主点、像素比取自该输入
+        sheet = dict(ctx.params)  # 接入「镜头内参」时，组、模型、系数、主点、像素比已是它的值（params_from_input）
         lens_typed = cls.lens_of(sheet) or None
         if lens_typed is not None:
             lens_typed.setdefault("raster", list(size))  # 未填写「画面宽高」表示该畸变即在此画面上测得
@@ -255,7 +242,10 @@ class LensDistortion(Pasteable, LensSheet, NodeDef):
         if lens_typed is not None and MODELS[cls.table_model(sheet)].params and not any(float(row["value"]) for row in sheet["distortion"] or []):
             lens_typed = None
         if lens_typed is None:
-            ctx.say("W-LENS-NOLENS", node=cls.label)
+            # a lens without distortion (a pinhole: lens_of gives nothing) is a lens, its ST-maps the identity, not a
+            # lens left unfilled
+            if distorts(cls.table_model(sheet)):
+                ctx.say("W-LENS-NOLENS", node=cls.label)
             identity = L.identity_stmap(*size)
             plan = Plan({None: Maps(identity, identity)}, Window(*size), {})
         else:

@@ -5,14 +5,14 @@ import { playRange, stepIn } from "../model/timelineMath";
 import { useLook } from "../state/look";
 import { framesShown, useViewer } from "../state/viewer";
 
-/** Step inside the playback range, wrapping around. */
+/** 在播放范围内走一步，到头后绕回。 */
 export function step(d: number): void {
   const viewer = useViewer.getState();
   const range = playRange(framesShown(), useLook.getState().playback);
   if (range) useViewer.setState({ frame: stepIn(framesShown(), range, viewer.frame, d) });
 }
 
-/** To the start or the end of the playback range. */
+/** 跳到播放范围的开头或结尾。 */
 export function jump(end: 0 | 1): void {
   const range = playRange(framesShown(), useLook.getState().playback);
   if (!range) return;

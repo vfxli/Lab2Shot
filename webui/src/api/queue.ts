@@ -50,36 +50,30 @@ export interface JobClient {
 // partial: 部分失败, a node failed (its error said at it) and what did not need it was cooked
 export type JobState = "queued" | "running" | "done" | "partial" | "failed" | "cancelled" | "interrupted";
 
-/** When a job should finish (running) or start (waiting), from the records of earlier cooks; partial: no earlier. */
-interface Eta {
-  at: number;
-  partial: boolean;
-}
-
 export interface QueueJob {
   id: string; // "" for someone else's (anonymous load)
-  anonymous?: boolean; // someone else's job: only where it stands and when it should end
+  anonymous?: boolean; // someone else's job: only where it stands and how far it is
   title: string;
   graph?: string; // the graph's own id (meta.id): only for one's own jobs
   targets: string[]; // the nodes it cooks, by their labels
   nodes?: string[]; // and their ids
   frames: [number, number] | null; // the frame range it cooks (null: every frame of the inputs)
-  eta: Eta | null;
   state: JobState;
   position: number | null; // place among the waiting tasks (the queue's order: 插队 first, then as they came in)
   cards?: string[]; // the cards its nodes are on now: only for whoever may see the cards (farm.cards)
   submitted: number;
   started: number | null;
   finished: number | null;
-  // 计算进度（api/progress.ts）：与事件流中发送的是同一份数据，队列面板与节点绘制的内容一致
-  // （lab2shot/farm/queue.py Job.progress_json）。`{}` 表示当前未在计算（排队中或已结束）
+  // cook progress (api/progress.ts): the same data the event stream sends, so the queue panel and the node draw the
+  // same thing (lab2shot/farm/queue.py Job.progress_json). `{}`: not computing now (waiting or finished)
   now: JobProgress | Record<string, never>;
   error: string | null;
   reason: string; // cancelled: why, when not by the one who started it
   stopping: boolean;
-  // 排队任务尚未开始的原因，只列出不会自行解除的情况（管理员关闭了计算 N-QUEUE-PAUSED、该服务器上
-  // 没有能够计算它的机器 N-QUEUE-NOMACHINEEVER）；等待显卡、等待内存、前方排队等情况会自行解除，对使用者而言即「排队中」，
-  // 归入下方 `waiting_detail`（见 lab2shot/farm/queue.py 对等待原因的分类）
+  // why a waiting task has not started, only for what will not clear by itself (the administrator switched computing
+  // off, N-QUEUE-PAUSED; no machine on this server can ever compute it, N-QUEUE-NOMACHINEEVER). Waiting for a card, for
+  // memory or behind other tasks clears by itself, is simply 「排队中」 to the user, and goes to `waiting_detail`
+  // below (see lab2shot/farm/queue.py for how waiting reasons are classified)
   waiting?: MessageJson | null;
   waiting_detail?: MessageJson | null; // the reason about the cards (N-QUEUE-GPUOFF): only for whoever may see the cards (farm.cards)
   mine: boolean;
@@ -106,13 +100,11 @@ export interface TaskGroup {
 }
 
 /** Whether a finished job's results are still cached (server: farm/queue.py cache_mark): all (全在), some (部分),
- * none (已清理), and what computing the rest again should take. */
+ * none (已清理). */
 export interface CacheMark {
   mark: "all" | "some" | "none";
   cached: number;
   nodes: number;
-  seconds: number;
-  unknown: number; // nodes without a timing record
   why: string; // it can't be planned any more (an upload cleaned)
 }
 
@@ -147,12 +139,12 @@ export interface ServerLoad {
   cpu_pct: number | null; // null until the machine has been read twice
   ram_pct: number | null;
   cards?: { busy: boolean; mem_pct: number | null }[];
-  // 编辑器空闲时只查询这一项：这三项几乎不变，若单独为其轮询队列会使空闲流量翻倍
-  // （主要是请求头与会话 cookie），合并为一项才能节省
+  // the only thing an idle editor asks for: these three barely change, and polling the queue separately for them
+  // would double the idle traffic (mostly request headers and the session cookie); carrying them in this one answer saves that
   switches: { gpu: boolean; compute: boolean };
   max_frames: number;
   storage?: StorageGate | null;
-  server?: ServerInfo;  // 随「服务本身」一并返回：已登录的页面只保留这一项轮询
+  server?: ServerInfo;  // comes with 「服务本身」: a logged-in page keeps this as its only poll
 }
 
 export interface QueueView {
@@ -161,8 +153,9 @@ export interface QueueView {
   // what the scheduler goes by (lab2shot/farm/scheduler/pools.py): the cards and CPU nodes one task holds at once, the
   // CPU nodes the whole machine runs at once
   limits: { task_gpus: number; task_cpus: number; cpu_nodes: number };
-  // 单次提交可计算的最大帧数（lab2shot/config.py queue.max_frames，由管理员在「设置」中配置）：网页据此在提交前
-  // 拦截，服务器在 farm/queue.py submit 中独立再次校验（绕过网页直接提交同样会被拒绝）
+  // the most frames one submission may cook (lab2shot/config.py queue.max_frames, set by the administrator in 设置): the
+  // page stops a submission over it before sending, and the server checks again on its own in farm/queue.py submit (a
+  // submission that bypasses the page is refused all the same)
   max_frames: number;
   // 显卡任务, 计算任务 (lab2shot/config.py queue.gpu_jobs, queue.compute_jobs): gpu off holds back the GPU nodes of
   // every task that has not started (it still queues, as when no GPU is authorized); compute off refuses every new
@@ -173,12 +166,21 @@ export interface QueueView {
   // the version of that history (lab2shot/farm/queue.py listed_version): the poll carries this, api.queue fetches
   // /api/queue/history when it changes and fills `history` in
   history_version?: string;
-  // 只包含判断是否已满的三个数（lab2shot/server/quota.py gate）：已满时置灰「提交」与右键菜单中的「计算」
-  // （state/quota.ts），队列窗口关闭时也能判断。
-  // 三项明细与流量不在此处：它们在计算过程中持续变化，而该回答每 1.5–30 秒轮询一次；
-  // 若回答每次都不同，ETag 将始终无法命中，本应返回 304 的轮询都会变成完整重发。明细由队列窗口中的占用条
-  // 自行查询一次 /api/my/storage，不属于轮询。后台的队列回答不包含此项：账号的占用量只与该账号相关。
+  // only the three numbers that tell whether the account is full (lab2shot/server/quota.py gate): when full, every
+  // 「计算」 entry is greyed (graph/actions.ts cookHold, state/quota.ts), which works with the queue window closed too.
+  // The three-part breakdown and the traffic are not here: they change throughout a cook while this answer is polled
+  // every 1.5–30 s, and an answer that differs every time never hits its ETag, turning every poll that should be a
+  // 304 into a full resend. The queue window's usage bar asks /api/my/storage once for the breakdown, outside the poll.
+  // The admin queue answer leaves this out: an account's usage concerns that account only.
   storage?: StorageGate;
+}
+
+/** The server's disk as last measured (lab2shot/farm/queue.py Farm.disk): measuring walks the whole data disk, so it
+ * runs in the background and the answer says when it was measured and whether a new measurement is running. */
+export interface DiskUsage {
+  areas: DiskArea[] | null; // null: never measured yet
+  at: number | null; // when measured (seconds)
+  measuring: boolean;
 }
 
 /** The server's disk, per area (task folders, cache, uploads). */

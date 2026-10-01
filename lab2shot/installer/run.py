@@ -770,6 +770,8 @@ def install(ext: Extension, sink: Sink, *, force: bool = False, live: Live | Non
 class StepFailed(MessageError):
     """A step failed: which, and its message (the install goes on from this step next time)."""
 
+    status = 500
+
     def __init__(self, step: str, message: Msg):
         super().__init__(message)
         self.step = step

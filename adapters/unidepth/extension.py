@@ -4,7 +4,7 @@ camera intrinsics; accepts a known focal length as a condition.
 
 from __future__ import annotations
 
-from lab2shot.sdk import NONCOMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, hf_weights
+from lab2shot.sdk import NONCOMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, hf_weights, downloads
 
 UNIDEPTH_URL = "https://github.com/lpiccinelli-eth/UniDepth.git"
 UNIDEPTH_COMMIT = "8d8cfe4c7ee15297099983607febf0d4f32eb3d6"  # 2025-05-18 (main)
@@ -13,10 +13,9 @@ UNIDEPTH_COMMIT = "8d8cfe4c7ee15297099983607febf0d4f32eb3d6"  # 2025-05-18 (main
 # carry no licence of their own: the repository's CC BY-NC 4.0 applies.
 MODELS = {
     "unidepth-v2-vitl14": (
-        "lpiccinelli/unidepth-v2-vitl14",
-        "52b349b514bd8b47642f67ac78cb7b5dc5c51dd9",
-        {"config.json": "09eb0ea8de53a6c9a1d428ac98c79847fe2602ea417701261f3f628099a30816",
-         "model.safetensors": "ba73d3de735302ccc64a50f1e557122050c4b1893e6060b28dba05d6af3e67c6"},
+        downloads.UNIDEPTH_V2_L.repo,  # ViPE runs this model too: pinned once (extensions/downloads.py)
+        downloads.UNIDEPTH_V2_L.revision,
+        {d.filename: d.sha256 for d in (downloads.UNIDEPTH_V2_L_CONFIG, downloads.UNIDEPTH_V2_L)},
         "ViT-L 1.4 GB",
     ),
     "unidepth-v2-vitb14": (
@@ -49,7 +48,7 @@ class UniDepth(Extension):
         name="CC-BY-NC-4.0（代码和权重，非商用）",
         url="https://github.com/lpiccinelli-eth/UniDepth/blob/main/LICENSE",
         summary=(
-            "代码为 CC BY-NC 4.0（仓库 LICENSE 与源码文件头），非商用，仅限研究；"
+            "非商用：代码为 CC BY-NC 4.0（仓库 LICENSE 与源码文件头）；"
             "Hugging Face 上的 unidepth-v2-vitl14 / vitb14 / vits14 权重的模型卡没有写许可证，按仓库许可证 CC BY-NC 4.0 对待，"
             "结果不能用于商业项目。主干网络 DINOv2 结构来自 Meta（Apache-2.0），其权重已包含在 UniDepth 检查点里，不另外下载"
         ),

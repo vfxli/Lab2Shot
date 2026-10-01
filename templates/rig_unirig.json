@@ -7,23 +7,70 @@
   "author": "Lab2Shot",
   "created": "2026-09-20T12:00:00",
   "deliverable": "auto_rig",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "模型文件",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "models",
-   "label": "模型",
-   "target": "read.models"
+   "name": "input_models",
+   "label": "要绑定的网格",
+   "target": "read.models",
+   "show_on_change": true
+  },
+  {
+   "name": "influences",
+   "label": "影响骨骼数",
+   "target": "rig.influences"
   },
   {
    "name": "seed",
    "label": "随机种子",
    "target": "rig.seed"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "character",
+     "label": "角色名",
+     "target": "rig.character"
+    },
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "usd.name"
+    },
+    {
+     "name": "unit",
+     "label": "单位",
+     "target": "usd.unit"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "计算",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -51,12 +98,12 @@
    "label": "UniRig 自动绑定",
    "params": {
     "influences": 4,
-    "seed": 12345,
-    "character": ""
+    "character": "",
+    "seed": 12345
    },
    "ui": {
-    "x": 300,
-    "y": 0
+    "x": 400,
+    "y": 50
    }
   },
   {
@@ -66,11 +113,12 @@
    "params": {
     "name": "rig",
     "format": "usd",
-    "unit": "cm"
+    "unit": "cm",
+    "fps": 24.0
    },
    "ui": {
-    "x": 600,
-    "y": 0,
+    "x": 800,
+    "y": 22,
     "on_node": [
      "name",
      "unit"
@@ -83,8 +131,8 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 900,
-    "y": 0
+    "x": 1200,
+    "y": 36
    }
   }
  ],

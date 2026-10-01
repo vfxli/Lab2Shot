@@ -52,8 +52,8 @@ class UniK3D(Extension):
         name="CC-BY-NC-SA-4.0（代码和权重，非商用，相同方式共享）",
         url="https://github.com/lpiccinelli-eth/UniK3D/blob/main/LICENSE",
         summary=(
-            "代码为 CC BY-NC-SA 4.0（仓库 LICENSE 文件和源码文件头；README 写的是 CC BY-NC 4.0，按更严格的 LICENSE 文件对待）："
-            "非商用，仅限研究，改编后再发布须用相同许可证。Hugging Face 上 unik3d-vitl / vitb / vits 权重的模型卡没有写许可证，"
+            "非商用：代码为 CC BY-NC-SA 4.0（仓库 LICENSE 文件和源码文件头；README 写的是 CC BY-NC 4.0，按更严格的 LICENSE 文件对待），"
+            "改编后再发布须用相同许可证。Hugging Face 上 unik3d-vitl / vitb / vits 权重的模型卡没有写许可证，"
             "按仓库许可证对待，结果不能用于商业项目。主干网络 DINOv2 结构（Apache-2.0）的权重已包含在检查点里，不另外下载"
         ),
     )

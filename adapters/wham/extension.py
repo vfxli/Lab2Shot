@@ -10,8 +10,9 @@ Needs the SMPL model file, which the user downloads after registering
 from __future__ import annotations
 
 from lab2shot.sdk import (
+    downloads,
     CUDA_13_2_TOOLKIT,
-    NONCOMMERCIAL,
+    RESEARCH,
     EnvSpec,
     Extension,
     GitSource,
@@ -23,8 +24,7 @@ from lab2shot.sdk import (
 
 WHAM_URL = "https://github.com/yohanshin/WHAM.git"
 WHAM_COMMIT = "2b54f7797391c94876848b905ed875b154c4a295"  # 2024-04-18 (last commit)
-VITPOSE_URL = "https://github.com/ViTAE-Transformer/ViTPose.git"
-VITPOSE_COMMIT = "d5216452796c90c6bc29f5c5ec0bdba94366768a"  # WHAM's third-party/ViTPose submodule
+VITPOSE = downloads.VITPOSE  # WHAM's third-party/ViTPose submodule
 
 # fetch_demo_data.sh, laid out as the code expects relative to its working directory
 # (the worker runs in weights/). WHAM's own files come from its Google Drive; the
@@ -43,18 +43,17 @@ DRIVE_FILES = {
     "smpl-aux": ("1pbmzRbWGgae6noDIyQOnohzaVnX_csUZ", "_downloads/body_models.tar.gz",
                  "533a8b6b05ba3bc3d35c1dcaec757a4164a669625116a16d30d7642f3b200c8c", "SMPL 关节回归矩阵等辅助文件，1 MB"),
 }
-MIRROR = "camenduru/GVHMR"
-MIRROR_REVISION = "21b32d5389e2e59c0737d4c4095bbc0b8c23f66b"
+MIRROR, MIRROR_REVISION = downloads.GVHMR_MIRROR, downloads.GVHMR_MIRROR_REVISION
 MIRRORED = {
     # key: (path in the mirror, dest under weights/, sha256, note)
-    "hmr2a": ("hmr2/epoch=10-step=25000.ckpt", "checkpoints/hmr2a.ckpt",
-              "2dcf79638109781d1ae5f5c44fee5f55bc83291c210653feead9b7f04fa6f20e", "HMR2.0a 图像特征（4D-Humans，MIT），2.7 GB"),
-    "vitpose-h": ("vitpose/vitpose-h-multi-coco.pth", "checkpoints/vitpose-h-multi-coco.pth",
-                  "50e33f4077ef2a6bcfd7110c58742b24c5859b7798fb0eedd6d2215e0a8980bc", "ViTPose-H 2D 关键点（Apache-2.0），2.5 GB"),
+    "hmr2a": (downloads.HMR2A.filename, "checkpoints/hmr2a.ckpt", downloads.HMR2A.sha256,
+              "HMR2.0a 图像特征（4D-Humans，MIT），2.7 GB"),
+    "vitpose-h": (downloads.VITPOSE_H.filename, "checkpoints/vitpose-h-multi-coco.pth", downloads.VITPOSE_H.sha256,
+                  "ViTPose-H 2D 关键点（Apache-2.0），2.5 GB"),
     "dpvo": ("dpvo/dpvo.pth", "checkpoints/dpvo.pth",
              "30d02dc2b88a321cf99aad8e4ea1152a44d791b5b65bf95ad036922819c0ff12", "DPVO 视觉里程计（MIT），14 MB"),
-    "yolo": ("yolo/yolov8x.pt", "checkpoints/yolov8x.pt",
-             "c4d5a3f000d771762f03fc8b57ebd0aae324aeaefdd6e68492a9c4470f2d1e8b", "YOLOv8x 人物检测（Ultralytics AGPL-3.0），131 MB"),
+    "yolo": (downloads.YOLOV8X.filename, "checkpoints/yolov8x.pt", downloads.YOLOV8X.sha256,
+             "YOLOv8x 人物检测（Ultralytics AGPL-3.0），131 MB"),
 }
 
 class WHAM(Extension):
@@ -66,11 +65,12 @@ class WHAM(Extension):
     homepage = "https://wham.is.tue.mpg.de/"
     source = GitSource(url=WHAM_URL, commit=WHAM_COMMIT)
     license = LicenseInfo(
-        tag=NONCOMMERCIAL,
+        tag=RESEARCH,  # its weights are research only: stricter than 非商用 (nodes/tags.py)
+        uses=("SMPL", "AMASS", "BEDLAM", "3DPW"),
         name="MIT（代码）+ SMPL 非商用 + 权重仅限研究",
         url="https://github.com/yohanshin/WHAM/blob/main/LICENSE",
         summary=(
-            "非商用。WHAM 代码 MIT；但运行必须用 SMPL 人体模型（SMPL_NEUTRAL），需要在 smpl.is.tue.mpg.de 注册后自己下载，"
+            "仅限研究。WHAM 代码 MIT；但运行必须用 SMPL 人体模型（SMPL_NEUTRAL），需要在 smpl.is.tue.mpg.de 注册后自己下载，"
             "仅限非商用科研，禁止再分发；随 WHAM 下载的关节回归矩阵等辅助文件由 SMPL 派生，同样按 SMPL 许可。"
             "WHAM 权重作者没有单独写许可，训练数据含 AMASS、BEDLAM、3DPW 等仅限研究的数据集，只按研究用途使用。"
             "其余：DPVO 代码和权重 MIT，HMR2.0a（4D-Humans）MIT，ViTPose-H 和 mmcv / mmpose Apache-2.0，"
@@ -87,8 +87,8 @@ class WHAM(Extension):
         # build isolation and without their pins. Pure Python: nothing is compiled here.
         compiled=(
             "mmcv==1.3.9",  # "lite" mmcv without compiled ops, as upstream pins it
-            f"mmpose @ git+{VITPOSE_URL}@{VITPOSE_COMMIT}",
-            "chumpy @ git+https://github.com/mattloper/chumpy.git@580566eafc9ac68b2614b64d6f7aaa84eebb70da",
+            downloads.pip_git("mmpose", VITPOSE),
+            downloads.pip_git("chumpy", downloads.CHUMPY),
         ),
         compiled_cuda=False,
         build="build_dpvo.py",  # DPVO from the submodule, with Eigen 3.4.0

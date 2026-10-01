@@ -1,7 +1,7 @@
 /* The admin pages' own rules, loaded with them (admin/AdminApp.tsx). */
 
 @import "../ui/log.css"; /* the page shows a block of log text (the 日志 window, 服务日志) */
-/* 「扩展包」那一区（admin/Extensions.tsx）用的装扩展控件 */
+/* the install controls of the 扩展包 section (admin/Extensions.tsx) */
 @import "../install/install.css";
 @import "./styles/17-admin-1.css";
 @import "./styles/17-admin-2.css";

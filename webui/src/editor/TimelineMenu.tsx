@@ -1,7 +1,7 @@
 import type { LoopMode } from "../state/preferences";
 import { Select } from "../ui/Select";
 
-/** 播放方式：循环 / 往返 / 单次。属于该浏览器自身的设定（state/preferences.ts），不随节点图保存。 */
+/** 时间线「播放方式」下拉的唯一所在。播放方式：循环 / 往返 / 单次，属于该浏览器自身的设定（state/preferences.ts），不随节点图保存。 */
 const MODES: Record<LoopMode, { label: string; tip: string }> = {
   loop: { label: "循环", tip: "播到播放范围的尽头从头再播" },
   bounce: { label: "往返", tip: "播到尽头倒着播回来，来回播" },

@@ -55,6 +55,21 @@ FbxAMatrix matrix_arg(const Array& a) {
 
 std::string axis_letter(int axis) { return std::string(1, "xyz"[axis]); }
 
+// A text of the file for Python (a node, take, blend-shape or property name, a property's value, the creator): the SDK
+// hands over the file's bytes as they are, in whatever encoding the software that wrote them used (GBK from a Chinese
+// Windows, for one), and pybind11 decodes a std::string strictly as UTF-8, so one such byte would fail the whole read
+// with UnicodeDecodeError. Here a byte that is not UTF-8 becomes U+FFFD instead (as the core reads a video's tags,
+// lab2shot/io/sources.py open_video).
+py::str text(const char* s) {
+    PyObject* o = PyUnicode_DecodeUTF8(s, static_cast<Py_ssize_t>(std::strlen(s)), "replace");
+    if (!o) throw py::error_already_set();
+    return py::reinterpret_steal<py::str>(o);
+}
+
+// The same for an exception's message (the SDK's words about the file may quote its bytes): pybind11 turns what()
+// into a Python str strictly too, so it is made UTF-8 before it is thrown.
+std::string utf8(const char* s) { return text(s).cast<std::string>(); }
+
 }  // namespace
 
 // ------------------------------------------------------------------ the scene
@@ -81,13 +96,13 @@ public:
         const int fbx_reader = manager->GetIOPluginRegistry()->FindReaderIDByExtension("fbx");
         FbxImporter* importer = FbxImporter::Create(manager, "");
         if (fbx_reader < 0 || !importer->Initialize(path.c_str(), fbx_reader, ios)) {
-            std::string why = importer->GetStatus().GetErrorString();
+            std::string why = utf8(importer->GetStatus().GetErrorString());
             manager->Destroy();
             throw std::runtime_error("cannot open: " + why);
         }
         FbxScene* scene = FbxScene::Create(manager, "scene");
         if (!importer->Import(scene)) {
-            std::string why = importer->GetStatus().GetErrorString();
+            std::string why = utf8(importer->GetStatus().GetErrorString());
             manager->Destroy();
             throw std::runtime_error("cannot import: " + why);
         }
@@ -105,7 +120,11 @@ public:
         FbxGlobalSettings& gs = scene->GetGlobalSettings();
         gs.SetAxisSystem(FbxAxisSystem(FbxAxisSystem::eMayaYUp));
         gs.SetSystemUnit(FbxSystemUnit::cm);
+        // a rate with no time mode of its own (12, 20, 90) comes back as eDefaultMode, which a DCC reads as 30 fps:
+        // every such rate is written as a custom one. The NTSC rates match their modes once the worker has snapped
+        // them to 24000/1001 etc. (lab2shot_shared/units.py standard_fps)
         FbxTime::EMode mode = FbxTime::ConvertFrameRateToTimeMode(fps);
+        if (mode == FbxTime::eDefaultMode) mode = FbxTime::eCustom;
         gs.SetTimeMode(mode);
         if (mode == FbxTime::eCustom) gs.SetCustomFrameRate(fps);
         out->fps_ = fps;
@@ -143,7 +162,7 @@ public:
         d["start"] = frame(span.GetStart());
         d["stop"] = frame(span.GetStop());
         FbxDocumentInfo* doc = scene_->GetDocumentInfo();
-        d["creator"] = doc ? std::string(doc->Original_ApplicationName.Get().Buffer()) : std::string();
+        d["creator"] = text(doc ? doc->Original_ApplicationName.Get().Buffer() : "");
         return d;
     }
 
@@ -155,7 +174,7 @@ public:
             FbxNode* n = nodes_[i];
             py::dict d;
             d["id"] = static_cast<int>(i);
-            d["name"] = std::string(n->GetName());
+            d["name"] = text(n->GetName());
             d["parent"] = parent_id(n);
             d["kind"] = kind(n);
             std::string skel;
@@ -218,7 +237,7 @@ public:
                 for (FbxNode* n : nodes_)
                     for (FbxProperty& p : props_of(n)) keys_of(p, layer, found);
             py::dict d;
-            d["name"] = std::string(stack->GetName());
+            d["name"] = text(stack->GetName());
             d["start"] = frame(span.GetStart());
             d["stop"] = frame(span.GetStop());
             d["keys"] = static_cast<int>(found.size());
@@ -227,9 +246,14 @@ public:
         return out;
     }
 
-    // Make a take current: info(), key_frames() and every evaluation read it from then on.
+    // Make a take current: info(), key_frames() and every evaluation read it from then on. `name` as takes() gave it:
+    // a name that is not UTF-8 in the file is found by its text() (the first take it matches).
     void set_take(const std::string& name) {
         FbxAnimStack* stack = scene_->FindSrcObject<FbxAnimStack>(name.c_str());
+        for (int i = 0; !stack && i < scene_->GetSrcObjectCount<FbxAnimStack>(); ++i) {
+            FbxAnimStack* s = scene_->GetSrcObject<FbxAnimStack>(i);
+            if (utf8(s->GetName()) == name) stack = s;
+        }
         if (!stack) throw std::out_of_range("no take " + name);
         scene_->SetCurrentAnimationStack(stack);
     }
@@ -351,7 +375,7 @@ public:
             for (int i = 0; i < nv; ++i)
                 for (int k = 0; k < 3; ++k) p(i, k) = shape->GetControlPointAt(i)[k];
             py::dict d;
-            d["name"] = std::string(ch->GetName());
+            d["name"] = text(ch->GetName());
             d["points"] = pts;
             d["full_weight"] = nt > 0 ? ch->GetTargetShapeFullWeights()[nt - 1] : 100.0;
             out.append(d);
@@ -370,6 +394,16 @@ public:
         auto o = out.mutable_unchecked<2>();
         for (py::ssize_t f = 0; f < frames.size(); ++f)
             for (size_t b = 0; b < chs.size(); ++b) o(f, b) = chs[b]->DeformPercent.EvaluateValue(time(frames.data()[f])) / 100.0;
+        return out;
+    }
+
+    // The node's visibility at frames (1 shown, 0 hidden): its Visibility property, animated or not; what Maya's
+    // visibility attribute reads and writes.
+    py::array_t<double> visibility(int id, const Array& frames) {
+        FbxNode* n = node(id);
+        py::array_t<double> out(frames.size());
+        auto o = out.mutable_unchecked<1>();
+        for (py::ssize_t f = 0; f < frames.size(); ++f) o(f) = n->Visibility.EvaluateValue(time(frames.data()[f]));
         return out;
     }
 
@@ -498,6 +532,23 @@ public:
         unroll.Apply(rotation, 3);
     }
 
+    // The node's visibility keyed at `frames` (non-zero shown), held from key to key (constant interpolation): a frame
+    // a solver did not solve is hidden, and the pose is not blended into it from the frames around.
+    void set_visibility(int id, const Array& frames, const Array& visible) {
+        FbxNode* n = node(id);
+        if (visible.size() != frames.size()) throw std::invalid_argument("one visibility value per frame");
+        n->Visibility.GetCurveNode(layer(), true);
+        FbxAnimCurve* cv = n->Visibility.GetCurve(layer(), true);
+        cv->KeyModifyBegin();
+        for (py::ssize_t f = 0; f < frames.size(); ++f) {
+            FbxTime t = time(frames.data()[f]);
+            int k = cv->KeyAdd(t);
+            cv->KeySet(k, t, visible.data()[f] != 0.0 ? 1.0f : 0.0f, FbxAnimCurveDef::eInterpolationConstant);
+        }
+        cv->KeyModifyEnd();
+        n->VisibilityInheritance.Set(true);  // the character's joints and meshes below go with it
+    }
+
     // The node's mesh: control points [V,3], corners per face, the corners' points, optional face-varying UVs
     // (values [U,2] + an index per corner) and normals (one per corner).
     void set_mesh(int id, const Array& points, const IntArray& counts, const IntArray& indices, py::object uv,
@@ -603,14 +654,14 @@ public:
             if (name.rfind(prefix, 0) != 0) continue;
             EFbxType type = p.GetPropertyDataType().GetType();
             if (type == eFbxString) {
-                out[py::str(name)] = std::string(p.Get<FbxString>().Buffer());
+                out[text(name.c_str())] = text(p.Get<FbxString>().Buffer());
                 continue;
             }
             if (type != eFbxDouble) continue;
             std::set<double> keys;
             for (FbxAnimLayer* l : layers()) keys_of(p, l, keys);
             if (keys.size() < 2) {
-                out[py::str(name)] = keys.empty() ? p.Get<FbxDouble>() : p.EvaluateValue<FbxDouble>(time(*keys.begin()));
+                out[text(name.c_str())] = keys.empty() ? p.Get<FbxDouble>() : p.EvaluateValue<FbxDouble>(time(*keys.begin()));
                 continue;
             }
             py::list fr, vals;
@@ -621,7 +672,7 @@ public:
             py::dict d;
             d["frames"] = fr;
             d["values"] = vals;
-            out[py::str(name)] = d;
+            out[text(name.c_str())] = d;
         }
         return out;
     }
@@ -790,9 +841,10 @@ private:
         return out;
     }
 
-    // A node's own animated properties: translation, rotation, scaling, a camera's lens, its mesh's blend-shape weights.
+    // A node's own animated properties: translation, rotation, scaling, visibility (a still prop hidden for a while is
+    // read on the frames its visibility keys span), a camera's lens, its mesh's blend-shape weights.
     static std::vector<FbxProperty> props_of(FbxNode* n) {
-        std::vector<FbxProperty> props = {n->LclTranslation, n->LclRotation, n->LclScaling};
+        std::vector<FbxProperty> props = {n->LclTranslation, n->LclRotation, n->LclScaling, n->Visibility};
         if (FbxCamera* cam = n->GetCamera()) {
             props.push_back(cam->FocalLength);
             props.push_back(cam->FieldOfView);
@@ -830,9 +882,12 @@ private:
 PYBIND11_MODULE(fbxio, m) {
     m.doc() = "A thin binding over the Autodesk FBX SDK for Lab2Shot's FBX worker (column-vector [4,4] matrices, frames).";
     // the binding's API version: 2 = takes() / set_take() / add_take(); 3 = a camera's lens centre, squeeze and user
-    // properties (camera(), set_camera()); 4 = open() reads FBX only and unpacks no embedded media. worker.py refuses an
-    // older build (E-FBX-REBUILD)
-    m.attr("API") = 4;
+    // properties (camera(), set_camera()); 4 = open() reads FBX only and unpacks no embedded media; 5 = the file's texts
+    // reach Python with bytes that are not UTF-8 replaced (text()), never a UnicodeDecodeError; 6 = visibility() /
+    // set_visibility() (a character hidden on the frames it was not solved); 7 = create() writes a rate without a
+    // time mode of its own as a custom rate; 8 = key_frames() and takes() count Visibility keys. worker.py refuses an older
+    // build (E-FBX-REBUILD)
+    m.attr("API") = 8;
     m.def("sdk_version", []() { return std::string(FbxManager::GetVersion(true)); }, "The FBX SDK's version.");
     m.def("open", &Scene::open, py::arg("path"), "Read an FBX file into a Scene (no take chosen: set_take() makes one current).");
     m.def("create", &Scene::create, py::arg("fps"), py::arg("start"), py::arg("stop"),
@@ -856,6 +911,9 @@ PYBIND11_MODULE(fbxio, m) {
         .def("bind_pose", &Scene::bind_pose, "node id -> global matrix at bind, from the file's bind pose.")
         .def("set_axes", &Scene::set_axes, py::arg("system"), py::arg("unit_cm"), "Record the axis system (maya_y / max) and unit as they are.")
         .def("add_node", &Scene::add_node, py::arg("parent"), py::arg("name"), "A new node under parent (-1: the root); its id.")
+        .def("visibility", &Scene::visibility, py::arg("id"), py::arg("frames"), "The node's visibility at frames (1 shown, 0 hidden).")
+        .def("set_visibility", &Scene::set_visibility, py::arg("id"), py::arg("frames"), py::arg("visible"),
+             "Visibility keyed at frames, held from key to key.")
         .def("set_transform", &Scene::set_transform, py::arg("id"), py::arg("frames"), py::arg("matrices"), "Local transform: still or keyed.")
         .def("set_mesh", &Scene::set_mesh, py::arg("id"), py::arg("points"), py::arg("counts"), py::arg("indices"),
              py::arg("uv") = py::none(), py::arg("uv_indices") = py::none(), py::arg("normals") = py::none(), "The node's mesh.")

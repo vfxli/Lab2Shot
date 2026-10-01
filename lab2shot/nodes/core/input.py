@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -13,6 +14,7 @@ from ...errors import Invalid
 from ...io.sequence import IMAGE_EXTS, VIDEO_EXTS
 from ...messages import Msg
 from ..base import Info, NodeDef, NodeParams, P, Port, ReadsFile, colorspace_param
+from ..kit.ports import fps_meta, fps_packet, fps_port
 from ...data.contracts import Shape
 
 def _short_names(channels: list[str]) -> list[str]:
@@ -56,6 +58,12 @@ def _outputs_of(found: dict[str, dict]) -> list[tuple[str, str, str, list[str]]]
         label = layer if layer != "rgba" else {1: "Mask", 2: "UV", 3: "RGB"}.get(len(picked), "RGBA")
         out.append((name, label, layer, picked))
     return out
+
+
+def _picture(info: dict, picked: list[str]) -> bool:
+    """一层读出来是画面还是数值图：三或四个通道、不是 Cryptomatte、本项目写出时没有注明是数值（lab2shot:layers 头的
+    values）。端口的声明（Port.data）和读取（cook）都按这一处。"""
+    return len(picked) >= 3 and "manifest" not in info and info.get("values") is not True
 
 
 @lru_cache(maxsize=64)
@@ -116,11 +124,19 @@ def _declared(params) -> dict | None:
 
 
 def _colorspace_filled(node, params):
-    """读取节点的「色彩空间」留空即取按格式确定的值（node.choices 提供给页面的 default）：填写与否对应同一个指纹。"""
-    if params.get("colorspace"):
-        return params
-    guessed = (node.choices(params, {}).get("colorspace") or {}).get("default")
-    return {**params, "colorspace": guessed} if guessed else params
+    """读取节点的「色彩空间」留空即取按格式确定的值（node.choices 提供给页面的 default）：填写与否对应同一个指纹。
+    要转到工作空间的素材（场景参考的 EXR 等）再带上转换规则的代次 `premult`：io/color.py apply_premultiplied 的规则
+    一变（2：alpha 为 0 的像素保留颜色），这类素材读出的结果就变，指纹也跟着变；本来就在工作空间的（PNG / JPG）不经转换，
+    不带这一项，指纹不受影响。改了 apply_premultiplied 的结果时把这里的数加一。"""
+    from ...io.color import is_working
+
+    cs = params.get("colorspace") or (node.choices(params, {}).get("colorspace") or {}).get("default")
+    out = {**params, "colorspace": cs} if cs else dict(params)
+    try:
+        converted = bool(cs) and not is_working(cs)
+    except Exception:  # noqa: BLE001 (a name the config does not know: the cook says so; the fingerprint stays as it was)
+        converted = False
+    return {**out, "premult": 2} if converted else out
 
 
 class ReadSequence(ReadsFile, NodeDef):
@@ -137,6 +153,11 @@ class ReadSequence(ReadsFile, NodeDef):
     class Params(NodeParams):
         path: str = P("", label="序列图", widget="sequence", group="文件", accept=sorted(IMAGE_EXTS))
         colorspace: str | None = colorspace_param(choices_from=("path",))  # 其「自动」项显示按文件规则得到的色彩空间
+        # 读哪一段（Nuke Read 的 frame range）：留空 = 序列的头 / 尾。这是素材本身的范围（info 只报这一段）：
+        # 计算按钮旁的「计算范围」照旧只能在各输入的范围里再选一段（engine/evaluation.py info、check_frames），
+        # 所以实际算的帧 = 两者的交集；状态回复的 range（farm/timings.py）报的就是这一段
+        first: int | None = P(None, label="首帧", group="帧范围", placeholder="序列的第一帧")
+        last: int | None = P(None, label="末帧", group="帧范围", placeholder="序列的最后一帧")
 
     @classmethod
     def _source(cls, params):
@@ -187,8 +208,9 @@ class ReadSequence(ReadsFile, NodeDef):
             found = (_declared(params) or {}).get("layers") or {}
         if not found:
             return (Port("image", "image", "图像"),)
-        return tuple(Port(name, f"image.{len(picked)}" if 1 <= len(picked) <= 4 else "image", label)
-                     for name, label, _layer, picked in _outputs_of(found))
+        return tuple(Port(name, f"image.{len(picked)}", label, data=not _picture(found[layer], picked))
+                     if 1 <= len(picked) <= 4 else Port(name, "image", label)
+                     for name, label, layer, picked in _outputs_of(found))
 
     @classmethod
     def upload_channels(cls, params, needed):
@@ -231,7 +253,9 @@ class ReadSequence(ReadsFile, NodeDef):
 
     @classmethod
     def fingerprint_params(cls, params):
-        return _colorspace_filled(cls, params)
+        # 「首帧」「末帧」不进指纹：它们只决定读哪些帧，而读出的帧本来就在指纹里（frame_source，engine/evaluation.py
+        # blob["frames"]）；留空与填上正好是整条序列的头尾是同一份结果，加这两个参数也不让已有的缓存失效
+        return {k: v for k, v in _colorspace_filled(cls, params).items() if k not in ("first", "last")}
 
     @classmethod
     def foresee(cls, params, info):
@@ -267,9 +291,21 @@ class ReadSequence(ReadsFile, NodeDef):
             if not said or not said.get("frames") or not said.get("size"):
                 raise
             w, h = said["size"]
-            return Info(tuple(said["frames"]), w, h, still=len(said["frames"]) <= 1)
+            return cls._within(params, Info(tuple(said["frames"]), w, h, still=len(said["frames"]) <= 1))
         cls._layers(src)
-        return Info(src.frames, src.width, src.height, still=src.kind == "still")
+        return cls._within(params, Info(src.frames, src.width, src.height, still=src.kind == "still"))
+
+    @classmethod
+    def _within(cls, params, info: Info) -> Info:
+        """只留「首帧」「末帧」之间的帧（留空的一端不限）；单张图不受影响。一帧都不剩时说清序列有哪几帧。"""
+        lo, hi = params.get("first"), params.get("last")
+        if info.still or (lo is None and hi is None) or not info.frames:
+            return info
+        kept = tuple(f for f in info.frames if (lo is None or f >= lo) and (hi is None or f <= hi))
+        if not kept:
+            raise Invalid(Msg("E-READ-RANGEOUT", lo="…" if lo is None else lo, hi="…" if hi is None else hi,
+                              first=info.frames[0], last=info.frames[-1]))
+        return replace(info, frames=kept)
 
     @classmethod
     def cook(cls, ctx):
@@ -311,7 +347,7 @@ class ReadSequence(ReadsFile, NodeDef):
             #  3. 不是立体文件的某一只眼，也不是 Cryptomatte。
             one_layer = len(found) == 1 and len(info["channels"]) == len(images.channel_names(str(first)))
             whole_picture = (picked == whole and len(whole) in (3, 4)) or _grey(layer, info["channels"])
-            if layer == "rgba" and whole_picture and one_layer and view is None and crypto is None:
+            if layer == "rgba" and whole_picture and one_layer and view is None and crypto is None and _picture(info, picked):
                 alpha = any(layers.role(c) == "A" for c in info["channels"])
                 packet = ingest_picture(ctx.outputs[name], files, w, h, cs, alpha, window,
                                         each_done=lambda jobs, work: ctx.each_done(jobs, work, "转到工作空间"))
@@ -321,7 +357,7 @@ class ReadSequence(ReadsFile, NodeDef):
                 said = {k: info[k] for k in ("scale", "space", "projection", "direction", "model") if k in info}
                 channels = list(layers.crypto_rank(info["channels"])) if crypto else layers.channels_named(info["channels"], picked)
                 count = 1 if crypto else len([c for c in channels if layers.role(c) != VALIDITY])
-                picture = count >= 3 and not crypto and info.get("values") is not True
+                picture = _picture(info, picked)
                 # 数值图一律带有效区域（Houdini 的 Z 中天空写为 inf），否则下游无法得知读出的 inf 和 NaN 的含义
                 keeps = crypto is None and not picture
                 if info.get("validity"):  # 本项目写出的多层 EXR：最后的 A 通道即有效区域，读取时需一并带上
@@ -361,8 +397,9 @@ class ReadPicture(ReadSequence):
     id = "core.read_picture"
     no_file = "没有选择图像"
 
-    class Params(ReadSequence.Params):
+    class Params(NodeParams):  # 单张图：没有「读取序列」的帧范围
         path: str = P("", label="文件", widget="file", group="文件", accept=sorted(IMAGE_EXTS))
+        colorspace: str | None = colorspace_param(choices_from=("path",))
 
     @classmethod
     def _source(cls, params):
@@ -551,15 +588,28 @@ class ReadVideo(ReadsFile, NodeDef):
     id = "core.read_video"
     no_file = "没有选择视频"
     category = "read_plate"
-    outputs = (Port("video", "video", "视频"),)
+    # 「帧率」：视频自己记的帧率（容器的 average_rate），没记时空包（kit/ports.py fps_port）。
+    # 序列图没有帧率的概念，「读取序列」没有这个口
+    outputs = (Port("video", "video", "视频"),
+               fps_port("视频自己记的帧率。接到输出设置或动作模型的「帧率」，就跟素材走；视频没记帧率时这里没有值，"
+                        "那边用自己填的", may_be_empty=True))
 
     class Params(NodeParams):
         path: str = P("", label="视频", widget="file", group="文件", accept=sorted(VIDEO_EXTS))
 
     @classmethod
+    def known_outputs(cls, params):
+        """「帧率」计算前就知道（文件头，_video_facts 每个文件只读一次）：接到输出设置的「帧率」立刻显示；没记帧率时空包。"""
+        try:
+            recorded = _video_facts(str(cls.path(params)))[4]
+        except (OSError, ValueError):
+            return {}
+        return {"fps": fps_meta(recorded)}
+
+    @classmethod
     def info(cls, params, inputs):
-        count, fps, width, height = _video_facts(str(cls.path(params)))
-        # 视频流自身的帧，从 0 计数；`video_fps` 为该文件自身的帧率，只由「视频转序列」读取
+        count, fps, width, height, _ = _video_facts(str(cls.path(params)))
+        # 视频流自身的帧，从 0 计数；`video_fps` 为该文件自身的帧率（没记时按 DEFAULT_FPS），「视频转序列」换算秒用
         return Info(tuple(range(count)), width, height, video_fps=fps)
 
     @classmethod
@@ -567,21 +617,22 @@ class ReadVideo(ReadsFile, NodeDef):
         from ...data.payloads import video_packet
 
         path = cls.path(ctx.params)
-        count, fps, width, height = _video_facts(str(path))
-        return {"video": video_packet(ctx.outputs["video"], path, count, fps, width, height,
-                                      **cls.said_shot(ctx.params))}  # 拍摄内容在此处声明一次
+        count, fps, width, height, recorded = _video_facts(str(path))
+        out = {"video": video_packet(ctx.outputs["video"], path, count, fps, width, height,
+                                     **cls.said_shot(ctx.params))}  # 拍摄内容在此处声明一次
+        if "fps" in ctx.wanted:
+            out["fps"] = fps_packet(ctx, recorded)
+        return out
 
 
 @lru_cache(maxsize=32)
-def _video_facts(path: str) -> tuple[int, float, int, int]:
-    """视频的 (帧数, fps, 宽, 高)；上传内容不会改变，因此每个文件只打开一次。
-
-    帧率不属于数据：下游不会获得它（视频逐帧读取）。它仅用于把「区间（秒）」换算为该文件内的帧位置，
-    并由 `lab2shot info` 输出。"""
+def _video_facts(path: str) -> tuple[int, float, int, int, float | None]:
+    """视频的 (帧数, fps, 宽, 高, 文件记的 fps)；上传内容不会改变，因此每个文件只打开一次。
+    fps 没记时按 DEFAULT_FPS，只用于把「区间（秒）」换算为帧位置；「帧率」口交出的是文件记的（没记为 None：空包）。"""
     from ...io.sources import open_source
 
     src = open_source(path, 0)
-    return len(src.frames), src.fps or DEFAULT_FPS, src.width, src.height
+    return len(src.frames), src.fps or DEFAULT_FPS, src.width, src.height, (float(src.fps) if src.fps else None)
 
 
 SCALES = {"full": 1.0, "half": 0.5, "quarter": 0.25}
@@ -589,7 +640,7 @@ SCALES = {"full": 1.0, "half": 0.5, "quarter": 0.25}
 
 class VideoToSequence(NodeDef):
     id = "core.video_to_sequence"
-    version = 2  # 图像数据包总会注明是否带 alpha
+    version = 3  # 3：YUV 矩阵、色彩范围按流自己标的（io/sources.py；BT.601 的标清视频原来按 709 解，偏色）
     frame_source = True
     on_node = ("range_sec", "step", "downscale")
     category = "read_plate"
@@ -673,6 +724,13 @@ class VideoToSequence(NodeDef):
                 ctx.progress(k + 1, len(numbers), f"帧 {frame}")
             for f in pending:
                 f.result()
+        # 帧数取自容器头（io/sources.py open_source：没记才从头解一遍数），头和实际能解出的可能不一样（edit list、
+        # 截断的文件）：以解出来的为准。一帧都没有是节点的错误，少了几帧照常交出并说清楚
+        if not files:
+            raise Invalid(Msg("E-VIDEO-NOFRAMES", file=path.name, count=len(numbers)))
+        if len(files) < len(numbers):
+            short = sorted(set(numbers.values()) - set(files))
+            ctx.say("W-VIDEO-SHORT", file=path.name, count=len(short), first=short[0], want=len(numbers))
         h, w = images.read_rgb(next(iter(files.values()))).shape[:2]
         from ...io.color import working_space
 

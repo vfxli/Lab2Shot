@@ -392,6 +392,9 @@ def main(job_path: str) -> None:
     #      The rigid transform between them is that camera, uniquely determined by these two official outputs
     #      (wh.camera_from_body, solve_person).
     wh.save_camera(raw, frame_numbers, focal, track)
+    # 放人用的那台相机（节点的「相机」口，家族的 plate_camera）：原点、不动，每帧的焦距就是上面用的那个，主点在画面中心；
+    # 人在它的空间里（相机空间那一份），参照相机把世界里的人和它连起来
+    wh.save_camera(raw, frame_numbers, focal, name=wh.PLATE_CAMERA)
 
     wh.write_humans(
         run,

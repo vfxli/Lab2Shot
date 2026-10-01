@@ -18,7 +18,7 @@ fitted to a standing body's size before they are handed over.
 
 from __future__ import annotations
 
-from lab2shot.sdk import NONCOMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight
+from lab2shot.sdk import RESEARCH, EnvSpec, Extension, GitSource, LicenseInfo, Weight
 
 # The project-page repository is named Sketch2Anim (a fork of the nerfies template); the code is in Sketch2Animation.
 # The URL must not be derived from the paper title.
@@ -38,16 +38,18 @@ class Sketch2Anim(Extension):
     name = "sketch2anim"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "Sketch2Anim"
+    worker_modules = ("model_spec.py",)  # the model's rate and lengths, shared with nodes.py
     summary = "把分镜草图变成三维动画：用关键姿势、关节轨迹和动作描述控制三维动作生成，二维草图经神经映射对到三维"
     homepage = "https://zhongleilz.github.io/Sketch2Anim/"
     source = GitSource(url=SKETCH2ANIM_URL, commit=SKETCH2ANIM_COMMIT)
     license = LicenseInfo(
-        tag=NONCOMMERCIAL,
-        name="MIT（代码）+ HumanML3D / AMASS 非商用（权重）",
+        tag=RESEARCH,  # its weights are trained on AMASS (through HumanML3D): research only (nodes/tags.py DATA_LICENCES)
+        uses=("AMASS",),
+        name="MIT（代码）+ HumanML3D / AMASS 学术许可（权重）",
         url="https://github.com/zhongleilz/Sketch2Animation/blob/main/LICENSE",
         summary=(
-            "非商用。代码是 MIT（作者 Lei Zhong 2025，原文允许商用、允许修改和再发布），但官方预训练权重用 HumanML3D 训练，"
-            "HumanML3D 的动作来自 AMASS，AMASS 的许可只许学术研究和非商业用途，所以权重和生成出来的动作只能用于研究和评估。"
+            "仅限研究。代码是 MIT（作者 Lei Zhong 2025，原文允许商用、允许修改和再发布），但官方预训练权重用 HumanML3D 训练，"
+            "HumanML3D 的动作来自 AMASS，AMASS 的许可只许非商业的学术研究，所以权重和生成出来的动作只能用于研究和评估。"
             "文字编码用的 sentence-t5-large 是 Apache-2.0（可商用），不改变上面的结论。要商用得用有授权的动捕数据重新训练"
         ),
     )

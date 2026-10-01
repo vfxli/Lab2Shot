@@ -1,14 +1,20 @@
+/** The node graph canvas: owns how the graph document (state/cookInputs.ts, state/look.ts) is handed to xyflow and how
+ * xyflow's changes come back as edits (moves, selection, deletion as one undo step), plus the canvas's own furniture
+ * (group boxes, 逐项处理 frames, the carried wire, zoom and arrange buttons). Pointer gestures and wiring live in
+ * editor/graphPointer.ts and editor/wiring.ts. */
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Background, BackgroundVariant, MiniMap, ReactFlow, SelectionMode, useReactFlow, useStore as useFlow, type Edge, type EdgeChange, type IsValidConnection, type Node, type NodeChange } from "@xyflow/react";
 import { nodeCategory, type NodeTypeDef } from "../api";
-import { addBox, connect, deleteElements } from "../graph/actions";
+import { addBox, arrangeGraph, connect, deleteElements } from "../graph/actions";
 import { ProjectNotice } from "./ProjectNotice";
 import { GraphHelp } from "./GraphHelp";
-import { CLICK_PX, canWire, useGraphPointer } from "./graphPointer";
+import { canWire, useGraphPointer } from "./graphPointer";
+import { CLICK_SLOP } from "../platform/drag";
 import { snapshotNow } from "../graph/snapshot";
 import { useComposedNodes, type PreparedGNode } from "../graph";
 import { useCookInputs } from "../state/cookInputs";
+import { useWriteLock } from "../ui/writeLock";
 import { useLook, type Box } from "../state/look";
 import { usePreferences } from "../state/preferences";
 import { useViewer } from "../state/viewer";
@@ -17,7 +23,7 @@ import { GraphNode } from "./GraphNode";
 import { BlockFrames, useBlockFrames } from "./BlockFrame";
 import { NetworkBox, type BoxNode } from "./NetworkBox";
 import { UnknownNode, type UnknownFlowNode } from "./UnknownNode";
-import { IconFit, IconGroup, IconMap, IconMinus, IconPlus } from "../ui/icons";
+import { IconArrange, IconFit, IconGroup, IconMap, IconMinus, IconPlus } from "../ui/icons";
 import { getNodeDefs as nodeDefsCached } from "../state/catalog";
 import { IconButton } from "../ui/Button";
 import { ConnectionLine, NodeMenu, TypedEdge, zoomClass } from "./FlowParts";
@@ -59,7 +65,7 @@ export function NodeEditor() {
   const select = useViewer((s) => s.select);
   const setDisplay = useLook((s) => s.setDisplay);
   const loads = useViewer((s) => s.loads);
-  const viewer = useViewer((s) => s.role === "viewer"); // tabs.ts: this graph is open (and being edited) in another tab
+  const viewer = !!useWriteLock(); // nothing may be written (ui/writeLock.ts: this graph is being edited in another tab)
   const flow = useReactFlow();
   const zoomed = useFlow((s) => zoomClass(s.transform[2])); // changes only when a threshold is crossed
   const wrap = useRef<HTMLDivElement>(null);
@@ -203,6 +209,12 @@ export function NodeEditor() {
 
   // the pointer's division of labour and wiring by clicks: editor/graphPointer.ts
   const pointer = useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds: kept.nodes.map((n) => n.id), onNodeMenu: setNodeMenu });
+  // wires lifted with Ctrl are drawn faint (they follow the pointer and move as a group when dropped; graphPointer.ts)
+  const heldWires = pointer.heldWires;
+  const edgesDrawn = useMemo(
+    () => (heldWires.size ? shownEdges.map((e) => (heldWires.has(e.id) ? { ...e, className: `${e.className ?? ""} held`.trim() } : e)) : shownEdges),
+    [shownEdges, heldWires],
+  );
 
   // fit the view whenever another graph is loaded
   useEffect(() => {
@@ -227,7 +239,7 @@ export function NodeEditor() {
     <div className={`graph${zoomed}${pointer.carrying ? " wiring" : ""}`} ref={wrap} {...pointer.handlers}>
       <ReactFlow<PreparedGNode | BoxNode | UnknownFlowNode>
         nodes={shownNodes}
-        edges={shownEdges}
+        edges={edgesDrawn}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onChanges}
@@ -263,7 +275,7 @@ export function NodeEditor() {
           if (real.length === 1) select(real[0].id);
         }}
         connectOnClick={false} // a click on a port is the wiring machine's (editor/wiring.ts), not two machines at once
-        connectionDragThreshold={CLICK_PX} // under it the gesture is a click: the wire is carried, not dragged
+        connectionDragThreshold={CLICK_SLOP} // under it the gesture is a click (the page's one threshold): the wire is carried, not dragged; @xyflow/react starts a drag past it, so the two never both happen
         noPanClassName="l2s-nopan" // nothing has it: a middle-drag pans over a node as well as over the empty pane
         panOnDrag={[1]} // middle-drag pans; so does Space + left-drag (panActivationKeyCode, xyflow's own)
         selectionOnDrag // left-drag on the empty pane = box select
@@ -305,9 +317,10 @@ export function NodeEditor() {
         )}
       </ReactFlow>
       {nodeMenu && <NodeMenu at={nodeMenu} onClose={closeNodeMenu} />}
-      {/* the wire the pointer carries: a dashed line from the port it comes from */}
+      {/* the wire the pointer carries: a dashed line from the port it comes from; a group lifted with Ctrl draws one line per wire (<g>) */}
       <svg className="wire-line" aria-hidden={!pointer.carrying}>
         <path ref={pointer.line} />
+        <g ref={pointer.bundle} />
       </svg>
       <ProjectNotice className="graph-notice" />
       <GraphHelp />
@@ -315,7 +328,7 @@ export function NodeEditor() {
         <IconButton tip="小地图" tone="ghost" on={minimap} onClick={toggleMinimap}>
           <IconMap size={13} />
         </IconButton>
-        <IconButton tip="分组框（Shift+O）：框住选中的节点" tone="ghost" onClick={() => addBox(flow.screenToFlowPosition({ x: (wrap.current?.getBoundingClientRect().left ?? 0) + 80, y: (wrap.current?.getBoundingClientRect().top ?? 0) + 60 }))}>
+        <IconButton tip="分组框（Shift+O）：框住选中的节点" tone="ghost" disabled={viewer} onClick={() => addBox(flow.screenToFlowPosition({ x: (wrap.current?.getBoundingClientRect().left ?? 0) + 80, y: (wrap.current?.getBoundingClientRect().top ?? 0) + 60 }))}>
           <IconGroup size={13} />
         </IconButton>
         <IconButton tip="缩小" tone="ghost" onClick={() => flow.zoomOut({ duration: 150 })}>
@@ -327,6 +340,14 @@ export function NodeEditor() {
         <IconButton tip="适配全部" tone="ghost" onClick={() => flow.fitView({ padding: 0.18, duration: 250 })}>
           <IconFit size={13} />
         </IconButton>
+        {/* arrange the graph (graph/layout.ts): columns left to right in order, few crossings within a column, straight chains
+            straightened; with several nodes selected only those are arranged. Not offered in a read-only tab */}
+        {!viewer && (
+          <IconButton tip="整理节点图：按先后从左到右排开，少交叉、直链拉直（选中几个节点时只整理它们；Ctrl+Z 撤销）" tone="ghost"
+            onClick={() => (arrangeGraph(), requestAnimationFrame(() => flow.fitView({ padding: 0.18, duration: 250 })))}>
+            <IconArrange size={13} />
+          </IconButton>
+        )}
       </div>
     </div>
   );

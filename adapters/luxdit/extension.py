@@ -75,7 +75,7 @@ class LuxDiT(Extension):
         name="NVIDIA OneWay Noncommercial License（代码和权重）· CogVideoX License（VAE）",
         url="https://github.com/nv-tlabs/LuxDiT/blob/main/LICENSE.md",
         summary=(
-            "非商用，仅限研究或评估。逐项："
+            "仅限研究或评估。逐项："
             "LuxDiT 代码和 Hugging Face 上 nvidia/LuxDiT 的全部权重（luxdit_image、luxdit_video 两个 5B 模型、"
             "两个真实场景 LoRA、HDR 合成 MLP）均为 NVIDIA OneWay Noncommercial License："
             "只能非商业使用（研究或评估），再分发须附带同一许可证，结果也不能用于商业项目；"

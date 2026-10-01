@@ -1,4 +1,5 @@
-/* ------------------------------------------------------------------ file parameters: what was chosen, one line */
+/* File parameters in the parameter panel (editor/FileParam.tsx): what was chosen, one line, and the list of sequences
+   to choose from. */
 
 .fileparam {
   display: flex;

@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 
-from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight
+from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, downloads
 
 MEDIAPIPE_URL = "https://github.com/google-ai-edge/mediapipe.git"
 # Tag v1.0.0 = the pip wheel mediapipe==1.0.0 in requirements.txt. The
@@ -18,9 +18,8 @@ MEDIAPIPE_COMMIT = "6d31f1ebc3284db74d211d62bdc4f0a0c29ea120"
 # face_landmarks_detector.tflite (Face Mesh V2), face_blendshapes.tflite
 # (Blendshape V2) and geometry_pipeline_metadata_landmarks.binarypb (canonical
 # face mesh + Procrustes weights). Version 1 is also what ".../latest/" serves.
-TASK_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+TASK = downloads.FACE_LANDMARKER  # SMIRK crops faces with the same file: pinned once (extensions/downloads.py)
 TASK_FILE = "face_landmarker.task"
-TASK_SHA256 = "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"  # 3,758,596 bytes
 
 
 class MediaPipeFace(Extension):
@@ -44,14 +43,8 @@ class MediaPipeFace(Extension):
     )
     env = EnvSpec(python="3.12")
     weights = (
-        Weight(
-            key="face-landmarker",
-            kind="url",
-            source=TASK_URL,
-            dest=TASK_FILE,
-            note="face_landmarker.task float16 v1（面部检测 + 478 点 + 52 表情，3.6 MB，Apache-2.0）",
-            sha256=TASK_SHA256,
-        ),
+        TASK.weight(key="face-landmarker", dest=TASK_FILE,
+                    note="face_landmarker.task float16 v1（面部检测 + 478 点 + 52 表情，3.6 MB，Apache-2.0）"),
     )
 
 

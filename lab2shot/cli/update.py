@@ -1,15 +1,9 @@
-"""一键更新 (`lab2shot setup update`, the menu's 「一键更新」): this checkout brought to its upstream's latest commit, or
-left as it was.
+"""Upgrade the code the administrator has already pulled.
 
-Nine steps: the preflight (a clean working tree on a branch that follows a remote one, the remote reachable, the update
-a fast-forward); the record (the commit, a copy of the settings file); the locally changed managed files copied to
-<file>.old; the service stopped (cli/service.py stop, the menu's own 停止服务), then the database backed up; git pull
---ff-only, uv sync, npm ci and the build; the new code's checks (`lab2shot check`, `lab2shot db upgrade`, `lab2shot db
-check`); the new version started and its page answering. Any failure from the stop on rolls the checkout, the managed
-files, the settings file, the database and the environment back and starts the old version again; the last step says
-which version is online, the extensions to install again, and asks what becomes of the overwritten managed files.
-
-git, uv and npm run with argument lists, never a shell string; the new version runs only in processes of its own.
+Stop the service with the installed version, run git pull --ff-only manually, then ./setup.sh update.
+The updater never contacts a Git remote. It records the previous installed commit (or the last manual pull's
+starting commit on the first upgrade), backs up the stopped database without migrating it, syncs environments,
+builds, checks, migrates and starts the service. A failure restores that commit, data and local managed files.
 """
 
 from __future__ import annotations
@@ -27,16 +21,15 @@ from rich.markup import escape
 from rich.rule import Rule
 from rich.table import Column, Table
 
-from .base import abort_types, console, err, menu_table, note, ok, pick, say
+from .base import abort_types, console, note, ok, say
 from .service import (LOG, NotStopped, address, build_webui, initialized, lab2shot_command, launch, listening_pid,
-                      page_status, recorded_address, running, service_port, stop, sync_env, terminate)
+                      page_status, recorded_address, running, service_port, sync_env, terminate)
 
 
-# The files the administrator edits in place in the checkout (the templates page, the category trees, node placement):
-# menu/*.json and templates/*.json, templates/_categories.json among them. A pull must not silently take the local
-# version away, nor may a local edit block the pull: they are copied to <file>.old first, and the choice is asked last.
+# Local edits to these files are preserved during environment updates and saved for a possible code rollback.
 MANAGED_DIRS = ("menu", "templates")
-UPDATE_STEPS = ("预检", "记录现状", "备份受管文件", "停止服务", "更新", "质检", "启动服务", "回退", "汇报结果")
+INSTALLED = "installed.json"  # work/: written only after a successful upgrade
+UPDATE_STEPS = ("预检", "记录现状", "备份受管文件", "确认停服并备份数据库", "同步环境与构建网页", "质检", "启动服务", "回退", "汇报结果")
 # the extensions whose environment was built for another spec than the new code's (extensions/status.py
 # E-EXT-OUTDATED): listed by the new code in a process of its own, as JSON [[name, title], ...]
 STALE_EXTENSIONS = (
@@ -61,22 +54,14 @@ class Update:
 
     head: str  # the commit before (full)
     branch: str
-    upstream: str  # the remote branch it follows, e.g. origin/main
-    remote: str
-    target: str  # the upstream commit fetched (full)
-    incoming: set[str]  # the paths the pull changes
+    target: str  # the code already pulled by the administrator
     local: list[tuple[str, str]]  # locally changed managed files: (path, "M" changed / "D" deleted / "?" untracked)
     database: bool  # the work folder has a database
     record: Path | None = None  # work/updates/<time>/
-    backup: str = ""  # the database backup taken once the service stopped, after step 4 (a file name in work/db/backups/)
+    backup: str = ""  # the database backup taken once the service stopped, in step 4 (a file name in work/db/backups/)
     settings_file: Path | None = None
     settings_copy: Path | None = None  # None: there was no settings file
-    reached: set[str] = field(default_factory=set)  # managed / pull / sync / web / db / start: begun, so to be undone
-
-    @property
-    def overwritten(self) -> list[tuple[str, str]]:
-        """The locally changed managed files the pull changes: set back to the committed version before it."""
-        return [(p, k) for p, k in self.local if p in self.incoming]
+    reached: set[str] = field(default_factory=set)  # code / sync / web / db / start: begun, so to be undone
 
 
 def _git(*args: str) -> subprocess.CompletedProcess:
@@ -84,14 +69,6 @@ def _git(*args: str) -> subprocess.CompletedProcess:
     from ..config import ROOT
 
     return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True)
-
-
-def _git_live(*args: str) -> int:
-    """git in this checkout, its output (and any credential prompt) on the terminal; returns the exit code."""
-    from ..config import ROOT
-
-    note("$ git " + " ".join(args))
-    return subprocess.run(["git", "-C", str(ROOT), *args]).returncode
 
 
 def _managed(rel: str) -> bool:
@@ -144,30 +121,49 @@ def _step(i: int) -> None:
     console.print(Rule(f"[bold]第 {i} 步，共 {len(UPDATE_STEPS)} 步：{UPDATE_STEPS[i - 1]}[/bold]", align="left", style="cyan"))
 
 
+def _previous_commit(target: str) -> str:
+    """Prefer the last successful deployment; on first use accept only the latest HEAD reflog's manual pull.
+    A stale ORIG_HEAD is not a deployment record. A no-change run uses the current commit as its rollback baseline.
+    """
+    import json
 
-
-def _update_preflight() -> Update | None:
-    """Step 1: a git checkout on a branch that follows a remote one, no change of its own outside the managed files,
-    uv and npm present (the rollback needs them too), the service port free unless this work folder's service holds
-    it, the remote reachable (git fetch), and the update a fast-forward. None: nothing to update (said).
-
-    A process on the port that does not answer /api/server is not this work folder's service: the update leaves it
-    alone and does not begin, since neither the new version nor the old one could start on that port."""
-    from ..config import ROOT
+    from ..config import ROOT, settings
     from ..messages import Msg
+
+    installed = settings().work_dir / INSTALLED
+    try:
+        saved = json.loads(installed.read_text(encoding="utf-8"))
+        if saved["root"] != str(ROOT):
+            raise ValueError("部署记录属于另一个项目目录")
+        previous = str(saved["commit"])
+    except FileNotFoundError:
+        rows = _git("reflog", "show", "--format=%H%x00%gs", "-n", "2", "HEAD").stdout.splitlines()
+        latest = rows[0].split("\0", 1) if rows else []
+        if len(latest) == 2 and latest[0] == target and latest[1].startswith(("pull:", "pull ")) and len(rows) > 1:
+            previous = rows[1].split("\0", 1)[0]
+        else:
+            note("没有已完成的升级记录，也没有刚执行的 git pull；按当前代码同步环境与检查，代码回退基线为当前版本。")
+            previous = target
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise UpdateFailed(Msg("E-UPDATE-BASELINE", reason=exc)) from exc
+    if _git("cat-file", "-e", previous + "^{commit}").returncode or _git("merge-base", "--is-ancestor", previous, target).returncode:
+        raise UpdateFailed(Msg("E-UPDATE-BASELINE", reason="上次部署的提交不存在，或不是当前版本的祖先；请核对 work/installed.json 和当前分支"))
+    return previous
+
+
+def _update_preflight() -> Update:
+    """Check only local state. Stop the old service before pulling so its workers cannot load new code mid-job."""
+    from ..config import ROOT, settings
+    from ..messages import Msg
+    from ..workdir import own
 
     top = _git("rev-parse", "--show-toplevel") if shutil.which("git") else None
     if top is None or top.returncode != 0 or Path(top.stdout.strip()).resolve() != ROOT.resolve():
         raise UpdateFailed(Msg("E-UPDATE-NOTGIT", root=str(ROOT)))
-    head = _git("rev-parse", "HEAD").stdout.strip()
+    target = _git("rev-parse", "HEAD").stdout.strip()
     branch = _git("symbolic-ref", "--short", "-q", "HEAD").stdout.strip()
     if not branch:
-        raise UpdateFailed(Msg("E-UPDATE-DETACHED", head=head[:9]))
-    upstream = _git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
-    remote = _git("config", "--get", f"branch.{branch}.remote").stdout.strip()
-    if upstream.returncode != 0 or not remote:
-        raise UpdateFailed(Msg("E-UPDATE-NOUPSTREAM", branch=branch))
-    upstream_name = upstream.stdout.strip()
+        raise UpdateFailed(Msg("E-UPDATE-DETACHED", head=target[:9]))
     for tool, how in (("uv", "重新运行 ./setup.sh 由脚本引导安装，或参阅 https://docs.astral.sh/uv/"), ("npm", "先安装 Node.js（https://nodejs.org/）")):
         if not shutil.which(tool):
             raise UpdateFailed(Msg("E-UPDATE-NOTOOL", tool=tool, how=how))
@@ -178,40 +174,23 @@ def _update_preflight() -> Update | None:
     dirty = [p for xy, p in changes if xy != "??" and p not in mine]
     if dirty:
         raise UpdateFailed(Msg("E-UPDATE-DIRTY", count=len(dirty), files=dirty[:10] + (["……"] if len(dirty) > 10 else [])))
-    ok(f"工作区干净（受管文件之外没有未提交的改动）：分支 {escape(branch)}，版本 {_version()[0]}，跟随 {escape(upstream_name)}。")
     port = service_port()
-    if not running() and (pid := listening_pid(port)) is not None:
+    if running():
+        raise UpdateFailed(Msg("E-UPDATE-RUNNING"))
+    if (pid := listening_pid(port)) is not None:
         raise UpdateFailed(Msg("E-UPDATE-PORTBUSY", listen=port, pid=pid))
-    code = _git_live("fetch", remote)
-    if code != 0:
-        raise UpdateFailed(Msg("E-UPDATE-FETCH", remote=remote, code=code))
-    target = _git("rev-parse", "@{upstream}").stdout.strip()
-    behind = int(_git("rev-list", "--count", "HEAD..@{upstream}").stdout.strip() or 0)
-    ahead = int(_git("rev-list", "--count", "@{upstream}..HEAD").stdout.strip() or 0)
-    if behind == 0:
-        say(Msg("N-UPDATE-AHEAD", branch=branch, upstream=upstream_name, ahead=ahead) if ahead
-             else Msg("N-UPDATE-UPTODATE", branch=branch, upstream=upstream_name, head=_version()[0]))
-        return None
-    if ahead:
-        raise UpdateFailed(Msg("E-UPDATE-DIVERGED", branch=branch, upstream=upstream_name, ahead=ahead, behind=behind))
-    incoming = {p for p in _git("diff", "--name-only", "-z", "HEAD", target).stdout.split("\0") if p}
-    clash = [p for xy, p in changes if xy == "??" and p in incoming and not _managed(p)]
+    own(settings().work_dir)
+    previous = _previous_commit(target)
+    clash = [p for xy, p in changes if xy == "??" and p not in mine
+             and _git("ls-tree", "--name-only", previous, "--", p).stdout.strip()]
     if clash:
-        raise UpdateFailed(Msg("E-UPDATE-UNTRACKED", files=clash[:10]))
-    ok(f"已连上远程仓库 {escape(remote)}：{escape(upstream_name)} 比本地多 {behind} 个提交，可以快进。")
-    log = _git("log", "--format=%h  %s", "-n", "15", f"HEAD..{target}").stdout.splitlines()
-    for line in log:
-        console.print(f"    {escape(line)}", highlight=False)
-    if behind > len(log):
-        note(f"    ……另有 {behind - len(log)} 个提交")
-    return Update(head, branch, upstream_name, remote, target, incoming, local, initialized())
+        raise UpdateFailed(Msg("E-UPDATE-DIRTY", count=len(clash), files=clash[:10]))
+    ok(f"本次升级使用本地代码：分支 {escape(branch)}，版本 {_version(target)[0]}；失败时回退到 {_version(previous)[0]}。")
+    return Update(previous, branch, target, local, initialized())
 
 
 def _update_record(u: Update) -> None:
-    """Step 2: the commit and a copy of the settings file, in work/updates/<time>/record.json. The database is backed up
-    once the service has stopped (_update_backup_db, after step 4): taken while it runs, the backup would miss what the
-    service writes until it stops (the jobs finishing during a drain, the jobs kept for the next server), and a rollback
-    restoring it would lose them."""
+    """Step 2: save the rollback commit and settings before any environment or database change."""
     from ..config import settings
     from ..database import DatabaseError
     from ..messages import Msg
@@ -234,7 +213,7 @@ def _update_record(u: Update) -> None:
     except (OSError, DatabaseError, WorkDirError) as exc:
         raise UpdateFailed(Msg("E-UPDATE-RECORD", reason=exc)) from exc
     ok(f"git 版本：{_version(u.head)[0]}「{escape(_version(u.head)[1])}」（分支 {escape(u.branch)}）。")
-    note("数据库在服务停止之后再备份（第 4 步之后）：停止之前服务还会写入。")
+    note("第 4 步备份已停止服务的数据库，再同步环境和迁移。")
     ok(f"设置文件：{'已复制到 ' + str(u.settings_copy) if u.settings_copy else str(u.settings_file) + ' 不存在，全部为默认值'}。")
     note(f"本次更新的记录：{u.record}")
 
@@ -244,15 +223,15 @@ def _write_record(u: Update) -> None:
     import json
 
     (u.record / "record.json").write_text(json.dumps(
-        {"head": u.head, "branch": u.branch, "upstream": u.upstream, "target": u.target, "database_backup": u.backup,
+        {"head": u.head, "branch": u.branch, "target": u.target, "database_backup": u.backup,
          "settings_file": str(u.settings_file), "settings_copy": str(u.settings_copy or ""), "managed": u.local,
          "at": time.time()}, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 def _update_backup_db(u: Update) -> None:
-    """Right after step 4: the database backed up with the service stopped, so nothing is written after it; a rollback
+    """Step 4: the database backed up with the service stopped, so nothing is written after it; a rollback
     restoring it loses nothing (the jobs kept for the next server are in it)."""
-    from ..database import DatabaseError, close_all, db
+    from ..database import DatabaseError, backup_stopped, close_all
     from ..messages import Msg
     from ..workdir import WorkDirError
 
@@ -260,8 +239,8 @@ def _update_backup_db(u: Update) -> None:
         note("工作目录还没有数据库（服务从未启动过），无需备份。")
         return
     try:
-        u.backup = db().backup("before-update").name
-        close_all()  # the new version's upgrade (step 6) needs the database to itself
+        close_all()
+        u.backup = backup_stopped("before-update").name
         _write_record(u)
     except (OSError, DatabaseError, WorkDirError) as exc:
         raise UpdateFailed(Msg("E-UPDATE-RECORD", reason=exc)) from exc
@@ -269,32 +248,32 @@ def _update_backup_db(u: Update) -> None:
 
 
 def _update_backup_managed(u: Update) -> None:
-    """Step 3: every locally changed managed file copied beside itself as <file>.old (a deleted one has nothing to copy)."""
+    """Save local managed files in this run's record, leaving existing .old backups untouched."""
     if not u.local:
         ok("受管文件（menu/*.json、templates/*.json）没有本地改动。")
         return
-    table = Table(Column("受管文件", overflow="fold"), "本地改动", Column(".old", overflow="fold"), "本次更新是否改动它",
-                  box=box.SIMPLE_HEAD, header_style="bold")  # fold, never cut: a path cut short names no file
+    table = Table(Column("受管文件", overflow="fold"), "本地改动", Column("备份", overflow="fold"),
+                  box=box.SIMPLE_HEAD, header_style="bold")
     for rel, kind in u.local:
-        path = _root_path(rel)
+        backup = u.record / "managed" / rel
         if kind != "D":
-            shutil.copy2(path, path.with_name(path.name + ".old"))
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(_root_path(rel), backup)
         table.add_row(escape(rel), {"M": "已修改", "D": "已删除", "?": "新增（未纳入 git）"}[kind],
-                      "—" if kind == "D" else escape(rel + ".old"), "[yellow]是，将被覆盖[/yellow]" if rel in u.incoming else "否，保持不动")
+                      "记录删除状态" if kind == "D" else escape(str(backup)))
     console.print(table)
-    ok(f"已备份 {sum(1 for _, k in u.local if k != 'D')} 个受管文件（原地复制为 .old）。")
+    ok("本地受管文件已备份，升级时保留当前内容。")
 
 
 def _update_stop(u: Update) -> None:
-    """Step 4: the service stopped the one way the menu's 停止服务 takes too (cli/service.py stop): after the jobs
-    running (drain) or at once, the waiting jobs kept for the next server."""
-    if not running():
-        note("服务没有在运行，无需停止；更新后启动新版本。")
-        return
-    try:
-        stop(cancel=("取消更新", "什么都不改（第 2、3 步的备份保留）"))
-    except NotStopped as exc:
-        raise UpdateFailed(exc.message) from exc
+    """Recheck before backing up; do not open an old database to authenticate a stop after the manual pull."""
+    from ..messages import Msg
+
+    if running():
+        raise UpdateFailed(Msg("E-UPDATE-RUNNING"))
+    if (pid := listening_pid(service_port())) is not None:
+        raise UpdateFailed(Msg("E-UPDATE-PORTBUSY", listen=service_port(), pid=pid))
+    ok("服务已停止，可以备份数据库。")
 
 
 def _lab2shot(*args: str) -> int:
@@ -305,25 +284,11 @@ def _lab2shot(*args: str) -> int:
     return subprocess.run(lab2shot_command(*args), cwd=ROOT).returncode
 
 
-def _update_pull(u: Update) -> None:
-    """Step 5: the managed files the pull changes set back to the committed version (their .old is kept), then
-    git pull --ff-only, uv sync, npm ci and the build."""
+def _update_environment(u: Update) -> None:
+    """Step 5: use the code already on disk; never fetch or pull inside the updater."""
     from ..messages import Msg
 
-    u.reached.add("managed")
-    tracked = [rel for rel, kind in u.overwritten if kind in "MD"]
-    if tracked and (code := _git_live("checkout", "HEAD", "--", *tracked)) != 0:
-        raise UpdateFailed(Msg("E-UPDATE-PULL", code=code))
-    for rel, kind in u.overwritten:
-        if kind == "?":
-            _root_path(rel).unlink(missing_ok=True)  # its .old holds it; the pull brings the file of the same name
-    u.reached.add("pull")
-    # from the upstream the preflight checked; git's own advice on a refused pull (merge, rebase) is wrong here: the
-    # update puts everything back itself
-    code = _git_live("-c", "advice.diverging=false", "pull", "--ff-only")
-    if code != 0:
-        raise UpdateFailed(Msg("E-UPDATE-PULL", code=code))
-    ok(f"代码已更新：{_version(u.head)[0]} → {_version()[0]}。")
+    u.reached.add("code")
     u.reached.add("sync")
     if not sync_env():
         raise UpdateFailed(Msg("E-UPDATE-SYNC"))
@@ -390,7 +355,7 @@ def _show_output(log: Path, seen: int, lines: int = 20) -> None:
 
 def _update_rollback(u: Update) -> list[str]:
     """Step 8: undo what was begun, in reverse: the new service stopped, git back to the recorded commit, the local
-    managed files and the settings file as they were, the database backup taken after step 4 back in place (only when
+    managed files and the settings file as they were, the database backup taken in step 4 back in place (only when
     the new version may have opened the database: until then it is exactly as the stopped service left it), the
     environment synced and the page built again, and the old version started. Returns what could not be done (empty:
     all)."""
@@ -408,7 +373,7 @@ def _update_rollback(u: Update) -> list[str]:
                 problems.append(f"新版本的服务没有停下：{exc}")
         elif running():
             problems.append(f"新版本的服务（端口 {port}）在回答，但看不到它的进程号，没能停下")
-    if "managed" in u.reached or "pull" in u.reached:
+    if "code" in u.reached:
         short = _version(u.head)[0]
         note(f"$ git reset --hard {short}")
         if _git("reset", "--hard", u.head).returncode != 0:
@@ -418,14 +383,14 @@ def _update_rollback(u: Update) -> list[str]:
         restored = 0
         for rel, kind in u.local:  # reset --hard set every managed file back to the commit: the local edits again
             path = _root_path(rel)
-            bak = path.with_name(path.name + ".old")
+            bak = u.record / "managed" / rel
             try:
                 if kind == "D":
                     path.unlink(missing_ok=True)
                 elif bak.is_file():
                     shutil.copy2(bak, path)
                 else:
-                    problems.append(f"{rel}.old 不见了，{rel} 没能还原")
+                    problems.append(f"{bak} 不见了，{rel} 没能还原")
                     continue
                 restored += 1
             except OSError as exc:
@@ -495,66 +460,38 @@ def _online() -> None:
         say(Msg("W-UPDATE-OFFLINE", version=short, log=str(settings().work_dir / "logs" / LOG)))
 
 
-def _update_managed_choice(u: Update) -> None:
-    """Step 9, last: the managed files the update overwrote, and the choice: all back from .old, or the new version."""
+def _update_installed(u: Update) -> None:
+    """Record a successful deployment atomically; later manual pulls use it as their rollback baseline."""
+    import json
+
+    from ..config import ROOT, settings
+    from ..io.atomic import write_text
     from ..messages import Msg
 
-    if not u.overwritten:
-        ok("本次更新没有覆盖任何本地改动过的受管文件。")
-        return
-    table = Table(Column("被覆盖的受管文件", overflow="fold"), "本地改动", Column("本地的内容在", overflow="fold"),
-                  box=box.SIMPLE_HEAD, header_style="bold")
-    for rel, kind in u.overwritten:
-        table.add_row(escape(rel), {"M": "已修改", "D": "已删除", "?": "新增（未纳入 git）"}[kind],
-                      "（本地已删除，还原即再次删除）" if kind == "D" else escape(rel + ".old"))
-    console.print(table)
-    console.print(menu_table([("1", "全部从 .old 还原", "每个文件恢复为更新前本地的内容（本地删除的再次删除）"),
-                               ("2", "使用新版本", "保留更新带来的内容；本地的旧内容仍在 .old 中")]))
     try:
-        while (choice := pick("2")) not in ("1", "2"):
-            err("没有该编号，请重新输入。")
-    except abort_types():
-        console.print()
-        choice = "2"
-    if choice == "2":
-        say(Msg("N-UPDATE-MANAGEDKEPT"))
-        return
-    for rel, kind in u.overwritten:
-        path = _root_path(rel)
-        if kind == "D":
-            path.unlink(missing_ok=True)
-        else:
-            shutil.copy2(path.with_name(path.name + ".old"), path)
-    say(Msg("N-UPDATE-MANAGEDRESTORED", count=len(u.overwritten)))
+        write_text(settings().work_dir / INSTALLED, json.dumps(
+            {"root": str(ROOT), "commit": u.target, "at": time.time()}, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        raise UpdateFailed(Msg("E-UPDATE-RECORD", reason=exc)) from exc
 
 
 def one_click_update() -> None:
-    """一键更新: the nine steps (above). Any failure from step 4 on rolls back (step 8);
-    before it nothing has changed but the backups. Ctrl-C: before step 5 the update is called off, from step 5 on it
-    rolls back."""
-    # Everything this process uses is imported before the pull: after it the files on disk are the new version's,
-    # and a module imported late would be new code among old. The new code runs only in processes of its own
-    # (lab2shot check, db upgrade, db check, ui, the extension list)
+    """Complete an already pulled version, restoring the previous deployment on failure after backups finish."""
+    # Rollback changes files on disk: import the modules it uses while they still belong to this version.
     from .. import accounts, database  # noqa: F401
     from ..client import Lab2ShotError  # noqa: F401
     from ..io import files  # noqa: F401
-    from ..messages import Msg, catalogue
     from ..server import restart, tls  # noqa: F401
-
     from . import accounts as _cli_accounts  # noqa: F401
+    from ..messages import Msg
 
-    catalogue()
     _step(1)
     try:
         u = _update_preflight()
-    except UpdateFailed as exc:  # nothing has changed: the version online stays as it is
+    except UpdateFailed as exc:
         say(exc.msg)
         raise typer.Exit(1)
-    if u is None:
-        return
-    doing = ("接下来会停止服务几分钟：拉取代码、同步环境、构建网页、检查，再启动" if running()
-             else "服务现在没有运行：拉取代码、同步环境、构建网页、检查，再启动新版本")
-    if not typer.confirm(f"是否开始更新？（{doing}）", default=True):
+    if not typer.confirm("是否开始更新？（备份、同步环境、构建网页、检查、迁移数据库并启动服务）", default=True):
         note("已取消，未作任何改动。")
         return
     try:
@@ -569,19 +506,17 @@ def one_click_update() -> None:
         console.print()
         say(Msg("N-UPDATE-CANCELLED"), quiet=True)
         raise typer.Exit(1)
-    except UpdateFailed as exc:
-        say(exc.msg)
-        if not running():  # step 4 began and the service is down: bring the version it ran back (step 8)
-            _step(8)
-            _report_failure(u, exc.msg, _update_rollback(u))
+    except (UpdateFailed, OSError) as exc:
+        say(exc.msg if isinstance(exc, UpdateFailed) else Msg("E-UPDATE-RECORD", reason=exc))
         raise typer.Exit(1)
     try:
         _step(5)
-        _update_pull(u)
+        _update_environment(u)
         _step(6)
         _update_check(u)
         _step(7)
         _update_start(u)
+        _update_installed(u)
     except (UpdateFailed, *abort_types()) as exc:
         reason = exc.msg if isinstance(exc, UpdateFailed) else Msg("E-UPDATE-INTERRUPTED")
         console.print()
@@ -604,10 +539,9 @@ def one_click_update() -> None:
         say(Msg("W-UPDATE-REINSTALL", names=[f"{title}（{name}）" for name, title in stale]))
     else:
         say(Msg("N-UPDATE-NOREINSTALL"))
-    _update_managed_choice(u)
-    note(f"本次更新的记录：{u.record}")
+    note(f"本次更新的记录：{u.record}；本地受管文件保持当前内容。")
     say(Msg("N-UPDATE-MENUOLD"), quiet=True)
-    raise SystemExit(0)  # this process is the old program: leave, rather than go on with old code over new files
+    raise SystemExit(0)  # the synchronized environment should be loaded by a fresh menu process
 
 
 def _report_failure(u: Update, reason, problems: list[str]) -> None:

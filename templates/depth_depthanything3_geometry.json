@@ -3,32 +3,163 @@
  "meta": {
   "id": "c30371c6780b4d24bb2880d9bef3f984",
   "name": "深度图 · Depth Anything 3",
-  "intro": "Depth Anything 3 官方自述：从任意视觉输入预测空间一致的几何；官方称单目深度估计优于 Depth Anything V2。这张卡逐帧交付深度图和相机，填「已知 Focal Length」并把「模型」换成 Metric-Large 可得真实尺度。",
+  "intro": "Depth Anything 3 官方自述：从任意视觉输入预测空间一致的几何；官方称单目深度估计优于 Depth Anything V2。这张卡逐帧交付深度图和相机，填「已知 Focal Length」并把「模型」换成 Metric-Large 可得真实尺度。模型选 Large / Giant 时按非商用算。",
   "author": "Lab2Shot",
   "created": "2026-09-21T16:00:00",
   "deliverable": "depth_image",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "unit",
-   "label": "单位",
-   "target": "out_p.unit"
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
   },
   {
-   "name": "focal",
-   "label": "已知 Focal Length",
-   "target": "geo.focal_mm"
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
   },
   {
-   "name": "model",
-   "label": "模型",
-   "target": "geo.model"
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": "镜头",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "focal",
+     "label": "已知 Focal Length",
+     "target": "geo.focal_mm"
+    },
+    {
+     "name": "filmback",
+     "label": "Filmback",
+     "target": "geo.filmback_mm",
+     "disable_when": "not focal"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "深度",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "model",
+     "label": "模型",
+     "target": "geo.model"
+    },
+    {
+     "name": "resolution",
+     "label": "处理分辨率",
+     "target": "geo.resolution"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "ray_pose",
+       "label": "光线求 Focal Length",
+       "target": "geo.ray_pose",
+       "disable_when": "focal or model == \"da3metric-large\""
+      }
+     ]
+    },
+    {
+     "name": "cook_depth",
+     "label": "计算深度图",
+     "target": "geo.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "exr_name",
+     "label": "文件名（深度 EXR）",
+     "target": "exr.name"
+    },
+    {
+     "name": "usd_name",
+     "label": "文件名（相机 USD）",
+     "target": "out_p.name"
+    },
+    {
+     "name": "unit",
+     "label": "单位",
+     "target": "out_p.unit"
+    },
+    {
+     "name": "fps",
+     "label": "帧率",
+     "target": "out_p.fps"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "exr.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -38,11 +169,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 200
+    "y": 68
    }
   },
   {
@@ -50,32 +183,18 @@
    "type": "depthanything3.geometry",
    "label": "Depth Anything 3 深度图",
    "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
     "model": "da3-base",
-    "resolution": 504
+    "resolution": 504,
+    "ray_pose": false
    },
    "ui": {
-    "x": 320,
-    "y": 200,
+    "x": 400,
+    "y": 0,
     "on_node": [
      "focal_mm",
      "model"
-    ]
-   }
-  },
-  {
-   "id": "out_d",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "depth"
-   },
-   "ui": {
-    "x": 700,
-    "y": 0,
-    "on_node": [
-     "name",
-     "format"
     ]
    }
   },
@@ -84,17 +203,22 @@
    "type": "core.output_usd",
    "label": "USD 输出设置",
    "params": {
+    "name": "scene",
+    "format": "usd",
     "unit": "cm",
-    "name": "scene"
+    "fps": 24.0
    },
    "ui": {
-    "x": 700,
-    "y": 260,
+    "x": 870,
+    "y": 408,
     "on_node": [
      "name",
      "unit"
     ]
-   }
+   },
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "deliver",
@@ -102,8 +226,30 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1020,
-    "y": 120
+    "x": 1230,
+    "y": 44
+   }
+  },
+  {
+   "id": "exr",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "depth",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "depth",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 830,
+    "y": 44
    }
   }
  ],
@@ -121,16 +267,6 @@
   {
    "from": [
     "geo",
-    "depth"
-   ],
-   "to": [
-    "out_d",
-    "image"
-   ]
-  },
-  {
-   "from": [
-    "geo",
     "camera"
    ],
    "to": [
@@ -140,7 +276,7 @@
   },
   {
    "from": [
-    "out_d",
+    "out_p",
     "files"
    ],
    "to": [
@@ -150,7 +286,17 @@
   },
   {
    "from": [
-    "out_p",
+    "geo",
+    "depth"
+   ],
+   "to": [
+    "exr",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "exr",
     "files"
    ],
    "to": [

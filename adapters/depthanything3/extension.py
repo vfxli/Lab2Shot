@@ -7,7 +7,7 @@ CC BY-NC 4.0 (non-commercial); DA3-BASE and DA3METRIC-LARGE are Apache-2.0.
 
 from __future__ import annotations
 
-from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, hf_weights
+from lab2shot.sdk import COMMERCIAL, NONCOMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, hf_weights, downloads
 
 DA3_URL = "https://github.com/ByteDance-Seed/Depth-Anything-3.git"
 DA3_COMMIT = "3d835ec1a5802d64a8b8b15f817a1ab54809bfe4"  # main
@@ -19,11 +19,10 @@ DA3_COMMIT = "3d835ec1a5802d64a8b8b15f817a1ab54809bfe4"  # main
 # (Apache-2.0, relative depth only). The nested checkpoint's metric branch is
 # identical to DA3METRIC-LARGE.
 MODELS = {
-    "da3nested-giant-large-1.1": (
-        "depth-anything/DA3NESTED-GIANT-LARGE-1.1",
-        "b2359bdf726fb44ef62acca04d629dcf158053e7",
-        {"config.json": "09adf89474017e717bc05aa86fd3a378708ba8914b036d61874eced328069468",
-         "model.safetensors": "8ebe871a022ed58d2fc8fdfb2ebdb31d57b60fe39611c849095851a7b7c6020c"},
+    "da3nested-giant-large-1.1": (  # Track4World's backbone too: pinned once (extensions/downloads.py)
+        downloads.DA3NESTED_MODEL.repo,
+        downloads.DA3NESTED_MODEL.revision,
+        {d.filename: d.sha256 for d in (downloads.DA3NESTED_CONFIG, downloads.DA3NESTED_MODEL)},
         "Giant 1.1 + Metric-Large，1.40B 参数，6.8 GB",
     ),
     "da3-large-1.1": (
@@ -40,15 +39,16 @@ MODELS = {
          "model.safetensors": "e01067dc1659613083d9145a9a2547ccdbe6ccbbf83c4fe7b3e8a4e2bdae78b5"},
         "0.12B 参数，0.54 GB",
     ),
-    "da3metric-large": (
-        "depth-anything/DA3METRIC-LARGE",
-        "4010e39f3634a45bc60553321fb49fb760bd594e",
+    "da3metric-large": (  # ViPE's metric depth too: its model file pinned once (extensions/downloads.py)
+        downloads.DA3METRIC_MODEL.repo,
+        downloads.DA3METRIC_MODEL.revision,
         {"config.json": "a336f3e76fe375aaae17a9aed9130c9f2aa061535d317ec57dcb2f1f02e1dd53",
-         "model.safetensors": "bbea5b0b3ee389849cffa7ddae89de064a90abd2b055fc5aa99aac68db324776"},
+         downloads.DA3METRIC_MODEL.filename: downloads.DA3METRIC_MODEL.sha256},
         "0.35B 参数，1.3 GB",
     ),
 }
-NON_COMMERCIAL = {"da3nested-giant-large-1.1", "da3-large-1.1"}
+# 「模型」选哪些是非商用：节点的 OptionTrait 从这里生成（licence_traits）
+OPTION_LICENCES = {"model": {"da3nested-giant-large-1.1": NONCOMMERCIAL, "da3-large-1.1": NONCOMMERCIAL}}
 
 
 class DepthAnything3(Extension):
@@ -72,7 +72,7 @@ class DepthAnything3(Extension):
     )
     # the same torch as UniDepth (shared uv cache; pinned here too)
     env = EnvSpec(python="3.11", torch=("torch==2.9.0", "torchvision==0.24.0"), torch_backend="cu128")
-    weights = hf_weights(MODELS, lambda key: "CC BY-NC 4.0，非商用" if key in NON_COMMERCIAL else "Apache-2.0")
+    weights = hf_weights(MODELS, lambda key: "CC BY-NC 4.0，非商用" if key in OPTION_LICENCES["model"] else "Apache-2.0")
 
 
 EXTENSION = DepthAnything3()

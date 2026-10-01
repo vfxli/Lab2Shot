@@ -1,6 +1,5 @@
-/* The field a value is typed or picked in (.field): the kit's one input look — the parameter panel's, a form's, a
-   filter's search box, the login gate's; the number field with its unit inside, and the pull-down's own list where the
-   browser lets us draw it. Every value is a token. */
+/* 输入或选取值的输入框（.field）：组件库唯一的输入框外观——参数面板、表单、筛选搜索框、登录门都用它；
+   包括单位写在框内的数字输入框，以及浏览器允许自绘时的下拉框列表。所有取值均为令牌。 */
 
 .field {
   height: 26px;
@@ -30,7 +29,7 @@
   outline-offset: 1px;
 }
 
-/* the large field of a page that is only a form (the login): on clear glass, no well */
+/* 整页只是一张表单（登录）时的大号输入框：置于透明玻璃上，没有凹陷底 */
 .field.lg {
   height: 38px;
   padding: 0 12px;
@@ -86,7 +85,7 @@ textarea.field.area.snug {
   font-variant-numeric: tabular-nums;
 }
 
-/* a number field with its unit inside, faint, after the value */
+/* 单位写在框内的数字输入框：单位淡色，跟在数值之后 */
 .num-unit {
   position: relative;
   display: block;
@@ -126,7 +125,7 @@ textarea.field.area.snug {
    登录页的注册表单也用它选环节（register.tsx），登录门只加载本文件。
    弹出列表使用站点的菜单组件（玻璃、圆角、暗色），而非系统绘制的白底直角列表 */
 .select-trigger {
-  line-height: 1; /* 同 .btn：单行文字，行框等于字高，以保证居中准确 */
+  line-height: 1.3; /* 行框只有字高时中文字形被裁边；靠 align-items 居中 */
   padding-top: 1px; /* 同 .btn：中文字形偏上，向下补偿至中心 */
   display: inline-flex;
   align-items: center;
@@ -153,4 +152,5 @@ textarea.field.area.snug {
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
+  line-height: 1.3; /* 触发器的行框只有字高，这里裁掉溢出：中文字形上下略出字高，要给行框留一点，否则被切边 */
 }

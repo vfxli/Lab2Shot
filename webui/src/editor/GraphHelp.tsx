@@ -3,8 +3,9 @@ import { msg } from "../messages/message";
 import { MessageText } from "../ui/MessageText";
 import { IconButton } from "../ui/Button";
 
-/** 操作说明: a 「?」 in the node graph's corner; the pointer over it opens the short table of what the mouse and the
- * keys do — one line each, the gesture on the left and what it does on the right. The 「?」 itself has no tip: the
+/** 操作说明, the node graph's one table of mouse and key gestures: a 「?」 in the node graph's corner; the pointer over
+ * it opens the short table of what the mouse and the keys do — one line each, the gesture on the left and what it does
+ * on the right. The 「?」 itself has no tip: the
  * table is what it says. The sentences are the message
  * catalogue's (lab2shot/messages/web.toml I-EDIT-*); the gestures' own names are UI vocabulary and sit here, beside
  * what they name.
@@ -18,6 +19,7 @@ const HELP = [
   { title: "滚轮", code: "I-EDIT-WHEEL" },
   { title: "连线", code: "I-EDIT-WIRING" },
   { title: "改接", code: "I-EDIT-REWIRE" },
+  { title: "整组改接", code: "I-EDIT-BUNDLE" },
   { title: "数据信息", code: "I-EDIT-INFO" },
   { title: "快捷键", code: "I-EDIT-KEYS" },
 ];

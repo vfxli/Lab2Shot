@@ -8,7 +8,7 @@ import { Sheet } from "../ui/Sheet";
 import { msg, type Message } from "../messages/message";
 import { Button } from "../ui/Button";
 
-/** The page's log window: what happened, to copy for whoever helps, or to send to the server's log.
+/** 页面的日志窗口：发生过什么，可复制给协助排查的人，或发送到服务器日志。
  *
  * 这是「说过的话」唯一的落点（没有单独的消息栏），所以每行都画出消息编号：用户转述时带上它，开发者按它搜索。编号存在 `state/log.ts` 的 `LogEntry.code` 里、「复制全部」也带着它；
  * 画出来用的是全站那个编号的样子（`ui/message.css` 的 `.msg-code`），不新造一种。 */

@@ -28,8 +28,8 @@ class Matte(GuidedMatte):
     runtime = "videomama"
     # vram_gb: RTX 4090 上测得（docs.md），默认处理尺寸 1024（DEFAULT_VRAM_GB）
     cost = Cost(gpu=True, vram_gb=DEFAULT_VRAM_GB, seconds_per_frame=0.42)
-    licence = Licence(note="代码是 CC-BY-NC-4.0，只能研究用。模型权重是 Stability AI Community License"
-        "（商用需注册、年收入低于 100 万美元、注明 Powered by Stability AI），但因代码许可整体只能研究用。")
+    licence = Licence(note="代码是 CC-BY-NC-4.0，非商用。模型权重是 Stability AI Community License"
+        "（商用需注册、年收入低于 100 万美元、注明 Powered by Stability AI），但因代码许可整体非商用。")
 
     class Params(NodeParams):
         # 只测过官方尺寸 1024（12-15 GB）；2048 官方也没验证过效果，不开放：只给测过、确认安全的范围

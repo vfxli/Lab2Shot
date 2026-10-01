@@ -23,7 +23,7 @@ interface Look {
 
 const cls = (...parts: (string | false | undefined)[]) => parts.filter(Boolean).join(" ");
 
-/** 视图上方工具栏的外壳（必须共用一份的原因见 ui/parts.css 中 .seg.sm 一段）。 */
+/** The shell of the toolbar over the view (why it must be shared: the .seg.sm section of ui/parts.css). */
 export const HUD_SEG = "hud-seg glass static sm";
 
 const classOf = ({ tone = "default", size = "md", danger, warn, on, entry, layout }: Look, shape?: string) =>

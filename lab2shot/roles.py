@@ -35,10 +35,13 @@ from __future__ import annotations
 import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .availability import CAPABILITY, Cond
 from .messages import Msg
+
+if TYPE_CHECKING:
+    from .accounts import Actor
 
 
 @dataclass(frozen=True)
@@ -89,7 +92,7 @@ CAPABILITIES: dict[str, Capability] = {
     "licence.consent": _c("服务器", "同意许可", "替用户同意第三方许可协议"),
     "db.backup_restore": _c("服务器", "数据库", "数据库：看状态、备份、检查"),
     "security.manage": _c("服务器", "安全", "安全：可疑请求、解开封住的来源"),
-    "logs.view": _c("服务器", "日志", "服务日志；回答里看得到服务器上的文件位置，不受请求频率限制"),
+    "logs.view": _c("服务器", "日志", "服务日志；回答里看得到服务器上的文件位置"),
     "audit.view": _c("留底与帮助", "管理留底", "管理操作留底：谁建了谁、改了谁的哪几项、重设密码、删用户、改设置、被拒绝的尝试"),
     "openapi.view": _c("留底与帮助", "接口描述", "机器可读的 HTTP 接口描述（OpenAPI），给写插件和脚本的人"),
 }
@@ -107,10 +110,12 @@ DEPUTY: frozenset[str] = frozenset({
 
 # Capabilities held only by 管理员 and never assignable to 二级管理员, since assigning them would hand over the full
 # administrator power (a 二级管理员 with admins.manage could create administrator accounts and grant itself every right;
-# users.delete / data.others delete accounts and view or clear other users' data; users.tags governs licences).
+# users.delete / data.others delete accounts and view or clear other users' data; users.tags and nodes.all govern
+# licences: who may use which node, and using every node whatever its tags).
 # settings.system: what runs at the next install or build (mirrors, compilers), where data lives, whom the server
 # trusts and how it is reached: handing it over hands over the machine.
-OWNER_ONLY: frozenset[str] = frozenset({"admins.manage", "users.tags", "users.delete", "data.others", "settings.system"})
+OWNER_ONLY: frozenset[str] = frozenset({"admins.manage", "users.tags", "nodes.all", "users.delete", "data.others",
+                                        "settings.system"})
 
 # Settings whose change needs a capability besides settings.edit (setting_needs; server/settings.py checks it on save
 # and says per setting why a login may not change it): by key, or by section when the key ends with a dot.
@@ -162,7 +167,10 @@ def granted(role: str) -> frozenset[str]:
         return hit[1]
     from .database import json_of
 
-    kept = frozenset(str(c) for c in json_of(row["capabilities"], []))  # written by grant(), which checks them
+    # written by grant(), which checks them; a capability the code no longer declares, or no longer lets anyone but the
+    # 管理员 hold (OWNER_ONLY), is dropped here, so it is neither held nor counted on the 权限 page, nor sent back with the
+    # ticks and refused (check_capabilities) when that role is next saved
+    kept = frozenset(str(c) for c in json_of(row["capabilities"], [])) & (frozenset(CAPABILITIES) - OWNER_ONLY)
     _CACHE[role] = (at, kept)
     return kept
 
@@ -190,17 +198,17 @@ def check_capabilities(given: Iterable[object]) -> frozenset[str]:
     return found
 
 
-def grant(role: str, given: Iterable[object], by: str) -> frozenset[str]:
+def grant(role: str, given: Iterable[object], by: "Actor") -> frozenset[str]:
     """Assign exactly these capabilities to `role` (by: who did it, for the row; the audit line is the caller's)."""
     from .database import db, json_text
 
     role = assignable(role)
     kept = check_capabilities(given)
     with db().write() as c:
-        c.execute("INSERT INTO role_rights (role, capabilities, updated, updated_by) VALUES (?, ?, ?, ?) "
+        c.execute("INSERT INTO role_rights (role, capabilities, updated, updated_by, updated_by_id) VALUES (?, ?, ?, ?, ?) "
                   "ON CONFLICT (role) DO UPDATE SET capabilities = excluded.capabilities, updated = excluded.updated, "
-                  "updated_by = excluded.updated_by",
-                  (role, json_text(sorted(kept)), time.time(), by))
+                  "updated_by = excluded.updated_by, updated_by_id = excluded.updated_by_id",
+                  (role, json_text(sorted(kept)), time.time(), by.label, by.id))
     _CACHE.pop(role, None)
     return kept
 
@@ -298,6 +306,16 @@ class Can(Cond):
 
     def holds(self, f: SessionFacts) -> bool:
         return self.capability in f.capabilities
+
+
+@dataclass(frozen=True)
+class Staff(Cond):
+    """The session's role has any capability (管理员, or a 二级管理员 given some): the back office is its."""
+
+    kind = CAPABILITY
+
+    def holds(self, f: SessionFacts) -> bool:
+        return bool(f.capabilities)
 
 
 @dataclass(frozen=True)

@@ -37,7 +37,8 @@
   opacity: 1;
 }
 
-/* 现在选不了：和别处的「不可用」一样淡下去（ui/Button.css、parts.css 的 0.5 左右），位置不变 */
+/* not selectable now: fades like every other unusable control (about 0.5, as in ui/Button.css and parts.css), keeping
+   its place */
 .swatch:disabled {
   opacity: 0.5;
 }

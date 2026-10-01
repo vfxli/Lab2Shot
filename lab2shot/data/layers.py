@@ -216,9 +216,14 @@ def crypto_channels(layer: str) -> list[str]:
 
 
 def crypto_header(layer: str, names: list[str]) -> dict[str, str]:
+    """The header of a Cryptomatte layer. The manifest maps each name to the id its pixels hold, in hex: the hash with
+    its exponent bits kept inside 1..254 (crypto_bits, the uint32_to_float32 conversion), as Psyop's reference
+    implementation and Nuke's Cryptomatte read it — for about 1 name in 120 that differs from the raw hash, and an
+    object listed by its raw hash could not be picked by name in Nuke. Reading applies crypto_bits again (no change on
+    an id already converted), so manifests written either way read back."""
     key = f"cryptomatte/{crypto_key(layer)}"
     return {f"{key}/name": layer, f"{key}/hash": "MurmurHash3_32", f"{key}/conversion": "uint32_to_float32",
-            f"{key}/manifest": json.dumps({n: f"{crypto_hash(n):08x}" for n in names}, ensure_ascii=False)}
+            f"{key}/manifest": json.dumps({n: f"{crypto_bits(crypto_hash(n)):08x}" for n in names}, ensure_ascii=False)}
 
 
 def class_names(classes: list[dict]) -> dict[int, str]:
@@ -232,9 +237,23 @@ def class_names(classes: list[dict]) -> dict[int, str]:
     return out
 
 
+def crypto_objects(classes: list[dict]) -> dict[int, str]:
+    """Label -> the object name a Cryptomatte written from this class table gives it: the table's objects only (label 0
+    is nothing, not an object). The one name table for both the header's manifest (crypto_layer_header) and the
+    pixels' ids (crypto_encode): named apart, a table whose label 0 shares a name with an object would give that
+    object one name in the manifest and another (made unique against label 0) in the pixels."""
+    return class_names([c for c in classes if int(c["index"]) > 0])
+
+
+def crypto_layer_header(layer: str, classes: list[dict]) -> dict[str, str]:
+    """The header of a segmentation written as the Cryptomatte `layer` (crypto_encode's pixels): 「序列图输出设置」 and
+    「多层 EXR 输出设置」 both write an id map this way."""
+    return crypto_header(layer, list(crypto_objects(classes).values()))
+
+
 def crypto_encode(labels: np.ndarray, classes: list[dict]) -> np.ndarray:
     """A segmentation frame (labels [H,W], 0 = nothing) -> the <layer>00 RGBA of Cryptomatte."""
-    names = class_names(classes)
+    names = crypto_objects(classes)
     labels = np.rint(labels).astype(np.int64)
     ids = np.zeros(labels.shape, np.float32)
     for label in np.unique(labels):
@@ -293,7 +312,7 @@ def crypto_labels(named: dict[str, np.ndarray], crypto: dict) -> np.ndarray:
     nothing does or the id is not in the manifest. `crypto`: {"manifest": {name: hex}, "classes": [{index, name}]}."""
     ident, cover = crypto_rank(list(named))
     rank_id, coverage = named[ident], named[cover]
-    index = {name: c for c, name in class_names(crypto["classes"]).items()}
+    index = {name: c for c, name in crypto_objects(crypto["classes"]).items()}  # the same name table the writer used
     bits = {crypto_bits(int(h, 16)): index[name] for name, h in crypto["manifest"].items() if name in index}
     ids = np.ascontiguousarray(rank_id, np.float32).view(np.uint32)
     labels = np.zeros(ids.shape, np.float32)
@@ -310,7 +329,7 @@ def crypto_labels(named: dict[str, np.ndarray], crypto: dict) -> np.ndarray:
 
 # Output port name -> the conventional EXR layer name for delivery. Ports not listed use their own name as the layer
 # name (stmap, confidence, roughness, disparity, ... are already industry terms).
-# The optical flow port is `flow` (`motion` is reserved for the 「线性蒙皮变形」 animation), but its layer is Nuke's
+# The optical flow port is `flow` (`motion` is reserved for the 「动作重定向」 animation input), but its layer is Nuke's
 # `motion`, the name Nuke recognises (a different name would produce `<name>_forward.u` and lose Nuke's motion layer).
 LAYER_FOR_PORT = {"image": "rgba", "alpha": "mask", "mask": "mask", "normal": "N", "position": "P", "flow": MOTION}
 # Layer name -> its channel names. rgba / depth / forward / backward / mask / disparityL / disparityR are Nuke's

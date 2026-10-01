@@ -72,6 +72,21 @@ def resize(values: np.ndarray, width: int, height: int) -> np.ndarray:
     return out.reshape(height, width, *values.shape[2:])
 
 
+def nearest(values: np.ndarray, width: int, height: int) -> np.ndarray:
+    """values [h,w] or [h,w,C] at width x height, nearest neighbour (each output pixel takes the source pixel under its
+    centre): for maps whose values are labels, not quantities -- an id map (segmentation, a map carrying a class table,
+    payloads.is_labels). Between ids 1 and 5 there is no id 3: bilinear or area averaging would invent it, and a viewer
+    colouring by id would paint that edge in a third object's colour. Every value out is one of the values in. The one
+    nearest-neighbour resampler: a model's result brought back to the plate (nodes/kit/maps.py fit) and the viewer's
+    proxy of an id map (view/proxy.py shrink) both go through here."""
+    h, w = values.shape[:2]
+    if (w, h) == (width, height):
+        return values
+    ys = np.clip(((np.arange(height) + 0.5) * h / height).astype(np.int64), 0, h - 1)
+    xs = np.clip(((np.arange(width) + 0.5) * w / width).astype(np.int64), 0, w - 1)
+    return values[ys][:, xs]
+
+
 # Resampling processes one row band at a time. Processing a whole frame at once builds, for every tap, an intermediate
 # array as large as the output: peak temporary memory (tracemalloc) for one 1080p three-channel frame is 595 MB for
 # bicubic, 310 MB for bilinear and 146 MB for nearest, missing the cache throughout. Banded, the peaks are

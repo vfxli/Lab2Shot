@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { watchPress } from "../platform/drag"; // a click or a drag: the page's one rule
 import { useOnViewportChange, type OnConnectEnd, type useReactFlow } from "@xyflow/react";
-import { addBox, addPortRow, connect, copySelection, deleteElements, duplicateSelection, pasteCopied } from "../graph/actions";
+import { addBox, addPortRow, connect, copySelection, deleteElements, duplicateSelection, moveWires, pasteCopied } from "../graph/actions";
+import { holdWires, rewire, type Held } from "../graph/rewire";
 import { snapshotNow } from "../graph/snapshot";
 import { useCookInputs } from "../state/cookInputs";
 import { useViewer } from "../state/viewer";
-import { PARAM, converter, inputPort, outputType, portAccepts } from "../graph/rules";
+import { wireProblem } from "../graph/wireRule";
 import { heldKey, useShortcut } from "../platform/keys";
 import { wiring, type End, type Wiring } from "./wiring";
 
@@ -12,6 +14,9 @@ import { wiring, type End, type Wiring } from "./wiring";
  * Everything the graph pane does with a press lives here, so editor/NodeEditor.tsx stays limited to drawing: the hook
  * returns the handlers the pane spreads onto itself, the dashed line's path element, and whether a wire is being carried.
  *
+ *   Ctrl+左键 on a port: picks up every wire on it (graph/rewire.ts); the next click on another port of the same side moves
+ *         them all there (an output: every downstream wire now comes from it; an input: its wires go along), Esc, a
+ *         click on empty canvas or a right click puts them back
  *   左键  point: select a node, or clear the selection; drag: a selection box on empty canvas (selectionOnDrag),
  *         or move a node, a selected one with the whole selection (both handled by @xyflow/react; as in Nuke and
  *         Houdini there is no outline around a selection to drag it by: styles/08-node-graph.css); on a port: a wire
@@ -23,9 +28,6 @@ import { wiring, type End, type Wiring } from "./wiring";
  *   滚轮  zoom (@xyflow/react's own), and 空格 + 左键 pans like 中键 does
  *   数据信息  the mark at a node's bottom right (editor/GraphNode.tsx), never a key and never a click of the pointer's */
 
-/** A press that moved no further than this is a click in place; @xyflow/react starts a drag past the
- * same distance (connectionDragThreshold), so the two never both happen. */
-export const CLICK_PX = 4;
 
 /** Which node an event landed on (null: empty canvas). 右键 compares this between press and release instead of a
  * distance: the right button has no drag of its own (中键 pans), so a hand that shifts a few pixels while clicking must
@@ -37,11 +39,7 @@ function nodeUnder(el: HTMLElement): string | null {
 /** May a wire run from this output to this input: the server's rules, looked up (graph/rules.ts), never judged here.
  * A type the input does not take goes in only when a conversion node exists (the wire is kept dashed, one click). */
 export function canWire(s: ReturnType<typeof snapshotNow>, from: End, to: End): boolean {
-  const t = outputType(s, from.node, from.port);
-  const port = inputPort(s, to.node, to.port);
-  // 该端口当前不可用（由服务器计算，nodes/port.py Port.applies）：连线无法接入，而非接入后绘制为虚线
-  if (port?.inactive) return false;
-  return !!t && !!port && from.node !== to.node && (portAccepts(s.catalog, port.type, t) || (!port.name.startsWith(PARAM) && !!converter(s.catalog, t, port.type)));
+  return !wireProblem(s, from, to, s.edges);
 }
 
 /** The port an element belongs to, as the node graph draws it (xyflow's handle carries its node and port). */
@@ -77,8 +75,14 @@ interface GraphPointer {
     onContextMenu: React.MouseEventHandler<HTMLDivElement>;
   };
   line: React.RefObject<SVGPathElement | null>;
+  /** The bundle of wires picked up with Ctrl: one dashed line each (graphPointer draws them into this <g> itself) */
+  bundle: React.RefObject<SVGGElement | null>;
+  /** The ids of the picked-up wires: the graph draws them faded (they are about to move) */
+  heldWires: ReadonlySet<string>;
   carrying: boolean;
 }
+
+const NO_WIRES: ReadonlySet<string> = new Set();
 
 export function useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds, onNodeMenu }: {
   wrap: React.RefObject<HTMLDivElement | null>;
@@ -90,7 +94,7 @@ export function useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds, onNode
 }): GraphPointer {
   const select = useViewer((s) => s.select);
   const openMenu = useViewer((s) => s.openMenu);
-  const press = useRef<{ x: number; y: number; button: number; node: string | null } | null>(null);
+  const press = useRef<{ x: number; y: number; button: number; node: string | null; at: { readonly dragged: boolean } } | null>(null);
   const swallow = useRef(false); // this press was the wiring's or the data panel's: the graph below must not act on it
   const wire = useRef<Wiring>(null);
   const line = useRef<SVGPathElement>(null);
@@ -100,6 +104,9 @@ export function useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds, onNode
   const actedOnPress = useRef(false); // the press did this gesture's work: its release does nothing more
 
   const [carried, setCarried] = useState<Wiring>(null); // the wire the pointer carries, as the graph draws it
+  const held = useRef<Held | null>(null); // the bundle of wires picked up with Ctrl (graph/rewire.ts)
+  const [heldNow, setHeldNow] = useState<Held | null>(null);
+  const bundle = useRef<SVGGElement>(null);
   const armed = useRef(0); // a right press over the graph: the browser's own menu is refused for this gesture
 
   // The browser's own menu never opens over the node graph. A handler on the pane alone is not enough: on Windows the
@@ -135,6 +142,24 @@ export function useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds, onNode
 
   /** The dashed line from the port the wire comes from to the pointer (drawn in the pane's own pixels). */
   const drawLine = useCallback((x: number, y: number) => {
+    const g = bundle.current;
+    const h = held.current;
+    if (g && h && wrap.current) {
+      // the Ctrl-picked bundle: one line per wire, from the port at its other end to the pointer (picked from an output:
+      // the pointer stands for the new output; picked from an input: the pointer stands for the new input)
+      const box = wrap.current.getBoundingClientRect();
+      const p = { x: x - box.left, y: y - box.top };
+      while (g.childElementCount < h.wires.length) g.appendChild(document.createElementNS("http://www.w3.org/2000/svg", "path"));
+      while (g.childElementCount > h.wires.length) g.lastElementChild!.remove();
+      h.wires.forEach((w, i) => {
+        const other = h.side === "output" ? { end: { node: w.target, port: w.targetHandle }, side: "input" as const } : { end: { node: w.source, port: w.sourceHandle }, side: "output" as const };
+        const el = wrap.current!.querySelector(handleSelector(other.end, other.side));
+        const q = el ? centreIn(box, el) : p;
+        const [a, b] = h.side === "output" ? [p, q] : [q, p]; // a is the output end
+        const bend = Math.max(40, Math.abs(b.x - a.x) * 0.4);
+        g.children[i].setAttribute("d", `M ${a.x} ${a.y} C ${a.x + bend} ${a.y}, ${b.x - bend} ${b.y}, ${b.x} ${b.y}`);
+      });
+    }
     const path = line.current;
     const w = wire.current;
     if (!path || !w || !wrap.current) return;
@@ -146,20 +171,23 @@ export function useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds, onNode
     const bend = Math.max(40, Math.abs(b.x - a.x) * 0.4);
     path.setAttribute("d", `M ${a.x} ${a.y} C ${a.x + out * bend} ${a.y}, ${b.x - out * bend} ${b.y}, ${b.x} ${b.y}`);
   }, []);
-  // 平移与缩放时，连线须跟随鼠标与端口移动。有两种情况无法从 pane 获得鼠标位置：① 中键拖动平移时，@xyflow/react（d3-zoom）在 window 上以捕获方式
-  // 监听 mousemove 并调用 stopImmediatePropagation，pane 上的 onMouseMove 不会收到任何事件；
-  // ② 滚轮缩放时鼠标不动，不产生 mousemove，但端口在屏幕上的位置已改变。因此在 window 的捕获阶段记录鼠标位置
-  // （本模块在挂载时即注册，先于 d3 的监听器，不会被拦截），视口变化时按记录的鼠标位置重绘一次
+  // While panning and zooming the carried wire has to follow both the pointer and the ports. In two cases the pane
+  // cannot supply the pointer position: (1) during a middle-button pan @xyflow/react (d3-zoom) listens for mousemove on
+  // window in the capture phase and calls stopImmediatePropagation, so the pane's onMouseMove receives nothing; (2) a
+  // wheel zoom leaves the pointer still, so no mousemove fires, yet the ports have moved on screen. The pointer position
+  // is therefore recorded in window's capture phase (registered when this module mounts, ahead of d3's listener, so it
+  // is never intercepted), and every viewport change redraws once at the recorded position
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       mouse.current = { x: e.clientX, y: e.clientY };
-      if (wire.current) drawLine(e.clientX, e.clientY);
+      if (wire.current || held.current) drawLine(e.clientX, e.clientY);
     };
     window.addEventListener("mousemove", onMove, true);
     return () => window.removeEventListener("mousemove", onMove, true);
   }, [drawLine]);
-  // 在下一帧绘制：onChange 在视口数值变化时立即触发，而节点移动到屏幕上的新位置发生在随后的 React 提交阶段
-  useOnViewportChange({ onChange: () => { if (wire.current) requestAnimationFrame(() => drawLine(mouse.current.x, mouse.current.y)); } });
+  // drawn on the next frame: onChange fires as soon as the viewport values change, while the nodes reach their new
+  // screen positions only in the React commit that follows
+  useOnViewportChange({ onChange: () => { if (wire.current || held.current) requestAnimationFrame(() => drawLine(mouse.current.x, mouse.current.y)); } });
 
   /** The ports the wire can end on are marked while it is carried (the node graph's own feedback, like a drag's). */
   const markPorts = useCallback((w: Wiring) => {
@@ -180,6 +208,38 @@ export function useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds, onNode
 
   // the ports the carried wire can end on, marked after the graph has drawn (a render would wipe the marks)
   useEffect(() => markPorts(carried), [carried, markPorts]);
+
+  /** While a Ctrl bundle is held: the port it was picked from is highlighted (wire-held); ports on the same side that
+   * can take the whole bundle get wire-fit, the others wire-no (the same marks as for a single carried wire). */
+  const markBundle = useCallback((h: Held | null) => {
+    const s = h ? snapshotNow() : null;
+    const edges = useCookInputs.getState().edges;
+    for (const el of wrap.current?.querySelectorAll<HTMLElement>(".react-flow__handle") ?? []) {
+      el.classList.remove("wire-held");
+      if (!h || !s) {
+        if (!wire.current) el.classList.remove("wire-fit", "wire-no"); // bundle put down: its marks go (while a single wire is carried they are that wire's)
+        continue;
+      }
+      el.classList.remove("wire-fit", "wire-no");
+      const port = portAt(el);
+      if (!port) continue;
+      if (port.side === h.side && port.end.node === h.at.node && port.end.port === h.at.port) {
+        el.classList.add("wire-held");
+        continue;
+      }
+      const got = port.side === h.side ? rewire(s, edges, h, port.end, port.side) : null;
+      el.classList.add(got && "edges" in got ? "wire-fit" : "wire-no");
+    }
+  }, []);
+  useEffect(() => markBundle(heldNow), [heldNow, markBundle]);
+
+  const hold = useCallback((h: Held | null) => {
+    held.current = h;
+    setHeldNow(h);
+    // both kinds of dashed line share one svg: holding a bundle clears the single wire's line, putting it down clears the bundle's
+    if (h) line.current?.removeAttribute("d");
+    else bundle.current?.replaceChildren();
+  }, []);
 
   /** Cut the wire from `from` into this input (a multi input keeps its others). */
   const cutWire = useCallback((from: End, input: End) => {
@@ -216,7 +276,7 @@ export function useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds, onNode
   // Esc releases a carried wire (the node graph's own layer of the one key registry, platform/keys.ts); with nothing
   // carried the key is not taken, so any other handler receives it.
   useShortcut(
-    { keys: ["escape"], run: () => (wire.current ? void step({ at: "cancel" }) : false) },
+    { keys: ["escape"], run: () => (held.current ? void hold(null) : wire.current ? void step({ at: "cancel" }) : false) },
     { over: () => wrap.current },
   );
   // 空格: held with the left button it pans (@xyflow/react panActivationKeyCode arms it on key down), but a
@@ -296,12 +356,16 @@ export function useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds, onNode
   useShortcut({ keys: ["mod+d"], run: () => (viewer || duplicateSelection(), true) });
 
 
+  const heldWires = useMemo(() => (heldNow ? new Set(heldNow.wires.map((w) => w.id)) : NO_WIRES), [heldNow]);
+
   return {
-    carrying: !!carried,
+    carrying: !!carried || !!heldNow,
     line,
+    bundle,
+    heldWires,
     onConnectEnd,
     handlers: {
-      onMouseMove: (e) => {  // window 捕获阶段的监听（见上方）已完成记录与重绘；此处保留是因为 pane 上的其他手势需要同一份鼠标位置
+      onMouseMove: (e) => {  // the window capture listener (above) already records and redraws; this one stays because other gestures on the pane read the same pointer position
         mouse.current = { x: e.clientX, y: e.clientY };
       },
       // A wire being carried takes the click first: the graph itself must not act on it (button roles: see the module header)
@@ -309,7 +373,7 @@ export function useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds, onNode
         // a button pressed while 空格 is held is the pan gesture (@xyflow/react pans with it): the key did its work and
         // is not 播放 / 暂停 when it is let go
         if (space.current?.held() && e.button === 0) pannedWithSpace.current = true;
-        press.current = { x: e.clientX, y: e.clientY, button: e.button, node: nodeUnder(e.target as HTMLElement) };
+        press.current = { x: e.clientX, y: e.clientY, button: e.button, node: nodeUnder(e.target as HTMLElement), at: watchPress(e) };
         tookWire.current = false;
         actedOnPress.current = false;
         const el = e.target as HTMLElement;
@@ -321,9 +385,41 @@ export function useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds, onNode
         if (e.button === 1) return;
         // 右键: the browser's own menu is refused for this gesture wherever the event lands (see the guard above)
         if (e.button === 2) armed.current = performance.now();
+        // a Ctrl bundle is held: a click on a port of the same side moves the whole bundle there (if it cannot, the reason
+        // is said and the bundle stays held); a click on empty canvas or a right click puts it back; elsewhere on a node as usual
+        if (held.current) {
+          const port = portAt(el);
+          if (port && e.button === 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            swallow.current = actedOnPress.current = true;
+            if (moveWires(held.current, port.end, port.side)) hold(null);
+            return;
+          }
+          if (e.button === 2 || el.classList.contains("react-flow__pane")) {
+            e.preventDefault();
+            e.stopPropagation();
+            swallow.current = actedOnPress.current = true;
+            hold(null);
+          }
+          return;
+        }
+        // Ctrl (⌘ on a Mac) + left click on a wired port: pick up every wire on that port
+        if (!wire.current && e.button === 0 && (e.ctrlKey || e.metaKey) && !viewer) {
+          const port = portAt(el);
+          const h = port ? holdWires(useCookInputs.getState().edges, port.end, port.side) : null;
+          if (h) {
+            e.preventDefault();
+            e.stopPropagation();
+            swallow.current = actedOnPress.current = true;
+            hold(h);
+            drawLine(e.clientX, e.clientY);
+            return;
+          }
+        }
         if (!wire.current) {
-          // 左键按在已接线的输入口上：拿起该连线，与点击效果相同，因此拖动时带走的是该连线的端点，
-          // 而不会像 @xyflow/react 默认那样新建第二根连线；松开时决定其去向
+          // left press on a wired input: picks that wire up, the same as a click, so a drag carries this wire's end
+          // instead of starting a second wire as @xyflow/react would by default; the release decides where it goes
           const from = e.button === 0 && !viewer ? portAt(el) : null;
           if (from?.side === "input") {
             const wired = wiredInto(from.end, e);
@@ -377,7 +473,7 @@ export function useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds, onNode
       onPointerUp: (e) => {
         const p = press.current;
         press.current = null;
-        const inPlace = !!p && Math.hypot(e.clientX - p.x, e.clientY - p.y) <= CLICK_PX;
+        const inPlace = !!p && !p.at.dragged; // the page's one rule (platform/drag.ts pressAt): once past the slop, a drag
         const acted = actedOnPress.current; // the press did this gesture's work (a wire made, a wire picked up, a menu)
         actedOnPress.current = false;
         if (!viewer && e.button === 0) {
@@ -391,8 +487,8 @@ export function useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds, onNode
             return;
           }
           if (acted) return; // the press already acted: its release does nothing more
-          // 左键在端口上原地点击：拿起该连线。从输出口拖出由 @xyflow/react 处理
-          // (connectionDragThreshold)，从已接线的输入口拖出已在按下时接管
+          // left click in place on a port: picks the wire up. A drag out of an output is @xyflow/react's
+          // (connectionDragThreshold); a drag out of a wired input was already taken over on the press
           if (!wire.current && inPlace && port) {
             step({ at: "port", end: port.end, side: port.side, wired: port.side === "input" ? wiredInto(port.end, e) : null });
             drawLine(e.clientX, e.clientY);

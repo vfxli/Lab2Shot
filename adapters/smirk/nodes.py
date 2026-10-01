@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import Official, CameraLensParams, P, Port, WorldHumans, curves_packet, Cost, Licence
+from lab2shot.sdk import rgb_port, Official, CameraLensParams, P, Port, WorldHumans, curves_packet, Cost
 
 
 class Face(WorldHumans):
@@ -16,6 +16,9 @@ class Face(WorldHumans):
               "third_party/smirk/repo/src/FLAME/FLAME.py:160-190"),
         takes={"image": "img"},
         gives={"character": "shape_params", "expressions": "expression_params"},
+        # 「相机」不是上游的输出：它是本节点把弱透视换成针孔时用的那台相机（原点、不动，Focal Length 为节点上的「Focal
+        # Length」，不填按 50 mm），交出来让三维视图透过它看背板、交付时头和画面对得上
+        ours={"camera": "放脸用的针孔相机：原点、不动，焦距 = 「Focal Length」（不填按全画幅 50 mm），主点在画面中心"},
         note="① **官方的整套 FLAME 参数就是「蒙皮角色」这个口**，没有另立类型、也没有另加口（SMPL / SMPL-X / MANO / FLAME / MHR "
              "这类参数化人体就是「蒙皮 + 权重 + 骨架动画」，装成「蒙皮角色」，不另立数据类型）。"
              "逐项对上（worker.py face_rig）：`shape_params`（300 个，整段锁成中位数）变成这张脸的静止网格和"
@@ -27,7 +30,8 @@ class Face(WorldHumans):
              "**一个参数都没丢。**"
              "② `cam` 不在 gives 里，因为它**不是**官方的相机：它是 224×224 裁切上的弱透视三个数"
              "（缩放 + 平移，smirk_encoder.py:43），我们只拿它算出头离镜头多远（worker.py perspective）。"
-             "按它拼出来的相机是我们自己造的输出，我们自己造出来的输出口不留，所以节点没有「相机」输出口。"
+             "「相机」口交出的是放脸用的那台针孔相机（原点、不动，焦距 = 节点的「Focal Length」，不填按 50 mm），"
+             "登记在 ours：三维视图透过它看背板，头和画面对得上。"
              "头就留在相机空间；要摆进某台相机的世界，"
              "接核心节点「相机空间转换」（core.camera_space）。"
              "③ 官方的网格在另一个文件 "
@@ -37,16 +41,16 @@ class Face(WorldHumans):
     on_node = ("focal_mm", "crop")
     # 脸够大、正脸到大半侧脸；每帧单独计算，没有时序平滑；
     # Focal Length 只决定头离镜头的远近（不填按全画幅 50 mm 估算）。
-    # 只有「RGB」一个输入口：官方的 SmirkEncoder 只吃一张裁好的脸，相机一个字节都进不去；
-    # 也没有「相机」输出口：官方的 cam 是裁切上的弱透视三个数，不是相机
-    inputs = (Port("image", "image.3", "RGB"),)
+    # 只有「RGB」一个输入口：官方的 SmirkEncoder 只吃一张裁好的脸，相机一个字节都进不去。
+    # 「相机」输出口（家族的 plate_camera）：放脸用的那台原点静止针孔相机，见 official 的 ours
+    inputs = (rgb_port(),)
+    plate_camera = True
     outputs = WorldHumans.outputs + (Port("expressions", "curves", "表情曲线"),)
     runtime = "smirk"
     camera_to_worker = None
     default_focal_mm = 50.0  # SMIRK's camera is orthographic: the pinhole it is turned into needs a lens
     # RTX 4090
     cost = Cost(gpu=True, vram_gb=0.6, seconds_per_frame=0.13)
-    licence = Licence(note="代码 MIT，但 FLAME 2020 头模只能研究用、不可再分发，权重用非商用数据训练，整体按非商用对待。")
 
     class Params(CameraLensParams):
         crop: Literal["auto", "none"] = P(

@@ -8,7 +8,7 @@
   padding: 0 10px;
   min-width: 0;
   overflow: hidden;
-  /* 停靠的面板用 --panel：没有这一句它继承 body 的 --window，整行是纯黑 */
+  /* a docked panel uses --panel: without this it inherits the body's --window and the whole row is pure black */
   background: var(--panel);
   border-bottom: 1px solid var(--hair);
 }
@@ -69,7 +69,7 @@
   font-size: var(--fs-xs);
   color: var(--text-2);
   white-space: nowrap;
-  /* 不设 cursor: help：停留提示由 data-tip 负责，光标保持默认，全站一致 */
+  /* no cursor: help: hover tips come from data-tip and the cursor stays the default, the same across the site */
 }
 
 .load-pill[data-state="busy"] {
@@ -106,13 +106,53 @@
   background: var(--hair);
 }
 
+/* 节点模式 / 应用模式: the one-of-two pair left of 模板. The two buttons join into one piece (a hairline between them,
+   outer corners round, inner corners square), framed by ui/glow.css .entry-rim with the same rainbow rim as 模板; the
+   current mode is highlighted with .on. The buttons themselves are styled like 模板 */
+.bar-actions .mode-switch {
+  display: inline-flex;
+  flex: none;
+  align-items: stretch;
+  margin-right: var(--sp-2);
+}
+
+.bar-actions .mode-switch .btn {
+  min-width: 84px;
+  justify-content: center;
+  border-color: transparent;
+}
+
+.bar-actions .mode-switch .btn:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.bar-actions .mode-switch .btn:last-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid var(--hair);
+}
+
+/* the current mode: a solid accent block with white text, so the chosen one shows at a glance (the default .on, a faint
+   ground with slightly blue text, is not clear enough in this pair) */
+.bar-actions .mode-switch .btn.on {
+  background: color-mix(in srgb, var(--accent) 62%, var(--ctl-face));
+  color: #fff;
+  font-weight: 600;
+}
+
+.bar-actions .mode-switch .btn:not(.on) {
+  color: var(--text-2);
+}
+
 /* 模板, the page's one entry: a third wider than its words need, the words centred */
 .bar-actions .btn.entry {
   min-width: 113px;
   justify-content: center;
 }
 
-/* 队列 and 日志 are words with their count beside them */
+/* 队列 and 日志 are words with their count beside them; while this graph cooks, 队列 also says how the job stands
+   (「队列 · 计算中」, highlighted as .on) */
 .bar-actions .bar-count-badge {
   margin-left: 4px;
   min-width: 14px;
@@ -121,7 +161,7 @@
   font-size: var(--fs-2xs);
 }
 
-/* who submits, and the running job */
+/* why the server refused this graph (the running job shows on 队列 itself, with 取消 beside it) */
 .bar-cook {
   display: flex;
   align-items: center;
@@ -209,8 +249,10 @@ input[type="range"]::-moz-range-thumb {
   position: relative;
 }
 
-.vec3 label span {
+/* the component's name over its field (ui/controls.tsx VecField); a unit's own span inside the field is not it */
+.vec3 label > .vec3-axis {
   position: absolute;
+  z-index: 1;
   left: 7px;
   top: 50%;
   transform: translateY(-50%);
@@ -223,7 +265,60 @@ input[type="range"]::-moz-range-thumb {
   padding-left: 18px;
 }
 
-/* 滑块不可用时和别处的「不可用」一样淡下去，位置不变 */
+/* a nullable vector that has a value: 「×」 after the three fields clears it back to empty (ui/controls.tsx VecField) */
+.vec3.clearable {
+  grid-template-columns: repeat(3, 1fr) auto;
+}
+
+.vec3-clear {
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  padding: 0 4px;
+  cursor: default;
+}
+
+.vec3-clear:hover {
+  color: var(--text);
+}
+
+/* a disabled slider fades like every other disabled control, staying where it is */
 input[type="range"]:disabled {
   opacity: 0.5;
+}
+
+/* live traffic (Chrome.tsx TransferRate): beside the 「排队 … GPU」 pill, left of 队列, always shown; ↑ sent, ↓ received;
+   the error colour when disconnected. Its width never changes (otherwise the buttons to its right jump sideways):
+   tabular figures, number and unit each at a fixed width, numbers right-aligned, the whole block fixed at the widest
+   「↑ 999.99 MB/s ↓ 999.99 MB/s」; 「已断开」 is centred in the same width */
+.bar-rate {
+  display: inline-flex;
+  flex: none;
+  align-items: baseline;
+  justify-content: center;
+  width: 26ch; /* two groups × (1.4 + 6 + 0.4 + 4.6) ch, plus a little room */
+  margin: 0 var(--sp-2);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bar-rate .rate-dir {
+  width: 1.4ch;
+}
+
+.bar-rate .rate-num {
+  width: 6ch;
+  text-align: right;
+}
+
+.bar-rate .rate-unit {
+  width: 4.6ch;
+  margin-left: 0.4ch;
+  text-align: left;
+}
+
+.bar-rate.lost {
+  color: var(--error);
 }

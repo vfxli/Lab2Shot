@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 from lab2shot.sdk import (Official, measured_param, Confidence, P, WholeShotDepthCamera, WholeShotParams, conf_threshold_param,
-                          resolution_param, unit_cm_param, Cost, Licence, max_frames_param, Measured)
+                          resolution_param, unit_cm_param, Cost, max_frames_param, Measured)
 
 
 class Reconstruct(WholeShotDepthCamera):
@@ -36,7 +36,6 @@ class Reconstruct(WholeShotDepthCamera):
     on_node = ("update", "step", "max_frames")
     # 数值来自 RTX 4090；显存 O(1)（一次编码一帧），不随分段长度增长
     cost = Cost(gpu=True, vram_gb=3.6, seconds_per_frame=0.1)
-    licence = Licence(note="代码和权重 CC-BY-NC-SA-4.0（含 DUSt3R / CroCo 代码），只能研究用；TTT3R 的记忆更新规则是 MIT，但仍用 CUT3R 的权重。")
 
     class Params(WholeShotParams):
         update: Literal["cut3r", "ttt3r"] = P(

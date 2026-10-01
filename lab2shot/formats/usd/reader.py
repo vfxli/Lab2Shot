@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
-from functools import lru_cache
+from functools import lru_cache, wraps
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -24,6 +24,8 @@ import numpy as np
 from pxr import Gf, Sdf, Tf, Usd, UsdGeom, UsdSkel
 
 from ...errors import Invalid
+from lab2shot_shared import names
+
 from ...io import usd
 from ...messages import Msg
 from ...nodes.formats import Entry, Listing, count
@@ -35,13 +37,38 @@ if TYPE_CHECKING:
 SHOWN = 5  # external files named in the message, then how many more
 
 
+def _utf8_names(read):
+    """A reading entry (listing, camera, copied) whose file holds a name that is not UTF-8 is refused naming the file
+    (E-USD-NAMEENCODING), never a UnicodeDecodeError (a 500). USD itself refuses a prim name or an asset path that is
+    not UTF-8 when the file is opened (E-USD-UNREADABLE, open_stage); a token array (a skeleton's joints, a mesh's
+    blend shapes) is read as it is and fails only when Python decodes it. Those names are what joints and shapes go
+    by, so none is guessed at by replacing its bytes. (A string or token value that is not UTF-8 reads as None:
+    nothing here reads one.)"""
+
+    @wraps(read)
+    def reading(path, *args, **kwargs):
+        try:
+            return read(path, *args, **kwargs)
+        except UnicodeDecodeError as exc:
+            raise Invalid(Msg("E-USD-NAMEENCODING", file=Path(path).name)) from exc
+
+    return reading
+
+
 def open_stage(path: Path) -> Usd.Stage:
     """The file as a stage, when it is flattened (external_files: nothing outside it); its root layer alone is read
     first, so a file it refers to is never opened."""
+    from pxr import UsdUtils
+
+    said = UsdUtils.CoalescingDiagnosticDelegate()  # USD's warnings while the layer is read (see _not_utf8)
     try:
         layer = Sdf.Layer.FindOrOpen(str(path))
     except Tf.ErrorException as exc:  # a broken file, or not USD: said plainly (USD's message names server paths)
+        if _not_utf8(exc, said.TakeUncoalescedDiagnostics()):
+            raise Invalid(Msg("E-USD-NAMEENCODING", file=path.name)) from exc
         raise Invalid(Msg("E-USD-UNREADABLE", file=path.name)) from exc
+    finally:
+        del said
     if layer is None:
         raise Invalid(Msg("E-USD-UNREADABLE", file=path.name))
     if outside := external_files(layer, str(path) if path.suffix.lower() == ".usdz" else ""):
@@ -52,6 +79,24 @@ def open_stage(path: Path) -> Usd.Stage:
         return Usd.Stage.Open(layer)
     except Tf.ErrorException as exc:
         raise Invalid(Msg("E-USD-UNREADABLE", file=path.name)) from exc
+
+
+def _not_utf8(exc: Tf.ErrorException, warnings) -> bool:
+    """Whether a layer USD refused to open was refused for a name or an asset path that is not UTF-8 (GBK from a
+    Chinese system, say), so that the user is told that (E-USD-NAMEENCODING) rather than that the file is broken.
+    USD 26 checks both as it reads: an asset path fails with "Invalid asset path string -- ... invalid UTF-8 code
+    point", a prim name only warns "Invalid prim name '<its bytes>'" (the error that follows is about the specs left
+    without a path), and that warning's text, holding the name's bytes, cannot itself be decoded as UTF-8."""
+    if "invalid UTF-8" in str(exc):
+        return True
+    for w in warnings:
+        try:
+            text = w.commentary
+        except UnicodeDecodeError:  # the text quotes bytes that are not UTF-8
+            return True
+        if "invalid UTF-8" in text:
+            return True
+    return False
 
 
 def external_files(layer: Sdf.Layer, package: str = "", seen: set[str] | None = None) -> list[str]:
@@ -162,6 +207,7 @@ def _resolution(stage: Usd.Stage, prim) -> tuple[int, int] | None:
 
 
 @lru_cache(maxsize=32)
+@_utf8_names
 def listing(path: str) -> Listing:
     """Every camera, model, point cloud, set of 3D curves, skeleton and character of a USD file (uploads never
     change: each is listed once): cameras, point clouds, curves and meshes by their prim paths; a skeleton root by its path, a 蒙皮角色 when meshes are
@@ -174,8 +220,10 @@ def listing(path: str) -> Listing:
         where = str(prim.GetPath())
         if prim.IsA(UsdSkel.Root):
             skels, meshes = _skel_parts(prim)
-            joints = sum(len(s.GetJointsAttr().Get() or []) for s in skels)
-            shapes = sum(len(UsdSkel.BindingAPI(t.GetPrim()).GetBlendShapesAttr().Get() or []) for t in meshes)
+            # the names themselves (list()), not only their count: one that is not UTF-8 is refused here (_utf8_names),
+            # when the file is chosen, not by whatever reads the joints later
+            joints = sum(len(list(s.GetJointsAttr().Get() or [])) for s in skels)
+            shapes = sum(len(list(UsdSkel.BindingAPI(t.GetPrim()).GetBlendShapesAttr().Get() or [])) for t in meshes)
             detail = " · ".join([count(joints, "关节")] + ([count(len(meshes), "网格")] if meshes else []) + ([count(shapes, "形变")] if shapes else []))
             entries.append(Entry("character" if meshes else "skeleton", where, _frames(stage, _character_times(prim)), detail))
             it.PruneChildren()
@@ -214,12 +262,25 @@ def listing(path: str) -> Listing:
             strands = max([len(counts.Get(t) or []) for t in counts.GetTimeSamples()] or [len(counts.Get() or [])])
             entries.append(Entry("curves", where, _frames(stage, _xform_times(prim) | times),
                                  f"{count(strands, '条')} · {count(most, '点')}"))
-    return Listing(tuple(entries))
+    return Listing(tuple(entries), fps=recorded_fps(stage))
+
+
+def recorded_fps(stage: Usd.Stage) -> float | None:
+    """The rate of the file's time codes (its frames: one time code is one frame on import), as the root layer
+    records it: timeCodesPerSecond, else framesPerSecond (what USD itself falls back to), else None — USD's own
+    default of 24 is not something the file said."""
+    layer = stage.GetRootLayer()
+    if layer.HasTimeCodesPerSecond():
+        return float(layer.timeCodesPerSecond)
+    if layer.HasFramesPerSecond():
+        return float(layer.framesPerSecond)
+    return None
 
 
 # ------------------------------------------------------------------ reading the selected entries
 
 
+@_utf8_names
 def camera(path: Path, entry: Entry, size: tuple[int, int]) -> CameraSamples:
     """A camera as its samples: its world matrix at every frame (every parent, animated ones too), made rigid, in
     cm and Y up; its lens per frame; its picture `size` (ImportNode.picture_size)."""
@@ -233,6 +294,7 @@ def camera(path: Path, entry: Entry, size: tuple[int, int]) -> CameraSamples:
     return replace(raw, cam_to_world=rigid(axes_of(stage).matrices(raw.cam_to_world)))
 
 
+@_utf8_names
 def copied(path: Path, entries: list[Entry], kind: str, out: Path, group: str, owner: str) -> Packet:
     """The entries' prims copied into a new scene where their file had them, under their import's folder
     (/shot/<group>/<path in the file>, io/usd.py import_path; the groups between are identity), each subtree as it
@@ -365,12 +427,9 @@ def _material(src: Usd.Stage, flat: Sdf.Layer, layer: Sdf.Layer, stage: Usd.Stag
     prim = src.GetPrimAtPath(material)
     if not prim or not prim.IsA(UsdShade.Material):
         return target
-    looks = f"{usd.ROOT_PATH}/{group}/Looks"
-    name = usd.valid_name(material.name)
-    while stage.GetPrimAtPath(f"{looks}/{name}"):
-        name += "_"
+    looks = f"{usd.ROOT_PATH}/{names.identifier(group)}/Looks"
     UsdGeom.Scope.Define(stage, looks)
-    done[material] = Sdf.Path(f"{looks}/{name}")
+    done[material] = Sdf.Path(usd.free_path(stage, f"{looks}/{material.name}"))
     Sdf.CopySpec(flat, material, layer, done[material])
     _retarget(stage.GetPrimAtPath(done[material]), material, done[material])
     return target.ReplacePrefix(material, done[material])

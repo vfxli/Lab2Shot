@@ -118,7 +118,7 @@ class SplitCamera(NodeDef):
     @classmethod
     def cook(cls, ctx):
         from ...data.camera import CameraSamples
-        from ...data.scene import xyz_euler_deg
+        from lab2shot_shared.poses import xyz_euler_deg
 
         camera = ctx.input("camera")
         frames = camera.meta["frames"]

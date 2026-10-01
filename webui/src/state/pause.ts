@@ -13,7 +13,7 @@ const pauseNote = (sw: { compute: boolean }): string => (blockedByCompute(sw) ? 
 /** Whether 计算任务 off refuses a cook outright (nothing is submitted). */
 const blockedByCompute = (sw: { compute: boolean }): boolean => !sw.compute;
 
-/** The one rule of the top bar's 提交 and the node menu's 计算 before a click: greyed while 计算任务 is off or the
+/** The one rule of every 计算 entry (graph/actions.ts cookHold: the button parameters, the node menu, the shortcuts) before a click: greyed while 计算任务 is off or the
  * storage quota is full (both refuse a cook outright), with the note that says which. */
 export const cookBlocked = (sw: { compute: boolean }, storage: StorageGate | null): boolean => blockedByCompute(sw) || blockedByQuota(storage);
 export const cookNote = (sw: { compute: boolean }, storage: StorageGate | null): string => pauseNote(sw) + quotaNote(storage);

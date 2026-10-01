@@ -18,6 +18,9 @@
   增大一倍多，且浏览器需先将四个平面拼回，不再能直接送入纹理。以上方案均不采用。
 * 尾数低位置零：半精度尾数保留 7 位，显示上的相对误差 ≤0.4%，即 8 位屏幕上的一级；视图不要求逐位一致。
   代理本身即为用于查看的副本，这一步与等比缩放同属降低数据量的处理。
+  编号图（分割，`data/payloads.py is_labels`）例外：值是编号不是数量，保留 7 位尾数只能精确表示到 256，
+  257 起相邻编号会被并成同一个，所以编号图不置零（`exact`），按 `_channel_format` 原样选档：
+  2048 以内的整数半精度精确，更大的走 float32。
 """
 
 from __future__ import annotations
@@ -87,7 +90,7 @@ def _trimmed_half(v):
     return bits.view("<f2")
 
 
-def channel_blob(values) -> bytes:
+def channel_blob(values, exact: bool = False) -> bytes:
     """单个通道的一帧（已缩放到代理档位，由 `view/proxy.py` 完成），编码为上述字节格式。
     `values`：[H, W] 的 float32（该帧该通道的值本身，未经任何显示处理）。
 
@@ -101,6 +104,7 @@ def channel_blob(values) -> bytes:
        16  …  宽 × 高 个值，行优先，从左上角开始
 
     8 位档不做尾数低位置零：它本身即为每个值一个字节，置零既不节省空间也没有意义。
+    `exact`：不做尾数低位置零（编号图：每个值都要原样到达浏览器，见开头最后一条）。
     """
     import numpy as np
 
@@ -111,7 +115,7 @@ def channel_blob(values) -> bytes:
     flat = v.reshape(-1)
     code, data = _channel_format(flat)
     trimmed = False
-    if code != CHANNEL_U8:
+    if code != CHANNEL_U8 and not exact:
         # 代理一律使用尾数低位置零的半精度，但半精度无法容纳的除外：有限值的绝对值超过 HALF_TRIMMED_MAX 时保留 float32 原值
         # （见开头「位数由数据本身决定」一条）。8 位档以外的整数档（k/65535）值在 0..1 之间，照常处理。
         # 原生半精度的数据同样需要检查：65280–65504 区间在尾数低位置零并四舍五入后会进位为 inf，与 float32 分支一样保留原值。

@@ -14,10 +14,11 @@
 
 from __future__ import annotations
 
+from ..port import EITHER
 from ...errors import Invalid
 from ...messages import Msg
 
-from ..base import NodeDef, NodeParams, P, Port, parse_figures
+from ..base import NodeDef, NodeParams, P, Port, parse_figures, say_bad_entries
 from ...data.units import DEFAULT_HEIGHT, DEFAULT_WIDTH
 from ..handles import FIGURE_JOINTS, figure_handle
 
@@ -37,7 +38,7 @@ class DrawFigure(NodeDef):
     # 也没有从图像识别关节的步骤（官方 demo 使用动捕 3D 关节经 `project2D()` 投影得到的 2D 坐标）。
     # 本节点只接收一段序列，不识别宫格图，没有行列参数，也不做拆分；宫格图应先经「拆网格图」拆成序列再接入。
     # 端口提示和节点说明中必须写明「底图不参与计算」，以免被误解为基于图像生成。
-    inputs = (Port("image", "image", "图像", optional=True,
+    inputs = (Port("image", "image", "图像", optional=True, data=EITHER,
                    help="照着画的底图，一段序列：时间线拖到哪一帧就显示那一帧，你在那一帧上画。"
                         "这张图不参与计算——下游 Sketch2Anim 只吃火柴人的关节坐标，一个像素都不吃"),)
     outputs = (Port("sketch", "tracks2d", "草图"),)
@@ -60,7 +61,8 @@ class DrawFigure(NodeDef):
 
         src = ctx.input("image")          # 未连接时为 None
         width, height = (src.meta["width"], src.meta["height"]) if src is not None else (DEFAULT_WIDTH, DEFAULT_HEIGHT)
-        drawn = parse_figures(ctx.params["poses"])
+        say_bad_entries(ctx, "poses")
+        drawn = parse_figures(cls, "poses", ctx.params["poses"])
         if not drawn:  # 未绘制任何姿势：输出空草图并给出提示（空结果不视为错误）
             ctx.say("N-FIGURE-NOPOSES", param="poses")
         # 每帧最多一个：帧是该数据的单位。若不校验，下方 `frames.index(frame)` 会使同一帧的后一个静默覆盖前一个，

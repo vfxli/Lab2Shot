@@ -61,17 +61,20 @@ export interface UsageStats {
   departments: UsageDepartment[]; // every listed department, the busiest first; others after
   people: UsagePerson[]; // who submitted in the range, the most compute first
   nobody: string; // the row of accounts without a department (未分环节)
-  templates: UsageTemplate[]; // 按模板: the most used first, the graphs built by hand last
 }
 
-/** One template the jobs of the range were opened from (lab2shot/farm/usage.py templates), by when they were submitted. */
-export interface UsageTemplate {
-  id: string; // the template's card id; "" for the graphs built by hand
-  name: string; // its name now; a deleted one's at its last use; 「自己搭的」 for id ""
-  deleted: boolean;
-  count: number; // jobs, however they ended
-  done: number;
-  failed: number;
-  last: number; // when the last one was submitted
-  users: number; // how many accounts
+
+/** The server's usage answer filled in to what the page reads directly (in this one place, so the page never checks
+ * for absence piecemeal): a missing list as empty, each project's three per-day columns padded with 0 to the length of
+ * `days` (one missing day would make a total NaN). */
+export function usageFilled(u: UsageStats): UsageStats {
+  const n = (u.days ?? []).length;
+  const col = (xs: number[] | undefined) => Array.from({ length: n }, (_, i) => xs?.[i] ?? 0);
+  return {
+    ...u,
+    days: u.days ?? [],
+    projects: (u.projects ?? []).map((p) => ({ ...p, users: p.users ?? [], daily: { runs: col(p.daily?.runs), reuses: col(p.daily?.reuses), seconds: col(p.daily?.seconds) } })),
+    departments: (u.departments ?? []).map((d) => ({ ...d, daily: { runs: col(d.daily?.runs), reuses: col(d.daily?.reuses), seconds: col(d.daily?.seconds) } })),
+    people: (u.people ?? []).map((q) => ({ ...q, daily: { runs: col(q.daily?.runs), reuses: col(q.daily?.reuses), seconds: col(q.daily?.seconds) } })),
+  };
 }

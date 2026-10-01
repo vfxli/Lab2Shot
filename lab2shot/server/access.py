@@ -24,28 +24,32 @@ templates.restore for giving a user back a template they deleted):
   - uploads: each account's own, in its own folder (transfer/uploads.py): the same bytes sent by two accounts are
     kept twice, and knowing a sha or an upload id is never enough to use or even learn of another's;
   - results (packets): each account's own cache (data/store.py <数据位置>/cache/<account id>/): a packet is readable
-    when its fingerprint is there, in the requesting account's own cache (packets_readable); the same graph cooked by
+    when its fingerprint is there, in the requesting account's own cache (readable); the same graph cooked by
     two accounts is cooked and kept twice, and a fingerprint of another account's is simply not there;
-  - node types: only those whose tags the account may use (nodes/tags.py). The others do not exist for it: not in the
-    catalog or templates, a graph with one is refused like one with a type this server lacks, and
-    no answer names them (redact).
+  - node types: only those whose tags the account may use (nodes/tags.py). The others do not exist for it: each
+    answer that describes node types, choices or templates is made for the account (node_types_for, describe_for,
+    templates_for; the catalogue's menu places only those), and a graph with one is refused like one with a type this
+    server lacks (admit). Nothing filters the words of an answer after it is made: what an account wrote itself (its
+    file names, template names, notes) comes back exactly as it wrote it, whatever those words are.
 
 Guard, the one middleware in front of everything, applies it to every request, and also
   - lets an account that has not agreed to the current 用户协议 and 隐私政策 (lab2shot/terms owed: one an
     administrator made, or anyone after the texts changed) reach nothing but the login's own routes (/api/auth/:
     agreeing, logging out) and the open ones, until it agrees (403 marked `terms`: the page asks for it);
-  - counts requests per client (auth.Rate), every session's alike, and per client on a route with a rate of its own
-    (its declared Limit): a flood is refused (429);
+  - counts requests per client (auth.Rate, auth.client_key: a session, else where it comes from, else its connection),
+    every session's alike: a flood is refused (429). A route with a rate of its own (its declared Limit: logging in,
+    registering) is counted in its own bucket instead, so what fills the shared one never refuses it;
   - refuses every write that relies on the cookie (or on no credential: logging in) and did not come from a page of
     this site (403: its Origin, or Referer, names another site or none); a bearer or machine token in a header is
     never sent by another site's page;
-  - refuses a request body larger than MAX_BODY, or its route's own limit (its declared Limit: uploads and feedback check theirs
-    as they read);
+  - refuses a request body larger than MAX_BODY, or its route's own limit (its declared Limit), and one whose size it is
+    not told (chunked), whatever the method, before any of it is read; a route that reads its own bytes as they come
+    (Limit body None: an upload's part) counts them against the size it declared, and nothing reads them before it
+    (routes.Route reads a body only for a route that takes one, and never past its Limit);
   - adds the security headers (HEADERS) to every answer, and over HTTPS (this server's, or the tunnel's in front of
     it) to a named host also HSTS: the browser then never asks it over plain http;
   - takes this server's own folders out of what anyone without logs.view gets back (scrub): an error, a job's
     log, a result's description never show where the server keeps things, only file names;
-  - takes what an account may not use out of every answer it gets (redact);
   - notes what looks like probing (auth.Watch, the admin page's 安全): refused routes, odd paths, floods;
   - says whose work a request is while it is served (lab2shot/serving.py): the session's account, or every account
     for one holding data.others; transfer/uploads.py resolve answers by it. Nothing else in the server asks whose
@@ -54,9 +58,11 @@ Guard, the one middleware in front of everything, applies it to every request, a
 
 from __future__ import annotations
 
+import gzip
 import json
 import re
 import time
+from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -69,15 +75,19 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .. import logs, roles, terms
 from ..accounts import User
+from ..availability import resolve
 from ..config import ROOT, WEBUI_DIST, settings
 from ..database import db, json_text
 from ..engine.graph import Graph, GraphError
-from ..errors import NotFound
+from ..errors import (Forbidden, Invalid, LengthRequired, MessageError, Misdirected, NotFound, NotSignedIn,
+                      TooLarge, TooManyTries)
 from ..messages import Msg, plain
+from ..text import decimal
 from ..nodes import tags
 from ..traffic import SCOPE_USER
 from . import auth, wire
-from .routes import ADMIN, MAX_BODY, MAX_NODES, Limit, match
+from .repeats import Repeats
+from .routes import ADMIN, MAX_BODY, MAX_NODES, Access, declared_as, match
 from .wire import off_loop
 
 # Each route's level, capability and limits are declared with the route, once (server/routes.py Access).
@@ -96,49 +106,89 @@ AUTH = "/api/auth/"  # the login's own routes: answered before an account agreed
 VERBATIM = compile_path("/api/tasks/{task_id}/outputs/{pkg}/file/{name:path}")[0]  # the user's own files, as they are
 
 
-def limit_of(method: str, path: str) -> tuple[str, Limit] | None:
-    """The route and its own limits (its declared Limit), when it has any."""
-    found = match(method, path)
-    return (found[0], found[1].limit) if found is not None and found[1].limit is not None else None
+ROUTE = "lab2shot_route"  # the scope's record of the route a request is for (route_of)
 
 
-def need_of(method: str, path: str) -> str | None:
-    """The capability a request's route declares (an admin route's always; a product page's action's besides a login);
-    None: a login is enough, or no such route."""
-    found = match(method, path)
-    return found[1].needs if found is not None else None
+def route_of(request: Request) -> tuple[str, Access] | None:
+    """The route a request is for and its declared access (routes.match; None: no route of that method and path),
+    looked up once per request and kept on its scope: the guard and everything after it read this one. A HEAD is its
+    GET's, as FastAPI answers it (the GET's handler, without the body)."""
+    if ROUTE not in request.scope:
+        request.scope[ROUTE] = match(declared_as(request.scope["method"]), request.scope["path"])
+    return request.scope[ROUTE]
 
 
 audit_log = logs.get("admin")
 
 
-def audit(message: Msg, session=None, method: str = "", path: str = "") -> None:
-    """One admin action, written in one place to both records: the server log (with its code: who, role,
-    what, on what, as the message states) and the `admin_actions` table, which only ever grows and has no route that
-    changes or removes a row. The table is what 后台「用户」详情页's 管理操作 tab lists, per account.
-
-    `session`: whose action it was (None: nobody was logged in, i.e. a refused attempt). `method`/`path`: the request it
-    came from ("" for an action from the command line)."""
-    logs.say(audit_log, message)
-    user = getattr(session, "user", None)
-    try:
-        with db().write() as c:
-            c.execute(
-                "INSERT INTO admin_actions (at, user_id, role, code, params, method, path, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (time.time(), getattr(user, "id", None), getattr(user, "role", ""), message.code,
-                 json_text({k: plain(v) for k, v in message.params.items()}), method, path,
-                 REFUSED if message.level == "W" else DONE),
-            )
-    except Exception as exc:  # the log line above is the record that must not be lost: never fail the action itself
-        logs.say(audit_log, Msg("W-AUDIT-NOTKEPT", code=message.code, why=str(exc)))
-
-
 DONE = "成功"
 REFUSED = "拒绝"
+FAILED = "失败"
+STATUS_OF = {"I": DONE, "W": REFUSED, "E": FAILED}  # an audit message's level -> how the action went
+
+# the audit rows written while one admin write is served (Guard): the route's own, where the action was done or
+# refused; the guard writes one only when the route wrote none, from how the request ended
+_audited: ContextVar[list[str] | None] = ContextVar("lab2shot_audited", default=None)
 
 
-def actor(s) -> tuple[str, str]:
-    """Who a session is and its role, as audit lines name them."""
+REPEAT_S = 600  # the same refusal of one account at one address within this long is one row, counted (audit)
+
+
+def audit(message: Msg, session=None, method: str = "", path: str = "", about: int | None = None) -> None:
+    """One admin action, written in one place to both records: the server log (with its code: who, role,
+    what, on what, as the message states) and the `admin_actions` table, which only ever grows and has no route that
+    changes or removes a row. The table is what 后台「用户」详情页's 管理操作 tab lists, per account. How it went is the
+    message's level (STATUS_OF): an action is written where it was done (I), refused (W) or failed (E), once.
+
+    A refusal repeated (the same account, the same refusal, the same address within REPEAT_S: a script hammering a
+    route it may not use, a flood the guard slows) is counted on the row of its first (`repeats`, `last`: server/repeats.py
+    tells the count within its FLUSH_S, and when the process ends), and says nothing more in the log.
+
+    `session`: whose action it was (None: nobody was logged in, i.e. a refused attempt). `method`/`path`: the request it
+    came from ("" for an action from the command line). `about`: the account it was done to, by id (permanent deletion
+    finds the rows about an account by it: accounts.py PURGE)."""
+    if (written := _audited.get()) is not None:
+        written.append(message.code)
+    user = getattr(session, "user", None)
+    row = (time.time(), getattr(user, "id", None), getattr(user, "role", ""), message.code,
+           json_text({k: plain(v) for k, v in message.params.items()}), method, path, STATUS_OF[message.level], about)
+    if message.level == "W":
+        _refusals.happened((row[1], message.code, method, path), {"row": row, "message": message})
+    else:
+        _write(row, message)
+
+
+def _write(row: tuple, message: Msg) -> int | None:
+    logs.say(audit_log, message)
+    try:
+        with db().write() as c:
+            return c.execute("INSERT INTO admin_actions (at, user_id, role, code, params, method, path, status, target_id) "
+                             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", row).lastrowid
+    except Exception as exc:  # the log line above is the record that must not be lost: never fail the action itself
+        logs.say(audit_log, Msg("W-AUDIT-NOTKEPT", code=message.code, why=str(exc)))
+        return None
+
+
+def _count_repeats(row: int, count: int, t: float) -> None:
+    try:
+        with db().write() as c:
+            c.execute("UPDATE admin_actions SET repeats = repeats + ?, last = ? WHERE id = ?", (count, t, row))
+    except Exception as exc:  # a count is not worth failing a request for
+        logs.say(audit_log, Msg("W-AUDIT-NOTKEPT", code="repeats", why=str(exc)))
+
+
+_refusals = Repeats(REPEAT_S, lambda key, t, said: _write(said["row"], said["message"]), _count_repeats)
+
+
+def ended(s, need: str, method: str, path: str, status: int) -> Msg:
+    """An admin write whose route wrote no audit of its own, as it ended: done, refused (4xx) or failed (5xx)."""
+    who, role = named(s)
+    code = "I-AUDIT-ACTION" if status < 400 else "W-AUDIT-ACTIONREFUSED" if status < 500 else "E-AUDIT-ACTIONFAILED"
+    return Msg(code, who=who, role=role, what=roles.CAPABILITIES[need].what, method=method, path=path, status=status)
+
+
+def named(s) -> tuple[str, str]:
+    """Who a session is and its role, as an audit line's words say them (`who`, `role`)."""
     return (s.user.label, roles.label(s.user.role)) if s is not None else ("未登录", "")
 ADMIN_PAGES = ("src/admin/AdminApp.tsx",)  # the build's entries of the admin's own pages
 
@@ -189,15 +239,14 @@ def asset_level(path: str) -> str | None:
 PAGE_ENTRY = re.compile(r"^/(?:admin(?:/.*)?)?$")
 
 
-def level(method: str, path: str) -> str | None:
-    """"open", "user", "admin", or None (not served)."""
-    if path.startswith(ADMIN) or path == ADMIN.rstrip("/"):
+def level(method: str, path: str, found: tuple[str, Access] | None) -> str | None:
+    """"open", "user", "admin", or None (not served). `found`: the request's route (route_of)."""
+    if path.startswith(ADMIN):
         return "admin"
     if path.startswith("/assets/"):
         return asset_level(path)
     if not path.startswith("/api/"):
         return "open" if method in ("GET", "HEAD") and PAGE_ENTRY.match(path) else None  # the page's entry: index.html
-    found = match(method, path)
     return found[1].level if found is not None and found[1].level in ("open", "user") else None
 
 
@@ -210,10 +259,10 @@ def same_site(request: Request) -> bool:
     return bool(host) and host in here - {""}
 
 
-def refused(message: Msg, status: int, **extra) -> JSONResponse:
-    """The guard's answer to a request it does not let through: the message's text and code (like every error answer,
-    server/app.py), and what the page acts on (login, admin, kicked)."""
-    return JSONResponse({"detail": message.text, "code": message.code, **extra}, status_code=status)
+def refused(error: MessageError, **extra) -> JSONResponse:
+    """The guard's answer to a request it does not let through: the error's own answer and status, as every error is
+    answered (errors.py MessageError, server/app.py), and what the page acts on (login, admin, kicked, terms)."""
+    return JSONResponse({**error.answer(), **extra}, status_code=error.status)
 
 
 # ------------------------------------------------------------------ what is whose
@@ -228,23 +277,66 @@ def account_of(s):
     return NOBODY if s is None else Account(s.user.id, all_accounts=s.can("data.others"))
 
 
-def others_right(method: str, path: str) -> str:
-    """The capability a route requires to access other accounts' data: for admin routes, the one the route declares
-    (capabilities are declared once; `templates.restore` lets a 二级管理员 give a user back a template deleted by
-    mistake without granting data.others); data.others for every other route."""
-    found = match(method, path)
+def others_right(request: Request) -> str:
+    """The capability a request's route requires to access other accounts' data: for admin routes, the one the route
+    declares (capabilities are declared once; `templates.restore` lets a 二级管理员 give a user back a template deleted
+    by mistake without granting data.others); data.others for every other route."""
+    found = route_of(request)
     return found[1].needs if found is not None and found[1].level == "admin" and found[1].needs else "data.others"
 
 
 def mine(request: Request, owner: int | None, gone: Msg) -> None:
     """Only the account it belongs to, or a login holding the right its route declares for other people's data
-    (others_right): anyone else is told it is not there (`gone`), never that it is someone else's."""
+    (others_right) that also manages that account's role (roles.manages: a 二级管理员 restoring templates acts on a
+    user's, never an administrator's, as on the 用户 page): anyone else is told it is not there (`gone`), never that it
+    is someone else's. An account deleted for good (no owner, or none any more) is only the right's to look at."""
     u = auth.me(request)
-    if owner != u.id and not auth.can(request, others_right(request.method, request.url.path)):
+    if owner != u.id and not (auth.can(request, others_right(request)) and manages(auth.session(request), owner)):
         raise NotFound(gone)
 
 
-# ------------------------------------------------------------------ node types an account may use (nodes/tags.py)
+def manages(viewer, owner: int | None = None, role: str | None = None) -> bool:
+    """Whether the login `viewer` (a Session) may act on, or see the particulars of, an account: `owner` (its id), or
+    any account of `role`. The one answer to who manages whom (roles.manages: a 二级管理员 manages users, never an
+    administrator; nobody another account of the owner's), read wherever other accounts' things are acted on or shown:
+    the 用户 page (server/users.py), ownership (mine), the admin page's queue and history (server/farm.py), feedback,
+    registrations (server/invites.py), and what is trimmed of a row (particulars). Its own account a login always
+    manages; an account deleted for good (none, or not there any more) is only its right's."""
+    if viewer is None:
+        return False
+    if owner is not None and owner == viewer.user.id:
+        return True
+    if role is None and owner is not None:
+        role = _role_of(owner, accounts_revision())
+    return role is None or roles.manages(viewer.capabilities, role)
+
+
+@lru_cache(maxsize=4096)
+def _role_of(owner: int, revision: str) -> str | None:
+    """An account's role at `revision` (accounts.revision: a new one with every change of a role)."""
+    from .. import accounts
+
+    try:
+        return accounts.get(owner).role
+    except NotFound:
+        return None
+
+
+def accounts_revision() -> str:
+    from .. import accounts
+
+    return accounts.revision()
+
+
+# what a row of another account's says of where it was (an address, a browser, a computer: farm/clients.py full's
+# `details`, a registration's `ip` / `net`): only for a login that manages that account (particulars)
+PARTICULARS = ("details", "ip", "net", "user_agent", "agent", "hostname", "device", "device_id")
+
+
+def particulars(viewer, owner: int | None, row: dict) -> dict:
+    """`row` (another account's, `owner`) as `viewer` may see it: whole when it manages that account (manages), else
+    without what says where it was (PARTICULARS). The one trimming of such rows, wherever a list shows them."""
+    return row if manages(viewer, owner) else {k: v for k, v in row.items() if k not in PARTICULARS}
 
 
 def node_types_for(u: User | None) -> dict:
@@ -256,7 +348,8 @@ def node_types_for(u: User | None) -> dict:
 
 
 def templates_for(u: User | None) -> list[dict]:
-    """The templates an account may use: every node and choice of it within its tags and, unless this login manages
+    """The templates an account may use: some route through it (its menus' values) with every node and choice of it
+    within its tags and, unless this login manages
     the templates, only the ones that are switched on (switched in server/templates.py; this is the one place that
     filter lives, so the template panel and the tools routes (server/tools.py) agree without either deciding anything).
 
@@ -267,47 +360,72 @@ def templates_for(u: User | None) -> list[dict]:
 
     given = u.allowed if u else None
     manages = u is not None and "templates.create" in u.capabilities
-    return [t for t in templates() if tags.may(frozenset(t["licence"]), given) and (manages or t["enabled"])]
+    # open to anyone some route through it is open to (its menus' values, library route_licences); the chip it shows
+    # stays the defaults' route
+    return [t for t in templates() if any(tags.may(frozenset(r), given) for r in t["route_licences"]) and (manages or t["enabled"])]
 
 
 def _hidden_choices(given: frozenset[str] | None, node_type) -> dict[str, list]:
-    """Parameter -> the values of it someone given `given` may not use (the ones that switch to non-commercial parts,
-    nodes/applies.py OptionTrait)."""
-    from ..nodes.applies import noncommercial_choices
+    """Parameter -> the values of it someone given `given` may not use: the ones whose licence class (nodes/applies.py
+    OptionTrait.licence: 非商用, 仅限研究) the account was not given, judged as a node's own class is (tags.may)."""
+    from ..nodes.applies import licensed_choices
 
-    if given is None or tags.may(frozenset({tags.NONCOMMERCIAL}), given):
-        return {}
-    return {name: list(values) for name, values in noncommercial_choices(node_type).items()}
+    out = {name: [v for v, level in values.items() if not tags.may(frozenset({level}), given)]
+           for name, values in licensed_choices(node_type).items()}
+    return {name: values for name, values in out.items() if values}
 
 
-def describe_for(u: User | None, node_type) -> dict:
-    """A node type as the editor of an account sees it (NodeDef.describe): the choices it may not use are not among
-    its parameter's options (nor in its lookup table of what choices change), and a default that is one of them becomes
-    the first it may use; a parameter whose only other value is one it may not use (a switch) is not shown, staying at
-    its default."""
+def sees_cards(s) -> bool:
+    """Whether a login gets the cards' figures (server/available.py FIELDS farm.cards): card names, what a setting was
+    measured to take on a card."""
+    from ..roles import SessionFacts
+    from .available import FIELDS
+
+    return "farm.cards" in resolve({"farm.cards": FIELDS["farm.cards"]}, SessionFacts.of(s)).available
+
+
+def params_for(s, node_type) -> list[dict]:
+    """A node type's parameters (NodeDef.interface_specs) as a login sees them, in every answer that describes them (the
+    catalogue: describe_for; the tools a DCC plugin or a script reads: server/tools.py): the choices its account may not
+    use are not among a parameter's options, and a default that is one of them becomes the first it may use; a parameter
+    whose only other value is one it may not use (a switch) is not there, staying at its default; what a setting was
+    measured to take on a card (`measured`) is there only for a login that sees the cards (sees_cards)."""
+    hidden = _hidden_choices(s.user.allowed if s is not None else None, node_type)
+    cards = sees_cards(s)
+    out = []
+    for p in node_type.interface_specs():
+        if gone := hidden.get(p["name"], []):
+            options = [o for o in (p.get("options") or []) if o not in gone]
+            if not options:  # a switch: stays at its default (never one it may not use: nodes/tags.py declares the value)
+                continue
+            labels = {k: v for k, v in (p.get("option_labels") or {}).items() if k not in {str(g) for g in gone}}
+            p = {**p, "options": options, "option_labels": labels, **({"default": options[0]} if p.get("default") in gone else {})}
+        out.append(p if cards else _unmeasured(p))
+    return out
+
+
+def _unmeasured(spec):
+    """A parameter's description without `measured`, its own and its parts' (a list parameter's items describe theirs)."""
+    if isinstance(spec, dict):
+        return {k: _unmeasured(v) for k, v in spec.items() if k != "measured"}
+    return [_unmeasured(v) for v in spec] if isinstance(spec, list) else spec
+
+
+def describe_for(s, node_type) -> dict:
+    """A node type as the editor of a login sees it (NodeDef.describe): its parameters as params_for gives them, the
+    defaults and the lookup table of what choices change without the choices its account may not use."""
     from ..nodes.applies import option_key
 
     from ..catalog import describe
 
     desc = describe(node_type)
-    hidden = _hidden_choices(u.allowed if u else None, node_type)
-    if not hidden:
-        return desc
-    params, defaults = [], dict(desc["defaults"])
-    for p in desc["params"]:
-        gone = hidden.get(p["name"], [])
-        if not gone:
-            params.append(p)
-            continue
-        options = [o for o in (p.get("options") or []) if o not in gone]
-        if not options:  # a switch: stays at its default (never one it may not use: nodes/tags.py declares the value)
-            if defaults.get(p["name"]) in gone:
-                defaults[p["name"]] = not defaults[p["name"]] if isinstance(defaults[p["name"]], bool) else None
-            continue
-        labels = {k: v for k, v in (p.get("option_labels") or {}).items() if k not in {str(g) for g in gone}}
-        params.append({**p, "options": options, "option_labels": labels})
-        if defaults.get(p["name"]) in gone:
-            defaults[p["name"]] = options[0]
+    hidden = _hidden_choices(s.user.allowed if s is not None else None, node_type)
+    params, defaults = params_for(s, node_type), dict(desc["defaults"])
+    for name, gone in hidden.items():
+        if defaults.get(name) in gone:
+            shown = next((p for p in params if p["name"] == name), None)
+            defaults[name] = shown["options"][0] if shown is not None else (
+                not defaults[name] if isinstance(defaults[name], bool) else None)
     traits = {name: {key: row for key, row in rows.items() if key not in {option_key(v) for v in hidden.get(name, [])}}
               for name, rows in desc["option_traits"].items()}
     return {**desc, "params": params, "defaults": defaults, "option_traits": traits}
@@ -340,17 +458,6 @@ def admit(request: Request, data: dict) -> Graph:
     return graph
 
 
-def packets_readable(request: Request) -> None:
-    """(A dependency of every route that reads packets: server/packets.py, server/view.py) the packets a request
-    names (its {fp}, a camera it draws with, a camera it looks through) are the account's to read."""
-    # `through` (the camera a frame is viewed through: server/packets.py frame) is also a packet fingerprint and must be
-    # checked too; otherwise another account's camera packet fingerprint would allow viewing through its lens and
-    # reading its distortion.
-    for fp in (request.path_params.get("fp"), request.query_params.get("camera"), request.query_params.get("through")):
-        if fp:
-            readable(request, fp)
-
-
 def readable(request: Request, fp: str) -> None:
     """A packet this account may read: one in its own cache (data/store.py; the request is served as its account,
     lab2shot/serving.py, so packet_dir names that cache), else not found — exactly as for a result never computed. An
@@ -360,120 +467,6 @@ def readable(request: Request, fp: str) -> None:
 
     if not packet_dir(base_of(fp)).is_dir():  # packet_dir refuses what is not a fingerprint (E-PACKET-FINGERPRINT)
         raise NotFound(Msg("E-ACCESS-NORESULT"))
-
-
-# ------------------------------------------------------------------ what an account may not use, out of every answer
-
-
-def _case_classes() -> dict[int, str]:
-    """Each character the regular-expression engine takes as the same letter as another one when case is ignored,
-    beyond what lowercasing gives (the dotless i and i, the long s and s, the two sigmas ...: re/_casefix.py), mapped
-    to one of them."""
-    from re import _casefix
-
-    first: dict[int, int] = {}
-    for k, others in _casefix._EXTRA_CASES.items():
-        m = min(k, *others)
-        for x in (k, *others):
-            first[x] = min(first.get(x, m), m)
-    return {k: chr(v) for k, v in first.items() if k != v}
-
-
-_CASE_CLASSES = _case_classes()
-_CASE_CHARS = re.compile("[" + "".join(re.escape(chr(k)) for k in _CASE_CLASSES) + "]")
-
-
-def _fold(text: str) -> str:
-    """`text` with case taken out exactly as a case-insensitive pattern takes it out, one character for one: İ is i
-    (lowercasing makes it two), then lowercase, then the letters the engine counts as one (_case_classes). Two strings
-    a case-insensitive literal pattern matches at a place are equal here character by character. Each step only when
-    the text has something for it (most answers have none of those letters)."""
-    if "\u0130" in text:
-        text = text.replace("\u0130", "i")
-    text = text.lower()
-    return text.translate(_CASE_CLASSES) if _CASE_CHARS.search(text) else text
-
-
-class Hidden:
-    """The names of what an account may not use, as `pattern`: whole words, case-insensitive (what an answer loses).
-    `search` answers exactly as `pattern.search` does, fast: first a plain look for any of the names anywhere in the
-    text case-folded (_fold), which every match of `pattern` needs, and `pattern` itself only when that finds one. A
-    name that holds another is not looked for (the shorter one is there wherever it is). A big case-insensitive
-    alternation with lookarounds tries every name at every place: hundreds of ms on a long answer; the look is a few
-    substring searches."""
-
-    def __init__(self, terms: set[str]) -> None:
-        alts = "|".join(re.escape(x) for x in sorted(terms, key=len, reverse=True))
-        self.pattern = re.compile(rf"(?i)(?<![A-Za-z0-9_])(?:{alts})(?![A-Za-z0-9_])")
-        needed: list[str] = []
-        for name in sorted({_fold(x) for x in terms}, key=len):
-            if not any(n in name for n in needed):
-                needed.append(name)
-        self._needed = tuple(needed)
-
-    def search(self, text: str) -> re.Match | None:
-        folded = _fold(text)
-        return self.pattern.search(text) if any(n in folded for n in self._needed) else None
-
-
-@lru_cache(maxsize=16)
-def _hidden_terms(given: frozenset[str], _text_stamp: tuple) -> Hidden | None:
-    """The names of what does not exist for someone given `given` (hidden projects: their ids and titles; hidden
-    node types: their ids and labels; hidden choices: their values that are names of their own, like a model's), as
-    one pattern; None when nothing is hidden. `_text_stamp`: the node text files' stamp the labels were taken from
-    (nodes/text.py refresh); it is part of the key, so a renamed node re-derives the pattern."""
-    from ..extensions import extensions
-    from ..nodes import node_types
-
-    shown = {t.runtime for t in node_types().values() if tags.may(tags.node_tags(t), given)}
-    terms: set[str] = set()
-    for t in node_types().values():
-        if not tags.may(tags.node_tags(t), given):
-            terms |= {t.id, t.label}
-        for values in _hidden_choices(given, t).values():
-            terms |= {v for v in values if isinstance(v, str) and len(v) >= 8}
-    for name, ext in extensions().items():
-        if name not in shown and not tags.may(frozenset({ext.license.tag}), given):
-            # Only the extension name and the whole title are matched (whole word, case-insensitive), without splitting
-            # the title into words: words such as "NVIDIA" or "Fast" on their own do not refer to this extension, and
-            # listing them would make redact_text remove every sentence containing them from a normal user's answers.
-            terms |= {name, ext.title}
-    terms = {x for x in terms if len(x) >= 3}
-    if not terms:
-        return None
-    return Hidden(terms)
-
-
-def hidden_pattern(u: User | None) -> Hidden | None:
-    given = u.allowed if u else None
-    if given is None:
-        return None
-    from ..nodes import node_types, text
-
-    # the classes say the files' words before their labels go into the pattern; the stamp those words match is the
-    # cache key, so a renamed hidden node has its new name hidden too
-    return _hidden_terms(given, text.refresh(node_types()))
-
-
-_SENTENCE = re.compile(r"(?<=[。；！？\n])|(?<=[.;!?])(?=\s)")
-
-
-def redact_text(text: str, hidden: Hidden) -> str:
-    """A text without the sentences (lines, clauses ended by 。；！？) that name what is hidden."""
-    if not hidden.search(text):
-        return text
-    return "".join(part for part in _SENTENCE.split(text) if not hidden.search(part)).strip()
-
-
-def redact(value, hidden: Hidden):
-    """Every text in an answer without what is hidden: sentences naming it go, an entry keyed by it goes."""
-    if isinstance(value, str):
-        return redact_text(value, hidden)
-    if isinstance(value, list):
-        return [redact(v, hidden) for v in value]
-    if isinstance(value, dict):
-        return {k: redact(v, hidden) for k, v in value.items() if not hidden.search(k)}
-    return value
 
 
 def _strip_bytes(data: bytes, paths: tuple[str, ...], stream: bool) -> bytes:
@@ -496,26 +489,6 @@ def _strip_bytes(data: bytes, paths: tuple[str, ...], stream: bool) -> bytes:
         return data
 
 
-def _redact_bytes(data: bytes, hidden: Hidden, stream: bool) -> bytes:
-    text = data.decode("utf-8", "replace")  # decoded once leniently here; a strict decode would raise UnicodeDecodeError (a 500) on a split multi-byte character
-    if not hidden.search(text):
-        return data
-    if stream:  # server-sent events: each "data: {...}" line on its own
-        lines = []
-        for line in text.split("\n"):
-            if line.startswith("data: "):
-                try:
-                    line = "data: " + json.dumps(redact(json.loads(line[6:]), hidden), ensure_ascii=False)
-                except ValueError:
-                    line = redact_text(line, hidden)
-            lines.append(line)
-        return "\n".join(lines).encode()
-    try:
-        return json.dumps(redact(json.loads(text), hidden), ensure_ascii=False).encode()
-    except ValueError:
-        return redact_text(text, hidden).encode()
-
-
 # ------------------------------------------------------------------ this server's own folders, out of every answer
 
 
@@ -524,10 +497,17 @@ def _places() -> re.Pattern:
     home folder, Python's), as configured and as resolved, up to where it ends in a JSON string or a line."""
     import sys
 
-    folders = [*settings().folders, ROOT, Path.home(), Path(sys.prefix), Path(sys.base_prefix)]
-    roots = {str(p) for f in folders for p in (f, f.resolve())}
+    return _places_of(tuple(str(f) for f in (*settings().folders, ROOT, Path.home(), Path(sys.prefix), Path(sys.base_prefix))))
+
+
+@lru_cache(maxsize=4)
+def _places_of(folders: tuple[str, ...]) -> re.Pattern:
+    """The pattern of _places, made once per set of folders (resolving each is a walk of the file system: never once
+    per answer). A folder counts only as a whole path where one begins and ends (not /data inside upload:…/data/, not
+    /home/me inside /home/me2): what an account wrote that merely holds those letters is left as it is."""
+    roots = {str(p) for f in folders for p in (Path(f), Path(f).resolve())}
     alts = "|".join(re.escape(r) for r in sorted((r for r in roots if len(r) > 1), key=len, reverse=True))
-    return re.compile(rf"(?:{alts})(?:/[^\s\"'<>\\,;)]*)?".encode())
+    return re.compile(rf"(?<![\w/:.~-])(?:{alts})(?=[/\s\"'<>\\,;)]|$)(?:/[^\s\"'<>\\,;)]*)?".encode())
 
 
 def scrub(data: bytes) -> bytes:
@@ -545,12 +525,11 @@ PROBE_OWN = re.compile(rb"(?i)(\.\.|/\.git|/\.env|/lab2shot/|/adapters/|/third_p
 PROBE_QUERY = re.compile(rb"(?i)(\.\.|%2e%2e|%00|\x00)")
 
 
-def probe_path(raw: bytes, method: str, path: str, s) -> bool:
+def probe_path(raw: bytes, found: tuple[str, Access] | None, s) -> bool:
     """Whether the path as sent looks like probing. A signed-in account on a route of its own (user or admin) asks for
     its things by their names: counting a name as probing would block the account's own session (auth.Watch) for
     fetching its outputs, and the route checks the name itself (io/files.py inside). Everyone else, and every address
     that is not such a route (the page's entry, one this server does not have), is checked for the repo's files too."""
-    found = match(method, path)
     theirs = s is not None and found is not None and found[1].level in ("user", "admin")
     return bool(PROBE_PATH.search(raw) or (not theirs and PROBE_OWN.search(raw)))
 
@@ -582,7 +561,13 @@ class Guard:
             return
         request = Request(scope)
         method, path = scope["method"], scope["path"]
-        s, need, refused, scrubbing, hidden, fields = await off_loop(self.look, request, method, path)
+        try:
+            s, need, refused, scrubbing, fields = await off_loop(self.look, request, method, path)
+        except Exception as exc:  # the guard's own fault: answered as every failure is, with its reference (logs.failed)
+            from .logs import failed
+
+            await (await off_loop(failed, request, exc))(scope, receive, send)
+            return
         # Who the request belongs to, recorded on the scope; the outermost layer (server/traffic.py Meter) uses it to
         # attribute the response bytes to this account. This is the only place in the server that identifies the
         # request's owner; traffic accounting does not identify it again.
@@ -594,12 +579,13 @@ class Guard:
         held: list[bytes] = []
         status = 0
 
-        def clean(body: bytes, stream: bool) -> bytes:
+        def clean(body: bytes, stream: bool, zipped: bool = False) -> bytes:
+            if zipped:  # an answer its route compressed itself (a 3D view's description): cleaned as what it says
+                return gzip.compress(clean(gzip.decompress(body), stream), compresslevel=5) if body else body
             if scrubbing:
                 body = scrub(body)
-            if fields and body:
-                body = _strip_bytes(body, fields, stream)
-            return _redact_bytes(body, hidden, stream) if hidden is not None and body else body
+            # an answer's fields are the answer's: an error answer (never one to strip) goes as it is
+            return _strip_bytes(body, fields, stream) if fields and body and 200 <= status < 300 else body
 
         async def guarded(message: Message) -> None:
             nonlocal started, status
@@ -616,6 +602,8 @@ class Guard:
                     await send(message)
                 elif "content-length" in headers:
                     started = message  # the whole answer is changed at once: its length changes
+                elif headers.get("content-encoding"):
+                    raise RuntimeError(f"{path}: an encoded answer the guard must change is sent whole (Content-Length)")
                 else:
                     await send(message)  # a stream (a job's events): each piece on its own
                     started = {"stream": True}
@@ -627,61 +615,66 @@ class Guard:
             else:
                 held.append(message.get("body", b""))
                 if not message.get("more_body"):
-                    body = await off_loop(clean, b"".join(held), False)
+                    zipped = MutableHeaders(scope=started).get("content-encoding", "") == "gzip"
+                    body = await off_loop(clean, b"".join(held), False, zipped)
                     MutableHeaders(scope=started)["content-length"] = str(len(body))
                     await send(started)
                     await send({"type": "http.response.body", "body": body})
 
         from ..serving import serving
 
-        if refused is not None:
-            await refused(scope, receive, guarded)
-            return
-        with serving(account_of(s)):  # whose work this request is while it is served (uploads.resolve reads it)
-            await self.app(scope, receive, guarded)
-        if need is not None and method not in ("GET", "HEAD"):  # every admin action that went through, in the log
-            who, role = actor(s)
-            said = Msg("I-AUDIT-ACTION", who=who, role=role, what=roles.CAPABILITIES[need].what, method=method, path=path, status=status)
-            await off_loop(lambda: audit(said, session=s, method=method, path=path))
+        written = _audited.set([])
+        try:
+            if refused is not None:
+                await refused(scope, receive, guarded)
+            else:
+                with serving(account_of(s)):  # whose work this request is while it is served (uploads.resolve reads it)
+                    await self.app(scope, receive, guarded)
+        finally:
+            said = _audited.get()
+            _audited.reset(written)
+        # every admin write of a login, once, as it went: refused here or by its route, done, or failed (the route's own
+        # line when it wrote one). A stranger's is not one (nobody's action); a login's repeated refusals are counted on
+        # one row (audit), so no number of them fills the table
+        if need is not None and s is not None and method not in ("GET", "HEAD") and not said:
+            await off_loop(lambda: audit(ended(s, need, method, path, status or 500), session=s, method=method, path=path))
 
     def look(self, request: Request, method: str, path: str):
-        """What the guard must know before a request goes on, all of it blocking (the session is a database read; the
-        names hidden from its account are built once per set of tags): run off the event loop (wire.off_loop).
-        Returns the session, the capability the route needs, the refusal (None: it may go on), whether its answer is
-        scrubbed of the server's folders, the pattern of names hidden from it, and the fields of its answer this session
+        """What the guard must know before a request goes on, all of it blocking (the session is a database read): run
+        off the event loop (wire.off_loop). Returns the session, the capability the route needs, the refusal (None: it
+        may go on), whether its answer is scrubbed of the server's folders, and the fields of its answer this session
         does not get (server/available.py FIELDS: declared once, resolved like every other subject)."""
         from . import available
 
-        s = auth.session(request)
-        need = need_of(method, path)
-        refused = self.refusal(request, method, path, s, need)
+        s, found = auth.session(request), route_of(request)
+        need = found[1].needs if found is not None else None
+        refused = self.refusal(request, method, path, s, found)
         privileged = s is not None and s.can("logs.view")  # sees where the server keeps things
         scrubbing = not privileged and method != "HEAD" and not VERBATIM.match(path)
-        hidden = hidden_pattern(s.user) if s is not None and scrubbing else None
-        fields = available.hidden_paths(s, method, path) if refused is None and method != "HEAD" else ()
-        return s, need, refused, scrubbing, hidden, fields
+        fields = available.hidden_paths(s, found) if refused is None and method != "HEAD" else ()
+        return s, need, refused, scrubbing, fields
 
-    def refusal(self, request: Request, method: str, path: str, s, need: str | None) -> JSONResponse | None:
-        g = auth.guards()
+    def refusal(self, request: Request, method: str, path: str, s, found: tuple[str, Access] | None) -> JSONResponse | None:
+        g, need = auth.guards(), found[1].needs if found is not None else None
         if blocked := g.watch.is_blocked(request):
-            return refused(Msg("E-ACCESS-BLOCKED", minutes=int(blocked / 60) + 1), 429)
+            return refused(TooManyTries(Msg("E-ACCESS-BLOCKED", minutes=int(blocked / 60) + 1)))
         if not auth.host_known(request):  # another site's name pointing here (DNS rebinding), or a name not yet listed
             g.watch.note(request, "陌生的域名", request.headers.get("host", "")[:200])
-            return refused(Msg("E-ACCESS-UNKNOWNHOST", host=request.headers.get("host", "")[:200]), 421)
-        key, own = auth.client_key(request), limit_of(method, path)
-        if not g.rate.take(key) or (own is not None and own[1].burst is not None
-                                    and not g.rate.take(f"{own[0]} {key}", own[1].burst, own[1].per_s)):
+            return refused(Misdirected(Msg("E-ACCESS-UNKNOWNHOST", host=request.headers.get("host", "")[:200])))
+        key, own = auth.client_key(request), found[1].limit if found is not None else None
+        rated = own is not None and own.burst is not None
+        if not (g.rate.take(f"{found[0]} {key}", own.burst, own.per_s) if rated else g.rate.take(key)):
             g.watch.note(request, "请求太频繁")  # every session counts, the administrator's too
-            return refused(Msg("E-ACCESS-TOOFAST"), 429)
+            return refused(TooManyTries(Msg("E-ACCESS-TOOFAST")))
         raw, query = request.scope.get("raw_path") or request.scope["path"].encode(), request.scope.get("query_string") or b""
-        if probe_path(raw, method, path, s) or PROBE_QUERY.search(query):
+        if probe_path(raw, found, s) or PROBE_QUERY.search(query):
             g.watch.note(request, "路径可疑", (raw + (b"?" + query if query else b"")).decode("latin-1")[:200])
         if PROBE_QUERY.search(query):  # going up or NUL in a parameter: never a name any page sends (defence in depth)
-            return refused(Msg("E-ACCESS-PROBE"), 400)
+            return refused(Invalid(Msg("E-ACCESS-PROBE")))
         if _SLASHES.search(path):  # "//api//admin/x": the routes match the path as sent, so the guard must too;
             g.watch.note(request, "路径可疑", path[:200])  # collapsing it here would classify one address and serve another
-            return refused(Msg("E-ACCESS-NOROUTE"), 404)
-        where = level(method, path)
+            return refused(NotFound(Msg("E-ACCESS-NOROUTE")))
+        where = level(method, path, found)
         if where is None:
             # Logged in, and the request says it comes from a page of this site, yet the endpoint is not here. During an
             # upgrade the page may be newer than the server or older, and an open page keeps asking: counting that would
@@ -690,24 +683,22 @@ class Guard:
             # recorded under the admin page's 「安全」 with the account, not counted toward blocking.
             ours = s is not None and same_site(request)
             g.watch.note(request, "未开放的接口", "已登录，请求自称来自本站页面；不计入封禁" if ours else "", counts=not ours)
-            return refused(Msg("E-ACCESS-NOROUTE"), 404)
+            return refused(NotFound(Msg("E-ACCESS-NOROUTE")))
         writes = method not in ("GET", "HEAD")
         if where == "admin" and (s is None or not s.capabilities):  # no rights at all now: the page asks for the password
             g.watch.note(request, "没有管理员权限就访问管理接口")
-            return refused(Msg("E-ACCESS-ADMINONLY"), 401, admin=True)
+            return refused(NotSignedIn(Msg("E-ACCESS-ADMINONLY")), admin=True)
         if where == "admin" and path.startswith(ADMIN):
             if need is None:
                 g.watch.note(request, "未开放的接口")
-                return refused(Msg("E-ACCESS-NOROUTE"), 404)
+                return refused(NotFound(Msg("E-ACCESS-NOROUTE")))
             if not s.can(need):  # a role without this one: refused with what it lacks and who has it
                 g.watch.note(request, "角色没有这项权限", need)
-                said = Msg("E-ACCESS-NOCAPABILITY", role=roles.label(s.user.role), what=roles.CAPABILITIES[need].what,
-                           roles=roles.holders(need))
-                who, role = actor(s)
-                if method not in ("GET", "HEAD"):
-                    audit(Msg("W-AUDIT-REFUSED", who=who, role=role, what=roles.CAPABILITIES[need].what, method=method, path=path, code=said.code),
-                          session=s, method=method, path=path)
-                return refused(said, 403)
+                return refused(Forbidden(Msg("E-ACCESS-NOCAPABILITY", role=roles.label(s.user.role),
+                                             what=roles.CAPABILITIES[need].what, roles=roles.holders(need))))
+            if found[1].local and not auth.machine(request):  # stopping the server, clearing the counts
+                g.watch.note(request, "只能本机命令行做的事")  # of wrong passwords: never from a browser, whatever its rights
+                return refused(Forbidden(Msg("E-ACCESS-LOCALONLY")))
         if where == "user" and s is None:
             if path.startswith("/api/") and auth.token_of(request):
                 # a login of ours that ended (another login took its place, or it lapsed) is answered and not counted:
@@ -717,32 +708,21 @@ class Guard:
                 info = auth.accounts.kicked_info(auth.credential(request))
                 if info:
                     kicked = auth.kicked_detail(info)
-                    return refused(kicked, 401, login=True, kicked={**info, "detail": kicked.text, "code": kicked.code})
+                    return refused(NotSignedIn(kicked), login=True, kicked={**info, "detail": kicked.text, "code": kicked.code})
                 if not auth.accounts.once_issued(auth.credential(request)):
                     g.watch.note(request, "登录凭证不是这台服务器发的")
-            return refused(Msg("E-ACCESS-SIGNIN"), 401, login=True)
+            return refused(NotSignedIn(Msg("E-ACCESS-SIGNIN")), login=True)
         if where != "open" and not path.startswith(AUTH) and (owed := terms.owed(s.user)) is not None:
-            return refused(Msg("E-TERMS-OWED"), 403, terms=owed)
-        if where == "user" and need is not None and not s.can(need):  # a product page's action that is not everyone's
-            if need in s.user.capabilities:  # the role has it, its three days ran out: the password again
-                return refused(Msg("E-ACCESS-ADMINONLY"), 401, admin=True)
-            g.watch.note(request, "角色没有这项权限", need)
-            said = Msg("E-ACCESS-NOCAPABILITY", role=roles.label(s.user.role), what=roles.CAPABILITIES[need].what,
-                       roles=roles.holders(need))
-            if writes:
-                who, role = actor(s)
-                audit(Msg("W-AUDIT-REFUSED", who=who, role=role, what=roles.CAPABILITIES[need].what, method=method, path=path, code=said.code),
-                      session=s, method=method, path=path)
-            return refused(said, 403)
+            return refused(Forbidden(Msg("E-TERMS-OWED")), terms=owed)
         if writes and not auth.by_header(request) and not same_site(request):  # the cookie's, or logging in
             g.watch.note(request, "跨站请求")
-            return refused(Msg("E-ACCESS-CROSSSITE"), 403)
-        most = own[1].body if own is not None else MAX_BODY
-        if writes and most is not None:
+            return refused(Forbidden(Msg("E-ACCESS-CROSSSITE")))
+        most = own.body if own is not None else MAX_BODY
+        if most is not None:  # whatever the method: a GET may carry a body too, and routes.Route reads any JSON one
             length = request.headers.get("content-length")
             if length is None and "chunked" in request.headers.get("transfer-encoding", "").lower():
-                return refused(Msg("E-ACCESS-NOLENGTH"), 411)
-            if length is not None and (not length.isdigit() or int(length) > most):
+                return refused(LengthRequired(Msg("E-ACCESS-NOLENGTH")))
+            if length is not None and (decimal(length) is None or decimal(length) > most):
                 g.watch.note(request, "请求太大", f"{length} 字节")
-                return refused(Msg("E-ACCESS-TOOBIG", mb=round(most / (1 << 20), 2)), 413)
+                return refused(TooLarge(Msg("E-ACCESS-TOOBIG", mb=round(most / (1 << 20), 2))))
         return None

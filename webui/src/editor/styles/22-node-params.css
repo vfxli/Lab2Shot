@@ -1,6 +1,5 @@
-/* ---------------------------------------------------------------- parameters on the node's body */
-/* A node's key parameters (NodeTypeDef.on_node) and the ones 提升到节点, a row each: its name, its value edited in
-   place. The same value as the panel's (a mirror, never a second source): the panel lists every parameter.
+/* 节点身上的参数行（editor/NodeParamRow.tsx）：节点的关键参数（NodeTypeDef.on_node）与「提升到节点」的参数，
+   每个一行：名称，以及可就地编辑的值。与参数面板是同一个值（镜像，而非第二个数据源）：参数面板列出全部参数。
 
    一行两格，宽度不随状态变化：
      [标签] flex: 0 1 auto，最宽 96px，空间足够时不压缩；
@@ -90,7 +89,7 @@ fieldset.gctl {
   cursor: default;
 }
 
-/* the whole row as plain text, only when zoomed out (.graph.zoom-text / .zoom-far below) */
+/* 整行的纯文本形式，只在缩小时显示（见下方 .graph.zoom-text / .zoom-far） */
 .gprow-text {
   display: none;
   color: var(--text);
@@ -183,12 +182,16 @@ fieldset.gctl {
   width: 132px;
 }
 
+.gctl .vec3.mini.clearable {
+  grid-template-columns: repeat(3, 1fr) auto;
+  width: 148px;
+}
+
 .gctl .vec3.mini .field {
   padding: 0 4px;
 }
 
-/* zoomed out (NodeEditor): the values read as text, nothing small to hit by accident; further out they fade. The node
-   keeps its size either way. */
+/* 缩小时（NodeEditor）：值显示为文字，没有容易误点的小控件；再缩小则淡出。两种情况下节点尺寸都不变。 */
 .graph.zoom-text .gctl,
 .graph.zoom-far .gctl {
   display: none;
@@ -209,7 +212,7 @@ fieldset.gctl {
   background: none;
 }
 
-/* 展开 / 收起: every simple parameter on the node for now (its box and its icon: styles/08a-node.css) */
+/* 展开 / 收起：临时把所有简单参数显示在节点上（按钮的方框与图标见 styles/08a-node.css） */
 .expand-flag:hover {
   background: var(--raised);
   color: var(--text-2);
@@ -220,12 +223,12 @@ fieldset.gctl {
   color: var(--text);
 }
 
-/* the node's two switches sit together: room for its name */
+/* 节点的两个开关紧挨在一起：给名称留出空间 */
 .expand-flag + .display-flag {
   margin-left: -2px;
 }
 
-/* the node's file in its footer: a mirror of the parameter, leading to it */
+/* 脚注中节点的文件：参数的镜像，点击可跳到该参数 */
 .gnode-file:hover {
   color: var(--text-2);
 }

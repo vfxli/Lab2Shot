@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, measured_param, frame_maps, Handle, NodeParams, opencv_points_to_usd, P, PointTracker3D,
+from lab2shot.sdk import (rgb_port, Official, measured_param, frame_maps, Handle, NodeParams, opencv_points_to_usd, P, PointTracker3D,
                           point_size_param, points_packet, points_params, Port, Cost, Licence, Measured)
 
 from .extension import LICENSE_NOTE
@@ -12,6 +12,9 @@ from .extension import LICENSE_NOTE
 
 class Track(PointTracker3D):
     id = "track4world.track"
+    # 有效区域按素材比例还原，相机 fx / fy 分方向换算，跟踪点按像素中心及交付相机转换到世界坐标。
+    # 输出指纹不含 worker 代码；结果语义改变时需更新 NodeDef.version，避免复用旧缓存。
+    version = 2
     # 上游 demo.py forward_video3d_ff：rgbs -> traj_2d、world_points、camera_poses（自己解算相机和世界）
     official = Official(
         cite="third_party/track4world/repo/demo.py:477-525",
@@ -73,7 +76,7 @@ class Track(PointTracker3D):
     queries = "dense"  # every track_step-th pixel of 参考帧; points clicked on other frames are left out (with a notice)
     # 官方一次 infer 就出这些，别的口一个都没有（official 上面）：跟踪出的 3D / 2D 点和它自己解的相机（家族的三口），
     # 外加同一个 return 里每帧稠密的世界坐标点图和有效区域
-    inputs = (Port("image", "image.3", "RGB"),)
+    inputs = (rgb_port(),)
     outputs = PointTracker3D.outputs + (
         Port("points", "scene.points", "点云",
              help="官方同一次计算顺带出的每帧稠密世界坐标点（上游 world_points = 相机 × 每帧相机空间的点；镜头分了几段算时，"
@@ -87,12 +90,11 @@ class Track(PointTracker3D):
     @classmethod
     def convert(cls, ctx, raw, job):
         """家族那三口（3D 跟踪点、2D 跟踪点、相机）之外，再把官方同一次 return 里的 world_points 和 masks 交出去。"""
-        import numpy as np
-
         out = super().convert(ctx, raw, job)
         image = job.plate
-        out |= frame_maps(ctx, raw, image, {"valid": ("image.1", lambda d: d["mask"].astype(np.float32), None)},
-                          stage="写出有效区域")
+        # 「有效区域」读 worker 另存的 valid：模型输入两边各取 64 的倍数、画面被压扁（640×480 在 640 档送进去是 640×448），
+        # worker 已把 mask 拉回素材比例；缩到素材尺寸照旧由 frame_maps 做（mask 本身留在模型网格上给「点云」取样）
+        out |= frame_maps(ctx, raw, image, {"valid": ("image.1", "valid", None)}, stage="写出有效区域")
         if "points" in ctx.wanted:
             out["points"] = cls._cloud(ctx, raw, image)
         return out

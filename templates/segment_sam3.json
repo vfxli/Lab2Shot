@@ -3,22 +3,115 @@
  "meta": {
   "id": "7fd0bbeec2d738b1a31d8283a1636933",
   "name": "视频分割 · SAM 3",
-  "intro": "SAM 3 是可提示分割的统一基础模型，画面和视频都管：用文字，或点、框、遮罩这类视觉提示，检出、分割并跟住物体。这张卡按文字提示（如 person、car）跟满整段镜头，交付遮罩序列。",
+  "intro": "SAM 3 是可提示分割的统一基础模型，画面和视频都管：用文字，或点、框、遮罩这类视觉提示，检出、分割并跟住物体。这张卡按文字提示（如 person、car）跟满整段镜头，交付一个多层 EXR：所有物体合在一起的遮罩（alpha）和按物体区分的 Cryptomatte。",
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "mask",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T08:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
   },
   {
    "name": "prompt",
-   "label": "要分割的东西",
+   "label": "要分割的东西（英文）",
    "target": "seg.prompt"
+  },
+  {
+   "name": "threshold",
+   "label": "检测阈值",
+   "target": "seg.threshold"
+  },
+  {
+   "name": "max_objects",
+   "label": "最多物体数",
+   "target": "seg.max_objects"
+  },
+  {
+   "name": "cook_seg",
+   "label": "分割",
+   "target": "seg.cook"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out_o.name"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "out_o.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -28,11 +121,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 240
+    "y": 48
    }
   },
   {
@@ -45,28 +140,11 @@
     "threshold": 0.5
    },
    "ui": {
-    "x": 320,
-    "y": 240,
+    "x": 400,
+    "y": 0,
     "on_node": [
      "prompt",
      "threshold"
-    ]
-   }
-  },
-  {
-   "id": "out_m",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "mask"
-   },
-   "ui": {
-    "x": 620,
-    "y": 0,
-    "on_node": [
-     "name",
-     "format"
     ]
    }
   },
@@ -75,18 +153,26 @@
    "type": "core.output_exr",
    "label": "多层 EXR 输出设置",
    "params": {
-    "name": "objects",
+    "name": "mask",
     "layers": [
      {
       "name": "layer1",
-      "label": "CryptoObject"
+      "label": "alpha",
+      "channels": "A"
+     },
+     {
+      "name": "layer2",
+      "label": "CryptoObject",
+      "channels": ""
      }
     ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
     "colorspace": null
    },
    "ui": {
-    "x": 620,
-    "y": 260,
+    "x": 800,
+    "y": 24,
     "on_node": [
      "name"
     ]
@@ -98,8 +184,8 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 940,
-    "y": 140
+    "x": 1200,
+    "y": 24
    }
   }
  ],
@@ -120,8 +206,8 @@
     "mask"
    ],
    "to": [
-    "out_m",
-    "image"
+    "out_o",
+    "layer1"
    ]
   },
   {
@@ -131,17 +217,7 @@
    ],
    "to": [
     "out_o",
-    "layer1"
-   ]
-  },
-  {
-   "from": [
-    "out_m",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
+    "layer2"
    ]
   },
   {

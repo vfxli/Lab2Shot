@@ -14,20 +14,20 @@ import time
 from functools import cache
 
 from fastapi import Request
-from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
 
-from .routes import Access, Limit, Router, read_json
+from .routes import Access, Body, Limit, Router
 from .. import __version__, feedback, logs
 from ..config import ROOT, machine_memory_gb
 from ..database import db
 from ..engine.resident import available_gb
 from ..engine.resident import pool as resident
-from ..errors import Invalid, NotFound
+from ..errors import NotFound
 from ..messages import Msg
 from ..farm import farm
-from . import auth, restart
+from . import auth, owners, restart
+from .access import manages
+from .available import hidden_of, strip
 from .farm import client_of
 
 admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])  # admin routes of this module, included by app.py
@@ -71,34 +71,22 @@ def environment() -> dict:
 # ------------------------------------------------------------------ users
 
 
-@router.post("/feedback", access=Access.user("提交反馈：只能写，不能读", limit=Limit(body=None)), summary="提交反馈：写的问题、类别、截图（最多 3 张，每张 5 MB 以内）和网页收集的诊断资料；服务器补上自己的环境、这个用户最近的任务和日志")
-async def submit(request: Request) -> dict:
-    size = int(request.headers.get("content-length") or 0)
-    if size > MAX_REQUEST:
-        raise Invalid(Msg("E-FEEDBACK-REQUESTBIG", size=size / 2**20, max=MAX_REQUEST >> 20))
-    body = bytearray()
-    async for chunk in request.stream():
-        body += chunk
-        if len(body) > MAX_REQUEST:
-            raise Invalid(Msg("E-FEEDBACK-REQUESTLIMIT", max=MAX_REQUEST >> 20))
-    data = read_json(body)  # read here, not by FastAPI: the size is checked while it arrives
-    if not isinstance(data, dict):
-        raise Invalid(Msg("E-FEEDBACK-UNREADABLE"))
-    declared = data.get("client") if isinstance(data.get("client"), dict) else {}
-    page = data.get("diagnostics") if isinstance(data.get("diagnostics"), dict) else {}
-    images = [i for i in data.get("images") or [] if isinstance(i, dict)]
+class FeedbackIn(Body):
+    text: str = ""
+    category: str = ""
+    client: dict = {}  # what the client says of itself (auth.details)
+    diagnostics: dict = {}  # what the page collected
+    images: list[dict] = []
 
-    client = client_of(request, declared)
 
-    def keep() -> dict:
-        return feedback.submit(str(data.get("text") or ""), str(data.get("category") or ""), client.user, client.full(),
-                               page, images, environment())
-
-    row = await run_in_threadpool(keep)
+@router.post("/feedback", access=Access.user("提交反馈：只能写，不能读", limit=Limit(body=MAX_REQUEST)), summary="提交反馈：写的问题、类别、截图（最多 3 张，每张 5 MB 以内）和网页收集的诊断资料；服务器补上自己的环境、这个用户最近的任务和日志")
+def submit(req: FeedbackIn, request: Request) -> dict:
+    client = client_of(request, req.client)
+    row = feedback.submit(req.text, req.category, client.user, client.full(), req.diagnostics, req.images, environment())
     return {"id": row["id"], "at": row["at"]}
 
 
-class JobsRequest(BaseModel):
+class JobsRequest(Body):
     jobs: list[str] = []
 
 
@@ -124,42 +112,56 @@ def mine_read(request: Request) -> dict:
 
 
 @admin.get("/feedback", access=Access.admin("feedback.reply"), summary="用户反馈：按时间倒序，可按状态（new/seen/solved）、时间段、账号的名字筛选；和各状态的条数")
-def listing(status: str = "", since: float | None = None, until: float | None = None, person: str = "") -> dict:
-    return feedback.listing(status or None, since, until, person)
+def listing(request: Request, status: str = "", since: float | None = None, until: float | None = None, person: str = "") -> dict:
+    s = auth.session(request)  # only the feedback of accounts this login manages, counted as listed
+    return feedback.listing(status or None, since, until, person, seen=lambda owner: manages(s, owner))
 
 
-@admin.get("/feedback/{fid}", access=Access.admin("feedback.reply"), summary="一条反馈的全部：写的问题、截图、诊断资料（节点图、日志、错误、任务和出错日志、环境）")
-def detail(fid: str) -> dict:
+# what a feedback's diagnostics say of the whole server, not of its sender (lab2shot/feedback.py submit): each only for
+# whoever may see it there (available.py FIELDS), in its detail and in its download alike
+DIAGNOSTICS = {"logs.view": ("bundle.server.server_log",), "farm.cards": ("bundle.server.gpus",),
+               "models.manage": ("bundle.server.resident",)}
+
+
+@admin.get("/feedback/{fid}", access=Access.admin("feedback.reply", owned=owners.feedback, hides=DIAGNOSTICS), summary="一条反馈的全部：写的问题、截图、诊断资料（节点图、日志、错误、任务和出错日志、环境）")
+def detail(fid: str, request: Request) -> dict:
     return feedback.detail(fid)
 
 
-@admin.get("/feedback/{fid}/files/{name}", access=Access.admin("feedback.reply"), summary="反馈附的截图")
-def image(fid: str, name: str) -> FileResponse:
-    if name not in feedback.get(fid)["images"]:
+@admin.get("/feedback/{fid}/files/{name}", access=Access.admin("feedback.reply", owned=owners.feedback), summary="反馈附的截图")
+def image(fid: str, name: str, request: Request) -> FileResponse:
+    if name not in request.state.owned["images"]:
         raise NotFound(Msg("E-FEEDBACK-NOSHOT"))
     return FileResponse(feedback.folder(fid) / name)
 
 
-@admin.get("/feedback/{fid}/download", access=Access.admin("feedback.reply"), summary="把整条反馈下载成一个 zip：feedback.json（问题、谁、状态、诊断资料）和截图")
-def download(fid: str) -> Response:
-    row = feedback.get(fid)
+@admin.get("/feedback/{fid}/download", access=Access.admin("feedback.reply", owned=owners.feedback), summary="把整条反馈下载成一个 zip：feedback.json（问题、谁、状态、诊断资料）和截图")
+def download(fid: str, request: Request) -> Response:
+    row = request.state.owned
     stamp = time.strftime("%Y%m%d-%H%M", time.localtime(row["at"]))
-    return Response(feedback.archive(fid), media_type="application/zip",
+    paths = hidden_of(auth.session(request), DIAGNOSTICS)
+
+    def trim(row: dict) -> dict:
+        for path in paths:
+            strip(row, path)
+        return row
+
+    return Response(feedback.archive(fid, trim), media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="feedback-{stamp}-{fid}.zip"'})
 
 
-class AnswerRequest(BaseModel):
+class AnswerRequest(Body):
     status: str
     reply: str = ""  # visible to the submitting user
     note: str = ""  # visible to administrators only
 
 
-@admin.put("/feedback/{fid}", access=Access.admin("feedback.reply"), summary="回应一条反馈：状态（新 / 已看 / 已解决）和给用户的回复（用户在「我的反馈」里看到），和只有管理员看得到的内部备注")
+@admin.put("/feedback/{fid}", access=Access.admin("feedback.reply", owned=owners.feedback), summary="回应一条反馈：状态（新 / 已看 / 已解决）和给用户的回复（用户在「我的反馈」里看到），和只有管理员看得到的内部备注")
 def answer(fid: str, req: AnswerRequest, request: Request) -> dict:
-    return feedback.answer(fid, req.status, req.reply, req.note, auth.me(request).username)
+    return feedback.answer(fid, req.status, req.reply, req.note, auth.actor(request))
 
 
-@admin.delete("/feedback/{fid}", access=Access.admin("feedback.delete"), summary="删除一条反馈（连同截图和诊断资料；数据库备份里的留到备份轮换掉）")
+@admin.delete("/feedback/{fid}", access=Access.admin("feedback.delete", owned=owners.feedback), summary="删除一条反馈（连同截图和诊断资料；数据库备份里的留到备份轮换掉）")
 def delete(fid: str, request: Request) -> dict:
-    feedback.delete(fid, auth.me(request).username)
+    feedback.delete(fid, auth.actor(request))
     return {"ok": True}

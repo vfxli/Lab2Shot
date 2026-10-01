@@ -83,7 +83,7 @@
 
 .filter-row {
   display: flex;
-  flex-wrap: wrap; /* 一行放不下就折行，不让这一段横着滚（后台列表的「按人」可有几十个） */
+  flex-wrap: wrap; /* wraps when one line cannot hold it, never scrolls sideways (the admin lists' 「按人」 row can have dozens) */
   align-items: center;
   gap: var(--sp-1);
 }

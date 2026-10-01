@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { ORDER } from "./drawOrder";
 import { useFrame, useThree } from "@react-three/fiber";
 import { GizmoHelper, GizmoViewport, Grid } from "@react-three/drei";
 import * as THREE from "three";
@@ -16,8 +17,6 @@ import type { ViewOptions } from "../model/viewOptions";
 export function Pipeline({ o }: { o: ViewOptions }) {
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
-  const size = useThree((s) => s.size);
-  const dpr = useThree((s) => s.viewport.dpr); // the canvas's dpr: the screen's own pixel ratio
 
   const passes = useMemo(() => {
     if (o.antialias === "off") return null;
@@ -30,11 +29,11 @@ export function Pipeline({ o }: { o: ViewOptions }) {
     if (o.antialias === "fxaa") composer.addPass(new FXAAPass()); // on the finished (display) picture
     return { composer, render };
   }, [o.antialias, gl, scene]);
-  useEffect(() => {
-    if (!passes) return;
-    passes.composer.setPixelRatio(dpr);
-    passes.composer.setSize(size.width, size.height);
-  }, [passes, dpr, size.width, size.height]);
+  // The anti-aliasing passes' buffers follow the canvas size and are checked on every frame drawn (reset only when the
+  // size or pixel ratio changed), not in an effect: while the parameter panel's splitter is dragged, R3F resizes the
+  // canvas at once but an effect runs only after the next render, and the frame in between would stretch the old-size
+  // buffers over the new-size canvas
+  const sized = useRef<{ passes: typeof passes; w: number; h: number; dpr: number } | null>(null);
   // the composer frees its own two targets only; each pass holds GPU resources of its own (SMAA's edge and weight
   // targets and textures, the shader materials), freed with it when the anti-aliasing changes or the view closes
   useEffect(() => () => {
@@ -45,6 +44,13 @@ export function Pipeline({ o }: { o: ViewOptions }) {
 
   useFrame((state) => {
     if (passes) {
+      const want = { passes, w: state.size.width, h: state.size.height, dpr: state.viewport.dpr };
+      const had = sized.current;
+      if (!had || had.passes !== passes || had.w !== want.w || had.h !== want.h || had.dpr !== want.dpr) {
+        passes.composer.setPixelRatio(want.dpr);
+        passes.composer.setSize(want.w, want.h);
+        sized.current = want;
+      }
       passes.render.camera = state.camera;
       passes.composer.render();
     } else {
@@ -89,19 +95,20 @@ export function Background({ o }: { o: ViewOptions }) {
 }
 
 /** A camera's plate behind everything, filling exactly its gate (as Maya's image plane): a picture at a fixed distance
- * in front of the camera, as wide as the camera sees at that distance, drawn first and never in front of anything. */
-/** The plate as an image plane filling the camera's gate. `exact`: never filtered (the 2D stage's rule: nearest
- * texels at any zoom, so at 1:1 every plate pixel is one screen pixel, and edges can be judged). */
-/** 背板：所绘制的图像由调用方提供（一张已解码的图），本组件只负责贴图。
+ * in front of the camera, as wide as the camera sees at that distance, drawn first and never in front of anything.
+ * `exact`: never filtered (the 2D stage's rule: nearest texels at any zoom, so at 1:1 every plate pixel is one screen
+ * pixel, and edges can be judged). The caller supplies the picture drawn (one decoded image); this component only maps it.
  *
- * 不接收地址自行获取：否则背板不在取帧账本中（transfer/frames.ts 的 windows），播放时询问「下一帧是否已到达」
- * 总是得到肯定答复，低速网络下背板跟不上而出现闪烁，且没有窗口、不会取消、不受预算约束，开始播放即请求整段。
- * 背板与二维舞台使用同一条路径（useFrame → windows → 预算 + 取消），账本中有它，播放便会等待它。 */
-export function ImagePlane({ image, pose, fovV, aspect, exact = false }: { image: ImageBitmap | null; pose: THREE.Matrix4; fovV: number; aspect: number; exact?: boolean }) {
+ * It never takes an address to fetch itself: the plate would then be outside the frame ledger (transfer/frames.ts
+ * windows), playback asking "has the next frame arrived" would always be told yes, on a slow network the plate would
+ * lag and flicker, and with no window it would never be cancelled nor held to the budget, requesting the whole shot as
+ * soon as playback starts. The plate takes the same path as the 2D stage (useFrame → windows → budget + cancel): the
+ * ledger holds it, so playback waits for it. */
+export function ImagePlane({ image, pose, fovV, aspect, shift, exact = false }: { image: ImageBitmap | null; pose: THREE.Matrix4; fovV: number; aspect: number; shift?: { x: number; y: number }; exact?: boolean }) {
   const invalidate = useThree((s) => s.invalidate);
   const mesh = useMemo(() => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false, toneMapped: false }));
-    m.renderOrder = -10;
+    m.renderOrder = ORDER.plate;
     m.frustumCulled = false;
     m.matrixAutoUpdate = false;
     return m;
@@ -117,8 +124,8 @@ export function ImagePlane({ image, pose, fovV, aspect, exact = false }: { image
     if (!image) return;
     const tex = new THREE.Texture(image);
     tex.colorSpace = THREE.SRGBColorSpace;
-    // ImageBitmap 须自行翻转 V。three.js（0.186，WebGLTextures.js）在纹理为 ImageBitmap 时
-    // 完全跳过 `UNPACK_FLIP_Y_WEBGL`，因此 `flipY` 设置不生效。若不自行翻转，背板将上下颠倒。
+    // An ImageBitmap's V must be flipped here: three.js (0.186, WebGLTextures.js) skips `UNPACK_FLIP_Y_WEBGL`
+    // entirely for an ImageBitmap texture, so `flipY` has no effect. Without this flip the plate is upside down.
     tex.flipY = false;
     tex.wrapS = THREE.ClampToEdgeWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
@@ -135,16 +142,18 @@ export function ImagePlane({ image, pose, fovV, aspect, exact = false }: { image
     mesh.material.needsUpdate = true;
     if (old && old !== tex) old.dispose();
     invalidate();
-    // 位图本身由缓存管理（transfer/cache.ts 负责关闭），此处只释放本组件创建的纹理
+    // the bitmap itself belongs to the cache (platform/cache.ts closes it); only the texture made here is freed here
     return () => void tex.dispose();
   }, [image, mesh, invalidate, exact]);
   useLayoutEffect(() => {
     const distance = 10;
     const h = 2 * distance * Math.tan((fovV * Math.PI) / 360);
-    mesh.matrix.copy(pose).multiply(new THREE.Matrix4().makeTranslation(0, 0, -distance)).multiply(new THREE.Matrix4().makeScale(h * aspect, h, 1));
+    // the picture's centre is off the lens axis by the opposite of the lens centre's offset (camera3d.tsx Lens.shift)
+    const dx = -(shift?.x ?? 0) * h * aspect, dy = -(shift?.y ?? 0) * h;
+    mesh.matrix.copy(pose).multiply(new THREE.Matrix4().makeTranslation(dx, dy, -distance)).multiply(new THREE.Matrix4().makeScale(h * aspect, h, 1));
     mesh.matrixWorldNeedsUpdate = true;
     invalidate();
-  }, [mesh, pose, fovV, aspect, invalidate]);
+  }, [mesh, pose, fovV, aspect, shift?.x, shift?.y, invalidate]);
   return <primitive object={mesh} />;
 }
 
@@ -177,8 +186,9 @@ export function Lights({ o }: { o: ViewOptions }) {
   );
 }
 
-/** The ground grid: lines every `gridSpacing`, a stronger one every tenth, unbounded or `gridSize` across. Drawn after
- * everything else without hiding what is below the ground (points below it show through, with the lines over them). */
+/** The ground grid: lines every `gridSpacing`, a stronger one every tenth, unbounded or `gridSize` across. Drawn after the
+ * scene's bodies without hiding what is below the ground (points below it show through, with the lines over them); the
+ * lines flagged over the scene and the overlay skeletons come after it (view/drawOrder.ts ORDER). */
 export function GroundGrid({ o, through }: { o: ViewOptions; through: boolean }) {
   const dpr = useThree((s) => s.viewport.dpr);
   const ref = useRef<THREE.Mesh>(null);
@@ -193,7 +203,7 @@ export function GroundGrid({ o, through }: { o: ViewOptions; through: boolean })
   return (
     <Grid
       ref={ref}
-      renderOrder={10}
+      renderOrder={ORDER.grid}
       key={finite ? "finite" : "infinite"}
       infiniteGrid={!finite}
       args={finite ? [o.gridSize, o.gridSize] : undefined}
@@ -211,9 +221,11 @@ export function GroundGrid({ o, through }: { o: ViewOptions; through: boolean })
 }
 
 /** The world axes in a corner (click one to look along it), `size` pixels across. */
-export function Axes({ size }: { size: number }) {
+/** `lift`: pixels the axes move up — in app mode the stage's bottom-left corner holds the research credit
+ * (editor/ViewerFrame.tsx .view-notice), and the axes make way for it. */
+export function Axes({ size, lift = 0 }: { size: number; lift?: number }) {
   return (
-    <GizmoHelper alignment="bottom-left" margin={[size * 0.78, size * 1.2]} renderPriority={2}>
+    <GizmoHelper alignment="bottom-left" margin={[size * 0.78, size * 1.2 + lift]} renderPriority={2}>
       <GizmoViewport axisColors={["#ff4d5e", "#46d27a", "#3d8bff"]} labelColor="#0c0c0e" axisHeadScale={0.9} scale={size / 2} />
     </GizmoHelper>
   );

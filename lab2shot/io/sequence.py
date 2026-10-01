@@ -16,7 +16,9 @@ Rules:
 - hidden and system files (._plate.0001.exr from macOS, .DS_Store, Thumbs.db, desktop.ini) are not pictures;
 - a minus sign right after a dot or an underscore (or at the start) belongs to the number: plate.-005.exr is -5,
   shot-0005.exr is 5;
-- padding: numbers written with leading zeros are padded to their width (#### = 0001 ... 9999, then 10000 on);
+- padding: numbers written with leading zeros are padded to their width (#### = 0001 ... 9999, then 10000 on); a
+  minus sign counts in the width, as printf's %04d, Nuke and Houdini write it (-002 0000 0001 is one #### sequence
+  running through 0);
   numbers of one width without leading zeros keep that width (1001-1100: ####); numbers of mixed widths without
   leading zeros are unpadded (8, 9, 10: #). 1.png and 0001.png are frame 1 twice: two sequences, never one;
 - several digit runs changing (cam01_0001 ... cam02_0100): the run with the most different values is the frame
@@ -94,7 +96,7 @@ class FrameSequence:
     def found(self) -> str:
         """What was found of it, without its name: 1001-1100，100 帧. Only what a listing showed at that moment —
         never part of which sequence it is (nodes/core/input.py SequenceEntry)."""
-        return f"{format_frame_range(self.frames) if len(self.frames) < 4 else f'{self.first}-{self.last}'}，{len(self.frames)} 帧"
+        return f"{format_frame_range(self.frames) if len(self.frames) < 4 else f'{_shown(self.first)}-{_shown(self.last)}'}，{len(self.frames)} 帧"
 
     def describe(self) -> str:
         """How the sequence is listed to the user: sh010_plate.####.exr（1001-1100，100 帧）"""
@@ -107,6 +109,8 @@ class FrameSequence:
 class SeveralSequences(MessageError, ValueError):
     """A folder (or a set of picked files) holds more than one sequence: which one is the user's choice."""
 
+    status = 400
+
     def __init__(self, folder: str, sequences: list[FrameSequence]):
         self.sequences = sequences
         listed = "、".join(s.describe() for s in sequences[:6]) + ("……" if len(sequences) > 6 else "")
@@ -114,17 +118,21 @@ class SeveralSequences(MessageError, ValueError):
 
 
 def _spell(frame: int, padding: int) -> str:
-    """A frame number as a file name writes it: -5 with #### is -0005 (the sign is not part of the padding)."""
-    body = f"{abs(frame):0{padding}d}" if padding else str(abs(frame))
-    return f"-{body}" if frame < 0 else body
+    """A frame number as a file name writes it, as printf's %0Nd: -5 with #### is -005 (the sign counts in the width)."""
+    return f"{frame:0{padding}d}" if padding else str(frame)
+
+
+def _padded(run: str) -> bool:
+    """A digit run written with leading zeros (0001, -002): its length, sign included, is its sequence's padding."""
+    body = run.lstrip("-")
+    return len(body) > 1 and body.startswith("0")
 
 
 def _digits_match(digits: str, padding: int) -> bool:
-    body = digits.lstrip("-")
     if padding <= 1:
-        return body == "0" or not body.startswith("0")
+        return digits.lstrip("-") == "0" or not digits.lstrip("-").startswith("0")
     # Frames beyond the padding width (e.g. 10000 with ####) are not zero-padded.
-    return len(body) == padding or (len(body) > padding and not body.startswith("0"))
+    return len(digits) == padding or (len(digits) > padding and not _padded(digits))
 
 
 # ------------------------------------------------------------------ names -> sequences (the one detector)
@@ -155,23 +163,23 @@ def shape_of(name: str) -> str:
     return "#".join(p.replace("#", "##") for p in _split(name).pieces)
 
 
-def _padding(bodies: list[str]) -> list[tuple[int, list[str]]]:
-    """Frame numbers of one sequence-to-be split by how they are written: [(padding, bodies)]. Leading zeros fix a
-    width; numbers of that width or longer without leading zeros join it; the rest are unpadded (their one width
-    when all share one of two digits or more)."""
-    widths = sorted({len(b) for b in bodies if len(b) > 1 and b.startswith("0")})
+def _padding(runs: list[str]) -> list[tuple[int, list[str]]]:
+    """Frame numbers of one sequence-to-be, as written with their sign, split by how they are written: [(padding,
+    runs)]. Leading zeros fix a width (the sign counted, _padded); numbers of that width or longer without leading
+    zeros join it; the rest are unpadded (their one width when all share one of two digits or more)."""
+    widths = sorted({len(r) for r in runs if _padded(r)})
     groups: dict[int, list[str]] = defaultdict(list)
     loose = []
-    for b in bodies:
-        if len(b) > 1 and b.startswith("0"):
-            groups[len(b)].append(b)
-        elif (fit := [w for w in widths if w <= len(b)]):
-            groups[fit[-1]].append(b)
+    for r in runs:
+        if _padded(r):
+            groups[len(r)].append(r)
+        elif (fit := [w for w in widths if w <= len(r)]):
+            groups[fit[-1]].append(r)
         else:
-            loose.append(b)
+            loose.append(r)
     if loose:
-        lengths = {len(b) for b in loose}
-        groups[lengths.pop() if len(lengths) == 1 and min(len(b) for b in loose) > 1 and not widths else 0] += loose
+        lengths = {len(r) for r in loose}
+        groups[lengths.pop() if len(lengths) == 1 and min(len(r.lstrip("-")) for r in loose) > 1 and not widths else 0] += loose
     return sorted(groups.items())
 
 
@@ -209,13 +217,13 @@ def group_names(names: Iterable[str]) -> Grouping:
         for others, part in split.items():
             head = "".join(p + r for p, r in zip(pieces[:at], others[:at])) + pieces[at]
             tail = pieces[at + 1] + "".join(r + p for r, p in zip(others[at:], pieces[at + 2 :]))
-            by_body = defaultdict(list)
+            by_run = defaultdict(list)
             for m in part:
-                by_body[m.runs[at].lstrip("-")].append(m)
-            for padding, bodies in _padding(list(by_body)):
+                by_run[m.runs[at]].append(m)
+            for padding, runs in _padding(list(by_run)):
                 frames: dict[int, str] = {}
-                for b in bodies:
-                    for m in by_body[b]:
+                for r in runs:
+                    for m in by_run[r]:
                         frames.setdefault(int(m.runs[at]), m.name)
                 out.sequences.append((head, tail, padding, dict(sorted(frames.items()))))
     out.sequences.sort(key=lambda s: (-len(s[3]), s[0] + s[1]))
@@ -302,8 +310,14 @@ def find_sequence(spec: str | Path) -> FrameSequence:
     raise NotThere(Msg("E-SEQUENCE-NOINPUT", spec=str(spec)))
 
 
+def _shown(frame: int) -> str:
+    """A frame number in a range shown to the user: a negative one in brackets, so its sign is not read as the dash
+    of the range ((-2)-2, not -2-2)."""
+    return f"({frame})" if frame < 0 else str(frame)
+
+
 def format_frame_range(frames: list[int] | tuple[int, ...]) -> str:
-    """[1001, 1002, 1003, 1010] -> '1001-1003,1010'"""
+    """[1001, 1002, 1003, 1010] -> '1001-1003,1010'; [-2, -1] -> '(-2)-(-1)'"""
     if not frames:
         return ""
     parts, start, prev = [], frames[0], frames[0]
@@ -311,7 +325,7 @@ def format_frame_range(frames: list[int] | tuple[int, ...]) -> str:
         if f is not None and f == prev + 1:
             prev = f
             continue
-        parts.append(f"{start}" if start == prev else f"{start}-{prev}")
+        parts.append(_shown(start) if start == prev else f"{_shown(start)}-{_shown(prev)}")
         if f is not None:
             start = prev = f
     return ",".join(parts)

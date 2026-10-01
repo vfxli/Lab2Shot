@@ -9,8 +9,8 @@ import { useViewer } from "../state/viewer";
 import { readLocalJSON, removeLocal, writeLocal } from "../platform/util";
 import { same as sameJson, type Json } from "../model/graphPatch";
 
-/** The editor's working state is kept on the user's own machine, in the browser's localStorage (their user profile on
- * Windows, Linux or macOS), written synchronously shortly after every edit and as the page closes (a refresh or a
+/** The single owner of the editor's working copy in the browser. The working state is kept on the user's own machine,
+ * in the browser's localStorage (their user profile on Windows, Linux or macOS), written synchronously shortly after every edit and as the page closes (a refresh or a
  * crashed browser never loses work). Nothing is stored on the server; the user's graph file changes only when they
  * save.
  *
@@ -19,7 +19,7 @@ import { same as sameJson, type Json } from "../model/graphPatch";
  * KEEP documents it edited last on this browser. A tab remembers its own document in sessionStorage, so reloading a
  * tab brings back that tab's graph; a new tab opens the document the account wrote last.
  *
- * It subscribes to state/cookInputs.ts's and state/look.ts's `version`, look's `playback` and state/viewer.ts's
+ * It subscribes to state/cookInputs.ts's `edits` (every change, also the graph's name and parameter interface) and state/look.ts's `version`, look's `playback` and state/viewer.ts's
  * `file`/`dirty`: a change to any of them is "the document changed". Comparing these counters instead of two whole
  * graphs avoids a JSON.stringify of the graph on every check. */
 
@@ -92,7 +92,7 @@ function makeRoom(owner: number, id: string): void {
  * dirty flag state/viewer.ts holds: equal marks, nothing new to write. */
 const mark = () => {
   const v = useViewer.getState();
-  return { ci: useCookInputs.getState().version, look: useLook.getState().version, playback: useLook.getState().playback, file: v.file, dirty: v.dirty };
+  return { ci: useCookInputs.getState().edits, look: useLook.getState().version, playback: useLook.getState().playback, file: v.file, dirty: v.dirty };
 };
 type Mark = ReturnType<typeof mark>;
 const sameMark = (a: Mark | null, b: Mark) =>
@@ -100,7 +100,7 @@ const sameMark = (a: Mark | null, b: Mark) =>
 
 /** Keeps `owner`'s working copy of the open document from now on; returns the function that stops it. */
 export function startAutosave(owner: number): () => void {
-  // what the browser holds now: a graph corrected on loading (parts that no longer exist removed) differs from it and
+  // what the browser holds now: a graph corrected on loading (parts missing on this server removed) differs from it and
   // is written at once, so the correction is not made (and reported) again on every opening
   const stored = copyOf(owner, useViewer.getState().docId);
   const loaded = working(0);
@@ -159,11 +159,11 @@ export function startAutosave(owner: number): () => void {
     seen = newest.time;
     written = mark();
   };
-  // version: the document changed; the playback range is the view's (not a step to undo, state/look.ts's
+  // edits / version: the document changed; the playback range is the view's (not a step to undo, state/look.ts's
   // setPlayback does not bump `version`) but set by hand, so kept as its own comparison
-  let lastVersions = { ci: useCookInputs.getState().version, look: useLook.getState().version, playback: useLook.getState().playback };
+  let lastVersions = { ci: useCookInputs.getState().edits, look: useLook.getState().version, playback: useLook.getState().playback };
   const check = () => {
-    const now = { ci: useCookInputs.getState().version, look: useLook.getState().version, playback: useLook.getState().playback };
+    const now = { ci: useCookInputs.getState().edits, look: useLook.getState().version, playback: useLook.getState().playback };
     const edited = now.ci !== lastVersions.ci || now.look !== lastVersions.look || now.playback !== lastVersions.playback;
     lastVersions = now;
     if (edited && !timer) timer = window.setTimeout(write, DELAY_MS);

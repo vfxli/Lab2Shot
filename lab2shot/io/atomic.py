@@ -10,6 +10,7 @@ from __future__ import annotations
 import errno
 import os
 import stat
+import uuid
 from pathlib import Path
 
 # fsync failures that say the file system cannot flush, not that the data is lost: ignored (an odd mount inside a
@@ -31,13 +32,19 @@ def _fsync_dir(folder: Path) -> None:
 
 
 def write_text(path: Path, text: str) -> None:
+    """`path` holds `text`, whole or not at all. Written aside under a name of this call's own first: two writers of the
+    same file at once each rename a complete file of theirs, the last one standing, never one's half into the other's."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(text)
-        f.flush()
-        os.fsync(f.fileno())
-    tmp.replace(path)
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:12]}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     _fsync_dir(path.parent)
 
 

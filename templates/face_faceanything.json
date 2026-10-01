@@ -3,17 +3,111 @@
  "meta": {
   "id": "8c9351c2459686e976bdc14c47d51bfe",
   "name": "面部 UV 与深度图 · FaceAnything",
-  "intro": "FaceAnything 官方自述：统一的前馈模型，从任意画面序列做高保真的 4D 面部几何与稠密跟踪，核心是给每个像素预测共享规范空间里的面部坐标。这张卡交付面部深度图、规范坐标、遮罩和 UV 坐标图。",
+  "intro": "FaceAnything 官方自述：统一的前馈模型，从任意画面序列做高保真的 4D 面部几何与稠密跟踪，核心是给每个像素预测共享规范空间里的面部坐标。这张卡交付一套多层 EXR：UV 坐标图（uv）、面部深度图（depth）、规范坐标（canonical）和面部遮罩（mask）。",
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "face_geo",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "name": "mode",
+   "label": "方式",
+   "target": "face.mode"
+  },
+  {
+   "name": "max_frames",
+   "label": "每段最多帧数",
+   "target": "face.max_frames",
+   "hide_when": "mode != \"chunk\""
+  },
+  {
+   "name": "uv_way",
+   "label": "UV 投射方式",
+   "target": "uv.way"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out.name"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "out.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "计算",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -23,11 +117,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 500
+    "y": 92
    }
   },
   {
@@ -40,63 +136,12 @@
     "resolution": 504
    },
    "ui": {
-    "x": 320,
-    "y": 500,
+    "x": 400,
+    "y": 0,
     "on_node": [
      "mode",
      "max_frames",
      "resolution"
-    ]
-   }
-  },
-  {
-   "id": "out_p",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "canonical"
-   },
-   "ui": {
-    "x": 980,
-    "y": 520,
-    "on_node": [
-     "name",
-     "format"
-    ]
-   }
-  },
-  {
-   "id": "out_d",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "depth"
-   },
-   "ui": {
-    "x": 980,
-    "y": 260,
-    "on_node": [
-     "name",
-     "format"
-    ]
-   }
-  },
-  {
-   "id": "out_m",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "mask"
-   },
-   "ui": {
-    "x": 980,
-    "y": 780,
-    "on_node": [
-     "name",
-     "format"
     ]
    }
   },
@@ -106,8 +151,8 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1300,
-    "y": 380
+    "x": 1600,
+    "y": 169
    }
   },
   {
@@ -118,28 +163,48 @@
     "way": "cylinder"
    },
    "ui": {
-    "x": 680,
-    "y": 340,
+    "x": 800,
+    "y": 159,
     "on_node": [
      "way"
     ]
    }
   },
   {
-   "id": "out_uv",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
+   "id": "out",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
    "params": {
-    "colorspace": null,
-    "name": "uv"
+    "name": "face",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "uv",
+      "channels": ""
+     },
+     {
+      "name": "layer2",
+      "label": "depth",
+      "channels": ""
+     },
+     {
+      "name": "layer3",
+      "label": "canonical",
+      "channels": ""
+     },
+     {
+      "name": "layer4",
+      "label": "mask",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
    },
    "ui": {
-    "x": 980,
-    "y": 0,
-    "on_node": [
-     "name",
-     "format"
-    ]
+    "x": 1200,
+    "y": 169
    }
   }
  ],
@@ -152,66 +217,6 @@
    "to": [
     "face",
     "image"
-   ]
-  },
-  {
-   "from": [
-    "face",
-    "canonical"
-   ],
-   "to": [
-    "out_p",
-    "image"
-   ]
-  },
-  {
-   "from": [
-    "face",
-    "depth"
-   ],
-   "to": [
-    "out_d",
-    "image"
-   ]
-  },
-  {
-   "from": [
-    "face",
-    "mask"
-   ],
-   "to": [
-    "out_m",
-    "image"
-   ]
-  },
-  {
-   "from": [
-    "out_p",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
-   ]
-  },
-  {
-   "from": [
-    "out_d",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
-   ]
-  },
-  {
-   "from": [
-    "out_m",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
    ]
   },
   {
@@ -240,13 +245,43 @@
     "uv"
    ],
    "to": [
-    "out_uv",
-    "image"
+    "out",
+    "layer1"
    ]
   },
   {
    "from": [
-    "out_uv",
+    "face",
+    "depth"
+   ],
+   "to": [
+    "out",
+    "layer2"
+   ]
+  },
+  {
+   "from": [
+    "face",
+    "canonical"
+   ],
+   "to": [
+    "out",
+    "layer3"
+   ]
+  },
+  {
+   "from": [
+    "face",
+    "mask"
+   ],
+   "to": [
+    "out",
+    "layer4"
+   ]
+  },
+  {
+   "from": [
+    "out",
     "files"
    ],
    "to": [

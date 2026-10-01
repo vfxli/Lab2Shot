@@ -3,32 +3,124 @@
  "meta": {
   "id": "343d7b0ab0419fce6677be1cca3d1360",
   "name": "面部动作 · SMIRK",
-  "intro": "SMIRK 从单目画面解出三维人脸，面部几何能忠实还原极端、不对称和细微的表情。这张卡交付带表情形变的 FLAME 头模和表情曲线。",
+  "intro": "SMIRK 从单目画面解出三维人脸，面部几何能忠实还原极端、不对称和细微的表情。这张卡交付带表情形变的 FLAME 头模、放头用的相机和表情曲线。",
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "face_anim",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "unit",
-   "label": "单位",
-   "target": "out.unit"
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
   },
   {
-   "name": "curves_format",
-   "label": "曲线格式",
-   "target": "out_c.format"
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
   },
   {
-   "name": "focal",
-   "label": "Focal Length",
-   "target": "face.focal_mm"
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": "镜头",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "focal",
+     "label": "已知 Focal Length",
+     "target": "face.focal_mm"
+    },
+    {
+     "name": "filmback",
+     "label": "Filmback",
+     "target": "face.filmback_mm",
+     "disable_when": "not focal"
+    }
+   ]
+  },
+  {
+   "name": "crop",
+   "label": "裁切",
+   "target": "face.crop"
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "least_frames",
+     "label": "最少解出帧数",
+     "target": "face.least_frames"
+    }
+   ]
+  },
+  {
+   "name": "cook_face",
+   "label": "解算面部",
+   "target": "face.cook"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "usd_name",
+     "label": "文件名（头模 / 角色 USD）",
+     "target": "out.name"
+    },
+    {
+     "name": "curves_name",
+     "label": "文件名（表情曲线）",
+     "target": "out_c.name"
+    },
+    {
+     "name": "unit",
+     "label": "单位",
+     "target": "out.unit"
+    },
+    {
+     "name": "fps",
+     "label": "帧率",
+     "target": "fps.value"
+    },
+    {
+     "name": "curves_format",
+     "label": "曲线格式",
+     "target": "out_c.format"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -38,11 +130,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 140
+    "y": 782
    }
   },
   {
@@ -50,11 +144,14 @@
    "type": "smirk.face",
    "label": "SMIRK 面部动作",
    "params": {
-    "crop": "auto"
+    "focal_mm": null,
+    "filmback_mm": null,
+    "crop": "auto",
+    "least_frames": null
    },
    "ui": {
-    "x": 320,
-    "y": 140,
+    "x": 400,
+    "y": 724,
     "on_node": [
      "focal_mm",
      "crop"
@@ -66,34 +163,43 @@
    "type": "core.output_usd",
    "label": "USD 输出设置",
    "params": {
+    "name": "scene",
+    "format": "usd",
     "unit": "cm",
-    "name": "scene"
+    "fps": 24.0
    },
    "ui": {
-    "x": 620,
-    "y": 0,
+    "x": 830,
+    "y": 730,
     "on_node": [
      "name",
      "unit"
     ]
-   }
+   },
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "out_c",
    "type": "core.output_curves",
    "label": "曲线输出设置",
    "params": {
+    "name": "curves",
     "format": "csv",
-    "name": "curves"
+    "fps": 24.0
    },
    "ui": {
-    "x": 620,
-    "y": 180,
+    "x": 870,
+    "y": 0,
     "on_node": [
      "name",
      "format"
     ]
-   }
+   },
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "deliver",
@@ -101,9 +207,25 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 940,
-    "y": 100
+    "x": 1230,
+    "y": 758
    }
+  },
+  {
+   "id": "fps",
+   "type": "core.value_float",
+   "label": "帧率",
+   "params": {
+    "value": 24.0,
+    "unit": ""
+   },
+   "ui": {
+    "x": 470,
+    "y": 376
+   },
+   "promoted": [
+    "value"
+   ]
   }
  ],
  "edges": [
@@ -145,6 +267,36 @@
    "to": [
     "deliver",
     "files"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "out",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "out_c",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "face",
+    "camera"
+   ],
+   "to": [
+    "out",
+    "scene"
    ]
   },
   {

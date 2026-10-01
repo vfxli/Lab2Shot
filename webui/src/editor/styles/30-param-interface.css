@@ -1,0 +1,366 @@
+/* 模板的参数界面（节点图的 exposed 树）：参数面板里按树画的公开参数、应用模式的版面与「计算」、「编辑参数界面」弹窗
+   （editor/ParamPanel.tsx InterfaceTree、editor/AppMode.tsx、editor/ParamInterfaceEditor.tsx）。 */
+
+/* ---- 应用模式：左栏只有视图（节点图收起来），版面其余不变（editor/App.tsx） */
+.app-mode .wk-left {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.app-mode .wk-left > .wk-graph {
+  display: none;
+}
+
+
+/* ---- 参数面板里的参数界面树：组的标题可以点开 / 收起，子组缩进一级、左边一条细线 */
+.group-title.ptree-title {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+  text-align: left;
+  cursor: pointer;
+}
+
+.group-title.ptree-title:hover {
+  color: var(--text-2);
+}
+
+.ptree-caret {
+  display: inline-block;
+  font-size: 9px;
+  transition: transform var(--t-fast);
+}
+
+.ptree-title.open .ptree-caret {
+  transform: rotate(90deg);
+}
+
+.ptree-items,
+.ptree-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ptree-sub {
+  margin-left: 2px;
+  padding-left: 10px;
+  border-left: 1px solid var(--hair);
+}
+
+/* ---- 「编辑参数界面」弹窗：左边树、右边属性 */
+.pif {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  height: 480px;
+}
+
+.pif-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.pif-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+.pif-gap {
+  flex: 1;
+}
+
+.pif-tree {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0;
+  border-radius: var(--r-md);
+  background: rgba(0, 0, 0, 0.22);
+  box-shadow: inset 0 0 0 0.5px var(--hair-strong);
+}
+
+.pif-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding-right: 10px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.pif-row:hover {
+  background: var(--raised);
+}
+
+.pif-row.on {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.pif-row.group .pif-name {
+  font-weight: 600;
+}
+
+.pif-row.wrong .pif-name {
+  color: var(--error-text);
+}
+
+/* 拖到参数上 = 放到它前面（上沿一条线）；拖到组上 = 放进组里（整行一圈） */
+.pif-row.drag-over {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.pif-row.group.drag-over {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.pif-grip {
+  flex: none;
+  color: var(--text-3);
+  font-size: 10px;
+  letter-spacing: -2px;
+  cursor: grab;
+}
+
+.pif-name,
+.pif-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pif-detail {
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+
+.pif-kind {
+  flex: none;
+  padding: 0 4px;
+  border-radius: var(--r-xs);
+  border: 0.5px solid var(--hair-strong);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.pif-end {
+  padding-left: 8px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.pif-right {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.pif-props {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pif-field {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+}
+
+.pif-field.top {
+  align-items: start;
+}
+
+.pif-field > span:first-child {
+  color: var(--text-2);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.pif-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text);
+}
+
+.pif-note small {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.pif-options {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.pif-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto;
+  gap: 4px;
+  width: 100%;
+}
+
+/* 下拉一项自己的 Hide When：占满这一行的下面一整行 */
+.pif-option .pif-option-hide {
+  grid-column: 1 / -1;
+}
+
+.pif-hint {
+  padding-left: 80px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+}
+
+.pif-hint code,
+.field.mono {
+  font-family: var(--mono);
+}
+
+.field.wrong {
+  box-shadow: inset 0 0 0 1px var(--error);
+}
+
+.pif-problems {
+  margin: 0;
+  padding-left: 96px;
+  color: var(--error-text);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+}
+
+.pif-bad {
+  color: var(--error-text);
+  font-size: var(--fs-xs);
+}
+
+.pif-empty {
+  padding: 12px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+/* ---- 按钮参数（editor/buttonActions.tsx）：参数列里占满整列，应用模式也一样；节点上是小号 */
+.pbutton {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+}
+
+.btn.pbutton-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.pbutton.mini .btn.pbutton-btn {
+  width: 100%;
+}
+
+
+/* 提升到节点对按钮没有意义：标记在，置灰 */
+.socket-pin.refused {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ---- 参数面板里直接拖动参数界面树（节点模式、有「编辑参数界面」权限）：左边把手，拖到参数上 = 放到它前面（上沿一条线），
+   拖到组的标题上 = 放进组（标题一圈），拖到最下面的空条 = 放到最外层末尾 */
+.ptree-row,
+.ptree-head {
+  position: relative;
+}
+
+.ptree-grip {
+  position: absolute;
+  left: -13px;
+  top: 7px;
+  color: var(--text-3);
+  font-size: 9px;
+  letter-spacing: -2px;
+  cursor: grab;
+  opacity: 0.45;
+  user-select: none;
+}
+
+.ptree-row:hover > .ptree-grip,
+.ptree-head:hover > .ptree-grip {
+  opacity: 1;
+}
+
+.ptree-head > .ptree-grip {
+  top: 0;
+}
+
+.ptree-row.drag-over {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.ptree-head.drag-over {
+  box-shadow: inset 0 0 0 1px var(--accent);
+  border-radius: var(--r-xs);
+}
+
+.ptree-end {
+  height: 10px;
+  margin: 0 16px;
+}
+
+.ptree-end.drag-over {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+/* ---- 「在视图里点选」（state/viewPicking.ts）：已点的一排在上，开关按钮占满参数列在下 */
+.ppick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* ---- 「选人」点选说成几号（editor/pickedPeople.tsx）：说不出几号的 chip 淡一些，下面一行说明；节点上一行摘要 */
+.picks .chip.unknown {
+  color: var(--text-3);
+}
+
+.picks-why {
+  flex-basis: 100%;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.gnode-picks {
+  border-top: 0.5px solid var(--hair);
+  padding: 5px 12px 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--accent-text);
+}
+
+/* 「修改后在视图里显示这个节点」开关和它的说明（ParamInterfaceEditor.tsx） */
+.pif-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}

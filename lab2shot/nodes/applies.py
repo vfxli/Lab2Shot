@@ -6,7 +6,7 @@ Like Houdini's disable_when, a node declares it next to what it is about, and no
     min_confidence: float = P(0.5, label="置信度门槛", applies=Wired("confidence"))
     Port("camera", "scene.camera", "相机", when=Param("camera").set())
     cost = Cost(gpu=True, vram_gb=5.9, seconds_per_frame=0.07)
-    traits = (OptionTrait(Param("sift_gpu").one_of(True), gpu=True, noncommercial=True),)
+    traits = (OptionTrait(Param("sift_gpu").one_of(True), gpu=True, licence=NONCOMMERCIAL),)
 
 A condition here is a leaf of the one availability mechanism (lab2shot/availability.py: its kinds, All / AnyOf / Not
 and the resolver) over what is known of one node (NodeFacts: its parameters, what is wired into it and the facts it
@@ -76,6 +76,9 @@ class NodeFacts:
     # the node's own outputs that have a wire out of them (None: not known here, as for a catalogue card or a standalone
     # node): a parameter that only matters for one output (a point cloud's spacing) says so with WiredOut
     wired_out: frozenset[str] | None = None
+    # each input port that has wires -> for each wire, whether it brings values (True), a picture (False) or that is
+    # not known (None): engine/graph.py output_data, which WiredPicture reads
+    wired_data: Mapping[str, tuple[bool | None, ...]] = field(default_factory=dict)
 
 
 # ------------------------------------------------------------------ conditions: the node's leaves (availability.Cond)
@@ -325,6 +328,30 @@ class WiredType(Cond):
 
 
 @dataclass(frozen=True)
+class WiredPicture(Cond):
+    """What is wired into an input is a picture, not values (engine/graph.py output_data: the source port's
+    declaration, Port.data). Several wires: any one is; nothing wired, or not known yet, is not known. For what only a
+    picture has: a colour space, a half-float bit depth (「多层 EXR 输出设置」)."""
+
+    port: str
+
+    def __init__(self, port: str):
+        object.__setattr__(self, "port", port)
+
+    def holds(self, f: NodeFacts) -> bool | None:
+        got = f.wired_data.get(self.port) or ()
+        if any(d is False for d in got):
+            return True
+        return None if not got or None in got else False
+
+    def why(self, f: NodeFacts, t: type[NodeDef]) -> Msg:
+        return Msg("I-APPLIES-WIREDPICTURE", input=_port_label(t, self.port))
+
+    def names(self):
+        return frozenset(), frozenset({self.port}), frozenset()
+
+
+@dataclass(frozen=True)
 class Incoming(Cond):
     """A fact of the data wired into an input, compared: incoming("tracks", "points").eq(4).
 
@@ -475,6 +502,12 @@ class Licence:
 
     tag: str = ""
     note: str = ""
+    # it needs a model each user registers for and downloads (SMPL-X, MANO, FLAME): 需注册, the tag an extension gets
+    # from the body models among its manual weights (adapters.py), for a node that declares its own (the core's)
+    registration: bool = False
+    # the data and body models under their own licence it runs on (nodes/tags.py DATA_LICENCES), as LicenseInfo.uses:
+    # a core node's class is exactly theirs, nothing else of it being licensed
+    uses: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -485,14 +518,32 @@ class OptionTrait:
 
     when: Cond
     gpu: bool | None = None
-    noncommercial: bool = False
+    # the licence class this choice switches the node to (nodes/tags.py: NONCOMMERCIAL, or RESEARCH — only academic
+    # research, stricter); "" none. The same classes as an extension's whole licence, so accounts and cards judge both
+    # one way (tags.may)
+    licence: str = ""
     vram_gb: float | None = None
     seconds_per_frame: float | None = None
     ram_gb: float | None = None
 
     def __post_init__(self) -> None:
-        if (self.gpu or self.noncommercial) and not isinstance(self.when, ParamIn):
+        from . import tags
+
+        if self.licence not in ("", tags.NONCOMMERCIAL, tags.RESEARCH):
+            raise TypeError(f"an option's licence is {tags.NONCOMMERCIAL!r} or {tags.RESEARCH!r}, not {self.licence!r}")
+        if (self.gpu or self.licence) and not isinstance(self.when, ParamIn):
             raise TypeError(f"an option trait changing the GPU or the licence is a choice (Param(...).one_of), not {self.when!r}")
+
+
+def licence_traits(options: Mapping[str, Mapping[Any, str]]) -> tuple[OptionTrait, ...]:
+    """The node's licensed choices from its extension's one table (extension.py OPTION_LICENCES: parameter -> value ->
+    the licence class it switches to, nodes/tags.py NONCOMMERCIAL or RESEARCH): the extension says which of its
+    downloads are restricted and how, the node never restates it (lab2shot check numbers: option_licences_declared)."""
+    by: dict[tuple[str, str], list] = {}
+    for name, values in options.items():
+        for value, level in values.items():
+            by.setdefault((name, level), []).append(value)
+    return tuple(OptionTrait(Param(name).one_of(*values), licence=level) for (name, level), values in by.items())
 
 
 @dataclass(frozen=True)
@@ -692,7 +743,7 @@ def resolve_cost(t: type[NodeDef], f: NodeFacts) -> ResolvedCost:
     from .compute import TIERS
 
     c = t.cost
-    held = [tr for tr in t.traits if tr.when.holds(f) is True]
+    held = [tr for tr in t.traits if may_hold(tr, f)]
     gpu = c.gpu or any(tr.gpu for tr in held)
     ram = max([c.ram_gb, *(tr.ram_gb for tr in held if tr.ram_gb is not None)])
     if not gpu:
@@ -712,18 +763,34 @@ def setting_vram(t: type[NodeDef], f: NodeFacts) -> dict[str, float]:
     out = {}
     for spec in t.param_specs():
         value = f.params.get(spec["name"])
-        if spec["measured"] and value is not None and value is not WIRED:
+        if spec["measured"] and value is WIRED:  # not known yet: the costliest setting it may come to (may_hold)
+            if (most := [gb for gb in spec["measured"].values() if gb is not None]):
+                out[spec["name"]] = max(most)
+        elif spec["measured"] and value is not None:
             gb = spec["measured"].get(option_key(value))
             if gb is not None:
                 out[spec["name"]] = gb
     return out
 
 
+def may_hold(trait, f: NodeFacts) -> bool:
+    """Whether a trait (a licence, a cost) may apply to the node as it will run: it holds, or what it asks of is not
+    known yet (a parameter driven by a wire whose value is still to be cooked: WIRED, holds None) — then the strictest
+    licence and the costliest setting it may come to, never the value typed under the wire. The one rule licence and
+    cost both read (resolve_licence, resolve_cost); once the wired value is known the facts carry it (engine/
+    evaluation.py facts) and the trait holds or not by it."""
+    return tr_holds if (tr_holds := trait.when.holds(f)) is not None else True
+
+
 def resolve_licence(t: type[NodeDef], f: NodeFacts) -> ResolvedLicence:
     from . import tags
 
-    found = tags.node_tags(t) | ({tags.NONCOMMERCIAL} if any(tr.noncommercial and tr.when.holds(f) is True for tr in t.traits) else set())
-    return ResolvedLicence(frozenset(found), tags.commercial(frozenset(found)), t.licence.note)
+    found = tags.node_tags(t) | {tr.licence for tr in t.traits if tr.licence and may_hold(tr, f)}
+    # the words said about it: the node's own when its licence differs or it has more to say, else its extension's
+    # summary — the one text, never restated on the node in other words (MatAnyone's once said 只能研究用 of a 非商用)
+    ext = t.project.extension
+    note = t.licence.note or (ext.license.summary if ext is not None else "")
+    return ResolvedLicence(frozenset(found), tags.commercial(frozenset(found)), note)
 
 
 def resolve(t: type[NodeDef], f: NodeFacts) -> Resolved:
@@ -750,13 +817,14 @@ def resolve(t: type[NodeDef], f: NodeFacts) -> Resolved:
 
 
 def facts_for(t: type[NodeDef], params: Mapping[str, Any], wired: Mapping[str, tuple[str, ...]] | None = None,
-              promoted_wired: tuple[str, ...] = (), wired_out=None, incoming_facts=None) -> NodeFacts:
+              promoted_wired: tuple[str, ...] = (), wired_out=None, incoming_facts=None,
+              wired_data: Mapping[str, tuple[bool | None, ...]] | None = None) -> NodeFacts:
     """NodeFacts from a node's own parameters: the parameters driven by a wire (`promoted_wired`) as WIRED, the node's
     facts from its parameters (NodeDef.facts), which of its outputs are wired on (`wired_out`; None: not known), and
     the facts of what is wired into each input (`incoming_facts`; Graph._incoming)."""
     shown = {**params, **{name: WIRED for name in promoted_wired}}
     return NodeFacts(shown, dict(wired or {}), t.facts(dict(params)), incoming=dict(incoming_facts or {}),
-                     wired_out=None if wired_out is None else frozenset(wired_out))
+                     wired_out=None if wired_out is None else frozenset(wired_out), wired_data=dict(wired_data or {}))
 
 
 def resolve_params(t: type[NodeDef], params: Mapping[str, Any], connected=()) -> Resolved:
@@ -771,9 +839,9 @@ def effective_params(t: type[NodeDef], params: Mapping[str, Any], resolved: Reso
     inactive = resolved.params.inactive
     if not inactive:
         return dict(params)
-    from .params import _defaults
+    from .params import param_defaults
 
-    defaults = _defaults(t.Params)  # a table row's field ("layers[2].scale") is the row's own: shown or not, kept
+    defaults = param_defaults(t.Params)  # a table row's field ("layers[2].scale") is the row's own: shown or not, kept
     return {**params, **{k: defaults[k] for k in inactive if k in defaults}}
 
 
@@ -793,28 +861,29 @@ def option_key(value: Any) -> str:
 
 def option_traits(t: type[NodeDef]) -> dict[str, dict[str, dict]]:
     """The lookup table the catalogue gives for the choices that change something (a trait on Param(x).one_of): parameter
-    -> str(value) -> {"gpu", "noncommercial", "rating"} (the rating that choice alone gives, None when it measures
-    nothing of its own)."""
+    -> str(value) -> {"gpu", "licence", "rating"} ("licence": the licence class the choice switches to, "" none; the
+    rating that choice alone gives, None when it measures nothing of its own)."""
     out: dict[str, dict[str, dict]] = {}
     for tr in t.traits:
         if not isinstance(tr.when, ParamIn):
             continue
         for value in tr.when.values:
-            row = out.setdefault(tr.when.name, {}).setdefault(option_key(value), {"gpu": False, "noncommercial": False, "rating": None})
+            row = out.setdefault(tr.when.name, {}).setdefault(option_key(value), {"gpu": False, "licence": "", "rating": None})
             row["gpu"] = row["gpu"] or bool(tr.gpu)
-            row["noncommercial"] = row["noncommercial"] or tr.noncommercial
+            row["licence"] = row["licence"] or tr.licence
             if tr.vram_gb is not None or tr.seconds_per_frame is not None:
                 row["rating"] = _rating(tr.vram_gb if tr.vram_gb is not None else t.cost.vram_gb,
                                         tr.seconds_per_frame if tr.seconds_per_frame is not None else t.cost.seconds_per_frame)
     return out
 
 
-def noncommercial_choices(t: type[NodeDef]) -> dict[str, list]:
-    """Parameter -> the values that switch the node to non-commercial parts (its traits)."""
-    out: dict[str, list] = {}
+def licensed_choices(t: type[NodeDef]) -> dict[str, dict]:
+    """Parameter -> value -> the licence class that value switches the node to (its traits: NONCOMMERCIAL, RESEARCH)."""
+    out: dict[str, dict] = {}
     for tr in t.traits:
-        if tr.noncommercial and isinstance(tr.when, ParamIn):
-            out.setdefault(tr.when.name, []).extend(v for v in tr.when.values if v not in out.get(tr.when.name, []))
+        if tr.licence and isinstance(tr.when, ParamIn):
+            for v in tr.when.values:
+                out.setdefault(tr.when.name, {}).setdefault(v, tr.licence)
     return out
 
 
@@ -932,3 +1001,20 @@ def check_declarations(t: type[NodeDef]) -> None:
         for name in flat:
             if name not in optional_inputs:
                 raise TypeError(f"{t.__name__}: input_choice names {name!r}, which is not one of its optional inputs")
+    # An input table whose rows the node names itself (NodeDef.ports_from_names: 「切换」's a…j): one default label per
+    # name, no name twice, and the table's own type holds it to them (its row's `name` a Literal of exactly these, the
+    # table no longer than they are), so a graph file can never have a row the page could not have added.
+    if t.ports_from_names:
+        names = t.ports_from_names
+        if not (t.ports_from and t.ports_from_side == "inputs"):
+            raise TypeError(f"{t.__name__}: ports_from_names belongs to a table that makes inputs")
+        if len(set(names)) != len(names) or len(t.ports_from_labels) != len(names):
+            raise TypeError(f"{t.__name__}: ports_from_names must be distinct, with one ports_from_labels entry each")
+        from typing import get_args
+
+        field_ = t.Params.model_fields[t.ports_from]
+        row = _entry_model(field_.annotation)
+        longest = next((m.max_length for m in field_.metadata if hasattr(m, "max_length")), None)
+        if row is None or set(get_args(row.model_fields["name"].annotation)) != set(names) or longest != len(names):
+            raise TypeError(f"{t.__name__}: table {t.ports_from}'s rows must be named from ports_from_names only "
+                            f"(its name a Literal of them) and hold at most {len(names)} (max_length)")

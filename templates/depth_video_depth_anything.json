@@ -3,22 +3,151 @@
  "meta": {
   "id": "9d5835f33c4dcfb3181350de4bb539a4",
   "name": "深度图 · Video Depth Anything",
-  "intro": "Video Depth Anything 官方自述：基于 Depth Anything V2，任意长度的视频都能算，质量、一致性和泛化能力不打折，比扩散模型更快。这张卡交付整段时序一致的深度图。",
+  "intro": "Video Depth Anything 官方自述：基于 Depth Anything V2，任意长度的视频都能算，质量、一致性和泛化能力不打折，比扩散模型更快。这张卡交付整段时序一致的深度图：「真实」模型给厘米深度，「相对」模型给相对视差。模型选 Base / Large 时按非商用算。",
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "depth_video",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "model",
-   "label": "模型",
-   "target": "depth.model"
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": "深度",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "model",
+     "label": "模型",
+     "target": "depth.model",
+     "widget": "menu",
+     "options": [
+      {
+       "value": "metric_small",
+       "label": "真实 · Small"
+      },
+      {
+       "value": "metric_base",
+       "label": "真实 · Base"
+      },
+      {
+       "value": "metric_large",
+       "label": "真实 · Large"
+      },
+      {
+       "value": "small",
+       "label": "相对 · Small"
+      },
+      {
+       "value": "base",
+       "label": "相对 · Base"
+      },
+      {
+       "value": "large",
+       "label": "相对 · Large"
+      }
+     ]
+    },
+    {
+     "name": "resolution",
+     "label": "处理分辨率",
+     "target": "depth.resolution"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "fp16",
+       "label": "半精度",
+       "target": "depth.fp16"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "exr.name"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "exr.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "计算",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -28,11 +157,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 0
+    "y": 38
    }
   },
   {
@@ -45,28 +176,11 @@
     "fp16": true
    },
    "ui": {
-    "x": 320,
+    "x": 400,
     "y": 0,
     "on_node": [
      "model",
      "resolution"
-    ]
-   }
-  },
-  {
-   "id": "out",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "depth"
-   },
-   "ui": {
-    "x": 720,
-    "y": 0,
-    "on_node": [
-     "name",
-     "format"
     ]
    }
   },
@@ -76,8 +190,30 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1040,
-    "y": 0
+    "x": 1219,
+    "y": 14
+   }
+  },
+  {
+   "id": "exr",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "depth",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "depth",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 819,
+    "y": 14
    }
   }
  ],
@@ -98,13 +234,13 @@
     "depth"
    ],
    "to": [
-    "out",
-    "image"
+    "exr",
+    "layer1"
    ]
   },
   {
    "from": [
-    "out",
+    "exr",
     "files"
    ],
    "to": [

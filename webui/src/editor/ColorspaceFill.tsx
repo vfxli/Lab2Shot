@@ -4,7 +4,7 @@ import { setDerivedParam } from "../graph/edit";
 import { useGraphSnapshot } from "../graph/snapshot";
 import { useChoices } from "../ui/choices";
 
-/** 「色彩空间」在选定文件时即确定，而非在打开节点面板时确定。
+/** 「色彩空间」参数自动填写的唯一所在：该参数在选定文件时即确定，而非在打开节点面板时确定。
  *
  * 该参数没有「自动」档：为空时按文件格式填写服务器 choices 给出的 `default`（EXR 为 ACEScg，PNG / JPG 为 sRGB 等）。
  * 该步骤不能放在面板控件中（只有节点被选中、控件被绘制时才会执行）：否则先提交（参数仍为空）

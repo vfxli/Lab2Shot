@@ -11,7 +11,8 @@ import { Button } from "../ui/Button";
 import { startPolling } from "../platform/poll";
 import { useConfirm } from "../ui/Confirm";
 
-/** 扩展包安装控件（lab2shot/installer），用于后台管理页的「扩展包」区域（admin/Extensions.tsx）。
+/** The extension install control (lab2shot/installer), used by the admin page's 「扩展包」 section
+ * (admin/Extensions.tsx).
  *
  * What a login may do here is the server's answer
  * (server/available.py extension: `actions`), never a role check: an account that does not install gets no actions, and

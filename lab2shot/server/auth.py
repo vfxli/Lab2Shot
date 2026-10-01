@@ -8,7 +8,10 @@ A request is its account's when it carries one of:
   - a client's token (Authorization: Bearer ...), given to a DCC plugin or the command line at /api/auth/token and
     kept in ~/.lab2shot/;
   - this machine's token (MACHINE_HEADER): the command line on the server machine, acting as the administrator;
-    taken only from a loopback connection that no proxy forwarded (local_request), never as a cookie or bearer.
+    taken only from a loopback connection that no proxy forwarded (local_request), never as a cookie or bearer. What
+    guards it is its secrecy (accounts.machine_token: a 0600 file in the work folder, 256 random bits): behind a TCP
+    tunnel on this machine every request is loopback and carries no forwarding header, so the address check then
+    tells nothing apart.
 Its account must be usable now (enabled, not expired, not deleted): checked on every request, so disabling a user or
 their expiry ends their sessions at once. The administrator's rights on a browser last accounts.ADMIN_S from typing
 the password; after that the admin page asks for it again and the editor goes on.
@@ -39,13 +42,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from fastapi import Request, Response
-from pydantic import BaseModel
 
-from .routes import Access, Router
+from .repeats import Repeats
+from .routes import Access, Body, Limit, Router
+from .wire import SECRETS
 from .. import accounts, logs
 from ..accounts import Session, User, now
 from ..config import proxy_networks, settings
-from ..errors import Invalid, NotSignedIn, TooManyTries
+from ..errors import Forbidden, Invalid, MessageError, NotSignedIn, TooManyTries
 from ..messages import Msg
 
 log = logs.get("auth")
@@ -92,7 +96,9 @@ PROXY_HEADERS = ("x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "fo
 
 
 def local_request(request: Request) -> bool:
-    """A connection from this machine's own loopback address that no proxy or tunnel says it forwarded."""
+    """A connection from this machine's own loopback address that no proxy or tunnel says it forwarded. It keeps the
+    machine token from being taken through an HTTP proxy that says what it forwards; a tunnel that only passes the
+    connection through (frp TCP) looks local here, so the token's secrecy is what guards it there."""
     host = request.client.host if request.client else ""
     return host in LOOPBACK and not any(h in request.headers for h in PROXY_HEADERS)
 
@@ -128,6 +134,15 @@ def user(request: Request) -> User | None:
     return s.user if s else None
 
 
+def signed_in(request: Request) -> Session:
+    """The live session of a request to an account's route (the guard lets none through without one): checked outright,
+    never by an assert (python -O drops those)."""
+    s = session(request)
+    if s is None:
+        raise NotSignedIn(Msg("E-LOGIN-REQUIRED"))
+    return s
+
+
 def me(request: Request) -> User:
     """The account asking (the route table lets only logged-in requests reach a user's route)."""
     u = user(request)
@@ -136,11 +151,9 @@ def me(request: Request) -> User:
     return u
 
 
-def label(request: Request) -> str:
-    """How the account asking is named in what it writes (an audit line, the notice's `by`): its name,
-    or its username without one. The one place for it."""
-    u = me(request)
-    return u.name or u.username
+def actor(request: Request) -> accounts.Actor:
+    """The account asking, as what it does is recorded (an audit line's `who`, a record's `by`): the one place for it."""
+    return accounts.Actor.of(me(request))
 
 
 def can(request: Request, capability: str) -> bool:
@@ -245,15 +258,10 @@ def client_source(request: Request) -> Source:
     return Source(str(client), apart, via=str(here), proto=last("x-forwarded-proto"), host=last("x-forwarded-host"))
 
 
-def client_ip(request: Request) -> str:
-    """The client's address (client_source)."""
-    return client_source(request).ip
-
-
 def who(request: Request) -> str:
     """The client, for what the server records and shows (the login log, the suspicious-activity list, a job's
-    details): its address (client_ip)."""
-    return client_ip(request)
+    details), and what every count and limit is kept by: its address (client_source)."""
+    return client_source(request).ip
 
 
 def details(request: Request, declared: dict | None = None) -> dict:
@@ -265,19 +273,36 @@ def details(request: Request, declared: dict | None = None) -> dict:
 
 
 def client_key(request: Request) -> str:
-    """Whose requests these are, for counting: the session's token when it opens a live session, else its address.
+    """Whose requests these are, for counting (auth.Rate, Watch): the session's token when it opens a live session;
+    without one, where the request comes from (client_source) when that tells clients apart, else its connection.
 
     Only a token that opens a live session counts: if any made-up Bearer got a bucket of its own, an anonymous flood
     would send a new token with every request, never reach 429, and grow Watch.per / Rate.buckets without end.
-    Everything without a session is counted by address (behind a tunnel everyone shares one, so anonymous clients are
-    only rate-limited, never blocked: see Watch). `session` is looked up once per request (cached in the scope), so
-    this costs no extra database read."""
+    Behind a TCP tunnel on this machine every stranger is its loopback address: counted by address they would share
+    one bucket, and one of them flooding the login would lock every other out. The connection is then the only thing
+    that is one client's own, so it is what is counted; guessing passwords is held back apart from this, per account
+    (Limiter), and anonymous clients are only rate-limited, never blocked (Watch). `session` is looked up once per
+    request (cached in the scope), so this costs no extra database read."""
     s = session(request)
-    return f"s:{s.token[:16]}" if s is not None else f"a:{who(request)}"
+    if s is not None:
+        return f"s:{s.token[:16]}"
+    source = client_source(request)
+    if source.apart or request.client is None:
+        return f"a:{source.ip}"
+    return f"c:{request.client.host}:{request.client.port}"
 
 
 # ------------------------------------------------------------------ what looks like probing
 
+
+SUSPICIOUS_S = 600  # the same kind of suspicious request from one address within this long: one log line, counted (Watch)
+
+
+def _said_again(said: Msg, count: int, last: float) -> None:
+    logs.say(log, Msg("W-LOGIN-SUSPICIOUSAGAIN", line=said.text, count=count))
+
+
+_suspicious = Repeats(SUSPICIOUS_S, lambda key, t, said: logs.say(log, said) or said, _said_again)
 
 WATCH_KEPT = 1000  # suspicious events remembered (the newest)
 BLOCK_AFTER = 40  # suspicious events of one session within BLOCK_WINDOW_S: it is blocked for BLOCK_S
@@ -311,7 +336,7 @@ class Watch:
             self.events.append({"t": t, "kind": kind, "detail": detail[:300], "who": whom, "client": key, "user": account,
                                 "path": request.url.path[:200], "method": request.method, "counted": counts})
             self.counts[kind] += 1
-            if counts and key.startswith("s:"):
+            if counts and u is not None:
                 tries = [x for x in self.per.get(key, []) if t - x < BLOCK_WINDOW_S] + [t]
                 self.per[key] = tries
                 if len(self.per) > PER_KEPT:  # keep only keys with events inside the window (clients changing tokens would grow it)
@@ -321,7 +346,10 @@ class Watch:
                     self.blocked[key] = {"until": t + BLOCK_S, "who": whom, "user": account,
                                          "why": Msg("W-LOGIN-BLOCKED", minutes=BLOCK_WINDOW_S // 60, count=len(tries)).text}
                     logs.say(log, Msg("W-LOGIN-PROBEBLOCKED", account=account, whom=whom, minutes=BLOCK_S // 60, window=BLOCK_WINDOW_S // 60, count=len(tries)))
-        logs.say(log, Msg("W-LOGIN-SUSPICIOUS", account=account, whom=whom, kind=kind, method=request.method, path=request.url.path[:200], detail=detail[:200] or "-"))
+        # in the log once per address and kind within SUSPICIOUS_S, the rest counted (server/repeats.py): a flood of odd
+        # requests, from however many connections, never rolls the log over the records it keeps
+        _suspicious.happened((whom, kind), Msg("W-LOGIN-SUSPICIOUS", account=account, whom=whom, kind=kind, method=request.method,
+                                              path=request.url.path[:200], detail=detail[:200] or "-"))
 
     def is_blocked(self, request: Request) -> float:
         """Seconds this client is still blocked (0: it is not)."""
@@ -349,12 +377,18 @@ RATE_PER_S = 200.0
 RATE_BURST = 2000.0
 
 
+RATE_KEPT = 10_000  # buckets remembered at once; past it the longest unused go first
+
+
 @dataclass
 class Rate:
     """Requests per client (client_key): a bucket of BURST that refills at PER_S a second — far above what the pages
-    ask for while playing a shot or uploading a sequence, far below a flood."""
+    ask for while playing a shot or uploading a sequence, far below a flood. At most RATE_KEPT buckets, the least
+    recently used forgotten first, a few at a time: behind a tunnel every connection is a client of its own, and a
+    stranger opening connection after connection must not make each request pay for the whole table. A bucket
+    forgotten is full again, which is where a client that has been quiet longest would be anyway."""
 
-    buckets: dict[str, list[float]] = field(default_factory=dict)  # key -> [tokens, last time]
+    buckets: collections.OrderedDict = field(default_factory=collections.OrderedDict)  # key -> [tokens, last time]
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def take(self, key: str, burst: float | None = None, per_s: float | None = None) -> bool:
@@ -362,17 +396,16 @@ class Rate:
         burst, per_s = RATE_BURST if burst is None else burst, RATE_PER_S if per_s is None else per_s
         t = now()
         with self.lock:
-            tokens, last = self.buckets.get(key, (burst, t))
+            tokens, last = self.buckets.pop(key, (burst, t))
             tokens = min(burst, tokens + (t - last) * per_s)
-            if tokens < 1:
-                self.buckets[key] = [tokens, t]
-                return False
-            self.buckets[key] = [tokens - 1, t]
-            if len(self.buckets) > 10_000:  # forget the idle ones
-                self.buckets = {k: v for k, v in self.buckets.items() if t - v[1] < 600}
-            return True
+            ok = tokens >= 1
+            self.buckets[key] = [tokens - 1 if ok else tokens, t]  # the newest at the end
+            while len(self.buckets) > RATE_KEPT:
+                self.buckets.popitem(last=False)
+            return ok
 
 
+Key = tuple[str, str]  # a Limiter count: its kind (RULES) and whose it is
 RULES = {"k": (FREE, CLIENT_LOCK), "c": (FREE, CLIENT_LOCK), "a": (ADDRESS_FREE, ADDRESS_LOCK), "s": (SUBJECT_FREE, None)}
 COUNTED_AS = {"k": "登录过的这台设备", "c": "这个来源", "s": "从没登录过的设备一共"}  # a wrong one's first key, in the list
 LIMITER_KEPT = 20_000  # keys counted at once; above it the ones longest untouched are forgotten
@@ -383,13 +416,13 @@ class Limiter:
     """Wrong secrets at one work folder's server, counted within WINDOW_S under the keys of a try (keys): the try waits
     for the longest wait among them, and a wrong one counts under each. The kinds of key (RULES: when waiting starts,
     and when it becomes a lock):
-      - "k:<known>|<subject>": a try from a known device (one that has logged in to this account before, or a live
+      - ("k", "<known>|<subject>"): a try from a known device (one that has logged in to this account before, or a live
         session of it: the caller says which, `known`) is counted under this alone. Whatever strangers do, the account's
         owner on their own device is never slowed by it;
-      - "c:<address>|<subject>" and "a:<address>" (one address on one account, and over every account): only where the
+      - ("c", "<address>|<subject>") and ("a", "<address>") (one address on one account, and over every account): only where the
         address tells clients apart (client_source) — behind a TCP tunnel every client is loopback, and a count of it
         would be everyone's;
-      - "s:<subject>": one account from every unknown device together (`per_subject`). It only slows, up to MAX_WAIT_S
+      - ("s", "<subject>"): one account from every unknown device together (`per_subject`). It only slows, up to MAX_WAIT_S
         between tries, never locks: from as many addresses as they like, strangers get one guess per MAX_WAIT_S at an
         account, and cannot shut anyone out of it.
     Nothing counts every try together: no number of wrong ones locks everyone out. `per_subject` False for a secret
@@ -397,15 +430,29 @@ class Limiter:
     let a stranger slow registering for all."""
 
     per_subject: bool = True
-    per: dict[str, list[float]] = field(default_factory=dict)
+    per: dict[Key, list[float]] = field(default_factory=dict)
     seen: str = ""  # the administrator's password these counts are about: a new one clears them
+    checking: set[Key] = field(default_factory=set)  # the keys of the tries being checked now (begin)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
-    def keys(self, source: Source, subject: str, known: str) -> list[str]:
+    def keys(self, source: Source, subject: str, known: str) -> list[Key]:
         if known:
-            return [f"k:{known[:100]}|{subject}"]
-        out = [f"c:{source.ip}|{subject}", f"a:{source.ip}"] if source.apart else []
-        return out + [f"s:{subject}"] if self.per_subject else out
+            return [("k", f"{known[:100]}|{subject}")]
+        out = [("c", f"{source.ip}|{subject}"), ("a", source.ip)] if source.apart else []
+        return out + [("s", subject)] if self.per_subject else out
+
+    def begin(self, keys: list[Key]) -> bool:
+        """Start checking a try under these keys; False when a try sharing one of them is being checked now. Until
+        `end`, a try that shares a key is refused, never queued: it would see the counts before this one's."""
+        with self.lock:
+            if not self.checking.isdisjoint(keys):
+                return False
+            self.checking.update(keys)
+            return True
+
+    def end(self, keys: list[Key]) -> None:
+        with self.lock:
+            self.checking.difference_update(keys)
 
     def _fresh(self, t: float) -> None:
         stored = accounts.password_hash(accounts.ADMIN_ID)
@@ -420,7 +467,7 @@ class Limiter:
             kept = sorted(self.per, key=lambda k: self.per[k][-1])[-LIMITER_KEPT // 2:]
             self.per = {k: self.per[k] for k in kept}
 
-    def _wait(self, key: str, t: float) -> float:
+    def _wait(self, key: Key, t: float) -> float:
         free, lock = RULES[key[0]]
         tries = self.per.get(key, [])
         if lock is not None and len(tries) >= lock:
@@ -429,14 +476,14 @@ class Limiter:
             return max(0.0, tries[-1] + min(2 ** (len(tries) - free + 1), MAX_WAIT_S) - t)
         return 0.0
 
-    def wait(self, keys: list[str]) -> float:
+    def wait(self, keys: list[Key]) -> float:
         """Seconds before a try under these keys may be checked (0: now)."""
         t = now()
         with self.lock:
             self._fresh(t)
             return max((self._wait(k, t) for k in keys), default=0.0)
 
-    def failed(self, keys: list[str]) -> dict[str, int]:
+    def failed(self, keys: list[Key]) -> dict[Key, int]:
         """Count a wrong one under each key: how many each has now."""
         t = now()
         with self.lock:
@@ -444,18 +491,18 @@ class Limiter:
                 self.per[k] = (self.per.get(k, []) + [t])[-ADDRESS_LOCK:]
             return {k: len(self.per[k]) for k in keys}
 
-    def passed(self, keys: list[str]) -> None:
+    def passed(self, keys: list[Key]) -> None:
         """The right secret: its client's and its account's counts start over (not its address's: one account of its
         own that it logs in to now and then must not wipe what an address tried on the others)."""
         with self.lock:
             for k in keys:
-                if not k.startswith("a:"):
+                if k[0] != "a":
                     self.per.pop(k, None)
 
     def clear(self) -> int:
         """Forget every count, for the local command line (POST /api/admin/security/unlock, server/users.py), without
         replacing the administrator's password as `_fresh` does. Returns how many failures were cleared (the number the
-        audit line records): each failure is counted under exactly one "k:" or "s:" key."""
+        audit line records): each failure is counted under exactly one "k" or "s" key."""
         with self.lock:
             cleared = sum(len(v) for k, v in self.per.items() if k[0] in "ks")
             self.per.clear()
@@ -569,21 +616,25 @@ def _wait(seconds: float) -> Msg:
     return Msg("E-LOGIN-WAITMINUTES", minutes=int(seconds / 60) + 1)
 
 
-_checking = threading.Lock()  # one check at a time: tries sent together still wait their turn and count
-
-
 def guarded(request: Request, what: str, check, wrong: Msg | None = None, subject: str = "", limiter: Limiter | None = None,
-            kind: str = "登录失败", known: str = ""):
+            kind: str = "登录失败", known: str = "", refuse: type[MessageError] = NotSignedIn):
     """Run a check of a secret (`check()`: what it found, falsy when wrong), counting a wrong one; TooManyTries while
     this try must wait (Limiter), NotSignedIn (`wrong`, else E-LOGIN-WRONGSECRET about `what`, the word for the secret)
-    when it is wrong. `subject`: whose secret (the username tried, the account changing its password); `known`: the
+    when it is wrong. `subject`: whose secret, each kind apart (user:<the username tried>, uid:<the account changing
+    its password>, passphrase: the 口令; a username may be any word); `known`: the
     device (or session) this try comes from, when it is one the account has used before ('' a stranger: Limiter.keys).
     `limiter`: whose counts (the passwords' by default; Guards.invites for invite codes), `kind`: how the
-    suspicious-activity list names a wrong one."""
+    suspicious-activity list names a wrong one. `refuse`: the error a wrong one raises (NotSignedIn, 401: not logged
+    in; Forbidden, 403, for a secret a live login is asked for again, which stays logged in)."""
     g = guards()
     counts = g.limiter if limiter is None else limiter
     keys = counts.keys(client_source(request), subject[:64], known)
-    with _checking:
+    # Tries that share a key are checked one at a time, so each sees what the ones before it counted; one that arrives
+    # while another is being checked is told to wait a second rather than kept waiting on a thread. Tries with no key
+    # in common (other accounts; behind a tunnel, whoever sends them) are checked side by side.
+    if not counts.begin(keys):
+        raise TooManyTries(_wait(0))
+    try:
         wait = counts.wait(keys)
         if wait > 0:
             g.watch.note(request, "试错太多被挡", what)
@@ -594,12 +645,14 @@ def guarded(request: Request, what: str, check, wrong: Msg | None = None, subjec
             if keys:
                 g.watch.note(request, kind, Msg("W-LOGIN-FAILED", what=what, whose=COUNTED_AS[keys[0][0]], count=got[keys[0]],
                                                 minutes=WINDOW_S // 60).text)
-            if got.get(f"s:{subject[:64]}") == SUBJECT_FREE:
+            if got.get(("s", subject[:64])) == SUBJECT_FREE:
                 logs.say(log, Msg("W-LOGIN-SLOWED", what=what, subject=subject[:64], minutes=WINDOW_S // 60, count=SUBJECT_FREE,
                                   wait=MAX_WAIT_S))
-            raise NotSignedIn(wrong or Msg("E-LOGIN-WRONGSECRET", what=what))
+            raise refuse(wrong or Msg("E-LOGIN-WRONGSECRET", what=what))
         counts.passed(keys)
         return found
+    finally:
+        counts.end(keys)
 
 
 # ------------------------------------------------------------------ routes (server/access.py: open, or the user's)
@@ -674,7 +727,7 @@ def _check_login(request: Request, username: str, password: str, kind: str, devi
         raise NotSignedIn(Msg("E-LOGIN-NOPASSWORD", user=existing.username))
     try:
         known = device_id if existing is not None and accounts.known_device(existing.id, device_id) else ""
-        u = guarded(request, "密码", lambda: accounts.login(username, password), WRONG, subject=username.strip().lower(),
+        u = guarded(request, "密码", lambda: accounts.login(username, password), WRONG, subject=f"user:{username.strip().lower()}",
                     known=known)  # the subject as accounts.login reads it: "Admin " is the same account as "admin"
     except TooManyTries:
         existing = accounts.by_username(username)
@@ -690,13 +743,19 @@ def _check_login(request: Request, username: str, password: str, kind: str, devi
     return u
 
 
-class Login(BaseModel):
+class Login(Body):
     username: str
     password: str
     device_id: str = ""  # kept in the browser's localStorage, sent at every login: this browser, on this computer
 
 
-@router.post("/login", access=Access.open("登录（输错多了要等）"), summary="登录：用户名和密码对了，这个浏览器换一个新的登录凭证（cookie），30 天内不用再登录；管理员另外有三天的管理权限。同一个账号别的浏览器上的登录会被顶掉。用户名不对和密码不对是同一句回答；输错太多次要等一会儿")
+# Logging in has a rate of its own, per client (client_key: behind a tunnel, per connection), so that what fills the
+# shared count, or another client's flood, never keeps anyone from logging in. At this rate one client's password
+# checks never outrun the SECRETS lane (wire.LANE_THREADS).
+LOGIN = Limit(burst=30, per_s=5)
+
+
+@router.post("/login", access=Access.open("登录（输错多了要等）", limit=LOGIN, lane=SECRETS), summary="登录：用户名和密码对了，这个浏览器换一个新的登录凭证（cookie），30 天内不用再登录；管理员另外有三天的管理权限。同一个账号别的浏览器上的登录会被顶掉。用户名不对和密码不对是同一句回答；输错太多次要等一会儿")
 def login(req: Login, request: Request, response: Response) -> dict:
     u = _check_login(request, req.username, req.password, "web", req.device_id)
     token, s = accounts.start(u, "web", who(request), request.headers.get("user-agent", ""), replaces=_cookie(request),
@@ -711,7 +770,7 @@ class TokenRequest(Login):
     hostname: str = ""  # the computer's name, when the client can tell (a browser cannot)
 
 
-@router.post("/token", access=Access.open("DCC 插件和命令行登录，拿令牌（输错多了要等）"), summary="DCC 插件和命令行登录：用户名和密码对了，给一个长期有效的令牌（放在请求头 Authorization: Bearer 里）；同一个账号别的 DCC 插件或命令行的登录会被顶掉（浏览器不受影响）；账号停用或过期时一起失效")
+@router.post("/token", access=Access.open("DCC 插件和命令行登录，拿令牌（输错多了要等）", limit=LOGIN, lane=SECRETS), summary="DCC 插件和命令行登录：用户名和密码对了，给一个长期有效的令牌（放在请求头 Authorization: Bearer 里）；同一个账号别的 DCC 插件或命令行的登录会被顶掉（浏览器不受影响）；账号停用或过期时一起失效")
 def token(req: TokenRequest, request: Request) -> dict:
     u = _check_login(request, req.username, req.password, "client", req.device_id, req.hostname, req.app)
     agent = f"{req.app[:40]} · {request.headers.get('user-agent', '')}"
@@ -732,18 +791,18 @@ def logout(request: Request, response: Response) -> dict:
     return state_of(None)
 
 
-class PasswordChange(BaseModel):
+class PasswordChange(Body):
     current: str
     new: str
 
 
-@router.post("/password", access=Access.user("改自己的密码：要现在的密码"), summary="改自己的密码：要现在的密码；改完别处的登录都退出，这个浏览器接着用")
+@router.post("/password", access=Access.user("改自己的密码：要现在的密码", lane=SECRETS), summary="改自己的密码：要现在的密码；改完别处的登录都退出，这个浏览器接着用")
 def change_password(req: PasswordChange, request: Request, response: Response) -> dict:
     u = me(request)
     if problem := accounts.rule_problem(req.new, "新密码"):
         raise Invalid(problem)
-    guarded(request, "现在的密码", lambda: accounts.matches(req.current, accounts.password_hash(u.id)), subject=str(u.id),
-            known=f"session {session(request).token[:16]}")  # only a live session of the account gets here
+    guarded(request, "现在的密码", lambda: accounts.matches(req.current, accounts.password_hash(u.id)), subject=f"uid:{u.id}",
+            known=f"session {session(request).token[:16]}", refuse=Forbidden)  # only a live session of the account gets here
     accounts.set_password(u.id, req.new, "本人")
     token, s = accounts.start(accounts.get(u.id), "web", who(request), request.headers.get("user-agent", ""))
     set_cookie(request, response, token)
@@ -751,20 +810,20 @@ def change_password(req: PasswordChange, request: Request, response: Response) -
     return state_of(s)
 
 
-class Recover(BaseModel):
+class Recover(Body):
     passphrase: str
     new: str
     device_id: str = ""  # as at login: a browser the administrator has logged in from is not slowed by strangers' tries
 
 
-@router.post("/recover", access=Access.open("管理员忘了密码：用主人的口令设新密码（输错多了要等）"), summary="管理员忘了密码：用主人在服务器上设的口令设一个新的管理员密码，并且登录")
+@router.post("/recover", access=Access.open("管理员忘了密码：用主人的口令设新密码（输错多了要等）", limit=LOGIN, lane=SECRETS), summary="管理员忘了密码：用主人在服务器上设的口令设一个新的管理员密码，并且登录")
 def recover(req: Recover, request: Request, response: Response) -> dict:
     if problem := accounts.rule_problem(req.new, "新密码"):
         raise Invalid(problem)
     kept = accounts.passphrase()
     if kept is None:
         raise Invalid(Msg("E-LOGIN-NOPASSPHRASE"))
-    guarded(request, "口令", lambda: accounts.matches(req.passphrase, kept["hash"]), subject="passphrase",
+    guarded(request, "口令", lambda: accounts.matches(req.passphrase, kept["hash"]), subject="passphrase:",
             known=req.device_id if accounts.known_device(accounts.ADMIN_ID, req.device_id) else "")
     accounts.set_password(accounts.ADMIN_ID, req.new, "口令")  # the counts of wrong tries start again with it
     token, s = accounts.start(accounts.admin(), "web", who(request), request.headers.get("user-agent", ""), replaces=_cookie(request))

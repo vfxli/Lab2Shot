@@ -50,17 +50,20 @@ only from this machine's own loopback address with no proxy in between (server/a
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import hmac
 import re
 import secrets
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from . import roles
 from .config import settings
 from .database import db, json_of, json_text
 from .errors import Invalid, NotFound
+from .io.atomic import write_text
 from .messages import Msg
 from .nodes import tags as node_tags
 from .periods import Periods, local_day
@@ -230,6 +233,23 @@ def check_tags(given: object) -> frozenset[str]:
 
 
 @dataclass(frozen=True)
+class Actor:
+    """Who did something, as a record keeps it (an invite code's maker, a version of the terms, a role's rights, the
+    notice, a feedback's answer): the account, by which permanent deletion finds it (PURGE), and how it is named then
+    (User.label, the one way a record names a person). `id` None: the program or the command line on this machine."""
+
+    id: int | None
+    label: str
+
+    @classmethod
+    def of(cls, user: "User") -> "Actor":
+        return cls(user.id, user.label)
+
+
+SYSTEM = Actor(None, "")  # the program's own doing (its own terms, a default)
+
+
+@dataclass(frozen=True)
 class User:
     id: int
     username: str
@@ -333,13 +353,21 @@ def listing() -> list[dict]:
              "presence": here.get(r["id"], nobody)} for r in rows]
 
 
-def create(username: str, password: str, name: str, department: str, expires: float, allowed: object,
+def new_password(text: str, what: str = "密码") -> str:
+    """A new password as it is kept (its scrypt hash), or Invalid when the rules refuse it (rule_problem). The one place
+    a new password is hashed, before any write transaction: scrypt takes a tenth of a second, and every other write of
+    the process would wait that long behind it."""
+    if problem := rule_problem(text, what):
+        raise Invalid(problem)
+    return hash_secret(text)
+
+
+def create(username: str, hashed: str, name: str, department: str, expires: float, allowed: object,
            role: str = roles.DEFAULT, by: str = "管理员") -> User:
-    """Create an account (server/users.py checks which roles the caller may create: lab2shot/roles.py). `by`: who
+    """Create an account (server/users.py checks which roles the caller may create: lab2shot/roles.py). `hashed`: its
+    first password, from new_password (the caller's write transaction, registration's, may hold this one). `by`: who
     set its first password (the role label of the creator)."""
     username, role = check_username(username), roles.check(role)
-    if problem := rule_problem(password):
-        raise Invalid(problem)
     name, department, given = check_name(name), check_department(department), check_tags(allowed)
     if expires <= now():
         raise Invalid(Msg("E-ACCOUNT-EXPIRYPAST"))
@@ -353,11 +381,39 @@ def create(username: str, password: str, name: str, department: str, expires: fl
         raise Invalid(Msg("E-ACCOUNT-USERNAMEDELETED", username=username))
     t = now()
     with db().write() as c:
-        uid = c.execute("INSERT INTO users (username, hash, name, department, role, tags, expires, enabled, created, "
-                        "password_set, password_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
-                        (username, hash_secret(password), name, department, role, json_text(sorted(given)), expires, t, t,
-                         by)).lastrowid
+        uid = _new_id(c)
+        c.execute("INSERT INTO users (id, username, hash, name, department, role, tags, expires, enabled, created, "
+                  "password_set, password_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
+                  (uid, username, hashed, name, department, role, json_text(sorted(given)), expires, t, t, by))
     return get(uid)
+
+
+REVISION = "users.revision"  # meta: counts every change of how an account is named or whether it is there (revision)
+
+
+def _changed(c) -> None:
+    """(Inside the write that changes an account's name, department, state, or removes it) one more revision."""
+    c.execute("INSERT INTO meta (key, value) VALUES (?, '1') ON CONFLICT (key) DO UPDATE SET "
+              "value = CAST(value AS INTEGER) + 1", (REVISION,))
+
+
+def revision() -> str:
+    """How many times accounts changed what an answer may say of them (a template's author: library.author_of): part
+    of the key of an answer kept by its key (server/revisions.py), so a renamed or removed account is not named on."""
+    r = db().row("SELECT value FROM meta WHERE key = ?", (REVISION,))
+    return r["value"] if r else "0"
+
+
+TOP_ID = "users.top_id"  # meta: the largest id an account permanently deleted had (purge)
+
+
+def _new_id(c) -> int:
+    """A new account's id: above every id any account has had, a permanently deleted one's too. SQLite alone would
+    give the id of a purged newest account again, and whatever is still named by it (rows kept of it, counts in
+    memory) would then be the new account's."""
+    top = c.execute("SELECT MAX(id) FROM users").fetchone()[0] or 0
+    gone = c.execute("SELECT value FROM meta WHERE key = ?", (TOP_ID,)).fetchone()
+    return max(top, int(gone[0]) if gone else 0) + 1
 
 
 def update(user_id: int, *, name: str | None = None, department: str | None = None, expires: float | None = None,
@@ -388,17 +444,17 @@ def update(user_id: int, *, name: str | None = None, department: str | None = No
     if changes:
         with db().write() as c:
             c.execute(f"UPDATE users SET {', '.join(f'{k} = ?' for k in changes)} WHERE id = ?", (*changes.values(), user_id))
+            _changed(c)
     return get(user_id)
 
 
 def set_password(user_id: int, new: str, by: str, keep: str | None = None) -> None:
     """Set a new password (by: 本人 / 管理员 / 命令行). Every session of the account ends except `keep` (the token of
     the browser that made the change)."""
-    if problem := rule_problem(new, "新密码"):
-        raise Invalid(problem)
+    hashed = new_password(new, "新密码")
     with db().write() as c:
         c.execute("UPDATE users SET hash = ?, password_set = ?, password_by = ? WHERE id = ?",
-                  (hash_secret(new), now(), by, user_id))
+                  (hashed, now(), by, user_id))
         c.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user_id, sha(keep) if keep else ""))
 
 
@@ -429,26 +485,166 @@ def delete(user_id: int) -> dict:
     gone = outputs.remove_account(user_id)
     with db().write() as c:
         c.execute("UPDATE users SET deleted = ? WHERE id = ?", (now(), user_id))
+        _changed(c)
     return {"jobs_stopped": stopped, "outputs": gone}
 
 
-# On permanent deletion, these tables only record who did something: the column pointing at the account is cleared
-# and the rows are kept (shown as 「已删除的用户」; the account row is gone and the username may be reused). The
-# statistics use LEFT JOIN users and count a missing account as 「已删除的用户」 (farm/usage.py _uses). The other tables that name the account (sessions, tasks, task_group_names, registrations) are
-# declared ON DELETE CASCADE and are removed with the account row, as permanent deletion requires; the confirmation
-# dialog states this. Node graphs saved on the server are files (work/users/<username>/templates/,
-# lab2shot/library.py), deleted with the account's folder; its task folders, its cache and its uploads are deleted with
-# it (farm/disk.py forget_account), so the job records kept afterwards no longer have a graph.
-KEEPS_RECORDS = ("jobs", "feedback", "login_log", "admin_actions")
+# Every table naming an account, and what permanent deletion does with it (PURGE): one list, which `lab2shot check
+# purge` holds the schema to (a table with user_id, and a column that says by whom something was done: `by`, `*_by`,
+# with its account id beside it, must be on it), and purge works through. privacy.md promises that what is kept no
+# longer leads to the person, so a kept row loses, besides user_id, every other thing in it that says who or where from
+# (`forget`). What is found is found by the account's id, never by its words: two people may have one name, and a
+# username may be a part of any other word, so a row is changed only when its id says it is this account's:
+#   keeps  records of what was done: kept for the statistics and the administrator (LEFT JOIN users shows a missing
+#          account as 「已删除的用户」, farm/usage.py _uses), without the account's name or where it worked from
+#   counts counts of the whole site: the account's rows are added to account 0's (no account has id 0), so the site's
+#          totals stay as they were
+#   goes   ON DELETE CASCADE: removed with the account row, as the confirmation dialog says
+#   names  no user_id: who did something is a name with its account id beside it (`named`: the name's column and the
+#          id's, written together from an Actor): the name says DELETED where the id is this account's
+# Node graphs saved on the server are files (work/users/<username>/templates/, lab2shot/library.py), deleted with the
+# account's folder; its task folders, its cache and its uploads are deleted with it (farm/disk.py forget_account), so
+# the job records kept afterwards no longer have a graph. A preset template saved since ids names who saved it by id
+# (library.py author_id), shown as 「已删除的用户」 once the account is gone; a file saved before holds a name, and
+# being the repository's templates/, it is left as it is. The account's id is never given again (_new_id).
+
+ACTOR_KEYS = ("who", "role")  # an audit line's words for whoever did it (server/access.py actor), never for whom
+
+
+def _forget_jobs(c, u: User) -> None:
+    # the record's client is the account and what its requests showed (farm/clients.py full: address, computer, OS
+    # user): only the application it came from stays
+    c.execute("UPDATE jobs SET user_id = NULL, record = json_set(record, '$.client', "
+              "json_object('app', json_extract(record, '$.client.app'))) WHERE user_id = ?", (u.id,))
+
+
+def _forget_consents(c, u: User) -> None:
+    # who accepted a licence (extensions/manual.py accept: farm/clients.py full): only the application stays
+    c.execute("UPDATE consents SET user_id = NULL, record = json_set(record, '$.who', "
+              "json_object('app', json_extract(record, '$.who.app'))) WHERE user_id = ?", (u.id,))
+
+
+def _forget_feedback(c, u: User) -> None:
+    """Its feedback is kept without saying whose (user_id, the sender the server noted in its bundle), and no feedback's
+    bundle names it any more: a bundle holds what the server's log said when it was sent (feedback.py submit), whoever
+    sent it, and a line of that log naming this account goes from all of them: its username, its label, or where it
+    logged in from (an address, a computer's name: login_log, read here before _forget_logins forgets them; a request's
+    line names only its address)."""
+    from .feedback import folder
+
+    places = {v for row in c.execute("SELECT ip, hostname FROM login_log WHERE user_id = ?", (u.id,)).fetchall()
+              for v in row if v}
+    marked = re.compile("|".join([rf"(?<![\w.-]){re.escape(u.username)}(?![\w-])", re.escape(f"{u.name}（{u.username}）"),
+                                  *(rf"(?<![\w.:-]){re.escape(v)}(?![\w:-]|\.\w)" for v in sorted(places))]))
+    for fid, owner in c.execute("SELECT id, user_id FROM feedback").fetchall():
+        bundle = folder(fid) / "bundle.json"
+        try:
+            kept = json.loads(bundle.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        cleaned = _unmarked(kept, marked)
+        if owner == u.id and isinstance(cleaned.get("server"), dict):
+            cleaned["server"]["client"] = {"who": DELETED}
+        if cleaned != kept:
+            write_text(bundle, json.dumps(cleaned, ensure_ascii=False, indent=1))
+    c.execute("UPDATE feedback SET user_id = NULL WHERE user_id = ?", (u.id,))
+
+
+def _unmarked(value, marked: re.Pattern):
+    """`value` (a JSON value) without what `marked` finds: a line of a list of them (a log's) gone, any other text with
+    it said as DELETED."""
+    if isinstance(value, list):
+        return [_unmarked(v, marked) for v in value if not (isinstance(v, str) and marked.search(v))]
+    if isinstance(value, dict):
+        return {k: _unmarked(v, marked) for k, v in value.items()}
+    return marked.sub(DELETED, value) if isinstance(value, str) else value
+
+
+def _forget_logins(c, u: User) -> None:
+    # also the tries that typed its username before it resolved to the account (a username is one account's)
+    c.execute("UPDATE login_log SET user_id = NULL, username = ?, ip = '', agent = '', device = '', device_id = '', "
+              "hostname = '' WHERE user_id = ? OR username = ?", (DELETED, u.id, u.username))
+
+
+def _forget_actions(c, u: User) -> None:
+    """Its own actions (user_id: their `who` is it), and every action about it (target_id, which audit writes from the
+    account done to; a row from before that, its `username`): there, whatever names it but the words for who did it
+    (ACTOR_KEYS: another administrator, who may share its name)."""
+    label = f"{u.name}（{u.username}）"
+    for row_id, by, about, params in c.execute(
+            "SELECT id, user_id, target_id, params FROM admin_actions WHERE user_id = ? OR target_id = ? OR "
+            "(target_id IS NULL AND json_extract(params, '$.username') = ?)", (u.id, u.id, u.username)).fetchall():
+        said = json_of(params, {})
+        if not isinstance(said, dict):
+            continue
+        if by == u.id and said.get("who") in (label, u.name, u.username):
+            said["who"] = DELETED
+        if about == u.id or said.get("username") == u.username:
+            said = {k: v if k in ACTOR_KEYS else _unnamed(v, u) for k, v in said.items()}
+        c.execute("UPDATE admin_actions SET user_id = ?, target_id = ?, params = ? WHERE id = ?",
+                  (None if by == u.id else by, None if about == u.id else about, json_text(said), row_id))
+
+
+def _unnamed(value, u: User):
+    """`value` (a JSON value about this account) with what names it said as DELETED: its label, its username (whole
+    texts: a username may be a part of other words) and its name, also inside a text (a change written as name=张三)."""
+    if isinstance(value, str):
+        if value in (u.username, f"{u.name}（{u.username}）"):
+            return DELETED
+        return value.replace(u.name, DELETED) if u.name else value
+    if isinstance(value, list):
+        return [_unnamed(v, u) for v in value]
+    if isinstance(value, dict):
+        return {k: _unnamed(v, u) for k, v in value.items()}
+    return value
+
+
+def _forget_notice(c, u: User) -> None:
+    # the notice's `by` (meta server.notice: server/notice.py), with its account id beside it
+    row = c.execute("SELECT value FROM meta WHERE key = 'server.notice'").fetchone()
+    notice = json_of(row[0], {}) if row else {}
+    if isinstance(notice, dict) and notice.get("by_id") == u.id:
+        c.execute("UPDATE meta SET value = ? WHERE key = 'server.notice'",
+                  (json_text({**notice, "by": DELETED, "by_id": None}),))
+
+
+def _merge_traffic(c, u: User) -> None:
+    c.execute("INSERT INTO traffic (user_id, day, bytes) SELECT 0, day, bytes FROM traffic WHERE user_id = ? "
+              "ON CONFLICT (user_id, day) DO UPDATE SET bytes = bytes + excluded.bytes", (u.id,))
+    c.execute("DELETE FROM traffic WHERE user_id = ?", (u.id,))
+
+
+@dataclass(frozen=True)
+class Purged:
+    how: str  # keeps, counts, goes, names (above)
+    forget: Callable[..., None] | None = None  # (connection, account): what purge does with its rows
+    # (name column, its account id column): who did something; the name says DELETED where the id is this account's
+    named: tuple[tuple[str, str], ...] = ()
+
+
+PURGE = {
+    "jobs": Purged("keeps", _forget_jobs),
+    "consents": Purged("keeps", _forget_consents),
+    "feedback": Purged("keeps", _forget_feedback, named=(("updated_by", "updated_by_id"), ("replied_by", "replied_by_id"))),
+    "login_log": Purged("keeps", _forget_logins),  # after feedback: _forget_feedback reads where it logged in from
+    "admin_actions": Purged("keeps", _forget_actions),
+    "traffic": Purged("counts", _merge_traffic),
+    **{t: Purged("goes") for t in ("sessions", "tasks", "task_group_names", "registrations", "terms_agreed")},
+    "invites": Purged("names", named=(("created_by", "created_by_id"),)),
+    "terms_versions": Purged("names", named=(("by", "by_id"),)),
+    "role_rights": Purged("names", named=(("updated_by", "updated_by_id"),)),
+    "meta": Purged("names", _forget_notice),
+}
 
 
 def purge(user_id: int) -> dict:
     """Permanently delete an already deleted account: the account row is removed and the username may be reused (not
     before: create).
 
-    Job records, feedback, login records and the admin action log are kept (KEEPS_RECORDS) but no longer identify the
-    account; the statistics show them as 「已删除的用户」. Returns the number of rows kept per table, which the
-    confirmation dialog and the audit log report.
+    Job records, feedback, login records and the admin action log are kept but no longer identify the account (PURGE
+    keeps: nor where it worked from); the statistics show them as 「已删除的用户」, and what it was sent stays in the
+    site's traffic totals (PURGE counts). Returns the number of rows kept per table, which the confirmation dialog and
+    the audit log report.
 
     Applies only to accounts already deleted (deletion and permanent deletion are two separate steps, to prevent
     accidental loss). The built-in administrator account (ADMIN_ID) can never be deleted."""
@@ -466,13 +662,23 @@ def purge(user_id: int) -> dict:
     if live := farm().live_of(user_id):
         raise Invalid(Msg("E-ACCOUNT-JOBSLIVE", username=u.username, count=len(live)))
 
-    kept = {t: db().row(f"SELECT COUNT(*) AS n FROM {t} WHERE user_id = ?", (user_id,))["n"] for t in KEEPS_RECORDS}
+    from . import traffic
+
+    kept = {t: db().row(f"SELECT COUNT(*) AS n FROM {t} WHERE user_id = ?", (user_id,))["n"]
+            for t, p in PURGE.items() if p.how == "keeps"}
     graphs = remove_user(u.username)
-    forget_account(user_id)  # its tasks, cache and uploads: an id SQLite may reuse never finds anything of it
+    forget_account(user_id)  # its tasks, cache and uploads
+    traffic.flush()  # what it sent that is still counted in memory, into the rows moved below
     with db().write() as c:
-        for table in KEEPS_RECORDS:
-            c.execute(f"UPDATE {table} SET user_id = NULL WHERE user_id = ?", (user_id,))
+        for table, p in PURGE.items():
+            if p.forget is not None:
+                p.forget(c, u)
+            for column, by_id in p.named:
+                c.execute(f"UPDATE {table} SET {column} = ?, {by_id} = NULL WHERE {by_id} = ?", (DELETED, u.id))
+        c.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = "
+                  "MAX(CAST(value AS INTEGER), CAST(excluded.value AS INTEGER))", (TOP_ID, str(user_id)))
         c.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        _changed(c)
     return {"jobs": kept["jobs"], "feedback": kept["feedback"], "graphs": graphs}
 
 
@@ -664,20 +870,23 @@ def presence() -> dict[int, dict]:
     return out
 
 
-def online(roles_shown: set[str] | None = None) -> dict:
+def online(manages: Callable[[int, str], bool]) -> dict:
     """Accounts online now (presence(): a request within ONLINE_S; the machine token never counts), with browsers
     and clients counted separately (start()): a count of each and who/where, for the admin overview's 在线 tile and
-    tooltip. `roles_shown`: only accounts of these roles (those the viewer manages)."""
+    tooltip. `manages(account id, role)`: whether whoever asks manages that account (server/access.py manages): where
+    another is online (its device, its computer) is said only of those it does."""
     here = {i: p["online"] for i, p in presence().items() if p["online"]}
     if not here:
         return {"count": 0, "browser": 0, "client": 0, "who": {"browser": [], "client": []}, "window_s": ONLINE_S}
     marks = ",".join("?" * len(here))  # placeholders only: the ids are the server's own integers
-    users = [r for r in db().rows(f"SELECT id, name, username, department, role FROM users WHERE id IN ({marks})",
-                                  tuple(here)) if roles_shown is None or r["role"] in roles_shown]
+    users = db().rows(f"SELECT id, name, username, department, role FROM users WHERE id IN ({marks})", tuple(here))
 
     def line(r, w: dict) -> str:
+        who = f"{r['name']}（{r['username']}）{' · ' + r['department'] if r['department'] else ''}"
+        if not manages(r["id"], r["role"]):
+            return who
         at = f" · {w['hostname']}" if w["kind"] == "client" and w["hostname"] else ""
-        return f"{r['name']}（{r['username']}）{' · ' + r['department'] if r['department'] else ''} · {w['device']}{at}"
+        return f"{who} · {w['device']}{at}"
 
     browser = [line(r, w) for r in users for w in here[r["id"]] if w["kind"] == "web"]
     client = [line(r, w) for r in users for w in here[r["id"]] if w["kind"] == "client"]
@@ -685,7 +894,7 @@ def online(roles_shown: set[str] | None = None) -> dict:
             "who": {"browser": browser, "client": client}, "window_s": ONLINE_S}
 
 
-def logins_in(p: Periods) -> dict:
+def logins_in(p: Periods, manages: Callable[[int, str], bool]) -> dict:
     """The admin overview's 访问: accounts online now (online()), and in 今日, 近 7 天 and 本月 the accounts that logged
     in, their successful logins and the failed attempts (login_log: browsers and clients alike, the administrator's own
     too; a failure counts whether or not the username was an account, each keeping only its newest FAILED_KEPT)."""
@@ -697,7 +906,7 @@ def logins_in(p: Periods) -> dict:
     people = p.distinct(((r["day"], r["user_id"]) for r in ok), shown)
     logins = p.sums(((r["day"], r["n"]) for r in ok), shown)
     fails = p.sums(((r["day"], r["n"]) for r in failed), shown)
-    return {"online": online(),
+    return {"online": online(manages),
             **{k: {"people": people[k], "logins": logins[k], "failed": fails[k]} for k in shown}}
 
 
@@ -800,9 +1009,7 @@ def passphrase() -> dict | None:
 
 def set_passphrase(new: str) -> None:
     """Called only by `lab2shot admin passphrase`; no server route calls it."""
-    if problem := rule_problem(new, "口令"):
-        raise Invalid(problem)
-    db().set_meta(PASSPHRASE, {"hash": hash_secret(new), "set": now()})
+    db().set_meta(PASSPHRASE, {"hash": new_password(new, "口令"), "set": now()})
 
 
 def machine_token() -> str:

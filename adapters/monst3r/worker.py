@@ -329,7 +329,6 @@ def main(job_path: str) -> None:
         convention=recon.CONVENTION,
         metric=False,
         units="arbitrary (MonST3R is scale-free; one unit is the same everywhere in the shot)",
-        scale_cm=None,
         confidence="MonST3R per-frame confidence before alignment (>= 1, higher = surer)",
         mask="confidence > conf_threshold, inside the network's crop, minus moving objects",
         # the exported mask is the one upstream save_dynamic_masks exports (SAM 2.1 when available, otherwise flow).

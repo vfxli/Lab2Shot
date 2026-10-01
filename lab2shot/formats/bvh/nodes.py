@@ -13,6 +13,8 @@ from . import SUFFIXES
 
 
 class ImportBvh(ArraysImport):
+    # 10：Frame Time 正好是整数帧率时就是它（0.1 → 10，不是 12）
+    version = 10
     id = "core.import_bvh"
     suffixes = SUFFIXES
     on_node = ("unit",)
@@ -20,15 +22,56 @@ class ImportBvh(ArraysImport):
     class Params(NodeParams):
         path: str = import_file_param(SUFFIXES)
         skeletons: list[str] = selection_param("skeletons")
-        unit: Literal["cm", "m"] = P("cm", label="单位", group="BVH", option_labels={"cm": "厘米", "m": "米"},
-                                     worker=False)
-    outputs = selection_ports(Params)
+        # 「自动」：按骨头长度估出来的每单位多少厘米（reader.unit_guess），与 W-BVH-UNIT 提示用的同一个估计
+        unit: Literal["cm", "m", "auto"] = P("cm", label="单位", group="BVH",
+                                             option_labels={"cm": "厘米", "m": "米", "auto": "自动（按骨长估计）"}, worker=False)
+    outputs = selection_ports(Params, fps="BVH 记的帧率（Frame Time 的倒数）", fps_always=True)
+
+    @classmethod
+    def unit_cm(cls, params) -> float:
+        """Centimetres per file unit: the chosen unit, or with 「自动」 the guess from the bones (reader.unit_guess;
+        1 when the skeleton has none to measure)."""
+        from lab2shot_shared import scene_arrays as sa
+
+        from . import reader
+
+        if params["unit"] != "auto":
+            return to_cm(params["unit"])
+        _, items = sa.load(cls.arrays(params))
+        return (reader.unit_of(items) or (1.0, ""))[0]
 
     @classmethod
     def axes(cls, params, top):
         from ...data.scene_arrays import Axes
 
-        return Axes.of(to_cm(params["unit"]), "y")  # BVH is Y up
+        return Axes.of(cls.unit_cm(params), "y")  # BVH is Y up
+
+    @classmethod
+    def read(cls, ctx, chosen):
+        """The skeleton as its file has it, and W-BVH-UNIT when the chosen unit makes it far from a person's size (BVH
+        records no unit): a retarget measures by leg length and does not mind, a direct delivery would."""
+        from lab2shot_shared import scene_arrays as sa
+
+        from . import reader
+
+        out = super().read(ctx, chosen)  # the file parsed once: reader.parsed keeps it for the lines below
+        _, items = sa.load(cls.arrays(ctx.params, ctx))
+        guess, chosen_cm = reader.unit_guess(items), cls.unit_cm(ctx.params)
+        if ctx.params["unit"] == "auto":
+            unit = reader.unit_of(items)
+            if unit and unit[1]:
+                ctx.say("I-BVH-UNITAUTO", unit=unit[1], guess=guess)
+            elif unit:  # near no standard unit (CMU's 0.45 inch): read at the guess, and said
+                ctx.say("W-BVH-UNITGUESS", guess=guess)
+        elif guess and max(guess / chosen_cm, chosen_cm / guess) > reader.UNIT_OFF:
+            ctx.say("W-BVH-UNIT", unit="厘米" if ctx.params["unit"] == "cm" else "米",
+                    reach=reader.reach(items) * chosen_cm, guess=guess)
+        _, replaced, extra = reader.parsed(str(cls.path(ctx.params)))
+        if replaced:
+            ctx.say("W-BVH-NAMEENCODING", name=cls.path(ctx.params).name, count=len(replaced), names=replaced[:5])
+        if extra:
+            ctx.say("W-BVH-EXTRAFRAMES", name=cls.path(ctx.params).name, count=extra)
+        return out
 
     @classmethod
     def arrays(cls, params, ctx=None):

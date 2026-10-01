@@ -93,7 +93,7 @@ year = 2024
 
 ## 许可证说明
 
-- 不能商用。GVHMR 代码和权重是浙江大学的许可：只允许教育、科研和非营利用途；基于它的修改必须开源，并且同样禁止商用。商用要联系 xwzhou@zju.edu.cn。
+- 仅限研究：发布的权重用 AMASS、BEDLAM 等只许学术研究的数据训练（上游 exp=gvhmr/mixed/mixed），与同样用 AMASS 的 WHAM 同一档。GVHMR 代码和权重是浙江大学的许可：只允许教育、科研和非营利用途；基于它的修改必须开源，并且同样禁止商用。商用要联系 xwzhou@zju.edu.cn。
 - SMPL-X 人体模型：仅限非商用科研，禁止再分发。
 - 其他组件：HMR2.0a（4D-Humans，MIT）、ViTPose-H（Apache-2.0）、YOLOv8x 权重和 ultralytics 代码（AGPL-3.0）、pytorch3d / pycolmap（BSD）、smplx 代码（马普所非商用许可）。
 

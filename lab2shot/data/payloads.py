@@ -266,8 +266,10 @@ def is_data(p: Packet) -> bool:
     """判断二维数据是数值图（深度、遮罩、法线、ST-map 等）还是画面（照片、渲染、HDRI）。
 
     判断仅在此处进行，画面即 `not is_data(p)`。三通道的 image.3 既可能是照片也可能是法线图，
-    通道数无法区分，因此依据数据自身的标记：
-    优先读取 map_packet 写入的 values，缺失时依据色彩空间（数值图使用配置中的 DATA 角色）。
+    通道数无法区分，因此依据包上的标记 values：计算完成的包由引擎按输出端口的声明写上（Port.data，
+    engine/graph.py output_data；engine/cook.py _settle_outputs 同时核对写出的是不是这一种），界面上
+    「输出色彩空间」等条件读的也是这份声明（applies.py WiredPicture），两处不会各判各的。
+    计算中的包：map_packet 先写上 values，其余依据色彩空间（数值图使用配置中的 DATA 角色）；
     边算边传的临时包两者均未写入，按通道数推断：一至两条为数值，三至四条为画面；推断错误仅影响计算中各帧的预览。
 
     非二维像素数据的包（相机、点云、数值等）均返回 False，且必须最先排除：

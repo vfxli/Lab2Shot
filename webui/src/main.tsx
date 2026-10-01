@@ -3,7 +3,7 @@
 import "./ui/tokens.css";
 import "./styles/00-base.css";
 import "./ui/field.css";
-import "./ui/forms.css"; // 公共表单行（.who-row）多处使用，全站加载，不跟着某个组件走
+import "./ui/forms.css"; // the shared form row (.who-row) is used in many places: loaded site-wide, not with any one component
 import "./ui/glass.css";
 import "./ui/tip.css"; // after glass: the tip is also .glass, and its own position (fixed) must win
 import { StrictMode } from "react";

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, Confidence, Invalid, PerFrameDepthCamera, Msg, P, WholeShotDepthCamera,
+from .extension import OPTION_LICENCES
+from lab2shot.sdk import (licence_traits, Official, Confidence, Invalid, PerFrameDepthCamera, Msg, P, WholeShotDepthCamera,
                           WholeShotParams, loops_param, max_frames_param, resolution_param, unit_cm_param, Cost,
-                          Licence, OptionTrait, Param, Measured)
+                          Licence, Param, Measured)
 
-LICENSE = "代码 Apache-2.0；Base 和 Metric-Large 权重 Apache-2.0 可以商用，Giant 和 Large 1.1 权重 CC-BY-NC-4.0 只能研究用。"
+LICENSE = "代码 Apache-2.0；Base 和 Metric-Large 权重 Apache-2.0 可以商用，Giant 和 Large 1.1 权重 CC-BY-NC-4.0 非商用。"
 ANYVIEW = {"da3nested-giant-large-1.1": "Giant", "da3-large-1.1": "Large", "da3-base": "Base"}
 
 
@@ -36,9 +37,7 @@ class Geometry(PerFrameDepthCamera):
     )
     cost = Cost(gpu=True, vram_gb=2.6, seconds_per_frame=0.03)
     licence = Licence(note=LICENSE)
-    traits = (
-        OptionTrait(Param('model').one_of('da3nested-giant-large-1.1', 'da3-large-1.1'), noncommercial=True),
-    )
+    traits = licence_traits(OPTION_LICENCES)
 
     class Params(PerFrameDepthCamera.Params):  # 家族的 Params：镜头（没有模型自己的点云：点云间隔 / 点的大小随「点云」口去掉）
         model: Literal["da3metric-large", "da3nested-giant-large-1.1", "da3-large-1.1", "da3-base"] = P(
@@ -92,9 +91,7 @@ class Reconstruct(WholeShotDepthCamera):
     )
     cost = Cost(gpu=True, vram_gb=11.6, seconds_per_frame=0.056)
     licence = Licence(note=LICENSE)
-    traits = (
-        OptionTrait(Param('model').one_of('da3nested-giant-large-1.1', 'da3-large-1.1'), noncommercial=True),
-    )
+    traits = licence_traits(OPTION_LICENCES)
 
     class Params(WholeShotParams):
         model: Literal["da3nested-giant-large-1.1", "da3-large-1.1", "da3-base"] = P(

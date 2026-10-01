@@ -7,11 +7,11 @@ import type { PlanesAnswer } from "./exrWorker";
  * （节点读取时所用的色彩空间、当前显示与视图）烘焙成一张以线性值 log2 为坐标的 3D 查找表（GET /api/view/lut），
  * 页面逐像素查表。结果接近服务器的显示效果，素材上传完成后由服务器的读取结果取代。 */
 
-/** The page's one EXR worker (exrWorker.ts): the display decode below and the channel planes of an upload
- * (transfer/planes.ts, `exrPlanes`) both ask it, so one worker holds the decoder, not two. */
+/** 页面唯一的 EXR worker（exrWorker.ts）：下面的显示解码与上传的通道平面（transfer/planes.ts，`exrPlanes`）都找它，
+ * 解码器只在一个 worker 里，不是两个。 */
 const ask = workerAsks<unknown>(() => new Worker(new URL("./exrWorker.ts", import.meta.url), { type: "module" }));
 
-/** The raw planes of these channels of an EXR file (the worker's request 2), in the worker. */
+/** 一个 EXR 文件里这几条通道的原始平面（worker 的第 2 种请求），在 worker 里解。 */
 export const exrPlanes = (file: Uint8Array, planes: string[]): Promise<PlanesAnswer> => ask({ file, planes }, [file]) as Promise<PlanesAnswer>;
 
 /** 按服务器的显示方式解码 EXR 文件（`space`：节点的色彩空间，空串表示按文件名规则判定）。

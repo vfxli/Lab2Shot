@@ -1,4 +1,4 @@
-/* ------------------------------------------------------------------ log window */
+/* The log window (editor/LogSheet.tsx) and the log's count badge in the top bar. */
 
 .log-list {
   height: min(56vh, 560px);

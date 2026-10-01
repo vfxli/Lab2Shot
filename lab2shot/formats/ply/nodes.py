@@ -16,6 +16,7 @@ UNIT_LABELS = {"cm": "厘米", "m": "米"}
 
 class ImportPly(ArraysImport):
     id = "core.import_ply"
+    version = 3  # 3：组名的原名存在 customData（FBX 等交付按原名写组）
     suffixes = SUFFIXES
     on_node = ("unit",)
 

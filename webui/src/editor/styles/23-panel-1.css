@@ -1,7 +1,9 @@
-/* ---------------------------------------------------------------- the panel: on-node mark, flash, info rows */
-/* 在节点上显示（.onnode-pin, ParamPanel.tsx OnNodePin）：参数行上第三个记号，只管这一行在不在节点身上。
-   提升到节点那个记号是 .socket-pin
-   （28-param-table.css），它比这个多一个输入口。提升出来的参数在这个记号上是常亮、点不掉的（.fixed） */
+/* The parameter panel, part 1: the on-node mark, the flash of a parameter clicked on the node, info rows, the summary of
+   a parameter edited in a sheet (editor/ParamSheet.tsx) and the hierarchy tree (editor/HierarchyPicker.tsx). */
+
+/* 在节点上显示 (.onnode-pin, ParamPanel.tsx OnNodePin): the third mark on a parameter row; it only decides whether this
+   row is on the node's body. The 提升到节点 mark is .socket-pin (28-param-table.css), which adds an input port on top of
+   this. A promoted parameter shows this mark always lit and it cannot be switched off (.fixed) */
 .onnode-pin {
   position: absolute;
   left: 32px;
@@ -17,7 +19,7 @@
   background: transparent;
   color: var(--text-3);
   cursor: pointer;
-  opacity: 0.4;  /* 常显，同 .socket-pin */
+  opacity: 0.4;  /* always visible, like .socket-pin */
   transition: opacity 0.12s;
 }
 
@@ -130,16 +132,18 @@ a.info-value {
   margin: 0;
 }
 
-/* An import node's selection of one kind (widget "hierarchy", HierarchyPicker.tsx): in the panel what is chosen, the
-   count and the first entries as chips; 「选择…」 opens the file's hierarchy as a tree */
-.hier {
+/* How a parameter edited in a sheet (editor/ParamSheet.tsx) looks in the panel: a summary of the current value on the
+   left, 「编辑…」 and any extra controls on the right. For example, an import node's hierarchy pick (widget "hierarchy",
+   HierarchyPicker.tsx): the summary is how many are picked plus chips for the first few, and 「选择…」 opens the file's
+   hierarchy tree */
+.psheet {
   display: flex;
   align-items: flex-start;
   gap: 6px;
   width: 100%;
 }
 
-.hier-sum {
+.psheet-sum {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -149,6 +153,7 @@ a.info-value {
   min-height: 28px;
 }
 
+.psheet-none,
 .hier-none,
 .hier-count,
 .hier-more {
@@ -178,10 +183,21 @@ a.info-value {
   text-decoration: line-through;
 }
 
-.hier-actions {
+.psheet-actions {
   display: flex;
   gap: 2px;
   flex: none;
+}
+
+/* the default summary (for an editor without its own): the value as one line of text; it is the user's data, so it is
+   truncated when it does not fit, with no extra hover tip */
+.psheet-text {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
 }
 
 .htree-bar {
@@ -264,4 +280,21 @@ a.info-value {
 
 .hname {
   overflow: hidden;
+}
+
+/* A parameter editor window (editor/ParamSheet.tsx SheetWindow): the reason on top in a read-only tab, the editor in a
+   fieldset that greys its controls as a group, the foot row (SheetFoot) after it, outside that group. The fieldsets
+   add no box of their own (display: contents keeps the editor's parts as the sheet body's own flex items, with its
+   gap; `disabled` still applies to what is inside); an editor without a foot leaves no empty slot */
+.psheet-locked {
+  color: var(--orange-text);
+  font-size: var(--fs-sm);
+}
+
+fieldset.psheet-lock {
+  display: contents;
+}
+
+.psheet-foot:empty {
+  display: none;
 }

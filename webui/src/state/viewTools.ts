@@ -1,12 +1,13 @@
-// The 3D view's display options (kept in this browser), its camera, the viewer's short notices, the load state, and
-// the ruler's window (视图 state). Re-exported by state/viewer.ts.
+// 三维视图的显示选项（存在本浏览器里）、它的相机、视图的简短通知、逐帧就绪状态，以及时间尺的窗口（视图状态）。
+// 由 state/viewer.ts 转出。
 
 import { create } from "zustand";
+import { same, type Json } from "../model/graphPatch";
 import type { NoticeKind } from "../model/viewNotices";
 import type { Message } from "../messages/message";
 import { DEFAULTS, loadOptions, sanitize, saveOptions, STORAGE_KEY, type ViewOptions } from "../model/viewOptions";
 
-// ------------------------------------------------------------------ display options, the 3D camera and related state
+// ------------------------------------------------------------------ 显示选项、三维相机及相关状态
 
 interface OptionsState {
   o: ViewOptions;
@@ -18,7 +19,7 @@ const storage = (): Storage | null => {
   try {
     return window.localStorage;
   } catch {
-    return null; // storage blocked: the options last only for the page's lifetime
+    return null; // 存储被禁用：选项只在页面存续期间有效
   }
 };
 
@@ -39,65 +40,79 @@ export const useViewOptions = create<OptionsState>((set, get) => ({
 export type ViewName = "persp" | "top" | "front" | "side";
 export const VIEW_NAMES: Record<ViewName, string> = { persp: "透视", top: "顶", front: "前", side: "侧" };
 
-interface CameraState {
+/** One 3D stage's camera choices. Each stage has its own camera slot: the viewer's ("viewer", driven by the toolbar) and a
+ * dialog stage's (view/HandleStage.tsx), so a view or projection set in one never changes the other's. */
+export interface SlotCamera {
   view: ViewName;
   ortho: boolean;
-  look: string | null;
   frameAsk: { what: "all" | "selected"; n: number };
   viewAsk: number;
+}
+export const VIEWER_SLOT = "viewer";
+const FREE: SlotCamera = { view: "persp", ortho: false, frameAsk: { what: "all", n: 0 }, viewAsk: 0 };
+/** A slot's choices (the default free perspective view until something is set). */
+export const slotCamera = (s: Pick<CameraState, "slots">, slot: string): SlotCamera => s.slots[slot] ?? FREE;
+
+/** A scene camera looked through: `key` tells this copy of it apart (its packet and path), `path` is where it sits in
+ * the hierarchy (the same camera in a recooked packet has the same path). */
+export interface LookAt {
+  key: string;
+  path: string;
+}
+
+interface CameraState {
+  slots: Record<string, SlotCamera>;
+  look: LookAt | null; // the viewer's only: which scene camera it looks through
   /** 场景中的相机列表及当前选中项：由三维舞台计算后存放于此，工具栏据此绘制「视角」控件。
    * 视角与框显属于视图工具，与 2D / 3D 等位于同一排工具栏，不浮在画面上。 */
-  cameras: { key: string; label: string; width: number; height: number }[];
+  cameras: (LookAt & { label: string; width: number; height: number })[];
   selected: string | null;  // 视图中选中物体的名称（「框显选中」据此启用或置灰）
-  setView: (v: ViewName) => void;
-  setOrtho: (on: boolean) => void;
-  setLook: (camera: string | null) => void;
-  frame: (what: "all" | "selected") => void;
+  setView: (v: ViewName, slot?: string) => void;
+  setOrtho: (on: boolean, slot?: string) => void;
+  setLook: (camera: LookAt | null) => void;
+  frame: (what: "all" | "selected", slot?: string) => void;
+  forget: (slot: string) => void; // a stage that is gone for good (a closed dialog): its next opening starts afresh
   setCameras: (list: CameraState["cameras"]) => void;
   setSelected: (label: string | null) => void;
 }
 
-export const useViewCamera = create<CameraState>((set, get) => ({
-  view: "persp",
-  ortho: false,
+export const useViewCamera = create<CameraState>((set) => {
+  const patch = (slot: string, p: (c: SlotCamera) => Partial<SlotCamera>, extra: Partial<CameraState> = {}) =>
+    set((s) => { const c = slotCamera(s, slot); return { ...extra, slots: { ...s.slots, [slot]: { ...c, ...p(c) } } }; });
+  // looking through a scene camera is the viewer's: a view or framing asked of the viewer leaves it
+  const leave = (slot: string) => (slot === VIEWER_SLOT ? { look: null } : {});
+  return {
+  slots: {},
   look: null,
-  frameAsk: { what: "all", n: 0 },
-  viewAsk: 0,
-  setView: (view) => set({ view, ortho: view !== "persp", look: null, viewAsk: get().viewAsk + 1 }),
-  setOrtho: (ortho) => set({ ortho }),
-  setLook: (look) => set(look ? { look, view: "persp", ortho: false } : { look: null }),
-  frame: (what) => set({ look: null, frameAsk: { what, n: get().frameAsk.n + 1 } }),
+  setView: (view, slot = VIEWER_SLOT) => patch(slot, (c) => ({ view, ortho: view !== "persp", viewAsk: c.viewAsk + 1 }), leave(slot)),
+  setOrtho: (ortho, slot = VIEWER_SLOT) => patch(slot, () => ({ ortho })),
+  setLook: (look) => (look ? patch(VIEWER_SLOT, () => ({ view: "persp", ortho: false }), { look: { key: look.key, path: look.path } }) : set({ look: null })),
+  frame: (what, slot = VIEWER_SLOT) => patch(slot, (c) => ({ frameAsk: { what, n: c.frameAsk.n + 1 } }), leave(slot)),
+  forget: (slot) => set((s) => { const slots = { ...s.slots }; delete slots[slot]; return { slots }; }),
   cameras: [],
   selected: null,
-  setCameras: (cameras) => set((s) => (JSON.stringify(s.cameras) === JSON.stringify(cameras) ? s : { cameras })),
+  setCameras: (cameras) => set((s) => (same(s.cameras as unknown as Json, cameras as unknown as Json) ? s : { cameras })),
   setSelected: (selected) => set((s) => (s.selected === selected ? s : { selected })),
-}));
+  };
+});
 
-/** A short notice the viewer shows briefly after changing something by itself (the stage switched because the new node
- * has nothing to show on the user's current stage, or a looked-through camera does not exist on the node): a few words
- * in the pill, with the full reason in its tooltip. */
+/** 视图自行改动了什么之后短暂显示的简短通知（新节点在用户当前的舞台上没有可显示的内容而换了舞台，或透过的相机在该节点上
+ * 不存在）：胶囊里几个字，完整原因在它的悬停提示里。 */
 export const useViewerNote = create<{ note: Message | null; why: Message | string; n: number; say: (note: Message, why?: Message | string) => void }>((set, get) => ({
   note: null,
-  why: "", // the full reason, shown in the pill's tooltip; the pill itself stays one short line
+  why: "", // 完整原因，显示在胶囊的悬停提示里；胶囊本身只占短短一行
   n: 0,
   say: (note, why = "") => set({ note, why, n: get().n + 1 }),
 }));
 
-/** The frames of the displayed 3D view whose data is currently in the browser (the timeline's 已载入视图 row); null:
- * nothing shown is loaded frame by frame (it arrives together with the rest). */
-/** `catchingUp`：本轮放弃实时播放：待播放的帧尚未传到，因此逐帧等待拉取而不跳帧（与 DCC 相同：
- * 缓存未就绪的第一遍不实时，第二遍才实时）。此状态在统一的视图通知区显示，不在视图上另绘控件。 */
-/** `loaded`：该源中无需网络即可绘制的帧（字节在内存中，或原件在本机磁盘上），对应时间线上「已载入视图」的颜色。
- * `decoded`：二维主源中已解码、可立即绘制的帧，播放器只依据此项。「在磁盘上」与「已解码」必须区分：
- * 若合并为一项，播放器会将本机文件的每一帧视为已就绪，按 24 fps 强行推进，解码跟不上时持续显示上一帧，
- * 而不是暂停等待。三维舞台不设置此项（null）。 */
-/** `pending`：三维舞台中逐帧数据块尚未到达的帧（view/scene.ts pending）。播放器播放到这些帧时需等待，与二维取帧账本中
- * 「正在读取」含义相同（三维数据块不经过该账本，因此单独报告）。二维舞台不设置此项（null）。 */
-export const useViewLoads = create<{ loaded: number[] | null; decoded: number[] | null; pending: number[] | null; stale: boolean; catchingUp: boolean }>(
-  () => ({ loaded: null, decoded: null, pending: null, stale: false, catchingUp: false }),
+/** 视图的逐帧就绪情况，由 transfer/readiness.ts 写（reportLoads / clearLoads），播放器经 readiness.playable 读：
+ * `loaded` 无须再下载的帧（时间线「已载入视图」的颜色）；`ready` 可立即画的帧（二维：所有在用的格都已解码——
+ * 「在本机磁盘上」不等于「已解码」，否则播放器把本机序列当就绪，解码跟不上时一直显示上一帧）；`waiting` 在途的帧；
+ * `stale` 画的是上一次的结果；`cached` 三维整段缓存进度 [已在本机的帧数, 总帧数]；`catchingUp` 本轮放弃实时、逐帧等待。 */
+export const useViewLoads = create<{ loaded: number[] | null; ready: number[] | null; waiting: number[] | null; stale: boolean; catchingUp: boolean;
+                                     cached: [number, number] | null }>(
+  () => ({ loaded: null, ready: null, waiting: null, stale: false, catchingUp: false, cached: null }),
 );
-// 供探针读取（开发用途，非页面功能）：`window.__l2s_loads()` 返回此状态
-if (typeof window !== "undefined") (window as unknown as { __l2s_loads?: () => unknown }).__l2s_loads = () => useViewLoads.getState();
 // `stale`：二维主源绘制的是上一次的结果（参数已修改，state/stale.ts），时间线色带据此显示为土黄色
 
 /** 二维舞台当前绘制的画面尺寸（图像像素，而非屏幕像素；null 表示当前没有二维舞台）。
@@ -109,8 +124,8 @@ if (typeof window !== "undefined") (window as unknown as { __l2s_loads?: () => u
  * 舞台绘制时发布该值，舞台卸载时清除。 */
 export const useStagePicture = create<{ size: { width: number; height: number } | null }>(() => ({ size: null }));
 
-/** The frames shown by the timeline's ruler (zoomed with the wheel, moved by dragging) for the shot `key` (its first
- * and last frame): the curve editor's frame axis uses the same window, so a frame is at the same position in both. */
+/** 镜头 `key`（它的首帧与末帧）在时间线时间尺上显示的帧范围（滚轮缩放、拖动平移）：曲线编辑器的帧轴用同一个窗口，
+ * 所以同一帧在两处位置相同。 */
 export interface FrameWindow {
   start: number;
   end: number;
@@ -119,8 +134,8 @@ export const useRulerView = create<{ zoom: { key: string; view: FrameWindow } | 
   (set) => ({ zoom: null, setZoom: (zoom) => set({ zoom }) }),
 );
 
-/** 显示原始: whether the curve editor draws, under each changed channel, the channel as received (a packet's
- * `before`). 视图 state: belongs to the browser, not the document; never undoable, never sent. */
+/** 显示原始：曲线编辑器是否在每条改过的通道下面画出收到时的那条通道（包的 `before`）。视图状态：属于浏览器而不属于
+ * 文档；不可撤销，不发送。 */
 export const useCurveView = create<{ original: boolean; setOriginal: (on: boolean) => void }>((set) => ({
   original: true,
   setOriginal: (original) => set({ original }),
@@ -131,7 +146,7 @@ try {
     if (e.key === STORAGE_KEY) useViewOptions.setState({ o: loadOptions(storage()) });
   });
 } catch {
-  // no window events (not a browser): nothing to follow
+  // 没有 window 事件（不在浏览器里）：无需跟随
 }
 
 /** 舞台需要在画面上显示的文字均放在此处（统一通知区，所有此类通知都经由它）。二维舞台、三维舞台、本机画面各自放入

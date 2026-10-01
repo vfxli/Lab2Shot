@@ -98,13 +98,16 @@ class LensGroup:
     id: str
     label: str
     models: Mapping[str, GroupModel]
+    # the group 「LensDistortion」 starts on (listed first): its extension says so; the core names no extension
+    default: bool = False
 
     def model(self, name: str) -> GroupModel | None:
         return self.models.get(str(name or ""))
 
 
-def _core_group(gid: str, label: str, ids: tuple[str, ...]) -> LensGroup:
-    return LensGroup(gid, label, MappingProxyType({m: GroupModel(m, MODELS[m].label, m, MODELS[m].names) for m in ids if m in MODELS}))
+def _core_group(gid: str, label: str, ids: tuple[str, ...], default: bool = False) -> LensGroup:
+    return LensGroup(gid, label, MappingProxyType({m: GroupModel(m, MODELS[m].label, m, MODELS[m].names) for m in ids if m in MODELS}),
+                     default)
 
 
 # 核心仅自带 3DE4 组（手填或从 Nuke 粘贴）。COLMAP 组由 COLMAP 扩展声明（adapters/colmap/lens.py），其列表即
@@ -114,9 +117,9 @@ THREE_DE_GROUP = _core_group("3de4", "3DE4", tuple(m for m in LENS_MODELS if MOD
 CORE_GROUPS = (THREE_DE_GROUP,)
 
 
-def core_group(gid: str, label: str, ids: tuple[str, ...]) -> LensGroup:
+def core_group(gid: str, label: str, ids: tuple[str, ...], default: bool = False) -> LensGroup:
     """以核心公式表 id 命名模型的组（供 COLMAP 扩展使用，其模型名即表 id）。"""
-    return _core_group(gid, label, ids)
+    return _core_group(gid, label, ids, default)
 
 
 def lens_groups() -> Mapping[str, LensGroup]:
@@ -130,13 +133,29 @@ def lens_groups() -> Mapping[str, LensGroup]:
                 found.setdefault(g.id, g)
     except Exception:  # 扩展尚未加载（导入期间或命令行工具中）：仅返回核心的组
         pass
-    # 解算器的组在前（COLMAP 居首，为 LensDistortion 的默认值），手填的 3DE4 在最后
-    ordered = sorted(found.values(), key=lambda g: (g.id != "colmap", g.label))
+    # 解算器的组在前（声明 default 的居首，为 LensDistortion 的默认值：COLMAP），手填的 3DE4 在最后
+    ordered = sorted(found.values(), key=lambda g: (not g.default, g.label))
     return {g.id: g for g in (*ordered, *CORE_GROUPS)}
 
 
+def group_of(params: Mapping) -> LensGroup:
+    """The lens group a node's 「镜头内参组」 names; left empty (or one not installed): the group that declares itself
+    the default (LensGroup.default, listed first by lens_groups), the core naming none."""
+    groups = lens_groups()
+    return groups.get(str(params.get("lens_group") or "")) or next(iter(groups.values()))
+
+
+def group_label(gid: str) -> str:
+    """A group's name as shown (「COLMAP」): its own declaration's label; one not installed shows its id."""
+    g = lens_groups().get(str(gid or ""))
+    return g.label if g is not None else str(gid)
+
+
 def group_model(group: str, name: str) -> GroupModel | None:
-    g = lens_groups().get(str(group or ""))
+    """The model `name` of lens group `group` (empty: the default group, group_of); None when the group has no such."""
+    if not group:
+        return group_of({}).model(name)
+    g = lens_groups().get(str(group))
     return g.model(name) if g is not None else None
 
 
@@ -174,24 +193,15 @@ class LensDistorts(Cond):
 DISTORTED = LensDistorts()  # 所选模型带有畸变
 
 
-# ------------------------------------------------------------------ 拟合模型决定哪些输出口有效
-
-# 自行求解镜头的节点（COLMAP、AnyCalib、GeoCalib）输出的「镜头内参」口，仅当「拟合模型」选择会解出畸变的选项时
-# 才有值；选择无畸变时输出空数据包（见各节点的 cook）。若该输出口始终可用，使用者可能接线并计算完成后才发现结果为空。
-# 此处采用参数与输入口通用的 `Port.applies` 机制（nodes/port.py）：输出口保留原位、变灰、悬停显示原因且不可接出，
-# 而不是隐藏；不使用 `when` 机制（输出口整体移除、连线改为待选择）。
-DISTORTION_OUTPUTS = ("lens",)  # 仅在有畸变时有意义的输出口（「镜头内参」：镜头模型、畸变系数、主点合为一份）
-
-
 # ------------------------------------------------------------------ 「镜头内参」：镜头除 Focal Length、Filmback 之外的全部内参，合为一份
 # Focal Length 与 Filmback 因使用频繁而单独提供；其余内参合为一份，接收端核对模型，不一致时报错。
 # 数据类型为 value.lens（data/types.py）：{"group": 镜头内参组, "model": 组内的模型名, "table": 公式表的模型 id,
 # "params": {系数名: 数值, 以及主点和像素比}}（packed_lens）。
 # 系数使用模型自身的名称（COLMAP 的 k、k1、p1 等），主点和像素比使用镜头表上的三个固定键。接收端（「LensDistortion」）
-# 将 (group, model) 与其所选「镜头内参组」「镜头模型」比对，不一致时在提交前拦截（B-LENS-MODELMISMATCH）。
+# 接入后其「镜头内参组」「镜头模型」、系数、主点、像素比都取这份值（nodes/core/lens_distortion.py params_from_input）。
 SHEET_KEYS = ("center_x_mm", "center_y_mm", "pixel_aspect")  # 镜头表上随系数一并传递的三项
 LENS_HELP = ("这颗镜头除了 Focal Length、Filmback 之外的全部：镜头模型的名字、它的畸变系数、主点 X / Y（毫米）和像素比，打成一份。"
-             "接「LensDistortion」的「镜头内参」：那边选的「镜头模型」要和这里的一样才能算，不一样提交前就拦下")
+             "接「LensDistortion」的「镜头内参」：那边的镜头模型和系数就跟着这里走")
 
 
 def packed_lens(dist: dict, center_mm=(0.0, 0.0), pixel_aspect: float = 1.0, *, group: str, name: str | None = None) -> dict:
@@ -232,35 +242,6 @@ def sheet_field(name: str, wired: str):
     return field
 
 
-def only_when_distorting(outputs: tuple, *models: str) -> tuple:
-    """为仅在有畸变时有意义的输出口（DISTORTION_OUTPUTS）设置条件：「拟合模型」选择带畸变的选项时才可用（`Port.applies`）。
-
-    `models`：该节点「拟合模型」中会解出畸变的选项。名单不手写，而由各节点自身的选项到核心镜头表模型的映射计算得出
-    （COLMAP 使用 `external_distorting`，AnyCalib 使用其镜头内参组 `GROUP`，GeoCalib 使用其 `TABLE_MODELS`），
-    新增选项时无需修改此处。
-
-    变灰时的原因由条件自动生成（`I-APPLIES-CHOICE`：「「拟合模型」选「径向 k1」…时才用」），不另写文案；
-    自动生成的说明已指明应选择的选项，符合 `Because` 文档所述「多数情况下自动生成的说明已足够且最准确」。
-
-    输出口是否存在不受影响（`output_ports` 仅依据 `when`），因此计算与交付结果完全不变，
-    改变的只是该输出口当前能否接出。"""
-    from dataclasses import replace
-
-    if not models:
-        raise ValueError("only_when_distorting() needs at least one fit_model choice that solves a distortion: "
-                         f"with none, the node should not have {DISTORTION_OUTPUTS} at all")
-    when = Param("fit_model").one_of(*models)
-    return tuple(replace(p, applies=when) if p.name in DISTORTION_OUTPUTS else p for p in outputs)
-
-
-def external_distorting(*models: str) -> tuple[str, ...]:
-    """给定的外部程序相机模型名（`data/lens_models.py EXTERNAL_MODELS` 的键，如 COLMAP 的 `SIMPLE_RADIAL`）中
-    带有畸变的那些。名单由核心镜头表计算得出，不手写。"""
-    from ..data.lens_models import EXTERNAL_MODELS
-
-    return tuple(m for m in models if distorts(EXTERNAL_MODELS[m][0]))
-
-
 class LensParamEntry(NodeParams):
     """畸变参数表的一行：参数名（沿用测量软件的命名，如 3DE；行随「镜头模型」变化）及镜头表上的数值。"""
 
@@ -281,7 +262,7 @@ class LensSheetParams(NodeParams):
     # 两级下拉（见上文「镜头内参组」）：先选择组（COLMAP / AnyCalib / GeoCalib / 3DE4），
     # 再选择该组的模型名。二者均为 choice 控件，选项由 LensSheet.choices 按已安装的扩展提供，不在代码中写死。
     lens_group: str = P(
-        "colmap", label="镜头内参组", group="镜头", widget="choice")
+        "", label="镜头内参组", group="镜头", widget="choice", placeholder="默认")  # empty: group_of's default
     # derived_from=("lens_group",)：切换组时重新计算该值（不在新组中则改为该组的第一个模型，见 LensSheet.derive），
     # 否则旧值会以「· 找不到了」显示在列表首行。
     lens_model: str = P(
@@ -313,22 +294,20 @@ class LensSheet:
     @classmethod
     def table_model(cls, params: dict) -> str:
         """(镜头内参组, 镜头模型) → 公式表的模型 id。"""
-        return table_of(str(params.get("lens_group") or "colmap"), str(params.get("lens_model") or "SIMPLE_PINHOLE"))
+        return table_of(group_of(params).id, str(params.get("lens_model") or "SIMPLE_PINHOLE"))
 
     @classmethod
     def choices(cls, params: dict, inputs: dict) -> dict:
         """「镜头内参组」的选项（取决于已安装的扩展）以及当前组内「镜头模型」的选项。"""
-        groups = lens_groups()
-        g = groups.get(str(params.get("lens_group") or "colmap")) or next(iter(groups.values()))
-        return {"lens_group": {"options": list(groups), "labels": {k: v.label for k, v in groups.items()}},
+        groups, g = lens_groups(), group_of(params)
+        return {"lens_group": {"options": list(groups), "labels": {k: v.label for k, v in groups.items()}, "auto": g.id},
                 "lens_model": {"options": list(g.models), "labels": {k: v.label for k, v in g.models.items()}}}
 
     @classmethod
     def derive(cls, params: dict) -> dict:
         """切换组时，若「镜头模型」不在该组中则改为该组的第一个模型；随后按所选模型重建畸变参数行，
         同名参数保留已填写的值。"""
-        groups = lens_groups()
-        g = groups.get(str(params.get("lens_group") or "colmap")) or next(iter(groups.values()))
+        g = group_of(params)
         name = str(params.get("lens_model") or "")
         if name not in g.models:
             name = next(iter(g.models))

@@ -1,5 +1,5 @@
-/* 条目选择条 (ui/ItemsBar.tsx): the glass pill at the bottom middle of the viewer — which item of each
-   逐项处理 block the view is on. A view setting: nothing here starts a cook. */
+/* 条目选择条（ui/ItemsBar.tsx）：视图底部正中的玻璃胶囊——视图当前停在每个「逐项处理」块的哪一条。
+   属于视图设置：这里的任何操作都不会触发计算。 */
 
 .items-bar {
   position: absolute;
@@ -47,7 +47,7 @@
   color: var(--text-3);
 }
 
-/* 每一条 (ui/ItemsList.tsx): the item-by-item list the 数据信息 panel puts under a node inside a block */
+/* 每一条（ui/ItemsList.tsx）：「数据信息」面板放在块内节点下方的逐条列表 */
 .items-list {
   display: flex;
   flex-direction: column;

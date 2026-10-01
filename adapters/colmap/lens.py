@@ -10,4 +10,5 @@ from lab2shot.sdk import LENS_TABLE, COLMAP_MODELS, core_group
 # 在真值素材上验证过能解出来的模型；FULL_OPENCV 会发散，其余 8 个没验证过的不提供
 TESTED = ("SIMPLE_PINHOLE", "PINHOLE", "SIMPLE_RADIAL", "RADIAL", "OPENCV",
           "SIMPLE_RADIAL_FISHEYE", "RADIAL_FISHEYE", "OPENCV_FISHEYE")
-GROUP = core_group("colmap", "COLMAP", tuple(m for m in COLMAP_MODELS if m in LENS_TABLE and m in TESTED))
+# default: 「LensDistortion」 starts on this group (nodes/lens.py lens_groups lists it first)
+GROUP = core_group("colmap", "COLMAP", tuple(m for m in COLMAP_MODELS if m in LENS_TABLE and m in TESTED), default=True)

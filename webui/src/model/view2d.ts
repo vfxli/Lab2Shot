@@ -1,19 +1,17 @@
-/** The 2D stage's view transform (Nuke-style pan/zoom: one for the viewer, not per node, kept while the page is open,
- * never saved in the graph, never an undo step; its state and controls are state/view2d.ts) and the 2D stage's one
- * preview chain:
+/** 二维舞台的视图变换（Nuke 式平移 / 缩放：整个查看器一份，不按节点分；页面打开期间保留，不存入节点图，
+ * 不产生撤销步骤；其状态与控件在 state/view2d.ts）与二维舞台唯一的一条预览链：
  *
  *     左（原图）：取通道
  *     中（运算）：加 / 乘 · mix · 只乘 Alpha 或 RGBA 一起乘
  *     右（结果）：取通道 → 黑点/白点 → 着色
  *     背景：棋盘格 / 纯色（和运算完全解耦，三个模式下都在）
  *
- * Pure: no imports. Canvas CSS pixel =
- * x + image pixel * s (`s`, as Stage2D's and overlays.ts's `at.s`). */
+ * 纯模块：不引用任何东西。画布 CSS 像素 = x + 图像像素 × s（`s` 即 Stage2D 与 overlays.ts 中的 `at.s`）。 */
 
 export interface Transform2D {
   x: number;
   y: number;
-  s: number; // canvas CSS pixels per image pixel
+  s: number; // 每个图像像素对应的画布 CSS 像素数
 }
 
 const MIN_ZOOM = 0.05; // 5%
@@ -21,17 +19,17 @@ const MAX_ZOOM = 32; // 3200%
 
 const clampZoom = (s: number): number => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, s));
 
-/** Zooming by `factor` around a fixed canvas point (px, py, CSS pixels): the image point under it stays under it. */
+/** 以画布上的固定点（px, py，CSS 像素）为中心按 `factor` 缩放：该点下方的图像点缩放后仍在该点下方。 */
 export function zoomAt(t: Transform2D, factor: number, px: number, py: number): Transform2D {
   const s = clampZoom(t.s * factor);
   const k = t.s === 0 ? 1 : s / t.s;
   return { s, x: px - (px - t.x) * k, y: py - (py - t.y) * k };
 }
 
-/** Panning by a screen-space delta (canvas CSS pixels): middle-drag, or Alt+left-drag. */
+/** 按屏幕空间的位移（画布 CSS 像素）平移：中键拖动，或 Alt + 左键拖动。 */
 export const panBy = (t: Transform2D, dx: number, dy: number): Transform2D => ({ ...t, x: t.x + dx, y: t.y + dy });
 
-/** Zooming to an exact percentage (typed in the timeline's zoom field), keeping the canvas centre fixed. */
+/** 缩放到精确的百分比（在时间线的缩放框中输入），画布中心保持不动。 */
 export function toPercent(t: Transform2D, pct: number, cw: number, ch: number): Transform2D {
   const s = clampZoom(pct / 100);
   return zoomAt(t, t.s === 0 ? 1 : s / t.s, cw / 2, ch / 2);
@@ -67,7 +65,7 @@ export function pictureSize(said: {
   return { w: 0, h: 0 };
 }
 
-/** 适应 (F): the whole picture, padded, centred in a canvas of cw x ch. */
+/** 适应 (F)：整幅画面留边后居中放入 cw × ch 的画布。 */
 export function fitTransform(width: number, height: number, cw: number, ch: number): Transform2D {
   if (width <= 0 || height <= 0 || cw <= 0 || ch <= 0) return { x: cw / 2, y: ch / 2, s: 1 };
   const pad = 24;
@@ -75,8 +73,8 @@ export function fitTransform(width: number, height: number, cw: number, ch: numb
   return { x: (cw - width * s) / 2, y: (ch - height * s) / 2 + 8, s };
 }
 
-/** 1:1: one image pixel per device pixel (devicePixelRatio honoured), centred in a canvas of cw x ch, its corner on a
- * whole device pixel (every image pixel lands on exactly one screen pixel, never between two). */
+/** 1:1：一个图像像素对应一个设备像素（计入 devicePixelRatio），在 cw × ch 的画布中居中，左上角落在整数设备像素上
+ * （每个图像像素恰好落在一个屏幕像素上，不会跨在两个之间）。 */
 export function oneToOneTransform(width: number, height: number, cw: number, ch: number, dpr: number): Transform2D {
   const d = dpr || 1;
   const s = clampZoom(1 / d);
@@ -149,7 +147,9 @@ const SOLID: Partial<Record<Tint, readonly [number, number, number]>> = {
   white: [255, 255, 255],
 };
 
-const isSolid = (tint: Tint): boolean => tint in SOLID;
+// 查表只认自有键：着色值来自存储，原型链上的名字（constructor 等）不是一档着色
+const isSolid = (tint: Tint): boolean => Object.hasOwn(SOLID, tint);
+const rampOf = (tint: Tint) => (Object.hasOwn(RAMPS, tint) ? RAMPS[tint] : undefined) ?? RAMPS.grey;
 
 /** 单通道显示时该着色档的不透明度（0..1），同一规则适用于两种模式：
  *
@@ -178,7 +178,7 @@ const ID_COLOURS: readonly (readonly [number, number, number])[] = [
 
 /** 返回编号 `i` 的颜色（0 为背景，黑色）。超出调色盘长度时循环取色。
  *
- * 必须先取整再判断是否为背景：`i` 由 8 位值乘以值域上界得到（见 tintLut），可能是小数。
+ * 必须先取整再判断是否为背景：`i` 可能是小数（调用方传入的是换算出来的值）。
  * 若先判断 `i <= 0`，0.2 会进入后一分支，`Math.round(0.2) - 1 = -1`，`ID_COLOURS[-1]` 为 `undefined`，
  * 调用处的 `[...idColour(...)]` 随即抛错，整个视图被错误边界接管（值域上界为 1 时，v/255 在 1..127 上均落入 (0, 0.5)）。 */
 const idColour = (i: number): readonly [number, number, number] => {
@@ -203,13 +203,13 @@ const RAMPS: Record<Tint, readonly (readonly [number, number, number])[]> = {
 const said = (c: readonly [number, number, number]) => `rgb(${c.join(",")})`;
 
 /** 将着色转换为 CSS 渐变，用于控件上的小色条（纯色为单色色条）。 */
-export const rampGradient = (tint: Tint): string => `linear-gradient(to right, ${(RAMPS[tint] ?? RAMPS.grey).map(said).join(", ")})`;
+export const rampGradient = (tint: Tint): string => `linear-gradient(to right, ${rampOf(tint).map(said).join(", ")})`;
 
 /** 返回 0..1 的数值在该色标上的颜色，[r, g, b] 0..255（超出范围时取端点值；纯色档始终返回该纯色）。 */
 function rampColor(tint: Tint, t: number): [number, number, number] {
-  const solid = SOLID[tint];
+  const solid = isSolid(tint) ? SOLID[tint] : undefined;
   if (solid) return [...solid] as [number, number, number];
-  const stops = RAMPS[tint] ?? RAMPS.grey;
+  const stops = rampOf(tint);
   const x = Math.min(1, Math.max(0, Number.isFinite(t) ? t : 0)) * (stops.length - 1);
   const i = Math.min(stops.length - 2, Math.floor(x));
   const f = x - i;
@@ -217,14 +217,19 @@ function rampColor(tint: Tint, t: number): [number, number, number] {
   return [0, 1, 2].map((k) => Math.round(a[k] + (b[k] - a[k]) * f)) as [number, number, number];
 }
 
-/** 返回一条色标的 256 档查色表，供逐像素循环查表，避免对每个像素插值。
+/** 返回一条色标的查色表，供逐像素查表，避免对每个像素插值。第 i 格对应 t = i / (格数 − 1)。
  *
- * 「编号」档例外：服务器按包的值域将编号映射为 0..255 后发送（分割图的值域为 0..类别数），
- * 因此须先将 8 位值换算回编号再取色，不得插值。`top` 为最大编号（包的 range 上界）。 */
+ * 色标与纯色为 256 档（8 位屏幕的一级）。「编号」档例外：每个编号一格（0..top 共 top + 1 格，`top` 为最大编号，
+ * 即包的 range 上界），第 i 格就是编号 i 的颜色，不插值。不能也压成 256 档：最大编号超过 255 时几个编号会落进
+ * 同一格，相邻编号画成同一种颜色，分不出两个物体。编号图的值原样到达浏览器（服务器不压尾数，
+ * lab2shot/view/channels.py channel_blob 的 exact），着色器按 round(t × top) 取格（view/look.ts），得到的就是编号本身。 */
 export const tintLut = (tint: Tint, top = 0): [number, number, number][] =>
   (tint === "id" && top > 0
-    ? Array.from({ length: 256 }, (_, v) => [...idColour((v / 255) * top)] as [number, number, number])
+    ? Array.from({ length: Math.round(top) + 1 }, (_, i) => [...idColour(i)] as [number, number, number])
     : Array.from({ length: 256 }, (_, v) => rampColor(tint, v / 255)));
+
+/** 查色表的最大下标（格数 − 1）：着色器按 round(t × 它) 取格（view/look.ts），与 `tintLut` 的格数一一对应。 */
+export const lutTop = (tint: Tint, top = 0): number => (tint === "id" && top > 0 ? Math.round(top) : 255);
 
 // ------------------------------------------------------------------ 三种模式与中间运算
 
@@ -232,14 +237,16 @@ export const tintLut = (tint: Tint, top = 0): [number, number, number][] =>
  * 每个节点带有预览标签，决定默认模式（NodeTypeDef.preview，由服务器计算，同一标签适用于 2D 与 3D；换算见 view/plan.ts）。 */
 export type Mode = "plate" | "over" | "result";
 
-/** 中间运算（对应 Nuke 的 merge），三档共用一个下拉。
+/** 中间运算（对应 Nuke 的 merge），共四档、一个下拉：加、只乘 Alpha、RGBA 一起乘、盖上（over）。
  *
- * 「加 / 乘」与「RGBA / 仅 Alpha」组合看似有四种，但作用对象仅对「乘」有意义：「加 + RGBA」与「加 + 仅 Alpha」
- * 的像素结果相同，因此实际为三档。
+ * 「只乘 Alpha / RGBA 一起乘」的区分只对「乘」有意义：「加」和「盖上」对两者的像素结果相同，所以不拆档。
  *
  * 「乘」的两档：`mulAlpha` 不改变颜色、仅改变透明度，边缘不变暗；
  * `mulRgba` 同时乘 RGB 与 Alpha，抠出的边缘颜色也会变暗。 */
-export type Op = "add" | "mulAlpha" | "mulRgba";
+export type Op = "add" | "mulAlpha" | "mulRgba" | "over";
+
+/** 用强度（mix）的档：「加」「盖上」要调浓淡，「乘」固定为 1（mixOf）。 */
+export const blends = (op: Op): boolean => op === "add" || op === "over";
 
 /** 返回本次运算实际使用的强度。「乘」固定为 1（此时 mix 控件不可用）：
  * 「乘」用于按遮罩预览抠像，抠一半的结果既非原图也非抠像结果，没有参考价值。
@@ -247,7 +254,7 @@ export type Op = "add" | "mulAlpha" | "mulRgba";
  * 强度仅对「加」有意义：叠加需要调节浓淡（默认 0.5），抠像不需要。
  *
  * 使用者保存的 mix 值不变，仅在「乘」时忽略，切回「加」后恢复原值。 */
-export const mixOf = (op: Op, mix: number): number => (op === "add" ? mix : 1);
+export const mixOf = (op: Op, mix: number): number => (blends(op) ? mix : 1);
 
 /** 背景：透明区域的填充方式。与运算完全独立，三种模式下均生效；导入的图像自带 alpha 时，
  * 「仅原图」模式下也须显示背景。 */
@@ -266,6 +273,12 @@ export function merged(l: readonly number[], r: readonly number[], op: Op, mix: 
     // 加：右侧按自身强度覆盖（强度为 0 处不覆盖），透明度不变，叠加不会使画面变透明
     const k = r[3] * mix;
     return [l[0] + r[0] * k, l[1] + r[1] * k, l[2] + r[2] * k, l[3]];
+  }
+  if (op === "over") {
+    // 盖上（Nuke 的 A over B，这里 A 是右侧的结果、B 是原图）：右侧按自身 alpha 盖住原图，透明处露出原图；
+    // 颜色按未预乘计：结果 = 原图 × (1 − k) + 右侧 × k，alpha 同理（与「图像合成」的「盖上」同一件事，视图里现算）
+    const k = r[3] * mix;
+    return [l[0] * (1 - k) + r[0] * k, l[1] * (1 - k) + r[1] * k, l[2] * (1 - k) + r[2] * k, l[3] * (1 - k) + k];
   }
   const k = 1 - mix + mix * r[3]; // 乘：mix 将乘数向 1 回拉
   return op === "mulAlpha" ? [l[0], l[1], l[2], l[3] * k] : [l[0] * k, l[1] * k, l[2] * k, l[3] * k];

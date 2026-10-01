@@ -32,7 +32,7 @@ class Cut3r(Extension):
         name="CC BY-NC-SA 4.0（代码和权重）",
         url="https://github.com/CUT3R/CUT3R/blob/main/LICENSE",
         summary=(
-            "非商用，仅限研究：CUT3R 代码和 cut3r_512_dpt_4_64 权重都按 CC BY-NC-SA 4.0 发布"
+            "非商用：CUT3R 代码和 cut3r_512_dpt_4_64 权重都按 CC BY-NC-SA 4.0 发布"
             "（署名、禁止商用、改编后须以相同许可发布）。"
             "代码里带的 Naver DUSt3R / CroCo 同为 CC BY-NC-SA 4.0；CroCo 的 pos_embed.py / blocks.py 另含 "
             "Meta MAE 的 CC BY-NC 4.0 部分和 timm 的 Apache-2.0 部分。没有其他模型或非商用依赖（不需要 SMPL、nvdiffrast 等）。"

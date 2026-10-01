@@ -3,17 +3,137 @@
  "meta": {
   "id": "11e3cc3619bd18046fc79d9b97389079",
   "name": "PBR 通道 · DiffusionRenderer",
-  "intro": "Cosmos DiffusionRenderer 在一个统一框架里同时解逆向渲染和正向渲染；逆向渲染模型借助视频扩散先验，从实拍视频估计 G-buffer。这张卡交付 PBR 材质通道：基础色、法线图、深度图、粗糙度图、金属度图。",
+  "intro": "Cosmos DiffusionRenderer 在一个统一框架里同时解逆向渲染和正向渲染；逆向渲染模型借助视频扩散先验，从实拍视频估计 G-buffer。这张卡交付一套多层 EXR 的 PBR 材质通道：rgba 是基础色，另有 normal、depth（每段各自归一化的相对值）、roughness、metallic。",
   "author": "Lab2Shot",
   "created": "2026-09-12T08:00:00",
   "deliverable": "material",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "name": "resolution",
+   "label": "处理分辨率",
+   "target": "dr.resolution"
+  },
+  {
+   "name": "max_frames",
+   "label": "每段最多帧数",
+   "target": "dr.max_frames"
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "overlap",
+     "label": "段间重叠",
+     "target": "dr.overlap"
+    },
+    {
+     "name": "steps",
+     "label": "去噪步数",
+     "target": "dr.steps"
+    },
+    {
+     "name": "seed",
+     "label": "随机种子",
+     "target": "dr.seed"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out.name"
+    },
+    {
+     "name": "colorspace_out",
+     "label": "输出色彩空间",
+     "target": "out.colorspace"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_bit_depth",
+       "label": "EXR 位深",
+       "target": "out.exr_bit_depth"
+      },
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "out.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "计算",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -23,11 +143,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 480
+    "y": 78
    }
   },
   {
@@ -42,96 +164,11 @@
     "seed": 1000
    },
    "ui": {
-    "x": 320,
-    "y": 480,
+    "x": 400,
+    "y": 0,
     "on_node": [
      "resolution",
      "max_frames"
-    ]
-   }
-  },
-  {
-   "id": "out_base",
-   "type": "core.output_images",
-   "label": "基础色输出",
-   "params": {
-    "colorspace": null,
-    "name": "basecolor"
-   },
-   "ui": {
-    "x": 720,
-    "y": 0,
-    "on_node": [
-     "name",
-     "format"
-    ]
-   }
-  },
-  {
-   "id": "out_normal",
-   "type": "core.output_images",
-   "label": "法线输出",
-   "params": {
-    "colorspace": null,
-    "name": "normal"
-   },
-   "ui": {
-    "x": 720,
-    "y": 260,
-    "on_node": [
-     "name",
-     "format"
-    ]
-   }
-  },
-  {
-   "id": "out_depth",
-   "type": "core.output_images",
-   "label": "深度输出",
-   "params": {
-    "colorspace": null,
-    "name": "depth"
-   },
-   "ui": {
-    "x": 720,
-    "y": 520,
-    "on_node": [
-     "name",
-     "format"
-    ]
-   }
-  },
-  {
-   "id": "out_rough",
-   "type": "core.output_images",
-   "label": "粗糙度输出",
-   "params": {
-    "colorspace": null,
-    "name": "roughness"
-   },
-   "ui": {
-    "x": 720,
-    "y": 780,
-    "on_node": [
-     "name",
-     "format"
-    ]
-   }
-  },
-  {
-   "id": "out_metal",
-   "type": "core.output_images",
-   "label": "金属度输出",
-   "params": {
-    "colorspace": null,
-    "name": "metallic"
-   },
-   "ui": {
-    "x": 720,
-    "y": 1040,
-    "on_node": [
-     "name",
-     "format"
     ]
    }
   },
@@ -141,8 +178,50 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1040,
-    "y": 520
+    "x": 1213,
+    "y": 54
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "pbr",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "rgba",
+      "channels": ""
+     },
+     {
+      "name": "layer2",
+      "label": "normal",
+      "channels": ""
+     },
+     {
+      "name": "layer3",
+      "label": "depth",
+      "channels": ""
+     },
+     {
+      "name": "layer4",
+      "label": "roughness",
+      "channels": ""
+     },
+     {
+      "name": "layer5",
+      "label": "metallic",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 813,
+    "y": 54
    }
   }
  ],
@@ -163,8 +242,8 @@
     "basecolor"
    ],
    "to": [
-    "out_base",
-    "image"
+    "out",
+    "layer1"
    ]
   },
   {
@@ -173,8 +252,8 @@
     "normal"
    ],
    "to": [
-    "out_normal",
-    "image"
+    "out",
+    "layer2"
    ]
   },
   {
@@ -183,8 +262,8 @@
     "depth"
    ],
    "to": [
-    "out_depth",
-    "image"
+    "out",
+    "layer3"
    ]
   },
   {
@@ -193,8 +272,8 @@
     "roughness"
    ],
    "to": [
-    "out_rough",
-    "image"
+    "out",
+    "layer4"
    ]
   },
   {
@@ -203,53 +282,13 @@
     "metallic"
    ],
    "to": [
-    "out_metal",
-    "image"
+    "out",
+    "layer5"
    ]
   },
   {
    "from": [
-    "out_base",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
-   ]
-  },
-  {
-   "from": [
-    "out_normal",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
-   ]
-  },
-  {
-   "from": [
-    "out_depth",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
-   ]
-  },
-  {
-   "from": [
-    "out_rough",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
-   ]
-  },
-  {
-   "from": [
-    "out_metal",
+    "out",
     "files"
    ],
    "to": [

@@ -1,6 +1,7 @@
 import { Component, type ReactNode } from "react";
 import { msg } from "../messages/message";
 import { notePageError } from "../platform/pageErrors";
+import { retryLoads } from "../platform/lazyRetry";
 import { Button } from "./Button";
 import { MessageText } from "./MessageText";
 
@@ -30,7 +31,7 @@ export class ErrorBoundary extends Component<{ name: string; resetKey?: unknown;
         <div>
           <MessageText message={msg("E-PAGE-PANEL", { name: this.props.name, detail: this.state.error.message })} />
         </div>
-        <Button tip="重新画这一块（节点图和参数都还在）" onClick={() => this.setState({ error: null })}>
+        <Button tip="重新画这一块（节点图和参数都还在；按需载入没载进来的部件再载一次）" onClick={() => (retryLoads(), this.setState({ error: null }))}>
           重试
         </Button>
       </div>

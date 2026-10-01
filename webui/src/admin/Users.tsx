@@ -150,7 +150,7 @@ export function UsersSection() {
       className: "tnum",
       cell: (u) => <span data-tip={u.last_login ? dayText(u.last_login) : "还没有登录过"}>{loginText(u.last_login)}</span>,
     },
-    ...trafficColumns(),  // 流量三列（admin/traffic.tsx）：公网经 frp 按流量计费，需要能够查看各账号的用量
+    ...trafficColumns(),  // the three traffic columns (admin/traffic.tsx): public access through frp is billed by traffic, so each account's use must be visible
     { id: "state", label: "状态", tip: "现在能不能用，不能用的写着为什么", cell: (u) => <span data-tip={u.state_tip}>{u.state}</span> },
     {
       id: "expires",
@@ -204,7 +204,7 @@ export function UsersSection() {
               { id: "department", label: "环节", tip: "删除时所在的环节", cell: (u) => u.department || "—" },
               { id: "deleted", label: "删除", tip: "什么时候删的", className: "tnum", cell: (u) => dayText(u.deleted) },
               { id: "jobs", label: "任务", tip: "提交过的任务数", className: "tnum", cell: (u) => u.jobs },
-              // 永久删除分两步：先「删除」移至此处，再在该行执行永久删除。任务记录保留，显示为「已删除的用户」
+              // 永久删除 takes two steps: 删除 moves the account here, then 永久删除 on its row. Its task records stay, shown as 「已删除的用户」
               { id: "purge", label: "", tip: "把这个账号彻底删掉，用户名可以给新人重用", className: "usr-acts",
                 cell: (u) => shown(u.applies, "account.purge") && (
                   <Button tip={why(u.applies, "account.purge") || "彻底删掉这个账号：用户名可以给新人重用，任务记录留着显示成「已删除的用户」"} tone="ghost" size="sm" danger
@@ -219,7 +219,7 @@ export function UsersSection() {
           />
         </details>
       )}
-      {/* 二级管理员权限：只有能管理其他管理员的登录（admins.manage）才能看到此区域 */}
+      {/* 二级管理员权限: only a login that manages other administrators (admins.manage) sees this band */}
       <Rights applies={state?.applies} />
       {dialogs}
     </Section>

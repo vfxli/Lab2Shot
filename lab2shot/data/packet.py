@@ -143,14 +143,16 @@ class Packet:
         return (directory / COMPLETE).exists() and _manifest_state(directory) == "bad"
 
     @staticmethod
-    def used(directory: Path) -> None:
+    def used(directory: Path, seen: set[str] | None = None) -> None:
         """Note that a cached packet was used now (its .complete file's time): cleaning keeps what is in use, and so
         are the packets it names (its deps' `packets`: a list's items, a camera's backplate), each in turn. Without
         that, the items of a list nobody opens on their own would be the least recently used and go first, leaving a
-        list in daily use invalid."""
-        _touch(directory, set())
+        list in daily use invalid. `seen`: the packets touched already by whoever asks (a cook: each once, however many
+        of its instances read it), added to."""
+        if directory.name not in (seen := set() if seen is None else seen):
+            _touch(directory, seen)
 
-    def commit(self, node_type: str, messages: list[dict] = ()) -> Packet:
+    def commit(self, node_type: str, messages: list[dict] = (), made_from: dict[str, str] | None = None) -> Packet:
         """Write the manifest and mark the packet complete. `messages`: what the node said while it made it
         (lab2shot/messages, as Msg.json() with their anchors), kept with the result so its marks outlive the cook.
 
@@ -158,13 +160,15 @@ class Packet:
         (uploads: path, size, modification time) and other packets it references (list items, a camera's backplate,
         files living in other packets). Writers need not declare them: they are derived from the meta (`deps_of`), so
         packets written through side paths (image_packet, items_meta, scene_packet, ...) are covered too.
-        Validity is judged from this list alone (`check`)."""
+        `made_from`: the packets a cook read to make it, each with its generation (`created`, created_of): a packet
+        is made from those generations, and is stale once one of them is written anew (a forced recook of what it read,
+        under the same fingerprint). Validity is judged from this list alone (`check`)."""
         manifest = {
             "type": self.type,
             "node": node_type,
-            "created": datetime.now().isoformat(timespec="seconds"),
+            "created": datetime.now().isoformat(timespec="microseconds"),  # a recook within the same second is a new generation too
             "meta": self.meta,
-            DEPS: deps_of(self.dir, self.meta),
+            DEPS: {**deps_of(self.dir, self.meta), **({"made_from": dict(made_from)} if made_from else {})},
             **({"messages": list(messages)} if messages else {}),
         }
         (self.dir / MANIFEST).write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -177,6 +181,8 @@ class Packet:
         self.node = node_type
         self.created = manifest["created"]
         note(self.dir.name)
+        for hook in _on_committed:
+            hook(self.dir.name)
         return self
 
 
@@ -276,9 +282,22 @@ class Verdict:
     what: str = ""
 
 
+def created_of(fp: str) -> str:
+    """The generation of the packet on disk under `fp` (its manifest's `created`), "" when there is none complete."""
+    try:
+        d = packet_dir(fp)
+        if not (d / COMPLETE).exists():
+            return ""
+        return str(json.loads((d / MANIFEST).read_text(encoding="utf-8")).get("created", ""))
+    except (OSError, ValueError, Invalid):
+        return ""
+
+
 def check(directory: Path) -> Verdict:
     """THE one judgement of a cached packet's validity: complete, every outside file still there with the size and
-    time recorded at commit, every named packet still complete."""
+    time recorded at commit, every named packet still complete, and every packet it was made from still the
+    generation it was made from (`made_from`: one written anew under the same fingerprint, a forced recook, makes it
+    stale; one only being rewritten, or cleaned away, does not)."""
     if not (directory / COMPLETE).exists():
         return Verdict(False, "missing")
     try:
@@ -299,9 +318,7 @@ def check(directory: Path) -> Verdict:
     for fp in deps.get("packets") or ():
         # a dependency counts as gone only when its whole folder is gone. A folder present without `.complete` is being
         # rewritten (fresh_dir removes and recreates it, leaving no .complete for minutes); judging that invalid would
-        # make every /api/status call NodePlan.has -> discard_invalid -> remove and delete downstream packets while the
-        # dependency is merely recooking. This must agree with discard_invalid ("an entry that is merely not there is
-        # left alone")
+        # make every packet that names it invalid while the dependency is merely recooking
         # A folder marked complete without its data (a system crash) is gone as well: it is never read again
         try:
             d = packet_dir(fp)
@@ -309,6 +326,9 @@ def check(directory: Path) -> Verdict:
                 return Verdict(False, "packet", fp)
         except Invalid:
             return Verdict(False, "packet", fp)
+    for fp, created in (deps.get("made_from") or {}).items():
+        if (now := created_of(fp)) and now != created:
+            return Verdict(False, "stale", fp)
     return Verdict(True)
 
 
@@ -325,12 +345,19 @@ def valid(directory: Path) -> bool:
 # takes that node's scratch and failure record.
 SIBLINGS = ("_display", "_work", "_failed")
 _on_removed: list[Callable[[str, str], None]] = []
+_on_committed: list[Callable[[str], None]] = []
+
+
+def on_committed(hook: Callable[[str], None]) -> None:
+    """Register what must happen whenever a packet is committed: hook(fingerprint) (engine/evaluations.py: the
+    evaluations that planned it, having found it not there, are stale)."""
+    _on_committed.append(hook)
 
 
 def on_removed(hook: Callable[[str, str], None]) -> None:
     """Register what must happen whenever a packet is removed: hook(fingerprint, why). The data layer imports nothing
-    above it, so the layers above register themselves (one hook: engine/evaluations.py bumps the evaluations'
-    generation, so plans and status read before the removal are not handed out again)."""
+    above it, so the layers above register themselves (one hook: engine/evaluations.py marks stale the evaluations
+    that planned it, records.changed, so plans and status read before the removal are not handed out again)."""
     _on_removed.append(hook)
 
 
@@ -339,7 +366,7 @@ def remove(name: str, why: str) -> bool:
     packet fingerprint, or one entry's folder name (`<fp>_display`, `<key>_job`) to remove that entry alone. `why`:
     who asked: "clean", "upload" (its upload is gone), "recook", "incomplete", "invalid:<why>".
     Every path that deletes a cache entry comes through here (farm/disk.py, transfer/uploads.py
-    remove_set through remove_referring, discard_invalid, fresh_dir). A node's own scratch is not an entry:
+    remove_set through remove_referring, fresh_dir). A node's own scratch is not an entry:
     engine/cook.py clears its `<node fp>_work` once the cook is done, and engine/external.py its raw worker folder, directly."""
     d = packet_dir(name)
     plain = not any(name.endswith(s) for s in (*SIBLINGS, "_job"))
@@ -361,16 +388,6 @@ def remove(name: str, why: str) -> bool:
         for hook in list(_on_removed):
             hook(name, why)
     return removed
-
-
-def discard_invalid(directory: Path) -> Verdict:
-    """`check`, and a packet that fails on its sources is removed on the spot (it can only be cooked again): the one
-    place a read finds and clears a stale entry. An entry that is merely not there is left alone: it may be being
-    written at this moment."""
-    verdict = check(directory)
-    if not verdict.ok and verdict.why != "missing":
-        remove(directory.name, f"invalid:{verdict.why}")
-    return verdict
 
 
 def remove_referring(match: Callable[[str], bool], why: str) -> int:

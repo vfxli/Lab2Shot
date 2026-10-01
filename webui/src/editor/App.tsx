@@ -1,12 +1,14 @@
 import "./editor.css";
+import { OpenSheet } from "./ParamControls";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { api, type GraphJSON } from "../api";
-import { cook, deliverAll, loadGraph, redo, resumeJobs, undo } from "../graph/actions";
+import { cook, deliverAll, loadGraph, openHeld, redo, resumeJobs, undo } from "../graph/actions";
 import { jump, step } from "../graph/playback";
 import { setCatalog } from "../state/catalog";
 import { useLook } from "../state/look";
 import { useViewer } from "../state/viewer";
+import { readOnly, useReadOnly } from "../state/cookInputs";
 import { usePreferences } from "../state/preferences";
 import { startUploads } from "../graph/apply";
 import { NodeEditor } from "./NodeEditor";
@@ -26,8 +28,10 @@ import { LOGGED_IN } from "../platform/http";
 import { useShortcut } from "../platform/keys";
 import { signedIn } from "../state/session";
 import { followDrag } from "../platform/drag";
+import { useAppMode } from "./AppMode";
 
-/** 工作区版面：
+/** 编辑器页面的根：本模块拥有工作区版面（视图、节点图、参数面板三格与两条分割线）以及页面级快捷键、
+ * 打开 / 保存图的入口。工作区版面：
  *
  *     .workspace                先纵向分为两部分（列：左栏 | 1px 竖分割线 | 参数面板）
  *     ├── .wk-left              左栏上下分为两部分（行：视图 | 1px 横分割线 | 节点图）
@@ -63,11 +67,11 @@ const INSPECTOR_WIDTH = 440; // px：未拖动时的宽度。所有节点的参�
 const INSPECTOR_MIN = 400; // px：双击「按参数撑开」时的最小宽度
 
 export default function App() {
-  const [owner, setOwner] = useState<number | null>(null); // the account whose working copy this page keeps (autosave.ts); set once the graph is in
+  const [owner, setOwner] = useState<number | null>(null); // 本页保存其工作副本的账号（autosave.ts）；图载入后才设置
   const ready = owner !== null;
   const displayId = useLook((s) => s.displayId);
   const selectedId = useViewer((s) => s.selectedId);
-  const viewer = useViewer((s) => s.role === "viewer");
+  const viewer = useReadOnly();
   const [error, setError] = useState<string | null>(null);
   const split = usePreferences((s) => s.split);
   const setSplit = usePreferences((s) => s.setSplit);
@@ -78,16 +82,20 @@ export default function App() {
   const fit = useViewer((s) => s.inspectorFit);
   const left = useRef<HTMLDivElement>(null); // 左栏：上下分割在其内部测量
   const workspace = useRef<HTMLDivElement>(null); // 整个工作区：左右分割在其内部测量
+  // 应用模式（editor/AppMode.tsx）：左栏只有视图（节点图收起），右栏参数面板只有模板的参数界面树（「计算」「下载」
+  // 也是树里公开的按钮参数，没有写死的块）
+  const appMode = useAppMode((s) => s.mode === "app");
 
   const openFailed = (e: unknown) => say(msg("E-GRAPH-OPENFAILED", { reason: reasonOf(e) }));
   const saveFailed = (e: unknown) => say(msg("E-GRAPH-SAVEFAILED", { reason: reasonOf(e) }));
 
-  // opening another graph over unsaved changes asks first (save / don't save / cancel); freshId: a template, never
-  // sharing the id baked into the template file
+  // 在有未保存修改时打开另一张图，先询问（保存 / 不保存 / 取消）；freshId：模板打开时取新 id，
+  // 不与模板文件里写死的 id 共用
   const [pending, setPending] = useState<{ g: GraphJSON; file: GraphFile | null; freshId: boolean } | null>(null);
+  // 有任务在算 / 在提交时不打开别的图（graph/actions.ts openHeld，与「计算」置灰同一判定）：所有打开入口都经过这里
   const open = useCallback(
     (g: GraphJSON, file: GraphFile | null, freshId = false) =>
-      useViewer.getState().dirty ? setPending({ g, file, freshId }) : loadGraph(g, file, false, undefined, { freshId }),
+      openHeld() ? undefined : useViewer.getState().dirty ? setPending({ g, file, freshId }) : loadGraph(g, file, false, undefined, { freshId }),
     [],
   );
   const resolvePending = async (choice: "save" | "discard" | "cancel") => {
@@ -95,12 +103,15 @@ export default function App() {
     setPending(null);
     if (!next || choice === "cancel") return;
     if (choice === "save" && !(await saveGraphFile().catch((e) => (saveFailed(e), false)))) return;
+    if (openHeld()) return; // 问「存不存」的这会儿点了「计算」
     loadGraph(next.g, next.file, false, undefined, { freshId: next.freshId });
   };
   const openFile = useCallback(() => {
-    openGraphFile().then((r) => r && open(r.graph, r.file), openFailed);
+    if (openHeld()) return; // 在选文件之前拦下：不能让人选完文件才被告知打不开
+    // catch 而不是 then 的第二个参数：打开这一步（open → loadGraph）里抛的错也要说出来，不能无声无息
+    openGraphFile().then((r) => r && open(r.graph, r.file)).catch(openFailed);
   }, [open]);
-  // a job loaded again from the queue: its graph as a new document, never over unsaved changes without asking
+  // 从队列重新载入的任务：其图作为新文档打开，有未保存修改时必先询问
   useEffect(() => {
     const onOpen = (e: Event) => open((e as CustomEvent<GraphJSON>).detail, null);
     window.addEventListener(OPEN_GRAPH, onOpen);
@@ -114,9 +125,8 @@ export default function App() {
         const [catalog, me] = await Promise.all([api.catalog(), signedIn()]);
         const saved = lastWorking(me.id);
         setCatalog(catalog);
-        // this account's last working state on this machine (this tab's own, after a reload) comes back as it was
-        // (unsaved changes marked); the first opening is an empty graph, the welcome over it (a template, a node, a
-        // graph file)
+        // 该账号在本机上次的工作状态（刷新后为本标签页自己的）原样恢复（未保存的修改仍标记为未保存）；
+        // 首次打开为空图，上面覆盖欢迎页（模板、节点、图文件）
         if (saved) {
           loadGraph(saved.graph, saved.file, saved.dirty, saved.id);
           if (saved.dirty) say(msg("N-GRAPH-RESTORED"));
@@ -128,16 +138,16 @@ export default function App() {
     })();
   }, []);
 
-  // from the moment the graph is on screen, every edit is kept in this browser (a refresh loses nothing), this graph's
-  // job still queued or running is followed again, and what this graph's 「输出」 packed is offered for download
+  // 图显示出来之后：每次修改都保存在本浏览器中（刷新不丢失），该图仍在排队或计算的任务重新跟踪，
+  // 该图的「输出」打包好的结果提供下载
   useEffect(() => {
     if (owner === null) return;
     void resumeJobs();
-    // Logged in again over the page (a login that ran out mid-job, the gate's own prompt): what is still queued or
-    // running is followed again; the job itself never went away (graph/follow.ts onlogin).
+    // 在页面上重新登录（任务中途登录过期，由登录门自身提示）：仍在排队或计算的任务重新跟踪；
+    // 任务本身始终在服务器上（graph/follow.ts onlogin）。
     const again = () => void resumeJobs();
     window.addEventListener(LOGGED_IN, again);
-    startUploads(); // a finished upload into its parameter; those a reload interrupted, paused
+    startUploads(); // 已完成的上传写入其参数；被刷新打断的上传处于暂停状态
     const stopAutosave = startAutosave(owner);
     const stopTabSync = startTabSync();
     return () => {
@@ -147,32 +157,31 @@ export default function App() {
     };
   }, [owner]);
 
-  // back from the package page (another tab): installed extensions make their nodes usable right away
+  // 从扩展包页面（另一个标签页）回来：已安装扩展的节点立即可用
   useEffect(() => {
     const onFocus = () => api.catalog().then(setCatalog, () => undefined);
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  // the page's keys (platform/keys.ts): space play, ← → step, ↑ ↓ start / end of the playback range (the timeline's, as in
-  // Houdini and Nuke), ctrl+s save (+shift: save as), ctrl+o open, ctrl+z undo, ctrl+shift+z / ctrl+y redo (in a text
-  // field those two are the field's own), ctrl+enter 计算 the displayed node, ctrl+shift+enter 提交 (every 「输出」)
+  // 页面快捷键（platform/keys.ts）：空格播放，← → 逐帧，↑ ↓ 跳到播放范围的起点 / 终点（时间线的播放范围，与
+  // Houdini、Nuke 相同），ctrl+s 保存（+shift：另存为），ctrl+o 打开，ctrl+z 撤销，ctrl+shift+z / ctrl+y 重做（在文本
+  // 输入框中这两者归输入框自己），ctrl+enter「计算」当前显示的节点，ctrl+shift+enter「提交」（所有「输出」）
   useShortcut({
     keys: ["mod+s", "mod+shift+s", "mod+o"],
     inText: true,
     run: (e) => {
-      // 打开 replaces the graph, harmless even as a viewer of this one; 保存 would write nothing new (editing is off)
-      // but is refused as well, for the same reason the button is: simpler to explain than a save that does nothing.
+      // 「打开」替换整张图，只读查看者使用也无妨；「保存」写不出任何新内容（不可编辑），但同样拒绝，
+      // 与按钮的理由相同：比一次什么也没保存的保存更容易解释。
       if (e.key.toLowerCase() === "o") openFile();
-      else if (useViewer.getState().role === "editor") save(e.shiftKey);
+      else if (!readOnly()) save(e.shiftKey);
       else say(msg("B-GRAPH-OTHERTAB"));
     },
   });
   useShortcut({
     keys: ["mod+z", "mod+shift+z", "mod+y"],
     run: (e) => {
-      if (useViewer.getState().role !== "editor") return;
-      if (e.key.toLowerCase() === "y" || e.shiftKey) redo();
+      if (e.key.toLowerCase() === "y" || e.shiftKey) redo(); // the read-only gate is in undo / redo themselves
       else undo();
     },
   });
@@ -232,7 +241,7 @@ export default function App() {
 
   return (
     <ReactFlowProvider>
-      <div className={`app${viewer ? " viewer" : ""}`}>
+      <div className={`app${viewer ? " viewer" : ""}${appMode ? " app-mode" : ""}`}>
         <TopBar onOpen={openFile} onSave={save} />
         <TabBanner />
         {/* 整个工作区先纵向分为两部分：左栏（视图 + 节点图） | 竖分割线 | 参数面板（占满整个高度） */}
@@ -246,14 +255,15 @@ export default function App() {
                 </ErrorBoundary>
               )}
             </div>
-            <div className={`splitter${dragging ? " active" : ""}`} onPointerDown={() => setDragging(true)} />
-            <div className="panel">
+            {/* 应用模式不画节点图（NodeEditor 不挂载）；「色彩空间」的自动填写与节点图无关，照常挂着 */}
+            {!appMode && <div className={`splitter${dragging ? " active" : ""}`} onPointerDown={() => setDragging(true)} />}
+            <div className="panel wk-graph">
               {ready && (
                 <ErrorBoundary name="节点图">
-                  <NodeEditor />
+                  {!appMode && <NodeEditor />}
                   {/* 仅在可编辑该图的标签页中填写：其他标签页正在编辑时此处为只读查看者，填写只会修改本地副本，与编辑方不一致 */}
                   {!viewer && <ColorspaceFills />}
-                  <Welcome onOpen={openFile} />
+                  {!appMode && <Welcome onOpen={openFile} />}
                 </ErrorBoundary>
               )}
             </div>
@@ -274,6 +284,8 @@ export default function App() {
           </div>
         </div>
         <NodeMenu />
+        {/* 开着的编辑窗画在这里，不挂在参数面板的行上：换选中、读进新版本都不关它（ParamControls.tsx OpenSheet） */}
+        <OpenSheet />
         <TemplatesSheet onOpen={(g) => open(g, null, true)} />
         <LogSheet />
         {pending && <UnsavedSheet onChoice={resolvePending} />}

@@ -8,6 +8,7 @@ import { useLook } from "../state/look";
 import { useResults } from "../state/results";
 import { useViewer } from "../state/viewer";
 import { wantPrefetch } from "../transfer/prefetchLive";
+import { setGens } from "../transfer/gens";
 import type { PrefetchKind } from "../transfer/prefetch";
 import { upstream } from "./nodes";
 import { channelsOf } from "../model/view2d";
@@ -22,6 +23,11 @@ const prefetchKind = (type: string): PrefetchKind | null =>
  * fresh fingerprints, they go straight into `results`; otherwise the server is asked once. What is
  * shown now switches by itself (the plan re-reads results); the other outputs go to the prefetch queue. */
 export function onNodeDone(e: CookEvent, node: string, refresh: () => void): void {
+  // the new packets' generations are noted first (the same source as the status reply: a packet's commit time), so the
+  // keys and addresses that follow (description, whole-range fetch, prefetch) carry them from the start rather than after
+  // the status reply at the end of the job — until then a recook of the same fingerprint would hit old frames under
+  // the old keys, and the new packet would be fetched once for nothing under keys without a generation
+  if (e.outputs && e.gens) setGens(Object.fromEntries(Object.entries(e.outputs).flatMap(([port, fp]) => (e.gens![port] ? [[fp, e.gens![port]]] : []))));
   const ci = useCookInputs.getState();
   const sameGraph = (e.graph ?? "") === ci.graphId;
   const trusted = e.version === ci.version; // the page is still the version it submitted: nothing was edited since

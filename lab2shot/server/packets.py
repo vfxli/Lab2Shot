@@ -1,37 +1,38 @@
 """Graph status and cooked results (packets) for the viewer. Cooks are submitted through the farm (server/farm.py).
 A graph is first admitted for the requesting account and answered from that account's own cache (data/store.py); a
-result is read only from the requesting account's own cache (server/access.py packets_readable)."""
+result is read only from the requesting account's own cache (each route declares owned=owners.packets)."""
 
 from __future__ import annotations
 
 
 import numpy as np
-from fastapi import Depends, Request
+from fastapi import Request
 from fastapi.responses import FileResponse, Response
 from pydantic import Field
 
 
+from ..recent import Recent, packet_key
 from .routes import Access, Router
 from ..engine import EVALUATIONS, Evaluation, Graph, Packet
 from ..engine.evaluations import content_key
 from ..data.packet import packet_dir
-from ..errors import Invalid, NotFound, Unviewable
-from ..io import FileProblem
+from ..errors import Invalid, NotFound
 from ..io.files import inside
 from ..messages import Msg
-from . import auth, graphs, wire
+from . import auth, graphs, owners, wire
+from .wire import WAITS
 from .graphs import GraphRequest
 
-from .access import account_of, admit, packets_readable
+from .access import account_of
 
-router = Router(prefix="/api", tags=["节点状态与结果"], dependencies=[Depends(packets_readable)])
+router = Router(prefix="/api", tags=["节点状态与结果"])
 
 
 
 def graph_of(req: GraphRequest, request: Request) -> Graph:
     """Return the graph a request names (sent once per version, server/graphs.py), admitted for the requesting account
     (server/access.py admit)."""
-    return admit(request, graphs.resolve(req, request))
+    return graphs.resolve(req, request)[1]
 
 
 def evaluation_of(req: GraphRequest, request: Request) -> Evaluation:
@@ -49,10 +50,18 @@ def evaluation_of(req: GraphRequest, request: Request) -> Evaluation:
 class StatusRequest(GraphRequest):
     cook_inputs: int = -1  # the page's cook-input version, echoed back; the page accepts only answers for its own version
     display: str | None = None  # the node shown in the viewer; its plan is included in the response
+    show: list[str] | None = None  # the outputs of it the viewer shows, as 「计算」 would submit them (JobRequest.show)
     # The item each 逐项处理 block is showing (begin -> item key); nodes inside a block report on that item. This is a
     # view setting of the page (webui/src/state/items.ts) and does not affect the cook, so the response carries the
     # same `cook_inputs` and the results are unchanged.
     view: dict[str, str] = Field(default_factory=dict)
+    # the `key` of `handle_node`'s handle data the page already holds: the same comes back as its key alone (the
+    # skeletons of 「骨架姿势」 are tens of KB and a status reply is asked for on every edit)
+    handle_key: str = ""
+    # the node whose handle data comes back; "" none. Which node's handles the page draws is the view's choice
+    # (webui/src/state/handleView.ts: the open 「对应关系」 editor, or the pose handle being edited in the viewer), not
+    # the displayed node's: the server does not guess it
+    handle_node: str = ""
 
 
 @router.post("/status", access=Access.user("编辑器：自己节点图的每个节点有没有缓存、能不能算", hides={
@@ -60,12 +69,77 @@ class StatusRequest(GraphRequest):
 def status(req: StatusRequest, request: Request) -> dict:
     """Return Evaluation.status plus server-side information: the graph version answered (its key and the echoed
     cook-input version) and the plan of the displayed node (farm/timings.py look)."""
-    from ..farm import farm, timings
+    from ..farm import timings
 
     ev = evaluation_of(req, request)
-    found = ev.status(view=req.view or None)
-    plan = timings.look(ev, req.display, False, farm().models()) if req.display in ev.graph.nodes else None
-    return {"graph": req.key or content_key(ev.graph), "cook_inputs": req.cook_inputs, **found, "plan": plan}
+    # the shown node's state and policy are of the cook 「计算」 would submit (its show), as its plan below is
+    found = ev.status(view=req.view or None, shown={req.display: frozenset(req.show)} if req.display and req.show else None)
+    plan = timings.look(ev, req.display, False, req.show) if req.display in ev.graph.nodes else None
+    about = handle_about(req, ev.graph)
+    data = _handle_data(ev, about, found["nodes"].get(about) or {}) if about else None
+    if data and data["key"] == req.handle_key:
+        data = {"node": data["node"], "key": data["key"]}  # the page has these already
+    return {"graph": req.key or content_key(ev.graph), "cook_inputs": req.cook_inputs, **found, "plan": plan,
+            **({"handle_data": data} if data else {})}
+
+
+def handle_about(req: StatusRequest, graph: Graph) -> str | None:
+    """The node whose handle data a status reply carries: the one the page names (`handle_node`), when the graph has
+    it; None without one, whatever node is displayed."""
+    return req.handle_node if req.handle_node in graph.nodes else None
+
+
+_HANDLE_DATA: Recent = Recent(16)  # the last few answers of NodeDef.handle_data, by what they were read from
+
+
+def _handle_data(ev: Evaluation, nid: str, entry: dict) -> dict | None:
+    """A node's handle data (StatusRequest.handle_node's; NodeDef.handle_data: what a 「骨架姿势」 handle draws), read from the packets
+    standing for its inputs (its entry's `stand_ins`, the same the option editors read; a list or a whole the port does
+    not take is turned into its item as for choices: app.py representative). Kept by (node type, parameters, those
+    packets, as the account asking has them: whose they are and their generation, Packet.created): a status reply asked again
+    with nothing changed reads nothing, another account's packets of the same fingerprint are never what it reads, and a
+    recook is read afresh. None when the node declares no such handle or nothing is wired in yet; a fault reading it (a
+    bug) leaves it out and is logged, never taking the reply."""
+    import json
+    import tempfile
+
+    from .. import logs
+    from ..serving import account
+    from .app import representative
+
+    node = ev.graph.nodes[nid]
+    t = node.type
+    if not any(h.wants_data for h in t.handles):
+        return None
+    stand = entry.get("stand_ins") or {}
+    if not stand:
+        return None
+    try:
+        inputs = {port: Packet.load(packet_dir(fp)) for port, fp in stand.items() if Packet.exists(packet_dir(fp))}
+    except (OSError, ValueError):  # a packet removed or rewritten while this reply reads it: no handle data this time
+        return None
+    key = (t.id, json.dumps(node.params, sort_keys=True, default=str),
+           tuple(sorted((port, packet_key(inputs[port]) if port in inputs else (account(), fp, ""))
+                        for port, fp in stand.items())))
+    data = _HANDLE_DATA.get(key)
+    if data is None:
+        try:
+            with tempfile.TemporaryDirectory() as scratch:
+                got = t.handle_data(t.load_params(node.params), representative(t, inputs, scratch))
+        except Exception as exc:  # noqa: BLE001 the handle's data never takes the status reply down
+            logs.say(logs.get("farm"), Msg("E-FARM-INTERNAL", detail=f"{type(exc).__name__}: {exc}"), logs.error_text(exc),
+                     about="handle_data")
+            return None
+        for k, one in got.items():  # an item split into scratch is gone now: the packet the stage loads is the stand-in
+            if "packet" in one and not Packet.exists(packet_dir(one["packet"])):
+                one["packet"] = stand.get(t.handles[k].source or "", "")
+        data = _HANDLE_DATA.put(key, {str(k): v for k, v in got.items()})
+    if not data:
+        return None
+    import hashlib
+
+    digest = hashlib.sha256(repr(key).encode()).hexdigest()[:16]
+    return {"node": nid, "key": digest, "handles": data}
 
 
 ITEMS_PAGE = 50  # default page size of node_items; blocks with hundreds of items are read page by page
@@ -82,7 +156,9 @@ def node_items(graph: str, node: str, request: Request, offset: int = 0, limit: 
         raise NotFound(Msg("B-COOK-NOSUCHNODE", node=node))
     if offset < 0 or limit < 1:
         raise Invalid(Msg("E-STATUS-ITEMSPAGE", most=ITEMS_MOST))
-    found = ev.items(node, offset, min(limit, ITEMS_MOST))
+    # a fault of the program in one node's items is that node's error, never a 500 (Evaluation.guarded, as the status)
+    found = ev.guarded("items", lambda: ev.items(node, offset, min(limit, ITEMS_MOST)),
+                       lambda said: {"total": 0, "offset": offset, "items": [], "error": said.json()})
     return {"graph": graph, "node": node, **found}
 
 
@@ -105,8 +181,8 @@ def _nothing(p: Packet, **shape) -> dict | None:
     return {"frames": [], "width": int(p.meta.get("width", 0)), "height": int(p.meta.get("height", 0)), "empty": True, **shape}
 
 
-@router.get("/packet/{fp}", access=Access.user("看结果：数据包的类型"), summary="数据包的类型、元数据和一份摘要（这份数据是什么：尺寸、帧范围、Focal Length、人数……端口提示和数据信息面板都读它）；显示成原样上传文件的图像另有每帧内容的 sha256（blobs：浏览器有同样的文件就不用下载）")
-def manifest(fp: str) -> dict:
+@router.get("/packet/{fp}", access=Access.user("看结果：数据包的类型", owned=owners.packets), summary="数据包的类型、元数据和一份摘要（这份数据是什么：尺寸、帧范围、Focal Length、人数……端口提示和数据信息面板都读它）；显示成原样上传文件的图像另有每帧内容的 sha256（blobs：浏览器有同样的文件就不用下载）")
+def manifest(fp: str, request: Request) -> dict:
     from ..data import summary as data_summary
 
     p = _packet(fp)
@@ -126,10 +202,14 @@ def manifest(fp: str) -> dict:
         # Frame size in the viewer at the current proxy tier (administrator setting view.proxy_px). The page includes
         # it in its cache key (packet, frame, channel, proxy tier), so switching away and back hits the cache; after
         # the administrator changes the tier, a reload uses the new tier.
-        from ..view.proxy import sized, tier
+        from ..view.proxy import form_of, sized, tier
 
         w, h = sized(int(p.meta.get("width", 0)), int(p.meta.get("height", 0)))
-        out["proxy"] = {"px": tier(), "width": w, "height": h}
+        # `form`: how its proxies are made when not the usual way (编号图 "ids": nearest, exact values; view/proxy.py
+        # form_of). The page puts it in the address (`pf=`) and its cache keys beside the tier, so proxies made the
+        # other way before (kept by the browser as immutable) are never taken for these
+        form = form_of(p)
+        out["proxy"] = {"px": tier(), "width": w, "height": h, **({"form": form} if form else {})}
     # Only 2D images can have a file shown to the browser unchanged. _shown_blobs reads colorspace and files, which
     # non-2D packets (cameras, point clouds) do not have, so it must not be called for them.
     if channels_of(p.type) and not is_data(p) and (blobs := _shown_blobs(p)):
@@ -156,14 +236,17 @@ def _from_here(frames: list[int], here: int) -> list[int]:
     return frames[at:] + frames[:at]
 
 
-@router.get("/packet/{fp}/frame/{frame}.png", access=Access.user("看结果：一帧的视图代理图"), summary="数据包某一帧给视图看的**代理图**（显示空间）：算完就按管理员设定的那一档（「设置 · 视图 · 视图代理尺寸」，默认 512）等比缩、有损压缩存起来，网页只拿这一份。交付写出去的文件永远是原尺寸、原精度、无损，不受它影响。内容按地址不变，浏览器一直留着")
-def frame(fp: str, frame: int, through: str = "", at: str = "", g: str = "", px: int | None = None) -> FileResponse:
+@router.get("/packet/{fp}/frame/{frame}.png", access=Access.user("看结果：一帧的视图代理图", owned=owners.packets), summary="数据包某一帧给视图看的**代理图**（显示空间）：算完就按管理员设定的那一档（「设置 · 视图 · 视图代理尺寸」，默认 512）等比缩、有损压缩存起来，网页只拿这一份。交付写出去的文件永远是原尺寸、原精度、无损，不受它影响。内容按地址不变，浏览器一直留着")
+def frame(fp: str, request: Request, frame: int, through: str = "", at: str = "", g: str = "", px: int | None = None, pf: str = "",
+          cg: str = "") -> FileResponse:
     """Return the proxy picture of one frame (`lab2shot/view/proxy.py`).
 
     `through` (a camera packet's fingerprint) with `at` (that camera's path in the scene) views the frame through that
     camera: when the camera has lens distortion, the plate is undistorted with its lens
     (`view/proxy.py through_picture_file`) so that it matches the 3D projection. Without them the plain proxy is
-    returned. The 3D stage passes them when viewing through a distorted camera (`webui/src/view/Stage3D.tsx`).
+    returned. The 3D stage passes them when viewing through a distorted camera (`webui/src/view/Stage3D.tsx`), with
+    `cg`, that camera packet's generation: the undistorted picture depends on both packets, so the address is one
+    sequence of bytes only when it carries both generations (as server/view.py points does).
 
     This route serves colour pictures (decided by `webui/src/transfer/route.ts`): the screen is 8-bit sRGB and a colour
     result is shown as it is, so one 8-bit lossy WebP is the smallest carrier of its three channels (about a tenth of
@@ -185,14 +268,17 @@ def frame(fp: str, frame: int, through: str = "", at: str = "", g: str = "", px:
     if (nothing := _nothing(p)) is not None:  # empty packets have no files; answer the empty shape instead of a 500
         return nothing
     Packet.used(p.dir)  # viewing counts as use, so cleanup (least recently used first) does not evict viewed packets
-    kept = wire.versioned(p, g)  # the URL is immutable only with the generation (`g=`, packet created) and tier (`px=`)
-    px = proxy.tier_of(px)
+    # the URL is immutable only with the generation (`g=`, packet created), tier (`px=`) and the proxy's form (`pf=`,
+    # view/proxy.py form_of): an address naming another form (a page from before the form changed) is answered with
+    # the proxy as it is made now, but not kept. Through a camera, its generation too (`cg=`): the same camera
+    # fingerprint recomputed with another lens makes another picture (the file on disk is named by it already,
+    # proxy.through_picture_file); a stale `cg` is E-VIEW-STALE, an address without one is answered but not kept
     cam = _packet(through) if through else None
+    # the tier too: an address without `px=` is answered at the current tier, which the administrator may change
+    kept = wire.versioned(p, g) and px is not None and pf == proxy.form_of(p) and (wire.versioned(cam, cg) if cam is not None else True)
+    px = proxy.tier_of(px)
     picture = (lambda f: proxy.through_picture_file(p, f, cam, at, px)) if cam else (lambda f: proxy.picture_file(p, f, px))
-    try:
-        path = picture(frame)
-    except FileProblem as exc:  # an unreadable user file (cannot open, missing channel): report it, not a 500
-        raise Unviewable(exc.message) from None
+    path = picture(frame)  # an unreadable user file (cannot open, missing channel) is FileProblem's own answer
     if path is None:
         raise NotFound(Msg("E-VIEW-NOFRAME", frame=frame))
     wire.ahead(f"{fp}:pic.{px}" + (f":through.{through}.{at}" if cam else ""),
@@ -208,8 +294,9 @@ def frame(fp: str, frame: int, through: str = "", at: str = "", g: str = "", px:
 # defined solely in lab2shot/view/proxy.py. Which route a view uses is decided solely by webui/src/transfer/route.ts.
 
 
-@router.get("/packet/{fp}/frame/{frame}/channel/{name}", access=Access.user("看结果：一帧里的一条通道"), summary="一帧里**一条通道**的代理数据（不是做好的图）：浏览器拿它自己画——取通道、黑白点、着色、合成都在浏览器算，切看法一次网络都不用。头 16 字节说清格式（u8 / u16 / 半精度 / float32，对应显卡的 R8 / R16 / R16F / R32F）和宽高，后面是宽×高个值。尺寸是管理员设定的那一档（「设置 · 视图 · 视图代理尺寸」）。内容按地址不变，浏览器一直留着")
-def frame_channel(fp: str, frame: int, name: str, request: Request, g: str = "", px: int | None = None) -> Response:
+@router.get("/packet/{fp}/frame/{frame}/channel/{name}", access=Access.user("看结果：一帧里的一条通道", owned=owners.packets), summary="一帧里**一条通道**的代理数据（不是做好的图）：浏览器拿它自己画——取通道、黑白点、着色、合成都在浏览器算，切看法一次网络都不用。头 16 字节说清格式（u8 / u16 / 半精度 / float32，对应显卡的 R8 / R16 / R16F / R32F）和宽高，后面是宽×高个值。尺寸是管理员设定的那一档（「设置 · 视图 · 视图代理尺寸」）。内容按地址不变，浏览器一直留着")
+def frame_channel(fp: str, frame: int, name: str, request: Request, g: str = "", px: int | None = None,
+                  pf: str = "") -> Response:
     """Return the proxy data of one channel of one frame.
 
     `name` must be one of the packet's channels as listed in /api/packet/{fp} `channels` (R G B A, plus valid when a
@@ -233,22 +320,20 @@ def frame_channel(fp: str, frame: int, name: str, request: Request, g: str = "",
         raise NotFound(Msg("E-VIEW-NOCHANNEL", channel=name, channels=" ".join(names)))
     if (nothing := _nothing(p)) is not None:  # empty packets have no files (see frame)
         return nothing
-    kept = wire.versioned(p, g)
+    kept = wire.versioned(p, g) and px is not None and pf == proxy.form_of(p)  # immutable only for this tier and form (see frame)
     px = proxy.tier_of(px)
     try:
         blob = proxy.channel_file(p, frame, name, px)
     except FileNotFoundError:
         raise NotFound(Msg("E-VIEW-NOFRAME", frame=frame)) from None
-    except FileProblem as exc:  # an unreadable user file (cannot open, missing channel): report it, not a 500
-        raise Unviewable(exc.message) from None
     wire.ahead(f"{fp}:ch.{name}.{px}",
                lambda: [lambda f=f: proxy.channel_file(p, f, name, px) for f in _from_here(proxy.frames_of(p), frame)])
     return wire.channel_answer(blob, request.headers.get("accept-encoding", ""), kept)
 
 
-@router.get("/packet/{fp}/clipboard", access=Access.user("看结果：复制到别的软件的节点文字"),
+@router.get("/packet/{fp}/clipboard", access=Access.user("看结果：复制到别的软件的节点文字", owned=owners.packets),
             summary="结果里带的节点文字（Nuke 的 .nk 片段）：网页的「复制到 Nuke」把它放进剪贴板")
-def clipboard(fp: str) -> dict:
+def clipboard(fp: str, request: Request) -> dict:
     """Return the snippet a node wrote for pasting into another application: the target application, the file name
     it was written as, and its text. The node declares it (nodes/clipboard.py Pasteable) and writes it into the result
     (via put_clipboard, or, for an output-settings node, among its delivered files); this route is format-agnostic.
@@ -274,8 +359,8 @@ def clipboard(fp: str) -> dict:
             **({"said": Msg(said["code"], **(said.get("params") or {})).json()} if said else {})}
 
 
-@router.get("/packet/{fp}/boxes", access=Access.user("看结果：人物框"), summary="人物框数据包：每个人每帧的框")
-def boxes(fp: str) -> dict:
+@router.get("/packet/{fp}/boxes", access=Access.user("看结果：人物框", owned=owners.packets), summary="人物框数据包：每个人每帧的框")
+def boxes(fp: str, request: Request) -> dict:
     from ..data.payloads import read_boxes
 
     p = _packet(fp)
@@ -286,8 +371,8 @@ def boxes(fp: str) -> dict:
     return {**p.meta, "people": read_boxes(p)}  # meta["people"] holds only ids; the box data replaces it
 
 
-@router.get("/packet/{fp}/tracks", access=Access.user("看结果：跟踪点"), summary="跟踪点数据包：每个点每帧的位置")
-def tracks(fp: str) -> dict:
+@router.get("/packet/{fp}/tracks", access=Access.user("看结果：跟踪点", owned=owners.packets), summary="跟踪点数据包：每个点每帧的位置")
+def tracks(fp: str, request: Request) -> dict:
     """Return 2D tracks for the viewer: per point a list of [x, y] (null where hidden), aligned with meta.frames. For
     trackers that score their points, "confidence" gives per point and frame a value in 0..1 rounded to two decimals.
     A planar track (points with the plane's homography) also returns its outline on every frame, including estimated
@@ -310,8 +395,8 @@ def tracks(fp: str) -> dict:
     return out
 
 
-@router.get("/packet/{fp}/curves", access=Access.user("看结果：曲线"), summary="曲线数据包，或者每帧一个的数值：每条曲线每帧的值")
-def curves(fp: str) -> dict:
+@router.get("/packet/{fp}/curves", access=Access.user("看结果：曲线", owned=owners.packets), summary="曲线数据包，或者每帧一个的数值：每条曲线每帧的值")
+def curves(fp: str, request: Request) -> dict:
     """Return curves for the viewer's strip: from a curves packet, from a 「SMPL 人体」 packet's parameters (three
     axis-angle curves per joint plus translation), or from a per-frame value (浮点 or 整数: one curve; 向量: three,
     X Y Z; 布尔: 0 and 1)."""
@@ -332,7 +417,7 @@ def curves(fp: str) -> dict:
             "range": [float(values.min()), float(values.max())], "values": np.round(values, 5).T.tolist()}
 
 
-@router.get("/packet/{fp}/scene", access=Access.user("看结果：3D 视图的描述"), summary="3D 视图用的描述：模型、蒙皮角色、点云、相机、灯光，以及每一部分数据的地址")
+@router.get("/packet/{fp}/scene", access=Access.user("看结果：3D 视图的描述", owned=owners.packets, lane=WAITS), summary="3D 视图用的描述：模型、蒙皮角色、点云、相机、灯光，以及每一部分数据的地址")
 def scene(fp: str, request: Request) -> Response:
     from .view_data import respond_description
     from .view_worker import describe
@@ -341,12 +426,16 @@ def scene(fp: str, request: Request) -> Response:
     return respond_description(describe(("scene", fp), f"/api/packet/{fp}/view/{{part}}?g={p.created or ''}"), request.headers.get("accept-encoding", ""))
 
 
-@router.get("/packet/{fp}/view/{part}", access=Access.user("看结果：3D 视图的数据（一段）"), summary="3D 视图的一部分数据（二进制，gzip）：先是小的，再是大的静止数据，再按帧分段")
+@router.get("/packet/{fp}/view/{part}", access=Access.user("看结果：3D 视图的数据（一段）", owned=owners.packets, lane=WAITS), summary="3D 视图的一部分数据（二进制，gzip）：先是小的，再是大的静止数据，再按帧分段")
 def scene_part(fp: str, part: str, request: Request, g: str = "") -> Response:
     """Return one part of the 3D view data. Each URL maps to a single immutable byte sequence with no preview variant:
     3D data is small, and point clouds are decimated to the 「点云上限」 setting."""
-    from .view_data import respond
+    from .view_data import respond, stored_chunk
     from .view_worker import part as view_part
 
-    kept = wire.versioned(_packet(fp), g)
-    return respond(view_part(("scene", fp), part), request.headers.get("accept-encoding", ""), kept=kept)
+    p = _packet(fp)
+    kept = wire.versioned(p, g)
+    # made ahead and kept on disk (view_data.store_chunk): sent as it is, without asking a view worker lane
+    stored = stored_chunk(("scene", fp), (p.created,), part, request.query_params) if kept else None
+    data = stored.read_bytes() if stored is not None else view_part(("scene", fp), part)
+    return respond(data, request.headers.get("accept-encoding", ""), kept=kept)

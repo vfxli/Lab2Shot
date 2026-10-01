@@ -43,9 +43,13 @@ class ProjectFacts:
     # scripts) + the sha256 of every declared weight. It enters the node fingerprint (engine/evaluation.py), so after
     # reinstalling the extension, changing weights or changing the torch version, old results no longer hit the cache;
     # a manually maintained node version number cannot detect changed weights, and users would receive results from
-    # an old model believing them new. Computed and stamped where extensions are loaded (adapters.py project_facts):
-    # the engine only reads this string and does not depend upwards on the installer layer.
-    result_identity: str = ""
+    # an old model believing them new. The loader supplies a callback: declarations load without opening the runtime
+    # database, so static checks can run before a database migration. The engine reads the identity only when needed.
+    _result_identity: Callable[[], str] = lambda: ""
+
+    @property
+    def result_identity(self) -> str:
+        return self._result_identity()
 
 
 CORE_PROJECT = ProjectFacts("Lab2Shot", BASIC, frozenset(), lambda: None)

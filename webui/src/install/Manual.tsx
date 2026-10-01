@@ -4,9 +4,10 @@ import { Sheet } from "../ui/Sheet";
 import { copyText, host, webAddress } from "../platform/util";
 import { Button, ButtonLink } from "../ui/Button";
 
-/** 手动下载 (lab2shot/extensions/manual.py)：扩展安装的一部分。许多扩展的权重须由使用者自行从官网下载，
- * 部分还须本人确认许可协议；体检清单中的这两项（B-INSTALL-MANUAL / B-INSTALL-CONSENT）未满足时无法安装。
- * 因此它与安装控件放在一起，由后台「扩展包」区域使用。
+/** 手动下载 (lab2shot/extensions/manual.py): part of installing an extension. Many extensions' weights must be
+ * downloaded by the user from the official site, and some also need the user's own acceptance of a licence; while
+ * either checklist item (B-INSTALL-MANUAL / B-INSTALL-CONSENT) is unmet the extension cannot be installed. That is why
+ * it lives beside the install control and is used by the admin page's 「扩展包」 section.
  *
  * One folder holds everything the user downloads by hand (SMPL, SMPL-X, MANO, FLAME, the Autodesk FBX SDK ...). Each
  * item is a row of the 手动下载 table (admin/Extensions.tsx); this is only what goes in its 操作 cell: where to download it, 重新检查,
@@ -53,8 +54,8 @@ export function InboxNote({ view }: { view: ManualView | null }) {
           ))}
         </div>
       )}
-      {/* 收件文件夹中与扩展无关的内容不提示「还有 N 项不会被使用」；只需提醒看似属于某个扩展
-          但放错位置的文件，这些归入上方 unknown 组。 */}
+      {/* Content of the inbox unrelated to any extension gets no 「还有 N 项不会被使用」 note; only files that look
+          like they belong to an extension but are misplaced are pointed out, and those are the unknown group above. */}
     </section>
   );
 }

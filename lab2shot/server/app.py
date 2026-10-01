@@ -5,28 +5,31 @@ from __future__ import annotations
 from functools import lru_cache
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
 from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES, GZipMiddleware
 
 from .. import __version__, catalog
+from .. import library as library_cards  # the template cards (lab2shot/library.py); `library` here is its routes
 from ..config import WEBUI_DIST
-from ..engine import CookError
-from ..errors import (Conflict, Failed, MessageError, NotFound, NotSignedIn, TooLarge, TooMany, TooManyTries,
-                      Unavailable, Unviewable)
+from ..errors import Invalid, MessageError, NotFound, Unavailable
 from ..messages import Msg
 from ..nodes import describe_layer_ports, describe_scene_kinds, describe_types, tags
 from ..nodes.registry import type_tables
 from ..data.values import UNIT_KINDS, UNITS
 from .. import categories as trees  # the two category trees and the node placements (data files)
-from . import access, auth, categories, farm, feedback, installs, invites, library, logs, notice, packets, quota, records, register, settings, terms, tools, traffic, transfer, users, view, wire  # noqa: F401 (installs, users: admin routes)
+from . import access, auth, categories, farm, feedback, installs, invites, library, logs, notice, owners, packets, quota, records, register, settings, terms, tools, traffic, transfer, users, view, wire  # noqa: F401 (installs, users: admin routes)
 from . import templates as admin_templates  # its own admin routes: the 模板 page's switches
 from . import revisions
 from . import releases
-from .graphs import UnknownGraph
-from .routes import Access, Router, mount
+from .routes import Access, Body, Router, mount
+from . import view_worker
+from ..farm.queue import on_scene_done
 
 catalog.install()  # the node types and what planning needs, for every route below (lab2shot/catalog.py)
+# 视图预生成交给 farm：一个 scene.* 数据包算完时由视图 worker 在后台预先生成它的三维块（farm 不认识 server，
+# 由这里把上层的函数交给这个进程的 farm，它在造出来时拿到，同 catalog.install 的做法）
+on_scene_done(view_worker.scene_done)
 
 # no /docs, /redoc or /openapi.json of FastAPI's own: the machine-readable one is /api/admin/openapi.json, for the administrator
 app = FastAPI(title="Lab2Shot", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
@@ -44,28 +47,34 @@ app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5,
 app.add_middleware(traffic.Meter)
 
 
-# What goes wrong for the requester, raised anywhere, is answered here in one place (one MessageError subclass each,
-# with the status its docstring names): not found 404, not signed in 401, not the account's 403, bad input 400,
-# conflicts with what the server is doing 409, request too large 413, view data that could not be made 422, the
-# server's own work failed 500, too frequent 429, temporarily unavailable (restarting) 503
-def _answer(status: int):
-    return lambda request, exc: JSONResponse(answer_of(exc), status_code=status)
+# What goes wrong for the requester, raised anywhere, is answered here in one place: an error with a message with the
+# status its class declares (errors.py MessageError.status) and what it says (MessageError.answer), and a request whose
+# path, query or body does not read as its route declares (FastAPI's validation) as Invalid, naming the field. Anything
+# else is the program's fault, a library's error too (a file gone, a value it refused): 500 with its reference
+# (server/logs.py). Where a user's input is what went wrong, the code says so with Invalid or NotFound.
+# what is wrong with a field, by the kind pydantic names (its `type`), in words of the catalogue; a kind not here is said
+# in pydantic's own words (E-FIELD-OTHER)
+_WHY = {"missing": "E-FIELD-MISSING", "int_parsing": "E-FIELD-INTEGER", "int_type": "E-FIELD-INTEGER",
+        "int_from_float": "E-FIELD-INTEGER", "float_parsing": "E-FIELD-NUMBER", "float_type": "E-FIELD-NUMBER",
+        "finite_number": "E-FIELD-NUMBER", "string_type": "E-FIELD-TEXT", "list_type": "E-FIELD-LIST",
+        "dict_type": "E-FIELD-OBJECT", "model_type": "E-FIELD-OBJECT", "model_attributes_type": "E-FIELD-OBJECT",
+        "bool_parsing": "E-FIELD-SWITCH", "bool_type": "E-FIELD-SWITCH", "greater_than_equal": "E-FIELD-TOOSMALL",
+        "greater_than": "E-FIELD-TOOSMALL", "less_than_equal": "E-FIELD-TOOBIG", "less_than": "E-FIELD-TOOBIG",
+        "too_long": "E-FIELD-TOOLONG", "base64_decode": "E-FIELD-BASE64"}
 
 
-def answer_of(exc: BaseException) -> dict:
-    """An error's answer: its text, and its message code when it has one (lab2shot/messages)."""
-    return {"detail": str(exc), "code": exc.message.code} if isinstance(exc, MessageError) else {"detail": str(exc)}
+def _unreadable(request, exc: RequestValidationError) -> JSONResponse:
+    first = (exc.errors() or [{}])[0]
+    where = [str(x) for x in first.get("loc", ())]
+    field = ".".join(where[1:]) or "请求体"  # the body itself (not an object, not JSON of the route's shape)
+    code = _WHY.get(str(first.get("type", "")))
+    why = Msg(code) if code else Msg("E-FIELD-OTHER", detail=str(first.get("msg", ""))[:200])
+    said = Invalid(Msg("E-ACCESS-BADFIELD", field=field, why=why))
+    return JSONResponse({**said.answer(), "field": field}, status_code=said.status)
 
 
-ANSWERED_AS = {NotFound: 404, NotSignedIn: 401, TooManyTries: 429, TooLarge: 413, Conflict: 409, Unviewable: 422,
-               Failed: 500, CookError: 400, TooMany: 429, Unavailable: 503}
-for error, status in ANSWERED_AS.items():
-    app.add_exception_handler(error, _answer(status))
-app.add_exception_handler(PermissionError, _answer(403))  # Forbidden, which carries its own message
-app.add_exception_handler(FileNotFoundError, _answer(404))  # a result's file cleaned away under a route (a video frame, a part): gone, not a server error
-app.add_exception_handler(ValueError, _answer(400))  # GraphError, Invalid and bad parameters are ValueErrors
-# an ask naming a version of the graph this server does not have (restarted): the page sends the whole graph again
-app.add_exception_handler(UnknownGraph, lambda request, exc: JSONResponse({**answer_of(exc), "graph": "unknown"}, status_code=409))
+app.add_exception_handler(MessageError, lambda request, exc: JSONResponse(exc.answer(), status_code=exc.status))
+app.add_exception_handler(RequestValidationError, _unreadable)
 
 
 router = Router()  # the editor's own routes (paths in full)
@@ -101,15 +110,16 @@ app.include_router(admin)
 
 
 @router.get("/api/catalog", access=Access.user("编辑器：数据类型和这个账号能用的节点类型", hides={
-    # GPU figures only 显卡详情 (farm.cards) sees (nodes/applies.py ResolvedCost; a setting's measured VRAM in its parameter spec)
+    # GPU figures only 显卡详情 (farm.cards) sees (nodes/applies.py ResolvedCost; a setting's measured VRAM: access.params_for)
     "farm.cards": ("nodes[].at_defaults.cost.vram_gb", "nodes[].at_defaults.cost.vram_measured",
-                   "nodes[].at_defaults.cost.measured_on", "nodes[].params[].measured")}, keyed=revisions.catalog), tags=["节点图"], summary="所有数据类型、场景里的几种数据、节点菜单（两个区、分类树、每个节点归在哪）、数值的单位、标签，和这个账号能用的节点类型（端口、参数、参数的输入口、3D 输出设置写得了什么）")
+                   "nodes[].at_defaults.cost.measured_on")}, keyed=revisions.catalog), tags=["节点图"], summary="所有数据类型、场景里的几种数据、节点菜单（两个区、分类树、每个节点归在哪）、数值的单位、标签，和这个账号能用的节点类型（端口、参数、参数的输入口、3D 输出设置写得了什么）")
 def catalog(request: Request) -> dict:
     from ..nodes import text
     from ..nodes.registry import node_types
 
     u = auth.me(request)
     text.refresh(node_types())  # a nodes.json restored or edited outside the server: its words before this answer (under its lock)
+    usable = access.node_types_for(u)
     return {
         "version": __version__,
         "types": describe_types(),
@@ -117,14 +127,14 @@ def catalog(request: Request) -> dict:
         "scene_kinds": describe_scene_kinds(),
         # The node menu: two sections, the category tree and each node's placement (lab2shot/categories.py: all data
         # files, edited by administrators in the menu)
-        "menu": trees.describe_menu(),
+        "menu": trees.describe_menu(usable),
         "units": {u: {"kind": kind, "kind_label": UNIT_KINDS[kind], "factor": f} for u, (kind, f) in UNITS.items()},  # which convert
         "tags": tags.describe(),
         # how many built-in templates this account may use: the top bar says it beside 「模板」 and must not download
         # all of them, with their graphs, to count
         "templates": len(access.templates_for(u)),
         **type_tables(),  # accepts, converters: looked up while a wire is drawn (webui/src/graph/rules.ts)
-        "nodes": [_with_defaults(access.describe_for(u, n), n) for n in access.node_types_for(u).values()],
+        "nodes": [_with_defaults(access.describe_for(auth.session(request), n), n) for n in usable.values()],
     }
 
 
@@ -157,7 +167,7 @@ def _node_type(request: Request, type_id: str):
     return node
 
 
-class DeriveRequest(BaseModel):
+class DeriveRequest(Body):
     params: dict
 
 
@@ -167,7 +177,7 @@ def derive(type_id: str, req: DeriveRequest, request: Request) -> dict:
     return node.derive(node.load_params(req.params))
 
 
-class PasteRequest(BaseModel):
+class PasteRequest(Body):
     text: str
 
 
@@ -186,20 +196,64 @@ def paste(type_id: str, req: PasteRequest, request: Request) -> dict:
     return node.read_pasted(req.text)
 
 
-class ChoicesRequest(BaseModel):
+class ChoicesRequest(Body):
     params: dict
     inputs: dict[str, str] = {}  # port -> fingerprint of the packet cooked for it
 
 
-@router.post("/api/nodes/{type_id}/choices", access=Access.user("编辑器：参数里来自输入的选项（只能是自己节点图的结果）"), tags=["节点图"], summary="参数的可选项里来自输入的部分（补帧：接进来的骨骼有哪些关节、自动猜的是哪个）")
+@router.post("/api/nodes/{type_id}/choices", access=Access.user("编辑器：参数里来自输入的选项（只能是自己节点图的结果）", owned=owners.packet_inputs), tags=["节点图"], summary="参数的可选项里来自输入的部分（补帧：接进来的骨骼有哪些关节、自动猜的是哪个）")
 def choices(type_id: str, req: ChoicesRequest, request: Request) -> dict:
     from ..data.packet import Packet, packet_dir
 
     node = _node_type(request, type_id)  # an upload of another account is not there for it (uploads.resolve)
-    for fp in req.inputs.values():
-        access.readable(request, fp)
     inputs = {port: Packet.load(packet_dir(fp)) for port, fp in req.inputs.items() if Packet.exists(packet_dir(fp))}
-    return node.choices(node.load_params(req.params), inputs)
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as scratch:
+        return node.choices(node.load_params(req.params), representative(node, inputs, scratch))
+
+
+def representative(node, inputs: dict, scratch: str) -> dict:
+    """网页没有这个口自己的包时会送来能代表它的包（状态回复里节点的 stand_ins：engine/evaluation.py Evaluation.stand_ins）：逐项块里的节点收到的是块外
+    的列表，或者「拆成列表」还没算时它要拆的那份整数据。这个口要单个而收到列表：取列表的第一条；收到这个口不收的整份
+    数据而它能拆（data/items.py）：拆出第一条这个口收得下的（写在 `scratch` 临时文件夹里，只读来答这一次，不进缓存）。同一个解算器
+    每个人的骨架相同，拿第一个人配对就够（「动作重定向」的「对应关系」在重定向块跑之前就能编辑）。"""
+    from pathlib import Path
+
+    from ..data.items import names as item_names, split as split_item
+    from ..data.packet import Packet, items_of, packet_dir
+    from ..data.types import accepts, is_list
+
+    wants = {p.name: p.type for p in node.inputs}
+    out = dict(inputs)
+    for port, packet in inputs.items():
+        want = wants.get(port)
+        if not want:
+            continue
+        if is_list(packet.type) and not any(is_list(t) for t in want.split("|")):
+            first = items_of(packet)[:1]
+            got = Packet.load(packet_dir(first[0][1])) if first and Packet.exists(packet_dir(first[0][1])) else None
+        elif not accepts(want, packet.type) and item_names(packet):
+            # 第一条这个口收得下的（整个场景里可能先是相机）
+            # （拆出来的一条类型可能仍是笼统的「场景」：没有收得下的就用第一条笼统的，让节点自己读；别的类型，例如相机，
+            # 排最后）
+            got, rank = None, 3
+            for i, name in enumerate(item_names(packet)):
+                where = Path(scratch) / f"{port}_{i}"
+                where.mkdir()
+                one = split_item(packet, name, where, lambda items, work: (work(x) for x in items))
+                r = 0 if accepts(want, one.type) else 1 if one.type == packet.type else 2
+                if r < rank:
+                    got, rank = one, r
+                if r == 0:
+                    break
+        else:
+            continue
+        if got is None:
+            out.pop(port)
+        else:
+            out[port] = got
+    return out
 
 
 @router.get("/api/templates", access=Access.user("编辑器：这个账号能用的模板", keyed=revisions.templates), tags=["节点图"], summary="这个账号能用的模板：名字、简介、归在哪个分类、节点图、用到的项目、许可、来源和文件属性，加上模板面板的分类树；管模板的账号还拿到关掉的")
@@ -212,7 +266,8 @@ def templates(request: Request) -> dict:
 
     def card(t: dict) -> dict:
         return {**{k: t[k] for k in ("id", "name", "intro", "deliverable", "category", "graph", "licence", "owner", "adapter",
-                                     "path", "author", "created", "updated", "bytes")},
+                                     "path", "created", "updated", "bytes")},
+                "author": library_cards.author_of(t),
                 # a template the administrator turned off: only a login that manages them gets it at all (access.py),
                 # and it is told so, to draw it greyed as 「已停用」
                 "enabled": t["enabled"],
@@ -224,7 +279,11 @@ def templates(request: Request) -> dict:
                 # one word on the card: the strictest licence its parts carry, the tag table's own
                 # word, and whether that word means results may be used commercially (the page never reads the word)
                 "licence_word": nodes_tags.strictest(frozenset(t["licence"])),
-                "commercial": nodes_tags.commercial(frozenset(t["licence"]))}
+                "commercial": nodes_tags.commercial(frozenset(t["licence"])),
+                # the best route another choice of its menus gives (「默认路线 非商用；有可商用路线」): its word and whether
+                # that word means commercial use; the same as the chip's when no choice does better
+                "best_licence_word": nodes_tags.strictest(best := nodes_tags.least_strict([frozenset(r) for r in t["route_licences"]])),
+                "best_commercial": nodes_tags.commercial(best)}
 
     # the cards with the tree they sit in (lab2shot/categories.py templates: the administrator's file) and, when that
     # file cannot be read, the one sentence the panel shows (every card is 未分类 then)

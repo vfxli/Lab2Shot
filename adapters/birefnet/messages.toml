@@ -1,4 +1,7 @@
-# BiRefNet 抠像（adapters/birefnet）。一行一条：编号 = 模板。
+# BiRefNet 抠像、边缘解混合（adapters/birefnet）。一行一条：编号 = 模板。
 
 # ---- 结果
 "N-BIREFNET-EMPTY" = "「BiRefNet 抠像」有 {count:d} 帧没有找到主体（alpha 全部低于 0.5，这些帧的 Alpha 基本是空的）：第 {frames}{more} 帧"
+
+# ---- 边缘解混合
+"W-BIREFNET-NOALPHA" = "「BiRefNet 边缘解混合」的「Alpha」缺 {count:d} 帧，这些帧已跳过、没有输出前景：第 {frames}{more} 帧。要每帧都有结果，让接进「Alpha」的序列覆盖画面的每一帧"

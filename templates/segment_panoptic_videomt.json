@@ -3,17 +3,132 @@
  "meta": {
   "id": "1aa0a4f353b2a26a75b5db5181646d1d",
   "name": "整画面分割 · VidEoMT",
-  "intro": "VidEoMT 是只有编码器的轻量在线视频分割模型，建在普通的 Vision Transformer 上，空间和时间的推理都在编码器里完成，不依赖专门的目标跟随模块。这张卡不写提示词，把每个像素分到 VIPSeg 124 类，交付带 Cryptomatte 的多层 EXR。",
+  "intro": "VidEoMT 是只有编码器的轻量在线视频分割模型，建在普通的 Vision Transformer 上，空间和时间的推理都在编码器里完成，不依赖专门的目标跟随模块。这张卡不写提示词，把每个像素分到 VIPSeg 124 类，交付多层 EXR：第一层是原画面，其余是 Cryptomatte。",
   "author": "Lab2Shot",
   "created": "2026-09-13T12:00:00",
   "deliverable": "segmentation",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "name": "threshold",
+   "label": "检测阈值",
+   "target": "pan.threshold"
+  },
+  {
+   "name": "resolution",
+   "label": "处理分辨率",
+   "target": "pan.resolution"
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "min_coverage",
+     "label": "完整度门槛",
+     "target": "pan.min_coverage"
+    }
+   ]
+  },
+  {
+   "name": "cook_seg",
+   "label": "分割",
+   "target": "pan.cook"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "exr.name"
+    },
+    {
+     "name": "colorspace_out",
+     "label": "输出色彩空间",
+     "target": "exr.colorspace"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_bit_depth",
+       "label": "EXR 位深",
+       "target": "exr.exr_bit_depth"
+      },
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "exr.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -23,11 +138,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 120
+    "y": 62
    }
   },
   {
@@ -40,7 +157,7 @@
     "min_coverage": 0.8
    },
    "ui": {
-    "x": 320,
+    "x": 400,
     "y": 0
    }
   },
@@ -53,21 +170,26 @@
     "layers": [
      {
       "name": "layer1",
-      "label": "rgba"
+      "label": "rgba",
+      "channels": ""
      },
      {
       "name": "layer2",
-      "label": "CryptoObject"
+      "label": "CryptoObject",
+      "channels": ""
      },
      {
       "name": "layer3",
-      "label": "CryptoMaterial"
+      "label": "CryptoMaterial",
+      "channels": ""
      }
     ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
     "colorspace": null
    },
    "ui": {
-    "x": 640,
+    "x": 800,
     "y": 80,
     "on_node": [
      "name"
@@ -80,7 +202,7 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 960,
+    "x": 1200,
     "y": 80
    }
   }

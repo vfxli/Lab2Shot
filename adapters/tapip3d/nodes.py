@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, OwnCamera, P, PointTracker3D, PointTracks3DParams, Port, SameShot, camera_port,
+from lab2shot.sdk import (rgb_port, Official, OwnCamera, P, PointTracker3D, PointTracks3DParams, Port, SameShot, camera_port,
                           plate_mask_port, Cost, Measured, measured_param)
 
 
@@ -34,7 +34,7 @@ class Track(PointTracker3D):
     cost = Cost(gpu=True, vram_gb=10.0, seconds_per_frame=0.08)
     on_node = ("grid", "query_frame", "resolution")
     inputs = (
-        Port("image", "image.3", "RGB"),
+        rgb_port(),
         Port("depth", "image.1", "深度图", expects=(OwnCamera(), SameShot("image"))),
         camera_port(optional=False),
         plate_mask_port("遮罩", every_frame=False),

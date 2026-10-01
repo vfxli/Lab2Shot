@@ -1,3 +1,6 @@
+/* How a node shows the server's usage checks (blocked node, warning mark, notices and their fix buttons), the read-only
+   state of a tab that is not editing the graph (tabs.ts), and the recommended entries of the wire menu. */
+
 /* a node that stops the cook (found before anything is sent): an outline in the error colour, the reason in its footer */
 .gnode.blocked {
   box-shadow: 0 0 0 1.5px var(--error), 0 8px 24px color-mix(in srgb, var(--error) 18%, transparent);
@@ -8,8 +11,10 @@
 }
 
 /* a node whose wiring cooks but probably not as meant (usage checks, engine/lint.py): a yellow mark, never a block */
-/* 这一轮计算留下的提醒 / 警告，写在节点底行里的一个短词（`node-mark` 那一套的一员，样式在
-   11-sheets.css）。用文字而不用圆圈加感叹号：图标看着像占位图，而且会盖住「已缓存」。黄色只用在「能算但结果可能不是预期的」那一档，N 级提醒用普通字色（26-messages.css）。 */
+/* The notices / warnings the last cook left, as one short word on the node's bottom row (one of the `node-mark` family,
+   styled in 11-sheets.css). A word rather than a circle with an exclamation mark: an icon looks like a placeholder and
+   would cover 「已缓存」. Yellow is used only for the 'cooks but the result may not be what was meant' level; N-level
+   notices use the ordinary text colour (26-messages.css). */
 .warn-mark {
   color: var(--yellow);
   cursor: pointer;

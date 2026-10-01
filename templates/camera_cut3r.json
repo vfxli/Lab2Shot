@@ -3,27 +3,184 @@
  "meta": {
   "id": "b53f411f320243eda871f9d921580dcb",
   "name": "深度与相机 · CUT3R",
-  "intro": "CUT3R 论文摘要：模型自带一个持续的状态，每读入一帧就用新观测更新它，在线给出这一帧真实尺度的点图。这张卡交付每帧相机、深度图和点云；点云是每帧一张点图、各在这一帧自己的相机里，官方没有合成一份场景点云的输出。",
+  "intro": "CUT3R 论文摘要：模型自带一个持续的状态，每读入一帧就用新观测更新它，在线给出这一帧真实尺度的点图。这张卡交付每帧相机（USD 与 Nuke 相机）、深度图和点云；点云是每帧一张点图、各在这一帧自己的相机里，官方没有合成一份场景点云的输出。",
   "author": "Lab2Shot",
   "created": "2026-09-20T18:00:00",
   "deliverable": "depth_camera",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "unit",
-   "label": "单位",
-   "target": "out.unit"
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
   },
   {
-   "name": "scale",
-   "label": "尺度",
-   "target": "r.unit_cm"
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": "解算",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "step",
+     "label": "隔帧",
+     "target": "r.step"
+    },
+    {
+     "name": "update",
+     "label": "记忆更新",
+     "target": "r.update"
+    },
+    {
+     "name": "shared_focal",
+     "label": "整段同一 Focal Length",
+     "target": "r.shared_focal"
+    },
+    {
+     "name": "scale_cm",
+     "label": "尺度",
+     "target": "r.unit_cm"
+    },
+    {
+     "name": "point_step",
+     "label": "点云间隔",
+     "target": "r.point_step"
+    },
+    {
+     "name": "point_size",
+     "label": "点的大小",
+     "target": "r.point_size"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "resolution",
+       "label": "处理分辨率",
+       "target": "r.resolution"
+      },
+      {
+       "name": "max_frames",
+       "label": "每段最多帧数",
+       "target": "r.max_frames"
+      },
+      {
+       "name": "overlap",
+       "label": "段间重叠",
+       "target": "r.overlap"
+      },
+      {
+       "name": "conf_threshold",
+       "label": "置信度门槛",
+       "target": "r.conf_threshold"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "cook_solve",
+   "label": "解算相机",
+   "target": "r.cook"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "usd_name",
+     "label": "文件名（相机与点云 USD）",
+     "target": "out.name"
+    },
+    {
+     "name": "exr_name",
+     "label": "文件名（深度 EXR）",
+     "target": "exr.name"
+    },
+    {
+     "name": "nuke_name",
+     "label": "文件名（Nuke 相机）",
+     "target": "nuke.name"
+    },
+    {
+     "name": "unit",
+     "label": "单位",
+     "target": "out.unit"
+    },
+    {
+     "name": "fps",
+     "label": "帧率",
+     "target": "out.fps"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "exr.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -33,11 +190,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 220
+    "y": 458
    }
   },
   {
@@ -46,16 +205,19 @@
    "label": "CUT3R 深度与相机",
    "params": {
     "step": 1,
+    "point_step": 4,
+    "point_size": 0.5,
     "update": "cut3r",
     "max_frames": 64,
+    "resolution": 512,
     "overlap": 16,
     "conf_threshold": 1.5,
     "shared_focal": true,
     "unit_cm": 100.0
    },
    "ui": {
-    "x": 320,
-    "y": 220,
+    "x": 400,
+    "y": 376,
     "on_node": [
      "update",
      "step",
@@ -68,34 +230,22 @@
    "type": "core.output_usd",
    "label": "USD 输出设置",
    "params": {
+    "name": "scene",
+    "format": "usd",
     "unit": "cm",
-    "name": "scene"
+    "fps": 24.0
    },
    "ui": {
-    "x": 640,
-    "y": 260,
+    "x": 840,
+    "y": 0,
     "on_node": [
      "name",
      "unit"
     ]
-   }
-  },
-  {
-   "id": "dep",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "depth"
    },
-   "ui": {
-    "x": 640,
-    "y": 0,
-    "on_node": [
-     "name",
-     "format"
-    ]
-   }
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "deliver",
@@ -103,8 +253,8 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1000,
-    "y": 240
+    "x": 1200,
+    "y": 434
    }
   },
   {
@@ -115,38 +265,40 @@
     "name": "camera_nuke"
    },
    "ui": {
-    "x": 640,
-    "y": 440,
+    "x": 840,
+    "y": 812,
     "on_node": [
      "name"
     ]
+   }
+  },
+  {
+   "id": "exr",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "depth",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "depth",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 800,
+    "y": 434
    }
   }
  ],
  "edges": [
   {
    "from": [
-    "r",
-    "depth"
-   ],
-   "to": [
-    "dep",
-    "image"
-   ]
-  },
-  {
-   "from": [
     "out",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
-   ]
-  },
-  {
-   "from": [
-    "dep",
     "files"
    ],
    "to": [
@@ -192,6 +344,36 @@
    "to": [
     "r",
     "image"
+   ]
+  },
+  {
+   "from": [
+    "r",
+    "points"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "r",
+    "depth"
+   ],
+   "to": [
+    "exr",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "exr",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
    ]
   }
  ],

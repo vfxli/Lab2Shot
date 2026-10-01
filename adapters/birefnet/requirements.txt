@@ -16,3 +16,6 @@ einops==0.8.2
 # models/birefnet.py subclasses PyTorchModelHubMixin (never downloads: only local files are loaded)
 huggingface-hub==1.31.0
 safetensors==0.8.0
+# EXR I/O of the worker SDK (lab2shot_worker.files; same version as the other adapters):
+# birefnet.foreground reads its Alpha input, which upstream nodes deliver as EXR
+OpenEXR==3.4.15

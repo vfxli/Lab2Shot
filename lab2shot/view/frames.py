@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 import numpy as np
@@ -17,13 +20,21 @@ from ..io.color import load_config, to_srgb8, to_working_picture
 from .encode import write_once
 
 
+# 查看器缓存的 PNG 的压缩级别：只供本服务器自己读回（代理、按通道取），无损即可，不必压得最小。4K 一帧级别 6 要 0.77 秒、
+# 级别 1 只要 0.24 秒，文件大约大三成。交付写出的 PNG 不走这里，仍按各自的设置。
+VIEW_PNG_LEVEL = 1
+
+
 def view_png(target: Path, pixels: Callable[[], np.ndarray]) -> Path:
     """为查看器生成的画面，只生成一次（view/encode.py：多个查看器可能同时请求；`pixels()` 只由负责生成的一方
-    执行）：8 位 RGB，或预乘的浮点 RGBA（PNG 以非预乘方式保存 alpha）。"""
+    执行）：8 位 RGB，或预乘的浮点 RGBA（PNG 以非预乘方式保存 alpha）。压缩级别 VIEW_PNG_LEVEL。"""
 
     def write(part: Path) -> None:
         made = pixels()
-        (images.write_image if made.shape[-1] == 4 else images.write_png)(part, made)
+        if made.shape[-1] == 4:
+            images.write_image(part, made, png_compress_level=VIEW_PNG_LEVEL)
+        else:
+            images.write_png(part, made, compress_level=VIEW_PNG_LEVEL)
 
     return write_once(target, write)
 
@@ -125,48 +136,221 @@ def _map_rgb(p: Packet, path: Path) -> np.ndarray:
 # ------------------------------------------------------------------ 单个通道（按通道取）
 
 
-VIDEO_AHEAD = 12  # 单独请求一帧时额外解码的帧数（见下方 video_frames 的说明）
+_stop: ContextVar[Callable[[], bool] | None] = ContextVar("lab2shot_video_stop", default=None)
 
 
-def video_frames(p: Packet, frames: list[int], ahead: int = 0) -> None:
-    """将视频数据包的若干帧解码为显示用 PNG（每张只写一次：view/encode.py），一次解码完成这些帧。
+@contextmanager
+def stopping(stop: Callable[[], bool]):
+    """What follows (on this thread) stops waiting for video frames once `stop()` is true: a background task that is
+    cancelled (server/wire.py ahead) says so here, as its per-frame work does not take a `stop` of its own."""
+    token = _stop.set(stop)
+    try:
+        yield
+    finally:
+        _stop.reset(token)
+
+
+def video_frames(p: Packet, frames: list[int], stop: Callable[[], bool] | None = None) -> None:
+    """将视频数据包的若干帧解码为显示用 PNG（每张只写一次：view/encode.py），返回时这些帧都已做好。
 
     视频的像素位于容器中，不像序列图那样每帧一个文件，因此某帧的画面需要先解码；解码结果
     即视图显示的画面，也是「按通道取」读取通道的来源（两条路径不得各自解码）。
 
-    `ahead`：在所需的最后一帧之后额外解码的帧数（io/sources.py 不支持定位，解码视频只能从头解到该帧：取帧路径
-    逐帧请求，每帧都从头解码一次将是 O(n²)；额外解码一小段，后续几帧被请求时即已存在）。
+    一个视频数据包只有一个解码器（_VideoDecoder）：浏览器取帧、视图后台补帧、农场做代理的请求都交给它，
+    它从当前位置顺序往后解、解到谁要的帧就做成 PNG 交给谁，不会几条线程各自从第一帧解起（整段只有一个关键帧的视频，
+    那样总解码帧数会是视频帧数的几十上百倍）。要的帧在解码器位置之前时，从最近的关键帧重新解
+    （io/sources.py VideoReader）。
+
+    `stop()`（不给时用 stopping() 设下的）：调用方不再等了（任务被取消）时为真：立即返回（这些帧可能没做好），
+    这些帧不再要，没有别人要的帧解码器也就不做了。
 
     容器头报告的帧数（stream.frames）可能与实际可解码的帧数不同：末尾无法解码的帧不会有 PNG，请求方按
     「没有该帧」处理（channel_values、proxy._shown），而不是返回 500。"""
-    from ..io.color import load_config
-    from ..io.sources import open_source
+    missing = [f for f in dict.fromkeys(frames) if not _video_png(p, f).exists()]
+    if missing:
+        _VideoDecoder.of(p).make(missing, stop or _stop.get())
 
-    if ahead and frames:
-        last = max(frames)
-        frames = [*frames, *(f for f in p.meta["frames"] if last < f <= last + ahead)]
-    frames = [f for f in frames if not (p.dir / "_view" / f"frame.{f}.png").exists()]
-    if not frames:
-        return
-    from concurrent.futures import ThreadPoolExecutor
 
-    from ..engine.cook import FRAME_THREADS
-    from ..io.parallel import in_flight
-    from ..serving import carried
+def _video_png(p: Packet, frame: int) -> Path:
+    return p.dir / "_view" / f"frame.{frame}.png"
 
-    src = open_source(file_path(p, p.meta["path"]), start_frame=0)
-    cfg = load_config()
-    space = src.colorspace or cfg.colorspace_for_file(src.colorspace_hint)
 
-    @carried  # 在该数据包所属账号的缓存中写（线程池的线程本身不属于任何账号）
-    def made(f: int, rgb) -> None:
-        view_png(p.dir / "_view" / f"frame.{f}.png", lambda: _display(rgb, cfg, space))
+class _Ticket:
+    """One request's frames still to be made; `error`: why the decoder could not make them."""
 
-    # 解码只能按顺序一帧接一帧（一帧 1080p 约 8 ms），转换并写出 PNG（约 0.2 秒，OpenImageIO 写 PNG 时释放解释器锁）
-    # 交给多个线程同时做：否则 100 帧的视频光写 PNG 就要 20 秒。同时在做的帧数有上限，解出的帧不会堆满内存。
-    with ThreadPoolExecutor(FRAME_THREADS, thread_name_prefix="l2s-video") as pool:
-        for _ in in_flight(pool, ((f, made, f, rgb) for f, rgb in src.iter_frames(frames)), FRAME_THREADS * 2):
-            pass
+    def __init__(self, frames: list[int]) -> None:
+        self.frames = set(frames)
+        self.error: BaseException | None = None
+
+
+class _VideoDecoder:
+    """一个视频数据包的解码器：一条线程、一个一直打开着的 VideoReader，按请求顺序往后解。
+
+    请求（_Ticket）登记要的帧后等待；解码线程每次取所有请求里最早的一帧，从当前位置解过去，途经的帧有人要就交给
+    线程池转成显示 PNG（转换和写 PNG 可以同时做几帧，解码只能一帧接一帧），没人要的只解不转。新来的请求要的帧
+    若在解码器位置之前，解完手上这一段就回去（VideoReader 按关键帧定位）。没有请求时解码线程再等 IDLE_S 秒，
+    仍没有就关掉文件、释放解码缓存（4K 帧线程约占几百 MB）后退出；再来请求时重新开始。"""
+
+    IDLE_S = 5.0
+    # 留着的刚解过的帧数（_pass 的 recent）：一批同时登记的请求先后差不出这么多。解码结果本身每帧 4K 4:4:4 10-bit
+    # 约 50 MB、1080p 4:2:0 8-bit 约 3 MB，解码线程退出时释放
+    RECENT = 16
+    _all: dict[Path, "_VideoDecoder"] = {}
+    _lock = threading.Lock()
+
+    @classmethod
+    def of(cls, p: Packet) -> "_VideoDecoder":
+        with cls._lock:
+            dec = cls._all.get(p.dir)
+            if dec is None:
+                dec = cls._all[p.dir] = cls(p)
+            return dec
+
+    def __init__(self, p: Packet) -> None:
+        self.p = p
+        self.cv = threading.Condition()
+        self.tickets: list[_Ticket] = []
+        self.thread: threading.Thread | None = None
+        self.closed = False  # 已从登记里移除：新的请求去找新的那一个
+
+    def make(self, frames: list[int], stop: Callable[[], bool] | None) -> None:
+        from ..serving import carried
+
+        with self.cv:
+            if self.closed:  # 这个解码器刚结束、已不在登记里：交给这个数据包现在的那一个（在锁外找，见下）
+                ticket = None
+            else:
+                # 在锁内再看一次：刚做好的帧（_done 在写好之后、锁内报告）不再登记，免得解码器为它倒回去
+                ticket = _Ticket([f for f in frames if not _video_png(self.p, f).exists()])
+                self.tickets.append(ticket)
+                try:
+                    while ticket.frames and ticket.error is None:
+                        if self.thread is None:  # 在请求方的账号下做（线程本身不属于任何账号）
+                            self.thread = threading.Thread(target=carried(self._run), name="l2s-video-decode", daemon=True)
+                            self.thread.start()
+                        self.cv.notify_all()
+                        if stop is not None and stop():
+                            return
+                        self.cv.wait(0.5)
+                finally:
+                    if ticket in self.tickets:
+                        self.tickets.remove(ticket)
+        if ticket is None:
+            _VideoDecoder.of(self.p).make(frames, stop)
+        elif ticket.error is not None:
+            raise ticket.error
+
+    def _wanted(self) -> set[int]:
+        return set().union(*(t.frames for t in self.tickets)) if self.tickets else set()
+
+    def _done(self, frame: int) -> None:
+        with self.cv:
+            for t in self.tickets:
+                t.frames.discard(frame)
+            self.cv.notify_all()
+
+    def _run(self) -> None:
+        from collections import OrderedDict
+        from concurrent.futures import ThreadPoolExecutor
+
+        from ..engine.cook import FRAME_THREADS
+        from ..io.sources import VideoReader, open_source
+        from ..serving import carried
+
+        reader = None
+        try:
+            src = open_source(file_path(self.p, self.p.meta["path"]), start_frame=0)  # 每个解码器打开一次
+            cfg = load_config()
+            space = src.colorspace or cfg.colorspace_for_file(src.colorspace_hint)
+            reader = VideoReader(src)
+
+            def made(f: int, frame) -> None:
+                rgb = reader.picture(frame)
+                view_png(_video_png(self.p, f), lambda: _display(rgb, cfg, space))
+                self._done(f)
+
+            # 解码只能一帧接一帧；转换并写出 PNG 交给多个线程同时做。同时在做的帧数有上限，解出的帧不会堆满内存。
+            recent: OrderedDict = OrderedDict()
+            with ThreadPoolExecutor(FRAME_THREADS, thread_name_prefix="l2s-video") as pool:
+                while self._pass(reader, pool, carried(made), FRAME_THREADS * 2, recent):
+                    pass
+        except BaseException as exc:  # noqa: BLE001 — 交给正在等的每个请求，由它们报出去
+            with self.cv:
+                for t in self.tickets:
+                    t.error = exc
+                self.cv.notify_all()
+        finally:
+            if reader is not None:
+                reader.close()
+            with _VideoDecoder._lock, self.cv:
+                self.thread = None
+                if self.tickets and not any(t.error for t in self.tickets):  # 刚好有新请求：它会重新开一条线程
+                    self.cv.notify_all()
+                elif _VideoDecoder._all.get(self.p.dir) is self:
+                    del _VideoDecoder._all[self.p.dir]
+                    self.closed = True
+
+    def _pass(self, reader, pool, made, most: int, recent) -> bool:
+        """解一段：从所有请求里最早的一帧往后，做到这一段里没人要为止。返回 False：没有请求了（等过 IDLE_S）。
+
+        `recent`：刚解过的 RECENT 帧（解码结果本身）。同一批请求登记的先后不一定按帧序（后台补帧 8 个一批同时登记，
+        网页 6 个请求同时在路上），晚到一步、要的是刚解过去的帧时从这里拿，不必倒回关键帧重解。"""
+        from collections import deque
+
+        with self.cv:
+            wanted = self._wanted()
+            if not wanted:
+                self.cv.wait(self.IDLE_S)
+                wanted = self._wanted()
+                if not wanted:
+                    return False
+        flight: deque = deque()
+        sent: set[int] = set()  # 这一段交给线程池的帧（做完之前仍在请求里）
+
+        def serve(numbers) -> None:
+            for f in sorted(numbers):
+                sent.add(f)
+                if _video_png(self.p, f).exists():  # 已经做好了（登记时还没有）
+                    self._done(f)
+                    continue
+                flight.append(pool.submit(made, f, recent[f]))
+                while len(flight) >= most:
+                    flight.popleft().result()
+
+        def still() -> set[int]:
+            with self.cv:
+                left = self._wanted() - sent
+            serve(left & recent.keys())
+            return left - recent.keys()
+
+        last = None
+        try:
+            wanted = still()
+            if not wanted:
+                return True
+            # 从要的最早一帧解起；解码器就在它前面不远时从解码器当前位置解起，途经的帧也进 recent
+            first, at = min(wanted), reader.next
+            start = first if at is None or first < at else max(at, first - self.RECENT)
+            for number, frame in reader.frames(start):
+                last = number
+                recent[number] = frame
+                while len(recent) > self.RECENT:
+                    recent.popitem(last=False)
+                wanted = still()
+                if not wanted or min(wanted) < number:
+                    break  # 这一段里没人要的了，或者有人要更早的帧（已不在 recent 里）：回去解
+            else:
+                # 视频解完了：还要的更靠后的帧实际并不存在（容器头报告的帧数多于能解出的帧数），不再等它们。
+                # 这一段已交给线程池的帧（sent，例如开头从 recent 里拿的）不算：它们正在做，做完由 _done 报告——
+                # 一帧都没解出（last 为 None）时若一并划掉，等它们的请求会在 PNG 写好之前返回、当成「没有该帧」
+                with self.cv:
+                    for t in self.tickets:
+                        t.frames -= {f for f in t.frames if f not in sent and (last is None or f > last)}
+                    self.cv.notify_all()
+        finally:
+            for fut in flight:
+                fut.result()
+        return True
 
 
 def _display(rgb, cfg, space) -> np.ndarray:
@@ -197,8 +381,8 @@ def channel_values(p: Packet, frame: int, names: list[str]) -> dict[str, np.ndar
         if name not in have:
             raise ValueError(f"{p.type} has no channel {name!r}")
     if p.type == "video":
-        video_frames(p, [frame], ahead=VIDEO_AHEAD)
-        made = p.dir / "_view" / f"frame.{frame}.png"
+        video_frames(p, [frame])
+        made = _video_png(p, frame)
         if not made.exists():  # 容器头报告的帧数多于实际可解码的帧数：该帧不存在（见 video_frames 的说明）
             raise FileNotFoundError(f"no frame {frame}")
         return images.read_named(made, list(names))

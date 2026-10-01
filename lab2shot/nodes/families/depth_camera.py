@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..kit.ports import rgb_port
 from ...data.packet import Packet
 from ...data.payloads import SIGNED, ExrWriter, window_of
 from ...data.units import M_TO_CM
@@ -51,7 +52,7 @@ class DepthCamera(WorkerNode):
     还是一次处理整段（`WholeShotDepthCamera`）。"""
 
     lens = "pinhole"  # 将画面视为无畸变镜头拍摄：声明需要去畸变的画面
-    inputs = (Port("image", "image.3", "RGB"),)
+    inputs = (rgb_port(),)
     # 没有「相机」输入端口：成员的上游均不接受逐帧外参（UniDepth 只接受内参 `Pinhole(K=intrinsics)`；UniK3D 的
     # decoder 自行输出内参；Depth Anything 3 使用其自身输出的内外参）。仅有内参不构成相机输入，内参由「Focal Length」
     # 「Filmback」两个普通参数提供。上游不具备的端口不自行添加。

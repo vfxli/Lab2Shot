@@ -384,9 +384,13 @@ def save_person(raw: Path, p: Person, model: str, layer) -> dict:
     return {"name": f"person_{p.pid:02d}", "id": p.pid, "file": name, "frames": [int(f) for f in p.frames]}
 
 
-def save_camera(raw: Path, frames, focal_px, cam_to_world=None, principal_px=None) -> str:
+PLATE_CAMERA = "plate_camera.npz"  # the node's 「相机」 when it declares plate_camera (nodes/families/humans.py)
+
+
+def save_camera(raw: Path, frames, focal_px, cam_to_world=None, principal_px=None, name: str = "camera.npz") -> str:
     """raw/camera.npz: frames, focal_px per frame, cam_to_world [F,4,4] (OpenCV; None = a fixed camera at the
-    origin, for results in camera space).
+    origin, for results in camera space). `name` PLATE_CAMERA: the camera the method put its people in (a still pinhole
+    at the origin, the focal it used), which a node declaring plate_camera gives as its 「相机」.
 
     `principal_px` ((cx, cy) or one per frame, the plate's pixels): only a method that solves the lens centre and
     knows it is not the picture's centre writes it, such as a face tracker that fits inside a crop of the plate
@@ -397,8 +401,8 @@ def save_camera(raw: Path, frames, focal_px, cam_to_world=None, principal_px=Non
         cam_to_world = np.broadcast_to(np.eye(4), (len(frames), 4, 4))
     extra = {} if principal_px is None else {
         "principal_px": np.broadcast_to(np.asarray(principal_px, np.float64).reshape(-1, 2), (len(frames), 2)).copy()}
-    save_npz(raw / "camera.npz", frames=frames, focal_px=focal, cam_to_world=np.asarray(cam_to_world, np.float64), **extra)
-    return "camera.npz"
+    save_npz(raw / name, frames=frames, focal_px=focal, cam_to_world=np.asarray(cam_to_world, np.float64), **extra)
+    return name
 
 
 def write_humans(run: Run, frame_numbers, /, people: list[dict], world: str | None, **info) -> None:

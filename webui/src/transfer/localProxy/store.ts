@@ -3,16 +3,21 @@
  * 布局：`lab2shot-proxies/<文件键>/<档位-显示变换>/<层或通道>.webp|.l2c1.gz`，另有一份 `index.json`
  * 记录每个 `<文件键>/<档位-显示变换>` 占用的字节数与最近使用时间。淘汰按最久未使用优先，
  * 上限为管理员设定的「本机缓存上限」。
- * 该存储位于磁盘，与内存的两项预算（`transfer/cache.ts`）无关。 */
+ * 该存储位于磁盘，与内存的两项预算（`platform/cache.ts`）无关。 */
 
 const ROOT = "lab2shot-proxies";
 const INDEX = "index.json";
 
 interface Entry { bytes: number; used: number; names: string[] }
-type Index = Record<string, Entry>; // "<fileKey>/<tierKey>" -> entry
+type Index = Record<string, Entry>; // "<文件键>/<档位-显示变换>" -> 条目
 
+// used：只改了使用时间（读代理时记的）、还没落盘——它不急：隔 USED_FLUSH_MS 或页面收起时再写
 const own: { root: FileSystemDirectoryHandle | null; index: Index | null; dirty: boolean; flushing: Promise<void> | null;
-             unsupported: boolean } = { root: null, index: null, dirty: false, flushing: null, unsupported: false };
+             used: ReturnType<typeof setTimeout> | null; unsupported: boolean } =
+  { root: null, index: null, dirty: false, flushing: null, used: null, unsupported: false };
+
+/** 使用时间落盘的间隔：播放时每读一帧都会更新使用时间，不能每次都把整份索引写一遍（淘汰只看先后，晚一分钟无妨）。 */
+const USED_FLUSH_MS = 60_000;
 
 /** 判断浏览器是否支持私有文件系统（Chromium 系支持；不支持时不生成本机代理，每帧实时解码）。 */
 export const proxyStoreAvailable = (): boolean =>
@@ -45,10 +50,27 @@ async function index(): Promise<Index> {
   return got;
 }
 
-function flushLater(): void {
+/** 记下一次使用（只在内存里）；隔 USED_FLUSH_MS 或页面收起时随索引一起写。 */
+function usedLater(): void {
+  if (own.used) return;
+  own.used = setTimeout(() => {
+    own.used = null;
+    flushLater();
+  }, USED_FLUSH_MS);
+}
+
+if (typeof addEventListener === "function")
+  addEventListener("pagehide", () => {
+    if (!own.used) return;
+    clearTimeout(own.used);
+    own.used = null;
+    flushLater(0);
+  });
+
+function flushLater(ms = 1500): void {
   own.dirty = true;
   if (own.flushing) return;
-  own.flushing = new Promise((done) => setTimeout(done, 1500)).then(async () => {
+  own.flushing = new Promise((done) => setTimeout(done, ms)).then(async () => {
     own.flushing = null;
     if (!own.dirty) return;
     own.dirty = false;
@@ -58,7 +80,10 @@ function flushLater(): void {
       const w = await (await r.getFileHandle(INDEX, { create: true })).createWritable();
       await w.write(JSON.stringify(own.index));
       await w.close();
-    } catch { /* 写入失败时留待下次重试：索引丢失的代价仅是重新生成代理 */ }
+    } catch {
+      // 写入失败：记回「待写」并再安排一次（不等下一次变更才写；索引丢失的代价只是重新生成代理）
+      flushLater();
+    }
   });
 }
 
@@ -86,7 +111,7 @@ export async function readProxy(fileKey: string, tierKey: string, name: string):
   try {
     const f = await (await d.getFileHandle(name)).getFile();
     const e = (await index())[`${fileKey}/${tierKey}`];
-    if (e) { e.used = Date.now(); flushLater(); }
+    if (e) { e.used = Date.now(); usedLater(); }
     return f;
   } catch {
     return null;

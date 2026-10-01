@@ -6,8 +6,10 @@ import { Timeline } from "./Timeline";
 import type { DisplayPlan } from "../view/plan";
 import { useStageNotes, useViewerNote } from "../state/viewer";
 import { ViewNotices, type Notice } from "../ui/ViewNotices";
+import { ProjectNotice } from "./ProjectNotice";
+import { useAppMode } from "./AppMode";
 
-/** 视图外框（包裹 editor/Viewer.tsx 中的舞台）：上方为显示节点的名称与控制栏，中间为舞台，
+/** 视图外框（包裹 editor/Viewer.tsx 中的舞台），视图版面的唯一所在：上方为显示节点的名称与控制栏，中间为舞台，
  * 下方为光标读数、手柄提示与时间条。
  *
  * 关于当前画面的说明全部位于视图通知区（ui/ViewNotices.tsx），位于左上角，位置与顺序固定：
@@ -35,7 +37,7 @@ export function ViewerFrame({
   hint?: string | null;
   strip?: React.ReactNode;
   stage2d?: boolean;
-  shown?: string | null; // the node the viewer is on: its 逐项处理 blocks get the item bar
+  shown?: string | null; // 视图当前显示的节点：它所在的逐项处理块显示条目栏
   proxy?: Notice[] | null; // 点云代理显示（倍数由 view/kinds3d.ts useCloudProxy 计算，文字在 Viewer.tsx 生成）
 }) {
   // 二维只有视图代理一种画质，没有可切换的档位，也就没有角标或下拉；查看原始数据需下载交付后在 DCC 中查看。
@@ -51,6 +53,7 @@ export function ViewerFrame({
     ...(did ? [did] : []),
     ...(proxy ?? []),
   ];
+  const appMode = useAppMode((m) => m.mode === "app");
   return (
     <div className="viewer">
       {/* 画面上方的独立工具栏，与视图同宽（参照 Nuke）：不得绝对定位浮于画面上，否则会遮挡画面右上角。 */}
@@ -66,6 +69,8 @@ export function ViewerFrame({
         <ViewNotices notices={notices} />
         <ItemsBar nodeId={shown ?? null} />
         {/* 舞台上不设第二处文字：手柄用法说明同样进入左上角的统一通知区 */}
+        {/* 应用模式收起了节点图，节点图左下角的研究出处说明改在舞台左下角（同一个组件，与三维坐标轴错开） */}
+        {appMode && <ProjectNotice className="view-notice" />}
       </div>
       {strip}
       <Timeline stage2d={!!stage2d} />

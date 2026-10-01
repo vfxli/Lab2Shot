@@ -80,7 +80,7 @@ def level_rotation(frames: list[int], up_camera: np.ndarray, uncertainty_deg: np
     degrees) and the camera it was seen by (the connected one, else the scene's one camera): each frame's up taken into
     the world by that frame's camera, their robust weighted mean (1/sigma^2, frames more than 3x the median spread off
     dropped) turned onto +Y along the shortest arc (the heading is kept). Returns it and what it found."""
-    from lab2shot_worker.recon import rotation_deg
+    from lab2shot_shared.poses import rotation_deg
 
     from .align import shortest_arc
     from ...data.camera import CameraSamples

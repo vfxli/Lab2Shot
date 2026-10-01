@@ -14,6 +14,12 @@ _BIDI = {*range(0x202A, 0x202F), *range(0x2066, 0x206A)}  # direction overrides 
 _UNSAFE = re.compile(r'[/\\:*?"<>|]+')  # path separators and what Windows refuses in a file name
 
 
+def decimal(text: object) -> int | None:
+    """`text` as the whole number its ASCII digits write, else None: the one reading of a number a request sends as text
+    (an event id, a chunk's number, a size). str.isdigit takes ² and ① too, which int() then refuses."""
+    return int(text) if isinstance(text, str) and text.isascii() and text.isdigit() else None
+
+
 def plain_text(text: object, most: int) -> str:
     """A user's words as one line of plain text: Unicode NFC, without control characters, surrogates, private-use
     characters and direction overrides, line breaks and runs of whitespace as one space, trimmed, at most `most`

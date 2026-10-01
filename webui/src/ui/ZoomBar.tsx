@@ -1,5 +1,6 @@
 import "./zoombar.css";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { Num } from "./controls";
 import { useView2D } from "../state/viewer";
 import { Button } from "./Button";
 
@@ -14,17 +15,6 @@ export function ZoomBar({ stage2d = true }: { stage2d?: boolean }) {
   const one = useView2D((s) => s.one);
   const goTo = useView2D((s) => s.goTo);
   const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(String(zoomPercent));
-
-  useEffect(() => {
-    if (!editing) setText(String(zoomPercent));
-  }, [zoomPercent, editing]);
-
-  const commit = () => {
-    const n = Number(text);
-    if (Number.isFinite(n) && n > 0) goTo(n);
-    setEditing(false);
-  };
 
   const on = stage2d && navigable;
   return (
@@ -36,24 +26,8 @@ export function ZoomBar({ stage2d = true }: { stage2d?: boolean }) {
         1:1
       </Button>
       {editing && on ? (
-        <input
-          className="field num tl-field tl-zoom-field"
-          autoFocus
-          value={text}
-          aria-label="缩放百分比"
-          inputMode="decimal"
-          spellCheck={false}
-          onChange={(e) => setText(e.target.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-            else if (e.key === "Escape") {
-              setText(String(zoomPercent));
-              requestAnimationFrame(() => e.currentTarget?.blur());
-            }
-          }}
-        />
+        <Num className="tl-field tl-zoom-field" autoFocus label="缩放百分比" value={zoomPercent} min={0} openMin
+          tip="缩放百分比，回车确定，Esc 放弃" onChange={goTo} onDone={() => setEditing(false)} />
       ) : (
         <Button tone="ghost" size="sm" layout="tl-zoom-pct tnum" onClick={() => setEditing(true)} disabled={!on}>
           {on ? `${zoomPercent}%` : "—"}

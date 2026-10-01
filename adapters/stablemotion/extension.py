@@ -50,6 +50,7 @@ class StableMotion(Extension):
     source = GitSource(url=STABLEMOTION_URL, commit=STABLEMOTION_COMMIT)
     license = LicenseInfo(
         tag=RESEARCH,
+        uses=("AMASS",),
         name="MIT（代码）+ AMASS 学术许可（权重）",
         url="https://github.com/Murrol/StableMotion/blob/main/LICENSE",
         summary=("仅限研究。代码是 MIT，可以随便用；但发布的权重 StableMotion-BrokenAMASS 是在 AMASS 上训练的，"

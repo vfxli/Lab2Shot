@@ -4,7 +4,8 @@ import type { Level } from "./format";
  * mark and its 数据信息, the one message row ui/MessageRow.tsx). The letters are the server's (generatedGateCatalogue.ts
  * LEVELS, from lab2shot/messages): a letter the server adds and this table lacks does not compile.
  * `order`: which level is shown first when a node has several (errors, then production risk, then the rest);
- * `log`: the page log's level; `listed`: 要给用户看的那些（`I` 信息只进日志，不上节点、不算进「最响的那一条」），
+ * `log`: the page log's level; `listed`: the levels shown to the user (`I` information goes only to the log: never on a node, never counted as
+ * the loudest one),
  * read only by `editor/NodeInfoCard.tsx worstLevel`; `risk`: drawn in the production-risk red — the one level that is. */
 export const LEVEL_TABLE: Readonly<Record<Level, { word: string; tip: string; log: "error" | "warn" | "info"; listed: boolean; risk: boolean; order: number }>> = {
   P: { word: "生产风险", tip: "生产风险：可能造成生产事故，交付前需处理。红色只用于此级别。", log: "error", listed: true, risk: true, order: 1 },

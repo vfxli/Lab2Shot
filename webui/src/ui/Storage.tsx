@@ -47,7 +47,7 @@ export function StoragePanel({ again }: { again: number }) {
           <i style={{ ["--pct" as string]: `${pct}%` }} />
         </span>
         {usage.over ? (
-          <span className="chip sto-over" data-tip="已经到上限：在队列里删掉用不到的任务（每一行的「删除」，或者上面的「删除全部」），删任务就腾出它占的空间，删完接着用；还不够找管理员调大配额。满着的时候点「计算」「提交」会被拦下">
+          <span className="chip sto-over" data-tip="已经到上限：在队列里删掉用不到的任务（每一行的「删除」，或者上面的「删除全部」），删任务就腾出它占的空间，删完接着用；还不够找管理员调大配额。满着的时候点「计算」「打包」会被拦下">
             已满
           </span>
         ) : (

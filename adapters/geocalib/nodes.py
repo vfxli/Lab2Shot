@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (FILMBACK_MM, Official, FLOAT, LENS, VECTOR, LensCalibration, LensParams, P, Port, distorts,
-                          distortion, empty_packet, focal_px_to_mm, focal_param, lens_note, packed_lens, plate_lens, value_packet, Cost)
+from lab2shot.sdk import (FILMBACK_MM, Official, FLOAT, Job, LENS, VECTOR, LensCalibration, LensParams, P, Port, distorts,
+                          distortion, focal_mm, focal_param, lens_note, packed_lens, plate_lens, value_packet, Cost)
 
 # GeoCalib 自己的三个相机模型 → 核心公式表：lens.py 的 GROUP（也是「LensDistortion」上 GeoCalib 那一组）
 from .lens import GROUP
@@ -15,7 +15,7 @@ TABLE_MODELS = {name: (gm.table, gm.names[0] if gm.names else "") for name, gm i
 
 class Calibrate(LensCalibration):
     id = "geocalib.calibrate"
-    version = 2  # 「镜头内参」值带组名和公式表 id（nodes/lens.py packed_lens）；更早的缓存没有这两项，不能复用
+    version = 3  # 「镜头模型」选无畸变时也交「镜头内参」（没有系数的镜头），不再是空包
     strip = {"fit_model": "镜头模型"}  # 视图小控件，和 COLMAP 一样：参数只放这一个，解出的值视图本来就显示
     # 默认每帧都估计重力（隔帧参数）；填了 Focal Length 就固定用它、只估重力方向，放平后地面的残余倾斜明显更小
     main = "gravity"  # what the node is for: its ports are listed by type order, and this one goes first
@@ -26,11 +26,6 @@ class Calibrate(LensCalibration):
         Port("gravity", VECTOR, "重力方向"),
         Port("gravity_error", FLOAT, "重力误差", unit="°"),
     ) + LensCalibration.outputs
-    # 「镜头模型」里真的会解出畸变的那几档（家族的 `distorting_models`），从 TABLE_MODELS 算出来：
-    # 对应到镜头表上真有系数的模型（distorts()）。径向 k1 = SIMPLE_RADIAL；除法模型 = SIMPLE_DIVISION，
-    # 镜头表里有这一档它才算畸变档，没有就当无畸变交（那时「镜头内参」交空）。
-    # 这几档之外「镜头内参」口变灰，用户不会接上一根永远是空的线
-    distorting_models = tuple(m for m, (table, _) in TABLE_MODELS.items() if distorts(table)) or ("simple_radial",)
     runtime = "geocalib"
     # 上游 GeoCalib.calibrate(img, camera_model=…, priors=…) 交出 camera（Focal Length、主点、畸变）、gravity
     # （重力方向）、covariance 和各种 uncertainty（extractor.py:117-127）。
@@ -68,17 +63,21 @@ class Calibrate(LensCalibration):
         focal_mm: float | None = focal_param()
 
     @classmethod
-    def cook(cls, ctx):
+    def prepare(cls, ctx) -> Job:
+        image = ctx.input("image")
+        used = plate_lens(ctx, image)
+        return Job(image, extra={"focal_px": used.focal_px}, lens=used)
+
+    @classmethod
+    def convert(cls, ctx, raw, job):
         import json
 
         import numpy as np
 
-        image = ctx.input("image")
+        image, used = job.plate, job.lens
         w, h = image.meta["width"], image.meta["height"]
-        used = plate_lens(ctx, image)
-        raw = ctx.run_worker(image, extra={"focal_px": used.focal_px}, record=used.record())
-        g = np.load(raw / "gravity.npz")
-        lens = json.loads((raw / "lens.json").read_text(encoding="utf-8"))
+        g = raw.arrays("gravity.npz")
+        lens = json.loads(raw.file("lens.json").read_text(encoding="utf-8"))
 
         ctx.stage("写出重力方向和 Focal Length")
         frames = g["frames"].tolist()
@@ -90,20 +89,19 @@ class Calibrate(LensCalibration):
                                           values=g["uncertainty_deg"].tolist(), unit="°"),
             # 上游给的 Focal Length 是像素，换成毫米再交（用节点上的「Filmback」，LensParams）。
             # 除的是 Focal Length 自己所在的那个宽度（worker 写在 lens.json 里的），不是节点这边的画面宽度：
-            # 两者目前相等，但不应依赖这一点（家族的 focal_px_to_mm 一处算法）
+            # 两者目前相等，但不应依赖这一点（data/units.py focal_mm，px 与 mm 换算只此一处）
             "focal": value_packet(ctx.outputs["focal"], FLOAT,
-                                  focal_px_to_mm(lens["focal_px"], lens["width"], ctx.params["filmback_mm"] or FILMBACK_MM),
+                                  float(focal_mm(lens["focal_px"], ctx.params["filmback_mm"] or FILMBACK_MM, lens["width"])),
                                   unit="mm", **picture),
             "filmback": value_packet(ctx.outputs["filmback"], FLOAT,
                                      float(ctx.params["filmback_mm"] or FILMBACK_MM), unit="mm", **picture),
         }
         table, name = TABLE_MODELS.get(str(lens["model"]), ("SIMPLE_PINHOLE", ""))
         k1 = lens.get("k1")
-        has_distortion = distorts(table) and k1 is not None
-        if "lens" in ctx.wanted:  # 估出了畸变才有镜头内参可交；没估就交空的（空结果不是错误）
-            out["lens"] = (value_packet(ctx.outputs["lens"], LENS, packed_lens(distortion(table, {name: float(k1)}), group=GROUP.id, name=str(lens["model"])),
-                                        said=str(lens["model"]), **picture)
-                           if has_distortion else empty_packet(ctx, "lens"))
+        if "lens" in ctx.wanted:  # a pinhole is a lens too: one with no coefficients (an identity ST-map downstream)
+            coeffs = {name: float(k1)} if distorts(table) and k1 is not None else {}
+            out["lens"] = value_packet(ctx.outputs["lens"], LENS, packed_lens(distortion(table, coeffs), group=GROUP.id,
+                                       name=str(lens["model"])), said=str(lens["model"]), **picture)
         ctx.say("I-GEOCALIB-TILT", roll=float(np.median(g["roll_deg"])), pitch=float(np.median(g["pitch_deg"])),
                 count=len(up), error=float(np.median(g["uncertainty_deg"])),
                 lens=used.said if lens["source"] == "user" else

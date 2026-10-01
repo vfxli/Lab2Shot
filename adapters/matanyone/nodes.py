@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, measured_param, GuidedMatte, NodeParams, P, fp16_param, Cost, Licence, Measured)
+from lab2shot.sdk import (rgb_port, Official, measured_param, GuidedMatte, NodeParams, P, Port, fp16_param, Cost, Measured,
+                          plate_mask_port)
 
 
 class Matte(GuidedMatte):
@@ -22,10 +23,11 @@ class Matte(GuidedMatte):
     on_node = ("resolution", "mask_close")  # 家族默认的 erode_dilate 这个节点没有：它做的是闭运算
     # 只看第一帧遮罩往后传，整段时间上稳定；显存不随镜头长度增长（只记最近 5 个记忆帧，300 帧和 60 帧都是约 7.5 GB）
     every_frame = False  # only the first mask with foreground is read; the memory carries it through the shot
+    # 家族统一叫「粗遮罩」；本节点只读首帧（上一行），标签写明，免得以为整段遮罩都参与。端口名仍是 mask，连线和缓存不变。
+    inputs = (rgb_port(), plate_mask_port("首帧粗遮罩", optional=False, every_frame=False))
     runtime = "matanyone"
     # RTX 4090：显存不随镜头长度涨
     cost = Cost(gpu=True, vram_gb=7.5, seconds_per_frame=0.09)
-    licence = Licence(note="代码和模型是 NTU S-Lab License 1.0，只能研究用；商用要先得到作者许可。")
 
     class Params(NodeParams):
         # 24G 显卡上 1920 用 7.5 GB，显存随时间基本不涨；4096（4.4 倍面积）没有测过，不给填

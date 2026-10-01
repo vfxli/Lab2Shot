@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 from lab2shot.sdk import (Official, Confidence, PerFrameDepthCamera, P, Port, camera_normals, frame_maps, precision_level_param,
-                          M_TO_CM, Cost, Licence)
+                          M_TO_CM, Cost)
 
 
 class Geometry(PerFrameDepthCamera):
@@ -43,7 +43,6 @@ class Geometry(PerFrameDepthCamera):
     confidence = Confidence("log_error")  # 模型置信度的表示方式（CONFIDENCE_SCALES）
     # vram_gb：在 RTX 4090 上以默认 ViT-L 测得（docs.md）
     cost = Cost(gpu=True, vram_gb=3.3, seconds_per_frame=0.065)
-    licence = Licence(note="代码和权重 CC-BY-NC-SA-4.0，只能研究用（衍生作品须同样许可）。")
 
     # 官方计算的另外两项输出（unik3d.py:394、397），与「深度图」是同一次推理的三种表示：
     # depth 为相机坐标 Z，distance 为沿视线的距离（鱼眼、广角下两者差异很大），rays 为视线方向本身
@@ -51,7 +50,7 @@ class Geometry(PerFrameDepthCamera):
                Port("distance", "image.1", "距离图", means=("scale",),
                     help="每个像素沿自己那条视线离镜头多远（厘米）。和「深度图」不一样：深度是相机坐标的 Z，"
                          "越靠画面边缘两者差得越多，鱼眼和广角上差别很大"),
-               Port("rays", "image.3", "射线场", means=("space",),
+               Port("rays", "image.3", "射线场", means=("space",), data=True,
                     help="模型自己估出的每个像素的视线方向（单位向量，相机空间）——它的「镜头」就是这片射线场，"
                          "不是一组内参。深度或距离乘上它就是「点云」那片三维点"))
 

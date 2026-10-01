@@ -6,18 +6,21 @@
   height: 28px;
   padding: 0 12px;
   border-radius: var(--r-ctl);
-  /* 没有描边：一圈亮边在暗底上像浮雕。按钮本身比面板亮一档，轮廓靠明暗，不靠线 */
+  /* no rim: a ring of light on a dark ground looks embossed. The button is a step brighter than the panel; its outline
+     comes from brightness, not from a line */
   border: 1px solid transparent;
   background: var(--ctl-face);
   color: var(--text);
   font-weight: 500;
   display: inline-flex;
   align-items: center;
-  /* 行高 1：按钮里的字只有一行，行框和字一样高，flex 才是真的居中。继承 1.5 的行高时行框比字高，
-     中文字形在行框里偏上（Windows 微软雅黑上尤其明显） */
-  line-height: 1;
-  /* 再往下让 1px：字体栈里 Geist 在前，中文字是回退字体画的，基线跟着拉丁字走，字形重心比行框中心高
-     约 0.7px（Windows 微软雅黑上更明显）。给上内边距 1px 把它压回中心 */
+  /* a tight line height: a button's text is one line, and flex centres it truly only when the line box is about as
+     tall as the text. With the inherited 1.5 the line box is taller than the text and Chinese glyphs sit high in it
+     (most visibly with Microsoft YaHei on Windows) */
+  line-height: 1.3; /* a line box exactly as tall as the text clips Chinese glyphs */
+  /* 1px lower still: Geist comes first in the font stack and Chinese is drawn by the fallback font, so the baseline
+     follows the Latin face and the glyphs' centre sits about 0.7px above the line box's centre (more visibly with
+     Microsoft YaHei on Windows). A 1px top padding pushes it back to the centre */
   padding-top: 1px;
   gap: var(--sp-1);
   cursor: default;
@@ -98,9 +101,10 @@ a.btn {
   color: var(--text);
 }
 
-/* 不能点的按钮要一眼看出来不能点。只降不透明度不够：ghost 那种本来就是 `--text-2` 的灰字、又没有边框，
-   在暗底上几乎看不出差别；所以字再降到最淡的一档，鼠标变成「不可点」。
-   按钮不消失：控件只分能用和不能用，位置不跳，原因写在悬停提示里。 */
+/* a button that cannot be clicked must look so at a glance. Lowering the opacity alone is not enough: a ghost button is
+   already `--text-2` grey text with no rim, and on the dark ground the difference barely shows; so the text also drops
+   to the faintest step and the pointer shows "not allowed".
+   The button never disappears: a control is only usable or not, it keeps its place, and the reason is in its tooltip. */
 .btn:disabled {
   opacity: 0.5;
   color: var(--text-3);
@@ -129,8 +133,9 @@ a.btn {
   font-size: var(--fs-xs);
 }
 
-/* 节点底行那一条线正好 16 px（.gnode-foot line-height），里面的每一样东西都要装得下，否则被裁。xs（20 px）放进去会让底行超高，所以零件自己多一档；
-   页面只做布局，不在页面里改零件的高度 */
+/* a node's bottom row is exactly 16 px (.gnode-foot line-height) and everything in it must fit, or it is clipped. An xs
+   (20 px) would make the row too tall, so the kit has a size of its own for it; a page only lays out and never changes
+   a kit control's height */
 .btn.xxs {
   height: 16px;
   padding: 0 6px;

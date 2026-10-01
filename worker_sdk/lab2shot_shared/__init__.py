@@ -11,6 +11,7 @@ the worker SDK (worker_sdk/pyproject.toml) and used directly by the core.
     light_probe   light-probe conventions
     exr           EXR writer
     scene_arrays  3D data exchanged between the core and format workers as plain arrays
+    names         names in 3D files <-> identifiers (USD, Alembic) and the sibling tie-break (every writer)
     body_models   locations of manually downloaded body models
     gpu_arch      GPU architectures supported by an environment's torch and kernels
     memory        available system memory

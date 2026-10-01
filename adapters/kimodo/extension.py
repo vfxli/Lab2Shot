@@ -13,34 +13,37 @@ caches the embedding by the prompt, so the same prompt is never encoded twice.
 
 from __future__ import annotations
 
-from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight
+from lab2shot.sdk import COMMERCIAL, RESEARCH, EnvSpec, Extension, GitSource, LicenseInfo, Weight
 
 KIMODO_URL = "https://github.com/nv-tlabs/kimodo.git"
 KIMODO_COMMIT = "1aece8c124d73d255ceff5086d983b844c9f4e94"  # main (README with ARDY)
-# 官方放出来的七个权重，三副骨架（节点的「模型」就是这七个选项）。每个一行：参数值 -> (Hugging Face 仓库, 锁定的提交, 说明)。
+# 官方放出来的七个权重，三副骨架（节点的「模型」就是这七个选项）。每个一行：参数值 -> (Hugging Face 仓库, 锁定的提交, 说明,
+# 骨架, 面板上的名字)。这是核心这边唯一的一张表：安装（下面的 weights）、节点的「模型」选项与骨架（nodes.py）都从它来；
+# worker 不查表，节点把权重的文件夹名随任务交给它（nodes.py prepare 的 checkpoint）。
 # 权重的 key（下面 KEYS）是记在硬盘上的身份：`third_party/<项目>/install_state.json` 按 key 记「这个权重装好了」，
 # 改了 key 等于把已经装好的权重变成「没下载」，页面上 Kimodo 会变成「权重没下载完」、节点不可用。已经在用的 key 不许改。
 MODELS = {
     "rp": ("nvidia/Kimodo-SOMA-RP-v1.1", "6c9233af1180b8151e3c4703477104af5dce9dd5",
-           "Kimodo-SOMA-RP-v1.1：700 小时 Bones Rigplay 动捕训练（SOMA 30 关节）"),
+           "Kimodo-SOMA-RP-v1.1：700 小时 Bones Rigplay 动捕训练（SOMA 30 关节）", "soma", "Rigplay"),
     "seed": ("nvidia/Kimodo-SOMA-SEED-v1.1", "aae3af194322c60d21bc44062b64c3fec912be50",
-             "Kimodo-SOMA-SEED-v1.1：288 小时公开的 BONES-SEED 动捕训练（SOMA 30 关节）"),
+             "Kimodo-SOMA-SEED-v1.1：288 小时公开的 BONES-SEED 动捕训练（SOMA 30 关节）", "soma", "SEED"),
     "rp_v1": ("nvidia/Kimodo-SOMA-RP-v1", "defbe1f34f5fd031eb0ccfe19f3f92a9880c287b",
-              "Kimodo-SOMA-RP-v1：Rigplay 的旧版权重，留着复现官方论文里的数字"),
+              "Kimodo-SOMA-RP-v1：Rigplay 的旧版权重，留着复现官方论文里的数字", "soma", "Rigplay 旧版"),
     "seed_v1": ("nvidia/Kimodo-SOMA-SEED-v1", "388f2be4dc9f1a778c73697e6fb68b5ddb57b828",
-                "Kimodo-SOMA-SEED-v1：BONES-SEED 的旧版权重，留着复现官方论文里的数字"),
+                "Kimodo-SOMA-SEED-v1：BONES-SEED 的旧版权重，留着复现官方论文里的数字", "soma", "SEED 旧版"),
     "smplx": ("nvidia/Kimodo-SMPLX-RP-v1", "1419ba56b734c48bbafb41fefa84088ca94583b5",
-              "Kimodo-SMPLX-RP-v1：骨架是 SMPL-X 的 22 个身体关节，接 SMPL 人体进来不用猜关节"),
+              "Kimodo-SMPLX-RP-v1：骨架是 SMPL-X 的 22 个身体关节，接 SMPL 人体进来不用猜关节", "smplx", "SMPL-X"),
     "g1": ("nvidia/Kimodo-G1-RP-v1", "3020ad8c419c244e0429d360163730c63c4ed011",
-           "Kimodo-G1-RP-v1：Unitree G1 人形机器人的 34 关节骨架，只能生成、不能接人物骨骼"),
+           "Kimodo-G1-RP-v1：Unitree G1 人形机器人的 34 关节骨架，只能生成、不能接人物骨骼", "g1", "G1 机器人"),
     "g1_seed": ("nvidia/Kimodo-G1-SEED-v1", "5e6f2c7e18c2ab834c8d7983b9dcce701e5c6097",
-                "Kimodo-G1-SEED-v1：G1 机器人骨架的 BONES-SEED 版"),
+                "Kimodo-G1-SEED-v1：G1 机器人骨架的 BONES-SEED 版", "g1", "G1 机器人 SEED"),
 }
 GATED = {"smplx"}  # 受限仓库：要用户本人在 Hugging Face 页面点同意
 # 七个权重的许可不一样（每个仓库模型卡 `third_party/kimodo/weights/<仓库>/README.md` 第 2–4 行的 `license_name`）：
 # 六个是 `nvidia-open-model-license`（可商用），只有 Kimodo-SMPLX-RP-v1 是
 # `nvidia-internal-scientific-research-and-development-model-license`（只限研究）。许可只是标签，如实标出，不因此少接一档。
-RESEARCH_ONLY = {"smplx"}
+# 「模型」的哪些取值受许可限制、到哪一档（nodes/tags.py 的等级）：SMPL-X 权重只限研究。节点的 OptionTrait 从这里生成
+OPTION_LICENCES = {"model": {"smplx": RESEARCH}}
 LICENCES = {True: "NVIDIA Internal Scientific Research and Development Model License，只限研究",
             False: "NVIDIA Open Model License，可商用"}
 # 每个权重在安装记录里的名字：一旦有人装过就不能再改（见 MODELS 上面那段说明）
@@ -86,9 +89,9 @@ class Kimodo(Extension):
         # key 用 KEYS 那张表定死：硬盘上的安装记录按它们记着
         *(Weight(key=KEYS[choice], kind="hf", source=repo, revision=rev, dest=repo.split("/")[-1],
                  gated=choice in GATED, option=None if choice == "rp" else ("model", choice),
-                 note=f"{note}（{LICENCES[choice in RESEARCH_ONLY]}），1.1 GB"
+                 note=f"{note}（{LICENCES[choice in OPTION_LICENCES['model']]}），1.1 GB"
                       + ("；需先在 Hugging Face 页面申请访问" if choice in GATED else ""))
-          for choice, (repo, rev, note) in MODELS.items()),
+          for choice, (repo, rev, note, _skeleton, _label) in MODELS.items()),
         # needed by the text job alone (its parameters: text = True), so only for a 文字描述
         *(Weight(key=f"llm2vec-{k}", kind="hf", source=repo, revision=rev, dest=repo, option=("text", True),
                  note=f"LLM2Vec 文字编码适配权重（{k}，MIT），只在用文字描述时需要") for k, (repo, rev) in LLM2VEC.items()),

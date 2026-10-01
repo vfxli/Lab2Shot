@@ -1,4 +1,4 @@
-/* 参数行上的三样东西: a parameter a wire drives, why a parameter does nothing now, and the curve
+/* Three things on a parameter row: a parameter a wire drives, why a parameter does nothing now, and the curve
    of a wire that carries a value per frame. */
 
 /* a parameter a wire drives shows a block in the wire's colour with the value and where it comes
@@ -18,8 +18,8 @@
   cursor: default;
 }
 
-/* 值先占够位置，先收缩的是「· 来自 …」里的节点名（用户自己起的名字，是用户的数据）：
-   界面里的词不许截断，用户的数据可以，悬停看全名 */
+/* the value takes its room first; what shrinks first is the node name in 「· 来自 …」 (a name the user gave, i.e. the
+   user's data): UI words are never truncated, the user's data may be, with the full name on hover */
 .prow .ctl.pwired b {
   flex: none;
   font-weight: 600;

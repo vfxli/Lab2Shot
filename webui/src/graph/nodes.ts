@@ -1,21 +1,20 @@
-import type { DataType, NodeStatus as Status, NodeTypeDef, ParamDef, Plan, SceneKind, ServerMessage, StatusReply, WritesPart } from "../api";
+import type { CookCase, DataType, NodeStatus as Status, NodeTypeDef, ParamDef, Plan, SceneKind, ServerMessage, StatusReply, WritesPart } from "../api";
 import { fromServer, msg, type Message } from "../messages/message";
 import { greyed, nodeUsable, nodeWhy, why as whyOf } from "../api/applies";
 import type { GBox, GNode, GraphState, NodeData } from "../state/graph";
+import { optionName } from "./rules";
 
-/** Pure graph-reading helpers: functions that read a plain snapshot of the graph (nodes, edges, node definitions, the last
- * status reply) and answer a question the page itself owns, such as a node's rows on its body, a group box's members, or
- * what still prevents a click from being submitted. None reads a store, and none works out a rule of the server's (whether
- * a wire fits, a node's ports, what a cook is): those are read from the status reply and the catalogue (graph/rules.ts),
- * and no copy of a server rule is kept in this file. */
+/** 纯读取节点图的辅助函数：读节点图的普通快照（节点、连线、节点定义、上一次状态回复），回答页面自己负责的问题，例如
+ * 节点体上显示哪些参数行、分组框里有哪些节点、一次点击还有什么挡着不能提交。它们都不读 store，也都不推算服务器的规则
+ * （线能不能接、节点有哪些口、一次计算算什么）：那些从状态回复和目录里读（graph/rules.ts），本文件不留服务器规则的副本。 */
 
 
 export const BOX_COLORS = ["#8E8E93", "#0A84FF", "#30D158", "#FF9F0A", "#BF5AF2", "#FF375F"];
-export const BOX_HEAD = 34; // header height; a collapsed box consists of its header only
+export const BOX_HEAD = 34; // 标题栏高度；折叠的框只剩标题栏
 
 export const nodeSize = (n: Pick<GNode, "measured">) => ({ w: n.measured?.width ?? 240, h: n.measured?.height ?? 96 });
 
-/** Nodes whose centre lies inside the box: they move, collapse and hide with it. */
+/** 中心落在框内的节点：随框移动、折叠、隐藏。 */
 export function boxContents(box: GBox, nodes: GNode[]): string[] {
   if (box.collapsed) return box.members;
   return nodes
@@ -42,7 +41,7 @@ export function portColor(types: Record<string, DataType>, portType: string): st
   return types[portType.split("|")[0].replace(/\[\]$/, "")]?.color ?? UNKNOWN_COLOR;
 }
 
-/** A 3D settings node's table (OutputSettings.writes) in the catalog's order of kinds. */
+/** 三维输出设置节点的表（OutputSettings.writes），按目录里种类的顺序。 */
 export function writesTable(kinds: SceneKind[], def: NodeTypeDef): (WritesPart & { kind: SceneKind })[] {
   const writes = def.writes ?? {};
   return kinds.filter((k) => writes[k.id]).map((k) => ({ kind: k, ...writes[k.id] }));
@@ -63,17 +62,18 @@ export const promotedByHand = (def: NodeTypeDef | undefined, promoted: string[] 
  * 使用者可移除出厂默认中的任意一行：这些行已是 json 中的数据，不存在类型层面固定不可移除的行。 */
 export const chosenOnNode = (def: NodeTypeDef, onNode: string[] | undefined): string[] => onNode ?? def.on_node;
 
-/** The rows a node's body shows, in the order of its parameters: the ones it shows (chosenOnNode) and the ones this
- * node has 提升到节点 (each of those also carries its own input on its row); 展开 shows every simple parameter. */
+/** 节点体上显示的参数行，按参数的顺序：它选了显示的（chosenOnNode）与这个节点「提升到节点」的（后者在自己那一行上
+ * 还带一个输入口）；「展开」时显示每个简单参数。 */
 export function nodeRows(def: NodeTypeDef | undefined, data: Pick<NodeData, "promoted" | "onNode">, expanded: boolean): ParamDef[] {
   if (!def) return [];
   const chosen = chosenOnNode(def, data.onNode);
   const own = promotedByHand(def, data.promoted);
-  return def.params.filter((p) => p.simple && (own.includes(p.name) || expanded || chosen.includes(p.name)));
+  // 按钮参数（「计算」每个节点都有）只在使用者选了「在节点上显示」时上节点，「展开」不带它们
+  return def.params.filter((p) => p.simple && (own.includes(p.name) || (expanded && p.simple !== "button") || chosen.includes(p.name)));
 }
 
 export const hiddenOnNode = (def: NodeTypeDef | undefined, data: Pick<NodeData, "promoted" | "onNode">): number =>
-  def ? def.params.filter((p) => p.simple).length - nodeRows(def, data, false).length : 0;
+  def ? def.params.filter((p) => p.simple && p.simple !== "button").length - nodeRows(def, data, false).filter((p) => p.simple !== "button").length : 0;
 
 
 export function wouldCycle(edges: { source: string; target: string }[], source: string, target: string): boolean {
@@ -90,32 +90,39 @@ export function wouldCycle(edges: { source: string; target: string }[], source: 
   return false;
 }
 
-/** What is wrong with the typed frame range to cook: whole numbers, in order, inside what the shown node's inputs cover
- * (`plan`: the shown node's, as the server planned it for these cook inputs; null not known). */
-export function rangeProblem(cookRange: [string, string] | null, plan: Pick<Plan, "range"> | null): Message | null {
+/** 计算范围两格里写的是什么——范围只在这里解析（rangeProblem、cookSpan、存盘与提交的 frames 都读它）：null 没填；
+ * `bad` 写错（不是整数 / 先大后小）；否则 `span` [first, last]。 */
+export type ParsedSpan = null | { bad: "notint" | "order" } | { span: [number, number] };
+export function parseSpan(cookRange: [string, string] | null): ParsedSpan {
   if (!cookRange) return null;
-  const nums = cookRange.every((v) => /^-?\d+$/.test(v.trim())) ? ([Number(cookRange[0]), Number(cookRange[1])] as [number, number]) : null;
-  if (!nums) return msg("B-RANGE-NOTINT", { first: cookRange[0], last: cookRange[1] });
-  const [first, last] = nums;
-  if (first > last) return msg("B-RANGE-ORDER", { first, last });
-  // 计算范围随素材变化：范围保存在节点图中，素材重新上传后（例如删除开头一段）旧范围仍然保留，不应因此阻止提交。
-  // 与素材有重叠即放行（实际计算交集，见 cookSpan），仅在完全不重叠时阻止，
-  // 此时使用者填写的是另一段镜头的帧号，需要修改。
+  if (!cookRange.every((v) => /^-?\d+$/.test(v.trim()))) return { bad: "notint" };
+  const span: [number, number] = [Number(cookRange[0]), Number(cookRange[1])];
+  return span[0] > span[1] ? { bad: "order" } : { span };
+}
+
+/** 填写的计算范围哪里不对：须为整数、先小后大、与显示节点的输入覆盖的范围有重叠（`plan`：它的范围；null 为未知）。
+ * 与素材只是部分重叠不算错——提交的是交集（cookSpan），范围本身照写的留着：
+ * 素材换短了，节点图里的旧范围不改写，也不挡提交；完全不重叠（填的是另一段镜头的帧号）才要使用者改。 */
+export function rangeProblem(cookRange: [string, string] | null, plan: Pick<Plan, "range"> | null): Message | null {
+  const got = parseSpan(cookRange);
+  if (!got) return null;
+  if ("bad" in got) return got.bad === "notint" ? msg("B-RANGE-NOTINT", { first: cookRange![0], last: cookRange![1] }) : msg("B-RANGE-ORDER", { first: Number(cookRange![0]), last: Number(cookRange![1]) });
+  const [first, last] = got.span;
   const full = plan?.range;
   if (full && (last < full[0] || first > full[1])) return msg("B-RANGE-OUTSIDE", { first, last, start: full[0], end: full[1] });
   return null;
 }
 
-/** 本次实际计算的范围：使用者填写的范围与素材的交集（未填写时为素材全部；`plan` 未知时按填写值）。
- * 素材更换后范围仅部分落在素材内时，计算该部分，不阻止提交（见上方 rangeProblem 的注释）。 */
+/** 实际提交给服务器的计算范围（toJSON 的 frames；帧数上限也按它数）：没填、写错为 null（整段）；与素材部分重叠为交集
+ * （服务器不收比输入宽的范围，engine/evaluation.py check_frames）；素材范围未知或完全不重叠时照写的（后者由 rangeProblem
+ * 挡在提交前）。只算、不改文档：节点图里存的永远是使用者写的。 */
 export function cookSpan(cookRange: [string, string] | null, plan: Pick<Plan, "range"> | null): [number, number] | null {
+  const got = parseSpan(cookRange);
+  if (!got || "bad" in got) return null;
   const full = (plan?.range as [number, number] | undefined) ?? null;
-  if (!cookRange) return full;
-  const nums = cookRange.every((v) => /^-?\d+$/.test(v.trim())) ? ([Number(cookRange[0]), Number(cookRange[1])] as [number, number]) : null;
-  if (!nums) return full;
-  if (!full) return nums;
-  const span: [number, number] = [Math.max(nums[0], full[0]), Math.min(nums[1], full[1])];
-  return span[0] <= span[1] ? span : full;
+  if (!full) return got.span;
+  const span: [number, number] = [Math.max(got.span[0], full[0]), Math.min(got.span[1], full[1])];
+  return span[0] <= span[1] ? span : got.span;
 }
 
 /** 单次提交可计算的最大帧数（由管理员在后台「设置」中配置，随队列响应返回；`most` 为 0 表示尚未获取，不做限制）。
@@ -126,60 +133,69 @@ export function frameLimitProblem(span: [number, number] | null, most: number): 
   return frames > most ? msg("B-JOB-TOOMANYFRAMES", { frames, most, first: span[0], last: span[1] }) : null;
 }
 
-/** A node's cook status in words: the node's footer and its 信息 panel say the same. */
+/** 节点计算状态的文字：节点底部与它的「信息」面板说的是同一句。 */
 export const STATUS_TEXT: Record<import("../state/graph").NodeStatus, string> = { idle: "未计算", queued: "排队", cooked: "已缓存", cooking: "计算中…", error: "出错", skipped: "已跳过" };
 
-/** A node its job is still working on: waiting in the queue (its note: why, as the server says) or cooking. */
+/** 任务还在处理的节点：在队列里等（注记是原因，按服务器说的）或正在计算。 */
 export const isLive = (status: import("../state/graph").NodeStatus | undefined): boolean => status === "queued" || status === "cooking";
 
 export function waitText(job: { position: number | null }): string {
   return job.position == null ? "排队中" : `排队第 ${job.position} 位`;
 }
 
-/** Every 「输出」 in the graph, in node order: what 提交 delivers, together, as one job. */
+/** 图里的全部「输出」，按节点顺序：「提交」把它们一起作为一个任务交付。 */
 export function deliveryNodes(nodes: GNode[], nodeDefs: Record<string, NodeTypeDef>): string[] {
   return nodes.filter((n) => nodeDefs[n.data.typeId]?.delivers).map((n) => n.id);
 }
 
 const FILE_IN = ["file", "sequence"];
 
-/** 「提交」 has something to cook only when the graph has an 「输出」: every one of them collects and packs, together. */
+/** 「提交」（graph/actions.ts deliverAll：Ctrl+Shift+Enter，打包全部「输出」；顶栏没有这个按钮）只在图里有「输出」时
+ * 才有东西可算：每一个「输出」一起收集、打包。 */
 export function deliverBlocked(nodes: GNode[], nodeDefs: Record<string, NodeTypeDef>, outputs = deliveryNodes(nodes, nodeDefs)): Blocker | null {
   return outputs.length ? null : { node: "", message: msg("B-DELIVER-NOOUTPUT") };
 }
 
-/** Why a cook or a delivery can't be submitted yet (a B- message of lab2shot/messages/web.toml, or the server's own
- * reason for the node), on its node ("" the graph itself); the message's `param` anchor: the parameter to go to. */
+/** 一次计算或交付为什么还不能提交（lab2shot/messages/web.toml 的一条 B- 消息，或服务器对该节点给的原因），落在哪个节点上
+ * （"" 为整张图）；消息的 `param` 锚点：要跳到的参数。 */
 export interface Blocker {
   node: string;
   message: Message;
 }
 
-/** What blockers() and standing() read beyond GraphState: the status reply for these cook inputs (trusted: a click
- * waits for it, graph/actions.ts currentReply), the shown node's plan, and what only the page knows (uploads going up)
- * as a plain callback, so this file need not import transfer/uploads.ts. */
+/** blockers() 与 standing() 在 GraphState 之外要读的：与这些计算输入对应的状态回复（可信的：点击会等它，
+ * graph/actions.ts currentReply）、显示节点的 plan，以及只有页面知道的（正在上传的）——作为普通回调传入，本文件因此不必
+ * import transfer/uploads.ts。 */
 export interface BlockContext extends GraphState {
   reply: StatusReply;
   cookRange: [string, string] | null;
   plan: Plan | null;
-  uploadBlocked: (id: string, param: string, label: string) => Message | undefined; // undefined: nothing going up
-  applies: import("../api/applies").Availability | null | undefined; // the login's answer: which node types are usable now
+  uploadBlocked: (id: string, param: string, label: string) => Message | undefined; // undefined：没有在传的
+  applies: import("../api/applies").Availability | null | undefined; // 登录给的答案：现在哪些节点类型可用
 }
 
-/** 本次计算涉及的节点（目标及其全部上游），仅供本文件检查问题与汇总消息使用。
+/** 本次计算涉及的节点（目标及其按选路走得到的上游，有缓存的也算），仅供本文件检查问题与汇总消息使用。
+ *
+ * 读服务器的答案：状态回复里这次计算（`policy` 或 `deliver` 中 targets 相同的那一项）的 `uses`
+ * （engine/evaluation.py needed：沿切换实际走的那一路往上找，taken_ports 是「走哪一路」唯一的判定）。网页不自己沿
+ * 全部连线往上找、再按节点的 unused 去：unused 是「全图没有哪个结果要它」，不是相对这次计算的目标，一个节点在
+ * 没走的那一路上、却另有别的终点用它时会被当成阻碍，单算没走那一路上的节点时它自己缺的文件又查不出来。
+ * 回复里找不到这一项（没有 uses）时只查目标本身。
  *
  * 不用于决定计算前上传哪些素材：上传哪些素材、每份上传哪些通道由服务器决定，即状态回复中的
- * `policy.computes`（本次实际计算的节点）与各节点的 `channels`（`graph/apply.ts pickedFor / sendPicked`）。
- * 网页按连线自行反推会产生第二份答案；该判断仅在服务器 `needed_outputs` 中进行。 */
-const nodesCooked = (ctx: GraphState, targets: string[]) => [...new Set(targets.flatMap((t) => upstream(t, ctx.edges).reverse()))];
+ * `policy.computes`（本次实际计算的节点）与各节点的 `channels`（`graph/apply.ts pickedFor / sendPicked`）。 */
+function nodesCooked(reply: StatusReply, targets: string[]): string[] {
+  const same = (c: CookCase | null | undefined) => !!c && c.targets.length === targets.length && c.targets.every((t, i) => t === targets[i]);
+  const cook = same(reply.deliver) ? reply.deliver : Object.values(reply.nodes).map((n) => n.policy).find(same);
+  return cook?.uses ?? targets;
+}
 
-/** Why cooking `targets` (the reply's policy says which) can't be submitted yet: what the page sees before sending
- * anything (a range typed wrong, a file not chosen or still going up, a choice the data wired in can't take), the wires the
- * server judged wrong, and a node's own error from the server. */
+/** 计算 `targets`（哪些由回复的 policy 说）为什么还不能提交：页面在发送前就能看到的（范围写错、文件没选或还在传、
+ * 接入的数据不接受的选项）、服务器判为不对的连线，以及服务器给节点自身的错误。 */
 export function blockers(ctx: BlockContext, targets: string[]): Blocker[] {
   const range = rangeProblem(ctx.cookRange, ctx.plan);
   const out: Blocker[] = range ? [{ node: "", message: range }] : [];
-  for (const id of nodesCooked(ctx, targets)) {
+  for (const id of nodesCooked(ctx.reply, targets)) {
     const node = ctx.nodes.find((n) => n.id === id);
     const def = node && ctx.nodeDefs[node.data.typeId];
     if (!node || !def) continue;
@@ -197,11 +213,10 @@ export function blockers(ctx: BlockContext, targets: string[]): Blocker[] {
       // 当前选中的选项不可用：接入的数据类型不符合要求（option_applies，由服务器计算，id 为 "<参数>=<选项>"）。
       // 在提交前拦截，不交由服务器报错
       const why = whyOf(status?.applies, `${p.name}=${String(value)}`);
-      if (why) own.push(msg("B-COOK-OPTION", { node: name, setting: p.label, option: p.option_labels?.[String(value)] ?? String(value), reason: why }, { param: p.name }));
+      if (why) own.push(msg("B-COOK-OPTION", { node: name, setting: p.label, option: optionName(p, value), reason: why }, { param: p.name }));
     }
-    // the server's error stops the click only when the node can't be planned (a required input not wired, a refused
-    // file, a wired value it can't take); a failure kept from an earlier cook (its outcome: failed, or skipped under
-    // one) is tried again by the click (engine/cook.py), never a reason not to submit
+    // 服务器的错误只在节点排不出计划时才挡点击（必需的输入没接、文件被拒、接进来的值它不收）；之前计算留下的失败（它的
+    // outcome：失败，或因上游失败而跳过）会由这次点击重试（engine/cook.py），从来不是不提交的理由
     const server = !status?.outcome ? status?.error : undefined;
     if (!own.length && server) own.push(fromServer(server));
     out.push(...own.map((message) => ({ node: id, message })));
@@ -209,8 +224,7 @@ export function blockers(ctx: BlockContext, targets: string[]): Blocker[] {
   return out;
 }
 
-/** The same reason reported for several nodes (the server names the node that is really wrong on each one below it):
- * said once, where it names a parameter to go to if any does. */
+/** 同一个原因报在好几个节点上（服务器在真正出错的节点下游的每一个上都点名它）：只说一次，有指向参数的就用那一条。 */
 export function dedupeBlockers(found: Blocker[]): Blocker[] {
   const byText = new Map<string, Blocker>();
   for (const b of found) {
@@ -220,14 +234,13 @@ export function dedupeBlockers(found: Blocker[]): Blocker[] {
   return [...byText.values()];
 }
 
-/** What still stands on the nodes cooking `targets` covers (their usage checks and what they said when cooked, W and N:
- * a refused wire is a blocker, information stays in the log): a click's summary starts with them, so a warning on a
- * node already cooked is listed again when it is cooked again, not only on its mark. */
+/** 计算 `targets` 涉及的节点上尚存的提示（用法检查与计算时说的，W 与 N：被拒的连线是阻碍，信息只留在日志里）：一次点击的
+ * 汇总从它们开始，所以已算过的节点上的警告在再算时会重新列出，而不只是留在它的标记上。 */
 export function standing(ctx: BlockContext, targets: string[]): Blocker[] {
-  return nodesCooked(ctx, targets).flatMap((id) => nodeMessages(ctx.reply.nodes, id).filter((m) => !m.refused && (m.level === "W" || m.level === "N")).map((m) => ({ node: id, message: fromServer(m) })));
+  return nodesCooked(ctx.reply, targets).flatMap((id) => nodeMessages(ctx.reply.nodes, id).filter((m) => !m.refused && (m.level === "W" || m.level === "N")).map((m) => ({ node: id, message: fromServer(m) })));
 }
 
-/** What the server says about a node: its usage checks and what it said when it was cooked (lab2shot/messages). */
+/** 服务器对一个节点说的：用法检查，以及计算时说的（lab2shot/messages）。 */
 export function nodeMessages(results: Record<string, Status>, id: string): ServerMessage[] {
   return results[id]?.messages ?? [];
 }

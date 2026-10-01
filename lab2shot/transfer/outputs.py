@@ -40,7 +40,7 @@ from ..io.atomic import put_in_place
 from ..io.digest import sha256
 from ..io.files import inside, link_or_copy
 from ..messages import Msg
-from ..nodes.output import marked
+from ..nodes.output import marked, name_key
 from ..text import file_part
 from . import relative_name, tasks
 
@@ -101,20 +101,21 @@ class Collector:
         return pkg_of(self.owner["user"], self.task, node_id)
 
     def _item_dir(self, node_id: str, path: tuple, names: tuple[str, ...]) -> str:
-        """The sub-folder of one item of a 逐项处理 block (under the lock): its names, outer block first, made safe;
-        two items that come out the same are told apart by a number."""
+        """The sub-folder of one item of a 逐项处理 block (under the lock): its names, outer block first, made safe. An
+        item's names are unique in its list, so only names that making safe changed can come out the same (「a/b」 and
+        「a_b」): those carry a suffix of their own item keys, the same whichever instance collects first (several collect
+        at once: a number by arrival would differ from one run to the next). Names alike on some file system (name_key:
+        「A」 and 「a」, é written two ways) are told apart the same way: the later one carries its suffix (which is later
+        can differ between runs; only such a pair, never a name on its own)."""
         taken = self._items.setdefault(node_id, {})
         if path in taken:
             return taken[path]
-        parts = [file_part(n, 60) or f"item{i + 1}" for i, n in enumerate(names or path)]
-        base, n = "/".join(parts), 1
-        used = set(taken.values())
-        at = base
-        while at in used:
-            n += 1
-            at = f"{base}_{n}"
-        taken[path] = at
-        return at
+        raw = list(names or path)
+        parts = [file_part(n, 60) or f"item{i + 1}" for i, n in enumerate(raw)]
+        base = "/".join(parts)
+        alike = any(name_key(t) == name_key(base) for t in taken.values())
+        taken[path] = base if parts == raw and not alike else f"{base}_{sha256('/'.join(path))[:6]}"
+        return taken[path]
 
     def collect(self, node_id: str, label: str, outputs: list[Packet], stop: threading.Event, path: tuple = (),
                 names: tuple[str, ...] = ()) -> dict:
@@ -123,7 +124,9 @@ class Collector:
         path, `names`: its items' names), until `stop` (the node's). Returns {"commercial", "projects": the
         non-commercial ones}."""
         for p in outputs:  # a packet without .complete is not a packet: an incomplete one is never collected
-            if not Packet.exists(p.dir):  # checked outright, never by an assert (python -O would drop it)
+            # checked outright, never by an assert (python -O would drop it); complete is what is asked here: the cook
+            # took it as an input only when valid (engine/presence.py says which test is for what)
+            if not Packet.exists(p.dir):
                 raise CookError(node_id, Msg("E-OUTPUT-INCOMPLETE", node=label))
         base = folder(self.task, self.pkg(node_id))
         with self._lock:
@@ -141,13 +144,15 @@ class Collector:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 if not dst.exists():
                     link_or_copy(p.path(rel), dst)
+                elif not _same_file(p.path(rel), dst):  # the same place holds another file: never kept on the quiet
+                    raise CookError(node_id, Msg("E-OUTPUT-CLASH", node=label, file=f"{at}/{rel}"))
             listed.append({"name": name, "item": under, "type": p.meta.get("made_from", ""), "main": f"{at}/{p.meta['main']}",
                            "files": [f"{at}/{rel}" for rel in p.meta["files"]], "commercial": p.meta["commercial"]})
         with self._lock:
             self._listed.setdefault(node_id, []).extend(listed)
             learned = self._learned.setdefault(node_id, [])
             learned += [x for p in outputs for x in p.meta.get("learned", []) if x not in learned]
-        return {"commercial": all(o["commercial"] for o in listed)}
+        return {"commercial": commercial(listed)}
 
     def download_name(self, node_id: str, label: str) -> str:
         """What the browser saves the zip as, without .zip, and the one folder inside it: the graph's name (and the
@@ -165,15 +170,18 @@ class Collector:
         with self._lock:
             if node_id in self._packed:
                 return record(self.task, self.pkg(node_id))
-            self._packed.add(node_id)
             listed = list(self._listed.get(node_id, []))
+            # every output setting wired in gave nothing (or a block had no items): never a zip of a manifest alone
+            if not any(o["files"] for o in listed):
+                raise CookError(node_id, Msg("E-DELIVER-EMPTY", node=label))
+            self._packed.add(node_id)
         pkg, name = self.pkg(node_id), self.download_name(node_id, label)
         base = folder(self.task, pkg)
         base.mkdir(parents=True, exist_ok=True)
         manifest = {"schema": "lab2shot.output/1", "task": self.task, "node": node_id, "label": label, "pkg": pkg,
                     "name": f"{name}.zip", "title": self.owner.get("title", ""), "graph": self.owner.get("graph", ""),
                     "made": time.strftime("%Y-%m-%dT%H:%M:%S"), "outputs": listed,
-                    "commercial": all(o["commercial"] for o in listed)}
+                    "commercial": commercial(listed)}
         (base / MANIFEST).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         _pack(base, tasks.zip_path(self.task, pkg), name, stop)
         found = record(self.task, pkg)
@@ -226,6 +234,22 @@ def _manifest(base: Path) -> dict | None:
     except OSError:
         return None
     return _read_manifest(str(base / MANIFEST), stamp)
+
+
+def commercial(listed: list[dict]) -> bool:
+    """What was collected may be used commercially: some file was, and every piece of it may (nothing collected is not
+    「可商用」: all([]) would say it is)."""
+    return any(o["files"] for o in listed) and all(o["commercial"] for o in listed)
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    """The file collected there already is this one (linked, or the same bytes: an instance collected again)."""
+    import filecmp
+
+    try:
+        return os.path.samefile(a, b) or filecmp.cmp(a, b, shallow=False)
+    except OSError:
+        return False
 
 
 def record(task_id: str, pkg: str, files: bool = False) -> dict:

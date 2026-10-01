@@ -7,6 +7,7 @@ straight values never reach the code unexpectedly."""
 from __future__ import annotations
 
 import re
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -42,6 +43,19 @@ def _fits(path: str | Path, spec, target: Window, channels: int) -> None:
                                   pixels=PIXELS_MAX / 1e6, gb=READ_MAX / (1 << 30)))
 
 
+@contextmanager
+def _utf8_names(path: str | Path):
+    """Around a read of a file's part, view and channel names: one that is not UTF-8 (GBK from software on a Chinese
+    system, say) fails the read with E-IMAGE-NAMEENCODING naming the file. OpenImageIO's Python binding decodes
+    them strictly and raises UnicodeDecodeError; these names are what ports and connections go by, so none is guessed
+    at by replacing its bytes (unlike the header texts nothing reads, header_attributes). Used where the names are
+    read: _parts (every reader's channel names) and views."""
+    try:
+        yield
+    except UnicodeDecodeError as exc:
+        raise FileProblem(Msg("E-IMAGE-NAMEENCODING", file=Path(path).name)) from exc
+
+
 def _open(path: str | Path):
     """An open OpenImageIO input for `path`; close it when done (a file that cannot be opened raises)."""
     inp = oiio.ImageInput.open(str(path))
@@ -50,10 +64,22 @@ def _open(path: str | Path):
     return inp
 
 
-def _rgb_names(names: list[str]) -> list[str]:
-    """The three channels read_rgb returns, from a file's channel names: R, G, B by name, else the first three, else
-    the first one three times."""
-    return ["R", "G", "B"] if all(c in names for c in "RGB") else names[:3] if len(names) >= 3 else names[:1] * 3
+def _rgb_names(names: list[str], path: str | Path = "") -> list[str]:
+    """The three channels read_rgb returns, from a file's channel names: R, G, B by name; else those of a colour
+    layer (rgba.R …, the beauty of a multi-part EXR whose first part is another pass: its channels are prefixed with
+    its part name, _parts); else, in a file of plain channel names only, its first three, or its one channel three
+    times (a grey picture). A file whose channels are all in named layers and none of them R G B has no colour:
+    E-IMAGE-NOCHANNEL, never a depth or a normal read as red."""
+    if all(c in names for c in "RGB"):
+        return ["R", "G", "B"]
+    layers = [n.rsplit(".", 1)[0] for n in names if n.endswith(".R")]
+    colour = sorted((l for l in layers if all(f"{l}.{c}" in names for c in "GB")),
+                    key=lambda l: (l.lower() not in ("rgba", "rgb", "beauty"), names.index(f"{l}.R")))
+    if colour:
+        return [f"{colour[0]}.{c}" for c in "RGB"]
+    if any("." in n for n in names):
+        raise FileProblem(Msg("E-IMAGE-NOCHANNEL", file=Path(path).name, channels="R G B"))
+    return names[:3] if len(names) >= 3 else names[:1] * 3
 
 
 def read_rgb(path: str | Path, box: tuple | None = None) -> np.ndarray:
@@ -62,8 +88,8 @@ def read_rgb(path: str | Path, box: tuple | None = None) -> np.ndarray:
     times. `box`: as in read_named. The file is opened once (its channel names and its pixels from the same open)."""
     inp = _open(path)
     try:
-        parts = _parts(inp)
-        return _read_block(inp, path, parts, _rgb_names([n for names in parts for n in names if n is not None]), box)
+        parts = _parts(inp, path=path)
+        return _read_block(inp, path, parts, _rgb_names([n for names in parts for n in names if n is not None], path), box)
     finally:
         inp.close()
 
@@ -81,10 +107,11 @@ def read_rgba(path: str | Path, box: tuple | None = None) -> np.ndarray:
     of the file, one read of its colour and its alpha."""
     inp = _open(path)
     try:
-        parts = _parts(inp)
+        parts = _parts(inp, path=path)
         names = [n for part in parts for n in part if n is not None]
-        a = next((n for n in ALPHA_NAMES if n in names), None)
-        pick = _rgb_names(names)
+        pick = _rgb_names(names, path)
+        layer = pick[0].rsplit(".", 1)[0] + "." if "." in pick[0] else ""  # the alpha of the same layer as the colour
+        a = next((n for n in (f"{layer}{x}" for x in ALPHA_NAMES) if n in names), None)
         block = _read_block(inp, path, parts, pick + [a] if a else pick, box)
     finally:
         inp.close()
@@ -238,13 +265,14 @@ def views(path: str | Path) -> list[str]:
     if inp is None:
         raise FileProblem(Msg("E-IMAGE-OPEN", file=Path(path).name, detail=said(path, oiio.geterror())))
     try:
-        found = [str(v) for v in (inp.spec().getattribute("multiView") or ())]
-        i = 0
-        while inp.seek_subimage(i, 0):
-            own = str(inp.spec().getattribute("view") or "")
-            if own and own not in found:
-                found.append(own)
-            i += 1
+        with _utf8_names(path):
+            found = [str(v) for v in (inp.spec().getattribute("multiView") or ())]
+            i = 0
+            while inp.seek_subimage(i, 0):
+                own = str(inp.spec().getattribute("view") or "")
+                if own and own not in found:
+                    found.append(own)
+                i += 1
         return found
     finally:
         inp.close()
@@ -268,7 +296,7 @@ def _without_view(channel: str, view: str) -> str:
     return ".".join(parts)
 
 
-def _parts(inp, view: str | None = None) -> list[list[str | None]]:
+def _parts(inp, view: str | None = None, path: str | Path = "") -> list[list[str | None]]:
     """Return the channel names of every part of an open file. A multi-part EXR may store one layer per part:
     unprefixed channels of any part other than the first take the part name as their layer ("depth" part: Z ->
     depth.Z). When a part's channel names collide with those of an earlier part (a stereo pair: forward_left and
@@ -276,7 +304,12 @@ def _parts(inp, view: str | None = None) -> list[list[str | None]]:
     (forward_right.forward.u), so all channels across parts are distinct. `view` (stereo files): only that view's
     channels are returned, with None in place of every other channel (so each name's position still matches its
     channel index); the first kept part is unprefixed and part names drop the view suffix (depth.right -> depth), so
-    each view reads as an independent picture."""
+    each view reads as an independent picture. `path`: the file, named when a name is not UTF-8 (_utf8_names)."""
+    with _utf8_names(path):
+        return _part_names(inp, view)
+
+
+def _part_names(inp, view: str | None) -> list[list[str | None]]:
     parts: list[list[str | None]] = []
     taken: set[str] = set()
     inp.seek_subimage(0, 0)
@@ -312,18 +345,44 @@ def channel_names(path: str | Path, view: str | None = None) -> list[str]:
     if inp is None:
         raise FileProblem(Msg("E-IMAGE-OPEN", file=Path(path).name, detail=said(path, oiio.geterror())))
     try:
-        return [n for names in _parts(inp, view) for n in names if n is not None]
+        return [n for names in _parts(inp, view, path) for n in names if n is not None]
     finally:
         inp.close()
 
 
+# the header texts the program reads (data/layers.py describe_file): what this project writes (lab2shot:layers) and
+# Cryptomatte's names and manifests (a layer's name is a port's)
+READ_ATTRIBUTES = ("lab2shot:", "cryptomatte/")
+
+
 def header_attributes(path: str | Path) -> dict[str, str]:
-    """Return the text attributes in an image file's header (first part): Cryptomatte manifests, lab2shot:* ..."""
+    """Return the text attributes in an image file's header (first part): Cryptomatte manifests, lab2shot:* ...
+
+    The header holds texts of every kind: a camera's EXIF (ImageDescription, Artist, Make), a PNG's tEXt, a JPEG
+    comment, an EXR's owner and comments, in whatever encoding the software that wrote them used, GBK from a Chinese
+    Windows for one. OpenImageIO's Python binding decodes each strictly (UnicodeDecodeError on a byte that is not
+    UTF-8), and nothing here reads those, so one that is not UTF-8 is left out instead of failing the whole file (as
+    open_video does for a video's tags, io/sources.py). One the program does read (READ_ATTRIBUTES) is not guessed at:
+    the file is refused naming it (E-IMAGE-ATTRENCODING)."""
     inp = oiio.ImageInput.open(str(path))
     if inp is None:
         raise FileProblem(Msg("E-IMAGE-OPEN", file=Path(path).name, detail=said(path, oiio.geterror())))
     try:
-        return {a.name: a.value for a in inp.spec().extra_attribs if isinstance(a.value, str)}
+        out: dict[str, str] = {}
+        for a in inp.spec().extra_attribs:
+            try:
+                name = a.name
+            except UnicodeDecodeError:  # a name that is not UTF-8 is none of READ_ATTRIBUTES (all ASCII)
+                continue
+            try:
+                value = a.value
+            except UnicodeDecodeError as exc:
+                if name.startswith(READ_ATTRIBUTES):
+                    raise FileProblem(Msg("E-IMAGE-ATTRENCODING", file=Path(path).name, name=name)) from exc
+                continue
+            if isinstance(value, str):
+                out[name] = value
+        return out
     finally:
         inp.close()
 
@@ -337,7 +396,7 @@ def read_named(path: str | Path, names: list[str] | None = None, view: str | Non
     selects the display window (the picture's format, as used by nodes operating on the plate frame)."""
     inp = _open(path)
     try:
-        return _read(inp, path, _parts(inp, view), names, box)
+        return _read(inp, path, _parts(inp, view, path), names, box)
     finally:
         inp.close()
 
@@ -357,7 +416,7 @@ def read_stack(path: str | Path, pick, box: tuple | None = None) -> tuple[np.nda
     values are read_named's (`box` as there), without a copy per channel when they lie side by side in the file."""
     inp = _open(path)
     try:
-        parts = _parts(inp)
+        parts = _parts(inp, path=path)
         chosen = pick([n for part in parts for n in part if n is not None])
         return _read_block(inp, path, parts, chosen, box), chosen
     finally:

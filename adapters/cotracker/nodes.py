@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, measured_param, P, PointTracker, TrackParams, Cost, Licence, Measured)
+from lab2shot.sdk import (Official, measured_param, P, PointTracker, TrackParams, Cost, Measured)
 
 
 class Track(PointTracker):
@@ -24,7 +24,6 @@ class Track(PointTracker):
     runtime = "cotracker"
     # 数值来自 RTX 4090、默认「整段」模式
     cost = Cost(gpu=True, vram_gb=5.6, seconds_per_frame=0.012)
-    licence = Licence(note="代码和模型都是 CC-BY-NC-4.0，只能研究用，不能商用。")
 
     class Params(TrackParams):
         grid: Literal[0, 10, 16, 20] = measured_param(

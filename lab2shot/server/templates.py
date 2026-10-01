@@ -7,57 +7,69 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import Request
-from pydantic import BaseModel
 
 from .. import library
 from ..messages import Msg
 from . import auth
 from .access import audit
-from .routes import Access, Router
+from .routes import Access, Body, Router
 
 admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])
 
 disabled = library.disabled  # server/access.py templates_for reads it
 
 
-class NewTemplate(BaseModel):
+class NewTemplate(Body):
     name: str
     intro: str = ""
     deliverable: str = ""  # a subcategory or first-level category id; "" 未分类
     graph: dict
+    replace: bool = False  # 管理员已确认：同名的项目预设用这张图覆盖（没有这个标志而同名时回 E-TEMPLATES-SAMENAME）
 
 
-@admin.post("/templates", access=Access.admin("templates.create"), summary="「保存为预设模板」（文件菜单，管理员）：把手上这张节点图写成 templates/ 下的一个文件，只填名字；进「未分类」，之后在模板弹窗里拖到一个分类")
+@admin.post("/templates", access=Access.admin("templates.create"), summary="「保存为预设模板」（文件菜单，管理员）：把手上这张节点图写成 templates/ 下的一个文件。和已有的项目预设同名时先回 409 E-TEMPLATES-SAMENAME，网页问过之后带 replace 再发，覆盖那个文件（文件名、创建时间、作者不变）；和接入层自带的同名则不能存")
 def create(req: NewTemplate, request: Request) -> dict:
     from .. import categories
+    from ..engine.templates import exposed_errors
+    from ..errors import Conflict
 
+    exposed_errors(req.graph)  # 参数界面（exposed 树）有错不存，消息说清是哪一项（engine/templates.py check_exposed）
     if req.deliverable:
         categories.templates.writable()  # a broken tree file is said as such, not as "no such category"
         if not categories.templates.known(req.deliverable):
             from ..errors import NotFound
 
             raise NotFound(Msg("E-CATEGORY-NOSUCH", id=req.deliverable))
-    found = library.save_preset(req.graph, req.name, req.intro, req.deliverable, auth.label(request))
-    audit(Msg("I-AUDIT-GRAPHLISTED", who=auth.label(request), name=found["name"]),
-          session=auth.session(request), method="POST", path=str(request.url.path))
-    return {"id": found["id"], "name": found["name"]}
+    same = library.same_name_preset(req.name)
+    if same is not None and not req.replace:
+        raise Conflict(Msg("E-TEMPLATES-SAMENAME", template=same["name"]))
+    if same is not None:
+        found = library.replace_preset(same["id"], req.graph, req.name, req.intro, req.deliverable)
+        told = Msg("I-AUDIT-GRAPHREPLACED", who=auth.actor(request).label, name=found["name"], file=Path(found["path"]).name)
+    else:
+        found = library.save_preset(req.graph, req.name, req.intro, req.deliverable, auth.actor(request).id)
+        told = Msg("I-AUDIT-GRAPHLISTED", who=auth.actor(request).label, name=found["name"])
+    audit(told, session=auth.session(request), method="POST", path=str(request.url.path))
+    return {"id": found["id"], "name": found["name"], "replaced": same is not None}
 
 
-class Switch(BaseModel):
+class Switch(Body):
     enabled: bool
 
 
 @admin.put("/templates/{template_id}", access=Access.admin("templates.create"), summary="开或关一张模板卡：关掉的，没有管理权限的账号在模板面板看不到；已经打开或保存的节点图不受影响。写进它自己的文件")
 def switch(template_id: str, req: Switch, request: Request) -> dict:
     found = library.set_enabled(template_id, req.enabled)
-    audit(Msg("I-AUDIT-TEMPLATESWITCH", who=auth.label(request), template=found["name"],
+    audit(Msg("I-AUDIT-TEMPLATESWITCH", who=auth.actor(request).label, template=found["name"],
               state=Msg("I-TEMPLATES-ON" if req.enabled else "I-TEMPLATES-OFF").text),
           session=auth.session(request), method="PUT", path=str(request.url.path))
     return {"id": template_id, "enabled": found["enabled"]}
 
 
-class Place(BaseModel):
+class Place(Body):
     where: str  # a subcategory id, a first-level category id, or "" (未分类)
 
 
@@ -71,12 +83,12 @@ def place(template_id: str, req: Place, request: Request) -> dict:
 
         raise NotFound(Msg("E-CATEGORY-NOSUCH", id=req.where))
     found = library.place(template_id, req.where)
-    audit(Msg("I-AUDIT-TEMPLATEPLACED", who=auth.label(request), template=found["name"], where=req.where or "未分类"),
+    audit(Msg("I-AUDIT-TEMPLATEPLACED", who=auth.actor(request).label, template=found["name"], where=req.where or "未分类"),
           session=auth.session(request), method="PUT", path=str(request.url.path))
     return {"id": template_id, "where": req.where}
 
 
-class Words(BaseModel):
+class Words(Body):
     name: str
     intro: str = ""
 
@@ -84,20 +96,20 @@ class Words(BaseModel):
 @admin.put("/templates/{template_id}/text", access=Access.admin("templates.create"), summary="改一张模板卡的名字和简介（模板弹窗卡片菜单「编辑」）：写进它自己的文件")
 def edit(template_id: str, req: Words, request: Request) -> dict:
     found = library.edit_preset(template_id, req.name, req.intro)
-    audit(Msg("I-AUDIT-TEMPLATEEDITED", who=auth.label(request), name=found["name"]),
+    audit(Msg("I-AUDIT-TEMPLATEEDITED", who=auth.actor(request).label, name=found["name"]),
           session=auth.session(request), method="PUT", path=str(request.url.path))
     return {"id": template_id, "name": found["name"], "intro": found["intro"]}
 
 
-class Copy(BaseModel):
+class Copy(Body):
     name: str = ""  # "" : the original's name with 「副本」
 
 
 @admin.post("/templates/{template_id}/copy", access=Access.admin("templates.create"), summary="把一张模板卡复制成一个新的项目预设文件（节点图一样，归同一分类，名字后加「副本」），之后可改可删")
 def copy(template_id: str, req: Copy, request: Request) -> dict:
     source = library.preset(template_id)
-    found = library.copy_preset(template_id, req.name, auth.label(request))
-    audit(Msg("I-AUDIT-TEMPLATECOPIED", who=auth.label(request), template=source["name"], name=found["name"]),
+    found = library.copy_preset(template_id, req.name, auth.actor(request).id)
+    audit(Msg("I-AUDIT-TEMPLATECOPIED", who=auth.actor(request).label, template=source["name"], name=found["name"]),
           session=auth.session(request), method="POST", path=str(request.url.path))
     return {"id": found["id"], "name": found["name"]}
 
@@ -105,6 +117,6 @@ def copy(template_id: str, req: Copy, request: Request) -> dict:
 @admin.delete("/templates/{template_id}", access=Access.admin("templates.create"), summary="删掉一个项目预设（templates/ 下的那个文件）；接入层自带的删不了，只能关闭")
 def delete(template_id: str, request: Request) -> dict:
     found = library.delete_preset(template_id)
-    audit(Msg("I-AUDIT-TEMPLATEDELETED", who=auth.label(request), name=found["name"]),
+    audit(Msg("I-AUDIT-TEMPLATEDELETED", who=auth.actor(request).label, name=found["name"]),
           session=auth.session(request), method="DELETE", path=str(request.url.path))
     return {"id": template_id}

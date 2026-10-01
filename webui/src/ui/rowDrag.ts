@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 
-// 拖动改顺序 的说法，一处写（同一个东西处处叫同一个词）
+// the wording 拖动改顺序, written in one place (the same thing is called by the same word everywhere)
 export const DRAG_TIP = "拖动改顺序";
 
 /** 拖动改顺序, written once: the parameter table's rows (editor/ParamTable.tsx) and a list setting's rows

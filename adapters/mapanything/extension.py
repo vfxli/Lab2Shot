@@ -3,29 +3,30 @@ intrinsics, camera poses, depth, confidence) from the frames of one shot."""
 
 from __future__ import annotations
 
-from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight, hf_file
+from lab2shot.sdk import COMMERCIAL, NONCOMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, hf_file, downloads
 
 MAPANYTHING_URL = "https://github.com/facebookresearch/map-anything.git"
 MAPANYTHING_COMMIT = "3d10cf7a3016fc0f9bb13a071ee66c47b10be0d9"  # v1.1.4 (+ #165)
 
 # The two checkpoints (same architecture, same config.json; different training data):
-# weights key -> (Hugging Face repo, revision, LFS sha256 of model.safetensors, licence)
+# 「模型」 value -> (Hugging Face repo, revision, LFS sha256 of model.safetensors, licence). The one table: the node's
+# 「模型」 options, which of them is non-commercial, and the folder and licence the worker is given all come from it.
 MODELS = {
-    "apache": (
-        "facebook/map-anything-apache", "00f9c245bbcb60522d1ed7f9e9d88462c6e3f38a",
-        "fa06c0fdccefc5048e072c85935d5789b1e36b307f3859033c17f9dcb9fd5201", "Apache-2.0",
-    ),
     "main": (
         "facebook/map-anything", "a1d87e9086706fb9974f3be5a3e3a0ca5401c5aa",
         "981f060c64664dff3272b5f5a823d350abe71a2f144444db4cfc325f3ed5a3a0", "CC-BY-NC-4.0",
     ),
+    "apache": (
+        "facebook/map-anything-apache", "00f9c245bbcb60522d1ed7f9e9d88462c6e3f38a",
+        "fa06c0fdccefc5048e072c85935d5789b1e36b307f3859033c17f9dcb9fd5201", "Apache-2.0",
+    ),
 }
+OPTION_LICENCES = {"model": {k: NONCOMMERCIAL for k, (*_, licence) in MODELS.items() if "-NC-" in licence}}
 
 # The DINOv2 ViT-g backbone is built by torch.hub.load("facebookresearch/dinov2", ...),
 # which would fetch the code from GitHub at run time. The worker builds it from this
 # pinned copy instead (architecture only: the weights are inside model.safetensors).
-DINOV2_COMMIT = "7764ea0f912e53c92e82eb78a2a1631e92725fc8"
-DINOV2_ZIP_SHA256 = "04276715cddb29d45d05bff3a6fc132224dc27749b279ac98ad2ce4620e20d48"
+DINOV2_COMMIT = downloads.DINOV2_COMMIT
 
 
 class MapAnything(Extension):
@@ -61,19 +62,13 @@ class MapAnything(Extension):
                 dest=f"{repo}/{filename}",
                 # model.safetensors: the LFS object's sha256; config.json is pinned by the revision
                 sha256=sha if filename == "model.safetensors" else "",
-                note=f"{repo}（{licence}{'，非商用' if 'NC' in licence else ''}）",
+                note=f"{repo}（{licence}{'，非商用' if key in OPTION_LICENCES['model'] else ''}）",
             )
             for key, (repo, revision, sha, licence) in MODELS.items()
             for filename in ("config.json", "model.safetensors")
         ),
-        Weight(
-            key="dinov2-code",
-            kind="zip",
-            source=f"https://github.com/facebookresearch/dinov2/archive/{DINOV2_COMMIT}.zip",
-            dest="dinov2",
-            sha256=DINOV2_ZIP_SHA256,
-            note="DINOv2 主干网络结构代码（Apache-2.0，只用结构，不下载 DINOv2 权重）",
-        ),
+        downloads.DINOV2_CODE.weight(key="dinov2-code", dest="dinov2",
+                                     note="DINOv2 主干网络结构代码（Apache-2.0，只用结构，不下载 DINOv2 权重）"),
     )
 
     def worker_env(self) -> dict[str, str]:

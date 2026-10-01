@@ -3,18 +3,17 @@ import type { RestartState, ServerInfo } from "../api";
 import { json, sawAccount } from "../platform/http";
 import { startPolling } from "../platform/poll";
 
-/** The server itself, as seen by every page (GET /api/server, lab2shot/server/settings.py): which server process
- * answers (a restart yields a new `boot`), whether a restart is pending, whether it answers at all, and which account this
- * browser is logged in as now (another than the page's: the page opens again). One poll for the
- * whole page: every second while a restart is pending or the server does not answer; otherwise every 5 s, and less often
- * (up to 60 s) while the response stays the same (a 304 without a body). */
+/** 每个页面看到的「服务本身」（GET /api/server，lab2shot/server/settings.py）：哪个服务进程在回答（重启后 `boot`
+ * 不同）、是否有待执行的重启、是否还在回答，以及这个浏览器此刻登录的是哪个账号（不是这一页的账号：页面重新打开）。
+ * 整个页面只有这一个轮询：有待执行的重启或服务器不回答时每秒一次；否则每 5 秒一次，回复一直不变时（无响应体的 304）
+ * 逐渐放慢，最多 60 秒一次。 */
 
 
 interface ServerWatch {
-  info: ServerInfo | null; // the latest response
-  down: boolean; // the latest request received no response
-  restarted: boolean; // a different server process answers than when this page loaded
-  newPage: boolean; // and it serves a different build of the page
+  info: ServerInfo | null; // 最近一次响应
+  down: boolean; // 最近一次请求没有得到响应
+  restarted: boolean; // 回答的服务进程已不是页面载入时的那一个
+  newPage: boolean; // 并且它提供的是另一版页面
 }
 
 let watch: ServerWatch = { info: null, down: false, restarted: false, newPage: false };
@@ -48,8 +47,8 @@ function set(next: ServerWatch): void {
   listeners.forEach((f) => f());
 }
 
-/** Every second while a restart is pending or the server does not answer; otherwise every 5 s, and less often (up to
- * 60 s) while the response stays the same (the browser sends its ETag: an unchanged response is a 304).
+/** 有待执行的重启或服务器不回答时每秒一次；否则每 5 秒一次，回复一直不变时逐渐放慢，最多 60 秒一次（浏览器带上
+ * ETag：没变的回复是 304）。
  *
  * 空闲时每分钟一次：一次往返的字节主要是请求头和 cookie，而非响应本身（304 的响应体为空），
  * 因此节省流量只能依靠减少请求（上行带宽有限）。这不会推迟对重启的发现：服务器一旦停止，本请求立即出错 →
@@ -59,7 +58,7 @@ function begin(): void {
   own.polling = startPolling<ServerInfo>({
     read: () => json<ServerInfo>("GET", "/api/server"),
     every: () => (hurried() ? 1000 : Date.now() - own.fedAt < FED_FRESH_MS ? 60_000 : 5000),
-    afterError: 1000, // down: every second, so the page notices at once when it is back
+    afterError: 1000, // 不回答时每秒一次：服务器一回来页面立即知道
     // 有外部提供时降至每五分钟一次（仅作兜底）；否则每分钟一次
     slowest: () => (hurried() ? 1000 : Date.now() - own.fedAt < FED_FRESH_MS ? 300_000 : 60_000),
     onValue: answered,
@@ -76,7 +75,7 @@ function subscribe(f: () => void): () => void {
   return () => listeners.delete(f);
 }
 
-/** The server as this page last saw it (re-renders when it changes). */
+/** 本页最近一次看到的服务器（变化时重渲染）。 */
 export function useServer(): ServerWatch {
   return useSyncExternalStore(subscribe, () => watch);
 }
@@ -91,10 +90,10 @@ export function onServerChange(f: () => void): () => void {
   return () => void listeners.delete(f);
 }
 
-/** Requests again immediately (after asking the server to restart). */
+/** 立即再问一次（请服务器重启之后）。 */
 export const pollServer = () => own.polling?.now();
 
-/** Where the server will answer next when a restart moves it (another port, HTTPS switched); null: the current address. */
+/** 重启换了地址（另一个端口、切换 HTTPS）时服务器接下来在哪里回答；null：仍是当前地址。 */
 export function nextOrigin(r: RestartState | null | undefined): string | null {
   if (!r) return null;
   const scheme = r.https ? "https:" : "http:";

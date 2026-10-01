@@ -14,14 +14,15 @@ row-vector layout here, so adapters never have to think about it.
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdSkel, Vt
 
+from lab2shot_shared import names
 from lab2shot_shared.motion import continuous, local_from_world, matrix_to_quat
+from lab2shot_shared.names import ORIGINAL
 from lab2shot_shared.units import DEFAULT_FPS
 
 from .. import __version__
@@ -87,10 +88,48 @@ def save_stage(stage: Usd.Stage, path: str | Path) -> Path:
     return path
 
 
-def valid_name(name: str) -> str:
-    """Make a string a legal USD prim / joint name."""
-    out = re.sub(r"[^A-Za-z0-9_]", "_", name)
-    return out if out and not out[0].isdigit() else f"_{out}"
+# Every prim and property name written here comes from lab2shot_shared/names.py (identifier; unique among siblings),
+# with the original kept where the two differ (customData ORIGINAL, jointNames, blend-shape tokens): one rule for
+# joints, blend shapes, subsets, meshes, groups, cameras and properties.
+
+
+def _children(stage: Usd.Stage, parent: str) -> set[str]:
+    prim = stage.GetPrimAtPath(parent)
+    return {c.GetName() for c in prim.GetAllChildren()} if prim else set()
+
+
+def child_name(stage: Usd.Stage, parent: str, name: str) -> str:
+    """A new child of the prim at `parent`: `name` as an identifier, unique among the children already there."""
+    return names.unique(names.identifier(name), _children(stage, parent))
+
+
+def free_path(stage: Usd.Stage, path: str) -> str:
+    """`path` (its last part already an identifier), or its last part made unique among its siblings: two things a file
+    held at one path (some formats let siblings share a name) land side by side, table and table_2."""
+    parent, leaf = path.rsplit("/", 1)
+    return f"{parent}/{names.unique(leaf, _children(stage, parent))}"
+
+
+def keep_original(prim: Usd.Prim, name: str) -> None:
+    """Record `name` on a prim whose own name is not it (an identifier made of it): name_of then gives `name`."""
+    if prim.GetName() != name:
+        prim.SetCustomDataByKey(ORIGINAL, name)
+
+
+def name_of(prim: Usd.Prim) -> str:
+    """The name a prim stands for: the kept original, else its own name as it is (never decoded: a name from another
+    tool that looks like a spelling, Bone_u0041, is itself)."""
+    return str(prim.GetCustomDataByKey(ORIGINAL) or prim.GetName())
+
+
+def shown_path(prim: Usd.Prim) -> str:
+    """The prim's place in the hierarchy by the names it stands for (name_of of it and each ancestor): what a format
+    that takes any text as a name (FBX) writes, where the prim path holds identifiers."""
+    parts = []
+    while prim and not prim.IsPseudoRoot():
+        parts.append(name_of(prim))
+        prim = prim.GetParent()
+    return names.join_path(reversed(parts))
 
 
 # --------------------------------------------------------------------------- where imported things are placed
@@ -101,32 +140,34 @@ IMPORT_GROUP = "lab2shot:import_group"  # customData on the folder an import nod
 
 def import_group(label: str, type_label: str, file: str) -> str:
     """The folder every entry of one import node is placed under, /shot/<this>/... (every import gets one, so the
-    hierarchy keeps its shape when a second import is added): the node's
-    name when the artist renamed it (`label` other than its type's `type_label`), else the imported file's stem; never
-    the type id. ASCII-safe (valid_name), the one way every format module's writer names it, so a DCC shows the same
-    group whichever file it opens; a rename that keeps nothing but underscores (all Chinese) falls back to the stem. Two
-    imports landing on the same folder are told apart when packed (data/scene.py pack: Kitchen_set, Kitchen_set2)."""
-    renamed = valid_name(label) if label and label != type_label else ""
-    return renamed if renamed.strip("_") else valid_name(Path(file).stem)
+    hierarchy keeps its shape when a second import is added), as a name: the node's name when the artist renamed it
+    (`label` other than its type's `type_label`), else the imported file's stem; never the type id. import_path and
+    mark_group make it an identifier and keep this name on the folder (keep_original), so a DCC and an FBX delivery
+    show it as given. A rename with no ASCII letter or digit in it (all Chinese) falls back to the stem, the name
+    people search the outliner by. Two imports landing on the same folder are refused when packed (data/scene.py
+    pack, B-NAME-SAME)."""
+    renamed = label if label and label != type_label and any(c.isascii() and c.isalnum() for c in label) else ""
+    return renamed or Path(file).stem
 
 
 def import_path(group: str, source: str) -> str:
-    """/shot/<group>/<the entry's path in its file>: an imported entry keeps the hierarchy it had, each segment made a
-    name the same way (valid_name). A file Lab2Shot wrote holds everything under its own /shot: that root is not
-    repeated."""
-    segments = [s for s in source.split("/") if s]
+    """/shot/<group>/<the entry's path in its file>: an imported entry keeps the hierarchy it had, the group and each
+    segment an identifier (names.identifier: a USD file's own names stay as they are; place() keeps the original of a
+    segment that changed). A file Lab2Shot wrote holds everything under its own /shot: that root is not repeated."""
+    segments = names.split_path(source)
     if segments and segments[0] == ROOT_PATH.strip("/"):
         segments = segments[1:]
-    return "/".join([ROOT_PATH, group, *(valid_name(s) for s in segments)])
+    return "/".join([ROOT_PATH, names.identifier(group), *(names.identifier(s) for s in segments)])
 
 
 def mark_group(stage: Usd.Stage, group: str, owner: str) -> None:
     """Mark /shot/<group> as the folder of the import cook `owner` (its fingerprint): packed, the folders of one cook
     are one folder (its camera and its models together), another cook's of the same name a sibling (data/scene.py
     pack)."""
-    prim = stage.GetPrimAtPath(f"{ROOT_PATH}/{group}")
+    prim = stage.GetPrimAtPath(f"{ROOT_PATH}/{names.identifier(group)}")
     if prim:
         prim.SetCustomDataByKey(IMPORT_GROUP, owner)
+        keep_original(prim, group)
 
 
 def free_transform_op(xf: UsdGeom.Xformable, base: str) -> UsdGeom.XformOp:
@@ -153,7 +194,7 @@ def place(stage: Usd.Stage, path: str, source: str = "") -> None:
         if not stage.GetPrimAtPath(p):
             UsdGeom.Xform.Define(stage, p)
     if source:
-        wanted = [s for s in source.split("/") if s]
+        wanted = names.split_path(source)
         if wanted and wanted[0] == ROOT_PATH.strip("/"):
             wanted = wanted[1:]
         ours = at.pathString.split("/")[-len(wanted):] if wanted else []
@@ -162,7 +203,7 @@ def place(stage: Usd.Stage, path: str, source: str = "") -> None:
             if was != now:
                 prim = stage.GetPrimAtPath(prefix.AppendPath("/".join(ours[: i + 1])))
                 if prim:
-                    prim.SetCustomDataByKey("lab2shot:name", was)
+                    keep_original(prim, was)
 
 
 def _usd_matrices(m: np.ndarray) -> Vt.Matrix4dArray:
@@ -207,10 +248,13 @@ def write_camera(stage: Usd.Stage, name: str, cam: CameraData, frames: list[int]
     groups, its import's folder marked and every renamed segment's original kept (place). Its lens beyond the focal
     length and film back: the aperture offsets, and under the namespace `lens` the pixel aspect, overscan and the
     named properties (OpenUSD has no lens distortion schema)."""
-    path = path or f"{ROOT_PATH}/{valid_name(name)}"
+    named = not path
+    path = path or f"{ROOT_PATH}/{names.identifier(name)}"
     place(stage, path)
     usd_cam = UsdGeom.Camera.Define(stage, path)
     place(stage, path, source)
+    if named:
+        keep_original(usd_cam.GetPrim(), name)
     usd_cam.CreateProjectionAttr(UsdGeom.Tokens.perspective)
     usd_cam.CreateHorizontalApertureAttr(float(cam.filmback_mm))
     # the film back is as high as the picture and the pixels make it: F_h = F_w H / (W a), so an
@@ -219,15 +263,20 @@ def write_camera(stage: Usd.Stage, name: str, cam: CameraData, frames: list[int]
     usd_cam.CreateClippingRangeAttr(Gf.Vec2f(*cam.near_far_cm))
     _set_values(usd_cam.CreateFocalLengthAttr(), cam.focal_mm, frames)
 
+    # center_mm is the lens centre (the principal point) off the picture's centre, +x right +y up (data/camera.py). USD's
+    # aperture offsets say the opposite thing: where the aperture window (the picture) sits off the lens axis. A lens
+    # centre 2 mm right of the picture's centre is a picture 2 mm left of the axis: the offsets are the negated centre.
+    # camera_lens reads them back the same way. Checked against ground-truth face landmarks (a head fitted in a crop
+    # of the plate projects onto the face only with this sign).
     center = np.zeros((1, 2)) if cam.center_mm is None else np.asarray(cam.center_mm, np.float64).reshape(-1, 2)
     if center.any():
-        _set_values(usd_cam.CreateHorizontalApertureOffsetAttr(), center[:, 0], frames)
-        _set_values(usd_cam.CreateVerticalApertureOffsetAttr(), center[:, 1], frames)
+        _set_values(usd_cam.CreateHorizontalApertureOffsetAttr(), -center[:, 0], frames)
+        _set_values(usd_cam.CreateVerticalApertureOffsetAttr(), -center[:, 1], frames)
     prim = usd_cam.GetPrim()
     if cam.pixel_aspect != 1.0:
-        _named_attr(prim, lens + "pixelAspect", Sdf.ValueTypeNames.Double).Set(float(cam.pixel_aspect))
+        named_attr(prim, lens + "pixelAspect", Sdf.ValueTypeNames.Double).Set(float(cam.pixel_aspect))
     if any(cam.overscan):
-        _named_attr(prim, lens + "overscan", Sdf.ValueTypeNames.Int4).Set(Gf.Vec4i(*[int(v) for v in cam.overscan]))
+        named_attr(prim, lens + "overscan", Sdf.ValueTypeNames.Int4).Set(Gf.Vec4i(*[int(v) for v in cam.overscan]))
     write_properties(prim, cam.properties)
 
     if cam.camera_to_world is not None:
@@ -244,13 +293,13 @@ def write_camera(stage: Usd.Stage, name: str, cam: CameraData, frames: list[int]
     return usd_cam
 
 
-def _named_attr(prim: Usd.Prim, name: str, type_name) -> Usd.Attribute:
-    """A custom attribute under `name` made a USD name (each namespace segment an identifier), `name` itself kept in
-    its custom data when that changed it ("Distortion - Degree 2")."""
-    safe = ":".join(valid_name(part) for part in name.split(":"))
+def named_attr(prim: Usd.Prim, name: str, type_name) -> Usd.Attribute:
+    """A new custom attribute for `name`: each namespace segment an identifier, unique on the prim (names.unique), and
+    `name` itself kept in its custom data when that changed it ("Distortion - Degree 2"; read_properties reads it)."""
+    safe = names.unique(":".join(names.identifier(part) for part in name.split(":")), set(prim.GetPropertyNames()))
     attr = prim.CreateAttribute(safe, type_name, custom=True)
     if safe != name:
-        attr.SetCustomDataByKey("lab2shot:name", name)
+        attr.SetCustomDataByKey(ORIGINAL, name)
     return attr
 
 
@@ -258,20 +307,20 @@ def write_properties(prim: Usd.Prim, properties: dict) -> None:
     """Named properties as custom attributes: a text, a number, or a number over frames ({frames, values})."""
     for name, value in properties.items():
         if isinstance(value, str):
-            _named_attr(prim, name, Sdf.ValueTypeNames.String).Set(value)
+            named_attr(prim, name, Sdf.ValueTypeNames.String).Set(value)
         elif isinstance(value, dict):
-            attr = _named_attr(prim, name, Sdf.ValueTypeNames.Double)
+            attr = named_attr(prim, name, Sdf.ValueTypeNames.Double)
             for f, v in zip(value["frames"], value["values"]):
                 attr.Set(float(v), Usd.TimeCode(float(f)))
         else:
-            _named_attr(prim, name, Sdf.ValueTypeNames.Double).Set(float(value))
+            named_attr(prim, name, Sdf.ValueTypeNames.Double).Set(float(value))
 
 
 def read_properties(prim: Usd.Prim, namespace: str) -> dict:
     """write_properties back: every authored attribute whose name (as given) starts with `namespace`."""
     out: dict = {}
     for attr in prim.GetAuthoredAttributes():
-        name = attr.GetCustomDataByKey("lab2shot:name") or attr.GetName()
+        name = attr.GetCustomDataByKey(ORIGINAL) or attr.GetName()
         if not name.startswith(namespace):
             continue
         times = attr.GetTimeSamples()
@@ -288,7 +337,8 @@ def camera_lens(prim: Usd.Prim, times: list, lens: str) -> dict:
     time (mm), the pixel aspect, the overscan (pixels: left, top, right, bottom) and the named properties."""
     cam = UsdGeom.Camera(prim)
     h, v = cam.GetHorizontalApertureOffsetAttr(), cam.GetVerticalApertureOffsetAttr()
-    center = np.array([[h.Get(Usd.TimeCode(t)) or 0.0, v.Get(Usd.TimeCode(t)) or 0.0] for t in times], np.float64)
+    # aperture offsets are where the picture sits off the lens axis; center_mm is the lens centre off the picture (write_camera)
+    center = -np.array([[h.Get(Usd.TimeCode(t)) or 0.0, v.Get(Usd.TimeCode(t)) or 0.0] for t in times], np.float64)
     properties = read_properties(prim, lens)
     aspect = properties.pop(lens + "pixelAspect", 1.0)
     overscan = properties.pop(lens + "overscan", (0, 0, 0, 0))
@@ -317,11 +367,18 @@ def camera_plate(prim: Usd.Prim) -> str:
 # --------------------------------------------------------------------------- units
 
 
+# the lengths a gprim holds besides its transform (UsdGeom schema attributes): scaled with the stage (rescale_stage)
+GPRIM_LENGTHS = {"Sphere": ("radius",), "Cube": ("size",), "Cylinder": ("radius", "height"), "Capsule": ("radius", "height"),
+                 "Cone": ("radius", "height")}
+
+
 def rescale_stage(stage: Usd.Stage, factor: float) -> None:
     """Multiply every length in a (flattened) stage by `factor`, e.g. 0.01 for cm -> m.
 
     Lens values (focal length, apertures) stay in millimeters: DCCs read them
-    as mm whatever the scene unit, and only their ratio sets the field of view.
+    as mm whatever the scene unit, and only their ratio sets the field of view. A camera's focusDistance is a scene
+    length and is scaled. Gprims' own sizes (Sphere / Cylinder / Capsule / Cone radius and height, Cube size) and a
+    PointInstancer's positions are scaled too; its scales and protoIndices are not lengths.
     """
     def scaled_matrix(m) -> Gf.Matrix4d:
         m = Gf.Matrix4d(m)
@@ -365,6 +422,11 @@ def rescale_stage(stage: Usd.Stage, factor: float) -> None:
         if prim.IsA(UsdGeom.Camera):
             cam = UsdGeom.Camera(prim)
             each_sample(cam.GetClippingRangeAttr(), lambda r: Gf.Vec2f(r[0] * factor, r[1] * factor))
+            each_sample(cam.GetFocusDistanceAttr(), lambda d: d * factor)
+        for name in GPRIM_LENGTHS.get(prim.GetTypeName(), ()):
+            each_sample(prim.GetAttribute(name), lambda d: d * factor)
+        if prim.IsA(UsdGeom.PointInstancer):
+            each_sample(UsdGeom.PointInstancer(prim).GetPositionsAttr(), vec_scale)
         if prim.IsA(UsdGeom.Xformable):
             for op in UsdGeom.Xformable(prim).GetOrderedXformOps():
                 if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
@@ -436,9 +498,11 @@ def write_subset(mesh: UsdGeom.Mesh, name: str, faces) -> UsdGeom.Subset:
     total = len(mesh.GetFaceVertexCountsAttr().Get() or [])
     if len(indices) and (indices[0] < 0 or indices[-1] >= total):
         raise ValueError(f"subset {name!r} of {mesh.GetPath()}: face indices must be within 0..{total - 1}")
-    return UsdGeom.Subset.CreateGeomSubset(mesh, valid_name(name), UsdGeom.Tokens.face,
-                                           Vt.IntArray.FromNumpy(indices.astype(np.int32)), SUBSET_FAMILY,
-                                           UsdGeom.Tokens.unrestricted)
+    subset = UsdGeom.Subset.CreateGeomSubset(mesh, child_name(mesh.GetPrim().GetStage(), str(mesh.GetPath()), name),
+                                             UsdGeom.Tokens.face, Vt.IntArray.FromNumpy(indices.astype(np.int32)),
+                                             SUBSET_FAMILY, UsdGeom.Tokens.unrestricted)
+    keep_original(subset.GetPrim(), name)
+    return subset
 
 
 def mesh_subsets(mesh: UsdGeom.Mesh) -> dict[str, np.ndarray]:
@@ -452,7 +516,7 @@ def mesh_subsets(mesh: UsdGeom.Mesh) -> dict[str, np.ndarray]:
         subset = UsdGeom.Subset(prim)
         if subset.GetElementTypeAttr().Get() != UsdGeom.Tokens.face:
             continue
-        out[prim.GetName()] = np.asarray(subset.GetIndicesAttr().Get() or [], np.int64).reshape(-1)
+        out[name_of(prim)] = np.asarray(subset.GetIndicesAttr().Get() or [], np.int64).reshape(-1)
     return out
 
 
@@ -635,23 +699,29 @@ PERSON_ID = "lab2shot:person_id"  # customData on a character's SkelRoot: which 
 # character like that person's box in 2D)
 
 
-def joint_paths(names: list[str], parents: np.ndarray) -> list[str]:
+def joint_names(skel: UsdSkel.Skeleton) -> list[str]:
+    """A skeleton's joint names, one per joint in its joint order: its jointNames when there is one for every joint,
+    else each joint path's last part as it is (another tool's skeleton; a jointNames of another length belongs to no
+    joint order and is not used). The one reader: the editor's lists, the handles and the cook all get the same count."""
+    joints = [str(j) for j in skel.GetJointsAttr().Get() or []]
+    given = [str(n) for n in skel.GetJointNamesAttr().Get() or []]
+    return given if len(given) == len(joints) else [j.rsplit("/", 1)[-1] for j in joints]
+
+
+def joint_paths(joint_names: list[str], parents: np.ndarray) -> list[str]:
+    """Each joint's UsdSkel path (its parent's path / names.identifier(name)). A path is a joint's identity: UsdSkel
+    rebuilds the hierarchy from the paths, so two siblings that come out as one path (names that differ only in
+    punctuation, a:b and a_b) would hang one's children under the other and Validate() would not notice: such a later
+    sibling goes through names.unique. Its name in jointNames is untouched."""
     paths: list[str] = []
-    for i, (name, parent) in enumerate(zip(names, parents)):
+    taken: set[str] = set()
+    for i, (name, parent) in enumerate(zip(joint_names, parents)):
         if parent >= i:
             raise ValueError("Joint parents must precede their children")
-        name = valid_name(name)
-        paths.append(name if parent < 0 else f"{paths[parent]}/{name}")
+        path = names.unique(names.identifier(name) if parent < 0 else f"{paths[parent]}/{names.identifier(name)}", taken)
+        taken.add(path)
+        paths.append(path)
     return paths
-
-
-def decompose(m: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """[N,4,4] -> translations [N,3], quaternions [N,4] (w,x,y,z), scales [N,3]."""
-    t = m[:, :3, 3]
-    basis = m[:, :3, :3]
-    s = np.linalg.norm(basis, axis=1)  # column lengths
-    r = basis / np.where(s == 0, 1.0, s)[:, None, :]
-    return t, matrix_to_quat(r), s
 
 
 def write_joint_samples(anim: UsdSkel.Animation, joints, local: np.ndarray, frames: list[int]) -> None:
@@ -660,6 +730,8 @@ def write_joint_samples(anim: UsdSkel.Animation, joints, local: np.ndarray, fram
     anim.CreateJointsAttr(Vt.TokenArray(list(joints)))
     t_attr, r_attr, s_attr = anim.CreateTranslationsAttr(), anim.CreateRotationsAttr(), anim.CreateScalesAttr()
     n_joints = local.shape[1]
+    from lab2shot_shared.motion import decompose
+
     t, q, s = decompose(np.asarray(local, np.float64).reshape(-1, 4, 4))
     t, q, s = t.reshape(-1, n_joints, 3), continuous(q.reshape(-1, n_joints, 4)), s.reshape(-1, n_joints, 3)
     for i, f in enumerate(frames):
@@ -703,12 +775,14 @@ def write_rig(stage: Usd.Stage, name: str, joint_names: list[str], parents, bind
     with its skeleton (bind pose: joint-to-world [J,4,4]), its animation (joint-to-world [F,4,4] at `frames`, a sample
     at each) and the meshes skinned to it with their blend shapes (the animation's weights: every mesh's shapes, each
     once)."""
-    root_path = path or f"{ROOT_PATH}/{valid_name(name)}"
+    root_path = path or f"{ROOT_PATH}/{names.identifier(name)}"
     place(stage, root_path)
     skel_root = UsdSkel.Root.Define(stage, root_path)
     place(stage, root_path, source)
-    if custom_data:
-        skel_root.GetPrim().SetCustomData(custom_data)
+    if not path:
+        keep_original(skel_root.GetPrim(), name)
+    for key, value in (custom_data or {}).items():  # key by key: the whole-dict setter would drop the original name kept above
+        skel_root.GetPrim().SetCustomDataByKey(key, value)
     parents = np.asarray(parents, dtype=np.int64)
     joints = Vt.TokenArray(joint_paths(joint_names, parents))
     skel = UsdSkel.Skeleton.Define(stage, f"{root_path}/skeleton")
@@ -716,21 +790,21 @@ def write_rig(stage: Usd.Stage, name: str, joint_names: list[str], parents, bind
     # jointNames holds each joint's original name; USD tokens accept characters such as colons, and only the joints
     # paths need legal names. Mixamo's mixamorig:Hips keeps its colon so that HumanIK and retargeting in Maya recognize
     # the namespace.
-    skel.CreateJointNamesAttr(Vt.TokenArray([str(n) for n in joint_names]))
+    skel.CreateJointNamesAttr(Vt.TokenArray(names.sibling_unique(list(joint_names), parents)))
     skel.CreateBindTransformsAttr(_usd_matrices(bind_world))
     skel.CreateRestTransformsAttr(_usd_matrices(local_from_world(np.asarray(bind_world, np.float64), parents)))
     anim = UsdSkel.Animation.Define(stage, f"{root_path}/anim")
     write_joint_samples(anim, joints, local_from_world(np.asarray(anim_world, dtype=np.float64), parents), frames)
     UsdSkel.BindingAPI.Apply(skel.GetPrim()).CreateAnimationSourceRel().SetTargets([anim.GetPath()])
+    # blend shapes: the tokens (skel:blendShapes, the animation's blendShapes) are the shapes' own names, as jointNames
+    # are the joints' — what 「表情重定向（ARKit52）」 reads and matches; only the BlendShape prims need identifiers. A name is one
+    # animation channel: the same name on two meshes with the same weights (a face and its teeth) shares it, a name
+    # taken with other weights, or twice on one mesh, goes through names.unique.
     shapes: dict[str, np.ndarray] = {}  # the animation's shape -> its weight per frame
-    taken: set[str] = set()
     for m in meshes:
-        mesh_name = valid_name(m.name)
-        while mesh_name in taken or mesh_name in ("skeleton", "anim"):
-            mesh_name += "_"
-        taken.add(mesh_name)
-        mesh = write_mesh(stage, f"{root_path}/{mesh_name}", m.points, m.indices, uv=m.uv, uv_faces=m.uv_indices,
-                          counts=m.counts, subsets=m.subsets)
+        mesh = write_mesh(stage, f"{root_path}/{child_name(stage, root_path, m.name)}", m.points, m.indices, uv=m.uv,
+                          uv_faces=m.uv_indices, counts=m.counts, subsets=m.subsets)
+        keep_original(mesh.GetPrim(), m.name)
         binding = UsdSkel.BindingAPI.Apply(mesh.GetPrim())
         binding.CreateSkeletonRel().SetTargets([skel.GetPath()])
         k = m.joint_indices.shape[1]
@@ -739,17 +813,17 @@ def write_rig(stage: Usd.Stage, name: str, joint_names: list[str], parents, bind
         binding.CreateGeomBindTransformAttr(Gf.Matrix4d(1.0))
         if not m.shapes:
             continue
-        names, targets = [], []
+        tokens, targets = [], []
         for b, shape_name in enumerate(m.shapes):
-            token, weights = valid_name(shape_name), np.asarray(m.shape_weights[:, b], np.float32)
-            while token in shapes and not np.array_equal(shapes[token], weights):  # another mesh's shape of that name
-                token += "_"
+            weights = np.asarray(m.shape_weights[:, b], np.float32)
+            token = names.unique(str(shape_name), {*tokens, *(t for t, w in shapes.items() if not np.array_equal(w, weights))})
             shapes[token] = weights
-            shape = UsdSkel.BlendShape.Define(stage, f"{mesh.GetPath()}/{token}")
+            shape = UsdSkel.BlendShape.Define(stage, f"{mesh.GetPath()}/{child_name(stage, str(mesh.GetPath()), token)}")
+            keep_original(shape.GetPrim(), token)
             shape.CreateOffsetsAttr(Vt.Vec3fArray.FromNumpy(np.asarray(m.shape_offsets[b], np.float32)))
-            names.append(token)
+            tokens.append(token)
             targets.append(shape.GetPath())
-        binding.CreateBlendShapesAttr(Vt.TokenArray(names))
+        binding.CreateBlendShapesAttr(Vt.TokenArray(tokens))
         binding.CreateBlendShapeTargetsRel().SetTargets(targets)
     if shapes:
         anim.CreateBlendShapesAttr(Vt.TokenArray(list(shapes)))
@@ -777,10 +851,24 @@ def write_character(stage: Usd.Stage, name: str, ch: SkinnedCharacter, frames: l
     root = write_rig(stage, name, ch.joint_names, ch.parents, ch.bind_world, ch.anim_world, frames, skinned, ch.custom_data)
     if shot is not None and set(frames) != set(shot):
         own = set(frames)
-        vis = UsdGeom.Imageable(root.GetPrim()).CreateVisibilityAttr()
-        for f in shot:
-            vis.Set("inherited" if f in own else "invisible", Usd.TimeCode(f))
+        set_visible(root.GetPrim(), list(shot), [f in own for f in shot])
     return root
+
+
+def set_visible(prim: Usd.Prim, frames: list[int], visible) -> None:
+    """The prim hidden on the frames where `visible` is false, a sample on each frame (held: USD does not blend a
+    token). The one writer of visibility: a solver's person (write_character) and a file's item read from the scene
+    arrays' `visible` (data/scene_arrays.py)."""
+    vis = UsdGeom.Imageable(prim).CreateVisibilityAttr()
+    for f, shown in zip(frames, visible):
+        vis.Set("inherited" if shown else "invisible", Usd.TimeCode(int(f)))
+
+
+def visible_at(prim: Usd.Prim, frames: list[int]) -> np.ndarray:
+    """Whether the prim is shown on each frame (its own visibility and its ancestors'): what the scene arrays carry as
+    `visible` for writers of other formats."""
+    img = UsdGeom.Imageable(prim)
+    return np.array([img.ComputeVisibility(Usd.TimeCode(int(f))) != UsdGeom.Tokens.invisible for f in frames])
 
 
 def deformed_points(target, skel_query, time: Usd.TimeCode):

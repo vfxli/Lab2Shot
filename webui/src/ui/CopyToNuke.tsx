@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, type NodeTypeDef } from "../api";
-import { useResults } from "../state/results";
+import { packetOf, useResults } from "../state/results";
 import { greyed } from "../api/applies";
 import { fromServer, msg, reasonOf, say } from "../state/say";
 import { Button } from "./Button";
@@ -57,13 +57,13 @@ const APPS: Record<string, string> = { nuke: "Nuke" };
  * 镜头模型. It is resolved here rather than in the node's layout: the page never guesses a port. */
 export function NodeCopyToNuke({ node, def, what }: { node: string; def: NodeTypeDef; what: string }) {
   const port = def.clipboard ? (def.clipboard_port || def.main) : "";
-  const fp = useResults((s) => (port && (s.results[node]?.present ?? []).includes(port)
-    ? s.results[node]?.outputs?.[port] : undefined));
+  const fp = useResults((s) => (port ? packetOf(s.results[node], port) ?? undefined : undefined));
   const answer = useResults((s) => s.results[node]?.applies);
   if (!def.clipboard) return null;
-  // 按钮不得时隐时现，只区分可用与不可用。两种不可用的情况：当前设置下节点不写出 Nuke 数据（服务器按
-  // Pasteable.clipboard_when 计算，主题 id 为 "clipboard"），或尚未计算出结果。位置不变，置灰
+  // The button never comes and goes; it is only usable or not. It is unusable in two cases: under the current settings
+  // the node writes no Nuke data (the server computes it from Pasteable.clipboard_when, subject id "clipboard"), or no
+  // result has been cooked yet. It stays in place, greyed
   const off = greyed(answer, "clipboard") || !fp;
-  // xxs：节点底行为 16 px 高的一行，容纳不下 20 px 的 xs
+  // xxs: the node's bottom row is 16 px high and cannot hold a 20 px xs
   return <CopyToNuke fp={fp ?? ""} app={def.clipboard} what={what} size="xxs" off={off} />;
 }

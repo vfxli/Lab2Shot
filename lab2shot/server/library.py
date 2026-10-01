@@ -8,14 +8,13 @@ id（user~<用户名>~<文件名>）。每条路由声明所需能力（server/r
 from __future__ import annotations
 
 from fastapi import Request
-from pydantic import BaseModel
 
 from .. import library
 from ..database import json_text
 from ..messages import Msg
 from . import auth, owners
 from .access import audit
-from .routes import Access, Router
+from .routes import Access, Body, Router
 
 router = Router(tags=["我的模板"])
 admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])
@@ -28,11 +27,12 @@ def _view(username: str, user_id: int) -> dict:
     return {"mine": library.user_cards(username), "usage": quota.usage(user_id)}
 
 
-class Saved(BaseModel):
+class Saved(Body):
     name: str
     intro: str = ""
     graph: dict
     id: str = ""  # 要覆盖的已有模板 id；为空时新建
+    replace: bool = False  # 用户已确认：同名的自己的模板用这张图覆盖（没有这个标志而同名时回 E-LIBRARY-SAMENAME）
 
 
 @router.get("/api/my/templates", access=Access.user("编辑器：自己存在服务器上的节点图"), summary="「我的模板」：这个账号存在服务器上的节点图（换台电脑登录也在），和这个账号的磁盘占用")
@@ -41,14 +41,22 @@ def my_templates(request: Request) -> dict:
     return _view(u.username, u.id)
 
 
-@router.post("/api/my/templates", access=Access.user("编辑器：把当前节点图存到「我的模板」", owned=owners.saved_graph_named), summary="把当前节点图存成自己的模板文件：只存节点图和参数，素材不随模板保存，每次自己选；超出磁盘配额时说清占了多少")
+@router.post("/api/my/templates", access=Access.user("编辑器：把当前节点图存到「我的模板」", owned=owners.saved_graph_named), summary="把当前节点图存成自己的模板文件：只存节点图和参数，素材不随模板保存，每次自己选；超出磁盘配额时说清占了多少。和自己已有的模板同名时先回 409 E-LIBRARY-SAMENAME，网页问过之后带 replace 再发，覆盖那一张")
 def save_mine(req: Saved, request: Request) -> dict:
     from . import quota
+    from ..engine.templates import exposed_errors
+    from ..errors import Conflict
 
+    exposed_errors(req.graph)  # 参数界面（exposed 树）有错不存，消息说清是哪一项（engine/templates.py check_exposed）
     u = auth.me(request)  # 覆盖已有模板时，归属已由路由的 `owned` 校验（server/owners.py）
+    stem = library.parse_id(req.id)[2] if req.id else ""
+    if not stem:  # 同名的只在这个账号自己的文件夹里找：归属不用再查
+        stem = library.user_same_name(u.username, req.name)
+        if stem and not req.replace:
+            raise Conflict(Msg("E-LIBRARY-SAMENAME", name=req.name.strip()))
     quota.room_for(u.id, len(json_text(req.graph).encode("utf-8")))
-    library.user_save(u.username, req.graph, req.name, req.intro, stem=library.parse_id(req.id)[2] if req.id else "")
-    return _view(u.username, u.id)
+    library.user_save(u.username, req.graph, req.name, req.intro, stem=stem)
+    return {**_view(u.username, u.id), "replaced": bool(stem)}
 
 
 @router.get("/api/my/templates/{gid}", access=Access.user("编辑器：打开自己存的一张节点图", owned=owners.saved_graph), summary="打开自己存的一张模板：节点图本身")
@@ -66,12 +74,21 @@ def bin_mine(gid: str, request: Request) -> dict:
 
 
 # 恢复仅需 templates.restore（二级管理员也可为用户找回误删的模板）；放入回收站和永久删除需要 data.others。
+def _owner_of(gid: str) -> int | None:
+    """The account a saved graph's id names (lab2shot/library.py parse_id), for the audit line about it."""
+    from .. import accounts
+
+    _, username, _ = library.parse_id(gid)
+    found = accounts.by_username(username)
+    return found.id if found is not None else None
+
+
 @admin.post("/graphs/{gid}/restore", access=Access.admin("templates.restore", owned=owners.saved_graph), summary="把一个用户删掉的模板恢复回去：他在「我的模板」里又看得到它")
 def admin_restore(gid: str, request: Request) -> dict:
     _, username, stem = library.parse_id(gid)
     found = library.user_restore(username, stem)
-    audit(Msg("I-AUDIT-GRAPHRESTORED", who=auth.label(request), name=found["name"]),
-          session=auth.session(request), method="POST", path=str(request.url.path))
+    audit(Msg("I-AUDIT-GRAPHRESTORED", who=auth.actor(request).label, name=found["name"]),
+          about=_owner_of(gid), session=auth.session(request), method="POST", path=str(request.url.path))
     return found
 
 
@@ -79,8 +96,8 @@ def admin_restore(gid: str, request: Request) -> dict:
 def admin_bin(gid: str, request: Request) -> dict:
     _, username, stem = library.parse_id(gid)
     found = library.user_bin(username, stem, "admin")
-    audit(Msg("I-AUDIT-GRAPHBINNED", who=auth.label(request), name=found["name"]),
-          session=auth.session(request), method="POST", path=str(request.url.path))
+    audit(Msg("I-AUDIT-GRAPHBINNED", who=auth.actor(request).label, name=found["name"]),
+          about=_owner_of(gid), session=auth.session(request), method="POST", path=str(request.url.path))
     return found
 
 
@@ -88,6 +105,6 @@ def admin_bin(gid: str, request: Request) -> dict:
 def admin_purge(gid: str, request: Request) -> dict:
     _, username, stem = library.parse_id(gid)
     found = library.user_purge(username, stem)
-    audit(Msg("I-AUDIT-GRAPHPURGED", who=auth.label(request), name=found["name"]),
-          session=auth.session(request), method="DELETE", path=str(request.url.path))
+    audit(Msg("I-AUDIT-GRAPHPURGED", who=auth.actor(request).label, name=found["name"]),
+          about=_owner_of(gid), session=auth.session(request), method="DELETE", path=str(request.url.path))
     return found

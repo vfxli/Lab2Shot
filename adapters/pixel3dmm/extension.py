@@ -29,6 +29,7 @@ from lab2shot.sdk import (
     LicenseInfo,
     Weight,
     body_model_weight,
+    downloads,
 )
 
 P3DMM_URL = "https://github.com/SimonGiebenhain/pixel3dmm.git"
@@ -43,8 +44,7 @@ PIPNET = GitSource(url="https://github.com/jhb86253817/PIPNet.git",
                    commit="b9eab58816437403a34aa5bc3adeafe5081fd36b")
 # pytorch3d is compiled from source by build_p3dmm.py (knn_points, load_obj, Meshes), not pip-installed:
 # its point renderer "pulsar" does not link with a CUDA 13 compiler and is dropped from the build.
-PYTORCH3D = GitSource(url="https://github.com/facebookresearch/pytorch3d.git",
-                      commit="33824be3cbc87a7dd1db0f6a9a9de9ac81b2d0ba")  # tag v0.7.9
+PYTORCH3D = downloads.PYTORCH3D  # tag v0.7.9, the same as gvhmr
 
 _DRIVE = "https://drive.usercontent.google.com/download?id={}&export=download&confirm=t"
 
@@ -95,10 +95,11 @@ class Pixel3DMM(Extension):
     source = GitSource(url=P3DMM_URL, commit=P3DMM_COMMIT)
     license = LicenseInfo(
         tag=NONCOMMERCIAL,
+        uses=("FLAME",),
         name="CC BY-NC 4.0（代码和权重）+ FLAME 非商用 + MICA 非商用",
         url="https://github.com/SimonGiebenhain/pixel3dmm/blob/main/LICENSE",
         summary=(
-            "非商用。Pixel3DMM 代码和两个预测网络权重是 CC BY-NC 4.0：只能用于研究和评估，不能用于商业制作。"
+            "非商用。Pixel3DMM 代码和两个预测网络权重是 CC BY-NC 4.0：不能用于商业制作。"
             "运行必须用 FLAME 面部模型（FLAME 2020 generic_model.pkl，可选 FLAME 2023），"
             "需要在 flame.is.tue.mpg.de 注册后自己下载，仅限非商用科研、禁止再分发。"
             "身份先验用马普所 MICA（专有代码，只许有许可的非商用使用；权重同样非商用），"
@@ -119,7 +120,7 @@ class Pixel3DMM(Extension):
         cuda_toolkit=CUDA_13_2_TOOLKIT,
         compiled=(
             "nvdiffrast @ git+https://github.com/NVlabs/nvdiffrast.git@253ac4fcea7de5f396371124af597e6cc957bfae",
-            "chumpy @ git+https://github.com/mattloper/chumpy.git@580566eafc9ac68b2614b64d6f7aaa84eebb70da",
+            downloads.pip_git("chumpy", downloads.CHUMPY),
         ),
         build="build_p3dmm.py",
         build_files=("codebase.py",),

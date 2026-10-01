@@ -7,9 +7,12 @@ from typing import Literal
 
 import numpy as np
 
+from ..port import EITHER
+from ..kit.ports import rgb_port
 from ...errors import Invalid
 from ...messages import Msg
 from ...data.contracts import Shape, warped_by
+from ..applies import Param
 from ..base import Info, NodeDef, NodeParams, P, Port
 from ..expects import SameShot
 
@@ -19,7 +22,7 @@ class StmapWarp(NodeDef):
     version = 4  # 结果变化时递增，work/ 中的旧结果随之不再命中缓存（engine/cook.py）
     category = "img_warp"
     picture = "src"
-    inputs = (Port("src", "image", "源", alpha=True), Port("stmap", "image.2", "ST-map"))
+    inputs = (Port("src", "image", "源", alpha=True, data=EITHER), Port("stmap", "image.2", "ST-map"))
     # 按一张自身不了解的映射图移动像素：结果位于映射图的窗口上，数据自带的全部描述随之传递，本节点不声明任何自身属性。
     # 本节点没有参数，也不添加任何标记：与 Nuke 的 STMap 一样只是按坐标查表变形，画面是否有畸变由使用者掌握，
     # 不维护镜头状态。lens="keep"：生成该 ST-map 所用的镜头由契约从 ST-map 复制到结果上（端口跟随 stmap 输入），
@@ -132,7 +135,7 @@ def _off_the_source(stmap: np.ndarray, plate: tuple[int, int], offset: tuple[int
 class AlphaMerge(NodeDef):
     id = "core.alpha_merge"
     category = "img_channel"
-    inputs = (Port("image", "image.3", "RGB"), Port("alpha", "image.1", "Alpha", expects=(SameShot("image"),)))
+    inputs = (rgb_port(), Port("alpha", "image.1", "Alpha", expects=(SameShot("image"),)))
     outputs = (Port("image", "image.4", "RGBA"),)
 
     @classmethod
@@ -208,7 +211,9 @@ class ChannelMerge(NodeDef):
 
 # 每种运算的中文名只定义一处：「图像合成」的选项名与提示消息（N-IMGMERGE-EMPTY）共用
 MERGE_OPERATIONS = {"multiply": "留下", "stencil": "挡掉", "plus": "相加", "minus": "相减",
-                    "min": "取小", "max": "取大"}
+                    "min": "取小", "max": "取大", "over": "盖上（A over B）"}
+OVER = Param("operation").one_of("over")  # 「盖上」用「底图」口，其余六种用「遮罩」口
+MASKED = Param("operation").one_of(*(k for k in MERGE_OPERATIONS if k != "over"))
 
 
 class ImageMerge(NodeDef):
@@ -229,17 +234,29 @@ class ImageMerge(NodeDef):
     on_node = ("operation",)
     # B 固定为单通道遮罩类型：若两个端口都声明为通用的「图像」，1 通道遮罩可能接入 3 通道端口，
     # 直到计算中途才报「合不到一起」。端口如实声明所接受的通道数，不兼容的连线在节点图上即无法连接。
-    inputs = (Port("a", "image", "图像"),
-              Port("b", "image.1", "遮罩", expects=(SameShot("a"),),
-                   help="一条通道的遮罩，自动铺到图像的每条通道上"))
+    # 「盖上」（Nuke 的 A over B）的另一边是一张图而不是遮罩：单独一个「底图」口（任意画面，通道数随 A）。两个口二选一
+    # （input_choice：至少接一个），哪一个可用由「运算」决定（applies：选「盖上」时「遮罩」变灰，反之「底图」变灰）。
+    inputs = (Port("a", "image", "图像", data=EITHER, help="「盖上」时是盖在上面的那张（预乘 alpha 的 RGBA；没有 alpha 就整张盖住）"),
+              Port("b", "image.1", "遮罩", optional=True, expects=(SameShot("a"),), applies=MASKED,
+                   help="一条通道的遮罩，自动铺到图像的每条通道上"),
+              Port("bg", "image", "底图", optional=True, data=EITHER, expects=(SameShot("a"),), applies=OVER,
+                   help="「盖上」时垫在下面的那张：A 透明的地方露出它（比如 AllTracker 的贴片、RoMa 对齐的图合到原图上看）"))
+    input_choice = (("b",), ("bg",))
     outputs = (Port("image", "image", "图像", type_from="input:a"),)
-    # 算法定义不在此处，而在算法目录（lab2shot/ops/ops.toml）中：六种运算各占一条（image.merge.<运算>）。
+    # 算法定义不在此处，而在算法目录（lab2shot/ops/ops.toml）中：七种运算各占一条（image.merge.<运算>）。
     # 本节点只负责读取像素和写出结果。
     ops = tuple(f"image.merge.{k}" for k in MERGE_OPERATIONS)
 
     class Params(NodeParams):
-        operation: Literal["multiply", "stencil", "plus", "minus", "min", "max"] = P(
+        operation: Literal["multiply", "stencil", "plus", "minus", "min", "max", "over"] = P(
             "multiply", label="运算", group="合成", option_labels=MERGE_OPERATIONS)
+        # 「盖上」的不透明度（Nuke Merge 的 mix）：A 没有 alpha（RoMa 对齐过来的整张图）时，调低就透出底图
+        mix: float = P(1.0, label="不透明度", ge=0.0, le=1.0, group="合成", applies=OVER)
+
+    @classmethod
+    def fingerprint_params(cls, params):
+        # 不透明度 1 与这个参数出现之前的「盖上」是同一个结果：不进指纹，加参数不让已有的缓存失效
+        return {k: v for k, v in params.items() if not (k == "mix" and float(v) == 1.0)}
 
     @classmethod
     def cook(cls, ctx):
@@ -250,11 +267,17 @@ class ImageMerge(NodeDef):
         from ...data.types import channels_of
         from ...ops import run as run_op
 
-        a, b = ctx.input("a"), ctx.input("b")
+        over = ctx.params["operation"] == "over"
+        a, b = ctx.input("a"), ctx.input("bg" if over else "b")
+        if b is None:  # 接的是另一个口（它此刻变灰）：说清这个运算要哪个口
+            raise Invalid(Msg("E-IMGMERGE-OTHERPORT", operation=MERGE_OPERATIONS[ctx.params["operation"]],
+                              wanted="底图" if over else "遮罩"))
         same_size({"A": a, "B": b})
         merge_op = f"image.merge.{ctx.params['operation']}"
         window = window_of(a)
         n = channels_of(a.type)
+        if over and is_data(a):
+            raise Invalid(Msg("E-IMGMERGE-OVERDATA"))
         # A 接受任意二维数据，而不仅是画面（端口类型为通用的「图像」）：深度图、法线图、ST-map、分割图、遮罩
         # 均可被遮挡。「画面还是数值图」由数据自带的信息决定，不按通道数推测（payloads.is_data，与「STMap」规则相同），
         # 三通道的 image.3 既可能是照片也可能是法线图。
@@ -277,6 +300,18 @@ class ImageMerge(NodeDef):
             else:
                 values, ok = read_map(path, window.data)
                 pa, valid = np.asarray(values, np.float32), (ok if keeps_valid else None)
+            if over:
+                under = file_at(b, f)  # 静态底图（整段一张）垫在每一帧下
+                if under is None:
+                    out.add(f, pa, valid)
+                    return True, bool(np.any(pa))
+                pb = np.asarray(read_picture(b, under, window.data), np.float32)
+                if pb.shape[-1] != pa.shape[-1]:  # 底图有无 alpha 与 A 不同：RGB 补一条不透明的 alpha，或去掉 alpha
+                    pb = np.concatenate([pb, np.ones_like(pb[..., :1])], -1) if pb.shape[-1] < pa.shape[-1] else pb[..., :pa.shape[-1]]
+                alpha = pa[..., 3:4] if pa.shape[-1] == 4 else np.ones_like(pa[..., :1])
+                merged = run_op(merge_op, {"a": pa, "b": pb, "alpha": alpha, "mix": float(ctx.params["mix"])})["value"]
+                out.add(f, merged, valid)
+                return False, bool(np.any(merged))
             got = map_at(b, f, window.data)  # 静态 B（整段一张图）作用于每一帧
             if got is None:
                 out.add(f, pa, valid)
@@ -305,12 +340,13 @@ class ImageMerge(NodeDef):
 
 class FrameHold(NodeDef):
     id = "core.frame_hold"
+    version = 2  # 2：留空取首帧（原为镜头中间一帧）；参数没变，不加一的话留空时缓存的中间帧会被原样复用
     category = "img_adjust"
-    inputs = (Port("image", "image", "图像", alpha=True),)
+    inputs = (Port("image", "image", "图像", alpha=True, data=EITHER),)
     outputs = (Port("image", "image", "图像", type_from="input:image"),)
 
     class Params(NodeParams):
-        frame: int | None = P(None, label="帧", placeholder="中间帧")
+        frame: int | None = P(None, label="帧", placeholder="首帧")
 
     on_node = ("frame",)
 
@@ -322,14 +358,19 @@ class FrameHold(NodeDef):
         只接受单帧的下游节点（如 LuxDiT 环境光探针）会被 `B-EXPECT-MANYFRAMES` 拦下，而该节点链本身是正确的，
         本节点正是用于选帧。
 
-        选帧规则与 `cook` 完全相同（留空 = 镜头中间一帧），两处必须保持一致；
-        填写的帧号超出范围时不在此处判断，仍原样报告，由 `cook` 报出 `E-FRAMEHOLD-RANGE`。"""
+        选哪一帧与 `cook` 用同一条规则（`held`）；填写的帧号超出范围时不在此处判断，仍原样报告，由 `cook` 报出
+        `E-FRAMEHOLD-RANGE`。"""
         got = Info.merge(inputs.get("image") or [])
         if got.still or not got.frames:
             return got
-        want = params.get("frame")
-        frame = want if want is not None else got.frames[len(got.frames) // 2]
+        frame = cls.held(params.get("frame"), got.frames)
         return replace(got, frames=(frame,)) if frame in got.frames else got
+
+    @staticmethod
+    def held(want: int | None, frames) -> int:
+        """定住哪一帧（info 与 cook 共用这一处）：填了帧号就是那一帧，留空就是首帧（参数的 placeholder、nodes.json 的描述、
+        E-FRAMEHOLD-RANGE 的文字都照这条写）。"""
+        return want if want is not None else frames[0]
 
     @classmethod
     def cook(cls, ctx):
@@ -342,8 +383,7 @@ class FrameHold(NodeDef):
 
         src = ctx.input("image")
         frames = src.meta["frames"]
-        want = ctx.params["frame"]
-        frame = want if want is not None else frames[len(frames) // 2]
+        frame = cls.held(ctx.params["frame"], frames)
         files = image_files(src) if isinstance(src.meta.get("files"), dict) else {}
         if frame not in frames or frame not in files:
             raise Invalid(Msg("E-FRAMEHOLD-RANGE", frame=frame, first=frames[0], last=frames[-1]))
@@ -367,7 +407,7 @@ class SplitGrid(NodeDef):
     id = "core.split_grid"
     category = "img_adjust"
     on_node = ("rows", "cols")
-    inputs = (Port("image", "image", "网格图", alpha=True),)
+    inputs = (Port("image", "image", "网格图", alpha=True, data=EITHER),)
     # 每格尺寸由「行」「列」「边距」决定，而非输入图的尺寸，因此该端口声明「尺寸由节点决定」，
     # 由 info() 在计算之前报告尺寸和帧数（与「视频转序列」的「分辨率」机制相同）。
     outputs = (Port("image", "image", "图像", type_from="input:image", shape=Shape(window="node")),)
@@ -447,7 +487,7 @@ class SplitGrid(NodeDef):
 class Crop(NodeDef):
     id = "core.crop"
     category = "img_adjust"
-    inputs = (Port("image", "image", "图像", alpha=True),)
+    inputs = (Port("image", "image", "图像", alpha=True, data=EITHER),)
     # 本节点修改像素并更换画面框：尺寸由节点自身决定（计算前即可确定，见 said）。
     # 镜头数据随之失效：畸变参数针对特定画面测得，裁剪后同样的系数不再适用于该区域
     # （与 warped_by 同理）；镜头状态和像素比不变，裁剪不涉及光学和像素形状。
@@ -527,7 +567,7 @@ class Crop(NodeDef):
 class OrientationField(NodeDef):
     id = "core.orientation_field"
     category = "img_channel"
-    inputs = (Port("image", "image", "图像", alpha=True),
+    inputs = (Port("image", "image", "图像", alpha=True, data=False),
               Port("mask", "image.1", "遮罩", optional=True,
                    help="只在这块区域里量方向，外面的可信度给 0。可信度是按整张图里最集中的那个像素归一化的，"
                         "接上遮罩就只在遮罩里归一化，背景的杂纹不会把主体的可信度压下去",

@@ -103,14 +103,6 @@ def owner(task_id: str) -> int:
     return int(r["user_id"])
 
 
-def owned(task_id: str, user_id: int, others: bool = False) -> Path:
-    """The folder of task `task_id` when it is `user_id`'s (`others`: the asker holds data.others and may see anyone's);
-    someone else's task is not there for them, told exactly like one that does not exist."""
-    if owner(task_id) != user_id and not others:
-        raise NotFound(Msg("E-TASKDIR-GONE"))
-    return task_dir(task_id)
-
-
 # ------------------------------------------------------------------ a task's life: made, referencing, ended, gone
 
 

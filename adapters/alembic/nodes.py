@@ -1,8 +1,9 @@
 """The Alembic format module's nodes (the interface: lab2shot/nodes/formats.py): 「导入 Alembic」 lists and reads an .abc
 through this extension's worker (worker.py alembic.import: every item of the file as scene arrays), 「Alembic 输出设置」
 writes the scene to .abc through it (alembic.output). Alembic records neither its unit nor its up axis: the import node
-says them (单位, 上轴). Alembic stores seconds; the archive's DCC FPS hint (the one the writer sets) turns them into
-frame numbers, and a file without one reads at 24."""
+says them (单位, 上轴). Alembic stores seconds, turned into frame numbers at the file's rate: its DCC FPS hint (the one
+the writer sets), else the rate its samplings are at (Blender and Houdini write no hint; a motion-blurred file's
+sub-samples cycle once a frame), else 24, said (worker.py import_file)."""
 
 from __future__ import annotations
 
@@ -18,6 +19,8 @@ LISTED_FROM = ("path",)
 
 class ImportAlembic(WorkerImport):
     id = "alembic.import"
+    # 6：没记帧率时按采样间隔（均匀或运动模糊的周期采样）认帧率，再没有才按 24
+    version = 6
     # 相机读自文件，并非由本节点解算；Alembic 的点缓存是单个随时间变化的对象，导入节点原样输出文件内容
     runtime = "alembic"
     suffixes = SUFFIXES
@@ -35,7 +38,7 @@ class ImportAlembic(WorkerImport):
         up: Literal["y", "z"] = P("y", label="上轴", group="Alembic", option_labels={"y": "Y 轴向上", "z": "Z 轴向上"},
                                   worker=False)
         width: int = P(DEFAULT_WIDTH, label="画面宽度", unit="px", gt=0, group="Alembic", worker=False, applies=Param("camera").set())
-    outputs = selection_ports(Params)
+    outputs = selection_ports(Params, fps="Alembic 的帧率：DCC 写的 FPS 提示；没写时按采样间隔认出的帧率；都没有时空着")
 
     @classmethod
     def axes(cls, params, top):
@@ -48,6 +51,7 @@ class ImportAlembic(WorkerImport):
 
 class AlembicOutput(OutputSettings):
     id = "alembic.output"
+    version = 4  # 4：原名写进用户属性 lab2shot:name；分区名也转写并同层去重（带「/」或转写后同名时不再整个写不出）
     category = "out_scene"
     inputs = (Port("scene", "scene|scene[]", "场景", multi=True,
                    expects=(DistinctNames(),)),)
@@ -61,6 +65,7 @@ class AlembicOutput(OutputSettings):
         "curves": Writes.full(),
         "skeleton": Writes.no("Alembic 没有骨骼"),
         "character": Writes.no("Alembic 没有骨骼", via="core.bake_model"),
+        "light": Writes.no("Alembic 没有灯光：穹顶灯（HDRI）只有 USD 带得走"),
     }
 
     class Params(NodeParams):

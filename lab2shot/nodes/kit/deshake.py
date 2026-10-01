@@ -147,7 +147,7 @@ def deshake_camera(src, out, strength: float, keep_sudden: bool, rotation: bool,
     from lab2shot_shared.motion import continuous, matrix_to_quat, quat_to_matrix
 
     from ...data.camera import CameraSamples
-    from ...data.scene import xyz_euler_deg
+    from lab2shot_shared.poses import xyz_euler_deg
     from ...data.units import DEFAULT_HEIGHT, DEFAULT_WIDTH
 
     frames = [int(f) for f in src.meta["frames"]]

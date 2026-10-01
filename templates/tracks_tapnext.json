@@ -7,28 +7,147 @@
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "tracks2d",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "format",
-   "label": "格式",
-   "target": "out.format"
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
   },
   {
    "name": "picks",
    "label": "跟踪点",
-   "target": "track.picks"
+   "target": "track.picks",
+   "show_on_change": true
+  },
+  {
+   "name": "picks_pick",
+   "label": "在视图里点选",
+   "target": "track.picks_pick"
   },
   {
    "name": "grid",
    "label": "网格点数",
-   "target": "track.grid"
+   "target": "track.grid",
+   "disable_when": "format == \"cornerpin\""
+  },
+  {
+   "name": "ref_frame",
+   "label": "参考帧",
+   "target": "track.query_frame",
+   "disable_when": "grid == 0"
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "model",
+     "label": "模型",
+     "target": "track.model"
+    },
+    {
+     "name": "resolution",
+     "label": "处理分辨率",
+     "target": "track.resolution"
+    },
+    {
+     "name": "min_confidence",
+     "label": "可见门槛",
+     "target": "track.min_confidence"
+    }
+   ]
+  },
+  {
+   "name": "cook_track",
+   "label": "跟踪",
+   "target": "track.cook"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out.name"
+    },
+    {
+     "name": "format",
+     "label": "格式",
+     "target": "out.format",
+     "widget": "menu",
+     "options": [
+      {
+       "value": "tracker",
+       "label": "Nuke Tracker"
+      },
+      {
+       "value": "3de",
+       "label": "3DE"
+      },
+      {
+       "value": "csv",
+       "label": "CSV"
+      },
+      {
+       "value": "cornerpin",
+       "label": "Nuke CornerPin（恰好四个点）",
+       "hide_when": "grid != 0"
+      }
+     ]
+    },
+    {
+     "name": "origin",
+     "label": "坐标原点",
+     "target": "out.origin",
+     "hide_when": "format != \"csv\""
+    },
+    {
+     "name": "min_visible",
+     "label": "最少可见帧数",
+     "target": "out.min_visible",
+     "hide_when": "format == \"cornerpin\""
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -38,11 +157,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 0
+    "y": 48
    }
   },
   {
@@ -50,15 +171,15 @@
    "type": "tapnext.track",
    "label": "TAPNext++ 2D 跟踪点",
    "params": {
-    "grid": 10,
     "query_frame": null,
     "picks": [],
     "min_confidence": null,
+    "grid": 10,
     "model": "512",
     "resolution": null
    },
    "ui": {
-    "x": 320,
+    "x": 400,
     "y": 0,
     "on_node": [
      "grid",
@@ -71,14 +192,14 @@
    "type": "core.output_tracks",
    "label": "2D 跟踪点输出设置",
    "params": {
+    "name": "tracks",
     "format": "tracker",
     "origin": "bottom_left",
-    "min_visible": 5,
-    "name": "tracks"
+    "min_visible": 5
    },
    "ui": {
-    "x": 660,
-    "y": 0,
+    "x": 800,
+    "y": 10,
     "on_node": [
      "name",
      "format"
@@ -91,8 +212,8 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 980,
-    "y": 0
+    "x": 1200,
+    "y": 24
    }
   }
  ],

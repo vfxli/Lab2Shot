@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, LOGGED_IN } from "./http";
+import { LOGGED_IN, awaitsLogin } from "./http";
 import { backoff } from "./backoff";
 
 /** Repeated polling of the server, the single mechanism used by every page. The first request is sent immediately, even
@@ -7,9 +7,10 @@ import { backoff } from "./backoff";
  * hidden, and becoming visible triggers an immediate request. A response identical to the previous one lengthens the
  * interval, up to `slowest`. A failed request waits `afterError` when the caller sets one (a watch that must notice
  * the server coming back at once); otherwise the interval, at least ERROR_WAIT_MIN, doubled with every further failure
- * in a row up to ERROR_WAIT_MAX. A refusal of the login or of a right (401, 403) is not asked again: the server counts every one
- * toward blocking the session (lab2shot/server/access.py), and the answer does not change until the login does, so
- * polling rests until the next login over the page (LOGGED_IN). `every: null` reads once: neither repeated nor retried.
+ * in a row up to ERROR_WAIT_MAX. A refusal that only a new login changes (401, or a 403 for terms not agreed:
+ * http.ts awaitsLogin) is not asked again: the server counts every one toward blocking the session
+ * (lab2shot/server/access.py), so polling rests until the next login over the page (LOGGED_IN). Another 403 (a right
+ * this login lacks) is an error like the rest: backed off, reported through onError. `every: null` reads once: neither repeated nor retried.
  * `until` ends polling (for example, a finished job). */
 interface Polling<T> {
   read: () => Promise<T>;
@@ -17,9 +18,10 @@ interface Polling<T> {
   slowest?: number | ((last: T | undefined) => number); // an unchanged response doubles the interval up to this (default: `every`)
   afterError?: number; // ms after every failed request (default: backing off from `every`)
   until?: (value: T) => boolean; // stop polling once this returns true
-  // 「响应是否变化」由调用方判定（退避依据此判定）。默认比较整份响应；
-  // 但部分响应中含有装饰性的实时数值，如 /api/load 中的 CPU、内存、显存百分比每秒变化，
-  // 比较整份响应将无法退避。此时由调用方提供真正需要比较的字段，变动的数值不参与判断
+  // whether a response changed (what the backing off rests on) is the caller's to decide. By default the whole response
+  // is compared, but some carry decorative live numbers (the CPU, memory and video-memory percentages of /api/load
+  // change every second), which would never let the interval lengthen: the caller then gives the fields that really
+  // matter, leaving the changing numbers out
   identity?: (value: T) => unknown;
   onValue?: (value: T) => void;
   onError?: (error: unknown) => void;
@@ -29,7 +31,7 @@ const ERROR_WAIT_MIN = 1000;
 const ERROR_WAIT_MAX = 60_000;
 
 /** A refusal that asking again cannot change (see Polling). */
-const refused = (e: unknown) => e instanceof ApiError && (e.status === 401 || e.status === 403);
+const refused = awaitsLogin;
 
 /** Starts polling; returns a function that stops it. */
 export function startPolling<T>(p: Polling<T>): { stop: () => void; now: () => void } {
@@ -41,7 +43,7 @@ export function startPolling<T>(p: Polling<T>): { stop: () => void; now: () => v
   let asking = false;
   let first = true;
   let failures = 0; // failed requests in a row
-  let resting = false; // refused (401, 403): waiting for the next login
+  let resting = false; // refused until a new login (awaitsLogin): waiting for LOGGED_IN
   const once = p.every === null;
   const base = () => (typeof p.every === "function" ? p.every(last) : p.every ?? 0);
   const visible = () => typeof document === "undefined" || document.visibilityState === "visible";

@@ -37,10 +37,17 @@ from ..errors import Invalid
 from ..messages import Msg
 
 
+NAME_MAX = 255  # bytes one part of a name may take: what every file system this runs on allows (Linux NAME_MAX, NTFS 255)
+PATH_MAX = 1024  # bytes the whole name may take, sub-folders included
+
+
 def inside(base: Path | str, name: str) -> Path:
     text = str(name)
     if not text or "\x00" in text or PurePosixPath(text).is_absolute() or PureWindowsPath(text).is_absolute() or PureWindowsPath(text).drive:
         raise Invalid(Msg("E-SOURCE-OUTSIDE", name=text[:80]))
+    if len(text.encode()) > PATH_MAX or any(len(part.encode()) > NAME_MAX for part in PurePosixPath(text).parts):
+        # no file on the disk has such a name: said so, never an OSError of the file system (a 500) when it is looked at
+        raise Invalid(Msg("E-FILE-NAMETOOLONG", name=text[:80], most=NAME_MAX, whole=PATH_MAX))
     root = Path(base).resolve()
     path = (root / text).resolve()
     if path == root or not path.is_relative_to(root):

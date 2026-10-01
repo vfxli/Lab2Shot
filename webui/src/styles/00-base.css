@@ -12,18 +12,19 @@ body,
   margin: 0;
 }
 
-/* 整页竖着摞：最上面是全站通知条（有才占位），下面是这一页本身，填满剩下的高度。
-   通知条在正常文档流里，它一出现页面整体往下让，不压在任何内容上。
-   `min-height: 0` 少了的话，下面那一页会按内容撑高、撑出一条滚动条 */
+/* The whole page stacks vertically: the site-wide notice bar on top (taking room only when there is one), then the page
+   itself filling the rest of the height. The notice bar is in normal document flow: when it appears the page moves down
+   as a whole, and it never covers any content. Without `min-height: 0` the page below would grow to its content's
+   height and push out a scrollbar */
 #root {
   display: flex;
   flex-direction: column;
-  /* 整个应用就是一屏，自己不滚：少了这一条，通知条一出现就多一条竖滚动条 */
+  /* The whole app is one screen and does not scroll itself: without this, a notice bar appearing adds a vertical scrollbar */
   overflow: hidden;
 }
 
-/* 通知条永远在最前面、这一页永远在最后：按位置写，不点名公共零件的类名
-   （点名了就是「页面在重新设置公共零件的样式」，页面不许这样做） */
+/* The notice bar always comes first and the page always last: written by position, never naming a shared component's
+   class (naming it would be a page restyling a shared component, which pages must not do) */
 #root > :last-child {
   flex: 1;
   min-height: 0;

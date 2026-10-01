@@ -21,8 +21,8 @@
    与「18.038 mm Focal Length」位于同一行）。若仅按标题定宽，同一行的三段文字宽度由其他行决定，必然重叠。
    宽度取标题与最宽端口行中的较大值；端口值计算出来后节点会变宽一次，这是形状变化，而非内容抖动。
 
-   The node: a flat dark block, not a card, with a 1 px hairline, 8 px radius, a low soft shadow, and the category's colour
-   only as a bar at the left of the title row. Selected: a thin accent rim, nothing else. */
+   节点的外观：扁平的深色块而非卡片，1 px 细线边框、8 px 圆角、低而柔和的阴影；分类颜色只以标题行左侧的色条出现。
+   选中时：一圈细的强调色边，别无其他。 */
 .gnode {
   /* 状态词格的宽度：按最长的状态预留，不截断文字。实测宽度（Geist + 思源黑体回退，
      字号 --fs-2xs 10.5px，tabular-nums，含左内边距 4）：「计算中…」41.5、「999/999」46.8、「9999/9999」59.5。
@@ -88,7 +88,7 @@
   white-space: nowrap;
 }
 
-/* the category's colour: a 3 × 12 bar, the design's one mark of what kind of node this is */
+/* 分类颜色：3 × 12 的色条，设计中表明节点种类的唯一标记 */
 .gnode-kind {
   flex: none;
   width: 3px;
@@ -104,7 +104,7 @@
   white-space: nowrap;
 }
 
-/* The state as a word at the right end of the title row.
+/* 标题行右端以一个词显示状态。
    该格宽度固定（--node-state-w，原因见 .gnode 顶部的不变量）：文字从「未计算」变为
    「计算中…」，再变为「60/195」「194/195」时，节点尺寸保持不变；若按内容定宽，节点会随文字宽度来回变化数十像素。
    数字使用 tabular-nums（GraphNode.tsx 添加了 `tnum`），各数字等宽，帧号变化不改变宽度。 */
@@ -125,7 +125,7 @@
   color: var(--green);
 }
 
-/* 排队: its job waits in the queue (the node's footer says why) */
+/* 排队：其任务在队列中等待（原因见节点脚注） */
 .gnode-state.queued {
   color: var(--orange);
 }
@@ -138,9 +138,8 @@
   color: var(--error);
 }
 
-/* 在视图中显示 and 展开: not in the design's title row, which carries only the name and the state. The two switches stay
-   (the editor cannot do without them) but keep out of the way: they hold their room, so no node ever changes width or
-   jumps, and only show while the pointer is over the node, while it is selected, or while the switch itself is on. */
+/* 「在视图中显示」与「展开」：设计上标题行只放名称与状态，不含这两个开关。开关必须保留（编辑器离不开它们），
+   但不打扰视线：始终占住自己的位置，因此节点不会变宽或跳动；只在指针位于节点上、节点被选中或开关本身打开时显示。 */
 .gnode .display-flag,
 .gnode .expand-flag {
   opacity: 0;
@@ -156,10 +155,9 @@
   opacity: 1;
 }
 
-/* The node's own three icon marks (展开, 在视图中显示, 数据信息) are written one way: a square box with the icon
-   exactly in its middle. A <button> brings its own padding and its own content layout, which leaves the icon a pixel or
-   two off centre inside its square; the reset below makes the two centres coincide.
-   Every icon-only control of the site follows the same rule. */
+/* 节点自身的三个图标（展开、在视图中显示、数据信息）统一写法：方形盒子，图标恰在正中。<button> 自带内边距与
+   内容布局，会使图标在方框内偏离中心一两个像素；下面的重置使两个中心重合。
+   全站所有纯图标控件遵循同一规则。 */
 .display-flag,
 .expand-flag,
 .gnode-info {
@@ -242,21 +240,78 @@
   flex: 0 0 auto;
 }
 
-/* an output that is wired but gone: kept so its wire shows (dashed, the error colour) and can be removed */
+/* 输入口列表末尾的「＋」口（GraphNode.tsx AddRowPort，端口由表格生成的输入侧节点）：空心圆里一个加号，颜色取
+   行的类型色，和已有的口一眼分得开；旁边「加一层」几个字点了和点「＋」一样。拿着线时它和别的口一样按能否接上
+   高亮 / 变暗（29-node-chrome.css wire-fit / wire-no） */
+.gnode .react-flow__handle.add-port {
+  width: 10px;
+  height: 10px;
+  background: var(--lifted);
+  box-shadow: inset 0 0 0 1.5px var(--c, var(--text-3));
+  cursor: pointer;
+}
+
+.gnode .react-flow__handle.add-port::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  background:
+    linear-gradient(var(--c, var(--text-3)), var(--c, var(--text-3))) center / 100% 1.5px no-repeat,
+    linear-gradient(var(--c, var(--text-3)), var(--c, var(--text-3))) center / 1.5px 100% no-repeat;
+}
+
+/* 悬停、拿着线能接上时的光圈叠在空心圈外面，不替换掉空心圈 */
+.gnode .react-flow__handle.add-port:hover,
+.graph.wiring .gnode .react-flow__handle.add-port.wire-fit {
+  box-shadow: inset 0 0 0 1.5px var(--c, var(--text-3)), 0 0 0 3px color-mix(in srgb, var(--c) 45%, transparent);
+}
+
+.port-row.add-row .add-row-label {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-3);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.port-row.add-row .add-row-label:hover {
+  color: var(--text);
+}
+
+/* 表格生成的口的名字（图层名）双击就地改（GraphNode.tsx RowLabel）：输入框和端口行一样高，不撑高节点 */
+.port-row .row-label {
+  cursor: text;
+}
+
+.port-row .row-label-input {
+  height: 16px;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--text);
+  background: var(--field-bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-xs);
+  padding: 0 4px;
+  outline: none;
+  min-width: 0;
+}
+
+/* 已连线但已不存在的输出：保留该行，使其连线仍可见（虚线、错误色）并可被删除 */
 .port-row.ghost {
   color: var(--error);
   text-decoration: line-through;
 }
 
-/* an output waiting for a selection (an import node's kind not selected yet): kept muted so the wire from it shows;
-   it connects by itself once something of that kind is selected */
+/* 等待选择的输出（导入节点尚未选定种类）：以淡色保留，使从它引出的连线可见；选定该种类后自动接上 */
 .port-row.waiting {
   color: var(--text-3);
   font-style: italic;
 }
 
-/* a plain 8 px dot in the data type's colour, no rim. It is drawn small, but stays easy to hit: an invisible
-   pad around it (::before) belongs to the handle itself, so a click a few pixels off still lands on the port. */
+/* 数据类型颜色的 8 px 实心圆点，无外圈。画得小但容易点中：周围一圈不可见的垫层（::before）属于端口本身，
+   偏离几个像素的点击仍落在端口上。 */
 .gnode .react-flow__handle {
   width: 8px;
   height: 8px;
@@ -274,7 +329,7 @@
   border-radius: 50%;
 }
 
-/* an input that takes several wires: the dot is a bar, so「一个口能接几根」reads at a glance */
+/* 可接多根线的输入口：圆点画成竖条，「一个口能接几根」一眼可见 */
 .gnode .react-flow__handle.multi {
   height: 14px;
   border-radius: var(--r-xs);
@@ -284,10 +339,9 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 40%, transparent);
 }
 
-/* one line box of its own, whatever sits in it (a note, a file name, the 非商用 badge, the cost tag, 数据信息's mark)
-   and whatever font the machine falls back to: 4 + 15 + 4 = 23 px plus the border, the same on every node
-   (a tag that only shows once its extension is installed must never make a node taller, and nothing in it may be
-   taller than the line) */
+/* 独占一个行盒，无论其中放的是什么（说明、文件名、「非商用」角标、计算量标签、数据信息图标），也无论本机回退到
+   哪种字体：4 + 15 + 4 = 23 px 加边框，所有节点相同（扩展安装后才出现的标签不得使节点增高，其中任何元素都不得
+   高于该行） */
 .gnode-foot {
   border-top: 1px solid var(--hair);
   padding: 4px 8px;
@@ -303,9 +357,8 @@
   overflow: hidden;
 }
 
-/* the note (right) stays pinned right whether or not the 计算量 badge (left, before it) is there; 数据信息's mark is
-   always last, at the node's bottom right corner. Whatever words are in the row give way before the mark does:
-   without this a long sentence would push the mark out past the node's right edge. */
+/* 说明（右）始终贴右，无论其左侧的「计算量」角标是否存在；数据信息图标始终在最后，位于节点右下角。
+   行中的文字先于该图标让出空间：否则一长句会把图标推出节点右边缘。 */
 .gnode-foot > .node-mark,
 .gnode-foot > .gnode-note,
 .gnode-foot > .gnode-file {
@@ -318,8 +371,7 @@
   margin-left: auto;
 }
 
-/* 数据信息: a small circled 「i」 at the node's bottom right. Every item of the footer must stay inside its one line,
-   so it is exactly the line's height. */
+/* 数据信息：节点右下角带圆圈的小「i」。脚注中每一项都必须留在这一行内，因此它恰为行高。 */
 .gnode-info {
   border-radius: 50%;
 }
@@ -334,7 +386,7 @@
   color: var(--accent);
 }
 
-/* the node has something to read: the mark takes that message's own level colour (red only for a production risk) */
+/* 节点有可读的内容：图标取该消息自身级别的颜色（只有生产风险才是红色） */
 .gnode-info[data-level="N"] {
   color: var(--accent);
 }
@@ -356,8 +408,8 @@
   overflow: hidden;
 }
 
-/* 计算量档位：低/中/高/超高，bottom-left of the node, before whatever the footer already says (file / status). Its box
-   stays inside the footer's one line, so it carries its own line height. */
+/* 计算量档位：低/中/高/超高，位于节点左下角，在脚注原有内容（文件 / 状态）之前。其盒子留在脚注的一行之内，
+   因此自带行高。 */
 .gnode-compute {
   flex: none;
   font-size: 10px;

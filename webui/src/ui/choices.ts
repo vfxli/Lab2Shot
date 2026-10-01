@@ -15,7 +15,6 @@ const cache = new Map<string, Promise<Record<string, Choice>>>();
 export function useChoiceSet(nodeId: string, p: ParamDef): Record<string, Choice> | null {
   const typeId = useCookInputs((s) => s.nodes[nodeId]?.typeId ?? "");
   const nodeParams = useCookInputs((s) => s.nodes[nodeId]?.params);
-  const edges = useCookInputs((s) => s.edges);
   const results = useResults((s) => s.results);
   const from = (() => {
     const def = getNodeDefs()[typeId];
@@ -27,8 +26,11 @@ export function useChoiceSet(nodeId: string, p: ParamDef): Record<string, Choice
         values[name] = nodeParams[name] ?? null;
         continue;
       }
-      const wire = edges.find((e) => e.target === nodeId && e.targetHandle === name);
-      const fp = wire && results[wire.source]?.cached ? results[wire.source]?.outputs?.[wire.sourceHandle ?? ""] : undefined;
+      // the packet that stands for this input port is given by the server in the status reply (nodes[id].stand_ins,
+      // engine/evaluation.py stand_ins: the wired-in packet or, while it is not cooked yet, the nearest upstream one
+      // that can stand for it: a per-item block's list, the whole before it was split into a list, the branch a
+      // switch selects); the page never looks for one itself
+      const fp = results[nodeId]?.stand_ins?.[name];
       if (!fp) return "";
       inputs[name] = fp;
     }

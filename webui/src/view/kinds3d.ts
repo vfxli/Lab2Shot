@@ -1,4 +1,6 @@
-import { loadScene, useLoaded, type Scene } from "./sceneData";
+/** 三维数据种类的唯一定义处：有哪些种类、显示名称，某个显示计划画了哪些种类，以及点云的抽稀情况。 */
+
+import { useScenes, type Scene } from "./sceneData";
 import type { DisplayPlan } from "./plan";
 
 /** 三维数据的种类及其显示名称，顺序与视图的显示 / 隐藏开关一致。 */
@@ -18,16 +20,31 @@ function kindsOf(d: Scene): Set<Kind> {
 }
 
 
+/** 这几个 hook 只看计划里画了什么：没有显示节点时，编辑器传一份三个字段都为空的计划，类型在这里约束，
+ * 少一个字段就编译不过。 */
+export type PlanShown = Pick<DisplayPlan, "elements" | "pointMaps" | "handles">;
+
 /** 节点三维结果中包含的数据种类，供显示 / 隐藏开关使用。 */
-export function useSceneKinds(plan: DisplayPlan): Kind[] {
+export function useSceneKinds(plan: PlanShown): Kind[] {
   const fps = plan.elements.flatMap((e) => (e.fp ? [e.fp] : []));
-  const [loaded] = useLoaded(fps, loadScene);
+  const [loaded] = useScenes(fps);
   const kinds = new Set<Kind>();
   for (const d of loaded.values()) for (const k of kindsOf(d)) kinds.add(k);
   if (plan.pointMaps.some((m) => m.fp)) kinds.add("points");
   return (Object.keys(KINDS) as Kind[]).filter((k) => kinds.has(k));
 }
 
+
+/** 显示选项面板判断适用性用的另外几件事（不是显示 / 隐藏开关的种类）：有没有多帧相机（相机路径）、有没有骨架姿势手柄
+ * （它画的骨架也受骨骼粗细、骨点大小管）。 */
+export function useSceneShows(plan: PlanShown): string[] {
+  const fps = plan.elements.flatMap((e) => (e.fp ? [e.fp] : []));
+  const [loaded] = useScenes(fps);
+  const out: string[] = [];
+  if ([...loaded.values()].some((d) => d.cameras.some((c) => c.ref.frames.length > 1))) out.push("cameraPath");
+  if (plan.handles.some((h) => h.kind === "skeleton_pose")) out.push("skeleton");
+  return out;
+}
 
 /** 视图中当前绘制的点云的抽稀情况（见 server/view_data.py `_proxy_step` / `_point_step`）。
  *
@@ -42,9 +59,9 @@ interface CloudProxy {
   total: number;  // 数据中的总点数
 }
 
-export function useCloudProxy(plan: DisplayPlan): CloudProxy {
+export function useCloudProxy(plan: PlanShown): CloudProxy {
   const fps = plan.elements.flatMap((e) => (e.fp ? [e.fp] : []));
-  const [loaded] = useLoaded(fps, loadScene);
+  const [loaded] = useScenes(fps);
   let shown = 0;
   let total = 0;
   for (const d of loaded.values())

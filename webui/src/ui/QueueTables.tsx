@@ -1,9 +1,9 @@
-/** The queue's tables: a job row with its client, the job log, the account's finished jobs with their cache marks. */
+/** 队列的表格：任务行及其提交端信息、任务记录、本账号已完成的任务及其缓存标记。 */
 
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../api";
 import type { CacheMark, JobRecord, JobState, QueueJob, TaskGroup } from "../api";
-import { clockText, fullTimeText, roughlyText, sizeText } from "../platform/format";
+import { clockText, fullTimeText, sizeText } from "../platform/format";
 import { Button, ButtonLink } from "./Button";
 import { useConfirm } from "./Confirm";
 import { msg, reasonOf, textOf } from "../messages/message";
@@ -12,10 +12,9 @@ import { ClientDetail, Outcome, Progress, StateChip, elapsed, submittedAt, where
 import { NameSheet } from "./NameSheet";
 import { shown, why, type Availability } from "../api/applies";
 
-/** Whether a row offers an action on its task (delete, delete the group, rename the group), and why not now. In the
- * editor the account acts on its own tasks through its own routes: always there. On the admin page it goes through an
- * admin route, as the server resolved it for this login (`actionId`, server/available.py ACTIONS): not there when the
- * login does not hold the route's right, greyed with why when its rights ran out. */
+/** 某一行是否提供对其任务的操作（删除、删除组、组改名），以及当前不可用的原因。编辑器中账号通过自己的路由操作
+ * 自己的任务：始终提供。后台通过管理路由操作，以服务器为本次登录解析的结果为准（`actionId`，server/available.py
+ * ACTIONS）：登录不具备该路由的权限时不提供，权限已用尽时置灰并说明原因。 */
 function offer(admin: boolean, applies: Availability | null | undefined, actionId: string): { there: boolean; why: string } {
   if (!admin) return { there: true, why: "" };
   return { there: shown(applies, actionId), why: why(applies, actionId) };
@@ -29,8 +28,8 @@ function JobRow({ job, now, admin, applies, onCancel, onForgotten, onLoad, cache
   const [open, setOpen] = useState(false);
   const [ask, confirmSheet] = useConfirm();
   const active = job.state === "queued" || job.state === "running";
-  // 任务记录 keeps a job's state but not its position in the line (fromRecord: position null): a job that was still
-  // waiting when the record was written must not display 「第 null 位」
+  // 任务记录保存任务的状态，但不保存其排队位置（fromRecord：position 为 null）：写记录时仍在排队的任务
+  // 不得显示「第 null 位」
   const where = job.state === "queued" ? `${job.position == null ? "排队中" : `第 ${job.position} 位`}${[textOf(job.waiting), textOf(job.waiting_detail)].filter(Boolean).map((w) => ` · ${w}`).join("")}` : whereOf(job);
   // 插队（lab2shot/farm/queue.py Farm.first）：排队中或计算中的任务挪到队首。
   // 按钮始终在，不能插队时置灰并写明原因，位置不变
@@ -80,7 +79,7 @@ function JobRow({ job, now, admin, applies, onCancel, onForgotten, onLoad, cache
                     {client.app !== "web" && <span className="q-app">{client.app}</span>}
                   </>
                 ) : (
-                  <span className="q-who q-muted" data-tip="别人的任务：只看得到它排在哪、大概多久，看不到是谁、算什么">别人</span>
+                  <span className="q-who q-muted" data-tip="别人的任务：只看得到它排在哪、算到哪，看不到是谁、算什么">别人</span>
                 )}
               </span>
             )}
@@ -98,7 +97,7 @@ function JobRow({ job, now, admin, applies, onCancel, onForgotten, onLoad, cache
               <span className="q-f q-run">
                 {/* 排队位置只在编辑器中排队的行显示；后台表格不显示它 */}
                 {!admin && job.state === "queued" && where && <span data-tip="排在第几位">{where}</span>}
-                <Progress job={job} now={now} />
+                <Progress job={job} />
               </span>
             ) : (
               <>
@@ -174,11 +173,10 @@ function JobRow({ job, now, admin, applies, onCancel, onForgotten, onLoad, cache
   );
 }
 
-/** A job from the job log, shown like a finished job of the queue. */
+/** 任务记录中的一条，按队列中已完成的任务显示。 */
 export const fromRecord = (r: JobRecord, mine = false): QueueJob => ({
   ...r,
-  outputs: (r.outputs ?? []).filter((o) => typeof o === "object" && !!o?.pkg), // only an output packed into its task (lab2shot/transfer/outputs.py)
-  eta: null,
+  outputs: (r.outputs ?? []).filter((o) => typeof o === "object" && !!o?.pkg), // 只保留已打包进该任务的输出（lab2shot/transfer/outputs.py）
   position: null,
   waiting: null,
   now: {},
@@ -192,18 +190,17 @@ export const fromRecord = (r: JobRecord, mine = false): QueueJob => ({
 export function JobTable({ jobs, admin, applies, onCancel, onForgotten, onLoad, graphUrl, onFirst }: {
   jobs: { job: QueueJob; cache?: CacheMark | null }[];
   admin: boolean;
-  applies?: Availability | null; // the admin page: which actions on others' tasks this login has (offer)
+  applies?: Availability | null; // 后台：本次登录对他人任务拥有哪些操作（offer）
   onCancel: (id: string) => void;
   onForgotten?: () => void; // 删除了一行：重新读取队列（该行已移除，占用也可能变化）
   // 编辑器：一张表即全部内容（计算中、排队中、已完成只是状态不同），因此行中增加「缓存」和「加载」
   onLoad?: (id: string) => void;
   graphUrl?: (id: string) => string;
-  // 插队 (lab2shot/farm/queue.py Farm.first): put a task still to finish at the front of the queue. Omitted: no row
-  // offers it (the editor's 队列 window, a login that may not move jobs).
+  // 插队（lab2shot/farm/queue.py Farm.first）：把尚未结束的任务挪到队首。不传时任何行都不提供
+  // （编辑器的「队列」窗口、无权调整任务顺序的登录）。
   onFirst?: (job: QueueJob) => void;
 }) {
-  // the clock the rows' 用时 and progress read: it moves only while a task is queued or running, so a table of
-  // finished tasks is not redrawn every second
+  // 各行「用时」和进度读取的时钟：只在有任务排队或计算中时走动，因此全是已结束任务的表格不会每秒重绘
   const [now, setNow] = useState(Date.now() / 1000);
   const live = jobs.some(({ job }) => isActive(job));
   useEffect(() => {
@@ -275,12 +272,12 @@ export function JobTable({ jobs, admin, applies, onCancel, onForgotten, onLoad, 
 
 const isActive = (j: QueueJob) => j.state === "queued" || j.state === "running";
 
-/** A group's id on the page: the account is part of it (the key is made with the account in it all the same). */
+/** 组在页面上的 id：包含账号（组的 key 本身也已包含账号）。 */
 const groupId = (j: QueueJob) => `group-${j.client?.user ?? ""}-${j.group?.key ?? ""}`;
 
-/** The table as it is drawn: a group's finished rows together under its one line, at the place of its first finished
- * row; every other row on its own, a waiting or running task among them (it is never put in a group: it stays where
- * the queue has it, in sight, its 插队 at hand). `rows` are indices into the table's own list. */
+/** 表格的绘制结构：一组已结束的行集中在该组的那一行下面，位于组内第一个已结束任务的位置；其余每行单独一块，
+ * 包括排队或计算中的任务（它们从不进组：保持在队列给出的位置，始终可见，「插队」随手可用）。
+ * `rows` 是表格自身列表中的下标。 */
 function blocksOf(jobs: QueueJob[]): { id: string; group: TaskGroup | null; rows: number[] }[] {
   const out: { id: string; group: TaskGroup | null; rows: number[] }[] = [];
   const at = new Map<string, number>();
@@ -320,12 +317,11 @@ const groupName = (group: TaskGroup): string => {
   return `${name} · ${d.getMonth() + 1}月${d.getDate()}日 ${two(d.getHours())}:${two(d.getMinutes())}`;
 };
 
-/** A group's one line (collapsed by default) and, open, its finished tasks' rows (`children`, drawn by the table);
- * `going`: how many of its tasks are waiting or running (listed flat above). 改名: the name it is shown by (the
- * server's PUT /api/task-groups/<key>/name, an administrator's for anyone's group; empty: the automatic name again);
- * the grouping stays. 删除组: every finished task of the group, each the way a single 删除 removes it (the server's
- * DELETE /api/task-groups: the tasks still queued or computing are left and said). `onForgotten`: re-read the table
- * (after either). The group's name is the user's own data: plain text only. */
+/** 组的那一行（默认收起），展开时是组内已结束任务的各行（`children`，由表格绘制）；
+ * `going`：组内有几个任务在排队或计算中（平铺在上方）。改名：设置组的显示名称（服务器的
+ * PUT /api/task-groups/<key>/name，管理员可改任何人的组；留空则恢复自动名称），分组本身不变。
+ * 删除组：删除组内每个已结束的任务，每个都与单独「删除」相同（服务器的 DELETE /api/task-groups：仍在排队或计算中的
+ * 任务保留并告知）。`onForgotten`：两种操作之后重读表格。组名是用户自己的数据：只作纯文本。 */
 function GroupRows({ group, jobs, going, open, onToggle, admin, applies, onForgotten, children }: {
   group: TaskGroup;
   jobs: QueueJob[];
@@ -445,30 +441,19 @@ const MARK: Record<CacheMark["mark"], [string, string]> = {
   none: ["已清理", "var(--text-3)"],
 };
 
-/** 重新计算所需时间的完整描述，整句在一处生成，缓存标记的悬停提示原样使用
- * （拼接半句会产生「大概 多久还不知道」这类不通顺的文字）。 */
-const againText = (cache: CacheMark): string =>
-  cache.seconds > 0
-    ? `重新算大概 ${roughlyText(cache.seconds)}${cache.unknown ? "，有节点还没有用时记录，只会更久" : ""}`
-    : cache.unknown
-      ? "重新算要多久还不知道：有节点还没有用时记录"
-      : "重新算很快";
-
-/** Whether a finished job's results are still cached (determined by the server from the job's graph), and how long
- * cooking them again would take. */
+/** 已完成任务的结果是否仍在缓存中（由服务器根据任务的节点图判定）。不估计重新计算需要多久：按以往用时推算的时间不可靠。 */
 function CacheCell({ cache }: { cache: CacheMark | null }) {
   // 不提供「清理」按钮：腾出空间的操作均在任务上，该行的「删除」已同时移除仅被它使用的缓存；
   // 再设一个仅清理缓存的按钮会使同一操作有两个入口，且清理后仍留下一行空任务，用户会误以为空间未释放。
   // 需要一次性清理时使用队列上方的「删除全部」。
   if (!cache) return null;
   const [label, color] = MARK[cache.mark];
-  const again = againText(cache);
   const tip =
     cache.mark === "all"
       ? "结果都还在缓存里：加载后马上就能看，不用重新算"
       : cache.mark === "some"
-        ? `${cache.nodes} 个节点里 ${cache.cached} 个的结果还在缓存里，别的要重新算；${again}`
-        : `结果已经从缓存里清理了${cache.why ? `（${cache.why}）` : ""}：加载后要重新算；${again}`;
+        ? `${cache.nodes} 个节点里 ${cache.cached} 个的结果还在缓存里，别的加载后要重新算`
+        : `结果已经从缓存里清理了${cache.why ? `（${cache.why}）` : ""}：加载后要重新算`;
   return (
     <span className="q-cache">
       <span className="chip q-state" data-tip={tip}>

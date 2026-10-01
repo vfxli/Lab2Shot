@@ -1,12 +1,11 @@
 import { create } from "zustand";
 import type { BoxJSON } from "../api";
+import { readOnly } from "./cookInputs";
 
-/** 文档外观: saved with the graph file, undoable, but never part of the server's check of the graph
- * (state/cookInputs.ts) — moving a node, folding a group box, showing another node or scrubbing the playback range
- * leaves every cached result standing. `version` bumps on every change here too (state/results.ts never compares
- * against this one), so autosave (editor/autosave.ts) and the graph snapshot (graph/snapshot.ts) can tell "the
- * document changed" apart from "the cook inputs changed". Undo steps are recorded by graph/document.ts on any change
- * of either store. */
+/** 文档外观：随节点图文件保存、可撤销，但从不参与服务器对节点图的检查（state/cookInputs.ts）——挪节点、折叠框、
+ * 显示另一个节点、拖动播放范围，缓存的结果都照样成立。这里每次改动也会让 `version` 加一（state/results.ts 从不拿它
+ * 比对），自动保存（editor/autosave.ts）和节点图快照（graph/snapshot.ts）据此区分「文档改了」与「计算输入改了」。
+ * 两个仓库任一有改动，graph/document.ts 都记一步撤销。 */
 
 export interface Pos {
   x: number;
@@ -21,8 +20,8 @@ interface State {
   onNode: Record<string, string[] | undefined>;
   boxes: Box[];
   displayId: string | null;
-  displayPort: string | null; // which output of the displayed node the viewer shows (null = the first)
-  playback: [number, number] | null; // in / out, kept with the graph file's view (not an undo step: set by hand)
+  displayPort: string | null; // 视图显示的是显示节点的哪个输出（null：第一个）
+  playback: [number, number] | null; // 入点 / 出点，随节点图文件的视图保存（不是撤销步骤：手动设定）
   version: number;
 
   load: (p: { positions: Record<string, Pos>; onNode: Record<string, string[] | undefined>; boxes: Box[]; displayId: string | null; displayPort: string | null; playback: [number, number] | null }) => void;
@@ -31,47 +30,58 @@ interface State {
   setOnNode: (id: string, rows: string[] | undefined) => void; // undefined：这个节点回到类型声明的那几行
   setDisplay: (id: string | null) => void;
   setDisplayPort: (port: string | null) => void;
-  setPlayback: (r: [number, number] | null) => void; // does not bump version: not an undo step
+  setPlayback: (r: [number, number] | null) => void; // 不加 version：不是撤销步骤
   addBox: (box: Box) => void;
   setBox: (id: string, patch: Partial<Box>) => void;
-  moveBox: (id: string, x: number, y: number, members: string[]) => void; // nodes riding along while it is dragged
+  moveBox: (id: string, x: number, y: number, members: string[]) => void; // 拖动框时跟着一起挪的节点
   removeBoxes: (ids: string[]) => void;
+  /** 一次挪很多节点和框（graph/edit.ts arrangeGraph「整理节点图」）：没给的照旧 */
+  place: (positions: Record<string, Pos>, boxes: Record<string, Pick<Box, "x" | "y" | "w" | "h">>) => void;
 }
 
-export const useLook = create<State>((set) => ({
-  positions: {},
-  onNode: {},
-  boxes: [],
-  displayId: null,
-  displayPort: null,
-  playback: null,
-  version: 0,
+export const useLook = create<State>((set) => {
+  // 改文档外观的写入（位置、框、节点体上的名单）：只读标签页里拒绝，同 state/cookInputs.ts readOnly。显示哪个节点、
+  // 播放范围是看的动作，照常
+  const edit: typeof set = (...a) => (readOnly() ? undefined : set(...(a as Parameters<typeof set>)));
+  return {
+    positions: {},
+    onNode: {},
+    boxes: [],
+    displayId: null,
+    displayPort: null,
+    playback: null,
+    version: 0,
 
-  load: (p) => set((s) => ({ ...p, version: s.version + 1 })),
-  setPosition: (id, x, y) => set((s) => ({ positions: { ...s.positions, [id]: { x, y } }, version: s.version + 1 })),
-  removeNodes: (ids) =>
-    set((s) => {
-      const positions = { ...s.positions };
-      const onNode = { ...s.onNode };
-      for (const id of ids) (delete positions[id], delete onNode[id]);
-      return { positions, onNode, version: s.version + 1 };
-    }),
-  setOnNode: (id, rows) => set((s) => ({ onNode: { ...s.onNode, [id]: rows }, version: s.version + 1 })),
-  setDisplay: (id) => set((s) => ({ displayId: id, displayPort: s.displayId === id ? s.displayPort : null, version: s.version + 1 })),
-  setDisplayPort: (port) => set((s) => ({ displayPort: port, version: s.version + 1 })),
-  setPlayback: (r) => set({ playback: r }),
-  addBox: (box) => set((s) => ({ boxes: [...s.boxes, box], version: s.version + 1 })),
-  setBox: (id, patch) => set((s) => ({ boxes: s.boxes.map((b) => (b.id === id ? { ...b, ...patch } : b)), version: s.version + 1 })),
-  moveBox: (id, x, y, members) =>
-    set((s) => {
-      const box = s.boxes.find((b) => b.id === id);
-      if (!box) return {};
-      const dx = x - box.x;
-      const dy = y - box.y;
-      if (!dx && !dy) return {};
-      const positions = { ...s.positions };
-      for (const m of members) if (positions[m]) positions[m] = { x: positions[m].x + dx, y: positions[m].y + dy };
-      return { boxes: s.boxes.map((b) => (b.id === id ? { ...b, x, y } : b)), positions, version: s.version + 1 };
-    }),
-  removeBoxes: (ids) => set((s) => ({ boxes: s.boxes.filter((b) => !ids.includes(b.id)), version: s.version + 1 })),
-}));
+    load: (p) => set((s) => ({ ...p, version: s.version + 1 })),
+    setPosition: (id, x, y) => edit((s) => ({ positions: { ...s.positions, [id]: { x, y } }, version: s.version + 1 })),
+    removeNodes: (ids) =>
+      edit((s) => {
+        const positions = { ...s.positions };
+        const onNode = { ...s.onNode };
+        for (const id of ids) (delete positions[id], delete onNode[id]);
+        // 折叠框的成员名单里也去掉（展开的框按位置算成员，没有名单要改）
+        const boxes = s.boxes.map((b) => (b.members.some((m) => ids.includes(m)) ? { ...b, members: b.members.filter((m) => !ids.includes(m)) } : b));
+        return { positions, onNode, boxes, version: s.version + 1 };
+      }),
+    setOnNode: (id, rows) => edit((s) => ({ onNode: { ...s.onNode, [id]: rows }, version: s.version + 1 })),
+    setDisplay: (id) => set((s) => ({ displayId: id, displayPort: s.displayId === id ? s.displayPort : null, version: s.version + 1 })),
+    setDisplayPort: (port) => set((s) => ({ displayPort: port, version: s.version + 1 })),
+    setPlayback: (r) => set({ playback: r }),
+    addBox: (box) => edit((s) => ({ boxes: [...s.boxes, box], version: s.version + 1 })),
+    setBox: (id, patch) => edit((s) => ({ boxes: s.boxes.map((b) => (b.id === id ? { ...b, ...patch } : b)), version: s.version + 1 })),
+    moveBox: (id, x, y, members) =>
+      edit((s) => {
+        const box = s.boxes.find((b) => b.id === id);
+        if (!box) return {};
+        const dx = x - box.x;
+        const dy = y - box.y;
+        if (!dx && !dy) return {};
+        const positions = { ...s.positions };
+        for (const m of members) if (positions[m]) positions[m] = { x: positions[m].x + dx, y: positions[m].y + dy };
+        return { boxes: s.boxes.map((b) => (b.id === id ? { ...b, x, y } : b)), positions, version: s.version + 1 };
+      }),
+    removeBoxes: (ids) => edit((s) => ({ boxes: s.boxes.filter((b) => !ids.includes(b.id)), version: s.version + 1 })),
+    place: (positions, boxes) =>
+      edit((s) => ({ positions: { ...s.positions, ...positions }, boxes: s.boxes.map((b) => (boxes[b.id] ? { ...b, ...boxes[b.id] } : b)), version: s.version + 1 })),
+  };
+});

@@ -2,24 +2,32 @@
  * state/look.ts, the unsaved mark, loading a graph file (checked and fixed up) and writing one. graph/actions.ts
  * re-exports what components call. */
 
+import { useHandleView } from "../state/handleView";
 import type { Edge } from "@xyflow/react";
 import type { GraphJSON, NodeTypeDef } from "../api";
-import { History, restore, type Doc } from "./history";
+import { History, absorb, anchor, bindRecorder, restore, restoring, writing, type Doc, type RecordAs } from "./history";
+import { same, type Json } from "../model/graphPatch";
+import { exposedValues, hiddenChoices } from "./exposedTree";
+import { condEqual } from "../platform/conditions";
 import { getNodeDefs } from "../state/catalog";
-import { useCookInputs, type CookNode, type Wire } from "../state/cookInputs";
+import { exposedParams, readExposed, readOnly, useCookInputs, type CookNode, type Wire } from "../state/cookInputs";
+import { enterPicking } from "../state/viewPicking";
 import { graphIdForLoad } from "../model/graphId";
 import { useLook, type Box } from "../state/look";
-import { useResults } from "../state/results";
+import { planHere, useResults } from "../state/results";
 import { useViewer } from "../state/viewer";
-import { mainOutput, noncommercialChoices, outputsOf, paramPortNames, tableRows } from "./rules";
+import { licensedChoices, mainOutput, outputsOf, paramPortNames, tableRows } from "./rules";
+import { cookSpan, parseSpan } from "./nodes";
 import { snapshotNow } from "./snapshot";
 import type { GNode } from "../state/graph";
 import { msg, say, type Message } from "../state/say";
-import { refreshStatus } from "./actions";
+import { askStatus } from "./asking";
 import { useItems } from "../state/items";
-import { justWired } from "./actions";
+import { justWired } from "./judged";
 import { loadOutputs } from "./outputs";
 import { randomId } from "../platform/randomId";
+import { leaveGraph } from "../transfer/uploads";
+import { cache } from "../platform/cache";
 
 // ------------------------------------------------------------------ history + dirty
 
@@ -44,7 +52,7 @@ function wireToEdge(w: Wire): Edge {
 
 function scheduleStatusRefresh(): void {
   if (statusTimer) clearTimeout(statusTimer);
-  statusTimer = setTimeout(() => void refreshStatus(), 250);
+  statusTimer = setTimeout(() => void askStatus(), 250);
 }
 
 /** A status reply asked right now (graph/actions.ts currentReply) makes the scheduled one needless. */
@@ -53,45 +61,103 @@ export function stopStatusRefresh(): void {
   statusTimer = null;
 }
 
-/** What the server's answer depends on: the cook inputs' version and the node shown. A move, a box, the rows shown on
+/** What the server's answer depends on: the cook inputs' version, the node shown and which of its outputs (the plan is judged for it). A move, a box, the rows shown on
  * a node change neither, so they ask nothing (a drag would otherwise ask again after every pause of the pointer). */
-let askedFor = { version: -1, display: "" as string | null };
+let askedFor = { version: -1, display: "" as string | null, port: null as string | null };
 
-/** After any edit of state/cookInputs.ts or state/look.ts: record a history step, refresh dirty/undo/redo, and ask
- * the server again (debounced) if the cook inputs or the node shown moved. */
-function noticed(): void {
+/** After any edit of state/cookInputs.ts or state/look.ts: record a history step (`as`: how, graph/history.ts
+ * RecordAs; none for a plain edit), refresh dirty/undo/redo, and ask the server again (debounced) if the cook inputs or
+ * the node shown moved. */
+function noticed(as?: RecordAs): void {
   const doc = docNow();
-  if (history.record(doc, getNodeDefs(), (id, port) => (port ? outputsOf(snapshotNow(), id).find((p) => p.name === port) : mainOutput(snapshotNow(), id)))) {
-    useViewer.getState().setSaveState(!history.isSaved(doc), history.labels.undoLabel, history.labels.redoLabel);
-  }
-  const now = { version: useCookInputs.getState().version, display: useLook.getState().displayId };
-  if (now.version === askedFor.version && now.display === askedFor.display) return;
+  history.record(doc, getNodeDefs(), (id, port) => (port ? outputsOf(snapshotNow(), id).find((p) => p.name === port) : mainOutput(snapshotNow(), id)), as);
+  // this write may hide the current value of an exposed pull-down (a parameter used in a condition changed): it falls to
+  // the first listed item, joined into the step just recorded (absorb: one undo takes both back, and the server is asked
+  // again as usual). What absorb itself writes is not checked again, so it cannot bounce back and forth
+  if (!(typeof as === "object" && "into" in as)) settleHiddenChoices();
+  // a value the user changed that is set to show its node (「修改后在视图里显示这个节点」): the display switches in the same
+  // step (not a derived fill, not what absorb itself wrote)
+  if (as === undefined || (typeof as === "object" && "label" in as)) showChanged();
+  else watchShown();
+  useViewer.getState().setSaveState(!history.isSaved(doc), history.labels.undoLabel, history.labels.redoLabel);
+  const now = { version: useCookInputs.getState().version, display: useLook.getState().displayId, port: useLook.getState().displayPort };
+  if (now.version === askedFor.version && now.display === askedFor.display && now.port === askedFor.port) return;
   askedFor = now;
   scheduleStatusRefresh();
 }
 
-// applyDoc() (undo/redo) and loadGraph() each restore state/cookInputs.ts and state/look.ts with two separate
-// `load()` calls, not one atomic write. Between them, this store's own subscription would see a "document changed"
-// that history.ts's `this.current` (only updated by the explicit history.showing()/reset() call that follows) does
-// not yet know about, and record it as a new user edit, pushing a spurious undo step and wiping the redo
-// entry undo() just pushed. Suppressing noticed() for the duration of that restore (both stores are consistent
-// again before undo()/redo()/loadGraph() call history.showing()/reset() themselves) keeps "three undos"
-// undoing exactly three steps, without corrupting the stack.
-let restoring = false;
+/** 「修改后在视图里显示这个节点」 (an exposed parameter's show_on_change): its value (or, for a file parameter, the file
+ * picked) as last seen, per exposed target. Whatever changes it (a field, a pull-down, a file or hierarchy pick, the rig
+ * map's OK, a click in the view) is an edit, and the edit is where the display switches: here, joined into its step,
+ * never an effect watching values afterwards (which would record a step of its own). Undo / redo and opening a document only
+ * take the values in as seen (watchShown). */
+let shownValues = new Map<string, Json>();
+function watchedNow(): Map<string, Json> {
+  const ci = useCookInputs.getState();
+  const out = new Map<string, Json>();
+  for (const x of exposedParams(ci.exposed)) {
+    if (!x.show_on_change) continue;
+    const [nid, pname] = x.target.split(".");
+    const n = ci.nodes[nid];
+    if (n) out.set(x.target, [n.params[pname] ?? null, n.picked?.[pname] ?? null] as Json);
+  }
+  return out;
+}
+const watchShown = (): void => void (shownValues = watchedNow());
+function showChanged(): void {
+  const now = watchedNow();
+  const changed = [...now].find(([target, key]) => shownValues.has(target) && !same(shownValues.get(target), key));
+  shownValues = now;
+  if (changed) absorb(anchor(), () => enterPicking(changed[0].split(".")[0]));
+}
 
-// One user action is one step: an action often writes both stores, or one store several times (addNode: the node, then
-// its position; a deletion: its wires, the node, its position, a box), and each write would otherwise be recorded as
-// a step of its own (「添加节点」 then 「移动节点」 for one Tab-menu pick). The writes of one action all happen in the same
-// task, so the step is recorded once, at its end, with everything the action wrote.
-let noticing = false;
+/** An exposed pull-down whose current value is hidden by that item's Hide When gets the first listed item (the rule:
+ * graph/exposedTree.ts hiddenChoices). */
+function settleHiddenChoices(): void {
+  const ci = useCookInputs.getState();
+  const fixes = hiddenChoices(ci.exposed, exposedValues(ci.exposed, (id) => ci.nodes[id], getNodeDefs()));
+  if (!fixes.length) return;
+  absorb(anchor(), () => {
+    for (const { x, now } of fixes) {
+      const [nid, pname] = x.target.split(".");
+      const n = useCookInputs.getState().nodes[nid];
+      if (n) useCookInputs.getState().setNode(nid, { params: { ...n.params, [pname]: now } });
+    }
+  });
+}
+
+// applyDoc() (undo/redo) and loadGraph() write state/cookInputs.ts and state/look.ts in two `load()` calls: wrapped in
+// `restoring` (graph/history.ts) so the half-written document in between is never recorded as a user edit (a spurious
+// step would wipe the redo entry undo() just pushed); history.showing() / reset() follow.
+
+// A plain user action is one step: it often writes both stores, or one store several times (addNode: the node, then
+// its position; a deletion: its wires, the node, its position, a box), all in the same task. The step is recorded
+// once, at the end of that task (a microtask), with everything the action wrote. `scheduled` only batches that one
+// microtask; what a write IS (a named step, a derived fill, a restore) is never a flag here but the scope the writer
+// wrapped it in (graph/history.ts transaction / absorb / derived / restoring), during which the stores' notices are
+// not taken for plain edits.
+let scheduled = false;
 function noticeSoon(): void {
-  if (restoring || noticing) return;
-  noticing = true;
+  if (writing() || scheduled) return;
+  scheduled = true;
   queueMicrotask(() => {
-    noticing = false;
+    if (!scheduled) return; // already recorded by a scope that began in this task (flush)
+    scheduled = false;
     noticed();
   });
 }
+
+bindRecorder({
+  // a scope starts: whatever plain edits this task already made are their own step first, not swallowed by the scope
+  flush: () => {
+    if (!scheduled) return;
+    scheduled = false;
+    noticed();
+  },
+  record: (as) => noticed(as),
+  top: () => history.top(),
+  fillUndone: (into, node, values, was) => history.fillUndone(into, node, values, was),
+});
 
 let watching = false;
 function watchStores(): void {
@@ -102,7 +168,12 @@ function watchStores(): void {
 }
 watchStores();
 
+/** Undo / redo write the document like any edit, so the read-only tab's gate is here, on the entry itself (the button,
+ * the shortcut and anything later all come through): a tab another one took over never changes the document by its
+ * history (applyDoc's load is a read-in and passes the stores' own gate). Taking editing back reads the newer copy in
+ * (editor/autosave.ts takeOver), which starts a fresh history. */
 export function undo(): void {
+  if (readOnly()) return;
   const doc = history.undo();
   if (!doc) return;
   applyDoc(doc);
@@ -112,6 +183,7 @@ export function undo(): void {
 }
 
 export function redo(): void {
+  if (readOnly()) return;
   const doc = history.redo();
   if (!doc) return;
   applyDoc(doc);
@@ -130,13 +202,11 @@ function applyDoc(doc: Doc): void {
     positions[n.id] = n.position;
     onNode[n.id] = n.data.onNode;
   }
-  restoring = true;
-  try {
+  restoring(() => {
     useCookInputs.getState().load({ graphId: useCookInputs.getState().graphId, meta: doc.meta, exposed: doc.exposed ?? [], cookRange: doc.cookRange, nodes, order: restored.nodes.map((n) => n.id), edges: restored.edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle ?? "", target: e.target, targetHandle: e.targetHandle ?? "" })), kept: useCookInputs.getState().kept });
     useLook.getState().load({ positions, onNode, boxes: doc.boxes, displayId: doc.displayId, displayPort: doc.displayPort, playback: useLook.getState().playback });
-  } finally {
-    restoring = false;
-  }
+  });
+  watchShown(); // values undo / redo brought back are not a change
   useViewer.setState({ selectedId: restored.selectedId });
 }
 
@@ -153,6 +223,14 @@ export function savePoint(): () => void {
 
 // ------------------------------------------------------------------ loading, saving
 
+/** What a graph file may lack, filled in at once (only `schema` is checked by graphFile.ts parse): a hand-written or old
+ * graph without `nodes` / `edges` / `meta`, or a node without `ui` (position, picked files, the rows on its body), still
+ * opens, instead of throwing when one item is read and the whole graph failing to open. A missing position is placed
+ * at (0, 0) in loadGraph (NodeEditor's 「未知节点」 uses 0 as well). */
+function filledIn(g: GraphJSON): GraphJSON {
+  return { ...g, meta: { ...g.meta, name: g.meta?.name ?? "未命名" }, nodes: g.nodes ?? [], edges: g.edges ?? [] };
+}
+
 /** A graph as the current node definitions read it: parameters over their defaults, and whatever the definitions do
  * not have left out and listed. */
 function checkGraph(g: GraphJSON, defs: Record<string, NodeTypeDef>) {
@@ -166,14 +244,15 @@ function checkGraph(g: GraphJSON, defs: Record<string, NodeTypeDef>) {
   const loaded = new Map(
     g.nodes.map((n) => {
       const def = defs[n.type];
-      // 节点图文件中可以没有 params 项（手写的图、模板中全部使用默认值的节点）：视为空对象，按默认值处理。
-      // 直接调用 Object.keys(n.params) 会在缺项时抛错，导致整张模板卡无法打开。
+      // a graph file may have no `params` for a node (a hand-written graph, a template node using only defaults): taken
+      // as an empty object, i.e. the defaults. Object.keys(n.params) on a missing item would throw and the whole
+      // template card would fail to open.
       const own = n.params ?? {};
       const unknown = Object.keys(own).filter((k) => !(k in def.defaults));
       if (unknown.length) problems.push(msg("W-GRAPH-NOPARAMS", { node: label(n.id), names: unknown }));
       const given = { ...def.defaults, ...Object.fromEntries(Object.entries(own).filter(([k]) => k in def.defaults)) };
       const stored: Record<string, unknown> = {};
-      for (const k of Object.keys(noncommercialChoices(def))) {
+      for (const k of Object.keys(licensedChoices(def))) {
         const spec = def.params.find((p) => p.name === k);
         const allowed = spec?.options ? spec.options.some((o) => String(o) === String(given[k])) : given[k] === def.defaults[k];
         if (!allowed && k in own) (stored[k] = given[k]), (given[k] = def.defaults[k]);
@@ -193,12 +272,13 @@ function checkGraph(g: GraphJSON, defs: Record<string, NodeTypeDef>) {
     }),
   );
   const promoted = (n: GraphJSON["nodes"][number]) => promotedOf.get(n.id)!;
-  // 节点上显示的参数行名单保存在节点图文件的 `ui.on_node` 中（与 `params` 同属该节点自身的数据）。
-  // 未写该项的节点按节点类型的出厂默认处理（NodeDef.on_node，graph/nodes.ts chosenOnNode）。
+  // the list of parameter rows shown on a node is kept in the graph file's `ui.on_node` (the node's own data, like
+  // `params`). A node without it uses its type's factory default (NodeDef.on_node, graph/nodes.ts chosenOnNode).
   const onNodeOf = new Map(
     g.nodes.flatMap((n) => {
-      // `ui` 整体可以缺失（节点图文件未记录位置）：此时没有该名单，按类型声明处理。
-      // 文件缺少某个键不应导致页面崩溃（模板文件由 `lab2shot check templates` 检查）
+      // `ui` may be missing altogether (the graph file records no position): then there is no list and the type's
+      // declaration applies. A key missing from a file must not crash the page (template files are checked by
+      // `lab2shot check templates`)
       if (!n.ui?.on_node) return [];
       const simple = new Set(defs[n.type].params.filter((p) => p.simple).map((p) => p.name));
       const gone = n.ui.on_node.filter((p) => !simple.has(p));
@@ -240,6 +320,7 @@ function checkGraph(g: GraphJSON, defs: Record<string, NodeTypeDef>) {
  * when `g.meta.id` is set (a template file's id exists only so the file itself always has one; every graph made
  * from it gets its own, so two graphs from the same template never share one). */
 export function loadGraph(g: GraphJSON, file: { name: string; handle?: string } | null, dirty = false, docId?: string, opts?: { freshId?: boolean }): void {
+  g = filledIn(g);
   const defs = getNodeDefs();
   const checked = checkGraph(g, defs);
   const nodes: Record<string, CookNode> = {};
@@ -248,13 +329,23 @@ export function loadGraph(g: GraphJSON, file: { name: string; handle?: string } 
   const order: string[] = [];
   for (const n of checked.nodes) {
     order.push(n.id);
-    nodes[n.id] = { typeId: n.type, label: n.label || defs[n.type]?.label || n.type, params: checked.params(n), promoted: checked.promoted(n).length ? checked.promoted(n) : undefined, picked: n.ui.picked, stored: checked.stored(n) };
-    positions[n.id] = { x: n.ui.x, y: n.ui.y };
+    nodes[n.id] = { typeId: n.type, label: n.label || defs[n.type]?.label || n.type, params: checked.params(n), promoted: checked.promoted(n).length ? checked.promoted(n) : undefined, picked: n.ui?.picked, stored: checked.stored(n) };
+    positions[n.id] = { x: n.ui?.x ?? 0, y: n.ui?.y ?? 0 };
     onNode[n.id] = checked.onNode(n);
   }
   const edges: Wire[] = checked.edges.map((e) => ({ id: `${e.from[0]}.${e.from[1]}->${e.to[0]}.${e.to[1]}`, source: e.from[0], sourceHandle: e.from[1], target: e.to[0], targetHandle: e.to[1] }));
   // said once the graph is in (the results are cleared on the way)
   const said: Message[] = [];
+  // a file's exposed pull-down value is the very item hidden under the current conditions: it falls to the first listed
+  // item, this is said, and the document counts as changed (saving writes it in)
+  const exposed = readExposed(g.exposed);
+  for (const { x, was, now } of hiddenChoices(exposed, exposedValues(exposed, (id) => nodes[id], defs))) {
+    const [nid, pname] = x.target.split(".");
+    nodes[nid] = { ...nodes[nid], params: { ...nodes[nid].params, [pname]: now } };
+    const label = (v: unknown) => x.options?.find((o) => condEqual(o.value, v))?.label ?? JSON.stringify(v);
+    said.push(msg("N-EXPOSED-HIDDENVALUE", { label: x.label, was: label(was), now: label(now) }));
+    dirty = true;
+  }
   if (checked.problems.length) {
     dirty = true;
     said.push(msg("W-GRAPH-MISMATCH", { graph: g.meta.name, count: checked.problems.length, problems: checked.problems }));
@@ -277,17 +368,25 @@ export function loadGraph(g: GraphJSON, file: { name: string; handle?: string } 
   void _unusedId;
 
   useResults.getState().reset();
+  // another graph: nothing draws the previous graph's decoded bitmaps now, so the decoded tier is released (the compressed
+  // bytes stay: reopening decodes again in milliseconds)
+  cache.releasePixels();
   useItems.getState().reset(); // another graph: no block of the old one is being shown any more (state/items.ts)
   justWired.clear();
-  restoring = true; // two separate store writes below, one document (see the comment on `restoring`)
-  try {
-    // 节点图文件未写「对外参数」项时按空处理：缺失会导致参数面板整体空白
-    useCookInputs.getState().load({ graphId, meta, exposed: g.exposed ?? [], cookRange, nodes, order, edges, kept: checked.kept });
+  // upload tasks, local files and local proxy progress belong to a document (graphId): those not of this document are not
+  // shown (transfer/uploads.ts). Called before load(): it is how a graphId change is told to be opening another
+  // document rather than 另存为
+  leaveGraph(graphId);
+  restoring(() => { // two separate store writes below, one document
+    // a graph file without the exposed-parameters item counts as empty: a missing one would blank the whole parameter
+    // panel. An older file's flat list is a parameter interface tree without groups and is read in as it is; saving
+    // writes the tree (state/cookInputs.ts readExposed)
+    useCookInputs.getState().load({ graphId, meta, exposed, cookRange, nodes, order, edges, kept: checked.kept });
     useLook.getState().load({ positions, onNode, boxes, displayId: display, displayPort: view.port ?? null, playback: view.playback ?? null });
-  } finally {
-    restoring = false;
-  }
+  });
+  watchShown(); // the opened document's values are where watching starts
   useViewer.getState().reset();
+  useHandleView.getState().reset();
   useViewer.setState({ file, docId: docId ?? randomId(), role: "editor", peerBanner: null });
   if (view.frame) useViewer.setState({ frame: view.frame });
   history.reset(docNow(), !dirty);
@@ -309,7 +408,9 @@ export function toJSON(): GraphJSON {
     schema: "lab2shot.graph/1",
     meta: { ...ci.meta, id: ci.graphId },
     exposed: ci.exposed,
-    frames: rangeNumbers(ci.cookRange),
+    // the server gets the range actually submitted (intersected with the footage, graph/nodes.ts cookSpan); fileJSON,
+    // for the file, puts back what the user typed
+    frames: cookSpan(ci.cookRange, planHere()),
     nodes: ci.order.map((id) => {
       const n = ci.nodes[id];
       const pos = look.positions[id] ?? { x: 0, y: 0 };
@@ -333,13 +434,8 @@ export function fileJSON(): GraphJSON {
   g.nodes = g.nodes.map((n) => (ownMap.has(n.id) ? { ...n, params: { ...n.params, ...ownMap.get(n.id) } } : n));
   const nodes = [...g.nodes, ...ci.kept.nodes.filter((n) => !g.nodes.some((m) => m.id === n.id))];
   const there = new Set(nodes.map((n) => n.id));
-  return { ...g, nodes, edges: [...g.edges, ...ci.kept.edges.filter((e) => there.has(e.from[0]) && there.has(e.to[0]))] };
+  const typed = parseSpan(ci.cookRange);
+  return { ...g, frames: typed && "span" in typed ? typed.span : null, nodes, edges: [...g.edges, ...ci.kept.edges.filter((e) => there.has(e.from[0]) && there.has(e.to[0]))] };
 }
 
-function wholeNumbers(r: [string, string]): [number, number] | null {
-  return r.every((v) => /^-?\d+$/.test(v.trim())) ? [Number(r[0]), Number(r[1])] : null;
-}
-function rangeNumbers(r: [string, string] | null): [number, number] | null {
-  const nums = r && wholeNumbers(r);
-  return nums && nums[0] <= nums[1] ? nums : null;
-}
+

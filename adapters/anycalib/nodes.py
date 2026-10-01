@@ -6,8 +6,8 @@ import typing
 from pathlib import Path
 
 
-from lab2shot.sdk import (Official, FILMBACK_MM, measured_param, FLOAT, LENS, LENS_TABLE, LensCalibration, NodeParams, P, Packet,
-                          distortion, focal_px_to_mm, lens_note, packed_lens, value_packet, Cost, Measured, distorts)
+from lab2shot.sdk import (Official, FILMBACK_MM, measured_param, FLOAT, Job, LENS, LENS_TABLE, LensCalibration, NodeParams, P, Packet,
+                          distortion, focal_mm, lens_note, packed_lens, value_packet, Cost, Measured)
 
 
 # 「镜头模型」的选项即 AnyCalib 自身的 cam_id；提供哪些模型及其对应的公式表模型，均由 lens.py 的 GROUP 定义
@@ -29,7 +29,7 @@ def lens_distortion(params: dict, names: list[str], values: list[float]) -> dict
 
 class Calibrate(LensCalibration):
     id = "anycalib.calibrate"
-    version = 2  # 「镜头内参」的值包含组名和公式表 id（nodes/lens.py packed_lens）；更早版本的缓存不含这些字段
+    version = 3  # 「镜头模型」选无畸变时也交「镜头内参」（没有系数的镜头），不再是空包
     on_node = ("fit_model",)
     # 视图下方的控件与「COLMAP 相机解算」一致：解算出的三个值已在视图中显示，参数中仅保留镜头模型
     strip = {"fit_model": "镜头模型"}
@@ -38,9 +38,6 @@ class Calibrate(LensCalibration):
     # 对整段中的若干帧（默认 8 帧）分别估计后取中位数；假定相机固定，仅输出镜头信息；不适用于变焦镜头。
     # 输入「RGB」，输出 Focal Length / Filmback / 镜头内参，均由镜头标定家族声明（families/lens_calibration.py），
     # 与 GeoCalib 一致。本节点仅输出数值；ST-map 的烘焙仅由「LensDistortion」执行，在节点图上可见。
-    # 「镜头模型」中实际解出畸变系数的选项（家族的 `distorting_models`）由 GROUP 计算：仅限公式表上带系数的模型。
-    # 选择无畸变时，家族将「镜头内参」端口置灰（此时 cook 在该端口输出空包），新增模型时无需修改此处。
-    distorting_models = tuple(m for m, gm in GROUP.models.items() if distorts(gm.table))
     # 主点包含在「镜头内参」中：家族声明的三个端口即全部输出
     runtime = "anycalib"
     # 官方接口的输入、输出与解算器一致：AnyCalib.predict(im, cam_id) 返回 pred["intrinsics"]
@@ -91,19 +88,22 @@ class Calibrate(LensCalibration):
     @classmethod
     def known_outputs(cls, params: dict) -> dict[str, dict]:
         """输出的镜头模型在计算前即可由参数确定：「镜头内参」先输出仅含组名和模型名、系数为空的值，
-        使下游「LensDistortion」在提交前即可核对两端是否匹配（B-LENS-MODELMISMATCH），无需等待模型运行完成。"""
+        使下游「LensDistortion」在计算前就跟上这个模型（它的镜头内参组、镜头模型取接进来的值：params_from_input），
+        无需等待模型运行完成。"""
         gm = GROUP.model(params.get("fit_model") or "")
-        if gm is None or gm.table not in LENS_TABLE or not LENS_TABLE[gm.table].params:
+        if gm is None or gm.table not in LENS_TABLE:
             return {}
         return {"lens": value_packet(Path("."), LENS, {"group": GROUP.id, "model": gm.name, "table": gm.table, "params": {}}, said=gm.name).meta}
 
     @classmethod
-    def cook(cls, ctx):
+    def prepare(cls, ctx) -> Job:
+        return Job(ctx.input("image"), extra={"model": ctx.params["fit_model"]})  # 该参数即官方的 cam_id
+
+    @classmethod
+    def convert(cls, ctx, raw, job):
         import json
 
-        image = ctx.input("image")
-        raw = ctx.run_worker(image, extra={"model": ctx.params["fit_model"]})  # 该参数即官方的 cam_id
-        lens = json.loads((raw / "lens.json").read_text(encoding="utf-8"))
+        lens = json.loads(raw.file("lens.json").read_text(encoding="utf-8"))
         w, h = int(lens["width"]), int(lens["height"])
         back = float(ctx.params["filmback_mm"])
 
@@ -121,15 +121,14 @@ class Calibrate(LensCalibration):
         picture = {"width": w, "height": h}  # 焦距测量所基于的画面：与目标素材核对
         # 输出数值，每个数值的去向在节点图上可见（此处不将参数烘焙为 ST-map）：
         # Focal Length、Filmback 各占一个端口，其余（模型、系数、主点）打包为一份「镜头内参」。
-        # pinhole 没有系数，「镜头内参」输出空包（空结果不属于错误），与 COLMAP 选择无畸变时一致
+        # pinhole 也是镜头：没有系数的「镜头内参」，下游「LensDistortion」给出恒等 ST-map（与 COLMAP、GeoCalib 一致）
         model_id = str(ctx.params["fit_model"])  # 组内名称（cam_id），即「镜头内参」中记录的模型名
         out = {
             # 上游输出的是 Focal Length（px）（anycalib_pretrained.py:300-303），按节点的「Filmback」换算为毫米后输出
-            "focal": value_packet(ctx.outputs["focal"], FLOAT, focal_px_to_mm(props["focal_px"], w, back), unit="mm", **picture),
+            "focal": value_packet(ctx.outputs["focal"], FLOAT, float(focal_mm(props["focal_px"], back, w)), unit="mm", **picture),
             "filmback": value_packet(ctx.outputs["filmback"], FLOAT, back, unit="mm", **picture),
-            "lens": (value_packet(ctx.outputs["lens"], LENS, packed_lens(distorted, props["center_mm"], 1.0, group=GROUP.id, name=model_id),
-                                  said=model_id, **picture)
-                     if LENS_TABLE[str(distorted["model"])].params else Packet(ctx.outputs["lens"], LENS, {"empty": True})),  # 仅公式表上带系数的模型输出内参
+            "lens": value_packet(ctx.outputs["lens"], LENS, packed_lens(distorted, props["center_mm"], 1.0, group=GROUP.id, name=model_id),
+                                 said=model_id, **picture),
         }
         hfov = lens.get("hfov_deg")
         if hfov:

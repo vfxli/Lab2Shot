@@ -3,6 +3,10 @@
  * separate red token used only in CSS). */
 export const ERROR_COLOR = "#b98cff"; // --error
 
+/** The accent colour (--accent in ui/tokens.css) as a value for canvases: the 2D stage marks the people a 「选人」 picks
+ * with it (view/overlays.ts drawBoxes), the same colour as every other "chosen / on" state of the page. */
+export const ACCENT_COLOR = "#6aa8ff"; // --accent
+
 /** The colour of a node the catalogue does not place anywhere (an unknown type, a node whose extension was removed):
  * the muted grey of --text-3, as a value for the canvas and the glyphs (api/catalog.ts nodeCategory). */
 export const NEUTRAL_COLOR = "#69717c"; // --text-3
@@ -11,8 +15,9 @@ export const NEUTRAL_COLOR = "#69717c"; // --text-3
  * hairline colour, slightly fainter. */
 export const GRAPH_DOT_COLOR = "rgba(190, 205, 225, 0.07)";
 
-/** 二维视图背景「纯色」的可选档位：颜色与名称在此一并定义（界面上只显示名称，不显示色值）。
- * 纯黑（查看 alpha 时以真正的黑色为底）、近黑、中灰、近白，另加绿幕绿和洋红两个对比色。 */
+/** The choices of the 2D view's plain-colour background, colour and name defined together here (the interface shows only
+ * the name, never the value): pure black (a true black under the image when inspecting alpha), near black, mid grey,
+ * near white, and two contrast colours, green-screen green and magenta. */
 export const BG_CHOICES = [
   { value: "#000000", name: "纯黑" },
   { value: "#1a1a1c", name: "近黑" },
@@ -24,9 +29,9 @@ export const BG_CHOICES = [
 
 export const bgColourOf = (picked: string): string => picked || BG_CHOICES[0].value;
 
-/** 透明区域棋盘格的两种灰色：二维舞台用画布绘制（view/overlays.ts drawBackground），
- * 背景下拉框中的色样用 CSS 绘制。值只在此处定义，令牌 `--checker-light` / `--checker-dark`
- * 须与之保持一致（做法与 ERROR_COLOR / --error 相同）。 */
+/** The two greys of the checkerboard behind transparent areas: the 2D stage draws it on a canvas (view/overlays.ts
+ * drawBackground), the swatch in the background pull-down draws it in CSS. The values are defined only here; the tokens
+ * `--checker-light` / `--checker-dark` must match them (the same arrangement as ERROR_COLOR / --error). */
 export const CHECKER_LIGHT = "#4a4a4e"; // --checker-light
 export const CHECKER_DARK = "#323234"; // --checker-dark
 

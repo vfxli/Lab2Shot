@@ -1,31 +1,14 @@
 """Fast SAM 3D Body: SAM 3D Body's own weights run through a faster inference
 path (all people and both hands of a frame in one batch, pruned decoder passes).
 It builds on the sam_3d_body extension (requires): the same node (its nodes subclass SAM 3D Body 全身动作) and the same
-solve and MHR rig in the worker (adapters/sam_3d_body/sam3dbody.py). The weights are pinned here as well."""
+solve and MHR rig in the worker (adapters/sam_3d_body/sam3dbody.py), and its weights (MODEL_WEIGHTS, imported)."""
 
 from __future__ import annotations
 
 import shutil
 
-from lab2shot.sdk import NONCOMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight, hf_file
-
-# SAM 3D Body's: the DINOv3 network code of the backbone, the model and its rig, the MoGe-2 focal estimate (the same
-# files as the sam_3d_body extension's: the installer keeps one copy of identical files).
-DINOV3 = GitSource(url="https://github.com/facebookresearch/dinov3.git", commit="6876159a11b4df116f30f667f8c9888617df0751")
-MODEL_REPO, MODEL_REVISION = "facebook/sam-3d-body-dinov3", "11aaa346c7204874a1cbafe3d39a979080b2c55a"
-MOGE_REPO, MOGE_REVISION = "Ruicheng/moge-2-vitl-normal", "cb0e8bbd6b1e243589717c78e750b1ba4c093acf"
-MODEL_WEIGHTS = (
-    hf_file(MODEL_REPO, MODEL_REVISION, "model.ckpt", key="sam-3d-body-dinov3", dest="sam-3d-body-dinov3/model.ckpt",
-            sha256="b5a2f9d305dd02626b967aa2e86021fba07065df66ce7a7e00ffb9664f150abf", gated=True,
-            note="SAM 3D Body 权重（2.1 GB，SAM License）；需要在 Hugging Face 页面申请权限"),
-    hf_file(MODEL_REPO, MODEL_REVISION, "assets/mhr_model.pt", key="mhr-model", dest="sam-3d-body-dinov3/assets/mhr_model.pt",
-            sha256="352e271a6c42729c68554ceaea0c955e866970160c31e35506d782dc0f7377bc", gated=True,
-            note="MHR 人体绑定（0.7 GB，随 SAM 3D Body 权重发布）"),
-    hf_file(MODEL_REPO, MODEL_REVISION, "LICENSE", key="sam-license", dest="sam-3d-body-dinov3/LICENSE", gated=True,
-            note="SAM License 原文（使用和分发权重时要附带）"),
-    hf_file(MOGE_REPO, MOGE_REVISION, "model.pt", key="moge-2", dest="moge-2-vitl-normal/model.pt",
-            sha256="280741fd09bc3f403ccff9967784c2a391b52d2c0742ae3efdb21d9f90cc1a01", note="Focal Length 估计 MoGe-2（MIT，1.3 GB）"),
-)
+from adapters.sam_3d_body.extension import DINOV3, MODEL_WEIGHTS  # SAM 3D Body's weights: one table (requires)
+from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight
 
 YOLO_WEIGHT = "yolo/yolo11m-pose.pt"
 YOLO_SHA256 = "29b17eaf3a3117cbea906090dbedf9159f7c6a49db58ec8b99ed2dfde1cf6eb2"
@@ -42,11 +25,11 @@ class FastSam3DBody(Extension):
         commit="808b53c7d9c26a7e511d31144f1e5efb058e15c9",
     )
     license = LicenseInfo(
-        tag=NONCOMMERCIAL,
+        tag=COMMERCIAL,  # AGPL (YOLO11-Pose) allows commercial use with its own duty to publish: said, not a class
         name="MIT + SAM License + DINOv3 License + AGPL-3.0（YOLO11-Pose）",
         url="https://github.com/yangtiming/Fast-SAM-3D-Body/blob/main/LICENSE",
         summary=(
-            "提速代码 MIT；但它是在 Meta SAM 3D Body 代码上改的，原有部分和权重（与 SAM 3D Body 扩展包同一份）仍按 SAM License"
+            "可商用。提速代码 MIT；但它是在 Meta SAM 3D Body 代码上改的，原有部分和权重（与 SAM 3D Body 扩展包同一份）仍按 SAM License"
             "（可商用、可修改再分发，需附许可证，发表论文需注明，禁军事用途）；骨干网络代码 DINOv3 License（同类条款）；"
             "MoGe-2 Focal Length 估计 MIT。找手腕用的 Ultralytics YOLO11-Pose（代码和权重）是 AGPL-3.0："
             "自己内部使用无妨，修改后对外提供服务或分发需按 AGPL 开源，商用闭源要买 Ultralytics 企业许可"

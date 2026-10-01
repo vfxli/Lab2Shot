@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from lab2shot_shared import names
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdSkel, Vt
 
 from ..errors import Invalid
@@ -130,7 +131,7 @@ def scenes(inputs: list[Packet]) -> list[tuple[str, Packet]]:
 def as_group(src: Packet, name: str, out: Path) -> Packet:
     """The scene with everything it holds under one group /shot/<name> (「命名」): one thing already there is renamed,
     several are gathered under a group of that name. The one place a scene is named, and only where the artist said so."""
-    if usd.valid_name(name) != name:  # a hierarchy name goes into the 3D file as it is: never changed here
+    if names.identifier(name) != name:  # a hierarchy name goes into the 3D file as it is: never changed here
         raise Invalid(Msg("E-NAME-HIERARCHY", name=name))
     stage = Usd.Stage.Open(open_scene([src]).Flatten())
     usd.apply_conventions(stage, src.meta["frames"])
@@ -205,35 +206,6 @@ def _prepared(p: Packet, names: dict[str, str], path: Path, group: str = "") -> 
     shot.ClearXformOpOrder()
     stage.GetRootLayer().Export(str(path))
     return path
-
-
-def euler_xyz_matrix(rotate_deg) -> np.ndarray:
-    """Houdini / Maya "XYZ" order: rotate about X first, then Y, then Z (column vectors)."""
-    rx, ry, rz = np.radians(rotate_deg)
-    cx, sx, cy, sy, cz, sz = np.cos(rx), np.sin(rx), np.cos(ry), np.sin(ry), np.cos(rz), np.sin(rz)
-    Rx = np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]])
-    Ry = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
-    Rz = np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]])
-    return Rz @ Ry @ Rx
-
-
-def xyz_euler_deg(rotations: np.ndarray) -> np.ndarray:
-    """Rotations [F,3,3] -> "XYZ" angles in degrees [F,3], the inverse of euler_xyz_matrix (at a gimbal lock, Z is 0),
-    unwrapped over the frames so a turn past 180° goes on instead of jumping."""
-    r = np.asarray(rotations, np.float64).reshape(-1, 3, 3)
-    ry = np.arcsin(np.clip(-r[:, 2, 0], -1.0, 1.0))
-    locked = np.abs(np.cos(ry)) < 1e-8
-    rx = np.where(locked, np.arctan2(-r[:, 1, 2], r[:, 1, 1]), np.arctan2(r[:, 2, 1], r[:, 2, 2]))
-    rz = np.where(locked, 0.0, np.arctan2(r[:, 1, 0], r[:, 0, 0]))
-    return np.degrees(np.unwrap(np.stack([rx, ry, rz], -1), axis=0))
-
-
-def trs_matrix(translate=(0.0, 0.0, 0.0), rotate=(0.0, 0.0, 0.0), scale: float = 1.0) -> np.ndarray:
-    """4x4 (column vectors): scale, then rotate (XYZ order, degrees), then translate (cm)."""
-    m = np.eye(4)
-    m[:3, :3] = euler_xyz_matrix(rotate) * scale
-    m[:3, 3] = translate
-    return m
 
 
 def transform(src: Packet, out: Path, m: np.ndarray) -> Packet:
@@ -469,10 +441,7 @@ def bind_skin(src: Packet, out: Path, *, joint_names: list[str], parents, bind_w
     # its name and leaving every mesh in place. Otherwise (several groups, or a user-given name) a new SkelRoot is created
     # and they are moved into it: skinnable prims in USD must be inside a SkelRoot
     in_place = len(top) == 1 and not name
-    label = usd.valid_name(name or (top[0].GetName() if in_place else "rig"))
-    if not in_place:
-        while stage.GetPrimAtPath(f"{ROOT_PATH}/{label}"):
-            label += "_"
+    label = top[0].GetName() if in_place else usd.child_name(stage, ROOT_PATH, name or "rig")
     root_path = f"{ROOT_PATH}/{label}"
     skel_root = usd.write_rig(stage, label, list(joint_names), np.asarray(parents, np.int64), bind_world,
                               bind_world[None], rest, path=root_path, custom_data=usd.layer_data(info or {}))

@@ -349,6 +349,8 @@ def windows(bad: np.ndarray, total: int) -> list[tuple[int, int]]:
         start = min(max(first - WINDOW // 4, 0), max(total - WINDOW, 0))
         end = min(start + WINDOW, total)
         out.append((start, end))
+        if end >= total:  # the window reaches the clip's end: a next one would be this same window again
+            break
         rest = [f for f in todo if f >= end - 2]  # the tail frames go to the next window
         if rest and rest[0] <= first:  # nothing left to move forward to (the clip's own end)
             break

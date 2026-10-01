@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from adapters.sam_3d_body.nodes import Solve  # this extension requires sam_3d_body (Extension.requires)
-from lab2shot.sdk import Official, Cost, Licence
+from lab2shot.sdk import Official, Cost
 
 
 class FastSolve(Solve):
@@ -22,6 +22,7 @@ class FastSolve(Solve):
               "third_party/fast_sam_3d_body/repo/sam_3d_body/sam_3d_body_estimator.py:375-392"),  # 它吐出来的每一项
         takes={"image": "image_folder", "boxes": "bboxes"},
         gives={"character": "body_pose_params"},
+        ours={"camera": "放人用的针孔相机：原点、不动，焦距 = 节点的「Focal Length」（留空用解算器自己估的），主点在画面中心（families/humans.py plate_camera，同 SAM 3D Body）"},
         note="⓪ **「人物框」是可选输入，直接交给官方函数**（规则：官方函数接受人物框就直接把框交给它；不接受框的项目，在节点图上走「人物框转遮罩」）："
              "这个仓库自己的 `process_one_image(img, bboxes=None, …)`（sam_3d_body_estimator.py:194-205，**官方包的函数**）"
              "收框；官方 demo 不传框只是因为它自己建了检测器（demo.py:44-49；demo_human.py `--detector` 默认 `yolo`，"
@@ -50,8 +51,6 @@ class FastSolve(Solve):
     runtime = "fast_sam_3d_body"
     # vram_gb: RTX 4090
     cost = Cost(gpu=True, vram_gb=4.2, seconds_per_frame=0.2, note='Fast SAM 3D Body 的实测')
-    licence = Licence(note="代码 MIT，但沿用的 SAM 3D Body 部分和权重是 SAM License（可商用，禁止军事用途，需附许可证并在论文中注明）；"
-        "用来找手腕的 YOLO11-Pose 是 AGPL-3.0（开源传染性许可，分发或对外提供服务时有开源义务）。")
 
 
 NODES = (FastSolve,)

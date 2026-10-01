@@ -5,7 +5,7 @@
      ③ 节点右下角「数据信息」中的「提醒」组（使用全站统一的 ui/MessageRow.tsx，样式位于 ui/message.css）。
    本文件只包含 ② 以及节点底行两个标签的行高。 */
 
-/* A node's notice mark (N messages only): grey, not the warning's yellow.
+/* 节点的提醒角标（仅 N 级消息）：灰色，而非警告的黄色。
    按元素上已有的 `data-level` 取色，不另加类名：不得使用 `.notice` 等类名，`notice` 是全站橙色提示块的类
    （04-inspector.css，带 margin / padding / 橙色底），会将单字角标撑成大方块并超出节点底边，
    而 `.node-mark` 只控制字号，无法覆盖。属性选择器不会与组件类名冲突。 */
@@ -13,8 +13,7 @@
   color: var(--text-2);  /* N 级仅为提醒，不使用易被理解为「故障」的颜色（红色仅用于可能造成生产事故的消息） */
 }
 
-/* the licence badge in a node's footer: no vertical padding, so it is never taller than the footer's own line of
-   text and the node keeps its fixed height */
+/* 节点脚注中的许可证角标：无上下内边距，因此不会高于脚注自身的文字行，节点保持固定高度 */
 .gnode-foot .nc-badge,
 .gnode-foot .gnode-compute {
   line-height: 13.5px;

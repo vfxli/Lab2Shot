@@ -16,13 +16,20 @@
 释放空间只有一个操作：在队列中删除任务（`drop_for_job`）：它的文件夹整个删除，只被它引用的缓存随后的清理带走。
 三部分占用只用于报告数值（说明空间用在何处），不作为清理入口。
 
-队列窗口的轮询（每 1.5–30 秒）带着是否已满（`gate`），「我的占用」打开时和清理后另取一次明细（`usage`）；两者都是当前
-时刻的值（「删掉任务后立即看到空间释放」）。"""
+量一次占用要把账号的上传和进行中任务的文件夹逐个 stat 一遍（传过几万帧序列就是几万次）。所以账号的占用是一个数
+（`_latest`）：最近一次量的结果（`_measured`），加上这以后本进程收进来的上传字节（`wrote`：每个分段只加自己的字节，
+server/transfer.py 收字节的那一处）。轮询（队列窗口和每个页面的 /api/load，每 1.5–30 秒；`gate`）和写入之前的额度检查
+（`room_for`）都读这个数；量的结果超过 MEASURED_S 秒时在后台线程里重量一次，这一次仍用上一次的数；只有这个账号第一次被问时
+在请求里量。额度检查只在这个数说放不下时才当场量一次（占用可能已经因删任务变小）。「我的占用」打开时、删掉任务之后
+（`usage`）当场量，并更新这份结果：删掉任务后的下一次轮询就看到空间释放。"""
 
 from __future__ import annotations
 
+import math
+import threading
+import time
 
-from ..config import settings
+from ..config import QUOTA_GB_MAX, settings
 from ..database import db
 from ..errors import TooLarge
 from ..messages import Msg
@@ -30,11 +37,19 @@ from ..messages import Msg
 GB = 1 << 30
 
 
+def _gb(value) -> float:
+    """A quota as kept, in GB. One past what can be set (config QUOTA_GB_MAX; an infinite one, or one so large its bytes
+    are no number: written before requests' numbers were bounded, routes.Gigabytes) reads as 0, 不限, which is what it
+    meant."""
+    gb = float(value)
+    return gb if math.isfinite(gb) and gb <= QUOTA_GB_MAX else 0.0
+
+
 def limit_of(user_id: int) -> int:
     """该账号的上限，单位为字节（0：不限）。"""
     r = db().row("SELECT quota_gb FROM users WHERE id = ?", (user_id,))
     gb = r["quota_gb"] if r is not None and r["quota_gb"] is not None else settings()["storage.quota_gb"]
-    return int(float(gb) * GB)
+    return int(_gb(gb) * GB)
 
 
 def set_limit(user_id: int, gb: float | None) -> None:
@@ -45,7 +60,7 @@ def set_limit(user_id: int, gb: float | None) -> None:
 
 def own_gb(user_id: int) -> float | None:
     r = db().row("SELECT quota_gb FROM users WHERE id = ?", (user_id,))
-    return None if r is None or r["quota_gb"] is None else float(r["quota_gb"])
+    return None if r is None or r["quota_gb"] is None else _gb(r["quota_gb"])
 
 
 # ------------------------------------------------------------------ 占用
@@ -72,6 +87,54 @@ def areas(user_id: int) -> list[dict]:
     ]
 
 
+MEASURED_S = 10.0  # how old the figures a poll gets may be
+_measured: dict[int, tuple[float, int, int]] = {}  # account -> (when, total bytes, what `wrote` had counted by then)
+_written: dict[int, int] = {}  # account -> bytes of uploads this process took in (wrote), ever growing
+_measuring: set[int] = set()  # accounts measured again in the background now
+_measured_lock = threading.Lock()
+
+
+def wrote(user_id: int, count: int) -> None:
+    """`count` bytes of an upload of the account's have just reached the disk: its figure grows by them (_latest)."""
+    with _measured_lock:
+        _written[user_id] = _written.get(user_id, 0) + count
+
+
+def _total(user_id: int, found: list[dict] | None = None) -> int:
+    """The account's total now (the three areas, measured unless given), kept as its latest figure."""
+    with _measured_lock:
+        before = _written.get(user_id, 0)  # what arrives while it is measured may be counted twice: never too little
+    total = sum(a["bytes"] for a in (areas(user_id) if found is None else found))
+    with _measured_lock:
+        _measured[user_id] = (time.time(), total, before)
+    return total
+
+
+def _remeasure(user_id: int) -> None:
+    try:
+        _total(user_id)
+    finally:
+        with _measured_lock:
+            _measuring.discard(user_id)
+
+
+def _latest(user_id: int) -> int:
+    """The account's latest total: its last measured figure and the upload bytes taken in since (wrote). Measured now
+    only the first time; older than MEASURED_S, measured again on a thread of its own while this answer still says the
+    last one."""
+    with _measured_lock:
+        kept = _measured.get(user_id)
+        again = kept is not None and time.time() - kept[0] > MEASURED_S and user_id not in _measuring
+        if again:
+            _measuring.add(user_id)
+        since = _written.get(user_id, 0) - kept[2] if kept is not None else 0
+    if kept is None:
+        return _total(user_id)
+    if again:
+        threading.Thread(target=_remeasure, args=(user_id,), name=f"quota-{user_id}", daemon=True).start()
+    return kept[1] + since
+
+
 def usage(user_id: int, with_traffic: bool = False) -> dict:
     """账号的磁盘占用：三部分 + 上限。`with_traffic`：同时附带其网络流量（server/traffic.py）。
 
@@ -81,7 +144,7 @@ def usage(user_id: int, with_traffic: bool = False) -> dict:
     from .. import traffic
 
     found = areas(user_id)
-    total = sum(a["bytes"] for a in found)
+    total = _total(user_id, found)
     limit = limit_of(user_id)
     return {"user": user_id, "limit": limit, "own_gb": own_gb(user_id),
             "default_gb": float(settings()["storage.quota_gb"]), "total": total,
@@ -92,19 +155,18 @@ def usage(user_id: int, with_traffic: bool = False) -> dict:
 def gate(user_id: int) -> dict:
     """判断是否还能写入内容的三个数值：已占用、上限、是否已满。
 
-    供轮询使用（队列每 1.5–30 秒查询一次）：只有这三个值，不含三部分明细（明细的说明文字等不必每次都发）。
-    明细见 `usage()`，由「我的占用」单独查询一次。"""
-    total = sum(a["bytes"] for a in areas(user_id))
+    供轮询使用（队列每 1.5–30 秒查询一次）：只有这三个值，不含三部分明细（明细的说明文字等不必每次都发），
+    占用读最近一次量的结果（`_latest`）。明细见 `usage()`，由「我的占用」单独查询一次。"""
+    total = _latest(user_id)
     limit = limit_of(user_id)
     return {"total": total, "limit": limit, "over": bool(limit and total >= limit)}
 
 
 def _finished_jobs(user_id: int) -> int:
     """该账号可删除的已结束任务数（排队和计算中的任务需先取消，不计入）。"""
-    from ..farm.queue import farm, history
+    from ..farm.queue import finished_of
 
-    live = farm().active_ids()  # 在队列的锁内获取：各通道会同时遍历 `jobs`
-    return sum(1 for e in history(limit=1000, user_id=user_id) if str(e.get("id") or "") not in live and e.get("id"))
+    return len(finished_of(user_id))
 
 
 def full_message(user_id: int, adding: int = 0) -> Msg:
@@ -124,13 +186,17 @@ def full_message(user_id: int, adding: int = 0) -> Msg:
     return Msg("E-QUOTA-COOKSTUCK", **how) if not adding else Msg("E-QUOTA-FULLSTUCK", **how, adding_gb=adding / GB)
 
 
-def room_for(user_id: int, adding: int) -> None:
-    """再写入 `adding` 字节是否可行；不可行时附带提示拒绝（TooLarge：网页原样显示）。"""
+def room_for(user_id: int, adding: int, but: str = "") -> None:
+    """再写入 `adding` 字节是否可行；不可行时附带提示拒绝（TooLarge：网页原样显示）。按账号的占用数（`_latest`）加上
+    它已开的分段还没传来的字节（transfer/uploads.py promised；`but`：不算的那个分段，即再次打开的它自己）判断，
+    占用数说放不下时才当场量一次再判断。"""
+    from ..transfer import uploads
+
     limit = limit_of(user_id)
     if not limit:
         return
-    total = sum(a["bytes"] for a in areas(user_id))
-    if total + max(adding, 0) > limit:
+    adding = max(adding, 0) + uploads.promised(user_id, but)
+    if _latest(user_id) + adding > limit and _total(user_id) + adding > limit:
         raise TooLarge(full_message(user_id, adding))
 
 
@@ -144,13 +210,12 @@ def refuse_if_full(user_id: int) -> None:
 # ------------------------------------------------------------------ 使用者自行清理
 
 
-def drop_for_job(job_id: str, row: dict, going: set[str] = frozenset()) -> dict:
+def drop_for_job(job_id: str, row: dict) -> dict:
     """删除一个任务时随之释放的空间：它的任务文件夹（节点图、素材、输出的文件夹和 zip、日志），整个删除
     （`farm.queue.forget_job` 删除，此处先测量）。它引用的缓存不在此处删除：没有别的任务再引用、也没有任务在用的，
     由随后的清理带走（farm/disk.py，缓存不计入配额）。正在排队或计算的任务不能删除（先取消）。
 
     `row`：`farm.queue.job_row` 提供的数据（节点图、记录、账号），路由的 owned 已确认归属。
-    `going`：本次一并删除的任务号（「删除全部」）；这里每个任务单独测量，不用它。
     返回 {job, bytes}；删除之后的占用由路由在 `forget_job` 之后另取（server/farm.py）。"""
     from ..farm.queue import ensure_finished
     from ..io.files import folder_bytes
@@ -164,11 +229,10 @@ def drop_for_job(job_id: str, row: dict, going: set[str] = frozenset()) -> dict:
 # ------------------------------------------------------------------ 路由
 
 from fastapi import Request  # noqa: E402
-from pydantic import BaseModel  # noqa: E402
 
 from . import auth  # noqa: E402
 from .access import audit  # noqa: E402
-from .routes import Access, Router  # noqa: E402
+from .routes import Access, Body, Gigabytes, Router  # noqa: E402
 
 router = Router(tags=["磁盘占用"])
 admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])
@@ -187,8 +251,8 @@ def my_storage(request: Request) -> dict:
 # 按部分清理会忽略引用而删除整个部分，第二种释放空间的途径即为一个会丢失数据的入口。回收站不计入用户配额（library.user_bytes）。
 
 
-class QuotaIn(BaseModel):
-    gb: float | None = None  # None：使用设置中的默认值
+class QuotaIn(Body):
+    gb: Gigabytes | None = None  # None：使用设置中的默认值
 
 
 @admin.get("/users/{user_id}/quota", access=Access.admin("users.manage_normal"), summary="一个账号占了多少资源：磁盘上限、这个账号自己的上限（没有就跟默认）、每一块占多少，和用掉的网络流量（今天 / 近 7 天 / 总计）")
@@ -211,7 +275,7 @@ def set_user_quota(user_id: int, req: QuotaIn, request: Request) -> dict:
     u = get(user_id)
     _managed(auth.session(request), u)
     set_limit(user_id, req.gb)
-    audit(Msg("I-AUDIT-QUOTASET", who=auth.label(request), username=u.username,
+    audit(Msg("I-AUDIT-QUOTASET", who=auth.actor(request).label, username=u.username,
               gb=req.gb if req.gb is not None else float(settings()["storage.quota_gb"])),
-          session=auth.session(request), method="PUT", path=str(request.url.path))
+          about=u.id, session=auth.session(request), method="PUT", path=str(request.url.path))
     return usage(user_id, with_traffic=True)

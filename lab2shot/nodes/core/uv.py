@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from ..kit.ports import values_port
 from ...errors import Invalid
 from ...messages import Msg
 from ..base import NodeDef, NodeParams, P, Port
@@ -26,7 +27,7 @@ class PositionToUv(NodeDef):
     on_node = ("way",)
     category = "geometry_tools"
     inputs = (
-        Port("position", "image.3", "位置图", help="模型自己坐标系里的位置图（规范坐标）：投射按整段画面的包围盒做，每帧的 UV 对得上"),
+        values_port("position", "image.3", "位置图", help="模型自己坐标系里的位置图（规范坐标）：投射按整段画面的包围盒做，每帧的 UV 对得上"),
         Port("mask", "image.1", "遮罩", optional=True, expects=(SameShot("position"),),
              help="只在遮罩里的像素上算 UV，包围盒也只按这些像素算（脸以外的背景不参与）"),
     )

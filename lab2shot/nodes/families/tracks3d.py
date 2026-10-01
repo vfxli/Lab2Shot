@@ -6,12 +6,13 @@ from typing import ClassVar, Literal
 
 import numpy as np
 
+from ..kit.ports import rgb_port
 from ...data.packet import Packet
 from ...data.units import M_TO_CM
 from ...errors import Invalid, NothingToCook
 from ...messages import Msg
 from ..base import Port
-from ..handles import Handle
+from ..handles import Handle, entries
 from .base import Job, RawOutput, WorkerNode
 from ..kit.cameras import camera_port, send_camera, solved_camera
 from ..kit.ports import plate_mask_port, point_size_param
@@ -48,7 +49,7 @@ class PointTracker3D(WorkerNode):
     (solves_camera). Job.notes: none."""
     lens = "pinhole"  # treats the plate as a lens without distortion: says it needs undistorted plates
 
-    inputs = (Port("image", "image.3", "RGB"), plate_mask_port("遮罩", every_frame=False), camera_port())
+    inputs = (rgb_port(), plate_mask_port("遮罩", every_frame=False), camera_port())
     main = "tracks3d"
     # 口名叫 `tracks3d`，不叫 `points`：`points` 在别的口上是「点云」（每帧各算各的一片点），这里是「3D 跟踪点」
     # （每个点有编号、整段跟着同一个点）；Track4World 两样都出，同名会撞。`tracks3d` 和 2D 的 `tracks` 成对。
@@ -87,10 +88,7 @@ class PointTracker3D(WorkerNode):
         if cls.queries == "dense":
             return {}
         grid = int(params.get("grid") or 0)
-        try:
-            picked = len(parse_picks(list(params.get("picks") or [])))
-        except Exception:
-            return {}
+        picked = len(parse_picks(cls, "picks", list(params.get("picks") or [])))  # an entry that does not read is no point
         return {"points": Fact(grid * grid + picked, cls.fact_labels["points"])}
 
     @classmethod
@@ -100,7 +98,9 @@ class PointTracker3D(WorkerNode):
         picks = ctx.params["picks"]
         if cls.queries == "dense":
             ref = ctx.params["query_frame"] if ctx.params["query_frame"] is not None else frames[0]
-            elsewhere = [p for p in picks if int(p.split(":")[0]) != ref]
+            # frames by the one reading of handle entries (handles.entries): an entry that does not read stays in and
+            # track_queries warns about it (W-HANDLE-BADPICK), never a ValueError here
+            elsewhere = [p for p in picks if (got := entries(cls, "picks", [p])[0]) and got[0][0] != ref]
             if elsewhere:
                 ctx.say("N-TRACKS3D-PICKSIGNORED", param="picks", count=len(elsewhere), frame=ref, node=cls.label)
             picks = [p for p in picks if p not in elsewhere]

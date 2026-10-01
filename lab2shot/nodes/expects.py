@@ -20,7 +20,6 @@ node whose file is missing (engine/evaluation.py plan); the message states what 
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,9 +27,8 @@ from typing import ClassVar
 
 from ..messages import Msg
 from .base import typed_list
+from ..data.windows import same_framing
 
-# maximum relative difference between two pictures' aspect ratios (allowing rounding of odd sizes) for the same framing
-ASPECT_TOLERANCE = 0.01
 
 
 @dataclass(frozen=True)
@@ -149,7 +147,7 @@ def _size(got: Seen, plate: Seen) -> Msg | None:
 
 def _proportions(got: Seen, plate: Seen) -> Msg | None:
     a, b = got.size, plate.size
-    if a is None or b is None or math.isclose(a[0] / a[1], b[0] / b[1], rel_tol=ASPECT_TOLERANCE):
+    if a is None or b is None or same_framing(a, b):
         return None
     return Msg("W-EXPECT-ASPECT", source=got.source, width=a[0], height=a[1], aspect=a[0] / a[1], plate=plate.source,
                plate_width=b[0], plate_height=b[1], plate_aspect=b[0] / b[1])

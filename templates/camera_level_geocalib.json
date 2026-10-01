@@ -3,22 +3,184 @@
  "meta": {
   "id": "5275b718b941e5dd02f127478a236ed4",
   "name": "重力估算 · GeoCalib",
-  "intro": "GeoCalib 官方自述：单图标定，只从一张画面估计相机内参和重力方向，做法是几何优化与深度学习结合。这张卡把它的重力方向接到「自动落地」，把 Pi3 解出的相机和点云转正落地。",
+  "intro": "GeoCalib 官方自述：单图标定，只从一张画面估计相机内参和重力方向，做法是几何优化与深度学习结合。这张卡把它的重力方向接到「自动落地」，把 Pi3 解出的相机和点云转正；「地面依据」选「点云里最密的一层」时再落到 y = 0。GeoCalib 本身可商用；卡上解相机用的 Pi3 非商用，所以整张卡标为非商用。",
   "author": "Lab2Shot",
   "created": "2026-09-13T12:00:00",
   "deliverable": "leveling",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "unit",
-   "label": "单位",
-   "target": "out.unit"
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": "镜头",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "focal",
+     "label": "已知 Focal Length（重力估算）",
+     "target": "geo.focal_mm"
+    },
+    {
+     "name": "filmback",
+     "label": "Filmback（重力估算）",
+     "target": "geo.filmback_mm",
+     "disable_when": "not focal"
+    },
+    {
+     "name": "fit_model",
+     "label": "镜头模型（重力估算）",
+     "target": "geo.fit_model"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "相机解算",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "solve_step",
+     "label": "隔帧",
+     "target": "r.step"
+    },
+    {
+     "name": "solve_model",
+     "label": "模型",
+     "target": "r.model"
+    },
+    {
+     "name": "solve_scale_cm",
+     "label": "尺度",
+     "target": "r.unit_cm"
+    },
+    {
+     "name": "solve_point_step",
+     "label": "点云间隔",
+     "target": "r.point_step"
+    },
+    {
+     "name": "solve_point_size",
+     "label": "点的大小",
+     "target": "r.point_size"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "solve_resolution",
+       "label": "处理分辨率",
+       "target": "r.resolution"
+      },
+      {
+       "name": "solve_max_frames",
+       "label": "每段最多帧数",
+       "target": "r.max_frames"
+      },
+      {
+       "name": "solve_loops",
+       "label": "回环闭合",
+       "target": "r.loops"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "转正与落地",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "step",
+     "label": "重力隔帧",
+     "target": "geo.step"
+    },
+    {
+     "name": "ground_source",
+     "label": "地面依据",
+     "target": "gnd.source",
+     "widget": "menu",
+     "options": [
+      {
+       "value": "none",
+       "label": "不落地（只转正）"
+      },
+      {
+       "value": "points",
+       "label": "点云里最密的一层"
+      }
+     ]
+    },
+    {
+     "name": "cook_level",
+     "label": "转正落地",
+     "target": "gnd.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out.name"
+    },
+    {
+     "name": "unit",
+     "label": "单位",
+     "target": "out.unit"
+    },
+    {
+     "name": "fps",
+     "label": "帧率",
+     "target": "out.fps"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -28,11 +190,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 200
+    "y": 496
    }
   },
   {
@@ -41,13 +205,17 @@
    "label": "Pi3 深度与相机",
    "params": {
     "step": 1,
+    "point_step": 4,
+    "point_size": 0.5,
     "model": "pi3x",
+    "resolution": 504,
+    "max_frames": 150,
     "loops": false,
     "unit_cm": 100.0
    },
    "ui": {
-    "x": 320,
-    "y": 0,
+    "x": 400,
+    "y": 428,
     "on_node": [
      "step",
      "max_frames"
@@ -65,8 +233,8 @@
     "step": 5
    },
    "ui": {
-    "x": 620,
-    "y": 200,
+    "x": 810,
+    "y": 0,
     "on_node": [
      "focal_mm",
      "step"
@@ -80,11 +248,12 @@
    "params": {
     "gravity": null,
     "gravity_error": null,
-    "source": "none"
+    "source": "none",
+    "percentile": 10.0
    },
    "ui": {
-    "x": 940,
-    "y": 120,
+    "x": 1200,
+    "y": 430,
     "on_node": [
      "source",
      "percentile"
@@ -102,16 +271,20 @@
    "params": {
     "name": "levelled",
     "format": "usd",
-    "unit": "cm"
+    "unit": "cm",
+    "fps": 24.0
    },
    "ui": {
-    "x": 1240,
-    "y": 120,
+    "x": 1600,
+    "y": 444,
     "on_node": [
      "name",
      "unit"
     ]
-   }
+   },
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "deliver",
@@ -119,18 +292,19 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1540,
-    "y": 120
+    "x": 2000,
+    "y": 472
    }
   },
   {
    "id": "pack",
    "type": "core.usd_pack",
    "ui": {
-    "x": 620,
-    "y": 60
+    "x": 800,
+    "y": 486
    },
-   "params": {}
+   "params": {},
+   "label": "合成场景"
   }
  ],
  "edges": [

@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 class InstallError(MessageError, RuntimeError):
     """An install step failed, with what the user reads (Extension.post_install raises it too)."""
 
+    status = 500
+
 
 @dataclass(frozen=True)
 class GitSource:
@@ -31,6 +33,9 @@ class LicenseInfo:
     url: str
     summary: str  # one plain-language line shown before install
     tag: str  # its licence class (nodes/tags.py LICENCES): basic, commercial, noncommercial or research
+    # the data and body models under their own licence it runs on or was trained on (nodes/tags.py DATA_LICENCES):
+    # its class is at least as strict as theirs, the same data the same class wherever it is used
+    uses: tuple[str, ...] = ()
 
 
 # CUDA compiler from pip for EnvSpec.cuda_toolkit, CUDA 13.2: its headers are the first that compile against
@@ -124,6 +129,17 @@ class Weight:
         # revision, not hash). This is refused at declaration rather than silently following main at install time
         if self.kind == "hf" and not self.revision:
             raise ValueError(f"weight {self.key!r}: a Hugging Face snapshot ({self.source}) must pin a revision (the commit it was checked with)")
+
+    @property
+    def identity(self) -> tuple:
+        """What fixes the bytes this weight is: where it comes from and the pin it is fetched at (a revision, a
+        sha256, the files taken; a hand download's installed file). A result's identity counts it (adapters.py _result_identity), so a weight moved to
+        another revision or repository is never taken for the old one."""
+        if self.kind == "manual":  # a hand download: the file the user installed, as their consent records it
+            from .manual import installed_sha256
+
+            return (self.key, self.kind, self.source, installed_sha256(self.source))
+        return (self.key, self.kind, self.source, self.revision, tuple(self.files), self.sha256)
 
     @property
     def page(self) -> str:

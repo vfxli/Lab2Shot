@@ -3,8 +3,11 @@
 # ---- 读 .fbx（worker.py fbx.import）
 "E-FBX-NOFILE" = "找不到文件 {path}：文件被移走或改名了，在「导入 FBX」里重新选一次"
 "E-FBX-NOTFBX" = "读不了 {name}：不是有效的 FBX 文件，或者文件不完整（导出中断、还没拷完）。在 DCC 里重新导出一次"
+"W-FBX-NAMEENCODING" = "{name} 里有 {count} 个名字（节点名、动画段名、形变名或用户属性名）不是 UTF-8 编码（多半是中文系统上的软件按 GBK 写的），认不出的字换成了 �，例如 {names}。导入后的路径、「动画段」、形变和属性里就是这样的名字：要原名，在 DCC 里改成英文或按 UTF-8 重新导出"
 "E-FBX-LEFTHANDED" = "这个 FBX 是左手坐标系（如 DirectX / Lightwave 设置导出的）：还读不了，请在导出时选右手坐标系（Maya、Max、Blender 默认都是）"
-"W-FBX-SEVERALRIGS" = "网格 {path} 绑在几套骨骼上：只算在第一套上，其他骨骼带不动它"
+"W-FBX-SEVERALRIGS" = "网格 {path} 绑在几套骨骼上：只算在绑得最多的那一套上，其他骨骼带不动它（它们的权重分给这一套的关节）"
+"W-FBX-CLUSTER" = "网格 {path} 有 {count} 个蒙皮簇绑在不是关节的节点上（{names}，多半是空物体或辅助物体）：这些簇不读，顶点在其余关节上的权重重新归一；只绑在它们上的 {orphans} 个顶点跟随离它最近的关节"
+"E-FBX-NOSKELETON" = "网格 {path} 的蒙皮簇全绑在不是关节的节点上（{names}，多半是 3ds Max 的 Dummy / Point 或 CAT 辅助物体）：没有骨骼带它，读不成角色。在 DCC 里把这些节点换成骨骼（Bone / Joint）再导出"
 "W-FBX-SKINTYPE" = "网格 {path} 用的是 {skin} 蒙皮：按线性蒙皮读，关节弯折处的形状会和 DCC 里不一样"
 "W-FBX-BINDPOSE" = "关节 {path} 在几个网格里绑定的位置不同：用第一个网格的，其他网格绑在这个关节上的部分可能错位"
 "E-FBX-NOTAKE" = "文件里没有动画段「{take}」（有 {takes}）：在「导入 FBX」的「动画段」里重新选一段"

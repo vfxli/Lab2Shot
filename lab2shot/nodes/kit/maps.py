@@ -8,6 +8,7 @@ from ...errors import Invalid
 from ...messages import Msg
 from ...data.packet import Packet
 from ...data.payloads import ExrWriter, window_of
+from ...data.windows import same_framing
 from ...data.units import M_TO_CM
 from ..base import empty_packet
 from ..families.base import RawOutput
@@ -65,8 +66,6 @@ def family_points(ctx, depth, camera, image=None, mask=None, confidence=None, na
                              scale_cm=float(ctx.params.get("unit_cm", M_TO_CM)))
 
 
-ASPECT_TOLERANCE = 0.01  # how far a model's result may differ in proportions before it is refused (it cropped or padded)
-
 # The four ways a result map is resized. The channel count cannot distinguish them (an image.1 may be depth or
 # segmentation ids, an image.3 a picture or normals), so the node writing the map states it rather than it being
 # inferred from the type.
@@ -82,7 +81,7 @@ def fit(values: np.ndarray, window, resample: str = LINEAR, valid: np.ndarray | 
     result at its own size, and it goes back to the plate's window here, in one place. `resample` says how (RESAMPLING
     above: the node writing the map knows what its values mean, the channel count does not). Its proportions must match
     (a model that cropped or padded is refused, E-FAMILY-ASPECT). Returns (values, valid, whether it was resized)."""
-    from ...data.maps import resize
+    from ...data.maps import nearest, resize
 
     if resample not in RESAMPLING:
         raise ValueError(f"resample must be one of {RESAMPLING}, not {resample!r}")
@@ -90,12 +89,10 @@ def fit(values: np.ndarray, window, resample: str = LINEAR, valid: np.ndarray | 
     h, w = values.shape[:2]
     if (w, h) == (want_w, want_h):
         return values, valid, False
-    if abs((w / h) - (want_w / want_h)) > ASPECT_TOLERANCE * (want_w / want_h):
+    if not same_framing((w, h), (want_w, want_h)):  # it cropped or padded: refused
         raise Invalid(Msg("E-FAMILY-ASPECT", width=w, height=h, want_width=want_w, want_height=want_h))
     if resample == NEAREST:
-        ys = np.clip(((np.arange(want_h) + 0.5) * h / want_h).astype(np.int64), 0, h - 1)
-        xs = np.clip(((np.arange(want_w) + 0.5) * w / want_w).astype(np.int64), 0, w - 1)
-        out = values[ys][:, xs]
+        out = nearest(values, want_w, want_h)
     else:
         out = resize(values, want_w, want_h)
         if resample == NORMALIZE:

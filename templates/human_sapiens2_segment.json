@@ -3,17 +3,118 @@
  "meta": {
   "id": "48d18414d9c0579bf7fba28bf152ff48",
   "name": "人体分割 · Sapiens2",
-  "intro": "Sapiens2 是一组高分辨率 transformer，面向以人为中心的视觉任务，重点在泛化、通用和高保真输出；身体部位分割比第一代高 24.3 mIoU。这张卡逐人交付身体部位分割和人物 alpha，部位写成 Cryptomatte。",
+  "intro": "Sapiens2 是一组高分辨率 transformer，面向以人为中心的视觉任务，重点在泛化、通用和高保真输出；身体部位分割比第一代高 24.3 mIoU。这张卡整幅画面逐帧做身体部位分割和人物 alpha，交付一套多层 EXR：部位写成 Cryptomatte（CryptoObject），人物 alpha 一层（alpha）。",
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "segmentation",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "name": "model_size",
+   "label": "模型大小",
+   "target": "seg.model_size"
+  },
+  {
+   "name": "matte",
+   "label": "精细抠像（软边 alpha）",
+   "target": "seg.matte",
+   "tip": "开：alpha 由单独的抠像模型给出软边；关：alpha 直接来自分割，边缘硬。两种情况 EXR 都带 alpha 层"
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "fp16",
+     "label": "半精度",
+     "target": "seg.fp16"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out.name"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "out.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "计算",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -23,11 +124,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 140
+    "y": 58
    }
   },
   {
@@ -40,50 +143,11 @@
     "matte": true
    },
    "ui": {
-    "x": 320,
-    "y": 140,
+    "x": 400,
+    "y": 0,
     "on_node": [
      "model_size",
      "matte"
-    ]
-   }
-  },
-  {
-   "id": "out_p",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
-   "params": {
-    "name": "parts",
-    "layers": [
-     {
-      "name": "layer1",
-      "label": "CryptoObject"
-     }
-    ],
-    "colorspace": null
-   },
-   "ui": {
-    "x": 640,
-    "y": 0,
-    "on_node": [
-     "name"
-    ]
-   }
-  },
-  {
-   "id": "out_a",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "alpha"
-   },
-   "ui": {
-    "x": 640,
-    "y": 160,
-    "on_node": [
-     "name",
-     "format"
     ]
    }
   },
@@ -93,8 +157,35 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 960,
-    "y": 80
+    "x": 1200,
+    "y": 34
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "segment",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "CryptoObject",
+      "channels": ""
+     },
+     {
+      "name": "layer2",
+      "label": "alpha",
+      "channels": "A"
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 800,
+    "y": 34
    }
   }
  ],
@@ -115,7 +206,7 @@
     "parts"
    ],
    "to": [
-    "out_p",
+    "out",
     "layer1"
    ]
   },
@@ -125,23 +216,13 @@
     "alpha"
    ],
    "to": [
-    "out_a",
-    "image"
+    "out",
+    "layer2"
    ]
   },
   {
    "from": [
-    "out_p",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
-   ]
-  },
-  {
-   "from": [
-    "out_a",
+    "out",
     "files"
    ],
    "to": [

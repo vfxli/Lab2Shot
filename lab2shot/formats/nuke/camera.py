@@ -43,14 +43,14 @@ def write_camera(samples, name: str = "camera", note: str = "") -> str:
     `samples`: data/camera.py CameraSamples (centimetres, Y up, looking down -Z). `note`: text appended to the node
     label after the Lab2Shot mark (the solving method, so the camera is not mistaken for a hand-tracked one).
     """
-    from ...data.units import rotations as rotation_part
+    from lab2shot_shared.motion import orthonormal
 
     frames = [int(f) for f in samples.frames] or [1]
     placed = samples.at(frames) if samples.frames else samples  # cam_to_world as one [4,4] per frame
     poses = np.asarray(np.eye(4)[None] if placed.cam_to_world is None else placed.cam_to_world, np.float64).reshape(-1, 4, 4)
     poses = np.repeat(poses, len(frames), 0) if len(poses) == 1 else poses
     translate = poses[:, :3, 3]
-    rotate = euler_zxy(rotation_part(poses))
+    rotate = euler_zxy(orthonormal(poses[:, :3, :3]))
     focal = np.asarray(samples.focal_mm, np.float64).reshape(-1)
     h_ap = np.asarray(samples.h_aperture_mm, np.float64).reshape(-1)
     v_ap = np.asarray(samples.v_aperture_mm, np.float64).reshape(-1)

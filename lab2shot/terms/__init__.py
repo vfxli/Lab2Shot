@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..accounts import ADMIN_ID, LOGIN_LOG_KEPT_S
+from ..accounts import ADMIN_ID, LOGIN_LOG_KEPT_S, SYSTEM, Actor
 from ..config import settings
 from ..database import db
 from ..errors import Invalid
@@ -89,7 +89,7 @@ def _stamp(sources: dict[str, Path]) -> tuple:
     return (str(db().path), *((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in sources.values()))
 
 
-def _look(by: str = "") -> Terms:
+def _look(by: Actor = SYSTEM) -> Terms:
     """The texts in effect as a version: the newest one the database knows when they are the same, else a new one
     kept now (`by`: who saved them). Looked at again only when a source file changed. The database's write lock is
     the one lock: whatever changes the texts or a version holds it (edit, reset), so no two versions are made of one
@@ -107,8 +107,8 @@ def _look(by: str = "") -> Terms:
         r = c.execute("SELECT * FROM terms_versions ORDER BY version DESC LIMIT 1").fetchone()
         if r is None or r["digest"] != digest:
             version = (r["version"] + 1) if r is not None else 1
-            c.execute("INSERT INTO terms_versions (version, at, by, digest, agreement, privacy) VALUES (?, ?, ?, ?, ?, ?)",
-                      (version, time.time(), by, digest, texts["agreement"], texts["privacy"]))
+            c.execute("INSERT INTO terms_versions (version, at, by, by_id, digest, agreement, privacy) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                      (version, time.time(), by.label, by.id, digest, texts["agreement"], texts["privacy"]))
             r = c.execute("SELECT * FROM terms_versions WHERE version = ?", (version,)).fetchone()
         found = Terms(version=r["version"], at=r["at"], by=r["by"], edited=edited, texts={doc: r[doc] for doc in DOCS})
         _known = (stamp, found)
@@ -152,7 +152,7 @@ def agreed_count(version: int) -> dict:
     return {"accounts": r["n"], "agreed": r["agreed"]}
 
 
-def edit(texts: dict[str, object], by: str) -> Terms:
+def edit(texts: dict[str, object], by: Actor) -> Terms:
     """The administrator's copy of both texts, in effect from now: each made plain lines of text (text.py
     plain_lines), neither empty nor longer than MOST. The same texts as now change nothing; different ones are the
     next version, which everyone is asked to agree to."""
@@ -171,7 +171,7 @@ def edit(texts: dict[str, object], by: str) -> Terms:
         return _look(by)
 
 
-def reset(by: str) -> Terms:
+def reset(by: Actor) -> Terms:
     """Back to the program's own texts: the administrator's copy goes (a new version, unless it said the same)."""
     with db().write():
         for doc in DOCS:

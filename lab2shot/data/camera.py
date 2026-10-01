@@ -102,8 +102,11 @@ class CameraSamples:
         return np.stack([w / 2 + c[:, 0] * per_mm, h / 2 - c[:, 1] * per_mm], -1)
 
     def rotations(self) -> np.ndarray:
-        """The rotation part of cam_to_world, its columns made unit length."""
-        return units.rotations(self.poses())
+        """The rotation part of cam_to_world: the nearest rotation (motion.orthonormal, the one rotation-normalization; a
+        camera-to-world matrix read back is not perfectly orthonormal)."""
+        from lab2shot_shared.motion import orthonormal
+
+        return orthonormal(self.poses()[..., :3, :3])
 
     def is_still(self, tolerance_cm: float = 0.05) -> bool:
         """Whether the camera is static: position within `tolerance_cm`, orientation within 0.01 degree."""

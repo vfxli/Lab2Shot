@@ -3,22 +3,25 @@
  "meta": {
   "id": "c1c58f9b067565c03a58479f6926ca7f",
   "name": "动作补帧 · Kimodo",
-  "intro": "Kimodo 是在 700 小时可商用光学动捕上训练的运动学动作扩散模型，由文字描述和全身姿势关键帧这类约束控制。这张卡拿导入的关键帧当约束，补出中间动作，交付 USD。",
+  "intro": "Kimodo 是在 700 小时可商用光学动捕上训练的运动学动作扩散模型，由文字描述和全身姿势关键帧这类约束控制。这张卡拿导入角色的关键帧当约束，补出中间动作；可以原样交付这个角色，也可以在「目标角色」里选导入的 FBX / USD 角色重定向过去，交付 USD。模型选 SMPL-X 时这张卡按仅限研究算。",
   "author": "Lab2Shot",
   "created": "2026-09-12T12:00:00",
   "deliverable": "motion_gen",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T12:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入动画",
-   "target": "read.path"
+   "label": "输入动画（USD）",
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "unit",
-   "label": "单位",
-   "target": "out.unit"
+   "name": "input_character",
+   "label": "哪个角色",
+   "target": "read.characters",
+   "show_on_change": true
   },
   {
    "name": "keys",
@@ -26,24 +29,37 @@
    "target": "fill.keys"
   },
   {
-   "name": "model",
-   "label": "模型",
-   "target": "fill.model"
-  },
-  {
    "name": "prompt",
    "label": "文字描述",
    "target": "fill.prompt"
   },
   {
-   "name": "seed",
-   "label": "随机种子",
-   "target": "fill.seed"
-  },
-  {
-   "name": "skeleton",
-   "label": "骨骼",
-   "target": "fill.skeleton"
+   "name": "model",
+   "label": "模型",
+   "target": "fill.model",
+   "widget": "menu",
+   "options": [
+    {
+     "value": "rp",
+     "label": "Rigplay"
+    },
+    {
+     "value": "seed",
+     "label": "SEED"
+    },
+    {
+     "value": "rp_v1",
+     "label": "Rigplay 旧版"
+    },
+    {
+     "value": "seed_v1",
+     "label": "SEED 旧版"
+    },
+    {
+     "value": "smplx",
+     "label": "SMPL-X"
+    }
+   ]
   },
   {
    "name": "exact",
@@ -56,9 +72,251 @@
    "target": "fill.foot_lock"
   },
   {
-   "name": "character_pick",
-   "label": "哪个角色",
-   "target": "read.characters"
+   "name": "seed",
+   "label": "随机种子",
+   "target": "fill.seed"
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "guidance",
+     "label": "贴合关键帧",
+     "target": "fill.guidance"
+    },
+    {
+     "name": "steps",
+     "label": "去噪步数",
+     "target": "fill.steps"
+    },
+    {
+     "name": "post_process",
+     "label": "模型后处理",
+     "target": "fill.post_process"
+    },
+    {
+     "name": "skeleton",
+     "label": "骨骼",
+     "target": "fill.skeleton"
+    },
+    {
+     "name": "model_mapping",
+     "label": "骨骼对应（模型）",
+     "target": "fill.mapping"
+    }
+   ]
+  },
+  {
+   "name": "fps",
+   "label": "帧率（输入没有时）",
+   "target": "fps.value",
+   "tip": "输入动画自带帧率时用它的；这里只在输入没有帧率时生效"
+  },
+  {
+   "name": "cook_generate",
+   "label": "补帧",
+   "target": "fill.cook"
+  },
+  {
+   "kind": "group",
+   "label": "角色",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "target_src",
+     "label": "目标角色",
+     "target": "target_src.value",
+     "widget": "menu",
+     "options": [
+      {
+       "value": 1,
+       "label": "原角色（不重定向）"
+      },
+      {
+       "value": 2,
+       "label": "导入的角色（FBX）"
+      },
+      {
+       "value": 3,
+       "label": "导入的角色（USD）"
+      }
+     ]
+    },
+    {
+     "name": "char_fbx_path",
+     "label": "角色文件（FBX）",
+     "target": "char_fbx.path",
+     "hide_when": "target_src != 2",
+     "show_on_change": true
+    },
+    {
+     "name": "char_fbx_characters",
+     "label": "选哪个角色",
+     "target": "char_fbx.characters",
+     "hide_when": "target_src != 2",
+     "show_on_change": true
+    },
+    {
+     "name": "char_usd_path",
+     "label": "角色文件（USD）",
+     "target": "char_usd.path",
+     "hide_when": "target_src != 3",
+     "show_on_change": true
+    },
+    {
+     "name": "char_usd_characters",
+     "label": "选哪个角色",
+     "target": "char_usd.characters",
+     "hide_when": "target_src != 3",
+     "show_on_change": true
+    },
+    {
+     "name": "load_target",
+     "label": "载入角色",
+     "target": "target_pick.cook",
+     "hide_when": "target_src == 1"
+    },
+    {
+     "name": "mapping",
+     "label": "对应关系",
+     "target": "retarget.mapping",
+     "show_on_change": true,
+     "hide_when": "target_src == 1"
+    },
+    {
+     "name": "motion_rest",
+     "label": "动作基准姿势",
+     "target": "retarget.motion_rest",
+     "show_on_change": true,
+     "hide_when": "target_src == 1"
+    },
+    {
+     "name": "motion_rest_frame",
+     "label": "动作基准帧",
+     "target": "retarget.motion_rest_frame",
+     "hide_when": "(target_src == 1) or motion_rest != \"frame\"",
+     "show_on_change": true
+    },
+    {
+     "name": "target_rest",
+     "label": "目标基准姿势",
+     "target": "retarget.target_rest",
+     "show_on_change": true,
+     "hide_when": "target_src == 1"
+    },
+    {
+     "name": "target_rest_frame",
+     "label": "目标基准帧",
+     "target": "retarget.target_rest_frame",
+     "hide_when": "(target_src == 1) or target_rest != \"frame\"",
+     "show_on_change": true
+    },
+    {
+     "name": "rest_fix",
+     "label": "基准姿势摆正",
+     "target": "retarget.rest_fix",
+     "show_on_change": true,
+     "hide_when": "target_src == 1"
+    },
+    {
+     "name": "motion_pose",
+     "label": "动作初始姿势",
+     "target": "retarget.motion_pose",
+     "show_on_change": true,
+     "hide_when": "target_src == 1"
+    },
+    {
+     "name": "target_pose",
+     "label": "目标初始姿势",
+     "target": "retarget.target_pose",
+     "show_on_change": true,
+     "hide_when": "target_src == 1"
+    },
+    {
+     "name": "size_by",
+     "label": "角色缩放",
+     "target": "retarget.size_by",
+     "hide_when": "target_src == 1",
+     "show_on_change": true
+    },
+    {
+     "name": "size",
+     "label": "缩放倍率",
+     "target": "retarget.size",
+     "hide_when": "(target_src == 1) or size_by != \"manual\"",
+     "show_on_change": true
+    },
+    {
+     "name": "scale_by",
+     "label": "髋高依据",
+     "target": "retarget.scale_by",
+     "hide_when": "target_src == 1",
+     "show_on_change": true
+    },
+    {
+     "name": "scale",
+     "label": "髋高倍率",
+     "target": "retarget.scale",
+     "hide_when": "target_src == 1",
+     "show_on_change": true
+    },
+    {
+     "name": "height_mode",
+     "label": "髋高跟法",
+     "target": "retarget.height_mode",
+     "hide_when": "target_src == 1",
+     "show_on_change": true
+    },
+    {
+     "name": "height_offset",
+     "label": "高度偏移",
+     "target": "retarget.height_offset",
+     "hide_when": "target_src == 1",
+     "show_on_change": true
+    },
+    {
+     "name": "cook_retarget",
+     "label": "重定向",
+     "target": "skin.cook",
+     "hide_when": "target_src == 1"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out.name"
+    },
+    {
+     "name": "unit",
+     "label": "单位",
+     "target": "out.unit"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "frames": null,
@@ -72,11 +330,13 @@
     "camera": "",
     "models": [],
     "points": [],
+    "curves": [],
+    "skeletons": [],
     "characters": []
    },
    "ui": {
     "x": 0,
-    "y": 0
+    "y": 40
    }
   },
   {
@@ -84,145 +344,33 @@
    "type": "kimodo.motion",
    "label": "Kimodo 动作生成",
    "params": {
-    "start_frame": 1001,
     "skeleton": null,
     "keys": "",
     "exact": true,
     "foot_lock": true,
-    "mapping": [
-     {
-      "name": "Hips",
-      "label": "髋",
-      "joint": null
-     },
-     {
-      "name": "Spine1",
-      "label": "脊柱 1",
-      "joint": null
-     },
-     {
-      "name": "Spine2",
-      "label": "脊柱 2",
-      "joint": null
-     },
-     {
-      "name": "Chest",
-      "label": "胸",
-      "joint": null
-     },
-     {
-      "name": "Neck1",
-      "label": "颈 1",
-      "joint": null
-     },
-     {
-      "name": "Neck2",
-      "label": "颈 2",
-      "joint": null
-     },
-     {
-      "name": "Head",
-      "label": "头",
-      "joint": null
-     },
-     {
-      "name": "LeftShoulder",
-      "label": "左锁骨",
-      "joint": null
-     },
-     {
-      "name": "LeftArm",
-      "label": "左上臂",
-      "joint": null
-     },
-     {
-      "name": "LeftForeArm",
-      "label": "左前臂",
-      "joint": null
-     },
-     {
-      "name": "LeftHand",
-      "label": "左手",
-      "joint": null
-     },
-     {
-      "name": "LeftLeg",
-      "label": "左大腿",
-      "joint": null
-     },
-     {
-      "name": "LeftShin",
-      "label": "左小腿",
-      "joint": null
-     },
-     {
-      "name": "LeftFoot",
-      "label": "左脚",
-      "joint": null
-     },
-     {
-      "name": "LeftToeBase",
-      "label": "左脚趾",
-      "joint": null
-     },
-     {
-      "name": "RightShoulder",
-      "label": "右锁骨",
-      "joint": null
-     },
-     {
-      "name": "RightArm",
-      "label": "右上臂",
-      "joint": null
-     },
-     {
-      "name": "RightForeArm",
-      "label": "右前臂",
-      "joint": null
-     },
-     {
-      "name": "RightHand",
-      "label": "右手",
-      "joint": null
-     },
-     {
-      "name": "RightLeg",
-      "label": "右大腿",
-      "joint": null
-     },
-     {
-      "name": "RightShin",
-      "label": "右小腿",
-      "joint": null
-     },
-     {
-      "name": "RightFoot",
-      "label": "右脚",
-      "joint": null
-     },
-     {
-      "name": "RightToeBase",
-      "label": "右脚趾",
-      "joint": null
-     }
-    ],
+    "start_frame": 1001,
+    "end_frame": 1120,
+    "mapping": null,
     "model": "rp",
     "prompt": "",
     "steps": 100,
     "guidance": 2.0,
     "seed": 0,
     "post_process": true,
-    "end_frame": 1120
+    "fps": 24.0
    },
    "ui": {
-    "x": 300,
+    "x": 720,
     "y": 0,
     "on_node": [
      "prompt",
      "keys",
      "exact"
     ]
-   }
+   },
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "out",
@@ -231,16 +379,20 @@
    "params": {
     "name": "animation",
     "format": "usd",
-    "unit": "cm"
+    "unit": "cm",
+    "fps": 24.0
    },
    "ui": {
-    "x": 600,
-    "y": 0,
+    "x": 2280,
+    "y": 830,
     "on_node": [
      "name",
      "unit"
     ]
-   }
+   },
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "deliver",
@@ -248,9 +400,171 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 900,
-    "y": 0
+    "x": 2680,
+    "y": 858
    }
+  },
+  {
+   "id": "target_src",
+   "type": "core.value_int",
+   "label": "目标角色",
+   "params": {
+    "value": 1,
+    "unit": ""
+   },
+   "ui": {
+    "x": 320,
+    "y": 452,
+    "on_node": [
+     "value"
+    ]
+   }
+  },
+  {
+   "id": "char_fbx",
+   "type": "fbx.import",
+   "label": "导入角色（FBX）",
+   "params": {
+    "path": "",
+    "take": "",
+    "camera": "",
+    "models": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 280,
+    "y": 772
+   }
+  },
+  {
+   "id": "char_usd",
+   "type": "core.import_usd",
+   "label": "导入角色（USD）",
+   "params": {
+    "path": "",
+    "camera": "",
+    "models": [],
+    "points": [],
+    "curves": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 320,
+    "y": 1206
+   }
+  },
+  {
+   "id": "target_pick",
+   "type": "core.switch",
+   "label": "选目标角色",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": "原角色（不重定向）"
+     },
+     {
+      "name": "b",
+      "label": "导入的角色（FBX）"
+     },
+     {
+      "name": "c",
+      "label": "导入的角色（USD）"
+     }
+    ]
+   },
+   "ui": {
+    "x": 680,
+    "y": 816
+   }
+  },
+  {
+   "id": "retarget",
+   "type": "core.retarget",
+   "label": "动作重定向",
+   "params": {
+    "motion_skeleton": null,
+    "target_skeleton": null,
+    "mapping": null,
+    "scale_by": "legs",
+    "scale": 1.0,
+    "height_mode": "lift",
+    "height_offset": 0.0,
+    "size_by": "none",
+    "size": 1.0,
+    "motion_rest": "bind",
+    "motion_rest_frame": null,
+    "target_rest": "first",
+    "target_rest_frame": null,
+    "rest_fix": "none",
+    "motion_pose": [],
+    "target_pose": []
+   },
+   "ui": {
+    "x": 1080,
+    "y": 778
+   }
+  },
+  {
+   "id": "skin",
+   "type": "core.linear_skin",
+   "label": "线性蒙皮变形",
+   "params": {
+    "skeleton_path": null,
+    "character_skeleton": null
+   },
+   "ui": {
+    "x": 1480,
+    "y": 862
+   }
+  },
+  {
+   "id": "result",
+   "type": "core.switch",
+   "label": "交付哪个结果",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": "原角色（不重定向）"
+     },
+     {
+      "name": "b",
+      "label": "导入的角色（FBX）"
+     },
+     {
+      "name": "c",
+      "label": "导入的角色（USD）"
+     }
+    ]
+   },
+   "ui": {
+    "x": 1880,
+    "y": 858
+   }
+  },
+  {
+   "id": "fps",
+   "type": "core.value_float",
+   "label": "帧率",
+   "params": {
+    "value": 24.0,
+    "unit": ""
+   },
+   "ui": {
+    "x": 360,
+    "y": 130,
+    "on_node": [
+     "value"
+    ]
+   },
+   "promoted": [
+    "value"
+   ]
   }
  ],
  "edges": [
@@ -266,8 +580,128 @@
   },
   {
    "from": [
+    "out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
     "fill",
     "character"
+   ],
+   "to": [
+    "retarget",
+    "motion"
+   ]
+  },
+  {
+   "from": [
+    "char_fbx",
+    "characters"
+   ],
+   "to": [
+    "target_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "char_usd",
+    "characters"
+   ],
+   "to": [
+    "target_pick",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "target_pick",
+    "out"
+   ],
+   "to": [
+    "retarget",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "target_pick",
+    "out"
+   ],
+   "to": [
+    "skin",
+    "character"
+   ]
+  },
+  {
+   "from": [
+    "retarget",
+    "skeleton"
+   ],
+   "to": [
+    "skin",
+    "skeleton"
+   ]
+  },
+  {
+   "from": [
+    "target_src",
+    "value"
+   ],
+   "to": [
+    "target_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "target_src",
+    "value"
+   ],
+   "to": [
+    "result",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "fill",
+    "character"
+   ],
+   "to": [
+    "result",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "skin",
+    "character"
+   ],
+   "to": [
+    "result",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "skin",
+    "character"
+   ],
+   "to": [
+    "result",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "result",
+    "out"
    ],
    "to": [
     "out",
@@ -276,18 +710,38 @@
   },
   {
    "from": [
-    "out",
-    "files"
+    "fps",
+    "value"
    ],
    "to": [
-    "deliver",
-    "files"
+    "out",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "fill",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "fps"
+   ],
+   "to": [
+    "fps",
+    "param:value"
    ]
   }
  ],
  "boxes": [],
  "view": {
-  "display": "fill",
+  "display": "result",
   "frame": 1001
  }
 }

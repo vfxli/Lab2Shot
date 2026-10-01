@@ -1,4 +1,4 @@
-// 后台「扩展包」页和许可证同意流程用到的类型（lab2shot/server/installs.py、lab2shot/extensions/manual.py）。
+// The types of the admin page's 扩展包 section and of the licence-consent flow (lab2shot/server/installs.py, lab2shot/extensions/manual.py).
 // Re-exported by api/index.ts.
 
 /** An item the extension waits for that the user downloads by hand (see ManualView): missing, or in the inbox
@@ -16,7 +16,7 @@ export interface ManualView {
   inbox: { path: string; open: string }; // relative to the Lab2Shot folder, e.g. "downloads"
   items: ManualItem[];
   unknown: { name: string; why: string }[];
-  /* 服务器把它和「放错了的文件」分开（用户自己的东西不算错）；页面不为它报「还有 N 项不会被使用」 */
+  /* the server keeps these apart from misplaced files (the user's own things are not an error); the page never reports them as 「还有 N 项不会被使用」 */
   unrelated: { count: number; sample: string[] };
 }
 

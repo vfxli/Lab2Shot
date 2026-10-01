@@ -299,6 +299,8 @@ def needed_by() -> dict[str, list[dict]]:
 class ManualError(MessageError, RuntimeError):
     """What went wrong with a hand-downloaded file, for the user."""
 
+    status = 409
+
 
 def members(path: Path) -> list[str]:
     """The names a hand-downloaded file carries (io/files.py members); a file named like an archive that is none is
@@ -554,6 +556,21 @@ def _consent_file(name: str) -> tuple[ManualItem, Path, Match]:
     return m.item, path, m
 
 
+def installed_sha256(key: str) -> str:
+    """The sha256 of the file the user installed for item `key` (the one their consent records, the latest): what a
+    result made with it depends on, beyond its name (FLAME takes FLAME2020 or FLAME2023, SMPL v1.0.0 or v1.1.0). ""
+    when none is recorded."""
+    import json
+
+    from ..database import db
+
+    for row in db().rows("SELECT record FROM consents ORDER BY rowid DESC"):
+        record = json.loads(row["record"])
+        if record.get("item") == key:
+            return str(record.get("file_sha256") or "")
+    return ""
+
+
 def _digest(path: Path) -> str:
     """A file's sha256; a folder's over each file's path and digest in order (lab2shot/io/digest.py tree)."""
     return tree(path)
@@ -591,7 +608,8 @@ def accept(name: str, shown_sha256: str, who: dict) -> dict:
                   "file_sha256": shown["file_sha256"], "licence_sha256": shown["sha256"],
                   "when": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "who": who}
         with db().write() as c:
-            c.execute("INSERT INTO consents (record) VALUES (?)", (json_text(record),))
+            # whose it is by account too (None: the command line): permanent deletion forgets who it was by it (accounts.PURGE)
+            c.execute("INSERT INTO consents (record, user_id) VALUES (?, ?)", (json_text(record), who.get("user")))
         with tempfile.TemporaryDirectory(dir=_scratch()) as scratch:
             item.install.accept(path, m.names, Path(scratch))
         move_keeping(path, INBOX / DONE)

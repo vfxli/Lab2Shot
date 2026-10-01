@@ -333,6 +333,8 @@ KILL_WAIT_S = 30  # how long a process ended by its pid may take to leave the po
 class NotStopped(MessageError):
     """The service did not stop: it refused, it cannot be seen, or it did not end in time; the message says which."""
 
+    status = 409
+
 
 def stop(cancel: tuple[str, str] = ("返回", "不停止服务，返回上一级菜单")) -> bool:
     """Stop the service on this work folder: the one way, for the menu's 停止服务 and the one-click update's step 4.

@@ -3,33 +3,386 @@
  "meta": {
   "id": "7e2b9c4a0d53416fb8a7d21e95c6408f",
   "name": "全身动作 · WHAM",
-  "intro": "WHAM 把 2D 关键点序列结合动作捕捉数据和画面特征抬到三维，再用 SLAM 给的相机角速度定出全局轨迹，并按脚和地面的接触修正轨迹。这张卡交付全身角色；相机默认用 ViPE 解，有解算好的换成「导入 USD」。「选人」默认最大的一个，改「前几个」「全部」或填编号就一次解这几个人；WHAM 官方不收框，选人靠「人物框转遮罩」→「图像合成」把别人从画面里抹掉后一趟解完。",
+  "intro": "WHAM 把 2D 关键点结合动捕数据和画面特征抬到三维，用相机角速度定出全局轨迹，并按脚与地面的接触修正。这张卡交付全身角色（SMPL）USD；选中的人以外由遮罩从画面抹掉后一趟解完。相机来源、选人、目标角色见各参数的提示。",
   "author": "Lab2Shot",
   "created": "2026-09-20T10:00:00",
   "deliverable": "body_full",
   "owner": "admin",
-  "updated": "2026-09-27T08:55:44"
+  "updated": "2026-10-01T12:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "unit",
-   "label": "单位",
-   "target": "out.unit"
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "name": "detect_threshold",
+   "label": "检测阈值",
+   "target": "detect.threshold"
+  },
+  {
+   "name": "cook_detect",
+   "label": "检测人物",
+   "target": "detect.cook"
   },
   {
    "name": "people",
    "label": "选人",
-   "target": "pick.mode"
+   "target": "pick.mode",
+   "show_on_change": true,
+   "tip": "默认解最大的一个人；可选前几个、全部、填编号或在视图里点选，一次解这几个人（检人、加载模型只做一次）"
   },
   {
-   "name": "focal",
-   "label": "已知 Focal Length",
-   "target": "cam.focal_mm"
+   "name": "people_count",
+   "label": "人数",
+   "target": "pick.count",
+   "hide_when": "people != \"top\"",
+   "show_on_change": true
+  },
+  {
+   "name": "people_ids",
+   "label": "编号",
+   "target": "pick.ids",
+   "hide_when": "people != \"ids\"",
+   "show_on_change": true
+  },
+  {
+   "name": "people_picks",
+   "label": "点选",
+   "target": "pick.picks",
+   "hide_when": "people != \"picked\"",
+   "show_on_change": true
+  },
+  {
+   "name": "people_picks_pick",
+   "label": "在视图里点选",
+   "target": "pick.picks_pick",
+   "hide_when": "people != \"picked\""
+  },
+  {
+   "kind": "group",
+   "label": "相机",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cam_src",
+     "label": "相机来源",
+     "target": "cam_src.value",
+     "widget": "menu",
+     "options": [
+      {
+       "value": 3,
+       "label": "ViPE 解算"
+      },
+      {
+       "value": 1,
+       "label": "自己的相机（FBX）"
+      },
+      {
+       "value": 2,
+       "label": "自己的相机（USD）"
+      },
+      {
+       "value": 4,
+       "label": "解算器的相机（原点静止，焦距片门手填或默认）"
+      }
+     ],
+     "tip": "默认由 ViPE 从画面解算；也可换成自己的相机（FBX / USD），或「解算器的相机」——原点、不动，Focal Length / Filmback 用面板上填的，留空时按画面对角线取固定视角（不是估计）。解出来的人搬进所选相机的世界，和实拍对上"
+    },
+    {
+     "name": "vipe_mode",
+     "label": "ViPE 方式",
+     "target": "cam.mode",
+     "hide_when": "cam_src != 3"
+    },
+    {
+     "name": "cam_fbx_path",
+     "label": "相机文件（FBX）",
+     "target": "cam_fbx.path",
+     "hide_when": "cam_src != 1",
+     "show_on_change": true
+    },
+    {
+     "name": "cam_fbx_camera",
+     "label": "选哪台相机",
+     "target": "cam_fbx.camera",
+     "hide_when": "cam_src != 1",
+     "show_on_change": true
+    },
+    {
+     "name": "cam_usd_path",
+     "label": "相机文件（USD）",
+     "target": "cam_usd.path",
+     "hide_when": "cam_src != 2",
+     "show_on_change": true
+    },
+    {
+     "name": "cam_usd_camera",
+     "label": "选哪台相机",
+     "target": "cam_usd.camera",
+     "hide_when": "cam_src != 2",
+     "show_on_change": true
+    },
+    {
+     "name": "focal",
+     "label": "已知 Focal Length",
+     "target": "cam_static.focal_mm",
+     "hide_when": "cam_src in [1, 2]",
+     "tip": "已知 Focal Length，毫米；留空时按画面对角线取固定视角"
+    },
+    {
+     "name": "filmback",
+     "label": "Filmback",
+     "target": "cam_static.filmback_mm",
+     "disable_when": "not focal",
+     "hide_when": "cam_src in [1, 2]"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "least_frames",
+     "label": "最少解出帧数",
+     "target": "human.least_frames"
+    },
+    {
+     "name": "cam_fit",
+     "label": "相机空间贴合",
+     "target": "place.fit"
+    }
+   ]
+  },
+  {
+   "name": "cook_solver",
+   "label": "解算人物",
+   "target": "pack_solve.cook"
+  },
+  {
+   "kind": "group",
+   "label": "角色",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "target_src",
+     "label": "目标角色",
+     "target": "target_src.value",
+     "widget": "menu",
+     "options": [
+      {
+       "value": 1,
+       "label": "解算器的人（不重定向）"
+      },
+      {
+       "value": 2,
+       "label": "导入的角色（FBX）"
+      },
+      {
+       "value": 3,
+       "label": "导入的角色（USD）"
+      }
+     ],
+     "tip": "默认交付解算器的人；导入自己的 FBX / USD 角色时，每个人逐个重定向、蒙皮后交付"
+    },
+    {
+     "name": "char_fbx_path",
+     "label": "角色文件（FBX）",
+     "target": "char_fbx.path",
+     "hide_when": "target_src != 2",
+     "show_on_change": true
+    },
+    {
+     "name": "char_fbx_characters",
+     "label": "选哪个角色",
+     "target": "char_fbx.characters",
+     "hide_when": "target_src != 2",
+     "show_on_change": true
+    },
+    {
+     "name": "char_usd_path",
+     "label": "角色文件（USD）",
+     "target": "char_usd.path",
+     "hide_when": "target_src != 3",
+     "show_on_change": true
+    },
+    {
+     "name": "char_usd_characters",
+     "label": "选哪个角色",
+     "target": "char_usd.characters",
+     "hide_when": "target_src != 3",
+     "show_on_change": true
+    },
+    {
+     "name": "load_target",
+     "label": "载入角色",
+     "target": "target_pick.cook",
+     "hide_when": "target_src == 1"
+    },
+    {
+     "name": "mapping",
+     "label": "对应关系",
+     "target": "retarget.mapping",
+     "hide_when": "target_src == 1",
+     "show_on_change": true
+    },
+    {
+     "name": "motion_rest",
+     "label": "动作基准姿势",
+     "target": "retarget.motion_rest",
+     "show_on_change": true,
+     "hide_when": "target_src == 1"
+    },
+    {
+     "name": "motion_rest_frame",
+     "label": "动作基准帧",
+     "target": "retarget.motion_rest_frame",
+     "hide_when": "(target_src == 1) or motion_rest != \"frame\"",
+     "show_on_change": true
+    },
+    {
+     "name": "target_rest",
+     "label": "目标基准姿势",
+     "target": "retarget.target_rest",
+     "show_on_change": true,
+     "hide_when": "target_src == 1"
+    },
+    {
+     "name": "target_rest_frame",
+     "label": "目标基准帧",
+     "target": "retarget.target_rest_frame",
+     "hide_when": "(target_src == 1) or target_rest != \"frame\"",
+     "show_on_change": true
+    },
+    {
+     "name": "rest_fix",
+     "label": "基准姿势摆正",
+     "target": "retarget.rest_fix",
+     "show_on_change": true,
+     "hide_when": "target_src == 1"
+    },
+    {
+     "name": "motion_pose",
+     "label": "动作初始姿势",
+     "target": "retarget.motion_pose",
+     "show_on_change": true,
+     "hide_when": "target_src == 1"
+    },
+    {
+     "name": "target_pose",
+     "label": "目标初始姿势",
+     "target": "retarget.target_pose",
+     "show_on_change": true,
+     "hide_when": "target_src == 1"
+    },
+    {
+     "name": "size_by",
+     "label": "角色缩放",
+     "target": "retarget.size_by",
+     "hide_when": "target_src == 1",
+     "show_on_change": true
+    },
+    {
+     "name": "size",
+     "label": "缩放倍率",
+     "target": "retarget.size",
+     "hide_when": "(target_src == 1) or size_by != \"manual\"",
+     "show_on_change": true
+    },
+    {
+     "hide_when": "target_src == 1",
+     "name": "scale_by",
+     "label": "髋高依据",
+     "target": "retarget.scale_by",
+     "show_on_change": true
+    },
+    {
+     "name": "scale",
+     "label": "髋高倍率",
+     "target": "retarget.scale",
+     "hide_when": "target_src == 1",
+     "show_on_change": true
+    },
+    {
+     "hide_when": "target_src == 1",
+     "name": "height_mode",
+     "label": "髋高跟法",
+     "target": "retarget.height_mode",
+     "show_on_change": true
+    },
+    {
+     "hide_when": "target_src == 1",
+     "name": "height_offset",
+     "label": "高度偏移",
+     "target": "retarget.height_offset",
+     "show_on_change": true
+    },
+    {
+     "name": "cook_retarget",
+     "label": "重定向",
+     "target": "pack.cook",
+     "hide_when": "target_src == 1"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out.name"
+    },
+    {
+     "name": "unit",
+     "label": "单位",
+     "target": "out.unit"
+    },
+    {
+     "name": "fps",
+     "label": "帧率",
+     "target": "out.fps"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -39,11 +392,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 360
+    "y": 1501
    }
   },
   {
@@ -54,8 +409,8 @@
     "threshold": 0.8
    },
    "ui": {
-    "x": 320,
-    "y": 160,
+    "x": 400,
+    "y": 1521,
     "on_node": [
      "threshold"
     ]
@@ -67,12 +422,13 @@
    "label": "选人",
    "params": {
     "mode": "largest",
+    "count": 3,
     "ids": "",
     "picks": []
    },
    "ui": {
-    "x": 640,
-    "y": 160,
+    "x": 800,
+    "y": 1514,
     "on_node": [
      "mode",
      "ids"
@@ -84,29 +440,43 @@
    "type": "vipe.camera_solve",
    "label": "ViPE 相机解算",
    "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
     "mode": "pose_only"
    },
    "ui": {
-    "x": 320,
-    "y": 460,
+    "x": 1110,
+    "y": 388,
     "on_node": [
      "focal_mm",
      "mode"
     ]
-   }
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
   },
   {
    "id": "human",
    "type": "wham.solve",
    "label": "WHAM 全身动作",
    "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
     "static_camera": false,
+    "camera_rotate": [
+     0.0,
+     0.0,
+     0.0
+    ],
     "follow_camera": false,
-    "smplify": false
+    "smplify": false,
+    "least_frames": null
    },
    "ui": {
-    "x": 1940,
-    "y": 60,
+    "x": 2220,
+    "y": 1382,
     "on_node": [
      "focal_mm",
      "static_camera"
@@ -118,17 +488,22 @@
    "type": "core.output_usd",
    "label": "USD 输出设置",
    "params": {
+    "name": "scene",
+    "format": "usd",
     "unit": "cm",
-    "name": "scene"
+    "fps": 24.0
    },
    "ui": {
-    "x": 2640,
-    "y": 380,
+    "x": 6890,
+    "y": 1292,
     "on_node": [
      "name",
      "unit"
     ]
-   }
+   },
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "deliver",
@@ -136,52 +511,40 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 2940,
-    "y": 380
+    "x": 7290,
+    "y": 1320
    }
   },
   {
    "id": "mask_person",
    "type": "core.boxes_mask",
    "ui": {
-    "x": 1280,
-    "y": 160,
+    "x": 1200,
+    "y": 1528,
     "on_node": [
      "ids"
     ]
    },
    "params": {
     "ids": ""
-   }
+   },
+   "label": "选中的人转遮罩"
   },
   {
    "id": "keep_person",
    "type": "core.image_merge",
    "params": {
-    "operation": "multiply"
+    "operation": "multiply",
+    "mix": 1.0
    },
    "ui": {
     "x": 1600,
-    "y": 260,
+    "y": 1406,
     "on_node": [
      "operation"
     ]
-   }
-  },
-  {
-   "id": "cam_split",
-   "type": "core.split_camera",
-   "label": "拆分相机",
-   "params": {
-    "per_frame": true
    },
-   "ui": {
-    "x": 680,
-    "y": 560,
-    "on_node": [
-     "per_frame"
-    ]
-   }
+   "label": "只留选中的人"
   },
   {
    "id": "place",
@@ -191,11 +554,390 @@
     "fit": "per_frame"
    },
    "ui": {
-    "x": 2300,
-    "y": 240,
+    "x": 3050,
+    "y": 1459,
     "on_node": [
      "fit"
     ]
+   }
+  },
+  {
+   "id": "cam_fbx",
+   "type": "fbx.import",
+   "label": "导入相机（FBX）",
+   "params": {
+    "path": "",
+    "take": "",
+    "camera": "",
+    "models": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 1110,
+    "y": 940
+   }
+  },
+  {
+   "id": "cam_usd",
+   "type": "core.import_usd",
+   "label": "导入相机（USD）",
+   "params": {
+    "path": "",
+    "camera": "",
+    "models": [],
+    "points": [],
+    "curves": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 1110,
+    "y": 0
+   }
+  },
+  {
+   "id": "cam_pick",
+   "type": "core.switch",
+   "label": "选相机",
+   "params": {
+    "which": 3,
+    "ways": [
+     {
+      "name": "a",
+      "label": "自己的相机（FBX）"
+     },
+     {
+      "name": "b",
+      "label": "自己的相机（USD）"
+     },
+     {
+      "name": "c",
+      "label": "ViPE 解算"
+     },
+     {
+      "name": "d",
+      "label": "解算器的相机（原点静止，焦距片门手填或默认）"
+     }
+    ]
+   },
+   "ui": {
+    "x": 2650,
+    "y": 1355
+   }
+  },
+  {
+   "id": "target_src",
+   "type": "core.value_int",
+   "label": "目标角色",
+   "params": {
+    "value": 1,
+    "unit": ""
+   },
+   "ui": {
+    "x": 3650,
+    "y": 1876,
+    "on_node": [
+     "value"
+    ]
+   }
+  },
+  {
+   "id": "char_fbx",
+   "type": "fbx.import",
+   "label": "导入角色（FBX）",
+   "params": {
+    "path": "",
+    "take": "",
+    "camera": "",
+    "models": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 3650,
+    "y": 2036
+   }
+  },
+  {
+   "id": "char_usd",
+   "type": "core.import_usd",
+   "label": "导入角色（USD）",
+   "params": {
+    "path": "",
+    "camera": "",
+    "models": [],
+    "points": [],
+    "curves": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 3650,
+    "y": 2228
+   }
+  },
+  {
+   "id": "target_pick",
+   "type": "core.switch",
+   "label": "选目标角色",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": "解算器的人（不重定向）"
+     },
+     {
+      "name": "b",
+      "label": "导入的角色（FBX）"
+     },
+     {
+      "name": "c",
+      "label": "导入的角色（USD）"
+     }
+    ]
+   },
+   "ui": {
+    "x": 4010,
+    "y": 2052
+   }
+  },
+  {
+   "id": "split",
+   "type": "core.split_items",
+   "label": "拆成列表（每个人）",
+   "params": {},
+   "ui": {
+    "x": 3450,
+    "y": 1456
+   }
+  },
+  {
+   "id": "each",
+   "type": "core.each_begin",
+   "label": "逐项开始",
+   "params": {
+    "block": "A"
+   },
+   "ui": {
+    "x": 3970,
+    "y": 1408,
+    "on_node": [
+     "block"
+    ]
+   }
+  },
+  {
+   "id": "retarget",
+   "type": "core.retarget",
+   "label": "动作重定向",
+   "params": {
+    "motion_skeleton": null,
+    "target_skeleton": null,
+    "mapping": null,
+    "scale_by": "legs",
+    "scale": 1.0,
+    "height_mode": "lift",
+    "height_offset": 0.0,
+    "size_by": "none",
+    "size": 1.0,
+    "motion_rest": "bind",
+    "motion_rest_frame": null,
+    "target_rest": "first",
+    "target_rest_frame": null,
+    "rest_fix": "none",
+    "motion_pose": [],
+    "target_pose": []
+   },
+   "ui": {
+    "x": 4370,
+    "y": 1442
+   }
+  },
+  {
+   "id": "skin",
+   "type": "core.linear_skin",
+   "label": "线性蒙皮变形",
+   "params": {
+    "skeleton_path": null,
+    "character_skeleton": null
+   },
+   "ui": {
+    "x": 4770,
+    "y": 1442
+   }
+  },
+  {
+   "id": "each_end",
+   "type": "core.each_end",
+   "label": "逐项结束",
+   "params": {
+    "block": "A"
+   },
+   "ui": {
+    "x": 5170,
+    "y": 1438,
+    "on_node": [
+     "block"
+    ]
+   }
+  },
+  {
+   "id": "merge",
+   "type": "core.merge_items",
+   "label": "列表合并",
+   "params": {},
+   "ui": {
+    "x": 5690,
+    "y": 1452
+   }
+  },
+  {
+   "id": "result",
+   "type": "core.switch",
+   "label": "交付哪个人",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": "解算器的人（不重定向）"
+     },
+     {
+      "name": "b",
+      "label": "导入的角色（FBX）"
+     },
+     {
+      "name": "c",
+      "label": "导入的角色（USD）"
+     }
+    ]
+   },
+   "ui": {
+    "x": 6090,
+    "y": 1556
+   }
+  },
+  {
+   "id": "pack",
+   "type": "core.usd_pack",
+   "label": "合成场景",
+   "params": {},
+   "ui": {
+    "x": 6490,
+    "y": 1334
+   }
+  },
+  {
+   "id": "pack_solve",
+   "type": "core.usd_pack",
+   "label": "合成场景（解算结果）",
+   "params": {},
+   "ui": {
+    "x": 3410,
+    "y": 1000
+   }
+  },
+  {
+   "id": "cam_src",
+   "type": "core.value_int",
+   "label": "相机来源",
+   "params": {
+    "value": 3,
+    "unit": ""
+   },
+   "ui": {
+    "x": 1110,
+    "y": 780,
+    "on_node": [
+     "value"
+    ]
+   }
+  },
+  {
+   "id": "cam_static",
+   "type": "core.create_camera",
+   "label": "解算器的相机（焦距片门）",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "center_x_mm": 0.0,
+    "center_y_mm": 0.0,
+    "translate": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "rotate": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "width": 1920,
+    "height": 1080
+   },
+   "ui": {
+    "x": 360,
+    "y": 490,
+    "on_node": [
+     "focal_mm",
+     "filmback_mm"
+    ]
+   }
+  },
+  {
+   "id": "cam_focal",
+   "type": "core.switch",
+   "label": "解算器用哪台相机的焦距",
+   "params": {
+    "which": 3,
+    "ways": [
+     {
+      "name": "a",
+      "label": "自己的相机（FBX）"
+     },
+     {
+      "name": "b",
+      "label": "自己的相机（USD）"
+     },
+     {
+      "name": "c",
+      "label": "ViPE 解算"
+     },
+     {
+      "name": "d",
+      "label": "解算器的相机（原点静止，焦距片门手填或默认）"
+     }
+    ]
+   },
+   "ui": {
+    "x": 1500,
+    "y": 780
+   }
+  },
+  {
+   "id": "focal_of_cam",
+   "type": "core.split_camera",
+   "label": "取焦距片门",
+   "params": {
+    "per_frame": true
+   },
+   "ui": {
+    "x": 1860,
+    "y": 750
+   }
+  },
+  {
+   "id": "static_split",
+   "type": "core.split_camera",
+   "label": "取填的焦距片门",
+   "params": {
+    "per_frame": true
+   },
+   "ui": {
+    "x": 750,
+    "y": 415
    }
   }
  ],
@@ -262,46 +1004,6 @@
   },
   {
    "from": [
-    "cam",
-    "camera"
-   ],
-   "to": [
-    "cam_split",
-    "camera"
-   ]
-  },
-  {
-   "from": [
-    "cam_split",
-    "focal"
-   ],
-   "to": [
-    "human",
-    "param:focal_mm"
-   ]
-  },
-  {
-   "from": [
-    "cam_split",
-    "rotate"
-   ],
-   "to": [
-    "human",
-    "param:camera_rotate"
-   ]
-  },
-  {
-   "from": [
-    "cam_split",
-    "filmback"
-   ],
-   "to": [
-    "human",
-    "param:filmback_mm"
-   ]
-  },
-  {
-   "from": [
     "human",
     "character"
    ],
@@ -318,36 +1020,6 @@
    "to": [
     "place",
     "source_camera"
-   ]
-  },
-  {
-   "from": [
-    "cam",
-    "camera"
-   ],
-   "to": [
-    "place",
-    "target_camera"
-   ]
-  },
-  {
-   "from": [
-    "place",
-    "scene"
-   ],
-   "to": [
-    "out",
-    "scene"
-   ]
-  },
-  {
-   "from": [
-    "cam",
-    "camera"
-   ],
-   "to": [
-    "out",
-    "scene"
    ]
   },
   {
@@ -369,11 +1041,401 @@
     "mask_person",
     "boxes"
    ]
+  },
+  {
+   "from": [
+    "cam_fbx",
+    "camera"
+   ],
+   "to": [
+    "cam_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "cam_usd",
+    "camera"
+   ],
+   "to": [
+    "cam_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "camera"
+   ],
+   "to": [
+    "cam_pick",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "place",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "char_fbx",
+    "characters"
+   ],
+   "to": [
+    "target_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "char_usd",
+    "characters"
+   ],
+   "to": [
+    "target_pick",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "place",
+    "scene"
+   ],
+   "to": [
+    "split",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "split",
+    "list"
+   ],
+   "to": [
+    "each",
+    "list"
+   ]
+  },
+  {
+   "from": [
+    "each",
+    "item"
+   ],
+   "to": [
+    "retarget",
+    "motion"
+   ]
+  },
+  {
+   "from": [
+    "target_pick",
+    "out"
+   ],
+   "to": [
+    "retarget",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "retarget",
+    "skeleton"
+   ],
+   "to": [
+    "skin",
+    "skeleton"
+   ]
+  },
+  {
+   "from": [
+    "target_pick",
+    "out"
+   ],
+   "to": [
+    "skin",
+    "character"
+   ]
+  },
+  {
+   "from": [
+    "skin",
+    "character"
+   ],
+   "to": [
+    "each_end",
+    "result"
+   ]
+  },
+  {
+   "from": [
+    "each_end",
+    "list"
+   ],
+   "to": [
+    "merge",
+    "list"
+   ]
+  },
+  {
+   "from": [
+    "place",
+    "scene"
+   ],
+   "to": [
+    "result",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "merge",
+    "data"
+   ],
+   "to": [
+    "result",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "target_src",
+    "value"
+   ],
+   "to": [
+    "target_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "target_src",
+    "value"
+   ],
+   "to": [
+    "result",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "merge",
+    "data"
+   ],
+   "to": [
+    "result",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "pack",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "result",
+    "out"
+   ],
+   "to": [
+    "pack",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "pack",
+    "scene"
+   ],
+   "to": [
+    "out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "pack_solve",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "place",
+    "scene"
+   ],
+   "to": [
+    "pack_solve",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "human",
+    "camera"
+   ],
+   "to": [
+    "cam_pick",
+    "d"
+   ]
+  },
+  {
+   "from": [
+    "cam_src",
+    "value"
+   ],
+   "to": [
+    "cam_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "cam_src",
+    "value"
+   ],
+   "to": [
+    "cam_focal",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "cam_static",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cam_fbx",
+    "camera"
+   ],
+   "to": [
+    "cam_focal",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "cam_usd",
+    "camera"
+   ],
+   "to": [
+    "cam_focal",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "cam",
+    "camera"
+   ],
+   "to": [
+    "cam_focal",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "cam_static",
+    "camera"
+   ],
+   "to": [
+    "cam_focal",
+    "d"
+   ]
+  },
+  {
+   "from": [
+    "cam_focal",
+    "out"
+   ],
+   "to": [
+    "focal_of_cam",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "focal_of_cam",
+    "focal"
+   ],
+   "to": [
+    "human",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "focal_of_cam",
+    "filmback"
+   ],
+   "to": [
+    "human",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "cam_static",
+    "camera"
+   ],
+   "to": [
+    "static_split",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "static_split",
+    "focal"
+   ],
+   "to": [
+    "cam",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "static_split",
+    "filmback"
+   ],
+   "to": [
+    "cam",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "focal_of_cam",
+    "rotate"
+   ],
+   "to": [
+    "human",
+    "param:camera_rotate"
+   ]
   }
  ],
  "boxes": [],
  "view": {
-  "display": "human",
+  "display": "pack_solve",
   "frame": null
  }
 }

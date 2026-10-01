@@ -25,6 +25,7 @@ class Solve(WorldHumans):
         # :259 smpl_params_global，均保存于 :327 paths.hmr4d_results），两者之间的刚性变换即为该相机，
         # 由这两份官方输出唯一确定
         gives={"character": "smpl_params_global", "keypoints": "kp2d", "ref_camera": "smpl_params_incam"},
+        ours={"camera": "放人用的针孔相机：原点、不动，焦距 = 节点的「Focal Length」（留空用解算器自己估的 / 默认的），主点在画面中心（families/humans.py plate_camera）"},
         note="① **「人物框」是可选输入，直接交给官方函数**（规则：官方函数接受人物框就直接把框交给它；不接受框的项目，在节点图上走「人物框转遮罩」）：官方包里 "
              "`VitPoseExtractor.extract(video_path, bbx_xys)`（hmr4d/utils/preproc/vitpose.py:23）、"
              "`Extractor.extract_video_features(video_path, bbx_xys)`（vitfeat_extractor.py:65）和 `DemoPL.predict(data)` 的 "
@@ -59,6 +60,9 @@ class Solve(WorldHumans):
     # 「参照相机」输出口：结果所在重力世界中对应的相机，仅供「相机空间转换」作为参照，不能作为成品相机使用
     # （见 families/humans.py reference_camera 的说明及 official 注 ③）。
     reference_camera = True
+    # 「相机」输出口：放人用的那台原点静止针孔相机（相机空间那一份人所在的相机；焦距按「Focal Length」，留空用它自己的默认），
+    # 模板把它当「解算器的相机」一路：「相机空间转换」把世界里的人从参照相机搬到它（families/humans.py plate_camera）
+    plate_camera = True
     # 上游流程的第一步计算 ViTPose 的 17 个关键点（worker crops_features）；除输入网络外也作为输出提供
     keypoints = Keypoints2D("ViTPose 在画面上找的全身 17 个点（鼻子、双眼、双耳、肩、肘、腕、髋、膝、踝），GVHMR 解算之前就是按它们找的人")
     min_frames = 16  # 时序网络的窗口长度（worker MIN_FRAMES）：不足时在计算前拒绝，并报告实际帧数

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, Confidence, LensWholeShotParams, P, WholeShotDepthCamera, Cost, Licence, OptionTrait, Param,
+from .extension import MODELS, OPTION_LICENCES
+from lab2shot.sdk import (Official, licence_traits, Confidence, LensWholeShotParams, P, WholeShotDepthCamera, Cost, Licence,
                           max_frames_param, Measured)
 
 
@@ -37,19 +38,27 @@ class Reconstruct(WholeShotDepthCamera):
     confidence = Confidence("exp_plus_one")  # how its model gives its confidence (CONFIDENCE_SCALES)
     # RTX 4090：默认一次约 150 帧；200 帧到 23.5 GB，几乎是 24G 卡的上限。1080×1920 150 帧约 35 秒。
     cost = Cost(gpu=True, vram_gb=18.5, seconds_per_frame=0.23)
-    licence = Licence(note="代码 Apache-2.0。Apache 权重可以商用；主权重（13 个数据集训练，明显更准）是 CC-BY-NC-4.0，只能研究用。")
-    traits = (
-        OptionTrait(Param('model').one_of('main'), noncommercial=True),
-    )
+    licence = Licence(note="代码 Apache-2.0。Apache 权重可以商用；主权重（13 个数据集训练，明显更准）是 CC-BY-NC-4.0，非商用。")
+    traits = licence_traits(OPTION_LICENCES)
 
     class Params(LensWholeShotParams):
-        model: Literal["main", "apache"] = P(
+        model: Literal[tuple(MODELS)] = P(  # type: ignore[valid-type]
             "main", label="模型", group="解算",
             option_labels={"main": "主权重", "apache": "Apache"},
         )
         max_frames: Literal[50, 100, 150, 200] = max_frames_param(
             {50: Measured(below=150), 100: Measured(below=150), 150: Measured(gb=18.5), 200: Measured(gb=23.5)},
             default=150)
+
+
+    @classmethod
+    def prepare(cls, ctx):
+        """The worker gets the chosen weights' folder and licence from the one table (extension.py MODELS)."""
+        model = ctx.params["model"]
+        if model in OPTION_LICENCES["model"]:  # non-commercial weights: said once more at the cook
+            ctx.say("N-MAPANYTHING-NONCOMMERCIAL")
+        repo, _revision, _sha, licence = MODELS[model]
+        return super().prepare(ctx).with_(extra={"weights_repo": repo, "weights_license": licence})
 
 
 NODES = (Reconstruct,)

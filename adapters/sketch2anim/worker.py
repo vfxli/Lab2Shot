@@ -46,12 +46,11 @@ import numpy as np
 from lab2shot_worker import fail, progress, resident, save_npz, serve
 from lab2shot_worker.run import Run
 from lab2shot_shared import motion as mo
+from lab2shot_shared.units import M_TO_CM
+from model_spec import MAX_MODEL_FRAMES as MAX_FRAMES, MODEL_FPS  # nodes.py plans with the same
 
 NODE = "sketch2anim.motion"
 EXT = "sketch2anim"
-MODEL_FPS = 20.0  # HumanML3D, and what the released weights generate at
-MAX_FRAMES = 196  # cfg.DATASET.SAMPLER.MAX_LEN: the longest latent the VAE was trained to decode
-M_TO_CM = 100.0
 # the 22 body joints the model works in are the first 22 SMPL joints; these four are not drawn, upstream rebuilds
 # them from the drawn ones (utils.py convert_kps_joint)
 DERIVED = (6, 9, 16, 17)

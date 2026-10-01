@@ -38,6 +38,12 @@ CONTEXT = 10  # context frames before a transition (upstream's train.context_len
 MAX_WINDOW = 65  # upstream's max_seq_len: context + transition + target + one frame after it
 MAX_GAP = MAX_WINDOW - CONTEXT - 1  # frames from one key to the next
 REFERENCE = ("walk2_subject4.bvh", 6873)  # a LaFAN1 frame where the actor stands still, arms down, looking ahead
+# LaFAN1 never turns its toes: every frame of the dataset carries the reference's toe rotation (0.00° off it over the
+# walk, run, dance and fight takes), so the model has never seen a toe move. A rig's animated toes — most mocap and
+# Mixamo rigs bend them at each step — reach it as values out of anything it knows and it stops moving the character:
+# a Mixamo walk's root stood still over every gap, and moved with the path once only its toes were set to the
+# reference's. The model's toes are held at the reference's; the rig's toes keep their own animation (not written back).
+STILL = ("LeftToe", "RightToe")
 MODELS = {"context": ("lafan1_context_model", "train_stats_context.pkl"),
           "detail": ("lafan1_detail_model", "train_stats_detail.pkl")}
 
@@ -72,6 +78,23 @@ def load_models(weights: Path, configs: Path, device: torch.device):
             stats = pickle.load(fh)
         out[kind] = (model, config, stats)
     return out
+
+
+def held(world: np.ndarray, names: list[str], parents, rest: np.ndarray) -> np.ndarray:
+    """The model's world rotations [K,J,3,3] with the STILL joints at the reference pose's local rotation."""
+    local = mo.local_from_world(world, parents)
+    rest_local = mo.local_from_world(rest[None, :, :3, :3], parents)[0]
+    for n in STILL:
+        local[:, names.index(n)] = rest_local[names.index(n)]
+    return mo.world_from_local(local, parents)
+
+
+def driven_only(retarget: mo.Retarget, names: list[str]) -> mo.Retarget:
+    """The alignment the result goes back onto the rig through: without the STILL joints (the rig keeps its own)."""
+    from dataclasses import replace
+
+    keep = [k for k, (m, _) in enumerate(retarget.pairs) if names[m] not in STILL]
+    return replace(retarget, pairs=[retarget.pairs[k] for k in keep], offsets=retarget.offsets[keep])
 
 
 def tensor(x, device) -> torch.Tensor:
@@ -119,6 +142,7 @@ def main(job_path: str) -> None:
     except ValueError as exc:
         fail("E-TWOSTAGETRANSFORMER-SKELETON", reason=str(exc))
     world, root = retarget.to_model(motion.poses)
+    world = held(world, names, parents, rest)
     keys = motion.model_frames(MODEL_FPS)
     gaps = np.diff(keys)
     if (gaps < 1).any():
@@ -169,7 +193,7 @@ def main(job_path: str) -> None:
         contacts[k] = contacts[max(k - 1, 0)] if k > 0 else contacts[min(k + 1, total - 1)]
 
     rotations = mo.world_from_local(mo.quat_to_matrix(quat[CONTEXT:]), parents)
-    ib.write_result(run, retarget, MODEL_FPS, keys, rotations, pos[CONTEXT:], contacts, method="Two-stage Transformer",
+    ib.write_result(run, driven_only(retarget, names), MODEL_FPS, keys, rotations, pos[CONTEXT:], contacts, method="Two-stage Transformer",
                     skeleton="LaFAN1, 22 joints", reference=f"{REFERENCE[0]} frame {REFERENCE[1]}",
                     post_process=post)
 

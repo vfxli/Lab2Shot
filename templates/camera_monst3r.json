@@ -2,28 +2,200 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "ad89024027edab8bb947cce095daf0e8",
-  "name": "深度与相机 · MonST3R",
-  "intro": "MonST3R 官方自述：以前馈为主处理动态视频，给出随时间变化的动态点云，以及每帧相机的位姿和内参。这张卡交付相机、深度图和它附带的运动物体遮罩；不出点云（整段点云是它的优化器用深度反投影的），要点云接「深度转点云」。",
+  "name": "相机与深度 · MonST3R",
+  "intro": "MonST3R 官方自述：以前馈为主处理动态视频，给出随时间变化的动态点云，以及每帧相机的位姿和内参。这张卡交付相机（USD 与 Nuke 相机）、深度图和它附带的运动物体遮罩；不出点云（整段点云是它的优化器用深度反投影的），要点云接「深度转点云」。",
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "depth_solved",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
   },
   {
-   "name": "unit",
-   "label": "单位",
-   "target": "out.unit"
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
   },
   {
-   "name": "focal",
-   "label": "已知 Focal Length",
-   "target": "r.focal_mm"
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": "镜头",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "focal",
+     "label": "已知 Focal Length",
+     "target": "r.focal_mm"
+    },
+    {
+     "name": "filmback",
+     "label": "Filmback",
+     "target": "r.filmback_mm",
+     "disable_when": "not focal"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "解算",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "step",
+     "label": "隔帧",
+     "target": "r.step"
+    },
+    {
+     "name": "niter",
+     "label": "优化迭代次数",
+     "target": "r.niter"
+    },
+    {
+     "name": "scale_cm",
+     "label": "尺度",
+     "target": "r.unit_cm"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "resolution",
+       "label": "处理分辨率",
+       "target": "r.resolution"
+      },
+      {
+       "name": "max_frames",
+       "label": "每段最多帧数",
+       "target": "r.max_frames"
+      },
+      {
+       "name": "conf_threshold",
+       "label": "置信度门槛",
+       "target": "r.conf_threshold"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "运动物体",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "motion_threshold",
+     "label": "运动判定门槛",
+     "target": "r.motion_threshold"
+    },
+    {
+     "name": "sam2_refine",
+     "label": "SAM 2 修整",
+     "target": "r.sam2_refine"
+    }
+   ]
+  },
+  {
+   "name": "cook_solve",
+   "label": "解算相机与深度",
+   "target": "r.cook"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "usd_name",
+     "label": "文件名（相机 USD）",
+     "target": "out.name"
+    },
+    {
+     "name": "exr_name",
+     "label": "文件名（深度与运动遮罩 EXR）",
+     "target": "exr.name"
+    },
+    {
+     "name": "nuke_name",
+     "label": "文件名（Nuke 相机）",
+     "target": "nuke.name"
+    },
+    {
+     "name": "unit",
+     "label": "单位",
+     "target": "out.unit"
+    },
+    {
+     "name": "fps",
+     "label": "帧率",
+     "target": "out.fps"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "exr.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -33,11 +205,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 200
+    "y": 458
    }
   },
   {
@@ -48,6 +222,8 @@
     "focal_mm": null,
     "filmback_mm": null,
     "step": 1,
+    "max_frames": 36,
+    "resolution": 512,
     "niter": 300,
     "motion_threshold": 0.35,
     "sam2_refine": true,
@@ -55,8 +231,8 @@
     "unit_cm": 100.0
    },
    "ui": {
-    "x": 320,
-    "y": 200,
+    "x": 400,
+    "y": 376,
     "on_node": [
      "focal_mm",
      "step",
@@ -69,34 +245,22 @@
    "type": "core.output_usd",
    "label": "USD 输出设置",
    "params": {
+    "name": "scene",
+    "format": "usd",
     "unit": "cm",
-    "name": "scene"
+    "fps": 24.0
    },
    "ui": {
-    "x": 640,
-    "y": 260,
+    "x": 870,
+    "y": 0,
     "on_node": [
      "name",
      "unit"
     ]
-   }
-  },
-  {
-   "id": "mov",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "moving_mask"
    },
-   "ui": {
-    "x": 640,
-    "y": 0,
-    "on_node": [
-     "name",
-     "format"
-    ]
-   }
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "deliver",
@@ -104,8 +268,8 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1000,
-    "y": 240
+    "x": 1230,
+    "y": 434
    }
   },
   {
@@ -116,11 +280,38 @@
     "name": "camera_nuke"
    },
    "ui": {
-    "x": 640,
-    "y": 440,
+    "x": 870,
+    "y": 812,
     "on_node": [
      "name"
     ]
+   }
+  },
+  {
+   "id": "exr",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "depth",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "depth",
+      "channels": ""
+     },
+     {
+      "name": "layer2",
+      "label": "mask",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 830,
+    "y": 434
    }
   }
  ],
@@ -137,27 +328,7 @@
   },
   {
    "from": [
-    "r",
-    "mask"
-   ],
-   "to": [
-    "mov",
-    "image"
-   ]
-  },
-  {
-   "from": [
     "out",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
-   ]
-  },
-  {
-   "from": [
-    "mov",
     "files"
    ],
    "to": [
@@ -188,6 +359,36 @@
   {
    "from": [
     "nuke",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "r",
+    "depth"
+   ],
+   "to": [
+    "exr",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "r",
+    "mask"
+   ],
+   "to": [
+    "exr",
+    "layer2"
+   ]
+  },
+  {
+   "from": [
+    "exr",
     "files"
    ],
    "to": [

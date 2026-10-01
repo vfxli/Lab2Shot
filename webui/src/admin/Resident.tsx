@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { api, type ResidentProcess, type ResidentView } from "../api";
-import { adminApi } from "../api/admin";
 import { Section, useAdmin } from "./common";
 import { sizeText } from "../platform/format";
 import { durationText } from "../platform/format";
@@ -20,9 +19,8 @@ const mbText = (mb: number) => (mb ? sizeText(mb * 2 ** 20) : "—");
 /** 常驻模型 section: worker processes kept alive between jobs with their models loaded — their location and
  * loaded models — and moving those models to RAM or unloading them. Lifetime and count limits are configured in 设置. */
 export function ResidentSection() {
-  const { problem, go } = useAdmin();
+  const { problem, go, settings } = useAdmin();
   const { data: view, reload: reload } = usePoll(api.admin.resident, 3000, { onError: (e) => problem(reasonOf(e)) });
-  const { data: settings } = usePoll(adminApi.settings, null, { onError: (e) => problem(reasonOf(e)) });
   const [acting, setActing] = useState<string | null>(null);
   const current = view;
 

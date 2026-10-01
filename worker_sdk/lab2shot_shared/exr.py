@@ -66,8 +66,9 @@ def write_exr(path: str | Path, data: np.ndarray | Sequence[np.ndarray], channel
     only how hard the writer tries, not the format: every reader reads the file the same way. OpenImageIO takes it;
     the OpenEXR bindings have no setting for it and write their default level.
 
-    `header` entries with an empty value are not written: OpenImageIO adds DateTime (the time of writing) unless it
-    is given empty, and the OpenEXR bindings write no attribute for it either."""
+    `header` entries with an empty value: the OpenEXR backend writes no attribute for them; OpenImageIO is given them
+    as they are, which is how its own DateTime (the time of writing, added unless given empty) is kept out — it writes
+    such an entry as an empty string. Either way a reader finds no value there."""
     path = Path(path)
     if compression not in EXR_COMPRESSIONS:
         raise ValueError(f"compression must be one of {sorted(EXR_COMPRESSIONS)}, not {compression!r}")

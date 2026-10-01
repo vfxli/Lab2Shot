@@ -13,6 +13,7 @@ from typing import ClassVar
 
 import numpy as np
 
+from ..kit.ports import rgb_port
 from ...data.packet import Packet
 from ...data.payloads import UNIT
 from ..applies import Cond, Cost
@@ -89,7 +90,7 @@ class MatteNode(Matting, WorkerNode):
 
     `sapiens2.segment` 只混入 `Matting` 声明（有前景端口，没有粗遮罩端口），不属于这两档。"""
 
-    inputs = (Port("image", "image.3", "RGB"),)
+    inputs = (rgb_port(),)
     outputs = (Port("alpha", "image.1", "Alpha"),)
     cost = Cost(gpu=True)
     missing_frames = MissingFrames.SKIP
@@ -108,12 +109,12 @@ class GuidedMatte(MatteNode):
 
     every_frame: ClassVar[bool] = True
     on_node = ("resolution", "erode_dilate")
-    inputs = (Port("image", "image.3", "RGB"), plate_mask_port("粗遮罩", optional=False))
+    inputs = (rgb_port(), plate_mask_port("粗遮罩", optional=False))
     streams = True  # 逐帧写出 EXR（frame_maps）：每帧写完即为最终字节，可边算边看
 
     def __init_subclass__(cls, **kw):
         if "inputs" not in cls.__dict__:  # 需要自有端口的节点仍自行声明
-            cls.inputs = (Port("image", "image.3", "RGB"),
+            cls.inputs = (rgb_port(),
                           plate_mask_port("粗遮罩", optional=False, every_frame=cls.every_frame))
         super().__init_subclass__(**kw)
 

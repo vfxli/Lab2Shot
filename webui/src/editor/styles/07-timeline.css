@@ -1,13 +1,14 @@
-/* ------------------------------------------------------------------ timeline */
+/* The timeline under the viewer (editor/Timeline.tsx): the ruler and its layers, the transport, the frame rate, the
+   playback mode and 计算范围 on one row. */
 
 /* the ruler's layers, restyled here in one place: the data's frames, the playback range and its handles, the cache
    bar, the marks, the frames missing, the current frame */
 .timeline {
-  --tl-bg: var(--panel); /* 停靠在视图下方：使用实色，与其他面板相同的灰色，不另设偏暖色调 */
+  --tl-bg: var(--panel); /* docked under the viewer: a solid colour, the same grey as the other panels, no warmer tint */
   --tl-data: rgba(120, 120, 128, 0.26);
   --tl-play: rgba(10, 132, 255, 0.3);
   --tl-grip: #4da3ff;
-  --tl-stale: var(--orange); /* 过期：可以播放，但不是最新结果 */
+  --tl-stale: var(--orange); /* stale: playable, but not the latest result */
   --tl-loaded: #b6f5c6;
   --tl-gap: color-mix(in srgb, var(--error) 55%, transparent);
   --tl-mark-0: var(--yellow);
@@ -139,7 +140,8 @@
   background: var(--tl-mark-2);
 }
 
-/* 一条色带：绿 = 已在浏览器中、可实时播放；土黄 = 可实时播放但为上一次的结果（见 editor/Timeline.tsx 相关注释） */
+/* one band: green = in the browser, plays in real time; ochre = plays in real time but is the previous result (see the
+   comments in editor/Timeline.tsx) */
 .tl-cache {
   top: 26px;
   height: 2px;
@@ -205,7 +207,7 @@
   color: var(--text-3);
 }
 
-/* 宽度固定：播放时数字从 24 变为 23.7 也不得挤压整条时间条 */
+/* fixed width: the number changing from 24 to 23.7 during playback must not squeeze the rest of the row */
 .tl-fps {
   flex: 0 0 auto;
   width: 60px;
@@ -244,9 +246,10 @@
   flex: none;
 }
 
-/* 该行的固定与弹性部分：只有标尺 `.tl-ruler` 是弹性的（`flex: 1 1 0; min-width: 0`），占据全部剩余宽度；
-   其余各项（倒放 / 播放两个按键、当前帧、缩放条、计算范围、帧率、播放方式下拉）一律固定宽度。
-   任何一项遗漏固定宽度（例如类名没有对应规则而按默认宽度撑开），标尺都会被挤压为 0 宽。 */
+/* The row's fixed and flexible parts: only the ruler `.tl-ruler` is flexible (`flex: 1 1 0; min-width: 0`) and takes
+   all the remaining width; everything else (the reverse / play keys, the current frame, the zoom bar, 计算范围, the frame
+   rate, the playback-mode dropdown) has a fixed width. Any item missing its fixed width (e.g. a class name with no rule,
+   growing to its default width) squeezes the ruler to zero width. */
 .timeline .tl-loopmode {
   flex: 0 0 auto;
   width: 92px;

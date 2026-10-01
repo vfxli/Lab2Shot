@@ -12,7 +12,7 @@ import { sizeText } from "../platform/format";
 import { useDismiss } from "../platform/dismiss";
 import { IconButton } from "../ui/Button";
 
-/** File parameters in the parameter panel. Everything is a button that opens the system's own dialog (or files
+/** Owns the file parameter row in the parameter panel (picking, dropping, uploading and naming its files). Everything is a button that opens the system's own dialog (or files
  * dropped on the row): an input is uploaded and the parameter holds the upload. The row shows what was chosen as far as
  * a browser tells a page: names, never full paths (a browser tells a page only the file's name and the folder picked). */
 
@@ -23,7 +23,9 @@ const refName = (ref: string) => ref.slice(ref.indexOf("/") + 1);
 export function InputFileParam({ nodeId, p, value }: { nodeId: string; p: ParamDef; value: string }) {
   const [info, setInfo] = useState<Upload | null>(null);
   const [gone, setGone] = useState<string | null>(null); // why the server can't give the upload (cleaned since)
-  const task = useUploads((s) => taskFor(s.tasks, nodeId, p.name)); // going up (transfer/uploads.ts)
+  // this document's (graphId) task only: a task of a node with the same id in another document is not shown (transfer/uploads.ts)
+  const graphId = useCookInputs((s) => s.graphId);
+  const task = useUploads((s) => taskFor(s.tasks, nodeId, p.name, graphId)); // going up (transfer/uploads.ts)
   const graph = useCookInputs((s) => s.meta.name);
   const [over, setOver] = useState(false);
   const record = useCookInputs((s) => s.nodes[nodeId]?.picked?.[p.name]);
@@ -39,17 +41,17 @@ export function InputFileParam({ nodeId, p, value }: { nodeId: string; p: ParamD
     let current = true;
     setInfo(null);
     setGone(null);
-    // 已申报但字节尚未传输的上传同样可以返回描述（服务器 `lab2shot/transfer/uploads.py _describe_declared`）：
-    // 此时素材完好地位于使用者本机，只是尚未上传，不得提示「服务器上已经没有这份文件了」
+    // an upload declared but whose bytes are not sent yet also has a description (server `lab2shot/transfer/uploads.py
+    // _describe_declared`): the file is intact on the user's machine, just not uploaded, so 「服务器上已经没有这份文件了」 must not show
     if (value) api.uploads.describe(value).then((i) => current && setInfo(i), (e: Error) => current && setGone(e.message));
     return () => void (current = false);
   }, [value]);
 
-  // 选定文件后是否立即传输字节由服务器决定（`nodes/base.py ReadsFile.head_is_enough` →
-  // 该参数上的 `head_enough`）：真 = 先申报，点击「计算」时才传输；假 = 选定后立即传输，因为服务器需要完整
-  // 文件才能回答该节点的问题（USD / FBX / Alembic 的层级、文件夹中的序列数、视频帧数）
+  // whether the bytes go up as soon as a file is picked is the server's call (`nodes/base.py ReadsFile.head_is_enough` →
+  // `head_enough` on the parameter): true = declare first, send on 「计算」; false = send once picked, because the server
+  // needs the whole file to answer the node's questions (a USD / FBX / Alembic hierarchy, the sequences in a folder, a video's frame count)
   const send = (item: Parameters<typeof startUpload>[0], folder: string) =>
-    startUpload(item, folder, { graph, node: nodeId, param: p.name }, p.head_enough === true);
+    startUpload(item, folder, { graphId, graph, node: nodeId, param: p.name }, p.head_enough === true);
 
   // What was found in a pick or a drop: one is taken; several (left and right eyes, passes, a second shot) are listed
   // under the row for the user to choose, never one of them taken silently.
@@ -82,9 +84,10 @@ export function InputFileParam({ nodeId, p, value }: { nodeId: string; p: ParamD
   const folder = record?.ref === value ? record.folder : "";
   const name = refName(value);
   const frames = shown?.first != null && shown.last != null ? { first: shown.first, last: shown.last, count: shown.files } : null;
-  // 仅在序列中间确实跳号时给出说明（如 1001–1300 只有 200 张，中间缺少 100 帧）：下游结果同样缺少这些帧。
-  // 该说明不阻止任何操作，所选的帧即构成该序列。会阻止提交的是节点图中保存的计算范围
-  // 仍停留在旧素材的帧段上（graph/nodes.ts rangeProblem）。
+  // a note only when a sequence really skips numbers (e.g. 1001–1300 with only 200 files, 100 frames missing): the
+  // results downstream lack those frames too. The note blocks nothing; the frames picked are the sequence. What does
+  // block a submission is a cook range saved in the graph that lies outside the picked footage's frames
+  // (graph/nodes.ts rangeProblem).
   const missing = frames ? frames.last - frames.first + 1 - frames.count : 0;
   const gap = frames && missing > 0 ? `中间跳 ${missing} 帧` : "";
   const meta = shown && [frames && `${frames.first}-${frames.last}`, frames && `${frames.count} 帧`, sizeText(shown.bytes)].filter(Boolean).join(" · ");

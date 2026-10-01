@@ -29,22 +29,27 @@ and class methods; nodes/base.py does not reference them:
   rewritten), `scope_items(params, packet)` (the items of the packet wired into `item_input`, in order),
   `item_outputs(params, item, list_packet)` (the remaining outputs: port -> (packet fingerprint, value)). A begin
   instance is cooked like any other node with `CookContext.item` set (an ItemAt) and writes those outputs. Each output
-  is addressed by what it depends on (data/items.py `port_fp`): 名字 = (the item's packet, the port), 序号 = (the
-  item's packet, the port, the index), 总数 = (the list's packet, the port). Adding an item therefore never re-cooks
+  is addressed by what it depends on (data/items.py `port_fp`): 名字 = (the item's key, i.e. its name and packet, the
+  port), 序号 = (the item's packet, the port, the index), 总数 = (the list's packet, the port). Adding an item therefore never re-cooks
   existing items, while moving an item gives its 序号 a different packet. Outputs not taken by any wire are not written
   (Evaluation.needed_outputs, CookContext.wanted).
 - a block's end: `scope_role = "end"`, `scope_kind`, `scope_name(params)`. An end instance receives, on each input, the
   packets of the items that have a result, item by item (wire by wire within an item), and `CookContext.items`
-  (ItemAt, in the same order). An item whose result on any input failed or was skipped is omitted and reported
-  (W-EACH-FAILED); when no items remain, the end is skipped.
+  (ItemAt, in the same order). What it gathers when there is nothing to gather is one rule (gathers_empty): an item
+  whose result on any input failed or was skipped is omitted and reported (W-EACH-FAILED), and when every item is
+  omitted so, the end is skipped (the error to fix is up there); an item that gave nothing (an empty packet) is omitted
+  but is no failure, and a list with no items has none to give: when nothing remains for either reason the end gives
+  the empty list (N-EACH-NOTHING when items gave nothing), never an empty packet, whatever reads it after.
 - a switch: `condition_input` (the input port whose value makes the choice) and
   `chosen_inputs(params, condition_packet) -> the input ports it needs`. It is called only once the condition is
   known; until then the instance is pending on it. Unchosen inputs are treated as unwired: nothing upstream of them is
-  planned, cooked, failed or skipped on this instance's behalf, and a node needed only by them is "unused".
+  planned, cooked, failed or skipped on this instance's behalf, and a node needed only by them is "unused". A choice
+  that names none of its inputs (「切换」's 「走哪一路」 past the ways it has) is refused before anything is planned
+  (Graph.check_inputs: B-SWITCH-RANGE, B-SWITCH-WIREDRANGE).
 
 Pending (待定): information an instance cannot know until an upstream node is cooked is a `Pending(kind, on, port)`:
 "value" (a parameter driven by a wire), "items" (the number and names of items, for an end), "condition" (which inputs
-a switch needs). All of them are determined by the single function Evaluation._known_or_pending; the engine cooks `on`
+a switch needs). All of them are determined by the single function Evaluation.lookup (engine/presence.py); the engine cooks `on`
 first, then re-plans what follows (Evaluation.waits, Evaluation.order).
 
 The status reply (Evaluation.status), as read by the editor:
@@ -165,13 +170,28 @@ class Scopes:
     def depth(self, node_id: str) -> int:
         return len(self.chains.get(node_id, ()))
 
+    def source_path(self, src: str, node_id: str, path: ItemPath) -> ItemPath | None:
+        """The path of the instance of `src` that an instance of `node_id` at `path` takes from: its own path cut to
+        `src`'s depth, when `src` sits in the blocks around it (the same chain, no deeper than the path); None when the
+        path does not reach it. The one rule every wire into an instance follows (Evaluation.wires, the values read
+        before planning, provenance, stand-ins); a block's end is the one exception, one wire per item (wires)."""
+        depth = self.depth(src)
+        if depth > len(path) or self.chain(src) != self.chain(node_id)[:depth]:
+            return None
+        return path[:depth]
+
+
+def _kind(node_type: Any) -> str:
+    """The kind of block a begin or end belongs to (NodeDef.scope_kind; 逐项处理 when it says none)."""
+    return getattr(node_type, "scope_kind", EACH)
+
 
 def _scope_type(kind: str, want: str) -> str:
     """Return the node type that begins or ends a scope of `kind` ("" if none is registered). Used as the one-click
     fix for a leaking wire and for a block missing one of its ends."""
     from ..nodes import node_types
 
-    return next((t.id for t in node_types().values() if role(t) == want and getattr(t, "scope_kind", "") == kind), "")
+    return next((t.id for t in node_types().values() if role(t) == want and _kind(t) == kind), "")
 
 
 def rules(graph: Graph) -> Scopes:
@@ -186,30 +206,35 @@ def rules(graph: Graph) -> Scopes:
 
     def key_of(nid: str) -> tuple[str, str]:
         t = nodes[nid].type
-        return getattr(t, "scope_kind", EACH), str(t.scope_name(nodes[nid].params))
+        return _kind(t), str(t.scope_name(nodes[nid].params))
 
     count = Counter(key_of(b) for b in begins)
     for b in begins:
         kind, name = key_of(b)
         mine = tuple(e for e in ends if key_of(e) == (kind, name))
-        if count[(kind, name)] > 1 or not mine:
+        if count[(kind, name)] > 1:  # two begins of one name: which block is which can't be told; rename one
+            out.unpaired[b] = (Msg("B-EACH-TWICE", node=nodes[b].label, block=name, count=count[(kind, name)]), "")
+            continue
+        if not mine:  # no end: the one click inserts one
             out.unpaired[b] = (Msg("B-EACH-UNPAIRED", node=nodes[b].label, block=name), _scope_type(kind, END))
             continue
         out.scopes[b] = Scope(kind, name, b, mine, frozenset())
     paired = {e for s in out.scopes.values() for e in s.ends}
     for e in ends:
-        if e not in paired:
-            out.unpaired[e] = (Msg("B-EACH-UNPAIRED", node=nodes[e].label, block=key_of(e)[1]), _scope_type(key_of(e)[0], BEGIN))
+        if e in paired:
+            continue
+        kind, name = key_of(e)
+        if count[(kind, name)] > 1:  # its begin is there, twice: renaming one begin is the fix, not a third begin
+            out.unpaired[e] = (Msg("B-EACH-TWICE", node=nodes[e].label, block=name, count=count[(kind, name)]), "")
+        else:
+            out.unpaired[e] = (Msg("B-EACH-UNPAIRED", node=nodes[e].label, block=name), _scope_type(kind, BEGIN))
 
     def reach(starts, stop: set[str]) -> set[str]:
-        seen: set[str] = set()
-        todo = list(starts)
-        while todo:
-            for dst, _ in graph.outputs_by_node.get(todo.pop(), ()):
-                if dst not in seen and dst not in stop:
-                    seen.add(dst)
-                    todo.append(dst)
-        return seen
+        """What is downstream of `starts` through one wire or more, not going past `stop`."""
+        from .graph import walk
+
+        onward = lambda n: [d for d in graph.targets_of(n) if d not in stop]  # noqa: E731
+        return set(walk([d for s in starts for d in onward(s)], onward))
 
     def wires_into(targets: set[str], sources: set[str]):
         for (dst, dport), wires in graph.inputs.items():
@@ -245,8 +270,10 @@ def rules(graph: Graph) -> Scopes:
                     else:
                         continue
                     out.problems.setdefault((src, sport, e, dport), (said, ""))
-    # nesting: two blocks sharing nodes must be nested; otherwise they cross
-    order = list(out.scopes)
+    # nesting: two blocks sharing nodes must be nested; otherwise they cross. A node that breaks it belongs to neither
+    # block's chain (astray): it stands with its wire's error at the level the blocks are at, never planned as a
+    # member of a block it is not properly in (an end waiting forever for the other block's items)
+    order, astray = list(out.scopes), set()
     for i, b in enumerate(order):
         for c in order[i + 1:]:
             s, t = out.scopes[b], out.scopes[c]
@@ -256,15 +283,23 @@ def rules(graph: Graph) -> Scopes:
                 continue
             if b in members[c] and a <= members[c] or c in members[b] and z <= members[b]:
                 continue
-            if b in members[c]:
-                wrong, sources = a - members[c], a & members[c]
-            elif c in members[b]:
-                wrong, sources = z - members[b], z & members[b]
+            (outer, os, inner, ins, mine, theirs) = (c, t, b, s, a, z) if b in members[c] else (b, s, c, t, z, a)
+            if outer in members[inner] or inner in members[outer]:  # nested, but something inside wired past the inner end
+                wrong, sources = mine - members[outer], mine & members[outer]
             else:
                 wrong, sources = both, (a | z) - both
+            astray |= wrong
             for w in wires_into(wrong, sources):
                 src, _, dst, _ = w
-                out.problems.setdefault(w, (Msg("B-EACH-CROSS", node=nodes[dst].label, block=s.name, other=t.name), ""))
+                if dst in os.ends and inner in members[outer]:  # a node of the inner block wired straight into the
+                    # outer block's end: it has to go through the inner block's end first (the one click inserts one)
+                    said = (Msg("B-EACH-SKIPEND", node=nodes[dst].label, source=nodes[src].label, inner=ins.name, outer=os.name),
+                            _scope_type(ins.kind, END))
+                else:
+                    said = (Msg("B-EACH-CROSS", node=nodes[dst].label, block=s.name, other=t.name), "")
+                out.problems.setdefault(w, said)
+    for b in members:
+        members[b] -= astray
     # chains, outermost first: a scope encloses another when the other's begin is among its members
     for b, s in out.scopes.items():
         parent = [c for c in out.scopes if c != b and b in members[c]]
@@ -287,9 +322,19 @@ def summary(states) -> dict[str, int]:
     return {s: c[s] for s in STATES if c[s]}
 
 
+def gathers_empty(node_type) -> bool:
+    """A block's end: nothing to gather is its empty list, not「nothing given」(the rule in this module's docstring):
+    the engine's rule that a required input which came empty leaves the node nothing to cook (Engine._context) does not
+    apply to it."""
+    return role(node_type) == END
+
+
 def node_state(states: list[str], pending: bool) -> str:
     """Derive the state of a node inside a block from its instances' states and whether an upstream item list is still
-    unknown."""
+    unknown. No instance and nothing pending (its block's list is empty): nothing of it is used (never 「已算」, which
+    would say its results are there while the node's `cached` says there are none)."""
+    if not states and not pending:
+        return UNUSED
     for s in (FAILED, SKIPPED, ERROR):
         if s in states:
             return s
@@ -297,6 +342,6 @@ def node_state(states: list[str], pending: bool) -> str:
         return PENDING
     if TODO in states:
         return TODO
-    if states and all(s == UNUSED for s in states):
+    if all(s == UNUSED for s in states):
         return UNUSED
     return CACHED

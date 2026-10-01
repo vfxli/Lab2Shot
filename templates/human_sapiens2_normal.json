@@ -3,17 +3,112 @@
  "meta": {
   "id": "2918f16c47b806c4a5bd39841c48b1f1",
   "name": "法线图 · Sapiens2",
-  "intro": "Sapiens2 是一组高分辨率 transformer，面向以人为中心的视觉任务，重点在泛化、通用和高保真输出；法线估计的角度误差比第一代低 45.6%。这张卡按人裁切后逐人交付人体法线图。",
+  "intro": "Sapiens2 是一组高分辨率 transformer，面向以人为中心的视觉任务，重点在泛化、通用和高保真输出；法线估计的角度误差比第一代低 45.6%。这张卡整幅画面逐帧估计人体法线（相机空间），交付一套 EXR 的 normal 图层；人以外的地方也有数、只是没有意义。",
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "normal_map",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "name": "model_size",
+   "label": "模型大小",
+   "target": "nrm.model_size"
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "fp16",
+     "label": "半精度",
+     "target": "nrm.fp16"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out.name"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "out.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "计算",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -23,11 +118,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 0
+    "y": 24
    }
   },
   {
@@ -39,27 +136,10 @@
     "fp16": true
    },
    "ui": {
-    "x": 320,
+    "x": 400,
     "y": 0,
     "on_node": [
      "model_size"
-    ]
-   }
-  },
-  {
-   "id": "out_n",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "normal"
-   },
-   "ui": {
-    "x": 640,
-    "y": 0,
-    "on_node": [
-     "name",
-     "format"
     ]
    }
   },
@@ -69,7 +149,29 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 960,
+    "x": 1200,
+    "y": 0
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "normal",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "normal",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 800,
     "y": 0
    }
   }
@@ -91,13 +193,13 @@
     "normal"
    ],
    "to": [
-    "out_n",
-    "image"
+    "out",
+    "layer1"
    ]
   },
   {
    "from": [
-    "out_n",
+    "out",
     "files"
    ],
    "to": [

@@ -6,8 +6,8 @@ from typing import Literal
 
 import numpy as np
 
-from lab2shot.sdk import (Official, measured_param, Handle, Invalid, MissingFrames, Msg, NodeDef, NodeParams, NothingToCook, P,
-                          Port, RawOutput, clamped_flow_side, parse_corners, tracks, Cost, Fact, Licence, Measured)
+from lab2shot.sdk import (rgb_port, Official, measured_param, Handle, Invalid, Job, Msg, WorkerNode, NodeParams, NothingToCook, P,
+                          Port, clamped_flow_side, parse_corners, say_bad_entries, tracks, Cost, Fact, Measured)
 
 CORNER_NAMES = ["corner_1", "corner_2", "corner_3", "corner_4"]
 STATE_REFOUND, STATE_UNSURE = 2, 3
@@ -39,7 +39,7 @@ def check_quad(pts: list[tuple[float, float]], width: int, height: int) -> None:
         raise Invalid(Msg("E-WOFTSAM-OUTSIDE", width=width, height=height))
 
 
-class PlaneTrack(NodeDef):
+class PlaneTrack(WorkerNode):
     id = "woftsam.track"
     # 上游 demo.py：frames（画面）+ init_coords（起始帧上的四个角，参数）-> all_corners（每帧四个角）
     official = Official(
@@ -55,8 +55,7 @@ class PlaneTrack(NodeDef):
     runtime = "woftsam"
     # vram_gb: RTX 4090
     cost = Cost(gpu=True, vram_gb=10.1, seconds_per_frame=0.43)
-    licence = Licence(note="代码和加权 RAFT 权重是 CC BY-NC-SA 4.0，只能研究用，不能商用。")
-    inputs = (Port("image", "image.3", "RGB"),)
+    inputs = (rgb_port(),)
     outputs = (Port("tracks", "tracks2d", "四个角"),)
     handles = (Handle("corners", {"corners": "corners"}),)
     on_node = ("resolution",)
@@ -76,9 +75,10 @@ class PlaneTrack(NodeDef):
             "处理分辨率", {960: Measured(below=1920), 1920: Measured(gb=10.1)}, auto="原尺寸", group="平面")
 
     @classmethod
-    def cook(cls, ctx):
+    def prepare(cls, ctx) -> Job:
         image = ctx.input("image")
-        quad = parse_corners(ctx.params["corners"])
+        say_bad_entries(ctx, "corners")
+        quad = parse_corners(cls, "corners", ctx.params["corners"])
         if quad is None:  # no plane drawn yet: nothing to track, an empty result
             raise NothingToCook(Msg("N-WOFTSAM-NOPLANE"))
         frame, pts = quad
@@ -89,8 +89,12 @@ class PlaneTrack(NodeDef):
         if len(image.meta["frames"]) < 2:
             raise Invalid(Msg("E-WOFTSAM-ONEFRAME"))
         resolution = clamped_flow_side(ctx, image, ctx.params["resolution"])
-        raw = RawOutput(ctx.run_worker(image, extra={"corners": [list(p) for p in pts], "frame": frame, "resolution": resolution}),
-                        MissingFrames.FAIL)
+        return Job(image, extra={"corners": [list(p) for p in pts], "frame": frame, "resolution": resolution},
+                   notes={"frame": frame})
+
+    @classmethod
+    def convert(cls, ctx, raw, job):
+        image, frame = job.plate, job.notes["frame"]
         state = raw.arrays("tracks.npz")["state"]
         frames = image.meta["frames"]
         refound = [f for f, s in zip(frames, state) if s == STATE_REFOUND]

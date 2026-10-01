@@ -14,7 +14,7 @@
 （`data.animation.on_rig` / `repaired`），两处都在本文件中各实现一次。「补帧还是清理」不体现在任何参数中，
 由节点的 `does` 声明和节点名称确定，模板卡片仍可逐一区分。
 
-两项工作共用的关节对照表、关节配对、骨骼选择和 job 写出在 `kit/rig.py`（`RigModel`）中。
+两项工作共用的对应关系、关节配对、骨骼选择和 job 写出在 `kit/rig.py`（`RigModel`）中。
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from ...messages import Msg
 from ..applies import Cost, Wired
 from ..base import NodeParams, P, Port
 from .base import Job, RawOutput, WorkerNode
-from ..kit.rig import LEGS, ModelJoint, RigModel, mapping_param, part_labels, skeleton_param  # noqa: F401 (the family's API)
+from ..kit.rig import ModelJoint, RigModel, mapping_param, part_labels, skeleton_param  # noqa: F401 (the family's API)
 
 GENERATE = "generate"  # 生成动作（交付物子类 motion_gen）
 CLEANUP = "cleanup"  # 修复动作（交付物子类 cleanup）
@@ -47,11 +47,21 @@ CONTACT_CURVES = ("左脚跟", "左脚尖", "右脚跟", "右脚尖")  # 约定�
 BAD_FRAME_SHARE = 0.6  # 判为有问题的帧超过此比例时，节点提示该动作可能超出模型的适用范围
 
 
+# ------------------------------------------------------------------ 两侧共用的参数
+
+
+def motion_fps_param(applies=None):
+    """「帧率」：动画是几帧每秒。帧号本身不带时间，而模型按秒工作（各自的训练帧率：Kimodo 30、StableMotion 20、
+    UnderPressure 100……），job 的 fps 就是它（kit/rig.py send、free_job）；可接线，模板从读取节点的「帧率」口接来。
+    worker=False：它随 job 的 motion.npz / extra 交给 worker，不再作为参数另交一份。"""
+    return P(DEFAULT_FPS, label="帧率", unit="fps", group="时间", gt=0, worker=False, applies=applies)
+
+
 # ------------------------------------------------------------------ 生成动作一侧的参数
 
 
 class MotionGenParams(NodeParams):
-    """接入动画时使用的参数（关键帧、结果如何回到骨骼上）。各成员再添加自己的关节对照表和模型参数。
+    """接入动画时使用的参数（关键帧、结果如何回到骨骼上）。各成员再添加自己的对应关系和模型参数。
 
     只能接入动画的成员使用本类（Two-stage Transformer）：其「动画」端口为必需输入，这些参数始终生效，
     因此不写 applies（为必需端口写 `Wired(...)` 相当于一个恒成立的条件）。
@@ -61,6 +71,7 @@ class MotionGenParams(NodeParams):
     keys: str = P("", label="关键帧", group="关键帧", placeholder="自动", worker=False)
     exact: bool = P(True, label="关键帧精确", group="结果", worker=False)
     foot_lock: bool = P(True, label="脚锁定", group="结果", worker=False)
+    fps: float = motion_fps_param()
 
 
 class FreeMotionParams(MotionGenParams):
@@ -83,9 +94,10 @@ class FreeMotionParams(MotionGenParams):
 
 
 class CleanupParams(NodeParams):
-    """所有「动作清理」节点共有的参数；成员另外添加其关节对照表（mapping_param）和模型自身的参数。"""
+    """所有「动作清理」节点共有的参数；成员另外添加其对应关系（mapping_param）和模型自身的参数。"""
 
     skeleton: str | None = skeleton_param()
+    fps: float = motion_fps_param()
 
 
 class DetectCleanupParams(CleanupParams):
@@ -104,7 +116,7 @@ class RigMotion(RigModel, WorkerNode):
     """骨骼动作（见模块开头）：输入带有一段动作的骨骼，输出带有该段动作的同一副骨骼。
 
     生成动作（`does = "generate"`）：
-    接入动画时，其关键帧作为约束，模型补全中间帧，动作回到该骨骼上（按关节对照表配对、对齐静止姿势、
+    接入动画时，其关键帧作为约束，模型补全中间帧，动作回到该骨骼上（按对应关系配对、对齐静止姿势、
     缩放骨骼长度，见 lab2shot_worker.rig_motion；模型不具备的关节保留原动画，关键帧精确还原、脚部固定，
     见 data.animation.on_rig）。未接入动画时（`unconstrained` 的成员），只按文字和帧范围生成，输出模型自身骨架的
     一段骨架动画（骨骼名和关节轴经过 data.skeleton.rig_of_model，与其他骨架动画交付物约定一致）。
@@ -119,6 +131,9 @@ class RigMotion(RigModel, WorkerNode):
     # 该成员执行的工作，二者之一，必须声明。不提供默认值：未声明时在创建类时报错，
     # 以免「忘记声明」变成「静默按另一种工作运行」。
     does: ClassVar[str] = ""
+    # rig → 模型骨架的对齐（lab2shot_shared.motion.Retarget.align）改过：同一套关节约定按关节坐标系、根按身体坐标系、
+    # 静止姿势不是站姿时在发来的姿势里对齐——四个成员的结果都变了，旧缓存要重算
+    version: ClassVar[int] = 11  # 进指纹：rig 与模型骨架的对齐（motion.Retarget.align）变了就加一
     cost = Cost(gpu=True)
 
     # --- 仅 does = "generate" 的成员声明 ---
@@ -248,7 +263,7 @@ class RigMotion(RigModel, WorkerNode):
     def keyed_job(cls, ctx) -> Job:
         """生成动作且接入动画：动画师的关键帧即约束，只发送这些帧的世界姿势。"""
         rig = cls.rig(ctx)
-        keys = cls.key_frames(ctx.params["keys"], rig)  # 关键帧先于关节对照表处理：无论骨骼关节如何命名，
+        keys = cls.key_frames(ctx.params["keys"], rig)  # 关键帧先于对应关系处理：无论骨骼关节如何命名，
         pairs, parts = cls.driven(ctx, rig)  # 烘焙文件都应首先报告
         ctx.stage("整理关键帧")
         poses = rig.world()[rig.index(keys)]
@@ -260,12 +275,10 @@ class RigMotion(RigModel, WorkerNode):
 
     @classmethod
     def free_job(cls, ctx) -> Job:
-        """未接入动画：镜头的起止帧即 worker 所需的全部信息（约束为空）。
-
-        传给 worker 的 `fps` 为 `DEFAULT_FPS`：模型按每秒 30 帧生成，需要一个数值以重采样到目标帧密度。
-        节点上不提供该参数：帧率只在输出设置节点上出现一次。"""
+        """未接入动画：镜头的起止帧和「帧率」即 worker 所需的全部信息（约束为空）。模型按自己的帧率生成，
+        worker 按「帧率」把它重采样成起止帧之间每帧一个姿势。"""
         first, last = int(ctx.params["start_frame"]), int(ctx.params["end_frame"])
-        fps = DEFAULT_FPS
+        fps = float(ctx.params["fps"])
         if last < first:
             raise Invalid(Msg("E-MOTIONGEN-BADRANGE", first=first, last=last))
         length = last - first + 1

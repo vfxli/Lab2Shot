@@ -13,6 +13,8 @@ from typing import Literal
 
 import numpy as np
 
+from ..port import EITHER
+from ..kit.ports import values_port
 from ...errors import Invalid
 from ...messages import Msg
 from ...data.contracts import Shape, warped_by
@@ -58,7 +60,7 @@ class MotionWarp(NodeDef):
     version = 2  # image packets always say whether they have an alpha
     category = "img_warp"
     on_node = ("direction",)
-    inputs = (Port("src", "image", "源", alpha=True), Port("flow", "image.4", "运动矢量", expects=(SameShot(of="src"),)))
+    inputs = (Port("src", "image", "源", alpha=True, data=EITHER), values_port("flow", "image.4", "运动矢量", expects=(SameShot(of="src"),)))
     outputs = (Port("image", "image", "结果", type_from="input:src", shape=warped_by("flow")),)
 
     class Params(NodeParams):
@@ -117,7 +119,7 @@ class MotionOcclusion(NodeDef):
     id = "core.motion_occlusion"
     category = "mask_make"
     on_node = ("tolerance",)
-    inputs = (Port("flow", "image.4", "运动矢量"),)
+    inputs = (values_port("flow", "image.4", "运动矢量"),)
     outputs = (Port("occluded", "image.1", "遮挡"), Port("revealed", "image.1", "新露出"))
 
     class Params(NodeParams):
@@ -169,7 +171,7 @@ class MotionStmap(NodeDef):
     id = "core.motion_stmap"
     category = "img_warp"
     on_node = ("query_frame",)
-    inputs = (Port("flow", "image.4", "运动矢量"),)
+    inputs = (values_port("flow", "image.4", "运动矢量"),)
     main = "stmap"
     outputs = (Port("stmap", "image.2", "ST-map", shape=Shape(lens="unknown")), Port("valid", "image.1", "有效区域"))
 

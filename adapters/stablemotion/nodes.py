@@ -4,18 +4,17 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, Cost, DetectCleanupParams, JointMap, Licence, Measured, RigMotion, P, body_joints,
+from lab2shot.sdk import (Official, Cost, DetectCleanupParams, PartMap, Licence, Measured, RigMotion, P, body_joints,
                           mapping_param, measured_param)
 
-# StableMotion's skeleton is SMPL's, so the joint table is SMPL's, read off the body itself (nodes/kit/rig.py):
-# the same 22 joints and body parts the 「关节映射」 table pairs up, listed here so they can be corrected by hand.
+# StableMotion's skeleton is SMPL's, so its joints are SMPL's, read off the body itself (nodes/kit/rig.py):
+# the same 22 joints and body parts the model side of 「对应关系」 shows, the person's joints driving them chosen there.
 JOINTS = body_joints("smpl")
-MODEL_FPS = 20.0  # the model's own frame rate (BrokenAMASS is resampled to 20 fps)
-WINDOW = 100  # frames it was trained on, at its own rate: 5 seconds
 
 
 class StableMotionCleanup(RigMotion):
     id = "stablemotion.cleanup"
+    version = 2  # 2：帧号按节点的「帧率」换算成时间（默认 24 与 1 版的固定时基相同）
     does = "cleanup"  # 修动作（骨骼动作家族的两件活之一，lab2shot/nodes/families/rig_motion.py）
     # 引的是官方 fix_globsmpl.py 的修复那一遍：input_motions（坏动作）+ label（上一遍 detect_labels 判出来的
     # 问题帧，同文件 105-117）进去，fixed_motion 出来。
@@ -36,7 +35,7 @@ class StableMotionCleanup(RigMotion):
     cost = Cost(gpu=True, vram_gb=0.3, whole="整段一次找问题帧，只有判坏的地方才按 5 秒一段重画")
 
     class Params(DetectCleanupParams):
-        mapping: list[JointMap] = mapping_param(JOINTS)
+        mapping: list[PartMap] | None = mapping_param()
         quality: Literal["basic", "best"] = measured_param(
             "质量", {"basic": Measured(flat=True),
                      "best": Measured(flat=True)},

@@ -27,15 +27,23 @@ from typing import TYPE_CHECKING, Any, Protocol
 from lab2shot_worker import RAW, SCHEMA  # the job protocol, defined once (the worker side reads the same)
 
 from ..config import WORKER_SDK_DIR
-from ..progress import FETCHING as PROGRESS_FETCHING, LOADING as PROGRESS_LOADING
-from ..io.atomic import flush_tree, mark, write_text
-from ..io.digest import sha256
 from ..data.locks import exclusive
 from ..data.packet import CACHE_VERSION, WORKER_COMPLETE, Packet, cache_root, note, packet_dir, used, worker_done
 from ..data.payloads import frames_for_worker, image_files, is_data
 from ..data.units import DEFAULT_FPS
+from ..errors import CookCancelled, CookError, NothingToCook
+from ..io.atomic import flush_tree, mark, write_text
+from ..io.digest import sha256
 from ..messages import Msg, worker_params
-from ..errors import CookCancelled, NothingToCook
+from ..nodes.applies import resolve_params
+from ..nodes.params import param_defaults
+from ..progress import FETCHING as PROGRESS_FETCHING, LOADING as PROGRESS_LOADING
+from .resident import event_of, keep_free_gb, pool
+
+if TYPE_CHECKING:
+    from ..extensions import Extension
+    from ..nodes.base import NodeDef
+    from .cook import CookContext
 
 STACK_LINES = 12  # number of trailing worker log lines (the stack) included in an error, unedited
 
@@ -47,15 +55,6 @@ def job_code(job_dir: Path) -> str:
     It is the first 8 characters of the job folder name (`<key>_job`); no separate mapping is stored, the code itself
     locates the folder."""
     return job_dir.name.removesuffix("_job")[:8]
-
-from ..nodes.applies import resolve_params
-from ..nodes.params import _defaults
-from .cook import CookContext, CookError
-from .resident import event_of, keep_free_gb, pool
-
-if TYPE_CHECKING:
-    from ..extensions import Extension
-    from ..nodes.base import NodeDef
 
 
 def input_files(ctx: CookContext, *ports: str) -> dict[str, Path]:
@@ -401,7 +400,7 @@ def ask_worker(node_type: type[NodeDef], params: dict, inputs: dict[str, Path]) 
     anything is cooked (the entries of a file, for an import node's lists and its check before a cook: PlanEnv.ask_worker).
     It is the same job a cook of the node sends, so either reuses the other's raw results. Quick jobs only: nothing
     reports its progress, no GPU."""
-    ram = resolve_params(node_type, {**_defaults(node_type.Params), **params}).cost.ram_gb
+    ram = resolve_params(node_type, {**param_defaults(node_type.Params), **params}).cost.ram_gb
     job = WorkerJob(node_type, node_type.worker_params(params), None, {k: Path(v) for k, v in inputs.items()},
                     record={"params": {}}, ram_gb=ram)
     return run_job(job, _Quiet(node_type.label))
@@ -424,7 +423,7 @@ def run_job(job: WorkerJob, env: RunnerEnv) -> Path:
                             if w.gated else Msg("E-WORKER-NOWEIGHTS", node=env.label, weight=weight, extension=ext.name))
     key = job_key(ext, node, job.image, params, job.inputs)
     # nodes that differ only in how they write results send the same job: run it once
-    with env.exclusive(key, "另一个任务正在跑同样的计算，等它算完"):
+    with env.exclusive(key, Msg("I-WAIT-SAMEJOB").text):
         return _run_job(env, ext, node, key, job)
 
 
@@ -435,7 +434,7 @@ def _run_job(ctx: RunnerEnv, ext: Extension, node: str, key: str, spec: WorkerJo
     note(job_dir.name)  # the job's task references the model's raw results, reused or made now (data/packet.py note)
     done_marker = raw / WORKER_COMPLETE
     if reuse and worker_done(raw):
-        ctx.stage("复用已完成的计算")
+        ctx.stage(Msg("I-STAGE-REUSE").text)
         ctx.reused = True
         used(done_marker)
         job_file = job_dir / "job.json"
@@ -452,8 +451,8 @@ def _run_job(ctx: RunnerEnv, ext: Extension, node: str, key: str, spec: WorkerJo
     frames: dict = {}
     size = {"width": 0, "height": 0}
     if image is not None:
-        ctx.stage("准备画面")
-        plate = frames_for_worker(image, lambda d, t: ctx.progress(d, t, "色彩转换"))
+        ctx.stage(Msg("I-STAGE-PLATE").text)
+        plate = frames_for_worker(image, lambda d, t: ctx.progress(d, t, Msg("I-STAGE-COLOR").text))
         frames = image_files(plate)
         size = {k: plate.meta[k] for k in size}
     raw.mkdir(parents=True)
@@ -466,7 +465,7 @@ def _run_job(ctx: RunnerEnv, ext: Extension, node: str, key: str, spec: WorkerJo
         "frames": [{"frame": f, "path": os.path.relpath(p, job_dir)} for f, p in sorted(frames.items())],
         **size,
         # a time base, not the shot's frame rate: shots have no frame rate (see the DEFAULT_FPS comment in
-        # data/units.py; the frame rate appears only on output-settings nodes). It is read only by upstream APIs that
+        # data/units.py; a frame rate is a parameter only where it matters: output settings, motion models). It is read only by upstream APIs that
         # require an fps: WHAM's `detector.track(img, fps, length)`, MediaPipe's video timestamps, ViPE's stream.
         "fps": DEFAULT_FPS,
         "params": params,
@@ -511,8 +510,8 @@ def _run_job(ctx: RunnerEnv, ext: Extension, node: str, key: str, spec: WorkerJo
 
         outcome = run()
         if outcome.oom and not outcome.clean:  # next to models kept loaded: once more, alone on the GPU
-            ctx.stage("显存不够：卸载这张显卡上的常驻模型后重算")
-            log.write("\n---- 显存不够：卸载这张显卡上的常驻模型，在新进程里重算 ----\n")
+            ctx.stage(Msg("I-STAGE-VRAMRETRY").text)
+            log.write(f"\n---- {Msg('I-STAGE-VRAMRETRY').text} ----\n")
             pool().clear_gpu(ctx.gpu)
             shutil.rmtree(raw)
             raw.mkdir(parents=True)

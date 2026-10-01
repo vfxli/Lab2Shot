@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, DEFORMING, ROOT_PATH, SCENE_FILE, Cost, Job, Licence, NodeParams, P, Port, RawOutput,
+from lab2shot.sdk import (rgb_port, Official, DEFORMING, ROOT_PATH, SCENE_FILE, Cost, Job, Licence, NodeParams, P, Port, RawOutput,
                           WorkerNode, create_stage, plate_mask_port, save_stage, scene_packet, unit_cm_param,
                           write_mesh)
 
-WINDOW = 6  # 模型训练时的窗口长度（configs/OBJVERSE/train/infer.yaml length_sequence / num_frames），不可配置
+from .model_spec import WINDOW  # 模型一次看的帧数，worker.py 用同一个
 
 # 「面数」：该参数对显存和耗时影响很大，因此不接受任意数值，仅提供经过验证的几档。
 # 「原样」对应官方 infer.py 的 not_simplify=True；两档减面使用官方的 mesh_simplify_trimesh，
@@ -42,7 +42,7 @@ class Solve(WorkerNode):
     )
     on_node = ("faces", "quality", "unit_cm")
     inputs = (
-        Port("image", "image.3", "RGB"),
+        rgb_port(),
         plate_mask_port("前景遮罩", optional=False),
     )
     outputs = (
@@ -103,7 +103,7 @@ class Solve(WorkerNode):
 
         ctx.stage("写出网格")
         info = {"extension": cls.runtime, "faces": ctx.params["faces"], "quality": ctx.params["quality"],
-                "seed": int(ctx.params["seed"]), "unit_cm": unit, "window": WINDOW,
+                "seed": int(ctx.params["seed"]), "unit_cm": unit,
                 "windows": int(result["windows"]), "scale": "relative"}
         w, h = image.meta["width"], image.meta["height"]
 

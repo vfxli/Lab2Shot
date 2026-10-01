@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, 
+from lab2shot.sdk import (rgb_port, Official, normal_port, 
     CameraLensParams,
     Cost,
     Licence,
@@ -14,7 +14,6 @@ from lab2shot.sdk import (Official,
     Port,
     WorldHumans,
     camera_normals,
-    curves_packet,
     frame_maps,
     measured_param,
 )
@@ -32,7 +31,7 @@ class Face(WorldHumans):
         cite=("third_party/pixel3dmm/repo/src/pixel3dmm/tracking/tracker.py:290-332",
               "third_party/pixel3dmm/repo/scripts/network_inference.py:55-160"),
         takes={"image": "Image.open"},
-        gives={"character": "shape", "expressions": "exp", "camera": "cam_params", "normal": "normals", "uv": "uv_map"},
+        gives={"character": "shape", "camera": "cam_params", "normal": "normals", "uv": "uv_map"},
         note="① **官方的整套 FLAME 参数就是「蒙皮角色」这个口**，没有另立类型、也没有另加口（SMPL / SMPL-X / MANO / FLAME / MHR "
              "这类参数化人体就是「蒙皮 + 权重 + 骨架动画」，装成「蒙皮角色」，不另立数据类型）。"
              "逐项对上（worker.py head_in_camera）：`shape`（300 个，整段一个）变成这张脸的静止网格和静止骨架"
@@ -41,7 +40,7 @@ class Face(WorldHumans):
              "（npz local_rotations[:, 0] 和 transl）；`neck` 变成脖子关节（local_rotations[:, 1]）、"
              "`jaw` 变成下巴关节（[:, 2]）、`eyes` 变成左右眼球两个关节（[:, 3:5]）；`exp`（100 个）和 "
              "`eyelids`（2 个）变成「蒙皮角色」上的 102 条 blendShape（npz blendshapes / blendshape_names / "
-             "blendshape_weights），同一份数字另外走「表情曲线」这个口。`joint_transforms` 是上游把这些关节"
+             "blendshape_weights）。`joint_transforms` 是上游把这些关节"
              "旋转按骨架层级乘起来的结果，我们这边由同一批 local_rotations 算出来（npz joints），不是另一份数据。"
              "**一个参数都没丢。**"
              "② 「RGB」输入口是官方的：`scripts/network_inference.py:121 img` "
@@ -53,16 +52,17 @@ class Face(WorldHumans):
     on_node = ("focal_mm", "quality")
     # 适用于面部足够大的特写，每一帧都须有人脸；整段联合解算，最多 1000 帧；
     # 相机为方法自行解出的一台固定相机（Focal Length + 镜头中心），头部相对其运动
-    inputs = (Port("image", "image.3", "RGB"),)
+    inputs = (rgb_port(),)
     # 第二阶段每次联合计算 16 帧，少于 16 帧时上游会崩溃，因此在提交前拦截（nodes/expects.py FrameCount）。
     # 1000 帧上限由 tracker.py 固定，worker 启动时即按此拒绝（「一次最多 N 帧」提示的一键修正
     # 是用「FrameHold」选取一帧，不适用于此情形，因此不声明 most_frames）
     min_frames = 16
+    # 相机包内的 USD 由 io/usd.py write_camera 写入；片门偏移的定义变化后需更新结果版本。
+    version = 2
     outputs = WorldHumans.outputs + (
-        Port("expressions", "curves", "表情曲线"),
         # 官方提供的两张屏幕空间预测：法线图转换到相机空间，与其他项目约定一致；
         # UV 图为 FLAME 自身的 UV 展开，与核心「规范坐标转 UV」的输出类型和术语相同
-        Port("normal", "image.3", "法线图", means=("space",)),
+        normal_port(),
         Port("uv", "image.2", "UV 坐标图", means=("projection",)),
     )
     runtime = "pixel3dmm"
@@ -93,7 +93,7 @@ class Face(WorldHumans):
 
     @classmethod
     def convert(cls, ctx, raw, job):
-        """世界人体家族的输出，另加 102 条表情曲线和先验网络给出的两张屏幕空间图。
+        """世界人体家族的输出，另加先验网络给出的两张屏幕空间图。
 
         两张图以裁切尺寸返回。整段使用同一个裁切矩形（见 worker 的 result.json），因此在此贴回画面画布，
         其余区域标记为「没有值」。
@@ -102,12 +102,6 @@ class Face(WorldHumans):
 
         image = job.plate
         out = super().convert(ctx, raw, job)
-        d = raw.arrays("person_01.npz")
-        frames, own = image.meta["frames"], [int(f) for f in d["frames"]]
-        weights = d["blendshape_weights"]
-        values = np.stack([np.interp(frames, own, weights[:, k]) for k in range(weights.shape[1])], 1)
-        out["expressions"] = curves_packet(ctx.outputs["expressions"], frames,
-                                           [str(n) for n in d["blendshape_names"]], values, extension=cls.runtime)
 
         ymin, ymax, xmin, xmax = (int(v) for v in raw.result()["crop"])
         width, height = image.meta["width"], image.meta["height"]

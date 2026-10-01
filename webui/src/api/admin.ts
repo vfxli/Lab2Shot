@@ -235,7 +235,7 @@ interface SuspiciousEvent {
   user: string; // the account, when the request carried one
   path: string;
   method: string;
-  counted: boolean; // 是否计入封禁阈值的 40 条：页面与服务器版本不一致导致的 404 会被记录但不计入
+  counted: boolean; // whether it counts toward the 40 that trigger a block: a 404 caused by a page and server of different versions is logged but not counted
 }
 
 export interface SecurityView {
@@ -261,7 +261,7 @@ export interface UserResourcePage {
   kind: string;
   label: string;
   section: string;
-  columns: { key: string; label: string; says: string }[]; // says: "size" 表示字节数（由 platform/format.ts 格式化），"" 表示按值本身显示
+  columns: { key: string; label: string; says: string }[]; // says: "size" means a byte count (formatted by platform/format.ts), "" means the value shown as it is
   when: string; // the column the 时间 filter reads ("" no such filter)
   state_column: string; // the column the 状态 filter reads ("" no such filter)
   states: string[]; // the values that column takes for this account, in the order they appear
@@ -307,8 +307,8 @@ export const adminApi = {
   changeUser: (id: number, change: UserChange) => json<UsersView & { user: UserRow }>("PUT", `/api/admin/users/${id}`, change),
   resetPassword: (id: number, password: string) => json<UsersView>("POST", `/api/admin/users/${id}/password`, { password }),
   deleteUser: (id: number) => json<UsersView & { jobs_stopped: number; outputs: number }>("DELETE", `/api/admin/users/${id}`),
-  // 永久删除已删除的账号：账号行被移除，用户名可供新账号重用；
-  // 任务记录、反馈、登录记录保留，统计中显示为「已删除的用户」；保存在服务器上的节点图一并删除
+  // 永久删除 of a deleted account: its row is removed and the username may be reused by a new account; task records,
+  // feedback and login records stay, shown in the statistics as 「已删除的用户」; its graphs saved on the server go with it
   purgeUser: (id: number) => json<UsersView & { jobs: number; feedback: number; graphs: number }>("DELETE", `/api/admin/users/${id}/purge`),
   userLogins: (id: number) => json<UserLogins>("GET", `/api/admin/users/${id}/logins`),
   ...accountsApi,
@@ -322,7 +322,8 @@ export const adminApi = {
     json<SettingsView>("PUT", "/api/admin/settings", { values }).catch((e) => {
       throw e instanceof ApiError && e.status === 400 ? new SettingsRefused(e.message, (e.body?.errors as Record<string, string>) ?? {}) : e;
     }),
-  overview: () => json<Overview>("GET", "/api/admin/overview"),
+  // a missing list is filled in as empty, here once, so the overview never checks piecemeal (a missing `pending` would throw a TypeError there)
+  overview: () => json<Overview>("GET", "/api/admin/overview").then((o) => ({ ...o, pending: o.pending ?? [] })),
   recent: () => json<RecentView>("GET", "/api/admin/overview/recent"),
   invites: () => json<InvitesView>("GET", "/api/admin/invites"),
   createInvite: (i: { code: string; note: string; uses_max: number | null; expires: number | null }) =>

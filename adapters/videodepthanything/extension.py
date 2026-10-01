@@ -8,7 +8,7 @@ because the user is a researcher; the node marks them non-commercial.
 from __future__ import annotations
 
 
-from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, hf_file
+from lab2shot.sdk import COMMERCIAL, NONCOMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, hf_file, downloads
 
 VDA_URL = "https://github.com/DepthAnything/Video-Depth-Anything.git"
 # 2025-10-07 (main): streaming mode shared with the metric models (#93) + point cloud fix.
@@ -17,11 +17,11 @@ VDA_COMMIT = "4f5ae23172ba60fd7bc11ef671cca678842c7072"
 # model param -> (checkpoint file in weights/, Hugging Face repo, pinned revision, LFS sha256,
 #                 model card licence, ViT size)
 CHECKPOINTS = {
-    "small": (
-        "video_depth_anything_vits.pth",
-        "depth-anything/Video-Depth-Anything-Small",
-        "256875362cff76724b920335dfb4b29dd611f66e",
-        "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609",
+    "small": (  # ViPE runs this model too: pinned once (extensions/downloads.py)
+        downloads.VDA_SMALL.filename,
+        downloads.VDA_SMALL.repo,
+        downloads.VDA_SMALL.revision,
+        downloads.VDA_SMALL.sha256,
         "Apache-2.0",
         "ViT-S 28.4M 参数",
     ),
@@ -68,6 +68,9 @@ CHECKPOINTS = {
     ),
 }
 
+
+# 「模型」选哪些是非商用（模型卡 CC-BY-NC-4.0 的那几个）：节点的 OptionTrait 从这里生成（licence_traits）
+OPTION_LICENCES = {"model": {k: NONCOMMERCIAL for k, (*_, licence, _size) in CHECKPOINTS.items() if "NC" in licence}}
 
 class VideoDepthAnything(Extension):
     name = "videodepthanything"

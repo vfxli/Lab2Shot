@@ -3,17 +3,100 @@
  "meta": {
   "id": "9d007d2e116fff56df26d4c4166385ee",
   "name": "面部去光照 · OpenDelight",
-  "intro": "OpenDelight 是面向面部外观采集的完全开源、高性能去光照先验。这张卡交付 ACEScg 的基础色和脸部遮罩；逐帧算整段会闪，默认只接一张画面。",
+  "intro": "OpenDelight 是面向面部外观采集的完全开源、高性能去光照先验。这张卡交付一套多层 EXR：rgba 是基础色（默认 ACEScg，按「输出色彩空间」），mask 是脸部遮罩；逐帧算整段会闪，这张卡只接一张画面。",
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "face_texture",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入图片",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "enhancer",
+   "label": "细节增强",
+   "target": "delight.enhancer"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out.name"
+    },
+    {
+     "name": "colorspace_out",
+     "label": "输出色彩空间",
+     "target": "out.colorspace"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_bit_depth",
+       "label": "EXR 位深",
+       "target": "out.exr_bit_depth"
+      },
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "out.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "计算",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -27,7 +110,7 @@
    },
    "ui": {
     "x": 0,
-    "y": 240
+    "y": 48
    }
   },
   {
@@ -40,45 +123,11 @@
     "smooth_landmarks": true
    },
    "ui": {
-    "x": 320,
-    "y": 240,
+    "x": 400,
+    "y": 0,
     "on_node": [
      "resolution",
      "enhancer"
-    ]
-   }
-  },
-  {
-   "id": "out_a",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "basecolor"
-   },
-   "ui": {
-    "x": 680,
-    "y": 0,
-    "on_node": [
-     "name",
-     "format"
-    ]
-   }
-  },
-  {
-   "id": "out_m",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "mask"
-   },
-   "ui": {
-    "x": 680,
-    "y": 260,
-    "on_node": [
-     "name",
-     "format"
     ]
    }
   },
@@ -88,8 +137,35 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1000,
-    "y": 140
+    "x": 1200,
+    "y": 24
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "basecolor",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "rgba",
+      "channels": ""
+     },
+     {
+      "name": "layer2",
+      "label": "mask",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 800,
+    "y": 24
    }
   }
  ],
@@ -110,8 +186,8 @@
     "basecolor"
    ],
    "to": [
-    "out_a",
-    "image"
+    "out",
+    "layer1"
    ]
   },
   {
@@ -120,23 +196,13 @@
     "mask"
    ],
    "to": [
-    "out_m",
-    "image"
+    "out",
+    "layer2"
    ]
   },
   {
    "from": [
-    "out_a",
-    "files"
-   ],
-   "to": [
-    "deliver",
-    "files"
-   ]
-  },
-  {
-   "from": [
-    "out_m",
+    "out",
     "files"
    ],
    "to": [

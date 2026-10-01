@@ -30,6 +30,9 @@ from pathlib import Path
 
 from lab2shot_worker.build import cuda_build_env
 
+# The commit the checkout is pinned at (extension.py extra_sources: lab2shot/extensions/downloads.py PYTORCH3D). Not read
+# here, but this script's content is part of the environment's build fingerprint (installer/plan.py env_fingerprint):
+# a line removed here makes every installed GVHMR read as 需要重装, so it stays, and must change with the pin.
 PYTORCH3D_COMMIT = "33824be3cbc87a7dd1db0f6a9a9de9ac81b2d0ba"  # v0.7.9
 
 # ext.cpp's Pulsar Renderer includes and pybind registration block: identified by their
@@ -57,7 +60,7 @@ build = ext_root / "build" / "pytorch3d"
 if build.exists():
     shutil.rmtree(build)
 build.parent.mkdir(parents=True, exist_ok=True)
-# the installer's checkout (extension.py extra_sources, pinned at PYTORCH3D_COMMIT), copied: the sources are patched below
+# the installer's checkout (extension.py extra_sources: lab2shot/extensions/downloads.py PYTORCH3D), copied: the sources are patched below
 # and the checkout itself is never written (a changed checkout would read as 「原始代码被改过」)
 shutil.copytree(Path(os.environ["LAB2SHOT_EXTRA_PYTORCH3D"]), build, ignore=shutil.ignore_patterns(".git"))
 

@@ -68,7 +68,13 @@
   border-color: transparent;
 }
 
-.btn.entry::after {
+/* .entry-rim: a group of buttons (顶栏的「节点模式 / 应用模式」) framed by the same rim as one piece */
+.entry-rim {
+  position: relative;
+  border-radius: var(--r-ctl);
+}
+
+:is(.btn.entry, .entry-rim)::after {
   content: "";
   position: absolute;
   inset: -1px; /* over the button's own 1 px border, which is transparent: the rim is the border */
@@ -82,6 +88,13 @@
   animation: entry-turn var(--entry-turn) linear infinite;
 }
 
+/* the rim around 「节点模式 / 应用模式」: cool hues, a step darker, told apart from the rim of 「模板」
+   (tokens.css --mode-palette) */
+.entry-rim.mode-switch::after {
+  background: conic-gradient(from var(--entry-angle), var(--mode-palette));
+  opacity: 0.8;
+}
+
 @keyframes entry-turn {
   to {
     --entry-angle: 1turn;
@@ -89,7 +102,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn.entry::after {
+  :is(.btn.entry, .entry-rim)::after {
     animation: none;
   }
 }

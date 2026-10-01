@@ -1,17 +1,17 @@
 import { useEffect, useState } from "react";
 import { api, type TemplatesPage } from "../api";
 
-// Requested once per page: the templates, with their graphs (the card grid), and the tree they sit in. One promise, so two
-// readers never request the same list twice.
+// The page's one copy of the templates list: the templates, with their graphs (the card grid), and the tree they sit
+// in, requested once per page. One promise, so two readers never request the same list twice.
 let cache: Promise<TemplatesPage> | null = null;
 
-/** 保存、复制、删除、移动模板或修改分类树后：使该缓存失效，下一次读取时重新请求。 */
+/** After a template is saved, copied, deleted or moved, or the category tree changes: drops the cache, so the next read requests again. */
 export function refreshTemplates(): void {
   cache = null;
 }
 
-/** `again`：值变化时重新读取（模板面板传入其是否打开，每次打开时重新读取，因此刚保存的卡片打开即可见，
- * 与「我的模板」规则相同）。 */
+/** `again`: read again whenever it changes (the templates sheet passes whether it is open, so every opening reads
+ * again and a card just saved is there as soon as the sheet opens, the same rule as 「我的模板」). */
 export function useTemplates(again: unknown = null): TemplatesPage | null {
   const [got, set] = useState<TemplatesPage | null>(null);
   useEffect(() => {

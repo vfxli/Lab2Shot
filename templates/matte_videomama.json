@@ -3,17 +3,239 @@
  "meta": {
   "id": "4f6c67d0030286b4a403f9a8dfb4bd4b",
   "name": "精细抠像 · VideoMaMa",
-  "intro": "VideoMaMa 是遮罩引导的视频抠像框架，借用视频生成先验，在各类素材上表现稳定，抠像质量精细。这张卡用 BiRefNet 逐帧给出遮罩，交付整段 alpha 序列。",
+  "intro": "VideoMaMa 是遮罩引导的视频抠像框架，借用视频生成先验，在各类素材上表现稳定，抠像质量精细。这张卡的逐帧粗遮罩默认由 BiRefNet 给出，也可以用 SAM 3 按提示词找再点选物体（整段跟住），固定机位还可以自己画一张；抠出整段 alpha 后用「边缘解混合」去掉边缘的背景色，交付一套多层 EXR（rgba 修正后前景、foreground 未修正前景、alpha）。",
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "matte_fine",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": "粗遮罩",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "rough_src",
+     "label": "粗遮罩来源",
+     "target": "rough_pick.which",
+     "widget": "menu",
+     "options": [
+      {
+       "value": 1,
+       "label": "BiRefNet 自动找主体"
+      },
+      {
+       "value": 2,
+       "label": "SAM 3 按提示词找（可点选物体）"
+      },
+      {
+       "value": 3,
+       "label": "手画遮罩（静止，只适合固定机位）"
+      }
+     ]
+    },
+    {
+     "name": "rough_model",
+     "label": "BiRefNet 模型",
+     "target": "rough.model",
+     "hide_when": "rough_src != 1"
+    },
+    {
+     "name": "rough_prompt",
+     "label": "要抠的东西（英文）",
+     "target": "rough_sam.prompt",
+     "hide_when": "rough_src != 2"
+    },
+    {
+     "name": "rough_classes",
+     "label": "选哪些物体",
+     "target": "rough_sel.classes",
+     "hide_when": "rough_src != 2",
+     "show_on_change": true
+    },
+    {
+     "name": "rough_picks",
+     "label": "点选物体",
+     "target": "rough_sel.picks",
+     "hide_when": "rough_src != 2",
+     "show_on_change": true
+    },
+    {
+     "name": "rough_picks_pick",
+     "label": "在视图里点选",
+     "target": "rough_sel.picks_pick",
+     "hide_when": "rough_src != 2"
+    },
+    {
+     "name": "rough_shapes",
+     "label": "遮罩形状",
+     "target": "rough_draw.shapes",
+     "hide_when": "rough_src != 3",
+     "show_on_change": true
+    },
+    {
+     "name": "rough_shapes_pick",
+     "label": "在视图里画",
+     "target": "rough_draw.shapes_pick",
+     "hide_when": "rough_src != 3"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "rough_fp16",
+       "label": "BiRefNet 半精度",
+       "target": "rough.fp16",
+       "hide_when": "rough_src != 1"
+      },
+      {
+       "name": "rough_max_objects",
+       "label": "SAM 3 最多物体数",
+       "target": "rough_sam.max_objects",
+       "hide_when": "rough_src != 2"
+      },
+      {
+       "name": "rough_threshold",
+       "label": "SAM 3 检测阈值",
+       "target": "rough_sam.threshold",
+       "hide_when": "rough_src != 2"
+      }
+     ]
+    },
+    {
+     "name": "cook_rough",
+     "label": "计算粗遮罩",
+     "target": "rough_pick.cook"
+    }
+   ]
+  },
+  {
+   "name": "resolution",
+   "label": "处理分辨率",
+   "target": "matte.resolution"
+  },
+  {
+   "name": "erode_dilate",
+   "label": "遮罩扩缩",
+   "target": "matte.erode_dilate"
+  },
+  {
+   "name": "fg_radius",
+   "label": "解混合模糊半径",
+   "target": "fg.radius"
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "fp16",
+     "label": "半精度",
+     "target": "matte.fp16"
+    }
+   ]
+  },
+  {
+   "name": "cook_matte",
+   "label": "精细抠像",
+   "target": "fg.cook"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "out.name"
+    },
+    {
+     "name": "colorspace_out",
+     "label": "输出色彩空间",
+     "target": "out.colorspace"
+    },
+    {
+     "kind": "group",
+     "label": "高级",
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_bit_depth",
+       "label": "EXR 位深",
+       "target": "out.exr_bit_depth"
+      },
+      {
+       "name": "exr_compression",
+       "label": "EXR 压缩",
+       "target": "out.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": "ZIP 逐行"
+        },
+        {
+         "value": "zip",
+         "label": "ZIP 16 行"
+        },
+        {
+         "value": "piz",
+         "label": "PIZ"
+        },
+        {
+         "value": "none",
+         "label": "无"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -23,11 +245,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 140
+    "y": 133
    }
   },
   {
@@ -35,15 +259,14 @@
    "type": "birefnet.matte",
    "label": "BiRefNet 抠像",
    "params": {
-    "model": "matting",
+    "model": "hr_matting",
     "fp16": true
    },
    "ui": {
-    "x": 320,
-    "y": 0,
+    "x": 840,
+    "y": 540,
     "on_node": [
-     "model",
-     "resolution"
+     "model"
     ]
    }
   },
@@ -57,28 +280,11 @@
     "fp16": true
    },
    "ui": {
-    "x": 620,
-    "y": 120,
+    "x": 1600,
+    "y": 98,
     "on_node": [
      "resolution",
      "erode_dilate"
-    ]
-   }
-  },
-  {
-   "id": "out",
-   "type": "core.output_images",
-   "label": "序列图输出设置",
-   "params": {
-    "colorspace": null,
-    "name": "alpha"
-   },
-   "ui": {
-    "x": 960,
-    "y": 120,
-    "on_node": [
-     "name",
-     "format"
     ]
    }
   },
@@ -88,8 +294,117 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1280,
-    "y": 120
+    "x": 2800,
+    "y": 10
+   }
+  },
+  {
+   "id": "rough_sam",
+   "type": "sam3.segment",
+   "label": "SAM 3 视频分割（粗遮罩）",
+   "params": {
+    "prompt": "person",
+    "max_objects": 8,
+    "threshold": 0.5
+   },
+   "ui": {
+    "x": 400,
+    "y": 172
+   }
+  },
+  {
+   "id": "rough_sel",
+   "type": "core.segment_select",
+   "label": "点选物体",
+   "params": {
+    "classes": "",
+    "picks": []
+   },
+   "ui": {
+    "x": 800,
+    "y": 210
+   }
+  },
+  {
+   "id": "rough_draw",
+   "type": "core.draw_mask",
+   "label": "手画遮罩",
+   "params": {
+    "shapes": []
+   },
+   "ui": {
+    "x": 840,
+    "y": 860
+   }
+  },
+  {
+   "id": "rough_pick",
+   "type": "core.switch",
+   "label": "选粗遮罩",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": "BiRefNet 自动找主体"
+     },
+     {
+      "name": "b",
+      "label": "SAM 3 按提示词找（可点选物体）"
+     },
+     {
+      "name": "c",
+      "label": "手画遮罩（静止，只适合固定机位）"
+     }
+    ]
+   },
+   "ui": {
+    "x": 1200,
+    "y": 196
+   }
+  },
+  {
+   "id": "fg",
+   "type": "birefnet.foreground",
+   "label": "BiRefNet 边缘解混合",
+   "params": {
+    "radius": 90
+   },
+   "ui": {
+    "x": 2000,
+    "y": 0
+   }
+  },
+  {
+   "id": "out",
+   "type": "core.output_exr",
+   "label": "多层 EXR 输出设置",
+   "params": {
+    "name": "matte",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "rgba",
+      "channels": ""
+     },
+     {
+      "name": "layer2",
+      "label": "foreground",
+      "channels": ""
+     },
+     {
+      "name": "layer3",
+      "label": "alpha",
+      "channels": "A"
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 2400,
+    "y": 10
    }
   }
  ],
@@ -116,12 +431,112 @@
   },
   {
    "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "rough_sam",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "rough_sam",
+    "objects"
+   ],
+   "to": [
+    "rough_sel",
+    "segmentation"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "rough_draw",
+    "image"
+   ]
+  },
+  {
+   "from": [
     "rough",
     "alpha"
    ],
    "to": [
+    "rough_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "rough_sel",
+    "mask"
+   ],
+   "to": [
+    "rough_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "rough_draw",
+    "mask"
+   ],
+   "to": [
+    "rough_pick",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "rough_pick",
+    "out"
+   ],
+   "to": [
     "matte",
     "mask"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "fg",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte",
+    "alpha"
+   ],
+   "to": [
+    "fg",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "fg",
+    "foreground"
+   ],
+   "to": [
+    "out",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "fg",
+    "plate"
+   ],
+   "to": [
+    "out",
+    "layer2"
    ]
   },
   {
@@ -131,7 +546,7 @@
    ],
    "to": [
     "out",
-    "image"
+    "layer3"
    ]
   },
   {
@@ -147,7 +562,7 @@
  ],
  "boxes": [],
  "view": {
-  "display": "matte",
+  "display": "fg",
   "frame": null
  }
 }

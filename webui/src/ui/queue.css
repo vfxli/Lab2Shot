@@ -1,11 +1,5 @@
-/* The queue, as the editor window and the admin page show it (ui/Queue.tsx, ui/QueueTables.tsx): the running job, the line
-   behind it and what a finished job's 「输出」 packed (its downloads). The cards are ui/gpus.css. */
-
-.q-eta {
-  color: var(--text-2);
-  font-size: var(--fs-sm);
-  white-space: nowrap;
-}
+/* 队列在编辑器窗口和后台中的样子（ui/Queue.tsx、ui/QueueTables.tsx）：计算中的任务、排在后面的任务，以及已完成
+   任务的「输出」打包出的内容（其下载）。显卡部分见 ui/gpus.css。 */
 
 .q-view {
   display: flex;
@@ -94,7 +88,7 @@
   margin: 0;
 }
 
-/* a finished job's outputs: the zip's name and its download */
+/* 已完成任务的输出：zip 的名称及其下载 */
 .q-outputs {
   display: flex;
   flex-direction: column;
@@ -115,7 +109,7 @@
   white-space: nowrap;
 }
 
-/* ------------------------------------------------------------------ queue (editor 队列 window and /admin) */
+/* ------------------------------------------------------------------ 队列（编辑器的「队列」窗口与 /admin） */
 
 .q-badge {
   min-width: 18px;
@@ -130,7 +124,7 @@
   place-items: center;
 }
 
-/* a value the page will not send (the cook's frame range): the error colour until it is right */
+/* 页面不会发送的值（计算的帧范围）：改对之前显示为错误色 */
 .field.bad,
 .field.bad:focus {
   border-color: var(--error);
@@ -157,14 +151,14 @@
   color: var(--orange);
 }
 
-/* the queue's own faint text and the department chip (ui/Queue.tsx, ui/QueueTables.tsx) */
+/* 队列自己的淡色文字和环节标签（ui/Queue.tsx、ui/QueueTables.tsx） */
 .chip.q-dept {
   margin-left: 6px;
   background: rgba(100, 210, 255, 0.14);
   color: #9fdcff;
 }
 
-/* a line of the queue that no longer matters (a finished or cancelled job) */
+/* 已无需关注的队列行（已完成或已取消的任务） */
 .q-muted {
   color: var(--text-3);
 }

@@ -15,12 +15,17 @@
 /* The three areas are docked — no gap, no rounded box, no shadow. What separates them is one hairline, which is the
    splitter itself: 1 px wide, drawn in --hair, with a hit area of its own so it is still easy to grab.
 
-   版面：先竖着分两半，右边是参数面板；左边再上下分两半，上面视图、下面节点图（与 editor/App.tsx 顶部的说明一致）：
-     · `.workspace` 只有一行，三列：左栏弹性、竖分割线 1 px 固定、参数面板固定宽（--insp-w）；
-     · `.wk-left` 只有一列，三行：上半视图 `var(--split)`、横分割线 1 px 固定、下半节点图弹性；
-     · 弹性那一档一律写 `minmax(0, 1fr)`，不能只写 `1fr`——`1fr` 的最小值是内容的最小宽 / 高，
-       内容一多就会把整块撑出窗口（页面不能比窗口宽）；
-     · 谁滚动：这两层都不滚，里面的 `.panel` 也不滚（overflow: hidden），只有参数面板在自己里面滚。 */
+   Layout: first split side by side, the parameter panel on the right; the left side split again top and bottom, the
+   view above and the node graph below (as described at the top of editor/App.tsx):
+     · `.workspace` has one row and three columns: the left column flexible, the vertical splitter a fixed 1 px, the
+       parameter panel a fixed width (--insp-w);
+     · `.wk-left` has one column and three rows: the view on top `var(--split)`, the horizontal splitter a fixed 1 px,
+       the node graph below flexible;
+     · the flexible track is always `minmax(0, 1fr)`, never bare `1fr` — the minimum of `1fr` is the content's minimum
+       width / height, so a lot of content would push the whole block out of the window (the page must never be wider
+       than the window);
+     · what scrolls: neither of these two layers, nor the `.panel` inside them (overflow: hidden); only the parameter
+       panel scrolls, inside itself. */
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 1px var(--insp-w, 440px);
@@ -54,8 +59,9 @@
   cursor: row-resize;
 }
 
-/* the line is 1 px; what the pointer may grab is 9 px around it — 但不对称：往上 7 px，伸进视图底部的时间线那一行
-   （行高 40 px，28 px 高的标尺居中，下缘离分割线 6 px）；往下只伸 2 px，进节点图。 */
+/* the line is 1 px; what the pointer may grab is 9 px around it — but not symmetric: 7 px up, into the timeline row
+   at the bottom of the view (the row is 40 px, its 28 px ruler centred, its lower edge 6 px from the splitter); only
+   2 px down, into the node graph. */
 .vsplitter::after,
 .splitter::after {
   content: "";
@@ -64,7 +70,7 @@
 }
 
 .vsplitter::after {
-  inset: 0 -4px;  /* 竖的那条两边都是大块区域，对称就行 */
+  inset: 0 -4px;  /* the vertical one has large areas on both sides: symmetric is enough */
 }
 
 .vsplitter:hover,

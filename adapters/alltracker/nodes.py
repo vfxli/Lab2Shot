@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, measured_param, Confidence, Handle, Job, P, Port, TrackParams, WorkerNode, correspondence,
+from lab2shot.sdk import (Official, measured_param, Confidence, Job, P, PointTracker, Port, TrackParams, correspondence,
                           empty_packet, track_queries, tracks, Cost, Measured)
 
 
-class Track(WorkerNode):
+class Track(PointTracker):
+    """点跟踪家族的一员（网格点、点选的点、「跟踪点数」这件事实都来自家族），另多一个稠密的 ST-map 输出；
+    没有遮罩输入（上游只吃画面），网格点和点选都没有时也照样出 ST-map。"""
+
     id = "alltracker.track"
     # 上游 demo.py forward_video：rgbs -> traj_maps_e（每帧指回参考帧的稠密轨迹图）、trajs_e（按 --rate 抽样的 2D 点）
     official = Official(
@@ -20,15 +23,13 @@ class Track(WorkerNode):
              "的步长抽样出来的（demo.py:148）。所以节点没有遮罩输入口：要只跟一块区域，"
              "在图上接「人物框转遮罩」→「图像合成」（留下）把画面挡住再送进「RGB」口",
     )
-    on_node = ("grid", "query_frame")
     # 每一帧均指回参考帧，向前、向后均跟踪（整段）；长镜头仅受内存限制（长边 1024 时约每 100 帧 1.5 GB），一次完成计算
     runtime = "alltracker"
     # vram_gb：RTX 4090，处理分辨率 1024
     cost = Cost(gpu=True, vram_gb=11.1, seconds_per_frame=0.095)
-    inputs = (Port("image", "image.3", "RGB"),)
-    outputs = (Port("stmap", "image.2", "ST-map"), Port("tracks", "tracks2d", "2D 跟踪点"))
+    inputs = PointTracker.inputs[:1]  # the family's 「RGB」 without its mask (upstream takes none)
+    outputs = (Port("stmap", "image.2", "ST-map"), *PointTracker.outputs)
     confidence = Confidence("probability", help="每个像素在这一帧里看不看得见、跟得准不准（AllTracker 的可见度 × 置信度，0–1）。当遮罩用先接「置信度转遮罩」")
-    handles = (Handle("points", {"points": "picks"}),)
 
     class Params(TrackParams):
         query_frame: int | None = P(None, label="参考帧", group="跟踪", placeholder="第一帧")
@@ -44,6 +45,7 @@ class Track(WorkerNode):
 
     @classmethod
     def prepare(cls, ctx):
+        """与家族的不同只在于：没有查询点时也要算（ST-map 是整段的稠密结果）。"""
         image = ctx.input("image")
         return Job(image, inputs=track_queries(ctx, image, ctx.params["picks"]))
 

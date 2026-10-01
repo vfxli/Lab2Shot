@@ -141,17 +141,18 @@ def project_facts(ext: Extension) -> ProjectFacts:
     # 注册表，因为本步骤在扩展加载期间执行，此时注册表尚未构建完成
     own = {it.key: it.registration for it in ext.manual_items}
     more = frozenset({REGISTRATION for w in ext.weights if w.kind == "manual" and (w.source in BODY_KEYS or own.get(w.source))})
-    return ProjectFacts(ext.title, ext.license.tag, more, available, ext, _result_identity(ext))
+    return ProjectFacts(ext.title, ext.license.tag, more, available, ext, lambda: _result_identity(ext))
 
 
 @lru_cache(maxsize=256)
 def _result_identity(ext: Extension) -> str:
-    """返回决定该扩展计算结果的标识：代码（仓库提交）、环境（python / torch / 依赖 / 编译）和权重（声明的 sha256）。
-    全部取自声明，不读取磁盘上的模型文件，因此开销很小。该标识计入节点指纹，重装扩展或更换权重后旧结果不再命中。"""
+    """返回决定该扩展计算结果的标识：代码（仓库提交）、环境（python / torch / 依赖 / 编译）和权重（Weight.identity：来源、
+    revision、文件与 sha256）。
+    计算时才读取声明与手动安装文件的记录，加载节点声明不打开数据库。该标识计入节点指纹，重装扩展或更换权重后旧结果不再命中。"""
     from .installer.plan import env_fingerprint, repo_fingerprint
     from .io.digest import key
 
-    weights = sorted(f"{w.key}:{getattr(w, 'sha256', '') or ''}" for w in ext.weights)
+    weights = sorted(repr(w.identity) for w in ext.weights)
     return key([repo_fingerprint(ext), env_fingerprint(ext), weights], 16)  # 摘要只有一处实现（io/digest.py）
 
 

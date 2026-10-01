@@ -216,8 +216,9 @@ export function ResetDialog({ u, onClose, onDone }: { u: UserRow; onClose: () =>
   );
 }
 
-/** 永久删除，分两步进行：先「删除」移入「已删除」，再在其中「永久删除」，以避免误操作造成不可挽回的后果。
- * 保留与删除的内容由服务器统一决定（lab2shot/accounts.py purge），此处只负责说明。 */
+/** 永久删除 takes two steps: 删除 first moves the account to 已删除, and 永久删除 is done from there, so no single
+ * slip is irreversible. What is kept and what is removed is decided by the server alone (lab2shot/accounts.py purge);
+ * this dialog only says it. */
 export function PurgeDialog({ u, onClose, onDone }: { u: UserRow; onClose: () => void; onDone: (v: UsersView) => void }) {
   const [refused, setRefused] = useState("");
   const [busy, setBusy] = useState(false);

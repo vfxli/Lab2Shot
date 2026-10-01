@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import Official, measured_param, Port, WorldHumans, WorldHumansParams, Cost, Licence, Measured, people_port
+from lab2shot.sdk import rgb_port, Official, measured_param, Port, WorldHumans, WorldHumansParams, Cost, Measured, people_port
 
 
 class Solve(WorldHumans):
@@ -53,7 +53,7 @@ class Solve(WorldHumans):
     # 纯摇镜头和长焦压缩镜头的尺度可能不准；填写真实 Focal Length 可使位置误差降低 31%（3DPW 8 个镜头，7 好 0 差）。
     # 「人物框」为可选输入：官方 HMR_VIMO.inference 接受每个人的逐帧框（official 注 ⓪）；未接入时由上游使用
     # ViTDet + SAM + DEVA 检测人物。不提供「相机」输入口（上游 VIMO 仅使用 Focal Length 和主点，相机是其自身解算的产物，见注 ①）
-    inputs = (Port("image", "image.3", "RGB"), people_port(optional=True, each=False))  # 人物框为可选输入，见 official 注 ⓪
+    inputs = (rgb_port(), people_port(optional=True, each=False))  # 人物框为可选输入，见 official 注 ⓪
     runtime = "tram"
     # 上游只向 VIMO 输入 Focal Length（img_focal）和主点，不使用逐帧外参，对应三档中「不使用相机动画、仅使用 Focal Length」
     # 一档（families/humans.py camera_to_worker）。该设置同时移除家族添加的「相机」输入口，
@@ -67,7 +67,6 @@ class Solve(WorldHumans):
     smpl_body = "smpl"  # worker 解算的人体模型（worker.py save_person）
     # vram_gb：在 RTX 4090 上测得（docs.md）
     cost = Cost(gpu=True, vram_gb=8.5, seconds_per_frame=1.0)
-    licence = Licence(note="代码 MIT，但 SMPL 人体模型、SPEC 相机标定（马普所）和 DEVA 跟踪器（CC BY-NC-SA）都只能研究用，整体按非商用对待。")
 
     # 继承 WorldHumansParams 仅为使用「固定机位」（上游 --static_camera）。其中的「相机旋转」对本节点无用（camera_to_worker=None，
     # 相机由上游自行解算），家族据此声明移除该参数，并将「固定机位」的提示替换为不涉及该输入的表述（families/humans.py _without_camera_rotate）

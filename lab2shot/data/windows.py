@@ -18,6 +18,19 @@ from dataclasses import dataclass
 
 Box = tuple[int, int, int, int]  # x, y, width, height
 
+# how far two pictures' proportions may differ and still be one framing: odd sizes rounded when scaled (1920x1080 at
+# half is 960x540, at a third 640x360; a model's 518x294 for 16:9 is 1.762 against 1.778)
+ASPECT_TOLERANCE = 0.01
+
+
+def same_framing(a: tuple[int, int], b: tuple[int, int]) -> bool:
+    """Whether two picture sizes (width, height) are one framing at different resolutions: their proportions agree
+    within ASPECT_TOLERANCE. The one test: a wire's picture against the plate (nodes/expects.py), a model's result
+    map against the picture it was made from (nodes/kit/maps.py)."""
+    import math
+
+    return math.isclose(a[0] / a[1], b[0] / b[1], rel_tol=ASPECT_TOLERANCE)
+
 
 @dataclass(frozen=True)
 class Window:

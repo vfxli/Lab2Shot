@@ -12,19 +12,20 @@ minutes and grow it by gigabytes while the page took half a minute to open for e
 - every question names the account it is asked for (lab2shot/serving.py): the worker reads that account's own cache
   (data/store.py) and keeps its views apart, so one account's view is never answered to another.
 
-The web server's side waits in the thread its request runs in (the routes are plain functions), so waiting holds
-nothing else up either."""
+The web server's side waits in the thread its request runs in: the routes that ask a lane are declared on the WAITS
+lane of threads (server/wire.py), so however many of them wait, no other route waits for a thread."""
 
 from __future__ import annotations
 
 import atexit
 import multiprocessing as mp
 import os
+import queue
 import threading
 import time
 import traceback
 import zlib
-from collections import OrderedDict
+from collections import OrderedDict, deque
 
 from .. import logs
 from ..errors import NotFound, Unavailable, Unviewable
@@ -35,6 +36,7 @@ BUILD_S = 120.0  # the longest making a view (or one of its parts) may take
 START_S = 90.0  # the longest a new worker may take to start (it loads USD's libraries)
 ANSWER_S = 10.0  # the longest a request's thread waits for its answer; the build goes on, the page asks again (E-VIEW-PREPARING)
 PENDING_MAX = 32  # asks a lane holds at once (each a thread waiting its turn): above it a request is refused (E-VIEW-BUSY)
+PENDING_PER_ACCOUNT = 4  # ... of them one account's (the rest refused as busy); answered taking turns with the others
 RECENT = 16  # answers finished after their request gave up waiting, kept for the request that comes back
 MEMORY_GB = 8.0  # the most memory a worker may hold
 VIEWS = 6
@@ -60,8 +62,11 @@ def _settings_now() -> tuple:
 
 
 def describe(how: tuple, url: str) -> str:
-    """The description (JSON) of the view `how` names (view_data.build), its parts at `url` ({part} in it)."""
-    return _lane(how).ask(how, "describe", url)
+    """The description (JSON) of the view `how` names (view_data.build), its parts at `url` ({part} in it). Its chunks
+    are then made ahead in the background, if they have not been (prebuild_later): a view looked at is one to be played."""
+    text = _lane(how).ask(how, "describe", url)
+    prebuild_later(how)
+    return text
 
 
 def part(how: tuple, name: str) -> bytes:
@@ -70,7 +75,57 @@ def part(how: tuple, name: str) -> bytes:
     return _lane(how).ask(how, "part", (name,))
 
 
+def prebuild_later(how: tuple) -> None:
+    """Make every chunk of the view `how` ahead, in the background, and keep them on disk (view_data.store_chunk), for
+    the account asking now. The web server then sends those files without asking a lane (packets.py scene_part,
+    view.py points_part): one lane answers one question at a time, so the chunks a page asks for in parallel were made
+    one after another there, and a whole shot could never come faster than that lane.
+
+    It has a process of its own (`_ahead`, a lane like the others, niced the same), so the lanes that answer pages are
+    never held up by it; views are made there in the order asked, one chunk per question (a question's time limit,
+    BUILD_S, is per chunk). A view already asked for in this server (same account, same packets' generations) is not
+    asked again; a partial result (points_partial) never is: its frames keep coming."""
+    from ..serving import account
+
+    if how[0] not in ("scene", "points"):
+        return
+    key = (account().user_id, how, _generation(how))
+    with _ahead_guard:
+        if key in _ahead_seen:
+            return
+        _ahead_seen[key] = None
+        while len(_ahead_seen) > AHEAD_SEEN:
+            _ahead_seen.popitem(last=False)
+        global _ahead_thread
+        if _ahead_thread is None or not _ahead_thread.is_alive():
+            _ahead_thread = threading.Thread(target=_ahead_loop, daemon=True, name="view-ahead")
+            _ahead_thread.start()
+    _ahead_todo.put(key)
+
+
+def scene_done(fp: str) -> None:
+    """A scene packet has just been computed (the farm's scene_done, handed down by server/app.py through
+    farm/queue.py on_scene_done): its view's chunks made ahead."""
+    prebuild_later(("scene", fp))
+
+
+def _ahead_loop() -> None:
+    while True:
+        key = _ahead_todo.get()  # (account, how, generation): worked out when it was asked for, as that account
+        who, how, _ = key
+        try:
+            count = _ahead.run(who, how, "chunks", ())
+            for k in range(count):
+                _ahead.run(who, how, "store", (k,))
+        except Exception as exc:  # noqa: BLE001 (made ahead only to be faster: the chunks are still made on request)
+            logs.say(log, Msg("E-VIEW-FAILED", detail=f"预先生成三维显示数据：{exc}"), about=str(how))
+            with _ahead_guard:  # asked again the next time it is looked at (nothing here reads the disk: this thread
+                _ahead_seen.pop(key, None)  # serves no account, and a failure while failing would end it)
+
+
 def shutdown() -> None:
+    with _ahead.lock:
+        _ahead.end()
     for lane in _lanes:
         with lane.lock:
             lane.end()
@@ -96,15 +151,21 @@ class _Lane:
         self.lock = threading.Lock()  # the worker process answers one question at a time
         self.proc = None
         self.conn = None
-        self._guard = threading.Lock()
+        self._guard = threading.Condition()
         self._pending: dict[tuple, _Ask] = {}  # being answered now (or waiting their turn)
+        # the asks waiting, by account: answered taking turns, one account's at a time (_take_turns), so the asks one
+        # account piles up never come before another's next
+        self._waiting: dict[int, deque] = {}
+        self._served: dict[int, int] = {}  # account -> the turn it last had (never: 0)
+        self._turn = 0
+        self._turns: threading.Thread | None = None
         self._recent: OrderedDict[tuple, _Ask] = OrderedDict()  # answered after their requests stopped waiting
 
     def ask(self, how: tuple, op: str, arg: str):
-        """The answer to (how, op, arg). A request's thread waits ANSWER_S at most: the routes run on the web server's
-        thread pool, and a view that takes two minutes to make would hold a thread for two minutes; a few of them and
-        no request of anyone's is served. Past that the request answers E-VIEW-PREPARING (503) while the
-        question goes on being answered here; the page asks again and finds the answer kept (`_recent`) or nearly there."""
+        """The answer to (how, op, arg). A request's thread waits ANSWER_S at most: a view that takes two minutes to
+        make would otherwise hold one of the WAITS lane's threads for two minutes, and a few of them would stop every
+        view of everyone. Past that the request answers E-VIEW-PREPARING (503) while the question goes on being
+        answered here; the page asks again and finds the answer kept (`_recent`) or nearly there."""
         from ..serving import account
 
         who = account().user_id  # whose cache the view is made from: part of every key, here and in the worker
@@ -115,22 +176,50 @@ class _Lane:
                 return kept.result()
             a = self._pending.get(key)
             if a is None:
-                if len(self._pending) >= PENDING_MAX:
+                if len(self._pending) >= PENDING_MAX or sum(k[0] == who for k in self._pending) >= PENDING_PER_ACCOUNT:
                     raise Unavailable(Msg("E-VIEW-BUSY"))
                 a = self._pending[key] = _Ask()
-                threading.Thread(target=self._answer, args=(key, a), daemon=True, name="view-ask").start()  # the key names the account
+                self._waiting.setdefault(who, deque()).append((key, a))  # the key names the account
+                if self._turns is None or not self._turns.is_alive():
+                    self._turns = threading.Thread(target=self._take_turns, daemon=True, name="view-turns")
+                    self._turns.start()
+                self._guard.notify()
         if not a.done.wait(ANSWER_S):
             raise Unavailable(Msg("E-VIEW-PREPARING"))
         return a.result()
 
+    def run(self, who: int, how: tuple, op: str, arg):
+        """The answer to (how, op, arg) for account `who`, waited for here (at most BUILD_S once it is this one's turn):
+        what a request's thread does through `ask`, and the background making ahead (prebuild_later) directly."""
+        with self.lock:
+            self.start()
+            self.conn.send((tuple((k, os.environ.get(k)) for k in ENV), _settings_now(), who, how, op, arg))
+            reply = self.wait(BUILD_S, "准备三维显示数据")
+        return self._value(how, reply)
+
+    def _take_turns(self) -> None:
+        """Answer the waiting asks one at a time, the accounts taking turns: the next one is the first waiting of the
+        account that had its turn longest ago (or never)."""
+        while True:
+            with self._guard:
+                while not self._waiting:
+                    self._guard.wait()
+                who = min(self._waiting, key=lambda w: self._served.get(w, 0))
+                asks = self._waiting[who]
+                key, a = asks.popleft()
+                if not asks:
+                    del self._waiting[who]
+                self._turn += 1
+                self._served[who] = self._turn
+                if len(self._served) > 10_000:  # the ones served longest ago are as if never: forgotten first
+                    for old in sorted(self._served, key=self._served.get)[:5_000]:
+                        del self._served[old]
+            self._answer(key, a)
+
     def _answer(self, key: tuple, a: _Ask) -> None:
         who, how, op, arg = key
         try:
-            with self.lock:
-                self.start()
-                self.conn.send((tuple((k, os.environ.get(k)) for k in ENV), _settings_now(), who, how, op, arg))
-                reply = self.wait(BUILD_S, "准备三维显示数据")
-            a.value = self._value(how, reply)
+            a.value = self.run(who, how, op, arg)
         except BaseException as exc:  # noqa: BLE001 — carried to the request that asked (or the one that comes back)
             a.error = exc
         finally:
@@ -225,6 +314,12 @@ def _rss_gb(pid: int) -> float:
 
 
 _lanes = [_Lane() for _ in range(LANES)]
+_ahead = _Lane()  # making chunks ahead (prebuild_later): a process of its own, never one a page waits on
+_ahead_todo: queue.Queue = queue.Queue()
+_ahead_guard = threading.Lock()
+_ahead_seen: OrderedDict = OrderedDict()
+_ahead_thread: threading.Thread | None = None
+AHEAD_SEEN = 1000  # views asked to be made ahead, remembered so as not to ask twice
 atexit.register(shutdown)
 
 
@@ -243,7 +338,7 @@ def _serve(conn) -> None:
         pass
     from ..config import settings
     from ..serving import Account, serving
-    from .view_data import Refused, build
+    from .view_data import Refused, build, store_chunk
 
     views: OrderedDict = OrderedDict()
     env_now = conf_now = None
@@ -284,6 +379,10 @@ def _serve(conn) -> None:
                     views.popitem(last=False)
                 if op == "describe":
                     out = view.json(arg)
+                elif op == "chunks":  # making ahead (prebuild_later): how many chunks there are
+                    out = len(view.chunks)
+                elif op == "store":  # making ahead: chunk arg[0] kept on disk
+                    out = store_chunk(view, how, _generation(how), *arg)
                 else:
                     try:
                         out = view.part(*arg)

@@ -1,5 +1,5 @@
-/** The editor's sheets and banner: 队列, 未保存 and the other-tab banner (模板 has its own file,
- * editor/Templates.tsx). */
+/** Owns the editor's sheets and banner: 队列, 未保存 and the other-tab banner (模板 has its own file,
+ * editor/Templates.tsx), plus the OPEN_GRAPH event that asks the editor to open a graph. */
 
 
 import { api, type QueueView as QueueData } from "../api";
@@ -27,8 +27,8 @@ export function QueueSheet({ data, onRefresh, onClose }: { data: QueueData | nul
       say(msg("E-JOB-LOADFAILED", { reason: reasonOf(e) }));
     }
   };
-  // 默认的 min(90vw, 1800px) 过宽；900 恰好容纳拆成两列的「提交 · 时间」且不出现横向滚动条，
-  // 节点图列优先收缩：它是使用者自己的数据，应优先让出空间（queue.css .q-title）
+  // The default min(90vw, 1800px) is too wide; 900 fits 「提交 · 时间」 split into two columns without a horizontal
+  // scrollbar. The graph-name column shrinks first: it is the user's own data and gives up space first (queue.css .q-title)
   return (
     <Sheet title="队列" width={900} solid onClose={onClose}>
       {data ? <QueueView data={data} onCancel={cancel} onLoad={(id) => void load(id)} onRefresh={onRefresh} /> : <Loading what="队列" />}

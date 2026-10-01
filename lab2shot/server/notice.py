@@ -16,18 +16,17 @@ from __future__ import annotations
 import time
 
 from fastapi import Request
-from pydantic import BaseModel
 
 from ..database import db
 from ..errors import Invalid
 from ..messages import Msg
 from . import auth
-from .routes import Access, Router
+from .routes import Access, Body, Router
 
 KEY = "server.notice"
 TONES = ("info", "notice", "warn", "risk")
 NOTICE_CHARS = 200
-NONE = {"text": "", "tone": "info", "on": False, "updated": 0.0, "by": ""}
+NONE = {"text": "", "tone": "info", "on": False, "updated": 0.0, "by": "", "by_id": None}
 
 router = Router(prefix="/api", tags=["设置"])
 admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])
@@ -43,7 +42,7 @@ def changed_at() -> float:
     return float(current()["updated"])
 
 
-class Notice(BaseModel):
+class Notice(Body):
     text: str
     tone: str
     on: bool
@@ -63,7 +62,7 @@ def check(req: Notice) -> dict:
 
 @router.get("/notice", access=Access.user("管理员通知：页面顶部的通知条"), summary="管理员通知：文字、颜色（info 信息 / notice 提醒 / warn 警告 / risk 生产风险）、是否显示、上次修改的时间")
 def notice() -> dict:
-    return {k: v for k, v in current().items() if k != "by"}
+    return {k: v for k, v in current().items() if k not in ("by", "by_id")}
 
 
 @admin.get("/notice", access=Access.admin("settings.notice"), summary="管理员通知（编辑用）：连同上次是谁改的")
@@ -73,6 +72,7 @@ def admin_notice() -> dict:
 
 @admin.put("/notice", access=Access.admin("settings.notice"), summary="改管理员通知：文字（最多 200 字）、颜色、开关；所有页面在下一次查服务器状态时换上")
 def set_notice(req: Notice, request: Request) -> dict:
-    kept = {**check(req), "updated": time.time(), "by": auth.label(request)}
+    by = auth.actor(request)
+    kept = {**check(req), "updated": time.time(), "by": by.label, "by_id": by.id}
     db().set_meta(KEY, kept)
     return kept

@@ -1,7 +1,6 @@
 """Usage statistics: how much each third-party project, and each of its nodes, is used over a time range, and by which
 department and which account — for the administrator to see which projects earn their place and who uses what (the
-admin page's 使用统计: 按项目, 按环节, 按人), and which templates the jobs were opened from (按模板, `templates`: counted
-by when a job was submitted, not by when it ended).
+admin page's 使用统计: 按项目, 按环节, 按人).
 
 Nothing is logged apart for them. When a job ends, the database keeps per node type how its nodes served it
 (job_usage): runs (they computed: the seconds, the part of them on a GPU, the frames) and reuses (answered without
@@ -76,39 +75,6 @@ def jobs_in(p: Periods) -> dict:
     return {k: {"all": total[k], **{s: ended[s][k] for s in ENDS}} for k in shown}
 
 
-HAND_BUILT = "自己搭的"  # the row of the jobs whose graph was not opened from a template
-
-
-def templates(since: float | None = None, until: float | None = None, user_id: int | None = None) -> list[dict]:
-    """按模板: per template the jobs were opened from (jobs.template, written at submission since that column exists;
-    the jobs before it are not counted), submitted from `since` to `until` (None: open), of one account or (`user_id`
-    None) of every one: how many (every job, whatever came of it), how many ended done and failed, when last submitted,
-    and how many accounts. A template is named as it is now; one no longer there by the name it had at its last use,
-    marked deleted. The graphs built by hand are one row of their own (id "", HAND_BUILT), after the templates."""
-    from ..library import current_names
-
-    where, args = ["template IS NOT NULL"], []
-    for sql, value in (("submitted >= ?", since), ("submitted < ?", until), ("user_id = ?", user_id)):
-        if value is not None:
-            where.append(sql)
-            args.append(value)
-    # the bare template_name beside MAX(submitted) is SQLite's: the value of the row that has the maximum, i.e. the
-    # name at the template's last use
-    rows = db().rows(f"""
-        SELECT template, template_name, COUNT(*) AS count, SUM(state = 'done') AS done, SUM(state = 'failed') AS failed,
-               MAX(submitted) AS last, COUNT(DISTINCT user_id) AS users
-        FROM jobs WHERE {' AND '.join(where)} GROUP BY template""", tuple(args))
-    names = current_names(r["template"] for r in rows)
-    out = []
-    for r in rows:
-        card = r["template"]
-        now = names.get(card)
-        out.append({"id": card, "name": now or (r["template_name"] if card else HAND_BUILT),
-                    "deleted": bool(card) and now is None, "count": r["count"], "done": r["done"],
-                    "failed": r["failed"], "last": r["last"], "users": r["users"]})
-    return sorted(out, key=lambda t: (not t["id"], -t["count"], -t["last"], t["name"]))
-
-
 def _counts() -> dict:
     return {**dict.fromkeys(COUNTS, 0), "users": set(), "last": None}
 
@@ -143,7 +109,7 @@ def stats(since: float | None = None, until: float | None = None, tz_minutes: in
     """Usage from `since` to `until` (seconds since the epoch; None: since the last reset / until now), per project
     and per node type, per department (and its people, and their projects) and per person (and their projects): runs,
     reuses, compute seconds (and on a GPU), frames, who asked, when last used (since the last reset, in the range or
-    before it), and per-day series of runs, reuses and seconds; and per template (`templates`, the same range). Days
+    before it), and per-day series of runs, reuses and seconds. Days
     are counted in the viewer's time zone (`tz_minutes` east of UTC)."""
     from ..extensions import extensions
     from ..extensions.status import extension_status
@@ -261,5 +227,4 @@ def stats(since: float | None = None, until: float | None = None, tz_minutes: in
     people_out = order({**_done(finish_series(p)), "departments": sorted(p["departments"]),
                         "projects": order(_done(x) for x in p["projects"].values())} for p in people.values())
     return {"since": lo, "until": until, "start": begun, "undo": bool(db().meta("usage.history")), "days": days,
-            "projects": out, "departments": dept_out, "people": people_out, "nobody": NOBODY,
-            "templates": templates(lo, until)}
+            "projects": out, "departments": dept_out, "people": people_out, "nobody": NOBODY}

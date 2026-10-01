@@ -10,22 +10,34 @@
 import { create } from "zustand";
 import { workerAsks } from "../../platform/work";
 import { onServerChange, serverNow } from "../../state/server";
-import { lutOfFile } from "../lut";
+import { lutNow, lutOfFile } from "../lut";
 import type { Lut } from "../lookup";
 import type { LayerSpec, ProxyAnswer, ProxyAsk } from "./worker";
 import { madeKeys, onDropped, proxiesMade, proxyStoreAvailable, readProxy, writeProxy } from "./store";
-import { cache } from "../cache";
+import { cache } from "../../platform/cache";
+import { proxyReadyKey, proxyReadySlot } from "../frameKey";
 import { shortHash } from "../../platform/digest";
 
-// 已在磁盘上生成本机代理的文件：登记到页面唯一的缓存（不另建表），账本据此判断某帧是否已持有
-// （`transfer/sources.ts localFramesOf`），时间线的绿色随生成进度推进（与 Nuke 一样可见缓存进度）
-// 就绪标记包含档位：管理员更改本机代理尺寸后，旧档位生成的代理不计为已持有；
-// 登记层（transfer/cache.ts registry）不计入预算、不会被淘汰
-const READY = (fileKey: string, tier = localTier()) => `proxy:${fileKey}|${tier}`;
-export const proxyReady = (fileKey: string): boolean => cache.registered(READY(fileKey)) === true;
-const markReady = (fileKey: string, tier = localTier()) => { if (cache.registered(READY(fileKey, tier)) !== true) cache.register(READY(fileKey, tier), true); };
-// a proxy trimmed off the disk (over the local cache's size) is not ready any more: made again when it is wanted
-onDropped((fileKey, tierKey) => cache.unregister(READY(fileKey, Number(tierKey.split("-")[0]))));
+// 已在磁盘上生成本机代理的文件：登记到页面唯一的缓存（登记层，不计预算、不淘汰），账本据此判断某帧是否已持有
+// （`transfer/sources.ts localFramesOf`），时间线的绿色随生成进度推进。
+// 就绪标记与磁盘上的一份同一结构：文件 × 「档位-显示变换」（tierKey）。换了色彩空间就是另一份，旧的不算就绪；
+// 磁盘淘汰一份只撤掉那一份的标记，不连带同一文件别的显示变换
+const READY = proxyReadyKey;
+const markReady = (fileKey: string, tierKey: string) => { if (cache.registered(READY(fileKey, tierKey)) !== true) cache.register(proxyReadySlot(fileKey, tierKey), true); };
+// 磁盘上被淘汰的代理（超出本机缓存上限）即不再就绪：再需要时重新生成
+onDropped((fileKey, tierKey) => cache.unregister(READY(fileKey, tierKey)));
+
+/** 这个文件在当前档位、按这个显示变换（节点的色彩空间与查规则用的文件名）的本机代理是否已在磁盘上。
+ * EXR 的显示变换表还没取到时算未就绪，并去取它（取到后缓存变化，读的一方重新问）。 */
+export function proxyReady(fileKey: string, space: string, rules: string): boolean {
+  if (!isExr(rules)) return cache.registered(READY(fileKey, tierKeyOf(null))) === true;
+  const lut = lutNow(space, rules);
+  if (!lut) {
+    void lutOfFile(space, rules).catch(() => null);
+    return false;
+  }
+  return cache.registered(READY(fileKey, tierKeyOf(lut))) === true;
+}
 
 export type { LayerSpec };
 
@@ -35,8 +47,8 @@ const QUALITY = 0.9;
 const PLANE = ".l2c1.gz";
 
 /** 管理员设定的两个数值（随 `/api/server` 返回；服务器第一次回答之前使用默认值）。 */
-const localTier = (): number => serverNow()?.view.local_px ?? DEFAULT_PX;
-const capBytes = (): number => (serverNow()?.view.local_cache_gb ?? DEFAULT_CAP_GB) * (1 << 30);
+const localTier = (): number => serverNow()?.view?.local_px ?? DEFAULT_PX;
+const capBytes = (): number => (serverNow()?.view?.local_cache_gb ?? DEFAULT_CAP_GB) * (1 << 30);
 
 /** 文件键：名称、大小、修改时间（`File` 均具备，刷新后或从授权目录重新获取时保持一致）。
  * 不使用内容指纹：指纹在申报步骤中异步计算，视图首次绘制时尚不可用，使用它会导致同一文件被处理两次。 */
@@ -84,13 +96,13 @@ const own: { queue: Map<string, Job>; running: Map<string, Job>; clock: number; 
 // 刷新后，磁盘上当前档位已有的代理立即显示为绿色（madeKeys 返回 `文件键/档位-显示表`）。
 // 档位须待服务器返回后才能得知：页面打开时 `serverNow()` 仍为空，若只在模块加载时按默认值 1024 扫描一次，
 // 管理员设定其他档位时，已生成的代理刷新后将全部不被识别并整段重新生成。因此服务器每次响应时检查档位，变化时按新档位重新扫描
-// （档位相同时不重复扫描；旧档位的标记可保留，`proxyReady` 只检查当前档位的键）
+// （档位相同时不重复扫描；旧档位的标记可保留，`proxyReady` 只认当前档位 × 当前显示变换的那一份）
 function scanReady(): void {
   if (!proxyStoreAvailable()) return;
   const tier = localTier();
   if (own.scannedTier === tier) return;
   own.scannedTier = tier;
-  void madeKeys().then((keys) => keys.forEach((k) => { const [fk, tk] = k.split("/"); if (tk?.startsWith(`${tier}-`)) markReady(fk, tier); })).catch(() => undefined);
+  void madeKeys().then((keys) => keys.forEach((k) => { const [fk, tk] = k.split("/"); if (tk?.startsWith(`${tier}-`)) markReady(fk, tk); })).catch(() => undefined);
 }
 scanReady();
 onServerChange(scanReady);
@@ -111,7 +123,7 @@ async function run(job: Job, slot: number): Promise<void> {
     const made = new Set(await proxiesMade(job.fileKey, tierKey));
     const pictures = ![...made].some((n) => n.endsWith(".webp"));
     const planes = job.planes.filter((n) => !made.has(`${n}${PLANE}`));
-    if (!pictures) markReady(job.fileKey);
+    if (!pictures) markReady(job.fileKey, tierKey);
     if (!pictures && !planes.length) { ok = true; return; }
     const bytes = new Uint8Array(await job.file.arrayBuffer());
     const ask: ProxyAsk = { kind: isExr(job.file.name) ? "exr" : "image", bytes, tier: localTier(), quality: QUALITY, lut, layers: job.layers,
@@ -120,7 +132,7 @@ async function run(job: Job, slot: number): Promise<void> {
     const cap = capBytes();
     for (const p of got.pictures) await writeProxy(job.fileKey, tierKey, `${p.name}.webp`, p.webp, cap);
     for (const p of got.planes) await writeProxy(job.fileKey, tierKey, `${p.name}${PLANE}`, p.gz, cap);
-    if (got.pictures.length) markReady(job.fileKey);
+    if (got.pictures.length) markReady(job.fileKey, tierKey);
     ok = true;
   } catch (e) {
     console.error("local proxy failed", job.file.name, e); // 面向开发者的日志，非用户消息

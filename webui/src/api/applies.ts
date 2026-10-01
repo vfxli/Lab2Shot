@@ -73,7 +73,7 @@ export function resolveLocal<F>(table: Readonly<Record<string, (facts: F) => boo
   const inactive: Record<string, MessageJson> = {};
   for (const id of Object.keys(table)) {
     if (table[id](facts)) available.push(id);
-    else if (why[id]) inactive[id] = { code: "", level: "I", text: why[id] }; // 控件旁的悬停提示，而非消息目录中的消息
+    else if (why[id]) inactive[id] = { code: "", level: "I", text: why[id] }; // a hover tip beside the control, not a message of the message catalogue
   }
   return { available, inactive, pending: {} };
 }

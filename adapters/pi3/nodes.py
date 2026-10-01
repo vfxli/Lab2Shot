@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 from lab2shot.sdk import (Official, Confidence, P, WholeShotDepthCamera, WholeShotParams, loops_param, max_frames_param,
-                          resolution_param, unit_cm_param, Cost, Licence, Measured)
+                          resolution_param, unit_cm_param, Cost, Measured)
 
 
 class Reconstruct(WholeShotDepthCamera):
@@ -32,7 +32,6 @@ class Reconstruct(WholeShotDepthCamera):
     confidence = Confidence("probability")  # how its model gives its confidence (CONFIDENCE_SCALES)
     # RTX 4090，150 帧一次
     cost = Cost(gpu=True, vram_gb=13.8, seconds_per_frame=0.253)
-    licence = Licence(note="π³ / π³X 权重是 CC-BY-NC-4.0，只能研究用；代码 BSD-3，但其中一个位置编码文件来自 Naver（CC-BY-NC-SA）。")
 
     class Params(WholeShotParams):
         model: Literal["pi3x", "pi3"] = P(

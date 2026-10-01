@@ -3,6 +3,8 @@
 # ---- 读 .abc（worker.py alembic.import）
 "E-ALEMBIC-NOFILE" = "找不到文件 {path}：文件被移走或改名了，在「导入 Alembic」里重新选一次"
 "E-ALEMBIC-NOTABC" = "读不了 {name}：不是有效的 Alembic 文件，或者文件不完整（导出中断、还没拷完）。在 DCC 里重新导出一次"
+"E-ALEMBIC-NAMEENCODING" = "读不了 {name}：文件里有对象名、面集名或 Lab2Shot 写的属性不是 UTF-8 编码（多半是中文系统上的软件按 GBK 写的）。这些名字就是导入后各项的路径和分区名，不能猜着改：在 DCC 里把名字改成英文，或者按 UTF-8 重新导出 Alembic，再选这个文件"
+"N-ALEMBIC-NOFPS" = "文件没记帧率，采样也不是均匀的：按 {fps:g} 帧/秒把 Alembic 的秒换成帧号；文件不是这个帧率的话帧号会对不上，在 DCC 里导出时记上帧率"
 "N-ALEMBIC-SUBFRAMES" = "{path} 有 {count} 个帧间采样（运动模糊子帧）：每帧只取最接近整帧的一个，子帧上的动画不读"
 "W-ALEMBIC-FILMBACKOPS" = "相机 {path} 带 Filmback 变换（film back ops）：这里没有使用，画框可能和原场景对不上"
 "W-ALEMBIC-VARYINGPOINTS" = "网格 {path} 的点数逐帧变化（流体、粒子网格）：只取第一帧的形状，后面的帧不跟着变。要逐帧的形状，在 DCC 里转成点数不变的网格或 VDB 再导出"

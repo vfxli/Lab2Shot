@@ -1,179 +1,142 @@
 import { usable } from "../api/applies";
+import { inverse } from "../model/math3d";
+import { useAppMode } from "../editor/AppMode";
 import { viewAvailable } from "./available";
-import { msg } from "../messages/message";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Canvas } from "@react-three/fiber";
+import { msg, textOf } from "../messages/message";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame as useEachDraw, useThree } from "@react-three/fiber";
 import { KeepContext, Redraw } from "./canvasLife";
-import { TransformControls } from "@react-three/drei";
 import * as THREE from "three";
 import { setParams } from "../graph/actions";
 import { useCookInputs } from "../state/cookInputs";
 import { useLook } from "../state/look";
+import { useHandleView } from "../state/handleView";
 import { Picker, ViewCamera, type Lens } from "./camera3d";
-import { CameraPath, cameraAt, Character, ModelMesh, ShotCamera } from "./elements3d";
+import { cameraAt } from "./elements3d";
 import { boxSegments, FatLines } from "./lines3d";
-import type { ViewOptions } from "../model/viewOptions";
 import type { DisplayPlan, ViewItem } from "./plan";
 import { Cloud } from "./points3d";
 import { useManifest } from "./Stage2D";
 import { useGens } from "../transfer/gens";
-import { serverFrames, useFrame, useLoadedFrames } from "../transfer/frames";
+import { pointsKey } from "../transfer/frameKey";
+import { clearLoads, readyAcross, reportLoads } from "../transfer/readiness";
+import { useDevicePixelRatio } from "../platform/size";
+import { serverFrames, useDecodedFrames, useFrame, useLoadedFrames } from "../transfer/frames";
 import { isPlane } from "../transfer/plane";
-import { Curves } from "./curves3d";
 import { Axes, Background, GroundGrid, ImagePlane, Lights, Pipeline } from "./render3d";
-import { loadPoints, loadScene, useLoaded, usePartialPoints, useSceneVersions, type CameraData, type Scene } from "./sceneData";
+import { loadPoints, useLoaded, usePartialPoints, useScenes, useSceneVersions, useShownScenes, type CameraData } from "./sceneData";
 import type { Partial as PartialResult } from "./partial";
-import type { Kind } from "./kinds3d";
 import { StageContext, StageState } from "./stageState";
-import { useStageNotes, useViewCamera, useViewer, useViewerNote, useViewLoads, useViewOptions, useView2D, useView2DNav } from "../state/viewer";
+import { DragGizmo, type DragMode } from "./dragGizmo";
+import { SceneElement } from "./sceneElement";
+import { PoseLayers, ReferenceLayer, type PoseHandle } from "./stageLayers";
+import { SkeletonPosePanel, usePoseSelection } from "./skeletonPose";
+import { rowsOf as poseRowsOf } from "../model/skeletonPose";
+
+import { VIEWER_SLOT, useStageNotes, useViewCamera, useViewer, useViewerNote, useViewOptions, useView2D, useView2DNav } from "../state/viewer";
 import { useShortcut } from "../platform/keys";
 import { useResults } from "../state/results";
 import { getNodeDefs } from "../state/catalog";
-import { placeMatrix, threeOrder } from "../model/places";
+import { draggedPlace, placeMatrix } from "../model/places";
 import { cookedWith, useLastGood } from "../state/stale";
 import { Preparing } from "./StageHud";
 
-/** The 3D stage: every 3D result of the node in one scene (cameras with their paths, models and skinned characters,
- * skeletons, point clouds, 3D curves), depth / position maps as a point preview, and the
- * transform handle. Any camera in the scene can be looked through (the view menu, as in Houdini): its view on every
- * frame, its resolution gate with the outside dimmed, and its plate behind it as an image plane when it has one. Drawing
- * follows the display options (model/viewOptions.ts). Rendering is done by the browser (WebGL); the server only
- * prepares the data.
- * 二维舞台不透过三维结果的相机查看：只输出三维结果的节点切换到 2D 时播放的是上游序列原样。 */
+/** 三维舞台：节点的全部三维结果放在一个场景里（相机及其路径、模型与蒙皮角色、骨架、点云、三维曲线），深度图 / 位置图
+ * 作为点云预览，以及变换手柄。场景中任何一台相机都可以透过去看（视角菜单，与 Houdini 相同）：每一帧取它的视角，
+ * 显示它的片门并压暗片门以外，有背板时背板作为图像平面放在后面。画法遵循显示选项（model/viewOptions.ts）。
+ * 渲染由浏览器完成（WebGL），服务器只准备数据。 */
 
 
-function SceneElement({ item, d, frame, hidden, through, look, o }: { item: ViewItem & { fp: string }; d: Scene; frame: number; hidden: Set<string>; through: boolean; look: string | null; o: ViewOptions }) {
-  const shown = (k: Kind) => !hidden.has(k);
-  return (
-    <>
-      {shown("model") && d.models.map((m, i) => <ModelMesh key={i} m={m} frame={frame} o={o} pickKey={`${item.key}/model/${i}`} through={through} version={d.version} />)}
-      {d.characters.map((c, i) => (
-        <Character key={i} c={c} frame={frame} o={o} pickKey={`${item.key}/character/${i}`} through={through} meshes={shown("character")} bones={shown("skeleton")} person={c.ref.person} />
-      ))}
-      {shown("points") && d.clouds.map((c) => <Cloud key={c.key} src={c} frame={frame} o={o} pickKey={`${item.key}/points/${c.name}`} version={d.version} />)}
-      {shown("curves") && d.curves.map((c) => <Curves key={c.key} src={c} frame={frame} o={o} pickKey={`${item.key}/curves/${c.name}`} version={d.version} />)}
-      {shown("camera") &&
-        d.cameras.map((cam) =>
-          `${d.key}|${cam.ref.path}` === look ? null : ( // not the camera looked through: the view is inside it
-            <group key={cam.ref.path}>
-              <ShotCamera cam={cam} frame={frame} o={o} pickKey={`${item.key}/camera${cam.ref.path}`} />
-              {cam.ref.frames.length > 1 && <CameraPath cam={cam} o={o} />}
-            </group>
-          ),
-        )}
-    </>
-  );
-}
 
-/** The transform handle: a gizmo placing what the node gives, according to the placement the node declares (its
- * parameters, their order and rotation order, model/places.ts). It only displays, and computes nothing: what is shown is
- * put where the current parameters (or, while dragging, the gizmo) place it, with the matrix the cook applies, and a
- * release only stores the parameters (one undo step; nothing is cooked, 计算 is a right click). What it shows is chosen
- * by view/plan.ts underHandles:
- * - `input`: the handle's input (「3D 变换」's upstream scene, before the node has a current result), which the node has
- *   not placed yet: it is put at the placement itself;
- * - `own`: the node's own result, which was placed by the parameters it was cooked with (state/stale.ts cookedWith): it
- *   is moved by the current placement times the inverse of that one, so a stale result, or the old one until the next
- *   status reply, sits where the current parameters put it rather than jumping back. */
-function TransformHandle({ input, own, mode }: { input: React.ReactNode; own: React.ReactNode; mode: "translate" | "rotate" | "scale" }) {
+/** 变换手柄：按节点声明的摆放方式（它的参数、参数顺序与旋转顺序，model/places.ts）摆放节点产出内容的操纵器。
+ * 它只做显示、不做计算：显示的内容用与计算相同的矩阵，放在当前参数（拖动中则为这次拖动会写的参数）所摆的位置；松手只记下参数
+ * （一步撤销；不计算，「计算」在右键里）。显示什么由 view/plan.ts underHandles 决定：
+ * - `input`：手柄的输入（节点还没有当前结果时，「3D 变换」的上游场景），节点尚未摆放过它：直接放在该摆放位置上；
+ * - `own`：节点自身的结果，它已按计算时的参数摆放过（state/stale.ts cookedWith）：再乘以当前摆放与那次摆放之逆的积，
+ *   因此过期的结果、或下一次状态回复到达前的旧结果，都待在当前参数所摆的位置，不会跳回去。 */
+function TransformHandle({ input, own, mode }: { input: React.ReactNode; own: React.ReactNode; mode: DragMode }) {
   const displayId = useLook((s) => s.displayId);
   const graphId = useCookInputs((s) => s.graphId);
   const node = useCookInputs((s) => (displayId ? s.nodes[displayId] : undefined));
   const statusPlaces = useResults((s) => (displayId ? s.reply?.nodes[displayId]?.places : undefined));
   const places = statusPlaces ?? (node ? getNodeDefs()[node.typeId]?.places : null) ?? null;
-  // re-read when a result is recorded: the parameters it was cooked with come with it
+  // 记下结果时重新读取：它计算时所用的参数随结果一起记录
   useLastGood((s) => s.byGraph[graphId]?.[displayId ?? ""]);
-  // the pivot is kept as state: a ref read during render is null on the first pass, so the controls appeared only
-  // once something else re-rendered the stage
-  const [pivotObj, setPivotObj] = useState<THREE.Group | null>(null);
-  const pivot = useRef<THREE.Group | null>(null);
-  const bind = (g: THREE.Group | null) => {
-    pivot.current = g;
-    setPivotObj((was) => (was === g ? was : g));
-  };
-  const [live, setLive] = useState<THREE.Matrix4 | null>(null);
+  const [live, setLive] = useState<Record<string, unknown> | null>(null); // 拖动中：这次拖动会写的参数
   const p = node?.params ?? {};
   const placedBy = displayId ? cookedWith(graphId, displayId) : undefined;
   const key = (q: Record<string, unknown>) => (places ? JSON.stringify([q[places.translate], q[places.rotate], places.scale ? q[places.scale] : 1]) : "");
-  const current = useMemo(() => (places ? new THREE.Matrix4().fromArray(placeMatrix(places, p)) : null), [places, key(p)]); // eslint-disable-line react-hooks/exhaustive-deps
-  const before = useMemo(() => (places && placedBy ? new THREE.Matrix4().fromArray(placeMatrix(places, placedBy)).invert() : null), [places, key(placedBy ?? {})]); // eslint-disable-line react-hooks/exhaustive-deps
-  // the gizmo sits at the current parameters, set on the object when they change and never as props: props are applied
-  // again on every render, and a render during a drag (each move sets `live`) would put the gizmo back where the drag
-  // began, so the release would store the old place
-  useLayoutEffect(() => {
-    if (!pivotObj || !current) return;
-    current.decompose(pivotObj.position, pivotObj.quaternion, pivotObj.scale);
-    pivotObj.updateMatrix();
-  }, [pivotObj, current]);
+  const current = useMemo(() => (places ? placeMatrix(places, p) : null), [places, key(p)]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 计算时那次摆放的逆（math3d.inverse：判不可逆只有那一处）；不可逆（缩放为 0）时不画自己的结果，并说明
+  const placedInverse = useMemo(() => (places && placedBy ? inverse(placeMatrix(places, placedBy)) : null), [places, key(placedBy ?? {})]); // eslint-disable-line react-hooks/exhaustive-deps
+  const before = placedInverse ? new THREE.Matrix4().fromArray(placedInverse) : null;
+  const singular = !!places && !!placedBy && !placedInverse;
+  const note = useStageNotes((n) => n.put);
+  useEffect(() => {
+    note("absent", singular ? { text: textOf(msg("N-VIEW-PLACEDSINGULAR")), tip: textOf(msg("I-VIEW-PLACEDSINGULARWHY")) } : null);
+    return () => note("absent", null);
+  }, [singular]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!places || !current) return <>{input}{own}</>;
-  const order = threeOrder(places.rotation);
-  const scaled = new THREE.Vector3();
-  current.decompose(new THREE.Vector3(), new THREE.Quaternion(), scaled);
-  const at = live ?? current; // where it is shown: the gizmo while dragging, else the current parameters
+  const at = new THREE.Matrix4().fromArray(live ? placeMatrix(places, { ...p, ...live }) : current); // 显示的位置：拖动中取会写的参数，否则取当前参数
   return (
     <>
       <group matrix={at} matrixAutoUpdate={false}>
         {input}
       </group>
-      {/* view/plan.ts shows the node's own result only when `before` is known */}
+      {/* 只有 `before` 已知时 view/plan.ts 才显示节点自身的结果 */}
       {before && (
         <group matrix={at.clone().multiply(before)} matrixAutoUpdate={false}>
           {own}
         </group>
       )}
-      <group ref={bind} />
-      {pivotObj && (
-        <TransformControls
-          object={pivotObj}
-          mode={mode}
-          size={0.8}
-          // from the gizmo's own position, rotation and scale: its matrix is only brought up to date when the scene is drawn
-          onObjectChange={() => { const g = pivot.current; if (g) setLive(new THREE.Matrix4().compose(g.position, g.quaternion, g.scale)); }}
-          onMouseUp={() => {
-            const g = pivot.current;
-            if (!node || !g) return;
-            const e = new THREE.Euler().setFromQuaternion(g.quaternion, order);
-            const round = (v: number, k = 100) => Math.round(v * k) / k;
-            // one undo step; the stage then shows it at these parameters (`current`), where the cook will put it
-            setParams(displayId!, {
-              [places.translate]: g.position.toArray().map((v) => round(v)),
-              [places.rotate]: [e.x, e.y, e.z].map((v) => round(THREE.MathUtils.radToDeg(v))),
-              ...(places.scale ? { [places.scale]: round(mode === "scale" ? (g.scale.x + g.scale.y + g.scale.z) / 3 : scaled.x, 1000) } : {}),
-            });
-            setLive(null);
-          }}
-        />
-      )}
+      {/* 写的是这次拖动的增量套在按下时的参数上（model/places.ts draggedPlace）：只点不拖不写；一步撤销；不计算，
+          「计算」在右键里 */}
+      <DragGizmo at={current} mode={mode} size={0.8} uniform={!!places.scale}
+        onDrag={(d) => setLive(draggedPlace(places, p, d))}
+        onEnd={(d) => {
+          setLive(null);
+          const next = d && node ? draggedPlace(places, p, d) : null;
+          if (next) setParams(displayId!, next);
+        }} />
     </>
   );
 }
 
-/** The picked object's box, in the accent colour. */
+/** 选中物体的包围框，用强调色画。包围框在每次绘制之前读（useFrame）：那时各部件已套上这一帧的姿势（它们的 effect 已跑过）、
+ * 这次提交里才登记的部件也已在 stage.pickables 里；在渲染中读拿到的是上一帧的位置。只在框变了时重画。 */
 function Picked({ stage, keyOf, width }: { stage: StageState; keyOf: string | null; width: number }) {
-  const box = keyOf ? stage.pickables.get(keyOf)?.bounds() : null;
-  if (!box || box.isEmpty()) return null;
+  const [box, setBox] = useState<THREE.Box3 | null>(null);
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => invalidate(), [keyOf, invalidate]); // 换了选中：画一次，好读新选中的框
+  useEachDraw(() => {
+    const b = keyOf ? stage.pickables.get(keyOf)?.bounds() ?? null : null;
+    const now = b && !b.isEmpty() ? b : null;
+    setBox((was) => (was === now || (was && now && was.equals(now)) ? was : now));
+  });
+  if (!box) return null;
   return <FatLines segments={boxSegments(box)} color="#0a84ff" width={Math.max(1, width)} overlay opacity={0.9} />;
 }
 
-/** A camera of the scene that can be looked through. */
+/** 场景中可以透过去看的一台相机。 */
 interface SceneCamera {
-  key: string; // "packet|camera path"
+  key: string; // 这一份的键（包 + 层级路径），只用来比对
+  fp: string; // 它所在的包
   cam: CameraData;
-  label: string; // its position in the hierarchy
+  label: string; // 它在层级中的位置
 }
 
-/** A camera on this frame: its pose, the vertical field of view of its resolution gate, its focal length. */
+/** 相机在这一帧的状态：位姿、片门的竖直视场角、焦距。 */
 function lensOf(c: SceneCamera, frame: number): Lens & { focalMm: number } {
   const at = cameraAt(c.cam, frame);
-  return { pose: at.matrix, fovV: THREE.MathUtils.radToDeg(2 * Math.atan(at.tanY)), aspect: c.cam.ref.width / c.cam.ref.height, focalMm: at.focalMm };
+  return { pose: at.matrix, fovV: THREE.MathUtils.radToDeg(2 * Math.atan(at.tanY)), aspect: c.cam.ref.width / c.cam.ref.height, focalMm: at.focalMm, shift: at.shift };
 }
 
 interface Props {
   plan: DisplayPlan;
-  hidden: Set<string>; // kinds switched off (view/kinds3d.ts KINDS)
-  transformMode: "translate" | "rotate" | "scale";
-  hint?: string | null; // usage of the node's handle: shown in the footer on the left, so nothing there overlaps
-  // 边算边看 (view/partial.ts)：该节点仍在计算时已写出的帧。可作为点云查看的数据（深度图、位置图）
+  hidden: Set<string>; // 关掉的种类（view/kinds3d.ts KINDS）
+  transformMode: DragMode;
+  hint?: string | null; // 节点手柄的用法：显示在左侧底栏，那里不会有东西与它重叠
+  // 边算边看（view/partial.ts）：该节点仍在计算时已写出的帧。可作为点云查看的数据（深度图、位置图）
   // 每写出一帧即可查看一帧，无需等待整段计算完成。
   // 与二维舞台使用同一份轮询结果（editor/Viewer.tsx 中的同一处），不另行获取
   partial?: { info: PartialResult; job: string; node: string; port: string } | null;
@@ -181,42 +144,76 @@ interface Props {
 
 const NOTHING: ReadonlySet<string> = new Set();
 
+/** 应用模式舞台左下角的出处说明两行的高度（含边距）：坐标轴往上让这么多 */
+const NOTICE_LIFT = 48;
+
 export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
+  const dpr = useDevicePixelRatio(); // 与二维舞台同一个：拖到 DPR 不同的屏上画布跟着换比例
   const frame = useViewer((s) => s.frame);
+  // 节点声明的「骨架姿势」手柄：主视图默认不画，只画参数面板上「在视图里改」打开的那一个（state/handleView.ts editing；
+  // 数据在状态回复 handle_data 里）
+  const editing = useHandleView((s) => s.editing);
+  const poseHandles = useMemo((): PoseHandle[] => plan.handles.flatMap((h) => (h.kind === "skeleton_pose" ? [{ index: plan.def?.handles.indexOf(h) ?? -1, def: h, operable: !h.readonly }] : []))
+    .filter((h) => h.index >= 0 && editing?.node === plan.node.id && editing.handle === h.index),
+  [plan.handles, plan.def, plan.node.id, editing]);
+  const handleData = useResults((s) => s.reply?.handle_data);
+  const poseData = handleData?.node === plan.node.id ? handleData.handles ?? {} : {};
+  const nodeParams = useCookInputs((s) => s.nodes[plan.node.id]?.params);
+  const reference = useHandleView((s) => s.reference);
+  const poseSel = usePoseSelection((s) => s.by[VIEWER_SLOT]);
   const o = useViewOptions((s) => s.o);
-  const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null); // (absent while loading; observed once present)
+  const appMode = useAppMode((m) => m.mode === "app"); // 舞台左下角放着出处说明时坐标轴往上让
+  const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null); // （载入期间不存在；出现后开始观察）
   const [selected, setSelected] = useState<string | null>(null);
   const stage = useMemo(() => new StageState(), []);
   const elements = plan.elements.filter((it): it is ViewItem & { fp: string } => !!it.fp);
   const cameraFp = plan.camera;
-  const [loaded, sceneErrors] = useLoaded([...elements.map((e) => e.fp), ...(cameraFp ? [cameraFp] : [])], loadScene);
-  const maps = plan.pointMaps.filter((it): it is ViewItem & { fp: string } => !!it.fp);
+  const [loaded, sceneErrors] = useScenes([...elements.map((e) => e.fp), ...(cameraFp ? [cameraFp] : [])]);
+  // 相机来自上游（`plan.camera` 不是所显示内容之一）时，所显示的场景里若有同一台相机（层级中的路径相同），用显示内容里的那份：
+  // 它是下游、变换之后的（「合成场景」→「3D 变换」的输出类型是宽类型 `scene`，view/plan.ts 只认 `scene.camera`，
+  // 于是往上游找到的是变换之前那台）。上游那份只在显示内容里没有同路径相机时才用。
+  const ownCamera = !!cameraFp && elements.some((e) => e.fp === cameraFp);
+  const upPath = cameraFp && !ownCamera ? loaded.get(cameraFp)?.cameras[0]?.ref.path : undefined;
+  // 深度图 / 位置图转点云同样用这台：服务器按该包里唯一的一台相机反投影（lab2shot/data/scene.py the_camera），
+  // 因此只在那份场景里恰好一台相机时替换，有几台时仍用上游那台（替换了服务器会报「有几台相机」）。
+  const sameCamera = upPath === undefined ? undefined : elements.find((e) => {
+    const cams = loaded.get(e.fp)?.cameras;
+    return cams?.length === 1 && cams[0].ref.path === upPath;
+  });
+  // 显示内容里有场景、相机来自上游，而两边还在载入时先不取点云：否则先按变换前的相机取一遍、载入后再换，画面会先错后对。
+  // 只显示深度图、没有场景的节点（最常见）不等，照旧和相机一起取；载入出错时也不等（照旧用上游那台）
+  const scenesPending = !!cameraFp && !ownCamera && elements.length > 0 && !sceneErrors.length
+    && (!loaded.has(cameraFp) || elements.some((e) => !loaded.has(e.fp)));
+  const pointsCamera = sameCamera?.fp ?? cameraFp;
+  const maps = scenesPending ? [] : plan.pointMaps.filter((it): it is ViewItem & { fp: string } => !!it.fp);
   // 正在计算的端口本身是一张可作为点云查看的图时，先绘制已写出的帧
-  const streaming = partial && plan.pointMaps.some((it) => it.nodeId === partial.node && it.port === partial.port) ? partial : null;
+  const streaming = !scenesPending && partial && plan.pointMaps.some((it) => it.nodeId === partial.node && it.port === partial.port) ? partial : null;
   const partialScene = usePartialPoints(
     streaming ? { job: streaming.job, node: streaming.node, port: streaming.port, done: streaming.info.frames_done } : null,
-    cameraFp,
+    pointsCamera,
   );
-  const [points, pointErrors] = useLoaded(maps.map((m) => `${m.fp}|${cameraFp ?? ""}`), (key) => {
-    const [fp, cam] = key.split("|");
-    return loadPoints(fp, cam || null);
-  });
-  // chunks of per-frame data: the current frame first, then frames ahead of the playhead while playing, as many as the
-  // memory budget allows (view/scene.ts memoryBytes); redrawn as they arrive; the timeline is informed
-  // which frames are in the view
+  // 键带两个包的代次（sceneData.ts pointsKey）：深度图或相机按同一指纹重算后重新取
+  const pointGens = useGens((s) => maps.map((m) => s.gens[m.fp] ?? "").join() + "|" + (pointsCamera ? s.gens[pointsCamera] ?? "" : ""));
+  const pointKeys = useMemo(() => maps.map((m) => pointsKey(m.fp, pointsCamera ?? null)),
+    [maps.map((m) => m.fp).join(), pointsCamera, pointGens]); // eslint-disable-line react-hooks/exhaustive-deps
+  useShownScenes(pointKeys);
+  const [points, pointErrors] = useLoaded(maps.map((m, i) => ({ key: pointKeys[i], of: m.fp })),
+    (fp, signal, lane) => loadPoints(fp, pointsCamera ?? null, signal, lane));
+  // 逐帧数据的块：先当前帧，播放时再取播放头前方的帧，数量以内存预算为限（platform/cache.ts SCENE_SHARE）；
+  // 到达即重绘；并告知时间线哪些帧已在视图中
   const scenes = [...loaded.values(), ...points.values(), ...(partialScene ? [partialScene] : [])];
   const scenesKey = scenes.map((s) => s.key).join("|");
   useSceneVersions(scenes);
   const playDir = useViewer((s) => (s.playing ? s.playDir : 0)) as -1 | 0 | 1;
   const scrubbing = useViewer((s) => s.scrubbing);
   useEffect(() => {
-    // 拖动时间线期间不拉取任何数据块：拖过的帧大多只是经过，
-    // 逐帧拉取会浪费流量。松开后（scrubbing 变为 false）此 effect 再次执行，拉取停止处的帧
+    // 拖动时间线期间不移动「当前块」：拖过的帧大多只是经过，不值得为它们插队解码。整段下载不受影响，照常在后台
+    // 进行（view/scene.ts fetchAll，总是整段、没有开关）。松开后（scrubbing 变为 false）此 effect 再次执行
     if (scrubbing) return;
     for (const s of scenes) s.setFrame(frame, playDir);
   }, [frame, playDir, scenesKey, scrubbing]); // eslint-disable-line react-hooks/exhaustive-deps
   // 不另行报告「实际绘制的是第几帧」：时间线上「已载入视图」的浅绿色即表示此信息。
-  useEffect(() => () => useViewLoads.setState({ loaded: null, pending: null, stale: false }), []);
+  useEffect(() => clearLoads, []);
   useEffect(() => {
     if (o.uvChecker) for (const s of scenes) void s.loadUv();
   }, [o.uvChecker, scenesKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -224,9 +221,8 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
   const chosen = useViewCamera((s) => s.look);
   const setLook = useViewCamera((s) => s.setLook);
 
-  // H frames everything, F frames the selection, Esc clears the selection: while the pointer is over the stage and the
-  // user is not typing (the key registry itself tests the pointer against the element, platform/keys.ts `under`). Esc
-  // also works while looking through a camera, since the selection belongs to the stage, not to the view.
+  // H 框显全部，F 框显选中，Esc 清除选中：指针在舞台上且使用者没有在打字时生效（由按键登记处自己检查指针是否在该元素上，
+  // platform/keys.ts `under`）。透过相机看时 Esc 同样有效，因为选中属于舞台，而非视角。
   const frameView = useViewCamera((s) => s.frame);
   useShortcut(
     {
@@ -234,11 +230,11 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
       run: (e) => {
         const k = e.key.toLowerCase();
         if (k === "escape") {
-          if (!selected) return false; // nothing selected: Esc belongs to whatever is open over the stage
+          if (!selected) return false; // 没有选中：Esc 交给舞台上方打开的东西
           setSelected(null);
           return;
         }
-        if (k === "f" && useViewCamera.getState().look) return false; // looking through a camera: F fits its gate (the 2D view's behaviour)
+        if (k === "f" && useViewCamera.getState().look) return false; // 透过相机看时：F 让片门适应画布（与二维视图的行为相同）
         if (k === "h") frameView("all");
         else frameView(selected ? "selected" : "all");
       },
@@ -246,23 +242,28 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
     { over: () => stageEl },
   );
 
-  // every camera of the displayed content, by its position in the hierarchy; the node's own camera (or the upstream one) first.
+  // 显示内容中的每一台相机，按其在层级中的位置。
   // 同一台相机在菜单中只出现一次：按其在层级中的位置（`cam.ref.path`）去重，而不按所属数据。
-  // 同一台相机可能来自两份数据：视图自身的相机（`plan.camera`）和所显示节点场景中的相机；
-  // 若按 `${fp}|${path}` 去重，会出现两行名称完全相同的条目。保留第一份，即视图自身的相机优先。
+  // 同一台相机可能来自两份数据：视图的相机（`plan.camera`）和所显示节点场景中的相机；
+  // 若按 `${fp}|${path}` 去重，会出现两行名称完全相同的条目。保留第一份：
+  // - `plan.camera` 就是所显示内容之一（节点自身输出相机）时它在最前；
+  // - 它来自上游时放在最后：显示内容里同路径的那台是下游、变换之后的（「合成场景」→「3D 变换」），应当透过它看；
+  //   上游那台只在显示内容里没有同路径相机时才出现在菜单里。
   const cameras: SceneCamera[] = [];
-  for (const fp of [...(cameraFp ? [cameraFp] : []), ...elements.map((e) => e.fp)]) {
+  const cameraOrder = ownCamera
+    ? [cameraFp!, ...elements.map((e) => e.fp)]
+    : [...elements.map((e) => e.fp), ...(cameraFp ? [cameraFp] : [])];
+  for (const fp of cameraOrder) {
     for (const cam of loaded.get(fp)?.cameras ?? [])
-      if (!cameras.some((c) => c.cam.ref.path === cam.ref.path)) cameras.push({ key: `${fp}|${cam.ref.path}`, cam, label: cam.ref.path || plan.items.find((it) => it.fp === fp)?.label || "相机" });
+      if (cam.ref.frames.length && !cameras.some((c) => c.cam.ref.path === cam.ref.path)) cameras.push({ key: `${fp}|${cam.ref.path}`, fp, cam, label: cam.ref.path || plan.items.find((it) => it.fp === fp)?.label || "相机" });
   }
-  // the stage looks through the camera chosen in the view menu (none: the free view)
-  const looked = cameras.find((c) => c.key === chosen);
+  // 舞台透过视角菜单中选中的相机看（没有选中：自由视角）
+  const looked = cameras.find((c) => c.key === chosen?.key);
   const lens = looked ? lensOf(looked, frame) : null;
-  // looking through a camera, the gate is its picture in a 2D view (state/view2d.ts, the same pan/zoom as a picture's):
-  // the wheel, a middle-drag (on the 2D stage also an Alt+left-drag), F and 适应 / 1:1 / % move and scale the gate and
-  // its plate on the canvas. This is a scale and offset applied after the camera's projection, never a movement of the
-  // camera or its lens; at 1:1 one gate pixel equals one camera (plate) pixel. The 2D stage's view is the viewer's 2D
-  // view; the 3D stage's is kept per camera looked through (as Maya's Pan/Zoom) and discarded when the view leaves it
+  // 透过相机看时，片门就是二维视图中的一幅画面（state/view2d.ts，与画面同一套平移 / 缩放）：滚轮、中键拖动（二维舞台上
+  // 还有 Alt + 左键拖动）、F 以及 适应 / 1:1 / % 在画布上移动和缩放片门及其背板。这是在相机投影之后施加的缩放与偏移，
+  // 从不移动相机或改变镜头；1:1 时一个片门像素等于一个相机（背板）像素。二维舞台的视图即查看器的二维视图；三维舞台的
+  // 则按透过的相机各存一份（与 Maya 的 Pan/Zoom 相同），离开该相机时丢弃
   const [gw, gh] = looked ? [looked.cam.ref.width, looked.cam.ref.height] : [0, 0];
   const nav = useView2DNav(looked ? stageEl : null, gw, gh, { slot: "look", key: looked?.key ?? "", altLeft: false });
   const gate = lens && nav.at ? { x: nav.at.x, y: nav.at.y, w: gw * nav.at.s, h: gh * nav.at.s } : null;
@@ -283,49 +284,90 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
   const plateManifest = useManifest(plateFp);
   const plateGen = useGens((s) => (plateFp ? s.gens[plateFp] ?? "" : ""));  // 重算后重建帧源（transfer/gens.ts）
   // 相机带畸变时背板不是原图：此处的相机为针孔模型（camera3d.tsx 按焦距和片门投影），针孔看到的是去畸变后的画面，
-  // 因此背板由服务器按该相机自带的镜头去畸变后再发送（`api.packetFrameUrl` 的 `through`，
+  // 因此背板由服务器按该相机自带的镜头去畸变后再发送（`transfer/frameKey.ts pictureUrl` 的 `through`，
   // `lab2shot/view/proxy.py through_picture_file`）；不带畸变时字节完全不变。否则
   // 鱼眼等强畸变相机的点云将与底图无法对齐
   const distortion = looked?.cam.ref.distortion || "";
-  const through = plateFp && looked && distortion ? { fp: looked.key.split("|")[0], at: looked.cam.ref.path } : null;
+  const throughFp = plateFp && looked && distortion ? looked.fp : null;
+  // 相机包的代次也进地址（cg=）和缓存键：相机按同一指纹重算、镜头变了，去畸变的背板要重新取（transfer/gens.ts）
+  const throughGen = useGens((s) => (throughFp ? s.gens[throughFp] ?? "" : ""));
+  const through = throughFp && looked ? { fp: throughFp, at: looked.cam.ref.path, gen: throughGen } : null;
   const plateSource = useMemo(
     () => (plateFp && plateManifest ? serverFrames({ fp: plateFp, type: "", through }, plateManifest) : null),
-    [plateFp, plateManifest, plan.sourceKey, through?.fp, through?.at, plateGen],  // 来源改变时重算（view/origin.ts；其中包含原件查找结果）
+    [plateFp, plateManifest, plan.sourceKey, through?.fp, through?.at, through?.gen, plateGen],  // 来源改变时重算（view/origin.ts；其中包含原件查找结果）
   );
-  const plate = useFrame(plateSource, frame, playDir || 1);
+  const plate = useFrame(plateSource, frame, playDir || 1, scrubbing); // 拖时间线期间不逐帧拉背板，松开再取停下处的
   // 背板的帧同样计入「该帧是否在视图中」：三维数据块很小、很快全部到达，若只看数据块，播放将永远不会等待背板
   const plateLoaded = useLoadedFrames(plateSource?.id ?? null);
+  const plateReady = useDecodedFrames(plateSource ? [plateSource] : []); // 背板「可立即画」与二维同一定义：已解码
   const loadKey = scenes.map((s) => `${s.key}:${s.version}`).join("|");
   useEffect(() => {
-    const each = scenes.map((s) => s.loaded()).filter((l): l is number[] => l !== null);
-    if (plateLoaded) each.push(plateLoaded);  // 背板同样计入（见上方 plateSource 的注释）
+    // 每一份按自己的帧（transfer/readiness.ts readyAcross）：背板常比算出的场景长，场景没有的帧只看背板，不因
+    // 场景「没有」而永远不可画
+    const cells = scenes.flatMap((s) => { const got = s.loaded(); return got === null ? [] : [{ has: s.frames, ready: got }]; });
+    const each = [...cells];
+    const ready = [...cells];
+    if (plateSource && plateLoaded) each.push({ has: plateSource.frames, ready: plateLoaded });  // 背板同样计入（见上方 plateSource 的注释）
+    if (plateSource) ready.push({ has: plateSource.frames, ready: plateReady ?? [] });
     // 静止的场景（一份点云、一条相机轨迹整段一次到齐）整条均可实时播放：色带全绿（或全土黄），而非无颜色；
     // 色带表示能否播放，静止内容的每一帧均可播放
-    if (!each.length && scenes.length) each.push(useViewer.getState().frames);
+    const all = useViewer.getState().frames;
+    if (!each.length && scenes.length) each.push({ has: all, ready: all });
+    if (!ready.length && scenes.length) ready.push({ has: all, ready: all });
     // 三维绘制的是否为上一次的结果（元素或底图中有一份已过期，state/stale.ts）：时间线色带显示为土黄色
     // 尚未到达的数据块（等待到达，不跳过）：任一份数据的块未到达，该帧即视为未到达
     const waiting = scenes.map((s) => s.pending()).filter((l): l is number[] => l !== null);
-    useViewLoads.setState({ loaded: each.length ? each.reduce((a, l) => a.filter((f) => l.includes(f))) : null,
-                            pending: waiting.length ? [...new Set(waiting.flat())] : null, stale: plan.stale });
-  }, [loadKey, plateLoaded, scenes.length, plan.stale]); // eslint-disable-line react-hooks/exhaustive-deps
+    // 整段缓存进度（视图通知区「已缓存 N / M 帧」）：几份逐帧数据时取最慢的那份
+    const progress = scenes.map((s) => s.cached()).filter((c): c is [number, number] => c !== null);
+    // 「可立即画」（transfer/readiness.ts）：块已解开或在本机，背板已解码；「无须再下载」：背板的字节到了即可
+    reportLoads({ loaded: readyAcross(each), ready: readyAcross(ready), waiting: waiting.length ? [...new Set(waiting.flat())] : null, stale: plan.stale,
+                  cached: progress.length ? progress.reduce((a, c) => (c[0] / Math.max(c[1], 1) < a[0] / Math.max(a[1], 1) ? c : a)) : null });
+  }, [loadKey, plateLoaded, plateReady, scenes.length, plan.stale]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const lastLooked = useRef(lookedKey);
   useEffect(() => {
-    if (lastLooked.current && lastLooked.current !== lookedKey) useView2D.getState().dropView("look"); // left the camera
+    if (lastLooked.current && lastLooked.current !== lookedKey) useView2D.getState().dropView("look"); // 离开了这台相机
     lastLooked.current = lookedKey;
   }, [lookedKey]);
-  // a looked-through camera that the currently displayed node does not have: revert to 透视 in place, with a notice
+  // 正在透过的相机不属于当前显示的节点：就地退回透视，并给出通知
   const say = useViewerNote((s) => s.say);
   const allLoaded = elements.every((e) => loaded.has(e.fp)) && (!cameraFp || loaded.has(cameraFp));
   const cameraKeys = cameras.map((c) => c.key).join("\n");
+  // 正在透过的相机是在哪个显示节点上选的：下方的按路径回退只在同一个节点里做。
+  // 只在所选相机（`chosen`）本身变化时记下当时的显示节点（使用者从视角菜单选、或下方回退改选）；
+  // 切换显示节点不改变 `chosen`，因此不会把记录改成新节点。依赖里不能放 `plan.node.id`：
+  // 否则切换节点的那次提交里此处先把记录改成新节点，回退判定恒为真，跨节点也会按路径回退
+  // 舞台刚挂载时（例如从 2D 切回 3D，其间可能换过显示节点）不知道那台相机是在哪个节点上选的：不记，回退不生效，照旧退回透视
+  // （按挂载时的值判断而不用「是否首次执行」：开发模式的 StrictMode 会把挂载时的 effect 执行两次）
+  const lookedOn = useRef<string | null>(null);
+  const atMount = useRef<typeof chosen | undefined>(chosen); // undefined：所选相机已在挂载后变过
   useEffect(() => {
-    if (!chosen || !allLoaded || cameraKeys.split("\n").includes(chosen)) return;
+    if (atMount.current !== undefined && chosen === atMount.current) {
+      lookedOn.current = null;
+      return;
+    }
+    atMount.current = undefined;
+    lookedOn.current = chosen ? plan.node.id : null;
+  }, [chosen]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!chosen || !allLoaded || cameraKeys.split("\n").includes(chosen.key)) return;
+    // 键随包变（LookAt.key）：显示的还是同一个节点、同一台相机换了一份数据（重算后指纹变了，例如透过相机看时调「3D 变换」的参数）
+    // 时键会变，按层级路径（LookAt.path）回退匹配，继续透过这台相机看，不退回透视。换了显示节点的照旧：退回透视并提示
+    const same = lookedOn.current === plan.node.id ? cameras.find((c) => c.cam.ref.path === chosen.path) : undefined;
+    if (same) {
+      setLook({ key: same.key, path: same.cam.ref.path });
+      return;
+    }
     setLook(null);
-    say(msg("N-VIEW-NOSUCHCAMERA"), msg("I-VIEW-NOSUCHCAMERAWHY", { camera: chosen.split("|").slice(1).join("|") || chosen }));
+    say(msg("N-VIEW-NOSUCHCAMERA"), msg("I-VIEW-NOSUCHCAMERAWHY", { camera: chosen.path || chosen.key }));
   }, [chosen, allLoaded, cameraKeys]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const first = elements.map((e) => loaded.get(e.fp)).find(Boolean);
-  const onPick = useCallback((key: string | null) => setSelected(key), []);
+  // 点中别的东西或空处：不选关节（点中「骨架姿势」的关节时，那副骨架随后自己选上它：stageState.ts Pickable.choose）
+  const onPick = useCallback((key: string | null) => {
+    usePoseSelection.getState().set(VIEWER_SLOT, null);
+    setSelected(key);
+  }, []);
   const onLeave = useCallback(() => setLook(null), [setLook]);
   const errors = [...sceneErrors, ...pointErrors, ...chunkErrors];
   // 画面上需要显示的文字全部进入统一通知区（viewTools.ts useStageNotes）
@@ -349,7 +391,7 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
   const setCameras = useViewCamera((s) => s.setCameras);
   const setSelectedName = useViewCamera((s) => s.setSelected);
   useEffect(() => {
-    setCameras(cameras.map((c) => ({ key: c.key, label: c.label, width: c.cam.ref.width, height: c.cam.ref.height })));
+    setCameras(cameras.map((c) => ({ key: c.key, path: c.cam.ref.path, label: c.label, width: c.cam.ref.width, height: c.cam.ref.height })));
   }, [cameras.map((c) => c.key).join("\n"), setCameras]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setSelectedName(selected ? stage.pickables.get(selected)?.label ?? null : null);
@@ -359,7 +401,7 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
   if (!elements.length && !maps.length && !partialScene) return <div className="empty">没有三维结果</div>;
 
 
-  const waiting = elements.filter((e) => !loaded.get(e.fp)).length > sceneErrors.length; // some are still being produced
+  const waiting = elements.filter((e) => !loaded.get(e.fp)).length > sceneErrors.length; // 有些仍在生成中
   if (elements.length && !first && !waiting && errors.length) return <div className="empty">{errors[0]}</div>;
   if (elements.length && !first) return <Preparing />;
   const transform = plan.handles.find((h) => h.kind === "transform");
@@ -368,8 +410,8 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
 
   const sceneOf = (e: ViewItem & { fp: string }) =>
     loaded.get(e.fp) && <SceneElement key={e.key} item={e} d={loaded.get(e.fp)!} frame={frame} hidden={hidden} through={!!lens} look={lookKey} o={o} />;
-  // the handle's input (view/plan.ts: shown with a transform handle before the node has a current result) and what the node
-  // itself gives: a transform handle places the two differently (TransformHandle)
+  // 手柄的输入（view/plan.ts：节点还没有当前结果时随变换手柄一起显示）与节点自身的产出：变换手柄对二者的摆放方式不同
+  // （TransformHandle）
   const input = <>{elements.filter((e) => e.context).map(sceneOf)}</>;
   const own = (
     <>
@@ -378,8 +420,8 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
         <Cloud key={c.key} src={c} frame={frame} o={o} pickKey={`${streaming!.node}.${streaming!.port}/points/${c.name}`} version={partialScene.version} />
       ))}
       {!hidden.has("points") &&
-        maps.map((m) => {
-          const d = points.get(`${m.fp}|${cameraFp ?? ""}`);
+        maps.map((m, i) => {
+          const d = points.get(pointKeys[i]);
           return d?.clouds.map((c) => <Cloud key={c.key} src={c} frame={frame} o={o} pickKey={`${m.key}/points/${c.name}`} version={d.version} />);
         })}
     </>
@@ -393,12 +435,13 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
       onMouseLeave={lens ? nav.onMouseLeave : undefined}
       onMouseMove={lens ? nav.onMouseMove : undefined}
       onMouseDown={lens ? nav.onMouseDown : undefined}
+      onContextMenu={lens ? nav.onContextMenu : undefined}
     >
       {/* `preserveDrawingBuffer`：若不开启此项，页面截图中的三维部分将始终为空。
           页面截图使用 `ui/snapshot.ts pictureOf` → `canvas.toDataURL()`，而 WebGL 画布
           在合成后会清除绘制缓冲，除非开启此项。二维部分（view/look.ts）同样开启。
           代价是每帧多保留一份缓冲；frameloop="demand" 在无变化时不绘制，该代价可以接受。 */}
-      <Canvas frameloop="demand" flat dpr={window.devicePixelRatio || 1}
+      <Canvas frameloop="demand" flat dpr={dpr}
         gl={{ antialias: false, powerPreference: "high-performance", preserveDrawingBuffer: true }}>
         <StageContext.Provider value={stage}>
           <KeepContext />
@@ -407,22 +450,30 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
           <Background o={o} />
           {/* 背板走图片路径（serverFrames），因此此处得到的必然是一张图；
               按通道取数的路径只有二维舞台使用（transfer/plane.ts） */}
-          {lens && plate.image && !isPlane(plate.image) && <ImagePlane image={plate.image} pose={lens.pose} fovV={lens.fovV} aspect={lens.aspect} exact />}
+          {lens && plate.image && !isPlane(plate.image) && <ImagePlane image={plate.image} pose={lens.pose} fovV={lens.fovV} aspect={lens.aspect} shift={lens.shift} exact />}
           <Lights o={o} />
           <GroundGrid o={o} through={!!lens} />
           {transform ? <TransformHandle mode={transformMode} input={input} own={own} /> : <>{input}{own}</>}
+          <PoseLayers handles={poseHandles} data={poseData} values={nodeParams} mode={transformMode} slot={VIEWER_SLOT} o={o}
+            write={(param, rows) => setParams(plan.node.id, { [param]: rows })} />
+          {reference && reference.node !== plan.node.id && <ReferenceLayer reference={reference} frame={frame} o={o} slot={VIEWER_SLOT}
+            values={(node) => useCookInputs.getState().nodes[node]?.params} />}
           <Picked stage={stage} keyOf={selected} width={o.lineWidth} />
           <ViewCamera o={o} frameKey={frameKey} selected={selected} lens={lens} gate={gate} onLeave={onLeave} />
           <Picker onPick={onPick} />
           {/* 角落中可点击的坐标轴：使用 `usable` 而非 `shown`。控件置灰由显示选项面板负责，
               舞台上的坐标轴是三维视图中的可点击对象，跟随相机时无法点击，因此不绘制（由 view/available.ts 统一计算） */}
-          {usable(viewAvailable({ stage: "3d", shows: NOTHING, options: o, mode: "plate", channels: 0, single: false, ready: false }), "axesGizmo") && <Axes size={o.axesSize} />}
+          {usable(viewAvailable({ stage: "3d", shows: NOTHING, options: o, mode: "plate", channels: 0, single: false, ready: false }), "axesGizmo") && <Axes size={o.axesSize} lift={appMode ? NOTICE_LIFT : 0} />}
         </StageContext.Provider>
       </Canvas>
       {lens && gate && looked && <div className="gate" style={{ left: gate.x, top: gate.y, width: gate.w, height: gate.h }} />}
-      {/* 三维舞台不在画面上绘制任何文字：
-          手柄提示、显示错误全部进入 state 的通知区（viewTools.ts useStageNotes），
-          由 editor/ViewerFrame.tsx 统一绘制在左上角。视角与框显属于工具，位于上方工具栏。 */}
+      {poseHandles.filter((h) => h.operable && h.def.params.pose && poseSel?.handle === h.index && poseData[String(h.index)]).map((h) => (
+        <SkeletonPosePanel key={h.index} data={poseData[String(h.index)]} index={h.index} slot={VIEWER_SLOT} label={plan.def?.params.find((q) => q.name === h.def.params.pose)?.label ?? h.def.params.pose}
+          rows={poseRowsOf(nodeParams?.[h.def.params.pose])} write={(rows) => setParams(plan.node.id, { [h.def.params.pose]: rows })} />
+      ))}
+      {/* 手柄提示、显示错误不画在舞台上：进入 state 的通知区（viewTools.ts useStageNotes），由 editor/ViewerFrame.tsx
+          统一绘制在左上角；视角与框显属于工具，位于上方工具栏。舞台上的字只有属于内容的：骨点名（elements3d.tsx
+          JointLabels）和选中关节的数值面板（上面的 SkeletonPosePanel）。 */}
     </div>
   );
 }

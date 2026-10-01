@@ -576,7 +576,7 @@ class Lab2Shot(object):
 
     def plan(self, graph, target, force=False):
         """What running `graph` for `target` (a node id) would do: the frames the inputs hold, which nodes would cook
-        (the rest is cached), how long that took last time (POST /api/plan — for scripts and DCC clients)."""
+        (the rest is cached) (POST /api/plan — for scripts and DCC clients). No time estimate: the server gives none."""
         return self._request("POST", "/api/plan", {"graph": graph, "target": target, "force": force})
 
     def derive(self, node_type, params):

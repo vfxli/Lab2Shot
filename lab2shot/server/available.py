@@ -28,7 +28,7 @@ from ..messages import Msg
 from ..accounts import Session
 from .. import config
 from ..availability import DATA, All, AnyOf, Availability, Cond, resolve
-from ..roles import Can, Manages, NotOwnersAccount, RightsFresh, SessionFacts
+from ..roles import Can, Manages, NotOwnersAccount, RightsFresh, SessionFacts, Staff
 from . import routes
 
 FRESH = RightsFresh()
@@ -263,9 +263,14 @@ FIELDS: dict[str, Cond] = {
     # the cards (artists never see or choose cards; card and verification information is the administrator's): card
     # names, VRAM measured on a card, what runs on which card. Everyone else is told only 「排队中」 unless somebody has
     # to act (farm/queue.py `_told`: N-QUEUE-NOMACHINEEVER / NOCARD / PAUSED, none of which names a card). The routes
-    # carrying them: their `hides`.
+    # carrying them: their `hides`; what a setting was measured to take on a card: access.params_for.
     "farm.cards": capability("farm.cards"),
-    "menu.edit": capability("menu.edit"),
+    # what a feedback's diagnostics say of the whole server (server/feedback.py DIAGNOSTICS): its log only for whoever
+    # reads the logs, the resident models for whoever manages them
+    "logs.view": capability("logs.view"),
+    "models.manage": capability("models.manage"),
+    # the release notes' lines about the back office (「更新说明」 admin): for whoever works there
+    "releases.admin": Staff(),
 }
 
 # 概览「今天和最近」 (GET /api/admin/overview/recent): each group of numbers and the section it opens. A group is a field
@@ -276,14 +281,18 @@ RECENT: dict[str, str] = {"access": "security", "accounts": "users", "tasks": "q
 FIELDS |= {f"recent.{group}": SECTIONS[section] for group, section in RECENT.items()}
 
 
-def hidden_paths(s: Session | None, method: str, path: str) -> tuple[str, ...]:
-    """The JSON paths of the answer to `method path` this session does not get (its route's `hides`, for the subjects
-    of FIELDS not available to the session)."""
-    found = routes.match(method, path)
-    if found is None or not found[1].hides:
+def hidden_paths(s: Session | None, found) -> tuple[str, ...]:
+    """The JSON paths of the answer this session does not get from the route `found` (access.route_of): its `hides`."""
+    return hidden_of(s, found[1].hides) if found is not None else ()
+
+
+def hidden_of(s: Session | None, hides) -> tuple[str, ...]:
+    """The paths of `hides` (subject -> JSON paths) whose subject of FIELDS is not available to the session: what the
+    guard strips of a route's JSON answer, and what a route answering otherwise (a zip) strips the same way."""
+    if not hides:
         return ()
     shown = set(resolve(FIELDS, SessionFacts.of(s)).available)
-    return tuple(p for name, paths in found[1].hides.items() if name not in shown for p in paths)
+    return tuple(p for name, paths in hides.items() if name not in shown for p in paths)
 
 
 _PATH = re.compile(r"\[\]|[^.\[\]]+")

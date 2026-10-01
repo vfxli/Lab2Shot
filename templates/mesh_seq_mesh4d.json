@@ -7,13 +7,42 @@
   "author": "Lab2Shot",
   "created": "2026-09-20T12:00:00",
   "deliverable": "mesh_seq",
-  "owner": "admin"
+  "owner": "admin",
+  "updated": "2026-10-01T05:00:00"
  },
  "exposed": [
   {
    "name": "input",
    "label": "输入序列",
-   "target": "read.path"
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": "输入色彩空间",
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": "首帧",
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": "末帧",
+   "target": "read.last"
+  },
+  {
+   "name": "matte_model",
+   "label": "抠像模型（BiRefNet）",
+   "target": "matte.model",
+   "show_on_change": true
+  },
+  {
+   "name": "cook_matte",
+   "label": "抠像",
+   "target": "matte.cook"
   },
   {
    "name": "faces",
@@ -21,9 +50,70 @@
    "target": "solve.faces"
   },
   {
-   "name": "unit",
+   "name": "quality",
+   "label": "质量",
+   "target": "solve.quality"
+  },
+  {
+   "name": "scale_cm",
    "label": "尺度",
    "target": "solve.unit_cm"
+  },
+  {
+   "kind": "group",
+   "label": "高级",
+   "collapsed": true,
+   "children": [
+    {
+     "name": "seed",
+     "label": "随机种子",
+     "target": "solve.seed"
+    }
+   ]
+  },
+  {
+   "name": "cook_solve",
+   "label": "解算网格",
+   "target": "solve.cook"
+  },
+  {
+   "kind": "group",
+   "label": "交付",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": "文件名",
+     "target": "usd.name"
+    },
+    {
+     "name": "unit",
+     "label": "单位",
+     "target": "usd.unit"
+    },
+    {
+     "name": "fps",
+     "label": "帧率",
+     "target": "usd.fps"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": "操作",
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "label": "打包",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": "下载",
+     "target": "deliver.download"
+    }
+   ]
   }
  ],
  "nodes": [
@@ -33,11 +123,13 @@
    "label": "读取序列",
    "params": {
     "path": "",
-    "colorspace": null
+    "colorspace": null,
+    "first": null,
+    "last": null
    },
    "ui": {
     "x": 0,
-    "y": 140
+    "y": 68
    }
   },
   {
@@ -45,15 +137,14 @@
    "type": "birefnet.matte",
    "label": "BiRefNet 抠像",
    "params": {
-    "model": "matting",
+    "model": "hr_matting",
     "fp16": true
    },
    "ui": {
-    "x": 320,
+    "x": 400,
     "y": 0,
     "on_node": [
-     "model",
-     "resolution"
+     "model"
     ]
    }
   },
@@ -68,8 +159,8 @@
     "unit_cm": 100.0
    },
    "ui": {
-    "x": 620,
-    "y": 120,
+    "x": 800,
+    "y": 50,
     "on_node": [
      "faces",
      "quality",
@@ -82,17 +173,22 @@
    "type": "core.output_usd",
    "label": "USD 输出设置",
    "params": {
+    "name": "mesh",
+    "format": "usd",
     "unit": "cm",
-    "name": "mesh"
+    "fps": 24.0
    },
    "ui": {
-    "x": 920,
-    "y": 120,
+    "x": 1200,
+    "y": 60,
     "on_node": [
      "name",
      "unit"
     ]
-   }
+   },
+   "promoted": [
+    "fps"
+   ]
   },
   {
    "id": "deliver",
@@ -100,8 +196,8 @@
    "label": "输出",
    "params": {},
    "ui": {
-    "x": 1220,
-    "y": 120
+    "x": 1600,
+    "y": 88
    }
   }
  ],

@@ -2,10 +2,11 @@ import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { matrixAt } from "./matrix3d";
 import { msg } from "../messages/message";
-import { heldSample, sampleAt} from "../model/viewFormat";
+import {heldSample } from "../model/viewFormat";
+import { sampleAt } from "../model/timelineMath";
 import { useViewerNote } from "../state/viewer";
 import { boxSegments, FatLines, polylineSegments } from "./lines3d";
-import { project, usePickable, type PickRay } from "./stageState";
+import { segmentsHit, usePickable, type PickRay } from "./stageState";
 import type { CurveData, CurveSample } from "./sceneTypes";
 import type { ViewOptions } from "../model/viewOptions";
 
@@ -56,16 +57,7 @@ export function Curves({ src, frame, o, pickKey }: Props) {
     return {
       label: src.name,
       bounds: () => (local ? local.clone().applyMatrix4(matrix) : null),
-      hit: (p: PickRay) => {
-        if (!segments) return null;
-        let best: number | null = null;
-        const v = new THREE.Vector3();
-        for (let k = 0; k < segments.length; k += 3) {
-          const s = project(v.set(segments[k], segments[k + 1], segments[k + 2]).applyMatrix4(matrix), p);
-          if (s && Math.hypot(s.x - p.px.x, s.y - p.px.y) < 8 && (best === null || s.depth < best)) best = s.depth;
-        }
-        return best;
-      },
+      hit: (p: PickRay) => (segments ? segmentsHit(segments, p, matrix) : null),
     };
   }, [segments, box, matrix, src.name]);
   usePickable(pickKey, pickable);

@@ -10,6 +10,7 @@
 @import "./styles/08-node-graph.css";
 @import "./styles/08a-node.css";
 @import "./styles/29-node-chrome.css";
+@import "./styles/31-rig-map.css"; /* the 「对应关系」 editor (RigMap.tsx) */
 @import "./styles/09-welcome.css";
 @import "./styles/11-sheets.css";
 @import "./styles/12-node-progress.css";
@@ -23,3 +24,4 @@
 @import "./styles/23-panel-2.css";
 @import "./styles/25-transfer.css";
 @import "./styles/26-messages.css";
+@import "./styles/30-param-interface.css"; /* a template's parameter interface: the tree, app mode, the editing dialog */

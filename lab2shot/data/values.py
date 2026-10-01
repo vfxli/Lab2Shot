@@ -281,7 +281,9 @@ def _one(type_: str, v: Any) -> str:
     if type_ == TEXT:
         return f"「{v}」"
     if type_ == LENS:  # 「AnyCalib · simple_kb:4」k1 -0.012 k2 0.003：组 · 模型按它自己的名字，系数按模型自己的顺序
-        who = {"colmap": "COLMAP", "3de4": "3DE4", "anycalib": "AnyCalib", "geocalib": "GeoCalib"}.get(v["group"], v["group"])
+        from ..nodes.lens import group_label
+
+        who = group_label(v["group"])
         return f"「{who} · {v.get('model', '')}」" + "".join(f" {k} {_num(x)}" for k, x in dict(v.get("params") or {}).items() if k not in ("center_x_mm", "center_y_mm", "pixel_aspect"))
     if type_ == VECTOR:
         return "(" + ", ".join(_num(c) for c in v) + ")"
@@ -333,7 +335,7 @@ def param_type(spec: dict) -> str:
     vectors, free text — and a choice, which takes 文字 (so a node such as AnyCalib can hand a model type on by
     wire). The receiving end checks the text is one of its own options, which says more
     than a type ever could（「上游给的是 radial:2，这里可选的是 无畸变 / 3DE Classic / …」）. Files, lists, names and
-    pickers are set in the panel only."""
+    pickers are set in the panel only; an output-settings node's 名字 takes 文字 too."""
     from .types import list_of
 
     if spec["items"] is not None:  # a table: one list per column is meaningless, one column is a plain list of numbers
@@ -341,8 +343,10 @@ def param_type(spec: dict) -> str:
         kind = {"number": FLOAT, "integer": INT}.get(fields[0]["type"]) if len(fields) == 1 else None
         return list_of(kind) if kind and not fields[0]["options"] else ""
     if spec["options"]:
-        return "" if spec["unique"] or spec["choices_from"] else TEXT
-    if spec["unique"] or spec["choices_from"] or spec["derived_from"]:
+        return "" if spec["choices_from"] else TEXT
+    # `unique` only numbers the value a node added in the editor gets (nodes/params.py); a wire may still drive it
+    # (an output-settings node's 名字 from a 「文字」 node: several nodes of a card named from one place)
+    if spec["choices_from"] or spec["derived_from"]:
         return ""
     widget = spec["widget"]
     if widget == "vec3":

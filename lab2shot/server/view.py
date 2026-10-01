@@ -4,18 +4,19 @@
 from __future__ import annotations
 
 import numpy as np
-from fastapi import Depends, Request
+from fastapi import Request
 from fastapi.responses import FileResponse, Response
 
+from . import owners
 from .routes import Access, Router
 from ..engine import Packet
 from ..data.packet import packet_dir
 from ..errors import Invalid, NotFound
 from ..messages import Msg
 from . import wire
-from .access import packets_readable
+from .wire import WAITS
 
-router = Router(prefix="/api/view", tags=["视图"], dependencies=[Depends(packets_readable)])  # 只提供本账号自己缓存里的结果（server/access.py）
+router = Router(prefix="/api/view", tags=["视图"])  # 只提供本账号自己缓存里的结果：每条路由声明 owned=owners.packets
 
 
 def _packet(fp: str) -> Packet:
@@ -25,8 +26,8 @@ def _packet(fp: str) -> Packet:
     return Packet.load(d)
 
 
-@router.get("/{fp}/video/{frame}.png", access=Access.user("看结果：视频的一帧"), summary="视频某一帧的**代理图**：按管理员设定的那一档（「设置 · 视图 · 视图代理尺寸」）等比缩、有损压缩；看了第一帧，其余的在后台补齐")
-def video_frame(fp: str, frame: int, g: str = "", px: int | None = None) -> FileResponse:
+@router.get("/{fp}/video/{frame}.png", access=Access.user("看结果：视频的一帧", owned=owners.packets), summary="视频某一帧的**代理图**：按管理员设定的那一档（「设置 · 视图 · 视图代理尺寸」）等比缩、有损压缩；看了第一帧，其余的在后台补齐")
+def video_frame(fp: str, request: Request, frame: int, g: str = "", px: int | None = None) -> FileResponse:
     """视频帧的代理（`lab2shot/view/proxy.py`）。视频像素位于容器中，先解码为显示用 PNG
     （`view/frames.py video_frames`，与「按通道取」读取的是同一张），再按 `px` 档位缩放并压缩。只有代理这一档，
     没有原图 / 打包 / 预览等其他获取方式。"""
@@ -37,7 +38,7 @@ def video_frame(fp: str, frame: int, g: str = "", px: int | None = None) -> File
         raise Invalid(Msg("E-VIEW-NOTVIDEO"))
     if frame not in p.meta["frames"]:
         raise NotFound(Msg("E-VIEW-NOFRAME", frame=frame))
-    kept = wire.versioned(p, g)
+    kept = wire.versioned(p, g) and px is not None  # without `px=` it is answered at the current tier: not kept
     px = proxy.tier_of(px)
     try:
         path = proxy.video_picture_file(p, frame, px)
@@ -89,27 +90,38 @@ def display_lut(space: str = "", file: str = "") -> dict:
     return lut_for(space or load_config().colorspace_for_file(PurePosixPath(file.replace("\\", "/")).name or "plate.exr"))
 
 
-@router.get("/{fp}/points", access=Access.user("看结果：深度图显示成的点云"), summary="深度图（配上相机）或位置图显示成的点云：描述和每一部分数据的地址")
+@router.get("/{fp}/points", access=Access.user("看结果：深度图显示成的点云", owned=owners.packets, lane=WAITS), summary="深度图（配上相机）或位置图显示成的点云：描述和每一部分数据的地址")
 def points(fp: str, request: Request, camera: str | None = None) -> Response:
     from .view_data import respond_description
     from .view_worker import describe
 
     p = _packet(fp)
-    query = ([f"camera={camera}"] if camera else []) + [f"g={p.created or ''}"]  # 每一块的地址带有代次（wire.versioned）
+    # 每一块的地址带有代次（wire.versioned）：深度 / 位置图的 g，和放置它的相机的 cg——块的字节同样取决于相机，
+    # 相机按同一指纹重算（地址里的 camera= 不变）后，旧地址答 E-VIEW-STALE，浏览器与本机硬盘里的旧块不会被当成新的用
+    query = ([f"camera={camera}", f"cg={_packet(camera).created or ''}"] if camera else []) + [f"g={p.created or ''}"]
     url = f"/api/view/{fp}/points/{{part}}?" + "&".join(query)
     return respond_description(describe(("points", fp, camera), url), request.headers.get("accept-encoding", ""))
 
 
-@router.get("/{fp}/points/{part}", access=Access.user("看结果：点云的数据（一段）"), summary="点云预览的一部分数据（二进制，gzip）：每帧每个有值的像素一个点；超过「点云上限」就每 N 个点取一个，坐标一个位不变，视图里写着显示了多少")
-def points_part(fp: str, part: str, request: Request, camera: str | None = None, g: str = "") -> Response:
+@router.get("/{fp}/points/{part}", access=Access.user("看结果：点云的数据（一段）", owned=owners.packets, lane=WAITS), summary="点云预览的一部分数据（二进制，gzip）：每帧每个有值的像素一个点；超过「点云上限」就每 N 个点取一个，坐标一个位不变，视图里写着显示了多少")
+def points_part(fp: str, part: str, request: Request, camera: str | None = None, g: str = "", cg: str = "") -> Response:
     """每个有值的像素，在查看器请求时按帧块分批读取（server/view_data.py）。
 
     抽稀是唯一的大小控制手段：超过「点云上限」（设置 view.points_max_mb）时每 N 个点保留一个。
     只对显示用副本抽稀，查看器始终显示所显示点数占总点数的比例；不存在低质量的预览档位。"""
-    from .view_data import respond
+    from .view_data import respond, stored_chunk
     from .view_worker import part as view_part
 
-    kept = wire.versioned(_packet(fp), g)
-    return respond(view_part(("points", fp, camera), part), request.headers.get("accept-encoding", ""), kept=kept)
+    p = _packet(fp)
+    cam = _packet(camera) if camera else None
+    # 两个包的代次都对上才是「一个地址一份字节」（地址见 points：g、cg）；带相机却没带 cg 的旧地址照答，但不让浏览器长留
+    kept = wire.versioned(p, g) and (wire.versioned(cam, cg) if cam is not None else True)
+    # 已预先生成并存盘的块（view_data.store_chunk）直接发文件，不经过视图 worker 的通道；存盘文件名带深度图和相机两者的代次
+    stored = None
+    if kept:
+        seen_from = cam.created if cam is not None else 0
+        stored = stored_chunk(("points", fp, camera), (p.created, seen_from), part, request.query_params)
+    data = stored.read_bytes() if stored is not None else view_part(("points", fp, camera), part)
+    return respond(data, request.headers.get("accept-encoding", ""), kept=kept)
 
 

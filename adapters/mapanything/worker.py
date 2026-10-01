@@ -63,10 +63,6 @@ from lab2shot_worker.frame_io import Writer
 from lab2shot_worker.run import Run
 
 NODE = "mapanything.reconstruct"
-WEIGHTS = {  # params["model"] -> folder in weights/, licence
-    "apache": ("facebook/map-anything-apache", "Apache-2.0"),
-    "main": ("facebook/map-anything", "CC-BY-NC-4.0（非商用）"),
-}
 # Views per forward pass, as image tokens (14x14 px patches of the model input: 777 per
 # frame at 518x294 / 294x518, 1036 at 518x392, 1369 at 518x518). Every view of a chunk
 # attends to every other view. Measured on the RTX 4090 (24 GB), memory-efficient mode,
@@ -328,9 +324,7 @@ def main(job_path: str) -> None:
     run = Run.start(job_path, NODE, "MapAnything")
     job = run.job
     p = job.params  # max_frames None: what fits 24 GB for this frame shape (plan_max_frames)
-    repo_id, licence = WEIGHTS[p["model"]]
-    if p["model"] == "main":
-        say("N-MAPANYTHING-NONCOMMERCIAL")
+    repo_id, licence = p["weights_repo"], p["weights_license"]  # from the node (extension.py MODELS, the one table)
 
     frames = run.frames(step=p["step"])  # every step-th frame and always the last: nothing to extrapolate
     keyframes, width, height = frames.pairs, frames.width, frames.height

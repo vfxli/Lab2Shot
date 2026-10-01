@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from "react";
-import { api, type CurvesData } from "../api";
+import { useRef } from "react";
+import type { CurvesData } from "../api";
+import { describedFailure, useDescribed } from "../transfer/described";
 import { CurvesView } from "./CurvesView";
 import { TIMELINE_STRIP, usePreferences } from "../state/preferences";
 import { Toggle } from "../ui/Button";
 import type { ViewItem } from "../view/plan";
 import { followDrag } from "../platform/drag";
 
-/** 视图下方的曲线编辑器（editor/Viewer.tsx 的组成部分）：控制栏上的「曲线」开关、停靠在舞台下方的区域
- * （高度由使用者拖动决定，舞台让出该区域，不覆盖舞台），以及读取并绘制曲线结果。 */
+/** The curve editor under the view (part of editor/Viewer.tsx) and the one owner of it: the 「曲线」 toggle on the
+ * control bar, the area docked under the stage (as tall as the user drags it; the stage gives up that room and nothing
+ * covers the stage), and reading and drawing a curves result. */
 
 /** 曲线: the curve editor under the stage shown or not (this browser remembers). */
 export function CurveToggle() {
@@ -45,18 +47,9 @@ export function CurveStrip({ item }: { item: ViewItem }) {
 
 /** A curves result read and shown in the curve editor. */
 export function Curves({ item }: { item: ViewItem }) {
-  const [data, setData] = useState<{ fp: string; value: CurvesData } | { fp: string; error: string } | null>(null);
-  useEffect(() => {
-    let alive = true;
-    api.curves(item.fp!).then(
-      (value) => alive && setData({ fp: item.fp!, value }),
-      (e) => alive && setData({ fp: item.fp!, error: e instanceof Error ? e.message : String(e) }),
-    );
-    return () => {
-      alive = false;
-    };
-  }, [item.fp]);
-  if (data?.fp !== item.fp) return <div className="empty">读取曲线…</div>;
-  if ("error" in data) return <div className="empty">曲线读不出来：{data.error}</div>;
-  return <CurvesView data={data.value} title={item.label} />;
+  const data = useDescribed<CurvesData>("curves", [item.fp!])[0];
+  const error = data ? null : describedFailure("curves", item.fp!);
+  if (error) return <div className="empty">曲线读不出来：{error}</div>;
+  if (!data) return <div className="empty">读取曲线…</div>;
+  return <CurvesView data={data} title={item.label} />;
 }

@@ -229,7 +229,7 @@ REGISTRATION_SQL = """
         at REAL NOT NULL,
         invite_id INTEGER REFERENCES invites (id) ON DELETE SET NULL,  -- NULL: without a code, or the code since deleted
         invite_hint TEXT NOT NULL,        -- the code's hint then ('' without one): still shown once the code is deleted
-        ip TEXT NOT NULL,                 -- the client's address (server/auth.py client_ip)
+        ip TEXT NOT NULL,                 -- the client's address (server/auth.py who)
         net TEXT NOT NULL                 -- its /24 (IPv4) or /64 (IPv6), for the per-network limit
     );
     CREATE INDEX registrations_at ON registrations (at);
@@ -274,12 +274,87 @@ TEMPLATES_SQL = """
     ALTER TABLE jobs ADD COLUMN template_name TEXT;
 """
 
+# 「按模板」统计去掉了（节点图不记来自哪张模板，按模板数任务没有意义）：上面那一步加的两列删掉。
+# 迁移只往后加，不改已发布的那一步（数据库按版本号一步一步升）。
+NO_TEMPLATES_SQL = """
+    ALTER TABLE jobs DROP COLUMN template;
+    ALTER TABLE jobs DROP COLUMN template_name;
+"""
+
+# 节点用时（farm/timings.py）：每种节点只留最新的 KEPT_PER_NODE（200）条（写入时删掉更旧的），估计时只按用到的
+# 节点类型查：加 (node, id) 索引，并把已有的表剪到同样的条数。
+TIMINGS_SQL = """
+    CREATE INDEX timings_node ON timings (node, id);
+    DELETE FROM timings WHERE id IN (
+        SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY node ORDER BY id DESC) AS k FROM timings) WHERE k > 200);
+"""
+
+# 记录里「谁做的」除了名字再记账号 id（accounts.py Actor）：永久删除账号时按 id 找到他做的那几行，只改那几行的名字
+# （PURGE named），不再按文字去猜——两个人同名、名字是别的字的一部分时，别人的行不会被改。许可同意（consents）也记
+# 账号 id，已有的行从记录里的 who.user 补上。
+ACTORS_SQL = """
+    ALTER TABLE invites ADD COLUMN created_by_id INTEGER;
+    ALTER TABLE terms_versions ADD COLUMN by_id INTEGER;
+    ALTER TABLE role_rights ADD COLUMN updated_by_id INTEGER;
+    ALTER TABLE feedback ADD COLUMN updated_by_id INTEGER;
+    ALTER TABLE feedback ADD COLUMN replied_by_id INTEGER;
+    ALTER TABLE consents ADD COLUMN user_id INTEGER;
+    UPDATE consents SET user_id = json_extract(record, '$.who.user') WHERE json_valid(record);
+"""
+
+# 上一步只加了列：升级上来的旧行 *_by_id 都是空的，永久删除按 id 找不到它们。这里按行里写的名字补上 id，只认能确定
+# 是哪一个账号的写法：「名（用户名）」整串、用户名整串，或者全库只有一个账号叫这个中文名；认不出的保持空（宁可留名，
+# 不误改别人）。管理操作记录加上重复次数和最后一次的时间：同一个人在同一处被同样拒绝，记在一行上（access.py audit）。
+ACTOR_IDS_SQL = """
+    UPDATE invites SET created_by_id = (SELECT id FROM (
+        SELECT id, 1 AS k FROM users WHERE name || '（' || username || '）' = invites.created_by
+        UNION ALL SELECT id, 2 FROM users WHERE username = invites.created_by
+        UNION ALL SELECT MIN(id), 3 FROM users WHERE name = invites.created_by HAVING COUNT(*) = 1) ORDER BY k LIMIT 1) WHERE created_by_id IS NULL;
+    UPDATE role_rights SET updated_by_id = (SELECT id FROM (
+        SELECT id, 1 AS k FROM users WHERE name || '（' || username || '）' = role_rights.updated_by
+        UNION ALL SELECT id, 2 FROM users WHERE username = role_rights.updated_by
+        UNION ALL SELECT MIN(id), 3 FROM users WHERE name = role_rights.updated_by HAVING COUNT(*) = 1) ORDER BY k LIMIT 1) WHERE updated_by_id IS NULL;
+    UPDATE terms_versions SET by_id = (SELECT id FROM (
+        SELECT id, 1 AS k FROM users WHERE name || '（' || username || '）' = terms_versions.by
+        UNION ALL SELECT id, 2 FROM users WHERE username = terms_versions.by
+        UNION ALL SELECT MIN(id), 3 FROM users WHERE name = terms_versions.by HAVING COUNT(*) = 1) ORDER BY k LIMIT 1) WHERE by_id IS NULL;
+    UPDATE feedback SET updated_by_id = (SELECT id FROM (
+        SELECT id, 1 AS k FROM users WHERE name || '（' || username || '）' = feedback.updated_by
+        UNION ALL SELECT id, 2 FROM users WHERE username = feedback.updated_by
+        UNION ALL SELECT MIN(id), 3 FROM users WHERE name = feedback.updated_by HAVING COUNT(*) = 1) ORDER BY k LIMIT 1) WHERE updated_by_id IS NULL;
+    UPDATE feedback SET replied_by_id = (SELECT id FROM (
+        SELECT id, 1 AS k FROM users WHERE name || '（' || username || '）' = feedback.replied_by
+        UNION ALL SELECT id, 2 FROM users WHERE username = feedback.replied_by
+        UNION ALL SELECT MIN(id), 3 FROM users WHERE name = feedback.replied_by HAVING COUNT(*) = 1) ORDER BY k LIMIT 1) WHERE replied_by_id IS NULL;
+    UPDATE meta SET value = json_set(value, '$.by_id', (SELECT id FROM (
+        SELECT id, 1 AS k FROM users WHERE name || '（' || username || '）' = json_extract(meta.value, '$.by')
+        UNION ALL SELECT id, 2 FROM users WHERE username = json_extract(meta.value, '$.by')
+        UNION ALL SELECT MIN(id), 3 FROM users WHERE name = json_extract(meta.value, '$.by') HAVING COUNT(*) = 1) ORDER BY k LIMIT 1))
+        WHERE key = 'server.notice' AND json_valid(value) AND json_extract(value, '$.by_id') IS NULL;
+    ALTER TABLE admin_actions ADD COLUMN repeats INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE admin_actions ADD COLUMN last REAL;
+"""
+
+# 管理操作记录记下「对谁做的」账号 id（access.audit about）：永久删除按 id 找到关于这个人的行，不再按参数里各条消息
+# 叫法不同的键（username、owner……）去猜。已有的行按参数里写的用户名补上（用户名整串）。
+TARGETS_SQL = """
+    ALTER TABLE admin_actions ADD COLUMN target_id INTEGER;
+    UPDATE admin_actions SET target_id = (SELECT id FROM users WHERE username = json_extract(admin_actions.params, '$.username')
+                                              OR username = json_extract(admin_actions.params, '$.owner'))
+        WHERE json_valid(params);
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
     ("基线：账号与登录、任务（每个任务一个文件夹）与任务分组、任务↔缓存、任务↔素材、用时与使用统计、许可协议记录、用户反馈", BASELINE_SQL),
     ("自行注册：邀请码，和每个自己注册的账号的来路", REGISTRATION_SQL),
     ("用户协议与隐私政策：每一版的原文，和每个账号同意了哪一版", TERMS_SQL),
     ("概览统计用的索引：任务按提交时间、流量按日期、反馈按状态", RECENT_SQL),
     ("按模板统计：任务记下是从哪张模板提交的", TEMPLATES_SQL),
+    ("去掉按模板统计：任务不再记模板", NO_TEMPLATES_SQL),
+    ("节点用时：按节点类型查的索引，每种节点只留最新的 200 条", TIMINGS_SQL),
+    ("记录里谁做的也记账号 id；许可同意记账号 id", ACTORS_SQL),
+    ("旧行按名字补上账号 id；管理操作记录记重复次数", ACTOR_IDS_SQL),
+    ("管理操作记录记下对谁做的账号 id", TARGETS_SQL),
 ]
 
 FIRST = 1  # the version the baseline makes

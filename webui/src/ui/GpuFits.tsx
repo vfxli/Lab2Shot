@@ -3,7 +3,8 @@ import { useState } from "react";
 import type { GpuFitItem, GpuFitState } from "../api";
 import { Chip } from "./Button";
 
-// 能不能跑只看扩展包声明的显卡架构和装机时的扫描；没有实际试跑这一档
+// whether an extension fits is judged only from the GPU architectures its package declares and the scan made at
+// install time; there is no "actually tried it" grade
 const FIT_GROUPS: { state: GpuFitState; label: string; tip: string }[] = [
   { state: "assumed", label: "能跑", tip: "扩展包声明支持这一代显卡，环境里编译的显卡程序也对得上：这张卡接它的任务" },
   { state: "refused", label: "不能跑", tip: "扩展包没声明这一代显卡，或环境里没有这一代显卡的程序：这张卡不接它的任务" },

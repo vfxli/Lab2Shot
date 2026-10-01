@@ -4,7 +4,7 @@ contours (SAM-H) to find the plane again after an occlusion or a failure."""
 
 from __future__ import annotations
 
-from lab2shot.sdk import NONCOMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight, hf_file
+from lab2shot.sdk import NONCOMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight, hf_file, downloads
 
 WOFTSAM_URL = "https://github.com/serycjon/WOFTSAM.git"
 WOFTSAM_COMMIT = "5131bdc27d4de1be03d9a40ac8a99eef73dfab0c"  # 2026-08-25 (MPOT-3K evaluation, ECCV 2026)
@@ -17,8 +17,7 @@ SAM2 = GitSource(url="https://github.com/serycjon/sam2.git", commit="903a6cdb054
 # SAM-H tells the plane's four corners apart after it was lost with DINOv2 ViT-S/14 (registers) features, loaded by
 # torch.hub.load("facebookresearch/dinov2", ...): the code from this pinned archive (the one MapAnything pins: stored
 # once), the weights as the hub caches them (TORCH_HOME/hub/checkpoints).
-DINOV2_COMMIT = "7764ea0f912e53c92e82eb78a2a1631e92725fc8"
-DINOV2_ZIP_SHA256 = "04276715cddb29d45d05bff3a6fc132224dc27749b279ac98ad2ce4620e20d48"
+DINOV2_COMMIT = downloads.DINOV2_COMMIT
 DINOV2_WEIGHTS = "dinov2_vits14_reg4_pretrain.pth"
 DINOV2_WEIGHTS_SHA256 = "f433177089a681826f849f194ece3bb48f4d63fb38d32fc837e3dc7a4e5641fb"  # 88 MB
 
@@ -56,8 +55,7 @@ class WOFTSAM(Extension):
     weights = (
         hf_file(SAM2_REPO, SAM2_REVISION, "sam2.1_hiera_tiny.pt", key="sam2.1_hiera_tiny", sha256=SAM2_SHA256,
                 note="SAM 2.1 Hiera tiny（Apache-2.0，156 MB）：跟着平面的遮罩，丢了以后重新找回"),
-        Weight(key="dinov2-code", kind="zip", source=f"https://github.com/facebookresearch/dinov2/archive/{DINOV2_COMMIT}.zip",
-               dest="dinov2", sha256=DINOV2_ZIP_SHA256, note="DINOv2 网络结构代码（Apache-2.0）"),
+        downloads.DINOV2_CODE.weight(key="dinov2-code", dest="dinov2", note="DINOv2 网络结构代码（Apache-2.0）"),
         Weight(key="dinov2_vits14_reg", kind="url",
                source=f"https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/{DINOV2_WEIGHTS}",
                dest=f"torch/hub/checkpoints/{DINOV2_WEIGHTS}", sha256=DINOV2_WEIGHTS_SHA256,

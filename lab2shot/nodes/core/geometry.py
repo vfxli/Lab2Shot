@@ -6,7 +6,10 @@ from __future__ import annotations
 from typing import Literal
 
 import numpy as np
+from lab2shot_shared.motion import orthonormal
 
+from ..kit.ports import values_port
+from ..kit.ports import normal_port
 from ...errors import Invalid
 from ...messages import Msg
 from ..base import NodeDef, NodeParams, P, Port
@@ -51,13 +54,6 @@ def _view(camera, frames: list[int], width: int, world: bool) -> tuple[np.ndarra
     return samples.focal_px(width), mats, samples.principal_px(width)
 
 
-def _rotations(mats: np.ndarray) -> np.ndarray:
-    """相机到世界矩阵的旋转部分 [F,3,3]，已归一化。"""
-    from ...data.units import rotations
-
-    return rotations(mats)
-
-
 def normals_from_positions(p: np.ndarray, valid: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """相机空间位置图的相机空间法线 [H,W,3]（朝向相机）及其有效位置。每条轴上，像素从左右（上下）两个邻居中
     取深度更接近的那个，即同一表面上的邻居，使法线不会在物体边缘处倾斜。"""
@@ -92,7 +88,7 @@ class WorldPosition(NodeDef):
     keeps_overscan = False  # 通过相机在画面框内计算：框外像素在三维中没有对应位置
     category = "geometry_tools"
     inputs = (_depth_port(), _camera_port("depth"))
-    outputs = (Port("position", "image.3", "位置图", means=("space",)),)
+    outputs = (Port("position", "image.3", "位置图", means=("space",), data=True),)
 
     class Params(NodeParams):
         space: Literal["world", "camera"] = P("world", label="坐标系", group="位置",
@@ -287,7 +283,7 @@ class DepthToPoints(NodeDef):
     inputs = (
         _depth_port(),
         _camera_port("depth"),
-        Port("image", "image.3", "颜色", optional=True, expects=(SameShot("depth"),),
+        Port("image", "image.3", "颜色", optional=True, data=False, expects=(SameShot("depth"),),
              help="点云的颜色取自这张画面。不接就按远近着色：近的亮、远的暗"),
         Port("mask", "image.1", "排除", optional=True, expects=(SameShot("depth"),)),
         Port("confidence", "image.1", "置信度", optional=True, expects=(SameShot("depth"),),
@@ -317,7 +313,7 @@ class DepthNormal(NodeDef):
     keeps_overscan = False  # 通过相机在画面框内计算：框外像素在三维中没有对应位置
     category = "geometry_tools"
     inputs = (_depth_port(scale_matters=False), _camera_port("depth"))
-    outputs = (Port("normal", "image.3", "法线图", means=("space",)),)
+    outputs = (normal_port(),)
 
     class Params(NodeParams):
         space: Literal["camera", "world"] = P("camera", label="坐标系", group="法线",
@@ -332,7 +328,7 @@ class DepthNormal(NodeDef):
         frames, w, h = depth.meta["frames"], depth.meta["width"], depth.meta["height"]
         world = ctx.params["space"] == "world"
         focal, mats, pp = _view(camera, frames, w, world)
-        rotations = _rotations(mats)
+        rotations = orthonormal(np.asarray(mats, np.float64)[:, :3, :3])
         rows, cols = (a.ravel() for a in np.indices((h, w)))
         out = ExrWriter(ctx.outputs["normal"], 3, validity=True, value_range=SIGNED, half=True, space=ctx.params["space"])
         files = image_files(depth)
@@ -354,8 +350,9 @@ class NormalSpace(NodeDef):
     on_node = ("space",)
     keeps_overscan = False  # 通过相机在画面框内计算：框外像素在三维中没有对应位置
     category = "geometry_tools"
-    inputs = (Port("normal", "image.3", "法线图", means=("space",), expects=(NotAlready("space", NORMAL_SPACES),)), _camera_port("normal"))
-    outputs = (Port("normal", "image.3", "法线图", means=("space",)),)
+    inputs = (values_port("normal", "image.3", "法线图", means=("space",), expects=(NotAlready("space", NORMAL_SPACES),)),
+              _camera_port("normal"))
+    outputs = (normal_port(),)
 
     class Params(NodeParams):
         space: Literal["world", "camera"] = P("world", label="转到", group="法线",
@@ -368,7 +365,7 @@ class NormalSpace(NodeDef):
         normal, camera = ctx.input("normal"), ctx.input("camera")
         frames, w, target = normal.meta["frames"], normal.meta["width"], ctx.params["space"]
         source = meant(ctx, normal, "space", "法线图")
-        rotations = _rotations(_view(camera, frames, w, True)[1])
+        rotations = orthonormal(np.asarray(_view(camera, frames, w, True)[1], np.float64)[:, :3, :3])
         out = ExrWriter(ctx.outputs["normal"], 3, validity=True, value_range=SIGNED, half=True, space=target)
         files = image_files(normal)
         ctx.stage("转换法线")
@@ -408,7 +405,7 @@ class TracksToPoints(NodeDef):
         Port("tracks", "tracks2d", "2D 跟踪点"),
         _depth_port(),
         _camera_port("tracks"),
-        Port("image", "image.3", "颜色", optional=True, expects=(SameShot("tracks"),)),
+        Port("image", "image.3", "颜色", optional=True, data=False, expects=(SameShot("tracks"),)),
     )
     # 端口名为 `tracks3d` 而非 `points`：`points` 在全项目中指「点云」，此处输出的是带编号、整段跟随同一点的
     # 「3D 跟踪点」，与 families/tracks3d.py 中的端口同名。

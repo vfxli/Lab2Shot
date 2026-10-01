@@ -113,7 +113,7 @@
   font-size: var(--fs-sm);
 }
 
-/* the field's own width here (the subject is the input, never the kit's .field: ui/field.css owns how it looks) */
+/* 这里只定输入框自身的宽度（选择器针对 input 本身，不碰零件的 .field：它的外观归 ui/field.css） */
 .usr-quota-field input {
   width: 88px;
 }

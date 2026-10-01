@@ -12,39 +12,70 @@ or a gizmo reuses a kind, and a new kind is written once for every node.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import NamedTuple
+
+import numpy as np
 
 from ..availability import Cond
-from ..errors import Invalid
-from ..messages import Msg
 
-if TYPE_CHECKING:
-    import numpy as np
 
-# kind -> (stage, the roles it must bind to parameters, roles it may bind, what the bound parameters hold)
-HANDLE_KINDS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...], str]] = {
+@dataclass(frozen=True)
+class Kind:
+    """Everything a kind of handle asks of its declaration, in one place (Handle.check reads only this): its stage, the
+    roles it must bind to parameters and those it may, what each role's parameter is (its widget, or "float"), whether
+    it works on an input of the node (`source`), and the class it is declared with when it has one of its own (Places,
+    Poses: Handle itself refuses the kind, so the class's own rules cannot be stepped round)."""
+
+    stage: str
+    must: tuple[str, ...]
+    may: tuple[str, ...]
+    holds: str  # what the bound parameters hold
+    widgets: dict[str, str]  # role -> the widget of its parameter ("float": a plain number parameter)
+    # how many numbers an entry "frame:n1,n2,…" of a bound parameter holds (entries): the counts it may have, or with
+    # `pairs` any even count of at least that many; () for a kind whose parameters are no such entries
+    counts: tuple[int, ...] = ()
+    pairs: int = 0
+    # the place in an entry's numbers of a label (an index into the handle's labels, the first without labels), -1 none
+    label_at: int = -1
+    source: bool = False  # the handle works on one of the node's inputs, which it must name
+    declared_by: str = ""  # the Handle subclass of this module the kind is declared with ("" Handle itself)
+    # the stage needs data the node reads from its inputs (NodeDef.handle_data, carried in the status reply for the
+    # node the page names): the kind says so, not the class a declaration happens to use
+    wants_data: bool = False
+
+
+HANDLE_KINDS: dict[str, Kind] = {
     # clicks on the picture: points to track, or prompts ("this", "not this") for a method that segments by clicks
-    "points": ("2d", ("points",), (), "frame:x,y or frame:x,y,label (image pixels, top-left 0,0)"),
+    "points": Kind("2d", ("points",), (), "frame:x,y or frame:x,y,label (image pixels, top-left 0,0; label an integer index into the handle's labels)", {"points": "picks"}, counts=(2, 3), label_at=2),
     # boxes dragged on the picture (a subject to segment, a region to exclude)
-    "box": ("2d", ("boxes",), (), "frame:x1,y1,x2,y2 (image pixels)"),
+    "box": Kind("2d", ("boxes",), (), "frame:x1,y1,x2,y2 (image pixels)", {"boxes": "picks"}, counts=(4,)),
     # a plane's four corners on one frame (a screen, a sign, a wall to track): dragged out as a box, each corner then
     # moved onto the plane's; one quad, a new one replaces it
-    "corners": ("2d", ("corners",), (), "frame:x1,y1,x2,y2,x3,y3,x4,y4 (image pixels, corners in order around the quad)"),
+    "corners": Kind("2d", ("corners",), (), "frame:x1,y1,x2,y2,x3,y3,x4,y4 (image pixels, corners in order around the quad)",
+                    {"corners": "picks"}, counts=(8,)),
     # a click inside one of the people boxes of the node's input picks that person
-    "person": ("2d", ("picks",), (), "frame:x,y (image pixels)"),
+    "person": Kind("2d", ("picks",), (), "frame:x,y (image pixels)", {"picks": "picks"}, source=True, counts=(2,)),
     # outlines drawn on the picture by hand (a garbage matte, a rough matte to guide a matting model): each entry is
     # one closed outline, as many as the node needs. Same string grammar as "corners", only with as many points as
     # were drawn; the viewer draws, hit-tests and removes them with the same polygon code
-    "canvas": ("2d", ("shapes",), (), "frame:x1,y1,x2,y2,… (image pixels, a closed outline, three points or more)"),
+    "canvas": Kind("2d", ("shapes",), (), "frame:x1,y1,x2,y2,… (image pixels, a closed outline, three points or more)",
+                   {"shapes": "canvas"}, pairs=3),
     # a stick figure drawn on the picture: one body pose per entry, FIGURE_JOINTS in order. One figure per frame, and
     # the frame is what is added: the parameter panel's 「添加帧」 puts a standing figure (T-pose, real human
     # proportions) on the current frame, or copies the previous frame's pose onto it; the picture is only for dragging
     # the joints. Figures are deliberately not dragged out as a box: two on one frame would replace each other, and a
     # dragged box gives whatever body proportions the hand drew. The four joints a body has but nobody draws (spine2,
     # spine3 and the two shoulders) are not in it: they sit on the lines between the drawn ones
-    "figure": ("2d", ("figure",), (), "frame:x1,y1,…,x18,y18 (image pixels, FIGURE_JOINTS in order)"),
+    "figure": Kind("2d", ("figure",), (), "frame:x1,y1,…,x18,y18 (image pixels, FIGURE_JOINTS in order)", {"figure": "figure"},
+                   counts=(36,)),
     # a move / rotate (/ scale) gizmo in the scene
-    "transform": ("3d", ("translate", "rotate"), ("scale",), "vector parameters: cm, degrees XYZ, a factor"),
+    "transform": Kind("3d", ("translate", "rotate"), ("scale",), "vector parameters: cm, degrees XYZ, a factor",
+                      {"translate": "vec3", "rotate": "vec3", "scale": "float"}, declared_by="Places"),
+    # a skeleton in the scene, its pose corrected joint by joint when the handle edits a parameter: pick a joint, a
+    # move / rotate / scale gizmo on it, its children follow (FK), left and right can be mirrored; without one only
+    # shown. Declared as Poses (which input's skeleton); the status reply carries the skeleton (NodeDef.handle_data)
+    "skeleton_pose": Kind("3d", (), ("pose",), "rows {joint, translate cm, rotate ° XYZ, scale}: local @ T·R·S in the joint's own axes",
+                          {"pose": "skeleton_pose"}, source=True, declared_by="Poses", wants_data=True),
 }
 
 # The 18 joints drawn on the stick figure, as (SMPL joint name, UI label). The order is the order of the coordinate
@@ -82,11 +113,49 @@ class Handle:
     labels: tuple[str, ...] = ()  # "points": what a click means, the first by default, e.g. ("主体", "排除")
 
     def __post_init__(self) -> None:
-        if self.kind == "transform" and not isinstance(self, Places):
-            raise TypeError("a transform handle is the node's placement: declare it as Places(translate=, rotate=, scale=)")
+        kind = HANDLE_KINDS.get(self.kind)
+        if kind is not None and kind.declared_by and not isinstance(self, globals()[kind.declared_by]):
+            raise TypeError(f"a {self.kind!r} handle is declared as {kind.declared_by}(...), which holds its own rules")
+
+    @property
+    def wants_data(self) -> bool:
+        """Whether the stage needs data the node gives for this handle (Kind.wants_data)."""
+        kind = HANDLE_KINDS.get(self.kind)
+        return bool(kind and kind.wants_data)
+
+    def check(self, node) -> None:
+        """The declaration against its node type (NodeDef.__init_subclass__): a known kind, every role it must bind
+        bound and none it does not know, each bound parameter one of the node's, its input one of the node's, and a
+        node that says it gives the data the kind wants (NodeDef.handle_data). Raises TypeError naming what is wrong:
+        a misspelt name would otherwise leave a handle that silently edits nothing."""
+        from .base import NodeDef
+
+        where = f"{node.__name__}: handle {self.kind!r}"
+        if self.kind not in HANDLE_KINDS:
+            raise TypeError(f"{where} is no kind of handle ({', '.join(HANDLE_KINDS)})")
+        kind = HANDLE_KINDS[self.kind]
+        if missing := [r for r in kind.must if r not in self.params]:
+            raise TypeError(f"{where} does not bind the roles {missing}")
+        if unknown := [r for r in self.params if r not in kind.must + kind.may]:
+            raise TypeError(f"{where} binds roles it does not have: {unknown}")
+        fields = node.Params.model_fields
+        if absent := [p for p in self.params.values() if p not in fields]:
+            raise TypeError(f"{where} edits {absent}, which are not parameters of the node")
+        for role, param in self.params.items():
+            extra = fields[param].json_schema_extra if isinstance(fields[param].json_schema_extra, dict) else {}
+            want = kind.widgets.get(role)
+            got = "float" if fields[param].annotation in (float, float | None) and not extra.get("widget") else extra.get("widget")
+            if want and got != want:
+                raise TypeError(f"{where} binds {role!r} to {param!r}, a {got or 'plain'} parameter, not a {want} one")
+        if kind.source and not self.source:
+            raise TypeError(f"{where} works on one of the node's inputs: name it (source=)")
+        if self.source and self.source not in {p.name for p in node.inputs}:
+            raise TypeError(f"{where} works on input {self.source!r}, which is not one of its inputs")
+        if self.wants_data and node.handle_data.__func__ is NodeDef.handle_data.__func__:
+            raise TypeError(f"{where} needs the node to give its data (NodeDef.handle_data)")
 
     def describe(self) -> dict:
-        return {"kind": self.kind, "stage": HANDLE_KINDS[self.kind][0], "params": self.params, "source": self.source,
+        return {"kind": self.kind, "stage": HANDLE_KINDS[self.kind].stage, "params": self.params, "source": self.source,
                 "labels": list(self.labels)}
 
 
@@ -112,7 +181,7 @@ class Places(Handle):
 
     def matrix(self, params: dict) -> "np.ndarray":
         """4x4, column vectors: scale, then rotate (XYZ), then translate: the placement the cook applies."""
-        from ..data.scene import trs_matrix
+        from lab2shot_shared.poses import trs_matrix
 
         return trs_matrix(params[self.translate], params[self.rotate], params[self.scale] if self.scale else 1.0)
 
@@ -122,56 +191,123 @@ class Places(Handle):
                 "order": "scale-rotate-translate", "rotation": "XYZ", "units": {"translate": "cm", "rotate": "°"}}
 
 
+@dataclass(frozen=True, kw_only=True)
+class Poses(Handle):
+    """The skeleton pose handle: `source` is the input whose skeleton it shows, `skeleton` the parameter naming that
+    skeleton's prim (None: the first) and `pose` the parameter it edits (kit/rig_map.py pose_param, rows of JointPose),
+    or None for a skeleton only shown (a model node's person skeleton: the 「对应关系」 editor draws both sides the one
+    way, through this handle). What the stage draws (the joints, their hierarchy, the pose before and after the
+    correction, mirror pairs) the node gives from its inputs (NodeDef.handle_data), carried in the status reply for
+    the displayed node (server/packets.py status)."""
+
+    kind: str = field(default="skeleton_pose", init=False)
+    params: dict[str, str] = field(default_factory=dict, init=False)
+    pose: str | None
+    skeleton: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.source:
+            raise TypeError("a skeleton pose handle names the input whose skeleton it shows (source=)")
+        object.__setattr__(self, "params", {"pose": self.pose} if self.pose else {})
+
+    def check(self, node) -> None:
+        super().check(node)
+        fields = node.Params.model_fields
+        if self.skeleton and self.skeleton not in fields:
+            raise TypeError(f"{node.__name__}: skeleton pose handle reads skeleton {self.skeleton!r}, not a parameter of the node")
+
+    def describe(self) -> dict:
+        return {**super().describe(), "skeleton": self.skeleton, "readonly": not self.pose}
+
+
 # ---------------------------------------------------------------- what a handle saved, parsed
 
 
-def parse_picks(picks: list[str]) -> list[tuple[int, float, float]]:
-    """Viewer clicks saved by a "picks" parameter: "frame:x,y" (image pixels, top-left corner = 0,0)."""
-    out = []
-    for pick in picks:
-        frame, xy = pick.split(":")
-        x, y = (float(v) for v in xy.split(","))
-        out.append((int(frame), x, y))
-    return out
+def _bound(node_type, param: str) -> Handle:
+    handle = next((h for h in getattr(node_type, "handles", ()) if param in h.params.values()), None)
+    if handle is None:
+        raise TypeError(f"{getattr(node_type, '__name__', node_type)} has no handle bound to {param!r}")
+    return handle
 
 
-def parse_corners(entries: list[str]) -> tuple[int, list[tuple[float, float]]] | None:
+def kind_of(node_type, param: str) -> str:
+    """The kind of the handle bound to `param` on `node_type` (its handles): the one thing that says how the entries
+    saved in that parameter read."""
+    return _bound(node_type, param).kind
+
+
+def entries(node_type, param: str, saved: list[str]) -> tuple[list[tuple[int, list[float]]], list[str]]:
+    """The one reading of a handle's saved entries "frame:n1,n2,…" (every 2D kind), by the handle bound to `param`
+    (kind_of): (the entries that read, as (frame, numbers), in their order; those that do not, as saved). An entry
+    reads when its frame is a whole number, its numbers are numbers and their count is one that kind declares
+    (Kind.counts / Kind.pairs), and a label (Kind.label_at) is a whole number that indexes the handle's labels. An
+    entry that does not read is left out, and a cook says so with say_bad_entries — a parameter edited or pasted by
+    hand never fails a cook with a ValueError, whichever kind of handle wrote it."""
+    handle = _bound(node_type, param)
+    k = HANDLE_KINDS[handle.kind]
+    good, bad = [], []
+    for entry in saved or []:
+        try:
+            frame, rest = str(entry).split(":")
+            values = [float(v) for v in rest.split(",")]
+            n = len(values)
+            if not (n in k.counts or (k.pairs and n % 2 == 0 and n >= 2 * k.pairs)) or not all(map(np.isfinite, values)):
+                raise ValueError(entry)
+            if 0 <= k.label_at < n and not (values[k.label_at].is_integer()
+                                            and 0 <= values[k.label_at] < max(1, len(handle.labels))):
+                raise ValueError(entry)
+            good.append((int(frame), values))
+        except ValueError:
+            bad.append(str(entry))
+    return good, bad
+
+
+def say_bad_entries(ctx, param: str) -> None:
+    """W-HANDLE-BADPICK for the entries of `param` (as the node's handle bound to it reads them) that `entries`
+    leaves out."""
+    saved = ctx.params[param]
+    bad = entries(ctx.node_type, param, saved)[1]
+    if bad:
+        ctx.say("W-HANDLE-BADPICK", param=param, count=len(bad), grammar=HANDLE_KINDS[kind_of(ctx.node_type, param)].holds,
+                entries="、".join(bad[:4]) + (" 等" if len(bad) > 4 else ""))
+
+
+class Pick(NamedTuple):
+    """One viewer click of a "points" / "person" handle."""
+
+    frame: int
+    x: float  # image pixels, top-left corner = 0,0
+    y: float
+    label: int = 0  # which of the handle's labels the click is ("主体" / "排除"), 0 without labels
+
+
+def parse_picks(node_type, param: str, picks: list[str]) -> list[Pick]:
+    """Viewer clicks saved in `param` by a "points" or "person" handle, by that handle's grammar (entries): "frame:x,y",
+    and for points "frame:x,y,label" too (a label one of the handle's)."""
+    return [Pick(f, v[0], v[1], int(v[2]) if len(v) == 3 else 0) for f, v in entries(node_type, param, picks)[0]]
+
+
+def parse_corners(node_type, param: str, saved: list[str]) -> tuple[int, list[tuple[float, float]]] | None:
     """A plane's corners saved by a "corners" handle: "frame:x1,y1,...,x4,y4" -> (frame, four (x, y) in order around
-    the quad, image pixels from the top-left corner); None when there is none. The first entry counts (a quad drawn
-    again replaces it)."""
-    if not entries:
+    the quad, image pixels from the top-left corner); None when there is none that reads (entries). The first entry
+    that reads counts (a quad drawn again replaces it)."""
+    got = entries(node_type, param, saved)[0]
+    if not got:
         return None
-    frame, xy = entries[0].split(":")
-    v = [float(a) for a in xy.split(",")]
-    if len(v) != 8:
-        raise Invalid(Msg("E-TRACKS-CORNERS", count=len(v), entry=entries[0]))
-    return int(frame), [(v[2 * k], v[2 * k + 1]) for k in range(4)]
+    frame, v = got[0]
+    return frame, [(v[2 * k], v[2 * k + 1]) for k in range(4)]
 
 
-def parse_shapes(entries: list[str]) -> list[list[tuple[float, float]]]:
+def parse_shapes(node_type, param: str, saved: list[str]) -> list[list[tuple[float, float]]]:
     """Outlines drawn by a "canvas" handle: "frame:x1,y1,x2,y2,…" -> each shape's points (image pixels from the
-    top-left corner, a closed outline). The frame says which frame it was drawn on; what a shape counts for is the
-    node's own rule (「手画遮罩」: the whole shot). Shapes of fewer than three points cover no pixel and are left out."""
-    out = []
-    for entry in entries:
-        _, xy = entry.split(":")
-        v = [float(a) for a in xy.split(",")]
-        if len(v) % 2:
-            raise Invalid(Msg("E-ROTO-SHAPE", count=len(v), entry=entry))
-        if len(v) >= 6:
-            out.append([(v[2 * k], v[2 * k + 1]) for k in range(len(v) // 2)])
-    return out
+    top-left corner, a closed outline; three points or more, entries). The frame says which frame it was drawn on; what
+    a shape counts for is the node's own rule (「手画遮罩」: the whole shot)."""
+    return [[(v[2 * k], v[2 * k + 1]) for k in range(len(v) // 2)] for _, v in entries(node_type, param, saved)[0]]
 
 
-def parse_figures(entries: list[str]) -> list[tuple[int, list[tuple[float, float]]]]:
+def parse_figures(node_type, param: str, saved: list[str]) -> list[tuple[int, list[tuple[float, float]]]]:
     """Stick figures drawn by a "figure" handle: "frame:x1,y1,…" -> (frame, the joints in FIGURE_JOINTS order,
-    image pixels from the top-left corner), in frame order. A figure holds every joint of the table, so an entry
-    with another number of points is refused rather than quietly padded."""
-    out = []
-    for entry in entries:
-        frame, xy = entry.split(":")
-        v = [float(a) for a in xy.split(",")]
-        if len(v) != 2 * len(FIGURE_JOINTS):
-            raise Invalid(Msg("E-FIGURE-JOINTS", count=len(v) // 2, want=len(FIGURE_JOINTS), entry=entry))
-        out.append((int(frame), [(v[2 * k], v[2 * k + 1]) for k in range(len(FIGURE_JOINTS))]))
-    return sorted(out, key=lambda row: row[0])
+    image pixels from the top-left corner), in frame order; a figure holds every joint of the table (entries)."""
+    got = [(f, [(v[2 * k], v[2 * k + 1]) for k in range(len(FIGURE_JOINTS))])
+           for f, v in entries(node_type, param, saved)[0]]
+    return sorted(got, key=lambda row: row[0])

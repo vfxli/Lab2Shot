@@ -1,9 +1,14 @@
 import { useRef, useState } from "react";
 import { HUD_SEG } from "../ui/Button";
 import { useDismiss } from "../platform/dismiss";
-import { useViewCamera, VIEW_NAMES, type ViewName } from "../state/viewer";
+import { slotCamera, useViewCamera, VIEW_NAMES, VIEWER_SLOT, type ViewName } from "../state/viewer";
+import { useHandleView, type Reference } from "../state/handleView";
+import { packetOf, useResults } from "../state/results";
+import { useCookInputs } from "../state/cookInputs";
+import { useTypes } from "../state/catalog";
+import { typeOf } from "../state/items";
 
-/** 视角：透视 / 顶 / 前 / 侧，或透过场景中的某台相机观看；以及框显全部 / 框显选中。
+/** 视图工具栏中视角与框显按钮的唯一所在。视角：透视 / 顶 / 前 / 侧，或透过场景中的某台相机观看；以及框显全部 / 框显选中。
  *
  * 位于画面上方的工具栏中，而非画面左下角：视角与框显属于视图工具，与 2D / 3D、显示种类、视图设置位于同一行。
  *
@@ -16,10 +21,9 @@ const VIEW_TIPS: Record<ViewName, string> = {
   side: "侧视图：从右往左看，正交；左键平移",
 };
 
-/** The view menu (Houdini's viewport camera menu): 透视 / 顶 / 前 / 侧 and every camera of the scene by its place in
- * the hierarchy; and framing. */
+/** 视角菜单（对应 Houdini 视口的相机菜单）：透视 / 顶 / 前 / 侧，以及场景中按层级位置列出的每台相机；另有框显。 */
 export function ViewButtons() {
-  const view = useViewCamera((s) => s.view);
+  const view = useViewCamera((s) => slotCamera(s, VIEWER_SLOT).view);
   const setView = useViewCamera((s) => s.setView);
   const setLook = useViewCamera((s) => s.setLook);
   const frame = useViewCamera((s) => s.frame);
@@ -30,7 +34,7 @@ export function ViewButtons() {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLDivElement>(null);
   useDismiss(open, anchor, () => setOpen(false));
-  const current = cameras.find((c) => c.key === look);
+  const current = cameras.find((c) => c.key === look?.key);
   const label = current ? current.label.split("/").pop() || current.label : VIEW_NAMES[view];
   return (
     <>
@@ -63,9 +67,9 @@ export function ViewButtons() {
                 <button
                   key={c.key}
                   role="menuitem"
-                  className={`view-menu-item${c.key === look ? " on" : ""}`} data-user-data
+                  className={`view-menu-item${c.key === look?.key ? " on" : ""}`} data-user-data
                   onClick={() => {
-                    setLook(c.key);
+                    setLook(c);
                     setOpen(false);
                   }}
                   data-tip={`${c.label}\n透过这台相机看：它每一帧的位置、Focal Length 跟着时间线走，${c.width} × ${c.height} 的画框外变暗。转动视图就离开相机`}
@@ -80,7 +84,7 @@ export function ViewButtons() {
         )}
       </div>
       <div className={`seg ${HUD_SEG}`}>
-        {/* H / F frame the same way while the pointer is over the view */}
+        {/* 指针位于视图上时，H / F 键执行相同的框显 */}
         <button onClick={() => frame("all")}>
           框显全部
         </button>
@@ -89,5 +93,51 @@ export function ViewButtons() {
         </button>
       </div>
     </>
+  );
+}
+
+/** 「参考」菜单：把另一个节点已有的三维结果（它的一个口）半透明、另一种颜色叠在当前显示的内容上，只看不改
+ * （state/handleView.ts reference → view/stageLayers.tsx ReferenceLayer）。列出的是除显示节点以外、有三维元素结果的
+ * 每个口；类型按目录判断（state/items.ts typeOf 的 in_3d）。 */
+export function ReferenceMenu({ shown }: { shown: string }) {
+  const reference = useHandleView((s) => s.reference);
+  const setReference = useHandleView((s) => s.setReference);
+  const reply = useResults((s) => s.reply);
+  const labels = useCookInputs((s) => s.nodes);
+  const types = useTypes();
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLDivElement>(null);
+  useDismiss(open, anchor, () => setOpen(false));
+  const rows = Object.entries(reply?.nodes ?? {}).flatMap(([node, st]) => (node === shown ? [] : st.ports.outputs
+    .filter((q) => typeOf(types, q.type)?.in_3d === "element")
+    .map((q) => ({ node, port: q.name, label: `${labels[node]?.label ?? node} · ${q.label}`, cooked: !!packetOf(st, q.name) }))));
+  const on = reference && reference.handle == null ? rows.find((r) => r.node === reference.node && r.port === reference.port) : undefined;
+  const pick = (r: Reference | null) => {
+    setReference(r);
+    setOpen(false);
+  };
+  return (
+    <div className="vo-anchor" ref={anchor}>
+      <div className={`seg ${HUD_SEG}`}>
+        <button className={`view-menu-button${open ? " on" : ""}`} onClick={() => setOpen(!open)}
+          data-tip="把另一个节点的三维结果半透明叠在这里对照（只看，不能改）">
+          {on ? <><span className="dim">参考</span>{on.label}</> : "参考"} ▾
+        </button>
+      </div>
+      {open && (
+        <div className="popover view-menu glass strong" role="menu" aria-label="参考">
+          <button role="menuitem" className={`view-menu-item${!reference ? " on" : ""}`} onClick={() => pick(null)}>不叠参考</button>
+          <div className="view-menu-cat">节点的三维结果</div>
+          {/* 只有有包的口能选（state/results.ts packetOf）；没算过的灰着、写「还没算」，选了也画不出东西 */}
+          {rows.length ? rows.map((r) => (
+            <button key={`${r.node}/${r.port}`} role="menuitem" data-user-data disabled={!r.cooked}
+              className={`view-menu-item${on === r ? " on" : ""}`} onClick={() => pick({ node: r.node, port: r.port })}
+              data-tip={r.cooked ? undefined : "还没算：先算这个节点，才有结果可叠"}>
+              {r.label}{!r.cooked && <span className="dim">（还没算）</span>}
+            </button>
+          )) : <div className="view-menu-none">别的节点没有三维结果</div>}
+        </div>
+      )}
+    </div>
   );
 }

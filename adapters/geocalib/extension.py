@@ -3,7 +3,7 @@ optimisation: which way is up (gravity: roll and pitch) and the lens (focal, opt
 
 from __future__ import annotations
 
-from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight
+from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo, Weight, downloads
 
 GEOCALIB_URL = "https://github.com/cvg/GeoCalib.git"
 GEOCALIB_COMMIT = "97b8968e7798a66bf04fcf791fb535624241bda7"  # main
@@ -12,7 +12,7 @@ GEOCALIB_COMMIT = "97b8968e7798a66bf04fcf791fb535624241bda7"  # main
 # time: fetched here at install instead, and checked.
 RELEASE = "https://github.com/cvg/GeoCalib/releases/download/v1.0"
 CHECKPOINTS = {
-    "pinhole": "86d6aeacd8bbd974c59ce39f61854e00d36911c732ad89be471476fd708722ac",
+    "pinhole": downloads.GEOCALIB_PINHOLE.sha256,  # ViPE uses it too: pinned in extensions/downloads.py
     "distorted": "13cc505928e3ff4eb26c00bff73861ab2b11b804a546323456cf5462e1f8f447",
 }
 

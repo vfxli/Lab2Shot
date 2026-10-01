@@ -18,7 +18,7 @@ export interface StandingMark extends ServerMessage {
  * connects and cooks, but probably not as meant; never blocks), or what the node said while it was cooked, kept with
  * its result. */
 export interface ServerMessage {
-  code: string; // 类型字母-模块-含义
+  code: string; // level letter-module-meaning
   level: Level;
   text: string;
   // the few words for a place with one line (a node's footer): the message's own short form when it declares one
@@ -39,16 +39,17 @@ export interface NodeStatus {
   // something; failed / skipped / error say why there is none; unused it is not on the way to anything asked for
   state?: "cached" | "todo" | "pending" | "failed" | "skipped" | "unused" | "error";
   present?: string[]; // its outputs that already have a data packet
-  /** 每个已落盘端口的生成号（包提交的时刻）：页面的缓存键包含该值（transfer/gens.ts、transfer/ident.ts） */
+  /** The generation of each port written to disk (when its packet was committed): part of the page's cache keys (transfer/gens.ts, transfer/frameKey.ts) */
   gens?: Record<string, string>;
-  // 该节点被需要的输出口：有连线引出的口；没有任何连线时为全部输出口。
-  // 由服务器集中计算（`lab2shot/engine/evaluation.py needed_outputs`），网页不重复推算。
-  // 用于决定本次计算需要上传哪些通道的字节（根据连线使用的通道启用上传）。
+  // the node's outputs that are needed: those with a wire out of them; every output when it has no wire at all.
+  // Computed by the server alone (`lab2shot/engine/evaluation.py needed_outputs`); the page never works it out again.
+  // Decides which channels' bytes this cook must upload (upload follows the channels the wires use).
   needed?: string[];
-  // 本次需要上传的通道（仅读取文件的节点具有；`lab2shot/nodes/core/input.py ReadSequence.upload_channels`）：
-  // `take` 是文件中的通道名（worker 据此解码），`write` 是子集 EXR 中的名称（服务器据此写入）。
-  // 缺少该项表示上传整个文件（PNG / JPG 不区分通道，需要全部通道）。端口与通道名的对应关系仅在服务器定义，
-  // 网页不重复实现（`transfer/planes.ts` 依此执行）
+  // the channels this cook must upload (only on a node that reads a file; `lab2shot/nodes/core/input.py
+  // ReadSequence.upload_channels`): `take` are the channel names in the file (the worker decodes by them), `write` the
+  // names in the subset EXR (the server writes by them). Absent: the whole file is uploaded (PNG / JPG have no separate
+  // channels and need all of them). Which port maps to which channel names is defined on the server only; the page
+  // never repeats it (`transfer/planes.ts` just follows this)
   channels?: { take: string[]; write: string[] };
   applies: Availability; // its parameters that declare a condition: available, greyed with why (I-APPLIES-*), pending a cook (read only through applies.ts)
   cost?: ResolvedCost; // what it costs with its parameters
@@ -58,7 +59,7 @@ export interface NodeStatus {
   messages: ServerMessage[];
   sources: Record<string, string>; // where its parameters get their values, for those that say so ("Focal Length 38.6 mm · 来自 AnyCalib（覆盖相机的 Focal Length）")
   values?: Record<string, string>; // its value outputs, once known ("38.6 mm")
-  strip?: { label: string; text: string }[]; // 该节点声明在值条上显示的参数的当前值（NodeDef.strip；不是输出口）
+  strip?: { label: string; text: string }[]; // the current values of the parameters the node declares for the value strip (NodeDef.strip; not output ports)
   outputs?: Record<string, string>;
   // a node inside a 逐项处理 block (engine/scopes.py): the fields above are the item the view is on, `item` says which
   // one it is, `summary` how all of its items stand together (「4/5 条已算 · 1 条失败」). Item by item is a call of
@@ -70,6 +71,12 @@ export interface NodeStatus {
   places?: Places | null; // its placement (its type's, repeated per node)
   policy: CookCase; // what a click on 计算 cooks
   error?: ServerMessage; // why it can't be planned yet (no file chosen ...), or a wired value it can't take
+  // for the input ports its parameters' options come from (P(choices_from)): the packet that stands for what is wired
+  // in (port -> fingerprint), before the node itself can cook (engine/evaluation.py stand_ins; ui/choices.ts)
+  stand_ins?: Record<string, string>;
+  // a switch whose route is known: the input ports it takes, its condition among them (engine/evaluation.py
+  // taken_ports, the one answer to 「走哪一路」); the view shows what the taken way brings (view/plan.ts madeFrom)
+  taken?: string[];
 }
 
 /** One item of a node inside a block, as `GET /api/status/{graph}/node/{node}/items` answers it: the same fields the
@@ -130,6 +137,9 @@ export interface Scope {
 export interface CookCase {
   targets: string[];
   computes: string[];
+  // every node the cook takes something from, cached or not, along the routes switches take (engine/evaluation.py
+  // needed), dependencies first: what the page checks before submitting (graph/nodes.ts blockers / standing)
+  uses?: string[];
   delivers: boolean;
 }
 
@@ -138,7 +148,7 @@ export interface WireStatus {
   from: [string, string];
   to: [string, string];
   type: string; // what it carries ("" its output is not there)
-  state: "ok" | "waiting" | "wrong";
+  state: "ok" | "waiting" | "unused" | "wrong"; // unused: into a switch on a way not taken; problems there do not count (server: Evaluation.unchosen_wires)
   problem: ServerMessage | null;
   fix: string; // the node type put in between makes it right ("" none)
 }
@@ -152,18 +162,56 @@ export interface StatusReply {
   deliver: CookCase | null; // 提交: every 「输出」 together (null: none)
   plan: Plan | null; // the shown node's (null: nothing shown)
   scopes?: Scope[]; // the graph's 逐项处理 blocks, their members and their items (engine/scopes.py; read by state/items.ts)
+  // what the displayed node's handles need to draw (only when a node is displayed and declares a handle that needs data:
+  // skeleton_pose). `handles` is keyed by the handle's index in its NodeDef.handles, as a string
+  // `key` changes with the parameters and input packets: a request sending the key it holds (StatusRequest handle_key)
+  // gets back only {node, key} while it still matches, and keeps using its copy (state/results.ts)
+  handle_data?: { node: string; key: string; handles?: Record<string, SkeletonPoseData> };
 }
 
-/** A node a cook will compute, with its estimate (lab2shot/farm/timings.py). */
+/** A skeleton_pose handle's skeleton (lab2shot core.retarget handle_data): its joints and their base pose before the
+ * corrections, as locals (matrices of 16, column-major, column vectors; cm; local = inv(parent world) @ world, the root's
+ * local its world). The page computes every world it draws or needs from these by FK (model/skeletonPose.ts forward):
+ * the base pose with no rows, the corrected one with the current rows. */
+export interface SkeletonPoseData {
+  packet: string; // the packet standing for the handle's input (the skinning preview loads its character)
+  path: string; // the skeleton's prim path in it
+  names: string[];
+  parents: number[]; // -1: a root; a parent comes before its children
+  pose: string; // which base pose `before` is, in words (「第一帧（摆成 T 姿）」)
+  before: { local: number[][] };
+  mirror: [number, number][]; // joint index pairs, left and right
+  mirror_plane: { normal: [number, number, number]; point: [number, number, number] } | null; // the body's left–right plane (world); null: no mirroring
+  unknown: string[]; // joint names in the parameter the skeleton does not have
+  units: { translate: string; rotate: string };
+  rotation: string; // the rotation order of the rows' angles ("XYZ": about X first; model/math3d.ts rotation)
+  order: string; // "local @ T·R·S"
+}
+
+/** Fills in the defaults of a status reply as it is read (the one place that does): when the server leaves out a list
+ * or a table (an older version, a reply cut short by an error), the rest of the page reads it all the same, with no
+ * checks of its own and no throw while iterating. Only fills in "nothing"; never changes a value the server gave. */
+export function normalizeStatus(r: StatusReply): StatusReply {
+  const nodes: Record<string, NodeStatus> = {};
+  for (const [id, n] of Object.entries(r.nodes ?? {}))
+    nodes[id] = {
+      ...n,
+      messages: n.messages ?? [],
+      sources: n.sources ?? {},
+      applies: n.applies ?? { available: [], inactive: {} },
+      handles: n.handles ?? [],
+      ports: n.ports ?? { inputs: [], outputs: [], waiting: [] },
+    };
+  return { ...r, nodes, wires: r.wires ?? [], deliver: r.deliver ?? null, plan: r.plan ?? null };
+}
+
+/** A node a cook will compute (lab2shot/farm/timings.py). */
 interface PlanNode {
   node: string;
   label: string;
   frames: number;
   width: number;
   height: number;
-  seconds: number | null; // null: no record of this node yet
-  records: number; // how many earlier runs the estimate rests on
-  device?: string; // the card (or CPU) those runs were on: card information, sent only to whoever may see the cards (farm.cards)
 }
 
 /** A look at a cook before submitting it (farm/timings.py look): the shown node's, with every status reply. */
@@ -173,8 +221,6 @@ export interface Plan {
   frames: [number, number] | null; // the frames this cook takes
   nodes: PlanNode[]; // what it computes, in order
   cached: number; // nodes it takes from the cache
-  seconds: number; // the sum of the estimates there are
-  unknown: number; // nodes without records
   error: MessageJson | null; // not plannable yet: why, as a catalogue message (the blockers say more)
 }
 
@@ -188,16 +234,61 @@ export interface Choice {
   details?: Record<string, string>; // what tells an option apart, shown next to it (an import node's entry: frames, focal, counts)
   aliases?: Record<string, string[]>;
   auto?: string | Record<string, string>;
-  default?: string; // 参数为空时应填写的值（按格式确定的色彩空间）：网页将其写入参数，不显示为「自动」（editor/ParamControls.tsx）
+  default?: string; // the value an empty parameter should take (the colour space the format implies): the page writes it into the parameter rather than showing 「自动」 (editor/ParamControls.tsx)
   none?: string;
   empty?: string;
+  rig?: RigChoice; // the data of the 「对应关系」 editor (widget rig_map, editor/RigMap.tsx)
 }
 
-/** 下拉中「还没选」一行的文字，集中计算（参数面板与节点均读取）：节点声明会自动选择某项时显示「自动 · 某某」；
- * 声明了空值含义（Choice.empty：「选一台」「这个网格没有分区」）时使用该说明；选项尚未知时（上游尚未计算，
- * 无法查询 NodeDef.choices）使用参数自身声明的 placeholder（P(placeholder="先接上模型")）；均缺失时才显示「自动」。
- * 只有确实会自动选择的参数才可显示「自动」：不会自动选择却显示「自动」，使用者会等待一个不会出现的结果
- * （例如「按分区取出」的「分区」在接入模型之前，实际会停下等待使用者选择）。 */
+/** One side's skeleton in the 「对应关系」 editor (lab2shot/nodes/kit/rig_map.py rig_side): a pickable side has joint
+ * names, parents and the bind pose's world positions (cm); a model node's model side is `fixed`, with only joint names
+ * and each part's joints (read only). */
+export interface RigSide {
+  label: string; // 动作 / 目标 / 人物 / 模型
+  fixed: boolean;
+  path?: string; // Skeleton prim
+  names: string[];
+  parents?: number[];
+  parts?: Record<string, string[]>; // the fixed side: part -> model joints
+  noun?: string; // what this side is called: 骨架 (default) / 曲线 / 形变 (「表情重定向（ARKit52）」)
+  pose?: string; // the base pose aligned against (「动作重定向」: 绑定姿势 / 第一帧 / 第 N 帧, posed as a T)
+  handle?: number | null; // which of the node's 「骨架姿势」 handles this side's skeleton is on the stage (an index into NodeDef.handles; null: none)
+  item?: string; // the counting word: 个关节 (default) / 条曲线 / 个形变
+}
+
+/** A body part (lab2shot/data/joints.py part_rows). */
+export interface RigPart {
+  id: string;
+  label: string;
+  region: string;
+  chain: boolean; // spine, neck, fingers: may span several joints
+  required: boolean; // this node needs it mapped on both sides
+  end?: string; // the part a chain part ends at (spine → chest, neck → head; server: data/joints.py CHAIN_ENDS); fingers have none
+}
+
+/** One row of the parameter's value (lab2shot/nodes/kit/rig_map.py PartMap): src drives, dst is driven; joint names. */
+export interface RigRow {
+  part: string;
+  src: string[];
+  dst: string[];
+}
+
+export interface RigChoice {
+  src: RigSide;
+  dst: RigSide;
+  parts: RigPart[];
+  auto: RigRow[]; // the mapping guessed from names and hierarchy (used for the parts the parameter does not list)
+  diffs?: Record<string, number>; // the difference in bone direction of this part between the two base poses (degrees, lab2shot/nodes/kit/retarget.py rest_diffs)
+  slot?: string; // what a slot is called: 部位 (default, the body figure) / 表情 (expression slots by region, lab2shot/nodes/kit/rig_map.py expression_choice)
+}
+
+/** The text of a dropdown's 「还没选」 row, worked out in this one place (the parameter panel and the node both read it):
+ * 「自动 · X」 when the node declares it picks one automatically; the declared meaning of empty when there is one
+ * (Choice.empty: 「选一台」, 「这个网格没有分区」); the parameter's own declared placeholder while the options are not
+ * known yet (upstream not cooked, NodeDef.choices cannot be asked; P(placeholder="先接上模型")); 「自动」 only when
+ * none of these exists. Only a parameter that really picks automatically may show 「自动」: one that does not would
+ * leave the user waiting for a result that never comes (e.g. 「按分区取出」's 「分区」 before a model is wired in
+ * stops and waits for the user's choice). */
 export function emptyChoiceLabel(choice: Choice | null, placeholder: string, name: (option: string) => string = (o) => o): string {
   if (choice === null) return placeholder || "自动";
   if (typeof choice.auto === "string" && choice.auto) return `自动 · ${name(choice.auto)}`;
@@ -208,17 +299,21 @@ export function emptyChoiceLabel(choice: Choice | null, placeholder: string, nam
 export interface Manifest {
   type: string;
   fingerprint: string;
-  created?: string; // 生成号（同一指纹重新计算后改变）
+  created?: string; // the generation (changes when the same fingerprint is computed again)
   meta: Record<string, unknown> & { frames?: number[]; width?: number; height?: number; values?: boolean; colorspace?: string; range?: number[]; classes?: unknown[]; data_window?: number[] };
-  /** 该包包含的通道名称列表（核心声明：lab2shot/data/payloads.py channel_list）。按通道获取的接口
-   * （api.channelUrl）只接受该列表中的名称；非二维像素的包（相机、点云、曲线、数值）没有此项。 */
+  /** The channel names the packet holds (declared by the core: lab2shot/data/payloads.py channel_list). The per-channel
+   * route (api.channelUrl) accepts only names from this list; packets that are not 2D pixels (cameras, point clouds,
+   * curves, values) have none. */
   channels?: { names: string[] };
-  /** 该包在视图中的尺寸：视图代理档位（管理员设置「视图 · 视图代理尺寸」，
-   * `lab2shot/view/proxy.py`）以及该包按此缩放后的宽高。非二维像素的包没有此项。
+  /** The packet's size in the viewer: the view proxy tier (the administrator's 「视图 · 视图代理尺寸」,
+   * `lab2shot/view/proxy.py`) and the packet's width and height scaled to it. Packets that are not 2D pixels have none.
    *
-   * 页面将 `px` 纳入缓存键：包、帧、通道、代理档位四项齐全，
-   * 因此切走再切回时命中缓存，无须传输任何字节；管理员更换档位后键随之改变，不会将旧档位的字节误用为新档位的数据。 */
-  proxy?: { px: number; width: number; height: number };
+   * The page puts `px` into the cache key, which then holds packet, frame, channel and proxy tier, so switching away
+   * and back hits the cache without transferring a byte, and when the administrator changes the tier the key changes
+   * with it, so bytes of one tier are never taken for another's. */
+  // form: how this packet's proxies are made when not the usual way ("ids": an id map, nearest and exact values;
+  // lab2shot/view/proxy.py form_of). It goes into the address (`pf=`) and the cache keys beside the tier (transfer/frameKey.ts Tier)
+  proxy?: { px: number; width: number; height: number; form?: string };
   summary: DataSummary; // what this result is, said once by the server (lab2shot/data/summary.py describe)
 }
 
@@ -266,9 +361,10 @@ export interface TracksData {
   frames: number[];
   width: number;
   height: number;
-  // 该跟踪点数据是一个火柴人（`lab2shot/nodes/core/sketch.py` 输出的草图，每个姿势 18 个关节）。
-  // 该标记由包自带（`tracks_packet(…, figure=True)` → meta），服务器 `packets.py` 的 `{**p.meta, …}` 原样转发。
-  // 视图据此决定绘制方式：火柴人按人体绘制，而非按「跟踪点 + 轨迹」绘制（view/overlays.ts drawTracks）
+  // this track data is a stick figure (the sketch `lab2shot/nodes/core/sketch.py` outputs, 18 joints per pose). The
+  // packet carries the flag itself (`tracks_packet(…, figure=True)` → meta) and the server's `packets.py` passes it on
+  // unchanged in `{**p.meta, …}`. The viewer draws by it: a stick figure as a body, not as track points with trails
+  // (view/overlays.ts drawTracks)
   figure?: boolean;
 }
 
@@ -286,8 +382,8 @@ export interface CookEvent {
   type:
     | "queued" // waiting in the queue (again whenever its place or why it waits changes): position, waiting
     | "started" // its first node got its place
-    // 计算进度只有一种事件（api/progress.ts、lab2shot/progress.py）：服务器将 stage / progress / phase
-    // 合并为同一份描述后发送，队列面板与节点读取同一数据
+    // cook progress has one event only (api/progress.ts, lab2shot/progress.py): the server sends stage / progress /
+    // phase merged into one description, and the queue panel and the node read the same data
     | "node_start" | "node_done" | "progress" | "message" | "error" | "skipped" | "output" | "done"
     | "stopping" | "cancelled" | "finished";
   position?: number;
@@ -304,9 +400,10 @@ export interface CookEvent {
   graph?: string;
   version?: number;
   outputs?: Record<string, string>;
+  gens?: Record<string, string>; // node_done: each output port's packet generation (lab2shot/server/wire.py generations)
   phase?: Phase; // progress: 排队中 / 加载模型 / 计算 / 取回结果
-  note?: string; // progress: 解算器报告的当前步骤（如「检测人物」），仅为一句文字
-  at?: number | null; // progress: 整个任务的完成量，0–1，单调不减；null 表示无法估计（绘制不确定进度条）
+  note?: string; // progress: the solver's current step (e.g. 「检测人物」), a sentence only
+  at?: number | null; // progress: how much of the whole task is done, 0–1, never decreasing; null: cannot be estimated (an indeterminate bar)
   message?: string; // progress: what it is counting
   code?: string; // message / error: its code, level and words (lab2shot/messages)
   level?: ServerMessage["level"];

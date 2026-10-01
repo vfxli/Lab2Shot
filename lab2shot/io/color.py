@@ -274,13 +274,16 @@ def video_colorspace(transfer: int, cfg: ColorConfig | None = None) -> str | Non
 
 
 def apply_premultiplied(proc: OCIO.CPUProcessor, img: np.ndarray) -> np.ndarray:
-    """Apply an OCIO processor to a picture (RGB, or premultiplied RGBA). RGBA colour is divided by alpha, transformed
-    and multiplied again, as Nuke's Read and Write do, so the transform never operates on colour darkened by coverage;
-    alpha is preserved."""
+    """Apply an OCIO processor to a picture (RGB, or premultiplied RGBA); alpha is preserved. Where alpha > 0 the
+    colour is divided by it, transformed and multiplied again (Unpremult → transform → Premult), so the transform
+    never works on colour darkened by coverage. Where alpha is 0 the colour is transformed as it is and kept: in a
+    premultiplied picture that is light with no coverage (additive glow, fire, a CG emission), and multiplying it by
+    alpha would erase it — Nuke's Unpremult likewise leaves those pixels alone."""
     if img.shape[-1] != 4:
         rgb = np.ascontiguousarray(img, dtype=np.float32).copy()
         proc.applyRGB(rgb)
         return rgb
-    rgb = np.ascontiguousarray(images.unpremultiply(img))
+    a = img[..., 3:4]
+    rgb = np.ascontiguousarray(images.unpremultiply(img))  # alpha 0: the colour as it is
     proc.applyRGB(rgb)
-    return np.concatenate([rgb * img[..., 3:4], img[..., 3:4]], axis=-1).astype(np.float32)
+    return np.concatenate([np.where(a > 0, rgb * a, rgb), a], axis=-1).astype(np.float32)

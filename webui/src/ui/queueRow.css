@@ -21,6 +21,9 @@
 .q-jobs th:nth-child(1),
 .q-jobs td:nth-child(1) { width: 4.6rem; }
 .q-jobs .q-act { width: 1%; white-space: nowrap; }
+/* 状态点与按钮列对着整行居中：计算中的行比别的行多一行进度，顶对齐时按钮就会偏上 */
+.q-jobs td:first-child,
+.q-jobs .q-act { vertical-align: middle; }
 
 /* 主体固定为两行：上方为名称，下方为一排数值。不使用会换行的 flex：否则内容多的行折到第二行，
    内容少的行（中断且无耗时、无交付、无缓存）挤在名称右侧不换行，同一列内容在各行中位置不同。 */
@@ -126,8 +129,7 @@
   display: flex;
   flex-direction: column;
   gap: 5px;
-  /* 降低最小宽度，避免整张表宽于容器而出现横向滚动条。该格为纵向排列（当前计算内容、进度条、
-     剩余时间），较窄时不影响阅读。 */
+  /* 降低最小宽度，避免整张表宽于容器而出现横向滚动条。该格为纵向排列（当前计算内容、进度条），较窄时不影响阅读。 */
   min-width: 128px;
 }
 

@@ -6,7 +6,7 @@ from typing import Literal
 
 import numpy as np
 
-from lab2shot.sdk import (Official, measured_param, Confidence, Job, Msg, NodeParams, NothingToCook, P, Port, Shape,
+from lab2shot.sdk import (rgb_port, Official, measured_param, Confidence, Job, Msg, NodeParams, NothingToCook, P, Port, Shape,
                           WorkerNode, correspondence, empty_packet, tracks_packet, Cost, Licence, Measured)
 
 
@@ -29,9 +29,10 @@ class Match(WorkerNode):
     # RTX 4090，默认的「精细」设置
     cost = Cost(gpu=True, vram_gb=9.7, whole="按一对图算的（不是一段镜头逐帧），实测约 2.3 秒一对")
     licence = Licence(note="代码和权重 MIT；权重里的 DINOv3 骨干受 DINOv3 License 约束（可商用，禁军事等用途，再分发附许可证）。")
-    inputs = (Port("image", "image.3", "RGB"), Port("other", "image.3", "参考图"))
-    outputs = (Port("stmap", "image.2", "ST-map"), Port("matches", "tracks2d", "画面上的匹配点"),
-               Port("other_matches", "tracks2d", "参考图上的匹配点", shape=Shape(window="input:other")))
+    inputs = (rgb_port(), rgb_port("参考图", name="other"))
+    # 「匹配点数」0 gives no matches: both ports are empty then, as asked, and nothing downstream says so (may_be_empty)
+    outputs = (Port("stmap", "image.2", "ST-map"), Port("matches", "tracks2d", "画面上的匹配点", may_be_empty=True),
+               Port("other_matches", "tracks2d", "参考图上的匹配点", shape=Shape(window="input:other"), may_be_empty=True))
     confidence = Confidence("probability", help="每个像素在参考图里找不找得到、匹配准不准（RoMa v2 自己的把握，0–1）。当遮罩用先接「置信度转遮罩」")
 
     class Params(NodeParams):

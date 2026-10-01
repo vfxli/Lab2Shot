@@ -3,6 +3,8 @@ import { CHOICES, CHOICE_TIPS, RANGES } from "../model/viewOptions";
 import { BG_CHOICES, bgColourOf } from "../platform/palette";
 import { Button, Segmented } from "../ui/Button";
 import { Select } from "../ui/Select";
+import { Num } from "../ui/controls";
+import { coerce } from "../model/numbers";
 
 /** 二维预览链在控制栏上的组成部分，三种模式下是同一行控件：
  *
@@ -43,7 +45,7 @@ export function ChannelPick({ side, value, options, onPick, off = false }:
   );
 }
 
-/** 中间运算：一个三档下拉（加 · 乘 Alpha · 乘 RGBA）加一个强度控件。作用对象仅对「乘」有意义
+/** 中间运算：一个四档下拉（加 · 盖上 · 乘 Alpha · 乘 RGBA）加一个强度控件。作用对象仅对「乘」有意义
  * （model/view2d.ts 的 `Op`），因此不单独设置 RGBA / 仅 Alpha 选项。 */
 export function MergePick({ op, mix, offOp = false, offMix, onOp, onMix }:
   { op: Op; mix: number; offOp?: boolean; offMix: boolean;
@@ -62,7 +64,7 @@ export function MergePick({ op, mix, offOp = false, offMix, onOp, onMix }:
             缺少该值时会停留在默认的 50%，出现数字为 1.00 而色条只有一半的情况 */}
         <input type="range" min={RANGES.mix[0]} max={RANGES.mix[1]} step={0.01} value={shown} disabled={offMix}
           style={{ ["--pct" as string]: `${((shown - RANGES.mix[0]) / (RANGES.mix[1] - RANGES.mix[0])) * 100}%` }}
-          aria-label="mix" onChange={(e) => onMix(Number(e.target.value))} />
+          aria-label="mix" onChange={(e) => { const n = coerce(Number(e.target.value), { min: RANGES.mix[0], max: RANGES.mix[1] }); if (n !== null) onMix(n); }} />
         <b>{shown.toFixed(2)}</b>
       </label>
     </>
@@ -88,9 +90,7 @@ export function GradePick({ black, white, off, onSet, fit }:
   const num = (label: string, value: number, set: (v: number) => void, after?: React.ReactNode) => (
     <label className="hud-num">
       <span>{label}</span>
-      <input className="field num" type="number" step={0.05} min={lo} max={hi} value={Number(value.toFixed(3))} disabled={off}
-        aria-label={label} onKeyDown={(e) => e.stopPropagation()}
-        onChange={(e) => Number.isFinite(Number(e.target.value)) && set(Math.min(hi, Math.max(lo, Number(e.target.value))))} />
+      <Num value={value} min={lo} max={hi} digits={3} disabled={off} label={label} onChange={set} />
       {after}
     </label>
   );

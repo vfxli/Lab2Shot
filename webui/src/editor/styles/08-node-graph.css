@@ -1,12 +1,12 @@
 /* ------------------------------------------------ 节点图的画布：底色、连线、选框、画布上的控件和「操作说明」
    (editor/NodeEditor.tsx)。节点本身在 08a-node.css。
-   What surrounds a node on the canvas — the controls, 操作说明, the project notice, the carried wire — is
-   styles/29-node-chrome.css; the rule that keeps everything inside the node is in 08a-node.css. */
+   节点在画布上的周边元素（画布控件、「操作说明」、项目提示、拿着的线）在 styles/29-node-chrome.css；
+   保证节点内一切元素不超出节点的规则在 08a-node.css。 */
 
 .graph {
   height: 100%;
   background: var(--panel);
-  position: relative; /* what the graph's own overlays sit in: the carried wire's line, the controls, 操作说明 */
+  position: relative; /* 节点图自身浮层的定位父：拿着的线、画布控件、「操作说明」 */
 }
 
 .graph .react-flow__pane {

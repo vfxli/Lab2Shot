@@ -12,7 +12,7 @@ year = 2025
 
 Video Depth Anything 建在 Depth Anything V2 之上，任意长的视频都能算，质量、一致性和泛化能力都不打折扣。与其他基于扩散模型的做法相比，它推断更快、参数更少，深度一致性上的精度更高。
 
-在 Lab2Shot 里，这个节点叫「Video Depth Anything 深度图」：接一段序列，每帧交出一张深度图。真实尺度的那一版走「深度图」口，相对的那一版走「视差图」口。
+在 Lab2Shot 里，这个节点叫「Video Depth Anything 深度图」：接一段序列，每帧交出一张深度图。真实尺度的和相对的都走「深度图」口，数据里注明是深度还是视差。
 
 ## 输入输出
 
@@ -29,8 +29,8 @@ Video Depth Anything 建在 Depth Anything V2 之上，任意长的视频都能�
 
 - 「RGB」= 上游那段素材；「模型」参数 = 上游的 `--encoder` 加 `--metric`（Small 可商用，Base / Large 和真实尺度版非商用）；
   「处理分辨率」= `--resolution`；「半精度」= 上游默认的 float16（它的 `--fp32` 是反过来那个开关）。
-- 「深度图」和「视差图」**是同一样官方数据的两种情形**，不是我们多加的第二种结果：真实尺度那一版走「深度图」口（米），
-  相对那一版走「视差图」口，另一个口空着（`adapters/videodepthanything/nodes.py` 的 `official`）。
+- 一个「深度图」口，就是上游的 `depths`：真实尺度那一版是米（换成厘米），相对那一版是相对视差，包里的 `scale` 注明
+  （「disparity」），下游「深度对齐」按它自动认、当深度用时会提示。换模型不用改线（`adapters/videodepthanything/nodes.py` 的 `official`）。
 - **不一样的一点**：上游的 `infer_video_depth` 把每一帧和每张全分辨率深度图都留在内存里，
   我们把同样的窗口流程改成流式，任意长的镜头只留大约 40 帧——算法一步不改，用的是它自己的常数和函数
   （`adapters/videodepthanything/worker.py:11-14`）。

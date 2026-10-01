@@ -13,16 +13,17 @@ Everything is kept for a task (transfer/tasks.py) and goes with it:
 
 "Last used" is kept by the engine: a cached packet's .complete file, a model result's .worker_complete file and an
 upload's manifest get the current time whenever they are used (data/packet.py `used`; a task's submission for its
-uploads). Cleaning runs by itself after every job and every hour (`tidy`); what removes cache entries or uploads runs
-only while no job waits or runs, and asks the queue before every single removal (`guard`), so a job submitted meanwhile
-never loses what it needs. The administrator's 硬盘 page shows the same areas and may clean what is older (`clean`), by
-the same rules: never what a live task references.
+uploads). Cleaning runs by itself after every job and every hour (`tidy`). A job reads only its own account's cache and
+uploads (farm/queue.py Farm.submit), so what removes cache entries or uploads leaves alone every account that has a job
+to finish, and asks the queue before every single removal whether the account still has none (`guard`,
+farm/queue.py Farm.removing): a job submitted meanwhile never loses what it needs, and a farm that is never idle is
+still cleaned. The administrator's 硬盘 page shows the same areas, measured in the background (`usage`, Farm.disk),
+and may clean what is older (`clean`), by the same rules: never what a live task references.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import time
 from collections.abc import Callable
@@ -95,7 +96,8 @@ AREAS = {  # label, what it is and how long it is kept (as set now), its items
 
 
 def usage() -> list[dict]:
-    """Per area: size, how many items, how many of them unused for 7 and 30 days."""
+    """Per area: size, how many items, how many of them unused for 7 and 30 days. It walks the whole data disk (minutes
+    on a big one): only ever on a farm thread (Farm.disk), never while a request waits."""
     now = time.time()
     out = []
     for area, (label, note, items) in AREAS.items():
@@ -108,11 +110,13 @@ def usage() -> list[dict]:
     return out
 
 
-Guard = Callable[[], AbstractContextManager[bool]]  # farm/queue.py Farm.removing: one removal, and whether it may go ahead
+# farm/queue.py Farm.removing: one removal of an account's, and whether it may go ahead (the account has had no job to
+# finish since the cleaning began)
+Guard = Callable[[int], AbstractContextManager[bool]]
 
 
-def _go(guard: Guard | None):
-    return guard() if guard is not None else nullcontext(True)
+def _go(guard: Guard | None, user_id: int):
+    return guard(user_id) if guard is not None else nullcontext(True)
 
 
 # ------------------------------------------------------------------ what is still wanted
@@ -149,8 +153,9 @@ COLLECT_MIN_AGE_S = 600.0  # an entry used more recently than this is never coll
 def collect(guard: Guard | None = None, older_than_s: float = 0.0) -> dict:
     """Remove every cache entry no live task references and no job still to finish uses, last used more than
     COLLECT_MIN_AGE_S (for the administrator's 清理: `older_than_s`, when longer) ago, in every account's cache (each as
-    that account, through data/packet.py remove). One whose lock a writer holds (a worker's job, the viewer's proxies
-    being made, a cook) is left for the next time (`_remove_unless_held`)."""
+    that account, through data/packet.py remove). An account with a job to finish is left for the next time (`guard`),
+    and so is an entry whose lock a writer holds (a worker's job, the viewer's proxies being made, a cook:
+    `_remove_unless_held`)."""
     removed, freed = 0, 0
     cutoff = time.time() - max(older_than_s, COLLECT_MIN_AGE_S)
     store = current()
@@ -161,21 +166,14 @@ def collect(guard: Guard | None = None, older_than_s: float = 0.0) -> dict:
             if not d.is_dir() or d.name.startswith(".") or base_of(d.name) in keep or _entry_used(d) >= cutoff:
                 continue
             size = folder_bytes([d])
-            with _go(guard) as go, serving(Account(user_id)):
+            with _go(guard, user_id) as go, serving(Account(user_id)):
                 if not go:
-                    return {"removed": removed, "bytes": freed}  # a job came in: the rest waits for the next pass
-                if not _remove_unless_held(d.name, "clean", lambda d=d: base_of(d.name) not in _kept_entries_now(user_id)):
+                    break  # a job of the account came in: the rest of its cache waits for the next pass
+                if not _remove_unless_held(d.name, "clean", lambda d=d: _entry_used(d) < cutoff):
                     continue
             removed += 1
             freed += size
     return {"removed": removed, "bytes": freed}
-
-
-def _kept_entries_now(user_id: int) -> set[str]:
-    """What the jobs still to finish use at this very moment (checked again right before each removal)."""
-    from .queue import in_use
-
-    return in_use().get(user_id, set())
 
 
 def expire_tasks(now: float | None = None) -> dict:
@@ -205,19 +203,20 @@ def clear_uploads(guard: Guard | None = None, days: float | None = None) -> dict
     for item in sorted(_upload_items(), key=lambda i: i.last_used):
         if item.last_used >= cutoff or item.path.name in reading.get(item.user_id, set()):
             continue
-        with _go(guard) as go:
+        with _go(guard, item.user_id) as go:
             if not go:
-                break
+                continue
             got, dropped = uploads.remove_set(item.user_id, item.path.name)
             if dropped:
                 logs.say(log, Msg("I-DISK-STALEPACKETS", sid=item.path.name, count=dropped))
         removed += 1
         freed += got
-    for blob in [b for user_id in uploads.accounts() for b in uploads.orphan_blobs(user_id)]:
-        with _go(guard) as go:
-            if not go:
-                break
-            freed += uploads.drop_blob(blob)
+    for user_id in uploads.accounts():
+        for blob in uploads.orphan_blobs(user_id):
+            with _go(guard, user_id) as go:
+                if not go:
+                    break
+                freed += uploads.drop_blob(blob)
     if removed:
         EVALUATIONS.bump()
         logs.say(log, Msg("I-DISK-UPLOADSCLEARED", count=removed, days=int(days), mb=freed / 1e6))
@@ -227,8 +226,8 @@ def clear_uploads(guard: Guard | None = None, days: float | None = None) -> dict
 def clean(area: str, days: float, guard: Guard | None = None) -> dict:
     """The administrator's 清理 on the 硬盘 page: what in `area` is older than `days`, by the same rules as the
     cleaning that runs by itself (never a cache entry a live task references or a job uses, never an upload a live task
-    reads, a task only once it ended that long ago). `guard` (farm/queue.py Farm.removing) is entered around every single
-    removal."""
+    reads, a task only once it ended that long ago, nothing of an account with a job to finish). `guard` (farm/queue.py
+    Farm.removing) is entered around every single removal."""
     if area not in AREAS:
         raise Invalid(Msg("E-DISK-NOAREA", area=area))
     if area == "cache":
@@ -240,21 +239,20 @@ def clean(area: str, days: float, guard: Guard | None = None) -> dict:
         cutoff = time.time() - days * DAY
         from ..database import db
 
-        for r in db().rows("SELECT id FROM tasks WHERE ended IS NOT NULL AND ended < ?", (cutoff,)):
-            with _go(guard) as go:
+        for r in db().rows("SELECT id, user_id FROM tasks WHERE ended IS NOT NULL AND ended < ?", (cutoff,)):
+            with _go(guard, r["user_id"]) as go:
                 if not go:
-                    break
+                    continue
                 done["bytes"] += tasks.remove(r["id"])
                 done["removed"] += 1
         return done
     raise Invalid(Msg("E-DISK-NOAREA", area=area))
 
 
-def tidy(idle: bool, guard: Guard | None = None) -> None:
+def tidy(guard: Guard | None = None) -> None:
     """Cleaning by task, by itself (after every job and every hour): tasks past 任务保留天数 go whole, tasks no farm
-    runs any more end; with the queue empty (`idle`), the cache entries no live task
-    references and the uploads no task used. `guard`: re-asked before every removal, since `idle` was true when this
-    began, not necessarily minutes later."""
+    runs any more end; the cache entries no live task references and the uploads no task used, of every account that
+    has no job to finish (`guard`, asked before every removal: the cleaning takes minutes)."""
     from .queue import farm
 
     tasks.unended(farm().active_ids())
@@ -262,8 +260,6 @@ def tidy(idle: bool, guard: Guard | None = None) -> None:
     uploads.prune_parts()  # files that stopped going up long ago
     accounts.prune_logins()  # login-log entries and ended sessions kept past their window (accounts.py)
     current().sweep_locks(DAY)  # lock files no one has touched for a day (a held lock is never deleted: try before unlink)
-    if not idle:
-        return
     clear_uploads(guard)
     got = collect(guard)
     if got["removed"]:

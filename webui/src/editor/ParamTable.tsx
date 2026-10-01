@@ -1,10 +1,13 @@
-/** 表格参数 (widget "table"): a parameter that is a list of entries, such as 「读取多条序列」's sequences,
- * 「多层 EXR 输出设置」's 图层, the camera's distortion parameters, or the joint mapping.
+/** 表格参数（widget "table"）的绘制与编辑归本模块：取值为一组条目的参数，如「读取多条序列」的各条序列、
+ * 「多层 EXR 输出设置」的图层、相机的畸变参数（关节映射不是表格参数，见 editor/RigMap.tsx）。
  *
  * 「读取序列」没有图层表：输出口直接由文件中的图层生成（nodes/core/input.py made_ports）。 */
 
+import { optionView } from "../ui/controls";
 import type { ParamDef } from "../api";
 import { deriveParams } from "../graph/actions";
+import { addEmptyRow } from "../graph/edit";
+import { rowsLeft } from "../graph/rules";
 import { getNodeDefs } from "../state/catalog";
 import { useCookInputs } from "../state/cookInputs";
 import { useResults } from "../state/results";
@@ -13,26 +16,25 @@ import { useRowDrag } from "../ui/rowDrag";
 import { useChoices } from "../ui/choices";
 import { IconClose } from "../ui/icons";
 import { Button } from "../ui/Button";
-import { Control, type CellChoice } from "./ParamControls";
+import type { CellChoice, CellControl } from "./ParamControls";
 
 type Entry = Record<string, unknown>;
 
-/** A list of entries (P over a list of a model): one line per entry, with every column the server declares for it: the
- * editable ones as controls, the others (`widget: "fixed"`) as plain text (dropping a fixed column would hide
- * which sequence a row is and how many frames it has). Which
- * fields apply to a row is the server's to say (nodes/applies.py resolves each row: `layers[2].scale` among the node's
- * applies), never worked out here. Entries can be taken out; a parameter the node works out from others (derived_from)
- * can be listed again from them.
+/** 条目列表（P 的取值为某个模型的列表）：每个条目一行，列出服务器为其声明的每一列：可编辑的列画成控件，
+ * 其余（`widget: "fixed"`）显示为纯文字（去掉只读列就看不出一行是哪条序列、有多少帧）。
+ * 一行中哪些字段起作用由服务器判定（nodes/applies.py 逐行解析：节点的 applies 中的 `layers[2].scale`），此处不推算。
+ * 条目可以去掉；由其他参数推出的参数（derived_from）可以据此重新列出。
  *
- * `name` is the row's identity, not a column: it is the key, and the row's own name when nothing else names it. */
+ * `name` 是行的身份而不是一列：它是键，没有别的字段为该行命名时也是该行自己的名字。 */
 
-/** A read-only cell's text: a column of choices says the word its options are called by, anything else itself. */
+/** 只读格的文字：选项列显示该选项的名称（ui/controls.tsx optionView，与下拉同一处），其余列显示值本身。 */
 function fixedText(f: ParamDef, v: unknown): string {
-  const said = String(v ?? "");
-  return f.options ? f.option_labels?.[said] ?? said : said;
+  return f.options && v !== null && v !== undefined && v !== "" ? optionView(f, v, null, {}).label : String(v ?? "");
 }
 
-export function TableParam({ nodeId, p, value, set }: { nodeId: string; p: ParamDef; value: unknown; set: (v: unknown) => void }) {
+/** `Control`：每个格子里画的控件——就是参数面板的那一个分发（editor/ParamControls.tsx Control），由它传进来，本文件不
+ * 反过来 import 它（互相 import 会成环）。 */
+export function TableParam({ nodeId, p, value, set, Control }: { nodeId: string; p: ParamDef; value: unknown; set: (v: unknown) => void; Control: CellControl }) {
   const rows = (value as Entry[] | null) ?? [];
   // 声明了 panel=false 的列不在面板中占列（读取节点的「图层」：它显示在「文件里」一列的最前面）
   const columns = (p.items ?? []).filter((f) => f.panel !== false);
@@ -42,13 +44,13 @@ export function TableParam({ nodeId, p, value, set }: { nodeId: string; p: Param
   const inactive = (f: ParamDef, i: number) => greyed(answer, `${p.name}[${i}].${f.name}`);
   const typeId = useCookInputs((s) => s.nodes[nodeId]?.typeId ?? "");
   const def = getNodeDefs()[typeId];
-  // What names the row on its left: a 名称 the file gave it, else the row's own id, but only when neither can be
-  // edited. A table whose name is typed (「多层 EXR 输出设置」's 图层名) or that names its rows by a column of its own
-  // (「读取多条序列」's 序列) has no name span: every column is a cell, in the order the server declares them.
+  // 行左侧的名称：文件给出的名称，否则为行自己的 id，且仅在两者都不可编辑时显示。名称由使用者填写的表
+  // （「多层 EXR 输出设置」的图层名）或以自身某一列为行命名的表（「读取多条序列」的序列）没有名称格：
+  // 每一列都是一个格，按服务器声明的顺序排列。
   const labelCol = columns.find((f) => f.name === "label");
   const nameCol = columns.find((f) => f.name === "name");
   const leads = labelCol?.widget === "fixed" ? labelCol : !labelCol && nameCol?.widget === "fixed" ? nameCol : null;
-  // a row's `name` it cannot edit and that does not name it is its key (an output's port id): not a column to read
+  // 不可编辑、又不作为行名显示的 `name` 是行的键（输出口的 id）：不作为可读的一列
   const fields = columns.filter((f) => f !== leads && !(f === nameCol && f.widget === "fixed"));
   const side = def?.ports_from === p.name ? def.ports_from_side : undefined;
   const isPortsFrom = side !== undefined;
@@ -78,7 +80,11 @@ export function TableParam({ nodeId, p, value, set }: { nodeId: string; p: Param
   // 调整 gap、min-width 也无法解决）。列宽由该表计算一次（`template`），表头与每一行均通过 subgrid 使用同一套列，
   // 由结构保证对齐。
   const hasGrip = isPortsFrom && rows.length > 1;
-  const hasDrop = hasGrip;
+  // 输入侧的表（一行一个输入口，「多层 EXR 输出设置」的图层、「切换」的各路）有「添加」，最后一行也能去掉：加错了的空行
+  // 要能拿掉；节点自己给行起名的表满了（「切换」十路：graph/rules.ts rowsLeft）就不再有「添加」
+  const addsRows = side === "inputs";
+  const canAdd = addsRows && rowsLeft(def, { [p.name]: rows });
+  const hasDrop = addsRows ? rows.length > 0 : hasGrip;
   // 列宽：只读列按自身文字宽度（3DE 的参数名不得截断），选项来自上游的列占据剩余宽度；
   // 没有此类列时由最后一个可编辑列占据剩余宽度，否则右侧会大片留空
   const wideAt = fields.findIndex((f) => f.widget === "choice");
@@ -129,8 +135,7 @@ export function TableParam({ nodeId, p, value, set }: { nodeId: string; p: Param
           {fields.map((f) => {
             const off = inactive(f, i); // 该格当前不起作用：置灰，位置不变
             return (
-            // A column the server declares read-only: listed like any other, shown as it is. Its text is the user's
-            // own data (a sequence's name, a layer's), so it may be truncated.
+            // 服务器声明为只读的列：与其他列一样列出，按原样显示。
             f.widget === "fixed" ? (
               // 选项列使用其自身的名称（如「图层名」，而非 name）；其余为使用者数据（序列名、图层名），可截断
               <span className={`ptable-fixed${off ? " inactive" : ""}`} key={f.name} {...(f.options ? {} : { "data-user-data": true })}>
@@ -139,7 +144,7 @@ export function TableParam({ nodeId, p, value, set }: { nodeId: string; p: Param
             ) : (
               <span className={`ptable-cell${f.widget === "choice" ? " wide" : ""}${off ? " inactive" : ""}`} key={f.name}>
                 <fieldset className="ptable-field" disabled={off}>
-                  <Control nodeId={nodeId} p={{ ...f, widget: f.options ? "select" : f.widget }} value={row[f.name]} set={(v) => edit(i, f.name, v)}
+                  <Control nodeId={nodeId} at={`${p.name}[${i}].${f.name}`} p={{ ...f, widget: f.options ? "select" : f.widget }} value={row[f.name]} set={(v) => edit(i, f.name, v)}
                     choice={f.widget === "choice" ? cell(row) ?? undefined : undefined} />
                 </fieldset>
               </span>
@@ -155,6 +160,12 @@ export function TableParam({ nodeId, p, value, set }: { nodeId: string; p: Param
       ))}
       {p.choices_from.length > 0 && !choice && <span className="class-hint">上游算过以后，这里列出人物的关节和自动猜到的是哪个</span>}
       {!head && again}
+      {/* 「添加」：与节点上点「＋」同一个动作（graph/edit.ts addEmptyRow），末尾加一空行 = 多一个输入口 */}
+      {canAdd && (
+        <Button tone="ghost" layout="ptable-add" onClick={() => addEmptyRow(nodeId)}>
+          添加
+        </Button>
+      )}
     </div>
   );
 }

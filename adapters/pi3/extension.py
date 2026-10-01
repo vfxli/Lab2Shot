@@ -26,7 +26,7 @@ class Pi3(Extension):
         name="BSD-3-Clause（代码）+ CC BY-NC 4.0（Pi3 / Pi3X 权重）",
         url="https://github.com/yyfz/Pi3#-license",
         summary=(
-            "非商用，仅限研究：Pi3 和 Pi3X 权重均为 CC BY-NC 4.0（严格非商用，再分发须保留此限制）。"
+            "非商用：Pi3 和 Pi3X 权重均为 CC BY-NC 4.0（严格非商用，再分发须保留此限制）。"
             "代码主体 BSD-3-Clause 可商用，但其中的 RoPE 位置编码文件 pi3/models/layers/pos_embed.py 来自 Naver DUSt3R/CroCo，"
             "是 CC BY-NC-SA 4.0 非商用；DINOv2 部分 Apache-2.0，PRoPE 部分 MIT。"
             "（Pi3 的 Hugging Face 模型卡标签写的是 bsd-2-clause，但正文写明商用须联系作者，以仓库 README 的许可表为准）"

@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { adminApi, SettingsRefused, type SettingDef, type SettingsView, type SettingValue, type StatusRow } from "../api/admin";
+import { same as sameJson, type Json } from "../model/graphPatch";
+import { adminApi, SettingsRefused, type SettingDef, type SettingValue, type StatusRow } from "../api/admin";
 import type { SettingsPageEntry } from "../api";
 import { shown } from "../api/applies";
 import { useSignedIn } from "../state/session";
 import { Section, useAdmin } from "./common";
 import { ListField } from "./ListField";
-import { usePoll } from "../platform/poll";
-import { reasonOf } from "../messages/message";
 import { Button, Segmented, Switch } from "../ui/Button";
 import { Checks } from "./userFields";
 
@@ -27,7 +26,7 @@ const kept: Record<string, Draft> = {}; // page -> its unsaved changes, which ou
 
 /** What a field holds for a value (a list as its rows, a multi as its ticked options). */
 const shownAs = (v: SettingValue): Field => (typeof v === "boolean" ? v : Array.isArray(v) ? [...v] : String(v));
-const same = (a: SettingValue | undefined, b: SettingValue) => JSON.stringify(a) === JSON.stringify(b);
+const same = (a: SettingValue | undefined, b: SettingValue) => sameJson(a as Json | undefined, b as Json);
 
 /** A list's rows that repeat an earlier row (blank rows are left out, as the value leaves them out). */
 function repeats(rows: string[]): Set<number> {
@@ -89,14 +88,11 @@ export function SettingsPage({ page, cards, children }: { page: SettingsPageEntr
 }
 
 function SettingsForm({ page, cards }: { page: string; cards?: React.ReactNode }) {
-  const { problem, refreshOverview } = useAdmin();
-  const { data: loaded } = usePoll(adminApi.settings, null, { onError: (e) => problem(reasonOf(e)) });
-  const [view, setView] = useState<SettingsView | null>(null);
+  const { problem, refreshOverview, settings: view, settingsSaved: setView } = useAdmin();
   const [draft, setDraftState] = useState<Draft>(kept[page] ?? {});
   const [refused, setRefused] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  useEffect(() => void (loaded && setView(loaded)), [loaded]);
   useEffect(() => {
     if (!saved) return;
     const t = window.setTimeout(() => setSaved(false), 6000); // "已保存" is shown briefly
@@ -228,7 +224,7 @@ function SettingRow({ s, pending, field, off, problem, onEdit }: {
   problem: string;
   onEdit: (raw: Field) => void;
 }) {
-  const tip = s.tip; // 服务器生成的悬停说明（config.py Setting.describe）：设置项的作用及其默认值
+  const tip = s.tip; // the hover text the server writes (config.py Setting.describe): what the setting does, and its default
   const isDefault = same(parse(s, field).value, s.default);
   let control: React.ReactNode;
   const fixed = !s.admin || !!s.locked; // shown, not changed here

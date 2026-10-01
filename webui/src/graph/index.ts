@@ -18,7 +18,9 @@ export * from "./actions";
  * per-node cook status/progress) so a cooking node's frequent progress ticks do not rebuild every other node's prepared object;
  * GraphNode reads its own live status, progress and delivery through its own small selectors instead. Its ports,
  * cost and licence are the last status reply's (graph/rules.ts: kept while an edit waits for the next one); its
- * values, sources and parameter availability only the trusted results'. */
+ * values and sources only the trusted results'. Its parameters' availability (applies: which rows are greyed) is the
+ * last answer too, the same one the parameter panel, the buttons and the node's rows read (`s.results[id].applies`):
+ * one answer for one question, kept until the next reply so nothing un-greys and greys again while it comes. */
 
 interface PreparedOutput {
   name: string;
@@ -27,8 +29,9 @@ interface PreparedOutput {
   list: boolean; // it gives a list (a square socket, a double wire)
   ghost: boolean;
   waits: string;
-  // 该输出口当前是否不可用及其原因（由服务器计算，nodes/port.py Port.applies）：置灰、
-  // 无法连出，连线被拒时说明原因（解算器接入相机后，其「相机」输出仅原样透传）
+  // whether this output is unavailable now and why (computed by the server, nodes/port.py Port.applies): greyed, it
+  // cannot be wired out of, and a refused wire says why (once a solver has a camera wired in, its 「相机」 output only
+  // passes that camera through)
   inactive?: PortDef["inactive"];
 }
 
@@ -42,7 +45,7 @@ interface PreparedNode extends Record<string, unknown> {
   stored?: Record<string, unknown>;
   inputs: PortDef[];
   outputs: PreparedOutput[];
-  wired: Record<string, { from: string; node: string; source: string; value: string } | null>;
+  wired: Record<string, { from: string; node: string; source: string; value: string; fallback: boolean } | null>;
   values?: Record<string, string>;
   sources?: Record<string, string>;
   applies?: Availability; // its parameters' availability (applies.ts)
@@ -53,7 +56,8 @@ interface PreparedNode extends Record<string, unknown> {
 
 export type PreparedGNode = Node<PreparedNode, "l2s">;
 
-type Shape = GraphState & GraphView & { results: Snapshot["results"] };
+// `answered`: every node's last answer, trusted or not (only its `applies` is read from it, see above)
+type Shape = GraphState & GraphView & { results: Snapshot["results"]; answered: Snapshot["results"] };
 
 /** Its outputs, and a ghost for each wire from one that is not there: waiting for its parameter (what brings it), or gone. */
 function shownOutputs(s: Shape, id: string): PreparedOutput[] {
@@ -74,12 +78,13 @@ function buildPrepared(s: Shape, id: string): PreparedNode {
   const ports = pendingPorts(s, id);
   const carried = Object.fromEntries(ports.outputs.filter((p) => p.type.startsWith("scene")).map((p) => [p.name, p.kinds ?? []]));
   const wired: PreparedNode["wired"] = {};
-  // 常驻参数口（wired_ports）同样需要查询：它们不在文件的 promoted 中，若只取 promoted，节点上将不会显示「← AnyCalib」
+  // the standing parameter inputs (wired_ports) are looked up as well: they are not in the file's `promoted`, and taking
+  // only `promoted` would leave 「← AnyCalib」 off the node
   for (const name of paramPortNames(s.nodeDefs[n.data.typeId], n.data.promoted)) wired[name] = wiredFrom(s, id, name);
   return {
     typeId: n.data.typeId, label: n.data.label, params: n.data.params, promoted: n.data.promoted, picked: n.data.picked,
     onNode: n.data.onNode, stored: n.data.stored,
-    inputs: inputsOf(s, id), outputs: shownOutputs(s, id), wired, values: results?.values, sources: results?.sources, applies: results?.applies,
+    inputs: inputsOf(s, id), outputs: shownOutputs(s, id), wired, values: results?.values, sources: results?.sources, applies: s.answered[id]?.applies,
     cost: costOf(s, id), commercial: commercialOf(s, id), carried,
   };
 }
@@ -106,6 +111,7 @@ export function useComposedNodes(): { nodes: PreparedGNode[]; edges: ReturnType<
       edges,
       nodeDefs: getNodeDefs(),
       results: trusted ? results : {},
+      answered: results,
       reply,
       catalog,
     };

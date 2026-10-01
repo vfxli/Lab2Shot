@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from lab2shot.sdk import (Official, measured_param, MissingFrames, RawOutput, NodeDef, NodeParams, P, Port, frame_maps, Cost,
+from lab2shot.sdk import (rgb_port, Official, measured_param, MissingFrames, Job, WorkerNode, NodeParams, P, Port, frame_maps, Cost,
                           Licence, Measured)
 
 # VIPSeg's classes (upstream videomt/data_video/datasets/vps.py): (id, name, Chinese name, thing). Things are countable
@@ -52,7 +52,8 @@ VIPSEG = (
 )
 
 
-class PanopticSegment(NodeDef):
+class PanopticSegment(WorkerNode):
+    missing_frames = MissingFrames.SKIP
     id = "videomt.panoptic"
     # 上游 videomt.py forward()：images -> outputs["pred_logits"]（每个查询的类别）、outputs["pred_masks"]
     official = Official(
@@ -64,7 +65,7 @@ class PanopticSegment(NodeDef):
     version = 2  # a query's class averaged over the frames it is an object on
     # docs.md + worker.py：官方 videomt_online（窗口 1）逐帧往后看，整幅画面每个像素都有归属；
     # 边缘精度是短边约 720 像素的网络精度，要软边再接抠像
-    inputs = (Port("image", "image.3", "RGB"),)
+    inputs = (rgb_port(),)
     outputs = (Port("panoptic", "image.1", "全景分割"), Port("classes", "image.1", "类别分割"))
     runtime = "videomt"
     # vram_gb: RTX 4090 上测得（Tears of Steel 1280×534，默认处理尺寸 720，全新进程）：PyTorch 峰值 1.77 GB，整卡上涨 2.47 GB（含约 0.47 GB CUDA 上下文），48 帧和 192 帧一样、不随帧数涨
@@ -79,14 +80,16 @@ class PanopticSegment(NodeDef):
         min_coverage: float = P(0.8, label="完整度门槛", ge=0.1, le=1.0, group="分割")
 
     @classmethod
-    def cook(cls, ctx):
+    def prepare(cls, ctx) -> Job:
+        return Job(ctx.input("image"), extra={"things": [c[0] for c in VIPSEG if c[3]]})
+
+    @classmethod
+    def convert(cls, ctx, raw, job):
         import json
 
         import numpy as np
 
-        image = ctx.input("image")
-        things = [c[0] for c in VIPSEG if c[3]]
-        raw = RawOutput(ctx.run_worker(image, extra={"things": things}), MissingFrames.SKIP)
+        image = job.plate
         segments = json.loads(raw.file("segments.json").read_text(encoding="utf-8"))  # never empty: the worker ends with nothing()
         numbered: dict[int, int] = {}
         panoptic = []
