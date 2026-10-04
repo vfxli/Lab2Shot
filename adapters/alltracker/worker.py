@@ -117,13 +117,13 @@ def main(job_path: str) -> None:
         queries = None
     device = torch.device("cuda")
 
-    run.stage("读取画面")
+    run.stage("read_frames")
     video = pt.Frames(frames.paths, (w, h))
-    video.preload(lambda d, t: progress(d, t, "读取画面"))
-    model = run.model("AllTracker 模型", load_model, checkpoint, device)
+    video.preload(lambda d, t: progress(d, t, "read_frames"))
+    model = run.model("load_model", load_model, checkpoint, device, stage_params={"model": "AllTracker"})
 
     ref, n = p.query_index, len(frames)
-    run.stage(f"稠密跟踪（{w}×{h}，参考帧 {numbers[ref]}）")
+    run.stage("dense_track_at", width=w, height=h, frame=numbers[ref])
     t0 = time.time()
 
     def sweep(order: list[int]) -> tuple[torch.Tensor, torch.Tensor]:
@@ -141,18 +141,18 @@ def main(job_path: str) -> None:
         return torch.cat([itself[0], flows[0, 1:]]), torch.cat([itself[1], visconf[0, 1:, 0] * visconf[0, 1:, 1]])
 
     after, score_after = sweep(list(range(ref, n)))
-    progress(n - ref, n, "稠密跟踪")
+    progress(n - ref, n, "dense_track")
     before, score_before = sweep(list(range(ref, -1, -1)))  # the frames before the reference: over the reversed shot
     flows = torch.cat([before.flip(0)[:-1], after])  # [n, 2, h, w]: reference -> each frame
     scores = torch.cat([score_before.flip(0)[:-1], score_after])
     track_s = time.time() - t0
     run.frame_seconds.extend([track_s / n] * n)  # the tracking is one pass over the shot: shared out per frame
 
-    run.stage("反求 ST-map")
+    run.stage("invert_stmap")
     to_plate = torch.tensor([width / w, height / h], device=device)
     clicked = {int(t) for t in queries.t if t != ref} if queries is not None else set()  # keep their frames' inverse
     inverse = {}
-    for i, (f, _) in run.each(frames.pairs, "反求 ST-map"):
+    for i, (f, _) in run.each(frames.pairs, "invert_stmap"):
         pos, trust = invert(flows[i].to(device), scores[i].to(device))
         corr.save_frame(job.raw_dir, f, (pos * to_plate).cpu().numpy(), trust.cpu().numpy())
         if i in clicked:
@@ -167,7 +167,7 @@ def sample_tracks(job, queries: pt.Queries, flows: torch.Tensor, scores: torch.T
     clicked on another frame is first taken back to the reference by that frame's inverse) -> raw/tracks.npz."""
     device, n = to_plate.device, len(numbers)
     width, height = job.width, job.height
-    stage("取样 2D 跟踪点")
+    stage("sample_tracks")
     q = torch.from_numpy(queries.xy).to(device) / to_plate  # processing pixels
     on_ref = q.clone()
     for k in np.nonzero(queries.t != ref)[0]:  # a point clicked on another frame: back to the reference first

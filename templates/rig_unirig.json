@@ -2,72 +2,108 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "8cbfb9c8c9f92f6135f8ab42da03e11a",
-  "name": "自动绑定 · UniRig",
-  "intro": "UniRig 是自动 rig 的统一框架，用大型自回归模型给各类三维资产生成骨架、分配蒙皮权重。这张卡把导入的静止模型绑好骨架和权重，交付 USD。",
+  "name": {
+   "zh": "自动装备 · UniRig",
+   "en": "Auto Rig · UniRig"
+  },
+  "intro": {
+   "zh": "UniRig 是自动装备的统一框架，用大型自回归模型给各类三维资产生成骨架、分配蒙皮权重。这张卡把导入的静止网格绑好骨架和蒙皮权重，交付 USD。",
+   "en": "UniRig is a unified framework for automatic rigging that uses a large autoregressive model to generate skeletons and assign skin weights for all kinds of 3D assets. This card rigs the imported static mesh with a skeleton and skin weights and delivers USD."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-20T12:00:00",
-  "deliverable": "auto_rig",
+  "deliverable": "retarget_rig",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "模型文件",
+   "label": {
+    "zh": "模型文件",
+    "en": "Model File"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
-   "name": "input_models",
-   "label": "要绑定的网格",
+   "name": "read_models",
+   "label": {
+    "zh": "要绑定的网格",
+    "en": "Mesh to Rig"
+   },
    "target": "read.models",
    "show_on_change": true
   },
   {
-   "name": "influences",
-   "label": "影响骨骼数",
+   "name": "rig_influences",
+   "label": {
+    "zh": "影响骨骼数",
+    "en": "Influences per Point"
+   },
    "target": "rig.influences"
   },
   {
-   "name": "seed",
-   "label": "随机种子",
+   "name": "rig_seed",
+   "label": {
+    "zh": "随机种子",
+    "en": "Seed"
+   },
    "target": "rig.seed"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "character",
-     "label": "角色名",
+     "name": "rig_character",
+     "label": {
+      "zh": "角色名",
+      "en": "Character Name"
+     },
      "target": "rig.character"
     },
     {
      "name": "file_name",
-     "label": "文件名",
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
      "target": "usd.name"
     },
     {
      "name": "unit",
-     "label": "单位",
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
      "target": "usd.unit"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "计算",
+     "word": "cook",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -76,8 +112,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.import_usd",
-   "label": "导入 USD",
+   "type": "usd.import",
    "params": {
     "path": "",
     "camera": "",
@@ -95,7 +130,6 @@
   {
    "id": "rig",
    "type": "unirig.auto_rig",
-   "label": "UniRig 自动绑定",
    "params": {
     "influences": 4,
     "character": "",
@@ -103,13 +137,12 @@
    },
    "ui": {
     "x": 400,
-    "y": 50
+    "y": 70
    }
   },
   {
    "id": "usd",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "type": "usd.output",
    "params": {
     "name": "rig",
     "format": "usd",
@@ -118,7 +151,7 @@
    },
    "ui": {
     "x": 800,
-    "y": 22,
+    "y": 42,
     "on_node": [
      "name",
      "unit"
@@ -127,12 +160,11 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
     "x": 1200,
-    "y": 36
+    "y": 56
    }
   }
  ],

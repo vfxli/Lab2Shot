@@ -323,15 +323,15 @@ def main(job_path: str) -> None:
     weights = job.weights_dir
     os.chdir(repo)  # the repo's modules append "." / ".." to sys.path
 
-    models = run.model("OpenDelight 模型", Models, repo, weights, use_enhancer)
+    models = run.model("load_model", Models, repo, weights, use_enhancer, stage_params={"model": "OpenDelight"})
 
-    run.stage("检测面部")
+    run.stage("detect_faces")
     lms: dict[int, np.ndarray] = {}
     sizes: dict[int, tuple] = {}
     thumbs: dict[int, np.ndarray] = {}
     prev_box = None
     many = []
-    for _n, (frame, path) in run.each(frames, "检测面部"):
+    for _n, (frame, path) in run.each(frames, "detect_faces"):
         bgr = read_frame(path, order="bgr")
         sizes[frame] = bgr.shape[:2]
         thumbs[frame] = thumbnail(bgr)
@@ -350,11 +350,11 @@ def main(job_path: str) -> None:
     if smooth and len(lms) > 2:
         lms, smoothed = smooth_landmarks([f for f, _ in frames], lms, sizes, thumbs)
 
-    run.stage("去光照")
+    run.stage("delight")
     delight_started = time.time()
     raw = job.raw_dir
     with Writer(threads=2, max_pending=8) as writer:
-        for _n, (frame, path) in run.each(frames, "去光照"):
+        for _n, (frame, path) in run.each(frames, "delight"):
             t = run.frame_started()  # only frames with a face count towards the time per frame
             if frame in lms:
                 bgr = read_frame(path, order="bgr")

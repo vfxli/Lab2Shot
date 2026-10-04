@@ -1,0 +1,62 @@
+# This extension's words and messages in English (the same keys as zh.toml).
+
+[stage]
+background_matte = "Background Matte"
+background_matte_rvm = "Background Matte (Robust Video Matting)"
+solve = "Solve"
+
+[node."faceanything.face_maps"]
+subtitle = "Face Maps"
+description = "Picture → per-pixel face depth, canonical face coordinates, a face mask, a camera and a point cloud. Suits close-ups where the face fills much of the frame; processed at about 504 pixels on the long side. The depth is in the model's own scale and has to be scaled by hand. For expression curves that can drive a character, use mediapipe_face.face_solve or smirk.face_solve."
+
+[node."faceanything.face_maps".param.mode]
+label = "Mode"
+
+[node."faceanything.face_maps".param.mode.option]
+chunk = "Chunks"
+one_by_one = "Frame by Frame"
+
+[node."faceanything.face_maps".param.max_frames]
+label = "Max Frames per Chunk"
+
+[node."faceanything.face_maps".param.max_frames.option]
+8 = "8"
+16 = "16"
+24 = "24"
+
+[node."faceanything.face_maps".param.resolution]
+label = "Resolution"
+
+[node."faceanything.face_maps".param.resolution.option]
+504 = "Standard 504"
+
+[node."faceanything.face_maps".port.image]
+label = "RGB"
+
+[node."faceanything.face_maps".port.canonical]
+label = "Canonical Coordinates"
+
+[node."faceanything.face_maps".port.mask]
+label = "Face Mask"
+
+[node."faceanything.face_maps".stage]
+write_maps = "Write Canonical Coordinates and Face Mask"
+
+[node."faceanything.face_maps".official]
+note = "Face Mask is upstream's foreground mask (predict.py:19 valid); upstream makes it itself with Robust Video Matting (run_inference.py:--remove-background, src/faceanything/background.py:18-61 generate_masks), and our worker does the same step. Of the camera only its intrinsics are used: upstream defaults to monocular=True and replaces the predicted extrinsics with the identity (predict.py:42-45)"
+
+[extension.faceanything]
+summary = "A unified feed-forward model for high-fidelity 4D face reconstruction and dense tracking from any image sequence, by predicting canonical face coordinates per pixel"
+
+[extension.faceanything.license]
+name = "CC BY-NC 4.0 (non-commercial)"
+summary = "Non-commercial: code and weights are both CC BY-NC 4.0 and cannot be used in commercial production (including shots of commercial projects). The model's backbone, Depth Anything 3 Giant, is CC BY-NC 4.0 too, and the training data comes from FLAME model fits (the FLAME licence also allows only non-commercial research); for a commercial licence, contact each author. The background matte uses Robust Video Matting (code and weights GPL-3.0: commercial use allowed, but a modified version must be distributed open source under GPL-3.0 as well). Note: the original repository's pyproject.toml says Apache-2.0; the CC BY-NC 4.0 of the repository's LICENSE file and of the Hugging Face weights page is what holds"
+
+[extension.faceanything.weight.faceanything]
+note = "FaceAnything model (Depth Anything 3 Giant backbone + canonical coordinate head, about 15 GB; CC BY-NC 4.0)"
+
+[extension.faceanything.weight.rvm-code]
+note = "Robust Video Matting network code (GPL-3.0)"
+
+[extension.faceanything.weight.rvm-resnet50]
+note = "Robust Video Matting ResNet-50 background matte weights (GPL-3.0)"

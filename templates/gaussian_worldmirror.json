@@ -1,0 +1,290 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "2583f22510dd5508ab8313cfb7243e8d",
+  "name": {
+   "zh": "3D 高斯 · WorldMirror 2.0",
+   "en": "3D Gaussians · WorldMirror 2.0"
+  },
+  "intro": {
+   "zh": "静态场景多视角高斯与摄影机，预览、USD 与 Inria PLY 交付。HY-World 2.0 与 WorldMirror 2.0 使用同一官方重建模型。",
+   "en": "Multi-view Gaussians and cameras for static scenes, with preview, USD and Inria PLY delivery. HY-World 2.0 and WorldMirror 2.0 use the same official reconstruction model."
+  },
+  "author": "Lab2Shot",
+  "created": "2026-10-01T20:00:00",
+  "updated": "2026-10-03T01:00:00",
+  "deliverable": "gaussian",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "重建",
+    "en": "Reconstruct"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "solve_step",
+     "label": {
+      "zh": "步长",
+      "en": "Step"
+     },
+     "target": "solve.step"
+    },
+    {
+     "name": "solve_max_views",
+     "label": {
+      "zh": "最多视角",
+      "en": "Max Views"
+     },
+     "target": "solve.max_views"
+    },
+    {
+     "name": "solve_resolution",
+     "label": {
+      "zh": "处理分辨率",
+      "en": "Processing Resolution"
+     },
+     "target": "solve.resolution"
+    },
+    {
+     "name": "scale_cm",
+     "label": {
+      "zh": "尺度",
+      "en": "Scale"
+     },
+     "target": "solve.unit_cm"
+    },
+    {
+     "name": "cook_solve",
+     "label": {
+      "zh": "重建并预览",
+      "en": "Reconstruct and Preview"
+     },
+     "target": "solve.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "usd_name",
+     "label": {
+      "zh": "文件名（场景 USD）",
+      "en": "File Name (Scene USD)"
+     },
+     "target": "usd.name"
+    },
+    {
+     "name": "ply_name",
+     "label": {
+      "zh": "文件名（高斯 PLY）",
+      "en": "File Name (Gaussian PLY)"
+     },
+     "target": "ply.name"
+    },
+    {
+     "name": "unit",
+     "label": {
+      "zh": "单位（USD）",
+      "en": "Units (USD)"
+     },
+     "target": "usd.unit"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "word": "pack",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
+     "target": "deliver.download"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "file",
+   "params": {
+    "path": "",
+    "colorspace": null,
+    "first": null,
+    "last": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 405
+   }
+  },
+  {
+   "id": "solve",
+   "type": "hyworld2.reconstruct",
+   "params": {
+    "resolution": 952,
+    "step": 1,
+    "unit_cm": 100,
+    "max_views": 32
+   },
+   "ui": {
+    "x": 400,
+    "y": 385
+   }
+  },
+  {
+   "id": "usd",
+   "type": "usd.output",
+   "params": {
+    "name": "gaussian_scene",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24
+   },
+   "ui": {
+    "x": 865,
+    "y": 0
+   }
+  },
+  {
+   "id": "ply",
+   "type": "ply.output_gaussian",
+   "params": {
+    "name": "gaussian",
+    "unit": "m"
+   },
+   "ui": {
+    "x": 816,
+    "y": 367
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "output",
+   "params": {},
+   "ui": {
+    "x": 1225,
+    "y": 381
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "solve",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "camera"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "gaussians"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "gaussians"
+   ],
+   "to": [
+    "ply",
+    "gaussians"
+   ]
+  },
+  {
+   "from": [
+    "usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "ply",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "name": "3D 高斯 · HY-World 2.0 / WorldMirror 2.0"
+}

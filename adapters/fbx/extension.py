@@ -1,7 +1,7 @@
 """FBX (.fbx): read cameras, models and skinned characters out of FBX files, write them for Maya and Unreal.
 
 The Autodesk FBX SDK is not on any package index: the user downloads it and accepts Autodesk's licence in
-「手动下载」 (the item FBX_SDK and its installer FbxSdk are declared in this file), which installs it under
+the manual downloads (the item FBX_SDK and its installer FbxSdk are declared in this file), which installs it under
 third_party/_fbx_sdk/<version>/.
 Installing this extension compiles a small pybind11 module (fbxio.cpp, build.py) against that SDK into the
 extension's own conda-forge environment: Python 3.12, numpy, and the libxml2 2.x the SDK links to (the machine's
@@ -15,8 +15,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from lab2shot.messages import Msg
-from lab2shot.sdk import (BASIC, THIRD_PARTY_DIR, EnvSpec, Extension, GitSource, Install, LicenseInfo, ManualError, ManualItem,
+from lab2shot.sdk import (BASIC, Msg, THIRD_PARTY_DIR, EnvSpec, Extension, GitSource, Install, LicenseInfo, ManualError, ManualItem,
                           manual_weight, open_member, unwrap_licence)
 
 PYBIND11_URL = "https://github.com/pybind/pybind11.git"
@@ -101,9 +100,9 @@ class FbxSdk(Install):
 
 # The file the user downloads from Autodesk and accepts the licence of: declared by this extension, never named by the core
 FBX_SDK = ManualItem(
-    key="fbx_sdk", title=TITLE, what="读写 FBX 文件的开发库", page="https://aps.autodesk.com/developer/overview/fbx-sdk",
-    download="FBX SDK 的 Linux 版（gcc）", filename="fbx2020310_fbxsdk_gcc_linux.tar.gz",
-    note="下载前后都需要同意 Autodesk 的许可协议", markers=("fbx*_fbxsdk_linux",), install=FbxSdk(),
+    key="fbx_sdk", page="https://aps.autodesk.com/developer/overview/fbx-sdk",
+    filename="fbx2020310_fbxsdk_gcc_linux.tar.gz",
+    markers=("fbx*_fbxsdk_linux",), install=FbxSdk(),
     alone=("fbx2020310_fbxsdk_linux",), looks_like=("*fbx*sdk*",),
     hint=Msg("W-MANUAL-FBXPLATFORM"))
 
@@ -112,20 +111,14 @@ class Fbx(Extension):
     name = "fbx"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "Autodesk FBX SDK"
-    summary = "Autodesk 的免费 C++ SDK：用它编写插件、转换器和应用，借 FBX 技术转换和交换三维资产"
     format_module = True  # reads and writes scene formats
     homepage = "https://aps.autodesk.com/developer/overview/fbx-sdk"
     source = GitSource(url=PYBIND11_URL, commit=PYBIND11_COMMIT)
     license = LicenseInfo(
         tag=BASIC,
-        name="Autodesk FBX SDK License",
         url="https://www.autodesk.com/developer-network/platform-technologies/fbx-sdk-license",
-        summary=(
-            "FBX SDK 属于 Autodesk，由你在「手动下载」里看过并同意它的许可协议后安装（协议 1.1.1 条允许用于开发、研究、"
-            "内部、教育或商业用途；SDK 本身不得再分发）。编译用的 pybind11 为 BSD-3。安装时编译一个小模块，"
-            "需要本机 C++ 编译器（config/local.toml 的 build 段 cxx）"
-        ),
     )
+    generative = False
     env = EnvSpec(
         python="3.12",
         # conda-forge: the SDK's libfbxsdk needs libxml2.so.2 (libxml2 2.x); numpy for the worker

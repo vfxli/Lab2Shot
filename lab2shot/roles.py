@@ -37,6 +37,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from . import i18n
 from .availability import CAPABILITY, Cond
 from .messages import Msg
 
@@ -46,58 +47,70 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class Capability:
-    """One capability: the band it is ticked under in 后台「二级管理员权限」, its short name (one line, no brackets),
-    and what holding it lets one do: the sentence the refusal message, the audit line and the tooltip all use."""
+    """One capability: the band it is ticked under in the back office's deputy rights sheet, and, in the catalogue
+    (lab2shot/i18n/<lang>/roles.toml, read in the language now), its short name (right.<id>.label: one line, no
+    brackets) and what holding it lets one do (right.<id>.what: the sentence the refusal message, the audit line and
+    the tooltip all use). The band's name: right.band.<band>."""
 
-    group: str
-    label: str
-    what: str
+    id: str
+    band: str
 
+    @property
+    def group(self) -> str:
+        """Its band's name."""
+        return i18n.t(f"right.band.{self.band}")
 
-def _c(group: str, label: str, what: str) -> Capability:
-    return Capability(group, label, what)
+    @property
+    def label(self) -> str:
+        return i18n.Word(f"right.{self.id}.label")  # every language: a message says it in its reader's
+
+    @property
+    def what(self) -> str:
+        return i18n.t(f"right.{self.id}.what")
+
+    @property
+    def what_word(self) -> i18n.Word:
+        """`what` kept as its word: said in whoever's language reads it (an audit row, i18n.Word)."""
+        return i18n.Word(f"right.{self.id}.what")
 
 
 # capability -> what it lets one do. The order is the order the rights sheet lists them in; `group` bands it.
 CAPABILITIES: dict[str, Capability] = {
-    "users.manage_normal": _c("账号", "普通用户", "管理普通用户：新建、停用和启用、重设密码、改到期时间、环节和磁盘配额"),
-    "users.tags": _c("账号", "许可标签", "给账号设能用的标签（许可）：只有管理员"),
-    "users.delete": _c("账号", "删除账号", "删除账号：他的结果、上传和登录一起删掉"),
-    "admins.manage": _c("账号", "管理员", "新建、修改、删除管理员和二级管理员，改任何账号的角色，分配二级管理员的权限"),
-    "logins.view": _c("账号", "最近登录", "看自己能管的账号的最近登录"),
-    "invites.manage": _c("账号", "邀请码", "邀请码与自行注册：新建、改、停用、删除邀请码，看谁用它注册了，按邀请码或注册时间段批量停用"
-                                         "自己注册的账号（只停自己管得着的）"),
-    "terms.edit": _c("账号", "用户协议", "用户协议与隐私政策：看原文、改文字、恢复程序自带的文字（改了以后所有账号下次使用前要重新同意）"),
-    "queue.manage": _c("队列与显卡", "队列", "看所有人的队列和任务记录，取消任何人的任务，插队，开关显卡任务和计算任务；删除别人的任务、给别人的组改名要「别人的数据」"),
-    "gpu.authorize": _c("队列与显卡", "显卡授权", "授权哪些显卡接任务"),
-    "farm.cards": _c("队列与显卡", "显卡详情", "显卡：每张卡的型号、显存、架构、在跑什么，扩展包在它上面能跑 / 不能跑 / 未知，参数档位和每个节点实测的显存；没有这项权限的人，回答里就没有这些"),
-    "models.manage": _c("队列与显卡", "常驻模型", "常驻模型：看、卸载到内存、完全卸载"),
-    "feedback.reply": _c("用户反馈", "回复反馈", "看用户反馈、标记状态、回复"),
-    "feedback.delete": _c("用户反馈", "删除反馈", "删除用户反馈（连同截图和诊断资料）"),
-    "templates.create": _c("模板", "管理模板", "在「模板」弹窗里管理预设模板：文件菜单「保存为预设模板」，复制、删除、开关卡片，改名字和简介，"
-                                              "新建和整理模板的分类，把卡片拖到别的分类；关掉的模板也看得到"),
-    "menu.edit": _c("模板", "管理节点分类", "在加节点的菜单里整理节点：新建、改名、删除、排序分类，把节点拖到别的分类，改节点的名字和说明"),
-    "templates.restore": _c("模板", "找回模板", "帮用户找回他误删的模板（只能恢复，删不了）"),
-    "stats.view": _c("统计", "看统计", "看使用统计（只读）"),
-    "usage.reset": _c("统计", "统计清零", "使用统计清零和撤销"),
-    "data.others": _c("数据与节点", "别人的数据", "看、取回、改、删别人的结果和数据：输出结果、提交的节点图、上传、队列里别人的任务和组名、别人模板的回收站和永久删除、硬盘清理"),
-    "nodes.all": _c("数据与节点", "不看标签", "什么节点都能用，不看标签"),
-    "server.view": _c("服务器", "概览", "概览：内存、硬盘、服务本身的地址和启动命令"),
-    "settings.edit": _c("服务器", "服务器设置", "服务器设置：注册、账号配额、队列、显卡、内存、存储、日志、视图……（系统设置除外）"),
-    "settings.system": _c("服务器", "系统设置", "系统设置：网络（端口、访问范围、HTTPS、域名、可信代理）、安装和编译用的镜像与编译器、数据位置、"
-                                                "OCIO 配置：改了能让服务器下次安装或编译时跑别的代码、换数据的位置、信任别的来源"),
-    "settings.notice": _c("服务器", "通知条", "管理员通知：编辑器和后台顶部的通知条（文字、颜色、开关）"),
-    "server.restart": _c("服务器", "重启服务", "重启服务"),
-    "installs.run": _c("服务器", "安装扩展", "安装扩展包、看手动下载的收件文件夹"),
-    "licence.consent": _c("服务器", "同意许可", "替用户同意第三方许可协议"),
-    "db.backup_restore": _c("服务器", "数据库", "数据库：看状态、备份、检查"),
-    "security.manage": _c("服务器", "安全", "安全：可疑请求、解开封住的来源"),
-    "logs.view": _c("服务器", "日志", "服务日志；回答里看得到服务器上的文件位置"),
-    "audit.view": _c("留底与帮助", "管理留底", "管理操作留底：谁建了谁、改了谁的哪几项、重设密码、删用户、改设置、被拒绝的尝试"),
-    "openapi.view": _c("留底与帮助", "接口描述", "机器可读的 HTTP 接口描述（OpenAPI），给写插件和脚本的人"),
+    "users.manage_normal": Capability("users.manage_normal", "accounts"),
+    "users.tags": Capability("users.tags", "accounts"),
+    "users.delete": Capability("users.delete", "accounts"),
+    "admins.manage": Capability("admins.manage", "accounts"),
+    "logins.view": Capability("logins.view", "accounts"),
+    "invites.manage": Capability("invites.manage", "accounts"),
+    "terms.edit": Capability("terms.edit", "accounts"),
+    "queue.manage": Capability("queue.manage", "queue"),
+    "gpu.authorize": Capability("gpu.authorize", "queue"),
+    "farm.cards": Capability("farm.cards", "queue"),
+    "models.manage": Capability("models.manage", "queue"),
+    "feedback.reply": Capability("feedback.reply", "feedback"),
+    "feedback.delete": Capability("feedback.delete", "feedback"),
+    "templates.create": Capability("templates.create", "templates"),
+    "menu.edit": Capability("menu.edit", "templates"),
+    "templates.restore": Capability("templates.restore", "templates"),
+    "stats.view": Capability("stats.view", "stats"),
+    "usage.reset": Capability("usage.reset", "stats"),
+    "data.others": Capability("data.others", "data"),
+    "nodes.all": Capability("nodes.all", "data"),
+    "server.view": Capability("server.view", "server"),
+    "settings.edit": Capability("settings.edit", "server"),
+    "settings.system": Capability("settings.system", "server"),
+    "settings.notice": Capability("settings.notice", "server"),
+    "server.restart": Capability("server.restart", "server"),
+    "installs.run": Capability("installs.run", "server"),
+    "licence.consent": Capability("licence.consent", "server"),
+    "db.backup_restore": Capability("db.backup_restore", "server"),
+    "security.manage": Capability("security.manage", "server"),
+    "logs.view": Capability("logs.view", "server"),
+    "audit.view": Capability("audit.view", "audit"),
+    "openapi.view": Capability("openapi.view", "audit"),
 }
 
-GROUPS: tuple[str, ...] = tuple(dict.fromkeys(c.group for c in CAPABILITIES.values()))
+GROUPS: tuple[str, ...] = tuple(dict.fromkeys(c.band for c in CAPABILITIES.values()))  # the bands, in order
 
 # 二级管理员 starts with these. Only a default: once a 管理员 ticks the sheet, the `role_rights` row is what counts,
 # and 「恢复默认」 comes back here.
@@ -130,16 +143,20 @@ DEFAULTS: dict[str, frozenset[str]] = {DEPUTY_ROLE: DEPUTY}
 
 @dataclass(frozen=True)
 class Role:
+    """A role; its name and what it may do, in the catalogue: right.role.<id>.label / .tip."""
+
     id: str
-    label: str
-    tip: str
+
+    @property
+    def label(self) -> str:
+        return i18n.Word(f"right.role.{self.id}.label")  # every language: a message says it in its reader's
+
+    @property
+    def tip(self) -> str:
+        return i18n.t(f"right.role.{self.id}.tip")
 
 
-ROLES: dict[str, Role] = {r.id: r for r in (
-    Role(ADMIN, "管理员", "什么都能做：服务器、安装、数据库、所有账号和标签"),
-    Role(DEPUTY_ROLE, "二级管理员", "管理员在「用户」里分配给他的那些：默认是普通用户、队列、反馈、模板和看统计，不碰服务器、安装、数据库、标签和别的管理员"),
-    Role(USER, "普通用户", "用编辑器，只看得到自己的任务、结果、上传和反馈"),
-)}
+ROLES: dict[str, Role] = {r.id: r for r in (Role(ADMIN), Role(DEPUTY_ROLE), Role(USER))}
 DEFAULT = USER
 
 
@@ -180,7 +197,7 @@ def assignable(role: object) -> str:
     from .errors import Invalid
 
     if role not in ASSIGNABLE:
-        raise Invalid(Msg("E-RIGHTS-FIXEDROLE", role=label(str(role)),
+        raise Invalid(Msg("E-RIGHTS-FIXEDROLE", role=i18n.Both.of(lambda: label(str(role))),
                           roles=[label(r) for r in ASSIGNABLE]))
     return str(role)
 
@@ -230,8 +247,8 @@ def sheet(role: str) -> dict:
     (it never groups, counts, or names a role or a capability of its own)."""
     row = _row(role)
     on = granted(role)
-    groups = [{"label": g, "items": [{"id": k, "label": c.label, "what": c.what, "on": k in on}
-                                     for k, c in CAPABILITIES.items() if c.group == g and k not in OWNER_ONLY]} for g in GROUPS]
+    groups = [{"label": i18n.t(f"right.band.{g}"), "items": [{"id": k, "label": c.label, "what": c.what, "on": k in on}
+                                     for k, c in CAPABILITIES.items() if c.band == g and k not in OWNER_ONLY]} for g in GROUPS]
     groups = [g for g in groups if g["items"]]
     return {"role": role, "label": label(role), "tip": ROLES[role].tip, "groups": groups,
             "count": len(on), "total": len(CAPABILITIES) - len(OWNER_ONLY), "default": row is None, "default_count": len(DEFAULTS[role]),
@@ -256,13 +273,20 @@ def capabilities(role: str) -> frozenset[str]:
     return frozenset()
 
 
-def holders(capability: str) -> list[str]:
-    """The roles that hold `capability` now, by their names: what a refusal says to go and ask."""
-    return [r.label for r in ROLES.values() if capability in capabilities(r.id)]
+def holders(capability: str) -> list[i18n.Word | str]:
+    """The roles that hold `capability` now, by their words (word): what a refusal says to go and ask."""
+    return [word(r.id) for r in ROLES.values() if capability in capabilities(r.id)]
 
 
 def label(role: str) -> str:
     return ROLES[role].label if role in ROLES else role
+
+
+def word(role: str) -> i18n.Word | str:
+    """A role as a message's parameter: kept by its id (the word right.role.<id>.label), said in whoever's language
+    reads the message, so an audit row reads in its reader's language, not its writer's; a role no longer known, as
+    it was stored."""
+    return i18n.Word(f"right.role.{role}.label") if role in ROLES else role
 
 
 def setting_needs(key: str) -> str | None:

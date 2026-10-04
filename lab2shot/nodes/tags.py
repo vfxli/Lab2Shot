@@ -6,6 +6,9 @@ users may use them, and the chips a page shows on them. Derived here, in one pla
     noncommercial  非商用    its licence forbids commercial use
     research       仅限研究  its licence allows only academic research (stricter than 非商用: no production at all)
     registration   需注册    it needs a model each user must register for (SMPL, SMPL-X, MANO, FLAME: manual items)
+    generative     生成式扩散  a capability gate, not a licence class (it sits outside the STRICTNESS order): the node runs a
+                            generative diffusion model, which an account must be given on top of its licence tags. Its
+                            extension states it (Extension.generative, required), the loader stamps it on every node
 
 Where they come from:
   - an extension declares its licence class once: LicenseInfo(tag=...) (basic, commercial, noncommercial, research),
@@ -32,6 +35,7 @@ from dataclasses import dataclass
 from ..config import provide_choices
 
 BASIC, COMMERCIAL, NONCOMMERCIAL, RESEARCH, REGISTRATION = "basic", "commercial", "noncommercial", "research", "registration"
+GENERATIVE = "generative"  # a capability gate (生成式扩散), not a licence class: it never enters LICENCES or STRICTNESS
 LICENCES = (BASIC, COMMERCIAL, NONCOMMERCIAL, RESEARCH)  # the licence classes: every node has exactly one
 IMPLIED = frozenset({BASIC})  # every user has these
 ALLOWED_NEW = frozenset({COMMERCIAL})  # what a new user may use: the lowest licence risk
@@ -39,18 +43,26 @@ ALLOWED_NEW = frozenset({COMMERCIAL})  # what a new user may use: the lowest lic
 
 @dataclass(frozen=True)
 class Tag:
-    label: str
-    tip: str
+    """A tag: its words are tag.<id>.label / .tip (lab2shot/i18n), in the language now."""
+
+    id: str
     implied: bool = False  # every user has it: not something the administrator gives
 
+    @property
+    def label(self) -> str:
+        from .. import i18n
 
-TAGS: dict[str, Tag] = {
-    BASIC: Tag("基础", "Lab2Shot 自己的节点和读写文件格式的模块：每个用户都能用", implied=True),
-    COMMERCIAL: Tag("可商用", "许可证允许商业使用（仍要遵守许可证里的其他条件，比如署名）"),
-    NONCOMMERCIAL: Tag("非商用", "许可证禁止商业使用：只能用于研究、学习等非商业用途，不能用在商业项目的镜头里"),
-    RESEARCH: Tag("仅限研究", "许可证只允许学术研究：比非商用更严，不能用于任何生产"),
-    REGISTRATION: Tag("需注册", "要用每个人在官网注册后才能下载的人体、手或面部模型（SMPL、SMPL-X、MANO、FLAME），它们的许可证只许非商业的科研、教学和艺术项目"),
-}
+        return i18n.Word(f"tag.{self.id}.label")  # every language: messages say it in their reader's
+
+    @property
+    def tip(self) -> str:
+        from .. import i18n
+
+        return i18n.t(f"tag.{self.id}.tip")
+
+
+TAGS: dict[str, Tag] = {t.id: t for t in (Tag(BASIC, implied=True), Tag(COMMERCIAL), Tag(NONCOMMERCIAL), Tag(RESEARCH),
+                                          Tag(REGISTRATION), Tag(GENERATIVE))}
 
 
 def account_choices() -> tuple[tuple[str, str], ...]:
@@ -70,11 +82,13 @@ def describe() -> dict[str, dict]:
 def node_tags(node_type) -> frozenset[str]:
     """A node type's tags: its licence class (its own licence, else its project's, never less strict than the data it
     uses: DATA_LICENCES of its own and its extension's `uses`) and what its project brings (nodes/services.py
-    ProjectFacts, stamped by the extension loader)."""
+    ProjectFacts, stamped by the extension loader), plus the capability gates (its extension's generative, in ProjectFacts.tags; NodeDef.capability_tags,
+    e.g. 生成式扩散: judged by may() like the rest, but never part of the licence strictness order)."""
     ext = getattr(node_type.project, "extension", None)
     uses = (*node_type.licence.uses, *(ext.license.uses if ext is not None else ()))
     cls = min([node_type.licence.tag or node_type.project.licence, *(DATA_LICENCES[u] for u in uses)], key=STRICTNESS.index)
-    return frozenset({cls, *node_type.project.tags, *({REGISTRATION} if node_type.licence.registration else ())})
+    return frozenset({cls, *node_type.project.tags, *node_type.capability_tags,
+                      *({REGISTRATION} if node_type.licence.registration else ())})
 
 
 def commercial(tags: frozenset[str]) -> bool:

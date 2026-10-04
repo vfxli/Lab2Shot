@@ -1,0 +1,95 @@
+# NVIDIA ViPE 扩展自己的界面字和消息（中文）。
+
+# ---- 解算摄影机（worker.py）
+"E-VIPE-PRESET" = "ViPE 的配置 {preset} 要用 {instance} / {depth} / {post}，不是这个扩展包安装的模型：这次没有计算。扩展包的代码和 ViPE 版本对不上，管理员重新执行 lab2shot ext install vipe"
+"W-VIPE-UNCONVERGED.other" = "片段太短，ViPE 的 SLAM 没有收敛：只选出 {keyframes} 个关键帧，少于它开始优化需要的 {warmup} 个。解出的摄影机轨迹会塌成很短一段、焦距停在初始估计附近，都不可靠。把片段加长（让镜头走出更多关键帧），或在「已知焦距」填真实焦距"
+"W-VIPE-UNCONVERGED.app.other" = "片段太短，ViPE 的 SLAM 没有收敛：只选出 {keyframes} 个关键帧，少于它开始优化需要的 {warmup} 个。解出的摄影机轨迹会塌成很短一段、焦距停在初始估计附近，都不可靠。把片段加长，让镜头走出更多关键帧"
+"W-VIPE-UNCONVERGEDFOCAL.other" = "片段太短，ViPE 的 SLAM 没有收敛：只选出 {keyframes} 个关键帧，少于它开始优化需要的 {warmup} 个。焦距用的是填的值，但解出的摄影机轨迹会塌成很短一段，不可靠。把片段加长，让镜头走出更多关键帧"
+"W-VIPE-FOCALUNSETTLED.other" = "片段偏短，ViPE 只选出 {keyframes} 个关键帧（少于 {settle} 个时还没有中途校正过焦距）：摄影机轨迹可以用，但自动估的焦距可能偏差很大。知道焦距就在「已知焦距」填上，或把片段加长"
+"W-VIPE-FOCALUNSETTLED.app.other" = "片段偏短，ViPE 只选出 {keyframes} 个关键帧（少于 {settle} 个时还没有中途校正过焦距）：摄影机轨迹可以用，但自动估的焦距可能偏差很大。把片段加长，让镜头走出更多关键帧"
+"W-VIPE-ZOOM" = "接进来的摄影机在变焦（焦距 {low:.0f}–{high:.0f} px）：ViPE 只能用一组固定内参，这次按中位数 {used:.0f} px 算，焦距变化大的那几段深度和点会不准"
+"W-VIPE-PRINCIPAL" = "ViPE 解出的主点不在画面中心：cx={cx:.1f} cy={cy:.1f} px（画面中心是 {center_x:.1f}, {center_y:.1f}）"
+
+# ---- 深度（「ViPE 深度贴图」nodes.py / worker.py）
+"E-VIPE-NOPOINTS" = "「点云」口上这份点云一个点都没有：ViPE 的深度贴图要靠 SLAM 解出来的点定尺度，没有点就算不出来。把「ViPE 摄影机解算」的「点云」口接到这里"
+"N-VIPE-NOOBJECTS" = "没接「物体分割」：深度贴图照常算，但画面里走动的人、车也参与了深度对齐，动的地方可能不准。把「ViPE 摄影机解算」的「物体分割」口接过来就和官方默认跑法一致"
+"E-VIPE-NOSLAMMAP" = "ViPE 解算完没有交出 SLAM 地图：「点云」口交不出结果，「ViPE 深度贴图」也就没法接。扩展包的代码和 ViPE 版本对不上，管理员重新执行 lab2shot ext install vipe"
+"E-VIPE-NOCAMERA" = "「摄影机」口上没有摄影机：「ViPE 深度贴图」要接「ViPE 摄影机解算」解出来的那台摄影机才能算深度贴图"
+"E-VIPE-CAMFRAMES.other" = "接进来的摄影机有 {camera} 帧，这段画面有 {frames} 帧：两边对不上，深度贴图算不出来。摄影机和画面要来自同一段镜头"
+"E-VIPE-POINTSBEHIND" = "接进来的「点云」和「摄影机」不在同一个世界里：每个关键帧只有 {share:.0%} 的点在它那台摄影机前方，ViPE 用不上这些点定深度尺度，算出来的深度会悄悄退回没有 SLAM 提示的结果。「点云」和「摄影机」要接同一个「ViPE 摄影机解算」的两个输出"
+
+[node."vipe.camera_solve"]
+subtitle = "摄影机解算"
+description = "画面 → 每帧摄影机、SLAM 解出来的那些三维点，以及它解算时分出来的运动物体（NVIDIA ViPE）。解算前它本来就要把走动的人、车、动物分出来遮掉，那份分割一并交出来：接「多层 EXR 输出」写成 Cryptomatte，Nuke 里按 person_01 这样的名字取；要一张遮罩就接「分割转遮罩」。摄影机要有位移（有视差）：固定机位、纯摇镜头自动焦距不可靠，知道焦距就填上「已知焦距」（或者接「AnyCalib 镜头标定」的焦距）；不支持变焦镜头，广角素材先去畸变。要和摄影机对齐的逐帧深度贴图，把「摄影机」和「点云」接到「ViPE 深度贴图」上。"
+official.note = "「摄影机」= pose（streams/base.py:68）加 intrinsics（streams/base.py:70）。「点云」= SLAMOutput.slam_map（slam/interface.py:27-38：dense_disp_xyz 每个点的位置、dense_disp_rgb 它的颜色、dense_disp_frame_inds 它属于哪个关键帧），官方自己也把它单独存盘（pose_only.py:104-106 save_slam_map，slam/interface.py:43-58 SLAMMap.save）。「物体分割」= instance（streams/base.py:71，uint8 编号图，0 是背景），每个编号的名字来自 instance_phrases（streams/base.py:72 的词表），官方 save_artifacts 存的就是这两样（vipe/utils/io.py:359-380）"
+
+[node."vipe.camera_solve".param.mode]
+label = "方式"
+option.pose_only = "标准"
+option.pose_only_long = "长镜头"
+
+[node."vipe.camera_solve".port.camera]
+label = "摄影机"
+
+[node."vipe.camera_solve".port.points]
+label = "点云"
+help = "ViPE 解算时 SLAM 建出来的三维点，每个关键帧一份（上游的 slam_map）。接「ViPE 深度贴图」算深度贴图要的就是它；长镜头方式为省内存不建地图，此口为空"
+
+[node."vipe.camera_solve".port.objects]
+label = "物体分割"
+
+[node."vipe.camera_solve".stage]
+write_objects = "写出运动物体分割"
+
+[node."vipe.depth"]
+subtitle = "深度贴图"
+description = "接「ViPE 摄影机解算」的摄影机和点云 → 和那台摄影机对齐的逐帧深度贴图（厘米，尺度接近真实）。这是官方流水线里位姿之后的那一步：它把 SLAM 解出来的点投到每一帧上当提示，所以「点云」必须接，光有摄影机算不出来。把「物体分割」也接上，走动的人、车就不参与深度对齐，和官方默认跑法一致。用到 UniDepth / Depth Anything 等深度贴图模型；整段镜头的画面要放进内存。"
+official.note = "「深度贴图」= metric_depth（streams/base.py:74），官方 save_depth_artifacts 存的那一样（vipe/utils/io.py:356）。标准模式走 AdaptiveDepthProcessor（processors.py:207-...），Depth Anything 3 模式走 MultiviewDepthProcessor（processors.py:376-...）；两个都只从 slam_output 读上面那三样"
+licence.note = "非商用：ViPE 代码是 Apache-2.0，但这两个模式用到的深度模型非商用：标准模式用 UniDepth-V2（CC-BY-NC-4.0）和含 Depth-Anything-V2-Base（CC-BY-NC-4.0）的 Prior-Depth-Anything；Depth Anything 3 模式用 Depth Anything 3 Giant（CC-BY-NC-4.0）。"
+
+[node."vipe.depth".param.model]
+label = "模型"
+option.default = "标准"
+option.dav3 = "Depth Anything 3"
+
+[node."vipe.depth".port.points]
+label = "点云"
+help = "「ViPE 摄影机解算」交出来的那份点云（上游的 slam_map）：深度那一步靠它定尺度"
+
+[node."vipe.depth".port.objects]
+label = "物体分割"
+help = "「ViPE 摄影机解算」分出来的运动物体：接上之后走动的人、车不参与深度对齐（官方默认就是这么跑的）。不接也算得出来，节点上会写一句没用上"
+
+[node."vipe.depth".port.depth]
+label = "深度贴图"
+
+[extension.vipe]
+summary = "从未受约束的原始视频估计摄影机内参、摄影机运动和稠密的近真实尺度深度贴图，普通镜头、广角和全景都支持；深度贴图那两条流水线非商用"
+license.name = "Apache-2.0（pose_only / pose_only_long）；default / dav3 模式含 CC-BY-NC-4.0 非商用模型"
+license.summary = "可商用（「ViPE 深度贴图」除外）。代码 Apache-2.0。pose_only / pose_only_long 模式所用模型权重均可商用（MoGe-2 MIT、GeoCalib/GroundingDINO/SAM/BERT Apache-2.0、DROID-SLAM/DeAOT BSD-3）。default 模式非商用：UniDepth-V2 ViT-L（CC-BY-NC-4.0）、Prior-Depth-Anything 内含的 Depth-Anything-V2-Base（CC-BY-NC-4.0；Prior-Depth-Anything 本身和 Video-Depth-Anything-Small 为 Apache-2.0）。dav3 模式非商用：Depth Anything 3 Giant（CC-BY-NC-4.0；Depth Anything 3 Metric-Large 为 Apache-2.0）。选 default / dav3 的结果（摄影机和深度）不能用于商业项目。UniK3D 等其他配置不下载也不调用。注意：运动物体遮罩代码来自 Segment-and-Track-Anything，为 AGPL-3.0（内部使用无妨，修改后对外提供服务需开源）"
+weight.droid-slam.note = "DROID-SLAM 光流/BA 网络（BSD-3-Clause）"
+weight.moge-2-vitl.note = "MoGe-2 ViT-L 关键帧度量深度（MIT）"
+weight.geocalib-pinhole.note = "GeoCalib 初始焦距估计（Apache-2.0）"
+weight.groundingdino-swint.note = "GroundingDINO Swin-T 找运动物体（Apache-2.0）"
+weight.bert-base-uncased.note = "GroundingDINO 的文本编码器 BERT（Apache-2.0）"
+weight.sam-vit-b.note = "Segment Anything ViT-B 物体遮罩（Apache-2.0）"
+weight.deaot-r50.note = "DeAOT R50 遮罩逐帧跟踪（BSD-3-Clause）"
+weight.unidepth-v2-vitl14-config.note = "UniDepth-V2 ViT-L 配置（default 模式；CC-BY-NC-4.0 非商用）"
+weight.unidepth-v2-vitl14.note = "UniDepth-V2 ViT-L 关键帧/逐帧米制深度（default 模式；CC-BY-NC-4.0 非商用）"
+weight.prior-depth-anything-dav2-vitb.note = "Prior-Depth-Anything 用的 Depth-Anything-V2-Base（default 模式；原模型 CC-BY-NC-4.0 非商用）"
+weight.prior-depth-anything-vitb.note = "Prior-Depth-Anything ViT-B 用 SLAM 点补全深度（default 模式；Apache-2.0）"
+weight.video-depth-anything-small.note = "Video-Depth-Anything-Small 深度时序稳定（default 模式；Apache-2.0）"
+weight.da3metric-large.note = "Depth Anything 3 Metric-Large 关键帧米制深度（dav3 模式；Apache-2.0）"
+weight.da3-giant.note = "Depth Anything 3 Giant 多视角逐帧深度（dav3 模式；CC-BY-NC-4.0 非商用）"
+
+# ---- worker 的计算阶段（worker.py run.stage / stage / progress）
+[stage]
+track = "跟踪"
+estimate_depth = "估计深度"
+depth = "深度"
+prepare_depth = "准备深度"
+prepare_vipe = "准备 ViPE"
+solve_camera = "解算摄影机"
+read_sequence = "读取图像序列"
+estimate_focal = "估计焦距 / 加载模型"
+write_objects = "写出运动物体分割"

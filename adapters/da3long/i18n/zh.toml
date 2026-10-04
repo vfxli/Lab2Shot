@@ -1,0 +1,55 @@
+"E-DA3LONG-OVERLAP" = "「重叠帧数」{overlap} 不小于「每段最多帧数」{chunk}：相邻两段没法对齐。把重叠帧数调到比每段帧数小（官方默认 120 帧一段、重叠 60）"
+"E-DA3LONG-UNCOVERED" = "Depth Anything 3 Streaming 解算完有帧没有拿到摄影机：官方流式流水线的分段和输入帧数对不上，结果不能用。把这条报错报给技术人员"
+"W-DA3LONG-VRAMSTEP" = "这张显卡约 {card:.0f} GB，放不下每段 {asked} 帧（约要 {need:.0f} GB）：这次按每段 {chunk} 帧、重叠 {chunk_overlap} 帧算（分段越短，段与段之间的接缝越多）。要按官方的 120 帧一段算，放到显存更大的卡上"
+"W-DA3LONG-ASPECT" = "Depth Anything 3 Streaming 解出的横向焦距 {fx:.0f} px、纵向 {fy:.0f} px，差了 {diff:.0%}；真实镜头两者基本相同，画面特别宽时模型容易这样。摄影机原样交出，竖直方向的大小和位置可能被拉伸或压扁：用它之前先核对，能拿到实拍焦距时改用可以填已知焦距的节点（ViPE、WildPose）"
+"W-DA3LONG-ASPECT.app" = "解出的横向焦距 {fx:.0f} px、纵向 {fy:.0f} px，差了 {diff:.0%}；真实镜头两者基本相同，画面特别宽时模型容易这样。摄影机原样交出，竖直方向的大小和位置可能被拉伸或压扁：用之前先核对，能拿到实拍焦距时改用可以填已知焦距的卡"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."da3long.reconstruct"]
+subtitle = "流式深度与摄影机"
+description = "使用官方 Depth Anything 3 Streaming 分段处理长镜头，按重叠几何对齐摄影机和深度，可用 SALAD 回环校正漂移。输出摄影机及原始画面尺寸的深度、置信度。单段短片使用同一模型直接推理。处理分辨率沿用官方 504，Giant 权重非商用。"
+
+[node."da3long.reconstruct".param.step]
+label = "隔帧"
+
+[node."da3long.reconstruct".param.max_frames]
+label = "每段最多帧数"
+
+[node."da3long.reconstruct".param.overlap]
+label = "重叠帧数"
+
+[node."da3long.reconstruct".param.loops]
+label = "回环校正"
+
+[node."da3long.reconstruct".param.unit_cm]
+label = "尺度"
+
+[node."da3long.reconstruct".official]
+note = "官方 Depth Anything 3 Streaming 联合处理图像序列，camera_poses.txt 保存全帧 C2W，intrinsic.txt 保存 fx/fy/cx/cy；Prediction.depth 与摄影机经相同累积 Sim3 尺度对齐。单段短片适配器补全官方导出遗漏，不改变模型推理。"
+
+[node."da3long.reconstruct".cost]
+note = "RTX 4090 实测：1920×1080 素材自动降到每段 60 帧，整卡峰值 19.3 GB（不含空闲占用）。RTX 5090 实测峰值：每段 80 帧，640×480 素材（模型 504×378）23.8 GB、1280×720 素材 19.9 GB；官方 120 帧在 504×378 上报 28.3 GB。显卡放不下所设的帧数时自动降到放得下的一档并在节点上说明"
+
+[node."da3long.reconstruct".licence]
+note = "流式代码 Apache-2.0；Giant 权重 CC-BY-NC-4.0 非商用。"
+
+[extension.da3long]
+summary = "Depth Anything 3 官方流式长镜头流水线，分段几何对齐与回环校正"
+
+[extension.da3long.license]
+name = "Apache-2.0 代码；CC-BY-NC-4.0 Giant 权重"
+summary = "官方流式代码 Apache-2.0，Giant 权重非商用；SALAD MIT。"
+
+[extension.da3long.weight.model]
+note = "Giant + Metric-Large，非商用"
+
+[extension.da3long.weight.config]
+note = "Giant + Metric-Large 配置"
+
+[extension.da3long.weight.salad]
+note = "SALAD 回环检测"
+
+[stage]
+solve_short_shot = "解算短镜头"
+streaming_solve = "流式解算与回环校正"

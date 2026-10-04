@@ -1,0 +1,19 @@
+numpy==1.26.4
+pillow==11.3.0
+opencv-python-headless==4.10.0.84
+scipy==1.16.3
+einops==0.8.1
+roma==1.5.4
+tqdm==4.67.1
+huggingface-hub==0.36.2
+evo==1.31.1
+matplotlib==3.10.3
+trimesh==4.6.8
+colorama==0.4.6
+pyyaml==6.0.2
+OpenEXR==3.4.15
+ninja==1.13.0
+setuptools==80.9.0
+wheel==0.45.1
+utils3d_moge @ git+https://github.com/EasternJournalist/utils3d-moge.git@62f09d58509485564e24d5d9f6aac9ee9ebc0c37
+moderngl==5.12.0

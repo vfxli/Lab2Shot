@@ -2,115 +2,181 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "11e3cc3619bd18046fc79d9b97389079",
-  "name": "PBR 通道 · DiffusionRenderer",
-  "intro": "Cosmos DiffusionRenderer 在一个统一框架里同时解逆向渲染和正向渲染；逆向渲染模型借助视频扩散先验，从实拍视频估计 G-buffer。这张卡交付一套多层 EXR 的 PBR 材质通道：rgba 是基础色，另有 normal、depth（每段各自归一化的相对值）、roughness、metallic。",
+  "name": {
+   "zh": "PBR 通道 · DiffusionRenderer",
+   "en": "PBR Channels · DiffusionRenderer"
+  },
+  "intro": {
+   "zh": "Cosmos DiffusionRenderer 在一个统一框架里同时解逆向渲染和正向渲染；逆向渲染模型借助视频扩散先验，从实拍视频估计 G-buffer。这张卡交付一套多层 EXR 的 PBR 材质通道：rgba 是基础色，另有 normal、depth（每段各自归一化的相对值）、roughness、metallic。",
+   "en": "Cosmos DiffusionRenderer handles inverse and forward rendering in one framework; its inverse rendering model uses a video diffusion prior to estimate G-buffers from real video. This card delivers the PBR material channels as a multi-layer EXR: rgba is the base color, plus normal, depth (relative values normalized per chunk), roughness and metallic."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-12T08:00:00",
-  "deliverable": "material",
+  "deliverable": "relight",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
-   "name": "resolution",
-   "label": "处理分辨率",
-   "target": "dr.resolution"
+   "name": "inverse_resolution",
+   "label": {
+    "zh": "处理分辨率",
+    "en": "Processing Resolution"
+   },
+   "target": "inverse.resolution"
   },
   {
-   "name": "max_frames",
-   "label": "每段最多帧数",
-   "target": "dr.max_frames"
+   "name": "inverse_max_frames",
+   "label": {
+    "zh": "每段最多帧数",
+    "en": "Max Frames per Chunk"
+   },
+   "target": "inverse.max_frames"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "overlap",
-     "label": "段间重叠",
-     "target": "dr.overlap"
+     "name": "inverse_overlap",
+     "label": {
+      "zh": "段间重叠",
+      "en": "Chunk Overlap"
+     },
+     "target": "inverse.overlap"
     },
     {
-     "name": "steps",
-     "label": "去噪步数",
-     "target": "dr.steps"
+     "name": "inverse_steps",
+     "label": {
+      "zh": "去噪步数",
+      "en": "Denoising Steps"
+     },
+     "target": "inverse.steps"
     },
     {
-     "name": "seed",
-     "label": "随机种子",
-     "target": "dr.seed"
+     "name": "inverse_seed",
+     "label": {
+      "zh": "随机种子",
+      "en": "Seed"
+     },
+     "target": "inverse.seed"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "exr.name"
     },
     {
      "name": "colorspace_out",
-     "label": "输出色彩空间",
-     "target": "out.colorspace"
+     "label": {
+      "zh": "输出颜色空间",
+      "en": "Output Color Space"
+     },
+     "target": "exr.colorspace"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_bit_depth",
-       "label": "EXR 位深",
-       "target": "out.exr_bit_depth"
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
+       "target": "exr.exr_bit_depth"
       },
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
-       "target": "out.exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -120,17 +186,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "计算",
+     "word": "cook",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -139,8 +211,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -153,9 +224,8 @@
    }
   },
   {
-   "id": "dr",
-   "type": "diffusionrenderer.inverse",
-   "label": "DiffusionRenderer PBR 通道",
+   "id": "inverse",
+   "type": "diffusionrenderer.inverse_render",
    "params": {
     "resolution": 1280,
     "max_frames": 41,
@@ -174,18 +244,16 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1213,
+    "x": 1300,
     "y": 54
    }
   },
   {
-   "id": "out",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "id": "exr",
+   "type": "exr.output",
    "params": {
     "name": "pbr",
     "layers": [
@@ -220,7 +288,7 @@
     "colorspace": null
    },
    "ui": {
-    "x": 813,
+    "x": 900,
     "y": 54
    }
   }
@@ -232,63 +300,63 @@
     "image"
    ],
    "to": [
-    "dr",
+    "inverse",
     "image"
    ]
   },
   {
    "from": [
-    "dr",
+    "inverse",
     "basecolor"
    ],
    "to": [
-    "out",
+    "exr",
     "layer1"
    ]
   },
   {
    "from": [
-    "dr",
+    "inverse",
     "normal"
    ],
    "to": [
-    "out",
+    "exr",
     "layer2"
    ]
   },
   {
    "from": [
-    "dr",
+    "inverse",
     "depth"
    ],
    "to": [
-    "out",
+    "exr",
     "layer3"
    ]
   },
   {
    "from": [
-    "dr",
+    "inverse",
     "roughness"
    ],
    "to": [
-    "out",
+    "exr",
     "layer4"
    ]
   },
   {
    "from": [
-    "dr",
+    "inverse",
     "metallic"
    ],
    "to": [
-    "out",
+    "exr",
     "layer5"
    ]
   },
   {
    "from": [
-    "out",
+    "exr",
     "files"
    ],
    "to": [
@@ -299,7 +367,7 @@
  ],
  "boxes": [],
  "view": {
-  "display": "dr",
+  "display": "inverse",
   "frame": null
  }
 }

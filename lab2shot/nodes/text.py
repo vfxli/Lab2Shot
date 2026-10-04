@@ -1,63 +1,111 @@
-"""Node names and descriptions are data, not code: they live in nodes.json in the folder of the node's code.
+"""A node type's words: its name, its description and everything else it shows, looked up by key in the language now.
 
-    adapters/<package>/nodes.json  {"label": name, "description": text} for each node of that adapter, by node type id
-    lab2shot/nodes/nodes.json      the core nodes (read, image, mask, camera, geometry, scene, building blocks,
-                                   output, and each format module's reader and writer nodes)
+The words are in the language catalogues (lab2shot/i18n), never in code:
 
-The file sits with the node code: a node's text is in the nodes.json of the folder its code is in (found from the
-class's module path, not from a registry). When the catalogue is built, the text is applied to every node class
-(`apply`); from then on everything that reads `cls.label` / `cls.description` (error messages, cards, the queue, the
-catalogue) reads the file's text. An account that manages node categories edits a node's name or description in the
-node menu (server/categories.py menu_text); the change is written back to its file and applied to the class at once.
-When a file is edited or restored outside the server, `refresh` compares each file's modification time (`stamp`) and
-applies it again; it is called before the catalogue route answers, before a restricted account's hidden names are
-computed and before a save, so reloading the page shows the new text. Applying and saving happen under one lock, and
-"applied" is recorded only after the last class. Readers (the catalogue, the hidden-name list) read the classes' text
-outside the lock: a request that coincides with a save may read partly new and partly old text, but that answer is
-cached only under the old stamp and the next request recomputes under the new key; it is served again only if a file
-is restored to an old version with its original modification time. Administrators edit one node at a time, and this
-boundary is accepted.
+    lab2shot/i18n/<lang>/nodes.toml       the core's nodes (node.<type>.subtitle / .description / .param.<p>.… / .port.<n>.…)
+                                          and the keys every node may fall back to (param.*, port.*, option.*, group.*,
+                                          stage.*, button.*)
+    adapters/<name>/i18n/<lang>.toml      an extension's nodes, and the shared keys for its own nodes only (`scope`)
 
-No names or descriptions exist in code: a node without an entry (newly merged, or whose file cannot be read) shows its
-type id as its name and an empty description; the catalogue is still built, `lab2shot check` lists nodes missing
-entries, and `problem()` names the broken file. Writes use atomic replacement (io/atomic.py) and keep a .bak copy
-first (as the category files do, lab2shot/categories.py).
+`word(cls, …)` is the one lookup: node.<type>.<path…> with the shared fallbacks (i18n.node_text), the extension's own
+first. A node with no name in the language now shows its type id; a word with no entry is None and the caller decides.
+
+An account that manages node categories edits a node's name or description in the node menu (server/categories.py
+menu_text): `save` writes it into the catalogue file of the language now that holds the node's words (the core's
+nodes.toml, or the extension's <lang>.toml), in place: the table [node."<type>"] gets its subtitle / description lines,
+the rest of the file is left as it is. A catalogue edited outside the server is read again when its modification time
+changes (`refresh`, called before the catalogue route answers and before a save); `stamp` is what the answers worked
+out from the words are cached under. Writes keep a .bak copy first and use atomic replacement (io/atomic.py).
 """
 
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import threading
-from functools import lru_cache
+import tomllib
 from pathlib import Path
+from typing import Any
 
-from ..config import ROOT
+from .. import i18n
 from ..errors import Invalid, NotFound
 from ..io.atomic import write_text
 from ..messages import Msg
 
-FILE = "nodes.json"
-LABEL_CHARS = 30  # fits on one line of the node menu (longest existing: 26)
-TEXT_CHARS = 520  # the description is shown in full in the menu; lab2shot check holds every file to it (limit_problems)
+# a name fits on one line of the node menu, a description is shown in full there: per language (English words are
+# longer than Chinese characters); lab2shot check holds every catalogue to them (limit_problems)
+SUBTITLE_CHARS = {"zh": 30, "en": 48}
+TEXT_CHARS = {"zh": 520, "en": 1400}
 
 
-def file_for(cls) -> Path:
-    """The text file of a node class: its folder's nodes.json (an adapter's folder, or lab2shot/nodes/ for the core's)."""
-    parts = cls.__module__.split(".")
-    if parts[0] == "adapters" and len(parts) >= 2:
-        return ROOT / "adapters" / parts[1] / FILE
-    return ROOT / "lab2shot" / "nodes" / FILE
+def scope_of(cls) -> str | None:
+    """The extension whose shared keys a node type's words fall back to first (None: a core node)."""
+    runtime = getattr(cls, "runtime", "core")
+    return None if runtime == "core" else runtime
+
+
+def word(cls, *path: str, **params: Any) -> str | None:
+    """One of a node type's words in the language now: node.<type>.<path…>, else the shared key it falls back to
+    (param.*, port.*, option.*, stage.*, button.*, fact.*), the extension's own first; None when there is none."""
+    type_id = getattr(cls, "id", "")
+    if not type_id:
+        return None
+    return i18n.node_text(type_id, *path, in_scope=scope_of(cls), **params)
+
+
+def param_label(cls, name: str) -> str:
+    """How a message names one of its parameters: the label of its table (nodes/params.py dress), kept by its key
+    (i18n.Word) so the message reads in whoever's language follows it; its name when it has no such parameter."""
+    return next((p["label"] for p in cls.param_specs() if p["name"] == name), name)
+
+
+def subtitle(cls) -> str:
+    """Its subtitle in the language now (shown under its type name); its type id when it has none."""
+    return word(cls, "subtitle") or getattr(cls, "id", "")
+
+
+def description(cls) -> str:
+    return word(cls, "description") or ""
+
+
+def file_for(cls, lang: str | None = None) -> Path:
+    """The catalogue file of language `lang` a node type's words are in: its extension's, or the core's nodes.toml."""
+    lang = lang or i18n.current()
+    scope = scope_of(cls)
+    if scope:
+        folder = i18n.extension_folders().get(scope)
+        if folder is not None:
+            return i18n.extension_file(folder, lang)
+    return i18n.lang_dir(lang) / "nodes.toml"
 
 
 def files() -> list[Path]:
-    """Every text file there is: the core's and one per adapter folder that has one."""
-    return [ROOT / "lab2shot" / "nodes" / FILE, *sorted((ROOT / "adapters").glob(f"*/{FILE}"))]
+    """Every catalogue file of every language (what a node's words may be in), those that are there."""
+    out: list[Path] = []
+    for lang in i18n.LANGS:
+        out += i18n.word_files(lang)
+        out += [p for f in i18n.extension_folders().values() if (p := i18n.extension_file(f, lang)).is_file()]
+    return out
+
+
+def entries(path: Path) -> dict[str, dict[str, str]]:
+    """The nodes' names and descriptions one catalogue file holds: {type: {"subtitle": …, "description": …}}."""
+    out: dict[str, dict[str, str]] = {}
+    try:
+        flat = i18n.read(path)
+    except i18n.TextError:
+        return {}
+    for key, value in flat.items():
+        parts = i18n.node_key_parts(key)
+        if parts is not None and parts[1] in (["subtitle"], ["description"]):
+            out.setdefault(parts[0], {})[parts[1][0]] = value
+    return out
 
 
 def stamp() -> tuple:
-    """Every text file with its modification time: what `refresh` compares and the catalogue route's cache key
-    follows (per file, so a file restored with an older time still counts as changed)."""
+    """Every catalogue file with its modification time: what `refresh` compares and the answers worked out from the
+    words are cached under."""
     out = []
     for f in files():
         try:
@@ -67,125 +115,126 @@ def stamp() -> tuple:
     return tuple(out)
 
 
-def _read(path: Path) -> tuple[dict[str, dict], str, str]:
-    """(entries, problem, why): the file's entries, or none, the sentence to show and the bare reason."""
-    if not path.is_file():
-        return {}, "", ""
-    try:
-        got = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(got, dict) or not all(isinstance(v, dict) for v in got.values()):
-            raise ValueError("不是一张 节点 → {label, description} 的表")
-        for k, v in got.items():
-            if not isinstance(v.get("label", ""), str) or not isinstance(v.get("description", ""), str):
-                raise ValueError(f"{k} 的 label / description 不是文字")
-    except (OSError, ValueError) as exc:
-        why = str(exc)[:120]
-        return {}, Msg("W-NODETEXT-BROKEN", file=str(path), why=why).text, why
-    return {str(k): v for k, v in got.items()}, "", ""
+_read_at: tuple | None = None  # stamp() of the catalogues as last read
+_lock = threading.RLock()  # one writer of the catalogues at a time (requests run in a thread pool)
 
 
-@lru_cache(maxsize=256)
-def _entries(path: Path, _stamp: float) -> tuple[dict[str, dict], str, str]:
-    return _read(path)
-
-
-def _stamp(path: Path) -> float:
-    try:
-        return path.stat().st_mtime
-    except OSError:
-        return 0.0
-
-
-def entries(path: Path) -> dict[str, dict]:
-    return _entries(path, _stamp(path))[0]
-
-
-def problem(path: Path) -> str:
-    return _entries(path, _stamp(path))[1]
-
-
-def problems() -> list[str]:
-    return [p for f in files() if (p := problem(f))]
-
-
-def limit_problems() -> list[str]:
-    """Every node's words in the files against the limits an edit is held to (_check): a file edited by hand or
-    written by a change past them would have its node refused the next time an administrator saves it unchanged."""
-    out = []
-    for f in files():
-        for type_id, words in entries(f).items():
-            try:
-                _check(str(words.get("label") or type_id), str(words.get("description") or ""))
-            except Invalid as exc:
-                out.append(f"{f.parent.name}/{f.name} {type_id}: {exc}")
-    return out
-
-
-_applied_at: tuple = ()  # stamp() of the files the classes last took their words from
-_lock = threading.RLock()  # one writer of the classes' words at a time (requests run in a thread pool)
-
-
-def apply(types) -> tuple:
-    """The files' words onto the node classes (`types`: id -> class). A class with no entry, or whose file cannot be
-    read, is named by its type id and has no description: the catalogue never fails for a missing word. Returns the
-    files' stamp the words came from."""
-    global _applied_at
+def refresh(types=None) -> tuple:
+    """Read the catalogues again when one changed since (one edited by hand, restored, or saved here): the words
+    looked up and the node tables dressed with them are forgotten. Returns the stamp the words now match (the
+    caller's cache key). `types` is not needed (kept for the callers that hand the node types over)."""
+    global _read_at
     with _lock:
         at = stamp()
-        for cls in types.values():
-            got = entries(file_for(cls)).get(cls.id) or {}
-            cls.label = str(got.get("label") or "").strip() or cls.id
-            cls.description = str(got.get("description") or "").strip()
-        _applied_at = at  # after the last class: a reader never sees the new stamp over half-new words
+        if at != _read_at:
+            if _read_at is not None:
+                i18n.clear()
+                from .params import forget_words
+
+                forget_words()
+            _read_at = at
         return at
 
 
-def refresh(types) -> tuple:
-    """Apply again when a file changed since (one restored by hand, one edited outside the server). Called before the
-    catalogue is answered, before a restricted account's hidden names are worked out, and before a save. Returns the
-    stamp the classes' words now match (the caller's cache key)."""
-    with _lock:
-        at = stamp()
-        return at if at == _applied_at else apply(types)
+def problems() -> list[str]:
+    """The catalogue files that do not read (not TOML, a key twice, a value that is not text)."""
+    out = []
+    for lang in i18n.LANGS:
+        try:
+            i18n.words(lang)
+        except i18n.TextError as exc:
+            out.append(str(exc))
+    return out
 
 
-def _check(label: str, description: str) -> tuple[str, str]:
-    label, description = label.strip(), description.strip()
-    if not label or len(label) > LABEL_CHARS:
-        raise Invalid(Msg("E-NODETEXT-LABEL", most=LABEL_CHARS))
-    if len(description) > TEXT_CHARS:
-        raise Invalid(Msg("E-NODETEXT-TEXT", most=TEXT_CHARS))
-    return label, description
+def limit_problems() -> list[str]:
+    """Every node's name and description, in every language, against the limits an edit is held to (_check)."""
+    from .registry import node_types
+
+    out = []
+    for type_id, cls in sorted(node_types().items()):
+        for lang in i18n.LANGS:
+            with i18n.using(lang):
+                said = word(cls, "subtitle")
+                if said is None:
+                    continue
+                try:
+                    _check(said, description(cls))
+                except Invalid as exc:
+                    out.append(f"{lang} {type_id}: {exc}")
+    return out
 
 
-def save(type_id: str, label: str, description: str) -> tuple[dict, bool]:
-    """A node's words, written to its file and put on its class now. Returns the entry and whether anything changed."""
+def _check(subtitle: str, description: str) -> tuple[str, str]:
+    """Within the limits of the language now."""
+    lang = i18n.current()
+    subtitle, description = subtitle.strip(), description.strip()
+    if not subtitle or len(subtitle) > SUBTITLE_CHARS[lang]:
+        raise Invalid(Msg("E-NODETEXT-SUBTITLE", most=SUBTITLE_CHARS[lang]))
+    if len(description) > TEXT_CHARS[lang]:
+        raise Invalid(Msg("E-NODETEXT-TEXT", most=TEXT_CHARS[lang]))
+    return subtitle, description
+
+
+def _string(text: str) -> str:
+    """Text as a TOML basic string (JSON's escapes are TOML's)."""
+    return json.dumps(text, ensure_ascii=False)
+
+
+def with_words(source: str, type_id: str, subtitle: str, description: str) -> str:
+    """A catalogue's text with the table [node."<type>"] holding this subtitle and description: its lines replaced where
+    they are, added under the table's header when not, the table added at the end when there is none."""
+    header = re.compile(r'^\[node\.(?:"' + re.escape(type_id) + r'"|' + re.escape(type_id) + r')\]\s*$')
+    lines = source.splitlines()
+    start = next((i for i, line in enumerate(lines) if header.match(line)), None)
+    new = {"subtitle": f"subtitle = {_string(subtitle)}", "description": f"description = {_string(description)}"}
+    if start is None:
+        return source.rstrip("\n") + f'\n\n[node.{_string(type_id)}]\n{new["subtitle"]}\n{new["description"]}\n'
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("[")), len(lines))
+    for key in ("subtitle", "description"):
+        at = next((i for i in range(start + 1, end) if re.match(rf"^{key}\s*=", lines[i])), None)
+        if at is None:
+            lines.insert(start + 1, new[key])
+            end += 1
+        else:
+            lines[at] = new[key]
+    return "\n".join(lines) + "\n"
+
+
+def save(type_id: str, subtitle: str, description: str) -> tuple[dict, bool]:
+    """A node's subtitle and description in the language now, written to its catalogue file and used at once. Returns the
+    entry and whether anything changed."""
     from .registry import node_types
 
     types = node_types()
     cls = types.get(type_id)
     if cls is None:
         raise NotFound(Msg("E-NODE-NOSUCH", type=type_id))
-    label, description = _check(label, description)
-    path = file_for(cls)
-    with _lock:  # read, change, write and re-apply as one step: two administrators never overwrite each other's words
-        refresh(types)  # anything changed outside the server is on the classes first
-        rows, problem, why = _read(path)
-        if problem:
-            bak = path.with_name(path.name + ".bak")
-            if bak.is_file():
-                raise Invalid(Msg("E-NODETEXT-BROKEN", file=str(path), why=why, bak=str(bak)))
-            raise Invalid(Msg("E-NODETEXT-BROKENNOBAK", file=str(path), why=why))
-        entry = {"label": label, "description": description}
-        if rows.get(type_id) == entry:
-            cls.label, cls.description = label, description  # the file already says so; the class says so now too
+    subtitle, description = _check(subtitle, description)
+    lang = i18n.current()
+    path = file_for(cls, lang)
+    entry = {"subtitle": subtitle, "description": description}
+    with _lock:  # read, change, write and read again as one step: two administrators never overwrite each other's words
+        refresh()
+        if (word(cls, "subtitle"), word(cls, "description") or "") == (subtitle, description):
             return entry, False
-        rows[type_id] = entry
+        try:
+            source = path.read_text(encoding="utf-8") if path.is_file() else ""
+        except OSError as exc:
+            raise Invalid(Msg("E-NODETEXT-UNWRITABLE", file=str(path), why=str(exc)[:80])) from exc
+        text = with_words(source, type_id, subtitle, description)
+        try:
+            got = i18n.flatten(tomllib.loads(text), str(path))
+        except (tomllib.TOMLDecodeError, i18n.TextError) as exc:  # the file holds the node's words some other way
+            raise Invalid(Msg("E-NODETEXT-UNWRITABLE", file=str(path), why=str(exc)[:80])) from exc
+        if (got.get(f"node.{type_id}.subtitle"), got.get(f"node.{type_id}.description")) != (subtitle, description):
+            raise Invalid(Msg("E-NODETEXT-UNWRITABLE", file=str(path), why=f"node.{type_id}"))
         try:
             if path.is_file():
                 shutil.copyfile(path, path.with_name(path.name + ".bak"))
-            write_text(path, json.dumps(dict(sorted(rows.items())), ensure_ascii=False, indent=1))
+            write_text(path, text)
         except OSError as exc:  # the folder is not writable here (a packaged install): said, not a 500
             raise Invalid(Msg("E-NODETEXT-UNWRITABLE", file=str(path), why=str(exc)[:80])) from exc
-        apply(types)  # every class from the files as they are now (this write included): nothing is marked applied that is not
+        refresh()
         return entry, True
+

@@ -13,6 +13,8 @@ read them, and a finished cook is never repeated.
 
 from __future__ import annotations
 
+from .. import i18n
+
 import json
 import os
 import shutil
@@ -482,7 +484,7 @@ def items_meta(items: list[tuple[str, Packet]] | list[tuple[str, str]]) -> dict:
     same = sorted({n for n, _ in named if [x for x, _ in named].count(n) > 1})
     if same:
         kind = DATA_TYPES.get(element_of(_items_type(items)))
-        raise Invalid(Msg("B-NAME-SAME", kind=kind.label if kind else "条目", names=same))
+        raise Invalid(Msg("B-NAME-SAME", kind=i18n.Both.of(lambda: kind.label if kind else i18n.Word("items.word")), names=same))
     return {"items": [{"name": n, "packet": fp} for n, fp in named]}
 
 

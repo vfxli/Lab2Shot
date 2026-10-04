@@ -1,0 +1,48 @@
+# WHAM 扩展自己的界面字和消息（中文）。
+
+# ---- 画面和人
+"N-WHAM-NOPEOPLE" = "「WHAM 全身动作」在画面里没有找到人，这次输出是空的：确认画面里有完整的人，人不要太小、不要被挡住"
+"N-WHAM-NOLONGTRACK.other" = "「WHAM 全身动作」找到的人都没有连续出现 {frames} 帧以上（更短的片段它不算），这次输出是空的：换一段人出现得更久的镜头；只要其中一个人时，在上游接「ViTDet 人物框」→「选人」→「人物框转遮罩」→「图像合成」把别人从画面里去掉"
+"I-WHAM-YOLOWEIGHTS" = "YOLOv8x 人物检测模型权重"
+
+# ---- 摄影机
+"W-WHAM-FOCALCHANGES" = "接进来的摄影机焦距逐帧在变（{low:.1f}–{high:.1f} px），「WHAM 全身动作」整段只能用一个焦距，取了中值 {focal:.1f} px：焦距离中值远的帧，人的远近和大小会偏"
+
+[node."wham.solve"]
+subtitle = "全身动作"
+description = "WHAM：从画面解出每个人在世界里的动作（SMPL 身体），DPVO 估计摄影机的转动，脚和地面接触更稳。多人一起解。解出来的人在 WHAM 自己的世界里，要在你那台摄影机下和实拍对上，就把「参照摄影机」和你的摄影机一起接进「摄影机空间转换」（接到「来源摄影机」），模板里已经接好了。要手指和脸用「SAM 3D Body 全身动作」，要重力对齐的世界轨迹用「GVHMR 全身动作」。另出一台「摄影机」：放人用的那台原点、不动的针孔摄影机（焦距 = 「焦距」，留空时按 WHAM 自己的默认（画面对角线）；主点在画面中心），不是解出来的摄影机——三维视口透过它看图像平面，人和画面对得上，模板里当「解算器的摄影机」那一路用。"
+official.note = "① **「人物框」不是它的输入，框是上游自己在内部检测的**：官方脚本只收一段画面（demo.py:182 `--video`），框由它自己的 YOLOv8x 检测 + ViTPose 跟踪出（demo.py:65 `detector.track(img, fps, length)`，lib/models/preproc/detector.py DetectionModel）。所以节点没有「人物框」输入口：把接进来的框塞进上游同一个结构 detector.tracking_results['bbox'] 里、顶替掉它自己的检测，是我们自己开的口，不是官方的输入。要只解其中某一个人，在上游把别人从画面里去掉，再接进「RGB」口：「ViTDet 人物框」→「选人」→「人物框转遮罩」→「图像合成」。② **「参照摄影机」**：WHAM 交出来的人在**它自己的世界**里（原点在这个人起点的髋部），那个世界里配着一台摄影机，人和实拍对得上就是靠它。参照摄影机不是成品摄影机：和你自己的摄影机一起接进核心节点「摄影机空间转换」（接到「来源摄影机」），算一个修正挂到人身上；直接当镜头摄影机用，人会不在画面里、位置不对。**它由官方的两份输出唯一确定**：上游把同一个人同时输出在摄影机里（demo.py:162-163 `results[_id]['pose'] / ['trans']`）和世界里（:164-165 `['pose_world'] / ['trans_world']`），两者之间的刚性关系就是那台摄影机（worker.py wh.camera_from_body）；它的**旋转**来自上游自己的 DPVO（demo.py:56 `SLAMModel(...)`、:76 `slam.process()`、:88 `joblib.dump(slam_results, ...)`）。这个口必须有：没有它，模板上的对齐只剩摄影机空间那一档，摄影机的运动会被加两遍。要一台**能用**的摄影机，还是从真正解摄影机的节点（ViPE、TRAM）或「导入 USD」接。③ 「蒙皮角色」是 CG 形态，官方吐的是 SMPL 参数 + 顶点。④ cam_angvel 只用摄影机的**旋转**；官方的 --calib（demo.py:189）只是内参，不是摄影机。"
+
+[node."wham.solve".official.ours]
+camera = "放人用的针孔摄影机：原点、不动，焦距 = 节点的「焦距」（留空用解算器自己估的 / 默认的），主点在画面中心（families/humans.py plate_camera）"
+
+[node."wham.solve".port.keypoints]
+help = "ViTPose 在画面上找的全身 17 个点（鼻子、双眼、双耳、肩、肘、腕、髋、膝、踝），WHAM 解算之前就是按它们找的人。画面上的点，不是三维结果的投影：可以直接接「2D 跟踪点输出」交给 3DEqualizer、Nuke，也可以叠在画面上看解出来的人贴不贴。按人分组，一个人一组"
+
+[node."wham.solve".param.smplify]
+label = "SMPLify 细化"
+
+[node."wham.solve".port.camera]
+help = "放人用的那台摄影机：原点、不动的针孔摄影机，焦距 = 节点的「焦距」（留空时用解算器自己估的或默认的），主点在画面中心。不是解出来的摄影机：人就放在它的空间里，透过它看图像平面人和画面对得上。当「解算器的摄影机」用，或接「摄影机空间转换」的目标"
+
+[extension.wham]
+summary = "把二维关键点序列结合动捕数据和画面特征抬到三维，再用 SLAM 给的摄影机角速度估计全局轨迹，并按脚接触修正"
+license.name = "MIT（代码）+ SMPL 非商用 + 模型权重仅限研究"
+license.summary = "仅限研究。WHAM 代码 MIT；但运行必须用 SMPL 人体模型（SMPL_NEUTRAL），需要在 smpl.is.tue.mpg.de 注册后自己下载，仅限非商用科研，禁止再分发；随 WHAM 下载的关节回归矩阵等辅助文件由 SMPL 派生，同样按 SMPL 许可。WHAM 模型权重作者没有单独写许可，训练数据含 AMASS、BEDLAM、3DPW 等仅限研究的数据集，只按研究用途使用。其余：DPVO 代码和模型权重 MIT，HMR2.0a（4D-Humans）MIT，ViTPose-H 和 mmcv / mmpose Apache-2.0，YOLOv8x 模型权重和 ultralytics 代码 AGPL-3.0（上游自己的人物检测），smplx 代码（MPI 非商用许可），chumpy MIT，torch-scatter MIT"
+weight.wham.note = "WHAM 主网络（demo 默认的 BEDLAM+3DPW 版），503 MB"
+weight.smpl-aux.note = "SMPL 关节回归矩阵等辅助文件，1 MB"
+weight.hmr2a.note = "HMR2.0a 图像特征（4D-Humans，MIT），2.7 GB"
+weight.vitpose-h.note = "ViTPose-H 2D 关键点（Apache-2.0），2.5 GB"
+weight.dpvo.note = "DPVO 视觉里程计（MIT），14 MB"
+weight.yolo.note = "YOLOv8x 人物检测（Ultralytics AGPL-3.0），131 MB"
+
+# ---- worker 的计算阶段（worker.py run.model / run.stage / run.each；写出结果用核心共享的 write_results）
+[stage]
+detect_keypoints = "YOLOv8 找人 · ViTPose 关键点"
+detect = "检测和关键点"
+image_features = "HMR2 图像特征"
+dpvo_rotation = "DPVO 估计摄影机转动"
+dpvo = "DPVO"
+solve_motion = "WHAM 解算人体动作"
+solve = "解算"
+merge_worlds = "统一世界坐标"

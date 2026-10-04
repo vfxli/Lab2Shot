@@ -1,0 +1,14 @@
+# 节点模式 / 应用模式切换与空节点图的欢迎页（webui/src/editor/AppMode.tsx、Welcome.tsx）。键 ui.app.<…>。
+[ui.app]
+mode = "模式"
+node_mode = "节点模式"
+app_mode = "应用模式"
+
+[ui.app.welcome]
+title = "开始一张节点图"
+sub = "从模板开始最快，也可以自己一个个加节点"
+templates_desc = "现成的流程，选好素材就能算"
+add = "添加节点"
+add_desc = "在节点图里按 Tab 或点右键"
+open = "打开节点图"
+open_desc = "本机上存过的节点图文件"

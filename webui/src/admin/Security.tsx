@@ -1,10 +1,11 @@
 import { adminApi, type SecurityView } from "../api/admin";
-import { PASSPHRASE_TIP } from "./Auth";
 import { onlineTip, Section, useAdmin } from "./common";
 import { whenSecondsText } from "../platform/format";
 import { usePoll } from "../platform/poll";
 import { reasonOf } from "../messages/message";
 import { Button } from "../ui/Button";
+import { t } from "../i18n/t";
+import { tipAttrs } from "../platform/tips";
 
 /** 安全: how many are logged in (lab2shot/server/auth.py), and what looked like probing — failed logins, refused
  * routes, odd paths, floods — with the sources blocked for a while. The accounts themselves are 用户 (Users.tsx). */
@@ -25,15 +26,15 @@ export function SecuritySection() {
   };
 
   return (
-    <Section title="安全" lede="谁登录着，和看起来像在试探的请求。分享到外网时常来看看。账号在「用户」里管。">
+    <Section title={t("ui.admin.security.title")} lede={t("ui.admin.security.lede")}>
       <div className="adm-tiles">
-        <button className="adm-tile" data-tip={onlineTip(security?.online)} onClick={() => go("users")}>
-          <span className="adm-tile-label">在线</span>
-          <b>{security ? `浏览器 ${security.online.browser} · 插件 ${security.online.client}` : "…"}</b>
+        <button className="adm-tile" {...tipAttrs(onlineTip(security?.online))} onClick={() => go("users")}>
+          <span className="adm-tile-label">{t("ui.admin.security.online")}</span>
+          <b>{security ? t("ui.admin.security.online_value", { browser: security.online.browser, client: security.online.client }) : "…"}</b>
         </button>
-        <div className="adm-tile" data-tip={PASSPHRASE_TIP}>
-          <span className="adm-tile-label">忘了密码</span>
-          <b>用口令</b>
+        <div className="adm-tile">
+          <span className="adm-tile-label">{t("ui.admin.security.forgot")}</span>
+          <b>{t("ui.admin.security.passphrase")}</b>
         </div>
       </div>
       <Watch view={security} onUnblock={(c) => void unblock(c)} />
@@ -42,21 +43,18 @@ export function SecuritySection() {
 }
 
 function Watch({ view, onUnblock }: { view: SecurityView | null; onUnblock: (client: string) => void }) {
-  if (!view) return <p className="adm-lede">读取中…</p>;
+  if (!view) return <p className="adm-lede">{t("ui.admin.common.reading")}</p>;
   const l = view.limits;
   return (
     <>
-      <h3 className="adm-h3">可疑请求</h3>
+      <h3 className="adm-h3">{t("ui.admin.security.suspicious")}</h3>
       <p className="adm-lede">
-        输错密码、访问没开放的接口、带 .. 之类的路径、请求太频繁，都记在这里（最近 1000 条，重启后清空；服务日志里也有）。
-        同一个登录 {l.block_window_min} 分钟内有 {l.block_after} 次，就被封 {l.block_min} 分钟。输错密码（{l.window_min} 分钟内）：同一来源在一个账号上 {l.free} 次以后越等越久，{l.client_lock} 次锁住；
-        同一来源在所有账号上 {l.address_free} 次以后越等越久，{l.address_lock} 次锁住（这两条只在看得到每个人真实 IP 时算）；一个账号被从没登录过的设备一共输错 {l.subject_free} 次以后，
-        这类尝试一次比一次等得久，最长 {l.max_wait_s} 秒，不会锁死；登录过这个账号的浏览器和客户端只算自己的次数，谁都拖不慢它（在服务器上执行 uv run lab2shot admin unlock 马上清零）。
+        {t("ui.admin.security.rules", { block_window_min: l.block_window_min, block_after: l.block_after, block_min: l.block_min, window_min: l.window_min, free: l.free, client_lock: l.client_lock, address_free: l.address_free, address_lock: l.address_lock, subject_free: l.subject_free, max_wait_s: l.max_wait_s })}
       </p>
       {Object.keys(view.counts).length > 0 && (
         <div className="sec-row">
           {Object.entries(view.counts).map(([k, n]) => (
-            <span key={k} className="chip" data-tip="这次服务启动以来的次数">
+            <span key={k} className="chip">
               {k} {n}
             </span>
           ))}
@@ -66,10 +64,10 @@ function Watch({ view, onUnblock }: { view: SecurityView | null; onUnblock: (cli
         <table className="sec-table">
           <thead>
             <tr>
-              <th>暂时封住</th>
-              <th>账号</th>
-              <th>原因</th>
-              <th>到</th>
+              <th>{t("ui.admin.security.col_blocked")}</th>
+              <th>{t("ui.admin.security.col_account")}</th>
+              <th>{t("ui.admin.security.col_reason")}</th>
+              <th>{t("ui.admin.security.col_until")}</th>
               <th />
             </tr>
           </thead>
@@ -81,8 +79,8 @@ function Watch({ view, onUnblock }: { view: SecurityView | null; onUnblock: (cli
                 <td>{b.why}</td>
                 <td className="tnum">{whenSecondsText(b.until)}</td>
                 <td>
-                  <Button tip="马上解开这个来源" tone="ghost" onClick={() => onUnblock(b.client)}>
-                    解开
+                  <Button tone="ghost" onClick={() => onUnblock(b.client)}>
+                    {t("ui.admin.security.unblock")}
                   </Button>
                 </td>
               </tr>
@@ -95,26 +93,25 @@ function Watch({ view, onUnblock }: { view: SecurityView | null; onUnblock: (cli
           <table className="sec-table">
             <thead>
               <tr>
-                <th>时间</th>
-                <th>什么</th>
-                <th>来源</th>
-                <th>账号</th>
-                <th>请求</th>
-                <th>说明</th>
+                <th>{t("ui.admin.security.col_time")}</th>
+                <th>{t("ui.admin.security.col_what")}</th>
+                <th>{t("ui.admin.security.col_source")}</th>
+                <th>{t("ui.admin.security.col_account")}</th>
+                <th>{t("ui.admin.security.col_request")}</th>
+                <th>{t("ui.admin.security.col_detail")}</th>
               </tr>
             </thead>
             <tbody>
               {view.events.map((e, i) => (
                 <tr key={`${e.t}-${i}`}>
                   <td className="tnum">{whenSecondsText(e.t)}</td>
-                  <td data-tip={e.counted ? "算进封禁：同一个登录 10 分钟里攒够 40 条就封 30 分钟"
-                    : "不算进封禁：已登录、请求自称来自本站页面，却要了这台服务器没有的接口。升级前后页面和服务器版本不一致会这样，拿着这个登录的脚本也会这样；看账号和请求判断"}>
-                    {e.kind}{e.counted ? "" : " · 不计"}
+                  <td>
+                    {e.kind}{e.counted ? "" : t("ui.admin.security.not_counted")}
                   </td>
-                  <td className="mono" data-tip={e.client.startsWith("s:") ? "带着登录凭证的请求（按凭证区分）" : "没有凭证：按地址区分；经过内网穿透时大家的地址可能一样"}>
+                  <td className="mono">
                     {e.who}
                   </td>
-                  <td className="mono" data-tip={e.user ? "请求带的登录属于这个账号" : "没有登录"}>
+                  <td className="mono">
                     {e.user || "—"}
                   </td>
                   <td className="mono">
@@ -127,7 +124,7 @@ function Watch({ view, onUnblock }: { view: SecurityView | null; onUnblock: (cli
           </table>
         </div>
       ) : (
-        <p className="adm-empty">这次服务启动以来没有可疑请求。</p>
+        <p className="adm-empty">{t("ui.admin.security.none")}</p>
       )}
     </>
   );

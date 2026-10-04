@@ -21,7 +21,7 @@ export interface CardRow {
 export interface CardTier {
   id: string;
   node: string;
-  label: string;
+  subtitle: string; // the node's subtitle
   param: string; // "" the node's default
   option: string;
   vram_gb: number;
@@ -34,7 +34,7 @@ export interface CardTier {
 
 export interface CardNode {
   node: string;
-  label: string;
+  subtitle: string; // the node's subtitle
   runtime: string;
   runtime_title: string;
   vram_gb: number;

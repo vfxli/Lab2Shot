@@ -7,7 +7,11 @@ kept loaded between jobs and sees how much each project is used."""
 
 from __future__ import annotations
 
+import contextlib
 import json
+import re
+import threading
+import time
 from typing import Any
 from urllib.parse import quote
 
@@ -19,26 +23,26 @@ from starlette.concurrency import run_in_threadpool
 from .routes import MAX_STREAMS, Access, Body, Days, Router
 
 HISTORY_MOST = 5000  # the most job records answered at once (the page limit of 后台「任务记录」; the same as the 5000 lines of logs.py /log)
-from .. import logs
+from .. import i18n, logs
 from ..database import json_of
 from ..data.packet import Packet, packet_dir
 from ..engine import CookError, Graph, GraphError
 from ..engine.resident import pool as resident
-from ..engine.templates import apply_values, pick_targets, template
+from ..engine.templates import apply_values, pick_targets
 from ..farm import Client, Job, farm, forget_job, history, job_row, timings
-from ..farm.queue import cache_mark, finished_of, listed_version
+from ..farm.queue import cache_mark, finished_of, listed_version, spoken_record
 from ..errors import Invalid, NotFound, TooManyTries
 from ..io.digest import sha256
-from ..messages import Msg
+from ..messages import Msg, localized
 from ..text import decimal
 from . import auth, graphs, owners, quota, restart
 from .wire import FRESH, NEVER, WAITS, generations
-from .access import admit, audit, particulars, templates_for
+from .access import admit, audit, particulars
 from .graphs import GraphRequest
 from .packets import evaluation_of
 
-router = Router(prefix="/api", tags=["任务队列"])
-admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])  # this module's admin routes (app.py includes each module's)
+router = Router(prefix="/api", tags=["Job Queue"])
+admin = Router(prefix="/api/admin", tags=["Admin (/admin page)"])  # this module's admin routes (app.py includes each module's)
 
 
 def client_of(request: Request, declared: dict | None = None) -> Client:
@@ -47,7 +51,7 @@ def client_of(request: Request, declared: dict | None = None) -> Client:
 
 
 def submit(request: Request, data: dict, graph: Graph, targets: list[str], declared: dict, force: bool,
-           version: int | None = None, show: list[str] | None = None) -> Job:
+           version: int | None = None, show: list[str] | None = None, follows: str = "") -> Job:
     """Queue a graph admitted for the account (server/access.py admit). It cooks as its submitter's own account
     (farm/queue.py Farm.submit), in its own cache (data/store.py), where its status (server/packets.py) finds the
     results: a node whose upload is not this account's fails at itself, the rest cooks as usual."""
@@ -55,7 +59,7 @@ def submit(request: Request, data: dict, graph: Graph, targets: list[str], decla
     # the same rule; this check blocks submissions that bypass the page.
     me = auth.me(request)
     quota.refuse_if_full(me.id)
-    return farm().submit(data, graph, targets, client_of(request, declared), force, version=version, show=show)
+    return farm().submit(data, graph, targets, client_of(request, declared), force, version=version, show=show, follows=follows)
 
 
 class PlanRequest(GraphRequest):
@@ -73,7 +77,12 @@ class JobRequest(GraphRequest):
     `frames` [first, last] within what the inputs have; `force` cook again what is cached; `client` what the client
     says of itself (auth.details: application, platform ...); `version` the page's cook-inputs version it submits at,
     carried back on every event of the job (farm/queue.py Job.version); `show` the outputs of the node it shows that the
-    viewer displays (none: every output of it), so the rest is not computed for nothing (engine/cook.py `show`)."""
+    viewer displays (none: every output of it), so the rest is not computed for nothing (engine/cook.py `show`);
+    `formats` {kind of 3D data: format} the deliveries are wanted in (engine/deliver_formats.py: the graph is rewritten
+    before it is queued, refused when a kind can't be written so). `template` is any tool's id (server/tools.py find).
+    `follows`: an earlier job of the same account this one follows (the page's focus mode computing a job a DCC plugin
+    opened in it: the plugin takes the newest finished job that follows its own as the new version). Only one's own
+    job: another account's, or none, is refused alike (owners.job_followed)."""
 
     template: str | None = None
     values: dict[str, Any] = {}
@@ -84,21 +93,85 @@ class JobRequest(GraphRequest):
     client: dict = {}
     version: int | None = None
     show: list[str] | None = None
+    formats: dict[str, str] = {}
+    follows: str | None = Field(None, max_length=64)
+    # the submitter's key for this one submission (a click of 「计算」, one call of a script): sent again after an
+    # answer that never arrived (the line dropped, the server restarted), it gets the job the first one made instead of
+    # a second (submitted_before). Kept in the record's client details (`submit`)
+    submit: str | None = Field(None, max_length=64)
 
 
-@router.post("/jobs", access=Access.user("提交计算：节点图或模板，算一个节点或整理打包「输出」"),
-             summary="提交计算（网页、DCC 插件、脚本、命令行都用它）：节点图（整个或按版本）或模板，values 设参数；cook 算一个节点（连同上游），"
-                     "deliver 整理打包这些「输出」（[] 是全部）二选一；进队列排队，每个节点轮到了就在空着的显卡或 CPU 名额上算；返回任务 id")
+SUBMIT_KEY = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+SUBMIT_KEPT_S = 86400  # a submit key finds the job it made within this long
+# (account, key) -> [the lock its submissions take in turn, how many are in or waiting]: the entry goes only when the
+# last one leaves, so a submission arriving meanwhile always takes the same lock (never a second one beside it)
+_submitting: dict[tuple[int, str], list] = {}
+_submitting_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def _one_at_a_time(user_id: int, key: str):
+    """Submissions of one account with the same key, one after another: the second sees the job the first made."""
+    with _submitting_lock:
+        entry = _submitting.setdefault((user_id, key), [threading.Lock(), 0])
+        entry[1] += 1
+    try:
+        with entry[0]:
+            yield
+    finally:
+        with _submitting_lock:
+            entry[1] -= 1
+            if entry[1] == 0:
+                _submitting.pop((user_id, key), None)
+
+
+def submitted_before(user_id: int, key: str) -> str | None:
+    """The job this account's earlier submission with `key` made (not one the server cancelled as it closed: that one
+    never ran, and the same click may queue it now), within SUBMIT_KEPT_S; None: there is none. The jobs_user index
+    (user_id, submitted) narrows it to this account's jobs of the last day before the record is looked into."""
+    row = farm().db.row("SELECT id FROM jobs WHERE user_id = ? AND submitted > ? AND state != 'cancelled' "
+                        "AND json_extract(record, '$.client.details.submit') = ? ORDER BY submitted DESC LIMIT 1",
+                        (user_id, time.time() - SUBMIT_KEPT_S, key))
+    return row["id"] if row else None
+
+
+@router.post("/jobs", access=Access.user("Submit a cook: a graph or a template, cooking one node or packaging outputs",
+                                          owned=owners.job_followed, body_ids=("follows",)),
+             summary="Submit a cook (used by the web page, DCC plugins, scripts and the command line): a graph (whole or by version) "
+                     "or a template, values setting parameters; either cook one node (with its upstream) or deliver these outputs "
+                     "([] for all); the job is queued and each node runs on a free GPU or CPU slot when its turn comes; returns the "
+                     "job id")
 def queue_job(req: JobRequest, request: Request) -> dict:
-    """One task for what the request asks (JobRequest), queued like every other (farm/queue.py)."""
+    """One task for what the request asks (JobRequest), queued like every other (farm/queue.py); with a submit key, at
+    most one per key (submitted_before)."""
+    if not req.submit:
+        return _queue_job(req, request)
+    if not SUBMIT_KEY.match(req.submit):
+        raise Invalid(Msg("B-JOB-SUBMITKEY"))
+    me = auth.me(request).id
+    with _one_at_a_time(me, req.submit):
+        if (found := submitted_before(me, req.submit)) is not None:
+            return {"job": found, "again": True}
+        return _queue_job(req.model_copy(update={"client": {**req.client, "submit": req.submit}}), request)
+
+
+def _queue_job(req: JobRequest, request: Request) -> dict:
     if [req.cook, req.deliver].count(None) != 1:
         raise Invalid(Msg("B-JOB-WHAT"))
+    follows = request.state.owned  # the job it follows, the account's own (owners.job_followed)
     if req.template:
-        data = template(req.template, templates_for(auth.me(request)))["graph"]
+        from .tools import find
+
+        data = find(req.template, request)[0]
     else:
         data, _ = graphs.resolve(req, request)
     if req.values:
         data = apply_values(data, req.values)
+    if req.formats:
+        from ..engine.deliver_formats import with_formats
+
+        admit(request, data)  # what the account may not use is refused as admit says it, before the graph is read here
+        data = with_formats(data, req.formats)
     if req.frames is not None:
         data = {**data, "frames": req.frames}
     graph = admit(request, data)
@@ -110,10 +183,11 @@ def queue_job(req: JobRequest, request: Request) -> dict:
         if req.cook not in graph.nodes:
             raise Invalid(Msg("B-COOK-NOSUCHNODE", node=req.cook))
         targets = [req.cook]
-    return {"job": submit(request, data, graph, targets, req.client, req.force, req.version, req.show).id}
+    return {"job": submit(request, data, graph, targets, req.client, req.force, req.version, req.show, follows).id}
 
 
-@router.post("/plan", access=Access.user("提交前：帧范围和要算的节点"), summary="提交前：输入的帧范围、这次算哪些帧、哪些节点要算（其余有缓存）")
+@router.post("/plan", access=Access.user("Before submitting: frame range and the nodes to cook"), summary="Before submitting: the inputs' frame range, which frames this run cooks, which nodes need cooking (the rest "
+                                                                                             "are cached)")
 def plan(req: PlanRequest, request: Request) -> dict:
     """For scripts and DCC clients (the editor gets the shown node's with every status reply): timings.look. Reads its
     Evaluation from the same cache /api/status uses (engine/evaluations.py)."""
@@ -136,12 +210,13 @@ QUEUE_CARDS = ("gpus", "jobs[].cards", "jobs[].waiting_detail")
 HISTORY_CARDS = ("history[].cards",)
 
 
-@router.get("/jobs/{job_id}/state", access=Access.user("查自己的任务", owned=owners.job, hides={"farm.cards": tuple(f"events[].{k}" for k in CARD_KEYS)}), summary="查询自己的任务：since 之后的事件、状态（排队/计算中/完成/出错/已取消）、写出的文件")
+@router.get("/jobs/{job_id}/state", access=Access.user("Query your own job", owned=owners.job, hides={"farm.cards": tuple(f"events[].{k}" for k in CARD_KEYS)}), summary="Query your own job: events since `since`, state (queued / cooking / done / failed / cancelled), files written")
 def job_state(job_id: str, request: Request, since: int = 0) -> dict:
     return request.state.owned.poll(since)
 
 
-@router.get("/jobs/{job_id}/events", access=Access.user("自己任务的实时进度", owned=owners.job, hides={"farm.cards": CARD_KEYS}), summary="自己任务的事件的实时推送（Server-Sent Events）；断了浏览器自己重连，从断开的地方接着（服务重启过就从头）；账号停用或过期时马上断开")
+@router.get("/jobs/{job_id}/events", access=Access.user("Live progress of your own job", owned=owners.job, hides={"farm.cards": CARD_KEYS}), summary="Live push of your own job's events (Server-Sent Events); the browser reconnects by itself and continues where "
+                                                                                                                                                   "it broke off (from the start after a server restart); closed at once when the account is disabled or expires")
 def events(job_id: str, request: Request, last_event_id: str = "") -> StreamingResponse:
     """Every event carries the id <server run>.<its number> (events are numbered permanently: farm/queue.py Job.after):
     a browser reconnecting (the connection dropped, the server restarted) sends the last one back (Last-Event-ID; a page
@@ -179,7 +254,8 @@ def events(job_id: str, request: Request, last_event_id: str = "") -> StreamingR
                     if e.get("type") == "node_done" and e.get("outputs") and "gens" not in e:
                         # the fresh packets' generations, as the status reply gives them (wire.py generations)
                         e = {**e, "gens": await run_in_threadpool(generations, e["outputs"], job.client.user)}
-                    yield f"id: {restart.BOOT}.{e['n']}\ndata: {json.dumps(e, ensure_ascii=False)}\n\n"
+                    # made on the farm's thread: its messages said again in this reader's language (server/lang.py)
+                    yield f"id: {restart.BOOT}.{e['n']}\ndata: {json.dumps(localized(e), ensure_ascii=False)}\n\n"
                     sent = e["n"] + 1
                 if batch:
                     continue
@@ -193,15 +269,16 @@ def events(job_id: str, request: Request, last_event_id: str = "") -> StreamingR
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": FRESH})
 
 
-@router.post("/jobs/{job_id}/cancel", access=Access.user("取消自己的任务", owned=owners.job), summary="取消自己的任务：排队的直接移出，计算中的停下")
+@router.post("/jobs/{job_id}/cancel", access=Access.user("Cancel your own job", owned=owners.job), summary="Cancel your own job: a queued one is removed, a cooking one stops")
 def cancel(job_id: str, request: Request) -> dict:
     farm().cancel(job_id, None)  # whose it is: the route's owner said
     return {"ok": True}
 
 
-@router.delete("/jobs/{job_id}", access=Access.user("删除自己已经结束的任务", owned=owners.job_record),
-               summary="把一条**已经结束**的任务删掉：它的任务文件夹（节点图、素材、输出的文件夹和 zip、日志）整个删除，"
-                       "只被它引用的缓存随后清理（别的任务还引用的一律留着）；正在算的先取消。答里带腾出多少和删完后的占用")
+@router.delete("/jobs/{job_id}", access=Access.user("Delete your own finished job", owned=owners.job_record),
+               summary="Delete one **finished** job: its whole job folder (graph, media, output folders and zip, logs) is deleted and "
+                       "cache only it referenced is cleaned up afterwards (anything other jobs still reference stays); a running one "
+                       "is cancelled first. The answer says how much was freed and the usage afterwards")
 def forget(job_id: str, request: Request) -> dict:
     """Deleting a task removes it whole (transfer/tasks.py: its folder with its outputs, its row and references); the
     cache entries only it referenced go with the next cleaning. Measured before deletion (`drop_for_job`), the usage
@@ -211,9 +288,10 @@ def forget(job_id: str, request: Request) -> dict:
     return {"ok": True, **dropped, **quota.usage(int(request.state.owned["user"]))}
 
 
-@router.delete("/jobs", access=Access.user("删除自己全部已经结束的任务"),
-               summary="一次删掉自己**全部已经结束**的任务，连同它们占的空间（任务文件夹；只被它们引用的缓存随后清理）；"
-                       "正在排队和计算的不动，也不碰别人的东西。答里带删了几条、腾出多少")
+@router.delete("/jobs", access=Access.user("Delete all your own finished jobs"),
+               summary="Delete **all** your finished jobs at once with the space they take (job folders; cache only they referenced is "
+                       "cleaned up afterwards); queued and cooking ones stay, and nobody else's are touched. The answer says how many "
+                       "were deleted and how much was freed")
 def forget_all(request: Request) -> dict:
     me = auth.me(request).id
     # Usage without traffic: traffic is visible only to the admin side, and no user-facing route sends it
@@ -280,9 +358,10 @@ def forget_group(user_id: int, key: str) -> dict:
     return {"ok": True, "jobs": jobs, "skipped": skipped, "bytes": freed}
 
 
-@router.delete("/task-groups/{key}", access=Access.user("删除自己的一组任务"),
-               summary="删除自己的一组任务：组里每个**已经结束**的任务都整个删掉（任务文件夹连同输出的文件夹和 zip，和删一条任务一样）；"
-                       "正在排队和计算的不动（先取消）。只找得到自己的组。答里带删了几条、跳过几条、腾出多少和删完后的占用")
+@router.delete("/task-groups/{key}", access=Access.user("Delete one of your job groups"),
+               summary="Delete one of your job groups: every **finished** job in it is deleted whole (job folder with output folders "
+                       "and zip, as for one job); queued and cooking ones stay (cancel them first). Only your own groups are found. "
+                       "The answer says how many were deleted, how many skipped, how much was freed and the usage afterwards")
 def forget_task_group(key: str, request: Request) -> dict:
     me = auth.me(request).id
     return {**forget_group(me, key), **quota.usage(me)}
@@ -292,9 +371,10 @@ class GroupName(Body):
     name: str = Field("", max_length=1000)  # cleaned and cut to 64 characters (groups.clean_name); "" = the automatic name
 
 
-@router.put("/task-groups/{key}/name", access=Access.user("给自己的一组任务改名"),
-            summary="给自己的一组任务改名（只改显示的名字，分组不变；之后进这一组的任务也用这个名字）；name 为空就回到自动起的名字。"
-                    "只找得到自己的组。答里是这一组现在显示的名字")
+@router.put("/task-groups/{key}/name", access=Access.user("Rename one of your job groups"),
+            summary="Rename one of your job groups (only the shown name; the grouping is unchanged and later jobs of the group use "
+                    "the name too); an empty name goes back to the automatic one. Only your own groups are found. The answer is the "
+                    "group's shown name now")
 def rename_task_group(key: str, req: GroupName, request: Request) -> dict:
     from ..transfer import groups
 
@@ -307,11 +387,12 @@ def rename_task_group(key: str, req: GroupName, request: Request) -> dict:
 HISTORY = HISTORY_MOST
 
 
-@router.get("/queue", access=Access.user("队列：自己的任务；别人的只显示在排队还是在算、排第几", hides={
-    "farm.cards": (*QUEUE_CARDS, "switches.gpu")}, snapshot=True), summary="队列：机器和接任务的显卡、计算中和排队的任务（自己的全部，别人的只有在排队还是在算、排第几）；"
-                              "自己的任务记录的版本 history_version（变了才去 /api/queue/history 取一次）；"
-                              "自己还能不能往里放东西（占了多少、上限多少、满没满；各部分的明细由队列窗口里的「我的占用」自己问一次 /api/my/storage）；"
-                              "load=0：不带每秒都在变的机器负载和显卡用量（编辑器关着队列窗口时，没变化就是 304）")
+@router.get("/queue", access=Access.user("Queue: your own jobs; others' show only whether queued or cooking and their place", hides={
+    "farm.cards": (*QUEUE_CARDS, "switches.gpu")}, snapshot=True), summary="Queue: the machine and the GPUs taking jobs, cooking and queued jobs (all of yours; of others only whether "
+                                                                           "queued or cooking and their place); the version of your job records history_version (fetch /api/queue/history "
+                                                                           "only when it changes); whether you can still add anything (used, limit, full; the parts' details are asked "
+                                                                           "once from /api/my/storage by the queue window's My Usage); load=0: without the machine load and GPU use that "
+                                                                           "change every second (304 when nothing changed while the editor's queue window is closed)")
 def queue(request: Request, load: bool = True) -> dict:
     u = auth.me(request)
     view = farm().view(u.id, auth.can(request, "queue.manage"))
@@ -332,10 +413,11 @@ def _history_key(request: Request) -> str:
     return sha256(repr((auth.me(request).id, revisions.account(request), listed_version(auth.me(request).id))))[:24]
 
 
-@router.get("/queue/history", access=Access.user("队列：自己的任务记录", hides={"farm.cards": HISTORY_CARDS},
+@router.get("/queue/history", access=Access.user("Queue: your own job records", hides={"farm.cards": HISTORY_CARDS},
                                                  keyed=_history_key),
-            summary="自己所有还没过期的任务（点「计算」提交的，最多 5000 条），最新的在前，每个带它的组和结果还在不在缓存里（全在 / 部分 / 已清理）；"
-                    "version 和 /api/queue 的 history_version 相同时，这份记录没变（ETag 就是它，没变是 304）")
+            summary="All your jobs not yet expired (submitted with Cook, at most 5000), newest first, each with its group and "
+                    "whether its results are still in the cache (all / partly / cleaned up); when version equals /api/queue's "
+                    "history_version the records have not changed (it is the ETag; 304 when unchanged)")
 def queue_history(request: Request) -> dict:
     u = auth.me(request)
     version = listed_version(u.id)
@@ -351,7 +433,9 @@ def queue_history(request: Request) -> dict:
     return {"version": version, "history": mine_}
 
 
-@router.get("/load", access=Access.user("服务器现在忙不忙", snapshot=True), summary="服务器现在忙不忙（每个页面都能显示的一条）：队列里等着几个、正在算几个，CPU 和 GPU 计算位各用了几个、一共几个，CPU 和内存用了百分之几，以及每张显卡忙不忙、显存用了百分之几")
+@router.get("/load", access=Access.user("How busy the server is now", snapshot=True), summary="How busy the server is now (one line every page can show): how many jobs wait in the queue and how many are "
+                                                                                            "cooking, CPU and GPU slots used and in all, CPU and memory use in percent, and each GPU's load and memory use "
+                                                                                            "in percent")
 def load(request: Request) -> dict:
     """The one small answer a page can ask for often: it reads the samples the queue already has (farm/load.py, once a
     second however many ask; the cards' from the inventory thread), never a new one. Every account sees it whole:
@@ -369,11 +453,14 @@ def load(request: Request) -> dict:
     return {**farm().load(), "storage": quota.gate(auth.me(request).id), "server": server_now(request)}
 
 
-@router.get("/jobs/{job_id}", access=Access.user("加载自己的一个任务：提交时的节点图和结果还在不在缓存里", owned=owners.job_record), summary="加载自己的一个任务：提交时的整张节点图（节点、参数、连线、视图），和它的结果还在不在缓存里（全在 / 部分 / 已清理）")
+@router.get("/jobs/{job_id}", access=Access.user("Load one of your jobs: the graph as submitted and whether its results are still cached", owned=owners.job_record), summary="Load one of your jobs: the whole graph as submitted (nodes, parameters, wires, views) and whether its results "
+                                                                                                                                                                        "are still in the cache (all / partly / cleaned up)")
 def job_load(job_id: str, request: Request) -> dict:
     row = request.state.owned
-    return {"id": job_id, "graph": row["graph"], "title": row["record"].get("title", ""), "submitted": row["record"].get("submitted"),
-            "cache": cache_mark(job_id, row["graph"], row["record"], row["user"])}
+    return {"id": job_id, "graph": row["graph"], "title": spoken_record(dict(row["record"]))["title"], "submitted": row["record"].get("submitted"),
+            "cache": cache_mark(job_id, row["graph"], row["record"], row["user"]),
+            # what it computed (node ids) and the job it followed: the page's focus mode computes the same again
+            "nodes": row["record"].get("nodes") or [], "follows": row["record"].get("follows") or ""}
 
 
 # ------------------------------------------------------------------ streaming partial results
@@ -418,14 +505,17 @@ def _streaming_packet(job: Job, node: str, port: str) -> tuple[Packet, list[int]
     return Packet(d, type_, meta), sorted(frames), [int(f) for f in info.frames]
 
 
-@router.get("/jobs/{job_id}/partial/{node}/{port}", access=Access.user("看边算边传的临时结果", owned=owners.job), summary="边算边传：一个节点还在算时已经写好的帧（算到第几帧、共几帧、尺寸和类型）；只给任务的主人，浏览器不缓存")
+@router.get("/jobs/{job_id}/partial/{node}/{port}", access=Access.user("View partial results while cooking", owned=owners.job), summary="Streaming while cooking: the frames a node still cooking has written (frames done, frames in all, size and "
+                                                                                                                                    "type); only for the job's owner, not cached by the browser")
 def partial(job_id: str, node: str, port: str, request: Request) -> Response:
     p, frames, whole = _streaming_packet(request.state.owned, node, port)
     out = {"frames_done": frames, "total": len(whole), "width": p.meta["width"], "height": p.meta["height"], "type": p.type}
     return Response(json.dumps(out), media_type="application/json", headers={"Cache-Control": NEVER})
 
 
-@router.get("/jobs/{job_id}/partial/{node}/{port}/frame/{frame}.png", access=Access.user("看边算边传的某一帧", owned=owners.job), summary="边算边传：一个节点还在算时某一帧给视图看的**代理图**（和写完后的正式地址同一份代理，字节相同）；只给任务的主人，浏览器不缓存，头里带 X-Content-Sha256")
+@router.get("/jobs/{job_id}/partial/{node}/{port}/frame/{frame}.png", access=Access.user("View one frame while cooking", owned=owners.job), summary="Streaming while cooking: the **proxy image** of one frame of a node still cooking, for the viewer (the same "
+                                                                                                                                                   "proxy as the final address once written, the same bytes); only for the job's owner, not cached by the browser, "
+                                                                                                                                                   "with X-Content-Sha256 in the headers")
 def partial_frame(job_id: str, node: str, port: str, frame: int, request: Request) -> Response:
     import mimetypes
 
@@ -475,7 +565,8 @@ def _partial_points(job: Job, node: str, port: str, camera: str | None) -> tuple
     return how, frames, tuple(whole)
 
 
-@router.get("/jobs/{job_id}/partial/{node}/{port}/points", access=Access.user("看边算边传的点云描述", owned=owners.job_seen_through, lane=WAITS), summary="边算边传：一个节点还在算时，它已经写好的那几帧当点云看的描述（一帧一块，每块的地址此后不变）；只给任务的主人")
+@router.get("/jobs/{job_id}/partial/{node}/{port}/points", access=Access.user("View the point cloud description while cooking", owned=owners.job_seen_through, lane=WAITS), summary="Streaming while cooking: the description of the frames a node still cooking has written, seen as a point cloud "
+                                                                                                                                                                    "(one part per frame; each part's address never changes afterwards); only for the job's owner")
 def partial_points(job_id: str, node: str, port: str, request: Request, camera: str | None = None) -> Response:
     from .view_data import respond_description
     from .view_worker import describe
@@ -485,7 +576,8 @@ def partial_points(job_id: str, node: str, port: str, request: Request, camera: 
     return respond_description(describe(how, url), request.headers.get("accept-encoding", ""))
 
 
-@router.get("/jobs/{job_id}/partial/{node}/{port}/points/{part}", access=Access.user("看边算边传的点云数据（一帧）", owned=owners.job_seen_through, lane=WAITS), summary="边算边传：还在算的那个节点某一帧的点（二进制，gzip；一帧一块）。这一帧还没写出来就是 404——浏览器绝不会把空的一帧记下来")
+@router.get("/jobs/{job_id}/partial/{node}/{port}/points/{part}", access=Access.user("View the point cloud data while cooking (one frame)", owned=owners.job_seen_through, lane=WAITS), summary="Streaming while cooking: the points of one frame of the node still cooking (binary, gzip; one part per frame). "
+                                                                                                                                                                                       "A frame not written yet is 404, so a browser never keeps an empty frame")
 def partial_points_part(job_id: str, node: str, port: str, part: str, request: Request, camera: str | None = None) -> Response:
     """One frame per chunk (view_data.chunk_plan one_frame_chunks): chunk `c{k}` is frame k of this node.
 
@@ -516,8 +608,9 @@ def _admin_view(request: Request, view: dict) -> dict:
     return {**view, "jobs": [_particulars(request, j) for j in view.get("jobs", [])]}
 
 
-@admin.get("/queue", access=Access.admin("queue.manage", hides={"farm.cards": QUEUE_CARDS}), summary="队列：所有人的任务，附带每个任务的账号和请求的全部信息（IP、浏览器、DCC 插件报告的计算机名和系统用户……）；"
-                                                                  "history_version：任务记录的版本（变了才去 /api/admin/history 取一次）")
+@admin.get("/queue", access=Access.admin("queue.manage", hides={"farm.cards": QUEUE_CARDS}), summary="Queue: everyone's jobs, with each job's account and everything about its request (IP, browser, computer name "
+                                                                                                     "and system user reported by the DCC plugin...); history_version: the version of the job records (fetch "
+                                                                                                     "/api/admin/history only when it changes)")
 def admin_queue(request: Request) -> dict:
     view = _admin_view(request, farm().view(admin=True))
     return {**view, "history_version": listed_version(None)}  # taken after the view, as for the account's own
@@ -532,7 +625,8 @@ class Switches(Body):
     compute: bool | None = None  # compute jobs (queue.compute_jobs)
 
 
-@admin.put("/queue/switches", access=Access.admin("queue.manage", hides={"farm.cards": QUEUE_CARDS}), summary="显卡任务、计算任务两个开关（设置里的 queue.gpu_jobs、queue.compute_jobs）：关掉后不再接新任务，正在算的算完；管理员和二级管理员都能开关")
+@admin.put("/queue/switches", access=Access.admin("queue.manage", hides={"farm.cards": QUEUE_CARDS}), summary="The GPU job and compute job switches (settings queue.gpu_jobs, queue.compute_jobs): when off no new jobs are "
+                                                                                                              "taken and running ones finish; administrators and deputy administrators may switch them")
 def queue_switches(req: Switches, request: Request) -> dict:
     from ..config import settings
 
@@ -541,13 +635,17 @@ def queue_switches(req: Switches, request: Request) -> dict:
     return _admin_view(request, farm().view(admin=True))
 
 
-@admin.put("/gpus", access=Access.admin("gpu.authorize"), summary="授权哪些显卡接任务（按 UUID）；取消授权的显卡算完手上的任务后不再接新的")
+@admin.put("/gpus", access=Access.admin("gpu.authorize"), summary="Authorize which GPUs take jobs (by UUID); a GPU no longer authorized finishes the jobs it has and takes no new "
+                                                                  "ones")
 def set_gpus(req: GpuRequest, request: Request) -> dict:
     farm().authorize(req.authorized)
     return _admin_view(request, farm().view(admin=True))
 
 
-@admin.get("/cards", access=Access.admin("farm.cards"), summary="显卡：每张卡的型号、显存、架构、接不接任务、在跑什么和负载，扩展包在它上面能跑 / 不能跑 / 未知和原因，它让哪些参数档位能跑；所有档位和能跑它的卡；每个用显卡的节点实测的显存；排队中的显卡任务为什么等、有没有授权的卡能跑")
+@admin.get("/cards", access=Access.admin("farm.cards"), summary="GPUs: each card's model, memory, architecture, whether it takes jobs, what it runs and its load, which "
+                                                                "extensions can / cannot / may run on it and why, which parameter tiers it lets run; every tier and the cards "
+                                                                "that can run it; measured GPU memory of each node that uses a GPU; why queued GPU jobs wait and whether an "
+                                                                "authorized card can run them")
 def admin_cards() -> dict:
     from ..farm import cards
 
@@ -558,33 +656,38 @@ class CardsChange(Body):
     authorized: list[str]  # the UUIDs that would take jobs
 
 
-@admin.post("/cards/consequences", access=Access.admin("farm.cards"), summary="改授权之前先看后果（什么都不改）：哪些档位没有卡能跑了或能跑了、哪些排队的任务会一直等、哪些扩展包没有授权的卡能跑，每条一句带编号的话")
+@admin.post("/cards/consequences", access=Access.admin("farm.cards"), summary="The consequences of an authorization change before making it (nothing is changed): which tiers lose or gain a "
+                                                                              "card that can run them, which queued jobs would wait forever, which extensions would have no authorized card, "
+                                                                              "each said as one numbered sentence")
 def admin_cards_consequences(req: CardsChange) -> dict:
     from ..farm import cards
 
     return cards.consequences(farm(), req.authorized)
 
 
-@admin.post("/jobs/{job_id}/first", access=Access.admin("queue.manage", owned=owners.job), summary="插队：把一个排队中或计算中的任务挪到队首，之后空出来的显卡和 CPU 名额先给它；正在算的节点不受影响。每次插队记进管理操作日志（谁、哪个任务、原来第几位）")
+@admin.post("/jobs/{job_id}/first", access=Access.admin("queue.manage", owned=owners.job), summary="Move to front: put a queued or cooking job at the head of the queue so that GPU and CPU slots freed from now "
+                                                                                                   "on go to it first; nodes already cooking are not affected. Each move is written to the admin action log (who, "
+                                                                                                   "which job, its place before)")
 def admin_first(job_id: str, request: Request) -> dict:
     job = farm().jobs.get(job_id)
-    title, owner = (job.title, job.client.who) if job is not None else (job_id, "")
+    title, owner = (job.shown_title, job.client.who) if job is not None else (job_id, "")
     was = farm().first(job_id)
     audit(Msg("I-AUDIT-QUEUEFIRST", who=auth.actor(request).label, title=title, owner=owner, was=was),
           about=request.state.owned.client.user, session=auth.session(request), method="POST", path=str(request.url.path))
     return _admin_view(request, farm().view(admin=True))
 
 
-@admin.post("/jobs/{job_id}/cancel", access=Access.admin("queue.manage", owned=owners.job), summary="取消任何人的任务（管得着他的账号的）")
+@admin.post("/jobs/{job_id}/cancel", access=Access.admin("queue.manage", owned=owners.job), summary="Cancel anyone's job (of accounts you manage)")
 def admin_cancel(job_id: str, request: Request) -> dict:
-    farm().cancel(job_id, None, Msg("N-JOB-ADMINCANCELLED").text)
+    farm().cancel(job_id, None, Msg("N-JOB-ADMINCANCELLED"))
     return {"ok": True}
 
 
 # Deleting another account's tasks and renaming its groups change that account's own data: data.others (lab2shot/roles.py).
 # queue.manage only looks at the queue and steers it (cancel, 插队, the switches); it never removes or rewrites what is someone's.
 @admin.delete("/jobs/{job_id}", access=Access.admin("data.others"),
-              summary="删除任何人已经结束的任务，连同它的任务文件夹（节点图、素材、输出的文件夹和 zip、日志）；只被它引用的缓存随后清理")
+              summary="Delete anyone's finished job with its job folder (graph, media, output folders and zip, logs); cache only it "
+                      "referenced is cleaned up afterwards")
 def admin_forget(job_id: str) -> dict:
     """Takes the same path as a user's own deletion (`quota.drop_for_job`); otherwise an administrator deleting a job
     for someone would remove only the record while the space stays used. What is cleaned belongs to the job's account,
@@ -602,20 +705,23 @@ def admin_forget(job_id: str) -> dict:
 
 
 @admin.delete("/task-groups/{user_id}/{key}", access=Access.admin("data.others"),
-              summary="删除任何人的一组任务：组里每个已经结束的任务都整个删掉（和删一条任务同一条路）；正在排队和计算的不动")
+              summary="Delete anyone's job group: every finished job in it is deleted whole (the same path as deleting one job); "
+                      "queued and cooking ones stay")
 def admin_forget_task_group(user_id: int, key: str) -> dict:
     return forget_group(user_id, key)
 
 
 @admin.delete("/users/{user_id}/jobs", access=Access.admin("data.others"),
-              summary="删除一个账号全部**已经结束**的任务（和它自己点「删除全部」同一条路）；正在排队和计算的不动（先取消）。"
-                      "答里带删了几条、跳过几条、腾出多少。`lab2shot admin jobs --clear` 用本机令牌走这里")
+              summary="Delete all **finished** jobs of one account (the same path as its own Delete All); queued and cooking ones "
+                      "stay (cancel them first). The answer says how many were deleted, how many skipped and how much was freed. "
+                      "`lab2shot admin jobs --clear` comes here with the machine token")
 def admin_forget_finished(user_id: int) -> dict:
     return forget_finished(user_id)
 
 
 @admin.put("/task-groups/{user_id}/{key}/name", access=Access.admin("data.others"),
-           summary="给任何人的一组任务改名（只改显示的名字，分组不变）；name 为空就回到自动起的名字。每次改名记进管理操作日志")
+           summary="Rename anyone's job group (only the shown name; the grouping is unchanged); an empty name goes back to the "
+                   "automatic one. Each rename is written to the admin action log")
 def admin_rename_task_group(user_id: int, key: str, req: GroupName, request: Request) -> dict:
     from .. import accounts
     from ..transfer import groups
@@ -626,16 +732,26 @@ def admin_rename_task_group(user_id: int, key: str, req: GroupName, request: Req
     return {"ok": True, "name": name}
 
 
-@admin.get("/outputs", access=Access.admin("data.others"), summary="所有人的「输出」打包好的结果（最新的在前）：谁的、哪个任务、多大、什么时候随任务删除；管理员可以替别人下载")
+@admin.get("/outputs", access=Access.admin("data.others"), summary="Everyone's packaged outputs (newest first): whose, which job, how big, when they go with the job; an "
+                                                                   "administrator may download them for others")
 def admin_outputs() -> list[dict]:
     from ..transfer import outputs
 
     return outputs.of_account(None)
 
 
-@admin.get("/disk", access=Access.admin("data.others"), summary="硬盘：任务文件夹、缓存、上传的素材各占多少，多少已经 7 天、30 天没用过（在后台量，回答的是最近一次量的结果和什么时候量的；fresh=1 重新量）")
+@admin.get("/disk", access=Access.admin("data.others"), summary="Disk: how much job folders, cache and uploaded media take, how much has not been used for 7 and 30 days "
+                                                                "(measured in the background: the answer is the latest measurement and when it was made; fresh=1 measures "
+                                                                "again); free space on the data disk and whether it is below the free space that pauses new cooks (below it "
+                                                                "everyone's new cooks pause)")
 def admin_disk(fresh: bool = False) -> dict:
-    return farm().disk(fresh)
+    from ..config import settings
+    from ..farm import policy
+
+    if fresh:
+        policy.forget_space()
+    # the data disk now, and whether every account's new computing pauses for it (暂停新计算的剩余空间)
+    return {**farm().disk(fresh), "space": {**policy.space(), "path": str(settings().data_dir)}}
 
 
 class CleanRequest(Body):
@@ -643,7 +759,8 @@ class CleanRequest(Body):
     days: Days = 30  # remove what has not been used for longer
 
 
-@admin.post("/disk/clean", access=Access.admin("data.others"), summary="删掉一类里多少天没用过的东西（有任务在排队或在算的账号，它的这次不动）")
+@admin.post("/disk/clean", access=Access.admin("data.others"), summary="Delete what has not been used for a number of days in one kind (an account with a job queued or cooking is "
+                                                                       "skipped this time)")
 def admin_clean(req: CleanRequest) -> dict:
     from ..farm import disk
 
@@ -668,8 +785,9 @@ def _admin_history_key(request: Request) -> str:
 
 
 @admin.get("/history", access=Access.admin("queue.manage", keyed=_admin_history_key, hides={"farm.cards": HISTORY_CARDS}),
-           summary="任务记录（最新的在前）：每个还没过期的任务（最多 5000 条），哪个账号、从哪里、什么时候、算了什么、结果如何；"
-                   "`user`：只看这个账号的（后台队列的「按人」）。和 /api/admin/queue 的 history_version 对应：没变是 304")
+           summary="Job records (newest first): every job not yet expired (at most 5000), which account, from where, when, what it "
+                   "cooked and how it ended; `user`: only this account's (the admin queue's By Person). Matches /api/admin/queue's "
+                   "history_version: 304 when unchanged")
 def admin_history(request: Request, limit: int = HISTORY_MOST, user: int | None = None) -> list[dict]:
     # every unexpired task, as the account's own 队列 window lists them (a group is never cut in half); the most is fixed,
     # as for the paging of /log and /status: a query parameter must not be able to exhaust memory. `user` is filtered in
@@ -677,12 +795,14 @@ def admin_history(request: Request, limit: int = HISTORY_MOST, user: int | None 
     return [_particulars(request, e) for e in history(min(max(limit, 1), HISTORY_MOST), user_id=user)]
 
 
-@admin.get("/jobs/{job_id}/graph", access=Access.admin("data.others"), summary="一个任务提交时的节点图")
+@admin.get("/jobs/{job_id}/graph", access=Access.admin("data.others"), summary="A job's graph as submitted")
 def admin_job_graph(job_id: str) -> dict:
     return job_row(job_id)["graph"]
 
 
-@admin.get("/usage", access=Access.admin("stats.view"), summary="使用统计：一段时间里每个三方项目和它的每个节点、每个环节和它的人、每个人算了几次、复用几次、算了多久（显卡上多久）、多少帧、最近什么时候用，外加每天的数字；装了没用过的项目也列出")
+@admin.get("/usage", access=Access.admin("stats.view"), summary="Usage statistics: over a period, each third-party project and each of its nodes, each department and its "
+                                                                "people, how many cooks each person ran, how many were reused, how long they cooked (how long on GPUs), how "
+                                                                "many frames, when last used, plus the numbers per day; projects installed but never used are listed too")
 def admin_usage(since: float | None = None, until: float | None = None, tz: int = 0) -> dict:
     """`since` / `until`: seconds since the epoch (none: since the last reset / until now); `tz`: the viewer's time
     zone, minutes east of UTC, for counting days."""
@@ -691,7 +811,8 @@ def admin_usage(since: float | None = None, until: float | None = None, tz: int 
     return usage.stats(since, until, tz)  # a bad range says so itself (Invalid, E-USAGE-*)
 
 
-@admin.post("/usage/reset", access=Access.admin("usage.reset"), summary="使用统计清零：从现在重新算起（任务记录一个不删；原来的起点留着，可以撤销）")
+@admin.post("/usage/reset", access=Access.admin("usage.reset"), summary="Reset usage statistics: count again from now (no job record is deleted; the old starting point is kept and can "
+                                                                        "be restored)")
 def admin_usage_reset() -> dict:
     from ..farm import usage
 
@@ -700,7 +821,7 @@ def admin_usage_reset() -> dict:
     return {"start": since}
 
 
-@admin.post("/usage/reset/undo", access=Access.admin("usage.reset"), summary="撤销上一次使用统计清零：回到原来的起点")
+@admin.post("/usage/reset/undo", access=Access.admin("usage.reset"), summary="Undo the last usage statistics reset: back to the old starting point")
 def admin_usage_reset_undo() -> dict:
     from ..farm import usage
 
@@ -716,22 +837,23 @@ def _resident_view() -> dict:
     names = {g.uuid: f"GPU {g.index} · {g.short_name}" for g in farm().host.snapshot().gpus}
     view = resident().view()
     for p in view["processes"]:
-        p["gpu_name"] = "不用显卡" if p["gpu"] == "" else names.get(p["gpu"], p["gpu"] or "")
+        p["gpu_name"] = i18n.t("server.no_gpu") if p["gpu"] == "" else names.get(p["gpu"], p["gpu"] or "")
     return view
 
 
-@admin.get("/resident", access=Access.admin("models.manage"), summary="常驻模型：哪些项目的模型还加载着、在哪张显卡、占多少显存和内存、空闲多久、在显存里还是内存里")
+@admin.get("/resident", access=Access.admin("models.manage"), summary="Resident models: which projects' models are still loaded, on which GPU, how much GPU memory and RAM they take, "
+                                                                      "how long idle, in GPU memory or in RAM")
 def admin_resident() -> dict:
     return _resident_view()
 
 
-@admin.post("/resident/{pid}/offload", access=Access.admin("models.manage"), summary="把一个常驻进程的模型从显存移到内存（下次用时很快移回显卡）")
+@admin.post("/resident/{pid}/offload", access=Access.admin("models.manage"), summary="Move a resident process's model from GPU memory to RAM (moved back to the GPU quickly when next used)")
 def admin_resident_offload(pid: str) -> dict:
     resident().offload(pid)
     return _resident_view()
 
 
-@admin.post("/resident/{pid}/unload", access=Access.admin("models.manage"), summary="完全卸载一个常驻进程：显存和内存都释放，下次用时重新加载")
+@admin.post("/resident/{pid}/unload", access=Access.admin("models.manage"), summary="Unload a resident process completely: GPU memory and RAM are freed and it loads again when next used")
 def admin_resident_unload(pid: str) -> dict:
     resident().unload(pid)
     return _resident_view()

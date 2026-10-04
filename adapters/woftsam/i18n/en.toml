@@ -1,0 +1,49 @@
+# The WOFTSAM extension's own words and messages in English (the same keys as zh.toml).
+# adapters/woftsam: nodes.py checks the four corners on the server, worker.py tracks in the extension's environment.
+
+# ---- four corners (checked before cooking)
+"N-WOFTSAM-NOPLANE" = "WOFTSAM Planar Track has no plane yet, so the output is empty: display this node, drag a box in the 2D view, then drag its four corners onto the plane's four corners"
+"E-WOFTSAM-CROSSED" = "The lines between the Four Corners cross or bend inwards and do not enclose a plane: drag the corners onto the plane's four corners in order (clockwise or counter-clockwise)"
+"E-WOFTSAM-TOOSMALL" = "The plane enclosed by the Four Corners is only {area:,} square pixels, too small for planar tracking to follow: box the whole plane and cook again"
+"E-WOFTSAM-OUTSIDE" = "All Four Corners must be inside the image ({width}×{height} px): box the plane again on a frame where it is fully visible"
+"E-WOFTSAM-FRAMEOUT" = "The Four Corners are boxed on frame {frame}, but this shot has only frames {first}–{last}: box the plane again on a frame within the shot"
+"E-WOFTSAM-ONEFRAME" = "Planar tracking needs at least two frames: RGB is wired to a single image; wire an image sequence"
+
+# ---- tracking results
+"W-WOFTSAM-UNSURE.one" = "WOFTSAM could not confirm the plane on frames {frames} ({count} frame in all): it was occluded, left the frame or changed too much. The four corners on these frames are marked invisible and their positions are estimates; check these frames before delivery"
+"W-WOFTSAM-UNSURE.other" = "WOFTSAM could not confirm the plane on frames {frames} ({count} frames in all): it was occluded, left the frame or changed too much. The four corners on these frames are marked invisible and their positions are estimates; check these frames before delivery"
+"N-WOFTSAM-REFOUND" = "Optical flow lost the plane on frames {frames}; WOFTSAM found it again with SAM 2's mask"
+"I-WOFTSAM-FRAMESMORE" = "{frames} and more"
+
+[node."woftsam.planar_track"]
+subtitle = "Planar Track"
+description = "Box a plane's four corners on one frame (a screen, a sign, a wall, the ground) and get those four corners and the plane's homography on every frame of the shot; it finds the plane again after occlusion or after it leaves the frame. Wire 2D Tracks Output to write a Nuke CornerPin2D for screen replacement, sign replacement or patch cleanup (similar to Mocha). Research use only."
+official.note = "Upstream also passes the four corners (init_coords) as a parameter (track_function(sam_predictor, conf, frames, init_coords, seq_name), line 67), so we likewise make them the Four Corners parameter, not an input. The homography output_H (lines 71-73) is delivered with the plane in our 2D track data."
+
+[node."woftsam.planar_track".param.corners]
+label = "Four Corners"
+placeholder = "Press Pick in Viewport, then drag out the plane on the image"
+
+[node."woftsam.planar_track".param.resolution]
+label = "Processing Resolution"
+placeholder = "Original Size"
+
+[node."woftsam.planar_track".port.tracks]
+label = "Four Corners"
+
+[node."woftsam.planar_track".fact]
+points = "Track Points"
+
+[extension.woftsam]
+summary = "Segmentation-guided homography estimation for long-term planar tracking; state of the art on both the POT-210 and PlanarTrack benchmarks"
+license.name = "CC BY-NC-SA 4.0 (non-commercial)"
+license.summary = "Non-commercial: the WOFTSAM code and its weighted RAFT model weights are CC BY-NC-SA 4.0, for research and other non-commercial use only; modifications must be released under the same license, crediting the authors (Serych, Matas). The RAFT code in the repository is BSD-3. The SAM 2.1 tiny model weights and SAM 2 code also used are Apache-2.0, and the DINOv2 ViT-S/14 code and model weights are Apache-2.0"
+weight."sam2.1_hiera_tiny".note = "SAM 2.1 Hiera tiny (Apache-2.0, 156 MB): the mask that follows the plane and finds it again after it is lost"
+weight.dinov2-code.note = "DINOv2 network code (Apache-2.0)"
+weight.dinov2_vits14_reg.note = "DINOv2 ViT-S/14 with registers (Apache-2.0, 88 MB): tells the four corners apart after the plane was lost"
+
+# ---- the worker's cooking stages (worker.py run.stage / run.each / run.model / progress)
+[stage]
+read_frames = "Read Images"
+track_plane = "Track Plane"
+track_plane_both = "Track Plane (Forwards, Then Backwards from the Boxed Frame)"

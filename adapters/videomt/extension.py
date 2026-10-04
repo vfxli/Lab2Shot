@@ -15,20 +15,13 @@ class VidEoMT(Extension):
     name = "videomt"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "VidEoMT"
-    summary = "只有编码器的在线视频分割模型，建在普通的 ViT 上，空间和时间的推理都在编码器里完成"
     homepage = "https://github.com/tue-mps/videomt"
     source = VIDEOMT
     license = LicenseInfo(
         tag=NONCOMMERCIAL,
-        name="MIT（训练数据仅限非商用研究）",
         url="https://github.com/tue-mps/videomt/blob/main/LICENSE",
-        summary=(
-            "代码和权重都是 MIT；但这份全景分割权重只在 VIPSeg 数据集上训练，VIPSeg 的许可写明“只用于非商业研究”，"
-            "所以按非商用对待，商用前要法务确认。骨干网络 DINOv2 是 Apache-2.0。"
-            "仓库里有几个文件带 NVIDIA Source Code License-NC（来自 MinVIS 的训练和评测框架），Lab2Shot 不运行它们，"
-            "只用 MIT 的网络部分"
-        ),
     )
+    generative = False
     # torch 的 cu128 build 带 sm_120（Blackwell）的 kernel（cu126 的没有，也没打 PTX），所以 Ada 和 Blackwell 都能跑；
     # 环境装在 .venv-ada-blackwell，调度只把任务派到这两种架构的卡上
     env_archs = ("sm_89", "sm_120")  # Ada and Blackwell: third_party/videomt/.venv-ada-blackwell
@@ -42,8 +35,7 @@ class VidEoMT(Extension):
     )
     weights = (
         hf_file(WEIGHTS_REPO, WEIGHTS_REVISION, VIPSEG, key="vipseg_vit_large",
-                sha256="7b9374bbaf46d25e0cddf796ce3d1852da0d6ecf744b496325969ec6c60322ef",
-                note="VidEoMT-L VIPSeg 全景分割（1.3 GB，MIT；训练数据 VIPSeg 仅限非商用研究）"),
+                sha256="7b9374bbaf46d25e0cddf796ce3d1852da0d6ecf744b496325969ec6c60322ef"),
     )
 
 

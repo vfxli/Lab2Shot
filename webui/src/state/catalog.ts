@@ -12,6 +12,13 @@ let text = ""; // the catalogue as last taken: the same answer again (every wind
 let types: Record<string, DataType> = {};
 let nodeDefs: Record<string, NodeTypeDef> = {};
 const listeners = new Set<() => void>();
+let arrived: () => void = () => undefined;
+// the first catalogue in: a graph is read against it (graph/document.ts loadGraph checkGraph). One opened before
+// would be read against no node types at all, every node 「未知」 and the parameter interface empty, and stay so
+const first = new Promise<void>((r) => (arrived = r));
+
+/** Resolves once the catalogue is in (at once after that): what opening a graph waits for. */
+export const catalogReady = (): Promise<void> => first;
 
 export function setCatalog(c: Catalog): void {
   const now = JSON.stringify(c);
@@ -20,10 +27,12 @@ export function setCatalog(c: Catalog): void {
   catalog = c;
   types = Object.fromEntries(c.types.map((t) => [t.id, t]));
   nodeDefs = Object.fromEntries(c.nodes.map((n) => [n.id, n]));
+  arrived();
   for (const l of listeners) l();
 }
 
-function subscribe(l: () => void): () => void {
+/** Told each time another catalogue is taken (for a store derived from it outside React). */
+export function subscribeCatalog(l: () => void): () => void {
   listeners.add(l);
   return () => listeners.delete(l);
 }
@@ -33,5 +42,5 @@ export const getTypes = (): Record<string, DataType> => types;
 export const getLayerPorts = (): Record<string, string> => catalog?.layer_ports ?? {};
 export const getNodeDefs = (): Record<string, NodeTypeDef> => nodeDefs;
 
-export const useCatalog = (): Catalog | null => useSyncExternalStore(subscribe, getCatalog);
-export const useTypes = (): Record<string, DataType> => useSyncExternalStore(subscribe, getTypes);
+export const useCatalog = (): Catalog | null => useSyncExternalStore(subscribeCatalog, getCatalog);
+export const useTypes = (): Record<string, DataType> => useSyncExternalStore(subscribeCatalog, getTypes);

@@ -7,6 +7,9 @@ import { packetOf, useResults } from "../state/results";
 import { useCookInputs } from "../state/cookInputs";
 import { useTypes } from "../state/catalog";
 import { typeOf } from "../state/items";
+import { nodeRef } from "../graph/naming";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** 视图工具栏中视角与框显按钮的唯一所在。视角：透视 / 顶 / 前 / 侧，或透过场景中的某台相机观看；以及框显全部 / 框显选中。
  *
@@ -14,13 +17,6 @@ import { typeOf } from "../state/items";
  *
  * 此工具栏须在不加载 three.js 的情况下绘制（three.js 只随三维舞台按需加载，见 editor/Viewer.tsx 的 Stage3D），
  * 因此不引用三维舞台的任何模块：所需的两项信息（场景中的相机列表与当前选中项）由三维舞台计算后写入 state/viewTools.ts。 */
-const VIEW_TIPS: Record<ViewName, string> = {
-  persp: "透视：自由转动的视角",
-  top: "顶视图：从上往下看，正交；左键平移",
-  front: "前视图：沿 -Z 看，正交；左键平移",
-  side: "侧视图：从右往左看，正交；左键平移",
-};
-
 /** 视角菜单（对应 Houdini 视口的相机菜单）：透视 / 顶 / 前 / 侧，以及场景中按层级位置列出的每台相机；另有框显。 */
 export function ViewButtons() {
   const view = useViewCamera((s) => slotCamera(s, VIEWER_SLOT).view);
@@ -41,12 +37,12 @@ export function ViewButtons() {
       <div className="vo-anchor" ref={anchor}>
         <div className={`seg ${HUD_SEG}`}>
           <button className={`view-menu-button${open ? " on" : ""}`} onClick={() => setOpen(!open)}>
-            {current && <span className="dim">相机</span>}
+            {current && <span className="dim">{t("ui.view.camera")}</span>}
             {label} ▾
           </button>
         </div>
         {open && (
-          <div className="popover view-menu glass strong" role="menu" aria-label="视角">
+          <div className="popover view-menu glass strong" role="menu" aria-label={t("ui.view.view_menu")}>
             {(Object.keys(VIEW_NAMES) as ViewName[]).map((v) => (
               <button
                 key={v}
@@ -56,12 +52,11 @@ export function ViewButtons() {
                   setView(v);
                   setOpen(false);
                 }}
-                data-tip={VIEW_TIPS[v]}
               >
                 {VIEW_NAMES[v]}
               </button>
             ))}
-            <div className="view-menu-cat">相机</div>
+            <div className="view-menu-cat">{t("ui.view.cameras")}</div>
             {cameras.length ? (
               cameras.map((c) => (
                 <button
@@ -72,13 +67,13 @@ export function ViewButtons() {
                     setLook(c);
                     setOpen(false);
                   }}
-                  data-tip={`${c.label}\n透过这台相机看：它每一帧的位置、Focal Length 跟着时间线走，${c.width} × ${c.height} 的画框外变暗。转动视图就离开相机`}
+                  {...tipAttrs(tipOf("truncated", c.label))}
                 >
                   {c.label}
                 </button>
               ))
             ) : (
-              <div className="view-menu-none">场景里没有相机</div>
+              <div className="view-menu-none">{t("ui.view.no_cameras")}</div>
             )}
           </div>
         )}
@@ -86,10 +81,10 @@ export function ViewButtons() {
       <div className={`seg ${HUD_SEG}`}>
         {/* 指针位于视图上时，H / F 键执行相同的框显 */}
         <button onClick={() => frame("all")}>
-          框显全部
+          {t("ui.view.frame_all")}
         </button>
         <button onClick={() => frame("selected")} disabled={!selected}>
-          框显选中
+          {t("ui.view.frame_selected")}
         </button>
       </div>
     </>
@@ -110,8 +105,8 @@ export function ReferenceMenu({ shown }: { shown: string }) {
   useDismiss(open, anchor, () => setOpen(false));
   const rows = Object.entries(reply?.nodes ?? {}).flatMap(([node, st]) => (node === shown ? [] : st.ports.outputs
     .filter((q) => typeOf(types, q.type)?.in_3d === "element")
-    .map((q) => ({ node, port: q.name, label: `${labels[node]?.label ?? node} · ${q.label}`, cooked: !!packetOf(st, q.name) }))));
-  const on = reference && reference.handle == null ? rows.find((r) => r.node === reference.node && r.port === reference.port) : undefined;
+    .map((q) => ({ node, port: q.name, label: `${nodeRef(node, labels[node]?.typeId)} · ${q.label}`, cooked: !!packetOf(st, q.name) }))));
+  const on = reference ? rows.find((r) => r.node === reference.node && r.port === reference.port) : undefined;
   const pick = (r: Reference | null) => {
     setReference(r);
     setOpen(false);
@@ -119,23 +114,22 @@ export function ReferenceMenu({ shown }: { shown: string }) {
   return (
     <div className="vo-anchor" ref={anchor}>
       <div className={`seg ${HUD_SEG}`}>
-        <button className={`view-menu-button${open ? " on" : ""}`} onClick={() => setOpen(!open)}
-          data-tip="把另一个节点的三维结果半透明叠在这里对照（只看，不能改）">
-          {on ? <><span className="dim">参考</span>{on.label}</> : "参考"} ▾
+        <button className={`view-menu-button${open ? " on" : ""}`} onClick={() => setOpen(!open)}>
+          {on ? <><span className="dim">{t("ui.view.reference")}</span>{on.label}</> : t("ui.view.reference")} ▾
         </button>
       </div>
       {open && (
-        <div className="popover view-menu glass strong" role="menu" aria-label="参考">
-          <button role="menuitem" className={`view-menu-item${!reference ? " on" : ""}`} onClick={() => pick(null)}>不叠参考</button>
-          <div className="view-menu-cat">节点的三维结果</div>
+        <div className="popover view-menu glass strong" role="menu" aria-label={t("ui.view.reference")}>
+          <button role="menuitem" className={`view-menu-item${!reference ? " on" : ""}`} onClick={() => pick(null)}>{t("ui.view.no_reference")}</button>
+          <div className="view-menu-cat">{t("ui.view.node_3d_results")}</div>
           {/* 只有有包的口能选（state/results.ts packetOf）；没算过的灰着、写「还没算」，选了也画不出东西 */}
           {rows.length ? rows.map((r) => (
             <button key={`${r.node}/${r.port}`} role="menuitem" data-user-data disabled={!r.cooked}
               className={`view-menu-item${on === r ? " on" : ""}`} onClick={() => pick({ node: r.node, port: r.port })}
-              data-tip={r.cooked ? undefined : "还没算：先算这个节点，才有结果可叠"}>
-              {r.label}{!r.cooked && <span className="dim">（还没算）</span>}
+              {...tipAttrs(tipOf("disabled", r.cooked ? undefined : t("ui.view.reference_not_cooked")))}>
+              {r.label}{!r.cooked && <span className="dim">{t("ui.view.not_cooked_paren")}</span>}
             </button>
-          )) : <div className="view-menu-none">别的节点没有三维结果</div>}
+          )) : <div className="view-menu-none">{t("ui.view.no_other_3d_results")}</div>}
         </div>
       )}
     </div>

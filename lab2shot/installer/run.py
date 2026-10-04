@@ -24,7 +24,7 @@ import tempfile
 import threading
 import time
 from collections import deque
-from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -35,6 +35,7 @@ from .. import config
 from ..errors import MessageError, Unavailable, message_of
 from ..extensions import gpu_archs
 from ..extensions.spec import Extension, ExtensionPaths, InstallError, Weight, clean_environ, state_writing
+from ..i18n import t
 from ..messages import Msg
 from . import envbuild, plan, sources
 from .events import Cancelled, LogFile, Sink
@@ -82,8 +83,11 @@ def locked(ext: Extension):
 class Context:
     """One install's working state: the extension, where it builds, its install record there, the events."""
 
-    def __init__(self, ext: Extension, paths: ExtensionPaths, sink: Sink, policy: Policy, live: Live, force: bool):
-        self.ext, self.paths, self.sink, self.policy, self.live, self.force = ext, paths, sink, policy, live, force
+    def __init__(self, ext: Extension, paths: ExtensionPaths, sink: Sink, policy: Policy, live: Live,
+                 revert: bool = False):
+        # revert: changes made to the pinned checkouts (and their submodules) after install are thrown away
+        # (step_repo); without it a changed checkout stops the install
+        self.ext, self.paths, self.sink, self.policy, self.live, self.revert = ext, paths, sink, policy, live, revert
         self.state = plan.read_state(paths)
         current = plan.read_state(ext.paths)
         if paths != ext.paths:  # a new environment beside the live one: what is true of shared files carries over
@@ -183,7 +187,7 @@ class Context:
             proc.stdout.close()
         self.sink.check()
         if stalled:
-            self.sink.log(f"[{IDLE_S} 秒没有任何输出：当作网络卡住，停掉这一次]")
+            self.sink.log("[" + t("install.log.stalled", seconds=IDLE_S) + "]")
             raise NetworkFailure(f"no output for {IDLE_S} s")
         if code != 0:
             said = "\n".join(tail)
@@ -252,19 +256,23 @@ def step_repo(ctx: Context) -> None:
     ext, paths = ctx.ext, ctx.paths
     for src, dest in [(ext.source, paths.repo), *((s, paths.root / folder) for folder, s in ext.extra_sources.items())]:
         # modified after installation: not silently overwritten (the original repository must not be modified, and
-        # silently overwriting someone's changes loses work); stop and list the changed files. Use --force to reset
-        if (dirty := changed_files(dest)) and not ctx.force:
+        # silently overwriting someone's changes loses work); stop and list the changed files. --revert resets them.
+        # What this extension's own install put there (EnvSpec.places) is not a change
+        if (dirty := changed_files(dest, own_places(ext, paths, dest))) and not ctx.revert:
             raise InstallError(Msg("E-INSTALL-REPOCHANGED", repo=dest.name, count=len(dirty),
-                              files="、".join(dirty[:5]) + ("……" if len(dirty) > 5 else "")))
+                              files=dirty[:5] + (["…"] if len(dirty) > 5 else [])))
         name = src.url.removesuffix('.git').rsplit('/', 1)[-1]
         if _head(dest) == src.commit:
             # already at the pinned commit: even with `--force` it is not deleted and re-fetched (running tasks import it,
             # and a failure midway could not be undone); only the changes are reverted, which achieves the same result
             # in one step and keeps the code readable at all times
-            if dirty and ctx.force:
-                ctx.run(["git", "-C", str(dest), "checkout", "--", "."], env=sources.git_env())
-                ctx.run(["git", "-C", str(dest), "clean", "-fd"], env=sources.git_env())
-                ctx.sink.log(f"↺ {name} @ {src.commit[:10]}：改过的 {len(dirty)} 个文件放回原样（--force）")
+            if dirty and ctx.revert:
+                # the checkout and every submodule in it (git clean does not enter submodules); what `places` put
+                # there goes too, and the place step puts it back
+                for args in (["checkout", "--", "."], ["clean", "-fd"],
+                             ["submodule", "foreach", "--recursive", "--quiet", "git checkout -- . && git clean -fd"]):
+                    ctx.run(["git", "-C", str(dest), *args], env=sources.git_env())
+                ctx.sink.log(f"↺ {name} @ {src.commit[:10]}: " + t("install.log.reverted", count=len(dirty)))
             else:
                 ctx.sink.log(f"✓ {name} @ {src.commit[:10]}")
             continue
@@ -283,13 +291,13 @@ def step_repo(ctx: Context) -> None:
                     _extra_prev(dest).rename(staging)
                 else:
                     sources.checkout(src, staging, ctx.sink, ctx.policy, ctx.run)
-            ctx.sink.log(f"↻ {name} @ {src.commit[:10]}：已检出到 {staging.name}，启用那一步再换上去（正在用的那份不动）")
+            ctx.sink.log(f"↻ {name} @ {src.commit[:10]}: " + t("install.log.staged", folder=staging.name))
             continue
         sources.checkout(src, dest, ctx.sink, ctx.policy, ctx.run)
     missing = [p for p in ext.submodules if not (paths.repo / p).is_dir() or not any((paths.repo / p).iterdir())]
     if missing:
         ctx.retry_command(["git", "-C", paths.repo, "submodule", "update", "--init", "--recursive", "--depth", "1", "--progress", "--", *missing],
-                          "子模块", env=sources.git_env(), idle=True)
+                          t("install.what.submodules"), env=sources.git_env(), idle=True)
     ctx.state["repo"] = {"url": ext.source.url, "commit": ext.source.commit, "dir": paths.repo_dir}
     ctx.save()
 
@@ -343,28 +351,69 @@ def _head(dest: Path) -> str:
 
 
 # Artifacts left by running and compiling code do not count as modifications: bytecode caches, test caches, package
-# metadata, and extension modules compiled into the repository by build scripts (compiled artifacts written back into a
-# tracked checkout, such as SegAnyMo's sam2/_C.so). They are runtime products, not edits to the original code; counting
-# them would make the next environment install report modified source code and push users toward --force
-RUNTIME_LEFTOVERS = ("__pycache__/", ".pytest_cache/", ".ipynb_checkpoints/", ".egg-info/", ".pyc", ".pyo", ".so", ".pyd")
+# metadata, and what compiling in the checkout writes (extension modules such as SegAnyMo's sam2/_C.so, object files and
+# ninja's build records, even over tracked files). They are runtime products, not edits to the original code; counting
+# them would make the next install report modified source code and push users toward --revert. Matched by path segment
+# (a folder) or by the file's name, never by a substring of the path.
+LEFTOVER_FOLDERS = ("__pycache__", ".pytest_cache", ".ipynb_checkpoints")
+LEFTOVER_SUFFIXES = (".egg-info", ".pyc", ".pyo", ".so", ".pyd", ".o", ".obj", ".ninja_deps", ".ninja_log")
+LEFTOVER_NAMES = ("build.ninja",)
 
 
-def changed_files(dest: Path) -> list[str]:
-    """Files of the original repository modified after installation (the original repository must not be modified).
+def _leftover(name: str) -> bool:
+    parts = [p for p in name.split("/") if p]
+    return bool(parts) and (any(p in LEFTOVER_FOLDERS or p.endswith(".egg-info") for p in parts)
+                            or parts[-1] in LEFTOVER_NAMES or parts[-1].endswith(LEFTOVER_SUFFIXES))
+
+
+def own_places(ext: Extension, paths: ExtensionPaths, dest: Path) -> tuple[str, ...]:
+    """What this extension's install puts into the checkout at `dest` (EnvSpec.places that lie inside it), relative to
+    it: the installer's own doing, never a change to the original code."""
+    from .place import located
+
+    out = []
+    for rel in ext.env.places:
+        path = located(paths, rel)
+        if path.is_relative_to(dest):
+            out.append(path.relative_to(dest).as_posix())
+    return tuple(out)
+
+
+def _git_lines(dest: Path, *args: str) -> list[str]:
+    said = subprocess.run(["git", "-C", str(dest), "-c", "core.quotepath=false", *args], capture_output=True, text=True,
+                          env=sources.git_env()).stdout
+    return [line for line in said.splitlines() if line.strip()]
+
+
+def changed_files(dest: Path, own: tuple[str, ...] = ()) -> list[str]:
+    """Files of the original repository modified after installation (the original repository must not be modified),
+    its submodules' included (as <submodule>/<file>).
 
     A pinned commit only guarantees which version was fetched at install time; if someone edits it afterwards, HEAD is
     unchanged while the environment no longer matches the code, and the next reinstall would discard the edits. Files
-    are counted as git reports them: modified, deleted and added. Runtime leftovers such as bytecode caches are not
-    counted (RUNTIME_LEFTOVERS): they show the code was used, not edited. For a directory that is not a git repository
-    (some extensions ship unpacked code) the result is empty, as there is no original state to compare with."""
+    are counted as git reports them: modified, deleted and added. Not counted: runtime leftovers (_leftover: they show
+    the code was used or compiled, not edited) and `own`, paths relative to `dest` the install itself put there
+    (own_places). For a directory that is not a git repository (some extensions ship unpacked code) the result is
+    empty, as there is no original state to compare with."""
     if not (dest / ".git").exists():
         return []
     # core.quotepath=false: otherwise git escapes Chinese and other non-ASCII file names as octal, making the user
-    # message unreadable
-    said = subprocess.run(["git", "-C", str(dest), "-c", "core.quotepath=false", "status", "--porcelain",
-                           "--untracked-files=normal"], capture_output=True, text=True, env=sources.git_env()).stdout
-    names = (line[3:].strip() for line in said.splitlines() if line.strip())
-    return sorted(n for n in names if not any(part in n for part in RUNTIME_LEFTOVERS))
+    # message unreadable. A submodule's own content is looked at inside it (below), file by file: the parent reports
+    # only the submodule's folder, which says nothing about whether a cache or a real edit made it dirty
+    names = [line[3:].strip() for line in _git_lines(dest, "status", "--porcelain", "--untracked-files=normal",
+                                                     "--ignore-submodules=dirty")]
+    for line in _git_lines(dest, "submodule", "status", "--recursive"):
+        if line.startswith("-"):  # not checked out
+            continue
+        sub = line[1:].split()[1]
+        names += [f"{sub}/{line[3:].strip()}" for line in _git_lines(dest / sub, "status", "--porcelain",
+                                                                      "--untracked-files=normal", "--ignore-submodules=all")]
+
+    def mine(name: str) -> bool:
+        name = name.rstrip("/")
+        return any(p == name or p.startswith(name + "/") or name.startswith(p + "/") for p in own)
+
+    return sorted(n for n in names if not _leftover(n) and not mine(n))
 
 
 def step_weights(ctx: Context) -> None:
@@ -382,7 +431,7 @@ def step_weights(ctx: Context) -> None:
             continue
         dest = ext.paths.weights / w.dest
         pins = ctx.state.setdefault("weights_pinned", {})  # what each weight was fetched as: a changed pin fetches again
-        if rows.get(w.key) == "ok" and dest.exists() and not ctx.force and pins.get(w.key) == _pin_of(w):
+        if rows.get(w.key) == "ok" and dest.exists() and pins.get(w.key) == _pin_of(w):
             if w.kind == "url" and w.sha256:
                 sources.share(w.sha256, dest)  # an identical file another extension already verified: keep one copy
             if w.kind != "url" or not w.sha256 or _pinned(ctx, w, dest):
@@ -391,7 +440,7 @@ def step_weights(ctx: Context) -> None:
             # the file exists but is not the currently pinned version (the declared sha256 changed, the name did not):
             # it is not broken and is not deleted, since the live environment still relies on it. Continue with
             # _download -> sources.fetch_checked: the new file is downloaded beside it and swapped in once verified
-            ctx.sink.log(f"↻ {w.key}：钉住的 sha256 变了，下载新的那一版")
+            ctx.sink.log(f"↻ {w.key}: " + t("install.log.repinned"))
         try:
             _download(ctx, w, dest)
             rows[w.key] = "ok"
@@ -517,6 +566,21 @@ def step_post(ctx: Context) -> None:
     ctx.save()
 
 
+def step_place(ctx: Context) -> None:
+    """What upstream reads from hard-coded paths in its checkout (EnvSpec.places) put there by the build script, run
+    with the single argument "place" in the environment being installed; then every declared file must be there. Run
+    on every install (cheap: links and copies, nothing downloaded or compiled), so a checkout the install reverted or
+    newly checked out gets them again."""
+    from .place import missing
+
+    ctx.run([ctx.paths.python, ctx.ext.adapter_dir / ctx.ext.env.build, "place"], cwd=ctx.paths.root,
+            env=envbuild.build_script_env(ctx))
+    if left := missing(ctx.ext, ctx.paths):
+        raise InstallError(Msg("E-PLACE-STILLMISSING", title=ctx.ext.title, count=len(left),
+                               detail="\n  ".join(left[:10])))
+    ctx.sink.say(Msg("I-PLACE-DONE", title=ctx.ext.title, count=len(ctx.ext.env.places)))
+
+
 def step_selfcheck(ctx: Context) -> None:
     """In the new environment, on the CPU, with no footage: the worker SDK, the pinned torch (and a tiny tensor sum)
     and the modules the extension declares import; its required weights are there; its GPU architectures recorded."""
@@ -590,6 +654,10 @@ def _selfcheck(ctx: Context, env_fp: str) -> None:
     lacking = [w.key for w in ext.weights if w.kind != "manual" and w.option is None and ctx.state.get("weights", {}).get(w.key) != "ok"]
     if lacking:
         raise InstallError(Msg("E-INSTALL-SELFCHECKWEIGHTS", weights=lacking))
+    from .place import missing
+
+    if unplaced := missing(ext, paths):  # what upstream opens by a fixed path is part of a working install
+        raise InstallError(Msg("E-PLACE-STILLMISSING", title=ext.title, count=len(unplaced), detail="\n  ".join(unplaced[:10])))
     archs = gpu_archs.probe(paths.python, paths.root, env_fp)
     ctx.state["gpu_archs"] = archs.to_json()
     ctx.state["selfcheck"] = {"ok": True, "fingerprint": env_fp, "time": time.time(), "python": found["python"],
@@ -698,7 +766,7 @@ def _tidy(ext: Extension, ptr: dict) -> None:
 
 RUNNERS: dict[str, Callable[[Context], None]] = {
     "repo": step_repo, "env": envbuild.step_env, "packages": envbuild.step_packages, "build": envbuild.step_build,
-    "weights": step_weights, "post": step_post, "selfcheck": step_selfcheck, "switch": step_switch,
+    "weights": step_weights, "post": step_post, "place": step_place, "selfcheck": step_selfcheck, "switch": step_switch,
 }
 
 
@@ -722,25 +790,38 @@ def _step_done(ctx: Context, step: plan.Step) -> bool:
     return rec.get("state") == "done" and rec.get("fingerprint") == step.fingerprint
 
 
-def install(ext: Extension, sink: Sink, *, force: bool = False, live: Live | None = None, only: tuple[str, ...] = (),
-            policy: Policy | None = None) -> ExtensionPaths:
+def install(ext: Extension, sink: Sink, *, revert: bool = False, rebuild: bool = False, live: Live | None = None,
+            only: tuple[str, ...] = (), policy: Policy | None = None) -> ExtensionPaths:
     """Every step of `ext`'s install (or just `only`), from where it stopped; returns the environment it built. Everything
-    it says is also written to work/logs/installs/<extension>-<time>.log (events.LogFile)."""
+    it says is also written to work/logs/installs/<extension>-<time>.log (events.LogFile).
+
+    Two separate choices of the person installing: `revert` throws away changes made to the pinned checkouts after
+    install (else they stop it: step_repo); `rebuild` builds the environment again from nothing, beside the live one,
+    every step run again (plan.target). Neither implies the other.
+
+    An extension running in another's environment (Extension.runs_in) installs that one first, in the same job and
+    under both locks (its steps skipped where done), then its own weights: plan.steps lists them in this order."""
     live = live or Live()
     policy = policy or Policy.from_settings()
     folder = config.settings().work_dir / "logs" / "installs"
     folder.mkdir(parents=True, exist_ok=True)
     log = folder / f"{ext.name}-{time.strftime('%Y%m%d-%H%M%S')}.log"
-    with locked(ext), log.open("a", encoding="utf-8") as file:
+    owners = [h for h in (ext.host,) if ext.runs_in and h is not None] + [ext]
+    with ExitStack() as held:
+        for owner in owners:
+            held.enter_context(locked(owner))
+        file = held.enter_context(log.open("a", encoding="utf-8"))
         sink = LogFile(sink, file)
-        sink.log(f"安装日志：{log}")
-        paths = ext.paths if only == ("selfcheck",) else plan.target(ext, force)
-        ctx = Context(ext, paths, sink, policy, live, force)
-        todo = [s for s in plan.steps(ext) if not only or s.id in only]
-        sink.emit({"type": "plan", "steps": [{"id": s.id, "label": s.label} for s in todo]})
-        for step in todo:
+        sink.log(t("install.log.file", file=log))
+        todo = []
+        for owner in owners:
+            paths = owner.paths if only == ("selfcheck",) else plan.target(owner, rebuild)
+            ctx = Context(owner, paths, sink, policy, live, revert)
+            todo += [(ctx, s) for s in plan.own_steps(owner) if not only or s.id in only]
+        sink.emit({"type": "plan", "steps": [{"id": s.id, "label": s.label} for _, s in todo]})
+        for ctx, step in todo:
             sink.check()
-            if not force and _done(step, ctx):
+            if not rebuild and _done(step, ctx):
                 sink.step(step.id, "skipped")
                 continue
             sink.step(step.id, "running")
@@ -764,7 +845,7 @@ def install(ext: Extension, sink: Sink, *, force: bool = False, live: Live | Non
             ctx.state.setdefault("steps", {})[step.id] = {"state": "done", "fingerprint": step.fingerprint, "time": time.time()}
             ctx.save()
             sink.step(step.id, "done")
-        return paths
+        return ext.paths if ext.runs_in else todo[-1][0].paths if todo else ext.paths
 
 
 class StepFailed(MessageError):

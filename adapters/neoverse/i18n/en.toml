@@ -1,0 +1,32 @@
+# The NeoVerse extension's own words and messages in English (the same keys as zh.toml).
+
+"E-NEOVERSE-SEGMENTS" = "NeoVerse could not line up the cameras where two segments overlap (the stitching scale is not positive): the camera may barely move, or the image changes too much. Increase Frames per Segment so that one segment covers more frames, then cook again."
+"E-NEOVERSE-NOSPLATS" = "NeoVerse gave no Gaussians at frame {frame}: this frame cannot be reconstructed. Check that the frame is usable (not all black, all white or badly blurred), or change Frames per Segment and cook again."
+
+[node."neoverse.reconstruct"]
+subtitle = "Dynamic Gaussian Splats"
+description = "Reconstructs dynamic Gaussians and cameras from video, keeping per-frame position, rotation, scale and opacity. Uses the official reconstructor, motion head and Gaussian transition model; the result can be previewed frame by frame or exported."
+official.note = "Enables the official motion and dynamic Gaussian attributes and samples the official transition model frame by frame; only the dynamic reconstructor is used, the Wan video generator is not loaded."
+cost.note = "Measured on an RTX 5090: 1280×720, 32 frames a segment, resolution 560 (upstream) peaks at 18.3 GB; 420 at 11.6 GB"
+
+[node."neoverse.reconstruct".param.resolution]
+label = "Long Edge Resolution"
+option."280" = "280"
+option."420" = "420"
+option."560" = "560"
+
+[node."neoverse.reconstruct".param.max_frames]
+label = "Frames per Segment"
+
+[node."neoverse.reconstruct".param.step]
+label = "Frame Step"
+
+
+[stage]
+reconstruct = "Reconstructing dynamic Gaussians"
+
+[extension.neoverse]
+summary = "Recovers per-frame dynamic 3D Gaussians and cameras from video with the official dynamic reconstructor"
+license.name = "Apache-2.0"
+license.summary = "The code and the reconstructor are released under Apache-2.0; this extension does not load the Wan video generation model weights"
+weight.reconstructor.note = "NeoVerse dynamic reconstructor model weights (Apache-2.0)"

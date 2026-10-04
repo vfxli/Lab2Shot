@@ -1,0 +1,4671 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "5fd98bd24a595c4e9b69a3523e79db64",
+  "name": {
+   "zh": "2D 合成辅助通道",
+   "en": "2D Compositing Utility Passes"
+  },
+  "intro": {
+   "zh": "全自动：按组勾选算法（深度、法线、摄影机、位置 / 点云、光流与对位、光照与材质、画面清理），每组可一键全开 / 全关；开着的每个算法交付一层，进同一个多层 EXR（层名 = 组.算法，如 depth.da3），也可每层另存；摄影机、点云、HDRI 各出文件。所有结果同一台摄影机、同一尺度：有上传的摄影机就用它，否则用 ViPE 求的。深度按 ViPE 深度（非商用）定尺度，所以交付标为非商用。缺素材的算法不算。抠像、跟踪在另外两张卡。",
+   "en": "Fully automatic: tick algorithms by group (depth, normals, camera, position, flow, lighting, plate cleanup), each group on / off at once. Each one on is a layer of one multi-layer EXR (group.algorithm, e.g. depth.da3); camera, points and HDRI get their own files. One camera and scale for all: yours if uploaded, else ViPE's. Depths are scaled to ViPE's depth (non-commercial), so the delivery is non-commercial. Matting and tracking are on two other cards."
+  },
+  "author": "Lab2Shot",
+  "created": "2026-10-03T20:00:00",
+  "updated": "2026-10-04T12:00:00",
+  "deliverable": "workflow",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": {
+    "zh": "图像",
+    "en": "Image"
+   },
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "已有摄影机（可不传，不传就用 ViPE 求）",
+    "en": "Existing Camera (Optional)"
+   },
+   "collapsed": true,
+   "children": [
+    {
+     "name": "cam_fbx_path",
+     "label": {
+      "zh": "摄影机（FBX）",
+      "en": "Camera (FBX)"
+     },
+     "target": "cam_fbx.path",
+     "show_on_change": true
+    },
+    {
+     "name": "cam_fbx_camera",
+     "label": {
+      "zh": "FBX 里选哪台摄影机",
+      "en": "Camera in FBX"
+     },
+     "target": "cam_fbx.camera",
+     "hide_when": "not cam_fbx_path"
+    },
+    {
+     "name": "cam_usd_path",
+     "label": {
+      "zh": "摄影机（USD）",
+      "en": "Camera (USD)"
+     },
+     "target": "cam_usd.path",
+     "show_on_change": true,
+     "hide_when": "cam_fbx_path"
+    },
+    {
+     "name": "cam_usd_camera",
+     "label": {
+      "zh": "USD 里选哪台摄影机",
+      "en": "Camera in USD"
+     },
+     "target": "cam_usd.camera",
+     "hide_when": "cam_fbx_path or not cam_usd_path"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "深度",
+    "en": "Depth"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "depth_da3_through",
+     "label": {
+      "zh": "Depth Anything 3",
+      "en": "Depth Anything 3"
+     },
+     "target": "depth_da3.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "depth_moge_through",
+     "label": {
+      "zh": "MoGe",
+      "en": "MoGe"
+     },
+     "target": "depth_moge.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "depth_unidepth_through",
+     "label": {
+      "zh": "UniDepth V2",
+      "en": "UniDepth V2"
+     },
+     "target": "depth_unidepth.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "depth_unik3d_through",
+     "label": {
+      "zh": "UniK3D",
+      "en": "UniK3D"
+     },
+     "target": "depth_unik3d.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "depth_vda_through",
+     "label": {
+      "zh": "Video Depth Anything",
+      "en": "Video Depth Anything"
+     },
+     "target": "depth_vda.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "depth_vipe_through",
+     "label": {
+      "zh": "ViPE（跟摄影机）",
+      "en": "ViPE (With the Camera)"
+     },
+     "target": "depth_vipe.through",
+     "widget": "checkbox"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "法线",
+    "en": "Normal"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "normal_moge_through",
+     "label": {
+      "zh": "MoGe",
+      "en": "MoGe"
+     },
+     "target": "normal_moge.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "normal_sapiens2_through",
+     "label": {
+      "zh": "Sapiens2（人体）",
+      "en": "Sapiens2 (Human)"
+     },
+     "target": "normal_sapiens2.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "normal_depth_through",
+     "label": {
+      "zh": "由深度算法线",
+      "en": "Normals from Depth"
+     },
+     "target": "normal_depth.through",
+     "widget": "checkbox"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "摄影机",
+    "en": "Camera"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "camera_vipe_through",
+     "label": {
+      "zh": "ViPE",
+      "en": "ViPE"
+     },
+     "target": "camera_vipe.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "camera_vidmap_through",
+     "label": {
+      "zh": "VidMap",
+      "en": "VidMap"
+     },
+     "target": "camera_vidmap.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "camera_da3long_through",
+     "label": {
+      "zh": "Depth Anything 3 Streaming",
+      "en": "Depth Anything 3 Streaming"
+     },
+     "target": "camera_da3long.through",
+     "widget": "checkbox"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "位置 / 点云",
+    "en": "Position / Point Cloud"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "position_world_through",
+     "label": {
+      "zh": "世界坐标（Position pass）",
+      "en": "World Position (Position Pass)"
+     },
+     "target": "position_world.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "position_points_through",
+     "label": {
+      "zh": "逐帧点云",
+      "en": "Per-Frame Point Clouds"
+     },
+     "target": "position_points.through",
+     "widget": "checkbox"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "光流与对位",
+    "en": "Optical Flow and Alignment"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "motion_memfof_through",
+     "label": {
+      "zh": "MEMFOF（运动向量）",
+      "en": "MEMFOF (Motion Vectors)"
+     },
+     "target": "motion_memfof.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "motion_waft_through",
+     "label": {
+      "zh": "WAFT（运动向量）",
+      "en": "WAFT (Motion Vectors)"
+     },
+     "target": "motion_waft.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "motion_romav2_through",
+     "label": {
+      "zh": "RoMa v2（对位 ST 贴图）",
+      "en": "RoMa v2 (Alignment ST Map)"
+     },
+     "target": "motion_romav2.through",
+     "widget": "checkbox"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "光照与材质",
+    "en": "Lighting and Materials"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "light_pbr_value",
+     "label": {
+      "zh": "DiffusionRenderer（PBR 通道）",
+      "en": "DiffusionRenderer (PBR Channels)"
+     },
+     "target": "light_pbr.value",
+     "widget": "checkbox"
+    },
+    {
+     "name": "light_relight_through",
+     "label": {
+      "zh": "DiffusionRenderer（重新打光）",
+      "en": "DiffusionRenderer (Relight)"
+     },
+     "target": "light_relight.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "light_diffusionlight_through",
+     "label": {
+      "zh": "DiffusionLight（HDRI）",
+      "en": "DiffusionLight (HDRI)"
+     },
+     "target": "light_diffusionlight.through",
+     "widget": "checkbox"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "画面清理",
+    "en": "Plate Cleanup"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "plate_clean_through",
+     "label": {
+      "zh": "Clean Plate（去掉前景，生成干净背景）",
+      "en": "Clean Plate (Remove Foreground)"
+     },
+     "target": "plate_clean.through",
+     "widget": "checkbox"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "补充输入",
+    "en": "Additional Inputs"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "hold_frame",
+     "label": {
+      "zh": "DiffusionLight 取哪一帧（留空 = 开始帧）",
+      "en": "DiffusionLight Frame (Empty = Start Frame)"
+     },
+     "target": "hold.frame",
+     "hide_when": "not light_diffusionlight_through"
+    },
+    {
+     "name": "reference",
+     "label": {
+      "zh": "RoMa v2 参考图（不传就不算）",
+      "en": "RoMa v2 Reference Image (Optional)"
+     },
+     "target": "reference.path",
+     "hide_when": "not motion_romav2_through",
+     "show_on_change": true
+    },
+    {
+     "name": "hdri_path",
+     "label": {
+      "zh": "重新打光用的 HDRI（不传就不算）",
+      "en": "HDRI for Relighting (Optional)"
+     },
+     "target": "hdri.path",
+     "hide_when": "not light_relight_through",
+     "show_on_change": true
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "exr_name",
+     "label": {
+      "zh": "文件名（多层 EXR）",
+      "en": "File Name (Multi-Layer EXR)"
+     },
+     "target": "exr.name"
+    },
+    {
+     "name": "separate_value",
+     "label": {
+      "zh": "每层另存单独文件",
+      "en": "Also Save Each Layer as Its Own File"
+     },
+     "target": "separate.value",
+     "widget": "checkbox"
+    },
+    {
+     "name": "colorspace_out",
+     "label": {
+      "zh": "输出颜色空间",
+      "en": "Output Color Space"
+     },
+     "target": "exr.colorspace"
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_bit_depth",
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
+       "target": "exr.exr_bit_depth"
+      },
+      {
+       "name": "exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
+        },
+        {
+         "value": "zip",
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
+        },
+        {
+         "value": "piz",
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
+        },
+        {
+         "value": "none",
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "cook_exr",
+   "label": {
+    "zh": "计算并查看",
+    "en": "Cook and View"
+   },
+   "target": "exr.cook"
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "word": "pack",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
+     "target": "deliver.download"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "file",
+   "params": {
+    "path": "",
+    "colorspace": null,
+    "first": null,
+    "last": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 3109
+   }
+  },
+  {
+   "id": "cam_fbx",
+   "type": "fbx.import",
+   "params": {
+    "path": "",
+    "take": "",
+    "camera": "",
+    "models": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 0,
+    "y": 2878
+   }
+  },
+  {
+   "id": "cam_usd",
+   "type": "usd.import",
+   "params": {
+    "path": "",
+    "camera": "",
+    "models": [],
+    "points": [],
+    "gaussians": [],
+    "curves": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 360,
+    "y": 3029
+   }
+  },
+  {
+   "id": "has_cam_fbx",
+   "type": "has_data",
+   "params": {
+    "present": false
+   },
+   "ui": {
+    "x": 360,
+    "y": 2878
+   }
+  },
+  {
+   "id": "cam_pick",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "摄影机（FBX）",
+       "en": "Camera (FBX)"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "摄影机（USD）",
+       "en": "Camera (USD)"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 820,
+    "y": 2878
+   }
+  },
+  {
+   "id": "has_cam",
+   "type": "has_data",
+   "params": {
+    "present": false
+   },
+   "ui": {
+    "x": 1180,
+    "y": 2878
+   }
+  },
+  {
+   "id": "cam_gate",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 1591,
+    "y": 2878
+   }
+  },
+  {
+   "id": "cam_lens",
+   "type": "split_camera",
+   "params": {
+    "per_frame": false
+   },
+   "ui": {
+    "x": 1951,
+    "y": 2878
+   }
+  },
+  {
+   "id": "vipe",
+   "type": "vipe.camera_solve",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "mode": "pose_only"
+   },
+   "ui": {
+    "x": 2311,
+    "y": 1919
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "vipe_depth",
+   "type": "vipe.depth",
+   "params": {
+    "model": "default"
+   },
+   "ui": {
+    "x": 2680,
+    "y": 1919
+   }
+  },
+  {
+   "id": "base_cam",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "上传的摄影机",
+       "en": "Uploaded Camera"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "ViPE 求的摄影机",
+       "en": "ViPE Solved Camera"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 2680,
+    "y": 2397
+   }
+  },
+  {
+   "id": "vipe_moved",
+   "type": "camera_space",
+   "params": {
+    "fit": "whole"
+   },
+   "ui": {
+    "x": 2680,
+    "y": 2158
+   }
+  },
+  {
+   "id": "ref_fit",
+   "type": "depth_align",
+   "params": {
+    "depth_is": "auto",
+    "fit": "shot"
+   },
+   "ui": {
+    "x": 3040,
+    "y": 1919
+   }
+  },
+  {
+   "id": "ref_depth",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "对齐到上传的摄影机",
+       "en": "Aligned to Uploaded Camera"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "ViPE 深度",
+       "en": "ViPE Depth"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 3400,
+    "y": 1919
+   }
+  },
+  {
+   "id": "base_lens",
+   "type": "split_camera",
+   "params": {
+    "per_frame": false
+   },
+   "ui": {
+    "x": 3040,
+    "y": 2878
+   }
+  },
+  {
+   "id": "hold",
+   "type": "time_shift",
+   "params": {
+    "frame": null
+   },
+   "ui": {
+    "x": 3776,
+    "y": 2878
+   }
+  },
+  {
+   "id": "da3",
+   "type": "depthanything3.depth",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "model": "da3metric-large",
+    "resolution": 504,
+    "ray_pose": false
+   },
+   "ui": {
+    "x": 3400,
+    "y": 3562
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "moge",
+   "type": "moge.depth",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "point_step": 4,
+    "point_size": 0.5,
+    "model": "Ruicheng/moge-3-vitl",
+    "resolution_level": 9
+   },
+   "ui": {
+    "x": 3400,
+    "y": 4152
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "unidepth",
+   "type": "unidepth.depth",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "point_step": 4,
+    "point_size": 0.5,
+    "model": "unidepth-v2-vitl14",
+    "resolution_level": 9
+   },
+   "ui": {
+    "x": 3400,
+    "y": 3857
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "unik3d",
+   "type": "unik3d.depth",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "point_step": 4,
+    "point_size": 0.5,
+    "model": "unik3d-vitl",
+    "resolution_level": 9
+   },
+   "ui": {
+    "x": 3400,
+    "y": 4447
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "vda",
+   "type": "videodepthanything.depth",
+   "params": {
+    "model": "metric_small",
+    "resolution": 518,
+    "fp16": true
+   },
+   "ui": {
+    "x": 360,
+    "y": 3562
+   }
+  },
+  {
+   "id": "da3_align",
+   "type": "depth_align",
+   "params": {
+    "depth_is": "auto",
+    "fit": "shot"
+   },
+   "ui": {
+    "x": 3776,
+    "y": 3769
+   }
+  },
+  {
+   "id": "depth_da3",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4145,
+    "y": 4048
+   }
+  },
+  {
+   "id": "moge_align",
+   "type": "depth_align",
+   "params": {
+    "depth_is": "auto",
+    "fit": "shot"
+   },
+   "ui": {
+    "x": 3776,
+    "y": 4526
+   }
+  },
+  {
+   "id": "depth_moge",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 4145,
+    "y": 4526
+   }
+  },
+  {
+   "id": "unidepth_align",
+   "type": "depth_align",
+   "params": {
+    "depth_is": "auto",
+    "fit": "shot"
+   },
+   "ui": {
+    "x": 3776,
+    "y": 4805
+   }
+  },
+  {
+   "id": "depth_unidepth",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 4145,
+    "y": 4805
+   }
+  },
+  {
+   "id": "unik3d_align",
+   "type": "depth_align",
+   "params": {
+    "depth_is": "auto",
+    "fit": "shot"
+   },
+   "ui": {
+    "x": 3776,
+    "y": 5084
+   }
+  },
+  {
+   "id": "depth_unik3d",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 4145,
+    "y": 5084
+   }
+  },
+  {
+   "id": "vda_align",
+   "type": "depth_align",
+   "params": {
+    "depth_is": "auto",
+    "fit": "shot"
+   },
+   "ui": {
+    "x": 3776,
+    "y": 4247
+   }
+  },
+  {
+   "id": "depth_vda",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 4145,
+    "y": 3562
+   }
+  },
+  {
+   "id": "depth_vipe",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 3776,
+    "y": 3562
+   }
+  },
+  {
+   "id": "sapiens_normal",
+   "type": "sapiens2.normal",
+   "params": {
+    "model_size": "1b",
+    "fp16": true
+   },
+   "ui": {
+    "x": 360,
+    "y": 7198
+   }
+  },
+  {
+   "id": "depth_normal",
+   "type": "normal_from_depth",
+   "params": {
+    "space": "camera"
+   },
+   "ui": {
+    "x": 3776,
+    "y": 4048
+   }
+  },
+  {
+   "id": "normal_moge",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 3776,
+    "y": 7198
+   }
+  },
+  {
+   "id": "normal_sapiens2",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 820,
+    "y": 7198
+   }
+  },
+  {
+   "id": "normal_depth",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 4145,
+    "y": 7198
+   }
+  },
+  {
+   "id": "vidmap",
+   "type": "vidmap.camera_solve",
+   "params": {
+    "step": 1,
+    "focal_mm": null,
+    "filmback_mm": null,
+    "smooth": false,
+    "unit_cm": 100.0
+   },
+   "ui": {
+    "x": 2311,
+    "y": 2194
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "da3long",
+   "type": "da3long.reconstruct",
+   "params": {
+    "step": 1,
+    "max_frames": 120,
+    "overlap": 60,
+    "loops": true,
+    "unit_cm": 100.0
+   },
+   "ui": {
+    "x": 360,
+    "y": 1919
+   }
+  },
+  {
+   "id": "vipe_to_base",
+   "type": "camera_space",
+   "params": {
+    "fit": "whole"
+   },
+   "ui": {
+    "x": 4145,
+    "y": 2158
+   }
+  },
+  {
+   "id": "vidmap_to_base",
+   "type": "camera_space",
+   "params": {
+    "fit": "whole"
+   },
+   "ui": {
+    "x": 4145,
+    "y": 2397
+   }
+  },
+  {
+   "id": "da3long_to_base",
+   "type": "camera_space",
+   "params": {
+    "fit": "whole"
+   },
+   "ui": {
+    "x": 4145,
+    "y": 1919
+   }
+  },
+  {
+   "id": "camera_vipe",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 2158
+   }
+  },
+  {
+   "id": "camera_vidmap",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 2397
+   }
+  },
+  {
+   "id": "camera_da3long",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 1919
+   }
+  },
+  {
+   "id": "world_pos",
+   "type": "position_from_depth",
+   "params": {
+    "space": "world"
+   },
+   "ui": {
+    "x": 3776,
+    "y": 1103
+   }
+  },
+  {
+   "id": "position_world",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 4145,
+    "y": 1390
+   }
+  },
+  {
+   "id": "frame_points",
+   "type": "points_from_depth",
+   "params": {
+    "point_step": 4,
+    "point_size": 0.5,
+    "space": "world",
+    "conf_threshold": 0.5
+   },
+   "ui": {
+    "x": 4145,
+    "y": 1103
+   }
+  },
+  {
+   "id": "position_points",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 1103
+   }
+  },
+  {
+   "id": "memfof",
+   "type": "memfof.flow",
+   "params": {
+    "resolution": null
+   },
+   "ui": {
+    "x": 360,
+    "y": 151
+   }
+  },
+  {
+   "id": "waft",
+   "type": "waft.flow",
+   "params": {
+    "resolution": 960
+   },
+   "ui": {
+    "x": 360,
+    "y": 350
+   }
+  },
+  {
+   "id": "reference",
+   "type": "file",
+   "params": {
+    "path": "",
+    "colorspace": null,
+    "first": null,
+    "last": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "has_reference",
+   "type": "has_data",
+   "params": {
+    "present": false
+   },
+   "ui": {
+    "x": 360,
+    "y": 0
+   }
+  },
+  {
+   "id": "reference_gate",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 820,
+    "y": 0
+   }
+  },
+  {
+   "id": "romav2",
+   "type": "romav2.match",
+   "params": {
+    "setting": "precise",
+    "matches": 2000
+   },
+   "ui": {
+    "x": 1180,
+    "y": 0
+   }
+  },
+  {
+   "id": "motion_memfof",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 820,
+    "y": 207
+   }
+  },
+  {
+   "id": "motion_waft",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 820,
+    "y": 414
+   }
+  },
+  {
+   "id": "motion_romav2",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 1591,
+    "y": 0
+   }
+  },
+  {
+   "id": "pbr",
+   "type": "diffusionrenderer.inverse_render",
+   "params": {
+    "resolution": 1280,
+    "max_frames": 41,
+    "overlap": 8,
+    "steps": 15,
+    "seed": 1000
+   },
+   "ui": {
+    "x": 360,
+    "y": 5629
+   }
+  },
+  {
+   "id": "light_pbr",
+   "type": "value_toggle",
+   "params": {
+    "value": false
+   },
+   "ui": {
+    "x": 360,
+    "y": 5916
+   }
+  },
+  {
+   "id": "light_pbr_basecolor",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 820,
+    "y": 5836
+   }
+  },
+  {
+   "id": "light_pbr_roughness",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 820,
+    "y": 5629
+   }
+  },
+  {
+   "id": "light_pbr_metallic",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 820,
+    "y": 6043
+   }
+  },
+  {
+   "id": "hdri",
+   "type": "file_still",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 5629
+   }
+  },
+  {
+   "id": "has_hdri",
+   "type": "has_data",
+   "params": {
+    "present": false
+   },
+   "ui": {
+    "x": 360,
+    "y": 6095
+   }
+  },
+  {
+   "id": "hdri_gate",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 820,
+    "y": 6250
+   }
+  },
+  {
+   "id": "relight",
+   "type": "diffusionrenderer.relight",
+   "params": {
+    "resolution": 1280,
+    "max_frames": 41,
+    "overlap": 8,
+    "steps": 15,
+    "seed": 1000,
+    "env_rotate": 0.0,
+    "exposure": 0.0
+   },
+   "ui": {
+    "x": 1180,
+    "y": 6250
+   }
+  },
+  {
+   "id": "light_relight",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 1591,
+    "y": 6250
+   }
+  },
+  {
+   "id": "probe",
+   "type": "diffusionlight.light_probe",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "seed": 0,
+    "envmap_width": 1024
+   },
+   "ui": {
+    "x": 4145,
+    "y": 5629
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "light_diffusionlight",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 5836
+   }
+  },
+  {
+   "id": "cleanplate",
+   "type": "cleanplate.clean_plate",
+   "params": {
+    "resolution": 1920
+   },
+   "ui": {
+    "x": 360,
+    "y": 8301
+   }
+  },
+  {
+   "id": "plate_clean",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 820,
+    "y": 8301
+   }
+  },
+  {
+   "id": "plate_clean_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 8301
+   }
+  },
+  {
+   "id": "plate_clean_out",
+   "type": "image.output",
+   "params": {
+    "name": "plate_clean",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 8301
+   }
+  },
+  {
+   "id": "exr",
+   "type": "exr.output",
+   "params": {
+    "name": "comp_2d",
+    "layers": [
+     {
+      "name": "depth_da3",
+      "label": "depth.da3",
+      "channels": "Z"
+     },
+     {
+      "name": "depth_moge",
+      "label": "depth.moge",
+      "channels": "Z"
+     },
+     {
+      "name": "depth_unidepth",
+      "label": "depth.unidepth",
+      "channels": "Z"
+     },
+     {
+      "name": "depth_unik3d",
+      "label": "depth.unik3d",
+      "channels": "Z"
+     },
+     {
+      "name": "depth_vda",
+      "label": "depth.vda",
+      "channels": "Z"
+     },
+     {
+      "name": "depth_vipe",
+      "label": "depth.vipe",
+      "channels": "Z"
+     },
+     {
+      "name": "normal_moge",
+      "label": "normal.moge",
+      "channels": ""
+     },
+     {
+      "name": "normal_sapiens2",
+      "label": "normal.sapiens2",
+      "channels": ""
+     },
+     {
+      "name": "normal_depth",
+      "label": "normal.depth",
+      "channels": ""
+     },
+     {
+      "name": "position_world",
+      "label": "position.world",
+      "channels": ""
+     },
+     {
+      "name": "motion_memfof",
+      "label": "motion.memfof",
+      "channels": ""
+     },
+     {
+      "name": "motion_waft",
+      "label": "motion.waft",
+      "channels": ""
+     },
+     {
+      "name": "motion_romav2",
+      "label": "motion.romav2",
+      "channels": ""
+     },
+     {
+      "name": "light_diffusionrenderer_basecolor",
+      "label": "light.diffusionrenderer_basecolor",
+      "channels": ""
+     },
+     {
+      "name": "light_diffusionrenderer_roughness",
+      "label": "light.diffusionrenderer_roughness",
+      "channels": ""
+     },
+     {
+      "name": "light_diffusionrenderer_metallic",
+      "label": "light.diffusionrenderer_metallic",
+      "channels": ""
+     },
+     {
+      "name": "light_relight",
+      "label": "light.relight",
+      "channels": ""
+     },
+     {
+      "name": "plate_clean",
+      "label": "plate.clean",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 5283,
+    "y": 4188
+   }
+  },
+  {
+   "id": "separate",
+   "type": "value_toggle",
+   "params": {
+    "value": false
+   },
+   "ui": {
+    "x": 4145,
+    "y": 5402
+   }
+  },
+  {
+   "id": "depth_da3_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 4048
+   }
+  },
+  {
+   "id": "depth_da3_out",
+   "type": "image.output",
+   "params": {
+    "name": "depth_da3",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 4136
+   }
+  },
+  {
+   "id": "depth_moge_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 4526
+   }
+  },
+  {
+   "id": "depth_moge_out",
+   "type": "image.output",
+   "params": {
+    "name": "depth_moge",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 4526
+   }
+  },
+  {
+   "id": "depth_unidepth_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 4805
+   }
+  },
+  {
+   "id": "depth_unidepth_out",
+   "type": "image.output",
+   "params": {
+    "name": "depth_unidepth",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 4813
+   }
+  },
+  {
+   "id": "depth_unik3d_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 5084
+   }
+  },
+  {
+   "id": "depth_unik3d_out",
+   "type": "image.output",
+   "params": {
+    "name": "depth_unik3d",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 5100
+   }
+  },
+  {
+   "id": "depth_vda_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 3562
+   }
+  },
+  {
+   "id": "depth_vda_out",
+   "type": "image.output",
+   "params": {
+    "name": "depth_vda",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 3562
+   }
+  },
+  {
+   "id": "depth_vipe_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 3841
+   }
+  },
+  {
+   "id": "depth_vipe_out",
+   "type": "image.output",
+   "params": {
+    "name": "depth_vipe",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 3849
+   }
+  },
+  {
+   "id": "normal_moge_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 7198
+   }
+  },
+  {
+   "id": "normal_moge_out",
+   "type": "image.output",
+   "params": {
+    "name": "normal_moge",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 7198
+   }
+  },
+  {
+   "id": "normal_sapiens2_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 7405
+   }
+  },
+  {
+   "id": "normal_sapiens2_out",
+   "type": "image.output",
+   "params": {
+    "name": "normal_sapiens2",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 7485
+   }
+  },
+  {
+   "id": "normal_depth_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 7612
+   }
+  },
+  {
+   "id": "normal_depth_out",
+   "type": "image.output",
+   "params": {
+    "name": "normal_depth",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 7772
+   }
+  },
+  {
+   "id": "position_world_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 1390
+   }
+  },
+  {
+   "id": "position_world_out",
+   "type": "image.output",
+   "params": {
+    "name": "position_world",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 1390
+   }
+  },
+  {
+   "id": "motion_memfof_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 207
+   }
+  },
+  {
+   "id": "motion_memfof_out",
+   "type": "image.output",
+   "params": {
+    "name": "motion_memfof",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 287
+   }
+  },
+  {
+   "id": "motion_waft_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 414
+   }
+  },
+  {
+   "id": "motion_waft_out",
+   "type": "image.output",
+   "params": {
+    "name": "motion_waft",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 574
+   }
+  },
+  {
+   "id": "motion_romav2_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 0
+   }
+  },
+  {
+   "id": "motion_romav2_out",
+   "type": "image.output",
+   "params": {
+    "name": "motion_romav2",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 0
+   }
+  },
+  {
+   "id": "light_pbr_basecolor_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 5629
+   }
+  },
+  {
+   "id": "light_pbr_basecolor_out",
+   "type": "image.output",
+   "params": {
+    "name": "light_diffusionrenderer_basecolor",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 5629
+   }
+  },
+  {
+   "id": "light_pbr_roughness_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 6043
+   }
+  },
+  {
+   "id": "light_pbr_roughness_out",
+   "type": "image.output",
+   "params": {
+    "name": "light_diffusionrenderer_roughness",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 6095
+   }
+  },
+  {
+   "id": "light_pbr_metallic_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 6250
+   }
+  },
+  {
+   "id": "light_pbr_metallic_out",
+   "type": "image.output",
+   "params": {
+    "name": "light_diffusionrenderer_metallic",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 6382
+   }
+  },
+  {
+   "id": "light_relight_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 4563,
+    "y": 6457
+   }
+  },
+  {
+   "id": "light_relight_out",
+   "type": "image.output",
+   "params": {
+    "name": "light_relight",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 6669
+   }
+  },
+  {
+   "id": "camera_vipe_out",
+   "type": "nuke.output",
+   "params": {
+    "name": "camera_vipe"
+   },
+   "ui": {
+    "x": 4923,
+    "y": 2158
+   }
+  },
+  {
+   "id": "camera_vidmap_out",
+   "type": "nuke.output",
+   "params": {
+    "name": "camera_vidmap"
+   },
+   "ui": {
+    "x": 4923,
+    "y": 2397
+   }
+  },
+  {
+   "id": "camera_da3long_out",
+   "type": "nuke.output",
+   "params": {
+    "name": "camera_da3long"
+   },
+   "ui": {
+    "x": 4923,
+    "y": 1919
+   }
+  },
+  {
+   "id": "position_points_out",
+   "type": "usd.output",
+   "params": {
+    "name": "position_points",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 4923,
+    "y": 1103
+   }
+  },
+  {
+   "id": "light_diffusionlight_out",
+   "type": "exr.output",
+   "params": {
+    "name": "light_diffusionlight",
+    "layers": [
+     {
+      "name": "hdri",
+      "label": "rgba",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 4923,
+    "y": 5916
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "output",
+   "params": {},
+   "ui": {
+    "x": 5643,
+    "y": 4188
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "cam_fbx",
+    "camera"
+   ],
+   "to": [
+    "has_cam_fbx",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "cam_fbx",
+    "camera"
+   ],
+   "to": [
+    "cam_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "cam_usd",
+    "camera"
+   ],
+   "to": [
+    "cam_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "has_cam_fbx",
+    "value"
+   ],
+   "to": [
+    "cam_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "has_cam",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "cam_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "has_cam",
+    "value"
+   ],
+   "to": [
+    "cam_gate",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "cam_gate",
+    "data"
+   ],
+   "to": [
+    "cam_lens",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "vipe",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "focal"
+   ],
+   "to": [
+    "vipe",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "filmback"
+   ],
+   "to": [
+    "vipe",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "vipe_depth",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "camera"
+   ],
+   "to": [
+    "vipe_depth",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "points"
+   ],
+   "to": [
+    "vipe_depth",
+    "points"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "objects"
+   ],
+   "to": [
+    "vipe_depth",
+    "objects"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "base_cam",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "camera"
+   ],
+   "to": [
+    "base_cam",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "has_cam",
+    "value"
+   ],
+   "to": [
+    "base_cam",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "points"
+   ],
+   "to": [
+    "vipe_moved",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "camera"
+   ],
+   "to": [
+    "vipe_moved",
+    "source_camera"
+   ]
+  },
+  {
+   "from": [
+    "cam_gate",
+    "data"
+   ],
+   "to": [
+    "vipe_moved",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "vipe_depth",
+    "depth"
+   ],
+   "to": [
+    "ref_fit",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "vipe_moved",
+    "scene"
+   ],
+   "to": [
+    "ref_fit",
+    "points"
+   ]
+  },
+  {
+   "from": [
+    "cam_gate",
+    "data"
+   ],
+   "to": [
+    "ref_fit",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "ref_fit",
+    "depth"
+   ],
+   "to": [
+    "ref_depth",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "vipe_depth",
+    "depth"
+   ],
+   "to": [
+    "ref_depth",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "has_cam",
+    "value"
+   ],
+   "to": [
+    "ref_depth",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "base_cam",
+    "out"
+   ],
+   "to": [
+    "base_lens",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "hold",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "da3",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "base_lens",
+    "focal"
+   ],
+   "to": [
+    "da3",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "base_lens",
+    "filmback"
+   ],
+   "to": [
+    "da3",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "da3",
+    "depth"
+   ],
+   "to": [
+    "da3_align",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "ref_depth",
+    "out"
+   ],
+   "to": [
+    "da3_align",
+    "reference"
+   ]
+  },
+  {
+   "from": [
+    "da3_align",
+    "depth"
+   ],
+   "to": [
+    "depth_da3",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "moge",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "base_lens",
+    "focal"
+   ],
+   "to": [
+    "moge",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "base_lens",
+    "filmback"
+   ],
+   "to": [
+    "moge",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "moge",
+    "depth"
+   ],
+   "to": [
+    "moge_align",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "ref_depth",
+    "out"
+   ],
+   "to": [
+    "moge_align",
+    "reference"
+   ]
+  },
+  {
+   "from": [
+    "moge_align",
+    "depth"
+   ],
+   "to": [
+    "depth_moge",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "unidepth",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "base_lens",
+    "focal"
+   ],
+   "to": [
+    "unidepth",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "base_lens",
+    "filmback"
+   ],
+   "to": [
+    "unidepth",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "unidepth",
+    "depth"
+   ],
+   "to": [
+    "unidepth_align",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "ref_depth",
+    "out"
+   ],
+   "to": [
+    "unidepth_align",
+    "reference"
+   ]
+  },
+  {
+   "from": [
+    "unidepth_align",
+    "depth"
+   ],
+   "to": [
+    "depth_unidepth",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "unik3d",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "base_lens",
+    "focal"
+   ],
+   "to": [
+    "unik3d",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "base_lens",
+    "filmback"
+   ],
+   "to": [
+    "unik3d",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "unik3d",
+    "depth"
+   ],
+   "to": [
+    "unik3d_align",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "ref_depth",
+    "out"
+   ],
+   "to": [
+    "unik3d_align",
+    "reference"
+   ]
+  },
+  {
+   "from": [
+    "unik3d_align",
+    "depth"
+   ],
+   "to": [
+    "depth_unik3d",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "vda",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "vda",
+    "depth"
+   ],
+   "to": [
+    "vda_align",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "ref_depth",
+    "out"
+   ],
+   "to": [
+    "vda_align",
+    "reference"
+   ]
+  },
+  {
+   "from": [
+    "vda_align",
+    "depth"
+   ],
+   "to": [
+    "depth_vda",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "ref_depth",
+    "out"
+   ],
+   "to": [
+    "depth_vipe",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "sapiens_normal",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "ref_depth",
+    "out"
+   ],
+   "to": [
+    "depth_normal",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "base_cam",
+    "out"
+   ],
+   "to": [
+    "depth_normal",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "moge",
+    "normal"
+   ],
+   "to": [
+    "normal_moge",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "sapiens_normal",
+    "normal"
+   ],
+   "to": [
+    "normal_sapiens2",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "depth_normal",
+    "normal"
+   ],
+   "to": [
+    "normal_depth",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "vidmap",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "da3long",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "camera"
+   ],
+   "to": [
+    "vipe_to_base",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "camera"
+   ],
+   "to": [
+    "vipe_to_base",
+    "source_camera"
+   ]
+  },
+  {
+   "from": [
+    "base_cam",
+    "out"
+   ],
+   "to": [
+    "vipe_to_base",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "vidmap",
+    "camera"
+   ],
+   "to": [
+    "vidmap_to_base",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "vidmap",
+    "camera"
+   ],
+   "to": [
+    "vidmap_to_base",
+    "source_camera"
+   ]
+  },
+  {
+   "from": [
+    "base_cam",
+    "out"
+   ],
+   "to": [
+    "vidmap_to_base",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "da3long",
+    "camera"
+   ],
+   "to": [
+    "da3long_to_base",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "da3long",
+    "camera"
+   ],
+   "to": [
+    "da3long_to_base",
+    "source_camera"
+   ]
+  },
+  {
+   "from": [
+    "base_cam",
+    "out"
+   ],
+   "to": [
+    "da3long_to_base",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "vipe_to_base",
+    "scene"
+   ],
+   "to": [
+    "camera_vipe",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "vidmap_to_base",
+    "scene"
+   ],
+   "to": [
+    "camera_vidmap",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "da3long_to_base",
+    "scene"
+   ],
+   "to": [
+    "camera_da3long",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "ref_depth",
+    "out"
+   ],
+   "to": [
+    "world_pos",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "base_cam",
+    "out"
+   ],
+   "to": [
+    "world_pos",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "world_pos",
+    "position"
+   ],
+   "to": [
+    "position_world",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "ref_depth",
+    "out"
+   ],
+   "to": [
+    "frame_points",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "base_cam",
+    "out"
+   ],
+   "to": [
+    "frame_points",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "frame_points",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "frame_points",
+    "points"
+   ],
+   "to": [
+    "position_points",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "memfof",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "waft",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "reference",
+    "image"
+   ],
+   "to": [
+    "has_reference",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "reference",
+    "image"
+   ],
+   "to": [
+    "reference_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "has_reference",
+    "value"
+   ],
+   "to": [
+    "reference_gate",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "romav2",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "reference_gate",
+    "data"
+   ],
+   "to": [
+    "romav2",
+    "other"
+   ]
+  },
+  {
+   "from": [
+    "memfof",
+    "flow"
+   ],
+   "to": [
+    "motion_memfof",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "waft",
+    "flow"
+   ],
+   "to": [
+    "motion_waft",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "romav2",
+    "stmap"
+   ],
+   "to": [
+    "motion_romav2",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "pbr",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "pbr",
+    "basecolor"
+   ],
+   "to": [
+    "light_pbr_basecolor",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr",
+    "value"
+   ],
+   "to": [
+    "light_pbr_basecolor",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "pbr",
+    "roughness"
+   ],
+   "to": [
+    "light_pbr_roughness",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr",
+    "value"
+   ],
+   "to": [
+    "light_pbr_roughness",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "pbr",
+    "metallic"
+   ],
+   "to": [
+    "light_pbr_metallic",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr",
+    "value"
+   ],
+   "to": [
+    "light_pbr_metallic",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "hdri",
+    "image"
+   ],
+   "to": [
+    "has_hdri",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "hdri",
+    "image"
+   ],
+   "to": [
+    "hdri_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "has_hdri",
+    "value"
+   ],
+   "to": [
+    "hdri_gate",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "relight",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "hdri_gate",
+    "data"
+   ],
+   "to": [
+    "relight",
+    "hdri"
+   ]
+  },
+  {
+   "from": [
+    "relight",
+    "image"
+   ],
+   "to": [
+    "light_relight",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "hold",
+    "image"
+   ],
+   "to": [
+    "probe",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "base_lens",
+    "focal"
+   ],
+   "to": [
+    "probe",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "base_lens",
+    "filmback"
+   ],
+   "to": [
+    "probe",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "probe",
+    "hdri"
+   ],
+   "to": [
+    "light_diffusionlight",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "depth_da3",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "depth_da3"
+   ]
+  },
+  {
+   "from": [
+    "depth_moge",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "depth_moge"
+   ]
+  },
+  {
+   "from": [
+    "depth_unidepth",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "depth_unidepth"
+   ]
+  },
+  {
+   "from": [
+    "depth_unik3d",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "depth_unik3d"
+   ]
+  },
+  {
+   "from": [
+    "depth_vda",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "depth_vda"
+   ]
+  },
+  {
+   "from": [
+    "depth_vipe",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "depth_vipe"
+   ]
+  },
+  {
+   "from": [
+    "normal_moge",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "normal_moge"
+   ]
+  },
+  {
+   "from": [
+    "normal_sapiens2",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "normal_sapiens2"
+   ]
+  },
+  {
+   "from": [
+    "normal_depth",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "normal_depth"
+   ]
+  },
+  {
+   "from": [
+    "position_world",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "position_world"
+   ]
+  },
+  {
+   "from": [
+    "motion_memfof",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "motion_memfof"
+   ]
+  },
+  {
+   "from": [
+    "motion_waft",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "motion_waft"
+   ]
+  },
+  {
+   "from": [
+    "motion_romav2",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "motion_romav2"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr_basecolor",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "light_diffusionrenderer_basecolor"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr_roughness",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "light_diffusionrenderer_roughness"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr_metallic",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "light_diffusionrenderer_metallic"
+   ]
+  },
+  {
+   "from": [
+    "light_relight",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "light_relight"
+   ]
+  },
+  {
+   "from": [
+    "depth_da3",
+    "data"
+   ],
+   "to": [
+    "depth_da3_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "depth_da3_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "depth_da3_file",
+    "data"
+   ],
+   "to": [
+    "depth_da3_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "depth_moge",
+    "data"
+   ],
+   "to": [
+    "depth_moge_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "depth_moge_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "depth_moge_file",
+    "data"
+   ],
+   "to": [
+    "depth_moge_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "depth_unidepth",
+    "data"
+   ],
+   "to": [
+    "depth_unidepth_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "depth_unidepth_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "depth_unidepth_file",
+    "data"
+   ],
+   "to": [
+    "depth_unidepth_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "depth_unik3d",
+    "data"
+   ],
+   "to": [
+    "depth_unik3d_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "depth_unik3d_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "depth_unik3d_file",
+    "data"
+   ],
+   "to": [
+    "depth_unik3d_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "depth_vda",
+    "data"
+   ],
+   "to": [
+    "depth_vda_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "depth_vda_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "depth_vda_file",
+    "data"
+   ],
+   "to": [
+    "depth_vda_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "depth_vipe",
+    "data"
+   ],
+   "to": [
+    "depth_vipe_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "depth_vipe_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "depth_vipe_file",
+    "data"
+   ],
+   "to": [
+    "depth_vipe_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "normal_moge",
+    "data"
+   ],
+   "to": [
+    "normal_moge_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "normal_moge_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "normal_moge_file",
+    "data"
+   ],
+   "to": [
+    "normal_moge_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "normal_sapiens2",
+    "data"
+   ],
+   "to": [
+    "normal_sapiens2_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "normal_sapiens2_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "normal_sapiens2_file",
+    "data"
+   ],
+   "to": [
+    "normal_sapiens2_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "normal_depth",
+    "data"
+   ],
+   "to": [
+    "normal_depth_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "normal_depth_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "normal_depth_file",
+    "data"
+   ],
+   "to": [
+    "normal_depth_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "position_world",
+    "data"
+   ],
+   "to": [
+    "position_world_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "position_world_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "position_world_file",
+    "data"
+   ],
+   "to": [
+    "position_world_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "motion_memfof",
+    "data"
+   ],
+   "to": [
+    "motion_memfof_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "motion_memfof_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "motion_memfof_file",
+    "data"
+   ],
+   "to": [
+    "motion_memfof_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "motion_waft",
+    "data"
+   ],
+   "to": [
+    "motion_waft_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "motion_waft_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "motion_waft_file",
+    "data"
+   ],
+   "to": [
+    "motion_waft_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "motion_romav2",
+    "data"
+   ],
+   "to": [
+    "motion_romav2_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "motion_romav2_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "motion_romav2_file",
+    "data"
+   ],
+   "to": [
+    "motion_romav2_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr_basecolor",
+    "data"
+   ],
+   "to": [
+    "light_pbr_basecolor_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "light_pbr_basecolor_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr_basecolor_file",
+    "data"
+   ],
+   "to": [
+    "light_pbr_basecolor_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr_roughness",
+    "data"
+   ],
+   "to": [
+    "light_pbr_roughness_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "light_pbr_roughness_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr_roughness_file",
+    "data"
+   ],
+   "to": [
+    "light_pbr_roughness_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr_metallic",
+    "data"
+   ],
+   "to": [
+    "light_pbr_metallic_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "light_pbr_metallic_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr_metallic_file",
+    "data"
+   ],
+   "to": [
+    "light_pbr_metallic_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "light_relight",
+    "data"
+   ],
+   "to": [
+    "light_relight_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "light_relight_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "light_relight_file",
+    "data"
+   ],
+   "to": [
+    "light_relight_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "camera_vipe",
+    "data"
+   ],
+   "to": [
+    "camera_vipe_out",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "camera_vidmap",
+    "data"
+   ],
+   "to": [
+    "camera_vidmap_out",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "camera_da3long",
+    "data"
+   ],
+   "to": [
+    "camera_da3long_out",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "position_points",
+    "data"
+   ],
+   "to": [
+    "position_points_out",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "light_diffusionlight",
+    "data"
+   ],
+   "to": [
+    "light_diffusionlight_out",
+    "hdri"
+   ]
+  },
+  {
+   "from": [
+    "exr",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "depth_da3_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "depth_moge_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "depth_unidepth_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "depth_unik3d_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "depth_vda_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "depth_vipe_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "normal_moge_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "normal_sapiens2_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "normal_depth_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "position_world_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "motion_memfof_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "motion_waft_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "motion_romav2_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr_basecolor_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr_roughness_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "light_pbr_metallic_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "light_relight_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "camera_vipe_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "camera_vidmap_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "camera_da3long_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "position_points_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "light_diffusionlight_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "focal"
+   ],
+   "to": [
+    "vidmap",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "filmback"
+   ],
+   "to": [
+    "vidmap",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "cleanplate",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cleanplate",
+    "plate"
+   ],
+   "to": [
+    "plate_clean",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "plate_clean",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "plate_clean"
+   ]
+  },
+  {
+   "from": [
+    "plate_clean",
+    "data"
+   ],
+   "to": [
+    "plate_clean_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "plate_clean_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "plate_clean_file",
+    "data"
+   ],
+   "to": [
+    "plate_clean_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "plate_clean_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [
+  {
+   "id": "box:1",
+   "label": {
+    "zh": "输入",
+    "en": "Input"
+   },
+   "color": "#0A84FF",
+   "x": -24,
+   "y": 2820,
+   "w": 4064,
+   "h": 484,
+   "collapsed": false,
+   "members": [
+    "read",
+    "cam_fbx",
+    "cam_usd",
+    "has_cam_fbx",
+    "cam_pick",
+    "has_cam",
+    "cam_gate",
+    "cam_lens",
+    "base_lens",
+    "hold"
+   ]
+  },
+  {
+   "id": "box:2",
+   "label": {
+    "zh": "摄影机",
+    "en": "Camera"
+   },
+   "color": "#30D158",
+   "x": 336,
+   "y": 1861,
+   "w": 4851,
+   "h": 759,
+   "collapsed": false,
+   "members": [
+    "vipe",
+    "vipe_depth",
+    "base_cam",
+    "vipe_moved",
+    "ref_fit",
+    "ref_depth",
+    "vidmap",
+    "da3long",
+    "vipe_to_base",
+    "vidmap_to_base",
+    "da3long_to_base",
+    "camera_vipe",
+    "camera_vidmap",
+    "camera_da3long",
+    "camera_vipe_out",
+    "camera_vidmap_out",
+    "camera_da3long_out"
+   ]
+  },
+  {
+   "id": "box:3",
+   "label": {
+    "zh": "深度",
+    "en": "Depth"
+   },
+   "color": "#FF9F0A",
+   "x": 336,
+   "y": 3504,
+   "w": 4851,
+   "h": 1867,
+   "collapsed": false,
+   "members": [
+    "da3",
+    "moge",
+    "unidepth",
+    "unik3d",
+    "vda",
+    "da3_align",
+    "depth_da3",
+    "moge_align",
+    "depth_moge",
+    "unidepth_align",
+    "depth_unidepth",
+    "unik3d_align",
+    "depth_unik3d",
+    "vda_align",
+    "depth_vda",
+    "depth_vipe",
+    "depth_normal",
+    "depth_da3_file",
+    "depth_da3_out",
+    "depth_moge_file",
+    "depth_moge_out",
+    "depth_unidepth_file",
+    "depth_unidepth_out",
+    "depth_unik3d_file",
+    "depth_unik3d_out",
+    "depth_vda_file",
+    "depth_vda_out",
+    "depth_vipe_file",
+    "depth_vipe_out"
+   ]
+  },
+  {
+   "id": "box:4",
+   "label": {
+    "zh": "法线",
+    "en": "Normals"
+   },
+   "color": "#BF5AF2",
+   "x": 336,
+   "y": 7140,
+   "w": 4851,
+   "h": 903,
+   "collapsed": false,
+   "members": [
+    "sapiens_normal",
+    "normal_moge",
+    "normal_sapiens2",
+    "normal_depth",
+    "normal_moge_file",
+    "normal_moge_out",
+    "normal_sapiens2_file",
+    "normal_sapiens2_out",
+    "normal_depth_file",
+    "normal_depth_out"
+   ]
+  },
+  {
+   "id": "box:5",
+   "label": {
+    "zh": "位置与点云",
+    "en": "Position & Point Cloud"
+   },
+   "color": "#FF375F",
+   "x": 3752,
+   "y": 1045,
+   "w": 1435,
+   "h": 616,
+   "collapsed": false,
+   "members": [
+    "world_pos",
+    "position_world",
+    "frame_points",
+    "position_points",
+    "position_world_file",
+    "position_world_out",
+    "position_points_out"
+   ]
+  },
+  {
+   "id": "box:6",
+   "label": {
+    "zh": "光流与对位",
+    "en": "Optical Flow & Alignment"
+   },
+   "color": "#8E8E93",
+   "x": -24,
+   "y": -58,
+   "w": 5211,
+   "h": 903,
+   "collapsed": false,
+   "members": [
+    "memfof",
+    "waft",
+    "reference",
+    "has_reference",
+    "reference_gate",
+    "romav2",
+    "motion_memfof",
+    "motion_waft",
+    "motion_romav2",
+    "motion_memfof_file",
+    "motion_memfof_out",
+    "motion_waft_file",
+    "motion_waft_out",
+    "motion_romav2_file",
+    "motion_romav2_out"
+   ]
+  },
+  {
+   "id": "box:7",
+   "label": {
+    "zh": "光照与材质",
+    "en": "Lighting & Materials"
+   },
+   "color": "#0A84FF",
+   "x": -24,
+   "y": 5571,
+   "w": 5211,
+   "h": 1369,
+   "collapsed": false,
+   "members": [
+    "pbr",
+    "light_pbr",
+    "light_pbr_basecolor",
+    "light_pbr_roughness",
+    "light_pbr_metallic",
+    "hdri",
+    "has_hdri",
+    "hdri_gate",
+    "relight",
+    "light_relight",
+    "probe",
+    "light_diffusionlight",
+    "light_pbr_basecolor_file",
+    "light_pbr_basecolor_out",
+    "light_pbr_roughness_file",
+    "light_pbr_roughness_out",
+    "light_pbr_metallic_file",
+    "light_pbr_metallic_out",
+    "light_relight_file",
+    "light_relight_out",
+    "light_diffusionlight_out"
+   ]
+  },
+  {
+   "id": "box:8",
+   "label": {
+    "zh": "画面清理",
+    "en": "Plate Cleanup"
+   },
+   "color": "#30D158",
+   "x": 336,
+   "y": 8243,
+   "w": 4851,
+   "h": 329,
+   "collapsed": false,
+   "members": [
+    "cleanplate",
+    "plate_clean",
+    "plate_clean_file",
+    "plate_clean_out"
+   ]
+  }
+ ],
+ "view": {}
+}

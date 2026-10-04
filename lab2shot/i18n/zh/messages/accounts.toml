@@ -1,0 +1,177 @@
+# 账号、登录、用户管理、用户反馈（lab2shot/accounts.py、lab2shot/site/feedback.py、lab2shot/server/auth.py、
+# server/users.py、server/feedback.py）。
+# 一行一条：编号 = 模板。写法：谁估的、和什么比、数字和单位、意味着什么、怎么办。
+
+# ---- 密码和口令的规则（accounts.rule_problem；网页提交前查的是同一套）
+"E-ACCOUNT-BADLANG" = "界面语言只能是 {langs} 之一，不是「{lang}」"
+"E-ACCOUNT-SECRETSHORT.other" = "{what}至少要 {min:d} 个字符"
+"E-ACCOUNT-SECRETLONG.other" = "{what}最多 {max:d} 个字符"
+"E-ACCOUNT-SECRETBLANK" = "{what}不能全是空格"
+
+# ---- 新建和修改账号（accounts.py）
+"E-ACCOUNT-USERNAME" = "用户名要 3 到 32 个字符：小写英文字母开头，只用小写字母、数字和 _ . -"
+"E-ACCOUNT-USERNAMETAKEN" = "用户名 {username} 已经有人用了：换一个"
+"E-ACCOUNT-USERNAMEDELETED" = "用户名 {username} 属于一个已删除的账号：在「用户」里把它彻底删除之后才能再用，或者换一个"
+"E-ACCOUNT-NONAME" = "要填名字：中文名 {min:d} 到 {max:d} 个字，或英文名 {latin_min:d} 到 {latin_max:d} 个字母和数字"
+"E-ACCOUNT-NAMESPACE" = "名字「{name}」里有空格：名字里不能有空格；少数民族名字用 · 隔开，如 阿依·买买提"
+"E-ACCOUNT-NAMECHARS" = "名字「{name}」只能是中文字（可用 · 隔开，如 阿依·买买提），或以字母开头的英文字母加数字，不能有其他符号"
+"E-ACCOUNT-NAMELATINLENGTH.other" = "名字「{name}」有 {count:d} 个字符：英文名要 {min:d} 到 {max:d} 个字母和数字"
+"E-ACCOUNT-NAMELENGTH.other" = "名字「{name}」有 {count:d} 个字：中文名要 {min:d} 到 {max:d} 个字"
+"E-ACCOUNT-DEPARTMENT" = "环节要从这张表里选一个：{departments}（管理员在后台「账号设置」→「环节」里维护这张表）"
+"E-ACCOUNT-TAGS" = "没有这些标签：{tags}"
+"E-ACCOUNT-EXPIRYPAST" = "到期时间要在以后：选一个今天之后的日期"
+"E-ACCOUNT-ADMINFIXED" = "主人的账号 {username} 一直是管理员：不会过期、不能停用、不能改角色，什么都能用；只能改它的中文名和环节"
+"E-ACCOUNT-ADMINDELETE" = "主人的账号 {username} 不能删除"
+"E-ACCOUNT-ADMINPASSWORD" = "主人的账号 {username} 的密码只有主人自己能改：忘了密码，在登录页用口令找回，或者在服务器上执行 lab2shot admin password"
+
+# ---- 角色和权限（lab2shot/roles.py、server/users.py）
+"E-ROLES-UNKNOWN" = "没有「{role}」这个角色：只能是 {roles}"
+"E-ROLES-NOTYOURS" = "{role}不能管 {username} 的账号（{target}）：要管理员来改"
+"E-ROLES-ROLE" = "只有管理员能新建{target}或改账号的角色：{role}只能新建普通用户"
+"E-ROLES-TAGS" = "账号能用哪些标签（许可）只有管理员能设：{role}新建的普通用户用默认的「{default}」，要改找管理员"
+"E-ROLES-QUEUEFIRST" = "只有能管理队列的账号才能设「队列优先」，{role}不能"
+"E-ACCOUNT-NOUSER" = "没有这个用户：可能已经删除，刷新用户列表"
+"E-ACCOUNT-NOTDELETED" = "{username} 还没有删除：永久删除只对「已删除」里的账号有效，先点「删除」"
+"E-ACCOUNT-JOBSLIVE.other" = "{username} 还有 {count:d} 个任务没有结束：等它们停下之后再永久删除"
+
+# ---- 二级管理员的权限由管理员分配（lab2shot/roles.py、server/users.py 的 /api/admin/rights）
+"E-RIGHTS-FIXEDROLE" = "{role}的权限改不了：管理员永远什么都能做，普通用户只用编辑器；能分配的只有 {roles}"
+"E-RIGHTS-OWNERONLY" = "这几项只有管理员本人有，不能分配给二级管理员：{names}"
+"E-RIGHTS-UNKNOWN" = "没有这些权限：{names}；刷新页面再试（网页和服务器的版本可能对不上）"
+
+# ---- 账号现在能不能用（accounts.User.usable_now：登录、每个请求、重启后排回队列时查）
+"E-ACCOUNT-GONE" = "没有这个账号：可能已经删除，请联系管理员"
+"E-ACCOUNT-DISABLED" = "这个账号已停用，请联系管理员"
+"E-ACCOUNT-EXPIRED" = "这个账号已过期，请联系管理员延长"
+
+# ---- 登录（server/auth.py）
+"E-LOGIN-REQUIRED" = "要先登录"
+"E-LOGIN-WRONG" = "用户名或密码不对"
+"E-LOGIN-WRONGSECRET" = "{what}不对"
+"E-LOGIN-WAITSECONDS" = "输错的次数太多，{seconds:d} 秒后再试"
+"E-LOGIN-WAITMINUTES" = "输错的次数太多，{minutes:d} 分钟后再试"
+"E-LOGIN-KICKED" = "这个账号在别处登录了：{when}，{ip}，{device}。要接着用就重新登录（那边的登录会退出）"
+"E-LOGIN-NOPASSPHRASE" = "还没有设置口令：在服务器上执行 uv run lab2shot admin passphrase 设置"
+"W-LOGIN-FAILED" = "{what}不对（{minutes:d} 分钟内{whose}第 {count:d} 次）"
+"W-LOGIN-BLOCKED.other" = "{minutes:d} 分钟内 {count:d} 次可疑请求"
+
+# ---- 工作量证明（server/auth.py Challenges：注册页的浏览器先算一两秒）
+"E-CHALLENGE-STALE" = "页面的安全验证过期了或已经用过：页面正在重新验证，一两秒后再提交"
+"E-CHALLENGE-BUSY" = "这会儿来注册的请求太多，服务器暂时不发新的安全验证：过几分钟再试"
+
+# ---- 自己注册（lab2shot/site/registration.py、server/register.py）。邀请码不对、停用、过期、用完是同一句：不让人试出哪个码存在
+"E-REGISTER-CLOSED" = "现在不开放注册：要账号请找管理员"
+"E-REGISTER-PAUSED" = "这段时间注册的人太多，注册自动暂停了：过一会儿再来，或者找管理员要账号"
+"E-REGISTER-ADDRESS" = "从你这个网络注册的账号太多了：过一段时间再来，或者找管理员要账号"
+"E-REGISTER-AGAIN" = "两次输入的密码不一样"
+"E-REGISTER-NOINVITE" = "要填邀请码：向邀请你来的人要"
+"E-REGISTER-INVITE" = "这个邀请码用不了：看看有没有输错，或者向给你邀请码的人再要一个"
+"E-REGISTER-TOOFAST" = "提交得太快了：再核对一遍填的内容，几秒后再提交"
+"E-REGISTER-FAILED" = "注册没有成功：刷新页面再试一次"
+"E-REGISTER-FILTER" = "要选一个邀请码，或者一段注册时间"
+"E-REGISTER-NONETODISABLE" = "这些条件下没有还开着、你又管得着的自己注册的账号"
+"I-REGISTER-DONE" = "{user} 自行注册并登录：{where}，邀请码 {invite}"
+"W-REGISTER-PAUSED.other" = "注册自动暂停：最近{window}已有 {count:d} 个账号自己注册，到了上限 {most:d}（后台「注册设置」里改）；过了这段时间自己恢复"
+"E-REGISTER-TERMS" = "要先阅读并勾选同意《用户协议》和《隐私政策》才能注册"
+
+# ---- 用户协议与隐私政策（lab2shot/terms、server/terms.py、server/access.py）
+"E-TERMS-OWED" = "《用户协议》和《隐私政策》有了新版本（或者你还没有同意过）：在网页上登录，阅读并同意以后才能接着用"
+"E-TERMS-CHANGED" = "《用户协议》和《隐私政策》刚刚又改过：刷新页面，读一遍新的再同意"
+"E-TERMS-EMPTY" = "《{title}》不能是空的"
+"E-TERMS-TOOLONG.other" = "《{title}》最多 {most:d} 个字：删短一些"
+"I-TERMS-AGREED" = "{user} 同意了用户协议和隐私政策（第 {version:d} 版）：{where}"
+
+# ---- 邀请码（lab2shot/site/registration.py、server/invites.py）
+"E-INVITE-CODE" = "自己填的邀请码要 {min:d} 到 {max:d} 个英文字母或数字（空格和 - 不算）；不填就随机生成一个"
+"E-INVITE-TAKEN" = "这个邀请码已经有了：换一个，或者留空随机生成"
+"E-INVITE-NONE" = "没有这个邀请码：可能已经删除，刷新页面"
+"E-INVITE-USES" = "可用次数要填 1 到 {most:d} 的整数，留空表示不限"
+"E-INVITE-USESBELOW.other" = "这个码已经用了 {used:d} 次：可用次数不能比这还少；不想再让人用就停用它"
+"E-INVITE-EXPIRYPAST" = "到期时间要在以后；想马上不让用就停用它"
+
+# ---- 用户管理（server/users.py）
+"E-USERS-DELETED" = "这个账号已经删除了：不能再设密码"
+"I-AUDIT-LOGINUNLOCKED" = "{who}在服务器上用本机命令行清掉了输错密码的计数（{count:d} 次）"
+
+
+# ---- 用户反馈（lab2shot/site/feedback.py、server/feedback.py）
+"E-FEEDBACK-NOTEXT" = "反馈还没有写内容：写清遇到了什么问题、在哪一步出现，再提交"
+"E-FEEDBACK-TEXTLONG.other" = "问题写得太长了：{count:d} 个字，最多 {max:d} 个字"
+"E-FEEDBACK-CATEGORY" = "没有「{category}」这个类别"
+"E-FEEDBACK-IMAGES.other" = "最多附 {max:d} 张截图"
+"E-FEEDBACK-IMAGEUNREADABLE" = "第 {index:d} 张截图读不出来：重新截一张再附上"
+"E-FEEDBACK-IMAGEBIG" = "第 {index:d} 张截图太大：{size:.1f} MB，最多 {max:d} MB"
+"E-FEEDBACK-NOTIMAGE" = "第 {index:d} 个附件不是图像（只收 PNG、JPG、WebP、GIF）：换一张截图再附上"
+"E-FEEDBACK-BUNDLEBIG" = "诊断资料太大（超过 {max:d} MB）：刷新页面后再提交"
+"E-FEEDBACK-TOOOFTEN" = "24 小时内最多提交 {max:d} 条反馈：已经到了，明天再提交；急的话直接找管理员"
+"E-FEEDBACK-TOOMANYOPEN" = "你还有 {max:d} 条反馈管理员没处理完：等处理掉一些再提交；急的话直接找管理员"
+"E-FEEDBACK-NOTFOUND" = "没有这条反馈：可能已经删除，刷新页面"
+"E-FEEDBACK-GONE" = "没有这条反馈：可能已经删除，刷新页面"
+"E-FEEDBACK-STATUS" = "没有「{status}」这个状态"
+"E-FEEDBACK-ANSWERLONG.other" = "{what}太长了：{count:d} 个字，最多 {max:d} 个字"
+"E-FEEDBACK-NOSHOT" = "没有这张截图：可能已经删除，刷新页面"
+"E-FEEDBACK-NOEXTENSION" = "没有这个扩展包：可能已经卸载，刷新页面"
+
+# ---- 有效反馈奖励（site/feedback.py rate、mine；后台评定后的说明和用户在「我的反馈」里看到的）
+"E-FEEDBACK-RATING" = "没有「{rating}」这个评定：只能是未评定、有效或无效"
+"I-FEEDBACK-RATED" = "评定改为「{rating}」"
+"I-FEEDBACK-RATEDSAME" = "评定本来就是「{rating}」：没有改动"
+"I-FEEDBACK-GRANTED.other" = "{person} 凑满 {count:d} 条有效反馈，账号延长 {days} 天，到 {until}"
+"I-FEEDBACK-GRANTEDNEVER.other" = "{person} 凑满 {count:d} 条有效反馈：账号永不过期，不用延长，账本里记了 {days} 天"
+"I-FEEDBACK-GRANTEDNONE" = "凑满 {count:d} 条有效反馈：现在设置为不奖励使用时间，账本里只记一笔"
+"I-FEEDBACK-GRANTEDGONE.other" = "凑满 {count:d} 条有效反馈：账号已经删除，没有延长，账本里记了 {days} 天"
+"I-FEEDBACK-REVOKED.other" = "收回这条反馈参与的那次奖励：{person} 的账号少了 {days} 天，到 {until}"
+"I-FEEDBACK-REVOKEDNOTE.other" = "这条反馈参与的那次奖励（{granted} 天）当时没有加到账号上：账本里记一笔收回"
+"I-FEEDBACK-COUNTED.other" = "{person} 现在有 {have:d} 条有效反馈还没奖励：每满 {per:d} 条延长 {days:d} 天"
+"I-FEEDBACK-NOREWARD" = "现在设置为不奖励使用时间"
+"I-FEEDBACK-UNCOUNTED" = "这条还没凑满奖励：不再计入"
+"I-FEEDBACK-MINEGRANTED.other" = "这条反馈被评为有效，账号延长 {days} 天（到 {until}）"
+"I-FEEDBACK-MINEGRANTEDWITH.other" = "这条和另外 {others:d} 条反馈被评为有效，账号延长 {days} 天（到 {until}）"
+"I-FEEDBACK-MINENEVER" = "这条反馈被评为有效（账号不会过期，不用延长）"
+"I-FEEDBACK-MINEVALID" = "这条反馈被评为有效"
+"I-FEEDBACK-MINEPENDING.other" = "这条反馈被评为有效：再有 {left:d} 条有效反馈，账号延长 {days:d} 天"
+"I-FEEDBACK-RULE.other" = "反馈被管理员评为「有效」后，每 {per:d} 条给账号延长 {days:d} 天使用时间"
+
+# ---- 服务器日志（每行日志带编号）
+
+"I-FEEDBACK-RECEIVED" = "用户反馈 {id}：{who} ·「{first}」"
+"I-FEEDBACK-DELETED" = "管理员 {by} 删除了用户反馈 {id}（{person}）"
+"I-LOGIN-IN" = "{user} 登录：{where}"
+"I-LOGIN-TOKEN" = "{user} 在 {app} 登录（令牌）：{where}"
+"I-LOGIN-CLIENT" = "{user} 在客户端登录（令牌）：{where}"
+"I-LOGIN-PASSWORDCHANGED" = "{user} 改了自己的密码：{where}；别处的登录都退出了"
+"I-LOGIN-RECOVERED" = "管理员密码用口令重设了：{where}；别处的登录都退出了"
+"W-LOGIN-SUSPICIOUSAGAIN" = "又 {count:d} 次，同上：{line}"
+"W-LOGIN-SUSPICIOUS" = "可疑：{account} {whom} {kind} {method} {path}（{detail}）"
+"I-LOGIN-OUT" = "{user} 退出登录：{where}"
+"W-LOGIN-SLOWED.other" = "账号 {subject} 的{what}在 {minutes:d} 分钟内被从没登录过的设备输错 {count:d} 次：之后这类尝试一次比一次等得久，最长 {wait:d} 秒；登录过这个账号的浏览器和客户端不受影响。在服务器上执行 lab2shot admin unlock 可以清掉计数"
+"W-LOGIN-PROBEBLOCKED.other" = "可疑：{account} {whom} 被暂时封住 {minutes:d} 分钟（{window:d} 分钟内 {count:d} 次可疑请求）"
+"I-LOGIN-CLIRESET" = "管理员密码已在服务器上用命令行重设；管理员的登录都作废，输错的次数清零"
+"I-LOGIN-CLIPASSPHRASECHANGED" = "「我的口令」已在服务器上用命令行换成新的"
+"I-LOGIN-CLIPASSPHRASESET" = "「我的口令」已在服务器上用命令行设好"
+"I-LOGIN-CLIREVOKED" = "所有登录已在服务器上用命令行作废（{count:d} 个）"
+
+# ---- DCC 插件的内嵌窗口：一次性票据换登录（server/auth.py Tickets、embed；accounts.start_embedded）
+"E-EMBED-CLIENTONLY" = "内嵌窗口的票据只能用 DCC 插件的令牌来要（请求头 Authorization: Bearer）：浏览器的登录、内嵌窗口自己的登录都要不了"
+"E-EMBED-BADTARGET" = "内嵌窗口只能打开本站的编辑器（地址 / 加上 #… 的部分），别的地址不跳"
+"E-EMBED-TOOMANY" = "要内嵌窗口票据太频繁：没用掉的票据 {seconds:d} 秒内作废，等一会儿再打开"
+"E-EMBED-TICKET" = "这张票据已经用过或过期了（票据只能用一次，{seconds:d} 秒内有效），或者插件的登录已经退出：回到 DCC 再点一次「在网页里打开」"
+"E-EMBED-CROSSSITE" = "这个地址是从别的网站跳过来的：内嵌窗口的票据只认 DCC 插件直接打开的窗口。票据已作废；要打开，回到 DCC 再点一次「在网页里打开」"
+"E-EMBED-ENDED" = "DCC 插件的登录已经退出或被别处的插件登录顶掉，这个内嵌窗口跟着失效了：回到 DCC 重新打开"
+"E-EMBED-OTHERACCOUNT" = "这个浏览器登录的是另一个账号：{here}；DCC 插件登录的是 {plugin}。不会自动替换。要打开插件的任务，就换成插件的账号；也可以保留现在的登录（票据 {seconds:d} 秒内有效）"
+"N-EMBED-TITLE" = "打不开内嵌窗口"
+"N-EMBED-OTHERTITLE" = "这个浏览器登录的是另一个账号"
+"N-EMBED-SWITCH" = "换成 {plugin}"
+"N-EMBED-SWITCHWHAT" = "这个浏览器上 {here} 的登录会退出"
+"N-EMBED-KEEP" = "保留 {here}"
+"N-EMBED-KEEPWHAT" = "不打开插件的任务，回到编辑器"
+"I-LOGIN-EMBEDTICKET" = "{user} 的 DCC 插件要了一张内嵌窗口票据（{ticket}…）：{where}"
+"I-LOGIN-EMBED" = "{user} 的内嵌窗口用票据（{ticket}…）登录：{where}"
+"I-LOGIN-EMBEDKEPT" = "{user} 的票据（{ticket}…）在已经登录这个账号的浏览器里打开：沿用原来的登录：{where}"
+"W-LOGIN-EMBEDREFUSED" = "内嵌窗口票据（{ticket}…）没换成登录：{why}：{where}"
+
+# ---- 登录记录里失败的原因（login_log.reason 记的是编号，显示时取这里的话；server/auth.py）
+"N-LOGIN-REASONNOPASSWORD" = "管理员还没设密码"
+"N-LOGIN-REASONLOCKED" = "试错太多，暂时锁住"
+"N-LOGIN-REASONWRONGPASSWORD" = "密码不对"
+"N-LOGIN-REASONNOUSER" = "用户名不存在"

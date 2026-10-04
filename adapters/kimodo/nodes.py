@@ -6,7 +6,7 @@ from typing import Literal
 
 from .extension import MODELS as WEIGHTS, OPTION_LICENCES
 from lab2shot.sdk import (Official, licence_traits, measured_param, RigMotion, FreeMotionParams, MissingFrames, RawOutput,
-                          PartMap, P, Param, Wired, Because, body_joints, humanoid_joints, mapping_param, Cost, OptionTrait,
+                          Invalid, Msg, PartMap, P, Param, Wired, Because, body_joints, humanoid_joints, mapping_param, Cost, OptionTrait,
                           Measured, ModelJoint)
 
 # SOMA 的 30 关节骨架（kimodo.skeleton.SOMASkeleton30），去掉末端点（下巴、眼睛、指尖跟随父关节），即骨骼绑定驱动的关节。
@@ -28,16 +28,16 @@ G1: tuple[ModelJoint, ...] = ()
 # 每个权重对应一副骨架：「对应关系」里模型那一侧随所选模型切换（mapping_param(follows=("model",)) + joints_of）
 SKELETONS = {"soma": SOMA, "smplx": SMPLX22, "g1": G1}
 # 「模型」选项 -> (权重文件夹名, 骨架)：由 extension.py 的 MODELS（唯一的一张表）派生
-MODELS = {k: (repo.split("/")[-1], skeleton) for k, (repo, _rev, _note, skeleton, _label) in WEIGHTS.items()}
-# 许可受限的选项（SMPL-X：仅限研究）由编辑器按 option_traits 统一注明（webui ui/controls.tsx optionText），名字里不另写
-MODEL_LABELS = {k: label for k, (*_, label) in WEIGHTS.items()}
+MODELS = {k: (repo.split("/")[-1], skeleton) for k, (repo, _rev, skeleton) in WEIGHTS.items()}
+# 许可受限的选项（SMPL-X：仅限研究）由编辑器按 option_traits 统一注明（webui ui/controls.tsx optionText），名字里不另写；
+# 选项名在 node."kimodo.motion".param.model.option.<值>
 ON_RIG_MODELS = tuple(k for k, (_, s) in MODELS.items() if SKELETONS[s])  # 可由人物骨骼驱动的模型
 TEXT_RAM_GB = 20  # 文字编码时以 bfloat16 读入内存的 Llama 3 8B（16 GB）及 worker 其余部分
 
 
 class KimodoMotion(RigMotion):
     id = "kimodo.motion"
-    version = 2  # 2：帧号按节点的「帧率」换算成时间（默认 24 与 1 版的固定时基相同）
+    version = 5  # 5：只为让半途代码算出的 4 的缓存重算；4：两副站着的基准姿势时躯干整体按根的对齐（motion.Retarget.align）；3：G1 权重按官方不做后处理；2：帧号按节点的「帧率」换算成时间（默认 24 与 1 版的固定时基相同）
     does = "generate"  # 生成动作（骨骼动作家族的两类任务之一，lab2shot/nodes/families/rig_motion.py）
     # 引用官方 post_process_motion 的签名及其声明的返回值：输入约束（关键帧姿势，即接入的动画），
     # 输出 local_rot_mats / root_positions / posed_joints / global_rot_mats。
@@ -45,9 +45,6 @@ class KimodoMotion(RigMotion):
         cite="third_party/kimodo/repo/kimodo/postprocess.py:185-212",
         takes={"character": "constraint_lst"},
         gives={"character": "local_rot_mats"},
-        note="接进来的动画在上游就是 constraint_lst（EndEffectorConstraintSet / FullBodyConstraintSet，"
-             "kimodo/constraints.py）；「提示词」是参数不是口。官方吐的是骨架的局部旋转矩阵加根位置，"
-             "和节点交出的骨架动画是同一样东西。",
     )
     # 该模型可在不接入动画时运行：官方 `kimodo_model.py` 中 `constraint_lst` 的说明为「Pass an empty list for unconstrained generation」。
     # 家族据此将「动画」口设为可选
@@ -65,7 +62,7 @@ class KimodoMotion(RigMotion):
     # 显存在 RTX 4090 上测得
     # 有提示词时才把文字编码器读入内存；SMPL-X 权重只限研究（extension.py OPTION_LICENCES）
     traits = (OptionTrait(Param("prompt").set(), ram_gb=TEXT_RAM_GB), *licence_traits(OPTION_LICENCES))
-    cost = Cost(gpu=True, vram_gb=1.2, whole="一段 10 秒的镜头几秒钟就出，不是逐帧的活")
+    cost = Cost(gpu=True, vram_gb=1.2, whole=True)
 
     @classmethod
     def joints_of(cls, params: dict) -> tuple[ModelJoint, ...]:
@@ -74,27 +71,41 @@ class KimodoMotion(RigMotion):
 
     class Params(FreeMotionParams):
         mapping: list[PartMap] | None = mapping_param(follows=("model",))
-        model: Literal[tuple(MODELS)] = P("rp", label="模型", group="模型", option_labels=MODEL_LABELS)  # type: ignore[valid-type]
-        prompt: str = P("", label="提示词", group="模型", placeholder="不写：只按关键帧补", lines=4)
+        model: Literal[tuple(MODELS)] = P("rp", group="model")  # type: ignore[valid-type]
+        prompt: str = P("", group="model", lines=4)
         steps: Literal[25, 50, 100] = measured_param(
-            "去噪步数", {25: Measured(flat=True), 50: Measured(flat=True), 100: Measured(flat=True)}, default=100,
-            group="模型")
+            {25: Measured(flat=True), 50: Measured(flat=True), 100: Measured(flat=True)}, default=100,
+            group="model")
         # 「贴合关键帧」作用于关键帧：未接入动画时没有关键帧，该参数不生效（输入口是否可连接由 rig_when 控制，
         # 此处针对参数）。以「接入动画时生效」表述，比列举模型名更简洁，且反映真实原因
-        guidance: float = P(2.0, label="贴合关键帧", group="模型", ge=0.0, le=5.0, applies=Wired("character"))
-        seed: int = P(0, label="随机种子", group="模型", ge=0)
-        post_process: bool = P(True, label="模型后处理", group="模型")
+        guidance: float = P(2.0, group="model", ge=0.0, le=5.0, applies=Wired("character"))
+        seed: int = P(0, group="model", ge=0)
+        # 官方对 G1 机器人权重一律关掉后处理（generate.py:325-326、demo/ui.py:2846）：选 G1 时置灰，worker 也不做
+        post_process: bool = P(True, group="model",
+                               applies=Because(Param("model").one_of(*ON_RIG_MODELS), "N-KIMODO-G1NOPOSTPROCESS"))
+
+    @classmethod
+    def plan_refusals(cls, params, comes):
+        """没接动画、提示词也空（也没有线接进提示词）：算之前就知道，「计算」置灰并写原因（B-KIMODO-WAITPROMPT）。
+        提示词由别的节点接进来时要等它算出才知道是不是空，那时由 prepare 拒绝（E-KIMODO-NOPROMPT）。"""
+        if str(params.get("prompt") or "").strip() or comes(cls.param_port("prompt").name) or comes("character"):
+            return []
+        return [(Msg("B-KIMODO-WAITPROMPT"), "character")]
 
     @classmethod
     def prepare(cls, ctx):
         """主任务负责生成；有提示词时另读取提示词的嵌入，该嵌入由一个仅以提示词为键的独立任务计算
         （同一提示词只编码一次，与所用镜头无关）。"""
+        prompt = ctx.params["prompt"].strip()
+        # 没接动画、也没写提示词：模型只会给一段原地站着的「待机」，不算，说清楚要什么。提示词常经「翻译」
+        # 等节点接进来，算之前不知道是不是空，所以在这里（发 worker 之前，不占显卡）拒绝
+        if not prompt and ctx.input("character") is None:
+            raise Invalid(Msg("E-KIMODO-NOPROMPT"))
         # checkpoint：所选权重的文件夹名（worker 不另存一张权重表）
         job = super().prepare(ctx).with_(extra={"task": "generate", "checkpoint": MODELS[ctx.params["model"]][0]})
-        prompt = ctx.params["prompt"].strip()
         if not prompt:
             return job
-        ctx.stage("编码文字描述")
+        ctx.stage("encode_prompt")
         # "text"：该任务需要文字编码器的权重（Weight.option）
         text = ctx.run_worker(None, params={"task": "text", "text": True, "prompt": prompt})
         return job.with_(inputs={"text": RawOutput(text, MissingFrames.FAIL).path("text.npy")})

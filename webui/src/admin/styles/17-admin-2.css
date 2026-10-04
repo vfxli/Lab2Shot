@@ -45,15 +45,15 @@
 
 /* 设置 (admin/Settings.tsx, and the cards that sit among its cards: 管理员通知, 管理员密码, the invite codes).
    One column of cards, all as wide as the page's column, which stops at a width a line stays readable at. Every row
-   of every card is the same three-column grid, so the columns line up from card to card and from page to page:
-   the label, right-aligned, one width; the control, starting on one line, a number one width, a text (and a list's
-   rows) the whole control column, so one width too; the marks of the setting (需重启 / 已改 / ↺), a column of fixed
-   width that is there even when a row has none. */
+   of every card is the site's 「标签 + 控件」 row (ui/LabelRow.tsx): the label, right-aligned, its column as wide as the
+   card's longest label (no width written for a language); the control; the marks of the setting (需重启 / 已改 / ↺). */
 .settings {
   --set-w: 840px; /* the page's column: cards, the config file line, the save bar */
-  --form-label-w: 124px; /* the longest label（「单任务 CPU 节点上限」）on one line */
-  --set-num-w: 150px;
-  --set-tags-w: 204px; /* when (需重启 / 待重启) · what (启动参数 or 环境变量, and 已改 or 按本机算: both at once) · ↺ */
+}
+
+/* English words are longer than Chinese ones: a wider page (the label column follows its labels by itself) */
+html[lang="en"] .settings {
+  --set-w: 960px;
 }
 
 .set-groups {
@@ -63,9 +63,11 @@
   max-width: var(--set-w);
 }
 
+/* a card is a LabelGrid (ui/LabelRow.tsx): its rows share the label column, as wide as its longest label (the page is
+   wide: a longer limit than the parameter panel's) */
 .set-card {
-  display: flex;
-  flex-direction: column;
+  --lrow-label-max: 22em;
+  display: grid;
   padding: 14px 18px 8px;
   border: 0.5px solid var(--hair);
   border-radius: var(--r-panel);
@@ -83,11 +85,9 @@
   margin: 0 0 8px;
 }
 
+/* a row is the site's 「标签 + 控件」 row (ui/LabelRow.tsx): label · control · the setting's marks (its tail) */
 .set-row {
-  display: grid;
-  grid-template-columns: var(--form-label-w) minmax(0, 1fr) var(--set-tags-w);
-  align-items: center;
-  column-gap: var(--sp-3);
+  --lrow-gap: var(--sp-3);
   min-height: 42px;
   padding: 5px 0;
   border-top: 0.5px solid var(--hair);
@@ -95,10 +95,7 @@
 
 .set-label {
   font-size: var(--fs-md);
-  text-align: right;
   color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
   /* no question-mark cursor (cursor: help): hover help belongs to the data-tip mechanism, not to the cursor */
 }
 
@@ -118,23 +115,25 @@
   font: var(--fs-sm) var(--mono);
 }
 
+/* a number and its unit side by side, each in its own box (the unit never laid over the digits, whatever its length
+   in either language): the field as wide as a long number, the unit as wide as its words */
 .set-num {
-  position: relative;
   display: inline-flex;
   align-items: center;
-  width: var(--set-num-w);
+  gap: 6px;
+  min-width: 0;
 }
 
 .set-num .field {
-  padding-right: 44px;
+  width: 12ch;
+  flex: none;
 }
 
 .set-unit {
-  position: absolute;
-  right: 9px;
+  flex: none;
+  white-space: nowrap;
   font-size: var(--fs-sm);
   color: var(--text-3);
-  pointer-events: none;
 }
 
 .set-static {
@@ -142,12 +141,14 @@
   font-size: var(--fs-md);
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 /* the marks, each kind in a place of its own, so the same kind of mark sits on one vertical line down the page */
 .set-tags {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) 24px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas: "when what reset";
   align-items: center;
   column-gap: 4px;
@@ -193,7 +194,6 @@
 
 /* a line under a row (why it is refused, which switch it needs), under the control; outside a row, the same place */
 .set-why {
-  grid-column: 2 / -1;
   padding-bottom: 3px;
   font-size: var(--fs-sm);
   color: var(--text-3);
@@ -201,7 +201,7 @@
 
 .set-card > .set-why {
   margin: 0;
-  padding: 4px 0 6px calc(var(--form-label-w) + var(--sp-3));
+  padding: 4px 0 6px;
 }
 
 .set-why.bad {

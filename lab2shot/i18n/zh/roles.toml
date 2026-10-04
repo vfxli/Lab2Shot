@@ -1,0 +1,182 @@
+# 角色与权限（lab2shot/roles.py）：权限分组（后台「二级管理员权限」里的一栏）、每项权限的短名和它让人能做什么、三种角色的名字和说明。
+
+[right.band]
+accounts = "账号"
+queue = "队列与显卡"
+feedback = "用户反馈"
+templates = "模板"
+stats = "统计"
+data = "数据与节点"
+server = "服务器"
+audit = "留底与帮助"
+
+[right."users.manage_normal"]
+label = "普通用户"
+what = "管理普通用户：新建、停用和启用、重设密码、改到期时间、环节和磁盘配额"
+
+[right."users.tags"]
+label = "许可标签"
+what = "给账号设能用的标签（许可）：只有管理员"
+
+[right."users.delete"]
+label = "删除账号"
+what = "删除账号：他的结果、上传和登录一起删掉"
+
+[right."admins.manage"]
+label = "管理员"
+what = "新建、修改、删除管理员和二级管理员，改任何账号的角色，分配二级管理员的权限"
+
+[right."logins.view"]
+label = "最近登录"
+what = "看自己能管的账号的最近登录"
+
+[right."invites.manage"]
+label = "邀请码"
+what = "邀请码与自行注册：新建、改、停用、删除邀请码，看谁用它注册了，按邀请码或注册时间段批量停用自己注册的账号（只停自己管得着的）"
+
+[right."terms.edit"]
+label = "用户协议"
+what = "用户协议与隐私政策：看原文、改文字、恢复程序自带的文字（改了以后所有账号下次使用前要重新同意）"
+
+[right."queue.manage"]
+label = "队列"
+what = "看所有人的队列和任务记录，取消任何人的任务，插队，开关显卡任务和计算任务；删除别人的任务、给别人的组改名要「别人的数据」"
+
+[right."gpu.authorize"]
+label = "显卡授权"
+what = "授权哪些显卡接任务"
+
+[right."farm.cards"]
+label = "显卡详情"
+what = "显卡：每张卡的型号、显存、架构、在跑什么，扩展包在它上面能跑 / 不能跑 / 未知，参数档位和每个节点实测的显存；没有这项权限的人，回答里就没有这些"
+
+[right."models.manage"]
+label = "常驻模型"
+what = "常驻模型：看、卸载到内存、完全卸载"
+
+[right."feedback.reply"]
+label = "回复反馈"
+what = "看用户反馈、标记状态、回复"
+
+[right."feedback.delete"]
+label = "删除反馈"
+what = "删除用户反馈（连同截图和诊断资料）"
+
+[right."templates.create"]
+label = "管理模板"
+what = "在「模板」弹窗里管理预设模板：文件菜单「保存为预设模板」，复制、删除、开关卡片，改名字和简介，新建和整理模板的分类，把卡片拖到别的分类；关掉的模板也看得到"
+
+[right."menu.edit"]
+label = "管理节点分类"
+what = "在加节点的菜单里整理节点：新建、改名、删除、排序分类，把节点拖到别的分类，改节点的名字和说明"
+
+[right."templates.restore"]
+label = "找回模板"
+what = "帮用户找回他误删的模板（只能恢复，删不了）"
+
+[right."stats.view"]
+label = "看统计"
+what = "看使用统计（只读）"
+
+[right."usage.reset"]
+label = "统计清零"
+what = "使用统计清零和撤消"
+
+[right."data.others"]
+label = "别人的数据"
+what = "看、取回、改、删别人的结果和数据：输出结果、提交的节点图、上传、队列里别人的任务和组名、别人模板的回收站和永久删除、硬盘清理"
+
+[right."nodes.all"]
+label = "不看标签"
+what = "什么节点都能用，不看标签"
+
+[right."server.view"]
+label = "概览"
+what = "概览：内存、硬盘、服务本身的地址和启动命令"
+
+[right."settings.edit"]
+label = "服务器设置"
+what = "服务器设置：注册、账号配额、队列、显卡、内存、存储、日志、视图……（系统设置除外）"
+
+[right."settings.system"]
+label = "系统设置"
+what = "系统设置：网络（端口、访问范围、HTTPS、域名、可信代理）、安装和编译用的镜像与编译器、数据位置、OCIO 配置：改了能让服务器下次安装或编译时跑别的代码、换数据的位置、信任别的来源"
+
+[right."settings.notice"]
+label = "通知条"
+what = "管理员通知：编辑器和后台顶部的通知条（文字、颜色、开关）"
+
+[right."server.restart"]
+label = "重启服务"
+what = "重启服务"
+
+[right."installs.run"]
+label = "安装扩展"
+what = "安装扩展包、看手动下载的收件文件夹"
+
+[right."licence.consent"]
+label = "同意许可"
+what = "替用户同意第三方许可协议"
+
+[right."db.backup_restore"]
+label = "数据库"
+what = "数据库：看状态、备份、检查"
+
+[right."security.manage"]
+label = "安全"
+what = "安全：可疑请求、解开封住的来源"
+
+[right."logs.view"]
+label = "日志"
+what = "服务日志；回答里看得到服务器上的文件位置"
+
+[right."audit.view"]
+label = "管理留底"
+what = "管理操作留底：谁建了谁、改了谁的哪几项、重设密码、删用户、改设置、被拒绝的尝试"
+
+[right."openapi.view"]
+label = "接口描述"
+what = "机器可读的 HTTP 接口描述（OpenAPI），给写插件和脚本的人"
+
+[right.role.admin]
+label = "管理员"
+tip = "什么都能做：服务器、安装、数据库、所有账号和标签"
+
+[right.role.deputy]
+label = "二级管理员"
+tip = "管理员在「用户」里分配给他的那些：默认是普通用户、队列、反馈、模板和看统计，不碰服务器、安装、数据库、标签和别的管理员"
+
+[right.role.user]
+label = "普通用户"
+tip = "用编辑器，只看得到自己的任务、结果、上传和反馈"
+
+# 环节（设置 people.departments 的出厂表，lab2shot/departments.json 里是 id；管理员自己加的照原文显示：accounts.department_label）
+[department]
+pre_production = "前期策划"
+concept = "概念设计"
+storyboard = "故事板"
+previs = "预演"
+layout = "镜头布局"
+modeling = "模型"
+texturing = "贴图"
+shading = "材质"
+rigging = "绑定"
+animation = "动画"
+mocap = "动作捕捉"
+fx = "特效"
+cfx = "解算（布料/毛发/肌肉）"
+environment = "场景环境"
+matte_painting = "数字绘景"
+matchmove = "摄影机跟踪"
+roto = "抠像"
+paint = "擦除修补"
+compositing = "合成"
+lighting = "灯光"
+rendering = "渲染"
+grading = "调色"
+editorial = "剪辑"
+pipeline = "技术（TD/流程）"
+rnd = "研发"
+production = "制片管理"
+data = "数据管理"
+other = "其他"

@@ -12,7 +12,12 @@ come first:
     memory guard asks before a job starts, and every worker job before it runs (cooks outside the queue too);
   - a job that runs out of GPU memory in a process that ran jobs before, or next to other processes on its GPU, runs
     once more in a new process alone on the GPU: a model kept loaded never makes a job fail;
-  - a process idle for longer than resident.idle_minutes ends;
+  - a card running short of free memory (resident.release_below_gb), another program's or another server's use
+    included, gets it back from the idle processes there, least recently used first: models to RAM, and processes
+    end when that is not enough (their CUDA contexts); a queued job short only of those contexts ends as few as
+    it needs (release_plan decides all three, a pure function);
+  - a process idle for longer than resident.idle_minutes ends; one whose models are in RAM after
+    resident.ram_idle_minutes (its CUDA context and RAM copy are held for nothing meanwhile);
   - the admin page (/admin) lists them and moves one's models to RAM or ends it.
 A process is replaced when its code, environment or weights change (the worker identity); a job that fails or is
 stopped ends its process.
@@ -40,9 +45,9 @@ from lab2shot_worker import PREFIX, REPO_ENV, WEIGHTS_ENV
 from lab2shot_worker.serving import available_gb
 
 from .. import logs
-from ..config import settings
+from ..config import machine_memory_gb, settings
 from ..errors import Invalid, NotFound
-from ..messages import Msg
+from ..messages import Both, Msg
 from ..process import worker_cpus
 
 if TYPE_CHECKING:
@@ -55,6 +60,68 @@ EXIT_S = 5  # a process asked to end gets this long before it is killed
 READER_S = 5.0  # once a process has ended, its output reader gets this long to read the last of it
 REPLY_S = 600  # the longest moving a process's models to RAM may take
 REAP_S = 10.0
+# a process's CUDA context and other memory beyond its reserved tensors, while it has not measured its own
+# (lab2shot_worker/serving.py context_mb): the upper end of what was measured (about 0.4-0.5 GB on an RTX 4090,
+# 0.5-0.7 GB on an RTX 5090)
+CONTEXT_MB_GUESS = 800
+TO_RAM, END = "to_ram", "end"
+
+
+@dataclass(frozen=True)
+class Held:
+    """What release_plan reads of one idle process on a card. vram_mb: what its models leaving the GPU frees that the
+    caller does not count as free already; context_mb: what only its ending frees beyond that."""
+
+    key: object
+    last_used: float
+    on_gpu: bool
+    vram_mb: int
+    context_mb: int
+
+
+def release_plan(held: list[Held], *, need_mb: int | None = None, keep_most: int | None = None, to_ram: bool = True,
+                 ram_free_gb: float = float("inf"), keep_free_gb: float = 0.0) -> list[tuple[object, str]]:
+    """Which idle processes of one card give up its memory, and how: [(key, TO_RAM | END)] in the order to act, least
+    recently used first; a process not named stays as it is.
+
+    keep_most: at most this many stay, the least recently used beyond them end (resident.per_gpu).
+    need_mb None (a job takes the card): every other one still on the GPU leaves it. need_mb (free this much on the
+    card): they leave it least recently used first until that much is free, and when all of them leaving it is not
+    enough, they end (least recently used first) until it is. Leaving the GPU is moving to RAM when `to_ram` and the
+    machine keeps `keep_free_gb` free after it (`ram_free_gb` now, less each move), else ending; moving frees vram_mb,
+    ending vram_mb and context_mb."""
+    order = sorted(held, key=lambda h: h.last_used)
+    plan: dict[object, str] = {}
+    excess = order[: max(0, len(order) - keep_most)] if keep_most is not None else []
+    freed, ram = 0, ram_free_gb
+    for h in excess:
+        plan[h.key] = END
+        freed += h.vram_mb + h.context_mb
+    rest = order[len(excess):]
+
+    def leave(h: Held) -> None:
+        nonlocal freed, ram
+        if to_ram and ram - h.vram_mb / 1024 >= keep_free_gb:
+            ram -= h.vram_mb / 1024
+            plan[h.key] = TO_RAM
+            freed += h.vram_mb
+        else:
+            plan[h.key] = END
+            freed += h.vram_mb + h.context_mb
+
+    for h in rest:
+        if need_mb is not None and freed >= need_mb:
+            break
+        if h.on_gpu:
+            leave(h)
+    if need_mb is not None:
+        for h in rest:
+            if freed >= need_mb:
+                break
+            if plan.get(h.key) != END:
+                freed += h.context_mb + (0 if plan.get(h.key) == TO_RAM else h.vram_mb)
+                plan[h.key] = END
+    return list(plan.items())
 
 
 def keep_free_gb(ram_gb: float = 0.0) -> float:
@@ -133,6 +200,8 @@ class Process:
     state: str = "busy"  # busy (a job) / moving (its models to RAM) / idle / ending
     models: list[dict] = field(default_factory=list)  # as the worker last reported them
     vram_mb: int = 0
+    context_mb: int | None = None  # measured by the worker (lab2shot_worker/serving.py); None: not yet
+    in_ram_since: float | None = None  # when its models last went to RAM (resident.ram_idle_minutes)
     lines: queue.Queue = field(default_factory=queue.Queue)  # its output; None when it ended
     reader: threading.Thread | None = None  # reads its output into `lines`; joined once the process has ended (_close)
 
@@ -213,6 +282,14 @@ class Process:
 
     def report(self, event: dict) -> None:
         self.models, self.vram_mb = event.get("models") or [], int(event.get("vram_mb") or 0)
+        if event.get("context_mb") is not None:
+            self.context_mb = int(event["context_mb"])
+        self.in_ram_since = None if self.on_gpu else (self.in_ram_since or time.time())
+
+    def held(self, counted: bool = False) -> Held:
+        """What release_plan reads of it (`counted`: its vram_mb is free to the caller already)."""
+        return Held(self, self.last_used, self.on_gpu, 0 if counted else self.vram_mb,
+                    CONTEXT_MB_GUESS if self.context_mb is None else self.context_mb)
 
     def end(self, grace: float = EXIT_S) -> None:
         """Ask it to exit; kill it when it does not."""
@@ -280,7 +357,8 @@ class Process:
     def view(self) -> dict:
         state = self.state if self.state in ("busy", "moving") else ("gpu" if self.on_gpu else "ram")
         return {"id": self.id, "extension": self.ext.name, "title": self.ext.title, "gpu": self.gpu, "pid": self.proc.pid,
-                "state": state, "models": self.models, "vram_mb": self.vram_mb, "ram_mb": self.ram_mb(),
+                "state": state, "models": self.models, "vram_mb": self.vram_mb, "context_mb": self.context_mb,
+                "ram_mb": self.ram_mb(),
                 "idle_s": round(time.time() - self.last_used) if self.state == "idle" else 0, "jobs": self.jobs,
                 "started": self.started}
 
@@ -303,7 +381,7 @@ class Pool:
     # ------------------------------------------------------------------ running jobs
 
     def run(self, ext: Extension, gpu: str | None, identity: str, job_file: Path, on_line: Callable[[str], None],
-            stop: threading.Event, keep_free: float, stage: Callable[[str], None]) -> Outcome:
+            stop: threading.Event, keep_free: float, stage: Callable[..., None]) -> Outcome:
         """Run a job in the extension's process on `gpu` (a new one when there is none, it is busy or its code
         changed). `on_line` gets every line the worker prints for this job; the job stops when `stop` is set.
         `keep_free`: memory the machine keeps free when models move to RAM (keep_free_gb of the node's ram_gb)."""
@@ -375,36 +453,43 @@ class Pool:
             p.end()
         return chosen
 
-    def _make_room(self, p: Process, keep_free: float, stage: Callable[[str], None]) -> None:
+    def _make_room(self, p: Process, keep_free: float, stage: Callable[..., None]) -> None:
         """The GPU `p` runs on is the job's: the other processes there move their models to RAM (or end when the
         machine would keep less than `keep_free` GB free, or the administrator lets no models make way to RAM);
-        beyond resident.per_gpu the least recently used end."""
+        beyond resident.per_gpu the least recently used end (release_plan)."""
         if p.gpu == "":
             return
         s = settings()
         with self.lock:
-            others = sorted((o for o in self.procs if o is not p and o.gpu == p.gpu and o.state == "idle"),
-                            key=lambda o: o.last_used)
-            excess = others[: max(0, len(others) - int(s["resident.per_gpu"]))]
-            movers = [o for o in others[len(excess):] if o.on_gpu]
-            for o in excess + movers:
+            others = [o for o in self.procs if o is not p and o.gpu == p.gpu and o.state == "idle"]
+            keep_most = int(s["resident.per_gpu"])
+            excess = set(sorted(others, key=lambda o: o.last_used)[: max(0, len(others) - keep_most)])
+            plan = release_plan([o.held() for o in others], keep_most=keep_most, to_ram=bool(s["resident.to_ram"]),
+                                ram_free_gb=available_gb(), keep_free_gb=keep_free)
+            for o, _ in plan:
                 o.state = "moving"
-        for o in excess:
-            stage(f"腾出显存：卸载 {o.ext.title}")
+        for o, action in plan:
+            if action == TO_RAM:
+                stage("resident_to_ram", title=Both.of(lambda: o.ext.title))
+                self._offload(o, keep_free)
+                continue
+            plain = o in excess or not s["resident.to_ram"]
+            stage("resident_unload" if plain else "resident_unload_no_ram", title=Both.of(lambda: o.ext.title))
             self._forget(o)
             o.end()
-        for o in movers:
-            if not s["resident.to_ram"]:
-                stage(f"腾出显存：卸载 {o.ext.title}")
-                self._forget(o)
-                o.end()
-            elif available_gb() - o.vram_mb / 1024 >= keep_free:
-                stage(f"腾出显存：{o.ext.title} 的模型移到内存")
+
+    def _carry_out(self, plan: list[tuple[object, str]], keep_free: float, why: str) -> int:
+        """Act on a release_plan whose processes are marked moving: models to RAM, or the process ends. How many
+        acted."""
+        for o, action in plan:
+            if action == TO_RAM:
+                logs.say(log, Msg("I-RESIDENT-TORAM", title=o.ext.title))
                 self._offload(o, keep_free)
             else:
-                stage(f"腾出显存：内存不够，卸载 {o.ext.title}")
+                logs.say(log, Msg("I-RESIDENT-UNLOADED", title=o.ext.title, why=why))
                 self._forget(o)
                 o.end()
+        return len(plan)
 
     def _offload(self, p: Process, keep_free: float) -> None:
         """Move `p`'s models to RAM (it is marked moving); it ends when that fails or it holds nothing afterwards."""
@@ -439,22 +524,46 @@ class Pool:
 
     def clear_gpu(self, gpu: str | None) -> None:
         """Nothing else on `gpu`: a job ran out of its memory next to kept models and runs again alone."""
-        self._end_where(lambda p: p.gpu == gpu, "显存不够，让任务单独再算一次")
+        self._end_where(lambda p: p.gpu == gpu, "out of GPU memory: the job runs again alone")
 
-    def idle_counts(self) -> dict[str, int]:
-        """GPU UUID -> how many idle kept-loaded processes sit there."""
+    def idle_context_mb(self) -> dict[str, int]:
+        """GPU UUID -> what the idle kept-loaded processes there hold beyond their reported vram_mb (their CUDA
+        contexts: as each measured it, else CONTEXT_MB_GUESS): what only ending them frees. For the scheduler's
+        reclaimable_cards."""
         found: dict[str, int] = {}
         with self.lock:
             for p in self.procs:
                 if p.state == "idle" and p.gpu:
-                    found[p.gpu] = found.get(p.gpu, 0) + 1
+                    found[p.gpu] = found.get(p.gpu, 0) + p.held().context_mb
         return found
 
-    def clear_idle(self, gpus: set[str]) -> int:
-        """End the idle processes on `gpus` for a queued job that waits for video memory. A process whose models
-        moved to RAM still holds its CUDA context, which it does not report (vram_mb counts only its tensors), so
-        the scheduler sees that memory as another program's; only ending the process frees it."""
-        return self._end_where(lambda p: p.gpu in gpus, "为排队的任务腾出显存")
+    def _release(self, gpu: str, why: str, counted: bool = False, keep_free: float = 0.0, **plan_args) -> int:
+        """release_plan over `gpu`'s idle processes, carried out; how many acted (`counted`: Process.held)."""
+        with self.lock:
+            here = [p for p in self.procs if p.state == "idle" and p.gpu == gpu]
+            plan = release_plan([p.held(counted) for p in here], keep_free_gb=keep_free, **plan_args)
+            for p, _ in plan:
+                p.state = "moving"
+        return self._carry_out(plan, keep_free, why)
+
+    def clear_idle(self, short_mb: dict[str, int]) -> int:
+        """A queued job waits for video memory on cards (GPU UUID -> MB it is short there) that ending idle processes
+        would free: a process whose models moved to RAM still holds its CUDA context, which the scheduler sees as
+        another program's memory; only ending the process frees it. As few end as cover the shortfall, least recently
+        used first (their vram_mb the scheduler counts as free already)."""
+        return sum(self._release(gpu, "making GPU memory for a queued job", need_mb=need, to_ram=False, counted=True)
+                   for gpu, need in short_mb.items())
+
+    def relieve(self, short_mb: dict[str, int]) -> int:
+        """Cards running short of free memory (GPU UUID -> MB short of resident.release_below_gb, whoever uses it:
+        another program, another server's job) get it back from their idle processes: models to RAM, least recently
+        used first, and processes end when that is not enough (release_plan). How many acted."""
+        if not short_mb:
+            return 0
+        s, keep = settings(), keep_free_gb()
+        return sum(self._release(gpu, "the GPU is short of free memory", keep_free=keep, need_mb=need,
+                                 to_ram=bool(s["resident.to_ram"]), ram_free_gb=available_gb())
+                   for gpu, need in short_mb.items())
 
     # ------------------------------------------------------------------ memory guard and housekeeping
 
@@ -468,17 +577,17 @@ class Pool:
                 if not idle:
                     break
                 p = min(idle, key=lambda p: (p.ext.name in spare, p.last_used))
-            if self._end_where(lambda o: o is p, f"任务要 {need_gb:.0f} GB 内存，现在可用 {available_gb():.0f} GB"):
+            if self._end_where(lambda o: o is p, f"the job needs {need_gb:.0f} GB of RAM, {available_gb():.0f} GB available"):
                 freed = True
         return freed
 
     def end_extension(self, name: str) -> None:
         """Its environment is being (re)installed."""
-        self._end_where(lambda p: p.ext.name == name, "重新安装扩展包")
+        self._end_where(lambda p: p.ext.name == name, "extension reinstalled")
 
     def end_off(self, authorized: list[str]) -> None:
         """GPUs the administrator no longer lets the farm use keep no models."""
-        self._end_where(lambda p: bool(p.gpu) and p.gpu not in authorized, "显卡不再接任务")
+        self._end_where(lambda p: bool(p.gpu) and p.gpu not in authorized, "GPU no longer takes jobs")
 
     def _start_reaper(self) -> None:
         if self._reaper is None:
@@ -494,10 +603,40 @@ class Pool:
                 logs.say(log, Msg("E-RESIDENT-TIDYFAILED"), logs.error_text(exc))
 
     def tidy(self) -> None:
-        """End the idle processes the settings no longer keep: past the idle time, or all when models are not kept."""
-        keeping, limit, now = _keeping(), float(settings()["resident.idle_minutes"]) * 60, time.time()
-        self._end_where(lambda p: not p.alive or not keeping or now - p.last_used >= limit,
-                        "空闲超时" if keeping else "管理员关掉了常驻模型")
+        """End the idle processes the settings no longer keep: past the idle time (a process whose models are in RAM:
+        past resident.ram_idle_minutes since they went there, or since its last job when later), or all when models
+        are not kept."""
+        s, now = settings(), time.time()
+        keeping, limit, in_ram = _keeping(), float(s["resident.idle_minutes"]) * 60, float(s["resident.ram_idle_minutes"]) * 60
+
+        def done(p: Process) -> bool:
+            if not p.alive or not keeping or now - p.last_used >= limit:
+                return True
+            return p.in_ram_since is not None and now - max(p.in_ram_since, p.last_used) >= in_ram
+
+        self._end_where(done, "idle timeout" if keeping else "the administrator turned kept models off")
+        self.bound_ram()
+
+    def bound_ram(self) -> None:
+        """The machine's memory the idle processes may keep: together at most resident.ram_pct of it (their VmRSS:
+        models moved to RAM, and whatever else a process kept), and never so much that the machine has less than
+        memory.keep_free_gb available. Beyond either, the least recently used end first. Checked by the reaper every
+        REAP_S, so processes left loaded by jobs that came one after another, each on a GPU with room, stop adding up
+        in RAM when no new job comes to ask for it (free_ram only acts when a job starts)."""
+        most_mb = machine_memory_gb() * 1024 * float(settings()["resident.ram_pct"]) / 100
+        keep_mb, free_mb = keep_free_gb() * 1024, available_gb() * 1024
+        with self.lock:
+            idle = sorted((p for p in self.procs if p.state == "idle"), key=lambda p: p.last_used)
+        held = {p: p.ram_mb() for p in idle}
+        total = sum(held.values())
+        for p in idle:  # least recently used first; what one ending frees is counted at once (it takes a moment to go)
+            if total <= most_mb and free_mb >= keep_mb:
+                return
+            why = (f"idle resident processes hold {total / 1024:.0f} GB of RAM, the limit is {most_mb / 1024:.0f} GB"
+                   if total > most_mb else f"{free_mb / 1024:.0f} GB of RAM available, below the {keep_mb / 1024:.0f} GB kept free")
+            if self._end_where(lambda o, p=p: o is p, why):
+                total -= held[p]
+                free_mb += held[p]
 
     def shutdown(self) -> None:
         """The server ends or restarts: every process ends, busy or not (a restart keeps the server's process id, which
@@ -561,7 +700,7 @@ class Pool:
         """The administrator ends a process: its RAM and GPU memory are free (_end_where ends it only while idle)."""
         with self.lock:
             p = self._idle(pid)
-        self._end_where(lambda o: o is p, "管理员完全卸载")
+        self._end_where(lambda o: o is p, "unloaded by the administrator")
 
 
 @cache

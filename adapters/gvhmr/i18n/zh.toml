@@ -1,0 +1,71 @@
+# GVHMR 全身动作（adapters/gvhmr/worker.py）。
+
+# ---- 画面和人
+"N-GVHMR-NOPEOPLE.other" = "「GVHMR 全身动作」在画面里没有找到连续出现 {frames} 帧以上的人（更短的片段它不算），这次输出是空的：确认画面里有完整的人、没有被挡住太久；只要其中一个人时，在上游接「ViTDet 人物框」→「选人」→「人物框转遮罩」→「图像合成」把别人从画面里去掉"
+
+"I-GVHMR-YOLOWEIGHTS" = "YOLOv8x 人物检测权重"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."gvhmr.solve"]
+subtitle = "全身动作"
+description = "浙大 GVHMR：从画面解出人在世界里的动作（SMPL-X 身体，含手），脚踩重力方向的地面。跟拍、手持镜头都可以。解出来的人在 GVHMR 自己的重力世界里，要在你那台摄影机下和实拍对上，就把「参照摄影机」和你的摄影机一起接进「摄影机空间转换」（接到「来源摄影机」），模板里已经接好了。多人在同一世界里的相对位置用「TRAM 全身动作」，要手指最准用「SAM 3D Body 全身动作」。另出一台「摄影机」：放人用的那台原点、不动的针孔摄影机（焦距 = 「焦距」，留空时按 GVHMR 自己的默认（画面对角线）；主点在画面中心），不是解出来的摄影机——三维视图透过它看图像平面、人和画面对得上，模板里当「解算器的摄影机」那一路用。"
+
+[node."gvhmr.solve".param.follow_camera]
+label = "逐帧贴合画面"
+
+[node."gvhmr.solve".param.vo_step]
+label = "摄影机估计间隔"
+
+[node."gvhmr.solve".port.boxes]
+label = "人物框"
+
+[node."gvhmr.solve".port.keypoints]
+label = "2D 关键点"
+help = "ViTPose 在画面上找的全身 17 个点（鼻子、双眼、双耳、肩、肘、腕、髋、膝、踝），GVHMR 解算之前就是按它们找的人。画面上的点，不是三维结果的投影：可以直接接「2D 跟踪点输出」交给 3DEqualizer、Nuke，也可以叠在画面上看解出来的人贴不贴。按人分组，一个人一组"
+
+[node."gvhmr.solve".port.camera]
+label = "摄影机"
+help = "放人用的那台摄影机：原点、不动的针孔摄影机，焦距 = 节点的「焦距」（留空时用解算器自己估的或默认的），主点在画面中心。不是解出来的摄影机：人就放在它的空间里，透过它看图像平面人和画面对得上。当「解算器的摄影机」用，或接「摄影机空间转换」的目标"
+
+[node."gvhmr.solve".port.ref_camera]
+label = "参照摄影机"
+help = "这不是成品摄影机，别交付、别当解算用的摄影机接给别人。它是这一段结果在它自己的世界里配着的那一台：人和实拍对得上就是靠它。把它接进「摄影机空间转换」的「来源摄影机」，你自己那台接「目标摄影机」，那个节点把人搬到你那台摄影机的世界里对上画面。要一台能用的摄影机，从真正解摄影机的节点（ViPE、TRAM）或者「导入 USD」接"
+
+[node."gvhmr.solve".official]
+note = "① **「人物框」是可选输入，直接交给官方函数**（规则：官方函数接受人物框就直接把框交给它；不接受框的项目，在节点图上走「人物框转遮罩」）：官方包里 `VitPoseExtractor.extract(video_path, bbx_xys)`（hmr4d/utils/preproc/vitpose.py:23）、`Extractor.extract_video_features(video_path, bbx_xys)`（vitfeat_extractor.py:65）和 `DemoPL.predict(data)` 的 `data[\"bbx_xys\"]`（gvhmr_pl_demo.py:16-35）收的就是逐帧的框，官方 demo 自己也是先用 YOLOv8x 跟踪出框（demo.py:109-110 `Tracker().get_one_track`）再喂给这几处。接了框：按框解这几个人，不再跑跟踪器；不接：照官方 demo 的路自己跟踪（官方只取最大的一条轨迹，我们解每一条够长的）。② 「2D 关键点」在上游是**预处理阶段的产物**：`demo.py:126 vitpose_extractor.extract(video_path, bbx_xys)`，存成 paths.vitpose，再当作 kp2d 喂给模型——所以它是官方算出来的东西，只是官方自己又拿去当输入。③ **「参照摄影机」**：GVHMR 交出来的人在**它自己的重力世界**里（原点在这个人起点的髋部），那个世界里配着一台摄影机，人和实拍对得上就是靠它。参照摄影机不是成品摄影机：和你自己的摄影机一起接进核心节点「摄影机空间转换」（接到「来源摄影机」），算一个修正挂到人身上；直接当镜头摄影机用，人会不在画面里、位置不对。**它由官方的两套 SMPL 参数唯一确定**：pred 里同时有 smpl_params_incam（demo.py:215，摄影机空间）和 smpl_params_global（:259，世界），两者之间的刚性关系就是那台摄影机（worker.py wh.camera_from_body）；它的**旋转**来自上游自己的 VO（demo.py:149-150 SimpleVO / :186 R_w2c）。这个口必须有：没有它，模板上的对齐只剩摄影机空间那一档，摄影机的运动会被加两遍。要一台**能用**的摄影机，还是从真正解摄影机的节点（ViPE、TRAM）或「导入 USD」接。④ 「蒙皮角色」是 CG 形态：官方吐的是 SMPL-X 参数，角色的网格要另外跑一次 body model。⑤ cam_angvel 只用到摄影机的**旋转**，官方从来不吃摄影机的位移。"
+
+[node."gvhmr.solve".official.ours]
+camera = "放人用的针孔摄影机：原点、不动，焦距 = 节点的「焦距」（留空用解算器自己估的 / 默认的），主点在画面中心（families/humans.py plate_camera）"
+
+[node."gvhmr.solve".licence]
+note = "GVHMR 代码和权重仅限非商业科研（浙江大学许可证）；SMPL-X 人体模型需自行注册下载，仅限非商用。"
+
+[extension.gvhmr]
+summary = "从单目视频恢复落在世界里的人体动作，用重力-视角坐标解决世界坐标系定义不唯一的问题"
+
+[extension.gvhmr.license]
+name = "GVHMR 非商用许可 + SMPL-X 非商用 + AMASS / BEDLAM 学术许可（训练数据）"
+summary = "仅限研究。发布的权重用 AMASS、BEDLAM 等只许学术研究的数据训练（上游 exp=gvhmr/mixed/mixed）。GVHMR 代码和权重：浙江大学许可，只允许教育、科研和非营利用途，基于它的修改必须开源且禁止商用（商用需联系 xwzhou@zju.edu.cn）。运行必须用 SMPL-X 人体模型（SMPLX_NEUTRAL.npz），需要在 smpl-x.is.tue.mpg.de 注册后自己下载，仅限非商用科研，禁止再分发。其余权重：HMR2.0a（4D-Humans，MIT，训练数据含非商用数据集）、ViTPose-H（Apache-2.0，多数据集训练）、YOLOv8x（Ultralytics AGPL-3.0，上游自己的人物检测和跟踪）。依赖 pytorch3d（BSD）、pycolmap（BSD）、smplx 代码（MPI 非商用许可）、ultralytics（AGPL-3.0）"
+
+[extension.gvhmr.weight.yolo]
+note = "YOLOv8x 人物检测和跟踪（Ultralytics AGPL-3.0），131 MB"
+
+[extension.gvhmr.weight.gvhmr]
+note = "GVHMR 主网络（非商用），156 MB"
+
+[extension.gvhmr.weight.hmr2a]
+note = "HMR2.0a 图像特征（4D-Humans，MIT），2.7 GB"
+
+[extension.gvhmr.weight.vitpose-h]
+note = "ViTPose-H 2D 关键点（Apache-2.0），2.5 GB"
+
+# ---- worker 的计算阶段（worker.py）
+[stage]
+find_people = "YOLOv8 找人"
+estimate_camera_rotation = "SimpleVO 估计摄影机转动"
+read_frames = "读取画面"
+keypoints_and_features = "ViTPose 关键点 · HMR2 图像特征"
+people = "人"
+solve_motion = "GVHMR 解算人体动作"
+unify_world = "统一世界坐标"

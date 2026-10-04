@@ -17,7 +17,8 @@ import { msg, say } from "../state/say";
 import { uploadedLocal, uploadedShown } from "../transfer/local";
 import { sendPlanes } from "../transfer/planes";
 import type { BlockContext } from "./nodes";
-import { followGraphId, onDeclared, onUploaded, restoreUploads, sendUpload, uploadBlocker, useUploads } from "../transfer/uploads";
+import { followGraphId, onDeclared, onUploaded, pauseUpload, restoreUploads, sendUpload, uploadBlocker, useUploads } from "../transfer/uploads";
+import { uploadGaveUp, uploadLineDone } from "./submitLine";
 import { sizeText } from "../platform/format";
 
 /** 上传与节点图：传完的上传在那张图正开着时（本标签页，或同一张图的另一个标签页）写进节点的参数；刷新打断的上传
@@ -93,17 +94,32 @@ export async function sendPicked(ctx: BlockContext, cook: CookCase): Promise<boo
                                     whole: sizeText(partial.reduce((n, p) => n + p.t.bytes, 0)) }));
   for (const p of plans) {
     if (submitAbandoned()) return false; // 顶栏取消了这次提交：后面的素材不再开始传
-    let ok: boolean;
-    if (p.channels) {
-      const got = await sendPlanes(p.t.key, p.ref, p.channels);
-      if ("whole" in got) {
-        say(msg("N-UPLOAD-WHOLEFILE", { file: got.whole.file, reason: got.whole.reason }));
-        ok = await sendUpload(p.t.key);
-      } else {
-        ok = got.ok;
-        if (got.ok) say(msg("I-UPLOAD-CHANNELSSENT", { file: p.t.name, channels: p.channels.write.join(" "), sent: sizeText(got.sent), whole: sizeText(p.t.bytes) }));
+    // 上传自己一直等线路（断点续传）；提交时连续 TRIES 次没连上就停下（暂停，已传的留着），不让「计算」一直挂着
+    let gaveUp = false;
+    const watch = useUploads.subscribe((s) => {
+      const t = s.tasks[p.t.key];
+      if (!gaveUp && t && uploadGaveUp(t.state, t.tries ?? 0, t.retryAt)) {
+        gaveUp = true;
+        queueMicrotask(() => pauseUpload(p.t.key));
       }
-    } else ok = await sendUpload(p.t.key);
+    });
+    let ok: boolean;
+    try {
+      if (p.channels) {
+        const got = await sendPlanes(p.t.key, p.ref, p.channels);
+        if ("whole" in got) {
+          say(msg("N-UPLOAD-WHOLEFILE", { file: got.whole.file, reason: got.whole.reason }));
+          ok = await sendUpload(p.t.key);
+        } else {
+          ok = got.ok;
+          if (got.ok) say(msg("I-UPLOAD-CHANNELSSENT", { file: p.t.name, channels: p.channels.write.join(" "), sent: sizeText(got.sent), whole: sizeText(p.t.bytes) }));
+        }
+      } else ok = await sendUpload(p.t.key);
+    } finally {
+      watch();
+      uploadLineDone();
+    }
+    if (gaveUp) return false; // 日志里已说：连不上服务器、可以再点「计算」
     if (!ok) {
       if (submitAbandoned()) return false; // 顶栏取消了这次提交：是使用者停下的，不当成上传出了问题再说一遍
       const now = useUploads.getState().tasks[p.t.key];

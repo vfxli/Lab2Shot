@@ -11,9 +11,12 @@ from lab2shot.sdk import (rgb_port, Official, DEFORMING, ROOT_PATH, SCENE_FILE, 
 from .model_spec import WINDOW  # 模型一次看的帧数，worker.py 用同一个
 
 # 「面数」：该参数对显存和耗时影响很大，因此不接受任意数值，仅提供经过验证的几档。
-# 「原样」对应官方 infer.py 的 not_simplify=True；两档减面使用官方的 mesh_simplify_trimesh，
-# 仅修改目标面数。减面在形变之前执行一次，之后整段共用同一拓扑。
-FACES = {"full": 0, "100k": 100_000, "20k": 20_000}
+# 默认「4 万」即官方流程：infer.py 先把生成的网格交给贴图流程（paint_pipeline，textureGenPipeline.py 的
+# use_remesh=True → hy3dpaint/utils/simplify_mesh_utils.py remesh_mesh：mesh_simplify_trimesh(target_count=40000)），
+# 形变用的是这份 4 万面的网格（之后 not_simplify=True 不再减）。「原样」不减面，其余档用同一个官方减面函数，
+# 只改目标面数。减面在形变之前执行一次，之后整段共用同一拓扑。
+FACES = {"full": 0, "100k": 100_000, "40k": 40_000, "20k": 20_000}
+OFFICIAL_FACES = "40k"
 # 「质量」：扩散采样步数，官方 infer.py 使用 50。
 STEPS = {"fast": 25, "standard": 50, "fine": 75}
 
@@ -25,8 +28,8 @@ class Solve(WorkerNode):
     变形到每一帧；拓扑只确定一次，之后仅更新顶点位置，因此输出即 DCC 中的点缓存。
     """
 
-    id = "mesh4d.solve"
-    version = 1
+    id = "mesh4d.reconstruct"
+    version = 2  # 2: 默认按官方减到 4 万面
     runtime = "mesh4d"
     # Mesh4D 的形变管线输入 batch['image'] 和 batch['mask']（pipelines_video_newvae_all_nonalign_infer.py:
     # 1030-1035，遮罩属于条件输入 cond_inputs），输出逐帧形变后的顶点 deformed_verts_gen（同一拓扑，
@@ -35,43 +38,26 @@ class Solve(WorkerNode):
         cite="third_party/mesh4d/repo/hy3dshape/hy3dshape/pipelines_video_newvae_all_nonalign_infer.py:953-1160",
         takes={"image": "batch['image']", "mask": "batch['mask']"},
         gives={"mesh": "deformed_verts_gen", "rest": "registered_gen_mesh"},
-        note="遮罩是官方的输入：官方 infer.py 读的是 RGBA 抠像（infer.py:148-151，RGB 的话自己用 rembg 抠），"
-             "数据集类把它拆成 batch['image'] 和 batch['mask'] 两样送进形变管线（:1030-1031）。"
-             "「网格」是 deformed_verts_gen（:1144）逐帧的顶点，「静止网格」是 Hunyuan3D-2.1 生成、"
-             "配准过的那一份（:953 registered_gen_mesh.obj）",
     )
     on_node = ("faces", "quality", "unit_cm")
     inputs = (
         rgb_port(),
-        plate_mask_port("前景遮罩", optional=False),
+        plate_mask_port(optional=False),
     )
     outputs = (
-        Port("mesh", "scene.model", "网格", kinds=(DEFORMING,),
-             help="每帧变形的网格（点缓存）：整段同一份拓扑、同一套 UV，每帧只换点。"
-                  "第一帧的包围盒在 X、Z 上居中、底面落在 Y=0，整段按这一帧摆好，不逐帧重新摆"),
-        Port("rest", "scene.model", "静止网格",
-             help="Hunyuan3D-2.1 生成的那一个网格本身，没有形变：拿去重拓扑、展 UV 的话用这一份"),
+        Port("mesh", "scene.model", kinds=(DEFORMING,)),
+        Port("rest", "scene.model"),
     )
     main = "mesh"
     min_frames = WINDOW  # 少于 6 帧时该方法无法计算，提交前拒绝
     # 在 RTX 4090 上测得
-    cost = Cost(gpu=True, vram_gb=21.5, seconds_per_frame=2.4,
-                note="显存峰值出现在生成网格和解形变两个模型都在卡上的时候（两个都常驻，算完不卸）。"
-                     "生成网格那一步整段只做一次，约 60 秒；之后每 6 帧一段的形变约 14 秒"
-                     "（「标准」档 50 步、「原样」不减面）：6 帧的一段整段约 150 秒，60 帧的一段约 280 秒")
-    licence = Licence(note="仅限研究：Mesh4D 仓库没有任何许可证文件；它的推理代码和生成网格的权重是腾讯 "
-                           "Hunyuan3D-2.1 社区许可，该许可不适用于欧盟、英国和韩国。")
+    cost = Cost(gpu=True, vram_gb=21.5, seconds_per_frame=2.4, note=True)
+    licence = Licence(note=True)
 
     class Params(NodeParams):
-        quality: Literal["fast", "standard", "fine"] = P(
-            "standard", label="质量", group="计算",
-            option_labels={"fast": "快速", "standard": "标准", "fine": "精细"},
-        )
-        faces: Literal["full", "100k", "20k"] = P(
-            "full", label="面数", group="计算",
-            option_labels={"full": "原样", "100k": "10 万", "20k": "2 万"},
-        )
-        seed: int = P(0, label="随机种子", ge=0, le=2**31 - 1, group="计算")
+        quality: Literal["fast", "standard", "fine"] = P("standard", group="compute")
+        faces: Literal["full", "100k", "40k", "20k"] = P(OFFICIAL_FACES, group="compute")
+        seed: int = P(0, ge=0, le=2**31 - 1, group="compute")
         unit_cm: float = unit_cm_param()
 
     @classmethod
@@ -101,7 +87,7 @@ class Solve(WorkerNode):
         place = _placement(deform[0], unit)
         vertices = place(deform).astype(np.float32)
 
-        ctx.stage("写出网格")
+        ctx.stage("write_mesh")
         info = {"extension": cls.runtime, "faces": ctx.params["faces"], "quality": ctx.params["quality"],
                 "seed": int(ctx.params["seed"]), "unit_cm": unit,
                 "windows": int(result["windows"]), "scale": "relative"}
@@ -151,9 +137,8 @@ def _say(ctx, result: dict, frames: int, verts: int, faces: int, unit: float) ->
     ctx.say("I-MESH4D-DONE", verts=verts, faces=faces, frames=frames, windows=windows, unit=unit)
     ctx.say("N-MESH4D-NOSCALE", unit=unit, param="unit_cm")
     if windows > 1:
-        seams = "、".join(str(f) for f in result["seams"])
-        ctx.say("W-MESH4D-SEAM", frames=frames, windows=windows, seams=seams)
-    if result.get("target_faces"):
+        ctx.say("W-MESH4D-SEAM", frames=frames, windows=windows, seams=[int(f) for f in result["seams"]])
+    if ctx.params["faces"] != OFFICIAL_FACES:
         ctx.say("N-MESH4D-SIMPLIFIED", choice=ctx.params["faces"], faces=faces, param="faces")
     megabytes = verts * frames * 3 * 4 / 1e6
     if megabytes > 200:

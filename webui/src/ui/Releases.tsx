@@ -1,14 +1,18 @@
 import "./releases.css";
 import { useEffect, useState } from "react";
-import { readReleases, type ReleaseNotes } from "../api/releases";
+import { readReleases, type Lines, type ReleaseNotes } from "../api/releases";
 import { readLocal, webAddress, writeLocal } from "../platform/util";
 import { reasonOf } from "../messages/message";
 import { Button } from "./Button";
 import { Empty } from "./Empty";
 import { Loading } from "./Loading";
 import { Sheet } from "./Sheet";
+import { pick, t } from "../i18n/t";
+import { getLang } from "../i18n/lang";
+import { tipOf } from "../platform/tips";
 
-// The newest version this browser has shown the dialog for (its name: names are unique, lab2shot/releases.py). Kept
+// The newest version this browser has shown the dialog for (its Chinese name, the same whatever language the page
+// speaks: names are unique, lab2shot/releases.py). Kept
 // per browser, not per account: nothing about reading the notes goes to the server. Without storage (a private window,
 // storage blocked) the dot simply shows again next time.
 const SEEN = "lab2shot.releases.seen";
@@ -27,7 +31,8 @@ export function ReleasesButton() {
     readReleases().then(setNotes, (e: unknown) => setError(reasonOf(e)));
   };
   useEffect(load, []);
-  const newest = notes?.releases[0]?.name ?? null;
+  const first = notes?.releases[0];
+  const newest = first ? pick(first.name, "zh") : null;
   const unseen = newest !== null && newest !== seen;
   const show = () => {
     setOpen(true);
@@ -40,17 +45,23 @@ export function ReleasesButton() {
   }, [open, newest]);
   return (
     <>
-      <Button tip={`更新说明：每个版本改了什么，最新的在最上面${unseen ? "\n有新版本的更新还没看过" : ""}`} tone="ghost" layout="rn-button" onClick={show}>
-        更新说明
-        {unseen && <span className="rn-dot" aria-label="有新版本" />}
+      <Button tip={unseen ? tipOf("value", t("ui.misc.releases_unseen")) : undefined} tone="ghost" layout="rn-button" onClick={show}>
+        {t("ui.misc.releases")}
+        {unseen && <span className="rn-dot" aria-label={t("ui.misc.releases_new")} />}
       </Button>
       {open && (
-        <Sheet title="更新说明" width={600} onClose={() => setOpen(false)}>
-          {notes ? <ReleaseList notes={notes} /> : error ? <Empty title="更新说明没有取到" hint={error} /> : <Loading what="更新说明" />}
+        <Sheet title={t("ui.misc.releases")} width={600} onClose={() => setOpen(false)}>
+          {notes ? <ReleaseList notes={notes} /> : error ? <Empty title={t("ui.misc.releases_failed")} hint={error} /> : <Loading what={t("ui.misc.releases_loading")} />}
         </Sheet>
       )}
     </>
   );
+}
+
+/** A version's lines in the page's language (the other one when it has none). */
+function lines(v: Lines | undefined): string[] {
+  const lang = getLang();
+  return v?.[lang]?.length ? v[lang]! : v?.zh?.length ? v.zh : v?.en ?? [];
 }
 
 /** The project's address first, then each version: 名称 and 日期, 说明, and its lines. Everything is text: React
@@ -59,29 +70,29 @@ function ReleaseList({ notes }: { notes: ReleaseNotes }) {
   return (
     <div className="rn-list">
       {webAddress(notes.project) && (
-        <a className="chip link rn-project" href={notes.project} target="_blank" rel="noopener noreferrer" data-tip="在新标签页打开项目主页">
+        <a className="chip link rn-project" href={notes.project} target="_blank" rel="noopener noreferrer">
           {notes.project}
         </a>
       )}
       {notes.releases.map((r) => (
-        <article key={r.name} className="rn-card">
+        <article key={pick(r.name, "zh")} className="rn-card">
           <div className="rn-head">
-            <span className="rn-name">{r.name}</span>
+            <span className="rn-name">{pick(r.name)}</span>
             <span className="rn-date tnum">{r.date}</span>
           </div>
-          <p className="rn-about">{r.about}</p>
-          {r.changes.length > 0 && (
+          <p className="rn-about">{pick(r.about)}</p>
+          {lines(r.changes).length > 0 && (
             <ul className="rn-changes">
-              {r.changes.map((line, i) => (
+              {lines(r.changes).map((line, i) => (
                 <li key={i}>{line}</li>
               ))}
             </ul>
           )}
-          {!!r.admin?.length && (
+          {lines(r.admin).length > 0 && (
             <>
-              <p className="rn-admin">管理员</p>
+              <p className="rn-admin">{t("ui.misc.releases_admin")}</p>
               <ul className="rn-changes">
-                {r.admin.map((line, i) => (
+                {lines(r.admin).map((line, i) => (
                   <li key={i}>{line}</li>
                 ))}
               </ul>

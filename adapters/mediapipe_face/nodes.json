@@ -1,6 +1,0 @@
-{
- "mediapipe_face.face": {
-  "label": "MediaPipe 面部动作",
-  "description": "画面 → 478 个面部关键点、52 条 ARKit 表情曲线（拿去驱动角色的表情），以及跟着头动的面部面具网格，逐帧计算。只用 CPU，很快；要正脸、脸够大，侧脸超过约 80° 就找不到。要带表情形变的 FLAME 头模，用「SMIRK 面部动作」。"
- }
-}

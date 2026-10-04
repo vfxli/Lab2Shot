@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { packetOf } from "../state/results";
 import type { DataType, HandleDef, Manifest, NodeTypeDef } from "../api";
+import { drawsSkeleton, role3d } from "./handleEditing";
 import { useLook } from "../state/look";
 import { elementOf, isList, typeOf } from "../state/items";
 import { useDescribed } from "../transfer/described";
@@ -13,6 +14,11 @@ import { useOriginals } from "./useOriginals";
 import { useLocalPicture, type LocalPicture } from "./localPick";
 import { sourceOf, type Source } from "./origin";
 import { cookedWith, staleFp } from "../state/stale";
+import { t } from "../i18n/t";
+import { useLang } from "../i18n/lang";
+import { isBlocked } from "../model/nodeOutcome";
+import { nodeRef } from "../graph/naming";
+import { cardNameOf, useCookInputs } from "../state/cookInputs";
 
 /** 根据数据类型的视图角色推导当前节点的显示内容，节点本身不编写任何视图代码。节点的所有结果同时显示；输出设置节点
  * 显示其写出的内容；图像空间数据叠加在其来源画面上；三维结果在场景中查看，或透过其相机叠加在衬底上查看。 */
@@ -86,6 +92,8 @@ export interface DisplayPlan {
   // 视图中所有数据来源合成的身份（答案所依赖的每一项都必须包含在内），用作取数层的备忘依赖（`view/stageSources.ts`）。
   // 其中已包含 `originals`，因此来源变化、找到原件或更换本机文件都会使其变化。
   sourceKey: string;
+  // 应用模式的结果视图（displayPlan `collect`）：显示的是交付节点收来的结果（用卡片的人看不到节点），舞台跟着结果走
+  collected: boolean;
 }
 
 /** 视图的身份：各数据的来源（`view/origin.ts`）加上本机原件的查找结果。
@@ -96,10 +104,10 @@ const sourceKeyOf = (items: readonly ViewItem[], plateItem: ViewItem | null, ori
 
 type S = Snapshot;
 
-/** 画面依据的状态：可信的回复；参数刚改、新回复还没到时（`graph/document.ts` 改动后 250 ms 才问服务器），沿用上一次回复
- * （`graph/snapshot.ts` 的 `reply`：下一次回复到达之前照它画）。否则每改一次参数（每松开一次手柄），视图里的上游画面和
+/** 画面依据的状态：显示规则只有一条（state/results.ts Shown，经 `graph/snapshot.ts` 的 `shown`）——参数刚改、新回复还没到时
+ * （`graph/document.ts` 改动后 250 ms 才问服务器）沿用上一次回复，否则每改一次参数（每松开一次手柄），视图里的上游画面和
  * 场景都会消失一下再出现。只用于画：要不要计算、能不能计算只看可信的回复（state/results.ts useTrustedResults）。 */
-const drawnResults = (s: S) => (s.resultsAreTrusted ? s.results : s.reply?.nodes ?? {});
+const drawnResults = (s: S) => s.shown;
 
 // 只有状态回复标记为 `present` 的输出才真正有包（state/results.ts packetOf）
 const cookedFp = (s: S, nodeId: string, port: string) => packetOf(drawnResults(s)[nodeId], port);
@@ -131,7 +139,7 @@ const withoutData = (it: ViewItem): ViewItem => ({ ...it, fp: null, stale: false
  * 返回节点自身要显示的条目，以及是否显示手柄声明的输入。 */
 function underHandles(s: S, id: string, handles: HandleDef[], own: ViewItem[]): { own: ViewItem[]; sources: boolean } {
   if (!handles.length) return { own, sources: true };
-  const placing = handles.find((h) => h.kind === "transform");
+  const placing = handles.find((h) => role3d(h) === "place");
   if (!placing) return { own: own.map((it) => (s.resultsAreTrusted && it.fp && !it.stale ? it : withoutData(it))), sources: true };
   const placed = cookedWith(s.graphId, id) !== undefined ? own : own.map(withoutData);
   const fresh = placed.some((it) => it.fp && !it.stale);
@@ -178,7 +186,7 @@ function inputItems(s: S, node: GNode, port: string, context: boolean): ViewItem
     .flatMap((e) => {
       const src = s.nodes.find((n) => n.id === e.source);
       const p = outputPort(s, e.source, e.sourceHandle);
-      return src && p ? [item(s, src.id, p.name, `${src.data.label} · ${p.label}`, p.type, context)] : [];
+      return src && p ? [item(s, src.id, p.name, `${nodeRef(src.id, src.data.typeId)} · ${p.label}`, p.type, context)] : [];
     });
 }
 
@@ -190,13 +198,20 @@ export function handleSourceFp(s: S, nodeId: string, port: string): { fp: string
   return { fp: it?.fp ?? null, list: !!it && isList(it.type) };
 }
 
+/** 在视图里点选这个节点时有没有画面可点：上游有画面（衬底，nearestUpstream，与视图画的同一个），或它手柄作用的输入上已有
+ * 数据。没有时「在视图里点选」置灰（editor/buttonActions.tsx）。 */
+export function hasPicture(s: S, nodeId: string, sources: readonly string[]): boolean {
+  return !!nearestUpstream(nodeId, s, isPlate) || sources.some((port) => !!handleSourceFp(s, nodeId, port).fp);
+}
+
 /** 节点接收数据的输入（不含提升为输入的参数），即其结果的来源。 */
 const dataInputs = (s: S, id: string) => inputsOf(s, id).filter((p) => !p.name.startsWith(PARAM));
 
 /** 显示节点 → 画什么（导出只为离线用例：它是纯函数，读快照不读仓库）。 */
 export function displayPlan(s: S, nodeId: string | null, expand?: (it: ViewItem) => ViewItem[], emptyList = false,
                             spaceOf: (fp: string) => string | null = () => null, originals = "",
-                            file: LocalPicture | null = null): DisplayPlan | null {
+                            file: LocalPicture | null = null, collect = false,
+                            nameOf: (nodeId: string) => string = () => ""): DisplayPlan | null {
   const node = s.nodes.find((n) => n.id === nodeId);
   const def = node ? s.nodeDefs[node.data.typeId] : undefined;
   if (!node || !def) return null;
@@ -205,12 +220,17 @@ export function displayPlan(s: S, nodeId: string | null, expand?: (it: ViewItem)
 
   // 节点自身的结果；输出设置节点显示其写出的内容（其文件按来源数据显示，即 "inputs" 角色）；手柄的源输入也一并显示，
   // 供手柄操作。没有别的穿透：激活哪个节点就显示哪个节点自己的输出口，切换也按它自己的 out 口
+  // 输入口由表格逐行生成的输出设置（「多层 EXR 输出设置」的「图层」：NodeTypeDef.ports_from_side === "inputs"）：每一行是
+  // 文件里的一层，按这一行显示——口是这一行的口、名字是这一行的图层名（depth.da3），而不是接进来的上游口（上游常是同一种
+  // 节点的同名口，如一排「阻断 · 数据」，按口去重后只剩一层，名字也分不出是哪层）
   const madeFrom = (items: ViewItem[]): ViewItem[] =>
     items.flatMap((it) => {
       const src = s.nodes.find((n) => n.id === it.nodeId);
       if (typeOf(types, it.type)?.in_2d !== "inputs") return [it];   // 联合类型同样需要识别
       if (!src) return [];
-      return madeFrom(dataInputs(s, src.id).flatMap((p) => inputItems(s, src, p.name, false)));
+      const rows = s.nodeDefs[src.data.typeId]?.ports_from_side === "inputs";
+      return madeFrom(dataInputs(s, src.id).flatMap((p) => inputItems(s, src, p.name, false).map((x) =>
+        rows ? { ...x, key: `${src.id}.${p.name}`, port: p.name, label: `${x.label.split(" · ")[0]} · ${p.label}` } : x)));
     });
   const outputs = outputsOf(s, node.id); // 由节点参数和输入决定（读取序列：每层一个）
   // 节点的主结果（`graph/rules.ts mainOutput`）：未作选择时显示的内容。
@@ -218,9 +238,25 @@ export function displayPlan(s: S, nodeId: string | null, expand?: (it: ViewItem)
   // 本机文件可代表的层：该节点的主输出。浏览器解码本机 EXR 时只取文件自身的颜色通道，即主画面所在的层，
   // 无法取得文件中的其他层（详见 `view/origin.ts fileStandsFor`）。
   const filePort = mainPort;
-  // 「骨架姿势」手柄只画它那一侧输入的骨架（舞台的手柄层，数据来自状态回复 handle_data），不改显示什么：与没有手柄同一规则
-  const placing = handles.filter((h) => h.kind !== "skeleton_pose");
-  const shown = underHandles(s, node.id, placing, madeFrom(outputs.map((p) => item(s, node.id, p.name, p.label, p.type, false, !!p.inactive))));
+  // 「骨架姿势」与双骨架编辑（rig_pair）的手柄自己画骨架（舞台的手柄层，数据来自状态回复 handle_data），不改显示什么：
+  // 与没有手柄同一规则
+  const placing = handles.filter((h) => !drawsSkeleton(h));
+  // 应用模式的结果视图（`collect`：页面在对用卡片的人说话，i18n/lang.ts phrasing）。用卡片的人看不到节点，显示节点常是
+  // 交付的「输出」，它没有自己的输出口、本来什么都不画。这时显示它收来的：接进它的每个输出设置写出的内容（上面 madeFrom
+  // 换成来源节点的结果），被开关关着的那几路不算（model/nodeOutcome.ts isBlocked，节点底行同一份状态），同一份结果只显示
+  // 一次，还没有结果的不列。于是 3D 跟踪匹配的摄影机、点云、人、高斯在同一个三维视图里，2D 跟踪的跟踪点叠在原图上随帧走——
+  // 任何一张卡都一样，卡片和节点都不写视图
+  const collected = collect && !!def.delivers;
+  const off = (id: string) => isBlocked(s.nodes.find((n) => n.id === id)?.data);
+  const gathered = collected
+    ? madeFrom(dataInputs(s, node.id).flatMap((p) => inputItems(s, node, p.name, false)).filter((it) => !off(it.nodeId)))
+      .filter((it, i, all) => !!it.fp && !off(it.nodeId) && all.findIndex((q) => q.key === it.key) === i)
+      // 各项的名字按卡片说（`nameOf`：卡片上目标在这个节点上的那一项，如开关「CoTracker3（2D 点）」「场景点云」），卡片上没有它
+      // 的按数据类型（「摄影机」），不写节点名
+      .map((it) => ({ ...it, label: nameOf(it.nodeId) || typeOf(types, it.type)?.label || it.label.split(" · ").at(-1) || it.label }))
+    : [];
+  const shown = collected ? { own: gathered, sources: false }
+    : underHandles(s, node.id, placing, madeFrom(outputs.map((p) => item(s, node.id, p.name, p.label, p.type, false, !!p.inactive))));
   const own = shown.own;
   // 没有输出口的节点（「输出」：收文件、打包）没有自己的结果，就不画结果：显示的永远是激活节点自己的输出
   const sources = shown.sources ? placing.flatMap((h) => (h.source ? inputItems(s, node, h.source, true) : [])) : [];
@@ -253,7 +289,7 @@ export function displayPlan(s: S, nodeId: string | null, expand?: (it: ViewItem)
   const plate = plateItem?.fp ?? null;
   // 通道数已知的画面输出口（`image.3`），或尚无法确定通道数的输出口（`image`：「读取序列」在选择文件并读取后才确定其层）
   const plateUpstream = upstream(node.id, s.edges).slice(1).some((up) => outputsOf(s, up).some((p) => p.type === "image" || isPlate(p.type)));
-  const plateLabel = "原图"; // 左侧始终为原图，名称固定为「原图」
+  const plateLabel = t("ui.view.plate"); // 左侧始终为原图，名称固定为「原图」
   const cameraItem = elements.find((it) => it.type === "scene.camera" && it.fp);
   const camera = cameraItem?.fp ?? nearestUpstream(node.id, s, isCamera)?.fp ?? null;
 
@@ -286,13 +322,13 @@ export function displayPlan(s: S, nodeId: string | null, expand?: (it: ViewItem)
       // 透过节点自身相机查看由 3D 舞台的视角下拉负责，2D 舞台不处理。
       !!file || pictures.length || overlays.length || strips.length || values.length || draws2D || plate
         ? null
-        : ["没有 2D 结果", "这个节点没有能在 2D 里看的结果，上游也没有画面"],
+        : [t("ui.view.no_2d_result"), t("ui.view.no_2d_result_why")],
     "3d":
       elements.length || (asPoints.length && (camera || worldPositions))
         ? null
         : asPoints.length
-          ? ["还没配相机", "这张图要配上相机才能放进三维场景（每个像素的距离要沿镜头方向反投影）：接一台相机，或看它的解算节点"]
-          : ["没有三维结果", "这个节点没有三维结果"],
+          ? [t("ui.view.no_camera"), t("ui.view.no_camera_why")]
+          : [t("ui.view.no_3d_result"), t("ui.view.no_3d_result_why")],
   };
   const why: Record<Stage, string | null> = { "2d": missing["2d"]?.[1] ?? null, "3d": missing["3d"]?.[1] ?? null };
   const shortly: Record<Stage, string | null> = { "2d": missing["2d"]?.[0] ?? null, "3d": missing["3d"]?.[0] ?? null };
@@ -302,17 +338,23 @@ export function displayPlan(s: S, nodeId: string | null, expand?: (it: ViewItem)
   // 自己的预览标签：这类节点自己的标签是「仅原图」（服务器 default_preview：没有画面输出），照它就只看得到原图、看不到结果
   const lead = items.find((it) => !it.context && it.nodeId !== node.id);
   const tag = (lead && s.nodeDefs[s.nodes.find((n) => n.id === lead.nodeId)?.data.typeId ?? ""]?.preview) || def.preview;
-  const preview: Mode = tag === "compute" ? "over" : tag === "scene" ? "plate" : tag;
+  // 卡片的结果视图（collected）收到了画面或叠加物（抠像、遮罩、跟踪点）：按「运算」看——原图上叠着结果，和点「计算遮罩」
+  // 一样；收来的第一项（lead）可能是只带原图标签的（摄影机、原图本身），照它就只看得到原图
+  const collected2d = collected && (pictures.some((it) => it.fp) || overlays.some((it) => it.fp));
+  const preview: Mode = collected2d || tag === "compute" ? "over" : tag === "scene" ? "plate" : tag;
   // 默认舞台跟着主结果走：主结果是三维数据（in_3d 为 element：场景、点云、相机……）且已经有结果时进三维，即使节点
   // 带二维手柄（「3D 跟踪点」在画面上点要跟的点）——手柄的舞台只决定「二维也可用」（上面 draws2D），不决定默认。
   // 还没有结果时（点还没点、没算过）三维里什么都没有，照标签进二维点点
   const mainIn3d = items.some((it) => !it.context && !!it.fp && it.port === mainPort && it.nodeId === node.id && role(it)?.in_3d === "element");
-  const preferred: Stage = tag === "scene" || mainIn3d ? "3d" : "2d";
+  // 结果视图：收来的只有三维结果（摄影机、点云、人、角色）时进三维，有画面或叠加物（深度层、跟踪点）时进二维
+  const collectedStage: Stage | null = !collected ? null
+    : elements.some((it) => it.fp) && !pictures.some((it) => it.fp) && !overlays.some((it) => it.fp) ? "3d" : "2d";
+  const preferred: Stage = collectedStage ?? (tag === "scene" || mainIn3d ? "3d" : "2d");
   const defaultStage: Stage = why[preferred] === null ? preferred : why[preferred === "2d" ? "3d" : "2d"] === null ? (preferred === "2d" ? "3d" : "2d") : preferred;
   const frames = items.find((it) => it.fp && !it.context)?.fp ?? items.find((it) => it.fp)?.fp ?? plate;
   const sourceKey = sourceKeyOf(items, plateItem, originals);
   const stale = items.some((it) => !it.context && it.stale);
-  return { node, def, mainPort, file, filePort, items, stale, pictures, handleInput, overlays, elements, pointMaps, strips, values, overlaysOn, plate, plateUpstream, plateItem, plateLabel, camera, handles, preview, defaultStage, why, shortly, frames, emptyList, originals, sourceKey };
+  return { node, def, mainPort, file, filePort, items, stale, pictures, handleInput, overlays, elements, pointMaps, strips, values, overlaysOn, plate, plateUpstream, plateItem, plateLabel, camera, handles, preview, defaultStage, why, shortly, frames, emptyList, originals, sourceKey, collected };
 }
 
 /** 当前显示节点的显示计划，在图、结果或目录变化时重新计算。
@@ -327,13 +369,17 @@ export function useDisplayPlan(): DisplayPlan | null {
   // 本机是否持有该节点的画面（使用者在当前标签页中选择的文件）：它决定 2D 档位是否有内容，
   // 因此需要纳入显示计划（原因见上方 `missing["2d"]` 部分）。
   const localPicture = useLocalPicture(displayId);
+  const lang = useLang((s) => s.lang);
+  const collect = useLang((s) => s.phrasing === "app"); // 应用模式的结果视图（displayPlan `collect`）
+  const exposed = useCookInputs((s) => s.exposed); // 结果视图里各项按卡片上的名字说（displayPlan `nameOf`）
+  const nameOf = useMemo(() => (id: string) => cardNameOf(exposed, id), [exposed]);
   // 各点云数据声明的坐标系（meta.space）：只用来判断要不要相机，不影响哪些数据算点云——所以按上一次算出的 pointMaps
   // 去读，读到了再算一遍（不为拿 pointMaps 另算一遍整张计划）
   const [pointFps, setPointFps] = useState<string[]>([]);
   const spaces = usePointSpaces(pointFps);
   const plain = useMemo(
-    () => displayPlan(snap, displayId, undefined, false, (fp) => spaces[fp] ?? null, "", localPicture),
-    [snap, displayId, spaces, localPicture],
+    () => displayPlan(snap, displayId, undefined, false, (fp) => spaces[fp] ?? null, "", localPicture, collect, nameOf),
+    [snap, displayId, spaces, localPicture, lang, collect, nameOf], // eslint-disable-line react-hooks/exhaustive-deps -- lang: the plan holds words
   );
   const fpsNow = (plain?.pointMaps ?? []).flatMap((it) => (it.fp ? [it.fp] : []));
   useEffect(() => {
@@ -373,8 +419,8 @@ export function useDisplayPlan(): DisplayPlan | null {
       // 名称仍使用该输出口的名称：叠加显示开关和画面下拉均按输出口计一项，各元素的区分已在画面上标注（1 号、2 号），不依赖名称。
       return inside.map((one) => ({ ...it, key: `${it.key}#${one.name}`, type: elementOf(it.type), fp: one.packet }));
     };
-    return displayPlan(snap, displayId, expand, emptyList, (fp) => spaces[fp] ?? null, originals, localPicture);
-  }, [plain, listFps, parts, originals, snap, displayId, spaces, localPicture]);  // 依赖列表必须包含结果所依赖的全部输入
+    return displayPlan(snap, displayId, expand, emptyList, (fp) => spaces[fp] ?? null, originals, localPicture, collect, nameOf);
+  }, [plain, listFps, parts, originals, snap, displayId, spaces, localPicture, collect, nameOf]);  // 依赖列表必须包含结果所依赖的全部输入
 }
 
 /** 每个列表自身的包说明（`meta.items`）：所含元素及其对应的包，不传输任何数据字节。

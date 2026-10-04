@@ -4,12 +4,23 @@
    The build gives each file a hashed name under /assets and the server hands it out at the level of the code that asked
    for it (lab2shot/server/access.py): these come with the login page, so anyone gets them. */
 
+/* Vertical metrics. The Latin face sets every line box (its ascent and descent), while Chinese is drawn by the system's
+   fallback face on the same baseline. Chromium rounds the face's ascent and descent to whole pixels on their own
+   (Geist's 1.005 / 0.295 em: at 13 px 13.07 -> 13 and 3.84 -> 4), so the baseline lands on a half pixel and is
+   rounded upwards: measured with Microsoft YaHei UI, Chinese in a 28 px control sat 0.5–1.6 px high at 11–14 px and
+   100–200 % display scale. 104 % / 27 % keeps the line 1.31 em tall (was 1.30) and puts Chinese and Latin text at the
+   centre or up to half a pixel low across those sizes and scales; every control is centred by its own flex box
+   with no per-control padding. */
+
 @font-face {
   font-family: "Geist";
   src: url("../fonts/Geist-Regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
+  ascent-override: 104%;
+  descent-override: 27%;
+  line-gap-override: 0%;
 }
 
 @font-face {
@@ -18,6 +29,9 @@
   font-weight: 500;
   font-style: normal;
   font-display: swap;
+  ascent-override: 104%;
+  descent-override: 27%;
+  line-gap-override: 0%;
 }
 
 @font-face {
@@ -26,6 +40,9 @@
   font-weight: 600;
   font-style: normal;
   font-display: swap;
+  ascent-override: 104%;
+  descent-override: 27%;
+  line-gap-override: 0%;
 }
 
 @font-face {
@@ -34,6 +51,9 @@
   font-weight: 400;
   font-style: normal;
   font-display: swap;
+  ascent-override: 104%;
+  descent-override: 27%;
+  line-gap-override: 0%;
 }
 
 @font-face {
@@ -42,4 +62,7 @@
   font-weight: 500;
   font-style: normal;
   font-display: swap;
+  ascent-override: 104%;
+  descent-override: 27%;
+  line-gap-override: 0%;
 }

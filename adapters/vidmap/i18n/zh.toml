@@ -1,0 +1,39 @@
+# VidMap 扩展自己的界面字和消息（中文）。
+
+"E-VIDMAP-UNDECLARED" = "VidMap 运行时要加载一个扩展包没有声明的模型（{model}）：扩展包和 VidMap 版本对不上，这次没有计算。管理员重新执行 lab2shot ext install vidmap"
+"E-VIDMAP-FEWCAMERAS.other" = "VidMap 在 {frames} 帧里只注册上 {registered} 台摄影机，至少要两台才有摄影机运动：镜头可能几乎不动、画面太暗或太糊。试试填「已知焦距」、调小「隔帧」，或换一段有视差的镜头"
+
+[node."vidmap.camera_solve"]
+subtitle = "摄影机解算"
+description = "用视频时间结构、RoMa v2/ALIKED 学习匹配和 Depth Anything 3 深度先验，运行官方 COLMAP 全局建图。交付已注册帧的完整镜头内参、摄影机轨迹和稀疏点云；未注册帧由公共摄影机工具插值并提示。尺度按显式参数换算，可选上游的平滑轨迹配置。"
+official.note = "官方前端 run_local_frontend 与 reconstruct 输出 COLMAP Reconstruction：已注册 image 的 cam_from_world/camera 内参与 points3D；只输出真正注册的位姿，摄影机其余帧由公共家族插值。"
+licence.note = "包含非商用 Depth Anything 3 Giant 模型权重；其它代码和模型权重许可见扩展说明。"
+cost.note = "RoMa v2/Depth Anything 3/MegaLoc 前端分阶段占用；KITTI 120 帧峰值 24.4 GB，系统内存 20–23 GB"
+
+[node."vidmap.camera_solve".param.step]
+label = "隔帧"
+
+[node."vidmap.camera_solve".param.smooth]
+label = "平滑轨迹"
+
+[node."vidmap.camera_solve".port.camera]
+label = "摄影机"
+
+[node."vidmap.camera_solve".port.points]
+label = "点云"
+
+[extension.vidmap]
+summary = "利用视频时间结构和学习匹配，结合 COLMAP 全局求解摄影机与稀疏点云"
+license.name = "VidMap BSD-3-Clause；Depth Anything 3 Giant CC-BY-NC-4.0"
+license.summary = "代码许可和各模型标签沿现有机制展示；包含非商用 Depth Anything 3 Giant 模型权重。"
+weight.da3.note = "Depth Anything 3 Giant 米制先验，非商用"
+weight.da3-config.note = "Depth Anything 3 Giant 配置"
+weight.geocalib.note = "GeoCalib 镜头估计"
+weight.roma.note = "RoMa v2 匹配"
+weight.aliked.note = "ALIKED 特征"
+weight.megaloc.note = "MegaLoc 回环检索"
+
+# ---- worker 的计算阶段（worker.py run.stage）
+[stage]
+frontend = "视频特征、匹配与深度先验"
+global_mapping = "全局建图与束调整"

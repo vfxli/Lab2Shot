@@ -12,7 +12,7 @@ import { workerAnswers } from "../platform/work";
 
 type SceneAsk =
   | { chunk: Uint8Array } // a chunk's bytes as they came
-  | { grid: { depth: Float32Array; gw: number; step: number; width: number; height: number; focal: number; cam: Float32Array; principal: Float32Array | null } }
+  | { grid: { depth: Float32Array; gw: number; step: number; width: number; height: number; focal: number; cam: Float32Array; principal: Float32Array | null; aspect: number } }
   | { bounds: { points: Float32Array } }; // a still cloud's points
 
 export interface ChunkAnswer {
@@ -33,7 +33,7 @@ workerAnswers<SceneAsk>((ask) => {
   }
   if ("grid" in ask) {
     const g = ask.grid;
-    const points = gridPoints(g.depth, g.gw, g.step, g.width, g.height, g.focal, g.cam, g.principal);
+    const points = gridPoints(g.depth, g.gw, g.step, g.width, g.height, g.focal, g.cam, g.principal, g.aspect);
     return { points, bounds: spanBounds(points, 0, points.length / 3, 3) };
   }
   const points = ask.bounds.points;

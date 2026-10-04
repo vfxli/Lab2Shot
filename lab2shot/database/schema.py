@@ -40,7 +40,7 @@ BASELINE_SQL = """
     CREATE UNIQUE INDEX users_username ON users (username) WHERE deleted IS NULL;
     -- the built-in administrator
     INSERT INTO users (id, username, hash, name, department, tags, expires, enabled, created, password_set, password_by, role)
-        VALUES (1, 'admin', '', '管理员', '', '[]', NULL, 1, unixepoch('subsec'), NULL, '未设', 'admin');
+        VALUES (1, 'admin', '', 'Administrator', '', '[]', NULL, 1, unixepoch('subsec'), NULL, '', 'admin');
     CREATE TABLE sessions (               -- a browser's cookie or a client's token, as its sha256
         token TEXT PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -59,7 +59,7 @@ BASELINE_SQL = """
     );
     CREATE INDEX sessions_user ON sessions (user_id);
     CREATE INDEX sessions_replaced ON sessions (replaced_at);
-    CREATE TABLE login_log (              -- every attempt (lab2shot/accounts.py log_login), for 最近登录
+    CREATE TABLE login_log (              -- every attempt (lab2shot/accounts.py log_login), for Recent Logins
         id INTEGER PRIMARY KEY,
         at REAL NOT NULL,
         username TEXT NOT NULL,           -- as typed (a wrong username never says whether it exists back to the caller)
@@ -85,18 +85,18 @@ BASELINE_SQL = """
         params TEXT NOT NULL,             -- JSON: the message's parameters, as the catalogue renders the line
         method TEXT NOT NULL,             -- the request it came from ('' none: a command line action)
         path TEXT NOT NULL,
-        status TEXT NOT NULL              -- 成功 / 拒绝 (the message's own level says which)
+        status TEXT NOT NULL              -- the outcome (the message's own level says which)
     );
     CREATE INDEX admin_actions_user ON admin_actions (user_id, at);
-    CREATE TABLE role_rights (            -- 一级管理员分配给一个角色的能力（现在只有 deputy 会有行）
-        role TEXT PRIMARY KEY,            -- lab2shot/roles.py ASSIGNABLE；管理员永远全部、普通用户永远没有，都不在这里
-        capabilities TEXT NOT NULL,       -- JSON 名字数组（roles.py CAPABILITIES 里的名字）
-        updated REAL NOT NULL,            -- 最近一次分配的时间（权限的缓存跟着它走）
-        updated_by TEXT NOT NULL          -- 谁分配的（当时的名字）；完整留底在 admin_actions
+    CREATE TABLE role_rights (            -- the capabilities an administrator gave a role (only deputy has a row now)
+        role TEXT PRIMARY KEY,            -- lab2shot/roles.py ASSIGNABLE; admin always has all and user none: neither is here
+        capabilities TEXT NOT NULL,       -- JSON array of names (those of roles.py CAPABILITIES)
+        updated REAL NOT NULL,            -- when it was last assigned (the rights' cache follows it)
+        updated_by TEXT NOT NULL          -- who assigned it (their name then); the full record is in admin_actions
     );
-    CREATE TABLE traffic (                -- 这个账号哪一天发出去了多少字节（server/traffic.py）
+    CREATE TABLE traffic (                -- how many bytes this account was sent on which day (server/traffic.py)
         user_id INTEGER NOT NULL,
-        day TEXT NOT NULL,                -- 本地日期 YYYY-MM-DD
+        day TEXT NOT NULL,                -- local date YYYY-MM-DD
         bytes INTEGER NOT NULL,
         PRIMARY KEY (user_id, day)
     );
@@ -144,9 +144,9 @@ BASELINE_SQL = """
         seconds REAL NOT NULL
     );
 
-    -- tasks: a compute request a user submitted, with its folder (transfer/tasks.py); kept 任务保留天数 after it ends
+    -- tasks: a compute request a user submitted, with its folder (transfer/tasks.py); kept tasks.keep_days after it ends
     CREATE TABLE tasks (
-        id TEXT PRIMARY KEY,              -- the job's id: the folder's name <数据位置>/tasks/<id>
+        id TEXT PRIMARY KEY,              -- the job's id: the folder's name <data location>/tasks/<id>
         user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
         created REAL NOT NULL,
         ended REAL,                       -- NULL while it is queued or running
@@ -206,17 +206,17 @@ BASELINE_SQL = """
     CREATE INDEX feedback_user ON feedback (user_id);
 """
 
-# 自行注册（lab2shot/registration.py）：邀请码，以及每个自己注册的账号是怎么来的。注册出来的账号本身和管理员建的
+# 自行注册（lab2shot/site/registration.py）：邀请码，以及每个自己注册的账号是怎么来的。注册出来的账号本身和管理员建的
 # 一样，就在 users 里；这里只多记来路，给邀请码的「谁用它注册了」、全站和按 IP / 网段的注册上限、按邀请码或时间段
 # 批量停用用。
 REGISTRATION_SQL = """
     CREATE TABLE invites (
         id INTEGER PRIMARY KEY,
-        code TEXT NOT NULL,               -- the code as it is handed out (the 邀请码 page shows and copies it)
+        code TEXT NOT NULL,               -- the code as it is handed out (the invite codes page shows and copies it)
         code_hash TEXT NOT NULL,          -- sha256 of registration.normal_code(code): what a typed code is looked up by
         hint TEXT NOT NULL,               -- its first characters: all that logs and audit lines ever name it by
-        note TEXT NOT NULL,               -- 备注: plain text (text.py plain_text), data only
-        uses_max INTEGER,                 -- 可用次数; NULL: no limit
+        note TEXT NOT NULL,               -- the note: plain text (text.py plain_text), data only
+        uses_max INTEGER,                 -- how many uses; NULL: no limit
         used INTEGER NOT NULL DEFAULT 0,  -- registrations made with it (claimed in the same transaction as the account)
         expires REAL,                     -- NULL: never
         enabled INTEGER NOT NULL,
@@ -246,8 +246,8 @@ TERMS_SQL = """
         at REAL NOT NULL,                 -- when it came into effect
         by TEXT NOT NULL,                 -- who saved it (their name then); '' for the text that comes with the program
         digest TEXT NOT NULL,             -- sha256 of the two texts: how a change is noticed
-        agreement TEXT NOT NULL,          -- 用户协议, as written (placeholders not filled in)
-        privacy TEXT NOT NULL             -- 隐私政策, the same
+        agreement TEXT NOT NULL,          -- the Terms of Service, as written (placeholders not filled in)
+        privacy TEXT NOT NULL             -- the Privacy Policy, the same
     );
     CREATE TABLE terms_agreed (           -- an account agreed to a version: at registering, or at a login after a change
         user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -266,7 +266,7 @@ RECENT_SQL = """
     CREATE INDEX feedback_status ON feedback (status);
 """
 
-# 按模板统计（farm/usage.py templates）：任务是从哪张模板打开的节点图提交的。template 是模板的 id（lab2shot/library.py
+# 按模板统计（farm/usage.py templates）：任务是从哪张模板打开的节点图提交的。template 是模板的 id（lab2shot/site/library.py
 # card_id），"" 是自己搭的节点图；template_name 是提交时模板的名字，模板删掉以后按它显示。这一版之前提交的任务两列都是
 # NULL：不补，也不计入。按账号、按时间段统计时走已有的 jobs_user、jobs_submitted 两个索引，不另加索引。
 TEMPLATES_SQL = """
@@ -307,27 +307,27 @@ ACTORS_SQL = """
 # 不误改别人）。管理操作记录加上重复次数和最后一次的时间：同一个人在同一处被同样拒绝，记在一行上（access.py audit）。
 ACTOR_IDS_SQL = """
     UPDATE invites SET created_by_id = (SELECT id FROM (
-        SELECT id, 1 AS k FROM users WHERE name || '（' || username || '）' = invites.created_by
+        SELECT id, 1 AS k FROM users WHERE name || char(65288) || username || char(65289) = invites.created_by
         UNION ALL SELECT id, 2 FROM users WHERE username = invites.created_by
         UNION ALL SELECT MIN(id), 3 FROM users WHERE name = invites.created_by HAVING COUNT(*) = 1) ORDER BY k LIMIT 1) WHERE created_by_id IS NULL;
     UPDATE role_rights SET updated_by_id = (SELECT id FROM (
-        SELECT id, 1 AS k FROM users WHERE name || '（' || username || '）' = role_rights.updated_by
+        SELECT id, 1 AS k FROM users WHERE name || char(65288) || username || char(65289) = role_rights.updated_by
         UNION ALL SELECT id, 2 FROM users WHERE username = role_rights.updated_by
         UNION ALL SELECT MIN(id), 3 FROM users WHERE name = role_rights.updated_by HAVING COUNT(*) = 1) ORDER BY k LIMIT 1) WHERE updated_by_id IS NULL;
     UPDATE terms_versions SET by_id = (SELECT id FROM (
-        SELECT id, 1 AS k FROM users WHERE name || '（' || username || '）' = terms_versions.by
+        SELECT id, 1 AS k FROM users WHERE name || char(65288) || username || char(65289) = terms_versions.by
         UNION ALL SELECT id, 2 FROM users WHERE username = terms_versions.by
         UNION ALL SELECT MIN(id), 3 FROM users WHERE name = terms_versions.by HAVING COUNT(*) = 1) ORDER BY k LIMIT 1) WHERE by_id IS NULL;
     UPDATE feedback SET updated_by_id = (SELECT id FROM (
-        SELECT id, 1 AS k FROM users WHERE name || '（' || username || '）' = feedback.updated_by
+        SELECT id, 1 AS k FROM users WHERE name || char(65288) || username || char(65289) = feedback.updated_by
         UNION ALL SELECT id, 2 FROM users WHERE username = feedback.updated_by
         UNION ALL SELECT MIN(id), 3 FROM users WHERE name = feedback.updated_by HAVING COUNT(*) = 1) ORDER BY k LIMIT 1) WHERE updated_by_id IS NULL;
     UPDATE feedback SET replied_by_id = (SELECT id FROM (
-        SELECT id, 1 AS k FROM users WHERE name || '（' || username || '）' = feedback.replied_by
+        SELECT id, 1 AS k FROM users WHERE name || char(65288) || username || char(65289) = feedback.replied_by
         UNION ALL SELECT id, 2 FROM users WHERE username = feedback.replied_by
         UNION ALL SELECT MIN(id), 3 FROM users WHERE name = feedback.replied_by HAVING COUNT(*) = 1) ORDER BY k LIMIT 1) WHERE replied_by_id IS NULL;
     UPDATE meta SET value = json_set(value, '$.by_id', (SELECT id FROM (
-        SELECT id, 1 AS k FROM users WHERE name || '（' || username || '）' = json_extract(meta.value, '$.by')
+        SELECT id, 1 AS k FROM users WHERE name || char(65288) || username || char(65289) = json_extract(meta.value, '$.by')
         UNION ALL SELECT id, 2 FROM users WHERE username = json_extract(meta.value, '$.by')
         UNION ALL SELECT MIN(id), 3 FROM users WHERE name = json_extract(meta.value, '$.by') HAVING COUNT(*) = 1) ORDER BY k LIMIT 1))
         WHERE key = 'server.notice' AND json_valid(value) AND json_extract(value, '$.by_id') IS NULL;
@@ -344,17 +344,131 @@ TARGETS_SQL = """
         WHERE json_valid(params);
 """
 
+# 内嵌窗口的登录（kind 'embedded'，lab2shot/accounts.py start_embedded）挂在发起它的插件登录（kind 'client'）下：
+# parent 是那个插件登录的 token 列（它的 sha256），父登录退出、被顶、过期，它一起失效。别的登录的 parent 是空串。
+EMBEDDED_SQL = """
+    ALTER TABLE sessions ADD COLUMN parent TEXT NOT NULL DEFAULT '';
+    CREATE INDEX sessions_parent ON sessions (parent) WHERE parent != '';
+"""
+
+# 有效反馈奖励（lab2shot/site/feedback.py rate）：每条反馈多一个评定（'' 未评定 / valid 有效 / invalid 无效），和处理状态
+# 分开；谁、何时评的（名字和账号 id，永久删除按 id 改名字）。reward：这条有效反馈算进了账本里哪一次发放（NULL：还没
+# 凑满，或不是有效）。feedback_rewards 是账本：每次发放一行（grant），每次撤销一行（revoke，undoes 指向被撤的那次
+# 发放，发放行的 undone 指回来）；天数、原到期、新到期都按当时记下，设置以后怎么改都不追溯。
+REWARDS_SQL = """
+    ALTER TABLE feedback ADD COLUMN rating TEXT NOT NULL DEFAULT '';
+    ALTER TABLE feedback ADD COLUMN rated REAL;
+    ALTER TABLE feedback ADD COLUMN rated_by TEXT NOT NULL DEFAULT '';
+    ALTER TABLE feedback ADD COLUMN rated_by_id INTEGER;
+    ALTER TABLE feedback ADD COLUMN reward INTEGER;
+    CREATE INDEX feedback_rating ON feedback (user_id, rating);
+    CREATE TABLE feedback_rewards (
+        id INTEGER PRIMARY KEY,
+        at REAL NOT NULL,
+        user_id INTEGER REFERENCES users (id),
+        kind TEXT NOT NULL,               -- grant / revoke
+        feedback TEXT NOT NULL,           -- JSON: the feedback ids it is for
+        per INTEGER NOT NULL,             -- the setting's count then (feedback.reward_count)
+        days REAL NOT NULL,               -- grant: the days it gave; revoke: the days it took back
+        old_expires REAL,                 -- the account's expiry before (NULL: never expires)
+        new_expires REAL,                 -- and after
+        applied INTEGER NOT NULL,         -- 1: the expiry changed; 0: only recorded (never expires, deleted, 0 days)
+        undoes INTEGER,                   -- revoke: the grant it takes back
+        undone INTEGER,                   -- grant: the revoke that took it back
+        by TEXT NOT NULL,
+        by_id INTEGER
+    );
+    CREATE INDEX feedback_rewards_user ON feedback_rewards (user_id, at);
+"""
+
+# The language an account chose (lab2shot/i18n LANGS, server/lang.py); empty: none yet, the browser's (cookie, Accept-Language).
+LANG_SQL = """
+    ALTER TABLE users ADD COLUMN lang TEXT NOT NULL DEFAULT '';
+"""
+
+# The Terms of Service and Privacy Policy in every interface language (lab2shot/terms): one version number still covers
+# both texts, now in every language (a change in any of them is the next version); a version keeps one row per language,
+# and an account's agreement records the language it read and agreed in. The texts kept so far were Chinese. The two
+# tables are rebuilt (a primary key does not change in place); with foreign keys on, the new ones are filled before the
+# old ones go, the agreements' first, and renaming the versions' table renames what the agreements refer to.
+TERMS_LANG_SQL = """
+    CREATE TABLE terms_versions_new (     -- one row per version and language, as the texts were then (never changed)
+        version INTEGER NOT NULL,         -- 1, 2, ...: a new one whenever the texts in effect change, in any language
+        lang TEXT NOT NULL,               -- lab2shot/i18n LANGS
+        at REAL NOT NULL,                 -- when it came into effect
+        by TEXT NOT NULL,                 -- who saved it (their name then); '' for the text that comes with the program
+        by_id INTEGER,                    -- their account (accounts.py Actor)
+        digest TEXT NOT NULL,             -- sha256 of every text of every language: how a change is noticed
+        agreement TEXT NOT NULL,          -- the Terms of Service in this language, as written (placeholders not filled in)
+        privacy TEXT NOT NULL,            -- the Privacy Policy, the same
+        PRIMARY KEY (version, lang)
+    ) WITHOUT ROWID;
+    INSERT INTO terms_versions_new (version, lang, at, by, by_id, digest, agreement, privacy)
+        SELECT version, 'zh', at, by, by_id, digest, agreement, privacy FROM terms_versions;
+    CREATE TABLE terms_agreed_new (       -- an account agreed to a version, reading it in one language
+        user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+        version INTEGER NOT NULL,
+        lang TEXT NOT NULL,
+        at REAL NOT NULL,
+        ip TEXT NOT NULL,                 -- the client's address then (server/auth.py client_source)
+        PRIMARY KEY (user_id, version),
+        FOREIGN KEY (version, lang) REFERENCES terms_versions_new (version, lang)
+    ) WITHOUT ROWID;
+    INSERT INTO terms_agreed_new (user_id, version, lang, at, ip) SELECT user_id, version, 'zh', at, ip FROM terms_agreed;
+    DROP TABLE terms_agreed;
+    DROP TABLE terms_versions;
+    ALTER TABLE terms_versions_new RENAME TO terms_versions;
+    ALTER TABLE terms_agreed_new RENAME TO terms_agreed;
+"""
+
+# A task group's automatic name as what it is, said in whoever's language reads it (transfer/groups.py said): the graph's
+# name as written (a built-in template's {"zh", "en"}) or the footage's, and how many uploads it reads; group_name keeps
+# it as it was said when the task came (one language), for a row written before this.
+GROUP_SAID_SQL = """
+    ALTER TABLE tasks ADD COLUMN group_said TEXT NOT NULL DEFAULT '';  -- JSON {"name": text or {"zh", "en"}, "count": n}; '' none
+"""
+
+# The factory departments (setting people.departments) are ids with their words in the catalogue (department.<id>,
+# lab2shot/accounts.py department_label), no longer Chinese names: an account given one of the old factory names
+# (department_ids.json beside this file: the old name -> its id, data as it was stored) gets its id. One an
+# administrator added stays as written (user data).
+def _department_ids_sql() -> str:
+    import json
+    from pathlib import Path
+
+    old = json.loads((Path(__file__).with_name("department_ids.json")).read_text(encoding="utf-8"))
+    quote = lambda v: "'" + v.replace("'", "''") + "'"  # noqa: E731
+    cases = " ".join(f"WHEN {quote(k)} THEN {quote(v)}" for k, v in old.items())
+    return f"UPDATE users SET department = CASE department {cases} ELSE department END " \
+           f"WHERE department IN ({', '.join(quote(k) for k in old)});"
+
+
+DEPARTMENT_IDS_SQL = _department_ids_sql()
+
+# 队列优先 (Queue priority): an account whose tasks, once submitted, wait ahead of every other account's waiting task
+# (farm/queue.py in_order). Off for every account; only the administrator's 用户 page shows and changes it.
+QUEUE_FIRST_SQL = """
+    ALTER TABLE users ADD COLUMN queue_first INTEGER NOT NULL DEFAULT 0;  -- 1: Queue priority (accounts.queue_first)
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
-    ("基线：账号与登录、任务（每个任务一个文件夹）与任务分组、任务↔缓存、任务↔素材、用时与使用统计、许可协议记录、用户反馈", BASELINE_SQL),
-    ("自行注册：邀请码，和每个自己注册的账号的来路", REGISTRATION_SQL),
-    ("用户协议与隐私政策：每一版的原文，和每个账号同意了哪一版", TERMS_SQL),
-    ("概览统计用的索引：任务按提交时间、流量按日期、反馈按状态", RECENT_SQL),
-    ("按模板统计：任务记下是从哪张模板提交的", TEMPLATES_SQL),
-    ("去掉按模板统计：任务不再记模板", NO_TEMPLATES_SQL),
-    ("节点用时：按节点类型查的索引，每种节点只留最新的 200 条", TIMINGS_SQL),
-    ("记录里谁做的也记账号 id；许可同意记账号 id", ACTORS_SQL),
-    ("旧行按名字补上账号 id；管理操作记录记重复次数", ACTOR_IDS_SQL),
-    ("管理操作记录记下对谁做的账号 id", TARGETS_SQL),
+    ("baseline: accounts and logins, tasks (a folder each) and task groups, task-cache, task-uploads, timings and usage statistics, licence consents, user feedback", BASELINE_SQL),
+    ("self-registration: invite codes, and where each self-registered account came from", REGISTRATION_SQL),
+    ("Terms of Service and Privacy Policy: every version's text, and which version each account agreed to", TERMS_SQL),
+    ("indexes for the overview: jobs by submission time, traffic by date, feedback by status", RECENT_SQL),
+    ("statistics by template: a job records which template it was submitted from", TEMPLATES_SQL),
+    ("statistics by template removed: jobs no longer record a template", NO_TEMPLATES_SQL),
+    ("node timings: an index by node type, only the latest 200 per node type kept", TIMINGS_SQL),
+    ("records keep the account id of who did it; licence consents keep the account id", ACTORS_SQL),
+    ("older rows get their account id from the name; admin actions count repeats", ACTOR_IDS_SQL),
+    ("admin actions keep the account id of whom they were about", TARGETS_SQL),
+    ("an embedded window's login hangs under the plug-in login that opened it (sessions.parent)", EMBEDDED_SQL),
+    ("feedback rewards: feedback ratings, and the ledger of each reward and its withdrawal", REWARDS_SQL),
+    ("users.lang: the language each account chose for its interface", LANG_SQL),
+    ("terms in every language: terms_versions one row per version and language, terms_agreed the language agreed in", TERMS_LANG_SQL),
+    ("task groups keep their automatic name as what it is (tasks.group_said), said in the reader's language", GROUP_SAID_SQL),
+    ("departments by id: an account given a factory department's old Chinese name gets its id (words: department.<id>)", DEPARTMENT_IDS_SQL),
+    ("users.queue_first: Queue priority, an account whose waiting tasks start before everyone else's (off by default)", QUEUE_FIRST_SQL),
 ]
 
 FIRST = 1  # the version the baseline makes

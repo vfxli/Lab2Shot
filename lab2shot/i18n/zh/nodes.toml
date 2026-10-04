@@ -1,0 +1,2929 @@
+# 节点的词（P1-A）：节点名与说明、参数、端口、分组、计算阶段……键见 lab2shot/i18n/__init__.py。
+# 共享键（param.* / port.* / option.* / group.* / stage.* / button.*）只在这里定义；扩展自己的写在 adapters/<名>/i18n/。
+
+# ---- 共享键与通用词
+
+[param.path]
+label = "文件"
+
+[param.camera]
+label = "摄影机"
+
+[param.models]
+label = "几何体"
+
+[param.points]
+label = "点云"
+
+[param.curves]
+label = "三维曲线"
+
+[param.unit]
+label = "单位"
+
+[param.up]
+label = "上轴"
+
+[param.up.option]
+y = "Y 轴向上"
+z = "Z 轴向上"
+
+[param.width]
+label = "画面宽度"
+
+[port.camera]
+label = "摄影机"
+
+[port.models]
+label = "几何体"
+
+[port.points]
+label = "点云"
+
+[port.curves]
+label = "三维曲线"
+waits = "选一个三维曲线"
+
+[port.fps]
+label = "帧速率"
+
+[param.name]
+label = "名字"
+
+[param.fps]
+label = "帧速率"
+
+[port.scene]
+label = "场景"
+
+[port.files]
+label = "文件"
+
+[param.query_frame]
+label = "参考帧"
+placeholder = "第一帧"
+
+[param.picks]
+label = "手动点"
+
+[port.image]
+label = "RGB"
+
+[port.stmap]
+label = "ST 贴图"
+
+[port.confidence]
+label = "置信度"
+
+[port.tracks]
+label = "2D 跟踪点"
+
+[param.filmback_mm]
+label = "胶片背"
+
+[port.focal]
+label = "焦距"
+
+[port.filmback]
+label = "胶片背"
+help = "节点上填的「胶片背」原样交出去：焦距是按它换算成毫米的，下游（「LensDistortion」「创建摄影机」）接这一根就不用再填一遍，两边永远是同一个数"
+
+[port.lens]
+label = "镜头内参"
+
+[port.character]
+label = "蒙皮角色"
+
+[port.model]
+label = "几何体"
+
+[port.mask]
+label = "遮罩"
+
+[port.alpha]
+label = "Alpha"
+
+[port.skeleton]
+label = "骨架动画"
+
+[param.format]
+label = "格式"
+
+[param.format.option]
+json = "JSON"
+csv = "CSV"
+tracker = "Tracker"
+
+[param.origin]
+label = "坐标原点"
+
+[param.origin.option]
+top_left = "左上"
+bottom_left = "左下"
+
+[port.boxes]
+label = "人物框"
+
+[param.skeletons]
+label = "骨架动画"
+
+[port.skeletons]
+label = "骨架动画"
+
+[param.focal_mm]
+label = "已知焦距"
+
+[param.center_x_mm]
+label = "主点 X"
+
+[param.center_y_mm]
+label = "主点 Y"
+
+[param.rotate]
+label = "旋转"
+
+[param.height]
+label = "画面高度"
+
+[param.step]
+label = "隔帧"
+
+[param.operation]
+label = "运算"
+
+[port.value]
+label = "值"
+
+[param.first]
+label = "开始帧"
+
+[param.mode]
+label = "方式"
+
+[param.unit.option]
+"" = "无"
+mm = "mm"
+px = "px"
+"°" = "°"
+frame = "帧"
+s = "秒"
+fps = "fps"
+EV = "EV"
+
+[param.point_step]
+label = "点云间隔"
+
+[param.point_size]
+label = "点的大小"
+
+[param.conf_threshold]
+label = "置信度门槛"
+
+[port.depth]
+label = "深度贴图"
+
+[port.data]
+label = "数据"
+
+[port.count]
+label = "条数"
+
+[port.text]
+label = "文字"
+
+[port.normal]
+label = "法线贴图"
+
+[port.sketch]
+label = "草图"
+
+[param.exr_bit_depth]
+label = "位深"
+
+[param.exr_bit_depth.option]
+half = "16 位半浮点"
+float = "32 位浮点"
+
+[param.exr_compression]
+label = "压缩"
+
+[param.exr_compression.option]
+none = "无"
+zips = "ZIP 逐行"
+zip = "ZIP 16 行"
+piz = "PIZ"
+pxr24 = "PXR24"
+dwaa = "DWAA"
+dwab = "DWAB"
+
+[param.colorspace]
+label = "颜色空间"
+placeholder = "按格式"
+
+[param.start_frame]
+label = "起始帧号"
+
+[port.video]
+label = "视频"
+
+[param.characters]
+label = "蒙皮角色"
+
+[port.characters]
+label = "蒙皮角色"
+
+[port.list]
+label = "列表"
+
+[param.block]
+label = "块名"
+
+[port.item]
+label = "条目"
+
+[port.gaussians]
+label = "3D 高斯"
+
+[param.skeleton]
+label = "骨骼"
+placeholder = "第一个"
+
+[param.mapping]
+label = "对应关系"
+placeholder = "自动"
+
+[port.target]
+label = "目标"
+
+[port.source]
+label = "源"
+
+[param.ids]
+label = "编号"
+
+[param.soft]
+label = "软边"
+
+[port.expressions]
+label = "表情曲线"
+
+[port.flow]
+label = "运动向量"
+
+[port.src]
+label = "源"
+
+[port.out]
+label = "结果"
+
+[param.space]
+label = "坐标系"
+
+[param.space.option]
+camera = "摄影机"
+world = "世界"
+
+[param.tolerance]
+label = "容差"
+
+[port.uv]
+label = "UV 坐标图"
+
+[param.gaussians]
+label = "3D 高斯"
+
+[port.tracks3d]
+label = "3D 跟踪点"
+
+[port.position]
+label = "位置图"
+
+[param.motion_skeleton]
+label = "动作骨骼"
+placeholder = "第一个"
+
+[param.target_skeleton]
+label = "目标骨骼"
+placeholder = "第一个"
+
+[param.motion_rest]
+label = "动作静止姿势"
+
+[param.motion_rest.option]
+bind = "绑定姿势"
+first = "第一帧"
+frame = "指定帧"
+
+[param.motion_rest_frame]
+label = "动作基准帧"
+placeholder = "帧号"
+
+[param.target_rest]
+label = "目标静止姿势"
+
+[param.target_rest.option]
+bind = "绑定姿势"
+first = "第一帧"
+frame = "指定帧"
+
+[param.target_rest_frame]
+label = "目标基准帧"
+placeholder = "帧号"
+
+[param.motion_pose]
+label = "动作初始姿势"
+
+[param.motion_pose.field.joint]
+label = "关节"
+
+[param.motion_pose.field.translate]
+label = "位移"
+
+[param.motion_pose.field.rotate]
+label = "旋转"
+
+[param.motion_pose.field.scale]
+label = "缩放"
+
+[param.target_pose]
+label = "目标初始姿势"
+
+[param.target_pose.field.joint]
+label = "关节"
+
+[param.target_pose.field.translate]
+label = "位移"
+
+[param.target_pose.field.rotate]
+label = "旋转"
+
+[param.target_pose.field.scale]
+label = "缩放"
+
+[param.height_offset]
+label = "高度偏移"
+
+[port.motion]
+label = "动作"
+
+[port.valid]
+label = "有效区域"
+
+[param.value]
+label = "值"
+
+[param.min_confidence]
+label = "可见门槛"
+placeholder = "模型默认"
+
+[port.plate]
+help = "原图乘 alpha（预乘 RGBA），没有经过边缘解混合，和「前景」走同一条写出和颜色转换。两路都写成 EXR 读进 Nuke，「前景」减「未修正前景」（Merge minus）就是修正量，只在 alpha 0–1 的边缘带不为 0：自己的 plate × alpha 加上 k × 修正量，k 从 0 到 1 控制用多少 AI 的颜色，实心区域一个字节都不碰"
+
+[param.prompt]
+label = "提示词"
+
+[param.negative]
+label = "负向提示词"
+placeholder = "留空：不启用 CFG"
+
+[param.true_cfg]
+label = "CFG 强度"
+
+[param.steps]
+label = "去噪步数"
+
+[param.mode.option]
+text_to_image = "文生图"
+edit_image = "图像编辑"
+reference_images = "多参考图"
+
+[param.aspect]
+label = "比例"
+
+[param.aspect.option]
+"1:1" = "1:1 方形"
+"4:3" = "4:3 横幅"
+"3:4" = "3:4 竖幅"
+"3:2" = "3:2 照相"
+"2:3" = "2:3 照相"
+"16:9" = "16:9 宽银幕"
+"9:16" = "9:16 竖屏"
+
+[param.envmap_width]
+label = "环境图宽度"
+
+[port.hdri]
+label = "HDRI"
+
+[port.basecolor]
+label = "基础色"
+
+[param.least_frames]
+label = "最少解出帧数"
+placeholder = "自动"
+
+[param.static_camera]
+label = "固定机位"
+
+[param.camera_rotate]
+label = "摄影机旋转"
+
+[param.unit_cm]
+label = "尺度"
+
+[param.keys]
+label = "关键帧"
+placeholder = "自动"
+
+[param.exact]
+label = "关键帧精确"
+
+[param.foot_lock]
+label = "脚锁定"
+
+[param.end_frame]
+label = "结束帧号"
+
+[param.warmup]
+label = "开始帧预热次数"
+
+[param.fp16]
+label = "半精度"
+
+[port.foreground]
+label = "前景"
+
+[param.crop]
+label = "裁切"
+
+[param.only_bad]
+label = "只改问题帧"
+
+[param.threshold]
+label = "检测阈值"
+
+[port.contacts]
+label = "脚接触"
+
+[param.resolution_level]
+label = "精度等级"
+
+[param.influences]
+label = "影响骨骼数"
+
+[param.influences.option]
+1 = "1 · 刚性"
+4 = "4 · 常用"
+8 = "8 · 精细"
+
+[param.character]
+label = "角色名"
+placeholder = "按接进来的模型"
+
+[param.bone_names]
+label = "骨骼命名"
+
+[param.bone_names.option]
+standard = "标准名（Maya HumanIK）"
+model = "原始名（模型给的）"
+
+[param.follow_camera]
+label = "逐帧贴合画面"
+
+[port.keypoints]
+label = "2D 关键点"
+
+[port.ref_camera]
+label = "参照摄影机"
+help = "这不是成品摄影机，别交付、别当解算用的摄影机接给别人。它是这一段结果在它自己的世界里配着的那一台：人和实拍对得上就是靠它。把它接进「摄影机空间转换」的「来源摄影机」，你自己那台接「目标摄影机」，那个节点把人搬到你那台摄影机的世界里对上画面。要一台能用的摄影机，从真正解摄影机的节点（ViPE、TRAM）或者「导入 USD」接"
+
+[lens]
+solved_note = "焦距 {focal} mm（胶片背 {filmback} mm，{px} px）"
+
+[confidence.scale]
+probability = "模型给的就是 0–1 的概率"
+exp_plus_one = "模型给的是 1 + exp(x)（不小于 1），换成 1 − 1/c，也就是 x 的 sigmoid"
+exp_error = "模型给的是 exp(预计的深度误差，米)，越大越不可信，换成 1/(1 + c)"
+log_error = "模型给的是预计的对数深度误差（约等于相对误差），越大越不可信，换成 0.01/(0.01 + c)：预计误差 1% 时是 0.5"
+
+[confidence]
+help = "{node}的模型自己估的每个像素有多可信（0–1，越大越可信）。{scale}。只在这个模型的结果之间比高低，和别的模型的置信度不能比；当遮罩用先接 mask_from_confidence"
+flow = "运动向量模型自己估的每个矢量有多可信（0–1，越大越可信；前后两个方向取低的）。只在这个模型的结果之间比高低；当遮罩用先接 mask_from_confidence，要遮挡的地方用 occlusion_from_motion"
+
+[stage]
+write_alpha_foreground = "写出 alpha 和前景"
+write_alpha = "写出 alpha"
+write_hdri = "写出 HDRI"
+write_stmap = "写出 ST 贴图"
+write_people_camera = "写出 USD 人物和摄影机"
+write_aligned_depth = "写出对齐后的深度"
+write_character = "写出蒙皮角色"
+write_motion_vectors = "写出运动向量"
+write_target_animation = "写目标骨架动画"
+write_expressions = "写表情"
+write_skeleton_animation = "写骨架动画"
+motion_to_character = "动作放回人物骨骼"
+rest_pose = "静止姿势"
+depth_to_camera_world = "取深度，放进摄影机的世界"
+project_points = "把点云投到图像上"
+project_uv = "投射 UV"
+project_scene = "投影场景"
+merge_frame_points = "拼接逐帧点云"
+attach_animation = "挂动画"
+swap_motion = "换动作"
+prepare_keyframes = "整理关键帧"
+prepare_motion = "整理动作"
+prepare_mesh = "整理网格"
+prepare_skin = "整理蒙皮"
+prepare_retarget_input = "整理重定目标输入"
+check_hierarchy = "核对层次"
+cleaned_motion_to_character = "清理过的动作放回人物骨骼"
+make_points = "生成点云"
+fuse_tsdf = "融合 TSDF"
+compute_position = "计算位置图"
+compute_normals = "计算法线"
+read_reference_depth = "读取参考深度"
+read_body_model = "读身体模型"
+convert_normals = "转换法线"
+match_joints = "配对关节"
+match_expressions = "配对表情"
+measure_canonical_range = "量出规范坐标的范围"
+write_mask = "写出遮罩"
+write_depth = "写出深度"
+feedforward = "前馈重建"
+loop_closure = "回环闭合"
+write_results = "写出结果"
+estimate_geometry = "逐帧估计几何"
+load_model = "加载 {model} 模型"
+
+[entry]
+still = "静止"
+deforming = "变形"
+
+[count]
+vertices.other = "{n} 顶点"
+points.other = "{n} 点"
+strands.other = "{n} 条"
+joints.other = "{n} 关节"
+meshes.other = "{n} 网格"
+shapes = "{n} 形变"
+prototypes.other = "{n} 原型"
+instances.other = "{n} 实例"
+gaussians.other = "{n} 高斯"
+root_joint = "根关节 {n}"
+
+[choices]
+pick_file = "先选择文件"
+none_of_kind = "文件里没有{kind}"
+none_in_file = "文件里没有"
+wire_data = "先接上数据"
+take_none = "不取"
+no_more_info = "这份数据没有别的信息"
+pick_folder = "先选择文件夹"
+
+[group]
+ensemble = "模型集成"
+people = "人物"
+propagation = "传播"
+translate = "平移"
+position = "位置"
+info = "信息"
+optical_flow = "光流"
+joint_semantics = "关节语义"
+keyframes = "关键帧"
+geometry = "几何体"
+segmentation = "分割"
+analysis = "分析"
+switch = "切换"
+foreground = "前景"
+motion = "动作"
+matching = "匹配"
+range = "区间"
+delight = "去光照"
+stabilize = "去抖"
+deform = "变形"
+transform = "变换"
+composite = "合成"
+name = "名字"
+layers = "层"
+ground = "地面"
+scene = "场景"
+block = "块"
+compare = "对比"
+align = "对齐"
+hierarchy = "层次"
+attributes = "属性"
+frames = "帧"
+frame_range = "帧范围"
+plane = "平面"
+sequence = "图像序列"
+projection = "投射"
+matte = "抠像"
+fit = "拟合"
+actions = "操作"
+level = "放平"
+values = "数值"
+file = "文件"
+temporal = "时序"
+time = "时间"
+curves = "曲线"
+presence = "有没有"
+items = "条目"
+check = "检查"
+detection = "检测"
+model = "模型"
+normals = "法线"
+depth = "深度"
+cleanup = "清理"
+points = "点"
+point_cloud = "点云"
+environment_light = "环境光"
+generation = "生成"
+image = "图像"
+distortion = "畸变"
+camera = "摄影机"
+filter = "筛选"
+precision = "精度"
+result = "结果"
+mesh = "网格"
+translation = "翻译"
+color = "颜色"
+sketch = "草图"
+skin = "蒙皮"
+blend = "融合"
+expression = "表情"
+crop = "裁剪"
+solve = "解算"
+compute = "计算"
+quality = "质量"
+distance = "距离"
+tracking = "跟踪"
+convert = "转换"
+moving_objects = "运动物体"
+operation = "运算"
+selection = "选区"
+mask = "遮罩"
+gravity = "重力"
+reconstruction = "重建"
+lens = "镜头"
+gate = "阻断"
+face = "面部"
+skeleton = "骨架"
+advanced = "高级"
+alembic = "Alembic"
+bvh = "BVH"
+ply = "PLY"
+
+[button]
+cook = "计算"
+pick = "在视图里点选"
+download = "下载"
+pack = "计算并打包"
+
+[tip.alpha]
+kept = "图像的 alpha 跟着一起处理"
+dropped = "只用图像的 RGB：带 alpha 的图像按压在黑底上的颜色用，alpha 不看"
+
+[file]
+none = "没有选择文件"
+
+[row]
+default = "行"
+
+[cost]
+sep = "，"
+
+[lens.by]
+sheet = "节点上填的镜头表"
+wired = "接进来的镜头内参"
+
+[lens.said]
+typed = "焦距 {focal} mm · 手填"
+camera = "焦距 · 来自接着的摄影机"
+default = "焦距 · 没给，按 {focal} mm 算"
+estimate = "焦距 · 方法自己估"
+
+[lens.model]
+SIMPLE_PINHOLE = "SIMPLE_PINHOLE（无畸变，已去畸变的画面）"
+PINHOLE = "PINHOLE（无畸变，fx≠fy）"
+SIMPLE_RADIAL = "SIMPLE_RADIAL（普通相机、手机）"
+RADIAL = "RADIAL（畸变稍大的普通镜头）"
+OPENCV = "OPENCV（带切向畸变，和 OpenCV 标定兼容）"
+FULL_OPENCV = "FULL_OPENCV（畸变复杂的广角镜头）"
+OPENCV_FISHEYE = "OPENCV_FISHEYE（鱼眼，等距投影）"
+SIMPLE_RADIAL_FISHEYE = "SIMPLE_RADIAL_FISHEYE（鱼眼，径向 k）"
+RADIAL_FISHEYE = "RADIAL_FISHEYE（鱼眼，径向 k1 k2）"
+FOV = "FOV（部分广角 / 鱼眼）"
+THIN_PRISM_FISHEYE = "THIN_PRISM_FISHEYE（高精度鱼眼，VR / SLAM 设备）"
+RAD_TAN_THIN_PRISM_FISHEYE = "RAD_TAN_THIN_PRISM_FISHEYE（鱼眼，径向六项加切向、薄棱镜；Project Aria 设备）"
+SIMPLE_DIVISION = "SIMPLE_DIVISION（除法模型，单系数）"
+DIVISION = "DIVISION（除法模型，单系数，fx≠fy）"
+SIMPLE_FISHEYE = "SIMPLE_FISHEYE（等距鱼眼，无系数：畸变可忽略或已校正）"
+FISHEYE = "FISHEYE（等距鱼眼，无系数，fx≠fy）"
+EUCM = "EUCM（增强统一模型，广角到鱼眼，alpha beta 两系数）"
+
+[list]
+none = "无"
+more = " 等 {count} 个"
+etc = " 等"
+
+[family.lens_calibration.focal]
+help = "焦距（mm）。上游给的是焦距（px）（用「一个感光点有多宽」当尺子量出来的长度），这里换成毫米交出去。换算用的是节点上的「胶片背」：焦距（mm）= 焦距（px）÷ 图像宽度 × 胶片背。"
+
+[family.lens_calibration.filmback]
+help = "节点上填的「胶片背」原样交出去：焦距是按它换算成毫米的，下游（lens_distortion、camera）接这一根就不用再填一遍，两边永远是同一个数"
+
+[family.lens_calibration.lens]
+help = "这颗镜头除了焦距、胶片背之外的全部：镜头模型的名字、它的畸变系数、主点 X / Y（毫米）和像素比，打成一份。接 lens_distortion 的「镜头内参」：那边的镜头模型和系数就跟着这里走"
+
+[family.matte.foreground]
+help = "去掉背景颜色之后的前景色（预乘 alpha 的 RGBA）：头发丝、半透明边缘上原来混进来的背景色和绿幕溢色，模型解混时已经去掉。在 Nuke 里拿它当前景合成，边上不再带着旧背景的颜色；只用原图乘 alpha 是做不到的。接 image.output 写成 EXR"
+
+[family.humans.plate_camera]
+help = "放人用的那台摄影机：原点、不动的针孔摄影机，焦距 = 节点的「焦距」（留空时用解算器自己估的或默认的），主点在图像中心。不是解出来的摄影机：人就放在它的空间里，透过它看图像平面，人和图像对得上。当「解算器的摄影机」用，或接 camera_space 的目标"
+
+[person]
+numbered = "人物 {n}"
+this = "这个人"
+
+[fact]
+metric = "输出为真实距离"
+"models.kinds" = "选的几何体"
+segments = "镜头分段数"
+points = "跟踪点数"
+
+[role]
+source = "源"
+target = "目标"
+motion = "动作"
+input = "输入"
+person = "人物"
+
+[family.segmentation.objects]
+label = "物体分割"
+
+[retarget.why]
+legs = "重定目标要靠髋和两条腿定前方和髋高"
+none = "重定目标要靠髋和两条腿定前方和髋点"
+height = "重定目标要靠髋和两条腿定前方，「髋高依据」按身高还要量到头"
+arms = "重定目标要靠髋和两条腿定前方，「髋高依据」按臂长还要量上臂和前臂"
+hands = "只配了手：目标只是一只手时手腕 1 : 1 跟着动作；手长在身体上时手臂保持目标姿势，只传手指"
+
+[retarget.scale_by]
+legs = "腿长"
+height = "身高"
+arms = "臂长"
+none = "不缩放"
+
+[retarget.ground]
+ankles = "脚踝"
+below = "小腿下一节（没配脚）"
+knees = "膝（没配脚、小腿下面也没有关节）"
+
+[retarget.rest]
+bind = "绑定姿势"
+first = "第一帧"
+frame = "第 {frame} 帧"
+picked = "绑定姿势不是站姿，自动用第 {frame} 帧"
+prepared = "预处理的静止姿势"
+
+[retarget]
+frame_unset = "（没填）"
+tposed = "（摆成 T 形姿势）"
+
+[retarget.base]
+fixed_count = "{who} {n} 个"
+said = "基准：动作{source}、目标{target}"
+tposed = "，两边摆成 T 形姿势"
+fixes.other = "，按初始姿势修正了{fixes}关节"
+
+[retarget.aligned]
+bones = "；对齐：逐根骨骼按方向（{why}）"
+picked = "动作基准是自动挑的帧"
+folded = "静止姿势不是站姿"
+kept = "；对齐：保留目标自己的静止姿势"
+limbs = "，四肢按动作的静止姿势对上 {n} 根（{names}）"
+
+[needs]
+generic = "通用（只忽略辅助骨）"
+
+[joints]
+segment = " 第 {n} 节"
+sided = "{side}{part}"
+first_of.other = "{name}（{count} 节）"
+
+[unit]
+x = "倍"
+
+[expressions]
+no_curves = "表情这边没有曲线"
+no_shapes = "目标角色没有融合变形"
+curves = "表情曲线"
+side = "表情"
+
+[joints.part]
+hips = "髋"
+spine = "脊柱"
+chest = "胸"
+neck = "颈"
+head = "头"
+jaw = "下巴"
+eye = "眼"
+clavicle = "锁骨"
+upperarm = "上臂"
+forearm = "前臂"
+hand = "手"
+thigh = "大腿"
+shin = "小腿"
+foot = "脚"
+toe = "脚趾"
+thumb = "拇指"
+index = "食指"
+middle = "中指"
+ring = "无名指"
+pinky = "小指"
+
+[joints.side]
+l = "左"
+r = "右"
+
+[joints.region]
+trunk = "躯干"
+face = "面部"
+l_arm = "左臂"
+r_arm = "右臂"
+l_leg = "左腿"
+r_leg = "右腿"
+l_hand = "左手"
+r_hand = "右手"
+
+[depth.scale]
+relative = "相对尺度"
+affine = "只知远近"
+
+[handle.label]
+pelvis = "髋"
+left_hip = "左胯"
+right_hip = "右胯"
+spine1 = "腰"
+left_knee = "左膝"
+right_knee = "右膝"
+left_ankle = "左踝"
+right_ankle = "右踝"
+left_foot = "左脚"
+right_foot = "右脚"
+neck = "颈"
+left_collar = "左肩"
+right_collar = "右肩"
+head = "头"
+left_elbow = "左肘"
+right_elbow = "右肘"
+left_wrist = "左腕"
+right_wrist = "右腕"
+
+[text]
+quote = "「{text}」"
+colon = "："
+
+[tag.basic]
+label = "基础"
+tip = "Lab2Shot 自己的节点和读写文件格式的模块：每个用户都能用"
+
+[tag.commercial]
+label = "可商用"
+tip = "许可证允许商业使用（仍要遵守许可证里的其他条件，比如署名）"
+
+[tag.noncommercial]
+label = "非商用"
+tip = "许可证禁止商业使用：只能用于研究、学习等非商业用途，不能用在商业项目的镜头里"
+
+[tag.research]
+label = "仅限研究"
+tip = "许可证只允许学术研究：比非商用更严，不能用于任何生产"
+
+[tag.registration]
+label = "需注册"
+tip = "要用每个人在官网注册后才能下载的人体、手或面部模型（SMPL、SMPL-X、MANO、FLAME），它们的许可证只许非商业的科研、教学和艺术项目"
+
+[tag.generative]
+label = "生成式扩散"
+tip = "用扩散模型生成或编辑图像的节点：账号需管理员单独授予此能力（新账号默认没有），与许可标签叠加判定"
+
+[scene.where]
+camera_input = "摄影机输入"
+scene = "场景"
+
+[format]
+usd = "USD"
+boxes = "人物框"
+tracks = "2D 跟踪点"
+curves = "曲线"
+nuke_camera = "Nuke 摄影机"
+gaussian_ply = "PLY"
+points_ply = "点云 PLY"
+images = "图像序列"
+exr = "多层 EXR"
+
+[compare.op]
+gt = "大于"
+ge = "不小于"
+lt = "小于"
+le = "不大于"
+eq = "等于"
+ne = "不等于"
+
+[normals.space]
+world = "世界空间的法线"
+camera = "摄影机空间的法线"
+
+[depth_align.model]
+scale = "按比例"
+affine = "按比例和偏移"
+inverse = "按视差（1/深度 的比例和偏移）"
+
+[fuse]
+voxels = "体素拼接"
+
+[mask]
+all_but_background = "背景以外的全部"
+
+[output]
+settings_count = "{count} 个格式输出节点"
+
+[progress]
+to_working_space = "转到工作空间"
+layer = "图层 {layer}"
+frame = "帧 {frame}"
+
+[value]
+auto = "自动"
+typed = "手填"
+on = "开"
+off = "关"
+per_frame_same = "（逐帧，不变）"
+per_frame = "（逐帧）"
+per_frame_differs.other = "{count} 帧，每帧不同"
+none_said = "（无）"
+
+[retarget.stride]
+legs = "按腿长缩放 ×{ratio}"
+as_is = " 1 : 1（按图像原样）"
+
+[subset]
+faces.other = "{name}（{faces} 面）"
+pick = "选一个分区"
+none = "这个网格没有分区"
+none_said = "（这个网格没有分区）"
+
+[attributes]
+said = "{name}（{type} · {per}）"
+
+[retarget.wrist]
+kept = "目标的手长在身体上：手腕和手臂保持目标自己的姿势，只传手指相对手腕的弯曲"
+follows = "手腕 1 : 1 跟着动作"
+
+[retarget.how]
+factor = " × 修正 {factor}"
+by = "按{by}：目标 {target} cm ÷ 动作 {source} cm{factor}"
+unscaled = "不缩放{factor}"
+ground = "；{who}离地高度按{ground}量"
+soles = "；脚底对齐 {delta} cm（离脚底：目标 {target}、动作 {source}）"
+offset = "；高度偏移 {offset} cm"
+size = "；角色缩放 ×{factor}（按{by}：动作 {source} cm ÷ 目标 {target} cm）"
+size_typed = "；角色缩放 ×{factor}（手填）"
+rest = "；{rest}"
+
+[skeleton]
+none_said = "（没有骨架）"
+root = "根"
+moved = "{joint}（{a} ≠ {b}）"
+
+[family.image_generation.seed]
+label = "随机种子"
+
+[family.light.seed]
+label = "随机种子"
+
+[family.image_generation.resolution]
+label = "生成分辨率"
+
+[family.image_generation.resolution.option]
+512 = "512 基准"
+768 = "768 基准"
+1024 = "1024 基准"
+1536 = "1536 基准"
+2048 = "2048 基准（原生 2K）"
+
+[family.image_generation.mode]
+label = "模式"
+
+[family.light.preview]
+label = "显示图"
+help = "HDRI 转成屏幕上看的样子（PNG，显示参考），检查环境对不对；渲染用「HDRI」那根线"
+
+[family.tracks.picks]
+label = "手动点"
+placeholder = "点「在视图里点选」，在画面上点要跟的位置"
+
+[family.lens.focal_mm]
+label = "已知焦距"
+placeholder = "自动"
+
+[family.lens.filmback_mm]
+label = "胶片背"
+placeholder = "36"
+
+[kit.resolution]
+label = "处理分辨率"
+
+[kit.flow_resolution]
+label = "处理分辨率"
+placeholder = "原尺寸"
+
+[kit.max_frames]
+label = "每段最多帧数"
+
+[kit.loops]
+label = "回环闭合"
+
+[family.matte.mask]
+label = "粗遮罩"
+
+[family.rig_motion.character]
+label = "动画"
+
+[kit.plate_camera]
+help = "接上摄影机：这台摄影机的逐帧位姿和焦距都用上，算出来的结果放进这台摄影机的世界"
+
+[family.image_generation.prompt]
+placeholder = "要生成什么、怎么改；透明背景按官方写法开头：This is an RGBA image with transparency. …"
+
+[family.image_generation.image]
+label = "生成图"
+help = "模型生成的一张静帧（3 或 4 通道按生成结果；透明背景时带 alpha）"
+
+[reader.bvh]
+not_finite = "{where}有不是数的值（NaN 或无穷大）"
+no_name = "第 {line} 行的 {what} 没有名字"
+malformed = "内容写错了（{why}）"
+hierarchy_cut = "层级没写完，文件不完整"
+no_hierarchy = "没有 HIERARCHY"
+extra = "多出的 {what}"
+offset_of = "「{joint}」的 OFFSET"
+unknown = "不认识的 {what}"
+after_hierarchy = "层级结束后还有 {what}"
+no_motion = "没有 MOTION"
+no_frames = "MOTION 下一行应是 Frames: 帧数"
+no_frame_time = "MOTION 下第二行应是 Frame Time: 秒数"
+bad_frame_time = "Frame Time 是 {value}，不是正数"
+frames_cut.other = "应该有 {count} 帧，文件里只有 {rows} 行，文件不完整"
+row_width.other = "第 {frame} 帧有 {have} 个数，应为 {want} 个（每个通道一个）"
+frame_n = "第 {row} 帧"
+unknown_channel = "不认识的通道 {name}"
+
+[reader.ply]
+no_header = "没有 PLY 文件头"
+unknown_format = "不认识的格式 {format}"
+unset = "（没写）"
+cut = "{name} 应该有 {count} 个，文件不完整"
+no_xyz = "没有 vertex 的 x、y、z"
+sh_cut = "高斯球谐字段不完整"
+bad_face = "面引用了不存在的顶点"
+
+[length]
+cm = "厘米"
+inch = "英寸"
+dm = "分米"
+m = "米"
+
+[attr.per]
+point = "逐点"
+curve = "逐条"
+
+[attr.type]
+float = "浮点"
+int = "整数"
+toggle = "开关"
+string = "字符串"
+vec2 = "二维"
+vec3 = "三维"
+color = "颜色"
+normal = "法线"
+position = "位置"
+vector = "向量"
+uv = "UV"
+quaternion = "四元数"
+matrix = "矩阵"
+
+[items]
+word = "条目"
+
+[expressions.region]
+brows = "眉毛"
+eyes = "眼睛"
+cheeks_nose = "脸颊、鼻子"
+jaw = "下巴"
+mouth = "嘴"
+tongue = "舌头"
+other = "其他"
+
+[gaussian.bad]
+shapes = "各数组的点数或维数对不上"
+sh = "球谐系数 {count} 个，只认 0–3 阶（1 / 4 / 9 / 16 个）"
+values = "有非数、非正的尺度或 0–1 以外的透明度"
+rotation = "有长度为 0 的旋转四元数"
+samples.other = "{samples} 份采样对 {frames} 帧"
+
+[lint.node]
+part_in_name = "节点类型名 {type} 含有节点键保留的段（param、port、label……），它的键会读错"
+missing = "{language} 目录缺 {key}"
+unknown_type = "{language} 的节点目录里 {key} 说的节点类型 {type} 不存在"
+
+# ---- 核心节点
+
+[node.attrib_delete]
+subtitle = "删除属性"
+description = "点云或三维曲线 → 去掉点上挂着的一些属性：写出属性名（空格或逗号分开，可以用 * 通配，和 Houdini 的 AttribDelete 一样）。模型算出来的置信度、法线、类别、点的编号都带在点上，交付前不想给下游的就在这里删掉，文件更小。点、坐标和颜色一个都不动，删的只是点上挂着的值。这份数据上现在有哪些属性，看节点右下角的感叹号。"
+
+[node.attrib_delete.param.attributes]
+label = "属性名"
+placeholder = "先接上数据"
+
+[node.auto_ground]
+subtitle = "自动落地"
+description = "场景 → 转正并落在 y = 0 上的场景（摄影机和人一起）。给了重力方向（GeoCalib 等给的每帧摄影机里朝上的方向）先绕原点转正，让 Y 轴真正朝上（解算出的世界跟着第一帧摄影机，摄影机低头或歪着地面就是斜的；只转倾斜和俯仰，朝向不变），再上下移动让地面落在 y = 0：按人脚踩的高度（骨架动画按最低的关节），或者点云里最密的一层。进来的是什么出去还是什么；要自己填数值接「变换」。"
+
+[node.auto_ground.param.gravity]
+label = "重力方向"
+
+[node.auto_ground.param.gravity_error]
+label = "重力误差"
+
+[node.auto_ground.param.source]
+label = "地面依据"
+
+[node.auto_ground.param.source.option]
+people = "人物脚底"
+points = "点云"
+none = "不落地"
+
+[node.auto_ground.param.percentile]
+label = "落地帧比例"
+
+[node.bake_geometry]
+subtitle = "烘焙成几何体"
+description = "蒙皮角色 → 每帧变形的模型（几何缓存）：融合变形和蒙皮按 DCC 的算法算好，每帧的顶点写死，骨骼不要了。要写进没有骨骼的格式先接它；结果和原来的动作完全一样，但不能再调骨骼。只要骨骼接「提取骨架」。"
+
+[node.blast]
+subtitle = "按分区取出"
+description = "模型 → 只剩一个分区的模型：网格上叫这个名字的那几个面留下，其余的面和其余的网格都不要了。分区就是 USD 的 GeomSubset（网格的一部分），Houdini 读成图元组、Maya 读成面集；面部解算给的是整颗头，头发解算要的是头皮，就用它取出「scalp」那一块。点按留下的面重新编号（没用到的点不带出来），UV、法线和逐点属性跟着切，逐帧变形的几何缓存每帧都切。"
+
+[node.blast.param.subset]
+label = "分区"
+placeholder = "先接上几何体"
+
+[node.bone_deform]
+subtitle = "线性蒙皮变形"
+description = "骨架动画 + 蒙皮角色 → 挂上这段动画的蒙皮角色（网格、蒙皮、融合变形原样，原来的动画换掉）。只核对、不猜：两副骨架的关节名和父子关系要逐一相同，不一样就报错并列出哪里不同；动画来自另一副骨架时先接「动作重定目标」。典型接法：「动作重定目标」的骨架动画接进来，角色接同一个「目标」（例如「标准人」的一个输出口同时连重定目标的「目标」和这里的「蒙皮角色」）。视图里直接看到蒙皮变形；要网格缓存再接「烘焙成几何体」。"
+
+[node.bone_deform.param.skeleton_path]
+label = "动画骨骼"
+placeholder = "第一个"
+
+[node.bone_deform.param.character_skeleton]
+label = "角色骨骼"
+placeholder = "第一个"
+
+[node.bone_deform.port.character]
+help = "挂动画的角色：网格、蒙皮、融合变形原样，原来的动画被换掉"
+
+[node.bone_deform.port.skeleton]
+help = "要挂上的动画：骨架层级要和角色的完全一样（通常是「动作重定目标」交出的）"
+
+[node.bone_deform.port.character.output]
+help = ""
+
+[node."boxes.output"]
+subtitle = "人物框输出"
+description = "人物框 → JSON（每个人每帧的框，脚本和 DCC 插件读）、CSV（每行一帧一个人，Excel、Houdini 都能读），或 Nuke 的 Tracker 节点（一个人一条 track，跟的是框的中心）。写成 Nuke 节点时，节点上有「复制到 Nuke」，复制了就能粘贴进合成；它只定名字和格式，接到「输出」上才真正写出文件。"
+
+[node."bvh.import"]
+subtitle = "导入 BVH"
+description = "导入动作捕捉的 BVH（.bvh，CMU、Rokoko、MotionBuilder 导出）：骨骼层级和每帧的动作是一个骨架动画，帧速率按文件里的 Frame Time，帧号从 1 开始。BVH 不记录单位，在「单位」里说；只有骨骼没有网格，要带网格的角色用别的三维格式的导入节点。"
+
+[node."bvh.import".param.unit.option]
+cm = "厘米"
+m = "米"
+auto = "自动（按骨长估计）"
+
+[node."bvh.import".port.skeletons]
+waits = "选一个骨架动画"
+
+[node."bvh.import".port.fps]
+help = "BVH 记的帧速率（Frame Time 的倒数）。接到动作模型或格式输出节点的「帧速率」，就跟这个文件走"
+
+[node."bvh.import".fact.models]
+kinds = "选的几何体"
+
+[node.camera]
+subtitle = "创建摄影机"
+description = "和 Nuke 的 Camera3、Houdini 的 Camera 是同一个节点：在这里填焦距、胶片背、位置和朝向 → 一台不动的摄影机。焦距、胶片背、主点也可以接线（「AnyCalib 镜头标定」的同名输出口、「拆分摄影机」），接了就用接的；默认在原点朝 -Z 轴看，接上画面就有它的分辨率和帧范围，那张画面也就是它的图像平面（三维视图透过它看时垫在底下）。要摄影机的节点（SAM 3D Body、GVHMR……）接它就是固定机位加已知焦距；一个焦距都没有时它是空的，接着的节点照自己的算。"
+
+[node.camera.param.focal_mm]
+placeholder = "自动"
+
+[node.camera.param.filmback_mm]
+placeholder = "36"
+
+[node.camera.param.translate]
+label = "位置"
+
+[node.camera_space]
+subtitle = "摄影机空间转换"
+description = "场景 + 来源摄影机 + 目标摄影机 → 同一份场景，搬进目标摄影机的世界里，让它在目标摄影机下和画面对上。人、网格、骨架、曲线、点云、高斯、摄影机都能搬；来源摄影机留空表示场景就在摄影机前面（SAM 3D Body、HaMeR、SMIRK…），有自己世界的结果（WHAM、GVHMR）把它的「参照摄影机」接到「来源摄影机」；搬一台解算器求的摄影机时，「场景」和「来源摄影机」都接它，选「整段平滑」，交出的摄影机就在目标摄影机的世界里（位置随比例走，朝向只转不缩，镜头不变）。只要一个项目交得出摄影机，它的空间就能转到任何别的项目的空间。只换位置，数据本身不变。"
+
+[node.camera_space.param.fit]
+label = "贴合方式"
+
+[node.camera_space.param.fit.option]
+per_frame = "逐帧贴合"
+whole = "整段平滑"
+
+[node.camera_space.port.target_camera]
+label = "目标摄影机"
+help = "搬到哪台摄影机的世界里：解出来的那台（ViPE、COLMAP…）或者「导入 USD」进来的真摄影机。两台摄影机的焦距、片门必须一样（模板用「拆分摄影机」把目标摄影机的喂给解算器）"
+
+[node.camera_space.port.scene]
+help = "要搬的东西：人、网格、骨架、曲线、点云、高斯、摄影机"
+
+[node.camera_space.port.source_camera]
+label = "来源摄影机"
+help = "场景现在待在哪台摄影机的空间里：有自己世界的解算器（WHAM、GVHMR）把它的「参照摄影机」接过来。留空表示场景就在摄影机前面、没有世界位置（SAM 3D Body、HaMeR、SMIRK、MediaPipe 面部），每帧直接按目标摄影机摆进世界"
+
+[node.camera_space.port.reference]
+label = "参照点云"
+help = "已经在目标摄影机世界里的一份点云（例如按目标摄影机融合的场景点云）。整段平滑时接上它，比例不再从两条轨迹读，而是逐帧比两边透过各自摄影机看到的远近：重建类解算器（WorldMirror、NeoVerse）把几乎平移的镜头解成原地转动时，轨迹读不出比例，靠它才对得上"
+
+[node.camera_space.port.scene.output]
+help = "同一份场景，在目标摄影机的世界里"
+
+[node.channel_join]
+subtitle = "合并通道"
+description = "三张单通道的Mask → 一张 RGB 图像：R、G、B 三个口各接一张，像素原样搬进三条通道，不做任何颜色转换（Houdini 里的 Float to Vector 在画面上的样子；Nuke 里是 Shuffle 把三条通道搬进 rgb）。读取图像序列读进来的灰度图只有一条通道，接不进要 RGB 的口（「COLMAP 摄影机解算」的「图像」）：把同一张灰度图接到 R、G、B 三个口，就是一张灰色的 RGB。像素原样，标成工作空间（sRGB）。"
+
+[node.channel_join.port.r]
+label = "R"
+
+[node.channel_join.port.g]
+label = "G"
+
+[node.channel_join.port.b]
+label = "B"
+
+[node.compare]
+subtitle = "比较"
+description = "比较两个值，交出一个开关：接到「切换」的条件上。单位不同的先换算，换不了的报错说明。"
+
+[node.compare.param.operation.option]
+gt = "大于"
+ge = "不小于"
+lt = "小于"
+le = "不大于"
+eq = "等于"
+ne = "不等于"
+
+[node.compare.port.a]
+label = "甲"
+
+[node.compare.port.b]
+label = "乙"
+
+[node.compare.port.value]
+label = "结果"
+
+[node.compare_cameras]
+subtitle = "摄影机对比"
+description = "两台摄影机 → 逐帧的位置差、角度差、焦距差曲线，以及对齐到参考摄影机世界里的那台摄影机。任何两台摄影机都能比（3DE 解算的、ViPE 的……），用来挑哪种解算适合哪种镜头；对齐后的摄影机接一个「命名」起个名字（两台摄影机都叫 camera），就能和参考合成一个场景一起看。"
+
+[node.compare_cameras.param.align]
+label = "对齐"
+
+[node.compare_cameras.param.align.option]
+similarity = "比例+旋转+位置"
+rigid = "旋转+位置"
+none = "不对齐"
+
+[node.compare_cameras.port.reference]
+label = "参考摄影机"
+
+[node.compare_cameras.port.camera.output]
+label = "对齐后的摄影机"
+
+[node.compare_cameras.port.errors]
+label = "逐帧误差"
+
+[node.composite]
+subtitle = "图像合成"
+description = "相当于 Nuke 的 Merge：一张图和一张遮罩按一种运算合成一张。最常用的是相乘——「挡掉」把遮罩里的那块抹黑（解摄影机之前挡掉走动的人），「留下」只保留遮罩里的那块。遮罩自动铺到图像的每条通道上。「盖上（A over B）」和 Nuke 的 Merge over 一样：预乘 alpha 的 A 盖在「底图」上，A 透明的地方露出底图（这时用「底图」口，不用「遮罩」；「不透明度」调低时 A 半透明，A 本身不带 alpha 时也能透出底图）——比如把 AllTracker 的贴片、RoMa 对齐过来的图合到原图上看。"
+
+[node.composite.param.operation.option]
+multiply = "留下"
+stencil = "挡掉"
+plus = "相加"
+minus = "相减"
+min = "取小"
+max = "取大"
+over = "盖上（A over B）"
+
+[node.composite.param.mix]
+label = "不透明度"
+
+[node.composite.port.a]
+label = "图像"
+help = "「盖上」时是盖在上面的那张（预乘 alpha 的 RGBA；没有 alpha 就整张盖住）"
+
+[node.composite.port.b]
+label = "遮罩"
+help = "一条通道的遮罩，自动铺到图像的每条通道上"
+
+[node.composite.port.bg]
+label = "底图"
+help = "「盖上」时垫在下面的那张：A 透明的地方露出它（比如 AllTracker 的贴片、RoMa 对齐的图合到原图上看）"
+
+[node.composite.port.image]
+label = "图像"
+
+[node.constant]
+subtitle = "Constant"
+description = "和 Nuke 的 Constant 是同一个节点：给尺寸、帧数和颜色，出一段纯色画面，不用任何素材。手里没有片子的时候用它起步——「手画遮罩」要有张画面才画得上去，「Sketch2Anim 动作生成」要一段画面来定动作多长（它不看像素，只看帧数）。接了真实素材就不用它：那时候画面本身还能当分镜图照着画。"
+
+[node.constant.param.frames]
+label = "帧数"
+
+[node.constant.param.frames.option]
+24 = "24 帧 · 1 秒"
+48 = "48 帧 · 2 秒"
+96 = "96 帧 · 4 秒"
+144 = "144 帧 · 6 秒"
+192 = "192 帧 · 8 秒"
+
+[node.constant.param.colour]
+label = "颜色"
+
+[node.crop]
+subtitle = "Crop"
+description = "和 Nuke 的 Crop 是同一个节点：把画面裁成一块，裁完的这一块就是新的画面框。从四条边各切掉多少像素，四个数都填 0 就什么都不做。有些解算器对构图有要求——面部、手部这类要主体占画面的主要部分；解摄影机与点云的更明显：同一段 4K 素材不裁着跑，COLMAP 267 帧里只解出 3 个机位，裁成以主体为中心的方图之后 267 帧全部解出。先用它裁到主体上再接解算。扩边（overscan）不跟着走：裁完的画面就是它自己那一块，没有框外的像素。"
+
+[node.crop.param.left]
+label = "左"
+
+[node.crop.param.right]
+label = "右"
+
+[node.crop.param.top]
+label = "上"
+
+[node.crop.param.bottom]
+label = "下"
+
+[node.crop.port.image]
+label = "图像"
+
+[node.curve_channel]
+subtitle = "曲线取值"
+description = "动画曲线（表情曲线、摄影机对比的逐帧误差……）→ 其中一条，每帧一个浮点。接到收逐帧数值的参数上，或者单独看它的曲线。"
+
+[node.curve_channel.param.curve]
+label = "曲线"
+placeholder = "第一条"
+
+[node.curve_channel.param.unit.option]
+cm = "cm"
+m = "m"
+
+[node.curve_channel.port.curves]
+label = "曲线"
+waits = ""
+
+[node."curves.output"]
+subtitle = "曲线输出"
+description = "动画曲线（如表情曲线）→ CSV、.chan（Houdini / Nuke）、JSON 或 USD（曲线写成带动画的属性，DCC 里接到角色上）。它只定名字和格式，接到「输出」上才真正写出文件。"
+
+[node."curves.output".param.format.option]
+chan = ".chan"
+usd = "USD"
+
+[node."curves.output".port.curves]
+label = "曲线"
+waits = ""
+
+[node.data_info]
+subtitle = "取信息"
+description = "把数据自己说的事实取成数值：帧数、开始帧、结束帧、宽、高、条数，以及这种数据声明的其他事实（焦距、点数、人数……，在「取哪一项」里选）。和端口提示、中键的数据信息读的是同一份说明。"
+
+[node.data_info.param.item]
+label = "取哪一项"
+placeholder = "先接上数据"
+
+[node.data_info.port.frames]
+label = "帧数"
+
+[node.data_info.port.first]
+label = "开始帧"
+
+[node.data_info.port.last]
+label = "结束帧"
+
+[node.data_info.port.width]
+label = "宽"
+
+[node.data_info.port.height]
+label = "高"
+
+[node.depth_align]
+subtitle = "深度对齐"
+description = "把要手动缩放的深度贴图、只知远近的深度贴图或视差图对齐到一个真实尺度的参考上，变成真实尺度的深度贴图（厘米）。参考可以是另一张真实尺度的深度贴图（MoGe、UniDepth……），也可以是点云加它的摄影机（COLMAP、LiDAR）；常用接法是把 Video Depth Anything 稳定不闪的视差图对齐到 MoGe 的真实尺度深度贴图，得到既稳定又是真实尺度的深度贴图。"
+
+[node.depth_align.param.depth_is]
+label = "待对齐的是"
+
+[node.depth_align.param.depth_is.option]
+auto = "自动"
+disparity = "视差"
+relative = "只差比例"
+affine = "只差比例和偏移"
+
+[node.depth_align.param.fit]
+label = "拟合"
+
+[node.depth_align.param.fit.option]
+shot = "整段一次"
+frame = "逐帧"
+
+[node.depth_align.port.depth]
+label = "待对齐深度贴图"
+
+[node.depth_align.port.reference]
+label = "参考深度贴图"
+
+[node.depth_align.port.mask]
+label = "对齐区域"
+
+[node.depth_align.port.confidence]
+help = "哪里的深度贴图更可信（接参考深度贴图或待对齐深度贴图那个节点的置信度）：拟合时每个像素按它加权，没把握的算得轻，0 的不算"
+
+[node.depth_align.port.camera]
+label = "点云的摄影机"
+
+[node.depth_align.port.points]
+label = "参考点云"
+
+[node.depth_align.port.depth.output]
+label = "深度贴图"
+
+[node.deshake_camera]
+subtitle = "摄影机去抖"
+description = "摄影机 → 逐帧细小抖动被去掉、整体运动保留的摄影机，还有一份前后对比曲线。解算出的摄影机逐帧会抖，MapAnything、LingBot-Map、GVHMR 推出的摄影机都建议接它。「强度」说的就是周期：8 帧就是把周期短于 8 帧的抖动去掉，比这慢的运动原样留着；急停和甩镜由「保留急停」单独护住，不会被磨圆。"
+
+[node.deshake_camera.param.strength]
+label = "强度"
+
+[node.deshake_camera.param.keep_sudden]
+label = "保留急停"
+
+[node.deshake_camera.param.rotation]
+label = "平滑转动"
+
+[node.deshake_camera.param.focal]
+label = "焦距"
+
+[node.deshake_camera.param.focal.option]
+keep = "原样"
+smooth = "一起去抖"
+
+[node.deshake_camera.port.curves]
+label = "前后对比"
+waits = ""
+
+[node.draw_figure]
+subtitle = "手画简笔画"
+description = "一帧一个关键姿势：在参数面板点「添加帧」，当前帧上放一个站好的火柴人（T 形站姿），再在 2D 视图里把关节一个个拖到位。第二帧起可以「基于前一帧」——把上一个姿势原样复制过来再改。画好接给「Sketch2Anim 动作生成」的「草图」口。接一段图像序列进来，就在这段图像序列的每一帧上画：时间线拖到哪一帧，底图显示那一帧、火柴人也是那一帧画的那个。那张图只是照着画的底图，不参与计算；不接就在空白画布上画。两个火柴人的髋关节之间就是身体走的路线（只画一个就没有路线，身体大致留在原地）；画大画小不影响结果，只有姿势和位置的变化起作用。"
+
+[node.draw_figure.param.poses]
+label = "关键姿势"
+placeholder = "点「添加帧」放第一个姿势"
+
+[node.draw_figure.port.image]
+label = "图像"
+help = "照着画的底图，一段图像序列：时间线拖到哪一帧就显示那一帧，你在那一帧上画。这张图不参与计算——下游 Sketch2Anim 只吃火柴人的关节坐标，一个像素都不吃"
+
+[node.draw_mask]
+subtitle = "手画遮罩"
+description = "在 2D 视图里沿着要的范围拖一圈，得到一张遮罩。一张静止遮罩——画一次整段镜头都用它，没有关键帧、不跟着主体动（所以不叫 Roto：Nuke 的 Roto 是逐帧调形状的动画样条，这个不是）。用在自动挑不出你要的那一块的时候：SAM 3 要一个词说得清，BiRefNet 只找最显著的那一个，而「这个人的外套」「左边第二个人」说不清也选不了——圈一圈就定了。常见的两处：给 MatAnyone 2 这类抠像节点的「粗遮罩」起个头（它们只读第一帧），固定机位镜头的垃圾遮罩（机位一动这张就不对了，别用在手持上）。要扩边、羽化、反转，后面接「遮罩调整」。"
+
+[node.draw_mask.param.shapes]
+label = "形状"
+placeholder = "在 2D 视图里拖出轮廓"
+
+[node.draw_mask.port.image]
+label = "图像"
+
+[node."exr.output"]
+subtitle = "多层 EXR 输出"
+description = "相当于 Nuke 的 Shuffle / Copy 拼好图层再 Write：几样结果 → 同一个 EXR 的不同图层，每帧一个文件。「图层」表一行一个输入口，写明这根线写进哪个图层、哪几个通道，从上到下就是图层顺序。默认按数据类型起名：图像 R G B，深度 Z，法线 R G B，位置 XYZ，遮罩 A，ST 贴图 R G，分割图写成 Cryptomatte（硬边：一个像素只属于一个物体），运动向量写成 Nuke 的 motion 图层；图层名和通道名都能改。Nuke 里一个 Read 拿到全部；「读取图像序列」读回来每个图层还是原来的类型，数据图层总是无损 32 位。只有一张的图层（ST 贴图、HDRI）和逐帧图层写在一起时每一帧都带着它（Nuke 读图像序列要求每帧图层相同）；只要一份就单独接「图像序列输出」。它只定名字和格式，接到「输出」上才写出文件。"
+row = "层"
+
+[node."exr.output".param.layers]
+label = "图层"
+
+[node."exr.output".param.layers.field.name]
+label = "端口"
+
+[node."exr.output".param.layers.field.label]
+label = "图层名"
+
+[node."exr.output".param.layers.field.channels]
+label = "通道"
+placeholder = "按类型"
+
+[node.ensemble_depth]
+subtitle = "深度集成"
+description = "把几个模型的深度贴图合成一张。候选要先对齐到同一个参考（同一个摄影机空间，用 depth_align）：本节点只做合成，不做对齐，参考不同或尺度含义不同的候选会被拦下。「目标」：准确＝逐像素加权共识，整体和其余候选不一致的候选整条不用（实测留出集形状误差中位数比 MoGe 低 15%、比 UniK3D 低 8%，但有两条比 MoGe 差 8%–14%）；尺度＝在准确的基础上，参考的尺度和候选自己的真实尺度差 20% 以上时改用候选的共识尺度（实测留出集与 UniK3D 持平）；时域稳定＝整体远近取最稳且和共识一致的候选（时间锚，「用途」设为「只作时间锚」的候选也算），细节取共识（实测不如 ViPE 自己稳）。输出合成后的深度贴图、置信度、每个像素取自哪个候选、逐帧逐候选的得分曲线；结果的图层名按用了哪些模型和什么目标自动生成，许可取候选里最严格的那个。"
+row = "候选"
+
+[node.ensemble_depth.param.objective]
+label = "目标"
+
+[node.ensemble_depth.param.objective.option]
+accuracy = "准确"
+scale = "尺度"
+temporal = "时域稳定"
+
+[node.ensemble_depth.param.candidates]
+label = "候选"
+
+[node.ensemble_depth.param.candidates.field.name]
+label = "端口"
+
+[node.ensemble_depth.param.candidates.field.weight]
+label = "权重"
+
+[node.ensemble_depth.param.candidates.field.use]
+label = "用途"
+
+[node.ensemble_depth.param.candidates.field.use.option]
+shape = "参与合成"
+anchor = "只作时间锚"
+
+[node.ensemble_depth.param.candidates.field.label]
+label = "显示名"
+
+[node.ensemble_depth.port.candidate1]
+label = "候选 1"
+
+[node.ensemble_depth.port.candidate2]
+label = "候选 2"
+
+[node.ensemble_depth.port.candidate3]
+label = "候选 3"
+
+[node.ensemble_depth.port.candidate4]
+label = "候选 4"
+
+[node.ensemble_depth.port.candidate5]
+label = "候选 5"
+
+[node.ensemble_depth.port.candidate6]
+label = "候选 6"
+
+[node.ensemble_depth.port.candidate7]
+label = "候选 7"
+
+[node.ensemble_depth.port.candidate8]
+label = "候选 8"
+
+[node.ensemble_depth.port.depth]
+label = "深度贴图"
+
+[node.ensemble_depth.port.confidence]
+label = "置信度"
+
+[node.ensemble_depth.port.choice]
+label = "取自哪个候选"
+
+[node.ensemble_depth.port.scores]
+label = "得分"
+
+[node.ensemble_depth.stage]
+judge_candidates = "检查候选"
+combine = "合成"
+
+[node.ensemble_matte]
+subtitle = "抠像集成"
+description = "把几个抠像模型的 Alpha 合成一张。先做对象检查：画出的对象和「对象」（用户自己选的对象，例如 SAM 3 点选的首帧遮罩）多一块或少一块的候选整段不用；用同一份粗遮罩的候选（例如 VideoMaMa 用 BiRefNet 的粗遮罩）只算一票，几票对「哪个是对象」有分歧时按多数定，票数相同时按谁画得最接近「对象」定，输掉的候选这一帧不用；留下的按权重平均。「目标」：准确＝对象检查宽一些（未过验收）；稳健＝对象检查严一些（实测 117 条素材没有一条找错对象，帧间稳定性比 VideoMaMa 好 8% 且没有一条变差，边缘和 MSE 中位数好 24%，SAD 中位数差 9%）；边缘＝对象检查同「准确」，在「用途」为「参与合成（最可信）」的候选和其余候选有分歧的地方倚重它（实测以 VideoMaMa 为最可信：边缘中位数比 VideoMaMa 好 22%，留出集差 5% 以上的从 8 条降到 2 条，仍未过验收）。卡片只用「稳健」。输出合成后的 Alpha、置信度、每个像素取自哪个候选、逐帧逐候选的得分曲线；结果的图层名按用了哪些模型和什么目标自动生成，许可取候选里最严格的那个。"
+row = "候选"
+
+[node.ensemble_matte.param.objective]
+label = "目标"
+
+[node.ensemble_matte.param.objective.option]
+accuracy = "准确"
+robust = "稳健"
+edges = "边缘"
+
+[node.ensemble_matte.param.candidates]
+label = "候选"
+
+[node.ensemble_matte.param.candidates.field.name]
+label = "端口"
+
+[node.ensemble_matte.param.candidates.field.weight]
+label = "权重"
+
+[node.ensemble_matte.param.candidates.field.use]
+label = "用途"
+
+[node.ensemble_matte.param.candidates.field.use.option]
+blend = "参与合成"
+trusted = "参与合成（最可信）"
+
+[node.ensemble_matte.param.candidates.field.label]
+label = "显示名"
+
+[node.ensemble_matte.port.candidate1]
+label = "候选 1"
+
+[node.ensemble_matte.port.candidate2]
+label = "候选 2"
+
+[node.ensemble_matte.port.candidate3]
+label = "候选 3"
+
+[node.ensemble_matte.port.candidate4]
+label = "候选 4"
+
+[node.ensemble_matte.port.candidate5]
+label = "候选 5"
+
+[node.ensemble_matte.port.candidate6]
+label = "候选 6"
+
+[node.ensemble_matte.port.candidate7]
+label = "候选 7"
+
+[node.ensemble_matte.port.candidate8]
+label = "候选 8"
+
+[node.ensemble_matte.port.object]
+label = "对象"
+help = "接了对象（用户自己选的对象，例如 SAM 3 点选的首帧遮罩）：画出的对象比它多一块或少一块的候选整段不用；候选对哪个是对象有分歧、票数又相同时，按谁画得最接近它定"
+
+[node.ensemble_matte.port.alpha]
+label = "Alpha"
+
+[node.ensemble_matte.port.confidence]
+label = "置信度"
+
+[node.ensemble_matte.port.choice]
+label = "取自哪个候选"
+
+[node.ensemble_matte.port.scores]
+label = "得分"
+
+[node.ensemble_matte.stage]
+judge_candidates = "检查候选"
+combine = "合成"
+
+[node.ensemble_camera]
+subtitle = "摄影机集成"
+description = "把几个解算器对同一段素材求出的摄影机合成一台。候选要先用「摄影机空间转换」搬进同一台基准摄影机的世界。裁判是这段素材自己的「跟踪点」（例如 CoTracker 整段撒点）：每条跟踪点用一半的帧在候选摄影机下三角化，投影到另一半的帧里量误差（像素），和任何候选都无关；整段误差超过最好候选 2 倍的候选不用。「目标」：稳健＝整段用跟踪点最贴合的那台；准确＝每 30 帧一段挑跟踪点最贴合的候选，换候选的地方前后各 5 帧交叉过渡；平滑＝每帧取所用候选的朝向中位数和位置几何中位数。没接跟踪点时没有裁判，三个目标都按各候选的中位数合成。每帧的镜头取自位姿来自的那台候选（换算到第一个候选的片门）。输出合成的摄影机、逐帧置信度、逐帧取自哪个候选、逐帧逐候选的重投影误差曲线；结果按用了哪些解算器和什么目标自动命名，许可取候选里最严格的那个。实测（ViPE、COLMAP 两家候选，11 条有真值的素材，留出 5 条）：三个目标都没过验收（稳健的留出中位数比 COLMAP 差 30%），没有卡片用它。"
+row = "候选"
+
+[node.ensemble_camera.param.objective]
+label = "目标"
+
+[node.ensemble_camera.param.objective.option]
+accuracy = "准确"
+robust = "稳健"
+smooth = "平滑"
+
+[node.ensemble_camera.param.candidates]
+label = "候选"
+
+[node.ensemble_camera.param.candidates.field.name]
+label = "端口"
+
+[node.ensemble_camera.param.candidates.field.weight]
+label = "权重"
+
+[node.ensemble_camera.param.candidates.field.label]
+label = "显示名"
+
+[node.ensemble_camera.port.candidate1]
+label = "候选 1"
+
+[node.ensemble_camera.port.candidate2]
+label = "候选 2"
+
+[node.ensemble_camera.port.candidate3]
+label = "候选 3"
+
+[node.ensemble_camera.port.candidate4]
+label = "候选 4"
+
+[node.ensemble_camera.port.candidate5]
+label = "候选 5"
+
+[node.ensemble_camera.port.candidate6]
+label = "候选 6"
+
+[node.ensemble_camera.port.candidate7]
+label = "候选 7"
+
+[node.ensemble_camera.port.candidate8]
+label = "候选 8"
+
+[node.ensemble_camera.port.tracks]
+label = "跟踪点"
+help = "裁判：这段素材的 2D 跟踪点（可接几份，例如在开头、中间、结尾各撒一次点的 CoTracker）。不接就没有裁判，按各候选的中位数合成"
+
+[node.ensemble_camera.port.camera]
+label = "摄影机"
+
+[node.ensemble_camera.port.confidence]
+label = "置信度"
+
+[node.ensemble_camera.port.choice]
+label = "取自哪个候选"
+
+[node.ensemble_camera.port.scores]
+label = "得分"
+
+[node.ensemble_camera.stage]
+judge_candidates = "检查候选"
+combine = "合成"
+
+[node.ensemble_normal]
+subtitle = "法线集成"
+description = "把几个模型的法线逐像素在单位球面上合成一张。候选要在同一个空间（都是相机空间或都是世界空间）；同一个模型来的候选（例如 MoGe 自己的法线和 MoGe 深度算出的法线）只算一票。「目标」：准确＝先求球面中位数，离它超过三倍分散度（至少 5°）的候选在这个像素不用，其余按权重求平均方向；稳健＝直接取球面中位数，个别候选错得再远也拉不动。实测（12 条带真值素材，调参 7 条、留出 5 条）：两个目标都未过验收（留出集角度误差中位数只比最好的单模型 MoGe 好 1–2%，且有一条差 5% 以上），所以没有放进任何卡片。「区域」为「人体」的候选（例如 Sapiens2，只会算人）只在「人体区域」里参与。输出合成后的法线、置信度、每个像素最接近哪个候选、逐帧各候选和结果的角度差；结果的图层名按用了哪些模型和什么目标自动生成，许可取候选里最严格的那个。"
+row = "候选"
+
+[node.ensemble_normal.param.objective]
+label = "目标"
+
+[node.ensemble_normal.param.objective.option]
+accuracy = "准确"
+robust = "稳健"
+
+[node.ensemble_normal.param.candidates]
+label = "候选"
+
+[node.ensemble_normal.param.candidates.field.name]
+label = "端口"
+
+[node.ensemble_normal.param.candidates.field.weight]
+label = "权重"
+
+[node.ensemble_normal.param.candidates.field.region]
+label = "区域"
+
+[node.ensemble_normal.param.candidates.field.region.option]
+everywhere = "整个画面"
+people = "人体"
+
+[node.ensemble_normal.param.candidates.field.label]
+label = "显示名"
+
+[node.ensemble_normal.port.candidate1]
+label = "候选 1"
+
+[node.ensemble_normal.port.candidate2]
+label = "候选 2"
+
+[node.ensemble_normal.port.candidate3]
+label = "候选 3"
+
+[node.ensemble_normal.port.candidate4]
+label = "候选 4"
+
+[node.ensemble_normal.port.candidate5]
+label = "候选 5"
+
+[node.ensemble_normal.port.candidate6]
+label = "候选 6"
+
+[node.ensemble_normal.port.candidate7]
+label = "候选 7"
+
+[node.ensemble_normal.port.candidate8]
+label = "候选 8"
+
+[node.ensemble_normal.port.people]
+label = "人体区域"
+help = "「区域」为「人体」的候选只在这里面参与（例如 Sapiens2 人体分割的 Alpha）"
+
+[node.ensemble_normal.port.normal]
+label = "法线"
+
+[node.ensemble_normal.port.confidence]
+label = "置信度"
+
+[node.ensemble_normal.port.choice]
+label = "取自哪个候选"
+
+[node.ensemble_normal.port.scores]
+label = "得分"
+
+[node.ensemble_normal.stage]
+combine = "合成"
+
+[node.ensemble_segment]
+subtitle = "物体分割集成"
+description = "把几个模型对同一个物体的分割合成一张硬边遮罩。候选可以是遮罩（例如 SAM 3 点选的遮罩）、物体编号图（例如 VidEoMT 全景分割：取「对象」首帧盖住的那几个物体）或抠像 Alpha（按软值投票）。先做对象检查：画出的对象和「对象」多一块或少一块的候选整段不用；用同一份引导的候选（SAM 3 遮罩和用它的 MatAnyone 2；BiRefNet 和用它粗遮罩的 VideoMaMa）只算一票，几票对哪个是对象有分歧时按多数定，输掉的这一帧不用。「目标」：准确＝逐像素多数票；稳定＝多数票加滞回（上一帧是前景的像素，票数掉到 30% 以下才变背景，帧间少闪）；按可靠度＝STAPLE，按每票估出的可靠度加权（至少三票，不够时按多数票）。实测（12 条带真值素材，留出 6 条）：三个目标都未过验收（IoU 中位数约 0.988，与最好的单模型 0.990–0.992 持平），不放进卡片。输出合成后的遮罩、置信度（同意结果的候选比例）、每个像素最接近哪个候选、逐帧各候选和结果的 IoU；图层名自动生成，许可取候选里最严格的那个。"
+row = "候选"
+
+[node.ensemble_segment.param.objective]
+label = "目标"
+
+[node.ensemble_segment.param.objective.option]
+accuracy = "准确"
+stable = "稳定"
+reliability = "按可靠度"
+
+[node.ensemble_segment.param.candidates]
+label = "候选"
+
+[node.ensemble_segment.param.candidates.field.name]
+label = "端口"
+
+[node.ensemble_segment.param.candidates.field.weight]
+label = "权重"
+
+[node.ensemble_segment.param.candidates.field.label]
+label = "显示名"
+
+[node.ensemble_segment.port.candidate1]
+label = "候选 1"
+
+[node.ensemble_segment.port.candidate2]
+label = "候选 2"
+
+[node.ensemble_segment.port.candidate3]
+label = "候选 3"
+
+[node.ensemble_segment.port.candidate4]
+label = "候选 4"
+
+[node.ensemble_segment.port.candidate5]
+label = "候选 5"
+
+[node.ensemble_segment.port.candidate6]
+label = "候选 6"
+
+[node.ensemble_segment.port.candidate7]
+label = "候选 7"
+
+[node.ensemble_segment.port.candidate8]
+label = "候选 8"
+
+[node.ensemble_segment.port.object]
+label = "对象"
+help = "用户自己选的对象（例如 SAM 3 点选的遮罩）：物体编号图按它首帧盖住的物体取；画出的对象比它多一块或少一块的候选整段不用"
+
+[node.ensemble_segment.port.mask]
+label = "遮罩"
+
+[node.ensemble_segment.port.confidence]
+label = "置信度"
+
+[node.ensemble_segment.port.choice]
+label = "取自哪个候选"
+
+[node.ensemble_segment.port.scores]
+label = "得分"
+
+[node.ensemble_segment.stage]
+combine = "合成"
+
+[node.extract_images]
+subtitle = "视频转图像序列"
+description = "视频 → 图像序列（手机竖拍自动转正，HDR 自动转成 SDR）。取其中一段、隔帧取、缩小分辨率都在这里定；要在 DCC 里做摄影机背景，接「图像序列输出」和「输出」。"
+
+[node.extract_images.param.range_sec]
+label = "区间"
+placeholder = "整段"
+
+[node.extract_images.param.step.option]
+1 = "每帧"
+2 = "每 2 帧取 1"
+3 = "每 3 帧取 1"
+
+[node.extract_images.param.downscale]
+label = "分辨率"
+
+[node.extract_images.param.downscale.option]
+full = "原始"
+half = "一半"
+quarter = "四分之一"
+
+[node.extract_skeleton]
+subtitle = "提取骨架"
+description = "蒙皮角色 → 骨架动画：关节和逐帧的关节动画，网格、蒙皮和融合变形不要了（Maya 里删掉蒙皮的网格，只导出骨骼）。要保留变形后的网格接「烘焙成几何体」。"
+
+[node.file]
+subtitle = "读取图像序列"
+description = "和 Nuke 的 Read 是同一个节点（Nuke 的 Read 还读视频，我们的视频在「读取视频」）：选中的图像序列文件 → 一条图像序列。读 EXR / PNG / JPG 图像序列，也读单张图（HDRI、照片）。EXR 的每个图层都是一个输出：深度贴图、法线贴图、位置图、遮罩、ST 贴图、Cryptomatte 按它们的类型往下接；一个文件夹里的多段图像序列接「读取多条图像序列」。「开始帧」「结束帧」只读其中一段（留空就是图像序列的头 / 尾）；计算按钮旁的计算范围还能在这一段里再选一段，实际算的是两者都包括的帧。"
+no_file = "没有选择图像序列"
+
+[node.file.param.path]
+label = "图像序列"
+
+[node.file.param.first]
+placeholder = "图像序列的第一帧"
+
+[node.file.param.last]
+label = "结束帧"
+placeholder = "图像序列的最后一帧"
+
+[node.file_pattern]
+subtitle = "读取多条图像序列"
+description = "读取一个文件夹里的多段图像序列（子文件夹里的也认得），交出一条图像序列列表：一段一条，名字是图像序列名或子文件夹名。接「逐项开始」就能一段一段往下算，每段单独缓存、单独交付。"
+no_file = "没有选择文件夹"
+
+[node.file_pattern.param.folder]
+label = "文件夹"
+
+[node.file_pattern.param.sequences]
+label = "图像序列"
+
+[node.file_pattern.param.sequences.field.pattern]
+label = "图像序列"
+
+[node.file_pattern.param.sequences.field.frames]
+label = "帧"
+
+[node.file_pattern.param.sequences.field.name]
+label = "名字"
+
+[node.file_pattern.param.sequences.field.use]
+label = "读"
+
+[node.file_still]
+subtitle = "读取图片"
+description = "一张图 → 一份静止画面。读 EXR / PNG / JPG / HDR，EXR 的每个图层照样是一个输出（深度贴图、法线贴图、遮罩……）。环境光探针、面部去光照这类只看一张图的节点用它；整段镜头用「读取图像序列」——那些算法逐帧算，接一段几百帧的图像序列会算很久。"
+no_file = "没有选择图像"
+
+[node.file_video]
+subtitle = "读取视频"
+description = "和 Nuke 的 Read 是同一个节点，读视频那一路：选中的视频文件 → 一份视频。读 mov、mp4 等常见视频；视频本身不能往下算，后面接「视频转图像序列」拆成图像序列。"
+no_file = "没有选择视频"
+
+[node.file_video.param.path]
+label = "视频"
+
+[node.file_video.port.fps]
+help = "视频自己记的帧速率。接到格式输出节点或动作模型的「帧速率」，就跟素材走；视频没记帧速率时这里没有值，那边用自己填的"
+
+[node.foreach_begin]
+subtitle = "逐项开始"
+description = "和 Houdini 的 For-Each Begin 是同一个节点：把一条列表的条目一条一条往下算：到「逐项结束」为止的节点每个条目各算一遍，每一条单独缓存，一条出错其余照常。条目、它的名字、序号和条数都可以接下去。含多条的数据（人物框、场景）先接「拆成列表」。"
+
+[node.foreach_begin.port.name]
+label = "名字"
+
+[node.foreach_begin.port.index]
+label = "序号"
+
+[node.foreach_end]
+subtitle = "逐项结束"
+description = "和 Houdini 的 For-Each End 是同一个节点：收齐块里每个条目的结果，交出一条列表：条目名沿用「逐项开始」的名字（「命名」可以改）。一个条目要带出几样结果就接几根线，它们会打包成一个场景；内层块收集出的列表在这里摊平，条目名写成「外层/内层」。出错或跳过的条目不进列表，节点上列出是哪几条。"
+
+[node.foreach_end.port.result]
+label = "结果"
+
+[node.gate]
+subtitle = "阻断"
+description = "一根线上的开关：「通过」勾着就原样交出接进来的数据；不勾就是阻断——它不取输入、上游整条不算，它自己和只靠它的下游显示「已跳过（被阻断）」，不报错也不出警告。下游的可选输入、多线输入里的一根、「输出」「合成场景」「合成列表」「多层 EXR 输出」里接着它的那一行，就当没接（多层 EXR 不留空层）。做模板时把「通过」公开成复选框，用的人就能一键关掉一个功能分支；几个分支要一起开关，用一个「布尔」节点接到它们各自的「通过」口，两条互斥的分支（开一条、关另一条）其中一个打开「反过来」。"
+
+[node.gate.param.through]
+label = "通过"
+
+[node.gate.param.invert]
+label = "反过来"
+
+[node.has_data]
+subtitle = "有没有"
+description = "问接进来的那根线这次有没有东西，给出一个布尔：上游是空的、被「阻断」关着、或是没选文件的读取（以及只把它们转手的「切换」「阻断」）就是「否」，其余是「是」。只看在不在，不取内容，上游不会为它计算；答案在算之前就有，接到「切换」的「走哪一路」或「阻断」的「通过」上，提交前就定了走哪条路。做模板时用它实现「上传了就用，没上传就换一条路」，比如上传了参考动作就补帧、没上传就纯生成。"
+
+[node.has_data.param.present]
+label = "有"
+
+[node.has_data.port.value]
+label = "有"
+
+[node."image.output"]
+subtitle = "图像序列输出"
+description = "图像，或深度贴图、位置图、遮罩等数据图 → 图像序列，每帧一个文件，帧号不变（数据图原样写 EXR，不做颜色转换、不受这里的格式设置影响）。写 EXR 时「图层」填什么，通道就按那个图层的约定命名：填 motion 写成 Nuke 标准的 forward.u/v、backward.u/v（VectorBlur、IDistort 拿来就能用；不是 NukeX 的 SmartVector——它的文件格式没有公开，只有 NukeX 的 SmartVector 节点写得出，VectorDistort 只认它），填 depth 写成 depth.Z，留空就是我们自己的 R G B A；单条通道接 R、G、B、A 四个口：接到哪个口就写成哪条通道，没接的口就没有那条通道（抠像的 alpha 接 A，写出来的 EXR 就只有 A；「图像」和它们一起接时「图像」当底子，单独接的盖掉那一条）。它只定名字和格式，接到「输出」上才真正写出文件。几样结果写进同一个 EXR 用「多层 EXR 输出」。"
+
+[node."image.output".param.layer]
+label = "图层"
+placeholder = "按通道"
+
+[node."image.output".param.format.option]
+exr = "EXR"
+png = "PNG"
+jpg = "JPG"
+
+[node."image.output".param.png_bit_depth]
+label = "位深"
+
+[node."image.output".param.png_bit_depth.option]
+8 = "8 位"
+16 = "16 位"
+
+[node."image.output".param.png_compress_level]
+label = "压缩强度"
+
+[node."image.output".param.png_alpha]
+label = "带 alpha"
+
+[node."image.output".param.png_alpha.option]
+auto = "自动"
+yes = "带"
+no = "不带"
+
+[node."image.output".param.jpg_quality]
+label = "质量"
+
+[node."image.output".port.image]
+label = "图像"
+help = "一整张图照原样写：RGB、RGBA，或深度、遮罩这类数据图（按通道写出）。要逐条接通道就用右边的 R G B A，两种接法只能用一种"
+
+[node."image.output".port.R]
+label = "R"
+help = "一条浮点通道写成 EXR 的 R 通道：接到哪个口就是哪个通道，不做任何判断。没接的口就没有这条通道"
+
+[node."image.output".port.G]
+label = "G"
+help = "一条浮点通道写成 EXR 的 G 通道：接到哪个口就是哪个通道，不做任何判断。没接的口就没有这条通道"
+
+[node."image.output".port.B]
+label = "B"
+help = "一条浮点通道写成 EXR 的 B 通道：接到哪个口就是哪个通道，不做任何判断。没接的口就没有这条通道"
+
+[node."image.output".port.A]
+label = "A"
+help = "一条浮点通道写成 EXR 的 A 通道：接到哪个口就是哪个通道，不做任何判断。没接的口就没有这条通道；这里不替你预乘颜色，要预乘用「预乘」"
+
+[node.image_plane]
+subtitle = "设置图像平面"
+description = "给一台摄影机换上图像平面：输出同一台摄影机，只是透过它看时垫在底下的画面换成接进来的这段。abc、USD、FBX 导入的摄影机，解算或创建的摄影机都能用；画面彩色、灰度、带 alpha 都可以。图像平面按帧号对应，摄影机和画面的帧号要一致。"
+
+[node.image_plane.port.image]
+label = "图像"
+
+[node.lens_distortion]
+subtitle = "LensDistortion"
+description = "一颗镜头 → 两张ST 贴图：去畸变的（把原始画面拉直，放在带扩边的画布上，主点在画布正中）和加畸变的（把画布大小的 CG 贴回原始画面）。它不动像素：拿哪张去扭图，接到「STMap」上——源图接进「STMap」的「源」，这里的ST 贴图进它的「ST 贴图」。镜头填在节点上：选镜头模型（3DE 的三个和 3DE 镜头表里一模一样，OpenCV 的三个是标定程序给的），照镜头表填系数和焦距、胶片背；COLMAP / AnyCalib / GeoCalib 解出来的接三根线：焦距、胶片背、镜头内参（两边选同一个镜头模型）。剧组给的是现成的ST 贴图文件时不用这个节点，那张图接进「STMap」；变焦镜头同理——接 3DE 烘出来的逐帧ST 贴图序列，这里的镜头表是一组定值，填不了变焦。"
+
+[node.lens_distortion.param.lens_group]
+label = "镜头内参组"
+placeholder = "默认"
+strip = "镜头内参组"
+
+[node.lens_distortion.param.lens_model]
+label = "镜头模型"
+strip = "镜头模型"
+
+[node.lens_distortion.param.distortion]
+label = "畸变参数"
+
+[node.lens_distortion.param.distortion.field.name]
+label = "参数"
+
+[node.lens_distortion.param.distortion.field.value]
+label = "值"
+
+[node.lens_distortion.param.width]
+placeholder = "跟画面"
+
+[node.lens_distortion.param.height]
+placeholder = "跟画面"
+
+[node.lens_distortion.param.pixel_aspect]
+label = "像素比"
+
+[node.lens_distortion.param.focal_mm]
+placeholder = "不知道"
+strip = "焦距"
+
+[node.lens_distortion.param.overscan]
+label = "扩边"
+
+[node.lens_distortion.param.overscan.option]
+auto = "自动"
+none = "无"
+5 = "5%"
+10 = "10%"
+20 = "20%"
+
+[node.lens_distortion.port.image]
+label = "图像"
+
+[node.lens_distortion.port.lens]
+help = "上游解出来的镜头内参（COLMAP、AnyCalib、GeoCalib 的「镜头内参」口）：模型 + 畸变系数 + 主点 + 像素比一份。接了它，镜头内参组、镜头模型、畸变参数、主点、像素比都从它来（变灰），上游换了模型这里跟着换"
+
+[node.lens_distortion.port.undistort_stmap]
+label = "去畸变ST 贴图"
+
+[node.lens_distortion.port.distort_stmap]
+label = "加畸变ST 贴图"
+
+[node.lens_distortion.param.filmback_mm]
+strip = "胶片背"
+
+[node.lock_focal]
+subtitle = "锁定焦距"
+description = "解算出来的摄影机 → 焦距是一个定值、每帧位置和朝向重新解过的摄影机，外加前后对比曲线。机器学习解算器逐帧估焦距，焦距一抖，它就把摄影机沿镜头方向前后推来补（推拉变焦），只把焦距改成定值、摄影机不动，画面就对不上了。这里连位置一起重算：接上点云（解算节点的点云输出）当锚点；再接上同一个节点出的「2D 跟踪点」，就用真实的画面观测，更可信。定焦镜头用它；真的是变焦镜头别锁。"
+
+[node.lock_focal.param.focal_mm]
+placeholder = "自动"
+
+[node.lock_focal.param.filmback_mm]
+placeholder = "36"
+
+[node.lock_focal.port.points]
+help = "拿来当锚点的三维点：解算节点的「点云」输出，或者「3D 跟踪点」"
+
+[node.lock_focal.port.tracks]
+help = "和「点云」出自同一个节点、一一对应的画面观测。接上就用真实观测代替「按原摄影机投出来的位置」"
+
+[node.lock_focal.port.curves]
+label = "前后对比"
+waits = ""
+
+[node.logic]
+subtitle = "与或非"
+description = "几个开关合成一个：与（都开才开）、或（有一个开就开）、非（反过来，只看第一根线）。"
+
+[node.logic.param.operation.option]
+and = "与"
+or = "或"
+not = "非"
+
+[node.logic.port.values]
+label = "布尔"
+
+[node.logic.port.value]
+label = "结果"
+
+[node.make_list]
+subtitle = "合成列表"
+description = "把几份同一种数据合成一条列表，交给「逐项开始」一起算：名字按接线顺序一行一个，留空的按上游「命名」的名字，再没有就按 1、2、3 编号。名字是写出时的层级名和交付的文件夹名。"
+
+[node.make_list.param.names]
+label = "名字"
+placeholder = "按顺序，逗号分开"
+
+[node.make_list.port.items]
+label = "条目"
+
+[node.mask_adjust]
+subtitle = "遮罩调整"
+description = "相当于 Nuke 的 Dilate / Erode 接 Blur 接 Invert：扩边或收缩、羽化、反转一个遮罩，顺序如此。任何遮罩都能接：给抠像留余量、去掉毛边、把“人”变成“除了人”。"
+
+[node.mask_adjust.param.grow]
+label = "扩缩"
+
+[node.mask_adjust.param.feather]
+label = "羽化"
+
+[node.mask_adjust.param.invert]
+label = "反转"
+
+[node.mask_from_boxes]
+subtitle = "人物框转遮罩"
+description = "人物框 → 框里是 1 的遮罩（原画面大小）。任何检测节点的人物框都能接：给 SAM 3、MatAnyone 这类要遮罩引导的节点，或者把人从「深度对齐」和点云里排除。要贴合轮廓的遮罩接分割或抠像节点，这里给的是矩形框。"
+
+[node.mask_from_boxes.param.ids]
+placeholder = "全部"
+
+[node.mask_from_confidence]
+subtitle = "置信度转遮罩"
+description = "置信度 → 遮罩：置信度高于「置信度门槛」的像素是 1，「软边」让门槛附近渐变，「区域」选不可信的就反过来。置信度是模型自己的打分，不是遮罩：要拿它排除没把握的地方、只在可信处跟点或对齐，都先经过这里。任何置信度都能接（深度贴图、摄影机与深度、运动向量、稠密对应）。"
+
+[node.mask_from_confidence.param.keep]
+label = "区域"
+
+[node.mask_from_confidence.param.keep.option]
+trusted = "可信的"
+doubtful = "不可信的"
+
+[node.mask_from_depth]
+subtitle = "深度转遮罩"
+description = "深度贴图 → 按距离抠出的遮罩：离摄影机在「近」和「远」之间的像素是 1，边缘按「软边」过渡。任何深度贴图都能接；要手动缩放的深度贴图按它自己的数值填（不是真实厘米），先接「深度对齐」就能按真实距离填。"
+
+[node.mask_from_depth.param.near]
+label = "近"
+
+[node.mask_from_depth.param.far]
+label = "远"
+placeholder = "无限远"
+
+[node.mask_from_depth.param.include_empty]
+label = "含无值像素"
+
+[node.mask_from_segments]
+subtitle = "分割转遮罩"
+description = "分割图 → 挑出的几类合成一张遮罩：SAM 3 的某几个物体、Sapiens2 的头发或手。任何分割节点都能接；上游算过以后，在参数里点类别名，或者在 2D 视图里点画面上的区域。"
+
+[node.mask_from_segments.param.classes]
+label = "类别"
+placeholder = "全部物体"
+
+[node.mask_from_segments.param.picks]
+label = "点选"
+placeholder = "在 2D 视图里点要的区域"
+
+[node.mask_from_segments.port.segmentation]
+label = "分割图"
+
+[node.mask_merge]
+subtitle = "遮罩合并"
+description = "两个遮罩 → 合成一个遮罩：合并（A 或 B）、相减（A 去掉 B）、相交（A 和 B 都有）。任何遮罩都能接，比如 SAM 3 的人加 BiRefNet 的主体，或者整幅画面减去人物框。"
+
+[node.mask_merge.param.mode.option]
+union = "合并"
+subtract = "相减"
+intersect = "相交"
+
+[node.mask_merge.port.a]
+label = "遮罩 A"
+
+[node.mask_merge.port.b]
+label = "遮罩 B"
+
+[node.math]
+subtitle = "数学"
+description = "几个数值算成一个：加、减、乘、除、最小、最大、取整、绝对值，按接线顺序。接进来的值都换算成「单位」里选的单位，换不了的报错说明。另出一路「取整结果」（四舍五入成整数），接整数参数（像素半径、帧数）用它。"
+
+[node.math.param.operation.option]
+add = "加"
+subtract = "减"
+multiply = "乘"
+divide = "除"
+min = "最小"
+max = "最大"
+round = "取整"
+abs = "绝对值"
+
+[node.math.param.unit.option]
+cm = "cm"
+m = "m"
+
+[node.math.port.values]
+label = "数值"
+
+[node.math.port.value]
+label = "结果"
+
+[node.math.port.integer]
+label = "取整结果"
+
+[node.merge]
+subtitle = "合成场景"
+description = "和 Houdini 的 Merge（SOP）、Nuke 的 Scene 是同一个节点：模型、摄影机、点云、三维曲线、骨架动画、蒙皮角色 → 合成一个场景，一起变换、一起落地。写文件不需要它：格式输出节点自己就收多根线；也可以接一条场景列表，每条放在 /shot/<条目名> 下。帧数不同的按帧号对齐，两样数据重名（每台摄影机都叫 camera）提交前拦下，用「命名」各起一个名字。"
+
+[node.merge_items]
+subtitle = "列表合并"
+description = "把一条列表并回一份数据，什么列表都行：几个人的人物框并成一份多人的人物框，逐个算的场景并成一个场景（每条放在 /shot/<条目名> 下），跟踪点、分割图同理。和「拆成列表」相反。"
+
+[node.motion_warp]
+subtitle = "运动向量变形"
+description = "和 Nuke 的 IDistort 是同一个节点（UV 用 forward / backward）：图像 + 运动向量 → 把下一帧（或上一帧）拉到这一帧上的结果，每个像素去邻帧里它移到的地方取值。检查运动向量准不准（和这一帧相减）、把邻帧的遮罩或修补推一帧、做时间上的降噪都用它；图像、遮罩、深度贴图都能变形，出来还是原来的类型。要一步跨到参考帧接「运动向量转ST 贴图」。"
+
+[node.motion_warp.param.direction]
+label = "取哪一帧"
+
+[node.motion_warp.param.direction.option]
+next = "下一帧"
+previous = "上一帧"
+
+[node.motion_warp.port.image]
+label = "结果"
+
+[node.name]
+subtitle = "命名"
+description = "和 Houdini 的 Name（SOP）是同一个节点：给数据起一个名字，写出和交付都用它：场景放到 /shot/<名字> 下，列表按「名字_序号」逐条改名，其他数据把名字记在数据上，「逐项结束」收集时用。两份数据重名时用它分开，不会有人替你偷偷改名。"
+
+[node.normal_from_depth]
+subtitle = "深度转法线"
+description = "深度贴图 + 摄影机 → 每个像素的表面法线（法线贴图）。任何深度贴图节点都能接，要手动缩放的深度贴图也行（法线和尺度无关）；没有法线输出的深度贴图方法、对齐过的深度贴图，都用它补上法线。法线在摄影机空间和世界空间之间换算用「法线空间转换」。"
+
+[node.normal_space]
+subtitle = "法线空间转换"
+description = "法线贴图 + 摄影机 → 换到另一个空间的法线贴图，按摄影机每一帧的朝向。任何法线贴图都能接（MoGe、Sapiens2、Cosmos DiffusionRenderer、「深度转法线」）；世界空间法线在 Nuke 里按固定的灯光方向重新打光，镜头怎么动都对。"
+
+[node.normal_space.param.space]
+label = "转到"
+
+[node."nuke.output"]
+subtitle = "Nuke 摄影机输出"
+description = "摄影机 → Nuke 的 Camera3 节点（.nk 文本）：每帧的位置、朝向、焦距和胶片背写成动画曲线，单位是厘米、Y 轴向上，和 Nuke 的摄影机一致。节点上「复制到 Nuke」复制这段文字，在合成里粘贴，或在 Nuke 里 File → Import Script；Camera3 是针孔摄影机，镜头畸变留在数据里，合成时用ST 贴图加回去。要把摄影机接进别的三维软件，用三维场景的格式输出节点（「USD 输出」「FBX 输出」「Alembic 输出」）。"
+
+[node.occlusion_from_motion]
+subtitle = "遮挡遮罩"
+description = "运动向量 → 两张遮罩：「遮挡」是这一帧里下一帧会被挡住或出画的像素，「新露出」是上一帧看不到、这一帧才露出来的像素。做的是前后一致性检查，任何运动向量都能接；推帧、传播贴图时这些地方没法从邻帧取，要手动补。"
+
+[node.occlusion_from_motion.port.occluded]
+label = "遮挡"
+
+[node.occlusion_from_motion.port.revealed]
+label = "新露出"
+
+[node.orientation_field]
+subtitle = "方向场"
+description = "一张图 → 每个像素上纹理顺着哪个方向走，以及这个判断有多可信（两条通道：角度、可信度）。一组不同角度的 Gabor 滤波器扫过画面，哪个角度响应最强就是那个方向。头发、毛皮、布纹、刷痕这类细长纹理都适用；解算发丝的项目拿它当输入。方向不分正负（朝左上和朝右下是同一个方向），所以角度只在 0–180° 里，比较大小不能相减。每个角度用的是正交对（同一个核的偶相位和奇相位各一份，取能量），这是 Gabor 能量的标准定义。发丝解算类项目里常见的实现只用偶相位那一份核（上游的例子：HairGS 仓库 utils/vision.py；那个项目我们没有接），响应会随条纹相位周期性过零，过零处取最大值等于掷骰子。在 USC-HairSalon 真值上逐像素量过：正交对平均角误差 10.19°、中位 4.13°，只用偶核是 14.46°／6.54°，所以这里用正交对；和上游的数字对不上时，差别出在这里。"
+
+[node.orientation_field.param.period]
+label = "纹理周期"
+
+[node.orientation_field.param.reach]
+label = "取样范围"
+
+[node.orientation_field.param.angles]
+label = "角度数"
+
+[node.orientation_field.param.angles.option]
+90 = "90 档"
+180 = "180 档"
+360 = "360 档"
+
+[node.orientation_field.port.image]
+label = "图像"
+
+[node.orientation_field.port.mask]
+help = "只在这块区域里量方向，外面的可信度给 0。可信度是按整张图里最集中的那个像素归一化的，接上遮罩就只在遮罩里归一化，背景的杂纹不会把主体的可信度压下去"
+
+[node.orientation_field.port.orientation]
+label = "方向场"
+help = "第一条通道是方向，单位度，0–180；第二条是可信度 0–1。角度量的是纹理本身的走向"
+
+[node.output]
+subtitle = "输出"
+description = "「XX 输出」加上它，合起来相当于 Nuke 的一个 Write（Nuke 一个节点既定格式又写文件，我们分成两个）：格式输出节点写好的文件 → 交付出去的一个包或一个文件夹：每个格式输出节点一个子文件夹，按它的名字（depth/depth.1001.exr、scene/scene.usd）。要写出文件就要有它；一个节点图里可以有几个，分别交给不同的地方。"
+
+[node."ply.import"]
+subtitle = "导入 PLY"
+description = "导入扫描、摄影测量（RealityCapture、Metashape、COLMAP）导出的 PLY（.ply）：顶点是点云（带颜色就带颜色），有面的话同时是模型。PLY 不记录单位和上轴，在「单位」「上轴」里说。"
+
+[node."ply.import".param.unit.option]
+cm = "厘米"
+m = "米"
+
+[node."ply.import".port.models]
+waits = "选一个几何体"
+
+[node."ply.import".port.points]
+waits = "选一个点云"
+
+[node."ply.import".port.gaussians]
+waits = "选一个3D 高斯"
+
+[node."ply.import".fact.models]
+kinds = "选的几何体"
+
+[node."ply.output"]
+subtitle = "点云 PLY 输出"
+description = "点云 → PLY（x y z 加 red green blue 颜色）：MeshLab、CloudCompare、Open3D、Houdini 等都直接读。点的变换烘进坐标；逐帧变化的点云逐帧写出。USD 交付用「USD 输出」（颜色写在 displayColor 上）。它只定名字，接到「输出」上才真正写出文件。"
+
+[node."ply.output".param.unit.option]
+cm = "厘米"
+m = "米"
+
+[node."ply.output_gaussian"]
+subtitle = "3D 高斯 PLY 输出"
+description = "3D 高斯 → Inria 格式的 PLY（位置、尺度、旋转、透明度、球谐颜色）：3D 高斯生态的通用交换格式，各高斯查看器和 DCC 的高斯插件直接读。变换烘进位置与协方差、球谐随动旋转；动态对象逐帧写出。USD 交付用「USD 输出」（高斯在 USD 里原样保留）。它只定名字，接到「输出」上才真正写出文件。"
+
+[node."ply.output_gaussian".param.unit.option]
+cm = "厘米"
+m = "米"
+
+[node.pointcloud_fuse]
+subtitle = "点云融合"
+description = "把一整个镜头里逐帧的点云（或逐帧深度 + 摄影机）融成一片静止的全局点云，帧与帧之间大量重复的点合在一起。接「逐帧点云」走体素拼接：所有帧的点拼起来，每个体素只留一个质心；接「深度贴图」走 TSDF 融合：逐帧把深度反投影进体素网格、累加带符号距离，最后在表面过零处插值出点，质量更高、去噪更强。两种接法都用「体素大小」控制去重力度。接深度时再接「画面」，每个点取它来源那一帧、那个像素的颜色（融合时按体素平均）；不接按远近着色。接逐帧点云时颜色随点云自带。"
+
+[node.pointcloud_fuse.param.voxel_size]
+label = "体素大小"
+
+[node.pointcloud_fuse.param.truncation]
+label = "截断距离"
+
+[node.pointcloud_fuse.param.color]
+label = "保留颜色"
+
+[node.pointcloud_fuse.port.depth]
+help = "逐帧的深度贴图（真实尺度），配合「摄影机」按 TSDF 融合成全局点云。"
+
+[node.pointcloud_fuse.port.image]
+label = "画面"
+help = "点云的颜色取自这张画面：每个点取它来源那一帧、那个像素的颜色，融合时按体素平均。不接就按远近着色：近的亮、远的暗。接「逐帧点云」时颜色随点云自带。"
+
+[node.pointcloud_fuse.port.camera]
+help = "逐帧深度对应的摄影机：深度按它反投影成三维再融合。接「深度贴图」必须有它。"
+
+[node.pointcloud_fuse.port.points]
+label = "逐帧点云"
+help = "逐帧变化的点云（每帧一个），全部拼起来按体素去重。接它走体素拼接；接「深度贴图」则走 TSDF 融合。"
+
+[node.pointcloud_fuse.port.points.output]
+label = "点云"
+help = ""
+
+[node.pointcloud_fuse.cost]
+whole = "整段一次融合"
+
+[node.points_from_depth]
+subtitle = "深度转点云"
+description = "深度贴图 + 摄影机 → 每帧一片点云（USD，厘米）。接「颜色」就取画面的颜色，不接就按远近着色（近的亮、远的暗）。任何深度贴图节点、任何摄影机都能接；接上遮罩把人、车这类运动物体从点云里去掉，接上深度贴图节点的置信度，没把握的点（边缘拖尾、天空、反光）不进点云。要每个像素的三维坐标接「深度转世界位置」。"
+
+[node.points_from_depth.port.image]
+label = "颜色"
+help = "点云的颜色取自这张画面。不接就按远近着色：近的亮、远的暗"
+
+[node.points_from_depth.port.mask]
+label = "排除"
+
+[node.points_from_depth.port.confidence]
+help = "深度贴图节点给的置信度：低于「置信度门槛」的点不进点云（模型自己没把握的地方：物体边缘拖出的飞点、天空、反光）"
+
+[node.points_from_tracks]
+subtitle = "跟踪点转 3D"
+description = "2D 跟踪点 + 深度贴图 + 摄影机 → 3D 跟踪点（带编号、可见性和速度的动画点云，厘米）：每个点在它看得见的帧上取画面下的深度贴图数值，放进摄影机的世界，被挡住的帧在前后看得见的位置之间补上。任何 2D 跟踪点（CoTracker3、TAPNext++、AllTracker、WOFTSAM 的四个角）、任何深度贴图、任何摄影机都能接，3D 跟踪点在 Houdini 里当定位器，钉 CG 道具。"
+
+[node.points_from_tracks.port.image]
+label = "颜色"
+
+[node.position_from_depth]
+subtitle = "深度转世界位置"
+description = "深度贴图 + 摄影机 → 每个像素的三维坐标（位置图，厘米，三通道 EXR）。任何深度贴图节点、任何摄影机都能接，同一个解算节点出的深度贴图和摄影机一定对得上；位置图在 Nuke 里做重新打光、投射、按位置抠遮罩。要法线接「深度转法线」，要点云接「深度转点云」。"
+
+[node.premultiply]
+subtitle = "预乘"
+description = "相当于 Nuke 的 Copy 接 Premult：画面 + 遮罩 → 带 alpha 的图像，遮罩当 alpha，颜色乘上它（预乘）。抠像和分割的结果（BiRefNet、MatAnyone 2、SAM 3……）接这里，就能交成带 alpha 的 EXR（预乘）或 PNG，画面原来的 alpha 换成这个遮罩；结果在渲染空间里（sRGB 编码的 Rec.709，和画面一样），接格式输出节点写 EXR 时再转到交付的颜色空间（默认 ACEScg，按先反预乘、转换、再预乘的规矩）。"
+
+[node.premultiply.port.image.output]
+label = "RGBA"
+
+[node.rasterize_geometry]
+subtitle = "场景投影成 2D"
+description = "场景（人物、网格、点云）+ 摄影机 → 从摄影机看过去的遮罩（轮廓）、深度贴图（厘米）和法线贴图，原画面大小。任何解算出的人物、读进来的模型和点云都能变回 2D：给抠像节点当遮罩、给合成用的深度贴图和法线贴图，也可以和深度贴图方法的结果互相对比。"
+
+[node.rasterize_geometry.param.width]
+placeholder = "摄影机的"
+
+[node.rasterize_geometry.param.height]
+placeholder = "摄影机的"
+
+[node.rasterize_geometry.param.space]
+label = "法线坐标系"
+
+[node.resample]
+subtitle = "重采样曲线"
+description = "和 Houdini 的 Resample 是同一个节点：三维曲线 → 每条曲线按等弧长重新取固定点数的三维曲线。发丝、毛发导向线动辄每条上百个点，交给 DCC 或者写文件之前降到几十个点，形状不变、文件小得多；点数比原来多就是加密。宽度、颜色、朝向这些逐点的属性跟着点一起重采样。每条曲线的点数一样，和 Houdini 里 Resample 到固定段数的结果一致。"
+
+[node.resample.param.per_curve]
+label = "每条点数"
+
+[node.resample.param.per_curve.option]
+8 = "8"
+16 = "16"
+24 = "24"
+32 = "32"
+48 = "48"
+64 = "64"
+100 = "100"
+
+[node.resample.port.curves]
+waits = ""
+
+[node.retarget]
+subtitle = "动作重定目标"
+description = "一段骨架动画（或一个蒙皮角色的动作）→ 换到另一副骨架上，交出目标层级上的骨架动画。和 Maya HumanIK、Unreal IK Retargeter 是同一件事：两边的身体部位在「对应关系」里对上（在视图里先后点两边的关节就连上，没配的按名字和层级自动认），静止姿势（T 形站姿、A 形站姿都行）先对齐，再把动作换过去；脊柱、颈、手指两边节数不一样时，弯曲按骨长分摊到每一节，不会全挤在一两节上。水平位移 1 : 1 跟着动作（角色踩在画面里那个人的位置上）；髋的高度按「髋高依据」（腿长 / 身高 / 臂长 / 不缩放）× 髋高倍率抬高，「髋高跟法」选跟着脚抬高（楼梯、跳跃、坐地也对）或按比例（平地），两边脚底自动对齐，还能加「高度偏移」；骨头长度和缩放用目标自己的。两边有一边没有髋、都有手时（HaMeR 解出的手、只有手的绑定）只配手：按手腕和五根手指对齐，手腕 1 : 1 跟着动作，髋高那几项不起作用。「角色缩放」把整个角色按身高自动或按手填倍率放大，之后再算髋高。「目标」只用它的骨架，一帧的角色（「标准人」、刚绑定的角色）就够。要看蒙皮效果接「线性蒙皮变形」，交付骨架直接接「FBX / USD 输出」。"
+
+[node.retarget.param.rest_fix]
+label = "静止姿势校正"
+
+[node.retarget.param.rest_fix.option]
+none = "不摆正"
+tpose = "自动摆成 T 形站姿"
+
+[node.retarget.param.size_by]
+label = "角色缩放"
+
+[node.retarget.param.size_by.option]
+none = "不缩放"
+height = "按身高自动"
+manual = "手填倍率"
+
+[node.retarget.param.size]
+label = "缩放倍率"
+
+[node.retarget.param.scale_by]
+label = "髋高依据"
+
+[node.retarget.param.scale_by.option]
+legs = "按腿长"
+height = "按身高"
+arms = "按臂长"
+none = "不缩放（1 : 1）"
+
+[node.retarget.param.scale]
+label = "髋高倍率"
+placeholder = "1"
+
+[node.retarget.param.height_mode]
+label = "髋高跟法"
+
+[node.retarget.param.height_mode.option]
+lift = "跟着脚抬高（楼梯、跳跃、坐地也对）"
+proportional = "按比例（只适合平地）"
+
+[node.retarget.port.target]
+help = "动作要套到谁身上：你自己的角色或骨架，只用它的骨架和绑定姿势，一帧就够"
+
+[node.retarget.port.motion]
+help = "动作从哪来：一段骨架动画（导入的 BVH、动作生成、解算出来的人），或者另一个角色"
+
+[node.retarget_expression]
+subtitle = "表情重定目标（ARKit52）"
+description = "一段表情 → 套到另一个角色的融合变形上，交出表情动起来的蒙皮角色。「表情」接面部解算的「表情曲线」（MediaPipe 的 ARKit 52 条、SMIRK / Pixel3DMM 的 FLAME 表情），或者带表情动画的角色；「目标」接带融合变形的角色（Character Creator / AccuRIG 的 ARKit 形变、MetaHuman、FLAME 角色都行，一帧就够，带着身体动画也行，关节的动画原样留着）。两边的名字在「对应关系」里对上：和「动作重定目标」同一个编辑器，人形图换成按眉毛、眼睛、嘴分组的表情槽；ARKit 的名字不管大小写、下划线、L / R 还是 Left / Right 都自动认，认不出的手动点。权重原样搬（0..1），目标没配上的形变保持 0。FLAME 的 expression_00… 是统计分量、不是具体动作，只对得上同样带这些分量的 FLAME 角色。"
+
+[node.retarget_expression.param.source_skeleton]
+label = "表情骨骼"
+placeholder = "第一个有表情的"
+
+[node.retarget_expression.port.target]
+help = "表情要套到谁脸上：带融合变形的蒙皮角色（一帧就够，带着身体动画也行）"
+
+[node.retarget_expression.port.expressions]
+label = "表情"
+help = "表情从哪来：面部解算的「表情曲线」（MediaPipe 的 ARKit 52、SMIRK / Pixel3DMM 的 FLAME），或带表情动画的角色"
+
+[node.retarget_post]
+subtitle = "重定目标后处理"
+description = "学习式重定目标的第三段：在解算器的原生结果上明着做位移——水平轨迹 1 : 1 跟随源动作、髋高按两侧腿长比和脚底差换算，或保留模型给的轨迹；可再加高度偏移。改的是髋骨骼的动画曲线，不是外面的变换。部位和静止姿势取自「重定目标预处理」。落地接「自动落地」。"
+
+[node.retarget_post.param.root_motion]
+label = "位移轨迹"
+
+[node.retarget_post.param.root_motion.option]
+source = "跟随源动作（按腿长修正）"
+model = "保留模型（不修正）"
+
+[node.retarget_post.param.stride]
+label = "水平位移"
+
+[node.retarget_post.param.stride.option]
+legs = "按腿长缩放（不滑步）"
+plate = "按画面原样（贴合视频里的位置）"
+
+[node.retarget_post.port.skeleton]
+label = "解算结果"
+
+[node.retarget_post.port.skeleton.output]
+label = "骨架动画"
+
+[node.retarget_prepare]
+subtitle = "重定目标预处理"
+description = "学习式重定目标的第一段：在视图里定两副骨架的部位对应、两侧的静止姿势（初始姿态对齐）和不送进解算器的骨骼。三件各有一个「自动」，结果写进参数，看得见、改得了；什么都不改时就按自动的结果。交出原样的「源」「目标」，标注写在各自的 USD 骨架上，动画和绑定姿势不动。接 STaR / MeshRet / SATA / 运动学精修等解算器。"
+
+[node.retarget_prepare.param.motion_ignore]
+label = "动作忽略的骨骼"
+
+[node.retarget_prepare.param.target_ignore]
+label = "目标忽略的骨骼"
+
+[node.retarget_prepare.param.ignore_rule]
+label = "忽略规则"
+
+[node.retarget_prepare.param.motion_scale]
+label = "动作尺寸"
+placeholder = "自动"
+
+[node.retarget_prepare.param.target_scale]
+label = "目标尺寸"
+placeholder = "自动"
+
+[node.retarget_prepare.param.auto_record]
+label = "自动记录"
+
+[node.retime]
+subtitle = "重定时"
+description = "和 Nuke 的 TimeOffset 加 Retime、Houdini 的 Time Shift 是同一件事，合在一个节点里，因为它们都在回答「哪一帧对哪一帧」。场景 → 整体挪帧号、或者按一个速度重新取帧。整张节点图里只有这一个节点会改帧号对应关系，改了什么写在节点上。速度就是 Nuke Retime 上那个「speed」：一帧走几帧，中间的帧插出来（30 帧动捕要放进 24 帧的镜头，速度填 1.25 = 30 ÷ 24）。"
+
+[node.retime.param.offset]
+label = "偏移"
+
+[node.retime.param.speed]
+label = "速度"
+
+[node.retime.param.anchor]
+label = "对齐帧"
+placeholder = "第一帧"
+
+[node.retime.fact]
+speed_changes = "速度不是 1"
+
+[node.select_item]
+subtitle = "取一条"
+description = "从一条列表里取出一条往下算：按序号（从 1 数）或者按名字。要每一条都算，用「逐项开始」。"
+
+[node.select_item.param.by]
+label = "按"
+
+[node.select_item.param.by.option]
+index = "序号"
+name = "名字"
+
+[node.select_item.param.index]
+label = "序号"
+
+[node.select_people]
+subtitle = "选人"
+description = "人物框 → 只剩选中的人的一份人物框：接进解算器的「人物框」口，选几个就解几个。按最显眼的一个、前几个、全部、编号，或者在 2D 视图里点人；接在检测节点后面，定下这一次算谁。"
+
+[node.select_people.param.mode]
+label = "选择"
+
+[node.select_people.param.mode.option]
+largest = "最大"
+top = "前几个"
+all = "全部"
+ids = "编号"
+picked = "点选"
+
+[node.select_people.param.count]
+label = "人数"
+
+[node.select_people.param.ids]
+placeholder = "1,3"
+
+[node.select_people.param.picks]
+label = "点选"
+placeholder = "在 2D 视图里点人"
+
+[node.split_camera]
+subtitle = "拆分摄影机"
+description = "摄影机 → 一组数值：焦距、胶片背（毫米）、每帧的位置（厘米）和旋转（度，XYZ 顺序）。接到别的节点参数的输入口上：3DE 摄影机的焦距给 MoGe、旋转给人体解算器、位置给「创建摄影机」。"
+
+[node.split_camera.param.per_frame]
+label = "逐帧"
+
+[node.split_camera.port.translate]
+label = "位置"
+
+[node.split_camera.port.rotate]
+label = "旋转"
+
+[node.split_camera.port.filmback]
+help = ""
+
+[node.split_grid]
+subtitle = "拆网格图"
+description = "一张排成网格的图 → 一格一帧的图像序列（Nuke 的 ContactSheet 反过来）。分镜表、贴图表、把一段动作拼成一张的联系表都能拆开，接着往下当图像序列算。纯粹是切像素：不缩放、不改色，切出来还是原来的类型（图像、遮罩、深度贴图都行）。"
+
+[node.split_grid.param.rows]
+label = "行"
+
+[node.split_grid.param.cols]
+label = "列"
+
+[node.split_grid.param.order]
+label = "顺序"
+
+[node.split_grid.param.order.option]
+row = "先横后竖"
+col = "先竖后横"
+
+[node.split_grid.param.margin]
+label = "边距"
+
+[node.split_grid.port.image]
+label = "网格图"
+
+[node.split_grid.port.image.output]
+label = "图像"
+
+[node.split_items]
+subtitle = "拆成列表"
+description = "把含多条的数据拆成一条列表，一条一个：人物框按人（person_01……）、场景按 /shot 下的组、2D 跟踪点按组、分割图按物体。接「逐项开始」就能每个人、每个物体各算一遍。"
+
+[node.split_scene]
+subtitle = "按种类取出"
+description = "场景 → 按种类分开的三维数据：摄影机、模型、点云、三维曲线、骨架动画、蒙皮角色各是一个输出，都在原来的位置（父级的变换一起算）。给只能写某些种类的格式输出节点用（有的格式没有骨骼、有的没有点云），也可以只把人物交给别人；场景里没有的种类给出空的，并在节点上提醒一句。要从一条场景列表里取一条接「取一条」。"
+
+[node.split_scene.port.curves]
+waits = ""
+
+[node.standard_human]
+subtitle = "标准人"
+description = "一个通用的、T 形站姿、带蒙皮和骨架的人，不用任何素材。只有骨架的结果（动作生成、动捕清理、导入的 BVH）在视图里只有几根线，接「动作重定目标」（目标接它、动作接那段骨架动画）再接「线性蒙皮变形」（骨架动画接重定目标的结果、蒙皮角色也接它）就能看到蒙皮变形的效果。骨骼名和关节轴和解算器交出来的人完全一样，重定目标和 HumanIK 都认得；身体是 SMPL-X 的中性体型（要自己注册下载那个模型文件）。"
+
+[node.standard_human.param.skeleton]
+label = "骨架"
+placeholder = ""
+
+[node.standard_human.param.skeleton.option]
+smplx = "SMPL-X（22 关节）"
+
+[node.standard_human.param.height_cm]
+label = "身高"
+placeholder = "模型的 172"
+
+[node.standard_human.licence]
+note = "SMPL-X 骨架用 SMPL-X 中性体型：模型文件要在 smpl-x.is.tue.mpg.de 注册后自己下载（后台「扩展包」的「手动下载」），非商用，只许非商业的科研、教学和艺术项目，不许再分发。其他骨架随带来它的扩展包，许可按那个扩展包标出。这个节点本身不带任何模型数据。"
+
+[node.stmap]
+subtitle = "STMap"
+description = "和 Nuke 的 STMap 是同一个节点：源图 + ST 贴图 → 按ST 贴图重新取样的结果，每个输出像素去源图里ST 贴图指的位置取值。接 AnyCalib 的去畸变ST 贴图就是去畸变，接加畸变ST 贴图就是加畸变（CG 渲染贴回实拍）；源图只有一帧（在参考帧上画的修补、贴图）而ST 贴图是逐帧的（AllTracker、「运动向量转ST 贴图」）时，把这张图贴到每一帧上。图像、深度贴图、法线贴图、遮罩、分割图都能变形，出来还是原来的类型。它不认识镜头，也不给结果贴任何标记（和 Nuke 的 STMap 一样）：要连画布和扩边一起算的去畸变、加畸变，用「LensDistortion」烘出ST 贴图再接进来。"
+
+[node.stmap.port.image]
+label = "结果"
+
+[node.stmap_from_motion]
+subtitle = "运动向量转ST 贴图"
+description = "运动向量 → 每一帧回到参考帧的ST 贴图，把逐帧的矢量一帧接一帧串起来（和 Nuke 的 SmartVector 传播一个思路）。在参考帧上画一次（修补、纹身、贴图），用「STMap」贴到整段镜头；「有效区域」是一路都追得回参考帧的像素（被挡过、出过画的是 0）。串得越长误差越大：要几百帧不漂，用「AllTracker 跟踪贴片」一步给出的ST 贴图。"
+
+[node.switch]
+subtitle = "切换"
+description = "和 Nuke、Houdini 的 Switch 是同一个节点：按「走哪一路」只走一路：不接线按它的值（1 = 第一路，2 = 第二路……），它的输入口接了线就按线：布尔开走第一路、关走第二路，整数按第几路。刚放下时有两路，要更多就点输入口末尾的「＋」或者把线拖到「＋」上，最多十路；每一路的名字在节点上双击可改，参数面板「各路」表里可以去掉、拖动排序（第几路按表里的顺序数）。「走哪一路」超出现有的路数，算之前就会指出来。没走的那一路整条不算，既不报错也不算跳过。各路要接同一种数据。做模板时想让用的人按名字选哪一路：把「走哪一路」公开，在参数面板「编辑界面…」里把它显示成下拉，每一项自己填值和名字（例如 1 = 用解算摄影机、2 = 用自己的摄影机）；几个切换要共用一个选择时，用一个「整数」节点接到它们各自的「走哪一路」。"
+row = "路"
+
+[node.switch.param.which]
+label = "走哪一路"
+placeholder = "1 = 第一路"
+
+[node.switch.param.ways]
+label = "各路"
+
+[node.switch.param.ways.field.name]
+label = "端口"
+
+[node.switch.param.ways.field.label]
+label = "显示名"
+
+[node.switch.port.a]
+label = "第一路"
+
+[node.switch.port.b]
+label = "第二路"
+
+[node.switch.port.c]
+label = "第三路"
+
+[node.switch.port.d]
+label = "第四路"
+
+[node.switch.port.e]
+label = "第五路"
+
+[node.switch.port.f]
+label = "第六路"
+
+[node.switch.port.g]
+label = "第七路"
+
+[node.switch.port.h]
+label = "第八路"
+
+[node.switch.port.i]
+label = "第九路"
+
+[node.switch.port.j]
+label = "第十路"
+
+[node.time_shift]
+subtitle = "时间偏移"
+description = "和 Houdini 的 Time Shift、Nuke 的 FrameHold 一样：一条图像序列 → 其中一帧。后面接的看到的就是这一帧。只吃单帧的解算器（环境光探针这类）前面接它，自己选哪一帧——挑帧和解算分开在两个节点里。留空就是开始帧，填帧号就是那一帧。"
+
+[node.time_shift.param.frame]
+label = "帧"
+placeholder = "开始帧"
+
+[node.time_shift.port.image]
+label = "图像"
+
+[node."tracks.output"]
+subtitle = "2D 跟踪点输出"
+description = "2D 跟踪点 → 3DEqualizer 的 2D 点文件（3DE 里导入做摄影机解算）、CSV（Nuke、Houdini、脚本都能读）、Nuke 的 Tracker 节点（每个点占一条），或四个点（平面的四个角）写成 Nuke 的 CornerPin2D 节点（换屏幕、换招牌）。写成 Nuke 节点时，节点上有「复制到 Nuke」，复制了就能粘贴进合成；它只定名字和格式，接到「输出」上才真正写出文件。"
+
+[node."tracks.output".param.format.option]
+3de = "3DE"
+cornerpin = "CornerPin"
+
+[node."tracks.output".param.min_visible]
+label = "最少可见帧数"
+
+[node.transform]
+subtitle = "变换"
+description = "和 Houdini 的 Transform（SOP）、Nuke 的 TransformGeo 是同一个节点：场景 → 整体移动、旋转、缩放过的场景（摄影机和人物一起动），单位厘米。进来的是什么出去还是什么（摄影机还是摄影机）；要按地面自动摆正接「自动落地」。"
+
+[node.transform.param.translate]
+label = "移动"
+
+[node.transform.param.scale]
+label = "缩放"
+
+[node."usd.import"]
+subtitle = "导入 USD"
+description = "导入 Maya、Houdini、Blender、3DE 做好的 USD（.usd / .usda / .usdc / .usdz）：文件里的摄影机、模型、点云、三维曲线、骨架动画和蒙皮角色，在层级里选哪些就输出哪些。单位和上轴按文件自己的设置换算成厘米、Y 向上，父级的变换（包括动画）一起算进去。只收展平过的文件：引用、载入或叠加了别的文件的 USD 先在 DCC 里展平（.usdz 本身就是一个文件，照常读得进来）。"
+
+[node."usd.import".port.camera]
+waits = "选一台摄影机"
+
+[node."usd.import".port.characters]
+waits = "选一个蒙皮角色"
+
+[node."usd.import".port.skeletons]
+waits = "选一个骨架动画"
+
+[node."usd.import".port.models]
+waits = "选一个几何体"
+
+[node."usd.import".port.points]
+waits = "选一个点云"
+
+[node."usd.import".port.gaussians]
+waits = "选一个3D 高斯"
+
+[node."usd.import".port.curves]
+waits = "选一个三维曲线"
+
+[node."usd.import".port.fps]
+help = "USD 记的帧速率（timeCodesPerSecond）。接到动作模型或格式输出节点的「帧速率」，就跟这个文件走；文件没记时这里没有值，那边用自己填的"
+
+[node."usd.import".fact.models]
+kinds = "选的几何体"
+
+[node."usd.output"]
+subtitle = "USD 输出"
+description = "把三维数据写成 USD 文件：模型、摄影机、点云、三维曲线、骨架动画、蒙皮角色都原样写出，Maya、Houdini、Blender 都能读。「场景」可以接多根线，也可以接一条场景列表（每条写在 /shot/<条目名> 下），写前打包成一个场景。接到「输出」上交给你。"
+
+[node."usd.output".param.format.option]
+usd = "二进制 .usd"
+usda = "文本 .usda"
+
+[node."usd.output".param.unit.option]
+cm = "厘米 · Maya"
+m = "米 · Houdini"
+
+[node.uv_from_position]
+subtitle = "规范坐标转 UV"
+description = "规范坐标的位置图 → UV 坐标图：每个像素在模型上的 UV 坐标（两通道 EXR，0–1），同一个点在每一帧的 UV 相同。位置图要是模型自己的坐标系（如「FaceAnything 面部通道」的规范坐标）：世界坐标和摄影机坐标随镜头移动，投出来的 UV 不固定，会被拦下；接上遮罩只算遮罩里的像素，投射的范围也只按这些像素算。UV 坐标图在 Nuke 里用 STMap 贴图，在 Houdini 和 Maya 做纹理传递。"
+
+[node.uv_from_position.param.way]
+label = "投射方式"
+
+[node.uv_from_position.param.way.option]
+cylinder = "柱面"
+sphere = "球面"
+plane = "平面"
+
+[node.uv_from_position.port.position]
+help = "模型自己坐标系里的位置图（规范坐标）：投射按整段画面的包围盒做，每帧的 UV 对得上"
+
+[node.uv_from_position.port.mask]
+help = "只在遮罩里的像素上算 UV，包围盒也只按这些像素算（脸以外的背景不参与）"
+
+[node.value_float]
+subtitle = "浮点"
+description = "在这里填一个小数和它的单位 → 一个浮点数值。接到任何小数参数的输入口上（焦距、胶片背、强度……），一处填写，几个节点共用。"
+
+[node.value_float.param.unit.option]
+cm = "cm"
+m = "m"
+
+[node.value_int]
+subtitle = "整数"
+description = "在这里填一个整数和它的单位 → 一个整数数值。接到任何整数或小数参数的输入口上（帧号、数量、分辨率……）。"
+
+[node.value_int.param.unit.option]
+cm = "cm"
+m = "m"
+
+[node.value_string]
+subtitle = "文字"
+description = "在这里填一段文字 → 一段文字数值。接到任何文字参数的输入口上（人物编号、类别名……）。"
+
+[node.value_toggle]
+subtitle = "布尔"
+description = "在这里开或关 → 一个开关。接到任何开关参数的输入口上，一处切换，几个节点一起变。"
+
+[node.value_vector]
+subtitle = "向量"
+description = "在这里填 X 轴、Y 轴、Z 轴三个小数和它们的单位 → 一个向量。接到任何向量参数的输入口上（位置、朝向……）。"
+
+[node.value_vector.param.unit.option]
+cm = "cm"
+m = "m"

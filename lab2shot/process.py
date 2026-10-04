@@ -39,6 +39,15 @@ def cpu_budget() -> int:
     return len(worker_cpus())
 
 
+def cpu_node_budget() -> int:
+    """The threads one node on a CPU slot may use: the cooking cores shared out among the CPU nodes the machine runs at
+    once (queue.cpu_nodes), at least one. A CPU node's worker gets it as its thread limit (extensions/spec.py
+    run_env), so one node does not take most of the machine (UnderPressure alone would use ~19 cores) and the
+    queue's 「CPU n/m」 slots mean what they say. A GPU node's worker keeps cpu_budget: one per card, its CPU side
+    is short."""
+    return max(1, cpu_budget() // max(1, int(settings()["queue.cpu_nodes"])))  # type: ignore[arg-type]
+
+
 def apply_reservation() -> None:
     """Restrict this process (the server itself) to the cores available for computation: light computations (file
     reads, masks, numeric operations) run in the server process, so without this the reserved cores would not be kept
@@ -100,6 +109,8 @@ def apply_memory_reuse(start: bool = False, arenas: int = 0) -> Msg | None:
     if not start and not _arenas:
         return None  # not the server, or 「内存复用」 was off when it started: nothing of this process to change
     if not s["memory.reuse"]:
+        if start and (libc := _glibc()) is not None:
+            _bound_free_memory(libc, FREE_WHEN_OFF)  # 「关」: what is freed goes back, wherever glibc would keep it
         return Msg("I-MEMORY-REUSEOFF")
     libc = _glibc()
     if libc is None:
@@ -114,7 +125,64 @@ def apply_memory_reuse(start: bool = False, arenas: int = 0) -> Msg | None:
     if not start:
         libc.malloc_trim(0)  # a lower limit holds at once, not only after the next free
     _arenas = count
+    _bound_free_memory(libc, int(gb * 2**30))
     return Msg("I-MEMORY-REUSE", gb=gb, arenas=count, mb=each // 2**20)
+
+
+# What the mallopt values above do not bound. glibc keeps a thread arena as a chain of 64 MB heaps and gives memory
+# back only from the top of the chain's last heap (and only past M_TRIM_THRESHOLD, which here is larger than a heap):
+# a frame buffer freed in any other heap stays resident for good, only reusable by a buffer that fits in it. Frames
+# of other sizes (another clip, another proxy tier, a 4K card after a 1080p one) and the small objects that land
+# between them grow the chains a little with every cook, so the server process held 25 GB with under 100 MB of it in
+# use after a few hours of three people cooking and viewing. A thread of this process looks every FREE_CHECK_S whether
+# the memory resident beyond what is in use (RssAnon - glibc's in-use bytes) exceeds the limit (「复用内存上限」, or
+# FREE_WHEN_OFF with 「内存复用」 off) and then hands every free page of every arena back (malloc_trim(0): about 0.1 s
+# per 2 GB; the heaps stay mapped, so the next frame reuses the same addresses and only faults the pages in again).
+# Retrying needs RssAnon to have grown by FREE_REGROW since the last trim: what is resident outside glibc (Python's
+# own small-object arenas, thread stacks, OpenEXR's buffers) is counted as free above, and with that alone over the
+# limit a trim would be repeated every few seconds for nothing.
+FREE_CHECK_S = 2.0
+FREE_WHEN_OFF = 256 * 2**20
+FREE_REGROW = 256 * 2**20
+_free_limit = [0]  # bytes; the thread reads it on every look, so a changed 「复用内存上限」 holds at once
+
+
+def _bound_free_memory(libc, limit: int) -> None:
+    """Keep the free memory this process holds resident under `limit` bytes (see above); starts the thread once."""
+    import ctypes
+    import threading
+
+    first = not _free_limit[0]
+    _free_limit[0] = max(1, limit)
+    if not first or not hasattr(libc, "mallinfo2"):  # glibc < 2.33: no in-use count to compare with, left as it is
+        return
+
+    class MallInfo2(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_size_t) for name in ("arena", "ordblks", "smblks", "hblks", "hblkhd", "usmblks",
+                                                          "fsmblks", "uordblks", "fordblks", "keepcost")]
+
+    libc.mallinfo2.restype = MallInfo2
+
+    def resident() -> int:
+        with open("/proc/self/status", "rb") as f:
+            for line in f:
+                if line.startswith(b"RssAnon:"):
+                    return int(line.split()[1]) * 1024
+        return 0
+
+    def keep() -> None:
+        import time
+
+        trimmed_at = 0  # RssAnon right after the last trim
+        while True:
+            time.sleep(FREE_CHECK_S)
+            now = resident()
+            info = libc.mallinfo2()
+            if now - (info.uordblks + info.hblkhd) > _free_limit[0] and now > trimmed_at + FREE_REGROW:
+                libc.malloc_trim(0)
+                trimmed_at = resident()
+
+    threading.Thread(target=keep, name="l2s-free-memory", daemon=True).start()
 
 
 # The thread pools of the libraries under the per-frame nodes, in the server process. Per-frame parallelism has one

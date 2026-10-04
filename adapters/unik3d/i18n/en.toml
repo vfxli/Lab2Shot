@@ -1,0 +1,36 @@
+# The UniK3D extension's own words and messages in English (the same keys as zh.toml).
+
+# ---- solve
+"W-UNIK3D-DISTORTED" = "UniK3D finds the lens noticeably distorted: approximated as an undistorted lens, the median error is about {pinhole:.1f} px. The Depth map, unprojected through a pinhole camera, will not line up; Points, Distance and Rays give the exact geometry. If you know the real focal length, set Known Focal Length"
+
+[node."unik3d.depth"]
+subtitle = "Depth"
+description = "Images → per-frame metric depth maps, distance along the line of sight, and the model's own ray field (ETH UniK3D). Works with any lens (wide-angle, fisheye, panoramic): it estimates each pixel's ray direction and does not assume a pinhole. On ordinary pinhole lenses UniDepth Depth flickers less from frame to frame; for normals use MoGe Depth and Normals. The point cloud is one patch per frame, each in that frame's own camera (the model's own point map), not one scene point cloud solved for the whole shot."
+official.note = "No lens intrinsics port: UniK3D's lens is the ray field rays (unik3d.py:397); upstream outputs no lens model and no distortion coefficients. For fisheye lens parameters wire an explicit calibration node (AnyCalib Lens Calibration). Distance is distance (unik3d.py:394), Rays is rays (unik3d.py:397). No Camera output: upstream gives no intrinsics; the pinhole camera the family unprojects with is a least-squares fit to the rays made by the worker (worker.py fit_pinhole), not an upstream result, so the node declares `solves_camera = False` (lab2shot/nodes/families/depth_camera.py PerFrameDepthCamera) and that camera is written only to this cook's temporary folder. Hence no camera in gives"
+
+[node."unik3d.depth".param.model]
+label = "Model"
+option."unik3d-vitl" = "ViT-L"
+option."unik3d-vitb" = "ViT-B"
+option."unik3d-vits" = "ViT-S"
+
+[node."unik3d.depth".port.distance]
+label = "Distance"
+help = "How far each pixel is from the lens along its own line of sight (cm). Not the same as Depth: depth is Z in camera coordinates, and the two differ more toward the edges of the frame, a lot on fisheye and wide-angle lenses"
+
+[node."unik3d.depth".port.rays]
+label = "Rays"
+help = "The line-of-sight direction the model estimates for each pixel (unit vectors, camera space): its \"lens\" is this ray field, not a set of intrinsics. Depth or distance times it gives the 3D points of Points"
+
+[node."unik3d.depth".stage]
+write_maps = "Write Distance and Rays"
+
+[extension.unik3d]
+summary = "Monocular 3D estimation for any camera: a spherical 3D representation covers fisheye and panoramic lenses, and the ray representation is independent of the camera model; non-commercial"
+license.name = "CC-BY-NC-SA-4.0 (code and model weights, non-commercial, share-alike)"
+license.summary = "Non-commercial: the code is CC BY-NC-SA 4.0 (the repository's LICENSE file and source file headers; the README says CC BY-NC 4.0, the stricter LICENSE file is followed), and adapted versions must be released under the same license. The model cards of the unik3d-vitl / vitb / vits model weights on Hugging Face state no license and are treated as the repository's, so results cannot be used in commercial projects. The weights of the DINOv2 backbone (Apache-2.0) are included in the checkpoint and not downloaded separately"
+weight."unik3d-vitl".note = "CC BY-NC-SA 4.0, non-commercial, ViT-L 1.4 GB"
+weight."unik3d-vitb".note = "CC BY-NC-SA 4.0, non-commercial, ViT-B 0.47 GB"
+weight."unik3d-vits".note = "CC BY-NC-SA 4.0, non-commercial, ViT-S 0.14 GB"
+
+[stage]

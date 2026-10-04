@@ -1,5 +1,6 @@
 /** 节点图中一个节点的绘制（xyflow 的自定义节点）：标题行与状态格、输入 / 输出口、节点上的参数行、由连线驱动的参数来源、
  * 计算进度线与底行。节点的状态文字由 state/phase.ts 决定，底行由 editor/NodeFoot.tsx 绘制，此处只把两者需要的量汇总过去。 */
+import { peopleHandle } from "../view/handles2d";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
 import { nodeCategory, type NodeTypeDef, type ParamDef, type ServerMessage } from "../api";
@@ -11,7 +12,7 @@ import { useLook } from "../state/look";
 import { outputKey, useResults } from "../state/results";
 import { useViewer } from "../state/viewer";
 import { hiddenOnNode, isLive, nodeRows, portColor, promotedByHand } from "../graph/nodes";
-import { ADD_ROW, licensedValues, rowsLeft, tableRows } from "../graph/rules";
+import { ADD_ROW, licensedValues, registeredValues, rowsLeft, tableRows } from "../graph/rules";
 import { addEmptyRow, renameRow } from "../graph/edit";
 import { composing } from "../platform/keys";
 import { IconChevron, IconEye } from "../ui/icons";
@@ -23,16 +24,19 @@ import { nodePhase, proxyOfNode } from "../state/phase";
 import { staleNode, useLastGood } from "../state/stale";
 import { useSession } from "../state/session";
 import { render } from "../messages/format";
+import { t, useT } from "../i18n/t";
 import { NodeParam } from "./NodeParamRow";
+import { LabelGrid } from "../ui/LabelRow";
 import { NodePickSummary } from "./pickedPeople";
 import { NodeFoot } from "./NodeFoot";
+import { NodeNameInput } from "./NodeNaming";
 import { watchPress } from "../platform/drag";
 
 const NO_MESSAGES: ServerMessage[] = [];
 
 // 「输出」从不缓存（每次计算都重新收集、打包），因此计算它的任务结束后，通常的 已缓存 / 空闲 判断会显示「未计算」。
 // 为此它的服务器上还留有上一次的 zip 时，标题行显示「已打包」（state/phase.ts），底行说明打包时间；它的「下载」是
-// 按钮参数，默认显示在节点上（core.output on_node，editor/buttonActions.tsx download），仅在它自己的计算打出 zip 后可用。
+// 按钮参数，默认显示在节点上（output on_node，editor/buttonActions.tsx download），仅在它自己的计算打出 zip 后可用。
 
 const FILE_WIDGETS = ["file", "sequence"];
 
@@ -44,14 +48,14 @@ function fileParam(def: NodeTypeDef): ParamDef | undefined {
 /** 底行对该文件的文字，附带从文件中选取的内容（层级中的相机）：只读，因为从文件中选取的项从不放到节点上。 */
 function fileText(def: NodeTypeDef, p: ParamDef, params: Record<string, unknown>): string {
   const v = params[p.name];
-  const file = (typeof v === "string" && v.split("/").pop()) || "未选择文件";
+  const file = (typeof v === "string" && v.split("/").pop()) || t("ui.node.no_file");
   const leaf = (path: string) => path.slice(path.lastIndexOf("/") + 1) || path;
   const chosen = def.params
     .filter((q) => (q.widget === "choice" || q.widget === "hierarchy") && q.choices_from.includes(p.name) && (Array.isArray(params[q.name]) ? (params[q.name] as string[]).length : params[q.name]))
     .map((q) => {
       const v = params[q.name];
       if (!Array.isArray(v)) return q.widget === "hierarchy" ? leaf(String(v)) : String(v);
-      return v.length === 1 ? leaf(String(v[0])) : `${v.length} 个${q.label}`; // 文件中成千上万的项只说数量
+      return v.length === 1 ? leaf(String(v[0])) : t("ui.node.chosen_count", { count: v.length, what: q.label }); // 文件中成千上万的项只说数量
     });
   return [file, ...chosen].join(" · ");
 }
@@ -84,9 +88,9 @@ function AddRowPort({ nodeId, color, word }: { nodeId: string; color: string; wo
   return (
     <div className="port-row in add-row">
       <Handle type="target" position={Position.Left} id={ADD_ROW} isConnectableStart={false} className="add-port nodrag"
-        style={{ ["--c" as string]: color }} onPointerDown={down} onPointerUp={up} aria-label={`加一${word}`} />
+        style={{ ["--c" as string]: color }} onPointerDown={down} onPointerUp={up} aria-label={t("ui.node.add_one", { word })} />
       <button type="button" className="add-row-label nodrag" onPointerDown={down} onPointerUp={up}>
-        加一{word}
+        {t("ui.node.add_one", { word })}
       </button>
     </div>
   );
@@ -108,7 +112,7 @@ function RowLabel({ nodeId, row, label, editable }: { nodeId: string; row: strin
   return (
     <input
       className="row-label-input nodrag"
-      aria-label="图层名"
+      aria-label={t("ui.node.row_label")}
       autoFocus
       defaultValue={label}
       size={Math.max(4, label.length + 2)}
@@ -131,6 +135,7 @@ function RowLabel({ nodeId, row, label, editable }: { nodeId: string; row: strin
 }
 
 export const GraphNode = memo(function GraphNode({ id, data }: NodeProps<PreparedGNode>) {
+  const t = useT(); // memoised (xyflow): re-renders by itself when the language changes
   const def = getNodeDefs()[data.typeId];
   const oneOf = new Set(def?.needs_any ?? []);  // 多种接法之一中的端口：不标注「可选」（标注不正确，全部不接不可行）
   const outputs = data.outputs;
@@ -154,6 +159,7 @@ export const GraphNode = memo(function GraphNode({ id, data }: NodeProps<Prepare
   // 已知的数值输出（常量立即可知），以及各参数值的来源
   const values = data.values;
   const sources = data.sources;
+  const overrides = data.overrides;
   const applies = data.applies;
   const commercial = data.commercial;
   const types = useTypes();
@@ -206,15 +212,17 @@ export const GraphNode = memo(function GraphNode({ id, data }: NodeProps<Prepare
   const toggleExpanded = useViewer((s) => s.toggleExpanded);
   const reveal = useViewer((s) => s.revealParam);
   const select = useViewer((s) => s.select);
+  const [renaming, setRenaming] = useState(false); // 节点名双击就地改（editor/NodeNaming.tsx）
+  const comment = useLook((s) => s.comments[id]);
 
   if (!def) {
     return (
       <div className="gnode unavailable" data-no-tips>
         <div className="gnode-head">
-          <span className="gnode-title">{data.label}</span>
+          <span className="gnode-title">{id}</span>
         </div>
         <div className="gnode-foot">
-          <span>未知节点 {data.typeId}</span>
+          <span>{t("ui.node.unknown", { type: data.typeId })}</span>
         </div>
       </div>
     );
@@ -242,12 +250,12 @@ export const GraphNode = memo(function GraphNode({ id, data }: NodeProps<Prepare
   const said = Object.entries(onBody)
     // 「提升到节点」产生的参数在其所在行说明（端口位于该行），但覆盖了已连线输入的情况除外：
     // 「（覆盖相机的 Focal Length）」一句在行上放不下，且行上无法体现，因此在此另行说明
-    .filter(([name, text]) => !ownRows.includes(name) || text.includes("（覆盖"))
+    .filter(([name]) => !ownRows.includes(name) || !!overrides?.[name])
     .map(([name, text]) => {
       const w = wired[name];
       const label = def.params.find((q) => q.name === name)?.label ?? name;
       // 覆盖其他输入的说明必须保留原文（简短形式无法说明覆盖对象），其余使用简短形式
-      return w && !text.includes("（覆盖") ? `${label} ← ${w.value || w.node}` : text;
+      return w && !overrides?.[name] ? `${label} ← ${w.value || w.node}` : text;
     });
   const hidden = hiddenOnNode(def, data);
   const file = fileParam(def);
@@ -259,18 +267,28 @@ export const GraphNode = memo(function GraphNode({ id, data }: NodeProps<Prepare
   // 节点当前状态由一处确定（state/phase.ts 中的表）：右上角状态格只读取该结果，此处不拼接任何文字
   const phase = nodePhase({
     blocked: !!blocked, unusable: !usableNow,
-    upload: going, proxy, output: outputShown ?? undefined, status, progress, stale,
+    upload: going, proxy, output: outputShown ?? undefined, status, progress, stale, pending: data.pending,
   });
 
   return (
-    <div className={`gnode${usableNow ? "" : " unavailable"}${blocked ? " blocked" : ""}${progress ? " cooking" : ""}`} data-no-tips>
+    <div className={`gnode${usableNow ? "" : " unavailable"}${blocked ? " blocked" : ""}${progress ? " cooking" : ""}${data.pending ? " pending" : ""}`} data-no-tips>
+      {/* 备注（Houdini 的 node comment）：打开「显示备注」时淡色写在节点上方，绝对定位、不占布局，不改变节点尺寸 */}
+      {comment?.show && comment.text && <div className="gnode-comment" data-user-data>{comment.text}</div>}
       <div className="gnode-head">
         {/* 类别颜色是标题行左缘的一条色条，而非图标徽章 */}
         <i className="gnode-kind" style={{ background: cat.color }} />
-        {/* 名称下方以小号灰字显示节点类型 id，所有节点均有：节点名称可修改，修改后无法再据此识别
-            节点类型；类型 id 不随改名变化，且命令行与 DCC 插件使用的正是该字符串 */}
+        {/* 三行：最上面大字是副标题（当前语言，node.<type>.subtitle），下面两行小灰字是节点名与类型 id。节点名可改，
+            改后无法再据此识别节点类型；类型 id 不随改名变化，命令行与 DCC 插件用的正是它。没有悬停提示（三行已全写出） */}
         <span className="gnode-name">
-          <span className="gnode-title">{data.label}</span>
+          <span className="gnode-subtitle">{def.subtitle}</span>
+          {renaming ? (
+            <NodeNameInput id={id} className="gnode-title-input" autoFocus revertOnBlur onDone={() => setRenaming(false)} />
+          ) : (
+            <span className="gnode-title" data-user-data
+              onDoubleClick={editable ? (e) => (e.stopPropagation(), setRenaming(true)) : undefined}>
+              {id}
+            </span>
+          )}
           <span className="gnode-type">{data.typeId}</span>
         </span>
         {/* 状态是标题行右端的一个词，而非圆点。该格宽度固定
@@ -283,7 +301,7 @@ export const GraphNode = memo(function GraphNode({ id, data }: NodeProps<Prepare
         {(hidden > 0 || expanded) && (
           <button
             className={`expand-flag nodrag${expanded ? " on" : ""}`}
-            aria-label={expanded ? "收起" : "展开"}
+            aria-label={expanded ? t("ui.node.collapse") : t("ui.node.expand")}
             onClick={(e) => {
               e.stopPropagation();
               toggleExpanded(id);
@@ -294,7 +312,7 @@ export const GraphNode = memo(function GraphNode({ id, data }: NodeProps<Prepare
         )}
         <button
           className={`display-flag nodrag${isDisplay ? " on" : ""}`}
-          aria-label="在视图中显示"
+          aria-label={t("ui.node.display")}
           onClick={(e) => {
             e.stopPropagation();
             setDisplay(id);
@@ -307,7 +325,7 @@ export const GraphNode = memo(function GraphNode({ id, data }: NodeProps<Prepare
         <div className="gnode-ports">
           <div className="col">
             {inputs.map((p) => (
-              <div className={`port-row in${p.inactive ? " inactive" : ""}`} key={p.name}>
+              <div className={`port-row in${p.inactive ? " inactive" : p.unused ? " unused" : ""}`} key={p.name}>
                 <Handle type="target" position={Position.Left} id={p.name} className={`${p.multi ? "multi" : ""}${p.list ? " list" : ""}`.trim()} style={{ ["--c" as string]: color(p.type) }} />
                 {tableNames.has(p.name) ? (
                   <RowLabel nodeId={id} row={p.name} label={p.label} editable={editable} />
@@ -315,7 +333,7 @@ export const GraphNode = memo(function GraphNode({ id, data }: NodeProps<Prepare
                   <span className="port-label">{p.label}</span>
                 )}
                 {/* 表格生成的行都是可选口（没接线的行跳过并提示），每行都标「可选」只会添乱，不标 */}
-                {p.optional && !oneOf.has(p.name) && !tableNames.has(p.name) && <span className="opt">可选</span>}
+                {p.optional && !oneOf.has(p.name) && !tableNames.has(p.name) && <span className="opt">{t("ui.node.optional")}</span>}
               </div>
             ))}
             {showAdd && <AddRowPort nodeId={id} color={color(def.ports_from_type)} word={def.ports_from_word} />}
@@ -326,7 +344,7 @@ export const GraphNode = memo(function GraphNode({ id, data }: NodeProps<Prepare
                 （由服务器计算 `inactive` 并下发，engine/graph.py ports()） */}
             {outputs.map((p) => (
               <div className={`port-row out${p.waits ? " waiting" : p.ghost ? " ghost" : p.inactive ? " inactive" : ""}`} key={p.name}>
-                {values?.[p.name] && <span className="port-value" data-user-data>{values[p.name]}</span>}
+                {values?.[p.name] && <span className={`port-value${p.type === "value.text" ? " text" : ""}`} data-user-data>{values[p.name]}</span>}
                 <span className="port-label">{p.label}</span>
                 <Handle type="source" position={Position.Right} id={p.name} className={p.list ? "list" : ""} isConnectableStart={!p.ghost && !p.inactive} style={{ ["--c" as string]: p.waits ? "rgba(235, 235, 245, 0.34)" : p.ghost ? ERROR_COLOR : color(p.type) }} />
               </div>
@@ -335,19 +353,19 @@ export const GraphNode = memo(function GraphNode({ id, data }: NodeProps<Prepare
         </div>
       )}
       {paramRows.length > 0 && (
-        <div className="gnode-params">
+        <LabelGrid className="gnode-params">
           {paramRows.map((p) => (
             <NodeParam key={p.name} nodeId={id} p={p} value={data.params[p.name]} promoted={promotedByHand(def, data.promoted).includes(p.name)}
               // 置灰的参数在节点上只说明不可用的原因，不另加一行说明值的来源：两句含义相同，
               // 多出的一行还会增加节点高度。「Focal Length · 来自相机（ViPE 相机解算）」一句在参数面板、
               // 任务单与交付的出处记录中均有显示
               port={def.param_ports[p.name]} wired={wired[p.name] ?? null} why={why(applies, p.name)}
-              nc={licensedValues(def, p.name)} />
+              nc={licensedValues(def, p.name)} reg={registeredValues(def, p.name)} />
           ))}
-        </div>
+        </LabelGrid>
       )}
       {/* 「选人」点选时：点的是几号（editor/pickedPeople.tsx，与服务端同一条命中规则），不必打开面板看坐标 */}
-      {def.handles.some((h) => h.kind === "person") && <NodePickSummary nodeId={id} />}
+      {!!peopleHandle(def.handles) && <NodePickSummary nodeId={id} />}
       {/* 计算进度：贴于节点底边的一条线。它不占布局（绝对定位，styles/12-node-progress.css），因此出现、推进与
           消失均不改变节点高度。节点尺寸仅由其形状（标题、端口行数、参数行数）决定，
           计算进度不得改变尺寸。 */}
@@ -387,13 +405,20 @@ export const GraphNode = memo(function GraphNode({ id, data }: NodeProps<Prepare
 /** 该节点当前是否为「已过期」（右上角状态格）：上一次有包、服务器报告的当前指纹已变、结构未变（state/stale.ts staleNode）。
  * 状态回复尚未跟上当前版本（刚改了参数）时当前指纹未知，不判为过期：回复到达后即正确。 */
 function useStaleNode(id: string): boolean {
-  const graphId = useCookInputs((s) => s.graphId);
-  const version = useCookInputs((s) => s.version);
-  const nodes = useCookInputs((s) => s.nodes);
-  const edges = useCookInputs((s) => s.edges);
-  const good = useLastGood((s) => s.byGraph[graphId]?.[id]);
-  const result = useResults((s) => s.results[id]);
-  const trusted = useResults((s) => s.forCookInputs) === version;
-  const present = trusted ? (result?.present?.length ?? 0) > 0 : false;
-  return !present && staleNode(good, (n) => nodes[n], edges, id, trusted ? result?.fingerprint : undefined);
+  // one yes / no worked out from three stores: each store's selector answers it, so the node redraws only when the
+  // answer changes — not on every edit anywhere in the graph or every status reply (each of which would redraw every
+  // node of a big graph)
+  const now = () => {
+    const ci = useCookInputs.getState();
+    const res = useResults.getState();
+    const good = useLastGood.getState().byGraph[ci.graphId]?.[id];
+    const result = res.results[id];
+    const trusted = res.forCookInputs === ci.version;
+    const present = trusted ? (result?.present?.length ?? 0) > 0 : false;
+    return !present && staleNode(good, (n) => ci.nodes[n], ci.edges, id, trusted ? result?.fingerprint : undefined);
+  };
+  const a = useCookInputs(now);
+  const b = useResults(now);
+  const c = useLastGood(now);
+  return a || b || c;
 }

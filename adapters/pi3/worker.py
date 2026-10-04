@@ -133,7 +133,7 @@ def make_backend(job) -> Backend:
 
 
 def main(job_path: str) -> None:
-    run(job_path, "pi3.reconstruct", make_backend)
+    run(job_path, "pi3.reconstruct", make_backend, model="Pi3")
 
 
 if __name__ == "__main__":

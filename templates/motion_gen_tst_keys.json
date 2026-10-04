@@ -2,235 +2,352 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "82196d221b82b1b664f9dc8447ed3c21",
-  "name": "动作补帧 · Two-stage Transformer",
-  "intro": "两阶段的动作补帧框架：给一些上下文帧和一个目标帧，非自回归地生成长度可变的过渡动作，先由 Context Transformer 出粗略过渡，再由 Detail Transformer 精修动作细节。这张卡从导入角色的关键帧补出中间动作；可以原样交付这个角色，也可以在「目标角色」里选导入的 FBX / USD 角色重定向过去，交付 USD。",
+  "name": {
+   "zh": "动作中间帧 · Two-stage Transformer",
+   "en": "Motion Inbetween · Two-stage Transformer"
+  },
+  "intro": {
+   "zh": "两阶段的动作补帧框架：给一些上下文帧和一个目标帧，非自回归地生成长度可变的过渡动作，先由 Context Transformer 出粗略过渡，再由 Detail Transformer 精修动作细节。这张卡从导入角色的关键帧补出中间动作；可以原样交付这个角色，也可以在「目标角色」里选导入的 FBX / USD 角色重定目标过去，交付 USD。",
+   "en": "A two-stage motion inbetweening framework: given some context frames and a target frame, it non-autoregressively generates a transition of variable length, first a rough transition from the Context Transformer, then detail refined by the Detail Transformer. This card fills in the motion between the imported character's keyframes; you can deliver that character as is, or retarget to an imported FBX / USD character chosen in Target Character, delivered as USD."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-12T12:00:00",
   "deliverable": "motion_gen",
   "owner": "admin",
-  "updated": "2026-10-01T12:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入动画（USD）",
+   "label": {
+    "zh": "输入动画（USD）",
+    "en": "Input Animation (USD)"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "input_character",
-   "label": "哪个角色",
+   "label": {
+    "zh": "哪个角色",
+    "en": "Character"
+   },
    "target": "read.characters",
    "show_on_change": true
   },
   {
-   "name": "keys",
-   "label": "关键帧",
+   "name": "fill_keys",
+   "label": {
+    "zh": "关键帧",
+    "en": "Keyframes"
+   },
    "target": "fill.keys"
   },
   {
-   "name": "exact",
-   "label": "关键帧精确",
+   "name": "fill_exact",
+   "label": {
+    "zh": "关键帧精确",
+    "en": "Exact Keyframes"
+   },
    "target": "fill.exact"
   },
   {
-   "name": "foot_lock",
-   "label": "脚锁定",
+   "name": "fill_foot_lock",
+   "label": {
+    "zh": "脚步锁定",
+    "en": "Foot Lock"
+   },
    "target": "fill.foot_lock"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "post_process",
-     "label": "衔接平滑",
+     "name": "fill_post_process",
+     "label": {
+      "zh": "衔接平滑",
+      "en": "Transition Smoothing"
+     },
      "target": "fill.post_process"
     },
     {
-     "name": "skeleton",
-     "label": "骨骼",
+     "name": "fill_skeleton",
+     "label": {
+      "zh": "骨骼",
+      "en": "Bones"
+     },
      "target": "fill.skeleton"
     },
     {
      "name": "model_mapping",
-     "label": "骨骼对应（模型）",
+     "label": {
+      "zh": "骨骼对应（模型）",
+      "en": "Bone Mapping (Model)"
+     },
      "target": "fill.mapping"
     }
    ]
   },
   {
    "name": "fps",
-   "label": "帧率（输入没有时）",
+   "label": {
+    "zh": "帧速率（输入没有时）",
+    "en": "FPS (When the Input Has None)"
+   },
    "target": "fps.value",
-   "tip": "输入动画自带帧率时用它的；这里只在输入没有帧率时生效"
+   "note": {
+    "zh": "输入动画自带帧速率时用它的；这里只在输入没有帧速率时生效",
+    "en": "The input animation's own FPS is used when it has one; this applies only when it has none"
+   }
   },
   {
-   "name": "cook_generate",
-   "label": "补帧",
+   "name": "cook_fill",
+   "label": {
+    "zh": "中间帧",
+    "en": "Inbetween"
+   },
    "target": "fill.cook"
   },
   {
    "kind": "group",
-   "label": "角色",
+   "label": {
+    "zh": "角色",
+    "en": "Character"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "target_src",
-     "label": "目标角色",
+     "label": {
+      "zh": "目标角色",
+      "en": "Target Character"
+     },
      "target": "target_src.value",
      "widget": "menu",
      "options": [
       {
        "value": 1,
-       "label": "原角色（不重定向）"
+       "label": {
+        "zh": "原角色（不重定目标）",
+        "en": "Original Character (No Retarget)"
+       }
       },
       {
        "value": 2,
-       "label": "导入的角色（FBX）"
+       "label": {
+        "zh": "导入的角色（FBX）",
+        "en": "Imported Character (FBX)"
+       }
       },
       {
        "value": 3,
-       "label": "导入的角色（USD）"
+       "label": {
+        "zh": "导入的角色（USD）",
+        "en": "Imported Character (USD)"
+       }
       }
      ]
     },
     {
      "name": "char_fbx_path",
-     "label": "角色文件（FBX）",
+     "label": {
+      "zh": "角色文件（FBX）",
+      "en": "Character File (FBX)"
+     },
      "target": "char_fbx.path",
      "hide_when": "target_src != 2",
      "show_on_change": true
     },
     {
      "name": "char_fbx_characters",
-     "label": "选哪个角色",
+     "label": {
+      "zh": "选哪个角色",
+      "en": "Character"
+     },
      "target": "char_fbx.characters",
      "hide_when": "target_src != 2",
      "show_on_change": true
     },
     {
      "name": "char_usd_path",
-     "label": "角色文件（USD）",
+     "label": {
+      "zh": "角色文件（USD）",
+      "en": "Character File (USD)"
+     },
      "target": "char_usd.path",
      "hide_when": "target_src != 3",
      "show_on_change": true
     },
     {
      "name": "char_usd_characters",
-     "label": "选哪个角色",
+     "label": {
+      "zh": "选哪个角色",
+      "en": "Character"
+     },
      "target": "char_usd.characters",
      "hide_when": "target_src != 3",
      "show_on_change": true
     },
     {
-     "name": "load_target",
-     "label": "载入角色",
+     "name": "cook_target_pick",
+     "label": {
+      "zh": "载入角色",
+      "en": "Load Character"
+     },
      "target": "target_pick.cook",
      "hide_when": "target_src == 1"
     },
     {
      "name": "mapping",
-     "label": "对应关系",
+     "label": {
+      "zh": "对应关系",
+      "en": "Correspondence"
+     },
      "target": "retarget.mapping",
      "show_on_change": true,
      "hide_when": "target_src == 1"
     },
     {
      "name": "motion_rest",
-     "label": "动作基准姿势",
+     "label": {
+      "zh": "动作静止姿势",
+      "en": "Motion Rest Pose"
+     },
      "target": "retarget.motion_rest",
      "show_on_change": true,
      "hide_when": "target_src == 1"
     },
     {
      "name": "motion_rest_frame",
-     "label": "动作基准帧",
+     "label": {
+      "zh": "动作基准帧",
+      "en": "Motion Rest Frame"
+     },
      "target": "retarget.motion_rest_frame",
      "hide_when": "(target_src == 1) or motion_rest != \"frame\"",
      "show_on_change": true
     },
     {
      "name": "target_rest",
-     "label": "目标基准姿势",
+     "label": {
+      "zh": "目标静止姿势",
+      "en": "Target Rest Pose"
+     },
      "target": "retarget.target_rest",
      "show_on_change": true,
      "hide_when": "target_src == 1"
     },
     {
      "name": "target_rest_frame",
-     "label": "目标基准帧",
+     "label": {
+      "zh": "目标基准帧",
+      "en": "Target Rest Frame"
+     },
      "target": "retarget.target_rest_frame",
      "hide_when": "(target_src == 1) or target_rest != \"frame\"",
      "show_on_change": true
     },
     {
-     "name": "rest_fix",
-     "label": "基准姿势摆正",
+     "name": "retarget_rest_fix",
+     "label": {
+      "zh": "静止姿势校正",
+      "en": "Rest Pose Correction"
+     },
      "target": "retarget.rest_fix",
      "show_on_change": true,
      "hide_when": "target_src == 1"
     },
     {
      "name": "motion_pose",
-     "label": "动作初始姿势",
+     "label": {
+      "zh": "动作初始姿势",
+      "en": "Motion Initial Pose"
+     },
      "target": "retarget.motion_pose",
      "show_on_change": true,
      "hide_when": "target_src == 1"
     },
     {
      "name": "target_pose",
-     "label": "目标初始姿势",
+     "label": {
+      "zh": "目标初始姿势",
+      "en": "Target Initial Pose"
+     },
      "target": "retarget.target_pose",
      "show_on_change": true,
      "hide_when": "target_src == 1"
     },
     {
      "name": "size_by",
-     "label": "角色缩放",
+     "label": {
+      "zh": "角色缩放",
+      "en": "Character Scale"
+     },
      "target": "retarget.size_by",
      "hide_when": "target_src == 1",
      "show_on_change": true
     },
     {
      "name": "size",
-     "label": "缩放倍率",
+     "label": {
+      "zh": "缩放倍率",
+      "en": "Scale Factor"
+     },
      "target": "retarget.size",
      "hide_when": "(target_src == 1) or size_by != \"manual\"",
      "show_on_change": true
     },
     {
      "name": "scale_by",
-     "label": "髋高依据",
+     "label": {
+      "zh": "髋高依据",
+      "en": "Hip Height From"
+     },
      "target": "retarget.scale_by",
      "hide_when": "target_src == 1",
      "show_on_change": true
     },
     {
      "name": "scale",
-     "label": "髋高倍率",
+     "label": {
+      "zh": "髋高倍率",
+      "en": "Hip Height Factor"
+     },
      "target": "retarget.scale",
      "hide_when": "target_src == 1",
      "show_on_change": true
     },
     {
      "name": "height_mode",
-     "label": "髋高跟法",
+     "label": {
+      "zh": "髋高跟法",
+      "en": "Hip Height Mode"
+     },
      "target": "retarget.height_mode",
      "hide_when": "target_src == 1",
      "show_on_change": true
     },
     {
      "name": "height_offset",
-     "label": "高度偏移",
+     "label": {
+      "zh": "高度偏移",
+      "en": "Height Offset"
+     },
      "target": "retarget.height_offset",
      "hide_when": "target_src == 1",
      "show_on_change": true
     },
     {
-     "name": "cook_retarget",
-     "label": "重定向",
+     "name": "cook_skin",
+     "label": {
+      "zh": "重定目标",
+      "en": "Retarget"
+     },
      "target": "skin.cook",
      "hide_when": "target_src == 1"
     }
@@ -238,34 +355,49 @@
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "usd.name"
     },
     {
      "name": "unit",
-     "label": "单位",
-     "target": "out.unit"
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -275,8 +407,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.import_usd",
-   "label": "导入 USD",
+   "type": "usd.import",
    "params": {
     "path": "",
     "camera": "",
@@ -288,13 +419,12 @@
    },
    "ui": {
     "x": 0,
-    "y": 26
+    "y": 0
    }
   },
   {
    "id": "fill",
    "type": "two_stage_transformer.inbetween",
-   "label": "Two-stage Transformer 动作补帧",
    "params": {
     "skeleton": null,
     "keys": "",
@@ -306,7 +436,7 @@
    },
    "ui": {
     "x": 720,
-    "y": 0,
+    "y": 255,
     "on_node": [
      "keys",
      "exact"
@@ -317,9 +447,8 @@
    ]
   },
   {
-   "id": "out",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "id": "usd",
+   "type": "usd.output",
    "params": {
     "name": "animation",
     "format": "usd",
@@ -327,8 +456,8 @@
     "fps": 24.0
    },
    "ui": {
-    "x": 2319,
-    "y": 816,
+    "x": 2253,
+    "y": 335,
     "on_node": [
      "name",
      "unit"
@@ -340,25 +469,23 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 2719,
-    "y": 844
+    "x": 2613,
+    "y": 363
    }
   },
   {
    "id": "target_src",
-   "type": "core.value_int",
-   "label": "目标角色",
+   "type": "value_int",
    "params": {
     "value": 1,
     "unit": ""
    },
    "ui": {
-    "x": 359,
-    "y": 438,
+    "x": 0,
+    "y": 813,
     "on_node": [
      "value"
     ]
@@ -367,7 +494,6 @@
   {
    "id": "char_fbx",
    "type": "fbx.import",
-   "label": "导入角色（FBX）",
    "params": {
     "path": "",
     "take": "",
@@ -377,14 +503,13 @@
     "characters": []
    },
    "ui": {
-    "x": 319,
-    "y": 758
+    "x": 0,
+    "y": 582
    }
   },
   {
    "id": "char_usd",
-   "type": "core.import_usd",
-   "label": "导入角色（USD）",
+   "type": "usd.import",
    "params": {
     "path": "",
     "camera": "",
@@ -395,40 +520,47 @@
     "characters": []
    },
    "ui": {
-    "x": 359,
-    "y": 1192
+    "x": 0,
+    "y": 291
    }
   },
   {
    "id": "target_pick",
-   "type": "core.switch",
-   "label": "选目标角色",
+   "type": "switch",
    "params": {
     "which": 1,
     "ways": [
      {
       "name": "a",
-      "label": "原角色（不重定向）"
+      "label": {
+       "zh": "原角色（不重定目标）",
+       "en": "Original Character (No Retarget)"
+      }
      },
      {
       "name": "b",
-      "label": "导入的角色（FBX）"
+      "label": {
+       "zh": "导入的角色（FBX）",
+       "en": "Imported Character (FBX)"
+      }
      },
      {
       "name": "c",
-      "label": "导入的角色（USD）"
+      "label": {
+       "zh": "导入的角色（USD）",
+       "en": "Imported Character (USD)"
+      }
      }
     ]
    },
    "ui": {
-    "x": 719,
-    "y": 802
+    "x": 360,
+    "y": 529
    }
   },
   {
    "id": "retarget",
-   "type": "core.retarget",
-   "label": "动作重定向",
+   "type": "retarget",
    "params": {
     "motion_skeleton": null,
     "target_skeleton": null,
@@ -448,60 +580,66 @@
     "target_pose": []
    },
    "ui": {
-    "x": 1119,
-    "y": 764
+    "x": 1173,
+    "y": 393
    }
   },
   {
    "id": "skin",
-   "type": "core.linear_skin",
-   "label": "线性蒙皮变形",
+   "type": "bone_deform",
    "params": {
     "skeleton_path": null,
     "character_skeleton": null
    },
    "ui": {
-    "x": 1519,
-    "y": 848
+    "x": 1533,
+    "y": 424
    }
   },
   {
    "id": "result",
-   "type": "core.switch",
-   "label": "交付哪个结果",
+   "type": "switch",
    "params": {
     "which": 1,
     "ways": [
      {
       "name": "a",
-      "label": "原角色（不重定向）"
+      "label": {
+       "zh": "原角色（不重定目标）",
+       "en": "Original Character (No Retarget)"
+      }
      },
      {
       "name": "b",
-      "label": "导入的角色（FBX）"
+      "label": {
+       "zh": "导入的角色（FBX）",
+       "en": "Imported Character (FBX)"
+      }
      },
      {
       "name": "c",
-      "label": "导入的角色（USD）"
+      "label": {
+       "zh": "导入的角色（USD）",
+       "en": "Imported Character (USD)"
+      }
      }
     ]
    },
    "ui": {
-    "x": 1919,
-    "y": 844
+    "x": 1893,
+    "y": 412
    }
   },
   {
    "id": "fps",
-   "type": "core.value_float",
-   "label": "帧率",
+   "type": "value_float",
    "params": {
     "value": 24.0,
     "unit": ""
    },
    "ui": {
     "x": 360,
-    "y": 116,
+    "y": 107,
     "on_node": [
      "value"
     ]
@@ -524,7 +662,7 @@
   },
   {
    "from": [
-    "out",
+    "usd",
     "files"
    ],
    "to": [
@@ -648,7 +786,7 @@
     "out"
    ],
    "to": [
-    "out",
+    "usd",
     "scene"
    ]
   },
@@ -658,7 +796,7 @@
     "value"
    ],
    "to": [
-    "out",
+    "usd",
     "param:fps"
    ]
   },

@@ -1,0 +1,32 @@
+# The NeoVerse extension's own words and messages in Chinese (the same keys as en.toml).
+
+"E-NEOVERSE-SEGMENTS" = "NeoVerse 分段解算时，前后两段重叠部分的摄影机对不上（拼接得到的尺度不是正数）：镜头可能几乎不动或画面变化太大。把「每段帧数」调大让一段覆盖更多帧后重算"
+"E-NEOVERSE-NOSPLATS" = "NeoVerse 在第 {frame} 帧没有交出任何高斯：这一帧没法重建。检查这一帧画面是否正常（全黑、全白、严重模糊），或调整「每段帧数」后重算"
+
+[node."neoverse.reconstruct"]
+subtitle = "动态 3D 高斯"
+description = "从视频重建动态高斯与摄影机，保留逐帧位置、旋转、尺度和透明度。使用官方重建器、运动头与高斯过渡模型，结果可逐帧预览或导出。"
+official.note = "启用官方运动与动态高斯属性，逐帧采样官方过渡模型；只使用动态重建器，不加载 Wan 视频生成器"
+cost.note = "RTX 5090 实测：1280×720、每段 32 帧、分辨率 560（官方）峰值 18.3 GB；420 为 11.6 GB"
+
+[node."neoverse.reconstruct".param.resolution]
+label = "长边分辨率"
+option."280" = "280"
+option."420" = "420"
+option."560" = "560"
+
+[node."neoverse.reconstruct".param.max_frames]
+label = "每段帧数"
+
+[node."neoverse.reconstruct".param.step]
+label = "每隔几帧"
+
+
+[stage]
+reconstruct = "动态高斯重建"
+
+[extension.neoverse]
+summary = "从视频恢复逐帧动态 3D 高斯与摄影机，使用官方动态重建器"
+license.name = "Apache-2.0"
+license.summary = "代码和重建器按官方 Apache-2.0 发布；本扩展不加载 Wan 视频生成模型权重"
+weight.reconstructor.note = "NeoVerse 动态重建器模型权重（Apache-2.0）"

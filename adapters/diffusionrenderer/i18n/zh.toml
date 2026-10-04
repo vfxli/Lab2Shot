@@ -1,0 +1,204 @@
+# Cosmos DiffusionRenderer（adapters/diffusionrenderer）。一行一条：编号 = 模板。
+
+# ---- 参数
+"E-DIFFUSIONRENDERER-OVERLAP.other" = "「段间重叠」{overlap} 帧超过了每段最多帧数 {max_frames} 的一半：把「段间重叠」调到 {half} 帧或更少，或加大「每段最多帧数」"
+
+# ---- 输入
+"E-DIFFUSIONRENDERER-NOHDRI" = "重打光需要 HDRI：把环境图接到「HDRI」输入"
+"E-DIFFUSIONRENDERER-HDRIMISSING" = "重打光需要 HDRI，但接入的文件 {path} 找不到：重新计算上游的环境图节点"
+"E-DIFFUSIONRENDERER-HDRIREAD" = "读不了 HDRI {path}：文件坏了，或者不是 EXR / HDR 格式"
+
+# ---- 模型
+"N-DIFFUSIONRENDERER-OFFLOAD" = "处理分辨率 {width}×{height}、每段 {max_frames} 帧放不进 {budget_gb} GB 显存：编解码时 7B 网络暂存到内存（多占约 15 GB 内存，每段多几秒），结果不变。想更快更省：把「每段最多帧数」调到 41 或更少"
+
+[stage]
+inverse_render = "逆渲染（拆 G-buffer）"
+inverse_window = "逆渲染 第 {window}/{windows} 段 {name}"
+relight = "按 HDRI 重打光"
+relight_window = "重打光 第 {window}/{windows} 段"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."diffusionrenderer.inverse_render"]
+subtitle = "PBR 通道"
+description = "画面 → PBR 材质通道：去掉光照的基础色、法线贴图、深度贴图、粗糙度图、金属度图，前后帧稳定。每个通道单独跑一遍 7B 视频模型，约 10 秒一帧；粗糙度、金属度在看不清的大片区域（白墙）会成块，深度贴图是每段各自归一化的相对值，不是真实尺度。拿这些材质在新环境光下重新渲染，用「DiffusionRenderer 重新打光」。"
+
+[node."diffusionrenderer.inverse_render".param.resolution]
+label = "处理分辨率"
+
+[node."diffusionrenderer.inverse_render".param.resolution.option]
+1280 = "1280×704"
+1024 = "1024×576"
+960 = "960×528"
+768 = "768×432"
+640 = "640×352"
+512 = "512×288"
+
+[node."diffusionrenderer.inverse_render".param.max_frames]
+label = "每段最多帧数"
+
+[node."diffusionrenderer.inverse_render".param.max_frames.option]
+1 = "1 帧"
+9 = "9 帧"
+17 = "17 帧"
+25 = "25 帧"
+33 = "33 帧"
+41 = "41 帧"
+49 = "49 帧"
+57 = "57 帧"
+
+[node."diffusionrenderer.inverse_render".param.overlap]
+label = "段间重叠"
+
+[node."diffusionrenderer.inverse_render".param.overlap.option]
+0 = "0"
+4 = "4"
+8 = "8"
+12 = "12"
+
+[node."diffusionrenderer.inverse_render".param.steps]
+label = "去噪步数"
+
+[node."diffusionrenderer.inverse_render".param.steps.option]
+5 = "5"
+10 = "10"
+15 = "15"
+
+[node."diffusionrenderer.inverse_render".param.seed]
+label = "随机种子"
+
+[node."diffusionrenderer.inverse_render".port.image]
+label = "RGB"
+
+[node."diffusionrenderer.inverse_render".port.basecolor]
+label = "基础颜色"
+
+[node."diffusionrenderer.inverse_render".port.normal]
+label = "法线贴图"
+
+[node."diffusionrenderer.inverse_render".port.depth]
+label = "深度贴图"
+
+[node."diffusionrenderer.inverse_render".port.roughness]
+label = "粗糙度"
+
+[node."diffusionrenderer.inverse_render".port.metallic]
+label = "金属度"
+
+[node."diffusionrenderer.inverse_render".stage]
+write_maps = "写出材质通道"
+
+[node."diffusionrenderer.inverse_render".official]
+note = "五个通道就是上游 --inference_passes 的默认值（第 63 行）；每个通道各跑一遍 7B 视频模型。"
+
+[node."diffusionrenderer.inverse_render".licence]
+note = "代码 Apache-2.0，模型 NVIDIA Open Model License：可以商用。对外分发模型要附许可证和 NVIDIA 声明；用到它的产品或服务要写明 “Built on NVIDIA Cosmos”。"
+
+[node."diffusionrenderer.relight"]
+subtitle = "重新打光"
+description = "画面 + HDRI → 在这张 HDRI 下重新打光的画面（实验功能）：先拆出材质，再用正向模型重新渲染。人物主体大致可信，背景常被画上 HDRI 的纹理，画面会有斑块和彩色噪点；约 12 秒一帧。只要材质通道、不要重新渲染时，用「DiffusionRenderer PBR 通道」。"
+
+[node."diffusionrenderer.relight".param.resolution]
+label = "处理分辨率"
+
+[node."diffusionrenderer.relight".param.resolution.option]
+1280 = "1280×704"
+1024 = "1024×576"
+960 = "960×528"
+768 = "768×432"
+640 = "640×352"
+512 = "512×288"
+
+[node."diffusionrenderer.relight".param.max_frames]
+label = "每段最多帧数"
+
+[node."diffusionrenderer.relight".param.max_frames.option]
+1 = "1 帧"
+9 = "9 帧"
+17 = "17 帧"
+25 = "25 帧"
+33 = "33 帧"
+41 = "41 帧"
+49 = "49 帧"
+57 = "57 帧"
+
+[node."diffusionrenderer.relight".param.overlap]
+label = "段间重叠"
+
+[node."diffusionrenderer.relight".param.overlap.option]
+0 = "0"
+4 = "4"
+8 = "8"
+12 = "12"
+
+[node."diffusionrenderer.relight".param.steps]
+label = "去噪步数"
+
+[node."diffusionrenderer.relight".param.steps.option]
+5 = "5"
+10 = "10"
+15 = "15"
+
+[node."diffusionrenderer.relight".param.seed]
+label = "随机种子"
+
+[node."diffusionrenderer.relight".param.env_rotate]
+label = "环境光旋转"
+
+[node."diffusionrenderer.relight".param.exposure]
+label = "曝光"
+
+[node."diffusionrenderer.relight".port.image]
+label = "重新打光"
+
+[node."diffusionrenderer.relight".port.hdri]
+label = "HDRI"
+
+[node."diffusionrenderer.relight".stage]
+write_image = "写出重新打光的画面"
+
+[node."diffusionrenderer.relight".official]
+note = "上游的 --dataset_path「should point to the output of the inverse renderer」（第 88 行）：我们的「RGB」口进来的是画面，材质通道由 worker 先跑一遍拆解再送进正向模型。HDRI 走 --use_custom_envmap 那一路（process_environment_map，第 232 行）。"
+
+[node."diffusionrenderer.relight".licence]
+note = "代码 Apache-2.0，模型 NVIDIA Open Model License：可以商用。对外分发模型要附许可证和 NVIDIA 声明；用到它的产品或服务要写明 “Built on NVIDIA Cosmos”。"
+
+[extension.diffusionrenderer]
+summary = "在一个统一框架里同时解逆向渲染和正向渲染这一对问题的神经方法"
+
+[extension.diffusionrenderer.license]
+name = "Apache-2.0 代码 · NVIDIA Open Model License 权重"
+summary = "可商用。代码（cosmos-transfer1-diffusion-renderer）为 Apache-2.0；逆渲染、正向渲染两个 7B 模型和 Cosmos-Tokenize1 编解码器为 NVIDIA Open Model License（2025-10-24 版）：免费、可商用、可改、可分发，输出归使用者，NVIDIA 不主张所有权；分发模型时须附许可证和 “Licensed by NVIDIA Corporation under the NVIDIA Open Model License” 声明，对外提供用到 Cosmos 模型的产品/服务时须在网站、界面或文档写明 “Built on NVIDIA Cosmos”；绕过或削弱模型自带的安全护栏、对任何人提起该模型的专利/版权诉讼，许可自动终止（DiffusionRenderer 官方推理本身就不带护栏模型，本扩展按官方方式运行）；须遵守 NVIDIA 可信 AI 条款。不安装 nvdiffrast（NVIDIA 非商用）：HDRI 投影用 PyTorch 重写；不安装 transformer-engine（用 PyTorch 等价实现）"
+
+[extension.diffusionrenderer.weight.inverse-7b]
+note = "逆渲染 7B（拆 G-buffer），28.9 GB，NVIDIA Open Model License"
+notice = "Built on NVIDIA Cosmos"
+
+[extension.diffusionrenderer.weight.inverse-7b-config]
+note = "逆渲染 7B（拆 G-buffer），28.9 GB，NVIDIA Open Model License"
+
+[extension.diffusionrenderer.weight.forward-7b]
+note = "正向渲染 7B（按 HDRI 重打光），28.9 GB，NVIDIA Open Model License"
+notice = "Built on NVIDIA Cosmos"
+
+[extension.diffusionrenderer.weight.forward-7b-config]
+note = "正向渲染 7B（按 HDRI 重打光），28.9 GB，NVIDIA Open Model License"
+
+[extension.diffusionrenderer.weight.tokenizer-encoder]
+note = "Cosmos 视频编解码器 CV8x8x8-720p，NVIDIA Open Model License"
+notice = "Built on NVIDIA Cosmos"
+
+[extension.diffusionrenderer.weight.tokenizer-decoder]
+note = "Cosmos 视频编解码器 CV8x8x8-720p，NVIDIA Open Model License"
+notice = "Built on NVIDIA Cosmos"
+
+[extension.diffusionrenderer.weight.tokenizer-mean-std]
+note = "Cosmos 视频编解码器 CV8x8x8-720p，NVIDIA Open Model License"
+notice = "Built on NVIDIA Cosmos"
+
+[extension.diffusionrenderer.weight.tokenizer-image-mean-std]
+note = "Cosmos 视频编解码器 CV8x8x8-720p，NVIDIA Open Model License"
+notice = "Built on NVIDIA Cosmos"
+
+[extension.diffusionrenderer.weight.tokenizer-config]
+note = "Cosmos 视频编解码器 CV8x8x8-720p，NVIDIA Open Model License"

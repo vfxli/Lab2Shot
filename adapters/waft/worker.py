@@ -52,9 +52,29 @@ def no_pretrained_parts():
         waft_a1.DepthAnythingFeature, timm.create_model = feature, create
 
 
+def sdpa_attention() -> None:
+    """Depth Anything V2's attention through torch's fused scaled_dot_product_attention. Upstream asks for xFormers
+    (README: "Please also install xformers"); without it DINOv2's MemEffAttention falls back to the explicit
+    q @ k^T softmax, which holds the whole tokens x tokens matrix (most of WAFT's memory at 1920). Instead of one more
+    dependency, the fallback itself is replaced by the same attention computed by torch's memory-efficient kernel
+    (the same mathematics: softmax(q k^T / sqrt(d)) v; dropout is 0 in eval): 1920 x 816 pair 9.2 -> 6.2 GB, same speed."""
+    import torch.nn.functional as F
+    from thirdparty.DepthAnythingV2.depth_anything_v2.dinov2_layers import attention
+
+    def forward(self, x):
+        B, N, C = x.shape
+        q, k, v = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        x = F.scaled_dot_product_attention(q, k, v, scale=self.scale)
+        return self.proj_drop(self.proj(x.transpose(1, 2).reshape(B, N, C)))
+
+    attention.Attention.forward = forward
+
+
 @resident
 def load_model(repo: Path, checkpoint: Path, device):
     from model.waft_a1 import ViTWarpV8
+
+    sdpa_attention()
 
     args = argparse.Namespace(**json.loads((repo / CONFIG).read_text(encoding="utf-8")))
     with no_pretrained_parts():
@@ -71,12 +91,12 @@ def main(job_path: str) -> None:
     run.weights(checkpoint)
     device = torch.device("cuda")
 
-    model = run.model("WAFT 模型", load_model, job.repo_dir, checkpoint, device)
+    model = run.model("load_model", load_model, job.repo_dir, checkpoint, device, stage_params={"model": "WAFT"})
 
-    run.stage(f"计算光流（{shot.w}×{shot.h}）")
+    run.stage("compute_flow", width=shot.w, height=shot.h)
     n = len(shot)
     with torch.inference_mode():
-        for i, _ in run.each(range(n), "光流"):
+        for i, _ in run.each(range(n), "flow"):
             with run.frame():
                 others = [k for k in (i + 1, i - 1) if 0 <= k < n]  # forward first, then backward
                 pictures = torch.from_numpy(np.stack([shot[k] for k in [i, *others]])).to(device).permute(0, 3, 1, 2).float()

@@ -1,0 +1,88 @@
+# The LuxDiT extension's words and messages in English (the same keys as zh.toml).
+
+# ---- worker
+"W-LUXDIT-LOWMEMORY" = "Only about {free:.1f} GB of the graphics card is free and LuxDiT needs about {need:d} GB: it may run out of GPU memory partway. Close the other programs using this card first"
+"W-LUXDIT-LOWRANGE" = "The brightest part of the environment map LuxDiT generated is only {ratio:.1f} times the mid brightness (below 4): the picture may be flat (overcast, no clear light source), so the light it gives will be flat with faint shadows. Try another Seed, or pick another frame with the time_shift node before it"
+"W-LUXDIT-LOWRANGE.app" = "The brightest part of the generated environment map is only {ratio:.1f} times the mid brightness (under 4): the image may be flat (overcast, no clear light source), so the light will be flat with faint shadows; try another Seed, or another frame"
+
+# ---- words
+
+[stage]
+prepare_frame = "Prepare Frame"
+generate_envmap = "Generate Environment Map"
+merge_hdr = "Merge HDR"
+denoise = "Denoise"
+
+[node."luxdit.light_probe"]
+subtitle = "HDRI Estimation"
+description = "Image → an HDRI of the whole environment (a lat-long EXR), generated in one go by a video diffusion model (NVIDIA LuxDiT). Indoor lights get a wide highlight range; the environment outside the frame is the model's guess and is sensitive to the seed, and telephoto lenses are beyond the field of view it was trained on, so results there are unstable. For overcast exteriors and telephoto lenses use DiffusionLight HDRI; this node is for research only and may not be used in production."
+
+[node."luxdit.light_probe".param.lora_scale]
+label = "Image Fidelity"
+
+[node."luxdit.light_probe".param.steps]
+label = "Denoising Steps"
+placeholder = "Default"
+
+[node."luxdit.light_probe".param.steps.option]
+20 = "20"
+30 = "30"
+50 = "50"
+
+[node."luxdit.light_probe".param.guidance_scale]
+label = "Guidance Scale"
+
+[node."luxdit.light_probe".param.resolution]
+label = "Working Resolution"
+
+[node."luxdit.light_probe".param.resolution.option]
+auto = "Auto"
+480x720 = "Portrait 480×720"
+512x512 = "Square 512"
+720x480 = "Landscape 720×480"
+
+[node."luxdit.light_probe".official]
+note = "The display image is upstream's first-step LDR lat-long map (*_ldr.png in the ldr_log folder; hdr_merger.py:60-81 feeds it to the HDR merging network together with the log map); the HDRI is the .exr written by the second step (hdr_merger.py:93). Upstream takes no camera."
+
+[node."luxdit.light_probe".cost]
+whole = "Computes the environment light of one frame (about 29 s each time), not per-frame work"
+
+[node."luxdit.light_probe".licence]
+note = "Code and weights are under the NVIDIA OneWay Noncommercial license (research and evaluation only); the CogVideoX video VAE it uses has its own CogVideoX license (commercial use requires registration)."
+
+[extension.luxdit]
+summary = "A generative lighting estimation model: predicts a high-quality HDR environment map from the image, with accurate lighting that stays true to what the image shows"
+
+[extension.luxdit.license]
+name = "NVIDIA OneWay Noncommercial License (code and weights) · CogVideoX License (VAE)"
+summary = "Research or evaluation only. Item by item: the LuxDiT code and all weights of nvidia/LuxDiT on Hugging Face (the two 5B models luxdit_image and luxdit_video, two real-scene LoRAs, the HDR merging MLP) are under the NVIDIA OneWay Noncommercial License: noncommercial use only (research or evaluation), redistribution must carry the same license, and results may not be used in commercial projects; the CogVideoX model / pipeline files adapted from diffusers carry Apache-2.0 headers but are released with the repository under the NVIDIA noncommercial license. It also downloads the video VAE and sampler configuration of CogVideoX-5B-I2V (Zhipu zai-org, formerly THUDM), under the CogVideoX License: free for academic research, commercial use requires registering at open.bigmodel.cn for a license first, military and unlawful use prohibited. CogVideoX's T5 text encoder is not needed; nvdiffrast is not required (the repository states that the cube maps are all computed on the CPU)"
+
+[extension.luxdit.weight."cogvideox/LICENSE"]
+note = "Video VAE and sampler configuration of CogVideoX-5B-I2V (CogVideoX License: free for academic research, commercial use requires registration)"
+
+[extension.luxdit.weight."cogvideox/scheduler/scheduler_config.json"]
+note = "Video VAE and sampler configuration of CogVideoX-5B-I2V (CogVideoX License: free for academic research, commercial use requires registration)"
+
+[extension.luxdit.weight."cogvideox/vae/config.json"]
+note = "Video VAE and sampler configuration of CogVideoX-5B-I2V (CogVideoX License: free for academic research, commercial use requires registration)"
+
+[extension.luxdit.weight."cogvideox/vae/diffusion_pytorch_model.safetensors"]
+note = "Video VAE and sampler configuration of CogVideoX-5B-I2V (CogVideoX License: free for academic research, commercial use requires registration)"
+
+[extension.luxdit.weight."luxdit/LICENSE.md"]
+note = "LuxDiT single-frame model + real-scene LoRA + HDR merging MLP (NVIDIA OneWay Noncommercial, noncommercial)"
+
+[extension.luxdit.weight."luxdit/hdr_merge_mlp/config.json"]
+note = "LuxDiT single-frame model + real-scene LoRA + HDR merging MLP (NVIDIA OneWay Noncommercial, noncommercial)"
+
+[extension.luxdit.weight."luxdit/hdr_merge_mlp/diffusion_pytorch_model.safetensors"]
+note = "LuxDiT single-frame model + real-scene LoRA + HDR merging MLP (NVIDIA OneWay Noncommercial, noncommercial)"
+
+[extension.luxdit.weight."luxdit/luxdit_image/config.json"]
+note = "LuxDiT single-frame model + real-scene LoRA + HDR merging MLP (NVIDIA OneWay Noncommercial, noncommercial)"
+
+[extension.luxdit.weight."luxdit/luxdit_image/diffusion_pytorch_model.safetensors"]
+note = "LuxDiT single-frame model + real-scene LoRA + HDR merging MLP (NVIDIA OneWay Noncommercial, noncommercial)"
+
+[extension.luxdit.weight."luxdit/luxdit_image/lora/model.safetensors"]
+note = "LuxDiT single-frame model + real-scene LoRA + HDR merging MLP (NVIDIA OneWay Noncommercial, noncommercial)"

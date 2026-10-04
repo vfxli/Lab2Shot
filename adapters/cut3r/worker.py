@@ -40,6 +40,8 @@ CHECKPOINT = "cut3r_512_dpt_4_64.pth"
 # CUT3R keeps O(1) memory per frame (one frame encoded at a time), so the chunk length is about accuracy, not memory:
 # the 512 model was trained on 4-64 views, its state forgets / drifts on much longer runs. TTT3R's state update holds
 # on far longer runs, but not on any: on a 792-frame take a single pass loses its orientation, 200-frame chunks work.
+# Measured (5090, CUT3R update, 512, 128 frames, ATE Sim3 vs ground truth): one pass vs 64-frame chunks
+# R04 13.5 / 4.0 cm, C01 27.7 / 10.8 cm, C05 10.2 / 5.3 cm. Memory would allow the one pass; chunks stay the default.
 MAX_FRAMES = {"cut3r": 64, "ttt3r": 200}
 # what the memory grows with, when it runs out: 每段最多帧数 (the node offers 32..792; the steps start at the longest
 # measured default, 200)
@@ -268,23 +270,24 @@ def main(job_path: str) -> None:
     raw = job.raw_dir
     device = torch.device("cuda")
 
-    run.stage("读取画面")
+    run.stage("read_frames")
     height, width = read_frame(used[0][1]).shape[:2]
     geo = di.Geometry.for_size(width, height, p["resolution"])
     images = di.read_images(used, geo, read_frame, progress)
 
     # run.model caps the GPU first: an allocation beyond the free memory fails instead of spilling into RAM (WSL/Windows)
-    model, rope = run.model("CUT3R 模型", load_model, job.repo_dir, checkpoint, device)
+    model, rope = run.model("load_model", load_model, job.repo_dir, checkpoint, device, stage_params={"model": "CUT3R"})
 
     def solve(max_frames: int):
         """The whole shot in chunks of at most `max_frames`, stitched."""
         chunks = recon.plan_chunks(len(frames), max_frames, p["overlap"])
         stitch = recon.Stitcher(rotation="points")  # the chunk-end cameras are less reliable than the points
         for ci, (a, b) in enumerate(chunks):
-            label = f"重建（第 {ci + 1}/{len(chunks)} 段）" if len(chunks) > 1 else "重建"
-            run.stage(label)
+            said = {"segment": ci + 1, "segments": len(chunks)} if len(chunks) > 1 else {}
+            word = "reconstruct_segment" if said else "reconstruct"
+            run.stage(word, **said)
             res = run_chunk(model, images[a:b], p["conf_threshold"], device, p["update"],
-                            lambda d, t, _l=label: progress(d, t, _l) if d % 4 == 0 or d == t else None)
+                            lambda d, t, _w=word, _s=said: progress(d, t, _w, **_s) if d % 4 == 0 or d == t else None)
             try:
                 stitch.add(a, res).update(frames=[frames[a], frames[b - 1]])
             except ValueError:
@@ -301,7 +304,7 @@ def main(job_path: str) -> None:
     stitched = list(stitch.pop())
     per_frame_focal = np.array([f.K[0, 0] for f in stitched])
     focal = np.full_like(per_frame_focal, np.median(per_frame_focal)) if p["shared_focal"] else per_frame_focal
-    run.stage("写出结果")
+    run.stage("write_results")
     summary = di.write_outputs(raw, frames, geo, stitched, focal, progress)
     spread = float(per_frame_focal.std() / np.median(per_frame_focal))
     if spread > 0.1:

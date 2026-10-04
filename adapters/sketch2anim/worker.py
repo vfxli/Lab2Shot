@@ -79,11 +79,15 @@ def _enter_repo(repo: Path) -> None:
 
 
 @resident
-def load_model(repo: Path, weights: Path, device: str, steps: int, guidance: float, control: float):
+def load_model(repo: Path, weights: Path, device: str):
     """Upstream's MLD with its ControlNet and pose-aware denoiser, built the way demo_kp_traj_2d.py builds it
     (identify_model_type, lines 100-120) but without the text-to-motion evaluators: they only feed the benchmark
     metrics (mld/models/modeltype/base.py _get_t2m_evaluator) and the generation path never reads them, so the 96
-    evaluator tensors in the checkpoint are left where they are and nothing else is missing."""
+    evaluator tensors in the checkpoint are left where they are and nothing else is missing.
+
+    Steps, text guidance and control strength are not part of the model: MLD reads them at sampling time
+    (self.guidance_scale, self.control_scale, self.cfg.model.scheduler.num_inference_timesteps: mld.py:261-322), so
+    every job sets them on the kept model (set_sampling) and changing one does not load the model again."""
     import torch
     from omegaconf import OmegaConf
 
@@ -126,8 +130,6 @@ def load_model(repo: Path, weights: Path, device: str, steps: int, guidance: flo
     cfg.model.t5_path = str(weights / "sentence-t5-large")
     cfg.METRIC.TYPE = []  # build no metric: they are the evaluation path, and every one of them wants a dataset
     cfg.DATASET.NFEATS, cfg.DATASET.NJOINTS = 263, 22
-    cfg.model.guidance_scale, cfg.model.control_scale = float(guidance), float(control)
-    cfg.model.scheduler.num_inference_timesteps = int(steps)
     state = torch.load(weights / "checkpoints" / "adapter.ckpt", map_location="cpu", weights_only=False)["state_dict"]
     lcm = "denoiser.time_embedding.cond_proj.weight"
     if lcm in state:
@@ -141,6 +143,16 @@ def load_model(repo: Path, weights: Path, device: str, steps: int, guidance: flo
     if missing:
         fail("E-SKETCH2ANIM-WEIGHTS", count=len(missing), first=missing[0])
     return model, raw_mean.reshape(22, 3), raw_std.reshape(22, 3)
+
+
+def set_sampling(model, steps: int, guidance: float, control: float) -> None:
+    """This job's sampling settings on the kept model, where upstream's __init__ puts them from the config
+    (mld.py:63 guidance_scale, :117 control_scale) and where sampling reads the step count (:261-262)."""
+    model.cfg.model.guidance_scale, model.guidance_scale = float(guidance), float(guidance)
+    model.cfg.model.control_scale = float(control)
+    if hasattr(model, "control_scale"):
+        model.control_scale = float(control)
+    model.cfg.model.scheduler.num_inference_timesteps = int(steps)
 
 
 def full_pose(drawn: np.ndarray) -> np.ndarray:
@@ -267,16 +279,16 @@ def main(job_path: str) -> None:
     if len(key_frames) == 0:
         fail("E-SKETCH2ANIM-NOPOSE")
 
-    model, raw_mean, raw_std = run.model("Sketch2Anim 模型", load_model, repo, weights, device, p["steps"],
-                                         p["text_guidance"], p["control"])
-    run.stage("读草图")
+    model, raw_mean, raw_std = run.model("load_model", load_model, repo, weights, device, stage_params={"model": "Sketch2Anim"})
+    set_sampling(model, p["steps"], p["text_guidance"], p["control"])
+    run.stage("read_sketch")
     world, ruler = to_model_world(full_pose(drawn), raw_mean)
     pose, mask, hint, path = condition(world, key_frames, length, raw_mean, raw_std)
     from utils import rotate_pose  # upstream's sketch camera: Rx(angle_x) then Ry(angle_y), orthographic
 
     _, rotation = rotate_pose(np.zeros((1, 22, 3)), angle_x=float(p["angle_x"]), angle_y=float(p["angle_y"]))
 
-    run.stage("Sketch2Anim 生成动作")
+    run.stage("generate")
     from mld.utils.utils import set_seed
 
     set_seed(int(p["seed"]))
@@ -285,9 +297,9 @@ def main(job_path: str) -> None:
     # two timings are reported: `generate_seconds` is the denoising itself; `seconds` (from Run) also includes the
     # first model load (@resident: later tasks in the same worker process do not load it again)
     made = time.time() - t1
-    progress(1, 2, "生成动作")
+    progress(1, 2, "generate_each")
 
-    run.stage("解出关节旋转")
+    run.stage("solve_rotations")
     names, parents, offsets, rot, root, fitted = to_rig(joints, bool(p["foot_lock"]))
     rot, root = resample(rot, root, float(p["fps"]), int(p["out_frames"]))
     # how far the fitted skeleton's joints ended up from the generated points, and how far the generated key pose
@@ -298,13 +310,13 @@ def main(job_path: str) -> None:
     # path deviation: per-frame hip positions compared with the straight line between figures, under the same
     # orthographic camera
     path_cm = float(np.abs(seen[path[0], ROOT] - path[1]).mean() * M_TO_CM) if path is not None else -1.0
-    progress(2, 2, "生成动作")
+    progress(2, 2, "generate_each")
 
     save_npz(job.raw_dir / "motion.npz", names=np.array(names), parents=parents, offsets=offsets * M_TO_CM,
              rotations=rot, root=root * M_TO_CM)
     run.finish(list(range(len(rot))),  # `frames` stays the count, as the node reads it
                fps=float(p["fps"]), frames=int(len(rot)), joints=len(names), method="Sketch2Anim",
-               skeleton="HumanML3D 22 关节", model_fps=MODEL_FPS, model_frames=length,
+               skeleton="HumanML3D 22 joints", model_fps=MODEL_FPS, model_frames=length,
                keys=[int(f) for f in key_frames], generate_seconds=round(made, 2),
                key_error_cm=round(drawn_cm, 1),
                path_error_cm=round(path_cm, 1), ik_error_cm=round(ik_cm, 2), **ruler)

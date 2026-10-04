@@ -1,0 +1,138 @@
+/* The one 「标签 + 控件」 row (ui/LabelRow.tsx) and the group that lines its rows up (LabelGrid).
+
+   Four columns, named, each item in its own: [marks] the pins (empty: no width) · [label] as wide as the longest label
+   of the group, up to --lrow-label-max (a grid told all its labels, hidden ones too, fixes it: --lrow-label-w,
+   LabelGrid `labels`) · [ctl] the rest · [tail] the row's own marks at the right (empty: no width).
+   A label is never positioned over anything: it is cut with an ellipsis inside its cell (the whole on hover). Every
+   level between a LabelGrid and its rows (a tree's row, an indented sub-group) passes the columns down as a subgrid, so
+   rows nested in it still line up with the group's label column. */
+
+/* the default limit, by the page's language: English words take about twice the width of the Chinese (the parameter
+   panel is wider in English too: editor/App.tsx INSPECTOR_WIDTH), and never more than half the row, so a narrow panel
+   (the parameter panel dragged narrow) keeps half its width for the controls and the lines under them instead of the
+   labels taking it all. A group that sets --lrow-label-max itself keeps it. */
+:root {
+  --lrow-label-default: min(16em, 50%);
+}
+
+html[lang="en"] {
+  --lrow-label-default: min(20em, 50%);
+}
+
+.lgrid,
+.lrow {
+  --lrow-label-max: var(--lrow-label-default); /* a label longer than this is cut (its words should be shorter) */
+  --lrow-gap: var(--sp-2);
+  display: grid;
+  grid-template-columns: [marks] auto [label] var(--lrow-label-w, fit-content(var(--lrow-label-max))) [ctl] minmax(0, 1fr) [tail] auto;
+  align-items: center;
+  column-gap: 0;
+}
+
+.lgrid {
+  row-gap: 6px;
+}
+
+/* a grid not told its labels sizes its own column, also inside one that was (the width set on it is its own only) */
+.lgrid:not([data-label-w]) {
+  --lrow-label-w: initial;
+}
+
+/* what sits in a group and is no row (a title, a note, a list, a button row): the whole width */
+.lgrid > * {
+  grid-column: 1 / -1;
+}
+
+/* a row in a group, and every level between (a subgrid passes the group's columns on) */
+.lgrid > .lrow,
+.lgrid .lsub,
+.lsub > .lrow {
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.lsub {
+  display: grid;
+  align-items: center;
+  row-gap: 6px;
+}
+
+.lsub > * {
+  grid-column: 1 / -1;
+}
+
+.lrow-marks {
+  grid-column: marks;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
+}
+
+.lrow-marks:not(:empty) {
+  margin-inline-end: 4px;
+}
+
+.lrow-label {
+  grid-column: label;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: end;
+  padding-inline-end: var(--lrow-gap);
+}
+
+/* a label is never squeezed to nothing: at least a few characters and the ellipsis (the whole on hover) */
+.lrow-label:not(:empty) {
+  min-width: 3em;
+}
+
+.lrow-label:empty {
+  padding-inline-end: 0;
+}
+
+.lrow-ctl {
+  grid-column: ctl;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lrow-tail {
+  grid-column: tail;
+  min-width: 0;
+  padding-inline-start: var(--lrow-gap);
+}
+
+.lrow-tail:empty {
+  padding: 0;
+}
+
+/* a line of the row's own (or of the group's) under it: at the control column's left edge */
+.lrow > .lrow-under,
+.lgrid > .lrow-under,
+.lsub > .lrow-under {
+  grid-column: ctl / -1;
+  min-width: 0;
+}
+
+/* the row's note (LabelRow `note`): what it means, always visible, under the control, faint and wrapping */
+.lrow > .lrow-note {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-3);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+/* a row whose control is taller than one line (a text area, a list, a table): the label level with its first line */
+.lrow.top {
+  align-items: start;
+}
+
+.lrow.top > .lrow-label,
+.lrow.top > .lrow-marks {
+  padding-top: 5px;
+}

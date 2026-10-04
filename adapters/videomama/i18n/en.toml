@@ -1,0 +1,30 @@
+# The VideoMaMa extension's own words and messages in English (the same keys as zh.toml).
+
+# ---- model weights
+"E-VIDEOMAMA-UNETMISMATCH.one" = "VideoMaMa's UNet model weights do not match SVD's time-conditioning size: their time-conditioning layer takes {got:d} dimension, while the config (addition_time_embed_dim {dim:d} × 3) calls for {want:d}. The weights file is wrong; ask an administrator to run lab2shot ext install videomama again"
+"E-VIDEOMAMA-UNETMISMATCH.other" = "VideoMaMa's UNet model weights do not match SVD's time-conditioning size: their time-conditioning layer takes {got:d} dimensions, while the config (addition_time_embed_dim {dim:d} × 3) calls for {want:d}. The weights file is wrong; ask an administrator to run lab2shot ext install videomama again"
+
+[node."videomama.matte"]
+subtitle = "Fine Matte"
+description = "Guided by a rough mask on every frame, VideoMaMa (a video diffusion model) generates a soft alpha that is the most stable over time. Much slower than MatAnyone 2 and needs much more VRAM, with softer edges; every frame needs a rough mask."
+official.note = "Upstream needs a mask_frames image for every frame (load_image_sequence fails outright when a frame has no matching mask, lines 78-79)."
+licence.note = "The code is CC-BY-NC-4.0, non-commercial. The model weights are under the Stability AI Community License (commercial use needs registration, annual revenue under USD 1 million and the \"Powered by Stability AI\" notice), but the code license makes the whole non-commercial."
+
+[node."videomama.matte".param.resolution]
+label = "Processing Resolution"
+
+[node."videomama.matte".param.erode_dilate]
+label = "Erode / Dilate Mask"
+
+[extension.videomama]
+summary = "Turns rough segmentation masks into pixel-accurate matte alphas, using the prior of a pretrained video diffusion model"
+license.name = "CC BY-NC 4.0 (code) + Stability AI Community License (model weights)"
+license.summary = "Non-commercial: the code is CC BY-NC 4.0, for non-commercial use only, with attribution when shared. The model weights (VideoMaMa's UNet and the VAE of Stable Video Diffusion XT) are under the Stability AI Community License: free for research and non-commercial use; commercial use requires registering with Stability AI and annual revenue under USD 1 million (above that, an enterprise license from Stability AI); redistribution must include the license text and the notice \"This Stability AI Model is licensed under the Stability AI Community License, Copyright © Stability AI Ltd. All Rights Reserved\", and be marked \"Powered by Stability AI\"; the model and its outputs may not be used to train other foundation generative models; Stability AI's Acceptable Use Policy applies. As the code is CC BY-NC, the whole is non-commercial only"
+weight.videomama_unet.note = "SammyLim/VideoMaMa/unet/diffusion_pytorch_model.safetensors (Stability AI Community License)"
+weight.videomama_unet_config.note = "SammyLim/VideoMaMa/unet/config.json (Stability AI Community License)"
+weight.svd_vae.note = "stabilityai/stable-video-diffusion-img2vid-xt/vae/diffusion_pytorch_model.fp16.safetensors (Stability AI Community License)"
+weight.svd_vae_config.note = "stabilityai/stable-video-diffusion-img2vid-xt/vae/config.json (Stability AI Community License)"
+weight.svd_license.note = "stabilityai/stable-video-diffusion-img2vid-xt/LICENSE.md (Stability AI Community License)"
+
+[stage]
+matte = "Matte"

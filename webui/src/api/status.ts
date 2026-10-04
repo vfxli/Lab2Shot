@@ -6,12 +6,13 @@ import type { Level } from "../messages/format";
 import type { Places } from "../model/places";
 import type { NodePorts, ResolvedCost, ResolvedLicence } from "./catalog";
 import type { JobState } from "./queue";
+import { t } from "../i18n/t.ts";
 import type { Phase } from "./progress";
 
 /** A standing mark (src/ui/nodeMarks.ts): the short word of a notice a node's declaration always gives it, derived on
  * the server (nodes/applies.py standing_marks). Its level decides its colour: red only for P. */
 export interface StandingMark extends ServerMessage {
-  mark: string; // the message's short words, one line on the node's bottom row; `text` is its tooltip
+  mark: string; // the message's short words, one line on the node's bottom row; `text` is the whole sentence (its 数据信息 card)
 }
 
 /** A message the server says about a node (lab2shot/messages): a usage check that failed (engine/lint.py: the node
@@ -25,6 +26,9 @@ export interface ServerMessage {
   // (lab2shot/messages 「<CODE>.short」, at most 12 full-width characters), else the whole sentence. The page never
   // cuts or abbreviates text itself.
   short?: string;
+  // its words for whoever uses a card (lab2shot/messages 「<CODE>.app」: no node names, no wires), when it has them;
+  // messages/message.ts textOf says them in app mode
+  app?: string;
   params?: Record<string, unknown>;
   port?: string; // the input it is about
   param?: string; // the parameter it is about
@@ -54,11 +58,16 @@ export interface NodeStatus {
   applies: Availability; // its parameters that declare a condition: available, greyed with why (I-APPLIES-*), pending a cook (read only through applies.ts)
   cost?: ResolvedCost; // what it costs with its parameters
   licence?: ResolvedLicence; // whose licence its result is under with them
-  outcome?: { state: "failed" | "skipped"; root: string }; // no result because of an error: its own, or the node `root`'s
+  // no result because of an error: its own, or the node `root`'s; `blocked`: skipped behind a 「阻断」 set to block
+  // (engine/records.py Outcome.blocked) — not an error, shown 「已跳过（被阻断）」 (model/nodeOutcome.ts)
+  outcome?: { state: "failed" | "skipped"; root: string; blocked?: boolean };
   skipped?: ServerMessage; // skipped: why (N-COOK-SKIPPED)
   messages: ServerMessage[];
   sources: Record<string, string>; // where its parameters get their values, for those that say so ("Focal Length 38.6 mm · 来自 AnyCalib（覆盖相机的 Focal Length）")
+  // of those set over a connected input, that clause on its own ("覆盖相机的 Focal Length"): the panel shows it on its own line
+  overrides: Record<string, string>;
   values?: Record<string, string>; // its value outputs, once known ("38.6 mm")
+  curves?: string[]; // of those, the ones holding a number per frame that changes (data/values.py varies): worth a curve
   strip?: { label: string; text: string }[]; // the current values of the parameters the node declares for the value strip (NodeDef.strip; not output ports)
   outputs?: Record<string, string>;
   // a node inside a 逐项处理 block (engine/scopes.py): the fields above are the item the view is on, `item` says which
@@ -154,22 +163,40 @@ export interface WireStatus {
 }
 
 /** POST /api/status: one request per edit. */
+/** A file this account's page is having read in the background for an import's listing (no 「计算」 was pressed, so no
+ * job exists and the queue cannot cancel it): the top bar says so with 「停止」 (engine/external.py ask_worker). */
+export interface Reading {
+  label: string; // the node type, 「导入 FBX」
+  file: string;
+  seconds: number;
+  limit: number; // it is stopped by itself after this many seconds
+}
+
 export interface StatusReply {
+  again_ms?: number; // a file is being read in the background: ask again this soon (what it holds shows by itself)
+  readings?: Reading[]; // this account's readings in progress
   graph: string; // the graph version's key
   cook_inputs: number; // the page's cook-inputs version this answers, said back
   nodes: Record<string, NodeStatus>;
   wires: WireStatus[];
   deliver: CookCase | null; // 提交: every 「输出」 together (null: none)
   plan: Plan | null; // the shown node's (null: nothing shown)
+  // why the other nodes whose 「计算」 the page offers (StatusRequest holds: a card's buttons) can't be cooked now, by node;
+  // those that can are not listed
+  holds?: Record<string, MessageJson>;
   scopes?: Scope[]; // the graph's 逐项处理 blocks, their members and their items (engine/scopes.py; read by state/items.ts)
   // what the displayed node's handles need to draw (only when a node is displayed and declares a handle that needs data:
-  // skeleton_pose). `handles` is keyed by the handle's index in its NodeDef.handles, as a string
+  // skeleton_pose, rig_pair). `handles` is keyed by the handle's index in its NodeDef.handles, as a string; which shape a
+  // handle's data has follows its kind (HandleDef.kind)
   // `key` changes with the parameters and input packets: a request sending the key it holds (StatusRequest handle_key)
   // gets back only {node, key} while it still matches, and keeps using its copy (state/results.ts)
-  handle_data?: { node: string; key: string; handles?: Record<string, SkeletonPoseData> };
+  handle_data?: { node: string; key: string; handles?: Record<string, HandleData> };
 }
 
-/** A skeleton_pose handle's skeleton (lab2shot core.retarget handle_data): its joints and their base pose before the
+/** One handle's data in handle_data: a skeleton_pose handle's skeleton, or a rig_pair handle's two skeletons. */
+export type HandleData = SkeletonPoseData | RigPairData;
+
+/** A skeleton_pose handle's skeleton (lab2shot retarget handle_data): its joints and their base pose before the
  * corrections, as locals (matrices of 16, column-major, column vectors; cm; local = inv(parent world) @ world, the root's
  * local its world). The page computes every world it draws or needs from these by FK (model/skeletonPose.ts forward):
  * the base pose with no rows, the corrected one with the current rows. */
@@ -198,6 +225,7 @@ export function normalizeStatus(r: StatusReply): StatusReply {
       ...n,
       messages: n.messages ?? [],
       sources: n.sources ?? {},
+      overrides: n.overrides ?? {},
       applies: n.applies ?? { available: [], inactive: {} },
       handles: n.handles ?? [],
       ports: n.ports ?? { inputs: [], outputs: [], waiting: [] },
@@ -237,23 +265,19 @@ export interface Choice {
   default?: string; // the value an empty parameter should take (the colour space the format implies): the page writes it into the parameter rather than showing 「自动」 (editor/ParamControls.tsx)
   none?: string;
   empty?: string;
-  rig?: RigChoice; // the data of the 「对应关系」 editor (widget rig_map, editor/RigMap.tsx)
+  // the 「表情重定向」 mapping table (widget expression_map, editor/ExpressionMap.tsx; lab2shot/nodes/kit/rig_map.py
+  // expression_choice): one row per expression slot, the target's blendshapes, where both sides are (only shown)
+  rows?: ExpressionSlot[];
+  shapes?: string[];
+  source?: string;
+  target?: string;
 }
 
-/** One side's skeleton in the 「对应关系」 editor (lab2shot/nodes/kit/rig_map.py rig_side): a pickable side has joint
- * names, parents and the bind pose's world positions (cm); a model node's model side is `fixed`, with only joint names
- * and each part's joints (read only). */
-export interface RigSide {
-  label: string; // 动作 / 目标 / 人物 / 模型
-  fixed: boolean;
-  path?: string; // Skeleton prim
-  names: string[];
-  parents?: number[];
-  parts?: Record<string, string[]>; // the fixed side: part -> model joints
-  noun?: string; // what this side is called: 骨架 (default) / 曲线 / 形变 (「表情重定向（ARKit52）」)
-  pose?: string; // the base pose aligned against (「动作重定向」: 绑定姿势 / 第一帧 / 第 N 帧, posed as a T)
-  handle?: number | null; // which of the node's 「骨架姿势」 handles this side's skeleton is on the stage (an index into NodeDef.handles; null: none)
-  item?: string; // the counting word: 个关节 (default) / 条曲线 / 个形变
+/** One row of the expression table: a slot (data/expressions.py slot_rows: id, label, region), the source curves that
+ * can fill it, and the guessed pair (a row of the parameter's format; null: nothing guessed). */
+export interface ExpressionSlot extends RigPart {
+  curves: string[];
+  auto: RigRow | null;
 }
 
 /** A body part (lab2shot/data/joints.py part_rows). */
@@ -273,13 +297,50 @@ export interface RigRow {
   dst: string[];
 }
 
-export interface RigChoice {
-  src: RigSide;
-  dst: RigSide;
-  parts: RigPart[];
-  auto: RigRow[]; // the mapping guessed from names and hierarchy (used for the parts the parameter does not list)
-  diffs?: Record<string, number>; // the difference in bone direction of this part between the two base poses (degrees, lab2shot/nodes/kit/retarget.py rest_diffs)
-  slot?: string; // what a slot is called: 部位 (default, the body figure) / 表情 (expression slots by region, lab2shot/nodes/kit/rig_map.py expression_choice)
+/** One side of a rig_pair handle (the server's kit/rig_map.py skeleton_handle's fields, plus the side's parts, the
+ * suggested pose rows and whether it is a model's fixed skeleton). A fixed side has only names, parents and parts: no
+ * positions, so it is drawn as a tree only. */
+export interface RigPairSide extends Partial<Omit<SkeletonPoseData, "names" | "parents">> {
+  names: string[];
+  parents: number[];
+  parts: Record<string, number[]>; // part -> joint indices (the parameter's rows over the guess, as the cook reads them)
+  auto_pose?: { joint: string; translate: number[]; rotate: number[]; scale: number[] }[]; // 「自动姿态」's rows (nodes with a pose role)
+  // 「自动尺寸」 (nodes with size roles): the factor it suggests, the side's leg length at its own size (cm), and the
+  // world height of its ground (a factor s ≠ 1 maps the world p ↦ s·(p − (0, ground, 0)): scaled and stood on y = 0);
+  // absent when no legs are paired
+  size?: { auto: number; leg_cm: number; ground: number };
+  fixed: boolean;
+  recognition?: RigRecognition; // the skeleton recognition engine's judgement of this side (absent on a fixed side)
+}
+
+/** What the skeleton recognition engine said of one skeleton (lab2shot/data/skeleton_recognition.py Recognition.report):
+ * per body part its confidence (0–1) and evidence (short sentences), `assigned: false` for a part it found a candidate
+ * for but did not give (below `threshold`, or on a joint that drives no vertex). */
+export interface RigRecognition {
+  parts: Record<string, { confidence: number; evidence: string[]; assigned?: boolean }>;
+  threshold: number;
+}
+
+/** An ignore rule as the 「自动忽略」 dropdown lists it (lab2shot/nodes/kit/retarget_needs.py): its id, its name, and the
+ * joints it suggests ignoring on each side (the full list, descendants included). */
+export interface RigPairRule {
+  id: string;
+  label: string;
+  ignore: { src?: string[]; dst?: string[] };
+  slots?: Record<string, number>; // the model's fixed skeleton: how many joints each part takes (nodes/kit/retarget_needs.py counts)
+  required?: string[]; // the parts it cannot do without
+}
+
+/** A rig_pair handle's data (nodes/handles.py RigPair): the two skeletons, the part table, the guessed mapping, and for a node with
+ * ignore roles the rules with their suggestions and the rule to preselect (the solver it is wired to; only a
+ * preselection — the result reads the ignore_rule parameter alone). */
+export interface RigPairData {
+  src: RigPairSide;
+  dst: RigPairSide;
+  parts_table: RigPart[];
+  auto_mapping: RigRow[];
+  rules?: RigPairRule[];
+  default_rule?: string;
 }
 
 /** The text of a dropdown's 「还没选」 row, worked out in this one place (the parameter panel and the node both read it):
@@ -290,10 +351,10 @@ export interface RigChoice {
  * leave the user waiting for a result that never comes (e.g. 「按分区取出」's 「分区」 before a model is wired in
  * stops and waits for the user's choice). */
 export function emptyChoiceLabel(choice: Choice | null, placeholder: string, name: (option: string) => string = (o) => o): string {
-  if (choice === null) return placeholder || "自动";
-  if (typeof choice.auto === "string" && choice.auto) return `自动 · ${name(choice.auto)}`;
-  if (choice.auto === "") return "自动 · 没找到";
-  return choice.empty || placeholder || "自动";
+  if (choice === null) return placeholder || t("ui.misc.choice_auto");
+  if (typeof choice.auto === "string" && choice.auto) return t("ui.misc.choice_auto_found", { option: name(choice.auto) });
+  if (choice.auto === "") return t("ui.misc.choice_auto_none");
+  return choice.empty || placeholder || t("ui.misc.choice_auto");
 }
 
 export interface Manifest {
@@ -389,7 +450,7 @@ export interface CookEvent {
   position?: number;
   waiting?: MessageJson | null; // queued: why it waits, the server's words
   waiting_detail?: MessageJson | null; // queued: the reason about the cards, when this session may see them
-  reason?: string; // cancelled: why, when not by the one who started it
+  reason?: string | MessageJson; // cancelled: why, when not by the one who started it
   state?: JobState;
   node?: string | null;
   label?: string;

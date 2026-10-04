@@ -1,6 +1,0 @@
-{
- "mapanything.reconstruct": {
-  "label": "MapAnything 深度与相机",
-  "description": "画面 → 每帧相机和真实尺度的深度图（Meta MapAnything），一次看整段画面，不用特征点匹配，固定机位也出得来。长镜头分段计算再拼接，分段之间尺度会跳；相机逐帧会有细小抖动，接「相机去抖」；知道 Focal Length 一定填上（或者接「AnyCalib 镜头标定」的 Focal Length），长焦镜头它会把 Focal Length 估小。Focal Length 逐帧估，变焦镜头跟得上；要最省显存用「CUT3R 深度与相机」。点云是每帧一张点图（官方原生的点图，放回这一帧自己的相机里），不是整段一套：官方没有合成一份场景点云的输出。"
- }
-}

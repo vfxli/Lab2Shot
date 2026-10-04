@@ -11,6 +11,8 @@ import { portColor } from "../graph/nodes";
 import { multiline, NodeControl, valueText } from "../ui/controls";
 import { useResults } from "../state/results";
 import { ButtonParam } from "./buttonActions";
+import { useT } from "../i18n/t";
+import { LabelRow } from "../ui/LabelRow";
 
 /** 节点本体上的一个参数：名称与取值，可在此直接编辑（与参数面板中的是同一个值）。
  * 「提升到节点」的参数，其输入口位于该行（下方 `param:<name>` 的 Handle）。
@@ -24,24 +26,27 @@ import { ButtonParam } from "./buttonActions";
  *
  * 点击该行在参数面板中定位该参数；双击取值则把键盘焦点交给面板中的对应输入框。
  * 缩小后整个取值显示为纯文字（NodeEditor 的缩放类：`.gctl` 收起、`.gprow-text` 出现）。 */
-export function NodeParam({ nodeId, p, value, promoted, port, wired, why, nc }: {
+export function NodeParam({ nodeId, p, value, promoted, port, wired, why, nc, reg }: {
   nodeId: string; p: ParamDef; value: unknown; promoted: boolean; port?: PortDef; wired: { source: string; value: string; fallback?: boolean } | null;
-  why?: string; nc: Record<string, string>;
+  why?: string; nc: Record<string, string>; reg: Record<string, true>;
 }) {
+  const t = useT(); // drawn inside a memoised graph node: follows the language by itself
   const reveal = useViewer((s) => s.revealParam);
   const readOnly = !!useWriteLock(); // 写不了：节点上的控件真正禁用，不只是样式置灰
   const types = useTypes();
   // 选项是否可选与参数面板中查询的结果相同（由服务器按声明计算，ui/controls.tsx optionView）
   const answer = useResults((s) => s.results[nodeId]?.applies);
   // 缩小后整行显示为一句文字（`.gprow-text`，仅在 zoom-text / zoom-far 下出现）
-  const text = wired ? `← ${wired.source}${wired.value ? ` · ${wired.value}` : ""}` : valueText(p, value, nc);
+  const text = wired ? `← ${wired.source}${wired.value ? ` · ${wired.value}` : ""}` : valueText(p, value, nc, reg);
   // 双击取值：键盘焦点进入面板中的输入框（而非节点其余部分双击时的「在视图中显示」）
   const toPanel = (e: MouseEvent) => {
     e.stopPropagation();
     reveal(nodeId, p.name, true);
   };
   return (
-    <div
+    <LabelRow
+      // 节点上的参数行与参数面板、应用模式同一个「标签 + 控件」行（ui/LabelRow.tsx）：标签自己一格，放不下时省略号
+      // 截断、悬停看全文，从不压到控件上；同一节点的各行共用一列标签宽（GraphNode 的 LabelGrid）。
       // 多行文本框行采用上下两格排列（标签在上，文本框占满整行宽度）：判据为参数自身的声明
       // （`P(lines=…)`，ui/controls.tsx multiline），而非参数名称
       className={`gprow${multiline(p) ? " multi" : ""}${promoted ? " promoted" : ""}${wired ? " wired" : ""}${why && !wired ? " inactive" : ""}`}
@@ -49,10 +54,11 @@ export function NodeParam({ nodeId, p, value, promoted, port, wired, why, nc }: 
       onPointerDown={(e) => {
         if (!(e.target as HTMLElement).closest(".react-flow__handle")) reveal(nodeId, p.name);
       }}
+      // 端口形状只表达一项信息：方形表示列表。参数口与数据口使用同一套形状和颜色，以其所在的参数行表明它是参数
+      marks={promoted ? <Handle type="target" position={Position.Left} id={`param:${p.name}`} className={`param${port?.list ? " list" : ""}`} style={{ ["--c" as string]: portColor(types, port?.type ?? "") }} /> : undefined}
+      label={p.label}
+      labelClass="gprow-label"
     >
-      {/* 端口形状只表达一项信息：方形表示列表。参数口与数据口使用同一套形状和颜色，以其所在的参数行表明它是参数 */}
-      {promoted && <Handle type="target" position={Position.Left} id={`param:${p.name}`} className={`param${port?.list ? " list" : ""}`} style={{ ["--c" as string]: portColor(types, port?.type ?? "") }} />}
-      <span className="gprow-label">{p.label}</span>
       <span className="gprow-text" data-user-data onDoubleClick={toPanel}>{text}</span>
       {wired ? (
         // 已接线：控件格变为同尺寸的灰色格，显示连线传入的值，前面一小行说明其来源
@@ -60,15 +66,15 @@ export function NodeParam({ nodeId, p, value, promoted, port, wired, why, nc }: 
           <small className="gwired-from" data-user-data>← {wired.source}</small>
           <span className="field mini gwired-val" data-user-data>
             {/* 可能没有值的口（Port.may_be_empty）：没有时用节点上填的 */}
-            {wired.value || (wired.fallback ? valueText(p, value, nc) : "待计算")}
+            {wired.value || (wired.fallback ? valueText(p, value, nc, reg) : t("ui.params.wired_pending"))}
           </span>
         </span>
       ) : (
         <fieldset className="gctl nodrag" disabled={!!why || readOnly} onDoubleClick={toPanel}>
           {p.widget === "button" ? <ButtonParam nodeId={nodeId} p={p} mini />
-            : <NodeControl p={p} value={value} set={(v) => setParam(nodeId, p.name, v)} nc={nc} answer={answer} />}
+            : <NodeControl p={p} value={value} set={(v) => setParam(nodeId, p.name, v)} nc={nc} reg={reg} answer={answer} />}
         </fieldset>
       )}
-    </div>
+    </LabelRow>
   );
 }

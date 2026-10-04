@@ -1,0 +1,55 @@
+# SegAnyMo extension: its words and messages in English (the same keys as zh.toml).
+
+# ---- input images
+"I-SEGANYMO-WHYMOTION" = "to see how things in the image move"
+"E-SEGANYMO-UNREADABLE" = "SegAnyMo Moving Objects Mask cannot read the image of frame {frame}: cook again; if it still fails, send this node's log from the parameter pane to the developers"
+
+# ---- result
+"N-SEGANYMO-EMPTY" = "SegAnyMo Moving Objects Mask found nothing moving, so the mask is empty: when things move slowly or only for a short stretch, raise Analysis Frames and lower Query Interval, then try again"
+"I-SEGANYMO-FOUND.one" = "SegAnyMo found {count:d} moving object in {frames:d} analyzed frames"
+"I-SEGANYMO-FOUND.other" = "SegAnyMo found {count:d} moving objects in {frames:d} analyzed frames"
+
+[node."seganymo.motion_segment"]
+subtitle = "Moving Objects Mask"
+description = "Image → a mask of what really moves and a segmentation by object ID (people walking, cars driving, animals, objects being carried), over the whole shot. It decides whether something moves, not what class it is: a parked car or a person standing still does not count. Edges come from SAM 2: good enough to hide from a solve, not a fine matte. Wire it into the Moving Objects Mask of a camera solve (COLMAP, ViPE, VGGT…) so the solve sees only the static background; to also hide still things of the same kind, pick them by prompt with SAM 3 Video Segmentation."
+official.note = "The whole upstream chain (depth, trajectories, DINO features, motion segmentation, SAM 2 grouping) is computed from the same images; it takes nothing but the images."
+licence.note = "Code MIT; the models it uses, SAM 2, DINOv2, BootsTAPIR and Depth Anything V2 Small, all allow commercial use. The training data includes research datasets, so a legal review is advisable before strict commercial delivery."
+cost.note = "A pipeline of several models running together"
+
+[node."seganymo.motion_segment".param.resolution]
+label = "Processing Resolution"
+
+[node."seganymo.motion_segment".param.analysis_frames]
+label = "Analysis Frames"
+
+[node."seganymo.motion_segment".param.query_step]
+label = "Query Interval"
+
+[node."seganymo.motion_segment".port.mask]
+label = "Moving Objects Mask"
+
+[node."seganymo.motion_segment".port.objects.class]
+moving = "Moving Object {id}"
+
+[extension.seganymo]
+summary = "Moving object segmentation: combines motion cues from long-range trajectories with DINO semantic features, then densifies the result to pixel level with SAM 2"
+license.name = "MIT"
+license.summary = "Code MIT, commercial use allowed; the motion classification model moseg.pth is released by the authors with the code (no separate license on Hugging Face). The other models it uses all allow commercial use too: SAM 2 and DINOv2 are Apache-2.0, BootsTAPIR code Apache-2.0 and model weights CC-BY-4.0 (attribution Google DeepMind), and depth uses Depth Anything V2 Small (Apache-2.0), not the original authors' Large (CC-BY-NC). The training data includes research datasets such as Kubric, Dynamic Replica, HOI4D and Waymo, so a legal review is advisable before strict commercial delivery"
+weight.moseg.note = "moseg motion classification model (14 MB, released with the MIT code)"
+weight.sam2_hiera_large.note = "SAM 2 Hiera-L (0.9 GB, Apache-2.0): joins moving points into whole object masks and tracks them through the shot"
+weight.bootstapir.note = "BootsTAPIR point tracking (0.2 GB, CC-BY-4.0)"
+weight.dinov2_vitb14.note = "DINOv2 ViT-B/14 (0.3 GB, Apache-2.0)"
+weight.dav2_small_model.note = "Depth Anything V2 Small (0.1 GB, Apache-2.0): depth for the motion classification"
+
+# worker progress (worker.py)
+[stage]
+track_points = "Tracking points (BootsTAPIR)"
+track_points_each = "Tracking points"
+moving_points = "Finding which points move"
+track_object = "Tracking moving object {n}/{count} (SAM 2)"
+moving_object = "Moving object {n}"
+read_images = "Reading images"
+depth = "Depth (Depth Anything V2 Small)"
+depth_each = "Depth"
+dino_features = "DINOv2 features"
+write_masks = "Writing masks"

@@ -51,7 +51,6 @@ interface Refusal {
 interface TreeSub {
   id: string;
   label: string;
-  tip: string;
   rank: number;
 }
 
@@ -62,7 +61,6 @@ export interface TreeCategory {
   id: string;
   label: string;
   color: string;
-  tip: string;
   rank: number;
   section: string; // the node menu's band ("tools" | "deliver"); "" in the templates tree
   subs: TreeSub[];
@@ -71,7 +69,7 @@ export interface TreeCategory {
 /** The node menu as the catalogue carries it: its bands, its tree, where every node type sits (type id -> a category
  * or subcategory id; one missing is 未分类) and, when a data file cannot be read, the sentence to show. */
 export interface MenuInfo {
-  sections: { id: string; label: string; tip: string }[];
+  sections: { id: string; label: string }[];
   categories: TreeCategory[];
   placed: Record<string, string>;
   problem: string;
@@ -99,9 +97,12 @@ export function nodeCategory(catalog: Catalog | null | undefined, def: { id: str
 
 /** A viewer handle bound to the node's parameters (nodes/handles.py). */
 export interface HandleDef {
-  kind: "points" | "box" | "corners" | "person" | "canvas" | "figure" | "transform" | "skeleton_pose";
+  kind: "points" | "box" | "corners" | "person" | "canvas" | "figure" | "transform" | "skeleton_pose" | "rig_pair";
   stage: "2d" | "3d";
-  params: Record<string, string>; // role -> the parameter it edits (skeleton_pose: "pose" -> the list of joint corrections)
+  // role -> the parameter it edits. skeleton_pose: "pose" -> the list of joint corrections. rig_pair (two skeletons
+  // edited in the view, model/rigPair.ts RigRoles): "mapping" always; "src_pose" / "dst_pose", "src_ignore" /
+  // "dst_ignore", "ignore_rule", "auto_record" when the node has them
+  params: Record<string, string>;
   source: string | null; // the input it works on
   labels: string[]; // points: what a click means (the first by default); figure: the joints, in order
   skeleton?: string; // skeleton_pose: the parameter naming the skeleton path on `source`
@@ -133,6 +134,9 @@ export interface PortDef {
   // passes that camera through, and a wire from there would leave the delivered camera's source ambiguous, so none may
   // be drawn out of it. Only on the ports of a graph (not in the catalogue: it describes the state of this graph)
   inactive?: MessageJson;
+  // an input the node's own parameters switch off now (a mode: engine/graph.py ports, mode_off): unlike `inactive` it
+  // can still be wired — its wire is simply not taken while the mode is off, and drawn unused; the reason says which
+  unused?: MessageJson;
   // what the pointer says over the port, written by the server (nodes/port.py Port.tip): the type's name and unit,
   // what that type is, what this port means, and what it does with a picture's alpha. Only on the ports of a graph
   // (the status reply): the catalogue describes types, and would repeat every description on every port.
@@ -180,7 +184,8 @@ export interface ParamDef {
   // true -> picking transfers no bytes (declared first, sent when 「计算」 is clicked); false -> picking transfers at
   // once (transfer/declare.ts)
   head_enough?: boolean;
-  unit: string; // shown inside a number field (mm, °, px ...)
+  unit: string; // its unit's id (mm, °, frame, s, x …): what it converts by; never shown
+  unit_label?: string; // the unit as shown inside a number field, in the page's language (unit.<id>: 帧 / frames)
   derived_from: string[]; // parameters the node works this one out from (asked from the server when they change)
   unique: boolean; // a node added in the editor gets a value no other node has (its default, numbered on)
   choices_from: string[]; // parameters and input ports its options come from (widget "choice": asked from the server, NodeDef.choices)
@@ -197,8 +202,11 @@ export interface ParamDef {
 }
 
 export interface NodeTypeDef {
+  // a learned-retarget solver: the ignore rules it accepts (kit/retarget_needs.py), its default first. A wire from a
+  // node with a rig_pair handle into it preselects that node's 「忽略规则」 (graph/edit.ts connect)
+  retarget_rules?: string[];
   id: string;
-  label: string;
+  subtitle: string; // node.<type>.subtitle in the page's language: shown big on the node, above its name and type
   category: string; // the tool subcategory its author suggests (a word: where it sits is Catalog.menu.placed)
   description: string;
   inputs: PortDef[];
@@ -213,6 +221,8 @@ export interface NodeTypeDef {
   // (row1, row2…) and labelled after what is wired in (「多层 EXR 输出设置」's 图层)
   ports_from_names?: string[];
   ports_from_labels?: string[];
+  scope_role?: string; // "begin" / "end" of a block (engine/scopes.py 「逐项处理」), "" for any other node
+  merges_into: string; // the type several of these nodes merge into, one row each (「合并成多层 EXR」); "" for none
   ports_from_word: string; // what one row of an input table is called (「加一层」, 「加一路」); "" for any other node
   main: string; // its main result's port: what the viewer shows and a label names by default (ports go by data type)
   marks: StandingMark[]; // the standing marks its declaration gives it (a crop that decides its own size: I-SHAPE-CROP)
@@ -231,8 +241,9 @@ export interface NodeTypeDef {
   // and its ports and handles on its own (Graph.at_defaults): what a node just added shows until its status arrives
   at_defaults: { cost: ResolvedCost; licence: ResolvedLicence; ports: NodePorts; handles: number[] };
   // the choices that change something, as a lookup table: parameter -> String(value) -> what choosing it does
-  // licence: the class the choice switches the node to (lab2shot/nodes/tags.py: noncommercial / research), "" none
-  option_traits: Record<string, Record<string, { gpu: boolean; licence: string; rating: ComputeRating | null }>>;
+  // licence: the class the choice switches the node to (lab2shot/nodes/tags.py: noncommercial / research), "" none;
+  // registration: the choice needs a model each user registers for (需注册)
+  option_traits: Record<string, Record<string, { gpu: boolean; licence: string; registration: boolean; rating: ComputeRating | null }>>;
   delivers: boolean; // it hands files to the user (「输出」): a click only, never by showing
   streams?: boolean; // its frames are final as they are written (nodes/families/base.py WorkerNode.streams): while it
   // is being cooked the viewer may show what is there already (边算边看, view/partial.ts). Only a worker node says it.
@@ -282,7 +293,7 @@ export interface ResolvedLicence {
 
 /** 低/中/高/超高: a GPU node's compute rating (lab2shot/nodes/compute.py). */
 interface ComputeRating {
-  tier: "低" | "中" | "高" | "超高";
+  tier: string; // the server's word for the tier (lab2shot/nodes/compute.py TIERS), shown as it comes
 }
 
 /** A tag (lab2shot/nodes/tags.py): what a node, a choice or a template is (基础, 可商用, 非商用, 仅限研究, 需注册). */
@@ -298,8 +309,11 @@ export interface Catalog {
   // output port name -> its layer when delivered as EXR (data/layers.py LAYER_FOR_PORT): fills in the layer name when a wire is dragged into 「多层 EXR 输出设置」
   layer_ports: Record<string, string>;
   scene_kinds: SceneKind[];
+  // the widgets of the parameters a 2D handle works on in the view (lab2shot/nodes/handles.py PICKED_IN_VIEW, the one
+  // list): picks, outlines, a stick figure
+  picked_in_view: string[];
   menu: MenuInfo; // the node menu: its bands, its tree and where every node sits (lab2shot/categories.py: data files)
-  units: Record<string, { kind: string; kind_label: string; factor: number }>; // a value's units: those of one kind convert
+  units: Record<string, { kind: string; kind_label: string; factor: number; label: string }>; // a value's units: those of one kind convert
   tags: Record<string, TagInfo>;
   templates: number; // how many built-in templates this account may use (the top bar's count, without the list)
   nodes: NodeTypeDef[]; // only those this account may use (server/access.py)
@@ -318,19 +332,19 @@ export type PickedFrom = Omit<Upload, "name"> & { folder: string };
 interface GraphNodeJSON {
   id: string;
   type: string;
-  label: string;
+  comment?: string; // 节点备注（任意文字，不参与引用，graph/naming.ts）；没有就不写
   params: Record<string, unknown>;
   promoted?: string[]; // 提升到节点: each gets an input "param:<name>" and a row on the node's body
   // editor only: where the node's files came from (by parameter); the parameters its body shows when the
   // user chose others than its type's (NodeTypeDef.on_node, 「在节点上显示」, ParamPanel.tsx OnNodePin)
   // may be absent from the file (a hand-written or older graph): every reader treats absence as the default (graph/document.ts loadGraph / checkGraph)
-  ui?: { x: number; y: number; picked?: Record<string, PickedFrom>; on_node?: string[] };
+  ui?: { x: number; y: number; picked?: Record<string, PickedFrom>; on_node?: string[]; show_comment?: boolean };
 }
 
 /** A group box around nodes (Houdini network box). Members are listed only while it is collapsed. */
 export interface BoxJSON {
   id: string;
-  label: string;
+  label: Words; // a user's own words, or a built-in card's {zh, en} (shown in the page's language: graph/naming.ts boxLabel)
   color: string;
   x: number;
   y: number;
@@ -353,10 +367,23 @@ export interface BoxJSON {
  * `disable_when` is true it is greyed and cannot be changed. The `when` that older files write (true: may be changed)
  * is read as disable_when = not (when) (state/cookInputs.ts readExposed). `target` may also be a button parameter
  * ("<node id>.cook" to cook, "<output id>.download" to download): a button takes neither menu nor checkbox. */
+/** A display field of a template that may hold both languages (a built-in template's {"zh": …, "en": …}) or one
+ * string (a user's own words): read it with i18n/t.ts pick(). */
+export type Words = string | { zh?: string; en?: string };
+
 export interface ExposedParam {
   name: string;
-  label: string;
-  target: string;
+  label?: Words; // none when it is called by a shared button word (`word`)
+  // the node parameter it drives, `node.param`, or several of one kind (one outside parameter driving them all: two
+  // trackers sharing one set of picks). Read it only through state/cookInputs.ts targetsOf / firstTarget (the server's
+  // engine/templates.py targets_of): the interface shows the first, a value set goes into every one
+  target: string | string[];
+  // a shared button word it is called by instead of a label of its own (button.<word>: the last step's 「打包」 /
+  // 「计算」, lab2shot/engine/templates.py BUTTON_WORDS); read its name through state/cookInputs.ts entryLabel
+  word?: "pack" | "cook";
+  // the author's note on it: what it means or what a choice leads to (a licence, a limit), shown under the row,
+  // always visible (ui/LabelRow.tsx note); none when the control says it all
+  note?: Words;
   widget?: "menu" | "checkbox";
   options?: ExposedOption[];
   hide_when?: string;
@@ -369,15 +396,20 @@ export interface ExposedParam {
 
 export interface ExposedOption {
   value: unknown;
-  label: string;
+  label: Words;
   // this option's own Hide When (the same syntax as an item's, platform/conditions.ts): while true the dropdown leaves it out; a parameter whose value is this option keeps it, and it stays listed
   hide_when?: string;
+  // this option's own Disable When: while true the dropdown greys it, and the pointer on it says `disable_why` (the one
+  // sentence why it can't be picked now: the reason a control is off is one of the page's four kinds of tip). Written
+  // together; a value already on it stays (the cook says what is wrong), a value set from outside may not be it
+  disable_when?: string;
+  disable_why?: Words;
 }
 
 /** A group of the parameter interface: collapsible (`collapsed` is its default state on opening), and may hold further groups. */
 export interface ExposedGroup {
   kind: "group";
-  label: string;
+  label: Words;
   collapsed?: boolean;
   children: ExposedEntry[];
 }
@@ -394,9 +426,9 @@ export interface GraphJSON {
   // the same template never share one; the id inside a template file (templates/*.json) exists only so the file
   // itself always has one, and is never inherited by a graph created from it.
   // A graph never records which template it came from: saved from a template, it is an ordinary graph. `intro` and
-  // `deliverable` are a template file's own words (lab2shot/library.py), kept like any key of meta; the save dialogs
+  // `deliverable` are a template file's own words (lab2shot/site/library.py), kept like any key of meta; the save dialogs
   // prefill from them (editor/MyTemplates.tsx).
-  meta: { id?: string; name: string; description?: string; author?: string; created?: string; category?: string; tags?: string[]; intro?: string; deliverable?: string };
+  meta: { id?: string; name: Words; description?: Words; author?: string; created?: string; category?: string; tags?: string[]; intro?: Words; deliverable?: string };
   exposed: ExposedEntry[]; // the template's parameter interface, a tree (ExposedEntry); an older file's flat list is one with no groups
   frames?: [number, number] | null; // the frames to cook, first and last (null: every frame of the inputs)
   nodes: GraphNodeJSON[];
@@ -424,7 +456,7 @@ export interface TemplateInfo {
   // commercial use; the same as licence_word / commercial when no choice does better
   best_licence_word: string;
   best_commercial: boolean;
-  owner: string; // where its file lives (lab2shot/library.py): "admin" (templates/, the project's presets; an administrator may delete it) or "adapter" (adapters/<name>/templates/, read-only: turn it off or drag it elsewhere)
+  owner: string; // where its file lives (lab2shot/site/library.py): "admin" (templates/, the project's presets; an administrator may delete it) or "adapter" (adapters/<name>/templates/, read-only: turn it off or drag it elsewhere)
   adapter: string; // the adapter it came with ("" for a project preset)
   // An administrator may take a template out of use. It is then absent from an ordinary account's list; the
   // answer of a login that manages templates carries `enabled: false`, and the card says so. The page never checks who is

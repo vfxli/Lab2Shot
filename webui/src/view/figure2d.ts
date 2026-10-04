@@ -1,8 +1,9 @@
 import type { Frame } from "./overlays";
-import { CORNER_COLOR, type Entry, type Pt, parse } from "./handleParts";
+import { t } from "../i18n/t";
+import { CORNER_COLOR, FONT, moved, parse, pointUnder, removeSmallest, type Entry, type HandleTool2D, type Pt } from "./handleParts";
 
 /** 火柴人手柄（「figure」，见 `lab2shot/nodes/handles.py` FIGURE_JOINTS）的全部逻辑：
- * 默认姿势、逐帧添加、绘制与右键删除，由 `view/handles2d.ts` 调用。
+ * 默认姿势、逐帧添加、绘制、拖动关节与右键删除；`figureTool` 是它在二维手柄表（`view/handles2d.ts` TOOLS_2D）里的一项。
  *
  * 姿势按帧存储，每帧一个，便于逐帧检查序列的连续性；新增帧使用默认 T-pose，
  * 或原样复制前一帧的姿势。不通过拖框创建，以免人体比例变形；新增姿势不得覆盖已有姿势。 */
@@ -115,3 +116,58 @@ export function drawFigure(f: Frame, pts: Pt[], faint: boolean, note: string, la
   if (note) ctx.fillText(note, xy[13][0] + 8, xy[13][1] - 14 - noteRow * 14);
   ctx.restore();
 }
+
+/** 火柴人手柄的工具（`view/handles2d.ts` TOOLS_2D）。 */
+export const figureTool: HandleTool2D = {
+  hint: "ui.view.hint.figure",
+  draws: false,
+  marksFrames: true,
+  // The current frame's figure is drawn solid (with the name of the joint being dragged); the previous and the next
+  // posed frame are laid over it faintly, one each — onion skin, as in 2D animation software, for checking continuity
+  // frame by frame. Not every frame faintly: a dozen overlapping figures make continuity impossible to judge.
+  draw: (h, f, values, drag) => {
+    const { frame } = f;
+    f.ctx.font = FONT;
+    const dragged = drag && drag.joint !== undefined ? drag : null;
+    const all = figureFrames(values);
+    const prev = all.filter((k) => k < frame).pop();
+    const next = all.find((k) => k > frame);
+    const noteOf = (at: number) => (at === prev ? t("ui.view.previous_frame", { frame: at }) : at === next ? t("ui.view.next_frame", { frame: at }) : "");
+    // faint ones first, then the solid one: the current frame's figure is always on top, and it is what the pointer grabs
+    const order = values.map(parse).filter((e) => e.frame === prev || e.frame === next || e.frame === frame)
+                        .sort((a, b) => Number(a.frame === frame) - Number(b.frame === frame));
+    for (const e of order) {
+      let pts = joints(e);
+      if (dragged && e.frame === frame)
+        pts = pts.map((q, k) => (dragged.whole || k === dragged.joint ? moved(q, dragged) : q));
+      drawFigure(f, pts, e.frame !== frame, noteOf(e.frame), h.labels,
+                 dragged && e.frame === frame ? (dragged.whole ? 0 : dragged.joint!) : -1,
+                 e.frame === next ? 1 : 0);
+    }
+  },
+  // Only the joints of the current frame's figure are grabbed; a drag creates nothing (creating by dragging a box would
+  // distort the body's proportions). Poses are added with 「添加帧」 in the parameter panel, proportioned by FIGURE_TPOSE
+  start: (_h, values, frame, p, scale) => {
+    const here = values.map(parse).find((e) => e.frame === frame);
+    if (!here) return null;
+    const j = pointUnder(joints(here), p, scale);
+    return j < 0 ? null : { from: p, to: p, joint: j, whole: j === 0 }; // the pelvis moves the whole body
+  },
+  // a drag only adjusts a pose and never creates one: creating a figure by dragging would silently replace the one already on this frame
+  finish: (_h, values, frame, drag) => {
+    const at = values.findIndex((text) => parse(text).frame === frame);
+    if (drag.joint === undefined || at < 0) return null;
+    const pts = joints(parse(values[at]));
+    const posed = pts.map((q, k) => (drag.whole || k === drag.joint ? moved(q, drag) : q));
+    return values.map((text, i) => (i === at ? figureEntry(frame, posed) : text));
+  },
+  // the figure's box with a margin of 10 screen pixels, the one reach of the 2D handles (pointUnder)
+  remove: (_h, values, frame, p, scale) => {
+    const reach = 10 / Math.max(scale, 1e-6);
+    return removeSmallest(values, (e) => {
+      if (e.frame !== frame) return null;
+      const b = figureBox(joints(e));
+      return { inside: p.x >= b.x1 - reach && p.x <= b.x2 + reach && p.y >= b.y1 - reach && p.y <= b.y2 + reach, area: (b.x2 - b.x1 + 2 * reach) * (b.y2 - b.y1 + 2 * reach) };
+    });
+  },
+};

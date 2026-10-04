@@ -1,0 +1,48 @@
+# DiffusionLight 的消息（adapters/diffusionlight）。
+
+# ---- worker
+"W-DIFFUSIONLIGHT-LOWRANGE" = "DiffusionLight 生成的环境图最亮处只有中间亮度的 {ratio:.1f} 倍（低于 4 倍）：画面可能很平（阴天、没有明显光源），或者铬球没画好，打出来的光会发平、影子不明显；换个「随机种子」再试"
+
+[stage]
+paint_ball = "画铬球"
+exposure = "EV {ev:g}"
+done = "完成"
+prepare_plate = "准备画面"
+unwrap_ball = "展开铬球 / 合成 HDR"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."diffusionlight.light_probe"]
+subtitle = "HDRI 估计"
+description = "从一帧画面生成 HDRI 环境图（经纬图 EXR）：在画面里画一个铬球再展开。只吃一帧，接一段图像序列时前面接「FrameHold」定住一帧。「已知焦距」「胶片背」给出水平视场角，用来按透视正确展开铬球，不填按上游的正交展开（常见焦距下误差不大）。亮度是相对画面的，不是绝对值；结果不理想就换随机种子。"
+
+[node."diffusionlight.light_probe".port.preview]
+label = "铬球"
+
+[node."diffusionlight.light_probe".cost]
+whole = "只算一帧的环境光（约 51 秒一次），不是逐帧的活"
+
+[node."diffusionlight.light_probe".official]
+note = "「铬球」显示图就是上游第一步的 square（「Square-cropped chrome ball」，README:68）；HDRI 是第三步 exposure2hdr.py 写进 <output_dir>/hdr 的 .exr（exposure2hdr.py:90 hdr_rgb）。上游不接收摄影机，也不接收遮罩。"
+
+[node."diffusionlight.light_probe".licence]
+note = "代码和 LoRA 是 MIT；SDXL 和 ControlNet 是 CreativeML Open RAIL++-M（可商用，但有用途限制）。"
+
+[extension.diffusionlight]
+summary = "把光照估计改写成「在画面里补画一个镜面铬球」的问题，从一张低动态范围（LDR）画面估计光照"
+
+[extension.diffusionlight.license]
+name = "MIT 代码/LoRA · SDXL 与 ControlNet 为 CreativeML Open RAIL++-M"
+summary = "可商用，但须遵守 OpenRAIL++-M 的使用限制。逐项：DiffusionLight-Turbo 代码及仓库自带的 Turbo LoRA、曝光 LoRA 为 MIT（Hugging Face 上同名 LoRA 模型卡也是 MIT）；SDXL 1.0 基础模型、SDXL 深度 ControlNet（diffusers）为 CreativeML Open RAIL++-M：允许商用和分发生成结果，但不得用于许可证附件 A 列出的禁止用途（违法、伤害未成年人、虚假信息、歧视等），再分发模型时须附带同样的限制；SDXL-VAE-FP16-Fix 为 MIT；给 ControlNet 做深度条件的是 Intel DPT-Hybrid MiDaS，Apache-2.0（不是 Depth Anything，没有非商用深度模型）。不依赖 nvdiffrast，不安装 xformers"
+
+[extension.diffusionlight.weight.sdxl]
+note = "SDXL 1.0 基础模型 fp16，CreativeML Open RAIL++-M"
+
+[extension.diffusionlight.weight.controlnet-depth]
+note = "SDXL 深度 ControlNet fp16，CreativeML Open RAIL++-M"
+
+[extension.diffusionlight.weight.vae-fp16-fix]
+note = "SDXL-VAE-FP16-Fix，MIT"
+
+[extension.diffusionlight.weight.dpt-hybrid]
+note = "DPT-Hybrid MiDaS 深度估计，给 ControlNet 做条件，Apache-2.0"

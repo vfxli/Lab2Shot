@@ -1,0 +1,97 @@
+# This extension's words and messages in English (the same keys as zh.toml).
+
+# ---- results
+"N-BIREFNET-EMPTY.one" = "birefnet.matte found no subject on {count:d} frame (alpha below 0.5 everywhere, so the Alpha of that frame is nearly empty): frames {frames}{more}"
+"N-BIREFNET-EMPTY.other" = "birefnet.matte found no subject on {count:d} frames (alpha below 0.5 everywhere, so the Alpha of those frames is nearly empty): frames {frames}{more}"
+
+# ---- edge unmixing
+"W-BIREFNET-NOALPHA.one" = "The Alpha of birefnet.foreground_color is missing {count:d} frame, which was skipped with no foreground output: frames {frames}{more}. For a result on every frame, make the sequence wired into Alpha cover every frame of the picture"
+"W-BIREFNET-NOALPHA.other" = "The Alpha of birefnet.foreground_color is missing {count:d} frames, which were skipped with no foreground output: frames {frames}{more}. For a result on every frame, make the sequence wired into Alpha cover every frame of the picture"
+
+# ---- worker
+"I-BIREFNET-WEIGHTS" = "the weights of model {repo}"
+
+# ---- words
+
+[node."birefnet.foreground_color"]
+subtitle = "Edge Unmix"
+description = "Image + Alpha → solves out the background color (green screen spill included) mixed into the semi-transparent edge band, and outputs a decontaminated foreground (RGBA with premultiplied alpha), to be written as EXR and composited directly as the foreground in Nuke. A second output, Uncorrected Foreground (the image × alpha), is given too: the difference of the two is the correction, which a compositor can add back over their own plate in Nuke by any amount. Only the edge band where alpha is between 0 and 1 is processed; solid areas pass through unchanged, so green reflections on the subject need another despill method. Works with the Alpha of any matting node, whatever its source. Computed on the CPU, using no GPU."
+
+[node."birefnet.foreground_color".param.radius]
+label = "Blur Radius"
+
+[node."birefnet.foreground_color".port.image]
+label = "RGB"
+
+[node."birefnet.foreground_color".port.mask]
+label = "Alpha"
+
+[node."birefnet.foreground_color".port.foreground]
+label = "Foreground"
+help = "The foreground color with the background color removed (RGBA, premultiplied alpha): the background color and green screen spill that were mixed into hair strands and semi-transparent edges are removed by the official refine_foreground solve. Composite it as the foreground in Nuke and its edges no longer carry the old background's color; wire it to image.output to write EXR"
+
+[node."birefnet.foreground_color".port.plate]
+label = "Uncorrected Foreground"
+help = "The image times alpha (premultiplied RGBA), without edge unmixing, written and color-converted the same way as Foreground. Write both as EXR and read them into Nuke: Foreground minus Uncorrected Foreground (Merge minus) is the correction, nonzero only in the edge band where alpha is between 0 and 1. Your own plate × alpha plus k × the correction, with k from 0 to 1, controls how much of the AI's color is used; solid areas are not touched by a single byte"
+
+[node."birefnet.foreground_color".official]
+note = "Two box blurs (the first of radius r, the second fixed at 6) solve the alpha blending formula image ≈ a·FG + (1-a)·B from neighborhood statistics, estimating the pure foreground color the semi-transparent edge pixels should have. The inside where alpha=1 is left as it is; only the edge band is recomputed. Not a model: pure post-processing, no weights."
+
+[node."birefnet.foreground_color".official.ours]
+plate = "image × mask (the original image upstream refine_foreground receives, alpha premultiplied)"
+
+[node."birefnet.foreground_color".stage]
+write_foreground = "Write Foreground"
+
+[node."birefnet.foreground_color".licence]
+note = "Code MIT (as BiRefNet itself); pure mathematical post-processing, with no weights and no training data issues."
+
+[node."birefnet.matte"]
+subtitle = "Matte"
+description = "Mattes out the subject of each frame (people, objects, animals), giving an alpha of 0–1. No picking needed: the model decides the subject itself, each frame computed on its own. For soft hair-level edges refine it with matanyone.matte or videomama.matte; to pick objects by a prompt, use sam3.segment."
+
+[node."birefnet.matte".param.model]
+label = "Model"
+
+[node."birefnet.matte".param.model.option]
+matting = "BiRefNet-matting (1024×1024)"
+general = "BiRefNet (1024×1024)"
+hr_matting = "BiRefNet_HR-matting (2048×2048)"
+hr = "BiRefNet_HR (2048×2048)"
+dynamic = "BiRefNet_dynamic (any size, 256–2304)"
+
+[node."birefnet.matte".param.fp16]
+label = "Half Precision"
+
+[node."birefnet.matte".official]
+note = "Upstream takes only the image, with no prompt of any kind (mask, box, point); the model decides the subject itself."
+
+[node."birefnet.matte".licence]
+note = "Code and weights are both MIT; the training data includes research-only datasets, so a legal check is advised before strict commercial delivery."
+
+[extension.birefnet]
+summary = "A bilateral reference framework for high-resolution dichotomous image segmentation (DIS), made of a localization module and a reconstruction module with bilateral reference"
+
+[extension.birefnet.license]
+name = "MIT"
+summary = "Code MIT; the Hugging Face model cards of the five weights (BiRefNet, BiRefNet-matting, BiRefNet_HR, BiRefNet_HR-matting, BiRefNet_dynamic) all say MIT, usable commercially. Note: the training data includes research-only datasets such as DIS5K, P3M-10k, AM-2k and Distinctions-646, and the author still releases the weights under MIT; a legal check is advised before strictly commercial delivery. (briaai's RMBG-2.0 has the same BiRefNet structure but non-commercial weights; this extension does not download it)"
+
+[extension.birefnet.weight.general]
+note = "ZhengPeng7/BiRefNet (MIT, Swin-L, 1024×1024)"
+
+[extension.birefnet.weight.matting]
+note = "ZhengPeng7/BiRefNet-matting (MIT, Swin-L, 1024×1024)"
+
+[extension.birefnet.weight.hr]
+note = "ZhengPeng7/BiRefNet_HR (MIT, Swin-L, 2048×2048)"
+
+[extension.birefnet.weight.hr_matting]
+note = "ZhengPeng7/BiRefNet_HR-matting (MIT, Swin-L, 2048×2048)"
+
+[extension.birefnet.weight.dynamic]
+note = "ZhengPeng7/BiRefNet_dynamic (MIT, Swin-L, any size)"
+
+[stage]
+estimate_foreground = "Estimate Foreground"
+foreground = "Foreground"
+matte = "Matte"

@@ -11,7 +11,7 @@
      · 脚注 `.gnode-foot`：高度固定为 24px，内容不会使其增高；
      · 进度条 `.gnode-progress`：绝对定位于节点底边，不占布局，出现与消失均不改变高度。
    弹性部分：
-     · 标题列 `.gnode-name`（`flex: 1 1 0`，不挤压其他元素）。空间不足时整个节点变宽；
+     · 标题列 `.gnode-name`（三行：副标题、节点名、类型 id；`flex: 1 1 0`，不挤压其他元素）。空间不足时整个节点变宽；
        这属于形状，在节点图打开时即已确定，计算过程中不变。
    可压缩为 0 的部分：
      · 无。标题不得截断或换行，空间不足时整个节点变宽。
@@ -60,7 +60,7 @@
   }
 }
 
-/* 两行：名称，以及下方以小号灰字显示的节点类型 id（所有节点均有）。状态词与第一行对齐，因此此处顶对齐，颜色条同样顶对齐 */
+/* 三行：大字副标题（当前语言），下面两行小灰字是节点名与节点类型 id（所有节点均有）。状态词与第一行对齐，因此此处顶对齐，颜色条同样顶对齐 */
 .gnode-head {
   min-height: 26px;
   display: flex;
@@ -78,8 +78,15 @@
   gap: 1px;
 }
 
-/* 节点类型 id：节点改名后仍可识别其类型；命令行与 DCC 插件使用该字符串。
-   不使用问号光标（cursor: help）：悬停提示由 data-tip 提供，与光标无关 */
+/* 副标题：节点类型在当前语言里的短名（node.<type>.subtitle），节点上最醒目的一行 */
+.gnode-subtitle {
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+/* 节点类型 id：节点改名后仍可识别其类型；命令行与 DCC 插件使用该字符串 */
 .gnode-type {
   font-family: var(--mono);
   font-size: var(--fs-2xs);
@@ -97,10 +104,11 @@
   margin: 3px var(--sp-1) 0 0;  /* 与标题行顶对齐 */
 }
 
+/* 节点名（节点图里的 id，可双击就地改）：副标题下面的小灰字 */
 .gnode-title {
-  font-weight: 500;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-2xs);
   line-height: 1.25;
+  color: var(--text-3);
   white-space: nowrap;
 }
 
@@ -421,17 +429,17 @@
   background: color-mix(in srgb, var(--green) 16%, transparent);
 }
 
-.gnode-compute[data-tier="中"] {
+.gnode-compute[data-tier="medium"] {
   color: var(--yellow);
   background: color-mix(in srgb, var(--yellow) 16%, transparent);
 }
 
-.gnode-compute[data-tier="高"] {
+.gnode-compute[data-tier="high"] {
   color: var(--orange);
   background: color-mix(in srgb, var(--orange) 16%, transparent);
 }
 
-.gnode-compute[data-tier="超高"] {
+.gnode-compute[data-tier="very_high"] {
   color: var(--error);
   background: color-mix(in srgb, var(--error) 16%, transparent);
 }
@@ -459,4 +467,66 @@
    不区分 `.in` / `.out`：输入与输出遵循同一规则；若只写 `.in`，输出口只有 class 而无样式，应置灰的端口会与正常端口一样显示。 */
 .port-row.inactive {
   opacity: 0.4;
+}
+
+/* 节点自己的参数（模式）让这个输入口现在用不上：淡一些，但照样能连（engine/graph.py ports 的 unused；它的线按
+   「未使用」画）。与 inactive 不同：那是连线本身不成立，连不上 */
+.port-row.unused {
+  opacity: 0.6;
+}
+
+/* 备注（Houdini 的 node comment，editor/GraphNode.tsx）：打开「显示备注」时淡色写在节点上方。绝对定位，不占布局、
+   不改变节点尺寸（见文件开头的不变量）；不接指针，点不到它也就挡不住节点上方的连线 */
+.gnode-comment {
+  position: absolute;
+  left: 2px;
+  bottom: calc(100% + 4px);
+  width: max-content;
+  max-width: 360px;
+  white-space: pre-wrap;
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+/* 节点名双击就地改（editor/NodeNaming.tsx）：和节点名同样的字，换成输入框 */
+.gnode-title-input {
+  font: inherit;
+  font-size: var(--fs-2xs);
+  line-height: 1.25;
+  color: var(--text);
+  background: var(--field-bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-xs);
+  padding: 0 3px;
+  outline: none;
+}
+
+.node-name-edit {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.node-name-edit.bad input {
+  border-color: var(--error);
+}
+
+/* 不合规或重名的原因：贴在输入框下面，不撑开节点或面板的标题行 */
+.node-name-problem {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  z-index: var(--z-popover);
+  width: max-content;
+  max-width: 280px;
+  padding: 3px 6px;
+  border-radius: var(--r-xs);
+  background: var(--panel-solid);
+  border: 1px solid var(--error);
+  color: var(--error-text);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  white-space: normal;
 }

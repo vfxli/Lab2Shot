@@ -9,7 +9,8 @@ from lab2shot.sdk import (Official, Confidence, PerFrameDepthCamera, P, Port, ca
 
 
 class Geometry(PerFrameDepthCamera):
-    id = "unik3d.geometry"
+    id = "unik3d.depth"
+    metric = True  # metric monocular 3D (DepthCamera.metric)
     # 模型直接输出每个像素的三维点（worker npz 中的 points，相机空间，单位米）：「点云」口直接使用，
     # 不经由深度 + Focal Length 反投影（families/base.py native_points）
     native_points = "points"
@@ -32,13 +33,6 @@ class Geometry(PerFrameDepthCamera):
         cite="third_party/unik3d/repo/unik3d/models/unik3d.py:284-398",
         takes={"image": "rgb"},
         gives={"depth": "depth", "points": "points", "distance": "distance", "rays": "rays"},
-        note="没有镜头内参一类的口：UniK3D 的镜头就是射线场 rays（unik3d.py:397），"
-             "上游不出镜头模型和畸变系数；要鱼眼镜头参数请接显式的标定节点（「AnyCalib 镜头标定」）。"
-             "「距离图」是 distance（unik3d.py:394），「射线场」是 rays（unik3d.py:397）。没有「相机」输出口："
-             "上游不出 intrinsics，家族反投影用的那台针孔相机是 worker 把 rays 最小二乘拟合出来的（worker.py "
-             "fit_pinhole），不是官方结果；节点因此声明 `solves_camera = "
-             "False`（lab2shot/nodes/families/depth_camera.py PerFrameDepthCamera），"
-             "那台相机只写进这次计算的临时文件夹。所以 gives 里没有 camera",
     )
     confidence = Confidence("log_error")  # 模型置信度的表示方式（CONFIDENCE_SCALES）
     # vram_gb：在 RTX 4090 上以默认 ViT-L 测得（docs.md）
@@ -47,18 +41,11 @@ class Geometry(PerFrameDepthCamera):
     # 官方计算的另外两项输出（unik3d.py:394、397），与「深度图」是同一次推理的三种表示：
     # depth 为相机坐标 Z，distance 为沿视线的距离（鱼眼、广角下两者差异很大），rays 为视线方向本身
     outputs = (*PerFrameDepthCamera.outputs,
-               Port("distance", "image.1", "距离图", means=("scale",),
-                    help="每个像素沿自己那条视线离镜头多远（厘米）。和「深度图」不一样：深度是相机坐标的 Z，"
-                         "越靠画面边缘两者差得越多，鱼眼和广角上差别很大"),
-               Port("rays", "image.3", "射线场", means=("space",), data=True,
-                    help="模型自己估出的每个像素的视线方向（单位向量，相机空间）——它的「镜头」就是这片射线场，"
-                         "不是一组内参。深度或距离乘上它就是「点云」那片三维点"))
+               Port("distance", "image.1", means=("scale",)),
+               Port("rays", "image.3", means=("space",), data=True))
 
     class Params(PerFrameDepthCamera.Params):  # 家族的 Params：镜头 + 点云间隔 / 点的大小（仅在相应输出口有连接时生效）
-        model: Literal["unik3d-vitl", "unik3d-vitb", "unik3d-vits"] = P(
-            "unik3d-vitl", label="模型", group="几何",
-            option_labels={"unik3d-vitl": "ViT-L", "unik3d-vitb": "ViT-B", "unik3d-vits": "ViT-S"},
-        )
+        model: Literal["unik3d-vitl", "unik3d-vitb", "unik3d-vits"] = P("unik3d-vitl", group="geometry")
         resolution_level: int = precision_level_param()
 
     @classmethod
@@ -68,14 +55,14 @@ class Geometry(PerFrameDepthCamera):
         out = super().convert(ctx, raw, job)
         if not ({"distance", "rays"} & ctx.wanted):
             return out
-        scale = "metric" if raw.result().get("metric", True) else "relative"  # 与家族写「深度图」时使用相同的判断
+        scale = "metric" if cls.is_metric(ctx.params) else "relative"  # 与家族写「深度图」时使用相同的判断（节点的 metric 声明）
         maps = {
             # 米 → 厘米，与「深度图」单位一致；有效区域取 worker 的 mask
             "distance": ("image.1", lambda d: (d["distance"] * M_TO_CM, d["mask"].astype(bool)), {"scale": scale}),
             # 相机空间单位向量：与法线采用相同处理（OpenCV → GL 轴，缩放后重新归一化）
             "rays": camera_normals("rays", "mask"),
         }
-        return {**out, **frame_maps(ctx, raw, job.plate, maps, stage="写出距离图和射线场")}
+        return {**out, **frame_maps(ctx, raw, job.plate, maps, stage="write_maps")}
 
 
 NODES = (Geometry,)

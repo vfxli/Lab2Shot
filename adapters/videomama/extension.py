@@ -35,23 +35,13 @@ class VideoMaMa(Extension):
     name = "videomama"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "VideoMaMa"
-    summary = "把粗糙的分割遮罩变成像素级精确的抠像 alpha，借的是预训练视频扩散模型的先验"
     homepage = "https://github.com/cvlab-kaist/VideoMaMa"
     source = GitSource(url=VIDEOMAMA_URL, commit=VIDEOMAMA_COMMIT)
     license = LicenseInfo(
         tag=NONCOMMERCIAL,
-        name="CC BY-NC 4.0（代码）+ Stability AI Community License（权重）",
         url="https://github.com/cvlab-kaist/VideoMaMa/blob/main/License.md",
-        summary=(
-            "非商用：代码为 CC BY-NC 4.0，只能非商业使用，分享须署名。"
-            "权重（VideoMaMa 的 UNet，以及 Stable Video Diffusion XT 的 VAE）按 Stability AI Community License："
-            "研究和非商业使用免费；商用须在 Stability AI 登记，且年收入须低于 100 万美元（超过须向 Stability AI 申请企业授权）；"
-            "再分发须附带许可证原文和 “This Stability AI Model is licensed under the Stability AI Community License, "
-            "Copyright © Stability AI Ltd. All Rights Reserved” 声明，并标注 “Powered by Stability AI”；"
-            "不得用模型或其输出训练其他基础生成模型；须遵守 Stability AI 的可接受使用政策。"
-            "由于代码是 CC BY-NC，整体只能非商用"
-        ),
     )
+    generative = False  # processes footage, not tagged 生成式扩散: only QwenImage (diffusers) carries it
     import_repo = ""
     env = EnvSpec(
         python="3.12",
@@ -65,7 +55,6 @@ class VideoMaMa(Extension):
             repo, rev, file,
             key=key,
             dest=f"{repo}/{file}",
-            note=f"{repo}/{file}（Stability AI Community License）",
             sha256=sha256,
         )
         for key, repo, rev, file, sha256 in FILES

@@ -6,6 +6,8 @@ import { Switch } from "./Button";
 import { why as whyOf, type Availability } from "../api/applies";
 import { getCatalog } from "../state/catalog";
 import { optionName } from "../graph/rules";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf, type Tip } from "../platform/tips";
 
 /** 选项当前是否可选，不可选时给出原因：接入的数据不是该档所需的类型（由服务器按节点的
  * option_applies 计算，id 为 "<参数>=<选项>"，lab2shot/nodes/applies.py option_conditions）。
@@ -22,13 +24,22 @@ interface NumBase extends NumSpec {
   digits?: number; // 只管显示几位；写回的是输入的原值，不按它取整
   unit?: string;
   placeholder?: string;
-  tip?: string;
+  tip?: Tip | null;
   mini?: boolean;
   disabled?: boolean;
   label?: string;
   className?: string;
   autoFocus?: boolean;
   onDone?: () => void; // 离开输入框之后（提交与否）：用完即收的输入框（缩放百分比）据此收起
+}
+
+/** The room a unit written inside the box takes (ui/field.css .num-unit): its own width, not one guess for every unit —
+ * a Latin letter about 0.62em in the monospace face, a CJK character a full em — so a short unit (cm) leaves the digits
+ * their room in a narrow box. */
+function unitWidth(unit: string): string {
+  let em = 0;
+  for (const ch of unit) em += ch.charCodeAt(0) > 0x2e80 ? 1 : 0.62;
+  return `${Math.max(1, em).toFixed(2)}em`;
 }
 
 /** 页面上唯一的数字输入框（参数面板、节点上的行、表格格子、参数界面的选项值、显示选项与它们的滑块旁、骨架姿势面板、
@@ -69,7 +80,7 @@ export function Num(props: NumBase & ({ nullable: true; onChange: (v: number | n
       placeholder={placeholder}
       autoFocus={autoFocus}
       onFocus={autoFocus ? (e) => e.currentTarget.select() : undefined}
-      data-tip={tip ?? (props.min != null && props.max != null ? `在 ${props.min}–${props.max}${unit ? ` ${unit}` : ""} 之间输入，回车或点别处确定` : undefined)}
+      {...tipAttrs(tip ?? (props.min != null && props.max != null ? { why: "value", text: `${props.min}–${props.max}${unit ? ` ${unit}` : ""}` } : undefined))}
       onChange={(e) => setText(e.target.value)}
       onBlur={() => (commit(), onDone?.())}
       onKeyDown={(e) => {
@@ -84,7 +95,7 @@ export function Num(props: NumBase & ({ nullable: true; onChange: (v: number | n
     />
   );
   return unit ? (
-    <span className={`num-unit${mini ? " mini" : ""}`} data-unit={unit}>
+    <span className={`num-unit${mini ? " mini" : ""}`} data-unit={unit} style={{ ["--unit-w" as string]: unitWidth(unit) }}>
       {input}
     </span>
   ) : (
@@ -123,7 +134,7 @@ export function VecField({ p, value, set, mini = false }: { p: ParamDef; value: 
         </label>
       ))}
       {p.nullable && v && (
-        <button type="button" className="vec3-clear" data-tip={`清空：回到「${empty}」`} aria-label="清空" onClick={() => set(null)}>×</button>
+        <button type="button" className="vec3-clear" {...tipAttrs(tipOf("consequence", t("ui.misc.clear_tip", { empty })))} aria-label={t("ui.misc.clear")} onClick={() => set(null)}>×</button>
       )}
     </span>
   );
@@ -132,8 +143,11 @@ export function VecField({ p, value, set, mini = false }: { p: ParamDef; value: 
 /** 一个数值参数的声明交给 Num 与滑块：范围（含开闭）、步长、整数、单位（与节点接受的值一致）。 */
 export const paramNum = (p: ParamDef) => ({
   min: p.minimum, max: p.maximum, openMin: p.open_minimum, openMax: p.open_maximum, multipleOf: p.multiple_of,
-  integer: p.type === "integer", unit: p.unit || undefined,
+  integer: p.type === "integer", unit: unitText(p) || undefined,
 });
+
+/** A parameter's unit as the artist reads it (the server's `unit_label`, in the page's language), never its id. */
+export const unitText = (p: { unit: string; unit_label?: string }): string => p.unit_label || p.unit;
 
 /** 判断该文本参数是否为多行：只依据声明（nodes/base.py `P(lines=…)`），不依据参数名称。
  * 统一在一处判断，参数面板的行、节点上的行、控件本身三处读取同一结果。 */
@@ -145,7 +159,7 @@ export const multiline = (p: { lines?: number }) => (p.lines ?? 1) > 1;
  * 换行由文本框自身处理（`.field.area` 中的 `white-space: pre-wrap`），因此多行时回车为换行而非提交；
  * 单行时回车照常提交（失焦）。两种情况均在失焦时提交值。 */
 export function TextField({ value, onChange, placeholder, mini, tip, lines }: {
-  value: string; onChange: (v: string) => void; placeholder?: string; mini?: boolean; tip?: string; lines?: number;
+  value: string; onChange: (v: string) => void; placeholder?: string; mini?: boolean; tip?: Tip | null; lines?: number;
 }) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
@@ -156,7 +170,7 @@ export function TextField({ value, onChange, placeholder, mini, tip, lines }: {
         className={`field area${mini ? " snug" : ""}`}
         rows={lines}
         value={text}
-        data-tip={tip}
+        {...tipAttrs(tip)}
         placeholder={placeholder}
         spellCheck={false}
         onChange={(e) => setText(e.target.value)}
@@ -168,7 +182,7 @@ export function TextField({ value, onChange, placeholder, mini, tip, lines }: {
     <input
       className={`field${mini ? " mini" : ""}`}
       value={text}
-      data-tip={tip}
+      {...tipAttrs(tip)}
       placeholder={placeholder}
       spellCheck={false}
       onChange={(e) => setText(e.target.value)}
@@ -195,39 +209,42 @@ export const vecLabels = (p: { parts?: string[] | null }): readonly (readonly [s
 /** 一个选项在页面上的样子，所有下拉、表格只读格、缩小后的值文字都只经这里：
  * - `label`：选项的名称（`name`：作者在参数界面给的显示名，只替换名称这一部分），许可受限时加上许可词（「非商用」「仅限
  *   研究」，服务器的 tags 表；`licensed`：String(值) -> 许可等级，graph/rules.ts licensedValues），作者覆盖不掉；
+ *   要每个人注册的选项再加「需注册」（`registered`：String(值) -> 是否，graph/rules.ts registeredValues）；
  * - `off`：现在不能选的原因（optionOff，服务器按声明判的；`at`：控件在节点里的位置，表格格子是 `表[i].列`，
- *   editor/paramPath.ts），"" 能选；`tip`：名称，不能选时连同原因。 */
-export function optionView(p: ParamDef, o: unknown, answer: Availability | null | undefined, licensed: Record<string, string>, name?: string, at = p.name): { label: string; tip: string; off: string } {
+ *   editor/paramPath.ts），"" 能选；`tip`：只在不能选时给「名称：原因」，能选时为 ""（菜单不重复选项名）。 */
+export function optionView(p: ParamDef, o: unknown, answer: Availability | null | undefined, licensed: Record<string, string>, name?: string, at = p.name, registered: Record<string, true> = {}): { label: string; tip: Tip | undefined; off: string } {
   const tag = licensed[String(o)];
   const word = tag ? getCatalog()?.tags[tag]?.label ?? tag : "";
+  const reg = registered[String(o)] ? (getCatalog()?.tags.registration?.label ?? t("ui.misc.needs_registration")) : "";
   const named = name ?? optionName(p, o);
   // 名称里已经写着这个许可词（作者手写的「（非商用）」）就不再加一遍：许可词只出现一次，作者也拿不掉它
-  const label = word && !named.includes(word) ? `${named} · ${word}` : named;
+  const extra = [word, reg].filter((w) => w && !named.includes(w));
+  const label = extra.length ? `${named} · ${extra.join(" · ")}` : named;
   const off = optionOff(p, answer, o, at);
-  return { label, tip: off ? `${label}：${off}` : label, off };
+  return { label, tip: off ? tipOf("disabled", t("ui.misc.named", { label, text: off })) : undefined, off };
 }
 
 const short = (n: number) => String(Math.round(n * 1000) / 1000);
 
 /** 简单参数的值的纯文本形式（缩小后节点上的行、面板的「信息」）：开 / 关、选项的名称、带单位的数字、向量的三个数、
  * 文本；值为空时，写参数对「空」的定义（自动）。 */
-export function valueText(p: ParamDef, v: unknown, licensed: Record<string, string> = {}): string {
+export function valueText(p: ParamDef, v: unknown, licensed: Record<string, string> = {}, registered: Record<string, true> = {}): string {
   if (p.widget === "button") return p.label; // 按钮参数没有值：缩小后写它的名字
-  if (p.type === "boolean") return v ? "开" : "关";
+  if (p.type === "boolean") return v ? t("ui.common.on") : t("ui.common.off");
   // 先判断空值，再判断选项：顺序颠倒时，留空的选项参数会被 `String(null)` 显示为字面的 `null`
-  if (p.options && v !== null && v !== undefined && v !== "") return optionView(p, v, null, licensed).label;
+  if (p.options && v !== null && v !== undefined && v !== "") return optionView(p, v, null, licensed, undefined, p.name, registered).label;
   if (v === null || v === undefined || v === "") {
     // 「空」的含义，以输入框的占位文字为准（自动、第一帧）；占位文字为数字时即实际使用的值（Filmback 36 mm）
-    if (!p.placeholder) return p.nullable ? "自动" : "空";
-    return Number.isFinite(Number(p.placeholder)) ? `自动 · ${p.placeholder}${p.unit ? ` ${p.unit}` : ""}` : p.placeholder;
+    if (!p.placeholder) return p.nullable ? t("ui.misc.choice_auto") : t("ui.misc.empty");
+    return Number.isFinite(Number(p.placeholder)) ? t("ui.misc.choice_auto_found", { option: `${p.placeholder}${unitText(p) ? ` ${unitText(p)}` : ""}` }) : p.placeholder;
   }
-  if (Array.isArray(v)) return v.map((x) => short(Number(x))).join(", ") + (p.unit ? ` ${p.unit}` : "");
-  if (typeof v === "number") return `${short(v)}${p.unit ? ` ${p.unit}` : ""}`;
+  if (Array.isArray(v)) return v.map((x) => short(Number(x))).join(", ") + (unitText(p) ? ` ${unitText(p)}` : "");
+  if (typeof v === "number") return `${short(v)}${unitText(p) ? ` ${unitText(p)}` : ""}`;
   return String(v);
 }
 
 /** 节点上简单参数的控件：小开关、选项下拉框、数字（向量为三个）或文本框；值与参数面板相同，提交方式也相同。 */
-export function NodeControl({ p, value, set, nc, answer }: { p: ParamDef; value: unknown; set: (v: unknown) => void; nc: Record<string, string>; answer?: Availability | null }) {
+export function NodeControl({ p, value, set, nc, reg, answer }: { p: ParamDef; value: unknown; set: (v: unknown) => void; nc: Record<string, string>; reg?: Record<string, true>; answer?: Availability | null }) {
   switch (p.simple) {
     case "toggle":
       return <Switch mini on={!!value} label={p.label} onChange={set} />;
@@ -241,9 +258,9 @@ export function NodeControl({ p, value, set, nc, answer }: { p: ParamDef; value:
       const now = value === null || value === undefined ? "" : String(value);
       return (
         <Select className="mini" value={now} label={p.label}
-          options={[...(empty ? [{ value: "", label: empty, tip: empty }] : []),
+          options={[...(empty ? [{ value: "", label: empty }] : []),
                     ...p.options!.map((o) => {
-                      const view = optionView(p, o, answer, nc); // 不可选的档位仍然保留，只是置灰，原因写在其悬停提示中
+                      const view = optionView(p, o, answer, nc, undefined, p.name, reg); // 不可选的档位仍然保留，只是置灰，原因写在其悬停提示中
                       return { value: String(o), label: view.label, tip: view.tip, off: !!view.off };
                     })]}
           onPick={(v) => set(v === "" ? null : p.options!.find((o) => String(o) === v) ?? v)} />
@@ -253,7 +270,7 @@ export function NodeControl({ p, value, set, nc, answer }: { p: ParamDef; value:
       return <VecField p={p} value={value} set={set} mini />;
     case "number":
       return p.nullable
-        ? <Num mini nullable value={value as number | null} onChange={set} placeholder={p.placeholder || "自动"} {...paramNum(p)} />
+        ? <Num mini nullable value={value as number | null} onChange={set} placeholder={p.placeholder || t("ui.misc.choice_auto")} {...paramNum(p)} />
         : <Num mini value={value as number | null} onChange={set} placeholder={p.placeholder} {...paramNum(p)} />;
     case "text":
       // 单行或多行由参数自身声明（`P(lines=…)`）：节点上与参数面板中使用同一个控件、同一份声明

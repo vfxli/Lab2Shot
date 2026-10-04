@@ -11,6 +11,8 @@ import { cancelUpload, startUpload, taskFor, useUploads } from "../transfer/uplo
 import { sizeText } from "../platform/format";
 import { useDismiss } from "../platform/dismiss";
 import { IconButton } from "../ui/Button";
+import { pick, t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** Owns the file parameter row in the parameter panel (picking, dropping, uploading and naming its files). Everything is a button that opens the system's own dialog (or files
  * dropped on the row): an input is uploaded and the parameter holds the upload. The row shows what was chosen as far as
@@ -26,13 +28,13 @@ export function InputFileParam({ nodeId, p, value }: { nodeId: string; p: ParamD
   // this document's (graphId) task only: a task of a node with the same id in another document is not shown (transfer/uploads.ts)
   const graphId = useCookInputs((s) => s.graphId);
   const task = useUploads((s) => taskFor(s.tasks, nodeId, p.name, graphId)); // going up (transfer/uploads.ts)
-  const graph = useCookInputs((s) => s.meta.name);
+  const graph = pick(useCookInputs((s) => s.meta.name));
   const [over, setOver] = useState(false);
   const record = useCookInputs((s) => s.nodes[nodeId]?.picked?.[p.name]);
   const filesInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const sequence = p.widget === "sequence";
-  const kinds = `${p.accept.join(" / ")}${sequence ? " 序列" : ""}`;
+  const kinds = sequence ? t("ui.params.file.kinds_sequence", { kinds: p.accept.join(" / ") }) : p.accept.join(" / ");
   const [offer, setOffer] = useState<{ list: Choice[]; x: number; y: number } | null>(null); // several found: the user picks one
   const row = useRef<HTMLDivElement>(null);
 
@@ -89,8 +91,8 @@ export function InputFileParam({ nodeId, p, value }: { nodeId: string; p: ParamD
   // block a submission is a cook range saved in the graph that lies outside the picked footage's frames
   // (graph/nodes.ts rangeProblem).
   const missing = frames ? frames.last - frames.first + 1 - frames.count : 0;
-  const gap = frames && missing > 0 ? `中间跳 ${missing} 帧` : "";
-  const meta = shown && [frames && `${frames.first}-${frames.last}`, frames && `${frames.count} 帧`, sizeText(shown.bytes)].filter(Boolean).join(" · ");
+  const gap = frames && missing > 0 ? t("ui.params.file.gap", { count: missing }) : "";
+  const meta = shown && [frames && `${frames.first}-${frames.last}`, frames && t("ui.params.file.frames", { count: frames.count }), sizeText(shown.bytes)].filter(Boolean).join(" · ");
 
   return (
     <div
@@ -101,7 +103,7 @@ export function InputFileParam({ nodeId, p, value }: { nodeId: string; p: ParamD
       onDrop={drop}
     >
       <IconButton
-        aria-label={sequence ? "选择序列" : `选择${p.label}`}
+        aria-label={sequence ? t("ui.params.file.pick_sequence") : t("ui.params.hier.title", { label: p.label })}
         layout="fp-pick"
         onClick={() => filesInput.current?.click()}
       >
@@ -111,7 +113,7 @@ export function InputFileParam({ nodeId, p, value }: { nodeId: string; p: ParamD
       {sequence && (
         <>
           <IconButton
-            aria-label="选择文件夹"
+            aria-label={t("ui.params.file.pick_folder")}
             layout="fp-pick"
             onClick={() => folderInput.current?.click()}
           >
@@ -131,7 +133,7 @@ export function InputFileParam({ nodeId, p, value }: { nodeId: string; p: ParamD
         {task ? (
           <UploadState task={task} />
         ) : !value ? (
-          <span className="fp-line fp-empty">点左边选择，或拖到这里</span>
+          <span className="fp-line fp-empty">{t("ui.params.file.empty")}</span>
         ) : (
           <span className="fp-line">
             {/* the name is the user's data: it may be truncated */}
@@ -139,7 +141,7 @@ export function InputFileParam({ nodeId, p, value }: { nodeId: string; p: ParamD
               {folder && <span className="fp-folder">{folder} / </span>}
               {name}
             </span>
-            {gone ? <span className="fp-missing">要重新选择</span> : meta && <span className="fp-meta tnum" data-user-data>{meta}</span>}
+            {gone ? <span className="fp-missing">{t("ui.params.file.repick")}</span> : meta && <span className="fp-meta tnum" data-user-data>{meta}</span>}
             {!gone && gap && (
               <span className="fp-missing">
                 {gap}
@@ -149,12 +151,12 @@ export function InputFileParam({ nodeId, p, value }: { nodeId: string; p: ParamD
         )}
       </div>
       {task ? (
-        <IconButton aria-label="不传了" tone="ghost" layout="fp-clear" onClick={() => cancelUpload(task.key)}>
+        <IconButton aria-label={t("ui.params.file.cancel_upload")} tone="ghost" layout="fp-clear" onClick={() => cancelUpload(task.key)}>
           <IconClose size={10} />
         </IconButton>
       ) : (
         value && (
-          <IconButton aria-label="清除" tone="ghost" layout="fp-clear" onClick={() => pickFile(nodeId, p.name, null)}>
+          <IconButton aria-label={t("ui.params.clear")} tone="ghost" layout="fp-clear" onClick={() => pickFile(nodeId, p.name, null)}>
             <IconClose size={10} />
           </IconButton>
         )
@@ -162,18 +164,17 @@ export function InputFileParam({ nodeId, p, value }: { nodeId: string; p: ParamD
       {offer && (
         // a menu, so it keeps its tips inside the quiet panel (platform/tips.ts)
         <div className="menu ctx-menu seq-offer glass" role="menu" style={{ left: offer.x, top: offer.y }} onContextMenu={(e) => e.preventDefault()}>
-          <div className="menu-cat" data-tip="选中的文件里有好几段序列（比如左右眼、不同的 pass）：点一段只用它；按 Esc 或点别处就都不用">
-            {offer.list.some((c) => c.item.kind === "sequence") ? "选一段序列" : "选一张图"}
+          <div className="menu-cat">
+            {t(offer.list.some((c) => c.item.kind === "sequence") ? "ui.params.file.offer_sequence" : "ui.params.file.offer_image")}
           </div>
           <div className="menu-list">
             {offer.list.map((c, i) => (
               <div
                 key={i}
                 className="menu-item"
-                data-tip={`${[c.folder, c.item.name].filter(Boolean).join("/")}\n${framesText(c.item)} · ${sizeText(c.item.size)}`}
                 onClick={() => (setOffer(null), send(c.item, c.folder))}
               >
-                <span className="mono seq-offer-name" data-user-data data-tip={[c.folder, c.item.name].filter(Boolean).join("/")}>{[c.folder, c.item.name].filter(Boolean).join("/")}</span>
+                <span className="mono seq-offer-name" data-user-data {...tipAttrs(tipOf("truncated", [c.folder, c.item.name].filter(Boolean).join("/")))}>{[c.folder, c.item.name].filter(Boolean).join("/")}</span>
                 <span className="menu-desc tnum">{framesText(c.item)}</span>
               </div>
             ))}

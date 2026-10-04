@@ -1,0 +1,39 @@
+# LTX-2.5 Clean Plate 扩展自己的界面字和消息（中文）。一行一条：编号 = 模板。
+
+# ---- 校验
+"E-CLEANPLATE-SHAPE.other" = "LTX-2.5 Clean Plate 的结果和输入画面对不上：输入 {frames:d} 帧、{width:d} × {height:d}，结果是 {got_frames:d} 帧、{got_width:d} × {got_height:d}。这个节点只给输入里已有的每一帧各出一张同尺寸的画面，所以停下、不写出任何结果。请把这条消息和任务日志交给管理员"
+
+[node."cleanplate.clean_plate"]
+subtitle = "干净背景板"
+description = "去掉画面里的人和车，补出被挡住的背景，得到同一镜头的干净背景板（clean plate）。只做处理、不生成新内容：每个输入帧对应一个输出帧，帧号和尺寸与输入完全一致。整帧处理，不能指定去掉哪一个；人或车占据大半个画面、背后露出的背景太少时补不出来。需要 32 GB 显存的显卡，速度很慢。"
+
+[node."cleanplate.clean_plate".param.resolution]
+label = "处理分辨率"
+
+[node."cleanplate.clean_plate".port.image]
+label = "RGB"
+
+[node."cleanplate.clean_plate".port.plate]
+label = "干净背景板"
+
+[node."cleanplate.clean_plate".official]
+note = "上游用法（模型卡）：IC-LoRA 视频到视频，原镜头作参考视频，LoRA 强度 1.0，提示词描述空场景；不支持遮罩，整帧去除人、行人和车。训练用 1024 × 576、49 帧、25 fps，1920 × 1088 也验证过；画面补齐到 32 的倍数、帧数补到 8n+1。"
+
+[node."cleanplate.clean_plate".licence]
+note = "LTX-2.x Community License：个人和年收入低于 1000 万美元的公司可免费商用；达到 1000 万美元的公司除非商业研究和评估外须向 Lightricks 购买授权。"
+
+[node."cleanplate.clean_plate".cost]
+note = "fp8 的 22B 模型常驻显存约 22 GB，只能在 32 GB 的卡上跑；第一次运行还要把固定提示词编码一次并缓存。"
+
+[node."cleanplate.clean_plate".stage]
+write_plate = "写出干净背景板"
+
+[extension.cleanplate]
+summary = "去掉视频里的人和车、补出背景，得到同一镜头的干净背景板。基于 LTX-2.5 视频模型的 IC-LoRA"
+license.name = "LTX-2.x Community License"
+license.summary = "个人和年收入低于 1000 万美元的公司可免费使用，包括商用；年收入达到 1000 万美元的公司，除非商业的研究和评估外，任何使用都须向 Lightricks 购买授权。再分发须附带许可证原文及其使用限制（附件 A）；只能合法使用并遵守其可接受使用政策，不得去除安全、来源标记和水印等功能"
+weight.cleanplate_lora.note = "Lightricks/LTX-2.5-22b-IC-LoRA-Clean-Plate/ltx-2.5-22b-ic-lora-clean-plate-1.0.safetensors（LTX-2.x Community License）"
+
+[stage]
+encode_prompt = "准备固定提示词"
+clean_plate = "去除人和车"

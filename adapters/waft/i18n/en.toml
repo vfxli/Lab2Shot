@@ -1,0 +1,18 @@
+# The WAFT extension's own words and messages in English (the same keys as zh.toml).
+
+[node."waft.flow"]
+subtitle = "Motion Vectors"
+description = "WAFT from Princeton: computed once between each pair of frames, forwards and backwards, giving each frame's motion vectors to the next and to the previous frame (Nuke's motion channels, pixels per frame), plus a confidence for every pixel. Follow it with Occlusion Mask for occlusion, and with Motion Vector Warp or Motion Vectors to ST Map for frame interpolation and paint propagation."
+official.note = "A two-frame method: image1 and image2 are neighbouring frames, computed once in each direction. Each pixel's confidence is output['info'] (what demo.py:84 get_heatmap is computed from); in our motion vector packet it is the confidence channel, not a separate output."
+licence.note = "Code BSD-3; the model weights state no license and were trained on research-only datasets, so they are treated as non-commercial."
+
+[extension.waft]
+summary = "An optical flow method similar to RAFT, but with high-resolution warping in place of the cost volume: more accurate and lighter on GPU memory"
+license.name = "BSD-3-Clause (code); model weights with no stated license (non-commercial)"
+license.summary = "Non-commercial: the BSD-3 code itself allows commercial use, but the model weights are on the authors' Google Drive with no license of their own and were trained on research-only datasets such as Sintel, KITTI, Spring and TartanAir, so they are treated as non-commercial. The Depth Anything V2 ViT-S backbone itself is Apache-2.0"
+weight.waft_a1_tar_c_t.note = "WAFT-a1 tar-c-t (257 MB, the authors' Google Drive; recommended by the README for downstream use)"
+
+# ---- the worker's cooking stages (worker.py run.model / run.stage / run.each)
+[stage]
+compute_flow = "Compute Optical Flow ({width}×{height})"
+flow = "Optical Flow"

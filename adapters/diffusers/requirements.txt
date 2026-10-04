@@ -1,0 +1,15 @@
+# Diffusers environment (torch comes from EnvSpec). The diffusers library itself is not pip-installed: the worker
+# imports it straight from the pinned repo/src (extension.py's import_repo, romav2's pattern). Only what the
+# QwenImage21Pipeline imports at inference time: the Qwen3-VL text encoder (transformers — 5.18 is the release the
+# pipeline's hidden-state workaround names as carrying the proper fix), cpu offload (accelerate), and the plain
+# stack. requests + filelock are the packages diffusers' runtime version check requires at import
+# (dependency_versions_check.py pkgs_to_check_at_runtime). No peft (LoRA loading only), no opencv (every picture
+# reaches this worker as a PNG).
+transformers==5.18.0
+accelerate==1.15.0
+huggingface-hub==1.33.0
+requests==2.34.2
+filelock==4.0.8
+numpy==2.4.6
+pillow==12.3.0
+safetensors==0.8.0

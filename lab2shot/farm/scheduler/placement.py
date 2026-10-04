@@ -16,7 +16,9 @@ are free at once: it never changes whose turn it is.
 
 from __future__ import annotations
 
-from ...engine.resources import Need
+import math
+
+from ...engine.resources import GPU, Need
 from ...messages import Msg
 from .. import policy
 from . import compat
@@ -35,6 +37,13 @@ def runs(need: Need, gpu: GpuState) -> bool:
 
 def eligible(need: Need, gpu: GpuState) -> bool:
     return gpu.authorized and runs(need, gpu) and gpu.free_gb >= need.vram_gb + policy.margin_gb()
+
+
+def holds(runtime: str, vram_gb: float, snapshot: Snapshot) -> bool:
+    """A card authorized for jobs runs `runtime` and is large enough for `vram_gb` with 显存余量, busy or not: whether a
+    node that steps down on a smaller card runs its full tier on this machine (nodes/applies.py Cost.vram_full_gb)."""
+    want = vram_gb + policy.margin_gb()
+    return any(runs(Need(GPU, runtime, vram_gb, 0.0, ""), g) and g.memory_mb / 1024 >= want for g in snapshot.authorized())
 
 
 def _cc(gpu: GpuState) -> tuple[int, int]:
@@ -61,25 +70,34 @@ def place(need: Need, snapshot: Snapshot, busy: set[str]) -> GpuState | Msg:
     return candidates[0] if candidates else reason(need, snapshot, busy)
 
 
-# A worker process's CUDA context, which the process does not report (its vram_mb counts only its tensors): an upper
-# bound of the figures in the 显存余量 note above
-CONTEXT_GB = 0.8
-
-
-def reclaimable_cards(need: Need, snapshot: Snapshot, busy: set[str], idle_processes: dict[str, int]) -> set[str]:
-    """The idle cards where ending this server's own idle kept-loaded processes (`idle_processes`: GPU UUID -> how
-    many) would let `need` fit: the card can run it, is large enough, and what is missing is no more than those
-    processes' unreported CUDA contexts. Empty when ending them could not help (a node larger than any card, another
-    program holding the memory), so warm models are never ended for nothing."""
+def reclaimable_cards(need: Need, snapshot: Snapshot, busy: set[str], idle_context_mb: dict[str, int]) -> dict[str, int]:
+    """The idle cards where ending this server's own idle kept-loaded processes would let `need` fit, each with the
+    MB it is short (GPU UUID -> MB): the card can run it, is large enough, and what is missing is no more than what
+    those processes hold beyond their reported memory (`idle_context_mb`: GPU UUID -> their CUDA contexts, as each
+    measured its own: engine/resident.py Pool.idle_context_mb). Empty when ending them could not help (a node larger
+    than any card, another program holding the memory), so warm models are never ended for nothing."""
     want = need.vram_gb + policy.margin_gb()
-    out: set[str] = set()
+    out: dict[str, int] = {}
     for g in snapshot.authorized():
-        count = idle_processes.get(g.uuid, 0)
-        if not count or g.uuid in busy or not runs(need, g) or g.memory_mb / 1024 < want:
+        held = idle_context_mb.get(g.uuid, 0)
+        if not held or g.uuid in busy or not runs(need, g) or g.memory_mb / 1024 < want:
             continue
-        if 0 < want - g.free_gb <= count * CONTEXT_GB:  # short, and by no more than those contexts
-            out.add(g.uuid)
+        short = math.ceil((want - g.free_gb) * 1024)
+        if 0 < short <= held:  # short, and by no more than those contexts
+            out[g.uuid] = short
     return out
+
+
+def pressed_cards(snapshot: Snapshot, busy: set[str], below_gb: float) -> dict[str, int]:
+    """The authorized cards no node of ours is on whose memory nobody uses (GpuState.unused_mb: our own idle models'
+    counted as used) is below `below_gb` (resident.release_below_gb; 0: never), each with the MB it is short (GPU
+    UUID -> MB): our idle kept-loaded models there give it back (engine/resident.py Pool.relieve), so another
+    program, or another server's job, gets it."""
+    if below_gb <= 0:
+        return {}
+    floor = int(below_gb * 1024)
+    return {g.uuid: floor - g.unused_mb for g in snapshot.authorized()
+            if g.uuid not in busy and g.unused_mb < floor}
 
 
 def reason(need: Need, snapshot: Snapshot, busy: set[str] = frozenset()) -> Msg:
@@ -100,7 +118,7 @@ def reason(need: Need, snapshot: Snapshot, busy: set[str] = frozenset()) -> Msg:
     fit = [g for g in authorized if runs(need, g)]
     idle = [g for g in fit if g.uuid not in busy]
     if not idle:
-        waits_for = "、".join(sorted({g.short_name for g in fit}))
+        waits_for = sorted({g.short_name for g in fit})  # a list: the message joins it in its language
         cannot = sorted({g.short_name for g in authorized if g not in fit and g.uuid not in busy})
         if not cannot:
             return Msg("N-GPU-WAITBUSY", gpus=waits_for)

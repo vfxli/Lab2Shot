@@ -44,7 +44,7 @@
 
 .graph-help-row {
   display: grid;
-  grid-template-columns: 52px 1fr;
+  grid-template-columns: max-content minmax(0, 1fr); /* the key as wide as its words, in either language */
   gap: 4px var(--sp-3);
   align-items: baseline;
 }

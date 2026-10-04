@@ -39,6 +39,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import i18n
 from ..errors import Invalid, MessageError
 from ..messages import Msg
 from . import NotThere
@@ -96,11 +97,12 @@ class FrameSequence:
     def found(self) -> str:
         """What was found of it, without its name: 1001-1100，100 帧. Only what a listing showed at that moment —
         never part of which sequence it is (nodes/core/input.py SequenceEntry)."""
-        return f"{format_frame_range(self.frames) if len(self.frames) < 4 else f'{_shown(self.first)}-{_shown(self.last)}'}，{len(self.frames)} 帧"
+        frames = format_frame_range(self.frames) if len(self.frames) < 4 else f"{_shown(self.first)}-{_shown(self.last)}"
+        return i18n.t("io.sequence.found", frames=frames, count=len(self.frames))
 
     def describe(self) -> str:
         """How the sequence is listed to the user: sh010_plate.####.exr（1001-1100，100 帧）"""
-        return f"{self.name}（{self.found()}）"
+        return i18n.t("io.sequence.described", name=self.name, found=self.found())
 
     def __len__(self) -> int:
         return len(self.frames)
@@ -113,7 +115,7 @@ class SeveralSequences(MessageError, ValueError):
 
     def __init__(self, folder: str, sequences: list[FrameSequence]):
         self.sequences = sequences
-        listed = "、".join(s.describe() for s in sequences[:6]) + ("……" if len(sequences) > 6 else "")
+        listed = i18n.separator().join(s.describe() for s in sequences[:6]) + (i18n.t("io.more") if len(sequences) > 6 else "")
         super().__init__(Msg("E-SEQUENCE-SEVERAL", folder=folder, count=len(sequences), listed=listed, example=sequences[0].name))
 
 

@@ -31,10 +31,17 @@ Long shots (upstream's two inference modes):
   one stream   ("Direct Output", the most accurate) up to 3000 frames, upstream's stable
                range. Keyframe interval (auto): 1 up to 320 frames, else ceil(frames / 320),
                so the memory never holds more than ~320 keyframes (the training length).
-  segments     ("VO mode") beyond that, or with max_frames set: the stream restarts every
-               max_frames frames; consecutive segments share max(anchor_frames, 16 keyframes)
-               frames and are joined by recon.Stitcher (cameras' mean relative rotation, scale
-               and translation on the shared frames' points, cross-fade across them).
+  windowed     beyond that, or with max_frames set: upstream's windowed inference
+               (gct_stream_window.GCTStream.inference_windowed, fixed keyframe interval), run as a
+               stream. Windows of max_frames frames, each with a fresh KV cache (its first
+               anchor_frames frames as the scale frames), consecutive windows sharing
+               max(anchor_frames, 16 keyframes) frames (README: --overlap_keyframes 16); each window
+               is brought into the previous one's world by upstream's _pairwise_alignment (rotation
+               and position from the last frame that is a keyframe in both, scale = median depth
+               ratio over those frames) and the shared frames are taken from the later window
+               (_stitch_windows). Upstream collects every window of the shot in memory before aligning;
+               here a window's frames go to disk as soon as its transform is known, holding only the
+               frames the next window shares.
 
 LingBot-Map has no input for masks: it sees the whole frame, moving objects
 included, and nothing is taken out afterwards. To reconstruct only part of the
@@ -67,7 +74,7 @@ NATIVE_RESOLUTION = 518  # training: longest side 518 px
 PATCH = 14
 TRAIN_VIEWS = 320  # longest training sequence: more keyframes in memory degrade the poses
 STREAM_MAX_FRAMES = 3000  # upstream: one stream is stable up to ~10x the training length
-OVERLAP_KEYFRAMES = 16  # segments share this many keyframes (upstream README's windowed example)
+OVERLAP_KEYFRAMES = 16  # windows share this many keyframes (upstream README's windowed example: --overlap_keyframes 16)
 PIECE = 32  # frames handed to the stitcher at a time
 CHAIN = 2  # frames consecutive pieces of one segment share (identical: they only carry the transform on)
 WRITERS = 3  # threads turning stitched frames into input-resolution npz files
@@ -95,11 +102,15 @@ def read_params(params: dict) -> dict:
 # ---------------------------------------------------------------------- frames and sky
 
 
-def to_model(rgb: np.ndarray, size: tuple[int, int]) -> torch.Tensor:
+def to_model(rgb: np.ndarray, size: tuple[int, int], rows: tuple[int, int] | None = None) -> torch.Tensor:
     """uint8 [H,W,3] -> float [3,h,w] in 0..1 (the model normalises itself). Downscaling uses area
-    filtering: no aliasing from 1920 px plates."""
+    filtering: no aliasing from 1920 px plates. `rows`: (first, count) of the resized picture kept (a portrait's
+    middle, upstream's crop mode)."""
     interp = cv2.INTER_AREA if size[0] < rgb.shape[1] else cv2.INTER_CUBIC
-    return torch.from_numpy(cv2.resize(rgb, size, interpolation=interp)).permute(2, 0, 1).float().div_(255.0)
+    out = cv2.resize(rgb, size, interpolation=interp)
+    if rows is not None:
+        out = out[rows[0]:rows[0] + rows[1]]
+    return torch.from_numpy(np.ascontiguousarray(out)).permute(2, 0, 1).float().div_(255.0)
 
 
 class SkySegmenter:
@@ -110,7 +121,7 @@ class SkySegmenter:
     def __init__(self, onnx_path: Path):
         import onnxruntime
 
-        require_weights("lingbotmap", onnx_path, what="天空分割模型")
+        require_weights("lingbotmap", onnx_path, what=reason("I-LINGBOTMAP-SKYMODEL"))
         self.session = onnxruntime.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
         self.inp = self.session.get_inputs()[0].name
         self.out = self.session.get_outputs()[0].name
@@ -179,6 +190,45 @@ def auto_keyframe_interval(frames: int) -> int:
     return 1 if frames <= TRAIN_VIEWS else math.ceil(frames / TRAIN_VIEWS)
 
 
+def plan_windows(n: int, length: int, overlap: int) -> list[tuple[int, int]]:
+    """[start, end) windows as upstream's inference_windowed lays them out (fixed-interval mode): `length` frames,
+    step length - overlap, the last one ending at the shot's end."""
+    if length >= n:
+        return [(0, n)]
+    step, windows = max(length - overlap, 1), []
+    for start in range(0, n, step):
+        end = min(start + length, n)
+        if end - start >= overlap or end == n:
+            windows.append((start, end))
+        if end == n:
+            break
+    return windows
+
+
+def window_alignment(held: list[dict], head: list[dict]) -> tuple[float, np.ndarray, np.ndarray, dict]:
+    """(s, R, t) taking the next window's world into the shot's, by upstream's GCTStream._pairwise_alignment
+    (gct_stream_window.py) on the frames both windows have: `held` the earlier window's (already in the shot's
+    world), `head` the same frames from the later window. That helper reads pose_enc[:3] / [3:7] as camera-to-world
+    centre and rotation ("Decompose C2W"), the model's own convention (see predict)."""
+    from lingbot_map.models.gct_stream_window import GCTStream as Windowed
+    from lingbot_map.utils.rotation import mat_to_quat
+
+    def pred(items):
+        cams = torch.from_numpy(np.stack([f["cam"] for f in items]))
+        pe = torch.zeros(1, len(items), 9, dtype=torch.float64)
+        pe[0, :, :3] = cams[:, :3, 3]
+        pe[0, :, 3:7] = mat_to_quat(cams[:, :3, :3])
+        return {"pose_enc": pe, "depth": torch.from_numpy(np.stack([f["depth"] for f in items]))[None, ..., None].double(),
+                "is_keyframe": torch.tensor([[f["kf"] for f in items]])}
+
+    s, R, t = Windowed._pairwise_alignment(pred(held), pred(head), len(head), 1, torch.device("cpu"), torch.float64)
+    s, R, t = float(s[0]), R[0].numpy(), t[0].numpy()
+    paired = [f["i"] for f, g in zip(held, head) if f["kf"] and g["kf"]]
+    return s, R, t, {"scale": s, "rotation_deg": float(np.degrees(np.arccos(np.clip((np.trace(R) - 1) / 2, -1, 1)))),
+                     "anchor": paired[-1] if paired else held[0]["i"], "paired_keyframes": len(paired),
+                     "shared": len(head)}
+
+
 def current_rss_mb() -> int:
     with open("/proc/self/statm") as fh:
         return round(int(fh.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 2**20)
@@ -199,15 +249,26 @@ def main(job_path: str) -> None:
     n = len(selected)
 
     width, height = selected.width, selected.height
-    mw, mh = size = fit_size(width, height, p["resolution"], PATCH)  # the whole frame: no crop, no padding
+    if height > width:
+        # A portrait plate, as upstream's demo loads every picture (load_fn.py load_and_preprocess_images,
+        # mode="crop"): the width at the model's size, the height in proportion, then the middle `resolution` rows.
+        # The model sees the square it was trained around; the rows above and below get no depth (not usable).
+        mw = int(p["resolution"])
+        mh = max(PATCH, int(round(height * mw / width / PATCH)) * PATCH)
+        rows = ((mh - mw) // 2, mw) if mh > mw else None
+    else:
+        mw, mh = fit_size(width, height, p["resolution"], PATCH)  # the whole frame: no crop, no padding
+        rows = None
+    size = (mw, mh)
+    ch = rows[1] if rows else mh  # the height the model sees
     if p["resolution"] != NATIVE_RESOLUTION:
         say("W-LINGBOTMAP-RESOLUTION", native=NATIVE_RESOLUTION, resolution=p["resolution"])
 
     anchors = min(p["anchor_frames"], n)
     length = min(p["max_frames"] or STREAM_MAX_FRAMES, n)
     kf = p["keyframe_interval"] or auto_keyframe_interval(length)
-    overlap = min(max(anchors, OVERLAP_KEYFRAMES * kf), length // 2)
-    segments = recon.plan_chunks(n, length, overlap)
+    overlap = min(max(anchors, OVERLAP_KEYFRAMES * kf), length // 2)  # half a window at most: windows always advance
+    segments = plan_windows(n, length, overlap)
     overlap = segments[0][1] - segments[1][0] if len(segments) > 1 else 0
     length = max(b - a for a, b in segments)
     memory_frames = anchors + math.ceil(max(length - anchors, 0) / kf)  # keyframes remembered per segment
@@ -221,8 +282,8 @@ def main(job_path: str) -> None:
     device = torch.device("cuda")
     sky = SkySegmenter(job.weights_dir / "skyseg.onnx") if p["mask_sky"] else None
 
-    model = run.model("LingBot-Map 模型", load_model, job.repo_dir, checkpoint, p["context_window"], p["anchor_frames"],
-                      p["camera_iterations"], max_frame_num, device)
+    model = run.model("load_model", load_model, job.repo_dir, checkpoint, p["context_window"], p["anchor_frames"],
+                      p["camera_iterations"], max_frame_num, device, stage_params={"model": "LingBot-Map"})
     from lingbot_map.utils.pose_enc import pose_encoding_to_extri_intri
 
     stitch = recon.Stitcher()
@@ -261,22 +322,28 @@ def main(job_path: str) -> None:
             writer.submit(write, fr)
             written += 1
             if written % 5 == 0 or written == n:
-                progress(written, n, "重建")
+                progress(written, n, "reconstruct")
             if written % 50 == 0 or written == n:
                 memory_trace.append({"frames": written, "rss_mb": current_rss_mb(),
                                      "gpu_allocated_mb": round(torch.cuda.memory_allocated() / 2**20)})
 
     def predict(pred: dict, j: int, i: int, rgb: np.ndarray, is_kf: bool, si: int) -> dict:
         """One frame's prediction, segment-local, at the model resolution: camera, depth, confidence, usable."""
-        ext, intr = pose_encoding_to_extri_intri(pred["pose_enc"][:, j:j + 1].float(), (mh, mw))
-        w2c = np.eye(4)
-        w2c[:3, :4] = ext[0, 0].double().cpu().numpy()  # pose_encoding_to_extri_intri gives world-to-camera (OpenCV), as VGGT's
-        cam = np.linalg.inv(w2c)  # camera-to-world, what cam_to_world below and every consumer expects (adapters/vggt/worker.py does the same)
+        ext, intr = pose_encoding_to_extri_intri(pred["pose_enc"][:, j:j + 1].float(), (ch, mw))
+        # LingBot-Map's pose_enc is camera-to-world (OpenCV), unlike VGGT's: upstream's own windowed alignment decomposes it
+        # as C2W (gct_stream_window._pairwise_alignment), and against TUM fr1_desk ground truth (R04, 120 frames) it is
+        # right as it stands (rotation error 1.1 deg median) and wrong inverted (129 deg), whatever demo.py's comment says
+        cam = np.eye(4)
+        cam[:3, :4] = ext[0, 0].double().cpu().numpy()
         k = intr[0, 0].double().cpu().numpy()
         focal_model[i] = k[0, 0] * sx, k[1, 1] * sy  # input pixels
-        f = focal_model[i, 0] if mw >= mh else focal_model[i, 1]  # see "Focal" at the top of this file
+        f = focal_model[i, 0] if mw >= ch else focal_model[i, 1]  # see "Focal" at the top of this file
         depth = np.nan_to_num(pred["depth"][0, j, ..., 0].float().cpu().numpy(), nan=0.0, posinf=0.0, neginf=0.0)
         conf = pred["depth_conf"][0, j].float().cpu().numpy()
+        if rows is not None:  # back into the whole (resized) frame: nothing above and below the crop
+            full_d, full_c = np.zeros((mh, mw), np.float32), np.ones((mh, mw), np.float32)
+            full_d[rows[0]:rows[0] + rows[1]], full_c[rows[0]:rows[0] + rows[1]] = depth, conf
+            depth, conf = full_d, full_c
         K = np.array([[f / sx, 0, mw / 2], [0, f / sy, mh / 2], [0, 0, 1.0]])  # model pixels; square at the input
         usable = (conf >= p["conf_threshold"]) & (depth > 0) & ~recon.depth_edges(depth)
         excluded = sky.sky(rgb) if sky is not None else None
@@ -284,10 +351,11 @@ def main(job_path: str) -> None:
             usable &= ~(cv2.resize(excluded.astype(np.float32), size, interpolation=cv2.INTER_AREA) > 0)
         keyframe[i], segment_of[i] = is_kf, si
         return {"i": i, "cam": cam, "K": K, "depth": depth, "conf": conf,
-                "usable": usable, "excluded": excluded}
+                "usable": usable, "excluded": excluded, "kf": is_kf}
 
-    def hand_over(piece: list[dict], si: int, until: int | None) -> None:
-        """Frames of one segment -> the stitcher; frames no later piece shares -> disk."""
+    def hand_over(piece: list[dict], until: int | None) -> None:
+        """Frames of the one stream -> the stitcher (it only carries the transform on); frames no later piece
+        shares -> disk."""
         chunk = recon.Chunk(
             cam_to_world=np.stack([f["cam"] for f in piece]), K=np.stack([f["K"] for f in piece]),
             depth=np.stack([f["depth"] for f in piece]), confidence=np.stack([f["conf"] for f in piece]),
@@ -295,15 +363,11 @@ def main(job_path: str) -> None:
         if sky is not None:
             chunk.extra["excluded"] = np.stack([f["excluded"] for f in piece])
         try:
-            info = stitch.add(piece[0]["i"], chunk)
+            stitch.add(piece[0]["i"], chunk)
         except ValueError:
-            fail("E-LINGBOTMAP-NOOVERLAP", segment=si + 1)
-        if "scale" in info and piece[0]["i"] in segment_starts:  # a new segment joined onto the previous one
-            info["frames"] = [frame_numbers[piece[0]["i"]], frame_numbers[piece[-1]["i"]]]
-            segment_info.append(info)
+            fail("E-LINGBOTMAP-NOOVERLAP", segment=1)
         flush(list(stitch.pop(until)))
 
-    segment_starts = {a for a, _ in segments[1:]}
     autocast = torch.amp.autocast("cuda", dtype=torch.bfloat16)
 
     def stream(si: int, s0: int, s1: int):
@@ -314,7 +378,7 @@ def main(job_path: str) -> None:
         rgbs = reader.take(range(s0, s0 + wa))
         reader.request(range(s0 + wa, min(s0 + wa + 1, s1)))
         t = run.frame_started()
-        batch = torch.stack([to_model(r, size) for r in rgbs])[None].to(device)
+        batch = torch.stack([to_model(r, size, rows) for r in rgbs])[None].to(device)
         with autocast:
             pred = model.forward(batch, num_frame_for_scale=wa, num_frame_per_block=wa, causal_inference=True)
         items = [predict(pred, j, s0 + j, rgbs[j], True, si) for j in range(wa)]
@@ -326,7 +390,7 @@ def main(job_path: str) -> None:
             rgb = reader.get(i, range(i + 1, s1))
             is_kf = kf <= 1 or (i - s0 - wa) % kf == 0
             t = run.frame_started()
-            image = to_model(rgb, size)[None, None].to(device, non_blocking=True)
+            image = to_model(rgb, size, rows)[None, None].to(device, non_blocking=True)
             if not is_kf:
                 model._set_skip_append(True)
             with autocast:
@@ -338,27 +402,65 @@ def main(job_path: str) -> None:
             run.frame_done(t)
             yield item
 
-    run.stage(f"流式重建（{n} 帧，关键帧间隔 {kf}）" if len(segments) == 1 else
-              f"分段重建（{n} 帧，{len(segments)} 段，关键帧间隔 {kf}）")
+    if len(segments) == 1:
+        run.stage("reconstruct_stream", frames=n, interval=kf)
+    else:
+        run.stage("reconstruct_segmented", frames=n, segments=len(segments), interval=kf)
+    def windowed() -> None:
+        """Windows (upstream's inference_windowed) streamed: each frame goes to disk once its window's transform into
+        the shot's world is known; the frames the next window shares are held for its alignment and then replaced by
+        the next window's own (upstream _stitch_windows: a window gives its frames up to the next one's start)."""
+        origin, held = None, []
+        for si, (s0, s1) in enumerate(segments):
+            run.stage("segment", segment=si + 1, segments=len(segments), first=frame_numbers[s0],
+                      last=frame_numbers[s1 - 1])
+            next_start = segments[si + 1][0] if si + 1 < len(segments) else s1
+            shared = len(held)  # this window's first frames: the ones the previous window holds
+            sim = (1.0, np.eye(3), np.zeros(3)) if si == 0 else None
+            head, keep = [], []
+
+            def place(item: dict) -> None:
+                nonlocal origin
+                s, R, t = sim
+                item["cam"] = recon.apply_similarity(s, R, t, item["cam"])
+                item["depth"] = item["depth"] * np.float32(s)
+                if item["i"] >= next_start:
+                    keep.append(item)
+                    return
+                if origin is None:
+                    origin = np.linalg.inv(item["cam"])
+                extra = {"excluded": item["excluded"]} if sky is not None else {}
+                flush([recon.Frame(item["i"], origin @ item["cam"], item["K"], item["depth"], item["conf"],
+                                   item["usable"], extra)])
+
+            for item in stream(si, s0, s1):
+                if sim is None:
+                    head.append(item)
+                    if len(head) < shared:
+                        continue
+                    s, R, t, info = window_alignment(held, head)
+                    sim = (s, R, t)
+                    segment_info.append({**info, "frames": [frame_numbers[s0], frame_numbers[s1 - 1]]})
+                    for h in head:
+                        place(h)
+                    continue
+                place(item)
+            held = keep
+
     t_run = time.time()
     with torch.no_grad():
-        for si, (s0, s1) in enumerate(segments):
-            if len(segments) > 1:
-                run.stage(f"第 {si + 1}/{len(segments)} 段（第 {frame_numbers[s0]}–{frame_numbers[s1 - 1]} 帧）")
-            # The stitcher gets the segment in pieces of ~PIECE frames; consecutive pieces share CHAIN
-            # frames, and a joined segment's first piece holds every frame it shares with the previous one.
-            first_piece_end = (segments[si - 1][1] if si else s0) + PIECE
-            next_start = segments[si + 1][0] if si + 1 < len(segments) else None
+        if len(segments) == 1:
+            # The stitcher gets the stream in pieces of ~PIECE frames; consecutive pieces share CHAIN frames.
             piece: list[dict] = []
-            for item in stream(si, s0, s1):
+            for item in stream(0, 0, n):
                 piece.append(item)
                 i = item["i"]
-                if i + 1 < s1 and i + 1 >= max(piece[0]["i"] + PIECE, first_piece_end):
-                    until = i + 1 - CHAIN
-                    hand_over(piece, si, until if next_start is None else min(until, next_start))
+                if i + 1 < n and i + 1 >= piece[0]["i"] + PIECE:
+                    hand_over(piece, i + 1 - CHAIN)
                     piece = piece[-CHAIN:]
-            # the rest; frames the next segment shares stay in the stitcher
-            hand_over(piece, si, next_start)
+            hand_over(piece, None)
+        else:
+            windowed()
     model.clean_kv_cache()  # the model stays loaded for the next job: without this shot's memory
     torch.cuda.synchronize()
     run_seconds = time.time() - t_run
@@ -399,14 +501,17 @@ def main(job_path: str) -> None:
         fps=job.fps,
         step=p["step"],
         frames=frame_numbers,  # the whole list, not the standard [first, last]: the converter reads every frame's file by it
-        model_input={"width": mw, "height": mh, "resize": "whole frame, no crop / padding"},
+        model_input={"width": mw, "height": ch, "resize": "whole frame, no crop / padding" if rows is None else
+                     f"upstream crop mode: {mw}x{mh}, rows {rows[0]}..{rows[0] + rows[1]} kept"},
         segment_frames=length,
         segments=len(segments),
         segment_overlap=overlap,
         segment_alignment=segment_info,
-        alignment="segments share `segment_overlap` frames, joined by lab2shot_worker.recon.Stitcher (rotation = "
-                  "mean relative camera orientation of the shared frames, scale + translation on their points, "
-                  "cross-fade across them); inside a segment the stream itself is one world",
+        alignment="upstream windowed inference (gct_stream_window inference_windowed, streamed): windows share "
+                  "`segment_overlap` frames, each brought into the previous one's world by upstream "
+                  "_pairwise_alignment (camera of the last frame that is a keyframe in both, scale = median depth "
+                  "ratio over those frames); shared frames come from the later window" if len(segments) > 1 else
+                  "one stream: one world",
         keyframe_interval=kf,
         keyframes=int(keyframe.sum()),
         anchor_frames=anchors,

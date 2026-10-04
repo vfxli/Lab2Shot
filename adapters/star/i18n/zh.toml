@@ -1,0 +1,29 @@
+# STaR 扩展自己的界面字和消息（中文）。共用的重定目标消息在核心目录。
+
+[node."star.retarget"]
+subtitle = "动作重定目标"
+description = "网格形状与时间连续性约束的动作重定目标。学习式重定目标的中间一段：「源」「目标」接「重定目标预处理」的两个输出（部位对应、静止姿势、哪些骨骼不送进模型都在那里定），结果接「重定目标后处理」做平移和髋高，再接线性蒙皮变形看网格。输出是模型原生的结果，写回目标自己的层级；没送进模型的骨骼保持静止姿势、跟着父骨骼走。两侧都要真实蒙皮网格；只收官方 22 个身体部位，预处理的忽略规则选「STaR（固定 22 个身体部位）」。"
+official.note = "使用官方已发布模型，保留目标自己的层级。"
+needs.star.label = "STaR（固定 22 个身体部位）"
+
+[node."star.retarget".param.window]
+label = "推理窗口"
+
+[node."star.retarget".param.seed]
+label = "采样种子"
+
+[extension.star]
+summary = "网格形状与时间连续性约束的动作重定目标"
+license.name = "MIT"
+license.summary = "MIT；依赖资产遵守各自许可，详情见官方仓库。"
+
+[manual.star-statistics]
+title = "STaR 统计与形状编码器"
+what = "官方训练归一化统计及 Pct checkpoint"
+download = "官方 Data Preparation 的 Google Drive stats 与 encoding_model_weights"
+note = "包含 8 份归一化统计和 model.t7；不能用输入素材重新估计训练统计"
+
+[stage]
+prepare_input = "整理 STaR 输入"
+encode_shape = "编码形状"
+retarget = "STaR 重定目标"

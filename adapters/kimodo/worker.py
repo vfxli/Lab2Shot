@@ -91,8 +91,23 @@ def load_kimodo(name: str, device: torch.device):
     return load_model(name, device=str(device), text_encoder=KnownText(None))
 
 
+TEXT_GPU_GB = 19  # Llama 3 8B in bfloat16 (16 GB) and the encoding's activations: the GPU is used when this much is free
+
+
+def text_device() -> str:
+    """Where the text encoder runs: on the GPU when the card has room for it (upstream's default device "auto"), else in
+    system memory (Kimodo's small-VRAM setting; the extension's TEXT_ENCODER_DEVICE default). The wrapper reads the
+    environment first (llm2vec_wrapper.py:40), so the choice is put there."""
+    device = "cpu"
+    if torch.cuda.is_available() and torch.cuda.mem_get_info()[0] >= TEXT_GPU_GB * 2**30:
+        device = "cuda"
+    os.environ["TEXT_ENCODER_DEVICE"] = device
+    return device
+
+
 def encode_text(run: Run) -> None:
-    """The text task: Kimodo's LLM2Vec encoder on the CPU, loaded for this prompt and freed again."""
+    """The text task: Kimodo's LLM2Vec encoder, on the GPU when it fits (text_device), loaded for this prompt and
+    freed again."""
     from kimodo.model.llm2vec import LLM2VecEncoder
     from kimodo.model.load_model import TEXT_ENCODER_PRESETS
     from kimodo.sanitize import sanitize_texts
@@ -101,13 +116,14 @@ def encode_text(run: Run) -> None:
     preset = TEXT_ENCODER_PRESETS["llm2vec"]["kwargs"]
     weights = job.weights_dir
     run.weights(*(weights / preset[k] for k in ("base_model_name_or_path", "peft_model_name_or_path")),
-                weights / "meta-llama" / "Meta-Llama-3-8B-Instruct", what="文字编码模型",
+                weights / "meta-llama" / "Meta-Llama-3-8B-Instruct", what=reason("I-KIMODO-TEXTENCODER"),
                 page="https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct")
     cwd = os.getcwd()
     os.chdir(weights)  # the adapters name their base model "meta-llama/Meta-Llama-3-8B-Instruct": the folder here
     try:
-        encoder = run.model("文字编码模型（Llama 3 8B，CPU）", LLM2VecEncoder, **{**preset, "device": "cpu"})
-        run.stage("编码文字描述")
+        device = text_device()
+        encoder = run.model("load_model", LLM2VecEncoder, **{**preset, "device": device}, stage_params={"model": "LLM2Vec (Llama 3 8B)"})
+        run.stage("encode_prompt")
         text = sanitize_texts([job.params["prompt"]])
         feat, _ = encoder(text)
     finally:
@@ -115,8 +131,19 @@ def encode_text(run: Run) -> None:
     embedding = feat.float().cpu().numpy().reshape(1, TEXT_DIM)
     del encoder, feat
     gc.collect()
+    if device == "cuda":
+        torch.cuda.empty_cache()
     np.save(job.raw_dir / "text.npy", embedding)
-    run.finish([], prompt=text[0], encoder="LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised (bfloat16, CPU)")
+    run.finish([], prompt=text[0], encoder=f"LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised (bfloat16, {device.upper()})")
+
+
+def post_processing(skel, p: dict) -> bool:
+    """「后处理」 as upstream runs it: never on the G1 robot weights ("postprocessing is disabled (does not work well
+    for this model)", kimodo/scripts/generate.py:325-326, also demo/ui.py:2846); the node greys the parameter out
+    for them."""
+    from kimodo.skeleton import G1Skeleton34
+
+    return bool(p["post_process"]) and not isinstance(skel, G1Skeleton34)
 
 
 def model_skeleton(model) -> mo.Skeleton:
@@ -154,7 +181,7 @@ def generate_part(model, rotations: np.ndarray, root: np.ndarray, frames: np.nda
         set_seed(seed)
         with torch.inference_mode():
             out = model(p["prompt"].strip(), length, num_denoising_steps=p["steps"], constraint_lst=[],
-                        cfg_weight=[TEXT_GUIDANCE, p["guidance"]], cfg_type="separated", post_processing=p["post_process"],
+                        cfg_weight=[TEXT_GUIDANCE, p["guidance"]], cfg_type="separated", post_processing=post_processing(skel, p),
                         num_samples=1, return_numpy=True, first_heading_angle=0.0, progress_bar=lambda x: x)
         return unpack(skel, out, np.eye(3), np.zeros(3))
 
@@ -174,7 +201,7 @@ def generate_part(model, rotations: np.ndarray, root: np.ndarray, frames: np.nda
     set_seed(seed)
     with torch.inference_mode():
         out = model(p["prompt"].strip(), length, num_denoising_steps=p["steps"], constraint_lst=constraints,
-                    cfg_weight=[TEXT_GUIDANCE, p["guidance"]], cfg_type="separated", post_processing=p["post_process"],
+                    cfg_weight=[TEXT_GUIDANCE, p["guidance"]], cfg_type="separated", post_processing=post_processing(skel, p),
                     num_samples=1, return_numpy=True, first_heading_angle=0.0, progress_bar=lambda x: x)  # a batch of one, as the CLI
     return unpack(skel, out, turn, shift)
 
@@ -210,7 +237,7 @@ def loaded(run: Run) -> tuple[object, str]:
     name = p["checkpoint"]  # the selected weight's folder, from the node (the one table is extension.py MODELS)
     run.weights(job.weights_dir / name)
     embedding = np.load(job.inputs["text"]) if p["prompt"].strip() else None
-    model = run.model(name, load_kimodo, name, torch.device("cuda"))
+    model = run.model("load_model", load_kimodo, name, torch.device("cuda"), stage_params={"model": name})
     model.text_encoder = KnownText(embedding)  # this job's prompt
     return model, name
 
@@ -238,7 +265,7 @@ def generate_free(run: Run) -> None:
     contacts = np.zeros((total, 4), np.float32)
     step = MAX_FRAMES - TRANSITION  # frames each part after the first adds (it re-generates TRANSITION frames of the one before)
     parts = 1 + -(-max(total - MAX_FRAMES, 0) // step)  # ceil: the last part may be short, never left ungenerated
-    run.stage("Kimodo 生成")
+    run.stage("generate")
     done = 0
     for n in range(parts):
         lead = TRANSITION if done else 0  # the previous part's last frames constrain this part
@@ -249,10 +276,10 @@ def generate_free(run: Run) -> None:
         end = first + length
         rotations[done:end], root[done:end], contacts[done:end] = rot[lead:], pos[lead:], contact[lead:]
         done = end
-        progress(n + 1, parts, "生成")
+        progress(n + 1, parts, "part")
     if parts > 1:
         say("N-KIMODO-PARTS", seconds=total / MODEL_FPS, parts=parts)
-    run.stage("重采样到镜头帧率")
+    run.stage("resample_fps")
     times, at = np.arange(total) / MODEL_FPS, np.arange(want) / fps
     rot_out = mo.resample_rotations(times, rotations, at)
     pos_out = world_joints(model, rot_out, mo.resample_values(times, root, at)) * M_TO_CM
@@ -280,7 +307,7 @@ def generate(run: Run) -> None:
     p = run.params
     motion = ib.read_job(run.job.inputs["motion"])
     model, name = loaded(run)
-    run.stage("对齐骨骼")
+    run.stage("align_skeleton")
     try:
         retarget = motion.retarget(model_skeleton(model))
     except (Failure, ValueError) as exc:  # MotionJob.retarget / Retarget.align raise Failure (E-MOTION-NOJOINTS / NOROOT / NOLEG)
@@ -299,7 +326,7 @@ def generate(run: Run) -> None:
     rotations = np.zeros((total, len(retarget.model.names), 3, 3))
     root = np.zeros((total, 3))
     contacts = np.zeros((total, 4), np.float32)
-    run.stage("Kimodo 生成")
+    run.stage("generate")
     for n, (a, b) in enumerate(parts):
         start, end = int(keys[a]), int(keys[b])
         lead = min(TRANSITION, start) if n else 0  # the previous part's last frames, constrained and cross-faded
@@ -314,7 +341,7 @@ def generate(run: Run) -> None:
             rotations[first:start] = mo.quat_to_matrix(mo.slerp(q_old, q_new, blend))
             root[first:start] = root[first:start] * (1 - blend) + pos[:lead] * blend
         rotations[start:end + 1], root[start:end + 1], contacts[start:end + 1] = rot[lead:], pos[lead:], contact[lead:]
-        progress(n + 1, len(parts), "生成")
+        progress(n + 1, len(parts), "part")
     if len(parts) > 1:
         say("N-KIMODO-PARTS", seconds=total / MODEL_FPS, parts=len(parts))
     ib.write_result(run, retarget, MODEL_FPS, keys, rotations, root, contacts, method="Kimodo", model=name,

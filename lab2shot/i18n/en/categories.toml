@@ -1,0 +1,204 @@
+# Category words (lab2shot/categories.py Words): the node menu's bands, and the categories of both trees
+# (menu/categories.json, templates/_categories.json hold their structure). Written by the admin page when a
+# category is created, changed or removed: the whole file is rewritten, comments added by hand are not kept.
+
+[menu_section.tools]
+label = "Tools"
+
+[menu_section.deliver]
+label = "Algorithms"
+
+[category.read]
+label = "Read"
+
+[category.read_plate]
+label = "Sequences and Video"
+
+[category.read_scene]
+label = "3D Data"
+
+[category.image]
+label = "Image"
+
+[category.img_adjust]
+label = "Adjust"
+
+[category.img_warp]
+label = "Warp"
+
+[category.img_channel]
+label = "Channels"
+
+[category.tools_mask]
+label = "Masks"
+
+[category.mask_make]
+label = "Create Masks"
+
+[category.mask_edit]
+label = "Edit Masks"
+
+[category.camera]
+label = "Camera"
+
+[category.camera_tools]
+label = "Camera"
+
+[category.geometry]
+label = "Geometry"
+
+[category.geo_maps]
+label = "Depth and Normals"
+
+[category.geo_points]
+label = "Points and Space"
+
+[category.scene]
+label = "Scene"
+
+[category.scene_build]
+label = "Assemble and Transform"
+
+[category.scene_convert]
+label = "Convert"
+
+[category.tools_motion]
+label = "Motion"
+
+[category.retarget_tools]
+label = "Retarget"
+
+[category.pose_skin]
+label = "Skin and Pose"
+
+[category.blocks]
+label = "Building Blocks"
+
+[category.value]
+label = "Values"
+
+[category.math]
+label = "Math"
+
+[category.list]
+label = "Lists"
+
+[category.flow]
+label = "Flow"
+
+[category.output]
+label = "Output"
+
+[category.out_deliver]
+label = "Delivery and Data"
+
+[category.out_picture]
+label = "Images"
+
+[category.out_scene]
+label = "3D"
+
+[category.workflow]
+label = "CG Preset Workflows"
+
+[category.camera_track]
+label = "Camera"
+
+[category.camera_traj]
+label = "Camera Solve"
+
+[category.depth_camera]
+label = "Camera and Depth"
+
+[category.depth_long]
+label = "Long and Dynamic Shots"
+
+[category.lens_calib]
+label = "Lens and Gravity"
+
+[category.depth]
+label = "Depth and Normals"
+
+[category.depth_image]
+label = "Per-Frame Depth and Normals"
+
+[category.depth_video]
+label = "Video Depth"
+
+[category.reconstruct]
+label = "Scene Reconstruction"
+
+[category.points_mesh]
+label = "Point Clouds and Meshes"
+
+[category.gaussian]
+label = "3D Gaussians"
+
+[category.matte]
+label = "Mattes and Masks"
+
+[category.matte_alpha]
+label = "Mattes"
+
+[category.mask]
+label = "Masks and Segmentation"
+
+[category.tracks]
+label = "Tracking and Alignment"
+
+[category.tracks2d]
+label = "2D Points and Planes"
+
+[category.tracks3d]
+label = "3D Tracks"
+
+[category.motion]
+label = "Motion Vectors"
+
+[category.align]
+label = "Alignment and Paint"
+
+[category.body]
+label = "Human Motion"
+
+[category.body_video]
+label = "Video Full Body"
+
+[category.body_full]
+label = "Per-Frame Body and Hands"
+
+[category.face]
+label = "Face"
+
+[category.face_anim]
+label = "Face Motion"
+
+[category.face_maps]
+label = "Face Maps"
+
+[category.animation]
+label = "Motion Processing"
+
+[category.retarget_rig]
+label = "Retargeting and Rigging"
+
+[category.cleanup]
+label = "Cleanup"
+
+[category.motion_gen]
+label = "Generation and Inbetweening"
+
+[category.light]
+label = "Lighting and Materials"
+
+[category.env_light]
+label = "HDRI"
+
+[category.relight]
+label = "PBR and Relighting"
+
+[category.generate]
+label = "Generation and Text"
+
+[category.image_text]
+label = "Images and Text"

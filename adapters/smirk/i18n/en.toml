@@ -1,0 +1,37 @@
+# SMIRK extension: its words and messages in English (the same keys as zh.toml).
+
+# ---- images and faces
+"N-SMIRK-NOFACE.one" = "SMIRK Facial Motion found no face with MediaPipe in any of the {frames} frame, so the output is empty: if the images are already cropped frontal close-ups, set Crop to Whole Image; otherwise check that the faces in the footage are large enough and not occluded"
+"N-SMIRK-NOFACE.other" = "SMIRK Facial Motion found no face with MediaPipe in any of the {frames} frames, so the output is empty: if the images are already cropped frontal close-ups, set Crop to Whole Image; otherwise check that the faces in the footage are large enough and not occluded"
+"N-SMIRK-FACEMISSING.one" = "SMIRK Facial Motion: MediaPipe found no face on {missing} of {frames} frames; that frame reuses the nearest frame's crop box"
+"N-SMIRK-FACEMISSING.other" = "SMIRK Facial Motion: MediaPipe found no face on {missing} of {frames} frames; those frames reuse the nearest frame's crop box"
+
+[node."smirk.face_solve"]
+subtitle = "Face Motion"
+description = "SMIRK: solves the FLAME head model's head motion, jaw and 50 expressions (plus blinks) per frame, with exaggerated expressions and accurate mouth shapes. Outputs a skinned head with expression deformation, its exact mesh on every frame and 52 expression curves, all in camera space (Focal Length sets how far the head is from the lens). Also outputs a Camera: the pinhole camera the head is placed with (at the origin and still, focal length = the Focal Length set, or 50 mm full frame when empty, principal point at the image center); the 3D viewport looks through it at the image plane so the head lines up with the image. To place it in a camera's world, follow with Camera Space."
+official.ours.camera = "The pinhole camera the face is placed with: at the origin, still, focal length = Focal Length (50 mm full frame when empty), principal point at the image center"
+official.note = "① **The official full set of FLAME parameters is the Skinned Character output**: no separate type and no extra output (parametric bodies such as SMPL / SMPL-X / MANO / FLAME / MHR are skin + skin weights + skeleton animation, packed as a Skinned Character with no data type of their own). Item by item (worker.py face_rig): `shape_params` (300, locked to the median over the shot) becomes the face's rest mesh and rest skeleton (npz rest_vertices / rest_joints), with FLAME's own skin weights (npz skin_weights); `pose_params` (head rotation) becomes the root joint's rotation on every frame (npz local_rotations[:, 0], including the one fixed rotation from FLAME space to camera space); `jaw_params` becomes the jaw joint's rotation (local_rotations[:, 2]); `expression_params` (50) and `eyelid_params` (2) become 52 blend shape targets on the Skinned Character (npz blendshapes / blendshape_names / blendshape_weights), and the same numbers also go out through the Expression Curves output. **Not one parameter is lost.** ② `cam` is not in gives because it is **not** an official camera: it is three weak-perspective numbers on the 224×224 crop (scale + translate, smirk_encoder.py:43), used only to work out how far the head is from the lens (worker.py perspective). The Camera output is the pinhole camera the face is placed with (at the origin, still, focal length = the node's Focal Length, 50 mm when empty), declared in ours: the 3D viewport looks through it at the image plane so the head lines up with the image. The head stays in camera space; to place it in a camera's world, follow with the core node Camera Space (camera_space). ③ The official mesh is in another file, flame_output['vertices'] of `src/FLAME/FLAME.py:310-314` (demo.py:110 flame.forward(outputs)): FLAME evaluates it from these parameters, the encoder does not output it directly."
+
+[node."smirk.face_solve".param.crop]
+label = "Crop"
+option.auto = "Find Face"
+option.none = "Whole Image"
+
+[node."smirk.face_solve".port.expressions]
+label = "Expression Curves"
+
+[node."smirk.face_solve".port.camera]
+help = "The camera the people are placed with: a still pinhole camera at the origin, its focal length the node's Focal Length (the solver's own estimate or the default when left empty), its principal point at the image centre. Not a solved camera: the people are placed in its space, so through it they line up with the image plane. Use it as the solver's camera, or as the target of Camera Space"
+
+[extension.smirk]
+summary = "Reconstructs 3D faces from monocular images, with facial geometry that faithfully captures extreme, asymmetric and subtle expressions"
+license.name = "MIT (code) + FLAME 2020 non-commercial + model weights research only"
+license.summary = "Research only. SMIRK's code is MIT, but it must run with the FLAME 2020 face model (generic_model.pkl), licensed for non-commercial research only, which you download yourself after registering at flame.is.tue.mpg.de and may not redistribute (FLAME 2023 Open is CC-BY-4.0, but SMIRK is trained on FLAME 2020 and cannot swap it in). The FLAME-derived files shipped in the repository (FLAME_masks, landmark_embedding, head_template.obj) also come from the FLAME website. The authors give no separate license for the SMIRK model weights (SMIRK_em1.pt), and the training data includes LRS3, MEAD, CelebA and FFHQ (all non-commercial research data), so they are used for research only. MediaPipe Face Landmarker, used to crop the face, is Apache-2.0 in code and model. smplx is not used, nor pytorch3d / nvdiffrast (the rendering part is not needed)"
+weight.smirk-em1.note = "SMIRK pretrained model (authors' Google Drive, 134 MB, research only)"
+weight.face-landmarker.note = "MediaPipe face_landmarker.task float16 v1 (for cropping the face, 3.6 MB, Apache-2.0)"
+
+# worker progress (worker.py; write_results is the core's)
+[stage]
+find_face_each = "Finding faces"
+find_face = "MediaPipe finding faces"
+estimate_expressions = "Estimating expressions"

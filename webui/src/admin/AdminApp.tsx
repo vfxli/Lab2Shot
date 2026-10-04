@@ -8,18 +8,20 @@ import { useSession, useSignedIn } from "../state/session";
 import { shown, visible } from "../api/applies";
 import { Admin, type AdminContext } from "./common";
 import { RestartBanner, RestartDialog, RestartVeil } from "./Restart";
-import { bandsOf, sectionsFor, type AdminSection } from "./sections";
+import { bandLabel, bandsOf, sectionsFor, type AdminSection } from "./sections";
 import { lastedText } from "../platform/format";
 import { usePoll } from "../platform/poll";
 import { reasonOf } from "../messages/message";
 import { Button } from "../ui/Button";
+import { t } from "../i18n/t";
+import { useLang, type Lang } from "../i18n/lang";
+import { switchLanguage } from "../state/language";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** The /admin page. User pages link to it only from an administrator's account menu; it is served only after the
  * administrator login (Auth.tsx AdminGate, via site.tsx). A side list of sections (sections.tsx) shows one section at
  * a time; the address /admin#<id> preserves the selection across reloads and logins. The header shows the server state, the
  * restart button and logout, and a banner while a restart is pending. */
-
-const TITLE = "Lab2Shot 管理";
 
 const noOverview = async () => null; // Logins without server.status do not read the overview.
 const noQueue = async () => null; // Logins without queue.manage do not read the whole queue.
@@ -35,6 +37,10 @@ const sectionOf = (sections: readonly AdminSection[]) => {
 
 export default function AdminPage() {
   const state = useSignedIn();
+  // the page's language (the account's): switching it renders the page again and asks the server again for what it
+  // says in words (the open section is made anew, the page-wide reads are keyed by it)
+  const lang = useLang((s) => s.lang);
+  const other: Lang = lang === "zh" ? "en" : "zh";
   const logout = useSession((s) => s.logout);
   // the fixed sections and the 设置 band (the server's pages); keyed by what the pages say, so the login state read
   // again does not make every section a new component (which would reset the one open)
@@ -48,24 +54,24 @@ export default function AdminPage() {
   const [asking, setAsking] = useState(false);
   const queueShown = shown(state?.applies, "queue");
   const { data: queue, error: queueFailed } = usePoll(queueShown ? api.admin.queue : noQueue, section === "queue" || asking ? QUEUE_WATCHED : QUEUE_BADGE, {
-    key: queueVersion,
+    key: `${queueVersion}.${lang}`,
   });
   const queueError = queueFailed ? reasonOf(queueFailed) : null;
-  const { data: overview, reload: refreshOverview } = usePoll(shown(state?.applies, "server.status") ? adminApi.overview : noOverview, 5000, { onError: (e) => setProblem(reasonOf(e)) });
+  const { data: overview, reload: refreshOverview } = usePoll(shown(state?.applies, "server.status") ? adminApi.overview : noOverview, 5000, { key: lang, onError: (e) => setProblem(reasonOf(e)) });
   const { info } = useServer();
   // the settings, one copy for the page: the settings pages edit them, 常驻模型 shows its policy from them
   const wantsSettings = section === "resident" || section.startsWith("settings-");
-  const { data: settingsRead } = usePoll(wantsSettings ? adminApi.settings : noSettings, null, { key: wantsSettings, onError: (e) => setProblem(reasonOf(e)) });
+  const { data: settingsRead } = usePoll(wantsSettings ? adminApi.settings : noSettings, null, { key: `${wantsSettings}.${lang}`, onError: (e) => setProblem(reasonOf(e)) });
   const [settings, settingsSaved] = useState<SettingsView | null>(null);
   useEffect(() => void (settingsRead && settingsSaved(settingsRead)), [settingsRead]);
 
   useEffect(() => {
-    document.title = TITLE;
+    document.title = t("ui.admin.page.title");
     const follow = () => setSection(sectionOf(all));
     follow(); // the settings pages arrive with the login state: an address naming one is taken once they are known
     window.addEventListener("hashchange", follow);
     return () => window.removeEventListener("hashchange", follow);
-  }, [all]);
+  }, [all, lang]);
 
   const go = useCallback((id: string) => {
     setProblem(null);
@@ -94,36 +100,35 @@ export default function AdminPage() {
     <Admin.Provider value={ctx}>
       <div className="adm">
         <header className="adm-top">
-          <a className="help-brand" href="/admin#overview" aria-label={TITLE}>
+          <a className="help-brand" href="/admin#overview" aria-label={t("ui.admin.page.title")}>
             <BrandMark />
           </a>
           <div className="adm-top-right">
             {overview && (
               <span
                 className="chip adm-server"
-                data-tip={`地址 ${overview.server.address}\n版本 ${overview.server.version} · 进程 ${overview.server.pid}\n启动命令：${overview.server.command}`}
+                {...tipAttrs(tipOf("value", t("ui.admin.page.server_tip", { address: overview.server.address, version: overview.server.version, pid: overview.server.pid, command: overview.server.command })))}
               >
                 <i style={{ background: restart ? "var(--orange)" : "var(--green)" }} />
-                {restart ? (restart.state === "draining" ? "等任务算完后重启" : "正在重启") : `运行中 · 已运行 ${lastedText(overview.server.started)}`}
+                {restart ? (restart.state === "draining" ? t("ui.admin.page.restart_draining") : t("ui.admin.page.restarting")) : t("ui.admin.page.running", { lasted: lastedText(overview.server.started) })}
               </span>
             )}
             {shown(state?.applies, "server.restart") && (
-              <Button
-                tip="重启这个服务：让要重启才生效的设置生效，或者服务不正常时重新开始。先问一句，有任务在算时可以等它们算完"
-                disabled={restart?.state === "restarting"}
-                onClick={() => setAsking(true)}
-              >
-                重启服务
+              <Button disabled={restart?.state === "restarting"} onClick={() => setAsking(true)}>
+                {t("ui.admin.page.restart")}
               </Button>
             )}
-            <Button tip="这个浏览器退出登录，编辑器也一起退出，回到登录页" tone="ghost" onClick={logout}>
-              退出登录
+            <Button tone="ghost" onClick={() => void switchLanguage(other).catch((e) => setProblem(reasonOf(e)))}>
+              {t(`lang.${other}`)}
+            </Button>
+            <Button tip={tipOf("consequence", t("ui.admin.page.logout_tip"))} tone="ghost" onClick={logout}>
+              {t("ui.admin.page.logout")}
             </Button>
           </div>
         </header>
         <RestartBanner />
         <div className="adm-body">
-          <nav className="adm-nav" aria-label="管理页面的各部分">
+          <nav className="adm-nav" aria-label={t("ui.admin.page.nav")}>
             {sections.map((s, i) => {
               const badge = s.badge?.(ctx);
               // Band heading: shown only when the previous visible section belongs to another band, so a band hidden
@@ -132,9 +137,9 @@ export default function AdminPage() {
               const band = mine && mine !== (i ? bands[sections[i - 1].id] : "") ? mine : "";
               return (
                 <div key={s.id} style={{ display: "contents" }}>
-                  {band && <div className="adm-nav-group">{band}</div>}
-                  <a href={`#${s.id}`} className={s.id === current.id ? "on" : undefined} data-tip={s.tip} aria-current={s.id === current.id ? "page" : undefined}>
-                    <span>{s.label}</span>
+                  {band && <div className="adm-nav-group">{bandLabel(band)}</div>}
+                  <a href={`#${s.id}`} className={s.id === current.id ? "on" : undefined} aria-current={s.id === current.id ? "page" : undefined}>
+                    <span>{s.label()}</span>
                     {badge && <span className={`adm-badge${badge === "!" ? " warn" : ""}`}>{badge}</span>}
                   </a>
                 </div>
@@ -146,13 +151,13 @@ export default function AdminPage() {
               <div className="notice adm-notice">
                 <span>{problem ?? queueError}</span>
                 {problem && (
-                  <Button tip="关掉这条提示" tone="ghost" onClick={() => setProblem(null)}>
-                    知道了
+                  <Button tone="ghost" onClick={() => setProblem(null)}>
+                    {t("ui.admin.page.dismiss")}
                   </Button>
                 )}
               </div>
             )}
-            <Current key={current.id} />
+            <Current key={`${current.id}.${lang}`} />
           </main>
         </div>
         {asking && <RestartDialog onClose={() => setAsking(false)} />}

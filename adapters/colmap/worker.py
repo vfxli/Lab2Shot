@@ -104,7 +104,7 @@ def run_colmap(run: Run, work: Path, names: dict[str, int], masked: dict[str, np
     extraction.use_gpu = use_gpu
     extraction.num_threads = threads
 
-    run.stage("提取特征 (SIFT)")
+    run.stage("extract_features")
     t0 = time.time()
     # One camera for the whole shot (a zoom lens would need one per frame: not supported).
     pycolmap.extract_features(
@@ -122,7 +122,7 @@ def run_colmap(run: Run, work: Path, names: dict[str, int], masked: dict[str, np
         db.close()
 
     seconds = {"features": time.time() - t0}
-    run.stage("匹配特征")
+    run.stage("match_features")
     t0 = time.time()
     matching = pycolmap.FeatureMatchingOptions()
     matching.use_gpu = use_gpu
@@ -156,7 +156,7 @@ def run_colmap(run: Run, work: Path, names: dict[str, int], masked: dict[str, np
     refine_focal = focal_px is None
     total = len(names)
     if params["mapper"] == "incremental":
-        run.stage("增量解算相机")
+        run.stage("incremental_solve")
         options = pycolmap.IncrementalPipelineOptions()
         options.num_threads = threads  # 「保留核心数」: bundle adjustment is the most CPU-heavy step
         options.ba_refine_focal_length = refine_focal
@@ -166,21 +166,21 @@ def run_colmap(run: Run, work: Path, names: dict[str, int], masked: dict[str, np
         def next_image():
             registered[0] += 1
             if registered[0] % 5 == 0:
-                progress(min(registered[0], total), total, "注册画面")
+                progress(min(registered[0], total), total, "register_images")
 
         models = pycolmap.incremental_mapping(
             database, image_dir, sparse_dir, options=options,
-            initial_image_pair_callback=lambda: progress(2, total, "初始画面对"),
+            initial_image_pair_callback=lambda: progress(2, total, "initial_pair"),
             next_image_callback=next_image,
         )
     else:
         if focal_px is None and not two_stage:  # the two-stage path already calibrated on the pinhole camera
             # GLOMAP needs a focal close to the truth to start from: estimate it from
             # the fundamental matrices of all matched pairs first (COLMAP's view_graph_calibrator).
-            run.stage("估计 Focal Length (视图图标定)")
+            run.stage("view_graph_calibration")
             if not pycolmap.calibrate_view_graph(database):
                 say("W-COLMAP-VIEWGRAPH")
-        run.stage("全局解算相机 (GLOMAP)")
+        run.stage("global_solve")
         options = pycolmap.GlobalPipelineOptions()
         options.num_threads = threads  # 「保留核心数」 (reserved cores)
         options.mapper.bundle_adjustment.refine_focal_length = refine_focal
@@ -220,7 +220,7 @@ def unsolved(pairs: dict[str, int], mapper: str, registered: int = 0) -> None:
     if pairs["rotation_or_planar"] >= 0.8 * (pairs["parallax"] + pairs["rotation_or_planar"]):
         fail("E-COLMAP-NOPARALLAX", registered=registered, rotation=pairs["rotation_or_planar"], pairs=pairs["pairs"])
     fail("E-COLMAP-WEAKPARALLAX", registered=registered, parallax=pairs["parallax"], pairs=pairs["pairs"],
-         other_mapper="全局" if mapper == "incremental" else "增量")
+         other_mapper=reason("I-COLMAP-GLOBAL" if mapper == "incremental" else "I-COLMAP-INCREMENTAL"))
 
 
 # ---------------------------------------------------------------------- results
@@ -275,7 +275,7 @@ def main(job_path: str) -> None:
     raw = job.raw_dir
     work = job.scratch("colmap")
 
-    run.stage("准备画面")
+    run.stage("prepare_images")
     names = link_images(used, work / "images")
     moving = recon.MovingMasks(job, width, height)  # the node's moving-object masks: no features there
     masked = {name: moving.get(frame) for name, frame in names.items() if frame in moving}

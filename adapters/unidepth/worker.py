@@ -3,7 +3,7 @@ third_party/unidepth/.venv with the pinned repo on sys.path; never imports Lab2S
 
     python worker.py <job.json>
 
-job["node"] == "unidepth.geometry". Params:
+job["node"] == "unidepth.depth". Params:
     model       "unidepth-v2-vitl14" (default) | "unidepth-v2-vitb14" | "unidepth-v2-vits14"
     fov_x_deg   known horizontal field of view (degrees, 0-180) or null. Given: a pinhole
                 camera (principal point at the centre) is fed to the network as its camera
@@ -35,17 +35,17 @@ def load_model(model_dir: Path, device: torch.device):
 
 
 def main(job_path: str) -> None:
-    run = begin(job_path, "unidepth.geometry", "UniDepth")
+    run = begin(job_path, "unidepth.depth", "UniDepth")
     params = run.params
     model_id, level, fov_x = params["model"], params["resolution_level"], params["fov_x_deg"]
     model_dir = run.job.weights_dir / model_id
-    run.weights(model_dir / "model.safetensors", what=f"模型 {model_id} 的权重")
+    run.weights(model_dir / "model.safetensors")
 
     from unidepth.models.unidepthv2.unidepthv2 import get_paddings, get_resize_factor
     from unidepth.utils.camera import Pinhole
 
     device = torch.device("cuda")
-    model = run.model("UniDepth 模型", load_model, model_dir, device)
+    model = run.model("load_model", load_model, model_dir, device, stage_params={"model": "UniDepth"})
     model.resolution_level = level
 
     def infer(rgb: np.ndarray, frame: int) -> dict:

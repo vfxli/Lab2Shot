@@ -6,6 +6,8 @@ import { TIMELINE_STRIP, usePreferences } from "../state/preferences";
 import { Toggle } from "../ui/Button";
 import type { ViewItem } from "../view/plan";
 import { followDrag } from "../platform/drag";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** The curve editor under the view (part of editor/Viewer.tsx) and the one owner of it: the 「曲线」 toggle on the
  * control bar, the area docked under the stage (as tall as the user drags it; the stage gives up that room and nothing
@@ -17,7 +19,7 @@ export function CurveToggle() {
   const setTimelineStrip = usePreferences((s) => s.setTimelineStrip);
   return (
     <Toggle hud on={open} onChange={(v) => setTimelineStrip({ open: v })}>
-      曲线
+      {t("ui.timeline.curves")}
     </Toggle>
   );
 }
@@ -39,7 +41,7 @@ export function CurveStrip({ item }: { item: ViewItem }) {
   };
   return (
     <div ref={el} className="curve-strip" style={{ height }}>
-      <div className="curve-strip-grip" onPointerDown={grab} data-tip="上下拖动：改曲线编辑器的高度" />
+      <div className="curve-strip-grip" onPointerDown={grab} {...tipAttrs(tipOf("shortcut", t("ui.timeline.strip_grip_tip")))} />
       <Curves item={item} />
     </div>
   );
@@ -49,7 +51,7 @@ export function CurveStrip({ item }: { item: ViewItem }) {
 export function Curves({ item }: { item: ViewItem }) {
   const data = useDescribed<CurvesData>("curves", [item.fp!])[0];
   const error = data ? null : describedFailure("curves", item.fp!);
-  if (error) return <div className="empty">曲线读不出来：{error}</div>;
-  if (!data) return <div className="empty">读取曲线…</div>;
+  if (error) return <div className="empty">{t("ui.timeline.curves_failed", { error })}</div>;
+  if (!data) return <div className="empty">{t("ui.timeline.reading_curves")}</div>;
   return <CurvesView data={data} title={item.label} />;
 }

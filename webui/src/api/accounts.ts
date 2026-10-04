@@ -7,7 +7,7 @@ import type { Availability } from "./applies";
 import type { TagInfo } from ".";
 import type { AccountUsage, Traffic } from "./library";
 
-/** A row action the registry declares (lab2shot/resources.py Act), already filtered by the server for this login:
+/** A row action the registry declares (lab2shot/site/resources.py Act), already filtered by the server for this login:
  * every action returned is usable. `{id}` in `path` is replaced by the value of the row's first column. */
 export interface ResourceAct {
   id: string;
@@ -22,12 +22,14 @@ export interface ResourceAct {
 export interface UserRow {
   applies: Availability;
   // what this login may do to the account (account.edit, account.expiry, account.enable, account.tags, account.role,
-  // account.password, account.delete, account.purge, account.logins, account.quota, account.quota_set):
+  // account.password, account.delete, account.purge, account.logins, account.quota, account.quota_set,
+  // account.queue_first):
   // server/available.py ACCOUNT, resolved by account()
   id: number;
   username: string;
   name: string; // Chinese name
-  department: string;
+  department: string; // its value (stored)
+  department_label: string; // how it shows (accounts.department_label)
   role: string;
   role_label: string;
   owner: boolean; // the built-in administrator account
@@ -47,6 +49,7 @@ export interface UserRow {
   jobs: number;
   last_job: number | null;
   quota_gb: number | null; // the account's own disk quota (null: the default from the settings)
+  queue_first: boolean; // 队列优先: its tasks wait ahead of everyone else's (only ever on this admin listing)
   traffic: Traffic; // the network traffic the account used (lab2shot/server/traffic.py)
   presence: Presence; // 在线 (lab2shot/accounts.py presence()); never a raw session count (最近登录 has the real detail)
 }
@@ -112,9 +115,15 @@ export interface UserLogins {
   threshold_tip: string;
 }
 
+/** A department an account may be given (lab2shot/accounts.py departments_shown): its value (stored) and how it shows. */
+export interface Department {
+  value: string;
+  label: string;
+}
+
 export interface UsersView {
   users: UserRow[];
-  departments: string[];
+  departments: Department[];
   tags: Record<string, TagInfo>;
   allowed_new: string[];
   roles: { id: string; label: string; tip: string }[]; // the roles this login may give
@@ -132,7 +141,7 @@ export interface NewUser {
   role?: string; // only with users.role
 }
 
-export type UserChange = Partial<Pick<UserRow, "name" | "department" | "expires" | "enabled" | "tags" | "role">>;
+export type UserChange = Partial<Pick<UserRow, "name" | "department" | "expires" | "enabled" | "tags" | "role" | "queue_first">>;
 
 
 /** One item of the rights sheet: its short name (what the UI shows), the ability ticking it grants (the sentence shown

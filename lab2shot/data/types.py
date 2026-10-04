@@ -30,25 +30,49 @@ ROLES_3D = ("element", "backplate", "points", "strip", "inputs", "value")
 
 @dataclass(frozen=True)
 class DataType:
+    """一种数据类型。显示的词（名称、说明、终端说明、单项的名称）在语言目录里：type.<id>.label / .description / .end /
+    .items（lab2shot/i18n），按当前语言取。"""
+
     id: str
-    label: str
     color: str
-    description: str
     in_2d: str | None = None  # ROLES_2D 之一
     in_3d: str | None = None  # ROLES_3D 之一
-    # 有意设计的终端类型：说明为何只有输出设置节点接受它（没有节点以它为计算输入）。不做校验，
+    # 有意设计的终端类型：说明（type.<id>.end）为何只有输出设置节点接受它（没有节点以它为计算输入）。不做校验，
     # 该声明仅作为类型自身的说明
-    end: str = ""
-    # 包含多项内容的数据（人物框含多个人，场景含多个组）中单项的中文名称。命名、拆分与合并方式统一登记于
+    end: bool = False
+    # 包含多项内容的数据（人物框含多个人，场景含多个组）：单项的名称为 type.<id>.items。命名、拆分与合并方式统一登记于
     # data/items.py；此处未声明的类型不能逐项处理（「逐项开始」会拒绝并说明原因）。不含任何项（没有人物、
     # 没有跟踪点）的数据，对不接受空数据的输入（Port.takes_empty）而言无可计算（items.holds_nothing）
-    items: str = ""
+    items: bool = False
     # 摘要包含的行（data/summary.py ITEMS 的 id），按显示顺序排列：输入口提示、中键信息面板和「取信息」均读取此项。
     # 类型也会显示其父类型的摘要行
     summary: tuple[str, ...] = ()
     # 多层 EXR 中该类型的默认图层名（「多层 EXR 输出设置」的图层表在新增行时建议此名：webui/src/graph/edit.ts，
     # 已被占用时追加编号）；"" 表示该类型不会成为 EXR 图层
     layer_default: str = ""
+
+    def word(self, part: str) -> str:
+        from .. import i18n
+
+        return i18n.t(f"type.{self.id}.{part}")
+
+    @property
+    def label(self) -> str:
+        from .. import i18n
+
+        return i18n.Both.of(lambda: self.word("label"))  # in every language: a message naming it reads in its reader's
+
+    @property
+    def description(self) -> str:
+        return self.word("description")
+
+    @property
+    def end_text(self) -> str:
+        return self.word("end") if self.end else ""
+
+    @property
+    def item_word(self) -> str:
+        return self.word("items") if self.items else ""
 
 
 # ------------------------------------------------------------------ 类型的颜色
@@ -65,7 +89,7 @@ class DataType:
 COLOURS: Mapping[str, str] = MappingProxyType({
     # 三维：暖色
     "scene": "#D9A066", "scene.camera": "#FFD60A", "scene.character": "#FF3B30", "scene.skeleton": "#FFB4A8",
-    "scene.model": "#8C4A1E", "scene.points": "#FF8C1A", "scene.curves": "#8B1A4A", "scene.light": "#C9A227",
+    "scene.model": "#8C4A1E", "scene.points": "#FF8C1A", "scene.gaussian": "#E46767", "scene.curves": "#8B1A4A", "scene.light": "#C9A227",
     "curves": "#B8E356",  # 动画曲线：黄绿色，介于冷暖之间，因其属于动画数据，兼具两类特征
     # 二维像素：冷色
     "image": "#9FD8FF", "image.1": "#B0B0B6", "image.2": "#2FD5C8", "image.3": "#3E8EF7", "image.4": "#1F3F99",
@@ -120,13 +144,8 @@ def _check_colours() -> None:
 
 _check_colours()
 
-# 二维像素数据的四个成员：id 即通道数，名称沿用 CG 中的叫法（仅在此处定义，其他位置不得重复此表）
-PIXELS: Mapping[int, tuple[str, str]] = MappingProxyType({
-    1: ("Mask", "单通道：深度、视差、遮罩、置信度、粗糙度、金属度、分割编号……数值不是颜色，不做色彩转换"),
-    2: ("UV", "双通道：ST-map（去畸变、加畸变，Nuke 通用的坐标图）、模型的 UV 坐标"),
-    3: ("RGB", "三通道：照片、渲染、法线图、位置图——带色彩空间的按图片显示（走 OCIO），不带的按数值显示"),
-    4: ("RGBA", "四通道：带 alpha 的画面（和 Nuke 一样预乘）、运动矢量（前后各 u v）"),
-})
+# 二维像素数据的四个成员：id 即通道数（名称沿用 CG 中的叫法：type.image.<n>.label）
+PIXELS: tuple[int, ...] = (1, 2, 3, 4)
 # 像素图「数据信息」面板显示的内容：尺寸、帧数等始终显示，其后各项仅在数据自身声明时显示
 # （即契约 MEANING 中的含义：尺度、坐标系、置信度来源、UV 投影方式、类别表、去畸变或加畸变）
 PIXEL_SUMMARY = ('size', 'frames', 'channels', 'colorspace', 'values', 'range', 'scale', 'space',
@@ -136,62 +155,52 @@ PIXEL_SUMMARY = ('size', 'frames', 'channels', 'colorspace', 'values', 'range', 
 DATA_TYPES: Mapping[str, DataType] = MappingProxyType({
     t.id: t
     for t in (
-        DataType("video", "视频", colour_of("video"), "原始视频文件，只能接视频转序列", "picture", None, summary=('size', 'frames')),
+        DataType('video', colour_of('video'), 'picture', None, summary=('size', 'frames')),
         # 家族根类型：摘要在此定义，四个成员经 lineage 继承（items_of），不重复定义
-        DataType("image", "图像", colour_of("image"), "二维像素数据的总称，几条通道都行（Mask、UV、RGB、RGBA）：只有不挑通道数的口用它，包上永远是具体的那一种", "picture", None,
-                 summary=PIXEL_SUMMARY),
+        DataType('image', colour_of('image'), 'picture', None, summary=PIXEL_SUMMARY),
         # 视图中的角色同样只取决于通道数：任意通道数的数据均作为画面显示（单通道即灰度图，视图中可再选择通道、
         # 调整黑白点、着色、叠加第二通道，构成一条预览链，见 webui/src/model/view2d.ts）；单通道（每像素一个距离，
         # 配合相机反投影）和三通道（每像素一个坐标）均可作为点云查看，是否需要相机由数据包声明的 space 决定
         # （server/view_data.py points_view）
-        *(DataType(f"image.{n}", label, colour_of(f"image.{n}"), why, "picture",
+        *(DataType(f"image.{n}", colour_of(f"image.{n}"), "picture",
                    "points" if n in (1, 3) else None,
                    # 单通道中存放类别编号时（自带类别表）即为分割图，每一项是一个物体
                    # （data/items.py 也仅为 image.1 登记了拆分与合并方式）；其他 Mask 无法拆分为项，
                    # 「逐项开始」会以不含任何项为由拒绝并说明
-                   items="物体" if n == 1 else "",
+                   items=n == 1,
                    layer_default={1: "float", 2: "uv", 3: "rgb", 4: "rgba"}[n])
-          for n, (label, why) in PIXELS.items()),
+          for n in PIXELS),
         # 二维像素数据本质上只有一种，区别仅在于通道数（参考 DCC 的设计，底层不为每种分别实现）。
         # 因此只有一个家族 image，四个成员按通道数生成（PIXELS，见上方循环），读写、视图、连线均按通道数处理。
         # 通道的含义由使用方式决定：接到「粗糙度」口即为粗糙度，接到「高光」口即为高光；含义体现在输入口名称、
         # 数据自带的信息（色彩空间、分割编号表）以及使用它的节点参数上
-        DataType("boxes", "人物框", colour_of("boxes"), "每个人的编号，以及他在每一帧画面里的框", "overlay", None, items="人物", summary=('people', 'chosen', 'frames', 'size')),
-        DataType("scene", "场景", colour_of("scene"), "统称：几种三维数据合在一起的 USD 场景（「合成场景」的结果），里面可以有模型、相机、点云、骨架动画、蒙皮角色和灯光", None, "element", items="组", summary=('contents', 'top', 'subsets', 'attributes', 'frames')),
-        DataType("scene.camera", "相机", colour_of("scene.camera"), "USD 相机：Focal Length、Filmback、分辨率、每帧位置（不动的相机也有它的位置）", None, "element", summary=('focal', 'filmback', 'size', 'distortion')),
-        DataType("scene.character", "蒙皮角色", colour_of("scene.character"), "USD 蒙皮角色：网格蒙皮在骨骼上，骨骼逐帧的动画，网格的 blend shape 和逐帧权重（Maya 的 skinCluster + blendShape），解算人体、手、脸的节点给的就是它", None, "element"),
-        DataType("scene.skeleton", "骨架动画", colour_of("scene.skeleton"), "USD 骨架动画：只有关节层级和逐帧的关节变换，没有网格（动捕、重定向、补帧）", None, "element"),
-        DataType("scene.model", "模型", colour_of("scene.model"),
-                 "USD 模型：网格（UV、法线），静止的、跟着变换动的，或每帧变形的（点缓存）；"
-                 "网格可以带分区（GeomSubset，网格的一部分，如头皮、脸、脖子），用「按分区取出」取其中一块",
-                 None, "element"),
-        DataType("scene.points", "点云", colour_of("scene.points"), "USD 点云：每帧的点、颜色和附加属性", None, "element",
-                 summary=('scale', 'points_from', 'attributes')),
+        DataType('boxes', colour_of('boxes'), 'overlay', None, items=True, summary=('people', 'chosen', 'frames', 'size')),
+        DataType('scene', colour_of('scene'), None, 'element', items=True, summary=('contents', 'top', 'subsets', 'attributes', 'frames')),
+        DataType('scene.camera', colour_of('scene.camera'), None, 'element', summary=('focal', 'filmback', 'size', 'distortion')),
+        DataType('scene.character', colour_of('scene.character'), None, 'element'),
+        DataType('scene.skeleton', colour_of('scene.skeleton'), None, 'element'),
+        DataType('scene.model', colour_of('scene.model'), None, 'element'),
+        DataType('scene.points', colour_of('scene.points'), None, 'element', summary=('scale', 'points_from', 'attributes')),
+        DataType('scene.gaussian', colour_of('scene.gaussian'), None, 'element'),
         # 发丝、毛发导向线、相机路径、运动轨迹在 DCC 中都是场景中的对象（USD BasisCurves、Houdini 的 curves、
         # Maya 的 nurbsCurve），因此作为场景的一个种类，而非顶层类型。它与顶层的「动画曲线」curves 不同：
         # 后者是逐帧的数值曲线（如 52 条表情权重），前者是三维空间中的曲线
-        DataType("scene.curves", "三维曲线", colour_of("scene.curves"), "USD 三维曲线（BasisCurves）：每条曲线的点，以及逐点的宽度、颜色、朝向；发丝、毛发导向线、运动轨迹都是它",
-                 None, "element", summary=('strands', 'attributes')),
-        DataType("scene.light", "灯光", colour_of("scene.light"), "USD 灯光：穹顶灯（一张经纬图 HDRI 照亮整个场景，带旋转和强度）；只有 USD 带得走",
-                 None, "element"),
-        DataType("tracks2d", "2D 跟踪点", colour_of("tracks2d"), "画面上的一组点，每个点在每一帧的位置、那一帧是否被挡住，给分的跟踪器还带它对每个点每帧的置信度（点跟踪、面部关键点）", "overlay", None,
-                 end="交给 3DEqualizer、Nuke 的 2D 跟踪点，由「2D 跟踪点输出设置」写出", items="组", summary=('points', 'frames', 'size')),
-        DataType("curves", "动画曲线", colour_of("curves"), "逐帧的数值曲线，每条有名字，如 52 条表情曲线", "strip", "strip",
-                 end="交给 DCC 的动画数据：表情权重写成 CSV、.chan 或 USD，相机对比的误差画成曲线", summary=('curves', 'frames')),
-        DataType("files", "要输出的文件", colour_of("files"), "输出设置节点按它的名字和格式写好的文件，接到「输出」交给你：每个输出设置一个子文件夹", "inputs", "inputs",
-                 end="写好的文件，只交给「输出」", summary=('name', 'main', 'files', 'commercial', 'learned')),
+        DataType('scene.curves', colour_of('scene.curves'), None, 'element', summary=('strands', 'attributes')),
+        DataType('scene.light', colour_of('scene.light'), None, 'element'),
+        DataType('tracks2d', colour_of('tracks2d'), 'overlay', None, end=True, items=True, summary=('points', 'frames', 'size')),
+        DataType('curves', colour_of('curves'), 'strip', 'strip', end=True, summary=('curves', 'frames')),
+        DataType('files', colour_of('files'), 'inputs', 'inputs', end=True, summary=('name', 'main', 'files', 'commercial', 'learned')),
         # 基本数值（data/values.py）：单个值或逐帧值；单位（mm、px、°）属于数据的一部分
-        DataType("value", "数值", colour_of("value"), "一个值，或者每帧一个值（带帧号）；单位写在数据里", "value", "value", summary=('value', 'frames')),
-        DataType("value.float", "浮点", colour_of("value.float"), "一个小数，或者每帧一个（一条曲线），可以带单位（mm、px、°……）：Focal Length、Filmback、强度", "value", "value"),
-        DataType("value.int", "整数", colour_of("value.int"), "一个整数，或者每帧一个，可以带单位：分辨率、帧号、数量", "value", "value"),
-        DataType("value.bool", "布尔", colour_of("value.bool"), "开或关，或者每帧一个", "value", "value"),
-        DataType("value.vector", "向量", colour_of("value.vector"), "三个小数 X Y Z，或者每帧一组，可以带单位：位置（cm）、朝向（°）", "value", "value"),
-        DataType("value.text", "文字", colour_of("value.text"), "一段文字，或者每帧一段：名字、编号列表", "value", "value"),
+        DataType('value', colour_of('value'), 'value', 'value', summary=('value', 'frames')),
+        DataType('value.float', colour_of('value.float'), 'value', 'value'),
+        DataType('value.int', colour_of('value.int'), 'value', 'value'),
+        DataType('value.bool', colour_of('value.bool'), 'value', 'value'),
+        DataType('value.vector', colour_of('value.vector'), 'value', 'value'),
+        DataType('value.text', colour_of('value.text'), 'value', 'value'),
         # 一颗镜头的内参合并为一份：Focal Length 和 Filmback 因常用而各有输入口；其余（畸变系数、主点）与模型名
         # 一起经同一条连线传递，两侧模型一致时才可计算。
         # 接收端（「LensDistortion」）将 model 与自身的镜头模型比对，不一致即拒绝，比使用多个浮点输入口更可靠
-        DataType("value.lens", "镜头内参", colour_of("value.lens"), "一颗镜头的内参打成一份：镜头模型的名字 + 这个模型的系数（畸变系数、主点），"
-                 "Focal Length 和 Filmback 不在里面（它们各有自己的口）。接「LensDistortion」的「镜头内参」，模型对得上才算", "value", "value"),
+        DataType('value.lens', colour_of('value.lens'), 'value', 'value'),
     )
 })
 
@@ -209,26 +218,47 @@ ANY_LIST = "|".join(t + LIST for t in ANY_TYPES)
 
 
 def is_list(type_id: str) -> bool:
-    return type_id.endswith(LIST)
+    """Whether data of this type is a list. Of candidate types ("a|b"): only when every candidate is one -- a type that
+    may be one or a single ("scene|scene[]", the open "anything" of a port that follows nothing yet) is not."""
+    return all(t.endswith(LIST) for t in type_id.split("|"))
 
 
 def element_of(type_id: str) -> str:
-    """列表中单项的类型（非列表类型返回自身）。"""
-    return type_id.removesuffix(LIST)
+    """列表中单项的类型（非列表类型返回自身）；候选类型逐个取。"""
+    return "|".join(dict.fromkeys(t.removesuffix(LIST) for t in type_id.split("|")))
 
 
 def list_of(type_id: str) -> str:
-    """该类型的列表类型；列表的列表即列表本身（「逐项结束」会展平）。"""
-    return type_id if is_list(type_id) else type_id + LIST
+    """该类型的列表类型；列表的列表即列表本身（「逐项结束」会展平）；候选类型逐个取。"""
+    return "|".join(dict.fromkeys(t if t.endswith(LIST) else t + LIST for t in type_id.split("|")))
+
+
+def within(found: str, declared: str) -> str:
+    """What a port that follows its inputs (Port.type_from) carries, kept inside its own declaration: the followed
+    type's candidates the port declares, or, when what it follows is still wider (the open "anything" of an
+    unresolved 「切换」), the port's own candidates that type could be. A port never carries more than it declares, so
+    its colour and shape are never wider than the input it plugs into."""
+    alts = found.split("|")
+    if (keep := [a for a in alts if accepts(declared, a)]) and len(keep) == len(alts):
+        return found
+    if keep:
+        return "|".join(keep)
+    return "|".join(d for d in declared.split("|") if accepts(found, d)) or declared
 
 
 def type_label(type_id: str) -> str:
     """类型的显示名称，包括候选类型和列表：「图像序列」「图像序列列表」「深度图或遮罩」。"""
-    said = []
-    for t in type_id.split("|"):
-        kind = DATA_TYPES.get(element_of(t))
-        said.append((kind.label if kind else element_of(t)) + ("列表" if is_list(t) else ""))
-    return "或".join(said)
+    from .. import i18n
+
+    def said() -> str:
+        names = []
+        for t in type_id.split("|"):
+            kind = DATA_TYPES.get(element_of(t))
+            name = kind.word("label") if kind else element_of(t)
+            names.append(i18n.t("type.list_of", type=name) if is_list(t) else name)
+        return i18n.t("type.or").join(names)
+
+    return i18n.Both.of(said)  # in every language: a message naming it reads in its reader's
 
 
 @dataclass(frozen=True)
@@ -238,21 +268,28 @@ class SceneKind:
     （Graph.scene_kinds）；三维输出设置节点按种类声明写出方式（OutputSettings.writes）。"""
 
     id: str
-    label: str
     type: str  # 单独传递时的数据类型：决定其颜色及可承载的连线
+
+    @property
+    def label(self) -> str:
+        """其名称（kind.<id>，按当前语言；各语言都带着：消息里按读者的语言说）。"""
+        from .. import i18n
+
+        return i18n.Word(f"kind.{self.id}")
 
 
 # 按编辑器的列出顺序排列（支持的数据）。新增三维数据种类时在此添加一行，每个三维输出设置节点随后须声明其写出方式。
 SCENE_KINDS: Mapping[str, SceneKind] = MappingProxyType({
     k.id: k
     for k in (
-        SceneKind("model", "模型", "scene.model"),
-        SceneKind("camera", "相机", "scene.camera"),
-        SceneKind("points", "点云", "scene.points"),
-        SceneKind("curves", "三维曲线", "scene.curves"),
-        SceneKind("skeleton", "骨架动画", "scene.skeleton"),
-        SceneKind("character", "蒙皮角色", "scene.character"),
-        SceneKind("light", "灯光", "scene.light"),
+        SceneKind("model", "scene.model"),
+        SceneKind("camera", "scene.camera"),
+        SceneKind("points", "scene.points"),
+        SceneKind("gaussian", "scene.gaussian"),
+        SceneKind("curves", "scene.curves"),
+        SceneKind("skeleton", "scene.skeleton"),
+        SceneKind("character", "scene.character"),
+        SceneKind("light", "scene.light"),
     )
 })
 # 逐帧变化的模型（点缓存）：与 "model" 一同传递；写出节点可以只接受静止模型
@@ -266,7 +303,7 @@ KIND_ORDER = (*SCENE_KINDS, DEFORMING)  # 三维连线可承载的内容，按�
 # 三维数据（scene.*）排在一起，与 DCC 中的对象对应；参数类数据（SMPL 人体、动画曲线、数值）排在其后，
 # 因此解算人体的节点上依次为「相机 / 人物 / 网格 / SMPL 人体」，三维交付物在前，算法参数在后
 PORT_ORDER = ("video", "image", "boxes", "tracks2d", "scene.camera",
-              "scene.character", "scene.skeleton", "scene.model", "scene.points", "scene.curves", "scene.light", "scene",
+              "scene.character", "scene.skeleton", "scene.model", "scene.points", "scene.gaussian", "scene.curves", "scene.light", "scene",
               "curves",
               "value", "files")
 
@@ -297,7 +334,9 @@ def kind_of(data_type: str) -> str:
 
 def kind_label(kind: str) -> str:
     """编辑器中种类（或变形模型）的显示名称。"""
-    return "变形的模型" if kind == DEFORMING else SCENE_KINDS[kind].label
+    from .. import i18n
+
+    return i18n.t("kind.deforming") if kind == DEFORMING else SCENE_KINDS[kind].label
 
 
 def accepts(port_type: str, data_type: str) -> bool:
@@ -347,7 +386,8 @@ def describe_types() -> list[dict]:
     （data/layers.py row_channels，即「多层 EXR 输出设置」图层表新增行时填入的值）。"""
     from .layers import row_channels  # layers 模块读取本表，因此在此处而非模块级导入
 
-    return [{**asdict(t), "layer_channels": row_channels(t.layer_default, channels_of(t.id)) if channels_of(t.id) else []}
+    return [{**asdict(t), "label": t.label, "description": t.description, "end": t.end_text, "items": t.item_word,
+             "layer_channels": row_channels(t.layer_default, channels_of(t.id)) if channels_of(t.id) else []}
             for t in DATA_TYPES.values()]
 
 
@@ -360,4 +400,4 @@ def describe_layer_ports() -> dict[str, str]:
 
 
 def describe_scene_kinds() -> list[dict]:
-    return [asdict(k) for k in SCENE_KINDS.values()]
+    return [{**asdict(k), "label": k.label} for k in SCENE_KINDS.values()]

@@ -76,7 +76,7 @@ import numpy as np
 
 from .names import unique
 
-KINDS = ("model", "points", "curves", "camera", "character")
+KINDS = ("model", "points", "gaussian", "curves", "camera", "character")
 MESH_KEY = re.compile(r"mesh\d+_")
 
 

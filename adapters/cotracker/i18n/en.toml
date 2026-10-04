@@ -1,0 +1,49 @@
+# This extension's words and messages in English (the same keys as zh.toml).
+
+# ---- results
+"W-COTRACKER-NAN.one" = "CoTracker3 could not compute {count:d} position (a point on a frame), giving NaN: that point is unusable on that frame; check it in the viewer before delivery"
+"W-COTRACKER-NAN.other" = "CoTracker3 could not compute {count:d} positions (a point on a frame), giving NaN: those points are unusable on those frames; check them in the viewer before delivery"
+
+# ---- words
+
+[node."cotracker.track"]
+subtitle = "2D Tracks"
+description = "Image → 2D tracks: many points computed together, each referring to the others, with occluded points marked invisible (Meta CoTracker3). Suited to dense points over a whole surface; research use only, not for commercial projects. For commercially usable 2D points use tapnext.track."
+
+[node."cotracker.track".param.grid]
+label = "Grid Points"
+
+[node."cotracker.track".param.mode]
+label = "Mode"
+
+[node."cotracker.track".param.mode.option]
+offline = "Whole Shot"
+online = "Sliding Windows"
+
+[node."cotracker.track".param.resolution]
+label = "Processing Resolution"
+placeholder = "512×384"
+
+[node."cotracker.track".official]
+note = "segm_mask is upstream's own input (predictor.py:46 \"Segmentation mask of shape (B, 1, H, W)\"): when it is given, the grid points are scattered only inside the mask (the comment on line 43). Visibility (visibilities) is part of our 2D track data, not a port of its own."
+
+[extension.cotracker]
+summary = "A fast transformer-based model that can track any point in a video, bringing some of the benefits of optical flow to point tracking"
+
+[extension.cotracker.license]
+name = "CC-BY-NC-4.0 (non-commercial)"
+summary = "Non-commercial: the code (LICENSE.md) and the CoTracker3 weights (the Hugging Face facebook/cotracker3 model card) are both CC-BY-NC 4.0, for research and other non-commercial use only, with attribution to Meta. A little of the repository's code comes from PIPs (MIT), TAP-Vid and LocoTrack (Apache-2.0). It depends only on torch / torchvision, with no other hidden non-commercial dependencies"
+
+[extension.cotracker.weight.cotracker3_offline]
+note = "CoTracker3 offline (CC-BY-NC 4.0, 102 MB)"
+
+[extension.cotracker.weight.cotracker3_online]
+note = "CoTracker3 online (CC-BY-NC 4.0, 102 MB)"
+
+[stage]
+read_frames = "Read Frames"
+track = "Track"
+track_points.one = "Track {n} Point ({mode})"
+track_points.other = "Track {n} Points ({mode})"
+track_points_windowed.one = "Track {n} Point ({mode}, {window} frames per window)"
+track_points_windowed.other = "Track {n} Points ({mode}, {window} frames per window)"

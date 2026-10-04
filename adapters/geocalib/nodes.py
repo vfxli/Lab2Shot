@@ -15,16 +15,16 @@ TABLE_MODELS = {name: (gm.table, gm.names[0] if gm.names else "") for name, gm i
 
 class Calibrate(LensCalibration):
     id = "geocalib.calibrate"
-    version = 3  # 「镜头模型」选无畸变时也交「镜头内参」（没有系数的镜头），不再是空包
-    strip = {"fit_model": "镜头模型"}  # 视图小控件，和 COLMAP 一样：参数只放这一个，解出的值视图本来就显示
+    version = 4  # 4: 给了焦距又选带畸变的模型时照样估畸变系数（不再交空系数）；3: 「镜头模型」选无畸变时也交「镜头内参」（没有系数的镜头），不再是空包
+    strip = ("fit_model",)  # 视图小控件，和 COLMAP 一样：参数只放这一个，解出的值视图本来就显示
     # 默认每帧都估计重力（隔帧参数）；填了 Focal Length 就固定用它、只估重力方向，放平后地面的残余倾斜明显更小
     main = "gravity"  # what the node is for: its ports are listed by type order, and this one goes first
     # 「RGB」进、Focal Length / Filmback / 镜头内参 出，都由「镜头标定」家族声明
     # （families/lens_calibration.py），和 AnyCalib 一致。重力方向和它的不确定度是上游多给的（AnyCalib 没有），
     # 排在家族那几个前面：它们是这个节点的主结果（`main = "gravity"`），最常单独用的放最上
     outputs = (
-        Port("gravity", VECTOR, "重力方向"),
-        Port("gravity_error", FLOAT, "重力误差", unit="°"),
+        Port("gravity", VECTOR),
+        Port("gravity_error", FLOAT, unit="°"),
     ) + LensCalibration.outputs
     runtime = "geocalib"
     # 上游 GeoCalib.calibrate(img, camera_model=…, priors=…) 交出 camera（Focal Length、主点、畸变）、gravity
@@ -34,18 +34,6 @@ class Calibrate(LensCalibration):
         takes={"image": "img"},
         gives={"gravity": "gravity", "gravity_error": "uncertainty", "focal": "camera", "lens": "camera"},
         ours={"filmback": "filmback_mm"},  # 节点自己的「Filmback」参数原样带给下游
-        note="「重力误差」是上游的 gravity_uncertainty（extractor.py:126 那一行把所有带 uncertainty 的键"
-             "都交出来，它本身算在 siclib/models/optimization/lm_optimizer.py:417）。"
-             "「Focal Length」是 camera 对象上的 f，「镜头内参」是它的 camera_model 和 dist（extractor.py:117）打成一份。"
-             "**单位**：上游的 camera.f 是**像素**，我们的「Focal Length」口交的是**毫米**，用节点上的「Filmback」"
-             "参数换算（毫米 = 像素 ÷ 画面宽度 × Filmback）。毫米是 Lab2Shot 的内部标准单位"
-             "。"
-             "「Filmback」输出口给的是节点上那个参数的原值——上游没有这一项，这个口只是把它带给下游；"
-             "「Filmback」参数本身在**输入**侧也要用：用户填的 Focal Length（mm）要靠它换成像素才能当 prior 送进模型。"
-             "上游还给出、目前没有对应输出口的：同一个 uncertainty 字典里还有 roll_uncertainty、"
-             "pitch_uncertainty、focal_uncertainty、vfov_uncertainty（lm_optimizer.py:413-418），"
-             "我们只取了 gravity_uncertainty；extractor.py:123 还交出 covariance（重力和 Focal Length 的完整协方差矩阵），"
-             "以及 :124-125 的稠密 latitude / up field 和它们的 confidence",
     )
     on_node = ("focal_mm", "step")
     # RTX 4090 上量得的显存和速度
@@ -56,10 +44,9 @@ class Calibrate(LensCalibration):
         # （它认出来是哪一种），两件事。档位和标签都从 lens.py 的 GROUP 取，
         # 和「LensDistortion」上 GeoCalib 那一组必须一一对上
         fit_model: Literal[tuple(GROUP.models)] = P(  # type: ignore[valid-type]
-            "pinhole", label="镜头模型", group="镜头",
-            option_labels={m: gm.label for m, gm in GROUP.models.items()},
+            "pinhole", group="lens",
         )
-        step: int = P(1, label="隔帧", ge=1, le=100, group="重力")
+        step: int = P(1, ge=1, le=100, group="gravity")
         focal_mm: float | None = focal_param()
 
     @classmethod
@@ -79,7 +66,7 @@ class Calibrate(LensCalibration):
         g = raw.arrays("gravity.npz")
         lens = json.loads(raw.file("lens.json").read_text(encoding="utf-8"))
 
-        ctx.stage("写出重力方向和 Focal Length")
+        ctx.stage("write_outputs")
         frames = g["frames"].tolist()
         up = g["up"] * np.array([1.0, -1.0, -1.0])  # OpenCV camera -> Lab2Shot camera axes (Y up, Z towards the viewer)
         picture = {"width": w, "height": h}  # what the focal length was measured on: checked against the plate it goes to

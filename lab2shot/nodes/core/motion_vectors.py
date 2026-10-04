@@ -16,6 +16,7 @@ import numpy as np
 from ..port import EITHER
 from ..kit.ports import values_port
 from ...errors import Invalid
+from ... import i18n
 from ...messages import Msg
 from ...data.contracts import Shape, warped_by
 from ..base import NodeDef, NodeParams, P, Port
@@ -25,7 +26,7 @@ RELATIVE = 0.01  # forward-backward check: the part of the vectors' length two w
 
 
 def tolerance_param():
-    return P(1.0, label="容差", unit="px", ge=0.05, le=20.0, group="检查")
+    return P(1.0, unit="px", ge=0.05, le=20.0, group="check")
 
 
 def _grid(h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
@@ -55,17 +56,17 @@ def neighbours(frames: list[int]) -> dict[int, tuple[int | None, int | None]]:
 
 
 class MotionWarp(NodeDef):
-    id = "core.motion_warp"
+    id = "motion_warp"
     picture = "src"
     version = 2  # image packets always say whether they have an alpha
     category = "img_warp"
     on_node = ("direction",)
-    inputs = (Port("src", "image", "源", alpha=True, data=EITHER), values_port("flow", "image.4", "运动矢量", expects=(SameShot(of="src"),)))
-    outputs = (Port("image", "image", "结果", type_from="input:src", shape=warped_by("flow")),)
+    inputs = (Port("src", "image", alpha=True, data=EITHER), values_port("flow", "image.4", expects=(SameShot(of="src"),)))
+    outputs = (Port("image", "image", type_from="input:src", shape=warped_by("flow")),)
 
     class Params(NodeParams):
         direction: Literal["next", "previous"] = P(
-            "next", label="取哪一帧", group="变形", option_labels={"next": "下一帧", "previous": "上一帧"})
+            "next", group="deform")
 
     @classmethod
     def cook(cls, ctx):
@@ -77,7 +78,7 @@ class MotionWarp(NodeDef):
         from ...data.payloads import window_of
 
         src, motion = ctx.input("src"), ctx.input("flow")
-        same_size({"源": src, "运动矢量": motion})
+        same_size({ctx.node_type.port_label("src"): src, ctx.node_type.port_label("flow"): motion})
         backward = ctx.params["direction"] == "previous"
         # 它什么二维数据都收，所以「这是画面还是数值图」「这是编号图吗」由数据自己带的东西说，不由通道数猜
         picture, labels = not is_data(src), is_labels(src)
@@ -116,11 +117,11 @@ class MotionWarp(NodeDef):
 
 class MotionOcclusion(NodeDef):
     picture = "flow"  # its result lies on the motion vectors' window
-    id = "core.motion_occlusion"
+    id = "occlusion_from_motion"
     category = "mask_make"
     on_node = ("tolerance",)
-    inputs = (values_port("flow", "image.4", "运动矢量"),)
-    outputs = (Port("occluded", "image.1", "遮挡"), Port("revealed", "image.1", "新露出"))
+    inputs = (values_port("flow", "image.4"),)
+    outputs = (Port("occluded", "image.1"), Port("revealed", "image.1"))
 
     class Params(NodeParams):
         tolerance: float = tolerance_param()
@@ -162,21 +163,21 @@ class MotionOcclusion(NodeDef):
         got = {port: any(one[port] for one in found) for port in out}
         empty = [cls.outputs[i].label for i, port in enumerate(("occluded", "revealed")) if not got[port]]
         if empty:  # 一个像素都没判出来：交出空遮罩并留一句（空结果不是错误，但要留提醒）
-            ctx.say("N-MOTION-NOOCCLUSION", which="、".join(empty), tolerance=tol)
+            ctx.say("N-MOTION-NOOCCLUSION", which=i18n.Both.of(lambda: i18n.separator().join(empty)), tolerance=tol)
         return {port: writer.packet() for port, writer in out.items()}
 
 
 class MotionStmap(NodeDef):
     picture = "flow"  # its result lies on the motion vectors' window
-    id = "core.motion_stmap"
+    id = "stmap_from_motion"
     category = "img_warp"
     on_node = ("query_frame",)
-    inputs = (values_port("flow", "image.4", "运动矢量"),)
+    inputs = (values_port("flow", "image.4"),)
     main = "stmap"
-    outputs = (Port("stmap", "image.2", "ST-map", shape=Shape(lens="unknown")), Port("valid", "image.1", "有效区域"))
+    outputs = (Port("stmap", "image.2", shape=Shape(lens="unknown")), Port("valid", "image.1"))
 
     class Params(NodeParams):
-        query_frame: int | None = P(None, label="参考帧", group="传播", placeholder="第一帧")
+        query_frame: int | None = P(None, group="propagation")
         tolerance: float = tolerance_param()
 
     @classmethod

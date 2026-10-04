@@ -58,7 +58,8 @@ RTX 4090 上（显卡和其他任务共用，数字有 ±15% 的波动），同�
 - 整段时间里还有加载模型（约 10 秒）、估计 Focal Length（约 6 秒）这些固定开销，所以镜头越长，提速越接近每帧的倍数。显存两者差不多（峰值约 4.0–4.2 GB），内存峰值约 6 GB。
 - 和 SAM 3D Body 全身动作的结果比：身体骨骼平均差 0.5–2.4 厘米（大部分是整个人前后差 1–2 厘米的前后差），只看姿态（以骨盆为准）平均差 0.2–0.5 厘米；差别主要在手指，平均 1.7–3 厘米，个别帧指尖差到 10 厘米左右（手部裁图的位置来源不同）。体型（身高）一致。
 - 论文里的「快 10 倍」是和原版演示程序比的（原版每张图都要跑一次 ViTDet 找人和 MoGe 估 Focal Length，并且用了 TensorRT 和 RTX 5090）。Lab2Shot 的 SAM 3D Body 全身动作本来就只估一次 Focal Length，找人也放在单独节点里，所以在这里实际能拿到的是每帧 2.4–3 倍。
-- 默认没有打开 torch.compile 和 TensorRT：在 RTX 4090 上 torch.compile 每帧只省 0.02 秒，但每次计算要多花 60–90 秒编译，几千帧以上的镜头才划算。
+- **TensorRT（默认开）**：按上游官方路径，把 DINOv3 骨干网络换成 TensorRT FP16 引擎。每种显卡第一次用时自动生成一份、存在扩展自己的 cache/tensorrt 文件夹里（RTX 4090 约 75 秒，RTX 5090 约 2.5 分钟，之后直接用）；生成或加载不了就自动改用 PyTorch，并提示原因。8 帧 3 人实测：估计姿态每帧 RTX 4090 0.57→0.49 秒、RTX 5090 0.24→0.19 秒；和 PyTorch 结果比，身体骨骼平均差不到 1 毫米，手指个别关节最多差约 2 厘米（比和 SAM 3D Body 全身动作之间的差还小）。上游另外两个引擎没用：YOLO11-Pose 引擎在 RTX 5090 上检测一点不快、生成要 6 分钟，还让手部裁图位置变了（手指差到 4 厘米）；MoGe 引擎是给小号 MoGe 模型做的，换了会改变 Focal Length 结果。启动服务前设环境变量 `LAB2SHOT_FAST_SAM_3D_BODY_TRT=0` 可以关掉 TensorRT。
+- 默认没有打开 torch.compile：在 RTX 4090 上 torch.compile 每帧只省 0.02 秒，但每次计算要多花 60–90 秒编译，几千帧以上的镜头才划算。需要时，启动 Lab2Shot 服务前设环境变量 `LAB2SHOT_FAST_SAM_3D_BODY_COMPILE=1` 即可打开 torch.compile（编译结果缓存在扩展自己的 cache 文件夹里）。
 - 手腕被挡住、YOLO 看不清手腕的帧，会自动改用原版的方式算手（稍慢），日志里会提示有几帧。上面两人交错的片段里有 7 帧是这样。
 
 ## 团队
@@ -67,7 +68,7 @@ RTX 4090 上（显卡和其他任务共用，数字有 ±15% 的波动），同�
 
 ## 模型下载和安装
 
-- 自动安装：`lab2shot ext install fast_sam_3d_body`，下载提速版代码仓库、独立 Python 环境（Python 3.11，torch 2.8 + CUDA 12.8，约 7 GB）、DINOv3 骨干网络代码和 YOLO11-Pose 权重（42 MB）。依赖包已在缓存里时不到 1 分钟。
+- 自动安装：`lab2shot ext install fast_sam_3d_body`，下载提速版代码仓库、独立 Python 环境（Python 3.11，torch 2.8 + CUDA 12.8，约 7 GB）、DINOv3 骨干网络代码、YOLO11-Pose 权重（42 MB）和 NVIDIA TensorRT 运行库（3.1 GB，可断点续传）。依赖包已在缓存里时不到 1 分钟。
 - SAM 3D Body 主权重（2.1 GB）和 MoGe-2 Focal Length 模型（1.3 GB）和「SAM 3D Body」扩展包是同一份：已经装了 SAM 3D Body 就直接链接过来，不再下载；没装的话会自动下载。
 - 需要申请权限：SAM 3D Body 权重在 Hugging Face 上需要申请（https://huggingface.co/facebook/sam-3d-body-dinov3 页面上填表申请），批准后再运行一次安装。已经装好 SAM 3D Body 扩展包的话说明已经批准过了。
 

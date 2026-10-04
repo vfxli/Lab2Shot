@@ -20,18 +20,13 @@ class UnderPressure(Extension):
     name = "underpressure"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "UnderPressure"
-    summary = "从动捕动作估计两只脚的地面反作用力，据此判断脚接触，再用优化式 IK 清掉脚滑；仅限研究"
     homepage = "https://github.com/InterDigitalInc/UnderPressure"
     source = GitSource(url=UNDERPRESSURE_URL, commit=UNDERPRESSURE_COMMIT)
     license = LicenseInfo(
         tag=RESEARCH,
-        name="InterDigital Limited Software Evaluation License",
         url="https://github.com/InterDigitalInc/UnderPressure/blob/main/LICENCE.txt",
-        summary=("仅限研究。InterDigital 的评估许可只允许「fundamental research work」，明文排除一切商业用途"
-                 "（包括放进任何提供给第三方的产品或服务里，不论收不收费）。发表论文要注明"
-                 "「UnderPressure is an InterDigital product」并引用原文。代码和预训练网络都在这一条许可下，"
-                 "Lab2Shot 不修改原仓库的任何文件。"),
     )
+    generative = False
     import_repo = ""  # the repository's modules (anim, data, models, footskate, util) are imported from its own folder
     env = EnvSpec(
         python="3.11",

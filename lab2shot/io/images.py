@@ -222,7 +222,7 @@ def write_image(path: str | Path, rgb: np.ndarray, *, exr_half: bool = True, exr
     `jpg_quality` 1-100). PNG stores alpha straight (`alpha`: "auto" writes it when the picture has one, "yes" always
     writes it, adding an opaque alpha if absent, "no" never writes it); JPG has no alpha (only colour is written, and
     callers must state this). This is the single implementation for every format a settings node offers
-    (序列图输出设置, core/image_output.py); all other image writes (view/frames.py, internal conversions) call it with
+    (序列图输出设置, formats/image/nodes.py); all other image writes (view/frames.py, internal conversions) call it with
     the defaults."""
     from lab2shot_worker.files import write_exr  # the single EXR writer, shared with the workers
 

@@ -1,4 +1,4 @@
-/* 站点唯一的菜单（ui/Menu.tsx）：节点菜单（带搜索行）、右键菜单、账号菜单、文件菜单。它是浮层，因此为玻璃效果；
+/* 站点唯一的菜单（ui/Menu.tsx）：节点菜单（带搜索行）、右键菜单、账号菜单、文件菜单。它是浮层，用玻璃的边光与阴影、但底色不透明（glass solid）：透过半透明底色会看到下面面板的边框和底色，读起来像残影；
    行高 28 px，快捷键位于行的右端。所有取值均为令牌。 */
 
 .menu {
@@ -10,19 +10,28 @@
   /* 按内容定宽，不按窗口右边还剩多少：fixed 定位的盒子默认「有多少地方用多少」，开在靠右的触发器上
      就会被窗口右沿压窄、把字压出去；写死 max-content 之后它先量出自己真正的宽，再由上面的放置逻辑整张往左夹 */
   width: max-content;
-  max-height: 460px;
+  /* 选项多（注册页「环节」近 30 项）时也不超出窗口：最高 460 px，且不超过窗口可用高 */
+  max-height: min(460px, calc(100vh - 16px));
   padding: 5px;
   display: flex;
   flex-direction: column;
   border-radius: var(--r-sheet);
-  /* 条数超过 max-height 就自己滚，不能用 overflow: hidden——越出去的行会既滚不到也点不着。
-     横向照旧裁：一行放不下的名字在行里自己切（[data-user-data]），不让菜单横着长出去。
-     滚轮落在菜单自己身上不算「点外面」（Menu.tsx 的 close 按 contains 判），所以滚不会把它关掉。 */
+  /* 面板本身从不滚动，只把内容裁在圆角里；条数超过最高时滚的是里面的行层（Menu.tsx .menu-rows，节点菜单和
+     序列选择是 .menu-list）。不变量：带底色、圆角、玻璃边光（.glass::before，绝对定位、inset 0）的是同一个不滚的面板——
+     面板若自己滚，边光会随内容上移，在打开时的底边处留下一道分割线，线以下的行没有底色。 */
+  overflow: hidden;
+  font-size: var(--fs-md);
+  animation: pop var(--t-med) var(--ease);
+}
+
+/* 菜单的行层：面板高度之内自己滚。滚轮落在菜单自己身上不算「点外面」（Menu.tsx 的 close 按 contains 判），所以滚不会把它关掉。
+   横向照旧裁：一行放不下的名字在行里自己切（[data-user-data]），不让菜单横着长出去。 */
+.menu-rows {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  font-size: var(--fs-md);
-  animation: pop var(--t-med) var(--ease);
 }
 
 /* 节点菜单可搜索、可浏览：顶部一行搜索，下方是列表，并有自己的尺寸（它容纳两栏，每行一个名称加一句说明）。

@@ -1,0 +1,77 @@
+# Fast SAM 3D Body 全身动作（adapters/fast_sam_3d_body/worker.py）。
+
+# ---- 解算
+"N-FASTSAM3DBODY-NOBODYCHOSEN" = "接进来的「人物框」里一个人都没有：这次没有人可解。要解画面里所有人，把「选人」改成「全部」，或者不接「人物框」"
+"N-FASTSAM3DBODY-SLOWHANDS.other" = "有 {frames} 帧手腕看不清，「Fast SAM 3D Body 全身动作」在这些帧上按 SAM 3D Body 原来的方式算手（结果一样，只是稍慢）"
+
+"W-FASTSAM3DBODY-NOTRT" = "「Fast SAM 3D Body 全身动作」有一部分没用上 TensorRT，这部分改用 PyTorch 算（结果几乎一样，只是慢些）：{reason}"
+
+[stage]
+build_engine = "生成 TensorRT 引擎（{part}，每种显卡只生成一次）"
+detect_people = "检测人物"
+estimate_pose = "估计人体姿态"
+estimate_focal = "估计焦距"
+finish_people = "锁定体型 · 平滑 · 生成骨骼"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."fast_sam_3d_body.solve"]
+subtitle = "全身动作"
+description = "和「SAM 3D Body 全身动作」一样的全身动作（含手指，结果在摄影机空间），用加速版推理：每帧快约 2.5–3 倍，一帧里的多个人一起算。接了「人物框」（「ViTDet 人物框」→「选人」）就只解这些人；不接就自己检（YOLO11-Pose，和它检手腕是同一趟）。检人、加载模型只做一次，一帧里的人分批解算、每个人都解；只要其中某一个人时，前面接「ViTDet 人物框」→「选人」→「人物框转遮罩」→「图像合成」，把别人从画面里去掉再送进来。身体动作和原版几乎一样，个别帧手指会有差别；最终精修的镜头用「SAM 3D Body 全身动作」。另出一台「摄影机」：放人用的那台原点、不动的针孔摄影机（焦距 = 「焦距」，留空时用它自己从画面估的焦距；主点在画面中心），不是解出来的摄影机——三维视图透过它看图像平面、人和画面对得上，模板里当「解算器的摄影机」那一路用。"
+
+[node."fast_sam_3d_body.solve".param.focal_mm]
+label = "已知焦距"
+placeholder = "自动"
+
+[node."fast_sam_3d_body.solve".param.hand_refine]
+label = "手部精修"
+
+[node."fast_sam_3d_body.solve".param.lock_shape]
+label = "锁定体型"
+
+[node."fast_sam_3d_body.solve".param.smoothing]
+label = "平滑强度"
+
+[node."fast_sam_3d_body.solve".port.image]
+label = "RGB"
+
+[node."fast_sam_3d_body.solve".port.boxes]
+label = "人物框"
+
+[node."fast_sam_3d_body.solve".port.camera]
+label = "摄影机"
+help = "放人用的那台摄影机：原点、不动的针孔摄影机，焦距 = 节点的「焦距」（留空时用解算器自己估的或默认的），主点在画面中心。不是解出来的摄影机：人就放在它的空间里，透过它看图像平面人和画面对得上。当「解算器的摄影机」用，或接「摄影机空间转换」的目标"
+
+[node."fast_sam_3d_body.solve".cost]
+note = "Fast SAM 3D Body 的实测"
+
+[node."fast_sam_3d_body.solve".official.ours]
+camera = "放人用的针孔摄影机：原点、不动，焦距 = 节点的「焦距」（留空用解算器自己估的），主点在画面中心（families/humans.py plate_camera，同 SAM 3D Body）"
+
+[node."fast_sam_3d_body.solve".official]
+note = "⓪ **「人物框」是可选输入，直接交给官方函数**（规则：官方函数接受人物框就直接把框交给它；不接受框的项目，在节点图上走「人物框转遮罩」）：这个仓库自己的 `process_one_image(img, bboxes=None, …)`（sam_3d_body_estimator.py:194-205，**官方包的函数**）收框；官方 demo 不传框只是因为它自己建了检测器（demo.py:44-49；demo_human.py `--detector` 默认 `yolo`，三档 vitdet / yolo / yolo_pose，:623-629）。接了框就按框解；没接时 worker 用 `yolo_pose` 这一档自己检：**一趟同时给出框和手腕**（手部裁切走同一份 YOLO-Pose 手腕，run_publisher.py:305 `hand_box_source=\"yolo_pose\"`）。接了框而且开着「手部精修」时，YOLO-Pose 仍跑一遍只为拿手腕。① **官方的整套 MHR 参数就是「蒙皮角色」这个口**，和 SAM 3D Body 一模一样（两个节点共用 adapters/sam_3d_body/sam3dbody.py 的 solve_person / evaluate / rig_data，逐项怎么对上见那边的 official 注 ①；SMPL / SMPL-X / MANO / FLAME / MHR 这类参数化人体就是「蒙皮 + 权重 + 骨架动画」，装成「蒙皮角色」，不另立数据类型）：global_rot + body_pose_params + hand_pose_params + scale_params + shape_params 原样送回 MHR 算出骨架每帧的关节矩阵（npz joint_world），shape_params 还给出静止网格（npz rest_vertices）和蒙皮权重（npz skin_weights / bind_world）；pred_joint_coords / pred_global_rots / pred_pose_raw 都是同一副骨架、同一份姿势的另一种写法。**一个参数都没丢。** `expr_params` 这个扩展的上游同样自己置零（`sam_3d_body/models/heads/mhr_head.py:442、508、901 pred_face = pred[...] * 0`），所以没有表情融合变形——官方就不出。`character` 这里写的是 body_pose_params 而不是 SAM 3D Body 那边的 mhr_model_params：这个扩展的输出 dict 里没有 mhr_model_params 那一项（见上面的注释）。上游还给出 `pred_keypoints_2d`（画面上的点，不是骨架，同样**装不进蒙皮角色**），目前没有对应的输出口。② cam_int（sam_3d_body_estimator.py:199）只是内参：内参（焦距、主点）不是摄影机输入，完整的内参加外参才算摄影机。节点没有「摄影机」输出口：官方没有解出摄影机，按 focal_length + pred_cam_t 拼出来的摄影机是我们自己造的输出，我们自己造出来的输出口不留。要把人摆进某台摄影机的世界，接核心节点「摄影机空间转换」。"
+
+[extension.fast_sam_3d_body]
+summary = "一个免训练的加速框架，把 SAM 3D Body 的推理路径重排，达到交互级速度"
+
+[extension.fast_sam_3d_body.license]
+name = "MIT + SAM License + DINOv3 License + AGPL-3.0（YOLO11-Pose）"
+summary = "可商用。提速代码 MIT；但它是在 Meta SAM 3D Body 代码上改的，原有部分和权重（与 SAM 3D Body 扩展包同一份）仍按 SAM License（可商用、可修改再分发，需附许可证，发表论文需注明，禁军事用途）；骨干网络代码 DINOv3 License（同类条款）；MoGe-2 焦距估计 MIT。找手腕用的 Ultralytics YOLO11-Pose（代码和权重）是 AGPL-3.0：自己内部使用无妨，修改后对外提供服务或分发需按 AGPL 开源，商用闭源要买 Ultralytics 企业许可"
+
+[extension.fast_sam_3d_body.weight.sam-3d-body-dinov3]
+note = "SAM 3D Body 权重（2.1 GB，SAM License）；需要在 Hugging Face 页面申请权限"
+
+[extension.fast_sam_3d_body.weight.mhr-model]
+note = "MHR 人体绑定（0.7 GB，随 SAM 3D Body 权重发布）"
+
+[extension.fast_sam_3d_body.weight.sam-license]
+note = "SAM License 原文（使用和分发权重时要附带）"
+
+[extension.fast_sam_3d_body.weight.moge-2]
+note = "焦距估计 MoGe-2（MIT，1.3 GB）"
+
+[extension.fast_sam_3d_body.weight.yolo11m-pose]
+note = "YOLO11-Pose 手腕关键点（Ultralytics，AGPL-3.0）"
+
+[extension.fast_sam_3d_body.weight.tensorrt-libs]
+note = "NVIDIA TensorRT 运行库（3.1 GB，NVIDIA 软件许可：可免费使用，不得单独再分发）；用来按显卡生成加速引擎，生成不了时自动改用 PyTorch"

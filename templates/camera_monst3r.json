@@ -2,94 +2,145 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "ad89024027edab8bb947cce095daf0e8",
-  "name": "相机与深度 · MonST3R",
-  "intro": "MonST3R 官方自述：以前馈为主处理动态视频，给出随时间变化的动态点云，以及每帧相机的位姿和内参。这张卡交付相机（USD 与 Nuke 相机）、深度图和它附带的运动物体遮罩；不出点云（整段点云是它的优化器用深度反投影的），要点云接「深度转点云」。",
+  "name": {
+   "zh": "摄影机与深度 · MonST3R",
+   "en": "Camera and Depth · MonST3R"
+  },
+  "intro": {
+   "zh": "MonST3R 官方自述：以前馈为主处理动态视频，给出随时间变化的动态点云，以及每帧摄影机的位姿和内参。这张卡交付摄影机（USD 与 Nuke 摄影机）、深度贴图和它附带的运动物体遮罩；不出点云（整段点云是它的优化器用深度反投影的），要点云接「深度转点云」。",
+   "en": "MonST3R describes itself as a mainly feed-forward approach to dynamic video, giving a time-varying dynamic point cloud and per-frame camera poses and intrinsics. This card delivers the camera (USD and Nuke camera), depth maps and its moving-object masks; no point cloud (its whole-shot point cloud is back-projected from depth by its optimizer), so wire Points from Depth if you need one."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
-  "deliverable": "depth_solved",
+  "deliverable": "depth_long",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "kind": "group",
-   "label": "镜头",
+   "label": {
+    "zh": "镜头",
+    "en": "Lens"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "focal",
-     "label": "已知 Focal Length",
-     "target": "r.focal_mm"
+     "label": {
+      "zh": "已知焦距",
+      "en": "Known Focal Length"
+     },
+     "target": "solve.focal_mm"
     },
     {
      "name": "filmback",
-     "label": "Filmback",
-     "target": "r.filmback_mm",
+     "label": {
+      "zh": "胶片背",
+      "en": "Aperture"
+     },
+     "target": "solve.filmback_mm",
      "disable_when": "not focal"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "解算",
+   "label": {
+    "zh": "解算",
+    "en": "Solve"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "step",
-     "label": "隔帧",
-     "target": "r.step"
+     "name": "solve_step",
+     "label": {
+      "zh": "步长",
+      "en": "Step"
+     },
+     "target": "solve.step"
     },
     {
-     "name": "niter",
-     "label": "优化迭代次数",
-     "target": "r.niter"
+     "name": "solve_niter",
+     "label": {
+      "zh": "优化迭代次数",
+      "en": "Optimization Iterations"
+     },
+     "target": "solve.niter"
     },
     {
      "name": "scale_cm",
-     "label": "尺度",
-     "target": "r.unit_cm"
+     "label": {
+      "zh": "尺度",
+      "en": "Scale"
+     },
+     "target": "solve.unit_cm"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
-       "name": "resolution",
-       "label": "处理分辨率",
-       "target": "r.resolution"
+       "name": "solve_resolution",
+       "label": {
+        "zh": "处理分辨率",
+        "en": "Processing Resolution"
+       },
+       "target": "solve.resolution"
       },
       {
-       "name": "max_frames",
-       "label": "每段最多帧数",
-       "target": "r.max_frames"
+       "name": "solve_max_frames",
+       "label": {
+        "zh": "每段最多帧数",
+        "en": "Max Frames per Chunk"
+       },
+       "target": "solve.max_frames"
       },
       {
-       "name": "conf_threshold",
-       "label": "置信度门槛",
-       "target": "r.conf_threshold"
+       "name": "solve_conf_threshold",
+       "label": {
+        "zh": "置信度门槛",
+        "en": "Confidence Threshold"
+       },
+       "target": "solve.conf_threshold"
       }
      ]
     }
@@ -97,82 +148,130 @@
   },
   {
    "kind": "group",
-   "label": "运动物体",
+   "label": {
+    "zh": "运动物体",
+    "en": "Moving Objects"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "motion_threshold",
-     "label": "运动判定门槛",
-     "target": "r.motion_threshold"
+     "name": "solve_motion_threshold",
+     "label": {
+      "zh": "运动判定门槛",
+      "en": "Motion Threshold"
+     },
+     "target": "solve.motion_threshold"
     },
     {
-     "name": "sam2_refine",
-     "label": "SAM 2 修整",
-     "target": "r.sam2_refine"
+     "name": "solve_sam2_refine",
+     "label": {
+      "zh": "SAM 2 修整",
+      "en": "SAM 2 Refinement"
+     },
+     "target": "solve.sam2_refine"
     }
    ]
   },
   {
    "name": "cook_solve",
-   "label": "解算相机与深度",
-   "target": "r.cook"
+   "label": {
+    "zh": "解算摄影机与深度",
+    "en": "Solve Camera and Depth"
+   },
+   "target": "solve.cook"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "usd_name",
-     "label": "文件名（相机 USD）",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名（摄影机 USD）",
+      "en": "File Name (Camera USD)"
+     },
+     "target": "usd.name"
     },
     {
      "name": "exr_name",
-     "label": "文件名（深度与运动遮罩 EXR）",
+     "label": {
+      "zh": "文件名（深度与运动遮罩 EXR）",
+      "en": "File Name (Depth and Motion Mask EXR)"
+     },
      "target": "exr.name"
     },
     {
      "name": "nuke_name",
-     "label": "文件名（Nuke 相机）",
+     "label": {
+      "zh": "文件名（Nuke 摄影机）",
+      "en": "File Name (Nuke Camera)"
+     },
      "target": "nuke.name"
     },
     {
      "name": "unit",
-     "label": "单位",
-     "target": "out.unit"
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
     },
     {
      "name": "fps",
-     "label": "帧率",
-     "target": "out.fps"
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "usd.fps"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
        "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -182,17 +281,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -201,8 +306,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -211,13 +315,12 @@
    },
    "ui": {
     "x": 0,
-    "y": 458
+    "y": 477
    }
   },
   {
-   "id": "r",
+   "id": "solve",
    "type": "monst3r.reconstruct",
-   "label": "MonST3R 深度与相机",
    "params": {
     "focal_mm": null,
     "filmback_mm": null,
@@ -232,7 +335,7 @@
    },
    "ui": {
     "x": 400,
-    "y": 376,
+    "y": 395,
     "on_node": [
      "focal_mm",
      "step",
@@ -241,9 +344,8 @@
    }
   },
   {
-   "id": "out",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "id": "usd",
+   "type": "usd.output",
    "params": {
     "name": "scene",
     "format": "usd",
@@ -251,7 +353,7 @@
     "fps": 24.0
    },
    "ui": {
-    "x": 870,
+    "x": 849,
     "y": 0,
     "on_node": [
      "name",
@@ -264,24 +366,22 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1230,
-    "y": 434
+    "x": 1209,
+    "y": 453
    }
   },
   {
    "id": "nuke",
-   "type": "core.output_nuke_camera",
-   "label": "Nuke 相机输出设置",
+   "type": "nuke.output",
    "params": {
     "name": "camera_nuke"
    },
    "ui": {
-    "x": 870,
-    "y": 812,
+    "x": 849,
+    "y": 850,
     "on_node": [
      "name"
     ]
@@ -289,8 +389,7 @@
   },
   {
    "id": "exr",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "type": "exr.output",
    "params": {
     "name": "depth",
     "layers": [
@@ -310,8 +409,8 @@
     "colorspace": null
    },
    "ui": {
-    "x": 830,
-    "y": 434
+    "x": 809,
+    "y": 453
    }
   }
  ],
@@ -322,13 +421,13 @@
     "image"
    ],
    "to": [
-    "r",
+    "solve",
     "image"
    ]
   },
   {
    "from": [
-    "out",
+    "usd",
     "files"
    ],
    "to": [
@@ -338,17 +437,17 @@
   },
   {
    "from": [
-    "r",
+    "solve",
     "camera"
    ],
    "to": [
-    "out",
+    "usd",
     "scene"
    ]
   },
   {
    "from": [
-    "r",
+    "solve",
     "camera"
    ],
    "to": [
@@ -368,7 +467,7 @@
   },
   {
    "from": [
-    "r",
+    "solve",
     "depth"
    ],
    "to": [
@@ -378,7 +477,7 @@
   },
   {
    "from": [
-    "r",
+    "solve",
     "mask"
    ],
    "to": [
@@ -399,7 +498,7 @@
  ],
  "boxes": [],
  "view": {
-  "display": "r",
+  "display": "solve",
   "frame": null
  }
 }

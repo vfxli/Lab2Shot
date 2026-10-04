@@ -43,13 +43,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .. import i18n
 from ..data.items import holds_nothing
 from ..data.payloads import is_data
 from ..data.types import channels_of, is_list
 from ..data.locks import exclusive, shared
 from ..data.packet import Packet, created_of, fresh_dir, note, packet_dir
 from ..errors import CookCancelled, CookError, GraphError, MessageError, NothingToCook, message_of
-from ..messages import Msg
+from ..messages import Both, Msg, msg_word, word_of
 from ..nodes.applies import Fact, NodeFacts, resolve, standing_notices
 from ..nodes.base import NodeDef
 from ..nodes.params import param_defaults
@@ -60,7 +61,7 @@ from . import scopes as sc
 from .demand import FAIL, RETRY, SKIP
 from .evaluation import PLAN_ERRORS, Evaluation, NodePlan, failure_file
 from .records import changed
-from .graph import Graph, insert_fix, walk
+from .graph import Graph, data_kind_word as _kind_word, insert_fix, walk
 from .presence import present
 from .resources import CPU, GPU, Need, Resources, Ticket
 from .scopes import Inst, ItemAt, ItemPath
@@ -165,6 +166,16 @@ def results_by_item(results: list[tuple[str, Packet | None]]) -> tuple[dict[str,
     return {k: v for k, v in by_item.items() if k not in nothing}, nothing
 
 
+def _both(make) -> dict[str, dict[str, str]]:
+    """{key: {lang: text}} from `make()` ({key: text}) said in each language (messages.Both)."""
+    out: dict[str, dict[str, str]] = {}
+    for lang in i18n.LANGS:
+        with i18n.using(lang):
+            for k, v in make().items():
+                out.setdefault(k, {})[lang] = str(v)
+    return out
+
+
 @dataclass
 class CookContext:
     """What a node's cook() gets: its own values, worked out by the engine, never the graph (a node knows its inputs,
@@ -196,7 +207,14 @@ class CookContext:
     # it. Worked out for those alone (it walks everything above: once per node of a long chain it would be N²); None
     # for any other node
     provenance: dict | None = None
+    # per input, per wire: where what it brings came from (Evaluation.lineage), for a node that asks (NodeDef.reads_lineage)
+    lineage: dict = field(default_factory=dict)
     ram_gb: float = 0.0  # the system memory its worker takes at its peak (its resolved Cost): kept free for it
+    # a node that steps down on a smaller card (Cost.vram_full_gb): the VRAM its tier asked the card for
+    # (Evaluation.vram_need), sent to its worker as `vram_budget_gb` (external.job_params). The worker picks its
+    # step by this, never by what the card happens to have free, so a result is the tier its fingerprint says
+    # (Evaluation.full_tier). 0: the node does not step down
+    vram_budget_gb: float = 0.0
     collector: OutputSink | None = None  # where 「输出」 collects and packs its files: only a node that delivers gets one
     stream_worker: Callable[..., tuple] | None = None  # runs a streaming node's worker on a farm thread (Engine passes it)
     said: list[dict] = field(default_factory=list)  # the messages it said while cooking (say), kept with its result
@@ -217,6 +235,10 @@ class CookContext:
     # a block's end: each gathered item's results, one per wire into it in wire order, by the item's key (paired by
     # the engine from where each packet came from: results_by_item)
     item_results: dict[str, tuple[Packet, ...]] = field(default_factory=dict)
+    # the inputs wired in the graph that bring nothing this time on purpose (Evaluation.quiet_inputs: behind a 「阻断」
+    # set to block, or from a reader with no file): a node that tells of a row it has nothing for (多层 EXR 输出设置)
+    # leaves these out silently
+    quiet: frozenset[str] = frozenset()
 
     @contextmanager
     def exclusive(self, key: str, waiting: str) -> Iterator[None]:
@@ -255,10 +277,19 @@ class CookContext:
     def check_stop(self) -> None:
         _stopped(self.stop)
 
-    def progress(self, done: int, total: int, message: str = "") -> None:
-        """Report progress; a cook that was stopped ends here (every node that reports progress can be stopped)."""
+    def progress(self, done: int, total: int, message: "str | Msg | dict" = "", word: dict | None = None) -> None:
+        """Report progress; a cook that was stopped ends here (every node that reports progress can be stopped).
+        `word`: what it counts kept as a word (messages.word_of), said in each follower's language (messages.localized).
+        `message` may itself be a Msg or a kept word: it is then said in each follower's language too."""
+        from ..messages import msg_word, said_word
+
+        if isinstance(message, Msg):
+            word, message = word or msg_word(message), message.text
+        elif isinstance(message, dict):
+            word, message = word or message, said_word(message) or ""
         self.check_stop()
-        self.emit({"type": "progress", "node": self.node_id, "path": list(self.path), "done": done, "total": total, "message": message})
+        self.emit({"type": "progress", "node": self.node_id, "path": list(self.path), "done": done, "total": total, "message": message,
+                   **({"message_word": word} if word else {})})
 
     def each(self, items, message: str = ""):
         """Iterate and report progress after every item."""
@@ -303,8 +334,22 @@ class CookContext:
                 yield got
                 self.progress(done, len(items), message)
 
-    def stage(self, name: str) -> None:
-        self.emit({"type": "stage", "node": self.node_id, "path": list(self.path), "name": name})
+    def stage(self, name: "str | Msg", /, **params: Any) -> None:
+        """A named stage of the cook starts: `name` is the stage's id, its words node.<type>.stage.<id>, else the
+        extension's or the core's shared stage.<id> (lab2shot/i18n), in the language now; one with no words shows as
+        it is. A Msg (the engine's own stages: I-STAGE-PLATE …) is said in each follower's language."""
+        from ..messages import msg_word, said_word, word_of
+
+        t = self.node_type
+        if isinstance(name, Msg):
+            word = msg_word(name)
+            name = name.code
+        else:
+            word = word_of(f"node.{t.id}.stage.{name}", None if t.runtime == "core" else t.runtime, **params) if t else None
+        said = said_word(word) if word else None
+        # the words go with it (name_word): whoever follows the cook reads them in their own language (messages.localized)
+        self.emit({"type": "stage", "node": self.node_id, "path": list(self.path), "name": said or name,
+                   **({"name_word": word} if said else {})})
 
     def phase(self, name: str) -> None:
         """Which of the four phases this node is in now (lab2shot/progress.py: 排队中 / 加载模型 / 计算 /
@@ -318,7 +363,13 @@ class CookContext:
         the cook as a "message" event and is kept with the node's result (Engine._run_node): the node's marks, the
         message panel and a later status all read it there. `port` / `param`: the input or parameter it is about
         (clicking it in the panel goes there); `fix`: the node type that, inserted in front of `port`, puts it
-        right."""
+        right. A `{node}` its template names and `params` lacks is this node (its label: name and type)."""
+        from ..messages import names, template
+
+        # a message pointing at the node that says it names it as every message does, 「名字（类型）」 (engine/naming.py
+        # node_ref, the context's label): filled in here, never written by each node (nor as its subtitle)
+        if "node" not in params and "node" in names(template(code)):
+            params["node"] = self.label
         anchors = {k: v for k, v in (("port", port), ("param", param)) if v}
         if fix:  # the same one click a usage check offers (engine/lint.py): the node inserted, named on its button
             anchors["fix"] = insert_fix(fix)
@@ -690,7 +741,8 @@ class Engine:
         if fate == SKIP:
             if inst not in self.skipped:
                 self.skipped.add(inst)
-                emit({"type": "skipped", "node": inst.node, "path": list(inst.path), "root": outcome.root, **outcome.message})
+                emit({"type": "skipped", "node": inst.node, "path": list(inst.path), "root": outcome.root, **outcome.message,
+                      **({"blocked": True} if outcome.blocked else {})})  # behind a 「阻断」: the page says 「已跳过（被阻断）」
             return None
         if fate == FAIL:  # known before it runs: said at it, no place asked for, never kept as a record a later cook
             # would try again (Outcome.retryable); a 「输出」 with a broken line fails as it stands
@@ -716,8 +768,8 @@ class Engine:
             self._fail(inst, exc if isinstance(exc, CookError) else CookError(nid, message_of(exc)), emit)
             return None
         node, cost = self.graph.nodes[nid], self.eval.resolved(nid, path).cost
-        return plan, Need(GPU if cost.gpu else CPU, node.type.runtime, cost.vram_gb if cost.gpu else 0.0, cost.ram_gb,
-                          node.label)
+        return plan, Need(GPU if cost.gpu else CPU, node.type.runtime, self.eval.vram_need(nid, path), cost.ram_gb,
+                          node.label, nid)
 
     def _compute(self, inst: Inst, plan: NodePlan, emit: EventFn, targets: list[str], shown: frozenset[str],
                  force: bool, place: _Place) -> None:
@@ -730,17 +782,17 @@ class Engine:
         node = self.graph.nodes[nid]
         stop = place.stop
         where = {"node": nid, "path": list(path)}
-        emit({"type": "node_start", **where, "label": node.label})
+        emit({"type": "node_start", **where, "label": node.label, "label_word": word_of("engine.node_ref", name=nid, type=node.type.id)})
 
-        def waiting(said: str = Msg("I-WAIT-OTHERCOOK").text) -> None:
-            emit({"type": "stage", **where, "name": said})
+        def waiting(said: Msg = Msg("I-WAIT-OTHERCOOK")) -> None:
+            emit({"type": "stage", **where, "name": said.text, "name_word": msg_word(said)})
             place.give_back()
 
         def siblings(written: list[threading.Event]) -> None:
             """Wait, its place given back, for packets another instance of this cook is writing for it (_writing)."""
             for done in written:
                 if not done.is_set():
-                    waiting(Msg("I-WAIT-SIBLING").text)
+                    waiting(Msg("I-WAIT-SIBLING"))
                     while not done.wait(WAIT_S):
                         _stopped(stop)
 
@@ -784,7 +836,7 @@ class Engine:
                     for fp in sorted(writes):
                         held.enter_context(exclusive(fp, waiting, lambda: _stopped(stop)))
                     for fp in sorted(reads):
-                        held.enter_context(shared(fp, lambda: waiting(Msg("I-WAIT-RECOOK").text),
+                        held.enter_context(shared(fp, lambda: waiting(Msg("I-WAIT-RECOOK")),
                                                   lambda: _stopped(stop)))
                     place.take_again()
                     self._run_node(inst, plan, emit, frozenset(give), force, place.ticket, stop,
@@ -902,8 +954,8 @@ class Engine:
             declared = None if packet.meta.get("empty") or is_list(packet.type) else self.graph.output_data(nid, port)
             if declared is not None:
                 if is_data(packet) != declared:
-                    problems.setdefault(port, []).append(Msg("E-CONTRACT-DATAKIND", declared="数值图" if declared else "画面",
-                                                             written="数值图" if is_data(packet) else "画面"))
+                    problems.setdefault(port, []).append(Msg("E-CONTRACT-DATAKIND", declared=_kind_word(declared),
+                                                             written=_kind_word(is_data(packet))))
                 packet.meta["values"] = declared
         by_port = {port: ports[port].shape for port in produced}
         # an output that follows another input (a warp lands on its map's window): settled against that input
@@ -949,7 +1001,8 @@ class Engine:
             produced = node.type.cook(ctx) or {}
         except NothingToCook as found:  # it found nothing to give: not an error
             ctx.say(found.message.code, **found.message.params)
-            return self._give_nothing(inst, plan, ctx, emit, started)
+            # `expected`: nothing was asked of it (nothing to translate): what reads it is told nothing either
+            return self._give_nothing(inst, plan, ctx, emit, started, expected=found.expected)
         except (CookError, CookCancelled):
             raise
         except Exception as exc:
@@ -974,8 +1027,9 @@ class Engine:
         broken = {port for port, packet in produced.items()
                   if packet.meta.get("empty") and not getattr(outs.get(port), "may_be_empty", False)}
         if undeclared := sorted(broken & set(wanted)):
-            raise CookError(nid, Msg("E-COOK-CONTRACT", node=node.label, output="、".join(undeclared), kind="输出口",
-                                     problems="交了空包，口却没声明 may_be_empty"))
+            raise CookError(nid, Msg("E-COOK-CONTRACT", node=node.label, output=i18n.Both.of(lambda: i18n.separator().join(undeclared)),
+                                     kind=i18n.Word("engine.contract.output_port"),
+                                     problems=i18n.Word("engine.contract.empty_undeclared")))
         for port in broken:  # the same check for an output nobody asked for: never cached under its real fingerprint
             # (asked for later, the empty packet would be taken for its result); it is left to be computed then
             shutil.rmtree(produced.pop(port).path(), ignore_errors=True)
@@ -1040,8 +1094,8 @@ class Engine:
                     if port.data in (True, False) and not is_list(packet.type) and channels_of(packet.type) \
                             and is_data(packet) != port.data:
                         raise CookError(nid, Msg("B-WIRE-DATAKIND", source=self.graph.nodes[src].label, output=sport,
-                                                 got="数值图" if is_data(packet) else "画面",
-                                                 want="数值图" if port.data else "画面", node=node.label, input=port.label))
+                                                 got=_kind_word(is_data(packet)),
+                                                 want=_kind_word(port.data), node=node.label, input=port.label))
                     inputs[port.name].append(packet)
         item_results, gave_nothing = results_by_item(per_item)
         note(plan.fingerprint)  # its `_work` and `_failed` hang off the node's fingerprint: the job's task references them
@@ -1054,18 +1108,21 @@ class Engine:
                           {port: self.graph.output_type(nid, port) for port in plan.outputs}, work, emit, ticket.gpu, stop,
                           fingerprint=plan.fingerprint,
                           frames=self.eval.info(nid, path).frames if node.type.frame_source else (), sources=self.eval.sources(nid, path), wired_from=self.eval.wired_from(nid, path),
-                          provenance=self.eval.provenance(nid, path) if _records_provenance(node.type) else None, ram_gb=self.eval.resolved(nid, path).cost.ram_gb,
+                          provenance=self.eval.delivered_provenance(nid, path) if _records_provenance(node.type) else None, lineage=self.eval.lineage(nid, path) if node.type.reads_lineage else {}, ram_gb=self.eval.resolved(nid, path).cost.ram_gb,
+                          vram_budget_gb=self.eval.vram_need(nid, path) if self.eval.full_tier(nid, path) is not None else 0.0,
                           collector=self.collector if node.type.delivers else None, names=tuple(self.eval.item_names(nid, path)),
                           stream_worker=self.stream_worker, path=path, wanted=wanted,
                           item=self.eval.item_at(nid, path) if begins else None,
                           items=tuple(i for i in self.eval.gathered(nid, path) if i.key not in gave_nothing) if ends else (),
-                          item_results={k: tuple(v) for k, v in item_results.items()} if ends else {})
+                          item_results={k: tuple(v) for k, v in item_results.items()} if ends else {},
+                          # with them, the inputs that came empty as expected (an output that may give nothing gave nothing)
+                          quiet=self.eval.quiet_inputs(nid, path) | frozenset(port for port, _src in foreseen))
         for said, port in self.eval.unused_inputs(nid, path):
             ctx.say(said.code, port=port, **said.params)
         from ..nodes.applies import overscan_notices
 
         taken_packets = [(port.name, port.label, packet) for port in self.graph.input_ports(nid) for packet in inputs[port.name]]
-        for port, said in overscan_notices(node.type, taken_packets):  # a pixel node given pixels past the format: what it leaves out
+        for port, said in overscan_notices(node.type, node.label, taken_packets):  # a pixel node given pixels past the format: what it leaves out
             ctx.say(said.code, port=port, **said.params)
         # an input it cannot go without that came empty; a switch's condition is not one: an empty condition reads as no
         # wire (Presence.wired_input) and the switch goes by its own 「走哪一路」
@@ -1133,17 +1190,19 @@ class Engine:
               "seconds": round(time.time() - started - ctx.waited, 1),
               "frames": 0, "width": 0, "height": 0, "reused": ctx.reused, "outputs": _present(plan)})
 
-    def _say_unused(self, inst: Inst, ctx: CookContext) -> None:
+    def _say_unused(self, inst: Inst, ctx: CookContext) -> None:  # noqa: C901
         """Parameters the cook's facts (CookContext.fact) show did nothing: W-APPLIES-UNUSED for a value the user set,
         I-APPLIES-UNUSEDDEFAULT for a default."""
         if not ctx.facts:
             return
         node = self.graph.nodes[inst.node]
         before, f = self.eval.resolved(*inst), self.eval.facts(*inst)  # the instance's, both (without the wires it goes without)
-        own = {**f.own, **{k: Fact(v, node.type.fact_labels.get(k, k)) for k, v in ctx.facts.items()}}
+        own = {**f.own, **{k: Fact(v, node.type.fact_label(k)) for k, v in ctx.facts.items()}}
         after = resolve(node.type, NodeFacts(f.params, f.wired, own, f.incoming, f.wired_out, f.wired_data))
         defaults = param_defaults(node.type.Params)
-        labels = {p["name"]: p["label"] for p in node.type.param_specs()}
+        def labels_now():
+            return {p["name"]: p["label"] for p in node.type.param_specs()}
+        labels = {n: Both({lang: text for lang, text in got.items()}) for n, got in _both(labels_now).items()}
         for name, why in after.params.inactive.items():
             if name not in before.params.inactive:
                 code = "W-APPLIES-UNUSED" if node.params.get(name) != defaults.get(name) else "I-APPLIES-UNUSEDDEFAULT"

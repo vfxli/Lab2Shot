@@ -25,7 +25,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from lab2shot_worker import fail, resident, say, serve
+from lab2shot_worker import fail, reason, resident, say, serve
 from lab2shot_worker.mono_geometry import begin, finish_geometry, frame_arrays, run_frames
 
 REFINE_STEPS = 3  # MoGe-3's sparse 3D refinement updates (upstream default)
@@ -49,10 +49,10 @@ def load_model(checkpoint: Path, device: torch.device):
     model = import_model_class_by_version(version)(**config)
     missing, unexpected = model.load_state_dict(ckpt["model"], strict=False)
     if missing:
-        fail("E-WORKER-WEIGHTSMISMATCH", project="MoGe", extension="moge", model=f"{checkpoint.name}（{version}）",
+        fail("E-WORKER-WEIGHTSMISMATCH", project="MoGe", extension="moge", model=f"{checkpoint.name} ({version})",
              missing=len(missing), unexpected=len(unexpected), examples=list(missing[:3]))
     if unexpected:
-        say("I-WORKER-UNUSEDWEIGHTS", project="MoGe", model=f"{checkpoint.name}（{version}）",
+        say("I-WORKER-UNUSEDWEIGHTS", project="MoGe", model=f"{checkpoint.name} ({version})",
             count=len(unexpected), examples=list(unexpected[:3]))
     del ckpt
     model = model.to(device).eval()
@@ -72,14 +72,14 @@ def normals_from_points(points: torch.Tensor) -> torch.Tensor:
 
 
 def main(job_path: str) -> None:
-    run = begin(job_path, "moge.geometry", "MoGe")
+    run = begin(job_path, "moge.depth", "MoGe")
     params = run.params
     model_id, resolution_level, fov_x = params["model"], params["resolution_level"], params["fov_x_deg"]
     checkpoint = run.job.weights_dir / model_id / "model.pt"
-    run.weights(checkpoint, what=f"模型 {model_id} 的权重")
+    run.weights(checkpoint, what=reason("I-MOGE-WEIGHTS", model=model_id))
 
     device = torch.device("cuda")
-    model, version = run.model("MoGe 模型", load_model, checkpoint, device)
+    model, version = run.model("load_model", load_model, checkpoint, device, stage_params={"model": "MoGe"})
     has_normal_head = hasattr(model, "normal_head")
     if not has_normal_head:
         say("N-MOGE-NONORMALS", model=model_id)

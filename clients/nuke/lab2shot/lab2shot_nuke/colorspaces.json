@@ -1,0 +1,16 @@
+{
+ "_note": "A colour space as the server names it (its OCIO configuration, studio-config: the delivery manifest's colorspace) -> the names the same space has in the configurations Nuke 17 ships (fn-nuke cg/studio configs v2 and v3 use the server's own names; ACES 1.x style configs the 'Utility - ...' and 'ACES - ...' names; nuke-default only the spaces it really has). Tried in order after the server's own name; none there: the Read keeps Nuke's default and the log says so. Data, not code.",
+ "ACEScg": ["ACES - ACEScg", "lin_ap1"],
+ "ACES2065-1": ["ACES - ACES2065-1", "aces2065_1", "lin_ap0"],
+ "ACEScct": ["ACES - ACEScct", "acescct_ap1"],
+ "ACEScc": ["ACES - ACEScc", "acescc_ap1"],
+ "Linear Rec.709 (sRGB)": ["Utility - Linear - sRGB", "Utility - Linear - Rec.709", "lin_rec709_srgb", "lin_srgb", "linear"],
+ "sRGB Encoded Rec.709 (sRGB)": ["Utility - sRGB - Texture", "srgb_texture", "sRGB - Texture", "sRGB"],
+ "Gamma 2.2 Encoded Rec.709": ["Utility - Gamma 2.2 - Rec.709 - Texture", "Gamma2.2"],
+ "Gamma 1.8 Encoded Rec.709": ["Utility - Gamma 1.8 - Rec.709 - Texture", "Gamma1.8"],
+ "Gamma 2.4 Encoded Rec.709": ["Utility - Rec.709 - Display", "rec709_display", "Gamma2.4"],
+ "Camera Rec.709": ["Utility - Rec.709 - Camera", "rec709"],
+ "Linear Rec.2020": ["Utility - Linear - Rec.2020"],
+ "Linear P3-D65": ["Utility - Linear - P3-D65"],
+ "Raw": ["Utility - Raw", "raw"]
+}

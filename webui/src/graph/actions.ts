@@ -4,9 +4,10 @@ import { handleNode } from "../state/handleView";
 import type { CookCase } from "../api/status";
 import { follow, syncJob } from "./follow";
 import { loadOutputs } from "./outputs";
-import { cookBlocked, readyForPause } from "../state/pause";
+import { cookBlocked, cookNote, readyForPause } from "../state/pause";
 import { readyForQuota } from "../state/quota";
-import { useCookInputs } from "../state/cookInputs";
+import { exposedParams, splitTarget, targetsOf, useCookInputs } from "../state/cookInputs";
+import { getNodeDefs } from "../state/catalog";
 import { useLook } from "../state/look";
 import { planAtNow, planHere, planOf, trustedReplyNow, useResults, type CookJob, type PlanAt } from "../state/results";
 import { useViewer } from "../state/viewer";
@@ -16,14 +17,20 @@ import { sayJudgedWires } from "./judged";
 import { answerStatusWith } from "./asking";
 import { type BlockContext, type Blocker, blockers, dedupeBlockers, deliverBlocked, deliveryNodes, cookSpan, frameLimitProblem, isLive, rangeProblem, standing } from "./nodes";
 import { snapshotNow } from "./snapshot";
-import { fromServer, msg, reasonOf, say, type Message } from "../state/say";
+import { fromServer, msg, reasonOf, say, textOf, type Message } from "../state/say";
+import { MessageError } from "../messages/message";
 import { ApiError } from "../platform/http";
 import { toJSON, stopStatusRefresh } from "./document";
 import { useSession } from "../state/session";
+import { focusFollows, focusSubmitted } from "../editor/AppMode";
+import { findSubmitted, LineGaveUp, lineDown, newSubmitKey, withLine } from "./submitLine";
 import { blocksOf, useItems, viewForAsk } from "../state/items";
+import { BLOCKED_NOTE, outcomeView } from "../model/nodeOutcome";
+import { wordIn } from "./naming";
+import { t } from "../i18n/t";
 
 export { fileJSON, loadGraph, redo, savePoint, toJSON, undo } from "./document";
-export { addBox, addChain, arrangeGraph, addNode, addPortRow, connect, copySelection, deleteElements, duplicateSelection, deriveParams, insertNode, mergeToExr, moveWires, pasteCopied, pickFile, setLabel, setParam, setParams, toggleBox, toggleExposed, toggleOnNode, togglePromoted } from "./edit";
+export { addBox, addChain, arrangeGraph, addNode, addPortRow, connect, copySelection, deleteElements, duplicateSelection, deriveParams, insertNode, mergeToExr, moveWires, pasteCopied, pickFile, renameNode, setComment, setInterface, setParam, setParams, setParamsAcross, toggleBox, toggleExposed, toggleOnNode, togglePromoted } from "./edit";
 
 /** 跨 store 的操作：「添加节点」「连线」这类使用者操作同时改 state/cookInputs.ts（数据）和 state/look.ts（位置），
  * 「计算」读另外三个、写 state/results.ts。这些不属于任何一个 store，所以放在这里，而不是硬挂在其中某一个上。
@@ -85,7 +92,9 @@ const status = { asked: 0, answered: 0 };
 
 /** 按节点图现在的样子问服务器：每次编辑一次请求，连同显示节点的 plan。计算输入已经变了的回复、或比已采纳的更早的
  * 回复丢掉。它从不触发计算：视图只显示已算出的，计算要点「计算」。 */
-export async function refreshStatus(): Promise<void> {
+let againTimer: ReturnType<typeof setTimeout> | null = null; // refreshStatus: asking again while a file is being read
+
+export async function refreshStatus(o: { signal?: AbortSignal; rethrow?: boolean } = {}): Promise<void> {
   const ci = useCookInputs.getState();
   if (!ci.order.length) return;
   const version = ci.version;
@@ -99,13 +108,17 @@ export async function refreshStatus(): Promise<void> {
   const held = useResults.getState().reply?.handle_data;
   const handles = { node: about, key: about && held && held.node === about ? held.key : "" };
   try {
-    reply = await api.status(toJSON(), version, display, viewForAsk(blocksOf(useResults.getState().reply), useItems.getState().view), handles, port ? [port] : []);
+    reply = await api.status(toJSON(), version, display, viewForAsk(blocksOf(useResults.getState().reply), useItems.getState().view), handles, port ? [port] : [], o.signal, cookButtonNodes());
   } catch (e) {
+    if (o.rethrow && lineDown(e)) throw e; // 提交路上：连不上由它按规矩重试（graph/submitLine.ts），已有的结果先留着
     if (useCookInputs.getState().version !== version || serial < status.asked) return; // 更新的一次询问已在路上（它会答）：不清掉已有的结果
+    const before = useResults.getState().refused;
     useResults.getState().clearResults();
     // 留下服务器自己说的答不了的原因（code 与 detail）：「计算」照它说，而不是猜「刚改过，或者网络断了」——回答一直以
-    // 同一种方式拒绝时，原因从来不是这个。
-    useResults.getState().setRefused(e instanceof ApiError && e.code ? fromServer({ code: e.code, text: e.message }) : null);
+    // 同一种方式拒绝时，原因从来不是这个。报错只在日志里说（顶栏不显示）：换了一个原因时写一次
+    const refused = e instanceof ApiError && e.code ? fromServer({ code: e.code, text: e.message }) : null;
+    useResults.getState().setRefused(refused);
+    if (refused && (before?.code !== refused.code || before?.text !== refused.text)) say(refused);
     for (const id of ci.order) {
       const st = useResults.getState().byNode[id];
       if (!isLive(st?.status)) useResults.getState().setNodeStatus(id, { status: "idle" });
@@ -115,6 +128,10 @@ export async function refreshStatus(): Promise<void> {
   if (useCookInputs.getState().version !== version || serial < status.answered) return; // 其间计算输入已经变了
   status.answered = serial;
   useResults.getState().setReply(reply, port);
+  // a file is still being read in the background (an import's listing): ask again soon, so what it holds shows by
+  // itself; one timer at a time, replaced by any newer answer
+  if (againTimer) clearTimeout(againTimer);
+  againTimer = reply.again_ms ? setTimeout(() => void refreshStatus(), reply.again_ms) : null;
   const results = reply.nodes;
   for (const id of ci.order) {
     const st = useResults.getState().byNode[id];
@@ -122,10 +139,12 @@ export async function refreshStatus(): Promise<void> {
     // 点击刚标上就被清掉。
     if (st && version !== useResults.getState().blockedAt) useResults.getState().setNodeStatus(id, { blocked: undefined });
     if (isLive(st?.status)) continue;
-    // 因出错而没有结果：自己出错（出错）或上游出错（已跳过），按服务器记下的（engine/cook.py）
-    const outcome = results[id]?.outcome?.state;
-    const status = outcome === "failed" ? "error" : outcome === "skipped" ? "skipped" : results[id]?.cached ? "cooked" : "idle";
-    if (st?.status !== status) useResults.getState().setNodeStatus(id, { status });
+    // 因出错而没有结果：自己出错（出错）或上游出错（已跳过），被「阻断」关着（已跳过，底行「已跳过（被阻断）」），按服务器
+    // 记下的（engine/cook.py）；规则在 model/nodeOutcome.ts
+    const view = outcomeView(results[id]?.outcome, !!results[id]?.cached);
+    if (view.note !== null && st?.note !== view.note) useResults.getState().setNodeStatus(id, { status: view.status, note: view.note });
+    else if (view.note === null && st?.note === BLOCKED_NOTE) useResults.getState().setNodeStatus(id, { status: view.status, note: "" });
+    else if (st?.status !== view.status) useResults.getState().setNodeStatus(id, { status: view.status });
   }
   sayJudgedWires(reply);
   // 计算范围不随素材改写：提交的是它与素材的交集（toJSON 的 frames = cookSpan），节点图里存的是使用者写的
@@ -152,7 +171,8 @@ async function currentReply(): Promise<StatusReply | null> {
   if (now && (!at.node || planOf(useResults.getState(), at))) return now;
   stopStatusRefresh();
 
-  await refreshStatus();
+  // 提交路上的这一问有时限、连不上有限次重试（graph/submitLine.ts）；到上限抛 LineGaveUp，cook / deliverAll 收下
+  await withLine((signal) => refreshStatus({ signal, rethrow: true }));
   return trustedReplyNow();
 }
 
@@ -190,9 +210,46 @@ async function afterSending(ctx: BlockContext, wanted: CookCase): Promise<BlockC
 export type CookHold = "submitting" | "busy" | "paused" | "unplannable" | null;
 export const cookHold = (s: ReturnType<typeof useResults.getState>, at?: PlanAt): CookHold =>
   s.submitting ? "submitting" : s.job ? "busy" : cookBlocked(s.queueSwitches, s.storage) ? "paused" : at && planError(s, at) ? "unplannable" : null;
-/** 服务器说节点现在算不了的原因（只有它是显示节点、预估对上当前编辑时知道）；null：没说算不了。 */
-export const planError = (s: ReturnType<typeof useResults.getState>, at: PlanAt): MessageJson | null =>
-  planOf(s, at)?.error ?? null;
+/** 点了「计算」就会自己解决的原因：素材选了、字节还在本机（transfer/uploads.py not_sent_yet）——点「计算」先上传、再提交
+ * （afterSending），所以它不是算不了，不置灰。 */
+const RESOLVED_BY_COOK = new Set(["E-UPLOAD-SENDING"]);
+/** 节点现在算不了的原因：服务器的预估说的（显示节点的 plan，别的按钮节点的 holds），或者这组计算输入下点它被拦下的
+ * （state/results.ts stopped）；null：没说算不了。 */
+export const planError = (s: ReturnType<typeof useResults.getState>, at: PlanAt): MessageJson | null => {
+  const e = planOf(s, at)?.error ?? (at.node && s.forCookInputs === at.version && s.plan?.node !== at.node ? s.reply?.holds?.[at.node] ?? null : null);
+  if (e && !RESOLVED_BY_COOK.has(e.code)) return e;
+  return at.node && s.stopped?.node === at.node && s.stopped.version === at.version ? s.stopped.message : null;
+};
+
+/** 这次点击（节点 `who` 的「计算」）被拦下：原因记在它的按钮下，直到计算输入变化（planError）。 */
+const stoppedAt = (who: string, message: Message): void =>
+  useResults.setState({ stopped: { node: who, version: useCookInputs.getState().version, message } });
+
+/** 页面上除了显示节点以外还给出「计算」的节点（参数界面里的计算按钮：卡片上的「计算并打包」、阶段按钮）：状态请求带上它们
+ * （StatusRequest holds），每个按钮不看视图显示谁，都按服务器说的置灰、写原因（planError）。 */
+function cookButtonNodes(): string[] {
+  const ci = useCookInputs.getState();
+  const defs = getNodeDefs();
+  const out = new Set<string>();
+  for (const x of exposedParams(ci.exposed))
+    for (const [nid, pname] of targetsOf(x).map(splitTarget)) {
+      const p = defs[ci.nodes[nid]?.typeId ?? ""]?.params.find((q) => q.name === pname);
+      if (p?.widget === "button" && p.action === "cook") out.add(nid);
+    }
+  return [...out];
+}
+/** 「计算」点不了的完整原因（`hold` 是 cookHold 的结果）：所有入口说同一句——节点右键菜单的悬停提示、聚焦页顶栏「计算」
+ * 的悬停提示。计算任务关着、存储占满说的是哪一条（state/pause.ts cookNote），服务器说算不了说的是服务器的原句。""：没拦。 */
+export function cookHoldWhy(s: ReturnType<typeof useResults.getState>, hold: CookHold, at?: PlanAt): string {
+  if (hold === "submitting") return t("ui.graph.hold_submitting");
+  if (hold === "busy") return t("ui.graph.hold_busy");
+  if (hold === "paused") return cookNote(s.queueSwitches, s.storage).trim();
+  if (hold === "unplannable") {
+    const e = at ? planError(s, at) : null;
+    return e ? t("ui.graph.hold_unplannable", { reason: textOf(e) }) : "";
+  }
+  return "";
+}
 
 /** 打开另一张节点图（打开 json 文件、从模板新建、打开「我的模板」、从队列「加载」）之前：这张图有任务在算、或点了
  * 「计算」正在上传素材 / 提交时不许换图（换了图，这个任务的进度、结果和上传都归原来那张，页面上就对不上了），
@@ -251,6 +308,8 @@ export async function cook(target: string): Promise<void> {
   if (await latched(target)) return;
   try {
     await cookNow(target);
+  } catch (e) {
+    if (!(e instanceof LineGaveUp)) throw e; // 连不上服务器、到上限停下：日志里已说
   } finally {
     useResults.getState().setSubmitting(null);
   }
@@ -272,7 +331,7 @@ async function cookNow(target: string): Promise<void> {
   ctx = after;
   const found = blockers(ctx, targets);
   if (found.length) {
-    sayBlocked(found);
+    sayBlocked(found, target);
     return;
   }
   // 帧数超过服务器上限：在发送前说明，不发送给服务器（服务器同样会独立拒绝）
@@ -290,12 +349,18 @@ async function cookNow(target: string): Promise<void> {
   if (submitAbandoned()) return; // 顶栏取消了这次提交
   try {
     // 视图显示的输出口（显示了某个口时）：服务器只算它需要的（`show`）
-    const { job } = await api.cook(toJSON(), useCookInputs.getState().version, target, shownPorts());
-    const label = ctx.nodes.find((n) => n.id === target)?.data.label ?? target;
+    const version = useCookInputs.getState().version;
+    const follows = focusFollows(target);
+    const graph = toJSON(), show = shownPorts(), submit = newSubmitKey(); // 重发的是同一次点击：同一张图、同一个提交键
+    const { job } = await withLine((signal) => api.cook(graph, version, target, show, follows, { submit, signal }), { before: () => findSubmitted(submit) });
+    focusSubmitted(job, version, follows);
+    const label = wordIn(ctx.nodes, target);
     say(msg("I-JOB-COOK", { node: label, job }));
+    await confirmed(job);
     follow(job, target);
   } catch (e) {
-    submitRefused(e);
+    if (e instanceof LineGaveUp) return;
+    submitRefused(e, target);
   }
 }
 
@@ -308,6 +373,8 @@ export async function deliverAll(): Promise<void> {
   if (await latched("*")) return;
   try {
     await deliverNow();
+  } catch (e) {
+    if (!(e instanceof LineGaveUp)) throw e;
   } finally {
     useResults.getState().setSubmitting(null);
   }
@@ -317,7 +384,7 @@ async function deliverNow(): Promise<void> {
   const snap = snapshotNow();
   const missing = deliverBlocked(snap.nodes, snap.nodeDefs, deliveryNodes(snap.nodes, snap.nodeDefs));
   if (missing) {
-    sayBlocked([missing]);
+    sayBlocked([missing], "*");
     return;
   }
   const reply = await currentReply();
@@ -332,7 +399,7 @@ async function deliverNow(): Promise<void> {
   ctx = after;
   const found = blockers(ctx, targets);
   if (found.length) {
-    sayBlocked(found);
+    sayBlocked(found, "*");
     return;
   }
   const over = frameLimitProblemNow();
@@ -348,16 +415,32 @@ async function deliverNow(): Promise<void> {
   }
   if (submitAbandoned()) return; // 顶栏取消了这次提交
   try {
-    const { job } = await api.deliver(toJSON(), useCookInputs.getState().version);
+    const version = useCookInputs.getState().version;
+    const follows = focusFollows("*");
+    const graph = toJSON(), submit = newSubmitKey();
+    const { job } = await withLine((signal) => api.deliver(graph, version, follows, { submit, signal }), { before: () => findSubmitted(submit) });
+    focusSubmitted(job, version, follows);
     say(msg("I-JOB-DELIVER", { job }));
+    await confirmed(job);
     follow(job, targets[0]); // 在它的第一个「输出」上跟踪这个任务
   } catch (e) {
-    submitRefused(e);
+    if (e instanceof LineGaveUp) return;
+    submitRefused(e, "*");
   }
 }
 
-/** 服务器拒绝了一次提交（计算、提交）：写进日志，并显示在「提交」旁，直到服务器再次回答这张图。 */
-function submitRefused(e: unknown): void {
+/** 提交后的第一次确认：任务在服务器上了吗（有时限、连不上有限次重试）。确认不成不算提交失败——任务已经在服务器上，
+ * 事件流连上以后照常跟踪（platform/events.ts 自己会重连）；只在日志里说一句。 */
+async function confirmed(job: string): Promise<void> {
+  await withLine((signal) => api.jobState(job, signal), { gaveUp: msg("W-SUBMIT-UNCONFIRMED", { job }) }).catch((e) => {
+    if (!(e instanceof LineGaveUp) && !(e instanceof ApiError)) throw e; // 服务器答了别的（找不到它）：交给跟踪去说
+  });
+}
+
+/** 服务器拒绝了一次提交（计算、提交）：写进日志（报错只在日志里说，顶栏不显示）；「计算」的提示照它说，直到服务器再次回答这张图。 */
+function submitRefused(e: unknown, who: string): void {
+  // 服务器以 B 级拒绝了这张图（它说的原句，应用模式按 .app）：写到按钮下；别的（连接、服务器故障）只说一次，下次照常能点
+  if (e instanceof MessageError && e.said.level === "B") stoppedAt(who, e.said);
   const why = msg("E-JOB-SUBMITFAILED", { reason: reasonOf(e) });
   useResults.getState().setRefused(why);
   say(why);
@@ -372,8 +455,9 @@ function startSummary(said: Blocker[]): void {
  *
  * 阻止本次提交的原因在三处呈现：节点自身变红并显示原因（`byNode[节点].blocked`，`blockedAt` 使其保持显示
  * 直到计算输入变化）、页面跳转到该节点与对应参数（见下方代码）、以及日志（由 `say` 写入，顶栏图标显示红色计数）。 */
-function sayBlocked(found: Blocker[]): void {
+function sayBlocked(found: Blocker[], who: string): void {
   useResults.setState({ blockedAt: useCookInputs.getState().version }); // 标记一直留到计算输入变化
+  stoppedAt(who, found[0].message);
   for (const b of found) if (b.node) useResults.getState().setNodeStatus(b.node, { blocked: b.message.text });
   for (const b of dedupeBlockers(found)) say(b.message, b.node);
   // 并带使用者过去：节点图选中挡路的节点，参数面板跳到它所说的参数。没有向服务器发送任何东西。

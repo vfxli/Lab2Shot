@@ -1,0 +1,32 @@
+# Two-stage Transformer extension: display words and messages in English (the same keys as zh.toml).
+
+# ---- skeleton
+"E-TWOSTAGETRANSFORMER-SKELETON" = "Two-stage Transformer Motion Inbetween cannot map the incoming skeleton to its model skeleton: {reason}"
+"E-TWOSTAGETRANSFORMER-SKELETON.app" = "The skeleton in the motion file cannot be matched to the model's skeleton: {reason}"
+
+# ---- keyframes
+"E-TWOSTAGETRANSFORMER-KEYSTOOCLOSE" = "Keyframes {first} and {second} are too close: Two-stage Transformer Motion Inbetween generates at 30 fps, and these two land on the same frame. Remove one of the keyframes"
+"E-TWOSTAGETRANSFORMER-KEYGAP.one" = "Keyframes {first} and {second} are {seconds:.1f} s apart, but Two-stage Transformer Motion Inbetween allows at most {max_seconds:.1f} s between two keyframes ({max_frames} frames at 30 fps): add keyframes in between, or use Kimodo Motion Generation instead (template Motion Inbetween · Kimodo)"
+"E-TWOSTAGETRANSFORMER-KEYGAP.other" = "Keyframes {first} and {second} are {seconds:.1f} s apart, but Two-stage Transformer Motion Inbetween allows at most {max_seconds:.1f} s between two keyframes ({max_frames} frames at 30 fps): add keyframes in between, or use Kimodo Motion Generation instead (template Motion Inbetween · Kimodo)"
+
+[node."two_stage_transformer.inbetween"]
+subtitle = "Motion Inbetween"
+description = "The two-stage Transformer of Qin et al. (SIGGRAPH Asia 2022): fills in natural, mocap-style motion between an animator's keyframes. Deterministic (the same keyframes always give the same result) and takes milliseconds. At most about 1.8 s between two keyframes (54 frames at 30 fps); the 10 frames of context before the first keyframe are extrapolated linearly from the first two keyframes."
+official.note = "Upstream takes the incoming animation as a pair, positions + rotations (same range, 515-520), and outputs a pair, pos_new + rot_new (584): one Animation port carries that pair, not two separate things. post_process is upstream's own parameter (517)."
+licence.note = "The official Two-stage Transformer model weights are trained on Ubisoft LaFAN1 mocap data (CC BY-NC-ND 4.0); the generated motion may be used only for research and evaluation."
+cost.whole = "Milliseconds; the whole range is filled in one go, not frame by frame"
+
+[node."two_stage_transformer.inbetween".param.post_process]
+label = "Smooth Transitions"
+
+[extension.two_stage_transformer]
+summary = "Two-stage motion inbetweening: given context frames and one target frame, generates a variable-length transition non-autoregressively; Context produces the rough motion and Detail refines it"
+license.name = "MIT (code) + LaFAN1 CC BY-NC-ND 4.0 (model weights and data) + model weights research only"
+license.summary = "Research only. The code is MIT, but the official pretrained model weights are trained on Ubisoft's LaFAN1 mocap data, which is CC BY-NC-ND 4.0 (attribution, non-commercial, no derivatives), so the model weights and the generated motion may be used only for research and evaluation. The LaFAN1 dataset is downloaded at install time as well (the worker reads the skeleton and a standing reference pose from it). Commercial use requires retraining on licensed mocap data"
+weight.tst.note = "Context Transformer and Detail Transformer trained on LaFAN1 (non-commercial), 214 MB"
+weight.lafan1.note = "Ubisoft LaFAN1 mocap dataset (CC BY-NC-ND 4.0, research use), 144 MB: the skeleton and the standing reference pose are read from it"
+
+[stage]
+align_skeleton = "Align Skeleton"
+inbetween = "Two-stage Transformer Motion Inbetween"
+inbetween_each = "Inbetween"

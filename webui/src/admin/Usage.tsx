@@ -9,6 +9,8 @@ import { Button, Chip, Segmented } from "../ui/Button";
 import { useConfirm } from "../ui/Confirm";
 import { msg } from "../messages/message";
 import { DailyChart, ProjectBars, UsageTable } from "./UsageCharts";
+import { t } from "../i18n/t";
+import { tipOf } from "../platform/tips";
 
 export { DailyChart, ProjectBars } from "./UsageCharts";
 export type { BarRow } from "./UsageCharts";
@@ -25,19 +27,19 @@ export const REUSES = "#199e70";
 export const HOURS = "#d95926";
 
 type View = "projects" | "departments" | "people";
-const VIEWS: [View, string, string][] = [
-  ["projects", "按项目", "每个三方项目和它的每个节点用了多少"],
-  ["departments", "按环节", "每个环节用了多少，点开看它的人和他们用的项目"],
-  ["people", "按人", "每个账号用了多少，点开看他用的项目"],
+const VIEWS: [View, () => string][] = [
+  ["projects", () => t("ui.admin.usage.by_project")],
+  ["departments", () => t("ui.admin.usage.by_department")],
+  ["people", () => t("ui.admin.usage.by_person")],
 ];
 
 type Preset = "7" | "30" | "90" | "all" | "custom";
-const PRESETS: [Preset, string][] = [
-  ["7", "近 7 天"],
-  ["30", "近 30 天"],
-  ["90", "近 90 天"],
-  ["all", "全部"],
-  ["custom", "自定义"],
+const PRESETS: [Preset, () => string][] = [
+  ["7", () => t("ui.admin.usage.days7")],
+  ["30", () => t("ui.admin.usage.days30")],
+  ["90", () => t("ui.admin.usage.days90")],
+  ["all", () => t("ui.admin.usage.all")],
+  ["custom", () => t("ui.admin.usage.custom")],
 ];
 
 const dateText = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -53,27 +55,29 @@ function midnight(text: string, days = 0): number {
 function rangeOf(preset: Preset, from: string, to: string): [number | null, number | null] | string {
   if (preset === "all") return [null, null];
   if (preset !== "custom") return [midnight(dateText(new Date()), 1 - Number(preset)), null];
-  if (!from || !to) return "自定义区间：选好开始和结束的日期";
-  if (from > to) return "自定义区间：开始的日期要早于结束的日期";
+  if (!from || !to) return t("ui.admin.usage.custom_pick");
+  if (from > to) return t("ui.admin.usage.custom_order");
   return [midnight(from), midnight(to, 1)];
 }
 
-export const times = (n: number) => `${n.toLocaleString("zh-CN")} 次`;
+export const times = (n: number) => t("ui.admin.usage.times", { n: n.toLocaleString("zh-CN") });
 
-export const dayLabel = (day: string) => `${Number(day.slice(5, 7))}月${Number(day.slice(8))}日`;
+export const dayLabel = (day: string) => t("ui.admin.usage.month_day", { month: Number(day.slice(5, 7)), day: Number(day.slice(8)) });
 
-export function lastText(t: number | null): string {
-  if (!t) return "没用过";
-  const d = new Date(t * 1000);
-  const md = `${d.getMonth() + 1}月${d.getDate()}日`;
-  return d.getFullYear() === new Date().getFullYear() ? md : `${d.getFullYear()}年${md}`;
+export function lastText(at: number | null): string {
+  if (!at) return t("ui.admin.usage.never_used");
+  const d = new Date(at * 1000);
+  const md = { month: d.getMonth() + 1, day: d.getDate() };
+  return d.getFullYear() === new Date().getFullYear() ? t("ui.admin.usage.month_day", md) : t("ui.admin.usage.year_month_day", { year: d.getFullYear(), ...md });
 }
 
 
 /** What a project's or node's numbers say, for its tooltip. */
 export function countsTip(title: string, c: UsageCounts): string {
-  const time = c.seconds ? `计算 ${durationText(c.seconds)}${c.gpu_seconds ? `，显卡上 ${durationText(c.gpu_seconds)}` : "，都在 CPU 上"}` : "没有计算";
-  return [title, `计算 ${times(c.runs)} · 复用 ${times(c.reuses)}`, time, c.users.length ? `${c.users.length} 人用过` : "", c.last ? `最近使用 ${fullTimeText(c.last)}` : ""]
+  const time = c.seconds
+    ? t("ui.admin.usage.cooked_for", { time: c.gpu_seconds ? t("ui.admin.usage.seconds_gpu", { total: durationText(c.seconds), gpu: durationText(c.gpu_seconds) }) : t("ui.admin.usage.seconds_cpu", { total: durationText(c.seconds) }) })
+    : t("ui.admin.usage.not_cooked");
+  return [title, t("ui.admin.usage.runs_reuses", { runs: times(c.runs), reuses: times(c.reuses) }), time, c.users.length ? t("ui.admin.usage.used_by", { n: c.users.length }) : "", c.last ? t("ui.admin.usage.last_used", { at: fullTimeText(c.last) }) : ""]
     .filter(Boolean)
     .join("\n");
 }
@@ -117,7 +121,7 @@ export function UsageSection() {
 
   const reset = async () => {
     if (!data) return;
-    const ok = await ask({ title: "重置使用统计", say: msg("N-USAGE-RESET"), yes: "清零", tip: "使用统计从现在起重新算，可以撤销", danger: true });
+    const ok = await ask({ title: t("ui.admin.usage.reset_title"), say: msg("N-USAGE-RESET"), yes: t("ui.admin.usage.reset_yes"), danger: true });
     if (!ok) return;
     try {
       await api.admin.resetUsage();
@@ -150,21 +154,21 @@ export function UsageSection() {
 
   return (
     <Section
-      title="使用统计"
+      title={t("ui.admin.nav.usage")}
       className="usage"
       actions={
         <>
-          <Button tip="重新读取使用统计" tone="ghost" onClick={() => void load()}>
-            刷新
+          <Button tone="ghost" onClick={() => void load()}>
+            {t("ui.admin.common.refresh")}
           </Button>
           {shown(state?.applies, "usage.reset") && (
-            <Button tip="统计清零，从现在起重新算；任务记录一个不删，可以撤销" tone="ghost" disabled={!data} onClick={() => void reset()}>
-              重置
+            <Button tip={tipOf("consequence", t("ui.admin.usage.reset_tip"))} tone="ghost" disabled={!data} onClick={() => void reset()}>
+              {t("ui.admin.usage.reset")}
             </Button>
           )}
           {data?.undo && shown(state?.applies, "usage.reset") && (
-            <Button tip="回到上一次重置之前的起点" tone="ghost" onClick={() => void undoReset()}>
-              撤销重置
+            <Button tone="ghost" onClick={() => void undoReset()}>
+              {t("ui.admin.usage.undo_reset")}
             </Button>
           )}
         </>
@@ -172,35 +176,30 @@ export function UsageSection() {
       lede={
         <>
           {view === "projects"
-            ? "每个三方项目和它的每个节点被用了多少：真正算了一遍记一次「计算」，沿用以前的结果记一次「复用」，时间按任务结束的时候算。" +
-              "装了的项目都列出来，这段时间没用过的是 0。上面的数字和图只算三方项目，核心节点在表格最后。每一次计算都算在内。"
+            ? t("ui.admin.usage.lede_projects")
             : view === "departments"
-              ? "每个环节用了多少，点一个环节看它的人，再点一个人看他用的项目。环节是账号的环节（在「用户」里改），核心节点也算在内；设置里的环节都列出来，已经不在列表里的环节排在后面。" +
-                "没选环节的账号（比如管理员自己）记在「未分环节」一行。"
-              : view === "people"
-                ? "每个账号用了多少，点一个账号看他用的项目。核心节点也算在内。删掉的账号合在「已删除的用户」一行；有账号以前的任务都算在管理员名下。"
-                : "每张模板卡片被用来提交了几次任务：节点图从哪张模板打开，任务就记在哪张名下，不管后来改了多少；不是从模板打开的记在「自己搭的」。" +
-                  "时间按任务提交的时候算；从这一版起才开始记，以前的任务不算。模板改了名按现在的名字，删掉的按最后一次用时的名字并标「已删除」。"}
-          {data?.start ? `上次重置在 ${fullTimeText(data.start)}，统计从那时算起。` : ""}
+              ? t("ui.admin.usage.lede_departments")
+              : t("ui.admin.usage.lede_people")}
+          {data?.start ? t("ui.admin.usage.since_reset", { at: fullTimeText(data.start) }) : ""}
         </>
       }
     >
       <div className="u-filters">
-        <Segmented label="按什么看" layout="u-views" value={view} options={VIEWS.map(([id, label, tip]) => ({ value: id, label, tip }))} onChange={(id) => (setView(id), setSelected(null))} />
-        <Segmented label="时间范围" value={preset} options={PRESETS.map(([id, label]) => ({ value: id, label, tip: id === "custom" ? "自己选开始和结束的日期" : `统计${label}` }))} onChange={setPreset} />
+        <Segmented label={t("ui.admin.usage.view_by")} layout="u-views" value={view} options={VIEWS.map(([id, label]) => ({ value: id, label: label() }))} onChange={(id) => (setView(id), setSelected(null))} />
+        <Segmented label={t("ui.admin.usage.range")} value={preset} options={PRESETS.map(([id, label]) => ({ value: id, label: label() }))} onChange={setPreset} />
         {preset === "custom" && (
           <>
-            <label htmlFor="usage-from">从</label>
-            <input id="usage-from" className="field" type="date" data-tip="从这一天起算（含这一天）" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
-            <label htmlFor="usage-to">到</label>
-            <input id="usage-to" className="field" type="date" data-tip="算到这一天为止（含这一天）" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
+            <label htmlFor="usage-from">{t("ui.admin.usage.from")}</label>
+            <input id="usage-from" className="field" type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
+            <label htmlFor="usage-to">{t("ui.admin.usage.to")}</label>
+            <input id="usage-to" className="field" type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
           </>
         )}
       </div>
       {typeof range === "string" && <div className="notice">{range}</div>}
       {error && <div className="notice">{error}</div>}
       {data === null ? (
-        <p className="help-muted">读取中…</p>
+        <p className="help-muted">{t("ui.admin.common.reading")}</p>
       ) : view !== "projects" ? (
         <div className={`u-body${loading ? " u-loading" : ""}`}>
           <GroupView data={data} by={view} />
@@ -209,59 +208,59 @@ export function UsageSection() {
         <div className={`u-body${loading ? " u-loading" : ""}`}>
           <div className="u-tiles">
             <div className="u-tile">
-              <span>用过的三方项目</span>
+              <span>{t("ui.admin.usage.used_third")}</span>
               <b>
                 {usedThird.length} / {third.length}
               </b>
             </div>
             <div className="u-tile">
-              <span>计算</span>
+              <span>{t("ui.admin.usage.col_runs")}</span>
               <b>{times(total("runs"))}</b>
             </div>
             <div className="u-tile">
-              <span>复用</span>
+              <span>{t("ui.admin.usage.col_reuses")}</span>
               <b>{times(total("reuses"))}</b>
             </div>
             <div className="u-tile">
-              <span>计算时长</span>
+              <span>{t("ui.admin.usage.cook_time")}</span>
               <b>{hoursText(total("seconds"))}</b>
             </div>
             <div className="u-tile">
-              <span>用户</span>
-              <b>{people} 人</b>
+              <span>{t("ui.admin.usage.col_users")}</span>
+              <b>{t("ui.admin.usage.people", { n: people })}</b>
             </div>
           </div>
           <div className="u-charts">
             <div className="u-panel">
               <div className="u-chart-head">
-                各项目
+                {t("ui.admin.usage.per_project")}
                 <span className="u-legend">
                   <span>
                     <i style={{ background: RUNS }} />
-                    计算
+                    {t("ui.admin.usage.col_runs")}
                   </span>
                   <span>
                     <i style={{ background: REUSES }} />
-                    复用
+                    {t("ui.admin.usage.col_reuses")}
                   </span>
                   <span>
                     <i style={{ background: HOURS }} />
-                    计算时长
+                    {t("ui.admin.usage.cook_time")}
                   </span>
                 </span>
               </div>
               {usedThird.length ? (
                 <ProjectBars projects={usedThird} selected={selected} onSelect={select} />
               ) : (
-                <p className="help-muted">这段时间没有用过任何三方项目</p>
+                <p className="help-muted">{t("ui.admin.usage.none_used")}</p>
               )}
               {third.length > usedThird.length && (
                 <div className="u-unused">
-                  <span>这段时间没用过</span>
+                  <span>{t("ui.admin.usage.unused")}</span>
                   {third
                     .filter((p) => !used(p))
                     .map((p) => (
-                      <Chip key={p.name} layout="u-chip" tip={countsTip(p.title, p)} on={selected === p.name} onClick={() => select(p.name)}>
+                      <Chip key={p.name} layout="u-chip" on={selected === p.name} onClick={() => select(p.name)}>
                         {p.title}
                       </Chip>
                     ))}
@@ -270,10 +269,10 @@ export function UsageSection() {
             </div>
             <div className="u-panel">
               <div className="u-chart-head">
-                每天 · {chosen ? chosen.title : "全部三方项目"}
+                {t("ui.admin.usage.daily_head", { what: chosen ? chosen.title : t("ui.admin.usage.all_third") })}
                 {chosen && (
-                  <Button tip="不再只看选中的一组，列出全部" tone="ghost" size="sm" onClick={() => setSelected(null)}>
-                    看全部
+                  <Button tone="ghost" size="sm" onClick={() => setSelected(null)}>
+                    {t("ui.admin.usage.show_all")}
                   </Button>
                 )}
               </div>

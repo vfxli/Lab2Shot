@@ -9,7 +9,7 @@
 由此状态页开销低，提交时的指纹准确。
 
 本层只处理文件，不区分素材是否为上传所得：上传的素材本身按内容寻址（清单中记录每个文件的 sha256），相应的
-捷径位于处理上传的上层（lab2shot/catalog.py 的 PlanEnv.content_id）。底层不得反向依赖上层（io 为底层，
+捷径位于处理上传的上层（lab2shot/site/catalog.py 的 PlanEnv.content_id）。底层不得反向依赖上层（io 为底层，
 transfer 为上层）。
 """
 

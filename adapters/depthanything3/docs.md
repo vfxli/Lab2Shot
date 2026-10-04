@@ -56,6 +56,7 @@ year = 2025
 - 模型选择：Giant 1.1（最好，非商用）、Large 1.1（更快，非商用，「Depth Anything 3 深度与相机」的默认）、Base（可商用，效果差一些）；逐帧几何另有 Metric-Large 单独使用（「Depth Anything 3 深度图」的默认，可商用，必须给 Focal Length）。所有组合都用 Metric-Large 把深度图换算成米。
 - 知道镜头就填「已知 Focal Length」（逐帧几何）：决定真实尺度（深度值 = Focal Length × 网络输出 / 300），效果提升很大，见下面数字。它不能把 Focal Length 当作网络条件输入（相机编码器需要连同位姿一起给）。
 - 逐帧几何不填 Focal Length 时，每帧估的 Focal Length 跳动很大，深度图会明显闪动；要稳定的整段深度图请用「Depth Anything 3 深度与相机」。
+- 视频模式（「深度」节点的 multi_view，默认开）：照官方给视频的用法（`inference` 一次送整组图，参考视角用文档推荐给视频的 `middle`），多帧时 Giant / Large / Base 按 32 帧一窗、相邻窗重叠 8 帧一起推理，后一窗按重叠帧的深度中位比对齐到前一窗、在重叠帧上线性过渡；只有一帧时还是单视图。Metric-Large 没有跨帧注意力，这一项对它不起作用（选它时置灰）。实测（4090，504，48 帧跨一个窗口接缝，已知焦距）：相邻帧深度相对差中位 TUM walking_xyz Base 7.6%→1.2%、Large 5.2%→1.2%，Bonn crowd2 Base 1.9%→0.65%、Large 1.6%→0.51%；AbsRel TUM Base 0.198→0.191、Large 0.193→0.156，Bonn Base 0.098→0.080、Large 0.079→0.083。要相机和整段一致的世界坐标，仍用「深度与相机」。
 - "处理分辨率"：长边像素，默认 504（官方训练尺寸）；输出始终是原图大小。
 - 「Depth Anything 3 深度与相机」手填「每段最多帧数」的上限是 **110 帧**（按最吃显存的 Giant 模型、24 GB 显卡定的：124 帧要 19.4 GB；Large / Base 能放更多但没有单独验证，统一用更保守的数字），服务器按同样的上限拒绝更大的数字。
 

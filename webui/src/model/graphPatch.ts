@@ -33,6 +33,28 @@ export function same(a: Json | undefined, b: Json | undefined): boolean {
   return false;
 }
 
+/** `next`, with every part of it that is the same as JSON as the matching part of `prev` taken from `prev` (the very
+ * object): what a component selects from a new answer that did not change is the object it had, so it does not draw
+ * again. `prev` itself when nothing changed. */
+export function shared<T>(prev: T, next: T): T {
+  const a = prev as Json | undefined, b = next as Json | undefined;
+  if (a === b) return prev;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    const out = b.map((x, i) => shared(a[i], x));
+    return (out.length === a.length && out.every((x, i) => x === a[i]) ? a : out) as T;
+  }
+  if (isObj(a) && isObj(b)) {
+    const out: Obj = {};
+    let all = Object.keys(a).length === Object.keys(b).length;
+    for (const k of Object.keys(b)) {
+      out[k] = shared(a[k], b[k]) as Json;
+      all &&= k in a && out[k] === a[k];
+    }
+    return (all ? a : out) as T;
+  }
+  return same(a, b) ? prev : next;
+}
+
 /** How big a value is, in leaves: a number, a string, a flag or null counts one, an empty list or object one, the
  * rest the sum of what they hold. */
 export function size(x: Json | undefined): number {

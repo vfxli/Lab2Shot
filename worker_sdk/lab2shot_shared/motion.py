@@ -468,12 +468,13 @@ class Body:
         down = (pos[self.shins[0]] + pos[self.shins[1]]) / 2 - hip
         return float(np.dot(up, down)) < 0.0
 
-    def axes(self, pos: np.ndarray) -> np.ndarray:
+    def axes(self, pos: np.ndarray, up: np.ndarray | None = None) -> np.ndarray:
         """The body's axes in a pose [J,3] (columns, aim_frame: up, forward, left). Left across the thighs; up from the
         hip point to the trunk's centroid — the same trunk `stands` reads, in a folded pose as in a standing one. Not
         along the legs: a first frame or an idle often bends the knees forward (Mixamo's by 18°), which would tilt
-        every alignment taken from it. Without a trunk, up along the legs (knees to hips)."""
-        up = self._up(pos)
+        every alignment taken from it. Without a trunk, up along the legs (knees to hips). `up`: given instead
+        (hips_turn level)."""
+        up = self._up(pos) if up is None else np.asarray(up, np.float64)
         if np.linalg.norm(up) < ZERO_BONE:
             up = UP
         return aim_frame(up, pos[self.thighs[0]] - pos[self.thighs[1]])
@@ -486,24 +487,82 @@ class Body:
         return hip - (pos[..., self.shins[0], :] + pos[..., self.shins[1], :]) / 2
 
     def up_over(self, positions: np.ndarray) -> np.ndarray:
-        """The body's up over a shot [F,J,3]: the median of every frame's (axes), unit. The direction a motion's
-        heights are taken along (hips_path): a bind pose need not stand (a BVH zero pose lies along its spine), and a
-        solve's world need not have Y up; a frame's lean (the trunk ahead of the hips while walking, 3–10°) mostly
-        evens out over a shot."""
-        ups = self._up(np.asarray(positions, np.float64))
-        n = np.linalg.norm(ups, axis=-1)
-        ups = ups[n > ZERO_BONE] / n[n > ZERO_BONE, None]
+        """The body's up over a shot [F,J,3]: the median of its (axes) over the frames it stands on its legs, unit.
+        The direction a motion's heights are taken along (hips_path): a bind pose need not stand (a BVH zero pose lies
+        along its spine), and a solve's world need not have Y up; a frame's lean (the trunk ahead of the hips while
+        walking, 3–10°) mostly evens out over a shot. Only the frames whose thighs hang under the trunk (the knees'
+        middle within STANDING_AXIS_DEG of straight below the hips, along the trunk) say where up is: a take that sits
+        on the floor leaning back for most of its length (jump, land, sit down) put the median trunk 46° off the
+        vertical, every height was taken along that slant, and the retargeted feet sank 6–9 cm where the person stood.
+        No frame stands (a take lying or sitting throughout): every frame, as before. Without a trunk up runs along the
+        thighs and every frame stands."""
+        pos = np.asarray(positions, np.float64)
+        ups = self._up(pos)
+        hip = (pos[..., self.thighs[0], :] + pos[..., self.thighs[1], :]) / 2
+        hang = hip - (pos[..., self.shins[0], :] + pos[..., self.shins[1], :]) / 2
+        n, m = np.linalg.norm(ups, axis=-1), np.linalg.norm(hang, axis=-1)
+        ok = n > ZERO_BONE
+        stands = ok & (m > ZERO_BONE) & (np.einsum("...i,...i->...", ups, hang)
+                                         >= np.cos(np.radians(STANDING_AXIS_DEG)) * n * m)
+        pick = stands if stands.any() else ok
+        ups = ups[pick] / n[pick, None]
         if not len(ups):
             return UP.copy()
         up = np.median(ups, axis=0)
         return up / np.linalg.norm(up) if np.linalg.norm(up) > ZERO_BONE else UP.copy()
 
 
-def hips_turn(target_pos: np.ndarray, source_pos: np.ndarray, target: Body, source: Body) -> np.ndarray:
+def hips_turn(target_pos: np.ndarray, source_pos: np.ndarray, target: Body, source: Body,
+              level: bool = False) -> np.ndarray:
     """The alignment of the hips (the fork of the legs and the spine: no one bone to aim by) between two base poses
     [J,3]: the one body's axes onto the other's (Body.axes). The one rule Retarget.align and 「动作重定向」 turn the
-    hips by."""
-    return source.axes(source_pos) @ target.axes(target_pos).T
+    hips by. `level`: two standing base poses — each stands on its own ground, so up is that ground's normal, the
+    world axis nearest the body's up (standing_up), and the turn only changes the way the body faces. The body's own
+    up runs from between the thighs to the trunk's centroid, and rigs differ there: the thigh joints set ahead of the
+    hips (SOMA 2.6 cm), a spine curved forward (AccuRIG's woman): 8–11° between two upright bodies, which a turn
+    carrying every joint (BodyRetarget keep) turns into the whole target leaning back."""
+    if not level:
+        return source.axes(source_pos) @ target.axes(target_pos).T
+    return source.axes(source_pos, standing_up(source._up(source_pos))) @ target.axes(
+        target_pos, standing_up(target._up(target_pos))).T
+
+
+STANDING_AXIS_DEG = 30.0  # a standing body's up this close to a world axis is taken as that axis (hips_turn level)
+
+
+def standing_up(up: np.ndarray) -> np.ndarray | None:
+    """The world axis (±X, ±Y, ±Z) nearest a standing body's up, within STANDING_AXIS_DEG; None: none that near (a
+    rig set in the world at a slant), the body's own up stays."""
+    n = float(np.linalg.norm(up))
+    if n < ZERO_BONE:
+        return None
+    k = int(np.argmax(np.abs(up)))
+    if abs(float(up[k])) / n < np.cos(np.radians(STANDING_AXIS_DEG)):
+        return None
+    axis = np.zeros(3)
+    axis[k] = np.sign(up[k])
+    return axis
+
+
+def kept_joints(parents, body: Body, landmarks, pos: np.ndarray, axes: np.ndarray, mapped=()) -> set[int]:
+    """The joints of a standing skeleton that Retarget.align turns by the root's alignment alone: the root, the trunk
+    (Body.trunk: the spine up to the chest), the joints from the chest up to the head — the one of `landmarks` (its
+    hands and head) that lies on the body's middle, less than half the thighs' spread to either side of it (`axes`:
+    Body.axes, left in the third column; hands stand out by an arm's length in a T- or A-pose) — and each foot: the
+    joint under the shin that `mapped` holds (the ankle), with everything under it. No head among the landmarks: the
+    neck stays bone by bone."""
+    out = {0, *body.trunk}
+    hip = (pos[body.thighs[0]] + pos[body.thighs[1]]) / 2
+    spread = float(np.linalg.norm(pos[body.thighs[0]] - pos[body.thighs[1]]))
+    central = [j for j in landmarks if abs(float((pos[j] - hip) @ axes[:, 2])) < 0.5 * spread]
+    if body.trunk and len(central) == 1:
+        top = body.trunk[-1]
+        path = _up(parents, central[0])
+        if top in path:
+            out.update(path[:path.index(top)])
+    ankles = {c for c in range(len(parents)) if int(parents[c]) in body.shins and c in mapped}
+    out.update(j for j in range(len(parents)) if ankles & set(_up(parents, j)))
+    return out
 
 
 def closest_pose(model: Skeleton, rig: Skeleton, poses: np.ndarray, pairs, aims, bodies: tuple[Body, Body]) -> tuple[Skeleton, int]:
@@ -588,6 +647,15 @@ class Retarget:
           fork, turns by the body's own axes (Body.axes, hips_turn), as a
           fork has no one bone to aim by. The rest poses need not match (T-pose, A-pose, any bind pose). An aim joint
           the rig lacks passes to that joint's aim.
+        - Two standing rest poses (Body.stands on both sides): the trunk — the root, the spine up to the chest and on
+          up the neck to the head — and the feet (kept_joints) turn by the root's alignment alone, every joint of them,
+          as hips_turn level does for the root: both stand upright on flat feet there, so the rig at rest is the model
+          at rest. Their bones are not aimed one by one: rigs place these joints differently (SMPL's lower spine runs
+          25° forward, its neck-to-head 38°, its ankle-to-ball 40° down; SAM 3D Body's MHR runs the spine straight up
+          and its foot bone from mid-foot, 21° down), and aiming the model's bones onto the rig's bends the model's own
+          shape away — SMPL from MHR stood 18° leaning back on feet tipped up, which StableMotion judged broken on
+          86–100% of the frames and redrew stooped. The limbs, which T- and A-poses hold differently, are aimed bone by
+          bone as above.
         - A rig whose rest pose is no standing pose (Body.stands: its legs do not hang below its upper body — a BVH
           zero pose) aligns in the one of `poses` (the rig's own sent poses, joint-to-world [K,J,4,4]) that is most like
           the model's rest pose instead: aligning a leg that points up the spine onto one that hangs down is a half
@@ -607,6 +675,10 @@ class Retarget:
         body = Body.of_hierarchy(model.parents, (lt, rt), (ls, rs), both, model.rest_positions)
         body_p = Body.of_hierarchy(production.parents, (mapped[lt], mapped[rt]), (mapped[ls], mapped[rs]),
                                    [mapped[j] for j in both], production.rest_positions)
+        # two standing rest poses: the root turns by each one's ground (hips_turn level), not by the bodies' own ups,
+        # which rigs put 1–22° apart (the thigh joints' place, the spine's curve). A pose picked from the sent ones
+        # holds the take's own lean, which stays
+        level = body_p.stands(production.rest_positions) and body.stands(model.rest_positions)
         if poses is not None and len(poses) and not body_p.stands(production.rest_positions):
             production = closest_pose(model, production, poses, pairs, aims, (body, body_p))[0]
         pm, pp = model.rest_positions, production.rest_positions
@@ -627,7 +699,8 @@ class Retarget:
 
         rm0, rp0 = model.rest_rotations, production.rest_rotations
         same = same_axes(model, production, pairs, aims)
-        root_turn = hips_turn(pm, pp, body, body_p)
+        root_turn = hips_turn(pm, pp, body, body_p, level=level)
+        kept = kept_joints(model.parents, body, both, pm, axes_m, mapped) if level else {0}
         align: dict[int, np.ndarray] = {}
         for m in range(len(model.parents)):  # parents first: an inherited alignment is known when needed
             if m not in mapped:
@@ -638,7 +711,7 @@ class Retarget:
                 align[m] = between(frames @ bone(m, a)[0], bone(m, a)[1]) @ frames if isinstance(a, (int, np.integer)) \
                     else frames
                 continue
-            if m == 0:
+            if m in kept:  # the root, and with two standing rest poses the trunk and the feet (the docstring above)
                 align[m] = root_turn
                 continue
             if a is None:
@@ -800,7 +873,14 @@ class BodyRetarget:
     is paired with (`swings`: SAM 3D Body's MHR ankle turns at l_talocrural / l_subtalar / l_transversetarsal between
     LeftFoot and LeftToeBase, not at LeftFoot) would miss their turns: the source joint's rotation alone does not
     carry them. Such a bone is swung on every frame onto the source's actual direction, from the paired joint to the
-    one it aims at (the smallest turn, so its twist stays the paired joint's)."""
+    one it aims at (the smallest turn, so its twist stays the paired joint's).
+
+    Two ways to align the rest poses (`align`): bone by bone (each bone's rest direction onto the source's, its roll by
+    twist_refs: the target copies the source's bone directions, whatever its own rest pose holds), or `keep` — one
+    turn for every joint (the two bodies' axes, hips_turn): with the source in its rest pose the target is in its own,
+    and every joint turns from there as the source's turns from its rest pose (the turns passed on, in the body's
+    frame). The second keeps what the target's rest pose has of its own (a foot's slope, a spine's curve, the
+    「初始姿势」 corrections); the caller matches the poses first where the two rests differ (nodes/kit/retarget.py)."""
 
     target: Skeleton
     source: Skeleton
@@ -808,13 +888,16 @@ class BodyRetarget:
     offsets: np.ndarray
     blends: list[tuple[int, int, int, float, np.ndarray]]
     keys: list[int]  # the source joints the blends read (a, b above index this list)
-    # (index into pairs, source joint, the source joint it aims at, the target bone in its joint's own axes)
-    swings: list[tuple[int, int, int, np.ndarray]] = field(default_factory=list)
+    # (index into pairs, source joint, the source joint it aims at, the target bone in its joint's own axes, and with
+    # `keep` the source bone's rest direction and the target's in the source's frame: the turn between the source's
+    # rest and actual direction carries the target's own; None bone by bone, where the two rest directions are one)
+    swings: list[tuple] = field(default_factory=list)
 
     @classmethod
     def align(cls, target: Skeleton, source: Skeleton, singles: dict[int, int], chains: list[Chain], aims: list,
               refs: tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]], target_ref: np.ndarray,
-              source_ref: np.ndarray, fixed: dict[int, np.ndarray] | None = None) -> BodyRetarget:
+              source_ref: np.ndarray, fixed: dict[int, np.ndarray] | None = None,
+              keep: np.ndarray | None = None) -> BodyRetarget:
         """`singles`: target joint -> source joint, turned one to one; `chains`: the chain parts; `aims`: which joint
         each target joint's bone points at (aims_toward: towards the one branch that holds driven joints, None for a
         fork or an end) — the same alignment as Retarget.align, so a one-to-one joint is aligned exactly as there.
@@ -823,7 +906,9 @@ class BodyRetarget:
         up; hand_refs: the palm's normal, then along the fingers). `fixed`: target joint -> its alignment given outright
         (hand_refs: a hand alone, whose wrist has no one bone to aim by). `target_ref` / `source_ref` [J,3]: the
         joints' actual positions on a reference frame, for the chains' bone lengths (a bone's length does not depend
-        on how it turns; a scaled skeleton has its lengths there, not in its bind pose)."""
+        on how it turns; a scaled skeleton has its lengths there, not in its bind pose). `keep` [3,3]: every joint
+        aligned by this one turn, the target's rest pose kept (class doc); `aims`, `refs` and `fixed` then serve only
+        the chains' and the swings' bookkeeping."""
         mapped = dict(singles)
         blends_at: dict[int, tuple[int, int, float, np.ndarray, np.ndarray]] = {}
         keys: list[int] = []
@@ -883,6 +968,15 @@ class BodyRetarget:
         blend_align: dict[int, np.ndarray] = {}
         aimed: dict[int, int] = {}  # one-to-one target joint -> the target joint its bone aims at
         for m in range(len(target.parents)):  # parents first: an inherited alignment is known when needed
+            if keep is not None:
+                if m in mapped or m in blends_at:
+                    a = aim_of(m) if m in mapped else None
+                    if isinstance(a, (int, np.integer)):
+                        aimed[m] = int(a)
+                    align[m] = keep
+                    if m in blends_at:
+                        blend_align[m] = keep
+                continue
             if fixed and m in fixed and m in mapped:
                 align[m] = fixed[m]
                 continue
@@ -916,21 +1010,31 @@ class BodyRetarget:
         swings = []
         for k, (m, p) in enumerate(pairs):  # the source reaches the aimed joint through joints of its own (class doc)
             a = aimed.get(m)
-            if a is None or a not in mapped or int(source.parents[mapped[a]]) == p or fixed and m in fixed:
+            if a is None or a not in mapped or int(source.parents[mapped[a]]) == p or keep is None and fixed and m in fixed:
                 continue
             dm = pm[a] - pm[m]
             if np.linalg.norm(dm) > ZERO_BONE:
-                swings.append((k, p, mapped[a], rm0[m].T @ (dm / np.linalg.norm(dm))))
+                dm = dm / np.linalg.norm(dm)
+                rest = None
+                if keep is not None:
+                    dp = pp[mapped[a]] - pp[p]
+                    if np.linalg.norm(dp) <= ZERO_BONE:
+                        continue
+                    rest = (dp / np.linalg.norm(dp), keep @ dm)
+                swings.append((k, p, mapped[a], rm0[m].T @ dm, rest))
         return cls(target, source, pairs, offsets, blends, keys, swings)
 
     def rotations(self, world: np.ndarray) -> dict[int, np.ndarray]:
         """Source poses (joint-to-world [F,J,4,4]) -> the world rotation [F,3,3] of every target joint it turns."""
         world = np.asarray(world, np.float64)
         out = {m: orthonormal(world[:, p, :3, :3]) @ o for (m, p), o in zip(self.pairs, self.offsets)}
-        for k, p, s, bone in self.swings:  # onto the source bone's actual direction (class doc)
+        for k, p, s, bone, rest in self.swings:  # onto the source bone's actual direction (class doc)
             m = self.pairs[k][0]
             want = world[:, s, :3, 3] - world[:, p, :3, 3]
             ok = np.linalg.norm(want, axis=-1) > ZERO_BONE
+            if ok.any() and rest is not None:  # keep: the source bone's turn from its rest direction, on the target's
+                want = want.copy()
+                want[ok] = between(np.broadcast_to(rest[0], want[ok].shape), want[ok]) @ rest[1]
             if ok.any():
                 turn = between(out[m][ok] @ bone, want[ok])
                 out[m] = out[m].copy()
@@ -1018,12 +1122,15 @@ def hips_path(positions: np.ndarray, thighs: tuple[int, int], feet: list[int], s
 
     Across `up` the path is the source's, 1 : 1: the character is retargeted into a plate and must stand where the
     person stands on every frame (scaling the whole path about a ground point amplified every step: a 14% longer-legged
-    character ended half a body away after a few metres). The height, so that the feet reach the ground: `lift` adds a
-    constant, (scale - 1) times the hip's typical height over the feet (the median over the shot of its height over
-    that frame's lowest of `feet`, the ankles: the same joints the sole alignment measures from) — right on stairs,
-    ladders and jumps, a few cm off in a deep crouch; `lift=False` scales the height over the ground (the lowest any of
-    `feet` comes over the shot) by `scale` on every frame — right on flat ground including crouches, wrong as soon as
-    the ground rises. `extra` is added along `up` on every frame in both modes: the ankles' different heights over the
+    character ended half a body away after a few metres). The height, so that the feet reach the ground: `lift` raises
+    every frame by (scale - 1) times that frame's height of the hip over its lowest of `feet` (the ankles: the same
+    joints the sole alignment measures from) — legs `scale` times as long then put the target's lowest ankle where the
+    source's is, whatever holds the body up: on stairs, ladders, in a jump, a deep crouch, sitting on the floor (the
+    hip barely over the ankles, so barely raised). One constant for the shot (the median of that height) was right
+    only while the person stood most of the take: a take sitting on the floor most of its length got the sitting
+    height's raise, and the standing frames sank by the rest. `lift=False` scales the height over the ground (the
+    lowest any of `feet` comes over the shot) by `scale` on every frame — right on flat ground, wrong as soon as the
+    ground rises. `extra` is added along `up` on every frame in both modes: the ankles' different heights over the
     soles, and the user's own offset."""
     up = np.asarray(up, np.float64)
     up = up / np.linalg.norm(up)
@@ -1033,7 +1140,7 @@ def hips_path(positions: np.ndarray, thighs: tuple[int, int], feet: list[int], s
     if lift:
         # the hip's height over the feet on each frame, not over a global ground: a person walking metres along a
         # tilted street puts the global lowest foot far below any one frame's feet
-        raised = np.full(len(hips), (scale - 1.0) * float(np.median(height - lowest)))
+        raised = (scale - 1.0) * (height - lowest)
     else:
         ground = float(lowest.min())
         raised = (scale - 1.0) * (height - ground)

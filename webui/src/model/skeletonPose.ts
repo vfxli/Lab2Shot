@@ -1,4 +1,4 @@
-/** 骨架姿势修正（手柄种类「骨架姿势」，lab2shot core.retarget 的 motion_pose / target_pose）的纯算术：一行修正怎么变成
+/** 骨架姿势修正（手柄种类「骨架姿势」，lab2shot retarget 的 motion_pose / target_pose）的纯算术：一行修正怎么变成
  * 矩阵、怎么经前向运动学（FK）传到子关节、一次拖动的增量怎么换成新的一行、左右镜像（在世界里关于人物的对称面）。舞台
  * （view/skeletonPose.tsx）只画、只收拖动，算术都在这里；矩阵与旋转顺序用 model/math3d.ts 那一份。服务端用同一个约定：
  *
@@ -10,6 +10,7 @@
  * 的 TRS 当成关节的世界矩阵换回局部。合法域：各分量有限，缩放每轴 > 0（validRow）；越界的一行不写（withRow）。 */
 
 import { IDENTITY, compose, decompose, exactTRS, inverse, mirroredChange, mul, reflectionAbout, similarity, nearestAngles, rotation, roundChanged, turn, turnedAngles, turnIn, type Increment, type M4 } from "./math3d";
+import { t } from "../i18n/t";
 
 export type { M4 } from "./math3d";
 
@@ -69,7 +70,7 @@ const frameAt = (sk: PoseSkeleton, i: number, world: M4[]): M4 =>
 /** 关节 i 现在能不能改（拖手柄、镜像到它）：它的轴架退化（上级关节或它自己的基准姿势缩放为 0，math3d.inverse 判
  * 不可逆）时方向定不下来，给出原因；"" 能改。手柄与面板都按它禁用并说明。 */
 export function stuckWhy(sk: PoseSkeleton, i: number, rows: PoseRow[]): string {
-  return inverse(frameAt(sk, i, forward(sk, rows).world)) ? "" : "它的上级关节（或它自己的基准姿势）缩放为 0，方向定不下来：不能在这里拖动或镜像";
+  return inverse(frameAt(sk, i, forward(sk, rows).world)) ? "" : t("ui.rig.pose_stuck");
 }
 
 /** 放进 / 换掉一行（没改的删掉）；不在合法域里的一行不放，原样返回。 */
@@ -119,7 +120,7 @@ export function mirroredRow(sk: PoseSkeleton, i: number, j: number, plane: Mirro
   const before = forward(sk, []).world;
   const own = rows.find((r) => r.joint === sk.names[i]) ?? identityRow(sk.names[i]);
   const d = mirroredChange(deltaOf(own, sk.rotation), before[i], before[j], reflectionAbout(plane.normal, plane.point));
-  if (!d) return { why: "有一边关节的基准姿势缩放为 0：不能镜像" };
+  if (!d) return { why: t("ui.rig.pose_mirror_zero") };
   const trs = exactTRS(d, sk.rotation);
   if (!trs) {
     // 两种原因分开说：两侧的基准本身不互为镜像（i 的基准经对称面到 j 的基准不是相似变换：某一侧带非等比缩放或剪切），
@@ -127,8 +128,8 @@ export function mirroredRow(sk: PoseSkeleton, i: number, j: number, plane: Mirro
     const back = inverse(before[j]);
     const across = back && mul(back, mul(reflectionAbout(plane.normal, plane.point), before[i]));
     return { why: across && similarity(across)
-      ? "两侧关节的轴向不互为镜像，这一行里的非等比缩放镜过去不再是沿对侧关节自己的轴：不能镜像，请在对侧直接填"
-      : "两侧关节的基准姿势不互为镜像（有一侧带非等比缩放或剪切），这一行镜过去会变形：不能镜像，请在对侧直接填" };
+      ? t("ui.rig.pose_mirror_axes")
+      : t("ui.rig.pose_mirror_base") };
   }
   const was = rows.find((r) => r.joint === sk.names[j]) ?? identityRow(sk.names[j]);
   return { row: {

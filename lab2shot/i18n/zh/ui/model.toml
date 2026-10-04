@@ -1,0 +1,11 @@
+# 网页里纯规则模块（webui/src/model/*）说的话：节点底行的「已跳过」、点选的「N 号」。 键 ui.model.<…>。
+[ui.model]
+person = "{id} 号"
+person_times = "{id} 号 ×{count}"
+pick_at = "第 {frame} 帧 ({x}, {y})"
+pick_missed = "{count} 处没点到人"
+pick_summary = "点选：{picks}"
+pick_unknown = "{count} 处（先检测人物才知道是几号）"
+skipped = "已跳过"
+skipped_blocked = "已跳过（被阻断）"
+skipped_switched_off = "这一步的开关关着，不会计算"

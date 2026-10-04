@@ -55,7 +55,7 @@ RTX 4090 上（「运动矢量变形」把下一帧拉回这一帧，在「遮�
 |---|---|---|---|---|---|
 | 手持长焦 1080×1920，每帧约 15 px | MEMFOF | 原尺寸 | 0.48 s | 2.3 GB | 3.07（16.2） |
 | | MEMFOF | 长边 960 | 0.15 s | 0.6 GB | 3.21 |
-| | WAFT | 原尺寸 | 2.30 s | 14.3 GB | 3.10 |
+| | WAFT | 原尺寸 | 2.30 s | 14.3 GB（SDPA 后约 9.7） | 3.10 |
 | | WAFT | 长边 960（默认） | 0.33 s | 2.2 GB | 3.05 |
 | 固定机位跳舞 864×480 | MEMFOF | 原尺寸 | 0.09 s | 0.5 GB | 0.44（0.74） |
 | | WAFT | 原尺寸 | 0.24 s | 2.0 GB | 0.49（0.78） |
@@ -83,7 +83,7 @@ RTX 4090 上（「运动矢量变形」把下一帧拉回这一帧，在「遮�
 
 - 自动安装：`lab2shot ext install waft`。锁定 GitHub 仓库的一个版本，独立的 PyTorch 环境（和其他扩展共用下载缓存），
   从作者的 Google Drive 下载 README 推荐"用于实际应用"的 WAFT-a1 tar-c-t 权重（257 MB，Depth Anything V2 ViT-S 特征），
-  下完按 sha256 校验。不装 xformers（可选加速），不下载 Depth Anything V2 和 timm 的预训练权重（权重文件里已经有）。
+  下完按 sha256 校验。不装 xformers（官方建议装它只为加速注意力；少一个依赖）：Depth Anything V2 的注意力在 worker 里改走 torch 的 scaled_dot_product_attention（同一算式，省掉 tokens×tokens 的显式矩阵），1920 档显存 14.3 → 9.7 GB，不下载 Depth Anything V2 和 timm 的预训练权重（权重文件里已经有）。
 - 不用 PTLFlow 里的 WAFT 权重（PTLFlow 自己训练的是 CC BY-NC-SA）。
 
 ## 许可证说明

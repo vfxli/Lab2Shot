@@ -8,7 +8,7 @@ export interface PageError {
   t: number; // first occurrence
   count: number;
   last: number;
-  kind: "error" | "rejection" | "panel"; // panel: a part of the page caught by an ErrorBoundary
+  kind: "error" | "rejection" | "panel" | "outdated"; // panel: a part of the page caught by an ErrorBoundary; outdated: one whose file is gone (lazyRetry PageOutdated)
   message: string;
   where: string;
   stack: string;
@@ -22,6 +22,8 @@ const listeners = new Set<(e: PageError, detail: string) => void>();
 const unheard: [PageError, string][] = [];
 const cut = (s: string, n = TEXT) => (s.length > n ? `${s.slice(0, n)}…` : s);
 let installed = false;
+// Browser notices that are not errors: ResizeObserver reports a layout settling over more than one frame this way.
+const BENIGN = /^(ResizeObserver loop completed with undelivered notifications|ResizeObserver loop limit exceeded)/;
 
 /** Records one page error; `detail` is the log's description of it. */
 export function notePageError(kind: PageError["kind"], message: string, where: string, stack: string, detail = message): void {
@@ -47,6 +49,7 @@ export function catchPageErrors(): void {
   window.addEventListener("error", (e) => {
     const where = e.filename ? `${e.filename}:${e.lineno}:${e.colno}` : "";
     const message = e.message || String(e.error);
+    if (BENIGN.test(message)) return;
     notePageError("error", message, where, (e.error as Error)?.stack ?? "", `${cut(message)}${e.filename ? ` (${e.filename}:${e.lineno})` : ""}`);
   });
   window.addEventListener("unhandledrejection", (e) => {

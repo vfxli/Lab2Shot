@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import { LabelRow } from "../ui/LabelRow";
 import { api, type Account, type AuthState } from "../api";
 import { BrandMark } from "../ui/icons";
 import { Loading } from "../ui/Loading";
 import { pageAccess } from "../api/applies";
 import { useSession, useSessionWatch, useSignedIn } from "../state/session";
 import { Button, ButtonLink, Segmented } from "../ui/Button";
-import { MIN_CHARS, passwordProblem } from "../platform/accountRules";
+import { passwordProblem } from "../platform/accountRules";
 import { changedAccount, sawAccount } from "../platform/http";
+import { t } from "../i18n/t";
+import { tipOf } from "../platform/tips";
 
 /** Gate for the admin pages (/admin; lab2shot/server/auth.py). The user is already logged in through the site
  * gate; whether a page is available to this login is decided by the server (applies.ts pageAccess): open, a
@@ -18,9 +21,8 @@ import { changedAccount, sawAccount } from "../platform/http";
 
 const ADMIN_NAME = "admin"; // lab2shot/accounts.py ADMIN_NAME: the built-in administrator of a new installation.
 
-export const PASSPHRASE_TIP =
-  "「我的口令」是主人自己的备用钥匙：只能在服务器上执行 uv run lab2shot admin passphrase 设置，网页上永远看不到、也改不了。" +
-  "忘了管理员密码时用它设一个新密码；在服务器上执行 uv run lab2shot admin password 也能重设密码。";
+/** Why 「我的口令」 cannot be chosen: it is set on the server only. */
+const passphraseUnset = () => t("ui.admin.auth.passphrase_unset");
 
 
 const auth = api.auth;
@@ -31,7 +33,7 @@ export function AdminGate({ what, page, children }: { what: string; page: string
   useSessionWatch();
   const state = useSession((s) => s.state);
   const set = useSession((s) => s.set);
-  if (!state) return <Loading what="登录状态" fill />;
+  if (!state) return <Loading what={t("ui.admin.auth.state")} fill />;
   const access = pageAccess(state, page);
   if (access === "not-yours" && state.user) return <NotYours what={what} user={state.user} />;
   if (access !== "open") return <LoginPage what={what} known={state.user} onIn={(s) => signedIn(s, set)} />;
@@ -51,7 +53,7 @@ function Top() {
     <header className="adm-top">
       <span className="help-brand">
         <BrandMark />
-        Lab2Shot 管理
+        {t("ui.admin.page.title")}
       </span>
     </header>
   );
@@ -66,14 +68,14 @@ function NotYours({ what, user }: { what: string; user: Account }) {
     <div className="login-page">
       <Top />
       <main className="login-main">
-        <section className="login-card login-plate" aria-label="只给管理员">
-          <h1>这个页面只给管理员用</h1>
+        <section className="login-card login-plate" aria-label={t("ui.admin.auth.admins_only")}>
+          <h1>{t("ui.admin.auth.not_yours_title")}</h1>
           <p className="login-lede">
-            {what}只有管理员能打开。当前登录的是 {user.name}（{user.username}），编辑器照常能用。
+            {t("ui.admin.auth.not_yours", { what, name: user.name, username: user.username })}
           </p>
           <div className="login-actions end">
-            <ButtonLink tip="回到节点编辑器" tone="primary" href="/">
-              回到编辑器
+            <ButtonLink tone="primary" href="/">
+              {t("ui.admin.auth.back_to_editor")}
             </ButtonLink>
           </div>
         </section>
@@ -85,13 +87,13 @@ function NotYours({ what, user }: { what: string; user: Account }) {
 function LoginPage({ what, known, onIn }: { what: string; known: Account | null; onIn: (s: AuthState) => void }) {
   const [forgot, setForgot] = useState(false);
   useEffect(() => {
-    document.title = "Lab2Shot 管理 · 登录";
+    document.title = t("ui.admin.auth.page_title");
   }, []);
   return (
     <div className="login-page">
       <Top />
       <main className="login-main">
-        <section className="login-card login-plate" aria-label={forgot ? "用口令设新密码" : "登录"}>
+        <section className="login-card login-plate" aria-label={forgot ? t("ui.admin.auth.reset_title") : t("ui.admin.auth.login")}>
           {forgot ? <ResetForm onIn={onIn} onBack={() => setForgot(false)} /> : <LoginForm what={what} known={known} onIn={onIn} onForgot={() => setForgot(true)} />}
         </section>
       </main>
@@ -124,24 +126,23 @@ function LoginForm({ what, known, onIn, onForgot }: { what: string; known: Accou
 
   return (
     <form onSubmit={(e) => void submit(e)}>
-      <h1>{known ? "再输一次密码" : "管理登录"}</h1>
+      <h1>{known ? t("ui.admin.auth.again_title") : t("ui.admin.auth.login_title")}</h1>
       <p className="login-lede">
-        {what}要用有管理权限的账号。{known ? "管理权限三天后要再输一次密码；" : ""}已经登录的编辑器不受影响。
+        {known ? t("ui.admin.auth.lede_again", { what }) : t("ui.admin.auth.lede", { what })}
       </p>
       <label className="login-field">
-        <span data-tip="管理员或二级管理员的用户名">用户名</span>
+        <span>{t("ui.admin.auth.username")}</span>
         <input
           className="field"
           name="username"
           autoComplete="username"
           value={username}
           readOnly={!!known}
-          data-tip="管理员或二级管理员的用户名"
           onChange={(e) => (setUsername(e.target.value), setProblem(""))}
         />
       </label>
       <label className="login-field">
-        <span data-tip="管理员的密码。忘了可以点下面的「忘记密码」用口令重设，或在服务器上执行 lab2shot admin password">密码</span>
+        <span>{t("ui.admin.auth.password")}</span>
         <input
           ref={field}
           className="field"
@@ -150,7 +151,6 @@ function LoginForm({ what, known, onIn, onForgot }: { what: string; known: Accou
           autoComplete="current-password"
           value={password}
           aria-invalid={!!problem}
-          data-tip="输入密码，按回车登录"
           onChange={(e) => (setPassword(e.target.value), setProblem(""))}
         />
       </label>
@@ -160,11 +160,11 @@ function LoginForm({ what, known, onIn, onForgot }: { what: string; known: Accou
         </p>
       )}
       <div className="login-actions">
-        <Button tip={`用「我的口令」设一个新的管理员密码。${PASSPHRASE_TIP}`} tone="ghost" type="button" onClick={onForgot}>
-          忘记密码
+        <Button tone="ghost" type="button" onClick={onForgot}>
+          {t("ui.admin.auth.forgot")}
         </Button>
-        <Button tip={password ? "登录，三天内这个浏览器不用再输" : "先输入密码"} tone="primary" type="submit" disabled={!username.trim() || !password || busy}>
-          {busy ? "登录中…" : "登录"}
+        <Button tip={password ? undefined : tipOf("disabled", t("ui.admin.auth.password_first"))} tone="primary" type="submit" disabled={!username.trim() || !password || busy}>
+          {busy ? t("ui.admin.auth.logging_in") : t("ui.admin.auth.login")}
         </Button>
       </div>
     </form>
@@ -195,13 +195,13 @@ function ResetForm({ onIn, onBack }: { onIn: (s: AuthState) => void; onBack: () 
 
   return (
     <form onSubmit={(e) => void submit(e)}>
-      <h1>用口令设新密码</h1>
-      <p className="login-lede" data-tip={PASSPHRASE_TIP}>
-        输入服务器上设好的「我的口令」，再给管理员设一个新密码。设好后管理员在别处的登录都会退出，这个浏览器随即登录。
+      <h1>{t("ui.admin.auth.reset_title")}</h1>
+      <p className="login-lede">
+        {t("ui.admin.auth.reset_lede")}
       </p>
       <label className="login-field">
-        <span data-tip={PASSPHRASE_TIP}>我的口令</span>
-        <input className="field" type="password" autoComplete="off" value={phrase} autoFocus data-tip={PASSPHRASE_TIP} onChange={(e) => (setPhrase(e.target.value), setProblem(""))} />
+        <span>{t("ui.admin.auth.passphrase")}</span>
+        <input className="field" type="password" autoComplete="off" value={phrase} autoFocus onChange={(e) => (setPhrase(e.target.value), setProblem(""))} />
       </label>
       <NewPassword next={next} again={again} onNext={setNext} onAgain={setAgain} />
       {(rule || problem) && (
@@ -210,11 +210,11 @@ function ResetForm({ onIn, onBack }: { onIn: (s: AuthState) => void; onBack: () 
         </p>
       )}
       <div className="login-actions">
-        <Button tip="回到用密码登录" tone="ghost" type="button" onClick={onBack}>
-          返回
+        <Button tone="ghost" type="button" onClick={onBack}>
+          {t("ui.admin.auth.back")}
         </Button>
-        <Button tip={ready ? "用口令设新密码并登录" : "先填好口令和两次一样的新密码"} tone="primary" type="submit" disabled={!ready || busy}>
-          {busy ? "设置中…" : "设新密码并登录"}
+        <Button tip={ready ? undefined : tipOf("disabled", t("ui.admin.auth.reset_first"))} tone="primary" type="submit" disabled={!ready || busy}>
+          {busy ? t("ui.admin.auth.setting") : t("ui.admin.auth.reset_go")}
         </Button>
       </div>
     </form>
@@ -225,12 +225,12 @@ function NewPassword({ next, again, onNext, onAgain }: { next: string; again: st
   return (
     <>
       <label className="login-field">
-        <span data-tip={`新的管理员密码，至少 ${MIN_CHARS} 个字符；字母、数字、符号、中文都可以`}>新密码</span>
-        <input className="field" type="password" autoComplete="new-password" value={next} data-tip={`至少 ${MIN_CHARS} 个字符`} onChange={(e) => onNext(e.target.value)} />
+        <span>{t("ui.admin.auth.new_password")}</span>
+        <input className="field" type="password" autoComplete="new-password" value={next} onChange={(e) => onNext(e.target.value)} />
       </label>
       <label className="login-field">
-        <span data-tip="再输一次新密码，防止输错">再输一次</span>
-        <input className="field" type="password" autoComplete="new-password" value={again} data-tip="和上面的新密码一样" onChange={(e) => onAgain(e.target.value)} />
+        <span>{t("ui.admin.auth.again")}</span>
+        <input className="field" type="password" autoComplete="new-password" value={again} onChange={(e) => onAgain(e.target.value)} />
       </label>
     </>
   );
@@ -269,61 +269,34 @@ export function PasswordCard() {
   };
 
   return (
-    <form className="set-card pw-card" data-group="password" onSubmit={(e) => void submit(e)}>
-      <h3>管理员密码</h3>
-      <div className="set-row">
-        <span className="set-label" data-tip={`改密码要先验明身份：输入现在的密码，或者「我的口令」。${PASSPHRASE_TIP}`}>
-          用什么证明
-        </span>
-        <span className="set-ctl">
-          <Segmented label="用什么证明" value={how} options={[{ value: "current", label: "现在的密码", tip: "输入现在的管理员密码" }, { value: "passphrase", label: "我的口令", tip: `输入「我的口令」。${PASSPHRASE_TIP}`, disabled: state.passphrase ? false : `还没有设口令。${PASSPHRASE_TIP}` }]} onChange={(h) => (setHow(h), setProof(""), setProblem(""))} />
-        </span>
-        <span />
-      </div>
-      <label className="set-row">
-        <span className="set-label" data-tip={how === "current" ? "现在的管理员密码" : PASSPHRASE_TIP}>
-          {how === "current" ? "现在的密码" : "我的口令"}
-        </span>
-        <span className="set-ctl">
-          <input className="field" type="password" autoComplete={how === "current" ? "current-password" : "off"} value={proof} aria-label={how === "current" ? "现在的密码" : "我的口令"} data-tip={how === "current" ? "现在的管理员密码" : "服务器上设好的口令"} onChange={(e) => (setProof(e.target.value), setProblem(""), setDone(false))} />
-        </span>
-        <span />
-      </label>
-      <label className="set-row">
-        <span className="set-label" data-tip={`新的管理员密码，至少 ${MIN_CHARS} 个字符`}>
-          新密码
-        </span>
-        <span className="set-ctl">
-          <input className="field" type="password" autoComplete="new-password" value={next} aria-label="新密码" data-tip={`至少 ${MIN_CHARS} 个字符`} onChange={(e) => (setNext(e.target.value), setDone(false))} />
-        </span>
-        <span />
-      </label>
-      <label className="set-row">
-        <span className="set-label" data-tip="再输一次新密码，防止输错">
-          再输一次
-        </span>
-        <span className="set-ctl">
-          <input className="field" type="password" autoComplete="new-password" value={again} aria-label="再输一次新密码" data-tip="和上面的新密码一样" onChange={(e) => (setAgain(e.target.value), setDone(false))} />
-        </span>
-        <span />
-      </label>
+    <form className="set-card pw-card lgrid" data-group="password" onSubmit={(e) => void submit(e)}>
+      <h3>{t("ui.admin.auth.card_title")}</h3>
+      <LabelRow className="set-row" labelClass="set-label" label={t("ui.admin.auth.proof")} ctlClass="set-ctl">
+        <Segmented label={t("ui.admin.auth.proof")} value={how} options={[{ value: "current", label: t("ui.admin.auth.current") }, { value: "passphrase", label: t("ui.admin.auth.passphrase"), disabled: state.passphrase ? false : passphraseUnset() }]} onChange={(h) => (setHow(h), setProof(""), setProblem(""))} />
+      </LabelRow>
+      <LabelRow className="set-row" labelAs="label" labelClass="set-label" label={how === "current" ? t("ui.admin.auth.current") : t("ui.admin.auth.passphrase")} ctlClass="set-ctl">
+        <input className="field" type="password" autoComplete={how === "current" ? "current-password" : "off"} value={proof} aria-label={how === "current" ? t("ui.admin.auth.current") : t("ui.admin.auth.passphrase")} onChange={(e) => (setProof(e.target.value), setProblem(""), setDone(false))} />
+      </LabelRow>
+      <LabelRow className="set-row" labelAs="label" labelClass="set-label" label={t("ui.admin.auth.new_password")} ctlClass="set-ctl">
+        <input className="field" type="password" autoComplete="new-password" value={next} aria-label={t("ui.admin.auth.new_password")} onChange={(e) => (setNext(e.target.value), setDone(false))} />
+      </LabelRow>
+      <LabelRow className="set-row" labelAs="label" labelClass="set-label" label={t("ui.admin.auth.again")} ctlClass="set-ctl">
+        <input className="field" type="password" autoComplete="new-password" value={again} aria-label={t("ui.admin.auth.again_label")} onChange={(e) => (setAgain(e.target.value), setDone(false))} />
+      </LabelRow>
       {(rule || problem) && (
-        <p className="set-why bad" role="alert">
+        <p className="set-why bad lrow-under" role="alert">
           {rule || problem}
         </p>
       )}
-      {done && <p className="set-why ok">密码已改好：管理员在别处的登录都已退出，这个浏览器继续登录着。</p>}
-      <div className="set-row">
-        <span className="set-label" />
-        <span className="set-ctl">
-          <Button tip={ready ? "改成新密码；管理员在别处的登录都要重新登录" : "先填好证明和两次一样的新密码"} tone="primary" type="submit" disabled={!ready || busy}>
-            {busy ? "修改中…" : "改密码"}
+      {done && <p className="set-why ok lrow-under">{t("ui.admin.auth.changed")}</p>}
+      <LabelRow className="set-row" labelClass="set-label" label="" ctlClass="set-ctl">
+        <Button tip={ready ? tipOf("consequence", t("ui.admin.auth.change_tip")) : tipOf("disabled", t("ui.admin.auth.change_first"))} tone="primary" type="submit" disabled={!ready || busy}>
+            {busy ? t("ui.admin.auth.changing") : t("ui.admin.auth.change")}
           </Button>
-          <span className="pw-hint" data-tip={PASSPHRASE_TIP}>
-            口令只能在服务器上设
+          <span className="pw-hint">
+            {t("ui.admin.auth.passphrase_hint")}
           </span>
-        </span>
-      </div>
+      </LabelRow>
     </form>
   );
 }

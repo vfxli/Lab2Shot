@@ -1,0 +1,13 @@
+# Templates as tools (server/tools.py): DCC plugins and scripts get the tool list, have results delivered in the formats
+# they want (engine/deliver_formats.py), and use a single node as a tool (engine/node_tools.py).
+
+# ---- the delivery formats the caller names (POST /api/jobs formats)
+"E-FORMAT-NOKIND" = "\"{kind}\" in the delivery formats is not a kind of 3D data: it must be one of {kinds}"
+"E-FORMAT-NOFORMAT" = "There is no delivery format \"{format}\": the choices are {formats}"
+"E-FORMAT-CANTWRITE" = "{kind} cannot be written as {format}: {why}. Choose a format that can hold it and submit again"
+"E-FORMAT-LIST" = "\"{node}\" receives a group of scenes (a list), which cannot be split by kind into different formats: ask for one format for these kinds of data"
+
+# ---- the tool list
+"E-TOOL-NOTFOUND" = "Tool \"{name}\" not found: it may have been deleted or disabled, or this account may not use it; refresh the tool list and choose again"
+"W-TOOL-WRAPFAILED" = "Wrapping node type \"{type}\" as a single-node tool failed, so it is not in the tool list (where it failed is below)"
+"W-TOOL-WARMFAILED" = "Precomputing the tool signatures at startup did not finish: they are computed on the first tool list request (a few seconds slower)"

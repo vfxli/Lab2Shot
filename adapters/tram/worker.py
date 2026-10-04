@@ -80,6 +80,73 @@ def enter_runtime(weights: Path, repo: Path) -> None:
     importlib.import_module("lib.camera")
 
 
+VITDET_CFG = "data/pretrain/cascade_mask_rcnn_vitdet_h_75ep.py"
+VITDET_URL = ("https://dl.fbaipublicfiles.com/detectron2/ViTDet/COCO/cascade_mask_rcnn_vitdet_h/f328730692/"
+              "model_final_f05665.pkl")
+_HUB = {}  # the torch.hub.load of this job's local_hub rule (load_zoe calls it)
+
+
+@resident
+def load_vitdet(weights: Path):
+    """ViTDet-H exactly as upstream's detect_segment_track builds it (lib/pipeline/tools.py:49-55: the config, its
+    checkpoint, the three box predictors' score threshold at 0.25), kept between jobs."""
+    from detectron2.config import LazyConfig
+    from lib.utils.utils_detectron2 import DefaultPredictor_Lazy
+
+    cfg = LazyConfig.load(str(weights / VITDET_CFG))
+    cfg.train.init_checkpoint = VITDET_URL
+    for i in range(3):
+        cfg.model.roi_heads.box_predictors[i].test_score_thresh = 0.25
+    return DefaultPredictor_Lazy(cfg)
+
+
+@resident
+def load_sam(checkpoint: Path):
+    """SAM ViT-H as upstream builds it (tools.py:58-59), on the GPU, kept between jobs."""
+    from segment_anything import sam_model_registry
+
+    return sam_model_registry["vit_h"](checkpoint=str(checkpoint)).to("cuda")
+
+
+@resident
+def load_zoe(repo: str, model: str):
+    """ZoeDepth (masked_droid_slam.py run_metric_slam: torch.hub.load("isl-org/ZoeDepth", "ZoeD_N",
+    pretrained=True)) from the pinned local copy, kept between jobs."""
+    return _HUB["load"](repo, model, pretrained=True).eval().to("cuda")
+
+
+def keep_upstream_models(run: Run, weights: Path) -> dict:
+    """Upstream builds ViTDet-H, SAM ViT-H and ZoeDepth inside its pipeline functions on every call; here those
+    constructors hand back the resident copies (@resident), so a second job does not load the three again. The
+    functions themselves run unchanged: only the names they build their models with are pointed at the loaders.
+    DEVA is already built once per process (lib/pipeline/deva_track.py loads it at import).
+
+    Returns {name: model} of the ones this job has used so far (filled as upstream builds them), so the job can
+    offload each once its step is done."""
+    import torch.hub
+    from lib.pipeline import tools
+
+    used: dict = {}
+
+    def keep(name, loader, *args):
+        used[name] = run.model("load_model", loader, *args, stage_params={"model": name})
+        return used[name]
+
+    tools.DefaultPredictor_Lazy = lambda cfg: keep("ViTDet-H", load_vitdet, weights)
+    tools.sam_model_registry = {"vit_h": lambda checkpoint: keep("SAM ViT-H", load_sam, Path(os.path.abspath(checkpoint)))}
+    hub_load = torch.hub.load  # local_hub's rule of this job
+    _HUB["load"] = hub_load
+
+    def load(repo_or_dir, model, *args, **kwargs):
+        if model == "ZoeD_N" and str(repo_or_dir).rstrip("/").endswith("ZoeDepth"):
+            return keep("ZoeDepth", load_zoe, str(repo_or_dir), model)
+        return hub_load(repo_or_dir, model, *args, **kwargs)
+
+    load.upstream = getattr(hub_load, "upstream", hub_load)
+    torch.hub.load = load
+    return used
+
+
 def link_frames(job, folder: Path) -> list[str]:
     """TRAM globs <folder>/*.jpg; cv2 reads by content, so PNGs linked under .jpg names work unchanged."""
     folder.mkdir(parents=True, exist_ok=True)
@@ -98,37 +165,47 @@ def detect_segment_track(imgfiles: list[str], seq_folder: Path):
     """Upstream estimate_camera.py: ViTDet + SAM + DEVA -> (boxes, masks as RLE, tracks)."""
     from lib.pipeline import detect_segment_track as upstream
 
-    stage("ViTDet 检测 · SAM 遮罩 · DEVA 跟踪人物")
+    stage("detect_people")
     return upstream(imgfiles, str(seq_folder), thresh=0.25, min_size=100, save_vos=False)
 
 
-def solve_camera(img_folder: Path, imgfiles, masks_rle, focal_px, static: bool, width: int, height: int):
+def solve_camera(img_folder: Path, imgfiles, masks_rle, focal_px, static: bool, principal):
     """Upstream estimate_camera.py after detection. Returns (cam_to_world [N,4,4] in TRAM's
-    gravity-aligned world, focal, is_static, focal_source, spec focal)."""
+    gravity-aligned world, focal, is_static, focal_source, spec focal).
+
+    `principal`: the picture's centre in the pixels sent (the node's principal_px: on a canvas with overscan it is
+    not the canvas centre). Upstream takes the image centre (slam_utils.est_calib, also used by its focal search);
+    its est_calib is pointed at the picture's centre, the focal guess stays upstream's (the longest image side)."""
     from pycocotools import mask as masktool
 
     from lib.camera import align_cam_to_world, calibrate_intrinsics, run_metric_slam
+    from lib.camera import masked_droid_slam
     from lib.camera.masked_droid_slam import test_slam
-    from lib.camera.slam_utils import preprocess_masks
+    from lib.camera.slam_utils import est_calib, preprocess_masks
 
+    def at_principal(imagedir):
+        focal, _, _, _ = est_calib(imagedir)
+        return [focal, focal, float(principal[0]), float(principal[1])]
+
+    masked_droid_slam.est_calib = at_principal
     masks = None if masks_rle is None else torch.from_numpy(np.array([masktool.decode(m) for m in masks_rle]))
     folder = str(img_folder)
     if focal_px:
-        cam_int = np.array([focal_px, focal_px, width / 2.0, height / 2.0])
+        cam_int = np.array([focal_px, focal_px, float(principal[0]), float(principal[1])])
         is_static, focal_source = static, "user"
         if not static:  # upstream's static-camera test (first step of calibrate_intrinsics)
             _, is_static = test_slam(folder, preprocess_masks(folder, masks[::10][:50]), stride=10, calib=cam_int,
                                      max_frame=50)
     else:
-        stage("TRAM 搜索 Focal Length（SLAM 重投影误差）")
+        stage("search_focal")
         cam_int, is_static = calibrate_intrinsics(folder, masks, is_static=static)
         # a locked-off camera keeps upstream's first guess (the image's longest side): nothing to search with
         focal_source = "TRAM default (longest image side)" if is_static else "TRAM focal search (500-1500 px)"
     if is_static and not static:
         say("W-TRAM-STATIC")
-    stage("DROID-SLAM 解算相机 · ZoeDepth 定尺度" if not is_static else "固定机位")
+    stage("solve_camera" if not is_static else "static_camera")
     cam_r, cam_t = run_metric_slam(folder, masks=masks, calib=cam_int, is_static=is_static)
-    stage("SPEC 估计重力方向")
+    stage("estimate_gravity")
     wd_r, wd_t, spec_f = align_cam_to_world(imgfiles[0], cam_r, cam_t)
     return wh.make_pose(wd_r.numpy(), wd_t.numpy()), float(cam_int[0]), bool(is_static), focal_source, float(spec_f)
 
@@ -168,8 +245,8 @@ def tracks_from_deva(tracks_obj, max_people: int):
 
 @resident
 def load_vimo(weights: Path):
-    """VIMO (ViTDet, SAM, DEVA, DROID-SLAM, ZoeDepth and SPEC are built by upstream's pipeline functions on every
-    job)."""
+    """VIMO (ViTDet-H, SAM and ZoeDepth are resident too, keep_upstream_models; DROID-SLAM and SPEC, both small, are
+    built by upstream's functions on every job)."""
     from lib.models import get_hmr_vimo
 
     return get_hmr_vimo(checkpoint=str(weights / "data/pretrain/vimo_checkpoint.pth.tar"))
@@ -183,16 +260,107 @@ def load_smpl(weights: Path):
     return SMPL().cuda().eval()
 
 
-def solve_people(run: Run, tracks, imgfiles, focal, width, height, frame_numbers, cam_to_world, weights: Path):
+VIMO_WINDOW = 16  # HMR_VIMO.seq_len
+BACKBONE_BATCH = 32  # crops through ViT-H at once
+WINDOW_BATCH = 16  # 16-frame windows through the temporal modules at once
+
+
+@torch.no_grad()
+def vimo_chunk(model, imgfiles, boxes, img_focal, img_center, device="cuda") -> dict:
+    """Upstream HMR_VIMO.inference_chunk (lib/models/hmr_vimo.py:190-238) with the ViT-H backbone run once per
+    frame. Upstream slides a 16-frame window one frame at a time and runs the whole forward() on every window, so
+    every frame's crop goes through ViT-H 16 times for the same features (its own "To-do: efficient implementation
+    with batch"). The backbone depends on its own frame only, so here it runs once per frame (same autocast, kept
+    in its autocast dtype and made float exactly where forward() does), and every window then runs forward()'s
+    remaining steps (bbox feature, space-time module, SMPL head, motion module, translation) on its 16 frames'
+    features, several windows at once. Which window's answer each frame takes is upstream's: the first 9 frames
+    from the first window, the last 8 from the last one, every other frame from the window it is the 9th of."""
+    import einops
+    from torch.utils.data import default_collate
+
+    from lib.datasets.track_dataset import TrackDataset
+    from lib.utils.geometry import rot6d_to_rotmat_hmr2 as rot6d_to_rotmat
+
+    db = TrackDataset(imgfiles, boxes, img_focal=img_focal, img_center=img_center, normalization=True, dilate=1.2)
+    n, t = len(db), VIMO_WINDOW
+    feats, info = [], {"center": [], "scale": [], "img_focal": [], "img_center": []}
+    for start in range(0, n, BACKBONE_BATCH):
+        batch = default_collate([db[i] for i in range(start, min(start + BACKBONE_BATCH, n))])
+        with torch.autocast("cuda"):
+            feats.append(model.backbone(batch["img"].to(device)[:, :, :, 32:-32]))
+        for key in info:
+            info[key].append(batch[key])
+    feats = torch.cat(feats)
+    info = {k: torch.cat(v).to(device) for k, v in info.items()}
+    bbox_info = model.bbox_est(info["center"], info["scale"], info["img_focal"], info["img_center"])
+
+    starts = list(range(0, n - t + 1))
+    take = {}  # window start -> (positions in the window kept)
+    for w in starts:
+        if n == t:
+            take[w] = list(range(t))
+        elif w == 0:
+            take[w] = list(range(9))
+        elif w == n - t:
+            take[w] = list(range(8, t))
+        else:
+            take[w] = [8]
+    out = {k: [] for k in ("pred_cam", "pred_pose", "pred_shape", "pred_rotmat", "pred_trans")}
+    for b in range(0, len(starts), WINDOW_BATCH):
+        group = starts[b:b + WINDOW_BATCH]
+        idx = torch.as_tensor([w + i for w in group for i in range(t)], device=feats.device)
+        feature, bb_info = feats[idx].float(), bbox_info[idx]
+        if model.st_module is not None:
+            bb = einops.repeat(bb_info, "b c -> b c h w", h=16, w=12)
+            feature = torch.cat([feature, bb], dim=1)
+            feature = einops.rearrange(feature, "(b t) c h w -> (b h w) t c", t=t)
+            feature = model.st_module(feature)
+            feature = einops.rearrange(feature, "(b h w) t c -> (b t) c h w", h=16, w=12)
+        pred_pose, pred_shape, pred_cam = model.smpl_head(feature)
+        if model.motion_module is not None:
+            bb = einops.rearrange(bb_info, "(b t) c -> b t c", t=t)
+            pred_pose = einops.rearrange(pred_pose, "(b t) c -> b t c", t=t)
+            pred_pose = model.motion_module(torch.cat([pred_pose, bb], dim=2))
+            pred_pose = einops.rearrange(pred_pose, "b t c -> (b t) c")
+        rotmat = rot6d_to_rotmat(pred_pose).reshape(-1, 24, 3, 3)
+        trans = model.get_trans(pred_cam, info["center"][idx], info["scale"][idx], info["img_focal"][idx],
+                                info["img_center"][idx])
+        for k, w in enumerate(group):
+            rows = [k * t + i for i in take[w]]
+            out["pred_cam"].append(pred_cam[rows].cpu())
+            out["pred_pose"].append(pred_pose[rows].cpu())
+            out["pred_shape"].append(pred_shape[rows].cpu())
+            out["pred_rotmat"].append(rotmat[rows].cpu())
+            out["pred_trans"].append(trans[rows].cpu())
+    return {k: torch.cat(v) for k, v in out.items()}
+
+
+def vimo_inference(model, imgfiles, boxes, img_focal, img_center, valid, frame):
+    """Upstream HMR_VIMO.inference (hmr_vimo.py:146-187): the track split where it breaks, pieces shorter than 16
+    frames dropped, each piece through vimo_chunk instead of upstream's inference_chunk."""
+    from lib.pipeline.tools import parse_chunks
+
+    imgfiles = np.array(imgfiles)
+    frame, boxes = frame[valid], boxes[valid]
+    frame_chunks, boxes_chunks = parse_chunks(frame, boxes, min_len=16)
+    if len(frame_chunks) == 0:
+        return None
+    parts = [vimo_chunk(model, imgfiles[f], b, img_focal, img_center) for f, b in zip(frame_chunks, boxes_chunks)]
+    res = {k: torch.cat([p[k] for p in parts]) for k in parts[0]}
+    res["frame"] = torch.cat([torch.from_numpy(f) for f in frame_chunks])
+    return res
+
+
+def solve_people(run: Run, tracks, imgfiles, focal, principal, frame_numbers, cam_to_world, weights: Path):
     from scipy.ndimage import gaussian_filter
 
-    model = run.model("VIMO 模型", load_vimo, weights)
-    smpl = run.model("SMPL 身体模型", load_smpl, weights)
-    run.stage("VIMO 估计人体")
-    img_center = np.array([width / 2.0, height / 2.0])
+    model = run.model("load_model", load_vimo, weights, stage_params={"model": "VIMO"})
+    smpl = run.model("load_model", load_smpl, weights, stage_params={"model": "SMPL"})
+    run.stage("estimate_bodies")
+    img_center = np.asarray(principal, np.float64)
     people = []
-    for k, (pid, frame, boxes, valid) in run.each(tracks, "VIMO"):
-        res = model.inference(imgfiles, boxes, valid=valid, frame=frame, img_focal=focal, img_center=img_center)
+    for k, (pid, frame, boxes, valid) in run.each(tracks, "vimo"):
+        res = vimo_inference(model, imgfiles, boxes, focal, img_center, valid, frame)
         if res is None:
             say("N-TRAM-SHORTTRACK", person=int(pid), frames=MIN_FRAMES)
             continue
@@ -253,15 +421,21 @@ def main(job_path: str) -> None:
 
     # 上游自己找人：ViTDet + SAM + DEVA，既给 DEVA 跟踪（没接「人物框」时 VIMO 按它解人），也给 SLAM 要的人物遮罩——
     # 所以接了「人物框」这一步照样跑（SLAM 的遮罩来自它），只是 VIMO 那一步换成按框解（下面 tracks_from_given）
+    used = keep_upstream_models(run, weights)
     _, masks_rle, tracks_obj = detect_segment_track(imgfiles, work / "tram")
+    for name in list(used):  # to RAM for the next job: the SLAM and VIMO have the GPU as in upstream's scripts
+        offload(used.pop(name))
     torch.cuda.empty_cache()
 
+    principal = params["principal_px"]  # the picture's centre in the pixels sent (nodes.py prepare)
     c2w, focal, is_static, focal_source, spec_f = solve_camera(
-        img_folder, imgfiles, masks_rle, params["focal_px"], static, width, height)
+        img_folder, imgfiles, masks_rle, params["focal_px"], static, principal)
     camera_info = {"focal_source": focal_source, "pose_source": "static" if is_static else "masked DROID-SLAM + ZoeDepth scale",
                    "gravity_source": "SPEC (pitch / roll of the first frame)", "spec_focal_px": round(spec_f, 1),
                    "static": is_static}
     world = "TRAM world: first camera at the origin, gravity-aligned from SPEC (+Y up, gravity -Y), metres"
+    for name in list(used):  # ZoeDepth (moving camera only)
+        offload(used.pop(name))
     torch.cuda.empty_cache()
 
     # 接了「人物框」就按框解（官方 HMR_VIMO.inference 收框，nodes.py official 注 ⓪）；没接照官方 demo 用 DEVA 的轨迹
@@ -269,11 +443,11 @@ def main(job_path: str) -> None:
               else tracks_from_deva(tracks_obj, max_people))
     if not tracks:
         nothing("N-TRAM-NOPEOPLE")
-    people, smpl = solve_people(run, tracks, imgfiles, focal, width, height, frame_numbers, c2w, weights)
+    people, smpl = solve_people(run, tracks, imgfiles, focal, principal, frame_numbers, c2w, weights)
     if not people:
         nothing("N-TRAM-NOLONGTRACK", frames=MIN_FRAMES)
 
-    run.stage("写出结果")
+    run.stage("write_results")
     out = [wh.save_person(raw, person, "smpl", smpl) for person in people]
     wh.save_camera(raw, frame_numbers, np.full(n, focal), c2w)
     wh.write_humans(

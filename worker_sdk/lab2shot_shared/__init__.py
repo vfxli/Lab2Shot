@@ -10,6 +10,7 @@ the worker SDK (worker_sdk/pyproject.toml) and used directly by the core.
     rig_motion    files of the rig-and-model contract
     light_probe   light-probe conventions
     exr           EXR writer
+    gaussians     3D gaussian covariance, real SH basis and the bake of a transform into a splat set
     scene_arrays  3D data exchanged between the core and format workers as plain arrays
     names         names in 3D files <-> identifiers (USD, Alembic) and the sibling tie-break (every writer)
     body_models   locations of manually downloaded body models

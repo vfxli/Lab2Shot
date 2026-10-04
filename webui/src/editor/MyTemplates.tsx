@@ -8,12 +8,19 @@ import { Empty } from "../ui/Empty";
 import { Loading } from "../ui/Loading";
 import { Sheet } from "../ui/Sheet";
 import { useConfirm } from "../ui/Confirm";
-import { msg, reasonOf } from "../messages/message";
+import { messageOf, msg, reasonOf } from "../messages/message";
 import { say } from "../state/say";
 import { agoText, sizeText } from "../platform/format";
 import { adminApi } from "../api/admin";
 import { Select } from "../ui/Select";
 import { refreshTemplates, useTemplates } from "./templatesList";
+import { pick, t as tr } from "../i18n/t";
+import { LANGS } from "../i18n/lang";
+import { widthCount } from "../ui/NameSheet";
+import { tipAttrs, tipOf } from "../platform/tips";
+
+// a card's intro: at most this many full-width characters, by display width (lab2shot/site/library.py TEXT_WIDTH / 2)
+const INTRO_MAX = 240;
 
 /** 我的模板：节点图除保存为本机 JSON 文件外，还可保存在服务器上并归属当前账号，在其他计算机登录后仍可使用。
  * 删除的模板进入服务器端回收站，管理员可在管理后台「用户」详情页中查看并恢复。
@@ -22,6 +29,9 @@ import { refreshTemplates, useTemplates } from "./templatesList";
 
 /** 「我的模板」列表的唯一读取与刷新入口。`active` 表示该区域当前可见：每次打开模板面板时重新读取，
  * 因此刚通过「文件」菜单保存的模板在打开面板时即可见。 */
+/** Whether a document name is still the default (empty, or the unnamed word in some language). */
+const unnamed = (n: string): boolean => !n || LANGS.some((l) => n === tr("ui.common.unnamed", {}, l));
+
 export function useMyTemplates(active: boolean): { view: MyTemplates | null; problem: string; set: (v: MyTemplates) => void } {
   const [view, setView] = useState<MyTemplates | null>(null);
   const [problem, setProblem] = useState("");
@@ -30,7 +40,7 @@ export function useMyTemplates(active: boolean): { view: MyTemplates | null; pro
     let live = true;
     api.myTemplates().then(
       (v) => live && (setView(v), setProblem("")),
-      (e: Error) => live && setProblem(reasonOf(e)),
+      (e: Error) => live && (setProblem(reasonOf(e)), say(messageOf(e))),
     );
     return () => {
       live = false;
@@ -61,8 +71,8 @@ export function SaveToLibrarySheet({ onClose, onSaved, preset = false }: { onClo
   const docMeta = useCookInputs((s) => s.meta);
   const page = useTemplates(preset ? "save-preset" : null);
   const tree = page?.categories ?? [];
-  const [name, setName] = useState(docMeta.name === "未命名" ? "" : docMeta.name);
-  const [intro, setIntro] = useState(docMeta.intro ?? "");
+  const [name, setName] = useState(() => unnamed(pick(docMeta.name)) ? "" : pick(docMeta.name));
+  const [intro, setIntro] = useState(() => pick(docMeta.intro));
   const [top, setTop] = useState("");
   const [sub, setSub] = useState("");
   const touched = useRef(false); // 用户动过表单：分类树即使读到得晚，也不覆盖用户已选的
@@ -79,7 +89,8 @@ export function SaveToLibrarySheet({ onClose, onSaved, preset = false }: { onClo
   const [problem, setProblem] = useState("");
   const [busy, setBusy] = useState(false);
   const [ask, confirmSheet] = useConfirm();
-  const ready = !!name.trim() && !busy;
+  const introCount = widthCount(intro.trim(), INTRO_MAX);
+  const ready = !!name.trim() && !introCount[2] && !busy;
 
   const send = async (replace: boolean): Promise<boolean> => {
     const entry = { name: name.trim(), intro: intro.trim(), graph: fileJSON() as GraphJSON, replace };
@@ -105,10 +116,9 @@ export function SaveToLibrarySheet({ onClose, onSaved, preset = false }: { onClo
         // 同名：问一句，确认才覆盖；取消就不存（弹窗留着，可以改名再存）
         if (!(e instanceof ApiError && (e.code === "E-TEMPLATES-SAMENAME" || e.code === "E-LIBRARY-SAMENAME"))) throw e;
         const yes = await ask({
-          title: "覆盖同名模板",
+          title: tr("ui.templates.replace_title"),
           say: msg(preset ? "N-TEMPLATES-REPLACE" : "N-LIBRARY-REPLACE", { name: name.trim() }),
-          yes: "覆盖",
-          tip: "用现在这张节点图覆盖同名的那张模板",
+          yes: tr("ui.templates.replace"),
         });
         saved = yes && (await send(true));
       }
@@ -117,63 +127,62 @@ export function SaveToLibrarySheet({ onClose, onSaved, preset = false }: { onClo
       onClose();
     } catch (e) {
       setProblem(reasonOf(e as Error));
+      say(messageOf(e));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Sheet title={preset ? "保存为预设模板" : "保存到我的模板"} width={460} onClose={onClose}>
+    <Sheet title={tr(preset ? "ui.templates.save_preset" : "ui.templates.save_mine")} width={460} onClose={onClose}>
       <div className="lib-form">
         <label className="login-field">
-          <span data-tip={preset ? "卡片上的名字：所有人在「模板」里看到的" : "以后在「模板」的「我的模板」里按这个名字找它"}>名字</span>
+          <span>{tr("ui.templates.name")}</span>
           <input
             className="field"
             value={name}
             autoFocus
-            maxLength={40}
-            aria-label="模板名字"
-            data-tip={preset ? "卡片上的名字：所有人在「模板」里看到的" : "以后在「模板」的「我的模板」里按这个名字找它"}
+            maxLength={60}
+            aria-label={tr("ui.templates.name_aria")}
             onChange={(e) => edit(setName)(e.target.value)}
           />
         </label>
         <label className="login-field">
-          <span data-tip={preset ? "卡片上的简介：所有人在「模板」里看到的" : "一句话：这张图是做什么的，给自己以后看"}>简介</span>
+          <span>{tr("ui.templates.intro")}<b className={`field-count${introCount[2] ? " over" : ""}`}>{introCount[0]} / {introCount[1]}</b></span>
           <textarea
             className="field"
             rows={4}
             value={intro}
-            maxLength={240}
-            aria-label="模板简介"
-            data-tip={preset ? "卡片上的简介：所有人在「模板」里看到的" : "一句话：这张图是做什么的，给自己以后看"}
+            maxLength={2 * INTRO_MAX}
+            aria-label={tr("ui.templates.intro_aria")}
             onChange={(e) => edit(setIntro)(e.target.value)}
           />
         </label>
         {preset && (
           <div className="login-field">
-            <span data-tip="卡片归入的分类；不选则进入「未分类」，之后可在「模板」中拖动调整">分类</span>
+            <span>{tr("ui.templates.prop.category")}</span>
             <div className="lib-pick">
-              <Select label="一级分类" tip="一级分类" value={top}
-                options={[{ value: "", label: "未分类" }, ...tree.map((c) => ({ value: c.id, label: c.label }))]}
+              <Select label={tr("ui.templates.top_cat")} value={top}
+                options={[{ value: "", label: tr("ui.templates.loose") }, ...tree.map((c) => ({ value: c.id, label: c.label }))]}
                 onPick={(v) => (edit(setTop)(v), setSub(""))} />
-              <Select label="二级分类" tip={top ? "二级分类；不选则直接归入所选的一级分类" : "先选择一级分类"} value={sub} disabled={!top || !subs.length}
-                options={[{ value: "", label: top ? "（不选二级分类）" : "—" }, ...subs.map((c) => ({ value: c.id, label: c.label }))]}
+              <Select label={tr("ui.templates.sub_cat")} tip={top ? undefined : tipOf("disabled", tr("ui.templates.top_first"))} value={sub} disabled={!top || !subs.length}
+                options={[{ value: "", label: top ? tr("ui.templates.no_sub_pick") : "—" }, ...subs.map((c) => ({ value: c.id, label: c.label }))]}
                 onPick={edit(setSub)} />
             </div>
           </div>
         )}
-        <p className="lib-note">{preset ? "保存为所有账号可见的预设模板。仅保存节点图与参数，不包含素材；分类可随时在「模板」中调整。" : "只存节点图和参数，素材不随模板保存：用的时候自己选文件。存在服务器上，换台电脑登录也在。"}</p>
+        <p className="lib-note">{tr(preset ? "ui.templates.save_preset_note" : "ui.templates.save_mine_note")}</p>
         {problem && (
           <p className="login-problem" role="alert">
             {problem}
           </p>
         )}
         <div className="dialog-row">
-          <Button tip="不存了" tone="ghost" onClick={onClose}>
-            取消
+          <Button tone="ghost" onClick={onClose}>
+            {tr("ui.common.cancel")}
           </Button>
-          <Button tip={ready ? (preset ? "存成预设模板" : "存到我的模板") : "先给它起个名字"} tone="primary" disabled={!ready} onClick={() => void save()}>
-            {busy ? "保存中…" : "保存"}
+          <Button tip={ready ? undefined : tipOf("disabled", tr("ui.templates.name_first"))} tone="primary" disabled={!ready} onClick={() => void save()}>
+            {busy ? tr("ui.templates.saving") : tr("ui.common.save")}
           </Button>
         </div>
       </div>
@@ -218,15 +227,15 @@ export function MyTemplateCards({ view, onOpen, onChanged }: {
 
   const remove = async (g: SavedGraph) => {
     // 编辑器不提供恢复入口；误删的模板由管理员在管理后台恢复
-    if (!(await ask({ title: "删掉模板", say: msg("N-LIBRARY-BIN", { name: g.name }), yes: "删掉", tip: "从「我的模板」里拿走；删错了找管理员，他在后台还能帮你恢复" }))) return;
+    if (!(await ask({ title: tr("ui.templates.mine_delete"), say: msg("N-LIBRARY-BIN", { name: g.name }), yes: tr("ui.common.delete"), tip: tipOf("consequence", tr("ui.templates.mine_delete_tip")) }))) return;
     await act(g, () => api.binTemplate(g.id));
   };
 
   if (!items.length) {
     return (
       <Empty
-        title="还没有存过自己的模板"
-        hint="搭好一张节点图，在「文件」菜单里点「保存到我的模板」。"
+        title={tr("ui.templates.mine_empty")}
+        hint={tr("ui.templates.mine_empty_hint")}
       />
     );
   }
@@ -235,23 +244,23 @@ export function MyTemplateCards({ view, onOpen, onChanged }: {
       {items.map((g) => (
         <article key={g.id} className="tpl-card lib-card">
           <h5 className="tpl-name">
-            <span className="tpl-name-text" data-user-data data-tip={g.name}>
+            <span className="tpl-name-text" data-user-data {...tipAttrs(tipOf("truncated", g.name))}>
               {g.name}
             </span>
           </h5>
-          <p className="tpl-intro" data-user-data data-tip={g.intro}>
-            {g.intro || "没有简介"}
+          <p className="tpl-intro" data-user-data {...tipAttrs(tipOf("truncated", g.intro))}>
+            {g.intro || tr("ui.templates.no_intro")}
           </p>
           <div className="lib-meta dim tnum">
-            <span data-tip={`这张模板占 ${sizeText(g.bytes)}，算在你的磁盘配额里`}>{sizeText(g.bytes)}</span>
-            <span data-tip="最近一次保存的时间">{agoText(g.updated)}</span>
+            <span>{sizeText(g.bytes)}</span>
+            <span>{agoText(g.updated)}</span>
           </div>
           <div className="lib-acts">
-            <Button tip="用这张模板新建一张节点图" tone="primary" size="sm" disabled={busy === g.id} onClick={() => void open(g)}>
-              打开
+            <Button tone="primary" size="sm" disabled={busy === g.id} onClick={() => void open(g)}>
+              {tr("ui.common.open")}
             </Button>
-            <Button tip="删掉这张模板；删错了找管理员，他在后台还能帮你恢复" tone="ghost" size="sm" disabled={busy === g.id} onClick={() => void remove(g)}>
-              删除
+            <Button tip={tipOf("consequence", tr("ui.templates.mine_delete_tip"))} tone="ghost" size="sm" disabled={busy === g.id} onClick={() => void remove(g)}>
+              {tr("ui.common.delete")}
             </Button>
           </div>
         </article>
@@ -263,7 +272,7 @@ export function MyTemplateCards({ view, onOpen, onChanged }: {
 
 /** 列表读取中与读取失败时的显示。 */
 export function MyTemplatesState({ view, problem }: { view: MyTemplates | null; problem: string }) {
-  if (problem) return <Empty title={problem} hint="刷新页面再试一次。" />;
-  if (!view) return <Loading what="我的模板" />;
+  if (problem) return <Empty title={problem} hint={tr("ui.templates.reload_hint")} />;
+  if (!view) return <Loading what={tr("ui.templates.mine")} />;
   return null;
 }

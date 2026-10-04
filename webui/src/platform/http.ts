@@ -32,11 +32,20 @@ export class ApiError extends MessageError {
   readonly status: number;
   readonly body: Record<string, unknown> | null;
   constructor(message: string, code: string, status: number, body: Record<string, unknown> | null = null) {
-    super(CODE.test(code) ? fromServer({ code, text: message }) : msg("E-REQUEST-REFUSED", { status, detail: message }));
+    super(CODE.test(code) ? fromServer({ code, text: message, ...(typeof body?.app === "string" ? { app: body.app } : {}) }) : msg("E-REQUEST-REFUSED", { status, detail: message }));
     this.message = message; // the server's text, unchanged
     this.code = code;
     this.status = status;
     this.body = body;
+  }
+}
+
+/** A request that got no answer at all (the line dropped, a tunnel closed, the server is down): fetch's own rejection,
+ * wrapped once here so whoever retries on a dropped line (graph/submitLine.ts lineDown, transfer/uploads.ts) can tell it
+ * from a TypeError of its own code, which is a bug to be said, never a line to wait for. Still a TypeError, as fetch's. */
+export class Unreached extends TypeError {
+  constructor(cause: unknown) {
+    super((cause as Error)?.message ?? String(cause));
   }
 }
 
@@ -243,7 +252,7 @@ export async function answer(url: string, init?: RequestInit): Promise<Response>
     r = counted(await fetch(url, init));
   } catch (e) {
     if ((e as Error).name !== "AbortError") keepFailed({ t, method, url: where, status: 0, message: cut((e as Error).message ?? String(e), 500), ms: Date.now() - t });
-    throw e;
+    throw e instanceof TypeError ? new Unreached(e) : e;
   }
   heard(r.status, r.headers.get("Retry-After"));
   if (!r.ok && r.type !== "opaque") {

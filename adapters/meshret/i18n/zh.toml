@@ -1,0 +1,33 @@
+# 共用重定目标消息在核心目录。
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[stage]
+prepare_input = "整理 MeshRet 输入"
+retarget = "MeshRet 重定目标"
+
+[node."meshret.retarget"]
+subtitle = "动作重定目标"
+description = "通过密集网格交互感知保持身体接触的动作重定目标。学习式重定目标的中间一段：「源」「目标」接「重定目标预处理」的两个输出（部位对应、静止姿势、哪些骨骼不送进模型都在那里定），结果接「重定目标后处理」做位移和髋高，再接线性蒙皮变形看网格。输出是模型原生的结果，写回目标自己的层级；没送进模型的骨骼保持静止姿势、跟着父骨骼走。两侧都要真实蒙皮网格；输入投影到官方 65 关节骨架（含手指），已发布模型只驱动其中的身体关节，手指保持目标的静止姿势。预处理的忽略规则选「MeshRet（身体与手指，模型只驱动身体）」。"
+
+[node."meshret.retarget".param.window]
+label = "推理窗口"
+
+[node."meshret.retarget".needs.meshret]
+label = "MeshRet（身体与手指，模型只驱动身体）"
+
+[node."meshret.retarget".official]
+note = "使用官方已发布模型，保留目标自己的层级。"
+
+[extension.meshret]
+summary = "通过密集网格交互感知保持身体接触的动作重定目标"
+
+[extension.meshret.license]
+name = "MIT"
+summary = "MIT；依赖资产遵守各自许可，详情见官方仓库。"
+
+[manual.meshret-model]
+title = "MeshRet 权重"
+what = "官方完整身体重定目标 checkpoint"
+note = "作者档案实际为 bzip2 TAR，允许识别原下载名；只提取推理 checkpoint"
+download = "官方 README Pretrained Model 的 Google Drive 链接"

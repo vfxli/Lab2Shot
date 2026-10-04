@@ -4,12 +4,15 @@
 
 import type { BoxesData } from "../api";
 import { personAt } from "./people";
+import { t } from "../i18n/t.ts";
+import { listSep } from "../i18n/words.ts";
 
 export interface PickChip {
   key: string;
   text: string; // 「3 号」「3 号 ×2」，或说不出几号时「第 12 帧 (640, 360)」
   picks: string[]; // 这个 chip 代表的点击（去掉它 = 去掉这些点击）
   known: boolean; // 说得出是几号
+  person: number | null; // 几号（说不出时 null）
 }
 
 function parse(text: string): { frame: number; x: number; y: number } | null {
@@ -27,28 +30,29 @@ export function pickChips(picks: string[], boxes: BoxesData | null): PickChip[] 
     const e = parse(text);
     const id = e && boxes ? personAt(boxes, e.frame, { x: e.x, y: e.y }) : null;
     if (id === null) {
-      out.push({ key: `${i}:${text}`, text: e ? `第 ${e.frame} 帧 (${Math.round(e.x)}, ${Math.round(e.y)})` : text, picks: [text], known: false });
+      out.push({ key: `${i}:${text}`, text: e ? t("ui.model.pick_at", { frame: e.frame, x: Math.round(e.x), y: Math.round(e.y) }) : text, picks: [text], known: false, person: null });
       return;
     }
     const had = byId.get(id);
     if (had) {
       had.picks.push(text);
       had.count++;
-      had.text = `${id} 号 ×${had.count}`;
+      had.text = t("ui.model.person_times", { id, count: had.count });
       return;
     }
-    const chip = { key: `id:${id}`, text: `${id} 号`, picks: [text], known: true, count: 1 };
+    const chip = { key: `id:${id}`, text: t("ui.model.person", { id }), picks: [text], known: true, person: id, count: 1 };
     byId.set(id, chip);
     out.push(chip);
   });
-  return out.map(({ key, text, picks: ps, known }) => ({ key, text, picks: ps, known }));
+  return out.map(({ key, text, picks: ps, known, person }) => ({ key, text, picks: ps, known, person }));
 }
 
 /** 节点上的一行摘要：「点选：2 号、3 号」（说不出几号的记作「N 处」）。没有点击时为 ""。 */
 export function pickSummary(chips: PickChip[], boxesKnown = false): string {
   if (!chips.length) return "";
-  const known = chips.filter((c) => c.known).map((c) => c.text.replace(/ ×\d+$/, ""));
+  const known = chips.filter((c) => c.known).map((c) => t("ui.model.person", { id: c.person ?? "" }));
   const unknown = chips.length - known.length;
-  return `点选：${[...known, ...(unknown ? [boxesKnown ? `${unknown} 处没点到人` : `${unknown} 处（先检测人物才知道是几号）`] : [])].join("、")}`;
+  const rest = unknown ? [boxesKnown ? t("ui.model.pick_missed", { count: unknown }) : t("ui.model.pick_unknown", { count: unknown })] : [];
+  return t("ui.model.pick_summary", { picks: [...known, ...rest].join(listSep()) });
 }
 

@@ -14,20 +14,29 @@ export interface Pos {
 
 export type Box = BoxJSON;
 
+/** 节点备注（Houdini 的 node comment）：任意文字，不参与任何引用、不进消息；`show`：「显示备注」开关，打开时淡色显示在节点旁边。 */
+export interface NodeComment {
+  text: string;
+  show: boolean;
+}
+
 interface State {
   positions: Record<string, Pos>;
   // 这个节点身上显示哪几行参数，当用户自己选过（没选过就是 undefined：按节点类型声明的 NodeDef.on_node 来）。
   onNode: Record<string, string[] | undefined>;
+  comments: Record<string, NodeComment | undefined>; // 节点备注（没有就是 undefined）
   boxes: Box[];
   displayId: string | null;
   displayPort: string | null; // 视图显示的是显示节点的哪个输出（null：第一个）
   playback: [number, number] | null; // 入点 / 出点，随节点图文件的视图保存（不是撤销步骤：手动设定）
   version: number;
 
-  load: (p: { positions: Record<string, Pos>; onNode: Record<string, string[] | undefined>; boxes: Box[]; displayId: string | null; displayPort: string | null; playback: [number, number] | null }) => void;
+  load: (p: { positions: Record<string, Pos>; onNode: Record<string, string[] | undefined>; comments: Record<string, NodeComment | undefined>; boxes: Box[]; displayId: string | null; displayPort: string | null; playback: [number, number] | null }) => void;
   setPosition: (id: string, x: number, y: number) => void;
   removeNodes: (ids: string[]) => void;
   setOnNode: (id: string, rows: string[] | undefined) => void; // undefined：这个节点回到类型声明的那几行
+  setComment: (id: string, comment: NodeComment | undefined) => void; // undefined：没有备注
+  renameNode: (from: string, to: string) => void; // 节点改名（graph/naming.ts）：位置、节点体上的行、备注、框的成员、显示节点跟着改
   setDisplay: (id: string | null) => void;
   setDisplayPort: (port: string | null) => void;
   setPlayback: (r: [number, number] | null) => void; // 不加 version：不是撤销步骤
@@ -46,6 +55,7 @@ export const useLook = create<State>((set) => {
   return {
     positions: {},
     onNode: {},
+    comments: {},
     boxes: [],
     displayId: null,
     displayPort: null,
@@ -58,12 +68,29 @@ export const useLook = create<State>((set) => {
       edit((s) => {
         const positions = { ...s.positions };
         const onNode = { ...s.onNode };
-        for (const id of ids) (delete positions[id], delete onNode[id]);
+        const comments = { ...s.comments };
+        for (const id of ids) (delete positions[id], delete onNode[id], delete comments[id]);
         // 折叠框的成员名单里也去掉（展开的框按位置算成员，没有名单要改）
         const boxes = s.boxes.map((b) => (b.members.some((m) => ids.includes(m)) ? { ...b, members: b.members.filter((m) => !ids.includes(m)) } : b));
-        return { positions, onNode, boxes, version: s.version + 1 };
+        return { positions, onNode, comments, boxes, version: s.version + 1 };
       }),
     setOnNode: (id, rows) => edit((s) => ({ onNode: { ...s.onNode, [id]: rows }, version: s.version + 1 })),
+    setComment: (id, comment) =>
+      edit((s) => {
+        const was = s.comments[id];
+        if (was?.text === comment?.text && was?.show === comment?.show) return {};
+        return { comments: { ...s.comments, [id]: comment }, version: s.version + 1 };
+      }),
+    renameNode: (from, to) =>
+      edit((s) => {
+        const move = <T,>(r: Record<string, T>): Record<string, T> => {
+          if (!(from in r)) return r;
+          const { [from]: v, ...rest } = r;
+          return { ...rest, [to]: v };
+        };
+        const boxes = s.boxes.map((b) => (b.members.includes(from) ? { ...b, members: b.members.map((m) => (m === from ? to : m)) } : b));
+        return { positions: move(s.positions), onNode: move(s.onNode), comments: move(s.comments), boxes, displayId: s.displayId === from ? to : s.displayId, version: s.version + 1 };
+      }),
     setDisplay: (id) => set((s) => ({ displayId: id, displayPort: s.displayId === id ? s.displayPort : null, version: s.version + 1 })),
     setDisplayPort: (port) => set((s) => ({ displayPort: port, version: s.version + 1 })),
     setPlayback: (r) => set({ playback: r }),

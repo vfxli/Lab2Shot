@@ -1,0 +1,4 @@
+# Open3D environment (CPU; no torch). Open3D is the whole C++ library inside one pip wheel,
+# so nothing is compiled here. numpy is what the worker's own npz I/O uses.
+open3d==0.19.0
+numpy==2.4.6

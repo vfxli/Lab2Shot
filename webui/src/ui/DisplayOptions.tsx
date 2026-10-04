@@ -9,9 +9,10 @@ import { viewAvailable } from "../view/available";
 import { useDismiss } from "../platform/dismiss";
 import { usePreferences } from "../state/preferences";
 import { Button, Segmented, Toggle } from "./Button";
-import type { Has, Off } from "./displayRows";
+import type { Off } from "./displayRows";
 import { BonesTab, BONE_KEYS, CameraTab, CAMERA_KEYS, LinesTab, LINE_KEYS, MeshesTab, MESH_KEYS, PointsTab, POINT_KEYS,
          QualityTab, QUALITY_KEYS, SceneTab, SCENE_KEYS } from "./displayTabs";
+import { t } from "../i18n/t";
 
 /** 视图的显示选项（与 Houdini 相同）：视图控制栏上的一个按钮，打开一个小面板。
  * 每项改动立即生效，并保存在本浏览器中。
@@ -22,7 +23,7 @@ import { BonesTab, BONE_KEYS, CameraTab, CAMERA_KEYS, LinesTab, LINE_KEYS, Meshe
  *
  * 画面没有画质设置：二维始终经由视图代理。「渲染」页中的抗锯齿属于渲染质量，因此不称为「画质」，以免同名异义造成混淆。 */
 type Tab = "points" | "lines" | "meshes" | "bones" | "camera" | "scene" | "quality";
-const TABS: Record<Tab, string> = { points: "点", lines: "线", meshes: "模型", bones: "骨骼", camera: "相机", scene: "场景", quality: "渲染" };
+const TABS: Record<Tab, string> = { points: "ui.display.tab.points", lines: "ui.display.tab.lines", meshes: "ui.display.tab.meshes", bones: "ui.display.tab.bones", camera: "ui.display.tab.camera", scene: "ui.display.tab.scene", quality: "ui.display.tab.quality" }; // keys of the words
 const STAGE_TABS: Record<"2d" | "3d", Tab[]> = {
   "2d": ["lines"],
   "3d": ["points", "lines", "meshes", "bones", "camera", "scene", "quality"],
@@ -49,8 +50,6 @@ export function DisplayOptions({ stage, shows, preview }:
   const stored = usePreferences((s) => s.displayOptionsTab);
   const setStored = usePreferences((s) => s.setDisplayOptionsTab);
   const box = useRef<HTMLDivElement>(null);
-  const only2d = stage === "2d";
-  const has: Has = (...what) => what.some((w) => shows.has(w));
   const facts: ViewFacts = preview ?? { stage, shows, options: o, mode: "plate", channels: 0, single: false, ready: false };
   const view = viewAvailable({ ...facts, stage, shows, options: o });
   const off: Off = (control) => (usable(view, control) ? "" : whyOff(view, control));
@@ -78,19 +77,19 @@ export function DisplayOptions({ stage, shows, preview }:
     <div className="vo-anchor vo-opts" ref={box}>
       {/* 按钮位于视图工具栏中，该工具栏不显示悬停提示；按钮打开的面板挂载在 body 上，保留其自身的提示 */}
       <Toggle hud on={open} onChange={setOpen}>
-        视图设置
+        {t("ui.display.title")}
       </Toggle>
       {open && at && createPortal(
         /* 挂载在 body 上，按屏幕坐标定位（与 ui/Menu.tsx 做法相同）。
            若在按钮旁使用 `position: absolute`，工具栏将无法横向滚动，滚动时面板会被裁掉一半。
            而工具栏必须可滚动：该行只允许一行，放不下时滚动，不得换行将画布向下推。 */
-        <div className="popover vo-panel glass" role="dialog" aria-label="视图设置"
+        <div className="popover vo-panel glass" role="dialog" aria-label={t("ui.display.title")}
              style={{ position: "fixed", left: at.left, top: at.top, right: "auto" }}>
-          <Segmented label="显示选项" stretch tabs layout="vo-tabs" value={shownTab}
-            options={tabs.map((t) => ({ value: t, label: TABS[t], tip: `「${TABS[t]}」这一页的显示选项` }))} onChange={setStored} />
-          <div className="vo-body">
+          <Segmented label={t("ui.display.tabs")} stretch tabs layout="vo-tabs" value={shownTab}
+            options={tabs.map((tab) => ({ value: tab, label: t(TABS[tab]) }))} onChange={setStored} />
+          <div className="vo-body lgrid">
             {shownTab === "points" && <PointsTab o={o} set={set} off={off} />}
-            {shownTab === "lines" && <LinesTab o={o} set={set} only2d={only2d} has={has} off={off} />}
+            {shownTab === "lines" && <LinesTab o={o} set={set} off={off} />}
             {shownTab === "meshes" && <MeshesTab o={o} set={set} off={off} />}
             {shownTab === "bones" && <BonesTab o={o} set={set} off={off} />}
             {shownTab === "camera" && <CameraTab o={o} set={set} off={off} />}
@@ -100,8 +99,8 @@ export function DisplayOptions({ stage, shows, preview }:
             )}
           </div>
           <div className="vo-foot">
-            <Button tip="这一页的选项回到默认" tone="ghost" size="sm" disabled={!changed} onClick={() => reset(TAB_KEYS[shownTab])}>
-              恢复默认
+            <Button tone="ghost" size="sm" disabled={!changed} onClick={() => reset(TAB_KEYS[shownTab])}>
+              {t("ui.display.restore_defaults")}
             </Button>
           </div>
         </div>,

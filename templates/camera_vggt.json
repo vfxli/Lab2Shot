@@ -2,86 +2,134 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "4794e80a484d8358e73c50041e03d3a7",
-  "name": "深度与相机 · VGGT",
-  "intro": "VGGT 官方自述：前馈网络，从一张、几张到数百张画面，几秒内推断出相机内外参、点图、深度图和 3D 跟踪点。这张卡交付每帧相机（USD 与 Nuke 相机）、深度图和点云；点云是每帧一张点图、各在这一帧自己的相机里，官方没有合成一份场景点云的输出。默认的「原版」权重非商用；商用请把「模型」换成「商用版」。",
+  "name": {
+   "zh": "深度与摄影机 · VGGT",
+   "en": "Depth and Camera · VGGT"
+  },
+  "intro": {
+   "zh": "VGGT 官方自述：前馈网络，从一张、几张到数百张画面，几秒内推断出摄影机内外参、点图、深度贴图和 3D 跟踪点。这张卡交付每帧摄影机（USD 与 Nuke 摄影机）、深度贴图和点云；点云是每帧一张点图、各在这一帧自己的摄影机里，官方没有合成一份场景点云的输出。默认的「原版」权重非商用；商用请把「模型」换成「商用版」。",
+   "en": "VGGT is a feed-forward network that infers camera intrinsics and extrinsics, pointmaps, depth maps and 3D tracks from one to hundreds of images in seconds. This card delivers per-frame cameras (USD and Nuke camera), depth maps and point clouds, one pointmap per frame in that frame's own camera. The default original weights are non-commercial; for commercial use set Model to the commercial version."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "depth_camera",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "kind": "group",
-   "label": "解算",
+   "label": {
+    "zh": "解算",
+    "en": "Solve"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "step",
-     "label": "隔帧",
-     "target": "r.step"
+     "name": "solve_step",
+     "label": {
+      "zh": "步长",
+      "en": "Step"
+     },
+     "target": "solve.step"
     },
     {
-     "name": "model",
-     "label": "模型",
-     "target": "r.model"
+     "name": "solve_model",
+     "label": {
+      "zh": "模型",
+      "en": "Model"
+     },
+     "target": "solve.model"
     },
     {
      "name": "scale_cm",
-     "label": "尺度",
-     "target": "r.unit_cm"
+     "label": {
+      "zh": "尺度",
+      "en": "Scale"
+     },
+     "target": "solve.unit_cm"
     },
     {
-     "name": "point_step",
-     "label": "点云间隔",
-     "target": "r.point_step"
+     "name": "solve_point_step",
+     "label": {
+      "zh": "点云间隔",
+      "en": "Point Cloud Step"
+     },
+     "target": "solve.point_step"
     },
     {
-     "name": "point_size",
-     "label": "点的大小",
-     "target": "r.point_size"
+     "name": "solve_point_size",
+     "label": {
+      "zh": "点的大小",
+      "en": "Point Size"
+     },
+     "target": "solve.point_size"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
-       "name": "resolution",
-       "label": "处理分辨率",
-       "target": "r.resolution"
+       "name": "solve_resolution",
+       "label": {
+        "zh": "处理分辨率",
+        "en": "Processing Resolution"
+       },
+       "target": "solve.resolution"
       },
       {
-       "name": "max_frames",
-       "label": "每段最多帧数",
-       "target": "r.max_frames"
+       "name": "solve_max_frames",
+       "label": {
+        "zh": "每段最多帧数",
+        "en": "Max Frames per Chunk"
+       },
+       "target": "solve.max_frames"
       },
       {
-       "name": "loops",
-       "label": "回环闭合",
-       "target": "r.loops"
+       "name": "solve_loops",
+       "label": {
+        "zh": "回环闭合",
+        "en": "Loop Closure"
+       },
+       "target": "solve.loops"
       }
      ]
     }
@@ -89,65 +137,104 @@
   },
   {
    "name": "cook_solve",
-   "label": "解算相机",
-   "target": "r.cook"
+   "label": {
+    "zh": "解算摄影机",
+    "en": "Solve Camera"
+   },
+   "target": "solve.cook"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "usd_name",
-     "label": "文件名（相机与点云 USD）",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名（摄影机与点云 USD）",
+      "en": "File Name (Camera and Point Cloud USD)"
+     },
+     "target": "usd.name"
     },
     {
      "name": "exr_name",
-     "label": "文件名（深度 EXR）",
+     "label": {
+      "zh": "文件名（深度 EXR）",
+      "en": "File Name (Depth EXR)"
+     },
      "target": "exr.name"
     },
     {
      "name": "nuke_name",
-     "label": "文件名（Nuke 相机）",
+     "label": {
+      "zh": "文件名（Nuke 摄影机）",
+      "en": "File Name (Nuke Camera)"
+     },
      "target": "nuke.name"
     },
     {
      "name": "unit",
-     "label": "单位",
-     "target": "out.unit"
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
     },
     {
      "name": "fps",
-     "label": "帧率",
-     "target": "out.fps"
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "usd.fps"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
        "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -157,17 +244,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -176,8 +269,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -186,13 +278,12 @@
    },
    "ui": {
     "x": 0,
-    "y": 444
+    "y": 463
    }
   },
   {
-   "id": "r",
+   "id": "solve",
    "type": "vggt.reconstruct",
-   "label": "VGGT 深度与相机",
    "params": {
     "step": 1,
     "point_step": 4,
@@ -205,7 +296,7 @@
    },
    "ui": {
     "x": 400,
-    "y": 376,
+    "y": 395,
     "on_node": [
      "step",
      "max_frames"
@@ -213,9 +304,8 @@
    }
   },
   {
-   "id": "out",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "id": "usd",
+   "type": "usd.output",
    "params": {
     "name": "scene",
     "format": "usd",
@@ -236,24 +326,22 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
     "x": 1200,
-    "y": 420
+    "y": 439
    }
   },
   {
    "id": "nuke",
-   "type": "core.output_nuke_camera",
-   "label": "Nuke 相机输出设置",
+   "type": "nuke.output",
    "params": {
     "name": "camera_nuke"
    },
    "ui": {
     "x": 840,
-    "y": 784,
+    "y": 822,
     "on_node": [
      "name"
     ]
@@ -261,8 +349,7 @@
   },
   {
    "id": "exr",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "type": "exr.output",
    "params": {
     "name": "depth",
     "layers": [
@@ -278,14 +365,14 @@
    },
    "ui": {
     "x": 800,
-    "y": 420
+    "y": 439
    }
   }
  ],
  "edges": [
   {
    "from": [
-    "out",
+    "usd",
     "files"
    ],
    "to": [
@@ -295,17 +382,17 @@
   },
   {
    "from": [
-    "r",
+    "solve",
     "camera"
    ],
    "to": [
-    "out",
+    "usd",
     "scene"
    ]
   },
   {
    "from": [
-    "r",
+    "solve",
     "camera"
    ],
    "to": [
@@ -329,23 +416,23 @@
     "image"
    ],
    "to": [
-    "r",
+    "solve",
     "image"
    ]
   },
   {
    "from": [
-    "r",
+    "solve",
     "points"
    ],
    "to": [
-    "out",
+    "usd",
     "scene"
    ]
   },
   {
    "from": [
-    "r",
+    "solve",
     "depth"
    ],
    "to": [
@@ -366,7 +453,7 @@
  ],
  "boxes": [],
  "view": {
-  "display": "r",
+  "display": "solve",
   "frame": null
  }
 }

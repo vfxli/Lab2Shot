@@ -112,13 +112,16 @@ def carried(fn):
     that hands it over now: a thread pool's or a new thread's worker starts with nobody's context otherwise, and a
     cache or an upload would then be looked for as nobody's. Every hand-over of work to another thread goes through
     this (the farm's threads, the engine's per-frame threads, the viewer's). The store `using` put in place (data/store.py) goes
-    with it the same way: a check cooking in a scratch cache keeps its threads in that cache."""
+    with it the same way: a check cooking in a scratch cache keeps its threads in that cache. So does the language its
+    words are said in (lab2shot/i18n current): a job cooking for an English reader says its messages in English on
+    every thread of it."""
+    from . import i18n
     from .data.store import using_now, using
 
-    who, into, store = account(), uses(), using_now()
+    who, into, store, lang = account(), uses(), using_now(), i18n.current()
 
     def run(*args, **kwargs):
-        with serving(who), noting(into), using(store):
+        with serving(who), noting(into), using(store), i18n.using(lang):
             return fn(*args, **kwargs)
 
     return run

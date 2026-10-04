@@ -1,7 +1,7 @@
 import { clientInfo } from "../platform/client";
 import { run } from "../platform/db";
 import type { Upload } from "../api/files";
-import { ApiError, awaitingLogin, json, LOGGED_IN, STALL_MS, upload } from "../platform/http";
+import { ApiError, awaitingLogin, json, LOGGED_IN, STALL_MS, Unreached, upload } from "../platform/http";
 import { useUploads, type UploadState, type UploadTask } from "../state/uploads";
 import { forgetLocalOf, forgetPicked, rehomeLocal, rememberLocal } from "./local";
 import { useCookInputs } from "../state/cookInputs";
@@ -28,7 +28,7 @@ export { useUploads, type UploadState, type UploadTask };
  * localStorage 里的心跳表明它还活着）。 */
 
 // `touched`：最后一次写下这条记录的时刻（ms）：暂停的任务多久没动过，按它清理（purgeStale）
-type Kept = Omit<UploadTask, "state" | "sent" | "done" | "rate" | "error" | "retryAt"> & { done?: number; sent?: number; touched?: number };
+type Kept = Omit<UploadTask, "state" | "sent" | "done" | "rate" | "error" | "retryAt" | "tries"> & { done?: number; sent?: number; touched?: number };
 
 /** 当前打开的文档（graphId）：上传任务按它归属，另一份文档的同名节点不会拿到这份文档的任务。 */
 const openGraph = () => useCookInputs.getState().graphId;
@@ -102,7 +102,7 @@ const remove = (key: string) => {
 };
 
 export const keepTask = (t: UploadTask) => {
-  const { state: _s, rate: _r, error: _e, retryAt: _t, ...rest } = t;
+  const { state: _s, rate: _r, error: _e, retryAt: _t, tries: _n, ...rest } = t;
   const kept: Kept = { ...rest, touched: Date.now() };
   return run("uploads", "readwrite", (s) => s.put(kept, `task:${t.key}`)).catch(() => undefined);
 };
@@ -245,9 +245,9 @@ class Unanswered extends MessageError {
 const retryable = (status: number, body?: Record<string, unknown> | null): boolean =>
   status === 0 || status === 401 || (status === 403 && !!body?.terms) || status === 408 || status === 429 || status >= 500;
 
-/** 同上，按 fetch 那一路抛出的错误：ApiError 看状态码；没有应答的（断线：fetch 抛 TypeError）等一等再来；别的（页面
- * 自己的错）不来回重试。 */
-const retryableError = (e: unknown): boolean => (e instanceof ApiError ? retryable(e.status, e.body) : e instanceof TypeError);
+/** 同上，按 fetch 那一路抛出的错误：ApiError 看状态码；没有应答的（断线：platform/http.ts 包成 Unreached）等一等再来；
+ * 别的（页面自己的错，自己代码的 TypeError 也是）不来回重试。 */
+const retryableError = (e: unknown): boolean => (e instanceof ApiError ? retryable(e.status, e.body) : e instanceof Unreached);
 
 /** 跑一步（申报、组装），按上面的分法：该等的等线路 / 登录（lineWait）再来，不收的原样抛出；任务停了就不再来。 */
 export async function persist<T>(key: string, run: () => Promise<T>, stopped: () => boolean, back: UploadState = "sending"): Promise<T> {
@@ -519,7 +519,7 @@ export async function lineWait(key: string, attempt: number, why: string, stoppe
   // 登录已结束：不按时间重试（每次都会是一个 401，服务器按 401 计数封 IP），只等重新登录（或任务停下）
   const forLogin = awaitingLogin();
   const ms = backoff(attempt + 1, 1000, MAX_WAIT_S * 1000);
-  patchTask(key, { state: "waiting", error: why, retryAt: forLogin ? 0 : Date.now() + ms, rate: 0 });
+  patchTask(key, { state: "waiting", error: why, retryAt: forLogin ? 0 : Date.now() + ms, rate: 0, tries: forLogin ? 0 : attempt + 1 });
   await new Promise<void>((r) => {
     const t = forLogin ? undefined : window.setTimeout(done, ms);
     function done() {

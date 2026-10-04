@@ -1,0 +1,37 @@
+# 一键更新（lab2shot/cli/update.py，菜单的 update 一项：./setup.sh update）。
+# 一行一条：编号 = 模板。写法：谁估的、和什么比、数字和单位、意味着什么、怎么办。
+
+# ---- 第 1 步 预检：检查已拉取的代码，预检不改动代码或数据库
+"E-UPDATE-RUNNING" = "服务仍在运行：升级前应在原版本中执行 ./setup.sh stop，再手动 git pull --ff-only，最后执行 ./setup.sh update；本次尚未同步环境或迁移数据库"
+"E-UPDATE-BASELINE" = "无法确认升级的回退版本：{reason}。核对部署记录与 Git 历史后再运行升级"
+"E-UPDATE-NOTGIT" = "{root} 不是 git 检出的项目目录（或者本机没有 git）：一键更新只能更新用 git clone 得到的安装"
+"E-UPDATE-DETACHED" = "项目目录现在不在任何分支上（git 处于「分离头指针」状态，版本 {head}）：先 git switch 回要跟随的分支（例如 main），再更新"
+"E-UPDATE-DIRTY" = "项目目录里有 {count:d} 个改动过、还没提交的文件（受管的 menu/*.json、templates/*.json 之外）：{files}。一键更新不替你决定它们的去留：先提交、git stash 收起或 git checkout 还原，再更新"
+"E-UPDATE-NOTOOL" = "找不到 {tool}：更新与失败时的回退都要用它重新同步环境或构建网页。{how}"
+
+# ---- 第 2～7 步：记录与备份失败时停止；环境同步之后失败时回退
+"E-UPDATE-RECORD" = "升级记录或备份没有完成：{reason}。请查看本次更新记录，处理后重新运行 ./setup.sh update"
+"E-UPDATE-PORTBUSY" = "端口 {listen:d} 被进程 {pid:d} 占着，但它不回答 Lab2Shot 的 /api/server：不是这个工作目录的服务。先停掉它，或在「设置 → 网络与安装」换一个端口"
+"N-UPDATE-CANCELLED" = "已取消更新：已拉取的代码保留，尚未同步环境或迁移数据库；可以重新运行 ./setup.sh update"
+"E-UPDATE-SYNC" = "uv sync 没有成功：新版本的 Python 环境没能装好，上方是 uv 的输出"
+"E-UPDATE-WEB" = "网页没能构建（npm ci 或 npm run build 失败）：上方是 npm 的输出"
+"E-UPDATE-CHECK" = "新版本没有通过 lab2shot check（退出码 {code:d}）：上方列出了发现的问题"
+"E-UPDATE-DBUPGRADE" = "新版本没能升级数据库（lab2shot db upgrade 退出码 {code:d}）：上方是它的输出"
+"E-UPDATE-MIGRATE" = "新版本没能迁移已安装的扩展（lab2shot ext migrate 退出码 {code:d}）：上方是它的输出"
+"E-UPDATE-DBCHECK" = "升级后的数据库没有通过完整性检查（lab2shot db check 退出码 {code:d}）"
+"E-UPDATE-NOSTART" = "新版本的服务没有启动起来（它自己退出了，或 120 秒内没有回答 /api/server 而被结束）：它的输出列在上方，完整日志在 {log}"
+"E-UPDATE-NOPAGE" = "新版本的服务启动了，但网页打不开（{address}/ 回答 {status}）：日志在 {log}"
+"E-UPDATE-INTERRUPTED" = "更新被中断（Ctrl-C）"
+
+# ---- 第 8～9 步：结果
+"N-UPDATE-DONE" = "更新成功：{before} → {after}，服务已在 {address} 用新版本上线"
+"E-UPDATE-ROLLEDBACK" = "更新失败并已回退到 {version}：{reason}。服务已在 {address} 用旧版本上线；数据库{database}"
+"E-UPDATE-ROLLBACKINCOMPLETE" = "更新失败（{reason}），回退也没有全部完成：{problems}。按上方的输出逐项处理；更新前的记录在 {record}"
+"N-UPDATE-DBRESTORED" = "已恢复为更新前的备份 {backup}"
+"N-UPDATE-DBUNTOUCHED" = "没有被新版本打开过，保持原样"
+"N-UPDATE-ONLINE" = "现在在线的版本：{version}「{subject}」（Lab2Shot {release}，启动编号 {boot}），地址 {address}"
+"W-UPDATE-OFFLINE" = "现在没有服务在线（项目目录处于版本 {version}）：在「服务 → 启动服务（后台）」中启动，启动不了时看日志 {log}"
+"W-UPDATE-REINSTALL" = "新版本改了这些扩展包的安装配方，重装之后它们的节点才能用：{names}。没有自动重装：在「安装与环境 → 安装扩展包」或后台「扩展包」页重装"
+"N-UPDATE-NOREINSTALL" = "已安装的扩展包都不需要重装"
+"W-UPDATE-REINSTALLUNKNOWN" = "没能列出需要重装的扩展包（{reason}）：在后台「扩展包」页查看，标着「需要重装」的要重装"
+"N-UPDATE-MENUOLD" = "更新已完成：请重新运行 ./setup.sh，使菜单加载同步后的运行环境"

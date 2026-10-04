@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -28,7 +29,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from lab2shot_worker import light_probe, progress, say, serve, set_seed
+from lab2shot_worker import light_probe, progress, resident, say, serve, set_seed
 from lab2shot_worker.run import Run
 from PIL import Image
 
@@ -91,7 +92,8 @@ def mark_hf_cache_current() -> None:
 def load_upstream(repo: Path, weights: Path):
     """Import the pinned research code with its model ids pointed at weights/."""
     mark_hf_cache_current()
-    sys.path.insert(0, str(repo))
+    if str(repo) not in sys.path:  # a resident process runs this again for every job
+        sys.path.insert(0, str(repo))
     from relighting import argument
 
     argument.VAE_MODELS["sdxl"] = str(weights / MODELS["vae"])  # dict shared with inpainter_2lora
@@ -101,6 +103,38 @@ def load_upstream(repo: Path, weights: Path):
     import inpaint  # upstream inpaint.py: argument defaults, embedding interpolation, ball placement
 
     return inpaint, inpainter
+
+
+LORA_TARGET = re.compile(r"\.attn[12]\.(to_q|to_k|to_v|to_out\.0)$")  # the UNet layers both LoRAs hold weights for
+
+
+@resident
+def load_pipe(repo: Path, weights: Path, device):
+    """SDXL + depth ControlNet + DPT (upstream BallInpainter.from_sdxl), kept between jobs, with a CPU copy of the
+    weights of the layers the LoRAs change (the attention projections): the LoRAs are fused and unfused in fp16
+    several times per job (upstream's swapping), which leaves rounding error in those weights, so every job starts
+    from this copy instead (reset_lora) and computes as on a freshly loaded model."""
+    _, inpainter = load_upstream(repo, weights)
+    pipe = inpainter.BallInpainter.from_sdxl(
+        model=str(weights / MODELS["sdxl"]),
+        controlnet=str(weights / MODELS["controlnet"]),
+        device=device,
+        torch_dtype=torch.float16,
+        offload=False,
+    )
+    pristine = {name: m.weight.detach().to("cpu", copy=True)
+                for name, m in pipe.pipeline.unet.named_modules() if LORA_TARGET.search(name)}
+    return pipe, pristine
+
+
+def reset_lora(pipe, pristine: dict) -> None:
+    """No LoRA on the pipeline and the LoRA layers' weights as loaded (load_pipe)."""
+    pipe.pipeline.unfuse_lora()
+    pipe.pipeline.unload_lora_weights()
+    modules = dict(pipe.pipeline.unet.named_modules())
+    with torch.no_grad():
+        for name, weight in pristine.items():
+            modules[name].weight.copy_(weight)
 
 
 def upstream_args(inpaint, repo: Path, evs: list[float], seed: int):
@@ -123,14 +157,9 @@ def paint_balls(run: Run, inpaint, inpainter, args, plate: Image.Image, seed: in
     from relighting.image_processor import pil_square_image
     from relighting.mask_utils import MaskGenerator
 
-    with run.loading("SDXL / ControlNet / LoRA"):
-        pipe = inpainter.BallInpainter.from_sdxl(
-            model=str(weights / MODELS["sdxl"]),
-            controlnet=str(weights / MODELS["controlnet"]),
-            device=device,
-            torch_dtype=torch.float16,
-            offload=False,
-        )
+    with run.loading("load_model", model="SDXL / ControlNet / LoRA"):
+        pipe, pristine = load_pipe(run.job.repo_dir, weights, device)
+        reset_lora(pipe, pristine)  # as freshly loaded, whatever the job before left fused
         pipe.pipeline.load_lora_weights(args.exposure_lora_path)
         pipe.pipeline.fuse_lora(lora_scale=args.exposure_lora_scale)
 
@@ -143,9 +172,9 @@ def paint_balls(run: Run, inpaint, inpainter, args, plate: Image.Image, seed: in
     )
 
     balls = {}
-    run.stage("画铬球")
+    run.stage("paint_ball")
     for i, (ev, (prompt_embeds, pooled_prompt_embeds)) in enumerate(embedding_dict.items()):
-        progress(i, len(embedding_dict), f"EV {ev:g}")
+        progress(i, len(embedding_dict), "exposure", ev=float(ev))
         pipe.pipeline.unfuse_lora()
         pipe.pipeline.unload_lora_weights()
         pipe.pipeline.load_lora_weights(args.turbo_lora_path)
@@ -176,7 +205,7 @@ def paint_balls(run: Run, inpaint, inpainter, args, plate: Image.Image, seed: in
         }
         output = pipe.inpaint_turbo_swapping(**kwargs).images[0]
         balls[ev] = output.crop((x, y, x + r, y + r))
-    progress(len(embedding_dict), len(embedding_dict), "完成")
+    progress(len(embedding_dict), len(embedding_dict), "done")
     return balls, image.size
 
 
@@ -264,14 +293,14 @@ def main(job_path: str) -> None:
     raw = job.raw_dir
     device = torch.device("cuda:0")  # an index, so the DPT depth pipeline runs on the GPU too
 
-    run.stage("准备画面")
+    run.stage("prepare_plate")
     plate = Image.open(path).convert("RGB")
     inpaint, inpainter = load_upstream(job.repo_dir, weights)
     args = upstream_args(inpaint, job.repo_dir, evs, seed)
     balls, canvas_size = paint_balls(run, inpaint, inpainter, args, plate, seed, weights, device)
     t_paint = time.time() - run.t0
 
-    run.stage("展开铬球 / 合成 HDR")
+    run.stage("unwrap_ball")
     # Plate focal length in canvas pixels (pil_square_image scales the long side to 1024).
     scale = min(canvas_size[0] / plate.width, canvas_size[1] / plate.height)
     plate_w_canvas = int(plate.width * scale)

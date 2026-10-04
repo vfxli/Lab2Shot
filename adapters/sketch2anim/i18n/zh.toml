@@ -1,0 +1,81 @@
+# Sketch2Anim extension: its words and messages in Chinese (the same keys as en.toml).
+
+# ---- 草图
+"E-SKETCH2ANIM-NOPOSE" = "「Sketch2Anim 动作生成」还没有火柴人：在「手画简笔画」节点上点「添加帧」，在 2D 视图里把关节拖到你要的姿势，接到「草图」口，再算一次"
+"E-SKETCH2ANIM-NOTFIGURE.other" = "「草图」口上接的不是火柴人：它有 {count} 个点，火柴人是 {want} 个关节。用「手画简笔画」画一个接过来"
+"E-SKETCH2ANIM-FLATFIGURE.other" = "画的火柴人只有 {pixels} 像素高，量不出身体的比例：把火柴人画大一些（头到脚至少几十像素）"
+"N-SKETCH2ANIM-SAMEFRAME" = "第 {frame} 帧上的火柴人和另一个落在模型的同一帧上（模型是 20 帧/秒）：只用了后画的那个。要两个都算，把它们画得离得远一些"
+
+# ---- 时长
+"E-SKETCH2ANIM-TOOLONG.other" = "「Sketch2Anim 动作生成」一次最长 {seconds} 秒：按 {fps} 帧/秒算最多 {most} 帧，「开始帧」到「结束帧」有 {frames} 帧。把范围缩短，或者分几段、每段各生成一次"
+"W-SKETCH2ANIM-SHORT.other" = "「开始帧」到「结束帧」只有 {frames} 帧：Sketch2Anim 训练时最短的动作是 {least} 帧（{fps} 帧/秒的 2 秒），比这短的它没见过，动作可能不像样。照常算了，结果自己看一眼"
+"E-SKETCH2ANIM-FRAMES.other" = "Sketch2Anim 交回来 {made} 帧，节点要的是 {want} 帧：扩展包和节点的版本对不上，重装一次（lab2shot ext install sketch2anim --force）"
+
+"E-SKETCH2ANIM-LENGTH" = "Sketch2Anim 收到 {frames} 个模型帧，它一次最多 {most} 帧：扩展包和节点的版本对不上，重装一次（lab2shot ext install sketch2anim --force）"
+
+# ---- 运行
+"E-SKETCH2ANIM-WEIGHTS.other" = "Sketch2Anim 的模型权重和模型对不上：有 {count} 个张量没加载上（第一个是 {first}）。重装一次扩展包（lab2shot ext install sketch2anim --force）"
+"I-SKETCH2ANIM-PATH" = "生成的身体走的路线，和两个火柴人之间那条线差 {error} 厘米"
+"I-SKETCH2ANIM-DONE.other" = "Sketch2Anim 按 {keys} 个关键姿势生成了 {frames} 帧：生成的姿势和画的差 {key_error} 厘米，骨架 IK 拟合差 {ik_error} 厘米；生成本身 {generate} 秒，连读模型一共 {seconds} 秒"
+"E-SKETCH2ANIM-BADRANGE" = "结束帧 {end} 比开始帧 {start} 还小：把「结束帧」改大"
+
+[node."sketch2anim.motion"]
+subtitle = "动作生成"
+description = "从火柴人生成一整段三维骨架动画（Sketch2Anim，SIGGRAPH 2025）。火柴人在「手画简笔画」节点上画（一帧一个关键姿势，翻到别的帧再画第二个、第三个），画好接到「草图」口——两个以上的火柴人，髋关节连起来就是身体走的路线，姿势和路线一起约束生成。「提示词」写一句英文说清是什么动作（跑、跳、踢），和画出来的姿势一起起作用。动作的长度由「开始帧」「结束帧」定：你在第几帧画的火柴人，动作就在第几帧摆那个姿势。这个节点不吃画面；画火柴人时的底图像素不参与计算，只是让你有张分镜图照着画。做不了手指和表情（模型只有 22 个身体关节），一次最长 9.8 秒。"
+official.note = """草图是这个节点的一个输入口，不是解算器身上的参数：解算器只负责解算，画简笔画、拆网格图这类小工具都是单独的节点（「官方的输入等于解算器的输入，加任何东西都是显式的其他小工具」）。草图有三种来源，各是一个节点，输出都接进这个节点的「草图」口：棋盘格图（手动指定几行几列）拆成图像序列、直接输入图像序列、自己画简笔画。
+画火柴人的是「手画简笔画」`draw_figure`（「手画简笔画」的「图像」口是**可选**的底图），底图可以来自「拆网格图」`split_grid`（棋盘格图）或「读取图像序列」。帧范围由这个节点自己的两个参数说了算（开始帧 / 结束帧，和骨骼动作家族 `FreeMotionParams` 同一套说法）；「帧速率」与 Kimodo 的同名同义（motion_fps_param）：动作按它的帧密度生成。"""
+cost.whole = "一整段一次生成，不是逐帧的活：4 秒的动作去噪 0.5 秒，头一次还要读模型 6 秒"
+
+[node."sketch2anim.motion".port.sketch]
+label = "草图"
+
+[node."sketch2anim.motion".port.skeleton]
+label = "骨架动画"
+
+[node."sketch2anim.motion".stage]
+write_skeleton = "写骨架动画"
+
+[node."sketch2anim.motion".param.start_frame]
+label = "开始帧"
+
+[node."sketch2anim.motion".param.end_frame]
+label = "结束帧"
+
+[node."sketch2anim.motion".param.prompt]
+label = "提示词"
+
+[node."sketch2anim.motion".param.sketch_view]
+label = "草图视角"
+option.front = "正面"
+option.side30 = "侧前 30"
+option.side45 = "侧前 45"
+
+[node."sketch2anim.motion".param.text_guidance]
+label = "贴合描述"
+
+[node."sketch2anim.motion".param.control]
+label = "贴合草图"
+
+[node."sketch2anim.motion".param.steps]
+label = "去噪步数"
+
+[node."sketch2anim.motion".param.seed]
+label = "随机种子"
+
+[node."sketch2anim.motion".param.foot_lock]
+label = "脚步锁定"
+
+[extension.sketch2anim]
+summary = "把分镜草图变成三维动画：用关键姿势、关节轨迹和动作描述控制三维动作生成，二维草图经神经映射对到三维"
+license.name = "MIT（代码）+ HumanML3D / AMASS 学术许可（模型权重）"
+license.summary = "仅限研究。代码是 MIT（作者 Lei Zhong 2025，原文允许商用、允许修改和再发布），但官方预训练模型权重用 HumanML3D 训练，HumanML3D 的动作来自 AMASS，AMASS 的许可只许非商业的学术研究，所以模型权重和生成出来的动作只能用于研究和评估。文字编码用的 sentence-t5-large 是 Apache-2.0（可商用），不改变上面的结论。要商用得用有授权的动捕数据重新训练"
+weight.adapter.note = "Sketch2Anim 官方模型权重 adapter.ckpt（HumanML3D 训练，非商用），357 MB"
+weight.pretrain.note = "Sketch2Anim 官方发布的预训练底座 pretrain_22joint_combine_adapter.ckpt（非商用），303 MB；推理只加载 adapter.ckpt，这一份不读"
+weight.t5.note = "sentence-t5-large（Apache-2.0）：把那句英文描述编码成条件向量，1.3 GB"
+
+# worker progress (worker.py)
+[stage]
+read_sketch = "读草图"
+generate = "Sketch2Anim 生成动作"
+generate_each = "生成动作"
+solve_rotations = "解出关节旋转"

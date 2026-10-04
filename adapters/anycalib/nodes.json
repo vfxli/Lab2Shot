@@ -1,6 +1,0 @@
-{
- "anycalib.calibrate": {
-  "label": "AnyCalib 镜头标定",
-  "description": "从画面估计 Focal Length 和镜头畸变，交出三样：Focal Length、Filmback、镜头内参（模型 + 畸变系数 + 主点）——接「LensDistortion」的同名口去畸变、烘 ST-map，那边选同一个镜头模型。镜头不能变焦。"
- }
-}

@@ -2,110 +2,173 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "95ea0339431c13e92b7de826e9fda03a",
-  "name": "抠像 · BiRefNet",
-  "intro": "BiRefNet 是用于高分辨率二分图像分割（DIS）的双边参考框架，由定位模块和带双边参考的还原模块组成。这张卡逐帧抠出画面主体，不用点选，再用「边缘解混合」去掉边缘里混进来的背景色，交付一套多层 EXR：rgba 是修正后的前景（预乘），foreground 是未修正前景，alpha 是遮罩；也常给精细抠像当粗遮罩。",
+  "name": {
+   "zh": "抠像 · BiRefNet",
+   "en": "Matte · BiRefNet"
+  },
+  "intro": {
+   "zh": "BiRefNet 是用于高分辨率二分图像分割（DIS）的双边参考框架，由定位模块和带双边参考的还原模块组成。这张卡逐帧抠出画面主体，不用点选，再用「边缘解混合」去掉边缘里混进来的背景色，交付一套多层 EXR：rgba 是修正后的前景（预乘），foreground 是未修正前景，alpha 是遮罩；也常给精细抠像当粗遮罩。",
+   "en": "BiRefNet is a bilateral reference framework for high-resolution dichotomous image segmentation (DIS). This card mattes the main subject frame by frame without picking, then removes the background color mixed into the edges with edge unmixing. It delivers a multi-layer EXR: rgba is the corrected foreground (premultiplied), foreground the uncorrected foreground, alpha the mask. Also a common rough mask for fine mattes."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "matte_alpha",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "name": "matte_model",
-   "label": "抠像模型（BiRefNet）",
+   "label": {
+    "zh": "抠像模型（BiRefNet）",
+    "en": "Matte Model (BiRefNet)"
+   },
    "target": "matte.model"
   },
   {
-   "name": "fg_radius",
-   "label": "解混合模糊半径",
-   "target": "fg.radius"
+   "name": "foreground_radius",
+   "label": {
+    "zh": "解混合模糊半径",
+    "en": "Unmix Blur Radius"
+   },
+   "target": "foreground.radius"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "fp16",
-     "label": "半精度",
+     "name": "matte_fp16",
+     "label": {
+      "zh": "半精度",
+      "en": "Half Precision"
+     },
      "target": "matte.fp16"
     }
    ]
   },
   {
-   "name": "cook_matte",
-   "label": "抠像",
-   "target": "fg.cook"
+   "name": "cook_foreground",
+   "label": {
+    "zh": "抠像",
+    "en": "Matte"
+   },
+   "target": "foreground.cook"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "exr.name"
     },
     {
      "name": "colorspace_out",
-     "label": "输出色彩空间",
-     "target": "out.colorspace"
+     "label": {
+      "zh": "输出颜色空间",
+      "en": "Output Color Space"
+     },
+     "target": "exr.colorspace"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_bit_depth",
-       "label": "EXR 位深",
-       "target": "out.exr_bit_depth"
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
+       "target": "exr.exr_bit_depth"
       },
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
-       "target": "out.exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -115,17 +178,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -134,8 +203,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -144,13 +212,12 @@
    },
    "ui": {
     "x": 0,
-    "y": 68
+    "y": 73
    }
   },
   {
    "id": "matte",
    "type": "birefnet.matte",
-   "label": "BiRefNet 抠像",
    "params": {
     "model": "hr_matting",
     "fp16": true
@@ -165,30 +232,27 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1600,
-    "y": 93
+    "x": 1651,
+    "y": 103
    }
   },
   {
-   "id": "fg",
-   "type": "birefnet.foreground",
-   "label": "BiRefNet 边缘解混合",
+   "id": "foreground",
+   "type": "birefnet.foreground_color",
    "params": {
     "radius": 90
    },
    "ui": {
     "x": 800,
-    "y": 83
+    "y": 93
    }
   },
   {
-   "id": "out",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "id": "exr",
+   "type": "exr.output",
    "params": {
     "name": "matte",
     "layers": [
@@ -213,8 +277,8 @@
     "colorspace": null
    },
    "ui": {
-    "x": 1200,
-    "y": 93
+    "x": 1251,
+    "y": 103
    }
   }
  ],
@@ -235,7 +299,7 @@
     "image"
    ],
    "to": [
-    "fg",
+    "foreground",
     "image"
    ]
   },
@@ -245,27 +309,27 @@
     "alpha"
    ],
    "to": [
-    "fg",
+    "foreground",
     "mask"
    ]
   },
   {
    "from": [
-    "fg",
+    "foreground",
     "foreground"
    ],
    "to": [
-    "out",
+    "exr",
     "layer1"
    ]
   },
   {
    "from": [
-    "fg",
+    "foreground",
     "plate"
    ],
    "to": [
-    "out",
+    "exr",
     "layer2"
    ]
   },
@@ -275,13 +339,13 @@
     "alpha"
    ],
    "to": [
-    "out",
+    "exr",
     "layer3"
    ]
   },
   {
    "from": [
-    "out",
+    "exr",
     "files"
    ],
    "to": [
@@ -292,7 +356,7 @@
  ],
  "boxes": [],
  "view": {
-  "display": "fg",
+  "display": "foreground",
   "frame": null
  }
 }

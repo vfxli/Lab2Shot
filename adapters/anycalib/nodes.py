@@ -29,10 +29,10 @@ def lens_distortion(params: dict, names: list[str], values: list[float]) -> dict
 
 class Calibrate(LensCalibration):
     id = "anycalib.calibrate"
-    version = 3  # 「镜头模型」选无畸变时也交「镜头内参」（没有系数的镜头），不再是空包
+    version = 4  # 4：worker 不再写用不到的 ST-map；3：「镜头模型」选无畸变时也交「镜头内参」（没有系数的镜头），不再是空包
     on_node = ("fit_model",)
     # 视图下方的控件与「COLMAP 相机解算」一致：解算出的三个值已在视图中显示，参数中仅保留镜头模型
-    strip = {"fit_model": "镜头模型"}
+    strip = ("fit_model",)
     # 不提供把标定复制到 3DE / Nuke 的功能：本节点输出的是 OpenCV 系数，而 3DE 与 Nuke 仅支持 3DE 自身的三种模型，两者之间不做转换，
     # 复制出去只能携带内参，无法携带 k1 k2。需要对外交付镜头时，应使用「LensDistortion」烘焙 ST-map。
     # 对整段中的若干帧（默认 8 帧）分别估计后取中位数；假定相机固定，仅输出镜头信息；不适用于变焦镜头。
@@ -47,43 +47,27 @@ class Calibrate(LensCalibration):
         takes={"image": "im"},
         gives={"focal": "intrinsics", "lens": "intrinsics"},
         ours={"filmback": "filmback_mm"},  # 节点自身的「Filmback」参数原样传给下游
-        note="上游只出一串 intrinsics（anycalib_pretrained.py:300-303，按 cam_id 那个相机模型的参数顺序排）："
-             "Focal Length、主点、畸变系数都是从这一串里取的；「镜头内参」= 我们请求的 cam_id 对应的镜头表模型 + 这些数。"
-             "**单位**：上游那一串 intrinsics 里的 Focal Length 和主点都是**像素**；我们交出去的 Focal Length 和主点"
-             "是**毫米**（主点在「镜头内参」里），用节点上的「Filmback」参数换算（Focal Length（mm）= Focal Length（px）÷ 画面宽度 × Filmback）。"
-             "毫米是 Lab2Shot 的内部标准单位，"
-             "下游的「LensDistortion」「创建相机」吃的也是毫米，两边对得上。"
-             "「Filmback」输出口给的是节点上那个参数的原值——上游没有这一项，这个口只是把它带给下游，"
-             "省得用户在两个节点上各填一遍。"
-             "**上游还有、我们没有口的**：pred[\"success\"]（这一帧线性拟合 + 非线性优化成没成功，"
-             "anycalib_pretrained.py:171）——worker 已经读它，用来发 W 级警告，没做成口；"
-             "还有 pred[\"intrinsics_icovs\"]（内参的逆协方差，:172）和稠密的 fov_field / tangent_coords（:270）。"
-             "目前没有对应的输出口",
-    )
+        )
     # vram_gb：RTX 4090，单个镜头（默认取 8 帧，DEFAULT_VRAM_GB）
-    cost = Cost(gpu=True, vram_gb=DEFAULT_VRAM_GB, whole="标定用几帧就够，不是逐帧的活，没有秒/帧这个概念")
+    cost = Cost(gpu=True, vram_gb=DEFAULT_VRAM_GB, whole=True)
 
     class Params(NodeParams):
         # 「镜头模型」是请求（按何种模型拟合），「镜头内参」输出中的模型是结果（识别出的模型）：两者名称必须区分，
         # 不得与同一节点的输出端口重名。选项名采用核心镜头表中的名称，与「LensDistortion」一侧保持一致
         fit_model: typing.Literal[MODEL_IDS] = P(  # type: ignore[valid-type]
-            "simple_radial:1", label="镜头模型", group="镜头", worker=False,
-            option_labels={m: gm.label for m, gm in GROUP.models.items()},
+            "simple_radial:1", group="lens", worker=False,
         )
-        samples: typing.Literal[4, 8, 16] = measured_param(
-            "采样帧数", {4: Measured(below=8), 8: Measured(gb=DEFAULT_VRAM_GB), 16: Measured(below=8)}, default=8,
-            group="镜头")
+        samples: typing.Literal[4, 8, 16] = measured_param({4: Measured(below=8), 8: Measured(gb=DEFAULT_VRAM_GB), 16: Measured(below=8)}, default=8,
+            group="lens")
         checkpoint: typing.Literal["anycalib_gen", "anycalib_pinhole", "anycalib_dist"] = P(
-            "anycalib_gen", label="网络权重", group="镜头",
-            option_labels={"anycalib_gen": "通用", "anycalib_pinhole": "无畸变画面", "anycalib_dist": "鱼眼/强畸变"},
+            "anycalib_gen", group="lens",
         )
         principal_point: typing.Literal["center", "estimate"] = P(
-            "center", label="主点", group="镜头",
-            option_labels={"center": "画面中心", "estimate": "估计"},
+            "center", group="lens",
         )
         # 上游 intrinsics 中的 Focal Length 与主点均以像素为单位；Focal Length 与主点（在「镜头内参」中）输出前按此
         # Filmback 换算为毫米（毫米是 Lab2Shot 的内部标准单位）。「Filmback」输出端口输出该参数的原值
-        filmback_mm: float = P(FILMBACK_MM, label="Filmback", unit="mm", gt=0, group="镜头", worker=False)
+        filmback_mm: float = P(FILMBACK_MM, unit="mm", gt=0, group="lens", worker=False)
 
     @classmethod
     def known_outputs(cls, params: dict) -> dict[str, dict]:
@@ -107,7 +91,7 @@ class Calibrate(LensCalibration):
         w, h = int(lens["width"]), int(lens["height"])
         back = float(ctx.params["filmback_mm"])
 
-        ctx.stage("估镜头")
+        ctx.stage("estimate_lens")
         # 镜头：Filmback 上的焦距、测量所用的画面、镜头中心（毫米，+y 向上）、以核心公式表表示的畸变（提供的每个模型
         # 在表中均有对应项），标记为估计值，AnyCalib 自身的模型与数值保留在 source 中
         names, values = [str(n) for n in lens["param_names"]], [float(v) for v in lens["params"]]
@@ -116,7 +100,7 @@ class Calibrate(LensCalibration):
             "focal_px": float(lens["focal_px"]), "filmback_mm": back, "width": w, "height": h, "raster": [w, h],
             "pixel_aspect": 1.0, "center_mm": [(float(lens["cx"]) - w / 2) * back / w, -(float(lens["cy"]) - h / 2) * back / w],
             "distortion": distorted,
-            "source": {"level": "estimated", "by": "AnyCalib 镜头标定", "model": str(lens["model"]), "params": dict(zip(names, values))},
+            "source": {"level": "estimated", "by": cls.id, "model": str(lens["model"]), "params": dict(zip(names, values))},
         }
         picture = {"width": w, "height": h}  # 焦距测量所基于的画面：与目标素材核对
         # 输出数值，每个数值的去向在节点图上可见（此处不将参数烘焙为 ST-map）：

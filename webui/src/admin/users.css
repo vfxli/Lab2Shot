@@ -76,17 +76,27 @@
   width: max-content;
 }
 
-.usr-form {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+/* an account form is a LabelGrid (ui/LabelRow.tsx): every row is the site's 「标签 + 控件」 row (admin/userFields.tsx Row),
+   the label column as wide as the form's longest label, in either language; what takes a line of its own (a note, the
+   button row) starts at the control column's left edge */
+.usr-form.lgrid {
+  display: grid;
+  row-gap: 2px;
+  --lrow-gap: var(--sp-3);
 }
 
-/* a row of the 用户 dialogs is the shared form row `.who-row` (ui/forms.css): labels right-aligned in one column,
-   controls left-aligned at their content width. No second set of rules: every dialog shares the one form row, which is
-   what keeps their left and right edges aligned. */
-.usr-form {
-  --form-label-w: 80px;
+.usr-form .lrow {
+  min-height: 32px;
+}
+
+.usr-form .who-label {
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.usr-form .field {
+  height: 30px;
+  font-size: 14px;
 }
 
 .usr-ctl {
@@ -95,10 +105,8 @@
   min-width: 0;
 }
 
-/* what takes a line of its own (a note, the button row) is indented to the control column's left edge, so the whole form keeps one line */
-.usr-form > .usr-why,
 .usr-form > .dialog-row {
-  margin-left: calc(var(--form-label-w) + var(--sp-3));
+  grid-column: ctl / -1;
 }
 
 .usr-why {
@@ -136,7 +144,8 @@
   user-select: all;
 }
 
-.usr-logins {
+.usr-logins,
+.usr-rewards {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -212,6 +221,13 @@
 .usr-head .usr-acts {
   margin-left: auto;
   gap: var(--sp-2);
+}
+
+.usr-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  white-space: nowrap;
 }
 
 /* tabs that do not fit one line (many resource kinds, a narrow window) wrap to the next line rather than overflow the page */

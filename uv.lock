@@ -272,7 +272,7 @@ wheels = [
 
 [[package]]
 name = "lab2shot"
-version = "0.1.0"
+version = "0.1.0a1"
 source = { editable = "." }
 dependencies = [
     { name = "av" },
@@ -311,7 +311,7 @@ requires-dist = [
 
 [[package]]
 name = "lab2shot-worker"
-version = "0.1.0"
+version = "0.1.0a1"
 source = { editable = "worker_sdk" }
 dependencies = [
     { name = "numpy" },

@@ -8,7 +8,8 @@
  *   操纵器现在的 TRS：调用方把增量套到按下时的参数上（model/places.ts draggedPlace、model/skeletonPose.ts draggedRow），
  *   没动的分量原样保留。操纵器的 TRS 表示不了剪切，拿它当关节的世界矩阵换回参数会写出错值。
  * - 操纵器放在 `at` 的原点、朝 `at` 正交化后的轴，缩放为 1；拖动中不跟着 `at` 挪（否则每次重画都把它放回起点），
- *   松手后回到 `at`。
+ *   松手后回到 `at`。`space`：移动、旋转沿哪套轴——"world" 世界轴（默认，「3D 变换」）；"local" 操纵器自己的轴，即
+ *   `at` 正交化后的轴（骨架关节：关节自己的局部轴）。缩放总沿操纵器自己的轴（three 的 TransformControls 如此）。
  * - 按下操纵器的那次点击不算舞台的拾取（StageState.claimedAt，view/camera3d.tsx Picker 读）：点一下轴不会清掉选中。
  * - 写不了（ui/writeLock.ts：只读标签页，或所在弹窗的参数不适用）不出操纵器：手柄只画、拖不动；拖到一半变成写不了
  *   （或操纵器卸下）时这次会话照样结束：`onEnd(null)`，调用方丢掉拖动中画的样子。 */
@@ -23,9 +24,10 @@ import { useWriteLock } from "../ui/writeLock";
 
 export type DragMode = "translate" | "rotate" | "scale";
 
-export function DragGizmo({ at, mode, size, onDrag, onEnd, uniform = false }: {
+export function DragGizmo({ at, mode, size, onDrag, onEnd, uniform = false, space = "world" }: {
   at: M4; // 枢轴：位置与朝向（列主序 4x4）
   mode: DragMode;
+  space?: "world" | "local";
   // 写回的缩放只有一个数（model/places.ts 的 scale）：拖哪个轴都是等比缩放，操纵器画出来的与写回的是同一个倍数
   uniform?: boolean;
   size: number;
@@ -80,7 +82,7 @@ export function DragGizmo({ at, mode, size, onDrag, onEnd, uniform = false }: {
     <>
       <group ref={setObj} />
       {obj && (
-        <TransformControls object={obj} mode={mode} size={size}
+        <TransformControls object={obj} mode={mode} size={size} space={space}
           onMouseDown={() => {
             stage.claimedAt = performance.now();
             press.current = { p: obj.position.clone(), q: obj.quaternion.clone(), at: pointer.current && pressAt(pointer.current) };

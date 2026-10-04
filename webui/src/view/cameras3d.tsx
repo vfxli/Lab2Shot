@@ -8,6 +8,8 @@ import { matrixAt } from "./matrix3d";
 import { type CameraData } from "./sceneData";
 import { project, usePickable, type PickRay } from "./stageState";
 import { sampleAt } from "../model/timelineMath";
+import { t } from "../i18n/t";
+import { useLang } from "../i18n/lang";
 
 /** Camera state at a frame: camera-to-world matrix and the half extents of the resolution gate at depth 1. */
 export function cameraAt(cam: CameraData, frame: number): { matrix: THREE.Matrix4; focalMm: number; tanX: number; tanY: number; shift: { x: number; y: number } } {
@@ -39,16 +41,17 @@ export function ShotCamera({ cam, frame, o, pickKey }: { cam: CameraData; frame:
     return new Float32Array(pts);
   }, [tanX, tanY, shift.x, shift.y]);
   const sample = sampleAt(cam.ref.frames, frame); // the matrix changes only with the sample it is read from
+  const lang = useLang((s) => s.lang); // the pick label is a word
   const pickable = useMemo(
     () => ({
-      label: cam.ref.path.split("/").pop() || "相机",
+      label: cam.ref.path.split("/").pop() || t("ui.view.camera"),
       bounds: () => new THREE.Box3().setFromArray(segments).applyMatrix4(matrix),
       hit: (p: PickRay) => {
         const s = project(new THREE.Vector3().setFromMatrixPosition(matrix), p);
         return s && Math.hypot(s.x - p.px.x, s.y - p.px.y) < 14 ? s.depth : null;
       },
     }),
-    [cam, segments, sample], // eslint-disable-line react-hooks/exhaustive-deps
+    [cam, segments, sample, lang], // eslint-disable-line react-hooks/exhaustive-deps
   );
   usePickable(pickKey, pickable);
   return (

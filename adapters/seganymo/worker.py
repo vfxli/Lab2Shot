@@ -57,6 +57,11 @@ TAPIR_CHUNK = 128  # run_tapir.py: points per model call
 DINO_LAYER, DINO_STRIDE = 11, 7  # dino_feat.py
 SAM2_PROMPT_EVERY = 16  # run_sam2.py: q_ts = range(0, T, 16)
 MERGE_IOU = 0.9  # run_sam2.py: analyze_frame_merges(..., iou_threshold=0.9)
+# SAM 2's image features of a frame (about 17 MB at 1024, float32), kept so that every object (and both directions)
+# reuses them instead of running the Hiera-L encoder again: on the GPU up to the first budget (and while the card has
+# room), then in RAM up to the second; frames past both are encoded as before
+FEATURE_CACHE_GPU_BYTES = 2 << 30
+FEATURE_CACHE_RAM_BYTES = 8 << 30
 SEED = 0  # upstream draws its point selection unseeded; the worker seeds it so a shot gives the same masks every time
 
 
@@ -199,7 +204,7 @@ def track_points(model, frames: np.ndarray, queries: list[int], owner: np.ndarra
             out[chunk] = np.concatenate([tracks, occ[..., None], dist[..., None]], -1)
             # run_tapir.py: on its own query frame a point sits exactly on its grid pixel
             out[chunk, qt, 0], out[chunk, qt, 1] = x[index[chunk]], y[index[chunk]]
-            progress(c + 1, len(chunks), "跟踪点")
+            progress(c + 1, len(chunks), "track_points_each")
     del feature_grids, video
     return out
 
@@ -220,14 +225,16 @@ def dynamic_tracks(run: Run, frames: np.ndarray, depth: list[torch.Tensor], quer
     grid_yx = grid(h, w)
     owner, index = choose_points(len(grid_yx[0]), queries, rng)
 
-    tapir = run.model("BootsTAPIR", load_tapir, weights / "bootstapir" / "bootstapir_checkpoint_v2.pt")
-    run.stage("跟踪点（BootsTAPIR）")
+    tapir = run.model("load_model", load_tapir, weights / "bootstapir" / "bootstapir_checkpoint_v2.pt",
+                      stage_params={"model": "BootsTAPIR"})
+    run.stage("track_points")
     tracks_2d = torch.from_numpy(track_points(tapir, frames, queries, owner, index, grid_yx, size))
     track_2d, occs, dists = tracks_2d[..., :2], tracks_2d[..., 2], tracks_2d[..., 3]
     visibles, _, confidences, visib_value, confi_value = parse_tapir_track_info(occs, dists, 0.5)
 
-    model = run.model("moseg", load_moseg, weights / "moseg" / "moseg.pth", repo / "configs" / "example_train.yaml")
-    run.stage("判断哪些点在动")
+    model = run.model("load_model", load_moseg, weights / "moseg" / "moseg.pth", repo / "configs" / "example_train.yaml",
+                      stage_params={"model": "moseg"})
+    run.stage("moving_points")
     dino = None
     if cfg.dino:
         feats = []
@@ -277,6 +284,58 @@ def dynamic_tracks(run: Run, frames: np.ndarray, depth: list[torch.Tensor], quer
 # --------------------------------------------------------------------------- objects (SAM 2)
 
 
+class FeatureCache:
+    """SAM 2's per-frame image features across objects. Upstream's predictor keeps only the last frame's
+    (`_get_image_feature`: "cache the most recent frame's feature"), so each object's propagation runs the image encoder
+    on every frame again; the encoder output depends on the frame alone, so it is kept here and put back into the
+    predictor's own one-frame cache before it looks. Results are the same; only the encoder runs once per frame."""
+
+    def __init__(self, predictor):
+        self.predictor = predictor
+        self.used = {"cuda": 0, "cpu": 0}
+        self.frames: dict[int, dict] = {}
+        self.pos = None  # vision_pos_enc: depends on the input size only, the same for every frame
+
+    def __enter__(self):
+        own = self.predictor._get_image_feature
+
+        def get(inference_state, frame_idx, batch_size):
+            kept = self.frames.get(frame_idx)
+            if kept is not None and frame_idx not in inference_state["cached_features"]:
+                device = inference_state["device"]
+                image = inference_state["images"][frame_idx].to(device).float().unsqueeze(0)
+                out = {k: [t.to(device) for t in v] if isinstance(v, list) else v.to(device) for k, v in kept.items()}
+                out["vision_pos_enc"] = list(self.pos)
+                inference_state["cached_features"] = {frame_idx: (image, out)}
+            result = own(inference_state, frame_idx, batch_size)
+            if kept is None:
+                self._keep(frame_idx, inference_state["cached_features"][frame_idx][1])
+            return result
+
+        self.predictor._get_image_feature = get
+        return self
+
+    def _keep(self, frame_idx: int, out: dict) -> None:
+        if self.pos is None:
+            self.pos = [t.clone() for t in out["vision_pos_enc"]]
+        size = sum(t.numel() * t.element_size() for k, v in out.items() if k != "vision_pos_enc"
+                   for t in (v if isinstance(v, list) else [v]))
+        if (self.used["cuda"] + size <= FEATURE_CACHE_GPU_BYTES
+                and torch.cuda.mem_get_info()[0] > size + (1 << 30)):
+            where = "cuda"
+        elif self.used["cpu"] + size <= FEATURE_CACHE_RAM_BYTES:
+            where = "cpu"
+        else:
+            return
+        self.frames[frame_idx] = {k: [t.to(where, copy=True) for t in v] if isinstance(v, list) else v.to(where, copy=True)
+                                  for k, v in out.items() if k != "vision_pos_enc"}
+        self.used[where] += size
+
+    def __exit__(self, *exc) -> None:
+        del self.predictor._get_image_feature  # the resident predictor gets its own method back
+        self.frames.clear()
+
+
 class ShotFrames:
     """The SAM 2 predictor seen from the analysed frames: a prompt on analysed frame i goes to frame shot[i]."""
 
@@ -296,7 +355,8 @@ def objects(run: Run, frame_dir: Path, shot: list[int], traj: np.ndarray, visibl
     import run_sam2
 
     run_sam2.args = SimpleNamespace(vis=False)  # process_points_with_memory reads the script's global args
-    predictor = run.model("SAM 2", load_sam2, run.job.weights_dir / "sam2-hiera-large" / "sam2_hiera_large.pt")
+    predictor = run.model("load_model", load_sam2, run.job.weights_dir / "sam2-hiera-large" / "sam2_hiera_large.pt",
+                          stage_params={"model": "SAM 2"})
     mapped = ShotFrames(predictor, shot)
     _, _, t_count = traj.shape
     max_iterations = min(max(len(range(0, t_count, 2 * 8)), 5), 10)
@@ -306,40 +366,42 @@ def objects(run: Run, frame_dir: Path, shot: list[int], traj: np.ndarray, visibl
         memory = run_sam2.process_invisible_traj(traj, visible, confi, state, mapped, dilation_size=6,
                                                  max_iterations=max_iterations, timestep=t_count)
     segments: dict[int, dict[int, np.ndarray]] = {}
-    for n, (obj, pkg) in enumerate(memory.items()):
-        run.stage(f"跟踪运动物体 {n + 1}/{len(memory)}（SAM 2）")
-        predictor.reset_state(state)
-        prompts = list(range(0, t_count, SAM2_PROMPT_EVERY))
-        if pkg["time"] in prompts:
-            prompts.remove(pkg["time"])
-        prompts.insert(0, pkg["time"])
-        pts_trajs, vis_trajs = pkg["pts_trajs"], pkg["vis_trajs"]
-        reverse = True
-        for t in prompts:
-            points = pts_trajs[:, :, t][vis_trajs[:, t]]
-            if points.shape[0] == 0:
-                continue
-            if shot[t] == 0:
-                reverse = False
-            prompt = run_sam2.find_dense_pts(points)
-            _, _, logits = mapped.add_new_points_or_box(inference_state=state, frame_idx=t, obj_id=obj, points=prompt,
-                                                        labels=np.ones(len(prompt), np.int32))
-            inside = run_sam2.find_pts_in_mask((logits[0] > 0.0).cpu().numpy(), points)
-            if inside.sum() < points.shape[0] * 0.7:  # the densest point alone misses the object: centre + far points
-                near, _, far, _, _ = run_sam2.find_centroid_and_nearest_farthest(points)
-                prompt = np.concatenate((near, far), axis=0)
-                mapped.add_new_points_or_box(inference_state=state, frame_idx=t, obj_id=obj, points=prompt,
-                                             labels=np.ones(len(prompt), np.int32))
-        directions = [False, True] if reverse else [False]
-        done = 0
-        for backwards in directions:
-            for frame, ids, logits in predictor.propagate_in_video(state, reverse=backwards):
-                per = segments.setdefault(frame, {})
-                for i, oid in enumerate(ids):
-                    m = (logits[i] > 0.0).cpu().numpy()
-                    per[oid] = per[oid] | m if oid in per else m
-                done += 1
-                progress(done, count * len(directions), f"运动物体 {n + 1}")
+    # as upstream, the objects are tracked outside the autocast (float32 features): the cache holds those
+    with FeatureCache(predictor):
+        for n, (obj, pkg) in enumerate(memory.items()):
+            run.stage("track_object", n=n + 1, count=len(memory))
+            predictor.reset_state(state)
+            prompts = list(range(0, t_count, SAM2_PROMPT_EVERY))
+            if pkg["time"] in prompts:
+                prompts.remove(pkg["time"])
+            prompts.insert(0, pkg["time"])
+            pts_trajs, vis_trajs = pkg["pts_trajs"], pkg["vis_trajs"]
+            reverse = True
+            for t in prompts:
+                points = pts_trajs[:, :, t][vis_trajs[:, t]]
+                if points.shape[0] == 0:
+                    continue
+                if shot[t] == 0:
+                    reverse = False
+                prompt = run_sam2.find_dense_pts(points)
+                _, _, logits = mapped.add_new_points_or_box(inference_state=state, frame_idx=t, obj_id=obj, points=prompt,
+                                                            labels=np.ones(len(prompt), np.int32))
+                inside = run_sam2.find_pts_in_mask((logits[0] > 0.0).cpu().numpy(), points)
+                if inside.sum() < points.shape[0] * 0.7:  # the densest point alone misses the object: centre + far points
+                    near, _, far, _, _ = run_sam2.find_centroid_and_nearest_farthest(points)
+                    prompt = np.concatenate((near, far), axis=0)
+                    mapped.add_new_points_or_box(inference_state=state, frame_idx=t, obj_id=obj, points=prompt,
+                                                 labels=np.ones(len(prompt), np.int32))
+            directions = [False, True] if reverse else [False]
+            done = 0
+            for backwards in directions:
+                for frame, ids, logits in predictor.propagate_in_video(state, reverse=backwards):
+                    per = segments.setdefault(frame, {})
+                    for i, oid in enumerate(ids):
+                        m = (logits[i] > 0.0).cpu().numpy()
+                        per[oid] = per[oid] | m if oid in per else m
+                    done += 1
+                    progress(done, count * len(directions), "moving_object", n=n + 1)
     predictor.reset_state(state)
     del state
     if not segments:
@@ -354,7 +416,7 @@ def objects(run: Run, frame_dir: Path, shot: list[int], traj: np.ndarray, visibl
 def main(job_path: str) -> None:
     import cv2
 
-    run = Run.start(job_path, "seganymo.moving_objects", "SegAnyMo")
+    run = Run.start(job_path, "seganymo.motion_segment", "SegAnyMo")
     job, p = run.job, run.params
     repo, weights = job.repo_dir, job.weights_dir
     dinov2 = Path(os.environ.get("LAB2SHOT_DINOV2_DIR", repo.parent / "dinov2"))
@@ -374,7 +436,7 @@ def main(job_path: str) -> None:
     with tempfile.TemporaryDirectory(prefix="seganymo_", dir=job.dir) as tmp:
         frame_dir = Path(tmp) / "frames"
         frame_dir.mkdir()
-        run.stage("读取画面")
+        run.stage("read_images")
         analysis = []
         want = set(shot)
         for i, (_, path) in enumerate(frames):
@@ -386,23 +448,24 @@ def main(job_path: str) -> None:
             cv2.imwrite(str(frame_dir / f"{i:05d}.png"), img)
             if i in want:
                 analysis.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-            progress(i + 1, count, "读取画面")
+            progress(i + 1, count, "read_images")
         analysis = np.stack(analysis)
 
         from core.utils.run_depth import get_depth_anything_disp
 
-        pipe = run.model("Depth Anything V2 Small", load_depth_model, weights / "Depth-Anything-V2-Small-hf")
-        run.stage("深度（Depth Anything V2 Small）")
+        pipe = run.model("load_model", load_depth_model, weights / "Depth-Anything-V2-Small-hf",
+                         stage_params={"model": "Depth Anything V2 Small"})
+        run.stage("depth")
         depth = []
         for n, i in enumerate(shot):
             depth.append(depth_as_read(get_depth_anything_disp(pipe, str(frame_dir / f"{i:05d}.png"), "uint16")))
-            progress(n + 1, len(shot), "深度")
+            progress(n + 1, len(shot), "depth_each")
         del pipe
 
         from torchvision import transforms
 
-        extractor = run.model("DINOv2", load_dino, dinov2)
-        run.stage("DINOv2 特征")
+        extractor = run.model("load_model", load_dino, dinov2, stage_params={"model": "DINOv2"})
+        run.stage("dino_features")
         shape = ((h + 13) // 14 * 14, (w + 13) // 14 * 14)  # dino_feat.py: a multiple of 14
         prep = transforms.Compose([transforms.ToTensor(), transforms.Resize(list(shape)),
                                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
@@ -415,7 +478,7 @@ def main(job_path: str) -> None:
                 desc = extractor.extract_descriptors(batch, [DINO_LAYER], "key", include_cls=False)
             desc = desc.reshape(desc.shape[0], extractor.num_patches[0], extractor.num_patches[1], -1).squeeze()
             dinos[qt] = desc.cpu().numpy().astype(np.float16)
-            progress(n + 1, len(queries), "DINOv2 特征")
+            progress(n + 1, len(queries), "dino_features")
         torch.cuda.empty_cache()
 
         traj, visible, confi = dynamic_tracks(run, analysis, depth, queries, dinos, size, rng)
@@ -423,7 +486,7 @@ def main(job_path: str) -> None:
         torch.cuda.empty_cache()
         found = objects(run, frame_dir, shot, traj, visible, confi, count) if traj.shape[1] else {}
 
-    run.stage("写出遮罩")
+    run.stage("write_masks")
     ids = sorted({o for per in found.values() for o in per})
     if not ids:
         say("N-SEGANYMO-EMPTY")
@@ -441,7 +504,7 @@ def main(job_path: str) -> None:
             labels[m > 0.5] = number[o]
             seen[number[o]] += 1
         save_npz(job.raw_dir / f"frame_{f}.npz", labels=labels)
-        progress(i + 1, count, "写出遮罩")
+        progress(i + 1, count, "write_masks")
     (job.raw_dir / "objects.json").write_text(json.dumps([{"id": k, "frames": n} for k, n in seen.items()]), encoding="utf-8")
     run.finish([f for f, _ in frames], objects=len(ids), dynamic_tracks=int(traj.shape[1]), analysed_frames=len(shot),
                processing_size=[w, h],

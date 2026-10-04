@@ -71,7 +71,7 @@ Johan Edstedt（林雪平大学计算机视觉实验室，Michael Felsberg 组�
 ## 模型下载和安装
 
 - 自动安装：`lab2shot ext install romav2`。锁定 GitHub 仓库 v2.0.1，另外锁定 RoMa v2 用到的 DINOv3 网络代码
-  （facebookresearch/dinov3 的一个版本，原来是运行时联网拉取，现在安装时下载好），独立的 PyTorch 环境，
+  （facebookresearch/dinov3 的一个版本；上游在运行时联网拉取，这里改为安装时下载好），独立的 PyTorch 环境，
   下载作者 GitHub 发布页的 romav2.0.1.pt（1.1 GB，里面包含 DINOv3 ViT-L 骨干的权重），下完按 sha256 校验。不需要申请权限。
 
 ## 许可证说明

@@ -25,6 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .. import i18n
 from ..config import provide_choices
 from ..data.packet import Packet
 from ..data.maps import nearest
@@ -35,7 +36,7 @@ from .frames import channel_key, channel_values, shown_now, video_frames
 
 # 管理员可选的三档（长边像素）。本表是唯一数据源：设置项 view.proxy_px 的选项由它提供（config.provide_choices）。
 TIERS = (512, 1024, 2048)
-provide_choices("proxy_tiers", lambda: tuple((str(px), f"{px} 像素") for px in TIERS))
+provide_choices("proxy_tiers", lambda: tuple((str(px), i18n.t("view.proxy_tier", px=px)) for px in TIERS))
 
 # 代理图的 WebP 质量。1920×1080 的实拍帧缩到 512 档时，一张代理约 2.4 KB，
 # 而原尺寸无损显示图约 1.5 MB：缩放与压缩共节省三个数量级。
@@ -389,8 +390,7 @@ def _camera_lens(camera_fp: str, at: str, generation: str):
     同一台相机的每一帧都会查询，无需每帧打开一次 USD；重新计算的数据包属于另一代次，不会取到旧结果。
     提供 `at` 时它必须是该数据包中的一台相机：地址中的任意字符串若不指向相机即立即拒绝（4xx），
     否则非相机的 prim 会一直传到 CameraSamples.from_prim 中引发 TypeError，导致 500。"""
-    import hashlib
-    import json
+    from ..io.digest import key as digest_key
 
     from pxr import UsdGeom
 
@@ -408,7 +408,7 @@ def _camera_lens(camera_fp: str, at: str, generation: str):
         if prim is None or not prim.IsValid() or not prim.IsA(UsdGeom.Camera):
             raise Invalid(Msg("E-VIEW-NOCAMERAAT", at=at))
     else:
-        prim = the_camera(stage, "场景")
+        prim = the_camera(stage, i18n.t("view.scene"))
     width, height = int(camera.meta.get("width") or 0), int(camera.meta.get("height") or 0)
     samples = CameraSamples.from_prim(prim, list(camera.meta.get("frames") or []), width=width, height=height)
     if not samples.lens:
@@ -417,7 +417,7 @@ def _camera_lens(camera_fp: str, at: str, generation: str):
     lens = Lens.from_meta(meta, (width, height) if width and height else None)
     if lens is None:
         return None, ""
-    return lens, hashlib.sha1(json.dumps(meta, sort_keys=True, default=str).encode()).hexdigest()[:12]
+    return lens, digest_key(meta, 12)
 
 
 # ------------------------------------------------------------------ 计算完成后生成（农场的后台工作）

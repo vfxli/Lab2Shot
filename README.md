@@ -1,18 +1,16 @@
 # Lab2Shot
 
+**中文** | [English](README.en.md)
+
 <p align="center"><img src="docs/images/welcome.png" alt="Lab2Shot" width="900"></p>
 
-Lab2Shot brings machine-learning research into computer-graphics production. It packages published research code — camera solving, matting, body and face capture, lighting estimation and related methods — as nodes that film and game artists can use directly. All results are delivered in standard formats: USD for 3D data (Y-up, centimetres) and EXR / PNG / JPG for images, colour-managed with OCIO, ready for import into Houdini, Maya and Nuke.
-
-The aim is simple: to let more artists on the production floor work with the latest research. Every method here is the work of its original authors; Lab2Shot only connects it to production and leaves their code as it is.
-
-Lab2Shot 将机器学习研究成果引入计算机图形制作流程。项目把已发表的研究代码（相机解算、抠像、人体与面部捕捉、光照估计等）封装为节点，供影视与游戏美术人员直接使用。全部结果以标准格式交付：三维数据为 USD（Y 轴向上，单位厘米），图像为 EXR / PNG / JPG，色彩由 OCIO 管理，可直接导入 Houdini、Maya 与 Nuke。
+Lab2Shot 将机器学习研究成果引入计算机图形制作流程。项目把已发表的研究代码（摄影机解算、抠像、人体与面部捕捉、光照估计等）封装为节点，供影视与游戏美术人员直接使用。全部结果以标准格式交付：三维数据为 USD（Y 轴向上，单位厘米），图像为 EXR / PNG / JPG，颜色由 OCIO 管理，可直接导入 Houdini、Maya 与 Nuke。
 
 做这个项目的初衷很简单：让更多一线制作人员用上最新的科研成果。这里的每一种方法都是原作者的研究成果，Lab2Shot 只负责把它接进制作流程，不改动原项目的代码。
 
 ## 功能
 
-Lab2Shot 以接入层的形式接入第三方研究项目，按制作任务组织成节点。镜头与场景方面，可以从实拍画面解算相机与镜头畸变，重建场景的三维几何，估计深度与法线；画面处理方面，可以抠像、生成遮罩、跟踪、计算光流与对位；人物方面，可以从视频中捕捉人体动作和面部表情，并编辑动作；此外还能估计场景的光照与材质。所有结果都按统一格式交付。
+Lab2Shot 以接入层的形式接入第三方研究项目，按制作任务组织成节点。镜头与场景方面，可以从实拍画面解算摄影机与镜头畸变，重建场景的三维几何，估计深度与法线；画面处理方面，可以抠像、生成遮罩、跟踪、计算光流与对位；人物方面，可以从视频中捕捉人体动作和面部表情，并编辑动作；此外还能估计场景的光照与材质。所有结果都按统一格式交付。
 
 各接入层的节点、输入输出、显存需求与许可证说明见 `adapters/<项目名>/docs.md`。
 

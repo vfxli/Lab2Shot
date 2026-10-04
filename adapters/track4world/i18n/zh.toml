@@ -1,0 +1,56 @@
+# Track4World extension: display words and messages (Chinese). One entry per line: key = template.
+
+# ---- 跟踪（worker.py）
+"E-TRACK4WORLD-WEIGHTS.other" = "Track4World 的模型权重缺 {count} 个参数（如 {example}）：模型权重文件和代码的版本对不上，管理员重新执行 lab2shot ext install track4world"
+"E-TRACK4WORLD-SMALLSIDE" = "画面 {width:d}x{height:d} 按「处理分辨率」{side:d} 缩成 {w:d}x{h:d}，短边不到 {need:d}：Track4World 的相关金字塔有 5 层，短边小于 {need:d} 时它自己会算到 0 像素。把「处理分辨率」调大（画面越扁越要调大）"
+
+[node."track4world.track"]
+subtitle = "稠密 3D 跟踪点"
+description = "画面 → 稠密的三维轨迹：参考帧上每隔几个像素一个点，整段镜头跟成带编号、速度的动画点云（真实尺度，连同每帧摄影机）。只要画面就能算，世界和摄影机都是它自己解出来的；官方还顺带出每帧稠密的世界坐标点云和有效区域。Houdini 里从运动的表面发射粒子、灰尘，做运动物体的代理几何体；要稀疏、能导进 3DE 的点，用「TAPIP3D 3D 跟踪点」。仅限研究，许可证禁止用于生产。顺带的点云是每帧一片（官方 world_points：每帧的稠密点放在它自己解出的同一个世界里），不是整段求出的一套场景点云。"
+official.note = "上游 model.infer(rgbs_selected, iters, sw, is_training, tracking3d)（demo.py:499-505）只吃画面：没有摄影机、没有遮罩、没有查询点，摄影机是它自己解出来的（camera_poses）。所以节点没有遮罩和摄影机输入口：要只跟一块区域，在图上接「人物框转遮罩」→「图像合成」（留下）把画面挡住再送进「RGB」口；要把结果摆进自己那台摄影机的世界，用显式的工具节点，不在本节点里做。「点云」= 上游 return 里的 world_points（每帧稠密的世界坐标点图，demo.py:519；上游 world_points = c2w @ points，nets/model.py:193，所以同一个 return 里的 points（摄影机空间）是同一份数据换个坐标系，不另立一个口），「有效区域」= 同一个 return 里的 masks（demo.py:520，这一帧哪些像素有可用的三维点）。"
+licence.note = "仅限研究，许可证禁止用于生产：Track4World 的代码和模型权重只许学术研究，任何情况下都不能用于商业或生产；骨干 Depth Anything 3 模型权重是 CC BY-NC 4.0。"
+
+[node."track4world.track".param.query_frame]
+label = "参考帧"
+placeholder = "第一帧"
+
+[node."track4world.track".param.track_step]
+label = "跟踪点间隔"
+
+[node."track4world.track".param.resolution]
+label = "处理分辨率"
+
+[node."track4world.track".param.max_frames]
+label = "每段最多帧数"
+
+[node."track4world.track".param.picks]
+label = "手动点"
+placeholder = "点「在视图里点选」，在参考帧上点要跟踪的位置"
+
+[node."track4world.track".port.points]
+label = "点云"
+help = "官方同一次计算顺带出的每帧稠密世界坐标点（上游 world_points = 摄影机 × 每帧摄影机空间的点；镜头分了几段算时，按拼接后的摄影机放回同一个世界）：按「点云间隔」取样，只取「有效区域」里的像素，颜色取自这一帧的画面。和「3D 跟踪点」不是一回事——这一份每帧各算各的，点和点之间没有对应关系"
+
+[node."track4world.track".port.valid]
+label = "有效区域"
+help = "官方 masks：这一帧哪些像素有可用的三维点（天空、无纹理的地方是 0）"
+
+[node."track4world.track".stage]
+write_valid = "写出有效区域"
+make_points = "生成点云"
+
+[extension.track4world]
+summary = "从单目视频以全局前馈的方式估计任意两帧之间每个像素的稠密三维场景流；仅限研究，许可证禁止用于生产"
+license.name = "Track4World License（仅限学术研究，禁止商用和生产）"
+license.summary = "仅限研究，许可证禁止用于生产：许可证原文要求只用于学术目的，“在任何情况下都不得用于商业或生产用途”，范围包括推理代码和模型权重。用到的 Depth Anything 3 骨干（Depth Anything 3 Nested Giant-Large 1.1）模型权重是 CC BY-NC 4.0 非商用；随仓库的 AllTracker 部分是 MIT。只能拿来做研究和测试，不能进任何项目的交付"
+weight.track4world_da3.note = "Track4World（Depth Anything 3 骨干，5.5 GB；仅限研究，许可证禁止用于生产）"
+weight."da3nested/model.safetensors".note = "Depth Anything 3 骨干 Depth Anything 3 Nested Giant-Large 1.1（CC BY-NC 4.0，6.8 GB）"
+weight."da3nested/config.json".note = "Depth Anything 3 骨干的网络配置"
+
+[stage]
+read_images = "读取画面"
+track = "跟踪"
+track_dense = "跟踪整帧的点"
+track_dense_segments.other = "跟踪整帧的点（每段 {frames} 帧）"
+write_dense = "写出稠密点和有效遮罩"
+write_dense_each = "写出稠密点"

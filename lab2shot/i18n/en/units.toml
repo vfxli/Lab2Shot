@@ -1,0 +1,20 @@
+# Units (P1-A, data/units.py UNITS): unit.<id> as shown in a number field, unit.kind.<kind> what kind of unit it is.
+[unit]
+mm = "mm"
+cm = "cm"
+m = "m"
+px = "px"
+"°" = "°"
+frame = "frames"
+s = "s"
+EV = "EV"
+fps = "fps"
+
+[unit.kind]
+length = "Length"
+pixels = "Pixels"
+angle = "Angle"
+frames = "Frames"
+time = "Time"
+exposure = "Exposure"
+rate = "Frame Rate"

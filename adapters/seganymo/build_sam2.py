@@ -41,7 +41,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "place":
     # 只把已经编好的放回去：不下载、不编译、不碰环境（EnvSpec.places 的约定）
     kept = ext_root / "build" / "_C.so"
     if not kept.exists():
-        raise SystemExit("没有编好的 _C.so 可放回（先跑一次完整安装）")
+        raise SystemExit("No built _C.so to put back (run a full install once first)")
     shutil.copy2(kept, INTO / "_C.so")
     raise SystemExit(0)
 
@@ -61,9 +61,9 @@ subprocess.run([sys.executable, "setup.py", "build_ext", "--inplace"], cwd=build
 
 made = sorted((build / "sam2").glob("_C*.so"))
 if not made:
-    raise SystemExit("SAM 2 的 _C 没编出来（setup.py 退出码是 0，但没有 .so）")
+    raise SystemExit("SAM 2's _C was not built (setup.py exited with 0, but there is no .so)")
 (ext_root / "build").mkdir(parents=True, exist_ok=True)
 shutil.copy2(made[0], ext_root / "build" / "_C.so")   # 留一份，place 用
 shutil.copy2(made[0], INTO / made[0].name)
 shutil.rmtree(build)
-print(f"SAM 2 的 _C 编好了：{INTO / made[0].name}（架构 {env['TORCH_CUDA_ARCH_LIST']}）")
+print(f"SAM 2's _C built: {INTO / made[0].name} (architectures {env['TORCH_CUDA_ARCH_LIST']})")

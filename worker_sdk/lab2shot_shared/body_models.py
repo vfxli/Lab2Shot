@@ -22,7 +22,7 @@ class BodyModel:
     files: tuple[str, ...]  # file loaded by the methods: the official download name first, then common aliases
     # Manual-download metadata. The core's manual-download entries (lab2shot/extensions/manual.py) are generated
     # from this table; other manual downloads are declared by the extensions that require them.
-    what: str = ""  # human-readable description
+    what: str = ""  # what it is, in English (shown through the catalogue: manual.<key>.what)
     page: str = ""  # download page URL
     download: str = ""  # name of the download item as labelled on that page
     filename: str = ""  # expected file name (recognition is by content, so renamed files are accepted)
@@ -32,22 +32,22 @@ class BodyModel:
 
 MODELS = {
     "smplx": BodyModel("SMPL-X", ("SMPLX_NEUTRAL.npz",),  # models_smplx_v1_1.zip: models/smplx/SMPLX_NEUTRAL.npz
-                       "身体 + 手 + 脸模型", "https://smpl-x.is.tue.mpg.de", "SMPL-X v1.1（NPZ+PKL）", "models_smplx_v1_1.zip",
+                       "Body, hands and face model", "https://smpl-x.is.tue.mpg.de", "SMPL-X v1.1 (NPZ+PKL)", "models_smplx_v1_1.zip",
                        ("SMPLX_NEUTRAL.*", "SMPLX_MALE.*", "SMPLX_FEMALE.*"), ("*smplx*", "*smpl-x*")),
     # SMPL for Python v1.1.0 names the neutral body basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl; the SMPLify archive
     # (fetched by the WHAM and TRAM download scripts) names it basicModel_neutral_lbs_10_207_0_v1.0.0.pkl; it is also
     # commonly renamed to SMPL_NEUTRAL.pkl.
     "smpl": BodyModel("SMPL", ("basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl", "SMPL_NEUTRAL.pkl",
                                "basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"),
-                      "身体模型", "https://smpl.is.tue.mpg.de", "SMPL for Python users 1.1.0 版", "SMPL_python_v.1.1.0.zip",
+                      "Body model", "https://smpl.is.tue.mpg.de", "SMPL for Python users 1.1.0", "SMPL_python_v.1.1.0.zip",
                       ("basicmodel_*.pkl", "SMPL_NEUTRAL.pkl", "SMPL_MALE.pkl", "SMPL_FEMALE.pkl", "smpl_uv*"), ("*smpl*",)),
     "mano": BodyModel("MANO", ("MANO_RIGHT.pkl",),  # mano_v1_2.zip: mano_v1_2/models/MANO_RIGHT.pkl; left hands use the mirrored model
-                      "手部模型", "https://mano.is.tue.mpg.de", "Models & Code", "mano_v1_2.zip",
+                      "Hand model", "https://mano.is.tue.mpg.de", "Models & Code", "mano_v1_2.zip",
                       ("MANO_RIGHT.*", "MANO_LEFT.*"), ("*mano*",)),
     # FLAME2020.zip; SMIRK coefficients are defined for FLAME 2020, not FLAME 2023.
     # The FLAME masks and the MediaPipe landmark embedding are separate archives and are unpacked into the same folder.
     "flame": BodyModel("FLAME", ("generic_model.pkl",),
-                       "面部模型", "https://flame.is.tue.mpg.de", "FLAME 2020", "FLAME2020.zip",
+                       "Face model", "https://flame.is.tue.mpg.de", "FLAME 2020", "FLAME2020.zip",
                        ("generic_model.pkl", "FLAME2020", "FLAME2023*", "FLAME_masks.*", "mediapipe_landmark_embedding.*"), ("*flame*",)),
 }
 

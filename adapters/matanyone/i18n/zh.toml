@@ -1,0 +1,51 @@
+# MatAnyone 2 精细抠像（adapters/matanyone）。一行一条：编号 = 模板。
+
+# ---- 输入
+"N-MATANYONE-LATESTART.other" = "引导遮罩的前 {count:d} 帧是空的：MatAnyone 2 从第 {frame} 帧开始抠，往前的帧倒着算"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[stage]
+read_guide_mask = "读取引导遮罩"
+matte = "抠像"
+
+[node."matanyone.matte"]
+subtitle = "精细抠像"
+description = "给一帧粗遮罩（第一帧有人的那帧），MatAnyone 2 把人整段抠出来：发丝、半透明边缘都是软的，前后帧稳定。速度快、显存小，画面按短边缩到「处理分辨率」计算（官方的算法），默认短边 1080。每帧都有粗遮罩、要时间上更稳的软边时用「VideoMaMa 精细抠像」。"
+
+[node."matanyone.matte".param.resolution]
+label = "处理分辨率（短边）"
+
+[node."matanyone.matte".param.resolution.option]
+540 = "540"
+720 = "720"
+1080 = "1080"
+1440 = "1440"
+
+[node."matanyone.matte".param.warmup]
+label = "首帧预热次数"
+
+[node."matanyone.matte".param.mask_close]
+label = "遮罩修补"
+
+[node."matanyone.matte".param.fp16]
+label = "半精度"
+
+[node."matanyone.matte".port.image]
+label = "RGB"
+
+[node."matanyone.matte".port.mask]
+label = "首帧粗遮罩"
+
+[node."matanyone.matte".official]
+note = "上游还写了 fgr，但那是 com_np = image_np * pha + 绿幕 * (1 - pha) 的合成预览（第 111 行），不是模型的输出，所以不是一个口。"
+
+[extension.matanyone]
+summary = "用一个学出来的抠像质量评估器（MQE），在没有真值的情况下判断 alpha 的语义和边界质量，把视频抠像的数据规模做上去"
+
+[extension.matanyone.license]
+name = "NTU S-Lab License 1.0（非商用）"
+summary = "非商用：代码和权重（matanyone2.pth，作者 GitHub 发布页）都按 S-Lab License 1.0 发布，只允许非商业用途的使用和再分发（须保留版权声明和免责声明），商用须联系作者（南洋理工 S-Lab）另行授权。模型结构基于 Cutie（MIT）。不需要其他权重：ResNet 主干的 ImageNet 预训练权重已包含在 checkpoint 里，不另外下载"
+
+[extension.matanyone.weight.matanyone2]
+note = "MatAnyone 2 权重（135 MB，S-Lab License 1.0，非商用）"

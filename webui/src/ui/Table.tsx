@@ -1,14 +1,16 @@
 import type { ReactNode } from "react";
 import "./table.css";
+import { tipAttrs, type Tip } from "../platform/tips";
 
-/** A list as a table: columns declared once with their header, hover help and cell;
+/** A list as a table: columns declared once with their header, an optional header tip (only what the header word
+ * cannot say) and cell;
  * a row can be picked (the one picked is marked) and a row can be dimmed (no longer in use: a deleted account, an
  * invite that can no longer be used). Both are the component's own states — a page never adds a class of its own to a row. */
 
 export interface Column<T> {
   id: string;
   label: string;
-  tip: string;
+  tip?: Tip | null;
   cell: (row: T) => ReactNode;
   className?: string;
   width?: string; // a fixed width for this column (the rest share what is left): several tables of the same columns
@@ -31,7 +33,7 @@ export function Table<T>({ rows, columns, rowKey, picked, onPick, dim, empty, cl
         <thead>
           <tr>
             {columns.map((c) => (
-              <th key={c.id} className={c.className} style={c.width ? { width: c.width } : undefined} data-tip={c.tip}>
+              <th key={c.id} className={c.className} style={c.width ? { width: c.width } : undefined} {...tipAttrs(c.tip)}>
                 {c.label}
               </th>
             ))}

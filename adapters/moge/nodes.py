@@ -8,7 +8,8 @@ from lab2shot.sdk import Official, normal_port, PerFrameDepthCamera, P, Port, pr
 
 
 class Geometry(PerFrameDepthCamera):
-    id = "moge.geometry"
+    id = "moge.depth"
+    metric = True  # MoGe-3 predicts metric depth (a guess of the model, not a measurement) (DepthCamera.metric)
     # 模型自己就输出每个像素的三维点（worker 的 npz 里 points，相机空间、米）：「点云」口直接用它，
     # 不拿深度 + Focal Length 反投影绕一圈（families/base.py native_points）
     native_points = "points"
@@ -25,17 +26,12 @@ class Geometry(PerFrameDepthCamera):
         cite="third_party/moge/repo/moge/model/v3.py:220-255",
         takes={"image": "image"},
         gives={"depth": "depth", "normal": "normal", "camera": "intrinsics", "points": "points"},
-        note="「相机」口只有内参（intrinsics，v3.py:250 文档行），MoGe 不出外参；"
-             "「点云」是模型自己的 points（v3.py:248），不是我们拿深度反投影的",
     )
     # RTX 4090，默认的标准 ViT-L
     cost = Cost(gpu=True, vram_gb=2.6, seconds_per_frame=0.15)
 
     class Params(PerFrameDepthCamera.Params):  # 家族的 Params：镜头 + 点云间隔 / 点的大小（口上接了东西才起作用）
-        model: Literal["Ruicheng/moge-3-vitl", "Ruicheng/moge-3-vitg"] = P(
-            "Ruicheng/moge-3-vitl", label="模型", group="几何",
-            option_labels={"Ruicheng/moge-3-vitl": "标准 ViT-L", "Ruicheng/moge-3-vitg": "大模型 ViT-G"},
-        )
+        model: Literal["Ruicheng/moge-3-vitl", "Ruicheng/moge-3-vitg"] = P("Ruicheng/moge-3-vitl", group="geometry")
         resolution_level: int = precision_level_param()
 
 

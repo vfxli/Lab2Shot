@@ -55,10 +55,10 @@ from ..extensions.spec import (
     hf_file,
     hf_weights,
 )
-from ..extensions import downloads  # files several extensions download, pinned once (Download.weight)
+from ..extensions import downloads  # tools to declare pinned downloads (Download, hf, pip_git, archive_zip)
 from ..io.color import working_space
 from ..io.images import read_named
-from ..data.units import (usd_points_to_opencv_m, CV_TO_GL, DEFAULT_FPS, DEFAULT_WIDTH, FILMBACK_MM, M_TO_CM, focal_mm,
+from ..data.units import (usd_points_to_m, CV_TO_GL, DEFAULT_FPS, DEFAULT_WIDTH, FILMBACK_MM, M_TO_CM, focal_mm,
                           opencv_points_to_usd, opencv_poses_to_usd, to_cm)
 from ..io.usd import (
     PERSON_ID,
@@ -70,9 +70,10 @@ from ..io.usd import (
     write_mesh,
     write_rig,
 )
-from ..data.skeleton import character_of_model, rig_of_model
+from ..data.skeleton import character_of_model, merge_weights, rig_of_model, scaled_to_ground
+from ..data.standard_bodies import StandardBody
 from ..data.contracts import KEEPS, NEW_PICTURE, PLATE_FRAME, STMAP_SHAPE, Shape, warped_by
-from ..nodes.base import (EITHER, NodeDef, NodeParams, P, Port, empty_packet, fp16_param, parse_corners, parse_figures,
+from ..nodes.base import (EITHER, NodeDef, NodeParams, P, Port, Reads, empty_packet, fp16_param, parse_corners, parse_figures,
                           say_bad_entries)
 from ..availability import All, AnyOf, Because, Not
 from ..nodes.applies import (Cost, Fact, Licence, OptionTrait, Param, Wired, WiredPicture, WiredType, fact, incoming,
@@ -80,17 +81,22 @@ from ..nodes.applies import (Cost, Fact, Licence, OptionTrait, Param, Wired, Wir
 from ..nodes.core.geometry import points_from_depth
 from ..nodes.expects import DistinctNames, FrameCount, HighDynamicRange, OwnCamera, SameShot
 from ..nodes.handles import FIGURE_JOINTS, Handle, figure_handle
+from ..nodes.core.mask import class_word
 from ..nodes.clipboard import Pasteable, put_clipboard
 from ..nodes.official import Official  # 每个三方节点声明「官方的口 + 上游行号」
 from ..nodes.lens import (CAMERA_HAS_LENS, NO_LENS, CameraLensParams, SolvedLensParams, LensParams, focal_param,
-                         packed_lens, unpacked_lens, LENS_HELP,
+                         packed_lens, unpacked_lens,
                          LensGroup, GroupModel, lens_groups, table_of, lens_identity, core_group)
 from ..data.values import LENS
 from ..nodes.formats import WorkerImport, import_file_param, selection_param, selection_ports
-from ..nodes.output import OutputSettings, Writes, fps_param, name_param
+from ..nodes.output import Format, OutputSettings, Writes, fps_param, name_param
 from ..nodes.kit.cameras import send_camera
+from ..nodes.kit.retarget_needs import GENERIC, JointNeeds
 from ..nodes.families import (
     Confidence,
+    GaussianReconstruction,
+    DiffusionImage,
+    DiffusionImageParams,
     LINEAR,
     NEAREST,
     NORMALIZE,
@@ -113,6 +119,8 @@ from ..nodes.families import (
     DetectCleanupParams,
     body_joints,
     RigMotion,
+    RigRetarget,
+    RigRetargetParams,
     motion_fps_param,
     MotionGenParams,
     FreeMotionParams,
@@ -121,6 +129,7 @@ from ..nodes.families import (
     LensCalibration,
     LensWholeShotParams,
     LightProbe,
+    LlmText,
     LightProbeParams,
     PerFrameDepthCamera,
     OpticalFlow,
@@ -179,7 +188,7 @@ SDK_API = 2  # 2: the worker-node template (WorkerNode: prepare -> Job -> conver
 
 __all__ = [
     "SDK_API",
-    # messages (lab2shot/messages): an error a user reads carries one; its words are in adapters/<name>/messages.toml
+    # messages (lab2shot/messages): an error a user reads carries one; its words are in adapters/<name>/i18n/<lang>.toml
     "Invalid", "Msg",
     # found nothing to give (no face in the shot): raised from a cook, the node's outputs are empty, its notice kept
     "NothingToCook",
@@ -190,7 +199,7 @@ __all__ = [
     # licence classes (nodes/tags.py): LicenseInfo(tag=), and NodeDef.licence for a node that differs from its extension
     "BASIC", "COMMERCIAL", "NONCOMMERCIAL", "RESEARCH", "licence_label",
     # node definitions (nodes.py)
-    "EITHER", "FIGURE_JOINTS", "Handle", "NodeDef", "NodeParams", "P", "Port", "empty_packet", "figure_handle",
+    "EITHER", "FIGURE_JOINTS", "class_word", "Handle", "NodeDef", "NodeParams", "P", "Port", "empty_packet", "figure_handle",
     "parse_corners", "parse_figures", "say_bad_entries", "fp16_param",
     "KEEPS", "NEW_PICTURE", "PLATE_FRAME", "STMAP_SHAPE", "Shape", "warped_by",
     # what applies (nodes/applies.py): when a parameter does something, what a node costs and whose licence it is, what a
@@ -203,7 +212,7 @@ __all__ = [
     # 交出去之前都走它
     # another program's camera model read through the one model table (data/lens_models.py EXTERNAL_MODELS)
     "external_camera", "distortion", "COLMAP_MODELS", "PINHOLE_MODELS", "LENS_TABLE", "distorts",
-    "packed_lens", "unpacked_lens", "LENS", "LENS_HELP", "LensGroup", "GroupModel", "lens_groups", "table_of", "lens_identity", "core_group",
+    "packed_lens", "unpacked_lens", "LENS", "LensGroup", "GroupModel", "lens_groups", "table_of", "lens_identity", "core_group",
     # 镜头模型 id → 界面名：自己会估镜头的扩展（AnyCalib、COLMAP）用它给「拟合模型」的选项起名，
     # 和核心「LensDistortion」上的是同一份列表、同一个词
     "lens_model_labels",
@@ -214,8 +223,8 @@ __all__ = [
     # format modules (nodes/formats.py): the import node read by the module's worker, its parameters, the file's units
     # and axes; the output-settings node (a file format), the scene arrays a writer's worker takes and the pack of
     # several scene wires into one
-    "Axes", "WorkerImport", "import_file_param", "selection_param", "selection_ports",
-    "OutputSettings", "Writes", "fps_param", "name_param", "open_scene", "pack", "scene_arrays", "scene_curves_packet",
+    "Axes", "WorkerImport", "import_file_param", "selection_param", "selection_ports", "Reads",
+    "Format", "OutputSettings", "Writes", "fps_param", "name_param", "open_scene", "pack", "scene_arrays", "scene_curves_packet",
     "scene_points", "send_camera",
     # the worker-node template (nodes/families/base.py): prepare -> Job -> worker -> convert(ctx, RawOutput, Job)
     "Confidence", "Job", "MissingFrames", "RawOutput", "WorkerNode",
@@ -223,7 +232,8 @@ __all__ = [
     "AutoRig", "AutoRigParams", "GuidedMatte", "MatteNode", "LensCalibration", "Keypoints2D", "Matting", "LensWholeShotParams", "LightProbe", "LightProbeParams", "PerFrameDepthCamera",
     "OpticalFlow", "OpticalFlowParams", "PointTracker", "PointTracker3D", "PointTracks3DParams", "WholeShotDepthCamera",
     "WholeShotParams", "Segmentation", "TrackParams", "WorldHumans", "WorldHumansParams",
-    "RigMotion", "motion_fps_param", "MotionGenParams", "FreeMotionParams", "PartMap", "ModelJoint", "humanoid_joints", "mapping_param", "skeleton_param",
+    "RigMotion", "RigRetarget", "RigRetargetParams", "JointNeeds", "GENERIC", "GaussianReconstruction",
+    "DiffusionImage", "DiffusionImageParams", "motion_fps_param", "MotionGenParams", "FreeMotionParams", "PartMap", "ModelJoint", "humanoid_joints", "mapping_param", "skeleton_param", "LlmText",
     "CleanupParams", "DetectCleanupParams", "body_joints",
     "basecolor_port", "normal_port", "rgb_port", "values_port", "camera_port", "people_port", "plate_mask_port",
     "conf_threshold_param", "flow_resolution_param", "follow_camera_param", "loops_param", "Measured", "max_frames_param", "measured_param",
@@ -246,6 +256,9 @@ __all__ = [
 
     "working_space",
     # scenes: writing USD, a camera's samples
-    "CV_TO_GL", "DEFAULT_FPS", "focal_mm", "DEFAULT_WIDTH", "FILMBACK_MM", "M_TO_CM", "to_cm", "PERSON_ID", "ROOT_PATH", "SkinnedCharacter", "character_of_model", "rig_of_model", "write_rig", "create_stage", "opencv_points_to_usd", "opencv_poses_to_usd", "usd_points_to_opencv_m", "save_stage", "DEFORMING",
+    "CV_TO_GL", "DEFAULT_FPS", "focal_mm", "DEFAULT_WIDTH", "FILMBACK_MM", "M_TO_CM", "to_cm", "PERSON_ID", "ROOT_PATH", "SkinnedCharacter", "character_of_model", "rig_of_model",
+    # a body for the core's 「标准人」 (Extension.standard_bodies, data/standard_bodies.py) and the two steps its skin
+    # takes like the core's own: weights of dropped joints merged into kept ones, scaled and stood on the ground
+    "StandardBody", "merge_weights", "scaled_to_ground", "write_rig", "create_stage", "opencv_points_to_usd", "opencv_poses_to_usd", "usd_points_to_m", "save_stage", "DEFORMING",
     "write_character", "write_mesh",
 ]

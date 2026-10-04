@@ -76,14 +76,21 @@ INSTANCE_SOURCE = (
 CONVENTION = "OpenCV camera: +X right, +Y down, +Z forward; cam_to_world maps camera to world (world = first frame's camera, approximately metric)"
 
 
-def make_stream(paths: list[Path], fps: float, name: str):
-    """将任务的标准化 PNG 按任务帧顺序（而非按文件名排序）封装为 ViPE 流。"""
+# 输入相机逐帧焦距最大 / 最小超过这个比例算变焦：ViPE 只能用一组固定内参（取中位数）
+ZOOM_TOLERANCE = 0.02
+
+
+def make_stream(paths: list[Path], fps: float, name: str, crop: list[int] | None = None):
+    """将任务的标准化 PNG 按任务帧顺序（而非按文件名排序）封装为 ViPE 流。`crop`：(x, y, w, h)，只把画布的这一块
+    交给 ViPE（去畸变画布的扩边，见 nodes.py _solve_box）；None 为整幅。"""
     from vipe.streams.base import VideoFrame, VideoStream
+
+    x0, y0, cw, ch = crop if crop else (0, 0, 0, 0)
 
     class _Stream(VideoStream):
         def __init__(self) -> None:
             super().__init__()
-            self._height, self._width = read_frame(paths[0]).shape[:2]
+            self._height, self._width = (ch, cw) if crop else read_frame(paths[0]).shape[:2]
 
         def frame_size(self) -> tuple[int, int]:
             return (self._height, self._width)
@@ -99,8 +106,10 @@ def make_stream(paths: list[Path], fps: float, name: str):
 
         def __iter__(self):
             for i, path in enumerate(paths):
-                rgb = torch.as_tensor(read_frame(path, "float32")).cuda()
-                yield VideoFrame(raw_frame_idx=i, rgb=rgb)
+                rgb = read_frame(path, "float32")
+                if crop:
+                    rgb = np.ascontiguousarray(rgb[y0:y0 + ch, x0:x0 + cw])
+                yield VideoFrame(raw_frame_idx=i, rgb=torch.as_tensor(rgb).cuda())
 
     return _Stream()
 
@@ -130,7 +139,7 @@ def make_progress_processor(total: int):
         def __call__(self, frame_idx, frame):
             self.done += 1
             if self.done % 4 == 0 or self.done == total:
-                progress(self.done, total, "跟踪")
+                progress(self.done, total, "track")
             return frame
 
     return _Progress()
@@ -222,7 +231,7 @@ def save_depth(depth_stream, mode: str, frame_numbers: list[int], raw: Path, hei
     由「ViPE 相机解算」输出（save_instances），再经「物体分割」连线接入本节点。"""
     import torch.nn.functional as F
 
-    stage("估计深度")
+    stage("estimate_depth")
     # 直接消费流的生成器：外层的缓存包装会把每一帧（RGB、遮罩、深度）保留在内存中直到结束。
     frames_iter = depth_stream.iterator if getattr(depth_stream, "iterator", None) is not None else iter(depth_stream)
     n = len(frame_numbers)
@@ -246,7 +255,7 @@ def save_depth(depth_stream, mode: str, frame_numbers: list[int], raw: Path, hei
             lo, hi = min(lo, float(valid.min())), max(hi, float(depth.max()))
         writer.npz(raw / f"depth_{frame_numbers[i]}.npz", depth=depth, kind=np.str_("metric_depth_m"))
         count += 1
-        progress(count, n, "深度")
+        progress(count, n, "depth")
     writer.close()
     if count != n:
         raise RuntimeError(f"ViPE returned {count} depth frames for {n} frames")
@@ -270,7 +279,15 @@ def save_slam_points(slam, raw: Path) -> dict:
     此处原样输出，供「ViPE 深度图」还原：深度计算时逐帧将其投影到画面上作为提示
     （`processors.py:297`、`:320` 的 project_map）。"""
     if slam.slam_map is None:
-        fail("E-VIPE-NOSLAMMAP")
+        # pose_only_long 的 LongSequenceSLAMSystem 在官方配置下 keep_map=false、save_slam_map=false
+        # （configs/pipeline/pose_only_long.yaml），为保 O(window) 内存契约不保留地图；slam_map 为 None。
+        # 长镜头模式因此没有点云可输出：写空 npz 让节点输出空包，而不是失败——这与官方
+        # 「pose-only, no depth/map work」的长镜头语义一致。
+        save_npz(raw / "slam_points.npz", xyz=np.zeros((0, 3)), rgb=np.zeros((0, 3), np.float32),
+                 counts=np.zeros(0, np.int64), frames=np.zeros(0, np.int64))
+        return {"points": "slam_points.npz: empty (pose_only_long keeps no SLAM map)",
+                "points_source": "none: the long-sequence recipe keeps no map (official O(window) memory contract)",
+                "points_keyframes": 0, "points_total": 0}
     m = slam.slam_map
     xyz, rgb = [], []
     for k in range(len(m.dense_disp_frame_inds)):
@@ -291,7 +308,8 @@ def save_slam_points(slam, raw: Path) -> dict:
             "points_keyframes": len(xyz), "points_total": int(sum(len(p) for p in xyz))}
 
 
-def save_instances(stream, frame_numbers: list[int], raw: Path, height: int, width: int) -> dict:
+def save_instances(stream, frame_numbers: list[int], raw: Path, height: int, width: int,
+                   crop: list[int] | None = None) -> dict:
     """解算时分割出的运动物体实例 -> raw/instance_<帧>.npz + 词表。
 
     GroundingDINO + SAM + DeAOT 是解算阶段的处理器（`default.py:70-78` 的 `_add_init_processors`），
@@ -308,10 +326,16 @@ def save_instances(stream, frame_numbers: list[int], raw: Path, height: int, wid
         instance = frame.instance
         if instance is not None:
             inst = instance.float()
-            if tuple(inst.shape) != (height, width):
+            x0, y0, w, h = crop if crop else (0, 0, width, height)
+            if tuple(inst.shape) != (h, w):
                 # 编号不得插值：两个编号之间的值会成为一个不存在的第三个物体
-                inst = F.interpolate(inst[None, None], size=(height, width), mode="nearest")[0, 0]
-            writer.npz(raw / f"instance_{frame_numbers[i]}.npz", instance=inst.cpu().numpy().astype(np.uint8))
+                inst = F.interpolate(inst[None, None], size=(h, w), mode="nearest")[0, 0]
+            ids = inst.cpu().numpy().astype(np.uint8)
+            if crop:  # ViPE saw only the crop: the rest of the canvas is background
+                full = np.zeros((height, width), np.uint8)
+                full[y0:y0 + h, x0:x0 + w] = ids
+                ids = full
+            writer.npz(raw / f"instance_{frame_numbers[i]}.npz", instance=ids)
             written += 1
         if frame.instance_phrases:  # 上游在整段镜头范围内合并（io.py:372-381）
             phrases.update({int(k): str(v) for k, v in frame.instance_phrases.items()})
@@ -348,6 +372,31 @@ def quaternion_of(rotations: np.ndarray) -> np.ndarray:
     return q / np.linalg.norm(q, axis=1, keepdims=True)
 
 
+def convergence(slam, cfg, focal_given: bool) -> dict:
+    """SLAM 有没有收敛：关键帧少于 warmup 时，前端从未初始化（`frontend.py:153`：`n_frames == warmup` 才初始化），
+    之后的全局 BA 只在寥寥几个关键帧上跑（`backend.py`：只有一个关键帧时图是空的，BA 根本不跑）。实测（TUM fr1_desk
+    20 帧、3DPW 60 帧）：轨迹塌成几厘米，焦距停在 GeoCalib 初值附近。结果照常交出，但发警告说明不可靠，不悄悄交。
+    长镜头模式（pose_only_long）不保留地图、数不出关键帧，不判断。"""
+    m = slam.slam_map
+    if m is None:
+        return {}
+    slam_cfg = cfg.pipeline.to_dictconfig().slam
+    warmup = int(slam_cfg.warmup)
+    # 关键帧数到这里时 SLAM 才第一次在前端中途跑带内参的 BA（`system.py:286` frontend_backend_iters，默认 16）
+    focal_settles = int(min(slam_cfg.frontend_backend_iters))
+    keyframes = len(m.dense_disp_frame_inds)
+    graph = getattr(m, "backend_graph", None)
+    ba_edges = 0 if graph is None else int(graph.shape[0])
+    converged = keyframes >= warmup and ba_edges > 0
+    if not converged:
+        say("W-VIPE-UNCONVERGEDFOCAL" if focal_given else "W-VIPE-UNCONVERGED", keyframes=keyframes, warmup=warmup)
+    elif not focal_given and keyframes < focal_settles:
+        # 实测 TUM fr1_desk 320-339：刚好 8 个关键帧，轨迹形状对（RMSE 为轨迹长的 1.5%），但 fx 710 对真值 517
+        say("W-VIPE-FOCALUNSETTLED", keyframes=keyframes, settle=focal_settles)
+    return {"slam_keyframes": keyframes, "slam_warmup": warmup, "slam_ba_edges": ba_edges, "slam_converged": converged,
+            "focal_settled": focal_given or keyframes >= focal_settles}
+
+
 def rebuild_slam_output(job, n_frames: int, width: int, height: int):
     """接入的「相机」和「点云」 -> 上游 post 阶段所需的 SLAMOutput。
 
@@ -369,8 +418,20 @@ def rebuild_slam_output(job, n_frames: int, width: int, height: int):
     pose = np.concatenate([c2w[:, :3, 3], quaternion_of(c2w[:, :3, :3])], axis=1)
     traj = SE3(torch.as_tensor(pose, dtype=torch.float32, device="cuda"))
     rig = SE3(torch.as_tensor([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]], dtype=torch.float32, device="cuda"))
-    focal = float(np.median(np.asarray(cam.focal_px, np.float64)))
-    intrinsics = torch.as_tensor([[focal, focal, width / 2, height / 2]], dtype=torch.float32, device="cuda")
+    focals = np.atleast_1d(np.asarray(cam.focal_px, np.float64))
+    focal = float(np.median(focals))
+    # ViPE 只有一组固定内参：输入相机变焦（逐帧焦距差得多）时只能取中位数，说出来，不悄悄抹平
+    spread = float(focals.max() / max(focals.min(), 1e-9) - 1.0) if focals.size else 0.0
+    if spread > ZOOM_TOLERANCE:
+        say("W-VIPE-ZOOM", low=float(focals.min()), high=float(focals.max()), used=focal)
+    if cam.K is None:
+        calibration = [focal, focal, width / 2, height / 2]
+    else:
+        # ViPE represents one fixed calibration per view. The camera-solve node
+        # writes a constant K; external animated calibrations use their median.
+        k = np.median(cam.K, axis=0)
+        calibration = [k[0, 0], k[1, 1], k[0, 2], k[1, 2]]
+    intrinsics = torch.as_tensor([calibration], dtype=torch.float32, device="cuda")
 
     pts = np.load(job.inputs["points"])
     counts = np.asarray(pts["counts"], np.int64)
@@ -451,7 +512,7 @@ def run_depth(run: Run, pipeline, mode: str, raw: Path, frames, frame_numbers: l
 
     job = run.job
     height, width = job.height, job.width
-    run.stage("准备深度")
+    run.stage("prepare_depth")
     slam, focal = rebuild_slam_output(job, len(frames), width, height)
     stream = make_stream([p for _, p in frames], job.fps, Path(job.data["id"]).name)
     given = ProcessedVideoStream(stream, [given_objects(job, frame_numbers), make_progress_processor(len(frames))])
@@ -501,7 +562,7 @@ def main(job_path: str) -> None:
     frames, frame_numbers = shot.pairs, shot.numbers
     raw = job.raw_dir
 
-    run.stage("准备 ViPE")
+    run.stage("prepare_vipe")
     cfg = compose_config(mode, raw, focal_px_given is not None)
     pipeline = make_pipeline(cfg.pipeline)
     if with_depth:
@@ -521,7 +582,11 @@ def main(job_path: str) -> None:
 
     pipeline._add_post_processors = add_post_processors
 
-    height, width = job.height, job.width
+    # 去畸变画布带扩边时只把扩边里以主点为中心的画面框交给 ViPE（nodes.py _solve_box）：官方输入是没有黑边的画面，
+    # 实测黑边会让自动焦距偏 2%（R04 60 帧：裁掉 519 px，黑边 506 / 529 px，真值 517）。解出的主点再加回裁切原点，
+    # camera.npz 仍是整幅画布的坐标
+    crop = params.get("crop")
+    height, width = (crop[3], crop[2]) if crop else (job.height, job.width)
     focal_geocalib: list[float] = []
     add_init = pipeline._add_init_processors
 
@@ -536,28 +601,29 @@ def main(job_path: str) -> None:
         if focal_px_given is not None:
             intrinsics.fov_y = 2 * math.atan(height / (2 * focal_px_given))
         stream.processors.append(make_progress_processor(len(frames)))
-        run.stage("解算相机")
+        run.stage("solve_camera")
         return stream
 
     pipeline._add_init_processors = add_init_processors
 
-    stream = make_stream([p for _, p in frames], job.fps, Path(job.data["id"]).name)
+    stream = make_stream([p for _, p in frames], job.fps, Path(job.data["id"]).name, crop)
     from vipe.streams.base import ProcessedVideoStream
 
     video = ProcessedVideoStream(stream, [])
     if mode == "pose_only":
-        run.stage("读取序列")
+        run.stage("read_sequence")
         video = video.cache(desc="Reading frames")  # 与 `vipe infer` 的行为一致
     # 长镜头模式流式读取帧（任务的 PNG 数量已知，GeoCalib 的随机访问由 ViPE 自身缓存），
     # 可在内存中少保留一份全分辨率副本。
-    run.stage("估计 Focal Length / 加载模型")
+    run.stage("estimate_focal")
     t_solve = time.time()
     output = pipeline.run(video)
     run.frame_seconds.extend([(time.time() - t_solve) / len(frames)] * len(frames))  # 模型加载与整段解算的耗时，平均分摊到每帧
     slam = slam_outputs[0]
-    run.stage("写出运动物体分割")
-    extra = save_instances(output.output_streams[0], frame_numbers, raw, height, width)
+    run.stage("write_objects")
+    extra = save_instances(output.output_streams[0], frame_numbers, raw, job.height, job.width, crop)
     extra.update(save_slam_points(slam, raw))
+    extra.update(convergence(slam, cfg, focal_px_given is not None))
 
     traj = slam.get_view_trajectory(0) if slam.rig is not None else slam.trajectory
     cam_to_world = traj.matrix().double().cpu().numpy()
@@ -565,11 +631,10 @@ def main(job_path: str) -> None:
         raise RuntimeError(f"ViPE returned {cam_to_world.shape[0]} poses for {len(frames)} frames")
     fx, fy, cx, cy = (float(v) for v in slam.intrinsics[0][:4].cpu())
     focal_px = focal_px_given if focal_px_given is not None else 0.5 * (fx + fy)
-    if focal_px_given is None and focal_geocalib and not 0.75 < focal_px / focal_geocalib[0] < 1.33:
-        # bundle adjustment 仅在相机有位移（视差）时才能确定焦距；固定机位或纯摇镜头下焦距会漂移。
-        say("W-VIPE-FOCALJUMP", solved=focal_px, single=float(focal_geocalib[0]), diff=abs(focal_px / focal_geocalib[0] - 1))
     if abs(cx - width / 2) > 1 or abs(cy - height / 2) > 1:
         say("W-VIPE-PRINCIPAL", cx=cx, cy=cy, center_x=width / 2, center_y=height / 2)
+    if crop:
+        cx, cy = cx + crop[0], cy + crop[1]
 
     save_npz(
         raw / "camera.npz",
@@ -579,8 +644,8 @@ def main(job_path: str) -> None:
         fy=np.float64(fy),
         cx=np.float64(cx),
         cy=np.float64(cy),
-        width=np.int64(width),
-        height=np.int64(height),
+        width=np.int64(job.width),
+        height=np.int64(job.height),
         cam_to_world=cam_to_world,
     )
 
@@ -599,8 +664,9 @@ def main(job_path: str) -> None:
         focal_source="user" if focal_px_given is not None else "vipe",
         focal_px_geocalib_init=focal_geocalib[0] if focal_geocalib else None,
         intrinsics={"fx": fx, "fy": fy, "cx": cx, "cy": cy},
-        width=width,
-        height=height,
+        width=job.width,
+        height=job.height,
+        solved_on=crop or [0, 0, job.width, job.height],  # the part of the canvas ViPE saw (x, y, w, h)
         fps=job.fps,
         drift={
             "max_translation": float(translation.max()),

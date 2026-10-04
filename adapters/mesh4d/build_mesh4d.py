@@ -33,15 +33,15 @@ from codebase import compose  # noqa: E402  (the adapter's own module, next to t
 
 ext_root = Path(os.environ["LAB2SHOT_EXT_ROOT"])
 
-print("组合 Mesh4D 代码目录（符号链接，不改原仓库）", flush=True)
+print("Composing the Mesh4D code folder (symbolic links, the repository is left as it is)", flush=True)
 lay = compose(ext_root)
 
 # ------------------------------------------------------------------ the five Cython modules
 shape = lay.shape
 pyx = shape / "im2mesh" / "utils" / "libkdtree" / "pykdtree" / "kdtree.pyx"
-print("重新生成 pykdtree 的 C（随仓库的那份是老 Cython 生成的，Python 3.10 编不过）", flush=True)
+print("Regenerating pykdtree's C (the copy in the repository was made by an old Cython and does not compile on Python 3.10)", flush=True)
 run([Path(sys.executable).parent / "cython", "-3", pyx.name], cwd=pyx.parent)
-print("编译 im2mesh 的 5 个 Cython 模块", flush=True)
+print("Compiling the 5 Cython modules of im2mesh", flush=True)
 run([sys.executable, "setup_im2mesh.py", "build_ext", "--inplace"], cwd=shape)
 
 # ------------------------------------------------------------------ the denoiser, once
@@ -51,7 +51,7 @@ from safetensors.torch import save_file  # noqa: E402
 out = lay.weights / "denoiser.fp16.safetensors"
 if not out.exists():
     src = lay.weights / "ckpt" / "denoiser.ckpt"
-    print(f"把 24 GB 的训练存档压成推理权重：{out.name}（一次，之后每次计算只读这一份）", flush=True)
+    print(f"Reducing the 24 GB training archive to inference weights: {out.name} (once; every cook then reads only this)", flush=True)
     # identical to the line in infer.py: strip "model." from every state_dict key
     state = torch.load(src, map_location="cpu")["state_dict"]
     state = {k.replace("model.", ""): v for k, v in state.items()}
@@ -62,6 +62,6 @@ if not out.exists():
     tmp = out.with_suffix(".part")
     save_file(keep, str(tmp))
     tmp.replace(out)
-    print(f"写好 {len(keep)} 个张量，{out.stat().st_size / 1e9:.1f} GB", flush=True)
+    print(f"Wrote {len(keep)} tensors, {out.stat().st_size / 1e9:.1f} GB", flush=True)
 
-print("Mesh4D 环境就绪", flush=True)
+print("Mesh4D environment ready", flush=True)

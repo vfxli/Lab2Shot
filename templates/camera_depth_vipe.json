@@ -2,145 +2,226 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "3ed1cf8c3b75bce2e84e2b4ade392abe",
-  "name": "相机与深度 · ViPE",
-  "intro": "ViPE 官方自述：从无约束的原始视频估计相机内参、相机运动和接近真实尺度的稠密深度图。官方把它分成两段跑——先解位姿，再在位姿上估计深度图；这张卡就照这两段接成两个节点，交付相机（USD 与 Nuke 相机）和与它对齐的深度图。",
+  "name": {
+   "zh": "摄影机与深度 · ViPE",
+   "en": "Camera and Depth · ViPE"
+  },
+  "intro": {
+   "zh": "ViPE 官方自述：从无约束的原始视频估计摄影机内参、摄影机运动和接近真实尺度的稠密深度贴图。官方把它分成两段跑——先解位姿，再在位姿上估计深度贴图；这张卡就照这两段接成两个节点，交付摄影机（USD 与 Nuke 摄影机）和与它对齐的深度贴图。",
+   "en": "ViPE describes itself as estimating camera intrinsics, camera motion and near-metric dense depth maps from unconstrained raw video. Upstream runs it in two passes, first solving poses and then estimating depth on those poses; this card wires the two passes as two nodes and delivers the camera (USD and Nuke camera) and depth maps aligned to it."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
-  "deliverable": "depth_solved",
+  "deliverable": "camera_traj",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "kind": "group",
-   "label": "镜头",
+   "label": {
+    "zh": "镜头",
+    "en": "Lens"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "focal",
-     "label": "已知 Focal Length",
-     "target": "solve.focal_mm"
+     "label": {
+      "zh": "已知焦距",
+      "en": "Known Focal Length"
+     },
+     "target": "vipe.focal_mm"
     },
     {
      "name": "filmback",
-     "label": "Filmback",
-     "target": "solve.filmback_mm",
+     "label": {
+      "zh": "胶片背",
+      "en": "Aperture"
+     },
+     "target": "vipe.filmback_mm",
      "disable_when": "not focal"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "相机解算",
+   "label": {
+    "zh": "摄影机解算",
+    "en": "Camera Solve"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "vipe_mode",
-     "label": "ViPE 方式",
-     "target": "solve.mode"
+     "label": {
+      "zh": "ViPE 方式",
+      "en": "ViPE Mode"
+     },
+     "target": "vipe.mode"
     },
     {
-     "name": "cook_camera",
-     "label": "解算相机",
-     "target": "solve.cook"
+     "name": "cook_vipe",
+     "label": {
+      "zh": "解算摄影机",
+      "en": "Solve Camera"
+     },
+     "target": "vipe.cook"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "深度图",
+   "label": {
+    "zh": "深度贴图",
+    "en": "Depth Map"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "depth_model",
-     "label": "深度模型",
-     "target": "depth.model"
+     "label": {
+      "zh": "深度模型",
+      "en": "Depth Model"
+     },
+     "target": "vipe_depth.model"
     },
     {
-     "name": "cook_depth",
-     "label": "计算深度图",
-     "target": "depth.cook"
+     "name": "cook_vipe_depth",
+     "label": {
+      "zh": "计算深度贴图",
+      "en": "Cook Depth Map"
+     },
+     "target": "vipe_depth.cook"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "exr_name",
-     "label": "文件名（深度 EXR）",
+     "label": {
+      "zh": "文件名（深度 EXR）",
+      "en": "File Name (Depth EXR)"
+     },
      "target": "exr.name"
     },
     {
      "name": "usd_name",
-     "label": "文件名（相机 USD）",
-     "target": "cam.name"
+     "label": {
+      "zh": "文件名（摄影机 USD）",
+      "en": "File Name (Camera USD)"
+     },
+     "target": "usd.name"
     },
     {
      "name": "nuke_name",
-     "label": "文件名（Nuke 相机）",
+     "label": {
+      "zh": "文件名（Nuke 摄影机）",
+      "en": "File Name (Nuke Camera)"
+     },
      "target": "nuke.name"
     },
     {
      "name": "unit",
-     "label": "单位",
-     "target": "cam.unit"
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
     },
     {
      "name": "fps",
-     "label": "帧率",
-     "target": "cam.fps"
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "usd.fps"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
        "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -150,17 +231,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -169,8 +256,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -179,13 +265,12 @@
    },
    "ui": {
     "x": 0,
-    "y": 115
+    "y": 120
    }
   },
   {
-   "id": "solve",
+   "id": "vipe",
    "type": "vipe.camera_solve",
-   "label": "ViPE 相机解算",
    "params": {
     "focal_mm": null,
     "filmback_mm": null,
@@ -193,7 +278,7 @@
    },
    "ui": {
     "x": 400,
-    "y": 118,
+    "y": 128,
     "on_node": [
      "focal_mm",
      "mode"
@@ -201,14 +286,13 @@
    }
   },
   {
-   "id": "depth",
+   "id": "vipe_depth",
    "type": "vipe.depth",
-   "label": "ViPE 深度图",
    "params": {
     "model": "default"
    },
    "ui": {
-    "x": 830,
+    "x": 800,
     "y": 0,
     "on_node": [
      "model"
@@ -216,9 +300,8 @@
    }
   },
   {
-   "id": "cam",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "id": "usd",
+   "type": "usd.output",
    "params": {
     "name": "camera",
     "format": "usd",
@@ -226,8 +309,8 @@
     "fps": 24.0
    },
    "ui": {
-    "x": 1270,
-    "y": 506,
+    "x": 1240,
+    "y": 874,
     "on_node": [
      "name",
      "unit"
@@ -239,24 +322,22 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1630,
+    "x": 1600,
     "y": 30
    }
   },
   {
    "id": "nuke",
-   "type": "core.output_nuke_camera",
-   "label": "Nuke 相机输出设置",
+   "type": "nuke.output",
    "params": {
     "name": "camera_nuke"
    },
    "ui": {
-    "x": 1270,
-    "y": 882,
+    "x": 1240,
+    "y": 535,
     "on_node": [
      "name"
     ]
@@ -264,8 +345,7 @@
   },
   {
    "id": "exr",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "type": "exr.output",
    "params": {
     "name": "depth",
     "layers": [
@@ -280,7 +360,7 @@
     "colorspace": null
    },
    "ui": {
-    "x": 1230,
+    "x": 1200,
     "y": 30
    }
   }
@@ -292,7 +372,7 @@
     "image"
    ],
    "to": [
-    "solve",
+    "vipe",
     "image"
    ]
   },
@@ -302,53 +382,53 @@
     "image"
    ],
    "to": [
-    "depth",
+    "vipe_depth",
     "image"
    ]
   },
   {
    "from": [
-    "solve",
+    "vipe",
     "camera"
    ],
    "to": [
-    "depth",
+    "vipe_depth",
     "camera"
    ]
   },
   {
    "from": [
-    "solve",
+    "vipe",
     "points"
    ],
    "to": [
-    "depth",
+    "vipe_depth",
     "points"
    ]
   },
   {
    "from": [
-    "solve",
+    "vipe",
     "objects"
    ],
    "to": [
-    "depth",
+    "vipe_depth",
     "objects"
    ]
   },
   {
    "from": [
-    "solve",
+    "vipe",
     "camera"
    ],
    "to": [
-    "cam",
+    "usd",
     "scene"
    ]
   },
   {
    "from": [
-    "solve",
+    "vipe",
     "camera"
    ],
    "to": [
@@ -358,7 +438,7 @@
   },
   {
    "from": [
-    "depth",
+    "vipe_depth",
     "depth"
    ],
    "to": [
@@ -378,7 +458,7 @@
   },
   {
    "from": [
-    "cam",
+    "usd",
     "files"
    ],
    "to": [
@@ -399,7 +479,7 @@
  ],
  "boxes": [],
  "view": {
-  "display": "depth",
+  "display": "vipe_depth",
   "frame": null
  }
 }

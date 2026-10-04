@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import { Button, IconButton } from "../ui/Button";
-import { DRAG_TIP, useRowDrag } from "../ui/rowDrag";
+import { useRowDrag } from "../ui/rowDrag";
 import { composing } from "../platform/keys";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** A setting that is a list of short names (kind "list": 环节, 编译目标架构), edited one row per item: the name, a grip
  * to drag the row to another place, a button to remove it, and 「添加一条」 at the bottom. The name comes first so
@@ -10,12 +12,14 @@ import { composing } from "../platform/keys";
  * It only edits the rows as typed, blank ones included; what a row may hold, that there is at least one and that no
  * two are the same is checked by the settings page (the server's words) and again by the server when it is saved.
  * `twice`: the rows that repeat an earlier one, marked so the admin sees which. */
-export function ListField({ label, items, tip, twice, onChange }: {
+export function ListField({ label, items, twice, onChange, shown = {} }: {
   label: string;
   items: string[];
-  tip: string;
   twice: ReadonlySet<number>;
   onChange: (items: string[]) => void;
+  // items that are ids with words of their own (the server's Setting.item_labels: a factory 环节 such as `animation`):
+  // shown as those words, not typed over (taken away with ×, an administrator's own typed instead)
+  shown?: Readonly<Record<string, string>>;
 }) {
   const inputs = useRef<(HTMLInputElement | null)[]>([]);
   const focus = useRef<number | null>(null); // the row to put the cursor in once it is drawn (a row just added)
@@ -42,10 +46,11 @@ export function ListField({ label, items, tip, twice, onChange }: {
           <input
             ref={(el) => void (inputs.current[i] = el)}
             className={`field${twice.has(i) ? " bad" : ""}`}
-            value={item}
+            value={shown[item] ?? item}
+            readOnly={item in shown}
             spellCheck={false}
-            aria-label={`${label} 第 ${i + 1} 条`}
-            data-tip={twice.has(i) ? `和前面的一条重复了\n${tip}` : tip}
+            aria-label={t("ui.admin.list.row", { label, n: i + 1 })}
+            {...tipAttrs(twice.has(i) ? tipOf("error", t("ui.admin.list.repeated")) : undefined)}
             onChange={(e) => onChange(items.map((x, j) => (j === i ? e.target.value : x)))}
             onKeyDown={(e) => {
               if (e.key !== "Enter" || composing(e)) return;
@@ -53,16 +58,16 @@ export function ListField({ label, items, tip, twice, onChange }: {
               add(i + 1); // Enter starts the next row, as in a list typed by hand
             }}
           />
-          <span className="set-list-grip" data-tip={DRAG_TIP} {...drag.grip(i)}>
+          <span className="set-list-grip" {...drag.grip(i)}>
             ⠿
           </span>
-          <IconButton tip={`删掉这一条：${item || "（空）"}`} tone="ghost" aria-label="删掉这一条" onClick={() => onChange(items.filter((_, j) => j !== i))}>
+          <IconButton tone="ghost" aria-label={t("ui.admin.list.remove")} onClick={() => onChange(items.filter((_, j) => j !== i))}>
             ×
           </IconButton>
         </div>
       ))}
-      <Button tip={`在最后添加一条${label}`} tone="ghost" layout="set-list-add" onClick={() => add(items.length)}>
-        添加一条
+      <Button tone="ghost" layout="set-list-add" onClick={() => add(items.length)}>
+        {t("ui.admin.list.add")}
       </Button>
     </div>
   );

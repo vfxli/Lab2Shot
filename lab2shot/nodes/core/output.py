@@ -8,20 +8,21 @@ DCC plugins fetch single files of the folder. It has no parameters (only the but
 from __future__ import annotations
 
 from ...errors import Invalid
+from ... import i18n
 from ...messages import Msg
 from ..base import Button, NodeDef, NodeParams, Port
 from ..output import FILES, name_key
 
 
 class Output(NodeDef):
-    id = "core.output"
+    id = "output"
     category = "out_deliver"
-    inputs = (Port("files", FILES, "文件", multi=True),)
+    inputs = (Port("files", FILES, multi=True),)
     delivers = True  # its cook collects and packs the files for the user; showing it only shows what they were made from
     # 「下载」: download the zip this 「输出」 packed (the page's action "download", webui/src/editor/buttonActions.ts);
     # greyed while there is none. Packing is its 「计算」 (every node's button): cooking an 「输出」 collects and packs.
     # A button parameter, not a value (nodes/params.py Button)
-    buttons = (Button("download", "下载", "download"),)
+    buttons = (Button("download", "download"),)
     # the node's body shows its 「下载」 row by default: the only download control on the graph (none in the footer or at
     # the top of the parameter panel)
     on_node = ("download",)
@@ -36,7 +37,7 @@ class Output(NodeDef):
         named: dict[str, list[str]] = {}
         for p in ctx.inputs["files"]:
             named.setdefault(name_key(str(p.meta.get("name", ""))), []).append(p.meta.get("name", ""))
-        same = [Msg("B-DELIVER-NAMED", outputs=f"{len(names)} 个输出设置", name=names[0])
+        same = [Msg("B-DELIVER-NAMED", outputs=i18n.Word("output.settings_count", count=len(names)), name=names[0])
                 for names in named.values() if len(names) > 1]
         if same:
             raise Invalid(Msg("B-DELIVER-SAMENAME", node=ctx.label, same=same))

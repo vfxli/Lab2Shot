@@ -6,9 +6,11 @@ import { adminApi, type UserChange, type UserRow, type UsersView } from "../api/
 import { nameProblem, passwordProblem, tidyName, usernameProblem } from "../platform/accountRules";
 import { shown, usable, why, type Availability } from "../api/applies";
 import { Button } from "../ui/Button";
-import { DAY_S, dateValue, endOf, now, roleTip } from "./Users";
-import { Roles, Row, TAGS_TIP, Tags } from "./userFields";
+import { DAY_S, dateValue, endOf, now } from "./Users";
+import { Roles, Row, Tags } from "./userFields";
 import { StageSelect } from "../ui/StageSelect";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 export function NewUserDialog({ view, a, onClose, onMade }: { view: UsersView; a: Availability | null; onClose: () => void; onMade: (v: UsersView, made: { username: string; password: string }) => void }) {
   const [pick, setPick] = useState(view.default_role);
@@ -23,12 +25,12 @@ export function NewUserDialog({ view, a, onClose, onMade }: { view: UsersView; a
   const [refused, setRefused] = useState("");
   const [busy, setBusy] = useState(false);
   const wrong = {
-    username: username ? usernameProblem(username) : "要填用户名",
-    password: password ? passwordProblem(password, again).replace("新密码", "密码") : "要填初始密码",
-    again: password && again !== password ? "两次输入的密码不一样" : "",
+    username: username ? usernameProblem(username) : t("ui.admin.users.need_username"),
+    password: password ? passwordProblem(password, again) : t("ui.admin.users.need_password"),
+    again: password && again !== password ? t("ui.admin.users.mismatch") : "",
     name: nameProblem(name),
-    dept: dept ? "" : "要选环节",
-    expires: !expires ? "要选到期时间" : endOf(expires) <= now() ? "到期时间要在以后" : "",
+    dept: dept ? "" : t("ui.admin.users.need_department"),
+    expires: !expires ? t("ui.admin.users.need_expiry") : endOf(expires) <= now() ? t("ui.admin.users.expiry_past") : "",
   };
   const bad = Object.values(wrong).some(Boolean);
 
@@ -56,44 +58,44 @@ export function NewUserDialog({ view, a, onClose, onMade }: { view: UsersView; a
   const show = (k: keyof typeof wrong) => (touched ? wrong[k] : "");
 
   return (
-    <Sheet title="新建用户" width={560} onClose={onClose}>
-      <div className="usr-form">
-        <Row label="用户名" tip="登录用的名字：小写英文字母开头，3 到 32 个字符，可以用小写字母、数字和 _ . -" why={show("username")}>
-          <input className={`field${show("username") ? " bad" : ""}`} value={username} autoFocus spellCheck={false} placeholder="如 zhangsan" data-tip="小写英文字母开头，只用小写字母、数字和 _ . -"
+    <Sheet title={t("ui.admin.users.new_title")} width={560} onClose={onClose}>
+      <div className="usr-form lgrid">
+        <Row label={t("ui.admin.auth.username")} why={show("username")}>
+          <input className={`field${show("username") ? " bad" : ""}`} value={username} autoFocus spellCheck={false} placeholder={t("ui.admin.users.username_placeholder")}
             onChange={(e) => (setUsername(e.target.value.toLowerCase().trim()), setRefused(""))} />
         </Row>
-        <Row label="初始密码" tip="至少 8 个字符；建好后告诉他，他登录后可以自己改" why={show("password")}>
-          <input className={`field${show("password") ? " bad" : ""}`} type="password" autoComplete="new-password" value={password} data-tip="至少 8 个字符" onChange={(e) => (setPassword(e.target.value), setRefused(""))} />
+        <Row label={t("ui.admin.users.initial_password")} why={show("password")}>
+          <input className={`field${show("password") ? " bad" : ""}`} type="password" autoComplete="new-password" value={password} placeholder={t("ui.admin.users.password_placeholder")} onChange={(e) => (setPassword(e.target.value), setRefused(""))} />
         </Row>
-        <Row label="再输一次" tip="再输一次初始密码，防止输错" why={show("again")}>
-          <input className={`field${show("again") ? " bad" : ""}`} type="password" autoComplete="new-password" value={again} data-tip="和上面的一样" onChange={(e) => setAgain(e.target.value)} />
+        <Row label={t("ui.admin.auth.again")} why={show("again")}>
+          <input className={`field${show("again") ? " bad" : ""}`} type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} />
         </Row>
-        <Row label="中文名" tip="他的中文名，2 到 6 个字；少数民族名字的几部分用 · 隔开。统计和队列里都显示它" why={show("name")}>
-          <input className={`field${show("name") ? " bad" : ""}`} value={name} placeholder="如 张三" data-tip="2 到 6 个中文字" onChange={(e) => (setName(e.target.value), setRefused(""))} />
+        <Row label={t("ui.admin.users.name")} why={show("name")}>
+          <input className={`field${show("name") ? " bad" : ""}`} value={name} placeholder={t("ui.admin.users.name_placeholder")} onChange={(e) => (setName(e.target.value), setRefused(""))} />
         </Row>
-        <Row label="环节" tip="他在制作里属于哪个环节，使用统计按它分环节；环节表在「账号设置」的「环节」里改" why={show("dept")}>
+        <Row label={t("ui.admin.users.department")} why={show("dept")}>
           <StageSelect list={view.departments} value={dept} bad={!!show("dept")} onPick={(d) => (setDept(d), setRefused(""))} />
         </Row>
-        <Row label="到期" tip="这天过完就登录不了，已经登录的也马上退出；以后可以延期" why={show("expires")}>
-          <input className={`field${show("expires") ? " bad" : ""}`} type="date" value={expires} min={dateValue(now())} data-tip="默认 30 天以后" onChange={(e) => setExpires(e.target.value)} />
+        <Row label={t("ui.admin.users.expiry")} why={show("expires")}>
+          <input className={`field${show("expires") ? " bad" : ""}`} type="date" value={expires} min={dateValue(now())} onChange={(e) => setExpires(e.target.value)} />
         </Row>
         {usable(a, "users.role") && (
-          <Row label="角色" tip={roleTip(view.roles)}>
+          <Row label={t("ui.admin.users.role")}>
             <Roles list={view.roles} value={pick} onPick={setPick} />
           </Row>
         )}
         {usable(a, "users.tags") && (
-          <Row label="可用" tip={TAGS_TIP}>
+          <Row label={t("ui.admin.users.allowed")}>
             <Tags view={view} value={allowed} onChange={setAllowed} />
           </Row>
         )}
         {refused && <div className="usr-why">{refused}</div>}
         <div className="dialog-row usr-end">
-          <Button tip="不建了" tone="ghost" onClick={onClose}>
-            取消
+          <Button tone="ghost" onClick={onClose}>
+            {t("ui.admin.common.cancel")}
           </Button>
-          <Button tip={bad ? "先把上面紫框里的填好" : "建好账号，再把用户名和密码告诉他"} tone="primary" disabled={busy || (touched && bad)} onClick={() => void submit()}>
-            {busy ? "新建中…" : "新建"}
+          <Button tip={bad ? tipOf("disabled", t("ui.admin.users.fix_first")) : undefined} tone="primary" disabled={busy || (touched && bad)} onClick={() => void submit()}>
+            {busy ? t("ui.admin.users.creating") : t("ui.admin.users.create")}
           </Button>
         </div>
       </div>
@@ -111,7 +113,7 @@ export function EditDialog({ view, u, onClose, onDone }: { view: UsersView; u: U
   const [busy, setBusy] = useState(false);
   const wrong = {
     name: nameProblem(name),
-    expires: !usable(u.applies, "account.expiry") ? "" : !expires ? "要选到期时间" : "",
+    expires: !usable(u.applies, "account.expiry") ? "" : !expires ? t("ui.admin.users.need_expiry") : "",
   };
   const bad = Object.values(wrong).some(Boolean);
 
@@ -132,40 +134,40 @@ export function EditDialog({ view, u, onClose, onDone }: { view: UsersView; u: U
   };
 
   return (
-    <Sheet title={`改 ${u.username}`} width={560} onClose={onClose}>
-      <div className="usr-form">
-        <Row label="中文名" tip="统计和队列里显示的中文名，2 到 6 个字" why={wrong.name}>
-          <input className={`field${wrong.name ? " bad" : ""}`} value={name} autoFocus data-tip="2 到 6 个中文字" onChange={(e) => (setName(e.target.value), setRefused(""))} />
+    <Sheet title={t("ui.admin.users.edit_title", { username: u.username })} width={560} onClose={onClose}>
+      <div className="usr-form lgrid">
+        <Row label={t("ui.admin.users.name")} why={wrong.name}>
+          <input className={`field${wrong.name ? " bad" : ""}`} value={name} autoFocus onChange={(e) => (setName(e.target.value), setRefused(""))} />
         </Row>
-        <Row label="环节" tip="他在制作里属于哪个环节；使用统计按它分环节，以前的任务也跟着算到新环节">
+        <Row label={t("ui.admin.users.department")} tip={tipOf("consequence", t("ui.admin.users.department_tip"))}>
           <StageSelect list={view.departments} value={dept} onPick={(d) => (setDept(d), setRefused(""))} />
         </Row>
         {shown(u.applies, "account.role") && (
-          <Row label="角色" tip={roleTip(view.roles)}>
-            {usable(u.applies, "account.role") ? <Roles list={view.roles} value={pick} onPick={setPick} /> : <span className="usr-static" data-tip={why(u.applies, "account.role")}>{u.role_label}</span>}
+          <Row label={t("ui.admin.users.role")}>
+            {usable(u.applies, "account.role") ? <Roles list={view.roles} value={pick} onPick={setPick} /> : <span className="usr-static" {...tipAttrs(tipOf("disabled", why(u.applies, "account.role")))}>{u.role_label}</span>}
           </Row>
         )}
         {shown(u.applies, "account.expiry") && (
-          <Row label="到期" tip="这天过完就登录不了，已经登录的也马上退出；改到以前的日期就是马上到期" why={wrong.expires}>
+          <Row label={t("ui.admin.users.expiry")} why={wrong.expires}>
             {usable(u.applies, "account.expiry") ? (
-              <input className={`field${wrong.expires ? " bad" : ""}`} type="date" value={expires} data-tip="这天过完就到期" onChange={(e) => (setExpires(e.target.value), setRefused(""))} />
+              <input className={`field${wrong.expires ? " bad" : ""}`} type="date" value={expires} onChange={(e) => (setExpires(e.target.value), setRefused(""))} />
             ) : (
-              <span className="usr-static" data-tip={why(u.applies, "account.expiry")}>不过期</span>
+              <span className="usr-static" {...tipAttrs(tipOf("disabled", why(u.applies, "account.expiry")))}>{t("ui.admin.users.no_expiry")}</span>
             )}
           </Row>
         )}
         {shown(u.applies, "account.tags") && (
-          <Row label="可用" tip={TAGS_TIP}>
-            {usable(u.applies, "account.tags") ? <Tags view={view} value={allowed} onChange={setAllowed} /> : <span className="usr-static" data-tip={why(u.applies, "account.tags")}>全部</span>}
+          <Row label={t("ui.admin.users.allowed")}>
+            {usable(u.applies, "account.tags") ? <Tags view={view} value={allowed} onChange={setAllowed} /> : <span className="usr-static" {...tipAttrs(tipOf("disabled", why(u.applies, "account.tags")))}>{t("ui.admin.resources.all")}</span>}
           </Row>
         )}
         {refused && <div className="usr-why">{refused}</div>}
         <div className="dialog-row usr-end">
-          <Button tip="不改了" tone="ghost" onClick={onClose}>
-            取消
+          <Button tone="ghost" onClick={onClose}>
+            {t("ui.admin.common.cancel")}
           </Button>
-          <Button tip={bad ? "先把上面紫框里的填好" : "保存；停用或到期马上生效"} tone="primary" disabled={bad || busy} onClick={() => void submit()}>
-            {busy ? "保存中…" : "保存"}
+          <Button tip={bad ? tipOf("disabled", t("ui.admin.users.fix_first")) : tipOf("consequence", t("ui.admin.users.save_tip"))} tone="primary" disabled={bad || busy} onClick={() => void submit()}>
+            {busy ? t("ui.admin.common.saving") : t("ui.admin.common.save")}
           </Button>
         </div>
       </div>
@@ -194,21 +196,21 @@ export function ResetDialog({ u, onClose, onDone }: { u: UserRow; onClose: () =>
   };
 
   return (
-    <Sheet title={`给 ${u.username} 设新密码`} width={480} onClose={onClose}>
-      <div className="usr-form">
-        <p className="tpl-desc">他所有的登录马上退出，要用新密码重新登录（给自己设的，这个浏览器接着用）。把新密码告诉他。</p>
-        <Row label="新密码" tip="至少 8 个字符">
-          <input className="field" type="password" autoComplete="new-password" value={next} autoFocus data-tip="至少 8 个字符" onChange={(e) => (setNext(e.target.value), setRefused(""))} />
+    <Sheet title={t("ui.admin.users.reset_title", { username: u.username })} width={480} onClose={onClose}>
+      <div className="usr-form lgrid">
+        <p className="tpl-desc">{t("ui.admin.users.reset_lede")}</p>
+        <Row label={t("ui.admin.auth.new_password")}>
+          <input className="field" type="password" autoComplete="new-password" value={next} autoFocus onChange={(e) => (setNext(e.target.value), setRefused(""))} />
         </Row>
-        <Row label="再输一次" tip="再输一次新密码，防止输错" why={rule || refused}>
-          <input className="field" type="password" autoComplete="new-password" value={again} data-tip="和上面的一样" onChange={(e) => (setAgain(e.target.value), setRefused(""))} />
+        <Row label={t("ui.admin.auth.again")} why={rule || refused}>
+          <input className="field" type="password" autoComplete="new-password" value={again} onChange={(e) => (setAgain(e.target.value), setRefused(""))} />
         </Row>
         <div className="dialog-row usr-end">
-          <Button tip="不改了" tone="ghost" onClick={onClose}>
-            取消
+          <Button tone="ghost" onClick={onClose}>
+            {t("ui.admin.common.cancel")}
           </Button>
-          <Button tip={ready ? "设成新密码" : "先填两次一样的新密码"} tone="primary" disabled={!ready || busy} onClick={() => void submit()}>
-            {busy ? "设置中…" : "设新密码"}
+          <Button tip={ready ? undefined : tipOf("disabled", t("ui.admin.users.reset_first"))} tone="primary" disabled={!ready || busy} onClick={() => void submit()}>
+            {busy ? t("ui.admin.auth.setting") : t("ui.admin.users.reset_go")}
           </Button>
         </div>
       </div>
@@ -233,19 +235,18 @@ export function PurgeDialog({ u, onClose, onDone }: { u: UserRow; onClose: () =>
     }
   };
   return (
-    <Sheet title={`永久删除 ${u.username}`} width={480} onClose={onClose}>
-      <div className="usr-form">
+    <Sheet title={t("ui.admin.users.purge_title", { username: u.username })} width={480} onClose={onClose}>
+      <div className="usr-form lgrid">
         <p className="tpl-desc">
-          永久删除 {u.name}（{u.username}）：账号从列表里彻底消失，用户名可以给新人重用；他存在服务器上的节点图一起删掉。
-          任务记录、反馈和登录记录留着，统计里显示成「已删除的用户」。不能撤销。
+          {t("ui.admin.users.purge_lede", { name: u.name, username: u.username })}
         </p>
         {refused && <div className="usr-why">{refused}</div>}
         <div className="dialog-row usr-end">
-          <Button tip="不删了" tone="ghost" onClick={onClose}>
-            取消
+          <Button tone="ghost" onClick={onClose}>
+            {t("ui.admin.common.cancel")}
           </Button>
-          <Button tip="彻底删掉这个账号，不能撤销" tone="primary" danger disabled={busy} onClick={() => void submit()}>
-            {busy ? "删除中…" : "永久删除"}
+          <Button tone="primary" danger disabled={busy} onClick={() => void submit()}>
+            {busy ? t("ui.admin.users.deleting") : t("ui.admin.users.purge")}
           </Button>
         </div>
       </div>
@@ -267,18 +268,18 @@ export function DeleteDialog({ u, onClose, onDone }: { u: UserRow; onClose: () =
     }
   };
   return (
-    <Sheet title={`删除 ${u.username}`} width={480} onClose={onClose}>
-      <div className="usr-form">
+    <Sheet title={t("ui.admin.users.delete_title", { username: u.username })} width={480} onClose={onClose}>
+      <div className="usr-form lgrid">
         <p className="tpl-desc">
-          删除 {u.name}（{u.username}）：登录马上失效，排队和计算中的任务停下，结果和上传的引用删掉；任务记录留着，统计里算作「已删除的用户」。不能撤销；只想暂时不让他用，点「停用」就好。
+          {t("ui.admin.users.delete_lede", { name: u.name, username: u.username })}
         </p>
         {refused && <div className="usr-why">{refused}</div>}
         <div className="dialog-row usr-end">
-          <Button tip="不删了" tone="ghost" onClick={onClose}>
-            取消
+          <Button tone="ghost" onClick={onClose}>
+            {t("ui.admin.common.cancel")}
           </Button>
-          <Button tip="删除这个账号，不能撤销" tone="primary" danger disabled={busy} onClick={() => void submit()}>
-            {busy ? "删除中…" : "删除"}
+          <Button tone="primary" danger disabled={busy} onClick={() => void submit()}>
+            {busy ? t("ui.admin.users.deleting") : t("ui.admin.user.delete")}
           </Button>
         </div>
       </div>

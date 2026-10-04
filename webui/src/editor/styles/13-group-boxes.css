@@ -134,6 +134,15 @@
   white-space: nowrap;
 }
 
+/* a text value (a translation, a prompt) wraps instead of widening the node to thousands of pixels */
+.port-value.text {
+  flex: 0 1 auto;
+  max-width: 160px;
+  white-space: normal;
+  word-break: break-word;
+  font-variant-numeric: normal;
+}
+
 /* where the node's parameters get their values (a focal length over the camera's) */
 .gnode-said {
   border-top: 0.5px solid var(--hair);
@@ -145,6 +154,15 @@
 
 .gnode-said div + div {
   margin-top: 2px;
+}
+
+/* what the node shows from the last reply while an edit waits for the next one (state/results.ts Shown `pending`):
+   the same text in the same place, only faint — nothing is removed, so the node keeps its height */
+.gnode.pending .port-value,
+.gnode.pending .gnode-said,
+.prow.pending > .pwhy,
+.prow.pending .ctl.pwired b {
+  opacity: 0.5;
 }
 
 .graph-minimap {

@@ -1,0 +1,106 @@
+# LingBot-Map 扩展包（adapters/lingbotmap）的消息。一行一条：编号 = 模板。
+
+# ---- 加载模型（worker.py）
+"E-LINGBOTMAP-MISSINGKEYS.other" = "LingBot-Map 的权重 {file} 缺少 {count} 个参数（如 {keys}）：权重和模型代码的版本对不上，管理员重新执行 lab2shot ext install lingbotmap"
+"I-LINGBOTMAP-EXTRAKEYS.other" = "LingBot-Map 的权重里有 {count} 个模型用不到的参数（如 {keys}），没有加载"
+
+# ---- 重建（worker.py）
+"W-LINGBOTMAP-RESOLUTION.other" = "LingBot-Map 是按最长边 {native} 像素训练的，「处理分辨率」现在是 {resolution}：摄影机和深度贴图可能变差。没有别的原因就改回 {native}"
+"W-LINGBOTMAP-MEMORY.other" = "LingBot-Map 每段要记住 {keyframes} 个关键帧，超过了它训练时的 {trained} 帧：后面的摄影机位置可能越来越偏。把「关键帧间隔」调大，或把「每段最多帧数」调小"
+"E-LINGBOTMAP-NORMALIZATION" = "LingBot-Map 的上游打开了「预测归一化」这一步，而我们逐帧跑的那条路没有走它：算出来的结果会和官方不一样。管理员重新执行 lab2shot ext install lingbotmap 并检查上游改动"
+"E-LINGBOTMAP-NOOVERLAP" = "LingBot-Map 第 {segment} 段和前面的结果没有足够的可靠公共点，拼不起来：把「每段最多帧数」调大（分段更少），或把「隔帧」调小（重叠更多）"
+"W-LINGBOTMAP-FOCALXY" = "LingBot-Map 估的横向焦距 {fx:.0f} px 和纵向焦距 {fy:.0f} px 差得较多：输出的摄影机按长边方向的 {used:.0f} px 算。像素不是正方形（变形宽银幕、没还原的拉伸）的话，先把画面还原再算"
+
+"I-LINGBOTMAP-SKYMODEL" = "天空分割模型"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."lingbotmap.reconstruct"]
+subtitle = "深度与摄影机"
+description = "画面 → 每帧摄影机和深度贴图，一帧帧流式往前读，显存不随镜头长度增长（几千帧的长镜头也一样）。摄影机逐帧抖动比 ViPE 大，长焦镜头上焦距会估小；尺度要手动缩放，按「尺度」换算成厘米。几百到几千帧的航拍、漫游、车拍选它；短镜头要更准的摄影机用「Pi3 深度与摄影机」。不出点云：放出的权重没有点图头，官方演示也是用深度反投影的；要点云接「深度转点云」。"
+
+[node."lingbotmap.reconstruct".param.step]
+label = "隔帧"
+
+[node."lingbotmap.reconstruct".param.model]
+label = "模型"
+
+[node."lingbotmap.reconstruct".param.model.option]
+long = "长镜头"
+balanced = "均衡"
+
+[node."lingbotmap.reconstruct".param.max_frames]
+label = "每段最多帧数"
+placeholder = "自动"
+
+[node."lingbotmap.reconstruct".param.max_frames.option]
+100 = "100"
+300 = "300"
+1000 = "1000"
+3000 = "3000"
+
+[node."lingbotmap.reconstruct".param.resolution]
+label = "处理分辨率"
+
+[node."lingbotmap.reconstruct".param.resolution.option]
+280 = "280"
+392 = "392"
+518 = "518"
+
+[node."lingbotmap.reconstruct".param.keyframe_interval]
+label = "关键帧间隔"
+
+[node."lingbotmap.reconstruct".param.keyframe_interval.option]
+0 = "0"
+16 = "16"
+32 = "32"
+64 = "64"
+
+[node."lingbotmap.reconstruct".param.context_window]
+label = "短期记忆帧数"
+
+[node."lingbotmap.reconstruct".param.context_window.option]
+16 = "16"
+32 = "32"
+64 = "64"
+
+[node."lingbotmap.reconstruct".param.conf_threshold]
+label = "置信度门槛"
+
+[node."lingbotmap.reconstruct".param.mask_sky]
+label = "去掉天空"
+
+[node."lingbotmap.reconstruct".param.unit_cm]
+label = "尺度"
+
+[node."lingbotmap.reconstruct".port.confidence]
+help = "每个像素这一帧的深度有多可信（LingBot-Map 的原始值 1 + exp(x)，换成 0–1）。这个解算给出的深度本身已经把深度边缘和天空排除在外（「深度贴图」的有效区就是它的可用遮罩），所以剩下的像素之间比，主要是「越远越不确定」"
+
+[node."lingbotmap.reconstruct".official]
+note = "摄影机是官方位姿编码 pose_enc（gct_base.py:310），由上游自己的 pose_encoding_to_extri_intri 换成外参加内参（gct_base.py:260）。节点没有「运动物体遮罩」「人物框」输入口：forward 里那个 mask 参数是给 ordered_video 用的（gct_base.py:293-296），不是画面遮罩，画面遮罩进不了模型，只能在算完之后把运动像素从有效位里去掉，这是我们自己加的一步，不放在解算器上。想局部重建走「ViTDet 人物框」→「人物框转遮罩」→「图像合成」（留下）→「RGB」口。世界点图 world_points 写在 forward 的文档串里（gct_base.py:312），但**放出来的权重里没有这个头**：实测 lingbot-map.pt / lingbot-map-long.pt 的键只有 aggregator (1211)、camera_head (69)、depth_head (62)，一个 point_head. 都没有，而流式模型默认也不建它（gct_stream.py:118 enable_point=False）。所以这个节点没有「点云」口——不是我们丢了官方的结果，是官方没放这部分权重"
+
+[node."lingbotmap.reconstruct".licence]
+note = "代码和权重 Apache-2.0，可以商用；其中来自 VGGT 的几个代码文件遵守 VGGT License（可商用，禁止军事等用途）。"
+
+[extension.lingbotmap]
+summary = "面向流式三维重建的前馈三维基础模型，用几何上下文 Transformer 统一坐标锚定、稠密几何线索和长程漂移校正"
+
+[extension.lingbotmap.license]
+name = "Apache-2.0（代码和权重）；部分代码文件来自 VGGT（Meta VGGT License）"
+summary = "代码 Apache-2.0，可商用。权重 lingbot-map-long / lingbot-map（Hugging Face robbyant/lingbot-map）按 Apache-2.0 发布（模型卡写明 Apache-2.0，没有填 license 字段）；网络从 DINOv2-Large（Apache-2.0）初始化后自行训练，没有用 VGGT 的非商用权重。注意：仓库里 geometry / pose_enc / rotation / 预测头 / load_fn 等文件带 Meta 版权头，来自 VGGT 代码，原许可是 Meta VGGT License（允许商用，但须遵守其可接受使用政策，禁止军事、武器、关键基础设施等用途）。天空分割模型 skyseg.onnx 为 MIT。训练数据包含 ScanNet、Matterport3D、HM3D、Waymo 等研究许可数据集，权重本身按 Apache-2.0 发布"
+
+[extension.lingbotmap.weight.lingbot-map-long]
+note = "LingBot-Map long：长镜头 / 大场景更稳，默认（Apache-2.0，4.6 GB）"
+
+[extension.lingbotmap.weight.lingbot-map]
+note = "LingBot-Map 平衡版：论文和评测用的权重（Apache-2.0，4.6 GB）"
+
+[extension.lingbotmap.weight.skyseg]
+note = "天空分割 ONNX，去掉天空的点（MIT，176 MB）"
+
+# ---- worker 的计算阶段（worker.py）
+[stage]
+reconstruct = "重建"
+reconstruct_stream.other = "流式重建（{frames} 帧，关键帧间隔 {interval}）"
+reconstruct_segmented.other = "分段重建（{frames} 帧，{segments} 段，关键帧间隔 {interval}）"
+segment = "第 {segment}/{segments} 段（第 {first}–{last} 帧）"

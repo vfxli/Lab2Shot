@@ -1,6 +1,0 @@
-{
- "geocalib.calibrate": {
-  "label": "GeoCalib 重力方向",
-  "description": "画面 → 每帧的重力方向（相机的倾斜和俯仰，一个向量，外加它可能差多少度）和 Focal Length，做法是几何优化加深度学习（上游 README：combining geometric optimization with deep learning）。画面里要看得见地面、竖线或地平线，看不到这些的特写和天空估不出来；知道实拍 Focal Length 就填上，重力方向更准。把「重力方向」「重力误差」接到「自动落地」的同名参数上，解算出的场景就转到 Y 轴真正朝上再落地；要镜头畸变和去畸变 ST-map，用「AnyCalib 镜头标定」。"
- }
-}

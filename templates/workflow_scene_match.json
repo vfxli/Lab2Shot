@@ -1,0 +1,4227 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "81d7f721accf542b9da886e5cc455e25",
+  "name": {
+   "zh": "3D 跟踪匹配",
+   "en": "3D Matchmove"
+  },
+  "intro": {
+   "zh": "先定一台摄影机作唯一基准：上传 FBX / USD 摄影机，或用 ViPE / COLMAP / VidMap / Depth Anything 3 Streaming 求。再打开要的功能：场景点云、简模、高斯场景、匹配人、3D 跟踪点、镜头畸变。每个功能都经「摄影机空间转换」搬进这台摄影机的世界，交付物放进 DCC 天然重合；求摄影机时可地面落地。摄影机一定交付（USD / FBX / Nuke），另交一份合在一起的场景 USD；关掉的功能整条不算。",
+   "en": "First set one camera as the single reference: upload an FBX / USD camera, or solve with ViPE / COLMAP / VidMap / Depth Anything 3 Streaming. Then turn on what you need: scene point cloud, simple mesh, Gaussians, matched people, 3D tracks, lens distortion. Each is moved into this camera's world, so everything lines up in your DCC. The camera is always delivered (USD / FBX / Nuke) with one combined scene USD."
+  },
+  "author": "Lab2Shot",
+  "created": "2026-10-03T22:00:00",
+  "updated": "2026-10-04T12:00:00",
+  "deliverable": "workflow",
+  "owner": "admin",
+  "own_interface": [
+   "camera",
+   "select_people"
+  ]
+ },
+ "exposed": [
+  {
+   "kind": "group",
+   "label": {
+    "zh": "图像",
+    "en": "Image"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "input",
+     "label": {
+      "zh": "输入图像序列",
+      "en": "Input Image Sequence"
+     },
+     "target": "read.path"
+    },
+    {
+     "name": "colorspace_in",
+     "label": {
+      "zh": "输入颜色空间",
+      "en": "Input Color Space"
+     },
+     "target": "read.colorspace",
+     "show_on_change": true
+    },
+    {
+     "name": "first_frame",
+     "label": {
+      "zh": "开始帧",
+      "en": "Start Frame"
+     },
+     "target": "read.first"
+    },
+    {
+     "name": "last_frame",
+     "label": {
+      "zh": "结束帧",
+      "en": "End Frame"
+     },
+     "target": "read.last"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "摄影机",
+    "en": "Camera"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cam_from_value",
+     "label": {
+      "zh": "摄影机来源",
+      "en": "Camera Source"
+     },
+     "target": "cam_from.value",
+     "widget": "menu",
+     "options": [
+      {
+       "value": 3,
+       "label": {
+        "zh": "求摄影机",
+        "en": "Solve Camera"
+       }
+      },
+      {
+       "value": 1,
+       "label": {
+        "zh": "已有摄影机（FBX）",
+        "en": "Existing Camera (FBX)"
+       }
+      },
+      {
+       "value": 2,
+       "label": {
+        "zh": "已有摄影机（USD）",
+        "en": "Existing Camera (USD)"
+       }
+      }
+     ]
+    },
+    {
+     "name": "cam_fbx_path",
+     "label": {
+      "zh": "摄影机文件（FBX）",
+      "en": "Camera File (FBX)"
+     },
+     "target": "cam_fbx.path",
+     "hide_when": "cam_from_value != 1",
+     "show_on_change": true
+    },
+    {
+     "name": "cam_fbx_camera",
+     "label": {
+      "zh": "选哪台摄影机",
+      "en": "Camera"
+     },
+     "target": "cam_fbx.camera",
+     "hide_when": "cam_from_value != 1"
+    },
+    {
+     "name": "cam_usd_path",
+     "label": {
+      "zh": "摄影机文件（USD）",
+      "en": "Camera File (USD)"
+     },
+     "target": "cam_usd.path",
+     "hide_when": "cam_from_value != 2",
+     "show_on_change": true
+    },
+    {
+     "name": "cam_usd_camera",
+     "label": {
+      "zh": "选哪台摄影机",
+      "en": "Camera"
+     },
+     "target": "cam_usd.camera",
+     "hide_when": "cam_from_value != 2"
+    },
+    {
+     "name": "solver_value",
+     "label": {
+      "zh": "解算方法",
+      "en": "Solve Method"
+     },
+     "target": "solver.value",
+     "widget": "menu",
+     "hide_when": "cam_from_value != 3",
+     "options": [
+      {
+       "value": 1,
+       "label": {
+        "zh": "ViPE（推荐，移动镜头）",
+        "en": "ViPE (Moving Camera)"
+       }
+      },
+      {
+       "value": 2,
+       "label": {
+        "zh": "COLMAP（静止场景最准）",
+        "en": "COLMAP (Most Accurate for Static Scenes)"
+       }
+      },
+      {
+       "value": 3,
+       "label": {
+        "zh": "VidMap",
+        "en": "VidMap"
+       }
+      },
+      {
+       "value": 4,
+       "label": {
+        "zh": "Depth Anything 3 Streaming（最快）",
+        "en": "Depth Anything 3 Streaming (Fastest)"
+       }
+      }
+     ]
+    },
+    {
+     "name": "vipe_mode",
+     "label": {
+      "zh": "ViPE 方式",
+      "en": "ViPE Mode"
+     },
+     "target": "vipe.mode",
+     "hide_when": "cam_from_value != 3 or solver_value != 1"
+    },
+    {
+     "name": "focal",
+     "label": {
+      "zh": "已知焦距",
+      "en": "Known Focal Length"
+     },
+     "target": "cam_static.focal_mm",
+     "hide_when": "cam_from_value != 3 or solver_value == 4"
+    },
+    {
+     "name": "filmback",
+     "label": {
+      "zh": "胶片背",
+      "en": "Aperture"
+     },
+     "target": "cam_static.filmback_mm",
+     "disable_when": "not focal",
+     "hide_when": "cam_from_value != 3 or solver_value == 4"
+    },
+    {
+     "name": "ground_value",
+     "label": {
+      "zh": "地面落地（场景转正、地面落到 y=0）",
+      "en": "Ground (Level, y = 0)"
+     },
+     "target": "ground.value",
+     "widget": "checkbox",
+     "hide_when": "cam_from_value != 3"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "功能",
+    "en": "Function"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "points_gate_through",
+     "label": {
+      "zh": "场景点云",
+      "en": "Scene Point Cloud"
+     },
+     "target": "points_gate.through"
+    },
+    {
+     "name": "mesh_gate_through",
+     "label": {
+      "zh": "简化网格（Poisson）",
+      "en": "Simple Mesh (Poisson)"
+     },
+     "target": "mesh_gate.through"
+    },
+    {
+     "name": "gaussian_gate_through",
+     "label": {
+      "zh": "高斯场景",
+      "en": "Gaussian Scene"
+     },
+     "target": "gaussian_gate.through"
+    },
+    {
+     "name": "people_gate_through",
+     "label": {
+      "zh": "匹配人",
+      "en": "Match People"
+     },
+     "target": "people_gate.through"
+    },
+    {
+     "name": "tracks_gate_through",
+     "label": {
+      "zh": "3D 跟踪点",
+      "en": "3D Tracks"
+     },
+     "target": "tracks_gate.through"
+    },
+    {
+     "name": "stmap_value",
+     "label": {
+      "zh": "镜头畸变（ST 贴图）",
+      "en": "Lens Distortion (ST Map)"
+     },
+     "target": "stmap.value",
+     "widget": "checkbox"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "功能设置",
+    "en": "Function Settings"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "fuse_voxel_size",
+     "label": {
+      "zh": "点云体素大小",
+      "en": "Point Cloud Voxel Size"
+     },
+     "target": "fuse.voxel_size",
+     "hide_when": "not (points_gate_through or mesh_gate_through or ground_value)"
+    },
+    {
+     "name": "mesh_depth",
+     "label": {
+      "zh": "Poisson 深度",
+      "en": "Poisson Depth"
+     },
+     "target": "mesh.depth",
+     "hide_when": "not mesh_gate_through"
+    },
+    {
+     "name": "gs_method_value",
+     "label": {
+      "zh": "高斯方法",
+      "en": "Gaussian Method"
+     },
+     "target": "gs_method.value",
+     "widget": "menu",
+     "hide_when": "not gaussian_gate_through",
+     "options": [
+      {
+       "value": 1,
+       "label": {
+        "zh": "WorldMirror 2.0（静态）",
+        "en": "WorldMirror 2.0 (Static)"
+       }
+      },
+      {
+       "value": 2,
+       "label": {
+        "zh": "NeoVerse（动态）",
+        "en": "NeoVerse (Dynamic)"
+       }
+      }
+     ]
+    },
+    {
+     "name": "people_method_value",
+     "label": {
+      "zh": "人体解算",
+      "en": "Body Solve"
+     },
+     "target": "people_method.value",
+     "widget": "menu",
+     "hide_when": "not people_gate_through",
+     "options": [
+      {
+       "value": 1,
+       "label": {
+        "zh": "SAM 3D Body",
+        "en": "SAM 3D Body"
+       }
+      },
+      {
+       "value": 2,
+       "label": {
+        "zh": "Fast SAM 3D Body",
+        "en": "Fast SAM 3D Body"
+       }
+      },
+      {
+       "value": 3,
+       "label": {
+        "zh": "GVHMR",
+        "en": "GVHMR"
+       }
+      },
+      {
+       "value": 4,
+       "label": {
+        "zh": "WHAM",
+        "en": "WHAM"
+       }
+      },
+      {
+       "value": 5,
+       "label": {
+        "zh": "TRAM",
+        "en": "TRAM"
+       }
+      }
+     ]
+    },
+    {
+     "name": "people",
+     "label": {
+      "zh": "选人",
+      "en": "People to Solve"
+     },
+     "target": "pick.mode",
+     "hide_when": "not people_gate_through"
+    },
+    {
+     "name": "people_count",
+     "label": {
+      "zh": "人数",
+      "en": "People"
+     },
+     "target": "pick.count",
+     "hide_when": "not people_gate_through or people != \"top\""
+    },
+    {
+     "name": "people_ids",
+     "label": {
+      "zh": "编号",
+      "en": "Index"
+     },
+     "target": "pick.ids",
+     "hide_when": "not people_gate_through or people != \"ids\""
+    },
+    {
+     "name": "people_picks",
+     "label": {
+      "zh": "点选",
+      "en": "Pick"
+     },
+     "target": "pick.picks",
+     "hide_when": "not people_gate_through or people != \"picked\""
+    },
+    {
+     "name": "people_picks_pick",
+     "label": {
+      "zh": "在视图里点选",
+      "en": "Pick in Viewport"
+     },
+     "target": "pick.picks_pick",
+     "hide_when": "not people_gate_through or people != \"picked\""
+    },
+    {
+     "name": "picks",
+     "label": {
+      "zh": "跟踪点",
+      "en": "Tracks"
+     },
+     "target": "track.picks",
+     "show_on_change": true,
+     "hide_when": "not tracks_gate_through"
+    },
+    {
+     "name": "picks_pick",
+     "label": {
+      "zh": "在视图里点选",
+      "en": "Pick in Viewport"
+     },
+     "target": "track.picks_pick",
+     "hide_when": "not tracks_gate_through"
+    },
+    {
+     "name": "track_grid",
+     "label": {
+      "zh": "另撒网格点（0 = 不撒）",
+      "en": "Extra Grid Points (0 = None)"
+     },
+     "target": "track.grid",
+     "hide_when": "not tracks_gate_through"
+    },
+    {
+     "name": "ref_frame",
+     "label": {
+      "zh": "参考帧",
+      "en": "Reference Frame"
+     },
+     "target": "track.query_frame",
+     "hide_when": "not tracks_gate_through"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "fps",
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "fps.value"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "word": "cook",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
+     "target": "deliver.download"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "file",
+   "params": {
+    "path": "",
+    "colorspace": null,
+    "first": null,
+    "last": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 3675
+   }
+  },
+  {
+   "id": "cam_from",
+   "type": "value_int",
+   "params": {
+    "value": 3,
+    "unit": ""
+   },
+   "ui": {
+    "x": 1500,
+    "y": 3906
+   }
+  },
+  {
+   "id": "solver",
+   "type": "value_int",
+   "params": {
+    "value": 1,
+    "unit": ""
+   },
+   "ui": {
+    "x": 1131,
+    "y": 3675
+   }
+  },
+  {
+   "id": "ground",
+   "type": "value_toggle",
+   "params": {
+    "value": false
+   },
+   "ui": {
+    "x": 5499,
+    "y": 3063
+   }
+  },
+  {
+   "id": "fps",
+   "type": "value_int",
+   "params": {
+    "value": 24,
+    "unit": "fps"
+   },
+   "ui": {
+    "x": 8049,
+    "y": 2571
+   }
+  },
+  {
+   "id": "cam_fbx",
+   "type": "fbx.import",
+   "params": {
+    "path": "",
+    "take": "",
+    "camera": "",
+    "models": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 1500,
+    "y": 3675
+   }
+  },
+  {
+   "id": "cam_usd",
+   "type": "usd.import",
+   "params": {
+    "path": "",
+    "camera": "",
+    "models": [],
+    "points": [],
+    "curves": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 1500,
+    "y": 4113
+   }
+  },
+  {
+   "id": "cam_static",
+   "type": "camera",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "center_x_mm": 0.0,
+    "center_y_mm": 0.0,
+    "translate": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "rotate": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "width": 1920,
+    "height": 1080
+   },
+   "ui": {
+    "x": 360,
+    "y": 3675
+   }
+  },
+  {
+   "id": "static_split",
+   "type": "split_camera",
+   "params": {
+    "per_frame": true
+   },
+   "ui": {
+    "x": 771,
+    "y": 3675
+   }
+  },
+  {
+   "id": "vipe",
+   "type": "vipe.camera_solve",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "mode": "pose_only"
+   },
+   "ui": {
+    "x": 2580,
+    "y": 2812
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "colmap",
+   "type": "colmap.camera_solve",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "mapper": "global",
+    "matcher": "sequential",
+    "fit_model": "SIMPLE_PINHOLE",
+    "step": 1,
+    "resolution": 2000,
+    "unit_cm": 100.0,
+    "sift_gpu": false
+   },
+   "ui": {
+    "x": 1131,
+    "y": 2812
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "vidmap",
+   "type": "vidmap.camera_solve",
+   "params": {
+    "step": 1,
+    "focal_mm": null,
+    "filmback_mm": null,
+    "smooth": false,
+    "unit_cm": 100.0
+   },
+   "ui": {
+    "x": 1131,
+    "y": 3155
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "da3long",
+   "type": "da3long.reconstruct",
+   "params": {
+    "step": 1,
+    "max_frames": 120,
+    "overlap": 60,
+    "loops": true,
+    "unit_cm": 100.0
+   },
+   "ui": {
+    "x": 360,
+    "y": 2812
+   }
+  },
+  {
+   "id": "solved_pick",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "ViPE",
+       "en": "ViPE"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "COLMAP",
+       "en": "COLMAP"
+      }
+     },
+     {
+      "name": "c",
+      "label": {
+       "zh": "VidMap",
+       "en": "VidMap"
+      }
+     },
+     {
+      "name": "d",
+      "label": {
+       "zh": "Depth Anything 3 Streaming",
+       "en": "Depth Anything 3 Streaming"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 2940,
+    "y": 2812
+   }
+  },
+  {
+   "id": "lens_solved",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "已知焦距",
+       "en": "Known Focal Length"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "COLMAP 的镜头",
+       "en": "COLMAP Lens"
+      }
+     },
+     {
+      "name": "c",
+      "label": {
+       "zh": "VidMap 的镜头",
+       "en": "VidMap Lens"
+      }
+     },
+     {
+      "name": "d",
+      "label": {
+       "zh": "已知焦距",
+       "en": "Known Focal Length"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 1500,
+    "y": 2812
+   }
+  },
+  {
+   "id": "lens_pick",
+   "type": "switch",
+   "params": {
+    "which": 3,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "已有摄影机（FBX）",
+       "en": "Existing Camera (FBX)"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "已有摄影机（USD）",
+       "en": "Existing Camera (USD)"
+      }
+     },
+     {
+      "name": "c",
+      "label": {
+       "zh": "求摄影机",
+       "en": "Solve Camera"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 1860,
+    "y": 2812
+   }
+  },
+  {
+   "id": "vipe_lens",
+   "type": "split_camera",
+   "params": {
+    "per_frame": true
+   },
+   "ui": {
+    "x": 2220,
+    "y": 2812
+   }
+  },
+  {
+   "id": "vipe_depth",
+   "type": "vipe.depth",
+   "params": {
+    "model": "default"
+   },
+   "ui": {
+    "x": 2940,
+    "y": 2012
+   }
+  },
+  {
+   "id": "colmap_depth",
+   "type": "depth_align",
+   "params": {
+    "depth_is": "auto",
+    "fit": "shot"
+   },
+   "ui": {
+    "x": 3300,
+    "y": 2012
+   }
+  },
+  {
+   "id": "vidmap_depth",
+   "type": "depth_align",
+   "params": {
+    "depth_is": "auto",
+    "fit": "shot"
+   },
+   "ui": {
+    "x": 3300,
+    "y": 2291
+   }
+  },
+  {
+   "id": "depth_solved",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "ViPE",
+       "en": "ViPE"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "ViPE 对齐到 COLMAP",
+       "en": "ViPE Aligned to COLMAP"
+      }
+     },
+     {
+      "name": "c",
+      "label": {
+       "zh": "ViPE 对齐到 VidMap",
+       "en": "ViPE Aligned to VidMap"
+      }
+     },
+     {
+      "name": "d",
+      "label": {
+       "zh": "Depth Anything 3 Streaming",
+       "en": "Depth Anything 3 Streaming"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 3660,
+    "y": 2012
+   }
+  },
+  {
+   "id": "depth_pick",
+   "type": "switch",
+   "params": {
+    "which": 3,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "ViPE",
+       "en": "ViPE"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "ViPE",
+       "en": "ViPE"
+      }
+     },
+     {
+      "name": "c",
+      "label": {
+       "zh": "求摄影机的深度",
+       "en": "Camera Solve Depth"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 4022,
+    "y": 2012
+   }
+  },
+  {
+   "id": "base_cam",
+   "type": "switch",
+   "params": {
+    "which": 3,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "已有摄影机（FBX）",
+       "en": "Existing Camera (FBX)"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "已有摄影机（USD）",
+       "en": "Existing Camera (USD)"
+      }
+     },
+     {
+      "name": "c",
+      "label": {
+       "zh": "求出的摄影机",
+       "en": "Solved Camera"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 3300,
+    "y": 2812
+   }
+  },
+  {
+   "id": "fuse",
+   "type": "pointcloud_fuse",
+   "params": {
+    "voxel_size": 5.0,
+    "truncation": 2.0,
+    "color": true
+   },
+   "ui": {
+    "x": 4382,
+    "y": 2012
+   }
+  },
+  {
+   "id": "solved_lens",
+   "type": "split_camera",
+   "params": {
+    "per_frame": true
+   },
+   "ui": {
+    "x": 3300,
+    "y": 2991
+   }
+  },
+  {
+   "id": "gravity",
+   "type": "geocalib.calibrate",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "fit_model": "pinhole",
+    "step": 5
+   },
+   "ui": {
+    "x": 3660,
+    "y": 2991
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "ground_pack",
+   "type": "merge",
+   "params": {},
+   "ui": {
+    "x": 4742,
+    "y": 2812
+   }
+  },
+  {
+   "id": "level",
+   "type": "auto_ground",
+   "params": {
+    "gravity": null,
+    "gravity_error": null,
+    "source": "points",
+    "percentile": 10.0
+   },
+   "ui": {
+    "x": 5139,
+    "y": 2812
+   },
+   "promoted": [
+    "gravity",
+    "gravity_error"
+   ]
+  },
+  {
+   "id": "level_cam",
+   "type": "split_scene",
+   "params": {},
+   "ui": {
+    "x": 5499,
+    "y": 2812
+   }
+  },
+  {
+   "id": "ground_pick",
+   "type": "switch",
+   "params": {
+    "which": 2,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "落地后的摄影机",
+       "en": "Grounded Camera"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "求出的摄影机",
+       "en": "Solved Camera"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 5859,
+    "y": 2812
+   }
+  },
+  {
+   "id": "cam_pick",
+   "type": "switch",
+   "params": {
+    "which": 3,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "已有摄影机（FBX）",
+       "en": "Existing Camera (FBX)"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "已有摄影机（USD）",
+       "en": "Existing Camera (USD)"
+      }
+     },
+     {
+      "name": "c",
+      "label": {
+       "zh": "求摄影机",
+       "en": "Solve Camera"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 6219,
+    "y": 2812
+   }
+  },
+  {
+   "id": "camera_usd",
+   "type": "usd.output",
+   "params": {
+    "name": "camera_usd",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 8409,
+    "y": 2812
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "camera_fbx",
+   "type": "fbx.output",
+   "params": {
+    "name": "camera_fbx",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 8409,
+    "y": 3047
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "camera_nuke",
+   "type": "nuke.output",
+   "params": {
+    "name": "camera_nuke"
+   },
+   "ui": {
+    "x": 8409,
+    "y": 3254
+   }
+  },
+  {
+   "id": "points_place",
+   "type": "camera_space",
+   "params": {
+    "fit": "whole"
+   },
+   "ui": {
+    "x": 6579,
+    "y": 2012
+   }
+  },
+  {
+   "id": "points_gate",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 6939,
+    "y": 2012
+   }
+  },
+  {
+   "id": "points_ply",
+   "type": "ply.output",
+   "params": {
+    "name": "points_ply",
+    "unit": "m"
+   },
+   "ui": {
+    "x": 8409,
+    "y": 2012
+   }
+  },
+  {
+   "id": "points_usd",
+   "type": "usd.output",
+   "params": {
+    "name": "points_usd",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 8409,
+    "y": 2219
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "mesh",
+   "type": "open3d.mesh_from_points",
+   "params": {
+    "method": "poisson",
+    "depth": 8,
+    "radius": 1.0,
+    "alpha": 2.0
+   },
+   "ui": {
+    "x": 4742,
+    "y": 0
+   }
+  },
+  {
+   "id": "mesh_place",
+   "type": "camera_space",
+   "params": {
+    "fit": "whole"
+   },
+   "ui": {
+    "x": 6579,
+    "y": 0
+   }
+  },
+  {
+   "id": "mesh_gate",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 6939,
+    "y": 0
+   }
+  },
+  {
+   "id": "mesh_usd",
+   "type": "usd.output",
+   "params": {
+    "name": "mesh_usd",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 8409,
+    "y": 0
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "mesh_fbx",
+   "type": "fbx.output",
+   "params": {
+    "name": "mesh_fbx",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 8409,
+    "y": 235
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "gs_method",
+   "type": "value_int",
+   "params": {
+    "value": 1,
+    "unit": ""
+   },
+   "ui": {
+    "x": 360,
+    "y": 684
+   }
+  },
+  {
+   "id": "worldmirror",
+   "type": "hyworld2.reconstruct",
+   "params": {
+    "resolution": 952,
+    "step": 1,
+    "unit_cm": 100,
+    "max_views": 32
+   },
+   "ui": {
+    "x": 360,
+    "y": 891
+   }
+  },
+  {
+   "id": "neoverse",
+   "type": "neoverse.reconstruct",
+   "params": {
+    "resolution": 560,
+    "step": 1,
+    "unit_cm": 100,
+    "max_frames": 32
+   },
+   "ui": {
+    "x": 360,
+    "y": 1062
+   }
+  },
+  {
+   "id": "gs_pick",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "WorldMirror 2.0",
+       "en": "WorldMirror 2.0"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "NeoVerse",
+       "en": "NeoVerse"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 771,
+    "y": 684
+   }
+  },
+  {
+   "id": "gs_cam_pick",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "WorldMirror 2.0",
+       "en": "WorldMirror 2.0"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "NeoVerse",
+       "en": "NeoVerse"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 771,
+    "y": 863
+   }
+  },
+  {
+   "id": "gs_place",
+   "type": "camera_space",
+   "params": {
+    "fit": "whole"
+   },
+   "ui": {
+    "x": 6939,
+    "y": 684
+   }
+  },
+  {
+   "id": "gaussian_gate",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 7329,
+    "y": 684
+   }
+  },
+  {
+   "id": "gs_ply",
+   "type": "ply.output_gaussian",
+   "params": {
+    "name": "gaussian_ply",
+    "unit": "m"
+   },
+   "ui": {
+    "x": 8409,
+    "y": 684
+   }
+  },
+  {
+   "id": "gs_usd",
+   "type": "usd.output",
+   "params": {
+    "name": "gaussian_usd",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 8409,
+    "y": 891
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "detect",
+   "type": "sam_3d_body.detect_people",
+   "params": {
+    "threshold": 0.8
+   },
+   "ui": {
+    "x": 360,
+    "y": 4646
+   }
+  },
+  {
+   "id": "pick",
+   "type": "select_people",
+   "params": {
+    "mode": "largest",
+    "count": 3,
+    "ids": "",
+    "picks": []
+   },
+   "ui": {
+    "x": 771,
+    "y": 4646
+   }
+  },
+  {
+   "id": "cam_lens",
+   "type": "split_camera",
+   "params": {
+    "per_frame": true
+   },
+   "ui": {
+    "x": 6579,
+    "y": 4646
+   }
+  },
+  {
+   "id": "people_method",
+   "type": "value_int",
+   "params": {
+    "value": 1,
+    "unit": ""
+   },
+   "ui": {
+    "x": 7329,
+    "y": 4646
+   }
+  },
+  {
+   "id": "people_pick",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "SAM 3D Body",
+       "en": "SAM 3D Body"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "Fast SAM 3D Body",
+       "en": "Fast SAM 3D Body"
+      }
+     },
+     {
+      "name": "c",
+      "label": {
+       "zh": "GVHMR",
+       "en": "GVHMR"
+      }
+     },
+     {
+      "name": "d",
+      "label": {
+       "zh": "WHAM",
+       "en": "WHAM"
+      }
+     },
+     {
+      "name": "e",
+      "label": {
+       "zh": "TRAM",
+       "en": "TRAM"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 7689,
+    "y": 4646
+   }
+  },
+  {
+   "id": "sam3d_solve",
+   "type": "sam_3d_body.solve",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "hand_refine": true,
+    "lock_shape": true,
+    "smoothing": 0.5,
+    "least_frames": null
+   },
+   "ui": {
+    "x": 6939,
+    "y": 4969
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "sam3d_place",
+   "type": "camera_space",
+   "params": {
+    "fit": "per_frame"
+   },
+   "ui": {
+    "x": 7329,
+    "y": 5092
+   }
+  },
+  {
+   "id": "fastsam3d_solve",
+   "type": "fast_sam_3d_body.solve",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "hand_refine": true,
+    "lock_shape": true,
+    "smoothing": 0.5,
+    "least_frames": null
+   },
+   "ui": {
+    "x": 6939,
+    "y": 5252
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "fastsam3d_place",
+   "type": "camera_space",
+   "params": {
+    "fit": "per_frame"
+   },
+   "ui": {
+    "x": 7329,
+    "y": 5331
+   }
+  },
+  {
+   "id": "gvhmr_solve",
+   "type": "gvhmr.solve",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "static_camera": false,
+    "camera_rotate": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "follow_camera": false,
+    "vo_step": 8,
+    "least_frames": null
+   },
+   "ui": {
+    "x": 6939,
+    "y": 5790
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm",
+    "camera_rotate"
+   ]
+  },
+  {
+   "id": "gvhmr_place",
+   "type": "camera_space",
+   "params": {
+    "fit": "per_frame"
+   },
+   "ui": {
+    "x": 7329,
+    "y": 5809
+   }
+  },
+  {
+   "id": "wham_solve",
+   "type": "wham.solve",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "static_camera": false,
+    "camera_rotate": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "follow_camera": false,
+    "smplify": false,
+    "least_frames": null
+   },
+   "ui": {
+    "x": 6939,
+    "y": 4646
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm",
+    "camera_rotate"
+   ]
+  },
+  {
+   "id": "wham_mask",
+   "type": "mask_from_boxes",
+   "params": {
+    "ids": ""
+   },
+   "ui": {
+    "x": 1131,
+    "y": 4646
+   }
+  },
+  {
+   "id": "wham_keep",
+   "type": "composite",
+   "params": {
+    "operation": "multiply",
+    "mix": 1.0
+   },
+   "ui": {
+    "x": 1500,
+    "y": 4646
+   }
+  },
+  {
+   "id": "wham_place",
+   "type": "camera_space",
+   "params": {
+    "fit": "per_frame"
+   },
+   "ui": {
+    "x": 7329,
+    "y": 4853
+   }
+  },
+  {
+   "id": "tram_solve",
+   "type": "tram.solve",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "static_camera": false,
+    "max_people": 20,
+    "least_frames": null
+   },
+   "ui": {
+    "x": 6939,
+    "y": 5535
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "tram_place",
+   "type": "camera_space",
+   "params": {
+    "fit": "per_frame"
+   },
+   "ui": {
+    "x": 7329,
+    "y": 5570
+   }
+  },
+  {
+   "id": "people_gate",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 8049,
+    "y": 4646
+   }
+  },
+  {
+   "id": "people_usd",
+   "type": "usd.output",
+   "params": {
+    "name": "people_usd",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 8409,
+    "y": 4646
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "people_fbx",
+   "type": "fbx.output",
+   "params": {
+    "name": "people_fbx",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 8409,
+    "y": 4881
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "track",
+   "type": "tapip3d.track",
+   "params": {
+    "query_frame": null,
+    "picks": [],
+    "min_confidence": null,
+    "point_size": 1.0,
+    "grid": 10,
+    "resolution": "fine"
+   },
+   "ui": {
+    "x": 4382,
+    "y": 1475
+   }
+  },
+  {
+   "id": "track_place",
+   "type": "camera_space",
+   "params": {
+    "fit": "whole"
+   },
+   "ui": {
+    "x": 6579,
+    "y": 1475
+   }
+  },
+  {
+   "id": "tracks_gate",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 6939,
+    "y": 1475
+   }
+  },
+  {
+   "id": "tracks_usd",
+   "type": "usd.output",
+   "params": {
+    "name": "tracks3d",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 8409,
+    "y": 1475
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "lens",
+   "type": "anycalib.calibrate",
+   "params": {
+    "fit_model": "simple_radial:1",
+    "samples": 8,
+    "checkpoint": "anycalib_gen",
+    "principal_point": "center",
+    "filmback_mm": 36.0
+   },
+   "ui": {
+    "x": 360,
+    "y": 6355
+   }
+  },
+  {
+   "id": "undist",
+   "type": "lens_distortion",
+   "params": {
+    "lens_group": "anycalib",
+    "lens_model": "simple_radial:1",
+    "distortion": [
+     {
+      "name": "k",
+      "value": 0.0
+     }
+    ],
+    "width": null,
+    "height": null,
+    "pixel_aspect": 1.0,
+    "focal_mm": null,
+    "filmback_mm": 36.0,
+    "center_x_mm": 0.0,
+    "center_y_mm": 0.0,
+    "overscan": "auto"
+   },
+   "ui": {
+    "x": 771,
+    "y": 6355
+   },
+   "promoted": [
+    "focal_mm",
+    "filmback_mm"
+   ]
+  },
+  {
+   "id": "warp",
+   "type": "stmap",
+   "params": {},
+   "ui": {
+    "x": 7689,
+    "y": 6355
+   }
+  },
+  {
+   "id": "lens_exr",
+   "type": "exr.output",
+   "params": {
+    "name": "lens_stmap",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "rgba",
+      "channels": ""
+     },
+     {
+      "name": "layer2",
+      "label": "stmap_undistort",
+      "channels": ""
+     },
+     {
+      "name": "layer3",
+      "label": "stmap_distort",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 8409,
+    "y": 6355
+   }
+  },
+  {
+   "id": "stmap",
+   "type": "value_toggle",
+   "params": {
+    "value": false
+   },
+   "ui": {
+    "x": 7689,
+    "y": 3675
+   }
+  },
+  {
+   "id": "lens_layer1_gate",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 8049,
+    "y": 6355
+   }
+  },
+  {
+   "id": "lens_layer2_gate",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 8049,
+    "y": 6562
+   }
+  },
+  {
+   "id": "lens_layer3_gate",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 8049,
+    "y": 6769
+   }
+  },
+  {
+   "id": "scene_usd",
+   "type": "usd.output",
+   "params": {
+    "name": "scene",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 8778,
+    "y": 3354
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "deliver",
+   "type": "output",
+   "params": {},
+   "ui": {
+    "x": 9138,
+    "y": 3382
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "cam_static",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cam_static",
+    "camera"
+   ],
+   "to": [
+    "static_split",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "vipe",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "colmap",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "vidmap",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "da3long",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "static_split",
+    "focal"
+   ],
+   "to": [
+    "colmap",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "static_split",
+    "filmback"
+   ],
+   "to": [
+    "colmap",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "static_split",
+    "focal"
+   ],
+   "to": [
+    "vidmap",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "static_split",
+    "filmback"
+   ],
+   "to": [
+    "vidmap",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "camera"
+   ],
+   "to": [
+    "solved_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "colmap",
+    "camera"
+   ],
+   "to": [
+    "solved_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "vidmap",
+    "camera"
+   ],
+   "to": [
+    "solved_pick",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "da3long",
+    "camera"
+   ],
+   "to": [
+    "solved_pick",
+    "d"
+   ]
+  },
+  {
+   "from": [
+    "solver",
+    "value"
+   ],
+   "to": [
+    "solved_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "cam_static",
+    "camera"
+   ],
+   "to": [
+    "lens_solved",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "colmap",
+    "camera"
+   ],
+   "to": [
+    "lens_solved",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "vidmap",
+    "camera"
+   ],
+   "to": [
+    "lens_solved",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "cam_static",
+    "camera"
+   ],
+   "to": [
+    "lens_solved",
+    "d"
+   ]
+  },
+  {
+   "from": [
+    "solver",
+    "value"
+   ],
+   "to": [
+    "lens_solved",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "cam_fbx",
+    "camera"
+   ],
+   "to": [
+    "lens_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "cam_usd",
+    "camera"
+   ],
+   "to": [
+    "lens_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "lens_solved",
+    "out"
+   ],
+   "to": [
+    "lens_pick",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "cam_from",
+    "value"
+   ],
+   "to": [
+    "lens_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "lens_pick",
+    "out"
+   ],
+   "to": [
+    "vipe_lens",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "vipe_lens",
+    "focal"
+   ],
+   "to": [
+    "vipe",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "vipe_lens",
+    "filmback"
+   ],
+   "to": [
+    "vipe",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "vipe_depth",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "camera"
+   ],
+   "to": [
+    "vipe_depth",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "points"
+   ],
+   "to": [
+    "vipe_depth",
+    "points"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "objects"
+   ],
+   "to": [
+    "vipe_depth",
+    "objects"
+   ]
+  },
+  {
+   "from": [
+    "vipe_depth",
+    "depth"
+   ],
+   "to": [
+    "colmap_depth",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "colmap",
+    "points"
+   ],
+   "to": [
+    "colmap_depth",
+    "points"
+   ]
+  },
+  {
+   "from": [
+    "colmap",
+    "camera"
+   ],
+   "to": [
+    "colmap_depth",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "vipe_depth",
+    "depth"
+   ],
+   "to": [
+    "vidmap_depth",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "vidmap",
+    "points"
+   ],
+   "to": [
+    "vidmap_depth",
+    "points"
+   ]
+  },
+  {
+   "from": [
+    "vidmap",
+    "camera"
+   ],
+   "to": [
+    "vidmap_depth",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "vipe_depth",
+    "depth"
+   ],
+   "to": [
+    "depth_solved",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "colmap_depth",
+    "depth"
+   ],
+   "to": [
+    "depth_solved",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "vidmap_depth",
+    "depth"
+   ],
+   "to": [
+    "depth_solved",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "da3long",
+    "depth"
+   ],
+   "to": [
+    "depth_solved",
+    "d"
+   ]
+  },
+  {
+   "from": [
+    "solver",
+    "value"
+   ],
+   "to": [
+    "depth_solved",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "vipe_depth",
+    "depth"
+   ],
+   "to": [
+    "depth_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "vipe_depth",
+    "depth"
+   ],
+   "to": [
+    "depth_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "depth_solved",
+    "out"
+   ],
+   "to": [
+    "depth_pick",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "cam_from",
+    "value"
+   ],
+   "to": [
+    "depth_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "cam_fbx",
+    "camera"
+   ],
+   "to": [
+    "base_cam",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "cam_usd",
+    "camera"
+   ],
+   "to": [
+    "base_cam",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "solved_pick",
+    "out"
+   ],
+   "to": [
+    "base_cam",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "cam_from",
+    "value"
+   ],
+   "to": [
+    "base_cam",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "depth_pick",
+    "out"
+   ],
+   "to": [
+    "fuse",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "base_cam",
+    "out"
+   ],
+   "to": [
+    "fuse",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "fuse",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "solved_pick",
+    "out"
+   ],
+   "to": [
+    "solved_lens",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "gravity",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "solved_lens",
+    "focal"
+   ],
+   "to": [
+    "gravity",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "solved_lens",
+    "filmback"
+   ],
+   "to": [
+    "gravity",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "solved_pick",
+    "out"
+   ],
+   "to": [
+    "ground_pack",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "fuse",
+    "points"
+   ],
+   "to": [
+    "ground_pack",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "ground_pack",
+    "scene"
+   ],
+   "to": [
+    "level",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "gravity",
+    "gravity"
+   ],
+   "to": [
+    "level",
+    "param:gravity"
+   ]
+  },
+  {
+   "from": [
+    "gravity",
+    "gravity_error"
+   ],
+   "to": [
+    "level",
+    "param:gravity_error"
+   ]
+  },
+  {
+   "from": [
+    "level",
+    "scene"
+   ],
+   "to": [
+    "level_cam",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "level_cam",
+    "camera"
+   ],
+   "to": [
+    "ground_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "solved_pick",
+    "out"
+   ],
+   "to": [
+    "ground_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "ground",
+    "value"
+   ],
+   "to": [
+    "ground_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "cam_fbx",
+    "camera"
+   ],
+   "to": [
+    "cam_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "cam_usd",
+    "camera"
+   ],
+   "to": [
+    "cam_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "ground_pick",
+    "out"
+   ],
+   "to": [
+    "cam_pick",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "cam_from",
+    "value"
+   ],
+   "to": [
+    "cam_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "camera_usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "camera_fbx",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "camera_nuke",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "fuse",
+    "points"
+   ],
+   "to": [
+    "points_place",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "base_cam",
+    "out"
+   ],
+   "to": [
+    "points_place",
+    "source_camera"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "points_place",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "points_place",
+    "scene"
+   ],
+   "to": [
+    "points_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "points_gate",
+    "data"
+   ],
+   "to": [
+    "points_ply",
+    "points"
+   ]
+  },
+  {
+   "from": [
+    "points_gate",
+    "data"
+   ],
+   "to": [
+    "points_usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "fuse",
+    "points"
+   ],
+   "to": [
+    "mesh",
+    "points"
+   ]
+  },
+  {
+   "from": [
+    "mesh",
+    "model"
+   ],
+   "to": [
+    "mesh_place",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "base_cam",
+    "out"
+   ],
+   "to": [
+    "mesh_place",
+    "source_camera"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "mesh_place",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "mesh_place",
+    "scene"
+   ],
+   "to": [
+    "mesh_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "mesh_gate",
+    "data"
+   ],
+   "to": [
+    "mesh_usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "mesh_gate",
+    "data"
+   ],
+   "to": [
+    "mesh_fbx",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "worldmirror",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "neoverse",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "worldmirror",
+    "gaussians"
+   ],
+   "to": [
+    "gs_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "neoverse",
+    "gaussians"
+   ],
+   "to": [
+    "gs_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "worldmirror",
+    "camera"
+   ],
+   "to": [
+    "gs_cam_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "neoverse",
+    "camera"
+   ],
+   "to": [
+    "gs_cam_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "gs_method",
+    "value"
+   ],
+   "to": [
+    "gs_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "gs_method",
+    "value"
+   ],
+   "to": [
+    "gs_cam_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "gs_pick",
+    "out"
+   ],
+   "to": [
+    "gs_place",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "gs_cam_pick",
+    "out"
+   ],
+   "to": [
+    "gs_place",
+    "source_camera"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "gs_place",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "points_place",
+    "scene"
+   ],
+   "to": [
+    "gs_place",
+    "reference"
+   ]
+  },
+  {
+   "from": [
+    "gs_place",
+    "scene"
+   ],
+   "to": [
+    "gaussian_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "gaussian_gate",
+    "data"
+   ],
+   "to": [
+    "gs_ply",
+    "gaussians"
+   ]
+  },
+  {
+   "from": [
+    "gaussian_gate",
+    "data"
+   ],
+   "to": [
+    "gs_usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "detect",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "detect",
+    "boxes"
+   ],
+   "to": [
+    "pick",
+    "boxes"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "cam_lens",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "people_method",
+    "value"
+   ],
+   "to": [
+    "people_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "pick",
+    "boxes"
+   ],
+   "to": [
+    "sam3d_solve",
+    "boxes"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "sam3d_solve",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "focal"
+   ],
+   "to": [
+    "sam3d_solve",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "filmback"
+   ],
+   "to": [
+    "sam3d_solve",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "sam3d_solve",
+    "character"
+   ],
+   "to": [
+    "sam3d_place",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "sam3d_place",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "sam3d_place",
+    "scene"
+   ],
+   "to": [
+    "people_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "pick",
+    "boxes"
+   ],
+   "to": [
+    "fastsam3d_solve",
+    "boxes"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "fastsam3d_solve",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "focal"
+   ],
+   "to": [
+    "fastsam3d_solve",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "filmback"
+   ],
+   "to": [
+    "fastsam3d_solve",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "fastsam3d_solve",
+    "character"
+   ],
+   "to": [
+    "fastsam3d_place",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "fastsam3d_place",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "fastsam3d_place",
+    "scene"
+   ],
+   "to": [
+    "people_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "pick",
+    "boxes"
+   ],
+   "to": [
+    "gvhmr_solve",
+    "boxes"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "gvhmr_solve",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "focal"
+   ],
+   "to": [
+    "gvhmr_solve",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "filmback"
+   ],
+   "to": [
+    "gvhmr_solve",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "rotate"
+   ],
+   "to": [
+    "gvhmr_solve",
+    "param:camera_rotate"
+   ]
+  },
+  {
+   "from": [
+    "gvhmr_solve",
+    "character"
+   ],
+   "to": [
+    "gvhmr_place",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "gvhmr_solve",
+    "ref_camera"
+   ],
+   "to": [
+    "gvhmr_place",
+    "source_camera"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "gvhmr_place",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "gvhmr_place",
+    "scene"
+   ],
+   "to": [
+    "people_pick",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "pick",
+    "boxes"
+   ],
+   "to": [
+    "wham_mask",
+    "boxes"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "wham_keep",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "wham_mask",
+    "mask"
+   ],
+   "to": [
+    "wham_keep",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "wham_keep",
+    "image"
+   ],
+   "to": [
+    "wham_solve",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "focal"
+   ],
+   "to": [
+    "wham_solve",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "filmback"
+   ],
+   "to": [
+    "wham_solve",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "rotate"
+   ],
+   "to": [
+    "wham_solve",
+    "param:camera_rotate"
+   ]
+  },
+  {
+   "from": [
+    "wham_solve",
+    "character"
+   ],
+   "to": [
+    "wham_place",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "wham_solve",
+    "ref_camera"
+   ],
+   "to": [
+    "wham_place",
+    "source_camera"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "wham_place",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "wham_place",
+    "scene"
+   ],
+   "to": [
+    "people_pick",
+    "d"
+   ]
+  },
+  {
+   "from": [
+    "pick",
+    "boxes"
+   ],
+   "to": [
+    "tram_solve",
+    "boxes"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "tram_solve",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "focal"
+   ],
+   "to": [
+    "tram_solve",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "cam_lens",
+    "filmback"
+   ],
+   "to": [
+    "tram_solve",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "tram_solve",
+    "character"
+   ],
+   "to": [
+    "tram_place",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "tram_solve",
+    "camera"
+   ],
+   "to": [
+    "tram_place",
+    "source_camera"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "tram_place",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "tram_place",
+    "scene"
+   ],
+   "to": [
+    "people_pick",
+    "e"
+   ]
+  },
+  {
+   "from": [
+    "people_pick",
+    "out"
+   ],
+   "to": [
+    "people_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "people_gate",
+    "data"
+   ],
+   "to": [
+    "people_usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "people_gate",
+    "data"
+   ],
+   "to": [
+    "people_fbx",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "track",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "depth_pick",
+    "out"
+   ],
+   "to": [
+    "track",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "base_cam",
+    "out"
+   ],
+   "to": [
+    "track",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "track",
+    "tracks3d"
+   ],
+   "to": [
+    "track_place",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "base_cam",
+    "out"
+   ],
+   "to": [
+    "track_place",
+    "source_camera"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "track_place",
+    "target_camera"
+   ]
+  },
+  {
+   "from": [
+    "track_place",
+    "scene"
+   ],
+   "to": [
+    "tracks_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "tracks_gate",
+    "data"
+   ],
+   "to": [
+    "tracks_usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "lens",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "undist",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "warp",
+    "src"
+   ]
+  },
+  {
+   "from": [
+    "lens",
+    "focal"
+   ],
+   "to": [
+    "undist",
+    "param:focal_mm"
+   ]
+  },
+  {
+   "from": [
+    "lens",
+    "filmback"
+   ],
+   "to": [
+    "undist",
+    "param:filmback_mm"
+   ]
+  },
+  {
+   "from": [
+    "lens",
+    "lens"
+   ],
+   "to": [
+    "undist",
+    "lens"
+   ]
+  },
+  {
+   "from": [
+    "undist",
+    "undistort_stmap"
+   ],
+   "to": [
+    "warp",
+    "stmap"
+   ]
+  },
+  {
+   "from": [
+    "warp",
+    "image"
+   ],
+   "to": [
+    "lens_layer1_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "stmap",
+    "value"
+   ],
+   "to": [
+    "lens_layer1_gate",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "lens_layer1_gate",
+    "data"
+   ],
+   "to": [
+    "lens_exr",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "undist",
+    "undistort_stmap"
+   ],
+   "to": [
+    "lens_layer2_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "stmap",
+    "value"
+   ],
+   "to": [
+    "lens_layer2_gate",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "lens_layer2_gate",
+    "data"
+   ],
+   "to": [
+    "lens_exr",
+    "layer2"
+   ]
+  },
+  {
+   "from": [
+    "undist",
+    "distort_stmap"
+   ],
+   "to": [
+    "lens_layer3_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "stmap",
+    "value"
+   ],
+   "to": [
+    "lens_layer3_gate",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "lens_layer3_gate",
+    "data"
+   ],
+   "to": [
+    "lens_exr",
+    "layer3"
+   ]
+  },
+  {
+   "from": [
+    "camera_usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "camera_fbx",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "camera_nuke",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "scene_usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "points_ply",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "points_usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "mesh_usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "mesh_fbx",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "gs_ply",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "gs_usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "people_usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "people_fbx",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "tracks_usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "lens_exr",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "camera_usd",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "camera_fbx",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "points_usd",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "mesh_usd",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "mesh_fbx",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "gs_usd",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "people_usd",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "people_fbx",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "tracks_usd",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "scene_usd",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "cam_pick",
+    "out"
+   ],
+   "to": [
+    "scene_usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "points_gate",
+    "data"
+   ],
+   "to": [
+    "scene_usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "mesh_gate",
+    "data"
+   ],
+   "to": [
+    "scene_usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "gaussian_gate",
+    "data"
+   ],
+   "to": [
+    "scene_usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "people_gate",
+    "data"
+   ],
+   "to": [
+    "scene_usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "tracks_gate",
+    "data"
+   ],
+   "to": [
+    "scene_usd",
+    "scene"
+   ]
+  }
+ ],
+ "boxes": [
+  {
+   "id": "box:1",
+   "label": {
+    "zh": "输入",
+    "en": "Input"
+   },
+   "color": "#0A84FF",
+   "x": -24,
+   "y": 3617,
+   "w": 7977,
+   "h": 771,
+   "collapsed": false,
+   "members": [
+    "read",
+    "cam_from",
+    "solver",
+    "cam_fbx",
+    "cam_usd",
+    "cam_static",
+    "static_split",
+    "stmap"
+   ]
+  },
+  {
+   "id": "box:2",
+   "label": {
+    "zh": "镜头畸变",
+    "en": "Lens Distortion"
+   },
+   "color": "#30D158",
+   "x": 336,
+   "y": 6297,
+   "w": 8337,
+   "h": 663,
+   "collapsed": false,
+   "members": [
+    "lens",
+    "undist",
+    "warp",
+    "lens_exr",
+    "lens_layer1_gate",
+    "lens_layer2_gate",
+    "lens_layer3_gate"
+   ]
+  },
+  {
+   "id": "box:3",
+   "label": {
+    "zh": "摄影机",
+    "en": "Camera"
+   },
+   "color": "#FF9F0A",
+   "x": 336,
+   "y": 2754,
+   "w": 8337,
+   "h": 663,
+   "collapsed": false,
+   "members": [
+    "ground",
+    "vipe",
+    "colmap",
+    "vidmap",
+    "da3long",
+    "solved_pick",
+    "lens_solved",
+    "lens_pick",
+    "vipe_lens",
+    "base_cam",
+    "solved_lens",
+    "gravity",
+    "ground_pack",
+    "level",
+    "level_cam",
+    "ground_pick",
+    "cam_pick",
+    "camera_usd",
+    "camera_fbx",
+    "camera_nuke"
+   ]
+  },
+  {
+   "id": "box:4",
+   "label": {
+    "zh": "点云",
+    "en": "Point Cloud"
+   },
+   "color": "#BF5AF2",
+   "x": 2916,
+   "y": 1954,
+   "w": 5757,
+   "h": 600,
+   "collapsed": false,
+   "members": [
+    "vipe_depth",
+    "colmap_depth",
+    "vidmap_depth",
+    "depth_solved",
+    "depth_pick",
+    "fuse",
+    "points_place",
+    "points_gate",
+    "points_ply",
+    "points_usd"
+   ]
+  },
+  {
+   "id": "box:5",
+   "label": {
+    "zh": "网格",
+    "en": "Mesh"
+   },
+   "color": "#FF375F",
+   "x": 4718,
+   "y": -58,
+   "w": 3955,
+   "h": 484,
+   "collapsed": false,
+   "members": [
+    "mesh",
+    "mesh_place",
+    "mesh_gate",
+    "mesh_usd",
+    "mesh_fbx"
+   ]
+  },
+  {
+   "id": "box:6",
+   "label": {
+    "zh": "高斯",
+    "en": "Gaussians"
+   },
+   "color": "#8E8E93",
+   "x": 336,
+   "y": 626,
+   "w": 8346,
+   "h": 591,
+   "collapsed": false,
+   "members": [
+    "gs_method",
+    "worldmirror",
+    "neoverse",
+    "gs_pick",
+    "gs_cam_pick",
+    "gs_place",
+    "gaussian_gate",
+    "gs_ply",
+    "gs_usd"
+   ]
+  },
+  {
+   "id": "box:7",
+   "label": {
+    "zh": "人",
+    "en": "People"
+   },
+   "color": "#0A84FF",
+   "x": 336,
+   "y": 4588,
+   "w": 8337,
+   "h": 1509,
+   "collapsed": false,
+   "members": [
+    "detect",
+    "pick",
+    "cam_lens",
+    "people_method",
+    "people_pick",
+    "sam3d_solve",
+    "sam3d_place",
+    "fastsam3d_solve",
+    "fastsam3d_place",
+    "gvhmr_solve",
+    "gvhmr_place",
+    "wham_solve",
+    "wham_mask",
+    "wham_keep",
+    "wham_place",
+    "tram_solve",
+    "tram_place",
+    "people_gate",
+    "people_usd",
+    "people_fbx"
+   ]
+  },
+  {
+   "id": "box:8",
+   "label": {
+    "zh": "3D 跟踪点",
+    "en": "3D Tracks"
+   },
+   "color": "#30D158",
+   "x": 4358,
+   "y": 1417,
+   "w": 4315,
+   "h": 337,
+   "collapsed": false,
+   "members": [
+    "track",
+    "track_place",
+    "tracks_gate",
+    "tracks_usd"
+   ]
+  }
+ ],
+ "view": {}
+}

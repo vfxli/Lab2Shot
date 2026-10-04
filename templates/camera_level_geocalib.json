@@ -2,109 +2,169 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "5275b718b941e5dd02f127478a236ed4",
-  "name": "重力估算 · GeoCalib",
-  "intro": "GeoCalib 官方自述：单图标定，只从一张画面估计相机内参和重力方向，做法是几何优化与深度学习结合。这张卡把它的重力方向接到「自动落地」，把 Pi3 解出的相机和点云转正；「地面依据」选「点云里最密的一层」时再落到 y = 0。GeoCalib 本身可商用；卡上解相机用的 Pi3 非商用，所以整张卡标为非商用。",
+  "name": {
+   "zh": "重力估算 · GeoCalib",
+   "en": "Gravity Estimate · GeoCalib"
+  },
+  "intro": {
+   "zh": "GeoCalib 官方自述：单图标定，只从一张画面估计摄影机内参和重力方向，做法是几何优化与深度学习结合。这张卡把它的重力方向接到「自动落地」，把 Pi3 解出的摄影机和点云转正；「地面依据」选「点云里最密的一层」时再落到 y = 0。GeoCalib 本身可商用；卡上解摄影机用的 Pi3 非商用，所以整张卡标为非商用。",
+   "en": "GeoCalib calibrates a single image, estimating camera intrinsics and the gravity direction by combining geometric optimization with deep learning. This card feeds its gravity to Auto Ground to straighten the camera and point cloud solved by Pi3; with Ground From set to \"Densest Layer of the Point Cloud\" it also grounds at y = 0. GeoCalib allows commercial use, but the Pi3 solve does not, so the card is non-commercial."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-13T12:00:00",
-  "deliverable": "leveling",
+  "deliverable": "lens_calib",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "kind": "group",
-   "label": "镜头",
+   "label": {
+    "zh": "镜头",
+    "en": "Lens"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "focal",
-     "label": "已知 Focal Length（重力估算）",
-     "target": "geo.focal_mm"
+     "label": {
+      "zh": "已知焦距（重力估算）",
+      "en": "Known Focal Length (Gravity Estimate)"
+     },
+     "target": "gravity.focal_mm"
     },
     {
      "name": "filmback",
-     "label": "Filmback（重力估算）",
-     "target": "geo.filmback_mm",
+     "label": {
+      "zh": "胶片背（重力估算）",
+      "en": "Aperture (Gravity Estimate)"
+     },
+     "target": "gravity.filmback_mm",
      "disable_when": "not focal"
     },
     {
-     "name": "fit_model",
-     "label": "镜头模型（重力估算）",
-     "target": "geo.fit_model"
+     "name": "gravity_fit_model",
+     "label": {
+      "zh": "镜头模型（重力估算）",
+      "en": "Lens Model (Gravity Estimate)"
+     },
+     "target": "gravity.fit_model"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "相机解算",
+   "label": {
+    "zh": "摄影机解算",
+    "en": "Camera Solve"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "solve_step",
-     "label": "隔帧",
-     "target": "r.step"
+     "label": {
+      "zh": "步长",
+      "en": "Step"
+     },
+     "target": "solve.step"
     },
     {
      "name": "solve_model",
-     "label": "模型",
-     "target": "r.model"
+     "label": {
+      "zh": "模型",
+      "en": "Model"
+     },
+     "target": "solve.model"
     },
     {
-     "name": "solve_scale_cm",
-     "label": "尺度",
-     "target": "r.unit_cm"
+     "name": "solve_unit_cm",
+     "label": {
+      "zh": "尺度",
+      "en": "Scale"
+     },
+     "target": "solve.unit_cm"
     },
     {
      "name": "solve_point_step",
-     "label": "点云间隔",
-     "target": "r.point_step"
+     "label": {
+      "zh": "点云间隔",
+      "en": "Point Cloud Step"
+     },
+     "target": "solve.point_step"
     },
     {
      "name": "solve_point_size",
-     "label": "点的大小",
-     "target": "r.point_size"
+     "label": {
+      "zh": "点的大小",
+      "en": "Point Size"
+     },
+     "target": "solve.point_size"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "solve_resolution",
-       "label": "处理分辨率",
-       "target": "r.resolution"
+       "label": {
+        "zh": "处理分辨率",
+        "en": "Processing Resolution"
+       },
+       "target": "solve.resolution"
       },
       {
        "name": "solve_max_frames",
-       "label": "每段最多帧数",
-       "target": "r.max_frames"
+       "label": {
+        "zh": "每段最多帧数",
+        "en": "Max Frames per Chunk"
+       },
+       "target": "solve.max_frames"
       },
       {
        "name": "solve_loops",
-       "label": "回环闭合",
-       "target": "r.loops"
+       "label": {
+        "zh": "回环闭合",
+        "en": "Loop Closure"
+       },
+       "target": "solve.loops"
       }
      ]
     }
@@ -112,72 +172,108 @@
   },
   {
    "kind": "group",
-   "label": "转正与落地",
+   "label": {
+    "zh": "转正与落地",
+    "en": "Straighten and Ground"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "step",
-     "label": "重力隔帧",
-     "target": "geo.step"
+     "name": "gravity_step",
+     "label": {
+      "zh": "重力步长",
+      "en": "Gravity Step"
+     },
+     "target": "gravity.step"
     },
     {
      "name": "ground_source",
-     "label": "地面依据",
-     "target": "gnd.source",
+     "label": {
+      "zh": "地面依据",
+      "en": "Ground From"
+     },
+     "target": "ground.source",
      "widget": "menu",
      "options": [
       {
        "value": "none",
-       "label": "不落地（只转正）"
+       "label": {
+        "zh": "不落地（只转正）",
+        "en": "No Grounding (Straighten Only)"
+       }
       },
       {
        "value": "points",
-       "label": "点云里最密的一层"
+       "label": {
+        "zh": "点云里最密的一层",
+        "en": "Densest Layer of the Point Cloud"
+       }
       }
      ]
     },
     {
-     "name": "cook_level",
-     "label": "转正落地",
-     "target": "gnd.cook"
+     "name": "cook_ground",
+     "label": {
+      "zh": "转正落地",
+      "en": "Straighten and Ground"
+     },
+     "target": "ground.cook"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "usd.name"
     },
     {
      "name": "unit",
-     "label": "单位",
-     "target": "out.unit"
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
     },
     {
      "name": "fps",
-     "label": "帧率",
-     "target": "out.fps"
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "usd.fps"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -186,8 +282,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -196,26 +291,25 @@
    },
    "ui": {
     "x": 0,
-    "y": 496
+    "y": 515
    }
   },
   {
-   "id": "r",
+   "id": "solve",
    "type": "pi3.reconstruct",
-   "label": "Pi3 深度与相机",
    "params": {
     "step": 1,
     "point_step": 4,
     "point_size": 0.5,
     "model": "pi3x",
-    "resolution": 504,
+    "resolution": null,
     "max_frames": 150,
     "loops": false,
     "unit_cm": 100.0
    },
    "ui": {
     "x": 400,
-    "y": 428,
+    "y": 447,
     "on_node": [
      "step",
      "max_frames"
@@ -223,9 +317,8 @@
    }
   },
   {
-   "id": "geo",
+   "id": "gravity",
    "type": "geocalib.calibrate",
-   "label": "GeoCalib 重力方向",
    "params": {
     "focal_mm": null,
     "filmback_mm": null,
@@ -233,7 +326,7 @@
     "step": 5
    },
    "ui": {
-    "x": 810,
+    "x": 838,
     "y": 0,
     "on_node": [
      "focal_mm",
@@ -242,9 +335,8 @@
    }
   },
   {
-   "id": "gnd",
-   "type": "core.auto_ground",
-   "label": "自动落地",
+   "id": "ground",
+   "type": "auto_ground",
    "params": {
     "gravity": null,
     "gravity_error": null,
@@ -253,7 +345,7 @@
    },
    "ui": {
     "x": 1200,
-    "y": 430,
+    "y": 449,
     "on_node": [
      "source",
      "percentile"
@@ -265,9 +357,8 @@
    ]
   },
   {
-   "id": "out",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "id": "usd",
+   "type": "usd.output",
    "params": {
     "name": "levelled",
     "format": "usd",
@@ -276,7 +367,7 @@
    },
    "ui": {
     "x": 1600,
-    "y": 444,
+    "y": 463,
     "on_node": [
      "name",
      "unit"
@@ -288,23 +379,21 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
     "x": 2000,
-    "y": 472
+    "y": 491
    }
   },
   {
    "id": "pack",
-   "type": "core.usd_pack",
+   "type": "merge",
    "ui": {
     "x": 800,
-    "y": 486
+    "y": 505
    },
-   "params": {},
-   "label": "合成场景"
+   "params": {}
   }
  ],
  "edges": [
@@ -314,7 +403,7 @@
     "image"
    ],
    "to": [
-    "r",
+    "solve",
     "image"
    ]
   },
@@ -324,23 +413,23 @@
     "image"
    ],
    "to": [
-    "geo",
+    "gravity",
     "image"
    ]
   },
   {
    "from": [
-    "gnd",
+    "ground",
     "scene"
    ],
    "to": [
-    "out",
+    "usd",
     "scene"
    ]
   },
   {
    "from": [
-    "out",
+    "usd",
     "files"
    ],
    "to": [
@@ -350,27 +439,27 @@
   },
   {
    "from": [
-    "geo",
+    "gravity",
     "gravity"
    ],
    "to": [
-    "gnd",
+    "ground",
     "param:gravity"
    ]
   },
   {
    "from": [
-    "geo",
+    "gravity",
     "gravity_error"
    ],
    "to": [
-    "gnd",
+    "ground",
     "param:gravity_error"
    ]
   },
   {
    "from": [
-    "r",
+    "solve",
     "camera"
    ],
    "to": [
@@ -380,7 +469,7 @@
   },
   {
    "from": [
-    "r",
+    "solve",
     "points"
    ],
    "to": [
@@ -394,14 +483,14 @@
     "scene"
    ],
    "to": [
-    "gnd",
+    "ground",
     "scene"
    ]
   }
  ],
  "boxes": [],
  "view": {
-  "display": "gnd",
+  "display": "ground",
   "frame": null
  }
 }

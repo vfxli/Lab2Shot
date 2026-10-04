@@ -27,14 +27,41 @@ from __future__ import annotations
 
 from typing import Any
 
+
+def say(key: str, **params: Any) -> str:
+    """A sentence of this module in the language now: the words are the catalogue's, the page's own (ui.conditions.*,
+    lab2shot/i18n/<lang>/ui/conditions.toml: webui/src/platform/conditions.ts says the same sentences with the same
+    keys, word for word), never written here. This file is also loaded on its own (a DCC plugin, clients/common/lab2shot_dcc
+    paths.conditions_module): there the lab2shot package may be missing, and a plugin sets `say` to its own lookup;
+    until it does, the key and its parameters are what comes back."""
+    try:
+        from lab2shot import i18n
+    except ImportError:
+        return key + (" " + " ".join(f"{k}={v}" for k, v in params.items()) if params else "")
+    return i18n.t(key, **params)
+
+
+def joined(items) -> str:
+    """A list in a sentence, joined the language's way (list.sep). Like `say`, a plugin that loads this file on its own
+    sets it to its own lookup (clients/common/lab2shot_dcc/paths.py conditions_module)."""
+    try:
+        from lab2shot import i18n
+    except ImportError:
+        return ", ".join(items)
+    return i18n.separator().join(items)
+
+
 KEYWORDS = {"and", "or", "not", "in", "true", "false"}
+# what a value of a kind must be, by the kind a parameter takes (the page's valueRefused says the same keys)
+WANT = {"boolean": "ui.conditions.want_boolean", "integer": "ui.conditions.want_integer",
+        "number": "ui.conditions.want_number", "string": "ui.conditions.want_string"}
 # the longest a number may be written (sign and point included): past it, written wrong on both sides (a longer one
 # is no value a parameter holds, and the two languages would read it differently)
 MOST_DIGITS = 30
 # what separates tokens, spelled out the same on both sides (the page's conditions.ts SPACE): str.isspace and a
 # JavaScript \s differ on a few characters (\ufeff, \x1c-\x1f, \x85), so neither is used
 SPACE = frozenset("\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
-                  "\u2028\u2029\u202f\u205f\u3000\ufeff")
+                  "\u2028\u2029\u202f\u205f\ufeff" + chr(0x3000))  # (the ideographic space by its number: no CJK text in code)
 COMPARE = ("==", "!=", "<=", ">=", "<", ">")
 # what a name is made of, spelled out the same on both sides (conditions.ts nameStart / nameChar): ASCII letters and _,
 # the CJK unified ideographs (with extension A), ASCII digits after the first; never str.isalpha, whose Unicode
@@ -51,12 +78,18 @@ def _name_char(c: str) -> bool:
 
 
 class ConditionError(ValueError):
-    """写法错误：`at` 是出错的位置（第几个字，从 0 数），`why` 是中文说明。"""
+    """写法错误：`at` 是出错的位置（第几个字，从 0 数），`why` 是说明（its catalogue key, ui.conditions.<…> written out
+    whole, said in the language now when read)."""
 
-    def __init__(self, why: str, at: int) -> None:
-        super().__init__(why)
-        self.why = why
+    def __init__(self, key: str, at: int, **params: Any) -> None:
+        super().__init__(key)
+        self.key = key
+        self.params = params
         self.at = at
+
+    @property
+    def why(self) -> str:
+        return say(self.key, **self.params)
 
 
 # ------------------------------------------------------------------ 分词
@@ -78,13 +111,13 @@ def _tokens(text: str) -> list[tuple[str, Any, int]]:
                 i += 1
             if i < n and text[i] == ".":
                 if not (i + 1 < n and "0" <= text[i + 1] <= "9"):
-                    raise ConditionError("小数点后面要有数字", i)
+                    raise ConditionError("ui.conditions.decimal_digits", i)
                 i += 1
                 while i < n and "0" <= text[i] <= "9":
                     i += 1
             word = text[start:i]
             if len(word) > MOST_DIGITS:  # (Python's int refuses past 4300 digits with a plain ValueError)
-                raise ConditionError(f"数字太长（最多 {MOST_DIGITS} 个字符）", start)
+                raise ConditionError("ui.conditions.number_too_long", start, most=MOST_DIGITS)
             out.append(("num", float(word) if "." in word else int(word), start))
             continue
         if c in "\"'":
@@ -96,7 +129,7 @@ def _tokens(text: str) -> list[tuple[str, Any, int]]:
                 chars.append(text[i])
                 i += 1
             if i >= n:
-                raise ConditionError("字符串没有结束的引号", start)
+                raise ConditionError("ui.conditions.unclosed_quote", start)
             i += 1
             out.append(("str", "".join(chars), start))
             continue
@@ -116,8 +149,8 @@ def _tokens(text: str) -> list[tuple[str, Any, int]]:
             i += 1
             continue
         if c == "=":
-            raise ConditionError("相等要写两个等号 ==", start)
-        raise ConditionError(f"不认识的字符「{c}」", start)
+            raise ConditionError("ui.conditions.double_equals", start)
+        raise ConditionError("ui.conditions.unknown_char", start, char=c)
     out.append(("end", None, n))
     return out
 
@@ -139,7 +172,7 @@ class _Parser:
     def deeper(self, at: int) -> None:
         self.depth += 1
         if self.depth > MOST_NESTED:
-            raise ConditionError(f"括号或 not 套得太深（最多 {MOST_NESTED} 层）", at)
+            raise ConditionError("ui.conditions.too_deep", at, most=MOST_NESTED)
 
     def peek(self, k: int = 0) -> tuple[str, Any, int]:
         return self.toks[min(self.i + k, len(self.toks) - 1)]
@@ -161,7 +194,7 @@ class _Parser:
     def whole(self) -> tuple:
         node = self.or_()
         if not self.is_("end"):
-            raise ConditionError(f"「{_said(self.peek())}」放在这里不对", self.peek()[2])
+            raise ConditionError("ui.conditions.misplaced", self.peek()[2], token=_said(self.peek()))
         return node
 
     def or_(self) -> tuple:
@@ -201,7 +234,7 @@ class _Parser:
         return left
 
     def items(self) -> list:
-        self.expect("op", "[", "in 后面要跟方括号列表，例如 in [1, 2]")
+        self.expect("op", "[", "ui.conditions.in_list")
         out = []
         if self.is_("op", "]"):
             self.take()
@@ -211,7 +244,7 @@ class _Parser:
             if self.is_("op", ","):
                 self.take()
                 continue
-            self.expect("op", "]", "列表少了右方括号 ]，或者两项之间少了逗号")
+            self.expect("op", "]", "ui.conditions.list_unclosed")
             return out
 
     def operand(self) -> tuple:
@@ -228,19 +261,19 @@ class _Parser:
         if kind == "op" and value == "(":
             self.deeper(self.take()[2])
             node = self.or_()
-            self.expect("op", ")", "少了右括号 )")
+            self.expect("op", ")", "ui.conditions.paren_unclosed")
             self.depth -= 1
             return node
         if kind == "end":
-            raise ConditionError("表达式没写完", at)
-        raise ConditionError(f"「{_said(self.peek())}」放在这里不对", at)
+            raise ConditionError("ui.conditions.unfinished", at)
+        raise ConditionError("ui.conditions.misplaced", at, token=_said(self.peek()))
 
 
 def _said(tok: tuple[str, Any, int]) -> str:
     kind, value, _at = tok
     if kind == "str":
         return f'"{value}"'
-    return "结尾" if kind == "end" else str(value)
+    return say("ui.conditions.end") if kind == "end" else str(value)
 
 
 def blank(text) -> bool:
@@ -447,12 +480,41 @@ def disable_when_of(entry: dict) -> str | None:
 
 
 def problem(text: str | None, known) -> str | None:
-    """条件的问题（中文），没有问题为 None。`known`：所有公开参数的对外名字。"""
+    """条件的问题（in the language now: `say`），没有问题为 None。`known`：所有公开参数的对外名字。"""
     try:
         node = parse(text or "")
     except ConditionError as exc:
-        return f"写法不对（第 {exc.at + 1} 个字附近）：{exc.why}"
+        return say("ui.conditions.syntax", at=exc.at + 1, why=exc.why)
     missing = [n for n in names(node) if n not in set(known)]
     if missing:
-        return "用到了没有公开的参数：" + "、".join(f"「{n}」" for n in missing)
+        return say("ui.conditions.unknown_names", names=joined(missing))
+    return None
+
+
+# ------------------------------------------------------------------ 参数值规则（一份：服务器 engine/templates.py 与 DCC 插件
+# 同用这里；网页 platform/conditions.ts valueRefused 逐字相同，lab2shot check conditions 管着）
+
+
+def _is_number(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def value_refused(spec: dict, value: Any) -> str | None:
+    """Why the target parameter (its interface spec: type, nullable, options, minimum, maximum) would not take
+    `value` (None: it would). The one rule: apply_values on the server and a DCC plugin before it sends anything."""
+    if value is None:
+        return None if spec["nullable"] else say("ui.conditions.not_null")
+    kind = spec["type"]
+    fits = {"boolean": isinstance(value, bool), "integer": isinstance(value, int) and not isinstance(value, bool),
+            "number": _is_number(value), "string": isinstance(value, str)}.get(kind, False)
+    if not fits:
+        return say(WANT.get(kind, "ui.conditions.want_menu_unfit"))
+    if spec.get("options") and not any(value == o and type(value) is type(o) or (_is_number(value) and _is_number(o) and value == o)
+                                       for o in spec["options"]):
+        return say("ui.conditions.one_of", options=" / ".join(map(str, spec["options"])))
+    if _is_number(value):
+        if spec.get("minimum") is not None and value < spec["minimum"]:
+            return say("ui.conditions.below_min", min=format(spec["minimum"], "g"))
+        if spec.get("maximum") is not None and value > spec["maximum"]:
+            return say("ui.conditions.above_max", max=format(spec["maximum"], "g"))
     return None

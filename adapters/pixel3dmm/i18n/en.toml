@@ -1,0 +1,65 @@
+# The Pixel3DMM extension's own words and messages in English (the same keys as zh.toml).
+
+"E-PIXEL3DMM-NOFACE" = "Pixel3DMM needs one clear face in every frame of the shot, and some frames have none ({reason}). Narrow the frame range to the part where the face stays in the image, or use footage with a larger, more frontal face."
+"E-PIXEL3DMM-TOOMANYFRAMES.one" = "Pixel3DMM solves at most {most} frame at a time, and this shot has {have}. Split it into several parts and solve each (it optimizes the whole shot jointly, so each part solves its own face shape)."
+"E-PIXEL3DMM-TOOMANYFRAMES.other" = "Pixel3DMM solves at most {most} frames at a time, and this shot has {have}. Split it into several parts and solve each (it optimizes the whole shot jointly, so each part solves its own face shape)."
+"N-PIXEL3DMM-WHYFRAMES.one" = "Its last step optimizes the whole shot jointly, {least} frame at a time"
+"N-PIXEL3DMM-WHYFRAMES.other" = "Its last step optimizes the whole shot jointly, {least} frames at a time"
+"N-PIXEL3DMM-CROPPED.one" = "only {got} / {count} frame was cropped"
+"N-PIXEL3DMM-CROPPED.other" = "only {got} / {count} frames were cropped"
+"N-PIXEL3DMM-MICANOFACE" = "MICA found no face in the frames it sampled"
+"E-PIXEL3DMM-NOSEG.one" = "Face parsing gave only {got} / {count} frame: in some frames the face is too small, too far off-center or covered, and Pixel3DMM cannot go on."
+"E-PIXEL3DMM-NOSEG.other" = "Face parsing gave only {got} / {count} frames: in some frames the face is too small, too far off-center or covered, and Pixel3DMM cannot go on."
+"E-PIXEL3DMM-PRIOR.one" = "{kind} was predicted for only {got} / {count} frame: not enough VRAM, or the footage has bad frames. See this step's error in the log."
+"E-PIXEL3DMM-PRIOR.other" = "{kind} was predicted for only {got} / {count} frames: not enough VRAM, or the footage has bad frames. See this step's error in the log."
+"E-PIXEL3DMM-NOTRACK" = "Frame {frame} has no fit: the fit stopped partway. See the last error in the log."
+"E-PIXEL3DMM-STEP" = "The step \"{step}\" stopped (exit code {code}). See this step's last error in the log."
+"I-PIXEL3DMM-STEPCROP" = "Find face, crop, face landmarks"
+"I-PIXEL3DMM-STEPMICA" = "MICA face shape estimate"
+"I-PIXEL3DMM-STEPSEGMENT" = "Face parsing"
+"I-PIXEL3DMM-STEPPRIORS" = "Predict normal maps and canonical face coordinates"
+"I-PIXEL3DMM-STEPTRACK" = "Fit FLAME"
+"I-PIXEL3DMM-NORMALS" = "Normal map"
+"I-PIXEL3DMM-UVCOORDS" = "Canonical face coordinates"
+
+[stage]
+crop = "Finding the face, cropping, face landmarks"
+mica = "Estimating the face shape (MICA)"
+segment = "Face parsing"
+track = "Fitting FLAME"
+predict_normals = "Predicting normal maps"
+predict_uv = "Predicting canonical face coordinates"
+read_tracking = "Reading the tracking results"
+write_maps = "Writing normal and UV coordinate maps"
+collect_results = "Collecting results"
+
+[node."pixel3dmm.face_solve"]
+subtitle = "Face Motion"
+description = "Pixel3DMM first predicts normal maps and canonical face coordinates per frame, then fits the FLAME head model to the whole shot: frame by frame first, then jointly over the whole sequence with temporal smoothing, with one camera for the shot and a solved focal length. More accurate and steadier than SMIRK Face Motion, but more than ten times slower; every frame must have a face, at most 1000 frames per shot."
+official.note = "① **The full set of official FLAME parameters is the Skinned Character port**: no new type and no extra port (parametric bodies such as SMPL / SMPL-X / MANO / FLAME / MHR are skin + skin weights + skeletal animation, packed as a Skinned Character, not a separate data type). Item by item (worker.py head_in_camera): `shape` (300 values, one per shot) becomes this face's rest mesh and rest skeleton (npz rest_vertices / rest_joints), with FLAME's own skin weights (npz skin_weights); `R` and `t` (the head's per-frame rotation and translation, together with the camera's R_base / t_base) become the root joint's per-frame rotation and translation (npz local_rotations[:, 0] and transl); `neck` becomes the neck joint (local_rotations[:, 1]), `jaw` the jaw joint ([:, 2]), `eyes` the two eyeball joints ([:, 3:5]); `exp` (100) and `eyelids` (2) become 102 blend shape targets on the Skinned Character (npz blendshapes / blendshape_names / blendshape_weights). `joint_transforms` is upstream's product of these joint rotations down the skeleton hierarchy; we compute it from the same local_rotations (npz joints), so it is not separate data. **No parameter is lost.** ② The RGB input is official: `scripts/network_inference.py:121 img` (also tracker.py:586 images). ③ The Normal Map and UV Coordinates outputs are official too: `scripts/network_inference.py:146-154 output['uv_map'] / output['normals']`. ④ The official camera is only fl / pp (intrinsics) plus one base pose R_base / t_base, shared by the whole shot."
+licence.note = "Pixel3DMM code and model weights are CC BY-NC 4.0; the FLAME face model and the MICA identity network are likewise for non-commercial research only."
+
+[node."pixel3dmm.face_solve".port.uv]
+label = "UV Coordinates"
+
+[node."pixel3dmm.face_solve".param.quality]
+label = "Quality"
+option.fast = "Fast"
+option.standard = "Standard"
+option.fine = "Fine"
+
+[node."pixel3dmm.face_solve".stage]
+write_maps = "Writing normal and UV coordinate maps"
+
+[extension.pixel3dmm]
+summary = "A family of highly generalized vision transformers that predict per-pixel geometric cues to constrain the optimization of a 3D morphable face model (3DMM), reconstructing a 3D face from a single image"
+license.name = "CC BY-NC 4.0 (code and model weights) + FLAME non-commercial + MICA non-commercial"
+license.summary = "Non-commercial. The Pixel3DMM code and the model weights of its two prediction networks are CC BY-NC 4.0: not for commercial production. Running it requires the FLAME face model (FLAME 2020 generic_model.pkl, optionally FLAME 2023), which you download yourself after registering at flame.is.tue.mpg.de; non-commercial research only, no redistribution. The identity prior is MPI's MICA (proprietary code, licensed non-commercial use only; its model weights are non-commercial too), whose face detection uses InsightFace antelopev2 (non-commercial research only). Rasterization uses NVIDIA nvdiffrast (NVIDIA Source Code License, non-commercial research). Others: PIPNet landmarks MIT, facer / FaRL face parsing MIT, pytorch3d BSD-3-Clause, chumpy MIT"
+weight.uv.note = "Pixel3DMM canonical face coordinate (UV) prediction network, 2.1 GB (authors' Google Drive, CC BY-NC 4.0)"
+weight.normals.note = "Pixel3DMM normal prediction network, 1.4 GB (authors' Google Drive, CC BY-NC 4.0)"
+weight.mica.note = "MICA identity network (MPI, non-commercial research only), 479 MB"
+weight.pipnet-wflw.note = "PIPNet WFLW 98-point landmarks (ResNet-18, MIT), 47 MB"
+weight.farl-celebm.note = "FaRL CelebAMask-HQ face parsing (Microsoft, MIT)"
+weight.retinaface-mobilenet.note = "RetinaFace MobileNet-0.25 face detection (used by facer, MIT)"
+weight.resnet18-imagenet.note = "ImageNet ResNet-18 (torchvision, BSD-3-Clause), used to build PIPNet's network"
+weight.antelopev2.note = "InsightFace antelopev2 face detection / arcface (used by MICA, non-commercial research), 344 MB"

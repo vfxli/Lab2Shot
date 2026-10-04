@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import time
 
+from .. import i18n
 from ..database import db
 from ..errors import Invalid
 from ..messages import Msg
@@ -30,7 +31,6 @@ from ..periods import Periods, local_day
 
 DAY_S = 86400
 MAX_DAYS = 3660  # a per-day series is at most ten years long
-NOBODY = "未分环节"  # an account without a department (the administrator until they choose one)
 COUNTS = ("runs", "reuses", "seconds", "gpu_seconds", "frames")
 
 
@@ -94,14 +94,16 @@ def _done(row: dict) -> dict:
 def _uses() -> list[tuple[float, str, str, str, dict]]:
     """(when the job ended, account, department, node type, its usage) of every finished job; an account as
     「张三（zhangsan）」, a deleted one as 「已删除的用户」."""
-    from ..accounts import DELETED
+    from ..accounts import deleted_label, label_of
+
+    gone = deleted_label()
 
     rows = db().rows(f"""
         SELECT j.finished, a.name, a.username, a.deleted, COALESCE(a.department, '') AS department, u.node_type,
                {', '.join('u.' + k for k in COUNTS)}
         FROM job_usage u JOIN jobs j ON j.id = u.job_id LEFT JOIN users a ON a.id = j.user_id
         WHERE j.finished IS NOT NULL ORDER BY j.finished""")
-    return [(r[0], DELETED if r["deleted"] or r["username"] is None else f"{r['name']}（{r['username']}）", r["department"],
+    return [(r[0], gone if r["deleted"] or r["username"] is None else label_of(r["name"], r["username"]), r["department"],
              r["node_type"], {k: r[k] for k in COUNTS}) for r in rows]
 
 
@@ -111,9 +113,10 @@ def stats(since: float | None = None, until: float | None = None, tz_minutes: in
     reuses, compute seconds (and on a GPU), frames, who asked, when last used (since the last reset, in the range or
     before it), and per-day series of runs, reuses and seconds. Days
     are counted in the viewer's time zone (`tz_minutes` east of UTC)."""
+    NOBODY = i18n.t("farm.no_department")  # an account without a department (the administrator until they choose one)
     from ..extensions import extensions
     from ..extensions.status import extension_status
-    from ..accounts import departments
+    from ..accounts import department_label, departments
     from ..nodes import node_types
 
     begun = start()
@@ -142,7 +145,7 @@ def stats(since: float | None = None, until: float | None = None, tz_minutes: in
     projects: dict[str, dict] = {}
 
     def title(runtime: str) -> str:
-        return "核心节点" if runtime == "core" else exts[runtime].title if runtime in exts else runtime
+        return i18n.t("farm.core_nodes") if runtime == "core" else exts[runtime].title if runtime in exts else runtime
 
     def project(runtime: str, installed: bool = False) -> dict:
         if runtime not in projects:
@@ -160,7 +163,7 @@ def stats(since: float | None = None, until: float | None = None, tz_minutes: in
         t = types.get(type_id)
         row = project(runtime_of(type_id))
         if type_id not in row["nodes"]:
-            row["nodes"][type_id] = {"id": type_id, "label": t.label if t else type_id, **_counts()}
+            row["nodes"][type_id] = {"id": type_id, "subtitle": t.subtitle if t else type_id, **_counts()}
         return row, row["nodes"][type_id]
 
     runtimes = {t.runtime for t in types.values()}
@@ -174,7 +177,8 @@ def stats(since: float | None = None, until: float | None = None, tz_minutes: in
 
     # departments (their people, their projects) and people (their projects)
     listed = departments()
-    depts: dict[str, dict] = {d: {"name": d, "listed": True, **_counts(), "daily": daily(), "people": {}} for d in listed}
+    # keyed by the department's value (an id of the factory list, or as an administrator wrote it); `name` is how it shows
+    depts: dict[str, dict] = {d: {"value": d, "name": department_label(d), "listed": True, **_counts(), "daily": daily(), "people": {}} for d in listed}
     people: dict[str, dict] = {}
 
     def sub(parent: dict, key: str, name: str, **extra) -> dict:
@@ -191,13 +195,13 @@ def stats(since: float | None = None, until: float | None = None, tz_minutes: in
         _add(row, use, person)
         _add(node, use, person)
         who, where = person or NOBODY, dept or NOBODY
-        d = depts.setdefault(where, {"name": where, "listed": False, **_counts(), "daily": daily(), "people": {}})
+        d = depts.setdefault(where, {"value": where, "name": department_label(where) if dept else NOBODY, "listed": False, **_counts(), "daily": daily(), "people": {}})
         p = people.setdefault(who, {"name": who, "departments": set(), **_counts(), "daily": daily(), "projects": {}})
         dp = sub(d, "people", who, projects={})
         runtime = runtime_of(type_id)
         for r in (d, p, dp, sub(dp, "projects", runtime, title=title(runtime)), sub(p, "projects", runtime, title=title(runtime))):
             _add(r, use, person)
-        p["departments"].add(where)
+        p["departments"].add(department_label(where) if dept else NOBODY)
         for series in (row["daily"], d["daily"], p["daily"]):
             for k in ("runs", "reuses", "seconds"):
                 series[k][i] += use[k]
@@ -216,14 +220,14 @@ def stats(since: float | None = None, until: float | None = None, tz_minutes: in
 
     out = []
     for row in projects.values():
-        nodes = sorted((_done(n) for n in row["nodes"].values()), key=lambda n: (-n["runs"] - n["reuses"], n["label"]))
+        nodes = sorted((_done(n) for n in row["nodes"].values()), key=lambda n: (-n["runs"] - n["reuses"], n["subtitle"]))
         out.append({**_done(finish_series(row)), "nodes": nodes})
     out.sort(key=lambda p: (p["core"], -p["runs"] - p["reuses"], -p["seconds"], p["title"].lower()))
     dept_out = [{**_done(finish_series(d)), "people": order(
         {**_done(dp), "projects": order(_done(x) for x in dp["projects"].values())} for dp in d["people"].values())}
         for d in depts.values()]
-    dept_out.sort(key=lambda d: (not d["listed"], d["name"] == NOBODY, -d["seconds"], -d["runs"] - d["reuses"],
-                                 listed.index(d["name"]) if d["listed"] else 0))
+    dept_out.sort(key=lambda d: (not d["listed"], d["value"] == NOBODY, -d["seconds"], -d["runs"] - d["reuses"],
+                                 listed.index(d["value"]) if d["listed"] else 0))
     people_out = order({**_done(finish_series(p)), "departments": sorted(p["departments"]),
                         "projects": order(_done(x) for x in p["projects"].values())} for p in people.values())
     return {"since": lo, "until": until, "start": begun, "undo": bool(db().meta("usage.history")), "days": days,

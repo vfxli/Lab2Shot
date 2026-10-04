@@ -9,20 +9,20 @@ main(); no bookkeeping code is needed and field names stay consistent.
 Usage (adapters/birefnet/worker.py and adapters/sapiens2/worker.py are working examples)::
 
     run = Run(job, "BiRefNet")            # CUDA check, raw folder, peak VRAM reset
-    with run.loading("BiRefNet 模型"):    # stage name + timing + the model's VRAM
+    with run.loading("load_model"):      # stage id (its words: the extension's stage.load_model) + timing + VRAM
         model = load_model(...)
-    run.stage("抠像")
-    for i, (frame, path) in run.each(job.frames, "抠像"):   # progress reported automatically
+    run.stage("matte")
+    for i, (frame, path) in run.each(job.frames, "matte"):   # progress reported automatically
         with run.frame():                 # this frame's time (measured after synchronize)
             ...inference, file writing...
     run.finish([f for f, _ in job.frames], kind="matte", ...)  # standard fields + the worker's own -> result.json
 
 The steps every main() starts with are here as well::
 
-    run = Run.start(job_path, "moge.geometry", "MoGe")          # load_job + check_node + Run(...)
-    run.weights(checkpoint, what="MoGe 权重")                    # when missing, states where to get them (require_weights)
+    run = Run.start(job_path, "moge.depth", "MoGe")          # load_job + check_node + Run(...)
+    run.weights(checkpoint)                                      # when missing, states where to get them (require_weights)
     frames = run.frames(step=p["step"])                          # non-empty, every step-th frame with the last always included, first frame's size
-    model = run.model("MoGe 模型", load_model, checkpoint, device)  # loading timing + VRAM cap + resident loading
+    model = run.model("load_model", load_model, checkpoint, device)  # stage id + loading timing + VRAM cap + resident loading
     ...the algorithm itself...
     run.finish(frames.numbers, ...)
 """
@@ -116,7 +116,7 @@ class Run:
     def params(self):
         return self.job.params
 
-    def weights(self, *paths: Path, what: str = "权重", page: str = "") -> None:
+    def weights(self, *paths: Path, what: dict | None = None, page: str = "") -> None:
         """The weight files this job needs are on disk, or the job fails saying where they come from (require_weights)."""
         require_weights(self.extension, *paths, what=what, page=page)
 
@@ -138,11 +138,12 @@ class Run:
             say("W-FEEDFWD-JOBSIZE", job_width=self.job.width, job_height=self.job.height, width=width, height=height)
         return Frames([f for f, _ in used], [p for _, p in used], width, height)
 
-    def model(self, what: str, loader, *args, **kwargs):
-        """Load a model under the bookkeeping (`loading`): the GPU capped first (limit_gpu_memory: an allocation beyond
+    def model(self, word: str, loader, *args, stage_params: dict | None = None, **kwargs):
+        """Load a model under the bookkeeping (`loading`, `word` its stage id): the GPU capped first (limit_gpu_memory: an allocation beyond
         the card fails instead of spilling into RAM), then `loader(*args, **kwargs)`; a @resident loader keeps it
-        between jobs (serving.py)."""
-        with self.loading(what):
+        between jobs (serving.py). `stage_params`: the parameters of the stage's words ({model}), the rest goes to
+        `loader`."""
+        with self.loading(word, **(stage_params or {})):
             if self.gpu and self.gpu_cap_mb is None:
                 self.gpu_cap_mb = limit_gpu_memory()
             return loader(*args, **kwargs)
@@ -153,18 +154,19 @@ class Run:
         return fit_memory(self.job, bound, run, value)
 
     @contextmanager
-    def loading(self, what: str) -> Iterator[None]:
-        """The model loading section: stage name 「加载 …」, how long it took and how much VRAM is used after loading."""
-        stage(f"加载 {what}")
+    def loading(self, word: str, /, **params: Any) -> Iterator[None]:
+        """The model loading section: its stage (the id of words such as "Load the BiRefNet model"), how long it took
+        and how much VRAM is used after loading."""
+        stage(word, **params)
         t = time.time()
         yield
         self.load_seconds += time.time() - t  # a worker with several models (detector, pose, body, ...) loads several times: their sum
         if self.gpu:
             self.model_bytes = _torch().cuda.memory_allocated()
 
-    def stage(self, name: str) -> None:
-        """The next stage (the stage name on the progress bar)."""
-        stage(name)
+    def stage(self, word: str, /, **params: Any) -> None:
+        """The next stage, by its id and its words' parameters (the words on the progress bar: stage())."""
+        stage(word, **params)
 
     @contextmanager
     def frame(self) -> Iterator[None]:
@@ -184,10 +186,10 @@ class Run:
         self.frame_seconds.append(time.time() - started)
 
     @contextmanager
-    def timed(self, name: str) -> Iterator[list[float]]:
-        """A stage with its own time: `with run.timed("跟踪") as t:` ... afterwards `t[0]` is the seconds it took (a worker
+    def timed(self, word: str, /, **params: Any) -> Iterator[list[float]]:
+        """A stage with its own time: `with run.timed("track") as t:` ... afterwards `t[0]` is the seconds it took (a worker
         records read_seconds / track_seconds beside the standard fields)."""
-        self.stage(name)
+        self.stage(word, **params)
         started = time.time()
         box = [0.0]
         yield box
@@ -199,12 +201,13 @@ class Run:
         if count > 0:
             self.frame_seconds.extend([seconds / count] * count)
 
-    def each(self, items: Iterable[T], message: str) -> Iterator[tuple[int, T]]:
-        """Process items one by one, reporting progress after each (works directly with Job.frames' (frame number, path) list)."""
+    def each(self, items: Iterable[T], word: str = "", /, **params: Any) -> Iterator[tuple[int, T]]:
+        """Process items one by one, reporting progress after each (works directly with Job.frames' (frame number, path)
+        list); `word`: the id of what is counted ("" none), as progress() takes it."""
         items = list(items)
         for i, item in enumerate(items):
             yield i, item
-            progress(i + 1, len(items), message)
+            progress(i + 1, len(items), word, **params)
 
     def finish(self, frame_numbers: list[int], /, **info: Any):
         """result.json: standard fields first, the worker's own fields on top (the worker's value wins on a name clash:

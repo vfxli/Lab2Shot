@@ -15,16 +15,16 @@ from lab2shot.sdk import (rgb_port, Official, normal_port,
     WorldHumans,
     camera_normals,
     frame_maps,
+    window_of,
     measured_param,
 )
 
 # 「精度」三档：迭代次数（逐帧 iters + 联合 global_iters）与提前结束阈值同时变化。不接受任意数值：
-# 迭代次数可使单次计算从十几分钟增至一小时，因此仅提供三档经过验证的取值
-QUALITY_LABELS = {"fast": "快", "standard": "标准", "fine": "精细"}
+# 迭代次数可使单次计算从十几分钟增至一小时，因此仅提供三档经过验证的取值（fast / standard / fine）
 
 
 class Face(WorldHumans):
-    id = "pixel3dmm.face"
+    id = "pixel3dmm.face_solve"
     # 引用官方追踪器逐帧保存的内容（Tracker.save_checkpoint）：FLAME 的 exp / shape / eyes / eyelids /
     # jaw / neck / R / t，相机（R_base、t_base、fl、pp）以及 FLAME 计算出的顶点。
     official = Official(
@@ -32,22 +32,6 @@ class Face(WorldHumans):
               "third_party/pixel3dmm/repo/scripts/network_inference.py:55-160"),
         takes={"image": "Image.open"},
         gives={"character": "shape", "camera": "cam_params", "normal": "normals", "uv": "uv_map"},
-        note="① **官方的整套 FLAME 参数就是「蒙皮角色」这个口**，没有另立类型、也没有另加口（SMPL / SMPL-X / MANO / FLAME / MHR "
-             "这类参数化人体就是「蒙皮 + 权重 + 骨架动画」，装成「蒙皮角色」，不另立数据类型）。"
-             "逐项对上（worker.py head_in_camera）：`shape`（300 个，整段一个）变成这张脸的静止网格和静止骨架"
-             "（npz rest_vertices / rest_joints），配 FLAME 自己的蒙皮权重（npz skin_weights）；"
-             "`R` 和 `t`（头每帧的旋转和位移，连同相机的 R_base / t_base）变成根关节每帧的旋转和位移"
-             "（npz local_rotations[:, 0] 和 transl）；`neck` 变成脖子关节（local_rotations[:, 1]）、"
-             "`jaw` 变成下巴关节（[:, 2]）、`eyes` 变成左右眼球两个关节（[:, 3:5]）；`exp`（100 个）和 "
-             "`eyelids`（2 个）变成「蒙皮角色」上的 102 条 blendShape（npz blendshapes / blendshape_names / "
-             "blendshape_weights）。`joint_transforms` 是上游把这些关节"
-             "旋转按骨架层级乘起来的结果，我们这边由同一批 local_rotations 算出来（npz joints），不是另一份数据。"
-             "**一个参数都没丢。**"
-             "② 「RGB」输入口是官方的：`scripts/network_inference.py:121 img` "
-             "（还有 tracker.py:586 images）。"
-             "③ 「法线图」「UV 坐标图」两个输出口同样是官方的："
-             "`scripts/network_inference.py:146-154 output['uv_map'] / output['normals']`。"
-             "④ 官方的相机只有 fl / pp（内参）加一台基准位姿 R_base / t_base，整段共用一台。",
     )
     on_node = ("focal_mm", "quality")
     # 适用于面部足够大的特写，每一帧都须有人脸；整段联合解算，最多 1000 帧；
@@ -58,12 +42,12 @@ class Face(WorldHumans):
     # 是用「FrameHold」选取一帧，不适用于此情形，因此不声明 most_frames）
     min_frames = 16
     # 相机包内的 USD 由 io/usd.py write_camera 写入；片门偏移的定义变化后需更新结果版本。
-    version = 2
+    version = 3  # 3：裁切框截到画面内；法线 / UV 的有效区按官方人脸分割；带 overscan 时按画布贴回
     outputs = WorldHumans.outputs + (
         # 官方提供的两张屏幕空间预测：法线图转换到相机空间，与其他项目约定一致；
         # UV 图为 FLAME 自身的 UV 展开，与核心「规范坐标转 UV」的输出类型和术语相同
         normal_port(),
-        Port("uv", "image.2", "UV 坐标图", means=("projection",)),
+        Port("uv", "image.2", means=("projection",)),
     )
     runtime = "pixel3dmm"
     # 本方法自行解算相机：上游的 cam_params 包含 Focal Length、主点和整段共用的相机位姿
@@ -81,13 +65,13 @@ class Face(WorldHumans):
         OptionTrait(Param("quality").one_of("standard"), seconds_per_frame=6.2),
         OptionTrait(Param("quality").one_of("fine"), seconds_per_frame=11.4),
     )
-    licence = Licence(note="Pixel3DMM 代码和权重 CC BY-NC 4.0；FLAME 面部模型和 MICA 身份网络同样只限非商用科研。")
+    licence = Licence(note=True)
 
     class Params(CameraLensParams):
         quality: Literal["fast", "standard", "fine"] = measured_param(
-            "质量", {"fast": Measured(flat=True), "standard": Measured(flat=True),
+            {"fast": Measured(flat=True), "standard": Measured(flat=True),
                     "fine": Measured(flat=True)},
-            default="standard", group="拟合", option_labels=QUALITY_LABELS)
+            default="standard", group="fit")
 
 
 
@@ -104,7 +88,8 @@ class Face(WorldHumans):
         out = super().convert(ctx, raw, job)
 
         ymin, ymax, xmin, xmax = (int(v) for v in raw.result()["crop"])
-        width, height = image.meta["width"], image.meta["height"]
+        # the crop is in the pixels the worker was sent: the whole data window (an undistorted plate's canvas)
+        width, height = window_of(image).canvas
 
         def onto_plate(read):
             """将裁切尺寸的图贴到画面画布上，并生成对应的「哪里有值」遮罩。"""
@@ -119,13 +104,13 @@ class Face(WorldHumans):
                 return canvas, mask
             return placed
 
-        normal_kind, normal_read, normal_opts, normal_resample = camera_normals("normal", "valid")
+        normal_kind, normal_read, normal_opts, normal_resample = camera_normals("normal", "normal_valid")
         maps = {
             "normal": (normal_kind, onto_plate(normal_read), normal_opts, normal_resample),
             # FLAME 官方的 UV 展开，并非按几何投影得到（区别于核心「规范坐标转 UV」的三种方式），因此 projection 为 unknown
-            "uv": ("image.2", onto_plate(lambda d: (d["uv"], d["valid"])), {"projection": "unknown"}),
+            "uv": ("image.2", onto_plate(lambda d: (d["uv"], d["uv_valid"])), {"projection": "unknown"}),
         }
-        out |= frame_maps(ctx, raw, image, maps, stage="写出法线图和 UV 坐标图")
+        out |= frame_maps(ctx, raw, image, maps, stage="write_maps")
         return out
 
 

@@ -19,7 +19,7 @@ seconds_per_frame；测过的选项记录在 NodeDef.traits 中（nodes/applies.
 
 from __future__ import annotations
 
-TIERS: tuple[str, ...] = ("低", "中", "高", "超高")
+TIERS: tuple[str, ...] = ("low", "medium", "high", "very_high")  # ids: the pages say them (低 / 中 / 高 / 超高)
 VRAM_BREAKS = (6.0, 12.0, 18.0)  # GB
 TIME_BREAKS = (0.2, 1.0, 5.0)  # seconds/frame
 
@@ -34,6 +34,6 @@ def _tier_index(x: float | None, breaks: tuple[float, float, float]) -> int:
 
 
 def compute_tier(vram_gb: float, seconds_per_frame: float | None) -> str:
-    """Return 低/中/高/超高 from the measured peak VRAM (GB) and seconds per frame at default parameters, taking the
+    """Return low / medium / high / very_high (低/中/高/超高) from the measured peak VRAM (GB) and seconds per frame at default parameters, taking the
     worse of the two axes (see the module docstring)."""
     return TIERS[max(_tier_index(vram_gb, VRAM_BREAKS), _tier_index(seconds_per_frame, TIME_BREAKS))]

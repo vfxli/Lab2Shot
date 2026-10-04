@@ -132,10 +132,9 @@ def sent_fov_x_deg(lens: Lens, image: Packet) -> float | None:
 
 
 def camera_port(optional: bool = True) -> Port:
-    """画面相机的输入端口：提供其镜头和每帧的位置，方法整台使用（人体家族只在 `camera_to_worker == "camera"` 时保留
-    这个口，families/humans.py）。"""
-    return Port("camera", "scene.camera", "相机", optional=optional, expects=(SameShot(),),
-                help="接上相机：这台相机的逐帧位姿和 Focal Length 都用上，算出来的结果放进这台相机的世界")
+    """画面相机的输入端口：提供其镜头和每帧的位置，上游方法本身要整台相机时使用（tracks3d、ViPE 交给上游；
+    人体家族没有这个口，families/humans.py）。"""
+    return Port("camera", "scene.camera", optional=optional, expects=(SameShot(),), words="kit.plate_camera")
 
 
 def send_camera(ctx, camera: Packet | None, frames: list[int], focal_px: np.ndarray) -> Path:
@@ -144,7 +143,17 @@ def send_camera(ctx, camera: Packet | None, frames: list[int], focal_px: np.ndar
     （Y 向上），OpenCV 相机轴向，单位为米。未提供相机时只有焦距（接入的变焦数据）。"""
     fields = {"frames": np.asarray(frames), "focal_px": np.asarray(focal_px, np.float64)}
     if camera is not None:
-        fields["cam_to_world"] = CameraSamples.from_packet(camera, frames).opencv_m()
+        samples = CameraSamples.from_packet(camera, frames)
+        fields["cam_to_world"] = samples.opencv_m()
+        # Complete calibration travels alongside the legacy focal/pose contract.
+        # The worker sees all data-window pixels, including the camera's overscan.
+        K = np.repeat(np.eye(3)[None], len(frames), axis=0)
+        K[:, 0, 0] = fields["focal_px"]
+        K[:, 1, 1] = fields["focal_px"] * samples.pixel_aspect
+        K[:, :2, 2] = samples.principal_px()
+        K[:, 0, 2] += samples.overscan[0]
+        K[:, 1, 2] += samples.overscan[1]
+        fields["K"] = K
     path = ctx.work / "camera_in.npz"
     np.savez(path, **fields)
     return path
@@ -199,4 +208,7 @@ def lens_note(focal_px: float, width: int, filmback_mm: float) -> str:
     而非摄影中按对角线折算的「35mm 等效」：Maya / Nuke / 3DE 中相机即由「Focal Length + Filmback」两个数描述，
     两种算法并列出现时使用者会误读为同一数值。Focal Length（px）保留在括号中，它是上游 COLMAP / AnyCalib / GeoCalib
     自身解算的原始值。"""
-    return f"Focal Length {units.focal_mm(focal_px, filmback_mm, width):.3g} mm（Filmback {filmback_mm:g} mm，{focal_px:.0f} px）"
+    from ... import i18n
+
+    return i18n.t("lens.solved_note", focal=f"{units.focal_mm(focal_px, filmback_mm, width):.3g}", filmback=f"{filmback_mm:g}",
+                  px=f"{focal_px:.0f}")

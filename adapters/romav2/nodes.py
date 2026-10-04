@@ -22,26 +22,21 @@ class Match(WorkerNode):
         cite="third_party/romav2/repo/src/romav2/romav2.py:301-395",
         takes={"image": "img_like_A", "other": "img_like_B"},
         gives={"stmap": "warp_AB", "matches": "matches_AB", "other_matches": "matches_AB"},
-        note="「ST-map」就是官方的 warp_AB（romav2.py:344）搬到画面尺寸；「画面上的匹配点」「参考图上的匹配点」两个口是同一份"
-             "matches_AB（romav2.py:384）的两半：每一行是 A 的坐标加 B 的坐标，同名的点是一对。"
-             "上游还出反向的 warp_BA / overlap_BA / precision（romav2.py:365-368），我们没有对应的口",
     )
     # RTX 4090，默认的「精细」设置
-    cost = Cost(gpu=True, vram_gb=9.7, whole="按一对图算的（不是一段镜头逐帧），实测约 2.3 秒一对")
-    licence = Licence(note="代码和权重 MIT；权重里的 DINOv3 骨干受 DINOv3 License 约束（可商用，禁军事等用途，再分发附许可证）。")
-    inputs = (rgb_port(), rgb_port("参考图", name="other"))
+    cost = Cost(gpu=True, vram_gb=9.7, whole=True)
+    licence = Licence(note=True)
+    inputs = (rgb_port(), rgb_port(name="other"))
     # 「匹配点数」0 gives no matches: both ports are empty then, as asked, and nothing downstream says so (may_be_empty)
-    outputs = (Port("stmap", "image.2", "ST-map"), Port("matches", "tracks2d", "画面上的匹配点", may_be_empty=True),
-               Port("other_matches", "tracks2d", "参考图上的匹配点", shape=Shape(window="input:other"), may_be_empty=True))
-    confidence = Confidence("probability", help="每个像素在参考图里找不找得到、匹配准不准（RoMa v2 自己的把握，0–1）。当遮罩用先接「置信度转遮罩」")
+    outputs = (Port("stmap", "image.2"), Port("matches", "tracks2d", may_be_empty=True),
+               Port("other_matches", "tracks2d", shape=Shape(window="input:other"), may_be_empty=True))
+    confidence = Confidence("probability", help=True)
 
     class Params(NodeParams):
-        setting: Literal["fast", "base", "precise"] = P(
-            "precise", label="精度", group="匹配",
-            option_labels={"fast": "快", "base": "标准", "precise": "精细"})
+        setting: Literal["fast", "base", "precise"] = P("precise", group="matching")
         matches: Literal[0, 500, 1000, 2000] = measured_param(
-            "匹配点数", {0: Measured(flat=True), 500: Measured(flat=True), 1000: Measured(flat=True), 2000: Measured(flat=True)}, default=2000,
-            group="匹配")
+            {0: Measured(flat=True), 500: Measured(flat=True), 1000: Measured(flat=True), 2000: Measured(flat=True)}, default=2000,
+            group="matching")
 
     @classmethod
     def info(cls, params, inputs):

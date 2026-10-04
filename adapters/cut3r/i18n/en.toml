@@ -1,0 +1,58 @@
+# This extension's words and messages in English (the same keys as zh.toml).
+
+# ---- parameters and images
+"E-CUT3R-OVERLAP" = "Segment Overlap {overlap:d} must be less than Max Frames per Segment {max_frames:d}: lower the overlap, or raise the frames per segment"
+
+# ---- reconstruction
+"E-CUT3R-STITCH" = "CUT3R failed to stitch its segments: the overlapping frames of two neighboring segments have too few usable static points to align. Raise Segment Overlap and compute again"
+"W-CUT3R-FOCALJUMP" = "The focal length CUT3R estimates per frame varies between {low:d} and {high:d} px (more than 10%): with Shared Focal Length on, one focal length, the median, is used. Unless the lens zooms, so much variation means the camera solve is unstable; compare it with other solves such as ViPE"
+"W-CUT3R-STITCHERROR" = "The stitching error between two segments at frames {first:d}–{last:d} is {error:.1%} (more than 5%): the camera may jump a frame there. Raise Segment Overlap, or raise Max Frames per Segment, and compute again"
+
+# ---- words
+
+[node."cut3r.reconstruct"]
+subtitle = "Depth and Camera"
+description = "Image → a camera and a depth map per frame, read forward frame by frame with memory, at close to real scale. Fast (about 0.1 seconds a frame) and light on GPU memory; on long lenses it underestimates the focal length, and Memory Update set to TTT3R is the long-shot mode. Camera accuracy is below vipe.camera_solve and pi3.reconstruct; its strengths are speed and low GPU memory. The point cloud is one point map per frame (upstream's native point map, placed back in that frame's own camera), not one for the whole shot: upstream has no output that merges a scene point cloud. Long shots are solved in segments (Max Frames per Segment: 64 by default, 200 with TTT3R) aligned on their overlapping frames: upstream's demo runs the whole shot in one pass, but the model was trained on 4–64 frames, and on 128 frames one pass measured 1.9–3.4 times the trajectory error of segments (TUM desk 13.5 vs 4.0 cm, TUM room 27.7 vs 10.8 cm, Bonn follow shot 10.2 vs 5.3 cm). For upstream's single pass, set Max Frames per Segment to at least the shot's length."
+
+[node."cut3r.reconstruct".param.update]
+label = "Memory Update"
+
+[node."cut3r.reconstruct".param.update.option]
+cut3r = "CUT3R"
+ttt3r = "TTT3R"
+
+[node."cut3r.reconstruct".param.max_frames]
+label = "Max Frames per Segment"
+
+[node."cut3r.reconstruct".param.resolution]
+label = "Processing Resolution"
+
+[node."cut3r.reconstruct".param.overlap]
+label = "Segment Overlap"
+
+[node."cut3r.reconstruct".param.conf_threshold]
+label = "Confidence Threshold"
+
+[node."cut3r.reconstruct".param.shared_focal]
+label = "Shared Focal Length"
+
+[node."cut3r.reconstruct".param.unit_cm]
+label = "Scale"
+
+[node."cut3r.reconstruct".official]
+note = "Depth is the Z of upstream's self-view point map (demo.py:210 pts3d_in_self_view); the camera is its pose head (demo.py:218 camera_pose) plus the focal length estimated by estimate_focal_knowing_depth at demo.py:234. Point Cloud is upstream's other point map, pts3d_in_other_view (demo.py:211, world coordinates), computed together with the self-view point map (heads/dpt_head.py:258): the worker puts it back in camera space with upstream's own pose for that frame, and the family places it back in the world by the stitched cameras. There is no mask or bounding box input: demo.py's argparse has only --seq_path / --size and so on (demo.py:42-77), and the model itself takes no mask; to reconstruct a part only, black out the rest before it goes in: sam_3d_body.detect_people → mask_from_boxes → composite (keep) → this node's RGB port"
+
+[extension.cut3r]
+summary = "A unified framework for a broad range of 3D tasks; at its core is a stateful recurrent model that updates its state with every new observation"
+
+[extension.cut3r.license]
+name = "CC BY-NC-SA 4.0 (code and weights)"
+summary = "Non-commercial: the CUT3R code and the cut3r_512_dpt_4_64 weights are both released under CC BY-NC-SA 4.0 (attribution, no commercial use, adaptations under the same license). The Naver DUSt3R / CroCo code bundled with it is also CC BY-NC-SA 4.0; CroCo's pos_embed.py / blocks.py also hold CC BY-NC 4.0 parts from Meta MAE and Apache-2.0 parts from timm. No other models or non-commercial dependencies (SMPL, nvdiffrast and so on are not needed). The TTT3R mode of Memory Update is the memory update rule of TTT3R (Inception3D, MIT), implemented by this extension's worker rewriting a few lines after its code, with nothing more downloaded; it still uses CUT3R's weights, so the whole stays non-commercial"
+
+[extension.cut3r.weight.cut3r_512_dpt_4_64]
+note = "cut3r_512_dpt_4_64.pth (3.2 GB, Google Drive, CC BY-NC-SA 4.0, non-commercial)"
+
+[stage]
+read_frames = "Read Frames"
+reconstruct = "Reconstruct"
+reconstruct_segment = "Reconstruct (segment {segment}/{segments})"

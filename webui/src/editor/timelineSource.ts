@@ -1,9 +1,12 @@
 import { useEffect, useMemo } from "react";
+import { tool2d } from "../view/handles2d";
 import type { Manifest } from "../api";
 import { useViewer } from "../state/viewer";
 import { joinLayers, markLayers, type MarkLayer } from "../model/timelineMath";
 import { useDisplayPlan } from "../view/plan";
 import { useDescribed } from "../transfer/described";
+import { t } from "../i18n/t";
+import { useLang } from "../i18n/lang";
 
 /** 时间线为视图显示的节点跟随的内容（本模块是其唯一来源）：其第一个结果（或其处理的素材）的帧、其自身结果携带的标记
  * （"keys" 与 "marks"），以及正在绘制的节点上火柴人手柄已摆好姿势的帧。
@@ -30,11 +33,12 @@ export function useSource(): { layers: MarkLayer[] } {
     if (followed) useViewer.getState().setFrames(followed.meta.frames ?? [], useViewer.getState().frame);
   }, [follows, followed, loads]);
 
-  const mine = useMemo(() => joinLayers(owned.flatMap((m) => (m ? markLayers(m.meta) : []))), [owned]);
+  const lang = useLang((s) => s.lang); // the layers' names are words: made again in a new language
+  const mine = useMemo(() => joinLayers(owned.flatMap((m) => (m ? markLayers(m.meta, t("ui.timeline.keyframes")) : []))), [owned, lang]);
   // 当前火柴人手柄已绘制的帧（参数中每一条目都记录其所在帧，nodes/handles.py parse_figures）。
   // 仅处理火柴人：其他二维手柄（点、框、轮廓）在标尺上标记帧没有意义，手绘遮罩对整段镜头生效，
   // 点与框是提供给解算器的提示，不表示该帧已绘制完成
-  const figure = plan?.handles.find((h) => h.stage === "2d" && h.kind === "figure") ?? null;
+  const figure = plan?.handles.find((h) => !!tool2d(h)?.marksFrames) ?? null; // 每一条对应一帧的 2D 手柄（火柴人：view/handles2d.ts 的表）
   const posed = figure ? ((plan!.node.data.params[Object.values(figure.params)[0]] as string[] | undefined) ?? []) : [];
   // 以 | 连接而非逗号：条目本身包含大量逗号（「1001:300,300,284,…」），
   // 按逗号拆分会将每个坐标都视为帧号（300 也是整数），标尺上会多出数十个错误标记
@@ -42,7 +46,7 @@ export function useSource(): { layers: MarkLayer[] } {
   const drawn = useMemo((): MarkLayer[] => {
     const frames = [...new Set(posedKey ? posedKey.split("|").map((s) => Number(s.split(":")[0])) : [])]
       .filter((f) => Number.isInteger(f)).sort((a, b) => a - b);
-    return frames.length ? [{ name: "关键姿势", frames }] : [];
-  }, [posedKey]);
+    return frames.length ? [{ name: t("ui.timeline.key_poses"), frames }] : [];
+  }, [posedKey, lang]);
   return { layers: drawn.length ? joinLayers([...mine, ...drawn]) : mine };
 }

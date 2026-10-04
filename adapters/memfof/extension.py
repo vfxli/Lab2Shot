@@ -19,18 +19,13 @@ class Memfof(Extension):
     name = "memfof"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "MEMFOF"
-    summary = "面向 Full HD 视频的省显存光流方法，精度高而显存占用低"
     homepage = "https://msu-video-group.github.io/memfof"
     source = GitSource(url=MEMFOF_URL, commit=MEMFOF_COMMIT)
     license = LicenseInfo(
         tag=COMMERCIAL,
-        name="BSD-3-Clause",
         url="https://github.com/msu-video-group/memfof/blob/dev/LICENSE",
-        summary=(
-            "代码和权重（Hugging Face 模型卡写明 bsd-3-clause）都是 BSD-3：可以商用、修改和再分发，保留版权声明即可。"
-            "只用作者自己发布的权重，不用 PTLFlow 重新训练的那一份（那份是 CC BY-NC-SA，非商用）"
-        ),
     )
+    generative = False
     import_repo = ""  # the `memfof` package from the pinned repo (its setup only adds huggingface / safetensors)
     env = EnvSpec(
         python="3.12",
@@ -39,9 +34,8 @@ class Memfof(Extension):
         torch_backend="cu130",
     )
     weights = (
-        hf_file(HF_REPO, HF_REVISION, "model.safetensors", key="memfof_tskh", sha256=MODEL_SHA256,
-                note="MEMFOF-Tartan-T-TSKH（BSD-3，303 MB；作者推荐用于真实视频）"),
-        hf_file(HF_REPO, HF_REVISION, "config.json", key="memfof_tskh_config", note="MEMFOF 网络配置"),
+        hf_file(HF_REPO, HF_REVISION, "model.safetensors", key="memfof_tskh", sha256=MODEL_SHA256),
+        hf_file(HF_REPO, HF_REVISION, "config.json", key="memfof_tskh_config"),
     )
 
 

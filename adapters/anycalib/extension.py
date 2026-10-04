@@ -28,19 +28,13 @@ class AnyCalib(Extension):
     lens_groups = (GROUP,)  # AnyCalib's own model names -> core formula table (lens.py)
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "AnyCalib"
-    summary = "用任选的一种镜头模型，从一张透视 / 编辑过 / 带畸变的画面做相机标定"
     homepage = "https://github.com/javrtg/AnyCalib"
     source = GitSource(url=ANYCALIB_URL, commit=ANYCALIB_COMMIT)
     license = LicenseInfo(
         tag=COMMERCIAL,
-        name="Apache-2.0（代码和权重）",
         url="https://github.com/javrtg/AnyCalib/blob/main/LICENSE",
-        summary=(
-            "代码和权重均为 Apache-2.0，可商用（README 与 Hugging Face 模型卡均声明）。"
-            "骨干网络为 DINOv2 ViT-L 结构（Apache-2.0），权重已包含在 AnyCalib 检查点里，不另外下载。"
-            "训练数据含 Laval 室内 HDR 数据集，作者说明已获其许可以宽松许可证发布权重"
-        ),
-    )
+        )
+    generative = False
     env = EnvSpec(
         python="3.12",
         # Upstream only needs "torch"; 2.8.0 cu128 runs on both the 4090 (sm_89) and the 5090 (sm_120).
@@ -52,7 +46,6 @@ class AnyCalib(Extension):
             "javrtg/AnyCalib", HF_REVISION, f"{name}.pt",
             key=name.replace("_", "-"),
             dest=f"{name}.pt",
-            note=f"AnyCalib {name}（DINOv2 ViT-L + DPT 解码器，1.28 GB，Apache-2.0）",
             sha256=sha256,
         )
         for name, sha256 in CHECKPOINTS.items()

@@ -5,6 +5,8 @@ import type { UsageCounts, UsageProject } from "../api";
 import { durationText, fullTimeText, hoursText } from "../platform/format";
 import { useRefSize } from "../platform/size";
 import { HOURS, REUSES, RUNS, countsTip, dayLabel, lastText, times, used } from "./Usage";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 function useWidth(): [RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement>(null);
@@ -36,7 +38,7 @@ const short = (text: string) => (text.length > LABEL_CHARS ? `${text.slice(0, LA
 export type BarRow = UsageCounts & { name: string; title: string };
 
 /** Per row (project, department, person): how often it was used (runs, then reuses, one bar) and how long it computed. */
-export function ProjectBars({ projects, selected, onSelect, what = "项目" }: { projects: BarRow[]; selected: string | null; onSelect: (name: string) => void; what?: string }) {
+export function ProjectBars({ projects, selected, onSelect, what = t("ui.admin.usage.project_lower") }: { projects: BarRow[]; selected: string | null; onSelect: (name: string) => void; what?: string }) {
   const [ref, width] = useWidth();
   const ROW = 24;
   const THICK = 12;
@@ -51,12 +53,12 @@ export function ProjectBars({ projects, selected, onSelect, what = "项目" }: {
   return (
     <div ref={ref} className="u-chart">
       {width > 0 && (
-        <svg className="u-svg" width={width} height={height} role="img" aria-label={`各${what}使用次数和计算时长`}>
+        <svg className="u-svg" width={width} height={height} role="img" aria-label={t("ui.admin.usage.bars_label", { what })}>
           <text x={labelW} y={12} className="u-axis-title">
-            使用次数
+            {t("ui.admin.usage.uses")}
           </text>
           <text x={hoursX} y={12} className="u-axis-title">
-            计算时长
+            {t("ui.admin.usage.cook_time")}
           </text>
           {projects.map((p, i) => {
             const y = HEAD + i * ROW;
@@ -66,7 +68,7 @@ export function ProjectBars({ projects, selected, onSelect, what = "项目" }: {
             const gap = runsW > 0 && reusesW > 0 ? 2 : 0;
             const hoursW = (p.seconds / maxSeconds) * panel;
             return (
-              <g key={p.name} className={`u-row${selected === p.name ? " on" : ""}`} onClick={() => onSelect(p.name)} data-tip={countsTip(p.title, p)}>
+              <g key={p.name} className={`u-row${selected === p.name ? " on" : ""}`} onClick={() => onSelect(p.name)} {...tipAttrs(tipOf("value", countsTip(p.title, p)))}>
                 <rect className="u-row-bg" x={0} y={y} width={width} height={ROW} rx={5} />
                 <text x={labelW - 10} y={y + ROW / 2} textAnchor="end" dominantBaseline="central" className="u-label">
                   {short(p.title)}
@@ -106,15 +108,15 @@ export function DailyChart({ days, daily }: { days: string[]; daily: UsageProjec
   const hoursTop = niceMax(Math.max(...hours, 0));
   const every = Math.max(1, Math.ceil(days.length / Math.max(1, Math.floor(plot / 58))));
   const charts: [string, number, number, boolean][] = [
-    ["次", 0, usesTop, true],
-    ["小时", H + GAP, hoursTop, false],
+    [t("ui.admin.usage.unit_times"), 0, usesTop, true],
+    [t("ui.admin.usage.unit_hours"), H + GAP, hoursTop, false],
   ];
   const height = 2 * H + GAP + AXIS;
   const x = (i: number) => GUTTER + i * band + (band - barW) / 2;
   return (
     <div ref={ref} className="u-chart">
       {width > 0 && (
-        <svg className="u-svg" width={width} height={height} role="img" aria-label="每天的使用次数和计算时长">
+        <svg className="u-svg" width={width} height={height} role="img" aria-label={t("ui.admin.usage.daily_label")}>
           {charts.map(([unit, top, max, counts]) => (
             <g key={unit}>
               {[0, 0.5, 1].map((f) => (
@@ -155,7 +157,7 @@ export function DailyChart({ days, daily }: { days: string[]; daily: UsageProjec
                   y={0}
                   width={Math.max(band, 1)}
                   height={2 * H + GAP}
-                  data-tip={`${dayLabel(day)}\n计算 ${times(daily.runs[i])} · 复用 ${times(daily.reuses[i])}\n计算 ${hoursText(daily.seconds[i])}`}
+                  {...tipAttrs(tipOf("value", t("ui.admin.usage.day_tip", { day: dayLabel(day), runs: times(daily.runs[i]), reuses: times(daily.reuses[i]), hours: hoursText(daily.seconds[i]) })))}
                 />
               </g>
             );
@@ -167,18 +169,18 @@ export function DailyChart({ days, daily }: { days: string[]; daily: UsageProjec
 }
 
 type SortKey = "title" | "runs" | "reuses" | "seconds" | "frames" | "users" | "last";
-const COLUMNS: [SortKey, string, string][] = [
-  ["title", "项目", "三方项目，点开看它的每个节点"],
-  ["runs", "计算", "真正计算的次数"],
-  ["reuses", "复用", "没有计算就给出结果的次数：用了缓存，或者用了以前算好的原始结果"],
-  ["seconds", "计算时长", "真正计算用的时间，排队和等内存不算"],
-  ["frames", "帧数", "计算处理的帧数"],
-  ["users", "用户", "有几个人用过：按提交任务的人和机器分"],
-  ["last", "最近使用", "重置以来最近一次使用，不限于所选区间"],
+const COLUMNS: [SortKey, () => string][] = [
+  ["title", () => t("ui.admin.usage.col_project")],
+  ["runs", () => t("ui.admin.usage.col_runs")],
+  ["reuses", () => t("ui.admin.usage.col_reuses")],
+  ["seconds", () => t("ui.admin.usage.cook_time")],
+  ["frames", () => t("ui.admin.usage.col_frames")],
+  ["users", () => t("ui.admin.usage.col_users")],
+  ["last", () => t("ui.admin.usage.col_last")],
 ];
 
-const sortValue = (p: UsageCounts & { title?: string; label?: string }, key: SortKey): number | string =>
-  key === "title" ? (p.title ?? p.label ?? "").toLowerCase() : key === "users" ? p.users.length : key === "last" ? (p.last ?? 0) : p[key];
+const sortValue = (p: UsageCounts & { title?: string; subtitle?: string }, key: SortKey): number | string =>
+  key === "title" ? (p.title ?? p.subtitle ?? "").toLowerCase() : key === "users" ? p.users.length : key === "last" ? (p.last ?? 0) : p[key];
 
 function CountCells({ c }: { c: UsageCounts }) {
   const zero = (n: number) => (n ? "tnum" : "tnum u-zero");
@@ -186,14 +188,14 @@ function CountCells({ c }: { c: UsageCounts }) {
     <>
       <td className={zero(c.runs)}>{times(c.runs)}</td>
       <td className={zero(c.reuses)}>{times(c.reuses)}</td>
-      <td className={zero(c.seconds)} data-tip={c.seconds ? `${durationText(c.seconds)}${c.gpu_seconds ? `，显卡上 ${durationText(c.gpu_seconds)}` : "，都在 CPU 上"}` : undefined}>
+      <td className={zero(c.seconds)} {...tipAttrs(tipOf("value", c.seconds ? (c.gpu_seconds ? t("ui.admin.usage.seconds_gpu", { total: durationText(c.seconds), gpu: durationText(c.gpu_seconds) }) : t("ui.admin.usage.seconds_cpu", { total: durationText(c.seconds) })) : undefined))}>
         {hoursText(c.seconds)}
       </td>
       <td className={zero(c.frames)}>{c.frames.toLocaleString("zh-CN")}</td>
-      <td className={zero(c.users.length)} data-tip={c.users.length ? c.users.join("\n") : undefined}>
-        {c.users.length} 人
+      <td className={zero(c.users.length)} {...tipAttrs(tipOf("value", c.users.length ? c.users.join("\n") : undefined))}>
+        {t("ui.admin.usage.people", { n: c.users.length })}
       </td>
-      <td className={c.last ? "tnum" : "tnum u-zero"} data-tip={c.last ? fullTimeText(c.last) : undefined}>
+      <td className={c.last ? "tnum" : "tnum u-zero"} {...tipAttrs(tipOf("value", c.last ? fullTimeText(c.last) : undefined))}>
         {lastText(c.last)}
       </td>
     </>
@@ -215,14 +217,13 @@ export function UsageTable({ projects, selected, onSelect }: { projects: UsagePr
       <table className="q-table u-table">
         <thead>
           <tr>
-            {COLUMNS.map(([key, label, tip]) => (
+            {COLUMNS.map(([key, label]) => (
               <th
                 key={key}
                 className={`u-sort${sort.key === key ? " on" : ""}`}
-                data-tip={tip}
                 onClick={() => setSort((s) => (s.key === key ? { key, desc: !s.desc } : { key, desc: key !== "title" }))}
               >
-                {label}
+                {label()}
                 {sort.key === key ? (sort.desc ? " ↓" : " ↑") : ""}
               </th>
             ))}
@@ -246,8 +247,8 @@ function ProjectRows({ project: p, open, onSelect }: { project: UsageProject; op
           <span className="u-caret">{open ? "▾" : "▸"}</span>
           <span className={used(p) ? undefined : "u-zero"}>{p.title}</span>
           {!p.installed && (
-            <span className="chip u-chip" data-tip="这段时间用过，现在没有安装">
-              未安装
+            <span className="chip u-chip">
+              {t("ui.admin.usage.not_installed")}
             </span>
           )}
         </td>
@@ -257,7 +258,7 @@ function ProjectRows({ project: p, open, onSelect }: { project: UsageProject; op
         p.nodes.map((n) => (
           <tr key={n.id} className="u-node">
             <td>
-              <span className={used(n) ? undefined : "u-zero"}>{n.label}</span>
+              <span className={used(n) ? undefined : "u-zero"}>{n.subtitle}</span>
               <span className="u-node-id mono">{n.id}</span>
             </td>
             <CountCells c={n} />

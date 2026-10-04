@@ -2,242 +2,362 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "ca0500e879964171880c6df356139034",
-  "name": "动作生成 · Kimodo",
-  "intro": "Kimodo 是在 700 小时可商用光学动捕上训练的运动学动作扩散模型，由文字描述生成人体和机器人动作。这张卡不用素材：写一句英文描述、定好帧范围，默认重定向到「标准人」（SMPL-X 体型，非商用且需注册）；商用请换成导入的 FBX / USD 角色或选「原骨架」（G1 机器人要选它）；模型选 SMPL-X 时仅限研究。",
+  "name": {
+   "zh": "动作生成 · Kimodo",
+   "en": "Motion Generation · Kimodo"
+  },
+  "intro": {
+   "zh": "Kimodo 是在 700 小时可商用光学动捕上训练的运动学动作扩散模型，由文字描述生成人体和机器人动作。这张卡不用素材：写一句英文描述、定好帧范围，默认重定目标到「标准人」（SMPL-X 体型，非商用且需注册）；商用请换成导入的 FBX / USD 角色或选「原骨架」（G1 机器人要选它）；模型选 SMPL-X 时仅限研究。",
+   "en": "Kimodo is a kinematic motion diffusion model trained on 700 hours of commercially usable optical mocap, generating human and robot motion from text. No footage needed: write an English description and set the frame range. By default it retargets to Standard Human (SMPL-X, non-commercial, registration required); for commercial use pick an imported FBX / USD character or Original Skeleton (required for G1)."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-22T12:00:00",
   "deliverable": "motion_gen",
   "owner": "admin",
-  "updated": "2026-10-01T12:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "prompt",
-   "label": "文字描述",
-   "target": "make.prompt"
+   "label": {
+    "zh": "提示词",
+    "en": "Prompt"
+   },
+   "target": "prompt_text.value"
   },
   {
-   "name": "start_frame",
-   "label": "起始帧号",
+   "name": "make_start_frame",
+   "label": {
+    "zh": "开始帧号",
+    "en": "Start Frame Number"
+   },
    "target": "make.start_frame"
   },
   {
-   "name": "end_frame",
-   "label": "结束帧号",
+   "name": "make_end_frame",
+   "label": {
+    "zh": "结束帧号",
+    "en": "End Frame Number"
+   },
    "target": "make.end_frame"
   },
   {
-   "name": "model",
-   "label": "模型",
+   "name": "make_model",
+   "label": {
+    "zh": "模型",
+    "en": "Model"
+   },
    "target": "make.model"
   },
   {
-   "name": "seed",
-   "label": "随机种子",
+   "name": "make_seed",
+   "label": {
+    "zh": "随机种子",
+    "en": "Seed"
+   },
    "target": "make.seed"
   },
   {
    "name": "fps",
-   "label": "帧率",
+   "label": {
+    "zh": "帧速率",
+    "en": "FPS"
+   },
    "target": "fps.value"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "steps",
-     "label": "去噪步数",
+     "name": "make_steps",
+     "label": {
+      "zh": "去噪步数",
+      "en": "Denoising Steps"
+     },
      "target": "make.steps"
     },
     {
-     "name": "post_process",
-     "label": "模型后处理",
+     "name": "make_post_process",
+     "label": {
+      "zh": "模型后处理",
+      "en": "Model Post-Process"
+     },
      "target": "make.post_process"
     }
    ]
   },
   {
-   "name": "cook_generate",
-   "label": "生成",
+   "name": "cook_make",
+   "label": {
+    "zh": "生成",
+    "en": "Generate"
+   },
    "target": "make.cook"
   },
   {
    "kind": "group",
-   "label": "角色",
+   "label": {
+    "zh": "角色",
+    "en": "Character"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "target_src",
-     "label": "目标角色",
+     "label": {
+      "zh": "目标角色",
+      "en": "Target Character"
+     },
      "target": "target_src.value",
      "widget": "menu",
      "options": [
       {
        "value": 1,
-       "label": "原骨架（不重定向）"
+       "label": {
+        "zh": "原骨架（不重定目标）",
+        "en": "Original Skeleton (No Retarget)"
+       }
       },
       {
        "value": 2,
-       "label": "导入的角色（FBX）",
-       "hide_when": "model in [\"g1\", \"g1_seed\"]"
+       "label": {
+        "zh": "导入的角色（FBX）",
+        "en": "Imported Character (FBX)"
+       },
+       "hide_when": "make_model in [\"g1\", \"g1_seed\"]"
       },
       {
        "value": 3,
-       "label": "导入的角色（USD）",
-       "hide_when": "model in [\"g1\", \"g1_seed\"]"
+       "label": {
+        "zh": "导入的角色（USD）",
+        "en": "Imported Character (USD)"
+       },
+       "hide_when": "make_model in [\"g1\", \"g1_seed\"]"
       },
       {
        "value": 4,
-       "label": "标准人",
-       "hide_when": "model in [\"g1\", \"g1_seed\"]"
+       "label": {
+        "zh": "标准人",
+        "en": "Standard Human"
+       },
+       "hide_when": "make_model in [\"g1\", \"g1_seed\"]"
       }
      ],
-     "tip": "G1 机器人只能选「原骨架」；从 G1 切回人体模型后目标仍停在「原骨架」，要交蒙皮角色记得改回来"
+     "note": {
+      "zh": "G1 机器人只能选「原骨架」；从 G1 切回人体模型后目标仍停在「原骨架」，要交蒙皮角色记得改回来",
+      "en": "The G1 robot allows only \"Original Skeleton\"; after switching from G1 back to a human model the target stays on \"Original Skeleton\", so switch it back to deliver a skinned character"
+     }
     },
     {
      "name": "body_height_cm",
-     "label": "身高",
+     "label": {
+      "zh": "身高",
+      "en": "Body Height"
+     },
      "target": "body.height_cm",
      "hide_when": "target_src != 4",
      "show_on_change": true
     },
     {
      "name": "char_fbx_path",
-     "label": "角色文件（FBX）",
+     "label": {
+      "zh": "角色文件（FBX）",
+      "en": "Character File (FBX)"
+     },
      "target": "char_fbx.path",
      "hide_when": "target_src != 2",
      "show_on_change": true
     },
     {
      "name": "char_fbx_characters",
-     "label": "选哪个角色",
+     "label": {
+      "zh": "选哪个角色",
+      "en": "Character"
+     },
      "target": "char_fbx.characters",
      "hide_when": "target_src != 2",
      "show_on_change": true
     },
     {
      "name": "char_usd_path",
-     "label": "角色文件（USD）",
+     "label": {
+      "zh": "角色文件（USD）",
+      "en": "Character File (USD)"
+     },
      "target": "char_usd.path",
      "hide_when": "target_src != 3",
      "show_on_change": true
     },
     {
      "name": "char_usd_characters",
-     "label": "选哪个角色",
+     "label": {
+      "zh": "选哪个角色",
+      "en": "Character"
+     },
      "target": "char_usd.characters",
      "hide_when": "target_src != 3",
      "show_on_change": true
     },
     {
-     "name": "load_target",
-     "label": "载入角色",
+     "name": "cook_target_pick",
+     "label": {
+      "zh": "载入角色",
+      "en": "Load Character"
+     },
      "target": "target_pick.cook",
      "hide_when": "target_src in [1, 4]"
     },
     {
      "name": "mapping",
-     "label": "对应关系",
+     "label": {
+      "zh": "对应关系",
+      "en": "Correspondence"
+     },
      "target": "retarget.mapping",
      "show_on_change": true,
      "hide_when": "target_src == 1"
     },
     {
      "name": "motion_rest",
-     "label": "动作基准姿势",
+     "label": {
+      "zh": "动作静止姿势",
+      "en": "Motion Rest Pose"
+     },
      "target": "retarget.motion_rest",
      "show_on_change": true,
      "hide_when": "target_src == 1"
     },
     {
      "name": "motion_rest_frame",
-     "label": "动作基准帧",
+     "label": {
+      "zh": "动作基准帧",
+      "en": "Motion Rest Frame"
+     },
      "target": "retarget.motion_rest_frame",
      "hide_when": "(target_src == 1) or motion_rest != \"frame\"",
      "show_on_change": true
     },
     {
      "name": "target_rest",
-     "label": "目标基准姿势",
+     "label": {
+      "zh": "目标静止姿势",
+      "en": "Target Rest Pose"
+     },
      "target": "retarget.target_rest",
      "show_on_change": true,
      "hide_when": "target_src == 1"
     },
     {
      "name": "target_rest_frame",
-     "label": "目标基准帧",
+     "label": {
+      "zh": "目标基准帧",
+      "en": "Target Rest Frame"
+     },
      "target": "retarget.target_rest_frame",
      "hide_when": "(target_src == 1) or target_rest != \"frame\"",
      "show_on_change": true
     },
     {
-     "name": "rest_fix",
-     "label": "基准姿势摆正",
+     "name": "retarget_rest_fix",
+     "label": {
+      "zh": "静止姿势校正",
+      "en": "Rest Pose Correction"
+     },
      "target": "retarget.rest_fix",
      "show_on_change": true,
      "hide_when": "target_src == 1"
     },
     {
      "name": "motion_pose",
-     "label": "动作初始姿势",
+     "label": {
+      "zh": "动作初始姿势",
+      "en": "Motion Initial Pose"
+     },
      "target": "retarget.motion_pose",
      "show_on_change": true,
      "hide_when": "target_src == 1"
     },
     {
      "name": "target_pose",
-     "label": "目标初始姿势",
+     "label": {
+      "zh": "目标初始姿势",
+      "en": "Target Initial Pose"
+     },
      "target": "retarget.target_pose",
      "show_on_change": true,
      "hide_when": "target_src == 1"
     },
     {
      "name": "size_by",
-     "label": "角色缩放",
+     "label": {
+      "zh": "角色缩放",
+      "en": "Character Scale"
+     },
      "target": "retarget.size_by",
      "hide_when": "target_src == 1",
      "show_on_change": true
     },
     {
      "name": "size",
-     "label": "缩放倍率",
+     "label": {
+      "zh": "缩放倍率",
+      "en": "Scale Factor"
+     },
      "target": "retarget.size",
      "hide_when": "(target_src == 1) or size_by != \"manual\"",
      "show_on_change": true
     },
     {
      "name": "scale_by",
-     "label": "髋高依据",
+     "label": {
+      "zh": "髋高依据",
+      "en": "Hip Height From"
+     },
      "target": "retarget.scale_by",
      "hide_when": "target_src == 1",
      "show_on_change": true
     },
     {
      "name": "scale",
-     "label": "髋高倍率",
+     "label": {
+      "zh": "髋高倍率",
+      "en": "Hip Height Factor"
+     },
      "target": "retarget.scale",
      "hide_when": "target_src == 1",
      "show_on_change": true
     },
     {
      "name": "height_mode",
-     "label": "髋高跟法",
+     "label": {
+      "zh": "髋高跟法",
+      "en": "Hip Height Mode"
+     },
      "target": "retarget.height_mode",
      "hide_when": "target_src == 1",
      "show_on_change": true
     },
     {
      "name": "height_offset",
-     "label": "高度偏移",
+     "label": {
+      "zh": "高度偏移",
+      "en": "Height Offset"
+     },
      "target": "retarget.height_offset",
      "hide_when": "target_src == 1",
      "show_on_change": true
     },
     {
-     "name": "cook_retarget",
-     "label": "重定向",
+     "name": "cook_skin",
+     "label": {
+      "zh": "重定目标",
+      "en": "Retarget"
+     },
      "target": "skin.cook",
      "hide_when": "target_src == 1"
     }
@@ -245,34 +365,49 @@
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "usd.name"
     },
     {
      "name": "unit",
-     "label": "单位",
-     "target": "out.unit"
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -283,7 +418,6 @@
   {
    "id": "make",
    "type": "kimodo.motion",
-   "label": "Kimodo 动作生成",
    "params": {
     "skeleton": null,
     "keys": "",
@@ -293,7 +427,7 @@
     "end_frame": 1120,
     "mapping": null,
     "model": "rp",
-    "prompt": "A person walks forward.",
+    "prompt": "",
     "steps": 100,
     "guidance": 2.0,
     "seed": 0,
@@ -301,8 +435,8 @@
     "fps": 24.0
    },
    "ui": {
-    "x": 440,
-    "y": 0,
+    "x": 720,
+    "y": 171,
     "on_node": [
      "prompt",
      "keys",
@@ -310,19 +444,19 @@
     ]
    },
    "promoted": [
-    "fps"
+    "fps",
+    "prompt"
    ]
   },
   {
    "id": "body",
-   "type": "core.standard_human",
-   "label": "标准人",
+   "type": "standard_human",
    "params": {
     "height_cm": null
    },
    "ui": {
     "x": 0,
-    "y": 910,
+    "y": 470,
     "on_node": [
      "height_cm"
     ]
@@ -330,8 +464,7 @@
   },
   {
    "id": "retarget",
-   "type": "core.retarget",
-   "label": "动作重定向",
+   "type": "retarget",
    "params": {
     "motion_skeleton": null,
     "target_skeleton": null,
@@ -351,27 +484,25 @@
     "target_pose": []
    },
    "ui": {
-    "x": 800,
-    "y": 872
+    "x": 1080,
+    "y": 318
    }
   },
   {
    "id": "skin",
-   "type": "core.linear_skin",
-   "label": "线性蒙皮变形",
+   "type": "bone_deform",
    "params": {
     "skeleton_path": null,
     "character_skeleton": null
    },
    "ui": {
-    "x": 1200,
-    "y": 956
+    "x": 1440,
+    "y": 344
    }
   },
   {
-   "id": "out",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "id": "usd",
+   "type": "usd.output",
    "params": {
     "name": "animation",
     "format": "usd",
@@ -379,8 +510,8 @@
     "fps": 24.0
    },
    "ui": {
-    "x": 2000,
-    "y": 924,
+    "x": 2160,
+    "y": 251,
     "on_node": [
      "name",
      "unit"
@@ -392,25 +523,23 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 2400,
-    "y": 952
+    "x": 2520,
+    "y": 279
    }
   },
   {
    "id": "target_src",
-   "type": "core.value_int",
-   "label": "目标角色",
+   "type": "value_int",
    "params": {
     "value": 4,
     "unit": ""
    },
    "ui": {
-    "x": 40,
-    "y": 1708,
+    "x": 0,
+    "y": 880,
     "on_node": [
      "value"
     ]
@@ -419,7 +548,6 @@
   {
    "id": "char_fbx",
    "type": "fbx.import",
-   "label": "导入角色（FBX）",
    "params": {
     "path": "",
     "take": "",
@@ -429,14 +557,13 @@
     "characters": []
    },
    "ui": {
-    "x": 40,
-    "y": 1300
+    "x": 0,
+    "y": 649
    }
   },
   {
    "id": "char_usd",
-   "type": "core.import_usd",
-   "label": "导入角色（USD）",
+   "type": "usd.import",
    "params": {
     "path": "",
     "camera": "",
@@ -447,83 +574,134 @@
     "characters": []
    },
    "ui": {
-    "x": 40,
-    "y": 404
+    "x": 0,
+    "y": 179
    }
   },
   {
    "id": "target_pick",
-   "type": "core.switch",
-   "label": "选目标角色",
+   "type": "switch",
    "params": {
     "which": 1,
     "ways": [
      {
       "name": "a",
-      "label": "原骨架（不重定向，不经此路）"
+      "label": {
+       "zh": "原骨架（不重定目标，不经此路）",
+       "en": "Original Skeleton (No Retarget, Bypassed)"
+      }
      },
      {
       "name": "b",
-      "label": "导入的角色（FBX）"
+      "label": {
+       "zh": "导入的角色（FBX）",
+       "en": "Imported Character (FBX)"
+      }
      },
      {
       "name": "c",
-      "label": "导入的角色（USD）"
+      "label": {
+       "zh": "导入的角色（USD）",
+       "en": "Imported Character (USD)"
+      }
      },
      {
       "name": "d",
-      "label": "标准人"
+      "label": {
+       "zh": "标准人",
+       "en": "Standard Human"
+      }
      }
     ]
    },
    "ui": {
-    "x": 400,
-    "y": 910
+    "x": 360,
+    "y": 486
    }
   },
   {
    "id": "result",
-   "type": "core.switch",
-   "label": "交付哪个结果",
+   "type": "switch",
    "params": {
     "which": 1,
     "ways": [
      {
       "name": "a",
-      "label": "原骨架（不重定向）"
+      "label": {
+       "zh": "原骨架（不重定目标）",
+       "en": "Original Skeleton (No Retarget)"
+      }
      },
      {
       "name": "b",
-      "label": "导入的角色（FBX）"
+      "label": {
+       "zh": "导入的角色（FBX）",
+       "en": "Imported Character (FBX)"
+      }
      },
      {
       "name": "c",
-      "label": "导入的角色（USD）"
+      "label": {
+       "zh": "导入的角色（USD）",
+       "en": "Imported Character (USD)"
+      }
      },
      {
       "name": "d",
-      "label": "标准人"
+      "label": {
+       "zh": "标准人",
+       "en": "Standard Human"
+      }
      }
     ]
    },
    "ui": {
-    "x": 1600,
-    "y": 952
+    "x": 1800,
+    "y": 329
    }
   },
   {
    "id": "fps",
-   "type": "core.value_float",
-   "label": "帧率",
+   "type": "value_float",
    "params": {
     "value": 24.0,
     "unit": ""
    },
    "ui": {
-    "x": 80,
-    "y": 42,
+    "x": 360,
+    "y": 17,
     "on_node": [
      "value"
+    ]
+   }
+  },
+  {
+   "id": "prompt_text",
+   "type": "value_string",
+   "params": {
+    "value": "A person walks forward and waves."
+   },
+   "ui": {
+    "x": 0,
+    "y": 0,
+    "on_node": [
+     "value"
+    ]
+   }
+  },
+  {
+   "id": "translate",
+   "type": "llm.translate",
+   "params": {
+    "target_lang": "english",
+    "model": "hy_mt2_q4"
+   },
+   "ui": {
+    "x": 360,
+    "y": 196,
+    "on_node": [
+     "target_lang",
+     "model"
     ]
    }
   }
@@ -531,7 +709,7 @@
  "edges": [
   {
    "from": [
-    "out",
+    "usd",
     "files"
    ],
    "to": [
@@ -665,7 +843,7 @@
     "out"
    ],
    "to": [
-    "out",
+    "usd",
     "scene"
    ]
   },
@@ -685,7 +863,7 @@
     "value"
    ],
    "to": [
-    "out",
+    "usd",
     "param:fps"
    ]
   },
@@ -697,6 +875,26 @@
    "to": [
     "make",
     "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "prompt_text",
+    "value"
+   ],
+   "to": [
+    "translate",
+    "text"
+   ]
+  },
+  {
+   "from": [
+    "translate",
+    "text"
+   ],
+   "to": [
+    "make",
+    "param:prompt"
    ]
   }
  ],

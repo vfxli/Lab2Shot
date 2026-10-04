@@ -35,7 +35,7 @@ class Tier:
     """A GPU node at one setting: its default (param ""), or a choice that declares its own measured VRAM."""
 
     node: str
-    label: str
+    subtitle: str  # the node's subtitle (NodeDef.subtitle), in the language now
     runtime: str
     vram_gb: float
     param: str = ""
@@ -45,9 +45,17 @@ class Tier:
     def id(self) -> str:
         return f"{self.node}:{self.param}={self.option}" if self.param else self.node
 
+    def setting_label(self) -> str:
+        """The parameter it depends on as a message names it (nodes/text.py param_label: in its reader's language)."""
+        from ..nodes import node_types
+        from ..nodes.text import param_label
+
+        t = node_types().get(self.node)
+        return param_label(t, self.param) if t else self.param
+
     def message(self) -> Msg:
-        return (Msg("I-CARDS-TIEROPTION", node=self.label, setting=self.param, option=self.option, vram=self.vram_gb) if self.param
-                else Msg("I-CARDS-TIER", node=self.label, vram=self.vram_gb))
+        return (Msg("I-CARDS-TIEROPTION", type=self.node, setting=self.setting_label(), option=self.option, vram=self.vram_gb) if self.param
+                else Msg("I-CARDS-TIER", type=self.node, vram=self.vram_gb))
 
 
 def tiers() -> list[Tier]:
@@ -61,12 +69,12 @@ def tiers() -> list[Tier]:
     for t in sorted(node_types().values(), key=lambda t: t.id):
         if not (t.cost.gpu or any(tr.gpu for tr in t.traits)):
             continue
-        found = {t.id: Tier(t.id, t.label, t.runtime, float(t.cost.vram_gb))}
+        found = {t.id: Tier(t.id, t.subtitle, t.runtime, float(t.cost.vram_gb))}
         for tr in t.traits:
             if tr.vram_gb is not None and isinstance(tr.when, ParamIn):
-                found |= {x.id: x for x in (Tier(t.id, t.label, t.runtime, float(tr.vram_gb), tr.when.name, str(v)) for v in tr.when.values)}
+                found |= {x.id: x for x in (Tier(t.id, t.subtitle, t.runtime, float(tr.vram_gb), tr.when.name, str(v)) for v in tr.when.values)}
         for spec in t.param_specs():
-            found |= {x.id: x for x in (Tier(t.id, t.label, t.runtime, float(gb), spec["name"], str(setting))
+            found |= {x.id: x for x in (Tier(t.id, t.subtitle, t.runtime, float(gb), spec["name"], str(setting))
                                          for setting, gb in (spec.get("measured") or {}).items() if gb is not None)}
         out += found.values()
     return out
@@ -96,7 +104,7 @@ def _card(g: GpuState, running: dict, all_tiers: list[Tier]) -> dict:
     return {"uuid": g.uuid, "index": g.index, "name": g.name, "model": g.short_name, "memory_gb": round(g.memory_mb / 1024, 1),
             "arch": cap_to_sm(g.compute_cap) if g.compute_cap else "", "compute_cap": g.compute_cap, "authorized": g.authorized,
             "load": {"utilization": g.utilization, "used_gb": round(g.used_mb / 1024, 1), "temperature": g.temperature},
-            "running": {"job": job.id, "title": job.title, "who": job.client.who, "node": ticket.need.label} if job else None,
+            "running": {"job": job.id, "title": job.shown_title, "who": job.client.who, "node": ticket.need.label} if job else None,
             "extensions": compat.card_extensions(g),
             "tiers": [t.id for t in all_tiers if fits(t.vram_gb, (t.runtime,), g)]}
 
@@ -113,13 +121,13 @@ def view(farm) -> dict:
     titles = {name: ext.title for name, ext in extensions().items()}  # the page groups tiers and nodes by extension
     return {
         "cards": [_card(g, running, all_tiers) for g in gpus],
-        "tiers": [{"id": t.id, "node": t.node, "label": t.label, "param": t.param, "option": t.option, "vram_gb": t.vram_gb,
+        "tiers": [{"id": t.id, "node": t.node, "subtitle": t.subtitle, "param": t.param, "option": t.option, "vram_gb": t.vram_gb,
                    "runtime": t.runtime, "runtime_title": titles.get(t.runtime, t.runtime),
                    "message": t.message().json(), "available": t.id in enabled,
                    "cards": [g.uuid for g in gpus if fits(t.vram_gb, (t.runtime,), g)]} for t in all_tiers],
-        "nodes": [{"node": t.id, "label": t.label, "runtime": t.runtime, "runtime_title": titles.get(t.runtime, t.runtime),
-                   "vram_gb": t.cost.vram_gb, "vram_measured": t.cost.vram_measured,
-                   "measured_on": t.cost.measured_on, "note": t.cost.said}
+        "nodes": [{"node": t.id, "subtitle": t.subtitle, "runtime": t.runtime, "runtime_title": titles.get(t.runtime, t.runtime),
+                   "vram_gb": t.cost.vram_gb, "vram_full_gb": t.cost.vram_full_gb, "vram_measured": t.cost.vram_measured,
+                   "measured_on": t.cost.measured_on, "note": t.cost.said(t)}
                   for t in sorted(node_types().values(), key=lambda t: t.id) if t.cost.gpu or any(tr.gpu for tr in t.traits)],
         "waiting": [_waiting_row(t, j, gpus) for t, j in _waiting(farm)],
         # hourly average utilisation: from the nvidia-smi reading already being made, no extra call
@@ -131,7 +139,7 @@ def view(farm) -> dict:
 def _waiting_row(ticket, job, gpus: list[GpuState]) -> dict:
     need = ticket.need
     ever = any(g.authorized and fits(need.vram_gb, (need.runtime,), g) for g in gpus)
-    return {"job": job.id, "title": job.title, "who": job.client.who, "node": need.label, "vram_gb": need.vram_gb,
+    return {"job": job.id, "title": job.shown_title, "who": job.client.who, "node": need.label, "vram_gb": need.vram_gb,
             "runtimes": [need.runtime], "reason": ticket.reason.json() if ticket.reason else None, "runnable_ever": ever}
 
 
@@ -154,7 +162,7 @@ def consequences(farm, uuids: list[str]) -> dict:
     if lost:
         messages.append(Msg("W-CARDS-TIERSLOST", tiers=[t.message() for t in lost]))
     if stuck:
-        messages.append(Msg("W-CARDS-JOBSSTUCK", count=len(stuck), jobs=[j.title for j in stuck]))
+        messages.append(Msg("W-CARDS-JOBSSTUCK", count=len(stuck), jobs=[j.shown_title for j in stuck]))
     if dropped:
         messages.append(Msg("W-CARDS-EXTENSIONSLOST", extensions=[e.title for e in dropped]))
     if gained:
@@ -162,5 +170,5 @@ def consequences(farm, uuids: list[str]) -> dict:
     if not messages:
         messages.append(Msg("I-CARDS-NOCHANGE"))
     return {"authorized": sorted(set(uuids)), "lost_tiers": [t.id for t in lost], "gained_tiers": [t.id for t in gained],
-            "stuck_jobs": [{"job": j.id, "title": j.title, "who": j.client.who} for j in stuck],
+            "stuck_jobs": [{"job": j.id, "title": j.shown_title, "who": j.client.who} for j in stuck],
             "unrunnable_extensions": [e.name for e in dropped], "messages": [m.json() for m in messages]}

@@ -293,7 +293,7 @@ def main(job_path: str) -> None:
     if min(w, h) < MIN_SIDE:
         fail("E-TRACK4WORLD-SMALLSIDE", width=width, height=height, side=params["resolution"], w=w, h=h, need=MIN_SIDE)
 
-    run.stage("读取画面")
+    run.stage("read_images")
     video = np.stack([cv2.resize(read_frame(p), (w, h), interpolation=cv2.INTER_AREA if w < width else cv2.INTER_LINEAR)
                       for _, p in frames])
     track_step = params["track_step"]
@@ -306,7 +306,7 @@ def main(job_path: str) -> None:
     seeds = np.concatenate([clicked, grid])  # the grid is every track_step-th pixel of the frame: never empty
 
     device = torch.device("cuda")
-    model = run.model("Track4World（Depth Anything 3 骨干）", load_model, job.repo_dir, checkpoint, backbone, device)
+    model = run.model("load_model", load_model, job.repo_dir, checkpoint, backbone, device, stage_params={"model": "Track4World"})
 
     n, clip_len = len(frames), min(params["max_frames"], len(frames))
     total, done = n, 0
@@ -314,9 +314,12 @@ def main(job_path: str) -> None:
     def tick(k):
         nonlocal done
         done = min(total, done + k)
-        progress(done, total, "跟踪")
+        progress(done, total, "track")
 
-    run.stage("跟踪整帧的点" + (f"（每段 {clip_len} 帧）" if clip_len < n else ""))
+    if clip_len < n:
+        run.stage("track_dense_segments", frames=clip_len)
+    else:
+        run.stage("track_dense")
     t2 = time.time()
     # forwards from the reference frame, then the frames before it over the reversed shot
     orders = [o for o in (list(range(ref, n)), list(range(ref, -1, -1))) if len(o) > 1]
@@ -368,8 +371,8 @@ def main(job_path: str) -> None:
     # These three stay on the model's grid (the point cloud is sampled there; it gives world positions only). valid is
     # the same mask as a picture of the plate: unsqueezed to the plate's proportions (plate_w x plate_h above),
     # bilinear as the core resizes masks (kit/maps.py LINEAR); already in proportion, it is the mask itself
-    run.stage("写出稠密点和有效遮罩")
-    for g, _ in run.each(range(n), "写出稠密点"):
+    run.stage("write_dense")
+    for g, _ in run.each(range(n), "write_dense_each"):
         world_pts = to_world(c2w[g], np.asarray(world[g]["points"], np.float64))
         mask = np.asarray(world[g]["mask"], bool)
         valid = mask.astype(np.float32)

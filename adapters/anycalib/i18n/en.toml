@@ -1,0 +1,84 @@
+# This extension's words and messages in English (the same keys as zh.toml).
+
+# ---- node (nodes.py)
+"I-ANYCALIB-LENS" = "AnyCalib's estimated lens: {lens}"
+"I-ANYCALIB-LENSFOV" = "AnyCalib's estimated lens: {lens}, horizontal angle of view {hfov:.1f}°"
+
+# ---- calibration (worker.py)
+"E-ANYCALIB-MODEL" = "AnyCalib does not support the lens model {model}: the ones it has are {models} (those with :k are written like radial:2). Pick another in Lens Model"
+"E-ANYCALIB-SIZES" = "The frames AnyCalib sampled differ in size ({sizes}): the frames of one shot must all be the same size. Check whether upstream wires in several different clips"
+"E-ANYCALIB-NOFIT" = "AnyCalib failed to fit on every sampled frame: pick a lens model with fewer distortion coefficients in Lens Model (such as \"simple_radial:1 (radial k1, normal lens)\" or \"simple_pinhole (no distortion)\"), or try another set of network weights"
+"N-ANYCALIB-FAILEDFRAMES" = "AnyCalib failed to fit {failed}/{sampled} sampled frames, which were skipped: the lens is the median of the other frames"
+"N-ANYCALIB-UNCONVERGED" = "AnyCalib's refined fit did not converge on {count} sampled frames; those frames keep the linear fit's result (usually good enough)"
+"W-ANYCALIB-FOCALSPREAD" = "The focal lengths AnyCalib estimated on the sampled frames differ a lot (median absolute deviation {spread:.1%}): the lens may be zooming, or the picture lacks straight lines and structure. The median is output; if the lens really zooms, this node cannot give a per-frame focal length"
+"W-ANYCALIB-LONGLENS" = "AnyCalib estimated a long lens (diagonal field of view about {fov:.0f}°): lens distortion barely shows in a long lens, so the estimated distortion coefficients are unreliable. For phone footage or footage already undistorted, set Lens Model to \"simple_pinhole (no distortion)\""
+"W-ANYCALIB-COVERAGE" = "Undistorted with the distortion AnyCalib estimated, only {share:.0%} of the picture can be taken from the original (the rest is black borders): the distortion is very strong, or the estimate failed. Look at the undistort ST-map in the viewer; if it is wrong, pick another Lens Model"
+
+# ---- words
+
+[node."anycalib.calibrate"]
+subtitle = "Lens Calibration"
+description = "Estimates the focal length and lens distortion from the picture and gives three things: Focal Length, Aperture and Lens Intrinsics (model + distortion coefficients + principal point). Wire them to the ports of the same names on lens_distortion to undistort and bake ST-maps, choosing the same lens model there. The lens must not zoom."
+
+[node."anycalib.calibrate".param.fit_model]
+label = "Lens Model"
+strip = "Lens Model"
+
+[node."anycalib.calibrate".param.fit_model.option]
+simple_pinhole = "simple_pinhole (no distortion)"
+"simple_radial:1" = "simple_radial:1 (radial k1, normal lens)"
+"simple_radial:2" = "simple_radial:2 (radial k1 k2, wide angle)"
+"simple_kb:1" = "simple_kb:1 (fisheye Kannala-Brandt, 1 term)"
+"simple_kb:2" = "simple_kb:2 (fisheye, 2 terms)"
+"simple_kb:3" = "simple_kb:3 (fisheye, 3 terms)"
+"simple_kb:4" = "simple_kb:4 (fisheye, 4 terms)"
+"simple_division:1" = "simple_division:1 (division model k)"
+
+[node."anycalib.calibrate".param.samples]
+label = "Sampled Frames"
+
+[node."anycalib.calibrate".param.checkpoint]
+label = "Network Weights"
+
+[node."anycalib.calibrate".param.checkpoint.option]
+anycalib_gen = "General"
+anycalib_pinhole = "Undistorted Pictures"
+anycalib_dist = "Fisheye / Strong Distortion"
+
+[node."anycalib.calibrate".param.principal_point]
+label = "Principal Point"
+
+[node."anycalib.calibrate".param.principal_point.option]
+center = "Image Center"
+estimate = "Estimate"
+
+[node."anycalib.calibrate".param.filmback_mm]
+label = "Aperture"
+
+[node."anycalib.calibrate".cost]
+whole = "Calibration needs only a few frames; it is not per-frame work, so there is no seconds per frame"
+
+[node."anycalib.calibrate".stage]
+estimate_lens = "Estimate Lens"
+
+[node."anycalib.calibrate".official]
+note = "Upstream gives only one array of intrinsics (anycalib_pretrained.py:300-303, in the parameter order of the camera model of cam_id): the focal length, principal point and distortion coefficients are all taken from it; Lens Intrinsics = the lens table model for the cam_id we ask for + these numbers. **Units**: the focal length and principal point in upstream's intrinsics are in **pixels**; the focal length and principal point we give are in **millimeters** (the principal point inside Lens Intrinsics), converted with the node's Aperture parameter (focal length (mm) = focal length (px) ÷ image width × aperture). Millimeters are Lab2Shot's internal standard unit, and lens_distortion and camera downstream take millimeters too, so both sides agree. The Aperture output gives the node's parameter as it is: upstream has no such item, the port only carries it downstream so the user does not fill it in on two nodes. **What upstream has that we have no port for**: pred[\"success\"] (whether this frame's linear fit + nonlinear optimisation succeeded, anycalib_pretrained.py:171), which the worker already reads to give a W-level warning but is not a port; also pred[\"intrinsics_icovs\"] (the inverse covariance of the intrinsics, :172) and the dense fov_field / tangent_coords (:270). There are no output ports for these yet"
+
+[extension.anycalib]
+summary = "Camera calibration from a single perspective / edited / distorted picture, with any one lens model of your choice"
+
+[extension.anycalib.license]
+name = "Apache-2.0 (code and weights)"
+summary = "Code and weights are both Apache-2.0 and usable commercially (stated by the README and the Hugging Face model card). The backbone is a DINOv2 ViT-L structure (Apache-2.0) whose weights are included in the AnyCalib checkpoint, not downloaded separately. The training data includes the Laval Indoor HDR dataset; the authors state they have its permission to release the weights under a permissive license"
+
+[extension.anycalib.weight.anycalib-gen]
+note = "AnyCalib anycalib_gen (DINOv2 ViT-L + DPT decoder, 1.28 GB, Apache-2.0)"
+
+[extension.anycalib.weight.anycalib-pinhole]
+note = "AnyCalib anycalib_pinhole (DINOv2 ViT-L + DPT decoder, 1.28 GB, Apache-2.0)"
+
+[extension.anycalib.weight.anycalib-dist]
+note = "AnyCalib anycalib_dist (DINOv2 ViT-L + DPT decoder, 1.28 GB, Apache-2.0)"
+
+[stage]
+estimate_lens = "Estimate Lens"

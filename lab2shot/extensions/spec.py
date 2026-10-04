@@ -5,10 +5,11 @@ from __future__ import annotations
 import inspect
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, TYPE_CHECKING, ClassVar, Literal
 
+from .. import i18n
 from ..errors import MessageError
 
 if TYPE_CHECKING:
@@ -27,15 +28,39 @@ class GitSource:
     commit: str  # full SHA: installs are reproducible
 
 
+def _said(key: str) -> str:
+    """An extension's word: its catalogue's (adapters/<name>/i18n/<lang>.toml, in the language now), else ""."""
+    return i18n.lookup(key) or ""
+
+
 @dataclass(frozen=True)
 class LicenseInfo:
-    name: str
-    url: str
-    summary: str  # one plain-language line shown before install
-    tag: str  # its licence class (nodes/tags.py LICENCES): basic, commercial, noncommercial or research
+    """An extension's licence. Its words are the extension's catalogue's: extension.<name>.license.name and
+    .summary (one plain-language line shown before install); `owner` (the extension's name) is set when the extension
+    class is declared (Extension.__init_subclass__)."""
+
+    url: str = ""
+    tag: str = ""  # its licence class (nodes/tags.py LICENCES): basic, commercial, noncommercial or research
     # the data and body models under their own licence it runs on or was trained on (nodes/tags.py DATA_LICENCES):
     # its class is at least as strict as theirs, the same data the same class wherever it is used
     uses: tuple[str, ...] = ()
+    owner: str = ""
+
+    def of(self, owner: str) -> LicenseInfo:
+        """The same licence, its words looked up as `owner`'s."""
+        return replace(self, owner=owner)
+
+
+def _license_name(self: LicenseInfo) -> str:
+    return _said(f"extension.{self.owner}.license.name")
+
+
+def _license_summary(self: LicenseInfo) -> str:
+    return _said(f"extension.{self.owner}.license.summary")
+
+
+LicenseInfo.name = property(_license_name)  # type: ignore[assignment,method-assign]
+LicenseInfo.summary = property(_license_summary)  # type: ignore[assignment,method-assign]
 
 
 # CUDA compiler from pip for EnvSpec.cuda_toolkit, CUDA 13.2: its headers are the first that compile against
@@ -115,13 +140,22 @@ class Weight:
     source: str
     dest: str  # relative to the weights folder (a folder for hf/zip, a file for url); "" for manual
     gated: bool = False  # needs an approved access request on Hugging Face
-    note: str = ""
+    # what it is, for a person: the extension's catalogue's extension.<name>.weight.<key>.note (`note` below)
     files: tuple[str, ...] = ()  # hf: fetch just these files/patterns
     sha256: str = ""  # url: of the file, zip: of the archive. Checked by the installer; a bad download is deleted
     revision: str = ""  # hf: the commit to fetch (must be pinned: a branch can change at any time)
     option: tuple[str, object] | None = None  # needed only when node parameter option[0] == option[1] (e.g. a model choice)
-    notice: str = ""  # this weight's licence requires crediting it once it is actually there ("Built on NVIDIA Cosmos"):
-    # server/installs.py attribution_notice shows it on the extension's row, for whichever weight declares one
+    # this weight's licence requires crediting it once it is actually there ("Built on NVIDIA Cosmos"): server/installs.py
+    # attribution_notice shows it on the extension's row, for whichever weight declares one. Its words are the
+    # catalogue's, extension.<name>.weight.<key>.notice (`notice` below)
+    owner: str = ""  # the extension declaring it (set by Extension.__init_subclass__): whose catalogue says its note
+    # the note's words when they are made of parts, said in the language now: (key, params) of the core's words
+    # (hf_weights); () when the note is the extension's own
+    said: tuple = ()
+
+    def of(self, owner: str) -> Weight:
+        """The same weight, its note looked up as `owner`'s."""
+        return replace(self, owner=owner)
 
     def __post_init__(self) -> None:
         # an hf snapshot without a revision follows main: once the repository author pushes new files, the next install
@@ -151,8 +185,7 @@ class Weight:
         return repo if sep and repo.startswith("https://huggingface.co/") else self.source
 
 
-def hf_file(repo: str, revision: str, filename: str, *, key: str, dest: str = "", note: str = "", sha256: str = "",
-            **kw) -> Weight:
+def hf_file(repo: str, revision: str, filename: str, *, key: str, dest: str = "", sha256: str = "", **kw) -> Weight:
     """One file of a Hugging Face repository (a Space: repo "spaces/<owner>/<name>") at a pinned commit, fetched
     like any URL (large files in parallel parts; checked against `sha256`, the file's LFS id, when given; small
     git files such as config.json are pinned by the commit alone). `dest` defaults to <repo name>/<file>
@@ -160,19 +193,46 @@ def hf_file(repo: str, revision: str, filename: str, *, key: str, dest: str = ""
     from lab2shot_worker import hf_dest
 
     return Weight(key=key, kind="url", source=f"https://huggingface.co/{repo}/resolve/{revision}/{filename}",
-                  dest=dest or hf_dest(repo, filename), note=note, sha256=sha256, **kw)
+                  dest=dest or hf_dest(repo, filename), sha256=sha256, **kw)
 
 
-def hf_weights(models: dict[str, tuple[str, str, dict[str, str], str]], licence_of) -> tuple[Weight, ...]:
+def hf_weights(models: dict[str, tuple]) -> tuple[Weight, ...]:
     """The pinned files of a model choice's Hugging Face repository, for a parameter that picks one: `models` is
-    {choice: (repo, revision, {file: sha256}, note)}, each file stored as weights/<choice>/<file> (key the same);
-    `licence_of(choice)` is said in the weight's note."""
-    return tuple(
-        hf_file(repo, revision, filename, key=f"{key}/{filename}", dest=f"{key}/{filename}", sha256=sha,
-                note=f"{repo}（{licence_of(key)}，{note}）" if filename != "config.json" else f"{repo} 的网络配置")
-        for key, (repo, revision, files, note) in models.items()
-        for filename, sha in files.items()
-    )
+    {choice: (repo, revision, {file: sha256})}, each file stored as weights/<choice>/<file> (key the same). A file's
+    note reads 「<repo> (<what the extension says of the choice>)」 (extension.weight.hf_choice), what it says being
+    extension.<name>.weight.<choice>.note of its catalogue; the network config file's is extension.weight.hf_config."""
+    out = []
+    for key, (repo, revision, files) in models.items():
+        for filename, sha in files.items():
+            said = (("extension.weight.hf_config", (("repo", repo),)) if filename == "config.json" else
+                    ("extension.weight.hf_choice", (("repo", repo), ("choice", key))))
+            out.append(hf_file(repo, revision, filename, key=f"{key}/{filename}", dest=f"{key}/{filename}", sha256=sha,
+                               said=said))
+    return tuple(out)
+
+
+def _weight_note(self: Weight) -> str:
+    """A weight's note in the language now: the extension's catalogue's, or made of the core's words (hf_weights)."""
+    if self.said:
+        key, params = self.said
+        params = dict(params)
+        if key == "extension.weight.manual":  # a hand download's: its item's words now (manual.<key>.*)
+            item = params.pop("item")
+            for word in ("title", "what", "note"):
+                params[word] = i18n.lookup(f"manual.{item}.{word}") or params.get(word, "")
+        if key == "extension.weight.hf_choice":
+            choice = params.pop("choice")
+            params["note"] = i18n.lookup(f"extension.{self.owner}.weight.{choice}.note") or ""
+        return i18n.t(key, **params)
+    return _said(f"extension.{self.owner}.weight.{self.key}.note")
+
+
+def _weight_notice(self: Weight) -> str:
+    return _said(f"extension.{self.owner}.weight.{self.key}.notice")
+
+
+Weight.note = property(_weight_note)  # type: ignore[assignment,method-assign]
+Weight.notice = property(_weight_notice)  # type: ignore[assignment,method-assign]
 
 
 ACTIVE_FILE = "active_env.json"  # third_party/<name>/active_env.json: which environment and checkout are live
@@ -220,10 +280,13 @@ class ExtensionPaths:
     # the installer's pointer (active_env.json below) names the one it switched in, the one before stays for rollback.
     env: str = ""
     repo_dir: str = "repo"  # the checkout's folder: a new pinned commit is checked out beside the live one too
+    # an extension that runs in another's environment (Extension.runs_in): that one's folder, where the environment and
+    # the checkout are; its own weights, install record and caches stay in `root`. None: both are in `root`
+    env_root: Path | None = None
 
     @property
     def repo(self) -> Path:
-        return self.root / self.repo_dir
+        return (self.env_root or self.root) / self.repo_dir
 
     @property
     def weights(self) -> Path:
@@ -231,7 +294,7 @@ class ExtensionPaths:
 
     @property
     def venv(self) -> Path:
-        return self.root / (".venv" if not self.env else f".venv-{self.env}")
+        return (self.env_root or self.root) / (".venv" if not self.env else f".venv-{self.env}")
 
     @property
     def python(self) -> Path:
@@ -239,7 +302,9 @@ class ExtensionPaths:
 
     @property
     def state_file(self) -> Path:
-        return self.root / ("install_state.json" if not self.env else f"install_state-{self.env}.json")
+        """The install record: of this environment, or (an extension running in another's) of its own weights alone."""
+        own = not self.env or self.env_root is not None
+        return self.root / ("install_state.json" if own else f"install_state-{self.env}.json")
 
 
 @contextmanager
@@ -262,12 +327,17 @@ class Extension:
     """Base class for adapters. Subclass in adapters/<name>/extension.py."""
 
     name: ClassVar[str]
-    title: ClassVar[str]
-    summary: ClassVar[str]
+    # its title and one-line summary are its catalogue's (adapters/<name>/i18n/<lang>.toml): extension.<name>.title,
+    # extension.<name>.summary; the licence's and each weight's words likewise (LicenseInfo, Weight)
     homepage: ClassVar[str]
-    source: ClassVar[GitSource]
+    source: ClassVar[GitSource]  # not declared when it runs in another's environment (runs_in): the host's
     license: ClassVar[LicenseInfo]
-    env: ClassVar[EnvSpec]
+    # Whether it runs a generative diffusion model: every one of its nodes then carries the capability gate 生成式扩散
+    # (nodes/tags.py GENERATIVE), which an account must be given on top of its licence (the loader stamps it:
+    # lab2shot/adapters.py project_of). Every extension states it, True or False: there is no default to forget it by
+    # (None here: not stated, refused by `lab2shot check extensions`).
+    generative: ClassVar[bool | None] = None
+    env: ClassVar[EnvSpec]  # likewise
     # a format module (FBX, Alembic: reads and writes a scene format, no model of its own): the setup menu lists these
     # apart (cli/setup.py). Where an extension's cards and nodes sit is the administrator's placing (lab2shot/categories.py)
     format_module: ClassVar[bool] = False
@@ -281,6 +351,10 @@ class Extension:
     # (nodes/lens.py LensGroup), by which 「LensDistortion」 lists models; both sides must match. The core provides the
     # COLMAP and 3DE4 groups
     lens_groups: ClassVar[tuple[Any, ...]] = ()
+    # bodies this extension brings to the core's 「标准人」 (data/standard_bodies.py StandardBody: the 「骨架」 option's id,
+    # how to make it, the data files it reads, its licence), registered when the extension loads (lab2shot/adapters.py);
+    # the core names none but its own SMPL-X
+    standard_bodies: ClassVar[tuple[Any, ...]] = ()
     # Submodules of the repository it needs (paths inside it), checked out at the commits the pinned repo records.
     submodules: ClassVar[tuple[str, ...]] = ()
     # More code from other repositories, each pinned: folder (relative to the extension's folder) -> source.
@@ -294,6 +368,12 @@ class Extension:
     # nodes may subclass theirs and its worker may import their worker_modules. Without one of them it counts as not
     # installed, with the reason (extensions/status.py), and its nodes are not loaded; nothing else notices.
     requires: ClassVar[tuple[str, ...]] = ()
+    # The extension whose environment and checkout this one runs in (a base: an extension with no nodes of its own,
+    # e.g. "ltx" for its IC-LoRA features). Such an extension declares no source, env or requirements: its workers run
+    # in the base's environment with the base's worker_env, its install installs the base first (whatever of it is not
+    # done) and then only its own weights, and it is ready when the base is and its own weights are there. Implies
+    # `requires` (added when not written). None: it has its own environment.
+    runs_in: ClassVar[str | None] = None
     # The version of the adapter API (lab2shot.sdk.SDK_API) the adapter is written for; every adapter sets its own
     # (worker-node adapters: 2). One written for an API other than this core's is left out with the reason.
     sdk: ClassVar[int] = 1
@@ -306,6 +386,30 @@ class Extension:
     # Disk the environment takes, in GB, for the installer's check before it starts (lab2shot/installer/preflight.py);
     # 0: estimated from the spec (a torch or conda environment about 15 GB, a plain one 3 GB). Model files come on top.
     disk_gb: ClassVar[float] = 0.0
+
+    def __init_subclass__(cls, **kw) -> None:
+        """A declared extension's licence and weights look their words up as its own (LicenseInfo.of, Weight.of)."""
+        super().__init_subclass__(**kw)
+        name = cls.__dict__.get("name") or getattr(cls, "name", "")
+        if not name:
+            return
+        if cls.runs_in and cls.runs_in not in cls.requires:
+            cls.requires = (cls.runs_in, *cls.requires)
+        if isinstance(cls.__dict__.get("license"), LicenseInfo):
+            cls.license = cls.__dict__["license"].of(name)
+        if "weights" in cls.__dict__:
+            cls.weights = tuple(w.of(name) if isinstance(w, Weight) and not w.owner else w for w in cls.weights)
+
+    @property
+    def title(self) -> str:
+        """Its name for a person, in the language now (extension.<name>.title; its name when there is none), kept in
+        every language (i18n.Both): a message naming it reads in whoever's language follows it."""
+        return i18n.Both.of(lambda: i18n.lookup(f"extension.{self.name}.title") or self.name)
+
+    @property
+    def summary(self) -> str:
+        """One line on what it does, in the language now (extension.<name>.summary)."""
+        return i18n.lookup(f"extension.{self.name}.summary") or ""
 
     @property
     def adapter_dir(self) -> Path:
@@ -331,14 +435,58 @@ class Extension:
         return int(got) if isinstance(got, int) or (isinstance(got, str) and got.isdigit()) else None
 
     @property
+    def host(self) -> Extension | None:
+        """The extension it runs in (runs_in), as loaded; None when it has its own environment or that one is not
+        loaded (then it is not ready: missing_requirements)."""
+        if not self.runs_in:
+            return None
+        from .registry import extensions
+
+        return extensions().get(self.runs_in)
+
+    @property
+    def env_owner(self) -> Extension:
+        """Whose environment it runs in: the host's (runs_in), else its own. What is a property of the environment
+        (its fingerprint, the recorded architectures, the self-check) is read from this one."""
+        return self.host or self
+
+    @property
+    def is_base(self) -> bool:
+        """A base: no nodes of its own (no nodes.py), only what the extensions running in it share. Never listed for
+        a person on its own (server/installs.py, cli/setup.py); installing one of its features installs it."""
+        return not (self.adapter_dir / "nodes.py").is_file()
+
+    # an extension running in another's (runs_in) takes that one's code and environment: it declares neither
+    @property
+    def source(self) -> GitSource:  # type: ignore[override]
+        return self._from_host("source")
+
+    @property
+    def env(self) -> EnvSpec:  # type: ignore[override]
+        return self._from_host("env")
+
+    def _from_host(self, what: str):
+        host = self.host
+        if host is None:
+            raise AttributeError(f"{type(self).__name__} declares no {what} and runs in no loaded extension")
+        return getattr(host, what)
+
+    @property
     def paths(self) -> ExtensionPaths:
         """The live environment and checkout: the installer's pointer (active_env.json) when it switched one in, else
-        the architecture-named side-by-side one (env_name of the archs the environment covers)."""
+        the architecture-named side-by-side one (env_name of the archs the environment covers). Running in another's
+        (runs_in): that one's environment and checkout, its own folder for the rest."""
         from lab2shot_shared.gpu_arch import env_name
 
         from ..config import THIRD_PARTY_DIR
 
         root = THIRD_PARTY_DIR / self.name
+        if self.runs_in:
+            host = self.host
+            if host is None:  # not loaded: nothing of it can run (missing_requirements says why)
+                return ExtensionPaths(root, env_root=THIRD_PARTY_DIR / self.runs_in)
+            there = host.paths
+            return ExtensionPaths(root, there.env, there.repo_dir, env_root=there.root)
         live = active_env(root).get("current")
         if live:
             return ExtensionPaths(root, live.get("env", ""), live.get("repo", "repo"))
@@ -414,8 +562,10 @@ class Extension:
         return (int(m.group(1)), int(m.group(2))) if m else (99,)
 
     def worker_env(self) -> dict[str, str]:
-        """What this extension's worker needs on top of base_env() (weight paths, PYTHONPATH, ...)."""
-        return {}
+        """What this extension's worker needs on top of base_env() (weight paths, PYTHONPATH, ...). Running in another's
+        (runs_in): that one's, by default."""
+        host = self.host
+        return host.worker_env() if host is not None else {}
 
     def run_env(self, paths: ExtensionPaths | None = None, *, gpu: str | None = None) -> dict[str, str]:
         """The environment this extension's own Python runs in, wherever it is started: every worker process
@@ -436,7 +586,7 @@ class Extension:
         import os
 
         from ..config import WORKER_SDK_DIR
-        from ..process import cpu_budget
+        from ..process import cpu_budget, cpu_node_budget
 
         paths = paths or self.paths
         env = clean_environ()
@@ -480,7 +630,9 @@ class Extension:
         # libraries read these limits. Set here so the self-check and workers get the same values; core affinity is the
         # hard limit (engine/resident.py hold_back). LAB2SHOT_CPU_BUDGET is read by projects with their own thread
         # parameter (COLMAP's num_threads defaults to -1 = machine core count, which oversubscribes after pinning)
-        budget = str(cpu_budget())
+        # A CPU node's worker (no card: gpu "") gets its share of them (process.py cpu_node_budget): the framework sets
+        # it for every extension, torch takes its intra-op threads from OMP_NUM_THREADS
+        budget = str(cpu_budget() if gpu != "" else cpu_node_budget())
         for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS",
                      "VECLIB_MAXIMUM_THREADS", "LAB2SHOT_CPU_BUDGET"):
             env[name] = budget

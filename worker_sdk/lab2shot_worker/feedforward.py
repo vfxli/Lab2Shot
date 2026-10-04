@@ -113,8 +113,9 @@ def model_image(path: Path, w: int, h: int, pad_w: int, pad_h: int) -> np.ndarra
 # ---------------------------------------------------------------------- main
 
 
-def run(job_path: str, node: str, make_backend: Callable[[object], Backend]) -> None:
-    """`make_backend(job)` validates job.params["model"] and loads the model."""
+def run(job_path: str, node: str, make_backend: Callable[[object], Backend], model: str = "") -> None:
+    """`make_backend(job)` validates job.params["model"] and loads the model; `model`: its name as the loading stage
+    says it (a proper name, the same in every language; default: the project)."""
     run = Run.start(job_path, node, node.split(".")[0])
     job, params = run.job, run.params
     step, resolution = params["step"], params["resolution"]
@@ -125,7 +126,7 @@ def run(job_path: str, node: str, make_backend: Callable[[object], Backend]) -> 
     raw = job.raw_dir
 
     # Above the card's memory WSL spills into system RAM (10x slower): out-of-memory instead (run.model caps it).
-    backend = run.model(f"{run.project} 模型", make_backend, job)
+    backend = run.model("load_model", make_backend, job, stage_params={"model": model or run.project})
     w, h, pad_w, pad_h = backend.input_size(width, height, resolution)
     patches = ((w + 2 * pad_w) // PATCH) * ((h + 2 * pad_h) // PATCH)
     max_frames = params["max_frames"] or max(2, backend.patch_budget // patches)
@@ -166,7 +167,7 @@ def run(job_path: str, node: str, make_backend: Callable[[object], Backend]) -> 
                 recon.save_frame(raw, frame_numbers[i], d, c, m, **extra)
                 written += 1
                 if written % 10 == 0 or written == len(used):
-                    progress(written, len(used), "写出深度")
+                    progress(written, len(used), "write_depth")
 
         def reconstruct(indices: list[int]) -> recon.Chunk:
             """The model on these frames together; usable = confident and off depth edges."""
@@ -180,7 +181,7 @@ def run(job_path: str, node: str, make_backend: Callable[[object], Backend]) -> 
                 chunk.looks = recon.thumbnails(images)
             return chunk
 
-        run.stage("前馈重建")
+        run.stage("feedforward")
         with FrameReader(frames.paths, lambda path: model_image(path, w, h, pad_w, pad_h), threads=4,
                          ahead=0) as reader:
             for ci, (a, b) in enumerate(chunks):
@@ -193,15 +194,15 @@ def run(job_path: str, node: str, make_backend: Callable[[object], Backend]) -> 
                 chunk_info.append(info)
                 del chunk
                 save(stitch.pop(chunks[ci + 1][0] if ci + 1 < len(chunks) else None))  # nothing while loops wait
-                progress(ci + 1, len(chunks), "前馈重建")
+                progress(ci + 1, len(chunks), "feedforward")
             if loops:
-                run.stage("回环闭合")
+                run.stage("loop_closure")
                 window = max(4, min(LOOP_WINDOW, max_frames // 2))
                 candidates = stitch.loop_candidates(window, max(2, len(chunks)))
                 for k, (first, second) in enumerate(candidates):
                     loop = stitch.add_loop(first, second, reconstruct(first + second))
                     loop["frames"] = [frame_numbers[i] for i in loop["frames"]]
-                    progress(k + 1, len(candidates), "回环闭合")
+                    progress(k + 1, len(candidates), "loop_closure")
         save(stitch.close())
         return {"max_frames": max_frames, "overlap": overlap, "chunks": chunk_info, "loops": loops, "stitch": stitch,
                 "infer_seconds": infer_seconds, "K": K_in, "cam_to_world": c2w, "depth_median": depth_median}
@@ -220,7 +221,7 @@ def run(job_path: str, node: str, make_backend: Callable[[object], Backend]) -> 
         else:
             say("N-FEEDFWD-NOLOOPS")
 
-    run.stage("写出结果")
+    run.stage("write_results")
     K_in, c2w = solved["K"], solved["cam_to_world"]
     recon.save_cameras(raw, frame_numbers, K_in, c2w, width, height)
 

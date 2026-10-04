@@ -17,14 +17,14 @@ export const GRAPH_DOT_COLOR = "rgba(190, 205, 225, 0.07)";
 
 /** The choices of the 2D view's plain-colour background, colour and name defined together here (the interface shows only
  * the name, never the value): pure black (a true black under the image when inspecting alpha), near black, mid grey,
- * near white, and two contrast colours, green-screen green and magenta. */
+ * near white, and two contrast colours, green-screen green and magenta. `name` is the key of its words (t() when shown). */
 export const BG_CHOICES = [
-  { value: "#000000", name: "纯黑" },
-  { value: "#1a1a1c", name: "近黑" },
-  { value: "#808083", name: "中灰" },
-  { value: "#e8e8ec", name: "近白" },
-  { value: "#00b140", name: "绿幕绿" },
-  { value: "#ff00ff", name: "洋红" },
+  { value: "#000000", name: "ui.display.swatch.black" },
+  { value: "#1a1a1c", name: "ui.display.swatch.near_black" },
+  { value: "#808083", name: "ui.display.swatch.mid_grey" },
+  { value: "#e8e8ec", name: "ui.display.swatch.near_white" },
+  { value: "#00b140", name: "ui.display.swatch.green_screen" },
+  { value: "#ff00ff", name: "ui.display.swatch.magenta" },
 ] as const;
 
 export const bgColourOf = (picked: string): string => picked || BG_CHOICES[0].value;

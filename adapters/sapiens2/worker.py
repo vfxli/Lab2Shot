@@ -61,16 +61,6 @@ STD = (58.395, 57.12, 57.375)
 TO_OPENCV = (1.0, -1.0, -1.0)
 CONVENTION = ("OpenCV camera: +X right, +Y down, +Z forward; unit normals, surfaces facing the camera have Z < 0 "
               "(converted from Sapiens2's +X right, +Y up, +Z towards the viewer)")
-# Left/Right in class names: the person's own (anatomical) side.
-CLASSES_ZH = {
-    "Background": "背景", "Apparel": "服饰配件", "Eyeglass": "眼镜", "Face_Neck": "脸和脖子", "Hair": "头发",
-    "Left_Foot": "左脚", "Left_Hand": "左手", "Left_Lower_Arm": "左小臂", "Left_Lower_Leg": "左小腿",
-    "Left_Shoe": "左鞋", "Left_Sock": "左袜", "Left_Upper_Arm": "左大臂", "Left_Upper_Leg": "左大腿",
-    "Lower_Clothing": "下装", "Right_Foot": "右脚", "Right_Hand": "右手", "Right_Lower_Arm": "右小臂",
-    "Right_Lower_Leg": "右小腿", "Right_Shoe": "右鞋", "Right_Sock": "右袜", "Right_Upper_Arm": "右大臂",
-    "Right_Upper_Leg": "右大腿", "Torso": "躯干", "Upper_Clothing": "上装", "Lower_Lip": "下嘴唇",
-    "Upper_Lip": "上嘴唇", "Lower_Teeth": "下牙", "Upper_Teeth": "上牙", "Tongue": "舌头",
-}
 
 @resident
 def load_model(repo: Path, weights: Path, task: str, size: str, device: torch.device, dtype: torch.dtype):
@@ -79,7 +69,7 @@ def load_model(repo: Path, weights: Path, task: str, size: str, device: torch.de
     from sapiens.registry import MODELS
 
     checkpoint = weights / task / f"sapiens2_{size}_{task}.safetensors"
-    require_weights("sapiens2", checkpoint, what=f" Sapiens2 {task} {size} 权重")
+    require_weights("sapiens2", checkpoint)
     cfg = Config.fromfile(str(repo / CONFIGS[task].format(size=size)))
     cfg.model["backbone"].pop("init_cfg", None)  # never load the pretraining backbone
     # Built without memory (random init of a 1B model on the CPU takes ~10 s), then
@@ -143,7 +133,7 @@ def make_batch(image: torch.Tensor, r: Region, dtype: torch.dtype) -> torch.Tens
     canvas = image.new_zeros((3, r.h, r.w))
     canvas[:, r.crop[0], r.crop[1]] = image[:, r.frame[0], r.frame[1]]
     scaled = F.interpolate(canvas[None], size=(IN_H, IN_W), mode="bilinear", align_corners=False,
-                           antialias=r.h > IN_H)[0]
+                           antialias=True)[0]  # either side may shrink (a 1280-wide frame into 768): as upstream's INTER_AREA
     return ((scaled - mean) / std)[None].to(dtype)
 
 def run_model(model, image: torch.Tensor, r: Region, dtype: torch.dtype) -> torch.Tensor:
@@ -154,7 +144,7 @@ def run_model(model, image: torch.Tensor, r: Region, dtype: torch.dtype) -> torc
 def to_frame(out: torch.Tensor, r: Region) -> torch.Tensor:
     """[C,1024,768] model output -> [C,h,w] over the part of the region inside the frame."""
     full = F.interpolate(out[None], size=(r.h, r.w), mode="bilinear", align_corners=False,
-                         antialias=r.h < IN_H)[0]
+                         antialias=True)[0]  # a no-op where it only grows
     return full[:, r.crop[0], r.crop[1]]
 
 def paste(shape: tuple[int, int], values: torch.Tensor, r: Region) -> torch.Tensor:
@@ -188,20 +178,21 @@ def main(job_path: str) -> None:
         matting = load_model(repo, weights, "matting", MATTING_SIZE, device, dtype) if matte else None
         return seg, normal, matting
 
-    seg_model, normal_model, matting_model = run.model("Sapiens2 模型", load_models)
+    seg_model, normal_model, matting_model = run.model("load_model", load_models, stage_params={"model": "Sapiens2"})
 
     if task == "seg":
         from sapiens.dense.datasets.seg.seg_utils import DOME_CLASSES_29
 
-        classes = [{"index": i, "name": c["name"], "name_zh": CLASSES_ZH.get(c["name"], c["name"]),
-                    "color": list(c["color"])} for i, c in DOME_CLASSES_29.items()]
+        # only the English name (Left/Right: the person's own, anatomical side); its words are the node's
+        # node."sapiens2.segment".port.parts.class.<name> (core mask.py class_label)
+        classes = [{"index": i, "name": c["name"], "color": list(c["color"])} for i, c in DOME_CLASSES_29.items()]
         (raw / "classes.json").write_text(json.dumps(classes, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    run.stage({"seg": "逐帧分割身体部位", "normal": "逐帧估计法线"}[task])
+    run.stage({"seg": "segment_parts", "normal": "estimate_normals"}[task])
     coverage: list[float] = []
     with FrameReader(frames.paths, read_rgb255, threads=2, ahead=2) as reader, \
             Writer(threads=2, max_pending=8) as writer:
-        for i, (frame, _) in run.each(frames.pairs, "Sapiens2"):
+        for i, (frame, _) in run.each(frames.pairs, "infer"):
             rgb = reader.get(i)
             h, w = rgb.shape[:2]
             started = run.frame_started()  # this frame's time, up to before the file is written

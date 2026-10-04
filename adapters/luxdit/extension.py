@@ -43,10 +43,6 @@ HF_FILES = {
     ),
 }
 TAGS = {"nvidia/LuxDiT": "luxdit", "zai-org/CogVideoX-5b-I2V": "cogvideox"}
-NOTES = {
-    "nvidia/LuxDiT": "LuxDiT 单帧模型 + 真实场景 LoRA + HDR 合成 MLP（NVIDIA OneWay Noncommercial，非商用）",
-    "zai-org/CogVideoX-5b-I2V": "CogVideoX-5B-I2V 的视频 VAE 和采样器配置（CogVideoX License：学术研究免费，商用须登记）",
-}
 
 
 def _weights() -> tuple[Weight, ...]:
@@ -55,7 +51,6 @@ def _weights() -> tuple[Weight, ...]:
             repo, rev, f,
             key=f"{TAGS[repo]}/{f}",
             dest=f"{repo.split('/')[1]}/{f}",
-            note=NOTES[repo],
             sha256=sha256,
         )
         for repo, (rev, files) in HF_FILES.items()
@@ -67,24 +62,13 @@ class LuxDiT(Extension):
     name = "luxdit"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "NVIDIA LuxDiT"
-    summary = "生成式光照估计模型，从画面预测高质量 HDR 环境图，光照准确又保住画面的语义"
     homepage = "https://research.nvidia.com/labs/toronto-ai/LuxDiT/"
     source = GitSource(url=LUXDIT_URL, commit=LUXDIT_COMMIT)
     license = LicenseInfo(
         tag=RESEARCH,
-        name="NVIDIA OneWay Noncommercial License（代码和权重）· CogVideoX License（VAE）",
         url="https://github.com/nv-tlabs/LuxDiT/blob/main/LICENSE.md",
-        summary=(
-            "仅限研究或评估。逐项："
-            "LuxDiT 代码和 Hugging Face 上 nvidia/LuxDiT 的全部权重（luxdit_image、luxdit_video 两个 5B 模型、"
-            "两个真实场景 LoRA、HDR 合成 MLP）均为 NVIDIA OneWay Noncommercial License："
-            "只能非商业使用（研究或评估），再分发须附带同一许可证，结果也不能用于商业项目；"
-            "代码里从 diffusers 改来的 CogVideoX 模型/管线文件头是 Apache-2.0，但随仓库一起按 NVIDIA 非商用许可发布。"
-            "另外要下载 CogVideoX-5B-I2V（智谱 zai-org / 原 THUDM）的视频 VAE 和采样器配置，为 CogVideoX License："
-            "学术研究免费，商用须先在 open.bigmodel.cn 登记取得授权，禁止军事和违法用途。"
-            "不需要 CogVideoX 的 T5 文本编码器；不依赖 nvdiffrast（仓库注明立方体贴图全在 CPU 上算）"
-        ),
     )
+    generative = False  # processes footage, not tagged 生成式扩散: only QwenImage (diffusers) carries it
     env = EnvSpec(
         # Upstream: conda Python 3.10, "tested with PyTorch 2.4"; diffusers 0.32.0 etc. from its
         # requirements.txt. The code only uses plain torch ops (SDPA attention, no compiled

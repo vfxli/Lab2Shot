@@ -4,13 +4,14 @@
  * （actions.ts jobInTheWay）。事件流具备自动恢复能力（platform/events.ts：断开后重连，停滞也视为断开）。 */
 
 import { api, type CookEvent, type JobProgress } from "../api";
+import { skippedEvent } from "../model/nodeOutcome";
 import type { Output } from "../api/files";
 import { noteOutput } from "./outputs";
-import { useCookInputs } from "../state/cookInputs";
+import { nodeRefOf, useCookInputs } from "../state/cookInputs";
 import { useResults } from "../state/results";
-import { isLive, waitText } from "./nodes";
+import { isLive, waitWord } from "./nodes";
+import { noteSaid, noteWord } from "../model/nodeOutcome";
 import { fromServer, logMessage, msg, say } from "../state/say";
-import { textOf } from "../messages/message";
 import { onNodeDone } from "./streamDone";
 import { askStatus } from "./asking";
 
@@ -37,7 +38,7 @@ export function follow(id: string, target: string): void {
     } catch {
       return;
     }
-    const e = raw as { type: string; node?: string; position?: number; waiting?: { text: string } | null; waiting_detail?: { text: string } | null; name?: string; note?: string; done?: number; total?: number; cached?: boolean; seconds?: number; message?: string; state?: string; reason?: string } & Record<string, unknown>;
+    const e = raw as { type: string; node?: string; position?: number; waiting?: { code?: string; text: string; params?: Record<string, unknown>; args?: Record<string, unknown> } | null; waiting_detail?: { text: string } | null; name?: string; note?: string; done?: number; total?: number; cached?: boolean; seconds?: number; message?: string; state?: string; reason?: string } & Record<string, unknown>;
     const here = (e.graph ?? "") === useCookInputs.getState().graphId;
     const node = here ? (e.node ?? "") : ""; // ""：只写进日志，不指向这张图的任何节点
     switch (e.type) {
@@ -50,7 +51,7 @@ export function follow(id: string, target: string): void {
         // （farm/queue.py _told）；`waiting` 中剩余的都是不会自行解除、需要联系管理员的情况
         // （管理员关闭了计算、该服务器上没有能够计算它的机器），这些情况照常提示。`waiting_detail` 仅供管理员查看，
         // 不显示在节点上：节点底部只有一行，容纳不下两句
-        useResults.getState().setNodeStatus(target, { status: "queued", note: [waitText(job), textOf(e.waiting)].filter(Boolean).join(" · ") });
+        useResults.getState().setNodeStatus(target, { status: "queued", note: e.waiting?.code ? [waitWord(job), noteSaid(fromServer(e.waiting))] : waitWord(job) });
         break;
       }
       case "started":
@@ -73,7 +74,7 @@ export function follow(id: string, target: string): void {
       case "node_done":
         if (!node) break;
         useResults.getState().endProgress(node);
-        useResults.getState().setNodeStatus(node, { status: "cooked", note: e.cached ? "" : `用时 ${e.seconds} 秒` });
+        useResults.getState().setNodeStatus(node, { status: "cooked", note: e.cached ? "" : noteWord("ui.graph.took", { seconds: Number(e.seconds) }) });
         onNodeDone(e as CookEvent, node, () => void askStatus());
         break;
       case "message": {
@@ -84,20 +85,24 @@ export function follow(id: string, target: string): void {
         say(m, node);
         break;
       }
-      case "skipped": // 必需的输入来自出错的节点：在该节点上说一次
+      case "skipped": { // 必需的输入来自出错的节点：在该节点上说一次；被「阻断」关着的只写在节点上（model/nodeOutcome.ts）
+        const seen = skippedEvent(e as { blocked?: boolean });
         if (node) useResults.getState().endProgress(node);
-        if (node) useResults.getState().setNodeStatus(node, { status: "skipped", note: "已跳过" });
-        say(fromServer(e as Parameters<typeof fromServer>[0]), node);
+        if (node) useResults.getState().setNodeStatus(node, { status: "skipped", note: seen.note });
+        if (seen.say) say(fromServer(e as Parameters<typeof fromServer>[0]), node);
         break;
+      }
       case "output": // 「输出」自己的计算完成：它的 zip 已在，节点上提供下载
         if (e.task && e.pkg && e.node) {
           noteOutput(e as unknown as Output);
-          say(msg("I-OUTPUT-READY", { node: String(e.label ?? e.node), name: String(e.name ?? "") }), node);
+          // the node as the page says it (its name and type, in the page's language: the log says it again in another);
+          // the server's label (its writer's language) only for a graph that is not open
+          say(msg("I-OUTPUT-READY", { node: node ? nodeRefOf(node) : String(e.label ?? e.node), name: String(e.name ?? "") }), node);
         }
         break;
       case "error":
         if (node) useResults.getState().endProgress(node);
-        if (node) useResults.getState().setNodeStatus(node, { status: "error", note: "出错" });
+        if (node) useResults.getState().setNodeStatus(node, { status: "error", note: noteWord("ui.graph.status_error") });
         say(fromServer(e as Parameters<typeof fromServer>[0]), node);
         break;
       case "cancelled":
@@ -117,7 +122,7 @@ export function follow(id: string, target: string): void {
   };
   // 连接断过又接上：断开期间发生的事件会补发，但服务器重启、任务被别处清掉这类情况没有事件说——按服务器的队列核对一次
   es.onresume = () => void syncJob();
-  following = { id, stop: () => (es.close(), end()) };
+  following = { id, stop: () => (es.close(), end()), reopen: () => es.reopen() };
   es.onlogin = () => {
     // 任务进行中登录过期：登录门在页面上重新要登录；任务本身还在（在页面上重新登录后，仍在排队或计算的接着跟踪，
     // editor/App.tsx）
@@ -127,7 +132,13 @@ export function follow(id: string, target: string): void {
 }
 
 /** 正在跟踪的任务（与 state/results.ts 的 job 是同一个）：核对后发现服务器上它已结束时，据此关掉事件流、解除记录。 */
-let following: { id: string; stop: () => void } | null = null;
+let following: { id: string; stop: () => void; reopen: () => void } | null = null;
+
+/** The page's language changed (state/language.ts): the followed job's stream is opened again where it was, so what the
+ * server says from now on (a step's words on the node, messages) is in the new language. */
+export function followInLanguage(): void {
+  following?.reopen();
+}
 
 /** 页面的任务记录按服务器核对，以服务器为准：服务器上它已不在排队 / 计算中，就把它当作已结束——日志里记它的结果
  * （按服务器的历史记录；查不到的记作不在服务器上了），关掉事件流、解除记录（节点状态、按钮随之恢复）。

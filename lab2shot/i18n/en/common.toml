@@ -1,0 +1,7 @@
+# Words of no one area: the list separator, each language's own name (written in that language, the same in both).
+[list]
+sep = ", "
+
+[lang]
+zh = "中文"
+en = "English"

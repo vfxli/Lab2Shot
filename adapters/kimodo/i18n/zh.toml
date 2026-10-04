@@ -1,0 +1,124 @@
+# Kimodo 动作生成（adapters/kimodo/worker.py）。
+
+# ---- 骨架
+"E-KIMODO-SKELETON" = "「Kimodo 动作生成」没法把接进来的骨架对应到它的模型骨架：{reason}"
+"E-KIMODO-SKELETON.app" = "动作文件里的骨架对应不到模型的骨架：{reason}"
+
+# ---- 关键帧
+"E-KIMODO-KEYSTOOCLOSE" = "关键帧 {first} 和 {second} 挨得太近：「Kimodo 动作生成」按 30 帧/秒生成，这两帧落在同一帧上。去掉其中一个关键帧"
+"E-KIMODO-KEYGAP" = "「Kimodo 动作生成」一次最长生成 10 秒：{reason}"
+"B-KIMODO-WAITPROMPT" = "没有接动画（参考动作），提示词也是空的：「Kimodo 动作生成」这样只会给一段原地站着的动作。写一句提示词说要什么动作，或者接一段参考动作"
+"B-KIMODO-WAITPROMPT.app" = "提示词是空的，也没有传参考动作：这样只会生成一段原地站着的动作。写一句提示词说要什么动作，或者传一个参考动作（FBX）"
+"B-KIMODO-WAITPROMPT.short" = "提示词是空的"
+"E-KIMODO-NOPROMPT" = "没有接动画（参考动作），提示词也是空的：「Kimodo 动作生成」这样只会给一段原地站着的动作。写一句提示词说要什么动作，或者接一段参考动作"
+"E-KIMODO-NOPROMPT.app" = "提示词是空的，也没有传参考动作：这样只会生成一段原地站着的动作。写一句提示词说要什么动作，或者传一个参考动作（FBX）"
+"N-KIMODO-PARTS.other" = "镜头 {seconds:.1f} 秒，超过 Kimodo 一次能生成的 10 秒：分 {parts} 段生成，相邻两段共用边界上的关键帧"
+
+# ---- 骨架和权重
+"N-KIMODO-ROBOTSKELETON" = "选了 G1 机器人的骨架：一条腿有三个独立的髋关节轴，人物骨骼对不上，所以这个权重只能生成动作、不能接动画来补帧。要补帧就把「模型」换成 Rigplay、SEED 或 SMPL-X"
+"N-KIMODO-G1NOPOSTPROCESS" = "G1 机器人的权重官方不做后处理（官方说明这一步对它效果不好），选 G1 时不用"
+
+"I-KIMODO-TEXTENCODER" = "文字编码模型"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."kimodo.motion"]
+subtitle = "动作生成"
+description = "NVIDIA Kimodo：生成自然的全身动作（700 小时授权动捕训练的扩散模型，可商用）。接上动画：按动画师的关键帧补出中间的动作，回到这副骨骼上；不接动画：只写一句英文描述、定好帧范围，就能生成一整段新的骨架动画。每段最长 10 秒，更长的分段生成、后一段接着前一段往下长；手指不动。"
+
+[node."kimodo.motion".param.mapping]
+label = "对应关系"
+placeholder = "自动"
+
+[node."kimodo.motion".param.model]
+label = "模型"
+
+[node."kimodo.motion".param.model.option]
+rp = "SOMA（30 关节）· Rigplay"
+seed = "SOMA（30 关节）· SEED"
+rp_v1 = "SOMA（30 关节）· Rigplay 旧版"
+seed_v1 = "SOMA（30 关节）· SEED 旧版"
+smplx = "SMPL-X（22 关节）"
+g1 = "G1（34 关节）"
+g1_seed = "G1（34 关节）· SEED"
+
+[node."kimodo.motion".param.prompt]
+label = "提示词"
+placeholder = "不写：只按关键帧补"
+
+[node."kimodo.motion".param.steps]
+label = "去噪步数"
+
+[node."kimodo.motion".param.steps.option]
+25 = "25"
+50 = "50"
+100 = "100"
+
+[node."kimodo.motion".param.guidance]
+label = "贴合关键帧"
+
+[node."kimodo.motion".param.seed]
+label = "随机种子"
+
+[node."kimodo.motion".param.post_process]
+label = "模型后处理"
+
+[node."kimodo.motion".port.character]
+label = "动画"
+help = "接上动画：它的关键帧就是约束，模型只补关键帧之间的动作，结果回到这副骨骼上。不接：只按文字和「起始帧号」「结束帧号」生成一整段新动作，交出模型自己的骨架动画"
+
+[node."kimodo.motion".official]
+note = "接进来的动画在上游就是 constraint_lst（EndEffectorConstraintSet / FullBodyConstraintSet，kimodo/constraints.py）；「提示词」是参数不是口。官方吐的是骨架的局部旋转矩阵加根位置，和节点交出的骨架动画是同一样东西。"
+
+[node."kimodo.motion".cost]
+whole = "一段 10 秒的镜头几秒钟就出，不是逐帧的活"
+
+[extension.kimodo]
+summary = "在 700 小时可商用光学动捕上训练的运动学动作扩散模型，生成人体和机器人动作，由文字描述和一整套约束控制"
+
+[extension.kimodo.body]
+soma = "SOMA（30 关节）"
+g1 = "G1（34 关节）"
+
+[extension.kimodo.license]
+name = "Apache-2.0（代码）+ NVIDIA Open Model License（SOMA 模型）"
+summary = "可商用。代码 Apache-2.0；七个权重里六个是 NVIDIA Open Model License，允许商用，训练数据是 Bones Studio 授权的动捕。只有 Kimodo-SMPLX-RP-v1 那一档不一样：它是 NVIDIA Internal Scientific Research and Development Model License，只限研究，而且是受限仓库，要本人在 Hugging Face 页面申请访问。可选的文字描述要用 Meta Llama 3 8B Instruct（Llama 3 社区许可证：月活超过 7 亿的公司另需 Meta 授权，须标注 “Built with Meta Llama 3”，遵守使用政策），需先在 Hugging Face 申请访问；LLM2Vec 适配权重 MIT。动作后处理（MotionCorrection，C++）随代码 Apache-2.0，安装时编译"
+
+[extension.kimodo.weight.soma-rp]
+note = "Kimodo-SOMA-RP-v1.1：700 小时 Bones Rigplay 动捕训练（SOMA 30 关节）（NVIDIA Open Model License，可商用），1.1 GB"
+
+[extension.kimodo.weight.soma-seed]
+note = "Kimodo-SOMA-SEED-v1.1：288 小时公开的 BONES-SEED 动捕训练（SOMA 30 关节）（NVIDIA Open Model License，可商用），1.1 GB"
+
+[extension.kimodo.weight.soma-rp-v1]
+note = "Kimodo-SOMA-RP-v1：Rigplay 的旧版权重，留着复现官方论文里的数字（NVIDIA Open Model License，可商用），1.1 GB"
+
+[extension.kimodo.weight.soma-seed-v1]
+note = "Kimodo-SOMA-SEED-v1：BONES-SEED 的旧版权重，留着复现官方论文里的数字（NVIDIA Open Model License，可商用），1.1 GB"
+
+[extension.kimodo.weight.smplx-rp-v1]
+note = "Kimodo-SMPLX-RP-v1：骨架是 SMPL-X 的 22 个身体关节，接 SMPL 人体进来不用猜关节（NVIDIA Internal Scientific Research and Development Model License，只限研究），1.1 GB；需先在 Hugging Face 页面申请访问"
+
+[extension.kimodo.weight.g1-rp-v1]
+note = "Kimodo-G1-RP-v1：Unitree G1 人形机器人的 34 关节骨架，只能生成、不能接人物骨骼（NVIDIA Open Model License，可商用），1.1 GB"
+
+[extension.kimodo.weight.g1-seed-v1]
+note = "Kimodo-G1-SEED-v1：G1 机器人骨架的 BONES-SEED 版（NVIDIA Open Model License，可商用），1.1 GB"
+
+[extension.kimodo.weight.llm2vec-mntp]
+note = "LLM2Vec 文字编码适配权重（mntp，MIT），只在用文字描述时需要"
+
+[extension.kimodo.weight.llm2vec-supervised]
+note = "LLM2Vec 文字编码适配权重（supervised，MIT），只在用文字描述时需要"
+
+[extension.kimodo.weight.llama3-8b-instruct]
+notice = "Built with Meta Llama 3"
+note = "Meta Llama 3 8B Instruct（16 GB，Llama 3 社区许可证）：文字描述的编码器底座，只在用文字描述时需要；需先在 https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct 申请访问"
+
+# ---- 计算阶段（worker.py；nodes.py 的 encode_prompt 同名）
+[stage]
+encode_prompt = "编码文字描述"
+generate = "Kimodo 生成"
+part = "生成"
+resample_fps = "重采样到镜头帧速率"
+align_skeleton = "对齐骨骼"

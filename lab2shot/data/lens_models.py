@@ -54,6 +54,23 @@ _HALVINGS = 12  # backtracking: a Newton step that makes the residual worse is h
 _STEP = 1e-30  # complex step for the Jacobian
 _CHUNK = 1 << 19  # points per batch (complex temporaries stay well under a gigabyte)
 
+# A lens value (data/types.py value.lens: nodes/lens.py packed_lens) holds the model's own coefficients and, beside them,
+# these three of the lens sheet: the lens centre and the pixel aspect (said apart from the coefficients: data/values.py)
+SHEET_KEYS = ("center_x_mm", "center_y_mm", "pixel_aspect")
+# what a lens group is called (「COLMAP」): the groups are the node layer's (nodes/lens.py lens_groups, with the ones
+# extensions declare), which says how to name them when it loads (name_groups); until then a group is called by its id
+_group_namer: Callable[[str], str] = str
+
+
+def name_groups(namer: Callable[[str], str]) -> None:
+    global _group_namer
+    _group_namer = namer
+
+
+def group_name(gid: str) -> str:
+    return _group_namer(str(gid or ""))
+
+
 INVALID = -1.0  # an ST-map entry with no value: R = G = INVALID
 OVERSCAN_CAP = 0.25  # automatic overscan grows the canvas by at most this much of the plate, per axis
 OVERSCAN_MARGIN_PX = 2  # automatic overscan's sampling margin on each side, pixels
@@ -80,13 +97,20 @@ class ParamSpec:
     limit: tuple[float, float] = (-10.0, 10.0)
 
 
+def _none() -> str:
+    """What a list with nothing in it is said as in a message (list.none)."""
+    from .. import i18n
+
+    return i18n.Word("list.none")
+
+
 @dataclass(frozen=True)
 class Model:
     """A distortion model: its id, the name the software gives it, how it is normalised ("3de4" / "opencv"), its
     parameters in the software's order, and its formula in the direction it is written in (`analytic`)."""
 
     id: str
-    label: str
+    name: str  # the software's own name for it; what it is, in words, is lens.model.<id> (label)
     family: str
     analytic: str  # "undistort" (3DE4: distorted -> undistorted) or "distort" (OpenCV: undistorted -> distorted)
     params: tuple[ParamSpec, ...]
@@ -95,6 +119,13 @@ class Model:
     @property
     def names(self) -> tuple[str, ...]:
         return tuple(p.name for p in self.params)
+
+    @property
+    def label(self) -> str:
+        """Its name with what it is, in the language now (lens.model.<id>), else the software's name."""
+        from .. import i18n
+
+        return i18n.Both.of(lambda: i18n.lookup(f"lens.model.{self.id}") or self.name)  # every language (messages)
 
 
 def _identity(x, y, p, aspect):
@@ -314,30 +345,30 @@ PINHOLE_MODELS = ("SIMPLE_PINHOLE", "PINHOLE")  # 无畸变的两档：镜头表
 _FOV_OMEGA = _C("omega", typical=None, limit=(0.0, math.pi))
 _EUCM = (_C("alpha", typical=None, limit=(0.0, 1.0)), _C("beta", default=1.0, typical=None, above=0.0))
 MODELS: Mapping[str, Model] = {m.id: m for m in (
-    Model("SIMPLE_PINHOLE", "SIMPLE_PINHOLE（无畸变，已去畸变的画面）", "opencv", "distort", (), _identity),
-    Model("PINHOLE", "PINHOLE（无畸变，fx≠fy）", "opencv", "distort", (), _identity),
-    Model("SIMPLE_RADIAL", "SIMPLE_RADIAL（普通相机、手机）", "opencv", "distort", _cv("k"), _simple_radial),
-    Model("RADIAL", "RADIAL（畸变稍大的普通镜头）", "opencv", "distort", _cv("k1", "k2"), _radial),
-    Model("OPENCV", "OPENCV（带切向畸变，和 OpenCV 标定兼容）", "opencv", "distort", _cv("k1", "k2", "p1", "p2"), _opencv),
-    Model("FULL_OPENCV", "FULL_OPENCV（畸变复杂的广角镜头）", "opencv", "distort",
+    Model("SIMPLE_PINHOLE", "SIMPLE_PINHOLE", "opencv", "distort", (), _identity),
+    Model("PINHOLE", "PINHOLE", "opencv", "distort", (), _identity),
+    Model("SIMPLE_RADIAL", "SIMPLE_RADIAL", "opencv", "distort", _cv("k"), _simple_radial),
+    Model("RADIAL", "RADIAL", "opencv", "distort", _cv("k1", "k2"), _radial),
+    Model("OPENCV", "OPENCV", "opencv", "distort", _cv("k1", "k2", "p1", "p2"), _opencv),
+    Model("FULL_OPENCV", "FULL_OPENCV", "opencv", "distort",
           _cv("k1", "k2", "p1", "p2", "k3", "k4", "k5", "k6"), _full_opencv),
-    Model("OPENCV_FISHEYE", "OPENCV_FISHEYE（鱼眼，等距投影）", "opencv", "distort", _cv("k1", "k2", "k3", "k4"), _opencv_fisheye),
-    Model("SIMPLE_RADIAL_FISHEYE", "SIMPLE_RADIAL_FISHEYE（鱼眼，径向 k）", "opencv", "distort", _cv("k"), _simple_radial_fisheye),
-    Model("RADIAL_FISHEYE", "RADIAL_FISHEYE（鱼眼，径向 k1 k2）", "opencv", "distort", _cv("k1", "k2"), _radial_fisheye),
-    Model("FOV", "FOV（部分广角 / 鱼眼）", "opencv", "distort", (_FOV_OMEGA,), _fov),
-    Model("THIN_PRISM_FISHEYE", "THIN_PRISM_FISHEYE（高精度鱼眼，VR / SLAM 设备）", "opencv", "distort",
+    Model("OPENCV_FISHEYE", "OPENCV_FISHEYE", "opencv", "distort", _cv("k1", "k2", "k3", "k4"), _opencv_fisheye),
+    Model("SIMPLE_RADIAL_FISHEYE", "SIMPLE_RADIAL_FISHEYE", "opencv", "distort", _cv("k"), _simple_radial_fisheye),
+    Model("RADIAL_FISHEYE", "RADIAL_FISHEYE", "opencv", "distort", _cv("k1", "k2"), _radial_fisheye),
+    Model("FOV", "FOV", "opencv", "distort", (_FOV_OMEGA,), _fov),
+    Model("THIN_PRISM_FISHEYE", "THIN_PRISM_FISHEYE", "opencv", "distort",
           _cv("k1", "k2", "p1", "p2", "k3", "k4", "sx1", "sy1"), _thin_prism_fisheye),
     # 上游 :655-661：Project Aria 的 FisheyeRadTanThinPrism（Fisheye624）
-    Model("RAD_TAN_THIN_PRISM_FISHEYE", "RAD_TAN_THIN_PRISM_FISHEYE（鱼眼，径向六项加切向、薄棱镜；Project Aria 设备）", "opencv",
+    Model("RAD_TAN_THIN_PRISM_FISHEYE", "RAD_TAN_THIN_PRISM_FISHEYE", "opencv",
           "distort", _cv("k0", "k1", "k2", "k3", "k4", "k5", "p0", "p1", "s0", "s1", "s2", "s3"), _rad_tan_thin_prism_fisheye),
     # 上游 :678-712：Fitzgibbon 2001 的单参数除法模型，两个方向均有闭式解；此处公式为其去畸变方向
-    Model("SIMPLE_DIVISION", "SIMPLE_DIVISION（除法模型，单系数）", "opencv", "undistort", _cv("k"), _division),
-    Model("DIVISION", "DIVISION（除法模型，单系数，fx≠fy）", "opencv", "undistort", _cv("k"), _division),
+    Model("SIMPLE_DIVISION", "SIMPLE_DIVISION", "opencv", "undistort", _cv("k"), _division),
+    Model("DIVISION", "DIVISION", "opencv", "undistort", _cv("k"), _division),
     # 上游 :714-746：仅含等距投影 theta = r、无系数的鱼眼，「畸变可忽略或已校正的鱼眼」
-    Model("SIMPLE_FISHEYE", "SIMPLE_FISHEYE（等距鱼眼，无系数：畸变可忽略或已校正）", "opencv", "distort", (), _equidistant),
-    Model("FISHEYE", "FISHEYE（等距鱼眼，无系数，fx≠fy）", "opencv", "distort", (), _equidistant),
+    Model("SIMPLE_FISHEYE", "SIMPLE_FISHEYE", "opencv", "distort", (), _equidistant),
+    Model("FISHEYE", "FISHEYE", "opencv", "distort", (), _equidistant),
     # 上游 :748-757：Khomutenko, Garcia & Martinet 2018 的增强统一相机模型
-    Model("EUCM", "EUCM（增强统一模型，广角到鱼眼，alpha beta 两系数）", "opencv", "distort", _EUCM, _eucm),
+    Model("EUCM", "EUCM", "opencv", "distort", _EUCM, _eucm),
     Model("3de4_classic", "3DE Classic LD Model", "3de4", "undistort", (
         _C("Distortion"), _C("Anamorphic Squeeze", typical=(0.25, 4.0), **_SQUEEZE), _C("Curvature X"), _C("Curvature Y"),
         _C("Quartic Distortion")), _classic),
@@ -416,7 +447,7 @@ def distortion(model: str, values: Mapping[str, float]) -> dict:
         raise Invalid(Msg("E-LENS-MODEL", model=str(model)[:40], models=list(MODELS)))
     unknown = sorted(set(values) - set(m.names))
     if unknown:
-        raise Invalid(Msg("E-LENS-PARAMS", model=m.label, missing="无", unknown=unknown))
+        raise Invalid(Msg("E-LENS-PARAMS", model=m.label, missing=_none(), unknown=unknown))
     return {"model": model, "params": {p.name: float(values.get(p.name, p.default)) for p in m.params}}
 
 
@@ -564,8 +595,8 @@ class Lens:
             raise Invalid(Msg("E-LENS-MODEL", model=str(self.model)[:40], models=list(MODELS)))
         given = set(self.params)
         if given != set(m.names):
-            raise Invalid(Msg("E-LENS-PARAMS", model=m.label, missing=[n for n in m.names if n not in given] or "无",
-                              unknown=sorted(given - set(m.names)) or "无"))
+            raise Invalid(Msg("E-LENS-PARAMS", model=m.label, missing=[n for n in m.names if n not in given] or _none(),
+                              unknown=sorted(given - set(m.names)) or _none()))
         for spec in m.params:
             for v in _each_value(self.params[spec.name]):
                 if not math.isfinite(v) or (spec.above is not None and v <= spec.above):

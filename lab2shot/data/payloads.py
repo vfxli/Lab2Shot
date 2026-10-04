@@ -585,15 +585,15 @@ def _scene_contents(directory: Path) -> dict:
             **({"attributes": attrs} if (attrs := point_attributes(found)) else {})}
 
 
-# USD 类型名 -> 面向美术人员的类型名称
-ATTR_SAID = {"float": "浮点", "double": "浮点", "half": "浮点", "int": "整数", "int64": "整数", "uint": "整数",
-             "bool": "开关", "string": "文字", "token": "文字", "float2": "二维", "float3": "三维", "double3": "三维",
-             "color3f": "颜色", "normal3f": "法线", "point3f": "位置", "vector3f": "向量", "texCoord2f": "UV",
-             "quatf": "四元数", "matrix4d": "矩阵"}
+# USD 类型名 -> 面向美术人员的类型（id；名称 attr.type.<id>，data/attributes.py attribute_said）
+ATTR_SAID = {"float": "float", "double": "float", "half": "float", "int": "int", "int64": "int", "uint": "int",
+             "bool": "toggle", "string": "string", "token": "string", "float2": "vec2", "float3": "vec3", "double3": "vec3",
+             "color3f": "color", "normal3f": "normal", "point3f": "position", "vector3f": "vector", "texCoord2f": "uv",
+             "quatf": "quaternion", "matrix4d": "matrix"}
 
 
 def point_attributes(found: dict) -> list[dict]:
-    """点云和三维曲线上附带的属性：[{name, type, per}]，`per` 为「逐点」或「逐条」。
+    """点云和三维曲线上附带的属性：[{name, type, per}]，`per` 为 point（逐点）或 curve（逐条）。
 
     模型输出的置信度、法线、类别、点编号等均经由此处列出，否则这些推理结果将无法呈现。
     坐标本身不计为属性。"""
@@ -617,7 +617,7 @@ def point_attributes(found: dict) -> list[dict]:
                 if not attr or not attr.HasAuthoredValue() or interp not in (*vertex, UsdGeom.Tokens.uniform):
                     continue
                 said = str(attr.GetTypeName().scalarType or attr.GetTypeName())
-                per = "逐点" if interp in vertex else "逐条"
+                per = "point" if interp in vertex else "curve"  # attr.per.<per>
                 seen.setdefault((name, said, per), {"name": name, "type": ATTR_SAID.get(said, said), "per": per})
     return sorted(seen.values(), key=lambda a: a["name"])
 

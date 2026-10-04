@@ -1,0 +1,41 @@
+# This extension's words and messages in English (the same keys as zh.toml).
+
+[node."alltracker.track"]
+subtitle = "Patch Track"
+description = "AllTracker: from a reference frame, works out where every pixel of the picture is over the whole shot. It outputs per frame an ST-map back to the reference frame (paint a fix, tattoo or texture once on the reference frame and apply it to the whole shot with stmap; in Nuke use STMap) and a confidence, and can also sample 2D tracks. It drifts less than chaining motion vectors frame to frame, and may be used commercially. For sparse 2D points only, use tapnext.track."
+
+[node."alltracker.track".param.query_frame]
+label = "Reference Frame"
+placeholder = "First frame"
+
+[node."alltracker.track".param.grid]
+label = "Grid Points"
+
+[node."alltracker.track".param.resolution]
+label = "Processing Resolution"
+
+[node."alltracker.track".port.stmap]
+label = "ST-map"
+
+[node."alltracker.track".port.confidence]
+help = "Whether each pixel is visible in this frame and tracked well (AllTracker's visibility × confidence, 0–1). To use it as a mask, wire it through mask_from_confidence first"
+
+[node."alltracker.track".official]
+note = "Upstream forward_sliding(images, iters, sw, is_training, window_len, stride) (nets/alltracker.py:363) takes only the images: no query points, no mask. The 2D points are sampled from the dense trajectory maps at the --rate step (demo.py:148). So the node has no mask input: to track one region only, wire mask_from_boxes → composite (keep) in the graph to cover the picture before it goes into RGB"
+
+[extension.alltracker]
+summary = "A point tracking model, faster and more accurate than its peers, that gives dense (every-pixel) results at high resolution"
+
+[extension.alltracker.license]
+name = "MIT"
+summary = "Code MIT, and the weights (Hugging Face aharley/alltracker, whose model card says MIT) MIT too: commercial use, modification and redistribution allowed, keeping the copyright notice"
+
+[extension.alltracker.weight.alltracker]
+note = "AllTracker (MIT, 66 MB; the full model trained on Kubric and several real / synthetic datasets)"
+
+[stage]
+read_frames = "Read Frames"
+dense_track_at = "Dense Track ({width}×{height}, reference frame {frame})"
+dense_track = "Dense Track"
+invert_stmap = "Invert ST-map"
+sample_tracks = "Sample 2D Tracks"

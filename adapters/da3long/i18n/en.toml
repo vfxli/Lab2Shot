@@ -1,0 +1,57 @@
+# This extension's words and messages in English (the same keys as zh.toml).
+
+"E-DA3LONG-OVERLAP" = "Overlap Frames {overlap} is not less than Max Frames per Segment {chunk}: neighboring segments cannot be aligned. Set the overlap below the frames per segment (upstream's default is 120 frames a segment with an overlap of 60)"
+"E-DA3LONG-UNCOVERED" = "After Depth Anything 3 Streaming solved, some frames got no camera: the segments of upstream's streaming pipeline do not match the number of input frames, and the result is unusable. Report this error to the developers"
+"W-DA3LONG-VRAMSTEP" = "This card has about {card:.0f} GB, not enough for Max Frames per Segment {asked} (about {need:.0f} GB): this run uses Max Frames per Segment {chunk} with Overlap Frames {chunk_overlap} (shorter segments mean more seams between them). To run upstream's 120 per segment, use a card with more memory"
+"W-DA3LONG-ASPECT" = "Depth Anything 3 Streaming solved a horizontal focal length of {fx:.0f} px and a vertical one of {fy:.0f} px, {diff:.0%} apart; for a real lens the two are nearly equal, and the model tends to do this on very wide pictures. The camera is given as it is, so vertical sizes and positions may be stretched or squashed: check it before use, and when the real focal length is known, use a node where it can be filled in (ViPE, WildPose)"
+"W-DA3LONG-ASPECT.app" = "The solved horizontal focal length is {fx:.0f} px and the vertical {fy:.0f} px, {diff:.0%} apart; a real lens has them about equal, and very wide images make the model do this. The camera is delivered as is, so vertical sizes and positions may be stretched or squashed: check it before use, and when the real focal length is known use a card that takes it"
+
+# ---- words
+
+[node."da3long.reconstruct"]
+subtitle = "Streaming Depth and Camera"
+description = "Processes long shots in segments with upstream's Depth Anything 3 Streaming, aligning cameras and depth by the overlapping geometry, with optional SALAD loop closure to correct drift. Outputs the camera, and depth and confidence at the original image size. A short shot of a single segment is inferred directly with the same model. The processing resolution is upstream's 504; the Giant weights are non-commercial."
+
+[node."da3long.reconstruct".param.step]
+label = "Step"
+
+[node."da3long.reconstruct".param.max_frames]
+label = "Max Frames per Segment"
+
+[node."da3long.reconstruct".param.overlap]
+label = "Overlap Frames"
+
+[node."da3long.reconstruct".param.loops]
+label = "Loop Closure"
+
+[node."da3long.reconstruct".param.unit_cm]
+label = "Scale"
+
+[node."da3long.reconstruct".official]
+note = "Upstream Depth Anything 3 Streaming processes the sequence jointly; camera_poses.txt holds the C2W of every frame and intrinsic.txt the fx/fy/cx/cy; Prediction.depth and the cameras are scale-aligned by the same accumulated Sim3. For a short shot of one segment, the adapter fills in what upstream's export leaves out, without changing the model's inference."
+
+[node."da3long.reconstruct".cost]
+note = "Measured on an RTX 4090: a 1920×1080 plate steps down to 60 frames a segment, 19.3 GB whole-card peak over idle. Measured peaks on an RTX 5090 at 80 frames a segment: 23.8 GB for a 640×480 plate (model input 504×378), 19.9 GB for 1280×720; upstream reports 28.3 GB for 120 frames at 504×378. When the card cannot hold the frames set, a smaller step that fits is used and the node says so"
+
+[node."da3long.reconstruct".licence]
+note = "Streaming code Apache-2.0; Giant weights CC-BY-NC-4.0, non-commercial."
+
+[extension.da3long]
+summary = "Upstream's Depth Anything 3 streaming pipeline for long shots, with segment-wise geometric alignment and loop closure"
+
+[extension.da3long.license]
+name = "Apache-2.0 code; CC-BY-NC-4.0 Giant weights"
+summary = "Upstream streaming code Apache-2.0, Giant weights non-commercial; SALAD MIT."
+
+[extension.da3long.weight.model]
+note = "Giant + Metric-Large, non-commercial"
+
+[extension.da3long.weight.config]
+note = "Giant + Metric-Large configuration"
+
+[extension.da3long.weight.salad]
+note = "SALAD loop detection"
+
+[stage]
+solve_short_shot = "Solve Short Shot"
+streaming_solve = "Streaming Solve and Loop Closure"

@@ -5,10 +5,8 @@
    row is on the node's body. The 提升到节点 mark is .socket-pin (28-param-table.css), which adds an input port on top of
    this. A promoted parameter shows this mark always lit and it cannot be switched off (.fixed) */
 .onnode-pin {
-  position: absolute;
-  left: 32px;
-  top: 50%;
-  transform: translateY(-50%);
+  /* 标记格里的一个（ui/LabelRow.tsx marks），在文档流里：不压到标签上 */
+  flex: none;
   display: grid;
   place-items: center;
   width: 16px;

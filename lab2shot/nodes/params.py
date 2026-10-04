@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import re
 import typing
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import json
@@ -144,7 +146,9 @@ def _fields(model: type[BaseModel], schema: dict) -> list[dict]:
         out.append(
             {
                 "name": name,
-                "label": field.title or name,
+                # the words (label, placeholder, assumed, option_labels, the group's name) are dressed on per
+                # language (dress): never declared here
+                "label": "",
                 "default": None if default is PydanticUndefined else default,
                 "type": target.get("type", "string"),
                 "nullable": any(a.get("type") == "null" for a in prop.get("anyOf", [])),
@@ -155,11 +159,11 @@ def _fields(model: type[BaseModel], schema: dict) -> list[dict]:
                 "open_maximum": "maximum" not in target and "exclusiveMaximum" in target,
                 "multiple_of": target.get("multipleOf"),
                 "options": options,
-                "option_labels": extra.get("option_labels"),
+                "option_labels": None,
                 "widget": extra.get("widget"),
-                "group": extra.get("group", ""),
+                "group": extra.get("group", ""),  # its id (group.<id> its name: dress)
                 "affects_result": extra.get("affects_result", True),
-                "placeholder": extra.get("placeholder", ""),
+                "placeholder": "",
                 "worker": extra.get("worker", True),
                 "accept": list(extra.get("accept", ())),
                 "unit": extra.get("unit", ""),
@@ -168,9 +172,9 @@ def _fields(model: type[BaseModel], schema: dict) -> list[dict]:
                 "unique": extra.get("unique", False),
                 "measured": extra.get("measured") or {},  # setting -> the most VRAM it takes (GB), None time only
                 "per_frame": extra.get("per_frame", False),
-                # What the parameter amounts to when left empty ("按全画幅 36 mm 算"). Empty does not mean inactive:
+                # What the parameter amounts to when left empty (its words: .assumed). Empty does not mean inactive:
                 # the node still computes with a value, and the bottom row must state it (engine/evaluation.py sources).
-                "assumed": extra.get("assumed", ""),
+                "assumed": "",
                 # What the three numbers of widget "vec3" are: X Y Z by default (coordinates, angles), R G B for
                 # colours. Not a separate widget: the widget is the same, only the three slot names differ.
                 "parts": list(extra.get("parts", ())),
@@ -183,6 +187,9 @@ def _fields(model: type[BaseModel], schema: dict) -> list[dict]:
                 "panel": extra.get("panel", True),
                 "overrides": list(extra.get("overrides", ())),
                 "items": _param_list(entry, entry.model_json_schema()) if entry else None,
+                # a family's words for this parameter (a key prefix: <words>.label / .placeholder / .option.<v>), when
+                # the family gives it to node types of other extensions: after the node type's own, before the shared
+                "words": extra.get("words", ""),
             }
         )
     return out
@@ -194,42 +201,165 @@ class Button:
     It is not a field of the node's Params: nothing is stored in the graph, nothing reaches the worker, nothing enters
     the fingerprint (param_specs does not list it; NodeDef.interface_specs does, for the page and the parameter
     interface). A click runs the page's action `action` (webui/src/editor/buttonActions.ts: action id -> function), on
-    this node. A node declares its own in NodeDef.buttons (「输出」's 「下载」); every node has 「计算」
-    (COOK_BUTTON, declared once on NodeDef). A template exposes one as any parameter, target "<node id>.<button name>"
-    (engine/templates.py); it takes no value (apply_values passes a value given to it over)."""
+    this node. A node declares its own in NodeDef.buttons (output's download); every node has cook (COOK_BUTTON,
+    declared once on NodeDef). A template exposes one as any parameter, target "<node id>.<button name>"
+    (engine/templates.py); it takes no value (apply_values passes a value given to it over).
+    Its words: node.<type>.button.<word>, else the shared button.<word> (`word`: its name, unless several buttons
+    share one, as every pick button does). `group`: the id of its group (group.<id>)."""
 
-    def __init__(self, name: str, label: str, action: str, group: str = "操作", target: str = "") -> None:
-        # target: the parameter the action works on (「在视图里点选」: the picks / canvas parameter it picks for)
-        self.name, self.label, self.action, self.group, self.target = name, label, action, group, target
+    def __init__(self, name: str, action: str, group: str = "actions", target: str = "", word: str = "") -> None:
+        # target: the parameter the action works on (pick in view: the picks / canvas parameter it picks for)
+        self.name, self.action, self.group, self.target = name, action, group, target
+        self.word = word or name
 
-    def spec(self) -> dict:
-        """Its row in the parameter table, in the same shape as a parameter's (_fields): no value, no wire, only
-        `action`; `simple` "button" so it can show on the node's body when asked, or by default where the node lists it in
-        its `on_node` (「输出」's 「下载」)."""
+    def spec(self, node=None) -> dict:
+        """Its row in the parameter table, in the same shape as a parameter's (_fields, dressed): no value, no wire,
+        only `action`; `simple` "button" so it can show on the node's body when asked, or by default where the node
+        lists it in its `on_node` (output's download). `node`: the node type it is on (its words)."""
+        from . import text
+        from .. import i18n
+
+        said = (text.word(node, "button", self.word) if node is not None else None) or i18n.lookup(f"button.{self.word}")
         return {
-            "name": self.name, "label": self.label, "default": None, "type": "button", "nullable": True,
+            "name": self.name, "label": said or self.name, "default": None, "type": "button", "nullable": True,
             "minimum": None, "maximum": None, "open_minimum": False, "open_maximum": False, "multiple_of": None,
             "options": None, "option_labels": None,
-            "widget": "button", "group": self.group, "affects_result": False, "placeholder": "", "worker": False,
-            "accept": [], "unit": "", "derived_from": [], "choices_from": [], "unique": False, "measured": {},
+            "widget": "button", "group": group_label(self.group), "group_id": self.group, "affects_result": False,
+            "placeholder": "", "worker": False,
+            "accept": [], "unit": "", "unit_label": "", "derived_from": [], "choices_from": [], "unique": False, "measured": {},
             "per_frame": False, "assumed": "", "parts": [], "lines": 1, "panel": True, "overrides": [], "items": None,
             "wire": "", "simple": "button", "action": self.action, **({"target": self.target} if self.target else {}),
         }
 
 
-# every node's 「计算」: cook this node (with what it needs), what its right-click 「计算」 does
-COOK_BUTTON = Button("cook", "计算", "cook")
+# every node's cook button: cook this node (with what it needs), what its right-click cook does
+COOK_BUTTON = Button("cook", "cook")
 
-# parameters worked on with the node's handle in the 2D view (nodes/handles.py: clicks, drawn outlines): each gets its
-# own 「在视图里点选」 button, right after it (NodeDef.interface_specs)
-PICKED_IN_VIEW = ("picks", "canvas")
+# parameters worked on with the node's handle in the 2D view: each gets its own pick-in-view button, right after it
+# (NodeDef.interface_specs). Derived from the handle kinds (nodes/handles.py PICKED_IN_VIEW), the one list: the page
+# reads it from the catalogue
+from .handles import PICKED_IN_VIEW  # noqa: E402
 
 
 def pick_button(spec: dict) -> Button:
-    """「在视图里点选」 for a picks / canvas parameter: named "<parameter>_pick", action pick_in_view on that parameter
-    (the page shows this node in the view so its handle can be used, and ends it on a 「计算」 or a mode switch:
+    """Pick in view for a parameter a 2D handle works on (PICKED_IN_VIEW: picks, outlines, a stick figure): named "<parameter>_pick", action pick_in_view on that parameter
+    (the page shows this node in the view so its handle can be used, and ends it on a cook or a mode switch:
     webui/src/editor/viewPicking.ts). A button parameter like any other: exposed, ordered, renamed, conditioned."""
-    return Button(f"{spec['name']}_pick", "在视图里点选", "pick_in_view", group=spec["group"], target=spec["name"])
+    return Button(f"{spec['name']}_pick", "pick_in_view", group=spec.get("group_id", spec["group"]), target=spec["name"],
+                  word="pick")
+
+
+# ---------------------------------------------------------------- the words of a parameter table
+
+
+def group_label(group: str) -> str:
+    """A parameter group's name in the language now (group.<id>; an id with none, as it is; "" none)."""
+    from .. import i18n
+
+    return (i18n.lookup(f"group.{group}") or group) if group else ""
+
+
+def option_key(value: Any) -> str:
+    """An option's value as the last segment of its key (…option.<value>): a switch true / false, else as written."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def dress(specs: list[dict], node: str, scope: str | None) -> list[dict]:
+    """A parameter table (_fields) with its words in the language now: each parameter's label, placeholder, assumed,
+    its options' names, its group's name (and `group_id`, the group's id) and its unit's (`unit_label`), a table's
+    fields alike (…param.<table>.field.<field>.…). The keys: node.<type>.param.<p>.label|placeholder|assumed|
+    option.<value>, falling back to param.<p>.… and option.<value> (lab2shot/i18n). A word with none: the label is the
+    parameter's name, the others empty."""
+    return [_dressed(s, node, scope, ("param", s["name"])) for s in specs]
+
+
+def _dressed(spec: dict, node: str, scope: str | None, path: tuple[str, ...]) -> dict:
+    from .. import i18n
+    from ..data.units import unit_label
+
+    def word(*part: str) -> str | None:
+        """The node's own key, else the family's words (`words`), else the shared key."""
+        key = ".".join((*path, *part))
+        if node:
+            own = i18n.lookup(f"node.{node}.{key}", scope=scope, exact=True)
+            if own is not None:
+                return own
+            family = i18n.lookup(f"{words}.{'.'.join(part)}") if words else None
+            if family is not None:
+                return family
+            return i18n.node_text(node, *path, *part, in_scope=scope)
+        return i18n.lookup(key, scope=scope)
+
+    def key_of(*part: str) -> tuple[str, str | None] | None:
+        """The key word() reads its word from (and the extension scope it is in), None when there is none."""
+        key = ".".join((*path, *part))
+        if node:
+            own = f"node.{node}.{key}"
+            if i18n.lookup(own, scope=scope, exact=True) is not None:
+                return own, scope
+            if words and i18n.lookup(f"{words}.{'.'.join(part)}") is not None:
+                return f"{words}.{'.'.join(part)}", None
+            return (own, scope) if i18n.node_text(node, *path, *part, in_scope=scope) is not None else None
+        return (key, scope) if i18n.lookup(key, scope=scope) is not None else None
+
+    words = spec.get("words") or ""
+    out = dict(spec)
+    # the label is kept by its key (i18n.Word, a str in the language now): a message naming the parameter
+    # (E-PARAM-INVALID, E-NODE-NOTWIREABLE, E-VALUES-…) reads in whoever's language follows it
+    found = key_of("label")
+    out["label"] = i18n.Word(found[0], in_scope=found[1]) if found else spec["name"]
+    out["placeholder"] = word("placeholder") or ""
+    out["assumed"] = word("assumed") or ""
+    if spec["options"]:
+        labels = {}
+        for v in spec["options"]:
+            key = option_key(v)  # keyed as the page and data/values.py option_label read them: the value as text
+            said = word("option", key)
+            if said is not None:
+                labels[key] = said
+        out["option_labels"] = labels or None
+    out["group_id"] = spec["group"]
+    out["group"] = group_label(spec["group"])
+    out["unit_label"] = unit_label(spec["unit"]) if spec["unit"] else ""
+    if spec.get("items"):
+        out["items"] = [_dressed(i, node, scope, (*path, "field", i["name"])) for i in spec["items"]]
+    return out
+
+
+_DRESSED: dict[tuple, list[dict]] = {}
+
+
+def dressed_specs(cls, specs: list[dict]) -> list[dict]:
+    """A node type's parameter table dressed in the language now, worked out once per type and language (forgotten
+    when the catalogues change: forget_words)."""
+    from .. import i18n
+    from . import text
+
+    key = (cls, i18n.current())
+    if key not in _DRESSED:
+        _DRESSED[key] = dress(specs, getattr(cls, "id", ""), text.scope_of(cls))
+    return _DRESSED[key]
+
+
+def forget_words() -> None:
+    """The dressed tables are worked out again (a catalogue changed: nodes/text.py refresh)."""
+    _DRESSED.clear()
+
+
+@dataclass(frozen=True)
+class Choice:
+    """One option of a parameter whose options come from a registry (P(options_from=)), as the registry declares it:
+    its value; the catalogue key of its name ("" the parameter's own option word, …param.<p>.option.<value>); when it
+    can be picked (a condition like option_applies'); and what picking it switches the node to (the licence class,
+    nodes/tags.py NONCOMMERCIAL / RESEARCH, and 需注册), as an OptionTrait would."""
+
+    value: str
+    word: str = ""
+    applies: Cond | None = None
+    licence: str = ""
+    registration: bool = False
 
 
 class _Extra(dict):
@@ -239,11 +369,15 @@ class _Extra(dict):
     applies: Cond | None = None
     # {choice: the condition under which that one choice can be picked}, kept out of the JSON like `applies`
     option_applies: dict | None = None
+    # () -> the Choices it offers now, read each time (a registry extensions add to as they load), kept out of the JSON
+    options_from: Callable[[], Sequence[Choice]] | None = None
 
 
-def P(default: Any = ..., *, label: str, group: str = "", widget: str | None = None, applies: Cond | None = None,
-      option_applies: dict | None = None, **kw) -> Any:
-    """A node parameter. Beyond pydantic's own arguments:
+def P(default: Any = ..., *, group: str = "", widget: str | None = None, applies: Cond | None = None,
+      option_applies: dict | None = None, options_from: Callable[[], Sequence[Choice]] | None = None, **kw) -> Any:
+    """A node parameter. Its words are in the catalogues, never here (node.<type>.param.<name>.label / .placeholder /
+    .assumed / .option.<value>, falling back to param.<name>.…: dress); `group` is the id of its group (group.<id>).
+    Beyond pydantic's own arguments:
     applies: when it does anything (nodes/applies.py: Wired("confidence"), Not(Wired("camera")) (a connected camera
     decides what it would), Param("mode").one_of("video"), Param("gravity").set(), Param("strength").gt(0),
     WiredType("image", "image.3", "image.4"), fact("segments").gt(2), All/AnyOf of them). Where it does nothing it is greyed out in the
@@ -286,18 +420,58 @@ def P(default: Any = ..., *, label: str, group: str = "", widget: str | None = N
     (a value that only another node's result can give).
     Its input port is there as always (NodeDef.param_port), so a wire dropped on the node still finds it
     (webui/src/graph/rules.ts loosePort), and a graph file that sets it still cooks with that value.
-    Any number, switch, vector or free text parameter can be driven by a wire of its value type (NodeDef.param_port)."""
+    Any number, switch, vector or free text parameter can be driven by a wire of its value type (NodeDef.param_port).
+    options_from: a text parameter whose options are a registry's, not written in the node (「标准人」's 「骨架」: the
+    core's body and those extensions register, data/standard_bodies.py): () -> the Choices there are now. They are
+    listed like a Literal's (a dropdown on the node and in the panel), each with its name (Choice.word), greyed with
+    why while it cannot be picked (Choice.applies, as option_applies) and tagged with the licence it switches the node
+    to (Choice.licence / registration, as an OptionTrait: nodes/applies.py traits_of). A value no longer offered is
+    the cook's to refuse."""
     extra = _Extra(group=group)
     extra.applies = applies
     extra.option_applies = dict(option_applies or {}) or None
+    extra.options_from = options_from
     if widget:
         extra["widget"] = widget
-    for key in ("option_labels", "affects_result", "placeholder", "worker", "accept", "unit", "derived_from",
+    for key in ("affects_result", "worker", "accept", "unit", "derived_from",
                 "choices_from", "unique", "overrides", "per_frame", "measured", "panel", "parts",
-                "wired", "assumed", "lines"):
+                "wired", "lines", "words"):
         if key in kw:
             extra[key] = kw.pop(key)
-    return Field(default, title=label, json_schema_extra=extra, **kw)
+    return Field(default, json_schema_extra=extra, **kw)
+
+
+_SOURCES: dict[type, dict[str, Callable[[], Sequence[Choice]]]] = {}
+
+
+def registered_options(params: type[BaseModel]) -> dict[str, tuple[Choice, ...]]:
+    """The parameters of this model whose options come from a registry (P(options_from=)) -> the Choices offered now
+    (which parameters have one is worked out once per model, the Choices each time)."""
+    if params not in _SOURCES:
+        _SOURCES[params] = {name: src for name, f in params.model_fields.items()
+                            if (src := getattr(f.json_schema_extra, "options_from", None)) is not None}
+    return {name: tuple(src()) for name, src in _SOURCES[params].items()}
+
+
+def with_registered_options(specs: list[dict], params: type[BaseModel]) -> list[dict]:
+    """A dressed parameter table with the registry's options of each P(options_from=) parameter filled in now: its
+    values, and their names (Choice.word, else the parameter's own option word already dressed, else the value)."""
+    from .. import i18n
+
+    registered = registered_options(params)
+    if not registered:
+        return specs
+    out = []
+    for spec in specs:
+        choices = registered.get(spec["name"])
+        if choices is None:
+            out.append(spec)
+            continue
+        own = spec.get("option_labels") or {}
+        labels = {c.value: (i18n.lookup(c.word) if c.word else None) or own.get(c.value) or c.value for c in choices}
+        filled = {**spec, "options": [c.value for c in choices], "option_labels": labels or None}
+        out.append({**filled, "simple": simple_kind(filled)})
+    return out
 
 
 def always_wired(params: type[BaseModel]) -> tuple[str, ...]:
@@ -316,7 +490,7 @@ def colorspace_param(**kw) -> Any:
     default depends on the format and is provided by the node's choices to the web page ("default"), which writes it
     into the parameter so that users can see and change it; the cook applies the same format rule as a fallback (when
     the graph file does not contain it yet). Reader nodes state what the file is; output nodes state what to write."""
-    return P(None, label="色彩空间", group="色彩", widget="colorspace", placeholder="按格式", **kw)
+    return P(None, group="color", widget="colorspace", **kw)
 
 
 # Parameters several nodes share: one definition each.
@@ -325,13 +499,13 @@ def colorspace_param(**kw) -> Any:
 def fp16_param(group: str, default: bool = True) -> Any:
     """Half precision. `default=False`: projects whose upstream does not enable half precision (for example, where the
     upstream documentation states it is numerically unstable) follow upstream; this decision is not overridden."""
-    return P(default, label="半精度", group=group)
+    return P(default, group=group)
 
 
 def typed_list(text: str) -> list[str]:
     """The entries of a list typed into a text parameter (1,3 / Hair, Face_Neck): commas of either width or 、
     separate them."""
-    return [t.strip() for t in re.split(r"[,，、]", text or "") if t.strip()]
+    return [t.strip() for t in re.split(r"[,\uff0c\u3001]", text or "") if t.strip()]
 
 
 def person_ids(text: str) -> set[int]:

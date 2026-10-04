@@ -1,0 +1,386 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "93aba99b2601bba9bf18caf75c155668",
+  "name": {
+   "zh": "点云 · TSDF 融合",
+   "en": "Point Cloud · TSDF Fusion"
+  },
+  "intro": {
+   "zh": "把一整个镜头里逐帧的深度（加摄影机）融成一片静止的全局点云：帧与帧之间大量重复的点按 TSDF 去重去噪。点的颜色取自输入画面（每个点来源那一帧、那个像素，融合时平均）。「体素大小」控制去重力度；接「逐帧点云」则按体素拼接（把深度口换掉即可）。",
+   "en": "Fuses the per-frame depth (with the camera) of a whole shot into one static global point cloud: the many points repeated from frame to frame are deduplicated and denoised by TSDF. Point colors come from the input images (each point's source frame and pixel, averaged during fusion). Voxel Size controls the deduplication; wiring Per-Frame Point Clouds instead merges by voxel (just swap the depth input)."
+  },
+  "author": "Lab2Shot",
+  "created": "2026-10-02T00:00:00",
+  "deliverable": "points_mesh",
+  "owner": "admin",
+  "updated": "2026-10-03T20:00:00"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "深度",
+    "en": "Depth"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "depth_model",
+     "label": {
+      "zh": "深度模型",
+      "en": "Depth Model"
+     },
+     "target": "geometry.model",
+     "widget": "menu",
+     "options": [
+      {
+       "value": "da3metric-large",
+       "label": {
+        "zh": "Depth Anything 3 Metric-Large",
+        "en": "Depth Anything 3 Metric-Large"
+       }
+      },
+      {
+       "value": "da3nested-giant-large-1.1",
+       "label": {
+        "zh": "Depth Anything 3 Giant",
+        "en": "Depth Anything 3 Giant"
+       }
+      },
+      {
+       "value": "da3-large-1.1",
+       "label": {
+        "zh": "Depth Anything 3 Large",
+        "en": "Depth Anything 3 Large"
+       }
+      },
+      {
+       "value": "da3-base",
+       "label": {
+        "zh": "Depth Anything 3 Base",
+        "en": "Depth Anything 3 Base"
+       }
+      }
+     ]
+    },
+    {
+     "name": "depth_resolution",
+     "label": {
+      "zh": "处理分辨率",
+      "en": "Processing Resolution"
+     },
+     "target": "geometry.resolution"
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "focal",
+       "label": {
+        "zh": "已知焦距",
+        "en": "Known Focal Length"
+       },
+       "target": "geometry.focal_mm"
+      },
+      {
+       "name": "filmback",
+       "label": {
+        "zh": "胶片背",
+        "en": "Aperture"
+       },
+       "target": "geometry.filmback_mm",
+       "disable_when": "not focal"
+      }
+     ]
+    },
+    {
+     "name": "cook_geometry",
+     "label": {
+      "zh": "计算深度贴图",
+      "en": "Cook Depth Map"
+     },
+     "target": "geometry.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "融合",
+    "en": "Fuse"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "fuse_voxel_size",
+     "label": {
+      "zh": "体素大小",
+      "en": "Voxel Size"
+     },
+     "target": "fuse.voxel_size"
+    },
+    {
+     "name": "fuse_truncation",
+     "label": {
+      "zh": "截断距离",
+      "en": "Truncation Distance"
+     },
+     "target": "fuse.truncation"
+    },
+    {
+     "name": "fuse_color",
+     "label": {
+      "zh": "保留颜色",
+      "en": "Keep Color"
+     },
+     "target": "fuse.color"
+    },
+    {
+     "name": "cook_fuse",
+     "label": {
+      "zh": "融合并预览",
+      "en": "Fuse and Preview"
+     },
+     "target": "fuse.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": {
+      "zh": "文件名（点云 USD）",
+      "en": "File Name (Point Cloud USD)"
+     },
+     "target": "usd.name"
+    },
+    {
+     "name": "unit",
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "word": "pack",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
+     "target": "deliver.download"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "file",
+   "params": {
+    "path": "",
+    "colorspace": null,
+    "first": null,
+    "last": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 139
+   }
+  },
+  {
+   "id": "geometry",
+   "type": "depthanything3.depth",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "model": "da3-large-1.1",
+    "resolution": 504,
+    "ray_pose": false
+   },
+   "ui": {
+    "x": 400,
+    "y": 0,
+    "on_node": [
+     "focal_mm",
+     "model"
+    ]
+   }
+  },
+  {
+   "id": "fuse",
+   "type": "pointcloud_fuse",
+   "params": {
+    "voxel_size": 0.5,
+    "truncation": 2.0,
+    "color": true
+   },
+   "ui": {
+    "x": 816,
+    "y": 14,
+    "on_node": [
+     "voxel_size"
+    ]
+   }
+  },
+  {
+   "id": "usd",
+   "type": "usd.output",
+   "params": {
+    "name": "points",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 1216,
+    "y": 16,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "deliver",
+   "type": "output",
+   "params": {},
+   "ui": {
+    "x": 1616,
+    "y": 44
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "geometry",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "geometry",
+    "depth"
+   ],
+   "to": [
+    "fuse",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "geometry",
+    "camera"
+   ],
+   "to": [
+    "fuse",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "fuse",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "fuse",
+    "points"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "fuse",
+  "frame": null
+ }
+}

@@ -1,0 +1,62 @@
+# This extension's words and messages in English (the same keys as zh.toml): written by P1-B.
+# HaMeR hand motion (adapters/hamer/worker.py).
+
+# ---- the picture and the hands
+"N-HAMER-NOHANDS" = "hamer.hand_solve found no hands on the people in the picture (hidden, too small or out of frame), so the output is empty this time: use a stretch where the hands are clearly visible, or crop the picture closer to the hands"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."hamer.hand_solve"]
+subtitle = "Hand Motion"
+description = "HaMeR: solves one MANO hand for the left and right hand of every person in the picture (finger joint animation + mesh), with far more accurate finger detail than whole-body models. The result is in camera space (as upstream gives it): fill in the real focal length for the hands' distance to be right; to put them in the world of a camera and line them up with whole-body results, follow with camera_space. It also gives a Camera: the still pinhole camera at the origin the people are placed with (focal length = Focal Length; left empty, full-frame 50 mm; principal point at the picture centre), not a solved camera: looking through it at the image plane, the people and the picture line up; in the templates it is used as the solver's camera."
+
+[node."hamer.hand_solve".param.rescale_factor]
+label = "Hand Box Scale"
+
+[node."hamer.hand_solve".port.boxes]
+label = "Person Boxes"
+
+[node."hamer.hand_solve".port.keypoints]
+label = "2D Keypoints"
+help = "The 21 points per hand ViTPose+ finds in the picture (the wrist plus the knuckles and tips of the five fingers): what HaMeR finds the hands by. Points in the picture, not a projection of the 3D result: wire them straight into tracks.output for 3DEqualizer or Nuke, or lay them over the picture to see whether the solved people fit. Grouped by person, one group per person"
+
+[node."hamer.hand_solve".port.camera]
+label = "Camera"
+help = "The camera the people are placed with: a still pinhole camera at the origin, focal length = the node's Focal Length (left empty, the solver's own estimate or default), principal point at the picture centre. Not a solved camera: the people are placed in its space, and looking through it at the image plane they line up with the picture. Use it as the solver's camera, or as the target of camera_space"
+
+[node."hamer.hand_solve".official]
+note = "⓪ **Person Boxes is an optional input handed straight to the official code** (the rule: an official function that takes person boxes gets the boxes as they are; for projects that take no boxes, the graph goes through mask_from_boxes): the official repository's `ViTPoseModel.predict_pose(image, det_results)` (vitpose_model.py:60-72) takes person boxes (xyxy + score), and the official demo itself first detects person boxes with ViTDet (demo.py:47-55, :80-87) before feeding them to it to find the hands; the package's `ViTDetDataset(cfg, img, boxes, right)` takes hand boxes with a left/right flag (vitdet_dataset.py:16-25). With boxes wired: no people are detected, the hands are found within the boxes; without: detected the official demo's way (the same ViTDet-H). Upstream runs image by image and does not know who is who; we give one file per hand for a whole shot, so the per-frame boxes are linked into tracks by IoU (lab2shot_worker.tracking, the same code as the sam_3d_body.detect_people node): that is how we use it, not its input. ① **The official MANO parameters are the Skinned Character output**, with no type or output of their own (parametric bodies like SMPL / SMPL-X / MANO / FLAME / MHR are skinning + weights + skeleton animation, packed as a Skinned Character, with no data type of their own). Item by item (worker.py hand_track): global_orient + hand_pose of `hamer/models/hamer.py:108 output['pred_mano_params']` become the per-frame joint rotations of the Skinned Character's skeleton (npz local_rotations, the root being global_orient); betas become this hand's rest mesh and rest skeleton (npz rest_vertices / rest_joints, shaped by the betas), with MANO's own skin weights (npz skin_weights); `:131 output['pred_keypoints_3d']` are the 21 points run from the same MANO parameters (16 skeleton joints + 5 fingertip vertices), which our worker computes again with the same smplx MANOLayer + joint_map (the tips in worker.py hand_track): the skeleton joints are in the Skinned Character and the fingertips on the mesh, **not one number is lost**. MANO has no expressions, so the Skinned Character has no blend shapes. ② The symbol `character -> pred_mano_params` is in `hamer/models/hamer.py:108`, not in demo.py, so this declaration cites three upstream places (the official entry's argparse, the official main, and where the model gives the MANO parameters). ③ Upstream has only `demo.py:143 scaled_focal_length` (a focal length, an intrinsic, nothing more): it puts the hands in the camera space of that focal length and does not solve a camera. The Camera output gives the still pinhole camera at the origin the hands are placed with, declared in ours. The hands stay in camera space; to put them in the world of a camera, use the core node camera_space."
+
+[node."hamer.hand_solve".official.ours]
+camera = "The pinhole camera the people are placed with: at the origin, still, focal length = the node's Focal Length (left empty, the solver's own estimate / the default), principal point at the picture centre (families/humans.py plate_camera)"
+
+[extension.hamer]
+summary = "Reconstructs 3D hands from monocular pictures; HaMeR is a fully transformer-based design, clearly more accurate and robust than earlier approaches"
+
+[extension.hamer.license]
+name = "MIT (code) + MANO non-commercial + weights for research only"
+summary = "Research only. The HaMeR code is MIT, but running it needs the MANO hand model (MANO_RIGHT.pkl), whose licence allows only non-commercial research, teaching and art projects; it is downloaded yourself after registering at mano.is.tue.mpg.de, no redistribution. The HaMeR weights have no licence of their own; their training data includes non-commercial datasets such as FreiHAND and InterHand2.6M (CC-BY-NC), so they are used for research only. The person detector ViTDet-H (detectron2): code and weights Apache-2.0; the whole-body keypoints ViTPose+-H used to find hands: code Apache-2.0, weights released with the repository (MAE pre-training, MAE weights CC-BY-NC-4.0); depends on mmcv 1.3.9 and mmpose (ViTPose branch), Apache-2.0, the smplx code (MPI non-commercial licence, only used to read MANO) and chumpy (MIT). nvdiffrast is not used"
+
+[extension.hamer.weight.hamer-ckpt]
+note = "HaMeR ViT-H model (2.7 GB, research only)"
+
+[extension.hamer.weight.hamer-config]
+note = "HaMeR model configuration"
+
+[extension.hamer.weight.mano-mean-params]
+note = "MANO mean pose (shipped with HaMeR)"
+
+[extension.hamer.weight.vitpose-huge-wholebody]
+note = "ViTPose+-H whole-body keypoints, used to find hands (3.8 GB)"
+
+[extension.hamer.weight.vitdet]
+note = "ViTDet-H person detection (Apache-2.0, 2.8 GB)"
+
+[extension.hamer.weight.vitpose-configs]
+note = "ViTPose source (only its model configuration files are used, Apache-2.0)"
+
+# ---- the worker's stages (worker.py)
+[stage]
+detect_people = "Detect People (ViTDet)"
+find_hands = "Find and Reconstruct Hands"
+reconstruct_hands = "Reconstruct Hands"

@@ -10,6 +10,8 @@ import { Loading } from "../ui/Loading";
 import { Button } from "../ui/Button";
 import { startPolling } from "../platform/poll";
 import { useConfirm } from "../ui/Confirm";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** The extension install control (lab2shot/installer), used by the admin page's 「扩展包」 section
  * (admin/Extensions.tsx).
@@ -34,8 +36,9 @@ interface Installable {
 
 
 // UI vocabulary: a job's and a step's state in one or two words
-const JOB_STATE: Record<InstallTask["state"], string> = { queued: "排队中", running: "安装中", done: "已完成", failed: "失败", cancelled: "已取消" };
-const STEP_STATE: Record<InstallStep["state"], string> = { waiting: "等待", running: "进行中", done: "完成", skipped: "跳过", failed: "失败", cancelled: "已取消" };
+// (keys: read with t() as they are shown)
+const JOB_STATE: Record<InstallTask["state"], string> = { queued: "ui.install.job.queued", running: "ui.install.job.running", done: "ui.install.job.done", failed: "ui.install.job.failed", cancelled: "ui.install.job.cancelled" };
+const STEP_STATE: Record<InstallStep["state"], string> = { waiting: "ui.install.step.waiting", running: "ui.install.step.running", done: "ui.install.step.done", skipped: "ui.install.step.skipped", failed: "ui.install.step.failed", cancelled: "ui.install.step.cancelled" };
 
 /** The install control of one row of the admin page's 「扩展包」 table. `full` (the table passes it): also reinstall,
  * rollback and uninstall. */
@@ -44,7 +47,7 @@ export function InstallControl({ p, onChange, full = false }: { p: Installable; 
   const [ask, confirmSheet] = useConfirm();
   const uninstall = async () => {
     // the page's one confirmation sheet: 卸载 deletes the environment and code, keeping the models
-    if (!(await ask({ title: "卸载", say: msg("N-INSTALL-UNINSTALL", { title: p.title }), yes: "卸载", tip: "卸载后重装不用再下载模型", danger: true }))) return;
+    if (!(await ask({ title: t("ui.install.uninstall"), say: msg("N-INSTALL-UNINSTALL", { title: p.title }), yes: t("ui.install.uninstall"), danger: true }))) return;
     act(api.installs.uninstall(p.name));
   };
   const [error, setError] = useState("");
@@ -71,9 +74,9 @@ export function InstallControl({ p, onChange, full = false }: { p: Installable; 
       {active && job && (
         <div className="inst-row">
           <StepBar steps={job.steps} compact />
-          <span className="inst-state">{job.state === "queued" ? JOB_STATE.queued : current?.label ?? JOB_STATE.running}</span>
-          <Button onClick={() => setOpen({ force: false })} tip="打开分步进度和完整日志">
-            查看
+          <span className="inst-state">{job.state === "queued" ? t(JOB_STATE.queued) : current?.label ?? t(JOB_STATE.running)}</span>
+          <Button onClick={() => setOpen({ force: false })}>
+            {t("ui.install.view")}
           </Button>
         </div>
       )}
@@ -84,34 +87,34 @@ export function InstallControl({ p, onChange, full = false }: { p: Installable; 
               tone={p.ready ? "default" : "primary"}
               disabled={!usable(a, "install")}
               onClick={() => setOpen({ force: button.force })}
-              tip={why(a, "install") || (p.ready ? "所有步骤重新做，在旧环境旁边建新环境；自检通过才换上，旧的留着可以回退" : failed ? `从「${current?.label ?? ""}」这一步接着装，已完成的步骤不重做` : "先体检，齐全才开始：拉取代码、建环境、下载并校验模型、自检")}
+              tip={why(a, "install") ? tipOf("disabled", why(a, "install")) : p.ready ? tipOf("consequence", t("ui.install.reinstall_tip")) : undefined}
             >
               {button.label}
             </Button>
           )}
           {failed && job && (
-            <Button tone="ghost" onClick={() => setOpen({ force: false })} tip="看失败在哪一步和完整日志">
-              日志
+            <Button tone="ghost" onClick={() => setOpen({ force: false })}>
+              {t("ui.install.log")}
             </Button>
           )}
           {full && shown(a, "rollback") && (
-            <Button tone="ghost" disabled={!usable(a, "rollback")} tip={why(a, "rollback") || "换回上一次安装之前的环境"} onClick={() => act(api.installs.rollback(p.name))}>
-              回退
+            <Button tone="ghost" disabled={!usable(a, "rollback")} tip={tipOf("disabled", why(a, "rollback"))} onClick={() => act(api.installs.rollback(p.name))}>
+              {t("ui.install.rollback")}
             </Button>
           )}
           {full && shown(a, "uninstall") && (
             <Button
               tone="ghost"
               disabled={!usable(a, "uninstall")}
-              tip={why(a, "uninstall") || "删掉环境、代码和缓存；模型文件保留，重装不用再下载"}
+              tip={why(a, "uninstall") ? tipOf("disabled", why(a, "uninstall")) : tipOf("consequence", t("ui.install.uninstall_tip"))}
               onClick={() => void uninstall()}
             >
-              卸载
+              {t("ui.install.uninstall")}
             </Button>
           )}
         </div>
       )}
-      {failed && job?.result && <p className="inst-note err">{`${current?.label ?? ""}${current ? "：" : ""}${job.result.text}`}</p>}
+      {failed && job?.result && <p className="inst-note err">{current ? t("ui.install.at_step", { step: current.label, text: job.result.text }) : job.result.text}</p>}
       {error && <p className="inst-note err">{error}</p>}
     </div>
     {sheet}
@@ -124,7 +127,7 @@ function StepBar({ steps, compact = false }: { steps: InstallStep[]; compact?: b
   return (
     <div className={`inst-steps${compact ? " compact" : ""}`}>
       {steps.map((s) => (
-        <span key={s.id} className={`inst-step ${s.state}`} data-tip={`${s.label}：${STEP_STATE[s.state]}${s.message ? `（${s.message.text}）` : ""}`}>
+        <span key={s.id} className={`inst-step ${s.state}`} {...tipAttrs(s.message ? tipOf("error", t("ui.install.step_tip_said", { step: s.label, state: t(STEP_STATE[s.state]), said: s.message.text })) : tipOf("value", t("ui.install.step_tip", { step: s.label, state: t(STEP_STATE[s.state]) })))}>
           <i />
           {!compact && s.label}
         </span>
@@ -158,12 +161,12 @@ function InstallSheet({ p, force, onClose, onChange }: { p: Installable; force: 
   };
   const blocked = checklist ? checklist.checks.filter((c) => c.state === "blocked").length : 0;
   return (
-    <Sheet title={`${force ? "重新安装" : "安装"} ${p.title}`} width={760} onClose={onClose}>
+    <Sheet title={force ? t("ui.install.reinstall_title", { title: p.title }) : t("ui.install.install_title", { title: p.title })} width={760} onClose={onClose}>
       {jobId ? (
         <JobView id={jobId} onEnded={onChange} onRetry={() => setJobId(null)} />
       ) : (
         <div className="inst-sheet">
-          <p className="inst-note">开始前先查一遍不能自动完成的步骤：全部准备好才能开始。</p>
+          <p className="inst-note">{t("ui.install.checklist_lede")}</p>
           {checklist ? (
             <div className="inst-checks">
               {checklist.checks.map((c, i) => (
@@ -177,15 +180,15 @@ function InstallSheet({ p, force, onClose, onChange }: { p: Installable; force: 
               ))}
             </div>
           ) : (
-            !error && <p className="inst-note">体检中…</p>
+            !error && <p className="inst-note">{t("ui.install.checking")}</p>
           )}
           {error && <p className="inst-note err">{error}</p>}
           <div className="inst-sheet-actions">
-            <Button tone="ghost" onClick={check} tip="放好文件、批下权限、清出空间后点这里再查一遍">
-              重新检查
+            <Button tone="ghost" onClick={check}>
+              {t("ui.install.check_again")}
             </Button>
-            <Button tone="primary" disabled={!checklist || !checklist.ready || asking} onClick={start} tip={blocked ? `还有 ${blocked} 项没准备好` : "排队安装：同一时间只装一个"}>
-              开始安装
+            <Button tone="primary" disabled={!checklist || !checklist.ready || asking} onClick={start} tip={blocked ? tipOf("disabled", t("ui.install.blocked", { count: blocked })) : undefined}>
+              {t("ui.install.start")}
             </Button>
           </div>
         </div>
@@ -201,9 +204,13 @@ const level = (line: string): string => {
   return CODE.test(code) ? code[0] : "";
 };
 
+/** A web address in a sentence: up to a space, or a closing punctuation mark of either language (written as escapes:
+ * ，。；、）」 are U+FF0C U+3002 U+FF1B U+3001 U+FF09 U+300D). */
+const URL_IN_TEXT = /(https:\/\/[^\s\uFF0C\u3002\uFF1B\u3001\uFF09)\u300D]+)/;
+
 /** A sentence with its web addresses as links (a request page, a download page). */
 function Linked({ text }: { text: string }) {
-  const parts = text.split(/(https:\/\/[^\s，。；、）)」]+)/);
+  const parts = text.split(URL_IN_TEXT);
   return (
     <>
       {parts.map((part, i) =>
@@ -256,27 +263,27 @@ function JobView({ id, onEnded, onRetry }: { id: string; onEnded: () => void; on
     if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 80) el.scrollTop = el.scrollHeight;
   }, [lines]);
 
-  if (!job) return <p className="inst-note">{error || <Loading what="安装进度" />}</p>;
+  if (!job) return <p className="inst-note">{error || <Loading what={t("ui.install.loading_progress")} />}</p>;
   const failedStep = job.steps.find((s) => s.state === "failed");
   return (
     <div className="inst-sheet">
       <StepBar steps={job.steps} />
       <div className="inst-row">
-        <span className={`chip inst-job-state ${job.state}`}>{JOB_STATE[job.state]}</span>
+        <span className={`chip inst-job-state ${job.state}`}>{t(JOB_STATE[job.state])}</span>
         {taskLive(job) && (
-          <Button tone="ghost" onClick={() => api.installs.cancel(job.id).catch((e) => setError(reasonOf(e)))} tip="停在当前步骤；再点安装会从这一步接着装">
-            取消
+          <Button tone="ghost" onClick={() => api.installs.cancel(job.id).catch((e) => setError(reasonOf(e)))} tip={tipOf("consequence", t("ui.install.cancel_tip"))}>
+            {t("ui.common.cancel")}
           </Button>
         )}
         {job.state === "failed" && (
-          <Button tone="primary" onClick={onRetry} tip={`重新体检后从「${failedStep?.label ?? ""}」这一步接着装`}>
-            从这一步重试
+          <Button tone="primary" onClick={onRetry}>
+            {t("ui.install.retry_step")}
           </Button>
         )}
       </div>
       {job.result && job.state !== "done" && (
         <p className="inst-note err">
-          {failedStep ? `${failedStep.label}：` : ""}
+          {failedStep ? t("ui.install.step_prefix", { step: failedStep.label }) : ""}
           <code>{job.result.code}</code> {job.result.text}
         </p>
       )}

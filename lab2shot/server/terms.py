@@ -1,31 +1,33 @@
-"""用户协议与隐私政策 over HTTP (lab2shot/terms): reading them, agreeing to them, and the administrator's copy.
+"""The Terms of Service and Privacy Policy over HTTP (lab2shot/terms): reading them, agreeing to them, and the
+administrator's copy, in every interface language.
 
-    GET  /api/terms           anyone (the login and registration pages link to them): both texts as a person reads them
-    POST /api/auth/terms      the account asking agrees to the version its page showed; under /api/auth/, which the
+    GET  /api/terms           anyone (the login and registration pages link to them): both texts as a person reads them,
+                              in the request's language
+    POST /api/auth/terms      the account asking agrees to the version its page showed (in the request's language); under /api/auth/, which the
                               guard answers before an account agreed (server/access.py), like logging in and out
-    /api/admin/terms          the texts as written, to read and edit (terms.edit): save a copy, or go back to the
+    /api/admin/terms          the texts as written, every language, to read and edit (terms.edit): save a copy, or go back to the
                               program's own texts; either, when the texts change, is a new version everyone agrees to"""
 
 from __future__ import annotations
 
 from fastapi import Request
 
-from .. import logs, terms
+from .. import i18n, logs, terms
 from ..messages import Msg
 from . import auth
 from .routes import Access, Body, Router
 
 log = logs.get("auth")
 
-router = Router(prefix="/api", tags=["登录"])
-admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])
+router = Router(prefix="/api", tags=["login"])
+admin = Router(prefix="/api/admin", tags=["admin"])
 
 
 def _public(t: terms.Terms) -> dict:
     return {"version": t.version, "at": t.at, "documents": t.shown()}
 
 
-@router.get("/terms", access=Access.open("登录页、注册页：用户协议和隐私政策"), summary="用户协议和隐私政策：现在的版本号、生效时间和两份文字（里面提到的保留天数等按现在的设置填好）")
+@router.get("/terms", access=Access.open("Login and registration pages: the Terms of Service and Privacy Policy"), summary="The Terms of Service and Privacy Policy: the current version, when it took effect, and both texts in the request's language (the retention days and such they mention filled in from the current settings)")
 def read() -> dict:
     return _public(terms.current())
 
@@ -34,11 +36,11 @@ class Agree(Body):
     version: int  # the version the page showed
 
 
-@router.post("/auth/terms", access=Access.user("同意用户协议和隐私政策（改过以后第一次用之前）"), summary="同意用户协议和隐私政策：带上页面显示的版本号；这期间文字又改了就要重新读过再同意")
+@router.post("/auth/terms", access=Access.user("Agree to the Terms of Service and Privacy Policy (before first use after a change)"), summary="Agree to the Terms of Service and Privacy Policy, read in the request's language: send the version the page showed; if the texts changed meanwhile, read them again before agreeing")
 def agree(req: Agree, request: Request) -> dict:
     u = auth.me(request)
     ip = auth.who(request)
-    terms.agree(u.id, req.version, ip)
+    terms.agree(u.id, req.version, ip, i18n.current())
     logs.say(log, Msg("I-TERMS-AGREED", user=u.username, version=req.version, where=ip))
     return auth.state_of(auth.session(request))
 
@@ -46,25 +48,26 @@ def agree(req: Agree, request: Request) -> dict:
 def _view(t: terms.Terms) -> dict:
     """The texts as written, with what the placeholders say now and how many accounts agreed to this version."""
     return {"version": t.version, "at": t.at, "by": t.by, "edited": t.edited, "most": terms.MOST,
-            "documents": [{"id": doc, "title": title, "text": t.texts[doc]} for doc, title in terms.DOCS.items()],
+            "documents": [{"id": doc, "title": terms.title(doc), "texts": {lang: t.texts[lang][doc] for lang in t.texts}}
+                          for doc in terms.DOCS],
             "fills": terms.fills(), **terms.agreed_count(t.version)}
 
 
-@admin.get("/terms", access=Access.admin("terms.edit"), summary="用户协议和隐私政策（编辑用）：两份原文、版本号、谁什么时候改的、可以写的占位符和现在的值、多少账号已经同意了这一版")
+@admin.get("/terms", access=Access.admin("terms.edit"), summary="The Terms of Service and Privacy Policy for editing: both texts as written in every language, the version, who changed it and when, the placeholders that may be written and what they say now, how many accounts agreed to this version")
 def admin_read() -> dict:
     return _view(terms.current())
 
 
 class Texts(Body):
-    agreement: str
-    privacy: str
+    agreement: dict[str, str]  # lang -> text (every language of lab2shot/i18n LANGS)
+    privacy: dict[str, str]
 
 
-@admin.put("/terms", access=Access.admin("terms.edit"), summary="改用户协议和隐私政策：两份一起存（纯文字，每份最多 2 万字）；和现在不一样就是新的一版，所有账号下次使用前要重新同意")
+@admin.put("/terms", access=Access.admin("terms.edit"), summary="Change the Terms of Service and Privacy Policy: both texts in every language saved together (plain text, at most 20,000 characters each); if they differ from now it is a new version, which every account agrees to before its next use")
 def admin_save(req: Texts, request: Request) -> dict:
     return _view(terms.edit({"agreement": req.agreement, "privacy": req.privacy}, auth.actor(request)))
 
 
-@admin.delete("/terms", access=Access.admin("terms.edit"), summary="用户协议和隐私政策恢复成程序自带的文字：和现在不一样就是新的一版，所有账号下次使用前要重新同意")
+@admin.delete("/terms", access=Access.admin("terms.edit"), summary="Restore the Terms of Service and Privacy Policy that come with the program: if they differ from now it is a new version, which every account agrees to before its next use")
 def admin_reset(request: Request) -> dict:
     return _view(terms.reset(auth.actor(request)))

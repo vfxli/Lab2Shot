@@ -20,7 +20,6 @@ class Alembic(Extension):
     name = "alembic"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "Alembic"
-    summary = "开放的图形交换框架：把复杂的动画场景烘成一份与软件无关、非过程化的几何结果"
     format_module = True  # reads and writes scene formats
     homepage = "https://github.com/alembic/alembic"
     source = GitSource(url=ALEMBIC_URL, commit=ALEMBIC_COMMIT)
@@ -29,13 +28,9 @@ class Alembic(Extension):
     extra_sources = {"imath": GitSource(url="https://github.com/AcademySoftwareFoundation/Imath.git", commit="5f27ba266d3ea1565e912570c30b5eafc89959f1")}
     license = LicenseInfo(
         tag=BASIC,
-        name="BSD-3-Clause",
         url="https://github.com/alembic/alembic/blob/master/LICENSE.txt",
-        summary=(
-            "BSD-3，可商用、修改和再分发（需保留版权声明）；依赖的 Imath 同为 BSD-3，Boost 为 Boost 许可证，均可商用。"
-            "安装时从源码编译，需要本机 C++ 编译器（config/local.toml 的 build 段 cc / cxx）"
-        ),
-    )
+        )
+    generative = False
     env = EnvSpec(
         python="3.12",
         # C++ dependencies from conda-forge (pinned); numpy is also PyImath's build dependency.

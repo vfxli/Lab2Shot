@@ -2,89 +2,140 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "8c9351c2459686e976bdc14c47d51bfe",
-  "name": "面部 UV 与深度图 · FaceAnything",
-  "intro": "FaceAnything 官方自述：统一的前馈模型，从任意画面序列做高保真的 4D 面部几何与稠密跟踪，核心是给每个像素预测共享规范空间里的面部坐标。这张卡交付一套多层 EXR：UV 坐标图（uv）、面部深度图（depth）、规范坐标（canonical）和面部遮罩（mask）。",
+  "name": {
+   "zh": "面部 UV 与深度贴图 · FaceAnything",
+   "en": "Face UV and Depth Map · FaceAnything"
+  },
+  "intro": {
+   "zh": "FaceAnything 官方自述：统一的前馈模型，从任意图像序列做高保真的 4D 面部几何与稠密跟踪，核心是给每个像素预测共享规范空间里的面部坐标。这张卡交付一套多层 EXR：UV 坐标图（uv）、面部深度贴图（depth）、规范坐标（canonical）和面部遮罩（mask）。",
+   "en": "FaceAnything describes itself as a unified feed-forward model for high-fidelity 4D facial geometry and dense tracking from any image sequence, predicting for every pixel a face coordinate in a shared canonical space. This card delivers a multi-layer EXR: UV coordinates (uv), face depth (depth), canonical coordinates (canonical) and a face mask (mask)."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
-  "deliverable": "face_geo",
+  "deliverable": "face_maps",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
-   "name": "mode",
-   "label": "方式",
+   "name": "face_mode",
+   "label": {
+    "zh": "方式",
+    "en": "Mode"
+   },
    "target": "face.mode"
   },
   {
-   "name": "max_frames",
-   "label": "每段最多帧数",
+   "name": "face_max_frames",
+   "label": {
+    "zh": "每段最多帧数",
+    "en": "Max Frames per Chunk"
+   },
    "target": "face.max_frames",
-   "hide_when": "mode != \"chunk\""
+   "hide_when": "face_mode != \"chunk\""
   },
   {
-   "name": "uv_way",
-   "label": "UV 投射方式",
-   "target": "uv.way"
+   "name": "position_uv_way",
+   "label": {
+    "zh": "UV 投射方式",
+    "en": "UV Projection"
+   },
+   "target": "position_uv.way"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "exr.name"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
-       "target": "out.exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -94,17 +145,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "计算",
+     "word": "cook",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -113,8 +170,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -128,8 +184,7 @@
   },
   {
    "id": "face",
-   "type": "faceanything.solve",
-   "label": "FaceAnything 面部通道",
+   "type": "faceanything.face_maps",
    "params": {
     "mode": "chunk",
     "max_frames": 16,
@@ -147,33 +202,30 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1600,
-    "y": 169
+    "x": 1630,
+    "y": 176
    }
   },
   {
-   "id": "uv",
-   "type": "core.position_uv",
-   "label": "规范坐标转 UV",
+   "id": "position_uv",
+   "type": "uv_from_position",
    "params": {
     "way": "cylinder"
    },
    "ui": {
-    "x": 800,
-    "y": 159,
+    "x": 830,
+    "y": 166,
     "on_node": [
      "way"
     ]
    }
   },
   {
-   "id": "out",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "id": "exr",
+   "type": "exr.output",
    "params": {
     "name": "face",
     "layers": [
@@ -203,8 +255,8 @@
     "colorspace": null
    },
    "ui": {
-    "x": 1200,
-    "y": 169
+    "x": 1230,
+    "y": 176
    }
   }
  ],
@@ -225,7 +277,7 @@
     "canonical"
    ],
    "to": [
-    "uv",
+    "position_uv",
     "position"
    ]
   },
@@ -235,17 +287,17 @@
     "mask"
    ],
    "to": [
-    "uv",
+    "position_uv",
     "mask"
    ]
   },
   {
    "from": [
-    "uv",
+    "position_uv",
     "uv"
    ],
    "to": [
-    "out",
+    "exr",
     "layer1"
    ]
   },
@@ -255,7 +307,7 @@
     "depth"
    ],
    "to": [
-    "out",
+    "exr",
     "layer2"
    ]
   },
@@ -265,7 +317,7 @@
     "canonical"
    ],
    "to": [
-    "out",
+    "exr",
     "layer3"
    ]
   },
@@ -275,13 +327,13 @@
     "mask"
    ],
    "to": [
-    "out",
+    "exr",
     "layer4"
    ]
   },
   {
    "from": [
-    "out",
+    "exr",
     "files"
    ],
    "to": [

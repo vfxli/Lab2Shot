@@ -1,0 +1,8 @@
+# Stopping the service (stop in lab2shot/cli/service.py: shared by the setup menu's "Service → Stop Service" and step 4 of one-click update).
+# One per line: code = template. Say who estimated it, against what, the number and its unit, what it means, what to do.
+
+"E-SERVICE-NOPID" = "The service answers at {address}, but its process id cannot be seen (usually it was started by another system user, and ss shows only your own processes; or the system has no ss command): the user who started the service must stop it"
+"E-SERVICE-STOPREFUSED" = "The service did not accept the request to stop: {reason}"
+"E-SERVICE-STILLUP" = "Waited {seconds:d} s and the service on port {listen:d} has not exited: look again in a moment, or check the process yourself"
+"E-SERVICE-NOPERMISSION" = "No permission to end process {pid:d}: it was started by another system user; run kill {pid:d} as that user (or with sudo)"
+"N-SERVICE-STOPCANCELLED" = "Stopping cancelled: the service no longer waits to stop and the queue carries on as usual"

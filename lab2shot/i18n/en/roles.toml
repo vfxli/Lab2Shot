@@ -1,0 +1,183 @@
+# Roles and rights (lab2shot/roles.py): the bands of the deputy rights sheet, each capability's short name and what it
+# lets one do, and the three roles' names and descriptions.
+
+[right.band]
+accounts = "Accounts"
+queue = "Queue and GPUs"
+feedback = "Feedback"
+templates = "Templates"
+stats = "Statistics"
+data = "Data and Nodes"
+server = "Server"
+audit = "Audit and Help"
+
+[right."users.manage_normal"]
+label = "Users"
+what = "Manage users: create, disable and enable, reset passwords, change expiry, department and disk quota"
+
+[right."users.tags"]
+label = "License Tags"
+what = "Set the tags (licenses) an account may use: administrators only"
+
+[right."users.delete"]
+label = "Delete Accounts"
+what = "Delete accounts: their results, uploads and logins are deleted with them"
+
+[right."admins.manage"]
+label = "Administrators"
+what = "Create, change and delete administrators and deputy administrators, change any account's role, assign the deputy administrators' rights"
+
+[right."logins.view"]
+label = "Recent Logins"
+what = "See recent logins of the accounts one manages"
+
+[right."invites.manage"]
+label = "Invite Codes"
+what = "Invite codes and self-registration: create, change, disable and delete invite codes, see who registered with them, disable self-registered accounts in bulk by invite code or registration period (only those one manages)"
+
+[right."terms.edit"]
+label = "Terms of Service"
+what = "Terms of Service and Privacy Policy: read the texts, change them, restore the texts that come with the program (after a change every account has to agree again before its next use)"
+
+[right."queue.manage"]
+label = "Queue"
+what = "See everyone's queue and job records, cancel anyone's job, move jobs up the queue, switch GPU jobs and compute jobs on and off; deleting others' jobs and renaming others' groups also needs \"Others' Data\""
+
+[right."gpu.authorize"]
+label = "GPU Assignment"
+what = "Choose which GPUs take jobs"
+
+[right."farm.cards"]
+label = "GPU Details"
+what = "GPUs: each card's model, memory, architecture and what it is running, which extensions can, cannot or may run on it, parameter tiers and each node's measured GPU memory; without this right, answers leave these out"
+
+[right."models.manage"]
+label = "Resident Models"
+what = "Resident models: view them, move them to RAM, unload them completely"
+
+[right."feedback.reply"]
+label = "Reply to Feedback"
+what = "Read user feedback, set its status, reply"
+
+[right."feedback.delete"]
+label = "Delete Feedback"
+what = "Delete user feedback (with its screenshots and diagnostics)"
+
+[right."templates.create"]
+label = "Manage Templates"
+what = "Manage preset templates in the Templates window: File menu \"Save as Preset Template\", duplicate, delete, switch cards on and off, change names and descriptions, create and arrange template categories, drag cards to other categories; templates switched off stay visible"
+
+[right."menu.edit"]
+label = "Manage Node Categories"
+what = "Arrange nodes in the Add Node menu: create, rename, delete and reorder categories, drag nodes to other categories, change nodes' names and descriptions"
+
+[right."templates.restore"]
+label = "Recover Templates"
+what = "Help users recover templates they deleted by mistake (restore only, never delete)"
+
+[right."stats.view"]
+label = "View Statistics"
+what = "See usage statistics (read-only)"
+
+[right."usage.reset"]
+label = "Reset Statistics"
+what = "Reset usage statistics and undo a reset"
+
+[right."data.others"]
+label = "Others' Data"
+what = "See, collect, change and delete other people's results and data: outputs, submitted graphs, uploads, others' jobs and group names in the queue, the recycle bin and permanent deletion of others' templates, disk cleanup"
+
+[right."nodes.all"]
+label = "Ignore Tags"
+what = "Use every node, whatever its tags"
+
+[right."server.view"]
+label = "Overview"
+what = "Overview: memory, disk, the server's own address and start command"
+
+[right."settings.edit"]
+label = "Server Settings"
+what = "Server settings: registration, account quota, queue, GPUs, memory, storage, logs, viewer… (except system settings)"
+
+[right."settings.system"]
+label = "System Settings"
+what = "System settings: network (port, access, HTTPS, domains, trusted proxies), the mirrors and compilers used to install and build, the data location, the OCIO config: a change can make the server run other code at its next install or build, move the data, or trust other sources"
+
+[right."settings.notice"]
+label = "Notice Bar"
+what = "Administrator notice: the notice bar at the top of the editor and the back office (text, color, on or off)"
+
+[right."server.restart"]
+label = "Restart Server"
+what = "Restart the server"
+
+[right."installs.run"]
+label = "Install Extensions"
+what = "Install extensions and see the inbox folder of manual downloads"
+
+[right."licence.consent"]
+label = "Accept Licenses"
+what = "Accept third-party license agreements on users' behalf"
+
+[right."db.backup_restore"]
+label = "Database"
+what = "Database: see its state, back it up, check it"
+
+[right."security.manage"]
+label = "Security"
+what = "Security: suspicious requests, unblocking blocked sources"
+
+[right."logs.view"]
+label = "Logs"
+what = "The server log; answers show where files are on the server"
+
+[right."audit.view"]
+label = "Admin Audit"
+what = "Audit of administrative actions: who created whom, who changed which fields of whom, password resets, deleted users, changed settings, refused attempts"
+
+[right."openapi.view"]
+label = "API Description"
+what = "The machine-readable description of the HTTP API (OpenAPI), for people writing plug-ins and scripts"
+
+[right.role.admin]
+label = "Administrator"
+tip = "Can do everything: server, installs, database, every account and tag"
+
+[right.role.deputy]
+label = "Deputy Administrator"
+tip = "What an administrator assigned under \"Users\": by default users, queue, feedback, templates and viewing statistics; never the server, installs, database, tags or other administrators"
+
+[right.role.user]
+label = "User"
+tip = "Uses the editor and sees only their own jobs, results, uploads and feedback"
+
+# Departments (the factory list of the setting people.departments, ids in lab2shot/departments.json; one an administrator adds shows as written: accounts.department_label)
+[department]
+pre_production = "Pre-Production"
+concept = "Concept Art"
+storyboard = "Storyboard"
+previs = "Previs"
+layout = "Layout"
+modeling = "Modeling"
+texturing = "Texturing"
+shading = "Shading"
+rigging = "Rigging"
+animation = "Animation"
+mocap = "Motion Capture"
+fx = "FX"
+cfx = "CFX (Cloth / Hair / Muscle)"
+environment = "Environment"
+matte_painting = "Matte Painting"
+matchmove = "Matchmove"
+roto = "Roto"
+paint = "Paint"
+compositing = "Compositing"
+lighting = "Lighting"
+rendering = "Rendering"
+grading = "Color Grading"
+editorial = "Editorial"
+pipeline = "TD / Pipeline"
+rnd = "R&D"
+production = "Production Management"
+data = "Data Management"
+other = "Other"

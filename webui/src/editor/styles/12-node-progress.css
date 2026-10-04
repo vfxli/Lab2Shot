@@ -67,6 +67,20 @@
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
+  font-family: var(--mono);
+}
+
+/* 类型名旁边的说明（中文界面「导入 FBX」）：小字、淡色 */
+.menu-title-desc {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.menu-item.active .menu-title-desc {
+  color: inherit;
+  opacity: 0.75;
 }
 
 /* 搜索结果行右端的「分类 · 项目」：完整显示，不截断（界面文字不许截断）；菜单宽度足以容纳，无须截断。 */

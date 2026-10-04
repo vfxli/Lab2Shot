@@ -34,6 +34,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from .. import i18n
 from ..config import settings
 from ..errors import NotFound
 from ..io.files import folder_bytes, stats
@@ -175,9 +176,12 @@ def discard(task_id: str) -> None:
 def record(c, task_id: str, user_id: int, created: float, footage: dict[str, Path], group: dict | None = None) -> None:
     """The task's row and the uploads it reads, in the caller's transaction (`c`: database.Database.write()). `group`:
     the group it belongs to (transfer/groups.py of_graph), kept on its row."""
+    import json
+
     g = group or {"key": "", "name": "", "slot": None}
-    c.execute("INSERT INTO tasks (id, user_id, created, ended, group_key, group_name, group_slot) VALUES (?, ?, ?, NULL, ?, ?, ?)",
-              (task_id, user_id, created, g["key"], g["name"], g["slot"]))
+    said = json.dumps(g["said"], ensure_ascii=False) if g.get("said") else ""
+    c.execute("INSERT INTO tasks (id, user_id, created, ended, group_key, group_name, group_slot, group_said) "
+              "VALUES (?, ?, ?, NULL, ?, ?, ?, ?)", (task_id, user_id, created, g["key"], g["name"], g["slot"], said))
     c.executemany("INSERT OR IGNORE INTO task_uploads (task_id, upload) VALUES (?, ?)", [(task_id, sid) for sid in footage])
 
 
@@ -316,7 +320,7 @@ def of_account(user_id: int) -> list[dict]:
     """The account's tasks, newest first: id, created, ended, bytes (its folder, each inode once)."""
     from ..database import db
 
-    return [{"id": r["id"], "created": r["created"], "ended": r["ended"], "state": "进行中" if r["ended"] is None else "已结束",
+    return [{"id": r["id"], "created": r["created"], "ended": r["ended"], "state": i18n.t("transfer.task.running" if r["ended"] is None else "transfer.task.ended"),
              "bytes": folder_bytes([task_dir(r["id"])])}
             for r in db().rows("SELECT id, created, ended FROM tasks WHERE user_id = ? ORDER BY created DESC", (user_id,))]
 
@@ -330,6 +334,17 @@ _INODES: dict[str, dict[tuple[int, int], int]] = {}
 
 def _inodes(folder: Path) -> dict[tuple[int, int], int]:
     return {(st.st_dev, st.st_ino): st.st_size for _, st in stats(folder)}
+
+
+def inodes_of(task_id: str, ended: bool) -> dict[tuple[int, int], int]:
+    """What task `task_id`'s folder holds, inode -> size: an ended task's is looked at once and remembered (_INODES),
+    a running task's every time. The one reading of a task folder's bytes by inode (account_bytes, farm/space.py)."""
+    inodes = _INODES.get(task_id) if ended else None
+    if inodes is None:
+        inodes = _inodes(task_dir(task_id))
+        if ended:
+            _INODES[task_id] = inodes
+    return inodes
 
 
 _folders_changed = 0  # how many times an ended task's folder changed (or went) since the server started
@@ -357,11 +372,6 @@ def account_bytes(user_id: int, beside: Path | None = None) -> tuple[int, int]:
 
     held: dict[tuple[int, int], int] = {}
     for r in db().rows("SELECT id, ended FROM tasks WHERE user_id = ?", (user_id,)):
-        inodes = _INODES.get(r["id"]) if r["ended"] is not None else None
-        if inodes is None:
-            inodes = _inodes(task_dir(r["id"]))
-            if r["ended"] is not None:
-                _INODES[r["id"]] = inodes
-        held.update(inodes)
+        held.update(inodes_of(r["id"], r["ended"] is not None))
     more = {k: size for k, size in _inodes(beside).items() if k not in held} if beside is not None else {}
     return sum(held.values()), sum(more.values())

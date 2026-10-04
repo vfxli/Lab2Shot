@@ -28,7 +28,7 @@ class Client:
         try:
             return accounts.get(self.user).label
         except NotFound:  # the account row was purged; its jobs in memory and in the records still say whose they were
-            return accounts.DELETED
+            return accounts.deleted_label()
 
     def full(self) -> dict:
         """What the administrator sees (and the job's record keeps): its own fields plus the account's current name,
@@ -41,8 +41,8 @@ class Client:
         try:
             a = accounts.get(self.user)
         except NotFound:
-            return {**asdict(self), "who": accounts.DELETED, "name": accounts.DELETED, "department": ""}
-        return {**asdict(self), "who": a.label, "name": a.name, "department": a.department}
+            return {**asdict(self), "who": accounts.deleted_label(), "name": accounts.deleted_label(), "department": ""}  # its words
+        return {**asdict(self), "who": a.label, "name": a.name, "department": accounts.department_label(a.department)}  # its words
 
     @classmethod
     def of(cls, account, details: dict | None = None) -> Client:

@@ -33,19 +33,14 @@ FILES = {
     "tokenizer-image-mean-std": (TOKENIZER, "image_mean_std.pt", "916fe37d596d9e81c32abc358fd6cbec7b512bd06caa975c7bc02085d4035f44"),
     "tokenizer-config": (TOKENIZER, "config.json", None),
 }
-NOTES = {
-    INVERSE: "逆渲染 7B（拆 G-buffer），28.9 GB，NVIDIA Open Model License",
-    FORWARD: "正向渲染 7B（按 HDRI 重打光），28.9 GB，NVIDIA Open Model License",
-    TOKENIZER: "Cosmos 视频编解码器 CV8x8x8-720p，NVIDIA Open Model License",
-}
 
 
 def _weights() -> tuple[Weight, ...]:
     return tuple(
-        hf_file(repo, REVISIONS[repo], name, key=key, dest=f"{repo.split('/')[1]}/{name}", note=NOTES[repo], sha256=sha or "",
-                # its licence (NVIDIA Open Model License) requires crediting it once the model is actually there —
-                # on the one real model file, not its small config.json, so the notice waits for the download
-                notice="Built on NVIDIA Cosmos" if name != "config.json" else "")
+        # its licence (NVIDIA Open Model License) requires crediting it once the model is actually there: the notice
+        # (extension.diffusionrenderer.weight.<key>.notice) is on the one real model file, not its small config.json,
+        # so it waits for the download
+        hf_file(repo, REVISIONS[repo], name, key=key, dest=f"{repo.split('/')[1]}/{name}", sha256=sha or "")
         for key, (repo, name, sha) in FILES.items()
     )
 
@@ -54,24 +49,13 @@ class DiffusionRenderer(Extension):
     name = "diffusionrenderer"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "Cosmos DiffusionRenderer"
-    summary = "在一个统一框架里同时解逆向渲染和正向渲染这一对问题的神经方法"
     homepage = "https://research.nvidia.com/labs/toronto-ai/DiffusionRenderer/"
     source = GitSource(url=REPO_URL, commit=REPO_COMMIT)
     license = LicenseInfo(
         tag=COMMERCIAL,
-        name="Apache-2.0 代码 · NVIDIA Open Model License 权重",
         url="https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/",
-        summary=(
-            "可商用。代码（cosmos-transfer1-diffusion-renderer）为 Apache-2.0；"
-            "逆渲染、正向渲染两个 7B 模型和 Cosmos-Tokenize1 编解码器为 NVIDIA Open Model License"
-            "（2025-10-24 版）：免费、可商用、可改、可分发，输出归使用者，NVIDIA 不主张所有权；"
-            "分发模型时须附许可证和 “Licensed by NVIDIA Corporation under the NVIDIA Open Model License” 声明，"
-            "对外提供用到 Cosmos 模型的产品/服务时须在网站、界面或文档写明 “Built on NVIDIA Cosmos”；"
-            "绕过或削弱模型自带的安全护栏、对任何人提起该模型的专利/版权诉讼，许可自动终止"
-            "（DiffusionRenderer 官方推理本身就不带护栏模型，本扩展按官方方式运行）；须遵守 NVIDIA 可信 AI 条款。"
-            "不安装 nvdiffrast（NVIDIA 非商用）：HDRI 投影用 PyTorch 重写；不安装 transformer-engine（用 PyTorch 等价实现）"
-        ),
     )
+    generative = False  # processes footage, not tagged 生成式扩散: only QwenImage (diffusers) carries it
     worker_modules = ("shims.py",)
     env = EnvSpec(
         python="3.10",

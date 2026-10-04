@@ -17,15 +17,13 @@ class AllTracker(Extension):
     name = "alltracker"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "AllTracker"
-    summary = "一个点跟踪模型，比同类更快更准，同时在高分辨率上给出稠密（全像素）的结果"
     homepage = "https://alltracker.github.io/"
     source = GitSource(url=ALLTRACKER_URL, commit=ALLTRACKER_COMMIT)
     license = LicenseInfo(
         tag=COMMERCIAL,
-        name="MIT",
         url="https://github.com/aharley/alltracker/blob/master/LICENSE",
-        summary="代码 MIT，权重（Hugging Face aharley/alltracker，模型卡写明 MIT）同样 MIT：可以商用、修改和再分发，保留版权声明即可",
-    )
+        )
+    generative = False
     import_repo = ""  # AllTracker's `nets` and `utils` packages from the pinned repo
     env = EnvSpec(
         python="3.12",
@@ -35,8 +33,7 @@ class AllTracker(Extension):
         pickled_checkpoints=True,  # alltracker.pth holds {"model": state_dict, ...} (pinned, sha256-checked)
     )
     weights = (
-        hf_file(HF_REPO, HF_REVISION, "alltracker.pth", key="alltracker", sha256=MODEL_SHA256,
-                note="AllTracker（MIT，66 MB；Kubric + 多个真实 / 合成数据集训练的完整模型）"),
+        hf_file(HF_REPO, HF_REVISION, "alltracker.pth", key="alltracker", sha256=MODEL_SHA256),
     )
 
 

@@ -1,5 +1,7 @@
 import type { Node } from "@xyflow/react";
 import type { BoxJSON, NodeTypeDef, PickedFrom } from "../api";
+import type { NodeComment } from "./look";
+import type { Note } from "../model/nodeOutcome";
 
 /** The graph document as the page holds it for drawing and for the pure helpers (graph/nodes.ts, graph/rules.ts): a
  * node's type, parameters and live cook status, a group box, the whole graph. Types only. */
@@ -8,10 +10,10 @@ export type NodeStatus = "idle" | "queued" | "cooked" | "cooking" | "error" | "s
 
 export interface NodeData extends Record<string, unknown> {
   typeId: string;
-  label: string;
   params: Record<string, unknown>;
+  comment?: NodeComment; // 节点备注（state/look.ts）：文档的一部分，随撤销
   status: NodeStatus;
-  note: string; // stage / progress / error text shown on the node
+  note: Note; // stage / progress / error text shown on the node, said when shown (model/nodeOutcome.ts noteText)
   blocked?: string; // why it cannot be cooked yet (determined before anything is sent to the server)
   picked?: Record<string, PickedFrom>; // input file parameters: the picked source, as the parameter displays it
   promoted?: string[]; // 提升到节点: an input "param:<name>" (NodeTypeDef.param_ports) and a row on the node's body

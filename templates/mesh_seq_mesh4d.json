@@ -2,115 +2,175 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "5c2b83c8df9a42d6b25ecf9d2d8b5138",
-  "name": "网格序列 · Mesh4D",
-  "intro": "给一段单目 RGB 画面，Mesh4D 前馈生成一个完整的三维动画网格和它的形变。这张卡用 BiRefNet 抠出主体，交付整段拓扑不变的点缓存 USD。仅限研究。",
+  "name": {
+   "zh": "网格序列 · Mesh4D",
+   "en": "Mesh Sequence · Mesh4D"
+  },
+  "intro": {
+   "zh": "给一段单目 RGB 画面，Mesh4D 前馈生成一个完整的三维动画网格和它的形变。这张卡用 BiRefNet 抠出主体，交付整段拓扑不变的几何缓存 USD。仅限研究。",
+   "en": "Given monocular RGB footage, Mesh4D generates a complete animated 3D mesh and its deformation feed-forward. This card mattes the subject with BiRefNet and delivers a geometry cache USD with constant topology for the whole shot. Research only."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-20T12:00:00",
-  "deliverable": "mesh_seq",
+  "deliverable": "points_mesh",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "name": "matte_model",
-   "label": "抠像模型（BiRefNet）",
+   "label": {
+    "zh": "抠像模型（BiRefNet）",
+    "en": "Matte Model (BiRefNet)"
+   },
    "target": "matte.model",
    "show_on_change": true
   },
   {
    "name": "cook_matte",
-   "label": "抠像",
+   "label": {
+    "zh": "抠像",
+    "en": "Matte"
+   },
    "target": "matte.cook"
   },
   {
-   "name": "faces",
-   "label": "面数",
+   "name": "solve_faces",
+   "label": {
+    "zh": "面数",
+    "en": "Face Count"
+   },
    "target": "solve.faces"
   },
   {
-   "name": "quality",
-   "label": "质量",
+   "name": "solve_quality",
+   "label": {
+    "zh": "质量",
+    "en": "Quality"
+   },
    "target": "solve.quality"
   },
   {
    "name": "scale_cm",
-   "label": "尺度",
+   "label": {
+    "zh": "尺度",
+    "en": "Scale"
+   },
    "target": "solve.unit_cm"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "seed",
-     "label": "随机种子",
+     "name": "solve_seed",
+     "label": {
+      "zh": "随机种子",
+      "en": "Seed"
+     },
      "target": "solve.seed"
     }
    ]
   },
   {
    "name": "cook_solve",
-   "label": "解算网格",
+   "label": {
+    "zh": "解算网格",
+    "en": "Solve Mesh"
+   },
    "target": "solve.cook"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
      "target": "usd.name"
     },
     {
      "name": "unit",
-     "label": "单位",
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
      "target": "usd.unit"
     },
     {
      "name": "fps",
-     "label": "帧率",
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
      "target": "usd.fps"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -119,8 +179,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -129,13 +188,12 @@
    },
    "ui": {
     "x": 0,
-    "y": 68
+    "y": 73
    }
   },
   {
    "id": "matte",
    "type": "birefnet.matte",
-   "label": "BiRefNet 抠像",
    "params": {
     "model": "hr_matting",
     "fp16": true
@@ -150,17 +208,16 @@
   },
   {
    "id": "solve",
-   "type": "mesh4d.solve",
-   "label": "Mesh4D 网格序列",
+   "type": "mesh4d.reconstruct",
    "params": {
     "quality": "standard",
-    "faces": "full",
+    "faces": "40k",
     "seed": 0,
     "unit_cm": 100.0
    },
    "ui": {
     "x": 800,
-    "y": 50,
+    "y": 60,
     "on_node": [
      "faces",
      "quality",
@@ -170,8 +227,7 @@
   },
   {
    "id": "usd",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "type": "usd.output",
    "params": {
     "name": "mesh",
     "format": "usd",
@@ -179,8 +235,8 @@
     "fps": 24.0
    },
    "ui": {
-    "x": 1200,
-    "y": 60,
+    "x": 1202,
+    "y": 70,
     "on_node": [
      "name",
      "unit"
@@ -192,12 +248,11 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1600,
-    "y": 88
+    "x": 1602,
+    "y": 98
    }
   }
  ],

@@ -39,8 +39,8 @@ interface KeptCamera {
   free: { position: THREE.Vector3; pivot: THREE.Vector3 } | null; // the free view to return to after looking through a camera
   looking: boolean; // exited while looking through a scene camera (in the 3D stage)
 }
-// per camera slot: the viewer's one ("viewer"), and any other 3D stage on the page with a camera of its own (a dialog's
-// stage: view/HandleStage.tsx), so that one never moves the other's view
+// per camera slot: the viewer's one ("viewer"), and any other 3D stage on the page with a camera of its own (a stage in
+// a dialog), so that one never moves the other's view
 const keptBy = new Map<string, KeptCamera>();
 const framedOnce = new Set<string>(); // the slots whose first 3D display has been framed
 
@@ -228,20 +228,40 @@ export function ViewCamera({ o, frameKey, selected, lens, gate, onLeave, slot = 
     invalidate();
   }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // the content fits into the part of the canvas no panel covers (StageState.insets), centred there: the view is fitted to
+  // that rectangle, then camera and pivot slide sideways so the centre lands in its middle
   const place = (center: THREE.Vector3, radius: number, dir: THREE.Vector3) => {
-    pivot.current.copy(center);
     const c = controls.current;
+    const { left, right, top, bottom } = stage.insets;
+    const w = Math.max(size.width - left - right, 40), h = Math.max(size.height - top - bottom, 40);
+    const H = Math.max(size.height, 1);
+    let perPixel: number; // scene units per screen pixel at the centre's depth
     if (active === persp) {
-      persp.position.copy(center).addScaledVector(dir, fitDistance(radius, FOV, size.width / Math.max(size.height, 1)));
+      const fov = (2 * Math.atan(Math.tan((FOV * Math.PI) / 360) * (h / H)) * 180) / Math.PI;
+      const dist = fitDistance(radius, fov, w / h);
+      persp.position.copy(center).addScaledVector(dir, dist);
+      perPixel = (2 * dist * Math.tan((FOV * Math.PI) / 360)) / H;
     } else {
       orthoCam.position.copy(center).addScaledVector(dir, Math.max(radius * 4, 100));
-      orthoCam.zoom = fitZoom(radius, size.width, size.height);
+      orthoCam.zoom = fitZoom(radius, w, h);
+      perPixel = 1 / orthoCam.zoom;
     }
     active.up.set(0, 1, 0);
     active.lookAt(center);
+    const shift = new THREE.Vector3();
+    if (left || right || top || bottom) {
+      // the free rectangle's middle sits (left − right) / 2 px right of the canvas's and (top − bottom) / 2 px below it:
+      // the camera moves the other way sideways (the content then shows right of the middle), and up by the downward offset
+      const rightAxis = new THREE.Vector3(1, 0, 0).applyQuaternion(active.quaternion);
+      const upAxis = new THREE.Vector3(0, 1, 0).applyQuaternion(active.quaternion);
+      shift.addScaledVector(rightAxis, -((left - right) / 2) * perPixel).addScaledVector(upAxis, ((top - bottom) / 2) * perPixel);
+    }
+    active.position.add(shift);
+    pivot.current.copy(center).add(shift);
+    active.updateMatrixWorld();
     active.updateProjectionMatrix();
     if (c) {
-      c.target.copy(center);
+      c.target.copy(pivot.current);
       c.update();
     }
     keep();
@@ -405,7 +425,8 @@ export function ViewCamera({ o, frameKey, selected, lens, gate, onLeave, slot = 
 
 /** A click (not a drag) selects the nearest object under the pointer; a click on empty space clears the selection
  * (`onPick(null)`: the stage clears the selections it holds, its own and the pickables' own). A press a handle's gizmo took (StageState.claimedAt, view/dragGizmo.tsx) is never a pick, however short. */
-export function Picker({ onPick }: { onPick: (key: string | null) => void }) {
+// `kept`: the click went to something that keeps its own selection (Pickable.choose), which is told next
+export function Picker({ onPick }: { onPick: (key: string | null, kept: boolean) => void }) {
   const stage = useStage();
   const gl = useThree((s) => s.gl);
   const camera = useThree((s) => s.camera);
@@ -432,8 +453,8 @@ export function Picker({ onPick }: { onPick: (key: string | null) => void }) {
       const ray = { raycaster, camera, px, size: { width: r.width, height: r.height } };
       const best = picked(stage.pickables, ray);
       // the stage's selection first (cleared when the pick keeps its own), then the pick's own
-      onPick(best && !best.p.choose ? best.key : null);
-      best?.p.choose?.(best.p.part?.(ray) ?? null);
+      onPick(best && !best.p.choose ? best.key : null, !!best?.p.choose);
+      best?.p.choose?.(best.p.part?.(ray) ?? null, { alt: e.altKey, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, x: e.clientX, y: e.clientY });
     };
     el.addEventListener("pointerdown", onDown);
     return () => {

@@ -6,7 +6,7 @@ from typing import Literal
 
 from .vggt_models import OPTION_LICENCES
 from lab2shot.sdk import (licence_traits, Official, Confidence, P, WholeShotDepthCamera, WholeShotParams, loops_param, max_frames_param,
-                          resolution_param, unit_cm_param, Cost, Licence, Measured)
+                          resolution_param, Cost, Licence, Measured)
 
 
 # 默认设置（原版权重、518、每段 130 帧）下实测的显存峰值：1080×1920 竖幅 150 帧分两段（docs.md 实测表）。
@@ -16,6 +16,7 @@ DEFAULT_VRAM_GB = 14.4
 
 class Reconstruct(WholeShotDepthCamera):
     id = "vggt.reconstruct"
+    metric = False  # its units are arbitrary: the 「尺度」 says how many centimetres one is (DepthCamera.metric)
     # 官方的输入等于解算器的输入：VGGT.forward 只吃 images，所以不声明 `takes_mask`，节点上没有遮罩口
     # （那是给真的吃遮罩的上游留的，如 MonST3R 的 dynamic_mask_path）。想只重建画面的一部分，在送进去之前把其余部分涂黑：
     # 「ViTDet 人物框」→「人物框转遮罩」→「图像合成」（留下）→ 这个「RGB」口，图上一眼看得见
@@ -32,24 +33,15 @@ class Reconstruct(WholeShotDepthCamera):
         cite="third_party/vggt/repo/vggt/models/vggt.py:29-52",
         takes={"image": "images"},
         gives={"depth": "depth", "camera": "pose_enc", "points": "world_points"},
-        note="「点云」是官方点头出的世界点图 world_points（vggt.py:45）：worker "
-             "把它放回每一帧的相机空间再交出来（无损，只是换坐标系），由家族按相机摆回世界。"
-             "没有遮罩或人物框输入口：上游 forward 只有 images 和 query_points 两个入参（vggt.py:29），"
-             "遮罩进不了模型；想局部重建，在送进去之前把其余部分涂黑：「ViTDet 人物框」→「人物框转遮罩」"
-             "→「图像合成」（留下）→ 这个节点的「RGB」口。没有的口：track / vis（vggt.py:50-51），它们要 "
-             "query_points，这个节点没有那个输入",
     )
     confidence = Confidence("exp_plus_one")  # how its model gives its confidence (CONFIDENCE_SCALES)
     # vram_gb: RTX 4090 上测得（docs.md），默认设置（DEFAULT_VRAM_GB）
     cost = Cost(gpu=True, vram_gb=DEFAULT_VRAM_GB, seconds_per_frame=0.2)
-    licence = Licence(note="代码是 VGGT License（可商用，禁止军事用途）；原版权重 CC-BY-NC-4.0 非商用，商用版权重（需申请）可以商用。")
+    licence = Licence(note=True)
     traits = licence_traits(OPTION_LICENCES)
 
     class Params(WholeShotParams):
-        model: Literal["original", "commercial"] = P(
-            "original", label="模型", group="解算",
-            option_labels={"original": "原版", "commercial": "商用版"},
-        )
+        model: Literal["original", "commercial"] = P("original", group="solve")
         resolution: Literal[280, 392, 518] = resolution_param(
             {280: Measured(below=518), 392: Measured(below=518), 518: Measured(gb=DEFAULT_VRAM_GB)}, default=518)
         # 一次性把整段看完（不是流式），24G 显卡上：竖幅约 130 帧、横幅约 230 帧都在 20 GB 内；按竖幅的更紧上限统一封顶
@@ -57,11 +49,6 @@ class Reconstruct(WholeShotDepthCamera):
             {32: Measured(below=130), 64: Measured(below=130), 130: Measured(gb=20.0)},
             default=130)
         loops: bool = loops_param()
-        unit_cm: float = unit_cm_param()
-
-    @classmethod
-    def prepare(cls, ctx):
-        return super().prepare(ctx).with_(notes={"scale": "relative"})  # the model's units are arbitrary
 
 
 NODES = (Reconstruct,)

@@ -30,7 +30,7 @@ CATALOG: dict[str, dict] = _load()
 
 def describe(op_id: str) -> dict:
     if op_id not in CATALOG:
-        raise BadOp(f"算法 {op_id!r} 不在目录里（{_TOML}）")
+        raise BadOp(f"op {op_id!r} is not in the catalogue ({_TOML})")
     return CATALOG[op_id]
 
 
@@ -56,7 +56,7 @@ def _eval(tree: tuple, values: dict[str, Any]) -> Any:
         return np.float32(tree[1])
     if kind == "var":
         if tree[1] not in values:
-            raise BadOp(f"公式用到变量 {tree[1]!r}，但调用时没给（给了 {sorted(values)}）")
+            raise BadOp(f"the formula uses variable {tree[1]!r}, which the call did not give (it gave {sorted(values)})")
         return values[tree[1]]
     if kind == "neg":
         return -_eval(tree[1], values)
@@ -77,7 +77,7 @@ def _pixel(desc: dict, args: dict) -> dict:
     values = {}
     for name in _names(desc["expr"]):
         if name not in args:
-            raise BadOp(f"算法要 {name!r}，调用时没给")
+            raise BadOp(f"the op needs {name!r}, which the call did not give")
         v = args[name]
         values[name] = float(v) if np.isscalar(v) else np.asarray(v, np.float32)
     # 通道数较少的一方由 numpy 广播扩展到通道数较多的一方（例如单通道遮罩作用于三通道图像）。
@@ -145,10 +145,10 @@ def _box_at(boxes: dict, frame: int) -> list[float] | None:
 def _items_pick(desc: dict, args: dict) -> dict:
     rule = args["rule"]
     if rule not in desc["rules"]:
-        raise BadOp(f"这条算法只认 {desc['rules']}，给的是 {rule!r}")
+        raise BadOp(f"this op takes only {desc['rules']}, not {rule!r}")
     for need in RULE_ARGS[rule]:
         if need not in args:
-            raise BadOp(f"规则 {rule!r} 要 {need!r}，调用时没给")
+            raise BadOp(f"rule {rule!r} needs {need!r}, which the call did not give")
     items: list[dict] = list(args["items"])
     picked: list[int] = []
     missed: list[dict] = []

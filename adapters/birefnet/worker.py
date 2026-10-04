@@ -14,7 +14,7 @@ raw/frame_<n>.npz:
 Each frame on its own (BiRefNet has no temporal model); frames go through the
 network in batches sized to the free GPU memory.
 
-birefnet.foreground -- the official refine_foreground (FB blur fusion, image_proc.py), frame by frame, on the CPU
+birefnet.foreground_color -- the official refine_foreground (FB blur fusion, image_proc.py), frame by frame, on the CPU
 (FB_blur_fusion_foreground_estimator_cpu_2, cv2.blur: measured fast enough that it need not hold a whole card, see
 foreground()). Frames (sRGB PNGs) + job["inputs"]["mask"] (0..1 alpha per frame, GuideMasks) -> raw/frame_<n>.npz:
 
@@ -148,7 +148,7 @@ class Matte:
 
 
 def foreground(job_path: str) -> None:
-    """birefnet.foreground: the official refine_foreground (FB blur fusion, image_proc.py) per frame, its CPU path
+    """birefnet.foreground_color: the official refine_foreground (FB blur fusion, image_proc.py) per frame, its CPU path
     FB_blur_fusion_foreground_estimator_cpu_2 called on float32 arrays straight (the official refine_foreground wraps
     the same math in PIL round-trips).
 
@@ -160,7 +160,7 @@ def foreground(job_path: str) -> None:
     agree to 2e-6.
 
     raw/frame_<n>.npz: foreground and plate float32 [H,W,3] premultiplied sRGB 0..1, alpha float32 [H,W] 0..1."""
-    run = Run.start(job_path, "birefnet.foreground", "BiRefNet", gpu=False)
+    run = Run.start(job_path, "birefnet.foreground_color", "BiRefNet", gpu=False)
     job, params = run.job, run.params
     radius = params["radius"]
 
@@ -181,7 +181,7 @@ def foreground(job_path: str) -> None:
     if no_alpha:
         say("W-BIREFNET-NOALPHA", count=len(no_alpha), frames=no_alpha[:10], more="……" if len(no_alpha) > 10 else "")
 
-    run.stage("前景估计")
+    run.stage("estimate_foreground")
     with FrameReader(frames.paths, lambda path: read_frame(path, "float32"), threads=4, ahead=8) as reader, \
             Writer(threads=2, max_pending=16) as writer:
         # only the frames with an alpha are read, read-ahead included (reader[i] would read the next frames in order,
@@ -206,7 +206,7 @@ def foreground(job_path: str) -> None:
             plate = np.clip(rgb * a, 0.0, 1.0).astype(np.float32, copy=False)
             run.frame_done(t)
             writer.npz(raw / f"frame_{number}.npz", foreground=fg, plate=plate, alpha=alpha)
-            progress(i + 1, len(numbers), "前景")
+            progress(i + 1, len(numbers), "foreground")
 
     run.finish(numbers, kind="foreground", radius=radius, width=width, height=height, skipped=no_alpha,
                device="cpu",
@@ -214,7 +214,7 @@ def foreground(job_path: str) -> None:
 
 
 def main(job_path: str) -> None:
-    if check_node(load_job(job_path), "birefnet.matte", "birefnet.foreground") == "birefnet.foreground":
+    if check_node(load_job(job_path), "birefnet.matte", "birefnet.foreground_color") == "birefnet.foreground_color":
         foreground(job_path)
         return
     run = Run.start(job_path, "birefnet.matte", "BiRefNet")  # timing, GPU memory, progress and the standard result.json fields are recorded by Run
@@ -225,7 +225,7 @@ def main(job_path: str) -> None:
     repo_id = MODELS[model_id][0]
     weights = job.weights_dir
     checkpoint = weights / repo_id / "model.safetensors"
-    run.weights(checkpoint, what=f"模型 {repo_id} 的权重")
+    run.weights(checkpoint, what=reason("I-BIREFNET-WEIGHTS", repo=repo_id))
 
     frames = run.frames()
     numbers, height, width = frames.numbers, frames.height, frames.width
@@ -236,12 +236,12 @@ def main(job_path: str) -> None:
     torch.backends.cudnn.benchmark = False
     torch.set_float32_matmul_precision("high")
 
-    model = run.model("BiRefNet 模型", load_model, job.repo_dir, checkpoint, device, fp16)
+    model = run.model("load_model", load_model, job.repo_dir, checkpoint, device, fp16, stage_params={"model": "BiRefNet"})
 
     size = input_size(model_id, height, width)
     matte = Matte(model, size, fp16, device)
 
-    run.stage("抠像")
+    run.stage("matte")
     frame_seconds = run.frame_seconds  # each batch's time is divided among its frames; Run derives seconds_per_frame from it
     coverage: list[float] = []
     empty: list[int] = []
@@ -286,7 +286,7 @@ def main(job_path: str) -> None:
                     empty.append(numbers[j])
                 writer.npz(raw / f"frame_{numbers[j]}.npz", alpha=a)
             i += len(batch)
-            progress(i, len(frames), "抠像")
+            progress(i, len(frames), "matte")
 
     if empty:
         say("N-BIREFNET-EMPTY", count=len(empty), frames=empty[:10], more="……" if len(empty) > 10 else "")

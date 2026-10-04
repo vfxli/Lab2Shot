@@ -1,0 +1,58 @@
+# CUT3R 的消息（adapters/cut3r）。
+
+# ---- 参数和画面
+"E-CUT3R-OVERLAP" = "「段间重叠」{overlap:d} 要小于「每段最多帧数」{max_frames:d}：把重叠调小，或把每段帧数调大"
+
+# ---- 重建
+"E-CUT3R-STITCH" = "CUT3R 分段拼接失败：相邻两段重叠的帧里可用的静止点太少，对不齐。把「段间重叠」调大一些再算"
+"W-CUT3R-FOCALJUMP" = "CUT3R 逐帧估的焦距在 {low:d}–{high:d} px 之间波动（超过 10%）：打开了「整段同一焦距」就按中值用一个焦距；变焦镜头以外，这么大的波动说明摄影机解得不稳，请和 ViPE 等其他解算对比"
+"W-CUT3R-STITCHERROR" = "CUT3R 在第 {first:d}–{last:d} 帧处两段拼接的误差是 {error:.1%}（超过 5%）：这里摄影机可能跳一帧。把「段间重叠」调大，或把「每段最多帧数」调大后重算"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."cut3r.reconstruct"]
+subtitle = "深度与摄影机"
+description = "画面 → 每帧摄影机和深度贴图，带记忆地逐帧往前读，尺度接近真实。速度快（约 0.1 秒一帧）、显存小；长焦镜头上焦距会估小，「记忆更新」选 TTT3R 是长镜头模式。摄影机精度不如「ViPE 摄影机解算」和「Pi3 深度与摄影机」，胜在快和省显存。点云是每帧一张点图（官方原生的点图，放回这一帧自己的摄影机里），不是整段一套：官方没有合成一份场景点云的输出。长镜头分段算（「每段最多帧数」默认 64，TTT3R 200），段间按重叠帧对齐：官方 demo 整段一次推理，但模型是按 4–64 帧训练的，实测 128 帧整段一次的轨迹误差是分段的 1.9–3.4 倍（TUM 办公桌 13.5 对 4.0 cm，TUM 办公室 27.7 对 10.8 cm，Bonn 跟拍 10.2 对 5.3 cm）；要官方的整段一次，把「每段最多帧数」调到不小于镜头帧数。"
+
+[node."cut3r.reconstruct".param.update]
+label = "记忆更新"
+
+[node."cut3r.reconstruct".param.update.option]
+cut3r = "CUT3R"
+ttt3r = "TTT3R"
+
+[node."cut3r.reconstruct".param.max_frames]
+label = "每段最多帧数"
+
+[node."cut3r.reconstruct".param.resolution]
+label = "处理分辨率"
+
+[node."cut3r.reconstruct".param.overlap]
+label = "段间重叠"
+
+[node."cut3r.reconstruct".param.conf_threshold]
+label = "置信度门槛"
+
+[node."cut3r.reconstruct".param.shared_focal]
+label = "整段同一焦距"
+
+[node."cut3r.reconstruct".param.unit_cm]
+label = "尺度"
+
+[node."cut3r.reconstruct".official]
+note = "深度是官方自视角点图的 Z（demo.py:210 pts3d_in_self_view）；摄影机是它的位姿头（demo.py:218 camera_pose）加 demo.py:234 estimate_focal_knowing_depth 估的焦距。「点云」是官方的另一张点图 pts3d_in_other_view（demo.py:211，世界坐标系），和自视角点图同时算出来（heads/dpt_head.py:258）：worker 用这一帧官方自己的位姿把它放回摄影机空间，由家族按拼接好的摄影机摆回世界。没有遮罩或人物框输入口：demo.py 的 argparse 里只有 --seq_path / --size 等（demo.py:42-77），模型自己不吃遮罩；想局部重建，在送进去之前把其余部分涂黑：「ViTDet 人物框」→「人物框转遮罩」→「图像合成」（留下）→ 这个节点的「RGB」口"
+
+[extension.cut3r]
+summary = "一个统一框架，能解一大类三维任务；核心是带状态的循环模型，每来一帧新观测就更新一次自己的状态"
+
+[extension.cut3r.license]
+name = "CC BY-NC-SA 4.0（代码和权重）"
+summary = "非商用：CUT3R 代码和 cut3r_512_dpt_4_64 权重都按 CC BY-NC-SA 4.0 发布（署名、禁止商用、改编后须以相同许可发布）。代码里带的 Naver DUSt3R / CroCo 同为 CC BY-NC-SA 4.0；CroCo 的 pos_embed.py / blocks.py 另含 Meta MAE 的 CC BY-NC 4.0 部分和 timm 的 Apache-2.0 部分。没有其他模型或非商用依赖（不需要 SMPL、nvdiffrast 等）。「记忆更新」的 TTT3R 模式是 TTT3R（Inception3D，MIT）的记忆更新规则，由本扩展的 worker 按它的代码重写几行实现，不另外下载；它用的仍是 CUT3R 的权重，所以整体仍然非商用"
+
+[extension.cut3r.weight.cut3r_512_dpt_4_64]
+note = "cut3r_512_dpt_4_64.pth（3.2 GB，Google Drive，CC BY-NC-SA 4.0 非商用）"
+
+[stage]
+read_frames = "读取画面"
+reconstruct = "重建"
+reconstruct_segment = "重建（第 {segment}/{segments} 段）"

@@ -7,7 +7,6 @@ from dataclasses import replace
 import numpy as np
 
 from ..kit.ports import rgb_port
-from ...data.camera import CameraSamples
 from ...errors import Invalid, NothingToCook
 from ...messages import Msg
 from ...data.packet import Packet
@@ -17,12 +16,9 @@ from ...data.units import M_TO_CM
 from ..base import P, Port
 
 PLATE_CAMERA_FILE = "plate_camera.npz"  # WorldHumans.plate_camera
-PLATE_CAMERA_HELP = ("放人用的那台相机：原点、不动的针孔相机，焦距 = 节点的「Focal Length」（留空时用解算器自己估的或默认的），"
-                     "主点在画面中心。不是解出来的相机：人就放在它的空间里，透过它看背板人和画面对得上。"
-                     "当「解算器的相机」用，或接「相机空间转换」的目标")
 from ..lens import CameraLensParams, without_camera_conditions
 from .base import Job, RawOutput, WorkerNode
-from ..kit.cameras import camera_port, plate_lens, rotation_is_still, send_camera, send_rotation, solved_camera
+from ..kit.cameras import plate_lens, rotation_is_still, send_camera, send_rotation, solved_camera
 from ..kit.ports import static_camera_param
 from .tracks import Keypoints2D, PersonKeypoints, keypoints2d
 from ..applies import Cost
@@ -36,10 +32,10 @@ class WorldHumansParams(CameraLensParams):
     # WHAM 只取轨迹中的四元数）会丢弃位移，接入整台相机会使使用者误以为位移也被使用。
     # 从「拆分相机」的「旋转」端口连线，在图上可见。表示形式（欧拉角 / 四元数 / 矩阵）由节点内部转换，
     # 连线上传递的是项目统一的三维曲线单位：逐帧 XYZ 欧拉角，单位为度。
-    # 默认值为 (0,0,0) 而非可空：向量参数只有不可空时才能接线（`core.transform` 的「移动」「旋转」写法相同，
+    # 默认值为 (0,0,0) 而非可空：向量参数只有不可空时才能接线（`transform` 的「移动」「旋转」写法相同，
     # 判据见 `nodes/base.py param_port`）。「未接线」与「接入全 0 的连线」可由 `ctx.values` 区分。
     camera_rotate: tuple[float, float, float] = P(
-        (0.0, 0.0, 0.0), label="相机旋转", unit="°", group="镜头", widget="vec3", per_frame=True, worker=False, wired=True)
+        (0.0, 0.0, 0.0), unit="°", group="lens", widget="vec3", per_frame=True, worker=False, wired=True)
 
 
 def _with_least_frames(params: type) -> type:
@@ -53,7 +49,7 @@ def _with_least_frames(params: type) -> type:
 
     # `worker=False`：这是节点侧的筛选条件，不是解算参数；不发送给 worker，调整时复用模型的原始结果
     # （nodes/base.py），不会重新解算。若发送给 worker 则会进入任务指纹，每次修改都会重跑数分钟的 GPU 计算。
-    field = P(None, label="最少解出帧数", group="人物", ge=2, placeholder="自动", worker=False)
+    field = P(None, group="people", ge=2, worker=False)
     return create_model(f"{params.__name__}WithLeastFrames", __base__=params, least_frames=(int | None, field))
 
 
@@ -92,13 +88,16 @@ def _person_said(person: dict) -> str:
     name = person.get("name")
     if name:
         return str(name)
-    return f"人物 {int(person['id']) + 1}" if "id" in person else "这个人"
+    from ... import i18n
+
+    return i18n.Word("person.numbered", n=int(person['id']) + 1) if "id" in person else i18n.Word("person.this")
 
 
 class WorldHumans(WorkerNode):
     """从画面得到人物（身体、手、脸）和相机；可连接已知相机，填写或连线提供的 Focal Length 优先于相机的镜头
     （nodes/lens.py）。
-    camera_to_worker 表示方法从连接的相机获取的内容（camera_in.npz）："camera" 为整台相机；
+    camera_to_worker 表示方法从使用者那里获取的相机内容（camera_in.npz）。没有「整台相机」这一档：把结果放进
+    使用者的摄影机只在图上用「相机空间转换」做，算法节点从不对齐到别的相机；
     "rotation" 仅为逐帧旋转（GVHMR / WHAM：上游将其转为 cam_angvel 并丢弃平移）；
     "focal" 为逐帧焦距（SAM 3D Body：支持变焦；逐帧连线提供的 Focal Length 同理）；
     None 仅将镜头焦距作为 focal_px 传入（HaMeR、SMIRK、TRAM、Pixel3DMM：上游自行解算相机）。
@@ -137,14 +136,14 @@ class WorldHumans(WorkerNode):
     # 上游不接受人物框的节点若只需计算某一人，使用显式的节点链：
     #     人物检测 → 选人 → 人物框转遮罩 → 图像合成（留下）→ 「图像」端口
     # 相乘后画面中只剩该人，上游自身的检测器便只会找到此人。
-    inputs = (rgb_port(), camera_port())
+    inputs = (rgb_port(),)
     # 每个人一项输出：蒙皮角色（骨架 + 动画 + 蒙在骨架上的网格，可在 DCC 中二次修正），见类的文档字符串
     main = "character"
-    outputs = (Port("character", "scene.character", "蒙皮角色"), Port("camera", "scene.camera", "相机"))
+    outputs = (Port("character", "scene.character"), Port("camera", "scene.camera"))
     cost = Cost(gpu=True)
     keypoints: Keypoints2D | None = None  # 方法自身检测到的 2D 关键点；None 表示不输出
     smpl_body: str = ""  # 其 worker 所解算的 SMPL 家族身体（"" 表示不属于 SMPL 家族）：仅用于说明解算的是哪种身体
-    camera_to_worker: str | None = "camera"
+    camera_to_worker: str | None = None  # "rotation" / "focal" / None (class doc); never a whole camera
     # 上游是否解算相机。默认为 False：人体 / 手 / 脸方法大多不解算相机，只给出弱透视偏移
     # （SMIRK 的 outputs['cam'] 是 224 裁切图上的三个数）或一个 Focal Length（HaMeR 的 scaled_focal_length）；
     # 由人物位置反推相机并挂在「相机」端口上，会使使用者误以为是解算器的结果。只有声明为 True 的节点才有该端口
@@ -154,7 +153,7 @@ class WorldHumans(WorkerNode):
     #
     # GVHMR / WHAM 输出的人物位于其自身的世界（原点为该人物起始位置的髋部），该世界配有一台相机，
     # 人物与实拍画面的对齐依赖于它。要使人物在使用者的相机下同样对齐，需用这两台相机计算一个常量修正并施加到人物上。
-    # 该步骤由显式的核心节点「相机空间转换」`core.camera_space` 完成（「参照相机」接其「来源相机」），
+    # 该步骤由显式的核心节点「相机空间转换」`camera_space` 完成（「参照相机」接其「来源相机」），
     # 两台相机在节点图上各有一条连线，使用者可以看到所用的相机。
     #
     # 它与 `solves_camera` 是两回事：
@@ -177,11 +176,10 @@ class WorldHumans(WorkerNode):
         # 该端口定义在家族上：声明了 keypoints 的节点自动增加「2D 关键点」，适配器中只需一行声明
         if cls.keypoints is not None and not any(p.name == "keypoints" for p in cls.outputs):
             cls.outputs = (*cls.outputs, cls.keypoints.port(cls))
-        # 「相机」输入端口只在上游确实接受整台相机（`camera_to_worker == "camera"`）时存在。
-        # `"rotation"`（GVHMR / WHAM）只接受旋转，通过「相机旋转」参数连线（见 WorldHumansParams）；
+        # 没有「相机」输入端口：`"rotation"`（GVHMR / WHAM）只接受旋转，通过「相机旋转」参数连线（见 WorldHumansParams）；
         # `"focal"`（SAM 3D Body / Fast SAM 3D Body）和 `None`（HaMeR / SMIRK / TRAM / Pixel3DMM）只接受 Focal Length，
         # 那是「Focal Length」参数，不是相机。将相机空间的结果放入使用者的相机世界是一个显式步骤：
-        # 核心节点「相机空间转换」（core.camera_space）。
+        # 核心节点「相机空间转换」（camera_space）。
         # 上游不解算相机时不应存在「相机」输出端口（见上方 solves_camera 声明）。
         if cls.plate_camera and cls.solves_camera:
             raise TypeError(f"{cls.__name__}: declare solves_camera or plate_camera, not both - a method that really "
@@ -189,7 +187,7 @@ class WorldHumans(WorkerNode):
         if not cls.solves_camera and not cls.plate_camera:
             cls.outputs = tuple(p for p in cls.outputs if p.name != "camera")
         elif cls.plate_camera:
-            cls.outputs = tuple(replace(p, help=PLATE_CAMERA_HELP) if p.name == "camera" else p for p in cls.outputs)
+            cls.outputs = tuple(replace(p, words="family.humans.plate_camera") if p.name == "camera" else p for p in cls.outputs)
         # 「参照相机」（声明见 reference_camera）：仅供「相机空间转换」作为参照，不是成品相机
         if cls.reference_camera:
             if cls.solves_camera:
@@ -199,21 +197,14 @@ class WorldHumans(WorkerNode):
                                 f"give a second `ref_camera` as well")
             if not any(p.name == "ref_camera" for p in cls.outputs):
                 cls.outputs = (*cls.outputs, Port(
-                    "ref_camera", "scene.camera", "参照相机",
-                    help="这不是成品相机，别交付、别当解算用的相机接给别人。它是这一段结果在"
-                         "它自己的世界里配着的那一台：人和实拍对得上就是靠它。"
-                         "把它接进「相机空间转换」的「来源相机」，你自己那台接「目标相机」，"
-                         "那个节点把人搬到你那台相机的世界里对上画面。"
-                         "要一台能用的相机，从真正解相机的节点（ViPE、TRAM）或者「导入 USD」接"))
-        # 只有 `"camera"` 档保留「相机」输入端口。`"rotation"` 也不保留：上游只接受旋转和 Focal Length，位移会被丢弃，
-        # 接入整台相机属于使用者无法察觉的隐式提取；旋转通过其自身的参数端口，从「拆分相机」显式连线。
-        if cls.camera_to_worker not in ("camera",):
-            cls.inputs = tuple(p for p in cls.inputs if p.name != "camera")
-            # 端口移除后，镜头两个参数上「接入相机时置灰」的条件也需一并移除：
-            # 没有相机端口的节点，Focal Length 和 Filmback 为两个普通参数（nodes/lens.py LensParams 档）。
-            # 新建参数类而不就地清除 applies：所有继承 CameraLensParams 的节点共用同一个 FieldInfo，
-            # 就地修改会一并清除其他节点的置灰条件。
-            cls.Params = without_camera_conditions(cls.Params)
+                    "ref_camera", "scene.camera"))
+        if cls.camera_to_worker not in (None, "rotation", "focal"):
+            raise TypeError(f"{cls.__name__}: camera_to_worker is 'rotation', 'focal' or None - a solve node never takes "
+                            f"a whole camera (placing a result under a camera is the graph's camera_space)")
+        # 没有相机端口，镜头两个参数上「接入相机时置灰」的条件也一并去掉：Focal Length 和 Filmback 为两个普通参数
+        # （nodes/lens.py LensParams 档）。新建参数类而不就地清除 applies：所有继承 CameraLensParams 的节点共用
+        # 同一个 FieldInfo，就地修改会一并清除其他节点的置灰条件。
+        cls.Params = without_camera_conditions(cls.Params)
         # 「相机旋转」参数只属于接受旋转的档位：其他档位（TRAM 的 None）的 worker 不读取它，参数不应出现在面板上（见 _without_camera_rotate 的说明）
         if cls.camera_to_worker != "rotation":
             cls.Params = _without_camera_rotate(cls.Params)
@@ -229,8 +220,6 @@ class WorldHumans(WorkerNode):
     @classmethod
     def prepare(cls, ctx) -> Job:
         image = ctx.input("image")
-        # 只有 `camera_to_worker == "camera"` 的节点有「相机」输入口（见 __init_subclass__），其余的没有可读的相机
-        camera = ctx.input("camera") if cls.camera_to_worker == "camera" else None
         frames = image.meta["frames"]
         lens = plate_lens(ctx, image, default_mm=cls.default_focal_mm)
         extra = {"focal_px": lens.focal_px}
@@ -239,25 +228,21 @@ class WorldHumans(WorkerNode):
         # 接入时将 boxes.json 交给 worker，worker 按框解算而不再自行检测；未接入时按上游 demo 的流程自行检测。
         if any(p.name == "boxes" for p in cls.inputs):
             inputs.update(ctx.input_files("boxes"))
-        if camera is not None and cls.camera_to_worker == "camera":
-            inputs["camera"] = send_camera(ctx, camera, frames, lens.focal_at(frames))
-            if "static_camera" in ctx.params:  # 由相机决定是否为固定机位
-                extra["static_camera"] = CameraSamples.from_packet(camera, frames).is_still()
-        elif cls.camera_to_worker == "rotation" and ctx.values.get("camera_rotate") is not None:
+        if cls.camera_to_worker == "rotation" and ctx.values.get("camera_rotate") is not None:
             # 只使用旋转的档位（GVHMR / WHAM）：从「相机旋转」连线获取逐帧欧拉角，
             # 在此转换为 worker 所需的 cam_to_world，位移一律为 0（上游本就不使用位移）。
             # 表示形式的转换在节点内部完成，连线上传递的是项目单位：逐帧 XYZ 欧拉角，单位为度。
             inputs["camera"] = send_rotation(ctx, ctx.values["camera_rotate"], frames, lens.focal_at(frames))
             # 「固定机位」的提示说明「接入「相机旋转」时由该连线决定：不旋转则按固定机位解算」（kit/ports.py
-            # static_camera_param）：参数在面板上已置灰，其值必须由该连线决定，与上方整台相机档位的 is_still() 相同。
+            # static_camera_param）：参数在面板上已置灰，其值必须由该连线决定。
             # 缺少此项时，GVHMR 的 static_cam 和 WHAM 的固定机位后处理在固定机位上永远不会启用。
             if "static_camera" in ctx.params:
                 extra["static_camera"] = rotation_is_still(ctx.values["camera_rotate"], frames)
-        elif (camera is not None and cls.camera_to_worker) or (cls.camera_to_worker == "focal" and lens.per_frame):
+        elif cls.camera_to_worker == "focal" and lens.per_frame:
             inputs["camera"] = send_camera(ctx, None, frames, lens.focal_at(frames))  # 每帧的焦距（接入变焦数据时逐帧不同）
         if "camera" in inputs:
             extra["focal_px"] = None
-        return Job(image, extra=extra, inputs=inputs, lens=lens, camera=camera)
+        return Job(image, extra=extra, inputs=inputs, lens=lens)
 
     @classmethod
     def least_solved_frames(cls, own: int, asked: int | None) -> int:
@@ -284,7 +269,7 @@ class WorldHumans(WorkerNode):
     def people_solved_enough(cls, ctx, raw: RawOutput, people: list[dict]) -> list[dict]:
         """几乎没有解出任何帧的人物不予输出（否则会出现贴在相机上的巨大人物或远处孤立的骨架）。
 
-        一份实现，由两处调用：家族自身的 `convert`（`smirk.face`、`pixel3dmm.face` 在其结果上追加输出，同样经过它），
+        一份实现，由两处调用：家族自身的 `convert`（`smirk.face_solve`、`pixel3dmm.face_solve` 在其结果上追加输出，同样经过它），
         以及自行实现 `convert` 的 `sam_3d_body.solve`（`fast_sam_3d_body.solve` 继承之）。
         判据见 `least_solved_frames`，参数位于节点上（「最少解出帧数」，由家族自动添加）。
 
@@ -298,7 +283,7 @@ class WorldHumans(WorkerNode):
         for person in people:
             d = raw.arrays(person["file"])
             if "solved" not in set(d):
-                raise Invalid(Msg("E-HUMANS-NOSOLVED", node=cls.label, file=person["file"]))
+                raise Invalid(Msg("E-HUMANS-NOSOLVED", node=ctx.label, file=person["file"]))
             own, solved = len(d["frames"]), len(d["solved"])
             least = cls.least_solved_frames(own, ctx.params.get("least_frames"))
             if solved < least:
@@ -330,8 +315,7 @@ class WorldHumans(WorkerNode):
             + ([("ref_camera", "camera.npz")] if cls.reference_camera else []) \
             + ([("camera", PLATE_CAMERA_FILE)] if cls.plate_camera else [])
         for camera_port_name, camera_file in cameras:
-            # 输出的始终是上游自身解算的相机，不存在「接入相机时原样透传」的分支：有「相机」输出端口的节点
-            # （`tram.solve`、`pixel3dmm.face`）均为 `camera_to_worker=None`，没有相机输入端口，`job.camera` 始终为 None。
+            # 输出的始终是上游自身解算的相机，不存在「接入相机时原样透传」的分支：人体家族没有相机输入端口。
             # 需要将某台相机透传到输出时，由使用者从其来源（ViPE / 「导入 USD」）自行连线。
             c = raw.arrays(camera_file)
             poses = np.asarray(c["cam_to_world"], np.float64) @ flip  # GL 相机轴向
@@ -367,17 +351,16 @@ class WorldHumans(WorkerNode):
         from ...data.units import CV_TO_GL
         from ...io import usd
 
-        image, camera, lens = job.plate, job.camera, job.lens
+        image, lens = job.plate, job.lens
         frames = image.meta["frames"]
         w, h = image.meta["width"], image.meta["height"]
         result = raw.result()
         flip = np.diag([*CV_TO_GL, 1.0])
         place_all = None
         if result["space"] == "camera":
-            place_all = (CameraSamples.from_packet(camera, frames).cam_to_world @ flip if camera is not None
-                         else np.repeat(flip[None], len(frames), 0))
+            place_all = np.repeat(flip[None], len(frames), 0)  # at the origin: camera_space moves it under a camera
         index = {f: i for i, f in enumerate(frames)}
-        ctx.stage("写出 USD 人物和相机")
+        ctx.stage("write_people_camera")
         stage = usd.create_stage(frames, cls.stage_info(result, lens))
         names, found = [], []
         for person in ctx.each(cls.people_solved_enough(ctx, raw, result["people"])):

@@ -2,78 +2,123 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "9d007d2e116fff56df26d4c4166385ee",
-  "name": "面部去光照 · OpenDelight",
-  "intro": "OpenDelight 是面向面部外观采集的完全开源、高性能去光照先验。这张卡交付一套多层 EXR：rgba 是基础色（默认 ACEScg，按「输出色彩空间」），mask 是脸部遮罩；逐帧算整段会闪，这张卡只接一张画面。",
+  "name": {
+   "zh": "面部去光照 · OpenDelight",
+   "en": "Face Delighting · OpenDelight"
+  },
+  "intro": {
+   "zh": "OpenDelight 是面向面部外观采集的完全开源、高性能去光照先验。这张卡交付一套多层 EXR：rgba 是基础色（默认 ACEScg，按「输出颜色空间」），mask 是脸部遮罩；逐帧算整段会闪，这张卡只接一张画面。",
+   "en": "OpenDelight is a fully open, high-performance delighting prior for facial appearance capture. This card delivers a multi-layer EXR: rgba is the base color (ACEScg by default, per Output Color Space) and mask is the face mask; computing a whole shot frame by frame flickers, so this card takes a single image."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
-  "deliverable": "face_texture",
+  "deliverable": "face_maps",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入图片",
+   "label": {
+    "zh": "输入图像",
+    "en": "Input Image"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
-   "name": "enhancer",
-   "label": "细节增强",
+   "name": "delight_enhancer",
+   "label": {
+    "zh": "细节增强",
+    "en": "Detail Enhancement"
+   },
    "target": "delight.enhancer"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "exr.name"
     },
     {
      "name": "colorspace_out",
-     "label": "输出色彩空间",
-     "target": "out.colorspace"
+     "label": {
+      "zh": "输出颜色空间",
+      "en": "Output Color Space"
+     },
+     "target": "exr.colorspace"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_bit_depth",
-       "label": "EXR 位深",
-       "target": "out.exr_bit_depth"
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
+       "target": "exr.exr_bit_depth"
       },
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
-       "target": "out.exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -83,17 +128,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "计算",
+     "word": "cook",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -102,8 +153,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_picture",
-   "label": "读取图片",
+   "type": "file_still",
    "params": {
     "path": "",
     "colorspace": null
@@ -116,7 +166,6 @@
   {
    "id": "delight",
    "type": "opendelight.delight",
-   "label": "OpenDelight 面部去光照",
    "params": {
     "enhancer": true,
     "resolution": 512,
@@ -133,18 +182,16 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1200,
+    "x": 1209,
     "y": 24
    }
   },
   {
-   "id": "out",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "id": "exr",
+   "type": "exr.output",
    "params": {
     "name": "basecolor",
     "layers": [
@@ -164,7 +211,7 @@
     "colorspace": null
    },
    "ui": {
-    "x": 800,
+    "x": 809,
     "y": 24
    }
   }
@@ -186,7 +233,7 @@
     "basecolor"
    ],
    "to": [
-    "out",
+    "exr",
     "layer1"
    ]
   },
@@ -196,13 +243,13 @@
     "mask"
    ],
    "to": [
-    "out",
+    "exr",
     "layer2"
    ]
   },
   {
    "from": [
-    "out",
+    "exr",
     "files"
    ],
    "to": [

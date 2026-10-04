@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
+from .. import i18n
 from ..messages import Msg
 from .base import typed_list
 from ..data.windows import same_framing
@@ -91,7 +92,7 @@ class EachPerson(Expect):
     port resolves the warning; it is therefore the `fix`. The check judges each wire on its own, so the node menu also
     lists 「选人」 first for a wire drawn out of such an input (Port.describe inserts)."""
 
-    fix: ClassVar[str] = "core.select_people"
+    fix: ClassVar[str] = "select_people"
 
     def check(self, got: Seen, node: Checked) -> Msg | None:
         people = (got.meta or {}).get("people") or ()
@@ -167,7 +168,7 @@ class OwnCamera(Expect):
         return Msg("W-EXPECT-OWNCAMERA", source=got.source, camera=cam.source)
 
 
-SCALE_LABELS = {"relative": "相对尺度", "affine": "只知远近"}
+SCALE_LABELS = i18n.Words("depth.scale.", ("relative", "affine"))
 
 
 @dataclass(frozen=True)
@@ -190,7 +191,7 @@ class NotDisparity(Expect):
     the data's own declaration. Unprojecting disparity as depth yields incorrect geometry that is not evident from the
     values, so a warning is issued."""
 
-    fix: ClassVar[str] = "core.depth_align"
+    fix: ClassVar[str] = "depth_align"
 
     def check(self, got: Seen, node: Checked) -> Msg | None:
         if (got.meta or {}).get("scale") != "disparity":
@@ -204,7 +205,7 @@ class NotAlready(Expect):
     meta holds the same value under the same name), so it passes through unchanged."""
 
     param: str
-    labels: tuple[tuple[str, str], ...] = ()  # value -> display label
+    labels: Mapping[str, str] | tuple[tuple[str, str], ...] = ()  # value -> display label (i18n.Words: in the language now)
 
     def check(self, got: Seen, node: Checked) -> Msg | None:
         value = (got.meta or {}).get(self.param)
@@ -263,7 +264,7 @@ class FrameCount(Expect):
     @property
     def fix(self) -> str:  # type: ignore[override]
         """Only an excess of frames has a one-click fix; no inserted node can supply missing frames."""
-        return "core.frame_hold" if self.most is not None else ""
+        return "time_shift" if self.most is not None else ""
 
     def check(self, got: Seen, node: Checked) -> Msg | None:
         if self.most is not None and not got.still and len(got.frames) > self.most:
@@ -286,6 +287,35 @@ class FrameCount(Expect):
 
 
 @dataclass(frozen=True)
+class SameReference(Expect):
+    """Results to be combined were aligned to one reference (one camera space): every wire into the inputs named
+    `prefix`… that says what it was aligned to (depth_align's summary, `aligned.reference`) names the same one. Depths
+    aligned to two references differ by the references' own disagreement, which no combination can tell from the
+    candidates' (nodes/core/ensemble.py). Judged on the inputs together, reported once on the later wire; the data says
+    it only once cooked."""
+
+    prefix: str = "candidate"
+    per_wire: ClassVar[bool] = False
+
+    def check(self, got: Seen, node: Checked) -> Msg | None:
+        mine = _reference(got)
+        if mine is None:
+            return None
+        wires = [s for name, ws in node.inputs.items() if name.startswith(self.prefix) for s in ws]
+        before = wires[: next((k for k, s in enumerate(wires) if s is got), 0)]
+        other = next((r for s in before if (r := _reference(s)) is not None and r != mine), None)
+        if other is None:
+            return None
+        first = next(s for s in before if _reference(s) == other)
+        return Msg("W-EXPECT-OTHERREFERENCE", source=got.source, other=first.source)
+
+
+def _reference(got: Seen) -> str | None:
+    aligned = (got.meta or {}).get("aligned")
+    return aligned.get("reference") if isinstance(aligned, dict) else None
+
+
+@dataclass(frozen=True)
 class DistinctNames(Expect):
     """Every item wired into this input must have a distinct name. Two cameras both named /shot/camera wired into one
     output-settings node would produce two objects of the same name in one file, and nothing is renamed implicitly; the
@@ -294,7 +324,7 @@ class DistinctNames(Expect):
     scene to write). The check runs once the data exists, since names come from the data itself (a scene's groups, a
     list's items); before that there is nothing to compare."""
 
-    fix: ClassVar[str] = "core.name_item"
+    fix: ClassVar[str] = "name"
     per_wire: ClassVar[bool] = False
 
     def check(self, got: Seen, node: Checked) -> Msg | None:
@@ -310,7 +340,7 @@ class DistinctNames(Expect):
         same = sorted({n for s in before for n in _named(s) if n in mine})
         if not same:
             return None
-        return Msg("B-NAME-SAME", kind=type_label(got.type), names=same)
+        return Msg("B-NAME-SAME", kind=i18n.Both.of(lambda: type_label(got.type)), names=same)
 
 
 def _named(got: Seen) -> list[str]:

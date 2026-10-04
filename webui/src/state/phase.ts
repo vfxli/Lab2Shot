@@ -17,6 +17,7 @@ import type { UploadTask } from "./uploads";
 import type { Output } from "../api/files";
 import { PHASE_TEXT, type JobProgress } from "../api/progress";
 import type { ProxyProgress } from "../transfer/localProxy";
+import { t } from "../i18n/t";
 
 /** 状态格的颜色，作为类名 `.gnode-state.<tone>` 加上（08a-node.css：cooked / queued / cooking / error 有各自的颜色，
  * idle / skipped 用默认颜色）。 */
@@ -44,13 +45,18 @@ interface PhaseInput {
   progress?: JobProgress | null;
   /** 存在上一次的结果可用，但参数已修改（`editor/GraphNode.tsx useStaleNode`，规则 `state/stale.ts staleNode`）：视图显示该结果，时间线为土黄色 */
   stale?: boolean;
+  /** 节点显示的是上一次回复，刚改过（本节点或上游）、新回复还没到（`state/results.ts` Shown 的 `pending`）：值照画、淡色 */
+  pending?: boolean;
 }
 
 // ---------------------------------------------------------------- 各档的文字
 
 /** 服务器状态对应的文字。`graph/nodes.ts STATUS_TEXT` 供页脚和信息面板使用（「排队」「计算中…」），
  * 该格使用「排队中」「计算中」。 */
-const STATUS_WORD: Record<NodeStatus, string> = { idle: "未计算", queued: "排队中", cooked: "已缓存", cooking: "计算中", error: "出错", skipped: "已跳过" };
+const STATUS_WORD: Record<NodeStatus, string> = {
+  idle: "ui.state.phase_idle", queued: "ui.state.phase_queued", cooked: "ui.state.phase_cooked",
+  cooking: "ui.state.phase_cooking", error: "ui.state.phase_error", skipped: "ui.state.phase_skipped",
+};
 
 const proxyBusy = (p?: ProxyProgress): boolean => !!p && p.total > 0 && p.done + p.failed < p.total;
 
@@ -77,6 +83,7 @@ const up = (...states: UploadTask["state"][]) => (i: PhaseInput) => !!i.upload &
  * | 本机缓存 | 本机代理尚未完成（done + failed < total） | 本机缓存 | cooking |
  * | 已打包 | 「输出」上一次整理打包好的结果（仅在未计算、未出错时） | 已打包 / 已删除 | cooked / idle |
  * | 计算中 | 服务器 `cooking` 且有该节点的进度 | 加载模型 / 计算中 / 取回结果 | cooking |
+ * | 待更新 | 刚改过本节点或上游、新的状态回复还没到（`pending`）：节点上的值是上一次回复的，淡色 | 待更新 | queued |
  * | 已过期 | 服务器 `idle` 且有参数修改前的结果（`stale`）：视图显示的是上一次的结果 | 已过期 | queued |
  * | 已就位 | 服务器 `idle` 且上传任务 `picked`：已申报，字节仍在用户机器上，点「计算」时才上传 | 已就位 | idle |
  * | 服务器状态 | 其余情况 | 未计算 / 排队中 / 计算中 / 已缓存 / 出错 / 已跳过 | 同名 |
@@ -84,18 +91,19 @@ const up = (...states: UploadTask["state"][]) => (i: PhaseInput) => !!i.upload &
  * 上传任务的 `paused`（页面刷新后浏览器不再允许读取这些文件）和 `failed`（服务器未接收）不决定该格：
  * 这两种情况显示在左下角的灰色文字中（`ui/UploadState.tsx` / `editor/NodeFoot.tsx uploadNote`），该格仍显示服务器状态。 */
 const RULES: readonly Rule[] = [
-  { when: (i) => i.blocked, say: () => ({ word: "已拦下", tone: "error" }) },
-  { when: (i) => i.unusable, say: () => ({ word: "不可用", tone: "error" }) },
-  { when: up("reading"), say: () => ({ word: "读文件中", tone: "cooking" }) },
-  { when: up("sending", "elsewhere"), say: () => ({ word: "上传中", tone: "cooking" }) },
-  { when: up("waiting"), say: () => ({ word: "断网重连", tone: "queued" }) },
-  { when: up("finishing"), say: () => ({ word: "整理中", tone: "cooking" }) },
-  { when: (i) => proxyBusy(i.proxy), say: () => ({ word: "本机缓存", tone: "cooking" }) },
-  { when: (i) => !!i.output, say: ({ output: o }) => ({ word: o!.gone ? "已删除" : "已打包", tone: o!.gone ? "idle" : "cooked" }) },
+  { when: (i) => i.blocked, say: () => ({ word: t("ui.state.phase_blocked"), tone: "error" }) },
+  { when: (i) => i.unusable, say: () => ({ word: t("ui.state.phase_unusable"), tone: "error" }) },
+  { when: up("reading"), say: () => ({ word: t("ui.state.phase_reading"), tone: "cooking" }) },
+  { when: up("sending", "elsewhere"), say: () => ({ word: t("ui.state.phase_sending"), tone: "cooking" }) },
+  { when: up("waiting"), say: () => ({ word: t("ui.state.phase_waiting"), tone: "queued" }) },
+  { when: up("finishing"), say: () => ({ word: t("ui.state.phase_finishing"), tone: "cooking" }) },
+  { when: (i) => proxyBusy(i.proxy), say: () => ({ word: t("ui.state.phase_proxy"), tone: "cooking" }) },
+  { when: (i) => !!i.output, say: ({ output: o }) => ({ word: t(o!.gone ? "ui.state.phase_output_gone" : "ui.state.phase_output"), tone: o!.gone ? "idle" : "cooked" }) },
   { when: (i) => i.status === "cooking" && !!i.progress, say: ({ progress: p }) => ({ word: PHASE_TEXT[p!.phase], tone: "cooking" }) },
-  { when: (i) => i.status === "idle" && !!i.stale, say: () => ({ word: "已过期", tone: "queued" }) },
-  { when: (i) => i.status === "idle" && up("picked")(i), say: () => ({ word: "已就位", tone: "idle" }) },
-  { when: () => true, say: ({ status }) => ({ word: STATUS_WORD[status], tone: status }) },
+  { when: (i) => !!i.pending, say: () => ({ word: t("ui.state.phase_pending"), tone: "queued" }) },
+  { when: (i) => i.status === "idle" && !!i.stale, say: () => ({ word: t("ui.state.phase_stale"), tone: "queued" }) },
+  { when: (i) => i.status === "idle" && up("picked")(i), say: () => ({ word: t("ui.state.phase_picked"), tone: "idle" }) },
+  { when: () => true, say: ({ status }) => ({ word: t(STATUS_WORD[status]), tone: status }) },
 ];
 
 /** 节点当前所处的阶段：规则表中第一条成立的档。 */

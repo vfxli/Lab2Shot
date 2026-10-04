@@ -1,0 +1,204 @@
+# Category words (lab2shot/categories.py Words): the node menu's bands, and the categories of both trees
+# (menu/categories.json, templates/_categories.json hold their structure). Written by the admin page when a
+# category is created, changed or removed: the whole file is rewritten, comments added by hand are not kept.
+
+[menu_section.tools]
+label = "工具"
+
+[menu_section.deliver]
+label = "算法"
+
+[category.read]
+label = "读取"
+
+[category.read_plate]
+label = "图像序列与视频"
+
+[category.read_scene]
+label = "三维数据"
+
+[category.image]
+label = "图像"
+
+[category.img_adjust]
+label = "画面调整"
+
+[category.img_warp]
+label = "变形"
+
+[category.img_channel]
+label = "通道"
+
+[category.tools_mask]
+label = "遮罩"
+
+[category.mask_make]
+label = "生成遮罩"
+
+[category.mask_edit]
+label = "处理遮罩"
+
+[category.camera]
+label = "摄影机"
+
+[category.camera_tools]
+label = "摄影机"
+
+[category.geometry]
+label = "几何"
+
+[category.geo_maps]
+label = "深度与法线"
+
+[category.geo_points]
+label = "点云与空间"
+
+[category.scene]
+label = "场景"
+
+[category.scene_build]
+label = "组装与变换"
+
+[category.scene_convert]
+label = "转换"
+
+[category.tools_motion]
+label = "动作"
+
+[category.retarget_tools]
+label = "重定目标"
+
+[category.pose_skin]
+label = "蒙皮与姿势"
+
+[category.blocks]
+label = "积木"
+
+[category.value]
+label = "数值"
+
+[category.math]
+label = "运算"
+
+[category.list]
+label = "列表"
+
+[category.flow]
+label = "流程"
+
+[category.output]
+label = "输出"
+
+[category.out_deliver]
+label = "交付与数据"
+
+[category.out_picture]
+label = "画面"
+
+[category.out_scene]
+label = "三维"
+
+[category.workflow]
+label = "CG 预设工作流"
+
+[category.camera_track]
+label = "摄影机"
+
+[category.camera_traj]
+label = "摄影机解算"
+
+[category.depth_camera]
+label = "摄影机与深度"
+
+[category.depth_long]
+label = "长镜头与动态"
+
+[category.lens_calib]
+label = "镜头与重力"
+
+[category.depth]
+label = "深度与法线"
+
+[category.depth_image]
+label = "单帧深度与法线"
+
+[category.depth_video]
+label = "视频深度"
+
+[category.reconstruct]
+label = "场景重建"
+
+[category.points_mesh]
+label = "点云与网格"
+
+[category.gaussian]
+label = "3D 高斯"
+
+[category.matte]
+label = "抠像与遮罩"
+
+[category.matte_alpha]
+label = "抠像"
+
+[category.mask]
+label = "遮罩与分割"
+
+[category.tracks]
+label = "跟踪与对位"
+
+[category.tracks2d]
+label = "2D 点与平面"
+
+[category.tracks3d]
+label = "3D 跟踪点"
+
+[category.motion]
+label = "运动向量"
+
+[category.align]
+label = "对位与贴片"
+
+[category.body]
+label = "人物动作"
+
+[category.body_video]
+label = "视频全身"
+
+[category.body_full]
+label = "逐帧全身与手"
+
+[category.face]
+label = "面部"
+
+[category.face_anim]
+label = "面部动作"
+
+[category.face_maps]
+label = "面部通道"
+
+[category.animation]
+label = "动作处理"
+
+[category.retarget_rig]
+label = "重定目标与绑定"
+
+[category.cleanup]
+label = "清理"
+
+[category.motion_gen]
+label = "生成与补帧"
+
+[category.light]
+label = "光照与材质"
+
+[category.env_light]
+label = "HDRI"
+
+[category.relight]
+label = "PBR 与重新打光"
+
+[category.generate]
+label = "生成与文本"
+
+[category.image_text]
+label = "图像与文字"

@@ -1,0 +1,484 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "ca05f8c58cebeb4960131f1cc47eb001",
+  "name": {
+   "zh": "网格 · Open3D",
+   "en": "Mesh · Open3D"
+  },
+  "intro": {
+   "zh": "把视频解算成摄影机和逐帧深度（ViPE：摄影机移动、旋转都解得稳），融合成全局点云，再转成三角网格（USD）：Poisson 水密光滑、Ball Pivoting 按球半径滚球成面、Alpha Shape 按 Alpha 值取凸包与贴合之间一档。「方法」选算法，其余参数按方法显示。",
+   "en": "Solves the video into cameras and per-frame depth (ViPE: stable for moving and rotating cameras), fuses them into a global point cloud and turns it into a triangle mesh (USD): Poisson is watertight and smooth, Ball Pivoting rolls a ball of Ball Radius to make faces, and Alpha Shape takes a step between convex hull and tight fit by Alpha Value. Method chooses the algorithm; the other parameters show according to the method."
+  },
+  "author": "Lab2Shot",
+  "created": "2026-10-02T00:00:00",
+  "deliverable": "points_mesh",
+  "owner": "admin",
+  "updated": "2026-10-03T20:00:00"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "摄影机与深度",
+    "en": "Camera and Depth"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "kind": "group",
+     "label": {
+      "zh": "镜头",
+      "en": "Lens"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "focal",
+       "label": {
+        "zh": "已知焦距",
+        "en": "Known Focal Length"
+       },
+       "target": "vipe.focal_mm"
+      },
+      {
+       "name": "filmback",
+       "label": {
+        "zh": "胶片背",
+        "en": "Aperture"
+       },
+       "target": "vipe.filmback_mm",
+       "disable_when": "not focal"
+      }
+     ]
+    },
+    {
+     "name": "vipe_mode",
+     "label": {
+      "zh": "ViPE 方式",
+      "en": "ViPE Mode"
+     },
+     "target": "vipe.mode"
+    },
+    {
+     "name": "cook_vipe",
+     "label": {
+      "zh": "解算摄影机",
+      "en": "Solve Camera"
+     },
+     "target": "vipe.cook"
+    },
+    {
+     "name": "depth_model",
+     "label": {
+      "zh": "深度模型",
+      "en": "Depth Model"
+     },
+     "target": "vipe_depth.model"
+    },
+    {
+     "name": "cook_vipe_depth",
+     "label": {
+      "zh": "计算深度贴图",
+      "en": "Cook Depth Map"
+     },
+     "target": "vipe_depth.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "重建",
+    "en": "Reconstruct"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "mesh_method",
+     "label": {
+      "zh": "方法",
+      "en": "Method"
+     },
+     "target": "mesh.method"
+    },
+    {
+     "name": "mesh_depth",
+     "label": {
+      "zh": "Poisson 深度",
+      "en": "Poisson Depth"
+     },
+     "target": "mesh.depth",
+     "hide_when": "mesh_method != \"poisson\""
+    },
+    {
+     "name": "mesh_radius",
+     "label": {
+      "zh": "球半径",
+      "en": "Ball Radius"
+     },
+     "target": "mesh.radius",
+     "hide_when": "mesh_method != \"ball\""
+    },
+    {
+     "name": "mesh_alpha",
+     "label": {
+      "zh": "Alpha 值",
+      "en": "Alpha Value"
+     },
+     "target": "mesh.alpha",
+     "hide_when": "mesh_method != \"alpha\""
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "fuse_voxel_size",
+       "label": {
+        "zh": "融合体素大小",
+        "en": "Fusion Voxel Size"
+       },
+       "target": "fuse.voxel_size"
+      },
+      {
+       "name": "fuse_truncation",
+       "label": {
+        "zh": "融合截断距离",
+        "en": "Fusion Truncation Distance"
+       },
+       "target": "fuse.truncation"
+      },
+      {
+       "name": "fuse_color",
+       "label": {
+        "zh": "融合保留颜色",
+        "en": "Fusion Keeps Color"
+       },
+       "target": "fuse.color"
+      }
+     ]
+    },
+    {
+     "name": "cook_mesh",
+     "label": {
+      "zh": "重建并预览",
+      "en": "Reconstruct and Preview"
+     },
+     "target": "mesh.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": {
+      "zh": "文件名（网格 USD）",
+      "en": "File Name (Mesh USD)"
+     },
+     "target": "usd.name"
+    },
+    {
+     "name": "unit",
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "word": "pack",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
+     "target": "deliver.download"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "file",
+   "params": {
+    "path": "",
+    "colorspace": null,
+    "first": null,
+    "last": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 158
+   }
+  },
+  {
+   "id": "vipe",
+   "type": "vipe.camera_solve",
+   "params": {
+    "focal_mm": null,
+    "filmback_mm": null,
+    "mode": "pose_only"
+   },
+   "ui": {
+    "x": 400,
+    "y": 0,
+    "on_node": [
+     "focal_mm",
+     "mode"
+    ]
+   }
+  },
+  {
+   "id": "vipe_depth",
+   "type": "vipe.depth",
+   "params": {
+    "model": "default"
+   },
+   "ui": {
+    "x": 800,
+    "y": 104,
+    "on_node": [
+     "model"
+    ]
+   }
+  },
+  {
+   "id": "fuse",
+   "type": "pointcloud_fuse",
+   "params": {
+    "voxel_size": 0.5,
+    "truncation": 2.0,
+    "color": true
+   },
+   "ui": {
+    "x": 1200,
+    "y": 118
+   }
+  },
+  {
+   "id": "mesh",
+   "type": "open3d.mesh_from_points",
+   "params": {
+    "method": "poisson",
+    "depth": 8,
+    "radius": 1.0,
+    "alpha": 2.0
+   },
+   "ui": {
+    "x": 1600,
+    "y": 134,
+    "on_node": [
+     "method"
+    ]
+   }
+  },
+  {
+   "id": "usd",
+   "type": "usd.output",
+   "params": {
+    "name": "mesh",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 2037,
+    "y": 106,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "deliver",
+   "type": "output",
+   "params": {},
+   "ui": {
+    "x": 2437,
+    "y": 134
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "vipe",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "vipe_depth",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "camera"
+   ],
+   "to": [
+    "vipe_depth",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "points"
+   ],
+   "to": [
+    "vipe_depth",
+    "points"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "objects"
+   ],
+   "to": [
+    "vipe_depth",
+    "objects"
+   ]
+  },
+  {
+   "from": [
+    "vipe_depth",
+    "depth"
+   ],
+   "to": [
+    "fuse",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "vipe",
+    "camera"
+   ],
+   "to": [
+    "fuse",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "fuse",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "fuse",
+    "points"
+   ],
+   "to": [
+    "mesh",
+    "points"
+   ]
+  },
+  {
+   "from": [
+    "mesh",
+    "model"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "mesh",
+  "frame": null
+ }
+}

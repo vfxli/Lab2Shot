@@ -1,0 +1,84 @@
+# AnyCalib 扩展包（adapters/anycalib）的消息。一行一条：编号 = 模板。
+
+# ---- 节点（nodes.py）
+"I-ANYCALIB-LENS" = "AnyCalib 估的镜头：{lens}"
+"I-ANYCALIB-LENSFOV" = "AnyCalib 估的镜头：{lens}，水平视角 {hfov:.1f}°"
+
+# ---- 标定（worker.py）
+"E-ANYCALIB-MODEL" = "AnyCalib 不支持镜头模型 {model}：能用的有 {models}（带 :k 的写成如 radial:2）。在「镜头模型」里换一个"
+"E-ANYCALIB-SIZES" = "AnyCalib 取样的画面尺寸不一致（{sizes}）：一个镜头的画面必须同样大小，检查上游是不是接了几段不同的素材"
+"E-ANYCALIB-NOFIT" = "AnyCalib 在所有取样帧上都拟合失败：在「镜头模型」里换一个畸变系数少一些的模型（比如「simple_radial:1（径向 k1，普通镜头）」或「simple_pinhole（无畸变）」），或换一套网络权重再试"
+"N-ANYCALIB-FAILEDFRAMES" = "AnyCalib 有 {failed}/{sampled} 个取样帧拟合失败，已跳过：镜头按其余帧的中位数算"
+"N-ANYCALIB-UNCONVERGED" = "AnyCalib 有 {count} 个取样帧的精细拟合没有收敛，这些帧保留了线性拟合的结果（通常也够用）"
+"W-ANYCALIB-FOCALSPREAD" = "AnyCalib 在各取样帧上估的焦距差别较大（中位绝对偏差 {spread:.1%}）：镜头可能在变焦，或画面缺少直线、结构。输出的是中位数；镜头确实在变焦的话，这个节点给不出逐帧的焦距"
+"W-ANYCALIB-LONGLENS" = "AnyCalib 估的是长焦画面（对角视场约 {fov:.0f}°）：长焦画面几乎看不出镜头畸变，估出的畸变系数不可靠。手机或已校正过的素材，把「镜头模型」换成「simple_pinhole（无畸变）」"
+"W-ANYCALIB-COVERAGE" = "按 AnyCalib 估的畸变去畸变后，画面只有 {share:.0%} 能从原画面取到（其余是黑边）：畸变很强，或者估计失败了。在视图里看一眼去畸变 ST-map；不对的话换一个「镜头模型」"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."anycalib.calibrate"]
+subtitle = "镜头标定"
+description = "从画面估计焦距和镜头畸变，交出三样：焦距、胶片背、镜头内参（模型 + 畸变系数 + 主点）——接「LensDistortion」的同名口去畸变、烘 ST-map，那边选同一个镜头模型。镜头不能变焦。"
+
+[node."anycalib.calibrate".param.fit_model]
+label = "镜头模型"
+strip = "镜头模型"
+
+[node."anycalib.calibrate".param.fit_model.option]
+simple_pinhole = "simple_pinhole（无畸变）"
+"simple_radial:1" = "simple_radial:1（径向 k1，普通镜头）"
+"simple_radial:2" = "simple_radial:2（径向 k1 k2，广角）"
+"simple_kb:1" = "simple_kb:1（鱼眼 Kannala-Brandt，1 项）"
+"simple_kb:2" = "simple_kb:2（鱼眼，2 项）"
+"simple_kb:3" = "simple_kb:3（鱼眼，3 项）"
+"simple_kb:4" = "simple_kb:4（鱼眼，4 项）"
+"simple_division:1" = "simple_division:1（除法模型 k）"
+
+[node."anycalib.calibrate".param.samples]
+label = "采样帧数"
+
+[node."anycalib.calibrate".param.checkpoint]
+label = "网络权重"
+
+[node."anycalib.calibrate".param.checkpoint.option]
+anycalib_gen = "通用"
+anycalib_pinhole = "无畸变画面"
+anycalib_dist = "鱼眼/强畸变"
+
+[node."anycalib.calibrate".param.principal_point]
+label = "主点"
+
+[node."anycalib.calibrate".param.principal_point.option]
+center = "画面中心"
+estimate = "估计"
+
+[node."anycalib.calibrate".param.filmback_mm]
+label = "胶片背"
+
+[node."anycalib.calibrate".cost]
+whole = "标定用几帧就够，不是逐帧的活，没有秒/帧这个概念"
+
+[node."anycalib.calibrate".stage]
+estimate_lens = "估镜头"
+
+[node."anycalib.calibrate".official]
+note = "上游只出一串 intrinsics（anycalib_pretrained.py:300-303，按 cam_id 那个摄影机模型的参数顺序排）：焦距、主点、畸变系数都是从这一串里取的；「镜头内参」= 我们请求的 cam_id 对应的镜头表模型 + 这些数。**单位**：上游那一串 intrinsics 里的焦距和主点都是**像素**；我们交出去的焦距和主点是**毫米**（主点在「镜头内参」里），用节点上的「胶片背」参数换算（焦距（mm）= 焦距（px）÷ 画面宽度 × 胶片背）。毫米是 Lab2Shot 的内部标准单位，下游的「LensDistortion」「创建摄影机」吃的也是毫米，两边对得上。「胶片背」输出口给的是节点上那个参数的原值——上游没有这一项，这个口只是把它带给下游，省得用户在两个节点上各填一遍。**上游还有、我们没有口的**：pred[\"success\"]（这一帧线性拟合 + 非线性优化成没成功，anycalib_pretrained.py:171）——worker 已经读它，用来发 W 级警告，没做成口；还有 pred[\"intrinsics_icovs\"]（内参的逆协方差，:172）和稠密的 fov_field / tangent_coords（:270）。目前没有对应的输出口"
+
+[extension.anycalib]
+summary = "用任选的一种镜头模型，从一张透视 / 编辑过 / 带畸变的画面做摄影机标定"
+
+[extension.anycalib.license]
+name = "Apache-2.0（代码和权重）"
+summary = "代码和权重均为 Apache-2.0，可商用（README 与 Hugging Face 模型卡均声明）。骨干网络为 DINOv2 ViT-L 结构（Apache-2.0），权重已包含在 AnyCalib 检查点里，不另外下载。训练数据含 Laval 室内 HDR 数据集，作者说明已获其许可以宽松许可证发布权重"
+
+[extension.anycalib.weight.anycalib-gen]
+note = "AnyCalib anycalib_gen（DINOv2 ViT-L + DPT 解码器，1.28 GB，Apache-2.0）"
+
+[extension.anycalib.weight.anycalib-pinhole]
+note = "AnyCalib anycalib_pinhole（DINOv2 ViT-L + DPT 解码器，1.28 GB，Apache-2.0）"
+
+[extension.anycalib.weight.anycalib-dist]
+note = "AnyCalib anycalib_dist（DINOv2 ViT-L + DPT 解码器，1.28 GB，Apache-2.0）"
+
+[stage]
+estimate_lens = "估计镜头"

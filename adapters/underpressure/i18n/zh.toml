@@ -1,0 +1,39 @@
+# UnderPressure 扩展自己的界面字和消息（中文）。
+
+# ---- 骨架
+"E-UNDERPRESSURE-SKELETON" = "「UnderPressure 脚滑清理」没法把接进来的骨架对应到它的 23 关节骨架：{reason}"
+"E-UNDERPRESSURE-SKELETON.app" = "动作文件里的骨架对应不到模型的 23 关节骨架：{reason}"
+"W-UNDERPRESSURE-WEIGHT" = "「UnderPressure 脚滑清理」估出的脚底支撑力平均只有 {weight:.2f} 倍体重，正常的人走路整段平均在 1 倍上下：接进来的骨架多半不是人的比例，或者「对应关系」里配错了关节。脚接触的判断和这次的清理都不可信，先核对「对应关系」"
+"W-UNDERPRESSURE-WEIGHT.app" = "估出的脚底支撑力平均只有 {weight:.2f} 倍体重，正常的人走路整段平均在 1 倍上下：骨架多半不是人的比例，或者「对应关系」里配错了关节。脚接触的判断和这次的清理都不可信，先核对「对应关系」"
+
+# ---- 接触
+"N-UNDERPRESSURE-NOCONTACT" = "「UnderPressure 脚滑清理」在这段动作里没找到任何一帧脚是踩在地上的：动作原样交出去，没做任何改动。常见原因：这段本来就是跳跃、悬空或坐着，或者「对应关系」里脚没配对上"
+"I-UNDERPRESSURE-CONTACT.other" = "「UnderPressure 脚滑清理」判断 {frames} 帧有脚着地（模型自己的 {total} 帧里），左脚 {left} 段、右脚 {right} 段"
+
+# ---- 帧速率
+"N-UNDERPRESSURE-RESAMPLED.other" = "这段动画 {fps:g} 帧/秒，「UnderPressure 脚滑清理」的模型只认 100 帧/秒：动作已自动升采样到 100 帧/秒（{frames} 帧）判断接触，结果按原帧速率换算回来"
+"N-UNDERPRESSURE-GROUNDED" = "这段动捕的脚最低点在 {offset:.0f} cm，不在地面（0）上：「UnderPressure 脚滑清理」按人站在地面上钉脚，所以节点先把整段移到地面再清理，清理完原样移回去——交出去的动画站的位置和接进来的一模一样。想让它本来就站在地面上，先接「自动落地」"
+"N-UNDERPRESSURE-GROUNDED.app" = "这段动捕的脚最低点在 {offset:.0f} cm，不在地面（0）上：清理时先把整段移到地面，清理完原样移回去，交出去的动画站的位置和原来一模一样"
+
+[node."underpressure.footskate_cleanup"]
+subtitle = "脚滑清理"
+description = "InterDigital UnderPressure：先估出每一帧两只脚踩地的力（压力鞋垫测出的真值训练的），由力判断哪只脚在哪几帧真的着地，再用带接触约束的 IK 把着地的脚钉在原地，去掉脚滑。脚接触作为四条曲线一起交出来，可以拿到 DCC 里做 IK；模型估的足底力（每只脚 16 个鞋垫单元，占体重的比例）也逐帧交出来，着地就是由它判出来的，要自己定着地阈值时用它。"
+official.note = "① 「动画」进出都是同一组 angles + skeleton + trajectory（demo.py:135：cleaner(item[\"angles\"], item[\"skeleton\"], item[\"trajectory\"])）。② 没有「脚滑」输出口：官方只给 contacts 和 vGRFs 两样，没有逐帧的脚滑判断。所以节点声明 judges = False，没有「只改问题帧」「检测阈值」两个参数（lab2shot/nodes/families/rig_motion.py 的 _cleaned 只在 judges 时挑帧），整段都按模型改一遍。只改滑的那几帧要做成显式的核心节点（量脚滑 → 一条曲线 → 清理节点的一个接线参数），不在本节点的范围内。③ 「足底力」是官方的 vGRFs（demo.py:22 model.vGRFs(...)），「脚接触」是官方的 contacts。"
+licence.note = "仅限研究：InterDigital 的评估许可只允许「fundamental research work」，明文排除一切商业用途，包括放进任何提供给第三方的产品或服务。"
+cost.whole = "整段一起优化，不是逐帧的活；在 CPU 上跑，不占显卡（60 秒的动捕约 34 秒）"
+
+[node."underpressure.footskate_cleanup".param.contact_margin]
+label = "接触余量"
+
+[node."underpressure.footskate_cleanup".port.vgrfs]
+label = "足底力"
+
+[extension.underpressure]
+summary = "从动捕动作估计两只脚的地面反作用力，据此判断脚接触，再用优化式 IK 清掉脚滑；仅限研究"
+license.name = "InterDigital Limited Software Evaluation License"
+license.summary = "仅限研究。InterDigital 的评估许可只允许「fundamental research work」，明文排除一切商业用途（包括放进任何提供给第三方的产品或服务里，不论收不收费）。发表论文要注明「UnderPressure is an InterDigital product」并引用原文。代码和预训练网络都在这一条许可下，Lab2Shot 不修改原仓库的任何文件。"
+
+[stage]
+align_skeleton = "对齐骨骼"
+estimate_forces = "估计脚底支撑力"
+solve_contacts = "解接触约束，去掉脚滑"

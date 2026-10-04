@@ -57,9 +57,12 @@ def _yaml(text: str) -> str:
     return text.lstrip("\n")
 
 
-def data_config(clean: Path) -> str:
+def data_config(clean: Path, cls: str = "inference") -> str:
+    """`cls`：数据集里这一组的类别名，就是 upstream run.py 的 --cls（Datapath(cls=...)）。类别名是模型生成时的起始
+    token（src/model/unirig_ar.py generate：cls 不为空就把它的 token 放在最前）：「vroid」让模型按 VRoid 人形模板
+    生成，骨骼带模板里的名字（configs/skeleton/vroid.yaml）；「inference」不是类别，模型自己判断，骨骼叫 bone_N。"""
     return _yaml(f"""
-# Lab2Shot 写的：这次要算的那一个模型在哪（upstream configs/data/quick_inference.yaml 的同一份结构）
+# Written by Lab2Shot: where the one model to compute this time is (the same structure as upstream configs/data/quick_inference.yaml)
 input_dataset_dir: &input_dataset_dir {clean}
 
 predict_dataset_config:
@@ -72,7 +75,7 @@ predict_dataset_config:
     input_dataset_dir: *input_dataset_dir
     use_prob: False
     data_path:
-      inference: [
+      {cls}: [
         [{clean / DATALIST}, 1.0],
       ]
 """)
@@ -134,8 +137,8 @@ writer:
   repeat: 1
   save_name: predict
   export_npz: predict_skin
-  export_fbx: ~   # upstream 这个键默认是 False（不是 None），它会当成「要导出」去 import bpy，
-                  # 然后在自己的 try 里把 ModuleNotFoundError 打进日志。写成 ~ 就干净了
+  export_fbx: ~   # upstream defaults this key to False (not None), which it reads as "export" and imports bpy,
+                  # then logs the ModuleNotFoundError inside its own try. Written as ~ it stays clean
 
 trainer:
   num_nodes: 1
@@ -162,12 +165,12 @@ def skin_transform_config(repo: Path) -> str:
     return text.replace("backend: pyrender", "backend: open3d")
 
 
-def compose(repo: Path, weights: Path, work: Path) -> Path:
+def compose(repo: Path, weights: Path, work: Path, cls: str = "inference") -> Path:
     """在 `work` 下构建目录树，返回运行 runner.py 时使用的当前目录。"""
     run = Path(work) / "run"
     clean = run / "clean"
     compose_tree(repo, run, {
-        "data/lab2shot.yaml": data_config(clean),
+        "data/lab2shot.yaml": data_config(clean, cls),
         "task/lab2shot_skeleton.yaml": skeleton_task(weights),
         "task/lab2shot_skin.yaml": skin_task(weights),
         f"model/{AR_MODEL}.yaml": ar_model_config(repo, weights / "opt-350m"),

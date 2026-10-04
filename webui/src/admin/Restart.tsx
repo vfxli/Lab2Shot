@@ -9,6 +9,8 @@ import { useAdmin } from "./common";
 import { useSignedIn } from "../state/session";
 import { usable } from "../api/applies";
 import { Button } from "../ui/Button";
+import { t } from "../i18n/t";
+import { tipOf } from "../platform/tips";
 
 /** Server restart from the admin page (lab2shot/server/restart.py): a confirmation stating whether running jobs are
  * awaited or stopped and what is lost; the banner shown while settings await a restart or a restart awaits running
@@ -43,55 +45,55 @@ export function RestartDialog({ onClose }: { onClose: () => void }) {
   };
 
   const works = running.length > 0 || installing !== null;
-  const kept = waiting.length ? `排队的 ${waiting.length} 个任务留在队列里，重启后接着算。` : "";
+  const kept = waiting.length ? t("ui.admin.restart.kept", { n: waiting.length }) : "";
+  const awaited = [running.length ? t("ui.admin.restart.running_jobs", { n: running.length }) : "", installing ? t("ui.admin.restart.install_of", { title: installing.title.text }) : ""]
+    .filter(Boolean)
+    .join(t("ui.admin.restart.and"));
   return (
-    <Sheet title="重启服务" width={600} onClose={onClose}>
+    <Sheet title={t("ui.admin.page.restart")} width={600} onClose={onClose}>
       <div className="rs-body">
         <p>
-          重启一般十几秒：先卸载常驻的模型，再停止监听，然后用同样的命令重新启动。正在用网页的人会看到「服务器正在重启」，回来后自动接上；DCC
-          插件和命令行重试一次即可。任务记录、显卡授权、使用统计和设置都不受影响。
+          {t("ui.admin.restart.lede")}
         </p>
-        {pending.length > 0 && <p className="rs-note">重启后生效：{pending.map((p) => p.label).join("、")}。</p>}
+        {pending.length > 0 && <p className="rs-note">{t("ui.admin.restart.pending", { labels: pending.map((p) => p.label).join(t("list.sep")) })}</p>}
         {works && (
           <ul className="rs-list">
             {running.map((j) => (
               <li key={j.id}>
-                计算中：{j.client?.who ?? ""} ·「{j.title}」{!!j.cards?.length && ` · ${j.cards.join("、")}`}
+                {t("ui.admin.restart.cooking", { who: j.client?.who ?? "", title: j.title })}{!!j.cards?.length && ` · ${j.cards.join(t("list.sep"))}`}
               </li>
             ))}
-            {installing && <li>正在安装：{installing.title.text}</li>}
-            {waiting.length > 0 && <li>排队：{waiting.length} 个任务</li>}
+            {installing && <li>{t("ui.admin.restart.installing", { title: installing.title.text })}</li>}
+            {waiting.length > 0 && <li>{t("ui.admin.restart.queued", { n: waiting.length })}</li>}
           </ul>
         )}
         {works ? (
           <div className="rs-choices">
-            <button className="rs-choice" data-tip="队列里的任务全部算完才重启，一件也不丢" disabled={busy} onClick={() => void go("drain")} autoFocus>
-              <b>等当前任务算完再重启</b>
+            <button className="rs-choice" disabled={busy} onClick={() => void go("drain")} autoFocus>
+              <b>{t("ui.admin.restart.drain")}</b>
               <span>
-                不再开始新的任务，新提交的先排队；{running.length ? `计算中的 ${running.length} 个任务` : ""}
-                {running.length && installing ? "和" : ""}
-                {installing ? `${installing.title.text} 的安装` : ""}完成后自动重启。{kept}什么都不会丢。
+                {t("ui.admin.restart.drain_says", { awaited, kept })}
               </span>
             </button>
-            <button className="rs-choice danger" data-tip="马上重启：正在算的任务会停下，重新提交要从头算" disabled={busy} onClick={() => void go("now")}>
-              <b>立即重启</b>
+            <button className="rs-choice danger" disabled={busy} onClick={() => void go("now")}>
+              <b>{t("ui.admin.restart.now")}</b>
               <span>
-                {running.length > 0 && `马上停下计算中的 ${running.length} 个任务：记为已取消，已经算完的节点留在缓存里，再算时从那里接着，没算完的那部分要重新算。`}
-                {installing && `${installing.title.text} 的安装中断，再点安装会接着装。`}
+                {running.length > 0 && t("ui.admin.restart.now_running", { n: running.length })}
+                {installing && t("ui.admin.restart.now_install", { title: installing.title.text })}
                 {kept}
               </span>
             </button>
           </div>
         ) : (
-          <p className="rs-note">{waiting.length ? kept : "现在没有任务在算，什么都不会丢。"}</p>
+          <p className="rs-note">{waiting.length ? kept : t("ui.admin.restart.idle")}</p>
         )}
         <div className="dialog-row" style={{ justifyContent: "flex-end" }}>
-          <Button tip="不重启，关掉这个窗口" tone="ghost" onClick={onClose}>
-            取消
+          <Button tone="ghost" onClick={onClose}>
+            {t("ui.admin.common.cancel")}
           </Button>
           {!works && (
-            <Button tip="现在没有任务在算：马上重启服务" tone="primary" disabled={busy} onClick={() => void go("drain")} autoFocus>
-              重启服务
+            <Button tone="primary" disabled={busy} onClick={() => void go("drain")} autoFocus>
+              {t("ui.admin.page.restart")}
             </Button>
           )}
         </div>
@@ -112,16 +114,16 @@ export function RestartBanner() {
       (e: Error) => problem(e.message),
     );
   if (r?.state === "draining") {
-    const what = [r.running ? `${r.running} 个计算中的任务` : "", ...(r.tasks ?? []).map((task) => task.text)].filter(Boolean).join("和");
+    const what = [r.running ? t("ui.admin.restart.running_jobs", { n: r.running }) : "", ...(r.tasks ?? []).map((task) => task.text)].filter(Boolean).join(t("ui.admin.restart.and"));
     return (
       <div className="adm-banner draining" role="status">
         <i className="spin" />
-        <span>{what ? `等${what}完成后重启` : "马上重启"}：不再开始新任务，新提交的先排队，重启后接着算</span>
-        <Button tip="马上停下计算中的任务（记为已取消，算完的节点留在缓存里）再重启" onClick={() => void act(adminApi.restart("now"))}>
-          立即重启
+        <span>{what ? t("ui.admin.restart.draining", { what }) : t("ui.admin.restart.draining_now")}</span>
+        <Button tip={tipOf("consequence", t("ui.admin.restart.now_tip"))} onClick={() => void act(adminApi.restart("now"))}>
+          {t("ui.admin.restart.now")}
         </Button>
-        <Button tip="不重启了：队列照常继续" tone="ghost" onClick={() => void act(adminApi.callOff())}>
-          不重启了
+        <Button tone="ghost" onClick={() => void act(adminApi.callOff())}>
+          {t("ui.admin.restart.call_off")}
         </Button>
       </div>
     );
@@ -130,10 +132,10 @@ export function RestartBanner() {
   return (
     <div className="adm-banner pending" role="status">
       <span>
-        {overview.pending.map((p) => p.label).join("、")} 改了，重启服务后生效
+        {t("ui.admin.overview.pending", { settings: overview.pending.map((p) => p.label).join(t("list.sep")) })}
       </span>
-      <Button tip="改过的设置要重启服务才生效：先看会影响哪些任务再决定" tone="primary" onClick={askRestart}>
-        重启服务
+      <Button tone="primary" onClick={askRestart}>
+        {t("ui.admin.page.restart")}
       </Button>
     </div>
   );
@@ -155,8 +157,8 @@ export function RestartVeil() {
   useEffect(() => {
     if (!away) return setSince(0);
     setSince((s) => s || Date.now());
-    const t = window.setInterval(() => setNow(Date.now()), 500);
-    return () => window.clearInterval(t);
+    const timer = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(timer);
   }, [away]);
 
   // Server is back: reload the page (the server may serve a new build, and every section re-reads its data).
@@ -168,22 +170,22 @@ export function RestartVeil() {
   const seconds = since ? Math.round((now - since) / 1000) : 0;
   const restarting = !!last.current;
   return (
-    <div className="rs-veil veil" role="alertdialog" aria-label={restarting ? "正在重启" : "连不上服务器"}>
+    <div className="rs-veil veil" role="alertdialog" aria-label={restarting ? t("ui.admin.page.restarting") : t("ui.admin.restart.unreachable")}>
       <div className="rs-veil-card glass">
         <i className="spin big" />
-        <h2>{restarting ? "正在重启…" : "连不上服务器"}</h2>
+        <h2>{restarting ? t("ui.admin.restart.restarting_dots") : t("ui.admin.restart.unreachable")}</h2>
         <p>
-          {!restarting ? "服务可能正在重启或已经停了。回来后这一页自动刷新。"
-            : moved ? "卸载常驻的模型、停止监听、换到新地址重新启动，一般十几秒。原来的地址不会再回来，这一页不会自己刷新。"
-            : "卸载常驻的模型、停止监听、重新启动，一般十几秒。回来后这一页自动刷新。"}
-          {seconds > 0 && ` 已等 ${seconds} 秒。`}
+          {!restarting ? t("ui.admin.restart.down")
+            : moved ? t("ui.admin.restart.moving")
+            : t("ui.admin.restart.restarting_says")}
+          {seconds > 0 && t("ui.admin.restart.waited", { n: seconds })}
         </p>
         {moved && (
           <p>
-            重启后的地址是 <a href={`${moved}/admin`}>{moved}</a>：等十几秒服务起来以后点这个地址（HTTPS 的证书要先装好）
+            {t("ui.admin.restart.moved_before")}<a href={`${moved}/admin`}>{moved}</a>{t("ui.admin.restart.moved_after")}
           </p>
         )}
-        {!moved && seconds > 60 && <p className="rs-note">超过一分钟还没回来：到服务器上查看 lab2shot ui 的输出或服务日志 work/logs/lab2shot.log。</p>}
+        {!moved && seconds > 60 && <p className="rs-note">{t("ui.admin.restart.long")}</p>}
       </div>
     </div>
   );

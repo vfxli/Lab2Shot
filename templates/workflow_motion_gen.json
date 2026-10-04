@@ -1,0 +1,2143 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "eea86f3959925fe08529d33a29f2d7f3",
+  "name": {
+   "zh": "3D 动画生成",
+   "en": "3D Animation Generation"
+  },
+  "intro": {
+   "zh": "一张卡做完一段动作：不传参考帧，Kimodo 按文字生成；上传一段 FBX 动作当参考帧，就拿它的关键帧补出中间动作（文字可写可不写）。要用到自己的角色就打开「重定目标到我的角色」、上传角色 FBX、选重定目标方法（默认经典，也可以换 STaR / SATA / Kinematic Refinement / MeshRet），预处理全部自动、后处理不修正，结果蒙到你的角色上。交付 FBX 和 USD，文件名带方法名；关掉的分支整条不算。",
+   "en": "One card for a whole motion: with no reference frames Kimodo generates from text; upload an FBX motion and it fills in between its keyframes. To use your own character, turn on Retarget to My Character, upload its FBX and pick a Retarget Method (Classic, STaR, SATA, Kinematic Refinement or MeshRet); pre-processing is automatic. Delivers FBX and USD named after the method; branches that are off are skipped."
+  },
+  "author": "Lab2Shot",
+  "created": "2026-10-03T18:00:00",
+  "updated": "2026-10-03T18:00:00",
+  "deliverable": "workflow",
+  "owner": "admin",
+  "own_interface": [
+   "retarget"
+  ]
+ },
+ "exposed": [
+  {
+   "kind": "group",
+   "label": {
+    "zh": "生成",
+    "en": "Generate"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "ref_fbx_path",
+     "label": {
+      "zh": "参考帧（FBX，可不传）",
+      "en": "Reference Frame (FBX, Optional)"
+     },
+     "target": "ref_fbx.path",
+     "show_on_change": true
+    },
+    {
+     "name": "make_keys",
+     "label": {
+      "zh": "关键帧",
+      "en": "Keyframes"
+     },
+     "target": "make.keys"
+    },
+    {
+     "name": "prompt",
+     "label": {
+      "zh": "提示词（传了参考帧才可不写）",
+      "en": "Prompt (Optional with a Reference)"
+     },
+     "target": "prompt_text.value"
+    },
+    {
+     "name": "make_start_frame",
+     "label": {
+      "zh": "开始帧号",
+      "en": "Start Frame Number"
+     },
+     "target": "make.start_frame"
+    },
+    {
+     "name": "make_end_frame",
+     "label": {
+      "zh": "结束帧号",
+      "en": "End Frame Number"
+     },
+     "target": "make.end_frame"
+    },
+    {
+     "name": "fps",
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "fps.value"
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "make_model",
+       "label": {
+        "zh": "Kimodo 模型",
+        "en": "Kimodo Model"
+       },
+       "target": "make.model"
+      },
+      {
+       "name": "make_seed",
+       "label": {
+        "zh": "随机种子",
+        "en": "Seed"
+       },
+       "target": "make.seed"
+      },
+      {
+       "name": "make_steps",
+       "label": {
+        "zh": "去噪步数",
+        "en": "Denoising Steps"
+       },
+       "target": "make.steps"
+      },
+      {
+       "name": "make_guidance",
+       "label": {
+        "zh": "贴合关键帧",
+        "en": "Fit Keyframes"
+       },
+       "target": "make.guidance"
+      },
+      {
+       "name": "make_exact",
+       "label": {
+        "zh": "关键帧精确",
+        "en": "Exact Keyframes"
+       },
+       "target": "make.exact"
+      },
+      {
+       "name": "make_post_process",
+       "label": {
+        "zh": "模型后处理",
+        "en": "Model Post-Process"
+       },
+       "target": "make.post_process"
+      }
+     ]
+    },
+    {
+     "name": "cook_raw_pick",
+     "label": {
+      "zh": "生成并查看",
+      "en": "Generate and View"
+     },
+     "target": "raw_pick.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "重定目标",
+    "en": "Retarget"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "retarget_value",
+     "label": {
+      "zh": "重定目标到我的角色",
+      "en": "Retarget to My Character"
+     },
+     "target": "retarget.value",
+     "widget": "checkbox"
+    },
+    {
+     "name": "char_fbx_path",
+     "label": {
+      "zh": "目标角色（FBX）",
+      "en": "Target Character (FBX)"
+     },
+     "target": "char_fbx.path",
+     "hide_when": "not retarget_value",
+     "show_on_change": true
+    },
+    {
+     "name": "method_value",
+     "label": {
+      "zh": "重定目标方法",
+      "en": "Retarget Method"
+     },
+     "target": "method.value",
+     "widget": "menu",
+     "hide_when": "not retarget_value",
+     "options": [
+      {
+       "value": 1,
+       "label": {
+        "zh": "经典",
+        "en": "Classic"
+       }
+      },
+      {
+       "value": 2,
+       "label": {
+        "zh": "STaR",
+        "en": "STaR"
+       }
+      },
+      {
+       "value": 3,
+       "label": {
+        "zh": "SATA",
+        "en": "SATA"
+       }
+      },
+      {
+       "value": 4,
+       "label": {
+        "zh": "Kinematic Refinement",
+        "en": "Kinematic Refinement"
+       }
+      },
+      {
+       "value": 5,
+       "label": {
+        "zh": "MeshRet",
+        "en": "MeshRet"
+       }
+      }
+     ]
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "height_mode",
+       "label": {
+        "zh": "髋高跟法",
+        "en": "Hip Height Mode"
+       },
+       "target": "classic_solve.height_mode",
+       "hide_when": "not retarget_value or method_value != 1"
+      },
+      {
+       "name": "star_solve_window",
+       "label": {
+        "zh": "推理窗口",
+        "en": "Inference Window"
+       },
+       "target": "star_solve.window",
+       "hide_when": "not retarget_value or method_value != 2"
+      },
+      {
+       "name": "star_solve_seed",
+       "label": {
+        "zh": "采样种子",
+        "en": "Sampling Seed"
+       },
+       "target": "star_solve.seed",
+       "hide_when": "not retarget_value or method_value != 2"
+      },
+      {
+       "name": "sata_solve_model",
+       "label": {
+        "zh": "SATA 模型",
+        "en": "SATA Model"
+       },
+       "target": "sata_solve.model",
+       "hide_when": "not retarget_value or method_value != 3"
+      },
+      {
+       "name": "kinref_solve_stage",
+       "label": {
+        "zh": "精修阶段",
+        "en": "Refinement Stage"
+       },
+       "target": "kinref_solve.stage",
+       "hide_when": "not retarget_value or method_value != 4"
+      },
+      {
+       "name": "meshret_solve_window",
+       "label": {
+        "zh": "推理窗口",
+        "en": "Inference Window"
+       },
+       "target": "meshret_solve.window",
+       "hide_when": "not retarget_value or method_value != 5"
+      }
+     ]
+    },
+    {
+     "name": "cook_skin_dst",
+     "label": {
+      "zh": "重定目标并查看",
+      "en": "Retarget and View"
+     },
+     "target": "skin_dst.cook",
+     "hide_when": "not retarget_value"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "word": "pack",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
+     "target": "deliver.download"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "retarget",
+   "type": "value_toggle",
+   "params": {
+    "value": false
+   },
+   "ui": {
+    "x": 0,
+    "y": 485
+   }
+  },
+  {
+   "id": "method",
+   "type": "value_int",
+   "params": {
+    "value": 1,
+    "unit": ""
+   },
+   "ui": {
+    "x": 2959,
+    "y": 944
+   }
+  },
+  {
+   "id": "fps",
+   "type": "value_int",
+   "params": {
+    "value": 24,
+    "unit": "fps"
+   },
+   "ui": {
+    "x": 360,
+    "y": 1185
+   }
+  },
+  {
+   "id": "ref_fbx",
+   "type": "fbx.import",
+   "params": {
+    "path": "",
+    "take": "",
+    "camera": "",
+    "models": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "has_ref",
+   "type": "has_data",
+   "params": {
+    "present": false
+   },
+   "ui": {
+    "x": 360,
+    "y": 0
+   }
+  },
+  {
+   "id": "prompt_text",
+   "type": "value_string",
+   "params": {
+    "value": ""
+   },
+   "ui": {
+    "x": 0,
+    "y": 231
+   }
+  },
+  {
+   "id": "translate",
+   "type": "llm.translate",
+   "params": {
+    "target_lang": "english",
+    "model": "hy_mt2_q4"
+   },
+   "ui": {
+    "x": 360,
+    "y": 231
+   }
+  },
+  {
+   "id": "make",
+   "type": "kimodo.motion",
+   "params": {
+    "skeleton": null,
+    "keys": "",
+    "exact": true,
+    "foot_lock": true,
+    "start_frame": 1001,
+    "end_frame": 1120,
+    "mapping": null,
+    "model": "rp",
+    "prompt": "",
+    "steps": 100,
+    "guidance": 2.0,
+    "seed": 0,
+    "post_process": true,
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 720,
+    "y": 207
+   },
+   "promoted": [
+    "prompt",
+    "fps"
+   ]
+  },
+  {
+   "id": "body",
+   "type": "standard_human",
+   "params": {
+    "skeleton": "soma",
+    "height_cm": null
+   },
+   "ui": {
+    "x": 720,
+    "y": 0
+   }
+  },
+  {
+   "id": "skin_src",
+   "type": "bone_deform",
+   "params": {
+    "skeleton_path": null,
+    "character_skeleton": null
+   },
+   "ui": {
+    "x": 1080,
+    "y": 0
+   }
+  },
+  {
+   "id": "raw_pick",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "参考帧的骨架",
+       "en": "Reference Frame Skeleton"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "Kimodo 自带的蒙皮",
+       "en": "Kimodo Built-in Skin"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 1440,
+    "y": 0
+   }
+  },
+  {
+   "id": "raw_gate",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": true
+   },
+   "ui": {
+    "x": 3679,
+    "y": 0
+   }
+  },
+  {
+   "id": "raw_fbx",
+   "type": "fbx.output",
+   "params": {
+    "name": "kimodo_fbx",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 4039,
+    "y": 1118
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "raw_usd",
+   "type": "usd.output",
+   "params": {
+    "name": "kimodo_usd",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 4039,
+    "y": 1325
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "motion_gate",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 1800,
+    "y": 712
+   }
+  },
+  {
+   "id": "char_fbx",
+   "type": "fbx.import",
+   "params": {
+    "path": "",
+    "take": "",
+    "camera": "",
+    "models": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 0,
+    "y": 712
+   }
+  },
+  {
+   "id": "char_gate",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 360,
+    "y": 712
+   }
+  },
+  {
+   "id": "solve_pick",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "经典",
+       "en": "Classic"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "STaR",
+       "en": "STaR"
+      }
+     },
+     {
+      "name": "c",
+      "label": {
+       "zh": "SATA",
+       "en": "SATA"
+      }
+     },
+     {
+      "name": "d",
+      "label": {
+       "zh": "Kinematic Refinement",
+       "en": "Kinematic Refinement"
+      }
+     },
+     {
+      "name": "e",
+      "label": {
+       "zh": "MeshRet",
+       "en": "MeshRet"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 3319,
+    "y": 2080
+   }
+  },
+  {
+   "id": "name_fbx",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "经典",
+       "en": "Classic"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "STaR",
+       "en": "STaR"
+      }
+     },
+     {
+      "name": "c",
+      "label": {
+       "zh": "SATA",
+       "en": "SATA"
+      }
+     },
+     {
+      "name": "d",
+      "label": {
+       "zh": "Kinematic Refinement",
+       "en": "Kinematic Refinement"
+      }
+     },
+     {
+      "name": "e",
+      "label": {
+       "zh": "MeshRet",
+       "en": "MeshRet"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 3679,
+    "y": 1185
+   }
+  },
+  {
+   "id": "name_usd",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "经典",
+       "en": "Classic"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "STaR",
+       "en": "STaR"
+      }
+     },
+     {
+      "name": "c",
+      "label": {
+       "zh": "SATA",
+       "en": "SATA"
+      }
+     },
+     {
+      "name": "d",
+      "label": {
+       "zh": "Kinematic Refinement",
+       "en": "Kinematic Refinement"
+      }
+     },
+     {
+      "name": "e",
+      "label": {
+       "zh": "MeshRet",
+       "en": "MeshRet"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 3679,
+    "y": 2259
+   }
+  },
+  {
+   "id": "classic_prep",
+   "type": "retarget_prepare",
+   "params": {
+    "ignore_rule": "generic",
+    "motion_skeleton": null,
+    "target_skeleton": null,
+    "mapping": null,
+    "motion_pose": [],
+    "target_pose": [],
+    "motion_ignore": [],
+    "target_ignore": [],
+    "motion_scale": null,
+    "target_scale": null,
+    "auto_record": "",
+    "motion_rest": "bind",
+    "motion_rest_frame": null,
+    "target_rest": "first",
+    "target_rest_frame": null
+   },
+   "ui": {
+    "x": 2160,
+    "y": 1185
+   }
+  },
+  {
+   "id": "classic_solve",
+   "type": "retarget",
+   "params": {
+    "motion_skeleton": null,
+    "target_skeleton": null,
+    "mapping": null,
+    "motion_rest": "bind",
+    "motion_rest_frame": null,
+    "target_rest": "first",
+    "target_rest_frame": null,
+    "rest_fix": "none",
+    "motion_pose": [],
+    "target_pose": [],
+    "size_by": "none",
+    "size": 1.0,
+    "scale_by": "legs",
+    "scale": 1.0,
+    "height_mode": "lift",
+    "height_offset": 0.0
+   },
+   "ui": {
+    "x": 2520,
+    "y": 1185
+   }
+  },
+  {
+   "id": "classic_post",
+   "type": "retarget_post",
+   "params": {
+    "root_motion": "model",
+    "stride": "legs",
+    "height_offset": 0.0
+   },
+   "ui": {
+    "x": 2959,
+    "y": 1185
+   }
+  },
+  {
+   "id": "classic_fbx_name",
+   "type": "value_string",
+   "params": {
+    "value": "retarget_classic_fbx"
+   },
+   "ui": {
+    "x": 3319,
+    "y": 1185
+   }
+  },
+  {
+   "id": "classic_usd_name",
+   "type": "value_string",
+   "params": {
+    "value": "retarget_classic_usd"
+   },
+   "ui": {
+    "x": 3319,
+    "y": 2259
+   }
+  },
+  {
+   "id": "star_prep",
+   "type": "retarget_prepare",
+   "params": {
+    "ignore_rule": "star",
+    "motion_skeleton": null,
+    "target_skeleton": null,
+    "mapping": null,
+    "motion_pose": [],
+    "target_pose": [],
+    "motion_ignore": [],
+    "target_ignore": [],
+    "motion_scale": null,
+    "target_scale": null,
+    "auto_record": "",
+    "motion_rest": "bind",
+    "motion_rest_frame": null,
+    "target_rest": "first",
+    "target_rest_frame": null
+   },
+   "ui": {
+    "x": 2160,
+    "y": 1356
+   }
+  },
+  {
+   "id": "star_solve",
+   "type": "star.retarget",
+   "params": {
+    "fps": 24,
+    "window": 120,
+    "seed": 42
+   },
+   "ui": {
+    "x": 2520,
+    "y": 1356
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "star_post",
+   "type": "retarget_post",
+   "params": {
+    "root_motion": "model",
+    "stride": "legs",
+    "height_offset": 0.0
+   },
+   "ui": {
+    "x": 2959,
+    "y": 1376
+   }
+  },
+  {
+   "id": "star_fbx_name",
+   "type": "value_string",
+   "params": {
+    "value": "retarget_star_fbx"
+   },
+   "ui": {
+    "x": 3319,
+    "y": 1364
+   }
+  },
+  {
+   "id": "star_usd_name",
+   "type": "value_string",
+   "params": {
+    "value": "retarget_star_usd"
+   },
+   "ui": {
+    "x": 3319,
+    "y": 2438
+   }
+  },
+  {
+   "id": "sata_prep",
+   "type": "retarget_prepare",
+   "params": {
+    "ignore_rule": "sata",
+    "motion_skeleton": null,
+    "target_skeleton": null,
+    "mapping": null,
+    "motion_pose": [],
+    "target_pose": [],
+    "motion_ignore": [],
+    "target_ignore": [],
+    "motion_scale": null,
+    "target_scale": null,
+    "auto_record": "",
+    "motion_rest": "bind",
+    "motion_rest_frame": null,
+    "target_rest": "first",
+    "target_rest_frame": null
+   },
+   "ui": {
+    "x": 2160,
+    "y": 1527
+   }
+  },
+  {
+   "id": "sata_solve",
+   "type": "sata.retarget",
+   "params": {
+    "fps": 24,
+    "source_toe_semantics": "auto",
+    "target_toe_semantics": "auto",
+    "model": "vae_human",
+    "window": 64,
+    "seed": 0
+   },
+   "ui": {
+    "x": 2520,
+    "y": 1555
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "sata_post",
+   "type": "retarget_post",
+   "params": {
+    "root_motion": "model",
+    "stride": "legs",
+    "height_offset": 0.0
+   },
+   "ui": {
+    "x": 2959,
+    "y": 1567
+   }
+  },
+  {
+   "id": "sata_fbx_name",
+   "type": "value_string",
+   "params": {
+    "value": "retarget_sata_fbx"
+   },
+   "ui": {
+    "x": 3319,
+    "y": 1543
+   }
+  },
+  {
+   "id": "sata_usd_name",
+   "type": "value_string",
+   "params": {
+    "value": "retarget_sata_usd"
+   },
+   "ui": {
+    "x": 3319,
+    "y": 2617
+   }
+  },
+  {
+   "id": "kinref_prep",
+   "type": "retarget_prepare",
+   "params": {
+    "ignore_rule": "kinref",
+    "motion_skeleton": null,
+    "target_skeleton": null,
+    "mapping": null,
+    "motion_pose": [],
+    "target_pose": [],
+    "motion_ignore": [],
+    "target_ignore": [],
+    "motion_scale": null,
+    "target_scale": null,
+    "auto_record": "",
+    "motion_rest": "bind",
+    "motion_rest_frame": null,
+    "target_rest": "first",
+    "target_rest_frame": null
+   },
+   "ui": {
+    "x": 2160,
+    "y": 1698
+   }
+  },
+  {
+   "id": "kinref_solve",
+   "type": "kinematic_refinement.retarget",
+   "params": {
+    "fps": 24,
+    "stage": "geo",
+    "geo_batch_frames": 16
+   },
+   "ui": {
+    "x": 2520,
+    "y": 1754
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "kinref_post",
+   "type": "retarget_post",
+   "params": {
+    "root_motion": "model",
+    "stride": "legs",
+    "height_offset": 0.0
+   },
+   "ui": {
+    "x": 2959,
+    "y": 1758
+   }
+  },
+  {
+   "id": "kinref_fbx_name",
+   "type": "value_string",
+   "params": {
+    "value": "retarget_kinref_fbx"
+   },
+   "ui": {
+    "x": 3319,
+    "y": 1722
+   }
+  },
+  {
+   "id": "kinref_usd_name",
+   "type": "value_string",
+   "params": {
+    "value": "retarget_kinref_usd"
+   },
+   "ui": {
+    "x": 3319,
+    "y": 2796
+   }
+  },
+  {
+   "id": "meshret_prep",
+   "type": "retarget_prepare",
+   "params": {
+    "ignore_rule": "meshret",
+    "motion_skeleton": null,
+    "target_skeleton": null,
+    "mapping": null,
+    "motion_pose": [],
+    "target_pose": [],
+    "motion_ignore": [],
+    "target_ignore": [],
+    "motion_scale": null,
+    "target_scale": null,
+    "auto_record": "",
+    "motion_rest": "bind",
+    "motion_rest_frame": null,
+    "target_rest": "first",
+    "target_rest_frame": null
+   },
+   "ui": {
+    "x": 2160,
+    "y": 1869
+   }
+  },
+  {
+   "id": "meshret_solve",
+   "type": "meshret.retarget",
+   "params": {
+    "fps": 24,
+    "window": 30
+   },
+   "ui": {
+    "x": 2520,
+    "y": 1953
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "meshret_post",
+   "type": "retarget_post",
+   "params": {
+    "root_motion": "model",
+    "stride": "legs",
+    "height_offset": 0.0
+   },
+   "ui": {
+    "x": 2959,
+    "y": 1949
+   }
+  },
+  {
+   "id": "meshret_fbx_name",
+   "type": "value_string",
+   "params": {
+    "value": "retarget_meshret_fbx"
+   },
+   "ui": {
+    "x": 3319,
+    "y": 1901
+   }
+  },
+  {
+   "id": "meshret_usd_name",
+   "type": "value_string",
+   "params": {
+    "value": "retarget_meshret_usd"
+   },
+   "ui": {
+    "x": 3319,
+    "y": 2975
+   }
+  },
+  {
+   "id": "skin_dst",
+   "type": "bone_deform",
+   "params": {
+    "skeleton_path": null,
+    "character_skeleton": null
+   },
+   "ui": {
+    "x": 3679,
+    "y": 1722
+   }
+  },
+  {
+   "id": "result_fbx",
+   "type": "fbx.output",
+   "params": {
+    "name": "retarget_fbx",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 4039,
+    "y": 1560
+   },
+   "promoted": [
+    "name",
+    "fps"
+   ]
+  },
+  {
+   "id": "result_usd",
+   "type": "usd.output",
+   "params": {
+    "name": "retarget_usd",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 4039,
+    "y": 1767
+   },
+   "promoted": [
+    "name",
+    "fps"
+   ]
+  },
+  {
+   "id": "deliver",
+   "type": "output",
+   "params": {},
+   "ui": {
+    "x": 4399,
+    "y": 1471
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "ref_fbx",
+    "characters"
+   ],
+   "to": [
+    "has_ref",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "ref_fbx",
+    "characters"
+   ],
+   "to": [
+    "make",
+    "character"
+   ]
+  },
+  {
+   "from": [
+    "prompt_text",
+    "value"
+   ],
+   "to": [
+    "translate",
+    "text"
+   ]
+  },
+  {
+   "from": [
+    "translate",
+    "text"
+   ],
+   "to": [
+    "make",
+    "param:prompt"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "make",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "make",
+    "character"
+   ],
+   "to": [
+    "skin_src",
+    "skeleton"
+   ]
+  },
+  {
+   "from": [
+    "body",
+    "character"
+   ],
+   "to": [
+    "skin_src",
+    "character"
+   ]
+  },
+  {
+   "from": [
+    "make",
+    "character"
+   ],
+   "to": [
+    "raw_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "skin_src",
+    "character"
+   ],
+   "to": [
+    "raw_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "has_ref",
+    "value"
+   ],
+   "to": [
+    "raw_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "raw_pick",
+    "out"
+   ],
+   "to": [
+    "raw_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "retarget",
+    "value"
+   ],
+   "to": [
+    "raw_gate",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "raw_gate",
+    "data"
+   ],
+   "to": [
+    "raw_fbx",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "raw_gate",
+    "data"
+   ],
+   "to": [
+    "raw_usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "raw_fbx",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "raw_usd",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "raw_pick",
+    "out"
+   ],
+   "to": [
+    "motion_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "retarget",
+    "value"
+   ],
+   "to": [
+    "motion_gate",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "char_fbx",
+    "characters"
+   ],
+   "to": [
+    "char_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "retarget",
+    "value"
+   ],
+   "to": [
+    "char_gate",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "motion_gate",
+    "data"
+   ],
+   "to": [
+    "classic_prep",
+    "motion"
+   ]
+  },
+  {
+   "from": [
+    "char_gate",
+    "data"
+   ],
+   "to": [
+    "classic_prep",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "classic_prep",
+    "source"
+   ],
+   "to": [
+    "classic_solve",
+    "motion"
+   ]
+  },
+  {
+   "from": [
+    "classic_prep",
+    "target"
+   ],
+   "to": [
+    "classic_solve",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "classic_solve",
+    "skeleton"
+   ],
+   "to": [
+    "classic_post",
+    "skeleton"
+   ]
+  },
+  {
+   "from": [
+    "classic_prep",
+    "source"
+   ],
+   "to": [
+    "classic_post",
+    "source"
+   ]
+  },
+  {
+   "from": [
+    "classic_prep",
+    "target"
+   ],
+   "to": [
+    "classic_post",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "classic_post",
+    "skeleton"
+   ],
+   "to": [
+    "solve_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "classic_fbx_name",
+    "value"
+   ],
+   "to": [
+    "name_fbx",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "classic_usd_name",
+    "value"
+   ],
+   "to": [
+    "name_usd",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "motion_gate",
+    "data"
+   ],
+   "to": [
+    "star_prep",
+    "motion"
+   ]
+  },
+  {
+   "from": [
+    "char_gate",
+    "data"
+   ],
+   "to": [
+    "star_prep",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "star_prep",
+    "source"
+   ],
+   "to": [
+    "star_solve",
+    "source"
+   ]
+  },
+  {
+   "from": [
+    "star_prep",
+    "target"
+   ],
+   "to": [
+    "star_solve",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "star_solve",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "star_solve",
+    "skeleton"
+   ],
+   "to": [
+    "star_post",
+    "skeleton"
+   ]
+  },
+  {
+   "from": [
+    "star_prep",
+    "source"
+   ],
+   "to": [
+    "star_post",
+    "source"
+   ]
+  },
+  {
+   "from": [
+    "star_prep",
+    "target"
+   ],
+   "to": [
+    "star_post",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "star_post",
+    "skeleton"
+   ],
+   "to": [
+    "solve_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "star_fbx_name",
+    "value"
+   ],
+   "to": [
+    "name_fbx",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "star_usd_name",
+    "value"
+   ],
+   "to": [
+    "name_usd",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "motion_gate",
+    "data"
+   ],
+   "to": [
+    "sata_prep",
+    "motion"
+   ]
+  },
+  {
+   "from": [
+    "char_gate",
+    "data"
+   ],
+   "to": [
+    "sata_prep",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "sata_prep",
+    "source"
+   ],
+   "to": [
+    "sata_solve",
+    "source"
+   ]
+  },
+  {
+   "from": [
+    "sata_prep",
+    "target"
+   ],
+   "to": [
+    "sata_solve",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "sata_solve",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "sata_solve",
+    "skeleton"
+   ],
+   "to": [
+    "sata_post",
+    "skeleton"
+   ]
+  },
+  {
+   "from": [
+    "sata_prep",
+    "source"
+   ],
+   "to": [
+    "sata_post",
+    "source"
+   ]
+  },
+  {
+   "from": [
+    "sata_prep",
+    "target"
+   ],
+   "to": [
+    "sata_post",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "sata_post",
+    "skeleton"
+   ],
+   "to": [
+    "solve_pick",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "sata_fbx_name",
+    "value"
+   ],
+   "to": [
+    "name_fbx",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "sata_usd_name",
+    "value"
+   ],
+   "to": [
+    "name_usd",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "motion_gate",
+    "data"
+   ],
+   "to": [
+    "kinref_prep",
+    "motion"
+   ]
+  },
+  {
+   "from": [
+    "char_gate",
+    "data"
+   ],
+   "to": [
+    "kinref_prep",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "kinref_prep",
+    "source"
+   ],
+   "to": [
+    "kinref_solve",
+    "source"
+   ]
+  },
+  {
+   "from": [
+    "kinref_prep",
+    "target"
+   ],
+   "to": [
+    "kinref_solve",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "kinref_solve",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "kinref_solve",
+    "skeleton"
+   ],
+   "to": [
+    "kinref_post",
+    "skeleton"
+   ]
+  },
+  {
+   "from": [
+    "kinref_prep",
+    "source"
+   ],
+   "to": [
+    "kinref_post",
+    "source"
+   ]
+  },
+  {
+   "from": [
+    "kinref_prep",
+    "target"
+   ],
+   "to": [
+    "kinref_post",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "kinref_post",
+    "skeleton"
+   ],
+   "to": [
+    "solve_pick",
+    "d"
+   ]
+  },
+  {
+   "from": [
+    "kinref_fbx_name",
+    "value"
+   ],
+   "to": [
+    "name_fbx",
+    "d"
+   ]
+  },
+  {
+   "from": [
+    "kinref_usd_name",
+    "value"
+   ],
+   "to": [
+    "name_usd",
+    "d"
+   ]
+  },
+  {
+   "from": [
+    "motion_gate",
+    "data"
+   ],
+   "to": [
+    "meshret_prep",
+    "motion"
+   ]
+  },
+  {
+   "from": [
+    "char_gate",
+    "data"
+   ],
+   "to": [
+    "meshret_prep",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "meshret_prep",
+    "source"
+   ],
+   "to": [
+    "meshret_solve",
+    "source"
+   ]
+  },
+  {
+   "from": [
+    "meshret_prep",
+    "target"
+   ],
+   "to": [
+    "meshret_solve",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "meshret_solve",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "meshret_solve",
+    "skeleton"
+   ],
+   "to": [
+    "meshret_post",
+    "skeleton"
+   ]
+  },
+  {
+   "from": [
+    "meshret_prep",
+    "source"
+   ],
+   "to": [
+    "meshret_post",
+    "source"
+   ]
+  },
+  {
+   "from": [
+    "meshret_prep",
+    "target"
+   ],
+   "to": [
+    "meshret_post",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "meshret_post",
+    "skeleton"
+   ],
+   "to": [
+    "solve_pick",
+    "e"
+   ]
+  },
+  {
+   "from": [
+    "meshret_fbx_name",
+    "value"
+   ],
+   "to": [
+    "name_fbx",
+    "e"
+   ]
+  },
+  {
+   "from": [
+    "meshret_usd_name",
+    "value"
+   ],
+   "to": [
+    "name_usd",
+    "e"
+   ]
+  },
+  {
+   "from": [
+    "method",
+    "value"
+   ],
+   "to": [
+    "solve_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "method",
+    "value"
+   ],
+   "to": [
+    "name_fbx",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "method",
+    "value"
+   ],
+   "to": [
+    "name_usd",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "solve_pick",
+    "out"
+   ],
+   "to": [
+    "skin_dst",
+    "skeleton"
+   ]
+  },
+  {
+   "from": [
+    "char_gate",
+    "data"
+   ],
+   "to": [
+    "skin_dst",
+    "character"
+   ]
+  },
+  {
+   "from": [
+    "skin_dst",
+    "character"
+   ],
+   "to": [
+    "result_fbx",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "skin_dst",
+    "character"
+   ],
+   "to": [
+    "result_usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "name_fbx",
+    "out"
+   ],
+   "to": [
+    "result_fbx",
+    "param:name"
+   ]
+  },
+  {
+   "from": [
+    "name_usd",
+    "out"
+   ],
+   "to": [
+    "result_usd",
+    "param:name"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "result_fbx",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "result_usd",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "raw_fbx",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "raw_usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "result_fbx",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "result_usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [
+  {
+   "id": "box:1",
+   "label": {
+    "zh": "生成",
+    "en": "Generate"
+   },
+   "color": "#0A84FF",
+   "x": -24,
+   "y": -58,
+   "w": 3967,
+   "h": 512,
+   "collapsed": false,
+   "members": [
+    "ref_fbx",
+    "has_ref",
+    "prompt_text",
+    "translate",
+    "make",
+    "body",
+    "skin_src",
+    "raw_pick",
+    "raw_gate"
+   ]
+  },
+  {
+   "id": "box:2",
+   "label": {
+    "zh": "目标角色",
+    "en": "Target Character"
+   },
+   "color": "#30D158",
+   "x": -24,
+   "y": 654,
+   "w": 2088,
+   "h": 273,
+   "collapsed": false,
+   "members": [
+    "motion_gate",
+    "char_fbx",
+    "char_gate"
+   ]
+  },
+  {
+   "id": "box:3",
+   "label": {
+    "zh": "重定目标",
+    "en": "Retarget"
+   },
+   "color": "#FF9F0A",
+   "x": 2136,
+   "y": 1127,
+   "w": 1807,
+   "h": 2011,
+   "collapsed": false,
+   "members": [
+    "solve_pick",
+    "name_fbx",
+    "name_usd",
+    "classic_prep",
+    "classic_solve",
+    "classic_post",
+    "classic_fbx_name",
+    "classic_usd_name",
+    "star_prep",
+    "star_solve",
+    "star_post",
+    "star_fbx_name",
+    "star_usd_name",
+    "sata_prep",
+    "sata_solve",
+    "sata_post",
+    "sata_fbx_name",
+    "sata_usd_name",
+    "kinref_prep",
+    "kinref_solve",
+    "kinref_post",
+    "kinref_fbx_name",
+    "kinref_usd_name",
+    "meshret_prep",
+    "meshret_solve",
+    "meshret_post",
+    "meshret_fbx_name",
+    "meshret_usd_name",
+    "skin_dst"
+   ]
+  }
+ ],
+ "view": {}
+}

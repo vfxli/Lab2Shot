@@ -1,0 +1,57 @@
+# SAM 3D Body extension: its words and messages in Chinese (the same keys as en.toml; sam3dbody.py is shared with Fast SAM 3D Body).
+
+# ---- 检测人物
+"N-SAM3DBODY-NOPEOPLEFOUND" = "「ViTDet 人物框」在画面里没有检测到人（「检测阈值」是 {threshold:g}），人物框是空的：后面接的节点（「选人」「人物框转遮罩」、解算器的「人物框」口）这次没有框可用。人在远处、被挡住或是背影时，把「检测阈值」调低到 0.5–0.6 再算"
+"N-SAM3DBODY-NOPEOPLEFOUND.app" = "画面里没有检测到人（「检测阈值」是 {threshold:g}），这次没有人可解：人在远处、被挡住或是背影时，把「检测阈值」调低到 0.5–0.6 再算"
+
+# ---- 解算
+"N-SAM3DBODY-NOBODYCHOSEN" = "接进来的「人物框」里一个人都没有：这次没有人可解。要解画面里所有人，把「选人」改成「全部」，或者不接「人物框」"
+"N-SAM3DBODY-UNSOLVEDFRAMES.other" = "人物 {person} 有 {missing} 帧（共 {frames} 帧）没有解算结果，这些帧上不显示这个人"
+
+[node."sam_3d_body.detect_people"]
+subtitle = "人物框"
+description = "用 ViTDet（Meta Detectron2）找出画面里的每个人，给每人一个编号，并标出他在每一帧的框。随 SAM 3D Body 扩展包安装。"
+cost.note = "显存是按 ViTDet 检测器量级估的保守值"
+
+[node."sam_3d_body.detect_people".param.threshold]
+label = "检测阈值"
+
+[node."sam_3d_body.detect_people".port.boxes]
+label = "人物框"
+
+[node."sam_3d_body.solve"]
+subtitle = "全身动作"
+description = "估计人物全身动作（含手指），结果在摄影机空间里。接了「人物框」（「ViTDet 人物框」→「选人」）就只解这些人、不再自己检人；不接就自己检出画面里所有人（和「ViTDet 人物框」同一个检测器）。检人、加载模型只做一次，一帧里的人分批解算、每个人都解；只要其中某一个人时，前面接「ViTDet 人物框」→「选人」→「人物框转遮罩」→「图像合成」，把别人从画面里去掉再送进来。填了「焦距」（或接一条焦距进来）就用它，人的远近会准很多。要摆进某台摄影机的世界，后面接「摄影机空间转换」。要快 2.5–3 倍的版本用「Fast SAM 3D Body 全身动作」，要脚不滑的世界轨迹用「GVHMR 全身动作」。另出一台「摄影机」：放人用的那台原点、不动的针孔摄影机（焦距 = 「焦距」参数，留空时用它自己从画面估的焦距；主点在画面中心），不是解出来的摄影机——三维视口透过它看图像平面、人和画面对得上，模板里当「解算器的摄影机」那一路用。"
+official.ours.camera = "放人用的针孔摄影机：原点、不动，焦距 = 节点的「焦距」（留空用解算器自己估的 / 默认的），主点在画面中心（families/humans.py plate_camera）"
+official.note = "⓪ **「人物框」是可选输入，直接交给官方函数**（规则：官方函数接受人物框就直接把框交给它；不接受框的项目，在节点图上走「人物框转遮罩」）。官方包里的 `SAM3DBodyEstimator.process_one_image(img, bboxes=None, …)`（sam_3d_body_estimator.py:64-75，**是官方包的函数，不是我们写的**）本来就收框；官方 demo 不传框（demo.py:88-91）只是因为它手里没有别的框，所以自己建了 HumanDetector（:44-49）。「ViTDet 人物框」用的就是那同一个检测器，接进来的仍是官方的框，中间多的只有「选人」这一步（→ 这个口）。不接框时 worker 走 demo 的路自己检人。遮罩那条链（「人物框转遮罩」→「图像合成」）留给官方函数**不**收框的项目。① **官方的整套 MHR 参数就是「蒙皮角色」这个口**，没有另立类型、也没有另加口（SMPL / SMPL-X / MANO / FLAME / MHR 这类参数化人体就是「蒙皮 + 蒙皮权重 + 骨架动画」，装成「蒙皮角色」，不另立数据类型；具体多少个点、多少节骨架不影响这一点）。逐项对上（sam3dbody.py solve_person / evaluate / rig_data）：`global_rot` + `body_pose_params` + `hand_pose_params` + `scale_params` + `shape_params` 原样送回 MHR（head.mhr_forward → head.mhr）算出每帧的骨架状态，变成「蒙皮角色」骨架每帧的关节矩阵（npz joint_world）；`mhr_model_params` 就是这一步 mhr_forward 返回的那一份中间参数，我们用的是同一个函数的同一份输出，不是另一份数据；`shape_params` 还变成这个人的静止网格（npz rest_vertices），配 MHR 自己的蒙皮权重和绑定姿势（npz skin_weights / skin_indices / bind_world）；`pred_joint_coords` 和 `pred_global_rots`（= out['joint_global_rots']）就是同一副骨架的关节位置和全局旋转，在 joint_world 的平移和旋转部分里；`pred_pose_raw` 是 body_pose_params 转 euler 之前的同一份姿势，不是另一份数据。**一个参数都没丢。**`expr_params` 是**上游自己永远置零的**（`sam_3d_body/models/heads/mhr_head.py:316 pred_face = pred[:, count : count + self.num_face_comps] * 0`，同一段 :306-307 连下巴也置零），所以「蒙皮角色」上没有表情融合变形——不是我们丢的，是官方就不出。`mask` 只有调用方自己传遮罩进去、或者打开 use_mask 让 SAM 2 现算时才有（sam_3d_body_estimator.py:135-153），我们两样都不做（worker.py node_solve 只传 bboxes 和 cam_int），所以它在我们这条路上永远是 None。上游还给出 `pred_keypoints_2d`（官方自己找的 2D 关键点，worker 已经存进 npz），目前没有对应的输出口；**这一项装不进蒙皮角色**（它是画面上的点，不是骨架）。② 官方只给 focal_length（内参）和 pred_cam_t（人在摄影机里的平移），从来没解出一台摄影机。「摄影机」口交出的是放人用的那台原点静止针孔摄影机（焦距就是用的那个），登记在 ours：不是解出来的，三维视口透过它看图像平面、模板把它当「解算器的摄影机」一路。要一台真的摄影机，从解摄影机的节点（ViPE、TRAM）接，或者用「导入 USD」；要把人摆进那台摄影机的世界，接核心节点「摄影机空间转换」（camera_space）。③ cam_int（sam_3d_body_estimator.py:69）只是内参：内参（焦距、主点）不是摄影机输入，完整的内参加外参才算摄影机；它对应的是「已知焦距」「胶片背」两个参数，不是摄影机输入。"
+cost.note = "显存沿用同一模型家族 Fast SAM 3D Body 的实测，SAM 3D Body 本身还没量过"
+
+[node."sam_3d_body.solve".param.hand_refine]
+label = "手部精修"
+
+[node."sam_3d_body.solve".param.lock_shape]
+label = "锁定体型"
+
+[node."sam_3d_body.solve".param.smoothing]
+label = "平滑强度"
+
+[node."sam_3d_body.solve".port.camera]
+help = "放人用的那台摄影机：原点、不动的针孔摄影机，焦距 = 节点的「焦距」（留空时用解算器自己估的或默认的），主点在画面中心。不是解出来的摄影机：人就放在它的空间里，透过它看图像平面人和画面对得上。当「解算器的摄影机」用，或接「摄影机空间转换」的目标"
+
+[extension.sam_3d_body]
+summary = "从单张画面做全身三维人体网格恢复；基于 MHR 参数化网格表示估计身体、脚和手的姿态"
+license.name = "SAM License"
+license.summary = "允许商用、修改和再分发（需附带许可证）；发表论文需注明使用了 SAM 3D Body"
+weight.sam-3d-body-dinov3.note = "SAM 3D Body 模型权重（2.1 GB，SAM License）；需要在 Hugging Face 页面申请权限"
+weight.mhr-model.note = "MHR 人体装备（0.7 GB，随 SAM 3D Body 模型权重发布）"
+weight.sam-license.note = "SAM License 原文（使用和分发模型权重时要附带）"
+weight.moge-2.note = "焦距估计 MoGe-2（MIT，1.3 GB）"
+weight.sam-3d-body-config.note = "SAM 3D Body 网络配置"
+weight.vitdet.note = "人物检测 ViTDet-H（Apache-2.0，2.8 GB）"
+
+# worker progress (worker.py, sam3dbody.py; Fast SAM 3D Body has the same ids in its own catalogue)
+[stage]
+detect_people = "检测人物"
+estimate_pose = "估计人体姿态"
+estimate_focal = "估计焦距"
+finish_people = "锁定体型 · 平滑 · 生成骨骼"

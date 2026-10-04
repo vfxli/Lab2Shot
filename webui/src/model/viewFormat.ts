@@ -46,9 +46,9 @@ export interface CharacterMeshRef {
   faces: ArrayRef;
   vertices: number;
   points: ArrayRef; // bind pose, in the world
-  joint_indices?: ArrayRef; // four per point
+  joint_indices?: ArrayRef; // `influences` per point (four, padded, when it is drawn on the graphics card)
   joint_weights?: ArrayRef;
-  influences: number;
+  influences: number; // joints per point; more than four: per_frame, and the indices / weights (when sent) are for posing on the CPU (model/skinning.ts)
   per_frame?: boolean; // more than four joints per point: the server's evaluation per frame instead
   shapes: string[];
   shape_offsets?: ArrayRef; // [B,V,3]
@@ -73,7 +73,8 @@ export interface GridRef {
   step: number;
   gw: number;
   gh: number;
-  focal: ArrayRef; // pixels, per sample
+  focal: ArrayRef; // fx in pixels, per sample
+  aspect?: number; // the camera's pixel aspect (a pixel's width over its height): fy = fx x aspect; 1 when absent
   cam: ArrayRef; // camera-to-world per sample, 4x4 row after row
   principal?: ArrayRef; // (cx, cy) pixels per sample: the camera's principal point (the picture's centre unless the solver wrote one)
   // Proxy display (server/view_data.py _proxy_step): one cell in every `proxy`.
@@ -88,12 +89,18 @@ export interface GridRef {
 }
 
 export interface CloudRef extends Item {
+  gaussian?: boolean;
+  sh_coefficients?: number;
+  covariance?: ArrayRef;
+  opacity?: ArrayRef;
+  sh?: ArrayRef;
   width: number | null;
   per_frame: boolean;
   grid?: GridRef;
-  count?: number; // per-frame cloud: the first frame's point count (what 「显示了 N / 共 M 点」 reports)
-  // One point in every `every` (server/view_data.py _point_step): applied whenever the cloud exceeds the 「点云上限」
-  // setting. Absent: no point dropped. Above 1 the view's notice area keeps showing 「显示了 N / 共 M 点」
+  count?: number; // per-frame cloud (points or gaussian): the first frame's splat count (what 「显示了 N / 共 M 点」 reports)
+  // One point in every `every` (server/view_data.py _point_step for points, _gaussian_step for 3D 高斯): applied whenever
+  // the cloud exceeds the 「点云上限」 / 「高斯显示上限」 setting. Absent: nothing dropped. Above 1 the view's notice
+  // area keeps showing 「显示了 N / 共 M 点」
   every?: number;
   speed?: boolean; // the same points on every frame: they have a speed (server/view_data.py), 着色 · 速度 applies
   points?: ArrayRef;
@@ -210,12 +217,13 @@ export function readChunk(bytes: Uint8Array): { piece: Piece; flat: Typed; sampl
  * the graphics card does it (points3d.tsx GRID): float32 in the same order of operations (a pinhole at the camera's
  * principal point, else the picture's centre; pixel centres at +0.5, OpenCV to GL axes, then the camera; `cam`: 4x4 rows). The kept pixels (not NaN) in
  * row-major order: the cloud's own order. */
-export function gridPoints(depth: Float32Array, gw: number, step: number, width: number, height: number, focal: number, cam: ArrayLike<number>, principal: ArrayLike<number> | null = null): Float32Array {
+export function gridPoints(depth: Float32Array, gw: number, step: number, width: number, height: number, focal: number, cam: ArrayLike<number>, principal: ArrayLike<number> | null = null, aspect = 1): Float32Array {
   const f = Math.fround;
   let n = 0;
   for (let k = 0; k < depth.length; k++) if (depth[k] === depth[k]) n++;
   const out = new Float32Array(n * 3);
   const fx = f(focal);
+  const fy = f(fx * f(aspect)); // a pixel that is not square: fy = fx x pixel aspect (server/view_data.py grid_points)
   // through the camera's principal point when it has one (server/view_data.py grid_points does the same; the cook too)
   const cx = principal ? f(principal[0]) : f(f(width) * 0.5);
   const cy = principal ? f(principal[1]) : f(f(height) * 0.5);
@@ -227,7 +235,7 @@ export function gridPoints(depth: Float32Array, gw: number, step: number, width:
     const c = f(f(k % gw) * step);
     const r = f(f(Math.floor(k / gw)) * step);
     const x = f(f(f(f(c + 0.5) - cx) / fx) * z);
-    const y = f(f(f(f(r + 0.5) - cy) / fx) * z);
+    const y = f(f(f(f(r + 0.5) - cy) / fy) * z);
     for (let row = 0; row < 3; row++)
       out[at++] = f(f(f(f(m[row * 4] * x) + f(m[row * 4 + 1] * -y)) + f(m[row * 4 + 2] * -z)) + m[row * 4 + 3]);
   }

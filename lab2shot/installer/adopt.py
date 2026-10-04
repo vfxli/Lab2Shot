@@ -135,7 +135,7 @@ def adopt(ext: Extension, sink: Sink, *, live: Live | None = None) -> None:
             raise InstallError(Msg("E-ADOPT-MISMATCH", title=ext.title, name=ext.name, count=len(problems),
                                    detail="\n  ".join(m.text for m in problems[:10])))
         before = paths.state_file.read_bytes() if paths.state_file.exists() else None  # 自检未通过时恢复为此内容
-        ctx = Context(ext, paths, sink, Policy.from_settings(), live, force=False)
+        ctx = Context(ext, paths, sink, Policy.from_settings(), live)
         steps = {s.id: s for s in plan.steps(ext)}
         ctx.state["repo"] = {"url": ext.source.url, "commit": ext.source.commit, "dir": paths.repo_dir}
         ctx.state.setdefault("weights", {}).update(

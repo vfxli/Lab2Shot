@@ -1,0 +1,9 @@
+# The LTX base extension's own words in English (the same keys as zh.toml).
+
+[extension.ltx]
+summary = "The LTX-2.5 video model shared by the LTX features (Alpha Gen, Clean Plate): code, environment and base model files. It has no nodes of its own"
+license.name = "LTX-2.x Community License"
+license.summary = "Free for individuals and for companies with annual revenue under USD 10 million, commercial use included; at USD 10 million or more, any use other than non-commercial research and evaluation needs a paid licence from Lightricks. Redistribution must include the licence text and its use restrictions (Attachment A); the model may only be used lawfully and within its acceptable-use policy, and safety, provenance and watermark features must be kept"
+weight.ltx_transformer.note = "Lightricks/LTX-2.5/diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors (LTX-2.x Community License)"
+weight.ltx_text_encoder.note = "Lightricks/LTX-2.5/text_encoders/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors (LTX-2.x Community License)"
+weight.ltx_video_vae.note = "Lightricks/LTX-2.5/vae/ltx-2.5-video-vae-bf16.safetensors (LTX-2.x Community License)"

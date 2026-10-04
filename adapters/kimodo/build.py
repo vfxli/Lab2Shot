@@ -25,4 +25,4 @@ with tempfile.TemporaryDirectory() as tmp:
     subprocess.check_call(["uv", "pip", "install", "--python", sys.executable, "--no-build-isolation", "--no-deps", str(source)],
                           env=env)
 subprocess.check_call([sys.executable, "-c", "from motion_correction import motion_postprocess"], env=env)
-print("MotionCorrection 编译完成")
+print("MotionCorrection built")

@@ -2,12 +2,13 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { createPortal } from "react-dom";
 import { useKeyLayer, useShortcut } from "../platform/keys";
 import "./menu.css";
+import { tipAttrs, type Tip } from "../platform/tips";
 
 /** 站点唯一的菜单：在屏幕上某一点浮出的一列行（节点右键菜单、账号菜单、文件菜单）。点击菜单外任意处、滚动或按 Esc
- * 即关闭；每一行都说明自己的作用（`tip`，必填）。行高 28 px；行右端的内容（快捷键、计数、简短说明）放在 `desc` 中，
- * 键盘快捷键用 <Kbd>。
+ * 即关闭。一行的悬停提示（`tip`）只写行上看不到的：不可用的原因、操作的后果；行上已写着的不重复。行高 28 px；
+ * 行右端的内容（快捷键、计数、简短说明）放在 `desc` 中，键盘快捷键用 <Kbd>。
  *
- * 与所有浮层一样为玻璃效果（ui/glass.css）；停靠在页面中的列表不是菜单，而是带行的面板。
+ * 浮层的玻璃边光与阴影、不透明的底（ui/glass.css glass solid：下面面板的边框不透上来），层级在所有能打开它的层之上（tokens.css --z-menu）；停靠在页面中的列表不是菜单，而是带行的面板。
  *
  * 菜单挂载在 document.body 上（portal），而非打开它的控件旁。菜单使用 `position: fixed`，按屏幕坐标定位；
  * 而按 CSS 规范，只要某个祖先带有 `transform`，`fixed` 即改为相对该祖先定位。节点图画布
@@ -18,7 +19,7 @@ import "./menu.css";
 export interface MenuRow {
   key: string;
   label: ReactNode;
-  tip: string;
+  tip?: Tip | null;
   desc?: ReactNode;
   off?: boolean; // 存在但当前不可用：置灰，提示中说明原因
   run?: () => void;
@@ -80,13 +81,16 @@ export function Menu({ at, rows, label, onClose, width, layout }: {
   return createPortal(
     <div
       ref={box}
-      className={layout ? `menu ${layout} glass` : "menu glass"}
+      className={layout ? `menu ${layout} glass solid` : "menu glass solid"}
       role="menu"
       aria-label={label}
       style={{ left: place?.x ?? at.x, top: place?.y ?? at.y, ...(width ? { minWidth: width } : {}) }}
       onPointerDown={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
+      {/* 行放在自己的滚动层里，面板（.menu：底色、圆角、玻璃边光）本身不滚：边光是面板上一层 position: absolute 的
+          ::before，面板若自己滚，它会跟着内容往上走，在打开时的底边位置留下一道线；线以下的行在 Chrome 里还会没有底色 */}
+      <div className="menu-rows">
       {rows.map((r) => (
         <div
           key={r.key}
@@ -94,7 +98,7 @@ export function Menu({ at, rows, label, onClose, width, layout }: {
           data-key={r.key} // 这一行的键（下拉框中即该项的值），写在元素上，从页面外可以按它找到这一行
           aria-disabled={r.off || undefined}
           className={r.off ? "menu-item off" : "menu-item"}
-          data-tip={r.tip}
+          {...tipAttrs(r.tip)}
           onPointerUp={
             r.off || !r.run
               ? undefined
@@ -109,6 +113,7 @@ export function Menu({ at, rows, label, onClose, width, layout }: {
           {r.desc !== undefined && r.desc !== "" && <span className="menu-desc">{r.desc}</span>}
         </div>
       ))}
+      </div>
     </div>,
     document.body,
   );

@@ -17,6 +17,8 @@ the licence text of a file that requires the user's consent, and the user's 同�
 
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
+
 from fastapi import Request
 
 from ..errors import Invalid, Unavailable
@@ -28,7 +30,7 @@ from ..messages import Msg
 from . import auth
 from .routes import Access, Body, Router
 
-admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])  # this module's admin routes (app.py includes each module's)
+admin = Router(prefix="/api/admin", tags=["Admin (/admin page)"])  # this module's admin routes (app.py includes each module's)
 
 
 def _title(name: str) -> str:
@@ -48,20 +50,37 @@ INSTALL = Kind("install", title=lambda name: Msg("I-INSTALL-TASK", name=_title(n
 
 
 def busy(name: str) -> int:
-    """Return the number of jobs that use this extension: running jobs that compute a node of it, and any job one of
-    whose nodes of it holds a place (granted a moment before its job is marked running)."""
+    """Return the number of jobs that use this extension's environment: running jobs that compute a node of it or of
+    an extension running in it (registry.sharing_env), and any job one of whose such nodes holds a place (granted a
+    moment before its job is marked running)."""
+    from ..extensions.registry import sharing_env
     from ..farm import farm
     from ..nodes import node_types
 
+    names = set(sharing_env(name))
     types = node_types()
-    jobs = {job.id for job in farm().running() if any(w.type in types and types[w.type].runtime == name for w in job.works)}
-    return len(jobs | {t.task for t in farm().pools.now() if t.granted and t.need.runtime == name})
+    jobs = {job.id for job in farm().running() if any(w.type in types and types[w.type].runtime in names for w in job.works)}
+    return len(jobs | {t.task for t in farm().pools.now() if t.granted and t.need.runtime in names})
+
+
+@contextmanager
+def _holding(name: str):
+    """No node of this extension, nor of one running in its environment, starts while it lasts."""
+    from ..extensions.registry import sharing_env
+    from ..farm import farm
+
+    with ExitStack() as held:
+        for each in sharing_env(name):
+            held.enter_context(farm().pools.withholding(each))
+        yield
 
 
 def _switched(name: str) -> None:
     from ..engine.resident import pool
+    from ..extensions.registry import sharing_env
 
-    pool().end_extension(name)  # end resident processes of the old environment (busy ones have already been awaited)
+    for each in sharing_env(name):  # end resident processes of the old environment (busy ones have already been awaited)
+        pool().end_extension(each)
     _changed()
 
 
@@ -74,20 +93,17 @@ def _changed() -> None:
 def live() -> Live:
     from ..engine.resident import pool
 
-    from ..farm import farm
-
-    return Live(busy=busy, holding=lambda name: farm().pools.withholding(name), switched=_switched,
-                free_ram=lambda gb: pool().free_ram(gb))
+    return Live(busy=busy, holding=_holding, switched=_switched, free_ram=lambda gb: pool().free_ram(gb))
 
 
-def _work(name: str, force: bool):
+def _work(name: str, rebuild: bool):
     """Return the task work that installs `name`, resuming from the last completed step and reporting to the task
     (installer/events.py TaskSink)."""
 
     def work(task: Task) -> Msg:
         ext = get_extension(name)
         try:
-            install(ext, TaskSink(task), force=force, live=live())
+            install(ext, TaskSink(task), rebuild=rebuild, live=live())
         finally:
             _changed()  # whether completed, partial or rolled forward, the extension's cards and nodes must be re-evaluated
         return Msg("I-INSTALL-DONE", title=ext.title)
@@ -172,10 +188,13 @@ def _refuse_while_installing(ext) -> None:
 
 class Start(Body):
     name: str
-    force: bool = False  # rerun every step into a fresh environment next to the live one
+    # rerun every step into a fresh environment next to the live one. Changes to the original code are never thrown
+    # away from the page: they stop the install, and whoever made them decides on the command line (--revert)
+    rebuild: bool = False
 
 
-@admin.post("/installs", access=Access.admin("installs.run"), summary="开始安装一个扩展包（后台任务，同一时间只装一个）：先体检，齐全才开始；已完成的步骤跳过，从停下的那步接着装")
+@admin.post("/installs", access=Access.admin("installs.run"), summary="Start installing an extension (a background job, one install at a time): checks first and starts only when "
+                                                                      "everything is there; steps already done are skipped, it continues from where it stopped")
 def start_install(req: Start, request: Request) -> dict:
     from ..farm import farm
 
@@ -185,10 +204,11 @@ def start_install(req: Start, request: Request) -> dict:
         blocking = checklist.blocking
         raise Unavailable(Msg("B-INSTALL-NOTREADY", title=ext.title, count=len(blocking), items=[c.message for c in blocking]))
     s = auth.session(request)
-    return view(farm().tasks.submit(INSTALL, ext.name, s.user.label if s else "", _work(ext.name, req.force)), 0)
+    return view(farm().tasks.submit(INSTALL, ext.name, s.user.label if s else "", _work(ext.name, req.rebuild)), 0)
 
 
-@admin.get("/extensions", access=Access.admin("installs.run"), summary="每个扩展包装了没有、缺什么、这个登录能对它做什么，和它最近一次安装任务")
+@admin.get("/extensions", access=Access.admin("installs.run"), summary="Whether each extension is installed, what is missing, what this login may do with it, and its latest install "
+                                                                       "job")
 def extension_list(request: Request) -> dict:
     """Return the data for the 「扩展包」 section of the admin page (webui/src/admin/Extensions.tsx). All install routes
     require installs.run. Install state and actions come from install_view (extensions/status.py +
@@ -200,6 +220,8 @@ def extension_list(request: Request) -> dict:
     types = node_types()
     rows = []
     for name, ext in sorted(extensions().items()):
+        if ext.is_base:  # no nodes of its own: its state is its features' (their rows), installing one installs it
+            continue
         state = install_view(ext, session)
         rows.append({"name": name, "title": ext.title, "summary": ext.summary,
                      "nodes": sum(1 for t in types.values() if t.runtime == name),
@@ -209,33 +231,35 @@ def extension_list(request: Request) -> dict:
     return {"extensions": rows}
 
 
-@admin.get("/installs", access=Access.admin("installs.run"), summary="正在排队或进行中的安装任务（后台任务的统一格式，不带输出行）")
+@admin.get("/installs", access=Access.admin("installs.run"), summary="Install jobs queued or running (the background jobs' common form, without output lines)")
 def install_jobs() -> dict:
     from ..farm import farm
 
     return {"jobs": [view(t) for t in farm().tasks.running(INSTALL)]}
 
 
-@admin.get("/installs/{job_id}", access=Access.admin("installs.run"), summary="一个安装任务：后台任务的统一格式（since 之后的输出行、做到第几步）和每一步的状态")
+@admin.get("/installs/{job_id}", access=Access.admin("installs.run"), summary="One install job: the background jobs' common form (output lines since `since`, the step reached) and the state "
+                                                                              "of each step")
 def install_job(job_id: str, since: int = 0) -> dict:
     from ..farm import farm
 
     return view(farm().tasks.get(job_id, INSTALL), since)
 
 
-@admin.post("/installs/{job_id}/cancel", access=Access.admin("installs.run"), summary="取消一个安装任务：停在当前步骤，再点安装从这一步接着装")
+@admin.post("/installs/{job_id}/cancel", access=Access.admin("installs.run"), summary="Cancel an install job: it stops at the current step; installing again continues from that step")
 def cancel_install(job_id: str) -> dict:
     from ..farm import farm
 
     return view(farm().tasks.cancel(job_id, INSTALL))
 
 
-@admin.get("/extensions/{name}/preflight", access=Access.admin("installs.run"), summary="安装前体检：手动下载、许可同意、Hugging Face 申请、硬盘、显卡兼容，每项缺什么、怎么办")
+@admin.get("/extensions/{name}/preflight", access=Access.admin("installs.run"), summary="Pre-install check: manual downloads, licence consent, Hugging Face access requests, disk, GPU compatibility; "
+                                                                                        "for each, what is missing and what to do")
 def install_preflight(name: str) -> dict:
     return preflight(get_extension(name)).json()
 
 
-@admin.post("/extensions/{name}/rollback", access=Access.admin("installs.run"), summary="回退到上一个环境（上次安装切换之前的那个，还在硬盘上时）")
+@admin.post("/extensions/{name}/rollback", access=Access.admin("installs.run"), summary="Roll back to the previous environment (the one before the last install switched, while it is still on disk)")
 def rollback_extension(name: str) -> dict:
     ext = get_extension(name)
     _refuse_while_installing(ext)
@@ -243,7 +267,8 @@ def rollback_extension(name: str) -> dict:
     return facts(ext)
 
 
-@admin.post("/extensions/{name}/uninstall", access=Access.admin("installs.run"), summary="卸载：删掉环境、代码、缓存和安装记录；模型文件保留（重装不用再下载）")
+@admin.post("/extensions/{name}/uninstall", access=Access.admin("installs.run"), summary="Uninstall: delete the environment, code, cache and install records; model files are kept (no download again "
+                                                                                         "when reinstalling)")
 def uninstall_extension(name: str) -> dict:
     ext = get_extension(name)
     _refuse_while_installing(ext)
@@ -254,12 +279,14 @@ def uninstall_extension(name: str) -> dict:
 # ------------------------------------------------------------------ downloaded by hand
 
 
-@admin.get("/manual", access=Access.admin("installs.run"), summary="手动下载：收件文件夹、每一项的状态和用在哪、认不出的文件（先把认得出的装好）")
+@admin.get("/manual", access=Access.admin("installs.run"), summary="Manual downloads: the inbox folder, each item's state and where it is used, files not recognised (install the "
+                                                                   "recognised ones first)")
 def manual_downloads() -> dict:
     return manual.check()
 
 
-@admin.get("/manual/licence", access=Access.admin("licence.consent"), summary="收件文件夹里一个文件要用户同意的许可协议原文（从安装程序里取出，没有同意）")
+@admin.get("/manual/licence", access=Access.admin("licence.consent"), summary="The licence text a file in the inbox folder needs the user to agree to (taken from its installer, not yet "
+                                                                              "agreed)")
 def manual_licence(file: str) -> dict:
     return manual.licence(file)  # ManualError (a MessageError) names the file and the reason
 
@@ -270,7 +297,8 @@ class Accept(Body):
     client: dict = {}  # client that submitted the consent (see lab2shot/farm/clients.py)
 
 
-@admin.post("/manual/accept", access=Access.admin("licence.consent"), summary="用户看过许可协议后点「同意并安装」：记下谁、什么时候、哪个版本，然后安装")
+@admin.post("/manual/accept", access=Access.admin("licence.consent"), summary="After reading the licence the user clicks Agree and Install: who, when and which version is recorded, then it "
+                                                                              "installs")
 def manual_accept(req: Accept, request: Request) -> dict:
     from .farm import client_of
 

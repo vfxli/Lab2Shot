@@ -24,11 +24,32 @@ export interface Pickable {
   // something that keeps its own selection (a pose handle's skeleton: which joint): picking it calls `choose` with the
   // `part` under the click instead of making it the stage's selection (view/camera3d.tsx Picker)
   part?: (p: PickRay) => string | null;
-  choose?: (part: string | null) => void;
+  // `how`: the click's modifier keys and where it was on the screen (client pixels), for a pick whose meaning depends
+  // on them (rig_pair: Alt picks one joint without its children; a menu opens where the click was)
+  choose?: (part: string | null, how: PickHow) => void;
+}
+
+/** A click's modifier keys and screen position, as the Picker hands them to Pickable.choose. */
+export interface PickHow {
+  alt: boolean;
+  shift: boolean;
+  ctrl: boolean; // Ctrl, or ⌘ on a Mac
+  x: number; // clientX
+  y: number; // clientY
+}
+
+/** How much of the canvas, from each edge (CSS pixels), panels drawn over the stage cover (rig_pair's trees and bar):
+ * framing fits the content into the rest (view/camera3d.tsx place). */
+export interface Insets {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
 }
 
 export class StageState {
   pickables = new Map<string, Pickable>();
+  insets: Insets = { left: 0, right: 0, top: 0, bottom: 0 };
   // when a handle's gizmo last took a press (performance.now(); view/dragGizmo.tsx): a click that started no earlier is
   // the gizmo's, not a pick (view/camera3d.tsx Picker)
   claimedAt = -Infinity;

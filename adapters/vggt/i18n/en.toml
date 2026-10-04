@@ -1,0 +1,19 @@
+# The VGGT extension's own words and messages in English (the same keys as zh.toml).
+
+[node."vggt.reconstruct"]
+subtitle = "Depth and Camera"
+description = "Images → per-frame cameras and depth maps (Meta VGGT, CVPR 2025 Best Paper), looking at the whole shot at once. The scale is arbitrary and is converted to centimeters with the Scale parameter; long shots are solved in segments and stitched. Less accurate than Pi3 Depth and Camera but uses less VRAM: good for a quick point cloud to cross-check a solve. The point cloud is one point map per frame (the model's own point map, placed back in that frame's camera), not one cloud for the whole shot: upstream has no output that merges a scene point cloud."
+official.note = "Points is the world point map world_points from the model's point head (vggt.py:45): the worker puts it back into each frame's camera space before handing it on (lossless, only a change of coordinates), and the family places it in the world by the cameras. There is no mask or bounding box input: upstream forward takes only images and query_points (vggt.py:29), so a mask cannot reach the model. To reconstruct part of the image, black out the rest before it goes in: ViTDet People Boxes → Person Boxes to Mask → Image Composite (keep) → this node's RGB input. Ports not provided: track / vis (vggt.py:50-51), which need query_points, an input this node does not have."
+licence.note = "The code is under the VGGT License (commercial use allowed, no military use); the original model weights are CC-BY-NC-4.0 (non-commercial), the commercial model weights (on request) allow commercial use."
+
+[node."vggt.reconstruct".param.model]
+label = "Model"
+option.original = "Original"
+option.commercial = "Commercial"
+
+[extension.vggt]
+summary = "A feed-forward network that infers all key 3D attributes of a scene from one, a few or hundreds of images in seconds: camera intrinsics and extrinsics, point maps, depth maps and 3D point tracks"
+license.name = "VGGT License (code); model weights: original CC BY-NC 4.0 (non-commercial) / Commercial version VGGT License"
+license.summary = "The code is under Meta's VGGT License (2025-07-29): commercial use, modification and redistribution are allowed (redistributions must include the license text), publications must credit VGGT, and the attached Acceptable Use Policy applies (no military, warfare, nuclear, espionage, weapons, critical infrastructure operation, fraud or impersonation uses); the license terminates if you sue Meta over intellectual property; no warranty. Two sets of model weights: the original VGGT-1B (default) is CC BY-NC 4.0, non-commercial, research only; VGGT-1B-Commercial is released under the same VGGT License and allows commercial use (no military use), but access must first be requested at https://huggingface.co/facebook/VGGT-1B-Commercial (manually approved); its quality is close to the original"
+weight."VGGT-1B".note = "VGGT-1B original model weights (5.0 GB, CC BY-NC 4.0, non-commercial)"
+weight."VGGT-1B-Commercial".note = "VGGT-1B-Commercial model weights (5.0 GB, commercial use allowed); request access first at https://huggingface.co/facebook/VGGT-1B-Commercial"

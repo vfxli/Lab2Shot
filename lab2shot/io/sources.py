@@ -58,6 +58,11 @@ class Source:
     _start: int = DEFAULT_START_FRAME
     _rotate_cw: int = 0  # phone videos: clockwise turns needed to stand the picture upright
 
+    @property
+    def padding(self) -> int | None:
+        """A sequence's frame-number digits as its files are named (0 unpadded); None for a video or a still."""
+        return self._sequence.padding if self._sequence is not None else None
+
     def missing(self) -> list[int]:
         """Frames a sequence skips between its first and last (a video or a still has none)."""
         return self._sequence.missing() if self._sequence is not None else []

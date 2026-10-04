@@ -26,9 +26,10 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
+from .. import i18n
 from ..errors import Invalid
 from ..messages import Msg
-from .base import Info, NodeDef, P, Port, ReadsFile
+from .base import Info, NodeDef, P, Port, Reads, ReadsFile
 from .kit.ports import fps_meta, fps_packet
 from ..data.types import DEFORMING, SCENE_KINDS
 
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
 
 # the kinds an import node selects, each a parameter and an output port of that name: 相机 one, the others any number
 # (灯光 are ours, made by the light-probe nodes: not read from DCC files)
-SELECTIONS = {"camera": "camera", "models": "model", "points": "points", "curves": "curves",
+SELECTIONS = {"camera": "camera", "models": "model", "points": "points", "gaussians": "gaussian", "curves": "curves",
               "skeletons": "skeleton", "characters": "character"}
 PORT_OF = {kind: port for port, kind in SELECTIONS.items()}
 
@@ -55,7 +56,8 @@ class Entry:
     kind: str  # types.SCENE_KINDS
     path: str
     frames: tuple[int, ...]
-    detail: str = ""  # "35 mm", "1,204 顶点", "52 关节 · 2 网格"
+    # "35 mm", or parts said in the language now (count(): 1,204 vertices; 52 joints · 2 meshes)
+    detail: str | tuple = ""
     deforming: bool = False  # a 模型 whose points change every frame
     size: tuple[int, int] | None = None  # a camera's picture size, when the file records one
     aspect: float = 0.0  # a camera's filmback height / width: its picture's proportions when the file records no size
@@ -64,8 +66,11 @@ class Entry:
     @property
     def said(self) -> str:
         """What tells it apart, next to its path: its frames, whether it deforms, its detail."""
-        span = f"{self.frames[0]}–{self.frames[-1]}" if len(self.frames) > 1 else "静止"
-        return " · ".join(x for x in (span, "变形" if self.deforming else "", self.detail) if x)
+        from .. import i18n
+
+        span = f"{self.frames[0]}–{self.frames[-1]}" if len(self.frames) > 1 else i18n.t("entry.still")
+        detail = self.detail if isinstance(self.detail, tuple) else (self.detail,)
+        return " · ".join(x for x in (span, i18n.t("entry.deforming") if self.deforming else "", *map(said_part, detail)) if x)
 
     @property
     def label(self) -> str:
@@ -103,8 +108,20 @@ class Listing:
         return self._paths.get((kind, path))
 
 
-def count(n: int, what: str) -> str:
-    return f"{n:,} {what}"
+def count(n: int, what: str) -> tuple:
+    """`n` of `what` (count.<what>: vertices, points, strands, joints, meshes, shapes, prototypes, instances, gaussians,
+    root_joint) as a part of an entry's detail, said when it is shown (said_part)."""
+    return ("count", what, n)
+
+
+def said_part(part) -> str:
+    """One part of an entry's detail in the language now: a count (count()), or text as it is."""
+    from .. import i18n
+
+    if isinstance(part, tuple) and part[:1] == ("count",):
+        n = part[2]
+        return i18n.t(f"count.{part[1]}", n=f"{n:,}" if isinstance(n, int) else n)
+    return str(part)
 
 
 # ------------------------------------------------------------------ the import node
@@ -118,34 +135,32 @@ def selection_param(port: str, listing_from: tuple[str, ...] = ("path",)) -> Any
     changes; picking a file selects the only entry of a kind (NodeDef.derive)."""
     kind = SCENE_KINDS[SELECTIONS[port]]
     many = port != "camera"
-    return P([] if many else "", label=kind.label, widget="hierarchy", group="层级", choices_from=listing_from, derived_from=("path",),
+    return P([] if many else "", widget="hierarchy", group="hierarchy", choices_from=listing_from, derived_from=("path",),
              worker=False)
 
 
-def selection_ports(params: type, fps: str = "", fps_always: bool = False) -> tuple[Port, ...]:
+def selection_ports(params: type, fps: bool = False, fps_always: bool = False) -> tuple[Port, ...]:
     """An import node's outputs: one per kind its Params select (selection_param), there once something of the kind is
     selected; a wire from it before waits for the selection. The 模型 port says whether the ones selected deform (the
     node's fact "models.kinds").
 
-    `fps`: the format records the rate of its frames, said this way (「FBX 记的帧率」): a 「帧率」 output too
-    (kit/ports.py fps_port), its value the listing's (Listing.fps; ImportNode.cook). `fps_always`: the format always
+    `fps`: the format records the rate of its frames: a frame rate output too (kit/ports.py fps_port; what it says is
+    node.<type>.port.fps.help), its value the listing's (Listing.fps; ImportNode.cook). `fps_always`: the format always
     records it (BVH's Frame Time), else a file that does not gives an empty packet and a parameter wired to it keeps
     its own value. The one declaration every import node with a rate uses."""
     from .applies import Param
     from .kit.ports import fps_port
 
-    kinds = tuple(Port(port, SCENE_KINDS[SELECTIONS[port]].type, SCENE_KINDS[SELECTIONS[port]].label, when=Param(port).set(),
-                       waits=f"选一{'台' if port == 'camera' else '个'}{SCENE_KINDS[SELECTIONS[port]].label}",
+    kinds = tuple(Port(port, SCENE_KINDS[SELECTIONS[port]].type, when=Param(port).set(),
                        kinds_from="models.kinds" if port == "models" else "")
                   for port in SELECTIONS if port in params.model_fields)
     if not fps:
         return kinds
-    said = f"{fps}。接到动作模型或输出设置的「帧率」，就跟这个文件走" + ("" if fps_always else "；文件没记时这里没有值，那边用自己填的")
-    return (*kinds, fps_port(said, may_be_empty=not fps_always))
+    return (*kinds, fps_port(may_be_empty=not fps_always))
 
 
 def import_file_param(suffixes: tuple[str, ...]) -> Any:
-    return P("", label="文件", widget="file", group="文件", accept=list(suffixes))
+    return P("", widget="file", group="file", accept=list(suffixes))
 
 
 class ImportNode(ReadsFile, NodeDef):
@@ -155,10 +170,12 @@ class ImportNode(ReadsFile, NodeDef):
     holds, the settings its format does not record —, `outputs = selection_ports(Params)`, listing() and read()."""
 
     category = "read_scene"
+    # it reads its file (`path`, import_file_param) into the kinds selected: a format module declares its own `rank`
+    # when another format should be taken first for the same kind (engine/node_tools.py)
+    reads = Reads()
     named_result = True  # its entries go under /shot/<the node's name, or the file's stem>/... (io/usd.py import_group)
-    no_file = "没有选择文件"
     suffixes: ClassVar[tuple[str, ...]] = ()
-    fact_labels = {"models.kinds": "选的模型"}
+    fact_labels = ("models.kinds",)
 
     @classmethod
     def path(cls, params: dict) -> Path:
@@ -226,7 +243,7 @@ class ImportNode(ReadsFile, NodeDef):
         from_file = [*cls.selections(), *(s["name"] for s in cls.param_specs()
                                           if "path" in s["choices_from"] and s["name"] not in cls.selections())]
         if not params.get("path"):
-            return {name: {"options": [], "empty": "先选择文件"} for name in from_file}
+            return {name: {"options": [], "empty": i18n.t("choices.pick_file")} for name in from_file}
         try:
             listing = cls.listing(params)
         except ValueError as exc:  # a file it can't read, or won't (a USD needing other files): said where its kinds are
@@ -238,10 +255,10 @@ class ImportNode(ReadsFile, NodeDef):
             named = {e.path: e.name for e in found if e.name}
             out[port] = {"options": [e.path for e in found], "details": {e.path: e.said for e in found},
                          **({"labels": named} if named else {}),
-                         **({} if found else {"empty": f"文件里没有{SCENE_KINDS[kind].label}"})}
+                         **({} if found else {"empty": i18n.t("choices.none_of_kind", kind=SCENE_KINDS[kind].label)})}
         for name in from_file[len(cls.selections()):]:
             values = list(listing.options.get(name, ()))
-            out[name] = {"options": values, "auto": listing.auto.get(name, ""), **({} if values else {"empty": "文件里没有"})}
+            out[name] = {"options": values, "auto": listing.auto.get(name, ""), **({} if values else {"empty": i18n.t("choices.none_in_file")})}
         return out
 
     @classmethod
@@ -310,7 +327,7 @@ class ImportNode(ReadsFile, NodeDef):
             chosen = cls.chosen(params).get("models", [])
         except (OSError, ValueError):
             return {}
-        return {"models.kinds": Fact(frozenset({"model", *([DEFORMING] if any(e.deforming for e in chosen) else [])}), "选的模型")}
+        return {"models.kinds": Fact(frozenset({"model", *([DEFORMING] if any(e.deforming for e in chosen) else [])}), cls.fact_label("models.kinds"))}
 
     @classmethod
     def gives_fps(cls) -> bool:
@@ -371,7 +388,7 @@ class ArraysImport(ImportNode):
         top, _ = sa.load(arrays)
         paths = {SELECTIONS[port]: [e.path for e in entries] for port, entries in chosen.items()}
         outs = {SELECTIONS[port]: ctx.outputs[port] for port in chosen}
-        group = import_group(ctx.label, cls.label, cls.path(ctx.params).name)  # /shot/<the node's name or the file's stem>/...
+        group = import_group(ctx.node_id, cls.id, cls.path(ctx.params).name)  # /shot/<the file's stem>/...
         packets = items_to_packets(arrays, paths, cls.axes(ctx.params, top), cls.picture_width(ctx.params), outs,
                                    {"imported_from": cls.path(ctx.params).name}, group, ctx.fingerprint)
         return {PORT_OF[kind]: p for kind, p in packets.items()}
@@ -444,17 +461,17 @@ def _detail(kind: str, item: dict) -> tuple:
         return f"{float(np.asarray(item['focal_mm']).reshape(-1)[0]):.4g} mm", False, size, aspect
     if kind == "model":
         pts = np.asarray(item["points"])
-        return count(pts.shape[-2], "顶点"), pts.shape[0] > 1, None
+        return (count(pts.shape[-2], "vertices"),), pts.shape[0] > 1, None
     if kind == "points":
-        return count(int(np.asarray(item["counts"]).max(initial=0)), "点"), False, None
+        return (count(int(np.asarray(item["counts"]).max(initial=0)), "points"),), False, None
     if kind == "curves":
-        strands = count(int(np.asarray(item["curve_counts"]).max(initial=0)), "条")
-        return f"{strands} · {count(int(np.asarray(item['counts']).max(initial=0)), '点')}", False, None
+        return (count(int(np.asarray(item["curve_counts"]).max(initial=0)), "strands"),
+                count(int(np.asarray(item['counts']).max(initial=0)), "points")), False, None
     meshes = item.get("meshes", [])
     shapes = sum(len(np.asarray(m.get("shapes", [])).reshape(-1)) for m in meshes)
     from lab2shot_shared import scene_arrays as sa
 
-    root = [f"根关节 {sa.text(item['name'])}"] if meshes and "name" in item else []  # its entry is named by its mesh (_name)
-    parts = root + [count(len(np.asarray(item["joints"]).reshape(-1)), "关节")] + ([count(len(meshes), "网格")] if meshes else []) + \
-        ([count(shapes, "形变")] if shapes else [])
-    return " · ".join(parts), False, None
+    root = [count(sa.text(item['name']), "root_joint")] if meshes and "name" in item else []  # its entry is named by its mesh (_name)
+    parts = root + [count(len(np.asarray(item["joints"]).reshape(-1)), "joints")] + ([count(len(meshes), "meshes")] if meshes else []) + \
+        ([count(shapes, "shapes")] if shapes else [])
+    return tuple(parts), False, None

@@ -1,15 +1,16 @@
-/** 正文里去掉和上面那行重复的名字：「节点名」整段，或项目名（节点名开头那一段）。
+/** Whether a message already names the node a log line is about, read from its parameters (never from its words):
+ * a template that writes the node itself ({node}, {source} … : W-INPUT-UNUSED, B-COOK-*) gets the node pointed at as a
+ * parameter — its word kept by its key ({said, params: {name, type}}: graph/naming.ts nodeWord, the server's
+ * engine/naming.py node_ref) or its name — and the log then writes the line as the message says it, without putting
+ * the name in front of it a second time. `node`: the node's name (its id).
  *
- * 消息按节点分组，组上已经写着节点名，正文里再写一遍就成了「「序列图输出设置」「序列图输出设置」没有用上……」。
- *
- * 扩展的消息模板以项目名开头是对的：安装和环境那些消息显示在扩展卡片上，那里没有节点名，项目名必须留着。
- * 所以去重只发生在有节点名的地方（页面日志 state/say.ts），不改模板。
- *
- * 自己一个文件、不 import 任何东西。 */
-export function shorten(text: string, named: string): string {
-  if (!named) return text;
-  const quoted = `\u300c${named}\u300d`;
-  if (text.startsWith(quoted)) return text.slice(quoted.length);
-  const head = text.split(/[\s\uff0c\u3002\uff1a]/, 1)[0];
-  return head.length >= 2 && named.startsWith(head) ? text.slice(head.length).replace(/^\s+/, "") : text;
+ * A file of its own that imports nothing. */
+export function namesNode(params: Readonly<Record<string, unknown>> | undefined, node: string): boolean {
+  if (!node || !params) return false;
+  return Object.values(params).some((v) => (typeof v === "string" ? v === node
+    : !!v && typeof v === "object" && typeof (v as { said?: unknown }).said === "string" && (v as { params?: { name?: unknown } }).params?.name === node));
 }
+
+/** The name (id) of the node a log line is about, from how it points at it (a kept word, or its name). */
+export const nodeNameOf = (node: unknown): string =>
+  typeof node === "string" ? node : String((node as { params?: { name?: unknown } } | null)?.params?.name ?? "");

@@ -1,0 +1,120 @@
+# 扩展包 worker 的公共部分（worker_sdk/lab2shot_worker）：各扩展包的 worker 共用的消息。
+# 一行一条：编号 = 模板。写法：谁估的、和什么比、数字和单位、意味着什么、怎么办。
+# 扩展包自己的消息在 adapters/<名字>/i18n/<语言>.toml。
+
+# ---- 任务和参数（lab2shot_worker/__init__.py）
+"E-WORKER-NOPARAM" = "节点没有发来参数 {name}：节点和它的 worker 对不上（worker 读的参数名要和节点定义一致）。这是扩展包代码的问题，请把日志发给开发者"
+"E-WORKER-NODE" = "这个扩展包的 worker 不认识节点 {node}（它只有 {nodes}）：节点和它的 worker 对不上，这是扩展包代码的问题，请把日志发给开发者"
+"E-WORKER-LISTING" = "读不了输入 {name} 的逐帧列表 {path}：{detail}"
+"E-WORKER-FRAMESIZE" = "画面尺寸和第一帧不一样：{width}×{height}（{where}），第一帧是 {first_width}×{first_height}。一个镜头的画面必须同样大小，检查图像序列里是不是混进了别的镜头，或者缩放过的帧"
+"E-WORKER-VRAMSHORT" = "这张显卡现在只空着约 {free:.0f} GB，这一档要约 {need:.0f} GB：调度时显存是够的，之后被别的程序占去了。没有悄悄降档（降了结果就和缓存里记的档位对不上）；等显卡空一些再算"
+"I-WORKER-ATFRAME" = "第 {frame} 帧"
+"I-WORKER-ATFILE" = "{file}"
+"E-WORKER-NOFRAMES" = "没有收到画面：接到「图像」的节点一帧也没有给出。先看上游节点的消息，确认它算出了帧"
+"E-WORKER-JOBPATH" = "任务单 {path} 不是绝对路径：worker 只在任务文件夹里写文件，不猜当前文件夹。手动调试时写完整路径（worker.py /…/job.json）；由 Lab2Shot 发出的任务出现这条是程序的问题，请把日志发给开发者"
+"E-WORKER-NOINSTALLPATH" = "worker 没有拿到扩展包的安装位置 {name}（现在是「{value}」，要绝对路径）：worker 要由 Lab2Shot 启动（它会给出原始仓库和权重的位置）；手动调试时先设好这个环境变量。由 Lab2Shot 启动还出现这条是程序的问题，请把日志发给开发者"
+"E-WORKER-TOOFEWFRAMES.other" = "至少要 {least:d} 帧，这一段只有 {have:d} 帧：{why}。接一段更长的镜头再算"
+"I-WORKER-WHYCOMPARE" = "要比较帧和帧之间的变化，一张图不行"
+"I-WORKER-WHYTEMPORAL" = "它的时序网络一次要看这么长的一段动作，更短的段算不了"
+"I-WORKER-WHYSTEP.other" = "参与解算的帧是按「隔帧」{step:d} 取样后剩下的，把「隔帧」调小也行"
+"N-WORKER-NOPEOPLE" = "解算器自己的人物检测在这段画面里一个人也没有找到，没有人可以解算，这次输出是空的：确认画面里有完整的人（人太小、被挡住、只有背影时常常检不出来）。只想算其中某一个人时，前面接「ViTDet 人物框」→「选人」→「人物框转遮罩」→「图像合成」，把别人从画面里去掉再送进来"
+
+# ---- 安装、权重、联网（lab2shot_worker/__init__.py、build.py）
+"E-WORKER-MISSINGWEIGHTS" = "找不到{what} {path}：扩展包没有装完整，管理员执行 lab2shot ext install {extension}"
+"E-WORKER-MISSINGGATED" = "找不到{what} {path}：先在 {page} 申请访问，通过后管理员执行 lab2shot ext install {extension}"
+"I-WORKER-WEIGHTS" = "权重"
+"E-WORKER-NOCUDA" = "CUDA 不可用：{project} 需要 NVIDIA 显卡，这个扩展包环境里的 PyTorch 没有找到能用的显卡"
+"E-WORKER-OFFLINE" = "{node} 计算时不联网，拒绝了它连接 {hosts}：多半是模型要下载安装时没有提供的文件，这是扩展包安装的问题，请把日志发给开发者"
+"E-WORKER-HUBLOAD" = "{project} 试图在计算时从网上加载 {repo}（安装程序没有提供）：这是扩展包安装的问题，请把日志发给开发者"
+"E-WORKER-WEIGHTSMISMATCH.other" = "{project} 的权重 {model} 和这个版本的模型代码对不上：缺少 {missing:d} 个参数、多出 {unexpected:d} 个（如 {examples}）。多半是权重文件没下全或版本不对，请管理员重新安装这个扩展包：lab2shot ext install {extension}"
+"I-WORKER-UNUSEDWEIGHTS.other" = "{project} 的权重 {model} 里有 {count:d} 个模型用不到的参数（如 {examples}），已忽略，不影响结果"
+"E-WORKER-NONVCC" = "编译时环境里没有 nvcc（EnvSpec.cuda_toolkit 没装上）：重新执行 lab2shot ext install，还不行就把安装日志发给开发者"
+
+# ---- 显存不够：所有 worker 只有这一种说法（lab2shot_worker/__init__.py fit_memory；{label} 是节点上这个参数的名字）
+# 用户看到的话不带显卡型号和显存总量、空闲量（用户永远看不到卡）：total_gb、free_gb 只作为参数留在日志和管理页
+
+"E-WORKER-VRAMSIZE" = "显存不够：「{label}」{size} 要的显存比这台机器这次空出来的多。这个参数会改变结果，不会自动调低：在节点上把「{label}」改成更小的 {options} 再算"
+"E-WORKER-VRAMFLOOR" = "显存不够：「{label}」已经是最小的 {size}，这台机器这次空出来的显存还是放不下。结果不会自动降质量：稍后再算，还不行请联系管理员"
+"E-WORKER-VRAMONEBATCH.other" = "显存不够：一次只送 {size} 帧进显卡也放不下，这台机器这次空出来的显存不够。稍后再算，还不行请联系管理员"
+"E-WORKER-VRAMSHOT.other" = "显存不够：{frames} 帧、{people} 个人要一次放进显卡，这台机器放不下。这一步没有能调小的参数：把镜头剪短，或者在前面接「选人」少算几个人"
+"E-WORKER-VRAMFRAME.other" = "显存不够：第 {frame} 帧有 {people} 个人要一起算，这台机器放不下。这一步没有能调小的参数：在前面接「选人」少算几个人，或者先剪掉这一段"
+"I-WORKER-VRAMCARD" = "显存不够时这块显卡共 {total_gb:.0f} GB，清掉缓存后空闲 {free_gb:.1f} GB"
+"W-WORKER-VRAMTESTSTEP" = "显存不够：「{label}」从 {size} 降到 {smaller} 重算（测试模式自动降档；正式使用时会停下来，由使用的人来选）"
+"W-WORKER-VRAMBATCH.other" = "显存不够：一次送进显卡的帧数从 {size} 降到 {smaller} 重算（只是算得慢一些，结果不变）"
+
+# ---- 读写文件（lab2shot_worker/files.py）
+"E-FILES-FRAME" = "读不了画面 {path}：文件坏了、不完整，或者不是图像"
+"E-FILES-FRAMEDETAIL" = "读不了画面 {path}：{detail}"
+"E-FILES-MASK" = "读不了遮罩 {path}：文件坏了、不完整，或者不是图像"
+"E-FILES-MASKDETAIL" = "读不了遮罩 {path}：{detail}"
+"E-FILES-MASKCHANNELS" = "遮罩 {file} 有多个通道（{channels}），找不到 A 通道：把遮罩写在 A 通道（或只留一个通道）再接进来"
+"E-FILES-DEPTHCHANNELS" = "深度贴图 {file} 有多个通道（{channels}），认不出哪条是深度值：深度值写在 R 通道（我们自己的Mask）或 Z 通道（DCC 渲出来的）再接进来"
+"E-FILES-NOEXRMASK" = "读 EXR 遮罩需要 OpenEXR 或 OpenImageIO，这个扩展包环境里没有：这是扩展包的问题（把 OpenEXR 加进它的 requirements.txt），请把日志发给开发者"
+"E-FILES-NOEXRDEPTH" = "读深度贴图需要 OpenEXR，这个扩展包环境里没有：这是扩展包的问题（把 OpenEXR 加进它的 requirements.txt），请把日志发给开发者"
+"E-FILES-NOTEXR" = "{path} 不是 EXR：要按通道名读的数值图必须是 EXR（我们自己写出来的都是），PNG 和 JPG 没有通道名"
+"E-FILES-CHANNELS" = "{file} 里找不到通道 {want}（它只有 {channels}）：上游写出来的通道和这里要读的对不上，这是扩展包代码的问题，请把日志发给开发者"
+"E-FILES-WRITE" = "写不出 {path}：{detail}"
+
+# ---- 前馈重建（lab2shot_worker/feedforward.py：VGGT、Pi3、Depth Anything 3）
+"W-FEEDFWD-JOBSIZE" = "任务单写的尺寸 {job_width}×{job_height} 和实际画面 {width}×{height} 不一样，按实际画面算：节点和 worker 对不上，请把日志发给开发者"
+"E-FEEDFWD-STITCH" = "第 {chunk} 段和前一段的重叠帧里没有可靠的公共点，拼不起来：请调大「每段最多帧数」或调小「隔帧」，让相邻两段多一些相同的画面"
+"I-FEEDFWD-LOOPS.other" = "回环闭合：{loops} 处隔得远又像是拍到同一处的画面放在一起重算，用上 {used} 处；各段相对原来最多转了 {turn_deg:.2f}°、移了景深的 {move:.1%}"
+"N-FEEDFWD-NOLOOPS" = "回环闭合没有起作用：没有找到隔得远又拍到同一处的两段（或者放在一起重算对不上），结果和不开一样"
+"W-FEEDFWD-FOCALSPREAD" = "{model} 估的焦距，帧与帧之间在 {low:.0f}–{high:.0f} px 之间波动了 {spread:.0%}：解出的摄影机和世界位置可能跟着抖，人和物体的大小也会跟着变。镜头没有变焦的话，在「焦距」参数里填真实焦距，这一步就不用再猜"
+"E-FEEDFWD-WEIGHTS.other" = "权重文件 {file} 缺少 {count} 个参数（如 {names}）：权重和模型代码对不上，这是扩展包安装的问题，管理员重新执行 lab2shot ext install，还不行就把日志发给开发者"
+
+# ---- 单帧几何（lab2shot_worker/mono_geometry.py：MoGe、UniDepth、UniK3D ……）
+"W-MONOGEO-FOCALSPREAD" = "{model} 估的焦距，帧与帧之间在 {low:.0f}–{high:.0f} px 之间波动了 {spread:.0%}：深度值的尺度可能跟着抖，逐帧看会觉得忽近忽远。知道镜头的视场角（视角）的话，把它填上，这一步就不用再猜焦距"
+
+# ---- 用遮罩引导的抠像（lab2shot_worker/matte.py：MatAnyone 2、VideoMaMa）
+"E-MATTE-FRAMESIZE" = "画面 {file} 的尺寸和第一帧不同：一个镜头的画面必须同样大小"
+"E-MATTE-NOMASK" = "没有接入遮罩：请把 SAM 3 / BiRefNet 等的遮罩接到「粗遮罩」输入"
+"E-MATTE-NOOVERLAP" = "遮罩和画面没有一帧重合：遮罩要来自同一段画面（帧号要对得上）"
+"W-MATTE-MASKSIZE" = "遮罩尺寸 {mask_width}×{mask_height} 和画面 {width}×{height} 不同，已拉伸对齐：边缘可能对不准，多半是遮罩来自缩放过的画面"
+"N-MATTE-EMPTYGUIDE" = "引导遮罩每一帧都是空的（没有大于 0.5 的像素），抠像这次是空的：上游的分割没找到物体时这是正常的；否则检查上游的分割或抠像结果"
+"E-MATTE-MISSING.other" = "有 {count} 帧没有写出结果（如第 {frames} 帧）：这是扩展包代码的问题，请把日志发给开发者"
+"W-MATTE-NOGUIDE.other" = "「粗遮罩」缺 {count:d} 帧（从第 {first} 帧起），这些帧按空遮罩算，抠出来多半是空的：让「粗遮罩」覆盖画面的每一帧"
+"W-MATTE-EMPTYALPHA.other" = "有 {count} 帧的 alpha 全部低于 0.5（人不在画面里，或者跟丢了）：第 {frames} 帧"
+
+# ---- 点跟踪（lab2shot_worker/point_tracks.py：TAPNext++、CoTracker3、TAPIP3D ……）
+"E-TRACKS-QUERYFRAME" = "「参考帧」{frame} 不在输入图像序列里（第 {first}–{last} 帧）：换一个图像序列里的帧号，或者留空从第一帧开始"
+"E-TRACKS-MASKFRAME.other" = "遮罩里没有「参考帧」{frame}（遮罩有 {count} 帧）：换一个「参考帧」，或补上这一帧的遮罩"
+"E-TRACKS-POINTFORMAT" = "点文件第 {index} 个点格式不对：{point}（需要 frame, x, y）"
+"E-TRACKS-POINTFRAME" = "第 {index} 个点的帧号 {frame} 不在输入图像序列里（第 {first}–{last} 帧）"
+"E-TRACKS-POINTOUTSIDE" = "第 {index} 个点 ({x:.1f}, {y:.1f}) 在画面外（画面 {width}×{height}）"
+"N-TRACKS-EMPTYMASK" = "遮罩在「参考帧」{frame} 是空的：网格点只撒在遮罩里，这一帧一个网格点也没有撒（手动点照常算）。要网格点，换一个遮罩里有内容的「参考帧」，或者检查上游的遮罩"
+"N-TRACKS-NOQUERY" = "没有要算的点（「网格点数」是 0，也没有手动点），2D 跟踪点这次是空的：调大「网格点数」，或者在 2D 视图里点几个手动点"
+"B-TRACKS-NOQUERY" = "没有要跟踪的点（「网格点数」是 0，也没有手动点）：在 2D 视图里点几个手动点，或者调大「网格点数」"
+"B-TRACKS-NOQUERY.app" = "还没有要跟踪的点：先在画面上点「跟踪点」，或者把「另撒网格点」设成大于 0"
+"B-TRACKS-NOQUERY.short" = "没有要跟踪的点"
+"N-TRACKS-NOTHINGLEFT" = "参考帧 {frame} 上一个要算的点也没有（遮罩是空的，也没有手动点），2D 跟踪点这次是空的：换一个遮罩里有内容的「参考帧」，或者在 2D 视图里点几个手动点"
+
+# ---- 世界坐标里的人（lab2shot_worker/world_humans.py：GVHMR、WHAM、TRAM ……）
+"E-HUMANS-BODYMODEL" = "{project} 需要 {model} 模型文件 {file}，在 {folder}/ 里没有找到。怎么下载、放进哪个文件夹：后台管理页的「扩展包」里的「手动下载」。{model} 仅限非商用科研，禁止再分发"
+"N-HUMANS-SHORTPERSON.other" = "人物 {person} 只有 {frames} 帧，少于 {min_frames} 帧，跳过：太短的片段解算不稳"
+
+# ---- 多视角重建的输入摄影机（lab2shot_worker/recon.py）
+"E-RECON-NOPOSES" = "接进来的摄影机缺少 cam_to_world（每帧摄影机位置）：这是上游节点的问题，请把日志发给开发者"
+"E-RECON-CAMLENGTHS" = "接进来的摄影机的 frames / focal_px / cam_to_world 长度不一致（或者是空的）：这是上游节点的问题，请把日志发给开发者"
+"E-RECON-CAMFOCAL" = "接进来的摄影机的焦距必须大于 0：检查上游摄影机的焦距"
+
+# ---- 光流、环境光（lab2shot_worker/optical_flow.py、light_probe.py）
+"E-FLOW-TWOFRAMES" = "光流至少要两帧：接一段图像序列，不是一张图"
+"E-PROBE-ONEFRAME.other" = "环境光只要一帧画面，节点发来了 {count} 帧：节点和 worker 对不上，请把日志发给开发者"
+
+# ---- 动作生成（lab2shot_shared/motion.py、rig_motion.py）
+"E-MOTION-NOJOINTS" = "模型骨骼里没有关节 {joints}：节点和 worker 对不上，请把日志发给开发者"
+"E-MOTION-NOROOT" = "模型的根关节（髋）没有对应的人物关节：在「对应关系」里把髋对上"
+"E-MOTION-NOLEG" = "模型关节 {joint} 没有对应的人物关节：双腿（大腿、小腿）必须映射"
+"E-MOTION-KEYGAP.other" = "关键帧 {first} 和 {last} 相隔 {gap} 帧，超过模型一次能生成的 {most} 帧：在中间加关键帧"
+
+# ---- SMPL 系人体模型的骨架和参数（lab2shot_shared/smpl.py）。都是节点和 worker 对不上才会发生，不是用户填错
+"E-SMPL-UNKNOWNBODY" = "不认识的人体模型 {model}：认得的是 {models}。请把日志发给开发者"
+"E-SMPL-UNKNOWNPART" = "{model} 没有姿势参数 {parts}：它的参数是 {known}。请把日志发给开发者"
+"E-SMPL-PARTSIZE.other" = "{model} 的 {part} 应该是 {want} 个关节，收到 {have} 个：请把日志发给开发者"
+"E-SMPL-POSESIZE.other" = "{model} 应该是 {want} 个关节的姿势，收到 {have} 个：请把日志发给开发者"
+"E-SMPL-JOINTCOUNT.other" = "这段骨架动画有 {have} 个关节，{model} 是 {want} 个：不是同一副骨架，先做重定目标"
+
+# ---- 绑定（lab2shot_worker/rigging.py）：worker 交回的骨架和权重对不上就当场停下，不把错的东西给节点
+"E-RIGGING-SHAPES.other" = "worker 交回的骨架对不上：{joints} 个关节、{parents} 个父级、{names} 个名字、权重 {columns} 列，四个数应该一样。这是扩展包适配层的问题，请把日志发给开发者"
+"E-RIGGING-ORDER" = "worker 交回的骨架层级不对：根要排第一，每根骨头的父级要排在它前面。这是扩展包适配层的问题，请把日志发给开发者"

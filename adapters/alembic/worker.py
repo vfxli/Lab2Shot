@@ -500,7 +500,7 @@ def import_file(run: Run) -> None:
     uniform samplings are at (sampled_fps), else 24, said. It only converts Alembic's seconds into frame numbers; the import node has no frame-rate parameter of its own,
     so the frames found here are the data."""
     job = run.job
-    run.stage("读取 Alembic")
+    run.stage("read_alembic")
     # PyAlembic hands every name and text to Python as UTF-8 and fails on anything else (UnicodeDecodeError), with no
     # way to get at the bytes. The names read here (objects, face sets, the lab2shot: properties) are the items' paths
     # and parts, so none is guessed at: the file is refused naming it. Texts nothing reads (the archive's description,
@@ -516,7 +516,7 @@ def import_file(run: Run) -> None:
         shapes = [(o, read) for o in all_objects(archive.getTop()) for match, read in READERS if match(o)]
         for i, (obj, read) in enumerate(shapes):
             read(obj, fps, out)
-            progress(i + 1, len(shapes), obj.getFullName())
+            progress(i + 1, len(shapes), "read_object", name=obj.getFullName())
     except UnicodeDecodeError:
         fail("E-ALEMBIC-NAMEENCODING", name=job.inputs["file"].name)
     frames = sorted({int(f) for items in out.items.values() for item in items for f in item["frames"]})
@@ -633,7 +633,7 @@ def write_model(parent, name: str, item: dict, tsidx: int, report, samplings) ->
     for f, p in enumerate(points):
         P = filled(imath.V3fArray, p, np.float32)
         mesh.set(AbcGeom.OPolyMeshSchemaSample(P, topo_i, topo_c, **extra) if f == 0 else AbcGeom.OPolyMeshSchemaSample(P))
-        report(f"网格 {name}")
+        report("write_mesh", name)
     write_face_sets(shape, item)
 
 
@@ -689,7 +689,7 @@ def write_cloud(parent, name: str, item: dict, tsidx: int, report, samplings) ->
             cd.set(AbcGeom.OC3fGeomParamSample(filled(imath.C3fArray, colors[part], np.float32), VARYING))
         if vis is not None:
             vis.set(AbcGeom.OInt32GeomParamSample(filled(imath.IntArray, seen[part], np.int32), VARYING))
-        report(f"点云 {name}")
+        report("write_points", name)
 
 
 def write_camera(parent, name: str, item: dict, tsidx: int, report, samplings) -> None:
@@ -717,7 +717,7 @@ def write_camera(parent, name: str, item: dict, tsidx: int, report, samplings) -
         cam.setOverScanRight(float(over[2]))
         cam.setOverScanBottom(float(over[3]))
         schema.set(cam)
-        report(f"相机 {name}")
+        report("write_camera", name)
 
 
 def write_curves(parent, name: str, item: dict, tsidx: int, report, samplings) -> None:
@@ -751,7 +751,7 @@ def write_curves(parent, name: str, item: dict, tsidx: int, report, samplings) -
         del w
         if cd is not None:
             cd.set(AbcGeom.OC3fGeomParamSample(filled(imath.C3fArray, colors[part], np.float32), VARYING))
-        report(f"三维曲线 {name}")
+        report("write_curves", name)
 
 
 WRITERS = {"model": write_model, "points": write_cloud, "curves": write_curves, "camera": write_camera}
@@ -787,12 +787,12 @@ def write_abc(run: Run) -> None:
     total = max(1, sum(max(len(np.asarray(i["frames"]).reshape(-1)), 1) for kind in WRITERS for i in items[kind]))
     done = [0]
 
-    def report(message: str) -> None:
+    def report(word: str, name: str) -> None:
         done[0] += 1
         if done[0] % 10 == 0 or done[0] == total:
-            progress(min(done[0], total), total, message)
+            progress(min(done[0], total), total, word, name=name)
 
-    run.stage("写出 Alembic")
+    run.stage("write_alembic")
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(f".{out.name}.{os.getpid()}.tmp")
     try:

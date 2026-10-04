@@ -1,0 +1,36 @@
+# Lens distortion (lab2shot/data/lens_models.py, lab2shot/nodes/core/lens_distortion.py).
+# One line per message: code = template. Say who estimated it, against what, the number and unit, what it means, what to do.
+
+# There is no "does this need undistorting" kind of detection hint (raw footage, unknown lens state, unknown wide angle, undistorting already undistorted footage...), and none should be added:
+# artists know whether their input was undistorted; the node does not guess for them.
+
+# ---- Blocked before submit
+"W-LENS-NOLENS" = "{node}: the distortion coefficients are all still 0, so the image passes through unchanged (resampling with zero distortion only softens it): wire Lens Model and Distortion Coefficients of anycalib.calibrate to the inputs of the same name on this node, or enter the numbers from 3DE or a calibration program one by one. For a ready-made ST Map use stmap, not this node"
+"B-LENS-RASTER" = "The image is {width:d}×{height:d}, but the lens was defined on a {lens_width:d}×{lens_height:d} image: the aspect ratios differ, so this lens does not hold for this image"
+
+# ---- Errors
+"E-LENS-MODEL" = "Unknown distortion model {model}: choose from {models}"
+"E-LENS-PARAMS" = "Wrong parameters for distortion model {model}: missing {missing}, unknown {unknown} (parameter names as written in the software)"
+"E-LENS-PHYSICAL" = "The lens {what} is {value}, which is physically impossible (Aperture, pixel aspect and squeeze must all be greater than 0)"
+"E-LENS-NOFOCAL" = "Distortion model {model} is normalized by Focal Length, but the lens has no Focal Length: set Focal Length first"
+"E-LENS-NORASTER" = "The lens does not say what image size it was defined on: distortion holds only for the image size it was defined on"
+"E-LENS-COEFF" = "Distortion coefficient {name} = {value:g} is not within {low:g}–{high:g}: check whether it was entered in the wrong place or unit"
+
+# ---- Production risk (red, --production-risk; only for warnings that could cause a production incident; ordinary errors stay purple, --error)
+"P-LENS-ESTIMATED" = "The distortion was estimated from the image by {by}, without an ST Map from the production's lens grid or 3DE lens data: estimated distortion can be off by a few pixels, and delivering it may cause CG not to sit on the plate. Replace it with an ST Map from the lens grid or 3DE lens data before delivery"
+
+# ---- Warnings and notes
+"W-LENS-OVERSCANCAP.one" = "{outside:,} pixel of the original image still lands outside the canvas when straightened, with Auto overscan at its limit of {cap:.0%} (fisheye or extreme wide angle): it is missing from the undistorted image"
+"W-LENS-OVERSCANCAP.other" = "{outside:,} pixels of the original image still land outside the canvas when straightened, with Auto overscan at its limit of {cap:.0%} (fisheye or extreme wide angle): they are missing from the undistorted image"
+"W-LENS-FOLD.one" = "The distortion folds over at {count:,} pixel (one position maps to several, the polynomial is outside its monotonic range): undistortion and redistortion of those pixels are unreliable; check the distortion parameters"
+"W-LENS-FOLD.other" = "The distortion folds over at {count:,} pixels (one position maps to several, the polynomial is outside its monotonic range): undistortion and redistortion of those pixels are unreliable; check the distortion parameters"
+"N-LENS-NOPLATE" = "{node} does not know yet what image size this lens holds for, so there is no result to deliver: wire an image in, or fill in Image Width and Image Height on the node"
+"N-LENS-PARAMRANGE" = "{name} of {model} is {value:g}, outside the usual 3DE range {low:g} to {high:g}: accepted as is; check the unit and sign"
+
+# ---- Info
+"I-LENS-MEASURED" = "Distortion · measured, from {by}"
+"I-LENS-SOLVED" = "Distortion · solved, from {by}"
+
+# ---- Once a camera is wired, the lens parameters on the node should no longer take effect: the camera wired in was tracked and checked by people and is more trustworthy than an algorithm; do not second-guess it
+
+"N-LENS-CAMERAHASIT" = "The camera wired in carries its own Focal Length and Aperture, which are used: if a parameter silently overrode a solved camera, nobody could tell which one was used in the end. To change the lens, change it on the camera side: lock_focal locks a per-frame estimated Focal Length to one value and recomputes the camera positions with it (changing only the Focal Length number without moving the camera would break the match to the plate)"

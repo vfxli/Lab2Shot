@@ -1,0 +1,29 @@
+# The STaR extension's own words and messages in English (the same keys as zh.toml). Shared retargeting messages are in the core catalogue.
+
+[node."star.retarget"]
+subtitle = "Motion Retarget"
+description = "Motion retargeting constrained by mesh shape and temporal continuity. The middle step of learned retargeting: Source and Target take the two outputs of Retarget Prepare (part mapping, rest pose and which bones are kept out of the model are all set there); wire the result into Retarget Post-Process for translation and hip height, then into Bone Deform to see the mesh. The output is the model's native result, written back onto the target's own hierarchy; bones not fed to the model keep their rest pose and follow their parents. Both sides need real skinned meshes; only upstream's 22 body parts are taken, so choose STaR (fixed 22 body parts) as the preprocess ignore rule."
+official.note = "Uses upstream's released model and keeps the target's own hierarchy."
+needs.star.label = "STaR (fixed 22 body parts)"
+
+[node."star.retarget".param.window]
+label = "Inference Window"
+
+[node."star.retarget".param.seed]
+label = "Sampling Seed"
+
+[extension.star]
+summary = "Motion retargeting constrained by mesh shape and temporal continuity"
+license.name = "MIT"
+license.summary = "MIT; bundled assets follow their own licenses, see the official repository for details."
+
+[manual.star-statistics]
+title = "STaR Statistics and Shape Encoder"
+what = "Upstream's training normalization statistics and the Pct checkpoint"
+download = "The Google Drive stats and encoding_model_weights from upstream's Data Preparation section"
+note = "Contains 8 normalization statistics files and model.t7; the training statistics cannot be re-estimated from your input footage"
+
+[stage]
+prepare_input = "Prepare STaR Input"
+encode_shape = "Encode Shape"
+retarget = "STaR Retarget"

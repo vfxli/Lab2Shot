@@ -46,7 +46,7 @@ UniRig 是 TOG（SIGGRAPH）上的自动绑定统一框架，由清华大学和 
 - 典型接法：「导入 USD」（或「导入 FBX」）选中模型 → **UniRig 自动绑定** → 「USD 输出设置」和「FBX 输出设置」→「输出」。模板「自动绑定 · UniRig」就是这套。
 - **网格、UV、分区、材质全都保留**：Lab2Shot 不走 UniRig 自己的 Blender 导出，而是把骨架和蒙皮权重写进**你导进来的那份 USD**，只多出一个 SkelRoot、一副骨架和每个网格上的蒙皮。交出去在 Maya 里就是 skinCluster，在 Houdini 里就是 captured 的网格。
 - **一个模型里有好几块网格**（身体、衣服、头发片、机械的几十个零件）没关系：节点先把它们按世界坐标拼成一张网格交给模型，权重算完按网格切回去，各写各的。
-- **骨骼名是 bone_0、bone_1…**：这一版公开的权重（articulation-xl）**不带部位名**（作者的 mixamo 命名分支没有训练）。要接 Maya 的 HumanIK 或 Mixamo 重定向，得在 DCC 里按部位改名。这是这个项目现在最大的不方便，Lab2Shot 不去猜哪根是大腿——猜错了比不猜更糟。
+- **骨骼名按项目的命名规范**（「骨骼命名」默认「标准名」）：模型自己给的是 bone_0、bone_1…（这一版公开的权重 articulation-xl **不带部位名**，作者的 mixamo 命名分支没有训练）。Lab2Shot 用骨架识别引擎按骨架形状、左右对称、骨长比例和蒙皮认出身体部位，交出 Maya HumanIK / Mixamo 的名字（Hips、Spine、LeftArm、LeftUpLeg、LeftHandIndex1…），在 Maya 里 HumanIK 能直接认；认不出的骨骼按所在部位加后缀（LeftArm_Helper1、Head_End、Hips_Extra1）。拿不准的部位宁可不认（按规则命名），不给错名字。要模型给的原名就选「原始名」。
 - **影响骨骼数**（默认 4）：每个顶点最多由几根骨骼带动，就是 Maya 的 maxInfluences。权重最大的几根留下，其余归零后重新归一。
 - **随机种子**（默认 12345，官方默认值）：骨头长错地方、少了尾巴或翅膀，换一个数字重算，挑一副最好的。
 - **面数超过 5 万**：按官方的做法先降面（`fast_simplification`）再算骨架和权重，节点上会提醒一次；**权重最后铺回原来那张网格的每一个顶点**（用的是 UniRig 自己的 `reskin`），一个面都没少。

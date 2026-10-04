@@ -1,6 +1,0 @@
-{
- "videomama.matte": {
-  "label": "VideoMaMa 精细抠像",
-  "description": "用每一帧的粗遮罩引导，VideoMaMa（视频扩散模型）生成柔和、时间上最稳的 alpha。比 MatAnyone 2 慢很多、显存要得多，边缘偏软；粗遮罩每帧都要有。"
- }
-}

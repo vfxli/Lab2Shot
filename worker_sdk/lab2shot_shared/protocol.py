@@ -70,9 +70,11 @@ def shown(path: str | Path) -> str:
 
 # What a worker process says on its standard output, one line each: PREFIX + JSON {"type": <event>, <fields>}. Anything
 # else is log text (the job's worker.log). `status` stands for the loaded-models report
-# ({"models": [{name, gpu_mb, ram_mb, on_gpu}], "vram_mb"}) spread into the event.
-#   stage      name                   stage(): a named stage of the job starts
-#   progress   done, total, message   progress(): how far the stage is
+# ({"models": [{name, gpu_mb, ram_mb, on_gpu}], "vram_mb", "context_mb"}) spread into the event (context_mb: what the
+# process holds on its GPU beyond vram_mb, freed only when it ends; None until measured: lab2shot_worker/serving.py).
+#   stage      id, params             stage(): a stage of the job starts, by its id (its words are the core's catalogue's)
+#   progress   done, total, id, params
+#                                     progress(): how far the stage is (id: what is counted, "" none)
 #   message    code, params           say(): a W-, N- or I- message for the user (the core writes the words from its catalogue)
 #   done       result                 write_result(): raw/result.json is written, the job produced its files
 #   failed     code, params           fail(), a Failure, the SDK (E-WORKER-GPUARCH, E-WORKER-OFFLINE): the job stops with

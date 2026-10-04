@@ -1,0 +1,40 @@
+# The LTX-2.5 Clean Plate extension's own words and messages in English (the same keys as zh.toml).
+
+# ---- checks
+"E-CLEANPLATE-SHAPE.one" = "The LTX-2.5 Clean Plate result does not match the input: the input is {frames:d} frame at {width:d} × {height:d}, the result {got_frames:d} frames at {got_width:d} × {got_height:d}. This node gives exactly one picture of the same size for each input frame, so it stopped and wrote nothing. Send this message and the job log to an administrator"
+"E-CLEANPLATE-SHAPE.other" = "The LTX-2.5 Clean Plate result does not match the input: the input is {frames:d} frames at {width:d} × {height:d}, the result {got_frames:d} frames at {got_width:d} × {got_height:d}. This node gives exactly one picture of the same size for each input frame, so it stopped and wrote nothing. Send this message and the job log to an administrator"
+
+[node."cleanplate.clean_plate"]
+subtitle = "Clean Plate"
+description = "Removes people and vehicles from the shot and fills in the background behind them, giving a clean plate of the same shot. It processes, it does not generate: every input frame gives one output frame with the same frame number and size. It works on the whole frame and cannot be told which one to remove; when people or vehicles cover most of the frame, too little background shows to rebuild. Needs a 32 GB card and is very slow."
+
+[node."cleanplate.clean_plate".param.resolution]
+label = "Processing Resolution"
+
+[node."cleanplate.clean_plate".port.image]
+label = "RGB"
+
+[node."cleanplate.clean_plate".port.plate]
+label = "Clean Plate"
+
+[node."cleanplate.clean_plate".official]
+note = "Upstream usage (model card): a video-to-video IC-LoRA with the original shot as the reference video, LoRA strength 1.0 and a prompt describing the empty scene; no mask input, it removes people, pedestrians and vehicles over the whole frame. Trained at 1024 × 576, 49 frames, 25 fps, also validated at 1920 × 1088; frames are padded to multiples of 32 and to 8n+1 frames."
+
+[node."cleanplate.clean_plate".licence]
+note = "LTX-2.x Community License: free, commercial use included, for individuals and companies under USD 10 million annual revenue; at USD 10 million or more, any use other than non-commercial research and evaluation needs a paid licence from Lightricks."
+
+[node."cleanplate.clean_plate".cost]
+note = "The 22B model stays in GPU memory in fp8, about 22 GB, so it runs only on a 32 GB card; the first run also encodes the fixed prompt once and caches it."
+
+[node."cleanplate.clean_plate".stage]
+write_plate = "Write Clean Plate"
+
+[extension.cleanplate]
+summary = "Removes people and vehicles from footage and rebuilds the background, giving a clean plate of the same shot. An IC-LoRA on the LTX-2.5 video model"
+license.name = "LTX-2.x Community License"
+license.summary = "Free for individuals and for companies with annual revenue under USD 10 million, commercial use included; at USD 10 million or more, any use other than non-commercial research and evaluation needs a paid licence from Lightricks. Redistribution must include the licence text and its use restrictions (Attachment A); the model may only be used lawfully and within its acceptable-use policy, and safety, provenance and watermark features must be kept"
+weight.cleanplate_lora.note = "Lightricks/LTX-2.5-22b-IC-LoRA-Clean-Plate/ltx-2.5-22b-ic-lora-clean-plate-1.0.safetensors (LTX-2.x Community License)"
+
+[stage]
+encode_prompt = "Prepare Fixed Prompt"
+clean_plate = "Remove People and Vehicles"

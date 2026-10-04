@@ -23,6 +23,7 @@
   flex: 0 1 auto;
   min-width: 4em;
   overflow: hidden;
+  text-overflow: ellipsis; /* a cut name shows that it is cut */
   color: var(--text);
 }
 

@@ -2,120 +2,183 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "8d31a289b2ee4bdfaf13a24f78c763dc",
-  "name": "稠密 3D 跟踪点 · Track4World",
-  "intro": "Track4World 官方自述：以全局前馈的方式，从单目视频估计任意两帧之间每个像素的稠密三维场景流，在世界坐标系里稠密跟踪每一个像素。这张卡把点和相机一起写成 USD；顺带的点云是每帧一片，不是整段一套场景点云。",
+  "name": {
+   "zh": "稠密 3D 跟踪点 · Track4World",
+   "en": "Dense 3D Tracks · Track4World"
+  },
+  "intro": {
+   "zh": "Track4World 官方自述：以全局前馈的方式，从单目视频估计任意两帧之间每个像素的稠密三维场景流，在世界坐标系里稠密跟踪每一个像素。这张卡把点和摄影机一起写成 USD；顺带的点云是每帧一片，不是整段一套场景点云。",
+   "en": "Track4World describes itself as estimating dense 3D scene flow for every pixel between any two frames of a monocular video in a global feed-forward way, densely tracking every pixel in world space. This card writes the points together with the camera to USD; the accompanying point cloud is one per frame, not one scene point cloud for the whole shot."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-13T12:00:00",
   "deliverable": "tracks3d",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "name": "ref_frame",
-   "label": "参考帧",
+   "label": {
+    "zh": "参考帧",
+    "en": "Reference Frame"
+   },
    "target": "track.query_frame"
   },
   {
    "name": "picks",
-   "label": "跟踪点",
+   "label": {
+    "zh": "跟踪点",
+    "en": "Tracks"
+   },
    "target": "track.picks",
    "show_on_change": true
   },
   {
    "name": "picks_pick",
-   "label": "在视图里点选",
+   "label": {
+    "zh": "在视图里点选",
+    "en": "Pick in Viewport"
+   },
    "target": "track.picks_pick"
   },
   {
-   "name": "track_step",
-   "label": "跟踪点间隔",
+   "name": "track_track_step",
+   "label": {
+    "zh": "跟踪点间隔",
+    "en": "Track Spacing"
+   },
    "target": "track.track_step"
   },
   {
-   "name": "resolution",
-   "label": "处理分辨率",
+   "name": "track_resolution",
+   "label": {
+    "zh": "处理分辨率",
+    "en": "Processing Resolution"
+   },
    "target": "track.resolution"
   },
   {
-   "name": "point_step",
-   "label": "点云间隔",
+   "name": "track_point_step",
+   "label": {
+    "zh": "点云间隔",
+    "en": "Point Cloud Step"
+   },
    "target": "track.point_step"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "max_frames",
-     "label": "每段最多帧数",
+     "name": "track_max_frames",
+     "label": {
+      "zh": "每段最多帧数",
+      "en": "Max Frames per Chunk"
+     },
      "target": "track.max_frames"
     },
     {
-     "name": "point_size",
-     "label": "点的大小",
+     "name": "track_point_size",
+     "label": {
+      "zh": "点的大小",
+      "en": "Point Size"
+     },
      "target": "track.point_size"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
      "target": "usd.name"
     },
     {
      "name": "unit",
-     "label": "单位",
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
      "target": "usd.unit"
     },
     {
      "name": "fps",
-     "label": "帧率",
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
      "target": "usd.fps"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "计算",
+     "word": "cook",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -124,8 +187,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -140,7 +202,6 @@
   {
    "id": "track",
    "type": "track4world.track",
-   "label": "Track4World 稠密 3D 跟踪点",
    "params": {
     "query_frame": null,
     "track_step": 8,
@@ -162,8 +223,7 @@
   },
   {
    "id": "usd",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "type": "usd.output",
    "params": {
     "name": "dense4d",
     "format": "usd",
@@ -171,7 +231,7 @@
     "fps": 24.0
    },
    "ui": {
-    "x": 809,
+    "x": 800,
     "y": 40,
     "on_node": [
      "name",
@@ -184,11 +244,10 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1209,
+    "x": 1200,
     "y": 68
    }
   }

@@ -46,14 +46,17 @@ def one_mesh(src: Packet, frame: int | None = None) -> Meshes:
 
 def influences_param():
     """「影响骨骼数」：每个顶点最多受几根骨骼驱动（Maya 的 maxInfluences、USD 的 elementSize）。"""
-    return P(4, label="影响骨骼数", widget="choice", group="蒙皮", option_labels={"1": "1 · 刚性", "2": "2", "4": "4 · 常用", "8": "8 · 精细"})
+    return P(4, widget="choice", group="skin")
 
 
 class AutoRigParams(NodeParams):
     """所有自动绑定节点共有的参数；各节点另外添加其模型自身的参数。"""
 
     influences: Literal[1, 2, 4, 8] = influences_param()
-    character: str = P("", label="角色名", group="蒙皮", placeholder="按接进来的模型")
+    character: str = P("", group="skin")
+    # standard: body parts recognised by the skeleton's shape, named as Maya HumanIK / Mixamo do (Hips, LeftArm,
+    # LeftUpLeg…), others by their part with a suffix (LeftArm_Helper1, Head_End); model: the model's own names (bone_0…)
+    bone_names: Literal["standard", "model"] = P("standard", group="skin")
 
 
 class AutoRig(WorkerNode):
@@ -64,8 +67,8 @@ class AutoRig(WorkerNode):
       names [J] 模型给出的骨骼名、weights [V,J] 每个顶点对每根骨骼的权重（V 与 `one_mesh` 给出的顶点数相同）。
     节点侧只做三件事：选出影响最大的若干骨骼、按 CG 惯例为骨骼命名和定轴、写回原有的 USD。"""
     # 不读取画面，输入为已有的网格
-    inputs = (Port("model", "scene.model", "模型"),)
-    outputs = (Port("character", "scene.character", "蒙皮角色"),)
+    inputs = (Port("model", "scene.model"),)
+    outputs = (Port("character", "scene.character"),)
     cost = Cost(gpu=True)
 
     @classmethod
@@ -78,7 +81,7 @@ class AutoRig(WorkerNode):
         meshes = one_mesh(src, frames[0])
         if len(frames) > 1:
             ctx.say("N-RIG-DEFORMING", frame=frames[0], frames=len(frames))
-        ctx.stage("整理网格")
+        ctx.stage("prepare_mesh")
         path = write_mesh_job(ctx.work / "mesh.npz", meshes.points, meshes.faces)
         return Job(None, inputs={"mesh": path}, notes={"meshes": meshes, "model": src})
 
@@ -95,15 +98,21 @@ class AutoRig(WorkerNode):
         weights = np.asarray(rig["weights"], np.float64)
         if weights.shape[0] != len(meshes.points):
             raise Invalid(Msg("E-RIG-VERTEXCOUNT", got=int(weights.shape[0]), want=len(meshes.points)))
-        ctx.stage("整理蒙皮")
+        ctx.stage("prepare_skin")
         idx, w = top_influences(weights, int(ctx.params["influences"]))
         joints = np.asarray(rig["joints"], np.float64)
         parents = np.asarray(rig["parents"], np.int64)
         bind = np.repeat(np.eye(4)[None], len(joints), 0)
         bind[:, :3, 3] = joints
-        # 骨骼名和关节轴经过项目中唯一的转换入口（data/skeleton.py），与解算器输出的蒙皮角色完全一致
-        names, bind, _ = rig_of_model([str(n) for n in rig["names"]], parents, bind, bind[None])
-        ctx.stage("写出蒙皮角色")
+        # 骨骼名和关节轴经过项目中唯一的转换入口（data/skeleton.py），与解算器输出的蒙皮角色完全一致。骨骼名按项目的
+        # 命名规范（data/bone_names.py）：部位按骨架形状和蒙皮识别（模型给的 bone_N 说明不了部位），认不出的按规则命名；
+        # 「原始名」保留模型给的名字，只摆正关节轴
+        own = [str(n) for n in rig["names"]]
+        weighted = frozenset(int(j) for j in np.unique(idx[w > 0]))
+        names, bind, _ = rig_of_model(own, parents, bind, bind[None], weights=weighted, by_shape=True)
+        if ctx.params.get("bone_names") == "model":
+            names = own
+        ctx.stage("write_character")
         name = str(ctx.params["character"]).strip()
         packet = bind_skin(src, ctx.outputs["character"], joint_names=names, parents=parents, bind_world=bind,
                            joint_indices=meshes.split(idx), joint_weights=meshes.split(w), name=name,

@@ -1,0 +1,37 @@
+# One-click update (lab2shot/cli/update.py, the menu's update item: ./setup.sh update).
+# One per line: code = template. Say who estimated it, against what, the number and its unit, what it means, what to do.
+
+# ---- step 1, preflight: checks the code already pulled; changes neither the code nor the database
+"E-UPDATE-RUNNING" = "The service is still running: before upgrading, run ./setup.sh stop in the old version, then git pull --ff-only by hand, and finally ./setup.sh update. The environment has not been synced and the database not migrated this time"
+"E-UPDATE-BASELINE" = "Cannot determine the version to roll back to: {reason}. Check the deployment record against the Git history, then run the upgrade again"
+"E-UPDATE-NOTGIT" = "{root} is not a project folder checked out with git (or this machine has no git): one-click update only updates installs made with git clone"
+"E-UPDATE-DETACHED" = "The project folder is not on any branch now (git is in \"detached HEAD\" state, at {head}): git switch back to the branch to follow (such as main) first, then update"
+"E-UPDATE-DIRTY" = "The project folder has {count:d} changed files not committed yet (besides the managed menu/*.json and templates/*.json): {files}. One-click update does not decide what happens to them for you: commit them, put them away with git stash, or restore them with git checkout first, then update"
+"E-UPDATE-NOTOOL" = "{tool} was not found: updating, and rolling back on failure, need it to sync the environment again or build the web page. {how}"
+
+# ---- steps 2-7: stop when recording or backing up fails; roll back when something fails after the environment sync
+"E-UPDATE-RECORD" = "The upgrade record or backup did not complete: {reason}. Look at this update's record, fix it, then run ./setup.sh update again"
+"E-UPDATE-PORTBUSY" = "Port {listen:d} is held by process {pid:d}, which does not answer Lab2Shot's /api/server: it is not this work folder's service. Stop it first, or choose another port under \"Settings → Network and Install\""
+"N-UPDATE-CANCELLED" = "Update cancelled: the code already pulled is kept; the environment has not been synced and the database not migrated. You can run ./setup.sh update again"
+"E-UPDATE-SYNC" = "uv sync did not succeed: the new version's Python environment could not be installed; uv's output is above"
+"E-UPDATE-WEB" = "The web page could not be built (npm ci or npm run build failed): npm's output is above"
+"E-UPDATE-CHECK" = "The new version did not pass lab2shot check (exit code {code:d}): the problems found are listed above"
+"E-UPDATE-DBUPGRADE" = "The new version could not upgrade the database (lab2shot db upgrade exit code {code:d}): its output is above"
+"E-UPDATE-MIGRATE" = "The new version could not migrate the installed extensions (lab2shot ext migrate exit code {code:d}): its output is above"
+"E-UPDATE-DBCHECK" = "The upgraded database did not pass the integrity check (lab2shot db check exit code {code:d})"
+"E-UPDATE-NOSTART" = "The new version's service did not start (it exited by itself, or was ended for not answering /api/server within 120 s): its output is listed above and the full log is at {log}"
+"E-UPDATE-NOPAGE" = "The new version's service started, but the web page does not open ({address}/ answered {status}): the log is at {log}"
+"E-UPDATE-INTERRUPTED" = "The update was interrupted (Ctrl-C)"
+
+# ---- steps 8-9: the outcome
+"N-UPDATE-DONE" = "Update succeeded: {before} → {after}; the service is online with the new version at {address}"
+"E-UPDATE-ROLLEDBACK" = "The update failed and was rolled back to {version}: {reason}. The service is online with the old version at {address}; the database {database}"
+"E-UPDATE-ROLLBACKINCOMPLETE" = "The update failed ({reason}) and the rollback did not fully complete either: {problems}. Deal with each item following the output above; the record from before the update is at {record}"
+"N-UPDATE-DBRESTORED" = "was restored to the backup from before the update, {backup}"
+"N-UPDATE-DBUNTOUCHED" = "was never opened by the new version and is unchanged"
+"N-UPDATE-ONLINE" = "Version online now: {version} \"{subject}\" (Lab2Shot {release}, boot {boot}), at {address}"
+"W-UPDATE-OFFLINE" = "No service is online now (the project folder is at version {version}): start it under \"Service → Start Service (Background)\"; if it does not start, see the log {log}"
+"W-UPDATE-REINSTALL" = "The new version changed the install recipes of these extensions, and their nodes work only after reinstalling: {names}. They were not reinstalled automatically: reinstall them under \"Install and Environment → Install Extensions\" or on the \"Extensions\" page of the admin page"
+"N-UPDATE-NOREINSTALL" = "None of the installed extensions needs reinstalling"
+"W-UPDATE-REINSTALLUNKNOWN" = "Could not list the extensions that need reinstalling ({reason}): look on the \"Extensions\" page of the admin page; those marked \"Needs Reinstall\" must be reinstalled"
+"N-UPDATE-MENUOLD" = "The update is complete: run ./setup.sh again so that the menu loads the synced environment"

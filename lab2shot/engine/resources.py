@@ -36,6 +36,7 @@ class Need:
     vram_gb: float  # a GPU node's declared peak VRAM (its resolved cost); 0 for a CPU slot
     ram_gb: float  # the system memory it takes at its peak (its resolved cost): kept free for it before it starts
     label: str  # the node's label: what the administrator sees waiting
+    node: str = ""  # the node's id: where a wait that needs somebody to act is said (farm/queue.py); "" none (a pack)
 
 
 class Ticket(Protocol):

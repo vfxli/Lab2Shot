@@ -1,0 +1,19 @@
+# VGGT 扩展自己的界面字和消息（中文）。
+
+[node."vggt.reconstruct"]
+subtitle = "深度与摄影机"
+description = "画面 → 每帧摄影机和深度贴图（Meta VGGT，CVPR 2025 最佳论文），一次看整段画面。尺度要手动缩放，按「尺度」参数换算成厘米；长镜头分段拼接。精度低于「Pi3 深度与摄影机」，显存占用更小，适合快速出点云做交叉检验。点云是每帧一张点图（官方原生的点图，放回这一帧自己的摄影机里），不是整段一套：官方没有合成一份场景点云的输出。"
+official.note = "「点云」是官方点头出的世界点图 world_points（vggt.py:45）：worker 把它放回每一帧的摄影机空间再交出来（无损，只是换坐标系），由家族按摄影机摆回世界。没有遮罩或人物边界框输入口：上游 forward 只有 images 和 query_points 两个入参（vggt.py:29），遮罩进不了模型；想局部重建，在送进去之前把其余部分涂黑：「ViTDet 人物框」→「人物框转遮罩」→「图像合成」（留下）→ 这个节点的「RGB」口。没有的口：track / vis（vggt.py:50-51），它们要 query_points，这个节点没有那个输入"
+licence.note = "代码是 VGGT License（可商用，禁止军事用途）；原版模型权重 CC-BY-NC-4.0 非商用，商用版模型权重（需申请）可以商用。"
+
+[node."vggt.reconstruct".param.model]
+label = "模型"
+option.original = "原版"
+option.commercial = "商用版"
+
+[extension.vggt]
+summary = "前馈网络，从一张、几张或几百张画面里几秒钟内推断出场景的全部关键三维属性：摄影机内外参、点图、深度贴图和三维点轨迹"
+license.name = "VGGT License（代码）；模型权重：原版 CC BY-NC 4.0（非商用）/ Commercial 版 VGGT License"
+license.summary = "代码是 Meta 的 VGGT License（2025-07-29 版）：允许商用、修改和再分发（再分发须附带许可证原文），发表论文须注明使用了 VGGT，须遵守附带的可接受使用政策（禁止军事、战争、核工业、间谍、武器、关键基础设施操作、欺诈冒充等用途），对 Meta 提起知识产权诉讼则许可终止，无任何担保。模型权重两份：VGGT-1B 原版（默认）为 CC BY-NC 4.0，非商用，仅限研究；VGGT-1B-Commercial 按同一份 VGGT License 发布，可以商用（禁军事），需要先在 https://huggingface.co/facebook/VGGT-1B-Commercial 申请访问（人工审批），效果与原版接近"
+weight."VGGT-1B".note = "VGGT-1B 原版模型权重（5.0 GB，CC BY-NC 4.0 非商用）"
+weight."VGGT-1B-Commercial".note = "VGGT-1B-Commercial 模型权重（5.0 GB，可商用）；需先在 https://huggingface.co/facebook/VGGT-1B-Commercial 申请访问"

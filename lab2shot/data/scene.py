@@ -8,6 +8,8 @@ numbers). Pack and transform only author small layers on top of their inputs
 
 from __future__ import annotations
 
+from .. import i18n
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -241,6 +243,55 @@ def place_through(src: Packet, out: Path, mats: np.ndarray, frames: list[int]) -
                         **{k: v for k, v in src.meta.items() if k != "frames"})
 
 
+def moved_per_frame(src: Packet, out: Path, mats: np.ndarray, frames: list[int]) -> Packet:
+    """The scene moved by `mats[i]` (4x4, column vectors, world) at frame `frames[i]`, on top of whatever its /shot
+    already does at that frame (a transform keyed per frame, as 「相机空间转换」 leaves a person, is kept frame by frame:
+    `place_through` reads the transform once). What a 人体集成 does to a person whose path it takes from another
+    candidate (nodes/core/ensemble.py)."""
+    stage = _new_layer_stage(out / SCENE_FILE, [_file(src)], src.meta["frames"])
+    root = UsdGeom.Xformable(stage.GetPrimAtPath(ROOT_PATH))
+    existing = [np.array(root.GetLocalTransformation(Usd.TimeCode(int(f)))).T for f in frames]
+    root.ClearXformOpOrder()
+    op = root.MakeMatrixXform()
+    for f, m, e in zip(frames, np.asarray(mats, np.float64), existing):
+        op.Set(Gf.Matrix4d((m @ e).T.tolist()), Usd.TimeCode(int(f)))
+    stage.GetRootLayer().Save()
+    return scene_packet(out, src.meta["frames"], src.type,
+                        **{k: v for k, v in src.meta.items() if k != "frames"})
+
+
+def transform_gaussian(src: Packet, out: Path, mats: np.ndarray, frames: list[int]) -> Packet:
+    """A gaussian scene moved into the world with the transform baked into its own geometry: positions, covariance and
+    SH, per frame. The gaussian prims keep their data (a gaussian stays a gaussian) but carry no USD transform: the
+    conversion lives in the geometry itself, so what 「相机空间转换」 hands over is exactly what a directly baked PLY
+    would hold. Other kinds keep `transform`'s /shot transform; only a gaussian is baked, by the camera-space node's
+    dispatch. `mats` [F,4,4] per frame, or one [4,4] constant for every frame."""
+    from .gaussian import is_gaussian, rewrite, sample, transform_sample
+
+    mats = np.asarray(mats, np.float64)
+    if mats.ndim == 2:
+        mats = mats[None]  # one constant transform for every frame
+    count = len(mats)
+    stage = Usd.Stage.Open(open_scene([src]).Flatten())  # flattening drops the frame range and the default prim
+    usd.apply_conventions(stage, src.meta["frames"])
+    shot = stage.GetPrimAtPath(ROOT_PATH)
+    for prim in stage.Traverse():
+        if not is_gaussian(prim):
+            continue
+        baked = []
+        for i, f in enumerate(frames):
+            world = np.array(UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode(f))).T
+            baked.append(transform_sample(sample(prim, f), mats[min(i, count - 1)] @ world))
+        rewrite(prim, frames if len(baked) > 1 else [], baked)
+        UsdGeom.Xformable(prim).ClearXformOpOrder()  # its world placement is in its points now
+    if shot is not None:  # the /shot transform (an earlier 「3D 变换」, a previous conversion) is baked away too
+        UsdGeom.Xformable(shot).ClearXformOpOrder()
+    out.mkdir(parents=True, exist_ok=True)
+    stage.GetRootLayer().Export(str(out / SCENE_FILE))
+    return scene_packet(out, src.meta["frames"], src.type,
+                        **{k: v for k, v in src.meta.items() if k != "frames"})
+
+
 def export(src: Packet, path: Path, unit: str, fps: float, may_draw_on: Callable[[Path, Path], bool],
            provenance: dict | None = None) -> Path:
     """Flatten to one standalone file, as it is (what kinds it holds is the graph's: 「烘焙成模型」 makes point caches);
@@ -261,7 +312,7 @@ def export(src: Packet, path: Path, unit: str, fps: float, may_draw_on: Callable
     info.update(unit=unit)
     if provenance is not None:
         info["commercial"] = provenance["commercial"]
-        info["sources"] = [f"{s['project']} ({s['node']}){'' if s['commercial'] else ' 非商用'}" for s in provenance["sources"]]
+        info["sources"] = [f"{s['project']} ({s['node']}){'' if s['commercial'] else ' non-commercial'}" for s in provenance["sources"]]  # written into the file: English, like the rest of the layer data
     data["lab2shot"] = usd.layer_data(info)
     stage.GetRootLayer().customLayerData = data
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -522,7 +573,8 @@ def prims_by_kind(stage: Usd.Stage) -> dict[str, list[Usd.Prim]]:
         elif prim.IsA(UsdGeom.Mesh) and prim.GetPath() not in skinned:
             found["model"].append(prim)
         elif prim.IsA(UsdGeom.Points):
-            found["points"].append(prim)
+            from .gaussian import is_gaussian
+            found["gaussian" if is_gaussian(prim) else "points"].append(prim)
         elif prim.IsA(UsdGeom.BasisCurves):
             found["curves"].append(prim)
         elif prim.HasAPI(UsdLux.LightAPI):
@@ -616,7 +668,7 @@ def the_camera(stage: Usd.Stage, where: str) -> Usd.Prim:
         return found[0]
     if not found:
         raise Invalid(Msg("E-CAMERA-NONE", where=where))
-    paths = "、".join(str(p.GetPath()) for p in found[:4]) + ("……" if len(found) > 4 else "")
+    paths = i18n.separator().join(str(p.GetPath()) for p in found[:4]) + ("…" if len(found) > 4 else "")
     raise Invalid(Msg("E-CAMERA-SEVERAL", where=where, count=len(found), paths=paths))
 
 
@@ -626,4 +678,4 @@ def the_camera(stage: Usd.Stage, where: str) -> Usd.Prim:
 def camera_of(scenes: list[Packet], camera: Packet | None = None) -> tuple[Usd.Stage, Usd.Prim]:
     """The camera to look through: the connected camera, else the scenes' one camera (several: the user wires one)."""
     stage = open_scene([camera] if camera is not None else scenes)  # keep the stage alive while its prims are used
-    return stage, the_camera(stage, "相机输入" if camera is not None else "场景")
+    return stage, the_camera(stage, i18n.t("scene.where.camera_input" if camera is not None else "scene.where.scene"))

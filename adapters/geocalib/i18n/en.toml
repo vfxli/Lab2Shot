@@ -1,0 +1,64 @@
+# This extension's words and messages in English (the same keys as zh.toml): written by P1-B.
+# GeoCalib's messages (adapters/geocalib).
+
+# ---- node (nodes.py)
+"I-GEOCALIB-TILT.one" = "GeoCalib estimated a median camera roll of {roll:.1f}° and pitch of {pitch:.1f}° ({count:d} frame, median gravity error {error:.1f}°); {lens}"
+"I-GEOCALIB-TILT.other" = "GeoCalib estimated a median camera roll of {roll:.1f}° and pitch of {pitch:.1f}° ({count:d} frames, median gravity error {error:.1f}°); {lens}"
+
+# ---- worker
+"E-GEOCALIB-NOGRAVITY" = "GeoCalib could not estimate the gravity direction (the result holds invalid values, NaN): the picture may lack straight lines, a horizon or upright objects. Try another stretch of the shot, or fill in the real Known Focal Length and try again"
+"W-GEOCALIB-UNRELIABLE" = "GeoCalib's gravity direction is not very reliable: median error {error:.1f}° (above 5°). The picture lacks straight lines, a horizon or upright objects, so after Auto Ground the scene may not sit level. If you know the real focal length, fill in Known Focal Length: the gravity direction gets more accurate"
+"W-GEOCALIB-UNRELIABLE.app" = "The estimated gravity direction is unreliable: median error {error:.1f}° (over 5°). The image lacks straight lines, a horizon or upright objects, so the grounded scene may not sit level; enter Known Focal Length if you know it and gravity gets more accurate"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."geocalib.calibrate"]
+subtitle = "Gravity"
+description = "Picture → the gravity direction of every frame (the camera's roll and pitch, as one vector, plus how many degrees it may be off) and the focal length, by geometric optimization combined with deep learning (upstream README: combining geometric optimization with deep learning). The ground, vertical lines or the horizon must be visible: close-ups and sky without them cannot be estimated. If you know the real focal length, fill it in: the gravity direction gets more accurate. Wire Gravity and Gravity Error to the parameters of the same name on Auto Ground to turn the solved scene so that Y really points up before grounding it; for lens distortion and an undistortion ST map, use AnyCalib Lens Calibration."
+
+[node."geocalib.calibrate".param.focal_mm]
+label = "Known Focal Length"
+placeholder = "Auto"
+
+[node."geocalib.calibrate".param.fit_model]
+label = "Lens Model"
+strip = "Lens Model"
+
+[node."geocalib.calibrate".param.fit_model.option]
+pinhole = "pinhole (no distortion)"
+simple_radial = "simple_radial (radial k1)"
+simple_divisional = "simple_divisional (division model k1, fisheye)"
+
+[node."geocalib.calibrate".param.step]
+label = "Frame Step"
+
+[node."geocalib.calibrate".port.gravity]
+label = "Gravity"
+
+[node."geocalib.calibrate".port.gravity_error]
+label = "Gravity Error"
+
+[node."geocalib.calibrate".official]
+note = "Gravity Error is upstream's gravity_uncertainty (the line extractor.py:126 hands out every key holding uncertainty; it is computed in siclib/models/optimization/lm_optimizer.py:417). Focal Length is f of the camera object; Lens Intrinsics is its camera_model and dist (extractor.py:117) packed together. **Units**: upstream's camera.f is in **pixels**, our Focal Length output gives **millimetres**, converted with the node's Aperture parameter (mm = pixels ÷ picture width × aperture). Millimetres are Lab2Shot's internal standard unit. The Aperture output gives the node's parameter value as it is: upstream has no such item, the output only carries it downstream; the Aperture parameter is needed on the **input** side too: a focal length (mm) the user types is turned into pixels with it to be passed to the model as a prior. Upstream also gives, with no output of ours yet: the same uncertainty dictionary also holds roll_uncertainty, pitch_uncertainty, focal_uncertainty and vfov_uncertainty (lm_optimizer.py:413-418), of which we take only gravity_uncertainty; extractor.py:123 also gives covariance (the full covariance matrix of gravity and focal length), and :124-125 the dense latitude / up field with their confidence"
+
+[extension.geocalib]
+summary = "Single-image calibration: estimates the camera intrinsics and the gravity direction from one picture, combining geometric optimization with deep learning"
+
+[extension.geocalib.license]
+name = "Apache-2.0 (code; weights released with the repository)"
+summary = "Code Apache-2.0, commercial use allowed. The two weights are GitHub release files of the same repository with no licence of their own, read as the repository's Apache-2.0; the training data OpenPano comes from PolyHaven (CC0), HDRMAPS and the Laval Indoor HDR dataset (itself non-commercial only), and the authors do not say whether the training data limits commercial use of the weights"
+
+[extension.geocalib.weight.geocalib-pinhole]
+note = "GeoCalib weights for ordinary lenses (116 MB)"
+
+[extension.geocalib.weight.geocalib-distorted]
+note = "GeoCalib weights for distorted lenses (116 MB)"
+
+[node."geocalib.calibrate".stage]
+write_outputs = "Write Gravity and Focal Length"
+
+# ---- the worker's stages (worker.py)
+[stage]
+estimate_lens = "Estimate Lens (One Focal Length for the Shot)"
+estimate_gravity = "Estimate Gravity per Frame"
+gravity = "Gravity"

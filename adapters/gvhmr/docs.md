@@ -43,7 +43,7 @@ year = 2024
   （`worker_sdk/lab2shot_worker/world_humans.py` 的 `camera_from_body`，旋转取自上游自己的 VO）。
   **它不是成品相机**，唯一的用处是接进核心节点「相机空间转换」当参照。
 - **不一样的一点**：**「把人放到你那台相机的世界里」是 Lab2Shot 加的一步，做成了一个看得见的节点**——
-  核心节点「相机空间转换」（`core.camera_space`）收两台相机：这个节点的「参照相机」和你自己那台，
+  核心节点「相机空间转换」（`camera_space`）收两台相机：这个节点的「参照相机」和你自己那台，
   算出一个修正挂到人身上（`lab2shot/nodes/core/scene.py` 的 `CameraSpaceConvert`：默认每帧 目标相机 × 来源相机⁻¹，「整段平滑」时用 `worker_sdk/lab2shot_shared/poses.py` 的 `scaled_align`）。
   这是 Lab2Shot 的用法，不是上游的要求；上游根本没有「输入一台相机」这件事。
 - **「人物框」是可选输入口**：官方包的 `VitPoseExtractor.extract(video_path, bbx_xys)`、

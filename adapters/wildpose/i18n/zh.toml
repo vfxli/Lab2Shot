@@ -1,0 +1,36 @@
+# WildPose 扩展自己的界面字和消息（中文）。
+
+"E-WILDPOSE-NOFOCAL" = "WildPose 需要已知焦距：填写节点的镜头参数，或把标定得到的焦距接到这个参数。"
+"E-WILDPOSE-NOFOCAL.short" = "需填写焦距"
+"B-WILDPOSE-NOFOCAL" = "WildPose 需要已知焦距才能算，节点的焦距还空着：填上镜头的焦距，或者把标定得到的焦距接到这个参数"
+"B-WILDPOSE-NOFOCAL.app" = "需要已知焦距才能算，焦距还空着：先填上镜头的焦距"
+"B-WILDPOSE-NOFOCAL.short" = "需填写焦距"
+"E-WILDPOSE-FRAMES.other" = "WildPose 交出 {got} 帧摄影机，这段画面是 {frames} 帧：对不上，结果不能用。把这条报错报给技术人员"
+
+[node."wildpose.reconstruct"]
+subtitle = "深度与摄影机"
+description = "结合 MASt3R 特征、MoGe-2 米制先验、学习运动遮罩与稠密束调整解算摄影机。需填写已知焦距，输入至少八帧；摄影机覆盖全帧，优化深度只覆盖关键帧。运动遮罩是网络内部特征，不另造外部遮罩端口。"
+official.note = "官方 Dataset 提供逐帧 RGB 和已知 fx/fy/cx/cy；trajectory_filler 提供全帧摄影机，DepthVideo.save_video 仅保存关键帧优化深度。没有全帧深度预测或官方单独的置信度输出，不虚构端口。"
+licence.note = "MASt3R 非商用；代码及各模型权重许可沿现有扩展机制展示。"
+cost.note = "含 MASt3R 与 MoGe-2；120–200 帧实测峰值约 12 GB"
+
+[node."wildpose.reconstruct".param.resolution]
+label = "处理分辨率"
+
+[node."wildpose.reconstruct".param.buffer]
+label = "关键帧容量"
+
+[node."wildpose.reconstruct".param.final_ba]
+label = "最终束调整"
+
+[extension.wildpose]
+summary = "结合 MASt3R 特征、运动遮罩与稠密束调整，解算动态或低摄影机运动的视频"
+license.name = "WildPose 代码许可及 MASt3R CC-BY-NC-SA-4.0"
+license.summary = "按项目既有机制登记：MASt3R 模型权重非商用，MoGe-2 MIT。"
+weight.wildpose.note = "WildPose 推理模型权重"
+weight.mast3r.note = "MASt3R 特征，非商用"
+weight.moge2.note = "MoGe-2 米制深度先验，MIT"
+
+# ---- worker 的计算阶段（worker.py run.model / run.stage）
+[stage]
+track_and_ba = "摄影机跟踪与束调整"

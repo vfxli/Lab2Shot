@@ -4,6 +4,7 @@ import { packetOf, useResults } from "../state/results";
 import { greyed } from "../api/applies";
 import { fromServer, msg, reasonOf, say } from "../state/say";
 import { Button } from "./Button";
+import { t } from "../i18n/t";
 
 /** 复制到 Nuke: an output-settings node that writes text another application can paste declares it
  * (nodes/output.py OutputSettings.clipboard), the server returns the text it wrote (GET /api/packet/{fp}/clipboard),
@@ -40,10 +41,9 @@ export function CopyToNuke({ fp, app, what, size = "sm", off = false }: {
       size={size}
       tone="ghost"
       disabled={busy || !!off}
-      tip={`把这个结果写的节点文字放进剪贴板，到 ${APPS[app] ?? app} 里粘贴（Ctrl+V）：单位、坐标、Focal Length 都已经换算好`}
       onClick={() => void copy()}
     >
-      复制到 {APPS[app] ?? app}
+      {t("ui.misc.copy_to", { app: APPS[app] ?? app })}
     </Button>
   );
 }

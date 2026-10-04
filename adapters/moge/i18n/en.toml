@@ -1,0 +1,40 @@
+# MoGe's messages (adapters/moge) in English (the same keys as zh.toml).
+
+# ---- solving
+"I-MOGE-WEIGHTS" = "the weights of model {model}"
+"N-MOGE-NONORMALS" = "The MoGe model {model} has no normal output: normals are worked out from the differences of neighbouring points in the point cloud and are coarse at object edges"
+
+# ---- words
+
+[node."moge.depth"]
+subtitle = "Depth and Normals"
+description = "Image → metric-scale depth maps and normal maps per frame. When a focal length is given (fill in Known Focal Length, wire in the focal length of anycalib.calibrate, or wire a camera) it uses it, otherwise the model estimates it; every frame is computed on its own, so on a sequence the depth flickers slightly. For depth without flicker over the whole shot use videodepthanything.depth, and put both through depth_align to get depth that is both steady and metric. The point cloud is one patch per frame, each in that frame's own camera (the official native point map), not one scene point cloud solved for the whole shot."
+
+[node."moge.depth".param.model]
+label = "Model"
+
+[node."moge.depth".param.model.option]
+"Ruicheng/moge-3-vitl" = "Standard ViT-L"
+"Ruicheng/moge-3-vitg" = "Large ViT-G"
+
+[node."moge.depth".param.resolution_level]
+label = "Resolution Level"
+
+[node."moge.depth".port.normal]
+label = "Normal Map"
+
+[node."moge.depth".official]
+note = "The Camera output holds the intrinsics only (intrinsics, the docstring line v3.py:250); MoGe gives no extrinsics. Point Cloud is the model's own points (v3.py:248), not something we unproject from the depth"
+
+[extension.moge]
+summary = "Recovers 3D geometry from monocular open-domain images: metric-scale point maps, depth maps, normal maps and the camera's field of view"
+
+[extension.moge.license]
+name = "MIT"
+summary = "The code and the MoGe-3 weights (moge-3-vitl / moge-3-vitg) are all MIT, commercial use allowed; the DINOv2 backbone is Apache-2.0. The dependencies utils3d-moge and FlexGEMM are MIT too. utils3d-moge has an optional nvdiffrast (NVIDIA noncommercial) rasterization module that MoGe inference does not use; this extension does not install it"
+
+[extension.moge.weight.moge-3-vitl]
+note = "Ruicheng/moge-3-vitl (MIT)"
+
+[extension.moge.weight.moge-3-vitg]
+note = "Ruicheng/moge-3-vitg (MIT)"

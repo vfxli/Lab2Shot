@@ -1,9 +1,0 @@
-# MapAnything 扩展包（adapters/mapanything）的消息。一行一条：编号 = 模板。
-
-# ---- 重建（worker.py）
-"N-MAPANYTHING-FEWERFRAMES" = "「每段最多帧数」{requested} 是按 16:9 画幅量的，这个画幅一次最多 {limit} 帧：这次按 {limit} 帧分段（分段更多、重叠处更多）"
-"E-MAPANYTHING-NOOVERLAP" = "MapAnything 第 {segment} 段和上一段的重叠帧里没有足够的可靠像素，两段对不齐：把「每段最多帧数」调大（分段更少、重叠更多）再算"
-"W-MAPANYTHING-SEAM" = "MapAnything 第 {segment} 段和上一段对齐后还差 {residual:.1%}（相对景深）：分段处相机可能跳一帧。把「每段最多帧数」调大，分段更少"
-"W-MAPANYTHING-SEAMSCALE" = "MapAnything 第 {segment} 段和上一段估的尺度相差 {scale:.2f} 倍：分段处深度值和相机位置会跳变。把「每段最多帧数」调大，分段更少"
-"N-MAPANYTHING-NONCOMMERCIAL" = "「模型」选的是 MapAnything main 权重（精度更高）：它是 CC-BY-NC-4.0 许可，结果只能用于研究，不能交给商业项目；要商用请换成 apache 权重"
-"W-MAPANYTHING-FOCALMISMATCH" = "MapAnything 自己估的 Focal Length（中位数 {model:.0f} px）和给定的 Focal Length {given:.0f} px 差了 {diff:.0%}：深度图和相机是按模型自己的 Focal Length 算的，可能不准。检查「已知 Focal Length」填的是不是这段素材的实拍 Focal Length（Filmback 也要对）"

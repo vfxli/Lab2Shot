@@ -1,12 +1,18 @@
+import { useMemo } from "react";
 import { create } from "zustand";
 import type { NodeStatus as Status, Plan, StatusReply } from "../api";
 import type { Output } from "../api/files";
 import type { StorageGate } from "../api/library";
 import type { JobProgress } from "../api/progress";
 import type { Message } from "../messages/message";
-import { useCookInputs } from "./cookInputs";
+import type { ExposedParam } from "../api/catalog";
+import { isBlocked, switchedOffNodes, type Note } from "../model/nodeOutcome";
+import { shownTarget, splitTarget, targetsOf } from "../model/targets";
+import { useCookInputs, type Wire } from "./cookInputs";
+import { pendingNodes, type Answered, type PendingInputs } from "../model/pending";
 import { useLook } from "./look";
 import { rememberGood } from "./stale";
+import { shared } from "../model/graphPatch";
 import { setGens } from "../transfer/gens";
 
 
@@ -21,12 +27,18 @@ import { setGens } from "../transfer/gens";
  * by the parameter panel, the node's body and the buttons) stays unchanged instead of flickering (graph/rules.ts
  * pendingPorts); what a cook decision depends on (cached, errors, policy) is read only while trusted.
  *
+ * What the page SHOWS from a reply (values, sources, overrides, a wire's value, greyed rows, a port's value, the data
+ * card) follows one rule, defined here only: the last reply, never emptied while an edit waits for the next one, with
+ * the nodes it may no longer be right about marked `pending` (shownOf / useShownResults: the node edited, or one with
+ * a wire in or out changed, and everything downstream of it). The node's state cell says 「待更新」 for them and the
+ * values are drawn faint; nothing disappears and comes back.
+ *
  * Opening another graph clears results, per-node cook status and outputs: `outputs` is keyed by
  * `graphId:nodeId` and `reset()` is called from graph/document.ts's loadGraph. */
 
 export interface NodeCookStatus {
   status: import("./graph").NodeStatus;
-  note: string; // stage / progress / error text shown on the node
+  note: Note; // stage / progress / error text shown on the node, said when shown (model/nodeOutcome.ts noteText)
   blocked?: string; // why it cannot be cooked yet (determined before anything is sent to the server)
 }
 
@@ -46,8 +58,13 @@ export const outputKey = (graphId: string, node: string) => `${graphId}:${node}`
 
 interface State {
   reply: StatusReply | null; // the latest accepted status reply (kept after it stops answering the current version)
-  results: Record<string, Status>; // its nodes (a cook's messages are added as they arrive)
+  // its nodes (a cook's messages are added as they arrive): what is SHOWN (Shown.results is this very record, so a narrow
+  // selector of one node's field reads the shown answer); a decision reads useTrustedResults
+  results: Record<string, Status>;
   forCookInputs: number; // the cookInputs.version that `reply` answers (older versions may no longer hold)
+  // the cook inputs the last trusted reply answered (their nodes, wires and frame range): what `pending` compares the
+  // current ones with (null: none yet)
+  answered: Answered | null;
   plan: Plan | null; // the shown node's plan, from `reply` (plan.node: which node it is for); read only through planOf
   planPort: string | null; // which of that node's outputs the plan was asked for (the request's show; null its main output)
   // Why the server refused this graph, in its own text (its code and detail): the latest status request, or the last
@@ -78,6 +95,10 @@ interface State {
   // click and to those cook inputs: it persists until they change, not until the next status reply, because a reply
   // arrives on every edit and also on every view change (showing another node requests again), and showing another node does not change the cook inputs
   blockedAt: number;
+  // a click on a node's 「计算」 the page or the server refused (graph/actions.ts sayBlocked, submitRefused: a B- message):
+  // why, for those cook inputs. Its button is greyed with this under it (graph/actions.ts planError) until they change,
+  // so a card's 「计算并打包」 never just does nothing (the reason is not only in the log)
+  stopped: { node: string; version: number; message: Message } | null;
   // `${graphId}:${node}` -> what that 「输出」 last packed (its own cook finished: its zip is there to download). From the
   // output event of the job this page follows, or the server's list when the graph is opened (graph/outputs.ts)
   outputs: Record<string, Output>;
@@ -108,6 +129,7 @@ export const useResults = create<State>((set, get) => ({
   reply: null,
   results: {},
   forCookInputs: -1,
+  answered: null,
   plan: null,
   planPort: null,
   running: {},
@@ -119,6 +141,7 @@ export const useResults = create<State>((set, get) => ({
   storage: null,
   byNode: {},
   blockedAt: -1,
+  stopped: null,
   refused: null,
   outputs: {},
 
@@ -127,19 +150,23 @@ export const useResults = create<State>((set, get) => ({
     const had = get().reply?.handle_data;
     const hd = sent.handle_data;
     const reply = hd && !hd.handles && had?.handles && had.key === hd.key && had.node === hd.node ? { ...sent, handle_data: had } : sent;
-    set({ reply, results: reply.nodes, forCookInputs: reply.cook_inputs, plan: reply.plan, planPort: port, refused: null });
+    // each node's answer that is the same as before stays the very object: its node does not draw again for it
+    // (model/graphPatch.ts shared), so a reply redraws the nodes whose answer changed, not every node of the graph
+    const results = shared(get().results, reply.nodes);
+    const ci = useCookInputs.getState();
+    const trusted = reply.cook_inputs === ci.version; // the reply answers the current version: the node's parameters now are those of its result
+    set({ reply, results, forCookInputs: reply.cook_inputs, plan: reply.plan, planPort: port, refused: null,
+          ...(trusted ? { answered: { nodes: ci.nodes, edges: ci.edges, cookRange: ci.cookRange } } : {}) });
     // every packet's generation is part of the cache keys: a recomputed fingerprint's description is no longer valid
     const gens: Record<string, string> = {};
     for (const st of Object.values(reply.nodes))
       for (const [port, fp] of Object.entries(st.outputs ?? {})) if (st.gens?.[port]) gens[fp] = st.gens[port];
     setGens(gens);
     // remember the nodes that have packets (state/stale.ts: the 「过期」 state draws this record after parameters change)
-    const ci = useCookInputs.getState();
-    const trusted = reply.cook_inputs === ci.version; // the reply answers the current version: the node's parameters now are those of its result
     for (const [id, st] of Object.entries(reply.nodes)) rememberGood(ci.graphId, (n) => ci.nodes[n], ci.edges, id, st.fingerprint, st.outputs, st.present, trusted);
   },
-  // the server could not answer: nothing is trusted; the latest reply remains for drawing in the meantime
-  clearResults: () => set({ results: {}, forCookInputs: -1, plan: null, planPort: null, refused: null }),
+  // the server could not answer: nothing is trusted; the latest reply's nodes remain for drawing in the meantime (shownOf)
+  clearResults: () => set({ forCookInputs: -1, plan: null, planPort: null, refused: null }),
   setRefused: (why) => set({ refused: why }),
   applyNodeDone: (node, outputs) =>
     set((s) => {
@@ -168,7 +195,14 @@ export const useResults = create<State>((set, get) => ({
   setQueueSwitches: (sw) => set({ queueSwitches: sw }),
   setMaxFrames: (frames) => set({ maxFrames: frames }),
   setStorage: (storage) => set({ storage }),
-  setNodeStatus: (id, patch) => set((s) => ({ byNode: { ...s.byNode, [id]: { ...(s.byNode[id] ?? { status: "idle", note: "" }), ...patch } } })),
+  setNodeStatus: (id, patch) =>
+    set((s) => {
+      const cur = s.byNode[id];
+      // a patch that changes nothing (every reply clears every node's 「拦下」 mark) is no change of the store: no node
+      // redraws for it, and no subscriber is told
+      if (cur && (Object.keys(patch) as (keyof NodeCookStatus)[]).every((k) => cur[k] === patch[k])) return s;
+      return { byNode: { ...s.byNode, [id]: { ...(cur ?? { status: "idle", note: "" }), ...patch } } };
+    }),
   removeNodeStatus: (ids) =>
     set((s) => {
       const byNode = { ...s.byNode };
@@ -180,10 +214,82 @@ export const useResults = create<State>((set, get) => ({
   // justDone is kept by node id: left in place across documents, a node of the same id in the new document (nearly every
   // template has read and deliver) would flash 「✓ 完成」 on its button. submitting is not cleared: a 计算 clicked in the
   // previous document may still be uploading / submitting, and the latch must hold until it ends (graph/actions.ts cook)
-  reset: () => set({ reply: null, results: {}, forCookInputs: -1, plan: null, planPort: null, refused: null, running: {}, byNode: {}, blockedAt: -1, outputs: {}, justDone: null }),
+  reset: () => set({ reply: null, results: {}, forCookInputs: -1, answered: null, plan: null, planPort: null, refused: null, running: {}, byNode: {}, blockedAt: -1, stopped: null, outputs: {}, justDone: null }),
 }));
 
 const NO_RESULTS: Record<string, Status> = {};
+
+// ------------------------------------------------------------------ what is shown (the one rule)
+
+/** What the page shows from the server's answer: `results`, always the last reply's (kept while an edit waits for the
+ * next one), and `pending`, the nodes that answer may no longer be right about. Every display reads this; a decision
+ * (may it cook, is it cached) reads useTrustedResults instead. */
+export interface Shown {
+  results: Record<string, Status>;
+  pending: ReadonlySet<string>;
+}
+
+/** The nodes whose shown answer may be out of date: model/pending.ts pendingOf (the one rule), the last result kept
+ * (one entry): every node's selector asks the same question after one edit. */
+let lastPending: { args: unknown[]; out: ReadonlySet<string> } | null = null;
+export function pendingOf(ci: PendingInputs, forCookInputs: number, answered: Answered | null): ReadonlySet<string> {
+  const args = [ci.version, ci.nodes, ci.order, ci.edges, ci.cookRange, forCookInputs, answered];
+  if (lastPending && lastPending.args.every((a, i) => a === args[i])) return lastPending.out;
+  const out = pendingNodes(ci, forCookInputs, answered);
+  lastPending = { args, out };
+  return out;
+}
+
+/** shownOf for code outside a component. */
+export function shownNow(): Shown {
+  const r = useResults.getState();
+  return { results: r.results, pending: pendingOf(useCookInputs.getState(), r.forCookInputs, r.answered) };
+}
+
+/** What is shown (see Shown), for a component: recomputed when the results or the cook inputs change. */
+export function useShownResults(): Shown {
+  const results = useResults((s) => s.results);
+  const forCookInputs = useResults((s) => s.forCookInputs);
+  const answered = useResults((s) => s.answered);
+  const version = useCookInputs((s) => s.version);
+  const nodes = useCookInputs((s) => s.nodes);
+  const order = useCookInputs((s) => s.order);
+  const edges = useCookInputs((s) => s.edges);
+  const cookRange = useCookInputs((s) => s.cookRange);
+  const pending = useMemo(() => pendingOf({ version, nodes, order, edges, cookRange }, forCookInputs, answered),
+    [version, nodes, order, edges, cookRange, forCookInputs, answered]);
+  return useMemo(() => ({ results, pending }), [results, pending]);
+}
+
+/** Whether one node's shown answer waits for the next reply (its own selectors: a node redraws only when its answer
+ * changes, not on every edit elsewhere). */
+export function usePendingNode(id: string): boolean {
+  const now = () => {
+    const r = useResults.getState();
+    return pendingOf(useCookInputs.getState(), r.forCookInputs, r.answered).has(id);
+  };
+  const a = useResults(now);
+  const b = useCookInputs(now);
+  return a || b;
+}
+
+/** The node parameter an exposed entry speaks for now (model/targets.ts shownTarget: its first target on now), by the
+ * nodes the last answer found switched off (model/nodeOutcome.ts switchedOffNodes). One target: that one. */
+function shownTargetKey(x: Pick<ExposedParam, "target">, byNode: State["byNode"], edges: readonly Wire[]): string {
+  const all = targetsOf(x);
+  if (all.length < 2) return all[0] ?? "";
+  return shownTarget(x, switchedOffNodes(edges, (id) => isBlocked(byNode[id]))).join(".");
+}
+
+/** shownTargetKey for a component: redrawn only when the node it speaks for changes. */
+export function useShownTarget(x: Pick<ExposedParam, "target">): [string, string] {
+  const edges = useCookInputs((s) => s.edges);
+  return splitTarget(useResults((s) => shownTargetKey(x, s.byNode, edges)));
+}
+
+/** shownTargetKey for code outside a component. */
+export const shownTargetNow = (x: Pick<ExposedParam, "target">): [string, string] =>
+  splitTarget(shownTargetKey(x, useResults.getState().byNode, useCookInputs.getState().edges));
 
 /** The results while they answer the current cook inputs: an empty record once state/cookInputs.ts's version has moved
  * past the version these results answer ("拿不准就当要算"). Renaming the graph or laying out its parameter interface does not

@@ -39,22 +39,13 @@ class UniRig(Extension):
     name = "unirig"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "UniRig"
-    summary = "自动绑定的统一框架，给三维模型生成骨架并预测蒙皮权重，两件事分成两个阶段做"
     homepage = "https://zjp-shadow.github.io/works/UniRig/"
     source = GitSource(url=UNIRIG_URL, commit=UNIRIG_COMMIT)
     license = LicenseInfo(
         tag=COMMERCIAL,
-        name="MIT（UniRig 代码和权重）+ GPL-3.0（仓库里自带的 Michelangelo 形状编码器）",
         url="https://github.com/VAST-AI-Research/UniRig/blob/main/LICENSE",
-        summary=(
-            "可商用。UniRig 自己的代码和两个权重都是 MIT（权重在 Hugging Face VAST-AI/UniRig，模型卡写明 MIT），"
-            "训练数据是 Articulation-XL 2.0（从 Objaverse-XL 里筛出来的带骨骼模型）。"
-            "要注意：仓库里带的形状编码器 src/model/michelangelo 是 GPL-3.0（两个阶段都用它），"
-            "Pointcept 点云 transformer 是 MIT。GPL-3.0 不限制拿结果去做商业镜头，限制的是再分发这份软件本身；"
-            "Lab2Shot 只在本机运行、不分发它，所以交付物可以商用。"
-            "其余依赖：spconv Apache-2.0、FlashAttention BSD-3-Clause、Open3D MIT、trimesh MIT"
-        ),
     )
+    generative = False
     import_repo = None  # worker.py puts the composed tree (codebase.compose) on sys.path itself, not the checkout
     worker_modules = ("codebase.py", "runner.py")
     env = EnvSpec(
@@ -68,10 +59,8 @@ class UniRig(Extension):
     )
     weights = (
         Weight(key="unirig", kind="hf", source=WEIGHTS_REPO, revision=WEIGHTS_REV, dest="",
-               files=(SKELETON_CKPT, SKIN_CKPT),
-               note="UniRig 骨架网络（1.4 GB）和权重网络（4.6 GB），都在 Articulation-XL 2.0 上训练（MIT）"),
-        hf_file("facebook/opt-350m", OPT_REV, "config.json", key="opt-350m/config.json", dest="opt-350m/config.json",
-                note="facebook/opt-350m 的网络配置（只要这一个文件，骨架网络按它建结构，权重来自 UniRig 自己的检查点）"),
+               files=(SKELETON_CKPT, SKIN_CKPT)),
+        hf_file("facebook/opt-350m", OPT_REV, "config.json", key="opt-350m/config.json", dest="opt-350m/config.json"),
     )
 
     def worker_env(self) -> dict[str, str]:

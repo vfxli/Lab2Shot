@@ -1,4 +1,4 @@
-"""HTTP routes for 提交反馈 (storage is in lab2shot/feedback.py).
+"""HTTP routes for 提交反馈 (storage is in lab2shot/site/feedback.py).
 
 Each page submits the user's text together with the diagnostics it collected; the server appends its own
 (environment, the user's recent jobs, logs). The 用户反馈 section of the admin page lists, shows, downloads, marks
@@ -17,21 +17,22 @@ from fastapi import Request
 from fastapi.responses import FileResponse, Response
 
 from .routes import Access, Body, Limit, Router
-from .. import __version__, feedback, logs
+from .. import __version__, accounts, logs, roles
+from ..site import feedback
 from ..config import ROOT, machine_memory_gb
 from ..database import db
 from ..engine.resident import available_gb
 from ..engine.resident import pool as resident
-from ..errors import NotFound
+from ..errors import Forbidden, NotFound
 from ..messages import Msg
 from ..farm import farm
 from . import auth, owners, restart
-from .access import manages
+from .access import audit, manages
 from .available import hidden_of, strip
 from .farm import client_of
 
-admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])  # admin routes of this module, included by app.py
-router = Router(prefix="/api", tags=["用户反馈"])
+admin = Router(prefix="/api/admin", tags=["Admin (/admin page)"])  # admin routes of this module, included by app.py
+router = Router(prefix="/api", tags=["Feedback"])
 log = logs.get("admin")
 
 # Upper bound for the whole request: diagnostics, screenshots (base64 adds one third) and headroom for other fields.
@@ -44,9 +45,9 @@ def revision() -> str:
     try:
         out = subprocess.run(["git", "-C", str(ROOT), "describe", "--always", "--dirty"], capture_output=True, text=True,
                              timeout=5)
-        return out.stdout.strip() or "未知"
+        return out.stdout.strip() or "unknown"
     except (OSError, subprocess.SubprocessError):
-        return "未知"
+        return "unknown"
 
 
 def environment() -> dict:
@@ -79,7 +80,8 @@ class FeedbackIn(Body):
     images: list[dict] = []
 
 
-@router.post("/feedback", access=Access.user("提交反馈：只能写，不能读", limit=Limit(body=MAX_REQUEST)), summary="提交反馈：写的问题、类别、截图（最多 3 张，每张 5 MB 以内）和网页收集的诊断资料；服务器补上自己的环境、这个用户最近的任务和日志")
+@router.post("/feedback", access=Access.user("Submit feedback: write only, no read", limit=Limit(body=MAX_REQUEST)), summary="Submit feedback: the problem written, category, screenshots (at most 3, each under 5 MB) and diagnostics the "
+                                                                                                                             "page collected; the server adds its own environment and the user's recent jobs and logs")
 def submit(req: FeedbackIn, request: Request) -> dict:
     client = client_of(request, req.client)
     row = feedback.submit(req.text, req.category, client.user, client.full(), req.diagnostics, req.images, environment())
@@ -90,20 +92,21 @@ class JobsRequest(Body):
     jobs: list[str] = []
 
 
-@router.post("/feedback/jobs", access=Access.user("提交反馈前：看自己最近的任务"), summary="提交反馈前先看：服务器会附上的自己最近的任务（状态、出错信息），不含日志全文")
+@router.post("/feedback/jobs", access=Access.user("Before submitting feedback: your recent jobs", owned=owners.own_jobs, body_ids=("jobs",)), summary="Before submitting feedback: your recent jobs the server will attach (state, errors), without the full logs")
 def preview_jobs(req: JobsRequest, request: Request) -> dict:
     return {"jobs": [{k: j[k] for k in ("id", "title", "state", "submitted", "error")}
                      | {"error_log": bool(j["error_log"]), "server_log": len(j["server_log"])}
-                     for j in feedback.jobs_of(auth.me(request).id, req.jobs)],
+                     for j in feedback.jobs_of(auth.me(request).id, request.state.owned)],
             "environment": {k: v for k, v in environment().items() if k in ("version", "revision", "python", "platform")}}
 
 
-@router.get("/feedback/mine", access=Access.user("我的反馈：只有自己的，和管理员的回复"), summary="我的反馈：自己提交过的反馈（状态、管理员的回复），和几条有没看过的新回复或状态变化；不含诊断资料和内部备注，也从不含别人的")
+@router.get("/feedback/mine", access=Access.user("My feedback: only your own, with administrator replies"), summary="My feedback: the feedback you submitted (state, administrator replies) and how many new replies or state "
+                                                                                                                    "changes are unread; never diagnostics, internal notes or anyone else's")
 def mine(request: Request) -> dict:
     return feedback.mine(auth.me(request).id)
 
 
-@router.post("/feedback/mine/read", access=Access.user("我的反馈：看过了"), summary="看过了我的反馈：回复和状态变化不再算没看过")
+@router.post("/feedback/mine/read", access=Access.user("My feedback: read"), summary="My feedback read: replies and state changes no longer count as unread")
 def mine_read(request: Request) -> dict:
     return feedback.mark_read(auth.me(request).id)
 
@@ -111,31 +114,35 @@ def mine_read(request: Request) -> dict:
 # ------------------------------------------------------------------ admin
 
 
-@admin.get("/feedback", access=Access.admin("feedback.reply"), summary="用户反馈：按时间倒序，可按状态（new/seen/solved）、时间段、账号的名字筛选；和各状态的条数")
-def listing(request: Request, status: str = "", since: float | None = None, until: float | None = None, person: str = "") -> dict:
+@admin.get("/feedback", access=Access.admin("feedback.reply"), summary="User feedback, newest first, filtered by state (new/seen/solved), rating (unrated / valid / invalid), period, "
+                                                                       "account name; with the count of each state and each rating")
+def listing(request: Request, status: str = "", since: float | None = None, until: float | None = None, person: str = "",
+            rating: str = "") -> dict:
     s = auth.session(request)  # only the feedback of accounts this login manages, counted as listed
-    return feedback.listing(status or None, since, until, person, seen=lambda owner: manages(s, owner))
+    return feedback.listing(status or None, since, until, person, seen=lambda owner: manages(s, owner),
+                            rating=None if not rating else "" if rating == "unrated" else rating)
 
 
-# what a feedback's diagnostics say of the whole server, not of its sender (lab2shot/feedback.py submit): each only for
+# what a feedback's diagnostics say of the whole server, not of its sender (lab2shot/site/feedback.py submit): each only for
 # whoever may see it there (available.py FIELDS), in its detail and in its download alike
 DIAGNOSTICS = {"logs.view": ("bundle.server.server_log",), "farm.cards": ("bundle.server.gpus",),
                "models.manage": ("bundle.server.resident",)}
 
 
-@admin.get("/feedback/{fid}", access=Access.admin("feedback.reply", owned=owners.feedback, hides=DIAGNOSTICS), summary="一条反馈的全部：写的问题、截图、诊断资料（节点图、日志、错误、任务和出错日志、环境）")
+@admin.get("/feedback/{fid}", access=Access.admin("feedback.reply", owned=owners.feedback, hides=DIAGNOSTICS), summary="All of one feedback: the problem written, screenshots, diagnostics (graph, logs, errors, jobs and their error "
+                                                                                                                       "logs, environment)")
 def detail(fid: str, request: Request) -> dict:
     return feedback.detail(fid)
 
 
-@admin.get("/feedback/{fid}/files/{name}", access=Access.admin("feedback.reply", owned=owners.feedback), summary="反馈附的截图")
+@admin.get("/feedback/{fid}/files/{name}", access=Access.admin("feedback.reply", owned=owners.feedback), summary="A screenshot attached to feedback")
 def image(fid: str, name: str, request: Request) -> FileResponse:
     if name not in request.state.owned["images"]:
         raise NotFound(Msg("E-FEEDBACK-NOSHOT"))
     return FileResponse(feedback.folder(fid) / name)
 
 
-@admin.get("/feedback/{fid}/download", access=Access.admin("feedback.reply", owned=owners.feedback), summary="把整条反馈下载成一个 zip：feedback.json（问题、谁、状态、诊断资料）和截图")
+@admin.get("/feedback/{fid}/download", access=Access.admin("feedback.reply", owned=owners.feedback), summary="Download one feedback whole as a zip: feedback.json (problem, who, state, diagnostics) and screenshots")
 def download(fid: str, request: Request) -> Response:
     row = request.state.owned
     stamp = time.strftime("%Y%m%d-%H%M", time.localtime(row["at"]))
@@ -156,12 +163,41 @@ class AnswerRequest(Body):
     note: str = ""  # visible to administrators only
 
 
-@admin.put("/feedback/{fid}", access=Access.admin("feedback.reply", owned=owners.feedback), summary="回应一条反馈：状态（新 / 已看 / 已解决）和给用户的回复（用户在「我的反馈」里看到），和只有管理员看得到的内部备注")
+@admin.put("/feedback/{fid}", access=Access.admin("feedback.reply", owned=owners.feedback), summary="Answer one feedback: state (new / seen / solved), the reply to the user (seen in My Feedback) and internal "
+                                                                                                    "notes only administrators see")
 def answer(fid: str, req: AnswerRequest, request: Request) -> dict:
     return feedback.answer(fid, req.status, req.reply, req.note, auth.actor(request))
 
 
-@admin.delete("/feedback/{fid}", access=Access.admin("feedback.delete", owned=owners.feedback), summary="删除一条反馈（连同截图和诊断资料；数据库备份里的留到备份轮换掉）")
+class RateRequest(Body):
+    rating: str  # "" 未评定 / valid 有效 / invalid 无效
+
+
+@admin.put("/feedback/{fid}/rating", access=Access.admin("feedback.reply", owned=owners.feedback), summary="Rate one feedback: unrated / valid / invalid (apart from its state). Valid counts toward the sending account's "
+                                                                                                           "valid feedback reward (every set number of them extends the account's expiry by the set number of days); "
+                                                                                                           "changing valid to something else takes that reward back by the ledger; written to the admin action log")
+def rate(fid: str, req: RateRequest, request: Request) -> dict:
+    s = auth.session(request)
+    done = feedback.rate(fid, req.rating, auth.actor(request))
+    row = done["feedback"]
+    audit(Msg("I-AUDIT-FEEDBACKRATED", who=s.user.label, role=roles.word(s.user.role), username=row["username"] or row["person"],
+              id=fid, rating=row["rating_label"], said=done["said"]),
+          about=row["user"], session=s, method="PUT", path=str(request.url.path))
+    return done
+
+
+@admin.get("/users/{user_id}/rewards", access=Access.admin("feedback.reply"), summary="One account's valid feedback reward: how many valid feedbacks, how many days the standing rewards added in "
+                                                                                      "all, how many more to the next one, and the ledger of each reward and revocation")
+def rewards(user_id: int, request: Request) -> dict:
+    u = accounts.get(user_id)
+    s = auth.session(request)
+    if not manages(s, u.id, u.role):
+        raise Forbidden(Msg("E-ROLES-NOTYOURS", role=roles.label(s.user.role), username=u.username, target=roles.label(u.role)))
+    return feedback.rewards_of(user_id)
+
+
+@admin.delete("/feedback/{fid}", access=Access.admin("feedback.delete", owned=owners.feedback), summary="Delete one feedback (with its screenshots and diagnostics; copies in database backups stay until the backups "
+                                                                                                        "rotate out)")
 def delete(fid: str, request: Request) -> dict:
     feedback.delete(fid, auth.actor(request))
     return {"ok": True}

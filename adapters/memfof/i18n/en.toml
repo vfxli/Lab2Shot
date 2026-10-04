@@ -1,0 +1,35 @@
+# This extension's own words and messages in English (the same keys as zh.toml).
+
+# ---- words
+
+[stage]
+compute_flow = "Compute Optical Flow ({width}×{height})"
+flow = "Optical Flow"
+
+[node."memfof.flow"]
+subtitle = "Motion Vectors"
+description = "MEMFOF from MSU: looks at three frames together and computes, in one pass, each frame's motion vectors to the next and to the previous frame (Nuke's motion channels, pixels per frame). It handles 1080p whole frames without tiling, is light on GPU memory, and allows commercial use. Follow it with occlusion_from_motion for occlusion, and with motion_warp or stmap_from_motion for frame interpolation and paint propagation."
+
+[node."memfof.flow".param.resolution]
+label = "Working Resolution"
+placeholder = "Original Size"
+
+[node."memfof.flow".param.resolution.option]
+960 = "960"
+1920 = "1920"
+
+[node."memfof.flow".official]
+note = "Three frames go in together, and the forward and backward vectors of the middle frame come out together (model.py:108, \"flow: List of flow predictions of shape [B, 2, 2, H, W]\"); both directions are in our motion vector packet, not two ports."
+
+[extension.memfof]
+summary = "A memory-efficient optical flow method for Full HD video: high accuracy with low GPU memory use"
+
+[extension.memfof.license]
+name = "BSD-3-Clause"
+summary = "Code and weights (the Hugging Face model card states bsd-3-clause) are both BSD-3: commercial use, modification and redistribution are allowed as long as the copyright notice is kept. Only the authors' own weights are used, not the ones retrained by PTLFlow (those are CC BY-NC-SA, noncommercial)"
+
+[extension.memfof.weight.memfof_tskh]
+note = "MEMFOF-Tartan-T-TSKH (BSD-3, 303 MB; recommended by the authors for real footage)"
+
+[extension.memfof.weight.memfof_tskh_config]
+note = "MEMFOF network configuration"

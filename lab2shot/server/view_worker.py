@@ -28,6 +28,7 @@ import zlib
 from collections import OrderedDict, deque
 
 from .. import logs
+from .words import Word
 from ..errors import NotFound, Unavailable, Unviewable
 from ..messages import Msg
 
@@ -118,7 +119,7 @@ def _ahead_loop() -> None:
             for k in range(count):
                 _ahead.run(who, how, "store", (k,))
         except Exception as exc:  # noqa: BLE001 (made ahead only to be faster: the chunks are still made on request)
-            logs.say(log, Msg("E-VIEW-FAILED", detail=f"预先生成三维显示数据：{exc}"), about=str(how))
+            logs.say(log, Msg("E-VIEW-FAILED", detail=f"building 3D view data ahead: {exc}"), about=str(how))
             with _ahead_guard:  # asked again the next time it is looked at (nothing here reads the disk: this thread
                 _ahead_seen.pop(key, None)  # serves no account, and a failure while failing would end it)
 
@@ -194,7 +195,7 @@ class _Lane:
         with self.lock:
             self.start()
             self.conn.send((tuple((k, os.environ.get(k)) for k in ENV), _settings_now(), who, how, op, arg))
-            reply = self.wait(BUILD_S, "准备三维显示数据")
+            reply = self.wait(BUILD_S, Word("server.view.building"))
         return self._value(how, reply)
 
     def _take_turns(self) -> None:
@@ -250,7 +251,7 @@ class _Lane:
         self.proc = ctx.Process(target=_serve, args=(child,), daemon=True, name="lab2shot-view")
         self.proc.start()
         child.close()
-        self.wait(START_S, "启动三维显示的进程")
+        self.wait(START_S, Word("server.view.starting"))
 
     def wait(self, seconds: float, doing: str):
         deadline = time.monotonic() + seconds
@@ -366,7 +367,7 @@ def _serve(conn) -> None:
                 # demand, so a discarded view is rebuilt on the next request.
                 s = settings()
                 for k, v in conf:
-                    s.command[k] = (v, "服务器设置")
+                    s.command[k] = (v, "server")
                     if k in s.running:
                         s.running[k] = v
                 views.clear()

@@ -1,0 +1,35 @@
+# The UniRig extension's own words and messages in English (the same keys as zh.toml).
+"E-UNIRIG-SKELETONFAILED" = "UniRig's skeleton step failed (exit code {code}): the reason is in this cook's worker log"
+"E-UNIRIG-SKINFAILED" = "UniRig's skin weights step failed (exit code {code}): the reason is in this cook's worker log"
+"E-UNIRIG-FRAME" = "Cannot match UniRig's internal normalized coordinates (residual {residual}): the adapter solves them as a uniform scale + translate, and UniRig's normalization does not fit. Do not use this result yet"
+"E-UNIRIG-FRAMEPOINTS" = "Cannot match UniRig's internal normalized coordinates: the points before and after normalization do not correspond ({before} before, {after} after, or all points coincide), so they cannot be solved. Do not use this result yet"
+"N-UNIRIG-SIMPLIFIED.one" = "The mesh has {faces} face; as UniRig itself does, it is reduced to {used} before solving the skeleton and skin weights. The skin weights are then spread back onto every vertex of the original mesh: no face is lost"
+"N-UNIRIG-SIMPLIFIED.other" = "The mesh has {faces} faces; as UniRig itself does, it is reduced to {used} before solving the skeleton and skin weights. The skin weights are then spread back onto every vertex of the original mesh: no face is lost"
+
+[node."unirig.auto_rig"]
+subtitle = "Auto Rig"
+description = "UniRig: generates a skeleton for an unrigged mesh and paints its skin weights, giving a skinned character that can move. People, animals and props use the same model (trained on Articulation-XL 2.0); the skeleton is written bone by bone by an autoregressive transformer, so it is always a valid joint hierarchy, and a different Random Seed gives a different skeleton. The mesh, UVs, groups and materials are kept as they are; only the skeleton and skinning are added. The model names bones bone_0, bone_1… (the published model weights carry no part names); on output, body parts are recognized from the skeleton's shape and renamed to Maya HumanIK / Mixamo names (Hips, LeftArm…), which HumanIK recognizes directly; the original names can be kept instead."
+official.note = "The one Skinned Character output is upstream's predict_skin.npz from the second stage (RawSkin: skin / vertices / joints, src/system/skin.py:277-278) plus predict_skeleton.npz from the first (joints / parents / names, src/system/ar.py:343-345): upstream builds a working rig from these two npz files and produces nothing else."
+cost.whole = "One cook per mesh, not per frame: the skeleton and skin weights stages each run once, about a minute"
+
+[node."unirig.auto_rig".param.seed]
+label = "Random Seed"
+
+[node."unirig.auto_rig".param.template]
+label = "Skeleton Template"
+help = "For humanoid characters choose Humanoid: bones follow the VRoid template. With Auto the model decides the skeleton itself. Both name the output bones by Bone Naming. Use Auto for animals, props and other non-humanoids."
+option.auto = "Auto (model decides)"
+option.vroid = "Humanoid (VRoid template)"
+
+[extension.unirig]
+summary = "A unified framework for automatic rigging: generates a skeleton for a 3D mesh and predicts skin weights, in two stages"
+license.name = "MIT (UniRig code and model weights) + GPL-3.0 (the Michelangelo shape encoder bundled in the repository)"
+license.summary = "Commercial use allowed. UniRig's own code and both model weights are MIT (the weights are on Hugging Face at VAST-AI/UniRig, whose model card states MIT); the training data is Articulation-XL 2.0 (rigged models filtered from Objaverse-XL). Note: the shape encoder bundled in the repository, src/model/michelangelo, is GPL-3.0 (used by both stages); the Pointcept point cloud transformer is MIT. GPL-3.0 does not restrict using results in commercial shots; it restricts redistributing this software itself. Lab2Shot only runs it locally and does not distribute it, so deliverables can be used commercially. Other dependencies: spconv Apache-2.0, FlashAttention BSD-3-Clause, Open3D MIT, trimesh MIT"
+weight.unirig.note = "UniRig skeleton network (1.4 GB) and skin weights network (4.6 GB), both trained on Articulation-XL 2.0 (MIT)"
+weight."opt-350m/config.json".note = "Network config of facebook/opt-350m (only this file: the skeleton network builds its structure from it; the weights come from UniRig's own checkpoint)"
+
+[stage]
+prepare_mesh = "Prepare Mesh"
+generate_skeleton = "UniRig: Generate Skeleton"
+predict_skin = "UniRig: Predict Skin Weights"
+transfer_skin = "Transfer Skin Weights to the Full Mesh"

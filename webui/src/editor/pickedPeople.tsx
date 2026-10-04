@@ -8,16 +8,17 @@
 
 import type { BoxesData } from "../api";
 import { useDescribed } from "../transfer/described";
-import { useGraphSnapshot } from "../graph/snapshot";
+import { useGraphDoc } from "../graph/snapshot";
 import { handlesOf } from "../graph/rules";
 import { pickChips, pickSummary } from "../model/pickChips";
 import { handleSourceFp } from "../view/plan";
+import { peopleHandle } from "../view/handles2d";
 
 /** 这个节点「点选」参数（`param`）的手柄输入上的人物框：null = 还没有（没接、没算、是列表）。 */
 export function usePickBoxes(nodeId: string, param: string): BoxesData | null {
-  const snap = useGraphSnapshot();
-  const handle = handlesOf(snap, nodeId).find((h) => h.kind === "person" && Object.values(h.params).includes(param))
-    ?? snap.nodeDefs[snap.nodes.find((n) => n.id === nodeId)?.data.typeId ?? ""]?.handles.find((h) => h.kind === "person" && Object.values(h.params).includes(param));
+  const snap = useGraphDoc();
+  const handle = peopleHandle(handlesOf(snap, nodeId), param)
+    ?? peopleHandle(snap.nodeDefs[snap.nodes.find((n) => n.id === nodeId)?.data.typeId ?? ""]?.handles, param);
   const src = handle?.source ? handleSourceFp(snap, nodeId, handle.source) : null;
   const fp = src && !src.list ? src.fp : null;
   return useDescribed<BoxesData>("boxes", fp ? [fp] : [])[0] ?? null;
@@ -25,8 +26,8 @@ export function usePickBoxes(nodeId: string, param: string): BoxesData | null {
 
 /** 节点上「选人」点选的摘要一行（GraphNode.tsx）：点人手柄现在生效（mode = 点选）且点过时画「点选：2 号、3 号」。 */
 export function NodePickSummary({ nodeId }: { nodeId: string }) {
-  const snap = useGraphSnapshot();
-  const handle = handlesOf(snap, nodeId).find((h) => h.kind === "person");
+  const snap = useGraphDoc();
+  const handle = peopleHandle(handlesOf(snap, nodeId));
   const param = handle ? Object.values(handle.params)[0] : "";
   const picks = (snap.nodes.find((n) => n.id === nodeId)?.data.params[param] as string[] | undefined) ?? [];
   const boxes = usePickBoxes(nodeId, param);

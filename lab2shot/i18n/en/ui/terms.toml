@@ -1,0 +1,16 @@
+# The terms page (webui/src/terms.tsx). Keys ui.terms.<…>.
+[ui.terms]
+quoted = "{title}"
+agree_box = "I have read and agree to the"
+agreement = "Terms of Service"
+and = "and"
+privacy = "Privacy Policy"
+both = "Terms of Service and Privacy Policy"
+both_changed = "The Terms of Service and Privacy Policy Have Changed"
+changed_lede = "There are new versions of the Terms of Service and the Privacy Policy. Read and agree to them to carry on: what you were doing on the page is still there."
+lede = "Before you start, read the Terms of Service and the Privacy Policy; you can carry on once you agree."
+version = " (version {version})"
+need_tick = "Read them and tick the box first"
+submitting = "Submitting…"
+agree = "Agree and Continue"
+log_out = "Log Out"

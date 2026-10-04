@@ -8,6 +8,8 @@ import { Loading } from "../ui/Loading";
 import { reasonOf } from "../messages/message";
 import { whenText } from "../platform/format";
 import "./rights.css";
+import { t } from "../i18n/t";
+import { tipOf } from "../platform/tips";
 
 /** 二级管理员权限：一级管理员为二级管理员开放的权限，每一项为可查看、可修改或不可见。
  *
@@ -35,7 +37,7 @@ export function Rights({ applies }: { applies: Availability | null | undefined }
   }, [may]);
 
   if (!may) return null;
-  if (problem) return <div className="notice" role="alert">没读到二级管理员的权限表：{problem}</div>;
+  if (problem) return <div className="notice" role="alert">{t("ui.admin.rights.unread", { problem })}</div>;
   return (
     <>
       {(view?.sheets ?? [null]).map((s, i) => (
@@ -52,25 +54,26 @@ function RightsBand({ sheet, applies, onChanged }: {
   onChanged: (v: RightsView) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const name = sheet?.label ?? "二级管理员";
+  const name = sheet?.label ?? t("ui.admin.rights.deputy");
   const summary = !sheet
     ? ""
-    : `现在有 ${sheet.count} / ${sheet.total} 条` +
-      (sheet.default ? "：还是默认那一份" : `：${sheet.updated_by || "管理员"} ${whenText(sheet.updated)}改的`);
+    : sheet.default
+      ? t("ui.admin.rights.summary_default", { count: sheet.count, total: sheet.total })
+      : t("ui.admin.rights.summary_changed", { count: sheet.count, total: sheet.total, who: sheet.updated_by || t("ui.admin.rights.admin"), when: whenText(sheet.updated) });
 
   return (
     <section className="rts">
       <div className="rts-head">
-        <h3>{name}权限</h3>
-        <span className="dim rts-sum" data-tip={sheet?.tip ?? "勾上哪些就能做哪些；一条都没勾的那一块，他的后台里不出现"}>
-          {sheet ? summary : <Loading what="权限" />}
+        <h3>{t("ui.admin.rights.title", { role: name })}</h3>
+        <span className="dim rts-sum">
+          {sheet ? summary : <Loading what={t("ui.admin.rights.loading")} />}
         </span>
         <Button
-          tip={usable(applies, "rights.edit") ? `分配${name}能做哪些事：勾上就有，去掉就没了，改完下一个请求就生效` : why(applies, "rights.edit")}
+          tip={usable(applies, "rights.edit") ? undefined : tipOf("disabled", why(applies, "rights.edit"))}
           disabled={!usable(applies, "rights.edit") || !sheet}
           onClick={() => setOpen(true)}
         >
-          分配权限
+          {t("ui.admin.rights.assign")}
         </Button>
       </div>
       {open && sheet && <RightsSheet sheet={sheet} onClose={() => setOpen(false)} onSaved={onChanged} />}
@@ -110,18 +113,18 @@ function RightsSheet({ sheet, onClose, onSaved }: {
   };
 
   return (
-    <Sheet title={`${sheet.label}权限`} width={560} onClose={onClose}>
+    <Sheet title={t("ui.admin.rights.title", { role: sheet.label })} width={560} onClose={onClose}>
       <div className="rts-form">
         <p className="rts-note">
-          勾上哪些，{sheet.label}就能做哪些。每条自己写着是「看」还是「改」；一条都没勾的那一块，他的后台里根本不出现。改完下一个请求就生效，他不用重新登录。
+          {t("ui.admin.rights.note", { role: sheet.label })}
         </p>
         <div className="rts-list">
           {sheet.groups.map((g) => (
             <div className="rts-group" key={g.label}>
               <h4>{g.label}</h4>
               {g.items.map((x) => (
-                <label className="rts-row" key={x.id} data-tip={x.what}>
-                  <Switch on={chosen.has(x.id)} mini label={x.label} tip={x.what} onChange={(on) => toggle(x.id, on)} />
+                <label className="rts-row" key={x.id}>
+                  <Switch on={chosen.has(x.id)} mini label={x.label} onChange={(on) => toggle(x.id, on)} />
                   <span className="rts-name">{x.label}</span>
                   <span className="rts-what dim">{x.what}</span>
                 </label>
@@ -135,15 +138,15 @@ function RightsSheet({ sheet, onClose, onSaved }: {
           </p>
         )}
         <div className="dialog-row">
-          <Button tip={`恢复成代码里那一份默认的 ${sheet.default_count} 条`} tone="ghost" disabled={!!busy} onClick={() => void run("default")}>
-            恢复默认
+          <Button tip={tipOf("consequence", t("ui.admin.rights.default_tip", { n: sheet.default_count }))} tone="ghost" disabled={!!busy} onClick={() => void run("default")}>
+            {t("ui.admin.common.restore_default")}
           </Button>
           <span className="rts-gap" />
-          <Button tip="不改了" tone="ghost" onClick={onClose}>
-            取消
+          <Button tone="ghost" onClick={onClose}>
+            {t("ui.admin.common.cancel")}
           </Button>
-          <Button tip={same ? "没有改动" : `保存：${sheet.label}马上就是这 ${picked.length} 条`} tone="primary" disabled={same || !!busy} onClick={() => void run("save")}>
-            {busy === "save" ? "保存中…" : "保存"}
+          <Button tip={same ? tipOf("disabled", t("ui.admin.common.unchanged")) : tipOf("consequence", t("ui.admin.rights.save_tip", { role: sheet.label, n: picked.length }))} tone="primary" disabled={same || !!busy} onClick={() => void run("save")}>
+            {busy === "save" ? t("ui.admin.common.saving") : t("ui.admin.common.save")}
           </Button>
         </div>
       </div>

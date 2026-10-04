@@ -2,7 +2,7 @@
 
 - An output-settings node says how one piece of data is written: its 名字 and its format's settings (「USD 输出设置」,
   「序列图输出设置」 …). Every format module gives its own, through one interface, OutputSettings below: the core's
-  pictures and data files (nodes/core/image_output.py, data_output.py), the USD module (lab2shot/formats/usd), the other
+  pictures, data files and Nuke scripts (lab2shot/formats/image, data_files, nuke), the USD module (lab2shot/formats/usd), the other
   3D formats in their extensions (lab2shot/nodes/formats.py). write() writes the files, named after the 名字
   (OutputSettings.out_file); they are the node's result (type files, cached like any other), shown in the viewer as what
   they were made from. A 3D one declares per kind of 3D data what its format holds (`writes`): a kind it can't hold is
@@ -27,6 +27,7 @@ from typing import Any, ClassVar, Literal
 
 from ..errors import Invalid
 from ..io.files import inside
+from .. import i18n
 from ..messages import Msg
 from .base import NodeDef, P, Port
 from .clipboard import Pasteable, clipboard_meta
@@ -59,7 +60,7 @@ def marked(name: str, projects: list[str]) -> str:
 
 
 FILES = "files"  # the data type of what a settings node gives 「输出」: the files it wrote
-FILES_OUT = Port("files", FILES, "文件")
+FILES_OUT = Port("files", FILES)
 
 
 # what a file name may not hold (Windows' reserved characters, the separators, control characters)
@@ -93,7 +94,7 @@ def file_name(name, label: str, error: type[Exception] | None = None) -> str:
 
 def name_param(default: str) -> Any:
     """A settings node's 名字: 「输出」 puts its files in a sub-folder of that name and names them after it."""
-    return P(default, label="名字", group="文件", unique=True)
+    return P(default, group="file", unique=True)
 
 
 # 交付的帧率（另一处要帧率的是动作模型节点，data/units.py DEFAULT_FPS 的说明）。只有文件本身按时间存的格式要它
@@ -102,10 +103,10 @@ def fps_param(*, applies=None) -> Any:
     """A settings node's 帧率, when its format stores time: written onto the file it delivers, nothing else."""
     from ..data.units import DEFAULT_FPS
 
-    return P(DEFAULT_FPS, label="帧率", unit="fps", group="文件", gt=0, applies=applies)
+    return P(DEFAULT_FPS, unit="fps", group="file", gt=0, applies=applies)
 
 
-TAKE = "core.take"  # 「按种类取出」: a scene by kind (nodes/core/scene.py Take), the fix for a wire that carries some kinds a format holds
+TAKE = "split_scene"  # 「按种类取出」: a scene by kind (nodes/core/scene.py Take), the fix for a wire that carries some kinds a format holds
 
 
 @dataclass(frozen=True)
@@ -140,9 +141,27 @@ class Writes:
         return self.how == "full" or (self.how == "static" and kind != DEFORMING)
 
 
+@dataclass(frozen=True)
+class Format:
+    """The file format an output-settings node writes, as whoever submits names it (OutputSettings.format): `name` the
+    short word of the outside contract (`POST /api/jobs formats`, a plugin's preference table: fbx, alembic, usd …),
+    `label` how a person reads it. Declared by the node, never worked out from its type id or its label: renaming either
+    leaves the contract as it is. Every output-settings node declares one, no two the same name (`lab2shot check`
+    formats). `label` is format.<name> (lab2shot/i18n: the core's, or the extension's own catalogue), in the language
+    now."""
+
+    name: str
+
+    @property
+    def label(self) -> str:
+        from .. import i18n
+
+        return i18n.Both.of(lambda: i18n.lookup(f"format.{self.name}") or self.name)  # every language (messages)
+
+
 class OutputSettings(Pasteable, NodeDef):
     """A format module's settings node: how one piece of data is written. A subclass declares its inputs, its
-    Params (with `name = name_param("默认名字")` and its format's settings), for 3D data `writes`, and write()."""
+    Params (with `name = name_param("default_name")` and its format's settings), for 3D data `writes`, and write()."""
 
     # 每个子类自己声明它写的是哪一类（categories.py 的「输出」下面：三维 / 画面与数据），
     # 基类不替它猜——漏了就是没分类（节点菜单按 menu/nodes.json 归类，不看它）
@@ -151,6 +170,8 @@ class OutputSettings(Pasteable, NodeDef):
     # shows it (支持的数据); a wire carrying a kind it can't hold is a wiring problem (refuses),
     # and what reaches write() anyway (a scene the graph could not tell) fails the cook with the same words
     writes: ClassVar[dict[str, Writes]] = {}
+    # the format it writes (Format above): a 3D one's name is what a client asks for (engine/deliver_formats.py)
+    format: ClassVar[Format | None] = None
     # 「复制到 Nuke」 is declared by the Pasteable mixin (nodes/clipboard.py): an output-settings node writes the
     # snippet as one of its delivered files, so `clipboard_file` says which suffix it is and files_packet records it.
     # Nothing else in the core knows the application or the format
@@ -165,11 +186,26 @@ class OutputSettings(Pasteable, NodeDef):
     def out_file(cls, ctx, suffix: str, frame: int | None = None) -> Path:
         """Where the node writes a file: named after its 名字, marked when a model made what it writes (marked:
         名字_ML_Lab2Shot_ViPE.usd; a sequence: one per frame, 名字_ML_Lab2Shot_SAM3.1001.exr, frame numbers as they
-        are, four digits at least) in its files packet, which 「输出」 delivers. The one place a delivered file is named."""
+        are, with as many digits as the plate's: frame_digits) in its files packet, which 「输出」 delivers. The one place
+        a delivered file is named."""
         name = cls.stem(ctx)
         # the graph's check keeps 名字 one plain file name (engine/graph.py check_delivery); `inside` makes sure the file
         # lands in the node's own result folder even if a name got past it
-        return inside(ctx.outputs["files"], f"{name}.{frame:04d}{suffix}" if frame is not None else f"{name}{suffix}")
+        return inside(ctx.outputs["files"],
+                      f"{name}.{frame:0{cls.frame_digits(ctx)}d}{suffix}" if frame is not None else f"{name}{suffix}")
+
+    @classmethod
+    def frame_digits(cls, ctx) -> int:
+        """How many digits a delivered sequence's frame numbers have: the plate's (data/contracts.py SHOT_KEYS
+        padding, as its reader found them; 0 unpadded), from the first input in port order that says it, else 4
+        (a plate that is not a numbered sequence: a video, a scene)."""
+        from ..data.contracts import NOT_SAID
+
+        for packets in ctx.inputs.values():
+            for p in packets:
+                if "padding" in p.meta:
+                    return int(p.meta["padding"])
+        return int(NOT_SAID["padding"])
 
     @classmethod
     def stem(cls, ctx) -> str:
@@ -179,8 +215,15 @@ class OutputSettings(Pasteable, NodeDef):
 
     @classmethod
     def sequence_main(cls, ctx, suffix: str) -> str:
-        """A sequence's main file as write() returns it, its #### pattern: the name out_file gives each frame."""
-        return f"{cls.stem(ctx)}.####{suffix}"
+        """A sequence's main file as write() returns it, its #### pattern (one # per digit, as Nuke reads it): the name
+        out_file gives each frame."""
+        return f"{cls.stem(ctx)}.{'#' * max(cls.frame_digits(ctx), 1)}{suffix}"
+
+    @classmethod
+    def file_colorspace(cls, ctx) -> str:
+        """The colour space the node wrote its pictures in, told in the delivery's manifest (transfer/outputs.py: each
+        output's `colorspace`, read by the DCC plugins); "" when it wrote no picture (values, 3D data, text)."""
+        return ""
 
     @classmethod
     def files_packet(cls, ctx, main: str) -> dict:
@@ -200,6 +243,7 @@ class OutputSettings(Pasteable, NodeDef):
         return {"files": Packet(out, FILES, {"name": name, "main": main, "files": written, "commercial": prov["commercial"],
                                              "learned": learned_projects(prov),
                                              "made_from": made_from if made_from in DATA_TYPES else "",
+                                             "colorspace": cls.file_colorspace(ctx),
                                              **(clipboard_meta(cls.clipboard, snippet) if snippet else {})})}
 
     @classmethod
@@ -232,9 +276,9 @@ class OutputSettings(Pasteable, NodeDef):
             if w.takes(kind):
                 continue
             label = kind_label(kind)
-            others = [f"「{t.label}」" for t in node_types().values() if t is not cls and issubclass(t, OutputSettings)
+            others = [i18n.t("text.quote", text=t.subtitle) for t in node_types().values() if t is not cls and issubclass(t, OutputSettings)
                       and t.writes and t.writes_of(kind).takes(kind)]
-            fixes = ([Msg("E-OUTPUT-FIXVIA", node=node_types()[w.via].label)] if w.via in node_types() else []) + \
+            fixes = ([Msg("E-OUTPUT-FIXVIA", via=node_types()[w.via].subtitle)] if w.via in node_types() else []) + \
                     ([Msg("E-OUTPUT-FIXOTHER", kind=label, nodes=_either(others, "E-OUTPUT-OR"))] if others else []) + \
                     ([Msg("E-OUTPUT-FIXUNPACK", kind=label)] if packed else [])
             if not fixes:

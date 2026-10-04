@@ -135,7 +135,7 @@ def make_backend(job) -> Backend:
 
 
 def main(job_path: str) -> None:
-    run(job_path, "vggt.reconstruct", make_backend)
+    run(job_path, "vggt.reconstruct", make_backend, model="VGGT")
 
 
 if __name__ == "__main__":

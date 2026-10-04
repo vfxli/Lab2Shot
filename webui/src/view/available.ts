@@ -2,7 +2,7 @@ import { resolveLocal, type Availability } from "../api/applies";
 import { msg, textOf } from "../messages/message";
 import { VIEW_CONTROLS, WHY_OFF, type ViewControl, type ViewFacts } from "../model/viewControls";
 
-/** 视图控件可用性的统一计算处（声明表见 model/viewControls.ts，中文模板见消息目录 lab2shot/messages/web.toml）。
+/** 视图控件可用性的统一计算处（声明表见 model/viewControls.ts，中文模板见消息目录 lab2shot/i18n/<lang>/messages/web.toml）。
  * 不可用的控件变灰并附原因，不隐藏。
  *
  * 工具条（editor/Viewer.tsx）、显示选项面板（ui/DisplayOptions.tsx）与三维视图（view/Stage3D.tsx）均由此取得结果，

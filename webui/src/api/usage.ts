@@ -13,7 +13,7 @@ export interface UsageCounts {
 
 interface UsageNode extends UsageCounts {
   id: string;
-  label: string;
+  subtitle: string; // the node's subtitle
 }
 
 export interface UsageProject extends UsageCounts {

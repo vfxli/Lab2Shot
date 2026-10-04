@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .messages import Msg
+from .messages import Msg, again
 
 
 class MessageError(Exception):
@@ -24,8 +24,10 @@ class MessageError(Exception):
             raise TypeError(f"{cls.__name__} is a MessageError without the HTTP status it is answered with (status = ...)")
 
     def answer(self) -> dict:
-        """What a request that raised it is told: the message's text and code."""
-        return {"detail": str(self), "code": self.code}
+        """What a request that raised it is told: the message's text and code, and its words for whoever uses a card
+        (Msg.app) when it has them: the page says those under the button a card's click was refused at."""
+        app = self.message.app
+        return {"detail": str(self), "code": self.code, **({"app": app} if app is not None else {})}
 
     def __init__(self, message: Msg):
         if not isinstance(message, Msg):
@@ -41,6 +43,24 @@ class MessageError(Exception):
         return self.message.code
 
 
+class FieldErrors(MessageError, ValueError):
+    """Several fields of one request that can't be taken, each with its own why: the message says them together, and
+    the answer adds them field by field ({detail, code, errors: field -> text, codes: field -> code}), so a form shows
+    each beside its field whatever the status (400 a value that does not fit, 403 one the caller may not change)."""
+
+    status = 400
+
+    def __init__(self, message: Msg, problems: dict[str, Msg], status: int | None = None):
+        super().__init__(message)
+        self.problems = problems
+        if status is not None:
+            self.status = status
+
+    def answer(self) -> dict:
+        return {**super().answer(), "errors": {k: m.text for k, m in self.problems.items()},
+                "codes": {k: m.code for k, m in self.problems.items()}}
+
+
 class GraphError(MessageError, ValueError):
     """A node graph does not check out (a node type that is not there, a wire that can't be, a cycle)."""
 
@@ -53,7 +73,7 @@ class Refused(GraphError):
     so the error and the panel's message list carry identical content and the same fix."""
 
     def __init__(self, check: dict):
-        super().__init__(Msg(check["code"], **check["params"]))
+        super().__init__(again(check) or Msg(check["code"], **check["params"]))  # its words kept (args)
         self.check = check
 
 
@@ -92,9 +112,15 @@ class NothingToCook(MessageError):
     """A node found nothing to give this time (no face in the whole shot, no point to track): not an error. Raised by a
     node's cook (or by run_worker for a worker's nothing()), the engine gives every output of the node an empty
     packet and attaches the message, a notice (N-) stating what was not found and what to try (engine/cook.py).
-    Downstream nodes decide whether they can proceed without it (Port.takes_empty, optional)."""
+    Downstream nodes decide whether they can proceed without it (Port.takes_empty, optional). `expected`: nothing was
+    asked of it this time (an empty text to translate), so its empty packets say so and what reads them is told
+    nothing (engine/cook.py _give_nothing); its message is then information (I-), not a notice."""
 
     status = 422
+
+    def __init__(self, message, expected: bool = False) -> None:
+        super().__init__(message)
+        self.expected = expected
 
 
 class CookCancelled(Exception):

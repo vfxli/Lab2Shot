@@ -1,0 +1,19 @@
+# How lengths of time, moments, large counts and dates are written (webui/src/platform/format.ts). Keys ui.format.<…>.
+[ui.format]
+locale = "en-US"
+seconds = "{s} s"
+minutes_seconds = "{m} min {s} s"
+hours_minutes = "{h} h {m} min"
+hours = "{h} h"
+hours_tiny = "<0.01 h"
+just_now = "just now"
+minutes_ago = "{n} min ago"
+hours_ago = "{n} h ago"
+days_ago = "{n} d ago"
+under_minute = "under 1 min"
+minutes = "{n} min"
+hours_long = "{n} h"
+days = "{n} d"
+# the steps large counts are written in: factor=unit, separated by ;
+count_steps = "1000=K;1000000=M;1000000000=B"
+count = "{n}{unit}"

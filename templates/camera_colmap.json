@@ -2,100 +2,157 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "2f0998c6599da944d4d77a89e783ecb0",
-  "name": "相机解算 · COLMAP",
-  "intro": "COLMAP 官方自述是通用的运动恢复结构（SfM）与多视图立体（MVS）流程，成组画面无论有序无序都能算。这张卡用它解算每帧相机，交付带一层稀疏点云的相机 USD 和 Nuke 相机。勾「显卡提取特征」（SiftGPU）时整张卡按非商用算。镜头模型选带畸变的时，同时交付去畸变 EXR（画面与两张 ST-map）。",
+  "name": {
+   "zh": "摄影机解算 · COLMAP",
+   "en": "Camera Solve · COLMAP"
+  },
+  "intro": {
+   "zh": "COLMAP 官方自述是通用的运动恢复结构（SfM）与多视图立体（MVS）流程，成组画面无论有序无序都能算。这张卡用它解算每帧摄影机，交付带一层稀疏点云的摄影机 USD 和 Nuke 摄影机。勾「显卡提取特征」（SiftGPU）时整张卡按非商用算。镜头模型选带畸变的时，同时交付去畸变 EXR（画面与两张 ST 贴图）。",
+   "en": "COLMAP describes itself as a general-purpose Structure-from-Motion (SfM) and Multi-View Stereo (MVS) pipeline that works on ordered or unordered image sets. This card solves a camera per frame and delivers a camera USD with a layer of sparse point cloud, plus a Nuke camera. With GPU Feature Extraction (SiftGPU) on, the whole card counts as non-commercial. When a lens model with distortion is chosen, it also delivers an undistorted EXR (the image and two ST maps)."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "camera_traj",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "kind": "group",
-   "label": "镜头",
+   "label": {
+    "zh": "镜头",
+    "en": "Lens"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "focal",
-     "label": "已知 Focal Length",
+     "label": {
+      "zh": "已知焦距",
+      "en": "Known Focal Length"
+     },
      "target": "sfm.focal_mm"
     },
     {
      "name": "filmback",
-     "label": "Filmback",
+     "label": {
+      "zh": "胶片背",
+      "en": "Aperture"
+     },
      "target": "sfm.filmback_mm",
      "disable_when": "not focal"
     },
     {
-     "name": "fit_model",
-     "label": "镜头模型",
+     "name": "sfm_fit_model",
+     "label": {
+      "zh": "镜头模型",
+      "en": "Lens Model"
+     },
      "target": "sfm.fit_model"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "解算",
+   "label": {
+    "zh": "解算",
+    "en": "Solve"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "step",
-     "label": "隔帧",
+     "name": "sfm_step",
+     "label": {
+      "zh": "步长",
+      "en": "Step"
+     },
      "target": "sfm.step"
     },
     {
-     "name": "mapper",
-     "label": "解算方式",
+     "name": "sfm_mapper",
+     "label": {
+      "zh": "解算方式",
+      "en": "Solve Mode"
+     },
      "target": "sfm.mapper"
     },
     {
-     "name": "matcher",
-     "label": "匹配方式",
+     "name": "sfm_matcher",
+     "label": {
+      "zh": "匹配方式",
+      "en": "Match Mode"
+     },
      "target": "sfm.matcher"
     },
     {
      "name": "scale_cm",
-     "label": "尺度",
+     "label": {
+      "zh": "尺度",
+      "en": "Scale"
+     },
      "target": "sfm.unit_cm"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
-       "name": "resolution",
-       "label": "处理分辨率",
+       "name": "sfm_resolution",
+       "label": {
+        "zh": "处理分辨率",
+        "en": "Processing Resolution"
+       },
        "target": "sfm.resolution"
       },
       {
-       "name": "sift_gpu",
-       "label": "显卡提取特征（非商用）",
+       "name": "sfm_sift_gpu",
+       "label": {
+        "zh": "显卡提取特征（非商用）",
+        "en": "GPU Feature Extraction (Non-Commercial)"
+       },
        "target": "sfm.sift_gpu",
-       "tip": "SiftGPU 是非商用许可：勾上整张卡按非商用算；关掉用 CPU 提取，可商用"
+       "note": {
+        "zh": "SiftGPU 是非商用许可：勾上整张卡按非商用算；关掉用 CPU 提取，可商用",
+        "en": "SiftGPU has a non-commercial licence: when on, the whole card counts as non-commercial; when off, features are extracted on the CPU and commercial use is allowed"
+       }
       }
      ]
     }
@@ -103,87 +160,138 @@
   },
   {
    "kind": "group",
-   "label": "去畸变",
+   "label": {
+    "zh": "去畸变",
+    "en": "Undistort"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "undist_overscan",
-     "label": "扩边",
+     "label": {
+      "zh": "过扫描",
+      "en": "Overscan"
+     },
      "target": "undist.overscan"
     },
     {
-     "name": "cook_undistort",
-     "label": "去畸变",
+     "name": "cook_warp",
+     "label": {
+      "zh": "去畸变",
+      "en": "Undistort"
+     },
      "target": "warp.cook"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "usd_name",
-     "label": "文件名（相机与稀疏点云 USD）",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名（摄影机与稀疏点云 USD）",
+      "en": "File Name (Camera and Sparse Point Cloud USD)"
+     },
+     "target": "usd.name"
     },
     {
      "name": "exr_name",
-     "label": "文件名（去畸变 EXR）",
+     "label": {
+      "zh": "文件名（去畸变 EXR）",
+      "en": "File Name (Undistorted EXR)"
+     },
      "target": "exr.name"
     },
     {
      "name": "nuke_name",
-     "label": "文件名（Nuke 相机）",
+     "label": {
+      "zh": "文件名（Nuke 摄影机）",
+      "en": "File Name (Nuke Camera)"
+     },
      "target": "nuke.name"
     },
     {
      "name": "unit",
-     "label": "单位",
-     "target": "out.unit"
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
     },
     {
      "name": "colorspace_out",
-     "label": "输出色彩空间",
+     "label": {
+      "zh": "输出颜色空间",
+      "en": "Output Color Space"
+     },
      "target": "exr.colorspace"
     },
     {
      "name": "fps",
-     "label": "帧率",
-     "target": "out.fps"
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "usd.fps"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_bit_depth",
-       "label": "EXR 位深",
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
        "target": "exr.exr_bit_depth"
       },
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
        "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -193,17 +301,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -212,8 +326,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -222,13 +335,12 @@
    },
    "ui": {
     "x": 0,
-    "y": 106
+    "y": 456
    }
   },
   {
    "id": "sfm",
    "type": "colmap.camera_solve",
-   "label": "COLMAP 相机解算",
    "params": {
     "focal_mm": null,
     "filmback_mm": null,
@@ -241,8 +353,8 @@
     "sift_gpu": false
    },
    "ui": {
-    "x": 400,
-    "y": 0,
+    "x": 360,
+    "y": 218,
     "on_node": [
      "mapper",
      "step",
@@ -252,9 +364,8 @@
    }
   },
   {
-   "id": "out",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "id": "usd",
+   "type": "usd.output",
    "params": {
     "name": "scene",
     "format": "usd",
@@ -262,8 +373,8 @@
     "fps": 24.0
    },
    "ui": {
-    "x": 840,
-    "y": 484,
+    "x": 729,
+    "y": 0,
     "on_node": [
      "name",
      "unit"
@@ -275,24 +386,22 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1200,
-    "y": 82
+    "x": 2169,
+    "y": 28
    }
   },
   {
    "id": "nuke",
-   "type": "core.output_nuke_camera",
-   "label": "Nuke 相机输出设置",
+   "type": "nuke.output",
    "params": {
     "name": "camera_nuke"
    },
    "ui": {
-    "x": 800,
-    "y": 82,
+    "x": 729,
+    "y": 235,
     "on_node": [
      "name"
     ]
@@ -300,21 +409,20 @@
   },
   {
    "id": "lens_focal",
-   "type": "core.split_camera",
-   "label": "拆相机（焦距片门）",
+   "type": "split_camera",
    "params": {},
    "ui": {
-    "x": 460,
-    "y": 440,
+    "x": 729,
+    "y": 430,
     "on_node": []
    }
   },
   {
    "id": "undist",
-   "type": "core.lens_distortion",
+   "type": "lens_distortion",
    "ui": {
-    "x": 820,
-    "y": 320,
+    "x": 1089,
+    "y": 493,
     "on_node": []
    },
    "params": {
@@ -338,24 +446,21 @@
    "promoted": [
     "focal_mm",
     "filmback_mm"
-   ],
-   "label": "去畸变"
+   ]
   },
   {
    "id": "warp",
-   "type": "core.stmap_warp",
-   "label": "STMap",
+   "type": "stmap",
    "params": {},
    "ui": {
-    "x": 1180,
-    "y": 320,
+    "x": 1449,
+    "y": 642,
     "on_node": []
    }
   },
   {
    "id": "exr",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "type": "exr.output",
    "params": {
     "name": "undistorted",
     "layers": [
@@ -380,8 +485,8 @@
     "colorspace": null
    },
    "ui": {
-    "x": 1540,
-    "y": 320,
+    "x": 1809,
+    "y": 652,
     "on_node": []
    }
   }
@@ -399,7 +504,7 @@
   },
   {
    "from": [
-    "out",
+    "usd",
     "files"
    ],
    "to": [
@@ -413,7 +518,7 @@
     "camera"
    ],
    "to": [
-    "out",
+    "usd",
     "scene"
    ]
   },
@@ -423,7 +528,7 @@
     "points"
    ],
    "to": [
-    "out",
+    "usd",
     "scene"
    ]
   },

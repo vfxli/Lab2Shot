@@ -37,6 +37,9 @@
 
   --hair: rgba(190, 205, 225, 0.08);
   --hair-strong: rgba(190, 205, 225, 0.15);
+  /* the one scrollbar (styles/00-base.css): a thin rounded thumb on no track, a step brighter under the pointer */
+  --scroll-thumb: rgba(190, 205, 225, 0.22);
+  --scroll-thumb-hover: rgba(190, 205, 225, 0.4);
 
   --text: #e6eaf0;
   --text-2: #a1a9b4;
@@ -129,9 +132,9 @@
      (api/catalog.ts, the product's contract) — here only as decoration, turning once every --entry-turn */
   --entry-palette: #64d2ff, #ffd60a, #ff375f, #bf5af2, #66d4cf, #64d2ff;
   --entry-turn: 6s;
-  /* the rim around the top bar's 「节点模式 / 应用模式」: cool hues (blue, cyan, indigo), a step darker than the rim of
-     「模板」, turning at the same pace (ui/glow.css .mode-switch) */
-  --mode-palette: #2b6fa8, #2c8f8c, #3d5cc2, #5a4fb0, #2a86a3, #2b6fa8;
+  /* the rim around the top bar's 「节点模式 / 应用模式」: cool hues (cyan, blue, indigo, violet) at the same lightness as
+     the rim of 「模板」, so the two entries read as one row of equals; same pace (ui/glow.css .mode-switch) */
+  --mode-palette: #64d2ff, #5ac8fa, #7d9bff, #bf5af2, #66d4cf, #64d2ff;
 
   /* the hover glow: a thin rainbow light runs once around a control's edge (ui/glow.css) */
   --glow-duration: 550ms; /* short: the glow is gone soon after the pointer arrives */
@@ -183,10 +186,10 @@
   --z-canvas-ui: 5;
   --z-popover: 40;
   --z-sheet: 60;
-  --z-menu: 70; /* a menu opened in a sheet lies over the sheet (see above) */
   --z-veil: 900;
   --z-server-banner: 950;
   --z-login: 990;
+  --z-menu: 995; /* a menu lies over whatever opened it: a sheet (see above), the login asked for over a page */
   --z-tip: 1000;
 
   color-scheme: dark;

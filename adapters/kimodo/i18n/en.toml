@@ -1,0 +1,125 @@
+# This extension's words and messages in English (the same keys as zh.toml): written by P1-B.
+# Kimodo motion generation (adapters/kimodo/worker.py).
+
+# ---- skeleton
+"E-KIMODO-SKELETON" = "kimodo.motion cannot map the wired skeleton onto its model's skeleton: {reason}"
+"E-KIMODO-SKELETON.app" = "The skeleton in the motion file cannot be matched to the model's skeleton: {reason}"
+
+# ---- keyframes
+"E-KIMODO-KEYSTOOCLOSE" = "Keyframes {first} and {second} are too close: kimodo.motion generates at 30 fps and the two land on the same frame. Remove one of them"
+"E-KIMODO-KEYGAP" = "kimodo.motion generates 10 seconds at most at a time: {reason}"
+"B-KIMODO-WAITPROMPT" = "No animation (reference motion) is wired and the prompt is empty: kimodo.motion would only make a figure standing still. Write a prompt saying what motion you want, or wire a reference motion"
+"B-KIMODO-WAITPROMPT.app" = "The prompt is empty and no reference motion is given: this would only make a figure standing still. Write a prompt saying what motion you want, or give a reference motion (FBX)"
+"B-KIMODO-WAITPROMPT.short" = "The prompt is empty"
+"E-KIMODO-NOPROMPT" = "No animation (reference motion) is wired and the prompt is empty: kimodo.motion would only make a figure standing still. Write a prompt saying what motion you want, or wire a reference motion"
+"E-KIMODO-NOPROMPT.app" = "The prompt is empty and no reference motion is given: this would only make a figure standing still. Write a prompt saying what motion you want, or give a reference motion (FBX)"
+"N-KIMODO-PARTS.one" = "Generated in {parts} part: the shot is {seconds:.1f} seconds, longer than the 10 seconds Kimodo can generate at once; neighbouring parts share the keyframes on their boundary"
+"N-KIMODO-PARTS.other" = "Generated in {parts} parts: the shot is {seconds:.1f} seconds, longer than the 10 seconds Kimodo can generate at once; neighbouring parts share the keyframes on their boundary"
+
+# ---- skeletons and weights
+"N-KIMODO-ROBOTSKELETON" = "The G1 robot skeleton is selected: a leg has three separate hip joint axes, which do not match a human rig, so these weights can only generate motion, not take an animation to inbetween. To inbetween, set Model to Rigplay, SEED or SMPL-X"
+"N-KIMODO-G1NOPOSTPROCESS" = "Upstream never post-processes the G1 robot weights (it does not work well for that model), so it is off with G1"
+"I-KIMODO-TEXTENCODER" = "text encoder model"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."kimodo.motion"]
+subtitle = "Motion Generation"
+description = "NVIDIA Kimodo: generates natural whole-body motion (a diffusion model trained on 700 hours of licensed motion capture, commercial use allowed). With an animation wired: fills in the motion between the animator's keyframes, back on that rig; without: write one English sentence and set the frame range to generate a whole new skeleton animation. At most 10 seconds per part; longer shots are generated in parts, each one continuing the one before; the fingers do not move."
+
+[node."kimodo.motion".param.mapping]
+label = "Mapping"
+placeholder = "Auto"
+
+[node."kimodo.motion".param.model]
+label = "Model"
+
+[node."kimodo.motion".param.model.option]
+rp = "SOMA (30 joints) · Rigplay"
+seed = "SOMA (30 joints) · SEED"
+rp_v1 = "SOMA (30 joints) · Rigplay, old"
+seed_v1 = "SOMA (30 joints) · SEED, old"
+smplx = "SMPL-X (22 joints)"
+g1 = "G1 (34 joints)"
+g1_seed = "G1 (34 joints) · SEED"
+
+[node."kimodo.motion".param.prompt]
+label = "Prompt"
+placeholder = "Empty: keyframes only"
+
+[node."kimodo.motion".param.steps]
+label = "Denoising Steps"
+
+[node."kimodo.motion".param.steps.option]
+25 = "25"
+50 = "50"
+100 = "100"
+
+[node."kimodo.motion".param.guidance]
+label = "Keyframe Fit"
+
+[node."kimodo.motion".param.seed]
+label = "Seed"
+
+[node."kimodo.motion".param.post_process]
+label = "Model Post-Process"
+
+[node."kimodo.motion".port.character]
+label = "Animation"
+help = "With an animation wired: its keyframes are the constraints, the model fills in only the motion between them, and the result comes back on that rig. Without: a whole new motion is generated from the text and Start Frame / End Frame alone, given as the model's own skeleton animation"
+
+[node."kimodo.motion".official]
+note = "The wired animation is constraint_lst upstream (EndEffectorConstraintSet / FullBodyConstraintSet, kimodo/constraints.py); Prompt is a parameter, not an input. Upstream gives the skeleton's local rotation matrices plus the root position, the same thing as the skeleton animation the node gives."
+
+[node."kimodo.motion".cost]
+whole = "A 10-second shot comes out in a few seconds: not per-frame work"
+
+[extension.kimodo]
+summary = "A kinematic motion diffusion model trained on 700 hours of commercially licensed optical motion capture: generates human and robot motion, controlled by a text prompt and a full set of constraints"
+
+[extension.kimodo.body]
+soma = "SOMA (30 Joints)"
+g1 = "G1 (34 Joints)"
+
+[extension.kimodo.license]
+name = "Apache-2.0 (code) + NVIDIA Open Model License (SOMA models)"
+summary = "Commercial use allowed. Code Apache-2.0; six of the seven weights are under the NVIDIA Open Model License, which allows commercial use, trained on motion capture licensed from Bones Studio. Only Kimodo-SMPLX-RP-v1 differs: it is under the NVIDIA Internal Scientific Research and Development Model License, research only, and a gated repository whose access you request yourself on its Hugging Face page. The optional text prompt needs Meta Llama 3 8B Instruct (Llama 3 Community License: companies with more than 700 million monthly active users need Meta's permission, \"Built with Meta Llama 3\" must be shown and the use policy followed), whose access is requested on Hugging Face first; the LLM2Vec adapter weights are MIT. The motion post-processing (MotionCorrection, C++) comes with the code under Apache-2.0 and is compiled at install"
+
+[extension.kimodo.weight.soma-rp]
+note = "Kimodo-SOMA-RP-v1.1: trained on 700 hours of Bones Rigplay motion capture (SOMA, 30 joints) (NVIDIA Open Model License, commercial use allowed), 1.1 GB"
+
+[extension.kimodo.weight.soma-seed]
+note = "Kimodo-SOMA-SEED-v1.1: trained on 288 hours of the public BONES-SEED motion capture (SOMA, 30 joints) (NVIDIA Open Model License, commercial use allowed), 1.1 GB"
+
+[extension.kimodo.weight.soma-rp-v1]
+note = "Kimodo-SOMA-RP-v1: the old Rigplay weights, kept to reproduce the numbers of the official paper (NVIDIA Open Model License, commercial use allowed), 1.1 GB"
+
+[extension.kimodo.weight.soma-seed-v1]
+note = "Kimodo-SOMA-SEED-v1: the old BONES-SEED weights, kept to reproduce the numbers of the official paper (NVIDIA Open Model License, commercial use allowed), 1.1 GB"
+
+[extension.kimodo.weight.smplx-rp-v1]
+note = "Kimodo-SMPLX-RP-v1: the skeleton is the 22 body joints of SMPL-X, so an SMPL body wired in needs no joint guessing (NVIDIA Internal Scientific Research and Development Model License, research only), 1.1 GB; request access on its Hugging Face page first"
+
+[extension.kimodo.weight.g1-rp-v1]
+note = "Kimodo-G1-RP-v1: the 34-joint skeleton of the Unitree G1 humanoid robot, generation only, cannot take a human rig (NVIDIA Open Model License, commercial use allowed), 1.1 GB"
+
+[extension.kimodo.weight.g1-seed-v1]
+note = "Kimodo-G1-SEED-v1: the BONES-SEED version for the G1 robot skeleton (NVIDIA Open Model License, commercial use allowed), 1.1 GB"
+
+[extension.kimodo.weight.llm2vec-mntp]
+note = "LLM2Vec text encoder adapter weights (mntp, MIT), needed only with a text prompt"
+
+[extension.kimodo.weight.llm2vec-supervised]
+note = "LLM2Vec text encoder adapter weights (supervised, MIT), needed only with a text prompt"
+
+[extension.kimodo.weight.llama3-8b-instruct]
+notice = "Built with Meta Llama 3"
+note = "Meta Llama 3 8B Instruct (16 GB, Llama 3 Community License): the base of the text prompt encoder, needed only with a text prompt; request access at https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct first"
+
+# ---- stages (worker.py; nodes.py's encode_prompt is the same)
+[stage]
+encode_prompt = "Encode Prompt"
+generate = "Generate (Kimodo)"
+part = "Generate"
+resample_fps = "Resample to Shot FPS"
+align_skeleton = "Align Skeleton"

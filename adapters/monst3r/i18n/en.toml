@@ -1,0 +1,99 @@
+# The MonST3R extension's messages (adapters/monst3r) in English (the same keys as zh.toml).
+
+# ---- loading the model (worker.py)
+"E-MONST3R-RAFTWEIGHTS" = "The SEA-RAFT optical flow weights MonST3R uses do not match the network ({missing} missing, {unexpected} unexpected): the weights and the code are of different versions; an administrator should run lab2shot ext install monst3r again"
+"E-MONST3R-CROCO" = "MonST3R's croco submodule is incomplete (not fully fetched at install): an administrator should run lab2shot ext install monst3r once more"
+
+# ---- reconstruction (worker.py)
+"E-MONST3R-STITCH" = "MonST3R could not stitch the segments: the overlapping frames hold too few usable static points to align the two segments. Raise Max Frames per Segment (fewer segments) and cook again"
+"W-MONST3R-FLOWDROPPED" = "Frames {first}–{last} move too much (or are too blurry) to match from frame to frame: the image motion could not constrain the camera over this stretch, and the camera position may drift. Lower Step, use a stretch that moves less, or solve it once with vipe.camera_solve to compare"
+"W-MONST3R-SEAM" = "MonST3R is still {residual:.1%} off (relative to depth) after stitching the segments at frames {first}–{last}: the camera may jump a frame at the seam. Raise Max Frames per Segment for fewer segments"
+
+# ---- words
+
+[stage]
+pairs = "{count} Image Pairs"
+global_optimization = "Global Optimization"
+read_frames = "Read Frames"
+reconstruct = "Reconstruct"
+reconstruct_segment = "Reconstruct (Segment {segment}/{segments})"
+
+[node."monst3r.reconstruct"]
+subtitle = "Depth and Camera"
+description = "Image → a camera per frame, depth maps and a moving-object mask, by global optimization segment by segment, designed for shots with people or cars moving in the picture. Most stable with a locked-off camera; very slow (about 3 s a frame) and heavy on GPU memory; the scale must be set by hand, converted to centimetres by Scale; when a focal length is given it is held fixed rather than optimized, and the camera is steadier. Other whole-shot solvers are colmap.camera_solve (needs parallax) and vipe.camera_solve (needs translation); this one fills the gap of a locked-off camera with moving objects. No point cloud: the official network only gives point maps between pairs of images, and the whole-shot point cloud is what its optimizer unprojects from depth; for a point cloud, follow it with depth_to_points. Long shots go segment by segment (36 frames by default): each segment is solved on its own, consecutive segments share 8 frames and are joined on them, and later segments keep the first segment's focal length. Only the current segment's frame pairs and optical flow are on the GPU (upstream running a whole shot at once keeps all of them; its README: about 23 GB for 65 frames of 16:9), so long shots fit."
+
+[node."monst3r.reconstruct".param.focal_mm]
+label = "Known Focal Length"
+placeholder = "Auto"
+
+[node."monst3r.reconstruct".param.filmback_mm]
+label = "Aperture"
+placeholder = "36"
+
+[node."monst3r.reconstruct".param.step]
+label = "Step"
+
+[node."monst3r.reconstruct".param.max_frames]
+label = "Max Frames per Segment"
+
+[node."monst3r.reconstruct".param.max_frames.option]
+12 = "12"
+24 = "24"
+36 = "36"
+40 = "40"
+
+[node."monst3r.reconstruct".param.resolution]
+label = "Working Resolution"
+
+[node."monst3r.reconstruct".param.resolution.option]
+256 = "256"
+384 = "384"
+512 = "512"
+
+[node."monst3r.reconstruct".param.niter]
+label = "Optimization Iterations"
+
+[node."monst3r.reconstruct".param.niter.option]
+100 = "100"
+300 = "300"
+500 = "500"
+
+[node."monst3r.reconstruct".param.motion_threshold]
+label = "Motion Threshold"
+
+[node."monst3r.reconstruct".param.sam2_refine]
+label = "SAM 2 Refine"
+
+[node."monst3r.reconstruct".param.conf_threshold]
+label = "Confidence Threshold"
+
+[node."monst3r.reconstruct".param.unit_cm]
+label = "Scale"
+
+[node."monst3r.reconstruct".port.mask]
+label = "Moving Object Mask"
+
+[node."monst3r.reconstruct".stage]
+write_moving_mask = "Write Moving Mask"
+
+[node."monst3r.reconstruct".official]
+note = "The mask path is official: upstream already accepts an external moving-object mask (demo.py:107 dynamic_mask_path). Upstream only takes the mask image form, no boxes, so the node has no bounding box input; to block out people, wire mask_from_boxes into the Moving Object Mask input, a step that stays visible on the node graph. The Moving Object Mask output is the one the official save_dynamic_masks gives (demo.py:159)"
+
+[extension.monst3r]
+summary = "Handles dynamic video: gives, essentially feed-forward, a dynamic point cloud changing over time, plus each frame's camera pose and intrinsics"
+
+[extension.monst3r.license]
+name = "CC BY-NC-SA 4.0 (code and weights); with SEA-RAFT (BSD-3-Clause) and SAM 2.1 (Apache-2.0)"
+summary = "Noncommercial: the MonST3R code and weights are released under CC BY-NC-SA 4.0 (attribution, no commercial use, adaptations under the same license). It builds on Naver DUSt3R / CroCo (also CC BY-NC-SA 4.0; CroCo's pos_embed.py / blocks.py also contain CC BY-NC 4.0 parts from Meta MAE and Apache-2.0 parts from timm), and its weights are fine-tuned from the DUSt3R weights. The two other models it uses allow commercial use: the SEA-RAFT optical flow (code and weights BSD-3-Clause, Princeton) and SAM 2.1 Hiera-L (code and weights Apache-2.0, Meta; its connected-components code cc_torch is BSD-3-Clause). Taken as a whole it is treated as the strictest, CC BY-NC-SA 4.0. No other dependencies such as SMPL or nvdiffrast"
+
+[extension.monst3r.weight.monst3r-config]
+note = "MonST3R network configuration"
+
+[extension.monst3r.weight.monst3r]
+note = "MonST3R ViT-L 512 DPT weights (2.3 GB, CC BY-NC-SA 4.0, noncommercial)"
+
+[extension.monst3r.weight.sea-raft-spring-M]
+note = "SEA-RAFT optical flow Tartan-C-T-TSKH-spring540x960-M (79 MB, BSD-3-Clause)"
+
+[extension.monst3r.weight."sam2.1-hiera-large"]
+note = "SAM 2.1 Hiera-L, refines the moving-object masks (898 MB, Apache-2.0)"

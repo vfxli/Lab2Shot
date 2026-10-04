@@ -1,0 +1,297 @@
+# The DCC plugins' own words (clients/common/lab2shot_dcc and each DCC's Host). Keys dcc.<…>.
+# tools/messages_client.py generates them, with messages/client.toml, into lab2shot/client.py (the plugin's one-file client).
+[dcc.settings]
+language = "Language"
+
+[dcc.language]
+host = "Same as {host}"
+
+[dcc.menu]
+new_node = "New Node"
+open_panel = "Open Panel"
+login = "Log In..."
+queue = "Queue"
+open_web = "Open in Browser"
+log_folder = "Log Folder"
+
+[dcc.login]
+title = "Log In to Lab2Shot"
+address_hint = "Server address, e.g. https://lab2shot.example.com"
+server = "Server"
+username = "Username"
+password = "Password"
+no_account = "No account yet? Sign up on the web page"
+connect = "Connect"
+fill_all = "Fill in the server address, username and password"
+connecting = "Connecting..."
+
+[dcc.ui.top]
+all_tools = "All Tools"
+all_tools_tip = "Back to all tools (the current node stays)"
+menu = "More: log in, refresh tools, new node, language…"
+offline = "Not Connected"
+
+[dcc.ui.menu]
+login = "Log In…"
+refresh = "Refresh Tools"
+new_node = "New Node"
+local_graph = "Add Local Node Graph…"
+local_graph_title = "Local Node Graph"
+local_graph_filter = "Lab2Shot node graph (*.json)"
+queue = "Queue"
+language = "Language"
+log_folder = "Log Folder"
+
+[dcc.ui.banner]
+not_connected = "Not connected to a server: log in to get the tools"
+not_logged_in = "Not logged in to {server}"
+login = "Log In"
+tools_failed = "The tool list could not be fetched: {error}"
+retry = "Retry"
+
+[dcc.ui.home]
+search = "Search Tools"
+suggested = "For the Selection"
+tasks = "Tasks in This Scene"
+loading = "Fetching the tool list…"
+no_tools = "No tool list yet: log in first"
+nothing_found = "Nothing found for \"{search}\""
+
+[dcc.ui.tab]
+all = "All"
+recent = "Recent"
+
+[dcc.ui.card]
+needs_word = "Needs"
+optional_word = "Optional"
+needs = "Needs: {types}"
+optional = "Optional: {types}"
+no_inputs = "Needs no input"
+
+[dcc.ui.state]
+running = "Cooking"
+queued = "Queued"
+failed = "Error"
+cancelled = "Cancelled"
+done = "Results not imported"
+imported = "Imported"
+new = "Not cooked"
+
+[dcc.ui.step]
+inputs = "Inputs"
+settings = "Settings"
+compute = "Cook"
+
+[dcc.ui.tool]
+open_web = "Open in Web Page"
+more = "More: fetch results, change tool"
+fetch = "Fetch Results"
+gone = "The tool \"{name}\" is not in the list (refresh the tools, or it was deleted or disabled)"
+none = "This node has no tool yet: go back to all tools and click a tool card"
+
+[dcc.ui.input]
+use_selected = "Use Selected"
+pick_file = "Choose File"
+pick_sequence = "Choose Sequence"
+pick_file_title = "Choose File"
+pick_sequence_title = "Choose every frame of the image sequence (multiple selection), any one of its frames, or a video file"
+clear = "Clear"
+required = "Required: not bound yet"
+optional = "Optional"
+bound = "Bound: {label}"
+nothing_fits = "Nothing selected in the scene can be used for this input"
+none = "This tool needs no input"
+frames.one = "{first} … {last} · {count} frame"
+frames.other = "{first} … {last} · {count} frames"
+
+[dcc.ui.param]
+advanced.one = "Advanced ({count})"
+advanced.other = "Advanced ({count})"
+from_scene = "From Scene"
+from_scene_tip = "This value was read from the scene (frame range, frame rate, focal length…); change it and yours is used"
+blank = "Leave empty"
+in_web = "Edit in the web page"
+wired = "Set by the wire from {wired}"
+refused = "\"{label}\" {why}"
+bad_value = "\"{label}\" is not written right: {value}"
+none = "No settings to adjust"
+
+[dcc.ui.run]
+compute = "Cook"
+cancel = "Cancel"
+missing = "Inputs still missing: {inputs}"
+error = "{status}: {error}"
+open_log = "Open Log"
+
+[dcc.ui.version]
+title = "Result Versions"
+imported = "Imported"
+not_imported = "Not imported"
+import_ask = "{version} was downloaded but not imported (the files are in {folder}). Import it now?"
+open_folder = "Open Folder"
+
+[dcc.ui]
+error = "Error: {error} (details in the log {log})"
+
+[dcc.queue]
+title = "Lab2Shot Queue"
+refresh = "Refresh"
+asking = "Asking..."
+position = "Position {position}"
+others = "Another user's job"
+empty = "The queue is empty"
+
+[dcc.queue.state]
+queued = "Queued"
+running = "Cooking"
+done = "Done"
+failed = "Failed"
+cancelled = "Cancelled"
+
+[dcc.web]
+title = "Lab2Shot Web"
+certificate = "The server's certificate did not pass verification"
+not_loaded = "The page did not load"
+no_engine = "This application has no embedded browser; opened in the system browser. Once it has cooked there, come back and click Fetch Results"
+fell_back = "The embedded window did not open ({why}); opened in the system browser instead. Once it has cooked there, come back and click Fetch Results"
+
+[dcc.source]
+preset = "Preset Templates"
+node = "Nodes"
+mine = "My Templates"
+local = "Local Files"
+
+[dcc.catalog]
+too_big = "The file is too large to be a node graph: {path}"
+not_graph = "Not a Lab2Shot node graph file: {path}"
+
+[dcc.connection]
+bad_address = "The server address is not valid: {address} (e.g. https://lab2shot.example.com)"
+unreachable = "Cannot reach the server {server}: {error}"
+not_connected = "Not connected to a server: click Log In and enter the server address and account"
+
+[dcc.contract]
+not_an_option = "must be one of the listed options"
+refused = "\"{label}\" {why}"
+
+[dcc.plugin]
+no_version = "This node has no version {version}"
+imported_already = "{version} is imported already"
+not_connected = "Not connected to a server: click Log In"
+wrong_selection = "The selection is not this kind of data"
+no_tool = "Choose a tool first (if the tool list is not there yet, click Refresh Tools)"
+missing_inputs = "Inputs missing: {inputs}"
+never_submitted = "This node has not submitted a job yet"
+nothing_new = "No new result was cooked in the browser (Cook was not clicked, or it has not finished: click Fetch Results once it has)"
+wrong_format = "This input reads only these file types: {accept}. {host} gives it a {suffix} file: bind it to the input that reads that type"
+save_first = "Save the project first"
+
+[dcc.job]
+version_gone = "The folder of {version} is gone: {folder}"
+starting = "Preparing"
+cancelling = "Cancelling..."
+cancelled = "Cancelled"
+failed = "Failed"
+gave_up_fetch = "The server stayed unreachable ({error}): {step} did not finish. Once the server is back, click Fetch Results again (job {job} is still on the server)"
+gave_up_cook = "The server stayed unreachable ({error}): {step} did not finish. Once the server is back, click Cook again"
+reconnect = "Cannot reach the server (it may be restarting); reconnecting in {wait} s (try {attempt}/{tries})"
+file_gone = "The bound file is gone: {file}"
+exporting = "Exporting {what}"
+uploading = "Uploading {done}/{total}"
+submitted = "Submitted, queued"
+queued = "Queued at position {position}"
+running = "Cooking: {node}"
+no_outputs = "The job finished but delivered no results"
+downloading = "Downloading results {index}/{count} ({mb:.0f} MB)"
+unpacking = "Checking and unpacking results"
+project = "{host} project"
+importing = "Importing {mb:.0f} MB"
+ask_import = "The results are {mb:.0f} MB and may take a while to import. Import now? (If not, the files stay in {folder})"
+not_imported = "Results downloaded to {folder}, not imported"
+imported = "Done: imported {version} ({group})"
+imported_note = "{done}; {note}"
+undo_import = "Lab2Shot Import {name}"
+plane_failed = "The image plane of the result camera could not be attached ({error})"
+no_plane = "No image plane on the result camera: this job had no input image and the bound camera carries none (inputs incomplete). For an image plane, bind an image, or a camera with an image plane"
+frames.one = "{first} … {last} ({count} frame)"
+frames.other = "{first} … {last} ({count} frames)"
+
+[dcc.job.step]
+connect = "Connecting to the server"
+read_tool = "Reading the tool"
+upload = "Uploading inputs"
+submit = "Submitting the job"
+poll = "Asking for progress"
+download = "Downloading results"
+
+[dcc.results]
+no_room = "Not enough disk space: the results are about {size:.0f} MB and need {need:.0f} MB to unpack; the drive of {folder} has {have:.0f} MB left"
+corrupt = "The downloaded results are incomplete ({member} fails its check): fetch them again"
+path_too_long.one = "A result path is too long (over {most} character): {path}. Move the {project} to a shorter path"
+path_too_long.other = "A result path is too long (over {most} characters): {path}. Move the {project} to a shorter path"
+project = "project"
+missing_file = "A file is missing from the results: {name}"
+version_exists = "The version folder already exists: {folder}"
+
+[dcc.safety]
+not_writable = "Cannot write to the folder: {folder} ({error})"
+
+[dcc.maya]
+import = "Import"
+not_now = "Not Now"
+select_first = "Select in the scene first: {what}"
+plane_label = "{node}: {file}"
+binding_gone = "(not found, bind it again) {label}"
+bound_gone = "The bound object is gone (deleted, or another scene): {label}; bind it again"
+no_joints = "No joints under {node}"
+no_skinned_mesh = "No skinned mesh on {node}: to export skeleton animation, use a Skeleton input"
+cannot_export = "Maya cannot export this kind of data to a file yet: {kind}"
+worker_timeout.one = "The background Maya process did not finish within {minutes} minute and was stopped"
+worker_timeout.other = "The background Maya process did not finish within {minutes} minutes and was stopped"
+worker_died = "The background Maya process did not end normally (exit code {code}); details in {log}"
+export_failed = "Export failed: {error}"
+import_failed = "Preparing the results failed: {error}"
+nothing_written = "No file was written: {file}"
+cannot_import = "This Maya version does not import {ext} files yet"
+plugin_failed = "The Maya plug-in {plugin} does not load"
+not_scene_data = "What is imported must be prepared result data: {path}"
+settings_changed = "The import changed the scene settings (units / up axis / frame rate: {before} → {after})"
+node_gone = "This Lab2Shot node is no longer in the scene"
+no_mayapy = "Cannot find this Maya's mayapy: cannot export"
+
+[dcc.maya.want]
+image = "a camera with an image plane, or the image plane itself, or click Choose File to pick an image"
+video = "a camera with a video image plane"
+camera = "a camera"
+character = "a character (the skeleton's root joint or the character's top group, its meshes skinned to the joints)"
+skeleton = "the skeleton's root joint"
+model = "a mesh"
+
+[dcc.nuke]
+select_first = "Select {what} in the Node Graph first"
+frame_expression = "{node} uses a frame expression Lab2Shot cannot follow: use offset / start at, or click Choose File"
+picture_label = "{node}: {file}"
+binding_gone = "(not found, bind it again) {label}"
+bound_gone = "The bound node is gone (deleted, or another script): {label}; bind it again"
+cannot_export = "Nuke cannot write this kind of data to a file yet: {kind}"
+kept_as_file = "{ext}: no node is made in Nuke; the file stays in the version folder"
+settings_changed = "The import changed the project settings ({knobs}); this import was taken back"
+unknown_class = "This version of Nuke has no {node_class} node"
+node_gone = "This Lab2Shot node is no longer in the script"
+
+[dcc.nuke.want]
+image = "a Read (the plate), or click Choose File to pick it"
+video = "a Read of a movie"
+camera = "a camera (Camera)"
+points = "a point cloud file node (GeoReference)"
+scene = "a 3D file node (GeoImport)"
+
+[dcc.cli]
+username = "Username: "
+password = "Password: "
+failed = "Failed: {error}"
+logged_in = "Logged in: {name} ({username} · {department}); token kept in {file}"
+logged_out = "Logged out"
+gpu_on = "takes jobs"
+gpu_off = "takes no jobs"
+expires = "(deleted in {hours:.0f} hours)"

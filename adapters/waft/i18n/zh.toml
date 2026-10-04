@@ -1,0 +1,18 @@
+# WAFT 扩展自己的界面字和消息（中文）。
+
+[node."waft.flow"]
+subtitle = "运动向量"
+description = "Princeton 的 WAFT：两帧之间算一次，前后各算一遍得到每一帧到下一帧、上一帧的运动向量（Nuke 的 motion 通道，像素 / 帧），每个像素还给出置信度。接「遮挡遮罩」得到遮挡，接「运动向量变形」「运动向量转 ST-map」做推帧和贴图传播。"
+official.note = "两帧法：image1、image2 是相邻两帧，前后各算一遍。每个像素的置信度是 output['info']（demo.py:84 get_heatmap 就是拿它算的），在我们的运动向量包里当置信度通道，不是单独的口。"
+licence.note = "代码 BSD-3；模型权重没有写明许可，而且用只许研究使用的数据集训练，按非商用处理。"
+
+[extension.waft]
+summary = "光流方法，和 RAFT 相似，但把代价体换成高分辨率的扭曲，精度更好、显存更省"
+license.name = "BSD-3-Clause（代码）；模型权重没有写明许可（非商用）"
+license.summary = "非商用：代码 BSD-3 本身可商用，但模型权重放在作者的 Google Drive 上，没有单独写许可证，而且是用 Sintel、KITTI、Spring、TartanAir 等只许研究使用的数据集训练的，所以按非商用处理。骨干 Depth Anything V2 ViT-S 本身是 Apache-2.0"
+weight.waft_a1_tar_c_t.note = "WAFT-a1 tar-c-t（257 MB，作者 Google Drive；README 推荐用于实际应用）"
+
+# ---- worker 的计算阶段（worker.py run.model / run.stage / run.each）
+[stage]
+compute_flow = "计算光流（{width}×{height}）"
+flow = "光流"

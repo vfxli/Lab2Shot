@@ -1,0 +1,11 @@
+# Words of the page's pure rule modules (webui/src/model/*): a node's "Skipped", the picked "#N". Keys ui.model.<…>.
+[ui.model]
+person = "#{id}"
+person_times = "#{id} ×{count}"
+pick_at = "Frame {frame} ({x}, {y})"
+pick_missed = "{count} missed"
+pick_summary = "Picked: {picks}"
+pick_unknown = "{count} (detect people first to know who)"
+skipped = "Skipped"
+skipped_blocked = "Skipped (blocked)"
+skipped_switched_off = "This step is switched off on the card and will not be computed"

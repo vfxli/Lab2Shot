@@ -1,5 +1,0 @@
-# UniRig 的提示和报错（编号 = 模板，代码里只写编号和参数）。
-"E-UNIRIG-STAGE" = "UniRig 的「{stage}」这一步失败了（退出码 {code}）：这次计算的 worker 日志里有原因"
-"E-UNIRIG-FRAME" = "对不上 UniRig 内部的归一化坐标（残差 {residual}）：适配层按「整体缩放 + 平移」解这个坐标，UniRig 的归一化和它对不上。先别用这个结果"
-"E-UNIRIG-FRAMEPOINTS" = "对不上 UniRig 内部的归一化坐标：归一化前后的点对不上（前 {before} 个、后 {after} 个，或所有点重合在一处），解不出这个坐标。先别用这个结果"
-"N-UNIRIG-SIMPLIFIED" = "网格有 {faces} 个面，按 UniRig 官方的做法先降到 {used} 个面再算骨架和权重；权重最后铺回原来那张网格的每一个顶点，一个面都没少"

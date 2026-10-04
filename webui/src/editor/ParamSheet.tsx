@@ -23,9 +23,11 @@ import { Sheet } from "../ui/Sheet";
 import { Button } from "../ui/Button";
 import { ErrorBoundary } from "../ui/ErrorBoundary";
 import { composing } from "../platform/keys";
-import { READ_ONLY_WHY, useCookInputs, useReadOnly } from "../state/cookInputs";
+import { readOnlyWhy, useCookInputs, useReadOnly } from "../state/cookInputs";
 import { same, type Json } from "../model/graphPatch";
+import { t } from "../i18n/t";
 import { stableAt } from "./paramPath";
+import { tipOf, type Tip } from "../platform/tips";
 
 /** 编辑器组件（窗里的内容）拿到的东西。 */
 export interface SheetEditorProps {
@@ -62,9 +64,9 @@ export interface SheetEditor {
   /** 窗的标题，默认「编辑<参数名>」 */
   title?: (p: ParamDef) => string;
   /** 打开按钮上的字，默认「编辑…」 */
-  button?: string;
-  /** 窗宽（px），默认 560 */
-  width?: number;
+  button?: () => string;
+  /** 窗宽（px），默认 560；"content"：按内容宽（不超过窗口，ui/Sheet.tsx） */
+  width?: number | "content";
   /** 面板上当前值的摘要，默认把值写成一行字（空值显示参数的 placeholder 或「未设置」） */
   summary?: React.ComponentType<SheetSummaryProps>;
   /** 按钮右边的附加控件（USD 层级的「清掉」） */
@@ -122,7 +124,7 @@ function SheetParamBody({ nodeId, at, p, value, set, kind, choices, lock = "" }:
       </div>
       <div className="psheet-actions">
         <Button layout="psheet-open" disabled={!ready} onClick={() => useOpenSheet.getState().show(nodeId, stableAt(useCookInputs.getState().nodes[nodeId]?.params ?? {}, at))}>
-          {kind.button ?? "编辑…"}
+          {kind.button ? kind.button() : t("ui.params.sheet_edit_button")}
         </Button>
         {Actions && <fieldset className="psheet-lock" disabled={!!lock}><Actions {...x} /></fieldset>}
       </div>
@@ -148,7 +150,7 @@ export function SheetWindow({ kind, nodeId, p, value, choices, set, close, lock 
   // 搜索、展开、框显）照常能用；改草稿的一律不生效（useDraft），改草稿的按钮置灰（Writes）；「确定」写不回，「取消」
   // 照常关窗。编辑中途变成只读（另一个标签页接手）也一样：窗不关，草稿留着，只是锁住
   const readOnly = useReadOnly();
-  const why = readOnly ? READ_ONLY_WHY : lock;
+  const why = readOnly ? readOnlyWhy() : lock;
   const locked = !!why;
   const [footAt, setFootAt] = useState<HTMLDivElement | null>(null);
   // 窗的基准：打开时的值与节点参数。编辑器的草稿从它起步；它在窗开着时不跟着变（别的标签页接手又交回、撤销，都可能
@@ -161,13 +163,13 @@ export function SheetWindow({ kind, nodeId, p, value, choices, set, close, lock 
   const moved = !same(value as Json, base.value as Json) || alsoKeys.some((k) => !same(nowParams?.[k] as Json, base.params[k] as Json));
   const restart = () => setBase((b) => ({ value, params: (nodeId && useCookInputs.getState().nodes[nodeId]?.params) || {}, n: b.n + 1 }));
   return (
-    <Sheet title={kind.title ? kind.title(p) : `编辑${p.label}`} width={kind.width ?? 560} onClose={close}>
+    <Sheet title={kind.title ? kind.title(p) : t("ui.params.sheet_title", { label: p.label })} width={kind.width ?? 560} onClose={close}>
       {locked && <div className="psheet-locked">{why}</div>}
       {note && <div className="psheet-locked">{note}</div>}
       {moved && (
         <div className="psheet-locked">
-          这个参数（或窗里连带改的参数）已被别处改过（另一个标签页或撤销），窗里的草稿是按打开时的值改的；「确定」会用草稿盖掉新值。
-          <Button tone="ghost" size="sm" onClick={restart}>以新值重来</Button>
+          {t("ui.params.sheet_moved")}
+          <Button tone="ghost" size="sm" onClick={restart}>{t("ui.params.sheet_restart")}</Button>
         </div>
       )}
       <WriteLock.Provider value={why}>
@@ -175,8 +177,8 @@ export function SheetWindow({ kind, nodeId, p, value, choices, set, close, lock 
         {/* 编辑器可以按需加载（lazy：带三维舞台的「对应关系」），到之前窗里先写一句 */}
         {/* 没载进来时只这个窗报错、可重试（platform/lazyRetry.tsx），参数面板不受牵连 */}
         {pending ? <div className="psheet-none">{pending}</div> : (
-        <ErrorBoundary name={kind.title ? kind.title(p) : `编辑${p.label}`}>
-        <Suspense fallback={<div className="psheet-none">正在载入编辑器…</div>}>
+        <ErrorBoundary name={kind.title ? kind.title(p) : t("ui.params.sheet_title", { label: p.label })}>
+        <Suspense fallback={<div className="psheet-none">{t("ui.params.sheet_loading")}</div>}>
         <Editor key={base.n} nodeId={nodeId} p={p} value={base.value} base={base.params} choices={choices} cancel={close}
           set={(v, also) => {
             // 锁着时「确定」什么都不做，也不关窗（回车、双击这类不经按钮的确定也是）：关窗不丢草稿，只由使用者关
@@ -199,7 +201,7 @@ export function SheetWindow({ kind, nodeId, p, value, choices, set, close, lock 
 /** 默认摘要：值写成一行字（数组、对象写成 JSON），空值显示参数的 placeholder 或「未设置」。 */
 function PlainSummary({ p, value }: SheetSummaryProps) {
   const empty = value === null || value === undefined || value === "" || (Array.isArray(value) && !value.length);
-  if (empty) return <span className="psheet-none">{p.placeholder || "未设置"}</span>;
+  if (empty) return <span className="psheet-none">{p.placeholder || t("ui.params.unset")}</span>;
   const text = typeof value === "string" ? value : JSON.stringify(value);
   return <span className="psheet-text" data-user-data>{text}</span>;
 }
@@ -226,9 +228,9 @@ export function Writes({ children }: { children: React.ReactNode }) {
 }
 
 /** 窗的最后一行：左边放编辑器自己的东西（已选几个、全部不选…），右边「取消」「确定」。只读时「取消」照常能点（关窗
- * 不是写），「确定」与左边编辑器自己的东西（Writes）置灰。 */
+ * 不是写），「确定」与左边编辑器自己的东西（Writes）置灰。`okTip`：「确定」的后果里看不到的那部分（没有就不给）。 */
 export function SheetFoot({ ok, cancel, okTip, layout, children }: {
-  ok: () => void; cancel: () => void; okTip?: string; layout?: string; children?: React.ReactNode;
+  ok: () => void; cancel: () => void; okTip?: Tip; layout?: string; children?: React.ReactNode;
 }) {
   const slot = useContext(FootSlot);
   const why = useSheetLock();
@@ -237,11 +239,11 @@ export function SheetFoot({ ok, cancel, okTip, layout, children }: {
     <div className={`dialog-row${layout ? ` ${layout}` : ""}`}>
       <Writes>{children}</Writes>
       <span style={{ flex: 1 }} />
-      <Button tip="不改动，关掉这个窗口" tone="ghost" onClick={cancel}>
-        取消
+      <Button tone="ghost" onClick={cancel}>
+        {t("ui.common.cancel")}
       </Button>
-      <Button tip={locked ? why : okTip ?? "用这个值"} tone="primary" disabled={locked} onClick={ok}>
-        确定
+      <Button tip={locked ? tipOf("disabled", why) : okTip} tone="primary" disabled={locked} onClick={ok}>
+        {t("ui.common.ok")}
       </Button>
     </div>
   );

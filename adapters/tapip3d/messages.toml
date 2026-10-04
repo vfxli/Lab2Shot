@@ -1,6 +1,0 @@
-# TAPIP3D 3D 跟踪点（adapters/tapip3d）。一行一条：编号 = 模板。
-
-# ---- 深度和相机输入
-"E-TAPIP3D-NODEPTHCAMERA" = "「TAPIP3D 3D 跟踪点」要同时接「深度图」和「相机」：把一个输出深度图的节点和一个相机节点接进来"
-"E-TAPIP3D-DEPTHFRAMES" = "「深度图」缺 {count:d} 帧（如第 {first} 帧）：TAPIP3D 每一帧都要深度图，让上游输出深度图的节点算满画面的每一帧"
-"E-TAPIP3D-DEPTHSIZE" = "第 {frame} 帧的「深度图」是 {width}×{height}，画面是 {plate_width}×{plate_height}：深度图要和画面同样大小，检查上游输出深度图的节点接的是不是这段画面"

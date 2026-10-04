@@ -3,7 +3,7 @@
 Every user logs in with an account. Each account has a role (lab2shot/roles.py: 管理员, 二级管理员, 普通用户), which
 determines what it may do beyond the editor. The built-in administrator account (admin, ADMIN_ID; it has no password
 until one is set with `./setup.sh`) is always 管理员. The 管理员 and 二级管理员 create other accounts on the admin page
-(用户); while 开放注册 is on, people also make their own on the login page (lab2shot/registration.py), through the
+(用户); while 开放注册 is on, people also make their own on the login page (lab2shot/site/registration.py), through the
 same create() and with the same checks. Each account has a username; a password initially set by the administrator
 (the user may change it by supplying the old one); a Chinese name and a 环节 (setting people.departments, used by the
 statistics); an expiry date (after which login is refused and live sessions end immediately; the administrator can
@@ -23,6 +23,12 @@ session of the same account and kind (start()). The displaced page learns this o
 (a 401 stating when, from where and from which device the new login came: server/access.py, server/auth.py) and
 offers 重新登录, which in turn displaces the newer session. The machine token (kind "machine") is exempt and never
 counts as online, nor as anyone's activity.
+
+A DCC plugin's embedded web window (kind "embedded", start_embedded) logs in through its plugin's login (kind "client")
+with a one-time ticket (server/auth.py Tickets): it hangs under that login (sessions.parent) and lives only while it
+does — the plugin logging out, being displaced by another plugin login, its token lapsing or the account being disabled
+ends it at once (session() checks its parent on every request). It displaces nothing and nothing displaces it but its
+parent; it has no rights beyond the editor (like its parent), and lasts EMBED_S from its last use, never past its parent.
 
 Stored in the database (database/schema.py); passwords are kept only as salted slow hashes (scrypt), never in plaintext:
 
@@ -50,7 +56,6 @@ only from this machine's own loopback address with no proxy in between (server/a
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import hmac
 import re
@@ -59,23 +64,42 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from . import roles
+from . import i18n, roles
 from .config import settings
 from .database import db, json_of, json_text
 from .errors import Invalid, NotFound
-from .io.atomic import write_text
 from .messages import Msg
 from .nodes import tags as node_tags
 from .periods import Periods, local_day
 
 ADMIN_ID = 1  # the baseline migration creates the administrator's account first (database/schema.py)
 ADMIN_NAME = "admin"  # the built-in administrator's username on a new installation
-DELETED = "已删除的用户"  # label under which a deleted account's jobs are counted
+# names no account may take: the template folders' owners besides the accounts' (site/library.py OWNER_ADMIN, OWNER_ADAPTER)
+RESERVED_USERNAMES = frozenset({"admin", "adapter"})
+def deleted_label() -> str:
+    """The label under which a deleted account's jobs are counted, in the language now (account.deleted)."""
+    return i18n.t("account.deleted")
+
+
+def kept_deleted() -> str:
+    """What is written into the records in place of a purged account's name (the server's records are English)."""
+    return i18n.t("account.deleted", in_lang=i18n.LOG_LANG)
+
+
+def label_of(name: str, username: str, lang: str | None = None) -> str:
+    """An account as people read it: 张三（zhangsan） (account.label: the brackets are the language's)."""
+    return i18n.t("account.label", in_lang=lang, name=name, username=username)
+
+
+def labels_of(name: str, username: str) -> set[str]:
+    """Every way a record may have written the account (its label in each language)."""
+    return {label_of(name, username, lang) for lang in i18n.LANGS}
 
 MIN_CHARS, MAX_CHARS = 8, 128  # length limits for a password and the 口令
 SESSION_S = 30 * 86400  # a browser stays logged in this long after its last use
 TOKEN_S = 180 * 86400  # the same for a DCC plugin or the command line
 ADMIN_S = 3 * 86400  # duration of administrator rights on a browser, from password entry
+EMBED_S = 86400  # a plugin's embedded window stays logged in this long after its last use (never past its parent's)
 SEEN_EVERY_S = 600  # a session's last use is written at most this often
 # 在线: a web/client session that made a request within this many seconds (presence()). An open page asks the server
 # at least once a minute (the editor's /api/load poll, webui/src/editor/Chrome.tsx, backs off to 60 s at most; a page
@@ -105,10 +129,13 @@ PARALLEL = 1
 PASSPHRASE = "auth.passphrase"
 
 USERNAME = re.compile(r"^[a-z][a-z0-9_.-]{2,31}$")
-NAME_MIN, NAME_MAX = 2, 6
+NAME_MIN, NAME_MAX = 2, 6  # a Chinese name: Han characters
+LATIN_MIN, LATIN_MAX = 2, 20  # an English name: letters and digits, starting with a letter
 DOTS = "·•・‧∙"  # middle-dot variants accepted in input; normalised to ·
-_HAN = r"㐀-䶿一-鿿豈-﫿\U00020000-\U0003134f"
+# Han characters (CJK Unified Ideographs, Extension A, Compatibility, Extensions B and on), by code point
+_HAN = "".join(f"{chr(a)}-{chr(b)}" for a, b in ((0x3400, 0x4DBF), (0x4E00, 0x9FFF), (0xF900, 0xFAFF), (0x20000, 0x3134F)))
 _NAME = re.compile(rf"^[{_HAN}]+(·[{_HAN}]+)*$")
+_LATIN = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")  # no spaces, no other characters
 
 
 def now() -> float:
@@ -165,15 +192,16 @@ def device_label(kind: str, agent: str, app: str = "") -> str:
     as the 用户 page's tooltip explains. A client (a DCC plugin, the command line) is named by its self-reported
     `app` (maya, houdini, nuke, cli, ...), not by the User-Agent of its HTTP library."""
     if kind != "web":
-        return app or "客户端"
-    browser = next((label for key, label in _BROWSERS if key in agent), "浏览器")
-    system = next((label for key, label in _SYSTEMS if key in agent), "未知系统")
+        return app or i18n.t("account.device.client", in_lang=i18n.LOG_LANG)  # kept in the records: the server's English
+    browser = next((label for key, label in _BROWSERS if key in agent), None) or i18n.t("account.device.browser", in_lang=i18n.LOG_LANG)
+    system = next((label for key, label in _SYSTEMS if key in agent), None) or i18n.t("account.device.unknown_system", in_lang=i18n.LOG_LANG)
     return f"{browser} · {system}"
 
 
-def rule_problem(text: str, what: str = "密码") -> Msg | None:
+def rule_problem(text: str, what: object = None) -> Msg | None:
     """Why a new password or 口令 cannot be used (None if it can); the pages apply the same check before submitting.
-    `what` is the term used in the message (密码, 新密码, 口令)."""
+    `what` is the term used in the message (密码, 新密码, 口令; None: 密码, account.secret.password)."""
+    what = i18n.t("account.secret.password") if what is None else what
     if len(text) < MIN_CHARS:
         return Msg("E-ACCOUNT-SECRETSHORT", what=what, min=MIN_CHARS)
     if len(text) > MAX_CHARS:
@@ -191,17 +219,21 @@ def check_username(text: object) -> str:
 
 
 def check_name(name: object) -> str:
-    """The Chinese name in stored form (trimmed, middle dots normalised); raises Invalid stating what is wrong."""
+    """The name in stored form (trimmed, middle dots normalised): a Chinese name (NAME_MIN–NAME_MAX Han characters,
+    parts joined by ·) or an English one (LATIN_MIN–LATIN_MAX letters and digits, starting with a letter); raises
+    Invalid stating what is wrong."""
     text = str(name or "").strip()
     for dot in DOTS:
         text = text.replace(dot, "·")
     if not text:
-        raise Invalid(Msg("E-ACCOUNT-NONAME", min=NAME_MIN, max=NAME_MAX))
+        raise Invalid(Msg("E-ACCOUNT-NONAME", min=NAME_MIN, max=NAME_MAX, latin_min=LATIN_MIN, latin_max=LATIN_MAX))
     if re.search(r"\s", text):
         raise Invalid(Msg("E-ACCOUNT-NAMESPACE", name=text))
+    if _LATIN.match(text):
+        if not LATIN_MIN <= len(text) <= LATIN_MAX:
+            raise Invalid(Msg("E-ACCOUNT-NAMELATINLENGTH", name=text, count=len(text), min=LATIN_MIN, max=LATIN_MAX))
+        return text
     if not _NAME.match(text):
-        if re.search(r"[A-Za-z]", text):
-            raise Invalid(Msg("E-ACCOUNT-NAMELATIN", name=text))
         raise Invalid(Msg("E-ACCOUNT-NAMECHARS", name=text))
     chars = len(text.replace("·", ""))
     if not NAME_MIN <= chars <= NAME_MAX:
@@ -210,13 +242,26 @@ def check_name(name: object) -> str:
 
 
 def departments() -> list[str]:
+    """The departments an account may be given (the setting people.departments): ids of the factory list
+    (lab2shot/departments.json), and whatever an administrator added, as written."""
     return list(settings()["people.departments"])
+
+
+def department_label(value: str) -> str:
+    """How a department shows, the one rule: a factory one by its words (department.<id>, in the language now), one
+    an administrator added (user data) as written; "" none."""
+    return (i18n.lookup(f"department.{value}") if value and value.isidentifier() and value.isascii() else None) or value
+
+
+def departments_shown() -> list[dict]:
+    """The departments with how each shows: what a page offers to pick ({value, label}; the value is stored)."""
+    return [{"value": d, "label": department_label(d)} for d in departments()]
 
 
 def check_department(dept: object) -> str:
     text = str(dept or "").strip()
     if text not in departments():
-        raise Invalid(Msg("E-ACCOUNT-DEPARTMENT", departments=departments()))
+        raise Invalid(Msg("E-ACCOUNT-DEPARTMENT", departments=i18n.separator().join(department_label(d) for d in departments())))
     return text
 
 
@@ -248,6 +293,29 @@ class Actor:
 
 SYSTEM = Actor(None, "")  # the program's own doing (its own terms, a default)
 
+# who set an account's password, as users.password_by keeps it: an id said in the reader's language (password_by_text),
+# never words (they would stay in the language of whoever set it)
+BY_SELF, BY_PASSPHRASE, BY_COMMAND_LINE = "self", "passphrase", "command_line"
+BY_ROLE = "role:"  # + the role of the account that set it (roles.py): an administrator, a deputy
+
+
+def by_role(role: str) -> str:
+    """password_by for a password an account of `role` set for another."""
+    return BY_ROLE + role
+
+
+def password_by_text(by: str) -> str:
+    """Who set a password (users.password_by) in the language now; a row from before these ids, as it was written."""
+    if by == BY_SELF:
+        return i18n.t("server.password_by.self")
+    if by == BY_PASSPHRASE:
+        return i18n.t("server.password_by.passphrase")
+    if by == BY_COMMAND_LINE:
+        return i18n.t("cli.admin.by_command_line")
+    if by.startswith(BY_ROLE):
+        return roles.label(by[len(BY_ROLE):])
+    return by
+
 
 @dataclass(frozen=True)
 class User:
@@ -265,6 +333,7 @@ class User:
     password_set: float | None
     password_by: str
     no_password: bool  # the built-in administrator account has no password yet, so no one can log in as it
+    lang: str = ""  # the language it chose (i18n.LANGS); "": none yet, the browser's (server/lang.py)
 
     @property
     def capabilities(self) -> frozenset[str]:
@@ -284,7 +353,7 @@ class User:
     @property
     def label(self) -> str:
         """Display form: 张三（zhangsan）, or 「已删除的用户」 once deleted."""
-        return DELETED if self.deleted else f"{self.name}（{self.username}）"
+        return deleted_label() if self.deleted else label_of(self.name, self.username)
 
     def usable_now(self) -> Msg | None:
         """Why the account cannot log in or stay logged in now (None if it can)."""
@@ -299,16 +368,17 @@ class User:
     def public(self) -> dict:
         """The fields sent to the account's own pages."""
         return {"id": self.id, "username": self.username, "name": self.name, "department": self.department,
-                "role": self.role, "role_label": roles.label(self.role), "tags": sorted(self.tags), "expires": self.expires}
+                "department_label": department_label(self.department), "role": self.role, "role_label": roles.label(self.role), "tags": sorted(self.tags), "expires": self.expires,
+                "lang": self.lang}
 
     def full(self) -> dict:
         """The fields the 用户 page shows: `state` (可以用, or the reason it is not usable; 未设密码 for the built-in
         administrator account without a password) and `state_tip`."""
         problem = self.usable_now()
-        state = "未设密码" if self.no_password else problem.text if problem else "可以用"
-        tip = "还没设密码：在服务器上执行 ./setup.sh，选「账号与安全 → 设置管理员密码」" if self.no_password else state
+        state = i18n.t("account.state.no_password") if self.no_password else problem.text if problem else i18n.t("account.state.usable")
+        tip = i18n.t("account.state.no_password_tip") if self.no_password else state
         return {**self.public(), "owner": self.owner, "all_nodes": self.allowed is None, "enabled": self.enabled, "deleted": self.deleted, "created": self.created,
-                "last_login": self.last_login, "password_set": self.password_set, "password_by": self.password_by,
+                "last_login": self.last_login, "password_set": self.password_set, "password_by": password_by_text(self.password_by),
                 "no_password": self.no_password, "usable_now": problem is None, "state": state, "state_tip": tip}
 
 
@@ -317,7 +387,19 @@ def _user(r) -> User:
                 tags=frozenset(json_of(r["tags"])), expires=r["expires"], enabled=bool(r["enabled"]),
                 deleted=r["deleted"], created=r["created"], last_login=r["last_login"],
                 password_set=r["password_set"], password_by=r["password_by"],
-                no_password=r["id"] == ADMIN_ID and not r["hash"])
+                no_password=r["id"] == ADMIN_ID and not r["hash"], lang=r["lang"] if "lang" in r.keys() else "")
+
+
+def set_lang(user_id: int, lang: str) -> None:
+    """The language the account chose (one of i18n.LANGS, or "" to follow the browser): what everything is said to
+    it in, wherever it logs in (server/lang.py)."""
+    from . import i18n
+
+    chosen = i18n.normal(lang) or ""
+    if lang and not chosen:
+        raise Invalid(Msg("E-ACCOUNT-BADLANG", lang=str(lang)[:20], langs=list(i18n.LANGS)))
+    with db().write() as c:
+        c.execute("UPDATE users SET lang = ? WHERE id = ?", (chosen, user_id))
 
 
 def get(user_id: int) -> User:
@@ -350,10 +432,13 @@ def listing() -> list[dict]:
              # the account's own disk quota (None: the default from the settings). Usage requires a disk scan and is
              # requested separately by the detail page (server/quota.py)
              "quota_gb": r["quota_gb"],
+             # 队列优先 (queue_first): only on this listing, which only the 用户 page reads; never on User, so none of
+             # an account's own answers (public, full) can carry it
+             "queue_first": bool(r["queue_first"]),
              "presence": here.get(r["id"], nobody)} for r in rows]
 
 
-def new_password(text: str, what: str = "密码") -> str:
+def new_password(text: str, what: object = None) -> str:
     """A new password as it is kept (its scrypt hash), or Invalid when the rules refuse it (rule_problem). The one place
     a new password is hashed, before any write transaction: scrypt takes a tenth of a second, and every other write of
     the process would wait that long behind it."""
@@ -363,20 +448,18 @@ def new_password(text: str, what: str = "密码") -> str:
 
 
 def create(username: str, hashed: str, name: str, department: str, expires: float, allowed: object,
-           role: str = roles.DEFAULT, by: str = "管理员") -> User:
+           role: str = roles.DEFAULT, by: str = "") -> User:
     """Create an account (server/users.py checks which roles the caller may create: lab2shot/roles.py). `hashed`: its
     first password, from new_password (the caller's write transaction, registration's, may hold this one). `by`: who
-    set its first password (the role label of the creator)."""
+    set its first password (BY_SELF, by_role(the creator's role): password_by)."""
     username, role = check_username(username), roles.check(role)
     name, department, given = check_name(name), check_department(department), check_tags(allowed)
     if expires <= now():
         raise Invalid(Msg("E-ACCOUNT-EXPIRYPAST"))
-    from .library import RESERVED_USERNAMES
-
-    if by_username(username) or username in RESERVED_USERNAMES:  # admin / adapter are the other two template folders (library.py)
+    if by_username(username) or username in RESERVED_USERNAMES:  # admin / adapter are the other two template folders (site/library.py)
         raise Invalid(Msg("E-ACCOUNT-USERNAMETAKEN", username=username))
     # A deleted account keeps its username until it is purged: what is kept under the username (its templates,
-    # work/users/<username>/, library.py) is still the deleted account's, and purging it removes that folder.
+    # work/users/<username>/, site/library.py) is still the deleted account's, and purging it removes that folder.
     if db().row("SELECT 1 FROM users WHERE username = ?", (username,)):
         raise Invalid(Msg("E-ACCOUNT-USERNAMEDELETED", username=username))
     t = now()
@@ -417,8 +500,9 @@ def _new_id(c) -> int:
 
 
 def update(user_id: int, *, name: str | None = None, department: str | None = None, expires: float | None = None,
-           enabled: bool | None = None, allowed: object = None, role: str | None = None) -> User:
-    """Change an account (for the built-in administrator account, only its name and department). Disabling it or
+           enabled: bool | None = None, allowed: object = None, role: str | None = None,
+           queue_first: bool | None = None) -> User:
+    """Change an account (for the built-in administrator account, only its name, department and 队列优先). Disabling it or
     setting an expiry in the past ends its sessions immediately (they are checked on every request); a new role with
     fewer rights also takes effect immediately, while a role with more rights takes effect at the next login, since
     rights are granted on password entry."""
@@ -430,6 +514,8 @@ def update(user_id: int, *, name: str | None = None, department: str | None = No
         changes["name"] = check_name(name)
     if department is not None:
         changes["department"] = check_department(department) if department or not u.owner else ""
+    if queue_first is not None:
+        changes["queue_first"] = int(bool(queue_first))
     if not u.owner:
         if expires is not None:
             changes["expires"] = float(expires)
@@ -448,10 +534,67 @@ def update(user_id: int, *, name: str | None = None, department: str | None = No
     return get(user_id)
 
 
+@dataclass(frozen=True)
+class Shift:
+    """What moving an account's expiry did (shift_expiry): before and after (None: never expires), and whether it
+    moved at all (`why` not: never — the account never expires; deleted — it is gone; none — no days)."""
+
+    old: float | None
+    new: float | None
+    why: str = ""
+
+    @property
+    def applied(self) -> bool:
+        return not self.why
+
+
+def queue_first(user_id: int) -> bool:
+    """队列优先 (Queue priority): the account's tasks, once submitted, wait ahead of every waiting task of an account
+    without it (farm/queue.py in_order); nothing running is stopped. An administrator's setting, shown and changed only
+    on the 用户 page (listing, update); False for no such account."""
+    r = db().row("SELECT queue_first FROM users WHERE id = ?", (user_id,))
+    return bool(r is not None and r["queue_first"])
+
+
+def quota_gb(user_id: int) -> float | None:
+    """The account's own disk quota as kept (users.quota_gb), None when it has none of its own (the setting's default
+    applies) or there is no such account. The rule of quotas is lab2shot/server/quota.py's; the users table is here."""
+    r = db().row("SELECT quota_gb FROM users WHERE id = ?", (user_id,))
+    return None if r is None or r["quota_gb"] is None else float(r["quota_gb"])
+
+
+def set_quota_gb(user_id: int, gb: float | None) -> None:
+    """Give the account its own quota (None: back to the setting's default); joins the caller's transaction if any."""
+    with db().write() as c:
+        c.execute("UPDATE users SET quota_gb = ? WHERE id = ?", (None if gb is None else float(gb), user_id))
+
+
+def shift_expiry(c, user_id: int | None, days: float) -> Shift:
+    """(Inside the caller's write `c`) move an account's expiry by `days` (negative: back), from now when it has
+    already passed and never to before now: the one place a reward of time is given or taken back (site/feedback.py rate).
+    An account that never expires (the built-in administrator), a deleted or permanently deleted one, or no days: only
+    said, nothing moves."""
+    r = c.execute("SELECT expires, deleted FROM users WHERE id = ?", (user_id,)).fetchone() if user_id is not None else None
+    if r is None or r[1] is not None:
+        return Shift(None if r is None else r[0], None if r is None else r[0], "deleted")
+    old = r[0]
+    if old is None:
+        return Shift(None, None, "never")
+    if not days:
+        return Shift(old, old, "none")
+    t = now()
+    new = max(old, t) + days * 86400 if days > 0 else max(t, old + days * 86400)
+    if new == old:
+        return Shift(old, old, "none")
+    c.execute("UPDATE users SET expires = ? WHERE id = ?", (new, user_id))
+    _changed(c)  # 已过期 ↔ 可以用 is how the account is said
+    return Shift(old, new)
+
+
 def set_password(user_id: int, new: str, by: str, keep: str | None = None) -> None:
-    """Set a new password (by: 本人 / 管理员 / 命令行). Every session of the account ends except `keep` (the token of
+    """Set a new password (by: who, an id of password_by: BY_SELF, BY_PASSPHRASE, BY_COMMAND_LINE, by_role). Every session of the account ends except `keep` (the token of
     the browser that made the change)."""
-    hashed = new_password(new, "新密码")
+    hashed = new_password(new, i18n.t("account.secret.new_password"))
     with db().write() as c:
         c.execute("UPDATE users SET hash = ?, password_set = ?, password_by = ? WHERE id = ?",
                   (hashed, now(), by, user_id))
@@ -463,30 +606,26 @@ def password_hash(user_id: int) -> str:
     return r["hash"] if r else ""
 
 
-def delete(user_id: int) -> dict:
-    """Delete an account (never the built-in administrator account). In this order: it is switched off and its
-    sessions end (nothing new comes from it), its live jobs stop and are waited for until they have ended (nothing of
-    theirs is written any more; E-QUEUE-STILLSTOPPING, the account left switched off, when one does not end), then its
-    tasks' outputs are removed (transfer/outputs.py; its cache, uploads and task folders go by housekeeping:
-    farm/disk.py) and it is marked deleted. Its job records remain for the statistics (as 「已删除的用户」) and its
-    feedback remains for the administrator. Returns what was removed."""
+def switch_off_to_delete(user_id: int) -> User:
+    """The first step of deleting an account (lab2shot/site/account_removal.py delete, which stops its jobs and removes its
+    outputs next): never the built-in administrator account; it is switched off and its sessions end, so nothing new
+    comes from it."""
     u = get(user_id)
     if u.owner:
         raise Invalid(Msg("E-ACCOUNT-ADMINDELETE", username=u.username))
     if u.deleted:
         raise NotFound(Msg("E-ACCOUNT-NOUSER"))
-    from .farm import farm
-    from .transfer import outputs
-
     with db().write() as c:
         c.execute("UPDATE users SET enabled = 0 WHERE id = ?", (user_id,))
         c.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
-    stopped = farm().stop_user(user_id)
-    gone = outputs.remove_account(user_id)
+    return u
+
+
+def mark_deleted(user_id: int) -> None:
+    """The last step of deleting an account: marked deleted (its job records and feedback stay)."""
     with db().write() as c:
         c.execute("UPDATE users SET deleted = ? WHERE id = ?", (now(), user_id))
         _changed(c)
-    return {"jobs_stopped": stopped, "outputs": gone}
 
 
 # Every table naming an account, and what permanent deletion does with it (PURGE): one list, which `lab2shot check
@@ -502,10 +641,10 @@ def delete(user_id: int) -> dict:
 #   goes   ON DELETE CASCADE: removed with the account row, as the confirmation dialog says
 #   names  no user_id: who did something is a name with its account id beside it (`named`: the name's column and the
 #          id's, written together from an Actor): the name says DELETED where the id is this account's
-# Node graphs saved on the server are files (work/users/<username>/templates/, lab2shot/library.py), deleted with the
+# Node graphs saved on the server are files (work/users/<username>/templates/, lab2shot/site/library.py), deleted with the
 # account's folder; its task folders, its cache and its uploads are deleted with it (farm/disk.py forget_account), so
 # the job records kept afterwards no longer have a graph. A preset template saved since ids names who saved it by id
-# (library.py author_id), shown as 「已删除的用户」 once the account is gone; a file saved before holds a name, and
+# (site/library.py author_id), shown as 「已删除的用户」 once the account is gone; a file saved before holds a name, and
 # being the repository's templates/, it is left as it is. The account's id is never given again (_new_id).
 
 ACTOR_KEYS = ("who", "role")  # an audit line's words for whoever did it (server/access.py actor), never for whom
@@ -526,59 +665,56 @@ def _forget_consents(c, u: User) -> None:
 
 def _forget_feedback(c, u: User) -> None:
     """Its feedback is kept without saying whose (user_id, the sender the server noted in its bundle), and no feedback's
-    bundle names it any more: a bundle holds what the server's log said when it was sent (feedback.py submit), whoever
+    bundle names it any more: a bundle holds what the server's log said when it was sent (site/feedback.py submit), whoever
     sent it, and a line of that log naming this account goes from all of them: its username, its label, or where it
     logged in from (an address, a computer's name: login_log, read here before _forget_logins forgets them; a request's
-    line names only its address)."""
-    from .feedback import folder
-
-    places = {v for row in c.execute("SELECT ip, hostname FROM login_log WHERE user_id = ?", (u.id,)).fetchall()
-              for v in row if v}
-    marked = re.compile("|".join([rf"(?<![\w.-]){re.escape(u.username)}(?![\w-])", re.escape(f"{u.name}（{u.username}）"),
-                                  *(rf"(?<![\w.:-]){re.escape(v)}(?![\w:-]|\.\w)" for v in sorted(places))]))
-    for fid, owner in c.execute("SELECT id, user_id FROM feedback").fetchall():
-        bundle = folder(fid) / "bundle.json"
-        try:
-            kept = json.loads(bundle.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        cleaned = _unmarked(kept, marked)
-        if owner == u.id and isinstance(cleaned.get("server"), dict):
-            cleaned["server"]["client"] = {"who": DELETED}
-        if cleaned != kept:
-            write_text(bundle, json.dumps(cleaned, ensure_ascii=False, indent=1))
+    line names only its address). The bundles are files of site/feedback.py, cleaned by it (feedback.forget_in_bundles, run
+    by account_removal.purge before this with the pattern `marked` gives); here the rows."""
     c.execute("UPDATE feedback SET user_id = NULL WHERE user_id = ?", (u.id,))
 
 
-def _unmarked(value, marked: re.Pattern):
+def marked(u: User) -> re.Pattern:
+    """What names this account in a text: its username, its labels, and where it logged in from (an address, a
+    computer's name: login_log, read before purge forgets them; a request's line names only its address)."""
+    places = {v for row in db().rows("SELECT ip, hostname FROM login_log WHERE user_id = ?", (u.id,))
+              for v in (row["ip"], row["hostname"]) if v}
+    return re.compile("|".join([rf"(?<![\w.-]){re.escape(u.username)}(?![\w-])", *(re.escape(x) for x in sorted(labels_of(u.name, u.username))),
+                                *(rf"(?<![\w.:-]){re.escape(v)}(?![\w:-]|\.\w)" for v in sorted(places))]))
+
+
+def _forget_rewards(c, u: User) -> None:
+    c.execute("UPDATE feedback_rewards SET user_id = NULL WHERE user_id = ?", (u.id,))
+
+
+def unmarked(value, marked: re.Pattern):
     """`value` (a JSON value) without what `marked` finds: a line of a list of them (a log's) gone, any other text with
     it said as DELETED."""
     if isinstance(value, list):
-        return [_unmarked(v, marked) for v in value if not (isinstance(v, str) and marked.search(v))]
+        return [unmarked(v, marked) for v in value if not (isinstance(v, str) and marked.search(v))]
     if isinstance(value, dict):
-        return {k: _unmarked(v, marked) for k, v in value.items()}
-    return marked.sub(DELETED, value) if isinstance(value, str) else value
+        return {k: unmarked(v, marked) for k, v in value.items()}
+    return marked.sub(kept_deleted().replace("\\", "\\\\"), value) if isinstance(value, str) else value
 
 
 def _forget_logins(c, u: User) -> None:
     # also the tries that typed its username before it resolved to the account (a username is one account's)
     c.execute("UPDATE login_log SET user_id = NULL, username = ?, ip = '', agent = '', device = '', device_id = '', "
-              "hostname = '' WHERE user_id = ? OR username = ?", (DELETED, u.id, u.username))
+              "hostname = '' WHERE user_id = ? OR username = ?", (kept_deleted(), u.id, u.username))
 
 
 def _forget_actions(c, u: User) -> None:
     """Its own actions (user_id: their `who` is it), and every action about it (target_id, which audit writes from the
     account done to; a row from before that, its `username`): there, whatever names it but the words for who did it
     (ACTOR_KEYS: another administrator, who may share its name)."""
-    label = f"{u.name}（{u.username}）"
+    labels = labels_of(u.name, u.username)
     for row_id, by, about, params in c.execute(
             "SELECT id, user_id, target_id, params FROM admin_actions WHERE user_id = ? OR target_id = ? OR "
             "(target_id IS NULL AND json_extract(params, '$.username') = ?)", (u.id, u.id, u.username)).fetchall():
         said = json_of(params, {})
         if not isinstance(said, dict):
             continue
-        if by == u.id and said.get("who") in (label, u.name, u.username):
-            said["who"] = DELETED
+        if by == u.id and said.get("who") in (*labels, u.name, u.username):
+            said["who"] = kept_deleted()
         if about == u.id or said.get("username") == u.username:
             said = {k: v if k in ACTOR_KEYS else _unnamed(v, u) for k, v in said.items()}
         c.execute("UPDATE admin_actions SET user_id = ?, target_id = ?, params = ? WHERE id = ?",
@@ -589,9 +725,9 @@ def _unnamed(value, u: User):
     """`value` (a JSON value about this account) with what names it said as DELETED: its label, its username (whole
     texts: a username may be a part of other words) and its name, also inside a text (a change written as name=张三)."""
     if isinstance(value, str):
-        if value in (u.username, f"{u.name}（{u.username}）"):
-            return DELETED
-        return value.replace(u.name, DELETED) if u.name else value
+        if value == u.username or value in labels_of(u.name, u.username):
+            return kept_deleted()
+        return value.replace(u.name, kept_deleted()) if u.name else value
     if isinstance(value, list):
         return [_unnamed(v, u) for v in value]
     if isinstance(value, dict):
@@ -605,7 +741,7 @@ def _forget_notice(c, u: User) -> None:
     notice = json_of(row[0], {}) if row else {}
     if isinstance(notice, dict) and notice.get("by_id") == u.id:
         c.execute("UPDATE meta SET value = ? WHERE key = 'server.notice'",
-                  (json_text({**notice, "by": DELETED, "by_id": None}),))
+                  (json_text({**notice, "by": kept_deleted(), "by_id": None}),))
 
 
 def _merge_traffic(c, u: User) -> None:
@@ -625,7 +761,10 @@ class Purged:
 PURGE = {
     "jobs": Purged("keeps", _forget_jobs),
     "consents": Purged("keeps", _forget_consents),
-    "feedback": Purged("keeps", _forget_feedback, named=(("updated_by", "updated_by_id"), ("replied_by", "replied_by_id"))),
+    "feedback": Purged("keeps", _forget_feedback, named=(("updated_by", "updated_by_id"), ("replied_by", "replied_by_id"),
+                                                         ("rated_by", "rated_by_id"))),
+    # the reward ledger (site/feedback.py rate): kept for the record, without whose account it was
+    "feedback_rewards": Purged("keeps", _forget_rewards, named=(("by", "by_id"),)),
     "login_log": Purged("keeps", _forget_logins),  # after feedback: _forget_feedback reads where it logged in from
     "admin_actions": Purged("keeps", _forget_actions),
     "traffic": Purged("counts", _merge_traffic),
@@ -637,49 +776,42 @@ PURGE = {
 }
 
 
-def purge(user_id: int) -> dict:
-    """Permanently delete an already deleted account: the account row is removed and the username may be reused (not
-    before: create).
-
-    Job records, feedback, login records and the admin action log are kept but no longer identify the account (PURGE
-    keeps: nor where it worked from); the statistics show them as 「已删除的用户」, and what it was sent stays in the
-    site's traffic totals (PURGE counts). Returns the number of rows kept per table, which the confirmation dialog and
-    the audit log report.
-
-    Applies only to accounts already deleted (deletion and permanent deletion are two separate steps, to prevent
-    accidental loss). The built-in administrator account (ADMIN_ID) can never be deleted."""
+def purgeable(user_id: int) -> User:
+    """The account permanent deletion (lab2shot/site/account_removal.py purge) may go on with: one already deleted (deletion
+    and permanent deletion are two separate steps, to prevent accidental loss), never the built-in administrator
+    account (ADMIN_ID)."""
     u = get(user_id)
     if u.owner:
         raise Invalid(Msg("E-ACCOUNT-ADMINDELETE", username=u.username))
     if not u.deleted:
         raise Invalid(Msg("E-ACCOUNT-NOTDELETED", username=u.username))
-    from .farm import farm
-    from .farm.disk import forget_account
-    from .library import remove_user
+    return u
 
-    # a job of it still to finish would write into (and make again) the cache and folders removed below; a deleted
-    # account gets no new one (no session, and a held job is not queued again for it: farm/queue.py _unpark)
-    if live := farm().live_of(user_id):
-        raise Invalid(Msg("E-ACCOUNT-JOBSLIVE", username=u.username, count=len(live)))
 
+def kept_counts(user_id: int) -> dict[str, int]:
+    """The rows permanent deletion keeps of an account, per table (PURGE keeps)."""
+    return {t: db().row(f"SELECT COUNT(*) AS n FROM {t} WHERE user_id = ?", (user_id,))["n"]
+            for t, p in PURGE.items() if p.how == "keeps"}
+
+
+def purge_rows(u: User) -> None:
+    """The database's part of permanent deletion (account_removal.purge, after the account's files are gone): the
+    account row is removed and the username may be reused (not before: create). Job records, feedback, login records
+    and the admin action log are kept but no longer identify the account (PURGE keeps: nor where it worked from); the
+    statistics show them as 「已删除的用户」, and what it was sent stays in the site's traffic totals (PURGE counts)."""
     from . import traffic
 
-    kept = {t: db().row(f"SELECT COUNT(*) AS n FROM {t} WHERE user_id = ?", (user_id,))["n"]
-            for t, p in PURGE.items() if p.how == "keeps"}
-    graphs = remove_user(u.username)
-    forget_account(user_id)  # its tasks, cache and uploads
     traffic.flush()  # what it sent that is still counted in memory, into the rows moved below
     with db().write() as c:
         for table, p in PURGE.items():
             if p.forget is not None:
                 p.forget(c, u)
             for column, by_id in p.named:
-                c.execute(f"UPDATE {table} SET {column} = ?, {by_id} = NULL WHERE {by_id} = ?", (DELETED, u.id))
+                c.execute(f"UPDATE {table} SET {column} = ?, {by_id} = NULL WHERE {by_id} = ?", (kept_deleted(), u.id))
         c.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = "
-                  "MAX(CAST(value AS INTEGER), CAST(excluded.value AS INTEGER))", (TOP_ID, str(user_id)))
-        c.execute("DELETE FROM users WHERE id = ?", (user_id,))
+                  "MAX(CAST(value AS INTEGER), CAST(excluded.value AS INTEGER))", (TOP_ID, str(u.id)))
+        c.execute("DELETE FROM users WHERE id = ?", (u.id,))
         _changed(c)
-    return {"jobs": kept["jobs"], "feedback": kept["feedback"], "graphs": graphs}
 
 
 def login(username: str, password: str) -> User | None:
@@ -695,9 +827,14 @@ def login(username: str, password: str) -> User | None:
 # ------------------------------------------------------------------ sessions
 
 
-# The kinds of session (sessions.kind, login_log.kind) and the word the 用户 page shows each by: a browser, a client
-# (a DCC plugin or `lab2shot login`), the command line on this machine (machine_token)
-SESSION_KINDS = {"web": "浏览器", "client": "插件", "machine": "本机令牌"}
+# The kinds of session (sessions.kind, login_log.kind): a browser, a client (a DCC plugin or `lab2shot login`), the
+# command line on this machine (machine_token), a plugin's embedded window; the word the 用户 page shows each by is
+# account.session.<kind> (session_kind)
+SESSION_KINDS = ("web", "client", "machine", "embedded")
+
+
+def session_kind(kind: str, lang: str | None = None) -> str:
+    return i18n.t(f"account.session.{kind}", in_lang=lang) if kind in SESSION_KINDS else kind
 
 
 @dataclass(frozen=True)
@@ -751,6 +888,7 @@ def start(user: User, kind: str, ip: str = "", agent: str = "", replaces: str = 
                         ended.append({"kind": r["kind"], "device": r["device"]})
                     c.execute("UPDATE sessions SET expires = ?, replaced_at = ?, replaced_by = ? WHERE token = ?",
                               (t, t, info, r["token"]))
+                    _end_children(c, r["token"], t)
         c.execute("INSERT INTO sessions (token, user_id, kind, created, expires, admin_until, seen, ip, agent, "
                   "device_id, device, hostname) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                   (sha(token), user.id, kind, t, t + life, admin_until, t, ip[:100], agent[:300], device_id[:100],
@@ -760,14 +898,31 @@ def start(user: User, kind: str, ip: str = "", agent: str = "", replaces: str = 
     return token, Session(sha(token), user, kind, t + life, admin_until)
 
 
+def _end_children(c, parent: str, t: float) -> None:
+    """(In a write) the embedded windows under the plugin login `parent` (its token column) end with it, kept a while
+    like a displaced session so the window can say why (kicked_info)."""
+    c.execute("UPDATE sessions SET expires = ?, replaced_at = ?, replaced_by = ? WHERE parent = ? AND kind = 'embedded' "
+              "AND replaced_at IS NULL", (t, t, json_text({"at": t, "ip": "", "device": "", "kind": "embedded"}), parent))
+
+
 def kicked_info(token: str) -> dict | None:
     """Why `token` no longer works when another login ended it (start()): {"at", "ip", "device", "kind"} of that
     login. None when it was never a session or was not ended by a login (guessed, expired, logged out, account
-    deleted)."""
+    deleted). An embedded window's login whose plugin login is gone (logged out, displaced, lapsed) says so with
+    kind "embedded": the window then asks to be opened again from the DCC, never for a password (a login typed there
+    would be a browser's, and would end the account's own browser login)."""
     if not token or len(token) > 100:
         return None
-    r = db().row("SELECT replaced_by FROM sessions WHERE token = ? AND replaced_at IS NOT NULL", (sha(token),))
-    return json_of(r["replaced_by"]) if r else None
+    r = db().row("SELECT s.kind, s.replaced_by, s.replaced_at, s.created, p.kind AS p_kind, p.expires AS p_expires, "
+                 "p.replaced_at AS p_replaced FROM sessions s LEFT JOIN sessions p ON p.token = s.parent WHERE s.token = ?",
+                 (sha(token),))
+    if r is None:
+        return None
+    if r["kind"] == "embedded":
+        if r["replaced_at"] is not None or r["p_kind"] != "client" or r["p_replaced"] is not None or r["p_expires"] <= now():
+            return {"at": r["replaced_at"] or r["created"], "ip": "", "device": "", "kind": "embedded"}
+        return None
+    return json_of(r["replaced_by"]) if r["replaced_at"] is not None else None
 
 
 def once_issued(token: str) -> bool:
@@ -787,30 +942,64 @@ def session(token: str) -> Session | None:
     never renewed here."""
     if not token or len(token) > 100:
         return None
-    key = sha(token)
+    return session_by_key(sha(token))
+
+
+def session_by_key(key: str) -> Session | None:
+    """session() by the stored key of a token (its sha256): for a ticket that remembers whose login asked for it
+    (server/auth.py Tickets keeps no plaintext token)."""
     r = db().row("SELECT s.kind, s.expires AS s_expires, s.admin_until, s.seen, s.device AS s_device, "
-                 "s.hostname AS s_hostname, u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?", (key,))
+                 "s.hostname AS s_hostname, p.kind AS p_kind, p.expires AS p_expires, p.replaced_at AS p_replaced, "
+                 "p.user_id AS p_user, u.* FROM sessions s JOIN users u ON u.id = s.user_id "
+                 "LEFT JOIN sessions p ON p.token = s.parent AND s.parent != '' WHERE s.token = ?", (key,))
     t = now()
     if r is None or r["s_expires"] <= t:
+        return None
+    embedded = r["kind"] == "embedded"
+    # an embedded window's login lives only while the plugin login it hangs under does (start_embedded)
+    if embedded and (r["p_kind"] != "client" or r["p_replaced"] is not None or r["p_expires"] <= t or r["p_user"] != r["id"]):
         return None
     user = _user(r)
     if user.usable_now():
         return None
-    expires = r["s_expires"]
+    expires = min(r["s_expires"], r["p_expires"]) if embedded else r["s_expires"]
     if r["kind"] != "machine":  # 在线: this request, in memory only (the machine token is nobody's presence)
         _ACTIVE[key] = _Active(t, user.id, r["kind"], r["s_device"] or "", r["s_hostname"] or "")
     if r["kind"] != "machine" and t - r["seen"] > SEEN_EVERY_S:  # in use: renew from now
         # start() writes only web / client / machine (machine is excluded above). The renewal length must depend on
-        # the kind; otherwise a client token would shrink from TOKEN_S to SESSION_S on its first renewal.
-        expires = t + (TOKEN_S if r["kind"] == "client" else SESSION_S)
+        # the kind; otherwise a client token would shrink from TOKEN_S to SESSION_S on its first renewal. An embedded
+        # window's never outlasts its parent.
+        expires = min(t + EMBED_S, r["p_expires"]) if embedded else t + (TOKEN_S if r["kind"] == "client" else SESSION_S)
         with db().write() as c:
             c.execute("UPDATE sessions SET seen = ?, expires = ? WHERE token = ?", (t, expires, key))
-    return Session(key, user, r["kind"], expires, r["admin_until"])
+    # an embedded window holds no rights beyond the editor, whatever the account's role (its parent, a client, never does)
+    return Session(key, user, r["kind"], expires, 0.0 if embedded else r["admin_until"])
+
+
+def start_embedded(parent: Session, ip: str = "", agent: str = "") -> tuple[str, Session]:
+    """A login for a DCC plugin's embedded web window, under the plugin's own login `parent` (kind "client" only:
+    server/auth.py redeems a ticket only a client token could ask for). It ends no other session and no web or client
+    login ends it; it ends with its parent (session(), _end_children). No rights beyond the editor; it lasts EMBED_S
+    from its last use and never past its parent. Not in login_log: no password was typed (the ticket's redemption is
+    the server log's, server/auth.py). Returns (token, session)."""
+    if parent.kind != "client":
+        raise ValueError("an embedded window's login hangs under a client's")
+    token = secrets.token_urlsafe(32)
+    t = now()
+    expires = min(t + EMBED_S, parent.expires)
+    device = session_kind("embedded", i18n.LOG_LANG)  # kept in the records: the server's English
+    with db().write() as c:
+        c.execute("INSERT INTO sessions (token, user_id, kind, created, expires, admin_until, seen, ip, agent, device, parent) "
+                  "VALUES (?, ?, 'embedded', ?, ?, 0, ?, ?, ?, ?, ?)",
+                  (sha(token), parent.user.id, t, expires, t, ip[:100], agent[:300], device, parent.token))
+    return token, Session(sha(token), parent.user, "embedded", expires, 0.0)
 
 
 def end(token: str) -> None:
+    """Log out: the session is gone, and the embedded windows under it (a plugin's) end with it."""
     with db().write() as c:
         c.execute("DELETE FROM sessions WHERE token = ?", (sha(token),))
+        _end_children(c, sha(token), now())
 
 
 def end_all() -> int:
@@ -882,7 +1071,7 @@ def online(manages: Callable[[int, str], bool]) -> dict:
     users = db().rows(f"SELECT id, name, username, department, role FROM users WHERE id IN ({marks})", tuple(here))
 
     def line(r, w: dict) -> str:
-        who = f"{r['name']}（{r['username']}）{' · ' + r['department'] if r['department'] else ''}"
+        who = label_of(r["name"], r["username"]) + (f" · {r['department']}" if r["department"] else "")
         if not manages(r["id"], r["role"]):
             return who
         at = f" · {w['hostname']}" if w["kind"] == "client" and w["hostname"] else ""
@@ -919,6 +1108,8 @@ def prune_logins() -> None:
         c.execute("DELETE FROM login_log WHERE at < ?", (t - LOGIN_LOG_KEPT_S,))
         c.execute("DELETE FROM sessions WHERE replaced_at IS NOT NULL AND replaced_at < ?", (t - REPLACED_KEPT_S,))
         c.execute("DELETE FROM sessions WHERE kind != 'machine' AND replaced_at IS NULL AND expires < ?", (t - REPLACED_KEPT_S,))
+        # an embedded window's login whose plugin login is long gone (it ended it: _end_children; or it was removed)
+        c.execute("DELETE FROM sessions WHERE kind = 'embedded' AND replaced_at IS NULL AND parent NOT IN (SELECT token FROM sessions)")
         live = {r["token"] for r in c.execute("SELECT token FROM sessions").fetchall()}
     # the in-memory latest requests of sessions no longer on record: only each account's newest is kept (its last
     # activity, presence())
@@ -944,6 +1135,17 @@ def known_device(user_id: int, device_id: str) -> bool:
         "SELECT 1 FROM login_log WHERE user_id = ? AND ok = 1 AND device_id = ? LIMIT 1", (user_id, device_id[:100])) is not None
 
 
+def reason_text(reason: str) -> str:
+    """A login_log reason as people read it: a message code (N-LOGIN-REASON…, an account problem's own) said in the
+    language now; anything else (a row from before codes were kept) as written."""
+    if reason and i18n.is_message_key(reason):
+        try:
+            return Msg(reason).text
+        except Exception:  # a code no catalogue has any more, or one wanting parameters: as written
+            return reason
+    return reason
+
+
 def log_login(username: str, user_id: int | None, ok: bool, reason: str, kind: str, ip: str, agent: str, device: str,
               device_id: str, hostname: str, ended: list[dict]) -> None:
     """Record one login attempt (server/auth.py's login/token routes call this on failure, start() on success): the
@@ -963,7 +1165,7 @@ def log_login(username: str, user_id: int | None, ok: bool, reason: str, kind: s
 def login_recent(user_id: int, limit: int = 50) -> list[dict]:
     """The account's most recent login attempts, newest first (用户 page's 最近登录 table)."""
     rows = db().rows("SELECT * FROM login_log WHERE user_id = ? ORDER BY at DESC LIMIT ?", (user_id, limit))
-    return [{"at": r["at"], "ok": bool(r["ok"]), "reason": r["reason"], "kind": r["kind"], "ip": r["ip"],
+    return [{"at": r["at"], "ok": bool(r["ok"]), "reason": reason_text(r["reason"]), "kind": r["kind"], "ip": r["ip"],
              "device": r["device"], "device_id": r["device_id"], "hostname": r["hostname"],
              "ended": json_of(r["ended"])} for r in rows]
 
@@ -1009,7 +1211,7 @@ def passphrase() -> dict | None:
 
 def set_passphrase(new: str) -> None:
     """Called only by `lab2shot admin passphrase`; no server route calls it."""
-    db().set_meta(PASSPHRASE, {"hash": new_password(new, "口令"), "set": now()})
+    db().set_meta(PASSPHRASE, {"hash": new_password(new, i18n.t("account.secret.passphrase")), "set": now()})
 
 
 def machine_token() -> str:
@@ -1035,7 +1237,7 @@ def machine_token() -> str:
     with db().write() as c:
         c.execute("DELETE FROM sessions WHERE kind = 'machine'")
         c.execute("INSERT INTO sessions (token, user_id, kind, created, expires, admin_until, seen, ip, agent) "
-                  "VALUES (?, ?, 'machine', ?, ?, ?, ?, '', '本机命令行')",
-                  (sha(plain), ADMIN_ID, t, t + MACHINE_S, t + MACHINE_S, t))
+                  "VALUES (?, ?, 'machine', ?, ?, ?, ?, '', ?)",
+                  (sha(plain), ADMIN_ID, t, t + MACHINE_S, t + MACHINE_S, t, i18n.t("account.device.machine", in_lang=i18n.LOG_LANG)))
     os.replace(fresh, path)
     return plain

@@ -23,7 +23,9 @@ def _driving(names: list[str]) -> str:
     """将驱动某个部位的 rig 关节格式化为一段文字。成链的部位（脊柱、颈、每根手指）可能对应多个关节：
     不超过两个时全部列出（脊柱←Spine/Spine1，可看出使用了哪两节），更多时只写第一个并注明节数
     （左拇指←LeftHandThumb1（3 节））；若列出双手十根手指的全名，单行将超过两百字，难以阅读。"""
-    return "/".join(names) if len(names) <= 2 else f"{names[0]}（{len(names)} 节）"
+    from .. import i18n
+
+    return "/".join(names) if len(names) <= 2 else i18n.Word("joints.first_of", name=names[0], count=len(names))
 
 
 def pairing_notes(driven: dict[str, list[str]], have: set[str]) -> list[Msg]:
@@ -37,16 +39,20 @@ def pairing_notes(driven: dict[str, list[str]], have: set[str]) -> list[Msg]:
     必须显示的原因：推测依赖 `data/joints.py guess()` 按名称和层级判断，可能猜错；显示后使用者能对照骨骼名
     找出错误，在「对应关系 · 编辑…」里改。
     """
-    from .joints import REGIONS, part_label
+    from .. import i18n
+    from ..messages import Both
+    from .joints import REGIONS, part_label, region_label
 
     notes, missing = [Msg("I-SMPL-GUESS")], []
     for region, parts in REGIONS:
-        said = [f"{part_label(p)}←{_driving(driven[p])}" for p in parts if p in driven]
-        missing += [part_label(p) for p in parts if p in have and p not in driven]
+        # said in both languages (messages.Both): the notes read in whoever's language follows the cook
+        said = [p for p in parts if p in driven]
+        missing += [p for p in parts if p in have and p not in driven]
         if said:
-            notes.append(Msg("I-SMPL-PAIRED", region=region, pairs="、".join(said)))
+            notes.append(Msg("I-SMPL-PAIRED", region=Both.of(lambda region=region: region_label(region)),
+                             pairs=Both.of(lambda said=said: i18n.separator().join(f"{part_label(p)}←{_driving(driven[p])}" for p in said))))
     if missing:
-        notes.append(Msg("I-SMPL-UNPAIRED", parts="、".join(missing)))
+        notes.append(Msg("I-SMPL-UNPAIRED", parts=Both.of(lambda: i18n.separator().join(part_label(p) for p in missing))))
     return notes
 
 

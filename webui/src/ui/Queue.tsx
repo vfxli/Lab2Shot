@@ -15,7 +15,10 @@ import { say } from "../state/say";
 import { sizeText } from "../platform/format";
 import { pausedLanes } from "../state/pause";
 import { JobTable, fromRecord as recordJob } from "./QueueTables";
-import { StoragePanel } from "./Storage";
+import { StoragePanel, useStorageUsage } from "./Storage";
+import { t } from "../i18n/t";
+import { listSep } from "../i18n/words";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 export { JobTable, fromRecord } from "./QueueTables";
 
@@ -25,24 +28,24 @@ export { JobTable, fromRecord } from "./QueueTables";
  * 并增加「谁」、显卡开关，以及关于每个任务提交者的全部已知信息。 */
 
 /** 计算中的任务在哪里算：其节点当前所在的显卡（仅对有权查看显卡的人），否则只写「在服务器上算」。 */
-export const whereOf = (job: QueueJob): string => (job.cards?.length ? job.cards.join("、") : "在服务器上算");
+export const whereOf = (job: QueueJob): string => (job.cards?.length ? job.cards.join(listSep()) : t("ui.queue.on_server"));
 
 const STATE: Record<JobState, [string, string]> = {
-  running: ["计算中", "var(--accent)"],
-  queued: ["排队", "var(--orange)"],
-  done: ["完成", "var(--green)"],
-  partial: ["部分失败", "var(--orange)"],
-  failed: ["出错", "var(--error)"],
-  cancelled: ["已取消", "var(--text-3)"],
-  interrupted: ["中断", "var(--text-3)"],
+  running: ["ui.queue.state_running", "var(--accent)"],
+  queued: ["ui.queue.state_queued", "var(--orange)"],
+  done: ["ui.queue.state_done", "var(--green)"],
+  partial: ["ui.queue.state_partial", "var(--orange)"],
+  failed: ["ui.queue.state_failed", "var(--error)"],
+  cancelled: ["ui.queue.state_cancelled", "var(--text-3)"],
+  interrupted: ["ui.queue.state_interrupted", "var(--text-3)"],
 };
 
 export function StateChip({ state }: { state: JobState }) {
-  const [label, color] = STATE[state];
+  const [labelKey, color] = STATE[state];
   return (
     <span className="chip q-state">
       <i style={{ background: color }} />
-      {label}
+      {t(labelKey)}
     </span>
   );
 }
@@ -52,8 +55,8 @@ export function StateChip({ state }: { state: JobState }) {
 export const submittedAt = (j: QueueJob): string => clockText(j.submitted);
 
 export function elapsed(j: QueueJob, now: number): string {
-  if (j.state === "queued") return `已等 ${durationText(now - j.submitted)}`;
-  if (j.state === "running") return `已算 ${durationText(now - (j.started ?? now))}`;
+  if (j.state === "queued") return t("ui.queue.waited", { time: durationText(now - j.submitted) });
+  if (j.state === "running") return t("ui.queue.cooked_for", { time: durationText(now - (j.started ?? now)) });
   // 未运行的任务没有耗时可言：状态列已显示「中断」，此处再写「没开始」属于重复
   return j.started && j.finished ? durationText(j.finished - j.started) : "";
 }
@@ -61,14 +64,14 @@ export function elapsed(j: QueueJob, now: number): string {
 /** 该行的结果：失败时说原因；这个任务的「输出」打包好的 zip 还在服务器上时，每个一个「下载」（浏览器自己下载，
  * ui/OutputDownload.tsx）。随任务过了保留天数、已删掉的只说一声，不给按钮。 */
 export function Outcome({ job }: { job: QueueJob }) {
-  if (job.state === "failed") return <span className="q-out bad" data-tip={job.error ?? "没写原因"}>失败</span>;
+  if (job.state === "failed") return <span className="q-out bad" {...tipAttrs(tipOf("error", job.error ?? t("ui.queue.no_reason")))}>{t("ui.queue.failed")}</span>;
   const all = job.outputs ?? [];
   // 部分失败：出错的节点标红，用不到它的照常算完；打包好的「输出」照常能下载，没有时说一声哪里出错
-  if (job.state === "partial" && !all.length) return <span className="q-out bad" data-tip={job.error ?? "没写原因"}>部分失败</span>;
+  if (job.state === "partial" && !all.length) return <span className="q-out bad" {...tipAttrs(tipOf("error", job.error ?? t("ui.queue.no_reason")))}>{t("ui.queue.state_partial")}</span>;
   // 没有打包结果的行不显示任何内容：状态列已显示「完成」「中断」，此处再写「算完了」「已取消」属于重复
   if (!all.length) return null;
   const kept = all.filter((o) => !o.gone);
-  if (!kept.length) return <span className="q-out" data-tip="这个任务已经过了保留天数，打包的结果在服务器上删掉了：再计算一次「输出」">已删除</span>;
+  if (!kept.length) return <span className="q-out" {...tipAttrs(tipOf("consequence", t("ui.queue.expired_tip")))}>{t("ui.queue.expired")}</span>;
   return (
     <span className="q-out">
       {kept.map((o) => <OutputDownload key={o.pkg} output={o} />)}
@@ -82,7 +85,7 @@ function Outputs({ outputs }: { outputs: Output[] }) {
     <div className="q-outputs">
       {outputs.map((o) => (
         <span key={o.pkg} className="q-output">
-          <span className="mono q-dname" data-user-data data-tip={o.gone ? `「${o.label}」：${o.name}（已随任务删除）` : `「${o.label}」：${outputTip(o)}`}>
+          <span className="mono q-dname" data-user-data {...tipAttrs(tipOf("value", o.gone ? t("ui.queue.output_gone", { label: o.label, name: o.name }) : t("ui.queue.output_tip", { label: o.label, tip: outputTip(o).text })))}>
             {o.name}
           </span>
           <OutputDownload output={o} />
@@ -95,20 +98,20 @@ function Outputs({ outputs }: { outputs: Output[] }) {
 // 不显示预计还要多久、多久后开始：按以往用时推算的时间不准。排队的行只有「已等」（elapsed），计算中的行是进度条和「已算」。
 export function Progress({ job }: { job: QueueJob }) {
   if (job.outputs?.length && (job.state === "done" || job.state === "partial" || job.state === "cancelled")) return <Outputs outputs={job.outputs} />;
-  if (job.state === "failed" || job.state === "partial") return <span className="q-error" data-tip={job.error ?? ""}>{job.error}</span>;
-  if (job.state === "cancelled" && job.reason) return <span className="q-muted" data-tip={job.reason}>{job.reason}</span>;
+  if (job.state === "failed" || job.state === "partial") return <span className="q-error" {...tipAttrs(tipOf("truncated", job.error))}>{job.error}</span>;
+  if (job.state === "cancelled" && job.reason) return <span className="q-muted" {...tipAttrs(tipOf("truncated", job.reason))}>{job.reason}</span>;
   if (job.state !== "running") return null;
   // 计算进度只有一套（api/progress.ts）：节点读取的也是同一份，服务器只发送这一份
   const live = "phase" in job.now ? (job.now as JobProgress) : null;
   return (
     <div className="q-progress">
       {/* 「节点 · 阶段 · 解算器报告的步骤」，例如：「SAM 3D Body 全身动作 · 计算中 · 检测人物」 */}
-      <span className="q-now">{job.stopping ? "正在停止…" : (live ? [live.label, PHASE_TEXT[live.phase], live.note].filter(Boolean).join(" · ") : "") || "准备"}</span>
+      <span className="q-now">{job.stopping ? t("ui.queue.stopping_now") : (live ? [live.label, PHASE_TEXT[live.phase], live.note].filter(Boolean).join(" · ") : "") || t("ui.queue.preparing")}</span>
       {/* 进度条只依据 `at`：整个任务的完成度，服务器保证其单调不减（lab2shot/progress.py）。
           不使用解算器当前步骤的 done / total 计算宽度：分母在每个阶段都会变化，进度条会归零重来。
           无法估计时（任务中有节点首次计算，没有历史记录）绘制一条无刻度的进度条。 */}
       {live && (
-        <span className="q-bar" data-tip={progressTip(live)}>
+        <span className="q-bar" {...tipAttrs(tipOf("value", progressTip(live)))}>
           <i className={live.at == null ? "indeterminate" : ""} style={live.at == null ? { width: "30%" } : { width: `${live.at * 100}%` }} />
         </span>
       )}
@@ -119,18 +122,19 @@ export function Progress({ job }: { job: QueueJob }) {
 // 请求本身透露的信息，以及客户端自报的信息（lab2shot/server/auth.py details、
 // webui/src/platform/client.ts、lab2shot/client.py）
 const DETAIL_LABELS: Record<string, string> = {
-  ip: "IP 地址", user_agent: "User-Agent", hostname: "计算机名", user: "系统用户", platform: "平台", language: "语言",
-  timezone: "时区", screen: "屏幕", python: "Python 版本", pid: "进程号",
+  ip: "ui.queue.detail.ip", user_agent: "ui.queue.detail.user_agent", hostname: "ui.queue.detail.hostname", user: "ui.queue.detail.user",
+  platform: "ui.queue.detail.platform", language: "ui.queue.detail.language", timezone: "ui.queue.detail.timezone",
+  screen: "ui.queue.detail.screen", python: "ui.queue.detail.python", pid: "ui.queue.detail.pid",
 };
 
 /** 关于任务提交者的全部已知信息（管理员视图）：先是账号，然后是请求透露的信息。 */
 export function ClientDetail({ client }: { client: JobClient }) {
   const rows: [string, unknown][] = [
-    ["账号", client.username],
-    ["中文名", client.name],
-    ["环节", client.department],
-    ["应用", client.app],
-    ...Object.entries(client.details ?? {}).map(([k, v]): [string, unknown] => [DETAIL_LABELS[k] ?? k, v]),
+    [t("ui.queue.detail.account"), client.username],
+    [t("ui.queue.detail.name"), client.name],
+    [t("ui.queue.detail.department"), client.department],
+    [t("ui.queue.detail.app"), client.app],
+    ...Object.entries(client.details ?? {}).map(([k, v]): [string, unknown] => [DETAIL_LABELS[k] ? t(DETAIL_LABELS[k]) : k, v]),
   ];
   return (
     <dl className="q-detail">
@@ -146,30 +150,32 @@ export function ClientDetail({ client }: { client: JobClient }) {
   );
 }
 
-function SwitchesRow({ switches, admin, onSwitch }: { switches: QueueData["switches"]; admin: boolean; onSwitch?: (key: "gpu" | "compute", on: boolean) => void }) {
+function SwitchesRow({ switches, admin, onSwitch, diskLow }: { switches: QueueData["switches"]; admin: boolean; onSwitch?: (key: "gpu" | "compute", on: boolean) => void; diskLow?: boolean }) {
   const paused = pausedLanes(switches);
-  if (!onSwitch && !paused.length) return null;
+  if (!onSwitch && !paused.length && !diskLow) return null;
   return (
     <div className="q-switches">
       {admin && onSwitch ? (
         <>
           {switches.gpu !== undefined && (
-            <label className="q-switch-row" data-tip="关：还没开始的任务不再拿到显卡，等重新打开后接着算；已经开始的算完为止。导入、读取序列和看已算好的结果不用显卡，不受影响">
-              <Switch on={switches.gpu} label="显卡任务" onChange={(on) => onSwitch?.("gpu", on)} />
-              显卡任务
+            <label className="q-switch-row" {...tipAttrs(tipOf("consequence", t("ui.queue.gpu_switch_tip")))}>
+              <Switch on={switches.gpu} label={t("ui.queue.gpu_jobs")} onChange={(on) => onSwitch?.("gpu", on)} />
+              {t("ui.queue.gpu_jobs")}
             </label>
           )}
-          <label className="q-switch-row" data-tip="关：服务器不再接受任何新的计算任务，界面上说明现在只能查看；排队中还没开始的先等着，已经开始的算完为止">
-            <Switch on={switches.compute} label="计算任务" onChange={(on) => onSwitch?.("compute", on)} />
-            计算任务
+          <label className="q-switch-row" {...tipAttrs(tipOf("consequence", t("ui.queue.compute_switch_tip")))}>
+            <Switch on={switches.compute} label={t("ui.queue.compute_jobs")} onChange={(on) => onSwitch?.("compute", on)} />
+            {t("ui.queue.compute_jobs")}
           </label>
         </>
       ) : (
         <>
-          {paused.includes("compute") && <span className="chip q-paused">计算任务已暂停：现在只能查看</span>}
-          {paused.includes("gpu") && <span className="chip q-paused">显卡任务已暂停：要显卡的任务先排队等着</span>}
+          {paused.includes("compute") && <span className="chip q-paused">{t("ui.queue.compute_paused")}</span>}
+          {paused.includes("gpu") && <span className="chip q-paused">{t("ui.queue.gpu_paused")}</span>}
         </>
       )}
+      {/* 数据盘低于「暂停新计算的剩余空间」（lab2shot/farm/policy.py space）：所有账号的新计算暂停，腾出空间后自动恢复 */}
+      {diskLow && <span className="chip q-paused">{t("ui.queue.disk_low")}</span>}
     </div>
   );
 }
@@ -233,16 +239,18 @@ export function QueueView({
     setCleaned((n) => n + 1);
     onRefresh?.();
   };
+  // 自己的占用：「我的占用」一段和表格里每个已结束任务的占用（删掉它腾出多少）读同一份，删除之后重读（后台不读）
+  const { usage, problem } = useStorageUsage(onLoad ? cleaned : null);
   // 「删除全部」：删除自己所有已结束的任务（排队和计算中的任务须先取消，因此不计入）
   const finished = rows.filter(({ job }) => job.state !== "queued" && job.state !== "running");
   const [wiping, setWiping] = useState(false);
   const [askWipe, wipeSheet] = useConfirm();
   const wipe = async () => {
     if (!(await askWipe({
-      title: "删除全部任务",
+      title: t("ui.queue.wipe_title"),
       say: msg("N-QUEUE-FORGETALL", { count: finished.length }),
-      yes: "删除全部",
-      tip: "删掉全部已经结束的任务，连同它们占的空间",
+      yes: t("ui.queue.wipe"),
+      tip: tipOf("consequence", t("ui.queue.wipe_tip")),
       danger: true,
     }))) return;
     setWiping(true);
@@ -258,15 +266,15 @@ export function QueueView({
   };
   return (
     <div className="q-view">
-      <SwitchesRow switches={data.switches} admin={admin} onSwitch={onSwitch} />
+      <SwitchesRow switches={data.switches} admin={admin} onSwitch={onSwitch} diskLow={!!onLoad && !!data.disk_low} />
       {onLoad && (
         <>
           {/* 我的占用：放在队列中，与占用空间的任务相邻 */}
           <div className="sec-title">
-            我的占用
-            <span className="q-hint">自己在服务器上占的硬盘；删掉任务就腾出它占的空间，删完接着算</span>
+            {t("ui.queue.my_usage")}
+            <span className="q-hint">{t("ui.queue.my_usage_hint")}</span>
           </div>
-          <StoragePanel again={cleaned} />
+          <StoragePanel usage={usage} problem={problem} onFreed={cleanedOnce} />
         </>
       )}
       {/* 服务器配置（核数、CPU、内存、硬盘）不在此处：机器状态见后台的「概览」页。 */}
@@ -274,7 +282,7 @@ export function QueueView({
       <div className="sec-title">
         {onLoad ? (
           <>
-            <span className="tnum" data-tip="别人排在你前面的任务数。算什么、是谁都看不到——账号之间是隔离的">前面任务：{ahead}</span>
+            <span className="tnum">{t("ui.queue.ahead", { count: ahead })}</span>
             {/* 一键腾出空间。腾出空间的操作均在任务上：此处删除全部，行上删除单条，「我的占用」一段只显示数值。
                 控件不得时隐时现：没有已结束的任务时置灰并注明原因，位置不变。 */}
             {/* 不使用 ghost 样式：透明无边框时显示为一行灰字，与旁边「前面任务：0」的说明难以区分，置灰后更难辨认。
@@ -284,29 +292,30 @@ export function QueueView({
               layout="q-forget-all"
               disabled={!finished.length || wiping}
               tip={finished.length
-                ? `删掉你全部 ${finished.length} 条已经结束的任务，连同它们占的空间（输出的文件夹和 zip、只有它们用到的缓存和素材）。正在排队和计算的不动`
-                : "你现在没有已经结束的任务可以删（正在排队和计算的要先取消）"}
+                ? tipOf("consequence", t("ui.queue.wipe_space"))
+                : tipOf("disabled", t("ui.queue.wipe_none"))}
               onClick={() => void wipe()}
             >
-              {wiping ? "删除中…" : "删除全部"}
+              {wiping ? t("ui.queue.deleting") : t("ui.queue.wipe")}
             </Button>
           </>
         ) : (
           <>
-            任务 <span className="q-count tnum">{rows.length}</span>
-            {waiting && onFirst && <span className="q-hint">「插队」把一个任务挪到队首：之后空出来的显卡和 CPU 名额先给它，正在算的不受影响</span>}
+            {t("ui.queue.jobs")} <span className="q-count tnum">{rows.length}</span>
+            {waiting && onFirst && <span className="q-hint">{t("ui.queue.first_hint")}</span>}
           </>
         )}
       </div>
       {wipeSheet}
       {rows.length ? (
-        <JobTable jobs={rows} admin={admin} applies={applies} onCancel={onCancel} onForgotten={cleanedOnce} onLoad={onLoad} graphUrl={graphUrl} onFirst={onFirst} />
+        <JobTable jobs={rows} admin={admin} applies={applies} onCancel={onCancel} onForgotten={cleanedOnce} onLoad={onLoad} graphUrl={graphUrl} onFirst={onFirst}
+                  sizes={onLoad ? usage?.tasks : undefined} groupSizes={onLoad ? usage?.groups : undefined} />
       ) : (
         // 不写「有人提交计算后在此列出」：账号之间相互隔离，他人的任务本就不会出现在此处。
         // 为空时只显示一项有用的信息：当前排队的任务数。
         <div className="q-empty">
-          {onLoad ? "你还没有提交过计算：点「计算」「打包」以后，这里列出来" : "队列里没有任务"}
-          {ahead > 0 ? `；前面排队的有 ${ahead} 个` : ""}
+          {onLoad ? t("ui.queue.empty_mine") : t("ui.queue.empty")}
+          {ahead > 0 ? t("ui.queue.empty_ahead", { count: ahead }) : ""}
         </div>
       )}
     </div>

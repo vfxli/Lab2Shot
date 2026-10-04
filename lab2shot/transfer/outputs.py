@@ -5,15 +5,16 @@ output-settings nodes wired into it wrote (their results in the account's cache)
 packs that folder into one zip beside it. Both stay on the server as long as the task (任务保留天数, transfer/tasks.py):
 
     <task folder>/output/<pkg>/                 one 「输出」's files, unpacked: DCC plugins and `lab2shot cook` fetch
-        lab2shot.json                           single files from here (what is inside: they read it to import)
+        lab2shot.json                           single files from here (what is inside: they read it to import;
+                                                each output's `colorspace`: its pictures' colour space, "" none)
         <名字>/<名字>.usd ...                    one sub-folder per output-settings node, its files named after it
         <条目>/<名字>/...                        inside a 逐项处理 block: one sub-folder per item, the same inside
     <task folder>/<pkg>.zip                     the same folder packed, for the browser's own download (resumable)
 
 `pkg` is made by the server from the account's id, the task's id and the node's id (u12_1a2b3c4d5e6f_deliver):
 nothing a user typed is ever part of a path on the server. The zip holds exactly one top folder, named like the file
-the browser saves it as (`name`: the graph's name made safe, the ML mark, the account's id and the task's id —
-深度_ML_Lab2Shot_ViPE_u12_1a2b3c4d5e6f.zip holds 深度_ML_Lab2Shot_ViPE_u12_1a2b3c4d5e6f/): unpacked, it is one folder
+the browser saves it as (`name`: the graph's English name as ASCII, the ML mark, the account's id and the task's id —
+Depth_ML_Lab2Shot_ViPE_u12_1a2b3c4d5e6f.zip holds Depth_ML_Lab2Shot_ViPE_u12_1a2b3c4d5e6f/): unpacked, it is one folder
 of that name, never loose files. Files that are compressed already (EXR, PNG, JPG, videos …) are stored as they are;
 everything else is deflated at the highest level (more server time, less to download).
 
@@ -41,7 +42,7 @@ from ..io.digest import sha256
 from ..io.files import inside, link_or_copy
 from ..messages import Msg
 from ..nodes.output import marked, name_key
-from ..text import file_part
+from ..text import ascii_file_part, file_part
 from . import relative_name, tasks
 
 MANIFEST = "lab2shot.json"  # at the root of every output: what is inside
@@ -147,7 +148,8 @@ class Collector:
                 elif not _same_file(p.path(rel), dst):  # the same place holds another file: never kept on the quiet
                     raise CookError(node_id, Msg("E-OUTPUT-CLASH", node=label, file=f"{at}/{rel}"))
             listed.append({"name": name, "item": under, "type": p.meta.get("made_from", ""), "main": f"{at}/{p.meta['main']}",
-                           "files": [f"{at}/{rel}" for rel in p.meta["files"]], "commercial": p.meta["commercial"]})
+                           "files": [f"{at}/{rel}" for rel in p.meta["files"]], "commercial": p.meta["commercial"],
+                           "colorspace": str(p.meta.get("colorspace") or "")})
         with self._lock:
             self._listed.setdefault(node_id, []).extend(listed)
             learned = self._learned.setdefault(node_id, [])
@@ -155,12 +157,13 @@ class Collector:
         return {"commercial": commercial(listed)}
 
     def download_name(self, node_id: str, label: str) -> str:
-        """What the browser saves the zip as, without .zip, and the one folder inside it: the graph's name (and the
-        node's, when the graph has several 「输出」) made safe, marked when a model made what is in it, then the
-        account's id and the task's id."""
-        readable = file_part(self.owner.get("title", ""), READABLE_MOST) or "Lab2Shot"
+        """What the browser saves the zip as, without .zip, and the one folder inside it: the graph's English name
+        (and the node's id, when the graph has several 「输出」) as ASCII (text.ascii_file_part; a name with nothing
+        left in ASCII: Lab2Shot), marked when a model made what is in it, then the account's id and the task's id. The
+        page shows the graph's name in its own language; the file's name is the same for everyone."""
+        readable = ascii_file_part(self.owner.get("file_title", ""), READABLE_MOST) or "Lab2Shot"
         if self.owner.get("several"):
-            readable = f"{readable}_{file_part(label, 20) or node_id[:20]}"
+            readable = f"{readable}_{ascii_file_part(node_id, 20)}"
         return f"{marked(readable, self._learned.get(node_id, []))}_u{int(self.owner['user'])}_{self.task}"
 
     def pack(self, node_id: str, label: str, stop: threading.Event) -> dict:

@@ -1,0 +1,17 @@
+# Nuke scripts (lab2shot/formats/nuke/**).
+# One line per message: code = template. Say what happened (with numbers) → the effect → what to do.
+
+# ---- Errors
+"E-NUKE-VALUE" = "Knob {knob}: the value to write into the Nuke script is {value}, not a finite number: Nuke cannot read such a script. Check the camera or lens solved upstream"
+
+# ---- Notes
+
+# ---- Pasted lenses (lens_distortion pastes 3DE / Nuke lens data)
+"E-NUKE-PASTENOLENS" = "The pasted text has no lens distortion node, so no lens can be read: export a Nuke script from 3DE (Export → Nuke), or select the LD_3DE4 node in Nuke, copy it (Ctrl+C) and paste"
+"E-NUKE-PASTEMANY" = "The pasted text has {count} lens distortion nodes ({names}), so it is unclear which one is meant: copy only one LD_3DE4 node, or export just this lens from 3DE"
+
+# ---- Nuke scripts read in (lab2shot/formats/nuke/parse.py; lens_distortion needs it to paste 3DE / Nuke lens data)
+
+"E-NUKE-LDNODE" = "The Nuke file has no lens distortion node named {name}: it has {have}"
+"E-NUKE-LDMODEL" = "Lens distortion node {name}: model {cls} cannot be read yet; readable models are {models}"
+"E-NUKE-LDVALUE" = "Lens distortion node {name}: {knob} = {value} cannot be read: it needs a number or a keyframed curve; bake expressions in Nuke first"

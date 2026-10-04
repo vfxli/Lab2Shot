@@ -1,0 +1,36 @@
+# UniK3D 扩展自己的界面字和消息（中文）。
+
+# ---- 解算
+"W-UNIK3D-DISTORTED" = "UniK3D 判断镜头有明显畸变：按无畸变镜头近似，误差中位约 {pinhole:.1f} px。「深度贴图」按针孔摄影机反投影会对不齐；精确的几何以「点云」「距离图」「射线场」为准。知道实拍焦距就填「已知焦距」"
+
+[node."unik3d.depth"]
+subtitle = "深度贴图"
+description = "画面 → 逐帧的真实尺度深度贴图、沿视线的距离图和它自己估的射线场（ETH UniK3D）。镜头可以是任意类型（广角、鱼眼、全景）：它估的是每个像素的光线方向，不假设针孔。普通针孔镜头上逐帧闪动更小的是「UniDepth 深度贴图」，要法线用「MoGe 深度贴图与法线」。点云是每帧一片、各在这一帧自己的摄影机里（官方原生的点图），不是整段求出的一套场景点云。"
+official.note = "没有镜头内参一类的口：UniK3D 的镜头就是射线场 rays（unik3d.py:397），上游不出镜头模型和畸变系数；要鱼眼镜头参数请接显式的标定节点（「AnyCalib 镜头标定」）。「距离图」是 distance（unik3d.py:394），「射线场」是 rays（unik3d.py:397）。没有「摄影机」输出口：上游不出 intrinsics，家族反投影用的那台针孔摄影机是 worker 把 rays 最小二乘拟合出来的（worker.py fit_pinhole），不是官方结果；节点因此声明 `solves_camera = False`（lab2shot/nodes/families/depth_camera.py PerFrameDepthCamera），那台摄影机只写进这次计算的临时文件夹。所以 gives 里没有 camera"
+
+[node."unik3d.depth".param.model]
+label = "模型"
+option."unik3d-vitl" = "ViT-L"
+option."unik3d-vitb" = "ViT-B"
+option."unik3d-vits" = "ViT-S"
+
+[node."unik3d.depth".port.distance]
+label = "距离图"
+help = "每个像素沿自己那条视线离镜头多远（厘米）。和「深度贴图」不一样：深度是摄影机坐标的 Z，越靠画面边缘两者差得越多，鱼眼和广角上差别很大"
+
+[node."unik3d.depth".port.rays]
+label = "射线场"
+help = "模型自己估出的每个像素的视线方向（单位向量，摄影机空间）——它的「镜头」就是这片射线场，不是一组内参。深度或距离乘上它就是「点云」那片三维点"
+
+[node."unik3d.depth".stage]
+write_maps = "写出距离图和射线场"
+
+[extension.unik3d]
+summary = "任意摄影机的单目三维估计：用球面三维表示覆盖鱼眼和全景，光线的表示与摄影机模型无关；非商用"
+license.name = "CC-BY-NC-SA-4.0（代码和模型权重，非商用，相同方式共享）"
+license.summary = "非商用：代码为 CC BY-NC-SA 4.0（仓库 LICENSE 文件和源码文件头；README 写的是 CC BY-NC 4.0，按更严格的 LICENSE 文件对待），改编后再发布须用相同许可证。Hugging Face 上 unik3d-vitl / vitb / vits 模型权重的模型卡没有写许可证，按仓库许可证对待，结果不能用于商业项目。主干网络 DINOv2 结构（Apache-2.0）的模型权重已包含在检查点里，不另外下载"
+weight."unik3d-vitl".note = "CC BY-NC-SA 4.0，非商用，ViT-L 1.4 GB"
+weight."unik3d-vitb".note = "CC BY-NC-SA 4.0，非商用，ViT-B 0.47 GB"
+weight."unik3d-vits".note = "CC BY-NC-SA 4.0，非商用，ViT-S 0.14 GB"
+
+[stage]

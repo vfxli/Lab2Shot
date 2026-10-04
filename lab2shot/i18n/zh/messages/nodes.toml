@@ -1,0 +1,454 @@
+# 核心节点（lab2shot/nodes：core/*、families/*、base.py、formats.py、output.py、registry.py）。
+# 一行一条：编号 = 模板。写法：谁估的、和什么比、数字和单位、意味着什么、怎么办。
+
+# ---- 节点类型和参数（nodes/base.py、nodes/registry.py）
+"B-LEARNEDRETARGET-NOMESH" = "这个模型按现在的设置需要{side}是带蒙皮网格的角色，接进来的只有骨架：{side}换成 FBX / USD 导入的蒙皮角色，先接「线性蒙皮变形」挂到匹配的网格角色上，或者换成不要网格的设置"
+"B-LEARNEDRETARGET-NOMESH.app" = "这个模型按现在的设置需要{side}是带蒙皮的角色，选的文件只有骨架：换一个带蒙皮角色的文件，或者换成不要网格的设置"
+"B-LEARNEDRETARGET-NOMESH.short" = "{side}只有骨架"
+"E-LEARNEDRETARGET-BODY" = "学习式重定目标需要两副完整身体骨架；仅手指动作请使用动作重定目标"
+"E-LEARNEDRETARGET-MESH" = "这个模型需要{side}带蒙皮网格的角色（裸骨架不够）：{side}请用 FBX / USD 导入的蒙皮角色，或先接「线性蒙皮变形」挂到匹配的网格角色上"
+"E-LEARNEDRETARGET-RESULT.other" = "模型结果的帧数、关节数或数值不正确：应为 {frames} 帧、{joints} 个目标关节"
+"E-LEARNEDRETARGET-NEEDS" = "这个解算器按「{rule}」收骨骼，接进来的不合：{problems}。回到「重定目标预处理」，忽略规则选它、点「自动忽略」，或在视图里改忽略的骨骼和对应关系；解算器自己不丢骨骼"
+"I-RETARGETNEEDS-MISSING" = "{side}缺 {parts}"
+"I-RETARGETNEEDS-CHAIN.other" = "{side}的{part}送了 {count} 节，模型只有 {want} 节"
+"I-RETARGETNEEDS-REFUSED.other" = "{side}送了这条规则不收的 {count} 个关节（{joints}）"
+"I-RETARGETNEEDS-MESH" = "{side}没有蒙皮网格（这个模型要用网格）"
+"I-LEARNEDRETARGET-SENT" = "实际送进模型：源 {src} 个关节、目标 {dst} 个关节；适配层补出的标记点（只在模型输入里，骨架不变）：源 {src_markers}，目标 {dst_markers}"
+"E-RETARGET-UNPREPARED" = "「{side}」接进来的骨架没有经过「重定目标预处理」：把「重定目标预处理」的「{side}」输出接到这里"
+"E-RETARGET-FACING" = "两条大腿根在水平面上重合，定不了朝前方向：在「重定目标预处理」的视图里检查髋和大腿的对应，或手动摆静止姿势"
+"I-RETARGETPREP-DONE.other" = "源 {src_joints} 个关节、忽略 {src_ignored} 个、修正 {src_posed} 个（静止姿势：{src_rest}）；目标 {dst_joints} 个关节、忽略 {dst_ignored} 个、修正 {dst_posed} 个（静止姿势：{dst_rest}）"
+"I-RETARGETPREP-SIZE" = "尺寸：源 ×{src:g}（{src_how}，腿长 {src_leg:.1f} cm）、目标 ×{dst:g}（{dst_how}，腿长 {dst_leg:.1f} cm）；解算器看到的是缩放后的骨架，「重定目标后处理」还原成原尺寸"
+"W-RETARGETPREP-IGNOREJOINT.other" = "「{rig}忽略的骨骼」里有 {count} 个关节{rig}骨架上没有：{joints}（换了骨架？）。这次跳过，在视图里重新选或点「自动忽略」"
+"E-RETARGETPOST-MISMATCH.other" = "「解算结果」（{frames} 帧、{joints} 个关节）和预处理的源、目标（{source_frames} 帧、{target_joints} 个关节）对不上：解算结果要来自接同一个「重定目标预处理」的解算器"
+"I-RETARGETPOST-SOURCE" = "髋的轨迹跟随源动作：水平{stride}，髋高按腿长比 {ratio:.3f}（目标 {target:.1f} cm ÷ 源 {source:.1f} cm），脚底差 {sole:.1f} cm，高度偏移 {offset:g} cm"
+"I-RETARGETPOST-MODEL" = "保留模型给的根位移，高度偏移 {offset:g} cm"
+"I-RETARGETPOST-SIZE" = "按预处理的目标尺寸 ×{scale:g} 还原：输出和原目标角色同尺寸"
+"E-NODE-NOPARAM" = "节点类型「{type}」没有参数 {names}：节点图文件里的参数名不对，或者是别的版本的节点图"
+"E-NODE-NOTWIREABLE" = "节点类型「{type}」的「{label}」不能接线（只有数值、开关、向量和文字参数可以）"
+"E-NODE-DUPOUTPUT" = "节点类型「{type}」有重名的输出：{names}"
+"E-NODE-DUPINPUT" = "节点类型「{type}」有重名的输入：{names}"
+"E-NODETYPE-BROKEN" = "扩展包 {extension} 没有加载成功：{reason}"
+"E-NODETYPE-NOEXTENSION" = "没有扩展包 {extension}"
+"E-NODETYPE-UNMET" = "扩展包 {extension} 还不能用：{reason}"
+"E-NODETYPE-NOTINEXTENSION" = "扩展包 {extension} 里没有这个节点"
+
+# ---- 摄影机（core/camera.py、kit/cameras.py）
+"N-CAMERA-ONEPOSE" = "摄影机只有一个位置（没有帧或只有一帧）：没有抖动可去，原样输出"
+"N-CAMERA-INTERPOLATED.other" = "{count} 帧没有逐帧解出（隔帧或没解上），摄影机由前后帧插值"
+"E-COMPARE-NOCOMMON" = "两台摄影机没有共同的帧可比：「摄影机」是第 {camera} 帧，「参考摄影机」是第 {reference} 帧，帧号要对得上"
+"E-COMPARE-ONECOMMON" = "两台摄影机只有第 {frame} 帧是共同的：至少要两帧才能对齐和比较"
+"N-COMPARE-REFSTILL" = "参考摄影机几乎不动：只按朝向和位置对齐，不对齐比例"
+"N-COMPARE-CAMSTILL" = "要比的摄影机几乎不动：只按朝向和位置对齐，不对齐比例"
+"W-COMPARE-REVERSED" = "两台摄影机沿同一条直线移动、方向却相反：多半是其中一台的解算把方向解反了。比例按大小对齐、不做镜像，转向按两台摄影机的朝向对齐，误差会把这段反向算进去"
+"N-COMPARE-LINE" = "摄影机沿直线移动，只凭位置定不了绕这条线的转向：转向按两台摄影机的朝向对齐"
+"I-COMPARE-RESULT.other" = "{frames} 帧：位置误差 RMS {rms:.1f} cm{share}、最大 {max:.1f} cm；角度差中位数 {angle:.2f}°、最大 {angle_max:.2f}°；焦距差中位数 {focal}%{scale}"
+"I-COMPARE-SHARE" = "（参考摄影机行程的 {share:.1f}%）"
+"I-COMPARE-SCALE" = "，比例 {scale:.3f}"
+
+# ---- 摄影机去抖（core/camera.py DeshakeCamera、kit/deshake.py）
+"I-DESHAKE-RESULT" = "去抖：位置最多改了 {moved:.1f} cm、转动最多 {turned:.2f}°；按 {distance:.0f} cm 远的物体算，画面上相当于 {shift:.2f} px"
+"W-DESHAKE-OFFPLATE" = "去掉的可能是画面里真实的手持晃动，不只是解算噪声：按 {distance:.0f} cm 远的物体算，合成时 CG 会和画面滑开 {shift:.1f} px（第 {frame} 帧）。要去的只是解算噪声就把「强度」调小；真要稳定画面，合成时把画面一起稳"
+"N-DESHAKE-SUDDEN.other" = "{count} 帧的急停急转留着没磨（第 {frames} 帧）：那几帧的加速度突变是真的。不想留就关掉「保留急停」"
+
+# ---- 锁定 Focal Length（core/camera.py LockFocal、kit/lock_focal.py）
+"I-FOCAL-RESULT" = "解算出的焦距 {low:.1f}–{high:.1f} mm，锁成 {locked:.1f} mm（{said}）；摄影机位置最多挪了 {moved:.1f} cm；挪摄影机补不回来的部分中位 {median:.2f} px、最大 {max:.2f} px"
+"I-FOCAL-MEASURED" = "用了真实的画面观测：每帧约 {count} 个跟踪点（不是按原摄影机投出来的位置）"
+"W-FOCAL-REPROJ" = "把 {low:.0f}–{high:.0f} mm 抖动的焦距锁成 {locked:.0f} mm 后，挪摄影机补不回来的部分中位 {median:.1f} px、最大 {max:.1f} px（第 {frame} 帧）：透视本身差得多。建议在上游解算节点的「焦距」填 {locked:.0f} mm 重新解算"
+"N-FOCAL-ZOOMLIKE" = "焦距从 {low:.0f} mm 平稳变到 {high:.0f} mm，像是真的变焦镜头，不是解算抖动：锁成定值会错。真是定焦才用这个节点"
+"N-FOCAL-NOFRAMES" = "接进来的摄影机没有帧（不动的摄影机）：焦距本来就是一个定值，没有逐帧位置要重算，原样输出"
+"N-FOCAL-FEWANCHORS.other" = "{count} 帧的锚点不到 {least} 个：那几帧只用了闭式估计，没有逐点精修。点云在那几帧太少或者不在画面里"
+
+# ---- 重定时（core/scene.py Retime、kit/retime.py）
+"I-RETIME-MAP" = "速度 {speed:g} · 偏移 {offset:d} 帧 · {was} → {now}"
+"N-RETIME-INTERP.other" = "{total} 帧里有 {count} 帧不在原来的帧上，是插出来的：摄影机位置线性、朝向球面插值，关节旋转球面插值"
+"N-RETIME-GAP.other" = "接进来的场景有断档（中间缺帧）：落在断档里的 {count} 帧照样缺着，没有用两边的帧插出来"
+"N-RETIME-HIDDEN.other" = "有物体自己的断档（中间隐藏的帧）：落在它显示与隐藏两帧之间的 {count} 帧里它隐藏着，没有用断档两边的姿势插出来"
+"N-RETIME-NEAREST.other" = "{count} 帧的点数逐帧不同，没法插值：取了最近一帧的点"
+"N-RETIME-NOTHING" = "偏移 0、速度 1：原样输出"
+"N-RETIME-STILL" = "接进来的场景没有帧（不动的摄影机、静止的模型）：它对每一帧都成立，没有帧号可挪，原样输出"
+"E-RETIME-NOFRAMES" = "重定时之后一帧都不剩：接进来的是 {first}–{last}，这样换算落不到任何一个整帧上。把「偏移」或「速度」改一改"
+
+# ---- 镜头假设（nodes/applies.py standing_notices：只在声明 lens = "pinhole" 的节点上；模板卡片上不显示）
+# a node whose output decides its own size says so before it cooks。节点底行只放得下
+# 短说法（.short，最多 12 个全角字，messages/__init__.py SHORT_WIDTH），整句在节点的「数据信息」卡片和参数面板里。
+"I-SHAPE-CROP" = "输出画面的尺寸由「左 右 上 下」四个数定：接进来的画面减去切掉的那几条边"
+"I-SHAPE-CROP.short" = "尺寸按切掉的边算"
+"E-CROP-ALLCUT" = "四条边切下来什么都不剩了：画面 {width}×{height}，左 {left}、右 {right}、上 {top}、下 {bottom}。左右加起来要小于画面宽度，上下加起来要小于画面高度"
+"I-CROP-DONE" = "裁成 {width}×{height}（原来 {was_width}×{was_height}）"
+
+"N-MEANING-ASSUMED" = "「{source}」没说明 {key}：按「{value}」算。要的是别的就在做出它的那个节点上写明（读进来的图层，含义由文件自己的说明带）"
+
+# ---- 读取图像序列和视频（core/input.py）
+"E-READ-VIDEO" = "「{file}」是视频：用「读取视频」节点"
+"E-READ-NOTONEPICTURE.other" = "选中的是一段 {count:d} 帧的图像序列（{file}）：「读取图片」只读一张图。整段镜头用「读取图像序列」——不过接它的那个节点是逐帧算的，几百帧会算很久；只要其中一帧就在对话框里只选那一个文件"
+"E-READ-RANGEOUT" = "「读取图像序列」的「开始帧」「结束帧」{lo}–{hi} 里一帧也没有：这条图像序列是 {first}–{last}。把开始帧、结束帧改到这段里，或者留空读整条"
+"N-READ-GAP.other" = "「读取图像序列」读的 {file} 中间缺 {count} 帧（{frames}）：这些帧没有画面，往下算的结果也没有这几帧。要连续的结果就在素材里补齐这几帧后重新选择；只算有画面的部分用计算按钮旁的帧范围避开"
+"N-READ-NOMANIFEST" = "「读取图像序列」读的 {file} 里，Cryptomatte 图层「{layer}」的物体名单放在旁边的 {manifest}，它没有和 EXR 一起上传：物体按编号区分（「id 1a2b3c4d」这样），名字不知道。要物体名字就把 {manifest} 和 EXR 一起选上重新上传"
+"E-VIDEO-RANGEFORMAT" = "区间要写成 开始-结束（秒），如 0-10 或 5-8：「{text}」不是"
+"E-VIDEO-NOFRAMES.other" = "「{file}」一帧都没解出来（文件头说有 {count} 帧）：文件多半截断了或者坏了。重新导出一次再选"
+"W-VIDEO-SHORT.other" = "「{file}」文件头说有 {want} 帧，实际解出来少 {count} 帧（从镜头第 {first} 帧起）：这些帧没有画面。多半是文件末尾截断或带 edit list，重新导出一次可以补齐"
+"E-VIDEO-RANGEOUT" = "区间 {text} 超出视频长度 {seconds:.1f} 秒"
+
+# ---- 图像（core/image.py、formats/image/nodes.py）
+"E-STMAP-NOFRAME" = "{source}没有第 {frame} 帧（它有 {first}–{last}）"
+"N-STMAP-NOTHING" = "整段一个像素都没取到源图里的值，交出的是空图：接进来这张 ST 贴图的取值在 {low:g} 到 {high:g} 之间，而 ST 贴图是按源图画幅归一化的坐标（0 是左边／下边，1 是右边／上边），这些值指到 {width:d} × {height:d} 的源图外面去了。接进「ST 贴图」的如果是方向场、法线贴图、深度贴图这类数值图，它们的数值不是坐标：按运动向量变形用「运动向量转 ST-map」，按镜头去畸变／加畸变用「LensDistortion」"
+"N-FRAMEHOLD-EMPTY" = "第 {frame:d} 帧整幅都是 0：挑中的这一帧上游没有结果，或者本来就是黑场。换一帧，或者查上游这一帧为什么是空的"
+"N-CHANNELMERGE-GAP.other" = "「合并通道」有 {count:d} 帧（从第 {first:d} 帧起）R、G、B 三张里缺了一张，这些帧没有结果"
+"N-ALPHA-GAP.other" = "Alpha 缺 {count} 帧（如第 {first} 帧）：这些帧整幅透明。接同一段镜头的遮罩，或只算遮罩有的帧"
+"I-RETARGET-DONE" = "转动目标 {joints}/{total} 个关节（没配上的保持静止姿势、跟着父关节），髋高比例 {scale}（{how}），水平位移 1 : 1 跟着动作"
+"I-RETARGET-HANDS" = "只配了手（{hands}）：转动目标 {joints}/{total} 个关节，{wrist}；两边没有都带髋，「髋高依据」「髋高倍率」「髋高跟法」「高度偏移」「角色缩放」这次不起作用"
+"E-RETARGET-RESTFRAME" = "{rig}的基准帧 {frame} 不在它的帧里（{first}–{last}）：在「{rig}静止姿势」里改帧号，或者选绑定姿势 / 第一帧"
+"W-RETARGET-POSEJOINT.other" = "「{rig}初始姿势」里有 {count} 个关节{rig}骨架上没有：{joints}（换了骨架或骨骼？）。这些修正这次跳过，在 3D 视图里重新摆或清空「{rig}初始姿势」"
+"W-RETARGET-SIZELEGS" = "「角色缩放」按身高要两边都配上头，{rig}骨架上没有：这次按腿长比缩放。要按身高就在视图里编辑「对应关系」，把头配上"
+"E-RETARGET-MISSINGPARTS" = "{rig}骨架上没有这些部位：{parts}。{why}，在视图里编辑「对应关系」，把它们配上"
+"E-RETARGET-NOLENGTH" = "{rig}骨架上量不到{what}（长度是 0：关节重合或骨架退化），髋高比例算不出来。检查这副骨架，或者「髋高依据」选不缩放、用「髋高倍率」手填"
+"W-RETARGET-LEGVARIES" = "动作这边每帧量出来的{what}在 {low:.1f}–{high:.1f} cm 之间变（差超过 3%），髋高比例按中位数 {median:.1f} cm 算：解算时没有锁体型？要稳定的比例就在解算节点里锁定体型，或者「髋高依据」选不缩放、用「髋高倍率」手填"
+"I-EXPRMAP-DONE.other" = "目标的 {driven}/{total} 个形变跟着表情动，{frames} 帧；没配上的形变保持 0。表情这边没用上的曲线：{unused}"
+"I-EXPRMAP-GUESS.other" = "按名字认出来的 {count} 对：{pairs}。认错了在「对应关系」表格里改"
+"E-EXPRMAP-NOCURVES" = "「表情」接进来的角色没有 融合变形 动画：接面部解算的「表情曲线」口，或者带表情动画的角色"
+"E-EXPRMAP-NOSHAPES" = "目标角色（{path}）的网格上没有 融合变形，表情没有地方动：接一个带 融合变形 的角色（ARKit 52 个，或 FLAME 的表情形变）"
+"E-EXPRMAP-NOPAIR" = "表情和目标一个形变也没对上（表情这边是 {curves} 这类名字，目标是 {shapes} 这类）：在「对应关系」表格里手动选"
+"E-EXPRMAP-NONAME" = "对应关系：「{slot}」选的 {name} 在{side}这边没有（换过角色？）。在「对应关系」表格里重新选"
+"E-EXPRMAP-ONENAME" = "对应关系：「{slot}」只能配一个，{side}这一栏选了 {count} 个"
+"E-EXPRMAP-SHARED" = "对应关系：「{first}」和「{second}」都用了{side}这边的 {name}，一条曲线只带一个形变、一个形变只跟一条曲线"
+"I-SKIN-DONE.other" = "{joints} 个关节的动画挂上了，{frames} 帧"
+"E-SKIN-HIERARCHY" = "骨架动画和角色的骨架层级不一样，挂不上（只按关节名和父子关系逐一核对，不猜）。只在动画里有的关节：{only_anim}；只在角色里有的：{only_char}；父关节不同的：{parents}；重名的：{twice}。动画来自另一副骨架时，先接「动作重定目标」（目标接这个角色）"
+"W-SKIN-LENGTHS.other" = "{count} 根骨头在动画里的长度和角色的不一样（差 5% 以上）：{joints}。照样挂上了，角色会被拉长或压短；多半是动画来自另一副骨架，先接「动作重定目标」"
+"W-SKIN-LENGTHS.app.other" = "{count} 根骨头在动画里的长度和角色的不一样（差 5% 以上）：{joints}。照样挂上了，角色会被拉长或压短；多半是动画来自另一副骨架"
+# 「对应关系」（data/joints.py check_mapping：动作重定目标和四个模型类节点共用；网页编辑器里的红色按同样的规则只做显示）
+"E-MAP-PART" = "对应关系里有不认识的部位「{part}」：多半是别的版本存的节点图。在视图里编辑「对应关系」，点「自动对应」"
+"W-MAP-STALE" = "对应关系里 {parts} 点的关节（{joints}）在现在的骨架上没有（换过角色或动作？）：这些部位这次按新骨架推测。要手动配就在视图里编辑「对应关系」，或点「自动对应」重新生成"
+"E-MAP-NOJOINT" = "对应关系：「{part}」选的 {joint} 在{side}骨架里没有（换过骨架？）。在视图里编辑「对应关系」，重新点选"
+"E-MAP-ONEJOINT" = "对应关系：「{part}」只能配一个关节，{side}这一栏选了 {count} 个"
+"E-MAP-CHAIN" = "对应关系：「{part}」里的 {joint} 不在 {above} 下面（{side}骨架）：一个部位里的关节要从上到下连成一串"
+"E-MAP-DUPNAME" = "对应关系：「{part}」选的 {joint} 在{side}骨架里有好几个关节都叫这个名字（{paths}），不知道是哪一个。在视图里编辑「对应关系」，重新点选（重名的关节按路径列出）"
+"W-BODY-NOTRUNK" = "{rig}骨架上找不到躯干（髋以上没有脊柱一类的一支，对应关系里也没配脊柱、胸、颈、头）：按站着的身体处理。它的静止姿势要是折叠的（BVH 的零姿势），结果会上下颠倒：在「对应关系」里把脊柱或胸配上"
+"E-MAP-HIPS" = "对应关系：{side}骨架的「髋」配的是 {hips}，但「{part}」{joint} 不在它下面。髋要是两条大腿和脊柱共同的上级关节（移动它，整个身体才跟着走），在视图里编辑「对应关系」，换一个"
+"E-MAP-SHARED" = "对应关系：「{first}」和「{second}」都用了{side}骨架的 {joint}，一个关节只能属于一个部位"
+"N-IMGMERGE-GAP.other" = "B 缺 {count} 帧（如第 {first} 帧）：这些帧原样交出 A，没有合成。接同一段镜头的图，或只算两边都有的帧"
+"E-IMGMERGE-OTHERPORT" = "「运算」选的是「{operation}」，要接的是「{wanted}」口：把线改接到「{wanted}」，或者换一种运算"
+"E-IMGMERGE-OVERDATA" = "「盖上」只合画面：接进 A 的是数值图（深度、法线、ST 贴图这类），盖上没有意义。要遮挡数值图用「留下」「挡掉」"
+"N-IMGMERGE-EMPTY" = "合成出来的整段都是 0：{operation}的两张图里有一张处处是 0（上游什么都没找到，或者接错了口）。分别看一眼 A 和 B 再接"
+"W-OUTPUT-JPGALPHA" = "这些图像带 alpha，JPG 装不下 alpha：只写了颜色（压在黑底上），alpha 没有了。要 alpha 选 EXR 或 PNG"
+"E-EXR-LOSSYDATA" = "压缩选了{compression}：深度贴图这类数据只能无损、32 位，不然数值会被改掉（这个压缩连数据图层也会压坏）。换一种压缩，或者单独接「图像序列输出」写这一层"
+"E-IMAGES-NOINPUT" = "「图像序列输出」什么都没接：把一整张图接到「图像」，或者把单条通道接到 R、G、B、A"
+"N-IMAGES-GAP.other" = "{channel} 缺 {count} 帧（如第 {first} 帧）：这些帧里这条通道是 0。接同一段镜头的数据，或只算它有的帧"
+# ---- 规范坐标转 UV（nodes/core/uv.py）
+# ---- 写成 Nuke 节点（formats/nuke、「2D 跟踪点输出」、「Nuke 相机输出」）
+"E-NUKE-NOTRACKS" = "这里一个点都没有，写不出 Nuke 的 Tracker 节点。"
+"N-NUKE-MANYTRACKS" = "一共 {count:d} 个点，超过 {most:d} 个：Nuke 里节点会很卡，粘贴也慢。把「最少可见帧数」调大，只留稳的点。"
+"N-NUKE-CAMERADISTORTION" = "这台摄影机带镜头畸变（{model}）：Nuke 的 Camera3 是针孔摄影机，畸变没有写进去。合成时用「LensDistortion」交付的 ST 贴图把畸变加回画面。"
+
+"E-UV-SPACE" = "位置图的坐标系是「{space}」，不能投射 UV：要模型自己的坐标系（如 FaceAnything 的规范坐标），世界坐标和摄影机坐标随镜头移动，投出来的 UV 每帧都不一样。"
+"N-UV-NOPOSITIONS" = "位置图里没有有效像素（或者遮罩把它们都挡住了）：UV 坐标图每一帧都是空的。"
+
+"E-LAYERS-EMPTY" = "「图层」里一层都没有：至少接一个输入"
+"E-LAYERS-SIZES" = "图层的尺寸要一样，现在有 {sizes}：先把图层缩放到同一尺寸，或者分成几个 EXR 写"
+"N-LAYERS-GAP.other" = "图层 {layer} 没有 {count} 帧（如第 {first} 帧）：这些帧里它是空的"
+"N-LAYERS-UNWIRED.other" = "{count} 个图层没有接线（{layers}），这次没写进 EXR：接上就会写，不要的话在「图层」表里去掉"
+
+# ---- 数据输出（formats/data_files/nodes.py、formats/nuke/nodes.py、nodes/output.py）
+"I-OUTPUT-TRACKS" = "写出 {count} 个点"
+"N-OUTPUT-SHORTTRACKS" = "写出 {count} 个点（{short} 个太短的没写）"
+"N-TAKE-NONE" = "「{node}」：场景里没有{kinds}，这几个输出是空的（接在它们后面的节点这次没有数据可用）"
+"N-TAKE-NONE.app" = "场景里没有{kinds}，这几项结果这次是空的"
+# 「按分区取出」（分区 = USD 的 GeomSubset，网格的一部分）
+"B-SUBSET-NOTCHOSEN" = "还没有选分区。网格上有：{names}"
+"E-SUBSET-MISSING" = "接进来的网格上没有叫「{name}」的分区（换过上游？）。现在有的是：{names}"
+"I-SUBSET-TOOK.other" = "取出分区「{name}」：{meshes} 个网格、{faces} 个面"
+"I-CURVES-RESAMPLED.other" = "重采样了 {strands} 条曲线，每条 {each} 个点，一共 {points} 个点"
+# 「对应关系」里没写的部位按名字和层级猜：要让用户看见猜成了什么：一句说明 + 一个区域一行 + 没配上的一行，
+# 都是 I（不弹出，写在节点的数据信息里）。只说猜的部位，手动指定的不重复
+"I-SMPL-GUESS" = "下面是按关节名和层级猜出来的配对（Maya HumanIK、Mixamo、Unreal、SMPL 这几套命名都认得）：猜错了在视图里编辑「对应关系」改"
+"I-SMPL-PAIRED" = "{region}：{pairs}"
+"I-SMPL-UNPAIRED" = "没配上，保持静止姿势：{parts}"
+"E-SMPL-MISSINGPARTS" = "这副骨骼里认不出 {parts}：SMPL 至少要认得出髋和两条腿。检查骨骼名字（Maya HumanIK、Mixamo、Unreal、SMPL 这几套命名都认得）"
+"N-OUTPUT-OVERSCAN" = "「{node}」写 {format} 只写画面里的像素：输入画面外还有 左 {left} 上 {top} 右 {right} 下 {bottom} 像素（overscan），{format} 放不下，没有写进去；要保留就写 EXR"
+"N-OUTPUT-OVERSCAN.app" = "{format} 只写画面里的像素：画面外还有 左 {left} 上 {top} 右 {right} 下 {bottom} 像素（overscan）没有写进去；要保留就写 EXR"
+"E-OUTPUT-CORNERPIN" = "Nuke CornerPin 要正好 4 个点（平面的四个角），这里有 {count} 个：接「WOFTSAM 平面跟踪」，或者在点跟踪节点里只点 4 个手动点、网格点数填 0"
+"E-OUTPUT-CANTHOLD" = "写不了{kind}（{why}）"
+"E-OUTPUT-CANTHOLDFIX" = "写不了{kind}（{why}）：{fixes}"
+"E-OUTPUT-FIXVIA" = "先接「{via}」"
+"E-OUTPUT-FIXOTHER" = "{kind}改接{nodes}"
+"E-OUTPUT-FIXUNPACK" = "打包时不接{kind}"
+"E-OUTPUT-ORELSE" = "{first}，或者{then}"
+"E-OUTPUT-OR" = "{first}或{then}"
+
+# ---- 点云融合（core/geometry.py PointCloudFuse）
+"E-FUSE-NOINPUT" = "「逐帧点云」和「深度贴图」至少接一路：接点云按体素拼接，接深度贴图按 TSDF 融合"
+"E-FUSE-NOCAMERA" = "接「深度贴图」走 TSDF 融合时必须有「摄影机」：深度按摄影机反投影成三维再融合"
+"E-FUSE-NOPOINTS" = "没有可以融合的点：点云里没有点，或深度贴图的有效像素都是空的"
+"E-FUSE-TOOBIG.other" = "体素网格有 {voxels} 个体素，内存放不下：把「体素大小」调大一点（去重也更强）"
+"E-FUSE-NOSURFACE" = "融合后没有找到表面：深度贴图的帧数太少，或截断距离里没有足够的观测，试试调大「截断距离」或检查摄影机是否对得上深度贴图"
+"I-FUSE-RESULT.other" = "{method}：{before} 个点融合到 {after} 个点"
+"W-FUSE-VOXELUP" = "场景太大，按 {asked} cm 体素放不下：自动改用 {used} cm 体素融合。要更细，就缩小深度范围或分段融合"
+
+# ---- 深度、点云（core/geometry.py）
+"E-DEPTH-DISPARITY" = "这张深度贴图自己写着它是视差（距离的倒数，只知道远近顺序），不是距离：反投影出来的三维是变形的，数值上看不出来。先用「深度对齐」，参考接一张真实尺度的深度贴图，换算成距离再用"
+"E-DEPTH-AFFINE" = "这张深度贴图只知道远近顺序（比例和偏移都不知道），不能变成三维：先用「深度对齐」对齐到真实尺度的参考上"
+"E-POINTS-NOCOMMON" = "深度贴图和 2D 跟踪点没有共同的帧：接同一段镜头的深度贴图"
+"N-POINTS-DEPTHGAP.other" = "深度贴图缺 {count} 帧：这些帧的位置在前后之间补上"
+"N-POINTS-NODEPTH" = "{count} 个点在所有帧上都没有深度值（一直被挡住，或落在深度贴图没有数值的地方）：放在原点，标成看不见"
+"E-DEPTHALIGN-NOREF" = "接一个参考：「参考深度贴图」接真实尺度的深度贴图，或者「参考点云」接点云、「点云的摄影机」接它的摄影机"
+"N-DEPTHALIGN-ASSUMEDDISPARITY" = "「待对齐深度贴图」没说自己是哪一种（别家渲染的 EXR 一般不写）：按视差拟合（1/距离）。如果它其实是真实尺度或只差一个比例的深度贴图，在「待对齐的是」里挑对应的那一项，不然算出来的远近可能是相反的"
+"E-DEPTHALIGN-AFFINEREF" = "「参考深度贴图」只知道远近顺序，不能当参考：参考要是真实尺度的深度贴图（或和摄影机同一次解算的相对深度贴图）"
+"E-DEPTHALIGN-NOOVERLAP" = "「待对齐深度贴图」和「参考深度贴图」几乎没有共同的有效像素：检查帧号是否对得上、对齐区域是不是太小"
+"E-DEPTHALIGN-NEGATIVE" = "拟合出的比例是负的：「待对齐深度贴图」和「参考深度贴图」远近相反，检查接的是不是同一段画面"
+"E-DEPTHALIGN-NOCAMERA" = "点云要和它的摄影机一起接：「点云的摄影机」没有接"
+"N-DEPTHALIGN-FEWFRAMES.other" = "{count} 帧没有足够的参考，用整段的对齐结果"
+"I-DEPTHALIGN-RESULT.other" = "{model}对齐：{how}{per_frame}；用了 {frames} 帧 {pixels} 个像素，去掉最不符合的 {dropped}% 后，和参考相差中位数 {error:.1f}%"
+"I-DEPTHALIGN-SCALE" = "深度值 × {scale}"
+"I-DEPTHALIGN-AFFINE" = "深度值 × {scale} {offset} cm"
+"I-DEPTHALIGN-INVERSE" = "1/深度（1/米）= {scale} × 视差 {offset}"
+"I-DEPTHALIGN-PERFRAME" = "；逐帧比例在 {low}–{high} 之间，上面是整段的结果"
+
+# ---- 模型集成（core/ensemble.py）
+"E-ENSEMBLE-FEW.other" = "只接了 {count} 个候选：集成至少要两个，在「候选」里再接一个"
+"E-ENSEMBLE-NOFRAMES" = "各候选没有共同的帧：它们要来自同一段素材"
+"W-ENSEMBLE-NONCOMMERCIAL" = "合成结果继承候选里最严格的许可：用到了非商用部分（{projects}），只能用于研究和评估，不能交给商业项目"
+"N-ENSEMBLE-DROPPED" = "「{model}」和其余候选整体不一致（形状差得远），整条没有用"
+"E-ENSEMBLE-UNALIGNED" = "候选不在同一个摄影机空间：有的对齐到了不同的参考，或者尺度含义不同（真实尺度和只知远近混在一起）。先用 depth_align 把它们对齐到同一个参考再接进来"
+"E-ENSEMBLE-NOSHAPE" = "所有候选的「用途」都是「只作时间锚」：至少要有一个「参与合成」"
+"W-ENSEMBLE-SCALE" = "参考的尺度和候选自己的真实尺度差了 {percent}%：参考很可能定错了尺度（所有对齐到它的候选都跟着错）"
+"N-ENSEMBLE-NOANCHOR" = "没有既稳又和其余候选一致的候选可作时间锚：按「准确」合成"
+"N-ENSEMBLE-NOSCALE" = "少于两个候选说得出自己的真实尺度（要真实尺度的深度贴图经 depth_align 按比例对齐）：保留参考的尺度"
+"I-ENSEMBLE-ANCHOR" = "时间锚：「{model}」"
+"N-ENSEMBLE-NOTSELECTED" = "「{model}」画出的对象和「对象」里选的不一样（多了或少了一块），整段没有用它"
+"N-ENSEMBLE-SHAREDGUIDE" = "所有候选都用了同一个上游模型的结果做引导：它们一起对、一起错，对象检查只有一票，起不了作用。给其中一个换独立的引导（例如 SAM 3 点选的遮罩）"
+"N-ENSEMBLE-OTHEROBJECT.other" = "「{model}」有 {count} 帧和其余候选不是同一个对象，这些帧没用它"
+"I-ENSEMBLE-RESULT.other" = "{objective}：{count} 个候选（{models}）合成「{name}」"
+"N-ENSEMBLE-TRUSTEDMANY" = "有几个候选的「用途」都是「参与合成（最可信）」：只倚重第一个「{model}」"
+"N-ENSEMBLE-NOTRUSTED" = "「边缘」目标在候选有分歧的地方倚重「用途」为「参与合成（最可信）」的候选，但没有标：按「准确」合成"
+"E-ENSEMBLE-NOTONESPACE" = "候选摄影机 / 人物不在同一个摄影机空间：有的搬进了别的基准摄影机的世界。先用「相机空间转换」把它们都搬进同一台基准摄影机的世界再接进来"
+"N-ENSEMBLE-NOTRACKS" = "没接「跟踪点」：没有独立的裁判，按各候选的中位数合成。接一个整段撒点的 CoTracker 跟踪结果，才能按跟踪点重投影误差选优"
+"N-ENSEMBLE-FEWTRACKS" = "「跟踪点」里能在各候选的摄影机下三角化的点太少（每帧要 {least} 个以上）：裁判不起作用，按各候选的中位数合成"
+"N-ENSEMBLE-CAMERAOFF" = "「{model}」的跟踪点重投影误差 {px:.2f} 像素，超过最好候选（{best:.2f} 像素）的 {times:g} 倍：整段没有用它"
+"N-ENSEMBLE-CAMERANOJUDGE" = "「{model}」的摄影机下没有一帧能量出跟踪点重投影误差（跟踪点三角化不了）：整段没有用它"
+"N-ENSEMBLE-CAMERASTILL" = "基准摄影机「{model}」整段几乎没动（位置散布 {spread:.1f} cm，不到 {least:.0f} cm）：别的候选的比例和它核对不了，裁判又不看比例，所以直接用它的结果，没有换别的候选"
+"E-ENSEMBLE-NORMALSPACE" = "候选法线不在同一个空间：有的是相机空间、有的是世界空间。先用「法线空间转换」把它们转到同一个空间再接进来"
+"N-ENSEMBLE-NOPEOPLE" = "「{model}」的「区域」是「人体」，但没接「人体区域」：它没有参与"
+"E-ENSEMBLE-NOSELECTION" = "候选全是物体编号图，又没接「对象」：不知道要哪个物体。接一个选好的遮罩（例如 SAM 3 点选的遮罩）"
+"N-ENSEMBLE-NOOBJECT" = "「{model}」里没有和「对象」重叠的物体：它整段画的是空的"
+
+# ---- 遮罩（core/mask.py）
+"N-ROTO-NOSHAPES" = "一个形状都没画：交出来的遮罩是空的。显示这个节点，在 2D 视图里沿着要的范围拖一圈"
+"N-FIGURE-NOPOSES" = "一个火柴人都没画：草图是空的，下游的动作生成没有姿势可依。在参数面板点「添加帧」放第一个姿势"
+"N-ROTO-OUTSIDE.other" = "画的 {count:d} 个形状全在画面外面（画面是 {width:d}×{height:d}）：遮罩是空的。把视图缩回画面里重画"
+"N-MASK-PICKOUTSIDE" = "点选 {frame}:{x:g},{y:g} 不在分割图的帧或画面里，已忽略"
+"N-MASK-PICKBACKGROUND" = "点选 {frame}:{x:g},{y:g} 点在背景上，已忽略"
+"E-MASK-NOCLASS" = "分割图里没有「{unknown}」；有这些类别：{known}"
+"E-MASK-NOCLASSES" = "分割图里没有「{unknown}」：这张分割图里没有类别"
+"E-MASK-FARNEAR" = "「远」{far:g} 要大于「近」{near:g}"
+"N-MASK-EMPTYRANGE" = "{near:g}–{far:g} cm 里没有像素：遮罩是空的。查看深度贴图的数值，再调「近」「远」"
+"N-MASK-EMPTYBEYOND" = "{near:g} cm 到无限远里没有像素：遮罩是空的。查看深度贴图的数值，再调「近」「远」"
+"N-MASK-NOPIXELS" = "挑的「{classes}」一个像素都没选中：遮罩是空的。显示上游的分割图，看它有哪些类别、编号对不对，再改「类别」"
+"N-MASK-EMPTYMERGE" = "「{mode}」之后整幅画面一个像素都不剩：遮罩是空的。两个遮罩完全重叠（相减）、完全不重叠（相交），或者接进来的不是 0–1 的遮罩（比如深度贴图，相减算出的负数会截成 0）时会这样。显示两个输入看一眼，再选「方式」"
+"N-MASK-NOTRUSTED" = "没有一个像素的置信度高于门槛 {threshold:g}：遮罩是空的。显示上游的置信度，鼠标放在画面上看数值，再调「置信度门槛」"
+"N-MASK-NODOUBTFUL" = "没有一个像素的置信度低于门槛 {threshold:g}：遮罩是空的。显示上游的置信度，鼠标放在画面上看数值，再调「置信度门槛」"
+
+# ---- 运动向量（core/motion_vectors.py）
+"N-MOTION-NOPREVIOUS.other" = "{count} 帧没有上一帧可取（在镜头的一端，或源里没有那一帧），不输出（如第 {first} 帧）"
+"N-MOTION-NONEXT.other" = "{count} 帧没有下一帧可取（在镜头的一端，或源里没有那一帧），不输出（如第 {first} 帧）"
+"N-MOTION-NOOCCLUSION" = "按容差 {tolerance:g} 像素做前后一致性检查，「{which}」一个像素都没判出来：遮罩是空的。调小「容差」，或者确认接进来的是不是运动向量"
+"E-MOTION-NOFRAMES" = "没有可以变形的帧：运动向量至少要两帧，源要有它们的邻帧"
+"E-MOTION-ONEFRAME" = "运动向量只有一帧，没有邻帧可以检查"
+"E-MOTION-REFFRAME" = "参考帧 {frame} 不在运动向量的帧里（{first}–{last}）"
+
+# ---- 人物（core/people.py、nodes/base.py）
+"N-PEOPLE-PICKMISS" = "点选 {frame}:{x:g},{y:g} 没有落在任何人身上，已忽略"
+"E-PEOPLE-NONE" = "没有选中任何人：检查「编号」是不是人物框里有的，或者在 2D 视图里点在人身上"
+"E-PEOPLE-IDS" = "编号要是数字，用逗号分开，如 1,3：「{text}」不是"
+
+# ---- 自动落地（core/scene.py AutoGround）
+"I-GROUND-LEVELED.other" = "世界转了 {tilt:.1f}° 让 Y 轴朝上（用了 {frames} 帧的重力方向，它们在世界里相差中位 {spread:.1f}°{dropped}）"
+"I-GROUND-DROPPED.other" = "，{count} 帧和其余的差得远没有用"
+"W-GROUND-SPREAD" = "各帧的重力方向放进世界以后相差较大（中位 {spread:.1f}°）：摄影机的转动和画面对不上，或者重力方向来自另一段镜头"
+"E-GROUND-NOTHING" = "没给重力方向，又选了不落地：这样什么都不会动。接上重力方向，或者选一个地面依据"
+"I-GROUND-POINTS" = "地面高度 {floor:.1f} cm（摄影机下方 {share:.0%} 的点在这一层），整体上移 {lift:.1f} cm"
+"W-GROUND-FEWPOINTS" = "摄影机下方只有 {share:.0%} 的点在找到的这一层：画面里地面很少，或者场景不是正的，地面高度可能不对。检查落地后的场景，或者接上重力方向"
+"I-GROUND-HEIGHT" = "地面高度 {floor:.1f} cm，整体上移 {lift:.1f} cm"
+
+# ---- 人体解算家族（nodes/families/humans.py）：几乎什么都没解出来的人不交
+"N-HUMANS-THINPERSON.other" = "{who}：交出来的 {own} 帧里只真正解出 {solved} 帧（少于 {least} 帧），已去掉。补几帧洞是对的，拿这么少的帧撑满一整段不是——那样出来的是一个贴在镜头上、整段不动的人。要留下他，把「最少解出帧数」调小；要他解得实在，换一段他露脸更久、没被挡住的镜头"
+"I-HUMANS-PEOPLE.other" = "这段画面里解出 {found} 个人，交出 {kept} 个，去掉 {dropped} 个"
+"N-HUMANS-NOBODYLEFT.other" = "解出来的 {found} 个人真正解出的帧都太少，一个都没交（每个人为什么去掉，见上面几条）：这次输出是空的。换一段人出现得更久、没被挡住的镜头，或者把「最少解出帧数」调小"
+"E-HUMANS-NOSOLVED" = "「{node}」的 {file} 里没有 solved：这个扩展包的 worker 没有按 raw 契约说清真正解出来哪几帧（契约在 worker_sdk/lab2shot_worker/world_humans.py 开头，用 save_person 就自动带上）。这是扩展包代码的问题，请把这条发给开发者"
+
+# ---- 摄影机空间转换（core/scene.py CameraSpaceConvert）
+"B-CAMSPACE-LENS" = "「来源摄影机」和「目标摄影机」不是同一个镜头（视角相差 {diff:.1f}%）：两台摄影机焦距不同，就不存在一个刚性变换让场景在两边都对上画面。让解算器用目标摄影机的焦距和胶片背重算（从「拆分相机」接给它），再接进来"
+"I-CAMSPACE-ANCHORED.other" = "整段平滑（按参照点云定比例）：{frames} 帧里 {pairs} 处两边远近之比的中位数是 ×{scale:.3f}（典型偏差 {spread:.0f}%），转 {turn:.1f}°、移 {move:.0f} cm；搬过去后两台摄影机还差 {turn_off:.2f}°、位置差均方根 {error:.1f} cm"
+"E-CAMSPACE-NOANCHOR.other" = "参照点云和场景透过两台摄影机看不到同一片地方（只有 {pairs} 处能比远近）：参照点云要在目标摄影机的世界里、和场景拍的是同一处"
+"I-CAMSPACE-SAME" = "来源摄影机和目标摄影机是同一台：场景本来就在目标摄影机的世界里，原样交出"
+"I-CAMSPACE-PLACED.other" = "来源摄影机留空：场景在摄影机前面，{frames} 帧每帧按目标摄影机摆进世界"
+"I-CAMSPACE-PERFRAME.other" = "逐帧贴合：{frames} 帧每帧按 目标摄影机 × 来源摄影机⁻¹ 搬过去"
+"I-CAMSPACE-FITTED" = "整段平滑：两条摄影机轨迹拟合一个常量变换，比例 ×{scale:.3f}、转 {turn:.1f}°、移 {move:.0f} cm；拟合后两台摄影机还差 {turn_off:.2f}°、位置差均方根 {error:.1f} cm"
+"W-CAMSPACE-STILL" = "摄影机整段几乎没动（位置散布 {spread:.1f} cm，不到 {least:.0f} cm）：比例从这么短的轨迹上读出来的是噪声，按 1 算，只对转角和位置。摄影机不动的镜头把「贴合方式」改成「逐帧贴合」"
+"W-CAMSPACE-OFF" = "整段拟合后两台摄影机还差位置均方根 {error:.0f} cm、朝向 {turn_off:.1f}°：两条轨迹不像同一段镜头解出来的，场景可能贴不准画面。检查两条线是不是同一段素材，或者改用「逐帧贴合」"
+"W-CAMSPACE-LENSWHOLE" = "「来源摄影机」和「目标摄影机」视角相差 {diff:.1f}%：整段平滑只按两条轨迹搬过去，照样能放进目标摄影机的世界，但来源那边的几何是按它自己估的焦距建的，透过目标摄影机看会有对应程度的偏差。解算器能收已知焦距的，从「拆分相机」把目标摄影机的接给它重算"
+
+# ---- 场景投影成 2D（core/scene.py）
+"E-PROJECT-SIZEPAIR" = "宽度和高度要一起填（或者都留空用摄影机的分辨率）"
+"E-PROJECT-NOSIZE" = "不知道画面多大：接上画面，或者填宽度和高度"
+"E-PROJECT-NOFRAMES" = "场景和摄影机都没有帧：接上画面，按它的帧投影"
+"N-PROJECT-NOTHINGSEEN" = "摄影机什么都没看到：场景里没有网格和点云，或者它们都在画面外、镜头后面；遮罩、深度贴图、法线贴图都是空的"
+"N-PROJECT-POINTSONLY" = "看到的只有点云：点云没有法线，法线贴图是空的（网格才有法线）"
+
+# ---- 数值和曲线（core/values.py）
+"E-CURVES-NONAME" = "曲线里没有「{name}」：有 {count} 条，如 {names}"
+
+# ---- 扩展包节点的公共部分（families/base.py、confidence.py、geometry.py）
+"E-FAMILY-NORAW" = "worker 没有写出原始结果 {file}（在 {folder}）：这次计算的 worker 日志里有原因"
+"E-FAMILY-NOFRAME" = "「{node}」第 {frame} 帧没有原始结果（worker 没写出来）：这次计算的 worker 日志里有原因"
+# a model that must run at its own size: its result went back to the picture's
+"W-POINTS-NONATIVE.other" = "这个模型本来每帧都给三维点，{frames} 帧里只有 {native} 帧有：其余帧的点云退回用深度贴图和摄影机反投影算，两种帧的点可能对不齐。请重算这一段"
+"I-FAMILY-RESIZED" = "模型在自己的尺寸上算，结果已经放回 {width}×{height}"
+# the model gave back a picture of other proportions: it cropped or padded, and stretching it would be wrong
+"E-FAMILY-ASPECT" = "模型交回的画面是 {width}×{height}，和这一步的 {want_width}×{want_height} 比例不一样：不能拉伸，请检查这个扩展的 worker"
+"N-FAMILY-SKIPPED.other" = "{count} 帧没有逐帧原始结果（隔帧计算或没解上：第 {frames} 帧）：逐帧输出里没有这些帧"
+"E-FAMILY-NONORMAL" = "「{node}」选的模型不输出法线"
+"E-FAMILY-NONORMAL.app" = "选的模型不输出法线：换一个输出法线的模型"
+"E-FAMILY-NOSKY" = "「{node}」选的模型不输出天空遮罩：换一个出天空遮罩的模型，或者把这根线拆掉（别的输出照常算）"
+"E-FAMILY-NOSKY.app" = "选的模型不输出天空遮罩：换一个出天空遮罩的模型"
+"E-FAMILY-METRIC" = "「{node}」的 worker 报告 metric = {said}，节点声明的是 metric = {declared}：深度单位会出错，请改正节点的声明或它的 worker"
+"N-CONFIDENCE-EMPTY" = "{model} 这次的设置没有给置信度：「置信度」输出是空的"
+"N-KEYPOINTS-NONE" = "这段镜头没解出人，也就没有 2D 关键点：「2D 关键点」输出是空的"
+
+# ---- LLM 文字（families/llm_text.py、adapters/llm。模块名用家族名 LLMTEXT，不用 LLM：模块 LLM 归
+# 扩展 llm 所有（messages/module_of_extension 的规矩——扩展名大写就是它的模块），两处撞名会让目录建不起来）
+"I-LLMTEXT-NOTEXT" = "「{node}」接进来的文字是空的：没有要翻译的，这次不翻译；它接着的参数用自己填的值"
+"I-LLMTEXT-NOTEXT.app" = "要翻译的文字是空的，这次不翻译"
+"E-LLMTEXT-NOTEXTOUT.other" = "模型没有生成文字（生成了 {tokens} 个词元就结束了）：重算一次，或换个模型档位"
+
+# ---- 标准人（core/scene.py StandardHuman、data/skeleton.py neutral_body）
+"I-BODY-MADE.other" = "{model} 中性体型，身高 {height} 厘米，{joints} 根骨骼，{vertices} 个顶点"
+
+# ---- 绑定（families/rigging.py、data/scene.py bind_skin）
+"N-RIG-DEFORMING.other" = "接进来的模型有 {frames} 帧、每帧都在变形（几何缓存）：骨架按第 {frame} 帧的形状生成，绑完由骨骼带动，原来的逐帧变形不带过来"
+"I-RIG-DONE.other" = "生成了 {joints} 根骨骼，{vertices} 个顶点刷好了权重"
+"E-RIG-NOMESH" = "接进来的「模型」里没有网格（只有空的组）：自动绑定要的是一块有面的网格"
+"E-RIG-VERTEXCOUNT.other" = "worker 交回 {got} 个顶点的权重，网格有 {want} 个顶点：这个扩展的适配层和网格对不上，别用这个结果，报给技术人员"
+
+# ---- 光流（families/flow.py）
+"W-FLOW-CAPPED" = "画面长边 {side}px 超过 {ceiling}：处理分辨率留空时自动按 {ceiling} 算（原生分辨率没有实测过这么大），要用原尺寸就手动填一个更大的数字"
+"E-FLOW-ONEFRAME" = "光流至少要两帧：接一段图像序列，不是一张图"
+"W-FLOW-GAPS.other" = "帧号不连续（有 {count} 处跳帧）：运动向量是到图像序列里相邻那一帧的位移，跳帧处不是每一帧的位移"
+
+# ---- 动作生成（families/rig_motion.py，骨骼动作家族做动作那一侧）
+"E-RIG-UNKNOWNJOINTS" = "对应关系里有这个模型没有的关节 {joints}：多半是节点图存的是另一个模型的对应关系。在视图里编辑「对应关系」，点「自动对应」，或者把这个节点删掉重新加一个"
+"E-RIG-MISSINGPARTS" = "没找到人物的{parts}：在视图里编辑「对应关系」，给它们点上人物的关节"
+"E-MOTIONGEN-KEYOUTSIDE" = "关键帧 {frame} 不在人物的帧范围 {first}–{last} 里：把「关键帧」里的帧号改到这个范围内，或者留空让程序读文件里有记录的那些帧"
+"E-MOTIONGEN-BADRANGE" = "「结束帧号」{last} 比「起始帧号」{first} 小：把结束帧号改成不小于起始帧号的数"
+"E-MOTIONGEN-TOOLONG.other" = "一次最多生成 {most:d} 帧（这台机器实测安全的上限，{seconds:g} 秒），这里要 {frames:d} 帧：把「结束帧号」改小，长镜头分几段生成再在 DCC 里接起来"
+"N-MOTIONGEN-BAKEDSTEP" = "动画每一帧都有记录（烘焙过的动画），分不出关键帧：自动每 {step} 帧取一个，共 {count} 个关键帧（{first}-{last}x{step}，末帧也在内）。要别的帧就在「关键帧」里写出帧号"
+"N-MOTIONGEN-BAKEDSTEP.app" = "传进来的动画每一帧都有记录（烘焙过的），分不出关键帧：自动每 {step} 帧取一个，共 {count} 个关键帧。要别的帧就在「关键帧」里写出帧号"
+"E-MOTIONGEN-FEWKEYS" = "至少要两个关键帧才能补中间（找到 {count} 个）：在「关键帧」里写出关键帧的帧号，或者把「动画」那根线拆掉，只按文字生成一整段"
+"E-MOTIONGEN-FRAMES.other" = "「{node}」的模型交回来 {made:d} 帧，要的是 {want:d} 帧：这是程序内部对不上，请把这条报给我们"
+"W-MOTIONGEN-OFFGROUND" = "关键帧里脚的最低点在 y = {low:.0f} cm，不在地面（y = 0）上：模型按地面在 y = 0 生成动作，结果会不对。先接「自动落地」（或「变换」）把人物放到地面上"
+
+# ---- 光照（families/light.py）
+"E-LIGHT-ONEFRAME.other" = "环境光只从一帧估计，接进来的是 {frames:d} 帧：在前面接「时间偏移」选一帧（环境看得最全、人挡得最少的那一帧）"
+
+# ---- 生成图像（families/image_generation.py：扩散模型文生图 / 编辑 / 多参考图）
+"E-DIFFUSION-NOPROMPT" = "「{node}」的「提示词」是空的：生成按提示词进行，先写清楚要生成什么、怎么改"
+"E-DIFFUSION-NOPROMPT.app" = "「提示词」是空的：生成按提示词进行，先写清楚要生成什么、怎么改"
+"E-DIFFUSION-MAXREFS.other" = "「参考图」一共接了 {count} 张，超过模型的官方上限 {most} 张：去掉一些再计算"
+"N-DIFFUSION-REFSKIPPED" = "有 {count} 条参考图没有和「图像」同一帧的画面（如 {names}{more}），这几条没有用上，其余照常：要让它们生效，接覆盖到同一帧的图像序列，或先接「时间偏移」"
+# ---- 图像（core/image.py）
+"E-GRID-ONEFRAME.other" = "一次只拆一张网格图，接进来的是 {frames:d} 帧：在前面接「时间偏移」选一张"
+"N-GRID-EMPTY" = "按 {rows:d} 行 {cols:d} 列、边距 {margin:d} px 拆出来的每一格都是 0：接进来的网格图本身是空的，或者有像素的地方正好被「边距」切掉了。显示上游看一眼，再对一对「行」「列」「边距」"
+"E-GRID-CELL" = "{rows:d} 行 {cols:d} 列每格是 {width:d}×{height:d}，边距 {margin:d} px 把它切没了：减小「边距」，或者改「行」「列」"
+"E-FRAMEHOLD-RANGE" = "第 {frame} 帧不在接进来的范围 {first}–{last} 里：改「帧」，或者留空用开始帧"
+
+# ---- 跟踪（families/tracks.py、tracks3d.py、nodes/base.py）
+"E-TRACKS-NOCONFIDENCE" = "这个模型不输出置信度，不能按置信度判断遮挡：「可见门槛」留空"
+"W-HANDLE-BADPICK.other" = "在视图里画的内容有 {count} 条读不懂，已跳过：{entries}（格式：{grammar}）"
+"N-TRACKS-PICKOUTSIDE" = "手动点 {frame}:{x:g},{y:g} 不在这段镜头的帧范围里，已忽略"
+"E-TRACKS3D-AFFINE" = "这张深度贴图只知道远近顺序（比例和偏移都不知道），跟不出三维位置：先用「深度对齐」对齐到真实尺度的参考上"
+"N-TRACKS3D-PICKSIGNORED" = "有 {count} 个手动点不在参考帧（第 {frame} 帧）上：「{node}」只从参考帧出发算，这些点没有用上。要算它们，在第 {frame} 帧上重新点，或者把「参考帧」改成它们所在的帧"
+"N-TRACKS3D-PICKSIGNORED.app" = "有 {count} 个手动点不在参考帧（第 {frame} 帧）上，没有用上：要算它们，在第 {frame} 帧上重新点，或者把「参考帧」改成它们所在的帧"
+
+# ---- 三维文件的选择（nodes/formats.py）
+"E-FORMAT-SUFFIX" = "「{name}」不是这个节点读的文件：只读 {suffixes}，换一个文件"
+"E-FORMAT-NOTINFILE" = "文件里没有{kind} {missing}：在「{kind}」里重新选（文件里有{kind} {have}）"
+"E-FORMAT-NONEINFILE" = "文件里没有{kind} {missing}：在「{kind}」里重新选（这个文件里没有{kind}）"
+
+# ---- 适用范围（nodes/applies.py）：参数在什么时候起作用。面板上变灰的参数下面写这一句；I 级：只是说明，不弹、不进消息栏
+"I-APPLIES-WIRED" = "接了「{input}」才用"
+"I-APPLIES-WIRED.app" = "这次用不上（这张卡没有给它要的输入）"
+# a parameter that only shapes one output: it does nothing until that output is wired on
+"I-APPLIES-WIREDOUT" = "接出了「{output}」才用"
+"I-APPLIES-WIREDOUT.app" = "这次用不上（这项结果这次没有用到）"
+"I-APPLIES-UNWIREDOUT" = "「{output}」没有接出去：这一项这次不起作用"
+"I-APPLIES-UNWIREDOUT.app" = "这项结果这次没有用到：这一项这次不起作用"
+"I-APPLIES-UNWIRED" = "接了「{input}」，由它决定，这里不起作用"
+"I-APPLIES-UNWIRED.app" = "由输入决定，这里不起作用"
+"I-APPLIES-ON" = "「{name}」打开时才用"
+"I-APPLIES-OFF" = "「{name}」关闭时才用"
+"I-APPLIES-LENSDISTORTS" = "「镜头模型」选了带畸变的模型才用"
+"I-APPLIES-CHOICE" = "「{name}」选{choices}时才用"
+"I-APPLIES-OPTION" = "「{label}」"
+"I-APPLIES-SUFFIX" = "「{name}」是 {suffixes} 文件时才用"
+"I-APPLIES-SET" = "「{name}」填了才用"
+# 参数自己的常驻输入口上接了线（Param("x").wired()）：那条线说了算，这里不起作用
+"I-APPLIES-PARAMWIRED" = "接了「{name}」才用"
+"I-APPLIES-PARAMUNWIRED" = "接了「{name}」，由那条线决定，这里不起作用"
+"I-APPLIES-UNSET" = "「{name}」留空时才用"
+"I-APPLIES-GT" = "「{name}」大于 {value:g} 时才用"
+"I-APPLIES-WIREDTYPE" = "「{input}」接的是{want}时才用（现在接的是{got}）"
+"I-APPLIES-WIREDTYPE.app" = "输入是{want}时才用（现在是{got}）"
+"I-APPLIES-WIREDPICTURE" = "「{input}」接的有画面时才用：接进来的都是数值图（深度、法线、运动向量这类），写出时不转颜色空间，一律 32 位浮点"
+"I-APPLIES-WIREDPICTURE.app" = "输入有画面时才用：现在都是数值图（深度、法线、运动向量这类），写出时不转颜色空间，一律 32 位浮点"
+"I-APPLIES-FACTGT" = "{fact}大于 {value:g} 时才用（这次是 {now}）"
+"I-APPLIES-FACTEQ" = "{fact}是 {value} 时才用（这次是 {now}）"
+"I-SCALE-METRIC" = "这个方法给出的就是真实距离（米），不用「尺度」换算；要和别的分支对齐尺度，在卡片里用深度对齐或摄影机空间"
+"I-APPLIES-INEQ" = "「{input}」进来的{fact}是 {value} 时才用（现在是 {now}）"
+"I-APPLIES-INEQ.app" = "输入的{fact}是 {value} 时才用（现在是 {now}）"
+"I-APPLIES-INGT" = "「{input}」进来的{fact}大于 {value:g} 时才用（现在是 {now}）"
+"I-APPLIES-INGT.app" = "输入的{fact}大于 {value:g} 时才用（现在是 {now}）"
+"I-APPLIES-EITHER" = "{reasons}——其中任一条成立就能用"
+"I-APPLIES-FACTTRUE" = "{fact}时才用"
+"I-APPLIES-PENDING" = "要算的时候才知道{fact}，这次用不用得上：算完没用上会在节点上说"
+# 算完才知道没用上（engine/cook.py）：用户改过的值没起作用是警告；默认值没起作用只进日志
+"W-APPLIES-UNUSED" = "「{label}」这次没有用上：{reason}。结果和不设它一样，要它起作用就按这句话改"
+"I-APPLIES-UNUSEDDEFAULT" = "「{label}」这次没有用上：{reason}"
+
+# ---- 列表和逐项处理（lab2shot/nodes/core/flow.py）
+
+"E-LIST-NOINDEX.other" = "没有第 {index} 条：这条列表一共 {count} 条。改「序号」，或者改成按名字取"
+"E-LIST-NOITEMS" = "只能拆开或合并含多条的数据（人物框、场景、2D 跟踪点、分割图）：{kind}不分条"
+"N-LIST-NOTHING" = "「{node}」交出的是一条空列表：接进来的{kind}里一条也没有（上游一条也没找到）。块内的节点这次不算，接着的节点照常"
+"B-EACH-SEVERAL" = "一个条目带出了几样结果（{kinds}），它们打不到一个场景里：一个「逐项结束」只收一种结果，几样三维数据才能打包成场景。其余的结果另接一个「逐项结束」（块名相同）"
+"E-NAME-EMPTY" = "名字是空的：名字要写出层级名和文件夹名，不能留空"
+"E-NAME-HIERARCHY" = "「{name}」不能作三维数据的名字：写进三维文件的层级名只能用字母、数字和下划线，也不能以数字开头（Maya、Houdini 的规矩）。改成英文或拼音"
+"E-COMPARE-UNIT" = "甲和乙比不了：{reason}"
+"E-COMPARE-ORDER" = "不能比{how}：{kind}只能比等于、不等于。把「比较」改成等于或不等于，或者两边都接数值"
+"E-MATH-UNIT" = "接进来的值换算不了：{reason}。把「单位」改成能换算的，或者选「无」"
+"E-MATH-ZERO" = "除以 0：检查接进来的值"
+"E-READ-NOTFOLDER" = "「{path}」不是文件夹：「读取多条图像序列」要选一个装着几段图像序列的文件夹（子文件夹里的也认得）"
+"E-READ-NOSEQUENCES" = "文件夹「{path}」里没有勾选任何图像序列：在「图像序列」表里勾上要读的几段"
+"E-READ-NOPICTURE" = "「{file}」里没有彩色画面图层（只有 {layers}）：这些图层用「读取图像序列」按类型分别接出来"
+"N-READ-OUTSIDE.other" = "「{node}」有 {count} 段图像序列不在帧范围 {lo}–{hi} 里，这次没有读：{names}。其余照常；要算它们就放宽帧范围"
+"N-READ-OUTSIDE.app.other" = "有 {count} 段图像序列不在帧范围 {lo}–{hi} 里，这次没有读：{names}。要算它们就放宽帧范围"
+"W-CLEANUP-MOSTLYBAD" = "这段动作里 {share}% 的帧都被判成有问题：要么这段动捕确实整体都不对（那就该改的都改了），要么模型没见过这种动作（卡通、特技、非人体型），或者「对应关系」配错了关节。先看节点交出的那条曲线（「问题帧」或「脚滑」），再决定调「检测阈值」还是改「对应关系」"
+
+# ---- 火柴人操纵器（nodes/handles.py figure，nodes/base.py parse_figures）
+"E-FIGURE-TWICE" = "第 {frame} 帧上有两个火柴人：一帧只能有一个关键姿势。在「关键姿势」里删掉多出来的那一条"
+"N-FIGURE-OUTSIDE" = "有 {count:d} 个关键姿势画在图像序列外面的帧上（这段图像序列是 {lo:d}–{hi:d} 帧）：{frames}。这几帧这次没算，其余照常"
+"W-LOGIC-NOTONE" = "「非」只看第一根线：接了 {count} 根，后面的不起作用；要把几个布尔合起来，用「与」或「或」"
+"W-LIST-MORENAMES.other" = "写了 {names} 个名字，只接了 {count} 条：多出来的 {extra} 没有对应的条目"
+# ---- 「自动忽略」每条建议的理由（nodes/kit/retarget_needs.py ignore_reasons）
+"I-RETARGETNEEDS-WHYNOPART" = "规则不收：不属于任何部位"
+"I-RETARGETNEEDS-WHYPART" = "规则不收：{part}不在这条规则收的部位里"
+"I-RETARGETNEEDS-WHYEND" = "规则不收：末端点"
+"I-RETARGETNEEDS-WHYCHAIN.other" = "规则不收：{part}只收 {want} 节，这一节多出来"
+
+# ---- 格式输出节点不收的数据（Writes.no 的理由）
+"I-NUKECAM-NOMODEL" = "Nuke 的摄影机节点里只有摄影机，没有网格"
+"I-NUKECAM-NOPOINTS" = "Nuke 的摄影机节点里只有摄影机，没有点云"
+"I-NUKECAM-NOCURVES" = "Nuke 的摄影机节点里只有摄影机，没有三维曲线"
+"I-NUKECAM-NOSKELETON" = "Nuke 的摄影机节点里只有摄影机，没有骨架"
+"I-NUKECAM-NOCHARACTER" = "Nuke 的摄影机节点里只有摄影机，没有角色"
+"I-NUKECAM-NOGAUSSIAN" = "3D 高斯请用 PLY 或 USD 输出"
+"I-NUKECAM-NOLIGHT" = "Nuke 的摄影机节点里只有摄影机，没有灯光"
+"I-PLY-ONLYGAUSSIAN" = "PLY 高斯输出只接收 3D 高斯"
+"I-PLY-ONLYPOINTS" = "点云 PLY 输出只接收点云"

@@ -8,13 +8,27 @@
   padding: 6px 0;
   font-size: var(--fs-md);
   user-select: text;
+  /* the time and the level: columns as wide as their longest words in the list (either language), shared by every
+     row (subgrid), so a longer level word (Warning) never runs into the text */
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+  align-content: start;
+}
+
+.log-list > * {
+  grid-column: 1 / -1;
 }
 
 .log-row {
   display: grid;
-  grid-template-columns: 150px 40px 1fr;
-  gap: 10px;
+  grid-template-columns: subgrid;
+  column-gap: 10px;
   padding: 4px 12px;
+}
+
+.log-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .log-row:hover {

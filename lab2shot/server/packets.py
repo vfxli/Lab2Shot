@@ -18,6 +18,7 @@ from ..engine.evaluations import content_key
 from ..data.packet import packet_dir
 from ..errors import Invalid, NotFound
 from ..io.files import inside
+from .. import i18n
 from ..messages import Msg
 from . import auth, graphs, owners, wire
 from .wire import WAITS
@@ -25,7 +26,7 @@ from .graphs import GraphRequest
 
 from .access import account_of
 
-router = Router(prefix="/api", tags=["节点状态与结果"])
+router = Router(prefix="/api", tags=["Node Status and Results"])
 
 
 
@@ -62,25 +63,53 @@ class StatusRequest(GraphRequest):
     # (webui/src/state/handleView.ts: the open 「对应关系」 editor, or the pose handle being edited in the viewer), not
     # the displayed node's: the server does not guess it
     handle_node: str = ""
+    # the nodes whose 「计算」 the page offers besides the shown one (a card's buttons: 「计算并打包」 on its 「输出」, a stage's
+    # 「解算摄影机」): for each that can't be cooked now, why (`holds`), so every such button is greyed with its reason
+    # before it is clicked, whatever the viewer shows (webui/src/graph/actions.ts planError)
+    holds: list[str] = Field(default_factory=list)
 
 
-@router.post("/status", access=Access.user("编辑器：自己节点图的每个节点有没有缓存、能不能算", hides={
-    "farm.cards": ("nodes.*.cost.vram_gb", "nodes.*.cost.vram_measured", "nodes.*.cost.measured_on")}), summary="编辑器一次编辑只问这一个：每个节点有没有缓存、能不能算、为什么不能算，端口、连线、计算策略，和显示节点的计划（节点图每一版只发一次：graph、或 key / base + patch，见 server/graphs.py）")
+AGAIN_MS = 2000  # how soon the page asks again while a file is being read for a listing
+
+
+@router.post("/status", access=Access.user("Editor: whether each node of your own graph is cached and can cook", hides={
+    "farm.cards": ("nodes.*.cost.vram_gb", "nodes.*.cost.vram_measured", "nodes.*.cost.measured_on", "nodes.*.cost.vram_full_gb")}), summary="The one question an editor asks per edit: whether each node is cached, whether it can cook and why not, ports, "
+                                                                                                                "wires, cook policy, and the plan of the shown node (each version of the graph is sent once: graph, or key / "
+                                                                                                                "base + patch, see server/graphs.py)")
 def status(req: StatusRequest, request: Request) -> dict:
     """Return Evaluation.status plus server-side information: the graph version answered (its key and the echoed
     cook-input version) and the plan of the displayed node (farm/timings.py look)."""
+    from ..engine.external import reading_now, readings
+    from ..serving import account
     from ..farm import timings
 
     ev = evaluation_of(req, request)
     # the shown node's state and policy are of the cook 「计算」 would submit (its show), as its plan below is
     found = ev.status(view=req.view or None, shown={req.display: frozenset(req.show)} if req.display and req.show else None)
     plan = timings.look(ev, req.display, False, req.show) if req.display in ev.graph.nodes else None
+    holds = {nid: said for nid in dict.fromkeys(req.holds) if nid != req.display and nid in ev.graph.nodes
+             and (said := timings.look(ev, nid, False).get("error"))}
     about = handle_about(req, ev.graph)
     data = _handle_data(ev, about, found["nodes"].get(about) or {}) if about else None
     if data and data["key"] == req.handle_key:
         data = {"node": data["node"], "key": data["key"]}  # the page has these already
+    # a file is being read in the background for a listing (engine/external.py ask_worker): the page asks again soon,
+    # so what is read shows by itself, with nothing held on the server meanwhile
+    mine = readings(account().user_id)
+    again = {"again_ms": AGAIN_MS, **({"readings": mine} if mine else {})} if reading_now() else {}
     return {"graph": req.key or content_key(ev.graph), "cook_inputs": req.cook_inputs, **found, "plan": plan,
-            **({"handle_data": data} if data else {})}
+            **({"holds": holds} if holds else {}), **({"handle_data": data} if data else {}), **again}
+
+
+@router.post("/readings/stop", access=Access.user("Editor: stop reading files in the background (read before Cook was clicked, so not in the queue)"),
+             summary="Stop the file reading this account runs in the background (read automatically when an import node lists its "
+                     "contents; there is no job, so the queue cannot cancel it): the reading processes end at once; returns how many "
+                     "were stopped")
+def stop_readings() -> dict:
+    from ..engine.external import stop_readings as stop
+    from ..serving import account
+
+    return {"stopped": stop(account().user_id)}
 
 
 def handle_about(req: StatusRequest, graph: Graph) -> str | None:
@@ -136,9 +165,9 @@ def _handle_data(ev: Evaluation, nid: str, entry: dict) -> dict | None:
         data = _HANDLE_DATA.put(key, {str(k): v for k, v in got.items()})
     if not data:
         return None
-    import hashlib
+    from ..io.digest import key as digest_key
 
-    digest = hashlib.sha256(repr(key).encode()).hexdigest()[:16]
+    digest = digest_key(key, 16)  # one way of making a key (io/digest.py), stable across processes (not repr)
     return {"node": nid, "key": digest, "handles": data}
 
 
@@ -146,7 +175,9 @@ ITEMS_PAGE = 50  # default page size of node_items; blocks with hundreds of item
 ITEMS_MOST = 200
 
 
-@router.get("/status/{graph}/node/{node}/items", access=Access.user("编辑器：块内一个节点每一条的状态"), summary="块内一个节点的每一条（逐项处理的条目）：状态、有没有缓存、出错或跳过的原因、条目名；一页一页取（offset 从第几条起，limit 一页几条，最多 200）。节点图按状态回复里的 graph 键指名（这一版服务器记得的那一版）")
+@router.get("/status/{graph}/node/{node}/items", access=Access.user("Editor: the state of each item of a node in a block"), summary="Each item of a node in a block (the items processed one by one): state, whether cached, why it failed or was "
+                                                                                                                                 "skipped, item name; fetched page by page (offset: from which item, limit: items per page, at most 200). The "
+                                                                                                                                 "graph is named by the graph key of the status answer (the version the server remembers)")
 def node_items(graph: str, node: str, request: Request, offset: int = 0, limit: int = ITEMS_PAGE) -> dict:
     """Return per-item status for one node inside a block. The status response is per node (a block node reports its
     summary and the item currently viewed); the per-item detail, which may cover hundreds of items, is requested here
@@ -181,7 +212,9 @@ def _nothing(p: Packet, **shape) -> dict | None:
     return {"frames": [], "width": int(p.meta.get("width", 0)), "height": int(p.meta.get("height", 0)), "empty": True, **shape}
 
 
-@router.get("/packet/{fp}", access=Access.user("看结果：数据包的类型", owned=owners.packets), summary="数据包的类型、元数据和一份摘要（这份数据是什么：尺寸、帧范围、Focal Length、人数……端口提示和数据信息面板都读它）；显示成原样上传文件的图像另有每帧内容的 sha256（blobs：浏览器有同样的文件就不用下载）")
+@router.get("/packet/{fp}", access=Access.user("View results: a packet's type", owned=owners.packets), summary="A packet's type, metadata and a summary (what the data is: size, frame range, Focal Length, number of "
+                                                                                                                "people... the port tooltip and the info panel read it); images shown as the uploaded file itself also have "
+                                                                                                                "each frame's content sha256 (blobs: a browser holding the same file need not download it)")
 def manifest(fp: str, request: Request) -> dict:
     from ..data import summary as data_summary
 
@@ -236,7 +269,10 @@ def _from_here(frames: list[int], here: int) -> list[int]:
     return frames[at:] + frames[:at]
 
 
-@router.get("/packet/{fp}/frame/{frame}.png", access=Access.user("看结果：一帧的视图代理图", owned=owners.packets), summary="数据包某一帧给视图看的**代理图**（显示空间）：算完就按管理员设定的那一档（「设置 · 视图 · 视图代理尺寸」，默认 512）等比缩、有损压缩存起来，网页只拿这一份。交付写出去的文件永远是原尺寸、原精度、无损，不受它影响。内容按地址不变，浏览器一直留着")
+@router.get("/packet/{fp}/frame/{frame}.png", access=Access.user("View results: one frame's viewer proxy image", owned=owners.packets), summary="The **proxy image** of one frame of a packet for the viewer (display space): made when cooked at the size the "
+                                                                                                                                        "administrator set (Settings > View > Viewer Proxy Size, default 512), scaled to fit and lossy-compressed; the "
+                                                                                                                                        "page only fetches this. Delivered files are always full size, full precision and lossless, unaffected by it. "
+                                                                                                                                        "The content of an address never changes, so the browser keeps it")
 def frame(fp: str, request: Request, frame: int, through: str = "", at: str = "", g: str = "", px: int | None = None, pf: str = "",
           cg: str = "") -> FileResponse:
     """Return the proxy picture of one frame (`lab2shot/view/proxy.py`).
@@ -294,7 +330,11 @@ def frame(fp: str, request: Request, frame: int, through: str = "", at: str = ""
 # defined solely in lab2shot/view/proxy.py. Which route a view uses is decided solely by webui/src/transfer/route.ts.
 
 
-@router.get("/packet/{fp}/frame/{frame}/channel/{name}", access=Access.user("看结果：一帧里的一条通道", owned=owners.packets), summary="一帧里**一条通道**的代理数据（不是做好的图）：浏览器拿它自己画——取通道、黑白点、着色、合成都在浏览器算，切看法一次网络都不用。头 16 字节说清格式（u8 / u16 / 半精度 / float32，对应显卡的 R8 / R16 / R16F / R32F）和宽高，后面是宽×高个值。尺寸是管理员设定的那一档（「设置 · 视图 · 视图代理尺寸」）。内容按地址不变，浏览器一直留着")
+@router.get("/packet/{fp}/frame/{frame}/channel/{name}", access=Access.user("View results: one channel of a frame", owned=owners.packets), summary="Proxy data of **one channel** of a frame (not a finished image): the browser draws it itself; picking "
+                                                                                                                                                   "channels, black and white points, colouring and compositing are all done in the browser, so switching views "
+                                                                                                                                                   "needs no network at all. The first 16 bytes give the format (u8 / u16 / half / float32, the GPU's R8 / R16 / "
+                                                                                                                                                   "R16F / R32F) and width and height, then width x height values. The size is the tier the administrator set "
+                                                                                                                                                   "(Settings > View > Viewer Proxy Size). The content of an address never changes, so the browser keeps it")
 def frame_channel(fp: str, frame: int, name: str, request: Request, g: str = "", px: int | None = None,
                   pf: str = "") -> Response:
     """Return the proxy data of one channel of one frame.
@@ -331,8 +371,8 @@ def frame_channel(fp: str, frame: int, name: str, request: Request, g: str = "",
     return wire.channel_answer(blob, request.headers.get("accept-encoding", ""), kept)
 
 
-@router.get("/packet/{fp}/clipboard", access=Access.user("看结果：复制到别的软件的节点文字", owned=owners.packets),
-            summary="结果里带的节点文字（Nuke 的 .nk 片段）：网页的「复制到 Nuke」把它放进剪贴板")
+@router.get("/packet/{fp}/clipboard", access=Access.user("View results: node text for copying to another application", owned=owners.packets),
+            summary="Node text carried by a result (a Nuke .nk snippet): the page's Copy to Nuke puts it on the clipboard")
 def clipboard(fp: str, request: Request) -> dict:
     """Return the snippet a node wrote for pasting into another application: the target application, the file name
     it was written as, and its text. The node declares it (nodes/clipboard.py Pasteable) and writes it into the result
@@ -359,7 +399,7 @@ def clipboard(fp: str, request: Request) -> dict:
             **({"said": Msg(said["code"], **(said.get("params") or {})).json()} if said else {})}
 
 
-@router.get("/packet/{fp}/boxes", access=Access.user("看结果：人物框", owned=owners.packets), summary="人物框数据包：每个人每帧的框")
+@router.get("/packet/{fp}/boxes", access=Access.user("View results: bounding boxes", owned=owners.packets), summary="Bounding box packet: each person's box in each frame")
 def boxes(fp: str, request: Request) -> dict:
     from ..data.payloads import read_boxes
 
@@ -371,7 +411,7 @@ def boxes(fp: str, request: Request) -> dict:
     return {**p.meta, "people": read_boxes(p)}  # meta["people"] holds only ids; the box data replaces it
 
 
-@router.get("/packet/{fp}/tracks", access=Access.user("看结果：跟踪点", owned=owners.packets), summary="跟踪点数据包：每个点每帧的位置")
+@router.get("/packet/{fp}/tracks", access=Access.user("View results: tracks", owned=owners.packets), summary="Track packet: each point's position in each frame")
 def tracks(fp: str, request: Request) -> dict:
     """Return 2D tracks for the viewer: per point a list of [x, y] (null where hidden), aligned with meta.frames. For
     trackers that score their points, "confidence" gives per point and frame a value in 0..1 rounded to two decimals.
@@ -395,7 +435,7 @@ def tracks(fp: str, request: Request) -> dict:
     return out
 
 
-@router.get("/packet/{fp}/curves", access=Access.user("看结果：曲线", owned=owners.packets), summary="曲线数据包，或者每帧一个的数值：每条曲线每帧的值")
+@router.get("/packet/{fp}/curves", access=Access.user("View results: curves", owned=owners.packets), summary="Curves packet, or a value per frame: each curve's value in each frame")
 def curves(fp: str, request: Request) -> dict:
     """Return curves for the viewer's strip: from a curves packet, from a 「SMPL 人体」 packet's parameters (three
     axis-angle curves per joint plus translation), or from a per-frame value (浮点 or 整数: one curve; 向量: three,
@@ -412,12 +452,13 @@ def curves(fp: str, request: Request) -> dict:
         raise Invalid(Msg("E-VIEW-NOTCURVES"))
     v = read(p)
     values = np.asarray(v.values, np.float64).reshape(len(v.frames), -1)
-    names = ["X", "Y", "Z"] if p.type == VECTOR else [p.meta.get("curve") or "值"]
+    names = ["X", "Y", "Z"] if p.type == VECTOR else [p.meta.get("curve") or i18n.t("server.curve_value")]
     return {"frames": list(v.frames), "names": names, "unit": v.unit,
             "range": [float(values.min()), float(values.max())], "values": np.round(values, 5).T.tolist()}
 
 
-@router.get("/packet/{fp}/scene", access=Access.user("看结果：3D 视图的描述", owned=owners.packets, lane=WAITS), summary="3D 视图用的描述：模型、蒙皮角色、点云、相机、灯光，以及每一部分数据的地址")
+@router.get("/packet/{fp}/scene", access=Access.user("View results: the 3D viewport's description", owned=owners.packets, lane=WAITS), summary="The description for the 3D viewport: geometry, skinned characters, point clouds, cameras, lights, and the "
+                                                                                                                                  "address of each part of the data")
 def scene(fp: str, request: Request) -> Response:
     from .view_data import respond_description
     from .view_worker import describe
@@ -426,7 +467,7 @@ def scene(fp: str, request: Request) -> Response:
     return respond_description(describe(("scene", fp), f"/api/packet/{fp}/view/{{part}}?g={p.created or ''}"), request.headers.get("accept-encoding", ""))
 
 
-@router.get("/packet/{fp}/view/{part}", access=Access.user("看结果：3D 视图的数据（一段）", owned=owners.packets, lane=WAITS), summary="3D 视图的一部分数据（二进制，gzip）：先是小的，再是大的静止数据，再按帧分段")
+@router.get("/packet/{fp}/view/{part}", access=Access.user("View results: the 3D viewport's data (one part)", owned=owners.packets, lane=WAITS), summary="Part of the 3D viewport's data (binary, gzip): small parts first, then large static data, then per frame")
 def scene_part(fp: str, part: str, request: Request, g: str = "") -> Response:
     """Return one part of the 3D view data. Each URL maps to a single immutable byte sequence with no preview variant:
     3D data is small, and point clouds are decimated to the 「点云上限」 setting."""

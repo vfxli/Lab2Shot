@@ -1,0 +1,72 @@
+# This extension's words and messages in English (the same keys as zh.toml): written by P1-B.
+# GVHMR whole-body motion (adapters/gvhmr/worker.py).
+
+# ---- the picture and the people
+"N-GVHMR-NOPEOPLE.one" = "gvhmr.solve found nobody in the picture who appears for {frames} frame or more in a row (it does not solve shorter stretches), so the output is empty this time: make sure whole people are in the picture and not hidden for too long. To keep only one of them, wire sam_3d_body.detect_people → select_people → mask_from_boxes → composite upstream to take the others out of the picture"
+"N-GVHMR-NOPEOPLE.other" = "gvhmr.solve found nobody in the picture who appears for {frames} frames or more in a row (it does not solve shorter stretches), so the output is empty this time: make sure whole people are in the picture and not hidden for too long. To keep only one of them, wire sam_3d_body.detect_people → select_people → mask_from_boxes → composite upstream to take the others out of the picture"
+"I-GVHMR-YOLOWEIGHTS" = "YOLOv8x person detection weights"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."gvhmr.solve"]
+subtitle = "Full-Body Motion"
+description = "GVHMR (Zhejiang University): solves people's motion in the world from the picture (SMPL-X body, hands included), feet on the ground along the gravity direction. Follow shots and handheld cameras both work. The solved people stand in GVHMR's own gravity world: to line them up with the plate under your camera, wire Reference Camera together with your camera into camera_space (to Source Camera); the templates have it wired already. For the relative positions of several people in one world use tram.solve; for the most accurate fingers use sam_3d_body.solve. It also gives a Camera: the still pinhole camera at the origin the people are placed with (focal length = Focal Length; left empty, GVHMR's own default, the picture diagonal; principal point at the picture centre), not a solved camera: looking through it at the image plane, the people and the picture line up; in the templates it is used as the solver's camera."
+
+[node."gvhmr.solve".param.follow_camera]
+label = "Fit Picture per Frame"
+
+[node."gvhmr.solve".param.vo_step]
+label = "Camera Estimation Step"
+
+[node."gvhmr.solve".port.boxes]
+label = "Person Boxes"
+
+[node."gvhmr.solve".port.keypoints]
+label = "2D Keypoints"
+help = "The 17 body points ViTPose finds in the picture (nose, eyes, ears, shoulders, elbows, wrists, hips, knees, ankles): the ones GVHMR found the people by before solving. Points in the picture, not a projection of the 3D result: wire them straight into tracks.output for 3DEqualizer or Nuke, or lay them over the picture to see whether the solved people fit. Grouped by person, one group per person"
+
+[node."gvhmr.solve".port.camera]
+label = "Camera"
+help = "The camera the people are placed with: a still pinhole camera at the origin, focal length = the node's Focal Length (left empty, the solver's own estimate or default), principal point at the picture centre. Not a solved camera: the people are placed in its space, and looking through it at the image plane they line up with the picture. Use it as the solver's camera, or as the target of camera_space"
+
+[node."gvhmr.solve".port.ref_camera]
+label = "Reference Camera"
+help = "Not a production camera: do not deliver it or hand it on as a solved camera. It is the camera this result comes with in its own world: what lines the people up with the plate. Wire it into Source Camera of camera_space and your own camera into Target Camera: that node moves the people into your camera's world, lined up with the picture. For a usable camera, wire one from a node that really solves cameras (ViPE, TRAM) or from usd.import"
+
+[node."gvhmr.solve".official]
+note = "① **Person Boxes is an optional input handed straight to the official functions** (the rule: an official function that takes person boxes gets the boxes as they are; for projects that take no boxes, the graph goes through mask_from_boxes): in the official package `VitPoseExtractor.extract(video_path, bbx_xys)` (hmr4d/utils/preproc/vitpose.py:23), `Extractor.extract_video_features(video_path, bbx_xys)` (vitfeat_extractor.py:65) and `data[\"bbx_xys\"]` of `DemoPL.predict(data)` (gvhmr_pl_demo.py:16-35) take boxes per frame, and the official demo itself first tracks boxes with YOLOv8x (demo.py:109-110 `Tracker().get_one_track`) before feeding them to these. With boxes wired: these people are solved by their boxes and the tracker does not run; without: tracked the official demo's way (the official demo keeps only the largest track, we solve every track long enough). ② 2D Keypoints are **a product of the preprocessing stage** upstream: `demo.py:126 vitpose_extractor.extract(video_path, bbx_xys)`, stored as paths.vitpose and fed to the model as kp2d, so they are computed officially, upstream just uses them as an input itself. ③ **Reference Camera**: the people GVHMR gives stand in **its own gravity world** (origin at the hips where the person starts), and that world comes with a camera: what lines the people up with the plate. The reference camera is not a production camera: wire it with your own camera into the core node camera_space (to Source Camera) to compute a correction applied to the people; used directly as the shot camera, the people are out of the picture and in the wrong place. **It is fixed by the two official sets of SMPL parameters**: pred holds both smpl_params_incam (demo.py:215, camera space) and smpl_params_global (:259, world), and the rigid transform between them is that camera (worker.py wh.camera_from_body); its **rotation** comes from upstream's own VO (demo.py:149-150 SimpleVO / :186 R_w2c). The output is required: without it the templates could only align in camera space, and the camera's motion would be added twice. For a **usable** camera, wire one from a node that really solves cameras (ViPE, TRAM) or from usd.import. ④ Skinned Character is the CG form: upstream gives SMPL-X parameters, the character's mesh takes one more run of the body model. ⑤ cam_angvel uses only the camera's **rotation**; upstream never takes the camera's translation."
+
+[node."gvhmr.solve".official.ours]
+camera = "The pinhole camera the people are placed with: at the origin, still, focal length = the node's Focal Length (left empty, the solver's own estimate / the default), principal point at the picture centre (families/humans.py plate_camera)"
+
+[node."gvhmr.solve".licence]
+note = "GVHMR code and weights are for non-commercial research only (Zhejiang University licence); the SMPL-X body model must be registered for and downloaded yourself, non-commercial only."
+
+[extension.gvhmr]
+summary = "Recovers world-grounded human motion from monocular video, using gravity-view coordinates to resolve the ambiguity of the world frame"
+
+[extension.gvhmr.license]
+name = "GVHMR non-commercial licence + SMPL-X non-commercial + AMASS / BEDLAM academic licences (training data)"
+summary = "Research only. The released weights are trained on data for academic research only, such as AMASS and BEDLAM (upstream exp=gvhmr/mixed/mixed). GVHMR code and weights: Zhejiang University licence, for education, research and non-profit use only; modifications based on it must be open source and may not be used commercially (for commercial use contact xwzhou@zju.edu.cn). Running it needs the SMPL-X body model (SMPLX_NEUTRAL.npz), downloaded yourself after registering at smpl-x.is.tue.mpg.de, for non-commercial research only, no redistribution. The other weights: HMR2.0a (4D-Humans, MIT, training data includes non-commercial datasets), ViTPose-H (Apache-2.0, trained on several datasets), YOLOv8x (Ultralytics AGPL-3.0, upstream's own person detection and tracking). Depends on pytorch3d (BSD), pycolmap (BSD), the smplx code (MPI non-commercial licence) and ultralytics (AGPL-3.0)"
+
+[extension.gvhmr.weight.yolo]
+note = "YOLOv8x person detection and tracking (Ultralytics AGPL-3.0), 131 MB"
+
+[extension.gvhmr.weight.gvhmr]
+note = "GVHMR main network (non-commercial), 156 MB"
+
+[extension.gvhmr.weight.hmr2a]
+note = "HMR2.0a image features (4D-Humans, MIT), 2.7 GB"
+
+[extension.gvhmr.weight.vitpose-h]
+note = "ViTPose-H 2D keypoints (Apache-2.0), 2.5 GB"
+
+# ---- the worker's stages (worker.py)
+[stage]
+find_people = "Find People (YOLOv8)"
+estimate_camera_rotation = "Estimate Camera Rotation (SimpleVO)"
+read_frames = "Read Frames"
+keypoints_and_features = "ViTPose Keypoints · HMR2 Image Features"
+people = "People"
+solve_motion = "Solve Body Motion (GVHMR)"
+unify_world = "Unify World Space"

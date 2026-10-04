@@ -1,0 +1,22 @@
+# The UniDepth extension's own words and messages in English (the same keys as zh.toml).
+
+[node."unidepth.depth"]
+subtitle = "Depth"
+description = "Images → per-frame metric depth maps, estimating the focal length too (ETH UniDepth V2). Each frame is computed on its own; the scale is more accurate when the focal length is given (Known Focal Length, AnyCalib Lens Calibration, or a wired camera). For wide-angle, fisheye and panoramic lenses use UniK3D Depth; for normals use MoGe Depth and Normals. The point cloud is one patch per frame, each in that frame's own camera (the model's own point map), not one scene point cloud solved for the whole shot."
+official.note = "The Camera output carries intrinsics only (out[\"intrinsics\"], unidepthv2.py:330), no extrinsics; Points is the model's own out[\"points\"] (unidepthv2.py:336)"
+
+[node."unidepth.depth".param.model]
+label = "Model"
+option."unidepth-v2-vitl14" = "ViT-L"
+option."unidepth-v2-vitb14" = "ViT-B"
+option."unidepth-v2-vits14" = "ViT-S"
+
+[extension.unidepth]
+summary = "Predicts metric 3D points from a single image across domains, with a self-promptable camera module; non-commercial"
+license.name = "CC-BY-NC-4.0 (code and model weights, non-commercial)"
+license.summary = "Non-commercial: the code is CC BY-NC 4.0 (the repository's LICENSE and source file headers); the model cards of the unidepth-v2-vitl14 / vitb14 / vits14 model weights on Hugging Face state no license and are treated as the repository's CC BY-NC 4.0, so results cannot be used in commercial projects. The DINOv2 backbone architecture is Meta's (Apache-2.0); its weights are included in the UniDepth checkpoint and not downloaded separately"
+weight."unidepth-v2-vitl14".note = "CC BY-NC 4.0, non-commercial, ViT-L 1.4 GB"
+weight."unidepth-v2-vitb14".note = "CC BY-NC 4.0, non-commercial, ViT-B 0.46 GB"
+weight."unidepth-v2-vits14".note = "CC BY-NC 4.0, non-commercial, ViT-S 0.14 GB"
+
+[stage]

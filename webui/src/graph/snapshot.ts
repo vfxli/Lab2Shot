@@ -3,7 +3,7 @@ import type { Catalog, DataType, NodeStatus as Status, StatusReply } from "../ap
 import { getCatalog, getNodeDefs, getTypes, useCatalog } from "../state/catalog";
 import { useCookInputs, type CookNode } from "../state/cookInputs";
 import { useLook } from "../state/look";
-import { useResults, type NodeCookStatus } from "../state/results";
+import { pendingOf, useResults, type NodeCookStatus } from "../state/results";
 import type { GraphState, NodeData } from "../state/graph";
 
 /** The plain graph snapshot every pure helper in graph/rules.ts and view/plan.ts reads: assembled from
@@ -16,7 +16,11 @@ import type { GraphState, NodeData } from "../state/graph";
 export interface Snapshot extends GraphState {
   graphId: string; // the graph file's own id (state/cookInputs.ts): what the stale records are keyed by (state/stale.ts)
   types: Record<string, DataType>;
-  results: Record<string, Status>; // trusted: {} while the cook inputs moved on since the last reply
+  results: Record<string, Status>; // trusted: {} while the cook inputs moved on since the last reply (decisions read this)
+  // what is SHOWN (state/results.ts Shown, the one rule): the last reply's nodes, kept while an edit waits for the next,
+  // and the nodes it may no longer be right about
+  shown: Record<string, Status>;
+  pending: ReadonlySet<string>;
   reply: StatusReply | null; // the last reply, trusted or not: what is drawn until the next one (graph/rules.ts)
   resultsAreTrusted: boolean;
   catalog: Catalog | null;
@@ -25,7 +29,7 @@ export interface Snapshot extends GraphState {
 const IDLE: NodeCookStatus = { status: "idle", note: "" };
 
 function toNodeData(n: CookNode, onNode: string[] | undefined, status: NodeCookStatus | undefined): NodeData {
-  return { typeId: n.typeId, label: n.label, params: n.params, promoted: n.promoted, picked: n.picked, stored: n.stored, onNode, ...(status ?? IDLE) };
+  return { typeId: n.typeId, params: n.params, promoted: n.promoted, picked: n.picked, stored: n.stored, onNode, ...(status ?? IDLE) };
 }
 
 /** The imperative equivalent of useGraphSnapshot(), for event handlers and other stores' actions. */
@@ -41,6 +45,8 @@ export function snapshotNow(): Snapshot {
     nodeDefs: getNodeDefs(),
     types: getTypes(),
     results: trusted ? r.results : {},
+    shown: r.results,
+    pending: pendingOf(ci, r.forCookInputs, r.answered),
     reply: r.reply,
     resultsAreTrusted: trusted,
     catalog: getCatalog(),
@@ -62,6 +68,8 @@ export function useGraphSnapshot(): Snapshot {
   const reply = useResults((s) => s.reply);
   const forCookInputs = useResults((s) => s.forCookInputs);
   const byNode = useResults((s) => s.byNode);
+  const answered = useResults((s) => s.answered);
+  const cookRange = useCookInputs((s) => s.cookRange);
   const catalog = useCatalog();
   const trusted = forCookInputs === version;
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -73,10 +81,53 @@ export function useGraphSnapshot(): Snapshot {
       nodeDefs: getNodeDefs(),
       types: getTypes(),
       results: trusted ? results : {},
+      shown: results,
+      pending: pendingOf({ version, nodes: nodesById, order, edges, cookRange }, forCookInputs, answered),
       reply,
       resultsAreTrusted: trusted,
       catalog,
     }),
-    [version, graphId, lookVersion, nodesById, order, edges, positions, onNode, results, reply, byNode, trusted, catalog],
+    [version, graphId, lookVersion, nodesById, order, edges, positions, onNode, results, reply, byNode, trusted, catalog, answered, cookRange, forCookInputs],
   );
+}
+
+const ORIGIN = { x: 0, y: 0 };
+let lastDoc: { args: unknown[]; doc: Snapshot } | null = null;
+
+/** The graph as the parameter panel and the info cards read it: what a node IS (type, parameters, its rows), the wires,
+ * what is shown from the server — without positions and without the live cook status (every node reads idle here: a
+ * reader of that subscribes to state/results.ts byNode itself, for its own node). So dragging a node or a cook's
+ * progress notes rebuild none of it; and it is one object shared by every reader of the same inputs (a panel of
+ * dozens of rows builds it once, not once per row). */
+export function useGraphDoc(): Snapshot {
+  const version = useCookInputs((s) => s.version);
+  const graphId = useCookInputs((s) => s.graphId);
+  const nodesById = useCookInputs((s) => s.nodes);
+  const order = useCookInputs((s) => s.order);
+  const edges = useCookInputs((s) => s.edges);
+  const cookRange = useCookInputs((s) => s.cookRange);
+  const onNode = useLook((s) => s.onNode);
+  const results = useResults((s) => s.results);
+  const reply = useResults((s) => s.reply);
+  const forCookInputs = useResults((s) => s.forCookInputs);
+  const answered = useResults((s) => s.answered);
+  const catalog = useCatalog();
+  const args = [version, graphId, nodesById, order, edges, cookRange, onNode, results, reply, forCookInputs, answered, catalog];
+  if (lastDoc && lastDoc.args.length === args.length && lastDoc.args.every((a, i) => a === args[i])) return lastDoc.doc;
+  const trusted = forCookInputs === version;
+  const doc: Snapshot = {
+    graphId,
+    nodes: order.map((id) => ({ id, type: "l2s" as const, position: ORIGIN, data: toNodeData(nodesById[id], onNode[id], undefined) })),
+    edges,
+    nodeDefs: getNodeDefs(),
+    types: getTypes(),
+    results: trusted ? results : {},
+    shown: results,
+    pending: pendingOf({ version, nodes: nodesById, order, edges, cookRange }, forCookInputs, answered),
+    reply,
+    resultsAreTrusted: trusted,
+    catalog,
+  };
+  lastDoc = { args, doc };
+  return doc;
 }

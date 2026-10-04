@@ -27,6 +27,9 @@ interface EventFollowing {
   onresume: (() => void) | null;
   /** Stops following (normal completion): the stream is closed and nothing further is reported. */
   close(): void;
+  /** Opens the stream again now, resuming after the last event received (nothing is resent): what the server says from
+   * here on is said in the page's language now (switching the language, state/language.ts). */
+  reopen(): void;
 }
 
 /** Reconnect delay for a refused stream: the stream's own retry hint (farm.py sends `retry: 2000`), then increasing. */
@@ -61,6 +64,7 @@ export function followEvents(url: string, probe: string = url): EventFollowing {
     onlogin: null,
     onresume: null,
     close: () => stop(),
+    reopen: () => (stopped ? undefined : open()),
   };
   /** Ends following, and is the only place that does. Also clears the silence timer, which would otherwise still fire
    * after the end (returning at once on `stopped`: wasted work only). */

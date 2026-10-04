@@ -1,0 +1,52 @@
+/* 「DCC 插件」 (ui/Plugins.tsx): one row per DCC, its name on the left and its download (or 「暂未提供」) on the right;
+   rows look like the release notes' cards (ui/releases.css). */
+
+.dcc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dcc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--raised);
+  box-shadow: inset 0 0 0 0.5px var(--hair);
+}
+
+.dcc-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.dcc-none {
+  color: var(--text-3);
+}
+
+.dcc-note {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+
+/* the setting plugins.download off: an administrator's dialog says the plugins are not open to users yet */
+.dcc-closed {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--orange-soft);
+  box-shadow: inset 0 0 0 0.5px var(--orange-edge);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.dcc-closed-tag {
+  font-weight: 600;
+  color: var(--orange-text);
+}

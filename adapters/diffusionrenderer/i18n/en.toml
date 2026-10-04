@@ -1,0 +1,203 @@
+# This extension's words and messages in English (the same keys as zh.toml).
+
+# ---- parameters
+"E-DIFFUSIONRENDERER-OVERLAP.one" = "Chunk Overlap of {overlap} frame is more than half of Max Frames per Chunk ({max_frames}): set Chunk Overlap to {half} or less, or raise Max Frames per Chunk"
+"E-DIFFUSIONRENDERER-OVERLAP.other" = "Chunk Overlap of {overlap} frames is more than half of Max Frames per Chunk ({max_frames}): set Chunk Overlap to {half} or less, or raise Max Frames per Chunk"
+
+# ---- inputs
+"E-DIFFUSIONRENDERER-NOHDRI" = "Relighting needs an HDRI: wire an environment map to the HDRI input"
+"E-DIFFUSIONRENDERER-HDRIMISSING" = "Relighting needs an HDRI, but the wired file {path} cannot be found: cook the upstream environment map node again"
+"E-DIFFUSIONRENDERER-HDRIREAD" = "Cannot read the HDRI {path}: the file is broken, or it is not EXR / HDR"
+
+# ---- model
+"N-DIFFUSIONRENDERER-OFFLOAD" = "Resolution {width}×{height} with Max Frames per Chunk {max_frames} does not fit in {budget_gb} GB of VRAM: while encoding and decoding, the 7B network is parked in RAM (about 15 GB more RAM, a few seconds more per chunk); the result is the same. To go faster and use less: set Max Frames per Chunk to 41 or fewer"
+
+[stage]
+inverse_render = "Inverse Rendering (G-Buffer)"
+inverse_window = "Inverse Rendering, Chunk {window}/{windows} {name}"
+relight = "Relight with HDRI"
+relight_window = "Relight, Chunk {window}/{windows}"
+
+[node."diffusionrenderer.inverse_render"]
+subtitle = "PBR Maps"
+description = "Picture → PBR material maps: base color with the lighting removed, normal, depth, roughness and metallic maps, stable from frame to frame. Each map runs the 7B video model once on its own, about 10 s per frame; roughness and metallic come out blotchy over large indistinct areas (white walls), and the depth is a relative value normalized per chunk, not real scale. To render these materials again under a new environment light, use diffusionrenderer.relight."
+
+[node."diffusionrenderer.inverse_render".param.resolution]
+label = "Resolution"
+
+[node."diffusionrenderer.inverse_render".param.resolution.option]
+1280 = "1280×704"
+1024 = "1024×576"
+960 = "960×528"
+768 = "768×432"
+640 = "640×352"
+512 = "512×288"
+
+[node."diffusionrenderer.inverse_render".param.max_frames]
+label = "Max Frames per Chunk"
+
+[node."diffusionrenderer.inverse_render".param.max_frames.option]
+1 = "1 frame"
+9 = "9 frames"
+17 = "17 frames"
+25 = "25 frames"
+33 = "33 frames"
+41 = "41 frames"
+49 = "49 frames"
+57 = "57 frames"
+
+[node."diffusionrenderer.inverse_render".param.overlap]
+label = "Chunk Overlap"
+
+[node."diffusionrenderer.inverse_render".param.overlap.option]
+0 = "0"
+4 = "4"
+8 = "8"
+12 = "12"
+
+[node."diffusionrenderer.inverse_render".param.steps]
+label = "Denoising Steps"
+
+[node."diffusionrenderer.inverse_render".param.steps.option]
+5 = "5"
+10 = "10"
+15 = "15"
+
+[node."diffusionrenderer.inverse_render".param.seed]
+label = "Random Seed"
+
+[node."diffusionrenderer.inverse_render".port.image]
+label = "RGB"
+
+[node."diffusionrenderer.inverse_render".port.basecolor]
+label = "Base Color"
+
+[node."diffusionrenderer.inverse_render".port.normal]
+label = "Normal"
+
+[node."diffusionrenderer.inverse_render".port.depth]
+label = "Depth"
+
+[node."diffusionrenderer.inverse_render".port.roughness]
+label = "Roughness"
+
+[node."diffusionrenderer.inverse_render".port.metallic]
+label = "Metallic"
+
+[node."diffusionrenderer.inverse_render".stage]
+write_maps = "Write Material Maps"
+
+[node."diffusionrenderer.inverse_render".official]
+note = "The five maps are the default of upstream's --inference_passes (line 63); each map runs the 7B video model once."
+
+[node."diffusionrenderer.inverse_render".licence]
+note = "Code Apache-2.0, models NVIDIA Open Model License: commercial use allowed. Distributing the models requires the licence and NVIDIA's notice; products or services that use it must say “Built on NVIDIA Cosmos”."
+
+[node."diffusionrenderer.relight"]
+subtitle = "Relight"
+description = "Picture + HDRI → the picture relit under that HDRI (experimental): the materials are taken apart first, then rendered again with the forward model. The people in front are roughly believable, while the background is often painted over with the HDRI's texture, with blotches and coloured noise; about 12 s per frame. For the material maps without rendering again, use diffusionrenderer.inverse_render."
+
+[node."diffusionrenderer.relight".param.resolution]
+label = "Resolution"
+
+[node."diffusionrenderer.relight".param.resolution.option]
+1280 = "1280×704"
+1024 = "1024×576"
+960 = "960×528"
+768 = "768×432"
+640 = "640×352"
+512 = "512×288"
+
+[node."diffusionrenderer.relight".param.max_frames]
+label = "Max Frames per Chunk"
+
+[node."diffusionrenderer.relight".param.max_frames.option]
+1 = "1 frame"
+9 = "9 frames"
+17 = "17 frames"
+25 = "25 frames"
+33 = "33 frames"
+41 = "41 frames"
+49 = "49 frames"
+57 = "57 frames"
+
+[node."diffusionrenderer.relight".param.overlap]
+label = "Chunk Overlap"
+
+[node."diffusionrenderer.relight".param.overlap.option]
+0 = "0"
+4 = "4"
+8 = "8"
+12 = "12"
+
+[node."diffusionrenderer.relight".param.steps]
+label = "Denoising Steps"
+
+[node."diffusionrenderer.relight".param.steps.option]
+5 = "5"
+10 = "10"
+15 = "15"
+
+[node."diffusionrenderer.relight".param.seed]
+label = "Random Seed"
+
+[node."diffusionrenderer.relight".param.env_rotate]
+label = "Environment Rotation"
+
+[node."diffusionrenderer.relight".param.exposure]
+label = "Exposure"
+
+[node."diffusionrenderer.relight".port.image]
+label = "Relit"
+
+[node."diffusionrenderer.relight".port.hdri]
+label = "HDRI"
+
+[node."diffusionrenderer.relight".stage]
+write_image = "Write the Relit Picture"
+
+[node."diffusionrenderer.relight".official]
+note = "Upstream's --dataset_path \"should point to the output of the inverse renderer\" (line 88): our RGB input takes the picture, and the worker first runs the inverse pass to take the materials apart before they go into the forward model. The HDRI goes the --use_custom_envmap way (process_environment_map, line 232)."
+
+[node."diffusionrenderer.relight".licence]
+note = "Code Apache-2.0, models NVIDIA Open Model License: commercial use allowed. Distributing the models requires the licence and NVIDIA's notice; products or services that use it must say “Built on NVIDIA Cosmos”."
+
+[extension.diffusionrenderer]
+summary = "A neural method that solves the paired problems of inverse and forward rendering in one unified framework"
+
+[extension.diffusionrenderer.license]
+name = "Apache-2.0 code · NVIDIA Open Model License weights"
+summary = "Commercial use allowed. The code (cosmos-transfer1-diffusion-renderer) is Apache-2.0; the two 7B models for inverse and forward rendering and the Cosmos-Tokenize1 codec are under the NVIDIA Open Model License (the 2025-10-24 version): free, commercial use, modification and distribution allowed, the output belongs to the user and NVIDIA claims no ownership; distributing the models requires the licence and the notice “Licensed by NVIDIA Corporation under the NVIDIA Open Model License”, and products/services offered to others that use Cosmos models must say “Built on NVIDIA Cosmos” on the website, interface or documentation; bypassing or weakening the model's own safety guardrails, or bringing a patent/copyright suit over the model against anyone, ends the licence automatically (DiffusionRenderer's official inference itself carries no guardrail model, and this extension runs it the official way); NVIDIA's Trustworthy AI terms apply. nvdiffrast (NVIDIA, non-commercial) is not installed: the HDRI projection is rewritten in PyTorch; transformer-engine is not installed (an equivalent PyTorch implementation is used)"
+
+[extension.diffusionrenderer.weight.inverse-7b]
+note = "Inverse rendering 7B (G-buffer), 28.9 GB, NVIDIA Open Model License"
+notice = "Built on NVIDIA Cosmos"
+
+[extension.diffusionrenderer.weight.inverse-7b-config]
+note = "Inverse rendering 7B (G-buffer), 28.9 GB, NVIDIA Open Model License"
+
+[extension.diffusionrenderer.weight.forward-7b]
+note = "Forward rendering 7B (relighting with an HDRI), 28.9 GB, NVIDIA Open Model License"
+notice = "Built on NVIDIA Cosmos"
+
+[extension.diffusionrenderer.weight.forward-7b-config]
+note = "Forward rendering 7B (relighting with an HDRI), 28.9 GB, NVIDIA Open Model License"
+
+[extension.diffusionrenderer.weight.tokenizer-encoder]
+note = "Cosmos video codec CV8x8x8-720p, NVIDIA Open Model License"
+notice = "Built on NVIDIA Cosmos"
+
+[extension.diffusionrenderer.weight.tokenizer-decoder]
+note = "Cosmos video codec CV8x8x8-720p, NVIDIA Open Model License"
+notice = "Built on NVIDIA Cosmos"
+
+[extension.diffusionrenderer.weight.tokenizer-mean-std]
+note = "Cosmos video codec CV8x8x8-720p, NVIDIA Open Model License"
+notice = "Built on NVIDIA Cosmos"
+
+[extension.diffusionrenderer.weight.tokenizer-image-mean-std]
+note = "Cosmos video codec CV8x8x8-720p, NVIDIA Open Model License"
+notice = "Built on NVIDIA Cosmos"
+
+[extension.diffusionrenderer.weight.tokenizer-config]
+note = "Cosmos video codec CV8x8x8-720p, NVIDIA Open Model License"

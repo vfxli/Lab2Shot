@@ -47,6 +47,8 @@ export interface ViewOptions {
   jointAdaptive: boolean;
   jointNames: boolean;
   jointNamePx: number;
+  // 双骨架编辑（手柄 rig_pair，view/rigPair.tsx）：两副骨架沿世界 Z 一前一后拉开多远（cm；0 = 完全重叠）。只影响显示
+  rigPairGap: number;
   // 三维曲线（发丝、毛发导向线、运动轨迹）：线宽取 lineWidth，着色使用曲线自身颜色或单色
   curveColor: CurveColor;
   curveTint: string;
@@ -109,6 +111,7 @@ export const DEFAULTS: ViewOptions = {
   jointAdaptive: true,
   jointNames: false,
   jointNamePx: 11,
+  rigPairGap: 100,
   curveColor: "color",
   // 橙色，取自共用色板，不另写颜色字面量（颜色值只在一处定义）
   curveTint: OVERLAY_SWATCHES[2],
@@ -133,52 +136,19 @@ export const DEFAULTS: ViewOptions = {
   exposure: 0,
 };
 
-/** 各选项的取值及各自的名称：即面板上的标签。 */
+/** 各选项的取值及各自名称的键（面板上的标签，渲染时 t() 取当前语言）。 */
 export const CHOICES = {
-  op: { add: "加", over: "盖上（over）", mulAlpha: "乘 Alpha", mulRgba: "乘 RGBA" },
-  tint: { grey: "灰度", warm: "冷到暖", id: "编号", red: "红", green: "绿", blue: "蓝", yellow: "黄", cyan: "青", magenta: "品红", white: "白" },
-  bg: { checker: "棋盘格", solid: "纯色" },
-  pointColor: { color: "自带", constant: "单色" },
-  shading: { smooth: "平滑", flat: "平面", wire: "线框", wireShaded: "带线框" },
-  antialias: { off: "关", msaa: "MSAA", fxaa: "FXAA", smaa: "SMAA" },
-  background: { solid: "纯色", gradient: "渐变" },
-  lighting: { headlight: "头灯", rig: "三点灯" },
-  curveColor: { color: "自带", constant: "单色" },
-  boneStyle: { solid: "实体", wire: "线框" },
+  op: { add: "ui.display.choice.op.add", over: "ui.display.choice.op.over", mulAlpha: "ui.display.choice.op.mul_alpha", mulRgba: "ui.display.choice.op.mul_rgba" },
+  tint: { grey: "ui.display.choice.tint.grey", warm: "ui.display.choice.tint.warm", id: "ui.display.choice.tint.id", red: "ui.display.choice.tint.red", green: "ui.display.choice.tint.green", blue: "ui.display.choice.tint.blue", yellow: "ui.display.choice.tint.yellow", cyan: "ui.display.choice.tint.cyan", magenta: "ui.display.choice.tint.magenta", white: "ui.display.choice.tint.white" },
+  bg: { checker: "ui.display.choice.bg.checker", solid: "ui.display.choice.bg.solid" },
+  pointColor: { color: "ui.display.own_color", constant: "ui.display.constant_color" },
+  shading: { smooth: "ui.display.choice.shading.smooth", flat: "ui.display.choice.shading.flat", wire: "ui.display.choice.shading.wire", wireShaded: "ui.display.choice.shading.wire_shaded" },
+  antialias: { off: "ui.display.choice.antialias.off", msaa: "ui.display.choice.antialias.msaa", fxaa: "ui.display.choice.antialias.fxaa", smaa: "ui.display.choice.antialias.smaa" },
+  background: { solid: "ui.display.choice.background.solid", gradient: "ui.display.choice.background.gradient" },
+  lighting: { headlight: "ui.display.choice.lighting.headlight", rig: "ui.display.choice.lighting.rig" },
+  curveColor: { color: "ui.display.own_color", constant: "ui.display.constant_color" },
+  boneStyle: { solid: "ui.display.choice.bone_style.solid", wire: "ui.display.choice.bone_style.wire" },
 } as const satisfies { [K in keyof ViewOptions]?: Record<string, string> };
-
-/** 着色各档的含义：色标表示数值大小，纯色只表示浓淡（以「加」叠加时即为半透明叠加）。 */
-const TINT_TIPS = {
-  grey: "黑到白的灰度：数值本来的样子",
-  warm: "暗紫到黄，感知均匀、色盲也分得清：看深度、置信度这类连续值最清楚",
-  id: "按编号给每一类一个颜色，不在中间插值（分割图、物体编号、人物编号是整数，插出来的颜色不属于任何一类）；0 是背景，黑",
-  red: "一整片红，浓淡按值：叠在画面上看遮罩、分割最常用",
-  green: "一整片绿，浓淡按值",
-  blue: "一整片蓝，浓淡按值",
-  yellow: "一整片黄，浓淡按值",
-  cyan: "一整片青，浓淡按值",
-  magenta: "一整片品红，浓淡按值",
-  white: "一整片白，浓淡按值",
-} as const;
-
-/** 各取值的作用，用作悬停提示。 */
-export const CHOICE_TIPS: { [K in keyof typeof CHOICES]: Record<keyof (typeof CHOICES)[K], string> } = {
-  op: {
-    add: "右边的结果加到原图上：半透明叠加就是这一档（红色遮罩盖在画面上）",
-    over: "右边的结果按它自己的 alpha 盖在原图上（Nuke 的 over）：贴片、对齐过来的图带 alpha 时，透明的地方露出原图",
-    mulAlpha: "原图按遮罩扣一下，只乘 Alpha：颜色一点不动，只改透明度，边缘不变暗",
-    mulRgba: "原图按遮罩扣一下，RGB 和 Alpha 一起乘：扣出来的边缘会连颜色一起变暗",
-  },
-  tint: TINT_TIPS,
-  bg: { checker: "透出来的地方画棋盘格：看抠像边缘最清楚", solid: "透出来的地方铺一种颜色" },
-  pointColor: { color: "用点自己带的颜色", constant: "全部一种颜色" },
-  shading: { smooth: "平滑的明暗", flat: "每个面一种明暗，看得出面", wire: "只画线框", wireShaded: "明暗上再叠线框" },
-  antialias: { off: "不抗锯齿：最快，有锯齿", msaa: "多重采样：边缘最干净", fxaa: "最快的抗锯齿，稍糊", smaa: "比 FXAA 清楚" },
-  background: { solid: "纯色背景", gradient: "上下渐变的背景" },
-  lighting: { headlight: "一盏跟着镜头的灯", rig: "固定的三点布光" },
-  curveColor: { color: "用曲线自己带的颜色", constant: "全部一种颜色" },
-  boneStyle: { solid: "八面体骨加小球骨点，有明暗", wire: "只画八面体的棱，骨点是三个正交圆环（Maya 的画法），线宽用「线」页的线宽" },
-};
 
 /** 数值范围：[最小, 最大]。 */
 export const RANGES = {
@@ -197,6 +167,7 @@ export const RANGES = {
   boneWidth: [0.2, 3],
   jointSize: [0.2, 5],
   jointNamePx: [6, 32],
+  rigPairGap: [0, 1000],
 } as const satisfies { [K in keyof ViewOptions]?: readonly [number, number] };
 
 /** 只取整数的数值项（滑块、输入框、读存储都按它取整）。 */

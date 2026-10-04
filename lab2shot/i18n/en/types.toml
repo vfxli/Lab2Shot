@@ -1,0 +1,126 @@
+# Data types' words (P1-A, data/types.py): type.<type>.label / .description / .end / .items; kind.<kind>; type.list_of / type.or.
+[type]
+list_of = "{type} List"
+or = " or "
+
+[type.video]
+label = "Video"
+description = "A raw video file; it only goes into extract_images (video to image sequence)"
+
+[type.image]
+label = "Image"
+description = "2D pixel data of any channel count (Mask, UV, RGB, RGBA): only an input that takes any count uses it; a packet is always one of them"
+
+[type."image.1"]
+label = "Mask"
+description = "One channel: depth, disparity, mask, confidence, roughness, metalness, segment ids… values, not colour: no color space conversion"
+items = "Object"
+
+[type."image.2"]
+label = "UV"
+description = "Two channels: an ST map (undistort, redistort; the coordinate map Nuke uses), a mesh's UV coordinates"
+
+[type."image.3"]
+label = "RGB"
+description = "Three channels: photos, renders, normal maps, position maps — shown as an image (through OCIO) when it has a color space, as values when not"
+
+[type."image.4"]
+label = "RGBA"
+description = "Four channels: an image with alpha (premultiplied, as in Nuke), motion vectors (u v back and forward)"
+
+[type.boxes]
+label = "Person Boxes"
+description = "Each person's number, and their bounding box in every frame"
+items = "Person"
+
+[type.scene]
+label = "Scene"
+description = "Any 3D data together in one USD scene (what merge gives): geometry, cameras, point clouds, skeleton animation, skinned characters and lights"
+items = "Group"
+
+[type."scene.camera"]
+label = "Camera"
+description = "A USD camera: focal length, aperture, resolution, a position per frame (a still camera has one too)"
+
+[type."scene.character"]
+label = "Skinned Character"
+description = "A USD skinned character: a mesh skinned to a skeleton, the skeleton's animation per frame, the mesh's blend shapes and their weights per frame (Maya's skinCluster + blendShape); what the body, hand and face solvers give"
+
+[type."scene.skeleton"]
+label = "Skeleton Animation"
+description = "A USD skeleton animation: the joint hierarchy and the joints' transforms per frame, no mesh (motion capture, retargeting, inbetweening)"
+
+[type."scene.model"]
+label = "Geometry"
+description = "USD geometry: meshes (UVs, normals), still, moving with a transform, or deforming per frame (a geometry cache); a mesh may hold groups (GeomSubset, a part of the mesh such as the scalp, face or neck), taken out with blast"
+
+[type."scene.points"]
+label = "Point Cloud"
+description = "A USD point cloud: points, colours and extra attributes per frame"
+
+[type."scene.gaussian"]
+label = "Gaussian Splats"
+description = "3D Gaussians: position, scale, rotation, opacity and spherical harmonics colour, static or per frame"
+
+[type."scene.curves"]
+label = "3D Curves"
+description = "USD curves (BasisCurves): each curve's points, with a width, colour and orientation per point; hair strands, guide curves and motion paths are all curves"
+
+[type."scene.light"]
+label = "Light"
+description = "A USD light: a dome light (one lat-long HDRI lighting the whole scene, with a rotation and an intensity); only USD carries it"
+
+[type.tracks2d]
+label = "2D Tracks"
+description = "A set of points on the image: each point's position in every frame and whether it is occluded there; trackers that score add a confidence per point per frame (point tracking, face landmarks)"
+end = "2D tracks for 3DEqualizer or Nuke, written by tracks.output"
+items = "Group"
+
+[type.curves]
+label = "Animation Curves"
+description = "Value curves per frame, each with a name, such as 52 expression curves"
+end = "Animation data for a DCC: expression weights written as CSV, .chan or USD, a camera comparison's errors drawn as curves"
+
+[type.files]
+label = "Files to Output"
+description = "The files a format output node wrote with its name and format; wired into output, they are handed to you, one subfolder per format output node"
+end = "Written files, only for output"
+
+[type.value]
+label = "Value"
+description = "A value, or one per frame (with frame numbers); the unit is part of the data"
+
+[type."value.float"]
+label = "Float"
+description = "A number, or one per frame (a curve), optionally with a unit (mm, px, °…): focal length, aperture, strength"
+
+[type."value.int"]
+label = "Integer"
+description = "A whole number, or one per frame, optionally with a unit: resolution, frame number, count"
+
+[type."value.bool"]
+label = "Toggle"
+description = "On or off, or one per frame"
+
+[type."value.vector"]
+label = "Vector"
+description = "Three numbers X Y Z, or one set per frame, optionally with a unit: position (cm), orientation (°)"
+
+[type."value.text"]
+label = "String"
+description = "A piece of text, or one per frame: names, lists of numbers"
+
+[type."value.lens"]
+label = "Lens Intrinsics"
+description = "A lens's intrinsics in one value: the lens model's name + that model's coefficients (distortion, principal point); focal length and aperture are not in it (each has its own input). Goes into lens_distortion's Lens Intrinsics, where the models must match"
+
+[kind]
+model = "Geometry"
+camera = "Camera"
+points = "Point Cloud"
+gaussian = "Gaussian Splats"
+curves = "3D Curves"
+skeleton = "Skeleton Animation"
+character = "Skinned Character"
+light = "Light"
+deforming = "Deforming Geometry"

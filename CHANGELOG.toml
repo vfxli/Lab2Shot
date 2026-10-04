@@ -1,66 +1,199 @@
-# 更新说明：网页顶部栏「更新说明」弹窗里显示的内容，只从这个文件来（lab2shot/releases.py 在服务启动时读一次）。
+# Release notes: what the top bar's "Release Notes" dialog shows, read only from this file (lab2shot/releases.py reads
+# it once when the service starts).
 #
-# 发新版本时，只在最上面（project 下面）加一段 [[release]]，代码不用改：
-#   name     名称：这一版叫什么
-#   date     日期：YYYY-MM-DD，不加引号
-#   about    说明：一句话
-#   changes  更新：给所有用户看的，每条一行，只写用户关心的（没有可写的就写 []）
-#   admin    给后台看的（可以不写）：只有管理员和二级管理员在弹窗里看得到，写后台、运维、安全修复这类
-# 最新的写在最上面；名称不能重复。改完运行 `lab2shot check releases` 检查格式。
-# 这里的文字在网页上只按纯文字显示，写 HTML 标签也不会生效。
+# To publish a version, add one [[release]] at the top (below project); no code changes:
+#   name     what this version is called              { zh = "…", en = "…" }
+#   date     YYYY-MM-DD, without quotes
+#   about    one sentence                             { zh = "…", en = "…" }
+#   [release.changes]   for everyone, one line each, only what users care about (none: zh = [] and en = [])
+#     zh = ["…", …]
+#     en = ["…", …]     the same lines as zh, in the same order
+#   [release.admin]     optional: shown only to administrators and deputy administrators (the back office, operations,
+#     zh = ["…", …]     security fixes); the same shape as changes
+#     en = ["…", …]
+# Every text is written in both languages (the page shows the one it speaks, as a built-in template's words). Newest
+# first; no name twice. Run `lab2shot check releases` after editing. The page shows the text as plain text: HTML tags
+# have no effect.
 
 project = "https://github.com/vfxli/Lab2Shot"
 
 [[release]]
-name = "应用模式与动作重定向"
+name = { zh = "0.1.0 Alpha 1", en = "0.1.0 Alpha 1" }
+date = 2026-10-05
+about = { zh = "首个公开版本：摄影机、三维高斯、AI 重定目标与模型集成", en = "First public release: cameras, 3D Gaussians, AI retargeting and model ensembles" }
+
+[release.changes]
+zh = [
+    "新增三个摄影机解算：VidMap、WildPose、DA3-Long（长镜头分段对齐与回环校正），附模板；ViPE 摄影机保留完整内参（fx、fy、主点）",
+    "新增 3D 高斯：数据类型、视图显示、Inria PLY 读写与 USD 交付；接入 HY-World 2.0 / WorldMirror 2.0（静态）与 NeoVerse（逐帧动态），高斯与解算出的摄影机在同一个世界里",
+    "新增点云融合（多帧点云按体素拼接，或深度加摄影机按 TSDF 融合）与点云转网格（Open3D：Poisson、Ball Pivoting、Alpha Shape），附模板",
+    "新增四个 AI 动作重定目标：SATA、MeshRet、STaR、运动学精修；按「重定目标预处理 → 解算 → 重定目标后处理」三段使用，解算结果原样输出，平移和髋高在后处理里明着调",
+    "「重定目标预处理」在视图里编辑：两副骨架一前一后，先后点两边的骨点即连线配对，可以调整两侧初始姿势（操纵器在骨骼自身的坐标轴上），可以选忽略的骨骼；三件事各有「自动」，什么都不改时按自动结果算",
+    "「对应关系」弹窗取消，动作重定目标和动作生成等节点的骨架对应都改在视图里编辑；表情对应改为表格",
+    "新增翻译节点（Hy-MT2 / Qwen3.5，支持术语表）；抠像、分割、动作生成等七张模板的提示词改为直接写中文",
+    "「标准人」可选 SOMA、SMPL-X、G1 三种骨架，与动作生成的骨架一一对应",
+    "模板的应用模式参数按使用顺序整理，各阶段有自己的计算按钮",
+    "按钮和下拉的文字不再偏上；鼠标悬停提示只保留有用的信息；骨骼显示更细，并改为实体凸面；视图上方的节点名移到右侧；双击切换节点时不再闪黑",
+    "新增「2D 抠像（模型集成）」：BiRefNet、VideoMaMa、MatAnyone 2 按稳健策略融合，在带真值的数据上优于其中最好的单一模型",
+    "节点图支持分组框与自动整理，分组可折叠，「整理节点图」按分组排版；内置模板已全部重新排版",
+    "没有授权的节点不再显示，用到这类节点的卡片也不显示",
+    "参数面板的标签列统一排版：面板拖窄时不再一字一行，过长的名字显示省略号、悬停看全文；「编辑参数」界面加宽，界面文字全部中文化",
+    "下拉菜单滚动时不再出现残影，滚动条改为新样式",
+    "视图去掉 A/B 分界线与并排比较；打开模板时不再自动进入点选模式",
+    "「摄影机空间转换」默认改为「整段平滑」：两台摄影机焦距不同也能直接使用",
+    "Open3D 网格按与点云的距离裁掉开放场景里外插出的假面，并带上顶点颜色；点云融合场景过大时自动放大体素，并在日志里说明",
+    "MapAnything 交付的点云不再为空",
+    "人体动作接动作清理与 AI 重定目标的问题已修正：「3D 跟踪匹配」交付的人体清理后不再驼背、重定目标后不再跪地，脚踝弯曲接到正确的关节",
+    "WildPose 未填焦距时在提交前提示",
+    "网页更新后，已打开的页面提示「界面已更新，请刷新页面」，不再显示英文错误",
+    "登录页加入项目简介与 GitHub 地址",
+    "「文件」菜单新增「新建节点图」：新建一张只带输出节点的空白节点图",
+]
+en = [
+    "Three new camera solvers: VidMap, WildPose and DA3-Long (long shots aligned in segments with loop closure), with templates; ViPE cameras keep their full intrinsics (fx, fy, principal point)",
+    "3D Gaussians: a new data type, viewport display, Inria PLY read and write and USD delivery; HY-World 2.0 / WorldMirror 2.0 (static) and NeoVerse (per-frame, dynamic) are in, with the Gaussians in the same world as the solved camera",
+    "Point cloud fusion (point clouds of many frames merged by voxel, or depth plus camera fused by TSDF) and point cloud to mesh (Open3D: Poisson, Ball Pivoting, Alpha Shape), with templates",
+    "Four AI motion retargeters: SATA, MeshRet, STaR and kinematic refinement, used in three steps (Retarget Preprocess → Solve → Retarget Postprocess); the solve's result is output as it is, and translation and hip height are adjusted openly in the postprocess",
+    "Retarget Preprocess is edited in the viewport: the two skeletons side by side, click a joint on each side to pair them, adjust either side's initial pose (the manipulator on the bone's own axes) and pick the bones to ignore; each of the three has Auto, and nothing changed means the automatic result",
+    "The Correspondence dialog is gone: the skeleton correspondence of motion retargeting, motion generation and other nodes is edited in the viewport; the expression correspondence is a table",
+    "New translation node (Hy-MT2 / Qwen3.5, with a glossary); the prompts of seven templates (matting, segmentation, motion generation and others) can be written in Chinese directly",
+    "Standard Human offers three skeletons, SOMA, SMPL-X and G1, matching those of motion generation one to one",
+    "The App mode parameters of the templates are ordered as they are used, and each stage has its own Cook button",
+    "Button and menu text no longer sits high; tooltips keep only useful information; bones are drawn thinner, as solid convex shapes; the node name above the viewport moved to the right; switching nodes with a double click no longer flashes black",
+    "New 2D Matte (Model Ensemble): BiRefNet, VideoMaMa and MatAnyone 2 fused by the robust strategy, better than the best single model on data with ground truth",
+    "Node graphs support group boxes and automatic layout: groups can be collapsed and Tidy Graph lays out by group; all built-in templates have been laid out again",
+    "Nodes without authorization are no longer shown, nor the cards that use them",
+    "The label column of parameter panels is laid out in one way: a narrow panel no longer stacks one character per line, long names end in an ellipsis with the full text on hover; the Edit Parameters window is wider and fully translated",
+    "Menus no longer leave ghost images when scrolled, and scroll bars have a new style",
+    "The viewport's A/B wipe and side-by-side modes are removed; opening a template no longer enters point picking by itself",
+    "Camera Space Convert now defaults to Whole Shot: two cameras with different focal lengths work directly",
+    "Open3D meshes trim the faces Poisson extrapolates in open scenes by their distance to the point cloud, and carry vertex colors; point cloud fusion enlarges the voxel when a scene is too large and says so in the log",
+    "MapAnything no longer delivers an empty point cloud",
+    "Body motion into motion cleanup and AI retargeting is fixed: bodies delivered by 3D Matchmove no longer hunch after cleanup or kneel after retargeting, and ankle bends go to the right joints",
+    "WildPose tells you before submitting when the focal length is empty",
+    "After the web interface is updated, open pages say \"The interface has been updated, please refresh\" instead of an English error",
+    "The sign-in page shows the project introduction and the GitHub address",
+    "The File menu adds New Graph: a blank graph with just an output node",
+]
+
+[release.admin]
+zh = [
+    "从上一版升级需要处理扩展（以后台「扩展包」页显示为准）：需要重装 alembic、fast_sam_3d_body（含 TensorRT 引擎约 3.1 GB）、fbx、hamer、kimodo、mesh4d、pixel3dmm、sam_3d_body、seganymo、smirk、tapip3d、tram、wham；新增、需要安装 alphagen、cleanplate、da3long、diffusers、hyworld2、kinematic_refinement、llm、ltx、neoverse、open3d、sata、vidmap、wildpose；SAM 3.1 权重约 3.5 GB 需下载；MeshRet、STaR 的模型权重需手动下载",
+    "后台新增「提示词」页：维护翻译术语表",
+    "设置新增「高斯显示上限」",
+    "节点结果版本已更新：ViPE、高斯、学习式重定目标、PLY / USD 读写等旧缓存会重新计算",
+    "本版上线使用全新数据库与默认设置，只保留管理员账号和密码；旧任务、旧账号与配额不保留。自己注册的账号默认可用商用、非商用、仅限研究、需注册四类，「生成式扩散」需管理员另行开通",
+    "用户管理新增「队列优先」：开启的账号提交的任务排到队首，不中断其他人正在计算的任务",
+    "内存：服务进程定期归还空闲内存，计算进程每个任务结束后清理；常驻模型的内存上限由设置控制（默认 30%），超出时卸载最久未使用的模型",
+]
+en = [
+    "Upgrading from the previous version needs extension work (the back office's Extensions page is authoritative): reinstall alembic, fast_sam_3d_body (with its TensorRT engine, about 3.1 GB), fbx, hamer, kimodo, mesh4d, pixel3dmm, sam_3d_body, seganymo, smirk, tapip3d, tram and wham; install the new alphagen, cleanplate, da3long, diffusers, hyworld2, kinematic_refinement, llm, ltx, neoverse, open3d, sata, vidmap and wildpose; download the SAM 3.1 weights (about 3.5 GB); the MeshRet and STaR weights are downloaded by hand",
+    "New Prompts page in the back office: maintains the translation glossary",
+    "New setting: Gaussian Display Limit",
+    "Node result versions updated: old caches of ViPE, Gaussians, learned retargeting, PLY / USD read and write and others are cooked again",
+    "This release goes live with a fresh database and default settings; only the administrator account and password are kept, and old jobs, accounts and quotas are not. Self-registered accounts may use the commercial, non-commercial, research-only and registration-required categories by default; generative diffusion is granted by the administrator",
+    "User management adds Queue Priority: jobs submitted by such accounts go to the front of the queue without stopping anyone's running job",
+    "Memory: the service returns idle memory regularly and workers clean up after each job; resident models are limited by a setting (30% by default), unloading the least recently used ones when exceeded",
+]
+
+[[release]]
+name = { zh = "应用模式与动作重定目标", en = "App Mode and Motion Retargeting" }
 date = 2026-10-01
-about = "第三版"
-changes = [
-    "新增「应用模式」：模板有独立参数界面，按使用顺序填写；检测、解算、载入角色、重定向、打包可分步操作，与节点模式一键切换",
-    "60 张模板重新整理参数和节点图；与当前选择无关的参数自动隐藏；新增「整理节点图」，可整理整张图或选中的节点，并支持撤销",
-    "动作生成、补帧、动捕和清理模板支持重定向到导入的 FBX / USD 角色；全身动捕模板统一选择相机来源、目标角色和交付结果",
-    "动作重定向重新实现：自动识别骨架结构，支持扭转骨、脚趾及只配手的骨架；水平位移按原比例，髋高可按腿长、身高或臂长调整，支持脚底对齐和高度偏移",
-    "「对应关系」弹窗可直接调整两侧基准姿势：选择关节，移动、旋转、缩放、左右镜像、复位，并预览蒙皮；确定后一步撤销，取消不写入",
-    "三维骨架增加实体和线框两种画法；骨骼粗细、骨点大小、自适应大小和关节名称可调，相机路径可单独显示或隐藏",
+about = { zh = "第三版", en = "Version 3" }
+
+[release.changes]
+zh = [
+    "新增「应用模式」：模板有独立参数界面，按使用顺序填写；检测、解算、载入角色、重定目标、打包可分步操作，与节点模式一键切换",
+    "60 张模板重新整理参数和节点图；与当前选择无关的参数自动隐藏；新增「整理节点图」，可整理整张图或选中的节点，并支持撤消",
+    "动作生成、补帧、动捕和清理模板支持重定目标到导入的 FBX / USD 角色；全身动捕模板统一选择摄影机来源、目标角色和交付结果",
+    "动作重定目标重新实现：自动识别骨架结构，支持扭转骨、脚趾及只配手的骨架；水平平移按原比例，髋高可按腿长、身高或臂长调整，支持脚底对齐和高度偏移",
+    "「对应关系」弹窗可直接调整两侧基准姿势：选择关节，平移、旋转、缩放、左右镜像、复位，并预览蒙皮；确定后一步撤消，取消不写入",
+    "三维骨架增加实体和线框两种画法；骨骼粗细、骨点大小、自适应大小和关节名称可调，摄影机路径可单独显示或隐藏",
     "三维操作改为左键旋转、中键平移、右键左右拖动缩放；二维支持右键拖动缩放，右键单击删除点的操作保留",
-    "视图始终显示当前激活节点自己的输出；模型增加「显示背面」开关，透过相机看时可调叠加透明度与颜色",
-    "修正 USD 相机片门偏移和三维背板的位置，Pixel3DMM 面部结果与画面正确对齐；面部动作交付的 USD 保留表情和关节动画",
-    "表情重定向明确限定为 ARKit52；三张面部模板移除不适用的重定向段，Pixel3DMM 不再单独输出不完整的表情曲线",
+    "视图始终显示当前激活节点自己的输出；网格增加「显示背面」开关，透过摄影机看时可调叠加透明度与颜色",
+    "修正 USD 摄影机胶片背偏移和三维图像平面的位置，Pixel3DMM 面部结果与画面正确对齐；面部动作交付的 USD 保留表情和关节动画",
+    "表情重定目标明确限定为 ARKit52；三张面部模板移除不适用的重定目标段，Pixel3DMM 不再单独输出不完整的表情曲线",
     "切换节点支持增减路线、修改路线名；未选路线不计算，交付只记录实际使用的来源；按住 Ctrl 点击已连线的口，可将整组连线移到另一个口",
     "参数界面支持分组、拖动排序，以及按条件隐藏或禁用；按钮可公开到应用模式，也可显示在节点上",
     "顶栏常驻上传和下载速度；上传素材时显示进度并可取消；提交期间防止重复计算，秒算完成的任务显示完成提示",
     "模板搜索覆盖全部分类；卡片展示默认路线的许可，并标出是否存在可商用路线；许可统一分为可商用、非商用、仅限研究三档",
-    "图像模板统一交付多层 EXR；抠像模板包含修正后前景、原始前景和 alpha；输出名称、帧率可接线，读取序列支持首末帧",
-    "修正 Track4World 尺寸和跟踪点投影、FBX 骨架层级与可见性、Alembic 帧率与子采样、BVH 编码和空行等格式问题；改善取帧、点云缓存和并发计算稳定性",
+    "图像模板统一交付多层 EXR；抠像模板包含修正后前景、原始前景和 alpha；输出名称、帧速率可接线，读取图像序列支持开始帧和结束帧",
+    "修正 Track4World 尺寸和跟踪点投影、FBX 骨架层级与可见性、Alembic 帧速率与子采样、BVH 编码和空行等格式问题；改善取帧、点云缓存和并发计算稳定性",
 ]
-admin = [
+en = [
+    "New App mode: a template has its own parameter interface, filled in the order it is used; detect, solve, load character, retarget and package can be done step by step, and one click switches to node mode",
+    "The parameters and node graphs of 60 templates reorganized; parameters that do not apply to the current choice hide themselves; new Layout Node Graph tidies the whole graph or the selected nodes, and can be undone",
+    "Motion generation, inbetweening, motion capture and cleanup templates can retarget to an imported FBX / USD character; full-body capture templates choose the camera source, target character and deliverables the same way",
+    "Motion retargeting reimplemented: the skeleton structure is recognized automatically, including twist bones, toes and hand-only skeletons; horizontal translation keeps its proportion, hip height can follow leg length, height or arm length, with sole alignment and height offset",
+    "The Correspondence dialog adjusts both sides' reference poses directly: pick a joint, translate, rotate, scale, mirror left and right, reset, and preview the skin; OK is one undo step, Cancel writes nothing",
+    "3D skeletons can be drawn solid or as wireframe; bone thickness, joint size, adaptive size and joint names are adjustable, and the camera path can be shown or hidden on its own",
+    "3D navigation: left drag tumbles, middle drag tracks, right drag left and right dollies; 2D zooms with a right drag, and a right click still deletes a point",
+    "The viewport always shows the active node's own outputs; meshes have a Show Back Faces toggle, and looking through the camera has adjustable overlay opacity and color",
+    "Fixed the USD camera film back offset and the position of the 3D image plane; Pixel3DMM face results line up with the plate; face motion delivered as USD keeps its expressions and joint animation",
+    "Expression retargeting is limited to ARKit52; three face templates dropped the retargeting stage that did not apply, and Pixel3DMM no longer outputs incomplete expression curves of its own",
+    "The Switch node can add and remove paths and rename them; paths not chosen are not cooked, and a delivery records only the sources actually used; Ctrl-click a wired port to move all its wires to another port",
+    "The parameter interface has groups, drag reordering, and hide or disable by condition; buttons can be exposed to App mode or shown on the node",
+    "The top bar always shows upload and download speed; uploads show progress and can be cancelled; cooking twice while submitting is prevented, and a job done in seconds says so",
+    "Template search covers every category; a card shows the license of its default path and marks whether a commercial path exists; licenses are one of three: Commercial, Non-Commercial, Research Only",
+    "Image templates deliver multilayer EXR; matting templates include the corrected foreground, the original foreground and alpha; the output name and FPS can be wired, and reading an image sequence takes a start and end frame",
+    "Fixed format issues: Track4World size and track point projection, FBX skeleton hierarchy and visibility, Alembic FPS and subsampling, BVH encoding and blank lines; frame reading, point cloud caching and concurrent cooking are more stable",
+]
+
+[release.admin]
+zh = [
     "升级流程改为先运行「./setup.sh stop」，手动「git pull --ff-only」，再运行「./setup.sh update」；升级程序使用已拉取的新版脚本，负责备份、同步环境、检查、迁移与启动，失败回退到上次部署版本",
     "升级前停止服务并备份工作目录；数据库由 v5 升至 v10，可运行「lab2shot db upgrade」，迁移前自动备份；一键更新仍会执行静态检查、数据库升级和完整性检查",
     "升级后在后台检查扩展包状态，并重新安装显示「需要重装」的扩展；FBX 接入层接口已更新，需要重装",
-    "节点结果版本已更新：动作重定向、Pixel3DMM、USD 读写、FrameHold、Track4World、边缘解混合等旧缓存会按新版本重新计算；Pixel3DMM 的旧相机包需要重新解算，仅刷新网页不会更新它",
+    "节点结果版本已更新：动作重定目标、Pixel3DMM、USD 读写、时间偏移、Track4World、边缘解混合等旧缓存会按新版本重新计算；Pixel3DMM 的旧摄影机包需要重新解算，仅刷新网页不会更新它",
     "引擎统一选路、需求、实例状态和缓存失效规则；逐项块按实例管理结果，许可与成本也按接线传入的实际选项计算",
     "服务端统一归属与权限检查，登录按账号隔离等待，轮询读取快照，事件聚合与缓存有上限；修正跨线程数据位置串扰导致结果消失的问题",
     "账号删除与管理记录以账号 ID 关联，修正反馈附件泄露登录标识和二级管理员读取管理员在线设备的问题",
     "移除「按模板」使用统计及任务中的来源模板字段；保留其他使用统计。此次升级会移除对应的旧数据库列",
-    "许可按模型、权重和训练数据分别登记；部分模型改为仅限研究，标准人及部分人体模型需要注册并同意其许可",
+    "许可按模型、模型权重和训练数据分别登记；部分模型改为仅限研究，标准人及部分人体模型需要注册并同意其许可",
     "光照模板交付 HDRI；移除「HDRI 转穹顶灯」节点及其 USD 交付路线",
+]
+en = [
+    "Upgrading now means running \"./setup.sh stop\", then \"git pull --ff-only\" by hand, then \"./setup.sh update\"; the upgrade uses the newly pulled script, backs up, syncs the environment, checks, migrates and starts, and rolls back to the last deployed version if it fails",
+    "The service is stopped and the work folder backed up before upgrading; the database goes from v5 to v10 (\"lab2shot db upgrade\", backed up before migrating); the one-click update still runs the static checks, the database upgrade and the integrity check",
+    "After upgrading, check the extensions in the back office and reinstall those marked \"Needs Reinstall\"; the FBX bridge's interface changed and needs a reinstall",
+    "Node result versions updated: old caches of motion retargeting, Pixel3DMM, USD read and write, Time Shift, Track4World, edge unmixing and others are cooked again; Pixel3DMM's old camera packets must be solved again, refreshing the page does not update them",
+    "The engine has one rule for path choice, requirements, instance state and cache invalidation; for-each blocks keep results per instance, and licenses and costs follow the options actually wired in",
+    "The server checks ownership and permissions in one place, logins wait per account, polling reads snapshots, event batching and caches are bounded; fixed results disappearing when data locations crossed threads",
+    "Account deletion and admin records refer to the account ID; fixed feedback attachments leaking login identifiers and deputy administrators reading administrators' signed-in devices",
+    "Removed the By Template usage statistics and the source template field of jobs; the other usage statistics stay. This upgrade removes the old database columns",
+    "Licenses are registered separately for models, model weights and training data; some models are now Research Only, and Standard Human and some body models need registration and agreement to their licenses",
+    "Lighting templates deliver an HDRI; the HDRI to Dome Light node and its USD delivery path are removed",
 ]
 
 [[release]]
-name = "按节点调度与自助注册"
+name = { zh = "按节点调度与自助注册", en = "Per-Node Scheduling and Self-Registration" }
 date = 2026-09-28
-about = "第二版"
-changes = [
+about = { zh = "第二版", en = "Version 2" }
+
+[release.changes]
+zh = [
     "「输出」节点改为一键下载 zip：浏览器原生下载，断了能接着下",
     "计算更快：多张显卡同时算，双卡双倍快乐；一个节点算完显卡马上让给别人；单个节点超过 15 分钟自动停止",
     "每次计算都是一个任务，结束后保留 3 天；队列按素材自动分组，组可以改名",
     "复制粘贴节点：Ctrl+C、Ctrl+V、Ctrl+D",
-    "带手柄的节点拖动时实时显示，不产生多余任务；计算统一用右键「计算」",
+    "带操纵器的节点拖动时实时显示，不产生多余任务；计算统一用右键「计算」",
     "计算和预览大幅提速",
     "注册和使用前要阅读并同意《用户协议》和《隐私政策》；协议更新后，下次使用前要重新同意",
     "取消任务立刻生效，不用等正在算的节点算完",
 ]
-admin = [
+en = [
+    "The Output node downloads a zip in one click: the browser's own download, which resumes where it broke off",
+    "Faster cooking: several GPUs cook at once, two cards twice the fun; a GPU is handed to the next job as soon as a node finishes; a single node stops by itself after 15 minutes",
+    "Every cook is a job, kept for 3 days after it ends; the queue groups jobs by footage, and groups can be renamed",
+    "Copy and paste nodes: Ctrl+C, Ctrl+V, Ctrl+D",
+    "Dragging a node's manipulator shows the result live without extra jobs; cooking is always the right-click Cook",
+    "Cooking and previews are much faster",
+    "The Terms of Service and the Privacy Policy must be read and agreed to before registering and using it; after they change, they are agreed to again before the next use",
+    "Cancelling a job takes effect at once, without waiting for the node being cooked to finish",
+]
+
+[release.admin]
+zh = [
     "按节点调度：先来先到，后台「队列」可以插队；单个任务最多同时占 2 张卡、2 个 CPU 节点，全站 CPU 节点上限可在设置里改",
     "setup 菜单一键更新：备份、拉取、检查、启动，失败自动回退到原版本",
     "注册：用户可以自己注册账号；设置里开启注册与邀请码验证，可以新建、停用邀请码，按码或时间段批量停用账号",
@@ -77,9 +210,29 @@ admin = [
     "概览新增「今天和最近」：在线和登录、新注册账号、任务结果、流量、反馈，按今日、近 7 天（注册按本周）、本月列出，按后台权限只显示看得到的那几组",
     "按模板统计：「使用统计」新增「按模板」，用户详情新增「用过的模板」，看每张模板用了几次、成功失败各几次、最近一次；从这一版起开始记",
 ]
+en = [
+    "Per-node scheduling: first come, first served, and the back office's Queue can move a job ahead; one job takes at most 2 cards and 2 CPU nodes at once, and the site-wide CPU node limit is a setting",
+    "One-click update in the setup menu: back up, pull, check, start, and roll back to the previous version if it fails",
+    "Registration: users can register their own accounts; the settings turn on registration and invite code checks, invite codes can be created and disabled, and accounts disabled in bulk by code or by time span",
+    "\"Departments\" are now \"Stages\", listing the stages of film post-production by default",
+    "Each account's data is fully isolated: caches, uploaded footage and job folders are separate per account and invisible to the others",
+    "Network: new Trusted Proxy; behind a reverse proxy such as Nginx, enter the proxy's address to get users' real IPs",
+    "Network in the setup menu: choose how it is reached first (this machine only, directly on the LAN, behind a reverse proxy), and the access range, HTTPS and trusted proxy are written for you",
+    "\"Reserved Cores\" did not really take effect before and is fixed; new Memory Reuse setting",
+    "Security fixes: an uploaded USD scene could read other files through texture paths; forged forwarding headers could get around per-IP limits",
+    "Terms of Service and Privacy Policy: viewed and edited in Registration Settings; saving makes a new version that every account must agree to again; accounts created by an administrator agree at their first login too",
+    "Hardening: a wrong password slows down only the account being tried and never locks everyone out; uploads, feedback and login records are bounded; requests for unknown host names are refused",
+    "Permissions: settings such as server, install and paths can only be changed by administrators; deleting or renaming someone else's jobs needs the Others' Data permission",
+    "Stability: fixed a batch of concurrency issues, such as one GPU given to two jobs at once, a recook deleting results another job was reading, and deleting an account without waiting for its jobs to stop",
+    "Overview has Today and Recent: online users and logins, new accounts, job results, traffic and feedback, for today, the last 7 days (registrations: this week) and this month, showing only the groups the back office permissions allow",
+    "By-template statistics: Usage has By Template and a user's details have Templates Used, showing how often each template was used, how many succeeded and failed, and the last use; recorded from this version on",
+]
 
 [[release]]
-name = "首次上线"
+name = { zh = "首次上线", en = "First Release" }
 date = 2026-09-27
-about = "内部测试版本"
-changes = ["内部测试版本上线"]
+about = { zh = "内部测试版本", en = "Internal test version" }
+
+[release.changes]
+zh = ["内部测试版本上线"]
+en = ["Internal test version released"]

@@ -150,7 +150,7 @@ def main(job_path: str) -> None:
     no_guide = guides.missing(numbers)  # how many frames lack a mask goes into result.json
 
     device = torch.device("cuda")
-    vae, unet = run.model("VideoMaMa", load_models, weights, device, dtype)
+    vae, unet = run.model("load_model", load_models, weights, device, dtype, stage_params={"model": "VideoMaMa"})
 
     def guide_of(frame: int) -> np.ndarray:
         g = guides.get(frame)
@@ -158,7 +158,7 @@ def main(job_path: str) -> None:
             return np.zeros((height, width), np.uint8)
         return morph((g > GUIDE_THRESHOLD).astype(np.uint8), erode_dilate)
 
-    run.stage("抠像")
+    run.stage("matte")
     reader = frame_reader(frames.paths, (height, width))
     spans = windows(len(frames))
 
@@ -189,7 +189,7 @@ def main(job_path: str) -> None:
                         if i < next_start:
                             out.put(numbers[i], full[i - start])
                     tail = {i: alpha[i - start] for i in idx if i >= next_start}
-                    progress(min(next_start, len(frames)), len(frames), "抠像")
+                    progress(min(next_start, len(frames)), len(frames), "matte")
         except BaseException:
             out.close()  # its writing thread, not kept for a run that failed
             raise

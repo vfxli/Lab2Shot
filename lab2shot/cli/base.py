@@ -3,6 +3,8 @@ and the output conventions of the interactive menu (`lab2shot setup`, its one-cl
 
 from __future__ import annotations
 
+import os
+import sys
 import time
 from typing import NoReturn
 
@@ -12,16 +14,36 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from .. import __version__, catalog
+from .. import __version__, client, i18n
+from ..site import catalog
 
-catalog.install()  # the node types and what planning needs, for every command (lab2shot/catalog.py)
+
+def language(argv: list[str], environ) -> str:
+    """The command line's language: --lang zh|en, else its environment (client.language_of_environment: LAB2SHOT_LANG,
+    then LC_ALL / LC_MESSAGES / LANG; Chinese unless one names another language: C, POSIX or nothing said reads
+    Chinese, the product's default). Read before any command is declared: their help is in it."""
+    for i, arg in enumerate(argv):
+        if arg == "--lang" and i + 1 < len(argv) and i18n.normal(argv[i + 1]):
+            return i18n.normal(argv[i + 1])
+        if arg.startswith("--lang=") and i18n.normal(arg.split("=", 1)[1]):
+            return i18n.normal(arg.split("=", 1)[1])
+    return client.language_of_environment(environ)
+
+
+LANG = language(sys.argv[1:], os.environ)
+i18n.set_process(LANG)  # every command, its help and output, and the server's words it asks for (client.py) in it
+client.set_lang(LANG)
+
+catalog.install()  # the node types and what planning needs, for every command (lab2shot/site/catalog.py)
 
 console = Console()
-app = typer.Typer(help="Lab2Shot：将论文算法转化为 CG 制作可用的工具。", no_args_is_help=True, add_completion=False)
+app = typer.Typer(help=i18n.t("cli.app.help"), no_args_is_help=True, add_completion=False)
 
 
 @app.callback(invoke_without_command=True)
-def _main(version: bool = typer.Option(False, "--version", help="显示版本号")) -> None:
+def _main(version: bool = typer.Option(False, "--version", help=i18n.t("cli.option.version")),
+          lang: str = typer.Option("", "--lang", metavar="zh|en", help=i18n.t("cli.option.lang"))) -> None:
+    # --lang was read before the commands were declared (LANG); here it is only accepted
     if version:
         console.print(f"lab2shot {__version__}")
         raise typer.Exit()
@@ -73,9 +95,9 @@ def mark(state: bool | None) -> str:
 def menu_table(rows: list[tuple[str, str, str]]) -> Table:
     """A menu as a table: number, name, description."""
     table = Table(box=box.SIMPLE_HEAD, show_edge=False, pad_edge=False, header_style="bold")
-    table.add_column("编号", justify="right", style="bold cyan", no_wrap=True)
-    table.add_column("名称", no_wrap=True)
-    table.add_column("说明")
+    table.add_column(i18n.t("cli.menu.number"), justify="right", style="bold cyan", no_wrap=True)
+    table.add_column(i18n.t("cli.menu.name"), no_wrap=True)
+    table.add_column(i18n.t("cli.menu.description"))
     for key, name, text in rows:
         table.add_row(key, name, text)
     return table
@@ -83,7 +105,7 @@ def menu_table(rows: list[tuple[str, str, str]]) -> Table:
 
 def pick(default: str = "0") -> str:
     """Read a menu number. Ctrl-C and end of input propagate (typer.Abort / click.Abort) to the caller."""
-    return typer.prompt("请输入编号", default=default).strip().lower()
+    return typer.prompt(i18n.t("cli.menu.pick"), default=default).strip().lower()
 
 
 def abort_types() -> tuple[type[BaseException], ...]:

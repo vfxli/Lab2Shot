@@ -71,8 +71,8 @@ interface State {
   peerBanner: "same-open" | "demoted" | null;
   file: { name: string; handle?: string } | null;
   dirty: boolean;
-  undoLabel: string | null;
-  redoLabel: string | null;
+  undoLabel: (() => string) | null; // said when shown (graph/history.ts Said: it follows the page's language)
+  redoLabel: (() => string) | null;
 
   // ---- the node editor's own canvas ephemera (never saved, never undone) ----
   canvas: Record<string, CanvasNode>;
@@ -98,7 +98,7 @@ interface State {
   stayViewer: () => void;
   freshDoc: () => void; // a fresh graph is nobody else's until proven otherwise (tabs.ts's reset())
   setFile: (f: State["file"]) => void;
-  setSaveState: (dirty: boolean, undoLabel: string | null, redoLabel: string | null) => void;
+  setSaveState: (dirty: boolean, undoLabel: (() => string) | null, redoLabel: (() => string) | null) => void;
 
   setCanvasNode: (id: string, patch: CanvasNode) => void;
   removeCanvasNodes: (ids: string[]) => void;

@@ -76,13 +76,6 @@ export const webAddress = (url: string | null | undefined): url is string => !!u
 /** A site's name for a link's text: smpl-x.is.tue.mpg.de for https://smpl-x.is.tue.mpg.de/download.php. */
 export const host = (url: string) => url.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
 
-/** The reason a node cannot be cooked, for places where the node is already named (its footer, the viewer showing it):
- * the name prefix is removed (「导入 USD」出错：文件里没有模型 /set/gone… → 文件里没有模型 /set/gone…) so only the reason shows. */
-export function ownReason(text: string, label: string): string {
-  const own = `「${label}」`;
-  return (text.startsWith(own) && text.slice(own.length).replace(/^(出错：|的)/, "")) || text;
-}
-
 /** Reads text from the clipboard. Pages served over http:// from another machine have no clipboard API, and the
  * permission may be refused, so the result can be empty; the caller then asks the user to paste the text manually
  * rather than failing silently. */

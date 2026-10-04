@@ -1,0 +1,39 @@
+# 共用重定目标消息在核心目录。
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."kinematic_refinement.retarget"]
+subtitle = "动作重定目标"
+description = "骨架泛化运动先验与目标网格几何修正。学习式重定目标的中间一段：「源」「目标」接「重定目标预处理」的两个输出（部位对应、静止姿势、哪些骨骼不送进模型都在那里定），结果接「重定目标后处理」做位移和髋高，再接线性蒙皮变形看网格。输出是模型原生的结果，写回目标自己的层级；没送进模型的骨骼保持静止姿势、跟着父骨骼走。geo 阶段目标要蒙皮网格，源用骨架（BVH）也行。预处理的忽略规则选「Kinematic Refinement（官方人体范围）」，或实验性的「加手指」。"
+
+[node."kinematic_refinement.retarget".param.stage]
+label = "阶段"
+
+[node."kinematic_refinement.retarget".param.stage.option]
+geo = "geo（先验与几何修正）"
+kin = "kin（仅骨架先验）"
+
+[node."kinematic_refinement.retarget".param.geo_batch_frames]
+label = "几何批次帧数"
+help = "按官方逐帧几何推理路径分批，完整动作特征在分批前计算。网格大、显存不足时可减小；不改变动作时长和帧速率。"
+
+[node."kinematic_refinement.retarget".needs.kinref]
+label = "Kinematic Refinement（官方人体范围）"
+
+[node."kinematic_refinement.retarget".needs.kinref_fingers]
+label = "Kinematic Refinement（加手指，实验）"
+
+[node."kinematic_refinement.retarget".official]
+note = "使用官方已发布模型，保留目标自己的层级。"
+
+[extension.kinematic_refinement]
+summary = "骨架泛化运动先验与目标网格几何修正"
+
+[extension.kinematic_refinement.license]
+name = "CC BY-NC 4.0"
+summary = "CC BY-NC 4.0；依赖资产遵守各自许可，详情见官方仓库。"
+
+# ---- worker 的计算阶段（worker.py）
+[stage]
+geo_refine = "几何修正"
+kin_retarget = "骨架先验重定目标"

@@ -1,0 +1,37 @@
+# The WildPose extension's own words and messages in English (the same keys as zh.toml).
+
+"E-WILDPOSE-NOFOCAL" = "WildPose needs a known focal length: set the node's lens parameters, or wire a calibrated focal length into that parameter."
+"E-WILDPOSE-NOFOCAL.short" = "Focal length required"
+"B-WILDPOSE-NOFOCAL" = "WildPose needs a known focal length to cook and the node's focal length is empty: enter the lens's focal length, or wire a calibrated focal length into that parameter"
+"B-WILDPOSE-NOFOCAL.app" = "It needs a known focal length to cook and the focal length is empty: enter the lens's focal length first"
+"B-WILDPOSE-NOFOCAL.short" = "Focal length required"
+"E-WILDPOSE-FRAMES.one" = "WildPose delivered {got} frame of camera for an image of {frames} frames: they do not match and the result cannot be used. Report this error to the developers"
+"E-WILDPOSE-FRAMES.other" = "WildPose delivered {got} frames of camera for an image of {frames} frames: they do not match and the result cannot be used. Report this error to the developers"
+
+[node."wildpose.reconstruct"]
+subtitle = "Depth and Camera"
+description = "Solves the camera by combining MASt3R features, a MoGe-2 metric prior, learned motion masks and dense bundle adjustment. Needs a known focal length and at least eight input frames; the camera covers every frame, while the optimized depth covers keyframes only. The motion masks are internal network features, so no external mask output is made up."
+official.note = "Upstream's Dataset provides per-frame RGB and known fx/fy/cx/cy; trajectory_filler provides the camera for every frame, and DepthVideo.save_video saves only the optimized keyframe depth. There is no per-frame depth prediction and no separate official confidence output, so no such output is made up."
+licence.note = "MASt3R is non-commercial; the licenses of the code and each set of model weights are shown through the usual extension mechanism."
+cost.note = "Includes MASt3R and MoGe-2; a measured peak of about 12 GB for 120–200 frames"
+
+[node."wildpose.reconstruct".param.resolution]
+label = "Processing Resolution"
+
+[node."wildpose.reconstruct".param.buffer]
+label = "Keyframe Buffer"
+
+[node."wildpose.reconstruct".param.final_ba]
+label = "Final Bundle Adjustment"
+
+[extension.wildpose]
+summary = "Solves videos with dynamic content or little camera motion by combining MASt3R features, motion masks and dense bundle adjustment"
+license.name = "WildPose code license and MASt3R CC-BY-NC-SA-4.0"
+license.summary = "Registered through the project's usual mechanism: the MASt3R model weights are non-commercial, MoGe-2 is MIT."
+weight.wildpose.note = "WildPose inference model weights"
+weight.mast3r.note = "MASt3R features, non-commercial"
+weight.moge2.note = "MoGe-2 metric depth prior, MIT"
+
+# ---- the worker's cooking stages (worker.py run.model / run.stage)
+[stage]
+track_and_ba = "Camera Tracking and Bundle Adjustment"

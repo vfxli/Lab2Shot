@@ -17,8 +17,8 @@
         cite="third_party/hamer/repo/hamer/models/hamer.py:107-126",
         takes={"image": "batch['img']"},              # 节点的端口名 -> 上游源码中的符号
         gives={"camera": "pred_cam", "mano": "pred_mano_params"},
-        note="网格是上游拿 MANO 跑出来的，不是模型直接吐的",   # 可选
     )
+    # 给人看的上游说明写在语言目录 node.<type>.official.note（可选）
 
 自行添加的内容一律不写入此处，应做成显式的独立工具节点（如「相机空间转换」「提取骨架」）。
 """
@@ -49,8 +49,9 @@ class Official:
     # 但也不是隐式添加的内容，必须在此声明，检查才会放行。
     # 例：镜头节点的「Filmback」：Focal Length 的毫米值按它换算，将其传给下游是为了避免同一数值在
     # 两个节点上分别填写且不一致。
+    # 给人看的说明在语言目录 node.<type>.official.ours.<port>（ours_of）
     ours: dict[str, str] = field(default_factory=dict)
-    note: str = ""
+    # 上游说明给人看的文字在语言目录：node.<type>.official.note（note_of）
 
     def __post_init__(self) -> None:
         for one in self.cites:
@@ -85,3 +86,27 @@ class Official:
             if needle and needle not in text:
                 out.append(f"{port} -> {symbol} (not in the cited lines {', '.join(self.cites)}: no {needle})")
         return out
+
+
+def note_of(node_type) -> str:
+    """A node type's note on how it follows upstream, in the language now: node.<type>.official.note of the catalogue
+    (its extension's own, then the core's); "" when it has none."""
+    from .. import i18n
+
+    official = getattr(node_type, "official", None)
+    if official is None:
+        return ""
+    runtime = getattr(node_type, "runtime", "core")
+    return i18n.node_text(node_type.id, "official", "note", in_scope=None if runtime == "core" else runtime) or ""
+
+
+def ours_of(node_type, port: str) -> str:
+    """What an `ours` port of a node type says it passes on, in the language now: node.<type>.official.ours.<port>,
+    "" when it has none."""
+    from .. import i18n
+
+    official = getattr(node_type, "official", None)
+    if official is None:
+        return ""
+    runtime = getattr(node_type, "runtime", "core")
+    return i18n.node_text(node_type.id, "official", "ours", port, in_scope=None if runtime == "core" else runtime) or ""

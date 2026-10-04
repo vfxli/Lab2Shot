@@ -1,0 +1,134 @@
+# Alembic 扩展包（adapters/alembic）的消息。一行一条：编号 = 模板。
+
+# ---- 读 .abc（worker.py alembic.import）
+"E-ALEMBIC-NOFILE" = "找不到文件 {path}：文件被移走或改名了，在「导入 Alembic」里重新选一次"
+"E-ALEMBIC-NOTABC" = "读不了 {name}：不是有效的 Alembic 文件，或者文件不完整（导出中断、还没拷完）。在 DCC 里重新导出一次"
+"E-ALEMBIC-NAMEENCODING" = "读不了 {name}：文件里有对象名、面集名或 Lab2Shot 写的属性不是 UTF-8 编码（多半是中文系统上的软件按 GBK 写的）。这些名字就是导入后各项的路径和分区名，不能猜着改：在 DCC 里把名字改成英文，或者按 UTF-8 重新导出 Alembic，再选这个文件"
+"N-ALEMBIC-NOFPS" = "文件没记帧速率，采样也不是均匀的：按 {fps:g} 帧/秒把 Alembic 的秒换成帧号；文件不是这个帧速率的话帧号会对不上，在 DCC 里导出时记上帧速率"
+"N-ALEMBIC-SUBFRAMES.other" = "{path} 有 {count} 个帧间采样（运动模糊子帧）：每帧只取最接近整帧的一个，子帧上的动画不读"
+"W-ALEMBIC-FILMBACKOPS" = "摄影机 {path} 带胶片背变换（film back ops）：这里没有使用，画框可能和原场景对不上"
+"W-ALEMBIC-VARYINGPOINTS" = "网格 {path} 的点数逐帧变化（流体、粒子网格）：只取第一帧的形状，后面的帧不跟着变。要逐帧的形状，在 DCC 里转成点数不变的网格或 VDB 再导出"
+"W-ALEMBIC-FACESETRANGE.other" = "「{path}」这个面集里有 {dropped} 个面不在网格上（文件是按另一份拓扑写的），这几个面没有带进来"
+
+# ---- 写 .abc（worker.py alembic.output）
+"E-ALEMBIC-SUFFIX" = "输出文件要以 .abc 结尾：{path}。在「Alembic 输出」的文件名里改成 .abc"
+"E-ALEMBIC-NOSKELETON" = "Alembic 没有骨架动画，场景里有 {count} 个：先接「烘焙成几何体」变成逐帧的几何体，或者改用 USD / FBX 输出"
+"E-ALEMBIC-FPS" = "场景的帧速率是 {fps:g}，不是正数，没法把帧号换成 Alembic 的秒：检查上游节点的帧速率"
+"E-ALEMBIC-FACES.other" = "网格的面顶点数之和 {corners:,} 和索引个数 {indices:,} 对不上：上游给的网格数据不完整，是程序的问题，请把日志发给开发者"
+"E-ALEMBIC-TRANSFORMS.other" = "{name} 有 {transforms} 个变换、{frames} 帧，数量对不上：上游给的场景数据不完整，是程序的问题，请把日志发给开发者"
+"E-ALEMBIC-MESHFRAMES.other" = "网格 {name} 有 {samples} 组点、{frames} 帧，数量对不上：上游给的场景数据不完整，是程序的问题，请把日志发给开发者"
+"E-ALEMBIC-CLOUDPOINTS.other" = "点云 {name} 记着 {groups} 组共 {counted:,} 个点，实际给了 {points:,} 个点、{frames} 帧，数量对不上：上游给的场景数据不完整，是程序的问题，请把日志发给开发者"
+"E-ALEMBIC-CURVEPOINTS.other" = "三维曲线 {name} 每条曲线的点数加起来是 {counted:,}，实际给了 {points:,} 个点，数量对不上：上游给的场景数据不完整，是程序的问题，请把日志发给开发者"
+
+"I-ALEMBIC-NOBONES" = "Alembic 没有骨骼"
+"I-ALEMBIC-NOGAUSSIAN" = "3D 高斯请用 PLY 或 USD 输出"
+"I-ALEMBIC-NOLIGHT" = "Alembic 没有灯光：穹顶灯（HDRI）只有 USD 带得走"
+
+# ---- 安装时编译（build.py）
+"E-ALEMBIC-NOCOMPILER" = "找不到编译器 {name}：装上 C/C++ 编译器，或在 config/local.toml 的 [build] 段 {setting} 里填编译器的名字，再执行 lab2shot ext install alembic"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."alembic.import"]
+subtitle = "导入 Alembic"
+description = "导入 Maya、Houdini、3DE 导出的 Alembic（.abc）：按层级列出文件里的摄影机、几何体、点云和三维曲线（Alembic 没有骨骼），选哪些就输出哪些，父级的变换（包括动画）一起算进去。Alembic 不记录单位和上轴，在「单位」「上轴」里说；它存的是秒，按文件自己记的帧速率换算成帧号（Lab2Shot 写出去的文件记了它，没记的按 24）。要读骨架动画和蒙皮角色用「导入 FBX」或「导入 USD」（Alembic 没有骨骼）。"
+
+[node."alembic.import".param.path]
+label = "文件"
+
+[node."alembic.import".param.camera]
+label = "摄影机"
+
+[node."alembic.import".param.models]
+label = "几何体"
+
+[node."alembic.import".param.points]
+label = "点云"
+
+[node."alembic.import".param.curves]
+label = "三维曲线"
+
+[node."alembic.import".param.unit]
+label = "单位"
+
+[node."alembic.import".param.unit.option]
+cm = "厘米 · Maya"
+m = "米 · Houdini"
+
+[node."alembic.import".param.up]
+label = "上轴"
+
+[node."alembic.import".param.up.option]
+y = "Y 轴向上"
+z = "Z 轴向上"
+
+[node."alembic.import".param.width]
+label = "画面宽度"
+
+[node."alembic.import".cost]
+note = "只用 CPU"
+
+[node."alembic.import".port.camera]
+label = "摄影机"
+waits = "选一台摄影机"
+
+[node."alembic.import".port.models]
+label = "几何体"
+waits = "选一个几何体"
+
+[node."alembic.import".port.points]
+label = "点云"
+waits = "选一个点云"
+
+[node."alembic.import".port.curves]
+label = "三维曲线"
+waits = "选一组三维曲线"
+
+[node."alembic.import".port.fps]
+label = "帧速率"
+help = "Alembic 的帧速率：DCC 写的 FPS 提示；没写时按采样间隔认出的帧速率；都没有时空着。接到动作模型或格式输出节点的「帧速率」，就跟这个文件走；文件没记时这里没有值，那边用自己填的"
+
+[node."alembic.output"]
+subtitle = "Alembic 输出"
+description = "把三维数据写成 Alembic（.abc）：几何体（静止的、跟着变换动的、逐帧变形的）、摄影机、点云和三维曲线，Maya、Houdini、Blender 都能读。「场景」可以接多根线，也可以接一条场景列表（每条写在 /shot/<条目名> 下），写前打包成一个场景。接到「输出」上交给你。"
+
+[node."alembic.output".cost]
+whole = "写一个文件，时间看写多少东西（300 帧的网格和摄影机约 1 秒），不按帧算"
+
+[node."alembic.output".stage]
+gather_scene = "整理场景"
+
+[node."alembic.output".param.name]
+label = "名字"
+
+[node."alembic.output".param.unit]
+label = "单位"
+
+[node."alembic.output".param.unit.option]
+cm = "厘米 · Maya"
+m = "米 · Houdini"
+
+[node."alembic.output".param.fps]
+label = "帧速率"
+
+[node."alembic.output".port.scene]
+label = "场景"
+
+[extension.alembic]
+summary = "开放的图形交换框架：把复杂的动画场景烘成一份与软件无关、非过程化的几何结果"
+
+[extension.alembic.license]
+name = "BSD-3-Clause"
+summary = "BSD-3，可商用、修改和再分发（需保留版权声明）；依赖的 Imath 同为 BSD-3，Boost 为 Boost 许可证，均可商用。安装时从源码编译，需要本机 C++ 编译器（config/local.toml 的 build 段 cc / cxx）"
+
+[stage]
+read_alembic = "读取 Alembic"
+read_object = "读取 {name}"
+write_alembic = "写出 Alembic"
+write_mesh = "网格 {name}"
+write_points = "点云 {name}"
+write_camera = "摄影机 {name}"
+write_curves = "三维曲线 {name}"
+
+[format]
+alembic = "Alembic"

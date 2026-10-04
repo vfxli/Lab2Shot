@@ -2,121 +2,184 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "64773f005549a91a19f55ed5f9057f88",
-  "name": "面部动作 · MediaPipe",
-  "intro": "MediaPipe Face Landmarker 官方说明：检测画面里的面部关键点和表情，输出三维面部关键点、表情 blendshape 系数和变换矩阵。这张卡交付 52 条 ARKit 表情曲线和跟着头动的面具网格。",
+  "name": {
+   "zh": "面部动作 · MediaPipe",
+   "en": "Face Motion · MediaPipe"
+  },
+  "intro": {
+   "zh": "MediaPipe Face Landmarker 官方说明：检测画面里的面部关键点和表情，输出三维面部关键点、融合变形系数和变换矩阵。这张卡交付 52 条 ARKit 表情曲线和跟着头动的面具网格。",
+   "en": "From the MediaPipe Face Landmarker documentation: it detects face landmarks and expressions in images, outputting 3D face landmarks, blend shape scores and transformation matrices. This card delivers 52 ARKit expression curves and a face mesh that follows the head."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "face_anim",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
-   "name": "max_faces",
-   "label": "最多几张脸",
-   "target": "mp.max_faces"
+   "name": "face_max_faces",
+   "label": {
+    "zh": "最多几张脸",
+    "en": "Max Faces"
+   },
+   "target": "face.max_faces"
   },
   {
-   "name": "mode",
-   "label": "方式",
-   "target": "mp.mode"
+   "name": "face_mode",
+   "label": {
+    "zh": "方式",
+    "en": "Mode"
+   },
+   "target": "face.mode"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "threshold",
-     "label": "检测阈值",
-     "target": "mp.threshold"
+     "name": "face_threshold",
+     "label": {
+      "zh": "检测阈值",
+      "en": "Detection Threshold"
+     },
+     "target": "face.threshold"
     },
     {
-     "name": "min_tracking_confidence",
-     "label": "跟住门槛",
-     "target": "mp.min_tracking_confidence",
-     "hide_when": "mode != \"video\""
+     "name": "face_min_tracking_confidence",
+     "label": {
+      "zh": "跟住门槛",
+      "en": "Tracking Threshold"
+     },
+     "target": "face.min_tracking_confidence",
+     "hide_when": "face_mode != \"video\""
     },
     {
-     "name": "min_presence_confidence",
-     "label": "存在阈值",
-     "target": "mp.min_presence_confidence",
-     "hide_when": "mode != \"video\""
+     "name": "face_min_presence_confidence",
+     "label": {
+      "zh": "存在阈值",
+      "en": "Presence Threshold"
+     },
+     "target": "face.min_presence_confidence",
+     "hide_when": "face_mode != \"video\""
     }
    ]
   },
   {
    "name": "cook_face",
-   "label": "解算面部",
-   "target": "mp.cook"
+   "label": {
+    "zh": "解算面部",
+    "en": "Solve Face"
+   },
+   "target": "face.cook"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "usd_name",
-     "label": "文件名（面具 / 角色 USD）",
-     "target": "out_h.name"
+     "label": {
+      "zh": "文件名（面部网格 / 角色 USD）",
+      "en": "File Name (Face Mesh / Character USD)"
+     },
+     "target": "usd.name"
     },
     {
      "name": "curves_name",
-     "label": "文件名（表情曲线）",
-     "target": "out_c.name"
+     "label": {
+      "zh": "文件名（表情曲线）",
+      "en": "File Name (Expression Curves)"
+     },
+     "target": "curves.name"
     },
     {
      "name": "unit",
-     "label": "单位",
-     "target": "out_h.unit"
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
     },
     {
      "name": "fps",
-     "label": "帧率",
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
      "target": "fps.value"
     },
     {
      "name": "curves_format",
-     "label": "曲线格式",
-     "target": "out_c.format"
+     "label": {
+      "zh": "曲线格式",
+      "en": "Curve Format"
+     },
+     "target": "curves.format"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -125,8 +188,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -135,13 +197,12 @@
    },
    "ui": {
     "x": 0,
-    "y": 406
+    "y": 425
    }
   },
   {
-   "id": "mp",
-   "type": "mediapipe_face.face",
-   "label": "MediaPipe 面部动作",
+   "id": "face",
+   "type": "mediapipe_face.face_solve",
    "params": {
     "max_faces": 1,
     "mode": "video",
@@ -151,7 +212,7 @@
    },
    "ui": {
     "x": 400,
-    "y": 348,
+    "y": 367,
     "on_node": [
      "max_faces",
      "mode"
@@ -159,17 +220,16 @@
    }
   },
   {
-   "id": "out_c",
-   "type": "core.output_curves",
-   "label": "曲线输出设置",
+   "id": "curves",
+   "type": "curves.output",
    "params": {
     "name": "curves",
     "format": "csv",
     "fps": 24.0
    },
    "ui": {
-    "x": 800,
-    "y": 354,
+    "x": 851,
+    "y": 373,
     "on_node": [
      "name",
      "format"
@@ -180,9 +240,8 @@
    ]
   },
   {
-   "id": "out_h",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "id": "usd",
+   "type": "usd.output",
    "params": {
     "name": "head",
     "format": "usd",
@@ -190,8 +249,8 @@
     "fps": 24.0
    },
    "ui": {
-    "x": 840,
-    "y": 736,
+    "x": 891,
+    "y": 774,
     "on_node": [
      "name",
      "unit"
@@ -203,24 +262,22 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1200,
-    "y": 382
+    "x": 1251,
+    "y": 401
    }
   },
   {
    "id": "fps",
-   "type": "core.value_float",
-   "label": "帧率",
+   "type": "value_float",
    "params": {
     "value": 24.0,
     "unit": ""
    },
    "ui": {
-    "x": 440,
+    "x": 491,
     "y": 0
    },
    "promoted": [
@@ -235,17 +292,17 @@
     "image"
    ],
    "to": [
-    "mp",
+    "face",
     "image"
    ]
   },
   {
    "from": [
-    "mp",
+    "face",
     "expressions"
    ],
    "to": [
-    "out_c",
+    "curves",
     "curves"
    ]
   },
@@ -255,7 +312,7 @@
     "value"
    ],
    "to": [
-    "out_h",
+    "usd",
     "param:fps"
    ]
   },
@@ -265,13 +322,13 @@
     "value"
    ],
    "to": [
-    "out_c",
+    "curves",
     "param:fps"
    ]
   },
   {
    "from": [
-    "out_h",
+    "usd",
     "files"
    ],
    "to": [
@@ -281,7 +338,7 @@
   },
   {
    "from": [
-    "out_c",
+    "curves",
     "files"
    ],
    "to": [
@@ -291,18 +348,18 @@
   },
   {
    "from": [
-    "mp",
+    "face",
     "head"
    ],
    "to": [
-    "out_h",
+    "usd",
     "scene"
    ]
   }
  ],
  "boxes": [],
  "view": {
-  "display": "mp",
+  "display": "face",
   "frame": null
  }
 }

@@ -117,7 +117,7 @@ class Restarter:
             logs.say(log, Msg("I-RESTART-ASKEDNOW" if mode == "now" else "I-RESTART-ASKEDDRAIN"))
         self.farm().hold()
         if mode == "now":
-            self.farm().stop_running(NOW_REASON.text)
+            self.farm().stop_running(NOW_REASON)
             self.farm().tasks.stop_all()
         with self.lock:
             if self._waiter is None or not self._waiter.is_alive():
@@ -284,6 +284,9 @@ def serve(host: str, port: int, ssl: dict) -> None:
         farm()  # the queue starts now: jobs held over a restart go on at once
     except Unavailable as exc:  # another process has this work folder's queue (farm/queue.py _own_queue)
         sys.exit(said_line(Msg("E-SERVER-NOSTART", reason=exc).json()))
+    from . import tools
+
+    tools.warm()  # the tools' signatures in the background: a plugin's first tool list does not wait for them
     from ..process import apply_reservation, apply_thread_pools
 
     apply_reservation()  # 「保留核心数」: the server process itself is kept to the cores left for computing (light cooks run in it)

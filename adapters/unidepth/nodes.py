@@ -8,7 +8,8 @@ from lab2shot.sdk import Official, Confidence, PerFrameDepthCamera, P, precision
 
 
 class Geometry(PerFrameDepthCamera):
-    id = "unidepth.geometry"
+    id = "unidepth.depth"
+    metric = True  # metric monocular depth (DepthCamera.metric)
     # 模型自己就输出每个像素的三维点（worker 的 npz 里 points，相机空间、米）：「点云」口直接用它，
     # 不拿深度 + Focal Length 反投影绕一圈（families/base.py native_points）
     native_points = "points"
@@ -25,8 +26,6 @@ class Geometry(PerFrameDepthCamera):
         cite="third_party/unidepth/repo/unidepth/models/unidepthv2/unidepthv2.py:241-338",
         takes={"image": "rgb"},
         gives={"depth": "depth", "camera": "intrinsics", "points": "points"},
-        note="「相机」口只有内参（out[\"intrinsics\"], unidepthv2.py:330），没有外参；"
-             "「点云」是模型自己的 out[\"points\"]（unidepthv2.py:336）",
     )
     confidence = Confidence("exp_error")  # how its model gives its confidence (CONFIDENCE_SCALES)
     # vram_gb: RTX 4090 上测得（docs.md），默认 ViT-L
@@ -34,9 +33,7 @@ class Geometry(PerFrameDepthCamera):
 
     class Params(PerFrameDepthCamera.Params):  # 家族的 Params：镜头 + 点云间隔 / 点的大小（口上接了东西才起作用）
         model: Literal["unidepth-v2-vitl14", "unidepth-v2-vitb14", "unidepth-v2-vits14"] = P(
-            "unidepth-v2-vitl14", label="模型", group="几何",
-            option_labels={"unidepth-v2-vitl14": "ViT-L", "unidepth-v2-vitb14": "ViT-B", "unidepth-v2-vits14": "ViT-S"},
-        )
+            "unidepth-v2-vitl14", group="geometry")
         resolution_level: int = precision_level_param()
 
 

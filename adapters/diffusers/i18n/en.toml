@@ -1,0 +1,39 @@
+# This extension's words and messages in English (the same keys as zh.toml).
+
+"W-DIFFUSERS-NOSUBJECT" = "Image has an alpha, but no matching alpha layer file was written for frame {frame}: this frame is edited as a plain picture over black. This is a bug in the extension's code; send the log to the developers"
+"I-DIFFUSERS-WEIGHTS" = "the Qwen-Image 2.1 weights"
+
+[stage]
+generate = "Generate"
+
+[node."diffusers.generate"]
+subtitle = "Image Generation"
+description = "One pipeline, one node, three ways by Mode: text-to-image (no image wired), image editing (one Image wired) and multi-reference (one Image plus a References list, at most 10). The output is always one RGBA still (the model's native 4-channel VAE); a transparent background is asked for the way the official prompts write it. References are not limited to photos: the output of any node in the project (masks, depth, normals, lighting…) can be wired as a reference. Needs the Generative Diffusion capability; the weights are under the Qwen Research License, for research and evaluation only."
+
+[node."diffusers.generate".port.image]
+label = "Image"
+help = "The subject: in image editing the one picture to change, in multi-reference the picture the references are composited onto (with an alpha it is handled as an RGBA transparent layer)"
+
+[node."diffusers.generate".port.references]
+label = "References"
+help = "A list of reference images: the output of any node can be wired (masks, depth, normals, lighting, another picture…), one picture taken per item; a sequence gives the same frame as Image, and one that does not cover it is skipped with a note"
+
+[node."diffusers.generate".cost]
+whole = "Per generation (not per frame): at the 512 base with 10 steps, measured about 4–8 s per step and 17–19 GB peak VRAM (text-to-image / image-conditioned)"
+
+[node."diffusers.generate".official]
+note = "One node, three uses (by Mode): text-to-image passes no image (upstream takes None down prompt_template_t2i; the width and height are worked out from the official aspect table and passed explicitly as width/height); image editing passes one; multi-reference passes the image list of Image + References (the subject first, then the references, at most 10). An input with an alpha enters the VAE as a whole RGBA picture (upstream convert(\"RGBA\")); the output is always RGBA (the model's native 4-channel VAE; with an ordinary prompt the alpha is fully opaque)."
+
+[node."diffusers.generate".licence]
+note = "Code Apache-2.0; weights Qwen Research License: research and evaluation use only, commercial use needs a separate licence from Qwen."
+
+[extension.diffusers]
+title = "Diffusers Image Generation"
+summary = "Generative image models run through Hugging Face Diffusers; first Qwen-Image 2.1: text-to-image, image editing and multi-reference, with native RGBA transparent output"
+
+[extension.diffusers.license]
+name = "Apache-2.0 code · Qwen Research License weights"
+summary = "Research and evaluation use only; commercial use needs a separate licence from Qwen. The diffusers code is Apache-2.0; the Qwen-Image-2.1 weights (text encoder, transformer, VAE) are released under the Qwen Research License: use, copying, distribution and modification for research and evaluation are allowed, any commercial use is forbidden (for commercial use contact model-business@notice.qwencloud.com for a separate licence); redistribution must include this licence, keep Qwen's copyright notice and state the changes made to the files; \"Qwen\" may not be the main name of a derivative work; when it is used to train or improve an AI model that is offered to others, the related documentation must say \"Built with Qwen\" or \"Improved using Qwen\"."
+
+[extension.diffusers.weight."qwen-image-2.1"]
+note = "Qwen Research License weights"

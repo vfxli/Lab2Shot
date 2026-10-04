@@ -9,6 +9,7 @@ import numpy as np
 
 from ..port import EITHER
 from ...errors import Invalid
+from ... import i18n
 from ...messages import Msg
 from ..base import NodeDef, NodeParams, P, Port, parse_picks, parse_shapes, person_ids, typed_list
 from ..handles import say_bad_entries
@@ -17,20 +18,19 @@ from ..handles import Handle
 
 
 # 「方式」的三个选项只定义一处：参数上的名称与空结果提示使用同一词语
-MERGE_MODES = {"union": "合并", "subtract": "相减", "intersect": "相交"}
 
 
 class MaskMerge(NodeDef):
-    id = "core.mask_merge"
+    id = "mask_merge"
     version = 2  # 静帧遮罩（整个镜头一张图）作用于另一张遮罩的每一帧
     category = "mask_edit"
     on_node = ("mode",)
-    inputs = (Port("a", "image.1", "遮罩 A"), Port("b", "image.1", "遮罩 B", expects=(SameShot("a"),)))
-    outputs = (Port("mask", "image.1", "遮罩"),)
+    inputs = (Port("a", "image.1"), Port("b", "image.1", expects=(SameShot("a"),)))
+    outputs = (Port("mask", "image.1"),)
 
     class Params(NodeParams):
         mode: Literal["union", "subtract", "intersect"] = P(
-            "union", label="方式", group="遮罩", option_labels=MERGE_MODES,
+            "union", group="mask",
         )
 
     @classmethod
@@ -40,7 +40,7 @@ class MaskMerge(NodeDef):
         from ...data.maps import map_at, same_size
 
         a, b = ctx.input("a"), ctx.input("b")
-        same_size({"遮罩 A": a, "遮罩 B": b})
+        same_size({ctx.node_type.port_label("a"): a, ctx.node_type.port_label("b"): b})
         mode = ctx.params["mode"]
         window = window_of(a)  # 两张遮罩都在第一张的窗口中读取（有画布时为其画布）
         out = ExrWriter(ctx.outputs["mask"], 1, value_range=UNIT, half=True, window=window)
@@ -63,21 +63,21 @@ class MaskMerge(NodeDef):
         # 分别记录输入是否有内容、输出是否有内容（空结果不属于错误，但需说明原因）
         had, left = any(h for h, _ in found), any(k for _, k in found)
         if had and not left:  # 输入有内容而输出为空：数据在本节点中丢失，必须给出提示
-            ctx.say("N-MASK-EMPTYMERGE", mode=MERGE_MODES[mode])
+            ctx.say("N-MASK-EMPTYMERGE", mode=cls.option_label("mode", mode))
         return {"mask": out.packet()}
 
 
 class MaskAdjust(NodeDef):
-    id = "core.mask_adjust"
+    id = "mask_adjust"
     category = "mask_edit"
     on_node = ("grow", "feather", "invert")
-    inputs = (Port("mask", "image.1", "遮罩"),)
-    outputs = (Port("mask", "image.1", "遮罩"),)
+    inputs = (Port("mask", "image.1"),)
+    outputs = (Port("mask", "image.1"),)
 
     class Params(NodeParams):
-        grow: float = P(0.0, label="扩缩", unit="px", ge=-500, le=500, group="遮罩")
-        feather: float = P(0.0, label="羽化", unit="px", ge=0, le=500, group="遮罩")
-        invert: bool = P(False, label="反转", group="遮罩")
+        grow: float = P(0.0, unit="px", ge=-500, le=500, group="mask")
+        feather: float = P(0.0, unit="px", ge=0, le=500, group="mask")
+        invert: bool = P(False, group="mask")
 
     @classmethod
     def cook(cls, ctx):
@@ -95,17 +95,17 @@ class MaskAdjust(NodeDef):
 
 
 class BoxesMask(NodeDef):
-    id = "core.boxes_mask"
+    id = "mask_from_boxes"
     on_node = ("ids",)
     category = "mask_make"
-    inputs = (Port("boxes", "boxes", "人物框", expects=(KnownPeople(),)),)
-    outputs = (Port("mask", "image.1", "遮罩"),)
+    inputs = (Port("boxes", "boxes", expects=(KnownPeople(),)),)
+    outputs = (Port("mask", "image.1"),)
     # 算法定义不在此处，而在算法目录（lab2shot/ops/ops.toml）中：
     # 选人使用 people.select（此处只用其「按编号」与「全部」规则），框的抗锯齿覆盖率使用 boxes.to_mask。
     ops = ("people.select", "boxes.to_mask")
 
     class Params(NodeParams):
-        ids: str = P("", label="编号", group="人物", placeholder="全部")
+        ids: str = P("", group="people")
 
     @classmethod
     def cook(cls, ctx):
@@ -127,16 +127,52 @@ class BoxesMask(NodeDef):
         return {"mask": out.packet()}
 
 
+def class_word(node_type, name: str, port: str = "", lang: str | None = None) -> str | None:
+    """A segmentation class's words in node type `node_type` (on its output `port`, any output when ""), in the language
+    now (or `lang`): node.<type>.port.<port>.class.<name>; a numbered one ("person 2", "moving 3") by its name without
+    the number, the number filled into {id} or put after the words. None when it has none (show `name`)."""
+    import re
+
+    from ..applies import all_outputs
+
+    m = re.fullmatch(r"(.+) (\d+)", name)
+    scope = None if node_type.runtime == "core" else node_type.runtime
+    for p in all_outputs(node_type):
+        if port and p.name != port:
+            continue
+        for key, number in ((name, None), *(((m.group(1), m.group(2)),) if m else ())):
+            got = i18n.lookup(f"node.{node_type.id}.port.{p.name}.class.{key}", lang=lang, scope=scope)
+            if got is not None:
+                if number is None:
+                    return got
+                return i18n.fill(got, {"id": number}) if "{id}" in got else f"{got} {number}"
+    return None
+
+
+def class_label(packet, c: dict, lang: str | None = None) -> str:
+    """What a class of a segmentation is called, in the language now (or `lang`): its words in the node type that made
+    it, node.<that type>.port.<port>.class.<name> (the worker writes only the English `name`; a numbered one, "person 2",
+    by its name without the number, the number filled into {id} or put after the words); else its `name`."""
+    from ..registry import node_types
+
+    t = node_types().get(str(getattr(packet, "node", "") or ""))
+    if t is not None:
+        got = class_word(t, str(c.get("name")), lang=lang)
+        if got is not None:
+            return got
+    return str(c.get("name") or c.get("index"))
+
+
 class SegmentSelect(NodeDef):
-    id = "core.segment_select"
+    id = "mask_from_segments"
     category = "mask_make"
-    inputs = (Port("segmentation", "image.1", "分割图"),)
-    outputs = (Port("mask", "image.1", "遮罩"),)
+    inputs = (Port("segmentation", "image.1"),)
+    outputs = (Port("mask", "image.1"),)
     handles = (Handle("points", {"points": "picks"}, source="segmentation"),)
 
     class Params(NodeParams):
-        classes: str = P("", label="类别", widget="classes", group="选区", placeholder="全部物体", choices_from=("segmentation",))
-        picks: list[str] = P([], label="点选", widget="picks", group="选区", placeholder="在 2D 视图里点要的区域")
+        classes: str = P("", widget="classes", group="selection", choices_from=("segmentation",))
+        picks: list[str] = P([], widget="picks", group="selection")
 
     @classmethod
     def cook(cls, ctx):
@@ -144,7 +180,7 @@ class SegmentSelect(NodeDef):
         from ...data.maps import map_at
 
         src = ctx.input("segmentation")
-        chosen = cls.chosen(ctx.params["classes"], src.meta.get("classes") or [])
+        chosen = cls.chosen(ctx.params["classes"], src.meta.get("classes") or [], src)
         say_bad_entries(ctx, "picks")
         for frame, x, y, _ in parse_picks(cls, "picks", ctx.params["picks"]):
             got = map_at(src, frame)
@@ -165,7 +201,7 @@ class SegmentSelect(NodeDef):
             return bool(picked.any())
 
         if not any(list(ctx.each_done(src.meta["frames"], select))):  # 未选中任何像素：输出空遮罩并给出提示（空结果不属于错误，但需提示）
-            ctx.say("N-MASK-NOPIXELS", classes="、".join(sorted(str(c) for c in chosen)) if chosen else "背景以外的全部")
+            ctx.say("N-MASK-NOPIXELS", classes=i18n.Both.of(lambda: i18n.separator().join(sorted(str(c) for c in chosen)) if chosen else i18n.Word("mask.all_but_background")))
         return {"mask": out.packet()}
 
     @classmethod
@@ -175,23 +211,25 @@ class SegmentSelect(NodeDef):
         classes = [c for c in (src.meta.get("classes") or []) if c["index"] > 0] if src is not None else []
         if not classes:
             return {}
-        return {"classes": {"options": [c["name"] for c in classes], "labels": {c["name"]: c.get("name_zh") or c["name"] for c in classes},
-                            "aliases": {c["name"]: [str(c["index"]), *([c["name_zh"]] if c.get("name_zh") else [])] for c in classes}}}
+        labels = {c["name"]: class_label(src, c) for c in classes}
+        return {"classes": {"options": [c["name"] for c in classes], "labels": labels,
+                            "aliases": {c["name"]: [str(c["index"]), *([labels[c["name"]]] if labels[c["name"]] != c["name"] else [])]
+                                        for c in classes}}}
 
     @staticmethod
-    def chosen(text: str, classes: list[dict]) -> set[int] | None:
-        """输入列表所指定的类别索引（类别编号、名称或中文名，不区分大小写）；未输入时为 None。"""
+    def chosen(text: str, classes: list[dict], src=None) -> set[int] | None:
+        """输入列表所指定的类别索引（类别编号、名称或任一语言的显示名，不区分大小写）；未输入时为 None。"""
         wanted = typed_list(text)
         if not wanted:
             return None
         names = {}
         for c in classes:
-            for key in (str(c["index"]), c.get("name"), c.get("name_zh")):
+            for key in (str(c["index"]), c.get("name"), *(class_label(src, c, lang) for lang in i18n.LANGS)):
                 if key:
                     names[str(key).casefold()] = c["index"]
         unknown = [t for t in wanted if t.casefold() not in names]
         if unknown:
-            known = [c.get("name_zh") or c["name"] for c in classes]
+            known = [class_label(src, c) for c in classes]
             if not known:
                 raise Invalid(Msg("E-MASK-NOCLASSES", unknown=unknown))
             raise Invalid(Msg("E-MASK-NOCLASS", unknown=unknown, known=known))
@@ -199,17 +237,17 @@ class SegmentSelect(NodeDef):
 
 
 class DepthKey(NodeDef):
-    id = "core.depth_key"
+    id = "mask_from_depth"
     category = "mask_make"
     on_node = ("near", "far", "soft")
-    inputs = (Port("depth", "image.1", "深度图", expects=(Metric(),)),)
-    outputs = (Port("mask", "image.1", "遮罩"),)
+    inputs = (Port("depth", "image.1", expects=(Metric(),)),)
+    outputs = (Port("mask", "image.1"),)
 
     class Params(NodeParams):
-        near: float = P(0.0, label="近", unit="cm", ge=0, group="距离")
-        far: float | None = P(None, label="远", unit="cm", gt=0, group="距离", placeholder="无限远")
-        soft: float = P(10.0, label="软边", unit="cm", ge=0, group="距离")
-        include_empty: bool = P(False, label="含无值像素", group="距离")
+        near: float = P(0.0, unit="cm", ge=0, group="distance")
+        far: float | None = P(None, unit="cm", gt=0, group="distance")
+        soft: float = P(10.0, unit="cm", ge=0, group="distance")
+        include_empty: bool = P(False, group="distance")
 
     @classmethod
     def cook(cls, ctx):
@@ -239,19 +277,19 @@ class DepthKey(NodeDef):
 
 
 class ConfidenceMask(NodeDef):
-    id = "core.confidence_mask"
+    id = "mask_from_confidence"
     category = "mask_make"
     on_node = ("conf_threshold", "soft", "keep")
-    inputs = (Port("confidence", "image.1", "置信度"),)
-    outputs = (Port("mask", "image.1", "遮罩"),)
+    inputs = (Port("confidence", "image.1"),)
+    outputs = (Port("mask", "image.1"),)
     # 置信度和遮罩都是单通道图，可直接连接，不会被标为错误连线，因此此处不声明「一键插入」。
     # 本节点的功能是按门槛二值化、软边和反选，而不是类型转换。
 
     class Params(NodeParams):
-        conf_threshold: float = P(0.5, label="置信度门槛", ge=0, le=1, group="遮罩")
-        soft: float = P(0.0, label="软边", ge=0, le=0.5, group="遮罩")
+        conf_threshold: float = P(0.5, ge=0, le=1, group="mask")
+        soft: float = P(0.0, ge=0, le=0.5, group="mask")
         keep: Literal["trusted", "doubtful"] = P(
-            "trusted", label="区域", group="遮罩", option_labels={"trusted": "可信的", "doubtful": "不可信的"})
+            "trusted", group="mask")
 
     @classmethod
     def cook(cls, ctx):
@@ -276,17 +314,17 @@ class ConfidenceMask(NodeDef):
 
 
 class Roto(NodeDef):
-    id = "core.draw_mask"
+    id = "draw_mask"
     category = "mask_make"
     # 节点上不显示参数：形状是绘制出的一组条目，不是可在节点上修改的数值或开关
     # （nodes/params.py simple_kind；「分割转遮罩」的「点选」同样只在面板中）。
-    inputs = (Port("image", "image", "图像", alpha=True, data=EITHER),)
-    outputs = (Port("mask", "image.1", "遮罩"),)
+    inputs = (Port("image", "image", alpha=True, data=EITHER),)
+    outputs = (Port("mask", "image.1"),)
     # 画布属于现有手柄体系中的一种（nodes/handles.py），不另建交互：在视图中绘制，完成后写入该参数
     handles = (Handle("canvas", {"shapes": "shapes"}),)
 
     class Params(NodeParams):
-        shapes: list[str] = P([], label="形状", widget="canvas", group="遮罩", placeholder="在 2D 视图里拖出轮廓")
+        shapes: list[str] = P([], widget="canvas", group="mask")
 
     @classmethod
     def cook(cls, ctx):

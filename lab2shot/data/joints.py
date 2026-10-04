@@ -7,11 +7,14 @@ mixamorig:); the rest follows from the hierarchy: the leg is the path from the h
 where it leaves the spine to the hand, the chest is where the arms leave the spine, a finger is the chain of that
 finger's joints under a hand. Twist, roll and helper joints in a chain are skipped.
 
-The second half of the file is what a bone is called in CG (cg_names): the Mixamo names a delivered skeleton carries.
-Its companion is the CG joint orientation in data/skeleton.py.
+The second half of the file is what a bone is called in CG (cg_names): the names of the project's naming convention
+(data/bone_names.py: Maya HumanIK / Mixamo) a delivered skeleton carries. Its companion is the CG joint orientation in
+data/skeleton.py.
 """
 
 from __future__ import annotations
+
+from .. import i18n
 
 import re
 
@@ -23,43 +26,51 @@ LIMB_PARTS = ("clavicle", "upperarm", "forearm", "hand", "thigh", "shin", "foot"
 # parts that are several joints (a model may have fewer or more than the rig): the spine, the neck, and every finger
 CHAINS = ("spine", "neck") + tuple(f"{s}.{f}" for s in SIDES for f in FINGERS)
 PARTS = ("hips", "spine", "chest", "neck", "head", "jaw") + tuple(f"{s}.{p}" for s in SIDES for p in LIMB_PARTS)
-PART_LABELS = {"hips": "髋", "spine": "脊柱", "chest": "胸", "neck": "颈", "head": "头", "jaw": "下巴", "eye": "眼",
-               "clavicle": "锁骨", "upperarm": "上臂", "forearm": "前臂", "hand": "手",
-               "thigh": "大腿", "shin": "小腿", "foot": "脚", "toe": "脚趾",
-               "thumb": "拇指", "index": "食指", "middle": "中指", "ring": "无名指", "pinky": "小指"}
-
-
+# each part's words: joints.part.<name> (part_label); one table of display names, in the catalogues
 def part_label(part: str) -> str:
     """The display name of a body part: "l.thigh" -> 左大腿, "hips" -> 髋. This is the project's only table of body
     part display names, read by the 「对应关系」 editor of 「动作重定向」 and of the skeleton-motion nodes (the parts'
     labels come from the server: part_rows; 「StableMotion 动捕清理」, 「Kimodo 动作生成」, 「Two-stage Transformer 动作补帧」,
     「UnderPressure 脚滑清理」, nodes/kit/rig.py part_labels), and by 「动作重定向」's notes on what it paired
     (data/smpl.py pairing_notes)."""
+    from .. import i18n
+
     side, _, name = part.rpartition(".")
-    return {"l": "左", "r": "右", "": ""}[side] + PART_LABELS[name]
+
+    def said() -> str:
+        word = i18n.t(f"joints.part.{name}")
+        return i18n.t("joints.sided", side=i18n.t(f"joints.side.{side}"), part=word) if side else word
+
+    return i18n.Both.of(said)  # every language: a message naming it reads in its reader's
 
 
 # The body regions a mapping is shown and reported in: the 「对应关系」 editor groups its slots by them, the notes of
 # 「动作重定向」 write one line per region (data/smpl.py pairing_notes). Every part of PARTS belongs to one region, so a
 # part added above cannot be left out there.
 REGIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("躯干", ("hips", "spine", "chest", "neck", "head")),
-    ("面部", ("jaw", "l.eye", "r.eye")),
-    ("左臂", ("l.clavicle", "l.upperarm", "l.forearm", "l.hand")),
-    ("右臂", ("r.clavicle", "r.upperarm", "r.forearm", "r.hand")),
-    ("左腿", ("l.thigh", "l.shin", "l.foot", "l.toe")),
-    ("右腿", ("r.thigh", "r.shin", "r.foot", "r.toe")),
-    ("左手", ("l.thumb", "l.index", "l.middle", "l.ring", "l.pinky")),
-    ("右手", ("r.thumb", "r.index", "r.middle", "r.ring", "r.pinky")),
+    ("trunk", ("hips", "spine", "chest", "neck", "head")),
+    ("face", ("jaw", "l.eye", "r.eye")),
+    ("l_arm", ("l.clavicle", "l.upperarm", "l.forearm", "l.hand")),
+    ("r_arm", ("r.clavicle", "r.upperarm", "r.forearm", "r.hand")),
+    ("l_leg", ("l.thigh", "l.shin", "l.foot", "l.toe")),
+    ("r_leg", ("r.thigh", "r.shin", "r.foot", "r.toe")),
+    ("l_hand", ("l.thumb", "l.index", "l.middle", "l.ring", "l.pinky")),
+    ("r_hand", ("r.thumb", "r.index", "r.middle", "r.ring", "r.pinky")),
 )
 REGION_OF = {part: region for region, parts in REGIONS for part in parts}
+
+
+def region_label(region: str) -> str:
+    """A region's name in the language now (joints.region.<id>)."""
+    from .. import i18n
+
+    return i18n.Word(f"joints.region.{region}")
 # Both thighs and shins: what a leg length is measured on (「动作重定向」's scale by legs and its forward direction,
 # the motion models' legs, motion.Retarget.align) — the parts every retarget and every rig model needs besides the hips
 LEGS = ("l.thigh", "l.shin", "r.thigh", "r.shin")
 # the parts where a body's trunk ends: it runs from the hips up to where these part (motion.trunk_of: the chest)
 LANDMARKS = ("l.hand", "r.hand", "head")
-# the limb bones, each (part, the part it runs to): the base pose's T (kit/retarget.py t_posed) and the angle each
-# differs by between two base poses (rest_diffs, shown beside the editor's slots) go over this one list
+# the limb bones, each (part, the part it runs to): the base pose's T (kit/retarget.py t_posed) goes over this list
 LIMB_BONES = tuple((f"{s}.{a}", f"{s}.{b}") for s in SIDES for a, b in (
     ("clavicle", "upperarm"), ("upperarm", "forearm"), ("forearm", "hand"), ("thigh", "shin"), ("shin", "foot"),
     ("foot", "toe")))
@@ -117,6 +128,19 @@ def tokens(name: str) -> list[str]:
     return [p.lower() for p in parts]
 
 
+def helper_bone(name: str) -> bool:
+    """A joint whose own name says it is a helper bone (a twist or roll joint, an IK / pole control, a prop or weapon
+    slot), not a body part a retarget solver should be given: the name evidence of the recognition engine
+    (data/skeleton_recognition.py _read_name, its helper and prop words). The ignore suggestions read the engine's
+    joint roles, which add what the positions say (nodes/kit/retarget_needs.py suggest_ignored); a joint the mapping
+    uses as a body part is never taken for a helper there, whatever its name (AccuRIG's only neck joints are
+    NeckTwist01/02)."""
+    from .skeleton_recognition import _read_name
+
+    got = _read_name(name)
+    return got.helper or got.prop
+
+
 def side(words: list[str]) -> str | None:
     left = any(w in ("left", "l", "lf", "lft") for w in words)
     right = any(w in ("right", "r", "rt", "rgt") for w in words)
@@ -157,12 +181,25 @@ def _path(top: int, bottom: int, parents) -> list[int]:
     return list(reversed(up[: up.index(top)])) if top in up else []
 
 
-def guess(names: list[str], parents, lone_side: str | None = None) -> dict:
+def guess(names: list[str], parents, lone_side: str | None = None, rest=None, weights=None) -> dict:
     """The body parts of a rig: {"hips": j, "spine": [j...], "chest": j, "neck": [j...], "head": j, "l.hand": j,
     "l.index": [j, j, j], ...} (joint indices; a part not found is left out; a chain part is a list).
 
-    `lone_side` is for a skeleton that is one hand or one side only and whose joint names never say which
-    ("wrist", "index1", ...; the model records the side beside its joints, as MANO does): "l" or "r"."""
+    The skeleton recognition engine's parts (data/skeleton_recognition.py recognize: names, hierarchy, rest positions,
+    symmetry, judged together; a part it is not sure of is left out). `lone_side` is for a skeleton that is one hand or
+    one side only and whose joint names never say which ("wrist", "index1", ...; the model records the side beside its
+    joints, as MANO does): "l" or "r". `rest` [J,3] (rest positions), when the caller has them: without them only the
+    names and the hierarchy are read (_by_names). `weights`: which joints carry skin weights (data/animation.py
+    Rig.weighted), when the skeleton has a skinned mesh: joints that drive no vertex are no candidates (recognize)."""
+    from .skeleton_recognition import recognize
+
+    got = recognize(names, parents, rest, weights=weights, lone_side=lone_side).parts
+    return {p: (list(v) if isinstance(v, list) else v) for p, v in got.items()}
+
+
+def _by_names(names: list[str], parents, lone_side: str | None = None) -> dict:
+    """The name reading of the recognition engine (data/skeleton_recognition.py): names say what a hand, a foot, the
+    head and the hips are, the hierarchy gives the rest. Same result shape as guess()."""
     parents = np.asarray(parents)
     words = [tokens(n) for n in names]
     kinds = [_kind(w) for w in words]
@@ -398,8 +435,8 @@ def spread(count: int, joints: list[int]) -> list[int | None]:
 # in 「动作重定向」 src is the motion's skeleton and dst the target's; in the skeleton-motion nodes src is the person's rig
 # and dst the model's own joints (fixed by the node). A part the parameter does not list is guessed (guess()); a part
 # listed with an empty column is left out on purpose. Joints by name, not index: an asset exported again with its
-# joints in another order keeps its mapping. The web editor (webui/src/editor/RigMap.tsx) shows the same rules in red
-# from the data NodeDef.choices gives; this is the authority, checked when the node cooks.
+# joints in another order keeps its mapping. The view's editing mode (the "rig_pair" handle, webui/src/view/rigPair.tsx)
+# shows the same rules from the data NodeDef.handle_data gives; this is the authority, checked when the node cooks.
 
 
 def joint_keys(names: list[str], parents) -> list[str]:
@@ -425,10 +462,10 @@ def joint_keys(names: list[str], parents) -> list[str]:
     return keys
 
 
-def part_names(names: list[str], parents) -> dict[str, list[str]]:
+def part_names(names: list[str], parents, rest=None, weights=None) -> dict[str, list[str]]:
     """guess() as joint keys (joint_keys: the name, or the path where names repeat), every part a list (a single
-    joint's part: one key)."""
-    parts = guess(list(names), parents)
+    joint's part: one key). `rest`, `weights`: see guess()."""
+    parts = guess(list(names), parents, rest=rest, weights=weights)
     keys = joint_keys(names, parents)
     return {part: [keys[j] for j in (where if isinstance(where, list) else [where])] for part, where in parts.items()}
 
@@ -444,7 +481,7 @@ def part_rows(required: tuple[str, ...] = ()) -> list[dict]:
     """Every body part as the 「对应关系」 editor lists its slots: id, label, region, whether it is a chain (several
     joints), whether the node needs it, and for a chain that ends in another part the part it ends in ("end": the
     spine the chest, the neck the head; CHAIN_ENDS, the one table — the editor draws a chain's bone lengths up to it)."""
-    return [{"id": p, "label": part_label(p), "region": REGION_OF[p], "chain": p in CHAINS, "required": p in required,
+    return [{"id": p, "label": part_label(p), "region": region_label(REGION_OF[p]), "region_id": REGION_OF[p], "chain": p in CHAINS, "required": p in required,
              **({"end": CHAIN_ENDS[p][1]} if p in CHAIN_ENDS and CHAIN_ENDS[p][1] else {})}
             for p in PARTS]
 
@@ -494,7 +531,7 @@ def check_mapping(rows: list[dict], sides: dict[str, tuple]) -> None:
                     same = [k for k in names if k.rsplit("/", 1)[-1] == n]
                     if len(same) > 1:  # a bare name that several joints share: which one is meant is not known
                         raise Invalid(Msg("E-MAP-DUPNAME", part=part_label(part), joint=n, side=said,
-                                          paths="、".join(same[:4]) + (" 等" if len(same) > 4 else "")))
+                                          paths=i18n.Both.of(lambda: i18n.separator().join(same[:4]) + (i18n.t("list.etc") if len(same) > 4 else ""))))
                     raise Invalid(Msg("E-MAP-NOJOINT", part=part_label(part), joint=n, side=said))
             if part not in CHAINS and len(joints) > 1:
                 raise Invalid(Msg("E-MAP-ONEJOINT", part=part_label(part), count=len(joints), side=said))
@@ -534,54 +571,45 @@ def _hips_wrong(first: dict, at: dict, hips: int, top: int, names, parents, said
                  if p in first and not below(at[first[p]], hips, parents)), None)
     if part is not None:
         return Msg("E-MAP-HIPS", hips=first["hips"], joint=first[part], part=part_label(part), side=said)
-    return Msg("E-MAP-HIPS", hips=first["hips"], joint=names[top], part="躯干", side=said)
+    return Msg("E-MAP-HIPS", hips=first["hips"], joint=names[top], part=region_label("trunk"), side=said)
 
 
-# ------------------------------------------------------------------ CG bone names (Mixamo convention)
+# ------------------------------------------------------------------ CG bone names (the project's naming convention)
 
 # The CG name of each bone. ML body models name joints while CG names bones, offset by one: SMPL's left_shoulder is
 # the upper arm, left_hip the thigh, left_foot the toes. Animators would misread SMPL names and HumanIK would not match
-# them, so names are converted to the Mixamo convention before delivery; it is the common vocabulary for retargeting
-# between DCCs (recognised by Maya HumanIK, MotionBuilder, Blender Rigify and UE Retarget).
-# No mixamorig: prefix: it is Mixamo's own namespace and would only interfere.
-SIDE_WORD = {"l": "Left", "r": "Right"}
-CG_NAMES = {
-    "hips": "Hips", "chest": "Spine2", "neck": "Neck", "head": "Head", "jaw": "Jaw",
-    **{f"{s}.{p}": f"{SIDE_WORD[s]}{n}" for s in SIDES for p, n in (
-        ("clavicle", "Shoulder"), ("upperarm", "Arm"), ("forearm", "ForeArm"), ("hand", "Hand"),
-        ("thigh", "UpLeg"), ("shin", "Leg"), ("foot", "Foot"), ("toe", "ToeBase"), ("eye", "Eye"))},
-}
-# multi-joint parts: the spine is Spine, Spine1, Spine2, ... and the chest the next one on (Mixamo's two spine joints
-# make it Spine2, CG_NAMES; a longer spine numbers the chest after it); extra neck joints are Neck1, Neck2, ...
-CG_CHAINS = {"spine": ("Spine", "Spine1"), "neck": ("Neck", "Neck1", "Neck2")}
+# them, so names are converted to the project's convention before delivery: Maya HumanIK / Mixamo names, the one
+# definition in data/bone_names.py (recognised by Maya HumanIK, MotionBuilder, Blender Rigify and UE Retarget).
+from .bone_names import SIDE_WORD, STANDARD as CG_NAMES, chain_name as cg_chain_name  # noqa: E402,F401
 
 
-def cg_chain_name(part: str, k: int) -> str:
-    """The CG bone name of joint k (from 0) of a chain. Fingers are LeftHandIndex1, LeftHandIndex2, ... (Mixamo numbers
-    from 1 and appends the finger name to the hand); spine and neck follow CG_CHAINS, numbered on beyond the table."""
-    s, _, name = part.rpartition(".")
-    if name in FINGERS:
-        return f"{SIDE_WORD[s]}Hand{name.title()}{k + 1}"
-    fixed = CG_CHAINS.get(part, ())
-    return fixed[k] if k < len(fixed) else f"{(fixed or (part.title(),))[0]}{k}"
+def cg_names(names: list[str], parents, lone_side: str | None = None, rest=None, weights=None,
+             others: str = "keep") -> list[str]:
+    """The CG name of every bone of this skeleton (data/bone_names.py): body parts recognised by guess() get the
+    convention's names. Returns a list as long as `names`, with duplicates numbered.
 
+    `others`: what an unrecognised joint is called. "keep": its own name (a body model's own helpers, named by the
+    model), an end joint without children that is its recognised parent's single child "<parent>_End" (Mixamo's
+    LeftToe_End); "rule": the convention's rule names (bone_names.rule_names: <nearest recognised ancestor>_Helper1,
+    _End, _Extra1 …, by the engine's joint roles) — for a skeleton whose own names say nothing (auto-rigging's bone_0,
+    bone_1 …).
+    `lone_side`: see guess(); for a single-hand model whose names do not state the side, it decides left or right.
+    `rest` [J,3], `weights`: see guess() (the model deliveries do not pass them: a model's own names are read; an
+    auto-rig passes both, its parts are found by shape)."""
+    from .bone_names import part_names as standard, rule_names
 
-def cg_names(names: list[str], parents, lone_side: str | None = None) -> list[str]:
-    """The CG name of every bone of this skeleton: body parts recognised by guess() get Mixamo names; unrecognised
-    joints (the model's own helpers) keep their names. Returns a list as long as `names`, with duplicates numbered.
-
-    `lone_side`: see guess(); for a single-hand model whose names do not state the side, it decides left or right."""
-    parts = guess(names, parents, lone_side)
+    parts = guess(names, parents, lone_side, rest, weights)
     out = list(names)
-    recognised = {j for where in parts.values() for j in (where if isinstance(where, list) else [where])}
-    for part, where in parts.items():
-        if isinstance(where, list):
-            for k, j in enumerate(where):
-                out[j] = cg_chain_name(part, k)
-        elif part == "chest" and parts.get("spine"):
-            out[where] = cg_chain_name("spine", len(parts["spine"]))  # the spine's next name: never one of its own
-        elif part in CG_NAMES:
-            out[where] = CG_NAMES[part]
+    named = standard(parts)
+    for j, n in named.items():
+        out[j] = n
+    if others == "rule":
+        from .skeleton_recognition import recognize
+
+        roles = recognize([str(n) for n in names], parents, rest, weights=weights, lone_side=lone_side).roles
+        for j, n in rule_names(parents, named, roles).items():
+            out[j] = n
+        return unique_names(out, first=set(named))
     # an unrecognised end joint without children (the palm joint after SMPL's wrist) is named "<parent>_End" by CG
     # convention (as Mixamo's LeftToe_End, HeadTop_End). This applies only when it is the parent's single end child;
     # when a bone has several end children (the head with the jaw and two eyes), none of them is the head's end and
@@ -597,7 +625,7 @@ def cg_names(names: list[str], parents, lone_side: str | None = None) -> list[st
             out[i] = f"{out[up]}_End"
     # a recognised joint keeps its CG name when an unrecognised one already has it (a helper the model calls Spine1):
     # HumanIK reads the convention's names, the helper's own name matters to no one
-    return unique_names(out, first=recognised)
+    return unique_names(out, first=set(named))
 
 
 def unique_names(names: list[str], first=()) -> list[str]:

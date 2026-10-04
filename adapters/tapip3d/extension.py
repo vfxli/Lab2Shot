@@ -18,18 +18,13 @@ class TAPIP3D(Extension):
     name = "tapip3d"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "TAPIP3D"
-    summary = "单目 RGB 和 RGB-D 视频里的长时前馈三维点跟踪，用一团持久的世界坐标特征云抵掉相机自身的运动"
     homepage = "https://tapip3d.github.io/"
     source = GitSource(url=TAPIP3D_URL, commit=TAPIP3D_COMMIT)
     license = LicenseInfo(
         tag=COMMERCIAL,
-        name="Apache-2.0 + MIT 权重",
         url="https://github.com/zbw001/TAPIP3D/blob/main/LICENSE",
-        summary=(
-            "代码 Apache-2.0，权重（Hugging Face zbww/tapip3d，模型卡写明 MIT）可以商用。只用仓库里的跟踪模型和它自带的 pointops2"
-            "（MIT）近邻算子；它自己从画面估深度和相机的 MegaSaM 流程不装：深度和相机由 Lab2Shot 的节点接进来"
-        ),
     )
+    generative = False
     import_repo = ""  # its `models`, `utils`, `datasets` and `third_party` packages from the pinned repo
     env = EnvSpec(
         python="3.12",
@@ -40,8 +35,7 @@ class TAPIP3D(Extension):
         pickled_checkpoints=True,  # tapip3d_final.pth holds its config next to the weights (pinned, sha256-checked)
     )
     weights = (
-        hf_file(HF_REPO, HF_REVISION, "tapip3d_final.pth", key="tapip3d", sha256=MODEL_SHA256,
-                note="TAPIP3D（MIT，309 MB）"),
+        hf_file(HF_REPO, HF_REVISION, "tapip3d_final.pth", key="tapip3d", sha256=MODEL_SHA256),
     )
 
 

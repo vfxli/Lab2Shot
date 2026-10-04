@@ -1,0 +1,128 @@
+# This extension's words and messages in English (the same keys as zh.toml): written by P1-B.
+# The FBX extension's messages (adapters/fbx). One per line: code = template.
+
+# ---- reading .fbx (worker.py fbx.import)
+"E-FBX-NOFILE" = "Cannot find the file {path}: it was moved or renamed. Pick it again in fbx.import"
+"E-FBX-NOTFBX" = "Cannot read {name}: not a valid FBX file, or the file is incomplete (an export that was cut short, a copy not finished). Export it again from the DCC"
+"W-FBX-NAMEENCODING.one" = "{name} has {count} name (node, take, deformer or user attribute names) not encoded in UTF-8 (most likely written as GBK by software on a Chinese system): characters that could not be read were replaced by �, for example {names}. Paths, Take, deformers and attributes read in after import carry such names: to keep the original names, rename them in English in the DCC or export again in UTF-8"
+"W-FBX-NAMEENCODING.other" = "{name} has {count} names (node, take, deformer or user attribute names) not encoded in UTF-8 (most likely written as GBK by software on a Chinese system): characters that could not be read were replaced by �, for example {names}. Paths, Take, deformers and attributes read in after import carry such names: to keep the original names, rename them in English in the DCC or export again in UTF-8"
+"E-FBX-LEFTHANDED" = "This FBX uses a left-handed coordinate system (as exported with DirectX / Lightwave settings) and cannot be read yet: choose a right-handed coordinate system when exporting (the default in Maya, Max and Blender)"
+"W-FBX-SEVERALRIGS" = "The mesh {path} is bound to several skeletons: only the one it is bound to most is used, the other skeletons do not move it (their weights go to joints of this one)"
+"W-FBX-CLUSTER.one" = "The mesh {path} has {count} skin cluster bound to a node that is not a joint ({names}, most likely a null or helper): that cluster is not read and the vertices' weights on the remaining joints are normalized again; the vertices bound only to it ({orphans}) follow their nearest joint"
+"W-FBX-CLUSTER.other" = "The mesh {path} has {count} skin clusters bound to nodes that are not joints ({names}, most likely nulls or helpers): those clusters are not read and the vertices' weights on the remaining joints are normalized again; the vertices bound only to them ({orphans}) follow their nearest joint"
+"E-FBX-NOSKELETON" = "Every skin cluster of the mesh {path} is bound to nodes that are not joints ({names}, most likely 3ds Max Dummy / Point or CAT helpers): no skeleton moves it, so it cannot be read as a character. Replace those nodes with bones (Bone / Joint) in the DCC and export again"
+"W-FBX-SKINTYPE" = "The mesh {path} uses {skin} skinning: it is read as linear skinning, so the shape at bent joints differs from the DCC's"
+"W-FBX-BINDPOSE" = "The joint {path} is bound at different places in several meshes: the first mesh's is used, so the parts of the other meshes bound to this joint may be offset"
+"E-FBX-NOTAKE" = "The file has no take \"{take}\" (it has {takes}): pick another one in Take of fbx.import"
+"N-FBX-TAKES" = "This FBX has several takes ({takes}): the longest, \"{take}\", is read. To read another, pick it in Take of fbx.import"
+
+# ---- writing .fbx (worker.py fbx.output)
+"E-FBX-SUFFIX" = "The output file must end in .fbx: {path}. Change the file name in fbx.output to .fbx"
+"E-FBX-NOPOINTS" = "FBX holds no point clouds: write point clouds with usd.output or alembic.output (the scene wired here should not hold any)"
+"E-FBX-NOTCMYUP" = "A scene written to FBX must be in centimetres with Y up; this scene has {unit_cm:g} cm per unit or other axes: a program error, please send the log to the developers"
+"E-FBX-POINTCACHE" = "The geometry {path} changes shape every frame (a geometry cache): FBX has no per-frame vertex cache, write it with usd.output or alembic.output"
+"E-FBX-JOINTORDER" = "Skeleton {path}: the parent of joint {joint} comes after it, the skeleton data from upstream is out of order: a program error, please send the log to the developers"
+
+# ---- what the format output nodes write (nodes.py writes)
+"I-FBX-NOVERTEXCACHE" = "FBX has no per-frame vertex cache"
+"I-FBX-NOGROUPS" = "The mesh's groups. FBX has no face sets, faces can only be split by material, which would make up materials; to keep the groups, write USD or Alembic"
+"I-FBX-NOPOINTS" = "FBX has no point clouds"
+"I-FBX-NOCURVES" = "This version does not read or write curves in FBX"
+"I-FBX-NOGAUSSIAN" = "For Gaussian splats, output PLY or USD"
+"I-FBX-NOLIGHT" = "This FBX output writes no lights: a dome light (HDRI) is carried by USD only"
+
+# ---- compiling at install (build.py)
+"E-FBX-NOCOMPILER" = "Cannot find the compiler {name}: install a C++ compiler, or put the compiler's name in cxx of the [build] section of config/local.toml, then run lab2shot ext install fbx"
+"E-FBX-SDKINCOMPLETE" = "The FBX SDK is incomplete: {path} must hold include/fbxsdk.h and lib/release/libfbxsdk.a. Install the Autodesk FBX SDK again: Manual Downloads under Extensions on the admin page, or Install & Environment → Install Manually Downloaded Files in ./setup.sh"
+"E-FBX-REBUILD" = "The FBX extension's code was updated (it needs fbxio version {needed}), but the installed environment was compiled from the old code (version {built}): an administrator installs it again (lab2shot ext install fbx), which compiles the new code"
+"E-FBX-NOPYBIND" = "The pybind11 headers are missing: nothing in {path}/include. Run lab2shot ext install fbx again (it fetches pybind11 again)"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."fbx.import"]
+subtitle = "Import FBX"
+description = "Import an FBX exported from Maya, MotionBuilder, 3ds Max or Unreal: the file's cameras, geometry, skeleton animation and skinned characters (skinning, blend shapes and their animation) are listed by hierarchy, and what you select is output. Units and axes are converted to centimetres with Y up as the file records them, and parent transforms (animation included) are applied."
+
+[node."fbx.import".param.path]
+label = "File"
+
+[node."fbx.import".param.take]
+label = "Take"
+placeholder = "The Longest"
+
+[node."fbx.import".param.camera]
+label = "Camera"
+
+[node."fbx.import".param.models]
+label = "Geometry"
+
+[node."fbx.import".param.skeletons]
+label = "Skeleton Animation"
+
+[node."fbx.import".param.characters]
+label = "Skinned Characters"
+
+[node."fbx.import".port.camera]
+label = "Camera"
+waits = "select a camera"
+
+[node."fbx.import".port.characters]
+label = "Skinned Characters"
+waits = "select a skinned character"
+
+[node."fbx.import".port.skeletons]
+label = "Skeleton Animation"
+waits = "select a skeleton animation"
+
+[node."fbx.import".port.models]
+label = "Geometry"
+waits = "select a geometry"
+
+[node."fbx.import".port.fps]
+label = "FPS"
+help = "The frame rate the FBX records (the scene's time mode). Wire it to FPS of a motion model or a format output node and they follow this file; when the file records none there is no value here and they use their own"
+
+[node."fbx.output"]
+subtitle = "FBX Output"
+description = "Write 3D data as FBX: cameras, still geometry, skeleton animation and skinned characters (skinning and blend shape weight curves), in centimetres with Y up, readable by Maya, MotionBuilder and Unreal. Scene takes several wires, or one scene list (each item written under /shot/<item name>). Wire it into output to have it handed to you."
+
+[node."fbx.output".param.name]
+label = "Name"
+
+[node."fbx.output".param.fps]
+label = "FPS"
+
+[node."fbx.output".port.scene]
+label = "Scene"
+
+[extension.fbx]
+summary = "Autodesk's free C++ SDK for writing plug-ins, converters and applications that convert and exchange 3D assets with FBX technology"
+
+[extension.fbx.license]
+name = "Autodesk FBX SDK License"
+summary = "The FBX SDK belongs to Autodesk and is installed after you read and accept its licence agreement in Manual Downloads (its clause 1.1.1 allows development, research, internal, educational or commercial use; the SDK itself may not be redistributed). pybind11, used to compile, is BSD-3. Installing compiles a small module and needs a C++ compiler on this machine (cxx in the build section of config/local.toml)"
+
+[manual.fbx_sdk]
+title = "Autodesk FBX SDK"
+download = "FBX SDK for Linux (gcc)"
+what = "The development library that reads and writes FBX files"
+note = "Autodesk's licence agreement must be accepted before and after downloading"
+
+[node."fbx.import".cost]
+whole = "Reads one file: the time depends on how much the file holds, not on frames (CPU only)"
+
+[node."fbx.output".cost]
+whole = "Writes one file: the time depends on how much is written, not on frames (CPU only)"
+
+[node."fbx.output".stage]
+prepare_scene = "Prepare Scene"
+
+# ---- the worker's stages (worker.py)
+[stage]
+read_models = "Read Geometry"
+read_skeletons = "Read Skeleton Animation"
+read_fbx = "Read FBX"
+write_fbx = "Write FBX"
+
+[format]
+fbx = "FBX"

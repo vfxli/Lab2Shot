@@ -5,9 +5,12 @@ import type { UploadTask } from "../transfer/uploads";
 import { NodeCopyToNuke } from "../ui/CopyToNuke";
 import { NodeMarks } from "../ui/nodeMarks";
 import { NodeInfoButton, worstLevel } from "./NodeInfoCard";
-import { isLive, STATUS_TEXT } from "../graph/nodes";
+import { isLive, statusText } from "../graph/nodes";
+import { isBlocked, noteText, type Note } from "../model/nodeOutcome";
 import { uploadNote } from "../transfer/uploads";
 import { agoText } from "../platform/format";
+import { nodeRef } from "../graph/naming";
+import { t } from "../i18n/t";
 
 /** 节点最下面那一行：许可标签、节点自己声明的标记、这一轮计算留下的提醒、计算量、给 Nuke 的复制、
  * 状态 / 上传 / 文件那一格，右边「下一步做什么」那句话，和右下角的「数据信息」。
@@ -16,14 +19,14 @@ import { agoText } from "../platform/format";
 interface NodeFootAsk {
   id: string;
   def: NodeTypeDef;
-  data: { label: string; params: Record<string, unknown> };
+  data: { typeId: string; params: Record<string, unknown> };
   commercial: boolean;
   /** 这一轮计算留下了提醒 / 警告（「注意」/「提醒」那一格；内容在数据信息卡片里） */
   warned: boolean;
   warnings: number | boolean;
   compute: { tier: string } | null;
   status: NodeStatus;
-  note: string;
+  note: Note;
   going: UploadTask | null | undefined;
   file: ParamDef | null | undefined;
   /** 「输出」：上一次打包的结果（null：还没有，其「下载」置灰）；其他节点一律为 undefined */
@@ -38,6 +41,11 @@ interface NodeFootAsk {
   reveal: (id: string, param: string, edit?: boolean) => void;
 }
 
+/** The compute tier's words, by the server's tier id (nodes/compute.py TIERS); an id not here is shown as it comes. */
+const TIER_KEY: Record<string, string> = {
+  low: "ui.node.tier.low", medium: "ui.node.tier.medium", high: "ui.node.tier.high", very_high: "ui.node.tier.very_high",
+};
+
 export function NodeFoot({ id, def, data, commercial, warned, warnings, compute, status, note, going, file,
                            output, outputs, rawMessages, needsFirstRow, fileText,
                            select, reveal }: NodeFootAsk) {
@@ -48,7 +56,7 @@ export function NodeFoot({ id, def, data, commercial, warned, warnings, compute,
             不得显示为后者——页面从不自行在多个标签中挑选。 */}
         {!commercial && (
           <span className="nc-badge">
-            {def.at_defaults.licence.word || "非商用"}
+            {def.at_defaults.licence.word || t("ui.node.noncommercial")}
           </span>
         )}
         {/* 节点自身声明的常驻标记（自行决定尺寸的裁切：I-SHAPE-CROP），按级别着色——只有生产风险才是红色；
@@ -61,26 +69,27 @@ export function NodeFoot({ id, def, data, commercial, warned, warnings, compute,
         {warned && (
           <span className="node-mark warn-mark" data-level={warnings ? "W" : "N"}
                 onClick={(e) => (e.stopPropagation(), select(id))}>
-            {warnings ? "注意" : "提醒"}
+            {warnings ? t("ui.node.mark_warning") : t("ui.node.mark_notice")}
           </span>
         )}
         {compute && (
           <span className="gnode-compute" data-tier={compute.tier}>
-            {compute.tier}
+            {TIER_KEY[compute.tier] ? t(TIER_KEY[compute.tier]) : compute.tier}
           </span>
         )}
-        <NodeCopyToNuke node={id} def={def} what={data.label} />
+        <NodeCopyToNuke node={id} def={def} what={id} />
         {/* 「为什么不能算」是一整句话（扩展未安装、该账号不能使用的许可）：它出现在节点的「数据信息」卡片与参数面板中，
             从不出现在底行——底行只有一行，而页面自己的文字从不截断，因此底行不放长文本。标题行的状态字说明
             它不能计算；节点本身置灰。 */}
-        {isLive(status) ? (
-          <span className="gnode-note">{note || STATUS_TEXT[status]}</span>
+        {/* 被「阻断」关着的节点：状态格写「已跳过」，底行写全「已跳过（被阻断）」——是开关关着，不是上游出错（model/nodeOutcome.ts） */}
+        {isLive(status) || isBlocked({ status, note }) ? (
+          <span className="gnode-note">{noteText(note) || statusText(status)}</span>
         ) : going ? (
           <span className={`gnode-file gnode-up ${going.state}`} data-user-data onPointerDown={() => reveal(id, going.param)}>
             {uploadNote(going)}
           </span>
         ) : file ? (
-          // 「输出」的「下载」不在底行：它是按钮参数，默认显示在节点体上（core.output on_node，NodeParamRow.tsx ButtonParam）
+          // 「输出」的「下载」不在底行：它是按钮参数，默认显示在节点体上（output on_node，NodeParamRow.tsx ButtonParam）
           <span className="gnode-file" data-user-data
             onPointerDown={() => reveal(id, file.name)} onDoubleClick={(e) => (e.stopPropagation(), reveal(id, file.name, true))}>
             {fileText(def, file, data.params)}
@@ -90,21 +99,21 @@ export function NodeFoot({ id, def, data, commercial, warned, warnings, compute,
         )}
         <span className="gnode-note">
           {output && !output.gone && output.finished && !isLive(status)
-            ? `${agoText(output.finished)}打包`
+            ? t("ui.node.packed_ago", { ago: agoText(output.finished) })
             : status === "cooked" && note
-              ? note
+              ? noteText(note)
               // 口是从一张表长出来的、而表还是空的（如「多层 EXR 输出设置」：一行「图层」一个输入口）：
               // 这种节点刚放下来时只有输入口列表末尾的「＋」口（GraphNode.tsx AddRowPort），底行说一句它怎么用。
               // 按声明判（`ports_from_side === "inputs"`），不写死某个节点。
               : needsFirstRow
-                ? `点 ＋ 或把线拖到 ＋ 加一${def.ports_from_word}`
+                ? t("ui.node.first_row", { word: def.ports_from_word })
                 : !outputs.length && status === "idle"
-                  ? def.delivers ? "右键「计算」整理打包" : "右键「计算」算出"
+                  ? def.delivers ? t("ui.node.hint_deliver") : t("ui.node.hint_cook")
                   : ""}
         </span>
         {/* 数据信息：节点右下角的小图标是唯一入口，没有快捷键。
             它取节点消息中最高级别的颜色，一眼可见有内容可读。 */}
-        <NodeInfoButton node={id} label={data.label} level={worstLevel(rawMessages)} />
+        <NodeInfoButton node={id} label={nodeRef(id, data.typeId)} level={worstLevel(rawMessages)} />
       </div>
   );
 }

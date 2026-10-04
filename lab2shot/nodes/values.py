@@ -6,5 +6,5 @@ from __future__ import annotations
 from ..data.values import BOOL, FLOAT, INT, TEXT, VECTOR
 
 # the constant node of each type: what the node menu offers first for a wire drawn out of a value parameter
-CONSTANT_NODES = {FLOAT: "core.value_float", INT: "core.value_int", BOOL: "core.value_bool", VECTOR: "core.value_vector",
-                  TEXT: "core.value_text"}
+CONSTANT_NODES = {FLOAT: "value_float", INT: "value_int", BOOL: "value_toggle", VECTOR: "value_vector",
+                  TEXT: "value_string"}

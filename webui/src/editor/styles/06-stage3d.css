@@ -124,8 +124,7 @@
 }
 
 /* The 「骨架姿势」 handle panel (view/skeletonPose.tsx SkeletonPosePanel): the selected joint's translate / rotate / scale
-   values, mirror, reset. In the main viewer it floats at the stage's top right; with the stage in a dialog
-   (view/HandleStage.tsx) it sits below the stage. */
+   values, mirror, reset. It floats at the stage's top right. */
 .stage3d > .pose-panel {
   position: absolute;
   top: 44px;
@@ -179,39 +178,46 @@
   color: var(--orange-text);
 }
 
-/* The stage in a dialog (view/HandleStage.tsx): a bordered 3D view (its height given by the dialog), with the handle
-   modes and the panel below it */
-.handle-stage-wrap {
+/* 骨架树（view/skeletonPose.tsx PoseTree）：关节列表，悬停联动视图高亮 + 手柄；骨点重叠时从列表里选 */
+.pose-tree {
+  max-height: 45vh;
+  min-height: 240px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-/* below a dialog stage: the handle modes (when it can be edited) and its own 框显 */
-.handle-stage-tools {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-
-.handle-stage {
-  position: relative;
-  border-radius: var(--r-md);
-  overflow: hidden;
   border: 1px solid var(--hair);
+  border-radius: var(--r-panel);
+  padding: 4px 0;
+  margin-top: 2px;
 }
 
-.handle-stage > .stage3d-empty {
+.pose-tree-row {
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  border-radius: 4px;
+  color: var(--text-2);
   display: flex;
   align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: var(--text-3);
-  padding: 12px;
+  gap: 2px;
+}
+
+.pose-tree-caret {
+  display: inline-block;
+  width: 14px;
+  flex: none;
   text-align: center;
+  color: var(--text-3);
+}
+
+.pose-tree-caret.leaf {
+  cursor: default;
+}
+
+.pose-tree-row:hover,
+.pose-tree-row.hov {
+  background: var(--hair);
+  color: var(--text-1);
 }
 
 /* a menu row that cannot be chosen now (the reference menu's outputs not cooked yet): greyed, the reason in its tip */

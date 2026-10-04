@@ -4,7 +4,7 @@ never imports Lab2Shot core.
 
     python worker.py <job.json>
 
-Node pixel3dmm.face, upstream's own five steps, each in a process of its own (steps.py), as its
+Node pixel3dmm.face_solve, upstream's own five steps, each in a process of its own (steps.py), as its
 os.system scripts run them (scripts/run_preprocessing.py, network_inference.py, track.py):
 
   1. cropping    PIPNet's FaceBoxes detector on every frame -> ONE square crop box for the
@@ -50,8 +50,8 @@ solved camera's space (space "camera"):
         landmarks_2d    f32  [F,98,2]   PIPNet's WFLW landmarks in the plate's pixels; a frame its
                                    second pass was under 0.99 sure of has zeros, as upstream reads them
     camera.npz          frames, focal_px [F], cam_to_world [F,4,4] (identity), principal_px [F,2]
-    frame_<n>.npz       normal [h,w,3] OpenCV-camera unit normals, uv [h,w,2] FLAME UV 0..1,
-                        valid [h,w] — the crop's rectangle, at its size in the plate
+    frame_<n>.npz       normal [h,w,3] OpenCV-camera unit normals, uv [h,w,2] FLAME UV 0..1, at the crop's
+                        size in the plate; normal_valid / uv_valid [h,w]: upstream's face-parsing masks
 
 Pixel3DMM solves one camera for the whole shot, with its own focal length and principal
 point; the head moves in front of it. The principal point is the crop's centre, so it is off
@@ -110,11 +110,12 @@ def run_step(lay: Layout, step: str, **args) -> None:
     env = {**os.environ, "PIXEL3DMM_EXT_ROOT": str(lay.root)}  # PIXEL3DMM_PEAKS: set in main()
     done = subprocess.run([sys.executable, str(runner), step, json.dumps(args)], env=env)
     if done.returncode != 0:
-        fail("E-PIXEL3DMM-STEP", step=STEP_NAMES[step], code=done.returncode)
+        fail("E-PIXEL3DMM-STEP", step=reason(STEP_NAMES[step]), code=done.returncode)
 
 
-STEP_NAMES = {"crop": "找脸、裁切、面部关键点", "mica": "MICA 估计脸型", "segment": "面部分割",
-              "priors": "预测法线图和规范面部坐标", "track": "拟合 FLAME"}
+# each step's name in a message (E-PIXEL3DMM-STEP's {step}); its stage on the progress bar is the step's own id
+STEP_NAMES = {"crop": "I-PIXEL3DMM-STEPCROP", "mica": "I-PIXEL3DMM-STEPMICA", "segment": "I-PIXEL3DMM-STEPSEGMENT",
+              "priors": "I-PIXEL3DMM-STEPPRIORS", "track": "I-PIXEL3DMM-STEPTRACK"}
 
 
 def prepare_upstream(lay: Layout, work: Path) -> None:
@@ -136,27 +137,36 @@ def link_frames(frames, rgb: Path) -> None:
         link_file(rgb / f"{i:05d}.png", Path(path))
 
 
-def run_cropping(lay: Layout, rgb: Path, count: int) -> np.ndarray:
-    """Step 1. Returns the crop rectangle in the plate's pixels [ymin, ymax, xmin, xmax]."""
-    stage(STEP_NAMES["crop"])
+def run_cropping(lay: Layout, rgb: Path, count: int, width: int, height: int) -> np.ndarray:
+    """Step 1. Returns the crop rectangle in the plate's pixels [ymin, ymax, xmin, xmax] (end exclusive), the pixels
+    upstream actually cropped.
+
+    Upstream crops `image[ymin:ymax, xmin:xmax]` and saves the box as it computed it; when the box runs past the
+    right or bottom edge its pull-back is short by two (pipnet_utils.get_cstm_crop: `xmax - image_width - 1` for
+    `xmax - (image_width - 1)`), so the saved xmax / ymax can be width + 1 / height + 1 while the slice stops at the
+    edge. The saved box is clipped to the frame here: that is the rectangle the 512 crop was resized from, so the
+    intrinsics and the maps pasted back use the pixels that were really there (a face at the bottom edge otherwise
+    puts the maps one row off and their paste-back fails on a shape mismatch)."""
+    stage("crop")
     run_step(lay, "crop", rgb=str(rgb))
     got = len(list((rgb.parent / "cropped").glob("*.png")))
     if got != count:  # a frame with no face, or one under its 0.75 confidence, stops its detector
-        fail("E-PIXEL3DMM-NOFACE", reason=f"只裁出了 {got} / {count} 帧")
-    return np.load(rgb.parent / "crop_ymin_ymax_xmin_xmax.npy").astype(np.int64)
+        fail("E-PIXEL3DMM-NOFACE", reason=reason("N-PIXEL3DMM-CROPPED", got=got, count=count))
+    ymin, ymax, xmin, xmax = np.load(rgb.parent / "crop_ymin_ymax_xmin_xmax.npy").astype(np.int64)
+    return np.array([max(ymin, 0), min(ymax, height), max(xmin, 0), min(xmax, width)], np.int64)
 
 
 def run_mica(lay: Layout, data: Path) -> None:
     """Step 2: the identity prior, from about ten frames of the shot."""
-    stage(STEP_NAMES["mica"])
+    stage("mica")
     run_step(lay, "mica", data=str(data))
     if not any((data / "mica").glob("*/identity.npy")):
-        fail("E-PIXEL3DMM-NOFACE", reason="MICA 在抽查的那几帧里没找到脸")
+        fail("E-PIXEL3DMM-NOFACE", reason=reason("N-PIXEL3DMM-MICANOFACE"))
 
 
 def run_segmentation(lay: Layout, data: Path, count: int) -> None:
     """Step 3: the face parsing map the UV and normal losses are masked by."""
-    stage(STEP_NAMES["segment"])
+    stage("segment")
     run_step(lay, "segment")
     got = len(list((data / "seg_og").glob("*.png")))
     if got != count:
@@ -165,22 +175,23 @@ def run_segmentation(lay: Layout, data: Path, count: int) -> None:
 
 def run_priors(lay: Layout, data: Path, count: int) -> None:
     """Step 4: the normal and UV predictions, one pass of the ViT for each."""
-    for kind, label in (("normals", "预测法线图"), ("uv_map", "预测规范面部坐标")):
-        stage(label)
+    for kind, word, what in (("normals", "predict_normals", "I-PIXEL3DMM-NORMALS"),
+                             ("uv_map", "predict_uv", "I-PIXEL3DMM-UVCOORDS")):
+        stage(word)
         run_step(lay, "priors", kind=kind)
         got = len(list((data / "p3dmm" / kind).glob("*.png")))
         if got != count:
-            fail("E-PIXEL3DMM-PRIOR", kind=kind, got=got, count=count)
+            fail("E-PIXEL3DMM-PRIOR", kind=reason(what), got=got, count=count)
 
 
 def run_tracking(lay: Layout, work: Path, quality: str, focal_norm: float | None) -> tuple[Path, int]:
     """Step 5: the two-stage fit. Returns (the folder it wrote, its render size)."""
-    stage(STEP_NAMES["track"])
+    stage("track")
     wrote = work / "tracked.json"
     run_step(lay, "track", settings=QUALITY[quality], focal_norm=focal_norm,
              out=os.environ["PIXEL3DMM_TRACKING_OUTPUT"], wrote=str(wrote))
     if not wrote.exists():
-        fail("E-PIXEL3DMM-STEP", step=STEP_NAMES["track"], code=0)
+        fail("E-PIXEL3DMM-STEP", step=reason(STEP_NAMES["track"]), code=0)
     said = json.loads(wrote.read_text(encoding="utf-8"))
     return work / "track" / said["folder"] / "checkpoint", int(said["size"])
 
@@ -214,7 +225,7 @@ def read_checkpoints(folder: Path, count: int) -> dict:
         if shape is None:
             shape = np.asarray(ck["flame"]["shape"], np.float64)[0]
             camera = {k: np.asarray(v, np.float64) for k, v in ck["camera"].items()}
-        progress(i + 1, count, "读取跟踪结果")
+        progress(i + 1, count, "read_tracking")
     return {"shape": shape, "camera": camera, **{k: np.stack(v) for k, v in got.items()}}
 
 
@@ -333,13 +344,23 @@ def write_maps(raw: Path, data: Path, numbers, rect: np.ndarray, m_rot: np.ndarr
     The normal map is in the head's own FLAME frame (upstream's README, and its normal loss, which compares the
     prediction against R^T x the rendered world normals): n_camera = M_rot n_head, the same M_rot the head is
     placed by. The UV map is FLAME's own UV, 0..1, as the tracker reads it.
+
+    Where each map holds a value is upstream's own: the tracker uses the priors only inside the face parsing of the
+    crop (seg_og, tracker.read_data): the normals on skin, brows, eyes, nose, lips and mouth interior
+    (normal_mask, big_normal_mask off as configs/tracking.yaml sets it), the UV map on those without the mouth
+    interior, plus neck and ears (uv_mask). Elsewhere (hair, background, clothes) the networks' output is not a
+    face's and is 没有值.
     """
     import cv2
+    from PIL import Image
 
-    stage("写出法线图和 UV 坐标图")
+    stage("write_maps")
     ymin, ymax, xmin, xmax = (int(v) for v in rect)
     size = (xmax - xmin, ymax - ymin)
+    normal_classes, uv_classes = (2, 6, 7, 10, 11, 12, 13), (1, 2, 4, 5, 6, 7, 10, 12, 13)
     for i, f in enumerate(numbers):
+        seg = np.array(Image.open(data / "seg_og" / f"{i:05d}.png"))  # read as upstream reads it (PIL, channel 0)
+        seg = cv2.resize(seg if seg.ndim == 2 else seg[..., 0], size, interpolation=cv2.INTER_NEAREST)
         normal = cv2.imread(str(data / "p3dmm" / "normals" / f"{i:05d}.png"), cv2.IMREAD_COLOR)[:, :, ::-1]
         uv = cv2.imread(str(data / "p3dmm" / "uv_map" / f"{i:05d}.png"), cv2.IMREAD_COLOR)[:, :, ::-1]
         n = cv2.resize(normal.astype(np.float32) / 255.0 * 2.0 - 1.0, size, interpolation=cv2.INTER_LINEAR)
@@ -348,15 +369,16 @@ def write_maps(raw: Path, data: Path, numbers, rect: np.ndarray, m_rot: np.ndarr
         save_npz(raw / f"frame_{f}.npz", normal=n.astype(np.float16),
                  uv=cv2.resize(uv[:, :, :2].astype(np.float32) / 255.0, size,
                                interpolation=cv2.INTER_LINEAR).astype(np.float16),
-                 valid=np.ones(size[::-1], np.float16))
-        progress(i + 1, len(numbers), "写出法线图和 UV 坐标图")
+                 normal_valid=np.isin(seg, normal_classes).astype(np.float16),
+                 uv_valid=np.isin(seg, uv_classes).astype(np.float16))
+        progress(i + 1, len(numbers), "write_maps")
 
 
 # ------------------------------------------------------------------ main
 
 
 def main(job_path: str) -> None:
-    run = Run.start(job_path, "pixel3dmm.face", "Pixel3DMM")
+    run = Run.start(job_path, "pixel3dmm.face_solve", "Pixel3DMM")
     job = run.job
     quality = job.params["quality"]
     focal_px = job.params["focal_px"]  # None: Pixel3DMM solves the focal length itself
@@ -373,7 +395,7 @@ def main(job_path: str) -> None:
     data = work / "data" / VIDEO
     link_frames(job.frames, data / "rgb")
 
-    rect = run_cropping(lay, data / "rgb", len(numbers))
+    rect = run_cropping(lay, data / "rgb", len(numbers), width, height)
     run_mica(lay, data)
     run_segmentation(lay, data, len(numbers))
     run_priors(lay, data, len(numbers))
@@ -381,8 +403,8 @@ def main(job_path: str) -> None:
     crop_w, crop_h = float(rect[3] - rect[2]), float(rect[1] - rect[0])
     checkpoints, size = run_tracking(lay, work, quality, float(focal_px) / crop_w if focal_px else None)
 
-    flame = run.model("FLAME 模型", flame_model, lay)
-    run.stage("整理结果")
+    flame = run.model("load_model", flame_model, lay, stage_params={"model": "FLAME"})
+    run.stage("collect_results")
     ck = read_checkpoints(checkpoints, len(numbers))
     person, m_rot = head_in_camera(flame, ck)
     focal_plate, principal = intrinsics(ck, rect, size)

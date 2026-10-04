@@ -1,0 +1,61 @@
+# HaMeR 手部动作（adapters/hamer/worker.py）。
+
+# ---- 画面和手
+"N-HAMER-NOHANDS" = "「HaMeR 手部动作」在画面里的人身上都没有找到手（手被挡住、太小或在画面外），这次输出是空的：换一段手看得清的镜头，或把画面裁得更接近手"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."hamer.hand_solve"]
+subtitle = "手部动作"
+description = "HaMeR：给画面里每个人的左右手各解出一只 MANO 手（手指关节动画 + 网格），手指细节比全身模型准得多。结果在摄影机空间（官方就是这么给的），填真实焦距手的远近才准；要放进某台摄影机的世界、和全身结果对在一起，后面接「摄影机空间转换」。另出一台「摄影机」：放人用的那台原点、不动的针孔摄影机（焦距 = 「焦距」，留空时按全画幅 50 mm；主点在画面中心），不是解出来的摄影机——三维视图透过它看图像平面、人和画面对得上，模板里当「解算器的摄影机」那一路用。"
+
+[node."hamer.hand_solve".param.rescale_factor]
+label = "手部框放大"
+
+[node."hamer.hand_solve".port.boxes]
+label = "人物框"
+
+[node."hamer.hand_solve".port.keypoints]
+label = "2D 关键点"
+help = "ViTPose+ 在画面上找的每只手 21 个点（手腕 + 五指的指节和指尖），HaMeR 就是靠它们找到手的。画面上的点，不是三维结果的投影：可以直接接「2D 跟踪点输出」交给 3DEqualizer、Nuke，也可以叠在画面上看解出来的人贴不贴。按人分组，一个人一组"
+
+[node."hamer.hand_solve".port.camera]
+label = "摄影机"
+help = "放人用的那台摄影机：原点、不动的针孔摄影机，焦距 = 节点的「焦距」（留空时用解算器自己估的或默认的），主点在画面中心。不是解出来的摄影机：人就放在它的空间里，透过它看图像平面人和画面对得上。当「解算器的摄影机」用，或接「摄影机空间转换」的目标"
+
+[node."hamer.hand_solve".official]
+note = "⓪ **「人物框」是可选输入，直接交给官方代码**（规则：官方函数接受人物框就直接把框交给它；不接受框的项目，在节点图上走「人物框转遮罩」）：官方仓库的 `ViTPoseModel.predict_pose(image, det_results)`（vitpose_model.py:60-72）收的就是人框（xyxy + 分数），官方 demo 自己也是先用 ViTDet 检出人框（demo.py:47-55、:80-87）再喂给它，由它找出手；包内的 `ViTDetDataset(cfg, img, boxes, right)` 收的是手框加左右手标记（vitdet_dataset.py:16-25）。接了框：不再自己检人，按框找手；不接：照官方 demo 的路自己检（同一个 ViTDet-H）。上游逐张图片跑、不认人，我们交的是一整段镜头里每只手一个文件，所以逐帧的框按 IoU 连成轨迹（lab2shot_worker.tracking，和「ViTDet 人物框」节点同一份实现）——那是我们的用法，不是它的输入。① **官方的 MANO 参数就是「蒙皮角色」这个口**，没有另立类型、也没有另加口（SMPL / SMPL-X / MANO / FLAME / MHR 这类参数化人体就是「蒙皮 + 权重 + 骨架动画」，装成「蒙皮角色」，不另立数据类型）。逐项对上（worker.py hand_track）：`hamer/models/hamer.py:108 output['pred_mano_params']` 的 global_orient + hand_pose 变成「蒙皮角色」骨架每帧的关节旋转（npz local_rotations，root 是 global_orient）；betas 变成这只手的静止网格和静止骨架（npz rest_vertices / rest_joints，按 betas 形变过），配 MANO 自己的蒙皮权重（npz skin_weights）；`:131 output['pred_keypoints_3d']` 是同一批 MANO 参数跑出来的 21 个点（16 个骨架关节 + 5 个指尖顶点），我们 worker 用同一个 smplx MANOLayer + joint_map 重算了一遍（worker.py hand_track 的 tips），骨架关节在「蒙皮角色」里、指尖在网格上，**一个数都没丢**。MANO 没有表情，所以「蒙皮角色」上没有融合变形。② `character -> pred_mano_params` 这个符号写在 `hamer/models/hamer.py:108`、不在 demo.py 里，所以这个声明引了三条上游位置（官方入口的 argparse、官方 main、模型吐 MANO 参数那一段）。③ 官方只有 `demo.py:143 scaled_focal_length`（一个焦距，内参而已），它把手放在这个焦距的摄影机空间里，并没有解出一台摄影机。「摄影机」口交出的是放手用的那台原点静止针孔摄影机，登记在 ours。手就留在摄影机空间；要摆进某台摄影机的世界，接核心节点「摄影机空间转换」（camera_space）。"
+
+[node."hamer.hand_solve".official.ours]
+camera = "放人用的针孔摄影机：原点、不动，焦距 = 节点的「焦距」（留空用解算器自己估的 / 默认的），主点在画面中心（families/humans.py plate_camera）"
+
+[extension.hamer]
+summary = "从单目画面恢复手的三维形态；HaMeR 是全 Transformer 架构，比以往的做法明显更准更稳"
+
+[extension.hamer.license]
+name = "MIT（代码）+ MANO 非商用 + 权重仅限研究"
+summary = "仅限研究。HaMeR 代码 MIT；但运行必须用 MANO 手部模型（MANO_RIGHT.pkl），MANO 许可仅限非商用科研/教学/艺术项目，需要在 mano.is.tue.mpg.de 注册后自己下载，禁止再分发。HaMeR 权重作者没有单独写许可，训练数据含 FreiHAND、InterHand2.6M（CC-BY-NC）等非商用数据集，只按研究用途使用。找人用的 ViTDet-H（detectron2）代码和权重 Apache-2.0；找手用的 ViTPose+-H 全身关键点：代码 Apache-2.0，权重随仓库发布（MAE 预训练，MAE 权重为 CC-BY-NC-4.0）；依赖 mmcv 1.3.9、mmpose（ViTPose 分支）Apache-2.0，smplx 代码（MPI 非商用许可，只用来读取 MANO），chumpy MIT。不用 nvdiffrast"
+
+[extension.hamer.weight.hamer-ckpt]
+note = "HaMeR ViT-H 模型（2.7 GB，仅限研究）"
+
+[extension.hamer.weight.hamer-config]
+note = "HaMeR 模型配置"
+
+[extension.hamer.weight.mano-mean-params]
+note = "MANO 平均姿态（HaMeR 自带）"
+
+[extension.hamer.weight.vitpose-huge-wholebody]
+note = "ViTPose+-H 全身关键点，用来找手（3.8 GB）"
+
+[extension.hamer.weight.vitdet]
+note = "人物检测 ViTDet-H（Apache-2.0，2.8 GB）"
+
+[extension.hamer.weight.vitpose-configs]
+note = "ViTPose 源码（只用其中的模型配置文件，Apache-2.0）"
+
+# ---- worker 的计算阶段（worker.py）
+[stage]
+detect_people = "ViTDet 检测人物"
+find_hands = "找手并重建"
+reconstruct_hands = "重建手部"

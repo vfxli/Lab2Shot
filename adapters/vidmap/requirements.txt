@@ -1,0 +1,27 @@
+numpy==1.26.4
+scipy==1.15.3
+pillow==11.3.0
+opencv-python-headless==4.11.0.86
+h5py==3.14.0
+pydantic==2.11.7
+hydra-core==1.3.2
+omegaconf==2.3.0
+pyyaml==6.0.2
+tqdm==4.67.1
+natsort==8.4.0
+evo==1.31.1
+matplotlib==3.10.3
+huggingface-hub==0.36.0
+safetensors==0.5.3
+accelerate==1.8.1
+einops==0.8.1
+addict==2.4.0
+requests==2.32.4
+pycolmap==4.2.0
+pybind11==3.0.2
+scikit-build-core==0.11.6
+wheel==0.45.1
+OpenEXR==3.4.15
+poselib @ git+https://github.com/PoseLib/PoseLib.git@48b0fdd032534f1d76ffb5bc1536b337d5517c50
+lightglue @ git+https://github.com/cvg/LightGlue.git@c2f8561576f0160b2cdaa3e4634b6b61d6cf6cb8
+geocalib @ git+https://github.com/cvg/GeoCalib.git@982f625d822fbb2b50c65d123fd1362a5c01ec2c

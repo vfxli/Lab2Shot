@@ -46,25 +46,39 @@ textarea.field.fb-note {
   border-top: 0.5px solid var(--hair);
 }
 
+/* the answer's rows are the site's 「标签 + 控件」 row (ui/LabelRow.tsx) in the answer's LabelGrid */
 .fb-status-row {
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
+  --lrow-gap: 10px;
+}
+
+.fb-status-row .who-label {
+  color: var(--text-2);
+  font-size: 13px;
 }
 
 .fb-answer {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  row-gap: 10px;
   padding: 12px;
   border-radius: var(--r-md);
   background: var(--raised);
 }
 
-.fb-answer .fb-status-row,
-.fb-detail .fb-status-row {
-  grid-template-columns: 64px minmax(0, 1fr);
+/* the rating (评定) in the answer: the choice, then what it did or what it means, beside it */
+.fb-rate-row {
+  align-items: center;
+}
+
+.fb-rate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.fb-rate .tpl-desc {
+  flex: 1;
+  min-width: 240px;
 }
 
 /* a feedback's screenshots in the detail sheet: small by default, one opens to the sheet's width when clicked

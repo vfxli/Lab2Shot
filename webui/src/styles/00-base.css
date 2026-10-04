@@ -95,3 +95,44 @@ input {
     transform: rotate(360deg);
   }
 }
+
+/* The one scrollbar, everywhere (menus, panels, dialogs, lists, tables): thin, a rounded thumb, no arrow buttons, no
+   track, a step brighter and wider under the pointer; colours are tokens. The thumb is drawn inside a transparent
+   border, so it sits off the box's edge, and the track stops short of both ends, so in a rounded box (a menu, a dialog)
+   it never reaches into a corner or past the curve. Nothing else styles a scrollbar.
+   Chrome / Edge read the ::-webkit-scrollbar parts; Firefox (which has none of them) reads scrollbar-width / -color.
+   The standard properties are given to Firefox only: in Chrome, setting them switches the ::-webkit-scrollbar parts off. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-track {
+  margin: 10px;
+}
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+::-webkit-scrollbar-thumb {
+  min-height: 28px;
+  min-width: 28px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--scroll-thumb) padding-box;
+}
+::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:active {
+  border-width: 1px;
+  background-color: var(--scroll-thumb-hover);
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) transparent;
+  }
+}

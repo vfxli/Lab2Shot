@@ -1,6 +1,0 @@
-{
- "luxdit.light_probe": {
-  "label": "LuxDiT HDRI",
-  "description": "画面 → 整个环境的 HDRI（经纬图 EXR），由视频扩散模型一次生成（NVIDIA LuxDiT）。室内灯光的高光范围很大；画面外的环境是模型猜的，对随机种子敏感，长焦镜头超出它训练的视角范围，结果不稳。外景阴天、长焦镜头用「DiffusionLight HDRI」；本节点仅限研究，不能用于生产。"
- }
-}

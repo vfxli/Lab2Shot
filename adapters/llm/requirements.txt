@@ -1,0 +1,8 @@
+# LLM environment（llama-cpp-python 不在这里：它要按 GGML_CUDA 从源码编译，
+# CMAKE_ARGS 和 pip CUDA 工具链都在 build.py 里，文本进环境指纹，改了重装重编）。
+# 这里只有编译的引导件（scikit-build-core 读 CMAKE_ARGS，cmake / ninja 是它的构建工具），
+# 和 llama-cpp-python 自身的依赖由 uv 随包带上（typing-extensions、numpy、diskcache、jinja2）。
+
+cmake>=3.21
+ninja
+scikit-build-core

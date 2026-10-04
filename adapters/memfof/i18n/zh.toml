@@ -1,0 +1,35 @@
+# 这个扩展包自己的界面字和消息（中文）。
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[stage]
+compute_flow = "计算光流（{width}×{height}）"
+flow = "光流"
+
+[node."memfof.flow"]
+subtitle = "运动向量"
+description = "MSU 的 MEMFOF：三帧一起看，一次算出每一帧到下一帧、上一帧的运动向量（Nuke 的 motion 通道，像素 / 帧），1080p 整帧不切块、显存很省，可以商用。接「遮挡遮罩」得到遮挡，接「运动向量变形」「运动向量转 ST-map」做推帧和贴图传播。"
+
+[node."memfof.flow".param.resolution]
+label = "处理分辨率"
+placeholder = "原尺寸"
+
+[node."memfof.flow".param.resolution.option]
+960 = "960"
+1920 = "1920"
+
+[node."memfof.flow".official]
+note = "三帧一起进、中间那帧的前向和后向矢量一起出（model.py:108「flow: List of flow predictions of shape [B, 2, 2, H, W]」）；两个方向都在我们的运动向量包里，不是两个口。"
+
+[extension.memfof]
+summary = "面向 Full HD 视频的省显存光流方法，精度高而显存占用低"
+
+[extension.memfof.license]
+name = "BSD-3-Clause"
+summary = "代码和权重（Hugging Face 模型卡写明 bsd-3-clause）都是 BSD-3：可以商用、修改和再分发，保留版权声明即可。只用作者自己发布的权重，不用 PTLFlow 重新训练的那一份（那份是 CC BY-NC-SA，非商用）"
+
+[extension.memfof.weight.memfof_tskh]
+note = "MEMFOF-Tartan-T-TSKH（BSD-3，303 MB；作者推荐用于真实视频）"
+
+[extension.memfof.weight.memfof_tskh_config]
+note = "MEMFOF 网络配置"

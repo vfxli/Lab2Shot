@@ -202,7 +202,7 @@ def main(job_path: str) -> None:
     checkpoint, metric, encoder = MODELS[model_name]
     ckpt_dir = job.weights_dir / "checkpoints"
     run.weights(ckpt_dir / checkpoint)
-    model = run.model("Video Depth Anything 模型", load_model, ckpt_dir / checkpoint, encoder, metric)
+    model = run.model("load_model", load_model, ckpt_dir / checkpoint, encoder, metric, stage_params={"model": "Video Depth Anything"})
 
     transform = make_transform(height, width, resolution)
     loader = frame_loader(frames.paths, (height, width), transform)
@@ -210,7 +210,7 @@ def main(job_path: str) -> None:
     if len(frames) < 32:
         say("N-VIDEODEPTHANYTHING-SHORTSHOT", count=len(frames))
 
-    run.stage("估计深度")
+    run.stage("estimate_depth")
     kind = KIND[metric]
     n = len(frames)
     writer = Writer(threads=2, max_pending=8)
@@ -226,7 +226,7 @@ def main(job_path: str) -> None:
         stats["max"] = max(stats["max"], float(full.max()))
         stats["median"].append(float(np.median(depth)))
         writer.npz(raw / f"frame_{frames.numbers[i]}.npz", depth=full, kind=np.str_(kind))
-        progress(i + 1, n, "深度")
+        progress(i + 1, n, "depth")
     writer.close()
     loader.close()
 

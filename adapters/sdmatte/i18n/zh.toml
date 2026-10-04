@@ -1,0 +1,36 @@
+# SDMatte extension: its words and messages in Chinese (the same keys as en.toml).
+
+[node."sdmatte.matte"]
+subtitle = "精细抠像"
+description = "可商用的精细抠像：粗遮罩只用来指出抠哪一个，不用画三分图，SDMatte 自己重算整张发丝级 alpha。按 1024 方图计算再缩回原尺寸；逐帧独立算，前后帧会轻微呼吸。"
+official.note = "aux_input 就是「粗遮罩」那一路：aux_input_type 取 mask / bbox_mask / point_mask，节点的「提示」选的就是它。上游只出 alpha。"
+licence.note = "代码和模型权重都是 MIT，可以商用；训练数据里有仅限研究的数据集，严格的商业交付前建议做一次法务确认。"
+
+[node."sdmatte.matte".param.guide]
+label = "提示"
+option.mask = "遮罩"
+option.box = "框"
+
+[node."sdmatte.matte".param.resolution]
+label = "处理分辨率"
+
+[node."sdmatte.matte".param.transparent]
+label = "半透明主体"
+
+[extension.sdmatte]
+summary = "扩散模型驱动的交互式抠像，把文字驱动的交互换成视觉提示驱动的交互；可商用"
+license.name = "MIT（代码和模型权重）"
+license.summary = "可商用：仓库是 MIT，Hugging Face 上的模型权重页也写 license: mit。网络结构从 Stable Diffusion 2 改来，但我们只下载作者自己训练的 SDMatte.pth，不下载、也不装 Stability AI 的任何模型权重文件。训练数据里有 Composition-1K、RefMatte 等只许研究用的数据集，严格的商业交付前建议做一次法务确认"
+weight.sdmatte.note = "SDMatte 模型权重（12 GB，MIT）：作者训练的 U-Net、VAE 和文字编码器，Stable Diffusion 的原模型权重一个都不下载"
+weight."config/unet/config.json".note = "SDMatte 的网络配置"
+weight."config/vae/config.json".note = "SDMatte 的网络配置"
+weight."config/text_encoder/config.json".note = "SDMatte 的网络配置"
+weight."config/scheduler/scheduler_config.json".note = "SDMatte 的网络配置"
+weight."config/tokenizer/tokenizer_config.json".note = "SDMatte 的网络配置"
+weight."config/tokenizer/special_tokens_map.json".note = "SDMatte 的网络配置"
+weight."config/tokenizer/vocab.json".note = "SDMatte 的网络配置"
+weight."config/tokenizer/merges.txt".note = "SDMatte 的网络配置"
+
+# worker progress (worker.py)
+[stage]
+matte = "抠像"

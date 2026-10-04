@@ -60,7 +60,7 @@ ViPE 从未受约束的原始视频估计相机内参、相机运动，以及稠
      解出来的尺度锚和上游一趟跑完 `default` / `dav3` 时不一样。
   3. **没有「遮罩」输出口**。官方落盘的是 `instance` 编号图和它的词表两样，
      「把会动的物体合成一张遮罩」是额外的用法，所以做成图上一个显式的小工具节点
-     （「分割转遮罩」`core.segment_select`），不占解算器的口。
+     （「分割转遮罩」`mask_from_segments`），不占解算器的口。
 
 **出处**：简介来自 `third_party/vipe/repo/README.md`（`ViPE estimates camera intrinsics, camera motion, and dense near-metric depth maps from unconstrained raw videos, including pinhole, wide-angle, and 360-degree panorama footage.`）；
 输入输出依据同一份 README、`repo/vipe/streams/base.py`、`repo/vipe/utils/io.py`、`repo/vipe/pipeline/pose_only.py`、
@@ -81,6 +81,7 @@ ViPE 从未受约束的原始视频估计相机内参、相机运动，以及稠
   - 要一张遮罩（比如「只要会动的物体」）就接「分割转遮罩」，在参数里点类别；再接「图像合成」（运算选「留下」）
     就能把运动物体那块遮掉送给别的解算器。
   - 边是硬边（0 / 1 的选区），不是发丝级抠像；要软边接「MatAnyone 2 精细抠像」精修。它按 GroundingDINO 的那几个词找物体，词表里没有的运动物体找不出来。
+- 片段太短时的提示：SLAM 要先攒够 warmup（默认 8）个关键帧才开始优化。少于这个数（或全局 BA 一条边都没有）时轨迹会塌成几厘米、焦距停在 GeoCalib 初值附近，节点照常交出结果但给警告 W-VIPE-UNCONVERGED（填了焦距时是 W-VIPE-UNCONVERGEDFOCAL），result.json 里 `slam_converged=false`。够 8 个但不到 16 个（第一次前端中途带内参 BA 的关键帧数）且没填焦距时给 W-VIPE-FOCALUNSETTLED：轨迹能用、焦距可能偏很多。实测：3DPW crossStreets 20–79（60 帧）只有 2 个关键帧，平移最大 0.8 cm、fx 1543 对 GeoCalib 初值 1557；TUM fr1_desk 320–339（20 帧）8 个关键帧，轨迹形状对，fx 710 对真值 517。
 - 「ViPE 相机解算」的「点云」是 SLAM 的地图，**每个关键帧一份**（上游就是按关键帧分块存的）：
   在三维视图里能看见它解算时抓到的那些点，也是判断这次解算靠不靠谱的依据。
 - 模式：

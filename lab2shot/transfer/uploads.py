@@ -26,7 +26,7 @@ id 由文件内容和名称计算得出：同一账号再次上传相同的文�
 两个账号上传相同的文件得到相同的 id（由内容计算）、两个文件夹、两份字节，各自只链接该账号自己发送的字节：
 一方之后发送的内容不会改变另一方读取的内容，一方也无法通过「上传瞬间完成」推断另一方有没有这个文件（`kept` 只看
 本账号的 blob）。决定账号可读取内容的位置只有一处：`resolve()`，所有读取方都经过它（节点经过 PlanEnv.upload，见
-lab2shot/catalog.py）。它针对当前服务的账号回答（lab2shot/serving.py，一个 Account）：其他账号的上传视为不存在，
+lab2shot/site/catalog.py）。它针对当前服务的账号回答（lab2shot/serving.py，一个 Account）：其他账号的上传视为不存在，
 与已被清理的上传完全相同：相同的消息、相同的节点级失败，且其文件不会被打开，甚至不用于识别。上层不单独询问归属。
 仅知道 sha 或上传 id 也不够（kept、has_blob、part_state 同样需要账号）。
 
@@ -51,6 +51,7 @@ from pathlib import Path, PurePosixPath
 
 import numpy as np
 
+from .. import i18n
 from ..data.packet import used
 from ..errors import Invalid, NotFound
 from ..io.atomic import write_text
@@ -59,6 +60,7 @@ from ..io.sequence import IMAGE_EXTS, FrameSequence, find_sequence, is_pattern, 
 from ..messages import Msg
 from ..serving import account
 from . import BODY_MAX, relative_name
+from ..io.digest import sha256
 
 PREFIX = "upload:"
 # an upload's manifest (and its declared one) is read, merged and written back: one request at a time per (account,
@@ -95,13 +97,13 @@ def blob_path(sha: str, user_id: int) -> Path:
 
 
 def of_account(user_id: int) -> list[dict]:
-    """某账号的上传，按时间倒序（lab2shot/resources.py 的登记表用它列出「上传的素材」）：每项为 {key, kind, at}，
+    """某账号的上传，按时间倒序（lab2shot/site/resources.py 的登记表用它列出「上传的素材」）：每项为 {key, kind, at}，
     即一份上传（其在账号 `sets/` 中的文件夹，key 为 upload:<id>/<name>）。"""
     out = []
     for manifest in _manifests(_sets(user_id)):
         try:
             data = json.loads(manifest.read_text(encoding="utf-8"))
-            out.append({"key": f"{PREFIX}{manifest.stem}/{data.get('name') or ''}", "kind": "上传", "at": manifest.stat().st_mtime})
+            out.append({"key": f"{PREFIX}{manifest.stem}/{data.get('name') or ''}", "kind": i18n.t("transfer.upload"), "at": manifest.stat().st_mtime})
         except (OSError, ValueError):
             pass
     return sorted(out, key=lambda r: -float(r["at"] or 0))
@@ -187,7 +189,7 @@ class Moved(Exception):
     """分段不在请求声明的起始位置（期间有其他请求向其追加）：实际位置为 `offset`。"""
 
     def __init__(self, offset: int) -> None:
-        super().__init__(f"这个文件已经传到第 {offset} 字节")
+        super().__init__(f"the file is already at byte {offset}")
         self.offset = offset
 
 
@@ -467,7 +469,7 @@ def set_id(name: str, files: dict[str, str]) -> str:
     申报的响应中带有服务器计算的 `ref`，网页按其写入。 """
     files = _named(files)
     key = json.dumps([_name(name) if name else "", sorted(files.items())], ensure_ascii=False)
-    return hashlib.sha256(key.encode()).hexdigest()[:ID_LEN]
+    return sha256(key)[:ID_LEN]  # the page and the client work out the same: SHA-256 of this text (io/digest.py)
 
 
 def make_set(name: str, files: dict[str, str], origin: dict, user_id: int) -> str:

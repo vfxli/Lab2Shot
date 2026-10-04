@@ -1,8 +1,11 @@
-import { CHOICES, CHOICE_TIPS, type ViewOptions } from "../model/viewOptions";
+import { CHOICES, type ViewOptions } from "../model/viewOptions";
+import { t } from "../i18n/t";
 import type { ViewControl } from "../model/viewControls";
 import { type SegmentOption } from "./Button";
 import { Num } from "./controls";
 import { coerce } from "../model/numbers";
+import { tipOf } from "../platform/tips";
+import { LabelRow } from "./LabelRow";
 
 /** 显示选项面板的行与小组件（ui/DisplayOptions.tsx 及其各页共用）：行布局、滑块、色标；数字输入是页面唯一的那个（ui/controls.tsx Num）。
  * 只使用组件库的组件和 ui/displayoptions.css 中的类，不新增样式。
@@ -14,27 +17,24 @@ export type O = ViewOptions;
 export type Patch = (patch: Partial<O>) => void;
 /** 该控件当前不可用的原因（`""` 表示可用）：面板各页只调用此函数。 */
 export type Off = (control: ViewControl) => string;
-/** 视图当前绘制的内容（三维的种类；二维：人物框 boxes、跟踪点 tracks2d、节点手柄 handle）。 */
-export type Has = (...what: string[]) => boolean;
 
-/** 一项设置的各选项及其作用（model/viewOptions.ts CHOICES、CHOICE_TIPS）；`off` 非空时整组置灰。 */
+/** 一项设置的各选项（model/viewOptions.ts CHOICES）；`off` 非空时整组置灰，原因是每一项的悬停提示。 */
 export const choices = <K extends keyof typeof CHOICES>(key: K, off = ""): SegmentOption<keyof (typeof CHOICES)[K] & string>[] =>
   (Object.keys(CHOICES[key]) as (keyof (typeof CHOICES)[K] & string)[]).map((value) => ({
     value,
-    label: CHOICES[key][value] as string,
-    tip: CHOICE_TIPS[key][value],
+    label: t(CHOICES[key][value] as string),
     disabled: off || false,
   }));
 
-/** 一行：名称 + 控件。`off` 为当前不可用的原因：整行置灰、位置不变，原因显示在该行的悬停提示中。 */
-export function Row({ label, tip, off = "", children }: { label: string; tip: string; off?: string; children: React.ReactNode }) {
+/** 一行：名称 + 控件。`off` 为当前不可用的原因：整行置灰、位置不变，原因显示在该行的悬停提示中（可用时没有提示）。 */
+export function Row({ label, off = "", children }: { label: string; off?: string; children: React.ReactNode }) {
+  // the site's one 「标签 + 控件」 row (ui/LabelRow.tsx): the label column is the panel's longest label (.vo-body is a
+  // LabelGrid), a label too long for it cut and whole on hover, never over the control
   return (
-    <div className={off ? "vo-row off" : "vo-row"} aria-disabled={off ? true : undefined}>
-      <span className="vo-label" data-tip={off || tip}>
-        {label}
-      </span>
-      <div className="vo-ctl">{children}</div>
-    </div>
+    <LabelRow className={off ? "vo-row off" : "vo-row"} aria-disabled={off ? true : undefined}
+      label={label} labelClass="vo-label" labelTip={tipOf("disabled", off)} ctlClass="vo-ctl">
+      {children}
+    </LabelRow>
   );
 }
 
@@ -49,7 +49,6 @@ export function Slider({ value, onChange, min, max, unit, log = false, digits = 
     <div className="vo-slider">
       <input
         type="range"
-        data-tip={`拖动调整；右边可以输入（${min}–${max}${unit ? ` ${unit}` : ""}）`}
         min={0}
         max={1000}
         value={Math.round(t * 1000)}

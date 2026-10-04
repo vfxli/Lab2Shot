@@ -20,8 +20,6 @@ class Delight(WorkerNode):
         cite="third_party/opendelight/repo/test.py:248-300",
         takes={"image": "img_path"},
         gives={"basecolor": "output_face_torch", "mask": "final_mask"},
-        note="上游把两样存成同一张 RGBA（save_image(torch.cat([res_torch, final_mask[:, :1]], dim=1))，第 293-300 行）；"
-             "我们拆成两个口。上游自己跑抠像和人脸对齐，不吃遮罩。",
     )
     on_node = ("resolution", "enhancer")
     # 正面或接近正面、脸够大；一帧只处理一张脸，一帧一帧单独算（视频会闪）；
@@ -29,17 +27,17 @@ class Delight(WorkerNode):
     inputs = (rgb_port(),)
     # 「基础色」的口名和标签在 kit/ports.py 写一次：CG 流程里 basecolor 就是 albedo，
     # 和 DiffusionRenderer 的「基础色」是同一样东西
-    outputs = (basecolor_port(), Port("mask", "image.1", "遮罩"))
+    outputs = (basecolor_port(), Port("mask", "image.1"))
     runtime = "opendelight"
     # 峰值见 PEAK_VRAM_GB（1920×1080 最高）；逐帧算、不随帧数涨
     cost = Cost(gpu=True, vram_gb=PEAK_VRAM_GB, seconds_per_frame=0.15)
 
     class Params(NodeParams):
-        enhancer: bool = P(True, label="细节增强", group="去光照")
+        enhancer: bool = P(True, group="delight")
         resolution: Literal[512] = measured_param(
-            "处理分辨率", {512: Measured(gb=PEAK_VRAM_GB)}, default=512,
-            group="去光照")
-        smooth_landmarks: bool = P(True, label="关键点平滑", group="去光照")
+            {512: Measured(gb=PEAK_VRAM_GB)}, default=512,
+            group="delight")
+        smooth_landmarks: bool = P(True, group="delight")
 
     missing_frames = MissingFrames.SKIP
 
@@ -48,7 +46,7 @@ class Delight(WorkerNode):
         return frame_maps(ctx, raw, job.plate, {
             "basecolor": basecolor_map("basecolor"),  # display-referred sRGB-ish from the network
             "mask": ("image.1", "alpha", None),
-        }, stage="写出基础色")
+        }, stage="write_basecolor")
 
 
 NODES = (Delight,)

@@ -17,6 +17,8 @@
  *   写法错误、用到不存在的参数名都不成立（照常显示、可改，编辑器标红：conditionProblem）。`judge` 是两边共用用例的口径，
  *   对空表达式答 true，不能直接拿来判 Hide / Disable。 */
 
+import { pick, t } from "../i18n/t.ts";
+
 export class ConditionError extends Error {
   why: string;
   at: number; // 出错的位置（第几个字，从 0 数）
@@ -69,11 +71,11 @@ function tokens(text: string): Tok[] {
       i++;
       while (i < n && digit(chars[i])) i++;
       if (chars[i] === ".") {
-        if (!digit(chars[i + 1])) throw new ConditionError("小数点后面要有数字", i);
+        if (!digit(chars[i + 1])) throw new ConditionError(t("ui.conditions.decimal_digits"), i);
         i++;
         while (i < n && digit(chars[i])) i++;
       }
-      if (i - start > MOST_DIGITS) throw new ConditionError(`数字太长（最多 ${MOST_DIGITS} 个字符）`, start);
+      if (i - start > MOST_DIGITS) throw new ConditionError(t("ui.conditions.number_too_long", { most: MOST_DIGITS }), start);
       out.push({ kind: "num", value: Number(chars.slice(start, i).join("")), at: start });
       continue;
     }
@@ -85,7 +87,7 @@ function tokens(text: string): Tok[] {
         s += chars[i];
         i++;
       }
-      if (i >= n) throw new ConditionError("字符串没有结束的引号", start);
+      if (i >= n) throw new ConditionError(t("ui.conditions.unclosed_quote"), start);
       i++;
       out.push({ kind: "str", value: s, at: start });
       continue;
@@ -107,14 +109,14 @@ function tokens(text: string): Tok[] {
       i++;
       continue;
     }
-    if (c === "=") throw new ConditionError("相等要写两个等号 ==", start);
-    throw new ConditionError(`不认识的字符「${c}」`, start);
+    if (c === "=") throw new ConditionError(t("ui.conditions.double_equals"), start);
+    throw new ConditionError(t("ui.conditions.unknown_char", { char: c }), start);
   }
   out.push({ kind: "end", value: null, at: n });
   return out;
 }
 
-const said = (t: Tok) => (t.kind === "str" ? `"${t.value}"` : t.kind === "end" ? "结尾" : String(t.value));
+const said = (tok: Tok) => (tok.kind === "str" ? `"${tok.value}"` : tok.kind === "end" ? t("ui.conditions.end") : String(tok.value));
 
 // 括号与 not 最多嵌套几层（服务端 conditions.MOST_NESTED）：超过即为写法错误
 const MOST_NESTED = 32;
@@ -137,7 +139,7 @@ class Parser {
     return t.kind === kind && (value === undefined || t.value === value);
   }
   private deeper(at: number): void {
-    if (++this.depth > MOST_NESTED) throw new ConditionError(`括号或 not 套得太深（最多 ${MOST_NESTED} 层）`, at);
+    if (++this.depth > MOST_NESTED) throw new ConditionError(t("ui.conditions.too_deep", { most: MOST_NESTED }), at);
   }
   private expect(kind: Tok["kind"], value: string, why: string): void {
     if (!this.is(kind, value)) throw new ConditionError(why, this.peek().at);
@@ -145,7 +147,7 @@ class Parser {
   }
   whole(): CondNode {
     const node = this.or();
-    if (!this.is("end")) throw new ConditionError(`「${said(this.peek())}」放在这里不对`, this.peek().at);
+    if (!this.is("end")) throw new ConditionError(t("ui.conditions.misplaced", { token: said(this.peek()) }), this.peek().at);
     return node;
   }
   private or(): CondNode {
@@ -191,7 +193,7 @@ class Parser {
     return a;
   }
   private items(): CondNode[] {
-    this.expect("op", "[", "in 后面要跟方括号列表，例如 in [1, 2]");
+    this.expect("op", "[", t("ui.conditions.in_list"));
     const out: CondNode[] = [];
     if (this.is("op", "]")) {
       this.take();
@@ -203,33 +205,33 @@ class Parser {
         this.take();
         continue;
       }
-      this.expect("op", "]", "列表少了右方括号 ]，或者两项之间少了逗号");
+      this.expect("op", "]", t("ui.conditions.list_unclosed"));
       return out;
     }
   }
   private operand(): CondNode {
-    const t = this.peek();
-    if (t.kind === "num" || t.kind === "str") {
+    const tok = this.peek();
+    if (tok.kind === "num" || tok.kind === "str") {
       this.take();
-      return { k: "lit", v: t.value };
+      return { k: "lit", v: tok.value };
     }
-    if (t.kind === "kw" && (t.value === "true" || t.value === "false")) {
+    if (tok.kind === "kw" && (tok.value === "true" || tok.value === "false")) {
       this.take();
-      return { k: "lit", v: t.value === "true" };
+      return { k: "lit", v: tok.value === "true" };
     }
-    if (t.kind === "name") {
+    if (tok.kind === "name") {
       this.take();
-      return { k: "name", n: String(t.value) };
+      return { k: "name", n: String(tok.value) };
     }
-    if (t.kind === "op" && t.value === "(") {
+    if (tok.kind === "op" && tok.value === "(") {
       this.deeper(this.take().at);
       const node = this.or();
-      this.expect("op", ")", "少了右括号 )");
+      this.expect("op", ")", t("ui.conditions.paren_unclosed"));
       this.depth--;
       return node;
     }
-    if (t.kind === "end") throw new ConditionError("表达式没写完", t.at);
-    throw new ConditionError(`「${said(t)}」放在这里不对`, t.at);
+    if (tok.kind === "end") throw new ConditionError(t("ui.conditions.unfinished"), tok.at);
+    throw new ConditionError(t("ui.conditions.misplaced", { token: said(tok) }), tok.at);
   }
 }
 
@@ -237,6 +239,22 @@ class Parser {
 export function parseCondition(text: string | null | undefined): CondNode | null {
   if (blank(text)) return null;
   return new Parser(String(text)).whole();
+}
+
+/** The expression with every use of the name `from` written as `to` (two parameter-interface entries merged into one:
+ * the one that goes is called by the one that stays). Only names are touched, never a quoted text or a keyword; an
+ * expression that does not read comes back as it is (the editor marks it). */
+export function renamedInCondition(text: string, from: string, to: string): string {
+  let toks: Tok[];
+  try {
+    toks = tokens(text);
+  } catch {
+    return text;
+  }
+  const chars = [...text];
+  const width = [...from].length;
+  for (const tk of [...toks].reverse()) if (tk.kind === "name" && tk.value === from) chars.splice(tk.at, width, to);
+  return chars.join("");
 }
 
 /** 表达式用到的参数名（按出现先后，不重复）。 */
@@ -373,6 +391,12 @@ export function shownOptions<T extends { hide_when?: string }>(options: T[], val
   return options.filter((o) => !conditionHolds(o.hide_when, values));
 }
 
+/** 公开下拉的一项现在是不是置灰：作者给它写的 disable_when 成立时给作者写的为什么（disable_why），否则 null。
+ * 服务端 engine/templates.py hidden_values 同一规则（命令行 / 插件设不进这一项）。 */
+export function optionDisabled(o: { disable_when?: string; disable_why?: unknown }, values: Record<string, unknown>): string | null {
+  return o.disable_when !== undefined && conditionHolds(o.disable_when, values) ? (pick(o.disable_why) || o.disable_when) : null;
+}
+
 /** 公开下拉的当前值被它自己那一项的 hide_when 藏起时落到哪儿（conditions.py settled 同一规则
  * settled 两边都跑）：落到按当时的值第一个列出的选项；全被藏起的不动。一个落了位会让别的条件变，所以按新值再看，直到没有
  * 一个停在被藏起的项上（不动点）；回到见过的一组值时（循环），在落过位的下拉里按界面顺序、选项顺序找第一组谁都不停在
@@ -429,27 +453,35 @@ export interface SpecLike {
 /** 数字、布尔、文字写成服务端 Python 的样子（`str()` / `:g`）：说明文字两边一字不差。 */
 const pyText = (v: unknown): string => (typeof v === "boolean" ? (v ? "True" : "False") : String(v));
 
+/** What a value of the wrong kind is told, by the target parameter's type. */
+const WANT_KEY: Record<string, string> = {
+  boolean: "ui.conditions.want_boolean",
+  integer: "ui.conditions.want_integer",
+  number: "ui.conditions.want_number",
+  string: "ui.conditions.want_string",
+};
+
 /** 目标参数收不收这个值（null：收）——engine/templates.py _refuses。 */
 export function valueRefused(p: SpecLike, v: unknown): string | null {
-  if (v === null || v === undefined) return p.nullable ? null : "这个参数不能为空";
+  if (v === null || v === undefined) return p.nullable ? null : t("ui.conditions.not_null");
   const fits = p.type === "boolean" ? typeof v === "boolean" : p.type === "integer" ? isNumber(v) && Number.isInteger(v)
     : p.type === "number" ? isNumber(v) : p.type === "string" ? typeof v === "string" : false;
-  if (!fits) return ({ boolean: "要 true 或 false", integer: "要整数", number: "要数字", string: "要文字" } as Record<string, string>)[p.type] ?? "这个参数不能用下拉";
-  if (p.options?.length && !p.options.some((o) => condEqual(o, v))) return `只能是 ${p.options.map(pyText).join(" / ")} 之一`;
-  if (isNumber(v) && p.minimum != null && v < p.minimum) return `不能小于 ${pyText(p.minimum)}`;
-  if (isNumber(v) && p.maximum != null && v > p.maximum) return `不能大于 ${pyText(p.maximum)}`;
+  if (!fits) return t(WANT_KEY[p.type] ?? "ui.conditions.want_menu_unfit");
+  if (p.options?.length && !p.options.some((o) => condEqual(o, v))) return t("ui.conditions.one_of", { options: p.options.map(pyText).join(" / ") });
+  if (isNumber(v) && p.minimum != null && v < p.minimum) return t("ui.conditions.below_min", { min: pyText(p.minimum) });
+  if (isNumber(v) && p.maximum != null && v > p.maximum) return t("ui.conditions.above_max", { max: pyText(p.maximum) });
   return null;
 }
 
 /** 这个参数能不能显示成下拉 / 复选框（null：能）——engine/templates.py _widget_refused。 */
 export function widgetRefused(widget: "menu" | "checkbox", p: SpecLike, options: { value: unknown }[] | null | undefined): string | null {
-  if (p.widget === "button") return "按钮没有值";
-  if (p.type === "array" || ["file", "sequence", "table", "hierarchy"].includes(p.widget ?? "")) return "这个参数不是单个值";
-  if (widget === "menu") return options?.length ? null : "下拉至少要有一项";
+  if (p.widget === "button") return t("ui.conditions.button_no_value");
+  if (p.type === "array" || ["file", "sequence", "table", "hierarchy"].includes(p.widget ?? "")) return t("ui.conditions.not_single");
+  if (widget === "menu") return options?.length ? null : t("ui.conditions.menu_empty");
   if (p.type === "boolean") return null;
   const vs = (options ?? []).map((o) => o.value);
   const zeroOne = vs.length === 2 && vs.every(isNumber) && [...(vs as number[])].sort().join() === "0,1";
-  return p.type === "integer" && zeroOne ? null : "目标参数要是布尔，或者是整数且选项恰好是 0 和 1 两项";
+  return p.type === "integer" && zeroOne ? null : t("ui.conditions.checkbox_target");
 }
 
 /** 公开参数 `name` 永远不会是 `value` 的原因（null：可能是）：有下拉选项的按选项的值，否则按目标参数收不收——
@@ -459,10 +491,10 @@ export function neverValue(name: string, value: unknown, options: { value: unkno
   const said = (v: unknown) => JSON.stringify(v);
   if (options?.length) {
     if (options.some((o) => condEqual(value, o.value))) return null;
-    return `比的值不对：「${name}」只会是 ${options.map((o) => said(o.value)).join(" / ")} 之一，不会是 ${said(value)}`;
+    return t("ui.conditions.never_option", { name, options: options.map((o) => said(o.value)).join(" / "), value: said(value) });
   }
   const why = valueRefused(p, value);
-  return why ? `比的值不对：「${name}」不会是 ${said(value)}（${why}）` : null;
+  return why ? t("ui.conditions.never_value", { name, value: said(value), why }) : null;
 }
 
 /** 一项公开参数的 Disable When。更早的文件写 `when`（意思相反：为真时可以改）：只有没有 `disable_when` 这个键时才换成
@@ -480,9 +512,9 @@ export function conditionProblem(text: string | null | undefined, known: string[
   try {
     node = parseCondition(text);
   } catch (e) {
-    if (e instanceof ConditionError) return `写法不对（第 ${e.at + 1} 个字附近）：${e.why}`;
+    if (e instanceof ConditionError) return t("ui.conditions.syntax", { at: e.at + 1, why: e.why });
     throw e;
   }
   const missing = conditionNames(node).filter((n) => !known.includes(n));
-  return missing.length ? `用到了没有公开的参数：${missing.map((n) => `「${n}」`).join("、")}` : null;
+  return missing.length ? t("ui.conditions.unknown_names", { names: missing }) : null;
 }

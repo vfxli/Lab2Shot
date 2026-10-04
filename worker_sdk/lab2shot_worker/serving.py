@@ -31,7 +31,11 @@ seeds gets the same numbers whether its models were loaded just now or kept. A f
 
 Protocol (--serve): commands are JSON lines on the process's original stdin (the worker's own stdin is /dev/null):
 {"cmd": "job", "job": path, "keep_free_gb": n}, {"cmd": "offload", "keep_free_gb": n}, {"cmd": "exit"}. Replies are
-events: job_end {ok, error, oom, incompatible_gpu, models, vram_mb} and offloaded {models, vram_mb}.
+events: job_end {ok, error, oom, incompatible_gpu, models, vram_mb, context_mb} and offloaded {models, vram_mb,
+context_mb}. context_mb: what the process holds on its GPU beyond PyTorch's reserved memory (its CUDA context, and any
+library's own allocations), which only ending the process frees; measured once, at the end of the first job that
+brought CUDA up (the card's memory.used then, less before that job and less vram_mb), None until then or when it
+cannot be measured (no nvidia-smi, the process sees no single GPU, another program's use moved too much meanwhile).
 """
 
 from __future__ import annotations
@@ -40,6 +44,7 @@ import functools
 import gc
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -252,10 +257,34 @@ def _make_room() -> None:
 
 
 def _free_cached() -> None:
+    """After a job (and when a model is dropped): what the job freed goes back to the card and to the machine, so a
+    process kept between jobs holds its models and nothing more. torch keeps freed GPU blocks and pinned host buffers
+    in its caches, and glibc keeps the frames and arrays the job freed in its arenas (a buffer freed anywhere but at
+    the top of a heap is never returned on its own): a kept process held up to 15 GB of RAM it no longer used."""
     gc.collect()
     torch = sys.modules.get("torch")
     if torch is not None and torch.cuda.is_initialized():
         torch.cuda.empty_cache()
+        host = getattr(torch._C, "_host_emptyCache", None)  # pinned host memory cached by torch (torch >= 2.1)
+        if host is not None:
+            host()
+    trim = _malloc_trim()
+    if trim is not None:
+        trim(0)
+
+
+@functools.cache
+def _malloc_trim():
+    """glibc's malloc_trim, None on another C library."""
+    import ctypes
+    import platform
+
+    if platform.libc_ver()[0] != "glibc":
+        return None
+    try:
+        return getattr(ctypes.CDLL(None), "malloc_trim", None)
+    except OSError:
+        return None
 
 
 def _status() -> dict:
@@ -265,7 +294,55 @@ def _status() -> dict:
         models.append({"name": e.label, "gpu_mb": gpu >> 20, "ram_mb": cpu >> 20, "on_gpu": _on_gpu(e, gpu)})
     torch = sys.modules.get("torch")
     vram = torch.cuda.memory_reserved() >> 20 if torch is not None and torch.cuda.is_initialized() else 0
-    return {"models": models, "vram_mb": vram}
+    return {"models": models, "vram_mb": vram, "context_mb": _CONTEXT_MB}
+
+
+# --------------------------------------------------------------------------- the process's own share of its GPU
+
+CONTEXT_MOST_MB = 4096  # a measured context beyond this is another program's change, not ours: not reported
+SMI_TIMEOUT_S = 5.0
+_CONTEXT_MB: int | None = None  # measured once (the module doc's context_mb)
+_BEFORE_MB: int | None = None  # the card's memory.used when the job that brings CUDA up began
+
+
+def _card_used_mb() -> int | None:
+    """memory.used of the one GPU this process sees (CUDA_VISIBLE_DEVICES, as the core sets it), by nvidia-smi: read
+    without creating a CUDA context. None: not exactly one GPU, or no answer."""
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
+    if not visible or "," in visible:
+        return None
+    try:
+        out = subprocess.run(["nvidia-smi", "-i", visible, "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=SMI_TIMEOUT_S)
+        return int(out.stdout.strip().splitlines()[0]) if out.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+
+
+def _cuda_up() -> bool:
+    torch = sys.modules.get("torch")
+    return torch is not None and torch.cuda.is_initialized()
+
+
+def _before_job() -> None:
+    """Before a job: the card's use, while CUDA is not up in this process yet (what the job adds to it is ours)."""
+    global _BEFORE_MB
+    if _CONTEXT_MB is None and not _cuda_up():
+        _BEFORE_MB = _card_used_mb()
+
+
+def _after_job() -> None:
+    """After the job (its cache freed): the first one that brought CUDA up measures the context once."""
+    global _CONTEXT_MB, _BEFORE_MB
+    if _CONTEXT_MB is not None or _BEFORE_MB is None or not _cuda_up():
+        return
+    after = _card_used_mb()
+    if after is not None:
+        reserved = sys.modules["torch"].cuda.memory_reserved() >> 20
+        held = after - _BEFORE_MB - reserved
+        if 0 < held <= CONTEXT_MOST_MB:
+            _CONTEXT_MB = held
+    _BEFORE_MB = None
 
 
 # --------------------------------------------------------------------------- random state
@@ -370,6 +447,7 @@ def _job(main: Callable[[str], None], path: str, keep_free_gb: float) -> bool:
     _JOB += 1
     _KEEP_FREE_GB = keep_free_gb
     _seed_from_os()
+    _before_job()
     torch = sys.modules.get("torch")
     if torch is not None and torch.cuda.is_initialized():
         torch.cuda.set_per_process_memory_fraction(1.0)
@@ -404,6 +482,7 @@ def _job(main: Callable[[str], None], path: str, keep_free_gb: float) -> bool:
         for entry in [e for e in _ENTRIES.values() if e.job != _JOB]:
             _drop(entry)
     _free_cached()
+    _after_job()
     _emit("job_end", ok=error is None, error=error, oom=oom, incompatible_gpu=incompatible, **_status())
     return error is None
 

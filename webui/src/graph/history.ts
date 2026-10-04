@@ -1,9 +1,14 @@
 import type { Edge } from "@xyflow/react";
-import type { GraphJSON, NodeTypeDef } from "../api";
+import type { ExposedParam, GraphJSON, NodeTypeDef } from "../api";
 import { chosenOnNode } from "./nodes";
-import { exposedParams } from "../state/cookInputs";
+import { entryLabel, exposedParams, targetsOf } from "../state/cookInputs";
 import type { GBox, GNode } from "../state/graph";
 import { same as sameJson, type Json } from "../model/graphPatch";
+import { t } from "../i18n/t";
+import { boxLabel } from "./naming";
+
+/** A step's name in words, said when it is shown (so it follows the page's language). */
+export type Said = () => string;
 
 /** One of a node's outputs as the editor has them now (graph/rules.ts): the named port, or, when `port` is null, the node's
  * main result (graph/rules.ts mainOutput). Names a shown port in a step's label. */
@@ -39,7 +44,7 @@ export interface Doc {
 interface Step {
   before: Doc;
   after: Doc;
-  label: string; // what it did, for the undo / redo tooltips
+  label: Said; // what it did, for the undo / redo tooltips
   key: string; // what it changed
   gesture: number;
 }
@@ -56,7 +61,7 @@ if (typeof window !== "undefined") {
   for (const type of ["focusin", "focusout"]) window.addEventListener(type, () => pressed || gesture++, true);
 }
 
-const EMPTY_DOC: Doc = { meta: { name: "未命名" }, exposed: [], nodes: [], edges: [], boxes: [], displayId: null, displayPort: null, cookRange: null };
+const EMPTY_DOC: Doc = { meta: { name: "" }, exposed: [], nodes: [], edges: [], boxes: [], displayId: null, displayPort: null, cookRange: null };
 
 // the document's values are JSON (what a graph file holds): compared as trees, never as strings of them
 const same = (a: unknown, b: unknown) => sameJson(a as Json, b as Json);
@@ -68,7 +73,7 @@ const sameNode = (a: GNode, b: GNode | undefined) =>
   a === b ||
   (!!b &&
     a.data.typeId === b.data.typeId &&
-    a.data.label === b.data.label &&
+    same(a.data.comment ?? null, b.data.comment ?? null) &&
     a.position.x === b.position.x &&
     a.position.y === b.position.y &&
     !changedParams(a.data.params, b.data.params).length &&
@@ -79,7 +84,7 @@ const sameNode = (a: GNode, b: GNode | undefined) =>
 
 const sameBox = (a: GBox, b: GBox | undefined) =>
   a === b ||
-  (!!b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h && a.label === b.label && a.color === b.color && a.collapsed === b.collapsed && same(a.members, b.members));
+  (!!b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h && same(a.label, b.label) && a.color === b.color && a.collapsed === b.collapsed && same(a.members, b.members));
 
 const byId = <T extends { id: string }>(list: T[]) => new Map(list.map((x) => [x.id, x]));
 
@@ -142,25 +147,25 @@ const sameDoc = (a: Doc, b: Doc) =>
   sameList(a.boxes, b.boxes, sameBox);
 
 /** What changed from `a` to `b`: in words, and which things (`key`). */
-function describe(a: Doc, b: Doc, defs: Record<string, NodeTypeDef>, outputOf: OutputOf): { label: string; key: string } {
+function describe(a: Doc, b: Doc, defs: Record<string, NodeTypeDef>, outputOf: OutputOf): { label: Said; key: string } {
   const was = byId(a.nodes);
   const now = byId(b.nodes);
-  const name = (id: string) => `「${(now.get(id) ?? was.get(id))?.data.label ?? id}」`;
   const ids = (list: { id: string }[]) => list.map((x) => x.id).join(",");
-  const count = <T,>(list: T[], one: (x: T) => string, several: string) => (list.length === 1 ? one(list[0]) : several.replace("#", String(list.length)));
-  const step = (label: string, key: string) => ({ label, key });
+  const count = <T,>(list: T[], one: (x: T) => string, several: (count: number) => string): Said => () => (list.length === 1 ? one(list[0]) : several(list.length));
+  const step = (label: Said, key: string) => ({ label, key });
+  const paramLabel = (n: GNode, k: string) => defs[n.data.typeId]?.params.find((p) => p.name === k)?.label ?? k;
 
   const added = b.nodes.filter((n) => !was.has(n.id));
-  if (added.length) return step(count(added, (n) => `添加节点${name(n.id)}`, "添加 # 个节点"), `node+${ids(added)}`);
+  if (added.length) return step(count(added, (n) => t("ui.history.node_add", { node: n.id }), (count) => t("ui.history.nodes_add", { count })), `node+${ids(added)}`);
   const removed = a.nodes.filter((n) => !now.has(n.id));
-  if (removed.length) return step(count(removed, (n) => `删除节点${name(n.id)}`, "删除 # 个节点"), `node-${ids(removed)}`);
+  if (removed.length) return step(count(removed, (n) => t("ui.history.node_delete", { node: n.id }), (count) => t("ui.history.nodes_delete", { count })), `node-${ids(removed)}`);
 
   const boxWas = byId(a.boxes);
   const boxNow = byId(b.boxes);
   const newBoxes = b.boxes.filter((x) => !boxWas.has(x.id));
-  if (newBoxes.length) return step(count(newBoxes, (x) => `添加分组「${x.label}」`, "添加 # 个分组"), `box+${ids(newBoxes)}`);
+  if (newBoxes.length) return step(count(newBoxes, (x) => t("ui.history.box_add", { box: boxLabel(x) }), (count) => t("ui.history.boxes_add", { count })), `box+${ids(newBoxes)}`);
   const goneBoxes = a.boxes.filter((x) => !boxNow.has(x.id));
-  if (goneBoxes.length) return step(count(goneBoxes, (x) => `删除分组「${x.label}」`, "删除 # 个分组"), `box-${ids(goneBoxes)}`);
+  if (goneBoxes.length) return step(count(goneBoxes, (x) => t("ui.history.box_delete", { box: boxLabel(x) }), (count) => t("ui.history.boxes_delete", { count })), `box-${ids(goneBoxes)}`);
 
   // 提升到节点: the parameter gets a row on the node with an input of its own, or loses both (with its wire: one step)
   for (const n of b.nodes) {
@@ -168,36 +173,41 @@ function describe(a: Doc, b: Doc, defs: Record<string, NodeTypeDef>, outputOf: O
     const now = n.data.promoted ?? [];
     const k = now.find((p) => !before.includes(p)) ?? before.find((p) => !now.includes(p));
     if (k) {
-      const what = defs[n.data.typeId]?.params.find((p) => p.name === k)?.label ?? k;
-      return step(`${now.includes(k) ? "提升" : "取消提升"}${name(n.id)}的「${what}」`, `promote ${n.id}.${k}`);
+      const on = now.includes(k);
+      return step(() => t(on ? "ui.history.promote" : "ui.history.unpromote", { node: n.id, param: paramLabel(n, k) }), `promote ${n.id}.${k}`);
     }
   }
 
-  const wire = (e: Edge) => `${name(e.source)}→${name(e.target)}`;
   const edgesWas = new Set(a.edges.map((e) => e.id));
   const edgesNow = new Set(b.edges.map((e) => e.id));
   const joined = b.edges.filter((e) => !edgesWas.has(e.id));
-  if (joined.length) return step(count(joined, (e) => `连接${wire(e)}`, "连接 # 条线"), `wire+${ids(joined)}`);
+  if (joined.length) return step(count(joined, (e) => t("ui.history.wire_add", { source: e.source, target: e.target }), (count) => t("ui.history.wires_add", { count })), `wire+${ids(joined)}`);
   const cut = a.edges.filter((e) => !edgesNow.has(e.id));
-  if (cut.length) return step(count(cut, (e) => `断开${wire(e)}`, "断开 # 条线"), `wire-${ids(cut)}`);
+  if (cut.length) return step(count(cut, (e) => t("ui.history.wire_cut", { source: e.source, target: e.target }), (count) => t("ui.history.wires_cut", { count })), `wire-${ids(cut)}`);
 
   const edited = b.nodes.filter((n) => !sameNode(n, was.get(n.id)));
   const params = edited.flatMap((n) => changedParams(was.get(n.id)!.data.params, n.data.params).map((k) => [n, k] as const));
   if (params.length) {
     const [n, k] = params[0];
     const touched = new Set(params.map(([m]) => m.id));
-    const label =
+    const label: Said = () =>
       params.length === 1
-        ? `修改${name(n.id)}的「${defs[n.data.typeId]?.params.find((p) => p.name === k)?.label ?? k}」`
+        ? t("ui.history.param", { node: n.id, param: paramLabel(n, k) })
         : touched.size === 1
-          ? `修改${name(n.id)}的参数`
-          : `修改 ${touched.size} 个节点的参数`;
+          ? t("ui.history.params", { node: n.id })
+          : t("ui.history.params_nodes", { count: touched.size });
     return step(label, `param ${params.map(([m, q]) => `${m.id}.${q}`).join(",")}`);
   }
-  const renamed = edited.filter((n) => n.data.label !== was.get(n.id)!.data.label);
-  if (renamed.length) return step(count(renamed, (n) => `重命名节点${name(n.id)}`, "重命名 # 个节点"), `label ${ids(renamed)}`);
+  // a node's comment (renaming a node is a named step of its own: graph/edit.ts renameNode)
+  const commented = edited.filter((n) => !same(n.data.comment ?? null, was.get(n.id)!.data.comment ?? null));
+  if (commented.length) {
+    const n = commented[0];
+    const [p, q] = [was.get(n.id)!.data.comment, n.data.comment];
+    const label: Said = () => (p && q && p.text === q.text ? t(q.show ? "ui.history.comment_show" : "ui.history.comment_hide", { node: n.id }) : t("ui.history.comment_edit", { node: n.id }));
+    return step(label, `comment ${ids(commented)}`);
+  }
   const picked = edited.filter((n) => !same(n.data.picked, was.get(n.id)!.data.picked)); // the same files from another folder
-  if (picked.length) return step(count(picked, (n) => `重新选择${name(n.id)}的文件`, "重新选择 # 个节点的文件"), `picked ${ids(picked)}`);
+  if (picked.length) return step(count(picked, (n) => t("ui.history.repick", { node: n.id }), (count) => t("ui.history.repick_nodes", { count })), `picked ${ids(picked)}`);
   // 在节点上显示 on / off (a parameter row enters or leaves the node; 提升到节点 is its own step, above)
   for (const n of edited) {
     const def = defs[n.data.typeId];
@@ -205,41 +215,45 @@ function describe(a: Doc, b: Doc, defs: Record<string, NodeTypeDef>, outputOf: O
     const after = def ? chosenOnNode(def, n.data.onNode) : [];
     const k = after.find((p) => !before.includes(p)) ?? before.find((p) => !after.includes(p));
     if (k) {
-      const what = def?.params.find((p) => p.name === k)?.label ?? k;
-      return step(`${after.includes(k) ? "在节点上显示" : "不在节点上显示"}${name(n.id)}的「${what}」`, `onNode ${n.id}.${k}`);
+      const on = after.includes(k);
+      return step(() => t(on ? "ui.history.on_node" : "ui.history.off_node", { node: n.id, param: paramLabel(n, k) }), `onNode ${n.id}.${k}`);
     }
   }
   const boxes = b.boxes.filter((x) => !sameBox(x, boxWas.get(x.id))).map((x) => [boxWas.get(x.id)!, x] as const);
   for (const [p, x] of boxes) {
-    if (p.label !== x.label) return step(`重命名分组「${x.label}」`, `boxLabel ${x.id}`);
-    if (p.color !== x.color) return step(`更改分组「${x.label}」的颜色`, `boxColor ${x.id}`);
-    if (p.collapsed !== x.collapsed) return step(`${x.collapsed ? "折叠" : "展开"}分组「${x.label}」`, `boxFold ${x.id}`);
-    if (p.w !== x.w || p.h !== x.h) return step(`调整分组「${x.label}」的大小`, `boxSize ${x.id}`);
+    if (!same(p.label, x.label)) return step(() => t("ui.history.box_rename", { box: boxLabel(x) }), `boxLabel ${x.id}`);
+    if (p.color !== x.color) return step(() => t("ui.history.box_color", { box: boxLabel(x) }), `boxColor ${x.id}`);
+    if (p.collapsed !== x.collapsed) return step(() => t(x.collapsed ? "ui.history.box_fold" : "ui.history.box_unfold", { box: boxLabel(x) }), `boxFold ${x.id}`);
+    if (p.w !== x.w || p.h !== x.h) return step(() => t("ui.history.box_size", { box: boxLabel(x) }), `boxSize ${x.id}`);
   }
   const movedBoxes = boxes.filter(([p, x]) => p.x !== x.x || p.y !== x.y).map(([, x]) => x);
   const moved = edited.filter((n) => n.position.x !== was.get(n.id)!.position.x || n.position.y !== was.get(n.id)!.position.y);
   if (movedBoxes.length || moved.length) {
-    const label = movedBoxes.length ? count(movedBoxes, (x) => `移动分组「${x.label}」`, "移动 # 个分组") : count(moved, (n) => `移动节点${name(n.id)}`, "移动 # 个节点");
+    const label = movedBoxes.length ? count(movedBoxes, (x) => t("ui.history.box_move", { box: boxLabel(x) }), (count) => t("ui.history.boxes_move", { count })) : count(moved, (n) => t("ui.history.node_move", { node: n.id }), (count) => t("ui.history.nodes_move", { count }));
     return step(label, `move ${ids(movedBoxes)} ${ids(moved)}`);
   }
 
   // the parameter interface is a tree (groups / parameter items): exposing and unexposing compare its parameter items;
   // every other change (grouping, order, display, conditions) is 「编辑参数界面」
   const [pinsWas, pinsNow] = [exposedParams(a.exposed), exposedParams(b.exposed)];
-  const pinned = pinsNow.filter((x) => !pinsWas.some((y) => y.target === x.target));
-  if (pinned.length) return step(count(pinned, (x) => `设为对外参数「${x.label}」`, "设 # 个对外参数"), `expose+${pinned.map((x) => x.target)}`);
-  const unpinned = pinsWas.filter((x) => !pinsNow.some((y) => y.target === x.target));
-  if (unpinned.length) return step(count(unpinned, (x) => `取消对外参数「${x.label}」`, "取消 # 个对外参数"), `expose-${unpinned.map((x) => x.target)}`);
-  if (!same(a.exposed, b.exposed)) return reordered(a.exposed, b.exposed) ? step("调整参数顺序", "order") : step("编辑参数界面", "interface");
+  const sameTargets = (x: ExposedParam, y: ExposedParam) => targetsOf(x).join() === targetsOf(y).join();
+  const pinned = pinsNow.filter((x) => !pinsWas.some((y) => sameTargets(x, y)));
+  if (pinned.length) return step(count(pinned, (x) => t("ui.history.expose", { param: entryLabel(x) }), (count) => t("ui.history.expose_many", { count })), `expose+${pinned.map((x) => targetsOf(x).join("+"))}`);
+  const unpinned = pinsWas.filter((x) => !pinsNow.some((y) => sameTargets(x, y)));
+  if (unpinned.length) return step(count(unpinned, (x) => t("ui.history.unexpose", { param: entryLabel(x) }), (count) => t("ui.history.unexpose_many", { count })), `expose-${unpinned.map((x) => targetsOf(x).join("+"))}`);
+  if (!same(a.exposed, b.exposed)) return reordered(a.exposed, b.exposed) ? step(() => t("ui.history.interface_order"), "order") : step(() => t("ui.history.interface_edit"), "interface");
 
-  if (a.displayId !== b.displayId) return step(b.displayId ? `显示节点${name(b.displayId)}` : "不显示节点", "display");
-  if (a.displayPort !== b.displayPort && b.displayId) {
-    const port = outputOf(b.displayId, b.displayPort);
-    return step(`显示${name(b.displayId)}的「${port?.label ?? b.displayPort}」`, "port");
+  const display = b.displayId;
+  if (a.displayId !== display) return step(() => (display ? t("ui.history.display", { node: display }) : t("ui.history.display_none")), "display");
+  if (a.displayPort !== b.displayPort && display) {
+    const port = outputOf(display, b.displayPort);
+    const shown = port?.label ?? b.displayPort ?? "";
+    return step(() => t("ui.history.display_port", { node: display, port: shown }), "port");
   }
-  if (!same(a.cookRange, b.cookRange)) return step(b.cookRange ? `计算范围改成 ${b.cookRange[0]}–${b.cookRange[1]}` : "计算范围改回全部", "range");
-  if (!same(a.meta, b.meta)) return step("修改节点图名字", "meta");
-  return step("修改节点图", "graph");
+  const range = b.cookRange;
+  if (!same(a.cookRange, range)) return step(() => (range ? t("ui.history.range", { first: range[0], last: range[1] }) : t("ui.history.range_all")), "range");
+  if (!same(a.meta, b.meta)) return step(() => t("ui.history.meta"), "meta");
+  return step(() => t("ui.history.graph"), "graph");
 }
 
 /** Only the order and the grouping of the parameter interface changed (a drag in the panel or the editor): the same
@@ -299,7 +313,7 @@ export function restore(s: Doc & { selectedId: string | null }, d: Doc): Doc & {
  *   again, so undo would never work; an old graph would also show as unsaved the moment it opens);
  * - `restoring(fn)`: undo / redo / opening a document replace both stores whole and record nothing (the caller then
  *   calls showing / reset itself). */
-export type RecordAs = { label: string; key: string } | { into: Anchor } | "derived";
+export type RecordAs = { label: Said; key: string } | { into: Anchor } | "derived";
 /** A step of the history, as `absorb` names it (opaque outside this file); null: none (nothing recorded yet). */
 export type Anchor = object | null;
 type Scope = RecordAs | "restore";
@@ -333,7 +347,7 @@ function within(as: Scope, fn: () => void): void {
   }
   if (as !== "restore") recorder?.record(as);
 }
-export const transaction = (label: string, key: string, fn: () => void): void => within({ label, key }, fn);
+export const transaction = (label: Said, key: string, fn: () => void): void => within({ label, key }, fn);
 export const absorb = (into: Anchor, fn: () => void): void => within({ into }, fn);
 /** A derived answer that arrives while its step is undone (in the redo list): it still belongs to that step, by its
  * anchor and nothing else. It goes into the step's "after" and the undone steps after it (stopping where one set the
@@ -463,7 +477,7 @@ export class History {
     return this.undos.at(-1) ?? null;
   }
 
-  get labels(): { undoLabel: string | null; redoLabel: string | null } {
+  get labels(): { undoLabel: Said | null; redoLabel: Said | null } {
     return { undoLabel: this.undos.at(-1)?.label ?? null, redoLabel: this.redos.at(-1)?.label ?? null };
   }
 }

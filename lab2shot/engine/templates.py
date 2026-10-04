@@ -2,7 +2,7 @@
 
 A graph file is plain JSON with "schema": "lab2shot.graph/1". Users keep graph files on their own machines: the editor
 opens and saves them in the browser, and `lab2shot cook` reads them locally. The server holds only the templates:
-graph files (templates/, adapters/<name>/templates/, work/users/<name>/templates/; see lab2shot/library.py) whose
+graph files (templates/, adapters/<name>/templates/, work/users/<name>/templates/; see lab2shot/site/library.py) whose
 "exposed" list names the parameters intended to be set externally (the web UI, the command line, DCC plugins).
 
 "exposed" is the template's parameter interface, a tree (Houdini's Edit Parameter Interface): a list whose entries are
@@ -10,8 +10,10 @@ parameters {name, label, target, widget?, options?, hide_when?, disable_when?, s
 a group's children again such entries (a subgroup is a group in a group). An older file's flat list of parameters is
 the same thing with no groups: read as it is, nothing to convert. `name` is the parameter's outside name (lab2shot cook
 --set, DCC plugins: apply_values), `target` "node.param"; `widget` overrides how the page shows it: "menu" (a pull-down
-of `options` [{value, label, hide_when?}], values of the target's own type; an option's own `hide_when` true leaves it out
-of the pull-down — the parameter's value is kept even when it is the one left out) or "checkbox" (a boolean target, or an integer one
+of `options` [{value, label, hide_when?, disable_when?, disable_why?}], values of the target's own type; an option's own
+`hide_when` true leaves it out of the pull-down — the parameter's value is kept even when it is the one left out; its
+`disable_when` true greys it in the pull-down with `disable_why` (the one sentence why, shown on the pointer: the reason
+a control is off is one of the page's four kinds of tip), and a value set from outside may not be it) or "checkbox" (a boolean target, or an integer one
 whose options are exactly 0 and 1); `hide_when` and `disable_when` condition expressions (engine/conditions.py;
 Houdini's Hide When and Disable When): `hide_when` true hides it (a group all of whose entries are hidden hides too),
 `disable_when` true greys it out. `show_on_change` (true / false, default false): once the parameter is changed in the
@@ -40,9 +42,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .. import i18n
 from ..errors import NotFound
 from ..messages import Msg
 from .graph import SCHEMA, Graph, GraphError
+from .naming import node_ref
 
 
 def parse_graph(text: str, name: str) -> dict:
@@ -62,14 +66,6 @@ def load_graph(path: str | Path) -> dict:
     if p.suffix.lower() != ".json" or not p.is_file():
         raise GraphError(Msg("E-GRAPH-NOTFILE", path=str(p)))
     return parse_graph(p.read_text(encoding="utf-8"), p.name)
-
-
-def templates() -> list[dict]:
-    """Return every preset card (the project's templates/ and each adapter's) via lab2shot/library.py presets(), the
-    single loader of template files."""
-    from ..library import presets
-
-    return presets()
 
 
 def order(cards: list[dict]) -> list[dict]:
@@ -104,55 +100,12 @@ def order(cards: list[dict]) -> list[dict]:
     return sorted(cards, key=key)
 
 
-def core_project(data: dict, types) -> str:
-    """The card's main third-party project (the year its card shows, server/app.py): the one its file declares
-    (meta.project: a card whose name leads with another project than the graph would tell, `lab2shot check templates`
-    holds it to a project of a node on the card); otherwise among the third-party nodes its
-    output is made from (walking up from the output nodes: 「输出」 and every format's output settings; a card without
-    one, from every end), the one that takes the most of the others' results — a solver after its detector and its
-    camera, a matting after its coarse mask — and, on a tie, the nearest to the output. Only by declaration, never by a
-    node's id: a node that only reads a file (ImportNode), writes one (OutputSettings) or finishes another's result
-    (NodeDef.finishes: edge unmixing) is never it. Judged from the graph alone, never from the card's category. A card
-    with no such node above its ends takes the graph's first one; one made only of core nodes has no project."""
-    from ..nodes.formats import ImportNode
-    from ..nodes.output import OutputSettings
-    from .graph import walk
-
-    if isinstance(declared := (data.get("meta") or {}).get("project"), str) and declared:
-        return declared
-    nodes = [n for n in data.get("nodes", []) if n.get("type") in types]
-    kind = {n["id"]: types[n["type"]] for n in nodes}
-    feeds: dict[str, list[str]] = {}
-    fed: set[str] = set()
-    for e in data.get("edges", []):
-        feeds.setdefault(e["to"][0], []).append(e["from"][0])
-        fed.add(e["from"][0])
-    main = lambda nid: (kind[nid].runtime != "core" and not issubclass(kind[nid], (ImportNode, OutputSettings))  # noqa: E731
-                        and not kind[nid].finishes)
-    ends = [nid for nid in kind if nid not in fed]
-    outs = [nid for nid in ends if kind[nid].delivers or issubclass(kind[nid], OutputSettings)] or ends
-    distance, ring = {nid: 0 for nid in outs}, list(outs)  # how many wires up from an output (for a tie)
-    while ring:
-        nxt = []
-        for nid in ring:
-            for up in feeds.get(nid, []):
-                if up in kind and up not in distance:
-                    distance[up] = distance[nid] + 1
-                    nxt.append(up)
-        ring = nxt
-    candidates = [nid for nid in distance if main(nid)]
-    if not candidates:
-        return next((kind[nid].runtime for nid in kind if main(nid)), "")
-    above = {nid: sum(1 for up in walk([nid], lambda n: feeds.get(n, [])) if up != nid and up in candidates) for nid in candidates}
-    best = min(candidates, key=lambda nid: (-above[nid], distance[nid]))
-    return kind[best].runtime
-
-
-def template(ref: str, among: list[dict] | None = None) -> dict:
-    """Find a template in `among` (default: all templates) by its card id (admin~sam_3d_body_moving_camera), its display
+def template(ref: str, among: list[dict]) -> dict:
+    """Find a template in `among` (the cards: lab2shot/site/library.py presets(), the single loader of template files, or
+    those an account may use) by its card id (admin~sam_3d_body_moving_camera), its display
     name, or its file name alone (sam_3d_body_moving_camera, the part after the last ~) when only one card has it
     (E-TEMPLATE-AMBIGUOUS names them otherwise)."""
-    cards = templates() if among is None else among
+    cards = among
     for t in cards:
         if ref in (t["id"], t["name"]):
             return t
@@ -160,7 +113,7 @@ def template(ref: str, among: list[dict] | None = None) -> dict:
     if len(short) == 1:
         return short[0]
     if short:
-        raise NotFound(Msg("E-TEMPLATE-AMBIGUOUS", name=ref, ids="、".join(t["id"] for t in short)))
+        raise NotFound(Msg("E-TEMPLATE-AMBIGUOUS", name=ref, ids=i18n.Both.of(lambda: i18n.separator().join(t["id"] for t in short))))
     raise NotFound(Msg("E-TEMPLATE-NOTFOUND", name=ref))
 
 
@@ -180,7 +133,7 @@ def wire_source(data: dict, node_id: str, param: str):
         return None
     src = next((n for n in data.get("nodes", []) if n["id"] == edge["from"][0]), None)
     src_type = node_types().get(src["type"]) if src else None
-    label = (src or {}).get("label") or (src_type.label if src_type else edge["from"][0])
+    label = (src or {}).get("label") or (src_type.subtitle if src_type else edge["from"][0])
     port = None
     if src_type is not None:
         try:
@@ -188,7 +141,7 @@ def wire_source(data: dict, node_id: str, param: str):
         except (OSError, ValueError):
             ports = ()
         port = next((p for p in (*ports, *all_outputs(src_type)) if p.name == edge["from"][1]), None)
-    return f"「{label}」的「{port.label if port else edge['from'][1]}」", port
+    return i18n.t("engine.port_of", node=label, port=port.label if port else edge["from"][1]), port
 
 
 def wired_from(data: dict, node_id: str, param: str) -> str:
@@ -203,6 +156,48 @@ def is_group(x: Any) -> bool:
     return isinstance(x, dict) and x.get("kind") == "group"
 
 
+def targets_of(x: Any) -> list[str]:
+    """The node parameters (`node.param` keys) an exposed parameter drives: its `target`, one key or a list of them.
+    A list is one outside parameter driving several node parameters of one kind (two trackers sharing one set of
+    picks, several methods compared on one reference frame): a value set is written into every one of them, the
+    interface shows the first (its description and its value: check_exposed holds them alike). The one reading of
+    `target` ([] when it is neither)."""
+    t = x.get("target") if isinstance(x, dict) else None
+    if isinstance(t, str):
+        return [t]
+    if isinstance(t, list) and t and all(isinstance(k, str) for k in t):
+        return list(t)
+    return []
+
+
+def split_target(key: str) -> tuple[str, str]:
+    """A `node.param` key as (node id, parameter name); the name is "" when there is no dot."""
+    node_id, _dot, param = key.partition(".")
+    return node_id, param
+
+
+def first_target(x: dict) -> tuple[str, str]:
+    """The node parameter whose description and value an exposed parameter shows: its first target (targets_of)."""
+    keys = targets_of(x)
+    return split_target(keys[0]) if keys else ("", "")
+
+
+# the shared button words an exposed button may be called by (`word`) instead of a label of its own: the last step's
+# (engine/conventions.py judges the word, never shown text). Whichever the file names, a card's last step shows one
+# term in every card (button.pack: 「计算并打包」 / "Cook and Package"), the one the bottom bar's cook says too
+BUTTON_WORDS = ("pack", "cook")
+LAST_STEP_WORD = "button.pack"
+
+
+def exposed_label(x: dict) -> str:
+    """What an exposed parameter is called, in the language now: the last step's shared term when it names a button
+    word (`word`), else its own label, else its outside name. The page reads it the same way (state/cookInputs.ts
+    entryLabel)."""
+    if x.get("word") in BUTTON_WORDS:
+        return i18n.t(LAST_STEP_WORD)
+    return i18n.pick(x.get("label")) or x.get("name", "")
+
+
 def exposed_items(data: dict) -> list[tuple[dict, list[str]]]:
     """Every parameter of the interface tree in the order it shows, each with the names of the groups it sits in
     (outermost first; [] at the top). Entries that are neither a group nor a parameter are passed over here
@@ -212,11 +207,28 @@ def exposed_items(data: dict) -> list[tuple[dict, list[str]]]:
     def walk(entries: Any, path: list[str]) -> None:
         for x in entries if isinstance(entries, list) else []:
             if is_group(x):
-                walk(x.get("children"), [*path, str(x.get("label") or "")])
-            elif isinstance(x, dict) and isinstance(x.get("name"), str) and isinstance(x.get("target"), str):
+                walk(x.get("children"), [*path, i18n.pick(x.get("label"))])
+            elif isinstance(x, dict) and isinstance(x.get("name"), str) and targets_of(x):
                 out.append((x, path))
 
     walk(data.get("exposed"), [])
+    return out
+
+
+def folded_names(data: dict) -> set[str]:
+    """The outside names of the parameters inside a folded group (`collapsed: true`, at any depth): the interface shows
+    them closed at first — a client keeps them under its 「高级」 (exposed_params `folded`), as the template's author
+    meant, never guessed from a group's name."""
+    out: set[str] = set()
+
+    def walk(entries: Any, folded: bool) -> None:
+        for x in entries if isinstance(entries, list) else []:
+            if is_group(x):
+                walk(x.get("children"), folded or bool(x.get("collapsed")))
+            elif folded and isinstance(x, dict) and isinstance(x.get("name"), str):
+                out.add(x["name"])
+
+    walk(data.get("exposed"), False)
     return out
 
 
@@ -233,8 +245,9 @@ def exposed_params(data: dict, specs=None) -> list[dict]:
     read each by `name`), each with the target parameter's description (type, default, choices), for a parameter
     driven by a wire its source ("wired"; clients show it as not settable, unless "fallback": that output may give
     nothing, Port.may_be_empty, so a value set here is used when it does — the rule apply_values keeps), and its place
-    in the interface: `label` (its outside name when the file gives none), `group`
-    (the names of the groups it sits in, outermost first) and `widget` / `options` / `hide_when` / `disable_when`
+    in the interface: `label` (its outside name when the file gives none), `note` (the author's note shown under
+    it: what it means or leads to; "" none), `group`
+    (the names of the groups it sits in, outermost first), `folded` (inside a group shown closed: folded_names) and `widget` / `options` / `hide_when` / `disable_when`
     (None when not set; an older file's `when` given as its disable_when). A button (param.widget "button": nodes/params.py Button, e.g. 「计算」, 「下载」) is listed like a
     parameter, with no value: it takes none (apply_values passes a value given to it over). `specs`: a node type's
     parameters as whoever asks sees them (server/access.py params_for); None all of them (NodeDef.interface_specs)."""
@@ -245,24 +258,50 @@ def exposed_params(data: dict, specs=None) -> list[dict]:
 
     registry = node_types()
     nodes = {n["id"]: n for n in data.get("nodes", [])}
+    folded = folded_names(data)
     out = []
     for x, path in exposed_items(data):
-        node_id, _, param = x["target"].partition(".")
+        node_id, param = first_target(x)
         node = nodes.get(node_id)
         node_type = registry.get(node["type"]) if node else None
         listed = (specs(node_type) if specs else node_type.interface_specs()) if node_type else []
         spec = next((p for p in listed if p["name"] == param), None)
         button = bool(spec and spec["widget"] == "button")
         value = None if button else (node or {}).get("params", {}).get(param, spec["default"] if spec else None)
-        item = {k: v for k, v in x.items() if k != "when"}
+        item = {k: v for k, v in x.items() if k != "when"} | {"target": targets_of(x)}  # always a list to a client
         wire = None if button else wire_source(data, node_id, param)
-        out.append({"widget": None, "options": None, "show_on_change": False, **item, "label": str(x.get("label") or x["name"]), "hide_when": x.get("hide_when"), "disable_when": disable_when(x),
-                    "group": path, "value": value, "param": spec, "wired": wire[0] if wire else "",
+        out.append({"widget": None, "options": None, "show_on_change": False, **item, "label": exposed_label(x), "note": i18n.pick(x.get("note")), "hide_when": x.get("hide_when"), "disable_when": disable_when(x),
+                    "group": path, "folded": x["name"] in folded, "value": value, "param": spec, "wired": wire[0] if wire else "",
                     "fallback": bool(wire and wire[1] is not None and wire[1].may_be_empty)})
     return out
 
 
-EXPOSED_WIDGETS = {"menu": "下拉", "checkbox": "复选框"}
+EXPOSED_WIDGETS = ("menu", "checkbox")  # its words: engine.exposed.widget.<id>
+
+# what makes two node parameters one kind for an exposed parameter with several targets (targets_of): what they take
+# and how they are worked on — not their words, group or measured cost
+_SHAPE_KEYS = ("type", "nullable", "minimum", "maximum", "open_minimum", "open_maximum", "multiple_of", "options",
+               "widget", "unit", "items", "action", "target")
+
+
+def _shape(spec: dict) -> dict:
+    return {k: spec.get(k) for k in _SHAPE_KEYS}
+
+
+def _value_at(nodes: dict, key: str, spec: dict) -> Any:
+    """A node parameter's value in the file (its default when the file has none)."""
+    node_id, param = split_target(key)
+    own = (nodes.get(node_id) or {}).get("params") or {}
+    return own[param] if param in own else spec.get("default")
+
+
+def _option_shown(value: Any, label: Any) -> str:
+    """A menu option as a message lists it: its value, then its label."""
+    return i18n.t("engine.option_shown", value=json.dumps(value, ensure_ascii=False), label=i18n.pick(label))
+
+
+def _widget_word(widget: str | None) -> str:
+    return i18n.t(f"engine.exposed.widget.{widget}" if widget in EXPOSED_WIDGETS else "engine.exposed.widget.either")
 
 
 def _is_number(v: Any) -> bool:
@@ -270,24 +309,11 @@ def _is_number(v: Any) -> bool:
 
 
 def _refuses(spec: dict, value: Any) -> str | None:
-    """Why the target parameter would not take `value` (None: it would)."""
-    if value is None:
-        return None if spec["nullable"] else "这个参数不能为空"
-    kind = spec["type"]
-    fits = {"boolean": isinstance(value, bool), "integer": isinstance(value, int) and not isinstance(value, bool),
-            "number": _is_number(value), "string": isinstance(value, str)}.get(kind, False)
-    if not fits:
-        return {"boolean": "要 true 或 false", "integer": "要整数", "number": "要数字", "string": "要文字"}.get(kind, "这个参数不能用下拉")
-    if spec.get("options") and not any(value == o and type(value) is type(o) or (_is_number(value) and _is_number(o) and value == o)
-                                       for o in spec["options"]):
-        return "只能是 " + " / ".join(map(str, spec["options"])) + " 之一"
-    if _is_number(value):
-        if spec.get("minimum") is not None and value < spec["minimum"]:
-            return f"不能小于 {spec['minimum']:g}"
-        if spec.get("maximum") is not None and value > spec["maximum"]:
-            return f"不能大于 {spec['maximum']:g}"
-    return None
+    """Why the target parameter would not take `value` (None: it would): engine/conditions.py value_refused, the one
+    copy (DCC plugins get that file and use the same function)."""
+    from .conditions import value_refused
 
+    return value_refused(spec, value)
 
 # 参数界面的三条值规则（_refuses、_widget_refused、_never）：网页 platform/conditions.ts valueRefused / widgetRefused /
 # neverValue 逐字相同（「编辑参数界面」即时标红用）
@@ -297,16 +323,16 @@ def _refuses(spec: dict, value: Any) -> str | None:
 def _widget_refused(widget: str, spec: dict, options: Any) -> str | None:
     """Why the target parameter cannot show as this widget ("menu" / "checkbox"; None: it can)."""
     if spec["widget"] == "button":
-        return "按钮没有值"
+        return i18n.t("ui.conditions.button_no_value")
     if spec["type"] == "array" or spec["widget"] in FILE_WIDGETS or spec["widget"] in ("table", "hierarchy"):
-        return "这个参数不是单个值"
+        return i18n.t("ui.conditions.not_single")
     if widget == "menu":
-        return None if isinstance(options, list) and options else "下拉至少要有一项"
+        return None if isinstance(options, list) and options else i18n.t("ui.conditions.menu_empty")
     if spec["type"] == "boolean":
         return None
     values = [o.get("value") for o in options] if isinstance(options, list) and all(isinstance(o, dict) for o in options) else None
     zero_one = values is not None and len(values) == 2 and all(_is_number(v) for v in values) and sorted(values) == [0, 1]
-    return None if spec["type"] == "integer" and zero_one else "目标参数要是布尔，或者是整数且选项恰好是 0 和 1 两项"
+    return None if spec["type"] == "integer" and zero_one else i18n.t("ui.conditions.checkbox_target")
 
 
 def _never(name: str, value: Any, options: Any, spec: dict) -> str | None:
@@ -318,11 +344,11 @@ def _never(name: str, value: Any, options: Any, spec: dict) -> str | None:
         return None
     if isinstance(options, list) and options and all(isinstance(o, dict) and "value" in o for o in options):
         if not any(conditions.same(value, o["value"]) for o in options):
-            return (f"比的值不对：「{name}」只会是 " + " / ".join(json.dumps(o["value"], ensure_ascii=False) for o in options)
-                    + f" 之一，不会是 {json.dumps(value, ensure_ascii=False)}")
+            return i18n.t("ui.conditions.never_option", name=name, value=json.dumps(value, ensure_ascii=False),
+                          options=" / ".join(json.dumps(o["value"], ensure_ascii=False) for o in options))
         return None
     why = _refuses(spec, value)
-    return f"比的值不对：「{name}」不会是 {json.dumps(value, ensure_ascii=False)}（{why}）" if why else None
+    return i18n.t("ui.conditions.never_value", name=name, value=json.dumps(value, ensure_ascii=False), why=why) if why else None
 
 
 def check_exposed(data: dict) -> list[Msg]:
@@ -342,16 +368,20 @@ def check_exposed(data: dict) -> list[Msg]:
     if raw is None:
         return []
     if not isinstance(raw, list):
-        return [Msg("E-EXPOSED-BAD", where="参数界面", why="exposed 要是一个列表")]
+        return [Msg("E-EXPOSED-BAD", where=i18n.Word("engine.exposed.interface"), why=i18n.Word("engine.exposed.not_list"))]
     problems: list[Msg] = []
     names = [x["name"] for x, _ in exposed_items(data)]
     seen: set[str] = set()
 
-    def spec_of(x: dict) -> dict | None:
-        node_id, dot, param = x["target"].partition(".")
-        node = nodes.get(node_id) if dot else None
+    def spec_at(key: str) -> dict | None:
+        node_id, param = split_target(key)
+        node = nodes.get(node_id) if param else None
         node_type = registry.get(node.get("type")) if node else None
         return next((p for p in node_type.interface_specs() if p["name"] == param), None) if node_type else None
+
+    def spec_of(x: dict) -> dict | None:  # the first target's: what the interface shows (the others must be alike)
+        keys = targets_of(x)
+        return spec_at(keys[0]) if keys else None
 
     def never(name: str, value: Any) -> str | None:
         """Why the exposed parameter `name` can never be `value` (None: it can, or that cannot be told): _never on its
@@ -364,71 +394,95 @@ def check_exposed(data: dict) -> list[Msg]:
         """What is wrong with one Hide When / Disable When (an entry's, or one menu option's own hide_when): not text,
         does not read, a name no parameter has, or a value it compares with that the parameter never has (never)."""
         if not isinstance(expr, str):
-            return "要写成文字"
+            return i18n.t("engine.exposed.expr_text")
         why = conditions.problem(expr, names)
         if why is None:
             why = next((w for n, v in conditions.compared(conditions.parse(expr)) if (w := never(n, v))), None)
         return why
 
     def where(path: list[str], last: str) -> str:
-        return " / ".join([*path, last] if last else path) or "参数界面"
+        return " / ".join([*path, last] if last else path) or i18n.t("engine.exposed.interface")
 
     def walk(entries: list, path: list[str]) -> None:
         for i, x in enumerate(entries, 1):
             if is_group(x):
-                label = x.get("label")
-                here = where(path, str(label or f"第 {i} 项"))
-                if not isinstance(label, str) or not label.strip():
-                    problems.append(Msg("E-EXPOSED-BAD", where=here, why="组要有名字"))
+                label = i18n.pick(x.get("label"))  # one language (a user's), or both ({zh, en}: a built-in card's)
+                here = where(path, label or i18n.t("engine.exposed.nth", n=i))
+                if not label.strip():
+                    problems.append(Msg("E-EXPOSED-BAD", where=here, why=i18n.Word("engine.exposed.group_name")))
                 if not isinstance(x.get("children"), list):
-                    problems.append(Msg("E-EXPOSED-BAD", where=here, why="组的 children 要是一个列表"))
+                    problems.append(Msg("E-EXPOSED-BAD", where=here, why=i18n.Word("engine.exposed.group_children")))
                 else:
                     walk(x["children"], [*path, str(label or "")])
                 continue
-            if not isinstance(x, dict) or not isinstance(x.get("name"), str) or not isinstance(x.get("target"), str):
-                problems.append(Msg("E-EXPOSED-BAD", where=where(path, f"第 {i} 项"), why="既不是组，也不是带 name 和 target 的参数"))
+            if not isinstance(x, dict) or not isinstance(x.get("name"), str) or not targets_of(x):
+                problems.append(Msg("E-EXPOSED-BAD", where=where(path, i18n.Word("engine.exposed.nth", n=i)), why=i18n.Word("engine.exposed.neither")))
                 continue
-            here = where(path, str(x.get("label") or x["name"]))
+            here = where(path, exposed_label(x))
             item(x, here)
 
     def item(x: dict, here: str) -> None:
         name = x["name"]
         if not name.strip():
-            problems.append(Msg("E-EXPOSED-BAD", where=here, why="对外名字不能空着"))
+            problems.append(Msg("E-EXPOSED-BAD", where=here, why=i18n.Word("engine.exposed.name_empty")))
         elif name in seen:
             problems.append(Msg("E-EXPOSED-SAMENAME", where=here, name=name))
         seen.add(name)
+        keys = targets_of(x)
+        for key in keys:
+            if spec_at(key) is None:
+                problems.append(Msg("E-EXPOSED-NOTARGET", where=here, target=key))
+        if len(set(keys)) < len(keys):
+            problems.append(Msg("E-EXPOSED-TARGETS", where=here, target=keys[0], other=keys[0], why=i18n.Word("engine.exposed.targets_repeat")))
         spec = spec_of(x)
-        if spec is None:
-            problems.append(Msg("E-EXPOSED-NOTARGET", where=here, target=x["target"]))
+        # several targets: one outside parameter, so one kind of parameter (what it takes and how it is worked on),
+        # holding one value now (the interface shows the first's)
+        for key in keys[1:]:
+            other = spec_at(key)
+            if spec is None or other is None:
+                continue
+            if _shape(other) != _shape(spec):
+                problems.append(Msg("E-EXPOSED-TARGETS", where=here, target=keys[0], other=key, why=i18n.Word("engine.exposed.targets_unlike")))
+            elif not conditions.same(_value_at(nodes, keys[0], spec), _value_at(nodes, key, other)):
+                problems.append(Msg("E-EXPOSED-TARGETS", where=here, target=keys[0], other=key, why=i18n.Word("engine.exposed.targets_values")))
+        if "word" in x and (x["word"] not in BUTTON_WORDS or (spec is not None and spec["widget"] != "button") or "label" in x):
+            problems.append(Msg("E-EXPOSED-BAD", where=here, why=i18n.Word("engine.exposed.word_bad", words=" / ".join(BUTTON_WORDS))))
         widget, options = x.get("widget"), x.get("options")
         if spec is not None and spec["widget"] == "button" and (widget is not None or options is not None):
-            problems.append(Msg("E-EXPOSED-WIDGET", where=here, widget=EXPOSED_WIDGETS.get(widget, "下拉或复选框"), why="按钮没有值"))
+            problems.append(Msg("E-EXPOSED-WIDGET", where=here, widget=_widget_word(widget), why=i18n.Word("ui.conditions.button_no_value")))
         elif widget is not None and widget not in EXPOSED_WIDGETS:
-            problems.append(Msg("E-EXPOSED-BAD", where=here, why=f"控件只能是 menu（下拉）或 checkbox（复选框），不是 {widget!r}"))
+            problems.append(Msg("E-EXPOSED-BAD", where=here, why=i18n.Word("engine.exposed.widget_bad", widget=repr(widget))))
         elif widget is not None and spec is not None and (why := _widget_refused(widget, spec, options)):
-            problems.append(Msg("E-EXPOSED-WIDGET", where=here, widget=EXPOSED_WIDGETS[widget], why=why))
+            problems.append(Msg("E-EXPOSED-WIDGET", where=here, widget=_widget_word(widget), why=why))
         if options is not None:
             if not isinstance(options, list):
-                problems.append(Msg("E-EXPOSED-BAD", where=here, why="options 要是一个列表"))
+                problems.append(Msg("E-EXPOSED-BAD", where=here, why=i18n.Word("engine.exposed.options_list")))
             else:
                 values_seen: list = []
                 for n, o in enumerate(options, 1):
-                    if not isinstance(o, dict) or "value" not in o or not isinstance(o.get("label"), str) or not o["label"].strip():
-                        problems.append(Msg("E-EXPOSED-OPTION", where=here, n=n, value=json.dumps(o, ensure_ascii=False)[:40], why="每一项要有值和显示名"))
+                    if not isinstance(o, dict) or "value" not in o or not i18n.pick(o.get("label")).strip():
+                        problems.append(Msg("E-EXPOSED-OPTION", where=here, n=n, value=json.dumps(o, ensure_ascii=False)[:40], why=i18n.Word("engine.exposed.option_shape")))
                         continue
                     why = _refuses(spec, o["value"]) if spec is not None else None
                     if why is None and any(conditions.same(o["value"], v) for v in values_seen):
-                        why = "和前面一项的值重复"
+                        why = i18n.t("engine.exposed.option_repeat")
                     values_seen.append(o["value"])
                     # 这一项自己的 Hide When（成立时下拉里不列这一项；当前值恰好是它时值照留）：规则同条目级（expr_problem）
                     if why is None and o.get("hide_when") is not None:
                         bad = expr_problem(o["hide_when"])
-                        why = f"Hide When「{o['hide_when']}」{bad}" if bad else None
+                        why = i18n.t("engine.exposed.hide_when", expr=o["hide_when"], why=bad) if bad else None
+                    # 这一项自己的 Disable When：置灰并写明为什么（disable_why 必填：置灰而不说为什么不行）
+                    if why is None and o.get("disable_when") is not None:
+                        bad = expr_problem(o["disable_when"])
+                        why = i18n.t("engine.exposed.disable_when", expr=o["disable_when"], why=bad) if bad else None
+                        if why is None and (not isinstance(o.get("disable_why"), str) or not o["disable_why"].strip()):
+                            why = i18n.t("engine.exposed.disable_why")
+                    if why is None and o.get("disable_why") is not None and o.get("disable_when") is None:
+                        why = i18n.t("engine.exposed.disable_why_alone")
                     if why:
                         problems.append(Msg("E-EXPOSED-OPTION", where=here, n=n, value=json.dumps(o["value"], ensure_ascii=False), why=why))
         if "show_on_change" in x and not isinstance(x["show_on_change"], bool):
-            problems.append(Msg("E-EXPOSED-BAD", where=here, why="show_on_change（修改后在视图里显示这个节点）只能是 true 或 false"))
+            problems.append(Msg("E-EXPOSED-BAD", where=here, why=i18n.Word("engine.exposed.show_on_change")))
         # Hide When / Disable When (Houdini's hide-when / disable-when); `when`: an older file's opposite of disable_when
         for key, code in (("hide_when", "E-EXPOSED-HIDE"), ("disable_when", "E-EXPOSED-DISABLE"), ("when", "E-EXPOSED-WHEN")):
             expr = x.get(key)
@@ -458,14 +512,14 @@ FILE_WIDGETS = {"file": "in", "sequence": "in"}
 
 def file_params(data: dict) -> list[dict]:
     """Return every file parameter of the graph: key (node.param), exposed name if any, direction ("in": the client
-    uploads a file for it), widget and label."""
+    uploads a file for it), widget, label and the file name suffixes it takes (`accept`, [] for any)."""
     from .graph import check_shape
     from ..nodes import node_types
 
     check_shape(data)  # a malformed file: E-GRAPH-SHAPE, as reading it says (never a KeyError)
 
     registry = node_types()
-    exposed = {x["target"]: x["name"] for x, _ in exposed_items(data)}
+    exposed = {key: x["name"] for x, _ in exposed_items(data) for key in targets_of(x)}
     out = []
     for n in data.get("nodes", []):
         node_type = registry.get(n["type"])
@@ -473,7 +527,8 @@ def file_params(data: dict) -> list[dict]:
             if spec["widget"] in FILE_WIDGETS:
                 key = f"{n['id']}.{spec['name']}"
                 out.append({"key": key, "name": exposed.get(key), "direction": FILE_WIDGETS[spec["widget"]],
-                            "widget": spec["widget"], "label": spec["label"], "node": n.get("label") or node_type.label})
+                            "widget": spec["widget"], "label": spec["label"], "node": node_ref(n["id"], node_type.id),
+                            "accept": list(spec.get("accept") or [])})
     return out
 
 
@@ -492,41 +547,49 @@ def apply_values(data: dict, values: dict[str, Any]) -> dict:
 
     data = copy.deepcopy(data)
     nodes = {n["id"]: n for n in data.get("nodes", [])}
-    by_name = {x["name"]: x["target"] for x, _ in exposed_items(data)}
+    by_name = {x["name"]: targets_of(x) for x, _ in exposed_items(data)}
     # the interface's rules go by what is set, however it is named: an exposed parameter set by node.param is held to
-    # its menu and its hidden options all the same (its exposed name for the messages)
-    name_of = {x["target"]: x["name"] for x, _ in exposed_items(data)}
-    menus = {x["target"]: x["options"] for x, _ in exposed_items(data)
-             if x.get("widget") == "menu" and isinstance(x.get("options"), list)}
+    # its menu and its hidden options all the same (its exposed name for the messages), and drives all its targets
+    entry_of = {key: x for x, _ in exposed_items(data) for key in targets_of(x)}
     changed: dict[str, set[str]] = {}
     named: dict[str, Any] = {}
-    for key, value in values.items():
-        target = by_name.get(key, key)
-        if target in name_of:
-            named[name_of[target]] = value
-        if target in menus and not any(isinstance(o, dict) and conditions.same(value, o.get("value")) for o in menus[target]):
-            said = " / ".join(f"{json.dumps(o.get('value'), ensure_ascii=False)}（{o.get('label', '')}）" for o in menus[target] if isinstance(o, dict))
-            raise GraphError(Msg("E-TEMPLATE-NOTOPTION", key=key, value=json.dumps(value, ensure_ascii=False), options=said))
-        node_id, dot, param = target.partition(".")
-        if not dot or node_id not in nodes:
+
+    def put(key: str, value: Any) -> None:
+        """Sets one node parameter (a key named in the call, or one of an exposed parameter's targets)."""
+        node_id, param = split_target(key)
+        if not param or node_id not in nodes:
             raise GraphError(Msg("E-TEMPLATE-NOPARAM", key=key, names=list(by_name)) if by_name else Msg("E-TEMPLATE-NOEXPOSED", key=key))
         t = node_types().get(nodes[node_id]["type"])
         if t and param not in t.Params.model_fields and any(b["name"] == param and b["widget"] == "button" for b in t.interface_specs()):
-            continue  # a button (「计算」, 「下载」) holds no value: a client sending every exposed name sends it too
+            return  # a button (「计算」, 「下载」) holds no value: a client sending every exposed name sends it too
         # driven by a wire: set here only when that output may give nothing (Port.may_be_empty: the source's value when
         # it has one, else this one), as the page lets it be typed
         if (wire := wire_source(data, node_id, param)) and not (wire[1] is not None and wire[1].may_be_empty):
             raise GraphError(Msg("E-TEMPLATE-WIRED", key=key, wire=wire[0]))
         nodes[node_id].setdefault("params", {})[param] = value
         changed.setdefault(node_id, set()).add(param)
+
+    for key, value in values.items():
+        x = next((y for y, _ in exposed_items(data) if y["name"] == key), None) or entry_of.get(key)
+        if x is None:
+            put(key, value)
+            continue
+        named[x["name"]] = value
+        if x.get("widget") == "menu" and isinstance(x.get("options"), list) and \
+                not any(isinstance(o, dict) and conditions.same(value, o.get("value")) for o in x["options"]):
+            said = " / ".join(_option_shown(o.get("value"), o.get("label")) for o in x["options"] if isinstance(o, dict))
+            raise GraphError(Msg("E-TEMPLATE-NOTOPTION", key=key, value=json.dumps(value, ensure_ascii=False), options=said))
+        for target in targets_of(x):
+            put(target, value)
     # a menu the values set hid the current option of falls to the first it lists, as on the page (conditions.settled:
     # one rule, both sides); what was set here is held to its menu instead (hidden_values: said, not moved)
     fall = [{"name": x["name"], "options": x["options"]} for x, _ in exposed_items(data)
-            if x["target"] in menus and x["name"] not in named]
+            if x.get("widget") == "menu" and isinstance(x.get("options"), list) and x["name"] not in named]
     for name, _was, now in conditions.settled(fall, exposed_values(data)):
-        node_id, _dot, param = by_name[name].partition(".")
-        nodes[node_id].setdefault("params", {})[param] = now
-        changed.setdefault(node_id, set()).add(param)
+        for key in by_name[name]:
+            node_id, param = split_target(key)
+            nodes[node_id].setdefault("params", {})[param] = now
+            changed.setdefault(node_id, set()).add(param)
     hidden_values(data, named)
     for node_id, names in changed.items():  # derived parameters, computed as in the editor (NodeDef.derive)
         t = node_types().get(nodes[node_id]["type"])
@@ -535,7 +598,7 @@ def apply_values(data: dict, values: dict[str, Any]) -> dict:
             try:
                 derived = t.derive(t.load_params(nodes[node_id]["params"]))
             except ValueError as exc:
-                raise GraphError(Msg("E-TEMPLATE-DERIVE", node=nodes[node_id].get("label") or t.label, reason=exc)) from exc
+                raise GraphError(Msg("E-TEMPLATE-DERIVE", node=node_ref(node_id, t.id), reason=exc)) from exc
             nodes[node_id]["params"].update({k: v for k, v in derived.items() if k in follows})
     return data
 
@@ -548,7 +611,7 @@ def exposed_values(data: dict) -> dict[str, Any]:
     nodes = {n.get("id"): n for n in data.get("nodes", []) if isinstance(n, dict)}
     out: dict[str, Any] = {}
     for x, _ in exposed_items(data):
-        node_id, _dot, param = x["target"].partition(".")
+        node_id, param = first_target(x)  # the one the interface shows (its targets hold one value: check_exposed)
         node = nodes.get(node_id)
         t = node_types().get(node.get("type")) if node else None
         spec = next((p for p in t.param_specs() if p["name"] == param), None) if t else None
@@ -560,8 +623,8 @@ def exposed_values(data: dict) -> dict[str, Any]:
 
 
 def hidden_values(data: dict, values: dict[str, Any]) -> None:
-    """设进来的值（apply_values）不能是下拉里现在被藏起的那一项（选项自己的 hide_when 成立，conditions.shown_options）：
-    网页里使用者选不到它，命令行 / 插件同样不收，说现在能选哪些。"""
+    """设进来的值（apply_values）不能是下拉里现在被藏起的那一项（选项自己的 hide_when 成立，conditions.shown_options），
+    也不能是现在置灰的那一项（disable_when 成立）：网页里使用者选不到它，命令行 / 插件同样不收，说为什么、现在能选哪些。"""
     from . import conditions
 
     now = exposed_values(data)
@@ -570,16 +633,19 @@ def hidden_values(data: dict, values: dict[str, Any]) -> None:
             continue
         value = values[x["name"]]
         option = next((o for o in x["options"] if isinstance(o, dict) and conditions.same(o.get("value"), value)), None)
+        if option is not None and option.get("disable_when") is not None and conditions.holds(option["disable_when"], now):
+            raise GraphError(Msg("E-TEMPLATE-DISABLEDOPTION", key=x["name"], value=json.dumps(value, ensure_ascii=False),
+                                 why=option.get("disable_why") or option["disable_when"]))
         if option is not None and conditions.holds(option.get("hide_when"), now):
             shown = conditions.shown_options(x["options"], now)
             raise GraphError(Msg("E-TEMPLATE-HIDDENOPTION", key=x["name"], value=json.dumps(value, ensure_ascii=False), when=option["hide_when"],
-                                 shown=" / ".join(f"{json.dumps(o['value'], ensure_ascii=False)}（{o.get('label', '')}）" for o in shown) or "（没有）"))
+                                 shown=i18n.Both.of(lambda: " / ".join(_option_shown(o["value"], o.get("label")) for o in shown) or i18n.t("conventions.none"))))
 
 
 def delivered_by(data: dict) -> list[str] | None:
     """The nodes a card's deliveries (every 「输出」; a card without one, every node no wire leaves) are made from with
     its values as they stand: along the routes its switches take (Routing.needed, the one answer the cook reads; a
-    route still to be computed counts every way). What its licence is judged on (lab2shot/library.py, nodes/tags.py
+    route still to be computed counts every way). What its licence is judged on (lab2shot/site/library.py, nodes/tags.py
     graph_tags): a node on a way no default takes is not used. Judged against an empty cache, so what anyone happens to
     have cooked never changes a card's licence. None when the graph can't tell (it does not read)."""
     with _empty_cache():
@@ -638,7 +704,7 @@ def route_variants(data: dict) -> list[tuple[dict, dict]]:
     def choices(x: dict) -> list:  # the values a user can pick: the menu's own, else the parameter's
         if x.get("widget") == "menu" and isinstance(x.get("options"), list):
             return [o.get("value") for o in x["options"] if isinstance(o, dict)]
-        node_id, _dot, param = x["target"].partition(".")
+        node_id, param = first_target(x)
         t = types.get((nodes.get(node_id) or {}).get("type"))
         spec = next((p for p in t.param_specs() if p["name"] == param), None) if t else None
         if spec is None or spec.get("widget") == "button":
@@ -679,27 +745,69 @@ def route_tags(data: dict) -> list[frozenset[str]]:
     return out
 
 
-def route_problems(data: dict, waits: tuple[str, ...] = ()) -> list[str]:
-    """Each route a user can take through the card (route_variants) loads as a graph and its deliveries plan: no
-    wiring error (a B- refusal) on the way they take with those values — what the defaults alone would not show (a
-    lens model chosen that leaves a wire wrong). `waits`: refusal codes that only wait for the user (a file to pick)."""
-    from ..serving import Account
-    from .evaluation import Evaluation
+def waits_for_user(code: str) -> bool:
+    """A refusal named B-<MODULE>-WAIT… waits for what the user gives before submitting, by its name (B-WIRE-WAITS: a
+    file of that kind to pick; B-KIMODO-WAITPROMPT: a prompt to write): a fresh card may stand on it (route_problems),
+    as it stands on a file not picked yet. A node's other B- refusals are mistakes a card must not ship with."""
+    parts = code.split("-", 2)
+    return len(parts) == 3 and parts[0] == "B" and parts[2].startswith("WAIT")
 
+
+def route_problems(data: dict, waits: tuple[str, ...] = ()) -> list[str]:
+    """Each route a user can take through the card (route_variants), in one pass:
+    - it loads as a graph and its deliveries plan: no wiring error (a B- refusal) on the way they take with those
+      values — what the defaults alone would not show (a lens model chosen that leaves a wire wrong). `waits`: refusal
+      codes that only wait for the user (a file to pick), as does a B-<MODULE>-WAIT… one (waits_for_user);
+    - what the user must work on along it has a way to in app mode: each parameter of a node a delivery is made from
+      on that route (Evaluation.needed, as delivered_by) that is a file to pick (FILE_WIDGETS) or worked on with a
+      handle in the view (PICKED_IN_VIEW: picks, outlines, a stick figure), active there (not greyed by its node's
+      rules) and driven by no wire, is exposed — a handle's parameter with its 「在视图里点选」 too. One that needs
+      nothing from the user on purpose is listed in the card's meta `internal` ("node.param")."""
+    from ..nodes.params import PICKED_IN_VIEW
+    from ..nodes.port import PARAM
+    from ..serving import Account
+    from .evaluation import PLAN_ERRORS, Evaluation
+
+    exposed = {k for x, _ in exposed_items(data) for k in targets_of(x)}
+    internal = set((data.get("meta") or {}).get("internal") or ())
     said = []
+    missing: dict[str, str] = {}  # node.param -> the first route it was found on
     with _empty_cache():
         for pick, chosen in route_variants(data):
-            where = "、".join(f"{k}={v!r}" for k, v in pick.items()) or "默认值"
+            where = i18n.separator().join(f"{k}={v!r}" for k, v in pick.items()) or i18n.t("engine.routes.defaults")
             try:
                 graph = Graph.from_json(chosen)
             except GraphError as exc:
-                said.append(f"{where}：节点图读不进来：{exc.message.text}")
+                said.append(i18n.t("engine.routes.unreadable", where=where, why=exc.message.text))
                 continue
             targets = graph.deliveries() or [n for n in graph.nodes if not graph.outputs_by_node.get(n)]
-            refused = Evaluation(graph, Account(1)).readiness(targets).refused
-            if refused is not None and refused.code.startswith("B-") and not refused.code.startswith(waits):
-                said.append(f"{where}：交付路线规划不了：{refused.text}")
-    return said
+            ev = Evaluation(graph, Account(1))
+            refused = ev.readiness(targets).refused
+            if refused is not None and refused.code.startswith("B-") and not refused.code.startswith(waits) \
+                    and not waits_for_user(refused.code):
+                said.append(i18n.t("engine.routes.unplanned", where=where, why=refused.text))
+            try:
+                needed = ev.needed(targets)
+            except PLAN_ERRORS:
+                continue
+            for nid in needed:
+                node = graph.nodes.get(nid)
+                if node is None:
+                    continue
+                try:
+                    inactive = ev.resolved(nid).params.inactive
+                except (GraphError, *PLAN_ERRORS):
+                    inactive = {}
+                for spec in node.type.param_specs():
+                    name, widget = spec["name"], spec["widget"]
+                    if widget not in FILE_WIDGETS and widget not in PICKED_IN_VIEW:
+                        continue
+                    if name in inactive or graph.inputs.get((nid, PARAM + name)):
+                        continue
+                    for key in (f"{nid}.{name}", *((f"{nid}.{name}_pick",) if widget in PICKED_IN_VIEW else ())):
+                        if key not in exposed and key not in internal:
+                            missing.setdefault(key, where)
+    return said + [i18n.t("engine.routes.no_entry", target=k, where=w) for k, w in missing.items()]
 
 
 def menu_routes(data: dict) -> list[str]:
@@ -722,25 +830,26 @@ def menu_routes(data: dict) -> list[str]:
     for x, _ in exposed_items(data):
         if x.get("widget") != "menu" or not isinstance(x.get("options"), list):
             continue
-        nid, _dot, param = x["target"].partition(".")
-        if nid not in nodes or nodes[nid].get("type") not in types:
-            continue
-        kind = types[nodes[nid]["type"]]
-        # (switch, how an option's value becomes its 「走哪一路」)
-        driven = [(nid, lambda v: v)] if chooses(kind) and PARAM + param == kind.condition_input else []
-        for e in data.get("edges", []):
-            src, dst = e.get("from") or [None, None], e.get("to") or [None, None]
-            if src[0] == nid and dst[0] in nodes and nodes[dst[0]].get("type") in types:
-                sw = types[nodes[dst[0]]["type"]]
-                if chooses(sw) and dst[1] == sw.condition_input:
-                    driven.append((dst[0], lambda v, out=src[1]: (kind.known_outputs(params_of(nid, **{param: v})).get(out) or {}).get("value")))
-        for sw_id, value_of in driven:
-            sw = types[nodes[sw_id]["type"]]
-            for o in x["options"]:
-                v = value_of(o.get("value")) if isinstance(o, dict) else None
-                if v is not None and not sw.chosen_inputs(params_of(sw_id, which=v), None):
-                    said.append(f"下拉「{x['name']}」选「{o.get('label', o.get('value'))}」时「{nodes[sw_id].get('label') or sw.label}」"
-                                f"走第 {v} 路，它只有 {len(sw.way_names(params_of(sw_id)))} 路")
+        for key in targets_of(x):
+            nid, param = split_target(key)
+            if nid not in nodes or nodes[nid].get("type") not in types:
+                continue
+            kind = types[nodes[nid]["type"]]
+            # (switch, how an option's value becomes its 「走哪一路」)
+            driven = [(nid, lambda v: v)] if chooses(kind) and PARAM + param == kind.condition_input else []
+            for e in data.get("edges", []):
+                src, dst = e.get("from") or [None, None], e.get("to") or [None, None]
+                if src[0] == nid and dst[0] in nodes and nodes[dst[0]].get("type") in types:
+                    sw = types[nodes[dst[0]]["type"]]
+                    if chooses(sw) and dst[1] == sw.condition_input:
+                        driven.append((dst[0], lambda v, out=src[1]: (kind.known_outputs(params_of(nid, **{param: v})).get(out) or {}).get("value")))
+            for sw_id, value_of in driven:
+                sw = types[nodes[sw_id]["type"]]
+                for o in x["options"]:
+                    v = value_of(o.get("value")) if isinstance(o, dict) else None
+                    if v is not None and not sw.chosen_inputs(params_of(sw_id, which=v), None):
+                        said.append(i18n.t("engine.routes.switch_way", menu=x["name"], option=i18n.pick(o.get("label")) or o.get("value"),
+                                           node=node_ref(sw_id, nodes[sw_id]["type"]), way=v, ways=len(sw.way_names(params_of(sw_id)))))
     return said
 
 
@@ -777,13 +886,13 @@ def shared_interfaces(cards: list[tuple[str, dict]]) -> list[str]:
             ids = {n["id"] for n in data.get("nodes", []) if n.get("type") == type_id}
             if not ids:
                 continue
-            mine = [x for x, _ in exposed_items(data) if x["target"].partition(".")[0] in ids]
+            mine = [(x, split_target(key)[1]) for x, _ in exposed_items(data) for key in targets_of(x) if split_target(key)[0] in ids]
             if not mine:  # the node is on the card, none of its parameters on the interface: nothing to compare
                 continue
-            seen[name] = {x["target"].partition(".")[2]: (x["name"], x.get("label", ""), shape(x.get("hide_when")),
-                                                         shape(disable_when_of(x))) for x in mine}
-            shown[name] = {x["target"].partition(".")[2]: (x["name"], x.get("label", ""), x.get("hide_when") or "",
-                                                          disable_when_of(x) or "") for x in mine}
+            seen[name] = {param: (x["name"], x.get("label", ""), shape(x.get("hide_when")),
+                                  shape(disable_when_of(x))) for x, param in mine}
+            shown[name] = {param: (x["name"], i18n.pick(x.get("label")), x.get("hide_when") or "",
+                                   disable_when_of(x) or "") for x, param in mine}
         if len(seen) < 2:
             continue
         common, _ = Counter(json.dumps(v, sort_keys=True, ensure_ascii=False) for v in seen.values()).most_common(1)[0]
@@ -795,10 +904,13 @@ def shared_interfaces(cards: list[tuple[str, dict]]) -> list[str]:
             gone = sorted(set(want) - set(got))
             more = sorted(set(got) - set(want))
             other = sorted(k for k in set(want) & set(got) if tuple(want[k]) != got[k])
-            parts = ([f"少了 {'、'.join(gone)}"] if gone else []) + ([f"多了 {'、'.join(more)}"] if more else []) + \
-                [f"{k} 的对外名 / 显示名 / 条件的写法不同（{' / '.join(shown[name][k])}；多数卡如「{like}」是 {' / '.join(shown[like][k])}）" for k in other]
-            said.append(f"{name}: {type_id} 公开的参数与其余 {len(seen) - 1} 张卡不一致：{'；'.join(parts)}"
-                        f"（有意不同就在 meta.own_interface 里写上 {type_id}）")
+            sep = i18n.separator()
+            parts = ([i18n.t("engine.interface.missing", params=sep.join(gone))] if gone else []) + \
+                ([i18n.t("engine.interface.extra", params=sep.join(more))] if more else []) + \
+                [i18n.t("engine.interface.differs", param=k, here=" / ".join(shown[name][k]), like=like,
+                        there=" / ".join(shown[like][k])) for k in other]
+            said.append(i18n.t("engine.interface.unlike", name=name, type=type_id, others=len(seen) - 1,
+                               parts=i18n.t("engine.interface.joiner").join(parts)))
     return said
 
 

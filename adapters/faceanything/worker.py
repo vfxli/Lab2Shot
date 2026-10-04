@@ -3,7 +3,7 @@ original repo's src/ on PYTHONPATH; never imports Lab2Shot core.
 
     python worker.py <job.json>
 
-Node "faceanything.solve": frames -> Robust Video Matting alpha (in order, like
+Node "faceanything.face_maps": frames -> Robust Video Matting alpha (in order, like
 FaceAnything's own pipeline) -> FaceAnything (DA3-GIANT + canonical head) in
 chunks of frames or one frame at a time -> per frame raw/frame_<n>.npz in the
 geometry contract (lab2shot_worker.mono_geometry: points, depth, mask = the RVM
@@ -16,8 +16,8 @@ more consistent than frame by frame). Consecutive chunks share OVERLAP frames;
 each chunk's depth is rescaled to agree with the previous chunk on those shared
 frames (the model's depth has no fixed scale between separate calls), and the
 shared frames keep the earlier chunk's result. Out of GPU memory, the worker
-SDK's one policy (lab2shot_worker.fit_memory) decides, on 每段最多帧数 in chunk
-mode and on 处理分辨率 one frame at a time.
+SDK's one policy (lab2shot_worker.fit_memory) decides, on Max Frames per Chunk in chunk
+mode and on Resolution one frame at a time.
 
 RTX 4090 (24 GB), resolution 504, peak memory reserved by this process:
 one frame 8.6 GB, chunk 8 13.2 GB, 16 14.4-15.6 GB, 24 18.8 GB, 40 20.4 GB.
@@ -38,7 +38,7 @@ from lab2shot_worker import MemoryBound, fail, limit_gpu_memory, progress, read_
 from lab2shot_worker.mono_geometry import finish_geometry, frame_arrays, unproject_frame
 from lab2shot_worker.run import Run
 
-NODE = "faceanything.solve"
+NODE = "faceanything.face_maps"
 # what the memory grows with: the node's options (chunk 8 / 16 / 24 = 13.2 / 15.0 / 18.8 GB at 504 px)
 CHUNK = MemoryBound.parameter("max_frames", (24, 16, 8))
 RESOLUTION = MemoryBound.parameter("resolution", (504,))  # one frame at a time: the one resolution offered
@@ -83,7 +83,7 @@ def matte(paths: list[Path], device) -> list[np.ndarray]:
         for n, path in enumerate(paths):
             _, pha, *rec = model(to_tensor(read_frame(path)), *rec, ratio)
             alphas.append(np.clip(np.rint(pha[0, 0].float().cpu().numpy() * 255.0), 0, 255).astype(np.uint8))
-            progress(n + 1, len(paths), "背景遮罩")
+            progress(n + 1, len(paths), "background_matte")
     return alphas
 
 
@@ -193,7 +193,7 @@ def solve(model, paths: list[Path], alphas: list[np.ndarray], numbers: list[int]
         chunks.append([numbers[start], numbers[end - 1]])
         scales.append(round(scale, 5))
         pos = end
-        progress(pos, n, "解算")
+        progress(pos, n, "solve")
     return {"results": results, "chunks": chunks, "scales": scales, "size": (h, w), "chunk": size, "resolution": resolution}
 
 
@@ -210,13 +210,14 @@ def main(job_path: str) -> None:
     t0 = time.time()
     run.gpu_cap_mb = limit_gpu_memory()  # before the matting model too, not only the face model (run.model would set it later)
 
-    run.stage("背景遮罩（Robust Video Matting）")
+    run.stage("background_matte_rvm")
     alphas = matte(paths, device)
     t_matte = time.time() - t0
 
-    model = run.model("FaceAnything 模型", load_model, job.weights_dir / "faceanything" / "checkpoint.pt", device)
+    model = run.model("load_model", load_model, job.weights_dir / "faceanything" / "checkpoint.pt", device,
+                      stage_params={"model": "FaceAnything"})
 
-    run.stage("解算")
+    run.stage("solve")
     t2 = time.time()
     if mode == "chunk":
         solved = run.fit(CHUNK, lambda c: solve(model, paths, alphas, numbers, c, resolution), chunk)
@@ -226,7 +227,7 @@ def main(job_path: str) -> None:
     t_solve = time.time() - t2
     run.frame_seconds.extend([t_solve / n] * n)  # the solve is one pass over all frames: shared out per frame
 
-    run.stage("写出结果")
+    run.stage("write_results")
     size_in = alphas[0].shape
     stats: dict[str, list] = {"focal_px": [], "depth_median": [], "valid_fraction": [], "frames": numbers}
     for i, f in enumerate(numbers):
@@ -241,7 +242,7 @@ def main(job_path: str) -> None:
         stats["valid_fraction"].append(round(float(arrays["mask"].mean()), 4))
         save_npz(raw / f"frame_{f}.npz", **arrays, canonical=torch.nan_to_num(canonical).cpu().numpy().astype(np.float32),
                  alpha=alpha)
-        progress(i + 1, n, "写出结果")
+        progress(i + 1, n, "write_results")
     finish_geometry(
         run,
         stats,

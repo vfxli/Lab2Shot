@@ -1,0 +1,66 @@
+# The MapAnything extension's messages and words in English (the same keys as zh.toml).
+
+# ---- reconstruction (worker.py)
+"N-MAPANYTHING-FEWERFRAMES.one" = "Max Frames per Segment {requested} is measured for a 16:9 frame; this frame shape takes at most {limit} frames at a time: segmenting by {limit} this time (more segments, more overlap)"
+"N-MAPANYTHING-FEWERFRAMES.other" = "Max Frames per Segment {requested} is measured for a 16:9 frame; this frame shape takes at most {limit} frames at a time: segmenting by {limit} this time (more segments, more overlap)"
+"E-MAPANYTHING-NOOVERLAP" = "MapAnything: the frames segment {segment} shares with the previous segment hold too few reliable pixels to align the two. Raise Max Frames per Segment (fewer segments, more overlap) and cook again"
+"W-MAPANYTHING-SEAM" = "MapAnything: segment {segment} is still {residual:.1%} off the previous one after alignment (relative to depth): the camera may jump a frame at the seam. Raise Max Frames per Segment for fewer segments"
+"W-MAPANYTHING-SEAMSCALE" = "MapAnything: the scale of segment {segment} differs from the previous one by {scale:.2f} times: depth values and camera positions will jump at the seam. Raise Max Frames per Segment for fewer segments"
+"N-MAPANYTHING-NONCOMMERCIAL" = "Model is set to the MapAnything main weights (more accurate): they are licensed CC-BY-NC-4.0, so the results are for research only and may not go to commercial projects; for commercial use switch to the apache weights"
+"I-MAPANYTHING-DINOV2CODE" = "DINOv2 code"
+"W-MAPANYTHING-FOCALMISMATCH" = "The focal length MapAnything estimated itself (median {model:.0f} px) differs from the given focal length {given:.0f} px by {diff:.0%}: depth maps and cameras are computed with the model's own focal length and may be off. Check that Known Focal Length is this footage's real focal length (and that the aperture is right too)"
+
+# ---- words
+
+[stage]
+reconstruct.one = "Reconstruct ({frames} frame)"
+reconstruct.other = "Reconstruct ({frames} frames)"
+reconstruct_segment = "Reconstruct Segment {segment}/{segments} (frames: {frames})"
+
+[node."mapanything.reconstruct"]
+subtitle = "Depth and Camera"
+description = "Image → a camera per frame and metric-scale depth maps (Meta MapAnything). It looks at the whole shot at once, needs no feature matching, and works for a locked-off camera too. Long shots are computed in segments and stitched, and the scale can jump between segments; the camera has a slight per-frame jitter, so follow it with deshake_camera. Always fill in the focal length when you know it (or wire in the focal length of anycalib.calibrate): with long lenses it estimates the focal length too short. The focal length is estimated per frame, so zoom lenses are followed; for the least GPU memory use cut3r.reconstruct. The point cloud is one point map per frame (the official native point map, put back in that frame's own camera), not one set for the whole shot: upstream has no output that merges a scene point cloud."
+
+[node."mapanything.reconstruct".param.model]
+label = "Model"
+
+[node."mapanything.reconstruct".param.model.option]
+main = "Main Weights"
+apache = "Apache"
+
+[node."mapanything.reconstruct".param.max_frames]
+label = "Max Frames per Segment"
+
+[node."mapanything.reconstruct".param.max_frames.option]
+50 = "50"
+100 = "100"
+150 = "150"
+200 = "200"
+
+[node."mapanything.reconstruct".official]
+note = "Depth is depth_z (model.py:2107); the camera is camera_poses (model.py:2110) plus intrinsics (model.py:2105). Point Cloud is the official world point map pts3d (model.py:2102): the worker hands over its camera-space form pts3d_cam (model.py:2103, the same data in another coordinate system), and the family puts it back in the world by the stitched cameras. There is no mask or bounding box input: the only optional entries of the official view dictionary are camera intrinsics / rays / depth / pose (model.py:2059-2064), no mask of any kind; to reconstruct part of the picture, black out the rest before it goes in: sam_3d_body.detect_people → mask_from_boxes → composite (keep) → this node's RGB input"
+
+[node."mapanything.reconstruct".licence]
+note = "Code Apache-2.0. The Apache weights allow commercial use; the main weights (trained on 13 datasets, clearly more accurate) are CC-BY-NC-4.0, noncommercial."
+
+[extension.mapanything]
+summary = "An open research framework for general metric-scale 3D reconstruction: an end-to-end trained transformer regresses the scene's 3D geometry from images, calibration, poses or depth maps"
+
+[extension.mapanything.license]
+name = "Apache-2.0 (code, apache weights) / CC-BY-NC-4.0 (main weights, noncommercial)"
+summary = "Code Apache-2.0, commercial use allowed. Two sets of weights: map-anything-apache is Apache-2.0, commercial use allowed; map-anything (main, more accurate) is CC-BY-NC-4.0, noncommercial only (research use allowed, attribution required). The UniCeption dependency is BSD-3-Clause; the DINOv2 backbone code is Apache-2.0 (its repository also holds the noncommercial Cell-DINO / XRay-DINO code and weights, which this extension neither imports nor downloads)"
+
+[extension.mapanything.weight.main-config]
+note = "facebook/map-anything (CC-BY-NC-4.0, noncommercial)"
+
+[extension.mapanything.weight.main-model]
+note = "facebook/map-anything (CC-BY-NC-4.0, noncommercial)"
+
+[extension.mapanything.weight.apache-config]
+note = "facebook/map-anything-apache (Apache-2.0)"
+
+[extension.mapanything.weight.apache-model]
+note = "facebook/map-anything-apache (Apache-2.0)"
+
+[extension.mapanything.weight.dinov2-code]
+note = "DINOv2 backbone architecture code (Apache-2.0; the architecture only, no DINOv2 weights are downloaded)"

@@ -15,6 +15,7 @@ import { msg, type Message } from "../messages/message";
 import { wouldCycle } from "./nodes";
 import { ADD_ROW, inputPort, outputPort, wireKey, type GraphView } from "./rules";
 import { wireProblem } from "./wireRule";
+import { wordIn } from "./naming";
 
 export interface End {
   node: string;
@@ -50,7 +51,7 @@ export function holdWires(edges: Wire[], at: End, side: "output" | "input"): Hel
   return wires.length ? { side, at, wires } : null;
 }
 
-const labelOf = (s: GraphView, id: string) => s.nodes.find((n) => n.id === id)?.data.label ?? id;
+const labelOf = (s: GraphView, id: string) => wordIn(s.nodes, id); // a message's parameter (graph/naming.ts nodeWord)
 
 /** 把拎起的线落到 `to`（`side` 那一侧的口）上。 */
 export function rewire(s: GraphView, edges: Wire[], held: Held, to: End, side: "output" | "input"): Rewired {

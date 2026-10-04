@@ -91,16 +91,26 @@ def track(model, video, depths, intrinsics, extrinsics, queries):
     n = queries.shape[0]
     model.set_image_size((h, w))
     kw = dict(model=model, num_iters=ITERS, depth_roi=roi, grid_size=SUPPORT_GRID)
-    preds, _ = _inference_with_grid(video=video[None], depths=depths[None], intrinsics=intrinsics[None],
-                                    extrinsics=extrinsics[None], query_point=queries[None], **kw)
-    coords, logits = preds.coords, preds.visibs
+    # upstream's online loop runs windows of model.seq_len (16) frames, the first ending at frame seq_len: a clip
+    # shorter than that runs no window at all and comes back as its initialisation (every point standing at its query,
+    # visibility logit 0). A short clip is therefore padded with its last frame to one window, as upstream pads a clip
+    # to whole half-windows, and the padding cut off again.
+    pad = max(0, int(model.seq_len) - t)
+
+    def run(v, d, k, e, q):
+        if pad:
+            v, d, k, e = (torch.cat([x, x[-1:].expand(pad, *x.shape[1:])]) for x in (v, d, k, e))
+        preds, _ = _inference_with_grid(video=v[None], depths=d[None], intrinsics=k[None], extrinsics=e[None],
+                                        query_point=q[None], **kw)
+        return preds.coords[:, :t], preds.visibs[:, :t]
+
+    coords, logits = run(video, depths, intrinsics, extrinsics, queries)
     if (queries[:, 0] > 0).any() and not model.bidirectional:
-        back, _ = _inference_with_grid(video=video[None].flip(1), depths=depths[None].flip(1),
-                                       intrinsics=intrinsics[None].flip(1), extrinsics=extrinsics[None].flip(1),
-                                       query_point=torch.cat([t - 1 - queries[:, :1], queries[:, 1:]], -1)[None], **kw)
+        b_coords, b_logits = run(video.flip(0), depths.flip(0), intrinsics.flip(0), extrinsics.flip(0),
+                                 torch.cat([t - 1 - queries[:, :1], queries[:, 1:]], -1))
         before = repeat(torch.arange(t, device=video.device), "t -> 1 t n", n=n) < queries[None, None, :, 0]
-        coords = torch.where(before[..., None], back.coords.flip(1), coords)
-        logits = torch.where(before, back.visibs.flip(1), logits)
+        coords = torch.where(before[..., None], b_coords.flip(1), coords)
+        logits = torch.where(before, b_logits.flip(1), logits)
     return coords[0].float().cpu().numpy(), torch.sigmoid(logits[0].float()).cpu().numpy()
 
 
@@ -124,29 +134,33 @@ def main(job_path: str) -> None:
     queries = pt.build_queries(job, p, width, height)
     device = torch.device("cuda")
 
-    run.stage("读取画面、深度和相机")
+    run.stage("read_inputs")
     focal, c2w = cam.at(numbers)
     video, depth, valid = [], [], []
-    for i, (f, path) in run.each(frames.pairs, "读取"):
+    for i, (f, path) in run.each(frames.pairs, "read"):
         video.append(read_frame(path))
         d, ok = read_depth(depth_files[f])
         if d.shape != (height, width):
             fail("E-TAPIP3D-DEPTHSIZE", frame=f, width=d.shape[1], height=d.shape[0], plate_width=width, plate_height=height)
         depth.append(d)
         valid.append(ok)
-    # the query points lifted into the camera's world (metres)
+    model = run.model("load_model", load_model, job.repo_dir, checkpoint, device, stage_params={"model": "TAPIP3D"})
+
+    run.stage("preprocess")
+    from datasets.data_ops import _filter_one_depth
+    from utils.inference_utils import resize_depth_bilinear
+
+    # the query points lifted into the camera's world (metres), from the depth with its flying pixels filtered as
+    # the model's own depth input is (upstream _filter_one_depth(0.08, 15), here at full resolution): a query on a
+    # depth edge takes the surface's depth, not a pixel floating between foreground and background
     xyz_q = np.zeros((len(queries), 3))
     for t in np.unique(queries.t):
         sel = queries.t == t
-        z = depth_at(depth[t], valid[t], queries.xy[sel])
         k = np.array([[focal[t], 0.0, width / 2], [0.0, focal[t], height / 2], [0.0, 0.0, 1.0]])
+        k_int = k - np.array([[0.0, 0.0, 0.5], [0.0, 0.0, 0.5], [0.0, 0.0, 0.0]])  # pixel centres at integers (upstream)
+        filtered = _filter_one_depth(np.where(valid[t], depth[t], 0.0).astype(np.float32), 0.08, 15, k_int)
+        z = depth_at(filtered, valid[t], queries.xy[sel])
         xyz_q[sel] = unproject_at(z, queries.xy[sel, 0], queries.xy[sel, 1], k, c2w[t])  # the one back-projection
-
-    model = run.model("TAPIP3D", load_model, job.repo_dir, checkpoint, device)
-
-    run.stage("预处理（缩放、去深度边缘飞点）")
-    from datasets.data_ops import _filter_one_depth
-    from utils.inference_utils import resize_depth_bilinear
 
     factor = RESOLUTION_FACTOR[params["resolution"]]
     res = (int(model.image_size[0] * np.sqrt(factor)), int(model.image_size[1] * np.sqrt(factor)))
@@ -160,7 +174,7 @@ def main(job_path: str) -> None:
     depth_in = np.stack(thread_map(lambda d: resize_depth_bilinear(d, (res[1], res[0])), depth, threads=8))
     depth_in = np.stack(thread_map(lambda a: _filter_one_depth(a[0], 0.08, 15, a[1]), zip(depth_in, K), threads=8))
 
-    run.stage(f"跟踪 {len(queries)} 个点")
+    run.stage("track_points", count=len(queries))
     t2 = time.time()
     to = dict(device=device)
     with torch.autocast("cuda", dtype=torch.bfloat16):

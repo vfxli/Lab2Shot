@@ -134,7 +134,7 @@ def main(job_path: str) -> None:
     run.weights(bvh, *(weights / "experiments" / f"{name}_release" for name, _ in MODELS.values()))
     device = torch.device("cuda" if run.gpu else "cpu")
 
-    run.stage("对齐骨骼")
+    run.stage("align_skeleton")
     motion = ib.read_job(job.inputs["motion"])
     names, parents, offsets, rest = load_skeleton(bvh)
     try:
@@ -164,8 +164,8 @@ def main(job_path: str) -> None:
     pos[:CONTEXT] = root[0] + (root[1] - root[0]) * back[:, None]
     quat[CONTEXT + keys], pos[CONTEXT + keys] = key_quat, root
 
-    models = run.model("Two-stage Transformer 模型", load_models, weights, job.repo_dir / "configs", device)
-    run.stage("Two-stage Transformer 动作补帧")
+    models = run.model("load_model", load_models, weights, job.repo_dir / "configs", device, stage_params={"model": "Two-stage Transformer"})
+    run.stage("inbetween")
     post = bool(job.params["post_process"])
     for i in range(len(keys) - 1):
         s, e = int(keys[i]), int(keys[i + 1])
@@ -188,7 +188,7 @@ def main(job_path: str) -> None:
             quat[CONTEXT + s + 1:CONTEXT + e] = mo.matrix_to_quat(rot[gap])
             pos[CONTEXT + s + 1:CONTEXT + e] = filled[gap, 0]
             contacts[s + 1:e] = contact[gap]
-        progress(i + 1, len(keys) - 1, "补帧")
+        progress(i + 1, len(keys) - 1, "inbetween_each")
     for k in keys:  # a key's contact: as the frames next to it
         contacts[k] = contacts[max(k - 1, 0)] if k > 0 else contacts[min(k + 1, total - 1)]
 

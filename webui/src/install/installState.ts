@@ -5,6 +5,7 @@
 import { shown, type Availability } from "../api/applies";
 import type { InstallTask } from "../api";
 import { taskLive } from "../api/tasks";
+import { t } from "../i18n/t";
 
 interface InstallFacts {
   installed: boolean;
@@ -29,7 +30,7 @@ export const currentStep = (job: InstallTask | null | undefined) => job?.steps.f
 /** The button's word and whether it rebuilds everything: 重新安装 (ready: every step again, beside the live one), 重试
  * (the last job failed: from its step), 补全安装 (installed but something is missing), 安装. */
 export function installButton(p: InstallFacts): { label: string; force: boolean } {
-  if (p.ready) return { label: "重新安装", force: true };
-  if (p.job?.state === "failed") return { label: "重试", force: false };
-  return { label: p.installed ? "补全安装" : "安装", force: false };
+  if (p.ready) return { label: t("ui.install.reinstall"), force: true };
+  if (p.job?.state === "failed") return { label: t("ui.common.retry"), force: false };
+  return { label: p.installed ? t("ui.install.complete") : t("ui.install.install"), force: false };
 }

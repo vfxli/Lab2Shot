@@ -1,5 +1,5 @@
 /** 表格参数（widget "table"）的绘制与编辑归本模块：取值为一组条目的参数，如「读取多条序列」的各条序列、
- * 「多层 EXR 输出设置」的图层、相机的畸变参数（关节映射不是表格参数，见 editor/RigMap.tsx）。
+ * 「多层 EXR 输出设置」的图层、相机的畸变参数（骨架的对应关系不是表格参数：在三维视图里编辑，见 view/rigPair.tsx）。
  *
  * 「读取序列」没有图层表：输出口直接由文件中的图层生成（nodes/core/input.py made_ports）。 */
 
@@ -17,6 +17,8 @@ import { useChoices } from "../ui/choices";
 import { IconClose } from "../ui/icons";
 import { Button } from "../ui/Button";
 import type { CellChoice, CellControl } from "./ParamControls";
+import { pick, t } from "../i18n/t";
+import { edited } from "../state/cookInputs";
 
 type Entry = Record<string, unknown>;
 
@@ -29,8 +31,12 @@ type Entry = Record<string, unknown>;
 
 /** 只读格的文字：选项列显示该选项的名称（ui/controls.tsx optionView，与下拉同一处），其余列显示值本身。 */
 function fixedText(f: ParamDef, v: unknown): string {
-  return f.options && v !== null && v !== undefined && v !== "" ? optionView(f, v, null, {}).label : String(v ?? "");
+  return f.options && v !== null && v !== undefined && v !== "" ? optionView(f, v, null, {}).label : pick(v);
 }
+
+/** 一格文字是内置卡片的双语显示名（{"zh": …, "en": …}，如「切换」各路的显示名）：显示当前语言那一份，改的也只是那一份
+ * （state/cookInputs.ts edited），另一种语言原样保留。 */
+const bothWords = (v: unknown): boolean => !!v && typeof v === "object" && !Array.isArray(v);
 
 /** `Control`：每个格子里画的控件——就是参数面板的那一个分发（editor/ParamControls.tsx Control），由它传进来，本文件不
  * 反过来 import 它（互相 import 会成环）。 */
@@ -54,6 +60,11 @@ export function TableParam({ nodeId, p, value, set, Control }: { nodeId: string;
   const fields = columns.filter((f) => f !== leads && !(f === nameCol && f.widget === "fixed"));
   const side = def?.ports_from === p.name ? def.ports_from_side : undefined;
   const isPortsFrom = side !== undefined;
+  // a row the node names itself (「切换」's ways: ports_from_names): its 名字 is a display field ({zh, en}, typed into the
+  // page's language: state/cookInputs.ts edited); left empty it reads as the node's own word for that place, said now
+  // (第一路 / Input 1: the server's made_ports does the same). Other tables' names (EXR 图层) are data, kept as typed
+  const shownName = (f: ParamDef) => isPortsFrom && !!def?.ports_from_names?.length && f.name === "label";
+  const rowDefault = (row: Entry) => def?.ports_from_labels?.[def.ports_from_names?.indexOf(String(row.name)) ?? -1] ?? "";
   const choice = useChoices(nodeId, p);
   const cell = (row: Entry): CellChoice | null =>
     choice && { ...choice, auto: (choice.auto as Record<string, string> | undefined)?.[String(row.name)] ?? "" };
@@ -73,7 +84,7 @@ export function TableParam({ nodeId, p, value, set, Control }: { nodeId: string;
       layout="ptable-again"
       onClick={() => void deriveParams(nodeId).then((got) => got && p.name in got && set(got[p.name]))}
     >
-      重新列出
+      {t("ui.params.table.relist")}
     </Button>
   );
   // ---- 每张表使用一套列：若表头与每一行各自为 flex 行，列宽分别计算，无法对齐（相同 class 不能保证列宽一致，
@@ -129,7 +140,7 @@ export function TableParam({ nodeId, p, value, set, Control }: { nodeId: string;
           )}
           {leads && (
             <span className="ptable-name" data-user-data>
-              {String(row[leads.name] ?? "")}
+              {pick(row[leads.name])}
             </span>
           )}
           {fields.map((f) => {
@@ -144,26 +155,28 @@ export function TableParam({ nodeId, p, value, set, Control }: { nodeId: string;
             ) : (
               <span className={`ptable-cell${f.widget === "choice" ? " wide" : ""}${off ? " inactive" : ""}`} key={f.name}>
                 <fieldset className="ptable-field" disabled={off}>
-                  <Control nodeId={nodeId} at={`${p.name}[${i}].${f.name}`} p={{ ...f, widget: f.options ? "select" : f.widget }} value={row[f.name]} set={(v) => edit(i, f.name, v)}
+                  <Control nodeId={nodeId} at={`${p.name}[${i}].${f.name}`} p={{ ...f, widget: f.options ? "select" : f.widget, ...(shownName(f) ? { placeholder: rowDefault(row) } : {}) }}
+                    value={bothWords(row[f.name]) || shownName(f) ? pick(row[f.name]) : row[f.name]}
+                    set={(v) => edit(i, f.name, (bothWords(row[f.name]) || shownName(f)) && typeof v === "string" ? edited(row[f.name], v) : v)}
                     choice={f.widget === "choice" ? cell(row) ?? undefined : undefined} />
                 </fieldset>
               </span>
             ));
           })}
           {hasDrop && (
-            <button className="ptable-drop" aria-label="去掉" onClick={() => set(rows.filter((_, j) => j !== i))}>
+            <button className="ptable-drop" aria-label={t("ui.common.remove")} onClick={() => set(rows.filter((_, j) => j !== i))}>
               <IconClose size={9} />
             </button>
           )}
           {head && again && blank("again")}
         </div>
       ))}
-      {p.choices_from.length > 0 && !choice && <span className="class-hint">上游算过以后，这里列出人物的关节和自动猜到的是哪个</span>}
+      {p.choices_from.length > 0 && !choice && <span className="class-hint">{t("ui.params.table.after_cook")}</span>}
       {!head && again}
       {/* 「添加」：与节点上点「＋」同一个动作（graph/edit.ts addEmptyRow），末尾加一空行 = 多一个输入口 */}
       {canAdd && (
         <Button tone="ghost" layout="ptable-add" onClick={() => addEmptyRow(nodeId)}>
-          添加
+          {t("ui.common.add")}
         </Button>
       )}
     </div>

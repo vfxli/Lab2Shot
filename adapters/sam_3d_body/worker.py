@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from lab2shot_worker import MemoryBound, limit_gpu_memory, local_hub, offload, read_frame, resident, serve
+from lab2shot_worker import MemoryBound, limit_gpu_memory, local_hub, offload, quiet, read_frame, resident, serve
 from lab2shot_worker import tracking
 from lab2shot_worker.run import Run
 
@@ -63,7 +63,7 @@ def measure_focal(job, device, loaded: list):
 
 
 def detect_people(run: Run, detector, thresh: float) -> dict[int, np.ndarray]:
-    run.stage("检测人物")
+    run.stage("detect_people")
     detections = {}
     for n, (frame, path) in run.each(run.job.frames, ""):
         boxes = detector.run_human_detection(
@@ -75,35 +75,46 @@ def detect_people(run: Run, detector, thresh: float) -> dict[int, np.ndarray]:
 
 def infer(run: Run, estimator, selected, cam_int, inference_type: str) -> dict[int, dict[int, dict]]:
     """person id -> frame -> SAM 3D Body output. `cam_int`: a [1,3,3] tensor or frame -> tensor."""
-    run.stage("估计人体姿态")
+    run.stage("estimate_pose")
     per_person: dict[int, dict[int, dict]] = {pid: {} for pid, _ in selected}
     batch = [family.PEOPLE_BATCH]  # people per batch; once lowered for lack of memory it stays lowered (so later frames do not fail first)
-    for n, (frame, path) in run.each(run.job.frames, ""):
-        present = [(pid, t.boxes[frame]) for pid, t in selected if frame in t.boxes]
-        if present:
-            # every person in the frame is solved, in batches (sam3dbody.py batches); a batch that does not fit
-            # in GPU memory is retried on this frame with the next smaller size
-            def solve(size, frame=frame, path=path, present=present):
-                batch[0] = size
-                pairs = []
-                for chunk in family.batches(present, size):
+    with family.keep_gpu_cache():
+        for n, (frame, path) in run.each(run.job.frames, ""):
+            infer_frame(run, estimator, selected, cam_int, inference_type, per_person, batch, frame, path)
+    return per_person
+
+
+def infer_frame(run: Run, estimator, selected, cam_int, inference_type: str, per_person, batch, frame, path) -> None:
+    """One frame of infer(). The picture is read once (RGB, as upstream's real-time path hands it over in memory,
+    run_publisher.py:300-306) and shared by every batch of the frame, instead of process_one_image reading the file
+    again for each batch."""
+    present = [(pid, t.boxes[frame]) for pid, t in selected if frame in t.boxes]
+    if present:
+        image = read_frame(path)  # RGB: process_one_image takes an array as RGB (estimator:102-104)
+
+        # every person in the frame is solved, in batches (sam3dbody.py batches); a batch that does not fit
+        # in GPU memory is retried on this frame with the next smaller size
+        def solve(size, frame=frame, image=image, present=present):
+            batch[0] = size
+            pairs = []
+            for chunk in family.batches(present, size):
+                with quiet():  # its per-call prints ("make sure the input image is in RGB format")
                     outs = estimator.process_one_image(
-                        str(path),
+                        image,
                         bboxes=np.stack([b for _, b in chunk]),
                         cam_int=cam_int(frame) if callable(cam_int) else cam_int,
                         inference_type=inference_type,
                     )
-                    pairs.extend(zip([pid for pid, _ in chunk], outs))
-                return pairs
-            for pid, out in run.fit(MemoryBound.batch(family.BATCH_STEPS), solve, batch[0]):
-                per_person[pid][frame] = out
-    return per_person
+                pairs.extend(zip([pid for pid, _ in chunk], outs))
+            return pairs
+        for pid, out in run.fit(MemoryBound.batch(family.BATCH_STEPS), solve, batch[0]):
+            per_person[pid][frame] = out
 
 
 def node_detect_people(run: Run, device) -> None:
     """Node ViTDet 人物框: every person, one id each, a box per frame -> raw/boxes.json."""
     job = run.job
-    detector = run.model("检测模型", load_detector, job.weights_dir / "vitdet", device)
+    detector = run.model("load_model", load_detector, job.weights_dir / "vitdet", device, stage_params={"model": "ViTDet"})
     tracks = tracking.track_boxes(detect_people(run, detector, job.params["threshold"]))
     people = [
         {"id": i, "prominence": t.prominence, "boxes": {str(f): [round(float(v), 2) for v in b] for f, b in sorted(t.boxes.items())}}
@@ -128,7 +139,7 @@ def node_solve(run: Run, device) -> None:
         # 人物框 wired: solve from those boxes without detection (upstream process_one_image accepts bboxes)
         selected = family.given_people(job, "N-SAM3DBODY-NOBODYCHOSEN")
     else:
-        detector = run.model("检测模型", load_detector, job.weights_dir / "vitdet", device)
+        detector = run.model("load_model", load_detector, job.weights_dir / "vitdet", device, stage_params={"model": "ViTDet"})
         detections = detect_people(run, detector, DEMO_BBOX_THRESH)
         offload(detector)  # off the GPU after detection, leaving the memory to SAM 3D Body
         selected = family.people_tracks(detections)
@@ -136,7 +147,8 @@ def node_solve(run: Run, device) -> None:
     cam_int, focal_px, focal_source = family.shot_camera(job, lambda: measure_focal(job, device, fov))
     for model in fov:
         offload(model)  # off the GPU while SAM 3D Body works
-    model, cfg = run.model("SAM 3D Body 模型", load_body, job.weights_dir / "sam-3d-body-dinov3", device)
+    model, cfg = run.model("load_model", load_body, job.weights_dir / "sam-3d-body-dinov3", device,
+                           stage_params={"model": "SAM 3D Body"})
     estimator = SAM3DBodyEstimator(sam_3d_body_model=model, model_cfg=cfg, human_detector=None)
     per_person = infer(run, estimator, selected, cam_int, "full" if job.params["hand_refine"] else "body")
     family.write_people(job, per_person, model.head_pose, focal_px, focal_source)

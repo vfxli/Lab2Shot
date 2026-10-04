@@ -1,0 +1,127 @@
+# This extension's words and messages in English (the same keys as zh.toml).
+
+# ---- node (nodes.py)
+"E-COLMAP-EXHAUSTIVE.one" = "Matching is set to All Pairs: the number of image pairs to match is the square of the frame count, and {frames} frame is too many; it would be extremely slow or fill the memory. For video use Sequential, or raise Step, or shorten the frame range"
+"E-COLMAP-EXHAUSTIVE.other" = "Matching is set to All Pairs: the number of image pairs to match is the square of the frame count, and {frames} frames are too many; it would be extremely slow or fill the memory. For video use Sequential, or raise Step, or shorten the frame range"
+"B-COLMAP-FISHEYEINCREMENTAL" = "Lens Model is a fisheye ({model}) and Known Focal Length is empty: with an unknown focal length a fisheye can only be solved with the Global solver (the incremental solve cannot start). Set Solver to Global, or fill in Known Focal Length"
+"E-COLMAP-MODEL" = "COLMAP gave the lens model {model}, and Lab2Shot's distortion model table has no model with the same algorithm (no approximate conversion): pick one of the models Lab2Shot's lens table has in Lens Model"
+"I-COLMAP-SOLVED.one" = "COLMAP registered {solved} of {frames} frames, mean reprojection error {error:.2f} px, {lens}, a sparse point cloud of {points:,} points"
+"I-COLMAP-SOLVED.other" = "COLMAP registered {solved} of {frames} frames, mean reprojection error {error:.2f} px, {lens}, a sparse point cloud of {points:,} points"
+
+# ---- solve (worker.py)
+"I-COLMAP-TWOSTAGE" = "Focal length unknown and the lens model has distortion: the matches are verified on a pinhole first (verifying with a guessed focal length under a distortion model would judge every match an outlier), then the map is built with {model} and the distortion solved"
+"N-COLMAP-NOGPU" = "GPU Feature Extraction is on, but COLMAP finds no usable CUDA GPU on this machine: SIFT extraction and matching run on the CPU instead, with the same result, only much slower"
+"W-COLMAP-VIEWGRAPH" = "COLMAP failed to estimate the focal length from the matched image pairs (view graph calibration): the global solve can only start from a default guessed focal length, so the solved focal length and camera positions may be inaccurate. If you know the real focal length, fill it in Known Focal Length"
+"N-COLMAP-NOMATCHES.one" = "COLMAP solved cameras for only {registered} frame, so the camera and point cloud are empty this time: no reliable matches were found between the images (all {pairs} image pairs failed to match). The images lack texture, are too blurry, change too fast or are filled with moving objects; lower Step, or use vipe.camera_solve instead"
+"N-COLMAP-NOMATCHES.other" = "COLMAP solved cameras for only {registered} frames, so the camera and point cloud are empty this time: no reliable matches were found between the images (all {pairs} image pairs failed to match). The images lack texture, are too blurry, change too fast or are filled with moving objects; lower Step, or use vipe.camera_solve instead"
+"E-COLMAP-NOPARALLAX.one" = "COLMAP solved cameras for only {registered} frame: the camera does not translate ({rotation}/{pairs} image pairs show pure rotation only, or the whole picture is one plane, with no parallax), so feature-based camera solving cannot triangulate 3D points. This footage does not meet COLMAP's premise: use it only on footage where the camera really moves (dolly, handheld walking); for a locked-off or pure pan shot use vipe.camera_solve (template \"Depth · ViPE\"), or import an already solved camera"
+"E-COLMAP-NOPARALLAX.other" = "COLMAP solved cameras for only {registered} frames: the camera does not translate ({rotation}/{pairs} image pairs show pure rotation only, or the whole picture is one plane, with no parallax), so feature-based camera solving cannot triangulate 3D points. This footage does not meet COLMAP's premise: use it only on footage where the camera really moves (dolly, handheld walking); for a locked-off or pure pan shot use vipe.camera_solve (template \"Depth · ViPE\"), or import an already solved camera"
+"E-COLMAP-WEAKPARALLAX.one" = "COLMAP solved cameras for only {registered} frame: too little parallax between images or too few matches (only {parallax}/{pairs} image pairs have parallax). Try: wiring in camera properties (a camera node, AnyCalib or a camera), setting Solver to {other_mapper}, setting Matching to All Pairs, lowering Step, or using vipe.camera_solve (template \"Depth · ViPE\")"
+"E-COLMAP-WEAKPARALLAX.other" = "COLMAP solved cameras for only {registered} frames: too little parallax between images or too few matches (only {parallax}/{pairs} image pairs have parallax). Try: wiring in camera properties (a camera node, AnyCalib or a camera), setting Solver to {other_mapper}, setting Matching to All Pairs, lowering Step, or using vipe.camera_solve (template \"Depth · ViPE\")"
+"W-COLMAP-SPLIT" = "COLMAP solved {count} separate, unconnected camera segments (frames in each: {sizes}) and kept only the largest; the cameras of the other frames are interpolated: there may be fast motion, blur or occlusion in between. Try solving again with Solver set to Global"
+"W-COLMAP-NOBASELINE" = "The camera translation COLMAP solved is too small: only {ratio:.3f} times the scene depth, with a median triangulation angle of {angle:.2f}°. The shot barely moves beyond panning, or is locked off, so the focal length and camera positions are unreliable: this footage hardly meets COLMAP's premise. Use vipe.camera_solve (template \"Depth · ViPE\"), or fill in the real focal length in Known Focal Length"
+"W-COLMAP-LONGLENS" = "COLMAP solved a long lens (angle of view on the long side {fov:.1f}°, focal length {focal:.0f} px): a long lens shows almost no perspective, so the focal length is hard to solve from the images alone and may be more than 10% off. If you know the real focal length, fill it in Known Focal Length; for phone video (already undistorted) set Lens Model to SIMPLE_PINHOLE"
+"W-COLMAP-ROTATION" = "{rotation}/{verified} of the image pairs COLMAP matched show almost nothing but rotation (very little parallax): the solved camera positions and focal length may be unreliable; compare them with the result of vipe.camera_solve"
+"W-COLMAP-UNREGISTERED.one" = "COLMAP could not solve the camera for {missing} of {used} frames (blur, occlusion, or too different from the other frames): the camera of that frame is interpolated"
+"W-COLMAP-UNREGISTERED.other" = "COLMAP could not solve cameras for {missing} of {used} frames (blur, occlusion, or too different from the other frames): the cameras of those frames are interpolated"
+"I-COLMAP-GLOBAL" = "Global"
+"I-COLMAP-INCREMENTAL" = "Incremental"
+
+# ---- words
+
+[node."colmap.camera_solve"]
+subtitle = "Camera Solve"
+description = "Classic feature-based camera solving (structure from motion): outputs a camera per frame and a sparse point cloud, and can be cross-checked against ViPE. It needs parallax from a moving camera: locked-off and pure pan shots fail. The scale must be set by hand, converted to centimeters by the Scale parameter."
+
+[node."colmap.camera_solve".param.mapper]
+label = "Solver"
+
+[node."colmap.camera_solve".param.mapper.option]
+global = "Global"
+incremental = "Incremental"
+
+[node."colmap.camera_solve".param.matcher]
+label = "Matching"
+
+[node."colmap.camera_solve".param.matcher.option]
+sequential = "Sequential"
+exhaustive = "All Pairs"
+
+[node."colmap.camera_solve".param.fit_model]
+label = "Lens Model"
+strip = "Lens Model"
+
+[node."colmap.camera_solve".param.fit_model.option]
+SIMPLE_PINHOLE = "SIMPLE_PINHOLE (no distortion, undistorted images)"
+PINHOLE = "PINHOLE (no distortion, fx≠fy)"
+SIMPLE_RADIAL = "SIMPLE_RADIAL (ordinary cameras, phones)"
+RADIAL = "RADIAL (ordinary lenses with a little more distortion)"
+OPENCV = "OPENCV (with tangential distortion, compatible with OpenCV calibration)"
+OPENCV_FISHEYE = "OPENCV_FISHEYE (fisheye, equidistant projection)"
+SIMPLE_RADIAL_FISHEYE = "SIMPLE_RADIAL_FISHEYE (fisheye, radial k)"
+RADIAL_FISHEYE = "RADIAL_FISHEYE (fisheye, radial k1 k2)"
+
+[node."colmap.camera_solve".param.step]
+label = "Step"
+
+[node."colmap.camera_solve".param.resolution]
+label = "Processing Resolution"
+
+[node."colmap.camera_solve".param.unit_cm]
+label = "Scale"
+
+[node."colmap.camera_solve".param.sift_gpu]
+label = "GPU Feature Extraction"
+
+[node."colmap.camera_solve".port.image]
+label = "RGB"
+
+[node."colmap.camera_solve".port.mask]
+label = "Moving Object Mask"
+
+[node."colmap.camera_solve".port.camera]
+label = "Camera"
+
+[node."colmap.camera_solve".port.points]
+label = "Point Cloud"
+
+[node."colmap.camera_solve".port.focal]
+label = "Focal Length"
+help = "The focal length COLMAP solved, in millimeters (converted with the node's Aperture). Wire it to Known Focal Length on lens_distortion, or to any solver that wants a focal length"
+
+[node."colmap.camera_solve".port.filmback]
+label = "Aperture"
+help = "The Aperture filled in on the node, passed on as it is: the focal length was converted to millimeters with it, so downstream (lens_distortion, camera) wiring this one need not fill it in again, and both sides always have the same number"
+
+[node."colmap.camera_solve".port.lens]
+label = "Lens Intrinsics"
+help = "Everything about this lens beyond the focal length and aperture: the lens model's name, its distortion coefficients, the principal point X / Y (millimeters) and the pixel aspect, in one package. Wire it to Lens Intrinsics on lens_distortion: the lens model and coefficients there follow this one. With one of the two no-distortion Lens Model settings it is a lens without coefficients, and lens_distortion gives an identity ST-map"
+
+[node."colmap.camera_solve".official]
+note = "The mask is an official input (mask_path: no features are extracted where it is black). There is no bounding box input: upstream only takes mask images; to block people, wire mask_from_boxes into the Moving Object Mask port, a step visible in the graph. Lens Intrinsics (model + distortion coefficients + principal point + pixel aspect) is the MODEL and PARAMS of that line of cameras.txt (doc/format.rst:106) in one package; Camera is the quaternion and translation of images.txt (doc/format.rst:144)"
+
+[node."colmap.camera_solve".cost]
+note = "Uses the GPU only with GPU Feature Extraction on; SiftGPU is a classic feature algorithm and its GPU memory is a conservative estimate"
+
+[node."colmap.camera_solve".stage]
+write_outputs = "Write Camera and Point Cloud"
+
+[node."colmap.camera_solve".licence]
+note = "COLMAP is BSD-3 and usable commercially; only SiftGPU, used with GPU Feature Extraction on, is limited to education and research."
+
+[extension.colmap]
+summary = "A general-purpose structure-from-motion (SfM) and multi-view stereo (MVS) pipeline with a graphical and command-line interface, for ordered and unordered image collections"
+
+[extension.colmap.license]
+name = "BSD-3-Clause (SiftGPU, used for GPU feature extraction, is under a non-commercial license)"
+summary = "COLMAP itself is BSD-3 and usable commercially; what is installed is the pycolmap-cuda12 4.2.0 wheel released by COLMAP. SIFT features are extracted on the CPU by default (VLFeat, BSD-2), and the whole pipeline is usable commercially; the \"GPU feature extraction\" option uses SiftGPU (copyright of the University of North Carolina, limited to education, research and non-profit use), making it non-commercial once turned on. The SIFT patent (US 6,711,293) expired in 2020, so there is no patent issue. The wheel is built without LSD (AGPL-3), CGAL (GPL) and the ONNX features (ALIKED/LightGlue), but statically links SuiteSparse CHOLMOD (including the GPL-2.0+ Supernodal module): your own use is unrestricted, and only repackaging and redistributing this wheel requires following the GPL. The other dependencies, Ceres/PoseLib/faiss/OpenImageIO/Eigen and so on, are all under permissive licenses"
+
+[stage]
+prepare_images = "Prepare Images"
+extract_features = "Extract Features (SIFT)"
+match_features = "Match Features"
+incremental_solve = "Incremental Camera Solve"
+register_images = "Register Images"
+initial_pair = "Initial Image Pair"
+view_graph_calibration = "Estimate Focal Length (View Graph Calibration)"
+global_solve = "Global Camera Solve (GLOMAP)"

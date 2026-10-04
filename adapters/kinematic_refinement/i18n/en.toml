@@ -1,0 +1,40 @@
+# This extension's words and messages in English (the same keys as zh.toml): written by P1-B.
+# The shared retargeting messages are in the core's catalogue.
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."kinematic_refinement.retarget"]
+subtitle = "Motion Retarget"
+description = "Skeleton-generalized motion prior with geometric refinement on the target mesh. The middle part of learned retargeting: wire Source and Target from the two outputs of retarget_prepare (where the part mapping, the rest poses and the bones kept out of the model are set), the result into retarget_post for translation and hip height, then into bone_deform to see the mesh. The output is the model's native result, written back to the target's own hierarchy; bones kept out of the model stay in their rest pose and follow their parent. The geo stage needs a skinned mesh on the target; the source may be a skeleton alone (a BVH). In the preprocessing's ignore rule pick Kinematic Refinement (official body range), or the experimental one with fingers."
+
+[node."kinematic_refinement.retarget".param.stage]
+label = "Stage"
+
+[node."kinematic_refinement.retarget".param.stage.option]
+geo = "geo (prior and geometric refinement)"
+kin = "kin (skeleton prior only)"
+
+[node."kinematic_refinement.retarget".param.geo_batch_frames]
+label = "Geometry Batch Frames"
+help = "Batches along the official per-frame geometry inference path; the whole motion's features are computed before batching. Lower it when the mesh is large and GPU memory runs short; it changes neither the motion's length nor its frame rate."
+
+[node."kinematic_refinement.retarget".needs.kinref]
+label = "Kinematic Refinement (official body range)"
+
+[node."kinematic_refinement.retarget".needs.kinref_fingers]
+label = "Kinematic Refinement (with fingers, experimental)"
+
+[node."kinematic_refinement.retarget".official]
+note = "Uses the officially released models and keeps the target's own hierarchy."
+
+[extension.kinematic_refinement]
+summary = "Skeleton-generalized motion prior and geometric refinement on the target mesh"
+
+[extension.kinematic_refinement.license]
+name = "CC BY-NC 4.0"
+summary = "CC BY-NC 4.0; the assets it depends on follow their own licences, see the official repository for details."
+
+# ---- the worker's stages (worker.py)
+[stage]
+geo_refine = "Geometric Refinement"
+kin_retarget = "Skeleton Prior Retarget"

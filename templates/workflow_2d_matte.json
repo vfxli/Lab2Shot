@@ -1,0 +1,2801 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "6c354decae4d5b12ae9527041c5c86b1",
+  "name": {
+   "zh": "2D 抠像与分割",
+   "en": "2D Matte and Segmentation"
+  },
+  "intro": {
+   "zh": "先选一次物体：写要选的东西（留空 = 人），SAM 3 找出来后在视图里点选要的那几个（不点 = 全部）。这一个遮罩就是下面每个抠像模型的引导：MatAnyone 2 从它第一张有物体的帧往后抠满整段，SDMatte 逐帧精修出软边（SAM 3 软边），VideoMaMa 逐帧抠；AlphaGen 不用遮罩，直接从画面生成 alpha。每个抠像默认再做边缘前景色（去掉边缘的背景色与溢色），多交付一层预乘前景。另可勾自动分割（运动物体、全景类别、人体部位）。开着的每个结果交付一层，统一进一个多层 EXR，也可每层另存。",
+   "en": "Select once: type what to select (empty = person), then pick the objects in the viewport once SAM 3 has found them (none = all). That mask guides every matte: MatAnyone 2 carries it through the shot, SDMatte refines a soft edge per frame (SAM 3 Soft Edge), VideoMaMa mattes per frame; AlphaGen needs no mask and generates the alpha from the picture. Edge foreground color is on by default (premultiplied, spill removed). Each result that is on is one layer of a multi-layer EXR."
+  },
+  "author": "Lab2Shot",
+  "created": "2026-10-04T12:00:00",
+  "updated": "2026-10-04T12:00:00",
+  "deliverable": "workflow",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": {
+    "zh": "图像",
+    "en": "Image"
+   },
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "选择物体（一次选择，下面所有抠像都用它）",
+    "en": "Select Object (Shared by All Mattes)"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "prompt",
+     "label": {
+      "zh": "要选的东西（留空 = 人）",
+      "en": "What to Select (Empty = Person)"
+     },
+     "target": "prompt_text.value"
+    },
+    {
+     "name": "sam3_pick_picks",
+     "label": {
+      "zh": "点选物体（不点 = 全部）",
+      "en": "Picked Objects (None Picked = All)"
+     },
+     "target": "sam3_pick.picks",
+     "show_on_change": true
+    },
+    {
+     "name": "sam3_pick_picks_pick",
+     "label": {
+      "zh": "在视图里点选",
+      "en": "Pick in Viewport"
+     },
+     "target": "sam3_pick.picks_pick"
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "sam3_max_objects",
+       "label": {
+        "zh": "SAM 3 最多物体数",
+        "en": "SAM 3 Max Objects"
+       },
+       "target": "sam3.max_objects"
+      },
+      {
+       "name": "sam3_threshold",
+       "label": {
+        "zh": "SAM 3 检测阈值",
+        "en": "SAM 3 Detection Threshold"
+       },
+       "target": "sam3.threshold"
+      }
+     ]
+    },
+    {
+     "name": "cook_sam3_pick",
+     "label": {
+      "zh": "计算遮罩",
+      "en": "Cook Mask"
+     },
+     "target": "sam3_pick.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "抠像（用选中的物体引导）",
+    "en": "Matte (Guided by the Selected Object)"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "matte_matanyone_through",
+     "label": {
+      "zh": "MatAnyone 2",
+      "en": "MatAnyone 2"
+     },
+     "target": "matte_matanyone.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "matte_sdmatte_through",
+     "label": {
+      "zh": "SAM 3 软边（SDMatte）",
+      "en": "SAM 3 Soft Edge (SDMatte)"
+     },
+     "target": "matte_sdmatte.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "matte_videomama_through",
+     "label": {
+      "zh": "VideoMaMa",
+      "en": "VideoMaMa"
+     },
+     "target": "matte_videomama.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "matte_alphagen_through",
+     "label": {
+      "zh": "AlphaGen（不用遮罩）",
+      "en": "AlphaGen (No Mask)"
+     },
+     "target": "matte_alphagen.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "matte_birefnet_through",
+     "label": {
+      "zh": "BiRefNet（自动）",
+      "en": "BiRefNet (Automatic)"
+     },
+     "target": "matte_birefnet.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "matte_fg_value",
+     "label": {
+      "zh": "边缘前景色",
+      "en": "Edge Foreground Color"
+     },
+     "target": "matte_fg.value",
+     "widget": "checkbox",
+     "hide_when": "not (matte_birefnet_through or matte_matanyone_through or matte_sdmatte_through or matte_videomama_through or matte_alphagen_through)"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "分割",
+    "en": "Segmentation"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "segment_sam3_through",
+     "label": {
+      "zh": "SAM 3 遮罩（硬边）",
+      "en": "SAM 3 Mask (Hard Edge)"
+     },
+     "target": "segment_sam3.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "segment_seganymo_through",
+     "label": {
+      "zh": "SegAnyMo（运动物体）",
+      "en": "SegAnyMo (Moving Objects)"
+     },
+     "target": "segment_seganymo.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "segment_videomt_through",
+     "label": {
+      "zh": "VidEoMT（全景分割：类别 ID 图）",
+      "en": "VidEoMT (Panoptic: Class ID Map)"
+     },
+     "target": "segment_videomt.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "segment_sapiens2_through",
+     "label": {
+      "zh": "Sapiens2（人体部位）",
+      "en": "Sapiens2 (Body Parts)"
+     },
+     "target": "segment_sapiens2.through",
+     "widget": "checkbox"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "exr_name",
+     "label": {
+      "zh": "文件名（多层 EXR）",
+      "en": "File Name (Multi-Layer EXR)"
+     },
+     "target": "exr.name"
+    },
+    {
+     "name": "separate_value",
+     "label": {
+      "zh": "每层另存单独文件",
+      "en": "Also Save Each Layer as Its Own File"
+     },
+     "target": "separate.value",
+     "widget": "checkbox"
+    },
+    {
+     "name": "colorspace_out",
+     "label": {
+      "zh": "输出颜色空间",
+      "en": "Output Color Space"
+     },
+     "target": "exr.colorspace"
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_bit_depth",
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
+       "target": "exr.exr_bit_depth"
+      },
+      {
+       "name": "exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
+        },
+        {
+         "value": "zip",
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
+        },
+        {
+         "value": "piz",
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
+        },
+        {
+         "value": "none",
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "cook_exr",
+   "label": {
+    "zh": "计算并查看",
+    "en": "Cook and View"
+   },
+   "target": "exr.cook"
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "word": "pack",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
+     "target": "deliver.download"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "file",
+   "params": {
+    "path": "",
+    "colorspace": null,
+    "first": null,
+    "last": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 1390
+   }
+  },
+  {
+   "id": "birefnet",
+   "type": "birefnet.matte",
+   "params": {
+    "model": "hr_matting",
+    "fp16": true
+   },
+   "ui": {
+    "x": 360,
+    "y": 3067
+   }
+  },
+  {
+   "id": "matanyone",
+   "type": "matanyone.matte",
+   "params": {
+    "resolution": 1080,
+    "warmup": 10,
+    "mask_close": 10,
+    "fp16": true
+   },
+   "ui": {
+    "x": 1479,
+    "y": 3067
+   }
+  },
+  {
+   "id": "sdmatte",
+   "type": "sdmatte.matte",
+   "params": {
+    "guide": "mask",
+    "resolution": 1024,
+    "transparent": false,
+    "fp16": true
+   },
+   "ui": {
+    "x": 1479,
+    "y": 3294
+   }
+  },
+  {
+   "id": "videomama",
+   "type": "videomama.matte",
+   "params": {
+    "resolution": 1024,
+    "erode_dilate": 0,
+    "fp16": true
+   },
+   "ui": {
+    "x": 1479,
+    "y": 3521
+   }
+  },
+  {
+   "id": "matte_birefnet",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 757,
+    "y": 3067
+   }
+  },
+  {
+   "id": "matte_matanyone",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 1867,
+    "y": 3067
+   }
+  },
+  {
+   "id": "matte_sdmatte",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 1867,
+    "y": 3294
+   }
+  },
+  {
+   "id": "matte_videomama",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 1867,
+    "y": 3521
+   }
+  },
+  {
+   "id": "matte_fg",
+   "type": "value_toggle",
+   "params": {
+    "value": true
+   },
+   "ui": {
+    "x": 1867,
+    "y": 1589
+   }
+  },
+  {
+   "id": "plate_info",
+   "type": "data_info",
+   "params": {
+    "item": ""
+   },
+   "ui": {
+    "x": 360,
+    "y": 1390
+   }
+  },
+  {
+   "id": "fg_per_px",
+   "type": "value_float",
+   "params": {
+    "value": 0.046875,
+    "unit": ""
+   },
+   "ui": {
+    "x": 360,
+    "y": 1681
+   }
+  },
+  {
+   "id": "fg_radius_raw",
+   "type": "math",
+   "params": {
+    "operation": "multiply",
+    "unit": "px"
+   },
+   "ui": {
+    "x": 757,
+    "y": 1597
+   }
+  },
+  {
+   "id": "fg_radius_least",
+   "type": "value_float",
+   "params": {
+    "value": 10.0,
+    "unit": "px"
+   },
+   "ui": {
+    "x": 757,
+    "y": 1390
+   }
+  },
+  {
+   "id": "fg_radius_most",
+   "type": "value_float",
+   "params": {
+    "value": 400.0,
+    "unit": "px"
+   },
+   "ui": {
+    "x": 1117,
+    "y": 1390
+   }
+  },
+  {
+   "id": "fg_radius_low",
+   "type": "math",
+   "params": {
+    "operation": "max",
+    "unit": "px"
+   },
+   "ui": {
+    "x": 1117,
+    "y": 1597
+   }
+  },
+  {
+   "id": "fg_radius",
+   "type": "math",
+   "params": {
+    "operation": "min",
+    "unit": "px"
+   },
+   "ui": {
+    "x": 1479,
+    "y": 1390
+   }
+  },
+  {
+   "id": "birefnet_fg",
+   "type": "birefnet.foreground_color",
+   "params": {
+    "radius": 90
+   },
+   "ui": {
+    "x": 1867,
+    "y": 1390
+   },
+   "promoted": [
+    "radius"
+   ]
+  },
+  {
+   "id": "matte_birefnet_foreground",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 2278,
+    "y": 1589
+   }
+  },
+  {
+   "id": "matanyone_fg",
+   "type": "birefnet.foreground_color",
+   "params": {
+    "radius": 90
+   },
+   "ui": {
+    "x": 2278,
+    "y": 1390
+   },
+   "promoted": [
+    "radius"
+   ]
+  },
+  {
+   "id": "matte_matanyone_foreground",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 2689,
+    "y": 1390
+   }
+  },
+  {
+   "id": "sdmatte_fg",
+   "type": "birefnet.foreground_color",
+   "params": {
+    "radius": 90
+   },
+   "ui": {
+    "x": 2278,
+    "y": 2003
+   },
+   "promoted": [
+    "radius"
+   ]
+  },
+  {
+   "id": "matte_sdmatte_foreground",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 2689,
+    "y": 1804
+   }
+  },
+  {
+   "id": "videomama_fg",
+   "type": "birefnet.foreground_color",
+   "params": {
+    "radius": 90
+   },
+   "ui": {
+    "x": 2278,
+    "y": 2202
+   },
+   "promoted": [
+    "radius"
+   ]
+  },
+  {
+   "id": "matte_videomama_foreground",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 2689,
+    "y": 1597
+   }
+  },
+  {
+   "id": "prompt_text",
+   "type": "value_string",
+   "params": {
+    "value": ""
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "translate",
+   "type": "llm.translate",
+   "params": {
+    "target_lang": "english",
+    "model": "hy_mt2_q4"
+   },
+   "ui": {
+    "x": 360,
+    "y": 589
+   }
+  },
+  {
+   "id": "sam3",
+   "type": "sam3.segment",
+   "params": {
+    "prompt": "person",
+    "max_objects": 8,
+    "threshold": 0.5
+   },
+   "ui": {
+    "x": 757,
+    "y": 621
+   },
+   "promoted": [
+    "prompt"
+   ]
+  },
+  {
+   "id": "sam3_pick",
+   "type": "mask_from_segments",
+   "params": {
+    "classes": "",
+    "picks": []
+   },
+   "ui": {
+    "x": 1117,
+    "y": 621
+   }
+  },
+  {
+   "id": "seganymo",
+   "type": "seganymo.motion_segment",
+   "params": {
+    "resolution": 1000,
+    "analysis_frames": 100,
+    "query_step": 10
+   },
+   "ui": {
+    "x": 360,
+    "y": 0
+   }
+  },
+  {
+   "id": "videomt",
+   "type": "videomt.segment",
+   "params": {
+    "resolution": 720,
+    "threshold": 0.8,
+    "min_coverage": 0.8
+   },
+   "ui": {
+    "x": 360,
+    "y": 171
+   }
+  },
+  {
+   "id": "sapiens_parts",
+   "type": "sapiens2.segment",
+   "params": {
+    "model_size": "1b",
+    "fp16": true,
+    "matte": true
+   },
+   "ui": {
+    "x": 360,
+    "y": 342
+   }
+  },
+  {
+   "id": "segment_sam3",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 1479,
+    "y": 621
+   }
+  },
+  {
+   "id": "segment_seganymo",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 757,
+    "y": 0
+   }
+  },
+  {
+   "id": "segment_videomt",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 757,
+    "y": 207
+   }
+  },
+  {
+   "id": "segment_sapiens2",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 757,
+    "y": 414
+   }
+  },
+  {
+   "id": "exr",
+   "type": "exr.output",
+   "params": {
+    "name": "matte_2d",
+    "layers": [
+     {
+      "name": "matte_birefnet",
+      "label": "matte.birefnet",
+      "channels": "A"
+     },
+     {
+      "name": "matte_matanyone",
+      "label": "matte.matanyone",
+      "channels": "A"
+     },
+     {
+      "name": "matte_sdmatte",
+      "label": "matte.sdmatte",
+      "channels": "A"
+     },
+     {
+      "name": "matte_videomama",
+      "label": "matte.videomama",
+      "channels": "A"
+     },
+     {
+      "name": "matte_alphagen",
+      "label": "matte.alphagen",
+      "channels": "A"
+     },
+     {
+      "name": "matte_birefnet_foreground",
+      "label": "matte.birefnet_foreground",
+      "channels": ""
+     },
+     {
+      "name": "matte_matanyone_foreground",
+      "label": "matte.matanyone_foreground",
+      "channels": ""
+     },
+     {
+      "name": "matte_sdmatte_foreground",
+      "label": "matte.sdmatte_foreground",
+      "channels": ""
+     },
+     {
+      "name": "matte_videomama_foreground",
+      "label": "matte.videomama_foreground",
+      "channels": ""
+     },
+     {
+      "name": "matte_alphagen_foreground",
+      "label": "matte.alphagen_foreground",
+      "channels": ""
+     },
+     {
+      "name": "segment_sam3",
+      "label": "segment.sam3",
+      "channels": "A"
+     },
+     {
+      "name": "segment_seganymo",
+      "label": "segment.seganymo",
+      "channels": "A"
+     },
+     {
+      "name": "segment_videomt",
+      "label": "segment.videomt",
+      "channels": ""
+     },
+     {
+      "name": "segment_sapiens2",
+      "label": "segment.sapiens2",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3908,
+    "y": 2145
+   }
+  },
+  {
+   "id": "separate",
+   "type": "value_toggle",
+   "params": {
+    "value": false
+   },
+   "ui": {
+    "x": 2689,
+    "y": 1163
+   }
+  },
+  {
+   "id": "matte_birefnet_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 3081,
+    "y": 3274
+   }
+  },
+  {
+   "id": "matte_birefnet_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_birefnet",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3494,
+    "y": 3354
+   }
+  },
+  {
+   "id": "matte_matanyone_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 3081,
+    "y": 3067
+   }
+  },
+  {
+   "id": "matte_matanyone_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_matanyone",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3494,
+    "y": 3067
+   }
+  },
+  {
+   "id": "matte_sdmatte_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 3081,
+    "y": 3688
+   }
+  },
+  {
+   "id": "matte_sdmatte_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_sdmatte",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3494,
+    "y": 3928
+   }
+  },
+  {
+   "id": "matte_videomama_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 3081,
+    "y": 3895
+   }
+  },
+  {
+   "id": "matte_videomama_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_videomama",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3494,
+    "y": 4215
+   }
+  },
+  {
+   "id": "matte_birefnet_foreground_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 3081,
+    "y": 2011
+   }
+  },
+  {
+   "id": "matte_birefnet_foreground_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_birefnet_foreground",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3494,
+    "y": 2251
+   }
+  },
+  {
+   "id": "matte_matanyone_foreground_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 3081,
+    "y": 1390
+   }
+  },
+  {
+   "id": "matte_matanyone_foreground_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_matanyone_foreground",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3494,
+    "y": 1390
+   }
+  },
+  {
+   "id": "matte_sdmatte_foreground_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 3081,
+    "y": 1597
+   }
+  },
+  {
+   "id": "matte_sdmatte_foreground_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_sdmatte_foreground",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3494,
+    "y": 1677
+   }
+  },
+  {
+   "id": "matte_videomama_foreground_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 3081,
+    "y": 1804
+   }
+  },
+  {
+   "id": "matte_videomama_foreground_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_videomama_foreground",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3494,
+    "y": 1964
+   }
+  },
+  {
+   "id": "segment_sam3_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 3081,
+    "y": 621
+   }
+  },
+  {
+   "id": "segment_sam3_out",
+   "type": "image.output",
+   "params": {
+    "name": "segment_sam3",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3494,
+    "y": 861
+   }
+  },
+  {
+   "id": "segment_seganymo_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 3081,
+    "y": 0
+   }
+  },
+  {
+   "id": "segment_seganymo_out",
+   "type": "image.output",
+   "params": {
+    "name": "segment_seganymo",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3494,
+    "y": 0
+   }
+  },
+  {
+   "id": "segment_videomt_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 3081,
+    "y": 207
+   }
+  },
+  {
+   "id": "segment_videomt_out",
+   "type": "image.output",
+   "params": {
+    "name": "segment_videomt",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3494,
+    "y": 287
+   }
+  },
+  {
+   "id": "segment_sapiens2_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 3081,
+    "y": 414
+   }
+  },
+  {
+   "id": "segment_sapiens2_out",
+   "type": "image.output",
+   "params": {
+    "name": "segment_sapiens2",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3494,
+    "y": 574
+   }
+  },
+  {
+   "id": "alphagen",
+   "type": "alphagen.matte",
+   "params": {
+    "resolution": 1920
+   },
+   "ui": {
+    "x": 360,
+    "y": 3246
+   }
+  },
+  {
+   "id": "matte_alphagen",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 757,
+    "y": 3274
+   }
+  },
+  {
+   "id": "alphagen_fg",
+   "type": "birefnet.foreground_color",
+   "params": {
+    "radius": 90
+   },
+   "ui": {
+    "x": 1867,
+    "y": 1768
+   },
+   "promoted": [
+    "radius"
+   ]
+  },
+  {
+   "id": "matte_alphagen_foreground",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 2278,
+    "y": 1796
+   }
+  },
+  {
+   "id": "matte_alphagen_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 3081,
+    "y": 3481
+   }
+  },
+  {
+   "id": "matte_alphagen_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_alphagen",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3494,
+    "y": 3641
+   }
+  },
+  {
+   "id": "matte_alphagen_foreground_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 3081,
+    "y": 2218
+   }
+  },
+  {
+   "id": "matte_alphagen_foreground_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_alphagen_foreground",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3494,
+    "y": 2538
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "output",
+   "params": {},
+   "ui": {
+    "x": 4268,
+    "y": 2145
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "birefnet",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "matanyone",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "sdmatte",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "videomama",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "birefnet",
+    "alpha"
+   ],
+   "to": [
+    "matte_birefnet",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "matanyone",
+    "alpha"
+   ],
+   "to": [
+    "matte_matanyone",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "sdmatte",
+    "alpha"
+   ],
+   "to": [
+    "matte_sdmatte",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "videomama",
+    "alpha"
+   ],
+   "to": [
+    "matte_videomama",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "plate_info",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "plate_info",
+    "width"
+   ],
+   "to": [
+    "fg_radius_raw",
+    "values"
+   ]
+  },
+  {
+   "from": [
+    "fg_per_px",
+    "value"
+   ],
+   "to": [
+    "fg_radius_raw",
+    "values"
+   ]
+  },
+  {
+   "from": [
+    "fg_radius_raw",
+    "value"
+   ],
+   "to": [
+    "fg_radius_low",
+    "values"
+   ]
+  },
+  {
+   "from": [
+    "fg_radius_least",
+    "value"
+   ],
+   "to": [
+    "fg_radius_low",
+    "values"
+   ]
+  },
+  {
+   "from": [
+    "fg_radius_low",
+    "value"
+   ],
+   "to": [
+    "fg_radius",
+    "values"
+   ]
+  },
+  {
+   "from": [
+    "fg_radius_most",
+    "value"
+   ],
+   "to": [
+    "fg_radius",
+    "values"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "birefnet_fg",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_birefnet",
+    "data"
+   ],
+   "to": [
+    "birefnet_fg",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "fg_radius",
+    "integer"
+   ],
+   "to": [
+    "birefnet_fg",
+    "param:radius"
+   ]
+  },
+  {
+   "from": [
+    "birefnet_fg",
+    "foreground"
+   ],
+   "to": [
+    "matte_birefnet_foreground",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "matte_fg",
+    "value"
+   ],
+   "to": [
+    "matte_birefnet_foreground",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "matanyone_fg",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_matanyone",
+    "data"
+   ],
+   "to": [
+    "matanyone_fg",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "fg_radius",
+    "integer"
+   ],
+   "to": [
+    "matanyone_fg",
+    "param:radius"
+   ]
+  },
+  {
+   "from": [
+    "matanyone_fg",
+    "foreground"
+   ],
+   "to": [
+    "matte_matanyone_foreground",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "matte_fg",
+    "value"
+   ],
+   "to": [
+    "matte_matanyone_foreground",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "sdmatte_fg",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_sdmatte",
+    "data"
+   ],
+   "to": [
+    "sdmatte_fg",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "fg_radius",
+    "integer"
+   ],
+   "to": [
+    "sdmatte_fg",
+    "param:radius"
+   ]
+  },
+  {
+   "from": [
+    "sdmatte_fg",
+    "foreground"
+   ],
+   "to": [
+    "matte_sdmatte_foreground",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "matte_fg",
+    "value"
+   ],
+   "to": [
+    "matte_sdmatte_foreground",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "videomama_fg",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_videomama",
+    "data"
+   ],
+   "to": [
+    "videomama_fg",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "fg_radius",
+    "integer"
+   ],
+   "to": [
+    "videomama_fg",
+    "param:radius"
+   ]
+  },
+  {
+   "from": [
+    "videomama_fg",
+    "foreground"
+   ],
+   "to": [
+    "matte_videomama_foreground",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "matte_fg",
+    "value"
+   ],
+   "to": [
+    "matte_videomama_foreground",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "prompt_text",
+    "value"
+   ],
+   "to": [
+    "translate",
+    "text"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "sam3",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "translate",
+    "text"
+   ],
+   "to": [
+    "sam3",
+    "param:prompt"
+   ]
+  },
+  {
+   "from": [
+    "sam3",
+    "objects"
+   ],
+   "to": [
+    "sam3_pick",
+    "segmentation"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "seganymo",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "videomt",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "sapiens_parts",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "sam3_pick",
+    "mask"
+   ],
+   "to": [
+    "segment_sam3",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "seganymo",
+    "mask"
+   ],
+   "to": [
+    "segment_seganymo",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "videomt",
+    "classes"
+   ],
+   "to": [
+    "segment_videomt",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "sapiens_parts",
+    "parts"
+   ],
+   "to": [
+    "segment_sapiens2",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "matte_birefnet",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_birefnet"
+   ]
+  },
+  {
+   "from": [
+    "matte_matanyone",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_matanyone"
+   ]
+  },
+  {
+   "from": [
+    "matte_sdmatte",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_sdmatte"
+   ]
+  },
+  {
+   "from": [
+    "matte_videomama",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_videomama"
+   ]
+  },
+  {
+   "from": [
+    "matte_birefnet_foreground",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_birefnet_foreground"
+   ]
+  },
+  {
+   "from": [
+    "matte_matanyone_foreground",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_matanyone_foreground"
+   ]
+  },
+  {
+   "from": [
+    "matte_sdmatte_foreground",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_sdmatte_foreground"
+   ]
+  },
+  {
+   "from": [
+    "matte_videomama_foreground",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_videomama_foreground"
+   ]
+  },
+  {
+   "from": [
+    "segment_sam3",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "segment_sam3"
+   ]
+  },
+  {
+   "from": [
+    "segment_seganymo",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "segment_seganymo"
+   ]
+  },
+  {
+   "from": [
+    "segment_videomt",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "segment_videomt"
+   ]
+  },
+  {
+   "from": [
+    "segment_sapiens2",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "segment_sapiens2"
+   ]
+  },
+  {
+   "from": [
+    "matte_birefnet",
+    "data"
+   ],
+   "to": [
+    "matte_birefnet_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_birefnet_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_birefnet_file",
+    "data"
+   ],
+   "to": [
+    "matte_birefnet_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_matanyone",
+    "data"
+   ],
+   "to": [
+    "matte_matanyone_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_matanyone_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_matanyone_file",
+    "data"
+   ],
+   "to": [
+    "matte_matanyone_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_sdmatte",
+    "data"
+   ],
+   "to": [
+    "matte_sdmatte_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_sdmatte_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_sdmatte_file",
+    "data"
+   ],
+   "to": [
+    "matte_sdmatte_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_videomama",
+    "data"
+   ],
+   "to": [
+    "matte_videomama_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_videomama_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_videomama_file",
+    "data"
+   ],
+   "to": [
+    "matte_videomama_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_birefnet_foreground",
+    "data"
+   ],
+   "to": [
+    "matte_birefnet_foreground_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_birefnet_foreground_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_birefnet_foreground_file",
+    "data"
+   ],
+   "to": [
+    "matte_birefnet_foreground_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_matanyone_foreground",
+    "data"
+   ],
+   "to": [
+    "matte_matanyone_foreground_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_matanyone_foreground_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_matanyone_foreground_file",
+    "data"
+   ],
+   "to": [
+    "matte_matanyone_foreground_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_sdmatte_foreground",
+    "data"
+   ],
+   "to": [
+    "matte_sdmatte_foreground_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_sdmatte_foreground_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_sdmatte_foreground_file",
+    "data"
+   ],
+   "to": [
+    "matte_sdmatte_foreground_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_videomama_foreground",
+    "data"
+   ],
+   "to": [
+    "matte_videomama_foreground_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_videomama_foreground_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_videomama_foreground_file",
+    "data"
+   ],
+   "to": [
+    "matte_videomama_foreground_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "segment_sam3",
+    "data"
+   ],
+   "to": [
+    "segment_sam3_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "segment_sam3_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "segment_sam3_file",
+    "data"
+   ],
+   "to": [
+    "segment_sam3_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "segment_seganymo",
+    "data"
+   ],
+   "to": [
+    "segment_seganymo_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "segment_seganymo_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "segment_seganymo_file",
+    "data"
+   ],
+   "to": [
+    "segment_seganymo_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "segment_videomt",
+    "data"
+   ],
+   "to": [
+    "segment_videomt_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "segment_videomt_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "segment_videomt_file",
+    "data"
+   ],
+   "to": [
+    "segment_videomt_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "segment_sapiens2",
+    "data"
+   ],
+   "to": [
+    "segment_sapiens2_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "segment_sapiens2_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "segment_sapiens2_file",
+    "data"
+   ],
+   "to": [
+    "segment_sapiens2_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "exr",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_birefnet_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_matanyone_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_sdmatte_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_videomama_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_birefnet_foreground_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_matanyone_foreground_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_sdmatte_foreground_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_videomama_foreground_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "segment_sam3_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "segment_seganymo_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "segment_videomt_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "segment_sapiens2_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "sam3_pick",
+    "mask"
+   ],
+   "to": [
+    "matanyone",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "sam3_pick",
+    "mask"
+   ],
+   "to": [
+    "sdmatte",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "sam3_pick",
+    "mask"
+   ],
+   "to": [
+    "videomama",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "alphagen",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "alphagen",
+    "alpha"
+   ],
+   "to": [
+    "matte_alphagen",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "alphagen_fg",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_alphagen",
+    "data"
+   ],
+   "to": [
+    "alphagen_fg",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "fg_radius",
+    "integer"
+   ],
+   "to": [
+    "alphagen_fg",
+    "param:radius"
+   ]
+  },
+  {
+   "from": [
+    "alphagen_fg",
+    "foreground"
+   ],
+   "to": [
+    "matte_alphagen_foreground",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "matte_fg",
+    "value"
+   ],
+   "to": [
+    "matte_alphagen_foreground",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_alphagen",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_alphagen"
+   ]
+  },
+  {
+   "from": [
+    "matte_alphagen_foreground",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_alphagen_foreground"
+   ]
+  },
+  {
+   "from": [
+    "matte_alphagen",
+    "data"
+   ],
+   "to": [
+    "matte_alphagen_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_alphagen_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_alphagen_file",
+    "data"
+   ],
+   "to": [
+    "matte_alphagen_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_alphagen_foreground",
+    "data"
+   ],
+   "to": [
+    "matte_alphagen_foreground_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_alphagen_foreground_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_alphagen_foreground_file",
+    "data"
+   ],
+   "to": [
+    "matte_alphagen_foreground_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_alphagen_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_alphagen_foreground_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [
+  {
+   "id": "box:1",
+   "label": {
+    "zh": "前景色",
+    "en": "Foreground Color"
+   },
+   "color": "#0A84FF",
+   "x": 336,
+   "y": 1332,
+   "w": 3476,
+   "h": 1477,
+   "collapsed": false,
+   "members": [
+    "matte_fg",
+    "plate_info",
+    "fg_per_px",
+    "fg_radius_raw",
+    "fg_radius_least",
+    "fg_radius_most",
+    "fg_radius_low",
+    "fg_radius",
+    "birefnet_fg",
+    "matte_birefnet_foreground",
+    "matanyone_fg",
+    "matte_matanyone_foreground",
+    "sdmatte_fg",
+    "matte_sdmatte_foreground",
+    "videomama_fg",
+    "matte_videomama_foreground",
+    "matte_birefnet_foreground_file",
+    "matte_birefnet_foreground_out",
+    "matte_matanyone_foreground_file",
+    "matte_matanyone_foreground_out",
+    "matte_sdmatte_foreground_file",
+    "matte_sdmatte_foreground_out",
+    "matte_videomama_foreground_file",
+    "matte_videomama_foreground_out",
+    "alphagen_fg",
+    "matte_alphagen_foreground",
+    "matte_alphagen_foreground_file",
+    "matte_alphagen_foreground_out"
+   ]
+  },
+  {
+   "id": "box:2",
+   "label": {
+    "zh": "遮罩",
+    "en": "Mattes"
+   },
+   "color": "#30D158",
+   "x": 336,
+   "y": 3009,
+   "w": 3422,
+   "h": 1477,
+   "collapsed": false,
+   "members": [
+    "birefnet",
+    "matanyone",
+    "sdmatte",
+    "videomama",
+    "matte_birefnet",
+    "matte_matanyone",
+    "matte_sdmatte",
+    "matte_videomama",
+    "matte_birefnet_file",
+    "matte_birefnet_out",
+    "matte_matanyone_file",
+    "matte_matanyone_out",
+    "matte_sdmatte_file",
+    "matte_sdmatte_out",
+    "matte_videomama_file",
+    "matte_videomama_out",
+    "alphagen",
+    "matte_alphagen",
+    "matte_alphagen_file",
+    "matte_alphagen_out"
+   ]
+  },
+  {
+   "id": "box:3",
+   "label": {
+    "zh": "分割",
+    "en": "Segmentation"
+   },
+   "color": "#FF9F0A",
+   "x": -24,
+   "y": -58,
+   "w": 3782,
+   "h": 1190,
+   "collapsed": false,
+   "members": [
+    "prompt_text",
+    "translate",
+    "sam3",
+    "sam3_pick",
+    "seganymo",
+    "videomt",
+    "sapiens_parts",
+    "segment_sam3",
+    "segment_seganymo",
+    "segment_videomt",
+    "segment_sapiens2",
+    "segment_sam3_file",
+    "segment_sam3_out",
+    "segment_seganymo_file",
+    "segment_seganymo_out",
+    "segment_videomt_file",
+    "segment_videomt_out",
+    "segment_sapiens2_file",
+    "segment_sapiens2_out"
+   ]
+  }
+ ],
+ "view": {}
+}

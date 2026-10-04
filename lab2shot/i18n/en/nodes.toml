@@ -1,0 +1,2945 @@
+# The nodes' words (P1-A): names and descriptions, parameters, ports, groups, cooking stages… keys: lab2shot/i18n/__init__.py.
+# The shared keys (param.* / port.* / option.* / group.* / stage.* / button.*) are defined here only; an extension's own go
+# in adapters/<name>/i18n/.
+
+# ---- Shared keys and general words
+
+[param.path]
+label = "File"
+
+[param.camera]
+label = "Camera"
+
+[param.models]
+label = "Geometry"
+
+[param.points]
+label = "Point Cloud"
+
+[param.curves]
+label = "Curves"
+
+[param.unit]
+label = "Unit"
+
+[param.up]
+label = "Up Axis"
+
+[param.up.option]
+y = "Y Up"
+z = "Z Up"
+
+[param.width]
+label = "Width"
+
+[port.camera]
+label = "Camera"
+
+[port.models]
+label = "Geometry"
+
+[port.points]
+label = "Point Cloud"
+
+[port.curves]
+label = "Curves"
+waits = "Pick a curve"
+
+[port.fps]
+label = "FPS"
+
+[param.name]
+label = "Name"
+
+[param.fps]
+label = "FPS"
+
+[port.scene]
+label = "Scene"
+
+[port.files]
+label = "Files"
+
+[param.query_frame]
+label = "Reference Frame"
+placeholder = "First frame"
+
+[param.picks]
+label = "Manual Points"
+
+[port.image]
+label = "RGB"
+
+[port.stmap]
+label = "ST Map"
+
+[port.confidence]
+label = "Confidence"
+
+[port.tracks]
+label = "2D Tracks"
+
+[param.filmback_mm]
+label = "Aperture"
+
+[port.focal]
+label = "Focal Length"
+
+[port.filmback]
+label = "Aperture"
+help = "The Aperture entered on the node, passed through as-is: focal length is converted to millimeters with it, so downstream nodes (lens_distortion, camera) connected to this wire need not enter it again, and both sides always have the same number"
+
+[port.lens]
+label = "Lens Intrinsics"
+
+[port.character]
+label = "Skinned Character"
+
+[port.model]
+label = "Geometry"
+
+[port.mask]
+label = "Mask"
+
+[port.alpha]
+label = "Alpha"
+
+[port.skeleton]
+label = "Skeleton Animation"
+
+[param.format]
+label = "Format"
+
+[param.format.option]
+json = "JSON"
+csv = "CSV"
+tracker = "Tracker"
+
+[param.origin]
+label = "Origin"
+
+[param.origin.option]
+top_left = "Top Left"
+bottom_left = "Bottom Left"
+
+[port.boxes]
+label = "Person Boxes"
+
+[param.skeletons]
+label = "Skeleton Animation"
+
+[port.skeletons]
+label = "Skeleton Animation"
+
+[param.focal_mm]
+label = "Known Focal Length"
+
+[param.center_x_mm]
+label = "Principal Point X"
+
+[param.center_y_mm]
+label = "Principal Point Y"
+
+[param.rotate]
+label = "Rotate"
+
+[param.height]
+label = "Height"
+
+[param.step]
+label = "Increment"
+
+[param.operation]
+label = "Operation"
+
+[port.value]
+label = "Value"
+
+[param.first]
+label = "Start Frame"
+
+[param.mode]
+label = "Mode"
+
+[param.unit.option]
+"" = "None"
+mm = "mm"
+px = "px"
+"°" = "°"
+frame = "Frames"
+s = "Seconds"
+fps = "fps"
+EV = "EV"
+
+[param.point_step]
+label = "Point Step"
+
+[param.point_size]
+label = "Point Size"
+
+[param.conf_threshold]
+label = "Confidence Threshold"
+
+[port.depth]
+label = "Depth Map"
+
+[port.data]
+label = "Data"
+
+[port.count]
+label = "Count"
+
+[port.text]
+label = "Text"
+
+[port.normal]
+label = "Normal Map"
+
+[port.sketch]
+label = "Sketch"
+
+[param.exr_bit_depth]
+label = "Bit Depth"
+
+[param.exr_bit_depth.option]
+half = "16-bit Half Float"
+float = "32-bit Float"
+
+[param.exr_compression]
+label = "Compression"
+
+[param.exr_compression.option]
+none = "None"
+zips = "ZIP (Per Scanline)"
+zip = "ZIP (16 Scanlines)"
+piz = "PIZ"
+pxr24 = "PXR24"
+dwaa = "DWAA"
+dwab = "DWAB"
+
+[param.colorspace]
+label = "Color Space"
+placeholder = "By format"
+
+[param.start_frame]
+label = "Start Frame Number"
+
+[port.video]
+label = "Video"
+
+[param.characters]
+label = "Skinned Characters"
+
+[port.characters]
+label = "Skinned Characters"
+
+[port.list]
+label = "List"
+
+[param.block]
+label = "Block Name"
+
+[port.item]
+label = "Item"
+
+[port.gaussians]
+label = "Gaussian Splats"
+
+[param.skeleton]
+label = "Skeleton"
+placeholder = "First one"
+
+[param.mapping]
+label = "Mapping"
+placeholder = "Auto"
+
+[port.target]
+label = "Target"
+
+[port.source]
+label = "Source"
+
+[param.ids]
+label = "IDs"
+
+[param.soft]
+label = "Soft Edge"
+
+[port.expressions]
+label = "Expression Curves"
+
+[port.flow]
+label = "Motion Vectors"
+
+[port.src]
+label = "Source"
+
+[port.out]
+label = "Output"
+
+[param.space]
+label = "Space"
+
+[param.space.option]
+camera = "Camera"
+world = "World"
+
+[param.tolerance]
+label = "Tolerance"
+
+[port.uv]
+label = "UV Map"
+
+[param.gaussians]
+label = "Gaussian Splats"
+
+[port.tracks3d]
+label = "3D Tracks"
+
+[port.position]
+label = "Position Map"
+
+[param.motion_skeleton]
+label = "Motion Skeleton"
+placeholder = "First one"
+
+[param.target_skeleton]
+label = "Target Skeleton"
+placeholder = "First one"
+
+[param.motion_rest]
+label = "Motion Rest Pose"
+
+[param.motion_rest.option]
+bind = "Bind Pose"
+first = "First Frame"
+frame = "Specific Frame"
+
+[param.motion_rest_frame]
+label = "Motion Rest Frame"
+placeholder = "Frame number"
+
+[param.target_rest]
+label = "Target Rest Pose"
+
+[param.target_rest.option]
+bind = "Bind Pose"
+first = "First Frame"
+frame = "Specific Frame"
+
+[param.target_rest_frame]
+label = "Target Rest Frame"
+placeholder = "Frame number"
+
+[param.motion_pose]
+label = "Motion Initial Pose"
+
+[param.motion_pose.field.joint]
+label = "Joint"
+
+[param.motion_pose.field.translate]
+label = "Translate"
+
+[param.motion_pose.field.rotate]
+label = "Rotate"
+
+[param.motion_pose.field.scale]
+label = "Scale"
+
+[param.target_pose]
+label = "Target Initial Pose"
+
+[param.target_pose.field.joint]
+label = "Joint"
+
+[param.target_pose.field.translate]
+label = "Translate"
+
+[param.target_pose.field.rotate]
+label = "Rotate"
+
+[param.target_pose.field.scale]
+label = "Scale"
+
+[param.height_offset]
+label = "Height Offset"
+
+[port.motion]
+label = "Motion"
+
+[port.valid]
+label = "Valid Region"
+
+[param.value]
+label = "Value"
+
+[param.min_confidence]
+label = "Visibility Threshold"
+placeholder = "Model default"
+
+[port.plate]
+help = "The original image multiplied by alpha (premultiplied RGBA), without edge color decontamination, going through the same writing and color conversion as Foreground. Write both as EXR and read them into Nuke: Foreground minus Uncorrected Foreground (Merge minus) is the correction, nonzero only in the edge band where alpha is between 0 and 1: your own plate × alpha plus k × correction, with k from 0 to 1 controlling how much AI color to use; solid areas are not touched by a single byte"
+
+[param.prompt]
+label = "Prompt"
+
+[param.negative]
+label = "Negative Prompt"
+placeholder = "Empty: CFG disabled"
+
+[param.true_cfg]
+label = "CFG Scale"
+
+[param.steps]
+label = "Denoising Steps"
+
+[param.mode.option]
+text_to_image = "Text to Image"
+edit_image = "Image Edit"
+reference_images = "Multiple Reference Images"
+
+[param.aspect]
+label = "Aspect Ratio"
+
+[param.aspect.option]
+"1:1" = "1:1 Square"
+"4:3" = "4:3 Landscape"
+"3:4" = "3:4 Portrait"
+"3:2" = "3:2 Photo"
+"2:3" = "2:3 Photo"
+"16:9" = "16:9 Widescreen"
+"9:16" = "9:16 Vertical"
+
+[param.envmap_width]
+label = "Environment Map Width"
+
+[port.hdri]
+label = "HDRI"
+
+[port.basecolor]
+label = "Base Color"
+
+[param.least_frames]
+label = "Min Solved Frames"
+placeholder = "Auto"
+
+[param.static_camera]
+label = "Locked-Off Camera"
+
+[param.camera_rotate]
+label = "Camera Rotate"
+
+[param.unit_cm]
+label = "Scale"
+
+[param.keys]
+label = "Keyframes"
+placeholder = "Auto"
+
+[param.exact]
+label = "Exact Keyframes"
+
+[param.foot_lock]
+label = "Foot Lock"
+
+[param.end_frame]
+label = "End Frame Number"
+
+[param.warmup]
+label = "Start Frame Warmup Passes"
+
+[param.fp16]
+label = "Half Precision"
+
+[port.foreground]
+label = "Foreground"
+
+[param.crop]
+label = "Crop"
+
+[param.only_bad]
+label = "Fix Problem Frames Only"
+
+[param.threshold]
+label = "Detection Threshold"
+
+[port.contacts]
+label = "Foot Contacts"
+
+[param.resolution_level]
+label = "Resolution Level"
+
+[param.influences]
+label = "Max Influences"
+
+[param.influences.option]
+1 = "1 · Rigid"
+4 = "4 · Typical"
+8 = "8 · Fine"
+
+[param.character]
+label = "Character Name"
+placeholder = "From connected geometry"
+
+[param.bone_names]
+label = "Bone Naming"
+
+[param.bone_names.option]
+standard = "Standard (Maya HumanIK)"
+model = "Original (From Model)"
+
+[param.follow_camera]
+label = "Fit Image Per Frame"
+
+[port.keypoints]
+label = "2D Keypoints"
+
+[port.ref_camera]
+label = "Reference Camera"
+help = "This is not a finished camera: don't deliver it or hand it to others as a solve camera. It is the camera this result is paired with in its own world, and it is what makes the people line up with the plate. Connect it to the Source Camera of camera_space and your own camera to Target Camera, and that node moves the people into your camera's world to line up with the image. For a usable camera, take it from a node that actually solves cameras (ViPE, TRAM) or from usd.import"
+
+[lens]
+solved_note = "Focal Length {focal} mm (Aperture {filmback} mm, {px} px)"
+
+[confidence.scale]
+probability = "The model gives a 0–1 probability as it is"
+exp_plus_one = "The model gives 1 + exp(x) (at least 1), mapped to 1 − 1/c, the sigmoid of x"
+exp_error = "The model gives exp(expected depth error, metres): larger is less trusted; mapped to 1/(1 + c)"
+log_error = "The model gives its expected log-depth error (about the relative error): larger is less trusted; mapped to 0.01/(0.01 + c), 0.5 at an expected 1% error"
+
+[confidence]
+help = "How much {node}'s model trusts each pixel, as it estimates it (0–1, higher is more trusted). {scale}. Compare it only among this model's results, never with another model's confidence; to use it as a mask, wire it into mask_from_confidence"
+flow = "How much the optical-flow model trusts each vector, as it estimates it (0–1, higher is more trusted; the lower of the two directions). Compare it only among this model's results; to use it as a mask, wire it into mask_from_confidence; for occluded areas use occlusion_from_motion"
+
+[stage]
+write_alpha_foreground = "Write Alpha and Foreground"
+write_alpha = "Write Alpha"
+write_hdri = "Write HDRI"
+write_stmap = "Write ST Map"
+write_people_camera = "Write USD People and Camera"
+write_aligned_depth = "Write Aligned Depth"
+write_character = "Write Skinned Character"
+write_motion_vectors = "Write Motion Vectors"
+write_target_animation = "Write Target Skeleton Animation"
+write_expressions = "Write Expressions"
+write_skeleton_animation = "Write Skeleton Animation"
+motion_to_character = "Put the Motion Back on the Character's Skeleton"
+rest_pose = "Rest Pose"
+depth_to_camera_world = "Take Depth into the Camera's World"
+project_points = "Project the Point Cloud onto the Image"
+project_uv = "Project UVs"
+project_scene = "Project the Scene"
+merge_frame_points = "Merge Point Clouds per Frame"
+attach_animation = "Attach Animation"
+swap_motion = "Swap Motion"
+prepare_keyframes = "Prepare Keyframes"
+prepare_motion = "Prepare Motion"
+prepare_mesh = "Prepare Mesh"
+prepare_skin = "Prepare Skin"
+prepare_retarget_input = "Prepare Retarget Inputs"
+check_hierarchy = "Check Hierarchy"
+cleaned_motion_to_character = "Put the Cleaned Motion Back on the Character's Skeleton"
+make_points = "Make Point Cloud"
+fuse_tsdf = "Fuse TSDF"
+compute_position = "Compute Position Map"
+compute_normals = "Compute Normals"
+read_reference_depth = "Read Reference Depth"
+read_body_model = "Read Body Model"
+convert_normals = "Convert Normals"
+match_joints = "Match Joints"
+match_expressions = "Match Expressions"
+measure_canonical_range = "Measure the Canonical Coordinates' Range"
+write_mask = "Write Mask"
+write_depth = "Write Depth"
+feedforward = "Feed-Forward Reconstruction"
+loop_closure = "Loop Closure"
+write_results = "Write Results"
+estimate_geometry = "Estimate Geometry per Frame"
+load_model = "Load {model} Model"
+
+[entry]
+still = "still"
+deforming = "deforming"
+
+[count]
+vertices.one = "{n} vertex"
+vertices.other = "{n} vertices"
+points.one = "{n} point"
+points.other = "{n} points"
+strands.one = "{n} strand"
+strands.other = "{n} strands"
+joints.one = "{n} joint"
+joints.other = "{n} joints"
+meshes.one = "{n} mesh"
+meshes.other = "{n} meshes"
+shapes = "{n} blend shapes"
+prototypes.one = "{n} prototype"
+prototypes.other = "{n} prototypes"
+instances.one = "{n} instance"
+instances.other = "{n} instances"
+gaussians.one = "{n} Gaussian"
+gaussians.other = "{n} Gaussians"
+root_joint = "root joint {n}"
+
+[choices]
+pick_file = "Pick a file first"
+none_of_kind = "The file holds no {kind}"
+none_in_file = "None in the file"
+wire_data = "Wire in data first"
+take_none = "None"
+no_more_info = "This data holds no other information"
+pick_folder = "Pick a folder first"
+
+[group]
+ensemble = "Ensemble"
+people = "People"
+propagation = "Propagation"
+translate = "Translate"
+position = "Position"
+info = "Info"
+optical_flow = "Optical Flow"
+joint_semantics = "Joint Semantics"
+keyframes = "Keyframes"
+geometry = "Geometry"
+segmentation = "Segmentation"
+analysis = "Analysis"
+switch = "Switch"
+foreground = "Foreground"
+motion = "Motion"
+matching = "Matching"
+range = "Range"
+delight = "Delight"
+stabilize = "Stabilize"
+deform = "Deform"
+transform = "Transform"
+composite = "Composite"
+name = "Name"
+layers = "Layers"
+ground = "Ground"
+scene = "Scene"
+block = "Block"
+compare = "Compare"
+align = "Align"
+hierarchy = "Hierarchy"
+attributes = "Attributes"
+frames = "Frames"
+frame_range = "Frame Range"
+plane = "Plane"
+sequence = "Image Sequence"
+projection = "Projection"
+matte = "Matte"
+fit = "Fit"
+actions = "Actions"
+level = "Level"
+values = "Values"
+file = "File"
+temporal = "Temporal"
+time = "Time"
+curves = "Curves"
+presence = "Presence"
+items = "Items"
+check = "Check"
+detection = "Detection"
+model = "Model"
+normals = "Normals"
+depth = "Depth"
+cleanup = "Cleanup"
+points = "Points"
+point_cloud = "Point Cloud"
+environment_light = "Environment Light"
+generation = "Generation"
+image = "Image"
+distortion = "Distortion"
+camera = "Camera"
+filter = "Filter"
+precision = "Precision"
+result = "Result"
+mesh = "Mesh"
+translation = "Translation"
+color = "Color"
+sketch = "Sketch"
+skin = "Skin"
+blend = "Blend"
+expression = "Expression"
+crop = "Crop"
+solve = "Solve"
+compute = "Compute"
+quality = "Quality"
+distance = "Distance"
+tracking = "Tracking"
+convert = "Convert"
+moving_objects = "Moving Objects"
+operation = "Operation"
+selection = "Selection"
+mask = "Mask"
+gravity = "Gravity"
+reconstruction = "Reconstruction"
+lens = "Lens"
+gate = "Gate"
+face = "Face"
+skeleton = "Skeleton"
+advanced = "Advanced"
+alembic = "Alembic"
+bvh = "BVH"
+ply = "PLY"
+
+[button]
+cook = "Cook"
+pick = "Pick in Viewport"
+download = "Download"
+pack = "Cook and Package"
+
+[tip.alpha]
+kept = "The image's alpha is processed with it"
+dropped = "Only the image's RGB is used: an image with alpha is taken as composited over black; its alpha is ignored"
+
+[file]
+none = "No file selected"
+
+[row]
+default = "Row"
+
+[cost]
+sep = "; "
+
+[lens.by]
+sheet = "the lens sheet typed on the node"
+wired = "the wired lens intrinsics"
+
+[lens.said]
+typed = "Focal Length {focal} mm · typed"
+camera = "Focal Length · from the wired camera"
+default = "Focal Length · not given, taken as {focal} mm"
+estimate = "Focal Length · estimated by the method"
+
+[lens.model]
+SIMPLE_PINHOLE = "SIMPLE_PINHOLE (no distortion, an undistorted image)"
+PINHOLE = "PINHOLE (no distortion, fx≠fy)"
+SIMPLE_RADIAL = "SIMPLE_RADIAL (ordinary cameras, phones)"
+RADIAL = "RADIAL (ordinary lenses with more distortion)"
+OPENCV = "OPENCV (with tangential distortion, OpenCV calibration compatible)"
+FULL_OPENCV = "FULL_OPENCV (wide-angle lenses with complex distortion)"
+OPENCV_FISHEYE = "OPENCV_FISHEYE (fisheye, equidistant projection)"
+SIMPLE_RADIAL_FISHEYE = "SIMPLE_RADIAL_FISHEYE (fisheye, radial k)"
+RADIAL_FISHEYE = "RADIAL_FISHEYE (fisheye, radial k1 k2)"
+FOV = "FOV (some wide-angle / fisheye lenses)"
+THIN_PRISM_FISHEYE = "THIN_PRISM_FISHEYE (high-precision fisheye, VR / SLAM devices)"
+RAD_TAN_THIN_PRISM_FISHEYE = "RAD_TAN_THIN_PRISM_FISHEYE (fisheye, six radial terms plus tangential and thin prism; Project Aria devices)"
+SIMPLE_DIVISION = "SIMPLE_DIVISION (division model, one coefficient)"
+DIVISION = "DIVISION (division model, one coefficient, fx≠fy)"
+SIMPLE_FISHEYE = "SIMPLE_FISHEYE (equidistant fisheye, no coefficients: distortion negligible or corrected)"
+FISHEYE = "FISHEYE (equidistant fisheye, no coefficients, fx≠fy)"
+EUCM = "EUCM (enhanced unified model, wide-angle to fisheye, two coefficients alpha beta)"
+
+[list]
+none = "none"
+more = " and {count} in all"
+etc = " …"
+
+[family.lens_calibration.focal]
+help = "Focal length (mm). Upstream gives it in pixels (a length measured with the width of one photosite as the ruler); here it is converted to millimetres. The conversion uses the node's Aperture: focal length (mm) = focal length (px) ÷ image width × Aperture."
+
+[family.lens_calibration.filmback]
+help = "The Aperture typed on the node, passed on as it is: the focal length was converted to millimetres with it, so downstream (lens_distortion, camera) need not type it again and both sides always hold the same number"
+
+[family.lens_calibration.lens]
+help = "Everything of this lens except its focal length and aperture: the lens model's name, its distortion coefficients, the principal point X / Y (mm) and the pixel aspect, in one value. Wire it into lens_distortion's Lens Intrinsics: the lens model and coefficients there follow this one"
+
+[family.matte.foreground]
+help = "The foreground colour with the background taken out (RGBA, premultiplied by alpha): the background and green-screen spill mixed into hair and semi-transparent edges was removed when the model unmixed them. Composite it as the foreground in Nuke and the edges no longer carry the old background's colour, which multiplying the plate by alpha cannot do. Wire it into image.output to write an EXR"
+
+[family.humans.plate_camera]
+help = "The camera the people are placed with: a still pinhole camera at the origin, its focal length the node's Focal Length (the solver's own estimate or the default when left empty), its principal point at the image centre. Not a solved camera: the people are placed in its space, so through it they line up with the image plane. Use it as the solver's camera, or as camera_space's target"
+
+[person]
+numbered = "Person {n}"
+this = "this person"
+
+[fact]
+metric = "Real-World Scale"
+"models.kinds" = "Selected Geometry"
+segments = "Shot Segments"
+points = "Tracked Points"
+
+[role]
+source = "source"
+target = "target"
+motion = "motion"
+input = "input"
+person = "person"
+
+[family.segmentation.objects]
+label = "Object Segmentation"
+
+[retarget.why]
+legs = "retargeting takes the forward direction and the hip height from the hips and both legs"
+none = "retargeting takes the forward direction and the hip point from the hips and both legs"
+height = "retargeting takes the forward direction from the hips and both legs, and Hip Height From height also measures up to the head"
+arms = "retargeting takes the forward direction from the hips and both legs, and Hip Height From arm length also measures the upper arms and forearms"
+hands = "only hands are mapped: when the target is a hand alone its wrist follows the motion 1:1; when the hand is on a body the arm keeps the target's pose and only the fingers are carried over"
+
+[retarget.scale_by]
+legs = "leg length"
+height = "height"
+arms = "arm length"
+none = "no scaling"
+
+[retarget.ground]
+ankles = "the ankles"
+below = "the joint below the shin (no foot mapped)"
+knees = "the knees (no foot mapped, nothing below the shin)"
+
+[retarget.rest]
+bind = "the bind pose"
+first = "the first frame"
+frame = "frame {frame}"
+picked = "the bind pose is not a standing pose, frame {frame} picked"
+prepared = "the prepared rest pose"
+
+[retarget]
+frame_unset = "(not set)"
+tposed = " (posed in a T-pose)"
+
+[retarget.base]
+fixed_count = "{n} of the {who}"
+said = "Rest: motion {source}, target {target}"
+tposed = ", both posed in a T-pose"
+fixes.one = ", {fixes} joint corrected by the initial pose"
+fixes.other = ", {fixes} joints corrected by the initial pose"
+
+[retarget.aligned]
+bones = "; aligned bone by bone by direction ({why})"
+picked = "the motion's rest is a picked frame"
+folded = "the rest pose is not a standing pose"
+kept = "; aligned keeping the target's own rest pose"
+limbs = ", {n} limb bones matched to the motion's rest pose ({names})"
+
+[needs]
+generic = "Generic (ignores helper bones only)"
+
+[joints]
+segment = " segment {n}"
+sided = "{side} {part}"
+first_of.one = "{name} ({count} joint)"
+first_of.other = "{name} ({count} joints)"
+
+[unit]
+x = "×"
+
+[expressions]
+no_curves = "The expression side has no curves"
+no_shapes = "The target character has no blend shapes"
+curves = "expression curves"
+side = "expressions"
+
+[joints.part]
+hips = "Hips"
+spine = "Spine"
+chest = "Chest"
+neck = "Neck"
+head = "Head"
+jaw = "Jaw"
+eye = "Eye"
+clavicle = "Clavicle"
+upperarm = "Upper Arm"
+forearm = "Forearm"
+hand = "Hand"
+thigh = "Thigh"
+shin = "Shin"
+foot = "Foot"
+toe = "Toe"
+thumb = "Thumb"
+index = "Index"
+middle = "Middle"
+ring = "Ring"
+pinky = "Pinky"
+
+[joints.side]
+l = "Left"
+r = "Right"
+
+[joints.region]
+trunk = "Trunk"
+face = "Face"
+l_arm = "Left Arm"
+r_arm = "Right Arm"
+l_leg = "Left Leg"
+r_leg = "Right Leg"
+l_hand = "Left Hand"
+r_hand = "Right Hand"
+
+[depth.scale]
+relative = "relative scale"
+affine = "ordering only"
+
+[handle.label]
+pelvis = "Pelvis"
+left_hip = "Left Hip"
+right_hip = "Right Hip"
+spine1 = "Waist"
+left_knee = "Left Knee"
+right_knee = "Right Knee"
+left_ankle = "Left Ankle"
+right_ankle = "Right Ankle"
+left_foot = "Left Foot"
+right_foot = "Right Foot"
+neck = "Neck"
+left_collar = "Left Shoulder"
+right_collar = "Right Shoulder"
+head = "Head"
+left_elbow = "Left Elbow"
+right_elbow = "Right Elbow"
+left_wrist = "Left Wrist"
+right_wrist = "Right Wrist"
+
+[text]
+quote = "\"{text}\""
+colon = ": "
+
+[tag.basic]
+label = "Basic"
+tip = "Lab2Shot's own nodes and the modules that read and write file formats: every user may use them"
+
+[tag.commercial]
+label = "Commercial"
+tip = "The licence allows commercial use (its other terms, such as attribution, still apply)"
+
+[tag.noncommercial]
+label = "Non-Commercial"
+tip = "The licence forbids commercial use: only for research, study and other non-commercial purposes, never in a shot of a commercial project"
+
+[tag.research]
+label = "Research Only"
+tip = "The licence allows academic research only: stricter than non-commercial, never for any production"
+
+[tag.registration]
+label = "Registration"
+tip = "Uses body, hand or face models each person downloads after registering on their site (SMPL, SMPL-X, MANO, FLAME), licensed for non-commercial research, teaching and art projects only"
+
+[tag.generative]
+label = "Generative Diffusion"
+tip = "Nodes that generate or edit images with diffusion models: an administrator must grant an account this capability separately (new accounts do not have it), on top of the licence tags"
+
+[scene.where]
+camera_input = "the camera input"
+scene = "the scene"
+
+[format]
+usd = "USD"
+boxes = "Person Boxes"
+tracks = "2D Tracks"
+curves = "Curves"
+nuke_camera = "Nuke Camera"
+gaussian_ply = "PLY"
+points_ply = "Point Cloud PLY"
+images = "Image Sequence"
+exr = "Multi-Layer EXR"
+
+[compare.op]
+gt = "greater than"
+ge = "at least"
+lt = "less than"
+le = "at most"
+eq = "equal to"
+ne = "not equal to"
+
+[normals.space]
+world = "world-space normals"
+camera = "camera-space normals"
+
+[depth_align.model]
+scale = "by scale"
+affine = "by scale and offset"
+inverse = "by disparity (scale and offset of 1/depth)"
+
+[fuse]
+voxels = "Voxel merge"
+
+[mask]
+all_but_background = "everything but the background"
+
+[output]
+settings_count = "{count} format output nodes"
+
+[progress]
+to_working_space = "To working space"
+layer = "Layer {layer}"
+frame = "Frame {frame}"
+
+[value]
+auto = "auto"
+typed = "typed"
+on = "on"
+off = "off"
+per_frame_same = " (per frame, constant)"
+per_frame = " (per frame)"
+per_frame_differs.one = "{count} frame, each different"
+per_frame_differs.other = "{count} frames, each different"
+none_said = "(none)"
+
+[retarget.stride]
+legs = "scaled by leg length ×{ratio}"
+as_is = " 1:1 (as on the image)"
+
+[subset]
+faces.one = "{name} ({faces} face)"
+faces.other = "{name} ({faces} faces)"
+pick = "Pick a group"
+none = "This mesh has no groups"
+none_said = "(this mesh has no groups)"
+
+[attributes]
+said = "{name} ({type} · {per})"
+
+[retarget.wrist]
+kept = "the target's hands are on a body: the wrists and arms keep the target's own pose, only the fingers' bend relative to the wrist is carried over"
+follows = "the wrists follow the motion 1:1"
+
+[retarget.how]
+factor = " × correction {factor}"
+by = "by {by}: target {target} cm ÷ motion {source} cm{factor}"
+unscaled = "no scaling{factor}"
+ground = "; the {who}'s height above the ground measured at {ground}"
+soles = "; soles aligned {delta} cm (above the soles: target {target}, motion {source})"
+offset = "; height offset {offset} cm"
+size = "; character scaled ×{factor} (by {by}: motion {source} cm ÷ target {target} cm)"
+size_typed = "; character scaled ×{factor} (typed)"
+rest = "; {rest}"
+
+[skeleton]
+none_said = "(no skeleton)"
+root = "root"
+moved = "{joint} ({a} ≠ {b})"
+
+[family.image_generation.seed]
+label = "Seed"
+
+[family.light.seed]
+label = "Seed"
+
+[family.image_generation.resolution]
+label = "Generation Resolution"
+
+[family.image_generation.resolution.option]
+512 = "512 Base"
+768 = "768 Base"
+1024 = "1024 Base"
+1536 = "1536 Base"
+2048 = "2048 Base (Native 2K)"
+
+[family.image_generation.mode]
+label = "Mode"
+
+[family.light.preview]
+label = "Preview"
+help = "The HDRI as it looks on screen (PNG, a display reference), to check the environment; render with the HDRI wire"
+
+[family.tracks.picks]
+label = "Manual Points"
+placeholder = "Press Pick in Viewport, then click the points to track on the image"
+
+[family.lens.focal_mm]
+label = "Known Focal Length"
+placeholder = "Auto"
+
+[family.lens.filmback_mm]
+label = "Aperture"
+placeholder = "36"
+
+[kit.resolution]
+label = "Processing Resolution"
+
+[kit.flow_resolution]
+label = "Processing Resolution"
+placeholder = "Original Size"
+
+[kit.max_frames]
+label = "Max Frames per Segment"
+
+[kit.loops]
+label = "Loop Closure"
+
+[family.matte.mask]
+label = "Rough Mask"
+
+[family.rig_motion.character]
+label = "Animation"
+
+[kit.plate_camera]
+help = "Wire in a camera: its per-frame pose and focal length are used, and the result is placed in that camera's world"
+
+[family.image_generation.prompt]
+placeholder = "What to make or change; for a transparent background start as the official prompts do: This is an RGBA image with transparency. …"
+
+[family.image_generation.image]
+label = "Generated Image"
+help = "One still the model generated (3 or 4 channels as generated; with alpha for a transparent background)"
+
+[reader.bvh]
+not_finite = "{where} holds a value that is not a number (NaN or infinity)"
+no_name = "{what} on line {line} has no name"
+malformed = "malformed ({why})"
+hierarchy_cut = "the hierarchy is cut short: the file is incomplete"
+no_hierarchy = "no HIERARCHY"
+extra = "an extra {what}"
+offset_of = "the OFFSET of \"{joint}\""
+unknown = "unknown {what}"
+after_hierarchy = "{what} after the end of the hierarchy"
+no_motion = "no MOTION"
+no_frames = "the line after MOTION should be Frames: <count>"
+no_frame_time = "the second line after MOTION should be Frame Time: <seconds>"
+bad_frame_time = "Frame Time is {value}, not a positive number"
+frames_cut.one = "{count} frame expected, but only {rows} rows in the file: it is incomplete"
+frames_cut.other = "{count} frames expected, but only {rows} rows in the file: it is incomplete"
+row_width.one = "{have} number on frame {frame} where {want} are expected (one per channel)"
+row_width.other = "{have} numbers on frame {frame} where {want} are expected (one per channel)"
+frame_n = "frame {row}"
+unknown_channel = "unknown channel {name}"
+
+[reader.ply]
+no_header = "no PLY header"
+unknown_format = "unknown format {format}"
+unset = "(not given)"
+cut = "{count} {name} expected: the file is incomplete"
+no_xyz = "no vertex x, y, z"
+sh_cut = "the Gaussian spherical harmonics fields are incomplete"
+bad_face = "a face refers to a vertex that does not exist"
+
+[length]
+cm = "centimetres"
+inch = "inches"
+dm = "decimetres"
+m = "metres"
+
+[attr.per]
+point = "per point"
+curve = "per curve"
+
+[attr.type]
+float = "float"
+int = "integer"
+toggle = "toggle"
+string = "string"
+vec2 = "2D"
+vec3 = "3D"
+color = "colour"
+normal = "normal"
+position = "position"
+vector = "vector"
+uv = "UV"
+quaternion = "quaternion"
+matrix = "matrix"
+
+[items]
+word = "items"
+
+[expressions.region]
+brows = "Brows"
+eyes = "Eyes"
+cheeks_nose = "Cheeks and Nose"
+jaw = "Jaw"
+mouth = "Mouth"
+tongue = "Tongue"
+other = "Other"
+
+[gaussian.bad]
+shapes = "the arrays' point counts or dimensions do not match"
+sh = "{count} spherical harmonics coefficients; only degrees 0–3 (1 / 4 / 9 / 16) are taken"
+values = "it holds NaNs, non-positive scales or opacities outside 0–1"
+rotation = "it holds rotation quaternions of length 0"
+samples.one = "{samples} sample for {frames} frames"
+samples.other = "{samples} samples for {frames} frames"
+
+[lint.node]
+part_in_name = "node type {type} has a segment node keys reserve (param, port, label…) in its name: its keys would read wrong"
+missing = "the {language} catalogue lacks {key}"
+unknown_type = "{key} in the {language} node catalogue names node type {type}, which does not exist"
+
+# ---- The core nodes
+
+[node.attrib_delete]
+subtitle = "Attribute Delete"
+description = "Point cloud or curves → removes some of the attributes attached to the points: type the attribute names (separated by spaces or commas, * wildcards allowed, same as Houdini's Attribute Delete). Confidence, normals, classes and point IDs computed by models all ride on the points; delete here whatever you don't want to pass downstream before delivery, and the files get smaller. Points, positions and colors are left untouched; only the values attached to the points are removed. To see which attributes the data currently has, check the exclamation mark at the node's lower right."
+
+[node.attrib_delete.param.attributes]
+label = "Attributes"
+placeholder = "Connect data first"
+
+[node.auto_ground]
+subtitle = "Auto Ground"
+description = "Scene → the scene leveled and placed on y = 0 (camera and people together). If a gravity direction is given (the per-frame up direction in camera space from geocalib.calibrate and similar), it first rotates around the origin to level the scene so the Y axis truly points up (a solved world follows the first-frame camera, so if the camera tilts down or rolls, the ground is slanted; only tilt and pitch are corrected, heading is unchanged), then moves it vertically so the ground sits on y = 0: by the height of people's feet (lowest joint for skeleton animation), or by the densest layer of the point cloud. What goes in comes out as the same kind of data; to enter values yourself, use transform."
+
+[node.auto_ground.param.gravity]
+label = "Gravity Direction"
+
+[node.auto_ground.param.gravity_error]
+label = "Gravity Error"
+
+[node.auto_ground.param.source]
+label = "Ground Reference"
+
+[node.auto_ground.param.source.option]
+people = "People's Feet"
+points = "Point Cloud"
+none = "No Grounding"
+
+[node.auto_ground.param.percentile]
+label = "Grounded Frame Ratio"
+
+[node.bake_geometry]
+subtitle = "Bake Geometry"
+description = "Skinned character → per-frame deformed geometry (geometry cache): blend shapes and skinning are evaluated with the DCC algorithm, the vertices of every frame are baked, and the bones are dropped. Use it before writing to a format without bones; the result matches the original motion exactly, but the bones can no longer be adjusted. If you only want the bones, use extract_skeleton."
+
+[node.blast]
+subtitle = "Blast"
+description = "Geometry → geometry with only one group left: the faces of the mesh in the group with this name are kept, all other faces and all other meshes are removed. A group is a USD GeomSubset (part of a mesh), read as a primitive group in Houdini and a face set in Maya; face solves give the whole head while hair solves need the scalp, so use this node to extract the \"scalp\" part. Points are renumbered from the kept faces (unused points are not carried over); UVs, normals and per-point attributes are cut accordingly, and per-frame deforming geometry caches are cut on every frame."
+
+[node.blast.param.subset]
+label = "Group"
+placeholder = "Connect geometry first"
+
+[node.bone_deform]
+subtitle = "Bone Deform"
+description = "Skeleton animation + skinned character → the skinned character driven by this animation (mesh, skinning and blend shapes unchanged; the original animation is replaced). It only verifies, never guesses: the joint names and parent-child relationships of both skeletons must match one to one; otherwise it reports an error listing the differences. If the animation comes from a different skeleton, run it through retarget first. Typical setup: connect the skeleton animation from retarget, and connect the character to the same target (for example, wire one output of standard_human to both the Target of retarget and the Skinned Character here). The viewport shows the skin deformation directly; for a mesh cache, add bake_geometry."
+
+[node.bone_deform.param.skeleton_path]
+label = "Animation Skeleton"
+placeholder = "First one"
+
+[node.bone_deform.param.character_skeleton]
+label = "Character Skeleton"
+placeholder = "First one"
+
+[node.bone_deform.port.character]
+help = "The character to drive: mesh, skinning and blend shapes stay as-is; its original animation is replaced"
+
+[node.bone_deform.port.skeleton]
+help = "The animation to apply: its skeleton hierarchy must match the character's exactly (usually the output of retarget)"
+
+[node.bone_deform.port.character.output]
+help = ""
+
+[node."boxes.output"]
+subtitle = "Person Boxes Output"
+description = "Person boxes → JSON (each person's box per frame, read by scripts and DCC plugins), CSV (one person per frame per row, readable by Excel and Houdini), or a Nuke Tracker node (one track per person, following the box center). When writing a Nuke node, the node offers \"Copy to Nuke\"; once copied, it can be pasted into your comp. This node only sets the name and format; files are actually written when it is connected to output."
+
+[node."bvh.import"]
+subtitle = "Import BVH"
+description = "Imports motion capture BVH (.bvh, exported from CMU, Rokoko, MotionBuilder): the bone hierarchy and per-frame motion become one skeleton animation; the frame rate follows the Frame Time in the file, and frame numbers start at 1. BVH does not record units, so set them in Unit; it contains only bones without a mesh, so for characters with meshes use an import node for another 3D format."
+
+[node."bvh.import".param.unit.option]
+cm = "Centimeters"
+m = "Meters"
+auto = "Auto (Estimate from Bone Length)"
+
+[node."bvh.import".port.skeletons]
+waits = "Pick a skeleton animation"
+
+[node."bvh.import".port.fps]
+help = "The frame rate recorded in the BVH (the inverse of Frame Time). Connect it to the FPS of a motion model or a format output node to follow this file"
+
+[node."bvh.import".fact.models]
+kinds = "Selected Geometry"
+
+[node.camera]
+subtitle = "Camera"
+description = "The same node as Nuke's Camera3 and Houdini's Camera: enter focal length, aperture, position and orientation here → a static camera. Focal length, aperture and principal point can also be wired in (from the matching outputs of anycalib.calibrate, or from split_camera); when wired, the wired values are used. By default it sits at the origin looking down -Z; connect an image and it takes that image's resolution and frame range, and the image also becomes its image plane (shown underneath when the 3D viewport looks through it). Nodes that need a camera (SAM 3D Body, GVHMR...) get a locked-off camera with known focal length when connected to it; when no focal length is given at all it is empty, and the downstream node computes its own."
+
+[node.camera.param.focal_mm]
+placeholder = "Auto"
+
+[node.camera.param.filmback_mm]
+placeholder = "36"
+
+[node.camera.param.translate]
+label = "Position"
+
+[node.camera_space]
+subtitle = "Camera Space"
+description = "Scene + source camera + target camera → the same scene, moved into the target camera's world so it lines up with the image under the target camera. People, meshes, skeletons, curves, point clouds, Gaussian splats and cameras can all be moved. Leave Source Camera empty when the scene sits right in front of the camera (SAM 3D Body, HaMeR, SMIRK...); for results with their own world (WHAM, GVHMR), connect their Reference Camera to Source Camera. To move a camera a solver found, connect it to both Scene and Source Camera and pick Smooth Whole Range: the camera delivered is in the target camera's world (position scaled, orientation only rotated, lens unchanged). As long as a project can deliver a camera, its space can be converted to any other project's space. Only position changes; the data itself stays the same."
+
+[node.camera_space.param.fit]
+label = "Fit Mode"
+
+[node.camera_space.param.fit.option]
+per_frame = "Per-Frame Fit"
+whole = "Smooth Whole Range"
+
+[node.camera_space.port.target_camera]
+label = "Target Camera"
+help = "Which camera's world to move into: the solved one (ViPE, COLMAP...) or a real camera brought in by usd.import. Both cameras must have the same focal length and film gate (templates use split_camera to feed the target camera's values to the solver)"
+
+[node.camera_space.port.scene]
+help = "What to move: people, meshes, skeletons, curves, point clouds, Gaussian splats, cameras"
+
+[node.camera_space.port.source_camera]
+label = "Source Camera"
+help = "Which camera's space the scene is currently in: for solvers with their own world (WHAM, GVHMR), connect their Reference Camera here. Leave empty when the scene sits right in front of the camera with no world position (SAM 3D Body, HaMeR, SMIRK, MediaPipe face); each frame is then placed into the world directly by the target camera"
+
+[node.camera_space.port.reference]
+label = "Reference Point Cloud"
+help = "A point cloud already in the target camera's world (for example a scene point cloud fused with the target camera). With Smooth Whole Range, connecting it means scale is no longer read from the two trajectories but by comparing, frame by frame, the distances each side sees through its own camera: when reconstruction solvers (WorldMirror, NeoVerse) solve a nearly translating shot as rotating in place, scale cannot be read from the trajectories, and this is what makes them line up"
+
+[node.camera_space.port.scene.output]
+help = "The same scene, in the target camera's world"
+
+[node.channel_join]
+subtitle = "Channel Join"
+description = "Three single-channel masks → one RGB image: connect one to each of the R, G and B inputs; pixels are copied into the three channels as-is with no color conversion (what Houdini's Float to Vector looks like on images; in Nuke it is a Shuffle moving three channels into rgb). Grayscale images read by file have only one channel and cannot connect to inputs that need RGB (the Image of colmap.camera_solve): connect the same grayscale image to R, G and B to get a gray RGB image. Pixels are unchanged and tagged as the working space (sRGB)."
+
+[node.channel_join.port.r]
+label = "R"
+
+[node.channel_join.port.g]
+label = "G"
+
+[node.channel_join.port.b]
+label = "B"
+
+[node.compare]
+subtitle = "Compare"
+description = "Compares two values and outputs a toggle: connect it to the condition of switch. Different units are converted first; if they cannot be converted, an error explains why."
+
+[node.compare.param.operation.option]
+gt = "Greater Than"
+ge = "Greater Than or Equal"
+lt = "Less Than"
+le = "Less Than or Equal"
+eq = "Equal"
+ne = "Not Equal"
+
+[node.compare.port.a]
+label = "A"
+
+[node.compare.port.b]
+label = "B"
+
+[node.compare.port.value]
+label = "Result"
+
+[node.compare_cameras]
+subtitle = "Compare Cameras"
+description = "Two cameras → per-frame curves of position difference, angle difference and focal length difference, plus the camera aligned into the reference camera's world. Any two cameras can be compared (solved in 3DE, by ViPE...), to pick which solve suits which kind of shot; give the aligned camera a name with name (both cameras are called camera), and it can be merged with the reference into one scene to view together."
+
+[node.compare_cameras.param.align]
+label = "Align"
+
+[node.compare_cameras.param.align.option]
+similarity = "Scale + Rotate + Translate"
+rigid = "Rotate + Translate"
+none = "No Alignment"
+
+[node.compare_cameras.port.reference]
+label = "Reference Camera"
+
+[node.compare_cameras.port.camera.output]
+label = "Aligned Camera"
+
+[node.compare_cameras.port.errors]
+label = "Per-Frame Errors"
+
+[node.composite]
+subtitle = "Composite"
+description = "Equivalent to Nuke's Merge: combines an image and a mask into one image with an operation. The most common is multiply: \"Stencil\" blacks out the area inside the mask (masking out walking people before solving the camera), \"Keep\" keeps only the area inside the mask. The mask is automatically applied to every channel of the image. \"Over (A over B)\" is the same as Nuke's Merge over: premultiplied-alpha A is laid over Background, and Background shows through where A is transparent (use the Background input instead of Mask here; lowering Opacity makes A semi-transparent, so Background shows through even when A has no alpha), for example to view AllTracker patches or images aligned by RoMa over the original plate."
+
+[node.composite.param.operation.option]
+multiply = "Keep"
+stencil = "Stencil"
+plus = "Plus"
+minus = "Minus"
+min = "Min"
+max = "Max"
+over = "Over (A over B)"
+
+[node.composite.param.mix]
+label = "Opacity"
+
+[node.composite.port.a]
+label = "Image"
+help = "With \"Over\", the image laid on top (premultiplied-alpha RGBA; without alpha it covers everything)"
+
+[node.composite.port.b]
+label = "Mask"
+help = "A single-channel mask, automatically applied to every channel of the image"
+
+[node.composite.port.bg]
+label = "Background"
+help = "With \"Over\", the image underneath: it shows through where A is transparent (for example to view AllTracker patches or RoMa-aligned images over the original plate)"
+
+[node.composite.port.image]
+label = "Image"
+
+[node.constant]
+subtitle = "Constant"
+description = "The same node as Nuke's Constant: give a size, frame count and color, and it outputs a solid-color image sequence with no footage. Use it to get started when you have no plate: draw_mask needs an image to draw on, and sketch2anim.motion needs an image sequence to set the motion length (it ignores pixels, only the frame count matters). Once real footage is connected you don't need it: the footage itself can then serve as a storyboard to draw over."
+
+[node.constant.param.frames]
+label = "Frames"
+
+[node.constant.param.frames.option]
+24 = "24 Frames · 1 s"
+48 = "48 Frames · 2 s"
+96 = "96 Frames · 4 s"
+144 = "144 Frames · 6 s"
+192 = "192 Frames · 8 s"
+
+[node.constant.param.colour]
+label = "Color"
+
+[node.crop]
+subtitle = "Crop"
+description = "The same node as Nuke's Crop: crops the image to a region, and the cropped region becomes the new image frame. Set how many pixels to cut from each of the four edges; all four at 0 does nothing. Some solvers have framing requirements: face and hand solvers need the subject to fill most of the frame, and camera and point cloud solves even more so: run uncropped on the same 4K footage, COLMAP solved only 3 camera positions out of 267 frames; cropped to a square centered on the subject, all 267 frames solved. Crop to the subject with this node first, then connect the solver. Overscan does not carry over: the cropped image is just that region, with no pixels outside the frame."
+
+[node.crop.param.left]
+label = "Left"
+
+[node.crop.param.right]
+label = "Right"
+
+[node.crop.param.top]
+label = "Top"
+
+[node.crop.param.bottom]
+label = "Bottom"
+
+[node.crop.port.image]
+label = "Image"
+
+[node.curve_channel]
+subtitle = "Curve Channel"
+description = "Animation curves (expression curves, per-frame errors from compare_cameras...) → one of them, one float per frame. Connect it to a parameter that takes per-frame values, or view its curve on its own."
+
+[node.curve_channel.param.curve]
+label = "Curve"
+placeholder = "First one"
+
+[node.curve_channel.param.unit.option]
+cm = "cm"
+m = "m"
+
+[node.curve_channel.port.curves]
+label = "Curves"
+waits = ""
+
+[node."curves.output"]
+subtitle = "Curves Output"
+description = "Animation curves (such as expression curves) → CSV, .chan (Houdini / Nuke), JSON or USD (curves written as animated attributes, to connect to a character in your DCC). This node only sets the name and format; files are actually written when it is connected to output."
+
+[node."curves.output".param.format.option]
+chan = ".chan"
+usd = "USD"
+
+[node."curves.output".port.curves]
+label = "Curves"
+waits = ""
+
+[node.data_info]
+subtitle = "Data Info"
+description = "Extracts facts the data states about itself as values: frame count, start frame, end frame, width, height, count, plus any other facts this data type declares (focal length, point count, number of people..., chosen in Item). It reads the same description as port tooltips and the middle-click data info."
+
+[node.data_info.param.item]
+label = "Item"
+placeholder = "Connect data first"
+
+[node.data_info.port.frames]
+label = "Frames"
+
+[node.data_info.port.first]
+label = "Start Frame"
+
+[node.data_info.port.last]
+label = "End Frame"
+
+[node.data_info.port.width]
+label = "Width"
+
+[node.data_info.port.height]
+label = "Height"
+
+[node.depth_align]
+subtitle = "Depth Align"
+description = "Aligns a depth map that needs manual scaling, a relative-only depth map or a disparity map to a reference at real-world scale, producing a real-scale depth map (cm). The reference can be another real-scale depth map (MoGe, UniDepth...), or a point cloud plus its camera (COLMAP, LiDAR). A common setup aligns the stable, flicker-free disparity from Video Depth Anything to the real-scale depth from MoGe, giving depth that is both stable and at real scale."
+
+[node.depth_align.param.depth_is]
+label = "Input Is"
+
+[node.depth_align.param.depth_is.option]
+auto = "Auto"
+disparity = "Disparity"
+relative = "Scale Only"
+affine = "Scale and Shift"
+
+[node.depth_align.param.fit]
+label = "Fit"
+
+[node.depth_align.param.fit.option]
+shot = "Whole Shot"
+frame = "Per Frame"
+
+[node.depth_align.port.depth]
+label = "Depth Map to Align"
+
+[node.depth_align.port.reference]
+label = "Reference Depth Map"
+
+[node.depth_align.port.mask]
+label = "Alignment Region"
+
+[node.depth_align.port.confidence]
+help = "Where the depth map is more reliable (connect the confidence from the node of the reference or the depth to be aligned): each pixel is weighted by it during fitting; uncertain pixels count less, and 0 does not count"
+
+[node.depth_align.port.camera]
+label = "Point Cloud Camera"
+
+[node.depth_align.port.points]
+label = "Reference Point Cloud"
+
+[node.depth_align.port.depth.output]
+label = "Depth Map"
+
+[node.deshake_camera]
+subtitle = "Camera Deshake"
+description = "Camera → a camera with small per-frame jitter removed and the overall motion kept, plus a before/after comparison curve. Solved cameras jitter frame to frame; cameras inferred by MapAnything, LingBot-Map and GVHMR are all recommended to go through it. Strength is a period: 8 frames removes jitter with a period shorter than 8 frames, and slower motion is kept as-is; sudden stops and whip pans are protected separately by Keep Sudden Moves and are not rounded off."
+
+[node.deshake_camera.param.strength]
+label = "Strength"
+
+[node.deshake_camera.param.keep_sudden]
+label = "Keep Sudden Moves"
+
+[node.deshake_camera.param.rotation]
+label = "Smooth Rotation"
+
+[node.deshake_camera.param.focal]
+label = "Focal Length"
+
+[node.deshake_camera.param.focal.option]
+keep = "Unchanged"
+smooth = "Deshake Too"
+
+[node.deshake_camera.port.curves]
+label = "Before/After"
+waits = ""
+
+[node.draw_figure]
+subtitle = "Draw Stick Figure"
+description = "One key pose per frame: click \"Add Frame\" in the parameter pane to place a standing stick figure (T-pose) on the current frame, then drag the joints into place one by one in the 2D view. From the second frame on you can use \"Based on Previous Frame\" to copy the previous pose as-is and then edit it. When done, connect it to the Sketch input of sketch2anim.motion. Connect an image sequence and you draw on each of its frames: wherever you scrub the timeline, the background shows that frame, and the stick figure is the one drawn on that frame. That image is only a background to trace over and does not take part in the computation; without it you draw on a blank canvas. The path between the hip joints of two stick figures is the route the body travels (with only one, there is no route and the body stays roughly in place); drawing large or small does not affect the result, only changes in pose and position matter."
+
+[node.draw_figure.param.poses]
+label = "Key Poses"
+placeholder = "Click \"Add Frame\" to place the first pose"
+
+[node.draw_figure.port.image]
+label = "Image"
+help = "The background to trace over, an image sequence: wherever you scrub the timeline that frame is shown, and you draw on that frame. This image does not take part in the computation; downstream Sketch2Anim only uses the stick figure's joint coordinates, not a single pixel"
+
+[node.draw_mask]
+subtitle = "Draw Mask"
+description = "Drag a loop around the area you want in the 2D view to get a mask. It is a static mask: draw once and the whole shot uses it, with no keyframes and no following the subject (which is why it is not called Roto: Nuke's Roto is an animated spline reshaped frame by frame; this is not). Use it when automatic selection can't isolate the part you want: SAM 3 needs something a single word can describe, BiRefNet only finds the most salient subject, while \"this person's coat\" or \"the second person from the left\" can't be described or selected; a quick loop settles it. Two common uses: seeding the Coarse Mask of matting nodes such as MatAnyone 2 (they only read the first frame), and garbage masks for locked-off shots (once the camera moves the mask is wrong, so don't use it on handheld shots). To grow, feather or invert, follow it with mask_adjust."
+
+[node.draw_mask.param.shapes]
+label = "Shapes"
+placeholder = "Drag an outline in the 2D view"
+
+[node.draw_mask.port.image]
+label = "Image"
+
+[node."exr.output"]
+subtitle = "Multi-Layer EXR Output"
+description = "Equivalent to building layers with Nuke's Shuffle / Copy and then a Write: several results → different layers of the same EXR, one file per frame. The Layers table has one row per input, stating which layer and which channels that wire is written to; top to bottom is the layer order. Default names follow the data type: image R G B, depth Z, normal R G B, position XYZ, mask A, ST map R G, segmentation written as Cryptomatte (hard edges: each pixel belongs to one object only), motion vectors written as Nuke's motion layer; both layer and channel names can be changed. In Nuke one Read gets everything; when read back with file, each layer keeps its original type, and data layers are always lossless 32-bit. Single-image layers (ST map, HDRI) written together with per-frame layers are included in every frame (Nuke requires the same layers on every frame of a sequence); if you only want one copy, connect it separately to image.output. This node only sets the name and format; files are written when it is connected to output."
+row = "Layer"
+
+[node."exr.output".param.layers]
+label = "Layers"
+
+[node."exr.output".param.layers.field.name]
+label = "Port"
+
+[node."exr.output".param.layers.field.label]
+label = "Layer Name"
+
+[node."exr.output".param.layers.field.channels]
+label = "Channels"
+placeholder = "By type"
+
+[node.ensemble_depth]
+subtitle = "Depth Ensemble"
+description = "Combines the depth maps of several models into one. The candidates must first be aligned to one reference (one camera space, with depth_align): this node only combines, it does not align, and candidates with different references or scale meanings are refused. Objective: Accuracy is a per-pixel weighted consensus, a candidate that disagrees with the others as a whole being left out entirely (measured: held-out median shape error 15% below MoGe and 8% below UniK3D, but two clips 8%-14% worse than MoGe); Scale is Accuracy brought to the candidates' own real scale where the reference's is more than 20% off it (measured: held-out level with UniK3D); Temporal Stability takes the overall depth from the steadiest candidate that agrees with the consensus (the time anchor; candidates whose Use is Time Anchor Only count too) and the detail from the consensus (measured: not as steady as ViPE alone). Outputs the combined depth map, a confidence map, which candidate each pixel came from and per-frame scores per candidate; the result's layer name is made from the models and the objective used, and its licence is the strictest of the candidates'."
+row = "Candidate"
+
+[node.ensemble_depth.param.objective]
+label = "Objective"
+
+[node.ensemble_depth.param.objective.option]
+accuracy = "Accuracy"
+scale = "Scale"
+temporal = "Temporal Stability"
+
+[node.ensemble_depth.param.candidates]
+label = "Candidates"
+
+[node.ensemble_depth.param.candidates.field.name]
+label = "Port"
+
+[node.ensemble_depth.param.candidates.field.weight]
+label = "Weight"
+
+[node.ensemble_depth.param.candidates.field.use]
+label = "Use"
+
+[node.ensemble_depth.param.candidates.field.use.option]
+shape = "Combine"
+anchor = "Time Anchor Only"
+
+[node.ensemble_depth.param.candidates.field.label]
+label = "Display Name"
+
+[node.ensemble_depth.port.candidate1]
+label = "Candidate 1"
+
+[node.ensemble_depth.port.candidate2]
+label = "Candidate 2"
+
+[node.ensemble_depth.port.candidate3]
+label = "Candidate 3"
+
+[node.ensemble_depth.port.candidate4]
+label = "Candidate 4"
+
+[node.ensemble_depth.port.candidate5]
+label = "Candidate 5"
+
+[node.ensemble_depth.port.candidate6]
+label = "Candidate 6"
+
+[node.ensemble_depth.port.candidate7]
+label = "Candidate 7"
+
+[node.ensemble_depth.port.candidate8]
+label = "Candidate 8"
+
+[node.ensemble_depth.port.depth]
+label = "Depth Map"
+
+[node.ensemble_depth.port.confidence]
+label = "Confidence"
+
+[node.ensemble_depth.port.choice]
+label = "Source Candidate"
+
+[node.ensemble_depth.port.scores]
+label = "Scores"
+
+[node.ensemble_depth.stage]
+judge_candidates = "Check Candidates"
+combine = "Combine"
+
+[node.ensemble_matte]
+subtitle = "Matte Ensemble"
+description = "Combines the alphas of several matting models into one. An object check comes first: a candidate that draws a part more or less than the Object (the user's own selection, such as a SAM 3 point-picked first-frame mask) is left out for the shot; candidates sharing one rough mask (VideoMaMa on BiRefNet's) count as one vote; when the votes disagree on which object it is, the majority decides and a tie goes to whoever drew the Object most closely, the losers being left out of that frame; the rest are averaged by weight. Objective: Accuracy checks the object more loosely (not passed); Robustness more strictly (measured: no wrong object on any of 117 clips, frame-to-frame stability 8% better than VideoMaMa with no clip worse, edges and MSE 24% better on the median, SAD 9% worse); Edges checks as Accuracy, then, where the candidate whose Use is Combine, Most Trusted and the others disagree, leans on that one (measured with VideoMaMa trusted: edges 22% better than VideoMaMa on the median, two held-out clips more than 5% worse instead of eight; still not passed). The card uses Robustness only. Outputs the combined alpha, a confidence map, which candidate each pixel came from and per-frame scores per candidate; the result's layer name is made from the models and the objective used, and its licence is the strictest of the candidates'."
+row = "Candidate"
+
+[node.ensemble_matte.param.objective]
+label = "Objective"
+
+[node.ensemble_matte.param.objective.option]
+accuracy = "Accuracy"
+robust = "Robustness"
+edges = "Edges"
+
+[node.ensemble_matte.param.candidates]
+label = "Candidates"
+
+[node.ensemble_matte.param.candidates.field.name]
+label = "Port"
+
+[node.ensemble_matte.param.candidates.field.weight]
+label = "Weight"
+
+[node.ensemble_matte.param.candidates.field.use]
+label = "Use"
+
+[node.ensemble_matte.param.candidates.field.use.option]
+blend = "Combine"
+trusted = "Combine, Most Trusted"
+
+[node.ensemble_matte.param.candidates.field.label]
+label = "Display Name"
+
+[node.ensemble_matte.port.candidate1]
+label = "Candidate 1"
+
+[node.ensemble_matte.port.candidate2]
+label = "Candidate 2"
+
+[node.ensemble_matte.port.candidate3]
+label = "Candidate 3"
+
+[node.ensemble_matte.port.candidate4]
+label = "Candidate 4"
+
+[node.ensemble_matte.port.candidate5]
+label = "Candidate 5"
+
+[node.ensemble_matte.port.candidate6]
+label = "Candidate 6"
+
+[node.ensemble_matte.port.candidate7]
+label = "Candidate 7"
+
+[node.ensemble_matte.port.candidate8]
+label = "Candidate 8"
+
+[node.ensemble_matte.port.object]
+label = "Object"
+help = "With the Object (the user's own selection, such as a SAM 3 point-picked first-frame mask): a candidate drawing a part more or less than it is left out for the shot, and when the candidates disagree on which object it is and the votes tie, whoever drew it most closely decides"
+
+[node.ensemble_matte.port.alpha]
+label = "Alpha"
+
+[node.ensemble_matte.port.confidence]
+label = "Confidence"
+
+[node.ensemble_matte.port.choice]
+label = "Source Candidate"
+
+[node.ensemble_matte.port.scores]
+label = "Scores"
+
+[node.ensemble_matte.stage]
+judge_candidates = "Check Candidates"
+combine = "Combine"
+
+[node.ensemble_camera]
+subtitle = "Camera Ensemble"
+description = "Combines the cameras several solvers found for one shot into one. Move the candidates into one base camera's world with Camera Space first. The judge is the shot's own Tracks (such as CoTracker spread over the whole shot): each track is triangulated through a candidate's cameras from half of its frames and reprojected into the other half (error in pixels), independent of every candidate; a candidate whose whole-shot error is over twice the best one's is not used. Objective: Robustness takes the one camera the tracks fit best over the whole shot; Accuracy picks, per stretch of 30 frames, the candidate the tracks fit best, cross-fading 5 frames either side of a switch; Smooth takes per frame the median orientation and the geometric median position of the candidates used. Without Tracks there is no judge and every objective takes the candidates' median. Each frame's lens is the one of the candidate its pose comes from (in the first candidate's filmback). Outputs the combined camera, a per-frame confidence, which candidate each frame came from and per-frame reprojection errors per candidate; the result is named from the solvers and the objective used, and its licence is the strictest of the candidates'. Measured (ViPE and COLMAP as candidates, 11 clips with ground truth, 5 held out): no objective passed (Robustness 30% worse than COLMAP on the held-out median), so no card uses it."
+row = "Candidate"
+
+[node.ensemble_camera.param.objective]
+label = "Objective"
+
+[node.ensemble_camera.param.objective.option]
+accuracy = "Accuracy"
+robust = "Robustness"
+smooth = "Smooth"
+
+[node.ensemble_camera.param.candidates]
+label = "Candidates"
+
+[node.ensemble_camera.param.candidates.field.name]
+label = "Port"
+
+[node.ensemble_camera.param.candidates.field.weight]
+label = "Weight"
+
+[node.ensemble_camera.param.candidates.field.label]
+label = "Display Name"
+
+[node.ensemble_camera.port.candidate1]
+label = "Candidate 1"
+
+[node.ensemble_camera.port.candidate2]
+label = "Candidate 2"
+
+[node.ensemble_camera.port.candidate3]
+label = "Candidate 3"
+
+[node.ensemble_camera.port.candidate4]
+label = "Candidate 4"
+
+[node.ensemble_camera.port.candidate5]
+label = "Candidate 5"
+
+[node.ensemble_camera.port.candidate6]
+label = "Candidate 6"
+
+[node.ensemble_camera.port.candidate7]
+label = "Candidate 7"
+
+[node.ensemble_camera.port.candidate8]
+label = "Candidate 8"
+
+[node.ensemble_camera.port.tracks]
+label = "Tracks"
+help = "The judge: 2D tracks of the shot (several may be wired, such as CoTracker seeded at the start, middle and end). Without them there is no judge and the candidates' median is taken"
+
+[node.ensemble_camera.port.camera]
+label = "Camera"
+
+[node.ensemble_camera.port.confidence]
+label = "Confidence"
+
+[node.ensemble_camera.port.choice]
+label = "Source Candidate"
+
+[node.ensemble_camera.port.scores]
+label = "Scores"
+
+[node.ensemble_camera.stage]
+judge_candidates = "Check Candidates"
+combine = "Combine"
+
+[node.ensemble_normal]
+subtitle = "Normal Ensemble"
+description = "Combines the normals of several models per pixel on the unit sphere. The candidates must be in one space (all camera or all world); candidates from one model (MoGe's own normals and the normals of MoGe's depth) count as one vote. Objective: Accuracy takes the spherical median, leaves out at each pixel the candidates more than three spreads (at least 5°) from it and averages the direction of the rest by weight; Robustness takes the spherical median itself, which no single far-off candidate can pull. Measured (12 clips with ground truth, 7 tuning, 5 held out): neither objective passed (held-out median angular error only 1–2% better than the best single model, MoGe, with one clip more than 5% worse), so no card uses it. A candidate whose Region is People (such as Sapiens2, which only knows people) takes part only inside People Region. Outputs the combined normals, a confidence map, which candidate each pixel is closest to and per-frame angles of each candidate to the result; the result's layer name is made from the models and the objective used, and its licence is the strictest of the candidates'."
+row = "Candidate"
+
+[node.ensemble_normal.param.objective]
+label = "Objective"
+
+[node.ensemble_normal.param.objective.option]
+accuracy = "Accuracy"
+robust = "Robustness"
+
+[node.ensemble_normal.param.candidates]
+label = "Candidates"
+
+[node.ensemble_normal.param.candidates.field.name]
+label = "Port"
+
+[node.ensemble_normal.param.candidates.field.weight]
+label = "Weight"
+
+[node.ensemble_normal.param.candidates.field.region]
+label = "Region"
+
+[node.ensemble_normal.param.candidates.field.region.option]
+everywhere = "Whole Frame"
+people = "People"
+
+[node.ensemble_normal.param.candidates.field.label]
+label = "Display Name"
+
+[node.ensemble_normal.port.candidate1]
+label = "Candidate 1"
+
+[node.ensemble_normal.port.candidate2]
+label = "Candidate 2"
+
+[node.ensemble_normal.port.candidate3]
+label = "Candidate 3"
+
+[node.ensemble_normal.port.candidate4]
+label = "Candidate 4"
+
+[node.ensemble_normal.port.candidate5]
+label = "Candidate 5"
+
+[node.ensemble_normal.port.candidate6]
+label = "Candidate 6"
+
+[node.ensemble_normal.port.candidate7]
+label = "Candidate 7"
+
+[node.ensemble_normal.port.candidate8]
+label = "Candidate 8"
+
+[node.ensemble_normal.port.people]
+label = "People Region"
+help = "Candidates whose Region is People take part only inside it (such as the alpha of a Sapiens2 body segmentation)"
+
+[node.ensemble_normal.port.normal]
+label = "Normal"
+
+[node.ensemble_normal.port.confidence]
+label = "Confidence"
+
+[node.ensemble_normal.port.choice]
+label = "Source Candidate"
+
+[node.ensemble_normal.port.scores]
+label = "Scores"
+
+[node.ensemble_normal.stage]
+combine = "Combine"
+
+[node.ensemble_segment]
+subtitle = "Object Segmentation Ensemble"
+description = "Combines several models' segmentations of one object into one hard mask. A candidate can be a mask (such as SAM 3's point-picked mask), a label map (such as VidEoMT's panoptic segments: the objects the Object covers on its first frame are taken) or a matte alpha (voting with its soft value). An object check comes first: a candidate drawing a part more or less than the Object is left out for the shot; candidates sharing a guide (SAM 3's mask and MatAnyone 2 on it; BiRefNet and VideoMaMa on its rough mask) count as one vote, and when the votes disagree on which object it is the majority decides, the losers being left out of that frame. Objective: Accuracy is the per-pixel majority; Stability is the majority with hysteresis (a pixel that was foreground stays so until its votes drop below 30%, fewer flickers); Reliability is STAPLE, weighting each vote by its estimated reliability (needs three votes, otherwise the majority). Measured (12 clips with ground truth, 6 held out): no objective passed (median IoU about 0.988, level with the best single models at 0.990–0.992), so no card uses it. Outputs the combined mask, a confidence map (the share of candidates agreeing with it), which candidate each pixel is closest to and per-frame IoU of each candidate with the result; the layer name is made automatically and the licence is the strictest of the candidates'."
+row = "Candidate"
+
+[node.ensemble_segment.param.objective]
+label = "Objective"
+
+[node.ensemble_segment.param.objective.option]
+accuracy = "Accuracy"
+stable = "Stability"
+reliability = "Reliability"
+
+[node.ensemble_segment.param.candidates]
+label = "Candidates"
+
+[node.ensemble_segment.param.candidates.field.name]
+label = "Port"
+
+[node.ensemble_segment.param.candidates.field.weight]
+label = "Weight"
+
+[node.ensemble_segment.param.candidates.field.label]
+label = "Display Name"
+
+[node.ensemble_segment.port.candidate1]
+label = "Candidate 1"
+
+[node.ensemble_segment.port.candidate2]
+label = "Candidate 2"
+
+[node.ensemble_segment.port.candidate3]
+label = "Candidate 3"
+
+[node.ensemble_segment.port.candidate4]
+label = "Candidate 4"
+
+[node.ensemble_segment.port.candidate5]
+label = "Candidate 5"
+
+[node.ensemble_segment.port.candidate6]
+label = "Candidate 6"
+
+[node.ensemble_segment.port.candidate7]
+label = "Candidate 7"
+
+[node.ensemble_segment.port.candidate8]
+label = "Candidate 8"
+
+[node.ensemble_segment.port.object]
+label = "Object"
+help = "The user's own selection (such as SAM 3's point-picked mask): label maps take the objects it covers on its first frame; a candidate drawing a part more or less than it is left out for the shot"
+
+[node.ensemble_segment.port.mask]
+label = "Mask"
+
+[node.ensemble_segment.port.confidence]
+label = "Confidence"
+
+[node.ensemble_segment.port.choice]
+label = "Source Candidate"
+
+[node.ensemble_segment.port.scores]
+label = "Scores"
+
+[node.ensemble_segment.stage]
+combine = "Combine"
+
+[node.extract_images]
+subtitle = "Video to Image Sequence"
+description = "Video → image sequence (vertical phone footage is rotated upright automatically, HDR is converted to SDR automatically). Taking a section, skipping frames and downscaling are all set here; to use it as a camera background in your DCC, connect image.output and output."
+
+[node.extract_images.param.range_sec]
+label = "Range"
+placeholder = "Whole clip"
+
+[node.extract_images.param.step.option]
+1 = "Every Frame"
+2 = "Every 2nd Frame"
+3 = "Every 3rd Frame"
+
+[node.extract_images.param.downscale]
+label = "Resolution"
+
+[node.extract_images.param.downscale.option]
+full = "Full"
+half = "Half"
+quarter = "Quarter"
+
+[node.extract_skeleton]
+subtitle = "Extract Skeleton"
+description = "Skinned character → skeleton animation: joints and per-frame joint animation; the mesh, skinning and blend shapes are dropped (like deleting the skinned mesh in Maya and exporting only the bones). To keep the deformed mesh, use bake_geometry."
+
+[node.file]
+subtitle = "Read Image Sequence"
+description = "The same node as Nuke's Read (Nuke's Read also reads video; ours is file_video): the selected image sequence files → one image sequence. Reads EXR / PNG / JPG sequences, and also single images (HDRI, photos). Each EXR layer is an output: depth maps, normal maps, position maps, masks, ST maps and Cryptomatte connect downstream by their type; for several sequences in one folder, use file_pattern. Start Frame and End Frame read only part of the sequence (empty means the sequence's head / tail); the cook range next to the cook button can narrow it further, and the frames actually cooked are those included in both."
+no_file = "No image sequence selected"
+
+[node.file.param.path]
+label = "Image Sequence"
+
+[node.file.param.first]
+placeholder = "First frame of the sequence"
+
+[node.file.param.last]
+label = "End Frame"
+placeholder = "Last frame of the sequence"
+
+[node.file_pattern]
+subtitle = "Read Multiple Image Sequences"
+description = "Reads several image sequences in a folder (including those in subfolders) and outputs a list of image sequences: one item per sequence, named after the sequence or subfolder. Connect it to foreach_begin to cook them one by one, each cached and delivered separately."
+no_file = "No folder selected"
+
+[node.file_pattern.param.folder]
+label = "Folder"
+
+[node.file_pattern.param.sequences]
+label = "Image Sequences"
+
+[node.file_pattern.param.sequences.field.pattern]
+label = "Image Sequence"
+
+[node.file_pattern.param.sequences.field.frames]
+label = "Frames"
+
+[node.file_pattern.param.sequences.field.name]
+label = "Name"
+
+[node.file_pattern.param.sequences.field.use]
+label = "Read"
+
+[node.file_still]
+subtitle = "Read Still Image"
+description = "One image → one still. Reads EXR / PNG / JPG / HDR; each EXR layer is still an output (depth map, normal map, mask...). Use it for nodes that only look at a single image, such as environment light probes and face delighting; for a whole shot use file: those algorithms work frame by frame, and connecting a sequence of hundreds of frames takes a long time."
+no_file = "No image selected"
+
+[node.file_video]
+subtitle = "Read Video"
+description = "The same node as Nuke's Read, for video: the selected video file → a video. Reads common video formats such as mov and mp4; video itself cannot be processed further, so follow it with extract_images to split it into an image sequence."
+no_file = "No video selected"
+
+[node.file_video.param.path]
+label = "Video"
+
+[node.file_video.port.fps]
+help = "The frame rate recorded in the video. Connect it to the FPS of a format output node or a motion model to follow the footage; if the video does not record a frame rate there is no value here, and that node uses its own setting"
+
+[node.foreach_begin]
+subtitle = "For-Each Begin"
+description = "The same node as Houdini's For-Each Begin: cooks the items of a list one at a time: the nodes up to foreach_end are cooked once per item, each item cached separately, and if one fails the rest continue. The item, its name, index and count can all be connected downstream. Data containing several entries (person boxes, scenes) goes through split_items first."
+
+[node.foreach_begin.port.name]
+label = "Name"
+
+[node.foreach_begin.port.index]
+label = "Index"
+
+[node.foreach_end]
+subtitle = "For-Each End"
+description = "The same node as Houdini's For-Each End: gathers the result of every item in the block and outputs a list; item names follow those from foreach_begin (name can change them). Connect one wire for each result an item should carry out; they are packed into one scene. Lists gathered by an inner block are flattened here, with item names written as \"outer/inner\". Items that fail or are skipped are left out of the list, and the node lists which ones."
+
+[node.foreach_end.port.result]
+label = "Result"
+
+[node.gate]
+subtitle = "Gate"
+description = "A switch on one wire: with Pass checked, the incoming data passes through unchanged; unchecked, it blocks: it does not fetch its input, the whole upstream is not cooked, and it and the downstream nodes that depend only on it show \"Skipped (blocked)\" with no error or warning. Optional inputs downstream, one wire of a multi-input, and the row connected to it in output, merge, make_list or exr.output are treated as unconnected (exr.output leaves no empty layer). When building a template, expose Pass as a checkbox so users can turn off a feature branch with one click; to toggle several branches together, connect one value_toggle node to each of their Pass inputs; for two mutually exclusive branches (one on, the other off), turn on Invert on one of them."
+
+[node.gate.param.through]
+label = "Pass"
+
+[node.gate.param.invert]
+label = "Invert"
+
+[node.has_data]
+subtitle = "Has Data"
+description = "Asks whether the connected wire carries anything this time and outputs a boolean: an empty upstream, one closed by gate, or a read with no file selected (and switch or gate nodes that only pass those along) gives No; everything else gives Yes. It only checks presence and never fetches content, so upstream is not cooked for it; the answer is known before cooking, so connected to the Select Input of switch or the Pass of gate, the path is decided before submission. In templates, use it for \"use it if uploaded, otherwise take another path\", for example inbetween when a reference motion is uploaded, and pure generation otherwise."
+
+[node.has_data.param.present]
+label = "Present"
+
+[node.has_data.port.value]
+label = "Present"
+
+[node."image.output"]
+subtitle = "Image Sequence Output"
+description = "Images, or data images such as depth, position and mask maps → an image sequence, one file per frame, frame numbers unchanged (data images are written as EXR as-is, with no color conversion and unaffected by the format settings here). When writing EXR, channels are named by the convention of whatever you enter in Layer: motion writes Nuke's standard forward.u/v, backward.u/v (ready to use in VectorBlur and IDistort; not NukeX's SmartVector, whose file format is not public and can only be written by NukeX's SmartVector node, the only thing VectorDistort accepts), depth writes depth.Z, and empty uses our own R G B A. Single channels connect to the four inputs R, G, B and A: whichever input a wire goes to is the channel it is written as, and unconnected inputs produce no channel (connect a matte's alpha to A and the EXR has only A; when Image is connected along with them, Image is the base and the separately connected channels replace theirs). This node only sets the name and format; files are actually written when it is connected to output. To write several results into one EXR, use exr.output."
+
+[node."image.output".param.layer]
+label = "Layer"
+placeholder = "By channel"
+
+[node."image.output".param.format.option]
+exr = "EXR"
+png = "PNG"
+jpg = "JPG"
+
+[node."image.output".param.png_bit_depth]
+label = "Bit Depth"
+
+[node."image.output".param.png_bit_depth.option]
+8 = "8-bit"
+16 = "16-bit"
+
+[node."image.output".param.png_compress_level]
+label = "Compression Level"
+
+[node."image.output".param.png_alpha]
+label = "Alpha"
+
+[node."image.output".param.png_alpha.option]
+auto = "Auto"
+yes = "On"
+no = "Off"
+
+[node."image.output".param.jpg_quality]
+label = "Quality"
+
+[node."image.output".port.image]
+label = "Image"
+help = "A whole image written as-is: RGB, RGBA, or data images such as depth or masks (written by channel). To connect channels one by one use R G B A on the right; only one of the two ways can be used"
+
+[node."image.output".port.R]
+label = "R"
+help = "A float channel written as the R channel of the EXR: the input it is connected to decides the channel, with no guessing. Unconnected inputs produce no channel"
+
+[node."image.output".port.G]
+label = "G"
+help = "A float channel written as the G channel of the EXR: the input it is connected to decides the channel, with no guessing. Unconnected inputs produce no channel"
+
+[node."image.output".port.B]
+label = "B"
+help = "A float channel written as the B channel of the EXR: the input it is connected to decides the channel, with no guessing. Unconnected inputs produce no channel"
+
+[node."image.output".port.A]
+label = "A"
+help = "A float channel written as the A channel of the EXR: the input it is connected to decides the channel, with no guessing. Unconnected inputs produce no channel; colors are not premultiplied for you here; to premultiply, use premultiply"
+
+[node.image_plane]
+subtitle = "Image Plane"
+description = "Gives a camera a new image plane: outputs the same camera, only the image shown underneath when looking through it is replaced with the incoming one. Works with cameras imported from abc, USD or FBX, and with solved or created cameras; the image can be color, grayscale or with alpha. The image plane is matched by frame number, so the camera's and the image's frame numbers must agree."
+
+[node.image_plane.port.image]
+label = "Image"
+
+[node.lens_distortion]
+subtitle = "Lens Distortion"
+description = "One lens → two ST maps: an undistort one (straightens the original plate onto an overscanned canvas with the principal point at the canvas center) and a distort one (puts canvas-sized CG back onto the original plate). It does not touch pixels: whichever map you use to warp an image, connect it to stmap: the source image goes into the Source of stmap, and the ST map from here goes into its ST Map. The lens is entered on the node: choose a lens model (the three 3DE ones match the 3DE lens sheet exactly, the three OpenCV ones come from calibration tools) and enter the coefficients, focal length and aperture from the lens sheet; for lenses solved by COLMAP / AnyCalib / GeoCalib, connect three wires: Focal Length, Aperture and Lens Intrinsics (choose the same lens model on both sides). When the production supplies ready-made ST map files you don't need this node: connect that map to stmap. The same goes for zoom lenses: connect the per-frame ST map sequence baked by 3DE, since the lens sheet here is a fixed set of values and cannot describe a zoom."
+
+[node.lens_distortion.param.lens_group]
+label = "Lens Intrinsics Group"
+placeholder = "Default"
+strip = "Lens Intrinsics Group"
+
+[node.lens_distortion.param.lens_model]
+label = "Lens Model"
+strip = "Lens Model"
+
+[node.lens_distortion.param.distortion]
+label = "Distortion Parameters"
+
+[node.lens_distortion.param.distortion.field.name]
+label = "Parameter"
+
+[node.lens_distortion.param.distortion.field.value]
+label = "Value"
+
+[node.lens_distortion.param.width]
+placeholder = "From image"
+
+[node.lens_distortion.param.height]
+placeholder = "From image"
+
+[node.lens_distortion.param.pixel_aspect]
+label = "Pixel Aspect Ratio"
+
+[node.lens_distortion.param.focal_mm]
+placeholder = "Unknown"
+strip = "Focal Length"
+
+[node.lens_distortion.param.overscan]
+label = "Overscan"
+
+[node.lens_distortion.param.overscan.option]
+auto = "Auto"
+none = "None"
+5 = "5%"
+10 = "10%"
+20 = "20%"
+
+[node.lens_distortion.port.image]
+label = "Image"
+
+[node.lens_distortion.port.lens]
+help = "Lens intrinsics solved upstream (the Lens Intrinsics output of COLMAP, AnyCalib, GeoCalib): model + distortion coefficients + principal point + pixel aspect ratio in one. When connected, Lens Intrinsics Group, Lens Model, Distortion Parameters, Principal Point and Pixel Aspect Ratio all come from it (grayed out), and if upstream changes model this follows"
+
+[node.lens_distortion.port.undistort_stmap]
+label = "Undistort ST Map"
+
+[node.lens_distortion.port.distort_stmap]
+label = "Distort ST Map"
+
+[node.lens_distortion.param.filmback_mm]
+strip = "Aperture"
+
+[node.lock_focal]
+subtitle = "Lock Focal Length"
+description = "Solved camera → a camera with a constant focal length and position and orientation re-solved per frame, plus a before/after comparison curve. Machine-learning solvers estimate focal length per frame; when the focal length jitters, they compensate by pushing the camera back and forth along the lens axis (a dolly zoom), so just setting focal length to a constant without moving the camera makes the image stop lining up. This node re-solves the position too: connect a point cloud (the point cloud output of the solve node) as an anchor; also connect the 2D Tracks from the same node to use real image observations, which is more reliable. Use it for prime lenses; don't lock a real zoom lens."
+
+[node.lock_focal.param.focal_mm]
+placeholder = "Auto"
+
+[node.lock_focal.param.filmback_mm]
+placeholder = "36"
+
+[node.lock_focal.port.points]
+help = "3D points used as anchors: the Point Cloud output of the solve node, or 3D Tracks"
+
+[node.lock_focal.port.tracks]
+help = "Image observations from the same node as Point Cloud, matching it one to one. When connected, real observations replace \"positions projected by the original camera\""
+
+[node.lock_focal.port.curves]
+label = "Before/After"
+waits = ""
+
+[node.logic]
+subtitle = "Logic"
+description = "Combines several toggles into one: And (on only if all are on), Or (on if any is on), Not (inverts; only looks at the first wire)."
+
+[node.logic.param.operation.option]
+and = "And"
+or = "Or"
+not = "Not"
+
+[node.logic.port.values]
+label = "Booleans"
+
+[node.logic.port.value]
+label = "Result"
+
+[node.make_list]
+subtitle = "Make List"
+description = "Combines several pieces of the same data type into one list to cook together with foreach_begin: names go one per line in wiring order; empty ones use the name from an upstream name node, and failing that are numbered 1, 2, 3. The name is the hierarchy name when written and the folder name on delivery."
+
+[node.make_list.param.names]
+label = "Names"
+placeholder = "In order, comma-separated"
+
+[node.make_list.port.items]
+label = "Items"
+
+[node.mask_adjust]
+subtitle = "Mask Adjust"
+description = "Equivalent to Nuke's Dilate / Erode followed by Blur and Invert: grows or shrinks, feathers and inverts a mask, in that order. Any mask can be connected: leave margin for matting, remove fringes, turn \"person\" into \"everything but the person\"."
+
+[node.mask_adjust.param.grow]
+label = "Grow/Shrink"
+
+[node.mask_adjust.param.feather]
+label = "Feather"
+
+[node.mask_adjust.param.invert]
+label = "Invert"
+
+[node.mask_from_boxes]
+subtitle = "Person Boxes to Mask"
+description = "Person boxes → a mask that is 1 inside the boxes (original image size). Person boxes from any detection node can be connected: feed nodes that need mask guidance such as SAM 3 and MatAnyone, or exclude people from depth_align and point clouds. For masks that follow the silhouette use a segmentation or matting node; this one gives rectangles."
+
+[node.mask_from_boxes.param.ids]
+placeholder = "All"
+
+[node.mask_from_confidence]
+subtitle = "Confidence to Mask"
+description = "Confidence → mask: pixels with confidence above Confidence Threshold are 1, Soft Edge ramps near the threshold, and choosing Doubtful in Region inverts it. Confidence is the model's own score, not a mask: to exclude uncertain areas, or track and align only where reliable, go through this node first. Any confidence can be connected (depth maps, camera and depth, motion vectors, dense correspondence)."
+
+[node.mask_from_confidence.param.keep]
+label = "Region"
+
+[node.mask_from_confidence.param.keep.option]
+trusted = "Trusted"
+doubtful = "Doubtful"
+
+[node.mask_from_depth]
+subtitle = "Depth to Mask"
+description = "Depth map → a mask keyed by distance: pixels whose distance from the camera is between Near and Far are 1, with edges falling off by Soft Edge. Any depth map can be connected; for depth maps that need manual scaling, enter values in their own units (not real centimeters), or connect depth_align first to enter real distances."
+
+[node.mask_from_depth.param.near]
+label = "Near"
+
+[node.mask_from_depth.param.far]
+label = "Far"
+placeholder = "Infinity"
+
+[node.mask_from_depth.param.include_empty]
+label = "Include Empty Pixels"
+
+[node.mask_from_segments]
+subtitle = "Segmentation to Mask"
+description = "Segmentation → the selected classes combined into one mask: certain objects from SAM 3, hair or hands from Sapiens2. Any segmentation node can be connected; after upstream has cooked, click class names in the parameters, or click regions of the image in the 2D view."
+
+[node.mask_from_segments.param.classes]
+label = "Classes"
+placeholder = "All objects"
+
+[node.mask_from_segments.param.picks]
+label = "Picks"
+placeholder = "Click the regions you want in the 2D view"
+
+[node.mask_from_segments.port.segmentation]
+label = "Segmentation"
+
+[node.mask_merge]
+subtitle = "Mask Merge"
+description = "Two masks → one mask: Union (A or B), Subtract (A minus B), Intersect (in both A and B). Any masks can be connected, for example people from SAM 3 plus the subject from BiRefNet, or the full frame minus person boxes."
+
+[node.mask_merge.param.mode.option]
+union = "Union"
+subtract = "Subtract"
+intersect = "Intersect"
+
+[node.mask_merge.port.a]
+label = "Mask A"
+
+[node.mask_merge.port.b]
+label = "Mask B"
+
+[node.math]
+subtitle = "Math"
+description = "Computes one value from several: add, subtract, multiply, divide, minimum, maximum, round, absolute value, in wiring order. Incoming values are converted to the unit chosen in Unit; if they cannot be converted, an error explains why. Integer Result is the same rounded to the nearest whole number, for wiring into an integer parameter (a radius in pixels, a frame count)."
+
+[node.math.param.operation.option]
+add = "Add"
+subtract = "Subtract"
+multiply = "Multiply"
+divide = "Divide"
+min = "Minimum"
+max = "Maximum"
+round = "Round"
+abs = "Absolute"
+
+[node.math.param.unit.option]
+cm = "cm"
+m = "m"
+
+[node.math.port.values]
+label = "Values"
+
+[node.math.port.value]
+label = "Result"
+
+[node.math.port.integer]
+label = "Integer Result"
+
+[node.merge]
+subtitle = "Merge"
+description = "The same node as Houdini's Merge (SOP) and Nuke's Scene: geometry, cameras, point clouds, curves, skeleton animation and skinned characters → merged into one scene, transformed and grounded together. Writing files does not need it: format output nodes take multiple wires themselves; it can also take a list of scenes, each placed under /shot/<item name>. Data with different frame counts is aligned by frame number; if two pieces of data share a name (every camera is called camera), submission is blocked; give each a name with name."
+
+[node.merge_items]
+subtitle = "Merge List"
+description = "Merges a list back into one piece of data, any list will do: several people's person boxes into one multi-person set, scenes cooked one by one into one scene (each placed under /shot/<item name>), and likewise for tracks and segmentation. The opposite of split_items."
+
+[node.motion_warp]
+subtitle = "Motion Vector Warp"
+description = "The same node as Nuke's IDistort (UV from forward / backward): image + motion vectors → the next (or previous) frame pulled onto this frame, each pixel sampling where it moved to in the neighboring frame. Use it to check motion vector accuracy (subtract from this frame), push a neighboring frame's mask or paint fix by one frame, or for temporal denoising; images, masks and depth maps can all be warped and keep their original type. To jump to a reference frame in one step, use stmap_from_motion."
+
+[node.motion_warp.param.direction]
+label = "Sample Frame"
+
+[node.motion_warp.param.direction.option]
+next = "Next Frame"
+previous = "Previous Frame"
+
+[node.motion_warp.port.image]
+label = "Result"
+
+[node.name]
+subtitle = "Name"
+description = "The same node as Houdini's Name (SOP): gives data a name used when writing and delivering: scenes go under /shot/<name>, lists are renamed item by item as \"name_index\", and other data records the name on itself, used when foreach_end gathers. Use it to separate two pieces of data with the same name; nothing renames them behind your back."
+
+[node.normal_from_depth]
+subtitle = "Depth to Normal"
+description = "Depth map + camera → the surface normal of each pixel (normal map). Any depth map node can be connected, including depth maps that need manual scaling (normals are scale-independent); use it to add normals to depth methods without a normal output and to aligned depth maps. To convert normals between camera space and world space, use normal_space."
+
+[node.normal_space]
+subtitle = "Normal Space"
+description = "Normal map + camera → a normal map converted to another space, using the camera's orientation on every frame. Any normal map can be connected (MoGe, Sapiens2, Cosmos DiffusionRenderer, normal_from_depth); world-space normals let you relight in Nuke with a fixed light direction that stays correct however the camera moves."
+
+[node.normal_space.param.space]
+label = "Convert To"
+
+[node."nuke.output"]
+subtitle = "Nuke Camera Output"
+description = "Camera → a Nuke Camera3 node (.nk text): per-frame position, orientation, focal length and aperture written as animation curves, in centimeters with Y up, matching Nuke's camera. \"Copy to Nuke\" on the node copies this text; paste it into your comp, or use File → Import Script in Nuke. Camera3 is a pinhole camera; lens distortion stays in the data and is added back in comp with an ST map. To bring the camera into other 3D software, use a 3D scene format output node."
+
+[node.occlusion_from_motion]
+subtitle = "Occlusion Mask"
+description = "Motion vectors → two masks: Occluded is the pixels in this frame that will be covered or leave the frame in the next frame, and Revealed is the pixels not visible in the previous frame that only appear in this one. It performs a forward-backward consistency check, and any motion vectors can be connected; when pushing frames or propagating paint, these areas cannot be taken from neighboring frames and must be fixed by hand."
+
+[node.occlusion_from_motion.port.occluded]
+label = "Occluded"
+
+[node.occlusion_from_motion.port.revealed]
+label = "Revealed"
+
+[node.orientation_field]
+subtitle = "Orientation Field"
+description = "An image → the direction the texture runs at each pixel, and how reliable that estimate is (two channels: angle, confidence). A bank of Gabor filters at different angles sweeps the image, and the angle with the strongest response is the direction. Works for thin, elongated textures such as hair, fur, fabric weave and brush strokes; hair strand solving projects use it as input. Direction has no sign (up-left and down-right are the same direction), so angles are only within 0-180°, and you cannot compare them by subtracting. Each angle uses a quadrature pair (one even-phase and one odd-phase copy of the same kernel, taking the energy), which is the standard definition of Gabor energy. The implementation common in hair strand solving projects uses only the even-phase kernel (upstream example: utils/vision.py in the HairGS repository; we have not integrated that project), whose response periodically crosses zero with the stripe phase, and taking the maximum at zero crossings is a coin toss. Measured per pixel on USC-HairSalon ground truth: the quadrature pair gives a mean angle error of 10.19° and median 4.13°, the even kernel alone 14.46° / 6.54°, so the quadrature pair is used here; if your numbers differ from upstream, this is where the difference comes from."
+
+[node.orientation_field.param.period]
+label = "Texture Period"
+
+[node.orientation_field.param.reach]
+label = "Sample Radius"
+
+[node.orientation_field.param.angles]
+label = "Angles"
+
+[node.orientation_field.param.angles.option]
+90 = "90 Steps"
+180 = "180 Steps"
+360 = "360 Steps"
+
+[node.orientation_field.port.image]
+label = "Image"
+
+[node.orientation_field.port.mask]
+help = "Measure orientation only inside this region; confidence outside is 0. Confidence is normalized by the most concentrated pixel in the whole image; with a mask it is normalized only within the mask, so background clutter does not drag down the subject's confidence"
+
+[node.orientation_field.port.orientation]
+label = "Orientation Field"
+help = "The first channel is the direction in degrees, 0-180; the second is confidence, 0-1. The angle measures the run of the texture itself"
+
+[node.output]
+subtitle = "Output"
+description = "An \"XX Output\" node plus this one together are equivalent to a Nuke Write (in Nuke one node both sets the format and writes the file; we split it into two): files written by format output nodes → one package or folder delivered: one subfolder per format output node, named after it (depth/depth.1001.exr, scene/scene.usd). You need it to write files; a node network can have several, each delivering to a different place."
+
+[node."ply.import"]
+subtitle = "Import PLY"
+description = "Imports PLY (.ply) exported by scanning or photogrammetry (RealityCapture, Metashape, COLMAP): the vertices are a point cloud (with colors if present), and if there are faces it is also geometry. PLY does not record units or up axis, so set them in Unit and Up Axis."
+
+[node."ply.import".param.unit.option]
+cm = "Centimeters"
+m = "Meters"
+
+[node."ply.import".port.models]
+waits = "Pick a geometry"
+
+[node."ply.import".port.points]
+waits = "Pick a point cloud"
+
+[node."ply.import".port.gaussians]
+waits = "Pick a Gaussian splat"
+
+[node."ply.import".fact.models]
+kinds = "Selected Geometry"
+
+[node."ply.output"]
+subtitle = "Point Cloud PLY Output"
+description = "Point cloud → PLY (x y z plus red green blue colors): read directly by MeshLab, CloudCompare, Open3D, Houdini and others. Point transforms are baked into the positions; point clouds that change per frame are written per frame. For USD delivery use usd.output (colors are written to displayColor). This node only sets the name; files are actually written when it is connected to output."
+
+[node."ply.output".param.unit.option]
+cm = "Centimeters"
+m = "Meters"
+
+[node."ply.output_gaussian"]
+subtitle = "Gaussian Splat PLY Output"
+description = "Gaussian splats → Inria-format PLY (position, scale, rotation, opacity, spherical harmonic colors): the common exchange format of the Gaussian splat ecosystem, read directly by splat viewers and DCC splat plugins. Transforms are baked into positions and covariances, and spherical harmonics are rotated along; dynamic objects are written per frame. For USD delivery use usd.output (splats are kept as-is in USD). This node only sets the name; files are actually written when it is connected to output."
+
+[node."ply.output_gaussian".param.unit.option]
+cm = "Centimeters"
+m = "Meters"
+
+[node.pointcloud_fuse]
+subtitle = "Point Cloud Fuse"
+description = "Fuses the per-frame point clouds of a whole shot (or per-frame depth + camera) into one static global point cloud, merging the many points repeated between frames. Connecting Per-Frame Point Cloud uses voxel stitching: points from all frames are combined and each voxel keeps only one centroid. Connecting Depth Map uses TSDF fusion: each frame's depth is back-projected into a voxel grid accumulating signed distances, and points are interpolated at the surface zero crossings, giving higher quality and stronger denoising. Both use Voxel Size to control how aggressively duplicates are removed. With depth, also connect Image and each point takes the color of the pixel and frame it came from (averaged per voxel during fusion); without it, points are shaded by distance. With per-frame point clouds, colors come with the point cloud."
+
+[node.pointcloud_fuse.param.voxel_size]
+label = "Voxel Size"
+
+[node.pointcloud_fuse.param.truncation]
+label = "Truncation Distance"
+
+[node.pointcloud_fuse.param.color]
+label = "Keep Color"
+
+[node.pointcloud_fuse.port.depth]
+help = "Per-frame depth maps (real scale), fused with Camera into a global point cloud by TSDF."
+
+[node.pointcloud_fuse.port.image]
+label = "Image"
+help = "Point cloud colors come from this image: each point takes the color of the pixel and frame it came from, averaged per voxel during fusion. Without it, points are shaded by distance: near is bright, far is dark. With Per-Frame Point Cloud, colors come with the point cloud."
+
+[node.pointcloud_fuse.port.camera]
+help = "The camera for the per-frame depth: depth is back-projected into 3D through it before fusion. Required when Depth Map is connected."
+
+[node.pointcloud_fuse.port.points]
+label = "Per-Frame Point Cloud"
+help = "A point cloud that changes per frame (one per frame), all combined and deduplicated by voxel. Connecting it uses voxel stitching; connecting Depth Map uses TSDF fusion."
+
+[node.pointcloud_fuse.port.points.output]
+label = "Point Cloud"
+help = ""
+
+[node.pointcloud_fuse.cost]
+whole = "fuses the whole shot at once"
+
+[node.points_from_depth]
+subtitle = "Depth to Point Cloud"
+description = "Depth map + camera → one point cloud per frame (USD, cm). Connect Color to take colors from the image; without it, points are shaded by distance (near is bright, far is dark). Any depth map node and any camera can be connected; connect a mask to remove moving objects such as people and cars from the point cloud, and connect the confidence from the depth map node so uncertain points (edge streaks, sky, reflections) are left out. For the 3D position of every pixel, use position_from_depth."
+
+[node.points_from_depth.port.image]
+label = "Color"
+help = "Point cloud colors come from this image. Without it, points are shaded by distance: near is bright, far is dark"
+
+[node.points_from_depth.port.mask]
+label = "Exclude"
+
+[node.points_from_depth.port.confidence]
+help = "Confidence from the depth map node: points below Confidence Threshold are left out (where the model itself is unsure: flying points trailing off object edges, sky, reflections)"
+
+[node.points_from_tracks]
+subtitle = "Tracks to 3D"
+description = "2D tracks + depth map + camera → 3D tracks (an animated point cloud with IDs, visibility and velocity, in cm): on each frame where a point is visible, it takes the depth map value under it and places it in the camera's world; frames where it is occluded are filled in between the visible positions before and after. Any 2D tracks (CoTracker3, TAPNext++, AllTracker, the four corners from WOFTSAM), any depth map and any camera can be connected; in Houdini, 3D tracks serve as locators for pinning CG props."
+
+[node.points_from_tracks.port.image]
+label = "Color"
+
+[node.position_from_depth]
+subtitle = "Depth to World Position"
+description = "Depth map + camera → the 3D position of every pixel (position map, cm, three-channel EXR). Any depth map node and any camera can be connected; the depth map and camera from the same solve node always line up. In Nuke, position maps are used for relighting, projection and position-based mattes. For normals use normal_from_depth; for point clouds use points_from_depth."
+
+[node.premultiply]
+subtitle = "Premultiply"
+description = "Equivalent to Nuke's Copy followed by Premult: image + mask → an image with alpha, using the mask as alpha and multiplying the colors by it (premultiplied). Connect matting and segmentation results (BiRefNet, MatAnyone 2, SAM 3...) here to deliver EXR (premultiplied) or PNG with alpha; the image's original alpha is replaced by this mask. The result is in the rendering space (sRGB-encoded Rec.709, same as the image); when a format output node writes EXR, it is converted to the delivery color space (ACEScg by default, following the unpremultiply, convert, premultiply rule)."
+
+[node.premultiply.port.image.output]
+label = "RGBA"
+
+[node.rasterize_geometry]
+subtitle = "Rasterize Geometry"
+description = "Scene (people, meshes, point clouds) + camera → the mask (silhouette), depth map (cm) and normal map seen from the camera, at the original image size. Any solved people and any imported geometry and point clouds can be turned back into 2D: masks for matting nodes, depth and normal maps for comp, or to compare against the results of depth map methods."
+
+[node.rasterize_geometry.param.width]
+placeholder = "From camera"
+
+[node.rasterize_geometry.param.height]
+placeholder = "From camera"
+
+[node.rasterize_geometry.param.space]
+label = "Normal Space"
+
+[node.resample]
+subtitle = "Resample"
+description = "The same node as Houdini's Resample: curves → curves each resampled by equal arc length to a fixed number of points. Hair strands and fur guides often have hundreds of points each; reducing them to a few dozen before handing off to a DCC or writing files keeps the shape and makes files much smaller; more points than the original means densifying. Per-point attributes such as width, color and orientation are resampled along with the points. Every curve gets the same number of points, matching Houdini's Resample to a fixed segment count."
+
+[node.resample.param.per_curve]
+label = "Points per Curve"
+
+[node.resample.param.per_curve.option]
+8 = "8"
+16 = "16"
+24 = "24"
+32 = "32"
+48 = "48"
+64 = "64"
+100 = "100"
+
+[node.resample.port.curves]
+waits = ""
+
+[node.retarget]
+subtitle = "Retarget"
+description = "A skeleton animation (or a skinned character's motion) → transferred onto another skeleton, output as skeleton animation on the target hierarchy. Like Maya HumanIK and Unreal IK Retargeter: body parts are matched in Mapping (click a joint on each side in the viewport to link them; unmapped ones are matched by name and hierarchy), rest poses (T-pose or A-pose) are aligned, then motion is transferred; when spine, neck or finger joint counts differ, bending is spread by bone length not piled onto one or two. Horizontal translation follows the motion 1 : 1 (the character steps where the person in the plate does); hip height is raised by Hip Height From (legs / height / arms / none) × Hip Height Scale, with Hip Height Mode choosing Lift over the Feet (stairs, jumps, sitting) or Proportional (flat ground); soles are aligned automatically, plus optional Height Offset; bone lengths and scale come from the target. If either side lacks hips and both have hands (HaMeR hands, hand-only rigs), only hands are mapped: aligned by wrist and fingers, the wrist follows 1 : 1, and hip height settings are ignored. Character Scale scales the whole character by height or a manual factor before hip height. Only Target's skeleton is used, so a one-frame character (standard_human, a fresh rig) is enough. To see skinning, connect bone_deform; to deliver the skeleton, connect fbx.output / usd.output."
+
+[node.retarget.param.rest_fix]
+label = "Rest Pose Correction"
+
+[node.retarget.param.rest_fix.option]
+none = "None"
+tpose = "Auto T-Pose"
+
+[node.retarget.param.size_by]
+label = "Character Scale"
+
+[node.retarget.param.size_by.option]
+none = "None"
+height = "Auto by Height"
+manual = "Manual Factor"
+
+[node.retarget.param.size]
+label = "Scale Factor"
+
+[node.retarget.param.scale_by]
+label = "Hip Height From"
+
+[node.retarget.param.scale_by.option]
+legs = "Leg Length"
+height = "Height"
+arms = "Arm Length"
+none = "No Scaling (1 : 1)"
+
+[node.retarget.param.scale]
+label = "Hip Height Scale"
+placeholder = "1"
+
+[node.retarget.param.height_mode]
+label = "Hip Height Mode"
+
+[node.retarget.param.height_mode.option]
+lift = "Lift over the Feet (Stairs, Jumps, Sitting)"
+proportional = "Proportional (Flat Ground Only)"
+
+[node.retarget.port.target]
+help = "Who the motion goes onto: your own character or skeleton; only its skeleton and bind pose are used, and one frame is enough"
+
+[node.retarget.port.motion]
+help = "Where the motion comes from: a skeleton animation (an imported BVH, generated motion, a solved person), or another character"
+
+[node.retarget_expression]
+subtitle = "Retarget Expression (ARKit52)"
+description = "An expression performance → applied to another character's blend shapes, outputting a skinned character with animated expressions. Expressions takes the Expression Curves from a face solve (52 ARKit curves from MediaPipe, FLAME expressions from SMIRK / Pixel3DMM), or a character with expression animation; Target takes a character with blend shapes (ARKit shapes from Character Creator / AccuRIG, MetaHuman, FLAME characters all work; one frame is enough, and body animation is fine too, joint animation is kept as-is). Names on both sides are matched in Mapping: the same editor as retarget, with the humanoid diagram replaced by expression slots grouped by brows, eyes and mouth; ARKit names are recognized automatically regardless of case, underscores, L / R or Left / Right, and anything unrecognized is clicked manually. Weights are copied as-is (0..1), and target shapes left unmapped stay at 0. FLAME's expression_00... are statistical components, not specific actions, and only match FLAME characters that carry the same components."
+
+[node.retarget_expression.param.source_skeleton]
+label = "Expression Skeleton"
+placeholder = "First one with expressions"
+
+[node.retarget_expression.port.target]
+help = "Whose face the expressions go onto: a skinned character with blend shapes (one frame is enough; body animation is fine too)"
+
+[node.retarget_expression.port.expressions]
+label = "Expressions"
+help = "Where the expressions come from: the Expression Curves from a face solve (ARKit 52 from MediaPipe, FLAME from SMIRK / Pixel3DMM), or a character with expression animation"
+
+[node.retarget_post]
+subtitle = "Retarget Post-Process"
+description = "The third stage of learned retargeting: applies translation explicitly on top of the solver's raw result: the horizontal trajectory follows the source motion 1 : 1 and hip height is converted by the leg length ratio and sole difference of both sides, or the model's trajectory is kept; Height Offset can be added. It changes the animation curves of the hip bone, not an outer transform. Body parts and rest poses come from retarget_prepare. For grounding, connect auto_ground."
+
+[node.retarget_post.param.root_motion]
+label = "Root Motion"
+
+[node.retarget_post.param.root_motion.option]
+source = "Follow Source (Leg Length Corrected)"
+model = "Keep Model (Uncorrected)"
+
+[node.retarget_post.param.stride]
+label = "Horizontal Translation"
+
+[node.retarget_post.param.stride.option]
+legs = "Scale by Leg Length (No Sliding)"
+plate = "Match Plate (Fit Position in Video)"
+
+[node.retarget_post.port.skeleton]
+label = "Solver Result"
+
+[node.retarget_post.port.skeleton.output]
+label = "Skeleton Animation"
+
+[node.retarget_prepare]
+subtitle = "Retarget Prepare"
+description = "The first stage of learned retargeting: in the viewport, set the body part mapping between the two skeletons, the rest poses on both sides (initial pose alignment) and the bones not sent to the solver. Each of the three has an \"Auto\"; results are written into the parameters where you can see and edit them, and if you change nothing the automatic results are used. It outputs Source and Target unchanged, with annotations written on their respective USD skeletons; animation and bind poses are untouched. Connect it to solvers such as STaR / MeshRet / SATA / Kinematic Refinement."
+
+[node.retarget_prepare.param.motion_ignore]
+label = "Ignored Motion Bones"
+
+[node.retarget_prepare.param.target_ignore]
+label = "Ignored Target Bones"
+
+[node.retarget_prepare.param.ignore_rule]
+label = "Ignore Rule"
+
+[node.retarget_prepare.param.motion_scale]
+label = "Motion Size"
+placeholder = "Auto"
+
+[node.retarget_prepare.param.target_scale]
+label = "Target Size"
+placeholder = "Auto"
+
+[node.retarget_prepare.param.auto_record]
+label = "Auto Record"
+
+[node.retime]
+subtitle = "Retime"
+description = "The same thing as Nuke's TimeOffset plus Retime and Houdini's Time Shift, combined in one node because they all answer \"which frame maps to which frame\". Scene → frame numbers shifted as a whole, or frames resampled at a speed. This is the only node in the whole network that changes frame mapping, and what it changed is shown on the node. Speed is the \"speed\" on Nuke's Retime: how many frames advance per frame, with in-between frames interpolated (to fit 30-frame mocap into a 24-frame shot, set Speed to 1.25 = 30 ÷ 24)."
+
+[node.retime.param.offset]
+label = "Offset"
+
+[node.retime.param.speed]
+label = "Speed"
+
+[node.retime.param.anchor]
+label = "Anchor Frame"
+placeholder = "First frame"
+
+[node.retime.fact]
+speed_changes = "Speed Is Not 1"
+
+[node.select_item]
+subtitle = "Select Item"
+description = "Takes one item from a list to cook downstream: by index (counting from 1) or by name. To cook every item, use foreach_begin."
+
+[node.select_item.param.by]
+label = "By"
+
+[node.select_item.param.by.option]
+index = "Index"
+name = "Name"
+
+[node.select_item.param.index]
+label = "Index"
+
+[node.select_people]
+subtitle = "Select People"
+description = "Person boxes → person boxes with only the selected people: connect to a solver's Person Boxes input, and it solves as many people as you select. Select by the most prominent one, the top few, all, IDs, or by clicking people in the 2D view; place it after a detection node to decide who gets solved this time."
+
+[node.select_people.param.mode]
+label = "Select"
+
+[node.select_people.param.mode.option]
+largest = "Largest"
+top = "Top N"
+all = "All"
+ids = "IDs"
+picked = "Picked"
+
+[node.select_people.param.count]
+label = "Count"
+
+[node.select_people.param.ids]
+placeholder = "1,3"
+
+[node.select_people.param.picks]
+label = "Picks"
+placeholder = "Click people in the 2D view"
+
+[node.split_camera]
+subtitle = "Split Camera"
+description = "Camera → a set of values: focal length, aperture (mm), per-frame position (cm) and rotation (degrees, XYZ order). Connect them to the parameter inputs of other nodes: a 3DE camera's focal length to MoGe, rotation to a body solver, position to camera."
+
+[node.split_camera.param.per_frame]
+label = "Per Frame"
+
+[node.split_camera.port.translate]
+label = "Position"
+
+[node.split_camera.port.rotate]
+label = "Rotate"
+
+[node.split_camera.port.filmback]
+help = ""
+
+[node.split_grid]
+subtitle = "Split Grid"
+description = "An image laid out as a grid → a sequence with one cell per frame (Nuke's ContactSheet in reverse). Storyboard sheets, texture sheets and contact sheets that tile a motion into one image can all be split and then processed downstream as a sequence. It purely cuts pixels: no scaling, no color change, and the pieces keep their original type (images, masks, depth maps all work)."
+
+[node.split_grid.param.rows]
+label = "Rows"
+
+[node.split_grid.param.cols]
+label = "Columns"
+
+[node.split_grid.param.order]
+label = "Order"
+
+[node.split_grid.param.order.option]
+row = "Rows First"
+col = "Columns First"
+
+[node.split_grid.param.margin]
+label = "Margin"
+
+[node.split_grid.port.image]
+label = "Grid Image"
+
+[node.split_grid.port.image.output]
+label = "Image"
+
+[node.split_items]
+subtitle = "Split to List"
+description = "Splits data containing several entries into a list, one per item: person boxes by person (person_01...), scenes by the groups under /shot, 2D tracks by group, segmentation by object. Connect it to foreach_begin to cook each person or object separately."
+
+[node.split_scene]
+subtitle = "Split Scene"
+description = "Scene → 3D data separated by kind: cameras, geometry, point clouds, curves, skeleton animation and skinned characters each become an output, all in their original positions (parent transforms included). Use it for format output nodes that can only write certain kinds (some formats have no bones, some no point clouds), or to hand over just the people; kinds missing from the scene come out empty, with a note on the node. To take one item from a list of scenes, use select_item."
+
+[node.split_scene.port.curves]
+waits = ""
+
+[node.standard_human]
+subtitle = "Standard Human"
+description = "A generic T-pose human with skinning and a skeleton, needing no footage. Skeleton-only results (motion generation, mocap cleanup, imported BVH) show as just a few lines in the viewport; connect retarget (Target from this node, Motion from that skeleton animation) and then bone_deform (skeleton animation from retarget, Skinned Character also from this node) to see skin deformation. Bone names and joint axes match exactly those of people output by the solvers, recognized by both retarget and HumanIK; the body is the SMPL-X neutral shape (you need to register and download that model file yourself)."
+
+[node.standard_human.param.skeleton]
+label = "Skeleton"
+placeholder = ""
+
+[node.standard_human.param.skeleton.option]
+smplx = "SMPL-X (22 Joints)"
+
+[node.standard_human.param.height_cm]
+label = "Height"
+placeholder = "Model's 172"
+
+[node.standard_human.licence]
+note = "The SMPL-X skeleton uses the SMPL-X neutral body: its model files are downloaded by each person after registering at smpl-x.is.tue.mpg.de (Manual Downloads on the Extensions admin page), non-commercial, for non-commercial research, teaching and art projects only, no redistribution. The other skeletons come with the extension that brings them, under that extension's licence. The node itself carries no model data."
+
+[node.stmap]
+subtitle = "STMap"
+description = "The same node as Nuke's STMap: source image + ST map → the result resampled by the ST map, each output pixel sampling the source at the position the ST map points to. With AnyCalib's undistort ST map it undistorts, with the distort ST map it distorts (putting CG renders back onto the plate); when the source is a single frame (paint fixes or textures drawn on a reference frame) and the ST map is per frame (AllTracker, stmap_from_motion), the image is applied to every frame. Images, depth maps, normal maps, masks and segmentation can all be warped and keep their original type. It knows nothing about lenses and adds no tags to the result (same as Nuke's STMap): for undistort or distort that accounts for canvas and overscan, bake an ST map with lens_distortion and connect it here."
+
+[node.stmap.port.image]
+label = "Result"
+
+[node.stmap_from_motion]
+subtitle = "Motion Vectors to ST Map"
+description = "Motion vectors → an ST map per frame pointing back to the reference frame, chaining the per-frame vectors frame after frame (the same idea as Nuke's SmartVector propagation). Paint once on the reference frame (paint fixes, tattoos, textures) and apply it to the whole shot with stmap; Valid Region is the pixels that can be traced all the way back to the reference frame (those ever occluded or out of frame are 0). The longer the chain, the larger the error: for hundreds of frames without drift, use the ST map given in one step by alltracker.track."
+
+[node.switch]
+subtitle = "Switch"
+description = "The same node as the Switch in Nuke and Houdini: takes only one path, chosen by Select Input: without a wire it uses its value (1 = first input, 2 = second input...); when its input has a wire, the wire decides: a boolean on takes the first input and off the second, an integer picks that input. It starts with two inputs; for more, click the \"+\" at the end of the inputs or drag a wire onto \"+\", up to ten; each input's name can be changed by double-clicking on the node, and in the Inputs table of the parameter pane you can remove and drag to reorder them (input numbers follow the table order). If Select Input exceeds the number of inputs, this is pointed out before cooking. The path not taken is not cooked at all, with no error and not counted as skipped. All inputs must carry the same data type. When building a template, to let users choose an input by name: expose Select Input and, in \"Edit Interface...\" in the parameter pane, display it as a dropdown, filling in each entry's value and name (for example 1 = use solved camera, 2 = use your own camera); to share one choice among several switches, connect one value_int node to each of their Select Input."
+row = "Input"
+
+[node.switch.param.which]
+label = "Select Input"
+placeholder = "1 = first input"
+
+[node.switch.param.ways]
+label = "Inputs"
+
+[node.switch.param.ways.field.name]
+label = "Port"
+
+[node.switch.param.ways.field.label]
+label = "Display Name"
+
+[node.switch.port.a]
+label = "Input 1"
+
+[node.switch.port.b]
+label = "Input 2"
+
+[node.switch.port.c]
+label = "Input 3"
+
+[node.switch.port.d]
+label = "Input 4"
+
+[node.switch.port.e]
+label = "Input 5"
+
+[node.switch.port.f]
+label = "Input 6"
+
+[node.switch.port.g]
+label = "Input 7"
+
+[node.switch.port.h]
+label = "Input 8"
+
+[node.switch.port.i]
+label = "Input 9"
+
+[node.switch.port.j]
+label = "Input 10"
+
+[node.time_shift]
+subtitle = "Time Shift"
+description = "Like Houdini's Time Shift and Nuke's FrameHold: a sequence → one of its frames. Everything connected after it sees that frame. Place it before solvers that only take a single frame (such as environment light probes) to choose the frame yourself, keeping frame picking and solving in two separate nodes. Empty means the start frame; a frame number means that frame."
+
+[node.time_shift.param.frame]
+label = "Frame"
+placeholder = "Start frame"
+
+[node.time_shift.port.image]
+label = "Image"
+
+[node."tracks.output"]
+subtitle = "2D Tracks Output"
+description = "2D tracks → a 3DEqualizer 2D points file (import into 3DE for camera solving), CSV (readable by Nuke, Houdini and scripts), a Nuke Tracker node (one track per point), or four points (the corners of a plane) written as a Nuke CornerPin2D node (screen replacements, sign replacements). When writing a Nuke node, the node offers \"Copy to Nuke\"; once copied, it can be pasted into your comp. This node only sets the name and format; files are actually written when it is connected to output."
+
+[node."tracks.output".param.format.option]
+3de = "3DE"
+cornerpin = "CornerPin"
+
+[node."tracks.output".param.min_visible]
+label = "Min Visible Frames"
+
+[node.transform]
+subtitle = "Transform"
+description = "The same node as Houdini's Transform (SOP) and Nuke's TransformGeo: scene → the scene translated, rotated and scaled as a whole (cameras and people move together), in centimeters. What goes in comes out as the same kind (a camera stays a camera); to level automatically by the ground, use auto_ground."
+
+[node.transform.param.translate]
+label = "Translate"
+
+[node.transform.param.scale]
+label = "Scale"
+
+[node."usd.import"]
+subtitle = "Import USD"
+description = "Imports USD (.usd / .usda / .usdc / .usdz) made in Maya, Houdini, Blender or 3DE: the cameras, geometry, point clouds, curves, skeleton animation and skinned characters in the file; whatever you select in the hierarchy is output. Units and up axis are converted to centimeters, Y up, according to the file's own settings, and parent transforms (including animation) are included. Only flattened files are accepted: USD that references, payloads or layers other files must be flattened in your DCC first (.usdz is a single file by itself and reads normally)."
+
+[node."usd.import".port.camera]
+waits = "Pick a camera"
+
+[node."usd.import".port.characters]
+waits = "Pick a skinned character"
+
+[node."usd.import".port.skeletons]
+waits = "Pick a skeleton animation"
+
+[node."usd.import".port.models]
+waits = "Pick a geometry"
+
+[node."usd.import".port.points]
+waits = "Pick a point cloud"
+
+[node."usd.import".port.gaussians]
+waits = "Pick a Gaussian splat"
+
+[node."usd.import".port.curves]
+waits = "Pick a curve"
+
+[node."usd.import".port.fps]
+help = "The frame rate recorded in the USD (timeCodesPerSecond). Connect it to the FPS of a motion model or a format output node to follow this file; if the file does not record it there is no value here, and that node uses its own setting"
+
+[node."usd.import".fact.models]
+kinds = "Selected Geometry"
+
+[node."usd.output"]
+subtitle = "USD Output"
+description = "Writes 3D data as a USD file: geometry, cameras, point clouds, curves, skeleton animation and skinned characters are all written as-is, readable by Maya, Houdini and Blender. Scene can take several wires, or a list of scenes (each written under /shot/<item name>), packed into one scene before writing. Connect it to output to deliver."
+
+[node."usd.output".param.format.option]
+usd = "Binary .usd"
+usda = "Text .usda"
+
+[node."usd.output".param.unit.option]
+cm = "Centimeters · Maya"
+m = "Meters · Houdini"
+
+[node.uv_from_position]
+subtitle = "Canonical Position to UV"
+description = "Canonical-space position map → UV map: the UV coordinate of each pixel on the model (two-channel EXR, 0-1), the same for a given point on every frame. The position map must be in the model's own coordinate system (such as the canonical coordinates from faceanything.face_maps): world and camera coordinates move with the shot, so the projected UVs would not be fixed, and this is blocked. Connect a mask to compute only the pixels inside it, and the projection extent is also based only on those pixels. In Nuke, the UV map is used with STMap for texturing; in Houdini and Maya, for texture transfer."
+
+[node.uv_from_position.param.way]
+label = "Projection"
+
+[node.uv_from_position.param.way.option]
+cylinder = "Cylindrical"
+sphere = "Spherical"
+plane = "Planar"
+
+[node.uv_from_position.port.position]
+help = "A position map in the model's own coordinate system (canonical coordinates): projection uses the bounding box of the whole shot, so UVs match on every frame"
+
+[node.uv_from_position.port.mask]
+help = "Compute UVs only on pixels inside the mask, and the bounding box is based only on those pixels (background outside the face is excluded)"
+
+[node.value_float]
+subtitle = "Float"
+description = "Enter a decimal number and its unit here → a float value. Connect it to the input of any decimal parameter (focal length, aperture, strength...): fill it in once and share it among several nodes."
+
+[node.value_float.param.unit.option]
+cm = "cm"
+m = "m"
+
+[node.value_int]
+subtitle = "Integer"
+description = "Enter an integer and its unit here → an integer value. Connect it to the input of any integer or decimal parameter (frame numbers, counts, resolution...)."
+
+[node.value_int.param.unit.option]
+cm = "cm"
+m = "m"
+
+[node.value_string]
+subtitle = "String"
+description = "Enter some text here → a string value. Connect it to the input of any text parameter (person IDs, class names...)."
+
+[node.value_toggle]
+subtitle = "Toggle"
+description = "Turn it on or off here → a toggle. Connect it to the input of any toggle parameter: switch it in one place and several nodes change together."
+
+[node.value_vector]
+subtitle = "Vector"
+description = "Enter three decimal numbers for the X, Y and Z axes and their unit here → a vector. Connect it to the input of any vector parameter (position, orientation...)."
+
+[node.value_vector.param.unit.option]
+cm = "cm"
+m = "m"

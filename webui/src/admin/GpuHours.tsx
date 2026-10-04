@@ -7,6 +7,8 @@
 import { useRef, type RefObject } from "react";
 import type { CardHour, CardRow } from "../api/cards";
 import { useRefSize } from "../platform/size";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 const HOURS_SHOWN = 24;
 const H = 64; // 单行图表高度。
@@ -21,7 +23,7 @@ function useWidth(): [RefObject<HTMLDivElement | null>, number] {
 }
 
 /** 小时标签：按本机时区格式化为「14 时」。 */
-const hourLabel = (hour: number): string => `${new Date(hour * 3600 * 1000).getHours()} 时`;
+const hourLabel = (hour: number): string => t("ui.admin.gpu_hours.hour", { hour: new Date(hour * 3600 * 1000).getHours() });
 
 export function GpuHours({ hourly, cards }: { hourly: CardHour[]; cards: CardRow[] }) {
   const [ref, width] = useWidth();
@@ -34,7 +36,7 @@ export function GpuHours({ hourly, cards }: { hourly: CardHour[]; cards: CardRow
     have.get(now - (HOURS_SHOWN - 1 - i)) ?? null);
   if (!hourly.length) {
     // 空状态说明原因及后续条件，不留空白区域。
-    return <p className="adm-lede">还没有攒够一小时的数：服务起来之后每次读显卡都记一次，走完第一个小时这里就有柱子了。</p>;
+    return <p className="adm-lede">{t("ui.admin.gpu_hours.empty")}</p>;
   }
   const plot = Math.max(40, width - GUTTER - 6);
   const band = plot / Math.max(hours.length, 1);
@@ -45,7 +47,7 @@ export function GpuHours({ hourly, cards }: { hourly: CardHour[]; cards: CardRow
   return (
     <div ref={ref} className="u-chart">
       {width > 0 && (
-        <svg className="u-svg" width={width} height={height} role="img" aria-label="每小时的平均显卡使用率">
+        <svg className="u-svg" width={width} height={height} role="img" aria-label={t("ui.admin.gpu_hours.label")}>
           {cards.map((card, row) => {
             const top = row * rowH + NAME;  // 图表顶部（卡名位于其上方）。
             const base = top + H;
@@ -76,8 +78,8 @@ export function GpuHours({ hourly, cards }: { hourly: CardHour[]; cards: CardRow
                               strokeDasharray={h?.running ? "2 2" : undefined} />
                       )}
                       <rect x={GUTTER + i * band} y={top} width={band} height={H} fill="transparent"
-                            data-tip={pct === null ? `${hourLabel(hour)}：这一小时没有数（服务那时没在跑）`
-                              : `${hourLabel(hour)}：平均占用 ${pct}%${h?.running ? "（这一小时还在走，按已经采到的样本算的）" : ""}`} />
+                            {...tipAttrs(tipOf("value", pct === null ? t("ui.admin.gpu_hours.none", { hour: hourLabel(hour) })
+                              : h?.running ? t("ui.admin.gpu_hours.average_running", { hour: hourLabel(hour), pct }) : t("ui.admin.gpu_hours.average", { hour: hourLabel(hour), pct })))} />
                     </g>
                   );
                 })}

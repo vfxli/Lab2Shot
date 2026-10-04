@@ -1,0 +1,141 @@
+# The extensions' workers, shared part (worker_sdk/lab2shot_worker): messages every extension's worker uses.
+# One line each: code = template. Who estimated it, against what, the number and unit, what it means, what to do.
+# An extension's own messages are in adapters/<name>/i18n/<lang>.toml.
+
+# ---- the job and its parameters (lab2shot_worker/__init__.py)
+"E-WORKER-NOPARAM" = "The node sent no parameter {name}: the node and its worker do not match (the worker must read the parameter names the node defines). This is a problem of the extension's code; send the log to the developers"
+"E-WORKER-NODE" = "This extension's worker does not know the node {node} (it has only {nodes}): the node and its worker do not match. This is a problem of the extension's code; send the log to the developers"
+"E-WORKER-LISTING" = "Cannot read the frame list {path} of input {name}: {detail}"
+"E-WORKER-FRAMESIZE" = "The image size differs from the first frame's: {width}×{height} ({where}), the first frame is {first_width}×{first_height}. Every frame of a shot must be the same size: check whether frames of another shot, or resized frames, got into the sequence"
+"E-WORKER-VRAMSHORT" = "This card has only about {free:.0f} GB free now and this tier needs about {need:.0f} GB: there was enough when the job was scheduled, then another program took some. It did not quietly step down (the result would no longer be the tier its cache key records); compute again once the card has more free"
+"I-WORKER-ATFRAME" = "frame {frame}"
+"I-WORKER-ATFILE" = "{file}"
+"E-WORKER-NOFRAMES" = "No images arrived: the node wired to Image gave no frame at all. Look at the upstream node's messages and make sure it cooked frames"
+"E-WORKER-JOBPATH" = "The job file {path} is not an absolute path: a worker writes only inside the job folder and never guesses the current one. When debugging by hand, give the full path (worker.py /…/job.json); for a job Lab2Shot sent, this is a program error: send the log to the developers"
+"E-WORKER-NOINSTALLPATH" = "The worker got no install location {name} of its extension (now \"{value}\"; it must be an absolute path): a worker is started by Lab2Shot, which gives the locations of the upstream repository and the model weights; when debugging by hand, set this environment variable first. Started by Lab2Shot, this is a program error: send the log to the developers"
+"E-WORKER-TOOFEWFRAMES.one" = "At least {least:d} frame is needed and this range has {have:d}: {why}. Wire in a longer shot and cook again"
+"E-WORKER-TOOFEWFRAMES.other" = "At least {least:d} frames are needed and this range has {have:d}: {why}. Wire in a longer shot and cook again"
+"I-WORKER-WHYCOMPARE" = "it compares frames with each other, which one image cannot do"
+"I-WORKER-WHYTEMPORAL" = "its temporal network looks at a stretch of motion this long at once and cannot cook a shorter one"
+"I-WORKER-WHYSTEP.one" = "the frames solved are what is left after sampling every {step:d} frame (Step); a smaller Step works too"
+"I-WORKER-WHYSTEP.other" = "the frames solved are what is left after sampling every {step:d} frames (Step); a smaller Step works too"
+"N-WORKER-NOPEOPLE" = "The solver's own person detection found nobody in these images, so there is nobody to solve and this output is empty: make sure a whole person is in the image (a person too small, occluded or seen only from behind is often missed). To solve only one of several people, put ViTDet person boxes → pick person → boxes to mask → composite in front and remove the others from the images first"
+
+# ---- install, model weights, network (lab2shot_worker/__init__.py, build.py)
+"E-WORKER-MISSINGWEIGHTS" = "Cannot find {what} {path}: the extension is not fully installed; an administrator runs lab2shot ext install {extension}"
+"E-WORKER-MISSINGGATED" = "Cannot find {what} {path}: request access at {page} first; once approved, an administrator runs lab2shot ext install {extension}"
+"I-WORKER-WEIGHTS" = "model weights"
+"E-WORKER-NOCUDA" = "CUDA is not available: {project} needs an NVIDIA GPU, and PyTorch in this extension's environment found none it can use"
+"E-WORKER-OFFLINE" = "{node} cooks offline and was refused a connection to {hosts}: most likely the model wants to download a file the install did not provide. This is a problem of the extension's install; send the log to the developers"
+"E-WORKER-HUBLOAD" = "{project} tried to load {repo} from the network while cooking (the installer did not provide it): this is a problem of the extension's install; send the log to the developers"
+"E-WORKER-WEIGHTSMISMATCH.one" = "The model weights {model} of {project} do not match this version of the model code: {missing:d} parameter missing, {unexpected:d} extra (e.g. {examples}). Most likely the weights file is incomplete or the wrong version; an administrator reinstalls the extension: lab2shot ext install {extension}"
+"E-WORKER-WEIGHTSMISMATCH.other" = "The model weights {model} of {project} do not match this version of the model code: {missing:d} parameters missing, {unexpected:d} extra (e.g. {examples}). Most likely the weights file is incomplete or the wrong version; an administrator reinstalls the extension: lab2shot ext install {extension}"
+"I-WORKER-UNUSEDWEIGHTS.one" = "The model weights {model} of {project} hold {count:d} parameter the model does not use (e.g. {examples}); ignored, the result is not affected"
+"I-WORKER-UNUSEDWEIGHTS.other" = "The model weights {model} of {project} hold {count:d} parameters the model does not use (e.g. {examples}); ignored, the result is not affected"
+"E-WORKER-NONVCC" = "No nvcc in the environment for compiling (EnvSpec.cuda_toolkit was not installed): run lab2shot ext install again, and if that does not help send the install log to the developers"
+
+# ---- out of GPU memory: the one way every worker says it (lab2shot_worker/__init__.py fit_memory; {label} is the parameter's name on the node)
+# What the user reads names no GPU model, total or free memory (users never see the cards): total_gb, free_gb stay parameters for the log and the admin page
+
+"E-WORKER-VRAMSIZE" = "Out of GPU memory: \"{label}\" {size} needs more GPU memory than this machine has free right now. This parameter changes the result and is never lowered by itself: set \"{label}\" on the node to a smaller {options} and cook again"
+"E-WORKER-VRAMFLOOR" = "Out of GPU memory: \"{label}\" is already the smallest, {size}, and still does not fit in the GPU memory this machine has free right now. The quality is never lowered by itself: cook again later, and if that does not help contact the administrator"
+"E-WORKER-VRAMONEBATCH.one" = "Out of GPU memory: even {size} frame at a time does not fit in the GPU memory this machine has free right now. Cook again later, and if that does not help contact the administrator"
+"E-WORKER-VRAMONEBATCH.other" = "Out of GPU memory: even {size} frames at a time do not fit in the GPU memory this machine has free right now. Cook again later, and if that does not help contact the administrator"
+"E-WORKER-VRAMSHOT.one" = "Out of GPU memory: {people} person over {frames} frames must go onto the GPU at once, which this machine cannot hold. This step has no parameter to lower: shorten the shot, or put pick person in front to solve fewer people"
+"E-WORKER-VRAMSHOT.other" = "Out of GPU memory: {people} people over {frames} frames must go onto the GPU at once, which this machine cannot hold. This step has no parameter to lower: shorten the shot, or put pick person in front to solve fewer people"
+"E-WORKER-VRAMFRAME.one" = "Out of GPU memory: {people} person on frame {frame} must be solved, which this machine cannot hold. This step has no parameter to lower: put pick person in front to solve fewer people, or cut this part out first"
+"E-WORKER-VRAMFRAME.other" = "Out of GPU memory: {people} people on frame {frame} must be solved together, which this machine cannot hold. This step has no parameter to lower: put pick person in front to solve fewer people, or cut this part out first"
+"I-WORKER-VRAMCARD" = "When GPU memory ran out, this GPU had {total_gb:.0f} GB, {free_gb:.1f} GB free after clearing the cache"
+"W-WORKER-VRAMTESTSTEP" = "Out of GPU memory: cooking again with \"{label}\" lowered from {size} to {smaller} (test mode lowers it by itself; in real use it stops and the user chooses)"
+"W-WORKER-VRAMBATCH.one" = "Out of GPU memory: cooking again with {smaller} frame on the GPU at a time instead of {size} (only slower, the result is the same)"
+"W-WORKER-VRAMBATCH.other" = "Out of GPU memory: cooking again with {smaller} frames on the GPU at a time instead of {size} (only slower, the result is the same)"
+
+# ---- reading and writing files (lab2shot_worker/files.py)
+"E-FILES-FRAME" = "Cannot read the image {path}: the file is damaged, incomplete, or not an image"
+"E-FILES-FRAMEDETAIL" = "Cannot read the image {path}: {detail}"
+"E-FILES-MASK" = "Cannot read the mask {path}: the file is damaged, incomplete, or not an image"
+"E-FILES-MASKDETAIL" = "Cannot read the mask {path}: {detail}"
+"E-FILES-MASKCHANNELS" = "The mask {file} has several channels ({channels}) and no A channel: write the mask in the A channel (or keep only one channel) and wire it in again"
+"E-FILES-DEPTHCHANNELS" = "The depth map {file} has several channels ({channels}) and none reads as depth: write the depth in the R channel (our own) or the Z channel (rendered by a DCC) and wire it in again"
+"E-FILES-NOEXRMASK" = "Reading an EXR mask needs OpenEXR or OpenImageIO, and this extension's environment has neither: a problem of the extension (add OpenEXR to its requirements.txt); send the log to the developers"
+"E-FILES-NOEXRDEPTH" = "Reading a depth map needs OpenEXR, and this extension's environment does not have it: a problem of the extension (add OpenEXR to its requirements.txt); send the log to the developers"
+"E-FILES-NOTEXR" = "{path} is not an EXR: a value image read by channel name must be an EXR (everything we write is); PNG and JPG have no channel names"
+"E-FILES-CHANNELS" = "{file} has no channel {want} (it has only {channels}): the channels upstream wrote do not match what is read here. This is a problem of the extension's code; send the log to the developers"
+"E-FILES-WRITE" = "Cannot write {path}: {detail}"
+
+# ---- feed-forward reconstruction (lab2shot_worker/feedforward.py: VGGT, Pi3, Depth Anything 3)
+"W-FEEDFWD-JOBSIZE" = "The job's size {job_width}×{job_height} differs from the actual images, {width}×{height}; cooked at the actual size: the node and the worker do not match, send the log to the developers"
+"E-FEEDFWD-STITCH" = "Chunk {chunk} shares no reliable points with the previous one in their overlapping frames and cannot be joined: raise the maximum frames per chunk or lower Step, so neighbouring chunks share more of the same images"
+"I-FEEDFWD-LOOPS.one" = "Loop closure: {loops} pair of far-apart images that seem to show the same place were solved together, {used} used; chunks turned by at most {turn_deg:.2f}° and moved by at most {move:.1%} of the scene depth"
+"I-FEEDFWD-LOOPS.other" = "Loop closure: {loops} pairs of far-apart images that seem to show the same place were solved together, {used} used; chunks turned by at most {turn_deg:.2f}° and moved by at most {move:.1%} of the scene depth"
+"N-FEEDFWD-NOLOOPS" = "Loop closure had no effect: no two far-apart chunks showing the same place were found (or solving them together did not match); the result is the same as without it"
+"W-FEEDFWD-FOCALSPREAD" = "The focal length {model} estimated varies by {spread:.0%} between frames ({low:.0f}–{high:.0f} px): the solved camera and world positions may jitter with it, and people and objects change size. If the lens does not zoom, enter the real focal length in the Focal Length parameter and this step no longer has to guess"
+"E-FEEDFWD-WEIGHTS.one" = "The weights file {file} is missing {count} parameter (e.g. {names}): the model weights do not match the model code. A problem of the extension's install: an administrator runs lab2shot ext install again, and if that does not help sends the log to the developers"
+"E-FEEDFWD-WEIGHTS.other" = "The weights file {file} is missing {count} parameters (e.g. {names}): the model weights do not match the model code. A problem of the extension's install: an administrator runs lab2shot ext install again, and if that does not help sends the log to the developers"
+
+# ---- single-image geometry (lab2shot_worker/mono_geometry.py: MoGe, UniDepth, UniK3D …)
+"W-MONOGEO-FOCALSPREAD" = "The focal length {model} estimated varies by {spread:.0%} between frames ({low:.0f}–{high:.0f} px): the depth scale may jitter with it, so frame by frame things seem to move nearer and farther. If you know the lens's angle of view, enter it and this step no longer has to guess the focal length"
+
+# ---- mask-guided matting (lab2shot_worker/matte.py: MatAnyone 2, VideoMaMa)
+"E-MATTE-FRAMESIZE" = "The image {file} differs in size from the first frame: every frame of a shot must be the same size"
+"E-MATTE-NOMASK" = "No mask wired in: wire a mask from SAM 3, BiRefNet or the like to the coarse mask input"
+"E-MATTE-NOOVERLAP" = "The mask and the images share no frame: the mask must come from the same images (with matching frame numbers)"
+"W-MATTE-MASKSIZE" = "The mask's size {mask_width}×{mask_height} differs from the images' {width}×{height}; stretched to fit: the edges may be off, most likely the mask came from resized images"
+"N-MATTE-EMPTYGUIDE" = "The guide mask is empty in every frame (no pixel above 0.5), so the matte is empty this time: normal when upstream segmentation found no object; otherwise check the upstream segmentation or matte"
+"E-MATTE-MISSING.one" = "{count} frame was not written (e.g. frame {frames}): a problem of the extension's code; send the log to the developers"
+"E-MATTE-MISSING.other" = "{count} frames were not written (e.g. frame {frames}): a problem of the extension's code; send the log to the developers"
+"W-MATTE-NOGUIDE.one" = "The coarse mask lacks {count:d} frame (from frame {first} on); it is taken as an empty mask and its matte is most likely empty: make the coarse mask cover every frame of the images"
+"W-MATTE-NOGUIDE.other" = "The coarse mask lacks {count:d} frames (from frame {first} on); they are taken as empty masks and their matte is most likely empty: make the coarse mask cover every frame of the images"
+"W-MATTE-EMPTYALPHA.one" = "{count} frame has alpha below 0.5 everywhere (the person is out of frame, or was lost): frame {frames}"
+"W-MATTE-EMPTYALPHA.other" = "{count} frames have alpha below 0.5 everywhere (the person is out of frame, or was lost): frame {frames}"
+
+# ---- point tracking (lab2shot_worker/point_tracks.py: TAPNext++, CoTracker3, TAPIP3D …)
+"E-TRACKS-QUERYFRAME" = "The reference frame {frame} is not in the input sequence (frames {first}–{last}): choose a frame of the sequence, or leave it blank to start at the first frame"
+"E-TRACKS-MASKFRAME.one" = "The mask has no reference frame {frame} (the mask has {count} frame): choose another reference frame, or add the mask of this frame"
+"E-TRACKS-MASKFRAME.other" = "The mask has no reference frame {frame} (the mask has {count} frames): choose another reference frame, or add the mask of this frame"
+"E-TRACKS-POINTFORMAT" = "Point {index} of the points file is malformed: {point} (frame, x, y needed)"
+"E-TRACKS-POINTFRAME" = "The frame {frame} of point {index} is not in the input sequence (frames {first}–{last})"
+"E-TRACKS-POINTOUTSIDE" = "Point {index} ({x:.1f}, {y:.1f}) is outside the image (the image is {width}×{height})"
+"N-TRACKS-EMPTYMASK" = "The mask is empty at the reference frame {frame}: grid points go only inside the mask, so none were placed in this frame (manual points cook as usual). For grid points, choose a reference frame where the mask has content, or check the upstream mask"
+"N-TRACKS-NOQUERY" = "No points to track (the grid point count is 0 and there are no manual points), so the 2D tracks are empty this time: raise the grid point count, or click a few manual points in the 2D view"
+"B-TRACKS-NOQUERY" = "No points to track (the grid point count is 0 and there are no manual points): click a few manual points in the 2D view, or raise the grid point count"
+"B-TRACKS-NOQUERY.app" = "No points to track yet: click some Tracks in the view first, or set Extra Grid Points above 0"
+"B-TRACKS-NOQUERY.short" = "No points to track"
+"N-TRACKS-NOTHINGLEFT" = "No point to track at the reference frame {frame} (the mask is empty and there are no manual points), so the 2D tracks are empty this time: choose a reference frame where the mask has content, or click a few manual points in the 2D view"
+
+# ---- people in world space (lab2shot_worker/world_humans.py: GVHMR, WHAM, TRAM …)
+"E-HUMANS-BODYMODEL" = "{project} needs the {model} model file {file}, which is not in {folder}/. Where to download it and which folder it goes in: Manual Downloads under Extensions on the admin page. {model} is for non-commercial research only and may not be redistributed"
+"N-HUMANS-SHORTPERSON.one" = "Skipped: only {frames} frame of person {person}, fewer than {min_frames}; too short a clip does not solve reliably"
+"N-HUMANS-SHORTPERSON.other" = "Skipped: only {frames} frames of person {person}, fewer than {min_frames}; too short a clip does not solve reliably"
+
+# ---- input cameras of multi-view reconstruction (lab2shot_worker/recon.py)
+"E-RECON-NOPOSES" = "The camera wired in has no cam_to_world (the camera position of each frame): a problem of the upstream node; send the log to the developers"
+"E-RECON-CAMLENGTHS" = "The frames / focal_px / cam_to_world of the camera wired in differ in length (or are empty): a problem of the upstream node; send the log to the developers"
+"E-RECON-CAMFOCAL" = "The focal length of the camera wired in must be above 0: check the upstream camera's focal length"
+
+# ---- optical flow, environment light (lab2shot_worker/optical_flow.py, light_probe.py)
+"E-FLOW-TWOFRAMES" = "Optical flow needs at least two frames: wire in a sequence, not one image"
+"E-PROBE-ONEFRAME.one" = "The environment light takes one image, and the node sent {count} frame: the node and the worker do not match, send the log to the developers"
+"E-PROBE-ONEFRAME.other" = "The environment light takes one image, and the node sent {count} frames: the node and the worker do not match, send the log to the developers"
+
+# ---- motion generation (lab2shot_shared/motion.py, rig_motion.py)
+"E-MOTION-NOJOINTS" = "The model's skeleton has no joints {joints}: the node and the worker do not match, send the log to the developers"
+"E-MOTION-NOROOT" = "The model's root joint (hips) has no matching character joint: match the hips in the joint mapping"
+"E-MOTION-NOLEG" = "The model joint {joint} has no matching character joint: both legs (thighs, shins) must be mapped"
+"E-MOTION-KEYGAP.one" = "There is {gap} frame between keyframes {first} and {last}, more than the {most} frames the model generates at once: add keyframes between them"
+"E-MOTION-KEYGAP.other" = "There are {gap} frames between keyframes {first} and {last}, more than the {most} frames the model generates at once: add keyframes between them"
+
+# ---- the skeletons and parameters of SMPL-family body models (lab2shot_shared/smpl.py). Each happens only when the node and the worker do not match, never from a user's input
+"E-SMPL-UNKNOWNBODY" = "Unknown body model {model}: known are {models}. Send the log to the developers"
+"E-SMPL-UNKNOWNPART" = "{model} has no pose parameters {parts}: its parameters are {known}. Send the log to the developers"
+"E-SMPL-PARTSIZE.one" = "{part} of {model} should be {want} joint, {have} arrived: send the log to the developers"
+"E-SMPL-PARTSIZE.other" = "{part} of {model} should be {want} joints, {have} arrived: send the log to the developers"
+"E-SMPL-POSESIZE.one" = "{model} takes a pose of {want} joint, {have} arrived: send the log to the developers"
+"E-SMPL-POSESIZE.other" = "{model} takes a pose of {want} joints, {have} arrived: send the log to the developers"
+"E-SMPL-JOINTCOUNT.one" = "This skeleton animation has {have} joint and {model} has {want}: not the same skeleton; retarget it first"
+"E-SMPL-JOINTCOUNT.other" = "This skeleton animation has {have} joints and {model} has {want}: not the same skeleton; retarget it first"
+
+# ---- rigging (lab2shot_worker/rigging.py): a skeleton and weights from the worker that do not match stop right there, nothing wrong reaches the node
+"E-RIGGING-SHAPES.one" = "The skeleton the worker returned does not add up: {joints} joint, {parents} parents, {names} names and {columns} weight columns; the four should be equal. A problem of the extension's adapter; send the log to the developers"
+"E-RIGGING-SHAPES.other" = "The skeleton the worker returned does not add up: {joints} joints, {parents} parents, {names} names and {columns} weight columns; the four should be equal. A problem of the extension's adapter; send the log to the developers"
+"E-RIGGING-ORDER" = "The skeleton hierarchy the worker returned is wrong: the root must come first and every bone's parent before it. A problem of the extension's adapter; send the log to the developers"

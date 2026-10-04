@@ -39,7 +39,7 @@ import torch
 
 from lab2shot_worker import (
     nothing,
-    MemoryBound, limit_gpu_memory, link_file, offload, read_frame, reason, require_weights, resident, say, serve, stage,
+    MemoryBound, cpu_budget, limit_gpu_memory, link_file, offload, read_frame, reason, require_weights, resident, say, serve, stage,
 )
 from lab2shot_shared import motion as mo
 from lab2shot_worker import world_humans as wh
@@ -69,9 +69,10 @@ def enter_runtime(weights: Path) -> None:
 
 
 def half_frame(path: Path) -> np.ndarray:
-    """RGB at half size, as upstream reads the video (ffmpeg scale: bicubic)."""
+    """RGB at half size, as upstream reads the video (ffmpeg scale, which filters over the whole footprint when it
+    shrinks: INTER_AREA is the OpenCV equivalent; INTER_CUBIC would alias)."""
     rgb = read_frame(path)
-    return cv2.resize(rgb, (round(rgb.shape[1] * SCALE), round(rgb.shape[0] * SCALE)), interpolation=cv2.INTER_CUBIC)
+    return cv2.resize(rgb, (round(rgb.shape[1] * SCALE), round(rgb.shape[0] * SCALE)), interpolation=cv2.INTER_AREA)
 
 
 # --------------------------------------------------------------------------- people
@@ -91,8 +92,32 @@ def load_tracker(weights: Path):
     「连不上 github.com」 rather than 「找不到权重」. Checking the file first reports the actual problem."""
     from hmr4d.utils.preproc import Tracker
 
-    require_weights("gvhmr", weights / YOLO_CKPT, what="YOLOv8x 人物检测权重")
+    require_weights("gvhmr", weights / YOLO_CKPT, what=reason("I-GVHMR-YOLOWEIGHTS"))
     return Tracker()
+
+
+def track_frames(run: Run, yolo, paths: list[Path]) -> list[list[dict]]:
+    """Upstream's Tracker.track (same YOLO settings, same per-frame record), one frame at a time with the tracker
+    kept between frames. Upstream hands YOLO a video, which ultralytics tracks as one stream; a list of frame files
+    is instead a batch of unrelated images, each with its own path, so ultralytics resets the tracker on every
+    frame (trackers/track.py on_predict_postprocess_end) and the ids jump between frames, and the whole list is
+    loaded at once. Here each frame is read as it is needed (BGR, as a video decodes) and tracked with
+    persist=True. The model is resident: its predictor and the tracking callbacks of the previous job are dropped
+    first, so every job starts with a fresh tracker and the callbacks are registered once, with persist."""
+    yolo.predictor = None
+    yolo.reset_callbacks()
+    history = []
+    for _, path in run.each(paths):
+        result = yolo.track(read_frame(path, order="bgr"), persist=True, device="cuda", conf=0.5, classes=0,
+                            verbose=False)[0]
+        if result.boxes.id is not None:
+            ids = result.boxes.id.int().cpu().tolist()
+            xyxy = result.boxes.xyxy.cpu().numpy()
+            history.append([{"id": ids[i], "bbx_xyxy": xyxy[i]} for i in range(len(ids))])
+        else:
+            history.append([])
+    yolo.predictor = None  # its tracker state belongs to this job
+    return history
 
 
 def track_people(run: Run, weights: Path, width: int, height: int) -> dict[int, dict[int, np.ndarray]]:
@@ -110,13 +135,13 @@ def track_people(run: Run, weights: Path, width: int, height: int) -> dict[int, 
     """
     from hmr4d.utils.preproc import tracker as tracker_module
 
-    tracker = run.model("YOLOv8 人物跟踪模型", load_tracker, weights)
-    run.stage("YOLOv8 找人")
+    tracker = run.model("load_model", load_tracker, weights, stage_params={"model": "YOLOv8"})
+    run.stage("find_people")
     frames = [str(path) for _, path in run.job.frames]
+    history = track_frames(run, tracker.yolo, [path for _, path in run.job.frames])
     video_lwh = tracker_module.get_video_lwh
     tracker_module.get_video_lwh = lambda *_args, **_kwargs: (len(frames), width, height)
     try:
-        history = tracker.track(frames)
         id_to_frame_ids, id_to_bbx_xyxys, id_sorted = tracker.sort_track_length(history, frames)
     finally:
         tracker_module.get_video_lwh = video_lwh  # the process stays for the next job
@@ -169,19 +194,27 @@ def box_track(boxes: dict[int, np.ndarray]) -> tuple[int, torch.Tensor]:
 # --------------------------------------------------------------------------- camera
 
 
-def simple_vo(half_frames: np.ndarray, focal_px: float, width: int, height: int, step: int) -> np.ndarray:
-    """Upstream SimpleVO (SIFT + pycolmap two-view geometry) on the half-size frames. R_w2c [N,3,3]."""
+def simple_vo(half_frames: np.ndarray, focal_px: float, width: int, height: int, step: int, principal) -> np.ndarray:
+    """Upstream SimpleVO (SIFT + pycolmap two-view geometry) on the half-size frames. R_w2c [N,3,3].
+
+    The frame pairs are solved on several threads (the pinned SimpleVO's own num_workers). Its camera's principal
+    point is the picture's centre in the pixels sent (`principal`, at full size), not the half frame's centre:
+    SimpleVO builds CameraParams without cx / cy (simple_vo.py:36), which then default to the frame's centre."""
     from hmr4d.utils.preproc.relpose import simple_vo as vo_module
 
-    read_video = vo_module.read_video_np
+    read_video, camera_params = vo_module.read_video_np, vo_module.CameraParams
     vo_module.read_video_np = lambda *args, **kwargs: half_frames  # frames instead of a video file
+    vo_module.CameraParams = lambda w, h, focal_length=None: camera_params(
+        w, h, focal_length, float(principal[0]) * SCALE, float(principal[1]) * SCALE)
     diag = (width**2 + height**2) ** 0.5
     f_mm = focal_px / diag * (24**2 + 36**2) ** 0.5  # SimpleVO takes a full-frame equivalent focal length
-    stage("SimpleVO 估计相机转动")
+    stage("estimate_camera_rotation")
     try:
-        t_w2c = vo_module.SimpleVO(None, scale=SCALE, step=step, method="sift", f_mm=f_mm).compute()
+        t_w2c = vo_module.SimpleVO(None, scale=SCALE, step=step, method="sift", f_mm=f_mm,
+                                   num_workers=min(8, cpu_budget())).compute()
     finally:
-        vo_module.read_video_np = read_video  # the process stays for the next job: do not keep this shot's frames
+        # the process stays for the next job: do not keep this shot's frames
+        vo_module.read_video_np, vo_module.CameraParams = read_video, camera_params
     return np.asarray(t_w2c, np.float64)[:, :3, :3]
 
 
@@ -308,7 +341,7 @@ def main(job_path: str) -> None:
     if not people_boxes:
         nothing("N-GVHMR-NOPEOPLE", frames=MIN_FRAMES)
 
-    run.stage("读取画面")
+    run.stage("read_frames")
     half = np.stack([half_frame(path) for _, path in job.frames])
 
     # camera: focal and rotation (world-to-camera) for every frame
@@ -318,7 +351,8 @@ def main(job_path: str) -> None:
                                              estimate_focal_length(width, height), "default (image diagonal)")
     K = np.zeros((n, 3, 3))
     K[:, 0, 0] = K[:, 1, 1] = focal
-    K[:, 0, 2], K[:, 1, 2], K[:, 2, 2] = width / 2.0, height / 2.0, 1.0
+    # principal point: the picture's centre in the pixels sent (nodes.py prepare; not the canvas centre with overscan)
+    K[:, 0, 2], K[:, 1, 2], K[:, 2, 2] = *params["principal_px"], 1.0
     if cam is not None:
         r_w2c = np.swapaxes(cam.at(frame_numbers)[1][:, :3, :3], -1, -2)
         rotation_source = "camera"
@@ -326,18 +360,18 @@ def main(job_path: str) -> None:
         r_w2c = np.repeat(np.eye(3)[None], n, 0)
         rotation_source = "static"
     else:
-        r_w2c = simple_vo(half, float(np.median(focal)), width, height, vo_step)
+        r_w2c = simple_vo(half, float(np.median(focal)), width, height, vo_step, params["principal_px"])
         rotation_source = "SimpleVO"
 
     # 2D evidence per person
     from hmr4d.utils.geo.hmr_cam import get_bbx_xys_from_xyxy
 
-    extractors = run.model("ViTPose-H 和 HMR2 模型", load_extractors, weights)
-    run.stage("ViTPose 关键点 · HMR2 图像特征")
+    extractors = run.model("load_model", load_extractors, weights, stage_params={"model": "ViTPose-H / HMR2"})
+    run.stage("keypoints_and_features")
 
     def gather_evidence(extractors, half, _):
         evidence = []
-        for k, (pid, boxes) in run.each(people_boxes, "关键点和特征"):
+        for k, (pid, boxes) in run.each(people_boxes, "people"):
             first, xyxy = box_track(boxes)
             bbx_xys = get_bbx_xys_from_xyxy(xyxy, base_enlarge=1.2).float()
             kp2d, feats = crops_features(extractors, half, first, bbx_xys)
@@ -350,30 +384,25 @@ def main(job_path: str) -> None:
     del extractors, half
 
     # GVHMR
-    model = run.model("GVHMR 模型", load_gvhmr, weights, static)
-    bm = run.model("SMPL-X 身体模型", load_body_model, weights)
-    run.stage("GVHMR 解算人体动作")
+    model = run.model("load_model", load_gvhmr, weights, static, stage_params={"model": "GVHMR"})
+    bm = run.model("load_model", load_body_model, weights, stage_params={"model": "SMPL-X"})
+    run.stage("solve_motion")
 
     def solve_people(_):
         people = []
-        for k, (pid, first, bbx_xys, kp2d, feats) in run.each(evidence, "解算"):
+        for k, (pid, first, bbx_xys, kp2d, feats) in run.each(evidence, "people"):
             people.append(solve_person(model, bm, pid, first, bbx_xys, kp2d, feats, K, r_w2c, static, frame_numbers))
         return people
 
     people = run.fit(MemoryBound.shot(n, len(evidence)), solve_people)
 
     # one world: the camera track is only used internally to merge worlds and align to an input camera
-    run.stage("统一世界坐标")
-    # 「相机旋转」 is not a camera: `cam` holds only per-frame rotations here (`rotation_only` in `camera_in.npz`)
-    # with zero translation, since upstream uses only the rotation
-    # (`third_party/gvhmr/repo/tools/demo/demo.py:197 compute_cam_angvel(R_w2c)`). The world merge therefore runs
-    # as if no input camera were given: no alignment as a whole, and the world stays the method's own gravity world.
-    # Placing the people into a given camera requires an explicit 「相机空间转换」 node in the graph.
-    as_camera = None if cam is None or cam.rotation_only else cam
-    track, world_info = wh.one_world("GVHMR", people, frame_numbers, np.swapaxes(r_w2c, -1, -2), static, as_camera,
-                                     follow_camera)
+    run.stage("unify_world")
+    # 「相机旋转」 is not a camera: `cam` holds only per-frame rotations (upstream uses only the rotation). The world
+    # stays the method's own gravity world; placing the people under a given camera is the graph's 「相机空间转换」
+    track, world_info = wh.one_world("GVHMR", people, frame_numbers, np.swapaxes(r_w2c, -1, -2), static, follow_camera)
 
-    run.stage("写出结果")
+    run.stage("write_results")
     out = [wh.save_person(raw, person, "smplx", bm.bm) for person in people]
     # raw/camera.npz: the reference camera of this result (the node's 「参照相机」 output,
     # families/humans.py `reference_camera`). It is not a production camera; its only use is as the reference for the
@@ -408,7 +437,7 @@ def main(job_path: str) -> None:
         # provenance of the lens and camera rotation used by the solve (metadata, not an output port)
         camera={"focal_source": focal_source, "rotation_source": rotation_source,
                 "width": width, "height": height, "static": static and cam is None},
-        up_axis="+Y" if as_camera is None else "input camera's world up",
+        up_axis="+Y",
         joints="the 55 SMPL-X joints (lab2shot_shared.smpl)",
         merge=world_info["merge"],
         alignment=world_info["alignment"],

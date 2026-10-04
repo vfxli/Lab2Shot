@@ -1,0 +1,43 @@
+# TRAM extension: display words and messages (Chinese). One entry per line: key = template.
+
+# ---- 画面和人
+"I-TRAM-VIMOWINDOW.other" = "它的 VIMO 网络一次看 {need:d} 帧"
+"N-TRAM-NOPEOPLE" = "「TRAM 全身动作」自带的检测（ViTDet + SAM + DEVA）在画面里没有找到持续出现的人，这次输出是空的：确认画面里有完整的人，人太小或一直被挡住它就找不到"
+"N-TRAM-NOLONGTRACK" = "「TRAM 全身动作」找到的人都没有连续出现 {frames} 帧以上（它至少要连续 {frames} 帧才能算一个人），这次输出是空的：人被挡住或走出画面会把这一段打断，换一段人出现得更久的镜头"
+"N-TRAM-SHORTTRACK" = "人物 {person} 没有连续出现 {frames} 帧以上的片段，「TRAM 全身动作」算不了他，这个人跳过"
+
+# ---- 摄影机
+"W-TRAM-STATIC" = "「TRAM 全身动作」判断这段是固定机位（DROID-SLAM 解算时没有产生第二个关键帧），摄影机按不动处理：如果镜头其实在动，人在世界里的位置会跟着画面漂，检查这段素材有没有真正的位移（纯摇、长焦压缩的镜头视差很小），并在「已知焦距」里填实拍焦距"
+
+[node."tram.solve"]
+subtitle = "全身动作"
+description = "画面 → 世界空间里每个人的动作（SMPL 身体）和摄影机：先用遮掉人的 DROID-SLAM 解摄影机（真实尺度），再把每个人放进这个世界。多人在同一世界里的相对位置最准；摄影机是它自己解的，知道实拍焦距就填「已知焦距」，长焦镜头上它自己估的重力方向不可靠。要手指和脸用「SAM 3D Body 全身动作」，要脚不滑的重力对齐轨迹用「GVHMR 全身动作」。"
+official.note = "⓪ **「人物框」是可选输入，直接交给官方函数**（规则：官方函数接受人物框就直接把框交给它；不接受框的项目，在节点图上走「人物框转遮罩」）：官方包的 `HMR_VIMO.inference(imgfiles, boxes, valid=, frame=, …)`（lib/models/hmr_vimo.py:134）收的就是一个人逐帧的框，官方自己的 EMDB 评测脚本就是拿外部真值框调它的（scripts/emdb/run_smpl.py:59-63）。官方 demo 不传框只是因为它自己用 ViTDet + SAM + DEVA 检人跟踪（estimate_camera.py:38-39 → tracks.npy → estimate_humans.py:32）。接了框：VIMO 按框解这几个人；上游的检测 + 分割照旧跑一遍——SLAM 要的人物遮罩来自它（worker.py solve_camera）。不接框：照官方 demo 的路自己检人跟踪，解所有轨迹（上限「最多人数」）。① **没有「摄影机」输入口**：VIMO 的签名里只有 img_focal 和 img_center（内参），官方的摄影机是它自己用遮人的 DROID-SLAM 解出来的（scripts/estimate_camera.py:45-47），是这条流程的**产物**、不是它的输入。内参（焦距、主点）不是摄影机输入，完整的内参加外参才算摄影机；img_focal 对应的是「已知焦距」参数，节点声明 `camera_to_worker = None`（「不吃摄影机动画、只用焦距」那一档）。要把人摆进自己那台摄影机的世界，接核心节点「摄影机空间转换」。② 「摄影机」**输出**口是官方的，只是写在另一个文件：`scripts/estimate_camera.py:49-53` 的 world_cam_R / world_cam_T / img_focal，所以这个声明引了几条上游位置（见 cite）。③ 「蒙皮角色」是 CG 形态，装的还是官方那份东西：VIMO 吐的 SMPL 参数（pred_rotmat 每帧关节旋转 + pred_shape + pred_trans，hmr_vimo.py:167-172）装成一副带蒙皮和蒙皮权重的角色——SMPL / SMPL-X / MANO / FLAME / MHR 这类参数化人体就是「蒙皮 + 蒙皮权重 + 骨架动画」，不另立数据类型；角色的网格就是官方自己拿这些参数跑 SMPL body model 得到的顶点（lib/vis/traj.py:128-134 的 pred_vert）。"
+
+[node."tram.solve".param.max_people]
+label = "最多人数"
+
+[extension.tram]
+summary = "两阶段方法，从实拍视频解出人的全局轨迹和动作：SLAM 解摄影机、用场景背景定尺度，再用 VIMO 回归身体动作"
+license.name = "MIT（代码）+ SMPL 非商用 + SPEC / DEVA 非商用 + 模型权重仅限研究"
+license.summary = "仅限研究。TRAM 代码 MIT，但仓库里的 thirdparty/camcalib（SPEC 摄影机标定）是马普所专有代码、只许有许可的非商用使用，其模型权重 camcalib_sa_biased_l2.ckpt 同样非商用；DEVA 视频跟踪（代码和模型权重）为 CC BY-NC-SA 4.0 非商用。运行必须用 SMPL 人体模型（SMPL_NEUTRAL），需要在 smpl.is.tue.mpg.de 注册后自己下载，仅限非商用科研，禁止再分发。VIMO 模型权重作者没有单独写许可，训练数据含 BEDLAM、3DPW、Human3.6M 等仅限研究的数据集，只按研究用途使用。其余：DROID-SLAM（代码和模型权重）BSD-3-Clause，lietorch BSD-3，ViTDet-H（detectron2）和 Segment Anything ViT-H Apache-2.0，ZoeDepth / MiDaS MIT，smplx 代码（MPI 非商用许可），chumpy MIT，torch-scatter MIT。固定机位时不用 DROID-SLAM 和 ZoeDepth 的摄影机解算部分"
+weight.vimo.note = "VIMO 视频人体网络（TRAM）"
+weight.spec.note = "SPEC 摄影机俯仰/滚转和视角（MPI 非商用）"
+weight.deva.note = "DEVA 视频分割跟踪（CC BY-NC-SA 4.0）"
+weight.resnet50-imagenet.note = "ImageNet ResNet-50（torchvision，BSD-3-Clause），DEVA 建网络用"
+weight.resnet18-imagenet.note = "ImageNet ResNet-18（torchvision，BSD-3-Clause），DEVA 建网络用"
+weight.sam-vit-h.note = "Segment Anything ViT-H 人物遮罩（Apache-2.0）"
+weight.zoedepth-n.note = "ZoeDepth-N 米制深度定尺度（MIT）"
+weight.droid.note = "DROID-SLAM（BSD-3-Clause）"
+weight.vitdet-h.note = "ViTDet-H 人物检测（Apache-2.0）"
+weight.zoedepth-code.note = "torch.hub 代码（固定版本，本地加载）"
+weight.midas-code.note = "torch.hub 代码（固定版本，本地加载）"
+
+[stage]
+detect_people = "ViTDet 检测 · SAM 遮罩 · DEVA 跟踪人物"
+search_focal = "TRAM 搜索焦距（SLAM 重投影误差）"
+solve_camera = "DROID-SLAM 解算摄影机 · ZoeDepth 定尺度"
+static_camera = "固定机位"
+estimate_gravity = "SPEC 估计重力方向"
+estimate_bodies = "VIMO 估计人体"
+vimo = "VIMO"

@@ -8,17 +8,19 @@ runs. Its training framework (detectron2 registries, which the network file name
 (transformers) are not used, so they are stand-ins; the DINOv2 ViT is built without timm's pretrained download, since
 the VidEoMT checkpoint holds every weight.
 
-How the video is segmented is upstream's video panoptic inference (videomt_online with window size 1, as evaluated),
-done in passes so a whole shot fits in memory at the plate's size:
+How the video is segmented is upstream's video panoptic inference (videomt_online with window size 1, as evaluated,
+under fp16 autocast as upstream evaluates it), done in passes so a whole shot fits in memory at the plate's size:
 
-1. Every frame at upstream's test size (short side params.resolution, long side at most 1333 / 720 of it; PIL bilinear),
-   normalised and padded to a multiple of 32, goes through the network one frame at a time; the queries carry on from
-   frame to frame (resume). A query is one segment through the whole shot: that is what keeps ids stable.
+1. Every frame at upstream's test size (short side params.resolution, long side at most 1333 / 720 of it; PIL bilinear,
+   on reader threads ahead of the GPU), normalised and padded to a multiple of 32, goes through the network one frame
+   at a time; the queries carry on from frame to frame (resume). A query is one segment through the whole shot: that is
+   what keeps ids stable. Every query's mask logits are kept (fp16, in a file in the job folder) for step 3.
 2. Each query's class is its class logits averaged over every frame of the shot (upstream's rule), then softmax;
    queries that are an object (best class not "nothing") on at least MIN_FRAMES frames, and whose best class scores
    over params.threshold, are kept. Because the average runs over every frame, an object present on only part of the
    shot scores lower than one present throughout.
-3. The network runs again (it is deterministic) and each frame's kept masks are resized to the plate (bilinear from
+3. Each frame's kept masks (from step 1's file; only when it would take over half the free disk, the network runs
+   again instead: it is deterministic) are resized to the plate (bilinear from
    the padded input size, cropped, sigmoid, bilinear to the plate); every pixel goes to the kept query with the
    highest score x mask, if that query's own mask is at least 0.5 there.
 4. Over the whole shot, a query whose pixels are under params.min_coverage of its own mask area is dropped (it lost most of
@@ -38,6 +40,7 @@ import importlib
 import importlib.util
 import json
 import resource
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -46,6 +49,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from lab2shot_worker import fail, nothing, progress, resident, save_npz, serve, stub_module
+from lab2shot_worker.frame_io import FrameReader, Writer
 from lab2shot_worker.run import Run
 
 CHECKPOINT = "VidEoMT/vipseg_vit_large_55.2.pth"
@@ -60,6 +64,7 @@ MAX_SIZE_RATIO = 1333 / 720  # MAX_SIZE_TEST (detectron2's default) over MIN_SIZ
 # averaging below). The filter is recorded in the result description, visible to the user.
 MIN_FRAMES = 3
 UPSAMPLE_CHUNK = 16  # kept queries resized to the plate at a time (plate pixels x 4 bytes each)
+CACHE_DISK_SHARE = 0.5  # the shot's mask logits are kept on disk when they take at most this share of the free space
 
 
 # --------------------------------------------------------------------------- network
@@ -134,40 +139,46 @@ def test_size(width: int, height: int, short: int) -> tuple[int, int]:
 
 class Frames:
     """The plate's frames as the network's input: resized (PIL bilinear, as detectron2's ResizeTransform does for 8-bit
-    images), normalised, padded to a multiple of 32 (ImageList.from_tensors pads the normalised image with 0)."""
+    images) on reader threads ahead of the GPU, normalised, padded to a multiple of 32 (ImageList.from_tensors pads the
+    normalised image with 0)."""
 
     def __init__(self, paths: list[Path], size: tuple[int, int]):
-        self.paths, self.size = paths, size
+        self.size = size
         w, h = size
         self.padded = (-(-h // SIZE_DIVISIBILITY) * SIZE_DIVISIBILITY, -(-w // SIZE_DIVISIBILITY) * SIZE_DIVISIBILITY)
         self.mean = torch.tensor(PIXEL_MEAN, device="cuda").view(3, 1, 1)
         self.std = torch.tensor(PIXEL_STD, device="cuda").view(3, 1, 1)
+        self.reader = FrameReader(paths, self._read, threads=3, ahead=6)
 
-    def __getitem__(self, i: int) -> torch.Tensor:
+    def _read(self, path: Path) -> np.ndarray:
         from PIL import Image
 
-        with Image.open(self.paths[i]) as im:
-            img = np.asarray(im.convert("RGB").resize(self.size, Image.BILINEAR), np.float32)
-        x = (torch.from_numpy(img).to("cuda").permute(2, 0, 1) - self.mean) / self.std
+        with Image.open(path) as im:
+            return np.array(im.convert("RGB").resize(self.size, Image.BILINEAR))
+
+    def __getitem__(self, i: int) -> torch.Tensor:
+        img = torch.from_numpy(self.reader.get(i)).to("cuda", non_blocking=True).permute(2, 0, 1).float()
+        x = (img - self.mean) / self.std
         w, h = self.size
         return F.pad(x, (0, self.padded[1] - w, 0, self.padded[0] - h))[None]
 
 
 def sweep(model, frames: Frames, count: int, what: str):
     """The network over the shot, one frame at a time, queries carried from frame to frame: yields (index, class
-    logits [Q, C+1], mask logits [Q, h, w])."""
-    with torch.no_grad():
+    logits [Q, C+1], mask logits [Q, h, w]), float32. The network runs under fp16 autocast, as upstream evaluates it
+    (train_net_video.py `with autocast(): inference_on_dataset(...)`, config AMP.ENABLED)."""
+    with torch.inference_mode(), torch.autocast("cuda", dtype=torch.float16):
         for i in range(count):
             out = model(frames[i], resume=i > 0)
             progress(i + 1, count, what)
-            yield i, out["pred_logits"][0, 0], out["pred_masks"][0, :, 0]
+            yield i, out["pred_logits"][0, 0].float(), out["pred_masks"][0, :, 0]
 
 
 # --------------------------------------------------------------------------- job
 
 
 def main(job_path: str) -> None:
-    run = Run.start(job_path, "videomt.panoptic", "VidEoMT")
+    run = Run.start(job_path, "videomt.segment", "VidEoMT")
     job, p = run.job, run.params
     checkpoint = job.weights_dir / CHECKPOINT
     run.weights(checkpoint)
@@ -178,59 +189,90 @@ def main(job_path: str) -> None:
     things = sorted(p["things"])
     # network class -> VIPSeg id: the things in id order, then the stuff
     vipseg = things + sorted(set(range(NUM_CLASSES)) - set(things))
-    model = run.model("VidEoMT", load_model, checkpoint, job.repo_dir)
+    model = run.model("load_model", load_model, checkpoint, job.repo_dir, stage_params={"model": "VidEoMT"})
 
-    run.stage("分割：每个物体整段的类别")
-    # As upstream (`videomt/videomt.py:307 post_processing`: `out_logits = sum(out_logits)/len(out_logits)`):
-    # each query's class score is the plain average of its logits over all frames, divided by the frame count.
-    # Averaging only over frames where the query is an object would raise briefly visible objects to the same score
-    # as objects present throughout.
-    logits_sum = torch.zeros((NUM_QUERIES, NUM_CLASSES + 1), dtype=torch.float64, device="cuda")
-    present = torch.zeros(NUM_QUERIES, dtype=torch.float64, device="cuda")  # number of frames on which each query is an object (used only for the flicker filter)
-    seen = 0
-    for _, cls_logits, _ in sweep(model, frames, count, "分类"):
-        logits_sum += cls_logits.double()
-        present += (cls_logits.argmax(-1) != NUM_CLASSES).double()
-        seen += 1
-    scores, labels = F.softmax((logits_sum / max(seen, 1)).float(), dim=-1).max(-1)
-    kept = torch.nonzero((present >= min(MIN_FRAMES, count)) & (labels != NUM_CLASSES) & (scores > p["threshold"])).flatten()
-    k_count = len(kept)
-    if k_count == 0:  # nothing kept: an empty segmentation, not an error
-        nothing("N-VIDEOMT-EMPTY")
-    if k_count > 254:
-        fail("E-VIDEOMT-TOOMANY", count=k_count)
-    k_scores = scores[kept].view(-1, 1, 1)
-    height, width = job.height, job.width
-
-    area = torch.zeros(k_count, dtype=torch.float64, device="cuda")  # pixels each query wins
-    own_area = torch.zeros_like(area)  # pixels of its own mask >= 0.5
-    inside = torch.zeros_like(area)  # pixels it wins where its own mask >= 0.5
     with tempfile.TemporaryDirectory(prefix="videomt_", dir=job.dir) as tmp:
         tmp = Path(tmp)
-        run.stage("分割：逐帧的像素")
-        w, h = size
-        for i, _, masks in sweep(model, frames, count, "逐帧分割"):
-            masks = masks[kept][None]
-            best = torch.full((height, width), -1.0, device="cuda")
-            winner = torch.zeros((height, width), dtype=torch.int64, device="cuda")
-            winner_mask = torch.zeros((height, width), device="cuda")
-            for c in range(0, k_count, UPSAMPLE_CHUNK):
-                m = F.interpolate(masks[:, c:c + UPSAMPLE_CHUNK], size=frames.padded, mode="bilinear", align_corners=False)
-                m = m[:, :, :h, :w].sigmoid()
-                m = F.interpolate(m, size=(height, width), mode="bilinear", align_corners=False)[0]
-                own_area[c:c + len(m)] += (m >= 0.5).flatten(1).sum(1).double()
-                prob = k_scores[c:c + len(m)] * m
-                top, arg = prob.max(0)
-                better = top > best  # strictly: on a tie the earlier query wins, as argmax over all of them
-                best = torch.where(better, top, best)
-                winner = torch.where(better, arg + c, winner)
-                winner_mask = torch.where(better, m.gather(0, arg[None])[0], winner_mask)
-            area += torch.bincount(winner.flatten(), minlength=k_count).double()
-            own = winner_mask >= 0.5
-            inside += torch.bincount(winner[own], minlength=k_count).double()
-            save_npz(tmp / f"{i}.npz", compression=1, win=torch.where(own, winner, 255).to(torch.uint8).cpu().numpy())
+        run.stage("classify_objects")
+        # As upstream (`videomt/videomt.py:307 post_processing`: `out_logits = sum(out_logits)/len(out_logits)`):
+        # each query's class score is the plain average of its logits over all frames, divided by the frame count.
+        # Averaging only over frames where the query is an object would raise briefly visible objects to the same
+        # score as objects present throughout.
+        logits_sum = torch.zeros((NUM_QUERIES, NUM_CLASSES + 1), dtype=torch.float64, device="cuda")
+        present = torch.zeros(NUM_QUERIES, dtype=torch.float64, device="cuda")  # number of frames on which each query is an object (used only for the flicker filter)
+        seen = 0
+        # Which queries are kept is known only after the last frame, so every query's mask logits are kept until then
+        # (fp16, as the network gives them under autocast) in a file in the job folder (the page cache holds it when
+        # RAM allows): the network runs once. A shot whose masks would take more than half the free disk runs the
+        # network a second time instead (it is deterministic), as before.
+        cache = None
+        with Writer(threads=2, max_pending=4) as writer:
+            for i, cls_logits, masks in sweep(model, frames, count, "classify"):
+                logits_sum += cls_logits.double()
+                present += (cls_logits.argmax(-1) != NUM_CLASSES).double()
+                seen += 1
+                if i == 0 and count * masks.numel() * 2 < shutil.disk_usage(tmp).free * CACHE_DISK_SHARE:
+                    cache = np.lib.format.open_memmap(tmp / "masks.npy", mode="w+", dtype=np.float16,
+                                                      shape=(count, *masks.shape))
+                if cache is not None:
+                    writer.submit(cache.__setitem__, i, masks.to(torch.float16).cpu().numpy())
+        frames.reader.close()
+        scores, labels = F.softmax((logits_sum / max(seen, 1)).float(), dim=-1).max(-1)
+        kept = torch.nonzero((present >= min(MIN_FRAMES, count)) & (labels != NUM_CLASSES) & (scores > p["threshold"])).flatten()
+        k_count = len(kept)
+        if k_count == 0:  # nothing kept: an empty segmentation, not an error
+            nothing("N-VIDEOMT-EMPTY")
+        if k_count > 254:
+            fail("E-VIDEOMT-TOOMANY", count=k_count)
+        k_scores = scores[kept].view(-1, 1, 1)
+        height, width = job.height, job.width
 
-        run.stage("写出分割")
+        if cache is not None:
+            kept_np = kept.cpu().numpy()
+            cached = FrameReader(range(count), lambda i: np.ascontiguousarray(cache[i][kept_np]), threads=2, ahead=4)
+
+            def kept_masks():
+                for i in range(count):
+                    yield i, torch.from_numpy(cached.get(i)).to("cuda").float()
+                    progress(i + 1, count, "segment_frames")
+        else:
+            frames = Frames(paths, size)
+
+            def kept_masks():
+                for i, _, masks in sweep(model, frames, count, "segment_frames"):
+                    yield i, masks[kept].float()
+
+        area = torch.zeros(k_count, dtype=torch.float64, device="cuda")  # pixels each query wins
+        own_area = torch.zeros_like(area)  # pixels of its own mask >= 0.5
+        inside = torch.zeros_like(area)  # pixels it wins where its own mask >= 0.5
+        run.stage("segment_pixels")
+        w, h = size
+        with Writer(threads=2, max_pending=8) as writer:
+            for i, masks in kept_masks():
+                masks = masks[None]
+                best = torch.full((height, width), -1.0, device="cuda")
+                winner = torch.zeros((height, width), dtype=torch.int64, device="cuda")
+                winner_mask = torch.zeros((height, width), device="cuda")
+                for c in range(0, k_count, UPSAMPLE_CHUNK):
+                    m = F.interpolate(masks[:, c:c + UPSAMPLE_CHUNK], size=frames.padded, mode="bilinear", align_corners=False)
+                    m = m[:, :, :h, :w].sigmoid()
+                    m = F.interpolate(m, size=(height, width), mode="bilinear", align_corners=False)[0]
+                    own_area[c:c + len(m)] += (m >= 0.5).flatten(1).sum(1).double()
+                    prob = k_scores[c:c + len(m)] * m
+                    top, arg = prob.max(0)
+                    better = top > best  # strictly: on a tie the earlier query wins, as argmax over all of them
+                    best = torch.where(better, top, best)
+                    winner = torch.where(better, arg + c, winner)
+                    winner_mask = torch.where(better, m.gather(0, arg[None])[0], winner_mask)
+                area += torch.bincount(winner.flatten(), minlength=k_count).double()
+                own = winner_mask >= 0.5
+                inside += torch.bincount(winner[own], minlength=k_count).double()
+                writer.npz(tmp / f"{i}.npz", compression=1, win=torch.where(own, winner, 255).to(torch.uint8).cpu().numpy())
+        if cache is not None:
+            cached.close()
+            del cache
+
+        run.stage("write_segments")
         segment_of = np.zeros(256, np.uint16)  # kept query -> segment id (0: dropped); 255 = no one
         segments, stuff = [], {}
         area_, own_, inside_ = area.cpu().numpy(), own_area.cpu().numpy(), inside.cpu().numpy()
@@ -254,13 +296,13 @@ def main(job_path: str) -> None:
             for sid, n in zip(*np.unique(seg[seg > 0], return_counts=True)):
                 segments[sid - 1]["pixels"] += int(n)
             save_npz(job.raw_dir / f"frame_{f}.npz", segments=seg)
-            progress(i + 1, count, "写出分割")
+            progress(i + 1, count, "write_segments")
     (job.raw_dir / "segments.json").write_text(json.dumps(segments), encoding="utf-8")
     run.finish([f for f, _ in job.frames], segments=len(segments), kept_queries=k_count, processing_size=list(size),
-               class_score_rule="每个物体的类别分数 = 它在所有帧上的 logits 简单平均再 softmax（官方 "
-                                "videomt.py post_processing 的口径）",
-               flicker_filter=f"只在少于 {MIN_FRAMES} 帧里出现的物体不留（这一条是 Lab2Shot 加的，官方没有；"
-                              f"它不碰分数，只决定留不留）",
+               class_score_rule="each object's class score = softmax of its logits averaged over all frames (as "
+                                "upstream videomt.py post_processing)",
+               flicker_filter=f"objects present on fewer than {MIN_FRAMES} frames are dropped (added by Lab2Shot, not "
+                              f"upstream; it does not touch the scores, only decides what is kept)",
                peak_ram_gb=round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20, 1))
 
 

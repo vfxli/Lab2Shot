@@ -21,7 +21,9 @@ from ..extensions.spec import Extension
 from ..messages import Msg
 from . import plan
 
-LABELS = {"requires": "扩展包", "manual": "手动下载", "licence": "许可", "gated": "申请权限", "disk": "硬盘", "gpu": "显卡", "toolchain": "编译工具链"}
+LABELS = plan.Words({"requires": "install.check.requires", "manual": "install.check.manual",
+                     "licence": "install.check.licence", "gated": "install.check.gated", "disk": "install.check.disk",
+                     "gpu": "install.check.gpu", "toolchain": "install.check.toolchain"})
 BLOCKED, WARNING, NOTICE, OK = "blocked", "warning", "notice", "ok"
 HF_TIMEOUT_S = 15
 
@@ -58,7 +60,11 @@ def preflight(ext: Extension) -> Checklist:
     from ..extensions import manual
 
     manual.check()  # what was just dropped into the inbox is sorted (and installed when it installs by itself) first
-    checks = [*requires(ext), *manual_files(ext), *gated(ext), disk(ext), *gpu(ext), *toolchain_check(ext)]
+    # an extension running in another's environment (runs_in) installs that one first: its files, access requests,
+    # disk and toolchain are on this checklist too
+    owner = ext.env_owner
+    base = [*manual_files(owner), *gated(owner)] if owner is not ext else []
+    checks = [*requires(ext), *manual_files(ext), *gated(ext), *base, disk(owner), *gpu(ext), *toolchain_check(owner)]
     return Checklist(ext.name, ext.title, tuple(checks))
 
 
@@ -221,7 +227,7 @@ def card_fit(ext: Extension, card, env_fp: str) -> bool | None:
 
     if not card.compute_cap:
         return None
-    if plan.built_for(ext.paths) == env_fp:
+    if plan.built_for(ext.env_owner.paths) == env_fp:
         return compat.fit(ext.name, card).ok
     return None
 

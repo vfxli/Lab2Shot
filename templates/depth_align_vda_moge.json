@@ -2,51 +2,77 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "c0747e33821e116ef571f349249e04a5",
-  "name": "深度图 · Video Depth Anything 定尺度",
-  "intro": "Video Depth Anything 官方自述：基于 Depth Anything V2，任意长度的视频都能算，质量、一致性和泛化能力不打折。这张卡再按 MoGe 的真实尺度深度图把它定到厘米。Video Depth Anything 模型选 Base / Large 时按非商用算。",
+  "name": {
+   "zh": "深度贴图 · Video Depth Anything 定尺度",
+   "en": "Depth Map · Video Depth Anything Metric"
+  },
+  "intro": {
+   "zh": "Video Depth Anything 官方自述：基于 Depth Anything V2，任意长度的视频都能算，质量、一致性和泛化能力不打折。这张卡再按 MoGe 的真实尺度深度贴图把它定到厘米。Video Depth Anything 模型选 Base / Large 时按非商用算。",
+   "en": "Video Depth Anything describes itself as built on Depth Anything V2, handling videos of any length without losing quality, consistency or generalization. This card then scales it to centimeters using MoGe's metric depth maps. With the Video Depth Anything model set to Base / Large, the card counts as non-commercial."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-12T12:00:00",
   "deliverable": "depth_video",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00",
-  "project": "videodepthanything"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "kind": "group",
-   "label": "镜头",
+   "label": {
+    "zh": "镜头",
+    "en": "Lens"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "focal",
-     "label": "已知 Focal Length",
+     "label": {
+      "zh": "已知焦距",
+      "en": "Known Focal Length"
+     },
      "target": "moge.focal_mm"
     },
     {
      "name": "filmback",
-     "label": "Filmback",
+     "label": {
+      "zh": "胶片背",
+      "en": "Aperture"
+     },
      "target": "moge.filmback_mm",
      "disable_when": "not focal"
     }
@@ -54,74 +80,119 @@
   },
   {
    "kind": "group",
-   "label": "深度",
+   "label": {
+    "zh": "深度",
+    "en": "Depth"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "model",
-     "label": "Video Depth Anything 模型",
+     "name": "vda_model",
+     "label": {
+      "zh": "Video Depth Anything 模型",
+      "en": "Video Depth Anything Model"
+     },
      "target": "vda.model",
      "widget": "menu",
      "options": [
       {
        "value": "metric_small",
-       "label": "真实 · Small"
+       "label": {
+        "zh": "真实 · Small",
+        "en": "Metric · Small"
+       }
       },
       {
        "value": "metric_base",
-       "label": "真实 · Base"
+       "label": {
+        "zh": "真实 · Base",
+        "en": "Metric · Base"
+       }
       },
       {
        "value": "metric_large",
-       "label": "真实 · Large"
+       "label": {
+        "zh": "真实 · Large",
+        "en": "Metric · Large"
+       }
       },
       {
        "value": "small",
-       "label": "相对 · Small"
+       "label": {
+        "zh": "相对 · Small",
+        "en": "Relative · Small"
+       }
       },
       {
        "value": "base",
-       "label": "相对 · Base"
+       "label": {
+        "zh": "相对 · Base",
+        "en": "Relative · Base"
+       }
       },
       {
        "value": "large",
-       "label": "相对 · Large"
+       "label": {
+        "zh": "相对 · Large",
+        "en": "Relative · Large"
+       }
       }
      ]
     },
     {
-     "name": "resolution",
-     "label": "处理分辨率",
+     "name": "vda_resolution",
+     "label": {
+      "zh": "处理分辨率",
+      "en": "Processing Resolution"
+     },
      "target": "vda.resolution"
     },
     {
-     "name": "fit",
-     "label": "拟合",
+     "name": "align_fit",
+     "label": {
+      "zh": "拟合",
+      "en": "Fit"
+     },
      "target": "align.fit"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
-       "name": "fp16",
-       "label": "半精度",
+       "name": "vda_fp16",
+       "label": {
+        "zh": "半精度",
+        "en": "Half Precision"
+       },
        "target": "vda.fp16"
       },
       {
        "name": "moge_model",
-       "label": "MoGe 模型",
+       "label": {
+        "zh": "MoGe 模型",
+        "en": "MoGe Model"
+       },
        "target": "moge.model"
       },
       {
        "name": "moge_resolution_level",
-       "label": "MoGe 精度等级",
+       "label": {
+        "zh": "MoGe 精度等级",
+        "en": "MoGe Precision Level"
+       },
        "target": "moge.resolution_level"
       },
       {
-       "name": "depth_is",
-       "label": "待对齐的是",
+       "name": "align_depth_is",
+       "label": {
+        "zh": "待对齐的是",
+        "en": "Depth to Align Is"
+       },
        "target": "align.depth_is"
       }
      ]
@@ -130,40 +201,64 @@
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
      "target": "exr.name"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
        "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -173,17 +268,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "计算",
+     "word": "cook",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -192,8 +293,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -202,20 +302,19 @@
    },
    "ui": {
     "x": 0,
-    "y": 422
+    "y": 441
    }
   },
   {
    "id": "vda",
    "type": "videodepthanything.depth",
-   "label": "Video Depth Anything 深度图",
    "params": {
     "model": "small",
     "resolution": 518,
     "fp16": true
    },
    "ui": {
-    "x": 451,
+    "x": 396,
     "y": 0,
     "on_node": [
      "model",
@@ -225,8 +324,7 @@
   },
   {
    "id": "moge",
-   "type": "moge.geometry",
-   "label": "MoGe 深度图与法线",
+   "type": "moge.depth",
    "params": {
     "focal_mm": null,
     "filmback_mm": null,
@@ -237,7 +335,7 @@
    },
    "ui": {
     "x": 400,
-    "y": 354,
+    "y": 373,
     "on_node": [
      "focal_mm",
      "model"
@@ -246,15 +344,14 @@
   },
   {
    "id": "align",
-   "type": "core.depth_align",
-   "label": "深度对齐",
+   "type": "depth_align",
    "params": {
     "depth_is": "auto",
     "fit": "shot"
    },
    "ui": {
-    "x": 830,
-    "y": 348,
+    "x": 800,
+    "y": 367,
     "on_node": [
      "fit"
     ]
@@ -262,18 +359,16 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1630,
-    "y": 398
+    "x": 1600,
+    "y": 417
    }
   },
   {
    "id": "exr",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "type": "exr.output",
    "params": {
     "name": "depth",
     "layers": [
@@ -288,8 +383,8 @@
     "colorspace": null
    },
    "ui": {
-    "x": 1230,
-    "y": 398
+    "x": 1200,
+    "y": 417
    }
   }
  ],

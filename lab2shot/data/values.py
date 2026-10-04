@@ -15,6 +15,8 @@ promoted parameters); this module says what a wired value is worth to a paramete
 
 from __future__ import annotations
 
+from .. import i18n
+
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,7 +55,9 @@ def unit_problem(have: str, want: str) -> Msg | None:
     if a and b and a[0] == b[0]:
         return None
     kind = lambda u: UNIT_KINDS[UNITS[u][0]] if u in UNITS else u  # noqa: E731
-    return Msg("B-VALUES-UNIT", have=have, want=want, have_kind=kind(have), want_kind=kind(want))
+    from .units import unit_label
+
+    return Msg("B-VALUES-UNIT", have=unit_label(have), want=unit_label(want), have_kind=kind(have), want_kind=kind(want))
 
 
 def factor(have: str, want: str) -> float:
@@ -272,19 +276,22 @@ def _num(x: float) -> str:
 
 
 def _with_unit(text: str, unit: str) -> str:
-    return f"{text}{unit}" if unit == "°" else f"{text} {unit}" if unit else text
+    from .units import unit_label
+
+    said = unit_label(unit)
+    return f"{text}{said}" if unit == "°" else f"{text} {said}" if unit else text
 
 
 def _one(type_: str, v: Any) -> str:
     if type_ == BOOL:
-        return "开" if v else "关"
+        return i18n.t("value.on" if v else "value.off")
     if type_ == TEXT:
-        return f"「{v}」"
+        return i18n.t("text.quote", text=v)
     if type_ == LENS:  # 「AnyCalib · simple_kb:4」k1 -0.012 k2 0.003：组 · 模型按它自己的名字，系数按模型自己的顺序
-        from ..nodes.lens import group_label
+        from .lens_models import SHEET_KEYS, group_name
 
-        who = group_label(v["group"])
-        return f"「{who} · {v.get('model', '')}」" + "".join(f" {k} {_num(x)}" for k, x in dict(v.get("params") or {}).items() if k not in ("center_x_mm", "center_y_mm", "pixel_aspect"))
+        who = group_name(v["group"])
+        return i18n.t("text.quote", text=f"{who} · {v.get('model', '')}") + "".join(f" {k} {_num(x)}" for k, x in dict(v.get("params") or {}).items() if k not in SHEET_KEYS)
     if type_ == VECTOR:
         return "(" + ", ".join(_num(c) for c in v) + ")"
     return _num(v)
@@ -297,7 +304,7 @@ def option_label(spec: dict, v: Any) -> str:
     if not spec["options"]:
         return ""
     label = (spec.get("option_labels") or {}).get(str(v))
-    return f"「{label}」" if label else ""
+    return i18n.t("text.quote", text=label) if label else ""
 
 
 def say(spec: dict, v: Any) -> str:
@@ -316,15 +323,24 @@ def describe(p: Packet) -> str:
     return str(p.meta["said"]) if p.meta.get("said") else describe_value(read(p))
 
 
+def varies(p: Packet) -> bool:
+    """A value packet holding a number per frame that is not the same in every frame: what describe_value writes as a
+    span (「34.2–36.9 mm（逐帧）」) and the page draws a curve of (the fact, so no one reads it out of the words)."""
+    if p.meta.get("said"):
+        return False
+    v = read(p)
+    return v.per_frame and v.type in (FLOAT, INT) and not v.constant()
+
+
 def describe_value(v: Value) -> str:
     if not v.per_frame:
         return _with_unit(_one(v.type, v.value), v.unit)
     if v.constant():
-        return _with_unit(_one(v.type, v.values[0]), v.unit) + "（逐帧，不变）"
+        return _with_unit(_one(v.type, v.values[0]), v.unit) + i18n.t("value.per_frame_same")
     if v.type in (FLOAT, INT):
         lo, hi = v.span()
-        return _with_unit(f"{_num(lo)}–{_num(hi)}", v.unit) + "（逐帧）"
-    return f"{len(v.frames)} 帧，每帧不同"
+        return _with_unit(f"{_num(lo)}–{_num(hi)}", v.unit) + i18n.t("value.per_frame")
+    return i18n.t("value.per_frame_differs", count=len(v.frames))
 
 
 # ------------------------------------------------------------------ what a wired value is worth to a parameter
@@ -364,7 +380,7 @@ def rows_for_param(spec: dict, rows: list[dict], values: list[Value], where: str
     field = next(f for f in spec["items"] if f["widget"] != "fixed" and f["panel"])
     if len(values) != len(rows):
         raise Invalid(Msg("E-VALUES-WIREDCOUNT", name=spec["label"], where=where, got=len(values), want=len(rows),
-                          names=" ".join(str(r.get("name", "")) for r in rows) or "（无）"))
+                          names=i18n.Both.of(lambda: " ".join(str(r.get("name", "")) for r in rows) or i18n.t("value.none_said"))))
     out = []
     for row, v in zip(rows, values, strict=True):
         one, _ = for_param(field, v, where)

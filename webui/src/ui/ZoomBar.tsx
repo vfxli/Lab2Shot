@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Num } from "./controls";
 import { useView2D } from "../state/viewer";
 import { Button } from "./Button";
+import { t } from "../i18n/t";
 
 /** 适应 / 1:1 / the current zoom%, centred under the timeline (in the empty space of its control row). Shown whenever
  * the viewer is on the 2D stage (Timeline mounts it), whatever draws it; the stage shown applies the asks
@@ -20,14 +21,14 @@ export function ZoomBar({ stage2d = true }: { stage2d?: boolean }) {
   return (
     <div className="tl-group tl-zoom">
       <Button tone="ghost" size="sm" onClick={fit} disabled={!on}>
-        适应
+        {t("ui.view.fit")}
       </Button>
       <Button tone="ghost" size="sm" onClick={one} disabled={!on}>
         1:1
       </Button>
       {editing && on ? (
-        <Num className="tl-field tl-zoom-field" autoFocus label="缩放百分比" value={zoomPercent} min={0} openMin
-          tip="缩放百分比，回车确定，Esc 放弃" onChange={goTo} onDone={() => setEditing(false)} />
+        <Num className="tl-field tl-zoom-field" autoFocus label={t("ui.view.zoom_percent")} value={zoomPercent} min={0} openMin
+          onChange={goTo} onDone={() => setEditing(false)} />
       ) : (
         <Button tone="ghost" size="sm" layout="tl-zoom-pct tnum" onClick={() => setEditing(true)} disabled={!on}>
           {on ? `${zoomPercent}%` : "—"}

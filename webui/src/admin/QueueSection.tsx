@@ -8,6 +8,7 @@ import { usable } from "../api/applies";
 import { Section, useAdmin } from "./common";
 import { Button } from "../ui/Button";
 import { Filters } from "../ui/Categories";
+import { t } from "../i18n/t";
 
 /** 队列 section: all users' jobs with full information about who started them (the same queue component as the
  * editor's 队列 window), cancellation of any job, and the job log. One table: the jobs waiting and running first, then
@@ -48,18 +49,18 @@ export function QueueSection() {
 
   return (
     <Section
-      title="队列"
-      lede="所有人的任务：进行中的按排队的顺序排在前面（先来先到，「插队」的在最前；每个节点轮到了就在空着的显卡或 CPU 名额上算，一张卡同时算一个节点），结束的接在后面，最新的在前。服务重启时正在算、又没排回队列的任务记为「中断」。点一行看提交者的全部信息。"
+      title={t("ui.admin.queue.title")}
+      lede={t("ui.admin.queue.lede")}
       actions={
-        <Button tip="重新读取队列和任务记录" tone="ghost" onClick={refresh}>
-          刷新
+        <Button tone="ghost" onClick={refresh}>
+          {t("ui.admin.common.refresh")}
         </Button>
       }
     >
       {/* Filter by user: narrows the table below to one account's jobs. */}
       {!!users?.length && (
         <Filters>
-          <UserChips users={users} chosen={who} onChoose={setWho} allTip="不按账号筛选：列出所有人的任务" />
+          <UserChips users={users} chosen={who} onChoose={setWho} />
         </Filters>
       )}
       {queue && history ? (
@@ -75,7 +76,7 @@ export function QueueSection() {
           graphUrl={graphUrl}
         />
       ) : (
-        <p className="adm-lede">读取中…</p>
+        <p className="adm-lede">{t("ui.admin.common.reading")}</p>
       )}
     </Section>
   );

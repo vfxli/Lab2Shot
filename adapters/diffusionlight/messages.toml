@@ -1,4 +1,0 @@
-# DiffusionLight 的消息（adapters/diffusionlight）。
-
-# ---- worker
-"W-DIFFUSIONLIGHT-LOWRANGE" = "DiffusionLight 生成的环境图最亮处只有中间亮度的 {ratio:.1f} 倍（低于 4 倍）：画面可能很平（阴天、没有明显光源），或者铬球没画好，打出来的光会发平、影子不明显；换个「随机种子」再试"

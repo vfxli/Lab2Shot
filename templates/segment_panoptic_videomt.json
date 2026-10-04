@@ -2,110 +2,173 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "1aa0a4f353b2a26a75b5db5181646d1d",
-  "name": "整画面分割 · VidEoMT",
-  "intro": "VidEoMT 是只有编码器的轻量在线视频分割模型，建在普通的 Vision Transformer 上，空间和时间的推理都在编码器里完成，不依赖专门的目标跟随模块。这张卡不写提示词，把每个像素分到 VIPSeg 124 类，交付多层 EXR：第一层是原画面，其余是 Cryptomatte。",
+  "name": {
+   "zh": "全景分割 · VidEoMT",
+   "en": "Panoptic Segmentation · VidEoMT"
+  },
+  "intro": {
+   "zh": "VidEoMT 是只有编码器的轻量在线视频分割模型，建在普通的 Vision Transformer 上，空间和时间的推理都在编码器里完成，不依赖专门的目标跟随模块。这张卡不写提示词，把每个像素分到 VIPSeg 124 类，交付多层 EXR：第一层是原画面，其余是 Cryptomatte。",
+   "en": "VidEoMT is a lightweight encoder-only online video segmentation model built on a plain Vision Transformer, doing spatial and temporal reasoning inside the encoder without a dedicated tracking module. This card needs no prompt and assigns every pixel to one of 124 VIPSeg classes, delivering a multi-layer EXR: the first layer is the original image, the rest are Cryptomatte."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-13T12:00:00",
-  "deliverable": "segmentation",
+  "deliverable": "mask",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
-   "name": "threshold",
-   "label": "检测阈值",
-   "target": "pan.threshold"
+   "name": "panoptic_threshold",
+   "label": {
+    "zh": "检测阈值",
+    "en": "Detection Threshold"
+   },
+   "target": "panoptic.threshold"
   },
   {
-   "name": "resolution",
-   "label": "处理分辨率",
-   "target": "pan.resolution"
+   "name": "panoptic_resolution",
+   "label": {
+    "zh": "处理分辨率",
+    "en": "Processing Resolution"
+   },
+   "target": "panoptic.resolution"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "min_coverage",
-     "label": "完整度门槛",
-     "target": "pan.min_coverage"
+     "name": "panoptic_min_coverage",
+     "label": {
+      "zh": "完整度门槛",
+      "en": "Completeness Threshold"
+     },
+     "target": "panoptic.min_coverage"
     }
    ]
   },
   {
-   "name": "cook_seg",
-   "label": "分割",
-   "target": "pan.cook"
+   "name": "cook_panoptic",
+   "label": {
+    "zh": "分割",
+    "en": "Segment"
+   },
+   "target": "panoptic.cook"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
      "target": "exr.name"
     },
     {
      "name": "colorspace_out",
-     "label": "输出色彩空间",
+     "label": {
+      "zh": "输出颜色空间",
+      "en": "Output Color Space"
+     },
      "target": "exr.colorspace"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_bit_depth",
-       "label": "EXR 位深",
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
        "target": "exr.exr_bit_depth"
       },
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
        "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -115,17 +178,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -134,8 +203,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -144,13 +212,12 @@
    },
    "ui": {
     "x": 0,
-    "y": 62
+    "y": 67
    }
   },
   {
-   "id": "pan",
-   "type": "videomt.panoptic",
-   "label": "VidEoMT 整画面分割",
+   "id": "panoptic",
+   "type": "videomt.segment",
    "params": {
     "resolution": 720,
     "threshold": 0.8,
@@ -163,8 +230,7 @@
   },
   {
    "id": "exr",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "type": "exr.output",
    "params": {
     "name": "panoptic",
     "layers": [
@@ -190,7 +256,7 @@
    },
    "ui": {
     "x": 800,
-    "y": 80,
+    "y": 90,
     "on_node": [
      "name"
     ]
@@ -198,12 +264,11 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
     "x": 1200,
-    "y": 80
+    "y": 90
    }
   }
  ],
@@ -214,7 +279,7 @@
     "image"
    ],
    "to": [
-    "pan",
+    "panoptic",
     "image"
    ]
   },
@@ -230,7 +295,7 @@
   },
   {
    "from": [
-    "pan",
+    "panoptic",
     "panoptic"
    ],
    "to": [
@@ -240,7 +305,7 @@
   },
   {
    "from": [
-    "pan",
+    "panoptic",
     "classes"
    ],
    "to": [
@@ -261,7 +326,7 @@
  ],
  "boxes": [],
  "view": {
-  "display": "pan",
+  "display": "panoptic",
   "frame": null
  }
 }

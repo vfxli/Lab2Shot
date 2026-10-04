@@ -6,17 +6,19 @@ with the original repo on PYTHONPATH; never imports Lab2Shot core.
 Two prompt types, both run SAM 3's video models so objects are tracked through
 the shot (memory of past frames), not segmented frame by frame:
 
-* text concept (params.prompt, e.g. "person"): SAM 3's detector + tracker video
-  model finds every instance on every frame, starts a masklet for new ones and
-  tracks them. Object ids are assigned in order of appearance.
-* per-person boxes (inputs.boxes, the "人物框" JSON): SAM 3's tracker alone,
+* text concept (params.prompt, e.g. "person"): SAM 3.1's (Object Multiplex) detector + tracker
+  video model finds every instance on every frame, starts a masklet for new ones and
+  tracks them. Object ids are assigned in order of appearance. FlashAttention 3 is off
+  (use_fa3=False): it runs on Hopper only, not on the RTX 4090 / 5090.
+* per-person boxes (inputs.boxes, the "人物框" JSON): SAM 3's (sam3.pt) tracker alone (SAM 3.1 has no
+  box-per-object prompt: a box there is an example of a kind of object),
   each person's box on the first frame they appear is a box prompt for that
   person's id (the text prompt is ignored).
 
 Long shots are cut into overlapping chunks, one inference session each, so GPU
 memory is bounded by the chunk length, not the shot length (SAM 3 keeps every
 tracked frame's memory features, ~1 MB per object per frame, plus the masks it
-has output). Frames stay on the CPU (offload_video_to_cpu). Across chunks:
+has output). A text-mode chunk's frames stay on the GPU when they fit (offload_frames), else on the CPU. Across chunks:
 text mode re-detects and links ids by mask overlap on OVERLAP_TEXT shared
 frames; box mode hands each person's last mask to the next chunk as a mask
 prompt (a person lost at a chunk border is re-acquired from their next box).
@@ -51,6 +53,21 @@ IMAGE_SIZE = 1008  # SAM 3's input resolution (frames are squashed to 1008x1008)
 STATE_BUDGET_MB = 8000
 MIN_CHUNK, MAX_CHUNK = 60, 800
 OVERLAP_TEXT = 8  # frames shared by consecutive text-mode chunks (id linking)
+# Text mode: a chunk's frames (fp16, 3 x 1008 x 1008, ~6 MB each) stay on the GPU, as upstream's default
+# (offload_video_to_cpu=False), when they take at most this much and the card has room for them beside the tracker's
+# state; otherwise they wait in RAM and each is moved up when it is processed.
+FRAMES_ON_GPU_MB = 1536
+FRAME_MB = 3 * IMAGE_SIZE * IMAGE_SIZE * 2 / 2**20
+STATE_MB_PER_OBJECT_FRAME = 0.8  # SAM 3 tracker (box mode) memory per object per frame (see STATE_BUDGET_MB)
+# SAM 3.1 (text mode): measured on an RTX 4090, 8 objects, GROUNDING_BATCH 4: 9.9 GB peak after 16 frames, 10.9 GB after
+# 48, i.e. ~25 MB a frame (with the frame itself on the GPU), ~3.2 MB per object per frame. Text-mode chunks are sized
+# with this: 8 objects -> ~310 frames, ~18 GB peak.
+STATE_MB_PER_OBJECT_FRAME_31 = 3.2
+# SAM 3.1 detector + tracker activations (text mode only), on top of the loaded model: it detects GROUNDING_BATCH
+# frames ahead in one batch (9.8 GB peak on 16 frames with ~3.5 GB of model, RTX 4090; SAM 3 needed ~3000 MB)
+ACTIVATIONS_MB = 6500
+MAX_OBJECTS = 8  # the node's largest max_objects option
+GROUNDING_BATCH = 4  # SAM 3.1 text mode: frames detected per batch (upstream 16; build_model_31)
 LINK_IOU = 0.3  # min mask IoU on the shared frames to keep an id across chunks
 
 
@@ -58,11 +75,20 @@ def log(message: str) -> None:
     print(message, flush=True)
 
 
-def chunk_length(max_objects: int) -> int:
+def chunk_length(max_objects: int, per_object_mb: float = 1.0) -> int:
     override = int(os.environ.get("SAM3_CHUNK_FRAMES", "0") or 0)
     if override > 0:
         return max(override, OVERLAP_TEXT + 2)
-    return int(min(MAX_CHUNK, max(MIN_CHUNK, STATE_BUDGET_MB // max(1, max_objects))))
+    return int(min(MAX_CHUNK, max(MIN_CHUNK, STATE_BUDGET_MB // (max(1, max_objects) * per_object_mb))))
+
+
+def offload_frames(count: int, max_objects: int) -> bool:
+    """Whether a text-mode chunk of `count` frames keeps its frames in RAM (FRAMES_ON_GPU_MB)."""
+    frames_mb = count * FRAME_MB
+    if frames_mb > FRAMES_ON_GPU_MB:
+        return True
+    free_mb = torch.cuda.mem_get_info()[0] / 2**20
+    return frames_mb + count * max_objects * STATE_MB_PER_OBJECT_FRAME_31 + ACTIVATIONS_MB > free_mb
 
 
 def chunks(n: int, length: int, overlap: int) -> list[tuple[int, int]]:
@@ -77,6 +103,23 @@ def chunks(n: int, length: int, overlap: int) -> list[tuple[int, int]]:
 
 
 # --------------------------------------------------------------------------- model
+
+
+@resident
+def build_model_31(checkpoint: Path, repo: Path, max_objects: int):
+    """SAM 3.1 (Object Multiplex) detector + tracker video model (sam3.1_multiplex.pt) for text prompts, through
+    upstream's build_sam3_predictor(version="sam3.1"); FlashAttention 3 off (Hopper only)."""
+    from sam3.model_builder import build_sam3_predictor
+
+    bpe = repo / "sam3" / "assets" / "bpe_simple_vocab_16e6.txt.gz"
+    predictor = build_sam3_predictor(checkpoint_path=str(checkpoint), bpe_path=str(bpe), version="sam3.1",
+                                     use_fa3=False, max_num_objects=max_objects)
+    model = predictor.model.eval()
+    # upstream detects 16 frames per batch and holds the next batch's outputs beside the previous one's while it
+    # changes over: past 16 frames that is > 21 GB, out of memory on an RTX 4090. The detector runs frame by frame
+    # inside a batch (the batch only shares the work), so a smaller batch changes the memory, not the masks.
+    model.batched_grounding_batch_size = GROUNDING_BATCH
+    return model
 
 
 @resident
@@ -182,7 +225,7 @@ def run_text(model, job, prompt: str, max_objects: int, threshold: float, store:
     # New masklets need a more confident detection than matching does (upstream: 0.5 / 0.7).
     model.new_det_thresh = min(0.95, threshold + 0.2)
 
-    spans = chunks(n, chunk_length(max_objects), OVERLAP_TEXT)
+    spans = chunks(n, chunk_length(max_objects, STATE_MB_PER_OBJECT_FRAME_31), OVERLAP_TEXT)
     log(f"[sam3] text prompt {prompt!r}: {n} frames in {len(spans)} chunk(s) {spans}")
     scores: dict[int, float] = {}
     next_id = 1
@@ -192,7 +235,9 @@ def run_text(model, job, prompt: str, max_objects: int, threshold: float, store:
         t_chunk = time.time()
         overlap = max(0, prev_end - start)  # indices [start, start+overlap) were output by the previous chunk
         folder = link_frames([p for _, p in frames[start:end]], tmp / "chunk", ".png")
-        state = model.init_state(resource_path=str(folder), offload_video_to_cpu=True, async_loading_frames=True)
+        offload = offload_frames(end - start, max_objects)
+        log(f"[sam3] chunk {c}: frames {'in RAM' if offload else 'on the GPU'}")
+        state = model.init_state(resource_path=str(folder), offload_video_to_cpu=offload, async_loading_frames=True)
         model.add_prompt(state, frame_idx=0, text_str=prompt)
 
         mapping: dict[int, int] = {}  # local id -> global id
@@ -252,7 +297,7 @@ def run_text(model, job, prompt: str, max_objects: int, threshold: float, store:
                 continue
             emit(index, local, local_scores)
             done += 1
-            progress(done, n, "分割跟踪")
+            progress(done, n, "segment_track")
         for item in stash:  # chunk shorter than the overlap (cannot happen with MIN_CHUNK, kept for safety)
             emit(*item)
         prev_end = end
@@ -366,7 +411,7 @@ def _run_boxes(tracker, job, people: dict[int, dict[int, list[float]]], store: M
             if local_idx >= first_out:
                 store.put(start + local_idx, local)
                 done += 1
-                progress(done, n, "分割跟踪")
+                progress(done, n, "segment_track")
         for gen in gens.values():
             gen.close()
         seq.close()
@@ -404,20 +449,30 @@ def main(job_path: str) -> None:
     elif not prompt:
         fail("E-SAM3-NOPROMPT")
 
-    checkpoint = job.weights_dir / "sam3" / "sam3.pt"
-    # not run.weights: the extension is "sam3", the project "SAM 3"
-    require_weights("sam3", checkpoint, page="https://huggingface.co/facebook/sam3")
+    # text prompts: SAM 3.1; person boxes: SAM 3 (3.1 has no box-per-object prompt)
+    if people is None:
+        checkpoint = job.weights_dir / "sam3.1" / "sam3.1_multiplex.pt"
+        require_weights("sam3.1", checkpoint, page="https://huggingface.co/facebook/sam3.1")
+    else:
+        checkpoint = job.weights_dir / "sam3" / "sam3.pt"
+        # not run.weights: the extension is "sam3", the project "SAM 3"
+        require_weights("sam3", checkpoint, page="https://huggingface.co/facebook/sam3")
 
     raw = job.raw_dir
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
 
-    model = run.model("SAM 3", build_model, checkpoint, job.repo_dir)
+    if people is None:
+        # built for the most objects the node allows (max_objects options), run_text sets the job's own
+        model = run.model("load_model", build_model_31, checkpoint, job.repo_dir, MAX_OBJECTS,
+                          stage_params={"model": "SAM 3.1"})
+    else:
+        model = run.model("load_model", build_model, checkpoint, job.repo_dir, stage_params={"model": "SAM 3"})
 
     tmp = Path(tempfile.mkdtemp(prefix=".sam3_", dir=raw))
     try:
         store = MaskStore(tmp / "masks", height, width)
-        run.stage("分割跟踪")
+        run.stage("segment_track")
         t1 = time.time()
         with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             if people is not None:
@@ -442,7 +497,7 @@ def main(job_path: str) -> None:
         # Text mode: renumber 1..K in order of appearance.
         out_ids = list(ids) if people is not None else list(range(1, len(ids) + 1))
 
-        run.stage("写出遮罩")
+        run.stage("write_masks")
         coverage = {oid: 0.0 for oid in out_ids}
         for i, frame in enumerate(frame_numbers):
             masks = store.get(i)
@@ -454,7 +509,7 @@ def main(job_path: str) -> None:
                     coverage[out_ids[k]] += float(m.mean())
             save_npz(raw / f"frame_{frame}.npz", 1, masks=stack, ids=np.asarray(out_ids, np.int32))  # fast zlib: masks shrink ~20x
             if (i + 1) % 10 == 0 or i + 1 == len(frame_numbers):
-                progress(i + 1, len(frame_numbers), "写出遮罩")
+                progress(i + 1, len(frame_numbers), "write_masks")
         objects = [
             {
                 "id": int(out_ids[k]),
@@ -481,8 +536,8 @@ def main(job_path: str) -> None:
         mask_format="raw/frame_<n>.npz: masks uint8 [K,H,W] (0/255), ids int32 [K]; raw/objects.json",
         # mean fraction of the frame covered by each object, over the whole shot
         coverage={str(k): round(v / len(frame_numbers), 4) for k, v in coverage.items()},
-        model="SAM 3 (facebook/sam3, sam3.pt)",
-        chunk_frames=chunk_length(len(people) if people is not None else max_objects),
+        model="SAM 3 (facebook/sam3, sam3.pt)" if people is not None else "SAM 3.1 (facebook/sam3.1, sam3.1_multiplex.pt)",
+        chunk_frames=chunk_length(len(people)) if people is not None else chunk_length(max_objects, STATE_MB_PER_OBJECT_FRAME_31),
     )
 
 

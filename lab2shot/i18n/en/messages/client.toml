@@ -1,0 +1,13 @@
+# The DCC client's own messages (lab2shot/client.py, generated into it by tools/messages_client.py).
+"E-CLIENT-EMPTYFOLDER" = "The folder is empty: {path} has no file that can be uploaded"
+"E-CLIENT-NOSEQUENCE" = "Sequence not found: {path}; check how the frame number is written in the file names"
+"E-CLIENT-NOFILE" = "File not found: {path}"
+"E-CLIENT-FRAMESFORM" = "Write the frame range as start-end, e.g. 1001-1020: {frames}"
+"E-CLIENT-FRAMESORDER" = "The start frame of the frame range cannot be after its end frame: {first}-{last}"
+"E-CLIENT-LOGINFAILED" = "Login failed: {why}"
+"E-CLIENT-UNREACHABLE" = "Cannot reach Lab2Shot ({server}): {reason}"
+"E-CLIENT-UNREACHABLEHOST" = "Cannot reach Lab2Shot ({server}): {reason}. Start the server with lab2shot ui --host 0.0.0.0"
+"E-CLIENT-LOGINFIRST" = "{said}: log in first (python lab2shot_client.py --server {server} login, or Lab2Shot(..., username=, password=))"
+"I-CLIENT-LOGINNEEDED" = "Login required"
+"E-CLIENT-CHANGEDWHILESENT" = "{path} changed while it was uploaded (is it still being written?): upload it again once it is written"
+"E-CLIENT-CANCELLED" = "The job was cancelled: submit it again to get its results"

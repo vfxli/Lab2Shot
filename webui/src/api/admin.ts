@@ -1,4 +1,4 @@
-import type { QueueView, ServerInfo, ServerNoticeText } from ".";
+import type { DiskSpace, QueueView, ServerInfo, ServerNoticeText } from ".";
 import { ApiError, json } from "../platform/http";
 import { accountsApi, type NewUser, type OnlineSummary, type ResourceAct, type UserChange, type UserLogins, type UserRow, type UsersView } from "./accounts";
 import { templatesApi } from "./templates";
@@ -16,8 +16,8 @@ export interface SettingDef {
   key: string; // <section>.<name>, as in config/local.toml
   group: string;
   label: string;
-  help: string;
-  tip: string; // the hover text, made by the server: what it does, plus its default in words
+  note: string; // what it does, what a change leads to: shown under it (ui/LabelRow.tsx note)
+  item_labels: Record<string, string>; // a list's items that are ids with words of their own: id -> its words
   default: SettingValue;
   // The three values in words, as the server states them (lab2shot/config.py Setting.says): 开 / 关, a choice's label,
   // a number with its unit, what leaving it empty means. The page never spells any of that a second time.
@@ -38,6 +38,7 @@ export interface SettingDef {
   value: SettingValue; // what the settings file sets (or the default): what the page edits
   running: SettingValue; // what this server goes by (differs until a restart for the ones that need it)
   overridden: string; // what overrides the file for this run ("" nothing): the command line, the environment
+  overridden_kind: "" | "option" | "env" | "server"; // what kind of thing overrides it (config.py overridden_kind)
   auto: string; // "" a fixed default; otherwise how this machine works its default out (cores, cards)
   source: string; // the tag next to it: the administrator changed it, or the default was worked out here ("" neither)
   source_tip: string; // and what that means, said by the server (lab2shot/config.py Settings._source)
@@ -69,6 +70,7 @@ export interface SettingsView {
 export interface Overview {
   memory: { total_gb: number; available_gb: number; keep_free_gb: number };
   disk: { path: string; total: number; free: number };
+  space: DiskSpace; // the data disk against 暂停新计算的剩余空间
   resident: { processes: number; vram_mb: number };
   server: { version: string; boot: string; started: number; pid: number; address: string; command: string };
   pending: { label: string; page: string }[]; // settings waiting for a restart, each with the settings page it is on
@@ -90,7 +92,7 @@ export interface RecentView {
 
 export type RecentPeriod = "today" | "days7" | "week" | "month";
 
-/** 自行注册 now (lab2shot/registration.py counts): open or not, registrations lately against the site-wide limits,
+/** 自行注册 now (lab2shot/site/registration.py counts): open or not, registrations lately against the site-wide limits,
  * and whether that paused registering ("hour" / "day"; "" not paused). */
 export interface Registering {
   open: boolean;
@@ -129,7 +131,8 @@ export interface Registered {
   id: number;
   username: string;
   name: string;
-  department: string;
+  department: string; // its value (stored)
+  department_label: string; // how it shows (lab2shot/accounts.py department_label)
   role: string;
   enabled: boolean;
   registered: number;
@@ -154,8 +157,10 @@ export class SettingsRefused extends Error {
 }
 
 
-/** 用户反馈 (lab2shot/feedback.py). */
+/** 用户反馈 (lab2shot/site/feedback.py). */
 export type FeedbackStatus = "new" | "seen" | "solved";
+/** The rating, apart from the status: "" 未评定 / valid 有效 / invalid 无效 (lab2shot/site/feedback.py RATINGS). */
+export type FeedbackRating = "" | "valid" | "invalid";
 
 interface FeedbackItem {
   id: string;
@@ -163,7 +168,7 @@ interface FeedbackItem {
   user: number; // the account that sent it
   username: string;
   person: string; // its Chinese name (「已删除的用户」 once deleted)
-  department: string;
+  department: string; // how it shows (lab2shot/accounts.py department_label)
   category: "" | "error" | "usage" | "idea";
   category_label: string;
   text: string;
@@ -180,6 +185,41 @@ interface FeedbackItem {
   updated_by: string;
   images: string[]; // file names (feedbackFile)
   bytes: number;
+  rating: FeedbackRating;
+  rating_label: string;
+  rated: number | null;
+  rated_by: string;
+  reward: number | null; // the ledger's grant it is in (valid and counted), else null
+}
+
+/** What rating a feedback did (PUT /api/admin/feedback/{fid}/rating): the feedback now, and in words. */
+export interface FeedbackRated {
+  feedback: FeedbackItem;
+  said: string;
+}
+
+/** An account's valid feedback and the time it earned (GET /api/admin/users/{id}/rewards). */
+export interface UserRewards {
+  valid: number; // its feedback rated valid
+  days: number; // days its grants still standing added
+  recorded: number; // days granted only on record (an account that never expires)
+  pending: number; // valid ones waiting for the next grant
+  per: number; // the rule now: every `per` valid ones…
+  per_days: number; // …add this many days (0: no reward)
+  ledger: {
+    id: number;
+    at: number;
+    kind: "grant" | "revoke";
+    kind_label: string;
+    feedback: string[];
+    per: number;
+    days: number;
+    old: number | null;
+    new: number | null;
+    applied: boolean;
+    undone: number | null;
+    by: string;
+  }[];
 }
 
 /** What came with a feedback: what the page collected (diagnostics.ts) and what the server added. */
@@ -247,7 +287,7 @@ export interface SecurityView {
 }
 
 
-/** 按用户查一切 (lab2shot/resources.py): every kind of thing an account owns that this login may see, with how
+/** 按用户查一切 (lab2shot/site/resources.py): every kind of thing an account owns that this login may see, with how
  * many it has (GET /api/admin/users/{id}/resources), and one page of one kind with the columns it declares
  * (.../resources/{kind}). The 用户 detail page draws a tab per kind; the types are here so the routes are named once. */
 export interface UserResourceTab {
@@ -284,17 +324,21 @@ interface ResourceQuery {
 
 /** 用户协议 and 隐私政策 as the administrator edits them (lab2shot/server/terms.py): the texts as written, the
  * placeholders they may use with what each says now, and how many of the accounts that must agree did. */
+/** One terms document in both interface languages (lab2shot/i18n LANGS). */
+export type TermsTexts = Record<"zh" | "en", string>;
+
 export interface TermsAdminView {
   version: number;
   at: number;
   by: string; // who saved this version; "" for the program's own text
   edited: boolean; // the administrator's copy is in effect
   most: number; // characters one text may have
-  documents: { id: "agreement" | "privacy"; title: string; text: string }[];
+  documents: { id: "agreement" | "privacy"; title: string; texts: TermsTexts }[]; // each text in both languages
   fills: Record<string, string>; // placeholder -> what it says now
   accounts: number;
   agreed: number;
 }
+
 
 export const adminApi = {
   ...templatesApi,
@@ -320,7 +364,8 @@ export const adminApi = {
   settings: () => json<SettingsView>("GET", "/api/admin/settings"),
   saveSettings: (values: Record<string, SettingValue>): Promise<SettingsView> =>
     json<SettingsView>("PUT", "/api/admin/settings", { values }).catch((e) => {
-      throw e instanceof ApiError && e.status === 400 ? new SettingsRefused(e.message, (e.body?.errors as Record<string, string>) ?? {}) : e;
+      // refused field by field (lab2shot/errors.py FieldErrors): a value that does not fit (400) or one this account may not change (403)
+      throw e instanceof ApiError && e.body?.errors ? new SettingsRefused(e.message, e.body.errors as Record<string, string>) : e;
     }),
   // a missing list is filled in as empty, here once, so the overview never checks piecemeal (a missing `pending` would throw a TypeError there)
   overview: () => json<Overview>("GET", "/api/admin/overview").then((o) => ({ ...o, pending: o.pending ?? [] })),
@@ -335,19 +380,22 @@ export const adminApi = {
     json<{ accounts: Registered[] }>("GET", `/api/admin/registrations?${new URLSearchParams(Object.entries(f).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))}`),
   disableRegistered: (f: RegisteredFilter) => json<InvitesView & { disabled: string[] }>("POST", "/api/admin/registrations/disable", f),
   terms: () => json<TermsAdminView>("GET", "/api/admin/terms"),
-  saveTerms: (t: { agreement: string; privacy: string }) => json<TermsAdminView>("PUT", "/api/admin/terms", t),
+  saveTerms: (t: { agreement: TermsTexts; privacy: TermsTexts }) => json<TermsAdminView>("PUT", "/api/admin/terms", t),
   resetTerms: () => json<TermsAdminView>("DELETE", "/api/admin/terms"),
   notice: () => json<ServerNoticeText>("GET", "/api/admin/notice"),
   setNotice: (n: { text: string; tone: string; on: boolean }) => json<ServerNoticeText>("PUT", "/api/admin/notice", n),
   queueSwitches: (switches: { gpu?: boolean; compute?: boolean }) => json<QueueView>("PUT", "/api/admin/queue/switches", switches),
   restart: (mode: "drain" | "now") => json<ServerInfo>("POST", "/api/admin/restart", { mode }),
   callOff: () => json<ServerInfo>("POST", "/api/admin/restart/cancel", {}),
-  feedback: ({ status, since, person }: { status: string; since?: number; person: string }) =>
-    json<{ items: FeedbackItem[]; counts: Record<FeedbackStatus, number> }>("GET", 
-      `/api/admin/feedback?${new URLSearchParams({ status, person, ...(since ? { since: String(since) } : {}) })}`,
+  // rating: "" every one, "unrated" / "valid" / "invalid" only those
+  feedback: ({ status, since, person, rating }: { status: string; since?: number; person: string; rating: string }) =>
+    json<{ items: FeedbackItem[]; counts: Record<FeedbackStatus, number>; ratings: Record<FeedbackRating, number> }>("GET", 
+      `/api/admin/feedback?${new URLSearchParams({ status, person, rating, ...(since ? { since: String(since) } : {}) })}`,
     ),
   feedbackDetail: (id: string) => json<FeedbackDetail>("GET", `/api/admin/feedback/${id}`),
   answerFeedback: (id: string, reply: { status: FeedbackStatus; reply: string; note: string }) => json<FeedbackItem>("PUT", `/api/admin/feedback/${id}`, reply),
+  rateFeedback: (id: string, rating: FeedbackRating) => json<FeedbackRated>("PUT", `/api/admin/feedback/${id}/rating`, { rating }),
+  userRewards: (id: number) => json<UserRewards>("GET", `/api/admin/users/${id}/rewards`),
   deleteFeedback: (id: string) => json<unknown>("DELETE", `/api/admin/feedback/${id}`),
   feedbackFile: (id: string, name: string) => `/api/admin/feedback/${id}/files/${encodeURIComponent(name)}`,
   feedbackDownload: (id: string) => `/api/admin/feedback/${id}/download`,

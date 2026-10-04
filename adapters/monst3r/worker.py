@@ -4,13 +4,20 @@ third_party/monst3r/.venv with the pinned repo on sys.path; never imports Lab2Sh
     python worker.py <job.json>        (job["node"] == "monst3r.reconstruct")
 
 Frames (every `step`-th), in chunks of `max_frames` (the global alignment keeps every
-frame pair on the GPU) -> per chunk, what upstream demo.py does: pairs of frames in a
-sliding window with strides ("swinstride") -> MonST3R point maps of every pair ->
-optical flow of every pair (SEA-RAFT) -> moving-object masks (flow that the camera
-motion cannot explain, refined through the chunk by SAM 2.1) -> global alignment
+frame pair of a chunk on the GPU, one chunk at a time) -> per chunk, what upstream demo.py
+does: pairs of frames in a sliding window with strides ("swinstride") -> MonST3R point maps
+of every pair -> optical flow of every pair (SEA-RAFT) -> moving-object masks (flow that the
+camera motion cannot explain, refined through the chunk by SAM 2.1) -> global alignment
 (point maps + flow on static pixels + camera smoothness) -> one camera per frame, one
 focal length, a depth map per frame. Chunks are stitched by a similarity fitted on their
 shared frames (lab2shot_worker.recon); later chunks keep the first chunk's focal.
+
+Not upstream's window_wise continuation (demo.py --window_wise --prev_output_dir: a window's
+first frames frozen at the previous window's results, the rest optimized against them),
+even streamed one window at a time: measured (RTX 5090, 24 frames, max_frames 12,
+focal given, ATE Sim3 vs ground truth) it drifts more than independent chunks + stitching,
+C05 1.13 vs 0.80 cm, R04 0.60 vs 0.57 cm (a 2/3 overlap gave the same, 1.12 / 0.61 cm). The
+frozen frames are the previous window's last ones, its least reliable cameras.
 
     raw/cameras.npz   frames [F], K [F,3,3] (pixels, input resolution), cam_to_world [F,4,4]
                       (OpenCV; world = first solved frame's camera; ARBITRARY scale)
@@ -100,18 +107,37 @@ def stub_evo() -> None:
         sys.modules.setdefault(name, module)  # a resident process keeps the first ones
 
 
-def import_upstream(repo: Path, weights: Path):
-    """The pinned code, with its hard-coded checkpoint paths pointed at weights/ (repo untouched)."""
+def import_upstream(repo: Path, weights: Path, loaded: dict):
+    """The pinned code, with its hard-coded checkpoint paths pointed at weights/ (repo untouched).
+
+    Upstream builds SEA-RAFT and SAM 2.1 inside every PointCloudOptimizer (optimizer.py:265 load_RAFT, :382
+    build_sam2_video_predictor), so a shot in N chunks would load both N times. `loaded` (one dict per job) keeps the
+    first ones for the job's later chunks: the same networks, eval mode, no state carried between calls (SAM 2.1's
+    per-video state lives in init_state's return value)."""
     stub_evo()
     for folder in (repo, repo / "third_party" / "sam2"):  # sam2: upstream installs it with pip -e
         if str(folder) not in sys.path:
             sys.path.insert(0, str(folder))
     from dust3r.cloud_opt import optimizer
+    from sam2.build_sam import build_sam2_video_predictor
     from third_party import raft
 
     optimizer.sam2_checkpoint = str(weights / SAM2_FILE)
 
+    def sam2_once(config, checkpoint, *args, **kwargs):
+        key = ("sam2", config, checkpoint, str(kwargs.get("device")))
+        if key not in loaded:
+            loaded[key] = build_sam2_video_predictor(config, checkpoint, *args, **kwargs)
+        return loaded[key]
+
+    optimizer.build_sam2_video_predictor = sam2_once
+
     def load_sea_raft(*_args, **_kwargs):
+        if "raft" not in loaded:
+            loaded["raft"] = build_sea_raft()
+        return loaded["raft"]
+
+    def build_sea_raft():
         """third_party/raft.load_RAFT for the SEA-RAFT (RAFT2) checkpoint, from the Hugging Face
         safetensors; its ResNet backbone is not pre-initialized from torchvision (every weight
         comes from the checkpoint), so nothing is downloaded."""
@@ -147,7 +173,7 @@ def import_upstream(repo: Path, weights: Path):
 def load_model(model_dir: Path, device: torch.device):
     """As upstream demo.py with its .pth checkpoint (dust3r.model.load_model): plain patch embedding, portrait
     frames fed as they are. The Hugging Face config says ManyAR_PatchEmbed + landscape_only, which only accepts
-    landscape tensors. (SEA-RAFT and SAM 2.1 are built by upstream for every chunk, as it does.)"""
+    landscape tensors. (SEA-RAFT and SAM 2.1 are built by upstream's optimizer, once per job: import_upstream.)"""
     from dust3r.model import AsymmetricCroCo3DStereo
 
     return AsymmetricCroCo3DStereo.from_pretrained(str(model_dir), patch_embed_cls="PatchEmbedDust3R",
@@ -186,7 +212,7 @@ def run_chunk(model, optimizer, images: list[np.ndarray], moving_in: np.ndarray,
     views = make_views(images, moving_in)
     graph = f"swinstride-{min(WINDOW, max(1, (n - 1) // 2))}-noncyclic"
     pairs = make_pairs(views, scene_graph=graph, prefilter=None, symmetrize=True)
-    progress(0, 1, f"{len(pairs)} 对画面")
+    progress(0, 1, "pairs", count=len(pairs))
     output = inference(pairs, model, device, batch_size=BATCH_SIZE, verbose=False)
 
     # MonST3R's own moving-object mask (flow check, refined through the chunk by SAM 2.1), then the
@@ -228,7 +254,7 @@ def run_chunk(model, optimizer, images: list[np.ndarray], moving_in: np.ndarray,
     for it in range(p["niter"]):
         global_alignment_iter(scene, it, p["niter"], 0.01, 1e-3, opt, "linear")
         if (it + 1) % 25 == 0 or it + 1 == p["niter"]:
-            progress(it + 1, p["niter"], "全局优化")
+            progress(it + 1, p["niter"], "global_optimization")
 
     with torch.no_grad():
         c2w = scene.get_im_poses().detach().double().cpu().numpy()
@@ -271,18 +297,20 @@ def main(job_path: str) -> None:
     device = torch.device("cuda")
     torch.backends.cuda.matmul.allow_tf32 = True  # as upstream demo.py
 
-    run.stage("读取画面")
+    run.stage("read_frames")
     geo = di.Geometry.for_size(width, height, p["resolution"])
     p["max_frames"] = p["max_frames"] or default_max_frames(geo)
     images = di.read_images(used, geo, read_frame, progress)
     moving_in = di.moving_at_model_size(job, frames, geo, width, height)
 
+    loaded: dict = {}  # SEA-RAFT and SAM 2.1, built once for the job's chunks (import_upstream)
+
     def load():
         """The pinned code with its checkpoint paths, then the model (both under the loading stage's clock)."""
-        return import_upstream(job.repo_dir, weights), load_model(weights / MODEL_DIR, device)
+        return import_upstream(job.repo_dir, weights, loaded), load_model(weights / MODEL_DIR, device)
 
     # run.model caps the GPU first: an allocation beyond the free memory fails instead of spilling into RAM
-    optimizer, model = run.model("MonST3R 模型", load)
+    optimizer, model = run.model("load_model", load, stage_params={"model": "MonST3R"})
 
     def solve(max_frames: int):
         """The whole shot in chunks of at most `max_frames`, stitched; the chunks whose flow check was dropped."""
@@ -292,7 +320,7 @@ def main(job_path: str) -> None:
         stitch = recon.Stitcher(rotation="points")  # the chunk-end cameras are less reliable than the points
         flow_dropped = []
         for ci, (a, b) in enumerate(chunks):
-            run.stage(f"重建（第 {ci + 1}/{len(chunks)} 段）" if len(chunks) > 1 else "重建")
+            run.stage("reconstruct_segment", segment=ci + 1, segments=len(chunks)) if len(chunks) > 1 else run.stage("reconstruct")
             res, dropped = run_chunk(model, optimizer, images[a:b], moving_in[a:b], p, known_focal, device)
             if dropped:
                 flow_dropped.append([frames[a], frames[b - 1]])
@@ -306,13 +334,17 @@ def main(job_path: str) -> None:
         return max_frames, chunks, stitch, flow_dropped
 
     t_inf = time.time()
-    p["max_frames"], chunks, stitch, flow_dropped = run.fit(MAX_FRAMES, solve, min(p["max_frames"], len(frames)))
+    try:
+        p["max_frames"], chunks, stitch, flow_dropped = run.fit(MAX_FRAMES, solve, min(p["max_frames"], len(frames)))
+    finally:
+        loaded.clear()  # a resident worker keeps the MonST3R model only, not the job's flow and SAM 2.1 networks
+        torch.cuda.empty_cache()
     infer_seconds = time.time() - t_inf
     run.frame_seconds.extend([infer_seconds / len(frames)] * len(frames))  # the chunks are one pass over the shot: shared out per frame
     for f0, f1 in flow_dropped:
         say("W-MONST3R-FLOWDROPPED", first=f0, last=f1)
 
-    run.stage("写出结果")
+    run.stage("write_results")
     # the moving-object mask is written as its own array too (MonST3R estimates it; useful downstream)
     stitched = list(stitch.pop())
     summary = di.write_outputs(raw, frames, geo, stitched, np.array([f.K[0, 0] for f in stitched]), progress)

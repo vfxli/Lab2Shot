@@ -1,4 +1,0 @@
-# MatAnyone 2 精细抠像（adapters/matanyone）。一行一条：编号 = 模板。
-
-# ---- 输入
-"N-MATANYONE-LATESTART" = "引导遮罩的前 {count:d} 帧是空的：MatAnyone 2 从第 {frame} 帧开始抠，往前的帧倒着算"

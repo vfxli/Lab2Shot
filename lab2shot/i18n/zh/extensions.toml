@@ -1,0 +1,93 @@
+# 扩展包的通用词（lab2shot/extensions）：由几部分拼成的说明。各扩展自己的标题、简介、许可、权重说明在 adapters/<名>/i18n/<lang>.toml 的 extension.<名>.*。
+[extension.weight]
+hf_choice = "{repo}（{note}）"
+hf_config = "{repo} 的网络配置"
+manual = "{title}：{what}，{note}"
+
+# 手动下载（lab2shot/extensions/manual.py）：收件文件夹 downloads/ 里的说明文件（中英两种语言写在同一个文件里），
+# 以及人体模型的说明。扩展自己声明的手动下载项写在 adapters/<名>/i18n/<lang>.toml 的 manual.<key>.*。
+[manual]
+readme = """
+这里放所有要你自己下载的文件：人体模型（SMPL、SMPL-X、MANO、FLAME）、Autodesk FBX SDK……
+
+下载好的文件原样放进来：不用解压，不用改名，也不用分类。
+Lab2Shot 按文件里面的内容认出每一个，自动装到它该去的地方；
+装好的原文件移到 installed 文件夹里（可以删掉，也可以留着备份）。
+
+要下载什么、去哪下载、现在还缺什么：管理员打开 Lab2Shot 的后台管理页，看「扩展包」里的「手动下载」。
+认不出的文件留在这里，页面上写着为什么。
+"""
+
+[manual.smplx]
+title = "SMPL-X"
+download = "SMPL-X v1.1 (NPZ+PKL)"
+what = "身体 + 手 + 脸模型"
+note = "要先在官网注册登录，仅限非商用科研，禁止再分发"
+
+[manual.smpl]
+title = "SMPL"
+download = "SMPL for Python users 1.1.0"
+what = "身体模型"
+note = "要先在官网注册登录，仅限非商用科研，禁止再分发"
+
+[manual.mano]
+title = "MANO"
+download = "Models & Code"
+what = "手部模型"
+note = "要先在官网注册登录，仅限非商用科研，禁止再分发"
+
+[manual.flame]
+title = "FLAME"
+download = "FLAME 2020"
+what = "面部模型"
+note = "要先在官网注册登录，仅限非商用科研，禁止再分发"
+
+# 扩展包卡片上的状态（lab2shot/extensions/status.py）
+[extension.state]
+ready = "已就绪"
+not_installed = "未安装"
+record_mismatch = "安装记录对不上"
+needs_extensions = "缺少扩展包 {extensions}"
+outdated = "需要重装"
+needs_manual = "缺少 {items}"
+consent = "等同意许可协议"
+weights_missing = "模型未齐"
+not_placed = "文件没摆到位"
+selfcheck_failed = "自检未过"
+no_selfcheck = "未自检"
+
+# 安装扩展包（lab2shot/installer）：进度条上每一步的名字、安装前检查的项目名、安装过程输出的几句话
+[install.step]
+repo = "代码"
+env = "环境"
+packages = "装包"
+build = "编译"
+weights = "模型权重"
+post = "后处理"
+place = "摆放文件"
+selfcheck = "自检"
+switch = "启用"
+
+[install.check]
+requires = "扩展包"
+manual = "手动下载"
+licence = "许可"
+gated = "申请权限"
+disk = "硬盘"
+gpu = "显卡"
+toolchain = "编译工具链"
+
+[install.console]
+skipped = "{step}（已完成，跳过）"
+
+[install.what]
+python_packages = "Python 包"
+compiled_packages = "编译的包"
+submodules = "子模块"
+
+[install.log]
+stalled = "{seconds} 秒没有任何输出：当作网络卡住，停掉这一次"
+reverted = "改过的 {count} 个文件放回原样（--revert）"
+staged = "已检出到 {folder}，启用那一步再换上去（正在用的那份不动）"
+repinned = "钉住的 sha256 变了，下载新的那一版"
+file = "安装日志：{file}"

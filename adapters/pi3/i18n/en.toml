@@ -1,0 +1,21 @@
+# The Pi3 extension's own words and messages in English (the same keys as zh.toml).
+
+[node."pi3.reconstruct"]
+subtitle = "Depth and Camera"
+description = "Images → per-frame cameras and depth maps (π³ / Pi3), solved in one pass with no reference frame to choose. π³X gives the steadiest cameras and a scale close to real; not suited to zoom lenses or strongly distorted lenses. For a point cloud at real scale use MapAnything Depth and Camera; for long shots of thousands of frames use LingBot-Map Depth and Camera (it gives no point cloud). The point cloud is one point map per frame (the model's own point map, placed back in that frame's camera), not one cloud for the whole shot: upstream has no output that merges a scene point cloud."
+official.note = "Depth is the Z of the official camera-space point map (pi3.py:212 local_points); the camera is pi3.py:214 camera_poses. Points is the official world point map points (pi3.py:211): upstream defines that line as camera_poses @ local_points, so the worker hands on local_points itself (the same data, without multiplying by each segment's own poses), and the family places it in the world by the stitched cameras. There is no mask or bounding box input: upstream forward takes only imgs (pi3.py:173), so a mask cannot reach the model. To reconstruct part of the image, black out the rest before it goes in: ViTDet People Boxes → Person Boxes to Mask → Image Composite (keep) → this node's RGB input."
+
+[node."pi3.reconstruct".param.model]
+label = "Model"
+option.pi3x = "Pi3X"
+option.pi3 = "Pi3 Original"
+
+[node."pi3.reconstruct".param.resolution]
+placeholder = "Official: within 255,000 pixels at the plate's aspect (672×378 for 16:9)"
+
+[extension.pi3]
+summary = "A feed-forward network with no fixed reference view that predicts affine-invariant camera poses and scale-invariant per-frame point maps from an unordered set of images"
+license.name = "BSD-3-Clause (code) + CC BY-NC 4.0 (Pi3 / Pi3X model weights)"
+license.summary = "Non-commercial: the Pi3 and Pi3X model weights are both CC BY-NC 4.0 (strictly non-commercial; redistributions must keep this restriction). The main code is BSD-3-Clause and allows commercial use, but its RoPE positional encoding file pi3/models/layers/pos_embed.py comes from Naver DUSt3R/CroCo and is CC BY-NC-SA 4.0, non-commercial; the DINOv2 parts are Apache-2.0 and the PRoPE parts MIT. (The Pi3 Hugging Face model card is tagged bsd-2-clause, but its text says commercial use requires contacting the authors; the license table in the repository README prevails.)"
+weight.Pi3X.note = "yyfz233/Pi3X (5.4 GB, CC BY-NC 4.0, non-commercial)"
+weight.Pi3.note = "yyfz233/Pi3 (3.8 GB, CC BY-NC 4.0, non-commercial)"

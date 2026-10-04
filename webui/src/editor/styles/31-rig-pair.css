@@ -1,0 +1,419 @@
+/* 双骨架编辑（手柄 rig_pair，view/rigPair.tsx、view/rigTree.tsx）：浮在三维舞台上——左边源骨架树、右边目标骨架树、
+   下方居中的功能条（模式、前后距离、三个「自动」与状态行、选中关节的数值）。参数面板上的摘要行也在这里。 */
+
+.stage3d > .rpair-tree-panel {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  z-index: var(--z-hud);
+  width: 325px; /* the default; the inner edge drags it (view/rigTree.tsx, state/preferences.ts rigTreeWidth) */
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 6px 4px;
+  border-radius: var(--r-panel);
+  background: var(--panel);
+  border: 1px solid var(--hair);
+  font-size: var(--fs-sm);
+  min-height: 0;
+}
+
+.stage3d > .rpair-tree-panel.src {
+  left: 8px;
+}
+
+.stage3d > .rpair-tree-panel.dst {
+  right: 8px;
+}
+
+/* the inner edge of a joint tree: drag to set its width */
+.rpair-tree-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  z-index: 1;
+}
+
+.rpair-tree-panel.src > .rpair-tree-grip {
+  right: -4px;
+}
+
+.rpair-tree-panel.dst > .rpair-tree-grip {
+  left: -4px;
+}
+
+.rpair-tree-grip:hover,
+.rpair-tree-grip:active {
+  background: linear-gradient(to right, transparent 3px, var(--accent) 3px 5px, transparent 5px);
+}
+
+.rpair-tree-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.rpair-dim {
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.rpair-search {
+  width: 100%;
+}
+
+.rpair-tree {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--hair);
+  border-radius: var(--r-xs);
+  padding: 2px 0;
+}
+
+.rpair-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding-right: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+  color: var(--text-2);
+  border-radius: 4px;
+}
+
+.rpair-row:hover,
+.rpair-row.hov {
+  background: var(--hair);
+  color: var(--text);
+}
+
+/* 先点的骨点（编辑关系）、选中的关节（编辑姿态） */
+.rpair-row.on {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+/* 眼睛关着的关节与它的子孙：视图里不画 */
+.rpair-row.dim {
+  opacity: 0.45;
+}
+
+.rpair-twist {
+  display: inline-flex;
+  justify-content: center;
+  width: 12px;
+  flex: none;
+  color: var(--text-3);
+}
+
+.rpair-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.rpair-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.rpair-tag {
+  flex: none;
+  margin-left: auto;
+  padding-left: 6px;
+  color: var(--text-3);
+}
+
+.rpair-with {
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* 按推测的部位的识别置信度（model/rigPair.ts confidenceOf 的三档）：高的不抢眼，中、低用状态行同一套颜色 */
+.rpair-conf {
+  flex: none;
+  padding-left: 4px;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+
+.rpair-conf.mid {
+  color: var(--yellow);
+}
+
+.rpair-conf.low {
+  color: var(--orange-text);
+}
+
+.rpair-tree-head .rpair-conf {
+  margin-left: auto;
+  font-family: inherit;
+}
+
+.rpair-tag + .rpair-with {
+  margin-left: 4px;
+}
+
+.rpair-empty {
+  padding: 8px;
+  color: var(--text-3);
+}
+
+/* 功能条：贴着舞台下沿、夹在两棵树之间的一条（窄了折成两行）。框显只用它和两棵树以外的那块（rigPair.tsx
+   useCoveredEdges → StageState.insets） */
+.stage3d > .rpair-bar {
+  position: absolute; /* left and right: past the two trees, from their widths (view/rigPair.tsx) */
+  bottom: 8px;
+  z-index: var(--z-hud);
+}
+
+.rpair-bar {
+  container-type: inline-size; /* the mode columns fold by the bar's own width (.rpair-modes) */
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: var(--r-panel);
+  background: var(--panel);
+  border: 1px solid var(--hair);
+  font-size: var(--fs-sm);
+}
+
+.rpair-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* 三栏，一栏一个模式（view/rigPair.tsx；有尺寸参数的节点多一栏「尺寸」）：上面是模式，下面是这个模式自己的「自动」与状态；当前模式那一栏高亮。
+   「全部自动」单独一栏在最右。栏宽一样，窄了就换行（一栏一行） */
+.rpair-modes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.rpair-modes.with-size {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+}
+
+.rpair-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: 4px;
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--hair);
+}
+
+.rpair-mode.on {
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.rpair-mode-head {
+  height: 24px;
+  border: 0;
+  border-radius: calc(var(--r-ctl) - 2px);
+  background: var(--ctl-face);
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.rpair-mode.on .rpair-mode-head {
+  background: color-mix(in srgb, var(--accent) 62%, var(--ctl-face));
+  color: #fff;
+  font-weight: 600;
+}
+
+.rpair-mode-head:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.rpair-mode-auto {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rpair-mode-run {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 「尺寸」栏（有尺寸参数的节点）：栏头只是名字，不是模式按钮 */
+.rpair-size-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+
+.rpair-size-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.rpair-size-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rpair-size-side .num-unit {
+  width: 84px;
+}
+
+.rpair-size-legs {
+  font-size: var(--fs-xs);
+}
+
+.rpair-all {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+/* 四栏时每栏窄一些：状态行可以折行，不被截掉 */
+.rpair-modes.with-size .rpair-state {
+  white-space: normal;
+  min-width: 0;
+}
+
+/* 四栏（有「尺寸」）要的宽一些：不到 960 px 时「全部自动」先挪到下面横着一行 */
+@container (max-width: 960px) {
+  .rpair-modes.with-size {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .rpair-modes.with-size .rpair-all {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    justify-content: flex-start;
+  }
+}
+
+/* 窄了：三栏照旧，「全部自动」挪到下面横着一行；再窄就一栏一行 */
+@container (max-width: 640px) {
+  .rpair-modes {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .rpair-modes.with-size {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rpair-modes.with-size .rpair-all {
+    grid-column: 1 / -1;
+  }
+
+  .rpair-all {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    justify-content: flex-start;
+  }
+}
+
+@container (max-width: 400px) {
+  .rpair-modes,
+  .rpair-modes.with-size {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 底行：提示在左，「前后距离」（只是怎么看）在右 */
+.rpair-hint-text {
+  flex: 1 1 200px;
+  min-width: 0;
+  white-space: normal;
+}
+
+.rpair-view {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.rpair-gap {
+  width: 150px;
+}
+
+.rpair-hint {
+  font-size: var(--fs-xs);
+}
+
+.rpair-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--hair);
+}
+
+/* 每个「自动」旁的状态行（model/rigPair.ts autoState 的 tone） */
+.rpair-state {
+  white-space: nowrap;
+  color: var(--text-3);
+}
+
+.rpair-state.done {
+  color: var(--green);
+}
+
+.rpair-state.edited {
+  color: var(--yellow);
+}
+
+.rpair-state.stale {
+  color: var(--orange-text);
+}
+
+.rpair-bad,
+.rpair-sum.bad {
+  color: var(--error-text);
+}
+
+.rpair-pose {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--hair);
+}
+
+/* 默认自动：从没执行过、参数也空着，计算按服务端的建议走 */
+.rpair-state.auto {
+  color: var(--text-2);
+}

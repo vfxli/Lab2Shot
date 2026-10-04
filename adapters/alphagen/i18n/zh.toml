@@ -1,0 +1,33 @@
+# LTX-2.5 Alpha Gen 扩展自己的界面字和消息（中文）。一行一条：编号 = 模板。
+
+# ---- 校验
+"E-ALPHAGEN-SHAPE.other" = "LTX-2.5 Alpha Gen 的结果和输入画面对不上：输入 {frames:d} 帧、{width:d} × {height:d}，结果是 {got_frames:d} 帧、{got_width:d} × {got_height:d}。这个节点只给输入里已有的每一帧各出一张同尺寸的 alpha，所以停下、不写出任何结果。请把这条消息和任务日志交给管理员"
+
+[node."alphagen.matte"]
+subtitle = "抠像"
+description = "只用于抠像：从原画面直接抠出 alpha，不需要遮罩，也不用提示词，由模型自己判断哪部分是前景。烟、火、玻璃、水、毛发、薄纱这类难抠的半透明边缘是它的强项。不能指定抠哪个主体；画面里有好几个主体、只要其中一个时，用「MatAnyone 2 精细抠像」或「VideoMaMa 精细抠像」配遮罩。只输出 alpha，帧数和尺寸与输入完全一致。需要 32 GB 显存的显卡，比其他抠像节点慢得多。"
+
+[node."alphagen.matte".param.resolution]
+label = "处理分辨率"
+
+[node."alphagen.matte".port.image]
+label = "RGB"
+
+[node."alphagen.matte".official]
+note = "上游用法（模型卡）：python -m ltx_pipelines.ic_lora，蒸馏版底模、LoRA 强度 1.0、提示词留空、--skip-stage-2（只跑第一阶段、原生分辨率）。画面补齐到 32 的倍数、帧数补到 8n+1；最大 1920 × 1088、145 帧（更长时原画面会漏进遮罩，要分段）。不支持遮罩，不能选择抠哪个主体。"
+
+[node."alphagen.matte".licence]
+note = "LTX-2.x Community License：个人和年收入低于 1000 万美元的公司可免费商用；达到 1000 万美元的公司除非商业研究和评估外须向 Lightricks 购买授权。"
+
+[node."alphagen.matte".cost]
+note = "fp8 的 22B 模型常驻显存约 22 GB，只能在 32 GB 的卡上跑；第一次运行还要把空提示词编码一次并缓存。"
+
+[extension.alphagen]
+summary = "从普通视频里直接抠出 alpha，不需要遮罩和提示词，擅长发丝、烟火、玻璃、水等半透明边缘。基于 LTX-2.5 视频模型的 IC-LoRA"
+license.name = "LTX-2.x Community License"
+license.summary = "个人和年收入低于 1000 万美元的公司可免费使用，包括商用；年收入达到 1000 万美元的公司，除非商业的研究和评估外，任何使用都须向 Lightricks 购买授权。再分发须附带许可证原文及其使用限制（附件 A）；只能合法使用并遵守其可接受使用政策，不得去除安全、来源标记和水印等功能"
+weight.alphagen_lora.note = "Lightricks/LTX-2.5-22b-IC-LoRA-Alpha-Gen/ltx-2.5-22b-ic-lora-alpha-gen-0.9.safetensors（LTX-2.x Community License）"
+
+[stage]
+encode_prompt = "准备固定提示词"
+matte = "抠像"

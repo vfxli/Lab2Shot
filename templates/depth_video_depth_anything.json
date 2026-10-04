@@ -2,88 +2,139 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "9d5835f33c4dcfb3181350de4bb539a4",
-  "name": "深度图 · Video Depth Anything",
-  "intro": "Video Depth Anything 官方自述：基于 Depth Anything V2，任意长度的视频都能算，质量、一致性和泛化能力不打折，比扩散模型更快。这张卡交付整段时序一致的深度图：「真实」模型给厘米深度，「相对」模型给相对视差。模型选 Base / Large 时按非商用算。",
+  "name": {
+   "zh": "深度贴图 · Video Depth Anything",
+   "en": "Depth Map · Video Depth Anything"
+  },
+  "intro": {
+   "zh": "Video Depth Anything 官方自述：基于 Depth Anything V2，任意长度的视频都能算，质量、一致性和泛化能力不打折，比扩散模型更快。这张卡交付整段时序一致的深度贴图：「真实」模型给厘米深度，「相对」模型给相对视差。模型选 Base / Large 时按非商用算。",
+   "en": "Video Depth Anything describes itself as built on Depth Anything V2, handling videos of any length without losing quality, consistency or generalization, and faster than diffusion models. This card delivers temporally consistent depth maps for the whole shot: Metric models give depth in centimeters, Relative models give relative disparity. With Model set to Base / Large, the card counts as non-commercial."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "depth_video",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "kind": "group",
-   "label": "深度",
+   "label": {
+    "zh": "深度",
+    "en": "Depth"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "model",
-     "label": "模型",
-     "target": "depth.model",
+     "name": "vda_model",
+     "label": {
+      "zh": "模型",
+      "en": "Model"
+     },
+     "target": "vda.model",
      "widget": "menu",
      "options": [
       {
        "value": "metric_small",
-       "label": "真实 · Small"
+       "label": {
+        "zh": "真实 · Small",
+        "en": "Metric · Small"
+       }
       },
       {
        "value": "metric_base",
-       "label": "真实 · Base"
+       "label": {
+        "zh": "真实 · Base",
+        "en": "Metric · Base"
+       }
       },
       {
        "value": "metric_large",
-       "label": "真实 · Large"
+       "label": {
+        "zh": "真实 · Large",
+        "en": "Metric · Large"
+       }
       },
       {
        "value": "small",
-       "label": "相对 · Small"
+       "label": {
+        "zh": "相对 · Small",
+        "en": "Relative · Small"
+       }
       },
       {
        "value": "base",
-       "label": "相对 · Base"
+       "label": {
+        "zh": "相对 · Base",
+        "en": "Relative · Base"
+       }
       },
       {
        "value": "large",
-       "label": "相对 · Large"
+       "label": {
+        "zh": "相对 · Large",
+        "en": "Relative · Large"
+       }
       }
      ]
     },
     {
-     "name": "resolution",
-     "label": "处理分辨率",
-     "target": "depth.resolution"
+     "name": "vda_resolution",
+     "label": {
+      "zh": "处理分辨率",
+      "en": "Processing Resolution"
+     },
+     "target": "vda.resolution"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
-       "name": "fp16",
-       "label": "半精度",
-       "target": "depth.fp16"
+       "name": "vda_fp16",
+       "label": {
+        "zh": "半精度",
+        "en": "Half Precision"
+       },
+       "target": "vda.fp16"
       }
      ]
     }
@@ -91,40 +142,64 @@
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
      "target": "exr.name"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
        "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -134,17 +209,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "计算",
+     "word": "cook",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -153,8 +234,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -167,9 +247,8 @@
    }
   },
   {
-   "id": "depth",
+   "id": "vda",
    "type": "videodepthanything.depth",
-   "label": "Video Depth Anything 深度图",
    "params": {
     "model": "metric_small",
     "resolution": 518,
@@ -186,18 +265,16 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1219,
+    "x": 1244,
     "y": 14
    }
   },
   {
    "id": "exr",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "type": "exr.output",
    "params": {
     "name": "depth",
     "layers": [
@@ -212,7 +289,7 @@
     "colorspace": null
    },
    "ui": {
-    "x": 819,
+    "x": 844,
     "y": 14
    }
   }
@@ -224,13 +301,13 @@
     "image"
    ],
    "to": [
-    "depth",
+    "vda",
     "image"
    ]
   },
   {
    "from": [
-    "depth",
+    "vda",
     "depth"
    ],
    "to": [
@@ -251,7 +328,7 @@
  ],
  "boxes": [],
  "view": {
-  "display": "depth",
+  "display": "vda",
   "frame": null
  }
 }

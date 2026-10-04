@@ -204,8 +204,8 @@ FAMILIES = {"sm_75": "turing", "sm_80": "ampere", "sm_86": "ampere", "sm_87": "a
 
 # The architectures CUDA code can be compiled for (the setting build.archs), each named by its platform, never by a
 # graphics card: what is compiled depends on these, not on the cards the building machine happens to have.
-TARGET_LABELS = {"sm_75": "Turing", "sm_80": "Ampere 数据中心", "sm_86": "Ampere", "sm_89": "Ada Lovelace",
-                 "sm_90": "Hopper", "sm_100": "Blackwell 数据中心", "sm_120": "Blackwell"}
+TARGET_LABELS = {"sm_75": "Turing", "sm_80": "Ampere (data center)", "sm_86": "Ampere", "sm_89": "Ada Lovelace",
+                 "sm_90": "Hopper", "sm_100": "Blackwell (data center)", "sm_120": "Blackwell"}
 # How the installer hands the chosen architectures to a build script (EnvSpec.build), which runs in the extension's own
 # environment and cannot read the settings: "8.9;12.0", the form of TORCH_CUDA_ARCH_LIST
 # (lab2shot_worker.build.cuda_build_env reads it)
@@ -213,8 +213,8 @@ ARCHS_ENV = "LAB2SHOT_CUDA_ARCHS"
 
 
 def target_label(token: str) -> str:
-    """A compile target as the menu and the admin page show it: 「Ada Lovelace（sm_89）」."""
-    return f"{TARGET_LABELS.get(token, token)}（{token}）"
+    """A compile target as the menu and the admin page show it: "Ada Lovelace (sm_89)" (platform names: not translated)."""
+    return f"{TARGET_LABELS.get(token, token)} ({token})"
 
 
 def cap_of(token: str) -> str:

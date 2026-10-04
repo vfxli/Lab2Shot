@@ -16,6 +16,9 @@ are these, and nothing else:
   taken it yet (free memory is read once a pass and says nothing of a node that is still starting). A node that
   declares more than the machine has would wait for ever: it says so (W-QUEUE-NEVERRAM, told to the user) and holds
   up nobody;
+- a card no node of ours is on that runs short of memory nobody uses (让出显存线, resident.release_below_gb: another
+  program's or another server's use included) gets it back from our idle kept-loaded models there (placement.py
+  pressed_cards, engine/resident.py relieve);
 - a node runs no longer than 单节点超时: then its stop is set and it fails with the reason (Ticket.expired);
 - no node of an extension starts while the installer switches that extension's environment (`withholding`, a moment).
 
@@ -102,6 +105,7 @@ class _Pass:
     started: list[str] = field(default_factory=list)  # tasks whose first node got its place now
     free_ram: tuple[float, set[str]] | None = None  # memory to make way for, and the runtimes to spare
     reclaim: tuple[Need, set[str]] | None = None  # a GPU node short of video memory only, and the busy cards
+    busy: set[str] = field(default_factory=set)  # the cards a node of ours is on (granted in this pass too)
     background: list[Callable[[], None]] = field(default_factory=list)
 
 
@@ -122,6 +126,7 @@ class Pools:
         self._changes = 0  # counts every wake: the dispatcher waits only when nothing happened during its pass
         self._ended = False
         self._withheld: set[str] = set()  # runtimes whose environment is being switched: no node of theirs starts
+        self._relieved: dict[str, float] = {}  # card -> when its idle models last gave memory back (_make_way)
 
     # ------------------------------------------------------------------ what the cooks and the queue call
 
@@ -222,16 +227,25 @@ class Pools:
 
     def _make_way(self, done: _Pass) -> bool:
         """What stands in the way is our own idle kept-loaded models: they make way (seconds each, holding nothing).
-        True when any did."""
+        True when any did. A card short of free memory for anyone (placement.pressed_cards: another program, another
+        server) gets it back from them too; a card is relieved again only once a reading taken after the last time
+        says it still needs it."""
         if done.free_ram is not None:
             need, spare = done.free_ram
             if resident().free_ram(need, spare):
                 return True
+        snapshot = self.host.snapshot()
         if done.reclaim is not None:
             need, busy = done.reclaim
-            cards = placement.reclaimable_cards(need, self.host.snapshot(), busy, resident().idle_counts())
+            cards = placement.reclaimable_cards(need, snapshot, busy, resident().idle_context_mb())
             if cards and resident().clear_idle(cards):
                 return True
+        pressed = {g: mb for g, mb in placement.pressed_cards(snapshot, done.busy, policy.release_below_gb()).items()
+                   if self._relieved.get(g, 0.0) < snapshot.at}
+        if pressed and resident().relieve(pressed):
+            now = time.time()
+            self._relieved.update({g: now for g in pressed})
+            return True
         return False
 
     def _decide(self, line: list[tuple[str, bool]], held_now: bool) -> _Pass:
@@ -300,6 +314,7 @@ class Pools:
             else:
                 slots += 1
                 self._grant(t, "", "", out)
+        out.busy = set(busy)
         room = most - slots - self._background  # what no node computes on: background work may have it
         while short is None and room > 0 and self._later:
             out.background.append(self._later.popleft())
@@ -317,9 +332,11 @@ class Pools:
     @staticmethod
     def _paused(kind: str) -> Msg | None:
         """Why a task that has not started gets no place of this kind now: the administrator switched 计算任务 (or,
-        for a GPU node, 显卡任务) off; None when it may have one."""
+        for a GPU node, 显卡任务) off, or the data disk is below 暂停新计算的剩余空间; None when it may have one."""
         if not policy.compute_enabled():
             return Msg("N-QUEUE-PAUSED")
+        if (low := policy.space()).get("low"):  # 暂停新计算的剩余空间: back by itself once the disk has room again
+            return Msg("N-QUEUE-DISKLOW", free_pct=low["pct"], pct=low["floor_pct"])
         if kind == GPU and not policy.gpu_enabled():
             return Msg("N-QUEUE-GPUOFF")
         return None

@@ -1,0 +1,219 @@
+# 计算（lab2shot/engine、lab2shot/farm/queue.py）和用法检查（lab2shot/nodes/expects.py）。
+# 一行一条：编号 = 模板。写法：谁估的、和什么比、数字和单位、意味着什么、怎么办。
+
+# ---- 计算一个节点（engine/cook.py）
+"E-COOK-FAILED" = "「{node}」出错：{reason}"
+"E-COOK-FAILED.app" = "{reason}"
+"E-COOK-NODELIVERY" = "「{node}」没有地方收集结果：这次计算不是从队列提交的任务（脚本或测试绕过队列调用了引擎）；整理和打包要放进任务的文件夹，结果才能交给提交的人"
+"E-COOK-PROBLEM" = "{detail}"
+"N-COOK-NOTHINGIN" = "「{node}」这次没有算：必需的「{input}」是空的（「{source}」这次没有给出数据，看它的提醒）。它的输出也是空的；上游给出数据以后再算就有了"
+"I-COOK-BLOCKED" = "「{node}」已跳过（被阻断）：它必需的「{input}」来自被阻断的「{root}」。这是开关关着，不是出错；打开「{root}」的「通过」就会算"
+"I-GATE-BLOCKED" = "「{node}」阻断着：输入不取、上游不算，只靠它的下游都跳过。勾上「通过」就放行"
+"N-COOK-SKIPPED" = "「{node}」已跳过：它必需的「{input}」来自出错的「{root}」。先看「{root}」的错误，改好后再算"
+"E-COOK-UNAVAILABLE" = "「{node}」现在用不了：{reason}。接在它后面的节点跳过；它所在的线接进的「输出」不打包，其他分支照常计算"
+"E-COOK-UNAVAILABLE.app" = "有一步现在用不了：{reason}"
+"N-COOK-OVERSCAN" = "「{node}」只处理画面里的像素：输入「{input}」画面外还有 左 {left} 上 {top} 右 {right} 下 {bottom} 像素（overscan），这些没有算，往下交付的结果里也没有"
+"W-INPUT-UNUSED" = "「{node}」没有用上「{input}」：{reason}。主结果照常算出，只是少了它；修好后再算会用上"
+"W-INPUT-UNUSED.app" = "有一份输入这次没用上：{reason}。主结果照常算出，只是少了它"
+"N-INPUT-NOTHING" = "「{node}」的「{input}」是空的（「{source}」这次没有给出数据），当作没接：结果照常算出"
+"I-INPUT-FAILED" = "接给它的「{source}」出错了"
+"I-INPUT-SKIPPED" = "接给它的「{source}」已跳过（根源是出错的「{root}」）"
+"E-COOK-WIRED" = "「{node}」的{reason}"
+"E-COOK-MISSINGINPUT" = "「{node}」的「{input}」要用「{source}」的结果，但它不在缓存里了（多半是计算途中被清理掉）：再算一次"
+"E-COOK-MISSINGINPUT.app" = "要用的中间结果不在缓存里了（多半是计算途中被清理掉）：再点一次「计算并打包」"
+"E-COOK-MISSINGOUTPUT" = "「{node}」没有产出 {ports}：节点的代码漏写了这些输出，是程序的问题，请把日志发给开发者"
+"E-COOK-CONTRACT" = "「{node}」的输出「{output}」不符合{kind}的约定：{problems}。这是节点代码的问题，请把日志发给开发者"
+"E-COOK-OUTPUTTYPE" = "类型是 {got}，端口是 {want}"
+"E-COOK-NOSUCHOUTPUT" = "交出了一个不存在的输出 {output}"
+"E-COOK-OUTPUTSIZE" = "尺寸 {width}×{height} 和输入画面 {plate_width}×{plate_height} 不一样"
+# the output covers the plate frame but keeps other pixels around it than the picture did (data/contracts.py settle)
+"E-COOK-OUTPUTWINDOW" = "保留的像素范围是 {window}，输入画面的是 {want}：不改像素位置的节点要么原样保留，要么只算原画框"
+"W-COOK-NONCOMMERCIAL" = "写出的结果用到了非商用部分（{projects}）：只能用于研究和评估，不能交给商业项目"
+
+# ---- 扩展包的 worker（engine/external.py）
+"E-WORKER-READLIMIT" = "用「{type}」读文件内容超过 {minutes} 分钟，已经停下（文件太大或太复杂；没点「计算」时服务器不会一直替你读）。要读就点「计算」：按正式任务进队列，有进度、可以取消"
+"N-WORKER-READSTOPPED" = "用「{type}」读文件内容已按你的要求停下。要读就点「计算」：按正式任务进队列，有进度、可以取消"
+"N-WORKER-READING" = "正在用「{type}」读取 {file} 的内容（已 {seconds} 秒）：文件大时要等一会儿，读完自动显示；期间别的操作照常"
+"E-WORKER-NOTINSTALLED" = "扩展包 {project} 还没安装：管理员在后台管理页的「扩展包」里点「安装」，或执行 lab2shot ext install {extension}"
+"E-WORKER-NOWEIGHTS" = "「{node}」选的模型还没有下载：{weight}。管理员执行 lab2shot ext install {extension}"
+"E-WORKER-NOWEIGHTS.app" = "要用的模型还没有下载：{weight}。请管理员执行 lab2shot ext install {extension}"
+"E-WORKER-GATEDWEIGHTS" = "「{node}」选的模型还没有下载：{weight}。先在 {page} 申请权限，通过后管理员执行 lab2shot ext install {extension}"
+"E-WORKER-GATEDWEIGHTS.app" = "要用的模型还没有下载：{weight}。先在 {page} 申请权限，通过后请管理员执行 lab2shot ext install {extension}"
+"E-WORKER-GPUARCH" = "这个扩展包环境的 PyTorch（{torch}）没编译出这块显卡（compute capability {capability}）的核心，不是显存不够：管理员换一块这个扩展包支持的显卡接任务，或重装扩展包换新版 PyTorch"
+"E-WORKER-FAILED" = "「{node}」计算失败（编号 {code}）：\n{detail}"
+"E-WORKER-FAILED.app" = "计算失败（编号 {code}）：\n{detail}"
+
+# ---- 队列（farm/queue.py）
+"E-FARM-INTERNAL" = "内部错误：{detail}。这是程序的问题，原因写在服务日志里，请把日志发给开发者"
+
+# ---- 用法检查（nodes/expects.py）：能算，但可能不是你要的
+# 方法的前提（算之前就知道、算了也过不去）：B 级，节点在提交前拦下
+"B-EXPECT-FEWFRAMES.other" = "「{node}」至少要 {need} 帧画面才能算，接进来的「{source}」只有 {count} 帧：接一段更长的镜头，或者把帧范围放宽"
+"B-EXPECT-FEWFRAMES.app.other" = "至少要 {need} 帧画面才能算，现在只有 {count} 帧：换一段更长的镜头，或者把帧范围放宽"
+"B-EXPECT-FEWFRAMESSTEP.other" = "「{node}」至少要 {need} 帧画面才能算，「{source}」的 {count} 帧按「隔帧」{step} 取样后只剩 {used} 帧：把「隔帧」调小，或者接一段更长的镜头"
+"B-EXPECT-FEWFRAMESSTEP.app.other" = "至少要 {need} 帧画面才能算，{count} 帧按「隔帧」{step} 取样后只剩 {used} 帧：把「隔帧」调小，或者换一段更长的镜头"
+"W-DEPTH-DISPARITY" = "「{source}」自己写着它是视差（距离的倒数，只知道远近顺序），不是距离：反投影出来的三维是变形的。在中间插入「深度对齐」，参考接一张真实尺度的深度贴图，换算成距离再用"
+"W-EXPECT-SEVERALPEOPLE.other" = "「{source}」找到 {count} 个人，每个人都会算一遍（背景里的路人、断开的人物框也各算一个）：只要其中几个，在中间插入「选人」"
+"W-EXPECT-SEVERALPEOPLE.app.other" = "找到 {count} 个人，每个人都会算一遍（背景里的路人、断开的人物框也各算一个）"
+"W-EXPECT-FRAMES.other" = "「{source}」只有第 {span} 帧，「{plate}」的 {count} 帧（如第 {first} 帧）不在里面：这些帧上没有它"
+"W-EXPECT-FRAMES.app.other" = "有一份数据只有第 {span} 帧，画面的 {count} 帧（如第 {first} 帧）不在里面：这些帧上没有它"
+"W-EXPECT-OTHERREFERENCE" = "「{source}」和「{other}」对齐到了不同的参考：它们不在同一个摄影机空间，合不到一起。把它们对齐到同一个参考"
+"W-EXPECT-CAMERAFRAMES.other" = "「{source}」只有第 {span} 帧，「{plate}」的 {count} 帧（如第 {first} 帧）不在里面：这些帧它停在最近的一帧"
+"W-EXPECT-CAMERAFRAMES.app.other" = "摄影机只有第 {span} 帧，画面的 {count} 帧（如第 {first} 帧）不在里面：这些帧上它停在最近的一帧"
+"W-EXPECT-SIZE" = "「{source}」是 {width}×{height}，「{plate}」是 {plate_width}×{plate_height}：不像同一段画面（或者缩放过）"
+"W-EXPECT-SIZE.app" = "两份画面大小不同（{width}×{height} 和 {plate_width}×{plate_height}）：不像同一段画面（或者缩放过）"
+"W-EXPECT-ASPECT" = "「{source}」的画面是 {width}×{height}（{aspect:.2f}:1），「{plate}」是 {plate_width}×{plate_height}（{plate_aspect:.2f}:1）：比例不同，摄影机的画框和画面对不上（画面裁切、加边过，或者摄影机不是按这段画面设的）"
+"W-EXPECT-ASPECT.app" = "摄影机的画面比例和画面不同（{width}×{height} 和 {plate_width}×{plate_height}）：画框和画面对不上（画面裁切、加边过，或者摄影机不是按这段画面设的）"
+"W-EXPECT-OWNCAMERA" = "「{source}」的深度贴图是相对尺度，只和它自己解出的摄影机对得上；接的是「{camera}」的摄影机，位置会整体放大或缩小"
+"W-EXPECT-NOTMETRIC" = "「{source}」的深度贴图是{scale}，不是真实厘米：距离按它自己的数值算；先接「深度对齐」就能按真实距离填"
+"W-EXPECT-ALREADY" = "「{source}」已经是{value}，原样输出"
+"W-EXPECT-UNKNOWNPEOPLE" = "「{source}」里没有 {unknown} 号（有 {people} 号）：检查「人物编号」"
+"W-EXPECT-UNKNOWNPEOPLE.app" = "没有 {unknown} 号人物（有 {people} 号）：检查「人物编号」"
+"W-EXPECT-NOTHDR" = "「{source}」是 {format} 图像，不是 HDR：它的 0–255 会被当成光的强度，结果会过亮；换 EXR / HDR 的环境图"
+"W-EXPECT-NOTHDR.app" = "环境图是 {format} 图像，不是 HDR：它的 0–255 会被当成光的强度，结果会过亮；换 EXR / HDR 的环境图"
+"B-EXPECT-MANYFRAMES.other" = "「{node}」一次只算 {most} 帧：「{source}」有 {count} 帧。中间接一个「时间偏移」自己挑一帧（环境看得最全、人挡得最少的那一帧）"
+"B-EXPECT-MANYFRAMES.app.other" = "这一步一次最多算 {most} 帧，现在有 {count} 帧：把帧范围改成 {most} 帧（挑环境看得最全、人挡得最少的那一帧）"
+
+# ---- 节点图文件（engine/graph.py、engine/templates.py）
+"E-GRAPH-SHAPE" = "节点图文件的结构不对：{what}。多半是手改或别的程序写坏了：用编辑器重新保存一份"
+"E-GRAPH-SAMEID" = "节点图里有两个节点的 id 都是「{id}」：id 要各不相同（多半是手改文件时复制了节点）"
+"E-GRAPH-UNREADABLE" = "服务器没能读这张节点图（{detail}）：这是服务器的问题，不是图画错了。把这张图发给管理员"
+"E-GRAPH-NOTGRAPH" = "这不是 Lab2Shot 节点图：文件里没有节点图的格式标记，打开的可能是别的 JSON 文件"
+"E-GRAPH-FRAMES" = "帧范围要写成 [起始帧, 结束帧]，都是整数，起始帧不大于结束帧：现在是 {frames}"
+"E-GRAPH-UNKNOWNTYPE" = "未知节点类型 {type}：{reason}"
+"E-GRAPH-PARAMS" = "「{node}」的参数不对：{reason}"
+"E-GRAPH-NOSUCHWIRENODE" = "连线指向不存在的节点：「{source}」→「{target}」"
+"E-GRAPH-NOSUCHPORT" = "「{target}」没有输入「{input}」：「{source}」的「{output}」接不上去"
+"E-GRAPH-NOTPROMOTED" = "「{target}」的「{input}」没有提升到节点上：「{source}」的「{output}」接不上去"
+"E-GRAPH-NONODE" = "节点图里没有节点 {node}"
+"E-GRAPH-BADJSON" = "{file} 不是有效的 JSON：{detail}"
+"E-GRAPH-SCHEMA" = "{file} 不是 Lab2Shot 节点图（schema 不是 {schema}）"
+"E-GRAPH-NOTFILE" = "不是节点图文件：{path}（要一个 .json 的节点图文件）"
+"B-GRAPH-ONEWIRE" = "「{node}」的「{input}」只能接一根线"
+"E-GRAPH-CYCLE" = "节点图里有环：{nodes}的输出绕回了自己的输入。断开环上的一根线（节点图只能从左往右一路算下去）"
+"B-GRAPH-NOWIRE" = "「{node}」的输入「{input}」没有接线：接上再计算"
+"B-GRAPH-NOWIREANY" = "「{node}」的 {inputs} 一个都没有接线：接上其中一个再计算"
+
+# ---- 接线（engine/graph.py wire_problem）：接错的线由它接进的节点报。单根线的原因（B-WIRE-WAITS、-GONE、-CONVERT、-TYPE、
+# -REFUSED、-UNIT）和网页共用，在 web.toml
+"B-WIRE-SEVERAL.other" = "有 {count} 根线接得不对：{problems}"
+# 几根线都只是在等你挑（导入节点还没选模型 / 摄影机）时，不许说「接得不对」——线没接错，是还没挑
+"B-WIRE-WAITSEVERAL.other" = "有 {count} 处还等你挑：{problems}"
+
+# ---- 逐项处理块（engine/scopes.py rules、engine/evaluation.py）：块的规则由服务器算出，网页只读
+"B-EACH-LEAK" = "「{node}」的「{input}」接的是逐项处理块「{block}」内的「{source}」。块内每个条目各有一份结果，块外节点无法确定使用哪一份。块内的结果需经过「逐项结束」再接出块。"
+"B-EACH-OUTSIDE" = "「{node}」的「{input}」接的是块外的「{source}」。「逐项结束」只收集块「{block}」内每个条目的结果；块外的数据接到使用它的节点上即可，不经过「逐项结束」。"
+"B-EACH-CROSS" = "逐项处理块「{block}」和「{other}」交叉，「{node}」的接线跨过了块的边界。两个块共用节点时，内层块的开始、结束和块内节点都需在外层块内。"
+"B-EACH-SKIPEND" = "「{source}」在内层逐项处理块「{inner}」里，却直接接到了外层块「{outer}」的「{node}」：内层块每个条目的结果要先经过「{inner}」的「逐项结束」收起来，再接到外层的结束。"
+"B-EACH-TWICE" = "「{node}」属于逐项处理块「{block}」，但有 {count} 个「逐项开始」都叫这个块名，分不清哪个是它的开始：把多出来的「逐项开始」改个块名（连同它的「逐项结束」）"
+"B-EACH-UNPAIRED" = "「{node}」没有配对的逐项处理块「{block}」。一个块需要块名相同的一个「逐项开始」和至少一个「逐项结束」；请检查两端节点的「块名」。"
+"B-SWITCH-RANGE.other" = "「{node}」的「走哪一路」是 {value}，它只有 {count} 路：填 1 到 {count}，或者点节点上的「＋」再加一路"
+"B-SWITCH-WIREDRANGE" = "「{node}」的「走哪一路」接进来的值选不到任何一路（它只有 {count} 路）：接进来的整数要在 1 到 {count} 之间，开关是开走第一路、关走第二路"
+"B-WIRE-GONEIN" = "「{node}」没有输入「{input}」了（那一行已经删掉）：从「{source}」的「{output}」接过来的线要删掉或改接"
+"W-WIRE-TWICE.other" = "「{source}」的「{output}」接到「{node}」的「{input}」上有 {count} 根一样的线：每根都算一次（同一个值算了 {count} 遍）；不是有意的就删掉多出来的"
+"B-SWITCH-NOWIRE" = "「{node}」要走「{way}」，但这一路没有接线：把它接上，或者改「走哪一路」"
+"B-SWITCH-TYPES" = "「{node}」的「{input}」接的是{got}，另一路是{other}。切换的各路要接同一种数据，输出的类型才是确定的。"
+"N-EACH-OUTSIDE" = "「{node}」跳过了条目「{item}」：这一条的帧都不在帧范围 {lo}–{hi} 里。其余条目照常计算；要算这一条就放宽帧范围。"
+"N-EACH-NOTHING.other" = "「{node}」的 {count} 个条目都没给出结果：收到的是空列表"
+"W-EACH-FAILED.other" = "「{node}」收集时缺少 {count} 个条目：{items}。这些条目在块内出错或已跳过，不在收集的列表中；其余条目照常收集。"
+"I-EACH-ITEMFAILED" = "{name}（根源是「{root}」）"
+
+# ---- 「输出」只打包完整的线：任何一条接进来的线上有失败，它就失败，说清是哪条线、哪个节点（engine/evaluation.py _chains_broken）
+"E-OUTPUT-CHAINFAILED" = "「{node}」没有打包：接进来的线里有 {count} 条不完整：{chains}。把出错的那条线断开，或者改好它，再计算「{node}」"
+"E-OUTPUT-CHAINFAILED.app" = "还不能打包：{reasons}"
+"I-OUTPUT-CHAIN" = "「{chain}」这条线上的「{root}」出错了"
+"I-OUTPUT-CHAINITEM" = "「{chain}」这条线上的「{root}」在条目「{item}」出错了"
+"I-OUTPUT-CHAINS.other" = "{chains}这 {count} 条线上的「{root}」出错了"
+"I-OUTPUT-CHAINSITEM.other" = "{chains}这 {count} 条线上的「{root}」在条目「{item}」出错了"
+
+# ---- 输出文件的规矩（engine/graph.py check_delivery）
+"B-DELIVER-NOTWIRED" = "「{node}」没有接到「输出」：它只设置怎么写，文件由「输出」收集打包、供下载，把它的「文件」接到一个「输出」上"
+"B-DELIVER-BADNAME" = "「{node}」的名字「{name}」不能当文件夹名：不能空着，不能带 / \\ : * ? \" < > |"
+"B-DELIVER-BADNAME.app" = "名字「{name}」不能当文件夹名：不能空着，不能带 / \\ : * ? \" < > |"
+"B-DELIVER-NAMED" = "{outputs}都叫 {name}"
+"B-DELIVER-SAMENAME" = "「{node}」里有同名的（{same}）：每个一个子文件夹，名字要不一样"
+
+# ---- 模板当工具用（engine/templates.py）
+"E-TEMPLATE-AMBIGUOUS" = "有几张模板的文件名都是「{name}」：{ids}。用完整的 id 指定一张"
+"E-TEMPLATE-NOTFOUND" = "没有模板「{name}」：lab2shot templates 或 GET /api/tools 列出有哪些"
+"E-TEMPLATE-NOPARAM" = "没有参数「{key}」。对外参数有：{names}；其他参数用 节点id.参数名"
+"E-TEMPLATE-NOEXPOSED" = "没有参数「{key}」：这张图没有对外参数，参数用 节点id.参数名"
+"E-TEMPLATE-NOTOPTION" = "参数「{key}」在模板的参数界面里是下拉，只能是 {options} 之一，不是 {value}"
+"E-TEMPLATE-WIRED" = "参数「{key}」由连线决定（接的是{wire}），在这里改不了：改上游的值，或者在节点图里断开这根线"
+"E-TEMPLATE-DERIVE" = "「{node}」的设置没能从参数推出来：{reason}"
+"E-TEMPLATE-DISABLEDOPTION" = "「{key}」现在不能是 {value}：{why}"
+"E-TEMPLATE-HIDDENOPTION" = "「{key}」现在不能是 {value}：下拉里这一项被隐藏条件「{when}」藏起来了。现在能选：{shown}"
+"B-TEMPLATE-NOTARGET" = "没有要交出的结果：节点图里没有「输出」"
+
+# ---- 模板的参数界面（节点图 exposed 这棵树，engine/templates.py check_exposed）：保存模板时拦下，说清是哪一项
+"E-EXPOSED-BAD" = "参数界面「{where}」写得不对：{why}"
+"E-EXPOSED-NOTARGET" = "参数界面「{where}」对应的参数 {target} 不存在了（节点删了或者参数没了）：在「编辑界面…」里去掉这一项，或者重新公开"
+"E-EXPOSED-TARGETS" = "参数界面「{where}」一项驱动多个参数，{other} 和 {target} 合不到一起：{why}"
+"E-EXPOSED-SAMENAME" = "参数界面「{where}」的对外名字「{name}」和前面一项重复了：命令行和插件按这个名字传值，要各不相同"
+"E-EXPOSED-WIDGET" = "参数界面「{where}」不能显示成{widget}：{why}"
+"E-EXPOSED-OPTION" = "参数界面「{where}」下拉的第 {n} 项 {value} 不行：{why}"
+"E-EXPOSED-HIDE" = "参数界面「{where}」的隐藏条件「{when}」{why}"
+"E-EXPOSED-DISABLE" = "参数界面「{where}」的禁用条件「{when}」{why}"
+"E-EXPOSED-WHEN" = "参数界面「{where}」的旧写法条件 when「{when}」{why}（打开再保存会改写成禁用条件）"
+
+# ---- 参数和帧范围（nodes/params.py refusal、engine/evaluation.py）
+"E-PARAM-INVALID" = "「{name}」是 {value}：{reason}"
+"E-PARAM-INPUTSET" = "{where}给「{node}」的参数设不上：{reason}"
+"E-PARAM-WIREDRANGE" = "「{name}」接的{where}是 {value}：{reason}"
+"E-PARAM-BETWEEN" = "这个参数要在 {lo:g}–{hi:g} 之间"
+"E-PARAM-ABOVE" = "这个参数要大于 {lo:g}"
+"E-PARAM-ATLEAST" = "这个参数不能小于 {lo:g}"
+"E-PARAM-ATMOST" = "这个参数不能大于 {hi:g}"
+"E-PARAM-BELOW" = "这个参数要小于 {hi:g}"
+"E-PARAM-INTERVAL" = "这个参数要{low}，并且{high}"
+"I-PARAM-GT" = "大于 {lo:g}"
+"I-PARAM-GE" = "不小于 {lo:g}"
+"I-PARAM-LT" = "小于 {hi:g}"
+"I-PARAM-LE" = "不大于 {hi:g}"
+"E-PARAM-REFUSED" = "这个参数不收这个值"
+"E-FRAMES-OUTSIDE" = "「{node}」的帧 {first}–{last} 都不在帧范围 {lo}–{hi} 里：把帧范围改到这些帧上"
+"E-FRAMES-OUTSIDE.app" = "帧 {first}–{last} 都不在帧范围 {lo}–{hi} 里：把帧范围改到这些帧上"
+"B-FRAMES-WIDER" = "帧范围 {lo}–{hi} 超出了输入的 {first}–{last}：只能在输入的范围里选"
+
+# ---- 常驻模型（engine/resident.py，管理页面）
+"E-RESIDENT-GONE" = "没有这个常驻进程（它可能已经卸载了）：刷新列表"
+"E-RESIDENT-BUSY" = "它正在计算：等任务结束，或者先取消任务"
+"E-RESIDENT-NORAM" = "内存不够：模型移过去要 {need:.1f} GB，现在可用 {free:.0f} GB，要留 {keep:.0f} GB。可以完全卸载"
+"I-RESIDENT-LINE" = "{project}：{line}"
+"W-RESIDENT-READERLEFT" = "{project} 的进程已结束，但它的输出还开着（它启动的子进程还在）：读取线程没有结束。请管理员检查有没有留下的子进程"
+
+# ---- 服务器日志（每行日志带编号）
+"I-RESIDENT-TORAM" = "管理员把 {title} 的模型移到内存"
+"I-RESIDENT-REPLACED" = "{title} 的代码或环境变了（或进程已结束）：换新进程"
+"I-RESIDENT-UNLOADED" = "卸载 {title}（{why}）"
+"I-RESIDENT-UNLOADEDEND" = "卸载 {title}（服务结束）"
+"E-RESIDENT-TIDYFAILED" = "常驻模型清理出错：下一轮再清，错误堆栈在后面，把它发给开发者"
+
+# ---- 列表（engine/graph.py）
+"B-WIRE-LIST" = "「{source}」的「{output}」是{got}，接到「{node}」的「{input}」（{want}）上：列表和单个不能相接。要逐条处理接「逐项开始」，只要其中一条接「取一条」，几份合成一条列表接「合成列表」。"
+"B-SWITCH-PERFRAME" = "「{node}」的条件每帧不一样（来自「{source}」）：切换整段只能走一路。把条件换成整段一个值（比如「拆分摄影机」关掉「逐帧」，或者用「比较」比一个整段的值）"
+"B-LIST-NESTED" = "「{source}」的「{output}」已经是{got}，「{node}」的「{input}」会再装一层：列表只有一层。要把内层的条目并到一起，用「逐项结束」（它会把内层列表摊平，条目名写成「外层/内层」）。"
+# 输出口现在用不上（Port.applies）：网页也说这一句，所以它在 tools/messages_web.py 的 FROM_SERVER 里。
+# 这句不写具体怎么办：用不上的原因各不相同（比如选无畸变镜头模型时的「镜头模型」「畸变系数」口），
+# 该怎么办由 {why} 那一句说（和输入口的 B-WIRE-INACTIVE 一样）
+
+"B-WIRE-OUTINACTIVE" = "「{source}」的「{output}」现在接不出去：{why}"
+
+# 引擎给界面的文字（参数脚注、一键修复的按钮、等待与阶段）：一律在这里，引擎代码里不写字面文字
+"I-SOURCE-FROMINPUT" = "{label} · 来自 {input}（{node}）"
+"I-SOURCE-WIRED" = "{label}{value} · 来自 {node}"
+"I-SOURCE-TYPED" = "{label} {value} · 手填"
+"I-SOURCE-ASSUMED" = "{label} · {assumed}"
+"I-SOURCE-OVERRIDES" = "（覆盖{inputs}的{label}）"
+# the same clause on its own (status `overrides`: the panel shows it on its own line)
+"I-SOURCE-OVERRIDESNOTE" = "覆盖{inputs}的{label}"
+"I-FIX-INSERT" = "插入「{via}」"
+"I-FIX-INSERTKIND" = "插入「{via}」（{kind}）"
+"I-WAIT-OTHERCOOK" = "另一个任务正在算同一个节点，等它算完"
+"I-WAIT-SIBLING" = "同一个任务里另一个条目正在写这份结果，等它写完"
+"I-WAIT-RECOOK" = "另一个任务正在重新计算这里要用的结果，等它算完"
+"I-WAIT-SAMEJOB" = "另一个任务正在跑同样的计算，等它算完"
+"I-STAGE-REUSE" = "复用已完成的计算"
+"I-STAGE-PLATE" = "准备画面"
+"I-STAGE-COLOR" = "色彩转换"
+"I-STAGE-VRAMRETRY" = "显存不够：卸载这张显卡上的常驻模型后重算"

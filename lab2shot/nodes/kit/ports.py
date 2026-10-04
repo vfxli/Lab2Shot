@@ -21,24 +21,25 @@ def people_port(optional: bool = False, each: bool = True) -> Port:
     so boxes nobody chose that hold several people are warned about, with 「选人」 to insert; else it takes them all as
     one thing (areas kept out of a reconstruction, crops to segment). A required one has nothing to do with boxes that
     hold nobody (takes_empty: the node gives nothing and says so); an optional one takes them as they are."""
-    return Port("boxes", "boxes", "人物框", optional=optional, expects=(EachPerson(), SameShot()) if each else (SameShot(),),
+    return Port("boxes", "boxes", optional=optional, expects=(EachPerson(), SameShot()) if each else (SameShot(),),
                 takes_empty=optional,
                 # 从这个口往外拉一根线时，节点菜单第一个提「选人」（Port.recommend → describe()["inserts"]；
                 # EachPerson.fix 也是「选人」）。
-                recommend="core.select_people" if each else "")
+                recommend="select_people" if each else "")
 
 
 def basecolor_port() -> Port:
     """去掉光照之后的颜色的输出口。名字和标签只在这里写一次：CG 流程里 basecolor 和 albedo 是同一样东西，
     用两个名字用户在节点图上会看见同一样东西两个叫法。中文有统一译法（Houdini / Substance 的中文界面都叫
     「基础色」），所以不留英文原名。写出这张图走 kit/maps.py 的 basecolor_map()。"""
-    return Port("basecolor", "image.3", "基础色")
+    return Port("basecolor", "image.3")
 
 
-def plate_mask_port(label: str, optional: bool = True, every_frame: bool = True) -> Port:
+def plate_mask_port(optional: bool = True, every_frame: bool = True, words: str = "") -> Port:
     """A mask of the plate (moving things kept out, where to track, a rough matte). every_frame False: some frames are
-    enough (a matte guided from its first mask, a tracker's grid placed on one frame), so only its size is checked."""
-    return Port("mask", "image.1", label, optional=optional, expects=(SameShot(frames=every_frame),))
+    enough (a matte guided from its first mask, a tracker's grid placed on one frame), so only its size is checked.
+    Its name is node.<type>.port.mask.label."""
+    return Port("mask", "image.1", optional=optional, expects=(SameShot(frames=every_frame),), words=words)
 
 
 @dataclass(frozen=True)
@@ -73,19 +74,17 @@ def measured_bounds(measured: dict[Any, Measured]) -> dict[str, float | None]:
     return {option_key(k): bound(k) for k in measured}
 
 
-def measured_param(label: str, measured: dict[Any, Measured], *, default: Any = None, auto: str = "",
-                   group: str = "", **kw):
+def measured_param(measured: dict[Any, Measured], *, default: Any = None, group: str = "", **kw):
     """A parameter that can blow the GPU's or the machine's memory, or make a cook take many times longer (frames per
     segment, processing size, point and object counts, iterations): only settings with a measurement
     (Measured) are offered, and the node's annotation is the same Literal, so the server refuses any other number
     exactly as the page does (E-GRAPH-PARAMS). Every declared setting is offered; its measured VRAM
     goes into the node's resolved cost, by which the scheduler places the job on a card that holds it (nodes/applies.py
-    setting_vram). `auto`: what the empty value does, when it may be left empty (default None)."""
+    setting_vram). `measured`: the settings. Its words are the parameter's (node.<type>.param.<p>.label; .placeholder:
+    what the empty value does, when it may be left empty, default None)."""
     if not measured or not all(isinstance(m, Measured) for m in measured.values()):
-        raise TypeError(f"{label}: every setting is a Measured (what it measured, or which measurement bounds it)")
-    labels = kw.pop("option_labels", None) or {str(k): str(k) for k in measured}
-    return P(default, label=label, group=group, option_labels=labels, measured=measured_bounds(measured),
-             **({"placeholder": auto} if auto else {}), **kw)
+        raise TypeError("every setting of a measured parameter is a Measured (what it measured, or which measurement bounds it)")
+    return P(default, group=group, measured=measured_bounds(measured), **kw)
 
 
 def resolution_param(measured: dict[int, Measured], default: int):
@@ -93,7 +92,7 @@ def resolution_param(measured: dict[int, Measured], default: int):
 
     `default` 是必填的，没有「自动」这一档（同 max_frames_param）。每个节点填模型自己的那个尺寸
     （训练尺寸 / 官方默认），界面上就是那个数字，不留空。"""
-    return measured_param("处理分辨率", measured, default=default, group="解算")
+    return measured_param(measured, default=default, group="solve", words="kit.resolution")
 
 
 def max_frames_param(measured: dict[int, Measured], default: int):
@@ -102,38 +101,38 @@ def max_frames_param(measured: dict[int, Measured], default: int):
 
     `default` 是必填的，没有「自动」这一档：留空显示「自动」的话用户在界面上看不到任何一个数，
     不知道自己实际在用多少帧。每个节点把测过的那一档直接填成默认值，界面上就是那个数字。"""
-    return measured_param("每段最多帧数", measured, default=default, group="解算")
+    return measured_param(measured, default=default, group="solve", words="kit.max_frames")
 
 
 def conf_threshold_param(default: float, hi: float = 50.0):
-    return P(default, label="置信度门槛", ge=1.0, le=hi, group="解算")
+    return P(default, ge=1.0, le=hi, group="solve")
 
 
 def loops_param():
     """Loop closure of a chunked reconstruction (lab2shot_worker.recon.Stitcher, keep=...): for the workers that do it."""
-    return P(False, label="回环闭合", group="解算", applies=fact("segments").gt(2))
+    return P(False, group="solve", applies=fact("segments").gt(2), words="kit.loops")
 
 
 def precision_level_param():
     """0–9 internal resolution level (MoGe, UniDepth, UniK3D): the output is always the plate's size."""
-    return P(9, label="精度等级", ge=0, le=9, group="几何")
+    return P(9, ge=0, le=9, group="geometry")
 
 
 def unit_cm_param(applies: Cond | None = None) -> float:
-    """「尺度」：这个方法解出来的 1 个单位是多少厘米。`applies`：什么时候它才起作用。节点能从别处
-    算出尺度时（接了一台相机）这个参数不起作用，变灰并写原因，位置不跳。"""
-    return P(M_TO_CM, label="尺度", unit="cm", gt=0, group="场景",
+    """「尺度」：相对尺度的方法解出来的 1 个单位是多少厘米（单位换算，不是尺度对齐）。`applies`：什么时候它才起作用；
+    输出本身是真实距离的方法不该被它缩放（整段家族的 RELATIVE_ONLY 让它变灰并写原因，位置不跳）。"""
+    return P(M_TO_CM, unit="cm", gt=0, group="scene",
              worker=False, applies=applies)
 
 
 def point_size_param(default: float = 1.0):
-    return P(default, label="点的大小", unit="cm", gt=0, le=100, group="跟踪", worker=False)
+    return P(default, unit="cm", gt=0, le=100, group="tracking", worker=False)
 
 
 def flow_resolution_param(measured: dict[int, Measured], default: int | None = None):
     """The long side an optical-flow model runs at (never above the plate's), as measured settings; None: the plate's
     own size, capped at the measured 1920 (flow.py clamped_flow_side)."""
-    return measured_param("处理分辨率", measured, default=default, auto="原尺寸", group="光流")
+    return measured_param(measured, default=default, group="optical_flow", words="kit.flow_resolution")
 
 
 def static_camera_param(rotation_wire: bool = True):
@@ -147,25 +146,25 @@ def static_camera_param(rotation_wire: bool = True):
     families/humans.py 把那个参数从它身上去掉了）。提示里不能提那条线，也不能挂「接了就变灰」的条件：
     条件指着一个不存在的参数，nodes/applies.py check_declarations 当场拒绝。"""
     if not rotation_wire:
-        return P(False, label="固定机位", group="相机")
-    return P(False, label="固定机位", group="相机",
+        return P(False, group="camera")
+    return P(False, group="camera",
              applies=Not(Param("camera_rotate").wired()))
 
 
 def follow_camera_param():
     """For methods that solve bodies in their own world and then align it to the camera (GVHMR, WHAM)."""
-    return P(False, label="逐帧贴合画面", group="相机")
+    return P(False, group="camera")
 
 
 # ------------------------------------------------------------------ 读取节点的「帧率」口
 
-def fps_port(help: str, may_be_empty: bool) -> Port:
+def fps_port(may_be_empty: bool = False) -> Port:
     """读取节点的「帧率」输出口：文件自己记的帧率，接到要帧率的参数上（输出设置的「帧率」、动作模型的「帧率」，
     data/units.py DEFAULT_FPS 的说明）。may_be_empty：格式可以不记帧率（视频、USD），没记时口给空包，
     接着的参数照样可填、用填的；总记着的格式（BVH 的 Frame Time）不是。值由 fps_meta / fps_packet 给出。"""
     from ...data.values import FLOAT
 
-    return Port("fps", FLOAT, "帧率", unit="fps", may_be_empty=may_be_empty, help=help)
+    return Port("fps", FLOAT, unit="fps", may_be_empty=may_be_empty)
 
 
 def fps_meta(fps: float | None) -> dict:
@@ -196,16 +195,17 @@ def fps_packet(ctx, fps: float | None):
 def normal_port() -> Port:
     """A normal map output: three channels of values (Port.data), not a picture, and which space they are in said on
     the packet (means space: 相机 / 世界). One declaration for every node that gives normals."""
-    return Port("normal", "image.3", "法线图", means=("space",), data=True)
+    return Port("normal", "image.3", means=("space",), data=True)
 
 
-def rgb_port(label: str = "RGB", name: str = "image", **kw) -> Port:
+def rgb_port(name: str = "image", **kw) -> Port:
     """A picture input (a plate a model looks at): only a picture goes in (Port.data False), a normal map or motion
-    vectors are refused at the wire rather than read as a photograph."""
-    return Port(name, "image.3", label, data=False, **kw)
+    vectors are refused at the wire rather than read as a photograph. Its name: node.<type>.port.<name>.label, else
+    port.<name>.label."""
+    return Port(name, "image.3", data=False, **kw)
 
 
-def values_port(name: str, type_: str, label: str, **kw) -> Port:
+def values_port(name: str, type_: str, **kw) -> Port:
     """An input of values (normals, positions, motion vectors: Port.data True): a picture is refused at the wire rather
     than read as numbers (a photograph's colours taken for motion vectors)."""
-    return Port(name, type_, label, data=True, **kw)
+    return Port(name, type_, data=True, **kw)

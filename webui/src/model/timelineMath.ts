@@ -261,13 +261,14 @@ export function tick(c: Clock, now: number, fps: number): { steps: number; clock
 // ------------------------------------------------------------------ marks carried by data
 
 /** The marks a result's metadata carries: its key frames ("keys": an animation's keys, the in-betweening family) and
- * any named sets under "marks" ({"关键帧": [...], "解算失败": [...]}): any node can give its data marks. */
-export function markLayers(meta: Record<string, unknown>): MarkLayer[] {
+ * any named sets under "marks" ({"<name>": [...], …}): any node can give its data marks. `keysName`: what the key frames
+ * are called (the page's word, in its language). */
+export function markLayers(meta: Record<string, unknown>, keysName: string): MarkLayer[] {
   const frameList = (v: unknown): number[] | null =>
     Array.isArray(v) && v.every((f) => Number.isInteger(f)) ? [...new Set(v as number[])].sort((a, b) => a - b) : null;
   const out: MarkLayer[] = [];
   const keys = frameList(meta.keys);
-  if (keys?.length) out.push({ name: "关键帧", frames: keys });
+  if (keys?.length) out.push({ name: keysName, frames: keys });
   const marks = meta.marks;
   if (marks && typeof marks === "object" && !Array.isArray(marks))
     for (const [name, v] of Object.entries(marks as Record<string, unknown>)) {

@@ -1,34 +1,40 @@
 /** 编辑器顶栏：本模块拥有顶栏上的一切（文件菜单、撤销 / 重做、文档名与保存状态、模板入口、服务器负载、传输速率、
  * 队列 / 日志入口、提交被拒的说明）、页面对 /api/load 与队列的轮询，以及时间线上的「计算范围」控件（CookRange）。 */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type ServerLoad } from "../api";
+import type { Reading } from "../api/status";
+import { askStatus } from "../graph/asking";
 import { noteServer, useServer } from "../state/server";
 import { useUnseenErrors } from "../state/log";
 import { waitText } from "../graph/nodes";
 import { syncJob } from "../graph/follow";
-import { cancelCook, cancelSubmit, frameLimitProblemNow, redo, rangeProblemNow, setCookRange, undo } from "../graph/actions";
-import { READ_ONLY_WHY, useCookInputs, useReadOnly } from "../state/cookInputs";
+import { cancelCook, cancelSubmit, cookHold, cookHoldWhy, frameLimitProblemNow, redo, rangeProblemNow, setCookRange, undo } from "../graph/actions";
+import { focusCompute, focusFinish, focusUncomputed } from "./focusJob";
+import { useSubmitLine } from "../graph/submitLine";
+import { Sheet } from "../ui/Sheet";
+import { readOnlyWhy, useCookInputs, useReadOnly } from "../state/cookInputs";
 import { planOf, useResults } from "../state/results";
 import { useLook } from "../state/look";
 import { addDir, authorisedDirs } from "../files/localDirs";
 import { canReadFolder } from "../files/handles";
-import { BrandMark, IconGrid, IconRedo, IconUndo } from "../ui/icons";
+import { BrandMark, IconClose, IconGrid, IconRedo, IconUndo } from "../ui/icons";
 import { useCatalog } from "../state/catalog";
 import { useViewer } from "../state/viewer";
 import { editorContext, FeedbackButton } from "../ui/Feedback";
+import { PluginsButton } from "../ui/Plugins";
 import { ReleasesButton } from "../ui/Releases";
 import { AccountChip } from "../ui/Account";
 import { usePoll } from "../platform/poll";
 import { useSettled } from "../platform/settled";
 import { useUploads } from "../transfer/uploads";
 import { Rate } from "../transfer/rate";
-import { rateParts } from "../platform/format";
+import { rateParts, sizeText } from "../platform/format";
+import { readPref, writePref } from "../platform/storage";
 import { trafficTotals } from "../platform/traffic";
 import { pushLost } from "../platform/events";
 import { quietFor } from "../platform/http";
 import { msg, textOf } from "../messages/message";
 import { Button, IconButton } from "../ui/Button";
-import { MessageText } from "../ui/MessageText";
 import { Kbd, Menu, type MenuRow } from "../ui/Menu";
 import { QueueSheet } from "./ChromeSheets";
 import { SaveToLibrarySheet } from "./MyTemplates";
@@ -36,6 +42,10 @@ import { shown } from "../api/applies";
 import { useSession } from "../state/session";
 import { ModeSwitch, useAppMode } from "./AppMode";
 import { useWriteLock } from "../ui/writeLock";
+import { nodeRef } from "../graph/naming";
+import { pick, t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
+import { useFitBar } from "../ui/fitBar";
 
 export { OPEN_GRAPH, TabBanner, UnsavedSheet } from "./ChromeSheets";
 export { TemplatesSheet } from "./Templates";
@@ -49,7 +59,7 @@ const quietQueue = async () => null;
  * 是否已保存。右边是其余一切：「模板」在前（页面唯一的入口，带连线配色的亮边），然后是「队列」（附任务状态与「取消」）、
  * 「日志」「提交反馈」「更新说明」和账号。这里没有「计算 / 提交」按钮：节点由其按钮参数或右键菜单计算，所有「输出」
  * 一起用 Ctrl+Shift+Enter；「计算范围」在时间线上，与帧在一起。 */
-export function TopBar({ onOpen, onSave }: { onOpen: () => void; onSave: (saveAs: boolean) => void }) {
+export function TopBar({ onNew, onOpen, onSave }: { onNew: () => void; onOpen: () => void; onSave: (saveAs: boolean) => void }) {
   const meta = useCookInputs((s) => s.meta);
   const file = useViewer((s) => s.file);
   const dirty = useViewer((s) => s.dirty);
@@ -103,73 +113,75 @@ export function TopBar({ onOpen, onSave }: { onOpen: () => void; onSave: (saveAs
   // cancelSubmit）。同样稳定 400 毫秒再显示：素材已在服务器上时提交不到一秒
   const submitting = useSettled(!!useResults((s) => s.submitting), 400);
   const sending = useSubmitUpload();
-  const submitText = !submitting || job ? "" : sending === null ? "提交中…" : `上传素材 ${sending}%`;
+  // 提交路上连不上服务器：写在等第几次、几秒后重连（graph/submitLine.ts），聚焦页的顶栏同样用这一句
+  const line = useSubmitLine((s) => s.text);
+  const submitText = !submitting || job ? "" : line ?? (sending === null ? t("ui.editor.submitting") : t("ui.editor.uploading", { pct: sending }));
   // 这张节点图的计算在「队列」按钮上显示状态（不显示任何预计时间：按以往用时推算的时间不准）
-  const jobText = !job || !hasJob ? submitText : job.stopping ? "正在停止…" : job.position == null ? "计算中" : waitText(job);
+  const jobText = !job || !hasJob ? submitText : job.stopping ? t("ui.editor.stopping") : job.position == null ? t("ui.editor.cooking") : waitText(job);
   const viewer = useReadOnly(); // tabs.ts：这张图正在另一个标签页中编辑
-  const viewerTip = READ_ONLY_WHY;
+  const viewerTip = readOnlyWhy();
   // 具有模板管理权限的账号可在「文件」菜单中保存预设模板
   const applies = useSession((st) => st.state)?.applies;
   const preset = shown(applies, "templates.create"); // 该登录是否管理模板：由服务器判定
-  const saved = dirty ? "有未保存的修改" : file ? "已保存" : "还没存成文件";
+  const saved = dirty ? t("ui.editor.unsaved") : file ? t("ui.editor.saved") : t("ui.editor.no_file");
   // 应用模式（editor/AppMode.tsx）：只用模板、不做模板——「模板」入口和存成模板的两项收起来
   const appMode = useAppMode((s) => s.mode === "app");
+  // 聚焦模式（DCC 插件的内嵌窗口）：顶栏只剩这一步要的（FocusBar）；上面的轮询照旧（存储占用、开关、任务状态）
+  const focus = useAppMode((s) => s.mode === "focus");
+  // the bar never squeezes its cells (ui/fitBar.ts): the traffic and the server's load step out when there is no room
+  // for them and the document's whole name
+  const bar = useRef<HTMLDivElement>(null);
+  useFitBar(bar, [focus, appMode, pick(meta.name)]);
+  if (focus) return <FocusBar jobText={jobText} submitText={submitText} errors={errors} />;
 
   return (
-    <div className="topbar">
+    <div className="topbar" ref={bar}>
       <div className="brand" aria-label="Lab2Shot">
         <BrandMark />
       </div>
-      <FileMenu onOpen={onOpen} onSave={onSave} viewer={viewer} viewerTip={viewerTip} preset={preset} appMode={appMode} />
+      <FileMenu onNew={onNew} onOpen={onOpen} onSave={onSave} viewer={viewer} viewerTip={viewerTip} preset={preset} appMode={appMode} />
       <UndoRedo />
       <span className="bar-sep" />
       <div className="doc-title">
-        <span className="name" data-user-data data-tip={meta.name}>{meta.name}</span>
-        <span className="doc-state" data-user-data data-tip={`${saved}\n${file ? `${file.name}\n${file.handle ? "本机的节点图文件：「保存」写回它" : "本机的节点图文件：这个浏览器不能写回，「保存」会下载一份"}` : "节点图一直自动保存在这个浏览器里，刷新不会丢"}`}>
+        <span className="name" data-user-data data-fit-keep {...tipAttrs(tipOf("truncated", pick(meta.name)))}>{pick(meta.name) || t("ui.common.unnamed")}</span>
+        <span className="doc-state" data-user-data {...tipAttrs(tipOf("value", `${saved}\n${file ? `${file.name}\n${file.handle ? t("ui.editor.file_writable") : t("ui.editor.file_download")}` : t("ui.editor.autosaved")}`))}>
           {file ? file.name : saved}
         </span>
-        {dirty && <span className="dirty-dot" data-tip="有未保存的修改" />}
+        {dirty && <span className="dirty-dot" role="img" aria-label={t("ui.editor.unsaved")} />}
       </div>
       <div className="bar-actions">
         {/* 节点模式 / 应用模式：「模板」左边，两个按钮同一样式，被同一圈彩虹亮边框住，看得出是二选一 */}
         <ModeSwitch />
         {/* 应用模式也要能从模板新建：用的人就是靠它选一个做好的模板当应用；应用模式只是不做模板（存模板的菜单项收起） */}
-        <Button tip={appMode ? "选一个做好的模板当应用：现成的流程，选好素材就能算" : "从内置模板新建一张节点图：现成的流程，选好素材就能算"} entry onClick={() => setTemplatesOpen(true)}>
+        <Button entry layout="bar-templates" onClick={() => setTemplatesOpen(true)}>
           <IconGrid size={13} />
-          <span className="bar-label">模板</span>
+          <span className="bar-label">{t("ui.editor.templates")}</span>
           {templates > 0 && <span className="bar-count tnum">{templates}</span>}
         </Button>
         <span className="bar-sep" />
         {/* 服务器忙闲，然后是文字按钮「队列 / 日志 / 提交反馈 / 更新说明」（「队列」「日志」带计数） */}
         <LoadPill load={server} />
         <TransferRate />
-        <Button tip={jobText ? `这张节点图的计算：${jobText}。点开队列看排第几、算到哪` : "队列：自己的任务排第几、算到哪，算完的也在同一张表里，「加载」打开当时的节点图"}
-                tone="ghost" on={!!jobText} onClick={() => setQueueOpen(true)}>
-          {jobText ? `队列 · ${jobText}` : "队列"}
-          {busy > 0 && <span className="q-badge bar-count-badge tnum">{busy}</span>}
+        <Button tone="ghost" on={!!jobText} onClick={() => setQueueOpen(true)}>
+          {jobText ? t("ui.editor.queue_job", { job: jobText }) : t("ui.editor.queue")}
+          {/* the count only while the words do not already say how this graph's job stands (「队列 · 计算中」 needs no 1) */}
+          {busy > 0 && !jobText && <span className="q-badge bar-count-badge tnum">{busy}</span>}
         </Button>
-        {job && jobText && (
-          <Button tip="取消这次计算：排队的移出队列，计算中的停下（已经算好的节点留在缓存里）" tone="ghost" disabled={job.stopping} onClick={() => void cancelCook()}>
-            取消
-          </Button>
-        )}
-        {!job && submitText && (
-          <Button tip="取消这次「计算」：停止上传、不提交任务；已传的素材留着，下次点「计算」接着传" tone="ghost" onClick={cancelSubmit}>
-            取消
-          </Button>
-        )}
-        <Button tip="日志：出现过的提示、计算经过和错误；出问题时复制给技术人员" tone="ghost" onClick={() => setLogOpen(true)}>
-          日志
+        <CancelButtons jobText={jobText} submitText={submitText} />
+        <ReadingNow />
+        <Button tone="ghost" onClick={() => setLogOpen(true)}>
+          {t("ui.editor.log")}
           {errors > 0 && <span className="q-badge log-badge bar-count-badge tnum">{errors}</span>}
         </Button>
         <FeedbackButton tone="ghost" context={editorContext} />
         <ReleasesButton />
+        <PluginsButton />
         {/* 这里没有帮助入口：没有帮助站点；扩展在管理页安装（admin/Extensions.tsx）。
             节点图角落的「操作说明」「?」是另一回事（editor/GraphHelp.tsx）。 */}
         <span className="bar-sep" />
         <AccountChip />
         <div className="bar-cook">
-          {!jobText && <SubmitRefusal />}
+          <StorageNotice onOpen={() => setQueueOpen(true)} />
         </div>
       </div>
       {queueOpen && <QueueSheet data={queue} onRefresh={asked.reload} onClose={() => setQueueOpen(false)} />}
@@ -177,9 +189,107 @@ export function TopBar({ onOpen, onSave }: { onOpen: () => void; onSave: (saveAs
   );
 }
 
-/** 「文件」：打开与保存节点图文件，一个菜单代替三个按钮。「保存到我的模板」则把同一张图存到服务器、记在本账号名下：
+/** 聚焦模式（editor/AppMode.tsx）的顶栏：标志、聚焦的节点和任务名，任务状态（附「取消」），「日志」（出错时一切消息都在
+ * 那里，没有别的地方能看），「计算」「完成」。没有文件菜单、模板、模式切换、反馈、账号这些入口：这一页只做 DCC 让做的一步。 */
+function FocusBar({ jobText, submitText, errors }: { jobText: string; submitText: string; errors: number }) {
+  const meta = useCookInputs((s) => s.meta);
+  const node = useAppMode((s) => s.focus?.node ?? "");
+  const label = useCookInputs((s) => nodeRef(node, s.nodes[node]?.typeId));
+  const version = useCookInputs((s) => s.version);
+  const port = useLook((s) => s.displayPort);
+  const target = useAppMode((s) => (s.focus && !s.focus.delivers ? s.focus.targets[0] ?? s.focus.node : ""));
+  // the same latch and the same words as every other 「计算」 (graph/actions.ts cookHold, cookHoldWhy): the server's own
+  // reason when it says the focused node cannot be cooked now
+  const at = target ? { node: target, version, port } : undefined;
+  const hold = useResults((s) => cookHold(s, at));
+  const why = useResults((s) => cookHoldWhy(s, cookHold(s, at), at));
+  const setLogOpen = useViewer((s) => s.setLogOpen);
+  const [asking, setAsking] = useState(false);
+  const done = () => (focusUncomputed() ? setAsking(true) : focusFinish());
+  return (
+    <div className="topbar focus-bar">
+      <div className="brand" aria-label="Lab2Shot">
+        <BrandMark />
+      </div>
+      <div className="doc-title">
+        <span className="name" data-user-data {...tipAttrs(tipOf("truncated", label))}>{label}</span>
+        <span className="doc-state" data-user-data {...tipAttrs(tipOf("truncated", pick(meta.name)))}>{pick(meta.name) || t("ui.common.unnamed")}</span>
+      </div>
+      <div className="bar-actions">
+        {jobText && <span className="focus-state">{jobText}</span>}
+        <CancelButtons jobText={jobText} submitText={submitText} />
+        <Button tone="ghost" onClick={() => setLogOpen(true)}>
+          {t("ui.editor.log")}
+          {errors > 0 && <span className="q-badge log-badge bar-count-badge tnum">{errors}</span>}
+        </Button>
+        <span className="bar-sep" />
+        <Button tone="primary" disabled={hold !== null} tip={tipOf("disabled", why)} aria-label={t("ui.editor.cook")} onClick={focusCompute}>
+          {t("ui.editor.cook")}
+        </Button>
+        <Button tip={tipOf("consequence", t("ui.editor.focus_done_tip"))} aria-label={t("ui.common.done")} onClick={done}>
+          {t("ui.common.done")}
+        </Button>
+      </div>
+      {asking && (
+        <Sheet title={t("ui.editor.uncooked_title")} width={480} onClose={() => setAsking(false)}>
+          <p className="tpl-desc" style={{ fontSize: 13 }}>
+            {t("ui.editor.uncooked_text")}
+          </p>
+          <div className="dialog-row" style={{ justifyContent: "flex-end" }}>
+            <Button tone="ghost" onClick={() => setAsking(false)}>
+              {t("ui.editor.go_cook")}
+            </Button>
+            <Button tip={tipOf("consequence", t("ui.editor.finish_uncooked_tip"))} onClick={() => (setAsking(false), focusFinish())}>
+              {t("ui.editor.finish_uncooked")}
+            </Button>
+          </div>
+        </Sheet>
+      )}
+    </div>
+  );
+}
+
+/** 顶栏的「取消」：有任务在算时停下它，点了「计算」还在上传 / 提交时停下这次提交。普通顶栏和聚焦栏共用。 */
+function CancelButtons({ jobText, submitText }: { jobText: string; submitText: string }) {
+  const job = useResults((s) => s.job);
+  if (job && jobText)
+    return (
+      <Button tip={tipOf("consequence", t("ui.editor.cancel_job_tip"))} tone="ghost" disabled={job.stopping} onClick={() => void cancelCook()}>
+        {t("ui.common.cancel")}
+      </Button>
+    );
+  if (!job && submitText)
+    return (
+      <Button tip={tipOf("consequence", t("ui.editor.cancel_submit_tip"))} tone="ghost" onClick={cancelSubmit}>
+        {t("ui.common.cancel")}
+      </Button>
+    );
+  return null;
+}
+
+/** 点了「完成」而窗口没关掉（在系统浏览器里打开的页面，脚本关不了它）：盖一层说可以回 DCC 了。 */
+export function FocusDone() {
+  const done = useAppMode((s) => !!s.focus?.done);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!done) return setShown(false);
+    const t = setTimeout(() => setShown(true), 400); // 内嵌窗口这会儿已经被插件关了
+    return () => clearTimeout(t);
+  }, [done]);
+  if (!shown) return null;
+  return (
+    <div className="focus-done" role="status">
+      <div className="focus-done-card glass">
+        <h1>{t("ui.editor.back_to_dcc")}</h1>
+        <p>{t("ui.editor.back_to_dcc_text")}</p>
+      </div>
+    </div>
+  );
+}
+
+/** 「文件」：新建、打开与保存节点图文件，一个菜单代替三个按钮。「保存到我的模板」则把同一张图存到服务器、记在本账号名下：
  * 换一台机器、同一登录，它仍在。 */
-function FileMenu({ onOpen, onSave, viewer, viewerTip, preset, appMode }: { onOpen: () => void; onSave: (saveAs: boolean) => void; viewer: boolean; viewerTip: string; preset: boolean; appMode: boolean }) {
+function FileMenu({ onNew, onOpen, onSave, viewer, viewerTip, preset, appMode }: { onNew: () => void; onOpen: () => void; onSave: (saveAs: boolean) => void; viewer: boolean; viewerTip: string; preset: boolean; appMode: boolean }) {
   const [savingPreset, setSavingPreset] = useState(false);
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -197,24 +307,26 @@ function FileMenu({ onOpen, onSave, viewer, viewerTip, preset, appMode }: { onOp
   return (
     <>
       {/* 「文件」是左边唯一的文字按钮，不带图标：旁边的标志已经是 logo */}
-      <Button tip="节点图文件：打开、保存、另存为" tone="ghost" on={!!at} onClick={(e) => (at ? setAt(null) : open(e))}>
-        文件
+      <Button tone="ghost" on={!!at} onClick={(e) => (at ? setAt(null) : open(e))}>
+        {t("ui.editor.file")}
       </Button>
       {at && (
         <Menu
           at={at}
-          label="文件"
+          label={t("ui.editor.file")}
           width={230}
           onClose={() => setAt(null)}
           rows={[
-            { key: "open", label: "打开", tip: "打开本机的节点图文件", desc: <Kbd>Ctrl+O</Kbd>, run: onOpen },
-            { key: "save", label: "保存", tip: viewer ? viewerTip : "保存到节点图文件；还没存过就先选位置", desc: <Kbd>Ctrl+S</Kbd>, off: viewer, run: () => onSave(false) },
-            { key: "saveas", label: "另存为", tip: viewer ? viewerTip : "存成另一个文件", desc: <Kbd>Ctrl+Shift+S</Kbd>, off: viewer, run: () => onSave(true) },
+            // 新建只在节点模式里有：空图在应用模式下没有可显示的参数
+            ...(appMode ? [] : [{ key: "new", label: t("ui.editor.new_graph"), run: onNew } satisfies MenuRow]),
+            { key: "open", label: t("ui.common.open"), desc: <Kbd>Ctrl+O</Kbd>, run: onOpen },
+            { key: "save", label: t("ui.common.save"), tip: viewer ? tipOf("disabled", viewerTip) : undefined, desc: <Kbd>Ctrl+S</Kbd>, off: viewer, run: () => onSave(false) },
+            { key: "saveas", label: t("ui.common.save_as"), tip: viewer ? tipOf("disabled", viewerTip) : undefined, desc: <Kbd>Ctrl+Shift+S</Kbd>, off: viewer, run: () => onSave(true) },
             // 应用模式不存模板（做模板在节点模式里）
             ...(appMode ? [] : [{
               key: "library",
-              label: "保存到我的模板",
-              tip: viewer ? viewerTip : "存到服务器、记在这个账号名下：换台电脑登录也在，在「模板」的「我的模板」里打开。只存节点图和参数，素材每次自己选",
+              label: t("ui.editor.save_library"),
+              tip: viewer ? tipOf("disabled", viewerTip) : undefined,
               off: viewer,
               run: () => setSaving(true),
             } satisfies MenuRow]),
@@ -222,8 +334,8 @@ function FileMenu({ onOpen, onSave, viewer, viewerTip, preset, appMode }: { onOp
             ...(preset && !appMode
               ? [{
                   key: "preset",
-                  label: "保存为预设模板",
-                  tip: viewer ? viewerTip : "把这张节点图存成一张预设模板卡片：所有人在「模板」里都看得到。只填名字，分类自动判定，之后在「模板」里拖到别的分类",
+                  label: t("ui.editor.save_preset"),
+                  tip: viewer ? tipOf("disabled", viewerTip) : undefined,
                   off: viewer,
                   run: () => setSavingPreset(true),
                 } satisfies MenuRow]
@@ -232,10 +344,10 @@ function FileMenu({ onOpen, onSave, viewer, viewerTip, preset, appMode }: { onOp
               // 授权后，视图直接从本机文件夹读取素材的原件（`files/localDirs.ts`）：全精度、无需传输，
               // 刷新页面后授权仍然有效。浏览器不支持文件夹对话框时，该项显示为不可用。
               key: "originals",
-              label: "授权本机素材文件夹…",
+              label: t("ui.editor.originals"),
               tip: canReadFolder
-                ? `指一个素材所在的文件夹给视图直接读，指过之后视图就从你自己那份素材画——满精度、不下载，刷新之后还认得。${dirs.length ? `\n现在指过的：${dirs.join("、")}\n再指一个会一起用；指过的文件夹里找不到对应的文件时，照旧从服务器取预览` : "\n还没指过：视图现在从服务器取预览"}`
-                : "这个浏览器没有文件夹对话框（要 Chrome 或 Edge，地址是 localhost 或 https）：视图从服务器取预览",
+                ? tipOf("value", dirs.length ? t("ui.editor.originals_allowed", { dirs }) : "")
+                : tipOf("disabled", t("ui.editor.originals_none")),
               desc: dirs.length ? <span className="tnum">{dirs.length}</span> : undefined,
               off: !canReadFolder,
               run: () => void addDir().then((name) => name && setDirs((had) => (had.includes(name) ? had : [...had, name]))),
@@ -256,10 +368,10 @@ function UndoRedo() {
   const lock = useWriteLock(); // 撤销 / 重做也是写文档：只读时置灰并说明（闸本身在 graph/document.ts undo / redo）
   return (
     <div className="bar-history">
-      <IconButton tip={lock || (undoLabel ? `撤销：${undoLabel}（Ctrl+Z）` : "没有可以撤销的修改")} aria-label="撤销" tone="ghost" disabled={!!lock || !undoLabel} onClick={undo}>
+      <IconButton tip={lock ? tipOf("disabled", lock) : undoLabel ? tipOf("shortcut", t("ui.editor.undo_tip", { step: undoLabel() })) : tipOf("disabled", t("ui.editor.undo_none"))} aria-label={t("ui.common.undo")} tone="ghost" disabled={!!lock || !undoLabel} onClick={undo}>
         <IconUndo size={13} />
       </IconButton>
-      <IconButton tip={lock || (redoLabel ? `重做：${redoLabel}（Ctrl+Shift+Z 或 Ctrl+Y）` : "没有可以重做的修改")} aria-label="重做" tone="ghost" disabled={!!lock || !redoLabel} onClick={redo}>
+      <IconButton tip={lock ? tipOf("disabled", lock) : redoLabel ? tipOf("shortcut", t("ui.editor.redo_tip", { step: redoLabel() })) : tipOf("disabled", t("ui.editor.redo_none"))} aria-label={t("ui.common.redo")} tone="ghost" disabled={!!lock || !redoLabel} onClick={redo}>
         <IconRedo size={13} />
       </IconButton>
     </div>
@@ -289,19 +401,19 @@ function LoadPill({ load }: { load: ServerLoad | null | undefined }) {
   const total = slots.cpu.total + slots.gpu.total;
   const state = busy >= total && total > 0 ? "full" : busy > 0 || queue.waiting > 0 ? "busy" : "idle";
   const lines = [
-    `排队：${queue.waiting} 个任务在等（所有人的）`,
-    `正在算：${queue.running} 个任务`,
+    t("ui.editor.load_waiting", { count: queue.waiting }),
+    t("ui.editor.load_running", { count: queue.running }),
     "",
-    "同时能算几个节点：",
-    `CPU：${slots.cpu.busy} / ${slots.cpu.total} 在用`,
-    `GPU：${slots.gpu.busy} / ${slots.gpu.total} 在用`,
+    t("ui.editor.load_slots"),
+    t("ui.editor.load_cpu", { busy: slots.cpu.busy, total: slots.cpu.total }),
+    t("ui.editor.load_gpu", { busy: slots.gpu.busy, total: slots.gpu.total }),
     "",
-    `服务器：CPU ${pct(load.cpu_pct)} · 内存 ${pct(load.ram_pct)}`,
-    ...(load.cards ?? []).map((c, i) => `显卡 ${i + 1}：${c.busy ? "有任务" : "空闲"} · 显存 ${pct(c.mem_pct)}`),
+    t("ui.editor.load_server", { cpu: pct(load.cpu_pct), ram: pct(load.ram_pct) }),
+    ...(load.cards ?? []).map((c, i) => t("ui.editor.load_card", { n: i + 1, state: t(c.busy ? "ui.editor.load_card_busy" : "ui.editor.load_card_idle"), mem: pct(c.mem_pct) })),
   ];
   return (
-    <span className="load-pill tnum" data-state={state} data-tip={lines.join("\n")}>
-      排队 {queue.waiting} · CPU {slots.cpu.busy}/{slots.cpu.total} · GPU {slots.gpu.busy}/{slots.gpu.total}
+    <span className="load-pill tnum" data-state={state} data-fit="1" {...tipAttrs(tipOf("value", lines.join("\n")))}>
+      {t("ui.editor.load_pill", { waiting: queue.waiting, cpu: slots.cpu.busy, cpus: slots.cpu.total, gpu: slots.gpu.busy, gpus: slots.gpu.total })}
     </span>
   );
 }
@@ -338,7 +450,7 @@ export function CookRange() {
   const port = useLook((s) => s.displayPort);
   const full = useResults((s) => planOf(s, { node: display, port, version })?.range ?? null);
   const problem = rangeProblemNow() ?? frameLimitProblemNow();
-  // 有任务在算、或点了「计算」正在上传 / 提交（提交的是点下去那一刻的范围）：锁住，悬停说为什么
+  // 有任务在算、或点了「计算」正在上传 / 提交（提交的是点下去那一刻的范围）：锁住
   const busy = useResults((s) => !!s.job || !!s.submitting);
   const whole: [string, string] | null = full && [String(full[0]), String(full[1])];
   const shown = cookRange ?? whole ?? ["", ""];
@@ -346,29 +458,53 @@ export function CookRange() {
   const commit = (end: 0 | 1, text: string) =>
     setCookRange(end ? [shown[0], text.trim() || whole?.[1] || ""] : [text.trim() || whole?.[0] || "", shown[1]]);
   return (
-    <div className={`tl-group cook-range${problem ? " bad" : ""}`}
-      data-tip={busy ? "有任务在算，或正在上传素材 / 提交：等它算完或取消后再改计算范围" : undefined}>
-      <span className="tl-label">计算</span>
-      <RangeEnd value={shown[0]} label="计算起始帧" disabled={off} bad={!!problem} onCommit={(t) => commit(0, t)} />
+    <div className={`tl-group cook-range${problem ? " bad" : ""}`}>
+      <span className="tl-label">{t("ui.editor.cook")}</span>
+      <RangeEnd value={shown[0]} label={t("ui.editor.range_first")} disabled={off} bad={!!problem} onCommit={(t) => commit(0, t)} />
       <span className="tl-dash">–</span>
-      <RangeEnd value={shown[1]} label="计算结束帧" disabled={off} bad={!!problem} onCommit={(t) => commit(1, t)} />
+      <RangeEnd value={shown[1]} label={t("ui.editor.range_last")} disabled={off} bad={!!problem} onCommit={(t) => commit(1, t)} />
       {cookRange && (
         <Button tone="ghost" size="sm" disabled={busy} onClick={() => setCookRange(null)}>
-          全部
+          {t("ui.editor.range_all")}
         </Button>
       )}
     </div>
   );
 }
 
-/** 服务器拒绝这张图的原因（state/results.ts `refused`），用服务器自己的话，只要拒绝仍成立就显示在顶栏：
- * 读不了的图一打开就说明，被拒的提交就在提交处说明，而不只是日志上的一个计数。按顶栏宽度截断；全文在其提示与日志中。 */
-function SubmitRefusal() {
-  const refused = useResults((s) => s.refused);
-  if (!refused) return null;
+/** 自己的占用到了 80%、满了（lab2shot/server/quota.py stage_of，随 /api/load 和队列的轮询来）：顶栏提醒一次，每个阶段一次——
+ * 点「知道了」或点它打开队列窗口之后，这个阶段不再提醒；占用降到这个阶段以下再回来，才再提醒。记在这个浏览器里，按账号分开
+ * （platform/storage.ts）。满了时「计算」本身也置灰并说明（state/quota.ts），这里只是提前说一声、给个去腾空间的入口。 */
+function StorageNotice({ onOpen }: { onOpen: () => void }) {
+  const storage = useResults((s) => s.storage);
+  const user = useSession((st) => st.state?.user?.id ?? 0);
+  const key = `storageSeen.${user}`;
+  const stage = storage?.stage ?? 0;
+  const [seen, setSeen] = useState(() => readPref<number>(key, 0));
+  useEffect(() => setSeen(readPref<number>(key, 0)), [key]);
+  useEffect(() => {
+    if (storage && stage < seen) {  // 降回这个阶段以下：下次到了再提醒
+      writePref(key, stage);
+      setSeen(stage);
+    }
+  }, [storage, stage, seen, key]);
+  if (!storage || !storage.limit || stage === 0 || stage <= seen) return null;
+  const done = () => {
+    writePref(key, stage);
+    setSeen(stage);
+  };
+  const said = { used: sizeText(storage.total), limit: sizeText(storage.limit) };
+  const pct = Math.floor((storage.total / storage.limit) * 100);
+  const m = stage >= 2 ? msg("N-STORAGE-FULLBAR", said) : msg("N-STORAGE-WARN", { ...said, pct });
+  // 顶栏挤：一行只写几个字（占了多少、点开去腾），整句是它的提示
   return (
-    <span className="bar-refused" role="alert" data-tip={refused.text}>
-      <MessageText message={refused} />
+    <span className="bar-storage" role="status">
+      <button type="button" className="bar-storage-text" {...tipAttrs(tipOf("truncated", m.text))} data-code={m.code} onClick={() => (done(), onOpen())}>
+        {stage >= 2 ? t("ui.editor.storage_full") : t("ui.editor.storage_pct", { pct })}
+      </button>
+      <IconButton tone="ghost" aria-label={t("ui.editor.got_it")} onClick={done}>
+        <IconClose />
+      </IconButton>
     </span>
   );
 }
@@ -408,11 +544,9 @@ function TransferRate() {
   const lost = shown.lost || serverDown;
   const paused = !lost && shown.paused > 0;
   return (
-    <span className={`bar-rate tnum${lost || paused ? " lost" : ""}`}
-      data-tip={lost ? "和服务器的连接断了（推送或状态请求没有应答）：恢复后自动重连"
-        : paused ? "服务器说这个会话的请求太多了：页面上所有请求停一会儿再发，到点自动恢复"
-        : "页面每秒收发的字节：↑ 发出（上传素材、请求），↓ 收到（视图数据、状态、推送；浏览器缓存里直接取到的也算）"}>
-      {lost ? <span className="rate-lost">已断开</span> : paused ? <span className="rate-lost">{textOf(msg("N-ACCESS-PAUSED", { seconds: shown.paused }))}</span> : (
+    <span className={`bar-rate tnum${lost || paused ? " lost" : ""}`} data-fit="2"
+      {...tipAttrs(lost ? tipOf("error", t("ui.editor.rate_lost_tip")) : paused ? tipOf("error", t("ui.editor.rate_paused_tip")) : undefined)}>
+      {lost ? <span className="rate-lost">{t("ui.editor.rate_lost")}</span> : paused ? <span className="rate-lost">{textOf(msg("N-ACCESS-PAUSED", { seconds: shown.paused }))}</span> : (
         <>
           <span className="rate-dir">↑</span><span className="rate-num">{shown.up[0]}</span><span className="rate-unit">{shown.up[1]}</span>
           <span className="rate-dir">↓</span><span className="rate-num">{shown.down[0]}</span><span className="rate-unit">{shown.down[1]}</span>
@@ -422,3 +556,22 @@ function TransferRate() {
   );
 }
 
+/** 一个文件正在后台读内容（导入节点列清单时自动读的，没点「计算」，所以没有任务、队列里取消不了）：顶栏说一句和用了
+ * 多久，旁边「停止」。超过上限服务器自己停下（engine/external.py ask_worker），节点上说原因和怎么办。 */
+const NO_READINGS: Reading[] = []; // one empty list: a selector returning a new [] each time would re-render for ever
+
+function ReadingNow() {
+  const readings = useResults((s) => s.reply?.readings ?? NO_READINGS);
+  if (!readings.length) return null;
+  const r = readings[0];
+  const several = readings.length > 1;
+  return (
+    <span className="bar-reading" role="status">
+      <span data-user-data {...tipAttrs(tipOf("truncated", `${r.label} · ${r.file}`))}>{several ? t("ui.editor.reading_many", { file: r.file || r.label, count: readings.length, seconds: r.seconds }) : t("ui.editor.reading", { file: r.file || r.label, seconds: r.seconds })}</span>
+      <Button tone="ghost" tip={tipOf("consequence", t("ui.editor.reading_stop_tip", { minutes: Math.round(r.limit / 60) }))}
+        onClick={() => void api.stopReadings().then(() => askStatus())}>
+        {t("ui.editor.stop")}
+      </Button>
+    </span>
+  );
+}

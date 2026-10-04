@@ -2,13 +2,15 @@
  * exposed values, deleting, group boxes; each edit touches state/cookInputs.ts and state/look.ts together and is one
  * undo step (document.ts noticed()). graph/actions.ts re-exports what components call. */
 
-import { api, type NodeTypeDef, type PickedFrom } from "../api";
+import { role3d } from "../view/handleEditing";
+import { api, type ExposedEntry, type NodeTypeDef, type PickedFrom, type Words } from "../api";
 import { getCatalog, getLayerPorts, getNodeDefs, getTypes } from "../state/catalog";
-import { exposedParams, useCookInputs, withoutTarget, type CookNode, type Wire } from "../state/cookInputs";
+import { wiredRule } from "../model/rigPair";
+import { drives, edited, exposedParams, linkedTargets, newWords, nodeRefOf, splitTarget, targetsOf, useCookInputs, withoutTarget, type CookNode, type Wire } from "../state/cookInputs";
 import { useLook, type Box, type Pos } from "../state/look";
 import { useResults } from "../state/results";
 import { useViewer, type LooseWire } from "../state/viewer";
-import { BOX_COLORS, BOX_HEAD, boxContents, chosenOnNode, nodeSize } from "./nodes";
+import { BOX_COLORS, BOX_FOLD_W, BOX_HEAD, boxContents, chosenOnNode, nodeSize } from "./nodes";
 import { wireProblem } from "./wireRule";
 import { ADD_ROW, PARAM, inputPort, loosePort, looseType, outputType, portAccepts, rowsLeft, tableRows, wireKey } from "./rules";
 import { snapshotNow } from "./snapshot";
@@ -16,12 +18,18 @@ import { pastedWires, takeCopy, uniqueCopyValue, type Copied } from "./clipboard
 import { absorb, anchor, derived, fillUndone, transaction } from "./history";
 import { same, type Json } from "../model/graphPatch";
 import { rewire, type End as RewireEnd, type Held } from "./rewire";
-import { eachBlocks, layoutGraph } from "./layout";
+import { eachBlocks, inputSlot, layoutGraph } from "./layout";
 import type { GNode } from "../state/graph";
 import { msg, reasonOf, say } from "../state/say";
 import { justWired } from "./judged";
+import { defaultName, nameProblem, wordIn } from "./naming";
+import { pick, t } from "../i18n/t";
 
-let nodeSerial = 0;
+/** Whether a node of the open graph (or a kept 「未知节点」) already has `id`: what a new name must not be. */
+const idTaken = (id: string): boolean => {
+  const ci = useCookInputs.getState();
+  return !!ci.nodes[id] || ci.kept.nodes.some((n) => n.id === id);
+};
 // ------------------------------------------------------------------ editing
 
 function uniqueValues(order: string[], nodes: Record<string, CookNode>, def: NodeTypeDef): Record<string, unknown> {
@@ -51,13 +59,11 @@ export function addNode(typeId: string, x: number, y: number, wire?: LooseWire):
   const def = getNodeDefs()[typeId];
   if (!def) return;
   const ci = useCookInputs.getState();
-  const base = typeId.split(".").pop() ?? "node";
-  let id = `${base}${++nodeSerial}`;
-  while (ci.nodes[id] || ci.kept.nodes.some((n) => n.id === id)) id = `${base}${++nodeSerial}`;
+  const id = defaultName(typeId, idTaken);
   const snap = snapshotNow();
   const port = wire && loosePort(snap, wire, typeId);
   const promoted = wire?.side === "source" && port?.startsWith(PARAM) ? [port.slice(PARAM.length)] : undefined;
-  useCookInputs.getState().insertNode(id, { typeId, label: def.label, params: { ...def.defaults, ...uniqueValues(ci.order, ci.nodes, def), ...(wire ? givenValue(ci.nodes, wire, def) : {}) }, promoted });
+  useCookInputs.getState().insertNode(id, { typeId, params: { ...def.defaults, ...uniqueValues(ci.order, ci.nodes, def), ...(wire ? givenValue(ci.nodes, wire, def) : {}) }, promoted });
   useLook.getState().setPosition(id, x, y);
   // the rows shown on a node come from the same place as the parameter values: the type declares the factory default
   // (NodeDef.on_node), written into the node's own list when it is created (kept in the graph json's `ui.on_node`), and
@@ -112,14 +118,15 @@ function numbered(base: string, taken: string[]): string {
   return `${base}${n}`;
 }
 
-/** A default row label for a ports_from-input table. A node that names its rows itself (`ports_from_labels`: 「切换」's
- * 第一路, 第二路…) gives the label of the row's place, whatever is wired in. Otherwise (「多层 EXR 输出设置」's 图层) it is
+/** A default row label for a ports_from-input table. A node that names its rows itself (`ports_from_names`: 「切换」's
+ * ways) gets none ("": read as 第一路 / Input 1 … of its place, in the language when shown). Otherwise (「多层 EXR 输出设置」's 图层) it is
  * derived from which port is wired in (data/layers.py LAYER_FOR_PORT, sent in the catalogue as layer_ports: image → rgba,
  * alpha / mask → mask, normal → N, position → P, flow → motion; anything else keeps its own name, such as depth, stmap,
  * confidence), numbered on when it is already one of `taken`. Nothing wired in (「＋」 clicked): layer, layer2… */
 function defaultRowLabel(def: NodeTypeDef, fromPort: string, dataType: string, taken: string[]): string {
-  const own = def.ports_from_labels?.[taken.length];
-  if (own) return numbered(own, taken);
+  // a row the node names itself keeps no name of its own: it reads as the node's word for its place, said when shown
+  // in the language then (editor/ParamTable.tsx rowDefault; the server's made_ports)
+  if (def.ports_from_names?.length) return "";
   return numbered(getLayerPorts()[fromPort] || fromPort || getTypes()[dataType.split("|")[0]]?.layer_default || "layer", taken);
 }
 
@@ -149,7 +156,7 @@ function appendRow(nodeId: string, fromPort = "", dataType = ""): string {
   const { def, rows } = table;
   const name = freshRowName(def, rows.map((r) => String(r.name)));
   if (!name) return "";
-  const label = defaultRowLabel(def, fromPort, dataType, rows.map((r) => String(r.label ?? "")));
+  const label = defaultRowLabel(def, fromPort, dataType, rows.map((r) => pick(r.label)));
   setParam(nodeId, def.ports_from, [...rows, { name, label }]);
   return name;
 }
@@ -169,8 +176,16 @@ export function renameRow(nodeId: string, rowName: string, label: string): void 
   const text = label.trim();
   if (!table || !text) return;
   const { def, rows } = table;
-  if (!rows.some((r) => r.name === rowName && r.label !== text)) return;
-  setParam(nodeId, def.ports_from, rows.map((r) => (r.name === rowName ? { ...r, label: text } : r)));
+  if (!rows.some((r) => r.name === rowName && pick(r.label) !== text)) return;
+  // a row the node names itself (「切换」's ways: ports_from_names) carries a display name: what is typed goes into the
+  // page's language, the other kept, an old plain one first put where its language says (state/cookInputs.ts edited,
+  // the rule of every display field). A row named after what is wired in (「多层 EXR 输出」's 图层) is data, the name the
+  // file's layer gets: it stays a plain string
+  const display = !!def.ports_from_names?.length;
+  // left as shown, the node's own word for an unnamed row (第二路 / Input 2): it keeps no name, so it still follows the language
+  const place = def.ports_from_labels?.[def.ports_from_names?.indexOf(rowName) ?? -1];
+  if (display && text === place && !pick(rows.find((r) => r.name === rowName)?.label)) return;
+  setParam(nodeId, def.ports_from, rows.map((r) => (r.name === rowName ? { ...r, label: display ? edited(r.label, text) : text } : r)));
 }
 
 /** A wire dropped on a ports_from-input node's body (not on one of its ports): the same as dropping it on the node's
@@ -183,7 +198,7 @@ export function addPortRow(targetId: string, fromNode: string, fromPort: string)
   const node = useCookInputs.getState().nodes[targetId];
   if (!rowsLeft(table.def, node.params)) {  // full (「切换」's ten ways): no row to add, said rather than dropped quietly
     const count = table.def.ports_from_names?.length ?? table.rows.length;
-    say(msg("B-WIRE-ROWSFULL", { node: node.label, count, word: table.def.ports_from_word }), targetId);
+    say(msg("B-WIRE-ROWSFULL", { node: nodeRefOf(targetId), count, word: table.def.ports_from_word }), targetId);
     return true;
   }
   connect({ source: fromNode, sourceHandle: fromPort, target: targetId, targetHandle: ADD_ROW });
@@ -195,8 +210,9 @@ export function addPortRow(targetId: string, fromNode: string, fromPort: string)
 export function mergeToExr(ids: string[]): void {
   const ci = useCookInputs.getState();
   const look = useLook.getState();
-  const exrDef = getNodeDefs()["core.output_exr"];
-  const targetIds = ids.filter((id) => ci.nodes[id]?.typeId === "core.output_images");
+  const from = ci.nodes[ids[0]]?.typeId ?? "";
+  const exrDef = getNodeDefs()[getNodeDefs()[from]?.merges_into ?? ""];
+  const targetIds = ids.filter((id) => ci.nodes[id]?.typeId === from);
   if (!exrDef || targetIds.length < 1) return;
   const taken: string[] = [];
   const rows = targetIds.map((tid, i) => {
@@ -212,8 +228,7 @@ export function mergeToExr(ids: string[]): void {
   const positions = targetIds.map((tid) => look.positions[tid] ?? { x: 0, y: 0 });
   const x = positions.reduce((a, p) => a + p.x, 0) / positions.length;
   const y = positions.reduce((a, p) => a + p.y, 0) / positions.length;
-  let id = `output_exr${++nodeSerial}`;
-  while (ci.nodes[id] || ci.kept.nodes.some((n) => n.id === id)) id = `output_exr${++nodeSerial}`;
+  const id = defaultName(exrDef.id, idTaken);
   const idsSet = new Set(targetIds);
   const incoming = targetIds.map((tid) => ci.edges.find((e) => e.target === tid && e.targetHandle === "image"));
   const outgoing = targetIds.map((tid) => ci.edges.find((e) => e.source === tid && e.sourceHandle === "files")).find((e) => e);
@@ -229,7 +244,7 @@ export function mergeToExr(ids: string[]): void {
   // results and, if one of them was shown, the display node). Showing or planning one of them by its old id would return a
   // 500 error (the node no longer exists) rather than an empty display.
   deleteElements(targetIds, [], []);
-  useCookInputs.getState().insertNode(id, { typeId: "core.output_exr", label: exrDef.label, params: { ...exrDef.defaults, layers: rows } });
+  useCookInputs.getState().insertNode(id, { typeId: exrDef.id, params: { ...exrDef.defaults, layers: rows } });
   useLook.getState().setPosition(id, x, y);
   useCookInputs.getState().setEdges([...kept, ...added]);
   for (const b of boxesToFix) useLook.getState().setBox(b.id, { members: [...b.members.filter((m) => !idsSet.has(m)), id] });
@@ -245,7 +260,7 @@ export function connect(c: { source: string | null; sourceHandle?: string | null
   const srcType = outputType(snap, c.source, c.sourceHandle ?? null);
   const port = dst && inputPort(snap, dst.id, c.targetHandle ?? null);
   if (!srcType || !port) return;
-  const at = { source: snap.nodes.find((n) => n.id === c.source)?.data.label ?? c.source, node: dst.data.label, input: port.label };
+  const at = { source: wordIn(snap.nodes, c.source), node: wordIn(snap.nodes, dst.id), input: port.label };
   // whether it may be wired is asked of graph/wireRule.ts only (the same place as the green ports while dragging and
   // moving a bundle): dragging a wire, picking a node from the menu after dragging out of a port, and one-click insert
   // all come through here
@@ -265,10 +280,25 @@ export function connect(c: { source: string | null; sourceHandle?: string | null
   const kept = port.multi ? edges : edges.filter((e) => e !== old);
   const id = wireKey(c.source, sourceHandle, c.target, targetHandle);
   useCookInputs.getState().setEdges([...kept, { id, source: c.source, sourceHandle, target: c.target, targetHandle }]);
+  preselectRule(c.source, c.target);
   if (old) {
-    say(msg("I-WIRE-REPLACED", { ...at, was: ci.nodes[old.source]?.label ?? old.source }), dst.id);
+    say(msg("I-WIRE-REPLACED", { ...at, was: nodeRefOf(old.source) }), dst.id);
   }
   justWired.add(id); // what is wrong with it, if anything, is said once the server has judged it (sayJudgedWires)
+}
+
+/** A wire from a node with a two-skeleton handle (rig_pair, its 「忽略规则」 role) straight into a solver whose catalogue
+ * entry lists the ignore rules it accepts (NodeTypeDef.retarget_rules): while the rule is still at its default, it
+ * becomes that solver's first rule — in the same undo step as the wire (written in the same task; model/rigPair.ts
+ * wiredRule). A rule the user picked is never changed. */
+function preselectRule(source: string, target: string): void {
+  const ci = useCookInputs.getState();
+  const src = ci.nodes[source], dst = ci.nodes[target];
+  const srcDef = getNodeDefs()[src?.typeId ?? ""];
+  const role = srcDef?.handles.find((h) => role3d(h) === "pair")?.params.ignore_rule;
+  if (!src || !srcDef || !role) return;
+  const rule = wiredRule(getNodeDefs()[dst?.typeId ?? ""]?.retarget_rules, src.params[role], srcDef.defaults[role]);
+  if (rule) editParams(source, { [role]: rule });
 }
 
 /** A Ctrl-carried bundle let go (editor/graphPointer.ts): the carried wires all move to `to` (the rule: graph/rewire.ts).
@@ -282,13 +312,12 @@ export function moveWires(held: Held, to: RewireEnd, side: "output" | "input"): 
     say(got.refused, to.node);
     return false;
   }
-  transaction("整组改接", "rewire", () => useCookInputs.getState().setEdges(got.edges));
+  transaction(() => t("ui.history.rewire"), "rewire", () => useCookInputs.getState().setEdges(got.edges));
   for (const w of got.edges) if (!held.wires.some((h) => h.id === w.id)) justWired.add(w.id); // what is wrong with it, if anything, is said once the server has judged it (as in connect)
   if (got.replaced) {
     const port = inputPort(snap, to.node, to.port);
-    say(msg("I-WIRE-REPLACED", { source: snap.nodes.find((n) => n.id === held.wires[0].source)?.data.label ?? held.wires[0].source,
-      node: snap.nodes.find((n) => n.id === to.node)?.data.label ?? to.node, input: port?.label ?? to.port,
-      was: snap.nodes.find((n) => n.id === got.replaced!.source)?.data.label ?? got.replaced.source }), to.node);
+    say(msg("I-WIRE-REPLACED", { source: wordIn(snap.nodes, held.wires[0].source), node: wordIn(snap.nodes, to.node), input: port?.label ?? to.port,
+      was: wordIn(snap.nodes, got.replaced.source) }), to.node);
   }
   return true;
 }
@@ -313,11 +342,25 @@ export function setParams(id: string, changes: Record<string, unknown>): void {
   editParams(id, changes);
 }
 
+/** Parameters of several nodes at once, as one undo step named `label` (the parameter interface's 「全开 / 全关」 of a
+ * group of switches: model/groupSwitches.ts). Each node's share goes through the same path as setParams. */
+export function setParamsAcross(label: string | (() => string), changes: { target: string; value: unknown }[]): void {
+  const byNode = new Map<string, Record<string, unknown>>();
+  for (const c of changes) {
+    const [id, name] = c.target.split(".");
+    byNode.set(id, { ...(byNode.get(id) ?? {}), [name]: c.value });
+  }
+  if (!byNode.size) return;
+  transaction(typeof label === "string" ? () => label : label, "params-across", () => {
+    for (const [id, values] of byNode) editParams(id, values);
+  });
+}
+
 /** A node's parameters change (with whatever else of its data goes with them, `extra`: e.g. pickFile's own `picked`
  * record): the parameters derived from them (P(derived_from): an import node's singleton-kind auto-selection,
  * 「LensDistortion」's 畸变参数 from its 镜头模型) are requested from the server first, so the whole change is one edit.
  * `extra` is computed against the node as it was before `changes`. */
-function editParams(id: string, changes: Record<string, unknown>, extra: (node: CookNode) => Partial<CookNode> = () => ({})): void {
+function editParams(id: string, changes: Record<string, unknown>, extra: (node: CookNode) => Partial<CookNode> = () => ({}), linked = true): void {
   const ci = useCookInputs.getState();
   const node = ci.nodes[id];
   const def = getNodeDefs()[node?.typeId ?? ""];
@@ -340,6 +383,27 @@ function editParams(id: string, changes: Record<string, unknown>, extra: (node: 
       useCookInputs.getState().setEdges(edges.filter((e) => !(e.target === id && before.includes(e.targetHandle))));
     }
   }
+  // a parameter tied to others through an entry of the parameter interface driving several (state/cookInputs.ts
+  // linkedTargets: two trackers sharing one set of picks) takes the same value in every one of them, whichever way it
+  // was set (the panel, app mode, a handle in the view), in the same step; a picked file's record goes along
+  if (linked) {
+    const tree = useCookInputs.getState().exposed;
+    const picked = useCookInputs.getState().nodes[id]?.picked;
+    const others = new Map<string, Record<string, unknown>>();
+    for (const [name, v] of Object.entries(changes))
+      for (const key of linkedTargets(tree, `${id}.${name}`)) {
+        const [nid, pname] = splitTarget(key);
+        others.set(nid, { ...(others.get(nid) ?? {}), [pname]: v });
+      }
+    for (const [nid, values] of others)
+      editParams(nid, values, (n) => {
+        const names = Object.keys(values);
+        const from = Object.fromEntries(Object.keys(changes).filter((k) => picked?.[k]).map((k) => [k, picked![k]]));
+        const keep = Object.fromEntries(Object.entries(n.picked ?? {}).filter(([k]) => !names.includes(k)));
+        const take = Object.fromEntries(names.filter((k) => from[k]).map((k) => [k, from[k]]));
+        return n.picked || Object.keys(take).length ? { picked: { ...keep, ...take } } : {};
+      }, false);
+  }
   if (!derived.length) return;
   const into = anchor(); // the step this change is recorded in: the answer joins it, whatever the user did meanwhile
   const sources = new Set(derived.flatMap((p) => p.derived_from));
@@ -357,8 +421,8 @@ function editParams(id: string, changes: Record<string, unknown>, extra: (node: 
   void api.derive(def.id, asked).then(
     (got) => land(got),
     (e) => {
-      const names = def.params.filter((p) => p.derived_from.length).map((p) => `「${p.label}」`).join("");
-      say(msg("E-PARAM-DERIVE", { node: node.label, params: names, reason: reasonOf(e) }), id);
+      const names = def.params.filter((p) => p.derived_from.length).map((p) => p.label);
+      say(msg("E-PARAM-DERIVE", { node: nodeRefOf(id), params: names, reason: reasonOf(e) }), id);
       land(Object.fromEntries(derived.map((p) => [p.name, def.defaults[p.name]])));
     },
   );
@@ -412,30 +476,87 @@ export async function deriveParams(id: string, params?: Record<string, unknown>)
   try {
     return await api.derive(def.id, params ?? node.params);
   } catch (e) {
-    const names = def.params.filter((p) => p.derived_from.length).map((p) => `「${p.label}」`).join("");
-    say(msg("E-PARAM-DERIVE", { node: node.label, params: names, reason: reasonOf(e) }), id);
+    const names = def.params.filter((p) => p.derived_from.length).map((p) => p.label);
+    say(msg("E-PARAM-DERIVE", { node: nodeRefOf(id), params: names, reason: reasonOf(e) }), id);
     return null;
   }
 }
 
-export function setLabel(id: string, label: string): void {
-  useCookInputs.getState().setNode(id, { label });
+/** Renames a node (its id, Houdini's node name: graph/naming.ts): refused with the reason (returned, nothing changes)
+ * when the name breaks the rule or another node has it. Everything that names the node follows in one undo step: the
+ * cook inputs (wires, exposed targets: state/cookInputs.ts renameNode), the document's look (position, rows, comment,
+ * boxes, the node shown: state/look.ts renameNode) and, outside the document, the selection, the expanded nodes, the
+ * canvas's per-node state and the last answers by node, so nothing blinks while the server is asked again. */
+export function renameNode(from: string, name: string): string | null {
+  const to = name.trim();
+  const node = useCookInputs.getState().nodes[from];
+  if (!node || to === from) return null;
+  const problem = nameProblem(to, (id) => id !== from && idTaken(id));
+  if (problem) return problem;
+  transaction(() => t("ui.history.rename", { from, to }), `rename ${from}`, () => {
+    useCookInputs.getState().renameNode(from, to);
+    useLook.getState().renameNode(from, to);
+  });
+  const id = (x: string) => (x === from ? to : x);
+  const move = <T,>(r: Record<string, T>): Record<string, T> => {
+    if (!(from in r)) return r;
+    const { [from]: v, ...rest } = r;
+    return { ...rest, [to]: v };
+  };
+  useViewer.setState((s) => ({ selectedId: s.selectedId && id(s.selectedId), expanded: s.expanded.map(id), canvas: move(s.canvas) }));
+  useResults.setState((s) => ({ results: move(s.results), byNode: move(s.byNode), running: move(s.running) }));
+  return null;
+}
+
+/** A node's comment (Houdini's node comment: any text, several lines) and whether it shows beside the node; an empty
+ * text removes it. One undo step, like any edit of the document's look. */
+export function setComment(id: string, text: string, show?: boolean): void {
+  const was = useLook.getState().comments[id];
+  useLook.getState().setComment(id, text.trim() ? { text, show: show ?? was?.show ?? true } : undefined);
 }
 
 /** Exposes / unexposes a parameter (the pin beside it). The parameter interface is a tree (api/catalog.ts
  * ExposedEntry): unexposing removes it from its group, which stays; a newly exposed one goes to the end of the root,
  * and from there is dragged in the parameter panel (the exposed-parameter tree shown with no node selected) or into a
  * group in the 「编辑参数界面」 dialog (the small button at the far right of the parameter panel's title row). */
-export function toggleExposed(nodeId: string, param: string, label: string): void {
+export function toggleExposed(nodeId: string, param: string, label: Words): void {
   const ci = useCookInputs.getState();
   const target = `${nodeId}.${param}`;
   const all = exposedParams(ci.exposed);
-  if (all.some((x) => x.target === target)) {
+  if (all.some((x) => drives(x, target))) {
     useCookInputs.getState().setExposed(withoutTarget(ci.exposed, target));
     return;
   }
   const name = all.some((x) => x.name === param) ? `${nodeId}_${param}` : param;
-  useCookInputs.getState().setExposed([...ci.exposed, { name, label, target }]);
+  // a new display field: in the page's language ({lang: text}; the parameter's own name as the page shows it)
+  useCookInputs.getState().setExposed([...ci.exposed, { name, label: typeof label === "string" ? newWords(label) : label, target }]);
+}
+
+/** The parameter interface as the 「编辑参数界面」 dialog hands it back (its 「确定」), one undo step. An entry driving
+ * several node parameters holds one value in all of them (the server refuses a template where they differ:
+ * E-EXPOSED-TARGETS): one just made by 「合并」 takes its first target's value (and picked file) into the others. */
+export function setInterface(tree: ExposedEntry[]): void {
+  transaction(() => t("ui.interface.title"), "interface", () => {
+    useCookInputs.getState().setExposed(tree);
+    const defs = getNodeDefs();
+    for (const x of exposedParams(tree)) {
+      const keys = targetsOf(x);
+      if (keys.length < 2) continue;
+      const nodes = useCookInputs.getState().nodes;
+      const [nid, pname] = splitTarget(keys[0]);
+      const n = nodes[nid];
+      const def = n && defs[n.typeId];
+      if (!n || !def || def.params.find((p) => p.name === pname)?.widget === "button") continue;
+      const value = n.params[pname] ?? def.defaults[pname] ?? null;
+      const picked = n.picked?.[pname];
+      for (const key of keys.slice(1)) {
+        const [oid, oname] = splitTarget(key);
+        const o = nodes[oid];
+        if (!o || same((o.params[oname] ?? defs[o.typeId]?.defaults[oname] ?? null) as Json, value as Json)) continue;
+        editParams(oid, { [oname]: value }, (m) => (picked ? { picked: { ...(m.picked ?? {}), [oname]: picked } } : {}), false);
+      }
+    }
+  });
 }
 
 /** What the user deleted in one go (Delete / Backspace on the canvas: React Flow's onDelete, which hands over the
@@ -475,7 +596,7 @@ function selectionCopy(): Copied | null {
   for (const b of boxes) for (const id of boxContents(b, nodes)) if (ci.nodes[id]) ids.add(id);
   if (!ids.size && !boxes.length) return null;
   const order = ci.order.filter((id) => ids.has(id)); // file order: the copies keep it
-  return takeCopy(ci.graphId, order, boxes, ci.nodes, look.positions, look.onNode, ci.edges);
+  return takeCopy(ci.graphId, order, boxes, ci.nodes, look.positions, look.onNode, look.comments, ci.edges);
 }
 
 /** Ctrl+C: the selection is copied (false: nothing selected, the key is the browser's). */
@@ -526,9 +647,7 @@ function pasteInto(copied: Copied, place: Pos | number): void {
   for (const n of copied.nodes) {
     const def = getNodeDefs()[n.data.typeId];
     const now = useCookInputs.getState();
-    const base = n.data.typeId.split(".").pop() ?? "node";
-    let id = `${base}${++nodeSerial}`;
-    while (now.nodes[id] || now.kept.nodes.some((k) => k.id === id)) id = `${base}${++nodeSerial}`;
+    const id = defaultName(n.data.typeId, idTaken);
     const params = { ...n.data.params };
     for (const p of def?.params ?? []) {
       if (!p.unique) continue;
@@ -538,6 +657,7 @@ function pasteInto(copied: Copied, place: Pos | number): void {
     now.insertNode(id, { ...structuredClone(n.data), params });
     useLook.getState().setPosition(id, n.pos.x + d.x, n.pos.y + d.y);
     if (n.onNode) useLook.getState().setOnNode(id, [...n.onNode]);
+    if (n.comment) useLook.getState().setComment(id, { ...n.comment });
     renamed.set(n.id, id);
   }
   const wires = pastedWires(copied, renamed, copied.graphId === ci.graphId, (id) => !!useCookInputs.getState().nodes[id]);
@@ -568,7 +688,7 @@ export function addBox(at?: { x: number; y: number }): void {
   let box: Box;
   let n = look.boxes.length + 1;
   while (look.boxes.some((b) => b.id === `box:${n}`)) n++;
-  const base = { id: `box:${n}`, label: `分组 ${n}`, color: BOX_COLORS[(n - 1) % BOX_COLORS.length], collapsed: false, members: [] };
+  const base = { id: `box:${n}`, label: "", color: BOX_COLORS[(n - 1) % BOX_COLORS.length], collapsed: false, members: [] };
   if (picked.length) {
     const pad = 26;
     const x0 = Math.min(...picked.map((p) => p.position.x)) - pad;
@@ -608,16 +728,22 @@ export function arrangeGraph(): void {
   });
   if (!nodes.length) return;
   const ids = new Set(nodes.map((n) => n.id));
-  const edges = snap.edges.filter((e) => ids.has(e.source) && ids.has(e.target))
-    .map((e) => ({ from: e.source, to: e.target, param: (e.targetHandle ?? "").startsWith(PARAM) }));
   const ci = useCookInputs.getState();
-  const blocks = eachBlocks(ci.order.filter((id) => ids.has(id)).map((id) => ({ id, type: ci.nodes[id].typeId, block: ci.nodes[id].params.block })));
+  const edges = snap.edges.filter((e) => ids.has(e.source) && ids.has(e.target))
+    .map((e) => {
+      const to = snap.nodes.find((n) => n.id === e.target);
+      return { from: e.source, to: e.target, param: (e.targetHandle ?? "").startsWith(PARAM),
+               slot: to && inputSlot(snap.nodeDefs[to.data.typeId], ci.nodes[e.target]?.params, e.targetHandle ?? "") };
+    });
+  const blocks = eachBlocks(ci.order.filter((id) => ids.has(id)).map((id) => ({ id, type: ci.nodes[id].typeId, block: ci.nodes[id].params.block })), snap.nodeDefs);
   const look = useLook.getState();
   // boxes: their members are taken before arranging (an open box by node centres inside it, a collapsed one by its own
   // list); when only the selection is arranged, only boxes whose members are all selected move
-  const boxes = look.boxes.map((b) => ({ id: b.id, x: b.x, y: b.y, w: b.w, h: b.h, members: boxContents(b, snap.nodes) }))
+  // a collapsed box is laid out at its collapsed size, as one node (graph/layout.ts, 9)
+  const boxes = look.boxes.map((b) => ({ id: b.id, x: b.x, y: b.y, w: b.w, h: b.h, members: boxContents(b, snap.nodes),
+    ...(b.collapsed ? { folded: { w: Math.min(b.w, BOX_FOLD_W), h: BOX_HEAD } } : {}) }))
     .filter((b) => b.members.length && b.members.every((m) => ids.has(m)));
   const anchor = only ? { x: Math.min(...nodes.map((n) => n.x)), y: Math.min(...nodes.map((n) => n.y)) } : { x: 0, y: 0 };
   const out = layoutGraph({ nodes, edges, blocks, boxes, anchor });
-  transaction("整理节点图", "arrange", () => useLook.getState().place(out.positions, out.boxes));
+  transaction(() => t("ui.history.arrange"), "arrange", () => useLook.getState().place(out.positions, out.boxes));
 }

@@ -49,12 +49,12 @@ class PointTracker3D(WorkerNode):
     (solves_camera). Job.notes: none."""
     lens = "pinhole"  # treats the plate as a lens without distortion: says it needs undistorted plates
 
-    inputs = (rgb_port(), plate_mask_port("遮罩", every_frame=False), camera_port())
+    inputs = (rgb_port(), plate_mask_port(every_frame=False), camera_port())
     main = "tracks3d"
     # 口名叫 `tracks3d`，不叫 `points`：`points` 在别的口上是「点云」（每帧各算各的一片点），这里是「3D 跟踪点」
     # （每个点有编号、整段跟着同一个点）；Track4World 两样都出，同名会撞。`tracks3d` 和 2D 的 `tracks` 成对。
-    outputs = (Port("tracks3d", "scene.points", "3D 跟踪点"), Port("tracks", "tracks2d", "2D 跟踪点"),
-               Port("camera", "scene.camera", "相机"))
+    outputs = (Port("tracks3d", "scene.points"), Port("tracks", "tracks2d"),
+               Port("camera", "scene.camera"))
     cost = Cost(gpu=True)
     handles = (Handle("points", {"points": "picks"}),)
     Params = PointTracks3DParams
@@ -76,7 +76,7 @@ class PointTracker3D(WorkerNode):
             cls.outputs = tuple(p for p in cls.outputs if p.name not in drop)
         super().__init_subclass__(**kw)
     # 给出多少个点：下面的节点靠它说自己哪一档能用（applies.py Incoming）。和 2D 的点跟踪同一条声明
-    fact_labels = {"points": "跟踪点数"}
+    fact_labels = ("points",)
 
     @classmethod
     def facts(cls, params: dict) -> dict:
@@ -89,7 +89,7 @@ class PointTracker3D(WorkerNode):
             return {}
         grid = int(params.get("grid") or 0)
         picked = len(parse_picks(cls, "picks", list(params.get("picks") or [])))  # an entry that does not read is no point
-        return {"points": Fact(grid * grid + picked, cls.fact_labels["points"])}
+        return {"points": Fact(grid * grid + picked, cls.fact_label("points"))}
 
     @classmethod
     def prepare(cls, ctx) -> Job:
@@ -102,7 +102,7 @@ class PointTracker3D(WorkerNode):
             # track_queries warns about it (W-HANDLE-BADPICK), never a ValueError here
             elsewhere = [p for p in picks if (got := entries(cls, "picks", [p])[0]) and got[0][0] != ref]
             if elsewhere:
-                ctx.say("N-TRACKS3D-PICKSIGNORED", param="picks", count=len(elsewhere), frame=ref, node=cls.label)
+                ctx.say("N-TRACKS3D-PICKSIGNORED", param="picks", count=len(elsewhere), frame=ref)
             picks = [p for p in picks if p not in elsewhere]
         inputs = track_queries(ctx, image, picks)
         if cls.queries == "grid" and not ctx.params["grid"] and "points" not in inputs:  # nothing asked for: empty
@@ -149,7 +149,7 @@ class PointTracker3D(WorkerNode):
             xyz = xyz * M_TO_CM  # 接进来那台相机的世界：相机本身不交出去（solves_camera=False，从它的来源接）
         depth = next((ctx.input(p.name) for p in cls.inputs if p.name == "depth"), None)
         if depth is not None:
-            scale = meant(ctx, depth, "scale", "深度图")
+            scale = meant(ctx, depth, "scale", next((p.label for p in cls.inputs if p.name == "depth"), "depth"))
         else:
             scale = "metric" if result.get("metric") and result["world"] == "own" else "relative"
         out["tracks3d"] = tracked_points_packet(ctx.outputs["tracks3d"], frames, "tracks", xyz,

@@ -1,0 +1,127 @@
+# 数据类型的词（P1-A，data/types.py）：type.<类型>.label / .description / .end（终端类型为何只交给格式输出节点）/ .items（单项的名称）；
+# kind.<种类>：三维数据的种类；type.list_of / type.or：类型名的列表与候选写法。
+[type]
+list_of = "{type}列表"
+or = "或"
+
+[type.video]
+label = "视频"
+description = "原始视频文件，只能接 extract_images（视频转图像序列）"
+
+[type.image]
+label = "图像"
+description = "二维像素数据的总称，几条通道都行（Mask、UV、RGB、RGBA）：只有不挑通道数的口用它，包上永远是具体的那一种"
+
+[type."image.1"]
+label = "Mask"
+description = "单通道：深度、视差、遮罩、置信度、粗糙度、金属度、分割编号……数值不是颜色，不做颜色空间转换"
+items = "物体"
+
+[type."image.2"]
+label = "UV"
+description = "双通道：ST 贴图（去畸变、加畸变，Nuke 通用的坐标图）、网格的 UV 坐标"
+
+[type."image.3"]
+label = "RGB"
+description = "三通道：照片、渲染、法线贴图、位置图——带颜色空间的按图像显示（走 OCIO），不带的按数值显示"
+
+[type."image.4"]
+label = "RGBA"
+description = "四通道：带 alpha 的图像（和 Nuke 一样预乘）、运动向量（前后各 u v）"
+
+[type.boxes]
+label = "人物框"
+description = "每个人的编号，以及他在每一帧图像里的边界框"
+items = "人物"
+
+[type.scene]
+label = "场景"
+description = "统称：几种三维数据合在一起的 USD 场景（merge 的结果），里面可以有几何体、摄影机、点云、骨架动画、蒙皮角色和灯光"
+items = "组"
+
+[type."scene.camera"]
+label = "摄影机"
+description = "USD 摄影机：焦距、胶片背、分辨率、每帧位置（不动的摄影机也有它的位置）"
+
+[type."scene.character"]
+label = "蒙皮角色"
+description = "USD 蒙皮角色：网格蒙皮在骨骼上，骨骼逐帧的动画，网格的融合变形和逐帧权重（Maya 的 skinCluster + blendShape），解算人体、手、脸的节点给的就是它"
+
+[type."scene.skeleton"]
+label = "骨架动画"
+description = "USD 骨架动画：只有关节层次和逐帧的关节变换，没有网格（动捕、重定目标、补帧）"
+
+[type."scene.model"]
+label = "几何体"
+description = "USD 几何体：网格（UV、法线），静止的、跟着变换动的，或每帧变形的（几何缓存）；网格可以带组（GeomSubset，网格的一部分，如头皮、脸、脖子），用 blast 取其中一块"
+
+[type."scene.points"]
+label = "点云"
+description = "USD 点云：每帧的点、颜色和附加属性"
+
+[type."scene.gaussian"]
+label = "3D 高斯"
+description = "三维高斯：位置、尺度、旋转、透明度和球谐颜色，静态或逐帧变化"
+
+[type."scene.curves"]
+label = "三维曲线"
+description = "USD 三维曲线（BasisCurves）：每条曲线的点，以及逐点的宽度、颜色、朝向；发丝、毛发导向线、运动轨迹都是它"
+
+[type."scene.light"]
+label = "灯光"
+description = "USD 灯光：穹顶灯（一张经纬图 HDRI 照亮整个场景，带旋转和强度）；只有 USD 带得走"
+
+[type.tracks2d]
+label = "2D 跟踪点"
+description = "图像上的一组点，每个点在每一帧的位置、那一帧是否被挡住，给分的跟踪器还带它对每个点每帧的置信度（点跟踪、面部关键点）"
+end = "交给 3DEqualizer、Nuke 的 2D 跟踪点，由 tracks.output 写出"
+items = "组"
+
+[type.curves]
+label = "动画曲线"
+description = "逐帧的数值曲线，每条有名字，如 52 条表情曲线"
+end = "交给 DCC 的动画数据：表情权重写成 CSV、.chan 或 USD，摄影机对比的误差画成曲线"
+
+[type.files]
+label = "要输出的文件"
+description = "格式输出节点按它的名字和格式写好的文件，接到 output 交给你：每个格式输出节点一个子文件夹"
+end = "写好的文件，只交给 output"
+
+[type.value]
+label = "数值"
+description = "一个值，或者每帧一个值（带帧号）；单位写在数据里"
+
+[type."value.float"]
+label = "浮点"
+description = "一个小数，或者每帧一个（一条曲线），可以带单位（mm、px、°……）：焦距、胶片背、强度"
+
+[type."value.int"]
+label = "整数"
+description = "一个整数，或者每帧一个，可以带单位：分辨率、帧号、数量"
+
+[type."value.bool"]
+label = "开关"
+description = "开或关，或者每帧一个"
+
+[type."value.vector"]
+label = "向量"
+description = "三个小数 X Y Z，或者每帧一组，可以带单位：位置（cm）、朝向（°）"
+
+[type."value.text"]
+label = "字符串"
+description = "一段文字，或者每帧一段：名字、编号列表"
+
+[type."value.lens"]
+label = "镜头内参"
+description = "一颗镜头的内参打成一份：镜头模型的名字 + 这个模型的系数（畸变系数、主点），焦距和胶片背不在里面（它们各有自己的口）。接 lens_distortion 的「镜头内参」，模型对得上才算"
+
+[kind]
+model = "几何体"
+camera = "摄影机"
+points = "点云"
+gaussian = "3D 高斯"
+curves = "三维曲线"
+skeleton = "骨架动画"
+character = "蒙皮角色"
+light = "灯光"
+deforming = "变形的几何体"

@@ -28,23 +28,18 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import i18n
 from ..config import ROOT
 
 BASELINE_FILE = Path(__file__).with_name("core_baseline.toml")
 ALLOW_FILE = Path(__file__).with_name("core_allow.toml")
 
-# Concepts in report order: id -> label.
-CONCEPTS = {
-    "types": "数据类型",
-    "core_nodes": "核心节点",
-    "families": "节点家族",
-    "widgets": "参数控件种类",
-    "contracts": "契约检查",
-    "expects": "用法检查种类",
-    "handles": "手柄种类",
-    "scopes": "作用域种类",
-    "special_cases": "核心里的特例",
-}
+# Concepts in report order (their labels: health.concept.<id>).
+CONCEPTS = ("types", "core_nodes", "families", "widgets", "contracts", "expects", "handles", "scopes", "special_cases")
+
+
+def _label(concept: str) -> str:
+    return i18n.t(f"health.concept.{concept}")
 
 
 @dataclass(frozen=True)
@@ -190,7 +185,7 @@ def special_cases(files: dict[str, str], settings: CoreSettings) -> list[dict]:
                     hits.setdefault((path, line), []).append(value)
             elif kind == tokenize.NAME and any(part in names for part in value.lower().split("_")):
                 hits.setdefault((path, line), []).append(value)
-    return [{"path": path, "line": line, "what": "、".join(dict.fromkeys(what))} for (path, line), what in hits.items()]
+    return [{"path": path, "line": line, "what": ", ".join(dict.fromkeys(what))} for (path, line), what in hits.items()]
 
 
 # ------------------------------------------------------------------ tokens
@@ -317,8 +312,9 @@ def type_twins() -> list[dict]:
                d.in_2d, d.in_3d, tuple(sorted(k for k, kind in SCENE_KINDS.items() if kind.type == tid)), tuple(sorted(asked.get(tid, ()))))
         sig[key].append(tid)
     return [{"types": ids, "labels": [DATA_TYPES[t].label for t in ids],
-             "evidence": f"容器 {k[0]}，通道 {k[1] or '—'} 条，说明书要写的 {', '.join(m for m, _ in k[2]) or '没有'}，"
-                         f"专门收它的输入口 {len(k[6])} 个"} for k, ids in sig.items() if len(ids) > 1]
+             "evidence": i18n.t("health.twin", container=k[0], channels=k[1] or "—",
+                                meta=", ".join(m for m, _ in k[2]) or i18n.t("conventions.none"), inputs=len(k[6]))}
+            for k, ids in sig.items() if len(ids) > 1]
 
 
 def node_overlaps(threshold: float) -> list[dict]:
@@ -329,8 +325,8 @@ def node_overlaps(threshold: float) -> list[dict]:
     feats = {}
     for t in node_types().values():
         if t.runtime == "core" and not t.id.startswith(("sample.", "test.")):
-            feats[t.id] = ({f"入 {p.type}" for p in t.inputs} | {f"出 {p.type}" for p in all_outputs(t)}
-                           | {f"参数 {n}" for n in t.Params.model_fields}, t.label)
+            feats[t.id] = ({f"in {p.type}" for p in t.inputs} | {f"out {p.type}" for p in all_outputs(t)}
+                           | {f"param {n}" for n in t.Params.model_fields}, t.subtitle)
     out = []
     ids = sorted(feats)
     for i, a in enumerate(ids):
@@ -369,16 +365,17 @@ def baseline_problems(now: dict[str, int], base: dict) -> list[str]:
     want = base.get("concepts", {})
     out = []
     if not str(base.get("reason", "")).strip():
-        out.append("core_baseline.toml 要写一行 reason：这次为什么加了或减了核心概念")
-    for key, label in CONCEPTS.items():
+        out.append(i18n.t("health.no_reason"))
+    for key in CONCEPTS:
+        label = _label(key)
         if key not in now:
             continue
         if key not in want:
-            out.append(f"{label}（{key}）不在基线里：现在 {now[key]}")
+            out.append(i18n.t("health.not_in_baseline", label=label, key=key, now=now[key]))
         elif now[key] > want[key]:
-            out.append(f"{label}多了：基线 {want[key]}，现在 {now[key]}。确实要加就改 core_baseline.toml 的数并写明理由；本质相同的先合并")
+            out.append(i18n.t("health.more", label=label, want=want[key], now=now[key]))
         elif now[key] < want[key]:
-            out.append(f"{label}少了：基线 {want[key]}，现在 {now[key]}。把 core_baseline.toml 改小，锁住这次重构")
+            out.append(i18n.t("health.fewer", label=label, want=want[key], now=now[key]))
     return out
 
 
@@ -419,7 +416,7 @@ def trend(cache_file: Path, settings: CoreSettings, now: dict | None = None) -> 
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         cache_file.write_text(json.dumps(cache), encoding="utf-8")
     if now:
-        rows.append({"date": "现在", "rev": "", "time": time.time(), **now})
+        rows.append({"date": i18n.t("health.now"), "rev": "", "time": time.time(), **now})
     return rows
 
 
@@ -460,17 +457,19 @@ def section(h: Health) -> dict:
     reasons = {tuple(sorted(a["files"])): a.get("reason", "") for a in allow}
     duplicates = []
     for t in h.twins:
-        duplicates.append({"kind": "类型", "what": " / ".join(f"{label} {tid}" for tid, label in zip(t["types"], t["labels"], strict=True)), "evidence": t["evidence"]})
+        duplicates.append({"kind": i18n.t("health.kind.type"), "what": " / ".join(f"{label} {tid}" for tid, label in zip(t["types"], t["labels"], strict=True)), "evidence": t["evidence"]})
     for o in h.overlaps:
-        duplicates.append({"kind": "核心节点", "what": " / ".join(o["nodes"]), "evidence": f"端口和参数重合 {o['similarity']:.0%}：{'、'.join(o['shared'])}"})
+        duplicates.append({"kind": i18n.t("health.kind.node"), "what": " / ".join(o["nodes"]),
+                           "evidence": i18n.t("health.overlap", share=f"{o['similarity']:.0%}", shared=i18n.separator().join(o["shared"]))})
     for c in h.clones:
         why = reasons.get(tuple(sorted(c.files)), "")
-        duplicates.append({"kind": "重复代码", "what": f"{c.a}:{c.a_lines[0]}-{c.a_lines[1]} ≈ {c.b}:{c.b_lines[0]}-{c.b_lines[1]}",
-                           "evidence": f"{c.tokens} 个记号一样（名字不计）" + (f"；允许：{why}" if why else "")})
+        duplicates.append({"kind": i18n.t("health.kind.clone"), "what": f"{c.a}:{c.a_lines[0]}-{c.a_lines[1]} ≈ {c.b}:{c.b_lines[0]}-{c.b_lines[1]}",
+                           "evidence": i18n.t("health.clone", tokens=c.tokens) + (i18n.t("health.allowed", why=why) if why else "")})
     for g in h.helpers:
-        duplicates.append({"kind": "该进 SDK", "what": "、".join(g["places"]), "evidence": f"{len(g['adapters'])} 个扩展包里一样的函数"
-                           + (f"；SDK 里已经有：{'、'.join(g['sdk'])}" if g["sdk"] else "")})
+        duplicates.append({"kind": i18n.t("health.kind.sdk"), "what": i18n.separator().join(g["places"]),
+                           "evidence": i18n.t("health.helper", count=len(g["adapters"]))
+                           + (i18n.t("health.in_sdk", names=i18n.separator().join(g["sdk"])) if g["sdk"] else "")})
     return {"concepts": concept_count(h.concepts), "projects": h.projects,
-            "by_concept": [{"id": k, "label": v, "count": h.concepts.get(k, 0)} for k, v in CONCEPTS.items() if k != "special_cases"],
+            "by_concept": [{"id": k, "label": _label(k), "count": h.concepts.get(k, 0)} for k in CONCEPTS if k != "special_cases"],
             "duplicates": duplicates,
             "trend": [{"date": r["date"], "rev": r["rev"], "projects": r["projects"], "concepts": concept_count(r["concepts"])} for r in h.trend]}

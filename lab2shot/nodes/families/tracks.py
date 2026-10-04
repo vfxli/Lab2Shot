@@ -65,9 +65,7 @@ class Keypoints2D:
     said: str
 
     def port(self, node_type) -> Port:
-        return Port("keypoints", "tracks2d", "2D 关键点", may_be_empty=True,
-                    help=f"{self.said}。画面上的点，不是三维结果的投影：可以直接接「2D 跟踪点输出设置」交给 "
-                         "3DEqualizer、Nuke，也可以叠在画面上看解出来的人贴不贴。按人分组，一个人一组")
+        return Port("keypoints", "tracks2d", may_be_empty=True)
 
 
 @dataclass(frozen=True)
@@ -140,9 +138,9 @@ class TrackParams(NodeParams):
     """Parameters every point tracker shares; each adds its own model mode, processing size and 网格点数 (grid: the
     settings measured on that tracker, nodes/kit/ports.py measured_param)."""
 
-    query_frame: int | None = P(None, label="参考帧", group="跟踪", placeholder="第一帧")
-    picks: list[str] = P([], label="手动点", widget="picks", group="跟踪", placeholder="显示本节点，在 2D 视图里点要跟的位置", worker=False)
-    min_confidence: float | None = P(None, label="可见门槛", ge=0.05, le=0.95, group="跟踪", placeholder="模型默认", worker=False)
+    query_frame: int | None = P(None, group="tracking")
+    picks: list[str] = P([], widget="picks", group="tracking", worker=False, words="family.tracks.picks")
+    min_confidence: float | None = P(None, ge=0.05, le=0.95, group="tracking", worker=False)
 
 
 class PointTracker(WorkerNode):
@@ -152,11 +150,14 @@ class PointTracker(WorkerNode):
     on_node = ("grid", "query_frame")
     # how many points it gives, worked out from its own parameters: the node below it can say which of its choices
     # that suits (nodes/applies.py Incoming — 「2D 跟踪点输出设置」's CornerPin takes exactly four)
-    fact_labels = {"points": "跟踪点数"}
-    inputs = (rgb_port(), plate_mask_port("遮罩", every_frame=False))
-    outputs = (Port("tracks", "tracks2d", "2D 跟踪点", may_be_empty=True),)
+    fact_labels = ("points",)
+    inputs = (rgb_port(), plate_mask_port(every_frame=False))
+    outputs = (Port("tracks", "tracks2d", may_be_empty=True),)
     cost = Cost(gpu=True)
     handles = (Handle("points", {"points": "picks"}),)
+    # nothing to track without a grid or a point clicked (wiring_notes); a tracker that gives something else as well
+    # (AllTracker's dense ST-maps) sets it False
+    needs_points = True
 
     @classmethod
     def facts(cls, params: dict) -> dict:
@@ -166,7 +167,14 @@ class PointTracker(WorkerNode):
 
         grid = int(params.get("grid") or 0)
         picked = len(parse_picks(cls, "picks", list(params.get("picks") or [])))  # an entry that does not read is no point
-        return {"points": Fact(grid * grid + picked, cls.fact_labels["points"])}
+        return {"points": Fact(grid * grid + picked, cls.fact_label("points"))}
+
+    @classmethod
+    def wiring_notes(cls, params: dict, wires: dict[str, int]) -> list[tuple[Msg, str]]:
+        """No grid and no point clicked: nothing to track, said before anything is submitted (a B- note blocks the
+        plan, engine/evaluation.py _plan), so 「计算」 / 「计算并打包」 is greyed with the reason rather than cooking an empty
+        result and failing at the delivery (E-DELIVER-EMPTY)."""
+        return [(Msg("B-TRACKS-NOQUERY"), "image")] if cls.needs_points and not cls.facts(params)["points"].value else []
 
     @classmethod
     def prepare(cls, ctx) -> Job:

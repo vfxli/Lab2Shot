@@ -148,7 +148,7 @@ def run_luxdit(pipe, cfg, rgb: np.ndarray, env_dirs: np.ndarray, size, params, d
     steps = params["steps"]
 
     def on_step(_pipe, i, _t, kwargs):
-        progress(i + 1, steps, f"去噪 {i + 1}/{steps}")
+        progress(i + 1, steps, "denoise")
         return {}
 
     generator = set_seed(params["seed"], device)  # upstream: generator on the VAE's device
@@ -270,7 +270,7 @@ def main(job_path: str) -> None:
     if run.gpu_cap_mb < MIN_GPU_MB:
         say("W-LUXDIT-LOWMEMORY", free=run.gpu_cap_mb / 1024, need=MIN_GPU_MB // 1024)
 
-    run.stage("准备画面")
+    run.stage("prepare_frame")
     sys.path.insert(0, str(repo))
     from src.data.rendering_utils import resize_crop
 
@@ -281,13 +281,14 @@ def main(job_path: str) -> None:
     Image.fromarray((rgb[0] * 255 + 0.5).astype(np.uint8)).save(raw / "input.png")
     env_dirs = luxdit_directions(repo)[None]
 
-    pipe, cfg = run.model("LuxDiT", load_pipeline, repo, weights, params["lora_scale"] > 0, device)
-    run.stage("生成环境图")
+    pipe, cfg = run.model("load_model", load_pipeline, repo, weights, params["lora_scale"] > 0, device,
+                          stage_params={"model": "LuxDiT"})
+    run.stage("generate_envmap")
     t_gen = time.time()
     ldr, log = run_luxdit(pipe, cfg, rgb, env_dirs, size, params, device)
     t_dit = time.time() - t_gen
 
-    run.stage("合成 HDR")
+    run.stage("merge_hdr")
     hdr_native = merge_hdr(repo, weights, ldr[0], log[0], device)
     width = params["envmap_width"]
     hdr = to_lab2shot_latlong(hdr_native, width).astype(np.float32)

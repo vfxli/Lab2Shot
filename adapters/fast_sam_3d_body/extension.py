@@ -1,6 +1,6 @@
 """Fast SAM 3D Body: SAM 3D Body's own weights run through a faster inference
 path (all people and both hands of a frame in one batch, pruned decoder passes).
-It builds on the sam_3d_body extension (requires): the same node (its nodes subclass SAM 3D Body 全身动作) and the same
+It builds on the sam_3d_body extension (requires): the same node (its nodes subclass sam_3d_body.solve) and the same
 solve and MHR rig in the worker (adapters/sam_3d_body/sam3dbody.py), and its weights (MODEL_WEIGHTS, imported)."""
 
 from __future__ import annotations
@@ -13,12 +13,19 @@ from lab2shot.sdk import COMMERCIAL, EnvSpec, Extension, GitSource, LicenseInfo,
 YOLO_WEIGHT = "yolo/yolo11m-pose.pt"
 YOLO_SHA256 = "29b17eaf3a3117cbea906090dbedf9159f7c6a49db58ec8b99ed2dfde1cf6eb2"
 
+# TensorRT (upstream's TensorRT path, setup_env.sh step 8: the backbone engine, trt_engines.py).
+# Its 3.1 GB library wheel is only on NVIDIA's index (PyPI has a stub that downloads it at build time in one piece, which
+# fails on a slow or dropping line): it comes through the installer's resumable, sha256-checked download as a file of
+# its own, then post_install puts it into the environment with the PyPI bindings (requirements.txt) and the `tensorrt`
+# import package. 10.13 runs on Ada (RTX 4090) and Blackwell (RTX 5090).
+TENSORRT_VERSION = "10.13.3.9"
+TENSORRT_LIBS = f"tensorrt_cu12_libs-{TENSORRT_VERSION}-py2.py3-none-manylinux_2_28_x86_64.whl"
+
 
 class FastSam3DBody(Extension):
     name = "fast_sam_3d_body"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "Fast SAM 3D Body"
-    summary = "一个免训练的加速框架，把 SAM 3D Body 的推理路径重排，达到交互级速度"
     homepage = "https://github.com/yangtiming/Fast-SAM-3D-Body"
     source = GitSource(
         url="https://github.com/yangtiming/Fast-SAM-3D-Body.git",
@@ -26,15 +33,9 @@ class FastSam3DBody(Extension):
     )
     license = LicenseInfo(
         tag=COMMERCIAL,  # AGPL (YOLO11-Pose) allows commercial use with its own duty to publish: said, not a class
-        name="MIT + SAM License + DINOv3 License + AGPL-3.0（YOLO11-Pose）",
         url="https://github.com/yangtiming/Fast-SAM-3D-Body/blob/main/LICENSE",
-        summary=(
-            "可商用。提速代码 MIT；但它是在 Meta SAM 3D Body 代码上改的，原有部分和权重（与 SAM 3D Body 扩展包同一份）仍按 SAM License"
-            "（可商用、可修改再分发，需附许可证，发表论文需注明，禁军事用途）；骨干网络代码 DINOv3 License（同类条款）；"
-            "MoGe-2 Focal Length 估计 MIT。找手腕用的 Ultralytics YOLO11-Pose（代码和权重）是 AGPL-3.0："
-            "自己内部使用无妨，修改后对外提供服务或分发需按 AGPL 开源，商用闭源要买 Ultralytics 企业许可"
-        ),
     )
+    generative = False
     import_repo = ""
     requires = ("sam_3d_body",)  # its node and its worker's solve (sam3dbody.py) are SAM 3D Body's
     env = EnvSpec(
@@ -50,8 +51,14 @@ class FastSam3DBody(Extension):
             kind="url",
             source="https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11m-pose.pt",
             dest=YOLO_WEIGHT,
-            note="YOLO11-Pose 手腕关键点（Ultralytics，AGPL-3.0）",
             sha256=YOLO_SHA256,
+        ),
+        Weight(
+            key="tensorrt-libs",
+            kind="url",
+            source=f"https://pypi.nvidia.com/tensorrt-cu12-libs/{TENSORRT_LIBS}",
+            dest=f"tensorrt/{TENSORRT_LIBS}",
+            sha256="bf2008eca911411aa93b852825ea992de33396451ea11713a6eb97c411d3b2e9",
         ),
     )
 
@@ -61,6 +68,8 @@ class FastSam3DBody(Extension):
             "LAB2SHOT_DINOV3_DIR": str(root / "dinov3"),
             # Any value disables the optional pymomentum path: use the TorchScript MHR shipped with the weights.
             "MOMENTUM_ENABLED": "0",
+            # upstream's TensorRT engines, built per GPU on first use (trt_engines.py): the extension's own cache
+            "LAB2SHOT_FAST_SAM_3D_BODY_TRT_DIR": str(root / "cache" / "tensorrt"),
             # YOLO_CONFIG_DIR / YOLO_OFFLINE come from Extension.base_env() (every ultralytics worker gets them).
             # Ultralytics compares `str(os.getenv("YOLO_OFFLINE","")).lower() != "true"` (ultralytics/utils/__init__.py:516):
             # the value must be "True"; "1" would silently do nothing.
@@ -72,6 +81,10 @@ class FastSam3DBody(Extension):
         config = paths.weights / "sam-3d-body-dinov3" / "model_config.yaml"
         config.unlink(missing_ok=True)
         shutil.copyfile(paths.repo / "checkpoints" / "sam-3d-body-dinov3" / "model_config.yaml", config)
+        # TensorRT's libraries (downloaded as a weight, see TENSORRT_LIBS) and its `tensorrt` import package (a small
+        # PyPI source package whose only dependencies are the libraries and the bindings, both already here)
+        run(["uv", "pip", "install", "--python", str(paths.python), "--no-deps",
+             str(paths.weights / "tensorrt" / TENSORRT_LIBS), f"tensorrt-cu12=={TENSORRT_VERSION}"])
 
 
 EXTENSION = FastSam3DBody()

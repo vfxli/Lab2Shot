@@ -18,7 +18,7 @@ uniform vec3 uRamp; // (near, far, on): a distance map's colour ramp (server/vie
 uniform vec3 uRampNear; // the ramp's colour at v = 0 and its change per unit v, as the server gives them (grid ramp_colour:
 uniform vec3 uRampSlope; // view_data.py RAMP_NEAR / RAMP_SLOPE, the one definition)
 uniform vec4 uGrid; // grid width, step, picture width, picture height
-uniform float uFocal;
+uniform vec2 uFocal; // (fx, fy) in pixels: fy = fx x the camera's pixel aspect
 uniform vec2 uPrincipal; // (cx, cy) in pixels: the camera's principal point (the image centre unless the solver provides one)
 uniform mat4 uCam;
 bool gridPoint(int k, inout vec3 p, inout vec3 rgb) {
@@ -29,8 +29,8 @@ bool gridPoint(int k, inout vec3 p, inout vec3 rgb) {
   float z = texelFetch(uDepth, t, 0).r;
   float c = float(t.x) * uGrid.y;
   float r = float(t.y) * uGrid.y;
-  float x = (c + 0.5 - uPrincipal.x) / uFocal * z;
-  float y = (r + 0.5 - uPrincipal.y) / uFocal * z;
+  float x = (c + 0.5 - uPrincipal.x) / uFocal.x * z;
+  float y = (r + 0.5 - uPrincipal.y) / uFocal.y * z;
   p = mat3(uCam) * vec3(x, -y, -z) + uCam[3].xyz;
   float v = (z - uRamp.x) / max(uRamp.y - uRamp.x, 1e-6);
   rgb = uRamp.z > 0.5 ? clamp(uRampNear + v * uRampSlope, 0.0, 1.0) : uHasRgb > 0.5 ? c4.rgb : uGridTint;

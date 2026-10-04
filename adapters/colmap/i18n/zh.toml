@@ -1,0 +1,122 @@
+# COLMAP 扩展包（adapters/colmap）的消息。一行一条：编号 = 模板。
+
+# ---- 节点（nodes.py）
+"E-COLMAP-EXHAUSTIVE.other" = "「匹配方式」选了「所有帧两两」：要匹配的画面对数是帧数的平方，{frames} 帧太多，会极慢或占满内存。视频改成「相邻帧」，或者把「隔帧」调大、缩短镜头范围"
+"B-COLMAP-FISHEYEINCREMENTAL" = "「镜头模型」选了鱼眼（{model}）而「已知焦距」没填：鱼眼在焦距未知时只能用「全局」解算方式（增量解算起不来）。把「解算方式」改成「全局」，或者填上「已知焦距」"
+"E-COLMAP-MODEL" = "COLMAP 给出的镜头模型是 {model}，Lab2Shot 的畸变模型表里没有算法相同的模型（不近似换算）：在「镜头模型」里选 Lab2Shot 镜头表里有的那几档"
+"I-COLMAP-SOLVED.other" = "COLMAP 注册了 {solved}/{frames} 帧，平均重投影误差 {error:.2f} 像素，{lens}，稀疏点云 {points:,} 个点"
+
+# ---- 解算（worker.py）
+"I-COLMAP-TWOSTAGE" = "焦距未知、镜头模型带畸变：先按针孔验证匹配（畸变模型下用猜的焦距验证会把匹配全判成外点），再换成 {model} 建图并解畸变"
+"N-COLMAP-NOGPU" = "「显卡提取特征」打开了，但这台机器上 COLMAP 找不到可用的 CUDA 显卡：SIFT 特征提取和匹配改用 CPU，结果一样，只是慢很多"
+"W-COLMAP-VIEWGRAPH" = "COLMAP 从匹配的画面对估焦距（视图图标定）失败了：全局解算只能从默认猜的焦距开始，解出的焦距和摄影机位置可能不准。知道实拍焦距的话，在「已知焦距」里填上"
+"N-COLMAP-NOMATCHES.other" = "COLMAP 只解算出 {registered} 帧的摄影机，这次摄影机和点云是空的：画面之间找不到可靠的匹配点（{pairs} 对画面都匹配失败）。画面缺少纹理、太模糊、变化太快或被运动物体占满；可以把「隔帧」调小，或者换用「ViPE 摄影机解算」"
+"E-COLMAP-NOPARALLAX.other" = "COLMAP 只解算出 {registered} 帧的摄影机：摄影机没有位移（{rotation}/{pairs} 对画面之间只有纯旋转，或整个画面是一个平面，没有视差），特征点摄影机解算三角化不出三维点。这段素材不满足 COLMAP 的前提：摄影机真的在移动（推轨、手持走动）的素材才能用它；固定机位、纯摇镜头换「ViPE 摄影机解算」（模板「深度贴图 · ViPE」），或者导入已经解算好的摄影机"
+"E-COLMAP-WEAKPARALLAX.other" = "COLMAP 只解算出 {registered} 帧的摄影机：画面之间视差不足或匹配太少（有视差的画面对只有 {parallax}/{pairs}）。可以试试：接上摄影机属性（「创建摄影机」节点、AnyCalib 或一台摄影机）、「解算方式」换成「{other_mapper}」、「匹配方式」换成「所有帧两两」、把「隔帧」调小，或者换「ViPE 摄影机解算」（模板「深度贴图 · ViPE」）"
+"W-COLMAP-SPLIT" = "COLMAP 解算出 {count} 段互不相连的摄影机（每段 {sizes} 帧），只保留了最大的一段，其余帧的摄影机是插值出来的：中间可能有快速运动、模糊或画面被遮挡。可以把「解算方式」换成「全局」再算一次"
+"W-COLMAP-NOBASELINE" = "COLMAP 解出的摄影机位移太小：位移只有景深的 {ratio:.3f} 倍，三角化角中位数 {angle:.2f}°。镜头几乎只摇不移或固定不动，焦距和摄影机位置都不可靠：这段素材不太满足 COLMAP 的前提，建议换「ViPE 摄影机解算」（模板「深度贴图 · ViPE」），或在「已知焦距」里填实拍焦距"
+"W-COLMAP-LONGLENS" = "COLMAP 解出的是长焦镜头（长边视场角 {fov:.1f}°，焦距 {focal:.0f} px）：长焦画面几乎没有透视，焦距很难只靠画面解准，误差可能超过 10%。知道实拍焦距请在「已知焦距」里填上；手机视频（已去畸变）可以把「镜头模型」选成 SIMPLE_PINHOLE"
+"W-COLMAP-ROTATION" = "COLMAP 匹配的 {rotation}/{verified} 对画面之间几乎只有旋转（视差很小）：解出的摄影机位置和焦距可能不可靠，建议和「ViPE 摄影机解算」的结果对比"
+"W-COLMAP-UNREGISTERED.other" = "COLMAP 有 {missing}/{used} 帧没能解算出摄影机（模糊、遮挡或和别的帧差别太大）：这些帧的摄影机是插值出来的"
+
+"I-COLMAP-GLOBAL" = "全局"
+"I-COLMAP-INCREMENTAL" = "增量"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."colmap.camera_solve"]
+subtitle = "摄影机解算"
+description = "传统的特征点摄影机解算（structure from motion），输出每帧摄影机和稀疏点云，可以和 ViPE 互相校验。需要摄影机移动带来视差：固定机位、纯摇镜头会失败。尺度要手动缩放，按「尺度」参数换算成厘米。"
+
+[node."colmap.camera_solve".param.mapper]
+label = "解算方式"
+
+[node."colmap.camera_solve".param.mapper.option]
+global = "全局"
+incremental = "增量"
+
+[node."colmap.camera_solve".param.matcher]
+label = "匹配方式"
+
+[node."colmap.camera_solve".param.matcher.option]
+sequential = "相邻帧"
+exhaustive = "所有帧两两"
+
+[node."colmap.camera_solve".param.fit_model]
+label = "镜头模型"
+strip = "镜头模型"
+
+[node."colmap.camera_solve".param.fit_model.option]
+SIMPLE_PINHOLE = "SIMPLE_PINHOLE（无畸变，已去畸变的画面）"
+PINHOLE = "PINHOLE（无畸变，fx≠fy）"
+SIMPLE_RADIAL = "SIMPLE_RADIAL（普通摄影机、手机）"
+RADIAL = "RADIAL（畸变稍大的普通镜头）"
+OPENCV = "OPENCV（带切向畸变，和 OpenCV 标定兼容）"
+OPENCV_FISHEYE = "OPENCV_FISHEYE（鱼眼，等距投影）"
+SIMPLE_RADIAL_FISHEYE = "SIMPLE_RADIAL_FISHEYE（鱼眼，径向 k）"
+RADIAL_FISHEYE = "RADIAL_FISHEYE（鱼眼，径向 k1 k2）"
+
+[node."colmap.camera_solve".param.step]
+label = "隔帧"
+
+[node."colmap.camera_solve".param.resolution]
+label = "处理分辨率"
+
+[node."colmap.camera_solve".param.unit_cm]
+label = "尺度"
+
+[node."colmap.camera_solve".param.sift_gpu]
+label = "显卡提取特征"
+
+[node."colmap.camera_solve".port.image]
+label = "RGB"
+
+[node."colmap.camera_solve".port.mask]
+label = "运动物体遮罩"
+
+[node."colmap.camera_solve".port.camera]
+label = "摄影机"
+
+[node."colmap.camera_solve".port.points]
+label = "点云"
+
+[node."colmap.camera_solve".port.focal]
+label = "焦距"
+help = "COLMAP 解出的焦距，毫米（按节点上的「胶片背」换算）。接「LensDistortion」的「已知焦距」，或者接任何要焦距的解算器"
+
+[node."colmap.camera_solve".port.filmback]
+label = "胶片背"
+help = "节点上填的「胶片背」原样交出去：焦距是按它换算成毫米的，下游（「LensDistortion」「创建摄影机」）接这一根就不用再填一遍，两边永远是同一个数"
+
+[node."colmap.camera_solve".port.lens]
+label = "镜头内参"
+help = "这颗镜头除了焦距、胶片背之外的全部：镜头模型的名字、它的畸变系数、主点 X / Y（毫米）和像素比，打成一份。接「LensDistortion」的「镜头内参」：那边的镜头模型和系数就跟着这里走。「镜头模型」选无畸变的两档时是没有系数的镜头，接「LensDistortion」得到恒等 ST-map"
+
+[node."colmap.camera_solve".official]
+note = "遮罩是官方的输入（mask_path，黑色处不提特征）。没有人物框输入口：上游只收遮罩图这一种形式；要挡人就接「人物框转遮罩」到「运动物体遮罩」口，那一步在节点图上看得见。「镜头内参」（模型 + 畸变系数 + 主点 + 像素比）就是 cameras.txt 里那一行的 MODEL 和 PARAMS（doc/format.rst:106）打成一份，「摄影机」是 images.txt 的四元数加位移（doc/format.rst:144）"
+
+[node."colmap.camera_solve".cost]
+note = "只有打开「显卡提取特征」才用显卡；SiftGPU 是经典特征点算法，显存是保守估计"
+
+[node."colmap.camera_solve".stage]
+write_outputs = "写出摄影机和点云"
+
+[node."colmap.camera_solve".licence]
+note = "COLMAP 是 BSD-3，可以商用；只有打开「显卡提取特征」时用到的 SiftGPU 仅限教育和研究。"
+
+[extension.colmap]
+summary = "通用的运动恢复结构（SfM）加多视图立体（MVS）流程，带图形界面和命令行，能处理有序和无序的画面集合"
+
+[extension.colmap.license]
+name = "BSD-3-Clause（选 GPU 提取特征时用到的 SiftGPU 为非商用许可）"
+summary = "COLMAP 本身 BSD-3，可商用；安装的是 COLMAP 官方发布的 pycolmap-cuda12 4.2.0 wheel。默认用 CPU 提取 SIFT 特征（VLFeat，BSD-2），整条流程可商用；“GPU 提取特征”选项用到 SiftGPU（北卡大学版权，仅限教育、研究和非营利用途），打开后属非商用。SIFT 专利（US 6,711,293）已于 2020 年到期，没有专利问题。wheel 编译时关闭了 LSD（AGPL-3）、CGAL（GPL）和 ONNX 特征（ALIKED/LightGlue）；但静态链接了 SuiteSparse CHOLMOD（含 GPL-2.0+ 的 Supernodal 模块），自己使用不受限，只有把这个 wheel 打包再分发时才需遵守 GPL。其余依赖 Ceres/PoseLib/faiss/OpenImageIO/Eigen 等均为宽松许可"
+
+[stage]
+prepare_images = "准备画面"
+extract_features = "提取特征 (SIFT)"
+match_features = "匹配特征"
+incremental_solve = "增量解算摄影机"
+register_images = "注册画面"
+initial_pair = "初始画面对"
+view_graph_calibration = "估计焦距 (视图图标定)"
+global_solve = "全局解算摄影机 (GLOMAP)"

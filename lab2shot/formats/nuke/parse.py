@@ -11,6 +11,8 @@ spaces and punctuation in names as underscores); a knob absent from the script t
 
 from __future__ import annotations
 
+from ... import i18n
+
 import re
 
 
@@ -137,7 +139,7 @@ def lens(text: str, name: str, width: int, height: int) -> dict:
     found = _ld(text)
     hit = next(((cls, k) for n, cls, k in found if n == name), None)
     if hit is None:
-        raise Invalid(Msg("E-NUKE-LDNODE", name=name, have=[n for n, _, _ in found] or ["没有"]))
+        raise Invalid(Msg("E-NUKE-LDNODE", name=name, have=[n for n, _, _ in found] or [i18n.Word("list.none")]))
     cls, knobs = hit
     model = ld_model(cls)
     if not model:

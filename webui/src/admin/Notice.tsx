@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LabelRow } from "../ui/LabelRow";
 import { adminApi } from "../api/admin";
 import { Banner, type BannerTone } from "../ui/Banner";
 import { Button, Segmented, Switch } from "../ui/Button";
@@ -6,6 +7,8 @@ import { reasonOf } from "../messages/message";
 import { shown, usable, why } from "../api/applies";
 import { useSignedIn } from "../state/session";
 import { whenText } from "../platform/format";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** 管理员通知 section: a single line shown at the top of the editor and the admin page — plain text,
  * a colour indicating its severity, and an on/off switch. It is server state (lab2shot/server/notice.py, meta
@@ -16,10 +19,10 @@ import { whenText } from "../platform/format";
 
 const CHARS = 200; // Must match lab2shot/server/notice.py NOTICE_CHARS.
 
-const TONES: { value: BannerTone; label: string; tip: string }[] = [
-  { value: "info", label: "信息", tip: "蓝色：一般的告知，比如「今晚 22 点重启服务」" },
-  { value: "notice", label: "提醒", tip: "蓝色：要人留意但不影响使用的事" },
-  { value: "warn", label: "警告", tip: "橙色：会影响使用的事，比如「测试阶段，请勿上传项目正式素材」" },
+const tones = (): { value: BannerTone; label: string }[] => [
+  { value: "info", label: t("ui.admin.notice.tone_info") },
+  { value: "notice", label: t("ui.admin.notice.tone_notice") },
+  { value: "warn", label: t("ui.admin.notice.tone_warn") },
 ];
 
 export function NoticeCard() {
@@ -47,9 +50,9 @@ export function NoticeCard() {
   if (!may) return null;
   const left = CHARS - [...text].length;
   // Input the server would reject is reported here first, so a visible error never leaves the page.
-  const blocked = left < 0 ? `通知最多 ${CHARS} 个字，现在多了 ${-left} 个` : on && !text.trim() ? "打开了通知，但没有写内容" : "";
+  const blocked = left < 0 ? t("ui.admin.notice.too_long", { most: CHARS, over: -left }) : on && !text.trim() ? t("ui.admin.notice.empty") : "";
   // Nothing is saved before the live notice has been read: an empty form saved over it would wipe it.
-  const unread = saved ? "" : problem ? "没读到现在的通知，保存会把它盖掉：刷新页面再试" : "正在读现在的通知";
+  const unread = saved ? "" : problem ? t("ui.admin.notice.unread") : t("ui.admin.notice.reading");
   const dirty = !!saved && (saved.text !== text.trim() || saved.tone !== tone || saved.on !== on);
 
   const save = async () => {
@@ -67,86 +70,56 @@ export function NoticeCard() {
   };
 
   return (
-    <div className="set-card" data-group="notice">
-      <h3>管理员通知</h3>
+    <div className="set-card lgrid" data-group="notice">
+      <h3>{t("ui.admin.notice.title")}</h3>
       <p className="adm-lede">
-        一行字，出现在编辑器、帮助页和这个页面的顶部，普通用户关不掉。纯文本，不认 HTML。红色留给可能造成生产事故的提醒，这里不提供。
+        {t("ui.admin.notice.lede")}
       </p>
-      <div className="set-row" data-key="notice.text">
-        <span className="set-label" data-tip={`通知的内容，最多 ${CHARS} 个字；写清是什么事、什么时候、要做什么`}>
-          文字
-        </span>
-        <span className="set-ctl" data-tip={`通知的内容，最多 ${CHARS} 个字；写清是什么事、什么时候、要做什么`}>
-          <textarea
-            className="field notice-text"
-            value={text}
-            rows={2}
-            aria-label="通知的文字"
-            data-tip={`纯文本，最多 ${CHARS} 个字；写清是什么事、什么时候、要做什么`}
-            placeholder="例：今晚 22:00 重启服务升级扩展包，排队的任务会等算完再重启。"
-            onChange={(e) => setText(e.target.value)}
-          />
-        </span>
-        <span className="set-tags">
+      <LabelRow className="set-row" data-key="notice.text" labelClass="set-label" label={t("ui.admin.notice.text")} ctlClass="set-ctl" tail={<span className="set-tags">
           <span className="set-what">
-            <span className={`chip tnum${left < 0 ? " set-over" : ""}`} data-tip={`还能写 ${left} 个字`}>
+            <span className={`chip tnum${left < 0 ? " set-over" : ""}`} {...tipAttrs(tipOf("value", t("ui.admin.notice.left", { n: left })))}>
               {left}
             </span>
           </span>
-        </span>
-      </div>
-      <div className="set-row" data-key="notice.tone">
-        <span className="set-label" data-tip="通知条的颜色：按这条通知要人怎么对待它来选">
-          颜色
-        </span>
-        <span className="set-ctl" data-tip="通知条的颜色：按这条通知要人怎么对待它来选">
-          <Segmented label="通知的颜色" value={tone} options={TONES.map((t) => ({ value: t.value, label: t.label, tip: t.tip }))} onChange={(v) => setTone(v)} />
-        </span>
-      </div>
-      <div className="set-row" data-key="notice.on">
-        <span className="set-label" data-tip="关掉以后文字还留着，下次打开就又是它">
-          显示
-        </span>
-        <span className="set-ctl" data-tip="关掉以后文字还留着，下次打开就又是它">
-          <Switch on={on} label="显示通知" tip={on ? "关掉：所有页面顶部不再显示这条通知，文字留着" : "打开：所有页面顶部显示这条通知"} onChange={setOn} />
-        </span>
-      </div>
-      <div className="set-row set-status">
-        <span className="set-label" data-tip="谁、什么时候最后一次保存了这条通知">
-          上次保存
-        </span>
-        <span className="set-ctl set-static" data-user-data>
-          {saved?.updated ? `${saved.by ?? "管理员"} · ${whenText(saved.updated)}` : "还没有设过"}
-        </span>
-      </div>
-      <div className="set-row notice-preview">
-        <span className="set-label" data-tip="通知条在三处页面顶部的样子">
-          效果
-        </span>
-        <span className="set-ctl">
-          {text.trim() ? (
-            <Banner tone={tone} aside="管理员通知" tip="用户看到的就是这个样子">
+        </span>}>
+        <textarea
+            className="field notice-text"
+            value={text}
+            rows={2}
+            aria-label={t("ui.admin.notice.text_label")}
+            placeholder={t("ui.admin.notice.placeholder")}
+            onChange={(e) => setText(e.target.value)}
+          />
+      </LabelRow>
+      <LabelRow className="set-row" data-key="notice.tone" labelClass="set-label" label={t("ui.admin.notice.tone")} ctlClass="set-ctl">
+        <Segmented label={t("ui.admin.notice.tone_label")} value={tone} options={tones()} onChange={(v) => setTone(v)} />
+      </LabelRow>
+      <LabelRow className="set-row" data-key="notice.on" labelClass="set-label" label={t("ui.admin.notice.show")} ctlClass="set-ctl">
+        <Switch on={on} label={t("ui.admin.notice.show_label")} tip={on ? tipOf("consequence", t("ui.admin.notice.show_tip")) : undefined} onChange={setOn} />
+      </LabelRow>
+      <LabelRow className="set-row set-status" labelClass="set-label" label={t("ui.admin.notice.last_saved")} ctlClass="set-ctl set-static">
+        <span data-user-data>{saved?.updated ? `${saved.by ?? t("ui.admin.rights.admin")} · ${whenText(saved.updated)}` : t("ui.admin.notice.never_set")}</span>
+      </LabelRow>
+      <LabelRow className="set-row notice-preview" labelClass="set-label" label={t("ui.admin.notice.preview")} ctlClass="set-ctl">
+        {text.trim() ? (
+            <Banner tone={tone} aside={t("ui.admin.notice.title")}>
               {text.trim()}
             </Banner>
           ) : (
-            <span className="dim">写了文字才看得到效果</span>
+            <span className="dim">{t("ui.admin.notice.preview_empty")}</span>
           )}
-        </span>
-      </div>
-      {(problem || blocked) && <div className="set-why bad">{problem || blocked}</div>}
-      <div className="set-row">
-        <span className="set-label" />
-        <span className="set-ctl">
-          {/* Not the page's primary (filled) button: 设置 already has one, and a page has at most one. */}
+      </LabelRow>
+      {(problem || blocked) && <div className="set-why bad lrow-under">{problem || blocked}</div>}
+      <LabelRow className="set-row" labelClass="set-label" label="" ctlClass="set-ctl">
+        {/* Not the page's primary (filled) button: 设置 already has one, and a page has at most one. */}
           <Button
-            tip={unread || blocked || why(state?.applies, "settings.notice") || "保存并立刻生效：所有打开着的页面在下一次查服务器状态时换上"}
+            tip={unread || blocked || why(state?.applies, "settings.notice") ? tipOf("disabled", unread || blocked || why(state?.applies, "settings.notice")) : tipOf("consequence", t("ui.admin.notice.save_tip"))}
             disabled={saving || !dirty || !!unread || !!blocked || !usable(state?.applies, "settings.notice")}
             onClick={() => void save()}
           >
-            {saving ? "保存中…" : dirty || !saved ? "保存通知" : "已保存"}
+            {saving ? t("ui.admin.common.saving") : dirty || !saved ? t("ui.admin.notice.save") : t("ui.admin.common.saved")}
           </Button>
-        </span>
-      </div>
+      </LabelRow>
     </div>
   );
 }

@@ -14,10 +14,13 @@
  *
  * Pure: types only. */
 
+import { textOf } from "../messages/message";
+
 export interface MessageJson {
   code: string;
   level: string;
   text: string;
+  app?: string; // its words for whoever uses a card (lab2shot/messages Msg.app), when it has them: textOf says them in app mode
   params?: Record<string, unknown>;
 }
 
@@ -48,7 +51,7 @@ export const nodeUsable = (a: Answer, typeId: string): boolean => usable(a, node
 export const nodeWhy = (a: Answer, typeId: string): string => why(a, nodeSubject(typeId));
 
 /** Why it is greyed ("" when it is not). */
-export const why = (a: Answer, id: string): string => a?.inactive[id]?.text ?? "";
+export const why = (a: Answer, id: string): string => textOf(a?.inactive?.[id]);
 
 /** What it waits for a cook to tell ("" when it does not). */
 export const until = (a: Answer, id: string): string => a?.pending?.[id]?.text ?? "";

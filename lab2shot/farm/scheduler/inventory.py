@@ -69,6 +69,11 @@ class GpuState:
     def free_gb(self) -> float:
         return self.free_mb / 1024
 
+    @property
+    def unused_mb(self) -> int:
+        """What nobody uses on the card now, our own idle models' memory counted as used."""
+        return max(0, self.memory_mb - self.used_mb)
+
     def describe(self) -> dict:
         return {"index": self.index, "name": self.name, "short_name": self.short_name, "uuid": self.uuid,
                 "memory_mb": self.memory_mb, "used_mb": self.used_mb, "ours_mb": self.ours_mb,

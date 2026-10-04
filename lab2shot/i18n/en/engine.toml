@@ -1,0 +1,344 @@
+# Words of the engine, farm, accounts and other core modules (P1-D): display text that is not a message (no code).
+# Same keys as zh/engine.toml.
+
+[engine]
+# a message pointing at a node: node name (type name)
+node_ref = "{name} ({type})"
+quoted = "\"{name}\""
+chain_unknown = "a step it needs did not work out; the reason is in the message bar"
+port_of = "\"{port}\" of \"{node}\""
+# the values of a wired list, after the description
+values = ": {values}"
+option_shown = "{value} ({label})"
+
+[engine.exposed]
+# what is wrong with the parameter interface (exposed): {where} / {why} / {widget} of E-EXPOSED-*
+interface = "parameter interface"
+nth = "item {n}"
+not_list = "exposed must be a list"
+expr_text = "must be written as text"
+group_name = "a group must have a name"
+group_children = "a group's children must be a list"
+neither = "neither a group nor a parameter with a name and a target (one parameter or a list of them)"
+targets_repeat = "the same parameter is listed twice"
+targets_unlike = "they are not the same kind of parameter (type, range, choices, widget or unit differ), so one entry cannot drive both"
+targets_values = "their values differ now: the interface shows only the first one's, so set them alike before exposing them as one entry"
+word_bad = "word goes on a button only, is one of {words}, and comes without a label (the shared word is what shows)"
+name_empty = "the exposed name cannot be empty"
+widget_bad = "the widget can only be menu or checkbox, not {widget}"
+options_list = "options must be a list"
+option_shape = "each item needs a value and a label"
+option_repeat = "same value as an item before it"
+hide_when = "Hide When \"{expr}\": {why}"
+disable_when = "Disable When \"{expr}\": {why}"
+disable_why = "with a Disable When, disable_why must be given too (why it cannot be chosen while disabled)"
+disable_why_alone = "disable_why goes only with disable_when"
+show_on_change = "show_on_change (show this node in the viewport after a change) can only be true or false"
+
+[engine.exposed.widget]
+menu = "menu"
+checkbox = "checkbox"
+either = "menu or checkbox"
+
+[engine.routes]
+# every route through a template reads as a graph and plans (reported by lab2shot check)
+defaults = "defaults"
+unreadable = "{where}: the graph does not read: {why}"
+unplanned = "{where}: the delivery cannot be planned: {why}"
+switch_way = "Menu \"{menu}\" set to \"{option}\" sends \"{node}\" down input {way}, but it has only {ways}"
+no_entry = "{where}: {target} needs the user (a file to pick, or picks in the viewport), yet app mode has no way to it: expose it, or list it in meta.internal when the card needs none"
+
+[engine.interface]
+# a node type exposes the same parameters on every card (reported by lab2shot check)
+missing = "missing {params}"
+extra = "extra {params}"
+differs = "{param} differs in exposed name / label / conditions ({here}; most cards, such as \"{like}\", have {there})"
+joiner = "; "
+unlike.one = "{name}: the parameters {type} exposes differ from the other {others} card: {parts} (if that is intended, add {type} to meta.own_interface)"
+unlike.other = "{name}: the parameters {type} exposes differ from the other {others} cards: {parts} (if that is intended, add {type} to meta.own_interface)"
+
+[engine.kind]
+# what a port carries (Port.data)
+data = "a data image"
+picture = "a picture"
+
+[engine.contract]
+output_port = "output port"
+empty_undeclared = "an empty packet was produced, but the port does not declare may_be_empty"
+
+[engine.shape]
+# what is wrong with the graph file's structure ({what} of E-GRAPH-SHAPE)
+nodes = "nodes must be a list"
+edges = "edges must be a list"
+node = "node {n} must have an id and a type, both text"
+id.one = "node id \"{id}\" must be text of at most {most} character, without . / @ :, white space, control characters or invisible format characters"
+id.other = "node id \"{id}\" must be text of at most {most} characters, without . / @ :, white space, control characters or invisible format characters"
+comment = "the comment of node {id} must be text"
+params = "the params of node {id} must be an object"
+promoted = "the promoted of node {id} must be a list of parameter names"
+edge = "wire {n} must have from and to, each [node, port]"
+
+# ---- condition expressions (engine/conditions.py) say the page's words: ui.conditions.* (i18n/<lang>/ui/conditions.toml)
+
+# ---- conventions of the templates' exposed parameter names (engine/conventions.py, reported by lab2shot check)
+[conventions]
+# the word the notes of the _conventions.md fixed name table mark an exception card with ("TRAM exception")
+exception = "exception"
+none = "(none)"
+unpaired = "_conventions.md fixed name table, row \"{name}\": {names} names but {groups} target groups (grouped by \"/\"): pair each name with one target group, or give each name its own row"
+unread = "_conventions.md fixed name table, row \"{name}\": cannot read its targets: {what} (write them as `extension.node.parameter`)"
+no_type = "_conventions.md fixed name table, row \"{name}\", target {type}.{param}: there is no node type {type}"
+no_param = "_conventions.md fixed name table, row \"{name}\", target {type}.{param}: {type} has no parameter {param}"
+bound = "Exposed name {name} may only point at {want}; here it points at {type}.{param}"
+several_outputs = "The card has {n} format output nodes (several deliveries): use {names}, not file_name"
+one_output = "The card has one delivery only: its name is file_name, not {names}"
+last_button_staged = "The last step's button {name} should say \"word\": \"{word}\" (shown as \"{want}\": the card has other stage buttons); it shows \"{label}\""
+last_button_alone = "The last step's button {name} should say \"word\": \"{word}\" (shown as \"{want}\": the card has no other stage buttons); it shows \"{label}\""
+exr_lossless = "On a card with data layers the exr_compression menu may list only the lossless {allowed}; extra: {extra}"
+focal_filmback = "focal is exposed ({target}), so the same node's filmback must be exposed too ({node}.filmback_mm)"
+filmback_when = "The Disable When of {name} must contain not focal (disabled while no focal length is given); it is {now}"
+node_id = "Node id {id} is not a readable word (starts with a lowercase letter, only lowercase letters, digits and _, at least 3 characters): exposed names are derived from it"
+derived_taken = "The exposed name {want} derived from node id {id}, parameter {param}, names something else in the fixed name table: give this node another id (rule 2)"
+derived_name = "Exposed name {name} ({target}) is not in the fixed name table: it should be {want} (node id_parameter name, rule 1)"
+meaning = "{name} = {value} means \"{meant}\" in the fixed name table but \"{label}\" on this card (a value means the same on every card, rule 3)"
+after_button = "Parameters {params} act on the stage button {button} ({target}) but come after it: move them before the button"
+
+# ---- cook stages (the core's shared stage.<id>: engine/resident.py making GPU memory for another job)
+[stage]
+resident_unload = "Freeing GPU memory: unloading {title}"
+resident_to_ram = "Freeing GPU memory: moving the models of {title} to RAM"
+resident_unload_no_ram = "Freeing GPU memory: not enough RAM, unloading {title}"
+vram_retry = "Not enough GPU memory: unloading the resident models on this GPU and cooking again"
+
+# ---- accounts (accounts.py, site/registration.py)
+[account]
+# an account as people read it: name (username)
+label = "{name} ({username})"
+deleted = "Deleted user"
+tags_basic = "Basic only"
+
+[account.device]
+# device names written into the login records (the server's records: English)
+client = "Client"
+browser = "Browser"
+unknown_system = "Unknown system"
+machine = "Local command line"
+
+[account.secret]
+password = "password"
+new_password = "new password"
+passphrase = "passphrase"
+
+[account.state]
+no_password = "No password set"
+usable = "Active"
+no_password_tip = "No password yet: on the server run ./setup.sh and choose \"Accounts and Security → Set Administrator Password\""
+
+[account.session]
+web = "Browser"
+client = "Plug-in"
+machine = "Local token"
+embedded = "Plug-in embedded window"
+
+[account.invite]
+disabled = "Disabled"
+expired = "Expired"
+used_up = "Used up"
+usable = "Active"
+none = "No invite code"
+hint = "{hint}…"
+noted = "{hint}… ({note})"
+
+[account.register_window]
+hour = "an hour"
+day = "a day"
+
+# ---- user feedback (site/feedback.py)
+[feedback]
+reply = "Reply"
+note = "Note"
+joiner = "; "
+
+[feedback.category]
+none = ""
+error = "Error"
+usage = "Unclear usage"
+idea = "Suggestion"
+
+[feedback.status]
+new = "New"
+seen = "Seen"
+solved = "Solved"
+
+[feedback.rating]
+none = "Not rated"
+valid = "Valid"
+invalid = "Invalid"
+
+[feedback.ledger]
+grant = "Reward"
+revoke = "Revoked"
+
+# ---- the compute farm (farm/)
+[farm]
+no_department = "No department"
+core_nodes = "Core nodes"
+untitled = "Node graph"
+runtime = "runtime environment"
+
+[farm.disk.tasks]
+label = "Jobs"
+note.one = "Each job's folder (node graph, footage, outputs, logs), deleted whole {days} day after it ends"
+note.other = "Each job's folder (node graph, footage, outputs, logs), deleted whole {days} days after it ends"
+
+[farm.disk.cache]
+label = "Cache"
+note = "Each account's own node results and raw model results; those no job refers to or uses any more are cleared, and a cleared node is cooked again next time"
+
+[farm.disk.uploads]
+label = "Uploaded footage"
+note.one = "Footage each account uploaded; deleted {days} day after no job uses it, after which the node graph must pick the files again"
+note.other = "Footage each account uploaded; deleted {days} days after no job uses it, after which the node graph must pick the files again"
+
+# ---- uploads and job folders (transfer/)
+[transfer]
+footage_more = " and {count} footage items"
+upload = "Upload"
+
+[transfer.task]
+running = "Running"
+ended = "Ended"
+
+# ---- reading files (io/)
+[io]
+more = "…"
+
+[io.sequence]
+found.one = "{frames}, {count} frame"
+found.other = "{frames}, {count} frames"
+described = "{name} ({found})"
+
+# ---- the viewer (view/)
+[view]
+proxy_tier = "{px} px"
+scene = "scene"
+
+# ---- the template library (site/library.py)
+[library]
+name = "name"
+intro = "description"
+copy = "{name} Copy"
+copy_tail = " Copy {n}"
+
+[library.state]
+user_deleted = "Deleted by user"
+deleted = "Deleted"
+mine = "My templates"
+
+# ---- the release notes file check (releases.py)
+[release]
+no_file = "The file does not exist"
+not_toml = "Not valid TOML: {why}"
+unreadable = "Cannot read the file: {why}"
+project = "project must be a web address starting with https://; it is {now}"
+top_unknown = "Unknown keys at the top of the file: {keys}"
+none = "No versions at all: there must be at least one [[release]]"
+nth = "Version {n}"
+named = "{where} ({name})"
+not_table = "{where} is not a [[release]] table"
+missing = "{where} is missing {keys}"
+unknown = "{where} has unknown keys: {keys}"
+name = "The name of {where} must be written in both languages, {zh = …, en = …}, each non-empty text"
+name_again = "The name of {where} repeats an earlier version"
+date = "The date of {where} must be an unquoted date YYYY-MM-DD; it is {now}"
+about = "The about of {where} must be written in both languages, {zh = …, en = …}, each non-empty text"
+changes = "The changes of {where} must be written in both languages, {zh = […], en = […]}, each a list of non-empty text, one line each"
+count = "The {field} of {where} must have as many lines in English as in Chinese, line for line (Chinese: {zh}, English: {en})"
+admin = "The admin of {where} must be written in both languages, {zh = […], en = […]}, each a list of non-empty text, one line each"
+order = "The date {date} of {where} is newer than the version above it ({above}): the newest version goes at the top"
+
+# ---- resources tied to an account (site/resources.py: the tabs and lists of the admin Users detail page)
+[resource.job_state]
+queued = "Queued"
+running = "Cooking"
+done = "Done"
+failed = "Failed"
+cancelled = "Cancelled"
+interrupted = "Interrupted"
+
+[resource.jobs]
+label = "Jobs"
+column = { id = "Job", title = "Node Graph", targets = "Nodes Cooked", state = "State", submitted = "Submitted", finished = "Finished" }
+
+[resource.tasks]
+label = "Job Folders"
+column = { id = "Job", state = "State", bytes = "Size", created = "Submitted", ended = "Ended" }
+
+[resource.uploads]
+label = "Uploaded Footage"
+column = { key = "Footage", kind = "Kind", at = "Uploaded" }
+
+[resource.feedback]
+label = "Feedback"
+column = { id = "Feedback", category = "Category", text = "Text", status = "Status", rating_label = "Rating", at = "Submitted" }
+
+[resource.outputs]
+label = "Output Results"
+column = { name = "Result", task = "Job", label = "Node", count = "Files", bytes = "Size", finished = "Packaged" }
+
+[resource.login_log]
+label = "Login Records"
+column = { at = "Time", ok = "Succeeded", reason = "Reason", kind = "Method", ip = "Address", device = "Device" }
+
+[resource.sessions]
+label = "Active Logins"
+column = { kind = "Method", device = "Device", hostname = "Computer", ip = "Address", seen = "Last Active" }
+
+[resource.templates]
+label = "Templates"
+column = { id = "Template", name = "Name", state = "State", bytes = "Size", updated = "Last Changed" }
+
+[resource.templates.act]
+restore = { label = "Restore", tip = "Take this template back out of the bin: the user sees it in My Templates again" }
+bin = { label = "Move to Bin", tip = "Moved to the bin, not deleted: the user no longer sees it, and it can be restored at any time" }
+purge = { label = "Delete Permanently", tip = "Delete this template for good: it cannot be recovered" }
+
+[resource.traffic]
+label = "Traffic"
+column = { day = "Date", bytes = "Traffic" }
+
+[resource.admin_actions]
+label = "Admin Actions"
+column = { at = "Time", what = "Action", where = "Route", status = "Result" }
+
+# ---- core health (analysis/core_health.py)
+[health]
+twin = "container {container}, channels: {channels}, metadata to state: {meta}, inputs that take it alone: {inputs}"
+no_reason = "core_baseline.toml needs a reason line: why core concepts were added or removed this time"
+not_in_baseline = "{label} ({key}) is not in the baseline: now {now}"
+more = "More {label}: baseline {want}, now {now}. If it is really needed, change the number in core_baseline.toml and give the reason; merge what is essentially the same first"
+fewer = "Fewer {label}: baseline {want}, now {now}. Lower core_baseline.toml to lock in this refactor"
+now = "now"
+overlap = "ports and parameters overlap {share}: {shared}"
+clone = "{tokens} identical tokens (names not counted)"
+allowed = "; allowed: {why}"
+helper.one = "the same function in {count} extension"
+helper.other = "the same function in {count} extensions"
+in_sdk = "; already in the SDK: {names}"
+
+[health.kind]
+type = "Type"
+node = "Core node"
+clone = "Duplicate code"
+sdk = "Belongs in the SDK"
+
+[health.concept]
+types = "data types"
+core_nodes = "core nodes"
+families = "node families"
+widgets = "parameter widget kinds"
+contracts = "contract checks"
+expects = "usage check kinds"
+handles = "handle kinds"
+scopes = "scope kinds"
+special_cases = "special cases in the core"

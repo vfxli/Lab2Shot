@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { packetOf } from "../state/results";
 import type { Manifest } from "../api";
-import { useGraphSnapshot } from "../graph/snapshot";
+import { useGraphDoc } from "../graph/snapshot";
 import { nodeMessages } from "../graph/nodes";
 import { fromServer, msg } from "../messages/message";
 import { MessageRow } from "../ui/MessageRow";
@@ -11,6 +11,8 @@ import { useDescribed } from "../transfer/described";
 import { CopyToNuke } from "../ui/CopyToNuke";
 import { ItemsList } from "../ui/ItemsList";
 import { MessageText } from "../ui/MessageText";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** Owns the contents of 数据信息 (the card the mark at a node's bottom right opens): what each of a node's ports holds, i.e. the one summary
  * the server makes from the data type's own declaration (lab2shot/data/summary.py), the same answer the port's
@@ -30,14 +32,17 @@ function useManifests(fps: string[]): Record<string, Manifest> {
 const whyNothing = (status: { cached?: boolean; present?: string[]; outputs?: Record<string, string> } | undefined, r: { side: string; name: string }) =>
   // the message object, not its text: its code goes onto the element as `data-code`, so a screenshot tells which
   // message it is (a message's `.text` is for a tooltip; anywhere else the message itself goes)
-  r.side === "输出" && status?.cached && !packetOf(status, r.name)
+  r.side === "out" && status?.cached && !packetOf(status, r.name)
     ? msg("I-VALUE-NOTASKED")
     : msg("I-VALUE-NOTCOOKED");
 
+/** The sides' names (keys of the words). */
+const SIDE_KEY = { in: "ui.view.inputs", out: "ui.view.outputs" } as const;
+
 /** The ports of a node as 数据信息 lists them: which side, what the port is called, the result it holds now and what
  * the server says that result is. Where a wire feeds an input, its own result is the upstream output's. */
-function portRows(snap: ReturnType<typeof useGraphSnapshot>, id: string): { side: string; name: string; label: string; tip: string; fp: string }[] {
-  const status = snap.results[id];
+function portRows(snap: ReturnType<typeof useGraphDoc>, id: string): { side: string; name: string; label: string; tip: string; fp: string }[] {
+  const status = snap.shown[id];
   const ports = status?.ports;
   const rows: { side: string; name: string; label: string; tip: string; fp: string }[] = [];
   // a fingerprint is the address a result will have; `present` says which of them a result is actually at
@@ -45,9 +50,9 @@ function portRows(snap: ReturnType<typeof useGraphSnapshot>, id: string): { side
   const at = (s: typeof status, port: string) => packetOf(s, port) ?? "";
   for (const p of ports?.inputs ?? []) {
     const e = snap.edges.find((x) => x.target === id && x.targetHandle === p.name);
-    rows.push({ side: "输入", name: p.name, label: p.label, tip: p.tip ?? "", fp: e ? at(snap.results[e.source], e.sourceHandle ?? "") : "" });
+    rows.push({ side: "in", name: p.name, label: p.label, tip: p.tip ?? "", fp: e ? at(snap.shown[e.source], e.sourceHandle ?? "") : "" });
   }
-  for (const p of ports?.outputs ?? []) rows.push({ side: "输出", name: p.name, label: p.label, tip: p.tip ?? "", fp: at(status, p.name) });
+  for (const p of ports?.outputs ?? []) rows.push({ side: "out", name: p.name, label: p.label, tip: p.tip ?? "", fp: at(status, p.name) });
   return rows;
 }
 
@@ -63,24 +68,24 @@ function portRows(snap: ReturnType<typeof useGraphSnapshot>, id: string): { side
  * its level square and its code. The information card beside the node renders this component from the status
  * reply: one place, one list, nothing requested twice. */
 export function DataGroup({ node }: { node: GNode }) {
-  const snap = useGraphSnapshot();
+  const snap = useGraphDoc();
   const rows = portRows(snap, node.id);
   const by = useManifests([...new Set(rows.map((r) => r.fp).filter(Boolean))]);
   // inside a 逐项处理 block, the status reply's fields are the item the view is on and `summary` is how all of them
   // stand: that is what says to list them (engine/scopes.py), never a guess here
-  const status = snap.results[node.id];
+  const status = snap.shown[node.id];
   const scope = chainOf(blocksOf(snap.reply), node.id).at(-1); // the innermost block it is in (state/items.ts)
-  const notices = nodeMessages(snap.results, node.id);
+  const notices = nodeMessages(snap.shown, node.id);
   if (!rows.length && !notices.length) return null;
   return (
     <div className="group">
-      <div className="group-title">数据</div>
-      {["输入", "输出"].map((side) => {
+      <div className="group-title">{t("ui.view.data")}</div>
+      {(["in", "out"] as const).map((side) => {
         const mine = rows.filter((r) => r.side === side);
         if (!mine.length) return null;
         return (
           <div className="data-side" key={side}>
-            <span className="data-side-name">{side}</span>
+            <span className="data-side-name">{t(SIDE_KEY[side])}</span>
             <div className="data-ports">
               {mine.map((r) => {
                 const got = by[r.fp];
@@ -89,12 +94,12 @@ export function DataGroup({ node }: { node: GNode }) {
                 const clip = got?.meta?.clipboard as { app: string; file: string } | undefined;
                 return (
                   <div className="data-port" key={`${side}.${r.name}`}>
-                    <span className="data-port-name" data-tip={r.tip}>{r.label}</span>
+                    <span className="data-port-name">{r.label}</span>
                     {/* one line per entry, name first: the server gives name and value apart (`label` and `text` of
                         `lab2shot/data/summary.py _line`); values strung into one long line with 「·」 would leave the
                         reader unable to tell which number means what. An entry without a name (a whole sentence)
                         takes a line of its own. */}
-                    <span className="data-port-said tnum" data-tip={[r.tip, ...lines.map((l) => l.said)].filter(Boolean).join("\n")}>
+                    <span className="data-port-said tnum" {...tipAttrs(tipOf("value", [r.tip, ...lines.map((l) => l.said)].filter(Boolean).join("\n")))}>
                       {lines.length ? (
                         lines.map((l, k) => (
                           <span className="said-item" key={`${l.id}.${k}`}>
@@ -102,9 +107,9 @@ export function DataGroup({ node }: { node: GNode }) {
                             <span className="said-value">{l.text}</span>
                           </span>
                         ))
-                      ) : got?.summary?.known === "empty" ? "这次没有内容" : r.fp ? "读取…" : <MessageText message={whyNothing(status, r)} />}
+                      ) : got?.summary?.known === "empty" ? t("ui.view.empty_this_time") : r.fp ? t("ui.view.reading") : <MessageText message={whyNothing(status, r)} />}
                     </span>
-                    {clip && <CopyToNuke fp={r.fp} app={clip.app} what={node.data.label} size="xs" />}
+                    {clip && <CopyToNuke fp={r.fp} app={clip.app} what={node.id} size="xs" />}
                   </div>
                 );
               })}
@@ -114,13 +119,13 @@ export function DataGroup({ node }: { node: GNode }) {
       })}
       {status?.summary && snap.reply && (
         <div className="data-side">
-          <span className="data-side-name">条目</span>
+          <span className="data-side-name">{t("ui.view.items")}</span>
           <ItemsList graph={snap.reply.graph} node={node.id} total={status.summary.total} begin={scope?.begin} />
         </div>
       )}
       {notices.length > 0 && (
         <div className="data-side">
-          <span className="data-side-name">提醒</span>
+          <span className="data-side-name">{t("ui.view.notices")}</span>
           <div className="data-notes">
             {notices.map((m) => (
               <MessageRow key={m.code + m.text + (m.port ?? "")} message={fromServer(m)} />

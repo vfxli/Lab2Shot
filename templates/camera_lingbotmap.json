@@ -2,91 +2,142 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "a8d30aeaad9b34177b6038043af91f4d",
-  "name": "深度与相机 · LingBot-Map",
-  "intro": "LingBot-Map 官方自述是流式的前馈三维基础模型，518×378 下超过一万帧的长序列仍能约 20 FPS 稳定推理。这张卡交付每帧相机（USD 与 Nuke 相机，都是去抖后的）和深度图（对应原始相机）；不出点云（放出的权重没有点图头），要点云接「深度转点云」。去抖没有旁路。",
+  "name": {
+   "zh": "深度与摄影机 · LingBot-Map",
+   "en": "Depth and Camera · LingBot-Map"
+  },
+  "intro": {
+   "zh": "LingBot-Map 官方自述是流式的前馈三维基础模型，518×378 下超过一万帧的长图像序列仍能约 20 FPS 稳定推理。这张卡交付每帧摄影机（USD 与 Nuke 摄影机，都是去抖后的）和深度贴图（对应原始摄影机）；不出点云（放出的权重没有点图头），要点云接「深度转点云」。去抖没有旁路。",
+   "en": "LingBot-Map describes itself as a streaming feed-forward 3D foundation model that keeps stable inference at about 20 FPS at 518×378 on sequences of over ten thousand frames. This card delivers per-frame cameras (USD and Nuke camera, both deshaken) and depth maps (for the original camera); no point cloud (the released weights have no pointmap head), so wire Points from Depth if you need one. The deshake has no bypass."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
-  "deliverable": "depth_camera",
+  "deliverable": "depth_long",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "kind": "group",
-   "label": "解算",
+   "label": {
+    "zh": "解算",
+    "en": "Solve"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "step",
-     "label": "隔帧",
-     "target": "r.step"
+     "name": "solve_step",
+     "label": {
+      "zh": "步长",
+      "en": "Step"
+     },
+     "target": "solve.step"
     },
     {
-     "name": "model",
-     "label": "模型",
-     "target": "r.model"
+     "name": "solve_model",
+     "label": {
+      "zh": "模型",
+      "en": "Model"
+     },
+     "target": "solve.model"
     },
     {
      "name": "scale_cm",
-     "label": "尺度",
-     "target": "r.unit_cm"
+     "label": {
+      "zh": "尺度",
+      "en": "Scale"
+     },
+     "target": "solve.unit_cm"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
-       "name": "resolution",
-       "label": "处理分辨率",
-       "target": "r.resolution"
+       "name": "solve_resolution",
+       "label": {
+        "zh": "处理分辨率",
+        "en": "Processing Resolution"
+       },
+       "target": "solve.resolution"
       },
       {
-       "name": "max_frames",
-       "label": "每段最多帧数",
-       "target": "r.max_frames"
+       "name": "solve_max_frames",
+       "label": {
+        "zh": "每段最多帧数",
+        "en": "Max Frames per Chunk"
+       },
+       "target": "solve.max_frames"
       },
       {
-       "name": "keyframe_interval",
-       "label": "关键帧间隔",
-       "target": "r.keyframe_interval"
+       "name": "solve_keyframe_interval",
+       "label": {
+        "zh": "关键帧间隔",
+        "en": "Keyframe Interval"
+       },
+       "target": "solve.keyframe_interval"
       },
       {
-       "name": "context_window",
-       "label": "短期记忆帧数",
-       "target": "r.context_window"
+       "name": "solve_context_window",
+       "label": {
+        "zh": "短期记忆帧数",
+        "en": "Short-Term Memory Frames"
+       },
+       "target": "solve.context_window"
       },
       {
-       "name": "conf_threshold",
-       "label": "置信度门槛",
-       "target": "r.conf_threshold"
+       "name": "solve_conf_threshold",
+       "label": {
+        "zh": "置信度门槛",
+        "en": "Confidence Threshold"
+       },
+       "target": "solve.conf_threshold"
       },
       {
-       "name": "mask_sky",
-       "label": "去掉天空",
-       "target": "r.mask_sky"
+       "name": "solve_mask_sky",
+       "label": {
+        "zh": "去掉天空",
+        "en": "Remove Sky"
+       },
+       "target": "solve.mask_sky"
       }
      ]
     }
@@ -94,97 +145,154 @@
   },
   {
    "name": "cook_solve",
-   "label": "解算相机",
-   "target": "r.cook"
+   "label": {
+    "zh": "解算摄影机",
+    "en": "Solve Camera"
+   },
+   "target": "solve.cook"
   },
   {
    "kind": "group",
-   "label": "去抖",
+   "label": {
+    "zh": "去抖",
+    "en": "Deshake"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "deshake_strength",
-     "label": "强度",
+     "name": "smooth_strength",
+     "label": {
+      "zh": "强度",
+      "en": "Strength"
+     },
      "target": "smooth.strength"
     },
     {
-     "name": "deshake_keep_sudden",
-     "label": "保留急停",
+     "name": "smooth_keep_sudden",
+     "label": {
+      "zh": "保留急停",
+      "en": "Keep Sudden Stops"
+     },
      "target": "smooth.keep_sudden"
     },
     {
-     "name": "deshake_rotation",
-     "label": "平滑转动",
+     "name": "smooth_rotation",
+     "label": {
+      "zh": "平滑转动",
+      "en": "Smooth Rotation"
+     },
      "target": "smooth.rotation"
     },
     {
-     "name": "deshake_focal",
-     "label": "Focal Length 怎么处理",
+     "name": "smooth_focal",
+     "label": {
+      "zh": "焦距怎么处理",
+      "en": "Focal Length Handling"
+     },
      "target": "smooth.focal"
     },
     {
-     "name": "cook_deshake",
-     "label": "去抖",
+     "name": "cook_smooth",
+     "label": {
+      "zh": "去抖",
+      "en": "Deshake"
+     },
      "target": "smooth.cook"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "usd_name",
-     "label": "文件名（相机 USD）",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名（摄影机 USD）",
+      "en": "File Name (Camera USD)"
+     },
+     "target": "usd.name"
     },
     {
      "name": "exr_name",
-     "label": "文件名（深度 EXR）",
+     "label": {
+      "zh": "文件名（深度 EXR）",
+      "en": "File Name (Depth EXR)"
+     },
      "target": "exr.name"
     },
     {
      "name": "nuke_name",
-     "label": "文件名（Nuke 相机）",
+     "label": {
+      "zh": "文件名（Nuke 摄影机）",
+      "en": "File Name (Nuke Camera)"
+     },
      "target": "nuke.name"
     },
     {
      "name": "unit",
-     "label": "单位",
-     "target": "out.unit"
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
     },
     {
      "name": "fps",
-     "label": "帧率",
-     "target": "out.fps"
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "usd.fps"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
        "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -194,17 +302,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -213,8 +327,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -223,13 +336,12 @@
    },
    "ui": {
     "x": 0,
-    "y": 434
+    "y": 453
    }
   },
   {
-   "id": "r",
+   "id": "solve",
    "type": "lingbotmap.reconstruct",
-   "label": "LingBot-Map 深度与相机",
    "params": {
     "step": 1,
     "model": "long",
@@ -243,7 +355,7 @@
    },
    "ui": {
     "x": 400,
-    "y": 376,
+    "y": 395,
     "on_node": [
      "step",
      "max_frames"
@@ -252,8 +364,7 @@
   },
   {
    "id": "smooth",
-   "type": "core.deshake_camera",
-   "label": "相机去抖",
+   "type": "deshake_camera",
    "params": {
     "strength": 6.0,
     "keep_sudden": true,
@@ -261,8 +372,8 @@
     "focal": "keep"
    },
    "ui": {
-    "x": 800,
-    "y": 386,
+    "x": 830,
+    "y": 405,
     "on_node": [
      "strength",
      "keep_sudden"
@@ -270,9 +381,8 @@
    }
   },
   {
-   "id": "out",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "id": "usd",
+   "type": "usd.output",
    "params": {
     "name": "scene",
     "format": "usd",
@@ -280,7 +390,7 @@
     "fps": 24.0
    },
    "ui": {
-    "x": 1240,
+    "x": 1270,
     "y": 0,
     "on_node": [
      "name",
@@ -293,24 +403,22 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1600,
-    "y": 410
+    "x": 1630,
+    "y": 429
    }
   },
   {
    "id": "nuke",
-   "type": "core.output_nuke_camera",
-   "label": "Nuke 相机输出设置",
+   "type": "nuke.output",
    "params": {
     "name": "camera_nuke"
    },
    "ui": {
-    "x": 1200,
-    "y": 410,
+    "x": 1230,
+    "y": 429,
     "on_node": [
      "name"
     ]
@@ -318,8 +426,7 @@
   },
   {
    "id": "exr",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "type": "exr.output",
    "params": {
     "name": "depth",
     "layers": [
@@ -334,15 +441,15 @@
     "colorspace": null
    },
    "ui": {
-    "x": 1240,
-    "y": 764
+    "x": 1270,
+    "y": 802
    }
   }
  ],
  "edges": [
   {
    "from": [
-    "r",
+    "solve",
     "camera"
    ],
    "to": [
@@ -352,7 +459,7 @@
   },
   {
    "from": [
-    "out",
+    "usd",
     "files"
    ],
    "to": [
@@ -366,7 +473,7 @@
     "camera"
    ],
    "to": [
-    "out",
+    "usd",
     "scene"
    ]
   },
@@ -396,13 +503,13 @@
     "image"
    ],
    "to": [
-    "r",
+    "solve",
     "image"
    ]
   },
   {
    "from": [
-    "r",
+    "solve",
     "depth"
    ],
    "to": [

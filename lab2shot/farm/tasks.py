@@ -66,6 +66,7 @@ class Task:
     done: int = 0
     total: int = 0
     label: str = ""
+    label_word: dict | None = None  # the step's name kept as a word (messages.word_of): said in each reader's language
     said: list[Msg] = field(default_factory=list)
     result: Msg | None = None
     waiting: Msg | None = None
@@ -85,14 +86,17 @@ class Task:
     def title(self) -> Msg:
         return self.kind.title(self.subject)
 
-    def progress(self, done: int | None = None, total: int | None = None, label: str | None = None) -> None:
+    def progress(self, done: int | None = None, total: int | None = None, label: str | None = None,
+                 word: dict | None = None) -> None:
+        """`label`: the step it is on now in the language now; `word`: the same kept as a word, so whoever reads the
+        task reads it in their own language (messages.localized: label_word)."""
         self.check()
         if total is not None:
             self.total = total
         if done is not None:
             self.done = done
         if label is not None:
-            self.label = label
+            self.label, self.label_word = label, word
 
     def step(self, label: str) -> None:
         """One more step done, and the one it is on now."""
@@ -116,6 +120,7 @@ class Task:
         start = max(since, kept_from)
         return {"id": self.id, "kind": self.kind.id, "subject": self.subject, "title": self.title().json(), "by": self.by,
                 "state": self.state, "done": self.done, "total": self.total, "label": self.label,
+                **({"label_word": self.label_word} if self.label_word else {}),
                 "said": [m.json() for m in self.said], "result": self.result.json() if self.result else None,
                 "waiting": self.waiting.json() if self.waiting else None, "submitted": self.submitted,
                 "started": self.started, "finished": self.finished,

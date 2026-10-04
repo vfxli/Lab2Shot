@@ -1,0 +1,95 @@
+# BiRefNet 抠像、边缘解混合（adapters/birefnet）。一行一条：编号 = 模板。
+
+# ---- 结果
+"N-BIREFNET-EMPTY.other" = "「BiRefNet 抠像」有 {count:d} 帧没有找到主体（alpha 全部低于 0.5，这些帧的 Alpha 基本是空的）：第 {frames}{more} 帧"
+
+# ---- 边缘解混合
+"W-BIREFNET-NOALPHA.other" = "「BiRefNet 边缘解混合」的「Alpha」缺 {count:d} 帧，这些帧已跳过、没有输出前景：第 {frames}{more} 帧。要每帧都有结果，让接进「Alpha」的图像序列覆盖画面的每一帧"
+
+# ---- worker
+"I-BIREFNET-WEIGHTS" = "模型 {repo} 的权重"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."birefnet.foreground_color"]
+subtitle = "边缘解混合"
+description = "图 + Alpha → 把边缘半透明带里混进来的背景色（含绿幕溢色）反解掉，输出去污染的前景图（预乘 alpha 的 RGBA），写成 EXR 在 Nuke 里直接当前景合成。另出一路「未修正前景」（原图 × alpha），两路相减就是修正量，合成师可以在 Nuke 里按比例叠回自己的 plate。只处理 alpha 0–1 的边缘带，实心区域原样直通——主体上的绿反光要用别的去溢色方法。配任何抠像节点的 Alpha 都能用，不挑来源。在 CPU 上算，不占显卡。"
+
+[node."birefnet.foreground_color".param.radius]
+label = "模糊半径"
+
+[node."birefnet.foreground_color".port.image]
+label = "RGB"
+
+[node."birefnet.foreground_color".port.mask]
+label = "Alpha"
+
+[node."birefnet.foreground_color".port.foreground]
+label = "前景"
+help = "去掉背景色之后的前景色（预乘 alpha 的 RGBA）：头发丝、半透明边缘上原来混进来的背景色和绿幕溢色，官方 refine_foreground 反解时已经去掉。在 Nuke 里拿它当前景合成，边上不再带着旧背景的颜色；接「图像序列输出」写成 EXR"
+
+[node."birefnet.foreground_color".port.plate]
+label = "未修正前景"
+help = "原图乘 alpha（预乘 RGBA），没有经过边缘解混合，和「前景」走同一条写出和色彩转换。两路都写成 EXR 读进 Nuke，「前景」减「未修正前景」（Merge minus）就是修正量，只在 alpha 0–1 的边缘带不为 0：自己的 plate × alpha 加上 k × 修正量，k 从 0 到 1 控制用多少 AI 的颜色，实心区域一个字节都不碰"
+
+[node."birefnet.foreground_color".official]
+note = "两趟均值模糊（第一趟 r，第二趟固定 6）从邻域统计反解 alpha 混合公式 image ≈ a·FG + (1-a)·B，估计边缘半透明像素本该有的纯前景色。alpha=1 的内部原样不动，只有边缘带被换算。不是模型，纯后处理，无权重。"
+
+[node."birefnet.foreground_color".official.ours]
+plate = "image × mask（上游 refine_foreground 收到的原图，预乘 alpha）"
+
+[node."birefnet.foreground_color".stage]
+write_foreground = "写出前景"
+
+[node."birefnet.foreground_color".licence]
+note = "代码 MIT（同 BiRefNet 本体），纯数学后处理，无权重、无训练数据问题。"
+
+[node."birefnet.matte"]
+subtitle = "抠像"
+description = "逐帧抠出画面主体（人、物体、动物），输出 0–1 的 alpha。不用点选，模型自己判断主体；每帧单独计算。要发丝级软边接「MatAnyone 2 精细抠像」或「VideoMaMa 精细抠像」精修，要按提示词挑物体用「SAM 3 视频分割」。"
+
+[node."birefnet.matte".param.model]
+label = "模型"
+
+[node."birefnet.matte".param.model.option]
+matting = "BiRefNet-matting（1024×1024）"
+general = "BiRefNet（1024×1024）"
+hr_matting = "BiRefNet_HR-matting（2048×2048）"
+hr = "BiRefNet_HR（2048×2048）"
+dynamic = "BiRefNet_dynamic（256–2304 任意尺寸）"
+
+[node."birefnet.matte".param.fp16]
+label = "半精度"
+
+[node."birefnet.matte".official]
+note = "上游只吃画面，没有任何提示（遮罩、框、点）；模型自己判断主体。"
+
+[node."birefnet.matte".licence]
+note = "代码和权重都是 MIT；训练数据里有仅限研究的数据集，严格的商业交付前建议做一次法务确认。"
+
+[extension.birefnet]
+summary = "用于高分辨率二分图像分割（DIS）的双边参考框架，由定位模块和带双边参考的还原模块组成"
+
+[extension.birefnet.license]
+name = "MIT"
+summary = "代码 MIT；五个权重（BiRefNet、BiRefNet-matting、BiRefNet_HR、BiRefNet_HR-matting、BiRefNet_dynamic）的 Hugging Face 模型卡均标 MIT，可商用。注意：训练数据含 DIS5K、P3M-10k、AM-2k、Distinctions-646 等仅限学术研究的数据集，作者仍以 MIT 发布权重；严格的商业项目交付前建议法务确认。（briaai 的 RMBG-2.0 同为 BiRefNet 结构但权重非商用，本扩展不下载）"
+
+[extension.birefnet.weight.general]
+note = "ZhengPeng7/BiRefNet（MIT，Swin-L，1024×1024）"
+
+[extension.birefnet.weight.matting]
+note = "ZhengPeng7/BiRefNet-matting（MIT，Swin-L，1024×1024）"
+
+[extension.birefnet.weight.hr]
+note = "ZhengPeng7/BiRefNet_HR（MIT，Swin-L，2048×2048）"
+
+[extension.birefnet.weight.hr_matting]
+note = "ZhengPeng7/BiRefNet_HR-matting（MIT，Swin-L，2048×2048）"
+
+[extension.birefnet.weight.dynamic]
+note = "ZhengPeng7/BiRefNet_dynamic（MIT，Swin-L，任意尺寸）"
+
+[stage]
+estimate_foreground = "前景估计"
+foreground = "前景"
+matte = "抠像"

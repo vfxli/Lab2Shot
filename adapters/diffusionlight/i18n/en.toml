@@ -1,0 +1,46 @@
+# This extension's words and messages in English (the same keys as zh.toml).
+
+# ---- worker
+"W-DIFFUSIONLIGHT-LOWRANGE" = "The brightest part of the environment map DiffusionLight made is only {ratio:.1f} times the mid brightness (below 4 times): the plate may be very flat (overcast, no clear light source) or the chrome ball was not painted well, so the light will be flat with weak shadows. Try another Random Seed"
+
+[stage]
+paint_ball = "Paint Chrome Ball"
+exposure = "EV {ev:g}"
+done = "Done"
+prepare_plate = "Prepare Plate"
+unwrap_ball = "Unwrap Chrome Ball / Merge HDR"
+
+[node."diffusionlight.light_probe"]
+subtitle = "HDRI Estimation"
+description = "Makes an HDRI environment map (a lat-long EXR) from one frame: paints a chrome ball into the plate, then unwraps it. Takes a single frame; to use a sequence, put a time_shift in front to hold one frame. Known Focal Length and Aperture give the horizontal field of view, used to unwrap the ball with the correct perspective; left empty, it unwraps orthographically as upstream does (a small error at common focal lengths). The brightness is relative to the plate, not absolute; if the result is not good, try another random seed."
+
+[node."diffusionlight.light_probe".port.preview]
+label = "Chrome Ball"
+
+[node."diffusionlight.light_probe".cost]
+whole = "Computes the environment light of a single frame (about 51 s per run), not per-frame work"
+
+[node."diffusionlight.light_probe".official]
+note = "The Chrome Ball preview is upstream's first step's square (\"Square-cropped chrome ball\", README:68); the HDRI is the .exr the third step exposure2hdr.py writes to <output_dir>/hdr (exposure2hdr.py:90 hdr_rgb). Upstream takes neither a camera nor a mask."
+
+[node."diffusionlight.light_probe".licence]
+note = "Code and LoRAs are MIT; SDXL and ControlNet are CreativeML Open RAIL++-M (commercial use allowed, with use restrictions)."
+
+[extension.diffusionlight]
+summary = "Turns lighting estimation into painting a mirrored chrome ball into the plate, estimating the lighting from a single low dynamic range (LDR) picture"
+
+[extension.diffusionlight.license]
+name = "MIT code/LoRAs · SDXL and ControlNet under CreativeML Open RAIL++-M"
+summary = "Commercial use allowed, within the use restrictions of OpenRAIL++-M. Item by item: the DiffusionLight-Turbo code and the Turbo LoRA and exposure LoRA shipped in the repository are MIT (the model cards of the LoRAs of the same name on Hugging Face are MIT too); the SDXL 1.0 base model and the SDXL depth ControlNet (diffusers) are CreativeML Open RAIL++-M: commercial use and distribution of generated results are allowed, but not for the forbidden uses listed in Attachment A of the licence (illegal acts, harming minors, disinformation, discrimination and so on), and redistributing the models must carry the same restrictions; SDXL-VAE-FP16-Fix is MIT; the depth conditioning for ControlNet comes from Intel DPT-Hybrid MiDaS, Apache-2.0 (not Depth Anything: no non-commercial depth model). Does not depend on nvdiffrast and does not install xformers"
+
+[extension.diffusionlight.weight.sdxl]
+note = "SDXL 1.0 base model fp16, CreativeML Open RAIL++-M"
+
+[extension.diffusionlight.weight.controlnet-depth]
+note = "SDXL depth ControlNet fp16, CreativeML Open RAIL++-M"
+
+[extension.diffusionlight.weight.vae-fp16-fix]
+note = "SDXL-VAE-FP16-Fix, MIT"
+
+[extension.diffusionlight.weight.dpt-hybrid]
+note = "DPT-Hybrid MiDaS depth estimation, the conditioning for ControlNet, Apache-2.0"

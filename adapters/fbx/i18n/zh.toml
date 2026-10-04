@@ -1,0 +1,125 @@
+# FBX 扩展包（adapters/fbx）的消息。一行一条：编号 = 模板。
+
+# ---- 读 .fbx（worker.py fbx.import）
+"E-FBX-NOFILE" = "找不到文件 {path}：文件被移走或改名了，在「导入 FBX」里重新选一次"
+"E-FBX-NOTFBX" = "读不了 {name}：不是有效的 FBX 文件，或者文件不完整（导出中断、还没拷完）。在 DCC 里重新导出一次"
+"W-FBX-NAMEENCODING.other" = "{name} 里有 {count} 个名字（节点名、动画段名、形变名或用户属性名）不是 UTF-8 编码（多半是中文系统上的软件按 GBK 写的），认不出的字换成了 �，例如 {names}。导入后的路径、「动画段」、形变和属性里就是这样的名字：要原名，在 DCC 里改成英文或按 UTF-8 重新导出"
+"E-FBX-LEFTHANDED" = "这个 FBX 是左手坐标系（如 DirectX / Lightwave 设置导出的）：还读不了，请在导出时选右手坐标系（Maya、Max、Blender 默认都是）"
+"W-FBX-SEVERALRIGS" = "网格 {path} 绑在几套骨骼上：只算在绑得最多的那一套上，其他骨骼带不动它（它们的权重分给这一套的关节）"
+"W-FBX-CLUSTER.other" = "网格 {path} 有 {count} 个蒙皮簇绑在不是关节的节点上（{names}，多半是空物体或辅助物体）：这些簇不读，顶点在其余关节上的权重重新归一；只绑在它们上的 {orphans} 个顶点跟随离它最近的关节"
+"E-FBX-NOSKELETON" = "网格 {path} 的蒙皮簇全绑在不是关节的节点上（{names}，多半是 3ds Max 的 Dummy / Point 或 CAT 辅助物体）：没有骨骼带它，读不成角色。在 DCC 里把这些节点换成骨骼（Bone / Joint）再导出"
+"W-FBX-SKINTYPE" = "网格 {path} 用的是 {skin} 蒙皮：按线性蒙皮读，关节弯折处的形状会和 DCC 里不一样"
+"W-FBX-BINDPOSE" = "关节 {path} 在几个网格里绑定的位置不同：用第一个网格的，其他网格绑在这个关节上的部分可能错位"
+"E-FBX-NOTAKE" = "文件里没有动画段「{take}」（有 {takes}）：在「导入 FBX」的「动画段」里重新选一段"
+"N-FBX-TAKES" = "这个 FBX 有几段动画（{takes}）：读的是最长的「{take}」。要别的段在「导入 FBX」的「动画段」里选"
+
+# ---- 写 .fbx（worker.py fbx.output）
+"E-FBX-SUFFIX" = "输出文件要以 .fbx 结尾：{path}。在「FBX 输出」的文件名里改成 .fbx"
+"E-FBX-NOPOINTS" = "FBX 没有点云：点云要用「USD 输出」或「Alembic 输出」写（接到这里的场景不该有点云）"
+"E-FBX-NOTCMYUP" = "写 FBX 的场景要是厘米、Y 轴向上，这个场景是每单位 {unit_cm:g} 厘米或坐标轴不同：是程序的问题，请把日志发给开发者"
+"E-FBX-POINTCACHE" = "几何体 {path} 每帧形状都在变（几何缓存）：FBX 没有逐帧顶几何缓存，用「USD 输出」或「Alembic 输出」写它"
+"E-FBX-JOINTORDER" = "骨架 {path}：关节 {joint} 的父关节排在它后面，上游给的骨架数据顺序不对：是程序的问题，请把日志发给开发者"
+
+# ---- 格式输出节点能写什么（nodes.py writes）
+"I-FBX-NOVERTEXCACHE" = "FBX 没有逐帧的顶几何缓存"
+"I-FBX-NOGROUPS" = "网格的分区。FBX 里没有面集，只能借材质分面，那会凭空造出材质；要保住分区写 USD 或 Alembic"
+"I-FBX-NOPOINTS" = "FBX 没有点云"
+"I-FBX-NOCURVES" = "FBX 这一版不读写曲线"
+"I-FBX-NOGAUSSIAN" = "3D 高斯请用 PLY 或 USD 输出"
+"I-FBX-NOLIGHT" = "这里的 FBX 不写灯光：穹顶灯（HDRI）只有 USD 带得走"
+
+# ---- 安装时编译（build.py）
+"E-FBX-NOCOMPILER" = "找不到编译器 {name}：装上 C++ 编译器，或在 config/local.toml 的 [build] 段 cxx 里填编译器的名字，再执行 lab2shot ext install fbx"
+"E-FBX-SDKINCOMPLETE" = "FBX SDK 不完整：{path} 里要有 include/fbxsdk.h 和 lib/release/libfbxsdk.a。重新安装 Autodesk FBX SDK：后台管理页的「扩展包」里的「手动下载」，或 ./setup.sh 的「安装与环境 → 安装手动下载的文件」"
+"E-FBX-REBUILD" = "FBX 扩展包的代码更新了（要第 {needed} 版的 fbxio），装好的环境还是按旧代码编译的（第 {built} 版）：管理员重新安装（lab2shot ext install fbx），它会按新代码重新编译"
+"E-FBX-NOPYBIND" = "没有 pybind11 的头文件：{path}/include 里找不到。重新执行 lab2shot ext install fbx（它会重新取 pybind11）"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."fbx.import"]
+subtitle = "导入 FBX"
+description = "导入 Maya、MotionBuilder、3ds Max、Unreal 导出的 FBX：按层级列出文件里的摄影机、几何体、骨架动画和蒙皮角色（蒙皮、融合变形和它们的动画），选哪些就输出哪些。单位和坐标轴按文件自己记录的换算成厘米、Y 向上，父级的变换（包括动画）一起算进去。"
+
+[node."fbx.import".param.path]
+label = "文件"
+
+[node."fbx.import".param.take]
+label = "动画段"
+placeholder = "最长的一段"
+
+[node."fbx.import".param.camera]
+label = "摄影机"
+
+[node."fbx.import".param.models]
+label = "几何体"
+
+[node."fbx.import".param.skeletons]
+label = "骨架动画"
+
+[node."fbx.import".param.characters]
+label = "蒙皮角色"
+
+[node."fbx.import".port.camera]
+label = "摄影机"
+waits = "选一台摄影机"
+
+[node."fbx.import".port.characters]
+label = "蒙皮角色"
+waits = "选一个蒙皮角色"
+
+[node."fbx.import".port.skeletons]
+label = "骨架动画"
+waits = "选一个骨架动画"
+
+[node."fbx.import".port.models]
+label = "几何体"
+waits = "选一个几何体"
+
+[node."fbx.import".port.fps]
+label = "帧速率"
+help = "FBX 记的帧速率（场景的时间模式）。接到动作模型或格式输出节点的「帧速率」，就跟这个文件走；文件没记时这里没有值，那边用自己填的"
+
+[node."fbx.output"]
+subtitle = "FBX 输出"
+description = "把三维数据写成 FBX：摄影机、静止的几何体、骨架动画、蒙皮角色（蒙皮和融合变形的权重曲线），单位厘米、Y 向上，Maya、MotionBuilder、Unreal 都能读。「场景」可以接多根线，也可以接一条场景列表（每条写在 /shot/<条目名> 下）。接到「输出」上交给你。"
+
+[node."fbx.output".param.name]
+label = "名字"
+
+[node."fbx.output".param.fps]
+label = "帧速率"
+
+[node."fbx.output".port.scene]
+label = "场景"
+
+[extension.fbx]
+summary = "Autodesk 的免费 C++ SDK：用它编写插件、转换器和应用，借 FBX 技术转换和交换三维资产"
+
+[extension.fbx.license]
+name = "Autodesk FBX SDK License"
+summary = "FBX SDK 属于 Autodesk，由你在「手动下载」里看过并同意它的许可协议后安装（协议 1.1.1 条允许用于开发、研究、内部、教育或商业用途；SDK 本身不得再分发）。编译用的 pybind11 为 BSD-3。安装时编译一个小模块，需要本机 C++ 编译器（config/local.toml 的 build 段 cxx）"
+
+[manual.fbx_sdk]
+title = "Autodesk FBX SDK"
+download = "FBX SDK 的 Linux 版（gcc）"
+what = "读写 FBX 文件的开发库"
+note = "下载前后都需要同意 Autodesk 的许可协议"
+
+[node."fbx.import".cost]
+whole = "读一个文件，时间看文件里有多少东西，不按帧算（只用 CPU）"
+
+[node."fbx.output".cost]
+whole = "写一个文件，时间看写多少东西，不按帧算（只用 CPU）"
+
+[node."fbx.output".stage]
+prepare_scene = "整理场景"
+
+# ---- worker 的计算阶段（worker.py）
+[stage]
+read_models = "读取几何体"
+read_skeletons = "读取骨架动画"
+read_fbx = "读取 FBX"
+write_fbx = "写出 FBX"
+
+[format]
+fbx = "FBX"

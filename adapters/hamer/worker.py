@@ -3,7 +3,7 @@ pinned repo on PYTHONPATH; never imports Lab2Shot core.
 
     python worker.py <job.json>
 
-Node hamer.hands, per frame, the upstream demo's pipeline (demo.py):
+Node hamer.hand_solve, per frame, the upstream demo's pipeline (demo.py):
 people (upstream's own ViTDet-H detector, demo.py:44-53 and :76-81, `--body_detector vitdet`)
 -> ViTPose+-H whole-body keypoints per person -> a box around each hand's confident
 keypoints -> HaMeR on every hand crop (left hands run mirrored, as upstream) -> MANO.
@@ -39,7 +39,8 @@ stable over the shot; only the frames where that hand was found:
     boxes           f32  [F,4]      hand box from the keypoints, xyxy pixels (before rescale_factor)
     keypoints_2d    f32  [F,21,3]   ViTPose hand keypoints: x, y pixels, confidence
     keypoint_names       [21]       what each of them is (HAND_KEYPOINT_NAMES), for the node's 「2D 关键点」
-    focal_px        float           full-frame focal length behind transl; principal point W/2, H/2
+    focal_px        float           full-frame focal length behind transl
+    principal_px    [cx, cy]        the picture's centre in the pixels sent (overscan aside), the pinhole's principal point
 
 Left hands: HaMeR runs on the mirrored crop with the right-hand model and mirrors
 the mesh back (x -> -x), exactly as upstream. Their rig is that mirror too:
@@ -114,9 +115,9 @@ def detect_people(run: Run, detector, frames) -> list[tuple[int, dict[int, np.nd
     Upstream stops there (it runs on unrelated images); the deliverable is one file per hand for a whole shot, so
     the per-frame boxes are linked into tracks by IoU — the same tracking the 「ViTDet 人物框」 node uses.
     Track 1 is the person with the most screen presence."""
-    run.stage("ViTDet 检测人物")
+    run.stage("detect_people")
     per_frame: dict[int, np.ndarray] = {}
-    for n, (frame, path) in run.each(frames, "检测人物"):
+    for n, (frame, path) in run.each(frames, "detect_people"):
         instances = detector(read_frame(path, order="bgr"))["instances"]
         keep = (instances.pred_classes == 0) & (instances.scores > 0.5)
         per_frame[frame] = instances.pred_boxes.tensor[keep].cpu().numpy().astype(np.float64).reshape(-1, 4)
@@ -193,12 +194,28 @@ def load_hamer(weights: Path, mano_file: Path, device):
     return model.to(device).eval(), cfg
 
 
-def run_hamer(model, cfg, img_bgr: np.ndarray, hands: list[dict], rescale: float, focal: float, device) -> list[dict]:
+def fast_gaussian(image, sigma, channel_axis=None, preserve_range=False):
+    """skimage.filters.gaussian as ViTDetDataset calls it (vitdet_dataset.py:64-71: the whole frame blurred before a
+    large hand is cut out, `gaussian(cvimg, sigma=s, channel_axis=2, preserve_range=True)`), done by OpenCV in
+    float32: the same kernel (truncate 4.0, radius int(4 s + 0.5)) and the same edge rule ('nearest' =
+    BORDER_REPLICATE). skimage runs it in float64 on the CPU, several hundred milliseconds per hand on a 1080p
+    frame; the result differs only by float32 rounding."""
+    import cv2
+
+    size = 2 * int(4.0 * float(sigma) + 0.5) + 1  # scipy.ndimage: radius int(truncate * sigma + 0.5)
+    return cv2.GaussianBlur(np.asarray(image, np.float32), (size, size), float(sigma), sigmaY=float(sigma),
+                            borderType=cv2.BORDER_REPLICATE)
+
+
+def run_hamer(model, cfg, img_bgr: np.ndarray, hands: list[dict], rescale: float, focal: float, principal, device) -> list[dict]:
     """HaMeR on every hand of a frame -> right-hand-model rotations (of the mirrored crop for left hands),
     betas and the full-frame camera translation, as demo.py computes them."""
     import torch
+    from hamer.datasets import vitdet_dataset
     from hamer.datasets.vitdet_dataset import ViTDetDataset
     from hamer.utils import recursive_to
+
+    vitdet_dataset.gaussian = fast_gaussian  # the name the dataset blurs with (see fast_gaussian)
     from hamer.utils.renderer import cam_crop_to_full
 
     boxes = np.stack([h["box"] for h in hands])
@@ -214,8 +231,10 @@ def run_hamer(model, cfg, img_bgr: np.ndarray, hands: list[dict], rescale: float
             out = model(batch)
         pred_cam = out["pred_cam"].clone()
         pred_cam[:, 1] = (2 * batch["right"] - 1) * pred_cam[:, 1]  # mirrored crop: flip the x offset back
+        # cam_crop_to_full 把 img_size / 2 当主点：传 2 × 画面中心（principal_px），主点就是画面中心而不是画布中心
+        centre = torch.tensor(principal, dtype=torch.float32, device=pred_cam.device).expand(len(pred_cam), 2) * 2
         cam_t = cam_crop_to_full(pred_cam, batch["box_center"].float(), batch["box_size"].float(),
-                                 batch["img_size"].float(), focal).cpu().numpy()
+                                 centre, focal).cpu().numpy()
         params = {k: v.float().cpu().numpy() for k, v in out["pred_mano_params"].items()}
         for n in range(len(cam_t)):
             results.append({
@@ -282,7 +301,7 @@ def hand_track(mano, samples: list[dict], right: bool, device) -> dict:
 def main(job_path: str) -> None:
     import torch
 
-    run = Run.start(job_path, "hamer.hands", "HaMeR")
+    run = Run.start(job_path, "hamer.hand_solve", "HaMeR")
     job, params = run.job, run.params
     focal = params["focal_px"]  # the node always sends one (a 50 mm lens by default)
     rescale = params["rescale_factor"]
@@ -298,26 +317,26 @@ def main(job_path: str) -> None:
         # 接了「人物框」：按框找手，不自己检人（官方 ViTPoseModel.predict_pose 收人框，nodes.py official 注 ⓪）
         tracks_in = [(int(pid), {int(f): np.asarray(b[:4], np.float64) for f, b in boxes.items()}) for pid, boxes in job.people().items()]
     else:
-        detector = run.model("ViTDet 模型", load_detector, weights / "vitdet" / "model_final_f05665.pkl")
+        detector = run.model("load_model", load_detector, weights / "vitdet" / "model_final_f05665.pkl", stage_params={"model": "ViTDet"})
         tracks_in = detect_people(run, detector, frames.pairs)
         offload(detector)  # 检测完就让出显存：后面是 ViTPose+-H 和 HaMeR
 
-    pose_model = run.model("ViTPose 模型", load_vitpose, vitpose_dir, weights, device)
-    model, cfg = run.model("HaMeR 模型", load_hamer, weights, mano_file, device)
+    pose_model = run.model("load_model", load_vitpose, vitpose_dir, weights, device, stage_params={"model": "ViTPose"})
+    model, cfg = run.model("load_model", load_hamer, weights, mano_file, device, stage_params={"model": "HaMeR"})
 
-    run.stage("找手并重建")
+    run.stage("find_hands")
     tracks: dict[tuple[int, int], dict[int, dict]] = {}  # (person, right) -> frame -> sample
-    for n, (frame, path) in run.each(frames.pairs, "重建手部"):
+    for n, (frame, path) in run.each(frames.pairs, "reconstruct_hands"):
         with run.frame():
             present = [(pid, b[frame]) for pid, b in tracks_in if frame in b]
             img = read_frame(path, order="bgr")
             hands = hands_of_people(pose_model, img, present)
             if hands:
-                for hand, res in zip(hands, run_hamer(model, cfg, img, hands, rescale, focal, device)):
+                for hand, res in zip(hands, run_hamer(model, cfg, img, hands, rescale, focal, params["principal_px"], device)):
                     tracks.setdefault((hand["person"], hand["right"]), {})[frame] = {**res, "box": hand["box"], "kpts": hand["kpts"]}
     offload(pose_model)  # off the GPU for the rest of the job
 
-    run.stage("写出结果")
+    run.stage("write_results")
     raw = job.raw_dir
     hands = []
     for (pid, right), per_frame in sorted(tracks.items()):

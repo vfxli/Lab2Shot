@@ -118,11 +118,11 @@ def detect_and_track(run: Run, weights: Path, fps: float):
     To solve a single person, remove the others from the plate upstream of this node
     (「ViTDet 人物框」 -> 「选人」 -> 「人物框转遮罩」 -> 「图像合成」).
     """
-    detector = run.model("YOLOv8 和 ViTPose-H 模型", load_detector, weights)
-    run.stage("YOLOv8 找人 · ViTPose 关键点")
+    detector = run.model("load_model", load_detector, weights, stage_params={"model": "YOLOv8 / ViTPose-H"})
+    run.stage("detect_keypoints")
     detector.initialize_tracking()  # a new shot
     frames = run.job.frames
-    for i, (_, path) in run.each(frames, "检测和关键点"):
+    for i, (_, path) in run.each(frames, "detect"):
         detector.track(read_frame(path, order="bgr"), fps, len(frames))
     if not detector.tracking_results["id"]:
         nothing("N-WHAM-NOPEOPLE")
@@ -134,8 +134,8 @@ def detect_and_track(run: Run, weights: Path, fps: float):
 
 @torch.no_grad()
 def features(run: Run, weights: Path, tracking):
-    extractor = run.model("HMR2 模型", load_extractor, weights)
-    run.stage("HMR2 图像特征")
+    extractor = run.model("load_model", load_extractor, weights, stage_params={"model": "HMR2"})
+    run.stage("image_features")
     tracking = extractor.run(FrameList(str(p) for _, p in run.job.frames), tracking)
     offload(extractor)  # off the GPU for the rest of the job, as upstream frees it
     return tracking
@@ -145,18 +145,19 @@ def features(run: Run, weights: Path, tracking):
 
 
 @torch.no_grad()
-def run_dpvo(run: Run, repo: Path, weights: Path, focal: float, width: int, height: int) -> np.ndarray:
+def run_dpvo(run: Run, repo: Path, weights: Path, focal: float, principal) -> np.ndarray:
     """Upstream SLAMModel (DPVO, video_stream: half-size BGR frames cropped to a multiple
-    of 16) on the job's frames. Returns (N,7): camera-to-world translation + quaternion xyzw."""
+    of 16) on the job's frames. Returns (N,7): camera-to-world translation + quaternion xyzw.
+    `principal`: the picture's centre in the pixels sent (upstream: the frame's centre; with overscan they differ)."""
     from dpvo.config import cfg as dpvo_cfg
     from dpvo.dpvo import DPVO
 
-    run.stage("DPVO 估计相机转动")
+    run.stage("dpvo_rotation")
     dpvo_cfg.merge_from_file(str(repo / "third-party" / "DPVO" / "config" / "default.yaml"))
     dpvo_cfg.BUFFER_SIZE = 2048
-    intrinsics = torch.tensor([focal * 0.5, focal * 0.5, width / 2 * 0.5, height / 2 * 0.5]).cuda()
+    intrinsics = torch.tensor([focal * 0.5, focal * 0.5, principal[0] * 0.5, principal[1] * 0.5]).cuda()
     slam = None
-    for t, (_, path) in run.each(run.job.frames, "DPVO"):
+    for t, (_, path) in run.each(run.job.frames, "dpvo"):
         image = cv2.resize(read_frame(path, order="bgr"), None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
         h, w, _ = image.shape
         image = torch.from_numpy(image[:h - h % 16, :w - w % 16]).permute(2, 0, 1).cuda()
@@ -189,6 +190,13 @@ def run_wham(cfg, network, smpl, dataset, subject: int, tracking, width, height,
     from lib.models.smplify import TemporalSMPLify
     from lib.utils.imutils import avg_preds
 
+    # the camera's angular velocity over this person's own frames: upstream's CustomDataset converts the whole shot's
+    # SLAM track from frame 0 (dataset_custom.py:101) while the network reads step i as the person's i-th frame
+    # (models/layers/modules.py:156-166), so a person who enters late or whose track has a gap would integrate the
+    # camera rotation of the wrong frames. Slice the shot's track to the person's frame ids for both passes
+    slam_full = dataset.slam_full
+    key = sorted(dataset.tracking_results.keys())[subject]
+    dataset.slam_results = slam_full[np.asarray(dataset.tracking_results[key]["frame_id"], dtype=np.int64)]
     with torch.no_grad():
         flipped_batch = dataset.load_data(subject, True)
         _id, x, inits, feats, mask, init_root, cam_angvel, frame_id, kwargs = flipped_batch
@@ -302,7 +310,7 @@ def load_detector(weights: Path):
     three times (safe_download retry=3) and the artist reads 「连不上 github.com」 instead of 「找不到权重」."""
     from lib.models.preproc import detector as upstream
 
-    require_weights("wham", weights / YOLO_CKPT, what="YOLOv8x 人物检测权重")
+    require_weights("wham", weights / YOLO_CKPT, what=reason("I-WHAM-YOLOWEIGHTS"))
     return upstream.DetectionModel("cuda")
 
 
@@ -372,7 +380,7 @@ def main(job_path: str) -> None:
         slam_results[:, 6] = 1.0
         rotation_source = "static"
     else:
-        slam_results, rotation_source = run_dpvo(run, repo, weights, float(np.median(focal)), width, height), "DPVO"
+        slam_results, rotation_source = run_dpvo(run, repo, weights, float(np.median(focal)), params["principal_px"]), "DPVO"
     from scipy.spatial.transform import Rotation
 
     rot_hint = Rotation.from_quat(slam_results[:, 3:]).as_matrix()  # cam_to_world rotations, any world
@@ -380,36 +388,32 @@ def main(job_path: str) -> None:
     # WHAM
     from lib.data.datasets import CustomDataset
 
-    cfg, smpl, network = run.model("WHAM 模型", load_wham, repo, weights)
-    body = run.model("SMPL 身体模型", load_smpl, smpl_file)
-    run.stage("WHAM 解算人体动作")
+    cfg, smpl, network = run.model("load_model", load_wham, repo, weights, stage_params={"model": "WHAM"})
+    body = run.model("load_model", load_smpl, smpl_file, stage_params={"model": "SMPL"})
+    run.stage("solve_motion")
     dataset = CustomDataset(cfg, tracking, slam_results, width, height, fps)
+    dataset.slam_full = slam_results  # run_wham slices it to each person's frames
     K = torch.eye(3)[None].float()
     K[:, 0, 0] = K[:, 1, 1] = float(np.median(focal))
-    K[:, 0, 2], K[:, 1, 2] = width / 2.0, height / 2.0
+    K[:, 0, 2], K[:, 1, 2] = params["principal_px"]  # the picture's centre in the pixels sent (nodes.py prepare)
     dataset.intrinsics = K  # the shot's focal instead of upstream's fixed diagonal guess
     if cam is not None and np.ptp(focal) > 0.01 * np.median(focal):
         say("W-WHAM-FOCALCHANGES", low=float(np.min(focal)), high=float(np.max(focal)), focal=float(np.median(focal)))
 
     j_wham = smpl.J_regressor_wham.cpu().numpy().astype(np.float64)
     people = []
-    for s, _ in run.each(range(len(dataset)), "解算"):
+    for s, _ in run.each(range(len(dataset)), "solve"):
         key, pred, frame_ids = run_wham(cfg, network, smpl, dataset, s, tracking, width, height, smplify)
         people.append(to_person(pid_of[key], pred, frame_ids, frame_numbers, body, j_wham, tracking.get(key)))
     people.sort(key=lambda person: keep.index(next(k for k, v in pid_of.items() if v == person.pid)))
 
     # the camera track is used to merge the people's worlds and align them to an input camera
-    run.stage("统一世界坐标")
-    # 「相机旋转」 is not a camera: `cam` holds only per-frame rotations here (`rotation_only` in `camera_in.npz`)
-    # with zero translation, since upstream uses only the rotation
-    # (`third_party/wham/repo/lib/data/datasets/dataset_custom.py:19 quat = traj[:, 3:]`). The world merge therefore
-    # runs as if no input camera were given: no alignment as a whole, and the world stays the method's own gravity
-    # world. Placing the people into a given camera requires an explicit 「相机空间转换」 node in the graph.
-    as_camera = None if cam is None or cam.rotation_only else cam
-    track, world_info = wh.one_world("WHAM", people, frame_numbers, rot_hint, static, as_camera,
-                                     follow_camera)
+    run.stage("merge_worlds")
+    # 「相机旋转」 is not a camera: `cam` holds only per-frame rotations (upstream uses only the rotation). The world
+    # stays the method's own gravity world; placing the people under a given camera is the graph's 「相机空间转换」
+    track, world_info = wh.one_world("WHAM", people, frame_numbers, rot_hint, static, follow_camera)
 
-    run.stage("写出结果")
+    run.stage("write_results")
     out = [wh.save_person(raw, person, "smpl", body.model) for person in people]
     # raw/camera.npz: the reference camera of this result (the node's 「参照相机」 output,
     # families/humans.py `reference_camera`). It is not a production camera; its only use is as the reference for
@@ -440,7 +444,7 @@ def main(job_path: str) -> None:
         # provenance of the lens and camera rotation used by the solve (metadata, not an output port)
         camera={"focal_source": focal_source, "rotation_source": rotation_source,
                 "width": width, "height": height, "static": static and cam is None},
-        up_axis="+Y" if as_camera is None else "input camera's world up",
+        up_axis="+Y",
         joints="24 SMPL joints, parents from the model",
         merge=world_info["merge"],
         alignment=world_info["alignment"],

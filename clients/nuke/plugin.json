@@ -1,0 +1,9 @@
+{
+ "name": "Nuke",
+ "install": "INSTALL.md",
+ "client": "lab2shot/lab2shot_client.py",
+ "conditions": "lab2shot/lab2shot_conditions.py",
+ "common": "lab2shot",
+ "certificate": "lab2shot/lab2shot_ca.pem",
+ "exclude": ["tests"]
+}

@@ -183,7 +183,10 @@ class Outcome:
     never tried, it fails as it stands. `retryable`: all that stands in its way is the record a past cook left
     (failure_file; for what is skipped or a broken line, every failure at its root is): the next cook tries it again
     (Engine._begin clears the record), so it never refuses a cook (Demand.readiness); a planning error, a missing
-    file or an extension that can't be used stays whatever is cooked."""
+    file or an extension that can't be used stays whatever is cooked.
+    `blocked`: skipped because a 「阻断」 (gate) on the way is set to block (its root is that gate): no error
+    anywhere (failure False), and quiet — what goes without it (an optional input, one wire of a multi input) says
+    nothing (Evaluation.unused_inputs), the page shows 「已跳过（被阻断）」."""
 
     state: str
     root: str
@@ -191,3 +194,4 @@ class Outcome:
     failure: bool = True
     chain: bool = False
     retryable: bool = False
+    blocked: bool = False

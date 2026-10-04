@@ -2,70 +2,109 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "d4163a6aec7cbdb8bf4f2dcce3b6f056",
-  "name": "镜头标定 · AnyCalib",
-  "intro": "AnyCalib 从一张实拍画面标定相机内参，与镜头模型无关。这张卡交付去畸变的素材、两张 ST-map 和一台相机；扭画面在「STMap」里做，按「LensDistortion」烘出的 ST-map，节点图上看得见。",
+  "name": {
+   "zh": "镜头标定 · AnyCalib",
+   "en": "Lens Calibration · AnyCalib"
+  },
+  "intro": {
+   "zh": "AnyCalib 从一张实拍画面标定摄影机内参，与镜头模型无关。这张卡交付去畸变的素材、两张 ST 贴图 和一台摄影机；扭画面在「STMap」里做，按「LensDistortion」烘出的 ST 贴图，节点图上看得见。",
+   "en": "AnyCalib calibrates camera intrinsics from a single real image, independent of the lens model. This card delivers undistorted footage, two ST maps and a camera; the image is warped in STMap using the ST maps baked by LensDistortion, visible in the network."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "lens_calib",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "kind": "group",
-   "label": "镜头",
+   "label": {
+    "zh": "镜头",
+    "en": "Lens"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "fit_model",
-     "label": "镜头模型",
+     "name": "lens_fit_model",
+     "label": {
+      "zh": "镜头模型",
+      "en": "Lens Model"
+     },
      "target": "lens.fit_model"
     },
     {
-     "name": "checkpoint",
-     "label": "网络权重",
+     "name": "lens_checkpoint",
+     "label": {
+      "zh": "模型权重",
+      "en": "Model Weights"
+     },
      "target": "lens.checkpoint"
     },
     {
-     "name": "principal_point",
-     "label": "主点",
+     "name": "lens_principal_point",
+     "label": {
+      "zh": "主点",
+      "en": "Principal Point"
+     },
      "target": "lens.principal_point"
     },
     {
      "name": "filmback",
-     "label": "Filmback",
+     "label": {
+      "zh": "胶片背",
+      "en": "Aperture"
+     },
      "target": "lens.filmback_mm"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
-       "name": "samples",
-       "label": "采样帧数",
+       "name": "lens_samples",
+       "label": {
+        "zh": "采样帧数",
+        "en": "Sample Frames"
+       },
        "target": "lens.samples"
       }
      ]
@@ -74,82 +113,130 @@
   },
   {
    "kind": "group",
-   "label": "去畸变",
+   "label": {
+    "zh": "去畸变",
+    "en": "Undistort"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "undist_overscan",
-     "label": "扩边",
+     "label": {
+      "zh": "过扫描",
+      "en": "Overscan"
+     },
      "target": "undist.overscan"
     },
     {
-     "name": "cook_undistort",
-     "label": "标定并去畸变",
+     "name": "cook_warp",
+     "label": {
+      "zh": "标定并去畸变",
+      "en": "Calibrate and Undistort"
+     },
      "target": "warp.cook"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "exr_name",
-     "label": "文件名（去畸变 EXR）",
+     "label": {
+      "zh": "文件名（去畸变 EXR）",
+      "en": "File Name (Undistorted EXR)"
+     },
      "target": "exr.name"
     },
     {
      "name": "usd_name",
-     "label": "文件名（相机 USD）",
-     "target": "cam.name"
+     "label": {
+      "zh": "文件名（摄影机 USD）",
+      "en": "File Name (Camera USD)"
+     },
+     "target": "usd.name"
     },
     {
      "name": "unit",
-     "label": "单位",
-     "target": "cam.unit"
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
     },
     {
      "name": "fps",
-     "label": "帧率",
-     "target": "cam.fps"
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "usd.fps"
     },
     {
      "name": "colorspace_out",
-     "label": "输出色彩空间",
+     "label": {
+      "zh": "输出颜色空间",
+      "en": "Output Color Space"
+     },
      "target": "exr.colorspace"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_bit_depth",
-       "label": "EXR 位深",
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
        "target": "exr.exr_bit_depth"
       },
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
        "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -159,17 +246,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -178,8 +271,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -188,13 +280,12 @@
    },
    "ui": {
     "x": 0,
-    "y": 129
+    "y": 137
    }
   },
   {
    "id": "lens",
    "type": "anycalib.calibrate",
-   "label": "AnyCalib 镜头标定",
    "params": {
     "fit_model": "simple_radial:1",
     "samples": 8,
@@ -204,16 +295,15 @@
    },
    "ui": {
     "x": 400,
-    "y": 169,
+    "y": 183,
     "on_node": [
      "fit_model"
     ]
    }
   },
   {
-   "id": "camnode",
-   "type": "core.create_camera",
-   "label": "创建相机",
+   "id": "camera",
+   "type": "camera",
    "params": {
     "focal_mm": null,
     "filmback_mm": null,
@@ -233,8 +323,8 @@
     "height": 1080
    },
    "ui": {
-    "x": 1280,
-    "y": 543,
+    "x": 1282,
+    "y": 576,
     "on_node": [
      "focal_mm",
      "filmback_mm"
@@ -246,9 +336,8 @@
    ]
   },
   {
-   "id": "cam",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "id": "usd",
+   "type": "usd.output",
    "params": {
     "name": "camera",
     "format": "usd",
@@ -256,8 +345,8 @@
     "fps": 24.0
    },
    "ui": {
-    "x": 1670,
-    "y": 529,
+    "x": 1642,
+    "y": 562,
     "on_node": [
      "name",
      "unit"
@@ -269,20 +358,19 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 2030,
+    "x": 2002,
     "y": 0
    }
   },
   {
    "id": "undist",
-   "type": "core.lens_distortion",
+   "type": "lens_distortion",
    "ui": {
-    "x": 800,
-    "y": 88
+    "x": 802,
+    "y": 98
    },
    "params": {
     "lens_group": "anycalib",
@@ -305,23 +393,20 @@
    "promoted": [
     "focal_mm",
     "filmback_mm"
-   ],
-   "label": "去畸变"
+   ]
   },
   {
    "id": "warp",
-   "type": "core.stmap_warp",
-   "label": "STMap",
+   "type": "stmap",
    "params": {},
    "ui": {
-    "x": 1230,
+    "x": 1202,
     "y": 4
    }
   },
   {
    "id": "exr",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "type": "exr.output",
    "params": {
     "name": "undistorted",
     "layers": [
@@ -346,7 +431,7 @@
     "colorspace": null
    },
    "ui": {
-    "x": 1630,
+    "x": 1602,
     "y": 0
    }
   }
@@ -368,17 +453,17 @@
     "image"
    ],
    "to": [
-    "camnode",
+    "camera",
     "image"
    ]
   },
   {
    "from": [
-    "camnode",
+    "camera",
     "camera"
    ],
    "to": [
-    "cam",
+    "usd",
     "scene"
    ]
   },
@@ -418,7 +503,7 @@
     "focal"
    ],
    "to": [
-    "camnode",
+    "camera",
     "param:focal_mm"
    ]
   },
@@ -438,7 +523,7 @@
     "filmback"
    ],
    "to": [
-    "camnode",
+    "camera",
     "param:filmback_mm"
    ]
   },
@@ -504,7 +589,7 @@
   },
   {
    "from": [
-    "cam",
+    "usd",
     "files"
    ],
    "to": [

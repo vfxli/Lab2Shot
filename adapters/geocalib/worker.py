@@ -3,8 +3,9 @@ with the pinned repo on PYTHONPATH; never imports Lab2Shot core.
 
     python worker.py <job.json>        (job["node"] == "geocalib.calibrate")
 
-The lens first, once for the shot (it is not a zoom): the connected one (focal_px), else GeoCalib on up to SAMPLES
-evenly spaced frames together with one shared focal (and distortion). Then every `step`-th frame (and the last) on
+The lens first, once for the shot (it is not a zoom): the connected focal (focal_px), else GeoCalib on up to SAMPLES
+evenly spaced frames together with one shared focal; a distorted model's coefficient is fitted on those frames either
+way (with the connected focal as GeoCalib's prior). Then every `step`-th frame (and the last) on
 its own with that focal fixed: up field + latitude field from the network, then GeoCalib's Levenberg-Marquardt fit
 of roll and pitch. Raw results:
 
@@ -74,18 +75,22 @@ def main(job_path: str) -> None:
     scale = min(1.0, READ_SHORT / min(width, height))  # focal lengths below are in these pixels, until written
     raw = job.raw_dir
 
-    model = run.model("GeoCalib 模型", load_model, checkpoint, device)
+    model = run.model("load_model", load_model, checkpoint, device, stage_params={"model": "GeoCalib"})
 
     focal, k1, source = params["focal_px"], None, "user"
-    if focal is None:
-        run.stage("估计镜头（整段同一个 Focal Length）")
+    # the shared lens: the focal when none is given, the distortion whenever a distorted model is asked for -- with a
+    # given focal as GeoCalib's focal prior (extractor.py calibrate priors["focal"]), so the coefficient fits that lens
+    if focal is None or camera_model != "pinhole":
+        run.stage("estimate_lens")
         pick = np.unique(np.linspace(0, len(frames) - 1, min(SAMPLES, len(frames))).round().astype(int))
-        camera = calibrate(model, images([frames[i][1] for i in pick], scale, device), camera_model, None, shared=True)["camera"]
-        focal = float(camera.f[..., 0].median()) / scale
+        camera = calibrate(model, images([frames[i][1] for i in pick], scale, device), camera_model,
+                           None if focal is None else focal * scale, shared=True)["camera"]
+        if focal is None:
+            focal = float(camera.f[..., 0].median()) / scale
+            source = "geocalib"
         k1 = float(camera.dist[..., 0].median()) if hasattr(camera, "dist") else None
-        source = "geocalib"
 
-    run.stage("估计每帧的重力方向")
+    run.stage("estimate_gravity")
     up, sigma, roll, pitch = [], [], [], []
     for a in range(0, len(used), BATCH):
         chunk = used[a:a + BATCH]
@@ -95,7 +100,7 @@ def main(job_path: str) -> None:
         sigma.append(np.degrees(out["gravity_uncertainty"].double().cpu().numpy()))
         roll.append(np.degrees(g.roll.double().cpu().numpy()))
         pitch.append(np.degrees(g.pitch.double().cpu().numpy()))
-        progress(min(a + BATCH, len(used)), len(used), "重力方向")
+        progress(min(a + BATCH, len(used)), len(used), "gravity")
     up, sigma = np.concatenate(up), np.nan_to_num(np.concatenate(sigma), nan=90.0, posinf=90.0)
     roll, pitch = np.concatenate(roll), np.concatenate(pitch)
     if not np.isfinite(up).all():

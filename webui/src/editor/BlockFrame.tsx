@@ -50,7 +50,7 @@ const BlockBox = memo(function BlockBox({ data }: { data: BlockData }) {
       data-block={data.scope.name}
       data-colour={data.colour}
     >
-      <div className="blockframe-head" data-tip={render("I-EACH-BLOCKTIP")}>
+      <div className="blockframe-head">
         <span className="blockframe-title">{words.title}</span>
         <span className="blockframe-count tnum">{words.count}</span>
         {words.done && <span className="blockframe-done tnum">{words.done}</span>}

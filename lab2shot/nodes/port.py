@@ -25,7 +25,11 @@ EITHER = "either"  # Port.data on an input that takes a picture or values alike 
 class Port:
     name: str
     type: str
-    label: str
+    # Words given with the port rather than looked up: a port made from a table row (its row's label, the graph's
+    # data) or from a parameter (its label, already in the language now). A declared port gives none: its words are
+    # node.<type>.port.<name>.label|help|waits (lab2shot/i18n), the node type stamped on it when its class is made
+    # (`owned`).
+    text: str = ""
     optional: bool = False
     multi: bool = False  # accepts several wires (e.g. USD pack)
     # an output that carries the type of what is wired into an input ("input:src": 「STMap」 gives back the kind
@@ -58,7 +62,8 @@ class Port:
     # an input: the node type the node menu offers first for a wire drawn out of it (a parameter's input: the constant
     # node of its type), besides the one its expectations insert (`fix`)
     recommend: str = ""
-    # an optional input: what connecting it does, in the port's tooltip (数据信息)
+    # what connecting it does, in the port's tooltip (数据信息), when it is worked out rather than looked up (a node's
+    # 置信度 naming the node: kit/confidence.py); a declared port's is node.<type>.port.<name>.help
     help: str = ""
     # When the port applies (e.g. once 「图像」 is wired the rgba ports do not, and vice versa). A port is a control and
     # follows the parameter mechanism: when the condition does not hold it is greyed with the reason and keeps its
@@ -73,9 +78,8 @@ class Port:
     # an output that is there only while this node's own parameters say so (Param("camera").set(): 「导入 USD」 gives 相机
     # once a camera is chosen; Param("matte").one_of(True): Sapiens2 gives 前景 while 精细抠像 runs the matting model;
     # nodes/applies.py output_ports). A wire from it while it is not there waits (applies.waiting_port), with `waits`:
-    # what brings it ("选一台相机", "打开「精细抠像」")
+    # what brings it (node.<type>.port.<name>.waits: "选一台相机", "打开「精细抠像」")
     when: Cond | None = None
-    waits: str = ""
     # an output's 3D data beyond its type's kind, always (「烘焙成模型」: every 模型 it gives deforms, types.DEFORMING)
     kinds: tuple[str, ...] = ()
     # an output whose 3D data the node knows from one of its facts (NodeDef.facts: an import node, whether the 模型
@@ -110,6 +114,16 @@ class Port:
     # (KEEPS) is the picture input's window and its shot properties, which the engine fills in; only a node that moves
     # pixels or makes a picture of its own declares another
     shape: "Shape" = None  # type: ignore[assignment]  (KEEPS: set in __post_init__, which is where contracts is imported)
+    # the node type whose port it is and that type's extension ("" the core's): where its words are looked up
+    # (NodeDef.__init_subclass__ stamps them, `owned`)
+    node: str = ""
+    scope: str = ""
+    # "output" on an output: an output named like one of its node's inputs has its own words first
+    # (node.<type>.port.<name>.output.<part>), then the input's
+    side: str = ""
+    # a family's words for this port (a key prefix: <words>.label / .help / .waits), when the family gives the port to
+    # node types of other extensions: after the node type's own words, before the shared ones
+    words: str = ""
 
     def __post_init__(self) -> None:
         from ..data.contracts import KEEPS, carries_shot
@@ -129,6 +143,64 @@ class Port:
         if self.type_from and not self.type_from.startswith("input:"):
             raise ValueError(f"type_from of port {self.name!r} must be 'input:<port>', not {self.type_from!r}")
 
+    def owned(self, node: str, scope: str = "", side: str = "") -> "Port":
+        """This port as the port of node type `node` (of extension `scope`; `side` "output" for an output), its words
+        looked up there."""
+        from dataclasses import replace
+
+        return self if (self.node, self.scope, self.side) == (node, scope, side) else replace(self, node=node, scope=scope, side=side)
+
+    def _output_word(self, part: str) -> str | None:
+        from .. import i18n
+
+        if self.node and self.side == "output":
+            return i18n.lookup(f"node.{self.node}.port.{self.name}.output.{part}", scope=self.scope or None, exact=True)
+        return None
+
+    def word(self, part: str) -> str | None:
+        """One of its words (label, help, waits) in the language now: node.<type>.port.<name>.<part>, else the shared
+        port.<name>.<part>; None when there is none."""
+        from .. import i18n
+
+        own = self._output_word(part)
+        if own is not None:
+            return own
+        if self.node:
+            return i18n.node_text(self.node, "port", self.name, part, in_scope=self.scope or None)
+        return i18n.lookup(f"port.{self.name}.{part}", scope=self.scope or None)
+
+    @property
+    def label(self) -> str:
+        """Its name as the artist reads it, in the language now (its own `text`, else its words, else its name); its
+        words kept in every language (i18n.Both), so a message naming it reads in whoever's language follows it."""
+        from .. import i18n
+
+        return self.text or i18n.Both.of(lambda: self.own_word("label", "") or self.name)
+
+    def own_word(self, part: str, given: str) -> str:
+        """Its node type's own word, else its family's (`words`), else what it was given (`given`, worked out), else the
+        shared one."""
+        from .. import i18n
+
+        own = self._output_word(part)
+        if own is None and self.node:
+            own = i18n.lookup(f"node.{self.node}.port.{self.name}.{part}", scope=self.scope or None, exact=True)
+        if own is None and self.words:
+            own = i18n.lookup(f"{self.words}.{part}")
+        if own is not None:
+            return own
+        return given or self.word(part) or ""
+
+    @property
+    def help_text(self) -> str:
+        """What connecting it does (an optional input's tooltip), "" none."""
+        return self.own_word("help", self.help)
+
+    @property
+    def waits_text(self) -> str:
+        """What brings it, while a `when` keeps it away ("" none)."""
+        return self.own_word("waits", "")
+
     @property
     def param(self) -> str:
         """The parameter this input drives ("" a declared input): a promoted parameter's port is "param:<name>"."""
@@ -147,10 +219,11 @@ class Port:
 
         # `help` travels inside the port's tip (Port.tip, the status reply), never on its own
         # `plain` is the server's wire check alone (the reply says the wire is wrong), never drawn
-        out = {k: v for k, v in self.__dict__.items() if k not in ("expects", "recommend", "when", "shape", "help", "plain")}
+        out = {k: v for k, v in self.__dict__.items()
+               if k not in ("expects", "recommend", "when", "shape", "help", "plain", "text", "node", "scope", "side", "words")}
         when = getattr(self.when, "name", "") if self.when is not None else ""
         # a list port: the editor draws it as a list of its items' type, never as another colour
-        return {**out, "when": when, "list": all(is_list(t) for t in self.type.split("|")),
+        return {**out, "label": self.label, "waits": self.waits_text, "when": when, "list": all(is_list(t) for t in self.type.split("|")),
                 "type_label": type_label(self.type),
                 "inserts": self.recommend or next((e.fix for e in self.expects if e.fix and e.per_wire), "")}
 
@@ -169,7 +242,7 @@ class Port:
         head = type_label(kind) + (f" · {self.unit}" if self.unit else "")
         # a port that takes a type or a list of it ("scene|scene[]") says what that type is once, not twice
         said = list(dict.fromkeys(DATA_TYPES[element_of(t)].description for t in kind.split("|") if element_of(t) in DATA_TYPES))
-        return "\n".join(line for line in [head, *said, self.help, self.alpha_note()] if line)
+        return "\n".join(line for line in [head, *said, self.help_text, self.alpha_note()] if line)
 
     def alpha_note(self) -> str:
         """What an image input does with a picture's alpha, for its tooltip ("" a port that never carries one).
@@ -178,7 +251,9 @@ class Port:
         roots = {element_of(t).split(".")[0] for t in self.type.split("|")}
         if roots != {"image"} or channels_of(self.type) in (1, 2):
             return ""
-        return "图像的 alpha 跟着一起处理" if self.alpha else "只用图像的 RGB：带 alpha 的图像按压在黑底上的颜色用，alpha 不看"
+        from .. import i18n
+
+        return i18n.t("tip.alpha.kept" if self.alpha else "tip.alpha.dropped")
 
 
 # the name of the input a promoted parameter gets: "param:focal_mm" (a wire into it sets the parameter)

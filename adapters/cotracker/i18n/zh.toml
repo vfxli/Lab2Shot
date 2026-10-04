@@ -1,0 +1,46 @@
+# CoTracker3 2D 跟踪点（adapters/cotracker）。一行一条：编号 = 模板。
+
+# ---- 结果
+"W-COTRACKER-NAN.other" = "CoTracker3 有 {count:d} 处位置（某个点在某一帧）没有算出来（NaN）：这些帧上的这些点不可用，交付前在视图里检查"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."cotracker.track"]
+subtitle = "2D 跟踪点"
+description = "画面 → 2D 跟踪点：很多点一起算，点和点互相参照，被挡住的点标成不可见（Meta CoTracker3）。适合整片表面上的密集点；只能研究用，不能用于商业项目。要可商用的 2D 点用「TAPNext++ 2D 跟踪点」。"
+
+[node."cotracker.track".param.grid]
+label = "网格点数"
+
+[node."cotracker.track".param.mode]
+label = "方式"
+
+[node."cotracker.track".param.mode.option]
+offline = "整段"
+online = "逐段滑动"
+
+[node."cotracker.track".param.resolution]
+label = "处理分辨率"
+placeholder = "512×384"
+
+[node."cotracker.track".official]
+note = "segm_mask 是上游自己的输入（predictor.py:46「Segmentation mask of shape (B, 1, H, W)」）：给了它，网格点就只撒在遮罩里（第 43 行注释）。可见性（visibilities）在我们的 2D 跟踪点数据里，不是单独的口。"
+
+[extension.cotracker]
+summary = "基于 Transformer 的快速模型，能跟住视频里的任意一个点，把光流的一些好处带进点跟踪"
+
+[extension.cotracker.license]
+name = "CC-BY-NC-4.0（非商用）"
+summary = "非商用：代码（LICENSE.md）和 CoTracker3 权重（Hugging Face facebook/cotracker3 模型卡）都是 CC-BY-NC 4.0，只能用于研究等非商业用途，使用时需署名 Meta。仓库里少量代码来自 PIPs（MIT）、TAP-Vid 和 LocoTrack（Apache-2.0）。只依赖 torch / torchvision，没有其他隐藏的非商用依赖"
+
+[extension.cotracker.weight.cotracker3_offline]
+note = "CoTracker3 offline（CC-BY-NC 4.0，102 MB）"
+
+[extension.cotracker.weight.cotracker3_online]
+note = "CoTracker3 online（CC-BY-NC 4.0，102 MB）"
+
+[stage]
+read_frames = "读取画面"
+track = "跟踪"
+track_points.other = "跟踪 {n} 个点（{mode}）"
+track_points_windowed.other = "跟踪 {n} 个点（{mode}，每段 {window} 帧）"

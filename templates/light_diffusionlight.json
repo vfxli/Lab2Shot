@@ -2,101 +2,158 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "6d070fb1093ab80b2203f327dd3d8987",
-  "name": "HDRI · DiffusionLight",
-  "intro": "DiffusionLight 把光照估计改写成「在画面里补画一颗镜面铬球」的问题，从一张低动态范围（LDR）画面估计光照。这张卡交付环境 HDRI（经纬图，EXR 的 rgba）；填已知 Focal Length 按透视展开铬球，结果不理想就换随机种子。",
+  "name": {
+   "zh": "HDRI · DiffusionLight",
+   "en": "HDRI · DiffusionLight"
+  },
+  "intro": {
+   "zh": "DiffusionLight 把光照估计改写成「在画面里补画一颗镜面铬球」的问题，从一张低动态范围（LDR）画面估计光照。这张卡交付环境 HDRI（经纬图，EXR 的 rgba）；填已知 焦距 按透视展开铬球，结果不理想就换随机种子。",
+   "en": "DiffusionLight recasts light estimation as painting a chrome ball into the image, estimating lighting from a single low dynamic range (LDR) image. This card delivers an environment HDRI (lat-long, the EXR's rgba); enter the known focal length to unwrap the chrome ball in perspective, and change the seed if the result is poor."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "env_light",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入图片",
+   "label": {
+    "zh": "输入图像",
+    "en": "Input Image"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "kind": "group",
-   "label": "镜头",
+   "label": {
+    "zh": "镜头",
+    "en": "Lens"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "focal",
-     "label": "已知 Focal Length",
+     "label": {
+      "zh": "已知焦距",
+      "en": "Known Focal Length"
+     },
      "target": "light.focal_mm"
     },
     {
      "name": "filmback",
-     "label": "Filmback",
+     "label": {
+      "zh": "胶片背",
+      "en": "Aperture"
+     },
      "target": "light.filmback_mm",
      "disable_when": "not focal"
     }
    ]
   },
   {
-   "name": "seed",
-   "label": "随机种子",
+   "name": "light_seed",
+   "label": {
+    "zh": "随机种子",
+    "en": "Seed"
+   },
    "target": "light.seed"
   },
   {
-   "name": "envmap_width",
-   "label": "环境图宽度",
+   "name": "light_envmap_width",
+   "label": {
+    "zh": "环境贴图宽度",
+    "en": "Environment Map Width"
+   },
    "target": "light.envmap_width"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "exr.name"
     },
     {
      "name": "colorspace_out_exr",
-     "label": "输出色彩空间（HDRI EXR）",
-     "target": "out.colorspace"
+     "label": {
+      "zh": "输出颜色空间（HDRI EXR）",
+      "en": "Output Color Space (HDRI EXR)"
+     },
+     "target": "exr.colorspace"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_bit_depth",
-       "label": "EXR 位深",
-       "target": "out.exr_bit_depth"
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
+       "target": "exr.exr_bit_depth"
       },
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
-       "target": "out.exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -106,17 +163,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "计算",
+     "word": "cook",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -125,8 +188,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_picture",
-   "label": "读取图片",
+   "type": "file_still",
    "params": {
     "path": "",
     "colorspace": null
@@ -139,7 +201,6 @@
   {
    "id": "light",
    "type": "diffusionlight.light_probe",
-   "label": "DiffusionLight HDRI",
    "params": {
     "focal_mm": null,
     "filmback_mm": null,
@@ -156,18 +217,16 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1200,
+    "x": 1258,
     "y": 10
    }
   },
   {
-   "id": "out",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "id": "exr",
+   "type": "exr.output",
    "params": {
     "name": "hdri",
     "layers": [
@@ -182,7 +241,7 @@
     "colorspace": null
    },
    "ui": {
-    "x": 800,
+    "x": 858,
     "y": 10
    }
   }
@@ -204,13 +263,13 @@
     "hdri"
    ],
    "to": [
-    "out",
+    "exr",
     "layer1"
    ]
   },
   {
    "from": [
-    "out",
+    "exr",
     "files"
    ],
    "to": [

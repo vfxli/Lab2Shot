@@ -9,7 +9,7 @@ can do, as a declaration it reads, never an import upwards (the layering has no 
     OutputSink     where 「输出」 collects its files and packs them: built per task by whoever submits the cook (the
                    farm), given only to a node that delivers (CookContext.collector).
     Services       the extension nodes and the plan environment of this process, installed once by the top layer
-                   (lab2shot/catalog.py install(): the server and the command line call it before they read a
+                   (lab2shot/site/catalog.py install(): the server and the command line call it before they read a
                    node type). Reading them before that is an error that says so, never core nodes only.
 """
 
@@ -34,7 +34,8 @@ if TYPE_CHECKING:
 class ProjectFacts:
     """A node type's project, as the extension loader knows it (lab2shot/adapters.py project_of)."""
 
-    title: str  # "Lab2Shot", or the project as people know it ("ViPE")
+    # "Lab2Shot", or the extension's name: what it is called when it has no extension to say it (`title`)
+    name: str
     licence: str  # its extension's licence class (nodes/tags.py LICENCES); a node's own Licence overrides it
     tags: frozenset[str]  # the other tags its extension brings (such as 需注册)
     available: Callable[[], Msg | None]  # None: usable now (its extension installed, ready, built from this code); else why not
@@ -46,6 +47,11 @@ class ProjectFacts:
     # an old model believing them new. The loader supplies a callback: declarations load without opening the runtime
     # database, so static checks can run before a database migration. The engine reads the identity only when needed.
     _result_identity: Callable[[], str] = lambda: ""
+
+    @property
+    def title(self) -> str:
+        """The project as people know it ("ViPE"), in the language now: its extension's title (extension.<name>.title)."""
+        return self.extension.title if self.extension is not None else self.name
 
     @property
     def result_identity(self) -> str:
@@ -70,7 +76,7 @@ class ExtensionNodes(Protocol):
 
 
 class PlanEnv(Protocol):
-    """What planning a graph needs from outside a cook (lab2shot/catalog.py gives the real one)."""
+    """What planning a graph needs from outside a cook (lab2shot/site/catalog.py gives the real one)."""
 
     def upload(self, ref: str) -> Path:
         """Where the nodes read an upload reference (lab2shot/transfer/uploads.py resolve)."""
@@ -127,6 +133,12 @@ class PlanEnv(Protocol):
         """Run the node type's worker job outside any cook (engine/external.py ask_worker); its raw folder."""
         ...
 
+    def holds(self, runtime: str, vram_gb: float) -> bool:
+        """A card authorized for jobs on this machine runs `runtime` and holds `vram_gb` (farm/scheduler/placement.py
+        holds): whether a node that steps down on a smaller card runs its full tier here (nodes/applies.py
+        Cost.vram_full_gb; engine/evaluation.py Evaluation.full_tier). False where no queue runs."""
+        ...
+
 
 class OutputSink(Protocol):
     """Where 「输出」 collects the files wired into it and packs them (lab2shot/transfer/outputs.py Collector): into its
@@ -150,13 +162,13 @@ _installed: Services | None = None
 
 
 def install(services: Services) -> None:
-    """Hand this process's services to the lower layers (lab2shot/catalog.py install)."""
+    """Hand this process's services to the lower layers (lab2shot/site/catalog.py install)."""
     global _installed
     _installed = services
 
 
 def services() -> Services:
     if _installed is None:
-        raise RuntimeError("no Lab2Shot services installed: call lab2shot.catalog.install() first (the server and the "
+        raise RuntimeError("no Lab2Shot services installed: call lab2shot.site.catalog.install() first (the server and the "
                            "command line do it when they start)")
     return _installed

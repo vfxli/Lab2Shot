@@ -6,7 +6,7 @@
 一次计算分三步，与 upstream 的三个 launch 脚本一一对应，但不使用 Blender：
 
 1. 整理网格（对应 upstream launch/inference/extract.sh → src/data/extract.py save_raw_data 的后半段）：
-   节点提供的三角网格（厘米、Y 向上、世界坐标）经 trimesh 清理，面数超过 50 000 时用 fast_simplification 降至
+   节点提供的三角网格（厘米、Y 向上、世界坐标；官方是 Z 向上，实测按 Y 向上送入更好，见 main 中的注释）经 trimesh 清理，面数超过 50 000 时用 fast_simplification 降至
    50 000（upstream faces_target_count 的默认值），计算逐顶点和逐面法线，写为 upstream 格式的 raw_data.npz。
    upstream 在这一步用 Blender 打开模型文件读取网格；此处网格已由节点提供，无需再读文件。
 2. 骨架（generate_skeleton.sh 的第二步）和权重（generate_skin.sh 的第二步）：各启动一个进程运行
@@ -46,6 +46,8 @@ EXT = "unirig"
 FACES_TARGET = 50000  # upstream launch/inference/generate_skeleton.sh 中 faces_target_count 的默认值
 RESKIN = {"sample_method": "median", "alpha": 2.0, "threshold": 0.03}  # upstream SkinWriter 使用的参数
 MAX_RESIDUAL = 1e-3  # 解出的相似变换在归一化立方体中允许的最大残差（立方体边长为 2）
+
+
 
 
 def fit_similarity(src: np.ndarray, dst: np.ndarray) -> tuple[float, np.ndarray, float]:
@@ -91,7 +93,7 @@ def prepare_asset(points: np.ndarray, faces: np.ndarray, asset_dir: Path) -> dic
     return {"faces_in": int(len(faces)), "faces_used": int(len(mesh.faces)), "simplified": bool(simplified)}
 
 
-def run_stage(run_dir: Path, task: str, seed: int, what: str) -> float:
+def run_stage(run_dir: Path, task: str, seed: int, failed: str) -> float:
     """运行一个阶段：runner.py 在独立进程中运行，当前目录为组合好的目录树。返回其报告的显存峰值（MB）。"""
     runner = Path(__file__).resolve().parent / "runner.py"
     env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(run_dir), os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep)}
@@ -100,9 +102,13 @@ def run_stage(run_dir: Path, task: str, seed: int, what: str) -> float:
     for line in (done.stdout or "").splitlines() + (done.stderr or "").splitlines():
         print(line, flush=True)
     if done.returncode != 0:
-        fail("E-UNIRIG-STAGE", stage=what, code=done.returncode)
+        fail(failed, code=done.returncode)
     peaks = [float(l.split()[-1]) for l in (done.stdout or "").splitlines() if l.startswith("LAB2SHOT_PEAK_MB")]
     return max(peaks) if peaks else 0.0
+
+
+# 节点「骨架模板」-> upstream 的类别名（codebase.data_config 的 cls）。mixamo 类别官方注明未训练，不提供
+TEMPLATE_CLS = {"auto": "inference", "vroid": "vroid"}
 
 
 def main(job_path: str) -> None:
@@ -116,21 +122,25 @@ def main(job_path: str) -> None:
     seed = int(job.params["seed"])
 
     points, faces = rg.read_mesh_job(job.inputs["mesh"])
-    run.stage("整理网格")
-    run_dir = cb.compose(job.repo_dir, weights, job.dir)
+    # 坐标轴：UniRig 官方按 Blender 的 Z 向上训练和推理（extract.py 取 Blender 世界坐标；训练增强只绕 Z 轴转）。
+    # 实测按官方换成 Z 向上送入（(x,y,z)->(x,-z,y)、关节换回）后，两个标准人形（AccuRIG 男 / 女）反而
+    # 略差：主要关节离 FBX 自带骨架的平均距离 男 2.80->3.38 cm、女 2.51->2.87 cm，默认种子 12345 只出 31 个关节、
+    # 识别引擎认不出部位（Y 向上出 52 个、认得出）。因此保持本项目的 Y 向上原样送入。
+    run.stage("prepare_mesh")
+    run_dir = cb.compose(job.repo_dir, weights, job.dir, TEMPLATE_CLS[job.params.get("template", "auto")])
     sys.path.insert(0, str(run_dir))  # 组合好的目录树：upstream 的 src 从此处导入
     asset = run_dir / "clean" / cb.ASSET
     mesh_info = prepare_asset(points, faces, asset)
 
-    run.stage("UniRig 生成骨架")
-    peak_ar = run_stage(run_dir, "lab2shot_skeleton", seed, "骨架")
+    run.stage("generate_skeleton")
+    peak_ar = run_stage(run_dir, "lab2shot_skeleton", seed, "E-UNIRIG-SKELETONFAILED")
     skeleton = np.load(asset / "predict_skeleton.npz", allow_pickle=True)
 
-    run.stage("UniRig 预测蒙皮权重")
-    peak_skin = run_stage(run_dir, "lab2shot_skin", seed, "蒙皮权重")
+    run.stage("predict_skin")
+    peak_skin = run_stage(run_dir, "lab2shot_skin", seed, "E-UNIRIG-SKINFAILED")
     skin = np.load(asset / "predict_skin.npz", allow_pickle=True)
 
-    run.stage("权重放回整张网格")
+    run.stage("transfer_skin")
     from src.system.skin import reskin  # upstream 的函数，参数与其 SkinWriter 一致
 
     raw = np.load(asset / "raw_data.npz", allow_pickle=True)

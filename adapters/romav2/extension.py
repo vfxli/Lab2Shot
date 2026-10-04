@@ -21,18 +21,13 @@ class RomaV2(Extension):
     name = "romav2"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "RoMa v2"
-    summary = "稠密特征匹配：估计同一个三维场景的两张画面之间的全部对应关系"
     homepage = "https://github.com/Parskatt/romav2"
     source = GitSource(url=ROMAV2_URL, commit=ROMAV2_COMMIT)
     license = LicenseInfo(
         tag=COMMERCIAL,
-        name="MIT + DINOv3 License",
         url="https://github.com/Parskatt/romav2/blob/main/LICENSE",
-        summary=(
-            "RoMa v2 的代码和权重是 MIT。权重里包含 DINOv3 ViT-L 骨干，受 Meta 的 DINOv3 License 约束：允许商用、修改和再分发"
-            "（再分发要附许可证原文，发表论文要注明用了 DINOv3），禁止军事、武器、核等用途和受制裁方使用。可商用"
-        ),
     )
+    generative = False
     import_repo = "src"  # the `romav2` package from repo/src (not pip-installed: its fused-local-corr kernel pins torch 2.11)
     env = EnvSpec(
         python="3.12",
@@ -45,8 +40,7 @@ class RomaV2(Extension):
     )
     extra_sources = {"dinov3": DINOV3}
     weights = (
-        Weight(key="romav2", kind="url", source=WEIGHTS_URL, dest="romav2.0.1.pt", sha256=WEIGHTS_SHA256,
-               note="RoMa v2.0.1（1.1 GB，MIT；含 DINOv3 ViT-L 骨干，DINOv3 License）"),
+        Weight(key="romav2", kind="url", source=WEIGHTS_URL, dest="romav2.0.1.pt", sha256=WEIGHTS_SHA256),
     )
 
     def worker_env(self) -> dict[str, str]:

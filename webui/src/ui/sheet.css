@@ -23,6 +23,11 @@
   animation: pop var(--t-med) var(--ease);
 }
 
+/* a sheet as wide as what it holds (Sheet width "content"): what is inside sizes its columns by their content */
+.sheet.content {
+  width: max-content;
+}
+
 /* a sheet that browses (从模板新建): one size whatever it lists, so choosing another category never resizes it under
    the pointer — the body takes what is left and the page inside decides what scrolls (Sheet's `height`) */
 .sheet.fixed > .sheet-body {
@@ -105,6 +110,9 @@
   font-family: var(--mono);
   font-size: var(--fs-xs);
   color: var(--text-3);
+}
+.lib-form .field-count.over {
+  color: var(--error);
 }
 
 .lib-form .login-field > span {

@@ -1,11 +1,12 @@
 """The job queue. Every cook, from every user (web pages, DCC plugins, the command line), runs here, and every cook is
 a task: a click on 「计算」 (a DCC plugin's, the command line's) computes one node and what it needs.
 
-This is a task's lifecycle: its order in the queue, the administrator's 插队, cancelling, its records, submitting it
+This is a task's lifecycle: its order in the queue (in_order), the administrator's 插队, 队列优先, cancelling, its records, submitting it
 and its end. Where its nodes run is the scheduler's (farm/scheduler: the machine's GPU and CPU places, who gets one, the
 time limit of a node), and the task's own nodes run side by side in its cook (engine/cook.py), each on the place its
 cost needs (a GPU, or a CPU slot), held only while it runs. Every task is the same kind of thing: it waits in the
-queue, first come first served (an administrator's 插队 puts one at the front), and each of its nodes gets its place
+queue, first come first served (an administrator's 插队 puts one at the front; an account with 队列优先 waits ahead
+of every other account's waiting task), and each of its nodes gets its place
 when its inputs are there; a node taken from the cache needs none, so a task whose results are cached is through at
 once.
 
@@ -36,13 +37,14 @@ import sqlite3
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Literal
 
-from .. import logs, progress
+from .. import i18n, logs, progress
+from ..data.types import accepts
 from ..data.units import PERCENT
 from ..database import Database, db, json_of, json_text
 from ..engine import EVALUATIONS, CookCancelled, CookError, Engine, Evaluation, Graph, GraphError
@@ -52,7 +54,7 @@ from ..engine.resident import pool as resident
 from ..engine.scopes import Inst
 from ..errors import Invalid, MessageError, NotFound, Unavailable, message_of
 from ..io.digest import sha256
-from ..messages import Msg
+from ..messages import Msg, again
 from ..serving import Account, Uses, carried, noting, serving
 from ..transfer import groups, outputs, tasks
 from . import disk, load, policy, scheduler, streaming, timings
@@ -118,7 +120,8 @@ PAUSED = ("N-QUEUE-PAUSED", "N-QUEUE-GPUOFF")  # the administrator switched comp
 
 
 def _told(detail: Msg | None) -> Msg | None:
-    """What the user is told about a task waiting for its first place, or None when no action is needed: the places
+    """What the user is told about a task waiting for a place (its first, or, once it runs, a later node's: the same
+    rule, Farm._announce_positions), or None when no action is needed: the places
     are just busy, so it starts by itself and 「排队中」 already says everything (see the block above). `detail` is the
     scheduler's reason (farm/scheduler), which only a session with farm.cards ever sees."""
     code = detail.code if detail is not None else ""
@@ -151,6 +154,22 @@ def _at(event: dict) -> tuple[str, tuple]:
     return event.get("node") or "", tuple(event.get("path") or ())
 
 
+def in_order(jobs: Iterable[Job]) -> list[Job]:
+    """The queue's order of `jobs` (the tasks still to finish): by `order` (when each came in, or an administrator's
+    插队 at the front), except that a waiting task of an account with 队列优先 goes before every waiting task without
+    it that the administrator did not put at the front, the 队列优先 ones among themselves as they came in. Only the
+    tasks still waiting move: a running task keeps its place, so nothing that runs is held up, stopped or overtaken
+    for what it already has; 队列优先 only decides which waiting task starts next."""
+    line = sorted(jobs, key=lambda j: j.order)
+    ahead = [j for j in line if j.queue_first and j.state == "queued" and not j.jumped]
+    if not ahead:
+        return line
+    moved = {id(j) for j in ahead}
+    rest = [j for j in line if id(j) not in moved]
+    at = next((i for i, j in enumerate(rest) if j.state == "queued" and not j.jumped), len(rest))
+    return rest[:at] + ahead + rest[at:]
+
+
 @dataclass(eq=False)
 class Job:
     title: str
@@ -166,6 +185,9 @@ class Job:
     # them), passed to Engine.cook as `show` when this job cooks that one node: the others it only computes what is
     # wired on from them (engine/cook.py CookContext.wanted)
     version: int | None = None  # the page's cook-inputs version it was submitted at (JobRequest.version): every event carries it
+    # the account's own earlier job this one follows (JobRequest.follows: a job opened in the page's focus mode and
+    # computed again there); "" none. A DCC plugin finds its job's newest result by it (the record, the list, the state)
+    follows: str = ""
     # back, so a page tells whether a result still answers what it shows now (None: a submitter that sends none)
     # the one read-only Evaluation of this job: everything the queue asks about the graph (its frame
     # range, the parameters the usage record keeps, the partial packets a page follows, the folders a stopped job
@@ -192,6 +214,13 @@ class Job:
     error: str | None = None
     error_log: str | None = None  # the failed node's log (a worker's output): feedback attaches it
     reason: str = ""  # why it was cancelled, when not by the one who started it
+    # what is said of it kept as what it is, so whoever reads it reads it in their own language (`spoken`): the graph's
+    # name as written (a built-in template's {"zh", "en"}; `title` is it in the submitter's language, for the log and
+    # file names), and the error and the reason as messages (Msg.json; `error` / `reason` are their words then)
+    title_words: object = None
+    lang: str = ""  # the language it was submitted in: its cook says what it says in it (on every thread: serving.carried)
+    error_said: dict | None = None
+    reason_said: dict | None = None
     # computation progress, a single description (lab2shot/progress.py) used by the queue and the node alike, and the
     # only one the server sends: the phase (排队中 / 加载模型 / 计算 / 取回结果), the node, the current step's name and
     # its count (as text only), plus two internal timestamps (since / stage_since). Several of a
@@ -221,6 +250,10 @@ class Job:
     # 插队 (Farm.first): its place in the queue's order. Its submission time, unless the administrator put it at the
     # front (then before every other task still to finish). Only later allocations follow it: nothing running stops.
     order: float = 0.0
+    jumped: bool = False  # the administrator put it at the front (插队): no 队列优先 task goes before it (in_order)
+    # 队列优先 (accounts.queue_first) of its account when it was submitted: while it waits it goes before every waiting
+    # task without it (in_order). Never in any answer, record or message: only the administrator's 用户 page shows it
+    queue_first: bool = False
     cond: threading.Condition = field(default_factory=threading.Condition)
     _frames: list[int] | None | Literal[False] = field(default=False, repr=False, compare=False)  # cache: False = not worked out yet
     _wakers: set[Callable[[], None]] = field(default_factory=set, repr=False, compare=False)  # event streams awaiting `changed`
@@ -292,9 +325,10 @@ class Job:
                 self.outputs.append({**{k: event.get(k) for k in ("task", "node", "label", "pkg", "name", "bytes", "count")}, "graph": self.graph_id})
             elif kind == "error":
                 self.error, self.error_log = event["text"], event.get("log")
+                self.error_said = _message_part(event)
             if kind in ("message", "error") and event.get("level") in ("E", "W"):  # the server's log carries the code
                 label = self.graph.nodes[event["node"]].label if event.get("node") in self.graph.nodes else ""
-                logs.say(log, event, about=f"{self.id}「{label}」" if label else self.id)
+                logs.say(log, event, about=f"{self.id} ({label})" if label else self.id)  # the log's (English)
             elif kind == "node_start":
                 self.begun.add(_at(event))
             elif kind == "node_done":
@@ -351,7 +385,7 @@ class Job:
         at = _at(event)
         if kind == "node_start":
             self.now = self.active[at] = {**progress.BLANK, "phase": progress.COMPUTING, "node": event["node"],
-                                          "label": event["label"], "since": t, "stage_since": t}
+                                          "label": event["label"], "label_word": event.get("label_word"), "since": t, "stage_since": t}
             return
         if kind == "node_done":
             left = self.share.get(event["node"])
@@ -371,7 +405,7 @@ class Job:
         if kind == "phase":  # engine/external.py: before starting the worker process / after the worker wrote result.json
             now.update(phase=event["name"])
         elif kind == "stage":  # a step named by the worker (「检测人物」): only the accompanying text, the bar does not move
-            now.update(note=event["name"], done=0, total=0, stage_since=t)
+            now.update(note=event["name"], note_word=event.get("name_word"), done=0, total=0, stage_since=t)
         elif kind == "progress":
             phase = progress.COMPUTING if now.get("phase") == progress.LOADING else now.get("phase")
             now.update(phase=phase, done=event["done"], total=event["total"])
@@ -472,15 +506,22 @@ class Job:
         return new != old
 
     def waiting_json(self) -> dict:
-        """The two reasons as the answers carry them (the detail is taken out for whoever may not see cards)."""
-        queued = self.state == "queued"
-        return {"waiting": self.waiting.json() if queued and self.waiting else None,
-                "waiting_detail": self.waiting_detail.json() if queued and self.waiting_detail else None}
+        """The two reasons as the answers carry them (the detail is taken out for whoever may not see cards): a
+        waiting task's, or a running task's while one of its nodes waits for what needs somebody to act (then
+        `waiting` is set: Farm._announce_positions)."""
+        shown = self.state == "queued" or (self.state == "running" and self.waiting is not None)
+        return {"waiting": self.waiting.json() if shown and self.waiting else None,
+                "waiting_detail": self.waiting_detail.json() if shown and self.waiting_detail else None}
+
+    @property
+    def shown_title(self) -> str:
+        """Its name in the language now (the reader's): the graph's name as written, else 「未命名」."""
+        return i18n.pick(self.title_words) or i18n.t("farm.untitled")
 
     def poll(self, since: int = 0) -> dict:
         with self.cond:
-            return {"state": self.state, "done": self.done, "error": self.error, "outputs": list(self.outputs),
-                    "events": self.after(since), "next": self.next_n}
+            return {"state": self.state, "done": self.done, "error": spoken(self.error_said, self.error), "outputs": list(self.outputs),
+                    "events": self.after(since), "next": self.next_n, "follows": self.follows}
 
     def view(self, viewer: int | None, admin: bool, cards: list[str] = ()) -> dict | None:
         """`cards`: the cards its nodes are on now. A job is shown whole to its account (`viewer`) and the
@@ -499,12 +540,12 @@ class Job:
             # computation progress: the same data as sent on the event stream (progress_json, lab2shot/progress.py);
             # the queue panel and the node draw the same thing, and the server does not send two versions
             now = self.progress_json(time.time()) if running else {}
-            made, error, reason = list(self.outputs), self.error, self.reason
+            made, error, reason = list(self.outputs), spoken(self.error_said, self.error), spoken(self.reason_said, self.reason)
         return {
             **base, "id": self.id, "anonymous": False, "mine": mine,
             "client": self.client.full() if admin else {"who": self.client.who, "app": self.client.app},
-            "title": self.title, "graph": self.graph_id, "targets": self.labels, "nodes": self.targets, "frames": frames, "error": error,
-            "reason": reason, "now": now, "outputs": [outputs.present(o) for o in made],
+            "title": self.shown_title, "graph": self.graph_id, "targets": self.labels, "nodes": self.targets, "frames": frames, "error": error,
+            "reason": reason, "now": now, "outputs": [outputs.present(o) for o in made], "follows": self.follows,
         }
 
     def record(self) -> dict:
@@ -516,7 +557,41 @@ class Job:
                     "submitted": self.submitted, "started": self.started, "finished": self.finished,
                     "cards": sorted(self.ran_on), "error": self.error, "error_log": self.error_log, "reason": self.reason,
                     "outputs": list(self.outputs), "client": self.client.full(), "usage": {t: dict(u) for t, u in self.usage.items()},
-                    "nodes": self.targets, "version": self.version, "show": sorted(self.show) if self.show else None}
+                    "nodes": self.targets, "version": self.version, "show": sorted(self.show) if self.show else None,
+                    "follows": self.follows, "title_words": self.title_words, "error_said": self.error_said,
+                    "reason_said": self.reason_said}
+
+
+def _message_part(event: dict) -> dict | None:
+    """The message an event is ({code, params, args}: what `again` needs), None when it is not one."""
+    if not isinstance(event.get("code"), str) or not isinstance(event.get("params"), dict):
+        return None
+    return {k: event[k] for k in ("code", "params", "args") if k in event}
+
+
+def spoken(said: dict | None, text: str | None) -> str | None:
+    """A message kept as what it is (`said`: Msg.json) in the language now; `text` (its words when it was said) when
+    there is none or it cannot be said again."""
+    if isinstance(said, dict):
+        msg = again(said)
+        if msg is not None:
+            return msg.text
+    return text
+
+
+def spoken_record(e: dict) -> dict:
+    """A job's record (Job.record) with what it says in the language now: its title, error and reason (`spoken`);
+    the kept forms themselves are not part of an answer."""
+    words, error_said, reason_said = e.pop("title_words", None), e.pop("error_said", None), e.pop("reason_said", None)
+    if words is not None:
+        e["title"] = i18n.pick(words) or e.get("title") or ""
+    elif e.get("title") is None:
+        e["title"] = ""
+    if e.get("error") is not None:
+        e["error"] = spoken(error_said, e["error"])
+    if e.get("reason"):
+        e["reason"] = spoken(reason_said, e["reason"])
+    return e
 
 
 def _percent(part: float, whole: float) -> int:
@@ -614,7 +689,7 @@ class Farm:
     def authorize(self, uuids: list[str]) -> None:
         """The administrator's choice of GPUs. A GPU taken away finishes the node it runs, then takes no more."""
         self.host.authorize(uuids)
-        logs.say(log, Msg("I-QUEUE-GPUSAUTHORIZED", gpus="、".join(uuids)) if uuids else Msg("I-QUEUE-NOGPUAUTHORIZED"))
+        logs.say(log, Msg("I-QUEUE-GPUSAUTHORIZED", gpus=", ".join(uuids)) if uuids else Msg("I-QUEUE-NOGPUAUTHORIZED"))
         with self.cond:
             self.authorized = self.host.authorized_uuids()
         self.pools.wake()
@@ -633,20 +708,21 @@ class Farm:
 
     def submit(self, data: dict, graph: Graph, targets: list[str], client: Client, force: bool = False,
                held: dict | None = None, version: int | None = None,
-               show: frozenset[str] | set[str] | None = None) -> Job:
+               show: frozenset[str] | set[str] | None = None, follows: str = "") -> Job:
         """Queue a cook of `targets` of `graph` (read from `data`, which the job log keeps) as a task. Raises GraphError / CookError
         when the graph can't be cooked as it is. `held`: a job the server before a restart kept waiting (its id and
         when it was submitted, park). The job is its submitter's (`client.user`) and runs as that account only
         (lab2shot/serving.py Account, never every account's, whatever rights the submitter has): it reads that account's
         uploads and cache, the same before and after a restart; an upload that is not theirs is not there, so its node
         fails and the rest cooks as usual. `version`: the page's cook-inputs version, carried back on every event
-        (Job.version); `show`: the outputs of the shown node the viewer displays (Job.show)."""
+        (Job.version); `show`: the outputs of the shown node the viewer displays (Job.show); `follows`: the account's
+        own earlier job this one follows (Job.follows: the caller checked it is theirs)."""
         who = Account(client.user)
         with serving(who):  # everything it asks of the graph, in the account's own cache (data/store.py)
-            return self._submit(data, graph, targets, client, force, held, who, version, show)
+            return self._submit(data, graph, targets, client, force, held, who, version, show, follows)
 
     def _submit(self, data: dict, graph: Graph, targets: list[str], client: Client, force: bool, held: dict | None,
-                account: Account, version: int | None, show) -> Job:
+                account: Account, version: int | None, show, follows: str = "") -> Job:
         stored = len(json_text(data).encode("utf-8"))
         if stored > GRAPH_MAX_BYTES:  # the job log keeps the graph: a graph of this size is data, not a node graph
             raise GraphError(Msg("E-JOB-GRAPHTOOBIG", mb=stored / 2**20, most=GRAPH_MAX_BYTES >> 20))
@@ -678,12 +754,20 @@ class Farm:
         # refused here: a task with GPU nodes may still be submitted and waits.
         if held is None and not policy.compute_enabled():
             raise Unavailable(Msg("B-QUEUE-PAUSED"))
-        title = data.get("meta", {}).get("name") or "节点图"
+        # 暂停新计算的剩余空间: the data disk is short, so no account's new task is taken (the ones going finish; it
+        # resumes by itself). A held job was accepted before; it waits in the queue like the others (scheduler)
+        if held is None and (low := policy.space_low()) is not None:
+            raise Unavailable(low)
+        words = data.get("meta", {}).get("name")  # as written: each reader reads it in their own language (Job.shown_title)
+        title = i18n.pick(words) or i18n.t("farm.untitled")
         graph_id = str(data.get("meta", {}).get("id") or "")
         delivers = any(graph.nodes[t].type.delivers for t in targets)
-        job = Job(title, graph, targets, client, force, delivers, graph_id, version=version,
+        from .. import accounts
+
+        job = Job(title, graph, targets, client, force, delivers, graph_id, version=version, follows=follows,
                   show=None if show is None else frozenset(show), eval=ev, works=timings.planned(ev, targets, force, ready),
-                  db=self.db, **(held or {}))
+                  db=self.db, queue_first=accounts.queue_first(client.user), **(held or {}))
+        job.title_words, job.lang = words, i18n.current()
         job.estimate(self.models())
         if held is None:  # its record before the scheduler can see it, and never under the queue's lock
             _log_submitted(job, data, footage)
@@ -702,17 +786,17 @@ class Farm:
     def _enqueue(self, job: Job, client: Client, held: dict | None, delivers: bool, title: str) -> None:
         """(Holding its account's cleaning lock and the queue's lock) put an admitted job into the queue."""
         logs.say(log, Msg({(False, False): "I-QUEUE-SUBMITTED", (False, True): "I-QUEUE-SUBMITTEDDELIVERS", (True, False): "I-QUEUE-REQUEUED",
-                           (True, True): "I-QUEUE-REQUEUEDDELIVERS"}[(bool(held), delivers)], job=job.id, title=title,
-                          targets="、".join(job.labels), who=client.who, ip=client.details.get("ip", "")))
+                           (True, True): "I-QUEUE-REQUEUEDDELIVERS"}[(bool(held), delivers)], job=job.id, title=i18n.pick(job.title_words, i18n.LOG_LANG) or title,
+                          targets=", ".join(job.labels), who=client.who, ip=client.details.get("ip", "")))
         self.jobs[job.id] = job
         self._came[client.user] = time.time()
         self._announce_positions()
 
     def _line(self) -> list[tuple[str, bool]]:
-        """The tasks still to finish in the queue's order (插队 first, then as they came in), each with whether it
-        started: what the scheduler hands places out by (farm/scheduler/pools.py)."""
+        """The tasks still to finish in the queue's order (in_order: 插队 first, 队列优先, then as they came in), each
+        with whether it started: what the scheduler hands places out by (farm/scheduler/pools.py)."""
         with self.cond:
-            line = sorted((j for j in self.jobs.values() if not j.done), key=lambda j: j.order)
+            line = in_order(j for j in self.jobs.values() if not j.done)
         return [(j.id, j.state == "running") for j in line]
 
     def _started(self, job_id: str) -> None:
@@ -733,7 +817,7 @@ class Farm:
 
     def _waiting(self) -> list[Job]:
         """The tasks waiting for their first place, in the queue's order (stopped ones: being withdrawn)."""
-        return sorted((j for j in self.jobs.values() if j.state == "queued" and not j.stop.is_set()), key=lambda j: j.order)
+        return [j for j in in_order(j for j in self.jobs.values() if not j.done) if j.state == "queued" and not j.stop.is_set()]
 
     def _announce_positions(self) -> None:
         """(Holding the queue's lock) every waiting task told its place and why it waits, when either changed: one
@@ -744,11 +828,25 @@ class Farm:
         it). Busy places, waiting for memory and jobs ahead resolve by themselves, and the position is already
         drawn in the interface, so nothing is said; for the user the job is 「排队中」. The rule against unexplained
         waiting still holds: the cases requiring action (N-QUEUE-NOMACHINEEVER, N-QUEUE-NOCARD, N-QUEUE-PAUSED) are
-        reported in full."""
+        reported in full.
+
+        A task that started is held to the same rule: once one of its later nodes waits for what needs somebody to act
+        (no card authorized, none that can ever run it), its owner is told so on that node (a "message" event: the
+        node and the log) and the queue row says it, the administrator's detail beside it; a wait that clears by
+        itself says nothing, as before it started."""
         why: dict[str, Msg] = {}
+        act: dict[str, tuple[Msg, str]] = {}  # a running task -> what needs acting on, and the node that waits for it
         for t in self.pools.now():
-            if not t.granted and t.reason is not None and t.task not in why:
-                why[t.task] = t.reason
+            if not t.granted and t.reason is not None:
+                why.setdefault(t.task, t.reason)
+                if _told(t.reason) is not None:
+                    act.setdefault(t.task, (t.reason, t.need.node))
+        for j in self.jobs.values():
+            if j.state != "running":
+                continue
+            detail, node = act.get(j.id, (None, ""))
+            if j.wait_for(detail) and j.waiting is not None:
+                j.emit({"type": "message", "node": node or None, "path": [], **j.waiting.json()})
         for position, j in enumerate(self._waiting(), 1):
             reason = why.get(j.id)
             # one behind others waits for them, unless the administrator's switch holds it: that is said to every
@@ -767,9 +865,9 @@ class Farm:
             job = self.jobs.get(job_id)
             if job is None or job.done or job.stop.is_set():
                 raise NotFound(Msg("E-QUEUE-NOTWAITING", job=job_id))
-            line = sorted((j for j in self.jobs.values() if not j.done), key=lambda j: j.order)
+            line = in_order(j for j in self.jobs.values() if not j.done)
             was = line.index(job) + 1
-            job.order = min(j.order for j in line) - 1.0
+            job.order, job.jumped = min(j.order for j in line) - 1.0, True
             self._announce_positions()
         self.pools.wake()
         return was
@@ -777,7 +875,7 @@ class Farm:
     def _run(self, job: Job) -> None:
         # the whole job reads files as the account that submitted it (uploads.resolve) and works in that account's own
         # cache (data/store.py), noting every entry it computes or reuses (Job.uses)
-        with serving(job.eval.account), noting(job.uses):
+        with serving(job.eval.account), noting(job.uses), i18n.using(job.lang or None):
             state = self._cook(job)
         self._finish(job, state)
 
@@ -786,7 +884,8 @@ class Farm:
         node failed, and another branch came through all the same), failed (nothing but the failure: every branch
         stands behind it), cancelled."""
         with job.cond:
-            owner = {"user": job.client.user, "title": job.title, "graph": job.graph_id, "several": len(job.graph.deliveries()) > 1}
+            owner = {"user": job.client.user, "title": job.title, "graph": job.graph_id, "several": len(job.graph.deliveries()) > 1,
+                     "file_title": i18n.pick(job.title_words, "en")}  # the download's name: the English one (outputs.download_name)
         collector = outputs.Collector(job.id, owner, job.emit)  # its task's outputs (transfer/outputs.py)
         engine = Engine(job.graph, stop=job.stop, collector=collector, evaluation=Evaluation(job.graph, job.eval.account),
                         stream_worker=partial(streaming.run, self))  # streaming: a streaming node's worker runs on a farm thread
@@ -859,7 +958,9 @@ class Farm:
             if hook is None:
                 return
             try:
-                if valid(packet_dir(fp)) and Packet.load(packet_dir(fp)).type.split(".")[0] == "scene":
+                # the view worker's own test (server/view_data.py: accepts("scene", ...)): a list of scenes is not one
+                # (its items are packets of their own, made ahead when they are computed)
+                if valid(packet_dir(fp)) and accepts("scene", Packet.load(packet_dir(fp)).type):
                     hook(fp)
             except Exception as exc:  # noqa: BLE001 (made ahead only to be faster: made on request otherwise)
                 logs.say(log, Msg("E-QUEUE-JOBINTERNAL", job=job.id), logs.error_text(exc))
@@ -883,7 +984,8 @@ class Farm:
         with self.cond:
             job.state, job.finished = state, finished
             if state == "cancelled":
-                job.emit({"type": "cancelled", "reason": job.reason})
+                # the reason as the message it is: each follower reads it in their own language (messages.localized)
+                job.emit({"type": "cancelled", "reason": job.reason_said or job.reason})
             job.emit({"type": "finished", "state": state})
             job.eval = None  # what it knew of its graph (tens of MB for a large block) is not kept with a finished job
             ended = [j for j in self.jobs.values() if j.done]
@@ -922,8 +1024,9 @@ class Farm:
             for fp in ran.plan.outputs.values():
                 disk.clean_incomplete(fp)
 
-    def cancel(self, job_id: str, user_id: int | None, reason: str = "") -> None:
-        """Stop a job: its account (`user_id`), or the administrator (None), who may say why. Someone else's is not
+    def cancel(self, job_id: str, user_id: int | None, reason: Msg | None = None) -> None:
+        """Stop a job: its account (`user_id`), or the administrator (None), who may say why (a message: each reader
+        reads it in their own language). Someone else's is not
         there for them. Its cook stops at once: every node running is stopped, every request withdrawn (a task that
         never started ends the same way)."""
         job = self.get(job_id)
@@ -933,7 +1036,8 @@ class Farm:
         with self.cond:
             if job.done or job.stop.is_set():
                 return
-            job.reason = reason
+            if reason is not None:
+                job.reason, job.reason_said = reason.text, reason.json()
             job.stop.set()
             if job.state == "running":
                 job.emit({"type": "stopping"})
@@ -982,7 +1086,8 @@ class Farm:
             if not self._disk["measuring"] and (fresh or at is None or time.time() - at > DISK_STALE_S):
                 self._disk["measuring"] = True
                 self._spawn(self._measure_disk, name="farm-disk")
-            return dict(self._disk)
+            out = dict(self._disk)
+        return {**out, "areas": disk.worded(out["areas"])} if out.get("areas") is not None else out
 
     def _measure_disk(self) -> None:
         try:
@@ -1077,7 +1182,7 @@ class Farm:
             self.holding = self.closed = True
         self.tasks.stop_all()  # background tasks stop at their next step; their threads are joined below with the rest
         for job in [j for j in self.jobs_now() if not j.done]:
-            self.cancel(job.id, None, Msg("N-QUEUE-SERVEREND").text)
+            self.cancel(job.id, None, Msg("N-QUEUE-SERVEREND"))
         self.pools.end()
         end = time.time() + timeout
         while True:
@@ -1129,7 +1234,7 @@ class Farm:
         how many. Unavailable (E-QUEUE-STILLSTOPPING) when one has not ended after `wait_s`."""
         live = self.live_of(user_id)
         for job in live:
-            self.cancel(job.id, None, Msg("N-QUEUE-ACCOUNTDELETED").text)
+            self.cancel(job.id, None, Msg("N-QUEUE-ACCOUNTDELETED"))
         until = time.monotonic() + wait_s
         for job in live:
             with job.cond:
@@ -1137,7 +1242,7 @@ class Farm:
                     raise Unavailable(Msg("E-QUEUE-STILLSTOPPING", count=len(self.live_of(user_id)), seconds=wait_s))
         return len(live)
 
-    def stop_running(self, reason: str) -> None:
+    def stop_running(self, reason: Msg) -> None:
         """Stop every running job, saying why (they end cancelled, their finished nodes stay in the cache)."""
         for job in self.running():
             self.cancel(job.id, None, reason)
@@ -1178,10 +1283,12 @@ class Farm:
                 client = Client.from_record(record.get("client", {}), account)
                 data = job_graph(h["job_id"])
                 self.submit(data, Graph.from_json(data), json_of(h["targets"]), client, bool(h["force"]),
-                            held={"id": h["job_id"], "submitted": h["submitted"]}, version=record.get("version"), show=record.get("show"))
+                            held={"id": h["job_id"], "submitted": h["submitted"]}, version=record.get("version"), show=record.get("show"),
+                            follows=str(record.get("follows") or ""))
             except (NotFound, GraphError, CookError, ValueError, OSError) as exc:
                 logs.say(log, Msg("W-QUEUE-NOTREQUEUED", job=h["job_id"], why=str(exc)))
-                record.update(state="failed", finished=time.time(), error=Msg("E-QUEUE-UNPARK", reason=exc).text)
+                failed = Msg("E-QUEUE-UNPARK", reason=message_of(exc) if isinstance(exc, MessageError) else exc)
+                record.update(state="failed", finished=time.time(), error=failed.text, error_said=_message_part(failed.json()))
                 with self.db.write() as c:
                     c.execute("UPDATE jobs SET state = 'failed', finished = ?, record = ? WHERE id = ?",
                               (record["finished"], json_text(record), h["job_id"]))
@@ -1227,6 +1334,7 @@ class Farm:
             # refuses independently in submit
             "max_frames": policy.max_frames(),
             "switches": {"gpu": policy.gpu_enabled(), "compute": policy.compute_enabled()},
+            "disk_low": policy.space()["low"],  # 暂停新计算的剩余空间: the page says why nothing new is taken
             "jobs": _grouped([v for j in order if (v := j.view(viewer, admin, [names.get(c, c) for c in on.get(j.id, [])])) is not None]),
         }
 
@@ -1260,6 +1368,7 @@ class Farm:
             # justify polling the queue separately. Most of each request is headers and the session cookie, so a longer
             # interval saves little; combining the requests does
             "switches": {"gpu": policy.gpu_enabled(), "compute": policy.compute_enabled()},
+            "disk_low": policy.space()["low"],
             "max_frames": policy.max_frames(),
             # values are sent at the precision the page displays: the badge shows integer percentages (`Math.round` in
             # Chrome.tsx). Decimals add nothing and are harmful: polling backoff relies on the reply being identical to
@@ -1338,6 +1447,15 @@ def forget_job(job_id: str, user_id: int | None) -> int:
     cancel them first (`Farm.cancel`), after which they count as finished. `user_id`: when not None, only the account's
     own jobs may be deleted (the route already checks ownership; this is a second check). Returns what its task
     folder took."""
+    freed = _forget(job_id, user_id)
+    queue = farm()
+    if not queue.ending:
+        queue._spawn(queue._tidy, name="farm-tidy-now")  # the cache only it referenced goes (once the account has no job to finish)
+    return freed
+
+
+def _forget(job_id: str, user_id: int | None) -> int:
+    """`forget_job` without the cleaning after it (trim_finished runs inside the cleaning)."""
     ensure_finished(job_id)
     queue = farm()
     where = "id = ?" + ("" if user_id is None else " AND user_id = ?")
@@ -1351,9 +1469,44 @@ def forget_job(job_id: str, user_id: int | None) -> int:
         c.execute(f"DELETE FROM jobs WHERE {where}", args)
     with queue.cond:  # the scheduler (_line) and every reader walk `jobs` under this lock: popping without it breaks a walk
         queue.jobs.pop(job_id, None)
-    if not queue.ending:
-        queue._spawn(queue._tidy, name="farm-tidy-now")  # the cache only it referenced goes (once the account has no job to finish)
     return freed
+
+
+# account -> (when, how many) the last time trim_finished removed its oldest finished tasks: the queue window says so
+# (server/quota.py usage). Kept for this run of the server; the log keeps every one
+trimmed: dict[int, tuple[float, int]] = {}
+
+
+def trim_finished() -> int:
+    """每账号保留的已完成任务 (tasks.keep_most): an account with more finished tasks than that loses the oldest of
+    them, each exactly as its own deletion would (`_forget`: its folder with its outputs, its row and references; the
+    cache only it referenced goes with the cleaning that follows). A guard of the database, not of the disk (the
+    quota is): it never touches a task still queued or running. Part of the cleaning (farm/disk.py tidy). Returns how
+    many went."""
+    from .. import accounts
+
+    most = policy.keep_most()
+    queue = farm()
+    gone = 0
+    for r in queue.db.rows("SELECT user_id FROM tasks WHERE ended IS NOT NULL GROUP BY user_id HAVING COUNT(*) > ?", (most,)):
+        user_id = int(r["user_id"])
+        going = finished_of(user_id)[most:]  # newest first: past the first `most`
+        count = 0
+        for jid in going:
+            try:
+                _forget(jid, user_id)
+            except (Invalid, NotFound):  # started again meanwhile, or gone already
+                continue
+            count += 1
+        if count:
+            gone += count
+            trimmed[user_id] = (time.time(), count)
+            try:
+                who = accounts.get(user_id).username
+            except Exception:  # noqa: BLE001 (an account removed meanwhile: its id says whose)
+                who = str(user_id)
+            logs.say(log, Msg("I-TASK-TRIMMED", who=who, count=count, most=most))
+    return gone
 
 
 def finished_of(user_id: int) -> list[str]:
@@ -1370,7 +1523,7 @@ def finished_of(user_id: int) -> list[str]:
 def history(limit: int = 200, user_id: int | None = None) -> list[dict]:
     """The latest jobs, newest first (of one account, `user_id`); a job the server stopped in the middle (a restart)
     says so. Each says whose it is as the account is now (「已删除的用户」 once it is deleted) and its department."""
-    from ..accounts import DELETED
+    from ..accounts import deleted_label, department_label, label_of
 
     queue = farm()
     active = queue.active_ids()
@@ -1385,9 +1538,9 @@ def history(limit: int = 200, user_id: int | None = None) -> list[dict]:
     for r in queue.db.rows(f"SELECT j.id, j.state, j.finished, j.record, j.user_id, u.username, u.name, u.department, u.deleted "
                            f"FROM jobs j LEFT JOIN users u ON u.id = j.user_id WHERE {' AND '.join(where)} "
                            f"ORDER BY j.submitted DESC LIMIT ?", (*args, limit)):
-        e = json_of(r["record"])
-        who = DELETED if r["deleted"] else f"{r['name']}（{r['username']}）"
-        e["client"] = {**e.get("client", {}), "user": r["user_id"], "who": who, "department": r["department"] or ""}
+        e = spoken_record(json_of(r["record"]))  # its title, error and reason in the reader's language
+        who = deleted_label() if r["deleted"] else label_of(r["name"], r["username"])
+        e["client"] = {**e.get("client", {}), "user": r["user_id"], "who": who, "department": department_label(r["department"] or "")}
         # whether each output is still there is looked at now, like the queue's own rows (the record kept them as they
         # were made)
         e["outputs"] = [outputs.present(o) for o in e.get("outputs") or [] if isinstance(o, dict) and "pkg" in o]
@@ -1525,7 +1678,7 @@ _THE_FARM = _TheFarm()
 
 def on_scene_done(hook: Callable[[str], None]) -> None:
     """The server's hook for a computed scene packet (server/view_worker.py scene_done), given to this process's farm
-    when it is made (Farm scene_done): the upper layer hands it down, as lab2shot/catalog.py install() does."""
+    when it is made (Farm scene_done): the upper layer hands it down, as lab2shot/site/catalog.py install() does."""
     with _THE_FARM.lock:
         _THE_FARM.scene_done = hook
         if _THE_FARM.made is not None:

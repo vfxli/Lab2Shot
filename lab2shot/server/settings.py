@@ -12,10 +12,10 @@ import socket
 import sys
 
 from fastapi import Request
-from fastapi.responses import JSONResponse
 
 from .routes import Access, Body, Router
-from .. import __version__, accounts, feedback, logs, periods, process, registration, roles, traffic
+from .. import __version__, i18n, accounts, logs, periods, process, roles, traffic
+from ..site import feedback, registration
 from ..config import PAGE_OF, SCHEMA, WEBUI_DIST, InvalidSettings, machine_memory_gb, port_problem, settings
 from ..errors import Conflict, message_of
 from ..engine.resident import available_gb, keep_free_gb
@@ -31,7 +31,7 @@ from .access import audit, manages
 log = logs.get("admin")
 
 
-admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])  # this module's admin routes (app.py includes it)
+admin = Router(prefix="/api/admin", tags=["admin"])  # this module's admin routes (app.py includes it)
 
 
 def _gb(n: float) -> str:
@@ -50,10 +50,10 @@ def _huggingface() -> tuple[str, str]:
     from huggingface_hub import constants, get_token
 
     if not get_token():
-        return "没有登录", "要先申请权限的模型（gated）下载不了：在服务器上运行 hf auth login，或设置环境变量 HF_TOKEN"
+        return i18n.t("settings.state.hf.out"), i18n.t("settings.state.hf.out_tip")
     if os.environ.get("HF_TOKEN"):
-        return "已登录", "令牌来自环境变量 HF_TOKEN（这里从不显示令牌本身）"
-    return "已登录", f"令牌存在 {constants.HF_TOKEN_PATH}（这里从不显示令牌本身）"
+        return i18n.t("settings.state.hf.in"), i18n.t("settings.state.hf.env_tip")
+    return i18n.t("settings.state.hf.in"), i18n.t("settings.state.hf.file_tip", path=constants.HF_TOKEN_PATH)
 
 
 def _third_party_free() -> float:
@@ -69,30 +69,27 @@ def _source(request: Request) -> dict:
     through: every request is this machine's loopback). Said in the 网络 group, beside 可信代理."""
     src = auth.client_source(request)
     if src.via and src.apart:
-        value, tip = f"看得到：{src.ip}（可信代理 {src.via} 转告的）", "按 IP 的限制（注册、输错邀请码、请求频率）按代理转告的真实地址算"
+        value, tip = i18n.t("settings.state.ip.via", ip=src.ip, via=src.via), i18n.t("settings.state.ip.via_tip")
     elif src.via:
-        value, tip = (f"看不到用户的真实 IP：可信代理 {src.via} 没有转告地址",
-                      "这个请求从可信代理来，却没带 X-Forwarded-For / X-Real-IP：代理要设成转发这个头（nginx：proxy_set_header "
-                      "X-Forwarded-For $proxy_add_x_forwarded_for;），否则按 IP 的限制不起作用")
+        value, tip = i18n.t("settings.state.ip.via_none", via=src.via), i18n.t("settings.state.ip.via_none_tip")
     elif src.apart:
-        value, tip = f"看得到：{src.ip}（连接本身的地址）", "用户直接连到这台服务器（局域网），按 IP 的限制按连接的地址算"
+        value, tip = i18n.t("settings.state.ip.direct", ip=src.ip), i18n.t("settings.state.ip.direct_tip")
     else:
-        value, tip = (f"看不到用户的真实 IP：来源都是本机 {src.ip}，按 IP 的限制不起作用",
-                      "请求是这台机器自己转进来的（本机浏览器，或者 frp 这类内网穿透只转发 TCP 连接到这里的端口）：看不出谁是谁，"
-                      "注册按 IP 和网段的限制、输错邀请码按来源的计数就不算，免得把所有人当成一个人一起挡住；全站注册上限、邀请码、"
-                      "工作量证明照常。要看到真实 IP：让云服务器上的 nginx / Caddy / frp https2http 解开 HTTPS、用 HTTP 转发过来"
-                      "并带上 X-Forwarded-For，再把它连过来的地址填进「可信代理」")
+        value, tip = i18n.t("settings.state.ip.local", ip=src.ip), i18n.t("settings.state.ip.local_tip")
     if src.ignored:
-        tip += f"\n这个请求带着 X-Forwarded-For 之类的转发头，但它来自的 {request.client.host if request.client else '?'} 不在「可信代理」里，这些头都没有采用"
-    return {"label": "用户的 IP", "value": value, "tip": tip}
+        tip += "\n" + i18n.t("settings.state.ip.ignored", host=request.client.host if request.client else "?")
+    return {"label": i18n.t("settings.state.ip.label"), "value": value, "tip": tip}
 
 
 def _registering() -> dict:
-    """The 注册 group's state: how many registered lately against the limits, and whether that paused registering."""
+    """The registration group's state: how many registered lately against the limits, and whether that paused registering."""
     c = registration.counts()
-    state = "没开放" if not c["open"] else "已自动暂停" if c["paused"] else "开放中"
-    return {"label": "注册情况", "value": f"{state} · 最近一小时 {c['hour']} / {c['per_hour']} 个，最近一天 {c['day']} / {c['per_day']} 个",
-            "tip": "全站自己注册的账号数和两个上限；到了上限注册自动暂停，过了那一小时 / 那一天自己恢复。邀请码和谁用它注册了在这一页下面看"}
+    state = i18n.t("settings.state.register.closed") if not c["open"] else \
+        i18n.t("settings.state.register.paused") if c["paused"] else i18n.t("settings.state.register.open")
+    return {"label": i18n.t("settings.state.register.label"),
+            "value": i18n.t("settings.state.register.value", state=state, hour=c["hour"], per_hour=c["per_hour"],
+                            day=c["day"], per_day=c["per_day"]),
+            "tip": i18n.t("settings.state.register.tip")}
 
 
 def status(request: Request) -> dict[str, list[dict]]:
@@ -109,32 +106,37 @@ def status(request: Request) -> dict[str, list[dict]]:
     from ..database import db
 
     accounts = db().row("SELECT COUNT(*) AS n FROM users WHERE deleted IS NULL")["n"]
+    sep = i18n.separator()
     return {
-        "accounts": [{"label": "账号", "value": f"{accounts} 个",
-                      "tip": "在「用户」里新建账号、改到期时间和环节；环节表就是这里的「环节」"}],
+        "accounts": [{"label": i18n.t("settings.state.accounts.label"), "value": i18n.t("settings.state.accounts.value", n=accounts),
+                      "tip": i18n.t("settings.state.accounts.tip")}],
         "register": [_registering(), _source(request)],
-        "gpu": [{"label": "识别到的显卡", "value": f"{len(names)} 张" + ("：" + "、".join(names.values()) if names else ""),
-                 "tip": "这台机器上找到的显卡，不管接不接任务"},
-                {"label": "接任务的显卡", "value": f"{len(takers)} 张" + ("：" + "、".join(takers) if takers else ""),
-                 "tip": "哪些显卡接任务，在「概览」或「队列」里用显卡上的开关改；没授权的显卡不接任务。每张接任务的卡同时算一个显卡节点"}],
-        "memory": [{"label": "现在可用", "value": f"{available_gb():.0f} GB，共 {machine_memory_gb():.0f} GB",
-                    "tip": "这台机器现在可用的内存（所有程序一起算，包括别人的训练和渲染）"}],
-        "storage": [{"label": "硬盘剩余", "value": f"{_gb(disk.free / 2**30)}，共 {_gb(disk.total / 2**30)}",
-                     "tip": f"工作文件夹 {work} 所在的盘；各类内容占多少，看「硬盘」"}],
-        # 「视图」这一组只有设置，没有服务器能另外告诉的现状（点云有多大是每份数据自己的事，不是机器的状态）
+        "gpu": [{"label": i18n.t("settings.state.gpus.label"),
+                 "value": i18n.t("settings.state.gpus.value", n=len(names), names=sep.join(names.values()) or "-"),
+                 "tip": i18n.t("settings.state.gpus.tip")},
+                {"label": i18n.t("settings.state.takers.label"),
+                 "value": i18n.t("settings.state.gpus.value", n=len(takers), names=sep.join(takers) or "-"),
+                 "tip": i18n.t("settings.state.takers.tip")}],
+        "memory": [{"label": i18n.t("settings.state.memory.label"),
+                    "value": i18n.t("settings.state.memory.value", free=f"{available_gb():.0f}", total=f"{machine_memory_gb():.0f}"),
+                    "tip": i18n.t("settings.state.memory.tip")}],
+        "storage": [{"label": i18n.t("settings.state.disk.label"),
+                     "value": i18n.t("settings.state.disk.value", free=_gb(disk.free / 2**30), total=_gb(disk.total / 2**30)),
+                     "tip": i18n.t("settings.state.disk.tip", work=work)}],
+        # the viewer group has settings only: nothing the server can add (how large a point cloud is is each data's own)
         "view": [],
         "network": [_source(request),
-                    {"label": "现在的地址", "value": address(),
-                     "tip": "用户在浏览器里打开这个地址，DCC 插件和命令行 --server 也连它；局域网里把 localhost 换成这台机器的名字或 IP"},
-                    *([{"label": "证书", "value": str(tls),
-                        "tip": "用 HTTPS 时每台用户电脑装一次：浏览器打开 /api/tls/ca.pem 下载，装进系统的「受信任的根证书颁发机构」"}]
+                    {"label": i18n.t("settings.state.address.label"), "value": address(),
+                     "tip": i18n.t("settings.state.address.tip")},
+                    *([{"label": i18n.t("settings.state.certificate.label"), "value": str(tls),
+                        "tip": i18n.t("settings.state.certificate.tip")}]
                       # only while this run serves HTTPS: a certificate left from an earlier run is no one's to install
                       if s["server.https"] and tls.exists() else [])],
         "install": [{"label": "Hugging Face", "value": hf, "tip": hf_tip},
-                    {"label": "扩展包硬盘", "value": _gb(_third_party_free()),
-                     "tip": "扩展包所在的盘还剩多少：新环境建在旧环境旁边，自检通过才换上，旧的留着可以回退，所以安装时要多留一份空间"}],
-        "env": [{"label": "版本", "value": f"Lab2Shot {__version__} · Python {platform.python_version()}",
-                 "tip": f"服务的 Python：{sys.executable}"}],
+                    {"label": i18n.t("settings.state.extensions_disk.label"), "value": _gb(_third_party_free()),
+                     "tip": i18n.t("settings.state.extensions_disk.tip")}],
+        "env": [{"label": i18n.t("settings.state.version.label"), "value": f"Lab2Shot {__version__} · Python {platform.python_version()}",
+                 "tip": i18n.t("settings.state.version.tip", python=sys.executable)}],
     }
 
 
@@ -154,7 +156,7 @@ def view(request: Request) -> dict:
     return {**described, "status": status(request)}
 
 
-@admin.get("/settings", access=Access.admin("settings.edit"), summary="设置：每项的值、默认、范围、说明、改了要不要重启；每组附带服务器的现状（只读）")
+@admin.get("/settings", access=Access.admin("settings.edit"), summary="Settings: each one's value, default, range, help and whether a change needs a restart; each group with the server's current state (read-only)")
 def admin_settings(request: Request) -> dict:
     return view(request)
 
@@ -163,36 +165,32 @@ class SettingsChange(Body):
     values: dict[str, object]  # key -> new value
 
 
-@admin.put("/settings", access=Access.admin("settings.edit"), summary="保存设置（全部检查通过才保存）：马上生效的立刻用上，要重启的等重启；出错时 errors 按项说明原因")
+@admin.put("/settings", access=Access.admin("settings.edit"), summary="Save settings (only when all pass their checks): those that apply at once are used at once, the others after a restart; on error, errors says why per setting")
 def admin_save_settings(req: SettingsChange, request: Request):
     session = auth.session(request)
     if locked := {k: m for k in req.values if (m := _locked(session, k))}:
         lacking = dict.fromkeys(roles.CAPABILITIES[roles.setting_needs(k)].what for k in locked)  # one request, one row
-        audit(Msg("W-AUDIT-REFUSED", who=session.user.label, role=roles.label(session.user.role), what="、".join(lacking),
+        audit(Msg("W-AUDIT-REFUSED", who=session.user.label, role=roles.word(session.user.role), what=i18n.Both.of(lambda: i18n.separator().join(lacking)),
                   method="PUT", path=str(request.url.path), code="E-SETTINGS-NEEDS"),
               session=session, method="PUT", path=str(request.url.path))
-        return JSONResponse({"detail": Msg("E-SETTINGS-INVALID", problems=list(locked.values())).text, "code": "E-SETTINGS-NEEDS",
-                             "errors": {k: m.text for k, m in locked.items()}, "codes": {k: m.code for k, m in locked.items()}},
-                            status_code=403)
+        raise InvalidSettings(locked, 403)  # answered field by field (errors.FieldErrors), as a value that does not fit
     s = settings()
     before = {k: s.value(k) for k in req.values if k in SCHEMA}
-    try:
-        changed = s.save(req.values)
-    except InvalidSettings as exc:
-        return JSONResponse({"detail": str(exc), "code": exc.code, "errors": {k: m.text for k, m in exc.problems.items()},
-                             "codes": {k: m.code for k, m in exc.problems.items()}}, status_code=400)
+    changed = s.save(req.values)  # InvalidSettings: answered field by field (server/app.py, errors.FieldErrors)
     for said in process.apply_changed(changed):  # 「保留核心数」「复用内存上限」 hold for this server at once
         logs.say(log, said)
     for k in changed:
         spec = SCHEMA[k]
-        logs.say(log, Msg("I-SETTINGS-CHANGEDRESTART" if spec.restart else "I-SETTINGS-CHANGED", label=spec.label, before=str(before.get(k)), after=str(s.value(k))))
+        logs.say(log, Msg("I-SETTINGS-CHANGEDRESTART" if spec.restart else "I-SETTINGS-CHANGED", label=i18n.Word(f"setting.{k}.label"), before=str(before.get(k)), after=str(s.value(k))))
     resident().tidy()  # end the resident models the saved settings do not keep
     farm().wake()  # jobs waiting for memory look again
     return view(request)
 
 
-@admin.get("/overview", access=Access.admin("server.view", hides={"recent.feedback": ("feedback_new",)}), summary="概览：内存、硬盘、常驻模型、服务本身（版本、地址、启动时间、进程号），和等重启生效的设置；看得了用户反馈的还有几条新反馈")
+@admin.get("/overview", access=Access.admin("server.view", hides={"recent.feedback": ("feedback_new",)}), summary="Overview: memory, disk, resident models, the server itself (version, address, start time, process id), and settings waiting for a restart; for a login that may read feedback, how many new reports there are")
 def admin_overview() -> dict:
+    from ..farm.policy import space
+
     s = settings()
     disk = shutil.disk_usage(s.work_dir) if s.work_dir.exists() else None
     procs = resident().view()["processes"]
@@ -200,6 +198,8 @@ def admin_overview() -> dict:
         "memory": {"total_gb": round(machine_memory_gb(), 1), "available_gb": round(available_gb(), 1),
                    "keep_free_gb": keep_free_gb()},
         "disk": {"path": str(s.work_dir), "total": disk.total if disk else 0, "free": disk.free if disk else 0},
+        # the data disk against 暂停新计算的剩余空间: below it every account's new computing pauses (farm/policy.py)
+        "space": {**space(), "path": str(s.data_dir)},
         "resident": {"processes": len(procs), "vram_mb": sum(p["vram_mb"] for p in procs)},
         "server": {"version": __version__, "boot": restart.BOOT, "started": restart.STARTED, "pid": os.getpid(),
                    "address": address(), "command": " ".join(sys.orig_argv)},
@@ -211,9 +211,10 @@ def admin_overview() -> dict:
 
 
 @admin.get("/overview/recent", access=Access.admin("server.view", hides={f"recent.{g}": (g,) for g in available.RECENT}),
-           summary="概览的「今天和最近」（按服务器的本地时间：今日从零点、近 7 天含今天、本周从周一、本月从 1 号）："
-                   "访问（在线、登录人数、登录次数、登录失败）、注册（新账号，其中自己注册的）、任务（提交的，按结果）、"
-                   "流量（发出的字节）、反馈（新收的、未解决的）；每组只给看得了它对应那一页的登录，带那一页的 section")
+           summary="The overview's Today and Recent (server local time: today from midnight, the last 7 days including today, "
+                   "this week from Monday, this month from the 1st): access (online, users logged in, logins, failed logins), "
+                   "registration (new accounts, of which self-registered), jobs (submitted, by outcome), traffic (bytes sent), "
+                   "feedback (new, unresolved); each group only for a login that may open its page, with that page's section")
 def admin_overview_recent(request: Request) -> dict:
     p = periods.now()
     s = auth.session(request)
@@ -226,10 +227,10 @@ def admin_overview_recent(request: Request) -> dict:
 
 # ------------------------------------------------------------------ restarting (server/restart.py)
 
-public = Router(prefix="/api", tags=["设置"])
+public = Router(prefix="/api", tags=["settings"])
 
 
-@public.get("/server", access=Access.open("服务的这次启动和重启：页面据此知道服务在不在、要不要刷新"), summary="服务本身：这次启动的编号（重启后变）、版本、界面的版本、正在进行的重启（没有是 null），和管理员通知上次修改的时间（变了就重新读 /api/notice），以及这个浏览器现在登录的账号（没登录是 null）；没登录时只有启动编号、界面的版本、重启到哪里接着连")
+@public.get("/server", access=Access.open("This run of the server and restarts: the page learns whether the server is up and whether to reload"), summary="The server itself: this run's id (changes on restart), version, the web page's version, a restart in progress (null: none), when the administrator notice last changed (read /api/notice again when it does), and the account this browser is logged in as (null: none); before logging in only the run id, the page version and where a restart reconnects")
 def server_now(request: Request) -> dict:
     """服务本身这一份：这次启动的编号、版本、界面的版本、正在进行的重启、通知改动时间，和问的这一次登录的账号。
 
@@ -261,7 +262,7 @@ class RestartRequest(Body):
     mode: str  # drain: after the jobs running; now: stop them
 
 
-@admin.post("/restart", access=Access.admin("server.restart"), summary="重启服务：drain 等计算中的任务算完（不再开始新任务），now 立即停下它们；排队的任务重启后接着排")
+@admin.post("/restart", access=Access.admin("server.restart"), summary="Restart the server: drain waits for running jobs to finish (starting no new ones), now stops them at once; queued jobs stay queued after the restart")
 def admin_restart(req: RestartRequest, request: Request) -> dict:
     s = settings()
     if s.value("server.port") != s["server.port"] and (problem := port_problem(int(s.value("server.port")))):
@@ -273,7 +274,7 @@ def admin_restart(req: RestartRequest, request: Request) -> dict:
     return server_now(request)
 
 
-@admin.post("/stop", access=Access.admin("server.restart", local=True), summary="停止服务（只有这台服务器上的命令行能调：配置菜单的「停止服务」与一键更新用本机令牌）：drain 等计算中的任务算完（不再开始新任务），now 立即停下它们；排队的任务留给下一次启动的服务接着排")
+@admin.post("/stop", access=Access.admin("server.restart", local=True), summary="Stop the server (only the command line on this server, with the local token: the setup menu's Stop Server and the one-step update): drain waits for running jobs to finish (starting no new ones), now stops them at once; queued jobs wait for the next start")
 def admin_stop(req: RestartRequest, request: Request) -> dict:
     try:
         restart.restarter().request(req.mode, then="stop")
@@ -282,7 +283,7 @@ def admin_stop(req: RestartRequest, request: Request) -> dict:
     return server_now(request)
 
 
-@admin.post("/restart/cancel", access=Access.admin("server.restart"), summary="不重启了（还在等计算中的任务时）：队列照常继续")
+@admin.post("/restart/cancel", access=Access.admin("server.restart"), summary="Call off the restart (while still waiting for running jobs): the queue carries on")
 def admin_restart_cancel(request: Request) -> dict:
     restart.restarter().call_off()
     logs.say(log, Msg("I-RESTART-CALLEDOFF"))

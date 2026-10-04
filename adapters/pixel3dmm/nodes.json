@@ -1,6 +1,0 @@
-{
- "pixel3dmm.face": {
-  "label": "Pixel3DMM 面部动作",
-  "description": "Pixel3DMM：先逐帧预测法线图和规范面部坐标，再把 FLAME 头模拟合到整段镜头——先逐帧、再全序列联合优化，带时序平滑，整段共用一台相机并解出 Focal Length。比「SMIRK 面部动作」准、不抖，但慢十几倍；要一帧一帧都有脸，整段最多 1000 帧。"
- }
-}

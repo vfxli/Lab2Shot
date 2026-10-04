@@ -1,0 +1,64 @@
+# MapAnything 扩展包（adapters/mapanything）的消息。一行一条：编号 = 模板。
+
+# ---- 重建（worker.py）
+"N-MAPANYTHING-FEWERFRAMES.other" = "「每段最多帧数」{requested} 是按 16:9 画幅量的，这个画幅一次最多 {limit} 帧：这次按 {limit} 帧分段（分段更多、重叠处更多）"
+"E-MAPANYTHING-NOOVERLAP" = "MapAnything 第 {segment} 段和上一段的重叠帧里没有足够的可靠像素，两段对不齐：把「每段最多帧数」调大（分段更少、重叠更多）再算"
+"W-MAPANYTHING-SEAM" = "MapAnything 第 {segment} 段和上一段对齐后还差 {residual:.1%}（相对景深）：分段处摄影机可能跳一帧。把「每段最多帧数」调大，分段更少"
+"W-MAPANYTHING-SEAMSCALE" = "MapAnything 第 {segment} 段和上一段估的尺度相差 {scale:.2f} 倍：分段处深度值和摄影机位置会跳变。把「每段最多帧数」调大，分段更少"
+"N-MAPANYTHING-NONCOMMERCIAL" = "「模型」选的是 MapAnything main 权重（精度更高）：它是 CC-BY-NC-4.0 许可，结果只能用于研究，不能交给商业项目；要商用请换成 apache 权重"
+"I-MAPANYTHING-DINOV2CODE" = "DINOv2 代码"
+"W-MAPANYTHING-FOCALMISMATCH" = "MapAnything 自己估的焦距（中位数 {model:.0f} px）和给定的焦距 {given:.0f} px 差了 {diff:.0%}：深度贴图和摄影机是按模型自己的焦距算的，可能不准。检查「已知焦距」填的是不是这段素材的实拍焦距（胶片背也要对）"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[stage]
+reconstruct.other = "重建（{frames} 帧）"
+reconstruct_segment = "重建第 {segment}/{segments} 段（{frames} 帧）"
+
+[node."mapanything.reconstruct"]
+subtitle = "深度与摄影机"
+description = "画面 → 每帧摄影机和真实尺度的深度贴图（Meta MapAnything），一次看整段画面，不用特征点匹配，固定机位也出得来。长镜头分段计算再拼接，分段之间尺度会跳；摄影机逐帧会有细小抖动，接「摄影机去抖」；知道焦距一定填上（或者接「AnyCalib 镜头标定」的焦距），长焦镜头它会把焦距估小。焦距逐帧估，变焦镜头跟得上；要最省显存用「CUT3R 深度与摄影机」。点云是每帧一张点图（官方原生的点图，放回这一帧自己的摄影机里），不是整段一套：官方没有合成一份场景点云的输出。"
+
+[node."mapanything.reconstruct".param.model]
+label = "模型"
+
+[node."mapanything.reconstruct".param.model.option]
+main = "主权重"
+apache = "Apache"
+
+[node."mapanything.reconstruct".param.max_frames]
+label = "每段最多帧数"
+
+[node."mapanything.reconstruct".param.max_frames.option]
+50 = "50"
+100 = "100"
+150 = "150"
+200 = "200"
+
+[node."mapanything.reconstruct".official]
+note = "深度是 depth_z（model.py:2107），摄影机是 camera_poses（model.py:2110）加 intrinsics（model.py:2105）。「点云」是官方的世界点图 pts3d（model.py:2102）：worker 交出它的摄影机空间形式 pts3d_cam（model.py:2103，同一份数据换个坐标系），由家族按拼接好的摄影机摆回世界。没有遮罩或人物框输入口：官方 view 字典里可选的只有摄影机内参 / 射线 / 深度 / 位姿（model.py:2059-2064），没有任何遮罩；想局部重建，在送进去之前把其余部分涂黑：「ViTDet 人物框」→「人物框转遮罩」→「图像合成」（留下）→ 这个节点的「RGB」口"
+
+[node."mapanything.reconstruct".licence]
+note = "代码 Apache-2.0。Apache 权重可以商用；主权重（13 个数据集训练，明显更准）是 CC-BY-NC-4.0，非商用。"
+
+[extension.mapanything]
+summary = "通用真实尺度三维重建的开源研究框架；端到端训练的 Transformer 按画面、标定、位姿或深度贴图回归出场景的三维几何"
+
+[extension.mapanything.license]
+name = "Apache-2.0（代码、apache 权重）/ CC-BY-NC-4.0（main 权重，非商用）"
+summary = "代码 Apache-2.0，可商用。两套权重：map-anything-apache 为 Apache-2.0，可商用；map-anything（main，精度更高）为 CC-BY-NC-4.0，仅限非商用（研究可用，需署名）。依赖 UniCeption 为 BSD-3-Clause；DINOv2 主干网络代码为 Apache-2.0（其仓库里另有 Cell-DINO / XRay-DINO 非商用代码和权重，本扩展不导入也不下载）"
+
+[extension.mapanything.weight.main-config]
+note = "facebook/map-anything（CC-BY-NC-4.0，非商用）"
+
+[extension.mapanything.weight.main-model]
+note = "facebook/map-anything（CC-BY-NC-4.0，非商用）"
+
+[extension.mapanything.weight.apache-config]
+note = "facebook/map-anything-apache（Apache-2.0）"
+
+[extension.mapanything.weight.apache-model]
+note = "facebook/map-anything-apache（Apache-2.0）"
+
+[extension.mapanything.weight.dinov2-code]
+note = "DINOv2 主干网络结构代码（Apache-2.0，只用结构，不下载 DINOv2 权重）"

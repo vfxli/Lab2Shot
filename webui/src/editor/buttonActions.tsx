@@ -19,17 +19,24 @@ import { sizeText } from "../platform/format";
 import { useCookInputs } from "../state/cookInputs";
 import { outputKey, useResults } from "../state/results";
 import { Button } from "../ui/Button";
-import { canLeave, enterPicking, leavePicking, pickingOn } from "../state/viewPicking";
+import { enterPicking, leavePicking, pickingOn } from "../state/viewPicking";
+import { useHandleView } from "../state/handleView";
 import { why } from "../api/applies";
 import { useLook } from "../state/look";
-import { useGraphSnapshot } from "../graph/snapshot";
+import { useGraphDoc } from "../graph/snapshot";
 import { handlesOf } from "../graph/rules";
+import { hasPicture } from "../view/plan";
+import { useLocalPicture } from "../view/localPick";
+import { t, useT } from "../i18n/t";
+import { textOf } from "../messages/message";
+import { tipOf } from "../platform/tips";
 
 interface ButtonNow {
   text: string; // 按钮上的字
-  off: boolean; // 现在点不了
-  why: string; // 点不了的原因 / 点了会做什么：只作悬停提示（节点上）；面板里不另起一行：那一行一闪而过会让整个面板跳动。
-  // 点不了的时候原因压缩进按钮文字本身（一行、高度不变），细节走顶栏「日志」和通知
+  off: boolean; // 现在点不了：按钮上只带一个短词（一行、不比按钮本身长），完整原因在 `why`
+  why?: string; // 点不了时的完整原因：参数面板里是按钮的悬停提示（节点上不出悬停提示，同一句在参数面板的警告里）
+  // 服务器说现在算不了的原句：参数面板和应用模式里直接写在按钮下面（按钮上就只写名字）；节点上的小号按钮照旧只带短词
+  below?: string;
   run: () => void;
   on?: boolean; // 一个开关状态的按钮现在开着（「在视图里点选」正在点选）：按钮高亮
 }
@@ -37,7 +44,7 @@ interface ButtonNow {
 type ActionHook = (nodeId: string, p: ParamDef) => ButtonNow;
 
 /** 「计算」点不了时压进按钮文字的原因（一行、高度不变）。 */
-const HOLD_WORDS: Record<Exclude<CookHold, "unplannable" | null>, string> = { submitting: "提交中…", busy: "有任务在算", paused: "现在不能提交" };
+const HOLD_WORDS: Record<Exclude<CookHold, "unplannable" | null>, string> = { submitting: "ui.params.button.submitting", busy: "ui.params.button.busy", paused: "ui.params.button.paused" };
 
 /** 这个节点正在算吗、算到哪：不在算为 undefined；在算为整个任务的完成量（0–1），还不知道为 null。 */
 function useCooking(nodeId: string): number | null | undefined {
@@ -59,7 +66,7 @@ function useJustDone(nodeId: string): string | null {
     const t = setTimeout(() => tick((n) => n + 1), 1500 - (Date.now() - done!.at) + 20);
     return () => clearTimeout(t);
   }, [hit, done]);
-  return hit ? (done!.state === "done" ? "✓ 完成" : done!.state === "cancelled" ? "已取消" : "✗ 出错，看日志") : null;
+  return hit ? t(done!.state === "done" ? "ui.params.button.done" : done!.state === "cancelled" ? "ui.params.button.cancelled" : "ui.params.button.failed") : null;
 }
 
 const useCook: ActionHook = (nodeId, p) => {
@@ -67,17 +74,17 @@ const useCook: ActionHook = (nodeId, p) => {
   const version = useCookInputs((s) => s.version); // 预估只在对上当前编辑时算数（cookHold）
   const port = useLook((s) => s.displayPort); // 预估也要对上看的口
   const hold = useResults((s) => cookHold(s, { node: nodeId, version, port }));
-  const unplannable = useResults((s) => planError(s, { node: nodeId, version, port })?.text ?? ""); // 服务器说算不了的原因：原句压进按钮文字
+  const unplannable = useResults((s) => textOf(planError(s, { node: nodeId, version, port }))); // 服务器说算不了的原因（应用模式按 .app 说）
   const mine = useResults((s) => s.submitting === nodeId); // 正在提交的就是这个节点
   const justDone = useJustDone(nodeId);
   const cooking = useCooking(nodeId);
   return {
-    text: cooking !== undefined ? (cooking === null ? "计算中…" : `计算中 ${percent(cooking)}`) : (mine ? "上传素材、提交中…" : justDone ? `${p.label} · ${justDone}` : hold ? `${p.label}（${hold === "unplannable" ? unplannable : HOLD_WORDS[hold]}）` : p.label),
+    // 服务器说算不了的原句可能很长（「……还没有选蒙皮角色：选一个蒙皮角色后，接到……的线就接上了」）：节点上的按钮只说
+    // 「还不能算」；参数面板、应用模式里原句直接写在按钮下面（below）
+    text: cooking !== undefined ? (cooking === null ? t("ui.params.button.cooking") : t("ui.params.button.cooking_at", { percent: percent(cooking) })) : (mine ? t("ui.params.button.uploading") : justDone ? `${p.label} · ${justDone}` : hold ? t("ui.params.button.held", { label: p.label, why: t(hold === "unplannable" ? "ui.params.button.unplannable" : HOLD_WORDS[hold]) }) : p.label),
     off: hold !== null,
-    why: hold === "busy" ? "这张节点图已经有一个任务在算：等它算完，或在顶栏「队列」旁取消"
-      : hold === "submitting" ? "正在上传素材、提交任务：等它进队列（顶栏「队列」会显示），不用再点"
-      : hold === "paused" ? "现在不能提交计算（计算任务关着，或存储配额满了）：看顶栏的提示"
-      : hold === "unplannable" ? unplannable : "",
+    why: hold === "unplannable" ? unplannable : undefined,
+    below: hold === "unplannable" && unplannable ? unplannable : undefined,
     run: () => cookNode(nodeId), // 视图随之显示这个节点：「在视图里点选」看的是视图显示谁，自然就不亮了（state/viewPicking.ts）
   };
 };
@@ -88,29 +95,35 @@ const useDownload: ActionHook = (nodeId, p) => {
   const cooking = useCooking(nodeId);
   const ready = !!output && !output.gone;
   return {
-    text: cooking !== undefined ? `打包中 · ${cooking === null ? "…" : percent(cooking)}` : ready ? `${p.label} · ${sizeText(output.bytes)}` : output?.gone ? `${p.label}（包已清理，再计算）` : `${p.label}（先计算）`,
+    text: cooking !== undefined ? t("ui.params.button.packing", { percent: cooking === null ? "…" : percent(cooking) }) : ready ? `${p.label} · ${sizeText(output.bytes)}` : t(output?.gone ? "ui.params.button.package_gone" : "ui.params.button.cook_first", { label: p.label }),
     off: !ready,
-    why: output?.gone ? "这个任务已经过了保留天数，服务器上删掉了：再「计算」一次这个「输出」" : ready ? "" : "还没有打好的包：先「计算」这个「输出」（收集接进来的结果、打成 zip）",
     run: () => output && downloadOutput(output),
   };
 };
 
-/** 「在视图里点选」（服务端 nodes/params.py pick_button，每个 picks / canvas 参数自动一个，`target` 是那个参数）。亮不亮
+/** 「在视图里点选」（服务端 nodes/params.py pick_button，2D 手柄所改的每个参数——点选、轮廓、火柴人，nodes/handles.py PICKED_IN_VIEW——自动一个，`target` 是那个参数）。亮不亮
  * 只看事实（state/viewPicking.ts pickingOn）：视图正显示这个节点、且它这个参数的手柄可用。没亮时点 = 让视图显示它
  * （同双击，并记下之前显示的）；亮着点 = 回到进入前显示的（没有记录就不动）。目标参数现在不适用（节点规则置灰，例如
  * 「选人」不是点选方式）时不能点。 */
 const usePickInView: ActionHook = (nodeId, p) => {
   const param = p.target ?? "";
   const displayId = useLook((s) => s.displayId);
-  const snap = useGraphSnapshot();
-  const handleActive = handlesOf(snap, nodeId).some((h) => Object.values(h.params).includes(param));
-  const on = pickingOn(displayId, nodeId, handleActive);
-  const back = on && canLeave(displayId, nodeId); // 双击节点进来的没有「进入前」可回：只说正在点选，不写「点这里结束」
+  const snap = useGraphDoc();
+  const mine = handlesOf(snap, nodeId).filter((h) => Object.values(h.params).includes(param));
+  const handleActive = mine.length > 0;
+  const picking = useHandleView((s) => s.picking);
+  const on = pickingOn(displayId, nodeId, handleActive, picking);
   const inactive = useResults((s) => why(s.results[nodeId]?.applies, param));
+  // 还没有画面（没选素材）：点了也没东西可点，置灰并在按钮下写原因。画面是视图会画的那一份：本机选的文件（还没传也算，
+  // view/localPick.ts），或服务器上已有的上游画面
+  const local = useLocalPicture(nodeId);
+  const blank = !on && !inactive && !local && !hasPicture(snap, nodeId, mine.flatMap((h) => (h.source ? [h.source] : [])));
   return {
-    text: on ? (back ? "正在视图里点选…（点这里结束）" : "正在视图里点选…") : inactive ? `${p.label}（现在用不上）` : p.label,
-    off: !on && !!inactive,
-    why: inactive ?? "",
+    // 开着：蓝色、写「退出编辑」，再点就退出（同视图工具栏的「退出编辑」，state/viewPicking.ts exitViewOperation）
+    text: on ? t("ui.params.edit_exit") : inactive ? t("ui.params.button.inactive", { label: p.label }) : p.label,
+    off: !on && (!!inactive || blank),
+    why: blank ? t("ui.params.button.no_picture") : undefined,
+    below: blank ? t("ui.params.button.no_picture") : undefined,
     on,
     run: () => (on ? leavePicking(nodeId) : enterPicking(nodeId)),
   };
@@ -118,17 +131,21 @@ const usePickInView: ActionHook = (nodeId, p) => {
 
 const ACTIONS: Record<string, ActionHook> = { cook: useCook, download: useDownload, pick_in_view: usePickInView };
 
-const useNothing: ActionHook = (_nodeId, p) => ({ text: p.label, off: true, why: "这个页面还不认识这个按钮：刷新页面试试", run: () => {} });
+const useNothing: ActionHook = (_nodeId, p) => ({ text: p.label, off: true, run: () => {} });
 
 /** 一个按钮参数的控件：参数面板里占满参数列（`mini`：节点上的小号）。 */
 export function ButtonParam({ nodeId, p, mini }: { nodeId: string; p: ParamDef; mini?: boolean }) {
+  useT(); // also drawn inside a memoised graph node: its words follow the language by themselves
   const now = (ACTIONS[p.action ?? ""] ?? useNothing)(nodeId, p);
+  const said = !mini && now.below; // the reason is written under the button: the button says its name only, no tip
   return (
     <span className={`pbutton${mini ? " mini" : ""}`}>
-      <Button size={mini ? "xs" : "sm"} tone={now.on ? "primary" : mini ? "ghost" : "default"} on={now.on} layout="pbutton-btn" disabled={now.off} tip={now.why || undefined}
+      <Button size={mini ? "xs" : "sm"} tone={now.on ? "primary" : mini ? "ghost" : "default"} on={now.on} layout="pbutton-btn" disabled={now.off}
+        tip={now.off && now.why && !said ? tipOf("disabled", now.why) : undefined}
         onClick={(e) => (e.stopPropagation(), now.run())}>
-        {now.text}
+        {said ? p.label : now.text}
       </Button>
+      {said && <span className="pwhy pbutton-why">{now.below}</span>}
     </span>
   );
 }

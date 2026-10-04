@@ -14,6 +14,7 @@ import type { DiskUsage, HistoryJob, JobLoad, JobRecord, QueueView, ResidentView
 import { normalizeStatus, type Choice, type ClipboardText, type ItemsPage, type StatusReply } from "./status";
 import { usageFilled, type UsageStats } from "./usage";
 import { libraryApi } from "./library";
+import { getLang, type Lang } from "../i18n/lang";
 
 export * from "./catalog";
 export * from "./progress";
@@ -28,11 +29,13 @@ export interface Account {
   id: number;
   username: string;
   name: string;
-  department: string;
+  department: string; // its value (stored)
+  department_label: string; // how it shows (lab2shot/accounts.py department_label)
   role: string; // lab2shot/roles.py, shown by its label: what the pages offer comes from AuthState's availability
   role_label: string;
   tags: string[]; // what it may use besides the basics (nodes/tags.py)
   expires: number | null; // null: never (the built-in administrator account)
+  lang?: string; // the language the account chose ("": none, the browser's)
 }
 
 /** Another login of this account (same kind: a browser, or a DCC plugin/command line) ended this one: one place
@@ -58,6 +61,7 @@ export interface AuthState {
   passphrase?: boolean;
   kicked?: KickedInfo;
   settings_pages?: SettingsPageEntry[]; // signed in: the admin side list's 设置 band (lab2shot/config.py PAGES)
+  lang?: string; // what the server speaks to this login (server/lang.py): the page's language (i18n/lang.ts)
 }
 
 /** One settings page as the admin side list shows it: its id (its section of the admin page is settings-<id>), name
@@ -71,8 +75,8 @@ export interface SettingsPageEntry {
 
 /** An ask about the graph: the graph goes once per version, later asks name it (model/graphSync.ts); a server that
  * does not have that version (restarted) gets the whole graph once more. */
-async function askGraph<T>(url: string, graph: GraphJSON, extra: Record<string, unknown>): Promise<T> {
-  const asking = (ref: GraphRef) => json<T>("POST", url, { ...ref, ...extra });
+async function askGraph<T>(url: string, graph: GraphJSON, extra: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
+  const asking = (ref: GraphRef) => json<T>("POST", url, { ...ref, ...extra }, signal ? { signal } : undefined);
   let ref = graphRef(graph);
   let data: T;
   try {
@@ -90,18 +94,21 @@ async function askGraph<T>(url: string, graph: GraphJSON, extra: Record<string, 
  * the account's task history; the history itself (/api/queue/history: every unexpired task, their groups and cache
  * marks) is asked for when that version is not the one kept here, so an unchanged history is never sent again. The
  * answer is the same either way: the poll's with `history` filled in. */
-type HistoryKept = { version: string; history: HistoryJob[] };
+// kept per language too: the history's titles, errors and reasons are said in the language it was asked in (a page that
+// switched language asks again, server/farm.py queue_history)
+type HistoryKept = { version: string; history: HistoryJob[]; lang?: Lang };
 let historyKept: HistoryKept | null = null;
 // the history being asked for, for the version it was asked for: calls at the same moment (a page opening polls and
 // resumes its jobs at once) share one request
-let historyAsked: { version: string | undefined; answer: Promise<HistoryKept> } | null = null;
+let historyAsked: { version: string | undefined; lang: Lang; answer: Promise<HistoryKept> } | null = null;
 
 async function queueWithHistory(load: boolean): Promise<QueueView> {
   const view = await json<QueueView>("GET", `/api/queue${load ? "" : "?load=0"}`);
-  if (!historyKept || historyKept.version !== view.history_version) {
-    if (historyAsked?.version !== view.history_version) {
-      const answer = json<HistoryKept>("GET", "/api/queue/history");
-      historyAsked = { version: view.history_version, answer };
+  const lang = getLang();
+  if (!historyKept || historyKept.version !== view.history_version || historyKept.lang !== lang) {
+    if (historyAsked?.version !== view.history_version || historyAsked?.lang !== lang) {
+      const answer = json<HistoryKept>("GET", "/api/queue/history").then((got) => ({ ...got, lang }));
+      historyAsked = { version: view.history_version, lang, answer };
       answer.then((got) => (historyKept = got), () => undefined).finally(() => {
         if (historyAsked?.answer === answer) historyAsked = null;
       });
@@ -109,6 +116,12 @@ async function queueWithHistory(load: boolean): Promise<QueueView> {
     historyKept = await historyAsked!.answer;
   }
   return { ...view, history: historyKept.history };
+}
+
+/** One submission's own: its submit key and the step's time limit (graph/submitLine.ts). */
+interface Submitting {
+  submit?: string;
+  signal?: AbortSignal;
 }
 
 export const api = {
@@ -123,7 +136,7 @@ export const api = {
     extensions: () => json<{ extensions: ExtensionRow[] }>("GET", "/api/admin/extensions"),
     list: () => json<{ jobs: InstallTask[] }>("GET", "/api/admin/installs"),
     preflight: (name: string) => json<Checklist>("GET", `/api/admin/extensions/${encodeURIComponent(name)}/preflight`),
-    start: (name: string, force = false) => json<InstallTask>("POST", "/api/admin/installs", { name, force }),
+    start: (name: string, rebuild = false) => json<InstallTask>("POST", "/api/admin/installs", { name, rebuild }),
     job: (id: string, since: number) => json<InstallTask>("GET", `/api/admin/installs/${encodeURIComponent(id)}?since=${since}`),
     cancel: (id: string) => json<InstallTask>("POST", `/api/admin/installs/${encodeURIComponent(id)}/cancel`, {}),
     rollback: (name: string) => json<unknown>("POST", `/api/admin/extensions/${encodeURIComponent(name)}/rollback`, {}),
@@ -147,11 +160,14 @@ export const api = {
   // the copy the page holds of it (StatusReply handle_data): while that still matches, the reply leaves the (large)
   // data out
   // `show`: the displayed node's outputs the viewer shows, as `cook` sends them: its plan is judged as that cook would be
-  status: (graph: GraphJSON, cookInputs: number, display: string | null, view: Record<string, string> = {}, handles: { node: string; key: string } = { node: "", key: "" }, show: string[] = []) =>
+  // `signal`: the submission's own time limit (graph/submitLine.ts); the editor's own asks have none
+  stopReadings: () => json<{ stopped: number }>("POST", "/api/readings/stop", {}),
+  // `holds`: the other nodes whose 「计算」 the page offers (a card's buttons): the reply says why each can't cook now
+  status: (graph: GraphJSON, cookInputs: number, display: string | null, view: Record<string, string> = {}, handles: { node: string; key: string } = { node: "", key: "" }, show: string[] = [], signal?: AbortSignal, holds: string[] = []) =>
     askGraph<StatusReply>("/api/status", graph, {
-      cook_inputs: cookInputs, display, ...(show.length ? { show } : {}), ...(Object.keys(view).length ? { view } : {}),
+      cook_inputs: cookInputs, display, ...(show.length ? { show } : {}), ...(Object.keys(view).length ? { view } : {}), ...(holds.length ? { holds } : {}),
       ...(handles.node ? { handle_node: handles.node } : {}), ...(handles.key ? { handle_key: handles.key } : {}),
-    }).then(normalizeStatus),
+    }, signal).then(normalizeStatus),
   /** Item by item for one node inside a 逐项处理 block: a page at a time, of the graph version the
    * status reply came with. The status reply itself is never one entry per item. */
   nodeItems: (graph: string, node: string, offset = 0, limit = 50) =>
@@ -160,10 +176,17 @@ export const api = {
   // its upstream) or deliver ([]: every 「输出」 in the graph, like Nuke's Render All). `version`: the cook inputs'
   // version of the graph (state/cookInputs.ts), which every event of the job carries back; a node_done applies to the
   // page only while it is still that version (graph/streamDone.ts).
-  // `show`: the output ports the viewer is showing (the server cooks only what they need); left out when there are none
-  cook: (graph: GraphJSON, version: number, target: string, show: string[] = []) =>
-    askGraph<{ job: string }>("/api/jobs", graph, { cook: target, version, ...(show.length ? { show } : {}), client: clientInfo() }),
-  deliver: (graph: GraphJSON, version: number) => askGraph<{ job: string }>("/api/jobs", graph, { deliver: [], version, client: clientInfo() }),
+  // `show`: the output ports the viewer is showing (the server cooks only what they need); left out when there are none.
+  // `follows`: the account's own job this one follows (the focus mode's 「计算」, editor/AppMode.tsx: a DCC plugin finds
+  // its job's newest result by it). `submit`: the click's submit key (graph/submitLine.ts): sent again after a lost
+  // answer, it never makes a second job; `signal`: the step's time limit
+  cook: (graph: GraphJSON, version: number, target: string, show: string[] = [], follows?: string, o: Submitting = {}) =>
+    askGraph<{ job: string }>("/api/jobs", graph, { cook: target, version, ...(show.length ? { show } : {}), ...(follows ? { follows } : {}), ...(o.submit ? { submit: o.submit } : {}), client: clientInfo() }, o.signal),
+  deliver: (graph: GraphJSON, version: number, follows?: string, o: Submitting = {}) =>
+    askGraph<{ job: string }>("/api/jobs", graph, { deliver: [], version, ...(follows ? { follows } : {}), ...(o.submit ? { submit: o.submit } : {}), client: clientInfo() }, o.signal),
+  /** A job's state now (the first check after submitting: is it there); `since` at its maximum, so no event comes back. */
+  jobState: (job: string, signal?: AbortSignal) =>
+    json<{ state: string; done: boolean }>("GET", `/api/jobs/${encodeURIComponent(job)}/state?since=${Number.MAX_SAFE_INTEGER}`, undefined, signal ? { signal } : undefined),
   // the job's events as a stream that mends itself (platform/events.ts: nothing else opens an EventSource)
   // after a refusal, the reason is asked through the job's state (no stream; since at its maximum, so no event comes back)
   cookEvents: (job: string) => followEvents(`/api/jobs/${job}/events`, `/api/jobs/${job}/state?since=${Number.MAX_SAFE_INTEGER}`),
@@ -238,6 +261,13 @@ export const api = {
   clipboard: (fp: string) => json<ClipboardText>("GET", clipboardUrl(fp)),
   sendLog: (text: string) => json<{ ok: boolean }>("POST", "/api/logs", { text, client: clientInfo() }),
   /** Logging in with an account (lab2shot/server/auth.py); the administrator's forgotten password with the 口令. */
+  /** The account's own choices (server/lang.py). */
+  me: {
+    lang: (lang: string) => json<{ lang: string }>("PUT", "/api/me/lang", { lang }),
+    // messages the server said before, said again in the page's language now (the log after a switch; server/lang.py)
+    said: (messages: { code: string; params: Record<string, unknown> }[]) =>
+      json<{ texts: (string | null)[] }>("POST", "/api/said", { messages }),
+  },
   auth: {
     state: () => json<AuthState>("GET", "/api/auth/state"),
     login: (username: string, password: string) => json<AuthState>("POST", "/api/auth/login", { username, password, device_id: deviceId() }),

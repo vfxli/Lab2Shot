@@ -15,9 +15,11 @@ WOFTSAM_COMMIT = "5131bdc27d4de1be03d9a40ac8a99eef73dfab0c"  # 2026-08-25 (MPOT-
 SAM2 = GitSource(url="https://github.com/serycjon/sam2.git", commit="903a6cdb054d1b2fba3636d8aa673574d37cfe77")
 
 # SAM-H tells the plane's four corners apart after it was lost with DINOv2 ViT-S/14 (registers) features, loaded by
-# torch.hub.load("facebookresearch/dinov2", ...): the code from this pinned archive (the one MapAnything pins: stored
+# torch.hub.load("facebookresearch/dinov2", ...): the code from this pinned archive (MapAnything pins the same: stored
 # once), the weights as the hub caches them (TORCH_HOME/hub/checkpoints).
-DINOV2_COMMIT = downloads.DINOV2_COMMIT
+DINOV2_COMMIT = "7764ea0f912e53c92e82eb78a2a1631e92725fc8"
+DINOV2_CODE = downloads.Download(f"https://github.com/facebookresearch/dinov2/archive/{DINOV2_COMMIT}.zip",
+                                 "04276715cddb29d45d05bff3a6fc132224dc27749b279ac98ad2ce4620e20d48", kind="zip")
 DINOV2_WEIGHTS = "dinov2_vits14_reg4_pretrain.pth"
 DINOV2_WEIGHTS_SHA256 = "f433177089a681826f849f194ece3bb48f4d63fb38d32fc837e3dc7a4e5641fb"  # 88 MB
 
@@ -30,19 +32,13 @@ class WOFTSAM(Extension):
     name = "woftsam"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "WOFTSAM"
-    summary = "分割引导的单应估计，用于长时平面跟踪；在 POT-210 和 PlanarTrack 两个基准上达到当前最好成绩"
     homepage = "https://cmp.felk.cvut.cz/~serycjon/WOFTSAM/"
     source = GitSource(url=WOFTSAM_URL, commit=WOFTSAM_COMMIT)
     license = LicenseInfo(
         tag=NONCOMMERCIAL,
-        name="CC BY-NC-SA 4.0（非商用）",
         url="https://github.com/serycjon/WOFTSAM/blob/main/LICENSE",
-        summary=(
-            "非商用：WOFTSAM 的代码和它的加权 RAFT 权重是 CC BY-NC-SA 4.0，只能用于研究等非商业用途，改动后要以同样的许可发布、"
-            "署名作者（Serych、Matas）。仓库里的 RAFT 代码是 BSD-3。另外用到的 SAM 2.1 tiny 权重和 SAM 2 代码是 Apache-2.0，"
-            "DINOv2 ViT-S/14 代码和权重是 Apache-2.0"
-        ),
     )
+    generative = False
     import_repo = "src"  # the `flatsam` package from repo/src (its configs and weights are found next to it)
     env = EnvSpec(
         python="3.12",
@@ -53,13 +49,11 @@ class WOFTSAM(Extension):
     )
     extra_sources = {"sam2": SAM2}
     weights = (
-        hf_file(SAM2_REPO, SAM2_REVISION, "sam2.1_hiera_tiny.pt", key="sam2.1_hiera_tiny", sha256=SAM2_SHA256,
-                note="SAM 2.1 Hiera tiny（Apache-2.0，156 MB）：跟着平面的遮罩，丢了以后重新找回"),
-        downloads.DINOV2_CODE.weight(key="dinov2-code", dest="dinov2", note="DINOv2 网络结构代码（Apache-2.0）"),
+        hf_file(SAM2_REPO, SAM2_REVISION, "sam2.1_hiera_tiny.pt", key="sam2.1_hiera_tiny", sha256=SAM2_SHA256),
+        DINOV2_CODE.weight(key="dinov2-code", dest="dinov2"),
         Weight(key="dinov2_vits14_reg", kind="url",
                source=f"https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/{DINOV2_WEIGHTS}",
-               dest=f"torch/hub/checkpoints/{DINOV2_WEIGHTS}", sha256=DINOV2_WEIGHTS_SHA256,
-               note="DINOv2 ViT-S/14 带 register（Apache-2.0，88 MB）：平面丢了以后分清四个角谁是谁"),
+               dest=f"torch/hub/checkpoints/{DINOV2_WEIGHTS}", sha256=DINOV2_WEIGHTS_SHA256),
     )
 
     def worker_env(self) -> dict[str, str]:

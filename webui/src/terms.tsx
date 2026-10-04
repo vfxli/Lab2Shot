@@ -3,6 +3,8 @@ import { messageOf, type Message } from "./messages/message";
 import { fromGate, json } from "./platform/http";
 import { Button } from "./ui/Button";
 import { Sheet } from "./ui/Sheet";
+import { t } from "./i18n/t";
+import { tipOf } from "./platform/tips";
 
 /** 用户协议 and 隐私政策 (lab2shot/terms, server/terms.py) on the login page: the box to tick when registering
  * (register.tsx), and the card an account that has not agreed to the current version meets before anything else
@@ -84,23 +86,23 @@ export function TermsSheet({ doc, onClose }: { doc: TermsDoc; onClose: () => voi
 /** 「我已阅读并同意《用户协议》和《隐私政策》」: the box, and each title a link that opens its text. */
 export function TermsBox({ view, on, bad, onChange }: { view: TermsView | null; on: boolean; bad?: boolean; onChange: (on: boolean) => void }) {
   const [open, setOpen] = useState<TermsDoc | null>(null);
-  const link = (id: string, title: string) => {
+  const link = (id: string, title: string) => { // title: the document's name, already in the page's language
     const doc = view?.documents.find((d) => d.id === id);
     return (
-      <Button tip={`打开《${title}》读一遍`} tone="link" disabled={!doc} onClick={() => doc && setOpen(doc)}>
-        《{title}》
+      <Button tone="link" disabled={!doc} onClick={() => doc && setOpen(doc)}>
+        {t("ui.terms.quoted", { title })}
       </Button>
     );
   };
   return (
     <div className={`terms-box${bad ? " bad" : ""}`}>
-      <label data-tip="注册和使用之前要先读过并同意这两份文字">
+      <label>
         <input type="checkbox" name="terms" checked={on} disabled={!view} onChange={(e) => onChange(e.target.checked)} />
-        <span>我已阅读并同意</span>
+        <span>{t("ui.terms.agree_box")}</span>
       </label>
-      {link("agreement", "用户协议")}
-      <span>和</span>
-      {link("privacy", "隐私政策")}
+      {link("agreement", t("ui.terms.agreement"))}
+      <span>{t("ui.terms.and")}</span>
+      {link("privacy", t("ui.terms.privacy"))}
       {open && <TermsSheet doc={open} onClose={() => setOpen(null)} />}
     </div>
   );
@@ -135,13 +137,13 @@ export function TermsCard({ over, onAgreed, onLeave }: { over: boolean; onAgreed
   };
 
   return (
-    <div className="login-card glass clear terms-card" role="dialog" aria-label="用户协议和隐私政策">
-      <h1>{over ? "用户协议和隐私政策更新了" : "用户协议和隐私政策"}</h1>
+    <div className="login-card glass clear terms-card" role="dialog" aria-label={t("ui.terms.both")}>
+      <h1>{over ? t("ui.terms.both_changed") : t("ui.terms.both")}</h1>
       <p className="login-lede">
         {over
-          ? "《用户协议》和《隐私政策》有了新的版本。读过并同意以后就能接着用，页面上正在做的都还在。"
-          : "使用之前，请先阅读《用户协议》和《隐私政策》，同意以后才能接着用。"}
-        {view ? `（第 ${view.version} 版）` : ""}
+          ? t("ui.terms.changed_lede")
+          : t("ui.terms.lede")}
+        {view ? t("ui.terms.version", { version: view.version }) : ""}
       </p>
       <TermsBox view={view} on={on} onChange={(v) => (setOn(v), setProblem(null))} />
       {problem && (
@@ -150,11 +152,11 @@ export function TermsCard({ over, onAgreed, onLeave }: { over: boolean; onAgreed
         </p>
       )}
       <div className="login-stack">
-        <Button tip={on ? "同意，接着用" : "先读过并勾选同意"} tone="primary" size="lg" layout="login-go" disabled={!on || busy} onClick={() => void agree()}>
-          {busy ? "提交中…" : "同意并继续"}
+        <Button tip={on ? undefined : tipOf("disabled", t("ui.terms.need_tick"))} tone="primary" size="lg" layout="login-go" disabled={!on || busy} onClick={() => void agree()}>
+          {busy ? t("ui.terms.submitting") : t("ui.terms.agree")}
         </Button>
-        <Button tip="不同意：退出登录" tone="ghost" onClick={onLeave}>
-          退出登录
+        <Button tone="ghost" onClick={onLeave}>
+          {t("ui.terms.log_out")}
         </Button>
       </div>
     </div>

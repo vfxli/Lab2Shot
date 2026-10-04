@@ -73,7 +73,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import compile_path
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .. import logs, roles, terms
+from .. import i18n, logs, roles, terms
 from ..accounts import User
 from ..availability import resolve
 from ..config import ROOT, WEBUI_DIST, settings
@@ -81,14 +81,15 @@ from ..database import db, json_text
 from ..engine.graph import Graph, GraphError
 from ..errors import (Forbidden, Invalid, LengthRequired, MessageError, Misdirected, NotFound, NotSignedIn,
                       TooLarge, TooManyTries)
-from ..messages import Msg, plain
+from ..messages import Msg, wire as kept
 from ..text import decimal
 from ..nodes import tags
 from ..traffic import SCOPE_USER
-from . import auth, wire
+from . import auth, lang, wire
 from .repeats import Repeats
 from .routes import ADMIN, MAX_BODY, MAX_NODES, Access, declared_as, match
 from .wire import off_loop
+from .words import Word
 
 # Each route's level, capability and limits are declared with the route, once (server/routes.py Access).
 
@@ -121,9 +122,9 @@ def route_of(request: Request) -> tuple[str, Access] | None:
 audit_log = logs.get("admin")
 
 
-DONE = "成功"
-REFUSED = "拒绝"
-FAILED = "失败"
+DONE = "done"  # admin_actions.status: an id (its words server.audit.<status>)
+REFUSED = "refused"
+FAILED = "failed"
 STATUS_OF = {"I": DONE, "W": REFUSED, "E": FAILED}  # an audit message's level -> how the action went
 
 # the audit rows written while one admin write is served (Guard): the route's own, where the action was done or
@@ -151,7 +152,7 @@ def audit(message: Msg, session=None, method: str = "", path: str = "", about: i
         written.append(message.code)
     user = getattr(session, "user", None)
     row = (time.time(), getattr(user, "id", None), getattr(user, "role", ""), message.code,
-           json_text({k: plain(v) for k, v in message.params.items()}), method, path, STATUS_OF[message.level], about)
+           json_text({k: kept(v) for k, v in message.params.items()}), method, path, STATUS_OF[message.level], about)
     if message.level == "W":
         _refusals.happened((row[1], message.code, method, path), {"row": row, "message": message})
     else:
@@ -184,12 +185,12 @@ def ended(s, need: str, method: str, path: str, status: int) -> Msg:
     """An admin write whose route wrote no audit of its own, as it ended: done, refused (4xx) or failed (5xx)."""
     who, role = named(s)
     code = "I-AUDIT-ACTION" if status < 400 else "W-AUDIT-ACTIONREFUSED" if status < 500 else "E-AUDIT-ACTIONFAILED"
-    return Msg(code, who=who, role=role, what=roles.CAPABILITIES[need].what, method=method, path=path, status=status)
+    return Msg(code, who=who, role=role, what=roles.CAPABILITIES[need].what_word, method=method, path=path, status=status)
 
 
 def named(s) -> tuple[str, str]:
     """Who a session is and its role, as an audit line's words say them (`who`, `role`)."""
-    return (s.user.label, roles.label(s.user.role)) if s is not None else ("未登录", "")
+    return (s.user.label, roles.word(s.user.role)) if s is not None else (Word("server.not_signed_in"), "")
 ADMIN_PAGES = ("src/admin/AdminApp.tsx",)  # the build's entries of the admin's own pages
 
 
@@ -246,7 +247,12 @@ def level(method: str, path: str, found: tuple[str, Access] | None) -> str | Non
     if path.startswith("/assets/"):
         return asset_level(path)
     if not path.startswith("/api/"):
-        return "open" if method in ("GET", "HEAD") and PAGE_ENTRY.match(path) else None  # the page's entry: index.html
+        if method not in ("GET", "HEAD"):
+            return None
+        # the page's entry (index.html), or a page address of its own declared at a fixed path (Access.page: /embed,
+        # server/auth.py), never the entry's catch-all
+        fixed = found is not None and found[1].level == "page" and "{" not in found[0]
+        return "open" if PAGE_ENTRY.match(path) or fixed else None
     return found[1].level if found is not None and found[1].level in ("open", "user") else None
 
 
@@ -348,29 +354,34 @@ def node_types_for(u: User | None) -> dict:
 
 
 def templates_for(u: User | None) -> list[dict]:
-    """The templates an account may use: some route through it (its menus' values) with every node and choice of it
-    within its tags and, unless this login manages
-    the templates, only the ones that are switched on (switched in server/templates.py; this is the one place that
-    filter lives, so the template panel and the tools routes (server/tools.py) agree without either deciding anything).
+    """The templates an account may see: every node of its graph one the account may use (node_types_for: its licence
+    class and capability gates, 生成式扩散 among them, within the account's tags) — what touches anything not given is
+    not seen at all, as the node itself is not (no switch or route is judged, nothing greyed) — and,
+    unless this login manages the templates (it sees them all), only the ones that are switched on (switched in
+    server/templates.py). This is the one place that filter lives, so the template panel, the tools routes
+    (server/tools.py) and a DCC plugin agree without either deciding anything. A parameter's options the account may
+    not use stay hidden on the node (params_for), not on the card.
 
-    Two sources, one list (engine/templates.py templates, read by lab2shot/library.py presets): the project's
+    Two sources, one list (lab2shot/site/library.py presets): the project's
     templates/ (including the ones an administrator saved there from a node graph) and each adapter's own templates/;
     they are cards of the same shape, so nothing downstream tells them apart."""
-    from ..engine.templates import templates
+    from ..site.library import presets as templates
 
-    given = u.allowed if u else None
     manages = u is not None and "templates.create" in u.capabilities
-    # open to anyone some route through it is open to (its menus' values, library route_licences); the chip it shows
-    # stays the defaults' route
-    return [t for t in templates() if any(tags.may(frozenset(r), given) for r in t["route_licences"]) and (manages or t["enabled"])]
+    if manages:
+        return list(templates())
+    usable = node_types_for(u)
+    return [t for t in templates()
+            if t["enabled"] and all(n.get("type") in usable for n in (t["graph"].get("nodes") or ()))]
 
 
 def _hidden_choices(given: frozenset[str] | None, node_type) -> dict[str, list]:
-    """Parameter -> the values of it someone given `given` may not use: the ones whose licence class (nodes/applies.py
-    OptionTrait.licence: 非商用, 仅限研究) the account was not given, judged as a node's own class is (tags.may)."""
+    """Parameter -> the values of it someone given `given` may not use: the ones whose licence class or registration
+    (nodes/applies.py OptionTrait: 非商用, 仅限研究, 需注册) the account was not given, judged as a node's own class
+    is (tags.may)."""
     from ..nodes.applies import licensed_choices
 
-    out = {name: [v for v, level in values.items() if not tags.may(frozenset({level}), given)]
+    out = {name: [v for v, chosen in values.items() if not tags.may(frozenset(chosen), given)]
            for name, values in licensed_choices(node_type).items()}
     return {name: values for name, values in out.items() if values}
 
@@ -416,7 +427,7 @@ def describe_for(s, node_type) -> dict:
     defaults and the lookup table of what choices change without the choices its account may not use."""
     from ..nodes.applies import option_key
 
-    from ..catalog import describe
+    from ..site.catalog import describe
 
     desc = describe(node_type)
     hidden = _hidden_choices(s.user.allowed if s is not None else None, node_type)
@@ -440,7 +451,13 @@ def admit(request: Request, data: dict) -> Graph:
     is missing and why. Uploads are not looked at here at all: one that is not this account's is not there when it is
     read (transfer/uploads.py resolve, for the account this request serves), so that node fails at itself and the
     rest of the graph is answered and cooked as usual."""
-    u = auth.me(request)
+    return admitted(auth.me(request), data)
+
+
+def admitted(u: User, data: dict) -> Graph:
+    """admit's rule for an account: the graph read, or GraphError saying why it is refused. The one rule a graph is
+    taken by: every request with a graph goes through admit, and the tools a DCC plugin is offered (server/tools.py)
+    are the ones it lets through, so what is listed can be submitted."""
     if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
         raise GraphError(Msg("E-GRAPH-NOTAGRAPH"))
     if len(data["nodes"]) > MAX_NODES:  # every graph reaches the server through here: status, plan, a job, a client's
@@ -561,6 +578,15 @@ class Guard:
             return
         request = Request(scope)
         method, path = scope["method"], scope["path"]
+        # the request's language (server/lang.py), before anything is said: what it asks for itself, then (once its
+        # login is read) its account's choice
+        spoken = i18n.set_current(lang.before_login(request))
+        try:
+            await self._guard(request, scope, receive, send, method, path)
+        finally:
+            i18n.reset(spoken)
+
+    async def _guard(self, request: Request, scope: Scope, receive: Receive, send: Send, method: str, path: str) -> None:
         try:
             s, need, refused, scrubbing, fields = await off_loop(self.look, request, method, path)
         except Exception as exc:  # the guard's own fault: answered as every failure is, with its reference (logs.failed)
@@ -572,6 +598,9 @@ class Guard:
         # attribute the response bytes to this account. This is the only place in the server that identifies the
         # request's owner; traffic accounting does not identify it again.
         scope[SCOPE_USER] = s.user.id if s is not None else 0
+        said_in = lang.of(request, s)
+        i18n.set_current(said_in)
+        scope[lang.SCOPE_KEY] = said_in
         transforming = scrubbing or bool(fields)
         hsts = auth.https(request) and _named(auth.host(request))
 
@@ -594,6 +623,8 @@ class Guard:
                 headers = MutableHeaders(scope=message)
                 for k, v in HEADERS.items():
                     headers.setdefault(k, v)
+                headers["Content-Language"] = said_in  # what it is said in, and what that depends on (server/lang.py)
+                headers["Vary"] = ", ".join(v for v in (headers.get("vary", ""), lang.VARY) if v)
                 if hsts:
                     headers["Strict-Transport-Security"] = wire.HSTS
                 if path.startswith((ADMIN, "/api/auth/")):
@@ -647,6 +678,7 @@ class Guard:
         from . import available
 
         s, found = auth.session(request), route_of(request)
+        i18n.set_current(lang.of(request, s))  # a refusal below speaks the account's language (this thread's context)
         need = found[1].needs if found is not None else None
         refused = self.refusal(request, method, path, s, found)
         privileged = s is not None and s.can("logs.view")  # sees where the server keeps things
@@ -659,20 +691,20 @@ class Guard:
         if blocked := g.watch.is_blocked(request):
             return refused(TooManyTries(Msg("E-ACCESS-BLOCKED", minutes=int(blocked / 60) + 1)))
         if not auth.host_known(request):  # another site's name pointing here (DNS rebinding), or a name not yet listed
-            g.watch.note(request, "陌生的域名", request.headers.get("host", "")[:200])
+            g.watch.note(request, "unknown_host", request.headers.get("host", "")[:200])
             return refused(Misdirected(Msg("E-ACCESS-UNKNOWNHOST", host=request.headers.get("host", "")[:200])))
         key, own = auth.client_key(request), found[1].limit if found is not None else None
         rated = own is not None and own.burst is not None
         if not (g.rate.take(f"{found[0]} {key}", own.burst, own.per_s) if rated else g.rate.take(key)):
-            g.watch.note(request, "请求太频繁")  # every session counts, the administrator's too
+            g.watch.note(request, "too_fast")  # every session counts, the administrator's too
             return refused(TooManyTries(Msg("E-ACCESS-TOOFAST")))
         raw, query = request.scope.get("raw_path") or request.scope["path"].encode(), request.scope.get("query_string") or b""
         if probe_path(raw, found, s) or PROBE_QUERY.search(query):
-            g.watch.note(request, "路径可疑", (raw + (b"?" + query if query else b"")).decode("latin-1")[:200])
+            g.watch.note(request, "odd_path", (raw + (b"?" + query if query else b"")).decode("latin-1")[:200])
         if PROBE_QUERY.search(query):  # going up or NUL in a parameter: never a name any page sends (defence in depth)
             return refused(Invalid(Msg("E-ACCESS-PROBE")))
         if _SLASHES.search(path):  # "//api//admin/x": the routes match the path as sent, so the guard must too;
-            g.watch.note(request, "路径可疑", path[:200])  # collapsing it here would classify one address and serve another
+            g.watch.note(request, "odd_path", path[:200])  # collapsing it here would classify one address and serve another
             return refused(NotFound(Msg("E-ACCESS-NOROUTE")))
         where = level(method, path, found)
         if where is None:
@@ -682,22 +714,22 @@ class Guard:
             # a header anyone can send), so the note says only what is known, never which of the two it was. It is
             # recorded under the admin page's 「安全」 with the account, not counted toward blocking.
             ours = s is not None and same_site(request)
-            g.watch.note(request, "未开放的接口", "已登录，请求自称来自本站页面；不计入封禁" if ours else "", counts=not ours)
+            g.watch.note(request, "no_route", Word("server.watch_detail.ours") if ours else "", counts=not ours)
             return refused(NotFound(Msg("E-ACCESS-NOROUTE")))
         writes = method not in ("GET", "HEAD")
         if where == "admin" and (s is None or not s.capabilities):  # no rights at all now: the page asks for the password
-            g.watch.note(request, "没有管理员权限就访问管理接口")
+            g.watch.note(request, "admin_only")
             return refused(NotSignedIn(Msg("E-ACCESS-ADMINONLY")), admin=True)
         if where == "admin" and path.startswith(ADMIN):
             if need is None:
-                g.watch.note(request, "未开放的接口")
+                g.watch.note(request, "no_route")
                 return refused(NotFound(Msg("E-ACCESS-NOROUTE")))
             if not s.can(need):  # a role without this one: refused with what it lacks and who has it
-                g.watch.note(request, "角色没有这项权限", need)
-                return refused(Forbidden(Msg("E-ACCESS-NOCAPABILITY", role=roles.label(s.user.role),
-                                             what=roles.CAPABILITIES[need].what, roles=roles.holders(need))))
+                g.watch.note(request, "no_capability", need)
+                return refused(Forbidden(Msg("E-ACCESS-NOCAPABILITY", role=roles.word(s.user.role),
+                                             what=roles.CAPABILITIES[need].what_word, roles=roles.holders(need))))
             if found[1].local and not auth.machine(request):  # stopping the server, clearing the counts
-                g.watch.note(request, "只能本机命令行做的事")  # of wrong passwords: never from a browser, whatever its rights
+                g.watch.note(request, "local_only")  # of wrong passwords: never from a browser, whatever its rights
                 return refused(Forbidden(Msg("E-ACCESS-LOCALONLY")))
         if where == "user" and s is None:
             if path.startswith("/api/") and auth.token_of(request):
@@ -710,12 +742,12 @@ class Guard:
                     kicked = auth.kicked_detail(info)
                     return refused(NotSignedIn(kicked), login=True, kicked={**info, "detail": kicked.text, "code": kicked.code})
                 if not auth.accounts.once_issued(auth.credential(request)):
-                    g.watch.note(request, "登录凭证不是这台服务器发的")
+                    g.watch.note(request, "foreign_credential")
             return refused(NotSignedIn(Msg("E-ACCESS-SIGNIN")), login=True)
         if where != "open" and not path.startswith(AUTH) and (owed := terms.owed(s.user)) is not None:
             return refused(Forbidden(Msg("E-TERMS-OWED")), terms=owed)
         if writes and not auth.by_header(request) and not same_site(request):  # the cookie's, or logging in
-            g.watch.note(request, "跨站请求")
+            g.watch.note(request, "cross_site")
             return refused(Forbidden(Msg("E-ACCESS-CROSSSITE")))
         most = own.body if own is not None else MAX_BODY
         if most is not None:  # whatever the method: a GET may carry a body too, and routes.Route reads any JSON one
@@ -723,6 +755,6 @@ class Guard:
             if length is None and "chunked" in request.headers.get("transfer-encoding", "").lower():
                 return refused(LengthRequired(Msg("E-ACCESS-NOLENGTH")))
             if length is not None and (decimal(length) is None or decimal(length) > most):
-                g.watch.note(request, "请求太大", f"{length} 字节")
+                g.watch.note(request, "too_big", Word("server.watch_detail.bytes", count=length))
                 return refused(TooLarge(Msg("E-ACCESS-TOOBIG", mb=round(most / (1 << 20), 2))))
         return None

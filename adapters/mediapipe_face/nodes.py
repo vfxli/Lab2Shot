@@ -11,7 +11,7 @@ from lab2shot.sdk import (rgb_port, Official, SCENE_FILE, Msg, NothingToCook, Wo
 
 
 class Face(WorkerNode):
-    id = "mediapipe_face.face"
+    id = "mediapipe_face.face_solve"
     # 引的是官方 Tasks API 自己定义的结果类型 FaceLandmarkerResult：一张画面进去（detect(image)，同文件
     # 3189-3193），出来 face_landmarks / face_blendshapes / facial_transformation_matrixes 三样，没有别的。
     official = Official(
@@ -19,38 +19,29 @@ class Face(WorkerNode):
         takes={"image": "image"},
         gives={"landmarks": "face_landmarks", "expressions": "face_blendshapes",
                "head": "facial_transformation_matrixes"},
-        note="① 「头部」口给的是官方那张 canonical face 网格（上游自带的资源）按 "
-             "facial_transformation_matrixes 逐帧摆位，网格本身和矩阵都是官方的。② 没有「相机」输出口："
-             "官方的矩阵是相对它自己假设的一台虚拟相机（63° 垂直视场）说的，FaceLandmarkerResult "
-             "里没有相机这一项；worker 按那个视场造的相机（worker.py VIRTUAL_VFOV_DEG）"
-             "只用来把头部网格摆进世界，不是官方结果，不交出去。要把头放进某台相机的世界，"
-             "接核心节点「相机空间转换」（core.camera_space）。③ image 的确切出处是同文件 `3189-3193 def "
-             "detect(self, image: image_lib.Image) -> FaceLandmarkerResult`。",
     )
     lens = "pinhole"  # treats the plate as a lens without distortion: says it needs undistorted plates
     on_node = ("max_faces", "mode")
     # 只用 CPU：113 帧的镜头整段约 2.9 秒
-    cost = Cost(seconds_per_frame=0.025, note="只用 CPU")
+    cost = Cost(seconds_per_frame=0.025, note=True)
     # 没有「相机」输入口，也没有「相机」输出口：FaceLandmarkerResult 里没有相机，头部矩阵是相对官方那台
     # 虚拟相机（63° 垂直视场）说的。要把脸放进某台相机的世界，接核心节点「相机空间转换」
     inputs = (rgb_port(),)
     outputs = (
-        Port("landmarks", "tracks2d", "面部关键点"),
-        Port("expressions", "curves", "表情曲线"),
-        Port("head", "scene.model", "头部"),  # the face mask mesh, moved by the head's transform every frame
+        Port("landmarks", "tracks2d"),
+        Port("expressions", "curves"),
+        Port("head", "scene.model"),  # the face mask mesh, moved by the head's transform every frame
     )
     runtime = "mediapipe_face"
 
     class Params(NodeParams):
-        max_faces: int = P(1, label="最多几张脸", ge=1, le=8, group="检测")
-        mode: Literal["video", "image"] = P(
-            "video", label="方式", group="检测",
-            option_labels={"video": "视频", "image": "逐张"},
-        )
-        threshold: float = P(0.5, label="检测阈值", ge=0.0, le=1.0, group="检测", widget="slider")
-        min_tracking_confidence: float = P(0.5, label="跟住门槛", ge=0.0, le=1.0, group="检测", widget="slider", applies=Param("mode").one_of("video"))
-        min_presence_confidence: float = P(0.5, label="存在阈值", ge=0.0, le=1.0, group="检测", widget="slider",
-                                           applies=Param("mode").one_of("video"))
+        max_faces: int = P(1, ge=1, le=8, group="detection")
+        mode: Literal["video", "image"] = P("video", group="detection")
+        threshold: float = P(0.5, ge=0.0, le=1.0, group="detection", widget="slider")
+        min_tracking_confidence: float = P(0.5, ge=0.0, le=1.0, group="detection", widget="slider", applies=Param("mode").one_of("video"))
+        # 「存在阈值」 filters the landmarks in both modes (MediaPipe's face-presence score of every result), so it is
+        # never greyed out; only the tracking threshold belongs to video mode
+        min_presence_confidence: float = P(0.5, ge=0.0, le=1.0, group="detection", widget="slider")
 
     @classmethod
     def convert(cls, ctx, raw, job):

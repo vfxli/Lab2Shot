@@ -16,7 +16,10 @@ those numbers have exactly one home, this module.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import NamedTuple
+
+from ..i18n import Words
 
 import numpy as np
 from lab2shot_shared.units import CV_TO_GL, DEFAULT_FPS, M_TO_CM  # noqa: F401  re-exported (DEFAULT_FPS); shared with workers
@@ -50,13 +53,24 @@ UNITS: dict[str, Unit] = {
     "m": Unit("length", M_TO_CM),
     "px": Unit("pixels", 1.0),
     "°": Unit("angle", 1.0),
-    "帧": Unit("frames", 1.0),
-    "秒": Unit("time", 1.0),
+    "frame": Unit("frames", 1.0),
+    "s": Unit("time", 1.0),
     "EV": Unit("exposure", 1.0),
-    "fps": Unit("rate", 1.0),  # a 「帧率」 port or parameter (读取视频 / 导入 BVH / 导入 USD → 输出设置, 动作模型)
+    "fps": Unit("rate", 1.0),  # a frame rate port or parameter (file_video / bvh.import / usd.import -> output settings, motion models)
 }
-UNIT_KINDS = {"length": "长度", "pixels": "像素", "angle": "角度", "frames": "帧数", "time": "时间", "exposure": "曝光",
-              "rate": "帧率"}
+
+
+# what each kind of unit is called (unit.kind.<kind>), and each unit as it shows (unit.<id>: 帧 / frames)
+UNIT_KINDS: Mapping[str, str] = Words("unit.kind.", tuple(dict.fromkeys(u.kind for u in UNITS.values())))
+UNIT_LABELS: Mapping[str, str] = Words("unit.", tuple(UNITS))
+
+
+def unit_label(unit: str) -> str:
+    """A unit as the artist reads it in the language now (unit.<id>, also for a unit no value converts, like the
+    factor "x"; "" none; one with no words as it is)."""
+    from .. import i18n
+
+    return (i18n.lookup(f"unit.{unit}") or unit) if unit else ""
 
 
 def to_cm(unit: str) -> float:
@@ -94,14 +108,12 @@ def opencv_points_to_usd(xyz: np.ndarray, unit_cm: float = M_TO_CM) -> np.ndarra
     return np.asarray(xyz, np.float64) * CV_TO_GL * unit_cm
 
 
-def usd_points_to_opencv_m(xyz: np.ndarray) -> np.ndarray:
-    """Points in the project's Y-up centimetre space -> OpenCV axes, metres: the inverse of `opencv_points_to_usd`.
-
-    The counterpart of `usd_poses_to_opencv_m` (that one for cameras, this one for points). The axis-flip matrix is
-    defined only in this module; adapters must not apply it themselves (back-projection and normal flipping each have a
-    single implementation in the project).
-    Used by ViPE: 「ViPE 相机解算」 outputs SLAM points as 「点云」, and 「ViPE 深度图」 sends them back upstream."""
-    return np.asarray(xyz, np.float64) * CV_TO_GL / M_TO_CM
+def usd_points_to_m(xyz: np.ndarray) -> np.ndarray:
+    """Points in the project's Y-up centimetre world -> the same world in metres: the world a worker reads cameras in
+    (`usd_poses_to_opencv_m` turns only the camera's own axes to OpenCV, never the world's), so points sent with a
+    camera land in front of it. Not the inverse of `opencv_points_to_usd` (that one comes from a method's own OpenCV
+    world). Used by 「ViPE 深度图」, which sends 「ViPE 相机解算」's SLAM points back upstream with the camera."""
+    return np.asarray(xyz, np.float64) / M_TO_CM
 
 
 def usd_poses_to_opencv_m(cam_to_world: np.ndarray) -> np.ndarray:

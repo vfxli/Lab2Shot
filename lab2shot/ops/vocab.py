@@ -26,15 +26,15 @@ import re
 KINDS: dict[str, dict] = {
     # 逐像素算术：对每个输入像素计算一条公式。变量为输入名（a、b），
     # 通道数较少的一方自动广播到通道数较多的一方（例如单通道遮罩作用于三通道图像）
-    "pixel": {"desc": "每像素算术", "fields": {"expr": "expr"}},
+    "pixel": {"desc": "per-pixel arithmetic", "fields": {"expr": "expr"}},
     # 按框涂：将若干矩形绘制到画布上。`axis` 定义单条轴上像素被框覆盖的程度
     # （变量：p 为像素坐标，lo/hi 为框在该轴上的两端），`combine` 将两条轴合成为像素覆盖率
     # （变量：x、y），`accumulate` 定义多个框的叠加方式
-    "boxes.paint": {"desc": "按框涂", "fields": {"axis": "expr", "combine": "expr", "accumulate": "enum:accumulate", "base": "number"}},
+    "boxes.paint": {"desc": "paint by boxes", "fields": {"axis": "expr", "combine": "expr", "accumulate": "enum:accumulate", "base": "number"}},
     # 挑条目：按一条规则从有序条目表中选出若干条，返回其位置而非内容。
     # 未能选中的情况（编号越界、名称不存在、点选处为空）原样返回给节点，由节点决定提示内容
     # （执行器不产生消息：消息属于消息目录，策略属于节点）
-    "items.pick": {"desc": "挑条目", "fields": {"rules": "enum_list:rules", "count": "enum:count"}},
+    "items.pick": {"desc": "pick items", "fields": {"rules": "enum_list:rules", "count": "enum:count"}},
 }
 
 # 枚举取值：执行器按名称分支。新增取值需在此处加一项，并在执行器中加一个分支
@@ -76,7 +76,7 @@ def tokens(text: str) -> list[tuple[str, str]]:
         if m is None:
             if text[i:].strip() == "":
                 break
-            raise BadOp(f"公式里有认不出的字符：{text[i:]!r}（整条：{text!r}）")
+            raise BadOp(f"unrecognised characters in the formula: {text[i:]!r} (whole: {text!r})")
         i = m.end()
         num, name, sym = m.groups()
         out.append(("num", num) if num else ("name", name) if name else ("sym", sym))
@@ -95,7 +95,7 @@ def parse(expr: str) -> tuple:
     def eat(sym: str) -> None:
         nonlocal pos
         if peek() != ("sym", sym):
-            raise BadOp(f"公式 {expr!r} 里少了 {sym!r}")
+            raise BadOp(f"formula {expr!r} is missing {sym!r}")
         pos += 1
 
     def additive() -> tuple:
@@ -130,7 +130,7 @@ def parse(expr: str) -> tuple:
     def primary() -> tuple:
         tok = peek()
         if tok is None:
-            raise BadOp(f"公式 {expr!r} 没写完")
+            raise BadOp(f"formula {expr!r} is incomplete")
         kind, text = tok
         if kind == "num":
             pos_add()
@@ -139,7 +139,7 @@ def parse(expr: str) -> tuple:
             pos_add()
             if peek() == ("sym", "("):
                 if text not in FUNCTIONS:
-                    raise BadOp(f"公式 {expr!r} 用了没有的函数 {text}（有的是 {sorted(FUNCTIONS)}）")
+                    raise BadOp(f"formula {expr!r} uses unknown function {text} (known: {sorted(FUNCTIONS)})")
                 eat("(")
                 args = [additive()]
                 while peek() == ("sym", ","):
@@ -147,7 +147,7 @@ def parse(expr: str) -> tuple:
                     args.append(additive())
                 eat(")")
                 if len(args) != FUNCTIONS[text]:
-                    raise BadOp(f"{text} 要 {FUNCTIONS[text]} 个参数，公式 {expr!r} 给了 {len(args)} 个")
+                    raise BadOp(f"{text} takes {FUNCTIONS[text]} arguments, formula {expr!r} gives {len(args)}")
                 return ("call", text, args)
             return ("var", text)
         if tok == ("sym", "("):
@@ -155,11 +155,11 @@ def parse(expr: str) -> tuple:
             node = additive()
             eat(")")
             return node
-        raise BadOp(f"公式 {expr!r} 里 {text!r} 放错了地方")
+        raise BadOp(f"{text!r} is out of place in formula {expr!r}")
 
     tree = additive()
     if pos != len(ts):
-        raise BadOp(f"公式 {expr!r} 末尾有多余的东西")
+        raise BadOp(f"formula {expr!r} has something extra at its end")
     return tree
 
 
@@ -180,11 +180,11 @@ def check(op_id: str, desc: dict) -> None:
     """校验一条算法描述。目录加载时逐条校验，有误即报错。"""
     kind = desc.get("kind")
     if kind not in KINDS:
-        raise BadOp(f"算法 {op_id} 的 kind={kind!r} 不在词汇表里（有的是 {sorted(KINDS)}）")
+        raise BadOp(f"op {op_id}: kind={kind!r} is not in the vocabulary (known: {sorted(KINDS)})")
     fields = KINDS[kind]["fields"]
     missing = [f for f in fields if f not in desc]
     if missing:
-        raise BadOp(f"算法 {op_id}（{kind}）少了 {missing}")
+        raise BadOp(f"op {op_id} ({kind}) is missing {missing}")
     for field, how in fields.items():
         value = desc[field]
         if how == "expr":
@@ -195,8 +195,8 @@ def check(op_id: str, desc: dict) -> None:
             allowed = ENUMS[how.split(":")[1]]
             bad = [v for v in value if v not in allowed]
             if bad:
-                raise BadOp(f"算法 {op_id} 的 {field} 里 {bad} 不在 {list(allowed)} 里")
+                raise BadOp(f"op {op_id}: {bad} in {field} is not one of {list(allowed)}")
         elif how.startswith("enum:"):
             allowed = ENUMS[how.split(":")[1]]
             if value not in allowed:
-                raise BadOp(f"算法 {op_id} 的 {field}={value!r} 不在 {list(allowed)} 里")
+                raise BadOp(f"op {op_id}: {field}={value!r} is not one of {list(allowed)}")

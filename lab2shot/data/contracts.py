@@ -32,11 +32,14 @@ ANY = None
 # Whether a picture is original or undistorted is not a data state: common DCCs (Nuke included) have no such flag, and
 # the user knows whether an image is distorted, so there are only the lens and the pixel aspect here, no distortion
 # state key.
-SHOT_KEYS: Mapping[str, frozenset | None] = MappingProxyType({"pixel_aspect": ANY, "lens": ANY})
+# `padding`: how many digits the plate's frame numbers are written with (0 unpadded: 8, 9, 10), as the reader found
+# them in the file names (io/sequence.py); a delivered sequence numbers its files the same (nodes/output.py out_file).
+# No node changes it: every port keeps it.
+SHOT_KEYS: Mapping[str, frozenset | None] = MappingProxyType({"pixel_aspect": ANY, "lens": ANY, "padding": ANY})
 # what a packet says before anything says better: not said (the packet constructors write these, so no packet is ever
 # without them; the engine replaces them with the picture's). A node writing anything else says something of its own,
 # and its output port must declare that it does (settle)
-NOT_SAID: Mapping[str, object] = MappingProxyType({"pixel_aspect": 1.0, "lens": {}})
+NOT_SAID: Mapping[str, object] = MappingProxyType({"pixel_aspect": 1.0, "lens": {}, "padding": 4})
 # the type roots that carry them: pictures and float images, and the pixel coordinates measured on them
 SHOT_TYPES = ("video", "image", "boxes", "tracks2d")
 
@@ -90,6 +93,7 @@ META: Mapping[str, Mapping[str, frozenset | None]] = MappingProxyType({
     "scene.camera": {},
     "scene.character": {},
     "scene.model": {},
+    "scene.gaussian": {},
     "scene.skeleton": {},
     # like a depth's: real distances, or right up to one factor (a solve without scale: COLMAP)
     "scene.points": {"scale": {"metric", "relative"}},
@@ -130,11 +134,12 @@ class Shape:
     pixel_aspect: str = "keep"
     lens: str = "keep"
     said: str = ""
+    padding: str = "keep"  # the frame numbers' digits: kept by every port (only a reader says them)
 
     def __post_init__(self) -> None:
         if not (self.window in ("picture", "display", "node") or self.window.startswith("input:")):
             raise ValueError(f"window must be picture / display / node / input:<port>, not {self.window!r}")
-        for key, how in (("pixel_aspect", self.pixel_aspect), ("lens", self.lens)):
+        for key, how in (("pixel_aspect", self.pixel_aspect), ("lens", self.lens), ("padding", self.padding)):
             if how not in ("keep", "node", "unknown"):
                 raise ValueError(f"{key} must be keep / node / unknown, not {how!r}")
 

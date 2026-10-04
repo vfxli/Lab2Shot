@@ -52,7 +52,7 @@ def _named(listed: object) -> tuple[set[str], set[str]]:
     """(host names, IP addresses) of `listed` (setting server.names), and this machine's own host names."""
     host = socket.gethostname().lower()
     hosts, ips = {"localhost", host, f"{host}.local"}, set()
-    for name in str(listed).replace("，", ",").replace(",", " ").split():
+    for name in str(listed).replace(chr(0xFF0C), ",").replace(",", " ").split():
         try:
             ips.add(str(ipaddress.ip_address(name)))
         except ValueError:

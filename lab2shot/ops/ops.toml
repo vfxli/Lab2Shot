@@ -6,7 +6,7 @@
 
 [ops]
 
-# ---------------- 图像合成（「图像合成」core.image_merge 的七种运算，与 Nuke 的 Merge 同名）
+# ---------------- 图像合成（「图像合成」composite 的七种运算，与 Nuke 的 Merge 同名）
 # a = 图像（任意通道数），b = 遮罩（单通道，自动广播到 a 的每个通道）。
 # 结果一律不钳位（相加可以超过 1，属预期行为），见 vocab 第 2 条强制规定。
 "image.merge.multiply" = { kind = "pixel", expr = "a * b", desc = "留下：只保留遮罩里的那块，其余变黑" }
@@ -19,7 +19,7 @@
 # mix = 「不透明度」（Nuke Merge 的 mix：结果在 B 与 A over B 之间插值，= mix·A + B·(1 − mix·alpha)；1 即纯 over）
 "image.merge.over"     = { kind = "pixel", expr = "a * mix + b * (1 - alpha * mix)", desc = "盖上（Nuke 的 A over B）：预乘的 A 按不透明度盖在底图 B 上，A 透明的地方露出 B" }
 
-# ---------------- 人物框转遮罩（「人物框转遮罩」core.boxes_mask）
+# ---------------- 人物框转遮罩（「人物框转遮罩」mask_from_boxes）
 # axis：像素沿一条轴被框覆盖的比例（p = 像素坐标，lo/hi = 框在该轴上的两端）。
 #       软边由此产生：框边落在像素内部时，该像素按覆盖比例计入（抗锯齿）。
 # combine：两条轴合成为像素覆盖率的方式；accumulate：多个框重叠时的合并方式。

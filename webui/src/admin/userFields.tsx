@@ -7,33 +7,32 @@
 import type { UsersView } from "../api/admin";
 import { Segmented } from "../ui/Button";
 import "./users.css";
+import { t } from "../i18n/t";
+import { tipAttrs, type Tip } from "../platform/tips";
+import { LabelRow } from "../ui/LabelRow";
 
-export function Row({ label, tip, children, why }: { label: string; tip: string; children: React.ReactNode; why?: string }) {
+/** One row of an account form: the site's 「标签 + 控件」 row (ui/LabelRow.tsx) in the form's LabelGrid (.usr-form), its
+ * note under the control. */
+export function Row({ label, tip, children, why }: { label: string; tip?: Tip | null; children: React.ReactNode; why?: string }) {
   return (
-    <>
-      <div className="who-row">
-        <span className="who-label" data-tip={tip}>
-          {label}
-        </span>
-        <span className="usr-ctl">{children}</span>
-      </div>
-      {why && <div className="usr-why">{why}</div>}
-    </>
+    <LabelRow label={label} labelClass="who-label" labelTip={tip} ctlClass="usr-ctl" below={why && <div className="usr-why lrow-under">{why}</div>}>
+      {children}
+    </LabelRow>
   );
 }
 
 export function Roles({ list, value, onPick }: { list: UsersView["roles"]; value: string; onPick: (r: string) => void }) {
   return (
-    <Segmented label="角色" value={value} options={list.map((r) => ({ value: r.id, label: r.label, tip: r.tip }))} onChange={onPick} />
+    <Segmented label={t("ui.admin.users.role")} value={value} options={list.map((r) => ({ value: r.id, label: r.label }))} onChange={onPick} />
   );
 }
 
 /** 几个选项任选其一或多个，每项一个勾选框（账号的标签；多选类设置，admin/Settings.tsx）。 */
-export function Checks({ options, value, onChange }: { options: { id: string; label: string; tip: string }[]; value: string[]; onChange: (v: string[]) => void }) {
+export function Checks({ options, value, onChange }: { options: { id: string; label: string; tip?: Tip | null }[]; value: string[]; onChange: (v: string[]) => void }) {
   return (
     <span className="usr-tags">
       {options.map((o) => (
-        <label key={o.id} className="usr-tag" data-tip={o.tip}>
+        <label key={o.id} className="usr-tag" {...tipAttrs(o.tip)}>
           <input type="checkbox" checked={value.includes(o.id)} onChange={(e) => onChange(e.target.checked ? [...value, o.id] : value.filter((x) => x !== o.id))} />
           {o.label}
         </label>
@@ -43,8 +42,6 @@ export function Checks({ options, value, onChange }: { options: { id: string; la
 }
 
 export function Tags({ view, value, onChange }: { view: UsersView; value: string[]; onChange: (v: string[]) => void }) {
-  const options = Object.entries(view.tags).filter(([, t]) => !t.implied).map(([id, t]) => ({ id, label: t.label, tip: t.tip }));
+  const options = Object.entries(view.tags).filter(([, t]) => !t.implied).map(([id, t]) => ({ id, label: t.label }));
   return <Checks options={options} value={value} onChange={onChange} />;
 }
-
-export const TAGS_TIP = "能用哪些节点：只看得到带这些标签的节点和模板，别的在他那里就像不存在。基础节点（Lab2Shot 自己的和读写文件格式的）每个人都能用";

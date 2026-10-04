@@ -1,0 +1,1 @@
+"""SATA official inference adapter."""

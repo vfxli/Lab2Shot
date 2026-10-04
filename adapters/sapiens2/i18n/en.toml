@@ -1,0 +1,89 @@
+# Meta Sapiens2 extension: its words and messages in English (the same keys as zh.toml).
+
+[node."sapiens2.segment"]
+subtitle = "Body Segmentation"
+description = "Humans only: 29-class body-part segmentation (hair, face, arms, clothing…), a human alpha matte and the unmixed foreground color. The whole image is processed at once. To keep only one person, first mask out everything else with ViTDet People Boxes → Person Boxes to Mask → Composite (Keep) and wire that in. Wire Body Parts into Multi-Layer EXR Output to write a Cryptomatte (by the official English part names, such as Left_Upper_Arm) and pick parts as selections in Nuke."
+official.note = "① This node's outputs come from two official demo scripts, hence two cites: alpha and the foreground color in vis_matting.py (one forward pass gives 4 channels), Body Parts in vis_seg.py (`pred_labels = seg_logits.argmax(dim=1)`, saved by `--save_pred` as _seg.npy). Both are official. ② The node has no People Boxes input: the argparse of both official demo scripts has only config / checkpoint / --input / --output / --save_pred / --device (vis_matting.py:19-29) and processes the whole image; cropping and enlarging per box would be a step of our own, so it is not put on the solver. Measurements agree that it gains nothing: on 8 portrait shots from CRGNN live action and VideoMatte green screen (people large in frame), cropping per person and processing the whole image are no different (J&F 0.992 → 0.987, 2 shots slightly worse)."
+licence.note = "The Sapiens2 license allows commercial use but forbids deepfakes and impersonating real people (face swaps of real people, fake doubles), surveillance, biometric identification, inferring sensitive information, pornography and military use; redistribution must include the license, and publications must credit Sapiens."
+
+[node."sapiens2.segment".param.model_size]
+label = "Model Size"
+option."1b" = "1B"
+option."0.4b" = "0.4B"
+
+[node."sapiens2.segment".param.matte]
+label = "Fine Matte"
+
+[node."sapiens2.segment".port.parts]
+label = "Body Parts"
+
+[node."sapiens2.segment".port.parts.class]
+Background = "Background"
+Apparel = "Apparel"
+Eyeglass = "Eyeglasses"
+Face_Neck = "Face and Neck"
+Hair = "Hair"
+Left_Foot = "Left Foot"
+Left_Hand = "Left Hand"
+Left_Lower_Arm = "Left Lower Arm"
+Left_Lower_Leg = "Left Lower Leg"
+Left_Shoe = "Left Shoe"
+Left_Sock = "Left Sock"
+Left_Upper_Arm = "Left Upper Arm"
+Left_Upper_Leg = "Left Upper Leg"
+Lower_Clothing = "Lower Clothing"
+Right_Foot = "Right Foot"
+Right_Hand = "Right Hand"
+Right_Lower_Arm = "Right Lower Arm"
+Right_Lower_Leg = "Right Lower Leg"
+Right_Shoe = "Right Shoe"
+Right_Sock = "Right Sock"
+Right_Upper_Arm = "Right Upper Arm"
+Right_Upper_Leg = "Right Upper Leg"
+Torso = "Torso"
+Upper_Clothing = "Upper Clothing"
+Lower_Lip = "Lower Lip"
+Upper_Lip = "Upper Lip"
+Lower_Teeth = "Lower Teeth"
+Upper_Teeth = "Upper Teeth"
+Tongue = "Tongue"
+
+[node."sapiens2.segment".port.alpha]
+label = "Alpha"
+
+[node."sapiens2.segment".port.foreground]
+waits = "Turn on Fine Matte"
+help = "The foreground colour with the background taken out (RGBA, premultiplied by alpha): the background and green-screen spill mixed into hair and semi-transparent edges was removed when the model unmixed them. Composite it as the foreground in Nuke and the edges no longer carry the old background's colour, which multiplying the plate by alpha cannot do. Wire it into Image Sequence Output to write an EXR"
+
+[node."sapiens2.segment".stage]
+write_maps = "Writing segmentation and alpha"
+
+[node."sapiens2.normal"]
+subtitle = "Body Normals"
+description = "Humans only: a surface normal for every pixel on the person (camera space), showing clothing folds and muscle relief more clearly than general models. The whole image is processed at once. To keep only one person, first mask out everything else with ViTDet People Boxes → Person Boxes to Mask → Composite (Keep) and wire that in. The output is the official raw values: areas outside the person have values too, but they mean nothing; to keep only the person, mask it yourself."
+official.note = "① The node has no People Boxes input: the official argparse has only config / checkpoint / --input / --output / --seg_dir / --device (vis_normal.py:19-37) and processes the whole image; cropping and enlarging per box would be a step of our own, so it is not put on the solver. ② The node has no Mask output either: the official mask is **read in** (an existing segmentation in --seg_dir, vis_normal.py:59-89) and used only for the side-by-side image made for viewing (:125 normal[mask == 0] = -1); **the saved .npy normals are unmasked** (:122 np.save comes before the masking). A mask on the node could only come from running another segmentation model, an output of our own making; nor is a mask used to zero the normals outside the person: the output is exactly what the official np.save writes, unprocessed (the same rule as the depth maps of the feed-forward reconstruction family)."
+licence.note = "The Sapiens2 license allows commercial use but forbids deepfakes and impersonating real people (face swaps of real people, fake doubles), surveillance, biometric identification, inferring sensitive information, pornography and military use; redistribution must include the license, and publications must credit Sapiens."
+
+[node."sapiens2.normal".param.model_size]
+label = "Model Size"
+option."1b" = "1B"
+option."0.4b" = "0.4B"
+
+[node."sapiens2.normal".stage]
+write_maps = "Writing normals"
+
+[extension.sapiens2]
+summary = "A family of high-resolution transformers pretrained on a billion human images, covering pose estimation, body-part segmentation, surface normals, pointmaps and human matting"
+license.name = "Sapiens2 License (Meta custom license, commercial use allowed, with prohibited uses)"
+license.summary = "Code and all model weights under one license: free, worldwide, to use, copy, modify and distribute, with no non-commercial restriction (commercial use allowed). Prohibited uses: surveillance; biometric processing; identifying or re-identifying individuals; creating deepfakes, impersonating any individual or other misleading content (so no face swaps of real people or digital doubles impersonating them); inferring health, demographic or other sensitive information without consent; pornography or defamation; military or weapons use. Also: no reverse engineering; US export controls apply; redistribution must include this license; papers must credit Sapiens; Meta may audit and require deletion when it suspects a violation; Meta may change the terms at any time."
+weight."seg-0.4b".note = "facebook/sapiens2-seg-0.4b, 1.6 GB (Sapiens2 License)"
+weight."normal-0.4b".note = "facebook/sapiens2-normal-0.4b, 1.8 GB (Sapiens2 License)"
+weight."seg-1b".note = "facebook/sapiens2-seg-1b, 5.9 GB (Sapiens2 License)"
+weight."normal-1b".note = "facebook/sapiens2-normal-1b, 6.2 GB (Sapiens2 License)"
+weight."matting-1b".note = "facebook/sapiens2-matting-1b, 6.2 GB (Sapiens2 License)"
+
+# worker progress (worker.py)
+[stage]
+segment_parts = "Segmenting body parts per frame"
+estimate_normals = "Estimating normals per frame"
+infer = "Sapiens2"

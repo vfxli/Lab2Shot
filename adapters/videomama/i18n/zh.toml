@@ -1,0 +1,29 @@
+# VideoMaMa 扩展自己的界面字和消息（中文）。一行一条：编号 = 模板。
+
+# ---- 模型权重
+"E-VIDEOMAMA-UNETMISMATCH.other" = "VideoMaMa 的 UNet 模型权重和 SVD 的时间条件维度对不上：这份模型权重的时间条件层收 {got:d} 维，按配置（addition_time_embed_dim {dim:d} × 3）应该是 {want:d} 维。模型权重文件不对，请管理员重新执行 lab2shot ext install videomama"
+
+[node."videomama.matte"]
+subtitle = "精细抠像"
+description = "用每一帧的粗遮罩引导，VideoMaMa（视频扩散模型）生成柔和、时间上最稳的 alpha。比 MatAnyone 2 慢很多、显存要得多，边缘偏软；粗遮罩每帧都要有。"
+official.note = "上游每一帧都要一张 mask_frames（load_image_sequence 找不到配对的遮罩就直接报错，第 78-79 行）。"
+licence.note = "代码是 CC-BY-NC-4.0，非商用。模型权重是 Stability AI Community License（商用需注册、年收入低于 100 万美元、注明 Powered by Stability AI），但因代码许可整体非商用。"
+
+[node."videomama.matte".param.resolution]
+label = "处理分辨率"
+
+[node."videomama.matte".param.erode_dilate]
+label = "遮罩扩缩"
+
+[extension.videomama]
+summary = "把粗糙的分割遮罩变成像素级精确的抠像 alpha，借的是预训练视频扩散模型的先验"
+license.name = "CC BY-NC 4.0（代码）+ Stability AI Community License（模型权重）"
+license.summary = "非商用：代码为 CC BY-NC 4.0，只能非商业使用，分享须署名。模型权重（VideoMaMa 的 UNet，以及 Stable Video Diffusion XT 的 VAE）按 Stability AI Community License：研究和非商业使用免费；商用须在 Stability AI 登记，且年收入须低于 100 万美元（超过须向 Stability AI 申请企业授权）；再分发须附带许可证原文和 “This Stability AI Model is licensed under the Stability AI Community License, Copyright © Stability AI Ltd. All Rights Reserved” 声明，并标注 “Powered by Stability AI”；不得用模型或其输出训练其他基础生成模型；须遵守 Stability AI 的可接受使用政策。由于代码是 CC BY-NC，整体只能非商用"
+weight.videomama_unet.note = "SammyLim/VideoMaMa/unet/diffusion_pytorch_model.safetensors（Stability AI Community License）"
+weight.videomama_unet_config.note = "SammyLim/VideoMaMa/unet/config.json（Stability AI Community License）"
+weight.svd_vae.note = "stabilityai/stable-video-diffusion-img2vid-xt/vae/diffusion_pytorch_model.fp16.safetensors（Stability AI Community License）"
+weight.svd_vae_config.note = "stabilityai/stable-video-diffusion-img2vid-xt/vae/config.json（Stability AI Community License）"
+weight.svd_license.note = "stabilityai/stable-video-diffusion-img2vid-xt/LICENSE.md（Stability AI Community License）"
+
+[stage]
+matte = "抠像"

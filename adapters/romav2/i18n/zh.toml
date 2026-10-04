@@ -1,0 +1,47 @@
+# The RoMa v2 extension's own words and messages in Chinese (the same keys as en.toml).
+
+"N-ROMAV2-NOSHAREDFRAMES" = "「RGB」（第 {first}–{last} 帧）和「参考图」（第 {other_first}–{other_last} 帧）没有相同的帧号，这次输出是空的：两段按帧号配对（参考图是一张照片时和每一帧配对），让两段的帧号对上再算"
+"N-ROMAV2-UNPAIRED.other" = "「RGB」有 {count:d} 帧在「参考图」里没有同帧号的帧：这些帧不输出匹配"
+"E-ROMAV2-NOPAIRS" = "「RoMa v2 图像对位」没有收到要匹配的帧：节点和它的 worker 对不上，请把参数面板里这个节点的日志发给开发者"
+"E-ROMAV2-REFERENCESIZE" = "「参考图」第 {frame} 帧是 {width}×{height}，和它其他帧的 {other_width}×{other_height} 不一样大：参考图的每一帧必须同样大小"
+
+[node."romav2.match"]
+subtitle = "图像对位"
+description = "RoMa v2：画面的每个像素在参考图里的位置。输出把参考图对齐到画面的 ST 贴图（接「STMap」，源接参考图；Nuke 里用 STMap）、置信度，和两边的匹配点（同名的点是同一对，给 3DE、COLMAP、PnP 用）。见证机、参考照片对齐到画面，补拍对齐英雄素材，跨 take 传 roto 都用它。一整段逐帧跟点用「AllTracker 跟踪贴片」。"
+official.note = "「ST 贴图」就是官方的 warp_AB（romav2.py:344）搬到画面尺寸；「画面上的匹配点」「参考图上的匹配点」两个口是同一份 matches_AB（romav2.py:384）的两半：每一行是 A 的坐标加 B 的坐标，同名的点是一对。上游还出反向的 warp_BA / overlap_BA / precision（romav2.py:365-368），我们没有对应的口"
+licence.note = "代码和模型权重 MIT；模型权重里的 DINOv3 骨干受 DINOv3 License 约束（可商用，禁军事等用途，再分发附许可证）。"
+cost.whole = "按一对图算的（不是一段镜头逐帧），实测约 2.3 秒一对"
+
+[node."romav2.match".port.other]
+label = "参考图"
+
+[node."romav2.match".port.stmap]
+label = "ST 贴图"
+
+[node."romav2.match".port.matches]
+label = "画面上的匹配点"
+
+[node."romav2.match".port.other_matches]
+label = "参考图上的匹配点"
+
+[node."romav2.match".port.confidence]
+help = "每个像素在参考图里找不找得到、匹配准不准（RoMa v2 自己的把握，0–1）。当遮罩用先接「置信度转遮罩」"
+
+[node."romav2.match".param.setting]
+label = "精度"
+option.fast = "快"
+option.base = "标准"
+option.precise = "精细"
+
+[node."romav2.match".param.matches]
+label = "匹配点数"
+
+[stage]
+match_pairs.other = "稠密匹配（{pairs} 对）"
+match = "稠密匹配"
+
+[extension.romav2]
+summary = "稠密特征匹配：估计同一个三维场景的两张画面之间的全部对应关系"
+license.name = "MIT + DINOv3 License"
+license.summary = "RoMa v2 的代码和模型权重是 MIT。模型权重里包含 DINOv3 ViT-L 骨干，受 Meta 的 DINOv3 License 约束：允许商用、修改和再分发（再分发要附许可证原文，发表论文要注明用了 DINOv3），禁止军事、武器、核等用途和受制裁方使用。可商用"
+weight.romav2.note = "RoMa v2.0.1（1.1 GB，MIT；含 DINOv3 ViT-L 骨干，DINOv3 License）"

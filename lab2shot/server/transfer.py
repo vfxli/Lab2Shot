@@ -3,12 +3,12 @@ packed in a task: its zip, downloaded by the browser itself, and the same files 
 plugins and `lab2shot cook`). An output is only for the account whose task it is and a login holding data.others
 (server/access.py mine); an upload only for the account that sent it (transfer/uploads.py). A file goes up in parts
 that survive a dropped line (lab2shot/transfer/uploads.py); one file is at most 单任务上传上限 (tasks.upload_gb) big,
-since a task never carries more than that of uploads, and none is taken while the disk would keep less than KEEP_FREE_GB."""
+since a task never carries more than that of uploads, and none is taken while the disk would keep less than
+暂停新计算的剩余空间 (farm/policy.py upload_floor, at least 10 GB)."""
 
 from __future__ import annotations
 
 import re
-import shutil
 import threading
 from urllib.parse import quote
 
@@ -24,24 +24,25 @@ from ..config import settings
 from ..errors import Conflict, TooLarge
 from ..messages import Msg
 from ..text import file_part
+from ..farm import policy
 from ..transfer import outputs, uploads
 from . import auth, owners, quota
 
 log = logs.get("uploads")
 
 GB = 1 << 30
-KEEP_FREE_GB = 10  # uploads stop before the disk of the work folder has less than this left
 CHECK_EVERY = 1 << 30  # bytes between looks at the disk while an upload comes in
 WRITE_BATCH = 1 << 20  # bytes a request brings that are written to the part at once, on a thread (never on the loop)
 
-router = Router(prefix="/api", tags=["文件上传与取回"])
+router = Router(prefix="/api", tags=["File Upload and Retrieval"])
 
 
 class Shas(Body):
     shas: list[str]  # contents (sha256) this browser sent before
 
 
-@router.post("/uploads/have", access=Access.user("上传前问：自己传过哪些内容（别人传过的不算）", limit=Limit(body=BIG_BODY)), summary="自己传过哪些内容的文件、服务器还留着（按 sha256，一次问很多个）：有的就不用再传；别人传过的不算")
+@router.post("/uploads/have", access=Access.user("Before uploading: which contents you have uploaded (others' do not count)", limit=Limit(body=BIG_BODY)), summary="Which contents you have uploaded that the server still keeps (by sha256, many in one question): those need not "
+                                                                                                                                                            "be uploaded again; others' uploads do not count")
 def have(req: Shas, request: Request) -> dict:
     if len(req.shas) > 100_000:
         raise TooLarge(Msg("E-UPLOAD-TOOMANYASKED"))
@@ -52,8 +53,9 @@ class Folders(Body):
     folders: list[list[str]]  # the names of the files picked or dropped, per folder
 
 
-@router.post("/uploads/sequences", access=Access.user("选文件时：认出选中的文件名里有哪几段序列（只看名字）", limit=Limit(body=BIG_BODY)), summary="选文件时：选中的文件名里有哪几段序列、哪些是单张图、哪些是隐藏或系统文件（只看名字，按文件夹分开）。"
-             "每段序列：name（plate.####.exr 这样的写法）、frames（帧号，从小到大）、files（这些帧在这个文件夹的名字列表里的位置）")
+@router.post("/uploads/sequences", access=Access.user("When choosing files: recognise which sequences the chosen file names hold (by name only)", limit=Limit(body=BIG_BODY)), summary="When choosing files: which sequences the chosen file names hold, which are single images, which are hidden or "
+                                                                                                                                                                             "system files (by name only, apart per folder). Each sequence: name (written like plate.####.exr), frames "
+                                                                                                                                                                             "(frame numbers, ascending), files (where those frames are in the folder's list of names)")
 def sequences(req: Folders, request: Request) -> dict:
     auth.me(request)
     if sum(len(f) for f in req.folders) > 500_000:
@@ -88,8 +90,11 @@ def _upload_problem(size: int, who: int | None = None, pid: str = "") -> Msg | N
     if size > limit:  # one file bigger than a whole task may carry can never be used by a task
         return Msg("E-UPLOAD-TOOBIG", gb=limit / GB)
     uploads.root().mkdir(parents=True, exist_ok=True)
-    if shutil.disk_usage(uploads.root()).free - size < KEEP_FREE_GB << 30:
-        return Msg("E-UPLOAD-DISKFULL", gb=KEEP_FREE_GB)
+    # the data disk keeps what 暂停新计算的剩余空间 keeps (farm/policy.py upload_floor: one rule with the queue's pause,
+    # never less than 10 GB): an upload that would go below it is not taken, as no new task is then
+    total, free = policy.disk_now()
+    if free - size < (floor := policy.upload_floor(total)):
+        return Msg("E-UPLOAD-DISKFULL", free_gb=free / GB, keep_gb=floor / GB, pct=policy.space()["floor_pct"])
     if who is not None:
         try:
             quota.room_for(who, size, pid)
@@ -155,18 +160,21 @@ def _open(size: int, who: int, pid: str) -> dict:
         return uploads.open_part(size, who, pid)
 
 
-@router.post("/uploads/parts", access=Access.user("开始上传一个文件（有大小上限，硬盘快满时拒绝）", limit=Limit(body=None)), summary="开始上传一个文件（size：它的大小；id：发的一方自己起的名字，32 位十六进制，可不给），请求体是它开头的字节（小文件就是全部）；返回 {id, offset, size}，传完的还有 sha。有大小上限，硬盘快满时不收")
+@router.post("/uploads/parts", access=Access.user("Start uploading a file (size limited, refused when the disk is nearly full)", limit=Limit(body=None)), summary="Start uploading a file (size: its size; id: a name the sender picks, 32 hexadecimal digits, optional); the "
+                                                                                                                                                            "body is its first bytes (all of a small file); returns {id, offset, size}, plus sha once complete. There is a "
+                                                                                                                                                            "size limit, and nothing is taken when the disk is nearly full")
 async def open_part(request: Request, size: int, id: str = "") -> dict:
     part = await off_loop(_open, size, auth.me(request).id, id, lane=UPLOADS)
     return await _receive(part["id"], 0, request)
 
 
-@router.patch("/uploads/parts/{pid}", access=Access.user("接着上传自己的一个文件（断了从断开的字节接着传）", limit=Limit(body=None)), summary="接着上传一个文件：请求体是从 offset 起的字节；offset 不对回 409 和实际的位置。断开的请求收到的字节都留着")
+@router.patch("/uploads/parts/{pid}", access=Access.user("Continue uploading one of your files (after a break, from the byte where it broke)", limit=Limit(body=None)), summary="Continue uploading a file: the body is the bytes from offset; a wrong offset gets 409 with the actual "
+                                                                                                                                                                      "position. Bytes a broken request delivered are kept")
 async def add_part(pid: str, request: Request, offset: int) -> dict:
     return await _receive(pid, offset, request)
 
 
-@router.get("/uploads/parts/{pid}", access=Access.user("自己上传中的文件传到了哪里"), summary="自己一个上传中的文件传到了哪里：{id, offset, size}，传完的还有 sha")
+@router.get("/uploads/parts/{pid}", access=Access.user("Where your upload in progress has got to"), summary="Where one of your uploads in progress has got to: {id, offset, size}, plus sha once complete")
 def part(pid: str, request: Request) -> dict:
     return uploads.part_state(pid, auth.me(request).id)
 
@@ -177,7 +185,8 @@ class UploadSet(Body):
     origin: dict = {}  # what it was called on the user's machine, and what the client says of itself (auth.details)
 
 
-@router.post("/uploads", access=Access.user("把自己上传好的文件组成一份输入", limit=Limit(body=BIG_BODY)), summary="把自己上传好的文件组成一份输入（一个文件或一段序列），返回节点参数里用的引用 upload:<id>/<名字>")
+@router.post("/uploads", access=Access.user("Make your uploaded files one input", limit=Limit(body=BIG_BODY)), summary="Make your uploaded files one input (a file or a sequence); returns the reference upload:<id>/<name> used in "
+                                                                                                                                  "node parameters")
 def make_upload(req: UploadSet, request: Request) -> dict:
     u = auth.me(request)
     said = req.origin.get("client") if isinstance(req.origin.get("client"), dict) else {}
@@ -200,10 +209,11 @@ class DeclareSet(Body):
     sizes: dict[str, Count] = {}  # 每个文件在用户机器上多大：字节还没传时，文件参数那一行的「18 MB」只能由网页给
 
 
-@router.post("/uploads/declare", access=Access.user("申报一份上传（字节还没传）", limit=Limit(body=BIG_BODY)),
-             summary="选完文件时申报一份上传：里面有哪些文件、各自内容的 sha256，外加第一个文件的头几十 KB。"
-                     "返回节点参数里用的引用 upload:<id>/<名字>（和字节传完之后是同一个）、从头部读出来的图层、"
-                     "还缺哪几个文件的字节。头给少了读不出图层时返回 need=还要多少字节，再发一次")
+@router.post("/uploads/declare", access=Access.user("Declare an upload (bytes not sent yet)", limit=Limit(body=BIG_BODY)),
+             summary="Declare an upload when files are chosen: which files, each one's content sha256, plus the first few dozen KB "
+                     "of the first file. Returns the reference upload:<id>/<name> used in node parameters (the same as once the "
+                     "bytes are uploaded), the layers read from the header, and which files' bytes are still missing. When the "
+                     "header given is too short to read the layers, returns need=how many more bytes; send again")
 def declare_upload(req: DeclareSet, request: Request) -> dict:
     u = auth.me(request)
     if len(req.files) > 100_000:
@@ -233,9 +243,10 @@ class PlanesHave(Body):
     channels: list[str]  # 要的通道名（状态回复里 `channels.write` 那一份）
 
 
-@router.post("/uploads/planes/have", access=Access.user("上传前问：自己这几份文件的哪几条通道服务器还没有", limit=Limit(body=BIG_BODY)),
-             summary="通道级上传之前问：这几份原文件（按 sha256）这次要的通道里，服务器还缺哪几条（{sha: [通道名]}，空表 = 都有了，"
-                     "整份文件在也算都有）。别人传的不算")
+@router.post("/uploads/planes/have", access=Access.user("Before uploading: which channels of your files the server does not have yet", limit=Limit(body=BIG_BODY)),
+             summary="Before a channel-level upload: of the channels wanted from these source files (by sha256), which the server "
+                     "still lacks ({sha: [channel names]}, an empty table means all are there, as when the whole file is there). "
+                     "Others' uploads do not count")
 def planes_have(req: PlanesHave, request: Request) -> dict:
     if len(req.shas) > 100_000:
         raise TooLarge(Msg("E-UPLOAD-TOOMANYASKED"))
@@ -256,10 +267,11 @@ class Planes(Body):
     data: list[int] | None = None  # 这一帧的数据窗口 [x, y, w, h]
 
 
-@router.post("/uploads/planes", access=Access.user("把自己传上来的几条通道写成只含它们的 EXR", lane=WAITS),
-             summary="通道级上传：一帧的几条通道（一份 gzip 过的 blob）→ 服务器用 OpenImageIO 写成只含这几条通道的 EXR（通道名、像素类型、"
-                     "压缩照原文件，不带任何元数据），和这份原文件已有的通道并起来，按内容寻址存下。返回 {sha, channels, blob}。"
-                     "传完每一帧再 POST /api/uploads 把这份输入组起来")
+@router.post("/uploads/planes", access=Access.user("Write the channels you uploaded as an EXR holding only them", lane=WAITS),
+             summary="Channel-level upload: some channels of one frame (one gzipped blob) -> the server writes an EXR holding only "
+                     "those channels with OpenImageIO (channel names, pixel types and compression as in the source file, no "
+                     "metadata), merged with the channels this source file already has, stored by content. Returns {sha, channels, "
+                     "blob}. After every frame, POST /api/uploads to make the input")
 def planes(req: Planes, request: Request) -> dict:
     u = auth.me(request)
     if len(req.channels) > 1024:
@@ -271,7 +283,7 @@ def planes(req: Planes, request: Request) -> dict:
     return out
 
 
-@router.get("/uploads/describe", access=Access.user("文件参数上显示的上传信息（只有自己的）", owned=owners.upload), summary="自己的一份上传的名字、文件数、大小和序列的帧（网页显示在文件参数上）")
+@router.get("/uploads/describe", access=Access.user("Upload information shown on the file parameter (your own only)", owned=owners.upload), summary="Name, file count, size and sequence frames of one of your uploads (shown on the file parameter)")
 def describe_upload(ref: str, request: Request) -> dict:
     return uploads.describe(ref)
 
@@ -287,28 +299,31 @@ def attachment(name: str) -> str:
     return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(clean, safe='')}"
 
 
-@router.get("/outputs", access=Access.user("自己的结果"), summary="自己各任务里「输出」打包好的结果（最新的在前）：哪个任务、哪个节点、下载的文件名、多大、什么时候随任务删除")
+@router.get("/outputs", access=Access.user("Your results"), summary="Packaged outputs of your jobs (newest first): which job, which node, download file name, size, when they go "
+                                                                       "with the job")
 def my_outputs(request: Request) -> list[dict]:
     return outputs.of_account(auth.me(request).id)
 
 
-@router.get("/tasks/{task_id}/outputs", access=Access.user("自己一个任务的结果", owned=owners.task), summary="自己一个任务里「输出」打包好的结果（先打包的在前）")
+@router.get("/tasks/{task_id}/outputs", access=Access.user("Results of one of your jobs", owned=owners.task), summary="Packaged outputs of one of your jobs (first packaged first)")
 def task_outputs(task_id: str, request: Request) -> list[dict]:
     return outputs.of_task(task_id)
 
 
-@router.get("/tasks/{task_id}/outputs/{pkg}", access=Access.user("自己的一份结果", owned=owners.task_output), summary="自己的一份结果：没打包的文件夹里有哪些文件（DCC 插件按需一个个取）、下载的文件名、多大")
+@router.get("/tasks/{task_id}/outputs/{pkg}", access=Access.user("One of your results", owned=owners.task_output), summary="One of your results: which files the unpackaged folder holds (a DCC plugin fetches them one by one as needed), "
+                                                                                                                             "download file name, size")
 def output_record(task_id: str, pkg: str, request: Request) -> dict:
     return outputs.record(task_id, pkg, files=True)
 
 
-@router.get("/tasks/{task_id}/outputs/{pkg}/file/{name:path}", access=Access.user("取回自己结果里的一个文件", owned=owners.task_output), summary="取回自己结果里的一个文件（服务器上没打包的那一份；结果的记录里列出了每个文件），支持断点续传（Range）")
+@router.get("/tasks/{task_id}/outputs/{pkg}/file/{name:path}", access=Access.user("Fetch one file of your result", owned=owners.task_output), summary="Fetch one file of your result (the unpackaged copy on the server; the result's record lists every file), "
+                                                                                                                                                             "resumable (Range)")
 def output_file(task_id: str, pkg: str, name: str, request: Request) -> FileResponse:
     f = outputs.file(task_id, pkg, name)
     return FileResponse(f, headers={"Content-Disposition": attachment(f.name)})  # a download, never shown as a page of this site
 
 
-@router.get("/tasks/{task_id}/outputs/{pkg}/zip", access=Access.user("下载自己的整份结果", owned=owners.task_output), summary="下载自己的整份结果：打包好的 zip（浏览器原生下载），支持断点续传（Range / If-Range，ETag）")
+@router.get("/tasks/{task_id}/outputs/{pkg}/zip", access=Access.user("Download your whole result", owned=owners.task_output), summary="Download your whole result: the packaged zip (the browser's own download), resumable (Range / If-Range, ETag)")
 def output_zip(task_id: str, pkg: str, request: Request) -> FileResponse:
     """The zip as it is on the disk, from its first byte or from where a cut-off download got to: the browser's own
     download, the DCC client (lab2shot/client.py) and anything else resume by Range, taken only while the zip is still

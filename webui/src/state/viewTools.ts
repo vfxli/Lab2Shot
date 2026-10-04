@@ -6,6 +6,8 @@ import { same, type Json } from "../model/graphPatch";
 import type { NoticeKind } from "../model/viewNotices";
 import type { Message } from "../messages/message";
 import { DEFAULTS, loadOptions, sanitize, saveOptions, STORAGE_KEY, type ViewOptions } from "../model/viewOptions";
+import { t } from "../i18n/t";
+import type { Tip } from "../platform/tips";
 
 // ------------------------------------------------------------------ 显示选项、三维相机及相关状态
 
@@ -38,10 +40,16 @@ export const useViewOptions = create<OptionsState>((set, get) => ({
 }));
 
 export type ViewName = "persp" | "top" | "front" | "side";
-export const VIEW_NAMES: Record<ViewName, string> = { persp: "透视", top: "顶", front: "前", side: "侧" };
+/** The views' names, each said when read (so they follow the page's language). */
+export const VIEW_NAMES: Readonly<Record<ViewName, string>> = {
+  get persp() { return t("ui.state.view_persp"); },
+  get top() { return t("ui.state.view_top"); },
+  get front() { return t("ui.state.view_front"); },
+  get side() { return t("ui.state.view_side"); },
+};
 
-/** One 3D stage's camera choices. Each stage has its own camera slot: the viewer's ("viewer", driven by the toolbar) and a
- * dialog stage's (view/HandleStage.tsx), so a view or projection set in one never changes the other's. */
+/** One 3D stage's camera choices. Each stage has its own camera slot: the viewer's ("viewer", driven by the toolbar) and
+ * any stage in a dialog, so a view or projection set in one never changes the other's. */
 export interface SlotCamera {
   view: ViewName;
   ortho: boolean;
@@ -153,14 +161,14 @@ try {
  * 自己的一条，`editor/ViewerFrame.tsx` 统一绘制在舞台左上角（ui/ViewNotices.tsx）。其他位置不得在画面上绘制文字。
  * 按 kind 存储：同一种类只保留一条，内容变化时替换该条，位置保持不变。 */
 export const useStageNotes = create<{
-  notes: Partial<Record<NoticeKind, { text: string; tip: string }>>;
-  put: (kind: NoticeKind, note: { text: string; tip: string } | null) => void;
+  notes: Partial<Record<NoticeKind, { text: string; tip?: Tip | null }>>;
+  put: (kind: NoticeKind, note: { text: string; tip?: Tip | null } | null) => void;
 }>((set) => ({
   notes: {},
   put: (kind, note) =>
     set((s) => {
       const now = s.notes[kind];
       if (!note) return now === undefined ? s : { notes: { ...s.notes, [kind]: undefined } };
-      return now && now.text === note.text && now.tip === note.tip ? s : { notes: { ...s.notes, [kind]: note } };
+      return now && now.text === note.text && now.tip?.text === note.tip?.text && now.tip?.why === note.tip?.why ? s : { notes: { ...s.notes, [kind]: note } };
     }),
 }));

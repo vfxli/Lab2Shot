@@ -44,6 +44,7 @@ export interface UploadTask {
   rate: number; // bytes per second, smoothed (0: not known yet)
   error: string;
   retryAt: number; // waiting: when it asks again (ms since the epoch)
+  tries?: number; // waiting: how many times in a row it has not got through (a submission gives up past a limit: graph/submitLine.ts)
 }
 
 interface Uploads {

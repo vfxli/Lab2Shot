@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .config import ADAPTERS_DIR, ROOT
-from .messages import Msg
+from .messages import Msg, again
 
 if TYPE_CHECKING:
     from .extensions.spec import Extension
@@ -100,6 +100,7 @@ def load(folders: list[Path]) -> Adapters:
             broken[folder.name] = why.text
         else:
             specs[folder.name] = module.EXTENSION
+            _register_bodies(module.EXTENSION)
     nodes: dict[str, type[NodeDef]] = {}
     whole: set[str] = set()  # extensions whose nodes loaded (or that have none)
     for name in _requirements_first(specs, broken):
@@ -115,7 +116,7 @@ def load(folders: list[Path]) -> Adapters:
         declared = getattr(module, "NODES", ())
         why = _nodes_problem(name, declared, nodes)
         if why:
-            broken[name] = f"nodes.py：{why.text}"
+            broken[name] = f"nodes.py: {why.text}"
             continue
         project = project_facts(ext)
         for n in declared:
@@ -125,23 +126,34 @@ def load(folders: list[Path]) -> Adapters:
     return Adapters(specs, nodes, broken)
 
 
+def _register_bodies(ext: Extension) -> None:
+    """The bodies an extension brings to 「标准人」 (Extension.standard_bodies) into the core's registry
+    (data/standard_bodies.py), under its name: the node's 「骨架」 options and their words come from there."""
+    from .data.standard_bodies import StandardBody, register
+
+    for body in ext.standard_bodies:
+        if isinstance(body, StandardBody):
+            register(body, owner=ext.name, owner_title=str(ext.title))
+
+
 def project_facts(ext: Extension) -> ProjectFacts:
     """An extension's project as its node classes carry it: its title, its declared licence class, 需注册 from the
     hand-downloaded items it needs, whether it is ready now (extensions/status.py), and its spec."""
     from .extensions import status as ext_status
     from .extensions.manual import BODY_KEYS
     from .nodes.services import ProjectFacts
-    from .nodes.tags import REGISTRATION
+    from .nodes.tags import GENERATIVE, REGISTRATION
 
     def available() -> Msg | None:  # evaluated on every call: readiness can change at any time
         said = ext_status.extension_status(ext)["message"]  # None when ready
-        return None if said is None else Msg(said["code"], **said["params"])
+        return None if said is None else again(said) or Msg(said["code"], **said["params"])
 
     # 需注册的手动下载：身体模型一律需要（官网注册），扩展自身的条目按其声明的 registration 判断。此处不查询
     # 注册表，因为本步骤在扩展加载期间执行，此时注册表尚未构建完成
     own = {it.key: it.registration for it in ext.manual_items}
-    more = frozenset({REGISTRATION for w in ext.weights if w.kind == "manual" and (w.source in BODY_KEYS or own.get(w.source))})
-    return ProjectFacts(ext.title, ext.license.tag, more, available, ext, lambda: _result_identity(ext))
+    more = frozenset({REGISTRATION for w in ext.weights if w.kind == "manual" and (w.source in BODY_KEYS or own.get(w.source))}
+                     | ({GENERATIVE} if ext.generative else set()))
+    return ProjectFacts(ext.name, ext.license.tag, more, available, ext, lambda: _result_identity(ext))
 
 
 @lru_cache(maxsize=256)
@@ -149,7 +161,7 @@ def _result_identity(ext: Extension) -> str:
     """返回决定该扩展计算结果的标识：代码（仓库提交）、环境（python / torch / 依赖 / 编译）和权重（Weight.identity：来源、
     revision、文件与 sha256）。
     计算时才读取声明与手动安装文件的记录，加载节点声明不打开数据库。该标识计入节点指纹，重装扩展或更换权重后旧结果不再命中。"""
-    from .installer.plan import env_fingerprint, repo_fingerprint
+    from .extensions.build_state import env_fingerprint, repo_fingerprint
     from .io.digest import key
 
     weights = sorted(repr(w.identity) for w in ext.weights)
@@ -171,7 +183,7 @@ def _import(folder: str, part: str, broken: dict[str, str]):
     try:
         return importlib.import_module(f"adapters.{folder}.{part}")
     except Exception as exc:
-        broken[folder] = f"{part}.py：{type(exc).__name__}: {exc}"
+        broken[folder] = f"{part}.py: {type(exc).__name__}: {exc}"
         traceback.print_exc()
         return None
 
@@ -188,8 +200,10 @@ def _spec_problem(folder: str, ext) -> Msg | None:
         return Msg("E-ADAPTER-CORE")
     if ext.sdk != SDK_API:
         return Msg("E-ADAPTER-SDK", sdk=ext.sdk, current=SDK_API)
-    for what, path in (("EnvSpec.requirements", ext.env.requirements), ("EnvSpec.build", ext.env.build),
-                       *(("worker_modules", m) for m in ext.worker_modules)):
+    # one running in another's environment (runs_in) has that one's env, checked when that one loads (and not loaded
+    # yet here: the registry is being built)
+    env = () if ext.runs_in else (("EnvSpec.requirements", ext.env.requirements), ("EnvSpec.build", ext.env.build))
+    for what, path in (*env, *(("worker_modules", m) for m in ext.worker_modules)):
         if Path(path).is_absolute() or ".." in Path(path).parts:
             return Msg("E-ADAPTER-OUTSIDE", what=what, path=str(path))
     return None

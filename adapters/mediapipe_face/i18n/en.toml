@@ -1,0 +1,67 @@
+# MediaPipe face motion (adapters/mediapipe_face) in English (the same keys as zh.toml).
+
+# ---- input
+"E-MEDIAPIPEFACE-SIZE" = "Frame {frame} is {width}×{height}, the first frame {first_width}×{first_height}: every frame of a shot must be the same size"
+
+# ---- results
+"N-MEDIAPIPEFACE-NOFACE.one" = "MediaPipe found no face in any of the {frames} frame, so the face landmarks, expression curves and head are empty this time: it only suits shots where the face is fairly large in frame and roughly facing the camera (small faces in wide shots and profiles beyond about 80° are not found); you can also lower Detection Threshold"
+"N-MEDIAPIPEFACE-NOFACE.other" = "MediaPipe found no face in any of the {frames} frames, so the face landmarks, expression curves and head are empty this time: it only suits shots where the face is fairly large in frame and roughly facing the camera (small faces in wide shots and profiles beyond about 80° are not found); you can also lower Detection Threshold"
+"I-MEDIAPIPEFACE-MODEL" = "model"
+"W-MEDIAPIPEFACE-MISSING.one" = "MediaPipe found no face in {count} frame (of {total}): its landmarks are marked occluded, and the expression curves and head animation carry over from the frames around it"
+"W-MEDIAPIPEFACE-MISSING.other" = "MediaPipe found no face in {count} frames (of {total}): their landmarks are marked occluded, and the expression curves and head animation carry over from the frames around them"
+
+# ---- words
+
+[stage]
+track_face = "Track Face per Frame"
+
+[node."mediapipe_face.face_solve"]
+subtitle = "Face Motion"
+description = "Image → 478 face landmarks, 52 ARKit expression curves (to drive a character's expressions), and a face mask mesh that follows the head, computed frame by frame. CPU only and fast; it needs a frontal, large enough face and loses it in profiles beyond about 80°. For a FLAME head mesh with expression deformation, use smirk.face_solve."
+
+[node."mediapipe_face.face_solve".param.max_faces]
+label = "Max Faces"
+
+[node."mediapipe_face.face_solve".param.mode]
+label = "Mode"
+
+[node."mediapipe_face.face_solve".param.mode.option]
+video = "Video"
+image = "Per Image"
+
+[node."mediapipe_face.face_solve".param.threshold]
+label = "Detection Threshold"
+
+[node."mediapipe_face.face_solve".param.min_tracking_confidence]
+label = "Tracking Threshold"
+
+[node."mediapipe_face.face_solve".param.min_presence_confidence]
+label = "Presence Threshold"
+
+[node."mediapipe_face.face_solve".port.image]
+label = "RGB"
+
+[node."mediapipe_face.face_solve".port.landmarks]
+label = "Face Landmarks"
+
+[node."mediapipe_face.face_solve".port.head]
+label = "Head"
+
+[node."mediapipe_face.face_solve".port.expressions]
+label = "Expression Curves"
+
+[node."mediapipe_face.face_solve".cost]
+note = "CPU only"
+
+[node."mediapipe_face.face_solve".official]
+note = "① The Head output is the official canonical face mesh (an asset that ships with upstream) placed frame by frame by facial_transformation_matrixes; both the mesh and the matrices are official. ② There is no Camera output: the official matrices are relative to a virtual camera of its own assumption (63° vertical field of view), and FaceLandmarkerResult holds no camera; the camera the worker builds from that field of view (worker.py VIRTUAL_VFOV_DEG) only places the head mesh in the world, is not an official result and is not handed on. To put the head in the world of a given camera, follow it with the core node camera_space. ③ The exact source of image is `3189-3193 def detect(self, image: image_lib.Image) -> FaceLandmarkerResult` in the same file."
+
+[extension.mediapipe_face]
+summary = "The MediaPipe Face Landmarker task: detects face landmarks and expressions in images and video"
+
+[extension.mediapipe_face.license]
+name = "Apache-2.0 (code and models)"
+summary = "The code (the MediaPipe repository and the mediapipe pip package) is Apache-2.0, commercial use allowed. The three models inside face_landmarker.task are each Apache-2.0 by their model cards: BlazeFace face detection (short range), Face Mesh V2 (478 points), Blendshape V2 (52 expression curves); the canonical face mesh is also released with the repository under Apache-2.0. The model cards state the intended use as AR entertainment: no face recognition, not suited to judgments that affect personal safety. No dependency on torch, nvdiffrast, or face / body models that need registration such as FLAME / SMPL"
+
+[extension.mediapipe_face.weight.face-landmarker]
+note = "face_landmarker.task float16 v1 (face detection + 478 points + 52 expressions, 3.6 MB, Apache-2.0)"

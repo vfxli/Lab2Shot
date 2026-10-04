@@ -49,12 +49,7 @@ import numpy as np
 
 from lab2shot_shared import body_models, smpl
 from lab2shot_shared.motion import matrix_to_rotvec, rotvec_to_matrix
-# The rigid alignment of the correction step has one implementation shared by the core and the workers
-# (lab2shot_shared/poses.py rigid_align); the core's 「相机空间转换」 in its whole-shot mode calls the scaled variant
-# beside it, scaled_align (lab2shot/nodes/core/scene.py CameraSpaceConvert).
-from lab2shot_shared.poses import rigid_align
-
-from . import fail, link_file, read_frame, save_npz, say, shown
+from . import fail, link_file, read_frame, save_npz, shown
 from .recon import InputCamera, interpolate_poses, mean_rotation
 from .run import Run
 
@@ -284,31 +279,21 @@ def merge_worlds(people: list[Person], frames_all: np.ndarray, track: np.ndarray
 
 
 def one_world(method: str, people: list[Person], frames_all: np.ndarray, rot_hint: np.ndarray, static: bool,
-              cam: InputCamera | None, follow_camera: bool) -> tuple[np.ndarray, dict]:
-    """GVHMR / WHAM: every person's own world -> one world and one camera track [N,4,4].
+              follow_camera: bool) -> tuple[np.ndarray, dict]:
+    """GVHMR / WHAM: every person's own world -> one world and one camera track [N,4,4], the method's own.
 
     The first person's world and implied camera (static_pose for a locked-off shot)
-    set the scene; the others are merged in (merge_worlds). With an input camera
-    the whole scene is moved rigidly onto it and its poses become the camera.
+    set the scene; the others are merged in (merge_worlds). Nothing is aligned to any
+    other camera here: putting the result under the user's camera is the graph's own
+    step (the core's 「相机空间转换」, with the result's reference camera).
     follow_camera: afterwards every body is placed through the camera frame by frame
     (camera-space body x camera), so it lines up with the plate exactly."""
     n = len(frames_all)
     track = camera_track(people[0], frames_all, rot_hint)
-    if static and cam is None:
+    if static:
         track = np.repeat(static_pose(track)[None], n, 0)
     info: dict = {"merge": merge_worlds(people, frames_all, track), "alignment": None,
                   "world": f"{method} gravity-aligned world of person {people[0].pid} (+Y up, gravity -Y, metres)"}
-    if cam is not None:
-        ext = cam.at(frames_all)[1]
-        info["world"] = "input camera's world"
-        if not follow_camera:
-            t_align, rot_err, pos_err = rigid_align(track, ext)
-            for person in people:
-                person.move(t_align)
-            info["alignment"] = {"camera_rot_rms_deg": round(rot_err, 3), "camera_pos_rms_m": round(pos_err, 4)}
-            if pos_err > 0.25:
-                say("W-HUMANS-CAMERAOFF", method=method, error_m=float(pos_err))
-        track = ext
     if follow_camera:
         index = {int(f): i for i, f in enumerate(frames_all)}
         for person in people:

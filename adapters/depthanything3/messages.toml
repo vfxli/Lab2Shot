@@ -1,4 +1,0 @@
-# Depth Anything 3 的消息（adapters/depthanything3）。
-
-# ---- 节点和 worker
-"E-DEPTHANYTHING3-NOFOCAL" = "「Depth Anything 3 深度图」选的模型输出真实尺度的深度图，它自己不估 Focal Length：没有 Focal Length 算不出真实距离。在「已知 Focal Length」填实拍镜头、把 AnyCalib 的 Focal Length 接到「已知 Focal Length」上，或接一台相机；不知道镜头就把「模型」换成 Giant、Large 或 Base"

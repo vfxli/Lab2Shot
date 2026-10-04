@@ -7,7 +7,15 @@ import type { DisplayPlan } from "../view/plan";
 import { useStageNotes, useViewerNote } from "../state/viewer";
 import { ViewNotices, type Notice } from "../ui/ViewNotices";
 import { ProjectNotice } from "./ProjectNotice";
+import { useHandleView } from "../state/handleView";
+import { Button } from "../ui/Button";
+import { exitViewOperation } from "../state/viewPicking";
 import { useAppMode } from "./AppMode";
+import { nodeRef } from "../graph/naming";
+import { cardNameOf, useCookInputs } from "../state/cookInputs";
+import { useLang } from "../i18n/lang";
+import { t } from "../i18n/t";
+import { tipOf } from "../platform/tips";
 
 /** 视图外框（包裹 editor/Viewer.tsx 中的舞台），视图版面的唯一所在：上方为显示节点的名称与控制栏，中间为舞台，
  * 下方为光标读数、手柄提示与时间条。
@@ -49,20 +57,35 @@ export function ViewerFrame({
     ...Object.entries(staged)
       .filter(([, v]) => !!v)
       .map(([kind, v]) => ({ kind: kind as Notice["kind"], key: kind, text: v!.text, tip: v!.tip })),
-    ...(hint ? [{ kind: "hint" as const, key: "hint2d", text: hint, tip: hint }] : []),
+    ...(hint ? [{ kind: "hint" as const, key: "hint2d", text: hint }] : []),
     ...(did ? [did] : []),
     ...(proxy ?? []),
   ];
   const appMode = useAppMode((m) => m.mode === "app");
+  // 视图在显示什么：节点模式写节点名（节点名（类型））；用卡片的人看不到节点（i18n/lang.ts phrasing）——应用模式的结果视图
+  // （view/plan.ts collected）写「卡片的结果」，别的写卡片上驱动这个节点的那一项的名字（「后处理并预览」「跟踪点」），没有就不写
+  const card = useLang((s) => s.phrasing === "app");
+  const exposed = useCookInputs((s) => s.exposed);
+  const shownName = !plan ? t("ui.view.no_display_node_picked")
+    : plan.collected ? t("ui.view.card_results")
+    : card ? cardNameOf(exposed, plan.node.id) : nodeRef(plan.node.id, plan.node.data.typeId);
+  const editingHere = useHandleView((h) => !!h.editing && h.editing.node === shown);
+  // 视图里正在进行的操作（骨架编辑、点选、框、画遮罩）：工具栏给「退出编辑」，和参数面板上变蓝的那个按钮同一个退出
+  const has2d = !!plan?.handles.some((h) => h.stage === "2d");
+  const operating = useHandleView((h) => (!!h.editing && h.editing.node === shown) || (!!shown && has2d && h.picking === shown));
   return (
     <div className="viewer">
       {/* 画面上方的独立工具栏，与视图同宽（参照 Nuke）：不得绝对定位浮于画面上，否则会遮挡画面右上角。 */}
       <div className="view-bar" data-no-tips>
-        <div className="view-bar-name">
-          <IconEye size={12} color="var(--accent)" />
-          <span data-user-data>{plan ? plan.node.data.label : "未选择显示节点"}</span>
-        </div>
+        {/* 控件从最左排起，节点名在最右：切换显示节点时名字长短不同，不推动控件 */}
         <div className="hud-tools">{tools}</div>
+        {operating && (
+          <Button size="sm" tone="primary" layout="view-exit" onClick={() => exitViewOperation(shown ?? null)}>{t("ui.view.exit_edit")}</Button>
+        )}
+        {shownName && <div className="view-bar-name">
+          <IconEye size={12} color="var(--accent)" />
+          <span data-user-data>{shownName}</span>
+        </div>}
       </div>
       <div className="view-stage">
         {body}
@@ -70,7 +93,8 @@ export function ViewerFrame({
         <ItemsBar nodeId={shown ?? null} />
         {/* 舞台上不设第二处文字：手柄用法说明同样进入左上角的统一通知区 */}
         {/* 应用模式收起了节点图，节点图左下角的研究出处说明改在舞台左下角（同一个组件，与三维坐标轴错开） */}
-        {appMode && <ProjectNotice className="view-notice" />}
+        {/* steps aside while a parameter is edited in the view (「在视图里编辑」: the skeleton-pair editor's bar sits there) */}
+        {appMode && !editingHere && <ProjectNotice className="view-notice" />}
       </div>
       {strip}
       <Timeline stage2d={!!stage2d} />
@@ -92,5 +116,5 @@ function useTransientNote(): Notice | null {
     return () => window.clearTimeout(t);
   }, [n]);
   if (!note || shown !== n) return null;
-  return { kind: "did", key: `did-${n}`, text: textOf(note), tip: textOf(why) || textOf(note) };
+  return { kind: "did", key: `did-${n}`, text: textOf(note), tip: tipOf("value", textOf(why)) };
 }

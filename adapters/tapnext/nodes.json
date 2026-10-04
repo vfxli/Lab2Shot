@@ -1,6 +1,0 @@
-{
- "tapnext.track": {
-  "label": "TAPNext++ 2D 跟踪点",
-  "description": "画面 → 2D 跟踪点：在画面里撒网格点或手动点，逐帧跟满整段镜头，被挡住的点标成不可见（Google DeepMind TAPNext++）。任何机位都能用，可以商用；结果接「2D 跟踪点输出设置」导给 3DEqualizer 或 Nuke。要整片表面上更密的点用「CoTracker3 2D 跟踪点」，要三维轨迹用「TAPIP3D 3D 跟踪点」。"
- }
-}

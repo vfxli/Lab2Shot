@@ -9,6 +9,8 @@ import { reasonOf } from "../messages/message";
 import { Button } from "../ui/Button";
 import { useConfirm } from "../ui/Confirm";
 import { msg, type Message } from "../messages/message";
+import { t } from "../i18n/t";
+import { tipOf } from "../platform/tips";
 
 /** 硬盘 section: disk usage of the task folders (their outputs inside), every account's cache and uploads on the server, and cleanup
  * of what is older. Everything is kept per task (lab2shot/farm/disk.py): 任务保留天数 is configured in 设置. The server
@@ -20,6 +22,7 @@ export function DiskSection() {
   const read = useCallback(() => api.admin.disk(), []);
   const { data: measured, reload } = usePoll(read, MEASURING_POLL_MS, { until: (d) => !d.measuring, onError: (e) => problem(reasonOf(e)) });
   const areas = measured?.areas ?? null;
+  const space = measured?.space ?? null;
   const measureAgain = async () => {
     try {
       await api.admin.disk(true); // starts a new measurement; the poll follows it until it is through
@@ -33,7 +36,7 @@ export function DiskSection() {
   const [cleaned, setCleaned] = useState<Message | null>(null);
 
   const clean = async (a: DiskArea) => {
-    if (!(await ask({ title: "清理硬盘", say: msg("N-DISK-CLEAN", { area: a.label, days, note: a.note }), yes: "删掉", tip: `删掉「${a.label}」里 ${days} 天没用过的内容`, danger: true }))) return;
+    if (!(await ask({ title: t("ui.admin.disk.clean_title"), say: msg("N-DISK-CLEAN", { area: a.label, days, note: a.note }), yes: t("ui.admin.common.delete"), danger: true }))) return;
     try {
       const r = await api.admin.clean(a.id, days);
       problem(null);
@@ -47,36 +50,43 @@ export function DiskSection() {
   const disk = overview?.disk;
   return (
     <Section
-      title="硬盘"
+      title={t("ui.admin.disk.title")}
       lede={
         <>
-          一切按任务保存：任务结束后过了保留天数整个删除，缓存和素材跟着没有任务再用的时候清掉。这里的「清理」按同样的规则，
-          不会动还有任务在用的内容；有任务在排队或在算的账号，它的缓存和素材这次不清理。
-          {disk && ` 工作文件夹 ${disk.path} 所在的盘还剩 ${sizeText(disk.free)}，共 ${sizeText(disk.total)}。`}
+          {t("ui.admin.disk.lede")}
+          {disk && t("ui.admin.disk.lede_disk", { path: disk.path, free: sizeText(disk.free), total: sizeText(disk.total) })}
         </>
       }
       actions={
         <>
-          <Button tip="任务保留天数、单任务上传上限、数据位置，在「存储与视图」里改" tone="ghost" onClick={() => go("settings-storage")}>
-            自动清理设置
+          <Button tone="ghost" onClick={() => go("settings-storage")}>
+            {t("ui.admin.disk.settings")}
           </Button>
-          <Button tip="重新统计磁盘占用（在后台统计，大的盘要几分钟）" tone="ghost" disabled={!!measured?.measuring} onClick={() => void measureAgain()}>
-            刷新
+          <Button tone="ghost" disabled={!!measured?.measuring} onClick={() => void measureAgain()}>
+            {t("ui.admin.common.refresh")}
           </Button>
         </>
       }
     >
       <div className="disk-days">
-        <label data-tip="下面的「清理」按钮删掉这么多天没被用到的内容；0 表示全部">
-          清理多少天没用过的
+        <label>
+          {t("ui.admin.disk.days")}
         </label>
-        <Num value={days} min={0} integer label="清理多少天没用过的" tip="下面的「清理」按钮删掉这么多天没被用到的内容；0 表示全部" onChange={setDays} />
-        <span>天</span>
+        <Num value={days} min={0} integer label={t("ui.admin.disk.days")} tip={tipOf("value", t("ui.admin.disk.days_tip"))} onChange={setDays} />
+        <span>{t("ui.admin.disk.days_unit")}</span>
       </div>
+      {/* 数据盘对「暂停新计算的剩余空间」（lab2shot/farm/policy.py space）：低于它时所有账号的新计算暂停，恢复后自动接着 */}
+      {space && (
+        <div className={`notice${space.low ? " warn" : ""}`} data-field="disk-space">
+          {space.low
+            ? t("ui.admin.disk.space_low", { path: space.path, pct: space.pct.toFixed(1), free: sizeText(space.free), floor: space.floor_pct })
+            : t("ui.admin.disk.space_ok", { path: space.path, pct: space.pct.toFixed(1), free: sizeText(space.free), total: sizeText(space.total), floor: space.floor_pct })}
+        </div>
+      )}
       {measured && (measured.measuring || measured.at !== null) && (
         <p className="adm-lede">
-          {measured.measuring ? "正在重新统计…" : ""}
-          {measured.at !== null && `下面是 ${agoText(measured.at)}统计的结果。`}
+          {measured.measuring ? t("ui.admin.disk.measuring") : ""}
+          {measured.at !== null && t("ui.admin.disk.measured", { ago: agoText(measured.at) })}
         </p>
       )}
       {areas ? (
@@ -84,11 +94,11 @@ export function DiskSection() {
           <table className="q-table">
             <thead>
               <tr>
-                <th>内容</th>
-                <th>占用</th>
-                <th>项数</th>
-                <th>7 天没用过</th>
-                <th>30 天没用过</th>
+                <th>{t("ui.admin.disk.col_what")}</th>
+                <th>{t("ui.admin.disk.col_used")}</th>
+                <th>{t("ui.admin.disk.col_items")}</th>
+                <th>{t("ui.admin.disk.col_idle7")}</th>
+                <th>{t("ui.admin.disk.col_idle30")}</th>
                 <th />
               </tr>
             </thead>
@@ -104,8 +114,8 @@ export function DiskSection() {
                   <td className="tnum">{sizeText(a.idle_7_bytes)}</td>
                   <td className="tnum">{sizeText(a.idle_30_bytes)}</td>
                   <td className="q-act">
-                    <Button tip={`删掉「${a.label}」里 ${days} 天没用过的，先问一句`} onClick={() => void clean(a)}>
-                      清理
+                    <Button onClick={() => void clean(a)}>
+                      {t("ui.admin.disk.clean")}
                     </Button>
                   </td>
                 </tr>
@@ -114,7 +124,7 @@ export function DiskSection() {
           </table>
         </div>
       ) : (
-        <p className="adm-lede">统计中…</p>
+        <p className="adm-lede">{t("ui.admin.disk.counting")}</p>
       )}
       {cleaned && <div className="notice" data-code={cleaned.code}>{cleaned.text}</div>}
       {confirmSheet}

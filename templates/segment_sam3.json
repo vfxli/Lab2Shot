@@ -2,93 +2,156 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "7fd0bbeec2d738b1a31d8283a1636933",
-  "name": "视频分割 · SAM 3",
-  "intro": "SAM 3 是可提示分割的统一基础模型，画面和视频都管：用文字，或点、框、遮罩这类视觉提示，检出、分割并跟住物体。这张卡按文字提示（如 person、car）跟满整段镜头，交付一个多层 EXR：所有物体合在一起的遮罩（alpha）和按物体区分的 Cryptomatte。",
+  "name": {
+   "zh": "视频分割 · SAM 3",
+   "en": "Video Segmentation · SAM 3"
+  },
+  "intro": {
+   "zh": "SAM 3 是可提示分割的统一基础模型，画面和视频都管：用文字，或点、框、遮罩这类视觉提示，检出、分割并跟住物体。这张卡按文字提示（如 person、car）跟满整段镜头，交付一个多层 EXR：所有物体合在一起的遮罩（alpha）、按物体区分的 Cryptomatte；「SAM 3 软边」默认开，再用 SDMatte 按这张遮罩逐帧精修边缘，多交付一层软边 alpha（alpha_soft）。",
+   "en": "SAM 3 is a unified foundation model for promptable segmentation in images and video: with text, or visual prompts such as points, boxes and masks, it detects, segments and tracks objects. This card tracks a text prompt (such as person or car) through the whole shot and delivers a multi-layer EXR: all objects' mask (alpha), a per-object Cryptomatte and, with SAM 3 Soft Edge (on by default), SDMatte's soft edge per frame (alpha_soft)."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "mask",
   "owner": "admin",
-  "updated": "2026-10-01T08:00:00"
+  "updated": "2026-10-04T12:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "name": "prompt",
-   "label": "要分割的东西（英文）",
-   "target": "seg.prompt"
+   "label": {
+    "zh": "分割提示词",
+    "en": "Segmentation Prompt"
+   },
+   "target": "prompt_text.value"
   },
   {
-   "name": "threshold",
-   "label": "检测阈值",
-   "target": "seg.threshold"
+   "name": "segment_threshold",
+   "label": {
+    "zh": "检测阈值",
+    "en": "Detection Threshold"
+   },
+   "target": "segment.threshold"
   },
   {
-   "name": "max_objects",
-   "label": "最多物体数",
-   "target": "seg.max_objects"
+   "name": "segment_max_objects",
+   "label": {
+    "zh": "最多物体数",
+    "en": "Max Objects"
+   },
+   "target": "segment.max_objects"
   },
   {
-   "name": "cook_seg",
-   "label": "分割",
-   "target": "seg.cook"
+   "name": "cook_segment",
+   "label": {
+    "zh": "分割",
+    "en": "Segment"
+   },
+   "target": "segment.cook"
+  },
+  {
+   "name": "soft_on_value",
+   "label": {
+    "zh": "SAM 3 软边（SDMatte 精修边缘，多出一层软边 alpha）",
+    "en": "SAM 3 Soft Edge (SDMatte)"
+   },
+   "target": "soft_on.value",
+   "widget": "checkbox"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out_o.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "exr.name"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
-       "target": "out_o.exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -98,17 +161,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -117,8 +186,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -126,32 +194,33 @@
     "last": null
    },
    "ui": {
-    "x": 0,
-    "y": 48
+    "x": 320,
+    "y": 460
    }
   },
   {
-   "id": "seg",
+   "id": "segment",
    "type": "sam3.segment",
-   "label": "SAM 3 视频分割",
    "params": {
-    "prompt": "person",
+    "prompt": "",
     "max_objects": 8,
     "threshold": 0.5
    },
    "ui": {
-    "x": 400,
-    "y": 0,
+    "x": 720,
+    "y": 473,
     "on_node": [
      "prompt",
      "threshold"
     ]
-   }
+   },
+   "promoted": [
+    "prompt"
+   ]
   },
   {
-   "id": "out_o",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "id": "exr",
+   "type": "exr.output",
    "params": {
     "name": "mask",
     "layers": [
@@ -164,6 +233,11 @@
       "name": "layer2",
       "label": "CryptoObject",
       "channels": ""
+     },
+     {
+      "name": "layer3",
+      "label": "alpha_soft",
+      "channels": "A"
      }
     ],
     "exr_bit_depth": "half",
@@ -171,8 +245,8 @@
     "colorspace": null
    },
    "ui": {
-    "x": 800,
-    "y": 24,
+    "x": 1920,
+    "y": 521,
     "on_node": [
      "name"
     ]
@@ -180,12 +254,78 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1200,
-    "y": 24
+    "x": 2320,
+    "y": 521
+   }
+  },
+  {
+   "id": "prompt_text",
+   "type": "value_string",
+   "params": {
+    "value": ""
+   },
+   "ui": {
+    "x": 0,
+    "y": 874,
+    "on_node": [
+     "value"
+    ]
+   }
+  },
+  {
+   "id": "translate",
+   "type": "llm.translate",
+   "params": {
+    "target_lang": "english",
+    "model": "hy_mt2_q4"
+   },
+   "ui": {
+    "x": 360,
+    "y": 860,
+    "on_node": [
+     "target_lang",
+     "model"
+    ]
+   }
+  },
+  {
+   "id": "soft_on",
+   "type": "value_toggle",
+   "params": {
+    "value": true
+   },
+   "ui": {
+    "x": 1160,
+    "y": 0
+   }
+  },
+  {
+   "id": "soft",
+   "type": "sdmatte.matte",
+   "params": {
+    "guide": "mask",
+    "resolution": 1024,
+    "transparent": false,
+    "fp16": true
+   },
+   "ui": {
+    "x": 1120,
+    "y": 339
+   }
+  },
+  {
+   "id": "soft_gate",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 1520,
+    "y": 349
    }
   }
  ],
@@ -196,44 +336,114 @@
     "image"
    ],
    "to": [
-    "seg",
+    "segment",
     "image"
    ]
   },
   {
    "from": [
-    "seg",
+    "segment",
     "mask"
    ],
    "to": [
-    "out_o",
+    "exr",
     "layer1"
    ]
   },
   {
    "from": [
-    "seg",
+    "segment",
     "objects"
    ],
    "to": [
-    "out_o",
+    "exr",
     "layer2"
    ]
   },
   {
    "from": [
-    "out_o",
+    "exr",
     "files"
    ],
    "to": [
     "deliver",
     "files"
    ]
+  },
+  {
+   "from": [
+    "prompt_text",
+    "value"
+   ],
+   "to": [
+    "translate",
+    "text"
+   ]
+  },
+  {
+   "from": [
+    "translate",
+    "text"
+   ],
+   "to": [
+    "segment",
+    "param:prompt"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "soft",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "segment",
+    "mask"
+   ],
+   "to": [
+    "soft",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "soft",
+    "alpha"
+   ],
+   "to": [
+    "soft_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "soft_on",
+    "value"
+   ],
+   "to": [
+    "soft_gate",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "soft_gate",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "layer3"
+   ]
   }
  ],
  "boxes": [],
  "view": {
-  "display": "seg",
+  "display": "segment",
   "frame": null
  }
 }

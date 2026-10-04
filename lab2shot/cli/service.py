@@ -19,6 +19,7 @@ from pathlib import Path
 import typer
 from rich.markup import escape
 
+from .. import i18n
 from ..errors import MessageError
 from .base import abort_types, console, err, menu_table, note, ok, pick, say, warn
 
@@ -162,19 +163,19 @@ def sync_env() -> bool:
     from ..config import ROOT
 
     if not shutil.which("uv"):
-        err("未找到 uv。请重新运行 ./setup.sh 由脚本引导安装，或参阅 https://docs.astral.sh/uv/ 。")
+        err(i18n.t("cli.service.env.no_uv"))
         return False
-    note(f"$ uv sync（工作目录：{ROOT}）")
+    note(i18n.t("cli.service.env.run", command="uv sync", folder=ROOT))
     if subprocess.run(["uv", "sync"], cwd=ROOT).returncode == 0:
-        ok("Python 环境已就绪。")
+        ok(i18n.t("cli.service.env.python_ready"))
         return True
     mirror = _pypi_mirror()
-    if mirror and typer.confirm(f"执行失败。是否使用 PyPI 镜像（{mirror}）重试？", default=True):
+    if mirror and typer.confirm(i18n.t("cli.service.env.mirror_retry", mirror=mirror), default=True):
         env = {**os.environ, "UV_INDEX_URL": mirror}
         if subprocess.run(["uv", "sync"], cwd=ROOT, env=env).returncode == 0:
-            ok("Python 环境已就绪（经由镜像）。")
+            ok(i18n.t("cli.service.env.python_ready_mirror"))
             return True
-    err("执行失败，请查看上方输出。如网络不可用，请在「安装与环境 → 扩展包编译与下载设置 → 设置下载镜像」中配置镜像，或配置代理后重试。")
+    err(i18n.t("cli.service.env.sync_failed"))
     return False
 
 
@@ -190,23 +191,23 @@ def build_webui() -> bool:
     from ..config import ROOT
 
     if not shutil.which("npm"):
-        err("未找到 npm。请先安装 Node.js（https://nodejs.org/）。")
+        err(i18n.t("cli.service.env.no_npm"))
         return False
     web = ROOT / "webui"
     # npm ci installs exactly what package-lock.json pins and never rewrites it (npm install would: a build must not
     # leave a changed file in the checkout); a lockfile that no longer matches package.json is an error, not a re-solve
-    note(f"$ npm ci（工作目录：{web}）")
+    note(i18n.t("cli.service.env.run", command="npm ci", folder=web))
     if subprocess.run(["npm", "ci"], cwd=web).returncode != 0:
-        if not typer.confirm("执行失败。是否使用 npm 镜像（registry.npmmirror.com）重试？", default=True):
+        if not typer.confirm(i18n.t("cli.service.env.npm_mirror_retry"), default=True):
             return False
         if subprocess.run(["npm", "ci", "--registry=https://registry.npmmirror.com"], cwd=web).returncode != 0:
-            err("执行失败，请查看上方输出。")
+            err(i18n.t("cli.service.env.failed"))
             return False
-    note(f"$ npm run build（工作目录：{web}）")
+    note(i18n.t("cli.service.env.run", command="npm run build", folder=web))
     if subprocess.run(["npm", "run", "build"], cwd=web).returncode != 0:
-        err("执行失败，请查看上方输出。")
+        err(i18n.t("cli.service.env.failed"))
         return False
-    ok("网页已构建完成。")
+    ok(i18n.t("cli.service.env.web_built"))
     return True
 
 
@@ -223,27 +224,27 @@ def start(background: bool) -> None:
     port = int(_now("server.port"))
     if running():
         recorded = recorded_address()
-        note(f"服务已在运行：{recorded or address()}。")
+        note(i18n.t("cli.service.start.running", address=recorded or address()))
         if recorded and recorded != address():
-            warn(f"当前设置的地址为 {address()}；端口或 HTTPS 的修改需重启服务后生效。")
+            warn(i18n.t("cli.service.start.restart_needed", address=address()))
         return
     if (pid := listening_pid(port)) is not None:
-        err(f"端口 {port} 已被进程 {pid} 占用，不再启动新的服务。如该进程不是 Lab2Shot，请在「设置 → 网络与安装」中更换端口。")
+        err(i18n.t("cli.service.start.port_busy", port=port, pid=pid))
         raise typer.Exit(1)
     if not WEBUI_DIST.is_dir():
-        err("网页尚未构建。请先执行「安装与环境 → 构建网页界面」。")
+        err(i18n.t("cli.service.start.no_web"))
         raise typer.Exit(1)
     close_all()  # this menu's own handle on the database must not block the server's upgrade at start
     if not background:
-        note(f"服务在前台运行，按 Ctrl-C 停止：{address()}")
+        note(i18n.t("cli.service.start.foreground", address=address()))
         subprocess.call(lab2shot_command("ui"))
         return
     log = s.work_dir / "logs" / LOG
     if launch():
-        ok(f"服务已启动：{recorded_address() or address()}（日志：{log}）。")
+        ok(i18n.t("cli.service.start.started", address=recorded_address() or address(), log=log))
         _first_time_hints()
         return
-    err(f"服务未能在 120 秒内启动，请查看日志 {log}。")
+    err(i18n.t("cli.service.start.timeout", log=log))
     raise typer.Exit(1)  # `./setup.sh start` (and a script calling it) must see that it failed
 
 
@@ -267,14 +268,14 @@ def launch() -> bool:
     logs.mkdir(parents=True, exist_ok=True)
     with open(logs / LOG, "ab") as out:  # the child keeps its own copy of the descriptor
         proc = subprocess.Popen(lab2shot_command("ui"), stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
-    note("正在等待服务启动（最长 120 秒）……")
+    note(i18n.t("cli.service.start.waiting"))
     for _ in range(120):
         time.sleep(1)
         if running():
             return True
         if proc.poll() is not None:  # it ended without answering (the log says why): no use waiting on
             return False
-    warn(f"服务 120 秒内没有回答，结束它（进程 {proc.pid}）。")
+    warn(i18n.t("cli.service.start.no_answer", pid=proc.pid))
     _end_group(proc)
     return False
 
@@ -305,7 +306,7 @@ def lan_address() -> str:
     from ..server import tls
 
     lan = sorted(ip for ip in tls.own_addresses() if ip not in ("127.0.0.1", "::1") and ":" not in ip)
-    return lan[0] if lan else "<本机地址>"
+    return lan[0] if lan else i18n.t("cli.service.start.this_machine")
 
 
 def ca_url(port: int) -> str:
@@ -317,15 +318,17 @@ def _first_time_hints() -> None:
     from .. import accounts
 
     if _now("server.https"):
-        note(f"已启用 HTTPS：每台用户电脑需安装一次证书。请在浏览器中打开 {ca_url(int(_now('server.port')))} 下载，"
-              "并导入系统的「受信任的根证书颁发机构」。")
+        note(i18n.t("cli.service.start.https", url=ca_url(int(_now('server.port')))))
     if accounts.admin().no_password:
-        warn(f"管理员 {accounts.admin().username} 尚未设置密码，目前任何人都无法登录。请执行「账号与安全 → 设置管理员密码」。")
+        warn(i18n.t("cli.service.start.no_password", username=accounts.admin().username))
 
 
 # the choice stop offers: the running server stops through its own route either way (server/restart.py `then` stop)
-STOP_CHOICES = (("1", "等当前任务算完再停", "不再开始新任务；计算中的任务算完后停止。排队的任务留给下一次启动的服务接着排"),
-                ("2", "立即停止", "计算中的任务立即停下（已算完的节点留在缓存里）；排队的任务留给下一次启动的服务"))
+def stop_choices() -> tuple[tuple[str, str, str], ...]:
+    return (("1", i18n.t("cli.service.stop.drain"), i18n.t("cli.service.stop.drain_note")),
+            ("2", i18n.t("cli.service.stop.now"), i18n.t("cli.service.stop.now_note")))
+
+
 NOW_WAIT_S = 120  # how long a stop "now" may take before it counts as failed (a drain waits as long as the jobs run)
 KILL_WAIT_S = 30  # how long a process ended by its pid may take to leave the port
 
@@ -336,11 +339,11 @@ class NotStopped(MessageError):
     status = 409
 
 
-def stop(cancel: tuple[str, str] = ("返回", "不停止服务，返回上一级菜单")) -> bool:
+def stop(cancel: tuple[str, str] | None = None) -> bool:
     """Stop the service on this work folder: the one way, for the menu's 停止服务 and the one-click update's step 4.
 
     The running server is asked through its own route (/api/admin/stop, the local client's machine token), after the
-    choice STOP_CHOICES offers or `cancel` (its label and note): once the jobs running are done (drain), or at once
+    choice stop_choices offers or `cancel` (its label and note): once the jobs running are done (drain), or at once
     (now); either way the waiting jobs are kept for the next server. Then it is waited for until nothing listens on the
     port and the process has ended; Ctrl-C while it waits calls the stop off, and the queue goes on.
 
@@ -349,7 +352,7 @@ def stop(cancel: tuple[str, str] = ("返回", "不停止服务，返回上一级
     foreign server. A server that answers but refuses the route is an error (NotStopped).
 
     Returns whether a service was stopped (False: none was running). Raises NotStopped when it is still there, and the
-    abort types (abort_types) when the choice was `cancel`, the confirmation was declined or the wait was called off."""
+    abort types (abort_types) when the choice was `cancel` (default: back to the menu), the confirmation was declined or the wait was called off."""
     from ..client import Lab2ShotError
     from ..database import DatabaseError, close_all
     from ..messages import Msg
@@ -357,6 +360,7 @@ def stop(cancel: tuple[str, str] = ("返回", "不停止服务，返回上一级
 
     from .accounts import local_client
 
+    cancel = cancel or (i18n.t("cli.service.stop.back"), i18n.t("cli.service.stop.back_note"))
     port = service_port()
     answering = running() is not None  # asked first: the port's pid alone does not say who listens there
     pid = listening_pid(port)
@@ -365,14 +369,14 @@ def stop(cancel: tuple[str, str] = ("返回", "不停止服务，返回上一级
         try:
             lab = local_client()
         except (WorkDirError, DatabaseError) as exc:
-            warn(f"服务在回答，但本项目目录打不开它的记录，无法用本机令牌请它停止：{escape(str(exc))}")
+            warn(i18n.t("cli.service.stop.no_records", error=escape(str(exc))))
     if lab is None:
         if not _end(pid, port, answering):
             return False
     else:
         if pid is None:
             raise NotStopped(Msg("E-SERVICE-NOPID", address=recorded_address() or address()))
-        console.print(menu_table([*STOP_CHOICES, ("0", *cancel)]))
+        console.print(menu_table([*stop_choices(), ("0", *cancel)]))
         choice = pick("1")
         if choice not in ("1", "2"):
             raise KeyboardInterrupt
@@ -388,7 +392,8 @@ def stop(cancel: tuple[str, str] = ("返回", "不停止服务，返回上一级
                     raise NotStopped(Msg("E-SERVICE-STILLUP", seconds=waited, listen=port))
                 if waited % 15 == 0:
                     n = ((running() or {}).get("restart") or {}).get("running")
-                    note(f"正在等待服务停止（已等 {waited} 秒" + (f"，还有 {n} 个任务在计算" if n else "") + "；按 Ctrl-C 取消停止）……")
+                    note(i18n.t("cli.service.stop.waiting_jobs", seconds=waited, jobs=n) if n
+                         else i18n.t("cli.service.stop.waiting", seconds=waited))
                 time.sleep(1)
                 waited += 1
         except abort_types():
@@ -399,7 +404,7 @@ def stop(cancel: tuple[str, str] = ("返回", "不停止服务，返回上一级
             say(Msg("N-SERVICE-STOPCANCELLED"), quiet=True)
             raise
     close_all()  # the machine token opened the database here: whatever comes next (an upgrade, a restore) needs it alone
-    ok(f"服务已停止（端口 {port}，进程 {pid} 已退出）。")
+    ok(i18n.t("cli.service.stop.stopped", port=port, pid=pid))
     return True
 
 
@@ -412,11 +417,12 @@ def _end(pid: int | None, port: int, answering: bool) -> bool:
     if pid is None:
         if answering:
             raise NotStopped(Msg("E-SERVICE-NOPID", address=recorded_address() or address()))
-        note(f"端口 {port} 上没有服务。以其他端口（--port）启动的服务无法在此识别，请先在「设置 → 网络与安装」中将端口改为该端口，或手动停止该进程。")
+        note(i18n.t("cli.service.stop.nothing", port=port))
         return False
     name = _command_of(pid)
-    hint = "" if answering else "（它不回答 /api/server：可能不是 Lab2Shot、属于另一个项目目录的服务，或已失去响应）"
-    if not typer.confirm(f"是否结束端口 {port} 上的进程 {pid}{'（' + name + '）' if name else ''}{hint}？正在计算的任务将被中断", default=False):
+    hint = "" if answering else i18n.t("cli.service.stop.silent")
+    if not typer.confirm(i18n.t("cli.service.stop.end_named", port=port, pid=pid, name=name, hint=hint) if name
+                         else i18n.t("cli.service.stop.end", port=port, pid=pid, hint=hint), default=False):
         raise KeyboardInterrupt
     terminate(pid, port)
     return True
@@ -444,7 +450,7 @@ def restart() -> None:
     from .accounts import admin_restart_cmd
 
     if not running():
-        warn("服务未运行。请执行「服务 → 启动服务（后台）」。")
+        warn(i18n.t("cli.service.restart.not_running"))
         return
-    mode = "drain" if typer.confirm("是否等待正在计算的任务完成后再重启？（选择否将立即中断这些任务）", default=True) else "now"
+    mode = "drain" if typer.confirm(i18n.t("cli.service.restart.drain"), default=True) else "now"
     admin_restart_cmd(mode=mode, wait=True)

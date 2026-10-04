@@ -1,11 +1,17 @@
-"""Which inputs a switch takes: THE one source (engine/evaluation.py Evaluation is made of this and the other parts:
+"""Which inputs a node takes: THE one source (engine/evaluation.py Evaluation is made of this and the other parts:
 presence, demand, status). `taken_ports` answers 「is this input in use」; everything that follows a switch's route
 reads it: the wires an instance takes (Evaluation.wires), the routed walk up the graph (`upstream`, `needed`), the wires
 drawn as unused (`unchosen_wires`) and the packets that stand for an input before it is cooked (`stand_ins`), the inputs
 it cannot go without (`requires`), the switch's own wire check (Graph.check_inputs(only=…) and _no_route, which without
 an evaluation falls back on NodeDef.chosen_inputs, the same rule _chosen reads) and the switch's cook (it is handed the
 packet of the way taken and nothing else). The graph's static type rules for switches (their common type,
-`Graph.takes`) stay in engine/graph.py."""
+`Graph.takes`) stay in engine/graph.py.
+
+Any other node takes every input, except one its own parameters switch off (Port.applies on parameters alone, such as
+a generator's 「模式」 that has no use for its 「参考图」): a wire into it is not taken either, by the same rule as a way a
+switch does not take — drawn as unused, its source not computed, never in the node's fingerprint. A card can then keep
+every input of every mode wired and let the mode decide. An input switched off by what is wired (two inputs that
+exclude each other) is not this: a wire there is a mistake, and the graph says so (Graph.wire_problem)."""
 
 from __future__ import annotations
 
@@ -22,6 +28,7 @@ class Routing:
     def _open_routing(self) -> None:
         self._chosens = self._memo()  # instance -> its switch's inputs, or what that waits for (forget: once known)
         self._upstreams = self._memo(WHOLE)  # (target, path) -> upstream: it follows the routes (WHOLE: with them)
+        self._voids = self._memo()  # instance -> it surely gives nothing (gives_nothing: a reader with no file …)
 
     def _chosen(self, node_id: str, path: ItemPath) -> frozenset[str] | Pending | None:
         """The inputs a switch needs with its condition (None: the node is not a switch, or its condition's wire is
@@ -34,8 +41,11 @@ class Routing:
 
     def _choose(self, node_id: str, path: ItemPath) -> frozenset[str] | Pending | None:
         g, node = self.graph, self.graph.nodes[node_id]
+        if getattr(node.type, "presence_of", ""):  # 「有没有」: tells whether its input is there, takes none of it
+            return frozenset(p.name for p in g.input_ports(node_id) if p.name != node.type.presence_of)
         if not sc.chooses(node.type):
-            return None
+            off = g.mode_off(node_id) | self._void_ports(node_id, path)
+            return frozenset(p.name for p in g.input_ports(node_id) if p.name not in off) if off else None
         cond = node.type.condition_input
         wire = next(iter(g.inputs.get((node_id, cond), [])), None)
         if wire is not None and g.wire_problem(*wire, node_id, cond):
@@ -45,8 +55,62 @@ class Routing:
             return got
         return frozenset(node.type.chosen_inputs(node.params, None if got is None else got[2])) | {cond}
 
+    def _void_ports(self, node_id: str, path: ItemPath) -> frozenset[str]:
+        """The node's optional inputs (a parameter's wire too) every wire of which comes from what surely gives nothing
+        (gives_nothing: a reading node with no file picked): taken as not wired — 「可选素材」, the reference a card
+        leaves to the user (「参考帧没上传就是纯生成」). Not taken, the wire is drawn unused, its source not computed, no
+        file asked for, nothing said; a required input from such a reader still takes it (its 「没有选择文件」 is said,
+        as ever)."""
+        g = self.graph
+        out = set()
+        for port in g.input_ports(node_id):
+            wires = g.inputs.get((node_id, port.name), [])
+            if not wires or not (port.optional or port.param):
+                continue
+            ats = [(src, g.scopes.source_path(src, node_id, path)) for src, _ in wires]
+            if all(at is not None and self.gives_nothing(src, at) for src, at in ats):
+                out.add(port.name)
+        return frozenset(out)
+
+    def gives_nothing(self, node_id: str, path: ItemPath = ()) -> bool:
+        """Known before anything is cooked, from parameters alone, that the instance gives nothing: a reading node
+        (ReadsFile) whose file is not picked, a node that gives nothing for an empty text (NodeDef.nothing_without:
+        「翻译」 wired from a text known to be empty, or from what surely gives nothing), or what only passes data along
+        from such (a 「切换」 on the way it takes, a 「阻断」 that lets it through). A 「阻断」 set to block is not this: it
+        has its own outcome (blocked), so it and what needs it show 「已跳过（被阻断）」."""
+        from ..data.values import read
+        from ..nodes.base import Reads, ReadsFile
+
+        key = Inst(node_id, path)
+        if key in self._voids:
+            return self._voids[key]
+        g, node = self.graph, self.graph.nodes[node_id]
+        t, found = node.type, False
+        if issubclass(t, ReadsFile) and isinstance(getattr(t, "reads", None), Reads):
+            found = not node.params.get(t.reads.file)
+        elif (port := t.nothing_without) and (wires := g.inputs.get((node_id, port))):
+            src, sport = wires[0]
+            at = g.scopes.source_path(src, node_id, path)
+            if at is None:
+                return False
+            if not self.gives_nothing(src, at):
+                got = self.known(src, sport, at)
+                if got is None:  # not known yet (a value still to be cooked): not known to give nothing, not remembered
+                    return False
+                found = bool(got.meta.get("empty")) or not str(read(got).value or "").strip()
+            else:
+                found = True
+        elif sc.chooses(t):
+            taken = self.taken_ports(node_id, path)
+            if taken is None:  # its route not known yet (a condition still to be cooked): not known to give nothing,
+                return False  # and not remembered (it is asked again once the route is known)
+            ways = taken - {t.condition_input}
+            wires = [(src, g.scopes.source_path(src, node_id, path)) for w in ways for src, _ in g.inputs.get((node_id, w), [])]
+            found = bool(wires) and all(at is not None and self.gives_nothing(src, at) for src, at in wires)
+        return self._voids.put(key, found)
+
     def taken_ports(self, node_id: str, path: ItemPath = ()) -> frozenset[str] | None:
-        """THE answer to 「is this input in use」 where a switch (core.switch) decides it: a switch whose choice is known
+        """THE answer to 「is this input in use」 where a switch (switch) decides it: a switch whose choice is known
         now, the input ports it takes (its condition among them); None for any other node, or while the choice is
         pending (every input may be). Everything that follows a switch's route reads it: the wires an instance takes
         (`wires`), the routed walk up the graph (`upstream`, `needed`: what is behind a pending block, the cook's
@@ -74,7 +138,9 @@ class Routing:
         cook): a required port, or a switch's input on the route it takes. A switch's ways are optional ports (only
         the one it takes needs a wire), but the one it takes is all it passes on: a failure there is the source's, the
         switch is skipped behind it, never cooked without it. Evaluation.outcome, dropped and Engine._context read it."""
-        return not port.optional or port.name in (self.taken_ports(node_id, path) or ())
+        if not port.optional:
+            return True
+        return sc.chooses(self.graph.nodes[node_id].type) and port.name in (self.taken_ports(node_id, path) or ())
 
     def upstream(self, target: str, path: ItemPath = ()) -> list[str]:
         """`target` and what it depends on, dependencies first, as Graph.upstream_order, except that a switch whose
@@ -99,7 +165,8 @@ class Routing:
         g = self.graph
         out = set()
         for node_id in g.nodes:
-            if not sc.chooses(g.nodes[node_id].type):
+            t = g.nodes[node_id].type
+            if (not sc.chooses(t) and not g.mode_off(node_id) and not self._has_void(node_id)) or getattr(t, "presence_of", ""):
                 continue
             paths, pending = self.instances(node_id)
             routes = [self.taken_ports(node_id, p) for p in paths]
@@ -110,6 +177,19 @@ class Routing:
                 if port.name not in taken:
                     out.update((src, sport, node_id, port.name) for src, sport in g.inputs.get((node_id, port.name), []))
         return frozenset(out)
+
+    def _has_void(self, node_id: str) -> bool:
+        """Whether any wire into the node comes from a reader with no file picked (static: the node's own instances
+        decide which inputs that leaves untaken, _void_ports)."""
+        g = self.graph
+        from ..nodes.base import Reads, ReadsFile
+
+        def reader_without(src: str) -> bool:
+            t = g.nodes[src].type
+            return issubclass(t, ReadsFile) and isinstance(getattr(t, "reads", None), Reads) and not g.nodes[src].params.get(t.reads.file)
+
+        return any(src in g.nodes and (reader_without(src) or sc.chooses(g.nodes[src].type))
+                   for port in g.input_ports(node_id) for src, _ in g.inputs.get((node_id, port.name), []))
 
     def wanted_while_pending(self, node_id: str, path: ItemPath, w: Pending) -> list[Wire]:
         """What the instance may take once what it waits on is known, wanted of its sources already, so a node that
@@ -159,6 +239,9 @@ class Routing:
         yet is left out."""
         node = self.graph.nodes[node_id]
         wanted = {n for spec in node.type.param_specs() for n in spec["choices_from"]}
+        # 要数据的手柄（骨架姿势、双骨架）画它所读输入的骨架：和选项编辑器一样要这些口的代表包，节点 cook 之前就能摆
+        # （节点不一定有以这些口为 choices_from 的参数）
+        wanted |= {port for h in node.type.handles if h.wants_data for port in h.ports}
         out = {}
         for port in self.graph.input_ports(node_id):
             if port.name in wanted and (fp := self._stand_in(node_id, port.name, path)):

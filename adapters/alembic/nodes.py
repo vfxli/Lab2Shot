@@ -10,10 +10,9 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Literal
 
-from lab2shot.sdk import (Axes, DEFAULT_WIDTH, NodeParams, DistinctNames, OutputSettings, P, Param, Port, WorkerImport, Writes, fps_param, import_file_param, name_param, pack, scene_arrays, selection_param, selection_ports, to_cm)
+from lab2shot.sdk import (Axes, DEFAULT_WIDTH, Msg, NodeParams, DistinctNames, Format, OutputSettings, P, Param, Port, Reads, WorkerImport, Writes, fps_param, import_file_param, name_param, pack, scene_arrays, selection_param, selection_ports, to_cm)
 
 SUFFIXES = (".abc",)
-UNIT_LABELS = {"cm": "厘米 · Maya", "m": "米 · Houdini"}
 LISTED_FROM = ("path",)
 
 
@@ -24,9 +23,10 @@ class ImportAlembic(WorkerImport):
     # 相机读自文件，并非由本节点解算；Alembic 的点缓存是单个随时间变化的对象，导入节点原样输出文件内容
     runtime = "alembic"
     suffixes = SUFFIXES
+    reads = Reads(rank=1)  # 点云、曲线只有它读；其余 FBX 在前
     on_node = ("unit",)
     # seconds_per_frame：仅使用 CPU，读取 300 帧的相机耗时不足 1 秒
-    cost = replace(WorkerImport.cost, seconds_per_frame=0.003, note="只用 CPU")
+    cost = replace(WorkerImport.cost, seconds_per_frame=0.003, note=True)
 
     class Params(NodeParams):  # Alembic holds cameras, models, point clouds and curves: no skeletons
         path: str = import_file_param(SUFFIXES)
@@ -34,11 +34,11 @@ class ImportAlembic(WorkerImport):
         models: list[str] = selection_param("models", LISTED_FROM)
         points: list[str] = selection_param("points", LISTED_FROM)
         curves: list[str] = selection_param("curves", LISTED_FROM)
-        unit: Literal["cm", "m"] = P("cm", label="单位", group="Alembic", option_labels=UNIT_LABELS, worker=False)
-        up: Literal["y", "z"] = P("y", label="上轴", group="Alembic", option_labels={"y": "Y 轴向上", "z": "Z 轴向上"},
+        unit: Literal["cm", "m"] = P("cm", group="alembic", worker=False)
+        up: Literal["y", "z"] = P("y", group="alembic", 
                                   worker=False)
-        width: int = P(DEFAULT_WIDTH, label="画面宽度", unit="px", gt=0, group="Alembic", worker=False, applies=Param("camera").set())
-    outputs = selection_ports(Params, fps="Alembic 的帧率：DCC 写的 FPS 提示；没写时按采样间隔认出的帧率；都没有时空着")
+        width: int = P(DEFAULT_WIDTH, unit="px", gt=0, group="alembic", worker=False, applies=Param("camera").set())
+    outputs = selection_ports(Params, fps=True)  # its words: node.alembic.import.port.fps.help
 
     @classmethod
     def axes(cls, params, top):
@@ -51,33 +51,35 @@ class ImportAlembic(WorkerImport):
 
 class AlembicOutput(OutputSettings):
     id = "alembic.output"
+    format = Format("alembic")
     version = 4  # 4：原名写进用户属性 lab2shot:name；分区名也转写并同层去重（带「/」或转写后同名时不再整个写不出）
     category = "out_scene"
-    inputs = (Port("scene", "scene|scene[]", "场景", multi=True,
+    inputs = (Port("scene", "scene|scene[]", multi=True,
                    expects=(DistinctNames(),)),)
     on_node = ("name", "unit")
     runtime = "alembic"
-    cost = replace(OutputSettings.cost, whole="写一个文件，时间看写多少东西（300 帧的网格和相机约 1 秒），不按帧算")
+    cost = replace(OutputSettings.cost, whole=True)
     writes = {
         "model": Writes.full(),
         "camera": Writes.full(),
         "points": Writes.full(),
         "curves": Writes.full(),
-        "skeleton": Writes.no("Alembic 没有骨骼"),
-        "character": Writes.no("Alembic 没有骨骼", via="core.bake_model"),
-        "light": Writes.no("Alembic 没有灯光：穹顶灯（HDRI）只有 USD 带得走"),
+        "skeleton": Writes.no(Msg("I-ALEMBIC-NOBONES")),
+        "character": Writes.no(Msg("I-ALEMBIC-NOBONES"), via="bake_geometry"),
+        "gaussian": Writes.no(Msg("I-ALEMBIC-NOGAUSSIAN")),
+        "light": Writes.no(Msg("I-ALEMBIC-NOLIGHT")),
     }
 
     class Params(NodeParams):
         name: str = name_param("alembic")
-        unit: Literal["cm", "m"] = P("cm", label="单位",
-                                     group="文件", option_labels=UNIT_LABELS)
+        unit: Literal["cm", "m"] = P("cm", 
+                                     group="file")
         fps: float = fps_param()  # Alembic 以秒记录时间，按此帧率与帧号换算
 
     @classmethod
     def write(cls, ctx) -> str:
         out = cls.out_file(ctx, ".abc")
-        ctx.stage("整理场景")
+        ctx.stage("gather_scene")
         npz = scene_arrays(pack(ctx.inputs["scene"], ctx.work / "scene"), 1.0 / to_cm(ctx.params["unit"]),
                           fps=float(ctx.params["fps"])).save(ctx.work / "scene.npz")
         ctx.run_worker(None, extra={"file": str(out)}, inputs={"scene": npz}, reuse=False)  # it writes the file

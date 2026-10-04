@@ -1,0 +1,89 @@
+# LLM 扩展包自己的界面字和消息（中文）。
+
+"I-LLM-GGUF" = "GGUF 模型"
+
+[stage]
+generate = "生成"
+
+[node."llm.translate"]
+subtitle = "翻译"
+description = "把接进来的文字翻译成「翻译成」选的语言（Hy-MT2 官方提示格式；语言用官方全称表，33 语）。模型在 Hy-MT2-1.8B（专为翻译造的快思考小模型）和 Qwen3.5-9B 之间选，各有 Q4_K_M / Q8_0 两个量化档。输出还是「文字」，接线驱动下游的文字参数。"
+
+[node."llm.translate".param.target_lang]
+label = "翻译成"
+
+[node."llm.translate".param.target_lang.option]
+chinese = "中文"
+english = "英语"
+french = "法语"
+portuguese = "葡萄牙语"
+spanish = "西班牙语"
+japanese = "日语"
+turkish = "土耳其语"
+russian = "俄语"
+arabic = "阿拉伯语"
+korean = "韩语"
+thai = "泰语"
+italian = "意大利语"
+german = "德语"
+vietnamese = "越南语"
+malay = "马来语"
+indonesian = "印尼语"
+filipino = "菲律宾语"
+hindi = "印地语"
+traditional_chinese = "繁体中文"
+polish = "波兰语"
+czech = "捷克语"
+dutch = "荷兰语"
+khmer = "高棉语"
+burmese = "缅甸语"
+persian = "波斯语"
+gujarati = "古吉拉特语"
+urdu = "乌尔都语"
+telugu = "泰卢固语"
+marathi = "马拉地语"
+hebrew = "希伯来语"
+bengali = "孟加拉语"
+tamil = "泰米尔语"
+ukrainian = "乌克兰语"
+tibetan = "藏语"
+kazakh = "哈萨克语"
+mongolian = "蒙古语"
+uyghur = "维吾尔语"
+cantonese = "粤语"
+
+[node."llm.translate".param.model]
+label = "模型"
+
+[node."llm.translate".param.model.option]
+hy_mt2_q4 = "Hy-MT2-1.8B · Q4_K_M"
+hy_mt2_q8 = "Hy-MT2-1.8B · Q8_0"
+qwen35_q4 = "Qwen3.5-9B · Q4_K_M"
+qwen35_q8 = "Qwen3.5-9B · Q8_0"
+
+[node."llm.translate".official]
+note = "「翻译成」就是官方模板里的 target_lang（官方规定写语言全称，中文提示用中文名）。只做翻译，用官方「默认翻译」式。"
+
+[node."llm.translate".cost]
+whole = "一次生成，没有每帧"
+note = "Hy-MT2-1.8B Q4_K_M（实测）；换 Q8_0 或 9B 档的显存见「模型」各项"
+
+[extension.llm]
+title = "LLM 文字"
+summary = "文字进文字出的语言模型组件：Hy-MT2 / Qwen3.5 翻译，把中文接成下游要的英文提示词"
+
+[extension.llm.license]
+name = "MIT（llama.cpp）+ Apache-2.0（Hy-MT2、Qwen3.5-9B 权重）"
+summary = "可商用。推理引擎 llama.cpp 是 MIT；两个模型都按 Apache-2.0 发布（Hy-MT2 官方仓 LICENSE、Qwen/Qwen3.5-9B 模型卡 license 栏，GGUF 为 bartowski 的 imatrix 量化，随原模型同许可）。Qwen3.5 是 thinking 模型，本扩展按官方 enable_thinking=False 的非思考用法调用（GGUF 内嵌聊天模板实证，验收输出不含推理过程）。"
+
+[extension.llm.weight.hy-mt2-q4]
+note = "Hy-MT2-1.8B Q4_K_M（腾讯，Apache-2.0，1.1 GB）：33 语翻译"
+
+[extension.llm.weight.hy-mt2-q8]
+note = "Hy-MT2-1.8B Q8_0（腾讯，Apache-2.0，1.9 GB）：同上的高精度档"
+
+[extension.llm.weight.qwen35-q4]
+note = "Qwen3.5-9B Q4_K_M（阿里，Apache-2.0，bartowski 量化，6.2 GB）：翻译，关 thinking"
+
+[extension.llm.weight.qwen35-q8]
+note = "Qwen3.5-9B Q8_0（阿里，Apache-2.0，bartowski 量化，9.8 GB）：同上的高精度档"

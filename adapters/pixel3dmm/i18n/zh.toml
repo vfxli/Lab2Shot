@@ -1,0 +1,60 @@
+# The Pixel3DMM extension's own words and messages in Chinese (the same keys as en.toml).
+
+"E-PIXEL3DMM-NOFACE" = "Pixel3DMM 要求整段每一帧都有一张清晰的脸，这一段里有帧找不到（{reason}）：把帧范围缩到脸一直在画面里的那一段，或者换一条脸更大、更正的素材"
+"E-PIXEL3DMM-TOOMANYFRAMES.other" = "Pixel3DMM 一次最多解 {most} 帧，这一段有 {have} 帧：分成几段分别解算（它整段联合优化，段与段之间的脸型会各解各的）"
+"N-PIXEL3DMM-WHYFRAMES.other" = "它最后一步是整段联合优化，一次取 {least} 帧一起算"
+"N-PIXEL3DMM-CROPPED.other" = "只裁出了 {got} / {count} 帧"
+"N-PIXEL3DMM-MICANOFACE" = "MICA 在抽查的那几帧里没找到脸"
+"E-PIXEL3DMM-NOSEG.other" = "面部分割只出了 {got} / {count} 帧：这一段里有帧的脸太小、太偏或被挡住，Pixel3DMM 接着算不下去"
+"E-PIXEL3DMM-PRIOR.other" = "{kind} 只预测出 {got} / {count} 帧：显存不够或素材有坏帧，看日志里这一步的报错"
+"E-PIXEL3DMM-NOTRACK" = "第 {frame} 帧没有拟合结果：拟合中途停了，看日志里最后一条报错"
+"E-PIXEL3DMM-STEP" = "「{step}」这一步停了（退出码 {code}）：看日志里这一步最后的报错"
+"I-PIXEL3DMM-STEPCROP" = "找脸、裁切、面部关键点"
+"I-PIXEL3DMM-STEPMICA" = "MICA 估计脸型"
+"I-PIXEL3DMM-STEPSEGMENT" = "面部分割"
+"I-PIXEL3DMM-STEPPRIORS" = "预测法线贴图和规范面部坐标"
+"I-PIXEL3DMM-STEPTRACK" = "拟合 FLAME"
+"I-PIXEL3DMM-NORMALS" = "法线贴图"
+"I-PIXEL3DMM-UVCOORDS" = "规范面部坐标"
+
+[stage]
+crop = "找脸、裁切、面部关键点"
+mica = "MICA 估计脸型"
+segment = "面部分割"
+track = "拟合 FLAME"
+predict_normals = "预测法线贴图"
+predict_uv = "预测规范面部坐标"
+read_tracking = "读取跟踪结果"
+write_maps = "写出法线贴图和 UV 坐标图"
+collect_results = "整理结果"
+
+[node."pixel3dmm.face_solve"]
+subtitle = "面部动作"
+description = "Pixel3DMM：先逐帧预测法线贴图和规范面部坐标，再把 FLAME 头部模型拟合到整段镜头——先逐帧、再整段联合优化，带时序平滑，整段共用一台摄影机并解出焦距。比「SMIRK 面部动作」准、不抖，但慢十几倍；要一帧一帧都有脸，整段最多 1000 帧。"
+official.note = "① **官方的整套 FLAME 参数就是「蒙皮角色」这个口**，没有另立类型、也没有另加口（SMPL / SMPL-X / MANO / FLAME / MHR 这类参数化人体就是「蒙皮 + 蒙皮权重 + 骨架动画」，装成「蒙皮角色」，不另立数据类型）。逐项对上（worker.py head_in_camera）：`shape`（300 个，整段一个）变成这张脸的静止网格和静止骨架（npz rest_vertices / rest_joints），配 FLAME 自己的蒙皮权重（npz skin_weights）；`R` 和 `t`（头每帧的旋转和平移，连同摄影机的 R_base / t_base）变成根关节每帧的旋转和平移（npz local_rotations[:, 0] 和 transl）；`neck` 变成脖子关节（local_rotations[:, 1]）、`jaw` 变成下巴关节（[:, 2]）、`eyes` 变成左右眼球两个关节（[:, 3:5]）；`exp`（100 个）和 `eyelids`（2 个）变成「蒙皮角色」上的 102 个融合变形目标（npz blendshapes / blendshape_names / blendshape_weights）。`joint_transforms` 是上游把这些关节旋转按骨架层次乘起来的结果，我们这边由同一批 local_rotations 算出来（npz joints），不是另一份数据。**一个参数都没丢。**② 「RGB」输入口是官方的：`scripts/network_inference.py:121 img` （还有 tracker.py:586 images）。③ 「法线贴图」「UV 坐标图」两个输出口同样是官方的：`scripts/network_inference.py:146-154 output['uv_map'] / output['normals']`。④ 官方的摄影机只有 fl / pp（内参）加一台基准位姿 R_base / t_base，整段共用一台。"
+licence.note = "Pixel3DMM 代码和模型权重 CC BY-NC 4.0；FLAME 面部模型和 MICA 身份网络同样只限非商用科研。"
+
+[node."pixel3dmm.face_solve".port.uv]
+label = "UV 坐标图"
+
+[node."pixel3dmm.face_solve".param.quality]
+label = "质量"
+option.fast = "快"
+option.standard = "标准"
+option.fine = "精细"
+
+[node."pixel3dmm.face_solve".stage]
+write_maps = "写出法线贴图和 UV 坐标图"
+
+[extension.pixel3dmm]
+summary = "一组高度泛化的视觉 transformer，逐像素预测几何线索，用来约束三维可变形面部模型（3DMM）的优化，从单张画面解出三维人脸"
+license.name = "CC BY-NC 4.0（代码和模型权重）+ FLAME 非商用 + MICA 非商用"
+license.summary = "非商用。Pixel3DMM 代码和两个预测网络的模型权重是 CC BY-NC 4.0：不能用于商业制作。运行必须用 FLAME 面部模型（FLAME 2020 generic_model.pkl，可选 FLAME 2023），需要在 flame.is.tue.mpg.de 注册后自己下载，仅限非商用科研、禁止再分发。身份先验用马普所 MICA（专有代码，只许有许可的非商用使用；模型权重同样非商用），它的人脸检测用 InsightFace antelopev2（仅限非商用研究）。光栅化用 NVIDIA nvdiffrast（NVIDIA Source Code License，非商用研究）。其余：PIPNet 关键点 MIT，facer / FaRL 面部分割 MIT，pytorch3d BSD-3-Clause，chumpy MIT"
+weight.uv.note = "Pixel3DMM 规范面部坐标（UV）预测网络，2.1 GB（作者 Google Drive，CC BY-NC 4.0）"
+weight.normals.note = "Pixel3DMM 法线预测网络，1.4 GB（作者 Google Drive，CC BY-NC 4.0）"
+weight.mica.note = "MICA 身份网络（马普所，仅限非商用科研），479 MB"
+weight.pipnet-wflw.note = "PIPNet WFLW 98 点关键点（ResNet-18，MIT），47 MB"
+weight.farl-celebm.note = "FaRL CelebAMask-HQ 面部分割（微软，MIT）"
+weight.retinaface-mobilenet.note = "RetinaFace MobileNet-0.25 人脸检测（facer 用，MIT）"
+weight.resnet18-imagenet.note = "ImageNet ResNet-18（torchvision，BSD-3-Clause），PIPNet 建网络用"
+weight.antelopev2.note = "InsightFace antelopev2 人脸检测 / arcface（MICA 用，非商用研究），344 MB"

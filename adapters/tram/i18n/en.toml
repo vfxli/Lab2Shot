@@ -1,0 +1,44 @@
+# TRAM extension: display words and messages in English (the same keys as zh.toml).
+
+# ---- images and people
+"I-TRAM-VIMOWINDOW.one" = "its VIMO network looks at {need:d} frame at a time"
+"I-TRAM-VIMOWINDOW.other" = "its VIMO network looks at {need:d} frames at a time"
+"N-TRAM-NOPEOPLE" = "The built-in detection of TRAM Full-Body Motion (ViTDet + SAM + DEVA) found no person who stays in the images, so this output is empty: make sure a whole person is in the image; it cannot find people who are too small or occluded throughout"
+"N-TRAM-NOLONGTRACK" = "None of the people TRAM Full-Body Motion found stays in view for more than {frames} consecutive frames (it needs at least {frames} consecutive frames to solve a person), so this output is empty: occlusion or leaving the frame breaks a track; use a shot where people stay in view longer"
+"N-TRAM-SHORTTRACK" = "Person {person} has no stretch of more than {frames} consecutive frames, so TRAM Full-Body Motion cannot solve them; this person is skipped"
+
+# ---- camera
+"W-TRAM-STATIC" = "TRAM Full-Body Motion judged this shot to be locked off (DROID-SLAM produced no second keyframe) and treats the camera as still: if the camera actually moves, people will drift in the world along with the image. Check whether the footage has real translation (pure pans and compressed long-lens shots have very little parallax), and enter the real focal length in Known Focal Length"
+
+[node."tram.solve"]
+subtitle = "Full-Body Motion"
+description = "Images → each person's motion (SMPL body) in world space, plus the camera: masked DROID-SLAM (people removed) solves the camera at real-world scale first, then each person is placed in that world. Relative positions of several people in one world are its strength. It solves the camera itself; if you know the real focal length, enter it in Known Focal Length. On long lenses its own gravity estimate is unreliable. For fingers and face use SAM 3D Body Full-Body Motion; for gravity-aligned trajectories without foot sliding use GVHMR Body Motion."
+official.note = "⓪ **Person Boxes is an optional input, passed straight to upstream's function** (rule: when upstream's function takes person boxes, hand the boxes to it; for projects that do not, go through Person Boxes to Mask in the graph): upstream's `HMR_VIMO.inference(imgfiles, boxes, valid=, frame=, …)` (lib/models/hmr_vimo.py:134) takes exactly one person's per-frame boxes, and upstream's own EMDB evaluation script calls it with external ground-truth boxes (scripts/emdb/run_smpl.py:59-63). The official demo passes no boxes only because it detects and tracks people itself with ViTDet + SAM + DEVA (estimate_camera.py:38-39 → tracks.npy → estimate_humans.py:32). With boxes wired: VIMO solves these people by their boxes; upstream's detection + segmentation still runs, since the people masks SLAM needs come from it (worker.py solve_camera). Without boxes: it follows the official demo, detecting and tracking people itself and solving every track (up to Max People). ① **There is no Camera input**: VIMO's signature has only img_focal and img_center (intrinsics); upstream's camera is solved by its own people-masked DROID-SLAM (scripts/estimate_camera.py:45-47), a **product** of this pipeline, not an input. Intrinsics (focal length, principal point) are not a camera input; only full intrinsics plus extrinsics make a camera. img_focal corresponds to the Known Focal Length parameter, and the node declares `camera_to_worker = None` (the \"no camera animation, focal length only\" tier). To place the people in the world of your own camera, follow with the core node Camera Space. ② The Camera **output** is upstream's, only written in another file: world_cam_R / world_cam_T / img_focal at `scripts/estimate_camera.py:49-53`, which is why this declaration cites several upstream locations (see cite). ③ Skinned Character is the CG form of upstream's own result: the SMPL parameters VIMO outputs (pred_rotmat per-frame joint rotations + pred_shape + pred_trans, hmr_vimo.py:167-172) packed into a character with skin and skin weights. Parametric bodies such as SMPL / SMPL-X / MANO / FLAME / MHR are exactly \"skin + skin weights + skeletal animation\", so no separate data type is introduced; the character's mesh is the vertices upstream itself gets by running the SMPL body model on these parameters (pred_vert at lib/vis/traj.py:128-134)."
+
+[node."tram.solve".param.max_people]
+label = "Max People"
+
+[extension.tram]
+summary = "A two-stage method that recovers people's global trajectories and motion from in-the-wild video: SLAM solves the camera with metric scale from the scene background, then VIMO regresses the body motion"
+license.name = "MIT (code) + SMPL non-commercial + SPEC / DEVA non-commercial + model weights research only"
+license.summary = "Research only. TRAM's code is MIT, but thirdparty/camcalib in the repository (SPEC camera calibration) is proprietary Max Planck code for licensed non-commercial use only, and its model weights camcalib_sa_biased_l2.ckpt are likewise non-commercial; DEVA video tracking (code and model weights) is CC BY-NC-SA 4.0, non-commercial. Running it requires the SMPL body model (SMPL_NEUTRAL), which you download yourself after registering at smpl.is.tue.mpg.de; non-commercial research only, no redistribution. The VIMO model weights carry no licence of their own from the authors, and the training data includes research-only datasets such as BEDLAM, 3DPW and Human3.6M, so use them for research only. The rest: DROID-SLAM (code and model weights) BSD-3-Clause, lietorch BSD-3, ViTDet-H (detectron2) and Segment Anything ViT-H Apache-2.0, ZoeDepth / MiDaS MIT, smplx code (MPI non-commercial licence), chumpy MIT, torch-scatter MIT. On locked-off shots the camera-solving parts (DROID-SLAM and ZoeDepth) are not used"
+weight.vimo.note = "VIMO video human network (TRAM)"
+weight.spec.note = "SPEC camera pitch/roll and angle of view (MPI non-commercial)"
+weight.deva.note = "DEVA video segmentation and tracking (CC BY-NC-SA 4.0)"
+weight.resnet50-imagenet.note = "ImageNet ResNet-50 (torchvision, BSD-3-Clause), used to build DEVA's network"
+weight.resnet18-imagenet.note = "ImageNet ResNet-18 (torchvision, BSD-3-Clause), used to build DEVA's network"
+weight.sam-vit-h.note = "Segment Anything ViT-H people masks (Apache-2.0)"
+weight.zoedepth-n.note = "ZoeDepth-N metric depth for scale (MIT)"
+weight.droid.note = "DROID-SLAM (BSD-3-Clause)"
+weight.vitdet-h.note = "ViTDet-H person detection (Apache-2.0)"
+weight.zoedepth-code.note = "torch.hub code (pinned version, loaded locally)"
+weight.midas-code.note = "torch.hub code (pinned version, loaded locally)"
+
+[stage]
+detect_people = "ViTDet Detection · SAM Masks · DEVA People Tracking"
+search_focal = "TRAM Focal Length Search (SLAM Reprojection Error)"
+solve_camera = "DROID-SLAM Camera Solve · ZoeDepth Scale"
+static_camera = "Locked-Off Camera"
+estimate_gravity = "SPEC Gravity Estimate"
+estimate_bodies = "VIMO Body Estimate"
+vimo = "VIMO"

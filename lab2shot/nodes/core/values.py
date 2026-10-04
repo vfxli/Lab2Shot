@@ -16,12 +16,11 @@ from ...messages import Msg
 from ..base import NodeDef, NodeParams, P, Port
 from ...data.values import BOOL, FLOAT, INT, TEXT, VECTOR, value_meta, value_packet
 
-Unit = Literal["", "mm", "cm", "m", "px", "°", "帧", "秒", "EV"]
-UNIT_LABELS = {"": "无", "mm": "mm", "cm": "cm", "m": "m", "px": "px", "°": "°", "帧": "帧", "秒": "秒", "EV": "EV"}
+Unit = Literal["", "mm", "cm", "m", "px", "°", "frame", "s", "fps", "EV"]
 
 
 def unit_param(default: str = "") -> str:
-    return P(default, label="单位", group="数值", option_labels=UNIT_LABELS)
+    return P(default, group="values")
 
 
 class Constant(NodeDef):
@@ -41,75 +40,75 @@ class Constant(NodeDef):
 
 
 class FloatValue(Constant):
-    id = "core.value_float"
+    id = "value_float"
     on_node = ("value", "unit")
-    outputs = (Port("value", FLOAT, "值", unit="param:unit"),)
+    outputs = (Port("value", FLOAT, unit="param:unit"),)
     value_type = FLOAT
 
     class Params(NodeParams):
-        value: float = P(0.0, label="值", group="数值")
+        value: float = P(0.0, group="values")
         unit: Unit = unit_param()
 
 
 class IntValue(Constant):
-    id = "core.value_int"
+    id = "value_int"
     on_node = ("value", "unit")
-    outputs = (Port("value", INT, "值", unit="param:unit"),)
+    outputs = (Port("value", INT, unit="param:unit"),)
     value_type = INT
 
     class Params(NodeParams):
-        value: int = P(0, label="值", group="数值")
+        value: int = P(0, group="values")
         unit: Unit = unit_param()
 
 
 class BoolValue(Constant):
-    id = "core.value_bool"
-    outputs = (Port("value", BOOL, "值"),)
+    id = "value_toggle"
+    outputs = (Port("value", BOOL),)
     value_type = BOOL
 
     class Params(NodeParams):
-        value: bool = P(False, label="值", group="数值")
+        value: bool = P(False, group="values")
 
 
 class VectorValue(Constant):
-    id = "core.value_vector"
+    id = "value_vector"
     on_node = ("value", "unit")
-    outputs = (Port("value", VECTOR, "值", unit="param:unit"),)
+    outputs = (Port("value", VECTOR, unit="param:unit"),)
     value_type = VECTOR
 
     class Params(NodeParams):
-        value: tuple[float, float, float] = P((0.0, 0.0, 0.0), label="值", widget="vec3", group="数值")
+        value: tuple[float, float, float] = P((0.0, 0.0, 0.0), widget="vec3", group="values")
         unit: Unit = unit_param()
 
 
 class TextValue(Constant):
-    id = "core.value_text"
-    outputs = (Port("value", TEXT, "值"),)
+    id = "value_string"
+    outputs = (Port("value", TEXT),)
     value_type = TEXT
 
     class Params(NodeParams):
-        value: str = P("", label="值", group="数值")
+        value: str = P("", group="values", lines=4)
 
 
 # ------------------------------------------------------------------ values taken out of data
 
 
 def _per_frame_param():
-    return P(True, label="逐帧", group="数值")
+    return P(True, group="values")
 
 
 class SplitCamera(NodeDef):
-    id = "core.split_camera"
+    id = "split_camera"
     on_node = ("per_frame",)
     category = "camera_tools"
-    inputs = (Port("camera", "scene.camera", "相机"),)
+    inputs = (Port("camera", "scene.camera"),)
     # 四个输出对应 DCC（Houdini、Nuke）中相机的四项属性。主点、画面宽高、镜头模型、畸变系数不单独输出：
     # 三维相机不包含这些信息，从相机拆出的结果始终为空。
     outputs = (
-        Port("focal", FLOAT, "Focal Length", unit="mm"),
-        Port("filmback", FLOAT, "Filmback", unit="mm"),
-        Port("translate", VECTOR, "位置", unit="cm"),
-        Port("rotate", VECTOR, "旋转", unit="°"),
+        Port("focal", FLOAT, unit="mm"),
+        Port("filmback", FLOAT, unit="mm"),
+        Port("translate", VECTOR, unit="cm"),
+        Port("rotate", VECTOR, unit="°"),
     )
 
     class Params(NodeParams):
@@ -148,14 +147,14 @@ class SplitCamera(NodeDef):
 
 
 class CurveChannel(NodeDef):
-    id = "core.curve_channel"
+    id = "curve_channel"
     category = "value"
-    inputs = (Port("curves", "curves", "曲线"),)
-    outputs = (Port("value", FLOAT, "值", unit="param:unit"),)
+    inputs = (Port("curves", "curves"),)
+    outputs = (Port("value", FLOAT, unit="param:unit"),)
     on_node = ("curve", "unit")
 
     class Params(NodeParams):
-        curve: str = P("", label="曲线", group="数值", placeholder="第一条")
+        curve: str = P("", group="values")
         unit: Unit = unit_param()
 
     @classmethod

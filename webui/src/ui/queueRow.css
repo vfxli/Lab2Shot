@@ -15,11 +15,11 @@
 
 /* 以下规则只作用于队列自身的表格（`.q-jobs`），不得写在 `.q-table` 上。
    `.q-table` 是多处共用的表格样式：后台的「硬盘」「数据库」「使用统计」「反馈」「常驻模型」
-   等表均使用它，若将 `table-layout: fixed` 和第一列 4.6rem 写在其上，后台表格的第一列会被压窄、短词换行。
+   等表均使用它，若将 `table-layout: fixed` 和第一列宽度写在其上，后台表格的第一列会被压窄、短词换行。
    共用组件上只写对所有使用者都成立的规则；各表自身的列宽写在其修饰类上。 */
 .q-jobs { table-layout: fixed; }
 .q-jobs th:nth-child(1),
-.q-jobs td:nth-child(1) { width: 4.6rem; }
+.q-jobs td:nth-child(1) { width: 6.4rem; } /* 最长的状态词「Interrupted」整个放得下，不压到右边的任务名 */
 .q-jobs .q-act { width: 1%; white-space: nowrap; }
 /* 状态点与按钮列对着整行居中：计算中的行比别的行多一行进度，顶对齐时按钮就会偏上 */
 .q-jobs td:first-child,

@@ -138,16 +138,14 @@ def shown_path(prim: Usd.Prim) -> str:
 IMPORT_GROUP = "lab2shot:import_group"  # customData on the folder an import node's entries are placed under
 
 
-def import_group(label: str, type_label: str, file: str) -> str:
+def import_group(node_id: str, type_id: str, file: str) -> str:
     """The folder every entry of one import node is placed under, /shot/<this>/... (every import gets one, so the
-    hierarchy keeps its shape when a second import is added), as a name: the node's name when the artist renamed it
-    (`label` other than its type's `type_label`), else the imported file's stem; never the type id. import_path and
-    mark_group make it an identifier and keep this name on the folder (keep_original), so a DCC and an FBX delivery
-    show it as given. A rename with no ASCII letter or digit in it (all Chinese) falls back to the stem, the name
-    people search the outliner by. Two imports landing on the same folder are refused when packed (data/scene.py
-    pack, B-NAME-SAME)."""
-    renamed = label if label and label != type_label and any(c.isascii() and c.isalnum() for c in label) else ""
-    return renamed or Path(file).stem
+    hierarchy keeps its shape when a second import is added), as a name: the imported file's stem, whatever the node
+    is called (in a DCC the asset's own name, `zhanshi`, says more than a node's, `char_fbx`).
+    import_path and mark_group make it an identifier and keep this name on the folder (keep_original), so a DCC and an
+    FBX delivery show it as given. Two imports landing on the same folder are refused when packed (data/scene.py pack,
+    B-NAME-SAME)."""
+    return Path(file).stem
 
 
 def import_path(group: str, source: str) -> str:
@@ -408,6 +406,7 @@ def rescale_stage(stage: Usd.Stage, factor: float) -> None:
             each_sample(geom.GetVelocitiesAttr(), vec_scale)  # lengths per second
         if prim.IsA(UsdGeom.Points):  # a point's size and a curve's thickness are lengths too
             each_sample(UsdGeom.Points(prim).GetWidthsAttr(), vec_scale)
+            each_sample(prim.GetAttribute("primvars:gaussian:scales"), vec_scale)
         elif prim.IsA(UsdGeom.Curves):
             each_sample(UsdGeom.Curves(prim).GetWidthsAttr(), vec_scale)
         if prim.IsA(UsdSkel.Skeleton):

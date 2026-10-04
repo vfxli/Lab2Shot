@@ -9,6 +9,8 @@ import { useCurveView, useRulerView, useViewer } from "../state/viewer";
 import { useRefSize } from "../platform/size";
 import { Button } from "../ui/Button";
 import { startScrub } from "./scrub";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 const FIRST = 6; // channels drawn at first: the ones that move most
 
@@ -51,35 +53,35 @@ export function CurvesView({ data, title }: { data: CurvesData; title?: string }
       <div className="curves-list">
         <div className="curves-list-head">
           <div className="curves-head-row">
-            <span className="curves-title">{title ?? "曲线"}</span>
-            <span className="curves-count tnum" data-tip="画出来的通道 / 全部通道">
+            <span className="curves-title">{title ?? t("ui.timeline.curves")}</span>
+            <span className="curves-count tnum">
               {chosen.set.size} / {data.names.length - hidden.size}
             </span>
           </div>
           <div className="curves-head-row curves-list-tools">
-            <input className="field curves-search" type="search" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="搜索" data-tip="只列出名字里有这些字的通道（空格分开的每个词都要有）" />
-            <Button tip="选中列出的全部通道（搜索时只是搜到的）" size="sm" tone="ghost" onClick={() => setAll(new Set([...chosen.set, ...shown]))}>
-              全部
+            <input className="field curves-search" type="search" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={t("ui.common.search")} />
+            <Button size="sm" tone="ghost" onClick={() => setAll(new Set([...chosen.set, ...shown]))}>
+              {t("ui.timeline.all")}
             </Button>
-            <Button tip="一个都不选：不画曲线" size="sm" tone="ghost" onClick={() => setAll(new Set())}>
-              无
+            <Button size="sm" tone="ghost" onClick={() => setAll(new Set())}>
+              {t("ui.common.none")}
             </Button>
-            <Button tip={`只选变化最大的 ${FIRST} 个通道`} size="sm" tone="ghost" onClick={() => setAll(new Set(mostMoving(data.values, FIRST, hidden)))}>
-              最大
+            <Button size="sm" tone="ghost" onClick={() => setAll(new Set(mostMoving(data.values, FIRST, hidden)))}>
+              {t("ui.timeline.most_moving")}
             </Button>
             <Button
               size="sm"
               tone="ghost"
               on={original && pair.size > 0}
               disabled={!pair.size}
-              tip={pair.size ? "在改过的通道下面，用同色虚线画出它原来的样子" : "这份曲线没有「原始」可比：节点没有交出改动前的通道"}
+              tip={pair.size ? undefined : tipOf("disabled", t("ui.timeline.no_original"))}
               onClick={() => setOriginal(!original)}
             >
-              显示原始
+              {t("ui.timeline.show_original")}
             </Button>
           </div>
         </div>
-        <div className="curves-items" role="listbox" aria-multiselectable="true" aria-label="通道">
+        <div className="curves-items" role="listbox" aria-multiselectable="true" aria-label={t("ui.timeline.channels")}>
           {shown.map((i) => (
             <div
               key={i}
@@ -90,14 +92,13 @@ export function CurvesView({ data, title }: { data: CurvesData; title?: string }
               onClick={(e) => click(i, e)}
               onMouseEnter={() => setHover(i)}
               onMouseLeave={() => setHover(null)}
-              data-tip={`${data.names[i]}：点击只画这一条；Ctrl 点加上或去掉；Shift 点选中从上次点的到这里`}
             >
               <i style={{ background: color(i) }} />
-              <span className="curves-name" data-user-data data-tip={data.names[i]}>{data.names[i]}</span>
+              <span className="curves-name" data-user-data {...tipAttrs(tipOf("truncated", data.names[i]))}>{data.names[i]}</span>
               <span className="curves-value tnum">{k >= 0 ? formatValue(data.values[i][k]) : ""}</span>
             </div>
           ))}
-          {!shown.length && <div className="curves-none">没有名字里有「{typed}」的通道</div>}
+          {!shown.length && <div className="curves-none">{t("ui.timeline.no_channel_matching", { query: typed })}</div>}
         </div>
       </div>
       <Graph data={data} picked={chosen.set} hover={hover} view={view} frame={frame} frames={frames}
@@ -154,12 +155,11 @@ function Graph({ data, picked, hover, view, frame, frames, bounds, before, onFra
     <div
       ref={el}
       className="curves-graph"
-      data-tip="点或拖动：换当前帧；滚轮：缩放帧的范围（和时间线一起），双击回到整段"
       onPointerDown={(e) => e.button === 0 && startScrub(e, frameAt, onFrame)}
       onDoubleClick={() => onZoom(null)}
     >
       {pw > 0 && ph > 0 && (
-        <svg width={size.w} height={size.h} role="img" aria-label="曲线图">
+        <svg width={size.w} height={size.h} role="img" aria-label={t("ui.timeline.graph")}>
           <rect x={PAD.left} y={PAD.top} width={pw} height={ph} className="curves-plot" />
           {(() => {
             const vt = valueTicks(lo, hi, Math.max(3, Math.floor(ph / 26)));
@@ -219,7 +219,7 @@ function Graph({ data, picked, hover, view, frame, frames, bounds, before, onFra
           {frame >= view.start && frame <= view.end && <line x1={x(frame)} x2={x(frame)} y1={PAD.top} y2={PAD.top + ph} className="curves-cursor" />}
         </svg>
       )}
-      {!drawn.length && <div className="curves-empty">在左边选通道来画曲线</div>}
+      {!drawn.length && <div className="curves-empty">{t("ui.timeline.pick_channels")}</div>}
     </div>
   );
 }
@@ -256,7 +256,7 @@ export function ParamCurve({ fp, title }: { fp: string; title: string }) {
   return (
     <div className="param-curve">
       <span className="param-curve-name">{title}</span>
-      <svg viewBox={`0 0 ${SPARK.w} ${SPARK.h}`} role="img" aria-label={`${title} 的曲线`} preserveAspectRatio="none">
+      <svg viewBox={`0 0 ${SPARK.w} ${SPARK.h}`} role="img" aria-label={t("ui.timeline.curve_of", { name: title })} preserveAspectRatio="none">
         {[0.25, 0.5, 0.75].map((p) => (
           <line key={p} className="curves-grid" x1={0} x2={SPARK.w} y1={SPARK.pad + p * (SPARK.h - 2 * SPARK.pad)} y2={SPARK.pad + p * (SPARK.h - 2 * SPARK.pad)} vectorEffect="non-scaling-stroke" />
         ))}

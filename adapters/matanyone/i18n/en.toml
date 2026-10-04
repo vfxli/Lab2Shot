@@ -1,0 +1,52 @@
+# MatAnyone 2 matting (adapters/matanyone) in English (the same keys as zh.toml).
+
+# ---- input
+"N-MATANYONE-LATESTART.one" = "The first frame of the guide mask is empty: MatAnyone 2 starts matting at frame {frame} and works the frame before it backwards"
+"N-MATANYONE-LATESTART.other" = "The first {count:d} frames of the guide mask are empty: MatAnyone 2 starts matting at frame {frame} and works the frames before it backwards"
+
+# ---- words
+
+[stage]
+read_guide_mask = "Read Guide Mask"
+matte = "Matte"
+
+[node."matanyone.matte"]
+subtitle = "Fine Matte"
+description = "Give it a rough mask on one frame (the first frame with the person in it) and MatAnyone 2 mattes the person out over the whole shot: hair and semi-transparent edges come out soft, stable from frame to frame. Fast and light on GPU memory, it computes with the short side scaled down to Working Resolution (upstream's way), 1080 by default. When every frame has a rough mask and you need soft edges that are steadier over time, use videomama.matte."
+
+[node."matanyone.matte".param.resolution]
+label = "Working Resolution (Short Side)"
+
+[node."matanyone.matte".param.resolution.option]
+540 = "540"
+720 = "720"
+1080 = "1080"
+1440 = "1440"
+
+[node."matanyone.matte".param.warmup]
+label = "First Frame Warm-Up Passes"
+
+[node."matanyone.matte".param.mask_close]
+label = "Mask Repair"
+
+[node."matanyone.matte".param.fp16]
+label = "Half Precision"
+
+[node."matanyone.matte".port.image]
+label = "RGB"
+
+[node."matanyone.matte".port.mask]
+label = "First Frame Rough Mask"
+
+[node."matanyone.matte".official]
+note = "Upstream also writes fgr, but that is a composited preview, com_np = image_np * pha + green screen * (1 - pha) (line 111), not an output of the model, so it is not a port."
+
+[extension.matanyone]
+summary = "Uses a learned matting quality evaluator (MQE) to judge the semantic and boundary quality of an alpha without ground truth, scaling up the data for video matting"
+
+[extension.matanyone.license]
+name = "NTU S-Lab License 1.0 (noncommercial)"
+summary = "Noncommercial: the code and the weights (matanyone2.pth, from the authors' GitHub release page) are released under S-Lab License 1.0, which allows use and redistribution for noncommercial purposes only (keeping the copyright notice and disclaimer); commercial use requires a separate license from the authors (NTU S-Lab). The model architecture is based on Cutie (MIT). No other weights are needed: the ImageNet-pretrained weights of the ResNet backbone are included in the checkpoint and not downloaded separately"
+
+[extension.matanyone.weight.matanyone2]
+note = "MatAnyone 2 weights (135 MB, S-Lab License 1.0, noncommercial)"

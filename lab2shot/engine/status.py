@@ -83,6 +83,21 @@ class Status:
                 if is_value(self.graph.output_type(nid, port))
                 and (pk := self.known(nid, port, path)) is not None and not pk.meta.get("empty")}
 
+    def _source_fields(self, nid: str, path: ItemPath) -> dict:
+        """The status fields of where its parameters' values come from: the sentences (`sources`) and, apart, the
+        clause of those set over a connected input (`overrides`), so the page reads the fact rather than the words."""
+        sources, overrides = self.source_notes(nid, path)
+        return {"sources": sources, "overrides": overrides}
+
+    def _curve_outputs(self, nid: str, path: ItemPath, ports: list[str]) -> list[str]:
+        """The value outputs already known that hold a number per frame that changes from frame to frame (the ones
+        worth a curve: data/values.py varies)."""
+        from ..data.values import is_value, varies
+
+        return sorted(port for port in ports
+                      if is_value(self.graph.output_type(nid, port))
+                      and (pk := self.known(nid, port, path)) is not None and not pk.meta.get("empty") and varies(pk))
+
     def _instance_status(self, nid: str, path: ItemPath, state: dict, used: frozenset[Inst] | None,
                          shown: frozenset[str] = frozenset()) -> dict:
         """One instance's entry: its plan, outcome, messages and value outputs (the same fields as a node outside every
@@ -99,7 +114,7 @@ class Status:
             # an instance with no plan at all (its file is not there, a precondition it can't get past) still says
             # whose error it is: its own when it failed here, the one above it when it is only skipped
             if (o := self.outcome(nid, path)) is not None and o.state != sc.ERROR:
-                entry["outcome"] = {"state": o.state, "root": o.root}
+                entry["outcome"] = {"state": o.state, "root": o.root, **({"blocked": True} if o.blocked else {})}
                 entry["error" if o.state == sc.FAILED else "skipped"] = o.message
             else:  # its own planning error (an ERROR outcome says the same)
                 entry["error"] = message_of(exc).json()
@@ -108,6 +123,7 @@ class Status:
             # can show 「OpenCV 鱼眼 · 来自 AnyCalib」 before a picture is wired
             if values := self._value_outputs(nid, path, [port.name for port in g.outputs(nid)]):
                 entry["values"] = values
+                entry["curves"] = self._curve_outputs(nid, path, list(values))
             return entry
         entry.update({"fingerprint": p.fingerprint, "cached": self.cached(nid, path, shown), "outputs": p.outputs,
                       "present": sorted(port for port, fp in p.outputs.items() if self.there(fp)),
@@ -126,13 +142,14 @@ class Status:
         if (planes := self._upload_channels(nid, path)) is not None:
             entry["channels"] = planes
         if (o := self.outcome(nid, path)) is not None:  # no result because of an error: its own, or one above it
-            entry["outcome"] = {"state": o.state, "root": o.root}
+            entry["outcome"] = {"state": o.state, "root": o.root, **({"blocked": True} if o.blocked else {})}
             entry["error" if o.state in (sc.FAILED, sc.ERROR) else "skipped"] = o.message
         if self.cached(nid, path):  # what it said while it was cooked, kept with its result (Packet.commit)
             said = next((m["messages"] for o in p.outputs.values() if (m := self.manifest(o)) and m["messages"]), [])
             entry["messages"] = [*entry["messages"], *(m for m in said if m not in entry["messages"])]
         if values := self._value_outputs(nid, path, list(p.outputs)):
             entry["values"] = values
+            entry["curves"] = self._curve_outputs(nid, path, list(values))
         if strip := self.strip_values(nid, path):
             entry["strip"] = strip
         entry["state"] = self.state(nid, path, used, shown)
@@ -150,7 +167,8 @@ class Status:
         params = self.params(node_id, path)
         specs = {s["name"]: s for s in node.type.param_specs()}
         out = []
-        for name, label in node.type.strip.items():
+        for name in node.type.strip:
+            label = node.type.strip_label(name)
             spec = specs[name]
             text = ""
             wire = self._wired_packet(node_id, name, path)
@@ -262,11 +280,11 @@ class Status:
         # still has to tell, what it costs and whose licence it is with these parameters
         state = {"applies": r.params.json(),
                  "cost": r.cost.describe(), "licence": r.licence.describe(),
-                 "messages": [], "sources": self.sources(nid) if not inside else {},
+                 "messages": [], **(self._source_fields(nid, ()) if not inside else {"sources": {}, "overrides": {}}),
                  "ports": g.ports(nid), "handles": g.handles(nid),
                  # a switch whose route is known: the inputs it takes (taken_ports, the one answer; the page reads
                  # it rather than working out 「走哪一路」 itself)
-                 **({"taken": sorted(t)} if not inside and (t := self.taken_ports(nid)) is not None else {}),
+                 **({"taken": sorted(t)} if not inside and sc.chooses(node.type) and (t := self.taken_ports(nid)) is not None else {}),
                  # where a placing node puts what it gives (nodes/handles.py Places), for the viewer's preview
                  **({"places": node.type.places.placement()} if node.type.places else {})}
         if not inside:
@@ -283,7 +301,7 @@ class Status:
         shown = self.view_path(nid, view)
         up = next((o for w in pending if (o := self.outcome(*w.on)) is not None), None)
         entry = ({**self._instance_status(nid, shown, state, used), "item": {"path": list(shown), "names": self._names(nid, shown)},
-                  "sources": self.sources(nid, shown)} if shown is not None
+                  **self._source_fields(nid, shown)} if shown is not None
                  else {"fingerprint": None, "cached": False, "outputs": {}, "messages": [],
                        "item": {"path": [], "names": []}, "state": sc.PENDING})
         entry["summary"] = summary
@@ -305,7 +323,7 @@ class Status:
                           else sc.SKIPPED if up is not None and not paths else sc.node_state(states, bool(pending)))
         if up is not None and not paths:
             o = self._skipped(node, g.nodes[up.root].label, up)
-            entry.update({"outcome": {"state": o.state, "root": o.root}, "skipped": o.message})
+            entry.update({"outcome": {"state": o.state, "root": o.root, **({"blocked": True} if o.blocked else {})}, "skipped": o.message})
         return {**state, **entry}
 
     def _broken_status(self, nid: str, exc: Exception) -> dict:

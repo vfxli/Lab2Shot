@@ -14,8 +14,9 @@ the anchor. Per upstream inference (inference_matanyone2.py):
   (elliptical kernel, upstream gen_dilate / gen_erosion, default 10);
 * the anchor frame is repeated `warmup` times (default 10) as "first frame
   prediction" steps to refine the first alpha before propagation;
-* frames scaled down (area) when the long side exceeds resolution; the mask with
-  nearest neighbour; fp16 autocast like upstream's safe_autocast.
+* frames scaled down (area) when the SHORT side exceeds resolution (upstream's
+  --max_size, inference_matanyone2.py:50-56); the mask with nearest neighbour;
+  fp16 autocast like upstream's safe_autocast.
 
 Output: raw/frame_<n>.npz alpha float32 [H,W] 0..1 at the input resolution.
 MatAnyone 2 predicts alpha only (no foreground colour).
@@ -29,14 +30,21 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from lab2shot_worker import MemoryBound, fail, fit_size, progress, require_weights, resident, say, serve
+from lab2shot_worker import MemoryBound, fail, progress, require_weights, resident, say, serve
 from lab2shot_worker.frame_io import FrameReader
 from lab2shot_worker.matte import GUIDE_THRESHOLD, GuideMasks, Output, frame_reader
 from lab2shot_worker.run import Run
 
 MULTIPLE = 2  # the network pads to multiples of 16 itself; keep the size even
-# what the memory grows with: 处理分辨率 (node options 960 / 1280 / 1920; 1920: 7.5 GB)
-RESOLUTION = MemoryBound.parameter("resolution", (1920, 1280, 960, 640))
+# what the memory grows with: 处理分辨率, the short side (node options 540 / 720 / 1080 / 1440; 1080: 7.5 GB)
+RESOLUTION = MemoryBound.parameter("resolution", (1440, 1080, 720, 540, 360))
+
+
+def short_side_size(width: int, height: int, side: int) -> tuple[int, int]:
+    """(h, w) to work at: scaled down so the short side is `side` when it exceeds it (upstream --max_size), never up."""
+    scale = min(1.0, side / min(width, height))
+    return (max(MULTIPLE, int(round(height * scale / MULTIPLE)) * MULTIPLE),
+            max(MULTIPLE, int(round(width * scale / MULTIPLE)) * MULTIPLE))
 
 
 @resident
@@ -117,7 +125,7 @@ def main(job_path: str) -> None:
     numbers, height, width = frames.numbers, frames.height, frames.width
     guides = GuideMasks(job, height, width)
 
-    run.stage("读取引导遮罩")
+    run.stage("read_guide_mask")
     anchor, guide = guides.first_nonempty(numbers)
     if anchor > 0:
         say("N-MATANYONE-LATESTART", count=anchor, frame=numbers[anchor])
@@ -130,17 +138,17 @@ def main(job_path: str) -> None:
         mask = gen_erosion(mask, mask_close, mask_close)
     device = torch.device("cuda")
 
-    model = run.model("MatAnyone 2", load_model, checkpoint, device)
+    model = run.model("load_model", load_model, checkpoint, device, stage_params={"model": "MatAnyone 2"})
 
-    run.stage("抠像")
+    run.stage("matte")
     reader = frame_reader(frames.paths, (height, width))
     passes = [list(range(anchor, len(frames)))]
     if anchor > 0:
         passes.append(list(range(anchor, -1, -1)))
 
     def matte_shot(side: int):
-        """The whole shot, its long side scaled down to `side`."""
-        size = fit_size(width, height, side, MULTIPLE, upscale=False)[::-1]  # (h, w)
+        """The whole shot, its short side scaled down to `side`."""
+        size = short_side_size(width, height, side)
         mask_t = torch.from_numpy(mask).to(device)
         if tuple(mask_t.shape) != size:
             mask_t = F.interpolate(mask_t[None, None], size=size, mode="nearest")[0, 0]
@@ -153,7 +161,7 @@ def main(job_path: str) -> None:
                 return
             out.put(numbers[index], alpha)
             done += 1
-            progress(done, len(frames), "抠像")
+            progress(done, len(frames), "matte")
 
         try:
             with torch.inference_mode(), torch.autocast("cuda", dtype=torch.float16, enabled=fp16):

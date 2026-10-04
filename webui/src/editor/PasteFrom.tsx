@@ -7,6 +7,7 @@ import { readClipboard } from "../platform/util";
 import { useCookInputs } from "../state/cookInputs";
 import { useWriteLock } from "../ui/writeLock";
 import type { NodeTypeDef } from "../api/catalog";
+import { t } from "../i18n/t";
 
 /** 从别的软件粘贴一组参数（3DE / Nuke 镜头数据）：本模块负责「粘贴参数」按钮与剪贴板读不到时的手动粘贴框。
  *
@@ -61,13 +62,13 @@ export function PasteFrom({ nodeId, def }: { nodeId: string; def: NodeTypeDef })
       <div className="paste-from">
         <textarea
           className="field" rows={4} autoFocus value={typing} data-field="paste-text"
-          aria-label={`${app} 的节点文字`}
-          placeholder={`在 ${app} 里选中节点按 Ctrl+C，在这里按 Ctrl+V`}
+          aria-label={t("ui.params.paste.text", { app })}
+          placeholder={t("ui.params.paste.placeholder", { app })}
           onChange={(e) => setTyping(e.target.value)}
         />
         <div className="paste-row">
-          <Button size="sm" disabled={busy || !typing.trim()} onClick={() => read(typing)}>读进来</Button>
-          <Button size="sm" tone="ghost" onClick={() => setTyping(null)}>取消</Button>
+          <Button size="sm" disabled={busy || !typing.trim()} onClick={() => read(typing)}>{t("ui.params.paste.read")}</Button>
+          <Button size="sm" tone="ghost" onClick={() => setTyping(null)}>{t("ui.common.cancel")}</Button>
         </div>
       </div>
     );
@@ -77,7 +78,7 @@ export function PasteFrom({ nodeId, def }: { nodeId: string; def: NodeTypeDef })
     <div className="paste-from">
       <Button size="sm" disabled={busy} data-field="paste-from"
         onClick={() => void readClipboard().then((text) => (text.trim() ? read(text) : setTyping("")))}>
-        从 {app} 粘贴
+        {t("ui.params.paste.from", { app })}
       </Button>
     </div>
   );

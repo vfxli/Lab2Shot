@@ -9,13 +9,14 @@
 import { msg, type Message } from "../messages/message";
 import { wouldCycle } from "./nodes";
 import { PARAM, converter, inputPort, outputPort, takes, type GraphView } from "./rules";
+import { wordIn } from "./naming";
 
 export interface WireEnd {
   node: string;
   port: string;
 }
 
-const labelOf = (s: GraphView, id: string) => s.nodes.find((n) => n.id === id)?.data.label ?? id;
+const labelOf = (s: GraphView, id: string) => wordIn(s.nodes, id); // a message's parameter (graph/naming.ts nodeWord)
 
 export function wireProblem(s: GraphView, from: WireEnd, into: WireEnd, edges: { source: string; target: string }[]): Message | null {
   const out = outputPort(s, from.node, from.port);

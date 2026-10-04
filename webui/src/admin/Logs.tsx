@@ -6,6 +6,7 @@ import { Section, useAdmin } from "./common";
 import { usePoll } from "../platform/poll";
 import { reasonOf } from "../messages/message";
 import { Button } from "../ui/Button";
+import { t } from "../i18n/t";
 
 const LINES = 800;
 
@@ -28,24 +29,24 @@ export function LogsSection() {
 
   return (
     <Section
-      title="服务日志"
-      lede={`最近 ${LINES} 行，最新的在最后：任务、上传、出错的请求、程序异常、管理员的操作，还有用户从网页「日志」里发来的内容。完整文件在服务器的 ${log?.file ?? "work/logs/lab2shot.log"}。`}
+      title={t("ui.admin.logs.title")}
+      lede={t("ui.admin.logs.lede", { lines: LINES, file: log?.file ?? "work/logs/lab2shot.log" })}
       actions={
         <>
-          <Button tip="日志多大换新文件、留几份、要不要详细日志，在「存储与视图」里改" tone="ghost" onClick={() => go("settings-storage")}>
-            日志设置
+          <Button tone="ghost" onClick={() => go("settings-storage")}>
+            {t("ui.admin.logs.settings")}
           </Button>
-          <Button tip="把显示的日志复制到剪贴板" tone="ghost" onClick={() => void copy()}>
-            {copied ? "已复制" : "复制"}
+          <Button tone="ghost" onClick={() => void copy()}>
+            {copied ? t("ui.admin.common.copied") : t("ui.admin.common.copy")}
           </Button>
-          <Button tip="重新读取日志" tone="ghost" onClick={reload}>
-            刷新
+          <Button tone="ghost" onClick={reload}>
+            {t("ui.admin.common.refresh")}
           </Button>
         </>
       }
     >
       <pre className="server-log" ref={box}>
-        {log ? log.lines.join("\n") || "还没有记录" : "读取中…"}
+        {log ? log.lines.join("\n") || t("ui.admin.logs.empty") : t("ui.admin.common.reading")}
       </pre>
       {/* Filter by user: the same table and listing function as the 用户 detail page. */}
       <ByUser section="logs" />

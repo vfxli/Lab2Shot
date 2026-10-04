@@ -2,145 +2,226 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "8b0d5e3c17f64a9d92c8ab4e6f105d73",
-  "name": "深度图 · UniDepth V2",
-  "intro": "UniDepth V2 官方自述是通用的单目真实尺度深度估计：只看一张画面就预测真实尺度的三维点，推理时不要求任何额外输入。这张卡逐帧交付深度图、相机和点云；点云是每帧一片，不是整段一套场景点云。",
+  "name": {
+   "zh": "深度贴图 · UniDepth V2",
+   "en": "Depth Map · UniDepth V2"
+  },
+  "intro": {
+   "zh": "UniDepth V2 官方自述是通用的单目真实尺度深度估计：只看一张画面就预测真实尺度的三维点，推理时不要求任何额外输入。这张卡逐帧交付深度贴图、摄影机和点云；点云是每帧一片，不是整段一套场景点云。",
+   "en": "UniDepth V2 describes itself as universal monocular metric depth estimation: it predicts metric 3D points from a single image, with no extra input needed at inference. This card delivers a depth map, camera and point cloud per frame; the point cloud is one per frame, not one scene point cloud for the whole shot."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-20T10:00:00",
   "deliverable": "depth_image",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "kind": "group",
-   "label": "镜头",
+   "label": {
+    "zh": "镜头",
+    "en": "Lens"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "focal",
-     "label": "已知 Focal Length",
-     "target": "geo.focal_mm"
+     "label": {
+      "zh": "已知焦距",
+      "en": "Known Focal Length"
+     },
+     "target": "geometry.focal_mm"
     },
     {
      "name": "filmback",
-     "label": "Filmback",
-     "target": "geo.filmback_mm",
+     "label": {
+      "zh": "胶片背",
+      "en": "Aperture"
+     },
+     "target": "geometry.filmback_mm",
      "disable_when": "not focal"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "深度",
+   "label": {
+    "zh": "深度",
+    "en": "Depth"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "model",
-     "label": "模型",
-     "target": "geo.model"
+     "name": "geometry_model",
+     "label": {
+      "zh": "模型",
+      "en": "Model"
+     },
+     "target": "geometry.model"
     },
     {
-     "name": "resolution_level",
-     "label": "精度等级",
-     "target": "geo.resolution_level"
+     "name": "geometry_resolution_level",
+     "label": {
+      "zh": "精度等级",
+      "en": "Precision Level"
+     },
+     "target": "geometry.resolution_level"
     },
     {
      "kind": "group",
-     "label": "点云",
+     "label": {
+      "zh": "点云",
+      "en": "Point Cloud"
+     },
      "collapsed": true,
      "children": [
       {
-       "name": "point_step",
-       "label": "点云间隔",
-       "target": "geo.point_step"
+       "name": "geometry_point_step",
+       "label": {
+        "zh": "点云间隔",
+        "en": "Point Cloud Step"
+       },
+       "target": "geometry.point_step"
       },
       {
-       "name": "point_size",
-       "label": "点的大小",
-       "target": "geo.point_size"
+       "name": "geometry_point_size",
+       "label": {
+        "zh": "点的大小",
+        "en": "Point Size"
+       },
+       "target": "geometry.point_size"
       }
      ]
     },
     {
-     "name": "cook_depth",
-     "label": "计算深度图",
-     "target": "geo.cook"
+     "name": "cook_geometry",
+     "label": {
+      "zh": "计算深度贴图",
+      "en": "Cook Depth Map"
+     },
+     "target": "geometry.cook"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "exr_name",
-     "label": "文件名（深度 EXR）",
+     "label": {
+      "zh": "文件名（深度 EXR）",
+      "en": "File Name (Depth EXR)"
+     },
      "target": "exr.name"
     },
     {
      "name": "usd_name",
-     "label": "文件名（相机与点云 USD）",
-     "target": "out_p.name"
+     "label": {
+      "zh": "文件名（摄影机与点云 USD）",
+      "en": "File Name (Camera and Point Cloud USD)"
+     },
+     "target": "usd.name"
     },
     {
      "name": "unit",
-     "label": "单位",
-     "target": "out_p.unit"
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
     },
     {
      "name": "fps",
-     "label": "帧率",
-     "target": "out_p.fps"
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "usd.fps"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
        "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -150,17 +231,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -169,8 +256,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -183,9 +269,8 @@
    }
   },
   {
-   "id": "geo",
-   "type": "unidepth.geometry",
-   "label": "UniDepth 深度图",
+   "id": "geometry",
+   "type": "unidepth.depth",
    "params": {
     "focal_mm": null,
     "filmback_mm": null,
@@ -204,9 +289,8 @@
    }
   },
   {
-   "id": "out_p",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "id": "usd",
+   "type": "usd.output",
    "params": {
     "name": "scene",
     "format": "usd",
@@ -214,8 +298,8 @@
     "fps": 24.0
    },
    "ui": {
-    "x": 870,
-    "y": 408,
+    "x": 840,
+    "y": 427,
     "on_node": [
      "name",
      "unit"
@@ -227,18 +311,16 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1230,
+    "x": 1200,
     "y": 44
    }
   },
   {
    "id": "exr",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "type": "exr.output",
    "params": {
     "name": "depth",
     "layers": [
@@ -253,7 +335,7 @@
     "colorspace": null
    },
    "ui": {
-    "x": 830,
+    "x": 800,
     "y": 44
    }
   }
@@ -265,13 +347,13 @@
     "image"
    ],
    "to": [
-    "geo",
+    "geometry",
     "image"
    ]
   },
   {
    "from": [
-    "out_p",
+    "usd",
     "files"
    ],
    "to": [
@@ -281,27 +363,27 @@
   },
   {
    "from": [
-    "geo",
+    "geometry",
     "camera"
    ],
    "to": [
-    "out_p",
+    "usd",
     "scene"
    ]
   },
   {
    "from": [
-    "geo",
+    "geometry",
     "points"
    ],
    "to": [
-    "out_p",
+    "usd",
     "scene"
    ]
   },
   {
    "from": [
-    "geo",
+    "geometry",
     "depth"
    ],
    "to": [
@@ -322,7 +404,7 @@
  ],
  "boxes": [],
  "view": {
-  "display": "geo",
+  "display": "geometry",
   "frame": null
  }
 }

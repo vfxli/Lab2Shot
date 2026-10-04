@@ -20,7 +20,11 @@ from .flow import (
 from .depth_camera import DepthCamera, LensWholeShotParams, PerFrameDepthCamera, WholeShotDepthCamera, WholeShotParams
 from .humans import WorldHumans, WorldHumansParams
 from .lens_calibration import LensCalibration
+from .llm_text import LlmText
 from .rig_motion import CleanupParams, DetectCleanupParams, FreeMotionParams, MotionGenParams, RigMotion, motion_fps_param
+from .rig_retarget import RigRetarget, RigRetargetParams
+from .gaussian import GaussianReconstruction
+from .image_generation import DiffusionImage, DiffusionImageParams
 from ..kit.rig import ModelJoint, RigModel, body_joints, humanoid_joints, mapping_param, part_labels, skeleton_param
 from ..kit.rig_map import PartMap
 from .light import LightProbe, LightProbeParams
@@ -52,7 +56,9 @@ from .tracks import Keypoints2D, PersonKeypoints, PointTracker, TrackParams, key
 from .tracks3d import PointTracker3D, PointTracks3DParams
 
 __all__ = [
-    "CleanupParams", "Confidence", "DetectCleanupParams", "GuidedMatte", "MatteNode", "LensCalibration", "RigMotion", "motion_fps_param", "Keypoints2D", "Matting", "PersonKeypoints", "Job", "MotionGenParams", "FreeMotionParams", "LensWholeShotParams", "LightProbe", "AutoRig", "AutoRigParams",
+    "RigRetarget", "RigRetargetParams", "GaussianReconstruction",
+    "DiffusionImage", "DiffusionImageParams",
+    "CleanupParams", "Confidence", "DetectCleanupParams", "GuidedMatte", "MatteNode", "LensCalibration", "LlmText", "RigMotion", "motion_fps_param", "Keypoints2D", "Matting", "PersonKeypoints", "Job", "MotionGenParams", "FreeMotionParams", "LensWholeShotParams", "LightProbe", "AutoRig", "AutoRigParams",
     "LightProbeParams", "MissingFrames", "ModelJoint", "DepthCamera", "PerFrameDepthCamera", "OpticalFlow", "OpticalFlowParams", "PointTracker",
     "Segmentation", "PointTracker3D", "PointTracks3DParams", "RawOutput", "WholeShotDepthCamera", "WholeShotParams", "RigModel", "TrackParams", "WorkerNode",
     "WorldHumans", "WorldHumansParams",

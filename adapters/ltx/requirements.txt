@@ -1,0 +1,21 @@
+# The LTX-2 environment (torch / torchvision / torchaudio come from EnvSpec), shared by every LTX feature extension.
+# ltx-core and ltx-pipelines themselves are not installed: they are imported from the pinned checkout
+# (extension.py ltx_worker_env). These are their declared dependencies, resolved on 2026-10-04.
+
+# ltx-core 1.4.2: transformers must stay below 5.15 (its Gemma 4 encoder breaks there)
+transformers==5.14.1
+tokenizers==0.22.2
+einops==0.8.2
+numpy==2.5.3
+colour-science==0.4.7
+av==19.0.1
+safetensors==0.8.0
+accelerate==1.15.0
+scipy==1.18.1
+# ltx-pipelines 1.4.2
+tqdm==4.70.1
+pillow==12.3.0
+openimageio==3.1.18.1
+cloudpickle==3.1.2
+# the worker SDK's frame reading and matte contract (lab2shot_worker.matte, frame_io) use OpenCV
+opencv-python-headless==5.0.0.93

@@ -1,0 +1,1 @@
+"""STaR official inference adapter."""

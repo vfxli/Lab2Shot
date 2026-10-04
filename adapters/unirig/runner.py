@@ -42,7 +42,7 @@ def main(task_path: str, seed: int) -> None:
     L.seed_everything(seed, workers=True)
 
     task = load("task", task_path)
-    assert task.mode == "predict", f"runner.py 只跑 predict，这个任务是 {task.mode}"
+    assert task.mode == "predict", f"runner.py runs predict only, this task is {task.mode}"
 
     data_config = load("data", os.path.join("configs/data", task.components.data))
     transform_config = load("transform", os.path.join("configs/transform", task.components.transform))

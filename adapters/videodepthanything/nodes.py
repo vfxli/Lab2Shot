@@ -26,9 +26,7 @@ class Depth(WorkerNode):
     # （包的 scale：视差为 "disparity"，下游「深度对齐」按它自动认、当深度反投影时 expects.py 警告）。
     # 所以换模型不用改线，模板也不必按模型分卡。
     version = 2  # 2：相对模型的结果从「视差图」口挪到「深度图」口；原来这个口在相对模型下是空包，缓存不能再用
-    outputs = (Port("depth", "image.1", "深度图", means=("scale",),
-                    help="真实尺度的模型：相机 Z 方向的距离（厘米）；相对的模型：相对视差（近大远小，无单位，包里注明是视差）。"
-                         "要真实尺度又要不闪，相对模型的结果接「深度对齐」，参考接逐帧的米制深度"),)
+    outputs = (Port("depth", "image.1", means=("scale",)),)
     runtime = "videodepthanything"
     # 官方的输入等于解算器的输入、输出等于输出：
     # run.py:57 `depths, fps = video_depth_anything.infer_video_depth(frames, …)` —— 进去的是整段画面，
@@ -37,13 +35,10 @@ class Depth(WorkerNode):
         cite="third_party/videodepthanything/repo/run.py:49-57",
         takes={"image": "frames"},
         gives={"depth": "depths"},
-        note="上游只有一样输出 depths：选「真实」的权重时它是米制深度，选「相对」的权重时它是相对视差，"
-             "都走「深度图」口，数据里注明是哪一种（scale）",
     )
     # vram_gb: RTX 4090 上测得（docs.md），默认「真实 · Small」
     cost = Cost(gpu=True, vram_gb=2.8, seconds_per_frame=0.028)
-    licence = Licence(note="代码和 Small 两个模型都是 Apache-2.0，可以商用；Base 和 Large 四个模型是 CC-BY-NC-4.0，非商用。"
-        "米制模型的训练数据含 Virtual KITTI（CC BY-NC-SA），有潜在的训练数据许可风险。")
+    licence = Licence(note=True)
     traits = (
         *licence_traits(OPTION_LICENCES),
         # RTX 4090 上测得（docs.md，MAX_SIZE）：Base 518 5.2 GB、868 15.6 GB（1036 按 868 算）；Large 518 10.6 GB、686 19.6 GB（更大按 686 算）
@@ -55,17 +50,11 @@ class Depth(WorkerNode):
 
     class Params(NodeParams):
         model: Literal["metric_small", "small", "metric_base", "base", "metric_large", "large"] = P(
-            "metric_small", label="模型", group="深度",
-            option_labels={
-                "metric_small": "真实 · Small", "small": "相对 · Small",
-                "metric_base": "真实 · Base", "base": "相对 · Base",
-                "metric_large": "真实 · Large", "large": "相对 · Large",
-            },
-        )
+            "metric_small", group="depth")
         resolution: Literal[518, 686, 868, 1036] = measured_param(
-            "处理分辨率", {518: Measured(gb=2.8), 686: Measured(below=1036), 868: Measured(below=1036), 1036: Measured(gb=11.0)},
-            default=518, group="深度")
-        fp16: bool = fp16_param("深度")
+            {518: Measured(gb=2.8), 686: Measured(below=1036), 868: Measured(below=1036), 1036: Measured(gb=11.0)},
+            default=518, group="depth")
+        fp16: bool = fp16_param("depth")
 
     missing_frames = MissingFrames.SKIP
 
@@ -89,7 +78,7 @@ class Depth(WorkerNode):
 
         # 数据自己写着它是视差（不是「只知远近的深度」）：下游把它当深度反投影时按这句话警告
         disparity = {"depth": ("image.1", lambda d: (d["depth"], np.isfinite(d["depth"])), {"scale": "disparity"})}
-        return frame_maps(ctx, raw, image, disparity, stage="写出视差图")
+        return frame_maps(ctx, raw, image, disparity, stage="write_disparity")
 
 
 NODES = (Depth,)

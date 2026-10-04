@@ -4,6 +4,7 @@ import { ACCENT_COLOR, ERROR_COLOR } from "../platform/palette";
 import { type Bg } from "../model/view2d";
 import { CHECKER_DARK, CHECKER_LIGHT } from "../platform/palette";
 import { personTint } from "../model/viewOptions";
+import { t as word } from "../i18n/t"; // `t` is a track here
 
 /** Overlays drawn by the 2D stage in addition to the picture's own frame: people boxes and tracked points (in the
  * picture's pixel space; `at` maps image pixels to the canvas) and the transparency checkerboard.
@@ -53,7 +54,7 @@ export function drawBoxes(f: Frame, data: BoxesData, hover: number | null, chose
     ctx.beginPath();
     ctx.roundRect(x1, y1, x2 - x1, y2 - y1, 6);
     ctx.stroke();
-    const label = picked ? `${t.id} 号 ✓` : `${t.id} 号`;
+    const label = picked ? word("ui.view.person_picked", { id: t.id }) : word("ui.view.person", { id: t.id });
     ctx.font = FONT;
     const w = ctx.measureText(label).width + 14;
     const ly = Math.max(at.y + 2, y1 - 22);
@@ -97,7 +98,7 @@ export function drawTracks(f: Frame, data: TracksData) {
     quad.corners.forEach(([x, y], k) => (k ? ctx.lineTo(at.x + x * at.s, at.y + y * at.s) : ctx.moveTo(at.x + x * at.s, at.y + y * at.s)));
     ctx.closePath();
     ctx.stroke();
-    if (!quad.seen) ctx.fillText("没能确认平面", at.x + quad.corners[0][0] * at.s, at.y + quad.corners[0][1] * at.s - 8);
+    if (!quad.seen) ctx.fillText(word("ui.view.plane_unconfirmed"), at.x + quad.corners[0][0] * at.s, at.y + quad.corners[0][1] * at.s - 8);
     ctx.restore();
   }
   const trail = n > 200 ? 3 : n > 50 ? 6 : TRAIL;

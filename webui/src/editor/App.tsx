@@ -5,7 +5,7 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { api, type GraphJSON } from "../api";
 import { cook, deliverAll, loadGraph, openHeld, redo, resumeJobs, undo } from "../graph/actions";
 import { jump, step } from "../graph/playback";
-import { setCatalog } from "../state/catalog";
+import { catalogReady, setCatalog } from "../state/catalog";
 import { useLook } from "../state/look";
 import { useViewer } from "../state/viewer";
 import { readOnly, useReadOnly } from "../state/cookInputs";
@@ -28,7 +28,13 @@ import { LOGGED_IN } from "../platform/http";
 import { useShortcut } from "../platform/keys";
 import { signedIn } from "../state/session";
 import { followDrag } from "../platform/drag";
-import { useAppMode } from "./AppMode";
+import { defaultName } from "../graph/naming";
+import { graphHidden, useAppMode } from "./AppMode";
+import { FocusDone } from "./Chrome";
+import { focusCompute, openAddressedJob, restoresWorkingCopy, useFocusDocument } from "./focusJob";
+import { t } from "../i18n/t";
+import { useLang, type Lang } from "../i18n/lang";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** 编辑器页面的根：本模块拥有工作区版面（视图、节点图、参数面板三格与两条分割线）以及页面级快捷键、
  * 打开 / 保存图的入口。工作区版面：
@@ -63,7 +69,9 @@ import { useAppMode } from "./AppMode";
  *
  * 因此与 Houdini / Nuke 相同：面板宽度固定，由使用者拖动分割线决定（拖动后记入首选项并持续使用）；
  * 双击分割线表示按当前节点撑开一次，这是使用者主动触发的操作，而非自动行为。`fit` 仅用于此。 */
-const INSPECTOR_WIDTH = 440; // px：未拖动时的宽度。所有节点的参数在此宽度下都必须能完整排列（界面文字不得换行或截断）
+// px：未拖动时的宽度，按界面语言（英文字比中文长：标签列 ui/labelRow.css 在英文下也放宽）。所有节点的参数在此宽度下
+// 都必须能完整排列（界面文字不得换行或截断）
+const INSPECTOR_WIDTH: Record<Lang, number> = { zh: 440, en: 520 };
 const INSPECTOR_MIN = 400; // px：双击「按参数撑开」时的最小宽度
 
 export default function App() {
@@ -83,8 +91,10 @@ export default function App() {
   const left = useRef<HTMLDivElement>(null); // 左栏：上下分割在其内部测量
   const workspace = useRef<HTMLDivElement>(null); // 整个工作区：左右分割在其内部测量
   // 应用模式（editor/AppMode.tsx）：左栏只有视图（节点图收起），右栏参数面板只有模板的参数界面树（「计算」「下载」
-  // 也是树里公开的按钮参数，没有写死的块）
-  const appMode = useAppMode((s) => s.mode === "app");
+  // 也是树里公开的按钮参数，没有写死的块）。聚焦模式是它的变体：同样收起节点图，参数面板是聚焦的那个节点的
+  const appMode = useAppMode((s) => graphHidden(s.mode));
+  const focus = useAppMode((s) => s.mode === "focus");
+  useFocusDocument();
 
   const openFailed = (e: unknown) => say(msg("E-GRAPH-OPENFAILED", { reason: reasonOf(e) }));
   const saveFailed = (e: unknown) => say(msg("E-GRAPH-SAVEFAILED", { reason: reasonOf(e) }));
@@ -93,9 +103,12 @@ export default function App() {
   // 不与模板文件里写死的 id 共用
   const [pending, setPending] = useState<{ g: GraphJSON; file: GraphFile | null; freshId: boolean } | null>(null);
   // 有任务在算 / 在提交时不打开别的图（graph/actions.ts openHeld，与「计算」置灰同一判定）：所有打开入口都经过这里
+  // 目录（节点类型）到了才读图（state/catalog.ts catalogReady）：登录后马上点模板 / 打开文件，目录还在路上时，
+  // 图会按「没有任何节点类型」读进来——节点全成「未知节点」、参数界面是空的，目录到了也不会再读一遍
   const open = useCallback(
     (g: GraphJSON, file: GraphFile | null, freshId = false) =>
-      openHeld() ? undefined : useViewer.getState().dirty ? setPending({ g, file, freshId }) : loadGraph(g, file, false, undefined, { freshId }),
+      catalogReady().then(() =>
+        openHeld() ? undefined : useViewer.getState().dirty ? setPending({ g, file, freshId }) : loadGraph(g, file, false, undefined, { freshId })),
     [],
   );
   const resolvePending = async (choice: "save" | "discard" | "cancel") => {
@@ -113,17 +126,24 @@ export default function App() {
   }, [open]);
   // 从队列重新载入的任务：其图作为新文档打开，有未保存修改时必先询问
   useEffect(() => {
-    const onOpen = (e: Event) => open((e as CustomEvent<GraphJSON>).detail, null);
+    const onOpen = (e: Event) => void open((e as CustomEvent<GraphJSON>).detail, null).catch(openFailed);
     window.addEventListener(OPEN_GRAPH, onOpen);
     return () => window.removeEventListener(OPEN_GRAPH, onOpen);
   }, [open]);
   const save = useCallback((saveAs: boolean) => void saveGraphFile(saveAs).catch(saveFailed), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // 新建节点图：一张只有输出节点的空图，按新文档打开（有未保存修改时同样先问）
+  const newGraph = useCallback(() => {
+    // meta 不写名字：打开时按「未命名」填（graph/document.ts filledIn）
+    const blank = { schema: "lab2shot.graph/1", meta: {}, nodes: [{ id: defaultName("output", () => false), type: "output", ui: { x: 0, y: 0 } }], edges: [] } as unknown as GraphJSON;
+    void open(blank, null, true).catch(openFailed);
+  }, [open]);
 
   useEffect(() => {
     (async () => {
       try {
         const [catalog, me] = await Promise.all([api.catalog(), signedIn()]);
-        const saved = lastWorking(me.id);
+        // 地址要打开一个这一页还没打开过的任务（#job=…，editor/focusJob.ts）时不恢复工作副本，直接打开任务
+        const saved = restoresWorkingCopy() ? lastWorking(me.id) : null;
         setCatalog(catalog);
         // 该账号在本机上次的工作状态（刷新后为本标签页自己的）原样恢复（未保存的修改仍标记为未保存）；
         // 首次打开为空图，上面覆盖欢迎页（模板、节点、图文件）
@@ -131,6 +151,7 @@ export default function App() {
           loadGraph(saved.graph, saved.file, saved.dirty, saved.id);
           if (saved.dirty) say(msg("N-GRAPH-RESTORED"));
         }
+        await openAddressedJob(saved?.graph ?? null);
         setOwner(me.id);
       } catch (e) {
         setError(String((e as Error).message));
@@ -171,6 +192,7 @@ export default function App() {
     keys: ["mod+s", "mod+shift+s", "mod+o"],
     inText: true,
     run: (e) => {
+      if (useAppMode.getState().mode === "focus") return; // 聚焦页只有「计算」「完成」：不打开别的图、不存文件
       // 「打开」替换整张图，只读查看者使用也无妨；「保存」写不出任何新内容（不可编辑），但同样拒绝，
       // 与按钮的理由相同：比一次什么也没保存的保存更容易解释。
       if (e.key.toLowerCase() === "o") openFile();
@@ -190,7 +212,8 @@ export default function App() {
     inText: true,
     run: (e) => {
       const disp = useLook.getState().displayId;
-      if (e.shiftKey) void deliverAll();
+      if (useAppMode.getState().mode === "focus") focusCompute(); // 和聚焦页的「计算」同一件事
+      else if (e.shiftKey) void deliverAll();
       else if (disp) void cook(disp);
       else say(msg("B-COOK-NODISPLAY"));
     },
@@ -225,15 +248,16 @@ export default function App() {
     };
     return followDrag(move, () => setResizing(false));
   }, [resizing, setInspector]);
-  const inspectorWidth = inspector ?? INSPECTOR_WIDTH; // 固定宽度；`fit` 仅用于双击分割线（见上方注释）
+  const lang = useLang((s) => s.lang);
+  const inspectorWidth = inspector ?? INSPECTOR_WIDTH[lang]; // 固定宽度；`fit` 仅用于双击分割线（见上方注释）
 
   if (error) {
     return (
       <div className="empty" style={{ height: "100%" }}>
         <div>
-          <div style={{ fontSize: 15, color: "var(--text-2)", marginBottom: 6 }}>连不上 Lab2Shot 后台</div>
+          <div style={{ fontSize: 15, color: "var(--text-2)", marginBottom: 6 }}>{t("ui.editor.no_server")}</div>
           <div>{error}</div>
-          <div style={{ marginTop: 8 }}>执行 uv run lab2shot ui 后刷新页面</div>
+          <div style={{ marginTop: 8 }}>{t("ui.editor.no_server_hint")}</div>
         </div>
       </div>
     );
@@ -241,8 +265,8 @@ export default function App() {
 
   return (
     <ReactFlowProvider>
-      <div className={`app${viewer ? " viewer" : ""}${appMode ? " app-mode" : ""}`}>
-        <TopBar onOpen={openFile} onSave={save} />
+      <div className={`app${viewer ? " viewer" : ""}${appMode ? " app-mode" : ""}${focus ? " focus-mode" : ""}`}>
+        <TopBar onNew={newGraph} onOpen={openFile} onSave={save} />
         <TabBanner />
         {/* 整个工作区先纵向分为两部分：左栏（视图 + 节点图） | 竖分割线 | 参数面板（占满整个高度） */}
         <div className="workspace" ref={workspace} style={{ ["--insp-w" as string]: `${inspectorWidth}px` }}>
@@ -250,7 +274,7 @@ export default function App() {
           <div className="wk-left" ref={left} style={{ ["--split" as string]: `${split}%` }}>
             <div className="panel">
               {ready && (
-                <ErrorBoundary name="视图" resetKey={displayId}>
+                <ErrorBoundary name={t("ui.editor.part_viewport")} resetKey={displayId}>
                   <Viewer />
                 </ErrorBoundary>
               )}
@@ -259,7 +283,7 @@ export default function App() {
             {!appMode && <div className={`splitter${dragging ? " active" : ""}`} onPointerDown={() => setDragging(true)} />}
             <div className="panel wk-graph">
               {ready && (
-                <ErrorBoundary name="节点图">
+                <ErrorBoundary name={t("ui.editor.part_network")}>
                   {!appMode && <NodeEditor />}
                   {/* 仅在可编辑该图的标签页中填写：其他标签页正在编辑时此处为只读查看者，填写只会修改本地副本，与编辑方不一致 */}
                   {!viewer && <ColorspaceFills />}
@@ -273,11 +297,11 @@ export default function App() {
             onPointerDown={() => setResizing(true)}
             /* 双击表示按当前节点的参数撑开一次（使用者主动触发的操作），而非「恢复自动宽度」 */
             onDoubleClick={() => setInspector(Math.max(INSPECTOR_MIN, Math.round(fit)))}
-            data-tip="拖动调整参数面板宽度；双击按当前节点的参数撑开一次"
+            {...tipAttrs(tipOf("shortcut", t("ui.editor.inspector_split")))}
           />
           <div className="panel">
             {ready && (
-              <ErrorBoundary name="参数面板" resetKey={selectedId}>
+              <ErrorBoundary name={t("ui.editor.part_parameters")} resetKey={selectedId}>
                 <ParamPanel />
               </ErrorBoundary>
             )}
@@ -286,9 +310,10 @@ export default function App() {
         <NodeMenu />
         {/* 开着的编辑窗画在这里，不挂在参数面板的行上：换选中、读进新版本都不关它（ParamControls.tsx OpenSheet） */}
         <OpenSheet />
-        <TemplatesSheet onOpen={(g) => open(g, null, true)} />
+        <TemplatesSheet onOpen={(g) => void open(g, null, true).catch(openFailed)} />
         <LogSheet />
         {pending && <UnsavedSheet onChoice={resolvePending} />}
+        {focus && <FocusDone />}
       </div>
     </ReactFlowProvider>
   );

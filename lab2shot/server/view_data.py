@@ -33,7 +33,6 @@ end], "sizes": [elements per sample], "t", "e", "o"}]}, then the data."""
 from __future__ import annotations
 
 import gzip
-import hashlib
 import json
 import re
 import threading
@@ -49,6 +48,7 @@ from ..data.camera import CameraSamples
 from ..errors import Invalid, MessageError, NotFound, message_of
 from ..messages import Msg
 from ..text import decimal
+from ..io.digest import sha256
 
 # Colours as bytes within float32 precision, depth clouds as grids, distance maps as grids with a ramp, a
 # per-frame cloud's colours once in the base, fixed-count clouds as XOR differences. The chunk addresses carry it
@@ -332,7 +332,7 @@ class Base:
         return d
 
     def built(self) -> dict[str, tuple[bytes, int, str]]:
-        return {name: (gzip.compress(bytes(buf), 5), len(buf), hashlib.sha1(bytes(buf)).hexdigest()[:12])
+        return {name: (gzip.compress(bytes(buf), 5), len(buf), sha256(bytes(buf))[:12])
                 for name, buf in self.parts.items() if buf or name == "base"}
 
 
@@ -395,6 +395,27 @@ def _curve_arrays(vertex_counts, points, cols, widths) -> dict[str, np.ndarray]:
     return out
 
 
+def _gaussian_arrays(values, every: int = 1):
+    from lab2shot_shared.gaussians import C0, covariance
+
+    values = _gaussian_thin(values, every)
+    return {"points": values["points"], "colors": np.maximum(0, C0 * values["sh"][:, 0] + 0.5).astype(np.float32),
+            "covariance": covariance(values["scales"], values["rotations"]), "opacity": values["opacity"],
+            "sh": values["sh"].reshape(len(values["points"]), values["sh"].shape[1] * 3)}
+
+
+def _gaussian_thin(values: dict[str, np.ndarray], every: int) -> dict[str, np.ndarray]:
+    """Every `every`-th splat of a gaussian frame, all its arrays together (points, scales, rotations, opacity, sh):
+    the view's copy only, exactly as `drop_points` thins a point cloud — kept values stay bit-identical, and the full
+    gaussian is what PLY / USD 输出 and the cache write out."""
+    if every <= 1:
+        return values
+    out = dict(values)
+    for k in ("points", "scales", "rotations", "opacity", "sh"):
+        out[k] = np.asarray(values[k])[::every]
+    return out
+
+
 def encode(frames: list[int], items: dict[str, list[dict]], resolution: tuple[int, int],
            lights: list[dict] | None = None, reader: Callable[[str, dict], Callable[[int], dict]] | None = None,
            one_frame_chunks: bool = False) -> View:
@@ -432,10 +453,11 @@ def encode(frames: list[int], items: dict[str, list[dict]], resolution: tuple[in
                 idx, wts = np.pad(idx, ((0, 0), (0, pad))), np.pad(wts, ((0, 0), (0, pad)))
             mesh = {"name": _text(m["name"]), "faces": b.array(faces(m["counts"], m["indices"])), "vertices": int(len(m["points"])),
                     "points": b.array(np.asarray(m["points"], np.float32)), "uv": _uv(b, m), "shapes": [], "influences": int(idx.shape[1])}
-            if idx.shape[1] == 4:
-                mesh["joint_indices"] = b.array(idx.astype(np.uint8 if joints <= 256 else np.uint16))
-                mesh["joint_weights"] = b.array(wts)
-            else:  # more joints per vertex than a graphics card takes: the server's evaluation, frame by frame
+            # `influences` per vertex; a mesh with more than 4 is also evaluated by the server frame by frame (more
+            # than a graphics card takes) and its weights serve the page's own pose edits (CPU skinning in a set pose)
+            mesh["joint_indices"] = b.array(idx.astype(np.uint8 if joints <= 256 else np.uint16))
+            mesh["joint_weights"] = b.array(wts)
+            if idx.shape[1] > 4:
                 mesh["per_frame"] = True
                 per_frame.append(PerFrame(f"characters/{i}/meshes/{len(meshes)}", frames_of(it),
                                           reader("skinned", {"path": it["path"], "mesh": m["name"]}), len(m["points"]) * 12, xor=True))
@@ -466,6 +488,7 @@ def encode(frames: list[int], items: dict[str, list[dict]], resolution: tuple[in
                              "focal": b.array(np.asarray(info["focal"], np.float32)), "cam": b.array(rows(info["cam"])),
                              "principal": b.array(np.asarray(info["principal"], np.float32).reshape(-1)),  # (cx, cy) per sample, pixels
                              "proxy": int(info.get("proxy", 1)),
+                             "aspect": float(info.get("aspect", 1.0)),  # fy = fx x aspect (a pixel's width over its height)
                              # 距离图的色带（_distance_grid_view）：[近, 远] 的取值范围，网页着色器按它算颜色
                              **({"ramp": info["ramp"], "ramp_colour": info["ramp_colour"]} if "ramp" in info else {})}
             per_frame.append(PerFrame(f"clouds/{i}", cloud["frames"], read,
@@ -501,6 +524,24 @@ def encode(frames: list[int], items: dict[str, list[dict]], resolution: tuple[in
             arrays = _cloud_arrays(it["points"], it.get("colors", np.full((len(np.asarray(it["points"])), 3), 0.7)), w)
             cloud.update({k: b.array(v) for k, v in arrays.items()})
             cloud["count"] = int(len(np.asarray(it["points"]).reshape(-1, 3)))
+        clouds.append(cloud)
+    for it in items.get("gaussian", []):
+        i = len(clouds)
+        # 3D 高斯也有显示上限（view.gaussian_max，默认 30 万）：超过就每 N 个取一个，和点云的「点云上限」同一套——
+        # 只抽稀显示的那一份，计算、缓存和交付出去的高斯一个不少。`count` 是完整点数，`every` 是抽样间隔。
+        count = int(len(np.asarray(it["points"])))
+        every = _gaussian_step(count)
+        cloud = {"name": _text(it["name"]), "path": _text(it["path"]), "frames": frames_of(it),
+                 "world": b.array(rows(it["world"])), "per_frame": bool(it.get("per_frame", False)),
+                 "width": None, "count": count, "gaussian": True, "sh_coefficients": int(it["sh"].shape[1])}
+        if every > 1:
+            cloud["every"] = every   # the viewer computes the displayed count from it (webui/src/view/kinds3d.ts)
+        if cloud["per_frame"]:
+            bytes_per = 4 * (3 + 3 + 6 + 1 + it["sh"].shape[1] * 3)
+            per_frame.append(PerFrame(f"clouds/{i}", cloud["frames"], reader("gaussian", {**it, "every": every}),
+                                      -(-count // every) * bytes_per))
+        else:
+            cloud.update({k: b.array(v) for k, v in _gaussian_arrays(it, every).items()})
         clouds.append(cloud)
 
     curves = []
@@ -571,6 +612,11 @@ def scene_view(p) -> View:
         if kind == "points":
             prim = stage.GetPrimAtPath(_text(item["path"]))
             return lambda f: _cloud_arrays(*cloud_sample(prim, f), every=int(item.get("every", 1)))
+        if kind == "gaussian":
+            from ..data.gaussian import sample
+
+            prim = stage.GetPrimAtPath(_text(item["path"]))
+            return lambda f: _gaussian_arrays(sample(prim, f), every=int(item.get("every", 1)))
         if kind == "curves":
             prim = stage.GetPrimAtPath(_text(item["path"]))
             return lambda f: _curve_arrays(*curve_sample(prim, f))
@@ -593,19 +639,20 @@ def scene_view(p) -> View:
 
 
 def grid_points(z: np.ndarray, idx: np.ndarray, gw: int, step: int, width: int, height: int, focal: float, cam: np.ndarray,
-                principal=None) -> np.ndarray:
+                principal=None, aspect: float = 1.0) -> np.ndarray:
     """Points [M,3] of a depth cloud's kept pixels (`idx`: row-major places in the grid of every `step`-th pixel, `gw`
     wide; `z` their depths) rebuilt in float32 in the viewer's order of operations (viewFormat.ts gridPoints and the
     shader in pointShaders.tsx): a pinhole at `principal` ((cx, cy) pixels; the picture's centre when None, the same
     point the cook unprojects through, nodes/kit/unproject.py), pixel centres at +0.5, OpenCV to GL axes, then `cam`
-    (camera-to-world, 4x4 with column vectors)."""
+    (camera-to-world, 4x4 with column vectors). `focal` is fx; fy = fx x `aspect` (the camera's pixel aspect, a pixel's
+    width over its height), rounded to float32 the same way on the page."""
     f = np.float32
     c = (idx % gw).astype(f) * f(step)
     r = (idx // gw).astype(f) * f(step)
     z = np.asarray(z, f)
     cx, cy = (f(width) * f(0.5), f(height) * f(0.5)) if principal is None else (f(principal[0]), f(principal[1]))
     x = (c + f(0.5) - cx) / f(focal) * z
-    y = (r + f(0.5) - cy) / f(focal) * z
+    y = (r + f(0.5) - cy) / (f(focal) * f(aspect)) * z
     m = np.asarray(cam, f)
     vy, vz = -y, -z
     return np.stack([m[k, 0] * x + m[k, 1] * vy + m[k, 2] * vz + m[k, 3] for k in range(3)], 1)
@@ -708,7 +755,7 @@ def depth_grid(prim, frames: list[int]):
         rgb = colours(cols).reshape(-1, 3) if len(cols) else np.zeros((0, 3), np.uint8)
         zk = np.asarray(z[::full_step, ::full_step, 0], np.float32).reshape(-1)[idx]
         i = at[frame]
-        rebuilt = grid_points(zk, idx, full_gw, full_step, width, height, float(focal[i]), mats[i], principal[i])
+        rebuilt = grid_points(zk, idx, full_gw, full_step, width, height, float(focal[i]), mats[i], principal[i], cam.pixel_aspect)
         if len(mine) and not np.all(np.abs(rebuilt - mine) <= GRID_TOLERANCE[0] + GRID_TOLERANCE[1] * np.abs(mine)):
             return _cloud_arrays(points, cols, widths)
         grid = np.full(full_gw * full_gh, np.nan, np.float32)
@@ -726,7 +773,8 @@ def depth_grid(prim, frames: list[int]):
             return {"depth": thin_depth, "grid_colors": thin_rgb[np.isfinite(thin_depth)]}
         return {"depth": grid, "grid_colors": rgb}  # the kept pixels' colours in their order: the cloud's own
 
-    info = {"width": width, "height": height, "step": step, "gw": gw, "gh": gh, "focal": focal, "cam": mats, "principal": principal,
+    info = {"width": width, "height": height, "step": step, "gw": gw, "gh": gh, "focal": focal, "aspect": float(cam.pixel_aspect),
+            "cam": mats, "principal": principal,
             # proxy > 1: every `proxy`-th cell is kept. The viewer states 「显示了 N / 共 M 点」 in its notice area; thinning
             # is never silent
             "proxy": proxy}
@@ -757,6 +805,19 @@ def _point_step(count: int) -> int:
     if count * CLOUD_BYTES_PER_POINT <= limit:
         return 1
     return int(np.ceil(count * CLOUD_BYTES_PER_POINT / limit))
+
+
+GAUSSIAN_LIMIT = "view.gaussian_max"   # one setting governs how many 3D 高斯 splats a frame shows (the viewer depth sorts them)
+
+
+def _gaussian_step(count: int) -> int:
+    """The step at which a frame's splats are kept to stay within the 高斯显示上限 (view.gaussian_max). 1: nothing dropped."""
+    from ..config import settings
+
+    limit = max(1, int(settings()[GAUSSIAN_LIMIT]))
+    if count <= limit:
+        return 1
+    return int(np.ceil(count / limit))
 
 
 def _thin(grid: np.ndarray, gw: int, gh: int, proxy: int) -> np.ndarray:
@@ -911,7 +972,7 @@ def _points_view(*, type_: str, width: int, space: str | None, span, frames: lis
     at = {f: i for i, f in enumerate(frames)}
     if distances and present:
         return _distance_grid_view(frames, files_of, read_map, width, here[present[0]], focal, mats, principal, (lo, hi),
-                                   one_frame_chunks)
+                                   one_frame_chunks, cam.pixel_aspect)
 
     def read(f: int) -> tuple[np.ndarray, np.ndarray]:
         i = at[f]
@@ -921,7 +982,7 @@ def _points_view(*, type_: str, width: int, space: str | None, span, frames: lis
         data, alpha = read_map(path)
         r, c = np.nonzero(alpha > 0)
         if distances:
-            pts = unproject_depth(data[..., 0], float(focal[i]), mats[i], r, c, principal[i])
+            pts = unproject_depth(data[..., 0], (float(focal[i]), float(focal[i]) * cam.pixel_aspect), mats[i], r, c, principal[i])
             col = ramp_colours(data[r, c, 0], lo, hi)
         else:
             pts = data[r, c, :3]
@@ -950,7 +1011,7 @@ def ramp_colours(z: np.ndarray, lo: float, hi: float) -> np.ndarray:
 
 
 def _distance_grid_view(frames: list[int], files_of: Callable[[], dict[int, Path]], read_map, width: int, sample: Path,
-                        focal, mats, principal, ramp: tuple[float, float], one_frame_chunks: bool) -> View:
+                        focal, mats, principal, ramp: tuple[float, float], one_frame_chunks: bool, aspect: float = 1.0) -> View:
     """「深度直接看点云」（一通道距离图 + 相机）按网格发：每帧只发深度（float32，alpha 为 0 的像素记 NaN），点由网页的
     显卡按 grid_points 的同一算法重建（与「深度转点云」的网格发法同一条路：viewFormat.ts gridPoints、pointShaders.tsx
     GRID），颜色是按距离的色带（近暖远冷，`ramp` = 取值范围），也在着色器里算，与按点发时算的色带同一公式。
@@ -973,7 +1034,7 @@ def _distance_grid_view(frames: list[int], files_of: Callable[[], dict[int, Path
         z[~(alpha > 0)] = np.nan
         return {"depth": _thin(z.reshape(-1), gw, gh, proxy)}
 
-    info = {"width": full_w, "height": height, "step": step, "gw": tgw, "gh": tgh, "focal": focal, "cam": mats,
+    info = {"width": full_w, "height": height, "step": step, "gw": tgw, "gh": tgh, "focal": focal, "aspect": float(aspect), "cam": mats,
             "principal": principal, "proxy": proxy, "ramp": [float(ramp[0]), float(ramp[1])],
             "ramp_colour": [list(RAMP_NEAR), list(RAMP_SLOPE)],
             "bytes_per_cell": RAMP_BYTES_PER_CELL}

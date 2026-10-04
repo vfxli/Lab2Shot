@@ -1,0 +1,50 @@
+# The Open3D extension's own words and messages in English (the same keys as zh.toml).
+
+"E-OPEN3D-NOPOINTS" = "No points to turn into a mesh: the incoming point cloud is empty. Wire a point cloud in first (Point Cloud Fuse or Depth to Point Cloud)."
+"E-OPEN3D-FAILED" = "Surface reconstruction produced no triangles: the point cloud is too sparse or the parameters do not suit it. Run the points through Point Cloud Fuse to deduplicate and densify them, or increase Ball Radius / Alpha, and try again."
+"I-OPEN3D-RESULT.one" = "{method} reconstructed {vertices} vertex and {triangles} triangles"
+"I-OPEN3D-RESULT.other" = "{method} reconstructed {vertices} vertices and {triangles} triangles"
+
+[node."open3d.mesh_from_points"]
+subtitle = "Point Cloud to Mesh"
+description = "Point cloud → mesh (USD) with one of three classic surface reconstructions: Poisson (watertight, smooth), Ball Pivoting (rolls a ball of the given radius over the points) and Alpha Shape (the Alpha value picks a point between the convex hull and a tight fit). Works on any point cloud; if the points are too sparse or too dense, tune them in Point Cloud Fuse first."
+official.note = "Method picks one of the three official reconstruction functions, each giving a TriangleMesh. Poisson and Ball Pivoting take a PointCloud with normals (upstream says oriented PointCloud); the worker adds the normals the official way (estimate_normals + orient_normals_consistent_tangent_plane). Alpha Shape uses no normals. After Poisson the vertices with the lowest 1% density are removed as Open3D's tutorial does (remove_vertices_by_mask), then the points farther from the cloud than Trim Distance are deleted and small pieces removed, so an open scene is not closed with large false surfaces. When the point cloud has colors, each mesh point takes the color of its nearest input point (Cd)."
+cost.whole = "Reconstructs the whole shot at once"
+
+[node."open3d.mesh_from_points".port.points]
+label = "Point Cloud"
+
+[node."open3d.mesh_from_points".port.model]
+label = "Geometry"
+
+[node."open3d.mesh_from_points".param.method]
+label = "Method"
+option.poisson = "Poisson"
+option.ball = "Ball Pivoting"
+option.alpha = "Alpha Shape"
+
+[node."open3d.mesh_from_points".param.depth]
+label = "Poisson Depth"
+help = "Octree depth of the Poisson reconstruction: higher gives a finer mesh and takes longer."
+
+[node."open3d.mesh_from_points".param.radius]
+label = "Ball Radius"
+placeholder = "Auto (from point spacing)"
+help = "Ball radius for Ball Pivoting (point cloud units = centimeters): balls of this radius and 2x and 4x it are rolled over the points to form faces. Empty: taken from the point cloud's mean point spacing."
+
+[node."open3d.mesh_from_points".param.alpha]
+label = "Alpha"
+placeholder = "Auto (from point spacing)"
+help = "Alpha Shape radius: larger comes closer to the convex hull, smaller follows the points more tightly and leaves holes more easily. Empty: taken from the point cloud's mean point spacing."
+
+[node."open3d.mesh_from_points".param.trim_distance]
+label = "Trim Distance (Point Spacings)"
+help = "Poisson extrapolates false surfaces where there are no points in an open scene (a street). Points of the mesh farther from the input point cloud than this many point spacings (the median nearest-neighbor distance) are deleted with their primitives, then pieces with fewer than 1% of the primitives are removed. 0 turns trimming off."
+
+[stage]
+reconstruct_mesh = "Reconstructing mesh"
+
+[extension.open3d]
+summary = "Point cloud to mesh: three classic surface reconstructions (Poisson, Ball Pivoting, Alpha Shape) for any point cloud"
+license.name = "MIT (Open3D)"
+license.summary = "Commercial use allowed: Open3D is MIT-licensed, and the pip package contains all of its code."

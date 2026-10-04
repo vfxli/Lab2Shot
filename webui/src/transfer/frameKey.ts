@@ -76,14 +76,14 @@ export const packetKey = (i: { fp: string; g?: string; tier: Tier | null; throug
 
 /** 帧源 id：服务器那一段，加上本机原件那一段（有的话）。本机帧数、文件组成、色彩空间都在里面：换了文件就是另一组键。 */
 export const sourceId = (i: { fp: string; g?: string; tier: Tier | null; through?: Through | null; local?: LocalPart | null }): string =>
-  packetKey(i) + (i.local ? `${FROM}本机 ${i.local.frames} 帧 @ ${i.local.where} #${i.local.digest} ${i.local.space}` : "");
+  packetKey(i) + (i.local ? `${FROM}local ${i.local.frames}f @ ${i.local.where} #${i.local.digest} ${i.local.space}` : "");
 
 /** 本标签页里选的文件构成的帧源：节点、文件组成、EXR 解码用的色彩空间。 */
 export const pickedId = (i: { node: string; digest: string; space: string }): string => `picked:${i.node}#${i.digest}#${i.space}`;
 
 /** 服务器帧源与本机选的帧源合并：两者的 id 与以谁为准（本机优先时同一帧画的是另一份字节）。 */
 export const mergedId = (i: { server: string; local: string; exact: boolean }): string =>
-  `${i.server}${FROM}${i.exact ? "本机优先" : "服务器优先"} ${i.local}`;
+  `${i.server}${FROM}${i.exact ? "local-first" : "server-first"} ${i.local}`;
 
 /** 单条通道的帧源。 */
 export const channelId = (fp: string, name: string, tier: Tier | null, g?: string): string => `ch:${packetKey({ fp, g, tier })}|${name}`;

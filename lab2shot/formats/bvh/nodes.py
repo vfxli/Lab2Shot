@@ -4,10 +4,12 @@ holds skeletons."""
 
 from __future__ import annotations
 
+from ... import i18n
+
 from typing import Literal
 
 from ...data.units import to_cm
-from ...nodes.base import NodeParams, P
+from ...nodes.base import NodeParams, P, Reads
 from ...nodes.formats import ArraysImport, import_file_param, selection_param, selection_ports
 from . import SUFFIXES
 
@@ -15,17 +17,17 @@ from . import SUFFIXES
 class ImportBvh(ArraysImport):
     # 10：Frame Time 正好是整数帧率时就是它（0.1 → 10，不是 12）
     version = 10
-    id = "core.import_bvh"
+    id = "bvh.import"
     suffixes = SUFFIXES
     on_node = ("unit",)
+    reads = Reads(rank=3)  # 骨架：FBX 在前
 
     class Params(NodeParams):
         path: str = import_file_param(SUFFIXES)
         skeletons: list[str] = selection_param("skeletons")
         # 「自动」：按骨头长度估出来的每单位多少厘米（reader.unit_guess），与 W-BVH-UNIT 提示用的同一个估计
-        unit: Literal["cm", "m", "auto"] = P("cm", label="单位", group="BVH",
-                                             option_labels={"cm": "厘米", "m": "米", "auto": "自动（按骨长估计）"}, worker=False)
-    outputs = selection_ports(Params, fps="BVH 记的帧率（Frame Time 的倒数）", fps_always=True)
+        unit: Literal["cm", "m", "auto"] = P("cm", group="bvh", worker=False)
+    outputs = selection_ports(Params, fps=True, fps_always=True)
 
     @classmethod
     def unit_cm(cls, params) -> float:
@@ -60,11 +62,11 @@ class ImportBvh(ArraysImport):
         if ctx.params["unit"] == "auto":
             unit = reader.unit_of(items)
             if unit and unit[1]:
-                ctx.say("I-BVH-UNITAUTO", unit=unit[1], guess=guess)
+                ctx.say("I-BVH-UNITAUTO", unit=i18n.Word(f"length.{unit[1]}"), guess=guess)
             elif unit:  # near no standard unit (CMU's 0.45 inch): read at the guess, and said
                 ctx.say("W-BVH-UNITGUESS", guess=guess)
         elif guess and max(guess / chosen_cm, chosen_cm / guess) > reader.UNIT_OFF:
-            ctx.say("W-BVH-UNIT", unit="厘米" if ctx.params["unit"] == "cm" else "米",
+            ctx.say("W-BVH-UNIT", unit=i18n.Word("length.cm" if ctx.params["unit"] == "cm" else "length.m"),
                     reach=reader.reach(items) * chosen_cm, guess=guess)
         _, replaced, extra = reader.parsed(str(cls.path(ctx.params)))
         if replaced:

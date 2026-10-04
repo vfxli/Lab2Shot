@@ -18,6 +18,7 @@ from starlette.requests import Request
 from ..errors import NotFound
 from ..messages import Msg
 
+from . import auth
 from .access import mine, readable
 
 
@@ -61,9 +62,9 @@ def job_record(request: Request, job_id: str) -> dict:
 
 
 def feedback(request: Request, fid: str) -> dict:
-    """Return a feedback (lab2shot/feedback.py get), to a login that may act on its sender's account (access.mine: an
+    """Return a feedback (lab2shot/site/feedback.py get), to a login that may act on its sender's account (access.mine: an
     administrator's feedback is not a 二级管理员's to read or answer)."""
-    from .. import feedback as kept
+    from ..site import feedback as kept
 
     row = kept.get(fid)
     mine(request, row["user"], Msg("E-FEEDBACK-NOTFOUND"))
@@ -95,7 +96,8 @@ def saved_graph(request: Request, gid: str) -> dict:
     """Return a user's template file (「我的模板」 in server/library.py; id is user~<username>~<file name>), owned by
     the account named in the id. Sessions holding data.others also have access; the restore and permanent-delete
     actions on the admin 「用户」 detail page rely on this."""
-    from .. import accounts, library
+    from .. import accounts
+    from ..site import library
 
     kind, username, stem = library.parse_id(gid)
     account = accounts.by_username(username) if kind == "user" else None
@@ -103,6 +105,35 @@ def saved_graph(request: Request, gid: str) -> dict:
         raise NotFound(Msg("E-LIBRARY-NOSUCH"))
     mine(request, account.id, Msg("E-LIBRARY-NOSUCH"))
     return library.user_get(username, stem)
+
+
+def own_jobs(request: Request, req: Any = None) -> list[str]:
+    """The jobs the request body names (`jobs`) that are the asking account's own, in the order named: any other is
+    left out as if it did not exist (a list is filtered, not refused: a page sends what it remembers, some of it gone).
+    Strictly the account's own, whatever rights the login holds: these routes act on one's own jobs only."""
+    from ..database import db
+
+    asked = list(dict.fromkeys(j for j in (getattr(req, "jobs", None) or []) if isinstance(j, str)))
+    if not asked:
+        return []
+    own = {r["id"] for r in db().rows(f"SELECT id FROM jobs WHERE user_id = ? AND id IN ({','.join('?' * len(asked))})",
+                                      (auth.me(request).id, *asked))}
+    return [j for j in asked if j in own]
+
+
+def job_followed(request: Request, req: Any = None) -> str:
+    """The job a new one follows (the body's `follows`, server/farm.py JobRequest): the asking account's own, never
+    another's, whatever rights it holds (data.others included); refused with the same words whether it is another's or
+    not there at all. "" when it follows none."""
+    from ..database import db
+
+    job_id = getattr(req, "follows", None) or ""
+    if not job_id:
+        return ""
+    row = db().row("SELECT user_id FROM jobs WHERE id = ?", (job_id,))
+    if row is None or row["user_id"] != auth.me(request).id:
+        raise NotFound(Msg("B-JOB-FOLLOWS", job=job_id[:64]))
+    return job_id
 
 
 def saved_graph_named(request: Request, req: Any = None):

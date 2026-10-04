@@ -1,0 +1,118 @@
+# This extension's words and messages in English (the same keys as zh.toml).
+
+# ---- nodes and worker
+"E-DEPTHANYTHING3-NOFOCAL" = "The model chosen on depthanything3.depth gives metric depth, but it does not estimate the focal length itself: without a focal length there is no real distance. Type the shot's lens into Known Focal Length, wire AnyCalib's focal length to Known Focal Length, or wire a camera; if the lens is unknown, set Model to Giant, Large or Base"
+"E-DEPTHANYTHING3-NOFOCAL.app" = "The selected model outputs metric depth and does not estimate the focal length itself: without one there is no real distance. Enter the real lens in Known Focal Length; if it is unknown, switch Model to Giant, Large or Base"
+"I-DEPTHANYTHING3-MODELWEIGHTS" = "the weights of model {model}"
+"N-DEPTHANYTHING3-METRICSINGLEVIEW" = "Metric-Large looks at each frame on its own, with no attention across frames, so computing frames together does nothing for it; for video depth that does not flicker, set Model to Giant, Large or Base"
+
+[node."depthanything3.depth"]
+subtitle = "Depth"
+description = "Picture → a depth map estimated per frame (ByteDance's Depth Anything 3). Each frame is computed on its own, so the distances jump; with a known focal length (typed into Known Focal Length or wired from upstream) Metric-Large is the steadiest. For depth and cameras that are stable over a whole shot, use depthanything3.reconstruct."
+
+[node."depthanything3.depth".param.focal_mm]
+label = "Known Focal Length"
+placeholder = "Auto"
+
+[node."depthanything3.depth".param.filmback_mm]
+label = "Aperture"
+placeholder = "36"
+
+[node."depthanything3.depth".param.model]
+label = "Model"
+
+[node."depthanything3.depth".param.model.option]
+da3metric-large = "Depth Anything 3 Metric-Large"
+da3-base = "Depth Anything 3 Base"
+"da3nested-giant-large-1.1" = "Depth Anything 3 Giant"
+"da3-large-1.1" = "Depth Anything 3 Large"
+
+[node."depthanything3.depth".param.resolution]
+label = "Resolution"
+
+[node."depthanything3.depth".param.resolution.option]
+252 = "252"
+378 = "378"
+504 = "504"
+
+[node."depthanything3.depth".param.ray_pose]
+label = "Focal Length from Rays"
+
+[node."depthanything3.depth".param.multi_view]
+label = "Multi-Frame"
+
+[node."depthanything3.depth".port.sky]
+label = "Sky Mask"
+help = "The model's own sky probability (0–1, the higher the more sky-like). It is also where the depth map's valid bit comes from: the sky has no distance to speak of"
+
+[node."depthanything3.depth".official]
+note = "x is the picture (da3.py:114 \"x: Input images (B, N, 3, H, W)\"). Frame by frame we use only its intrinsics, not the extrinsics it predicts. Upstream's two optional extrinsics / intrinsics inputs enter the network only when **both are given** (da3.py forward: the camera token is encoded only with extrinsics); frame by frame there are no extrinsics, so the Known Focal Length parameter (fov_x_deg in the worker) **does not enter the network**: on Giant / Large it replaces the predicted intrinsics for the metric scaling and depth alignment that follow (worker.py run_nested), on Metric-Large it sets the scale (metric = focal × output / 300)"
+
+[node."depthanything3.depth".licence]
+note = "Code Apache-2.0; the Base and Metric-Large weights are Apache-2.0, commercial use allowed; the Giant and Large 1.1 weights are CC-BY-NC-4.0, non-commercial."
+
+[node."depthanything3.reconstruct"]
+subtitle = "Depth and Camera"
+description = "Picture → a camera and a depth map per frame (Depth Anything 3), looking at the whole shot at once. The depth is stable from frame to frame (a still wall moves less than 1 cm) and close to real scale; at most 110 frames per chunk, and very long locked-off shots drift where they are split into chunks. For per-frame depth without cameras, use depthanything3.depth. No point cloud: upstream gives only depth and cameras, and its point cloud is what its export tool unprojects from the depth; for a point cloud, wire points_from_depth."
+
+[node."depthanything3.reconstruct".param.step]
+label = "Frame Step"
+
+[node."depthanything3.reconstruct".param.model]
+label = "Model"
+
+[node."depthanything3.reconstruct".param.model.option]
+da3-base = "Depth Anything 3 Base"
+"da3nested-giant-large-1.1" = "Depth Anything 3 Giant"
+"da3-large-1.1" = "Depth Anything 3 Large"
+
+[node."depthanything3.reconstruct".param.resolution]
+label = "Resolution"
+
+[node."depthanything3.reconstruct".param.resolution.option]
+252 = "252"
+378 = "378"
+504 = "504"
+
+[node."depthanything3.reconstruct".param.max_frames]
+label = "Max Frames per Chunk"
+
+[node."depthanything3.reconstruct".param.max_frames.option]
+32 = "32"
+64 = "64"
+110 = "110"
+
+[node."depthanything3.reconstruct".param.loops]
+label = "Loop Closure"
+
+[node."depthanything3.reconstruct".param.unit_cm]
+label = "Scale"
+
+[node."depthanything3.reconstruct".port.sky]
+label = "Sky Mask"
+help = "The model's own sky probability (0–1, the higher the more sky-like). It is also where the depth map's valid bit comes from: the sky has no distance to speak of"
+
+[node."depthanything3.reconstruct".official]
+note = "The camera is intrinsics plus extrinsics (da3.py:115-116 / specs.py:40-41). No mask or boxes input: Depth Anything 3's forward takes only x / extrinsics / intrinsics, and a mask cannot enter the model; to reconstruct part of the picture, black out the rest before it goes in: sam_3d_body.detect_people → mask_from_boxes → composite (keep) → this node's RGB input. Depth Anything 3 gives no 3D point map (the Prediction has only depth / sky / conf / extrinsics / intrinsics), so this node has no point cloud output"
+
+[node."depthanything3.reconstruct".licence]
+note = "Code Apache-2.0; the Base and Metric-Large weights are Apache-2.0, commercial use allowed; the Giant and Large 1.1 weights are CC-BY-NC-4.0, non-commercial."
+
+[extension.depthanything3]
+summary = "Predicts spatially consistent geometry from any visual input, with camera poses known or unknown"
+
+[extension.depthanything3.license]
+name = "Apache-2.0 (code, Depth Anything 3 Base, Depth Anything 3 Metric-Large) + CC-BY-NC-4.0 (Depth Anything 3 Nested Giant-Large 1.1, Depth Anything 3 Large 1.1, non-commercial)"
+summary = "Code Apache-2.0. Depth Anything 3 Nested Giant-Large 1.1 (model card CC BY-NC 4.0) is non-commercial; Depth Anything 3 Large 1.1 is CC BY-NC 4.0 in the model table of the official README, though its Hugging Face model card says Apache-2.0 (the model card of Depth Anything 3 Large of the same series changed from Apache-2.0 to CC BY-NC 4.0 on 2025-11-19), so it is treated as non-commercial; Depth Anything 3 Base and Depth Anything 3 Metric-Large are Apache-2.0, commercial use allowed (the metric results of the two combined may be used in commercial projects). The authors state that every model was trained only on public academic datasets. Depth Anything 3 Small and Depth Anything 3 Mono-Large are Apache-2.0 too; this extension does not download them"
+
+[extension.depthanything3.weight."da3nested-giant-large-1.1"]
+note = "CC BY-NC 4.0, non-commercial, Giant 1.1 + Metric-Large, 1.40B parameters, 6.8 GB"
+
+[extension.depthanything3.weight."da3-large-1.1"]
+note = "CC BY-NC 4.0, non-commercial, 0.35B parameters, 1.6 GB"
+
+[extension.depthanything3.weight.da3-base]
+note = "Apache-2.0, 0.12B parameters, 0.54 GB"
+
+[extension.depthanything3.weight.da3metric-large]
+note = "Apache-2.0, 0.35B parameters, 1.3 GB"

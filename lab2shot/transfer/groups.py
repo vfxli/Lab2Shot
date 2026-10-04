@@ -37,11 +37,12 @@ shown as plain text, and never part of a path: nothing on disk is named after a 
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 
+from .. import i18n
 from ..text import plain_text
+from ..io.digest import sha256
 
 NAME_MOST = 64  # characters
 SLOT_HOURS = 2  # a group of tasks without footage: one fixed slot of the clock (a group every 2 hours, 12 a day)
@@ -54,12 +55,30 @@ def clean_name(text: object) -> str:
 
 
 def footage_name(name: object, count: int) -> str:
-    """The name of a group with footage: the main footage's name, and with several uploads read how many
-    (「sh030_plate 等 2 个素材」), cleaned and at most NAME_MOST characters all told (the name is cut, never the count)."""
+    """The name of a group with footage in the language now: the main footage's name, and with several uploads read
+    how many (「sh030_plate 等 2 个素材」), cleaned and at most NAME_MOST characters all told (the name is cut, never the
+    count)."""
     if count < 2:
         return clean_name(name)
-    more = f" 等 {count} 个素材"
+    more = i18n.t("transfer.footage_more", count=count)
     return (clean_name(name)[:NAME_MOST - len(more)].strip() + more).strip()
+
+
+def said_name(said: object) -> str:
+    """A group's automatic name kept as what it is (of_graph `said`: {"name": text or {"zh", "en"}, "count": n}) in
+    the language now; "" when there is none."""
+    if not isinstance(said, dict):
+        return ""
+    name = i18n.pick(said.get("name"))
+    count = said.get("count")
+    return footage_name(name, count) if isinstance(count, int) and count >= 2 else clean_name(name)
+
+
+def _said_of(text: str) -> object:
+    try:
+        return json.loads(text) if text else None
+    except ValueError:
+        return None
 
 
 def is_key(value: object) -> bool:
@@ -68,7 +87,7 @@ def is_key(value: object) -> bool:
 
 
 def _key(*parts: object) -> str:
-    return hashlib.sha256(json.dumps(parts, ensure_ascii=False).encode("utf-8")).hexdigest()[:KEY_LEN]
+    return sha256(json.dumps(parts, ensure_ascii=False))[:KEY_LEN]
 
 
 def _refs(value: object, out: list[str]) -> list[str]:
@@ -94,8 +113,9 @@ def slot_of(at: float) -> float:
 
 
 def of_graph(data: dict, user_id: int, at: float) -> dict:
-    """The group of a task of account `user_id` submitted at `at` with graph `data`: {key, name, slot} (slot: the start
-    of its clock slot for a task without footage, None with footage)."""
+    """The group of a task of account `user_id` submitted at `at` with graph `data`: {key, name, slot, said} (slot: the
+    start of its clock slot for a task without footage, None with footage; name: its automatic name in the language now,
+    said: the same as what it is, said again in whoever's language reads it: `said_name`)."""
     from . import uploads
 
     nodes = [n for n in data.get("nodes") or [] if isinstance(n, dict)]
@@ -118,11 +138,15 @@ def of_graph(data: dict, user_id: int, at: float) -> dict:
                 name = uploads.picked_name(sid, user_id) or rest.rsplit("/", 1)[-1] or (min(files) if files else "")
         inputs.append(sorted(reads))
     if inputs:
-        return {"key": _key("footage", int(user_id), sorted(inputs)), "name": footage_name(name, len(footage)), "slot": None}
+        said = {"name": clean_name(name), "count": len(footage)}
+        return {"key": _key("footage", int(user_id), sorted(inputs)), "name": said_name(said), "slot": None, "said": said}
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
-    title = str(meta.get("name") or "")
+    title = i18n.pick(meta.get("name"), i18n.DEFAULT)  # one language for the key, whoever submits (a card holds both)
     slot = slot_of(at)
-    return {"key": _key("slot", int(user_id), f"graph:{title}", slot), "name": clean_name(title), "slot": slot}
+    words = meta.get("name")
+    said = {"name": {k: clean_name(v) for k, v in words.items() if k in i18n.LANGS} if isinstance(words, dict)
+            else clean_name(title), "count": 0}
+    return {"key": _key("slot", int(user_id), f"graph:{title}", slot), "name": said_name(said), "slot": slot, "said": said}
 
 
 # ------------------------------------------------------------------ the groups an account has
@@ -151,11 +175,14 @@ def of_tasks(ids) -> dict[str, dict]:
         # by 任务保留天数, and the oldest first, so a group's first row is its first task
         given = {r["group_key"]: r["name"] for r in db().rows("SELECT group_key, name FROM task_group_names WHERE user_id = ?", (user,))}
         mine: dict[str, dict] = {}
-        for r in db().rows("SELECT group_key, group_name, group_slot, created FROM tasks WHERE user_id = ? AND group_key != '' "
-                           "ORDER BY created", (user,)):
+        for r in db().rows("SELECT group_key, group_name, group_slot, group_said, created FROM tasks WHERE user_id = ? "
+                           "AND group_key != '' ORDER BY created", (user,)):
             g = mine.get(r["group_key"])
             if g is None:
-                mine[r["group_key"]] = {"key": r["group_key"], "name": given.get(r["group_key"], r["group_name"]),
+                # a name its user gave, else the automatic one in the reader's language (a row from before group_said:
+                # as it was said then)
+                auto = said_name(_said_of(r["group_said"])) or r["group_name"]
+                mine[r["group_key"]] = {"key": r["group_key"], "name": given.get(r["group_key"], auto),
                                         "slot": r["group_slot"], "count": 1, "first": r["created"], "twin": False,
                                         "renamed": r["group_key"] in given}
             else:

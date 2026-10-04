@@ -24,6 +24,11 @@
   letter-spacing: 0.01em;
 }
 
+/* a cell that only tells something steps out whole when the bar has no room for it (ui/fitBar.ts) */
+.topbar [data-fit-out] {
+  display: none;
+}
+
 /* the document, next to the file menu: its name, then whether it is saved. It takes the room between the two groups,
    so the right-hand group stays put whatever the graph is called. */
 .doc-title {
@@ -32,24 +37,30 @@
   align-items: baseline;
   gap: var(--sp-2);
   padding: 0 var(--sp-2);
-  min-width: 10em; /* the graph's name stays readable: a narrow bar takes its room from .bar-actions */
-}
-
-.doc-title .name {
-  font-weight: 500;
+  /* its own cell of the bar: what does not fit is cut with an ellipsis inside it (the name first kept, then the file),
+     never drawn over the buttons beside it, in any language or window width */
   min-width: 0;
-  white-space: nowrap;
   overflow: hidden;
 }
 
+.doc-title .name {
+  flex: 0 0 auto; /* whole while the cell has room for it: whether it is saved gives way first */
+  max-width: 100%; /* then cut with an ellipsis inside the cell (the whole on hover) */
+  font-weight: 500;
+  min-width: 3em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .doc-title .doc-state {
-  flex: 0 1 auto;
-  min-width: 4em;
+  flex: 0 1 auto; /* gives up its room before the name does (the name does not shrink) */
+  min-width: 0;
   color: var(--text-3);
   font-size: var(--fs-sm);
   overflow: hidden;
   white-space: nowrap;
-  max-width: 28vw;
+  text-overflow: ellipsis;
 }
 
 /* how many templates there are, on the 模板 entry (.bar-count); how busy the server is, next to 队列 (.load-pill) */
@@ -95,7 +106,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  min-width: 0; /* a narrow bar takes its room from the refusal next to 提交 (.bar-refused), never from a button */
+  min-width: 0; /* a narrow bar takes its room from the notice next to 提交 (.bar-storage), never from a button */
 }
 
 .bar-sep {
@@ -146,7 +157,7 @@
 }
 
 /* 模板, the page's one entry: a third wider than its words need, the words centred */
-.bar-actions .btn.entry {
+.bar-actions .btn.bar-templates {
   min-width: 113px;
   justify-content: center;
 }
@@ -169,29 +180,36 @@
   min-width: 0;
 }
 
-/* why the server refused this graph, next to 提交 (editor/Chrome.tsx SubmitRefusal): one line, cut to what the bar
-   leaves; the whole text is its tip */
-.bar-refused {
-  max-width: 320px;
-  min-width: 4em;
+/* 自己的占用到了 80% / 满了 (editor/Chrome.tsx StorageNotice): a few words, never cut (the whole
+   sentence is its tip); a click opens 队列 (where space is freed), × says 知道了. Orange: a warning, never red */
+.bar-storage {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bar-storage-text {
+  flex: none;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: var(--error-text);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--orange-text);
+  font: inherit;
   font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.bar-storage-text:hover {
+  text-decoration: underline;
 }
 
 .bar-history {
   display: flex;
   gap: 2px;
-}
-
-.slider {
-  display: grid;
-  grid-template-columns: 1fr 52px;
-  gap: 8px;
-  align-items: center;
-  width: 100%;
 }
 
 input[type="range"] {
@@ -245,24 +263,25 @@ input[type="range"]::-moz-range-thumb {
   width: 100%;
 }
 
+/* each component: its name (ui/controls.tsx VecField) in a cell of its own before its field, never laid over the field
+   (a unit's own span inside the field is not it) */
 .vec3 label {
-  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
 }
 
-/* the component's name over its field (ui/controls.tsx VecField); a unit's own span inside the field is not it */
 .vec3 label > .vec3-axis {
-  position: absolute;
-  z-index: 1;
-  left: 7px;
-  top: 50%;
-  transform: translateY(-50%);
+  flex: none;
   font-size: 10px;
   font-weight: 600;
   pointer-events: none;
 }
 
-.vec3 .field {
-  padding-left: 18px;
+.vec3 label > :not(.vec3-axis) {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 /* a nullable vector that has a value: 「×」 after the three fields clears it back to empty (ui/controls.tsx VecField) */
@@ -321,4 +340,21 @@ input[type="range"]:disabled {
 
 .bar-rate.lost {
   color: var(--error);
+}
+
+/* a file being read in the background for an import's listing, with 「停止」 (editor/Chrome.tsx ReadingNow) */
+.bar-actions .bar-reading {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 280px;
+  font-size: var(--fs-sm);
+  color: var(--warn, var(--text-2));
+}
+
+.bar-actions .bar-reading > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

@@ -1,0 +1,48 @@
+# WOFTSAM 扩展自己的界面字和消息（中文）。
+# adapters/woftsam：nodes.py 在服务器上检查四个角，worker.py 在扩展包环境里跟踪。
+
+# ---- 四个角（节点计算前检查）
+"N-WOFTSAM-NOPLANE" = "「WOFTSAM 平面跟踪」还没有平面，这次输出是空的：显示这个节点，在 2D 视图里拖一个框，再把四个角拖到平面的四个角上"
+"E-WOFTSAM-CROSSED" = "「四个角」的连线交叉或凹进去了，围不成一个平面：按顺序（顺时针或逆时针）把四个角拖到平面的四个角上"
+"E-WOFTSAM-TOOSMALL" = "「四个角」围成的平面只有 {area:,} 平方像素，太小，平面跟踪跟不住：框出整个平面再算"
+"E-WOFTSAM-OUTSIDE" = "「四个角」要都在画面里（{width}×{height} 像素）：在平面整个看得见的一帧上重新框"
+"E-WOFTSAM-FRAMEOUT" = "「四个角」框在第 {frame} 帧，这段镜头只有第 {first}–{last} 帧：在镜头里的一帧上重新框"
+"E-WOFTSAM-ONEFRAME" = "平面跟踪至少要两帧：「RGB」接的是一张图，接一段图像序列"
+
+# ---- 跟踪结果
+"W-WOFTSAM-UNSURE.other" = "WOFTSAM 在第 {frames} 帧（共 {count} 帧）没能确认平面（被挡住、出画或变化太大）：这些帧的四个角标成不可见，位置是估计的，交付前检查这些帧"
+"N-WOFTSAM-REFOUND" = "第 {frames} 帧光流跟丢了平面，WOFTSAM 用 SAM 2 的遮罩重新找回"
+"I-WOFTSAM-FRAMESMORE" = "{frames} 等"
+
+[node."woftsam.planar_track"]
+subtitle = "平面跟踪"
+description = "在一帧上框出平面的四个角（屏幕、招牌、墙面、地面），整段镜头每帧得到这四个角和平面的单应矩阵；被人挡住、出画以后能重新找回。接「2D 跟踪点输出」写成 Nuke 的 CornerPin2D 换屏幕、换招牌、贴片擦除（类似 Mocha）。只能研究用。"
+official.note = "四个角（init_coords）上游也是当参数传的（track_function(sam_predictor, conf, frames, init_coords, seq_name)，第 67 行），我们同样做成参数「四个角」，不是输入口。单应矩阵 output_H（第 71-73 行）在我们的 2D 跟踪点数据里随平面一起交付。"
+
+[node."woftsam.planar_track".param.corners]
+label = "四个角"
+placeholder = "点「在视图里点选」，在画面上拖出平面"
+
+[node."woftsam.planar_track".param.resolution]
+label = "处理分辨率"
+placeholder = "原尺寸"
+
+[node."woftsam.planar_track".port.tracks]
+label = "四个角"
+
+[node."woftsam.planar_track".fact]
+points = "跟踪点数"
+
+[extension.woftsam]
+summary = "分割引导的单应估计，用于长时平面跟踪；在 POT-210 和 PlanarTrack 两个基准上达到当前最好成绩"
+license.name = "CC BY-NC-SA 4.0（非商用）"
+license.summary = "非商用：WOFTSAM 的代码和它的加权 RAFT 模型权重是 CC BY-NC-SA 4.0，只能用于研究等非商业用途，改动后要以同样的许可发布、署名作者（Serych、Matas）。仓库里的 RAFT 代码是 BSD-3。另外用到的 SAM 2.1 tiny 模型权重和 SAM 2 代码是 Apache-2.0，DINOv2 ViT-S/14 代码和模型权重是 Apache-2.0"
+weight."sam2.1_hiera_tiny".note = "SAM 2.1 Hiera tiny（Apache-2.0，156 MB）：跟着平面的遮罩，丢了以后重新找回"
+weight.dinov2-code.note = "DINOv2 网络结构代码（Apache-2.0）"
+weight.dinov2_vits14_reg.note = "DINOv2 ViT-S/14 带 register（Apache-2.0，88 MB）：平面丢了以后分清四个角谁是谁"
+
+# ---- worker 的计算阶段（worker.py run.stage / run.each / run.model / progress）
+[stage]
+read_frames = "读取画面"
+track_plane = "跟踪平面"
+track_plane_both = "跟踪平面（先向后，再从框选的那一帧倒着向前）"

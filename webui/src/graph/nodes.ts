@@ -3,6 +3,10 @@ import { fromServer, msg, type Message } from "../messages/message";
 import { greyed, nodeUsable, nodeWhy, why as whyOf } from "../api/applies";
 import type { GBox, GNode, GraphState, NodeData } from "../state/graph";
 import { optionName } from "./rules";
+import { nodeWord } from "./naming";
+import type { Said } from "../messages/format";
+import { t } from "../i18n/t";
+import { noteText, noteWord, type NoteWord } from "../model/nodeOutcome";
 
 /** 纯读取节点图的辅助函数：读节点图的普通快照（节点、连线、节点定义、上一次状态回复），回答页面自己负责的问题，例如
  * 节点体上显示哪些参数行、分组框里有哪些节点、一次点击还有什么挡着不能提交。它们都不读 store，也都不推算服务器的规则
@@ -11,6 +15,7 @@ import { optionName } from "./rules";
 
 export const BOX_COLORS = ["#8E8E93", "#0A84FF", "#30D158", "#FF9F0A", "#BF5AF2", "#FF375F"];
 export const BOX_HEAD = 34; // 标题栏高度；折叠的框只剩标题栏
+export const BOX_FOLD_W = 280; // 折叠的框最宽这么宽（再窄的框照它自己的宽）
 
 export const nodeSize = (n: Pick<GNode, "measured">) => ({ w: n.measured?.width ?? 240, h: n.measured?.height ?? 96 });
 
@@ -30,7 +35,7 @@ export function boxContents(box: GBox, nodes: GNode[]): string[] {
 /** 目录中不存在的类型使用此灰色：比 Mask 的灰色暗一档，不用于任何已知类型（与 lab2shot/data/types.py UNKNOWN_COLOUR 取值相同）。 */
 export const UNKNOWN_COLOR = "#6b6b70";
 
-/** Color of a port: its first accepted type. A list takes its items' colour (a list port is drawn as a list OF its items'
+/** Color of a port: its first accepted type (grey when its candidates are of different roots). A list takes its items' colour (a list port is drawn as a list OF its items'
  * type, never with a colour of its own), so "scene[]" is the scene colour, not the grey of an unknown type.
  * How a port's type is described is never decided here: the server names it (PortDef.type_label).
  *
@@ -38,7 +43,10 @@ export const UNKNOWN_COLOR = "#6b6b70";
  * 同组成员以明显不同的色相或明度区分，不使用微小偏移；列表与单值同色，列表以方形端口加双线区分。
  * 色值由服务器提供，此处不定义任何色值。 */
 export function portColor(types: Record<string, DataType>, portType: string): string {
-  return types[portType.split("|")[0].replace(/\[\]$/, "")]?.color ?? UNKNOWN_COLOR;
+  const alts = portType.split("|").map((t) => t.replace(/\[\]$/, ""));
+  // candidates of different roots (the open "anything" of a port that follows nothing yet): no one type's colour
+  if (new Set(alts.map((t) => t.split(".")[0])).size > 1) return UNKNOWN_COLOR;
+  return types[alts[0]]?.color ?? UNKNOWN_COLOR;
 }
 
 /** 三维输出设置节点的表（OutputSettings.writes），按目录里种类的顺序。 */
@@ -134,13 +142,22 @@ export function frameLimitProblem(span: [number, number] | null, most: number): 
 }
 
 /** 节点计算状态的文字：节点底部与它的「信息」面板说的是同一句。 */
-export const STATUS_TEXT: Record<import("../state/graph").NodeStatus, string> = { idle: "未计算", queued: "排队", cooked: "已缓存", cooking: "计算中…", error: "出错", skipped: "已跳过" };
+const STATUS_KEY: Record<import("../state/graph").NodeStatus, string> = {
+  idle: "ui.graph.status_idle", queued: "ui.graph.status_queued", cooked: "ui.graph.status_cooked",
+  cooking: "ui.graph.status_cooking", error: "ui.graph.status_error", skipped: "ui.graph.status_skipped",
+};
+export const statusText = (status: import("../state/graph").NodeStatus): string => t(STATUS_KEY[status]);
 
 /** 任务还在处理的节点：在队列里等（注记是原因，按服务器说的）或正在计算。 */
 export const isLive = (status: import("../state/graph").NodeStatus | undefined): boolean => status === "queued" || status === "cooking";
 
 export function waitText(job: { position: number | null }): string {
-  return job.position == null ? "排队中" : `排队第 ${job.position} 位`;
+  return noteText(waitWord(job));
+}
+
+/** The same kept as its word (model/nodeOutcome.ts NoteWord): said when shown, in the language then. */
+export function waitWord(job: { position: number | null }): NoteWord {
+  return job.position == null ? noteWord("ui.graph.waiting") : noteWord("ui.graph.waiting_at", { position: job.position });
 }
 
 /** 图里的全部「输出」，按节点顺序：「提交」把它们一起作为一个任务交付。 */
@@ -149,6 +166,12 @@ export function deliveryNodes(nodes: GNode[], nodeDefs: Record<string, NodeTypeD
 }
 
 const FILE_IN = ["file", "sequence"];
+
+/** 节点上现在要用、却还没选文件的文件参数（置灰的不算）：B-COOK-NOFILE 说的就是它们，blockers() 里「这根线在等的
+ * 是不是一个没选文件的读取节点」也按这一条认。 */
+function missingFiles(def: NodeTypeDef, params: Record<string, unknown>, status: Status | undefined): ParamDef[] {
+  return def.params.filter((p) => FILE_IN.includes(p.widget ?? "") && !params[p.name] && !greyed(status?.applies, p.name));
+}
 
 /** 「提交」（graph/actions.ts deliverAll：Ctrl+Shift+Enter，打包全部「输出」；顶栏没有这个按钮）只在图里有「输出」时
  * 才有东西可算：每一个「输出」一起收集、打包。 */
@@ -170,7 +193,7 @@ export interface BlockContext extends GraphState {
   reply: StatusReply;
   cookRange: [string, string] | null;
   plan: Plan | null;
-  uploadBlocked: (id: string, param: string, label: string) => Message | undefined; // undefined：没有在传的
+  uploadBlocked: (id: string, param: string, label: Said | string) => Message | undefined; // undefined：没有在传的
   applies: import("../api/applies").Availability | null | undefined; // 登录给的答案：现在哪些节点类型可用
 }
 
@@ -195,21 +218,31 @@ function nodesCooked(reply: StatusReply, targets: string[]): string[] {
 export function blockers(ctx: BlockContext, targets: string[]): Blocker[] {
   const range = rangeProblem(ctx.cookRange, ctx.plan);
   const out: Blocker[] = range ? [{ node: "", message: range }] : [];
+  // 同一根因只说一次：读取节点没选文件时，从它出来的线都在「等」（B-WIRE-WAITS「还没有选蒙皮角色」）。缺的是文件，由它自己
+  // 那一条 B-COOK-NOFILE 说（它在这次计算里时）；线上不再各说一遍。它不在这次计算里（只被「有没有」看一眼，engine/
+  // evaluation.py present）时也不拦：服务器同样照收（engine/demand.py：缺素材的原因报在源头）。选了文件、只是还没选
+  // 里面的哪一项，线上的这一句就是唯一的说法，照常拦
+  const fileless = (src: string) => {
+    const n = ctx.nodes.find((m) => m.id === src);
+    const d = n && ctx.nodeDefs[n.data.typeId];
+    return !!n && !!d && missingFiles(d, n.data.params, ctx.reply.nodes[src]).length > 0;
+  };
   for (const id of nodesCooked(ctx.reply, targets)) {
     const node = ctx.nodes.find((n) => n.id === id);
     const def = node && ctx.nodeDefs[node.data.typeId];
     if (!node || !def) continue;
-    const name = node.data.label;
+    const name = nodeWord(id, node.data.typeId); // the messages' parameter (graph/naming.ts)
     const status = ctx.reply.nodes[id];
     const own: Message[] = [];
     if (!nodeUsable(ctx.applies, def.id)) own.push(msg("B-COOK-UNAVAILABLE", { node: name, reason: nodeWhy(ctx.applies, def.id) }));
-    for (const w of ctx.reply.wires) if (w.to[0] === id && w.state !== "ok" && w.problem) own.push({ ...fromServer(w.problem), port: w.to[1] });
+    for (const w of ctx.reply.wires)
+      if (w.to[0] === id && w.state !== "ok" && w.problem && !(w.state === "waiting" && fileless(w.from[0]))) own.push({ ...fromServer(w.problem), port: w.to[1] });
     for (const p of def.params) {
       const value = node.data.params[p.name];
       if (greyed(status?.applies, p.name)) continue;
       const going = FILE_IN.includes(p.widget ?? "") ? ctx.uploadBlocked(id, p.name, name) : undefined;
       if (going) own.push({ ...going, param: p.name });
-      else if (!value && FILE_IN.includes(p.widget ?? "")) own.push(msg("B-COOK-NOFILE", { node: name, what: p.label }, { param: p.name }));
+      else if (missingFiles(def, node.data.params, status).includes(p)) own.push(msg("B-COOK-NOFILE", { node: name, what: p.label }, { param: p.name }));
       // 当前选中的选项不可用：接入的数据类型不符合要求（option_applies，由服务器计算，id 为 "<参数>=<选项>"）。
       // 在提交前拦截，不交由服务器报错
       const why = whyOf(status?.applies, `${p.name}=${String(value)}`);

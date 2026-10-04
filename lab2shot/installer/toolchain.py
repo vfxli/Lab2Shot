@@ -92,5 +92,5 @@ def problem(nvcc: Release | None = None) -> tuple[str, Msg | None]:
     if major is None:
         return "warning", Msg("W-TOOLCHAIN-NOTGCC", compiler=path)
     if major > max_gcc(nvcc):
-        return "blocked", Msg("E-TOOLCHAIN-GCCTOONEW", compiler=f"{path}（GCC {major}）", nvcc=release_text(nvcc), max=max_gcc(nvcc))
-    return "ok", Msg("I-TOOLCHAIN-OK", nvcc=release_text(nvcc), compiler=f"{path}（GCC {major}）")
+        return "blocked", Msg("E-TOOLCHAIN-GCCTOONEW", compiler=f"{path} (GCC {major})", nvcc=release_text(nvcc), max=max_gcc(nvcc))
+    return "ok", Msg("I-TOOLCHAIN-OK", nvcc=release_text(nvcc), compiler=f"{path} (GCC {major})")

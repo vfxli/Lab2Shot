@@ -1,8 +1,0 @@
-# WHAM 全身动作（adapters/wham/worker.py）。
-
-# ---- 画面和人
-"N-WHAM-NOPEOPLE" = "「WHAM 全身动作」在画面里没有找到人，这次输出是空的：确认画面里有完整的人，人不要太小、不要被挡住"
-"N-WHAM-NOLONGTRACK" = "「WHAM 全身动作」找到的人都没有连续出现 {frames} 帧以上（更短的片段它不算），这次输出是空的：换一段人出现得更久的镜头；只要其中一个人时，在上游接「ViTDet 人物框」→「选人」→「人物框转遮罩」→「图像合成」把别人从画面里去掉"
-
-# ---- 相机
-"W-WHAM-FOCALCHANGES" = "接进来的相机 Focal Length 逐帧在变（{low:.1f}–{high:.1f} px），「WHAM 全身动作」整段只能用一个 Focal Length，取了中值 {focal:.1f} px：Focal Length 离中值远的帧，人的远近和大小会偏"

@@ -189,7 +189,7 @@ def read_models(r: Reader, out: SceneArrays, skinned: set[int]) -> int:
         world = r.world(i, frames) @ r.scene.geometric(i)
         out.add("model", r.nodes[i]["name"], r.path(i), frames, world, points=points.astype(np.float32), **mesh_arrays(m),
                 **r.visible(i, frames))
-        progress(k + 1, len(ids), "读取模型")
+        progress(k + 1, len(ids), "read_models")
     return len(ids)
 
 
@@ -301,7 +301,7 @@ def read_characters(r: Reader, out: SceneArrays) -> tuple[int, set[int]]:
             if not (meshes_shown[mesh] == shown).all():  # hidden apart from the character (a LOD, a proxy)
                 arrays["visible"] = meshes_shown[mesh].astype(np.int32)
             out.add_mesh(item, r.nodes[mesh]["name"], **arrays)
-        progress(c + 1, len(rigs), "读取骨架动画")
+        progress(c + 1, len(rigs), "read_skeletons")
     return len(rigs), set(skins)
 
 
@@ -339,7 +339,7 @@ def replaced_names(file: str, names: list[str]) -> None:
 
 def read_fbx(run: Run) -> None:
     job = run.job
-    run.stage("读取 FBX")
+    run.stage("read_fbx")
     scene = open_file(job.inputs["file"])
     names, default, _ = choose_take(scene, job.params.get("take") or "")
     r = Reader(scene)
@@ -502,7 +502,7 @@ def write_fbx(run: Run) -> None:
     out = Path(job.params["file"])
     if out.suffix.lower() != ".fbx":
         fail("E-FBX-SUFFIX", path=shown(out))
-    run.stage("写出 FBX")
+    run.stage("write_fbx")
     out.parent.mkdir(parents=True, exist_ok=True)
     counts = write_scene(job.inputs["scene"], out)
     run.finish([], kind="fbx", path=str(out), **counts)

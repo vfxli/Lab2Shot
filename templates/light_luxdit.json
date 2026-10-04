@@ -2,110 +2,173 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "810d93a734748598da5b2c218ab6e77b",
-  "name": "HDRI · LuxDiT",
-  "intro": "LuxDiT 微调一个视频扩散 transformer，按画面生成 HDR 环境贴图，光照准确并保住与画面的语义对应。这张卡交付环境 HDRI（经纬图，EXR 的 rgba）；画面外的环境是模型猜的，对随机种子敏感。",
+  "name": {
+   "zh": "HDRI · LuxDiT",
+   "en": "HDRI · LuxDiT"
+  },
+  "intro": {
+   "zh": "LuxDiT 微调一个视频扩散 transformer，按画面生成 HDR 环境贴图，光照准确并保住与画面的语义对应。这张卡交付环境 HDRI（经纬图，EXR 的 rgba）；画面外的环境是模型猜的，对随机种子敏感。",
+   "en": "LuxDiT fine-tunes a video diffusion transformer to generate an HDR environment map from images, with accurate lighting and semantic consistency with the image. This card delivers an environment HDRI (lat-long, the EXR's rgba); the environment outside the frame is guessed by the model and is sensitive to the seed."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "env_light",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入图片",
+   "label": {
+    "zh": "输入图像",
+    "en": "Input Image"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
-   "name": "lora_scale",
-   "label": "贴近画面程度",
+   "name": "light_lora_scale",
+   "label": {
+    "zh": "贴近图像程度",
+    "en": "Image Fidelity"
+   },
    "target": "light.lora_scale"
   },
   {
-   "name": "seed",
-   "label": "随机种子",
+   "name": "light_seed",
+   "label": {
+    "zh": "随机种子",
+    "en": "Seed"
+   },
    "target": "light.seed"
   },
   {
-   "name": "envmap_width",
-   "label": "环境图宽度",
+   "name": "light_envmap_width",
+   "label": {
+    "zh": "环境贴图宽度",
+    "en": "Environment Map Width"
+   },
    "target": "light.envmap_width"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "steps",
-     "label": "去噪步数",
+     "name": "light_steps",
+     "label": {
+      "zh": "去噪步数",
+      "en": "Denoising Steps"
+     },
      "target": "light.steps"
     },
     {
-     "name": "guidance_scale",
-     "label": "引导强度",
+     "name": "light_guidance_scale",
+     "label": {
+      "zh": "引导强度",
+      "en": "Guidance Strength"
+     },
      "target": "light.guidance_scale"
     },
     {
-     "name": "resolution",
-     "label": "处理分辨率",
+     "name": "light_resolution",
+     "label": {
+      "zh": "处理分辨率",
+      "en": "Processing Resolution"
+     },
      "target": "light.resolution"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "exr.name"
     },
     {
      "name": "colorspace_out_exr",
-     "label": "输出色彩空间（HDRI EXR）",
-     "target": "out.colorspace"
+     "label": {
+      "zh": "输出颜色空间（HDRI EXR）",
+      "en": "Output Color Space (HDRI EXR)"
+     },
+     "target": "exr.colorspace"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_bit_depth",
-       "label": "EXR 位深",
-       "target": "out.exr_bit_depth"
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
+       "target": "exr.exr_bit_depth"
       },
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
-       "target": "out.exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -115,17 +178,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "计算",
+     "word": "cook",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -134,8 +203,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_picture",
-   "label": "读取图片",
+   "type": "file_still",
    "params": {
     "path": "",
     "colorspace": null
@@ -148,7 +216,6 @@
   {
    "id": "light",
    "type": "luxdit.light_probe",
-   "label": "LuxDiT HDRI",
    "params": {
     "seed": 0,
     "envmap_width": 1024,
@@ -167,18 +234,16 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1200,
+    "x": 1202,
     "y": 10
    }
   },
   {
-   "id": "out",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "id": "exr",
+   "type": "exr.output",
    "params": {
     "name": "hdri",
     "layers": [
@@ -193,7 +258,7 @@
     "colorspace": null
    },
    "ui": {
-    "x": 800,
+    "x": 802,
     "y": 10
    }
   }
@@ -215,13 +280,13 @@
     "hdri"
    ],
    "to": [
-    "out",
+    "exr",
     "layer1"
    ]
   },
   {
    "from": [
-    "out",
+    "exr",
     "files"
    ],
    "to": [

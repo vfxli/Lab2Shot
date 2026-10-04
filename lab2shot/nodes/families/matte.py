@@ -22,16 +22,10 @@ from .base import Job, MissingFrames, RawOutput, WorkerNode
 from ..kit.maps import frame_maps, model_picture
 from ..kit.ports import plate_mask_port
 
-FOREGROUND_HELP = (
-    "去掉背景颜色之后的前景色（预乘 alpha 的 RGBA）：头发丝、半透明边缘上原来混进来的背景色和绿幕溢色，"
-    "模型解混时已经去掉。在 Nuke 里拿它当前景合成，边上不再带着旧背景的颜色；"
-    "只用原图乘 alpha 是做不到的。接「序列图输出设置」写成 EXR"
-)
-
-
-def foreground_port(when: Cond | None = None, waits: str = "") -> Port:
+def foreground_port(when: Cond | None = None) -> Port:
     """抠像家族的「前景」输出端口（由 `Matting.foreground` 提供）。`when`：仅在某参数开启时存在该端口。"""
-    return Port("foreground", "image.4", "前景", alpha=True, help=FOREGROUND_HELP, when=when, waits=waits)
+    # 说明是家族的（family.matte.foreground.help）；各节点的 waits 在 node.<类型>.port.foreground.waits
+    return Port("foreground", "image.4", alpha=True, when=when, words="family.matte.foreground")
 
 
 def foreground_entry(array: str = "foreground", alpha: str = "alpha") -> tuple:
@@ -54,12 +48,11 @@ class Matting:
     端口在此处添加，节点只需一行声明；写出由 foreground_entry() 统一实现。"""
 
     foreground: ClassVar[bool | Cond] = False
-    foreground_waits: ClassVar[str] = ""  # 端口暂时不存在时，提示使用者需打开什么（Port.waits）
 
     def __init_subclass__(cls, **kw):
         if cls.foreground is not False and not any(p.name == "foreground" for p in cls.outputs):
             when = cls.foreground if isinstance(cls.foreground, Cond) else None
-            cls.outputs = (*cls.outputs, foreground_port(when, cls.foreground_waits))
+            cls.outputs = (*cls.outputs, foreground_port(when))
         super().__init_subclass__(**kw)
 
 
@@ -70,10 +63,10 @@ def matte(ctx, raw: RawOutput, image: Packet) -> dict[str, Packet]:
     # `matte`：该通道是抠像的 alpha。接线时不考虑此标记（单通道即单通道），使用时才考虑：
     # 视图默认将其叠加在上游原图上，交付时写入 EXR 的 a 通道而不是 R。
     maps = {"alpha": ("image.1", "alpha", {"value_range": UNIT, "half": True, "matte": True})}
-    stage = "写出 alpha"
+    stage = "write_alpha"
     if "foreground" in ctx.wanted:  # 仅在需要时才构建色彩转换（frame_maps 也只写出需要的端口）
         maps["foreground"] = foreground_entry()
-        stage = "写出 alpha 和前景"
+        stage = "write_alpha_foreground"
     return frame_maps(ctx, raw, image, maps, stage=stage)
 
 
@@ -91,7 +84,7 @@ class MatteNode(Matting, WorkerNode):
     `sapiens2.segment` 只混入 `Matting` 声明（有前景端口，没有粗遮罩端口），不属于这两档。"""
 
     inputs = (rgb_port(),)
-    outputs = (Port("alpha", "image.1", "Alpha"),)
+    outputs = (Port("alpha", "image.1"),)
     cost = Cost(gpu=True)
     missing_frames = MissingFrames.SKIP
 
@@ -109,13 +102,13 @@ class GuidedMatte(MatteNode):
 
     every_frame: ClassVar[bool] = True
     on_node = ("resolution", "erode_dilate")
-    inputs = (rgb_port(), plate_mask_port("粗遮罩", optional=False))
+    inputs = (rgb_port(), plate_mask_port(optional=False, words="family.matte.mask"))
     streams = True  # 逐帧写出 EXR（frame_maps）：每帧写完即为最终字节，可边算边看
 
     def __init_subclass__(cls, **kw):
         if "inputs" not in cls.__dict__:  # 需要自有端口的节点仍自行声明
             cls.inputs = (rgb_port(),
-                          plate_mask_port("粗遮罩", optional=False, every_frame=cls.every_frame))
+                          plate_mask_port(optional=False, every_frame=cls.every_frame, words="family.matte.mask"))
         super().__init_subclass__(**kw)
 
     @classmethod

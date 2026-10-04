@@ -49,16 +49,7 @@ DONE = "installed"  # INBOX/installed/: the originals of what was installed
 # extensions' state take seconds
 DATASETS = "datasets"
 README = "README.txt"
-README_TEXT = """\
-这里放所有要你自己下载的文件：人体模型（SMPL、SMPL-X、MANO、FLAME）、Autodesk FBX SDK……
-
-下载好的文件原样放进来：不用解压，不用改名，也不用分类。
-Lab2Shot 按文件里面的内容认出每一个，自动装到它该去的地方；
-装好的原文件移到 installed 文件夹里（可以删掉，也可以留着备份）。
-
-要下载什么、去哪下载、现在还缺什么：管理员打开 Lab2Shot 的后台管理页，看「扩展包」里的「手动下载」。
-认不出的文件留在这里，页面上写着为什么。
-"""
+README_TEXT_KEY = "manual.readme"  # what the inbox's README says, in both languages (readme_text)
 
 PARTIAL_SUFFIXES = (".crdownload", ".part", ".partial", ".download", ".tmp")
 
@@ -202,15 +193,14 @@ def unwrap_licence(raw: bytes) -> str:
 # ------------------------------------------------------------------ the registry
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ManualItem:
+    """One file a user downloads by hand. Its words for people are the catalogue's, in the language now:
+    manual.<key>.title / .what / .download / .note (the core's for the body models, an extension's own file for its items)."""
+
     key: str  # what extensions name: manual_weight(key)
-    title: str  # the official name
-    what: str  # what it is, for people
     page: str  # where it is downloaded
-    download: str  # which download on that page, as the page names it
     filename: str  # the name the downloaded file has (the contents are what is recognised: it may be renamed)
-    note: str  # what the page asks of the user: registration, licence
     markers: tuple[str, ...]  # names of files or folders inside the archive or folder that identify it (patterns)
     install: Install
     alone: tuple[str, ...] = ()  # the name a file needs when it comes on its own, not in its archive
@@ -222,6 +212,12 @@ class ManualItem:
     hint: Msg | None = None  # what to do instead when a file looks like this item but is not recognised
     noncommercial: bool = False
     registration: bool = False  # each user must register on its page for it (nodes/tags.py 需注册)
+
+    def said(self, field: str) -> str:
+        """One of its words (title, what, download, note) in the language now."""
+        from .. import i18n
+
+        return i18n.lookup(f"manual.{self.key}.{field}") or ""
 
     def recognises(self, names: list[str]) -> bool:
         """Any file or folder name inside matches a marker (case-insensitive); `nested` False: only the top level."""
@@ -235,8 +231,7 @@ def _body(key: str) -> ManualItem:
     recognition markers are all in that table)."""
     model = bodies.MODELS[key]
     return ManualItem(
-        key=key, title=model.title, what=model.what, page=model.page, download=model.download, filename=model.filename,
-        note="要先在官网注册登录，仅限非商用科研，禁止再分发", markers=model.markers, install=BodyModelFiles(key),
+        key=key, page=model.page, filename=model.filename, markers=model.markers, install=BodyModelFiles(key),
         alone=model.files, looks_like=model.looks_like, noncommercial=True, registration=True,
         hint=Msg("W-MANUAL-NOTTHEFILE", title=model.title, file=model.files[0], download=model.download))
 
@@ -272,7 +267,9 @@ def item_of(ext, key: str) -> ManualItem:
 
 def manual_weight(item: ManualItem) -> Weight:
     """What an extension declares for an item it declares itself (in `manual_items`) and needs the user to download by hand."""
-    return Weight(key=item.key, kind="manual", source=item.key, dest="", note=f"{item.title}：{item.what}，{item.note}")
+    return Weight(key=item.key, kind="manual", source=item.key, dest="",
+                  said=("extension.weight.manual", (("item", item.key), ("title", item.title), ("what", item.what),
+                                                    ("note", item.note))))
 
 
 def body_model_weight(key: str) -> Weight:
@@ -339,12 +336,20 @@ def _free_name(target: Path) -> Path:
 # ------------------------------------------------------------------ the inbox
 
 
+def readme_text() -> str:
+    """The inbox's README: one file for whoever opens the folder, so in every language (Chinese first)."""
+    from .. import i18n
+
+    return "\n".join(i18n.t(README_TEXT_KEY, in_lang=lang).rstrip("\n") + "\n" for lang in i18n.LANGS)
+
+
 def ensure_inbox() -> Path:
     """The inbox with its README (made on start and on every check)."""
     INBOX.mkdir(parents=True, exist_ok=True)
     readme = INBOX / README
-    if not readme.is_file() or readme.read_text(encoding="utf-8") != README_TEXT:
-        readme.write_text(README_TEXT, encoding="utf-8")
+    text = readme_text()
+    if not readme.is_file() or readme.read_text(encoding="utf-8") != text:
+        readme.write_text(text, encoding="utf-8")
     return INBOX
 
 
@@ -385,7 +390,7 @@ def identify(path: Path) -> Match:
         if item is not None and path.is_dir() and _depth(item, names) > 1:
             # a project folder that happens to contain the model file deep inside is not recognised (otherwise it would be
             # moved whole into installed/); the message states what to drop in
-            why = Msg("W-MANUAL-FOLDERNESTED", title=item.title, file="、".join(item.alone[:3] or item.markers[:3]))
+            why = Msg("W-MANUAL-FOLDERNESTED", title=item.title, file=list(item.alone[:3] or item.markers[:3]))
     if item is None:  # not recognised: whose it looks like, by its name, to say so there
         low = path.name.lower()
         item = next((i for i in items().values() if any(fnmatch.fnmatch(low, p) for p in i.looks_like)), None)
@@ -616,3 +621,7 @@ def accept(name: str, shown_sha256: str, who: dict) -> dict:
         return check()
 
 
+ManualItem.title = property(lambda self: self.said("title"))  # type: ignore[assignment,method-assign]
+ManualItem.what = property(lambda self: self.said("what"))  # type: ignore[assignment,method-assign]
+ManualItem.download = property(lambda self: self.said("download"))  # type: ignore[assignment,method-assign]
+ManualItem.note = property(lambda self: self.said("note"))  # type: ignore[assignment,method-assign]

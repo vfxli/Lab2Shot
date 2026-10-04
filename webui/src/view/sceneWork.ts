@@ -39,8 +39,8 @@ export async function parseChunk(bytes: Uint8Array): Promise<Parsed> {
 /** A depth cloud's points reconstructed from its depths (gridPoints, exactly the arithmetic the GPU performs) and their
  * extent. The depths stay with the page (its texture) and the camera is one sample of the track: both are sent as
  * copies of exactly their bytes. */
-export async function gridPointsOf(depth: Float32Array, gw: number, step: number, width: number, height: number, focal: number, cam: Float32Array, principal: Float32Array | null = null): Promise<{ points: Float32Array; bounds: Bounds | null }> {
-  return (await ask({ grid: { depth, gw, step, width, height, focal, cam, principal } })) as { points: Float32Array; bounds: Bounds | null };
+export async function gridPointsOf(depth: Float32Array, gw: number, step: number, width: number, height: number, focal: number, cam: Float32Array, principal: Float32Array | null = null, aspect = 1): Promise<{ points: Float32Array; bounds: Bounds | null }> {
+  return (await ask({ grid: { depth, gw, step, width, height, focal, cam, principal, aspect } })) as { points: Float32Array; bounds: Bounds | null };
 }
 
 /** The extent of a static cloud's points (the samples of a chunk were measured while being parsed). */

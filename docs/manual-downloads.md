@@ -5,7 +5,7 @@
 扩展包所需的代码与绝大多数模型权重由安装器自动下载，无需任何操作。以下两类文件除外：
 
 1. **须自行下载的文件**：其网站要求注册、登录或在浏览器中同意许可协议，安装器无法代为获取。
-2. **须申请访问的 Hugging Face 权重**：其仓库须先申请访问，获批后本机须登录 Hugging Face，安装器方可下载。
+2. **须申请访问的 Hugging Face 模型权重**：其仓库须先申请访问，获批后本机须登录 Hugging Face，安装器方可下载。
 
 仅在使用相应扩展包时才需要这些文件。`./setup.sh` 的「安装与环境」菜单中，「安装手动下载的文件」与「登录 Hugging Face」两项可随时查看每一项的当前状态。
 
@@ -27,7 +27,7 @@
 | 用途 | 身体 + 手 + 脸模型 |
 | 所需扩展包 | GVHMR |
 | 下载页面 | https://smpl-x.is.tue.mpg.de |
-| 下载哪一项 | SMPL-X v1.1（NPZ+PKL） |
+| 下载哪一项 | SMPL-X v1.1 (NPZ+PKL) |
 | 下载得到的文件 | `models_smplx_v1_1.zip` |
 | 许可与说明 | 要先在官网注册登录，仅限非商用科研，禁止再分发 |
 
@@ -38,7 +38,7 @@
 | 用途 | 身体模型 |
 | 所需扩展包 | TRAM、WHAM |
 | 下载页面 | https://smpl.is.tue.mpg.de |
-| 下载哪一项 | SMPL for Python users 1.1.0 版 |
+| 下载哪一项 | SMPL for Python users 1.1.0 |
 | 下载得到的文件 | `SMPL_python_v.1.1.0.zip` |
 | 许可与说明 | 要先在官网注册登录，仅限非商用科研，禁止再分发 |
 
@@ -75,7 +75,18 @@
 | 下载得到的文件 | `fbx2020310_fbxsdk_gcc_linux.tar.gz` |
 | 许可与说明 | 下载前后都需要同意 Autodesk 的许可协议 |
 
-### StableMotion 权重
+### MeshRet 权重
+
+| 项目 | 内容 |
+| --- | --- |
+| 用途 | 官方完整身体重定目标 checkpoint |
+| 所需扩展包 | MeshRet |
+| 下载页面 | https://github.com/abcyzj/MeshRet |
+| 下载哪一项 | 官方 README Pretrained Model 的 Google Drive 链接 |
+| 下载得到的文件 | `meshret_model.tar.bz2` |
+| 许可与说明 | 作者档案实际为 bzip2 TAR，允许识别原下载名；只提取推理 checkpoint |
+
+### StableMotion 模型权重
 
 | 项目 | 内容 |
 | --- | --- |
@@ -84,9 +95,20 @@
 | 下载页面 | https://github.com/Murrol/StableMotion#pretrained-checkpoint-stablemotion-brokenamass |
 | 下载哪一项 | README 里「Pretrained Checkpoint」那一节的 OneDrive 链接 |
 | 下载得到的文件 | `stablemotion_ckpt_seed3407.tar.gz` |
-| 许可与说明 | 作者把权重放在 OneDrive 网盘，要浏览器点过才给文件，程序下不了；权重是在 AMASS 上训练的，只许学术研究 |
+| 许可与说明 | 作者把模型权重放在 OneDrive 网盘，要浏览器点过才给文件，程序下不了；模型权重是在 AMASS 上训练的，只许学术研究 |
 
-## 二、须申请访问的 Hugging Face 权重
+### STaR 统计与形状编码器
+
+| 项目 | 内容 |
+| --- | --- |
+| 用途 | 官方训练归一化统计及 Pct checkpoint |
+| 所需扩展包 | STaR |
+| 下载页面 | https://github.com/XiaohangYang829/STaR |
+| 下载哪一项 | 官方 Data Preparation 的 Google Drive stats 与 encoding_model_weights |
+| 下载得到的文件 | `star_statistics.tar.gz` |
+| 许可与说明 | 包含 8 份归一化统计和 model.t7；不能用输入素材重新估计训练统计 |
+
+## 二、须申请访问的 Hugging Face 模型权重
 
 ### 操作步骤
 
@@ -95,7 +117,7 @@
 3. 执行 `./setup.sh hf-login`，按提示粘贴令牌；或在启动服务前设置环境变量 `HF_TOKEN`。
 4. 在管理后台安装或重新安装相应的扩展包。
 
-| 扩展包 | 权重 | 申请访问的页面 |
+| 扩展包 | 模型权重 | 申请访问的页面 |
 | --- | --- | --- |
 | Fast SAM 3D Body | sam-3d-body-dinov3 | https://huggingface.co/facebook/sam-3d-body-dinov3 |
 | Fast SAM 3D Body | mhr-model | https://huggingface.co/facebook/sam-3d-body-dinov3 |

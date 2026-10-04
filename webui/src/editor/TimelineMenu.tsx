@@ -1,12 +1,9 @@
 import type { LoopMode } from "../state/preferences";
 import { Select } from "../ui/Select";
+import { t } from "../i18n/t";
 
 /** 时间线「播放方式」下拉的唯一所在。播放方式：循环 / 往返 / 单次，属于该浏览器自身的设定（state/preferences.ts），不随节点图保存。 */
-const MODES: Record<LoopMode, { label: string; tip: string }> = {
-  loop: { label: "循环", tip: "播到播放范围的尽头从头再播" },
-  bounce: { label: "往返", tip: "播到尽头倒着播回来，来回播" },
-  once: { label: "单次", tip: "播到播放范围的尽头停下" },
-};
+const MODES: Record<LoopMode, string> = { loop: "ui.timeline.loop", bounce: "ui.timeline.bounce", once: "ui.timeline.once" }; // keys of the words
 
 /** 时间线最右侧只有播放方式一个下拉。逐帧与跳转使用快捷键（← → ↑ ↓），播放范围通过拖动标尺上的两个把手设置。
  * 「实时」不是开关：播放一律采用 Nuke 的方式（缓存未到达时等待，第一遍较慢，第二遍实时），因此此处不设其他选项。 */
@@ -16,10 +13,10 @@ export function MoreMenu({ prefs, prefer }: {
 }) {
   return (
     <Select
-      label="播放方式"
+      label={t("ui.timeline.play_mode")}
       value={prefs.mode}
       className="tl-loopmode"  /* 该行只有标尺是弹性的，其余一律固定宽度：见 styles/07-timeline.css */
-      options={(Object.keys(MODES) as LoopMode[]).map((m) => ({ value: m, label: MODES[m].label, tip: MODES[m].tip }))}
+      options={(Object.keys(MODES) as LoopMode[]).map((m) => ({ value: m, label: t(MODES[m]) }))}
       onPick={(v) => prefer({ mode: v as LoopMode })}
     />
   );

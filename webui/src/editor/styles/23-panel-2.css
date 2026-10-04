@@ -44,7 +44,8 @@
   font-size: var(--fs-sm);
   overflow: hidden;
   white-space: nowrap;
-  max-width: 320px;
+  text-overflow: ellipsis;
+  max-width: 24em;
 }
 
 .htree-gone {
@@ -55,7 +56,8 @@
    「复制到 Nuke」。 */
 .data-side {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  /* the side's name (输入 / Outputs …) as wide as its words in either language, the ports the rest */
+  grid-template-columns: max-content minmax(0, 1fr);
   gap: var(--sp-2);
   align-items: baseline;
   margin-bottom: var(--sp-1);
@@ -85,7 +87,7 @@
   /* 按内容定宽，最小 72px，而非固定为 72px：固定宽度时，`nowrap` 的长名称（如「已知 Focal Length」）
      会覆盖右侧一列的文字。文字不得换行或截断，重叠更不可接受。 */
   flex: 0 0 auto;
-  min-width: 72px;
+  min-width: 6em;
   font-size: var(--fs-sm);
   color: var(--text-2);
   white-space: nowrap;

@@ -1,0 +1,95 @@
+# Extensions' shared words (lab2shot/extensions): notes made of parts. Each extension's own title, summary, licence and
+# weight notes are in adapters/<name>/i18n/<lang>.toml under extension.<name>.*.
+[extension.weight]
+hf_choice = "{repo} ({note})"
+hf_config = "{repo} network config"
+manual = "{title}: {what}, {note}"
+
+# Manual downloads (lab2shot/extensions/manual.py): the note in the inbox folder downloads/ (both languages in one
+# file), and the body models' words. Items an extension declares itself: adapters/<name>/i18n/<lang>.toml, manual.<key>.*.
+[manual]
+readme = """
+Put every file you download yourself here: body models (SMPL, SMPL-X, MANO, FLAME), the Autodesk FBX SDK…
+
+Put the downloaded files in as they are: do not unpack, rename or sort them.
+Lab2Shot recognises each one by its contents and installs it where it belongs;
+the installed originals move to the installed folder (delete them, or keep them as a backup).
+
+What to download, where, and what is still missing: an administrator opens the Lab2Shot admin page, Extensions → Manual Downloads.
+Files that are not recognised stay here, and the page says why.
+"""
+
+[manual.smplx]
+title = "SMPL-X"
+download = "SMPL-X v1.1 (NPZ+PKL)"
+what = "Body, hands and face model"
+note = "Register and log in on the official site first; non-commercial research only, no redistribution"
+
+[manual.smpl]
+title = "SMPL"
+download = "SMPL for Python users 1.1.0"
+what = "Body model"
+note = "Register and log in on the official site first; non-commercial research only, no redistribution"
+
+[manual.mano]
+title = "MANO"
+download = "Models & Code"
+what = "Hand model"
+note = "Register and log in on the official site first; non-commercial research only, no redistribution"
+
+[manual.flame]
+title = "FLAME"
+download = "FLAME 2020"
+what = "Face model"
+note = "Register and log in on the official site first; non-commercial research only, no redistribution"
+
+# An extension card's state (lab2shot/extensions/status.py)
+[extension.state]
+ready = "Ready"
+not_installed = "Not installed"
+record_mismatch = "Install record mismatch"
+needs_extensions = "Needs extensions {extensions}"
+outdated = "Reinstall needed"
+needs_manual = "Missing {items}"
+consent = "Awaiting licence consent"
+weights_missing = "Model weights incomplete"
+not_placed = "Files not in place"
+selfcheck_failed = "Self-check failed"
+no_selfcheck = "Not self-checked"
+
+# Installing extensions (lab2shot/installer): each step's name on the progress bar, the preflight checks' names, a few
+# lines of the install output
+[install.step]
+repo = "Code"
+env = "Environment"
+packages = "Packages"
+build = "Build"
+weights = "Model Weights"
+post = "Post-Install"
+place = "Place Files"
+selfcheck = "Self-Check"
+switch = "Activate"
+
+[install.check]
+requires = "Extensions"
+manual = "Manual Downloads"
+licence = "Licence"
+gated = "Access Request"
+disk = "Disk"
+gpu = "GPU"
+toolchain = "Build Toolchain"
+
+[install.console]
+skipped = "{step} (already done, skipped)"
+
+[install.what]
+python_packages = "Python packages"
+compiled_packages = "compiled packages"
+submodules = "submodules"
+
+[install.log]
+stalled = "no output for {seconds} s: taken as a stalled network, this attempt stopped"
+reverted = "{count} modified files put back as they were (--revert)"
+staged = "checked out to {folder}; swapped in at the activate step (the copy in use is untouched)"
+repinned = "the pinned sha256 changed: downloading the new version"
+file = "Install log: {file}"

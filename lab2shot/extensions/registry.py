@@ -22,6 +22,12 @@ def broken_extensions() -> dict[str, str]:
     return dict(adapters().broken)
 
 
+def sharing_env(name: str) -> list[str]:
+    """`name` and every extension running in its environment (Extension.runs_in): whose jobs and kept processes an
+    install, switch or rollback of `name`'s environment waits for and ends."""
+    return [name, *(n for n, e in extensions().items() if e.runs_in == name)]
+
+
 def get_extension(name: str) -> Extension:
     exts = extensions()
     if name not in exts:

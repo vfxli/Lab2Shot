@@ -1,0 +1,1380 @@
+# 命令行（lab2shot ...）的界面字：帮助、选项、运维命令（check、setup）的输出。键 cli.<命令>.<…>。
+[cli.app]
+help = "Lab2Shot：将论文算法转化为 CG 制作可用的工具。"
+
+[cli.option]
+version = "显示版本号"
+lang = "界面语言：zh 或 en（默认：环境变量 LAB2SHOT_LANG，其次 LC_ALL / LANG 指明的语言；未指明、C 或 POSIX 时为中文）"
+
+[cli.check]
+summary.other = "{problems} 个问题，用时 {seconds:.1f} 秒"
+unknown = "不存在此检查项：{name}（可选项：{names}）"
+failed_to_run = "{name}：检查未能完成：{error}"
+only = "仅运行指定的一项：{names}"
+
+[cli.check.i18n]
+english = "{where} 在网页标记里写死了英文「{text}」：显示的文字要进语言目录（t(\"ui.…\")）"
+unknown = "{where} 用到的词 {key} 语言目录里没有：显示到它时会出错"
+catalogues.other = "i18n：{langs} 两种语言的目录读得出（{words} 个词、{messages} 条消息）"
+extra = "i18n：{language} 目录里有中文目录没有的键 {key}（{where}）"
+placeholders = "i18n：{key} 的占位符中英不一致：中文 {zh}，英文 {en}"
+app_placeholders = "i18n：{key}（应用模式的说法）用了 {base} 没有的占位符：调用处只给 {base} 的"
+reserved = "i18n：{key}（{language}）有个占位符叫 {name}，和 t() 自己的参数同名，会被当成语言或作用域吃掉：换个名字"
+eager = "i18n：{where} 的消息参数 {name} 是当下语言说定的字（t / pick / node_text / lookup，或用副标题指节点）：换成 i18n.Word，指节点用 node_ref（节点名（类型名））"
+unused = "i18n：键 {key} 没有任何代码用到（{where}）"
+over = "i18n：{area} 区的{what}有 {now} 处，超过基线 {most}（只许减不许增；见 lab2shot/i18n/baseline.toml）"
+under = "i18n：{area} 区的{what}降到 {now} 处（基线 {most}）：运行 uv run python tools/i18n_baseline.py 收紧基线"
+counted = "i18n：代码里的中文字面量 {cjk} 处、英文缺键 {missing} 个、模板单语言显示字段 {fields} 处，均未超过基线"
+cjk = "中文字面量"
+missing = "英文缺键"
+fields = "模板单语言显示字段"
+lacking = "i18n：{language} 目录缺中文目录里有的键 {key}（{where}）"
+plural_zh_one = "i18n：{key}：中文只写复数形 .other，不写 .one（{where}）"
+plural_pair = "i18n：{key}（{language}）：随数量变的句子英文要写 .one 和 .other 两形，中文写 .other（{where}）"
+plural_twice = "i18n：{key}（{language}）既写成单一句子又写了复数形（{where}）"
+plural_one_names = "i18n：{key}.one 用到了 .other 没有的占位符（{where}）"
+plural_needed = "i18n：{key}（{language}）「{said}」跟在数量后面，1 时读不通：拆成复数形 .one / .other（{where}）"
+
+[cli.menu]
+number = "编号"
+name = "名称"
+description = "说明"
+pick = "请输入编号"
+
+# lab2shot login | logout 与 lab2shot admin（cli/accounts.py）。
+[cli.accounts.option]
+server = "Lab2Shot 服务地址"
+server_example = "Lab2Shot 服务地址，例如 http://render-box:8765"
+
+[cli.accounts.login]
+help = "以账号登录一台 Lab2Shot 服务：此后本机的 lab2shot cook --server 和 DCC 插件均使用该账号（令牌保存在 ~/.lab2shot/tokens.json，仅当前用户可读）。"
+username = "用户名（由管理员在「用户」中创建）；省略时提示输入"
+prompt_username = "用户名"
+prompt_password = "密码"
+no_department = "未分环节"
+done = "[green]已登录[/green]：{name}（{username} · {department}），令牌已保存至 {file}"
+
+[cli.accounts.logout]
+help = "退出一台 Lab2Shot 服务的登录：令牌作废，并从本机删除。"
+done = "已退出登录"
+
+[cli.admin]
+help = "管理员账号的密码与「我的口令」：仅可在本服务器上通过以下命令修改（服务运行期间亦可执行）。"
+by_command_line = "命令行"
+cancelled = "已取消，未删除任何内容"
+yes = "删除前不再确认"
+
+[cli.admin.secret]
+new = "新{what}"
+again = "再次输入新{what}"
+
+[cli.admin.password]
+help = "重设内置管理员账号的密码，用于忘记密码或因输错次数过多被锁定的情况。立即生效：管理员在所有网页上的登录须用新密码重新登录，此前的错误次数清零。"
+what = "管理员密码"
+done = "[green]管理员密码已修改[/green]：用户名 {username}，立即生效，此前的密码错误次数已清零。"
+
+[cli.admin.passphrase]
+help = "设置「我的口令」：仅可在本服务器上设置，网页上不可查看或修改。忘记管理员密码时，在登录页点击「忘记密码」，凭口令设置新密码。"
+what = "口令"
+set = "[green]口令已设置[/green]：忘记管理员密码时，可在登录页点击「忘记密码」，输入口令后设置新密码。系统仅保存口令的不可逆指纹，任何人均无法查看原文，请妥善保管。"
+updated = "[green]口令已更新[/green]：忘记管理员密码时，可在登录页点击「忘记密码」，输入口令后设置新密码。系统仅保存口令的不可逆指纹，任何人均无法查看原文，请妥善保管。"
+
+[cli.admin.status]
+help = "显示管理员密码是否仍为默认值、口令是否已设置、账号数量（谁在线只有运行中的服务知道：看后台「用户」页）。"
+no_password = "管理员    {username}，[yellow]尚未设置密码，无法登录：请执行 ./setup.sh 并选择「账号与安全 → 设置管理员密码」[/yellow]"
+password = "管理员    {username}，密码于 {when} 由{by}修改"
+no_passphrase = "我的口令  未设置：运行 lab2shot admin passphrase 进行设置"
+passphrase = "我的口令  {when} 设置"
+accounts = "账号      {count} 个（在「用户」中新建），谁在线看后台「用户」页"
+
+[cli.admin.logout]
+help = "使所有网页、DCC 插件和命令行退出登录（所有使用者须重新登录）。怀疑密码泄露时，应先修改密码，再执行此命令。"
+done = "已使 {count} 个登录会话退出。"
+
+[cli.admin.restart]
+help = "重启本机正在运行的 lab2shot ui。协调重启应使用此命令，不应通过密码登录调用 /api/admin/restart，否则会使管理员浏览器中的登录失效。"
+mode = "drain：等待计算中的任务完成，排队中的任务在重启后继续排队；now：立即停止计算中的任务"
+wait = "等待新服务启动（启动编号变化）后再返回，最长等待 5 分钟"
+asked = "已请求重启（{mode}）：当前为第 {boot} 次启动"
+waiting = "正在等待新服务启动…"
+done = "[green]已重启[/green]：第 {boot} 次启动"
+timeout = "已等待 5 分钟，重启仍未完成，请检查服务状态"
+
+[cli.admin.unlock]
+help = "将输错密码的计数清零：被陌生设备试错而拖慢的账号、被锁住的来源马上可以再试。仅能在本服务器上执行（机器令牌），浏览器上的管理员登录无法清零，因为计数挡的正是用密码猜。"
+done = "[green]已清零[/green]：已清除 {count} 次输错密码的记录。"
+
+[cli.admin.gpus]
+help = "显示本机正在运行的 lab2shot ui 检测到的显卡：型号、显存、架构、是否接受任务（使用本机令牌，无需密码登录）。"
+json = "以 JSON 格式输出每张显卡的 uuid、model、vram_gb、arch、authorized（供 GPU 测试工具选择显卡）"
+card = "显卡"
+memory = "显存"
+arch = "架构"
+taking = "[green]接受任务[/green]"
+not_taking = "[dim]不接受任务[/dim]"
+
+[cli.admin.authorize]
+help = "按 UUID 授权本机正在运行的 lab2shot ui 使用显卡接受任务（使用本机令牌，无需密码登录）。所列即全部授权，未列出的显卡取消授权。"
+uuid = "接受任务的显卡 UUID（可通过 lab2shot admin gpus 查看；可指定多个，整体替换原有授权）"
+none = "不授权任何显卡（计算中的任务继续完成，此后不再接受任务）"
+need_uuid = "必须指定要授权的显卡 UUID（可通过 lab2shot admin gpus 查看）；如不授权任何显卡，请使用 --none"
+done = "[green]已授权 {count} 张显卡[/green]"
+listed = "：{uuids}"
+none_taking = "：所有显卡均不接受任务"
+taking = "（服务当前接受任务的显卡共 {count} 张）"
+
+[cli.admin.switches]
+help = "显卡任务与计算任务两个开关（使用本机令牌）。不带参数时仅显示当前状态。正在计算的任务不受影响，会继续运行至完成。"
+gpu = "显卡任务开关（queue.gpu_jobs）：关闭后显卡任务仅排队，不开始计算"
+compute = "计算任务开关（queue.compute_jobs）：关闭后不再接新的计算任务"
+on = "[green]开启[/green]"
+off = "[yellow]关闭[/yellow]"
+gpu_state = "显卡任务  {state}"
+compute_state = "计算任务  {state}"
+
+[cli.admin.queue]
+help = "检查队列是否空闲（协调重启前以此确认，不应通过密码登录调用 /api/admin/queue）：空闲时退出码为 0；忙碌时列出进行中的任务，退出码为 3。"
+idle = "空闲：队列中没有排队中或计算中的任务"
+
+[cli.admin.joblog]
+help = "按出错编号查询一次计算的完整记录（节点、参数、模型、显存、完整堆栈）：根据报错中的八位编号，在缓存中查找该任务的目录（<编号>*_job），打印 job.json 中的节点、扩展、时间、帧数、参数以及 worker.log 的末尾；同一编号匹配多个目录时取最新的一次。未找到时退出码为 4。"
+code = "报错信息中的八位出错编号（由使用者提供）"
+lines = "输出日志末尾的行数；0 表示全部"
+bad_code = "[yellow]编号格式不对：{code}[/yellow]"
+not_found = "[yellow]未找到编号 {code}[/yellow]：缓存中没有该任务（可能已被清除，或编号有误）"
+several.other = "[yellow]编号 {code} 匹配到 {count} 次任务，使用最新的一次：{folder}[/yellow]"
+record = "节点  {node}\n扩展  {extension}\n时间  {created}\n帧数  {frames}\n参数  {params}"
+no_log = "[yellow]该任务没有日志文件[/yellow]（{file}）"
+tail.other = "[dim]（仅显示最后 {shown} 行，共 {total} 行；如需显示全部，请使用 --lines 0）[/dim]"
+full = "[dim]完整日志：{file}[/dim]"
+
+[cli.admin.feedback]
+help = "查看反馈历史，或使用 --clear 全部清除。后台页面上的删除按钮需要密码登录，而密码登录会使管理员浏览器中的登录失效；此命令直接调用 feedback 模块，不涉及登录。删除范围为数据库 feedback 表中的行，以及 work/feedback/<编号>/ 中的截图和诊断文件，不涉及其他数据；数据库备份中的副本会保留到备份轮换为止。"
+clear = "删除全部反馈历史（包括截图和诊断文件）"
+empty = "反馈历史为空"
+count = "反馈历史 {count} 条："
+how_to_clear = "[dim]如需全部删除：uv run lab2shot admin feedback --clear[/dim]"
+already_empty = "反馈历史已为空"
+confirm = "确认删除 {count} 条反馈及其截图？此操作不可撤消"
+done = "已删除 {count} 条反馈"
+orphans.other = "另已清除 {count} 个没有对应记录的文件夹（{mb:.1f} MB）：数据库中已无相应记录，但文件夹仍残留在磁盘上"
+
+[cli.admin.jobs]
+help = "查看队列历史，或使用 --clear 清除所有已结束的任务。使用本机令牌，通过本机正在运行的服务操作，不涉及登录；服务没有运行时不做任何删除。删除规则与队列面板的「删除全部」相同：排队中或计算中的任务不删除（结果中说明跳过的条数）；每个任务的文件夹（节点图、素材、输出、日志）整个删除，只被它引用的缓存由随后的清理带走。"
+user = "仅处理此账号的任务（默认：管理员本人）"
+clear = "删除全部已结束的任务历史（并释放其占用的空间）"
+no_account = "账号不存在：{name}（现有账号：{names}）"
+empty = "{name} 的队列历史为空"
+count.other = "{name} 的队列历史 {count} 条（排队或计算中 {active} 条）："
+more = "…… 另有 {count} 条"
+how_to_clear = "[dim]如需全部删除：uv run lab2shot admin jobs --clear[/dim]"
+nothing = "没有可删除的已结束任务（排队中或计算中的任务须先取消）"
+confirm = "确认删除 {name} 的 {count} 条已结束任务并释放其占用的空间？此操作不可撤消"
+done.other = "已删除 {count} 条任务，释放 {mb:.1f} MB"
+skipped = "；跳过 {count} 条（排队中或计算中）"
+
+# lab2shot check 的各检查项（cli/check.py、cli/check_naming.py）。键 cli.check.<检查项>.<…>。
+[cli.check.help]
+text = "项目的静态不变量检查：端口与引文、节点体参数、分类、消息编号、模板、通道映射、删除入口、导入的名字都存在、更新说明。修改代码后应运行；耗时为秒级，不修改 work/。"
+
+[cli.check.common]
+sep = "；"
+more = "……"
+
+[cli.check.official]
+takes = "official {type}: takes[{port}] 不是该节点的输入端口或参数"
+gives = "official {type}: gives/ours[{port}] 不是该节点的输出端口"
+input_undeclared = "official {type}: 输入端口 {port} 没有写进 takes：上游不接受它，就是自行添加的"
+output_undeclared = "official {type}: 输出端口 {port} 没有写进 gives 或 ours：上游不输出它，就是自行添加的"
+unreadable = "official {type}: 无法读取引文：{error}"
+ok = "official：{count} 个第三方节点的端口与上游引文"
+
+[cli.check.nodes]
+on_node_many.other = "on_node {type}: 节点体上放了 {count} 个参数，超过 {most}（{names}）"
+on_node_unknown = "on_node {type}: {names} 不是该节点的参数"
+button_clash = "buttons {type}: 按钮名 {names} 和参数或别的按钮重名"
+button_value = "buttons {type}: 按钮 {names} 要有动作、没有值、不进指纹和 worker"
+ok.other = "on_node：{count} 个节点体上的参数都不超过 {most} 个；按钮参数不和参数重名、没有值"
+data_undeclared = "data: 图像输入端口没说收画面还是数值（Port.data：False / True / EITHER）：{ports}"
+data_contrary = "data: 一或两通道的输入端口声明成只收画面：{ports}"
+data_ok = "data：每个三 / 四通道和任意通道的图像输入端口都声明了收画面、数值还是都收"
+contracts_missing = "contracts: 数据类型 {types} 在 data/contracts.py META 里没有说明书行"
+contracts_ok = "contracts：{count} 种数据类型都有说明书行"
+metric_undeclared = "metric {type}：深度与摄影机节点必须声明输出是不是真实距离（米）（metric = True / False，或按参数的条件），没有默认值"
+metric_ok.other = "metric：{count} 个深度与摄影机节点都声明了输出是不是真实距离"
+
+[cli.check.workers]
+base = "workers {type}: 接入层节点要继承 WorkerNode（或它的家族）、ImportNode 或 OutputSettings，现在是 {now}"
+cook = "workers {type}: 接入层的类不重写 cook（{classes}）：发什么写在 prepare，读回写在 convert"
+ok = "workers：{count} 个接入层节点都经 WorkerNode / 导入 / 格式输出节点跑 worker，没有自己重写 cook"
+
+[cli.check.categories]
+bad_id = "categories {tree}: 代号 {id} 不符合命名规则"
+parent = "categories {tree}: {id} 的上级 {parent} 不是一级分类"
+section = "categories {tree}: 一级分类 {id} 未指定所属区域（{sections}）"
+stray = "categories menu: menu/categories.json 里有「算法」段的分类 {ids}：这一段只读模板树（templates/_categories.json），这些行不会显示，删掉"
+alone_in_menu = "categories menu: 只放模板的分类 {id} 出现在了节点菜单里"
+node_in_alone = "categories nodes: {type} 归入只放模板的分类 {id}（节点菜单里没有它）"
+not_in_band = "categories menu: 模板树的分类 {id} 不在节点菜单的「算法」段里（两边应是同一棵树）"
+gone.other = "categories nodes: {count} 条归类记录对应的节点当前不存在（扩展包未安装或未加载）：{types}{more}"
+unknown_place = "categories nodes: {type} 归入 {id}，但菜单树中没有该分类"
+loose.other = "categories nodes: {count} 个节点未分类（可在菜单中拖放到分类上）：{types}{more}"
+text_problem = "categories 节点文字: {problem}"
+text_unnamed.other = "categories 节点文字: {count} 个节点缺少名称（菜单中以类型名显示；可在节点菜单中点击「编辑」补充）：{types}{more}"
+text_bold = "categories 节点文字 {file}: {type} 的文字里有「**」：节点文字按纯文字显示，不会加粗，只会原样露出星号"
+text_gone = "categories 节点文字 {file}: 节点类型 {type} 当前不存在（扩展包未安装、未加载，或类型名已更改）"
+ok.other = "categories：模板树 {templates} 条、菜单树 {menu} 条、{placed} 个节点已归类、{files} 份节点文字"
+
+[cli.check.messages]
+short_wide = "messages: {code}.short（{lang}）有 {width} 个全角宽，超过 {most}（节点底行放不下，会被截断）"
+short_ok = "messages：{count} 个 .short 简写都不超过 {most} 个全角宽"
+bad_code = "messages: {code} 不是消息编号的写法（类型字母-模块-含义，lab2shot_shared/protocol.py CODE；{where}）"
+no_entry = "messages: {code} 在目录中没有条目（{where}）"
+codes_ok.other = "messages：已使用的 {used} 个编号均在目录中（目录共 {known} 条）"
+web_stale = "messages: 网页的消息目录不是最新版本（请运行 uv run python tools/messages_web.py）"
+web_ok = "messages：网页目录与 web.toml 一致"
+client_stale = "messages: lab2shot/client.py 里生成的文字不是最新版本（请运行 uv run python tools/messages_client.py）"
+client_ok = "messages：lab2shot/client.py 里生成的文字与 client.toml、dcc.toml 一致"
+dcc_look_stale = "messages: DCC 面板的外观不是最新版本：{what}（请运行 uv run python tools/dcc_theme.py 和 node tools/dcc_icons.mjs）"
+dcc_look_ok = "messages：DCC 面板的配色与图标与网页的 tokens.css、图标一致"
+
+[cli.check.templates]
+internal = "卡片 meta.internal 里写明不需要应用模式入口的参数：{count} 处"
+pairs = "templates: 固定名表的「名字 / 名字」对「目标组 / 目标组」读错了：{got}"
+derive = "templates: 对外名的推导、节点名或菜单取值含义的判定不对：{said}；例外卡 {odd}"
+no_type = "templates {name}: 节点类型 {type} 不存在"
+no_param = "templates {name}: 节点 {node} 参数 {param} 不存在"
+no_graph = "templates {name}: 无法构建节点图：{error}"
+node_said = "templates {name}: 节点 {node}：{said}"
+node_raised = "templates {name}: 节点 {node} 检查时抛出异常：{error}"
+what_name = "名字"
+what_intro = "简介"
+too_long.other = "templates {name}: {what} {count} 个字，超过 {most}"
+too_wide = "templates {name}：{what}（{lang}）宽 {width}（全角字算 2、半角字算 1），超过 {most}"
+no_category = "templates {name}: meta.deliverable={deliverable}，模板树中没有该分类（卡将显示在「未分类」中）"
+loose.other = "templates: {count} 张卡未分类：{names}{more}"
+no_conventions = "templates: 没有 templates/_conventions.md，这次不查对外参数名的约定"
+ok.other = "templates：{count} 张卡的节点、参数、连线、参数界面与分类"
+ok_conventions.other = "templates：{count} 张卡的节点、参数、连线、参数界面、对外参数名约定与分类"
+
+[cli.check.channels]
+wrong = "channels: 文件 {have} 请求 {name} → {got}，应为 {want}"
+ok = "channels：{count} 种通道映射"
+
+[cli.check.deletion]
+rmtree = "deletion: {file} 中出现了 rmtree：缓存条目只允许经 data/packet.py remove() 删除；删除其他文件夹时，必须将该文件登记到 RMTREE_ALLOWED 并注明原因"
+fresh_dir = "deletion: {file} 中直接调用了 fresh_dir()：cook 之外写入缓存包只允许经 data/packet.py produce()（持有该条目的锁）"
+ok = "deletion：rmtree 仅出现在已登记的 {count} 个文件中；fresh_dir 仅出现在 cook 与 produce 中"
+
+[cli.check.imports]
+failed = "imports {file}:{line}: 导入 {module} 失败：{error}"
+missing = "imports {file}:{line}: {module} 里没有 {name}"
+ok.other = "imports：lab2shot 里 {count} 个 from … import 的名字（含函数里延迟导入的）都存在"
+
+[cli.check.releases]
+ok.other = "releases：{file} 的 {count} 个版本（最新：{name} {date}）"
+
+[cli.check.empties]
+bad = "empties: 这些输出在计算里会给空包却没有声明 may_be_empty：{ports}"
+ok.other = "empties：节点代码里按名字给空包的 {count} 个输出都声明了 may_be_empty"
+
+[cli.check.gates]
+one_one = "{type} 阻断节点要一个输入一个输出（现在 {ins} 进 {outs} 出）"
+type_from = "{type} 的输出类型要跟输入走（type_from=\"input:{input}\"，现在 {now}）"
+may_be_empty = "{type} 的输出要声明 may_be_empty"
+route = "{type} 阻断节点要有 condition_input 和 chosen_inputs（和 switch 同一套选路）"
+wired = "{type} 的条件「{condition}」要是常驻端口（wired_ports）"
+chosen = "{type} 的 chosen_inputs 只能给「{input}」或空（得到 {got}）"
+collects = "{type} 声明 collects 却有必需输入：{inputs}"
+none = "gates: 没有找到阻断节点（gate）"
+ok = "gates：{gates} 个阻断节点一进一出、类型跟输入、可为空、按开关选路；{collects} 个汇总节点只有可选输入"
+
+[cli.check.formats]
+undeclared = "{type} 没有声明 format（Format(短名, 显示名)）"
+twice = "{type} 的格式名 {name} 和 {other} 重了"
+ok = "formats：{count} 个格式输出节点都声明了交付格式，格式名不重复"
+
+[cli.check.reads]
+undeclared = "{type} 读文件却没有声明 reads"
+file = "{type} 的 reads.file「{file}」不是它的参数"
+goes_with = "{type} 的 reads.goes_with 有不是它参数的：{names}"
+gives = "{type} 的 reads.gives 有不是数据类型的：{types}"
+ok = "reads：{count} 个读文件的节点都声明了 reads（文件参数、一起读的参数、读出的类型都存在）"
+
+[cli.check.tips]
+where = "{file}:{line}「{words}」"
+restates = "tips: {where} 的悬停提示在复述控件上已有的字：删掉，或只留看不到的信息（ui/Button.tsx）"
+raw = "tips: {where} 直接写了 data-tip：悬停提示只能经 platform/tips.ts 的 tipOf(用途, 文字) + tipAttrs 写，并说明用途（截断全文、不可用原因、精确数值、错误原因、快捷键、破坏性后果）"
+ok = "tips：{count} 个网页源文件里的悬停提示都声明了用途（platform/tips.ts），写死的都不复述控件自己的字"
+
+[cli.check.extensions]
+generative = "extensions：{name} 没有声明是否运行生成式扩散模型（在它的 extension.py 里写 generative = True 或 False）"
+host = "extensions：{name} 运行在 {host} 里，但它不是已加载的底座（没有节点、自己不运行在别的扩展里）"
+own_env = "extensions：{name} 运行在 {host} 的环境里，却还声明了自己的 {what}：代码和环境只能是底座的一份"
+lone_base = "extensions：{name} 没有节点，也没有扩展运行在它里面（Extension.runs_in）：没人用的底座"
+ok.other = "extensions：{count} 个扩展都声明了 generative；底座和运行在其中的扩展一致（底座：{bases}）"
+
+[cli.check.dcc]
+missing = "dcc：缺少 {file}"
+allowed_gone = "dcc：{file} 里没有允许名单列出的函数 {function}（cli/check_dcc.py ALLOWED：请更新这张表）"
+write = "dcc：{file}:{line} 的 {function} 调用了会写入场景的 {call}：读取这一侧绝不写入用户场景里已有的东西（只有 cli/check_dcc.py ALLOWED 里的函数可以创建插件自己的节点）"
+ok.other = "dcc：Maya 和 Nuke 的读取模块与 Host 中，允许名单以外的 {count} 个函数都没有写入场景的调用（读取的文件：{files}；创建 Lab2Shot 自己节点的函数：{allowed}）"
+test_failed = "dcc：单元测试 {file} 未通过：{said}"
+test_timeout = "dcc：单元测试 {file} 没有在 {seconds} 秒内完成"
+tests_ok.other = "dcc：{count} 个不需要 DCC 和服务器的客户端单元测试全部通过"
+
+[cli.check.joints]
+wrong = "{case} 认错了 {parts}"
+fewer = "{case} 只认出 {right} 个部位（原来 {before} 个）"
+worse = "joints：骨架识别退步了（data/skeleton_recognition.py）：{cases}"
+ok.other = "joints：骨架识别在 {cases} 副语料骨架（含无名、左右名字互换、转身、Z 向上、缩放）上认出 {parts} 个部位，没有认错"
+
+[cli.check.naming]
+bad_name.other = "节点名 {name} 不合规则（小写字母开头，只用小写字母、数字和 _，最多 {most} 个字符）"
+duplicate = "节点名重复：{names}"
+wire = "连接线 {start} → {end} 指向不存在的节点 {node}"
+exposed = "对外参数的目标 {target} 指向不存在的节点"
+box = "网络框 {box} 的成员 {members} 不存在"
+display = "显示节点 {node} 不存在"
+type_chars = "类型名 {type}：只用小写字母、数字和 _，最多一个点"
+type_prefix = "类型名 {type}：自带节点没有前缀，只有格式类用格式名作前缀（engine/naming.py format_prefixes）"
+type_extension = "类型名 {type}：和扩展 adapters/{extension} 同名"
+type_third_party = "类型名 {type}：第三方节点要写成 {library}.<任务>"
+reserved = "扩展名 {name} 是保留的格式前缀（engine/naming.py format_prefixes），第三方库不得使用"
+types_ok = "naming：{count} 个类型名合规则（自带无前缀或格式前缀、第三方 库名.任务）；格式前缀 {prefixes} 个为保留字"
+templates_ok.other = "naming：{count} 张模板的节点名合规、图内唯一，所有引用都指向存在的节点"
+
+# lab2shot db（cli/database.py）。
+[cli.db]
+help = "数据库管理：账号、任务记录、使用统计与结果记录均保存在 work/db/lab2shot.db。"
+
+[cli.db.status]
+help = "显示数据库的文件、大小、版本、完整性和备份。"
+file = "文件      {path}（{mb:.1f} MB，第 {version} 版）"
+integrity = "完整性    {detail}"
+last_backup = "上次备份  {backup}"
+no_backup = "无"
+
+[cli.db.backup]
+help = "立即创建一份备份（服务运行期间亦可执行）。"
+done = "备份已保存至 {file}"
+
+[cli.db.check]
+help = "检查数据库的完整性。发现问题时以状态码 1 结束（一键更新据此判断）。"
+ok = "[green]完好[/green]"
+bad = "[red]发现问题：{detail}[/red]"
+
+[cli.db.upgrade]
+help = "将数据库升级至当前 Lab2Shot 版本（升级前自动备份）：必须先停止服务。启动服务时也会自动执行此步骤。"
+done = "[green]数据库版本为第 {version} 版[/green]：{path}"
+
+[cli.db.claim]
+help = "由当前 Lab2Shot（本项目文件夹）接管工作目录：此后其他项目文件夹（分支、测试）中的进程均无法打开该目录。执行前必须先停止原先使用该目录的服务。"
+yes = "不再确认"
+confirm = "工作目录 {work} 当前属于 {owner}，是否改为属于 {root}？"
+unrecorded = "（未记录）"
+done = "[green]工作目录 {work} 现已属于 {root}[/green]"
+
+[cli.db.restore]
+help = "以指定备份替换当前数据库：必须先停止服务。被替换的数据库保留在 work/db/ 中（lab2shot.db.replaced-<时间>），不会删除。"
+name = "work/db/backups/ 中的备份文件名（可通过 lab2shot db status 列出）"
+done = "[green]已恢复 {name}[/green]；原数据库保留在 {replaced}。现在可以启动服务。"
+
+# lab2shot ext ...（cli/extensions.py）。键 cli.ext.<…>。
+[cli.ext]
+help = "扩展包管理：列出、查看、安装。"
+name = "扩展包名称"
+
+[cli.ext.list]
+help = "列出所有扩展包和安装状态。"
+name = "名称"
+summary = "说明"
+state = "状态"
+license = "许可证"
+broken = "加载失败"
+
+[cli.ext.info]
+help = "查看扩展包详情：来源、许可证、模型权重、参数。"
+homepage = "主页      {url}"
+source = "源码      {url} @ {commit}"
+license = "许可证    {name} — {summary}"
+environment = "环境      Python {python}"
+location = "位置      {path}"
+weight = "模型权重"
+note = "说明"
+state = "状态"
+
+[cli.ext.weight]
+ok = "[green]已就位[/green]"
+missing = "未下载"
+pending = "[yellow]等待审批[/yellow]"
+manual = "[yellow]需手动下载[/yellow]"
+consent = "[yellow]待同意许可协议[/yellow]"
+
+[cli.ext.install]
+help = "安装扩展包：先执行安装前检查（手动下载、许可、Hugging Face 申请、磁盘空间、显卡），全部满足后开始安装。依次拉取锁定版本的代码、在旧环境旁创建新环境、下载并校验模型权重、执行自检，自检通过后启用。可重复执行：已完成的步骤将跳过，从失败的步骤继续安装。"
+revert = "丢掉装好之后对原始代码（含子模块）的改动"
+rebuild = "重新执行所有步骤并创建新环境（保留旧环境以便回退）"
+license = "[bold]{title}[/bold] 许可证：{name} — {summary}"
+
+[cli.ext.preflight]
+help = "安装前检查：列出缺少的条件及处理方法，不执行任何安装。"
+
+[cli.ext.selfcheck]
+help = "仅执行自检（在 CPU 上导入包并执行一次小规模计算，无需素材）：自检通过后卡片方可使用。"
+name = "扩展包名称（省略时必须指定 --all）"
+all = "所有已安装、但当前代码版本的自检尚未通过的扩展包"
+no_target = "必须指定扩展包名称，或使用 --all"
+names = "：{names}"
+
+[cli.ext.adopt]
+help = "登记一份手动安装的环境：核对其与声明是否一致（代码 commit、模型权重、放置到检出目录中的文件、Python 版本与锁定的依赖、导入自检），全部一致后写入安装记录。不一致时拒绝登记并说明差异，不写入任何记录，不修改任何文件（如需放置文件，请使用 `ext place`）。"
+check = "仅核对，不登记"
+matches = "与声明一致，可执行 adopt"
+
+[cli.ext.place]
+help = "将已下载的文件放置到上游代码固定的位置（EnvSpec.places），不执行其他操作：不下载、不编译、不修改环境。适用于模型权重被误删或 `adopt` 报告缺少文件的情况，无需重新安装整个扩展包。"
+
+[cli.ext.migrate]
+help = "升级后对已安装内容的一次性迁移（更新时自动运行）：构建输入没变、只是按旧规则记的环境指纹，改写为新指纹（不重建）；改为在底座里运行的扩展，把自己原来的环境搬进底座。"
+since = "上一个发布的 commit：它的构建输入按新规则算出相同指纹时，视为没有变"
+journal = "记录每一处改动的文件夹（改之前先记），更新回退时据此还原"
+moved = "{name}：环境、检出和底座的模型文件已搬进底座 {base}"
+split = "{name}：已写出只含它自己权重的安装记录"
+rewritten = "{name}：构建输入没变，记录里的指纹 {old} 改为 {new}（不重建）"
+outdated = "{name}：环境是按和当前代码不同的输入构建的，需要重新安装"
+left = "已不再使用（底座有自己的一份），可以删除：{path}"
+none = "没有需要迁移的：已安装的扩展都已按当前代码的方式记录。"
+
+[cli.ext.rollback]
+help = "回退到上一次安装切换之前的环境（仅当该环境仍保留在磁盘上时可用）。"
+
+[cli.ext.uninstall]
+help = "卸载扩展包：删除环境、代码、缓存和安装记录；保留模型文件，重新安装时无需再次下载。"
+yes = "确认卸载（删除环境、代码、缓存和安装记录；保留模型文件）"
+confirm = "卸载必须使用 --yes 确认"
+
+# lab2shot templates | cook（cli/jobs.py）。键 cli.jobs.<…>。
+[cli.jobs.templates]
+help = "列出模板及其对外参数（lab2shot cook 与 DCC 插件使用这些参数名），按模板的参数界面分组缩进。"
+button = "[dim]按钮[/dim] {label}"
+options = "可选 {options}"
+show_on_change = "改了显示节点"
+current = "当前 {value}"
+
+[cli.jobs.phase]
+queued = "排队中"
+loading = "加载模型"
+computing = "计算"
+fetching = "取回结果"
+
+[cli.jobs.progress]
+upload = "上传 {name}"
+queued = "排队第 {position} 位"
+queued_why = "排队第 {position} 位（{why}）"
+started = "开始计算"
+cached = "缓存   "
+seconds = "{seconds} 秒"
+submit = "提交"
+cancelled = "已取消"
+done = "已完成，用时 {seconds} 秒"
+done_minutes = "已完成，用时 {minutes} 分 {seconds} 秒"
+
+[cli.jobs.cook]
+help = "计算节点图：以模板和对外参数批量处理镜头。输入文件从本机上传（相同文件仅上传一次），每个「输出」整理打包的结果（一个 zip，里面是和它同名的一个文件夹，每个格式输出节点对应一个子文件夹）下载到本机，断了会接着下载，可同时解压。任务进入服务的队列，与网页和 DCC 插件的任务共同排队并共用缓存。在服务器本机上以管理员身份计算；连接其他服务（--server）时使用经 lab2shot login 登录的账号。\n\n示例：lab2shot cook sam_3d_body_moving_camera -s input=shots/sh030.mov -o shots/sh030 -x shots/sh030/lab2shot"
+graph = "节点图 .json 文件或模板名（可通过 lab2shot templates 列出）"
+set = "设置参数，格式为 对外参数名=值 或 节点名.参数名=值；可指定多次"
+node = "仅计算指定节点（只有「输出」整理打包出可取回的结果）；默认计算节点图里所有的「输出」"
+frames = "仅计算指定帧范围，例如 1001-1020，必须位于输入的帧范围内；默认使用节点图中保存的帧范围，未保存时使用输入的全部帧"
+force = "目标节点不使用缓存，重新计算"
+out = "每个「输出」打包好的 zip 下载到此文件夹，默认为当前文件夹，文件名由服务器给出（节点图名_u账号_任务号.zip）"
+extract = "下载后把 zip 解压到此文件夹（每个 zip 是一个同名的文件夹，里面每个格式输出节点对应一个子文件夹）"
+server = "Lab2Shot 服务地址，默认为本机 <server.port>（启用 HTTPS 时使用 https），以管理员身份计算；连接其他服务前须先执行 lab2shot login --server 地址"
+bad_set = "--set 的格式必须为 名称=值：{item}"
+
+# tools/gen_manual_downloads.py 生成的 docs/manual-downloads.md 的文字（文档固定用中文生成）。键 cli.manual_downloads.<…>。
+[cli.manual_downloads]
+title = "# 需自行下载的文件"
+generated = "<!-- 本文件由 tools/gen_manual_downloads.py 依据各扩展包的声明生成，请勿手工修改。 -->"
+intro = "扩展包所需的代码与绝大多数模型权重由安装器自动下载，无需任何操作。以下两类文件除外："
+kind_manual = "1. **须自行下载的文件**：其网站要求注册、登录或在浏览器中同意许可协议，安装器无法代为获取。"
+kind_gated = "2. **须申请访问的 Hugging Face 模型权重**：其仓库须先申请访问，获批后本机须登录 Hugging Face，安装器方可下载。"
+when = "仅在使用相应扩展包时才需要这些文件。`./setup.sh` 的「安装与环境」菜单中，「安装手动下载的文件」与「登录 Hugging Face」两项可随时查看每一项的当前状态。"
+manual_heading = "## 一、须自行下载的文件"
+steps = "### 操作步骤"
+manual_step1 = "1. 打开下表中的下载页面，按页面要求注册或登录，下载表中所列的那一项。"
+manual_step2 = "2. 将下载得到的文件**原样**放入 Lab2Shot 目录下的 `downloads/` 文件夹：无需解压，无需改名。"
+manual_step3 = "3. 执行 `./setup.sh downloads`（或在管理后台「扩展包 → 手动下载」中点击「重新检查」）。Lab2Shot 依据文件内容识别每一个文件，安装到对应位置，并将原始文件移入 `downloads/installed/`（可删除，也可保留作为备份）。"
+manual_step4 = "4. 对于须同意许可协议的项目（如 Autodesk FBX SDK），请在管理后台「扩展包 → 手动下载」中阅读许可协议并选择「同意并安装」，或执行 `./setup.sh downloads`，在终端阅读许可协议全文后同意。"
+body_models = "人体与面部模型（SMPL、SMPL-X、MANO、FLAME）全机只保存一份，存放于 `third_party/_body_models/`，由所有需要它的扩展包共用；其余文件安装到 `third_party/` 下对应的目录中。"
+item_header = "| 项目 | 内容 |"
+item_what = "| 用途 | {what} |"
+item_users = "| 所需扩展包 | {users} |"
+item_page = "| 下载页面 | {page} |"
+item_download = "| 下载哪一项 | {download} |"
+item_file = "| 下载得到的文件 | `{filename}` |"
+item_note = "| 许可与说明 | {note} |"
+gated_heading = "## 二、须申请访问的 Hugging Face 模型权重"
+gated_step1 = "1. 注册 Hugging Face 账号，打开下表中的页面，按页面要求填写信息并同意许可条款，等待获批（多数仓库即时通过，部分须人工审核）。"
+gated_step2 = "2. 在 https://huggingface.co/settings/tokens 创建一个访问令牌，权限选择 Read。"
+gated_step3 = "3. 执行 `./setup.sh hf-login`，按提示粘贴令牌；或在启动服务前设置环境变量 `HF_TOKEN`。"
+gated_step4 = "4. 在管理后台安装或重新安装相应的扩展包。"
+gated_header = "| 扩展包 | 模型权重 | 申请访问的页面 |"
+network_heading = "## 三、网络"
+network = "若服务器无法直接访问 Hugging Face、PyPI 或 GitHub，可执行 `./setup.sh mirrors`（「安装与环境 → 扩展包编译与下载设置 → 设置下载镜像」）配置镜像地址，并执行 `./setup.sh retries`（同一菜单的「设置下载重试」）调整下载失败时的重试策略。"
+
+# lab2shot ui（cli/serve.py）。
+[cli.serve]
+help = "启动网页界面（同时作为 DCC 插件连接的服务）。可在管理页面 /admin 中修改设置、重启此服务。"
+port = "端口，仅对本次启动有效；默认使用管理页面「设置」中的端口"
+host = "监听地址，仅对本次启动有效；默认按管理页面「设置」中的访问范围。0.0.0.0 允许局域网内的计算机和 DCC 插件连接"
+https = "使用 HTTPS，仅对本次启动有效；默认按管理页面「设置」。局域网内的浏览器若要将结果直接保存到用户的文件夹、将节点图保存回原文件，必须使用 HTTPS；使用 HTTP 时保存操作改为下载"
+inbox = "手动下载的文件请放入 {folder}（位于 Lab2Shot 项目文件夹下）"
+not_built = "[yellow]界面尚未构建，请执行：cd webui && npm ci && npm run build[/yellow]"
+certificate = "HTTPS 证书适用于 {names}"
+install_ca = "每台使用的计算机须安装一次证书：在浏览器中打开 https://<本机>:{port}/api/tls/ca.pem 下载，并安装到系统的「受信任的根证书」"
+address = "Lab2Shot 界面 → [bold]{url}[/bold]"
+listening = "（监听 {host}）"
+
+# 服务的启停与运行环境（cli/service.py；配置菜单与一键更新共用）。键 cli.service.<…>。
+[cli.service.env]
+no_uv = "未找到 uv。请重新运行 ./setup.sh 由脚本引导安装，或参阅 https://docs.astral.sh/uv/ 。"
+run = "$ {command}（工作目录：{folder}）"
+python_ready = "Python 环境已就绪。"
+mirror_retry = "执行失败。是否使用 PyPI 镜像（{mirror}）重试？"
+python_ready_mirror = "Python 环境已就绪（经由镜像）。"
+sync_failed = "执行失败，请查看上方输出。如网络不可用，请在「安装与环境 → 扩展包编译与下载设置 → 设置下载镜像」中配置镜像，或配置代理后重试。"
+no_npm = "未找到 npm。请先安装 Node.js（https://nodejs.org/）。"
+npm_mirror_retry = "执行失败。是否使用 npm 镜像（registry.npmmirror.com）重试？"
+failed = "执行失败，请查看上方输出。"
+web_built = "网页已构建完成。"
+
+[cli.service.start]
+running = "服务已在运行：{address}。"
+restart_needed = "当前设置的地址为 {address}；端口或 HTTPS 的修改需重启服务后生效。"
+port_busy = "端口 {port} 已被进程 {pid} 占用，不再启动新的服务。如该进程不是 Lab2Shot，请在「设置 → 网络与安装」中更换端口。"
+no_web = "网页尚未构建。请先执行「安装与环境 → 构建网页界面」。"
+foreground = "服务在前台运行，按 Ctrl-C 停止：{address}"
+started = "服务已启动：{address}（日志：{log}）。"
+timeout = "服务未能在 120 秒内启动，请查看日志 {log}。"
+waiting = "正在等待服务启动（最长 120 秒）……"
+no_answer = "服务 120 秒内没有回答，结束它（进程 {pid}）。"
+this_machine = "<本机地址>"
+https = "已启用 HTTPS：每台用户电脑需安装一次证书。请在浏览器中打开 {url} 下载，并导入系统的「受信任的根证书颁发机构」。"
+no_password = "管理员 {username} 尚未设置密码，目前任何人都无法登录。请执行「账号与安全 → 设置管理员密码」。"
+
+[cli.service.stop]
+drain = "等当前任务算完再停"
+drain_note = "不再开始新任务；计算中的任务算完后停止。排队的任务留给下一次启动的服务接着排"
+now = "立即停止"
+now_note = "计算中的任务立即停下（已算完的节点留在缓存里）；排队的任务留给下一次启动的服务"
+back = "返回"
+back_note = "不停止服务，返回上一级菜单"
+no_records = "服务在回答，但本项目目录打不开它的记录，无法用本机令牌请它停止：{error}"
+waiting = "正在等待服务停止（已等 {seconds} 秒；按 Ctrl-C 取消停止）……"
+waiting_jobs.other = "正在等待服务停止（已等 {seconds} 秒，还有 {jobs} 个任务在计算；按 Ctrl-C 取消停止）……"
+stopped = "服务已停止（端口 {port}，进程 {pid} 已退出）。"
+nothing = "端口 {port} 上没有服务。以其他端口（--port）启动的服务无法在此识别，请先在「设置 → 网络与安装」中将端口改为该端口，或手动停止该进程。"
+silent = "（它不回答 /api/server：可能不是 Lab2Shot、属于另一个项目目录的服务，或已失去响应）"
+end = "是否结束端口 {port} 上的进程 {pid}{hint}？正在计算的任务将被中断"
+end_named = "是否结束端口 {port} 上的进程 {pid}（{name}）{hint}？正在计算的任务将被中断"
+
+[cli.service.restart]
+not_running = "服务未运行。请执行「服务 → 启动服务（后台）」。"
+drain = "是否等待正在计算的任务完成后再重启？（选择否将立即中断这些任务）"
+
+# lab2shot setup（交互式配置菜单，lab2shot/cli/setup.py）的界面字。键 cli.setup.<…>。
+
+[cli.setup]
+help = "交互式配置菜单：按用途分组（首次安装向导、扩展包编译与下载设置向导、扩展包安装向导、一键更新、安装与环境、服务、账号与安全、设置、数据库、状态总览），每一项仅在选择后执行；执行之前先说明操作、用途、写入位置与影响范围。首次使用请运行 ./setup.sh。\n\n步骤名：{steps}。"
+step_help = "直接执行某一项而不进入菜单。可用的步骤名：{steps}"
+no_such_step = "没有名为 {step} 的步骤。可用的步骤名：{steps}。"
+
+[cli.setup.common]
+back = "返回"
+back_up = "返回上一级菜单"
+quit = "退出"
+quit_hint = "退出配置菜单"
+no_such_number = "没有该编号，请重新输入。"
+bad_number_unchanged = "编号无效，未作修改。"
+cancelled = "已取消。"
+cancelled_back = "已取消，返回上一级菜单。"
+cancelled_nothing = "已取消，未作任何操作。"
+cancelled_unchanged = "已取消，未作修改。"
+unfinished_back = "此项未能完成，返回上一级菜单。"
+result = "结果"
+selected = "已选"
+
+[cli.setup.table]
+item = "项目"
+description = "说明"
+
+[cli.setup.trouble]
+workdir = "可选的处理方式：改用另一个工作目录（设置环境变量 LAB2SHOT_WORK_DIR 后重新进入菜单）；或停止使用该目录的服务后，在本菜单「数据库 → 将工作目录归属本项目」中将其归属本项目目录。"
+database = "启动服务时会先自动备份，再升级数据库；也可在「数据库 → 升级数据库版本」中手动执行。数据库损坏或缺失时，可在「数据库 → 从备份恢复数据库」中恢复。本菜单的其他项不会自动升级数据库。"
+
+[cli.setup.header]
+title = "Lab2Shot {version} 配置菜单"
+service = "服务"
+admin = "管理员"
+work_dir = "工作目录"
+settings_file = "设置文件"
+running = "[green]运行中[/green]  {address}（启动编号 {boot}）"
+stopped = "[dim]未运行[/dim]  按当前设置的地址为 {address}"
+admin_uninitialized = "尚未初始化（首次启动服务时创建管理员账号）"
+admin_unreadable = "[red]无法读取[/red]（详见「数据库 → 查看数据库状态」）"
+admin_no_password = "{name}，[yellow]尚未设置密码，目前无法登录[/yellow]"
+admin_password_set = "{name}，[green]已设置密码[/green]"
+
+[cli.setup.env]
+python = "{version}（{path}）"
+uv_missing = "未安装。请参阅 https://docs.astral.sh/uv/ ，或重新运行 ./setup.sh 由脚本引导安装。"
+node_missing = "未安装。构建网页需要 {need}（https://nodejs.org/）。"
+node_old = "{version} 版本过低。构建网页（vite 8）需要 {need}（https://nodejs.org/）。"
+webui = "网页构建"
+webui_missing = "尚未构建。请执行「安装与环境 → 构建网页界面」。"
+gpu_sep = "；"
+driver = "显卡驱动"
+driver_missing = "未找到 nvidia-smi。没有显卡时服务仍可启动，但无法执行显卡计算任务。"
+work_dir = "工作目录"
+work_dir_exists = "{path}（已存在）"
+work_dir_later = "{path}（将在首次启动服务时创建）"
+work_dir_ours = "{path}（归属本项目目录）"
+work_dir_other = "{path} 归属另一个项目目录 {owner}。请改用其他 LAB2SHOT_WORK_DIR，或停止该处的服务后执行「数据库 → 将工作目录归属本项目」。"
+settings_file = "设置文件"
+settings_file_exists = "{path}（已存在）"
+settings_file_missing = "{path}（不存在，全部设置取默认值；修改设置后自动生成）"
+missing = "以下项目需要处理：{items}。"
+all_ok = "运行服务所需的条件均已具备。"
+
+[cli.setup.toolchain]
+git = "用于获取扩展包的源代码"
+cc = "C 编译器"
+cxx = "C++ 编译器"
+cuda = "CUDA 工具包"
+setting = "设置 {key} = {value}"
+system_default = "（系统默认）"
+cuda_default = "（$CUDA_HOME 或 /usr/local/cuda）"
+ninja = "可加快 CUDA 算子的编译（可选）"
+here = "本机显卡的架构：{archs}（仅供参考，编译不按它）"
+no_gpu = "（未检测到显卡）"
+compatible = "nvcc 与编译器的兼容性：{state}"
+compatible_ok = "兼容"
+targets = "编译目标架构：{archs}（设置「编译目标架构」）"
+unsupported = "这个 CUDA 工具包（{nvcc}）编不了：{archs}。请换一个更新的 CUDA 工具包（「设置编译器与 CUDA」），或在「选择编译目标架构」中去掉它们。"
+supported = "CUDA 工具包支持所选的每一个编译目标架构。"
+
+[cli.setup.archs]
+arch = "架构"
+intro = "扩展包里的 CUDA 代码只为这里选中的架构编译，编出来的只能在这些架构上运行，与编译这台机器插的是什么卡无关。默认：{default}。"
+prompt = "要编译的架构编号（以空格分隔；直接回车保留当前）"
+kept = "保留当前：{archs}。"
+
+[cli.setup.ext]
+installed = "已安装"
+not_installed = "未安装"
+format_line = "{state}  许可证：{license}"
+reinstall = "是否重新安装？"
+install = "是否安装？"
+unmet = "上方存在未满足的条件，请先解决后再安装。"
+extension = "扩展包"
+state = "状态"
+license = "许可证"
+title = "{title}（{name}）"
+prompt = "要安装的编号（以空格分隔；a 表示全部未就绪的扩展包；直接回车跳过）"
+none_chosen = "未选择扩展包。"
+bad_number = "编号无效，未安装任何扩展包。"
+all_ready = "全部扩展包均已就绪。"
+license_line = "许可证：{name} — {summary}"
+result_unmet = "条件未满足"
+result_failed = "失败"
+results = "安装结果"
+
+[cli.setup.hf]
+weights = "模型权重"
+page = "申请访问的页面"
+intro = "上述模型权重的仓库须先申请访问：使用 Hugging Face 账号打开对应页面，按页面要求填写并同意许可条款，获批后本机须以该账号登录，安装器方可下载。未使用这些扩展包时无需登录。"
+env_token = "已登录：令牌来自环境变量 HF_TOKEN。"
+saved_token = "已登录：本机已保存 Hugging Face 令牌。"
+again = "是否重新登录？"
+now = "本机尚未登录 Hugging Face。是否现在登录？"
+token_hint = "令牌在 https://huggingface.co/settings/tokens 创建，权限选择 Read 即可。"
+no_cli = "未找到 {path}。请先执行「安装与环境 → 安装 Python 依赖」。"
+failed = "登录未完成，请查看上方输出。"
+done = "登录完成。"
+
+[cli.setup.manual.state]
+ready = "[green]已就绪[/green]"
+consent = "[yellow]待同意许可[/yellow]"
+unrecognised = "[red]文件无法识别[/red]"
+missing = "未下载"
+
+[cli.setup.manual]
+status = "状态"
+what = "用途"
+needed_by = "所需扩展包"
+page = "下载页面"
+download = "下载哪一项"
+filename = "文件名"
+in_downloads = "downloads/ 中"
+file = "{name}：{why}"
+awaiting_consent = "待同意许可"
+unknown = "downloads/ 中的 {name} 无法识别：{why}"
+how = "下载的文件原样放入 {inbox}（无需解压或改名），再执行本项即可识别并安装；原始文件随后移入 downloads/installed/。标为「待同意许可」的项目，再次执行本项时显示其许可协议，同意后即安装；也可在管理后台「扩展包 → 手动下载」中阅读并同意。完整说明见 docs/manual-downloads.md。"
+
+[cli.setup.consent]
+uninitialized = "同意许可协议的记录写入数据库，须先启动过一次服务（「服务 → 启动服务（后台）」）后再执行本项。"
+reading = "正在从 {name} 中取出 {title} 的许可协议……"
+panel = "[bold]{title} 许可协议[/bold]（{name}）"
+ask = "是否已阅读并同意 {title} 的许可协议，并安装？"
+declined = "未同意，{title} 未安装；文件留在 downloads/ 中，再次执行本项时重新询问。"
+done = "已同意 {title} 的许可协议并完成安装（同意记录已写入数据库）。"
+
+[cli.setup.account]
+uninitialized = "工作目录尚未初始化。账号与数据库由首次启动的服务创建，请先执行「服务 → 启动服务（后台）」，再返回此处设置。"
+no_password = "管理员 {name} 尚未设置密码，在设置之前任何人都无法登录。请现在设置。"
+password_set = "管理员 {name} 的密码于 {when} 经由{by}设置。"
+set_again = "是否重新设置？"
+passphrase_set = "找回口令已于 {when} 设置。"
+passphrase_change = "是否更换？"
+passphrase_intro = "找回口令用于忘记管理员密码的情形：在登录页选择「忘记密码」，凭此口令设置新密码。"
+
+[cli.setup.ask]
+option = "{label}（{value}）"
+current_mark = "← 当前值"
+selected_mark = "← 已选"
+choice = "{label}（请输入编号）"
+bad_number_kept = "编号无效，保留原值。"
+multi = "{label}（输入要选的编号，用空格隔开；直接回车保留，输入 - 全不选）"
+bool = "{label}：是否开启？"
+bounds = "（范围 {min}–{max}{unit}）"
+current = "当前：{value}；直接回车保留"
+current_empty = "当前：空"
+clear = "；输入 - 清空，空表示{empty}"
+empty_means = "，表示{empty}"
+text = "{label}（{hint}）"
+list_help = "+ 名字：添加到最后；+ 名字 编号：插到该编号之前；- 编号：删除；编号 新位置：移到新位置；直接回车：完成。"
+list_bad = "看不懂这一句，请按上面的写法输入（名字里不能有空格）。"
+
+[cli.setup.settings]
+title = "设置"
+intro = "与管理后台「设置」一组的各页为同一份设置，写入 {file}，仅记录与默认值不同的项。"
+unchanged = "没有改动。"
+saved = "已保存：{names}（写入 {file}）。"
+edit_hint = "（直接按回车保留当前值；写入 {file}，仅记录与默认值不同的项）"
+key = "设置键"
+current = "当前值"
+default = "默认值"
+this_run = "本次运行"
+this_run_value = "{value}（由{by}指定，优先于设置文件）"
+auto = "（{how}）"
+takes_effect = "生效方式"
+needs_restart = "[yellow]需重启服务后生效[/yellow]：{why}"
+at_once = "保存后立即生效"
+requires = "前提"
+only_if = "仅在「{label}」开启时起作用"
+file_only = "该项只能在配置文件 {file} 中修改，本菜单与管理后台均只显示不修改。"
+modify = "修改"
+modify_hint = "输入新的值并保存"
+reset = "恢复默认值"
+reset_hint = "恢复为 {value}"
+page_title = "设置 → {page}"
+effect = "生效"
+source = "来源"
+needs_on = "{name}（需开启「{label}」）"
+restart_short = "需重启"
+at_once_short = "立即"
+network_wizard = "按访问方式设置网络"
+network_wizard_hint = "本机自用、局域网直连或反向代理之后：一次设好访问范围、HTTPS、可信代理与对外域名，再设端口"
+page_counts.other = "共 {total} 项；已修改 {edited} 项；需重启生效 {restart} 项"
+back_listing = "返回上一级菜单，并列出需重启生效的改动"
+elsewhere = "以下设置请在管理后台或配置文件中修改："
+elsewhere_file = "  · {label}（{key}）：只能在配置文件 {file} 中修改，或以环境变量 LAB2SHOT_WORK_DIR 指定。"
+elsewhere_admin = "  · 「注册设置」页的邀请码、「账号设置」页的管理员通知，以及每个账号的环节与配额：请在管理后台（/admin）中管理。"
+elsewhere_gpus = "  · 接受任务的显卡：可在本菜单「服务 → 选择计算用显卡」或管理后台中设置。"
+
+[cli.setup.restart]
+new_value = "新值"
+why = "需要重启的原因"
+title = "以下设置需重启服务后生效"
+not_running = "服务当前未运行；下次启动服务时即采用新的设置。"
+ask = "服务正在运行。是否现在重启服务？"
+later = "稍后可在「服务 → 重启服务」中重启。"
+
+[cli.setup.network.local]
+label = "只在这台电脑上自己用"
+purpose = "只有这台电脑上的浏览器、DCC 插件和命令行能连；不加密（本机之内不经过网络）"
+
+[cli.setup.network.lan]
+label = "局域网里的人直接访问这台电脑"
+purpose = "Lab2Shot 自己用自签证书提供 HTTPS，监听所有网卡；每台用户电脑装一次根证书"
+names = "（询问，可留空：只在别人用另外的名字访问时填）"
+
+[cli.setup.network.proxy]
+label = "前面有 Nginx 等反向代理，用正规证书对外"
+purpose = "反向代理用正规证书提供 HTTPS 并转发到这里；Lab2Shot 只认代理转告的用户地址。再问代理在哪里：(a) 在这台电脑上，或经本机的 frp 等隧道转来（默认）；(b) 在另一台机器上"
+trusted = "= (a) \"127.0.0.1\"  (b) 代理那台机器的 IP（询问，必填）"
+
+[cli.setup.network]
+port_line = "server.port （询问，默认 {port}）"
+proxy_ip = "代理那台机器的 IP（地址或网段，用空格隔开；必填）"
+proxy_ip_required = "必须填写代理那台机器的 IP。"
+question = "[bold]服务器怎样被访问？[/bold]  （按所选写入 {file}；以后可在「设置 → 网络与安装」中逐项修改）"
+no_change = "不作修改"
+difference_title = "② 与 ③ 的区别"
+difference = "两者都能让别的电脑用 HTTPS 打开 Lab2Shot，区别在于由谁面对用户：\n  ② Lab2Shot 自己面对用户：它用自签证书提供 HTTPS，监听所有网卡；每台用户电脑装一次它的根证书；不信任任何转发头（X-Forwarded-For 等），按连接本身的地址认用户。\n  ③ Lab2Shot 在代理后面：代理用正规证书提供 HTTPS，用户什么都不用装；Lab2Shot 自己不加密，只从可信代理的地址认它转告的用户真实 IP（按 IP 的注册限制、密码输错计数、登录记录都靠它）。\n     (a) 代理在这台电脑上，或经本机的 frp 等隧道转来：只监听本机，别人绕不过代理直接连它；可信代理 127.0.0.1。\n     (b) 代理在另一台机器上：须监听所有网卡代理才连得到；可信代理只填那台机器的 IP，并应在防火墙上只让那台机器连这个端口。"
+unchanged = "未作修改。"
+names_hint = "对外域名只写进 Lab2Shot 自签证书里的名字：别人用这台电脑的名字或局域网 IP 访问时直接回车；用另外的名字（例如内网穿透给的域名）访问时填上，用空格隔开。"
+proxy_here = "在这台电脑上，或经本机的 frp 等隧道转来"
+proxy_elsewhere = "在另一台机器上"
+proxy_where = "代理在哪里（请输入编号）"
+bad_choice = "没有该编号，请重新选择。"
+not_saved = "以上设置未保存，请重新选择。"
+value = "值"
+changed = "已改"
+way = "访问方式：{key} {label}"
+way_remote = "；代理在另一台机器上"
+way_local = "；代理在这台电脑上，或经本机的隧道转来"
+ca_hint = "每台用户电脑需安装一次根证书：在浏览器中打开 {url} 下载，导入系统的「受信任的根证书颁发机构」。"
+proxy_hint = "反向代理须把用户的地址写进 X-Forwarded-For，是改写而不是追加（Nginx：proxy_set_header X-Forwarded-For $remote_addr;）；还须原样转发用户访问的地址，包括端口，否则登录等操作会被当作别的网站发来的而拒绝（Nginx：proxy_set_header Host $http_host;，不能用去掉了端口的 $host），并转发到 http://{target}。"
+firewall_hint = "Lab2Shot 现在监听所有网卡：请在防火墙上只允许代理那台机器（{proxy}）连接本机的 {port} 端口，别的机器不应能绕过代理直接连它。"
+later = "以上各项以后都可在「设置 → 网络与安装」中修改。"
+written = "已写入 {file}"
+
+[cli.setup.source]
+overridden = "已被覆盖（{by}）"
+file_only = "仅配置文件"
+modified = "已修改"
+auto = "按本机计算"
+default = "默认"
+
+[cli.setup.gpus]
+not_running = "服务未运行。显卡由运行中的服务识别，请先启动服务再进行授权。"
+none = "服务未识别到任何显卡。"
+gpu = "显卡"
+memory = "显存"
+on = "接受任务"
+off = "不接受任务"
+prompt = "请输入接受任务的显卡编号（以空格分隔；all 表示全部，none 表示全部不接受）"
+done = "已授权 {count} 张显卡接受任务。"
+
+[cli.setup.db.reason]
+manual = "手动备份"
+daily = "每日自动备份"
+created = "创建数据库时"
+before_update = "一键更新前备份"
+before_version = "升级至第 {version} 版前自动备份"
+unknown = "未知"
+
+[cli.setup.db]
+time = "时间"
+size = "大小"
+origin = "来由"
+missing_with_backups.other = "数据库文件 {path} 不存在，但备份目录中有 {count} 份备份。可在「数据库 → 从备份恢复数据库」中恢复。"
+not_created = "数据库尚未创建：首次启动服务时在 {path} 中创建。"
+file = "文件"
+size_value = "{size}（含预写日志文件）"
+version = "版本"
+version_value = "第 {version} 版（本程序对应第 {ours} 版）"
+integrity = "完整性"
+intact = "完好"
+damaged = "存在问题：{detail}"
+checked_at = "（检查于 {when}）"
+unchecked = "尚未检查"
+last_backup = "上次备份"
+last_backup_value = "{when}，{reason}（{file}）"
+no_backup = "尚无备份"
+keep = "保留份数"
+keep_value = "{count} 份（设置项「数据库备份份数」；超出时删除最旧的备份）"
+title = "数据库"
+no_backups = "备份目录中没有备份。"
+backup_not_created = "数据库尚未创建，无需备份。首次启动服务时会创建数据库并自动备份一次。"
+backed_up = "已备份：{path}（{size}）。"
+check_not_created = "数据库尚未创建，无可检查的内容。"
+check_ok = "数据库完好：完整性检查与外键检查均已通过。"
+check_failed = "数据库存在问题：{detail}。可在「数据库 → 从备份恢复数据库」中恢复。"
+must_stop = "服务正在运行。{action}前必须停止服务。"
+still_running = "服务仍在运行，已取消操作。"
+start_again = "请重新启动服务，以使用新的数据库。"
+start_now = "是否现在启动服务（后台）？"
+start_later = "稍后可在「服务 → 启动服务（后台）」中启动。"
+restore_none = "备份目录中没有备份，无法恢复。"
+restore_prompt = "请输入要恢复的备份编号（0 表示返回）"
+bad_number_nothing = "编号无效，未作任何操作。"
+restore_action = "恢复数据库"
+restore_keep = "不停止服务，不恢复数据库"
+restore_source = "恢复来源"
+restore_source_value = "{name}（{time}，{reason}）"
+restore_current = "当前数据库"
+time_placeholder = "<时间>"
+restore_current_moved = "移至 {pattern}，例如 {example}；不会删除，可随时找回。"
+restore_current_none = "不存在，将直接放入备份。"
+restore_data = "数据变化"
+restore_data_value = "备份之后产生的记录（账号、任务、使用统计、结果记录等）将不在恢复后的数据库中。"
+restore_files = "附带文件"
+restore_files_value = "备份附带的反馈截图与基准文件中，工作目录现已缺失的部分会复制回原位置；已有文件不受影响。"
+restore_title = "恢复的后果"
+restore_confirm = "是否确认恢复？"
+restore_again = "为防止误操作，请再次输入所选备份的编号"
+restore_mismatch = "两次输入的编号不一致，已取消，未作任何操作。"
+restored = "已从 {name} 恢复数据库。"
+restored_moved = "原数据库已移至 {path}。"
+upgrade_not_created = "数据库尚未创建，无需升级。首次启动服务时会创建最新版本的数据库。"
+upgrade_action = "升级数据库"
+upgrade_keep = "不停止服务，不升级数据库"
+upgraded = "数据库为第 {version} 版（本程序对应第 {ours} 版）：{path}。升级前的数据库已自动备份。"
+
+[cli.setup.claim]
+missing = "工作目录 {path} 尚不存在，无需接管：首次启动服务时自动归属本项目目录。"
+ours = "工作目录 {path} 已归属本项目目录 {root}，无需接管。"
+other = "工作目录 {path} 目前归属 {owner}。接管后，其他项目目录（其他分支、测试检出）的进程均无法再打开它。请先停止原来使用该目录的服务。"
+unrecorded = "（未记录）"
+ask = "是否将其改为归属 {root}？"
+done = "工作目录 {path} 现归属 {root}。"
+
+[cli.setup.status]
+title = "状态总览"
+stopped = "[dim]未运行[/dim]（按当前设置的地址为 {address}）"
+running = "[green]运行中[/green]  {address}，启动编号 {boot}"
+work_dir_new = "{path}，尚未初始化：首次启动服务时创建数据库、管理员账号与本机令牌"
+admin_new = "{name}，没有默认密码：服务首次启动后请在「账号与安全 → 设置管理员密码」中设置，设置之前无法登录"
+passphrase = "找回口令"
+set = "已设置"
+unset = "未设置"
+accounts = "账号"
+accounts_value = "{count} 个（在管理后台「用户」页中新建）"
+extensions_value = "{count} 个可安装（已安装的情况见管理后台「扩展包」页，或执行 lab2shot ext list）"
+database_value.other = "第 {version} 版，{size}；上次备份 {last}；共 {count} 份备份"
+none = "无"
+settings_value = "{path}（已修改 {count} 项）"
+
+[cli.setup.scope]
+project = "项目目录内；不安装系统级组件"
+read_only = "只读，不作任何修改"
+
+[cli.setup.wizard]
+intro.other = "本向导按顺序引导完成{purpose}的 {count} 个步骤：{steps}。\n每一步开始前均说明其内容并询问是否执行；选择否即跳过该步骤。按 Ctrl-C 可随时退出向导。"
+step = "第 {i} 步，共 {count} 步：{label}"
+ask = "是否执行此步骤？"
+skipped_note = "已跳过此步骤。"
+skipped = "已跳过"
+done = "已执行"
+unfinished = "未完成"
+steps = "步骤"
+results = "向导结果"
+later = "未完成或已跳过的步骤可随时在对应分组中单独执行。"
+
+[cli.setup.explain]
+what = "操作"
+why = "用途"
+changes = "写入位置"
+scope = "影响范围"
+
+[cli.setup.step.wizard]
+purpose = "首次安装所需"
+label = "首次安装向导"
+summary = "依次完成安装 Python 依赖、构建网页界面、检查运行条件、设置网络与端口、启动服务、设置管理员密码、选择计算用显卡"
+what = "依次引导执行首次安装所需的七个步骤，每一步均可跳过"
+why = "从全新检出到可以登录使用"
+changes = "取决于所执行的步骤"
+
+[cli.setup.step.build_wizard]
+purpose = "扩展包编译与下载设置"
+label = "扩展包编译与下载设置向导"
+summary = "依次完成选择编译目标架构、设置编译器与 CUDA、检查编译工具、设置下载镜像、设置下载重试、安装 Alembic 与 FBX 模块"
+what = "依次引导执行扩展包编译与下载设置的六个步骤，每一步均可跳过"
+why = "扩展包编译与下载所依赖的设置，以及读写 DCC 场景文件的格式模块"
+changes = "取决于所执行的步骤"
+
+[cli.setup.step.ext_wizard]
+purpose = "扩展包安装"
+label = "扩展包安装向导"
+summary = "依次完成登录 Hugging Face、安装手动下载的文件、安装扩展包"
+what = "依次引导执行安装扩展包的三个步骤，每一步均可跳过"
+why = "安装各算法所在的扩展包，以及它们所需的模型与手动下载的文件"
+changes = "取决于所执行的步骤"
+
+[cli.setup.step.build]
+title = "编译环境设置"
+label = "设置编译器与 CUDA"
+summary = "CUDA 路径、C 与 C++ 编译器"
+what = "依次询问 CUDA 路径、C 编译器与 C++ 编译器"
+why = "扩展包安装时在独立环境中编译 CUDA 算子所用的工具"
+changes = "config/local.toml（仅记录与默认值不同的项）"
+
+[cli.setup.step.mirrors]
+title = "镜像设置"
+label = "设置下载镜像"
+summary = "Hugging Face、PyPI、GitHub 镜像；官方地址无法访问时按顺序尝试"
+what = "依次询问 Hugging Face、PyPI 与 GitHub 镜像"
+why = "官方地址无法访问时按顺序尝试镜像；从镜像下载的文件须与官方校验值一致才使用"
+changes = "config/local.toml（仅记录与默认值不同的项）"
+
+[cli.setup.step.retries]
+title = "重试设置"
+label = "设置下载重试"
+summary = "下载失败时的重试次数与最长等待时间"
+what = "依次询问重试次数与两次重试之间的最长等待时间"
+why = "网络不稳定时减少安装失败"
+changes = "config/local.toml（仅记录与默认值不同的项）"
+
+[cli.setup.group.g1]
+summary.other = "从全新检出到可以登录使用：依赖、网页、网络、启动、管理员密码、显卡（{count} 步）"
+label = "首次安装向导"
+
+[cli.setup.group.g2]
+summary.other = "编译目标架构、编译器与 CUDA、下载镜像与重试、Alembic 与 FBX 模块（{count} 步）"
+label = "扩展包编译与下载设置向导"
+
+[cli.setup.group.g3]
+summary.other = "Hugging Face 登录、手动下载的文件、安装扩展包（{count} 步）"
+label = "扩展包安装向导"
+
+[cli.setup.step.update]
+label = "一键更新"
+summary = "先停止服务并手动 git pull --ff-only，再升级已拉取的本地代码：备份、同步环境、构建网页、检查、迁移、启动；失败回退"
+what = "使用刚拉取的新版升级程序，检查工作区与停服状态，记录上次部署版本（首次升级从最近一次手动拉取记录取得）、备份设置、本地受管文件与旧版数据库，执行 uv sync、npm ci 与构建网页、lab2shot check、数据库升级与完整性检查、启动服务并确认其正常响应；环境同步之后失败，即恢复记录的代码、数据库和环境，用旧版本上线"
+why = "完成已拉取代码的部署；git pull 由管理员在运行本步骤之前手动执行"
+changes = ".venv/、webui/node_modules/ 与 webui/dist/；work/db（更新前备份一份）；work/installed.json 中的部署版本；work/updates/<时间>/ 中的更新记录、设置文件与本地受管文件副本；失败回退时恢复项目代码"
+scope = "项目目录与工作目录内；请先用原版本停止服务再拉取；不自动重装扩展包"
+
+[cli.setup.step.env]
+label = "安装 Python 依赖"
+summary = "按 uv.lock 创建服务与命令行所用的 Python 环境（uv sync）"
+what = "执行 uv sync，按 uv.lock 安装依赖"
+why = "提供服务与命令行的运行环境"
+changes = ".venv/；包缓存位于 ~/.cache/uv"
+
+[cli.setup.step.web]
+label = "构建网页界面"
+summary = "安装前端依赖并构建网页界面（npm）"
+what = "执行 npm ci（严格按 package-lock.json 安装，不改动它）与 npm run build"
+why = "生成服务向浏览器提供的页面"
+changes = "webui/node_modules/、webui/dist/"
+
+[cli.setup.step.check]
+label = "检查运行条件"
+summary = "列出 Python、Node.js、网页、显卡驱动等运行服务所需条件的状态（只读）"
+what = "列出 Python、uv、Node.js、网页构建、显卡驱动、工作目录与设置文件的状态"
+why = "确认缺少的条件"
+changes = "无"
+
+[cli.setup.step.build_setup]
+label = "扩展包编译与下载设置"
+summary = "扩展包编译与下载所需的设置，以及 Alembic、FBX 模块"
+what = "编译环境设置、工具链检查、下载镜像、重试策略、安装格式模块（Alembic、FBX）"
+why = "扩展包在独立环境中编译 CUDA 算子、获取代码与模型权重时所依赖的设置"
+changes = "config/local.toml；格式模块安装至 third_party/，原始文件移入 downloads/installed/"
+
+[cli.setup.step.archs]
+label = "选择编译目标架构"
+summary = "扩展包的 CUDA 代码为哪几代架构编译（默认 Ada Lovelace 与 Blackwell）"
+what = "列出可选的架构（按平台名称），按编号选择"
+why = "编出来的 CUDA 代码只能在所选架构上运行，与编译这台机器插的卡无关"
+changes = "config/local.toml（仅记录与默认值不同的项）；已装好的扩展包要重装才按新架构编译"
+
+[cli.setup.step.toolchain]
+label = "检查编译工具"
+summary = "git、编译器、nvcc、编译目标架构，以及 nvcc 与 GCC 的兼容性（只读）"
+what = "检查 git、C 与 C++ 编译器、nvcc，nvcc 是否支持所选的每个编译目标架构，以及 nvcc 与 GCC 的版本是否兼容"
+why = "确认编译扩展包所需的工具齐全且版本相容"
+changes = "无"
+
+[cli.setup.step.formats]
+label = "安装 Alembic 与 FBX 模块"
+summary = "读写 DCC 场景文件（Alembic、FBX）的模板均依赖这两个模块"
+what = "安装 Alembic 与 FBX 格式模块；FBX SDK 须先放入 downloads/，并在此阅读、同意其许可协议"
+why = "读写 DCC 场景文件的模板均依赖这两个模块"
+changes = "third_party/ 中的格式模块；原始文件移入 downloads/installed/；许可协议的同意记录写入 work/db"
+
+[cli.setup.step.hf_login]
+label = "登录 Hugging Face"
+summary = "列出须申请访问的模型，并在本机登录 Hugging Face"
+what = "列出仓库须申请访问的模型权重及其申请页面，并执行 hf auth login"
+why = "获批后，安装器以本机登录的账号下载这些模型权重"
+changes = "Hugging Face 的令牌文件（默认 ~/.cache/huggingface/token，设置了 HF_HOME 时位于其中）"
+scope = "当前用户主目录中的 Hugging Face 登录状态；不改动项目目录"
+
+[cli.setup.step.downloads]
+label = "安装手动下载的文件"
+summary = "识别并安装放入 downloads/ 的文件（SMPL、FLAME、FBX SDK 等），列出仍缺的文件及其下载页面"
+what = "识别并安装 downloads/ 中的文件，列出每一项的下载页面、所需文件与状态"
+why = "部分模型须在其网站注册或同意许可后才能下载，安装器无法代为获取"
+changes = "third_party/_body_models/ 或对应扩展包的 weights/；原始文件移入 downloads/installed/；许可协议的同意记录写入 work/db"
+
+[cli.setup.step.extensions]
+label = "安装扩展包"
+summary = "列出全部扩展包及其状态，选择后依次安装"
+what = "列出全部扩展包，按所选编号依次执行安装前检查与安装（与管理后台「扩展包」页的「安装」相同）"
+why = "各算法节点在其扩展包的独立环境中运行"
+changes = "third_party/<项目名>/：代码、独立环境与模型权重"
+
+[cli.setup.step.password]
+label = "设置管理员密码"
+summary = "设置或重设管理员账号 admin 的密码"
+what = "设置或重设管理员账号的密码"
+why = "新安装时管理员没有密码，设置之前任何人都无法登录"
+changes = "work/db 中的账号记录（需先启动过一次服务）；立即生效，已登录的浏览器须重新登录"
+
+[cli.setup.step.passphrase]
+label = "设置找回口令"
+summary = "设置忘记管理员密码时用于重设密码的口令"
+what = "设置忘记管理员密码时使用的口令"
+why = "登录页「忘记密码」凭此口令重设密码；仅可在本机设置"
+changes = "work/db 中保存口令的哈希值（需先启动过一次服务）"
+
+[cli.setup.step.start]
+label = "启动服务（后台）"
+summary = "在后台启动服务，日志写入 work/logs/"
+what = "在后台启动 lab2shot ui"
+why = "提供网页与 DCC 插件所连接的服务"
+changes = "work/logs/ui_stdout.log；首次启动时由服务创建 work/（数据库、管理员账号、本机令牌）"
+
+[cli.setup.step.start_fg]
+label = "启动服务（前台）"
+summary = "在当前终端运行服务，便于查看日志"
+what = "在当前终端启动 lab2shot ui，按 Ctrl-C 停止"
+why = "排查问题时直接查看日志"
+changes = "与后台启动相同"
+
+[cli.setup.step.restart]
+label = "重启服务"
+summary = "重启运行中的服务，可等待任务完成"
+what = "通过本机令牌重启运行中的服务，可选择等待正在计算的任务完成"
+why = "使需重启生效的设置生效"
+changes = "无"
+
+[cli.setup.step.stop]
+label = "停止服务"
+summary = "停止运行中的服务，可等待任务完成"
+what = "通过本机令牌请运行中的服务停止，可选择等当前任务算完再停或立即停止，并等到它退出；服务不回答时，确认后结束监听端口的进程"
+why = "关机、更换端口或停用服务"
+changes = "无；排队的任务留给下一次启动的服务，选择立即停止时计算中的任务停下"
+
+[cli.setup.step.gpus]
+label = "选择计算用显卡"
+summary = "选择接受计算任务的显卡（显卡授权）"
+what = "选择接受计算任务的显卡"
+why = "未授权的显卡不参与计算"
+changes = "运行中服务的授权名单（work/db）"
+
+[cli.setup.step.settings]
+label = "全部设置"
+summary = "按管理后台「设置」一组的各页查看与修改全部设置"
+what = "按管理后台「设置」一组的各页列出全部设置项，显示当前值、默认值与生效方式，并可逐项修改"
+why = "在不打开浏览器的情况下管理服务器设置"
+changes = "config/local.toml（仅记录与默认值不同的项）；部分设置需重启服务后生效"
+
+[cli.setup.step.server]
+label = "设置网络与端口"
+summary = "按访问方式（本机自用、局域网直连、反向代理之后）设好访问范围、HTTPS、可信代理与对外域名，再设端口"
+what = "先问服务器怎样被访问，列出每种方式写入的每项设置；按所选写入访问范围、HTTPS、可信代理与对外域名，再询问端口，最后汇总实际写入的值"
+why = "三种访问方式各需一组确定的网络设置；选好方式即全部写对，不必逐项推敲"
+changes = "config/local.toml（与「设置 → 网络与安装」为同一份）；开启 HTTPS 时，服务启动时在 work/tls/ 生成自签证书；需重启服务后生效"
+
+[cli.setup.step.db_status]
+label = "查看数据库状态"
+summary = "数据库文件、大小、版本、完整性与全部备份（只读）"
+what = "显示数据库的文件、大小、版本、最近一次完整性检查与备份，并列出全部备份"
+why = "了解数据库的当前状况"
+changes = "无"
+
+[cli.setup.step.db_backup]
+label = "立即备份数据库"
+summary = "立即备份一份数据库（服务运行时亦可）"
+what = "以 SQLite 在线备份方式复制数据库，并校验副本"
+why = "在重要操作之前保留一份可恢复的数据"
+changes = "work/db/backups/ 中新增一份备份及其附带文件；超出保留份数时删除最旧的备份"
+
+[cli.setup.step.db_check]
+label = "检查数据库完整性"
+summary = "检查数据库的完整性与外键"
+what = "执行 SQLite 完整性检查与外键检查"
+why = "确认数据库可以信任"
+changes = "无（仅记录检查结果）"
+
+[cli.setup.step.db_restore]
+label = "从备份恢复数据库"
+summary = "用一份备份替换当前数据库（需先停止服务）"
+what = "列出全部备份，以所选备份替换当前数据库"
+why = "数据库损坏、缺失或需要回退时恢复数据"
+changes = "work/db/lab2shot.db；原数据库移至 work/db/lab2shot.db.replaced-<时间>，不会删除"
+
+[cli.setup.step.db_upgrade]
+label = "升级数据库版本"
+summary = "将数据库升级至本程序对应的版本（需先停止服务）"
+what = "先自动备份，再将数据库升级至本程序对应的版本"
+why = "更新 Lab2Shot 后使数据库与程序一致；启动服务时也会自动执行"
+changes = "work/db/lab2shot.db；work/db/backups/ 中新增一份升级前的备份"
+
+[cli.setup.step.db_claim]
+label = "将工作目录归属本项目"
+summary = "使工作目录归属本项目目录，其他项目目录的服务此后不能使用它"
+what = "将工作目录的归属改为本项目目录"
+why = "此后其他项目目录（其他分支、测试检出）的进程无法打开该目录"
+changes = "工作目录中的归属记录（owner.json）"
+
+[cli.setup.step.status]
+label = "状态总览"
+summary = "服务、管理员、口令、账号、扩展包、数据库与工作目录（只读）"
+what = "显示服务、管理员密码、找回口令、账号数、扩展包数、数据库与工作目录的概况"
+why = "总览当前状况"
+changes = "无"
+
+[cli.setup.group.g4]
+label = "一键更新"
+summary = "停服并手动拉取后，升级本地代码；失败回退并重新上线"
+
+[cli.setup.group.g5]
+label = "安装与环境"
+summary = "Python 依赖、网页界面、运行条件、扩展包编译与下载设置、Hugging Face、手动下载的文件、扩展包"
+
+[cli.setup.group.g6]
+label = "服务"
+summary = "网络与端口，启动、重启、停止服务，选择计算用显卡"
+
+[cli.setup.group.g7]
+label = "账号与安全"
+summary = "管理员密码、找回口令（须先启动过一次服务）"
+
+[cli.setup.group.g8]
+label = "设置"
+summary = "管理后台「设置」一组的全部设置项，按相同的各页查看与修改"
+
+[cli.setup.group.g9]
+label = "数据库"
+summary = "查看状态、检查完整性、备份、恢复、升级版本、将工作目录归属本项目"
+
+[cli.setup.group.g10]
+label = "状态总览"
+summary = "服务、管理员、数据库与工作目录的概况（只读）"
+
+# lab2shot gpus | color | inspect（cli/tools.py）。
+[cli.tools.gpus]
+help = "列出显卡及其 UUID，并标明接受任务的显卡（在管理页面 /admin 中授权）。"
+none = "未找到显卡（nvidia-smi 不可用）"
+card = "显卡"
+memory = "显存"
+utilization = "占用"
+taking = "[green]接受任务[/green]"
+not_taking = "[dim]不接受任务[/dim]"
+none_authorized = "[yellow]尚未授权任何显卡：需要显卡的任务将持续排队。请在管理页面 http://<服务器>:端口/admin 中授权。[/yellow]"
+
+[cli.tools.color]
+help = "显示当前 OCIO 配置，以及文件的默认输入颜色空间。"
+input = "可选：查看指定文件默认识别的颜色空间"
+config = "OCIO 配置  {name}\n来源       {origin}：{uri}\n渲染空间   {space}（所有输入在读取时统一转换至该空间，输出时再从该空间转换）"
+
+[cli.tools.inspect]
+help = "查看输入的识别结果：帧范围、分辨率、帧速率、颜色空间。"
+input = "图像序列、文件夹、任意一帧或视频"
+sequence = "图像序列"
+video = "视频"
+still = "静帧"
+kind = "类型       {kind}"
+path = "路径       {path}"
+frames.other = "帧         {range}（共 {count} 帧）"
+resolution = "分辨率     {width} × {height}"
+fps = "帧速率     {fps}"
+fps_unknown = "未知（图像序列默认为 24）"
+colorspace = "颜色空间   {space}（按文件格式判断；可在读取节点上修改）"
+
+# 一键更新（cli/update.py）。键 cli.update.<…>。
+[cli.update.step]
+title = "第 {step} 步，共 {steps} 步：{name}"
+preflight = "预检"
+record = "记录现状"
+managed = "备份受管文件"
+stop = "确认停服并备份数据库"
+environment = "同步环境与构建网页"
+check = "质检"
+start = "启动服务"
+rollback = "回退"
+report = "汇报结果"
+
+[cli.update.baseline]
+other_root = "部署记录属于另一个项目目录"
+no_record = "没有已完成的升级记录，也没有刚执行的 git pull；按当前代码同步环境与检查，代码回退基线为当前版本。"
+not_ancestor = "上次部署的提交不存在，或不是当前版本的祖先；请核对 work/installed.json 和当前分支"
+how_uv = "重新运行 ./setup.sh 由脚本引导安装，或参阅 https://docs.astral.sh/uv/"
+how_npm = "先安装 Node.js（https://nodejs.org/）"
+local = "本次升级使用本地代码：分支 {branch}，版本 {version}；失败时回退到 {previous}。"
+
+[cli.update.record]
+git = "git 版本：{version}「{subject}」（分支 {branch}）。"
+plan = "第 4 步备份已停止服务的数据库，再同步环境和迁移。"
+settings_copied = "设置文件：已复制到 {path}。"
+settings_none = "设置文件：{path} 不存在，全部为默认值。"
+where = "本次更新的记录：{path}"
+no_database = "工作目录还没有数据库（服务从未启动过），无需备份。"
+database = "数据库已备份：{backup}（work/db/backups/；服务已停止，备份之后不再有写入）。"
+
+[cli.update.managed]
+none = "受管文件（menu/*.json、templates/*.json）没有本地改动。"
+file = "受管文件"
+change = "本地改动"
+backup = "备份"
+changed = "已修改"
+deleted = "已删除"
+untracked = "新增（未纳入 git）"
+deletion = "记录删除状态"
+saved = "本地受管文件已备份，升级时保留当前内容。"
+
+[cli.update.run]
+stopped = "服务已停止，可以备份数据库。"
+checked = "lab2shot check：没有发现问题。"
+no_database = "工作目录还没有数据库，无需升级与检查：新版本的服务首次启动时创建。"
+database = "数据库已升级并通过完整性检查。"
+started = "服务已启动并正常响应：{address}（/api/server 与网页均已回答）。"
+output.other = "新版本的服务输出（{log} 的最后 {lines} 行）："
+confirm = "是否开始更新？（备份、同步环境、构建网页、检查、迁移数据库并启动服务）"
+cancelled = "已取消，未作任何改动。"
+interrupted = "回退被中断（Ctrl-C）"
+extension = "{title}（{name}）"
+done = "本次更新的记录：{path}；本地受管文件保持当前内容。"
+exit_code = "退出码 {code}"
+migrated = "已安装的扩展已按新代码的方式记录（lab2shot ext migrate）。"
+
+[cli.update.rollback]
+new_stopped = "新版本的服务已停止（端口 {port}，进程 {pid} 已退出）。"
+new_not_stopped = "新版本的服务没有停下：{error}"
+new_no_pid = "新版本的服务（端口 {port}）在回答，但看不到它的进程号，没能停下"
+git_failed = "git 没能回到 {version}"
+code = "代码已回到 {version}。"
+backup_gone = "{backup} 不见了，{path} 没能还原"
+file_failed = "{path} 没能还原：{error}"
+managed = "{count} 个受管文件已还原为更新前本地的内容。"
+settings = "设置文件已还原：{path}。"
+settings_removed = "更新中生成的设置文件已移除：{path}。"
+settings_failed = "设置文件没能还原：{error}"
+database = "数据库已恢复为 {backup}（新版本用过的数据库移至 {moved}）。"
+database_failed = "数据库没能恢复为 {backup}：{error}"
+sync_failed = "uv sync 没能恢复旧版本的 Python 环境"
+web_failed = "旧版本的网页没能重新构建"
+migrate = "已安装的扩展已还原为迁移之前的样子。"
+migrate_failed = "已安装扩展的一处迁移没能还原：{error}"
+start_failed = "旧版本的服务没能启动"
+page_failed = "旧版本的服务启动了，但网页打不开"
+started = "旧版本的服务已启动并正常响应：{address}。"
+
+[cli.check.routes]
+undeclared = "routes：{route} 没有声明访问规则（server/routes.py）"
+unowned = "routes：{route} 的参数 {params} 指向某个账号的数据，却没有声明归属（owned=，server/owners.py）：别的账号就能读到"
+body_undeclared = "routes：{route} 从请求体读取 {fields}，名字指向某个账号的数据：请声明它们（body_ids=），并声明核对或过滤归属的 owned（server/owners.py）"
+body_unknown = "routes：{route} 声明的 body_ids {fields} 不是它请求体里的字段"
+admin_unowned = "routes：后台路由 {route} 的参数 {params} 指向某个账号的数据：要么声明归属（owned=），要么需要 {right} 权限"
+ok = "routes：{routes} 条路由都已声明，指向账号数据的都声明了归属"
+
+[cli.check.layers]
+unplaced = "layers：{unit}（{where}）不在分层表里（cli/check_arch.py LAYERS）：把它放进一层"
+upward = "layers：{where} 引用了 {module}：{low} 层不能依赖更高的 {high} 层（cli/check_arch.py LAYERS）"
+past_sdk = "layers：{where} 引用了 {module}：扩展只能通过 lab2shot.sdk 使用核心"
+ok = "layers：{imports} 处引用都按 {layers} 层的分层表向下，扩展只经 lab2shot.sdk"
+
+[cli.check.tests]
+passed = "tests：{suite} 全部通过"
+failed = "tests：{suite} 没通过（退出码 {code}）：\n{tail}"
+
+[cli.check.digests]
+direct = "digests：{where} 直接用了 hashlib：键和内容摘要一律用 lab2shot/io/digest.py（cli/check_arch.py DIGEST_ALLOWED 列着例外）"
+ok = "digests：键和内容摘要都经 io/digest.py（查了 {files} 个文件，例外 {allowed} 处）"

@@ -224,7 +224,7 @@ def listing(path: str) -> Listing:
             # when the file is chosen, not by whatever reads the joints later
             joints = sum(len(list(s.GetJointsAttr().Get() or [])) for s in skels)
             shapes = sum(len(list(UsdSkel.BindingAPI(t.GetPrim()).GetBlendShapesAttr().Get() or [])) for t in meshes)
-            detail = " · ".join([count(joints, "关节")] + ([count(len(meshes), "网格")] if meshes else []) + ([count(shapes, "形变")] if shapes else []))
+            detail = tuple([count(joints, "joints")] + ([count(len(meshes), "meshes")] if meshes else []) + ([count(shapes, "shapes")] if shapes else []))
             entries.append(Entry("character" if meshes else "skeleton", where, _frames(stage, _character_times(prim)), detail))
             it.PruneChildren()
         elif prim.IsA(UsdGeom.Camera):
@@ -243,17 +243,25 @@ def listing(path: str) -> Listing:
                                                      inst.GetProtoIndicesAttr())
             frames = _frames(stage, times)
             shown = len(inst.GetProtoIndicesAttr().Get(Usd.TimeCode(frames[0])) or [])
-            entries.append(Entry("model", where, frames, f"{count(len(inst.GetPrototypesRel().GetTargets()), '原型')} · {count(shown, '实例')}"))
+            entries.append(Entry("model", where, frames, (count(len(inst.GetPrototypesRel().GetTargets()), "prototypes"), count(shown, "instances"))))
             it.PruneChildren()  # its prototypes are what it places, not models of their own
         elif prim.IsA(UsdGeom.Mesh):
             points = UsdGeom.Mesh(prim).GetPointsAttr()
             frames = _frames(stage, _xform_times(prim) | _attr_times(points))
-            entries.append(Entry("model", where, frames, count(len(points.Get(Usd.TimeCode(frames[0])) or []), "顶点"),
+            entries.append(Entry("model", where, frames, (count(len(points.Get(Usd.TimeCode(frames[0])) or []), "vertices"),),
                                  points.ValueMightBeTimeVarying()))
         elif prim.IsA(UsdGeom.Points):
+            from ...data.gaussian import is_gaussian
+
             points = UsdGeom.Points(prim).GetPointsAttr()
             most = max([len(points.Get(t) or []) for t in points.GetTimeSamples()] or [len(points.Get() or [])])
-            entries.append(Entry("points", where, _frames(stage, _xform_times(prim) | _attr_times(points)), count(most, "点")))
+            gauss = is_gaussian(prim)
+            times = _xform_times(prim) | _attr_times(points)
+            if gauss:
+                for attr in prim.GetAttributes():
+                    if attr.GetName().startswith("primvars:gaussian:"):
+                        times |= _attr_times(attr)
+            entries.append(Entry("gaussian" if gauss else "points", where, _frames(stage, times), (count(most, "gaussians" if gauss else "points"),)))
         elif prim.IsA(UsdGeom.BasisCurves):
             curves = UsdGeom.BasisCurves(prim)
             points, counts = curves.GetPointsAttr(), curves.GetCurveVertexCountsAttr()
@@ -261,7 +269,7 @@ def listing(path: str) -> Listing:
             most = max([len(points.Get(t) or []) for t in points.GetTimeSamples()] or [len(points.Get() or [])])
             strands = max([len(counts.Get(t) or []) for t in counts.GetTimeSamples()] or [len(counts.Get() or [])])
             entries.append(Entry("curves", where, _frames(stage, _xform_times(prim) | times),
-                                 f"{count(strands, '条')} · {count(most, '点')}"))
+                                 (count(strands, "strands"), count(most, "points"))))
     return Listing(tuple(entries), fps=recorded_fps(stage))
 
 

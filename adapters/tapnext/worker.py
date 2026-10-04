@@ -35,10 +35,10 @@ CHECKPOINTS = {"512": ("tapnextpp_512.ckpt", 512), "256": ("tapnextpp_ckpt.pt", 
 MODEL_SPACE = 256  # TAPNext++ predicts coordinates on a 256 x 256 grid whatever the input size
 MAX_POINTS_PER_PASS = 4096  # point tokens per rollout (more points: several passes over the shot)
 # Upstream's VOTS 2026 setup: 64 extra "support" points on an 8 x 8 grid within
-# 32 px (at 512 input = 1/16 of the frame) around each user point, tracked along
-# for context and then dropped.
+# 32 model-input pixels around each user point (support_radius_space="model": 1/16 of
+# the frame at 512 input, 1/8 at 256), tracked along for context and then dropped.
 SUPPORT_PER_POINT = 64
-SUPPORT_RADIUS = 1.0 / 16.0  # of the frame width / height
+SUPPORT_RADIUS_PX = 32.0  # model-input pixels
 SUPPORT_MAX_TOTAL = 2048
 CERTAINTY_RADIUS = 8  # model-space pixels, upstream tracker_certainty default
 
@@ -53,13 +53,14 @@ def load_model(repo: Path, checkpoint: Path, side: int, device: torch.device):
     return wrapper._model  # the plain TAPNext module: batched tensors are fed to it directly
 
 
-def support_points(xy: np.ndarray, t: np.ndarray, width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
-    """Upstream's local support grid around each user point (input pixels, same query frame)."""
+def support_points(xy: np.ndarray, t: np.ndarray, width: int, height: int, side: int) -> tuple[np.ndarray, np.ndarray]:
+    """Upstream's local support grid around each user point (input pixels, same query frame); its radius is
+    SUPPORT_RADIUS_PX pixels of the square model input of `side` pixels."""
     per = min(SUPPORT_PER_POINT, SUPPORT_MAX_TOTAL // max(1, len(xy)))
     side = int(np.sqrt(per))
     if side < 2:
         return np.zeros((0, 2), np.float32), np.zeros(0, np.int64)
-    rx, ry = SUPPORT_RADIUS * width, SUPPORT_RADIUS * height
+    rx, ry = SUPPORT_RADIUS_PX * width / side, SUPPORT_RADIUS_PX * height / side
     local = pt.grid_points(side, (-rx, -ry, rx, ry))
     pts = (xy[:, None, :] + local[None]).reshape(-1, 2)
     pts[:, 0] = np.clip(pts[:, 0], 0.5, width - 0.5)
@@ -146,17 +147,17 @@ def main(job_path: str) -> None:
     n_user = int(queries.user.sum())
     device = torch.device("cuda")
 
-    run.stage("读取画面")
+    run.stage("read_images")
     t0 = time.time()
     video = pt.Frames(frames.paths, (side, side))
-    video.preload(lambda d, t: progress(d, t, "读取画面"))
+    video.preload(lambda d, t: progress(d, t, "read_images"))
     load_frames_s = time.time() - t0
 
-    model = run.model("TAPNext++ 模型", load_model, job.repo_dir, checkpoint, side, device)
+    model = run.model("load_model", load_model, job.repo_dir, checkpoint, side, device, stage_params={"model": "TAPNext++"})
 
     # User points get upstream's local support points; they are tracked in the
     # same pass (joint attention) and dropped afterwards.
-    s_xy, s_t = support_points(queries.xy[queries.user], queries.t[queries.user], width, height) if n_user else (
+    s_xy, s_t = support_points(queries.xy[queries.user], queries.t[queries.user], width, height, side) if n_user else (
         np.zeros((0, 2), np.float32), np.zeros(0, np.int64))
     all_xy = np.concatenate([queries.xy, s_xy])
     all_t = np.concatenate([queries.t, s_t])
@@ -171,9 +172,12 @@ def main(job_path: str) -> None:
     def tick() -> None:
         nonlocal done
         done += 1
-        progress(done, steps, "跟踪")
+        progress(done, steps, "track")
 
-    run.stage(f"跟踪 {len(queries)} 个点" + (f"（另加 {len(s_t)} 个辅助点）" if len(s_t) else ""))
+    if len(s_t):
+        run.stage("track_points_support", count=len(queries), support=len(s_t))
+    else:
+        run.stage("track_points", count=len(queries))
     t2 = time.time()
     xy_m = np.empty((len(all_t), n_frames, 2), np.float32)
     logit = np.empty((len(all_t), n_frames), np.float32)

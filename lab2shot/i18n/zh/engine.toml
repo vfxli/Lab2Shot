@@ -1,0 +1,337 @@
+# 引擎、农场、账号等核心模块（P1-D）的词：不是消息（没有编号）的显示文字。键与 en/engine.toml 相同。
+
+[engine]
+# 消息指向一个节点：节点名（类型名）
+node_ref = "{name}（{type}）"
+quoted = "「{name}」"
+chain_unknown = "它要用的上一步没算成，原因在消息栏里"
+port_of = "「{node}」的「{port}」"
+# 接进来的一列值，跟在说明后面
+values = "：{values}"
+option_shown = "{value}（{label}）"
+
+[engine.exposed]
+# 参数界面（exposed）哪里不对：E-EXPOSED-* 的 {where} / {why} / {widget}
+interface = "参数界面"
+nth = "第 {n} 项"
+not_list = "exposed 要是一个列表"
+expr_text = "要写成文字"
+group_name = "组要有名字"
+group_children = "组的 children 要是一个列表"
+neither = "既不是组，也不是带 name 和 target（一个或一组参数）的参数"
+targets_repeat = "同一个参数列了两次"
+targets_unlike = "不是同一种参数（类型、取值范围、可选值、控件或单位不同），一项不能同时驱动它们"
+targets_values = "现在的值不一样：参数界面只显示第一个的值，改成一样再公开成一项"
+word_bad = "word 只能用在按钮上，取 {words} 之一，而且不再写 label（显示的就是这个共用词）"
+name_empty = "对外名字不能空着"
+widget_bad = "控件只能是 menu（下拉）或 checkbox（复选框），不是 {widget}"
+options_list = "options 要是一个列表"
+option_shape = "每一项要有值和显示名"
+option_repeat = "和前面一项的值重复"
+hide_when = "隐藏条件「{expr}」{why}"
+disable_when = "禁用条件「{expr}」{why}"
+disable_why = "有禁用条件就要写 disable_why（置灰时说为什么不能选）"
+disable_why_alone = "disable_why 要和 disable_when 一起写"
+show_on_change = "show_on_change（修改后在视图里显示这个节点）只能是 true 或 false"
+
+[engine.exposed.widget]
+menu = "下拉"
+checkbox = "复选框"
+either = "下拉或复选框"
+
+[engine.routes]
+# 模板每条路线都能读图、规划（lab2shot check 的报告）
+defaults = "默认值"
+unreadable = "{where}：节点图读不进来：{why}"
+unplanned = "{where}：交付路线规划不了：{why}"
+switch_way = "下拉「{menu}」选「{option}」时「{node}」走第 {way} 路，它只有 {ways} 路"
+no_entry = "{where}：{target} 要使用者给（选文件或在视图里点），应用模式里却没有入口：公开它，或者在 meta.internal 里写明这张卡不需要"
+
+[engine.interface]
+# 同一种节点在各张卡上公开的参数要一致（lab2shot check 的报告）
+missing = "少了 {params}"
+extra = "多了 {params}"
+differs = "{param} 的对外名 / 显示名 / 条件的写法不同（{here}；多数卡如「{like}」是 {there}）"
+joiner = "；"
+unlike.other = "{name}: {type} 公开的参数与其余 {others} 张卡不一致：{parts}（有意不同就在 meta.own_interface 里写上 {type}）"
+
+[engine.kind]
+# 端口给的是什么（Port.data）
+data = "数值图"
+picture = "画面"
+
+[engine.contract]
+output_port = "输出口"
+empty_undeclared = "交了空包，口却没声明 may_be_empty"
+
+[engine.shape]
+# 节点图文件的结构哪里不对（E-GRAPH-SHAPE 的 {what}）
+nodes = "nodes 要是一个列表"
+edges = "edges 要是一个列表"
+node = "第 {n} 个节点要有文字的 id 和 type"
+id.other = "节点 id「{id}」要是不超过 {most} 个字符的文字，不能有 . / @ : 、空白、控制字符或看不见的格式字符"
+comment = "节点 {id} 的 comment 要是文字"
+params = "节点 {id} 的 params 要是一个对象"
+promoted = "节点 {id} 的 promoted 要是参数名的列表"
+edge = "第 {n} 根线要有 from 和 to，各是 [节点, 端口]"
+
+# ---- 条件表达式（engine/conditions.py）的说明与网页共用 ui.conditions.*（i18n/<lang>/ui/conditions.toml）
+
+# ---- 模板对外参数名约定（engine/conventions.py，lab2shot check 的报告）
+[conventions]
+# _conventions.md 固定名表的说明里标出例外卡片的词（「TRAM 例外」）
+exception = "例外"
+none = "（没有）"
+unpaired = "_conventions.md 固定名表「{name}」这一行有 {names} 个名字、{groups} 组目标（按「/」分组）：名字与目标组要一一对应，或者每个名字各占一行"
+unread = "_conventions.md 固定名表「{name}」的目标读不出：{what}（写成 `扩展.节点.参数`）"
+no_type = "_conventions.md 固定名表「{name}」的目标 {type}.{param}：没有 {type} 这种节点"
+no_param = "_conventions.md 固定名表「{name}」的目标 {type}.{param}：{type} 没有参数 {param}"
+bound = "对外名 {name} 只指 {want}，这里指的是 {type}.{param}"
+several_outputs = "卡上有 {n} 个格式输出节点（多种交付）：用 {names}，不用 file_name"
+one_output = "卡上只有一种交付：它的名字叫 file_name，不叫 {names}"
+last_button_staged = "最后一步的按钮 {name} 要写 \"word\": \"{word}\"（显示「{want}」：卡上有其他阶段按钮），现在显示「{label}」"
+last_button_alone = "最后一步的按钮 {name} 要写 \"word\": \"{word}\"（显示「{want}」：卡上没有其他阶段按钮），现在显示「{label}」"
+exr_lossless = "exr_compression 的下拉在带数据层的卡上只能列无损的 {allowed}，多了 {extra}"
+focal_filmback = "公开了 focal（{target}）就要公开同一节点的 filmback（{node}.filmback_mm）"
+filmback_when = "{name} 的禁用条件要含 not focal（没填焦距时置灰），现在是 {now}"
+node_id = "节点 id {id} 不是看得懂的词（小写字母开头，只用小写字母、数字和 _，至少 3 个字符）：对外名从它来"
+derived_taken = "节点 id {id} 的参数 {param} 推导出的对外名 {want} 是固定名表里另一件事的名字：给这个节点换一个 id（通则 2）"
+derived_name = "对外名 {name}（{target}）不在固定名表里，应叫 {want}（节点 id_参数名，通则 1）"
+meaning = "{name} = {value} 在固定名表里是「{meant}」，这张卡上是「{label}」（取值的含义各卡一致，通则 3）"
+after_button = "参数 {params} 作用于阶段按钮 {button}（{target}），却排在它之后：挪到按钮前面"
+
+# ---- 计算阶段（核心通用的 stage.<id>：engine/resident.py 为别的任务腾出显存）
+[stage]
+resident_unload = "腾出显存：卸载 {title}"
+resident_to_ram = "腾出显存：{title} 的模型移到内存"
+resident_unload_no_ram = "腾出显存：内存不够，卸载 {title}"
+vram_retry = "显存不够：卸载这张显卡上的常驻模型后重算"
+
+# ---- 账号（accounts.py、site/registration.py）
+[account]
+# 一个账号给人看的写法：名字（用户名）
+label = "{name}（{username}）"
+deleted = "已删除的用户"
+tags_basic = "只有基础"
+
+[account.device]
+# 记进登录记录的设备名（服务端记录：英文）
+client = "客户端"
+browser = "浏览器"
+unknown_system = "未知系统"
+machine = "本机命令行"
+
+[account.secret]
+password = "密码"
+new_password = "新密码"
+passphrase = "口令"
+
+[account.state]
+no_password = "未设密码"
+usable = "可以用"
+no_password_tip = "还没设密码：在服务器上执行 ./setup.sh，选「账号与安全 → 设置管理员密码」"
+
+[account.session]
+web = "浏览器"
+client = "插件"
+machine = "本机令牌"
+embedded = "插件的内嵌窗口"
+
+[account.invite]
+disabled = "已停用"
+expired = "已过期"
+used_up = "已用完"
+usable = "可以用"
+none = "没用邀请码"
+hint = "{hint}…"
+noted = "{hint}…（{note}）"
+
+[account.register_window]
+hour = "一小时"
+day = "一天"
+
+# ---- 用户反馈（site/feedback.py）
+[feedback]
+reply = "回复"
+note = "备注"
+joiner = "；"
+
+[feedback.category]
+none = ""
+error = "出错了"
+usage = "用法不明白"
+idea = "建议"
+
+[feedback.status]
+new = "新"
+seen = "已看"
+solved = "已解决"
+
+[feedback.rating]
+none = "未评定"
+valid = "有效"
+invalid = "无效"
+
+[feedback.ledger]
+grant = "奖励"
+revoke = "收回"
+
+# ---- 计算农场（farm/）
+[farm]
+no_department = "未分环节"
+core_nodes = "核心节点"
+untitled = "节点图"
+runtime = "运行环境"
+
+[farm.disk.tasks]
+label = "任务"
+note.other = "每个任务的文件夹（节点图、素材、输出、日志），结束 {days} 天后整个删除"
+
+[farm.disk.cache]
+label = "缓存"
+note = "每个账号自己的节点结果和模型原始结果；没有任务再引用、也没有任务在用的会被清掉，删了的节点下次要重新算"
+
+[farm.disk.uploads]
+label = "上传的素材"
+note.other = "每个账号自己上传的素材；没有任务用到的 {days} 天后删除，删了之后节点图要重新选文件"
+
+# ---- 上传与任务文件夹（transfer/）
+[transfer]
+footage_more = " 等 {count} 个素材"
+upload = "上传"
+
+[transfer.task]
+running = "进行中"
+ended = "已结束"
+
+# ---- 读文件（io/）
+[io]
+more = "……"
+
+[io.sequence]
+found.other = "{frames}，{count} 帧"
+described = "{name}（{found}）"
+
+# ---- 视图（view/）
+[view]
+proxy_tier = "{px} 像素"
+scene = "场景"
+
+# ---- 模板库（site/library.py）
+[library]
+name = "名字"
+intro = "简介"
+copy = "{name} 副本"
+copy_tail = " 副本{n}"
+
+[library.state]
+user_deleted = "用户已删除"
+deleted = "已删除"
+mine = "我的模板"
+
+# ---- 版本说明文件的检查（releases.py）
+[release]
+no_file = "文件不存在"
+not_toml = "不是正确的 TOML：{why}"
+unreadable = "文件读不出来：{why}"
+project = "project 应是 https:// 开头的网址，现在是 {now}"
+top_unknown = "文件顶层有不认识的项：{keys}"
+none = "一个版本也没有：至少要有一段 [[release]]"
+nth = "第 {n} 个版本"
+named = "{where}（{name}）"
+not_table = "{where}不是一段 [[release]] 表"
+missing = "{where}缺少 {keys}"
+unknown = "{where}有不认识的项：{keys}"
+name = "{where}的 name 应写两种语言 {zh = …, en = …}，每种都是不空的文字"
+name_again = "{where}的名称和前面的版本重复了"
+date = "{where}的 date 应是不加引号的日期 YYYY-MM-DD，现在是 {now}"
+about = "{where}的 about 应写两种语言 {zh = …, en = …}，每种都是不空的文字"
+changes = "{where}的 changes 应写两种语言 {zh = […], en = […]}，每种都是一列不空的文字，每条一行"
+count = "{where}的 {field} 两种语言条数不一样（中文 {zh} 条，英文 {en} 条）：英文要和中文一条对一条"
+admin = "{where}的 admin 应写两种语言 {zh = […], en = […]}，每种都是一列不空的文字，每条一行"
+order = "{where}的日期 {date} 比上面一个版本（{above}）新：最新的版本要写在最上面"
+
+# ---- 与账号关联的资源（site/resources.py：后台「用户」详情页的页签和列表）
+[resource.job_state]
+queued = "排队"
+running = "计算中"
+done = "完成"
+failed = "出错"
+cancelled = "已取消"
+interrupted = "中断"
+
+[resource.jobs]
+label = "任务"
+column = { id = "任务", title = "节点图", targets = "算的节点", state = "状态", submitted = "提交", finished = "结束" }
+
+[resource.tasks]
+label = "任务文件夹"
+column = { id = "任务", state = "状态", bytes = "大小", created = "提交", ended = "结束" }
+
+[resource.uploads]
+label = "上传的素材"
+column = { key = "素材", kind = "种类", at = "上传" }
+
+[resource.feedback]
+label = "反馈"
+column = { id = "反馈", category = "类别", text = "内容", status = "状态", rating_label = "评定", at = "提交" }
+
+[resource.outputs]
+label = "输出的结果"
+column = { name = "结果", task = "任务", label = "节点", count = "文件数", bytes = "大小", finished = "打包" }
+
+[resource.login_log]
+label = "登录记录"
+column = { at = "时间", ok = "成功", reason = "原因", kind = "方式", ip = "地址", device = "设备" }
+
+[resource.sessions]
+label = "在线的登录"
+column = { kind = "方式", device = "设备", hostname = "计算机", ip = "地址", seen = "最近活动" }
+
+[resource.templates]
+label = "模板"
+column = { id = "模板", name = "名字", state = "状态", bytes = "大小", updated = "最近改动" }
+
+[resource.templates.act]
+restore = { label = "恢复", tip = "把这张模板从回收站拿回来：用户又能在「我的模板」里看到它" }
+bin = { label = "放进回收站", tip = "先放进回收站，不是删掉：用户看不到它了，随时能恢复" }
+purge = { label = "永久删除", tip = "彻底删掉这张模板：删了就找不回来了" }
+
+[resource.traffic]
+label = "流量"
+column = { day = "日期", bytes = "流量" }
+
+[resource.admin_actions]
+label = "管理操作"
+column = { at = "时间", what = "操作", where = "接口", status = "结果" }
+
+# ---- 核心健康度（analysis/core_health.py）
+[health]
+twin = "容器 {container}，通道 {channels} 条，说明书要写的 {meta}，专门收它的输入口 {inputs} 个"
+no_reason = "core_baseline.toml 要写一行 reason：这次为什么加了或减了核心概念"
+not_in_baseline = "{label}（{key}）不在基线里：现在 {now}"
+more = "{label}多了：基线 {want}，现在 {now}。确实要加就改 core_baseline.toml 的数并写明理由；本质相同的先合并"
+fewer = "{label}少了：基线 {want}，现在 {now}。把 core_baseline.toml 改小，锁住这次重构"
+now = "现在"
+overlap = "端口和参数重合 {share}：{shared}"
+clone = "{tokens} 个记号一样（名字不计）"
+allowed = "；允许：{why}"
+helper.other = "{count} 个扩展包里一样的函数"
+in_sdk = "；SDK 里已经有：{names}"
+
+[health.kind]
+type = "类型"
+node = "核心节点"
+clone = "重复代码"
+sdk = "该进 SDK"
+
+[health.concept]
+types = "数据类型"
+core_nodes = "核心节点"
+families = "节点家族"
+widgets = "参数控件种类"
+contracts = "契约检查"
+expects = "用法检查种类"
+handles = "操纵器种类"
+scopes = "作用域种类"
+special_cases = "核心里的特例"

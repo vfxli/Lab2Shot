@@ -1,0 +1,48 @@
+# The Video Depth Anything extension's own words and messages in English (the same keys as zh.toml).
+
+# ---- node (nodes.py)
+"W-VIDEODEPTHANYTHING-SIZELIMIT" = "Processing Resolution {size} would exceed 24 GB of VRAM with the {model} model, so this cook uses the limit {limit}: somewhat less detail than set. For a higher resolution, switch Model to Small (1036 takes about 11 GB)"
+
+# ---- worker (worker.py)
+"N-VIDEODEPTHANYTHING-SHORTSHOT.one" = "The shot has only {count} frame, fewer than the 32 Video Depth Anything looks at at once: the end frame is repeated to fill the window. The result is fine, with less temporal context for stability"
+"N-VIDEODEPTHANYTHING-SHORTSHOT.other" = "The shot has only {count} frames, fewer than the 32 Video Depth Anything looks at at once: the end frame is repeated to fill the window. The result is fine, with less temporal context for stability"
+
+[node."videodepthanything.depth"]
+subtitle = "Depth"
+description = "Images → depth or disparity maps that are stable over the whole shot and do not flicker. Both come out of the Depth output: metric models give the distance along camera Z (cm), relative models give relative disparity (larger when near, unitless, marked as disparity in the data), so switching models needs no rewiring. For metric scale without flicker, use a relative model and wire Depth into Depth Align, with the depth of MoGe Depth and Normals as the reference."
+official.note = "Upstream has a single output, depths: with Metric model weights it is metric depth, with Relative model weights it is relative disparity. Both go out of the Depth output, and the data says which (scale)"
+licence.note = "The code and the two Small models are Apache-2.0 (commercial use allowed); the four Base and Large models are CC-BY-NC-4.0 (non-commercial). The metric models' training data includes Virtual KITTI (CC BY-NC-SA), a potential training-data license risk."
+
+[node."videodepthanything.depth".param.model]
+label = "Model"
+option.metric_small = "Metric · Small"
+option.small = "Relative · Small"
+option.metric_base = "Metric · Base"
+option.base = "Relative · Base"
+option.metric_large = "Metric · Large"
+option.large = "Relative · Large"
+
+[node."videodepthanything.depth".param.resolution]
+label = "Processing Resolution"
+
+[node."videodepthanything.depth".port.depth]
+label = "Depth"
+help = "Metric models: distance along camera Z (cm); relative models: relative disparity (larger when near, unitless, marked as disparity in the packet). For metric scale without flicker, wire a relative model's result into Depth Align with per-frame metric depth as the reference"
+
+[node."videodepthanything.depth".stage]
+write_disparity = "Write Disparity Maps"
+
+[extension.videodepthanything]
+summary = "Video depth built on Depth Anything V2: handles videos of any length without losing quality, consistency or generalization; Small allows commercial use, Base / Large are non-commercial"
+license.name = "Apache-2.0 (Small / Metric-Small) + CC-BY-NC-4.0 (Base / Large / Metric-Base / Metric-Large, non-commercial)"
+license.summary = "The code is Apache-2.0. The two models Video-Depth-Anything-Small and Metric-Video-Depth-Anything-Small are Apache-2.0 and allow commercial use; the four models Video-Depth-Anything-Base, Video-Depth-Anything-Large, Metric-Video-Depth-Anything-Base and Metric-Video-Depth-Anything-Large are CC-BY-NC-4.0, non-commercial (research only), and results made with them cannot be used in commercial projects. Note: the metric models' training data includes Virtual KITTI 2 (CC BY-NC-SA 3.0)"
+weight."vda-small".note = "depth-anything/Video-Depth-Anything-Small (Apache-2.0, ViT-S 28.4M parameters)"
+weight."vda-metric-small".note = "depth-anything/Metric-Video-Depth-Anything-Small (Apache-2.0, ViT-S 28.4M parameters)"
+weight."vda-base".note = "depth-anything/Video-Depth-Anything-Base (CC-BY-NC-4.0, non-commercial, ViT-B 113.1M parameters)"
+weight."vda-metric-base".note = "depth-anything/Metric-Video-Depth-Anything-Base (CC-BY-NC-4.0, non-commercial, ViT-B 113.1M parameters)"
+weight."vda-large".note = "depth-anything/Video-Depth-Anything-Large (CC-BY-NC-4.0, non-commercial, ViT-L 381.8M parameters)"
+weight."vda-metric-large".note = "depth-anything/Metric-Video-Depth-Anything-Large (CC-BY-NC-4.0, non-commercial, ViT-L 381.8M parameters)"
+
+[stage]
+estimate_depth = "Estimate Depth"
+depth = "Depth"

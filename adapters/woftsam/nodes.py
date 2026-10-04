@@ -13,8 +13,9 @@ CORNER_NAMES = ["corner_1", "corner_2", "corner_3", "corner_4"]
 STATE_REFOUND, STATE_UNSURE = 2, 3
 
 
-def spans(frames: list[int]) -> str:
-    """Frame numbers as ranges: 1001–1012、1040."""
+def spans(frames: list[int]) -> list[str] | Msg:
+    """Frame numbers as ranges (["1001–1012", "1040"]) for a message, which joins them with the language's separator;
+    past eight ranges, the first eight followed by "and more" (I-WOFTSAM-FRAMESMORE)."""
     out, start = [], None
     for i, f in enumerate(frames):
         if start is None:
@@ -22,7 +23,7 @@ def spans(frames: list[int]) -> str:
         if i + 1 == len(frames) or frames[i + 1] != f + 1:
             out.append(f"{start}" if start == f else f"{start}–{f}")
             start = None
-    return "、".join(out[:8]) + (" 等" if len(out) > 8 else "")
+    return Msg("I-WOFTSAM-FRAMESMORE", frames=out[:8]) if len(out) > 8 else out
 
 
 def check_quad(pts: list[tuple[float, float]], width: int, height: int) -> None:
@@ -40,15 +41,12 @@ def check_quad(pts: list[tuple[float, float]], width: int, height: int) -> None:
 
 
 class PlaneTrack(WorkerNode):
-    id = "woftsam.track"
+    id = "woftsam.planar_track"
     # 上游 demo.py：frames（画面）+ init_coords（起始帧上的四个角，参数）-> all_corners（每帧四个角）
     official = Official(
         cite="third_party/woftsam/repo/demo.py:65-82",
         takes={"image": "frames"},
         gives={"tracks": "all_corners"},
-        note="四个角（init_coords）上游也是当参数传的（track_function(sam_predictor, conf, frames, init_coords, seq_name)，"
-             "第 67 行），我们同样做成参数「四个角」，不是输入口。单应矩阵 output_H（第 71-73 行）"
-             "在我们的 2D 跟踪点数据里随平面一起交付。",
     )
     # 在视图里框一块有纹理的平面，前后都跟过去；大片单色、重复纹理的墙和地面跟不住；
     # 挡住、出画的帧标成「没能确认平面」，四个角标成不可见
@@ -56,23 +54,20 @@ class PlaneTrack(WorkerNode):
     # vram_gb: RTX 4090
     cost = Cost(gpu=True, vram_gb=10.1, seconds_per_frame=0.43)
     inputs = (rgb_port(),)
-    outputs = (Port("tracks", "tracks2d", "四个角"),)
+    outputs = (Port("tracks", "tracks2d"),)
     handles = (Handle("corners", {"corners": "corners"}),)
     on_node = ("resolution",)
     # a plane is always its four corners: 「2D 跟踪点输出设置」's CornerPin asks for exactly this (applies.py Incoming)
-    fact_labels = {"points": "跟踪点数"}
+    fact_labels = ("points",)
 
     @classmethod
     def facts(cls, params: dict) -> dict:
-        return {"points": Fact(4, cls.fact_labels["points"])}
+        return {"points": Fact(4, cls.fact_label("points"))}
 
     class Params(NodeParams):
-        corners: list[str] = P(
-            [], label="四个角", widget="picks", group="平面", worker=False,
-            placeholder="显示本节点，在 2D 视图里拖出平面",
-        )
+        corners: list[str] = P([], widget="picks", group="plane", worker=False)
         resolution: Literal[960, 1920] | None = measured_param(
-            "处理分辨率", {960: Measured(below=1920), 1920: Measured(gb=10.1)}, auto="原尺寸", group="平面")
+            {960: Measured(below=1920), 1920: Measured(gb=10.1)}, auto=True, group="plane")
 
     @classmethod
     def prepare(cls, ctx) -> Job:

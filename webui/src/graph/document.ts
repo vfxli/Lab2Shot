@@ -10,11 +10,11 @@ import { same, type Json } from "../model/graphPatch";
 import { exposedValues, hiddenChoices } from "./exposedTree";
 import { condEqual } from "../platform/conditions";
 import { getNodeDefs } from "../state/catalog";
-import { exposedParams, readExposed, readOnly, useCookInputs, type CookNode, type Wire } from "../state/cookInputs";
+import { entryLabel, exposedParams, firstTarget, readExposed, splitTarget, targetsOf, readOnly, useCookInputs, type CookNode, type Wire } from "../state/cookInputs";
 import { enterPicking } from "../state/viewPicking";
 import { graphIdForLoad } from "../model/graphId";
-import { useLook, type Box } from "../state/look";
-import { planHere, useResults } from "../state/results";
+import { useLook, type Box, type NodeComment } from "../state/look";
+import { planHere, shownTargetNow, useResults } from "../state/results";
 import { useViewer } from "../state/viewer";
 import { licensedChoices, mainOutput, outputsOf, paramPortNames, tableRows } from "./rules";
 import { cookSpan, parseSpan } from "./nodes";
@@ -28,6 +28,8 @@ import { loadOutputs } from "./outputs";
 import { randomId } from "../platform/randomId";
 import { leaveGraph } from "../transfer/uploads";
 import { cache } from "../platform/cache";
+import { nodeWord } from "./naming";
+import { pick, t } from "../i18n/t";
 
 // ------------------------------------------------------------------ history + dirty
 
@@ -41,7 +43,7 @@ function docNow(): Doc {
   const byNode = useResults.getState().byNode;
   const nodes: GNode[] = ci.order.map((id) => ({
     id, type: "l2s", position: look.positions[id] ?? { x: 0, y: 0 },
-    data: { ...ci.nodes[id], onNode: look.onNode[id], status: byNode[id]?.status ?? "idle", note: byNode[id]?.note ?? "", blocked: byNode[id]?.blocked },
+    data: { ...ci.nodes[id], onNode: look.onNode[id], comment: look.comments[id], status: byNode[id]?.status ?? "idle", note: byNode[id]?.note ?? "", blocked: byNode[id]?.blocked },
   }));
   return { meta: { ...ci.meta }, exposed: ci.exposed, nodes, edges: ci.edges.map(wireToEdge), boxes: look.boxes, displayId: look.displayId, displayPort: look.displayPort, cookRange: ci.cookRange };
 }
@@ -97,18 +99,20 @@ function watchedNow(): Map<string, Json> {
   const out = new Map<string, Json>();
   for (const x of exposedParams(ci.exposed)) {
     if (!x.show_on_change) continue;
-    const [nid, pname] = x.target.split(".");
+    const [nid, pname] = firstTarget(x); // every target holds the same value
     const n = ci.nodes[nid];
-    if (n) out.set(x.target, [n.params[pname] ?? null, n.picked?.[pname] ?? null] as Json);
+    if (n) out.set(x.name, [n.params[pname] ?? null, n.picked?.[pname] ?? null] as Json);
   }
   return out;
 }
 const watchShown = (): void => void (shownValues = watchedNow());
 function showChanged(): void {
   const now = watchedNow();
-  const changed = [...now].find(([target, key]) => shownValues.has(target) && !same(shownValues.get(target), key));
+  const changed = [...now].find(([name, key]) => shownValues.has(name) && !same(shownValues.get(name), key));
   shownValues = now;
-  if (changed) absorb(anchor(), () => enterPicking(changed[0].split(".")[0]));
+  const x = changed && exposedParams(useCookInputs.getState().exposed).find((y) => y.name === changed[0]);
+  // the node the entry speaks for (state/results.ts shownTargetNow): with TAPNext++ alone on, TAPNext++
+  if (x) absorb(anchor(), () => enterPicking(shownTargetNow(x)[0]));
 }
 
 /** An exposed pull-down whose current value is hidden by that item's Hide When gets the first listed item (the rule:
@@ -119,9 +123,10 @@ function settleHiddenChoices(): void {
   if (!fixes.length) return;
   absorb(anchor(), () => {
     for (const { x, now } of fixes) {
-      const [nid, pname] = x.target.split(".");
-      const n = useCookInputs.getState().nodes[nid];
-      if (n) useCookInputs.getState().setNode(nid, { params: { ...n.params, [pname]: now } });
+      for (const [nid, pname] of targetsOf(x).map(splitTarget)) { // every node parameter the entry drives
+        const n = useCookInputs.getState().nodes[nid];
+        if (n) useCookInputs.getState().setNode(nid, { params: { ...n.params, [pname]: now } });
+      }
     }
   });
 }
@@ -197,14 +202,16 @@ function applyDoc(doc: Doc): void {
   const nodes: Record<string, CookNode> = {};
   const positions: Record<string, { x: number; y: number }> = {};
   const onNode: Record<string, string[] | undefined> = {};
+  const comments: Record<string, NodeComment | undefined> = {};
   for (const n of restored.nodes) {
-    nodes[n.id] = { typeId: n.data.typeId, label: n.data.label, params: n.data.params, promoted: n.data.promoted, picked: n.data.picked, stored: n.data.stored };
+    nodes[n.id] = { typeId: n.data.typeId, params: n.data.params, promoted: n.data.promoted, picked: n.data.picked, stored: n.data.stored };
     positions[n.id] = n.position;
     onNode[n.id] = n.data.onNode;
+    if (n.data.comment) comments[n.id] = n.data.comment;
   }
   restoring(() => {
     useCookInputs.getState().load({ graphId: useCookInputs.getState().graphId, meta: doc.meta, exposed: doc.exposed ?? [], cookRange: doc.cookRange, nodes, order: restored.nodes.map((n) => n.id), edges: restored.edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle ?? "", target: e.target, targetHandle: e.targetHandle ?? "" })), kept: useCookInputs.getState().kept });
-    useLook.getState().load({ positions, onNode, boxes: doc.boxes, displayId: doc.displayId, displayPort: doc.displayPort, playback: useLook.getState().playback });
+    useLook.getState().load({ positions, onNode, comments, boxes: doc.boxes, displayId: doc.displayId, displayPort: doc.displayPort, playback: useLook.getState().playback });
   });
   watchShown(); // values undo / redo brought back are not a change
   useViewer.setState({ selectedId: restored.selectedId });
@@ -228,14 +235,14 @@ export function savePoint(): () => void {
  * opens, instead of throwing when one item is read and the whole graph failing to open. A missing position is placed
  * at (0, 0) in loadGraph (NodeEditor's 「未知节点」 uses 0 as well). */
 function filledIn(g: GraphJSON): GraphJSON {
-  return { ...g, meta: { ...g.meta, name: g.meta?.name ?? "未命名" }, nodes: g.nodes ?? [], edges: g.edges ?? [] };
+  return { ...g, meta: { ...g.meta, name: g.meta?.name ?? t("ui.common.unnamed") }, nodes: g.nodes ?? [], edges: g.edges ?? [] };
 }
 
 /** A graph as the current node definitions read it: parameters over their defaults, and whatever the definitions do
  * not have left out and listed. */
 function checkGraph(g: GraphJSON, defs: Record<string, NodeTypeDef>) {
   const problems: Message[] = [];
-  const label = (id: string) => g.nodes.find((n) => n.id === id)?.label || id;
+  const label = (id: string) => nodeWord(id, g.nodes.find((n) => n.id === id)?.type);
   const gone = g.nodes.filter((n) => !defs[n.type]);
   const goneIds = new Set(gone.map((n) => n.id));
   const kept = { nodes: gone, edges: g.edges.filter((e) => goneIds.has(e.from[0]) || goneIds.has(e.to[0])) };
@@ -326,10 +333,14 @@ export function loadGraph(g: GraphJSON, file: { name: string; handle?: string } 
   const nodes: Record<string, CookNode> = {};
   const positions: Record<string, { x: number; y: number }> = {};
   const onNode: Record<string, string[] | undefined> = {};
+  const comments: Record<string, NodeComment | undefined> = {};
   const order: string[] = [];
   for (const n of checked.nodes) {
     order.push(n.id);
-    nodes[n.id] = { typeId: n.type, label: n.label || defs[n.type]?.label || n.type, params: checked.params(n), promoted: checked.promoted(n).length ? checked.promoted(n) : undefined, picked: n.ui?.picked, stored: checked.stored(n) };
+    // a node's comment (Houdini's): any text, shown beside the node when its 「显示备注」 is on; an older file's `label`
+    // (the node's former title) is not read
+    if (typeof n.comment === "string" && n.comment) comments[n.id] = { text: n.comment, show: !!n.ui?.show_comment };
+    nodes[n.id] = { typeId: n.type, params: checked.params(n), promoted: checked.promoted(n).length ? checked.promoted(n) : undefined, picked: n.ui?.picked, stored: checked.stored(n) };
     positions[n.id] = { x: n.ui?.x ?? 0, y: n.ui?.y ?? 0 };
     onNode[n.id] = checked.onNode(n);
   }
@@ -340,17 +351,17 @@ export function loadGraph(g: GraphJSON, file: { name: string; handle?: string } 
   // item, this is said, and the document counts as changed (saving writes it in)
   const exposed = readExposed(g.exposed);
   for (const { x, was, now } of hiddenChoices(exposed, exposedValues(exposed, (id) => nodes[id], defs))) {
-    const [nid, pname] = x.target.split(".");
-    nodes[nid] = { ...nodes[nid], params: { ...nodes[nid].params, [pname]: now } };
-    const label = (v: unknown) => x.options?.find((o) => condEqual(o.value, v))?.label ?? JSON.stringify(v);
-    said.push(msg("N-EXPOSED-HIDDENVALUE", { label: x.label, was: label(was), now: label(now) }));
+    for (const [nid, pname] of targetsOf(x).map(splitTarget))
+      if (nodes[nid]) nodes[nid] = { ...nodes[nid], params: { ...nodes[nid].params, [pname]: now } };
+    const label = (v: unknown) => { const o = x.options?.find((q) => condEqual(q.value, v)); return o ? pick(o.label) : JSON.stringify(v); };
+    said.push(msg("N-EXPOSED-HIDDENVALUE", { label: entryLabel(x), was: label(was), now: label(now) }));
     dirty = true;
   }
   if (checked.problems.length) {
     dirty = true;
-    said.push(msg("W-GRAPH-MISMATCH", { graph: g.meta.name, count: checked.problems.length, problems: checked.problems }));
+    said.push(msg("W-GRAPH-MISMATCH", { graph: pick(g.meta.name) || t("ui.common.unnamed"), count: checked.problems.length, problems: checked.problems }));
   }
-  if (checked.kept.nodes.length) said.push(msg("W-GRAPH-UNKNOWNNODES", { graph: g.meta.name, count: checked.kept.nodes.length }));
+  if (checked.kept.nodes.length) said.push(msg("W-GRAPH-UNKNOWNNODES", { graph: pick(g.meta.name) || t("ui.common.unnamed"), count: checked.kept.nodes.length }));
 
   const view: Partial<GraphJSON["view"]> = g.view ?? {};
   const display = view.display && order.includes(view.display) ? view.display : (order.at(-1) ?? null);
@@ -382,7 +393,7 @@ export function loadGraph(g: GraphJSON, file: { name: string; handle?: string } 
     // panel. An older file's flat list is a parameter interface tree without groups and is read in as it is; saving
     // writes the tree (state/cookInputs.ts readExposed)
     useCookInputs.getState().load({ graphId, meta, exposed, cookRange, nodes, order, edges, kept: checked.kept });
-    useLook.getState().load({ positions, onNode, boxes, displayId: display, displayPort: view.port ?? null, playback: view.playback ?? null });
+    useLook.getState().load({ positions, onNode, comments, boxes, displayId: display, displayPort: view.port ?? null, playback: view.playback ?? null });
   });
   watchShown(); // the opened document's values are where watching starts
   useViewer.getState().reset();
@@ -414,10 +425,11 @@ export function toJSON(): GraphJSON {
     nodes: ci.order.map((id) => {
       const n = ci.nodes[id];
       const pos = look.positions[id] ?? { x: 0, y: 0 };
+      const comment = look.comments[id];
       return {
-        id, type: n.typeId, label: n.label, params: n.params,
+        id, type: n.typeId, ...(comment?.text ? { comment: comment.text } : {}), params: n.params,
         ...(n.promoted?.length ? { promoted: n.promoted } : {}),
-        ui: { x: Math.round(pos.x), y: Math.round(pos.y), ...(n.picked && Object.keys(n.picked).length ? { picked: n.picked } : {}), ...(look.onNode[id] ? { on_node: look.onNode[id] } : {}) },
+        ui: { x: Math.round(pos.x), y: Math.round(pos.y), ...(n.picked && Object.keys(n.picked).length ? { picked: n.picked } : {}), ...(look.onNode[id] ? { on_node: look.onNode[id] } : {}), ...(comment?.text && comment.show ? { show_comment: true } : {}) },
       };
     }),
     edges: ci.edges.map((e) => ({ from: [e.source, e.sourceHandle], to: [e.target, e.targetHandle] })),

@@ -31,7 +31,7 @@ from contextlib import AbstractContextManager, ExitStack, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
-from .. import accounts, logs
+from .. import accounts, i18n, logs
 from ..data import packet as packets
 from ..data.packet import COMPLETE, DEPS, MANIFEST, Packet, base_of, cache_root, packet_dir, worker_done
 from ..data.store import current
@@ -88,11 +88,17 @@ def _task_items() -> list[Item]:
             for r in db().rows("SELECT id, user_id, ended FROM tasks")]
 
 
-AREAS = {  # label, what it is and how long it is kept (as set now), its items
-    "tasks": ("任务", lambda: f"每个任务的文件夹（节点图、素材、输出、日志），结束 {tasks.keep_days()} 天后整个删除", _task_items),
-    "cache": ("缓存", lambda: "每个账号自己的节点结果和模型原始结果；没有任务再引用、也没有任务在用的会被清掉，删了的节点下次要重新算", _cache_items),
-    "uploads": ("上传的素材", lambda: f"每个账号自己上传的素材；没有任务用到的 {tasks.keep_days()} 天后删除，删了之后节点图要重新选文件", _upload_items),
+AREAS = {  # its items; its label and note (what it is and how long it is kept, as set now): farm.disk.<area>.*
+    "tasks": _task_items,
+    "cache": _cache_items,
+    "uploads": _upload_items,
 }
+
+
+def worded(areas: list[dict]) -> list[dict]:
+    """The measured areas with their label and note in the language now (a measurement is kept, its words are not)."""
+    return [{**a, "label": i18n.t(f"farm.disk.{a['id']}.label"),
+             "note": i18n.t(f"farm.disk.{a['id']}.note", days=tasks.keep_days())} for a in areas]
 
 
 def usage() -> list[dict]:
@@ -100,12 +106,12 @@ def usage() -> list[dict]:
     on a big one): only ever on a farm thread (Farm.disk), never while a request waits."""
     now = time.time()
     out = []
-    for area, (label, note, items) in AREAS.items():
+    for area, items in AREAS.items():
         found = items()
         # uploads: each file once, and what is still going up
         size = folder_bytes([uploads.root()]) if area == "uploads" else sum(i.size for i in found)
         idle = {d: sum(i.size for i in found if now - i.last_used > d * DAY) for d in (7, 30)}
-        out.append({"id": area, "label": label, "note": note(), "bytes": size, "items": len(found),
+        out.append({"id": area, "bytes": size, "items": len(found),
                     "idle_7_bytes": idle[7], "idle_30_bytes": idle[30]})
     return out
 
@@ -173,6 +179,32 @@ def collect(guard: Guard | None = None, older_than_s: float = 0.0) -> dict:
                     continue
             removed += 1
             freed += size
+    return {"removed": removed, "bytes": freed}
+
+
+def collect_named(user_id: int, names: set[str], guard: Guard | None = None) -> dict:
+    """Remove the account's cache entries named (base names) that no live task references and no job still to finish
+    uses any more: the ones the tasks just deleted alone referenced (server/quota.py free: what its preview counted,
+    freed now rather than with the next cleaning). Unlike `collect` no minimum age: each was named by a task, so
+    nothing is making it unnamed this moment. The same guard (nothing of an account with a job to finish: such an
+    entry stays for the next cleaning) and the same lock rule (`_remove_unless_held`)."""
+    if not names:
+        return {"removed": 0, "bytes": 0}
+    keep = _kept_entries(user_id)
+    root = current().cache_of(user_id)
+    removed, freed = 0, 0
+    for d in sorted(root.iterdir()) if root.is_dir() else []:
+        base = base_of(d.name)
+        if not d.is_dir() or d.name.startswith(".") or base not in names or base in keep:
+            continue
+        size = folder_bytes([d])
+        with _go(guard, user_id) as go, serving(Account(user_id)):
+            if not go:
+                break  # a job of the account came in: the rest waits for the next cleaning
+            if not _remove_unless_held(d.name, "clean", lambda base=base: base not in keep):  # the guard: no job came meanwhile
+                continue
+        removed += 1
+        freed += size
     return {"removed": removed, "bytes": freed}
 
 
@@ -255,8 +287,12 @@ def tidy(guard: Guard | None = None) -> None:
     has no job to finish (`guard`, asked before every removal: the cleaning takes minutes)."""
     from .queue import farm
 
+    from .queue import trim_finished
+
     tasks.unended(farm().active_ids())
     done = expire_tasks()
+    if trim_finished():  # 每账号保留的已完成任务: the oldest beyond it went, their cache goes with `collect` below
+        done["removed"] += 1
     uploads.prune_parts()  # files that stopped going up long ago
     accounts.prune_logins()  # login-log entries and ended sessions kept past their window (accounts.py)
     current().sweep_locks(DAY)  # lock files no one has touched for a day (a held lock is never deleted: try before unlink)

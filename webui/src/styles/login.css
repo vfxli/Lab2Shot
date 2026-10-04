@@ -153,10 +153,36 @@
   background: rgba(10, 10, 12, 0.72);
 }
 
+/* what Lab2Shot is (gate.tsx About): small print under the login card, as wide as a readable line, never above the form */
+.login-about {
+  position: relative;
+  width: min(560px, 100%);
+  margin-top: 28px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+}
+.login-about p {
+  margin: 0 0 6px;
+}
+.login-about a {
+  color: var(--text-2);
+}
+
 .login-legal {
   position: relative;
   padding: 12px 20px 18px;
   text-align: center;
+}
+
+/* the login page's language switch, beside the copyright line (gate.tsx LanguageLink) */
+.login-lang {
+  margin-left: 10px;
+  padding: 0 6px;
+  min-height: 0;
+  height: auto;
+  font-size: inherit;
+  vertical-align: baseline;
 }
 
 .help-brand {

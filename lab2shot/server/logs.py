@@ -19,8 +19,8 @@ from .access import manages
 from .farm import client_of
 from .wire import off_loop
 
-admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])  # admin routes of this module, included by app.py
-router = Router(prefix="/api", tags=["日志"])
+admin = Router(prefix="/api/admin", tags=["Admin (/admin page)"])  # admin routes of this module, included by app.py
+router = Router(prefix="/api", tags=["Logs"])
 http = logs.get("http")
 
 # Paths too frequent to log on success: status polling while editing, blob uploads (one per frame), queue polling.
@@ -78,7 +78,7 @@ class ClientLog(Body):
     client: dict = {}
 
 
-@router.post("/logs", access=Access.user("把网页的日志发给管理员：只能写，不能读", limit=Limit(body=262144, burst=5, per_s=0.016666666666666666)), summary="把网页的日志窗口发给管理员：写进服务日志，附上是谁发的")
+@router.post("/logs", access=Access.user("Send the page's log to the administrators: write only, no read", limit=Limit(body=262144, burst=5, per_s=0.016666666666666666)), summary="Send the page's log window to the administrators: written to the service log with who sent it")
 def post_log(req: ClientLog, request: Request) -> dict:
     who = client_of(request, req.client)
     # Size and rate are enforced by the guard through the route's Limit (server/routes.py).
@@ -86,7 +86,8 @@ def post_log(req: ClientLog, request: Request) -> dict:
     return {"ok": True}
 
 
-@admin.get("/security", access=Access.admin("security.manage"), summary="安全：最近的可疑请求（登录失败、没开放的接口、可疑的路径、请求太频繁……）、各类的次数、暂时封住的来源、现在有几个登录")
+@admin.get("/security", access=Access.admin("security.manage"), summary="Security: recent suspicious requests (failed logins, routes not served, odd paths, too many requests...), the "
+                                                                        "count of each kind, sources blocked for a while, how many logins there are now")
 def admin_security(request: Request) -> dict:
     from .. import accounts
     from . import auth
@@ -103,7 +104,7 @@ class Unblock(Body):
     client: str
 
 
-@admin.post("/security/unblock", access=Access.admin("security.manage"), summary="解开一个被暂时封住的来源")
+@admin.post("/security/unblock", access=Access.admin("security.manage"), summary="Unblock a source blocked for a while")
 def admin_unblock(req: Unblock) -> dict:
     from . import auth
 
@@ -111,6 +112,6 @@ def admin_unblock(req: Unblock) -> dict:
     return admin_security()
 
 
-@admin.get("/log", access=Access.admin("logs.view"), summary="服务日志的最后几行（最新的在最后）")
+@admin.get("/log", access=Access.admin("logs.view"), summary="The last lines of the service log (newest last)")
 def admin_log(lines: int = 500) -> dict:
     return {"file": str(logs.log_file()), "lines": logs.tail(min(max(lines, 1), 5000))}

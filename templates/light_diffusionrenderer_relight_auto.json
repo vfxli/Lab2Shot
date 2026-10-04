@@ -2,137 +2,214 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "d4de2f5b45004faf8155ffb777974836",
-  "name": "重新打光 · DiffusionRenderer 估光",
-  "intro": "Cosmos DiffusionRenderer 不做显式光线传输模拟，从 G-buffer 生成照片级画面。这张卡不用自备 HDRI：取一帧，LuxDiT 估出 HDR 环境贴图，再交给 DiffusionRenderer 重新打光；交付 EXR 的 rgba。DiffusionRenderer 可商用、LuxDiT 仅限研究，整卡按仅限研究；商用请用「重新打光 · DiffusionRenderer」。",
+  "name": {
+   "zh": "重新打光 · DiffusionRenderer 估光",
+   "en": "Relight · DiffusionRenderer Auto Light"
+  },
+  "intro": {
+   "zh": "Cosmos DiffusionRenderer 不做显式光线传输模拟，从 G-buffer 生成照片级画面。这张卡不用自备 HDRI：取一帧，LuxDiT 估出 HDR 环境贴图，再交给 DiffusionRenderer 重新打光；交付 EXR 的 rgba。DiffusionRenderer 可商用、LuxDiT 仅限研究，整卡按仅限研究；商用请用「重新打光 · DiffusionRenderer」。",
+   "en": "Cosmos DiffusionRenderer produces photorealistic images from G-buffers without explicit light transport simulation. This card needs no HDRI of your own: LuxDiT estimates an HDR environment map from one frame, then DiffusionRenderer relights with it; it delivers the EXR's rgba. DiffusionRenderer allows commercial use but LuxDiT is research only, so the whole card is research only; for commercial use, use Relight · DiffusionRenderer."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-21T17:00:00",
   "deliverable": "relight",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "kind": "group",
-   "label": "估光",
+   "label": {
+    "zh": "估光",
+    "en": "Light Estimation"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "probe_frame",
-     "label": "取光的帧",
+     "name": "hold_frame",
+     "label": {
+      "zh": "取光的帧",
+      "en": "Light Frame"
+     },
      "target": "hold.frame",
      "show_on_change": true
     },
     {
      "name": "probe_lora_scale",
-     "label": "贴近画面程度",
+     "label": {
+      "zh": "贴近图像程度",
+      "en": "Image Fidelity"
+     },
      "target": "probe.lora_scale"
     },
     {
      "name": "probe_seed",
-     "label": "估光随机种子",
+     "label": {
+      "zh": "估光随机种子",
+      "en": "Light Estimation Seed"
+     },
      "target": "probe.seed"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "probe_envmap_width",
-       "label": "环境图宽度",
+       "label": {
+        "zh": "环境贴图宽度",
+        "en": "Environment Map Width"
+       },
        "target": "probe.envmap_width"
       },
       {
        "name": "probe_steps",
-       "label": "去噪步数",
+       "label": {
+        "zh": "去噪步数",
+        "en": "Denoising Steps"
+       },
        "target": "probe.steps"
       },
       {
        "name": "probe_guidance_scale",
-       "label": "引导强度",
+       "label": {
+        "zh": "引导强度",
+        "en": "Guidance Strength"
+       },
        "target": "probe.guidance_scale"
       },
       {
        "name": "probe_resolution",
-       "label": "处理分辨率",
+       "label": {
+        "zh": "处理分辨率",
+        "en": "Processing Resolution"
+       },
        "target": "probe.resolution"
       }
      ]
     },
     {
      "name": "cook_probe",
-     "label": "估算 HDRI",
+     "label": {
+      "zh": "估算 HDRI",
+      "en": "Estimate HDRI"
+     },
      "target": "probe.cook"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "重新打光",
+   "label": {
+    "zh": "重新打光",
+    "en": "Relight"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "rotation",
-     "label": "环境旋转",
-     "target": "relight.env_rotate",
-     "tip": "转环境贴图让重新打光的画面满意"
+     "name": "relight_env_rotate",
+     "label": {
+      "zh": "环境旋转",
+      "en": "Environment Rotation"
+     },
+     "target": "relight.env_rotate"
     },
     {
-     "name": "exposure",
-     "label": "曝光",
+     "name": "relight_exposure",
+     "label": {
+      "zh": "曝光",
+      "en": "Exposure"
+     },
      "target": "relight.exposure",
-     "tip": "只作用于重打光画面"
+     "note": {
+      "zh": "只作用于重新打光的图像",
+      "en": "Applies to the Relit Image Only"
+     }
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
-       "name": "resolution",
-       "label": "处理分辨率",
+       "name": "relight_resolution",
+       "label": {
+        "zh": "处理分辨率",
+        "en": "Processing Resolution"
+       },
        "target": "relight.resolution"
       },
       {
-       "name": "max_frames",
-       "label": "每段最多帧数",
+       "name": "relight_max_frames",
+       "label": {
+        "zh": "每段最多帧数",
+        "en": "Max Frames per Chunk"
+       },
        "target": "relight.max_frames"
       },
       {
-       "name": "overlap",
-       "label": "段间重叠",
+       "name": "relight_overlap",
+       "label": {
+        "zh": "段间重叠",
+        "en": "Chunk Overlap"
+       },
        "target": "relight.overlap"
       },
       {
-       "name": "steps",
-       "label": "去噪步数",
+       "name": "relight_steps",
+       "label": {
+        "zh": "去噪步数",
+        "en": "Denoising Steps"
+       },
        "target": "relight.steps"
       },
       {
-       "name": "seed",
-       "label": "随机种子",
+       "name": "relight_seed",
+       "label": {
+        "zh": "随机种子",
+        "en": "Seed"
+       },
        "target": "relight.seed"
       }
      ]
@@ -141,50 +218,80 @@
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "exr.name"
     },
     {
      "name": "colorspace_out_exr",
-     "label": "输出色彩空间（EXR）",
-     "target": "out.colorspace"
+     "label": {
+      "zh": "输出颜色空间（EXR）",
+      "en": "Output Color Space (EXR)"
+     },
+     "target": "exr.colorspace"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_bit_depth",
-       "label": "EXR 位深",
-       "target": "out.exr_bit_depth"
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
+       "target": "exr.exr_bit_depth"
       },
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
-       "target": "out.exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -194,17 +301,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -213,8 +326,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -223,19 +335,18 @@
    },
    "ui": {
     "x": 0,
-    "y": 97
+    "y": 102
    }
   },
   {
    "id": "hold",
-   "type": "core.frame_hold",
-   "label": "FrameHold",
+   "type": "time_shift",
    "params": {
     "frame": null
    },
    "ui": {
     "x": 400,
-    "y": 117,
+    "y": 127,
     "on_node": [
      "frame"
     ]
@@ -244,7 +355,6 @@
   {
    "id": "probe",
    "type": "luxdit.light_probe",
-   "label": "LuxDiT HDRI",
    "params": {
     "seed": 0,
     "envmap_width": 1024,
@@ -255,7 +365,7 @@
    },
    "ui": {
     "x": 800,
-    "y": 112,
+    "y": 122,
     "on_node": [
      "envmap_width"
     ]
@@ -264,7 +374,6 @@
   {
    "id": "relight",
    "type": "diffusionrenderer.relight",
-   "label": "DiffusionRenderer 重新打光",
    "params": {
     "resolution": 1280,
     "max_frames": 41,
@@ -275,7 +384,7 @@
     "exposure": 0.0
    },
    "ui": {
-    "x": 1200,
+    "x": 1202,
     "y": 0,
     "on_node": [
      "env_rotate",
@@ -285,18 +394,16 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 2011,
+    "x": 2053,
     "y": 24
    }
   },
   {
-   "id": "out",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "id": "exr",
+   "type": "exr.output",
    "params": {
     "name": "relit",
     "layers": [
@@ -311,7 +418,7 @@
     "colorspace": null
    },
    "ui": {
-    "x": 1611,
+    "x": 1653,
     "y": 24
    }
   }
@@ -363,13 +470,13 @@
     "image"
    ],
    "to": [
-    "out",
+    "exr",
     "layer1"
    ]
   },
   {
    "from": [
-    "out",
+    "exr",
     "files"
    ],
    "to": [

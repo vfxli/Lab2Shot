@@ -29,9 +29,9 @@ import "./items.css";
 /** The open list is a little wider than the trigger: names show in full in the list (cut only in the trigger). */
 const MENU_WIDE = 240;
 
-function ItemPick({ where, name, kind, items, chosen }: { where: string; name: string; kind: string; items: ScopeItem[]; chosen: string }) {
+function ItemPick({ where, kind, items, chosen }: { where: string; kind: string; items: ScopeItem[]; chosen: string }) {
   const index = Math.max(0, items.findIndex((i) => i.key === chosen));
-  const options: SelectOption[] = items.map((i) => ({ value: i.key, label: i.name, tip: i.name }));
+  const options: SelectOption[] = items.map((i) => ({ value: i.key, label: i.name }));
   return (
     <div className="items-pick">
       <span className="items-kind">{kind}</span>
@@ -43,7 +43,6 @@ function ItemPick({ where, name, kind, items, chosen }: { where: string; name: s
         options={options}
         onPick={(key) => showItem(where, key)}
         label={render("I-EACH-ITEMS")}
-        tip={render("I-EACH-PICK", { block: name })}
         width={MENU_WIDE}
       />
       <span className="items-at tnum">{render("I-EACH-ITEMAT", { index: index + 1, total: items.length })}</span>
@@ -67,13 +66,13 @@ export function ItemsBar({ nodeId }: { nodeId: string | null }) {
   // editor/BlockFrame.tsx shows in the frame's title; the page derives none of it)
   const eachOf = (begin: string) =>
     render("I-EACH-EACHOF", { kind: itemWord(types, reply?.nodes[begin]?.ports.outputs.find((p) => p.name === "item")?.type ?? "") });
-  const rows = chain.map((scope, n) => ({ where: scope.begin, name: scope.name, kind: eachOf(scope.begin), items: itemsOf(scope, path.slice(0, n)), chosen: path[n] ?? "" }));
+  const rows = chain.map((scope, n) => ({ where: scope.begin, kind: eachOf(scope.begin), items: itemsOf(scope, path.slice(0, n)), chosen: path[n] ?? "" }));
   const shown = rows.filter((r) => r.items?.length);
   if (!shown.length) return null;
   return (
-    <div className="items-bar hud-pill glass static" data-tip={render("I-EACH-ITEMTIP")}>
-      {shown.map(({ where, name, kind, items, chosen }) => (
-        <ItemPick key={where} where={where} name={name} kind={kind} items={items!} chosen={chosen} />
+    <div className="items-bar hud-pill glass static">
+      {shown.map(({ where, kind, items, chosen }) => (
+        <ItemPick key={where} where={where} kind={kind} items={items!} chosen={chosen} />
       ))}
     </div>
   );

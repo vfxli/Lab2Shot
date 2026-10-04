@@ -30,9 +30,7 @@ from ..kit.maps import frame_maps
 from .base import MissingFrames, RawOutput, WorkerNode
 
 OBJECTS_FILE = "objects.json"  # 每个成员的 worker 都写这一份：[{"id": …}, …]，物体的顺序就是编号的顺序
-# 同一个口名 + 同一个类型只许一个标签。「运动」之类的限定词属于节点名（如「SegAnyMo 运动物体遮罩」），
-# 不属于口：口的标签只说这个口上是什么数据
-OBJECTS_LABEL = "物体分割"
+# 物体分割口的标签是家族的（family.segmentation.objects.label）：「运动」之类的限定词属于节点名，不属于口
 
 
 class Segmentation(WorkerNode):
@@ -42,23 +40,22 @@ class Segmentation(WorkerNode):
     那个 npz 里装什么由项目自己说（SAM 3 是 `masks` [K,H,W]，SegAnyMo 是 `labels` [H,W]），
     `label_map()` 把它变成这一家统一的编号图。
 
-    `mask_label`：遮罩口的标签（这个成员选出来的是什么）。口名 `mask` 和类型由家族定，
-    标签按成员说：它描述这个口要接什么，各成员不同是正常的。
+    遮罩口的标签按成员说（node.<类型>.port.mask.label，没有时取共享的 port.mask.label）：它描述这个口要接什么，
+    各成员不同是正常的。口名 `mask` 和类型由家族定。
 
     `mask_half`：遮罩写成半精度并声明值域 0..1。成员之间目前不一致（SegAnyMo 是、SAM 3 不是），
     按成员声明；改它会改掉已交付 EXR 的位深。
     """
 
-    mask_label: ClassVar[str] = "遮罩"
     mask_half: ClassVar[bool] = False
     inputs = (rgb_port(),)
-    outputs = ()  # 每个成员在 __init_subclass__ 里按 mask_label 建；口名、类型、objects 的标签是家族给的
+    outputs = ()  # 每个成员在 __init_subclass__ 里建；口名、类型、objects 的标签是家族给的
     cost = Cost(gpu=True)
     missing_frames = MissingFrames.SKIP
 
     def __init_subclass__(cls, **kw):
         if "outputs" not in cls.__dict__:
-            cls.outputs = (Port("mask", "image.1", cls.mask_label), Port("objects", "image.1", OBJECTS_LABEL))
+            cls.outputs = (Port("mask", "image.1"), Port("objects", "image.1", words="family.segmentation.objects"))
         super().__init_subclass__(**kw)
 
     @classmethod
@@ -88,4 +85,4 @@ class Segmentation(WorkerNode):
                      {"value_range": UNIT, "half": True} if cls.mask_half else None),
             "objects": ("image.1", labels, {"value_range": (0, max(len(objects), 1)),
                                             "classes": cls.class_list(ctx, objects)}),
-        }, stage="写出遮罩")
+        }, stage="write_mask")

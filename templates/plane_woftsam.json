@@ -2,126 +2,192 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "80cc91021fa29294d35efc5af54d11f8",
-  "name": "平面跟踪 · WOFTSAM",
-  "intro": "WOFTSAM 是分割引导的单应估计，用于长时平面跟踪，在 POT-210 和 PlanarTrack 两个平面物体基准上成绩最好。这张卡框出平面的四个角，跟满整段镜头，交付 Nuke 的 CornerPin2D。",
+  "name": {
+   "zh": "平面跟踪 · WOFTSAM",
+   "en": "Planar Track · WOFTSAM"
+  },
+  "intro": {
+   "zh": "WOFTSAM 是分割引导的单应估计，用于长时平面跟踪，在 POT-210 和 PlanarTrack 两个平面物体基准上成绩最好。这张卡框出平面的四个角，跟满整段镜头，交付 Nuke 的 CornerPin2D。",
+   "en": "WOFTSAM is segmentation-guided homography estimation for long-term planar tracking, scoring best on the POT-210 and PlanarTrack planar object benchmarks. This card marks the four corners of a plane, tracks them through the whole shot and delivers a Nuke CornerPin2D."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-13T12:00:00",
-  "deliverable": "plane",
+  "deliverable": "tracks2d",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
-   "name": "corners",
-   "label": "四个角",
+   "name": "plane_corners",
+   "label": {
+    "zh": "四个角",
+    "en": "Corners"
+   },
    "target": "plane.corners",
    "show_on_change": true
   },
   {
-   "name": "corners_pick",
-   "label": "在视图里点选",
+   "name": "plane_corners_pick",
+   "label": {
+    "zh": "在视图里点选",
+    "en": "Pick in Viewport"
+   },
    "target": "plane.corners_pick"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "resolution",
-     "label": "处理分辨率",
+     "name": "plane_resolution",
+     "label": {
+      "zh": "处理分辨率",
+      "en": "Processing Resolution"
+     },
      "target": "plane.resolution"
     }
    ]
   },
   {
-   "name": "cook_track",
-   "label": "跟踪",
+   "name": "cook_plane",
+   "label": {
+    "zh": "跟踪",
+    "en": "Track"
+   },
    "target": "plane.cook"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "tracks.name"
     },
     {
      "name": "format",
-     "label": "格式",
-     "target": "out.format",
+     "label": {
+      "zh": "格式",
+      "en": "Format"
+     },
+     "target": "tracks.format",
      "widget": "menu",
      "options": [
       {
        "value": "cornerpin",
-       "label": "Nuke CornerPin（恰好四个点）"
+       "label": {
+        "zh": "Nuke CornerPin（恰好四个点）",
+        "en": "Nuke CornerPin (Exactly Four Points)"
+       }
       },
       {
        "value": "tracker",
-       "label": "Nuke Tracker"
+       "label": {
+        "zh": "Nuke Tracker",
+        "en": "Nuke Tracker"
+       }
       },
       {
        "value": "3de",
-       "label": "3DE"
+       "label": {
+        "zh": "3DE",
+        "en": "3DE"
+       }
       },
       {
        "value": "csv",
-       "label": "CSV"
+       "label": {
+        "zh": "CSV",
+        "en": "CSV"
+       }
       }
      ]
     },
     {
      "name": "origin",
-     "label": "坐标原点",
-     "target": "out.origin",
+     "label": {
+      "zh": "坐标原点",
+      "en": "Origin"
+     },
+     "target": "tracks.origin",
      "hide_when": "format != \"csv\""
     },
     {
      "name": "min_visible",
-     "label": "最少可见帧数",
-     "target": "out.min_visible",
+     "label": {
+      "zh": "最少可见帧数",
+      "en": "Min Visible Frames"
+     },
+     "target": "tracks.min_visible",
      "hide_when": "format == \"cornerpin\""
     }
    ]
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -130,8 +196,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -145,8 +210,7 @@
   },
   {
    "id": "plane",
-   "type": "woftsam.track",
-   "label": "WOFTSAM 平面跟踪",
+   "type": "woftsam.planar_track",
    "params": {
     "corners": [],
     "resolution": null
@@ -160,9 +224,8 @@
    }
   },
   {
-   "id": "out",
-   "type": "core.output_tracks",
-   "label": "2D 跟踪点输出设置",
+   "id": "tracks",
+   "type": "tracks.output",
    "params": {
     "name": "cornerpin",
     "format": "cornerpin",
@@ -170,7 +233,7 @@
     "min_visible": 5
    },
    "ui": {
-    "x": 800,
+    "x": 816,
     "y": 0,
     "on_node": [
      "name",
@@ -180,11 +243,10 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1200,
+    "x": 1216,
     "y": 14
    }
   }
@@ -206,13 +268,13 @@
     "tracks"
    ],
    "to": [
-    "out",
+    "tracks",
     "tracks"
    ]
   },
   {
    "from": [
-    "out",
+    "tracks",
     "files"
    ],
    "to": [

@@ -3,7 +3,7 @@
 TAPIP3D and Track4World: see the end). Needs numpy and OpenCV (masks and depth:
 OpenEXR or OpenImageIO); never imports Lab2Shot core or a model.
 
-job["node"]   "tapnext.track" | "cotracker.track" | "alltracker.track" (its sampled points) | "woftsam.track" |
+job["node"]   "tapnext.track" | "cotracker.track" | "alltracker.track" (its sampled points) | "woftsam.planar_track" |
               a 3D tracker
 job["frames"] [{frame, path}] sRGB PNGs of one shot, in frame order
 job["params"]   (as the node defines them)

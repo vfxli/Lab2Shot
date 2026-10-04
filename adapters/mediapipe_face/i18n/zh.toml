@@ -1,0 +1,65 @@
+# MediaPipe 面部动作（adapters/mediapipe_face）。一行一条：编号 = 模板。
+
+# ---- 输入
+"E-MEDIAPIPEFACE-SIZE" = "第 {frame} 帧的尺寸 {width}×{height} 和第一帧 {first_width}×{first_height} 不一致：一段镜头的画面必须一样大"
+
+# ---- 结果
+"N-MEDIAPIPEFACE-NOFACE.other" = "MediaPipe 在整段 {frames} 帧里都没找到脸，面部关键点、表情曲线和头部这次都是空的：它只适合脸在画面里比较大、大致正对镜头的镜头（远景小脸、侧脸超过约 80° 找不到）；也可以调低「检测阈值」"
+"I-MEDIAPIPEFACE-MODEL" = "模型"
+"W-MEDIAPIPEFACE-MISSING.other" = "MediaPipe 有 {count} 帧没找到脸（共 {total} 帧）：这些帧的关键点记为被挡住，表情曲线和头部动画沿用前后帧"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[stage]
+track_face = "逐帧跟踪面部"
+
+[node."mediapipe_face.face_solve"]
+subtitle = "面部动作"
+description = "画面 → 478 个面部关键点、52 条 ARKit 表情曲线（拿去驱动角色的表情），以及跟着头动的面部面具网格，逐帧计算。只用 CPU，很快；要正脸、脸够大，侧脸超过约 80° 就找不到。要带表情形变的 FLAME 头模，用「SMIRK 面部动作」。"
+
+[node."mediapipe_face.face_solve".param.max_faces]
+label = "最多几张脸"
+
+[node."mediapipe_face.face_solve".param.mode]
+label = "方式"
+
+[node."mediapipe_face.face_solve".param.mode.option]
+video = "视频"
+image = "逐张"
+
+[node."mediapipe_face.face_solve".param.threshold]
+label = "检测阈值"
+
+[node."mediapipe_face.face_solve".param.min_tracking_confidence]
+label = "跟住门槛"
+
+[node."mediapipe_face.face_solve".param.min_presence_confidence]
+label = "存在阈值"
+
+[node."mediapipe_face.face_solve".port.image]
+label = "RGB"
+
+[node."mediapipe_face.face_solve".port.landmarks]
+label = "面部关键点"
+
+[node."mediapipe_face.face_solve".port.head]
+label = "头部"
+
+[node."mediapipe_face.face_solve".port.expressions]
+label = "表情曲线"
+
+[node."mediapipe_face.face_solve".cost]
+note = "只用 CPU"
+
+[node."mediapipe_face.face_solve".official]
+note = "① 「头部」口给的是官方那张 canonical face 网格（上游自带的资源）按 facial_transformation_matrixes 逐帧摆位，网格本身和矩阵都是官方的。② 没有「摄影机」输出口：官方的矩阵是相对它自己假设的一台虚拟摄影机（63° 垂直视场）说的，FaceLandmarkerResult 里没有摄影机这一项；worker 按那个视场造的摄影机（worker.py VIRTUAL_VFOV_DEG）只用来把头部网格摆进世界，不是官方结果，不交出去。要把头放进某台摄影机的世界，接核心节点「摄影机空间转换」（camera_space）。③ image 的确切出处是同文件 `3189-3193 def detect(self, image: image_lib.Image) -> FaceLandmarkerResult`。"
+
+[extension.mediapipe_face]
+summary = "MediaPipe 面部标志点任务：在画面和视频里检测面部关键点和表情"
+
+[extension.mediapipe_face.license]
+name = "Apache-2.0（代码和模型）"
+summary = "代码（MediaPipe 仓库和 pip 包 mediapipe）为 Apache-2.0，可商用。face_landmarker.task 里的三个模型按各自模型卡均为 Apache-2.0：BlazeFace 面部检测（近距离版）、Face Mesh V2（478 点）、Blendshape V2（52 条表情曲线）；标准脸网格也随仓库以 Apache-2.0 发布。模型卡说明用途为 AR 娱乐，不提供面部识别，不适合做攸关人身安全的判断。不依赖 torch、nvdiffrast 或 FLAME / SMPL 等需要注册的面部/人体模型"
+
+[extension.mediapipe_face.weight.face-landmarker]
+note = "face_landmarker.task float16 v1（面部检测 + 478 点 + 52 表情，3.6 MB，Apache-2.0）"

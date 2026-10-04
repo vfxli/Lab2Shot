@@ -1,0 +1,124 @@
+# The server's (lab2shot/server) words for users and administrators that are not whole messages. Keys server.<…>.
+[server]
+not_signed_in = "Not logged in"
+request_body = "request body"
+no_gpu = "No GPU"
+curve_value = "Value"
+uncategorized = "Uncategorized"
+never_expires = "Never expires"
+
+[server.audit]
+done = "Done"
+refused = "Refused"
+failed = "Failed"
+
+[server.watch]
+unknown_host = "Unknown host name"
+too_fast = "Too many requests"
+odd_path = "Suspicious path"
+no_route = "Route not served"
+admin_only = "Admin route without admin rights"
+no_capability = "Role lacks this right"
+local_only = "Local command line only"
+foreign_credential = "Credential not issued by this server"
+cross_site = "Cross-site request"
+too_big = "Request too large"
+too_many_tries = "Blocked after too many wrong tries"
+login_failed = "Login failed"
+embed_not_plugin = "Embed ticket asked without a plugin token"
+embed_bad_target = "Embedded window target not on this site"
+embed_cross_site = "Embed ticket brought from another site"
+embed_bad_ticket = "Embed ticket wrong or expired"
+register_refused = "Registration refused"
+invite_wrong = "Wrong invite code"
+
+[server.watch_detail]
+ours = "Logged in, the request claims to come from this site's page; not counted toward blocking"
+bytes.one = "{count} byte"
+bytes.other = "{count} bytes"
+register = "Registration"
+trap = "Decoy field filled in"
+too_quick = "Filled in too quickly"
+invite_wrong = "Wrong invite code"
+
+[server.counted_as]
+k = "on this device that has logged in before"
+c = "from this source"
+s = "from devices never logged in, in all"
+
+[server.secret]
+password = "Password"
+new_password = "New password"
+current_password = "Current password"
+passphrase = "Passphrase"
+invite = "Invite code"
+
+[server.password_by]
+self = "the account itself"
+passphrase = "passphrase"
+
+[server.invite]
+uses_unlimited = "unlimited uses"
+uses = "{count} uses"
+no_note = "no note"
+typed = "typed in"
+random = "generated at random"
+enabled = "enabled"
+disabled = "disabled"
+by_code = "invite code {code}…"
+by_time = "registered from {since} to {until}"
+earliest = "the earliest"
+now = "now"
+
+[server.rights]
+added = "added {items}"
+removed = "removed {items}"
+unchanged = "no change"
+
+[server.tags]
+basic_only = "basic only"
+
+[server.logins]
+threshold = "More different IPs than {ips} or more different devices than {devices} within 7 days, or more failures than {failures} in one day"
+
+[server.quota]
+part = "{what} {gb} GB"
+all_empty = "(all empty)"
+untitled_graph = "Graph"
+
+[server.quota.area.tasks]
+label = "Jobs"
+note.one = "Each job's folder: graph, uploaded media (the same file counted once), output folders and zip, logs; deleted whole {days} day after the job ends, freed at once when you delete the job in the Queue"
+note.other = "Each job's folder: graph, uploaded media (the same file counted once), output folders and zip, logs; deleted whole {days} days after the job ends, freed at once when you delete the job in the Queue"
+
+[server.quota.area.cache]
+label = "Cache"
+note = "Cooked node results and raw model results (what jobs and media already cooked is not cooked again); deleting a job also clears the cache only it used, cache other jobs still use stays"
+
+[server.quota.area.uploads]
+label = "Unused media"
+note.one = "Media uploaded but not used by any job yet (file headers sent when choosing files and half-finished uploads count too); once a job using it is submitted it counts under the job. Media no job uses is cleared after {days} day"
+note.other = "Media uploaded but not used by any job yet (file headers sent when choosing files and half-finished uploads count too); once a job using it is submitted it counts under the job. Media no job uses is cleared after {days} days"
+
+[server.quota.area.templates]
+label = "My Templates"
+note = "Graphs kept on the server (deleting one in My Templates stops counting it; the deleted copy kept for an administrator to restore does not use your quota)"
+
+[server.view]
+building = "preparing the 3D view data"
+starting = "starting the 3D view process"
+
+# The two category trees (lab2shot/categories.py, server/categories.py)
+[server.categories]
+first_level = "first level"
+tree_templates = "templates"
+tree_menu = "node menu"
+uncategorized = "Uncategorized"
+
+[categories]
+no_bak = "no previous version"
+
+# The Terms of Service and Privacy Policy (lab2shot/terms)
+[terms.title]
+agreement = "Terms of Service"
+privacy = "Privacy Policy"

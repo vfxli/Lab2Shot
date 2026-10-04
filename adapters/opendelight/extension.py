@@ -37,21 +37,13 @@ class OpenDelight(Extension):
     name = "opendelight"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "OpenDelight"
-    summary = "完全开源、面向面部外观采集的高性能去光照先验"
     homepage = "https://yxuhan.github.io/OpenDelight/"
     source = GitSource(url=OPENDELIGHT_URL, commit=OPENDELIGHT_COMMIT)
     license = LicenseInfo(
         tag=RESEARCH,
-        name="GPL-3.0 代码 · 权重非商用",
         url="https://github.com/yxuhan/OpenDelight/blob/main/LICENSE",
-        summary=(
-            "代码 GPL-3.0；权重没有声明许可证，训练数据为 FaceOLAT（仅限学术研究）和作者的私有数据，"
-            "只能用于研究和评估，作者授予商用许可前不能用于商业制作（联系 hanyx22@mails.tsinghua.edu.cn）。"
-            "辅助模型：DAViD 抠像（MIT）、ibug 面部检测/关键点（MIT）、FaRL 面部分割（MIT，但训练数据 LaPa 仅限非商用）；"
-            "MAE 初始化权重（CC BY-NC 4.0）推理时用不到，不下载。"
-            "以独立进程运行，GPL 不影响 Lab2Shot 本身"
-        ),
     )
+    generative = False
     # torch 本身支持 sm_120（Blackwell）；上游钉的 onnxruntime-gpu 1.22.0 预编译 CUDA provider 只到 sm_90，
     # 所以 requirements.txt 用带 sm_120 kernel 的版本。环境装在 .venv-ada-blackwell（见 Extension.env_archs）。
     env_archs = ("sm_89", "sm_120")  # Ada and Blackwell: third_party/opendelight/.venv-ada-blackwell
@@ -69,7 +61,6 @@ class OpenDelight(Extension):
             kind="url",
             source="https://drive.usercontent.google.com/download?id=1bCIKOGNlKcGgObg5AeErUHkRTMuv0HHZ&export=download&confirm=t",
             dest=OPENDELIGHT_TAR,
-            note="OpenDelight网络 + UNet 增强网络（无许可证声明，按非商用对待；安装后处理时解包）",
         ),
         Weight(
             key="david-foreground",
@@ -77,7 +68,6 @@ class OpenDelight(Extension):
             kind="url",
             source="https://facesyntheticspubwedata.z6.web.core.windows.net/iccv-2025/models/foreground-segmentation-model-vitl16_384.onnx",
             dest=DAVID_ONNX,
-            note="DAViD 软前景抠像 ViT-L ONNX（MIT）",
         ),
         Weight(
             key="farl-lapa-448",
@@ -85,7 +75,6 @@ class OpenDelight(Extension):
             kind="url",
             source="https://github.com/FacePerceiver/facer/releases/download/models-v1/face_parsing.farl.lapa.main_ema_136500_jit191.pt",
             dest=FARL_LAPA,
-            note="FaRL 面部分割 LaPa 448（facer，MIT；训练数据 LaPa 仅限非商用）",
         ),
         Weight(
             key="ibug-face-detection",
@@ -93,7 +82,6 @@ class OpenDelight(Extension):
             kind="zip",
             source=f"https://github.com/hhj1897/face_detection/archive/{IBUG_FD_COMMIT}.zip",
             dest="ibug/face_detection",
-            note="ibug RetinaFace 面部检测代码（MIT）",
         ),
         Weight(
             key="ibug-retinaface-r50",
@@ -103,7 +91,6 @@ class OpenDelight(Extension):
                 "/ibug/face_detection/retina_face/weights/Resnet50_Final.pth"
             ),
             dest=RETINAFACE_R50,
-            note="ibug RetinaFace ResNet-50 权重（git-lfs 文件，MIT）",
             sha256=RETINAFACE_R50_SHA256,  # the real file, not a git-lfs pointer or an error page
         ),
         Weight(
@@ -112,7 +99,6 @@ class OpenDelight(Extension):
             kind="zip",
             source=f"https://github.com/hhj1897/face_alignment/archive/{IBUG_FA_COMMIT}.zip",
             dest="ibug/face_alignment",
-            note="ibug FAN 68 点面部关键点代码和权重（MIT）",
         ),
     )
 

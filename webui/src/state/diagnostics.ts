@@ -2,11 +2,12 @@ import { clientInfo } from "../platform/client";
 import { failedRequests, type FailedRequest } from "../platform/http";
 import { pageErrors, type PageError } from "../platform/pageErrors";
 import { recentLog } from "./log";
+import { t } from "../i18n/t";
 
 /** Diagnostics that the feedback report sends in addition to the user's text, collected in the page: the browser and
  * the machine, the latest page log entries, and (held here in memory since the page opened) its errors with their
  * locations and the requests the server refused or that never reached it. The server adds its own
- * (lab2shot/feedback.py) and removes secrets; the dialog shows everything before it is sent. */
+ * (lab2shot/site/feedback.py) and removes secrets; the dialog shows everything before it is sent. */
 
 
 const LOG_ENTRIES = 200;
@@ -75,7 +76,7 @@ function webgl(): string {
   try {
     const gl = document.createElement("canvas").getContext("webgl");
     const ext = gl?.getExtension("WEBGL_debug_renderer_info");
-    gpu = gl ? String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : "没有 WebGL";
+    gpu = gl ? String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : t("ui.state.no_webgl");
     gl?.getExtension("WEBGL_lose_context")?.loseContext();
   } catch {
     gpu = "";

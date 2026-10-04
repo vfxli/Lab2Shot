@@ -3,6 +3,7 @@ import { api, type Choice, type ParamDef } from "../api";
 import { getNodeDefs } from "../state/catalog";
 import { useCookInputs } from "../state/cookInputs";
 import { useResults } from "../state/results";
+import { useLang } from "../i18n/lang";
 
 // Options that come from a file or from what is wired in (P(choices_from), NodeDef.choices), asked from the server
 // whenever what they come from changes: the parameters it names, the results cooked for the input ports it names
@@ -16,6 +17,7 @@ export function useChoiceSet(nodeId: string, p: ParamDef): Record<string, Choice
   const typeId = useCookInputs((s) => s.nodes[nodeId]?.typeId ?? "");
   const nodeParams = useCookInputs((s) => s.nodes[nodeId]?.params);
   const results = useResults((s) => s.results);
+  const lang = useLang((s) => s.lang); // the options' words are the server's, in the page's language: asked again in another
   const from = (() => {
     const def = getNodeDefs()[typeId];
     if (!nodeParams || !def) return "";
@@ -37,7 +39,7 @@ export function useChoiceSet(nodeId: string, p: ParamDef): Record<string, Choice
     return JSON.stringify([inputs, values]);
   })();
   const [got, setGot] = useState<Record<string, Choice> | null>(null);
-  const key = `${typeId}|${from}`;
+  const key = `${typeId}|${lang}|${from}`;
   useEffect(() => {
     if (!from) return setGot(null);
     let live = true;

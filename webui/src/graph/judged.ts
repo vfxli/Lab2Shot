@@ -4,7 +4,7 @@
 
 import type { StatusReply } from "../api";
 import { getNodeDefs } from "../state/catalog";
-import { useCookInputs } from "../state/cookInputs";
+import { nodeRefOf } from "../state/cookInputs";
 import { fromServer, msg, say } from "../state/say";
 import { wireKey } from "./rules";
 
@@ -16,7 +16,7 @@ export function sayJudgedWires(reply: StatusReply): void {
     if (!justWired.delete(id) || w.state === "ok" || !w.problem) continue;
     const problem = fromServer(w.problem);
     const fix = getNodeDefs()[w.fix];
-    const node = useCookInputs.getState().nodes[w.to[0]]?.label ?? w.to[0];
-    say(fix ? msg("W-WIRE-WRONGFIX", { problem, node, via: fix.label }, { port: w.to[1] }) : msg("W-WIRE-WRONG", { problem }, { port: w.to[1] }), w.to[0]);
+    const node = nodeRefOf(w.to[0]);
+    say(fix ? msg("W-WIRE-WRONGFIX", { problem, node, via: fix.subtitle }, { port: w.to[1] }) : msg("W-WIRE-WRONG", { problem }, { port: w.to[1] }), w.to[0]);
   }
 }

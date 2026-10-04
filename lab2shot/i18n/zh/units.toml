@@ -1,0 +1,20 @@
+# 单位（P1-A，data/units.py UNITS）：unit.<单位 id> 是数值框里显示的单位，unit.kind.<种类> 是单位的种类。
+[unit]
+mm = "mm"
+cm = "cm"
+m = "m"
+px = "px"
+"°" = "°"
+frame = "帧"
+s = "秒"
+EV = "EV"
+fps = "fps"
+
+[unit.kind]
+length = "长度"
+pixels = "像素"
+angle = "角度"
+frames = "帧数"
+time = "时间"
+exposure = "曝光"
+rate = "帧速率"

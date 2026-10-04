@@ -1,0 +1,36 @@
+# SDMatte extension: its words and messages in English (the same keys as zh.toml).
+
+[node."sdmatte.matte"]
+subtitle = "Fine Matte"
+description = "Commercially usable fine matting: the rough mask only points out which subject to pull, no trimap to paint; SDMatte recomputes a hair-level alpha for the whole image itself. Computed on a 1024 square and scaled back to the original size; every frame is computed on its own, so the matte breathes slightly from frame to frame."
+official.note = "aux_input is the Rough Mask input: aux_input_type is mask / bbox_mask / point_mask, which is what the node's Guide picks. Upstream outputs only alpha."
+licence.note = "Code and model weights are both MIT, commercial use allowed; the training data includes research-only datasets, so a legal review is advisable before strict commercial delivery."
+
+[node."sdmatte.matte".param.guide]
+label = "Guide"
+option.mask = "Mask"
+option.box = "Box"
+
+[node."sdmatte.matte".param.resolution]
+label = "Processing Resolution"
+
+[node."sdmatte.matte".param.transparent]
+label = "Translucent Subject"
+
+[extension.sdmatte]
+summary = "Diffusion-driven interactive matting that replaces text-driven interaction with visual-prompt-driven interaction; commercial use allowed"
+license.name = "MIT (code and model weights)"
+license.summary = "Commercial use allowed: the repository is MIT, and the model weights page on Hugging Face also says license: mit. The network is adapted from Stable Diffusion 2, but only the authors' own trained SDMatte.pth is downloaded; none of Stability AI's model weight files is downloaded or installed. The training data includes research-only datasets such as Composition-1K and RefMatte, so a legal review is advisable before strict commercial delivery"
+weight.sdmatte.note = "SDMatte model weights (12 GB, MIT): the authors' trained U-Net, VAE and text encoder; none of Stable Diffusion's original model weights is downloaded"
+weight."config/unet/config.json".note = "SDMatte network configuration"
+weight."config/vae/config.json".note = "SDMatte network configuration"
+weight."config/text_encoder/config.json".note = "SDMatte network configuration"
+weight."config/scheduler/scheduler_config.json".note = "SDMatte network configuration"
+weight."config/tokenizer/tokenizer_config.json".note = "SDMatte network configuration"
+weight."config/tokenizer/special_tokens_map.json".note = "SDMatte network configuration"
+weight."config/tokenizer/vocab.json".note = "SDMatte network configuration"
+weight."config/tokenizer/merges.txt".note = "SDMatte network configuration"
+
+# worker progress (worker.py)
+[stage]
+matte = "Matting"

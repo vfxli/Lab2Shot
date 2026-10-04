@@ -18,12 +18,16 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# Upstream's optimized settings (run_demo.sh at the pinned commit), minus TensorRT
-# (engines are built per GPU; not installed) and minus torch.compile: on the 4090
-# compiling saved ~0.02 s per frame (0.168 -> 0.145-0.153 s) but cost 60-90 s per
-# run even with a warm cache, so it only pays off beyond ~3000 frames. Read by
-# the repo at import time; the environment may override any of them
-# (USE_COMPILE=1 USE_COMPILE_BACKBONE=1 restores upstream's compiled path).
+# Upstream's optimized settings (run_demo.sh at the pinned commit), except torch.compile, which is off by default:
+# compiling (USE_COMPILE / USE_COMPILE_BACKBONE / DECODER_COMPILE, reduce-overhead CUDA graphs) costs one to two
+# minutes in every new worker process and once more for each new number of people in a batch, and saves about
+# 0.02 s a frame (docs.md), so only shots of thousands of frames gain from it. To turn it on, start the service with
+# LAB2SHOT_FAST_SAM_3D_BODY_COMPILE=1 in its environment (workers inherit it); the compiled kernels are then cached on
+# disk in the extension's own TORCHINDUCTOR_CACHE_DIR (Extension.base_env). TensorRT: upstream's backbone engine,
+# built per GPU on first use and cached in the extension's folder (trt_engines.py; when it cannot be built or loaded
+# the backbone stays on PyTorch, with a warning). Read by the repo at import time; the environment may override
+# any of them.
+COMPILE = "1" if os.environ.get("LAB2SHOT_FAST_SAM_3D_BODY_COMPILE", "0") == "1" else "0"
 FAST_SETTINGS = {
     "IMG_SIZE": "512",  # upstream: smaller is faster but loses accuracy
     "LAYER_DTYPE": "fp32",  # decoder precision; upstream says multi-person needs fp32
@@ -33,11 +37,11 @@ FAST_SETTINGS = {
     "KEYPOINT_PROMPT_INTERM_INTERVAL": "999",
     "BODY_INTERM_PRED_LAYERS": "0,1,2",  # pruned intermediate predictions
     "HAND_INTERM_PRED_LAYERS": "0,1",
-    "MHR_NO_CORRECTIVES": "1",  # only inside the network; the exported rig keeps correctives
+    "MHR_NO_CORRECTIVES": "1",  # no pose correctives in the network's MHR head (the exported rig has none either)
     "MHR_USE_CUDA_GRAPH": "0",
-    "USE_COMPILE": "0",
-    "USE_COMPILE_BACKBONE": "0",
-    "DECODER_COMPILE": "1",  # only with USE_COMPILE=1
+    "USE_COMPILE": COMPILE,
+    "USE_COMPILE_BACKBONE": COMPILE,
+    "DECODER_COMPILE": COMPILE,
     "COMPILE_MODE": "reduce-overhead",
     "DEBUG_NAN": "0",
     "INTERM_TIMING": "0",
@@ -55,6 +59,7 @@ from lab2shot_worker.run import Run  # noqa: E402
 
 # the sam_3d_body adapter's module (this extension requires sam_3d_body: its folder is on the worker's path)
 import sam3dbody as family  # noqa: E402
+import trt_engines  # noqa: E402  (this adapter's folder: the worker script's own)
 
 YOLO_THRESH = 0.5  # YOLO11-Pose person confidence
 MATCH_IOU = 0.3  # a given person box takes the wrists of the YOLO person it overlaps most
@@ -92,6 +97,28 @@ def load_body(weights: Path, device: torch.device):
         return load_sam_3d_body(str(weights / "model.ckpt"), device=device, mhr_path=str(weights / "assets" / "mhr_model.pt"))
 
 
+@resident(movable=False)  # the TensorRT engine's memory is not PyTorch's: leaving the GPU frees it
+def load_body_engine(weights: Path, device: torch.device, engine: Path):
+    """load_body with upstream's TensorRT backbone in place of the PyTorch DINOv3 encoder (trt_engines.attach_backbone).
+    Raises when the engine does not load or does not agree with PyTorch."""
+    model, cfg = load_body.__wrapped__(weights, device)
+    trt_engines.attach_backbone(model, engine, int(os.environ["IMG_SIZE"]))
+    return model, cfg
+
+
+def load_any_body(run: Run, device, engine: Path | None):
+    """The model with the TensorRT backbone when there is an engine, else (or when it fails to load) PyTorch."""
+    weights = run.job.weights_dir / "sam-3d-body-dinov3"
+    if engine is not None:
+        try:
+            return run.model("load_model", load_body_engine, weights, device, engine,
+                             stage_params={"model": "Fast SAM 3D Body (TensorRT)"})
+        except Exception as exc:  # noqa: BLE001 - any engine problem: the PyTorch path, said
+            trt_engines.give_up(engine, trt_engines.BACKBONE, exc)
+            torch.cuda.empty_cache()
+    return run.model("load_model", load_body, weights, device, stage_params={"model": "Fast SAM 3D Body"})
+
+
 def measure_focal(job, device, loaded: list):
     """rgb -> focal px: MoGe-2 ViT-L, as the sam_3d_body worker (through this repo's own loader; appended to
     `loaded`)."""
@@ -111,7 +138,7 @@ def detect_people(run: Run, device) -> dict[int, tuple[np.ndarray, np.ndarray]]:
     """frame -> (boxes [N,4], COCO keypoints [N,17,3]) from YOLO11-Pose: who is in each frame and where their
     wrists are.
 
-    The people when no 「人物框」 is connected (a connected one goes straight to upstream's process_one_image
+    The people when no boxes input is connected (a connected one goes straight to upstream's process_one_image
     bboxes; then this runs only for the wrists, see node_solve). This repo's own detector, not SAM 3D Body's ViTDet:
       - this repo's demo uses YOLO11 as its default person detector, `yolo_pose` being one of its three choices
         (third_party/fast_sam_3d_body/repo/demo_human.py:623-629, `--detector` default "yolo",
@@ -122,8 +149,12 @@ def detect_people(run: Run, device) -> dict[int, tuple[np.ndarray, np.ndarray]]:
       - it is the only detector whose weights this extension installs (third_party/fast_sam_3d_body/weights/
         yolo/yolo11m-pose.pt; ViTDet's 2.7 GB model_final_f05665.pkl is in the sam_3d_body extension's weights).
     """
-    detector = run.model("YOLO11-Pose 模型", load_yolo, run.job.weights_dir / "yolo" / "yolo11m-pose.pt", device)
-    run.stage("检测人物")
+    # PyTorch, not upstream's YOLO-Pose TensorRT engine: on an RTX 5090 the engine detected no faster (0.04 s a frame
+    # either way, reading the frame dominates), took 6 minutes to build, and its FP16 wrists moved the hand crops
+    # (fingers up to 4 cm apart from PyTorch's; the backbone engine alone: under 2 cm, bodies under 1 mm)
+    detector = run.model("load_model", load_yolo, run.job.weights_dir / "yolo" / "yolo11m-pose.pt", device,
+                         stage_params={"model": "YOLO11-Pose"})
+    run.stage("detect_people")
     found = {}
     for n, (frame, path) in run.each(run.job.frames, ""):
         with quiet():
@@ -155,12 +186,12 @@ class FramePeople:
         return {"boxes": self.boxes, "keypoints": self.keypoints}
 
 
-def load_estimator(run: Run, device, batch_sizes: list[int]):
-    # only read with USE_COMPILE=1 (compile warm-up); a process kept loaded keeps its first job's
-    os.environ.setdefault("COMPILE_WARMUP_BATCH_SIZES", ",".join(map(str, batch_sizes)))
+def load_estimator(run: Run, device, batch_sizes: list[int], engine: Path | None = None):
+    # the batch sizes the estimator warms the compiled graphs up for (read when it is made, every job): this job's
+    os.environ["COMPILE_WARMUP_BATCH_SIZES"] = ",".join(map(str, batch_sizes))
     from sam_3d_body import SAM3DBodyEstimator
 
-    model, cfg = run.model("Fast SAM 3D Body 模型", load_body, run.job.weights_dir / "sam-3d-body-dinov3", device)
+    model, cfg = load_any_body(run, device, engine)
     people = FramePeople()
     with quiet():
         estimator = SAM3DBodyEstimator(sam_3d_body_model=model, model_cfg=cfg, human_detector=people)
@@ -169,52 +200,68 @@ def load_estimator(run: Run, device, batch_sizes: list[int]):
 
 def infer(run: Run, estimator, people: FramePeople, selected, wrists, cam_int, full: bool) -> dict[int, dict[int, dict]]:
     """person id -> frame -> Fast SAM 3D Body output; all people of a frame in one batch."""
-    run.stage("估计人体姿态")
+    run.stage("estimate_pose")
     per_person: dict[int, dict[int, dict]] = {pid: {} for pid, _ in selected}
     serial = 0
     batch = [family.PEOPLE_BATCH]  # people per batch; once lowered for memory it stays lowered (else every frame fails once first)
-    for n, (frame, path) in run.each(run.job.frames, ""):
-        present = [(pid, t.boxes[frame]) for pid, t in selected if frame in t.boxes]
-        if present:
-            # a frame's people in batches, every one solved (sam3dbody.py batches); a batch that does not fit the GPU
-            # redoes the frame one size smaller. Each batch hands its boxes and wrists to FramePeople (standing in for
-            # upstream's detector), so upstream takes its fast path for that batch
-            def estimate(size, frame=frame, path=path, present=present):
-                batch[0] = size
-                pairs, slow = [], 0
-                for chunk in family.batches(present, size):
-                    people.boxes = np.stack([b for _, b in chunk]).astype(np.float32)
-                    people.keypoints, wrists_seen = wrists_for(people.boxes, wrists.get(frame))
-                    parallel = full and wrists_seen
-                    slow += full and not wrists_seen
-                    with quiet():
-                        outs = estimator.process_one_image(
-                            str(path),
-                            cam_int=cam_int(frame) if callable(cam_int) else cam_int,
-                            inference_type="full" if full else "body",
-                            hand_box_source="yolo_pose" if parallel else "body_decoder",
-                        )
-                    pairs.extend(zip([pid for pid, _ in chunk], outs))
-                return pairs, slow
-
-            pairs, slow = run.fit(MemoryBound.batch(family.BATCH_STEPS), estimate, batch[0])
-            serial += slow
-            for pid, out in pairs:
-                per_person[pid][frame] = out
+    # the picture goes in from memory, read once per frame and shared by its batches (RGB, as upstream's real-time
+    # path hands it over: run_publisher.py:300-306), and upstream's per-call empty_cache is skipped (keep_gpu_cache)
+    with family.keep_gpu_cache():
+        for n, (frame, path) in run.each(run.job.frames, ""):
+            serial += infer_frame(run, estimator, people, selected, wrists, cam_int, full, per_person, batch, frame, path)
     if serial:
         say("N-FASTSAM3DBODY-SLOWHANDS", frames=int(serial))
     return per_person
 
 
+def infer_frame(run: Run, estimator, people: FramePeople, selected, wrists, cam_int, full: bool, per_person, batch,
+                frame, path) -> int:
+    """One frame of infer(); how many of its batches took the slower hand path."""
+    present = [(pid, t.boxes[frame]) for pid, t in selected if frame in t.boxes]
+    if not present:
+        return 0
+    image = read_frame(path)  # RGB: process_one_image takes an array as RGB
+
+    # a frame's people in batches, every one solved (sam3dbody.py batches); a batch that does not fit the GPU
+    # redoes the frame one size smaller. Each batch hands its boxes and wrists to FramePeople (standing in for
+    # upstream's detector), so upstream takes its fast path for that batch
+    def estimate(size, frame=frame, image=image, present=present):
+        batch[0] = size
+        pairs, slow = [], 0
+        for chunk in family.batches(present, size):
+            people.boxes = np.stack([b for _, b in chunk]).astype(np.float32)
+            people.keypoints, wrists_seen = wrists_for(people.boxes, wrists.get(frame))
+            parallel = full and wrists_seen
+            slow += full and not wrists_seen
+            with quiet():
+                outs = estimator.process_one_image(
+                    image,
+                    cam_int=cam_int(frame) if callable(cam_int) else cam_int,
+                    inference_type="full" if full else "body",
+                    hand_box_source="yolo_pose" if parallel else "body_decoder",
+                )
+            pairs.extend(zip([pid for pid, _ in chunk], outs))
+        return pairs, slow
+
+    pairs, slow = run.fit(MemoryBound.batch(family.BATCH_STEPS), estimate, batch[0])
+    for pid, out in pairs:
+        per_person[pid][frame] = out
+    return slow
+
+
 def node_solve(run: Run, device) -> None:
-    """Node Fast SAM 3D Body 全身动作: same inputs, parameters and raw output as sam_3d_body.solve; without
+    """Node fast_sam_3d_body.solve: same inputs, parameters and raw output as sam_3d_body.solve; without
     person boxes the people come from this repo's own YOLO11-Pose (detect_people)."""
     job = run.job
     full = bool(job.params["hand_refine"])  # False: body decoder only (the wrists are then not used)
     given = bool(job.inputs.get("boxes"))
     # given 「人物框」 are solved as given (upstream's process_one_image takes bboxes); YOLO-Pose then runs only for
     # the wrists (hand refinement). Without them it detects, as upstream's demo does: boxes and wrists in one pass
-    found = detect_people(run, device) if (full or not given) else {}
+    detect = full or not given
+    # upstream's TensorRT engines this job uses, built first when missing (before any model of the job is loaded)
+    engines = trt_engines.engines(run, Path(os.environ["LAB2SHOT_FAST_SAM_3D_BODY_TRT_DIR"]), job.weights_dir,
+                                  (trt_engines.BACKBONE,))
+    found = detect_people(run, device) if detect else {}
     selected = family.given_people(job, "N-FASTSAM3DBODY-NOBODYCHOSEN") if given \
         else family.people_tracks({frame: boxes for frame, (boxes, _) in found.items()})
     fov = []
@@ -225,7 +272,7 @@ def node_solve(run: Run, device) -> None:
     # a batch is at most family.PEOPLE_BATCH people (infer() splits a frame's people the same way): the warm-up batch
     # sizes, read only when USE_COMPILE=1 is set in the environment
     counts = sorted({min(sum(frame in t.boxes for _, t in selected), family.PEOPLE_BATCH) for frame, _ in job.frames} - {0})
-    model, estimator, people = load_estimator(run, device, counts or [1])
+    model, estimator, people = load_estimator(run, device, counts or [1], engines.get(trt_engines.BACKBONE))
     per_person = infer(run, estimator, people, selected, wrists, cam_int, full)
     head = model.head_pose
     compiled = getattr(head, "_compiled", False)

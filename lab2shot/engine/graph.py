@@ -15,14 +15,16 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .. import i18n
 from ..errors import GraphError
 from ..messages import Msg
-from ..data.types import ABSTRACT_TYPES, DATA_TYPES, element_of, is_list, list_of, type_label
+from ..data.types import ABSTRACT_TYPES, DATA_TYPES, element_of, is_list, list_of, type_label, within
 from ..nodes import accepts, node_types
 from ..nodes.applies import NodeFacts, Resolved, facts_for, output_ports, resolve, waiting_port
 from ..nodes.base import NodeDef, Port
 from ..nodes.port import PARAM
 from ..nodes.output import FILES, file_name, name_key
+from .naming import node_ref
 from .scopes import Scopes, chooses, rules
 
 SCHEMA = "lab2shot.graph/1"
@@ -34,10 +36,10 @@ def _takes_files(node: GNode, port: str) -> bool:
 
 def _common(types: list[str]) -> str:
     """The type every one of these carries: the widest of them that takes all the others (data/types.py accepts); else
-    the nearest kind above them all in the type tree (the part before a dot: 骨架动画 scene.skeleton and 蒙皮角色
-    scene.character are both 场景 scene), when that is a type of its own and not an open family root (ABSTRACT_TYPES:
-    image, value stand for "not known yet", so image.3 with image.1 and value.int with value.float stay apart); a list
-    of them the same way. "" when they have nothing in common (B-SWITCH-TYPES). A way whose type is still open (a
+    when they share a kind above them in the type tree (the part before a dot: 骨架动画 scene.skeleton and 蒙皮角色
+    scene.character are both 场景 scene) that is a type of its own and not an open family root (ABSTRACT_TYPES:
+    image, value stand for "not known yet", so image.3 with image.1 and value.int with value.float stay apart), the
+    alternatives themselves ("scene.skeleton|scene.character": it carries one of them); a list of them the same way. "" when they have nothing in common (B-SWITCH-TYPES). A way whose type is still open (a
     port following an input that is not wired: 「Kimodo」's 骨架动画 or 蒙皮角色) may carry any of its alternatives,
     so the common type has to take every one of them, not just one (accepts takes an open type when any fits)."""
     if found := next((t for t in types if all(accepts(t, alt) for other in types for alt in other.split("|"))), ""):
@@ -53,7 +55,10 @@ def _common(types: list[str]) -> str:
     while shared:
         kind = ".".join(shared)
         if kind in DATA_TYPES and kind not in ABSTRACT_TYPES:
-            return list_of(kind) if is_list(types[0]) else kind
+            # what it carries is one of them, by the way it takes (骨架动画 on one way, 蒙皮角色 on the other): the
+            # alternatives themselves, not the kind above them — an input that takes either (「重定向预处理」's 动作)
+            # takes it, as it takes a port that follows an input not wired yet (accepts: any alternative fits)
+            return "|".join(dict.fromkeys(alt for t in types for alt in t.split("|")))
         shared.pop()
     return ""
 
@@ -65,7 +70,7 @@ def insert_fix(via: str, kind: str = "") -> dict:
     from ..data.types import kind_label
     from ..nodes import node_types
 
-    said = Msg("I-FIX-INSERTKIND", node=node_types()[via].label, kind=kind_label(kind)) if kind else Msg("I-FIX-INSERT", node=node_types()[via].label)
+    said = Msg("I-FIX-INSERTKIND", via=node_types()[via].subtitle, kind=kind_label(kind)) if kind else Msg("I-FIX-INSERT", via=node_types()[via].subtitle)
     return {"insert": via, "label": said.text}
 
 
@@ -74,13 +79,13 @@ def walk(starts, next_of: Callable[[str], Any]) -> list[str]:
     evaluation's and the graph's sources-first filling, templates): every node reachable from `starts`
     by `next_of` (a node -> the nodes it leads to, in order), each once, each after every node it leads to
     (dependencies first when `next_of` goes upstream), without recursion (a chain of any length). A graph has no cycle
-    (Graph.from_json refuses one); a walk over raw template JSON (templates.core_project) that meets one stops there.
+    (Graph.from_json refuses one).
 
     What is not a collection of everything reachable walks on its own, each for its reason: finding the cycle itself
     (Graph._on_cycle, Kahn: a walk assumes there is none); searches that stop at the first hit, in order
-    (Evaluation._failure_above, Routing._stand_in: an explicit stack); distances in wires (templates.core_project,
-    breadth first); one chain followed up a single wire (Evaluation.shot: what was photographed, up the one picture
-    input each output follows, a loop until an answer is known). The answers remembered per instance or per port that
+    (Evaluation._failure_above, Routing._stand_in: an explicit stack); one chain followed up a single wire
+    (Evaluation.shot: what was photographed, up the one picture input each output follows, a loop until an answer is
+    known). The answers remembered per instance or per port that
     ask their sources' answers (plan, outcome, info, provisional; output_type, scene_kinds) recurse one step only:
     _sources_first fills their tables through a walk first, and every one of them is remembered, for an instance that
     waits too (a chain of waiting instances is worked out once each, not once per way of asking)."""
@@ -132,15 +137,13 @@ def _list_node(role: str) -> str:
 class GNode:
     id: str
     type: type[NodeDef]
-    label: str
     params: dict[str, Any]
     promoted: tuple[str, ...] = ()  # parameters driven by a wire: each has an input "param:<name>" (NodeDef.param_port)
 
-
-def _named(label: str, node_id: str, labels: list[str]) -> str:
-    """How a message about reading the graph names a node: by its label, and with its id after it only when another
-    node of the graph (`labels`: every node's) has the same label, so the one meant can still be found."""
-    return f"{label}（{node_id}）" if labels.count(label) > 1 else label
+    @property
+    def label(self) -> str:
+        """How a message points at this node: `name（type）` (engine/naming.py node_ref, the one place)."""
+        return node_ref(self.id, self.type.id)
 
 
 # what a node id may not hold: it is the key of `node.param` (templates' targets), `node@item` and `dst.dport`
@@ -155,6 +158,11 @@ def _good_id(node_id: str) -> bool:
     return len(node_id) <= ID_MOST and bool(_ID.fullmatch(node_id)) and not any(unicodedata.category(c) == "Cf" for c in node_id)
 
 
+def data_kind_word(data: bool) -> str:
+    """How a message names what a port carries (Port.data): values (a normal map, motion vectors) or a picture."""
+    return i18n.Word("engine.kind.data" if data else "engine.kind.picture")
+
+
 def check_shape(data: dict) -> None:
     """The graph file's structure, checked where a graph is read (Graph.from_json, and first thing by every helper that
     reads the file before it: engine/templates.py apply_values, exposed_params, check_exposed, file_params) so nothing
@@ -163,34 +171,40 @@ def check_shape(data: dict) -> None:
     E-GRAPH-SAMEID)."""
     nodes, edges = data.get("nodes"), data.get("edges", [])
     if not isinstance(nodes, list):
-        raise GraphError(Msg("E-GRAPH-SHAPE", what="nodes 要是一个列表"))
+        raise GraphError(Msg("E-GRAPH-SHAPE", what=i18n.Word("engine.shape.nodes")))
     if not isinstance(edges, list):
-        raise GraphError(Msg("E-GRAPH-SHAPE", what="edges 要是一个列表"))
+        raise GraphError(Msg("E-GRAPH-SHAPE", what=i18n.Word("engine.shape.edges")))
     seen: set[str] = set()
     for i, n in enumerate(nodes, 1):
         if not isinstance(n, dict) or not isinstance(n.get("id"), str) or not n["id"] or not isinstance(n.get("type"), str):
-            raise GraphError(Msg("E-GRAPH-SHAPE", what=f"第 {i} 个节点要有文字的 id 和 type"))
+            raise GraphError(Msg("E-GRAPH-SHAPE", what=i18n.Word("engine.shape.node", n=i)))
         if not _good_id(n["id"]):  # the id is a key everywhere: node.param, node@path, content_key's dst.port
-            raise GraphError(Msg("E-GRAPH-SHAPE", what=f"节点 id「{n['id'][:ID_MOST]}」要是不超过 {ID_MOST} 个字符的文字，不能有 . / @ : 、空白、控制字符或看不见的格式字符"))
-        if "label" in n and not isinstance(n["label"], str):
-            raise GraphError(Msg("E-GRAPH-SHAPE", what=f"节点 {n['id']} 的 label 要是文字"))
+            raise GraphError(Msg("E-GRAPH-SHAPE", what=i18n.Word("engine.shape.id", id=n["id"][:ID_MOST], most=ID_MOST)))
+        if "comment" in n and not isinstance(n["comment"], str):
+            raise GraphError(Msg("E-GRAPH-SHAPE", what=i18n.Word("engine.shape.comment", id=n["id"])))
         if not isinstance(n.get("params", {}), dict):
-            raise GraphError(Msg("E-GRAPH-SHAPE", what=f"节点 {n['id']} 的 params 要是一个对象"))
+            raise GraphError(Msg("E-GRAPH-SHAPE", what=i18n.Word("engine.shape.params", id=n["id"])))
         if not (isinstance(n.get("promoted", []), list) and all(isinstance(x, str) for x in n.get("promoted", []))):
-            raise GraphError(Msg("E-GRAPH-SHAPE", what=f"节点 {n['id']} 的 promoted 要是参数名的列表"))
+            raise GraphError(Msg("E-GRAPH-SHAPE", what=i18n.Word("engine.shape.promoted", id=n["id"])))
         if n["id"] in seen:
             raise GraphError(Msg("E-GRAPH-SAMEID", id=n["id"]))
         seen.add(n["id"])
     end = lambda x: isinstance(x, list) and len(x) == 2 and all(isinstance(v, str) for v in x)  # noqa: E731
     for i, e in enumerate(edges, 1):
         if not isinstance(e, dict) or not end(e.get("from")) or not end(e.get("to")):
-            raise GraphError(Msg("E-GRAPH-SHAPE", what=f"第 {i} 根线要有 from 和 to，各是 [节点, 口]"))
+            raise GraphError(Msg("E-GRAPH-SHAPE", what=i18n.Word("engine.shape.edge", n=i)))
 
 
 def _check_file_name(node) -> str:
     """An output-settings node's 名字, which names its files and its sub-folder: one plain file name, never a path.
     Returns it; GraphError when it is empty, "." / "..", or holds a separator or a character a file name may not."""
     return file_name(node.params.get("name"), node.label)
+
+
+def _params_only(cond) -> bool:
+    """A condition that reads the node's parameters and nothing else (no wire, no fact about the data)."""
+    params, inputs, facts = cond.names()
+    return bool(params) and not inputs and not facts
 
 
 @dataclass
@@ -265,7 +279,6 @@ class Graph:
                                        and all(isinstance(f, int) and not isinstance(f, bool) for f in frames) and frames[0] <= frames[1]):
             raise GraphError(Msg("E-GRAPH-FRAMES", frames=str(frames)))
         registry = node_types()
-        labels = [n.get("label") or registry[n["type"]].label for n in data["nodes"] if n["type"] in registry]
         nodes: dict[str, GNode] = {}
         for n in data["nodes"]:
             node_type = registry.get(n["type"])
@@ -273,7 +286,6 @@ class Graph:
                 from ..nodes.registry import why_missing
 
                 raise GraphError(Msg("E-GRAPH-UNKNOWNTYPE", type=n["type"], reason=why_missing(n["type"])))
-            label = n.get("label") or node_type.label
             try:
                 params = node_type.load_params(n.get("params", {}))
                 # the node type's permanent wired ports (NodeDef.wired_ports) combined with the parameters this
@@ -283,8 +295,8 @@ class Graph:
                 for name in promoted:
                     node_type.param_port(name)  # a parameter it has, one a wire can drive
             except ValueError as exc:  # unknown or invalid parameters (pydantic's ValidationError is a ValueError)
-                raise GraphError(Msg("E-GRAPH-PARAMS", node=_named(label, n["id"], labels), reason=exc)) from exc
-            nodes[n["id"]] = GNode(n["id"], node_type, label, params, promoted)
+                raise GraphError(Msg("E-GRAPH-PARAMS", node=node_ref(n["id"], node_type.id), reason=exc)) from exc
+            nodes[n["id"]] = GNode(n["id"], node_type, params, promoted)
         g = cls(nodes, {}, tuple(frames) if frames else None)
         for e in data.get("edges", []):
             (src, sport), (dst, dport) = e["from"], e["to"]
@@ -306,7 +318,7 @@ class Graph:
         self.inputs_by_node = {k: frozenset(v) for k, v in by_dst.items()}
         self.outputs_by_node = {k: tuple(dict.fromkeys(v)) for k, v in by_src.items()}
         if on_cycle := self._on_cycle():
-            raise GraphError(Msg("E-GRAPH-CYCLE", nodes="、".join(f"「{self.name(n)}」" for n in on_cycle)))
+            raise GraphError(Msg("E-GRAPH-CYCLE", nodes=i18n.Both.of(lambda: i18n.separator().join(i18n.Word("engine.quoted", name=self.name(n)) for n in on_cycle))))
         self._settled = True
 
     def _on_cycle(self) -> list[str]:
@@ -348,11 +360,9 @@ class Graph:
         return {name: wires[0] for name in self.nodes[node_id].promoted if (wires := self.inputs.get((node_id, PARAM + name)))}
 
     def name(self, node_id: str) -> str:
-        """The node as a message about reading the graph names it (_named); one that is not in the graph (the end of
-        a wire that points nowhere) by the id it was given."""
-        if node_id not in self.nodes:
-            return node_id
-        return _named(self.nodes[node_id].label, node_id, [n.label for n in self.nodes.values()])
+        """The node as a message names it (GNode.label); one that is not in the graph (the end of a wire that points
+        nowhere) by the id it was given."""
+        return self.nodes[node_id].label if node_id in self.nodes else node_id
 
     def _connect(self, src: str, sport: str, dst: str, dport: str) -> None:
         if src not in self.nodes or dst not in self.nodes:
@@ -522,12 +532,15 @@ class Graph:
         if not got:
             return out.type
         if how == "item":
-            return element_of(got[0])
+            return within(element_of(got[0]), out.type)
         if how == "list":
-            return list_of(got[0])
+            return within(list_of(got[0]), out.type)
         if how == "common":
-            return _common(got) or out.type
-        return got[0]
+            # a way that carries no more than the port's own open type (a switch inside it whose every way is not
+            # known yet) is not known yet either: the common type is the other ways', as a way from a port neither
+            # there nor declared is left out (_carried)
+            return _common([t for t in got if t != out.type] or got) or out.type
+        return within(got[0], out.type)
 
     def takes(self, port_type: str, src: str, sport: str) -> bool:
         """Whether an input declared `port_type` takes what this output carries in this graph (data/types.py accepts on
@@ -561,14 +574,23 @@ class Graph:
         return [r for name in named.split(",") for r in (rows if table and name == table else [name])], how
 
     def _carried(self, node_id: str, ports: list[str], _seen: frozenset[str], first: bool) -> list[str]:
-        """What is wired into these inputs carries (`first`: only the first wire of each)."""
+        """What is wired into these inputs carries (`first`: only the first wire of each). Into the ways of a switch
+        (not `first`: every one of them), a wire from a port its node does not have now but declares (an import's 角色
+        before a file is picked: NodeDef.outputs, its ports by its parameters) carries what the port is declared to
+        carry, the type that way has once it is there: the switch is typed by all its ways, whichever it takes. Any
+        other wire from a port not there is left out (nothing comes on it: a node following an optional reference
+        with no file picked, 「Kimodo」's 角色, stays open), as is one from a port not declared with a type of its own."""
         got = []
         for name in ports:
             for src, sport in self.inputs.get((node_id, name), []):
                 if any(o.name == sport for o in self.outputs(src)):
                     got.append(self.output_type(src, sport, _seen))
-                    if first:
-                        break
+                elif not first and (declared := next((o for o in self.nodes[src].type.outputs if o.name == sport), None)) is not None and not declared.type_from:
+                    got.append(declared.type)
+                else:
+                    continue
+                if first:
+                    break
         return got
 
     def scene_kinds(self, node_id: str, port: str, _seen: frozenset[str] = frozenset()) -> frozenset[str]:
@@ -648,9 +670,29 @@ class Graph:
         outputs = [{**o, **({"inactive": out_off[o["name"]].json()} if o["name"] in out_off else {})} for o in outputs]
         # `.json()` is required: `Msg.text` is a property, not a field, so serialising the object directly yields only
         # code and params; the page would read `p.inactive.text` as `undefined` and print "undefined" in the port hover
-        return {"inputs": [{**p.describe(), "tip": p.tip(), **({"inactive": off[p.name].json()} if p.name in off else {})}
-                           for p in self.input_ports(node_id)], "outputs": outputs,
+        # two kinds of 「off」: switched off by the node's own parameters (a mode: the port stays wireable, its wire is
+        # simply not taken now — mode_off, engine/routing.py — and is drawn unused), or by what is wired (a wiring
+        # mistake: `inactive`, the page refuses the wire, wire_problem B-WIRE-INACTIVE). The page reads the two apart
+        # (webui graph/wireRule.ts)
+        unused = {name for name, c in conds.items() if _params_only(c)}
+
+        def state(name: str) -> dict:
+            if name not in off:
+                return {}
+            return {"unused": off[name].json()} if name in unused else {"inactive": off[name].json()}
+
+        return {"inputs": [{**p.describe(), "tip": p.tip(), **state(p.name)} for p in self.input_ports(node_id)], "outputs": outputs,
                 "waiting": [{**p.describe(), "tip": p.tip(), "kinds": []} for p in self.resolved(node_id).waiting]}
+
+    def mode_off(self, node_id: str) -> frozenset[str]:
+        """The node's input ports its own parameters switch off now (Port.applies reading parameters only: a
+        generator's 「参考图」 outside its multi-reference mode). Wires into them are not taken (engine/routing.py
+        _choose); an input switched off by what is wired is a wiring mistake instead (wire_problem)."""
+        from ..availability import resolve as _resolve
+
+        t = self.nodes[node_id].type
+        conds = {p.name: c for p in t.inputs if (c := t.port_applies(p)) is not None and _params_only(c)}
+        return frozenset(_resolve(conds, self.facts(node_id), t).inactive) if conds else frozenset()
 
     def handles(self, node_id: str) -> list[int]:
         """The node's viewer handles that apply with its parameters and wires now (Handle.when), by their index."""
@@ -726,7 +768,7 @@ class Graph:
                 return _list_node("one")  # 「取一条」 (「逐项开始」 is the other way: it opens a block, so it is not one click)
             from ..data.items import kind_of as items_of
 
-            return _list_node("split" if items_of(element_of(t.split("|")[0])) is not None else "make")
+            return _list_node("split" if items_of(element_of(t).split("|")[0]) is not None else "make")
         if not self.takes(inp := self.input_port(dst, dport).type, src, sport):
             return converter(t, inp)
         via = node_types().get(self.nodes[dst].type.refusal_fix(t, self.scene_kinds(src, sport)))
@@ -742,21 +784,29 @@ class Graph:
 
         kind = type_label  # 「图像序列」, 「图像序列列表」, 「深度图或遮罩」 (data/types.py)
         inp = self.input_port(dst, dport)
-        source = self.nodes[src].label
+        # the nodes' labels only for a message: most wires are fine, and a label is worked out in the language now
+        def source() -> str:
+            return self.nodes[src].label
+
+        def to() -> dict:
+            return {"node": self.nodes[dst].label, "input": inp.label}
+
         if inp is None:  # an input its table no longer makes (_connect)
             out = next((p.label for p in self.outputs(src) if p.name == sport), sport)
-            return Msg("B-WIRE-GONEIN", node=self.nodes[dst].label, input=dport, source=source, output=out)
-        to = {"node": self.nodes[dst].label, "input": inp.label}
+            return Msg("B-WIRE-GONEIN", node=self.nodes[dst].label, input=dport, source=source(), output=out)
         # the input port is not applicable now (Port.applies: with 「图像」 wired, 「序列图输出设置」 takes no individual
         # channels, and vice versa). It is disabled on the node and the page does not allow the wire; the server
         # refuses it as well, preventing submissions that bypass the page
+        # An input the node's own parameters switch off (a mode with no use for it) is not refused: the wire is not
+        # taken this time, drawn as unused and its source not computed (engine/routing.py), so a card can keep the
+        # inputs of every mode wired
         cond = self.nodes[dst].type.port_applies(inp)
-        if cond is not None:
+        if cond is not None and not _params_only(cond):
             from ..availability import resolve as _resolve
 
             off = _resolve({dport: cond}, self.facts(dst), self.nodes[dst].type).inactive
             if dport in off:
-                return Msg("B-WIRE-INACTIVE", why=off[dport], **to)
+                return Msg("B-WIRE-INACTIVE", why=off[dport], **to())
         out = next((p for p in self.outputs(src) if p.name == sport), None)
         # the source output port is not applicable now (Port.applies, e.g. a solver's 「相机」 only passes through once
         # a camera is wired): disabled on the node, not allowed by the page, and refused by the server as well
@@ -766,11 +816,16 @@ class Graph:
 
             gone = _resolve_out({sport: out.applies}, self.facts(src), self.nodes[src].type).inactive
             if sport in gone:
-                return Msg("B-WIRE-OUTINACTIVE", source=source, output=out.label, why=gone[sport])
+                return Msg("B-WIRE-OUTINACTIVE", source=source(), output=out.label, why=gone[sport])
         if out is None and (waits := waiting_port(self.nodes[src].type, sport, self.nodes[src].params)):
-            return Msg("B-WIRE-WAITS", source=source, what=waits.label, waits=waits.waits, **to)
+            if dport == self.nodes[dst].type.presence_of:
+                # a 「有没有」 asks whether it comes: an output the source does not give with its parameters is its
+                # answer 「没有」 (Evaluation.comes, the same judgement), not a wire waiting for the user (e.g.
+                # a skeleton-only FBX leaves 角色 unselected, the card's 「有没有」 then takes the skeleton's way)
+                return None
+            return Msg("B-WIRE-WAITS", source=source(), what=waits.label, waits=waits.waits_text, **to())
         if out is None:
-            return Msg("B-WIRE-GONE", source=source, output=sport, **to)
+            return Msg("B-WIRE-GONE", source=source(), output=sport, **to())
         if (said := self._list_problem(src, sport, dst, dport)) is not None:
             return said
         if not self.takes(inp.type, src, sport):
@@ -778,28 +833,28 @@ class Graph:
             from ..nodes.registry import converter
 
             if not inp.param and (via := converter(t, inp.type)):  # a conversion exists: never done on the quiet
-                return Msg("B-WIRE-CONVERT", source=source, output=out.label, got=kind(t), want=kind(inp.type),
-                           via=node_types()[via].label, **to)
-            return Msg("B-WIRE-TYPE", source=source, output=out.label, got=kind(t), want=kind(inp.type), **to)
+                return Msg("B-WIRE-CONVERT", source=source(), output=out.label, got=kind(t), want=kind(inp.type),
+                           via=node_types()[via].subtitle, **to())
+            return Msg("B-WIRE-TYPE", source=source(), output=out.label, got=kind(t), want=kind(inp.type), **to())
         t = self.output_type(src, sport)
         # a picture where values are, or values where a picture is (Port.data on both ends; output_data): a normal map
         # read by a model as a photograph, or premultiplied as colour, is wrong with no error anywhere
         if inp.data in (True, False) and (have := self.output_data(src, sport)) is not None and have != inp.data:
-            return Msg("B-WIRE-DATAKIND", source=source, output=out.label, got="数值图" if have else "画面",
-                       want="数值图" if inp.data else "画面", **to)
+            return Msg("B-WIRE-DATAKIND", source=source(), output=out.label, got=data_kind_word(have),
+                       want=data_kind_word(inp.data), **to())
         if not inp.param and (why := self.nodes[dst].type.refuses(t, self.scene_kinds(src, sport))):  # a parameter's input takes its value
-            return Msg("B-WIRE-REFUSED", source=source, output=out.label, got=kind(t), node=to["node"], reason=why)
+            return Msg("B-WIRE-REFUSED", source=source(), output=out.label, got=kind(t), node=to()["node"], reason=why)
         if not inp.param and (why := self.nodes[dst].type.param_refuses(t, self.nodes[dst].params)):
-            return Msg("B-WIRE-REFUSED", source=source, output=out.label, got=kind(t), node=to["node"], reason=why)
+            return Msg("B-WIRE-REFUSED", source=source(), output=out.label, got=kind(t), node=to()["node"], reason=why)
         if not inp.param and (other := self._uncommon(dst, dport, t)):  # 「切换」: every branch the same kind of data
-            return Msg("B-SWITCH-TYPES", node=to["node"], input=inp.label, got=kind(t), other=kind(other))
+            return Msg("B-SWITCH-TYPES", node=to()["node"], input=inp.label, got=kind(t), other=kind(other))
         # incompatible units cannot be wired, for parameter ports and data ports alike. Checking only `inp.param` would
         # let a data port declaring a unit (「Focal Length（px）」 / 「Focal Length（mm）」 of 「Focal Length 换算」) accept a
         # millimetre value and fail only midway through the cook.
         if inp.unit and (why := unit_problem(self.output_unit(src, sport), inp.unit)):
-            return Msg("B-WIRE-UNIT", source=source, output=out.label, reason=why, **to)
+            return Msg("B-WIRE-UNIT", source=source(), output=out.label, reason=why, **to())
         if inp.plain and (have := self.output_unit(src, sport)):  # a plain number only (Port.plain)
-            return Msg("B-WIRE-UNIT", source=source, output=out.label, reason=Msg("B-VALUES-PLAIN", have=have), **to)
+            return Msg("B-WIRE-UNIT", source=source(), output=out.label, reason=Msg("B-VALUES-PLAIN", have=have), **to())
         if (src, sport, dst, dport) in self.scopes.problems:  # the rules of a block (engine/scopes.py)
             return self.scopes.problems[(src, sport, dst, dport)][0]
         return None
@@ -819,9 +874,9 @@ class Graph:
             return None
         to = {"node": self.nodes[dst].label, "input": inp.label}
         if is_list(t) and self._makes_list_of(dst, dport):
-            return Msg("B-LIST-NESTED", source=self.nodes[src].label, output=out.label, got=type_label(t), **to)
-        return Msg("B-WIRE-LIST", source=self.nodes[src].label, output=out.label, got=type_label(t),
-                   want=type_label(inp.type), **to)
+            return Msg("B-LIST-NESTED", source=self.nodes[src].label, output=out.label, got=i18n.Both.of(lambda: type_label(t)), **to)
+        return Msg("B-WIRE-LIST", source=self.nodes[src].label, output=out.label, got=i18n.Both.of(lambda: type_label(t)),
+                   want=i18n.Both.of(lambda: type_label(inp.type)), **to)
 
     def _makes_list_of(self, node_id: str, port: str) -> bool:
         """The node makes a list of what this input carries (an output following it with "#list")."""
@@ -927,6 +982,8 @@ class Graph:
         if only is None and wired:
             return None
         chosen = (only - {cond}) if only is not None else node.type.chosen_inputs(node.params, None)
+        if not chosen and getattr(node.type, "blocks", False):  # a 「阻断」 set to block takes nothing: that is its route
+            return None
         if not chosen:
             if wired:
                 return Msg("B-SWITCH-WIREDRANGE", node=node.label, count=len(ways))
@@ -973,7 +1030,7 @@ class Graph:
                 if "name" in self.wired_params(src):  # its 名字 comes by wire: compared when 「输出」 cooks (core/output.py)
                     continue
                 name = _check_file_name(out)
-                named.setdefault(name_key(name), []).append(f"「{out.label}」")
+                named.setdefault(name_key(name), []).append(i18n.Word("engine.quoted", name=out.label))
             same = [Msg("B-DELIVER-NAMED", outputs=labels, name=name) for name, labels in named.items() if len(labels) > 1]
             if same:
                 raise GraphError(Msg("B-DELIVER-SAMENAME", node=node.label, same=same))

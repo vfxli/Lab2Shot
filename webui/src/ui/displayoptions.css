@@ -27,32 +27,24 @@
   padding: 10px;
 }
 
+/* a LabelGrid (ui/LabelRow.tsx): every row's label in one column, as wide as the tab's longest label */
 .vo-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  row-gap: 8px;
+  align-content: start;
+  --lrow-gap: 10px;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
 .vo-row {
-  display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
   min-height: 26px;
 }
 
 .vo-label {
   font-size: var(--fs-sm);
   color: var(--text-2);
-  white-space: nowrap;
-}
-
-.vo-ctl {
-  display: flex;
-  min-width: 0;
 }
 
 .vo-ctl .seg.stretch {
@@ -65,14 +57,6 @@
 
 .vo-ctl .seg.stretch button {
   padding: 0 10px; /* 一排能多站一个；仍然比字宽，圆角不会切到字 */
-}
-
-.vo-slider {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 82px;
-  gap: 8px;
-  align-items: center;
-  width: 100%;
 }
 
 .vo-foot {

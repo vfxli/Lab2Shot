@@ -94,7 +94,26 @@ textarea.field.area.snug {
 
 .num-unit .field.num {
   width: 100%;
-  padding-right: calc(10px + var(--unit-w, 2.4em));
+  padding-right: calc(10px + var(--unit-w, 2.4em)); /* --unit-w: the unit's own width, set by ui/controls.tsx Num */
+}
+
+/* A slider and its number box (the parameter panel's .slider, the display options' .vo-slider): one layout. The box
+   is as wide as about six digits plus its own unit, never a fixed column that a unit can fill up (a 52px box with
+   「cm」 left the digits 4px); the bar takes the rest. */
+.slider,
+.vo-slider {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.slider > .field.num,
+.slider > .num-unit,
+.vo-slider > .field.num,
+.vo-slider > .num-unit {
+  width: calc(6ch + 20px + var(--unit-w, 0px));
 }
 
 .num-unit::after {
@@ -125,8 +144,7 @@ textarea.field.area.snug {
    登录页的注册表单也用它选环节（register.tsx），登录门只加载本文件。
    弹出列表使用站点的菜单组件（玻璃、圆角、暗色），而非系统绘制的白底直角列表 */
 .select-trigger {
-  line-height: 1.3; /* 行框只有字高时中文字形被裁边；靠 align-items 居中 */
-  padding-top: 1px; /* 同 .btn：中文字形偏上，向下补偿至中心 */
+  line-height: 1.3; /* 行框只有字高时中文字形被裁边；靠 align-items 居中（字体度量见 ui/fonts.css） */
   display: inline-flex;
   align-items: center;
   justify-content: space-between;

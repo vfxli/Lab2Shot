@@ -21,3 +21,10 @@ ultralytics==8.4.146
 
 # MoGe-2: field-of-view estimation, same pinned commit as the sam_3d_body extension
 moge @ git+https://github.com/microsoft/MoGe.git@07444410f1e33f402353b99d6ccd26bd31e469e8
+
+# upstream's TensorRT path (README "TensorRT Acceleration", setup_env.sh step 8): the DINOv3 backbone engine,
+# built per GPU on first use (trt_engines.py). The bindings are a PyPI wheel; the libraries and the
+# `tensorrt` import package are put in by post_install (extension.py TENSORRT_LIBS). onnx: the ONNX export before the
+# engine build
+tensorrt-cu12-bindings==10.13.3.9
+onnx==1.19.1

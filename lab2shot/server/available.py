@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from ..messages import Msg
 from ..accounts import Session
 from .. import config
-from ..availability import DATA, All, AnyOf, Availability, Cond, resolve
+from ..availability import CAPABILITY, DATA, All, AnyOf, Availability, Cond, resolve
 from ..roles import Can, Manages, NotOwnersAccount, RightsFresh, SessionFacts, Staff
 from . import routes
 
@@ -74,6 +74,7 @@ SECTIONS: dict[str, Cond] = {
     "database": route("GET /api/admin/db"),
     "security": route("GET /api/admin/security"),
     "logs": route("GET /api/admin/log"),
+    # 「提示词」：管理员维护的风格组与术语表（读写的路由一律要 settings.edit，和别的服务器内容数据一样）
 }
 
 # The 设置 band: a settings page is there when the login reads the settings. Two pages also hold parts with a right
@@ -91,7 +92,22 @@ def settings_pages() -> list[dict]:
     return [{"id": page, "label": p.label, "tip": p.tip} for page, p in config.PAGES.items()]
 
 
+@dataclass(frozen=True)
+class SettingOn(Cond):
+    """A switch of the settings (config.SCHEMA, kind bool) is on, as the server runs now: not there otherwise (hidden,
+    like a capability: a user is not told about what the administrators keep to themselves)."""
+
+    key: str
+    kind = CAPABILITY
+
+    def holds(self, f: Any) -> bool:
+        return bool(config.settings()[self.key])
+
+
 ACTIONS: dict[str, Cond] = {
+    # 顶栏「DCC 插件」和插件下载（server/plugins.py 按同一条判断拒绝）：设置 plugins.download 开着时所有登录的人，关着时只有
+    # 管理员和二级管理员（插件内部测试）
+    "plugins.download": AnyOf(Staff(), SettingOn("plugins.download")),
     # 机器可读的接口描述（写插件和脚本的人用）
     "openapi": route("GET /api/admin/openapi.json"),
     "server.status": route("GET /api/admin/overview"),
@@ -138,6 +154,8 @@ ACTIONS: dict[str, Cond] = {
     "audit.view": capability("audit.view"),
     "users.role": capability("admins.manage"),
     "feedback.delete": route("DELETE /api/admin/feedback/{fid}"),
+    # 用户反馈的「评定」（有效 / 无效：有效反馈奖励使用时间），和回复同一个能力
+    "feedback.rate": route("PUT /api/admin/feedback/{fid}/rating"),
     "usage.reset": route("POST /api/admin/usage/reset"),
     "help.install": route("POST /api/admin/installs"),
     "help.installprogress": route("GET /api/admin/installs/{job_id}"),
@@ -163,9 +181,15 @@ ACCOUNT: dict[str, Cond] = {
     "account.delete": All(Manages(), route("DELETE /api/admin/users/{user_id}"), NotOwnersAccount(delete=True)),
     "account.purge": All(Manages(), route("DELETE /api/admin/users/{user_id}/purge")),  # 已删除 的账号的「永久删除」
     "account.logins": All(Manages(), route("GET /api/admin/users/{user_id}/logins")),
+    # 有效反馈奖励（用户详情上方）：有效反馈几条、累计奖励几天，和账本；看反馈的能力
+    "account.rewards": All(Manages(), route("GET /api/admin/users/{user_id}/rewards")),
     # 磁盘配额（在用户管理页面里）：看这个账号占了多少、按账号改上限
     "account.quota": All(Manages(), route("GET /api/admin/users/{user_id}/quota")),
-    "account.quota_set": All(Manages(), route("PUT /api/admin/users/{user_id}/quota"), _FIXED),
+    # the owner's account keeps its role and never lapses (_FIXED), but its disk quota is the administrator's to set
+    # like anyone's: locking it would leave the owner on the default, unchangeable
+    "account.quota_set": All(Manages(), route("PUT /api/admin/users/{user_id}/quota")),
+    # 队列优先：这个账号之后提交的任务排在所有普通账号的等待任务之前；决定谁下一个开始，属于管理队列的能力
+    "account.queue_first": All(Manages(), route("PUT /api/admin/users/{user_id}"), capability("queue.manage")),
 }
 
 
@@ -326,7 +350,7 @@ def account(s: Session, row: dict) -> Availability:
 
 
 def resource_acts(s: Session | None, acts: list[dict]) -> list[dict]:
-    """The row actions of one resource this session may use (lab2shot/resources.py Act: 恢复, 永久删除 …). Each act
+    """The row actions of one resource this session may use (lab2shot/site/resources.py Act: 恢复, 永久删除 …). Each act
     names the route it calls, and that route declares the capability it needs — resolved here by the same one
     mechanism as every other button, so the capability stays written once and the page gets only what it may use."""
     who = SessionFacts.of(s)

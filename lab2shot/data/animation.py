@@ -7,6 +7,8 @@ only in the final step."""
 
 from __future__ import annotations
 
+from .. import i18n
+
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,6 +57,9 @@ class Rig:
     placement: np.ndarray  # [F,4,4] skeleton prim to world per frame
     keys: list[int]  # the frames its animation has authored samples at
     anim: str  # its UsdSkelAnimation prim ("" when it has none)
+    # the joints that drive some vertex of a mesh skinned to it (weighted_joints); None when no mesh is (a BVH, a bare
+    # skeleton): the recognition engine leaves the others out of the correspondence (data/skeleton_recognition.py)
+    weighted: frozenset | None = None
 
     def world(self, local: np.ndarray | None = None) -> np.ndarray:
         """Joint-to-world [F,J,4,4] (the rig's own animation, or `local`)."""
@@ -104,7 +109,33 @@ def read_rig(packet: Packet, path: str | None = None, *, least_frames: int = 2) 
     samples = anim.GetJointTransformTimeSamples() if anim else []
     keys = sorted({int(round(t)) for t in samples} & set(frames))
     return Rig(str(prim.GetPath()), names, parents, bind, frames, local, placement, keys,
-               str(anim.GetPrim().GetPath()) if anim else "")
+               str(anim.GetPrim().GetPath()) if anim else "", weighted_joints(stage, str(prim.GetPath())))
+
+
+def weighted_joints(stage: Usd.Stage, path: str) -> frozenset | None:
+    """The joints of the skeleton at `path` (indices in its joint order) that carry a skin weight above zero on some
+    vertex of a mesh bound to it (UsdSkel's own bindings, data/evaluate.py skin_bindings; a mesh's own joint order
+    mapped to the skeleton's). None when no mesh is bound to it: a skeleton alone (BVH, an FBX of bones) says nothing
+    of which joints deform, and the recognition engine reads every joint (data/skeleton_recognition.py recognize)."""
+    from .evaluate import skin_bindings
+
+    found: set[int] | None = None
+    for binding, query in skin_bindings(stage):
+        if str(binding.GetSkeleton().GetPrim().GetPath()) != path:
+            continue
+        order = [str(j) for j in query.GetJointOrder()]
+        for target in binding.GetSkinningTargets():
+            idx, wts = target.ComputeJointInfluences()
+            if idx is None or wts is None:
+                continue
+            idx, wts = np.asarray(idx, np.int64).reshape(-1), np.asarray(wts, np.float64).reshape(-1)
+            used = np.unique(idx[(wts > 0) & (idx >= 0)]) if len(idx) == len(wts) else np.zeros(0, np.int64)
+            mapper = target.GetJointMapper()
+            if mapper and not mapper.IsIdentity():
+                own = [str(j) for j in target.GetJointOrder()]
+                used = [order.index(own[i]) for i in used if i < len(own) and own[i] in order]
+            found = (found or set()) | {int(i) for i in used if 0 <= int(i) < len(order)}
+    return frozenset(found) if found is not None else None
 
 
 def sole_height(packet: Packet, rig: Rig, feet: list[int], up=(0.0, 1.0, 0.0)) -> float | None:
@@ -154,8 +185,9 @@ def _bind_world(skel: UsdSkel.Skeleton, parents: np.ndarray) -> np.ndarray:
 def bind_skeleton(packet: Packet, path: str | None = None) -> dict:
     """A skeleton's bind pose read without sampling its animation (read_rig computes every frame's joint transforms,
     which a display of one pose does not need): the Skeleton prim's path, its joint names and parents, and every
-    joint's bind pose joint-to-world [J,4,4] (cm), placed by the prim's transform on the packet's first frame. {} when
-    the packet has no skeleton (or none at `path`)."""
+    joint's bind pose joint-to-world [J,4,4] (cm), placed by the prim's transform on the packet's first frame, and the
+    joints that carry skin weights ("weighted": weighted_joints, None without a skinned mesh). {} when the packet has
+    no skeleton (or none at `path`)."""
     from ..io import usd
     from .scene import open_scene
 
@@ -170,7 +202,7 @@ def bind_skeleton(packet: Packet, path: str | None = None) -> dict:
     frames = packet.meta.get("frames") or [0]
     placement = np.array(UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode(int(frames[0])))).T
     return {"path": str(prim.GetPath()), "names": usd.joint_names(skel), "parents": [int(p) for p in parents],
-            "world": placement @ _bind_world(skel, parents)}
+            "world": placement @ _bind_world(skel, parents), "weighted": weighted_joints(stage, str(prim.GetPath()))}
 
 
 def placement_at(packet: Packet, path: str, frames) -> np.ndarray:
@@ -198,10 +230,12 @@ def same_hierarchy(anim: Rig, character: Rig) -> list[int]:
     only_char = [n for n in b if n not in set(a)]
     twice = sorted({n for n in a if a.count(n) > 1} | {n for n in b if b.count(n) > 1})
     pa, pb = parent_names(anim), parent_names(character)
-    moved = [f"{n}（{pa[n] or '根'} ≠ {pb[n] or '根'}）" for n in b if n in pa and pa[n] != pb[n]]
+    root = i18n.Word("skeleton.root")
+    moved = [i18n.Word("skeleton.moved", joint=n, a=pa[n] or root, b=pb[n] or root) for n in b if n in pa and pa[n] != pb[n]]
     if only_anim or only_char or twice or moved:
-        def few(names: list[str]) -> str:
-            return "、".join(names[:5]) + (f" 等 {len(names)} 个" if len(names) > 5 else "") if names else "无"
+        def few(names: list[str]) -> str:  # in every language (i18n.Both): the message reads in its reader's
+            return i18n.Both.of(lambda: (i18n.separator().join(names[:5]) + (i18n.t("list.more", count=len(names)) if len(names) > 5 else "")
+                                         if names else i18n.t("list.none")))
 
         raise Invalid(Msg("E-SKIN-HIERARCHY", only_anim=few(only_anim), only_char=few(only_char),
                           parents=few(moved), twice=few(twice)))
@@ -308,7 +342,7 @@ def parse_frames(text: str) -> list[int]:
     """Parse frame numbers in Nuke frame-range syntax: "1001, 1012, 1030", "1001-1100x12" (every 12th frame),
     separated by spaces or commas."""
     out: set[int] = set()
-    for part in re.split(r"[,，\s]+", text.strip()):
+    for part in re.split(r"[,\uff0c\s]+", text.strip()):
         if not part:
             continue
         m = re.fullmatch(r"(-?\d+)(?:-(-?\d+)(?:x(\d+))?)?", part)

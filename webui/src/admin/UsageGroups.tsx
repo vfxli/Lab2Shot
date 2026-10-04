@@ -1,8 +1,10 @@
 import { Fragment, useState } from "react";
 import type { UsageCounts, UsageDepartment, UsagePerson, UsageShare, UsageStats } from "../api";
-import { countsTip, DailyChart, HOURS, lastText, ProjectBars, REUSES, RUNS, times, used } from "./Usage";
+import { DailyChart, HOURS, lastText, ProjectBars, REUSES, RUNS, times, used } from "./Usage";
 import { durationText, fullTimeText, hoursText } from "../platform/format";
 import { Button } from "../ui/Button";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** 使用统计 按环节 and 按人 (lab2shot/farm/usage.py): the same range, tiles and charts as 按项目, and a table that
  * drills down department → accounts → projects, or account → projects. Everything counts, the core's nodes too. */
@@ -22,7 +24,7 @@ export function GroupView({ data, by }: { data: UsageStats; by: "departments" | 
     reuses: data.days.map((_, i) => rows.reduce((s, r) => s + r.daily.reuses[i], 0)),
     seconds: data.days.map((_, i) => rows.reduce((s, r) => s + r.daily.seconds[i], 0)),
   };
-  const what = by === "departments" ? "环节" : "人";
+  const what = by === "departments" ? t("ui.admin.usage.department_lower") : t("ui.admin.usage.person_lower");
   const select = (name: string) => setSelected((s) => (s === name ? null : name));
   const toggle = (key: string) =>
     setOpen((o) => {
@@ -35,58 +37,58 @@ export function GroupView({ data, by }: { data: UsageStats; by: "departments" | 
   return (
     <>
       <div className="u-tiles">
-        <div className="u-tile" data-tip={by === "departments" ? "这段时间有人提交过计算的环节 / 设置里的环节" : "这段时间提交过计算的人"}>
-          <span>{by === "departments" ? "用过的环节" : "用过的人"}</span>
-          <b>{by === "departments" ? `${(busy as UsageDepartment[]).filter((d) => d.listed).length} / ${listed}` : `${busy.length} 人`}</b>
+        <div className="u-tile">
+          <span>{by === "departments" ? t("ui.admin.usage.used_departments") : t("ui.admin.usage.used_people")}</span>
+          <b>{by === "departments" ? `${(busy as UsageDepartment[]).filter((d) => d.listed).length} / ${listed}` : t("ui.admin.usage.people", { n: busy.length })}</b>
         </div>
         <div className="u-tile">
-          <span>计算</span>
+          <span>{t("ui.admin.usage.col_runs")}</span>
           <b>{times(sum(rows, "runs"))}</b>
         </div>
         <div className="u-tile">
-          <span>复用</span>
+          <span>{t("ui.admin.usage.col_reuses")}</span>
           <b>{times(sum(rows, "reuses"))}</b>
         </div>
         <div className="u-tile">
-          <span>计算时长</span>
+          <span>{t("ui.admin.usage.cook_time")}</span>
           <b>{hoursText(sum(rows, "seconds"))}</b>
         </div>
-        <div className="u-tile" data-tip="计算时长里在显卡上的部分">
-          <span>显卡时长</span>
+        <div className="u-tile">
+          <span>{t("ui.admin.usage.gpu_time")}</span>
           <b>{hoursText(sum(rows, "gpu_seconds"))}</b>
         </div>
       </div>
       <div className="u-charts">
         <div className="u-panel">
           <div className="u-chart-head">
-            各{what}
+            {t("ui.admin.usage.per_what", { what })}
             <span className="u-legend">
               <span>
                 <i style={{ background: RUNS }} />
-                计算
+                {t("ui.admin.usage.col_runs")}
               </span>
               <span>
                 <i style={{ background: REUSES }} />
-                复用
+                {t("ui.admin.usage.col_reuses")}
               </span>
               <span>
                 <i style={{ background: HOURS }} />
-                计算时长
+                {t("ui.admin.usage.cook_time")}
               </span>
             </span>
           </div>
           {busy.length ? (
             <ProjectBars projects={busy.map((r) => ({ ...r, title: r.name }))} selected={selected} onSelect={select} what={what} />
           ) : (
-            <p className="help-muted">这段时间没有人提交过计算</p>
+            <p className="help-muted">{t("ui.admin.usage.nobody_cooked")}</p>
           )}
         </div>
         <div className="u-panel">
           <div className="u-chart-head">
-            每天 · {chosen ? chosen.name : by === "departments" ? "全部环节" : "所有人"}
+            {t("ui.admin.usage.daily_head", { what: chosen ? chosen.name : by === "departments" ? t("ui.admin.usage.all_departments") : t("ui.admin.usage.everyone") })}
             {chosen && (
-              <Button tip="不再只看选中的一组，列出全部" tone="ghost" size="sm" onClick={() => setSelected(null)}>
-                看全部
+              <Button tone="ghost" size="sm" onClick={() => setSelected(null)}>
+                {t("ui.admin.usage.show_all")}
               </Button>
             )}
           </div>
@@ -97,15 +99,15 @@ export function GroupView({ data, by }: { data: UsageStats; by: "departments" | 
         <table className={`q-table u-table u-groups u-by-${by}`}>
           <thead>
             <tr>
-              <th data-tip={by === "departments" ? "账号的环节；点开看这个环节的人" : "账号：中文名和用户名；点开看这个账号用的项目"}>{by === "departments" ? "环节" : "账号"}</th>
-              {by === "people" && <th data-tip="账号的环节">环节</th>}
-              <th data-tip="真正计算的次数">计算</th>
-              <th data-tip="没有计算就给出结果的次数：用了缓存，或者用了以前算好的原始结果">复用</th>
-              <th data-tip="真正计算用的时间，排队和等内存不算">计算时长</th>
-              <th data-tip="计算时长里在显卡上的部分">显卡时长</th>
-              <th data-tip="计算处理的帧数">帧数</th>
-              {by === "departments" && <th data-tip="这段时间这个环节里提交过计算的账号数">人数</th>}
-              <th data-tip="重置以来最近一次使用，不限于所选区间">最近使用</th>
+              <th>{by === "departments" ? t("ui.admin.usage.col_department") : t("ui.admin.usage.col_account")}</th>
+              {by === "people" && <th>{t("ui.admin.usage.col_department")}</th>}
+              <th>{t("ui.admin.usage.col_runs")}</th>
+              <th>{t("ui.admin.usage.col_reuses")}</th>
+              <th>{t("ui.admin.usage.cook_time")}</th>
+              <th>{t("ui.admin.usage.gpu_time")}</th>
+              <th>{t("ui.admin.usage.col_frames")}</th>
+              {by === "departments" && <th>{t("ui.admin.usage.col_people")}</th>}
+              <th>{t("ui.admin.usage.col_last")}</th>
             </tr>
           </thead>
           <tbody>
@@ -129,32 +131,32 @@ function Cells({ c, people }: { c: UsageCounts; people?: boolean }) {
     <>
       <td className={zero(c.runs)}>{times(c.runs)}</td>
       <td className={zero(c.reuses)}>{times(c.reuses)}</td>
-      <td className={zero(c.seconds)} data-tip={c.seconds ? durationText(c.seconds) : undefined}>
+      <td className={zero(c.seconds)} {...tipAttrs(tipOf("value", c.seconds ? durationText(c.seconds) : undefined))}>
         {hoursText(c.seconds)}
       </td>
-      <td className={zero(c.gpu_seconds)} data-tip={c.gpu_seconds ? durationText(c.gpu_seconds) : undefined}>
+      <td className={zero(c.gpu_seconds)} {...tipAttrs(tipOf("value", c.gpu_seconds ? durationText(c.gpu_seconds) : undefined))}>
         {hoursText(c.gpu_seconds)}
       </td>
       <td className={zero(c.frames)}>{c.frames.toLocaleString("zh-CN")}</td>
       {people && (
-        <td className={zero(c.users.length)} data-tip={c.users.length ? c.users.join("\n") : undefined}>
-          {c.users.length} 人
+        <td className={zero(c.users.length)} {...tipAttrs(tipOf("value", c.users.length ? c.users.join("\n") : undefined))}>
+          {t("ui.admin.usage.people", { n: c.users.length })}
         </td>
       )}
-      <td className={c.last ? "tnum" : "tnum u-zero"} data-tip={c.last ? fullTimeText(c.last) : undefined}>
+      <td className={c.last ? "tnum" : "tnum u-zero"} {...tipAttrs(tipOf("value", c.last ? fullTimeText(c.last) : undefined))}>
         {lastText(c.last)}
       </td>
     </>
   );
 }
 
-function Name({ name, nobody, tip }: { name: string; nobody: string; tip: string }) {
+function Name({ name, nobody }: { name: string; nobody: string }) {
   return name === nobody ? (
-    <span className="u-zero" data-tip={`没选环节的账号（比如管理员自己）：在「用户」里给它选一个环节\n\n${tip}`}>
+    <span className="u-zero">
       {name}
     </span>
   ) : (
-    <span data-tip={tip}>{name}</span>
+    <span>{name}</span>
   );
 }
 
@@ -181,11 +183,11 @@ function DepartmentRows({ d, nobody, open, toggle }: { d: UsageDepartment; nobod
         <td>
           <span className="u-caret">{shown ? "▾" : "▸"}</span>
           <span className={used(d) ? undefined : "u-zero"}>
-            <Name name={d.name} nobody={nobody} tip={countsTip(d.name, d)} />
+            <Name name={d.name} nobody={nobody} />
           </span>
           {!d.listed && d.name !== nobody && (
-            <span className="chip u-chip" data-tip="这个环节已经不在设置的环节列表里，以前的记录照旧列出">
-              已不在列表
+            <span className="chip u-chip">
+              {t("ui.admin.usage.unlisted")}
             </span>
           )}
         </td>
@@ -201,7 +203,7 @@ function DepartmentRows({ d, nobody, open, toggle }: { d: UsageDepartment; nobod
                 <tr className={`expandable u-node u-member${mine ? " u-open" : ""}`} onClick={() => toggle(key)}>
                   <td>
                     <span className="u-caret">{mine ? "▾" : "▸"}</span>
-                    <Name name={m.name} nobody={nobody} tip={countsTip(m.name, m)} />
+                    <Name name={m.name} nobody={nobody} />
                   </td>
                   <Cells c={m} people />
                 </tr>
@@ -212,7 +214,7 @@ function DepartmentRows({ d, nobody, open, toggle }: { d: UsageDepartment; nobod
         ) : (
           <tr className="u-node">
             <td colSpan={8} className="u-zero">
-              这段时间没有人提交
+              {t("ui.admin.usage.nobody_submitted")}
             </td>
           </tr>
         ))}
@@ -227,9 +229,9 @@ function PersonRows({ p, nobody, open, toggle }: { p: UsagePerson; nobody: strin
       <tr className={`expandable u-person${shown ? " u-open" : ""}`} onClick={() => toggle(p.name)}>
         <td>
           <span className="u-caret">{shown ? "▾" : "▸"}</span>
-          <Name name={p.name} nobody={nobody} tip={countsTip(p.name, p)} />
+          <Name name={p.name} nobody={nobody} />
         </td>
-        <td>{p.departments.join("、")}</td>
+        <td>{p.departments.join(t("list.sep"))}</td>
         <Cells c={p} />
       </tr>
       {shown && p.projects.map((x) => <ProjectRow key={x.name} p={x} depth={1} extra={1} />)}

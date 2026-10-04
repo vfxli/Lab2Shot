@@ -1,0 +1,11 @@
+{
+ "_note": "Delivery format Nuke asks for, per kind of 3D data (GET /api/tools formats). Data, not code: GeoImport reads USD with its numbers as they are, so a camera and the points it saw meet in one space.",
+ "camera": "nuke_camera",
+ "model": "usd",
+ "points": "usd",
+ "curves": "usd",
+ "skeleton": "usd",
+ "character": "usd",
+ "light": "usd",
+ "gaussian": "gaussian_ply"
+}

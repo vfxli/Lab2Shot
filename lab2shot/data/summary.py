@@ -16,6 +16,8 @@ value, the code and the text, so the page shows the text and 「取信息」 use
 
 from __future__ import annotations
 
+from .. import i18n
+
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -121,14 +123,14 @@ def _names(name: str, most: int = 5):
         if not value:
             return None
         names = [str(v) for v in (value if isinstance(value, (list, tuple)) else [value])]
-        return {"count": len(names), "names": "、".join(names[:most]) + ("…" if len(names) > most else "")}
+        return {"count": len(names), "names": i18n.separator().join(names[:most]) + ("…" if len(names) > most else "")}
     return read
 
 
 def _items(meta: Mapping) -> Any:
     """A list's items: how many, and the first of their names (「图像序列列表 · 5 条」)."""
     got = [str(i.get("name", "")) for i in meta.get("items") or ()]
-    return {"count": len(got), "names": "、".join(got[:5]) + ("…" if len(got) > 5 else "")}
+    return {"count": len(got), "names": i18n.separator().join(got[:5]) + ("…" if len(got) > 5 else "")}
 
 
 def _strands(meta: Mapping) -> Any:
@@ -143,8 +145,8 @@ def _subsets(meta: Mapping) -> Any:
     got = meta.get("subsets")
     if not got:
         return None
-    named = [f"{name} {faces} 面" for name, faces in got.items()]
-    return {"count": len(named), "names": "、".join(named[:5]) + ("…" if len(named) > 5 else "")}
+    named = [i18n.t("subset.faces", name=name, faces=faces) for name, faces in got.items()]
+    return {"count": len(named), "names": i18n.separator().join(named[:5]) + ("…" if len(named) > 5 else "")}
 
 
 def _attributes(meta: Mapping) -> Any:
@@ -153,8 +155,10 @@ def _attributes(meta: Mapping) -> Any:
     got = meta.get("attributes")
     if not got:
         return None
-    named = [f"{a['name']} {a['type']} · {a['per']}" for a in got]
-    return {"count": len(named), "names": "、".join(named[:5]) + ("…" if len(named) > 5 else "")}
+    from .attributes import attribute_said
+
+    named = [attribute_said(a) for a in got]
+    return {"count": len(named), "names": i18n.separator().join(named[:5]) + ("…" if len(named) > 5 else "")}
 
 
 def _body(meta: Mapping) -> Any:
@@ -172,7 +176,7 @@ def _contents(meta: Mapping) -> Any:
         return None
     from .types import SCENE_KINDS
 
-    return {"kinds": "、".join(f"{SCENE_KINDS[k].label} {n}" for k, n in held.items() if n)}
+    return {"kinds": i18n.separator().join(f"{SCENE_KINDS[k].label} {n}" for k, n in held.items() if n)}
 
 
 def _range(meta: Mapping) -> Any:
@@ -327,6 +331,6 @@ def _line(item: Item, value: Any) -> dict | None:
     if value is None:
         return None
     said = item.said(value)
-    label, _, rest = said.text.partition("：")
+    label, _, rest = said.text.partition(i18n.t("text.colon"))
     return {"id": item.id, "code": said.code, "label": label if rest else "", "value": value,
             "text": rest or said.text, "said": said.text}

@@ -1,0 +1,37 @@
+# TAPNext++ extension: display words and messages in English (the same keys as zh.toml).
+
+# ---- input
+"N-TAPNEXT-SIDEROUNDED" = "Processing Resolution must be a multiple of 8: {given} was computed as {side}"
+
+[node."tapnext.track"]
+subtitle = "2D Tracks"
+description = "Images → 2D tracks: scatter grid points or pick points in the image and track them frame by frame through the whole shot; occluded points are marked invisible (Google DeepMind TAPNext++). Works with any camera move and allows commercial use. Feed the result into 2D Tracks Output to export to 3DEqualizer or Nuke. For denser points over a whole surface use CoTracker3 2D Tracks; for 3D trajectories use TAPIP3D 3D Tracks."
+official.note = "Upstream has no mask parameter: on our side the mask only decides where query_points are scattered; the model still receives query_points. Visibility (visible_logits) is carried in our 2D tracks data, not as a separate port."
+licence.note = "The code and both models are Apache-2.0 and allow commercial use."
+
+[node."tapnext.track".param.grid]
+label = "Grid Points"
+
+[node."tapnext.track".param.model]
+label = "Model"
+option."512" = "512"
+option."256" = "256"
+
+[node."tapnext.track".param.resolution]
+label = "Processing Resolution"
+placeholder = "Model Default"
+
+[extension.tapnext]
+summary = "Casts tracking any point as next-token prediction; the TAPNext++ fine-tune tracks points stably 40 times longer and through occlusions"
+license.name = "Apache-2.0"
+license.summary = "The code is Apache-2.0 and allows commercial use; the two TAPNext++ model weights (tapnextpp_512.ckpt, tapnextpp_ckpt.pt) are likewise Apache-2.0 per the repository README and allow commercial use. Only the repository's PyTorch inference code (torch, torchvision, einops) is used; JAX / recurrentgemma are not installed, and the training datasets (Kubric, PointOdyssey) are not distributed with the extension"
+weight.tapnextpp_512.note = "TAPNext++ 512x512 input (Apache-2.0, 2.5 GB)"
+weight.tapnextpp_256.note = "TAPNext++ 256x256 input (Apache-2.0, 2.5 GB)"
+
+[stage]
+read_images = "Read Images"
+track = "Track"
+track_points.one = "Track {count} Point"
+track_points.other = "Track {count} Points"
+track_points_support.one = "Track {count} Point ({support} Support Points Added)"
+track_points_support.other = "Track {count} Points ({support} Support Points Added)"

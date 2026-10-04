@@ -18,8 +18,11 @@ import { CategoryRail, type RailBand, type RailManage } from "../ui/Categories";
 import { useConfirm } from "../ui/Confirm";
 import { IconMore, IconPlus } from "../ui/icons";
 import { Menu } from "../ui/Menu";
-import { NameSheet, TextSheet, type Naming } from "../ui/NameSheet";
+import { NamesSheet, TextsSheet, type LangSaved, type Namings } from "../ui/NameSheet";
 import { composing } from "../platform/keys";
+import { t } from "../i18n/t";
+import { getLang } from "../i18n/lang";
+import { tipOf } from "../platform/tips";
 
 /** What a menu row adds: one node type, or several added together, each feeding the next (the last takes the wire). */
 type Offer = NodeTypeDef[];
@@ -27,6 +30,12 @@ type Offer = NodeTypeDef[];
 const LOOSE = "_none"; // the rail's row for 未分类: node types the administrator has not placed yet
 const NODE_TYPE = "application/x-lab2shot-nodetype"; // a node type in a drag: its id
 const SUB_TYPE = "application/x-lab2shot-menusub"; // a subcategory heading in a drag: its id
+// the server's limits per language (lab2shot/categories.py, lab2shot/nodes/text.py)
+const CATEGORY_MAX = { zh: 10, en: 32 };
+const NODE_NAME_MAX = { zh: 30, en: 48 };
+const NODE_TEXT_MAX = { zh: 520, en: 1400 };
+/** A node menu category's name in every language, as written (the rename sheet's fields). */
+const menuWords = (id: string) => adminApi.menuCategories().then((m) => m.words[id]?.label ?? {});
 const NEUTRAL = "#8E8E93";
 
 /** How tall the menu is: enough for the whole rail (the two bands' 18 rows) without scrolling it. Browsing takes
@@ -45,7 +54,7 @@ const MENU_TALL = 700;
  * Typing: one flat list across both bands, each row tagged with its category and project.
  * For a wire: only the node types it can go to, everywhere in the menu; the one picked gets the wire. A wire out of an
  * input whose usage checks name a node to put in front of it (「选人」 before a solver's people) is offered that node
- * first, alone and after each node that can feed it (sam_3d_body.detect_people → core.select_people), as 推荐.
+ * first, alone and after each node that can feed it (sam_3d_body.detect_people → select_people), as 推荐.
  *
  * Management lives here too, as in the template panel: a login allowed to manage the node categories (menu.edit, worked
  * out by the server) gets these operations in the same menu: categories can be dragged to reorder, renamed and deleted,
@@ -61,7 +70,7 @@ export function NodeMenu() {
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
   const [cat, setCat] = useState<string | null>(null);
-  const [naming, setNaming] = useState<Naming | null>(null);
+  const [naming, setNaming] = useState<Namings | null>(null);
   const [editing, setEditing] = useState<NodeTypeDef | null>(null); // the node type whose name and description are being edited
   const [ask, confirmSheet] = useConfirm();
   const input = useRef<HTMLInputElement>(null);
@@ -117,13 +126,14 @@ export function NodeMenu() {
   const results = useMemo((): Offer[] => {
     if (!catalog || !q.trim()) return [];
     const needle = q.trim().toLowerCase();
-    // best match first: the name itself, then project / id / category, then the description
+    // best match first: the type name or its description in words (either one: 「fbx.import」 and 「导入 FBX」 find the
+    // same row), then project / category, then the long description
     const score = (n: NodeTypeDef) => {
-      const label = n.label.toLowerCase();
-      if (label === needle) return 0;
-      if (label.startsWith(needle)) return 1;
-      if (label.includes(needle)) return 2;
-      if (n.project.toLowerCase().includes(needle) || n.id.includes(needle)) return 3;
+      const names = [n.id, n.subtitle.toLowerCase()];
+      if (names.some((s) => s === needle)) return 0;
+      if (names.some((s) => s.startsWith(needle))) return 1;
+      if (names.some((s) => s.includes(needle))) return 2;
+      if (n.project.toLowerCase().includes(needle)) return 3;
       if ((nodeCategory(catalog, n)?.label ?? "").includes(needle)) return 4;
       if (n.description.toLowerCase().includes(needle)) return 5;
       return -1;
@@ -158,8 +168,8 @@ export function NodeMenu() {
     else addNode(o[0].id, menu.flowX, menu.flowY, menu.wire);
   };
   const placeholder = menu.wire
-    ? `搜索${menu.wire.side === "source" ? "接收" : "给出"}${wireType}的 ${offered.length} 个节点`
-    : `搜索 ${offered.length} 个节点：名字、项目、分类`;
+    ? t(menu.wire.side === "source" ? "ui.editor.menu_search_taking" : "ui.editor.menu_search_giving", { type: wireType, count: offered.length })
+    : t("ui.editor.menu_search", { count: offered.length });
 
   const shownCat = cat ?? categories.find((c) => c === LOOSE ? looseCount > 0 : byCat[c]?.length) ?? categories[0] ?? null;
   const loosely = shownCat === LOOSE;
@@ -188,16 +198,17 @@ export function NodeMenu() {
   const railManage: RailManage | undefined = manage
     ? {
         itemType: NODE_TYPE,
-        itemWord: "节点",
-        onAdd: (band) => setNaming({ title: "新建分类", label: "分类的名字", initial: "",
+        itemWord: t("ui.editor.menu_item_word"),
+        onAdd: (band) => setNaming({ title: t("ui.editor.cat_new"), label: t("ui.editor.cat_name"), max: CATEGORY_MAX,
           save: (name) => act(() => adminApi.saveMenuCategory({ id: nextId("c"), label: name, section: band, rank: tree.length + 1 })) }),
         onRename: (id) => {
           const c = treeOf(id);
-          if (c) setNaming({ title: "重命名分类", label: "分类的名字", initial: c.label, save: (name) => act(() => adminApi.saveMenuCategory({ id, label: name, tip: c.tip, color: c.color, rank: c.rank, section: c.section })) });
+          if (c) setNaming({ title: t("ui.editor.cat_rename"), label: t("ui.editor.cat_name"), initial: { [getLang()]: c.label }, load: () => menuWords(id), max: CATEGORY_MAX,
+            save: (name) => act(() => adminApi.saveMenuCategory({ id, label: name, color: c.color, rank: c.rank, section: c.section })) });
         },
         onRemove: async (id) => {
           const c = treeOf(id);
-          if (!c || !(await ask({ title: "删掉分类", say: msg("N-CATEGORY-REMOVE", { name: c.label }), yes: "删掉", tip: "从节点菜单里去掉它和它的二级分类；节点进「未分类」", danger: true }))) return;
+          if (!c || !(await ask({ title: t("ui.editor.cat_remove"), say: msg("N-CATEGORY-REMOVE", { name: c.label }), yes: t("ui.common.delete"), tip: tipOf("consequence", t("ui.editor.cat_remove_tip")), danger: true }))) return;
           void act(() => adminApi.removeMenuCategory(id));
         },
         onReorder: (id, beforeId) => {
@@ -215,15 +226,16 @@ export function NodeMenu() {
         onDropItem: (id, typeId) => void act(() => adminApi.placeNode(typeId, id === LOOSE ? "" : id)),
       }
     : undefined;
-  const addSub = () => shownCat && !loosely && setNaming({ title: "新建二级分类", label: "二级分类的名字", initial: "",
+  const addSub = () => shownCat && !loosely && setNaming({ title: t("ui.editor.sub_new"), label: t("ui.editor.sub_name"), max: CATEGORY_MAX,
     save: (name) => act(() => adminApi.saveMenuCategory({ id: nextId("s"), parent: shownCat, label: name, rank: (treeOf(shownCat)?.subs.length ?? 0) + 1 })) });
   const renameSub = (id: string) => {
     const s = subOf(id);
-    if (s) setNaming({ title: "重命名二级分类", label: "二级分类的名字", initial: s.label, save: (name) => act(() => adminApi.saveMenuCategory({ id, parent: s.parent, label: name, tip: s.tip, rank: s.rank })) });
+    if (s) setNaming({ title: t("ui.editor.sub_rename"), label: t("ui.editor.sub_name"), initial: { [getLang()]: s.label }, load: () => menuWords(id), max: CATEGORY_MAX,
+      save: (name) => act(() => adminApi.saveMenuCategory({ id, parent: s.parent, label: name, rank: s.rank })) });
   };
   const removeSub = async (id: string) => {
     const s = subOf(id);
-    if (!s || !(await ask({ title: "删掉二级分类", say: msg("N-CATEGORY-REMOVE", { name: s.label }), yes: "删掉", tip: "从节点菜单里去掉它；节点进「未分类」", danger: true }))) return;
+    if (!s || !(await ask({ title: t("ui.editor.sub_remove"), say: msg("N-CATEGORY-REMOVE", { name: s.label }), yes: t("ui.common.delete"), tip: tipOf("consequence", t("ui.editor.sub_remove_tip")), danger: true }))) return;
     void act(() => adminApi.removeMenuCategory(id));
   };
   const reorderSub = (id: string, beforeId: string | null) => {
@@ -237,9 +249,9 @@ export function NodeMenu() {
     void act(() => adminApi.orderMenuCategories(order.map((s) => s.id), parent.id));
   };
   const placeNode = (typeId: string, where: string) => void act(() => adminApi.placeNode(typeId, where));
-  const editText = async (n: NodeTypeDef, label: string, description: string) => {
+  const editText = async (n: NodeTypeDef, subtitle: LangSaved, description: LangSaved) => {
     try {
-      await adminApi.editNodeText(n.id, label, description);
+      await adminApi.editNodeText(n.id, subtitle, description);
     } catch (e) {
       say(msg("E-REQUEST-REFUSED", { status: 0, detail: reasonOf(e as Error) }));
       throw e; // the sheet stays open with the words (ui/NameSheet.tsx TextSheet)
@@ -269,16 +281,18 @@ export function NodeMenu() {
         <CategoryGlyph category={c.id} color={isActive ? "#fff" : c.color} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="menu-title">
-            <span className="menu-title-text">{o.map((m) => m.label).join(" → ")}</span>
-            {o.some((m) => !m.at_defaults.licence.commercial) && <span className="nc-badge">非商用</span>}
+            {/* 大字是类型名，旁边小字是它的副标题（节点上最上面那行大字） */}
+            <span className="menu-title-text">{o.map((m) => m.id).join(" → ")}</span>
+            <span className="menu-title-desc">{o.map((m) => m.subtitle).join(" → ")}</span>
+            {o.some((m) => !m.at_defaults.licence.commercial) && <span className="nc-badge">{t("ui.editor.noncommercial")}</span>}
           </div>
           <div className="menu-desc">
-            {!available ? nodeWhy(applies, o.find((m) => !nodeUsable(applies, m.id))!.id) : chain ? `一起加上并接好：${o.map((m) => `「${m.label}」`).join("接")}` : n.description}
+            {!available ? nodeWhy(applies, o.find((m) => !nodeUsable(applies, m.id))!.id) : chain ? t("ui.editor.chain", { chain: o.map((m) => m.subtitle).join(" → ") }) : n.description}
           </div>
         </div>
-        {tag && <span className="menu-project">{chain ? "推荐" : `${c.label || "未分类"} · ${n.project}`}</span>}
+        {tag && <span className="menu-project">{chain ? t("ui.editor.recommended") : `${c.label || t("ui.editor.uncategorized")} · ${n.project}`}</span>}
         {manage && !chain && (
-          <IconButton tip="编辑名字和说明" tone="ghost" size="xs" aria-label={`编辑 ${n.label}`} onClick={(e) => (e.stopPropagation(), setEditing(n))}>
+          <IconButton tone="ghost" size="xs" aria-label={t("ui.editor.node_text_edit_of", { node: n.subtitle })} onClick={(e) => (e.stopPropagation(), setEditing(n))}>
             <IconMore />
           </IconButton>
         )}
@@ -293,20 +307,20 @@ export function NodeMenu() {
   const here = loosely ? (byCat[""] ?? []) : (byCat[shownCat ?? ""] ?? []);
   const inSub = (n: NodeTypeDef) => nodeCategory(catalog, n).sub;
   const looseHere = here.filter((n) => !inSub(n));
-  const subGroups: { id: string; label: string; tip: string; nodes: NodeTypeDef[] }[] = (shownTree?.subs ?? [])
-    .map((s) => ({ id: s.id, label: s.label, tip: s.tip, nodes: here.filter((n) => inSub(n) === s.id) }))
+  const subGroups: { id: string; label: string; nodes: NodeTypeDef[] }[] = (shownTree?.subs ?? [])
+    .map((s) => ({ id: s.id, label: s.label, nodes: here.filter((n) => inSub(n) === s.id) }))
     .filter((g) => g.nodes.length > 0 || manage);
   const flat = !manage && subGroups.length === 1 && !looseHere.length;
   const groups = [
-    ...(looseHere.length ? [{ id: "", label: "", tip: shownTree?.tip ?? "", nodes: looseHere }] : []),
+    ...(looseHere.length ? [{ id: "", label: "", nodes: looseHere }] : []),
     ...subGroups.map((g) => (flat ? { ...g, label: "" } : g)),
   ];
 
   const railBands: RailBand[] = [
-    ...(looseCount || manage ? [{ id: "loose", managed: manage, fixedOnly: true, rows: [{ id: LOOSE, label: "未分类", tip: "还没有归到任何分类的节点：管理员拖到一个分类上", count: looseCount, glyph: <CategoryGlyph category="" color={NEUTRAL} />, fixed: true }] }] : []),
+    ...(looseCount || manage ? [{ id: "loose", managed: manage, fixedOnly: true, rows: [{ id: LOOSE, label: t("ui.editor.uncategorized"), count: looseCount, glyph: <CategoryGlyph category="" color={NEUTRAL} />, fixed: true }] }] : []),
     ...bands.map(({ section, rows }) => ({
-      id: section.id, heading: section.label, tip: section.tip, managed: manage,
-      rows: rows.map((c) => ({ id: c.id, label: c.label, tip: c.tip, count: byCat[c.id]?.length ?? 0, glyph: <CategoryGlyph category={c.id} color={c.color} /> })),
+      id: section.id, heading: section.label, managed: manage,
+      rows: rows.map((c) => ({ id: c.id, label: c.label, count: byCat[c.id]?.length ?? 0, glyph: <CategoryGlyph category={c.id} color={c.color} /> })),
     })),
   ];
 
@@ -320,7 +334,6 @@ export function NodeMenu() {
         <input
           ref={input}
           value={q}
-          data-tip="打字筛选，上下键选，回车加上"
           placeholder={placeholder}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
@@ -339,22 +352,23 @@ export function NodeMenu() {
             {results.map((o, i) => (
               <Row key={o.map((n) => n.id).join(">")} o={o} i={i} tag />
             ))}
-            {!results.length && <div className="menu-desc" style={{ padding: 12 }}>没有匹配的节点</div>}
+            {!results.length && <div className="menu-desc" style={{ padding: 12 }}>{t("ui.editor.menu_no_match")}</div>}
           </div>
         ) : (
           <div className="menu-browse">
             <div className="menu-cats">
-              {recent.length > 0 && <div className="menu-cat">最近用过</div>}
+              {recent.length > 0 && <div className="menu-cat">{t("ui.editor.recent")}</div>}
               {recent.map((n) => (
                 <div key={`r-${n.id}`} className="menu-catrow" onClick={() => pick([n])}>
                   <CategoryGlyph category={nodeCategory(catalog, n).id} color={nodeCategory(catalog, n).color} />
-                  <span className="menu-catname">{n.label}</span>
+                  <span className="menu-catname">{n.id}</span>
+                  <span className="menu-title-desc">{n.subtitle}</span>
                 </div>
               ))}
               {/* the bands and their categories are the administrator's tree (Catalog.menu), drawn by the same rail as the
                   templates panel: the same drag, rename, remove and 「新建分类」 there and here */}
               <CategoryRail
-                label="节点分类"
+                label={t("ui.editor.node_categories")}
                 bands={railBands}
                 chosen={shownCat ?? ""}
                 onChoose={setCat}
@@ -366,7 +380,7 @@ export function NodeMenu() {
             <div className="menu-list">
               {recommended.length > 0 && (
                 <div className="menu-recommended">
-                  <div className="menu-cat">推荐</div>
+                  <div className="menu-cat">{t("ui.editor.recommended")}</div>
                   {recommended.map((o) => (
                     <Row key={o.map((n) => n.id).join(">")} o={o} />
                   ))}
@@ -382,20 +396,21 @@ export function NodeMenu() {
               ))}
               {manage && shownCat && !loosely && (
                 <div className="menu-addsub">
-                  <Button tip="在这个分类下新建一个二级分类" tone="ghost" size="sm" onClick={addSub}>
-                    <IconPlus /> 新建二级分类
+                  <Button tone="ghost" size="sm" onClick={addSub}>
+                    <IconPlus /> {t("ui.editor.sub_new")}
                   </Button>
                 </div>
               )}
-              {!groups.length && <div className="menu-desc" style={{ padding: 12 }}>{loosely ? "没有未分类的节点" : "没有能接上的节点"}</div>}
+              {!groups.length && <div className="menu-desc" style={{ padding: 12 }}>{loosely ? t("ui.editor.menu_no_loose") : t("ui.editor.menu_no_wirable")}</div>}
             </div>
           </div>
         )}
       </div>
-      {naming && <NameSheet {...naming} onClose={() => setNaming(null)} />}
+      {naming && <NamesSheet {...naming} onClose={() => setNaming(null)} />}
       {editing && (
-        <TextSheet title={`编辑「${editing.label}」`} nameLabel="名字" textLabel="说明" initialName={editing.label} initialText={editing.description} nameMax={30} textMax={520}
-          save={(label, description) => editText(editing, label, description)} onClose={() => setEditing(null)} />
+        <TextsSheet title={t("ui.editor.node_text_edit_of", { node: editing.id })} nameLabel={t("ui.editor.node_text_name")} textLabel={t("ui.editor.node_text_description")}
+          load={() => adminApi.nodeText(editing.id).then((w) => ({ name: w.subtitle, text: w.description }))} nameMax={NODE_NAME_MAX} textMax={NODE_TEXT_MAX}
+          save={(subtitle, description) => editText(editing, subtitle, description)} onClose={() => setEditing(null)} />
       )}
       {confirmSheet}
     </>
@@ -405,7 +420,7 @@ export function NodeMenu() {
 /** One subcategory band of the node list: its heading (drags to reorder, takes a dropped node, has its own menu when
  * managed) and its rows. */
 function MenuBand({ group, manage, dropWhere, onDropNode, onDropSub, onRename, onRemove, children }: {
-  group: { id: string; label: string; tip: string; nodes: NodeTypeDef[] };
+  group: { id: string; label: string; nodes: NodeTypeDef[] };
   manage: boolean;
   dropWhere: string; // where a node dropped on this heading goes (the subcategory, or the category itself for the loose band)
   onDropNode: (typeId: string, where: string) => void;
@@ -441,33 +456,32 @@ function MenuBand({ group, manage, dropWhere, onDropNode, onDropSub, onRename, o
       {(group.label || manage) && (
         <div
           className="menu-cat menu-subhead"
-          data-tip={manage ? `${group.tip}\n把节点拖到这里就归到这个分类；拖动标题改顺序` : group.tip}
           draggable={manage && !!group.id}
           onDragStart={(e) => {
             e.dataTransfer.setData(SUB_TYPE, group.id);
             e.dataTransfer.effectAllowed = "move";
           }}
         >
-          <span>{group.label || "直接归在这个分类下"}</span>
+          <span>{group.label || t("ui.editor.sub_direct")}</span>
           {manage && <span className="menu-count">{group.nodes.length}</span>}
           {manage && onRename && (
-            <IconButton tip="重命名、删除" tone="ghost" size="xs" aria-label={`${group.label} 的操作`} onClick={(e) => (e.stopPropagation(), setMenu({ x: e.clientX, y: e.clientY }))}>
+            <IconButton tone="ghost" size="xs" aria-label={t("ui.editor.sub_actions", { name: group.label })} onClick={(e) => (e.stopPropagation(), setMenu({ x: e.clientX, y: e.clientY }))}>
               <IconMore />
             </IconButton>
           )}
         </div>
       )}
       {children}
-      {manage && !group.nodes.length && <div className="menu-desc" style={{ padding: "4px 12px 10px" }}>没有节点：把节点拖到这个标题上</div>}
+      {manage && !group.nodes.length && <div className="menu-desc" style={{ padding: "4px 12px 10px" }}>{t("ui.editor.sub_empty")}</div>}
       {menu && onRename && (
         <Menu
           at={menu}
-          label={`${group.label} 的操作`}
+          label={t("ui.editor.sub_actions", { name: group.label })}
           width={160}
           onClose={() => setMenu(null)}
           rows={[
-            { key: "rename", label: "重命名", tip: "改这个二级分类的名字", run: onRename },
-            { key: "remove", label: "删除", tip: "删掉这个二级分类：归在它下面的节点进「未分类」，不会跟着删", run: onRemove },
+            { key: "rename", label: t("ui.common.rename"), run: onRename },
+            { key: "remove", label: t("ui.common.delete"), tip: tipOf("consequence", t("ui.editor.sub_remove_nodes_tip")), run: onRemove },
           ]}
         />
       )}

@@ -1,0 +1,1536 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "9c4a1e2f8b9d3c5e6a0f1b2c3d4e5f6c",
+  "name": {
+   "zh": "AI 重定目标 · STaR",
+   "en": "AI Retarget · STaR"
+  },
+  "intro": {
+   "zh": "STaR：源动作默认导入你自己的动作（带蒙皮网格的角色动画 FBX），也可以在「源动作来源」里改成写一句提示词、用 Kimodo 生成（套在标准人身上）；再导入目标角色。点「准备并查看」：两副骨架的部位对应、初始姿势和不送进模型的骨骼都已自动，在视图里看、改（忽略规则默认「STaR」：只送官方 22 个身体部位）；再点「重定目标并预览」看模型原生的结果；「后处理并预览」定平移、高度和脚底落地；最后打包下载 USD 动画。",
+   "en": "STaR: import your own motion (an animated skinned character as FBX), or set Motion Source to generate it from a prompt with Kimodo; then import the target character. Prepare and View sets up correspondence, initial poses and ignored bones automatically for review (Ignore Rules: STaR, the 22 official body parts only). Retarget and Preview shows the model's result; Post-Process and Preview sets translation, height and grounding."
+  },
+  "author": "Lab2Shot",
+  "created": "2026-10-02T12:00:00",
+  "deliverable": "retarget_rig",
+  "owner": "admin",
+  "updated": "2026-10-04T12:00:00"
+ },
+ "exposed": [
+  {
+   "kind": "group",
+   "label": {
+    "zh": "源动作",
+    "en": "Source Motion"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "motion_src",
+     "label": {
+      "zh": "源动作来源",
+      "en": "Motion Source"
+     },
+     "target": "motion_src.value",
+     "widget": "menu",
+     "options": [
+      {
+       "value": 1,
+       "label": {
+        "zh": "导入的角色动画（FBX，带蒙皮）",
+        "en": "Imported Character Animation (FBX, Skinned)"
+       }
+      },
+      {
+       "value": 3,
+       "label": {
+        "zh": "提示词生成（Kimodo）",
+        "en": "Generate from Prompt (Kimodo)"
+       }
+      }
+     ]
+    },
+    {
+     "name": "motion_fbx_path",
+     "label": {
+      "zh": "动作文件（FBX）",
+      "en": "Motion File (FBX)"
+     },
+     "target": "motion_fbx.path",
+     "hide_when": "motion_src != 1",
+     "show_on_change": true,
+     "note": {
+      "zh": "STaR 要用源角色的网格：选带蒙皮网格的角色动画（只有骨架的动捕请换 SATA 或 Kinematic Refinement 卡）",
+      "en": "STaR uses the source character's mesh: choose an animated skinned character (for skeleton-only motion capture use the SATA or Kinematic Refinement card)"
+     }
+    },
+    {
+     "name": "motion_fbx_characters",
+     "label": {
+      "zh": "选哪个角色",
+      "en": "Character"
+     },
+     "target": "motion_fbx.characters",
+     "hide_when": "motion_src != 1",
+     "show_on_change": true
+    },
+    {
+     "name": "prompt",
+     "label": {
+      "zh": "动作提示词",
+      "en": "Motion Prompt"
+     },
+     "target": "prompt_text.value",
+     "show_on_change": true,
+     "hide_when": "motion_src != 3"
+    },
+    {
+     "name": "make_start_frame",
+     "label": {
+      "zh": "开始帧号",
+      "en": "Start Frame Number"
+     },
+     "target": "make.start_frame",
+     "hide_when": "motion_src != 3"
+    },
+    {
+     "name": "make_end_frame",
+     "label": {
+      "zh": "结束帧号",
+      "en": "End Frame Number"
+     },
+     "target": "make.end_frame",
+     "hide_when": "motion_src != 3"
+    },
+    {
+     "name": "fps",
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "fps.value",
+     "hide_when": "motion_src != 3"
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "make_model",
+       "label": {
+        "zh": "Kimodo 模型",
+        "en": "Kimodo Model"
+       },
+       "target": "make.model",
+       "hide_when": "motion_src != 3"
+      },
+      {
+       "name": "make_seed",
+       "label": {
+        "zh": "随机种子",
+        "en": "Seed"
+       },
+       "target": "make.seed",
+       "hide_when": "motion_src != 3"
+      },
+      {
+       "name": "body_skeleton",
+       "label": {
+        "zh": "骨架",
+        "en": "Skeleton"
+       },
+       "target": "body.skeleton",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "soma",
+         "label": {
+          "zh": "SOMA（30 关节）",
+          "en": "SOMA (30 Joints)"
+         }
+        },
+        {
+         "value": "smplx",
+         "label": {
+          "zh": "SMPL-X（22 关节）",
+          "en": "SMPL-X (22 Joints)"
+         }
+        },
+        {
+         "value": "g1",
+         "label": {
+          "zh": "G1（34 关节）",
+          "en": "G1 (34 Joints)"
+         }
+        }
+       ],
+       "hide_when": "motion_src != 3"
+      },
+      {
+       "name": "body_height_cm",
+       "label": {
+        "zh": "身高",
+        "en": "Body Height"
+       },
+       "target": "body.height_cm",
+       "hide_when": "motion_src != 3"
+      }
+     ]
+    },
+    {
+     "name": "cook_skin_src",
+     "label": {
+      "zh": "生成并查看源动作",
+      "en": "Generate and View Source Motion"
+     },
+     "target": "skin_src.cook",
+     "hide_when": "motion_src != 3"
+    },
+    {
+     "name": "cook_motion_pick",
+     "label": {
+      "zh": "载入并查看源动作",
+      "en": "Load and View Source Motion"
+     },
+     "target": "motion_pick.cook",
+     "hide_when": "motion_src == 3"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "目标角色",
+    "en": "Target Character"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "target_src",
+     "label": {
+      "zh": "目标角色",
+      "en": "Target Character"
+     },
+     "target": "target_src.value",
+     "widget": "menu",
+     "options": [
+      {
+       "value": 2,
+       "label": {
+        "zh": "导入的角色（FBX）",
+        "en": "Imported Character (FBX)"
+       }
+      },
+      {
+       "value": 3,
+       "label": {
+        "zh": "导入的角色（USD）",
+        "en": "Imported Character (USD)"
+       }
+      }
+     ]
+    },
+    {
+     "name": "char_fbx_path",
+     "label": {
+      "zh": "角色文件（FBX）",
+      "en": "Character File (FBX)"
+     },
+     "target": "char_fbx.path",
+     "hide_when": "target_src != 2",
+     "show_on_change": true
+    },
+    {
+     "name": "char_fbx_characters",
+     "label": {
+      "zh": "选哪个角色",
+      "en": "Character"
+     },
+     "target": "char_fbx.characters",
+     "hide_when": "target_src != 2",
+     "show_on_change": true
+    },
+    {
+     "name": "char_usd_path",
+     "label": {
+      "zh": "角色文件（USD）",
+      "en": "Character File (USD)"
+     },
+     "target": "char_usd.path",
+     "hide_when": "target_src != 3",
+     "show_on_change": true
+    },
+    {
+     "name": "char_usd_characters",
+     "label": {
+      "zh": "选哪个角色",
+      "en": "Character"
+     },
+     "target": "char_usd.characters",
+     "hide_when": "target_src != 3",
+     "show_on_change": true
+    },
+    {
+     "name": "cook_target_pick",
+     "label": {
+      "zh": "载入角色",
+      "en": "Load Character"
+     },
+     "target": "target_pick.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "预处理",
+    "en": "Pre-Process"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "mapping",
+     "label": {
+      "zh": "对应关系",
+      "en": "Correspondence"
+     },
+     "target": "prepare.mapping",
+     "show_on_change": true
+    },
+    {
+     "name": "motion_pose",
+     "label": {
+      "zh": "动作初始姿势",
+      "en": "Motion Initial Pose"
+     },
+     "target": "prepare.motion_pose",
+     "show_on_change": true
+    },
+    {
+     "name": "target_pose",
+     "label": {
+      "zh": "目标初始姿势",
+      "en": "Target Initial Pose"
+     },
+     "target": "prepare.target_pose",
+     "show_on_change": true
+    },
+    {
+     "name": "prepare_ignore_rule",
+     "label": {
+      "zh": "忽略规则",
+      "en": "Ignore Rules"
+     },
+     "target": "prepare.ignore_rule",
+     "show_on_change": true
+    },
+    {
+     "name": "prepare_motion_ignore",
+     "label": {
+      "zh": "动作忽略的骨骼",
+      "en": "Motion Ignored Bones"
+     },
+     "target": "prepare.motion_ignore",
+     "show_on_change": true
+    },
+    {
+     "name": "prepare_target_ignore",
+     "label": {
+      "zh": "目标忽略的骨骼",
+      "en": "Target Ignored Bones"
+     },
+     "target": "prepare.target_ignore",
+     "show_on_change": true
+    },
+    {
+     "name": "prepare_motion_scale",
+     "label": {
+      "zh": "动作尺寸",
+      "en": "Motion Size"
+     },
+     "target": "prepare.motion_scale",
+     "show_on_change": true
+    },
+    {
+     "name": "prepare_target_scale",
+     "label": {
+      "zh": "目标尺寸",
+      "en": "Target Size"
+     },
+     "target": "prepare.target_scale",
+     "show_on_change": true
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "motion_rest",
+       "label": {
+        "zh": "动作静止姿势",
+        "en": "Motion Rest Pose"
+       },
+       "target": "prepare.motion_rest",
+       "show_on_change": true
+      },
+      {
+       "name": "motion_rest_frame",
+       "label": {
+        "zh": "动作基准帧",
+        "en": "Motion Rest Frame"
+       },
+       "target": "prepare.motion_rest_frame",
+       "hide_when": "motion_rest != \"frame\"",
+       "show_on_change": true
+      },
+      {
+       "name": "target_rest",
+       "label": {
+        "zh": "目标静止姿势",
+        "en": "Target Rest Pose"
+       },
+       "target": "prepare.target_rest",
+       "show_on_change": true
+      },
+      {
+       "name": "target_rest_frame",
+       "label": {
+        "zh": "目标基准帧",
+        "en": "Target Rest Frame"
+       },
+       "target": "prepare.target_rest_frame",
+       "hide_when": "target_rest != \"frame\"",
+       "show_on_change": true
+      },
+      {
+       "name": "prepare_motion_skeleton",
+       "label": {
+        "zh": "动作骨骼",
+        "en": "Motion Bones"
+       },
+       "target": "prepare.motion_skeleton",
+       "show_on_change": true
+      },
+      {
+       "name": "prepare_target_skeleton",
+       "label": {
+        "zh": "目标骨骼",
+        "en": "Target Bones"
+       },
+       "target": "prepare.target_skeleton",
+       "show_on_change": true
+      }
+     ]
+    },
+    {
+     "name": "cook_prepare",
+     "label": {
+      "zh": "准备并查看",
+      "en": "Prepare and View"
+     },
+     "target": "prepare.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "解算",
+    "en": "Solve"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "retarget_window",
+       "label": {
+        "zh": "推理窗口",
+        "en": "Inference Window"
+       },
+       "target": "retarget.window"
+      },
+      {
+       "name": "retarget_seed",
+       "label": {
+        "zh": "采样种子",
+        "en": "Sampling Seed"
+       },
+       "target": "retarget.seed"
+      }
+     ]
+    },
+    {
+     "name": "cook_retarget",
+     "label": {
+      "zh": "重定目标并预览",
+      "en": "Retarget and Preview"
+     },
+     "target": "retarget.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "后处理",
+    "en": "Post-Process"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "post_root_motion",
+     "label": {
+      "zh": "平移轨迹",
+      "en": "Translate Path"
+     },
+     "target": "post.root_motion",
+     "show_on_change": true
+    },
+    {
+     "name": "post_stride",
+     "label": {
+      "zh": "水平平移",
+      "en": "Horizontal Translate"
+     },
+     "target": "post.stride",
+     "hide_when": "post_root_motion != \"source\"",
+     "show_on_change": true
+    },
+    {
+     "name": "height_offset",
+     "label": {
+      "zh": "高度偏移",
+      "en": "Height Offset"
+     },
+     "target": "post.height_offset",
+     "show_on_change": true
+    },
+    {
+     "name": "grounded_which",
+     "label": {
+      "zh": "脚底落地",
+      "en": "Ground Soles"
+     },
+     "target": "grounded.which",
+     "widget": "menu",
+     "options": [
+      {
+       "value": 1,
+       "label": {
+        "zh": "原始高度（不落地）",
+        "en": "Original Height (No Grounding)"
+       }
+      },
+      {
+       "value": 2,
+       "label": {
+        "zh": "按实际脚底落地",
+        "en": "Ground by Actual Soles"
+       }
+      }
+     ]
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "ground_percentile",
+       "label": {
+        "zh": "用于落地的帧比例",
+        "en": "Frame Fraction for Grounding"
+       },
+       "target": "ground.percentile",
+       "hide_when": "grounded_which != 2"
+      }
+     ]
+    },
+    {
+     "name": "cook_grounded",
+     "label": {
+      "zh": "后处理并预览",
+      "en": "Post-Process and Preview"
+     },
+     "target": "grounded.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "usd_name",
+     "label": {
+      "zh": "文件名（USD）",
+      "en": "File Name (USD)"
+     },
+     "target": "usd.name"
+    },
+    {
+     "name": "fbx_name",
+     "label": {
+      "zh": "文件名（FBX）",
+      "en": "File Name (FBX)"
+     },
+     "target": "fbx.name"
+    },
+    {
+     "name": "unit",
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "word": "pack",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
+     "target": "deliver.download"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "motion_src",
+   "type": "value_int",
+   "params": {
+    "value": 1,
+    "unit": ""
+   },
+   "ui": {
+    "x": 0,
+    "y": 1432,
+    "on_node": [
+     "value"
+    ]
+   }
+  },
+  {
+   "id": "motion_fbx",
+   "type": "fbx.import",
+   "params": {
+    "path": "",
+    "take": "",
+    "camera": "",
+    "models": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 0,
+    "y": 1611
+   }
+  },
+  {
+   "id": "motion_pick",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "导入的角色动画（FBX）",
+       "en": "Imported Character Animation (FBX)"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "导入的动作（BVH）",
+       "en": "Imported Motion (BVH)"
+      }
+     },
+     {
+      "name": "c",
+      "label": {
+       "zh": "提示词生成（Kimodo）",
+       "en": "Generated from Prompt (Kimodo)"
+      }
+     },
+     {
+      "name": "d",
+      "label": {
+       "zh": "导入的骨架动画（FBX）",
+       "en": "Imported Skeleton Animation (FBX)"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 1440,
+    "y": 1432
+   }
+  },
+  {
+   "id": "fps_round",
+   "type": "math",
+   "params": {
+    "operation": "round",
+    "unit": ""
+   },
+   "ui": {
+    "x": 720,
+    "y": 1432
+   }
+  },
+  {
+   "id": "fps_pick",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "FBX 的帧速率",
+       "en": "FBX Frame Rate"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "BVH 的帧速率",
+       "en": "BVH Frame Rate"
+      }
+     },
+     {
+      "name": "c",
+      "label": {
+       "zh": "生成的帧速率",
+       "en": "Generated Frame Rate"
+      }
+     },
+     {
+      "name": "d",
+      "label": {
+       "zh": "FBX 的帧速率",
+       "en": "FBX Frame Rate"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 360,
+    "y": 1432
+   }
+  },
+  {
+   "id": "prompt_text",
+   "type": "value_string",
+   "params": {
+    "value": ""
+   },
+   "ui": {
+    "x": 0,
+    "y": 2263,
+    "on_node": [
+     "value"
+    ]
+   }
+  },
+  {
+   "id": "translate",
+   "type": "llm.translate",
+   "params": {
+    "target_lang": "english",
+    "model": "hy_mt2_q4"
+   },
+   "ui": {
+    "x": 360,
+    "y": 2263
+   }
+  },
+  {
+   "id": "fps",
+   "type": "value_float",
+   "params": {
+    "value": 24.0,
+    "unit": "fps"
+   },
+   "ui": {
+    "x": 0,
+    "y": 1842,
+    "on_node": [
+     "value"
+    ]
+   }
+  },
+  {
+   "id": "make",
+   "type": "kimodo.motion",
+   "params": {
+    "skeleton": null,
+    "keys": "",
+    "exact": true,
+    "foot_lock": true,
+    "start_frame": 1001,
+    "end_frame": 1120,
+    "mapping": null,
+    "model": "rp",
+    "prompt": "",
+    "steps": 100,
+    "guidance": 2.0,
+    "seed": 0,
+    "post_process": true,
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 720,
+    "y": 2470,
+    "on_node": [
+     "prompt",
+     "model"
+    ]
+   },
+   "promoted": [
+    "fps",
+    "prompt"
+   ]
+  },
+  {
+   "id": "body",
+   "type": "standard_human",
+   "params": {
+    "skeleton": "soma",
+    "height_cm": null
+   },
+   "ui": {
+    "x": 720,
+    "y": 2263,
+    "on_node": [
+     "skeleton",
+     "height_cm"
+    ]
+   }
+  },
+  {
+   "id": "skin_src",
+   "type": "bone_deform",
+   "params": {
+    "skeleton_path": null,
+    "character_skeleton": null
+   },
+   "ui": {
+    "x": 1080,
+    "y": 2263
+   }
+  },
+  {
+   "id": "target_src",
+   "type": "value_int",
+   "params": {
+    "value": 2,
+    "unit": ""
+   },
+   "ui": {
+    "x": 0,
+    "y": 0,
+    "on_node": [
+     "value"
+    ]
+   }
+  },
+  {
+   "id": "char_fbx",
+   "type": "fbx.import",
+   "params": {
+    "path": "",
+    "take": "",
+    "camera": "",
+    "models": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 0,
+    "y": 179
+   }
+  },
+  {
+   "id": "char_usd",
+   "type": "usd.import",
+   "params": {
+    "path": "",
+    "camera": "",
+    "models": [],
+    "points": [],
+    "curves": [],
+    "skeletons": [],
+    "characters": []
+   },
+   "ui": {
+    "x": 0,
+    "y": 410
+   }
+  },
+  {
+   "id": "target_pick",
+   "type": "switch",
+   "params": {
+    "which": 2,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "不重定目标",
+       "en": "No Retarget"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "导入的角色（FBX）",
+       "en": "Imported Character (FBX)"
+      }
+     },
+     {
+      "name": "c",
+      "label": {
+       "zh": "导入的角色（USD）",
+       "en": "Imported Character (USD)"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 360,
+    "y": 0
+   }
+  },
+  {
+   "id": "prepare",
+   "type": "retarget_prepare",
+   "params": {
+    "motion_skeleton": null,
+    "target_skeleton": null,
+    "mapping": null,
+    "motion_pose": [],
+    "target_pose": [],
+    "motion_ignore": [],
+    "target_ignore": [],
+    "ignore_rule": "star",
+    "motion_scale": null,
+    "target_scale": null,
+    "auto_record": "",
+    "motion_rest": "bind",
+    "motion_rest_frame": null,
+    "target_rest": "first",
+    "target_rest_frame": null
+   },
+   "ui": {
+    "x": 1800,
+    "y": 943
+   }
+  },
+  {
+   "id": "retarget",
+   "type": "star.retarget",
+   "params": {
+    "fps": 24,
+    "window": 120,
+    "seed": 42
+   },
+   "ui": {
+    "x": 2160,
+    "y": 943
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "post",
+   "type": "retarget_post",
+   "params": {
+    "root_motion": "model",
+    "stride": "legs",
+    "height_offset": 0.0
+   },
+   "ui": {
+    "x": 2520,
+    "y": 943,
+    "on_node": [
+     "root_motion",
+     "height_offset"
+    ]
+   }
+  },
+  {
+   "id": "skin_dst",
+   "type": "bone_deform",
+   "params": {
+    "skeleton_path": null,
+    "character_skeleton": null
+   },
+   "ui": {
+    "x": 2880,
+    "y": 943
+   }
+  },
+  {
+   "id": "ground",
+   "type": "auto_ground",
+   "params": {
+    "source": "people",
+    "percentile": 10.0,
+    "gravity": null,
+    "gravity_error": null
+   },
+   "ui": {
+    "x": 3240,
+    "y": 943
+   }
+  },
+  {
+   "id": "grounded",
+   "type": "switch",
+   "params": {
+    "which": 1,
+    "ways": [
+     {
+      "name": "a",
+      "label": {
+       "zh": "原始高度（不落地）",
+       "en": "Original Height (No Grounding)"
+      }
+     },
+     {
+      "name": "b",
+      "label": {
+       "zh": "按实际脚底落地",
+       "en": "Ground by Actual Soles"
+      }
+     }
+    ]
+   },
+   "ui": {
+    "x": 3600,
+    "y": 943,
+    "on_node": [
+     "which"
+    ]
+   }
+  },
+  {
+   "id": "usd",
+   "type": "usd.output",
+   "params": {
+    "name": "retarget_star",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 3960,
+    "y": 1115,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "deliver",
+   "type": "output",
+   "params": {},
+   "ui": {
+    "x": 4320,
+    "y": 1246
+   }
+  },
+  {
+   "id": "fbx",
+   "type": "fbx.output",
+   "params": {
+    "name": "retarget_star_fbx",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 3960,
+    "y": 1350,
+    "on_node": [
+     "name"
+    ]
+   },
+   "promoted": [
+    "fps"
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "prompt_text",
+    "value"
+   ],
+   "to": [
+    "translate",
+    "text"
+   ]
+  },
+  {
+   "from": [
+    "translate",
+    "text"
+   ],
+   "to": [
+    "make",
+    "param:prompt"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "make",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "make",
+    "character"
+   ],
+   "to": [
+    "skin_src",
+    "skeleton"
+   ]
+  },
+  {
+   "from": [
+    "body",
+    "character"
+   ],
+   "to": [
+    "skin_src",
+    "character"
+   ]
+  },
+  {
+   "from": [
+    "char_fbx",
+    "characters"
+   ],
+   "to": [
+    "target_pick",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "char_usd",
+    "characters"
+   ],
+   "to": [
+    "target_pick",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "target_src",
+    "value"
+   ],
+   "to": [
+    "target_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "target_pick",
+    "out"
+   ],
+   "to": [
+    "prepare",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "prepare",
+    "source"
+   ],
+   "to": [
+    "retarget",
+    "source"
+   ]
+  },
+  {
+   "from": [
+    "prepare",
+    "target"
+   ],
+   "to": [
+    "retarget",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "retarget",
+    "skeleton"
+   ],
+   "to": [
+    "post",
+    "skeleton"
+   ]
+  },
+  {
+   "from": [
+    "prepare",
+    "source"
+   ],
+   "to": [
+    "post",
+    "source"
+   ]
+  },
+  {
+   "from": [
+    "prepare",
+    "target"
+   ],
+   "to": [
+    "post",
+    "target"
+   ]
+  },
+  {
+   "from": [
+    "post",
+    "skeleton"
+   ],
+   "to": [
+    "skin_dst",
+    "skeleton"
+   ]
+  },
+  {
+   "from": [
+    "target_pick",
+    "out"
+   ],
+   "to": [
+    "skin_dst",
+    "character"
+   ]
+  },
+  {
+   "from": [
+    "skin_dst",
+    "character"
+   ],
+   "to": [
+    "ground",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "skin_dst",
+    "character"
+   ],
+   "to": [
+    "grounded",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "ground",
+    "scene"
+   ],
+   "to": [
+    "grounded",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "grounded",
+    "out"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "motion_src",
+    "value"
+   ],
+   "to": [
+    "motion_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "motion_src",
+    "value"
+   ],
+   "to": [
+    "fps_pick",
+    "param:which"
+   ]
+  },
+  {
+   "from": [
+    "motion_fbx",
+    "characters"
+   ],
+   "to": [
+    "motion_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "skin_src",
+    "character"
+   ],
+   "to": [
+    "motion_pick",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "motion_pick",
+    "out"
+   ],
+   "to": [
+    "prepare",
+    "motion"
+   ]
+  },
+  {
+   "from": [
+    "motion_fbx",
+    "fps"
+   ],
+   "to": [
+    "fps_pick",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "fps",
+    "value"
+   ],
+   "to": [
+    "fps_pick",
+    "c"
+   ]
+  },
+  {
+   "from": [
+    "fps_pick",
+    "out"
+   ],
+   "to": [
+    "fps_round",
+    "values"
+   ]
+  },
+  {
+   "from": [
+    "fps_round",
+    "integer"
+   ],
+   "to": [
+    "retarget",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "fps_pick",
+    "out"
+   ],
+   "to": [
+    "usd",
+    "param:fps"
+   ]
+  },
+  {
+   "from": [
+    "grounded",
+    "out"
+   ],
+   "to": [
+    "fbx",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "fbx",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "fps_pick",
+    "out"
+   ],
+   "to": [
+    "fbx",
+    "param:fps"
+   ]
+  }
+ ],
+ "boxes": [
+  {
+   "id": "box:1",
+   "label": {
+    "zh": "源动作",
+    "en": "Source Motion"
+   },
+   "color": "#0A84FF",
+   "x": -24,
+   "y": 1374,
+   "w": 1728,
+   "h": 631,
+   "collapsed": false,
+   "members": [
+    "motion_src",
+    "motion_fbx",
+    "motion_pick",
+    "fps_round",
+    "fps_pick",
+    "fps"
+   ]
+  },
+  {
+   "id": "box:2",
+   "label": {
+    "zh": "动作生成",
+    "en": "Motion Generation"
+   },
+   "color": "#30D158",
+   "x": -24,
+   "y": 2205,
+   "w": 1368,
+   "h": 484,
+   "collapsed": false,
+   "members": [
+    "prompt_text",
+    "translate",
+    "make",
+    "body",
+    "skin_src"
+   ]
+  },
+  {
+   "id": "box:3",
+   "label": {
+    "zh": "目标角色",
+    "en": "Target Character"
+   },
+   "color": "#FF9F0A",
+   "x": -24,
+   "y": -58,
+   "w": 648,
+   "h": 743,
+   "collapsed": false,
+   "members": [
+    "target_src",
+    "char_fbx",
+    "char_usd",
+    "target_pick"
+   ]
+  },
+  {
+   "id": "box:4",
+   "label": {
+    "zh": "重定目标",
+    "en": "Retarget"
+   },
+   "color": "#BF5AF2",
+   "x": 1776,
+   "y": 885,
+   "w": 2088,
+   "h": 289,
+   "collapsed": false,
+   "members": [
+    "prepare",
+    "retarget",
+    "post",
+    "skin_dst",
+    "ground",
+    "grounded"
+   ]
+  }
+ ],
+ "view": {
+  "display": "grounded",
+  "frame": 1001
+ }
+}

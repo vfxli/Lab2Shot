@@ -7,7 +7,7 @@ import { useSettled } from "../platform/settled";
 import { useTypes } from "../state/catalog";
 import { useLook } from "../state/look";
 import { useHandleView } from "../state/handleView";
-import type { HandleDef } from "../api";
+import type { HandleDef, ServerMessage } from "../api";
 import type { DragMode } from "../view/dragGizmo"; // 只取类型：不把三维舞台拉进主包
 import { useResults, useTrustedResults } from "../state/results";
 import { ValuesView } from "./ValuesView";
@@ -19,14 +19,15 @@ import { KINDS } from "../view/kinds3d";
 import { useViewCamera, useViewLoads, useViewerNote } from "../state/viewer";
 import { Empty } from "../ui/Empty";
 
-import { HANDLE_HINT } from "../view/handles2d";
+import { handleHint, tool2d } from "../view/handles2d";
+import { useRigPairView } from "../state/rigPairView";
+import { editedOn, handleScales, role3d, usesTransforms } from "../view/handleEditing";
 import { channelOptions, pickOf, pickValue, pickedIn, singleChannel, type Layer } from "../model/view2d";
 import { type ViewFacts } from "../model/viewControls";
 import { viewAvailable } from "../view/available";
 import { usable } from "../api/applies";
 import { channelsOf } from "../model/view2d";
 import { useView2D, useViewOptions } from "../state/viewer";
-import { ownReason } from "../platform/util";
 import { useUploadHint } from "../view/localPick";
 import { ReferenceMenu, ViewButtons } from "./ViewPick";
 import { Segmented } from "../ui/Button";
@@ -35,6 +36,10 @@ import { usePartial } from "../view/partial";
 import { ViewerFrame } from "./ViewerFrame";
 import { CurveStrip, CurveToggle, Curves } from "./ViewerCurves";
 import { BgPick, ChannelPick, GradePick, MergePick, ModePick, TintPick } from "./previewBar";
+import { nodeRef } from "../graph/naming";
+import { t } from "../i18n/t";
+import { noteText } from "../model/nodeOutcome";
+import { tipOf } from "../platform/tips";
 
 // 三维舞台（three.js 及其渲染器）在第一次显示三维结果时才加载，不随编辑器一同加载
 const Stage3D = lazyRetry(() => import("../view/Stage3D").then((m) => ({ default: m.Stage3D })));
@@ -49,7 +54,7 @@ const Stage3D = lazyRetry(() => import("../view/Stage3D").then((m) => ({ default
 
 const EMPTY_PLAN: PlanShown = { elements: [], pointMaps: [], handles: [] }; // 尚未显示任何节点时
 
-const TRANSFORM_MODES: Record<DragMode, string> = { translate: "移动", rotate: "旋转", scale: "缩放" };
+const TRANSFORM_MODES: Record<DragMode, string> = { translate: "ui.view.translate", rotate: "ui.view.rotate", scale: "ui.view.scale" }; // keys of the words
 
 /** 画面下拉的选项文字：输出设置节点的结果带有其来源节点（"FaceAnything · 规范坐标"），只有节点名很短时才放得进
  * 下拉框；当前节点已在左侧胶囊中写出，因此只用端口名即可区分（除非两张画面来自不同来源而端口名相同，此时保留全文）。 */
@@ -70,7 +75,11 @@ function shownOf(plan: DisplayPlan, port: string | null): ViewItem | null {
 export function Viewer() {
   const plan = useDisplayPlan();
   const editing = useHandleView((s) => s.editing);
-  const posing = (h: HandleDef) => h.kind === "skeleton_pose" && !h.readonly && !!editing && editing.node === plan?.node.id && editing.handle === plan.def?.handles.indexOf(h);
+  // 主视图里在改的那个手柄现在用不用变换工具：由手柄种类自己说（view/handleEditing.ts），这里不认任何种类。
+  // 订阅双骨架编辑的模式只为在它变化时重画（它的答案在那张表里读）
+  useRigPairView((s) => s.mode);
+  const posing = (h: HandleDef) => usesTransforms(h)
+    && !!editing && editing.node === plan?.node.id && editing.handle === plan.def?.handles.indexOf(h);
   const job = useResults((s) => s.job);
   const types = useTypes();
   const displayPort = useLook((s) => s.displayPort);
@@ -96,7 +105,7 @@ export function Viewer() {
   const cloudProxy = proxyNow.every > 1
     ? [{ kind: "proxy" as const, key: "proxy",
          text: textOf(msg("N-VIEW-CLOUDPROXY", { shown: countText(proxyNow.shown), total: countText(proxyNow.total) })),
-         tip: textOf(msg(proxyWhy, { every: proxyNow.every, shown: countText(proxyNow.shown), total: countText(proxyNow.total) })) }]
+         tip: tipOf("value", textOf(msg(proxyWhy, { every: proxyNow.every, shown: countText(proxyNow.shown), total: countText(proxyNow.total) }))) }]
     : [];
   // 三维逐帧数据的整段缓存（view/scene.ts）：没缓存完时写「已缓存 N / M 帧」，缓存完即消失；
   // 已缓存的是哪些帧由时间线色带标示。边算边看的进度不在画面角另行通知，时间线色带已有标示。
@@ -106,7 +115,7 @@ export function Viewer() {
   const cachingSettled = useSettled(cachingNow, 400);
   const caching = cached && cachingNow && cachingSettled
     ? [{ kind: "partial" as const, key: "caching",
-         text: textOf(msg("N-VIEW-CACHING", { got: cached[0], total: cached[1] })), tip: textOf(msg("I-VIEW-CACHINGWHY")) }]
+         text: textOf(msg("N-VIEW-CACHING", { got: cached[0], total: cached[1] })), tip: tipOf("value", textOf(msg("I-VIEW-CACHINGWHY"))) }]
     : [];
   // 二维预览链：黑白点、着色、运算、背景属于显示选项（跨节点保持，model/viewOptions.ts）；左右各自的通道与当前模式
   // 随视图保存（state/view2d.ts）；右侧显示的层即 displayPort（随节点图保存）。
@@ -124,11 +133,14 @@ export function Viewer() {
   const rightManifest = useManifest(shownPicture?.fp ?? null);
   const leftChannels = channelsOf(String(plateManifest?.type ?? ""));
   const rightChannels = channelsOf(String(rightManifest?.type ?? ""));
-  // 双击显示某个节点时，按该节点的预览标签切换一次模式。此后以使用者的选择为准，直到切换到下一个节点。
+  // 双击显示某个节点时，按该节点的预览标签切换一次模式；它的预览标签变了（「输出」、输出设置算完：标签换成收来的结果
+  // 那个节点的，view/plan.ts lead）也再切一次——打包完就看得到结果，与点「计算」显示算出的节点同一条规则。此后以使用者
+  // 的选择为准，直到显示别的节点或标签再变。
   const snapped = useRef<string | null>(null);
   useEffect(() => {
-    if (!plan || snapped.current === plan.node.id) return;
-    snapped.current = plan.node.id;
+    const at = plan ? `${plan.node.id}|${plan.preview}` : null;
+    if (!plan || snapped.current === at) return;
+    snapped.current = at;
     setMode(plan.preview);
   }, [plan?.node.id, plan?.preview]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -143,9 +155,14 @@ export function Viewer() {
   const local = plan?.file ?? null;
   const going = useUploadHint(plan?.node.id ?? null); // 没有可绘制内容时，改为显示其文件的上传进度。
 
-  const wanted: Stage | null = plan ? (picked ?? lastShown.current ?? plan.defaultStage) : null;
+  // 应用模式的结果视图（view/plan.ts collected）：没有手动选过舞台时跟着结果走——算完收来的只有三维结果就进三维
+  const wanted: Stage | null = plan ? (picked ?? (plan.collected ? null : lastShown.current) ?? plan.defaultStage) : null;
   const otherStage: Stage = wanted === "2d" ? "3d" : "2d";
-  const stage: Stage | null = !plan || !wanted ? null : plan.why[wanted] === null ? wanted : plan.why[otherStage] === null ? otherStage : plan.defaultStage;
+  // 在视图里编辑这个节点的一个手柄：手柄的数据来自状态回复，不等节点算出结果——显示它被编辑的那个舞台
+  // （手柄种类自己说是哪个，view/handleEditing.ts）
+  const editedStage = editing && plan && editing.node === plan.node.id ? editedOn(plan.def?.handles[editing.handle]) : null;
+  const editingHere = !!editedStage;
+  const stage: Stage | null = !plan || !wanted ? null : editedStage ?? (plan.why[wanted] === null ? wanted : plan.why[otherStage] === null ? otherStage : plan.defaultStage);
   useEffect(() => {
     if (!plan || !stage) return;
     // 胶囊只给简短摘要，完整句子在悬停提示中（界面文字不换行、不截断）。
@@ -154,7 +171,7 @@ export function Viewer() {
     lastShown.current = stage;
   }, [plan?.node.id, stage]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!plan || !stage) return <ViewerFrame body={<Empty title="没有显示节点" hint="双击一个节点，或点节点右上角的眼睛图标" />} />;
+  if (!plan || !stage) return <ViewerFrame body={<Empty title={t("ui.view.no_display_node")} hint={t("ui.view.no_display_node_hint")} />} />;
 
   const picture = shownOf(plan, displayPort);
   // 二维舞台右侧画的：选中的层；它还没有数据时，二维手柄作用的输入画面（view/plan.ts handleInput）
@@ -172,7 +189,7 @@ export function Viewer() {
   const handle2d = plan.handles.find((h) => h.stage === "2d");
   // 左右两侧当前显示的层与通道：层与通道列在同一下拉中，同时提供整体与单通道（与 Nuke 一致）。
   // 数据中不存在的层与通道不列出，这也是采用下拉而非按钮的原因。
-  const leftLayers: Layer[] = plan.plate ? [{ port: "", label: plan.plateLabel, channels: leftChannels || 3 }] : [];
+  const plateLayer: Layer[] = plan.plate ? [{ port: "", label: plan.plateLabel, channels: leftChannels || 3 }] : [];
   // 每个输出口对应一层：下拉中选择的是层，层即输出口（displayPort 保存的也是口名）。由一个画面列表拆出的
   // 多条属于同一输出口，在此算作一层，二维舞台每次只显示一张（DisplayPlan.pictures：one shown at a time）。
   // 列出的是节点拥有的层，而非已计算的层（多层 EXR 须可选层），因此不得按是否已有结果过滤：
@@ -188,12 +205,17 @@ export function Viewer() {
     // 可绘制的层不加此标注：主画面层即使未计算也能绘制（使用本机文件，无传输且保持完整精度），
     // 此时标注「还没算」与屏幕上显示的图像相矛盾。
     // 判定依据为 `view/origin.ts` 的 `from.own`：服务器算出的结果以及本节点读取的本机文件均属于节点自身的结果。
-    note: p2.from.own ? undefined : "还没算",
+    note: p2.from.own ? undefined : t("ui.view.not_cooked"),
     channels: (p2.fp === picture?.fp ? rightChannels : 0) || channelsOf(p2.type) || 1,
   }));
-  const leftOptions = channelOptions(leftLayers);
+  const leftOptions = channelOptions(plateLayer);
   const rightOptions = channelOptions(rightLayers);
   const leftValue = pickedIn(pickValue({ port: "", index: leftIndex }), leftOptions);
+  const pickLeft = (v: string) => {
+    const got = pickOf(v);
+    if (!got) return;
+    setLeft(got.index);
+  };
   const rightValue = pickedIn(pickValue({ port: picture?.port ?? "", index: rightIndex }), rightOptions);
   // 右侧选择一项即同时切换层（displayPort，随节点图保存）与通道（视图状态）。
   const pickRight = (v: string) => {
@@ -223,7 +245,7 @@ export function Viewer() {
   // 且两处不一致时不会报错（控件会一直处于禁用状态）。
   const shows2d = new Set<string>([...plan.overlays.filter((it) => it.from.own && !hidden.has(it.key)).map((it) => it.type), ...(handle2d ? ["handle"] : [])]);
   const active = plan.handles.find((h) => h.stage === stage);
-  const hint = active ? HANDLE_HINT[active.kind] : null; // 节点手柄的用法说明。
+  const hint = active ? t(handleHint(active)) : null; // 节点手柄的用法说明。
 
   // 只给出数值（「浮点」「拆分相机」）且上游没有画面的节点：数值即舞台。上游有画面时（「AnyCalib 镜头标定」：数值由素材
   // 推出），二维舞台显示该画面，数值位于其下方的一条中。这与输出相同、另有三维结果的解算节点（COLMAP）得到的显示一致：
@@ -254,19 +276,20 @@ export function Viewer() {
   } else if (plan.emptyList) {
     // 空结果不是错误：空列表按其本身显示，并说明其含义。
     body = <Empty title={textOf(msg("I-LIST-EMPTY"))} hint={textOf(msg("I-LIST-EMPTYWHY"))} />;
-  } else if (!cooked && !plan.plate && !(localShows && stage === "2d")) {
+  } else if (!cooked && !editingHere && !plan.plate && !(localShows && stage === "2d")) {
     const waiting = job?.target === plan.node.id && job.position != null;
     const busy = !!job && plan.node.data.status === "cooking";
-    const title = waiting ? `${plan.node.data.label} 在队列里排队` : busy ? `${plan.node.data.label} 计算中…` : `${plan.node.data.label} 还没有结果`;
-    const hint = waiting || busy ? plan.node.data.note : going ?? (blocked ? ownReason(blocked.text, plan.node.data.label) : "在这个节点上右键选「计算」，或按 Ctrl+Enter，生成结果");
+    const ref = nodeRef(plan.node.id, plan.node.data.typeId);
+    const title = waiting ? t("ui.view.node_queued", { node: ref }) : busy ? t("ui.view.node_cooking", { node: ref }) : t("ui.view.node_no_result", { node: ref });
+    const hint = waiting || busy ? noteText(plan.node.data.note) : going ?? (blocked ? failedReason(blocked) : t("ui.view.cook_hint"));
     body = <Empty title={title} hint={hint} />;
   } else if (stage === "3d") {
     // 二维舞台不通过节点自身的相机观看：只输出三维结果的节点计算完成后默认进入 3D 查看点云与相机，
     // 视角下拉中可选择相机；切换到 2D 时按原样播放上游序列。因此 3D 舞台仅在 `stage === "3d"` 时挂载。
     // 三维舞台按需载入：没载进来时只这一块报错、可重试（platform/lazyRetry.tsx），不拖垮整个视图
     body = (
-      <ErrorBoundary name="3D 视图">
-        <Suspense fallback={<Loading what="3D 视图" />}>
+      <ErrorBoundary name={t("ui.view.viewport_3d")}>
+        <Suspense fallback={<Loading what={t("ui.view.viewport_3d")} />}>
           <Stage3D plan={plan} hidden={hidden} transformMode={transformMode} hint={hint}
             partial={partial && job ? { info: partial.info, job: job.id, node: plan.node.id, port: partialPort } : null} />
         </Suspense>
@@ -277,7 +300,8 @@ export function Viewer() {
     // 更换组件，或将同一个 Stage2D 写在 if/else 的两个分支中，都会导致 React 卸载后重新挂载，中间出现空白帧（慢速网络下可达数百毫秒）。
     // 因此从选定文件到计算完成，始终是同一块画布，本机文件只是其帧源之一（transfer/sources.ts localFirst）。
     body = (
-      <Stage2D plan={plan} picture={drawn} hidden={hidden} pointLabel={pointLabel} mode={mode}
+      <Stage2D plan={plan} picture={drawn}
+        hidden={hidden} pointLabel={pointLabel} mode={mode}
         leftIndex={leftIndex} rightIndex={rightIndex} onChannel={mode === "plate" ? setLeft : setRight}
         local={local}
         partial={partial && job ? { info: partial.info, job: job.id, node: plan.node.id, port: partialPort } : null} />
@@ -287,13 +311,13 @@ export function Viewer() {
   // 每个输出口一个 chip（与上方 portOf 同理）：由一个列表拆出的多条共用一个开关。
   const chips2d = plan.overlays.filter((o) => o.from.own)
     .filter((o, i, all) => all.findIndex((q) => portOf(q) === portOf(o)) === i)
-    .map((o) => ({ key: portOf(o), label: o.context ? `${types[o.type]?.label ?? o.label} · 输入` : o.label }));
+    .map((o) => ({ key: portOf(o), label: o.context ? t("ui.view.overlay_input", { type: types[o.type]?.label ?? o.label }) : o.label }));
   const kinds3d = kinds;
   const tools = (
     <>
-      <Segmented hud label="视图" value={stage} options={(["2d", "3d"] as const).map((s) => ({ value: s, label: s.toUpperCase(), disabled: plan.why[s] }))} onChange={setPicked} />
+      <Segmented hud label={t("ui.view.stage")} value={stage} options={(["2d", "3d"] as const).map((s) => ({ value: s, label: s.toUpperCase(), disabled: plan.why[s] }))} onChange={setPicked} />
       {stage === "2d" && chips2d.length > 0 && (
-        <Segmented hud label="叠加显示" value={new Set(chips2d.filter((c) => !hidden.has(c.key)).map((c) => c.key))} options={chips2d.map((c) => ({ value: c.key, label: c.label }))} onChange={toggle} />
+        <Segmented hud label={t("ui.view.overlays")} value={new Set(chips2d.filter((c) => !hidden.has(c.key)).map((c) => c.key))} options={chips2d.map((c) => ({ value: c.key, label: c.label }))} onChange={toggle} />
       )}
       {stage === "2d" && (
         // 排列顺序：模式 · 左 · 中 · 右 · 背景。
@@ -304,7 +328,7 @@ export function Viewer() {
           {/* 三种模式始终显示同一组控件，不适用的控件置灰并说明原因，不随模式显示或隐藏。控件数量变化会改变
               窄窗口下的换行数，导致工具栏高度与画布位置跳动，影响在两个节点间切换对比。
               空间不足时换行，不使用横向滚动；允许换行，但控件数量不得变化。 */}
-          <ChannelPick side="left" value={leftValue} options={leftOptions} onPick={(v) => setLeft(pickOf(v)?.index ?? null)}
+          <ChannelPick side="left" value={leftValue} options={leftOptions} onPick={pickLeft}
             off={mode === "result"} />
           <MergePick op={o.op} mix={o.mix} offOp={mode !== "over"} offMix={off("mix")}
             onOp={(op) => setOption({ op })} onMix={(mix) => setOption({ mix })} />
@@ -316,12 +340,12 @@ export function Viewer() {
         </>
       )}
       {stage === "3d" && kinds3d.length > 0 && (
-        <Segmented hud label="显示的种类" value={new Set(kinds3d.filter((k) => !hidden.has(k)))} options={kinds3d.map((k) => ({ value: k, label: KINDS[k] }))} onChange={toggle} />
+        <Segmented hud label={t("ui.view.kinds")} value={new Set(kinds3d.filter((k) => !hidden.has(k)))} options={kinds3d.map((k) => ({ value: k, label: t(KINDS[k]) }))} onChange={toggle} />
       )}
       {/* 「点的种类」仅适用于 points 手柄（主体 / 排除）。火柴人手柄的 labels 是 18 个关节名称，
           不供使用者在此选择；若不排除，工具条上会多出一排超出画面的关节名。 */}
-      {stage === "2d" && handle2d?.kind === "points" && handle2d.labels.length ? (
-        <Segmented hud label="点的种类" value={String(pointLabel)} options={handle2d.labels.map((l, i) => ({ value: String(i), label: l }))} onChange={(i) => setPointLabel(Number(i))} />
+      {stage === "2d" && tool2d(handle2d)?.labelled && handle2d!.labels.length ? (
+        <Segmented hud label={t("ui.view.point_label")} value={String(pointLabel)} options={handle2d!.labels.map((l, i) => ({ value: String(i), label: l }))} onChange={(i) => setPointLabel(Number(i))} />
       ) : null}
       {/* 视角与框显按钮位于此行：它们属于视图工具，与 2D / 3D、显示种类同处一行，不浮于画面上。
           透过相机观看时不显示（此时视角即该相机，见 state/viewTools.ts 的 look）。 */}
@@ -330,8 +354,8 @@ export function Viewer() {
       {stage === "3d" ? <DisplayOptions stage="3d" shows={new Set([...kinds3d, ...moreShows])} /> : <DisplayOptions stage="2d" shows={shows2d} preview={facts} />}
       {curves && !onlyCurves && <CurveToggle />}
       {/* 变换手柄与正在改的骨架姿势手柄（state/handleView.ts editing）共用这一组模式（骨架的每个关节都能缩放） */}
-      {stage === "3d" && plan.handles.some((h) => h.kind === "transform" || posing(h)) && (
-        <Segmented hud label="变换手柄" value={transformMode} options={(Object.keys(TRANSFORM_MODES) as (keyof typeof TRANSFORM_MODES)[]).filter((m) => m !== "scale" || plan.handles.some((h) => (h.kind === "transform" && h.params.scale) || posing(h))).map((m) => ({ value: m, label: TRANSFORM_MODES[m] }))} onChange={setTransformMode} />
+      {stage === "3d" && plan.handles.some((h) => role3d(h) === "place" || posing(h)) && (
+        <Segmented hud label={t("ui.view.transform_handle")} value={transformMode} options={(Object.keys(TRANSFORM_MODES) as (keyof typeof TRANSFORM_MODES)[]).filter((m) => m !== "scale" || plan.handles.some((h) => (role3d(h) === "place" && handleScales(h)) || posing(h))).map((m) => ({ value: m, label: t(TRANSFORM_MODES[m]) }))} onChange={setTransformMode} />
       )}
     </>
   );
@@ -341,4 +365,14 @@ export function Viewer() {
       proxy={stage === "3d" ? [...cloudProxy, ...caching] : cloudProxy}
       shown={plan.node.id} />
   ); // 三维舞台：手柄提示由舞台自身在其底部显示（hint 传给 Stage3D）
+}
+
+/** What to say under a node's name about its error (the title above already names the node): a cook that failed says
+ * its reason on its own (E-COOK-FAILED's `reason` parameter, read by the message's code, not out of its words); any
+ * other error as the server wrote it. */
+function failedReason(m: ServerMessage): string {
+  const said = textOf(m);
+  if (said !== m.text) return said; // its words for whoever uses a card (app mode: messages/message.ts textOf)
+  const reason = m.code === "E-COOK-FAILED" ? m.params?.reason : undefined;
+  return typeof reason === "string" && reason ? reason : m.text;
 }

@@ -1,0 +1,62 @@
+# GeoCalib 的消息（adapters/geocalib）。
+
+# ---- 节点（nodes.py）
+"I-GEOCALIB-TILT.other" = "GeoCalib 估的摄影机倾斜中位 {roll:.1f}°、俯仰中位 {pitch:.1f}°（{count:d} 帧，重力误差中位 {error:.1f}°）；{lens}"
+
+# ---- worker
+"E-GEOCALIB-NOGRAVITY" = "GeoCalib 没能估出重力方向（结果里有无效值 NaN）：画面里可能缺少直线、地平线或竖直的物体；换一段画面，或填上实拍「已知焦距」再试"
+"W-GEOCALIB-UNRELIABLE" = "GeoCalib 估的重力方向不太可靠：误差中位 {error:.1f}°（超过 5°）。画面里缺少直线、地平线或竖直的物体，接到「自动落地」后场景可能放不平；知道实拍焦距就填「已知焦距」，重力方向会更准"
+"W-GEOCALIB-UNRELIABLE.app" = "估的重力方向不太可靠：误差中位 {error:.1f}°（超过 5°）。画面里缺少直线、地平线或竖直的物体，落地后场景可能放不平；知道实拍焦距就填「已知焦距」，重力方向会更准"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."geocalib.calibrate"]
+subtitle = "重力方向"
+description = "画面 → 每帧的重力方向（摄影机的倾斜和俯仰，一个向量，外加它可能差多少度）和焦距，做法是几何优化加深度学习（上游 README：combining geometric optimization with deep learning）。画面里要看得见地面、竖线或地平线，看不到这些的特写和天空估不出来；知道实拍焦距就填上，重力方向更准。把「重力方向」「重力误差」接到「自动落地」的同名参数上，解算出的场景就转到 Y 轴真正朝上再落地；要镜头畸变和去畸变 ST-map，用「AnyCalib 镜头标定」。"
+
+[node."geocalib.calibrate".param.focal_mm]
+label = "已知焦距"
+placeholder = "自动"
+
+[node."geocalib.calibrate".param.fit_model]
+label = "镜头模型"
+strip = "镜头模型"
+
+[node."geocalib.calibrate".param.fit_model.option]
+pinhole = "pinhole（无畸变）"
+simple_radial = "simple_radial（径向 k1）"
+simple_divisional = "simple_divisional（除法模型 k1，鱼眼）"
+
+[node."geocalib.calibrate".param.step]
+label = "隔帧"
+
+[node."geocalib.calibrate".port.gravity]
+label = "重力方向"
+
+[node."geocalib.calibrate".port.gravity_error]
+label = "重力误差"
+
+[node."geocalib.calibrate".official]
+note = "「重力误差」是上游的 gravity_uncertainty（extractor.py:126 那一行把所有带 uncertainty 的键都交出来，它本身算在 siclib/models/optimization/lm_optimizer.py:417）。「焦距」是 camera 对象上的 f，「镜头内参」是它的 camera_model 和 dist（extractor.py:117）打成一份。**单位**：上游的 camera.f 是**像素**，我们的「焦距」口交的是**毫米**，用节点上的「胶片背」参数换算（毫米 = 像素 ÷ 画面宽度 × 胶片背）。毫米是 Lab2Shot 的内部标准单位。「胶片背」输出口给的是节点上那个参数的原值——上游没有这一项，这个口只是把它带给下游；「胶片背」参数本身在**输入**侧也要用：用户填的焦距（mm）要靠它换成像素才能当 prior 送进模型。上游还给出、目前没有对应输出口的：同一个 uncertainty 字典里还有 roll_uncertainty、pitch_uncertainty、focal_uncertainty、vfov_uncertainty（lm_optimizer.py:413-418），我们只取了 gravity_uncertainty；extractor.py:123 还交出 covariance（重力和焦距的完整协方差矩阵），以及 :124-125 的稠密 latitude / up field 和它们的 confidence"
+
+[extension.geocalib]
+summary = "单图标定算法，只从一张画面估计摄影机内参和重力方向；把几何优化和深度学习结合起来"
+
+[extension.geocalib.license]
+name = "Apache-2.0（代码；权重随仓库发布）"
+summary = "代码 Apache-2.0，可商用。两个权重是同一仓库的 GitHub 发布文件，没有另写许可证，按仓库的 Apache-2.0 理解；训练数据 OpenPano 来自 PolyHaven（CC0）、HDRMAPS 和 Laval 室内 HDR 数据集（该数据集本身只许非商用），作者没有说明权重的商用是否受训练数据限制"
+
+[extension.geocalib.weight.geocalib-pinhole]
+note = "GeoCalib 普通镜头权重（116 MB）"
+
+[extension.geocalib.weight.geocalib-distorted]
+note = "GeoCalib 畸变镜头权重（116 MB）"
+
+[node."geocalib.calibrate".stage]
+write_outputs = "写出重力方向和焦距"
+
+# ---- worker 的计算阶段（worker.py）
+[stage]
+estimate_lens = "估计镜头（整段同一个焦距）"
+estimate_gravity = "估计每帧的重力方向"
+gravity = "重力方向"

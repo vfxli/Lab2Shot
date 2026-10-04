@@ -27,8 +27,11 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
+from .. import i18n
+
 import numpy as np
 
+from ..data import lens_models
 from ..data.lens_models import MODELS, STMAP_MODEL, distortion, distorts
 from ..data.units import FILMBACK_MM
 from ..availability import All, Because, Cond, Not
@@ -45,7 +48,7 @@ from .base import NodeParams, P
 
 
 def focal_param(*, overrides: tuple[str, ...] = (), per_frame: bool = False,
-                applies: Cond | None = None, label: str = "已知 Focal Length") -> Any:
+                applies: Cond | None = None) -> Any:
     """接收镜头的节点的「已知 Focal Length」参数，留空表示自动。
 
     参数命名为「已知 Focal Length」，输出口命名为「Focal Length」：输出口传递的是 Focal Length 数据本身，使用最简洁的
@@ -57,14 +60,14 @@ def focal_param(*, overrides: tuple[str, ...] = (), per_frame: bool = False,
     `wired=True`：具有该参数的每个节点上都常驻其输入口，这是已解算相机的 Focal Length 进入无相机输入口的解算器的唯一
     显式途径（「拆分相机」的「Focal Length」→ 该输入口）。在此处而非各节点中声明的原因见模块文档与 NodeDef.wired_ports。
 
-    `label`：对于自身也输出「Focal Length」的节点（标定节点：AnyCalib、GeoCalib、COLMAP），该参数表示调用方已知的
+    名称在 param.focal_mm.label（各节点自己的在 node.<类型>.param.focal_mm.label）：对于自身也输出「Focal Length」的节点（标定节点：AnyCalib、GeoCalib、COLMAP），该参数表示调用方已知的
     Focal Length（上游支持将已知内参作为先验传入），输出口表示估计结果，二者含义不同，不使用同一名称。"""
-    return P(None, label=label, unit="mm", gt=0, group="镜头", placeholder="自动", worker=False,
+    return P(None, unit="mm", gt=0, group="lens", worker=False, words="family.lens.focal_mm",
              overrides=overrides, per_frame=per_frame, applies=applies, wired=True)
 
 
 def filmback_param(*, overrides: tuple[str, ...] = (), applies: Cond | None = None) -> Any:
-    return P(None, label="Filmback", unit="mm", gt=0, group="镜头", placeholder="36", worker=False,
+    return P(None, unit="mm", gt=0, group="lens", worker=False, words="family.lens.filmback_mm",
              overrides=overrides, applies=applies, wired=True)
 
 
@@ -88,9 +91,16 @@ class GroupModel:
     """组内的一个模型：名称、界面标签、对应的公式表模型，以及其系数依次对应的表模型参数。"""
 
     name: str
-    label: str
     table: str
     names: tuple[str, ...]  # 表模型的参数名，按本组系数的顺序排列；未列出的表参数取默认值（0）
+
+    @property
+    def label(self) -> str:
+        """界面标签（当前语言）：lens.model.<name>，否则公式表模型的标签（核心组：名称即表 id），否则名称。"""
+        from .. import i18n
+
+        return i18n.Both.of(lambda: i18n.lookup(f"lens.model.{self.name}")
+                            or (MODELS[self.table].label if self.table in MODELS else self.name))  # every language (messages)
 
 
 @dataclass(frozen=True)
@@ -104,9 +114,27 @@ class LensGroup:
     def model(self, name: str) -> GroupModel | None:
         return self.models.get(str(name or ""))
 
+    def model_label(self, name: str) -> str:
+        """一个模型的界面标签（当前语言）：lens.model.<名称>；否则组所属扩展里列出这些模型的节点参数的选项名
+        （node.<类型>.param.fit_model.option.<名称>，与标定节点的「镜头模型」同一份词）；否则 GroupModel 的（公式表模型的标签）。"""
+        from .registry import node_types
+
+        gm = self.models.get(str(name or ""))
+        said = i18n.lookup(f"lens.model.{name}")
+        if said is not None or gm is None:
+            return said or str(name)
+        for t in node_types().values():
+            if t.runtime != self.id:
+                continue
+            spec = next((p for p in t.param_specs() if (p["options"] or ()) and name in p["options"]
+                         and (p.get("option_labels") or {}).get(name)), None)
+            if spec is not None:
+                return spec["option_labels"][name]
+        return gm.label
+
 
 def _core_group(gid: str, label: str, ids: tuple[str, ...], default: bool = False) -> LensGroup:
-    return LensGroup(gid, label, MappingProxyType({m: GroupModel(m, MODELS[m].label, m, MODELS[m].names) for m in ids if m in MODELS}),
+    return LensGroup(gid, label, MappingProxyType({m: GroupModel(m, m, MODELS[m].names) for m in ids if m in MODELS}),
                      default)
 
 
@@ -151,6 +179,9 @@ def group_label(gid: str) -> str:
     return g.label if g is not None else str(gid)
 
 
+lens_models.name_groups(group_label)  # a lens value is said with its group's name (data/values.py, data/lens_models.py)
+
+
 def group_model(group: str, name: str) -> GroupModel | None:
     """The model `name` of lens group `group` (empty: the default group, group_of); None when the group has no such."""
     if not group:
@@ -168,7 +199,7 @@ def table_of(group: str, name: str) -> str:
 def model_label(group: str, name: str) -> str:
     gm = group_model(group, name)
     g = lens_groups().get(str(group or ""))
-    return f"{g.label if g else group} · {gm.label if gm else name}"
+    return f"{g.label if g else group} · {g.model_label(name) if g and gm else name}"
 
 
 @dataclass(frozen=True)
@@ -199,9 +230,7 @@ DISTORTED = LensDistorts()  # 所选模型带有畸变
 # "params": {系数名: 数值, 以及主点和像素比}}（packed_lens）。
 # 系数使用模型自身的名称（COLMAP 的 k、k1、p1 等），主点和像素比使用镜头表上的三个固定键。接收端（「LensDistortion」）
 # 接入后其「镜头内参组」「镜头模型」、系数、主点、像素比都取这份值（nodes/core/lens_distortion.py params_from_input）。
-SHEET_KEYS = ("center_x_mm", "center_y_mm", "pixel_aspect")  # 镜头表上随系数一并传递的三项
-LENS_HELP = ("这颗镜头除了 Focal Length、Filmback 之外的全部：镜头模型的名字、它的畸变系数、主点 X / Y（毫米）和像素比，打成一份。"
-             "接「LensDistortion」的「镜头内参」：那边的镜头模型和系数就跟着这里走")
+SHEET_KEYS = lens_models.SHEET_KEYS  # 镜头表上随系数一并传递的三项（值的定义在数据层：data/lens_models.py）
 
 
 def packed_lens(dist: dict, center_mm=(0.0, 0.0), pixel_aspect: float = 1.0, *, group: str, name: str | None = None) -> dict:
@@ -245,8 +274,8 @@ def sheet_field(name: str, wired: str):
 class LensParamEntry(NodeParams):
     """畸变参数表的一行：参数名（沿用测量软件的命名，如 3DE；行随「镜头模型」变化）及镜头表上的数值。"""
 
-    name: str = P(..., label="参数", widget="fixed")
-    value: float = P(0.0, label="值")
+    name: str = P(..., widget="fixed")
+    value: float = P(0.0)
 
 
 class LensSheetParams(NodeParams):
@@ -262,29 +291,29 @@ class LensSheetParams(NodeParams):
     # 两级下拉（见上文「镜头内参组」）：先选择组（COLMAP / AnyCalib / GeoCalib / 3DE4），
     # 再选择该组的模型名。二者均为 choice 控件，选项由 LensSheet.choices 按已安装的扩展提供，不在代码中写死。
     lens_group: str = P(
-        "", label="镜头内参组", group="镜头", widget="choice", placeholder="默认")  # empty: group_of's default
+        "", group="lens", widget="choice")  # empty: group_of's default
     # derived_from=("lens_group",)：切换组时重新计算该值（不在新组中则改为该组的第一个模型，见 LensSheet.derive），
     # 否则旧值会以「· 找不到了」显示在列表首行。
     lens_model: str = P(
-        "SIMPLE_PINHOLE", label="镜头模型", group="镜头", widget="choice", choices_from=("lens_group",), derived_from=("lens_group",))
+        "SIMPLE_PINHOLE", group="lens", widget="choice", choices_from=("lens_group",), derived_from=("lens_group",))
     distortion: list[LensParamEntry] = P(
-        [], label="畸变参数", widget="table", group="镜头", derived_from=("lens_group", "lens_model"), validate_default=True,
+        [], widget="table", group="lens", derived_from=("lens_group", "lens_model"), validate_default=True,
         applies=DISTORTED)
     # 接入「图像」后以下两个参数变灰，使用框架提供的参数与输入互斥机制（Param.applies + Wired）。
     # 未接入图像时可手填，使节点可独立使用：从 3DE 抄录一组镜头参数，无需素材即可烘焙 ST-map。
     # 画面宽高即烘焙出的 ST-map 尺寸（ST-map 的一个像素对应画面的一个像素），因此不另设「输出分辨率」参数。
     # 命名为 `width` / `height`，与项目中其他节点的「画面宽度 / 画面高度」参数一致。
-    width: int | None = P(None, label="画面宽度", unit="px", gt=0, group="镜头",
-                          applies=All(DISTORTED, Not(Wired("image"))), placeholder="跟画面")
-    height: int | None = P(None, label="画面高度", unit="px", gt=0, group="镜头",
-                           applies=All(DISTORTED, Not(Wired("image"))), placeholder="跟画面")
-    pixel_aspect: float = P(1.0, label="像素比", gt=0, group="镜头", applies=DISTORTED)
+    width: int | None = P(None, unit="px", gt=0, group="lens",
+                          applies=All(DISTORTED, Not(Wired("image"))))
+    height: int | None = P(None, unit="px", gt=0, group="lens",
+                           applies=All(DISTORTED, Not(Wired("image"))))
+    pixel_aspect: float = P(1.0, gt=0, group="lens", applies=DISTORTED)
     # 参数统一命名为「已知 Focal Length」（见 focal_param：输出口名为「Focal Length」，参数为调用方提供的先验值）
-    focal_mm: float | None = P(None, label="已知 Focal Length", unit="mm", gt=0, group="镜头", placeholder="不知道")
-    filmback_mm: float = P(FILMBACK_MM, label="Filmback", unit="mm", gt=0, group="镜头")
+    focal_mm: float | None = P(None, unit="mm", gt=0, group="lens")
+    filmback_mm: float = P(FILMBACK_MM, unit="mm", gt=0, group="lens")
     # 使用「主点」一词：与标定程序的输出以及 AnyCalib、COLMAP 输出口的命名一致，不使用「镜头中心」。
-    center_x_mm: float = P(0.0, label="主点 X", unit="mm", group="镜头", applies=DISTORTED)
-    center_y_mm: float = P(0.0, label="主点 Y", unit="mm", group="镜头", applies=DISTORTED)
+    center_x_mm: float = P(0.0, unit="mm", group="lens", applies=DISTORTED)
+    center_y_mm: float = P(0.0, unit="mm", group="lens", applies=DISTORTED)
 
 
 class LensSheet:
@@ -301,7 +330,7 @@ class LensSheet:
         """「镜头内参组」的选项（取决于已安装的扩展）以及当前组内「镜头模型」的选项。"""
         groups, g = lens_groups(), group_of(params)
         return {"lens_group": {"options": list(groups), "labels": {k: v.label for k, v in groups.items()}, "auto": g.id},
-                "lens_model": {"options": list(g.models), "labels": {k: v.label for k, v in g.models.items()}}}
+                "lens_model": {"options": list(g.models), "labels": {k: g.model_label(k) for k in g.models}}}
 
     @classmethod
     def derive(cls, params: dict) -> dict:
@@ -336,7 +365,7 @@ class LensSheet:
                 **({"focal_mm": float(focal)} if focal else {}), "filmback_mm": float(params["filmback_mm"]),
                 "pixel_aspect": float(params["pixel_aspect"]),
                 "center_mm": [float(params["center_x_mm"]), float(params["center_y_mm"])],
-                "source": {"level": "measured", "by": "节点上填的镜头表"}}
+                "source": {"level": "measured", "by": "sheet"}}  # by: lens.by.<by> when it has words (a name like COLMAP as it is)
 
 
 def takes_lens(node_type) -> bool:
@@ -362,7 +391,7 @@ class SolvedLensParams(LensParams):
 
 # 接入相机后使用相机自带的镜头，节点上这两个参数变灰：接入的相机已经过跟踪部门质检，节点不得在使用者不知情的情况下
 # 修改其 Focal Length 或重建后输出（这两个参数不声明 overrides=("camera",)，kit/cameras.py pass_camera
-# 也不按参数重建相机）。如需修改已解算相机的 Focal Length，应使用「锁定 Focal Length」（core.lock_focal），
+# 也不按参数重建相机）。如需修改已解算相机的 Focal Length，应使用「锁定 Focal Length」（lock_focal），
 # 它会同时重算相机位置，以保证与画面对齐。
 CAMERA_HAS_LENS = Because(Not(Wired("camera")), "N-LENS-CAMERAHASIT")
 
@@ -472,11 +501,11 @@ def lens(ctx, width: int, frames: list[int], *, default_mm: float | None = None,
         wired = ctx.values.get("focal_mm")
         per = tuple(units.focal_px(wired.at(frames), back, width)) if wired is not None and not wired.constant() and frames else ()
         return Lens(float(units.focal_px(params["focal_mm"], back, width)), back, width, "param",
-                    said or f"Focal Length {params['focal_mm']:g} mm · 手填", frames, per)
+                    said or i18n.Word("lens.said.typed", focal=f"{params['focal_mm']:g}"), frames, per)
     if have:
         focal = units.focal_px(have["focal_mm"], have["back"], width)
         per = tuple(float(f) for f in focal) if len(focal) > 1 and not np.allclose(focal, focal[0], rtol=1e-6) else ()
-        return Lens(float(np.median(focal)), back, width, "camera", said or "Focal Length · 来自接着的相机", frames if per else (), per)
+        return Lens(float(np.median(focal)), back, width, "camera", said or i18n.Word("lens.said.camera"), frames if per else (), per)
     if default_mm:
-        return Lens(float(units.focal_px(default_mm, FILMBACK_MM, width)), back, width, "default", f"Focal Length · 没给，按 {default_mm:g} mm 算")
-    return Lens(None, back, width, "estimate", "Focal Length · 方法自己估")
+        return Lens(float(units.focal_px(default_mm, FILMBACK_MM, width)), back, width, "default", i18n.Word("lens.said.default", focal=f"{default_mm:g}"))
+    return Lens(None, back, width, "estimate", i18n.Word("lens.said.estimate"))

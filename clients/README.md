@@ -10,8 +10,9 @@ The server never reads or writes the artist's paths.
 | --- | --- |
 | `../lab2shot/client.py` | One-file client, Python standard library only (3.7+), nothing else from lab2shot. Every plugin copies it as `lab2shot_client.py`; `lab2shot cook` uses it too. |
 | `houdini/` | (planned) Shelf tool / HDA: pick a template, fill its exposed parameters, import the USD / Alembic it writes. |
-| `maya/` | (planned) Menu + dialog built from the same exposed parameters. |
-| `nuke/` | (planned) Nodes for plates, mattes, depth and ST-maps. |
+| `common/lab2shot_dcc/` | The plugin framework every DCC shares (connection, tool list, panel from the tool contract, job lifecycle, names and paths, result versions). A DCC only implements `lab2shot_dcc.host.Host`. |
+| `maya/` | Maya: the host (`lab2shot/scripts/lab2shot_maya/`), its module files and install notes; `plugin.json` makes it downloadable. |
+| `nuke/` | Nuke 17: the host (`lab2shot/lab2shot_nuke/`), its init.py / menu.py and install notes; `plugin.json` makes it downloadable; `tools/deploy_dcc.py nuke` installs it while developing. |
 
 ## How it fits together
 

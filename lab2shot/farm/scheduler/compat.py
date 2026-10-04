@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 from lab2shot_shared.gpu_arch import cap_to_sm, compatible, kernels_incompatible
 
-from ... import logs
+from ... import i18n, logs
 from ...extensions import extensions, gpu_archs
 from ...messages import Msg
 from .inventory import GpuState
@@ -53,7 +53,8 @@ PROBING = "probing"  # runtime_record: the environment is being probed now, on a
 
 def _stamp(ext) -> tuple:
     """What says an extension's install record changed: the file's time and size (a probe or an install writes it),
-    and whether the environment is there at all."""
+    and whether the environment is there at all (of the environment it runs in: Extension.env_owner)."""
+    ext = ext.env_owner
     try:
         st = ext.paths.state_file.stat()
         written = (st.st_mtime_ns, st.st_size)
@@ -252,10 +253,10 @@ def _runtime_problem(runtime: str, authorized: list[GpuState], inventory: list[G
     rec = runtime_record(runtime)
     if rec is PROBING:  # not known yet: a wait that ends by itself when the probe is through
         return Msg("N-GPU-PROBING", project=title)
-    authed_names = "、".join(sorted({g.short_name for g in authorized}))
+    authed_names = sorted({g.short_name for g in authorized})  # a list: the message joins it in its language
     declared = declared_archs(runtime) if runtime != "core" else ()
     if declared and all(fit(runtime, g).undeclared for g in authorized):
-        return Msg("W-GPU-ENVARCHS", project=title, gpus=authed_names, arch="、".join(sorted({cap_to_sm(g.compute_cap) for g in authorized})),
+        return Msg("W-GPU-ENVARCHS", project=title, gpus=authed_names, arch=sorted({cap_to_sm(g.compute_cap) for g in authorized}),
                    archs=list(declared))
     if rec is None:
         return Msg("W-GPU-NOTPROBED", project=title)
@@ -264,11 +265,11 @@ def _runtime_problem(runtime: str, authorized: list[GpuState], inventory: list[G
             # No torch at all here (a C++/CUDA tool, e.g. COLMAP): judged by its own compiled CUDA kernels directly.
             bad = next((kernels_incompatible(rec.kernels, cap_to_sm(g.compute_cap)) for g in authorized
                        if kernels_incompatible(rec.kernels, cap_to_sm(g.compute_cap))), ())
-            return Msg("W-GPU-KERNELS", project=title, kernels=list(bad[:3]) or "未知", gpus=authed_names)
+            return Msg("W-GPU-KERNELS", project=title, kernels=list(bad[:3]) or "?", gpus=authed_names)
         if runtime == "core":
             return Msg("W-GPU-NOARCHCORE", project=title)
         return Msg("W-GPU-NOARCH", project=title, extension=runtime)
-    torch_bit = f"PyTorch {rec.torch_version}" if rec.torch_version else "运行环境"
+    torch_bit = f"PyTorch {rec.torch_version}" if rec.torch_version else i18n.t("farm.runtime")
     # torch itself supports at least one authorized card, but its compiled CUDA kernels do not
     bad_kernels: tuple[str, ...] = ()
     for g in authorized:

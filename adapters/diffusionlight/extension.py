@@ -71,12 +71,6 @@ TAGS = {
     "madebyollin/sdxl-vae-fp16-fix": "vae-fp16-fix",
     "Intel/dpt-hybrid-midas": "dpt-hybrid",
 }
-NOTES = {
-    "stabilityai/stable-diffusion-xl-base-1.0": "SDXL 1.0 基础模型 fp16（CreativeML Open RAIL++-M）",
-    "diffusers/controlnet-depth-sdxl-1.0": "SDXL 深度 ControlNet fp16（CreativeML Open RAIL++-M）",
-    "madebyollin/sdxl-vae-fp16-fix": "SDXL-VAE-FP16-Fix（MIT）",
-    "Intel/dpt-hybrid-midas": "DPT-Hybrid MiDaS 深度估计，给 ControlNet 做条件（Apache-2.0）",
-}
 
 
 def _weights() -> tuple[Weight, ...]:
@@ -89,7 +83,7 @@ def _weights() -> tuple[Weight, ...]:
                     repo, rev, f,
                     key=f"{TAGS[repo]}/{f}",
                     dest=f"{name}/{f}",
-                    note=NOTES[repo],
+                    said=("extension.weight.hf_choice", (("repo", repo), ("choice", TAGS[repo]))),
                     sha256=sha256,
                 )
             )
@@ -100,24 +94,13 @@ class DiffusionLight(Extension):
     name = "diffusionlight"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "DiffusionLight-Turbo"
-    summary = "把光照估计改写成「在画面里补画一个镜面铬球」的问题，从一张低动态范围（LDR）画面估计光照"
     homepage = "https://diffusionlight.github.io/turbo/"
     source = GitSource(url=DIFFUSIONLIGHT_URL, commit=DIFFUSIONLIGHT_COMMIT)
     license = LicenseInfo(
         tag=COMMERCIAL,
-        name="MIT 代码/LoRA · SDXL 与 ControlNet 为 CreativeML Open RAIL++-M",
         url="https://github.com/DiffusionLight/DiffusionLight-Turbo/blob/main/LICENSE",
-        summary=(
-            "可商用，但须遵守 OpenRAIL++-M 的使用限制。逐项："
-            "DiffusionLight-Turbo 代码及仓库自带的 Turbo LoRA、曝光 LoRA 为 MIT（Hugging Face 上同名 LoRA 模型卡也是 MIT）；"
-            "SDXL 1.0 基础模型、SDXL 深度 ControlNet（diffusers）为 CreativeML Open RAIL++-M："
-            "允许商用和分发生成结果，但不得用于许可证附件 A 列出的禁止用途（违法、伤害未成年人、虚假信息、歧视等），"
-            "再分发模型时须附带同样的限制；"
-            "SDXL-VAE-FP16-Fix 为 MIT；给 ControlNet 做深度条件的是 Intel DPT-Hybrid MiDaS，Apache-2.0"
-            "（不是 Depth Anything，没有非商用深度模型）。"
-            "不依赖 nvdiffrast，不安装 xformers"
-        ),
     )
+    generative = False  # processes footage, not tagged 生成式扩散: only QwenImage (diffusers) carries it
     # 上游钉的 torch 2.0.1+cu118 只编译到 sm_50-90，没有 sm_120（Blackwell）核心，所以用 torch 2.8.0+cu128：
     # diffusers 0.23 子类化的管线代码是纯 Python（scaled_dot_product_attention 从 torch 2.0 起就有），
     # 在新 torch 上原样可用，diffusers / transformers / accelerate 的版本不用改。装在 .venv-ada-blackwell。

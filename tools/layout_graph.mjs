@@ -3,10 +3,12 @@
  * 在 node 里载入），原地改写节点图 json 的 nodes[].ui.x / ui.y 与 boxes，
  * 其余字段一字不动（数字按原文保留：JSON.parse 的 source + JSON.rawJSON，缩进同 lab2shot/library.py 写模板的 indent=1）。
  * 对 templates/ 运行会改写预设模板，运行前请保存原文件。
+ * 有分组框的图按分组排（layout.ts 文件开头第 8 条：组内排整齐、框随内容伸缩、框不重叠、输出靠最右），框的成员按整理前
+ * 「中心在框内」算（同网页），所以给模板加框时先让框圈住它的节点，或者在 json 里排好之后再跑这里。
  *
  * 用法（在仓库根目录）：
- *   1) 导出节点定义（节点尺寸按定义估，「输出」类放最右）：
- *      PYTHONPATH=$PWD:$PWD/worker_sdk .venv/bin/python -c "import json, lab2shot.catalog as c; c.install(); \
+ *   1) 导出节点定义（节点尺寸按节点名 / 类型名 / 端口估，「输出」类放最右，块的开始 / 结束按定义里的角色认）：
+ *      PYTHONPATH=$PWD:$PWD/worker_sdk .venv/bin/python -c "import json, lab2shot.site.catalog as c; c.install(); \
  *        from lab2shot.nodes import node_types; json.dump({k: t.describe() for k, t in node_types().items()}, \
  *        open('/tmp/lab2shot_defs.json', 'w'), ensure_ascii=False, default=str)"
  *   2) node tools/layout_graph.mjs --defs /tmp/lab2shot_defs.json templates/a.json templates/b.json …
@@ -47,8 +49,12 @@ function inputOf(g) {
     const { w, h } = L.estimateSize(def, n);
     return { id: n.id, x: num(n.ui?.x ?? 0), y: num(n.ui?.y ?? 0), w, h, delivers: !!def?.delivers };
   });
-  const edges = (g.edges ?? []).map((e) => ({ from: e.from[0], to: e.to[0], param: String(e.to[1]).startsWith("param:") }));
-  const blocks = L.eachBlocks((g.nodes ?? []).map((n) => ({ id: n.id, type: n.type, block: n.params?.block })));
+  const byId = new Map((g.nodes ?? []).map((n) => [n.id, n]));
+  const edges = (g.edges ?? []).map((e) => {
+    const to = byId.get(e.to[0]);
+    return { from: e.from[0], to: e.to[0], param: String(e.to[1]).startsWith("param:"), slot: to && L.inputSlot(defs[to.type], to.params, String(e.to[1])) };
+  });
+  const blocks = L.eachBlocks((g.nodes ?? []).map((n) => ({ id: n.id, type: n.type, block: n.params?.block })), defs);
   const boxes = (g.boxes ?? []).map((b) => {
     const [x, y, w, h] = [num(b.x), num(b.y), num(b.w), num(b.h)];
     const members = b.collapsed ? b.members ?? [] : nodes.filter((n) => {

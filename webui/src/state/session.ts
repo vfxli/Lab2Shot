@@ -4,6 +4,7 @@ import { same as sameJson, type Json } from "../model/graphPatch";
 import { api, type Account, type AuthState } from "../api";
 import { NOTHING } from "../api/applies";
 import { changedAccount, LOGGED_IN, sawAccount, SIGNED_OUT } from "../platform/http";
+import { setLang } from "../i18n/lang";
 
 /** This browser's login, the single copy shared by every page behind the gate: the account and what the server allows
  * it to use (`applies`, read only through api/applies.ts). The editor's top bar, the feedback dialog, the page log and
@@ -23,21 +24,30 @@ const same = (a: AuthState | null, b: AuthState) =>
   !!a && sameJson(a.applies as unknown as Json, b.applies as unknown as Json) && a.passphrase === b.passphrase &&
   a.user?.id === b.user?.id && a.user?.name === b.user?.name && a.user?.department === b.user?.department && a.expires === b.expires;
 
+// the first read of the login under way: a second asker while the page opens (the page's root and the editor both ask)
+// waits for it instead of sending the same request again. Once the login is known every read is a new one (after a
+// login over the page the answer must be the new login's, never one asked before it)
+let asking: Promise<void> | null = null;
+
 export const useSession = create<SessionState>((set, get) => ({
   state: null,
-  load: async () => {
-    try {
-      const s = await api.auth.state();
-      if (sawAccount(s.user?.id ?? null)) return; // another account is logged in now: the page opens again
-      if (!same(get().state, s)) set({ state: s });
-    } catch {
-      if (!get().state) set({ state: { user: null, applies: NOTHING } }); // the gate asks for the login when needed
-    }
-  },
-  set: (s) => set({ state: s }),
+  load: () => (get().state ? readLogin() : (asking ??= readLogin().finally(() => (asking = null)))),
+  set: (s) => (setLang(s.lang), set({ state: s })),
   // logs out on this whole browser (every other tab of it follows: platform/http.ts) and returns to the login page
   logout: () => void api.auth.logout().finally(() => (changedAccount(null), window.location.assign("/"))),
 }));
+
+async function readLogin(): Promise<void> {
+  const { getState: get, setState: set } = useSession;
+  try {
+    const s = await api.auth.state();
+    if (sawAccount(s.user?.id ?? null)) return; // another account is logged in now: the page opens again
+    setLang(s.lang); // the language the server speaks to this login (the account's choice first)
+    if (!same(get().state, s)) set({ state: s });
+  } catch {
+    if (!get().state) set({ state: { user: null, applies: NOTHING } }); // the gate asks for the login when needed
+  }
+}
 
 let watchers = 0;
 const reload = () => void useSession.getState().load();

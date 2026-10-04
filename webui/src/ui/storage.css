@@ -43,3 +43,47 @@
 .sto-bar.over i {
   background: var(--error-text);
 }
+
+/* 到了 80%：条子换成提醒色（和顶栏的提醒同一个阶段，lab2shot/server/quota.py stage_of） */
+.sto-bar.warn i {
+  background: var(--orange);
+}
+
+/* 「删除最旧的已完成任务，腾出约 N GB」一行：文字、数字框、预览按钮排成一行，窄了就折行 */
+.sto-free {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-2);
+}
+
+.sto-free .sto-gb {
+  width: 5em;
+}
+
+.sto-note {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+/* 预览里要删的任务：表格最多占半屏高，多了在里面滚动 */
+.sto-plan {
+  max-height: 50vh;
+  overflow: auto;
+  margin: var(--sp-2) 0;
+}
+
+.sto-plan-title {
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 队列表格里已结束任务的占用（删掉它腾出多少），跟在缓存标记后面 */
+.q-size {
+  margin-left: var(--sp-2);
+  color: var(--text-3);
+}

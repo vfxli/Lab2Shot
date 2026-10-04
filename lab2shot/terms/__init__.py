@@ -1,31 +1,36 @@
-"""用户协议与隐私政策: the two texts everyone who uses this server agrees to, and who agreed to which version.
+"""The Terms of Service and the Privacy Policy: the two texts everyone who uses this server agrees to, in every interface
+language, and who agreed to which version in which language.
 
-The texts are data, not code: agreement.md and privacy.md beside this file are the ones that come with the program;
-an administrator's edited copy (后台「注册设置」→「用户协议与隐私政策」, the right terms.edit) is kept under the work
-folder (EDITED/<id>.md, both texts together) and, while it is there, is the one in effect. 恢复默认 removes it.
+The texts are data, not code: <lang>/agreement.md and <lang>/privacy.md beside this file are the ones that come with the
+program (one folder per language of lab2shot/i18n LANGS); an administrator's edited copy (the admin page's Registration
+Settings → Terms of Service and Privacy Policy, the right terms.edit) is kept under the work folder
+(EDITED/<lang>/<id>.md, every text of every language together) and, while it is there, is the one in effect. Restoring
+the defaults removes it.
 
-One version number covers both texts. The texts in effect are compared with the newest version the database knows
-(terms_versions, database/schema.py) by their digest whenever they may have changed (current()): different texts,
-whoever changed them and however (an update of the program, the administrator's save), are the next version, kept
-there word for word, so what anyone agreed to can always be read again.
+One version number covers both texts in every language. The texts in effect are compared with the newest version the
+database knows (terms_versions, database/schema.py: one row per version and language) by their digest whenever they may
+have changed (current()): different texts in any language, whoever changed them and however (an update of the program,
+the administrator's save), are the next version, kept there word for word, so what anyone agreed to can always be read
+again. The English texts are a translation; each says that the Chinese one prevails.
 
 Who must agree (owed): every account but the owner's (the one who runs this server offers the texts; it does not
-accept them), to the current version, before it uses anything: registering agrees in the same transaction that makes
-the account (lab2shot/registration.py), and every other account (one an administrator made, or anyone after the
-texts changed) is asked when it next opens a page, and refused everything but logging in and out until it agrees
-(server/access.py Guard). The machine's own token is the owner's, so the command line is never asked.
+accept them), to the current version, in whichever language it read them, before it uses anything: registering agrees
+in the same transaction that makes the account (lab2shot/site/registration.py), and every other account (one an
+administrator made, or anyone after the texts changed) is asked when it next opens a page, and refused everything but
+logging in and out until it agrees (server/access.py Guard). The machine's own token is the owner's, so the command
+line is never asked. The language agreed in is the request's (terms_agreed.lang).
 
-A text may name a few values of the settings (fills(): {任务保留天数} ...), filled in when it is shown, so it never says a
-number the server no longer keeps to; the version is of the text as written, so changing such a setting is not a new
-version."""
+A text may name a few values of the settings (fills(): {task_keep_days} ...), filled in when it is shown, so it never
+says a number the server no longer keeps to; the version is of the text as written, so changing such a setting is not
+a new version."""
 
 from __future__ import annotations
 
-import hashlib
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from .. import i18n
 from ..accounts import ADMIN_ID, LOGIN_LOG_KEPT_S, SYSTEM, Actor
 from ..config import settings
 from ..database import db
@@ -33,10 +38,11 @@ from ..errors import Invalid
 from ..io.atomic import write_text
 from ..messages import Msg
 from ..text import plain_lines
+from ..io.digest import sha256
 
 HERE = Path(__file__).parent
-DOCS: dict[str, str] = {"agreement": "用户协议", "privacy": "隐私政策"}  # id (the file's name) -> its title
-EDITED = "terms"  # the administrator's copy: <work folder>/terms/<id>.md
+DOCS: tuple[str, ...] = ("agreement", "privacy")  # ids (the files' names); their titles: terms.title.<id>
+EDITED = "terms"  # the administrator's copy: <work folder>/terms/<lang>/<id>.md
 MOST = 20_000  # characters of one text an administrator may save (each is about a page)
 DAY = 86400
 
@@ -44,8 +50,18 @@ DAY = 86400
 def fills() -> dict[str, str]:
     """Placeholder -> what it says now."""
     s = settings()
-    return {"{任务保留天数}": str(s["tasks.keep_days"]), "{登录记录保留天数}": str(LOGIN_LOG_KEPT_S // DAY),
-            "{数据库备份份数}": str(s["database.backups"])}
+    return {"{task_keep_days}": str(s["tasks.keep_days"]), "{login_log_days}": str(LOGIN_LOG_KEPT_S // DAY),
+            "{database_backups}": str(s["database.backups"])}
+
+
+def title(doc: str) -> str:
+    """A text's title in the language now."""
+    return i18n.t(f"terms.title.{doc}")
+
+
+def lang_of(lang: str | None = None) -> str:
+    """One of LANGS: `lang`, else the language now."""
+    return i18n.normal(lang) or i18n.current()
 
 
 @dataclass(frozen=True)
@@ -54,17 +70,18 @@ class Terms:
     at: float  # when this version came into effect
     by: str  # who saved it; "" for the program's own text
     edited: bool  # the administrator's copy is in effect
-    texts: dict[str, str]  # id -> the text as written
+    texts: dict[str, dict[str, str]]  # lang -> id -> the text as written
 
-    def shown(self) -> list[dict]:
-        """The texts as a person reads them: the placeholders filled in."""
+    def shown(self, lang: str | None = None) -> list[dict]:
+        """The texts as a person reads them, in `lang` (else the language now): the placeholders filled in."""
         said = fills()
+        lang = lang_of(lang)
         out = []
-        for doc, title in DOCS.items():
-            text = self.texts[doc]
+        for doc in DOCS:
+            text = self.texts[lang][doc]
             for name, value in said.items():
                 text = text.replace(name, value)
-            out.append({"id": doc, "title": title, "text": text})
+            out.append({"id": doc, "title": title(doc), "text": text, "lang": lang})
         return out
 
 
@@ -72,14 +89,17 @@ def _edited_dir() -> Path:
     return settings().work_dir / EDITED
 
 
-def _sources() -> dict[str, Path]:
-    """Where each text is read from now: the administrator's copy when it is there (both texts), else the program's."""
-    edited = {doc: _edited_dir() / f"{doc}.md" for doc in DOCS}
-    return edited if all(p.is_file() for p in edited.values()) else {doc: HERE / f"{doc}.md" for doc in DOCS}
+def _sources() -> dict[tuple[str, str], Path]:
+    """Where each text of each language is read from now: the administrator's copy when it is there (every text of
+    every language), else the program's."""
+    edited = {(lang, doc): _edited_dir() / lang / f"{doc}.md" for lang in i18n.LANGS for doc in DOCS}
+    if all(p.is_file() for p in edited.values()):
+        return edited
+    return {(lang, doc): HERE / lang / f"{doc}.md" for lang in i18n.LANGS for doc in DOCS}
 
 
-def _digest(texts: dict[str, str]) -> str:
-    return hashlib.sha256("\0".join(texts[doc] for doc in DOCS).encode("utf-8")).hexdigest()
+def _digest(texts: dict[str, dict[str, str]]) -> str:
+    return sha256("\0".join(texts[lang][doc] for lang in i18n.LANGS for doc in DOCS))
 
 
 _known: tuple[tuple, Terms] | None = None  # (the sources' stamp, the version they are) of the last look
@@ -101,16 +121,23 @@ def _look(by: Actor = SYSTEM) -> Terms:
     with db().write() as c:
         sources = _sources()
         stamp = _stamp(sources)
-        edited = next(iter(sources.values())).parent != HERE
-        texts = {doc: p.read_text(encoding="utf-8") for doc, p in sources.items()}
+        edited = next(iter(sources.values())).parent.parent != HERE
+        texts: dict[str, dict[str, str]] = {lang: {} for lang in i18n.LANGS}
+        for (lang, doc), p in sources.items():
+            texts[lang][doc] = p.read_text(encoding="utf-8")
         digest = _digest(texts)
         r = c.execute("SELECT * FROM terms_versions ORDER BY version DESC LIMIT 1").fetchone()
         if r is None or r["digest"] != digest:
             version = (r["version"] + 1) if r is not None else 1
-            c.execute("INSERT INTO terms_versions (version, at, by, by_id, digest, agreement, privacy) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                      (version, time.time(), by.label, by.id, digest, texts["agreement"], texts["privacy"]))
-            r = c.execute("SELECT * FROM terms_versions WHERE version = ?", (version,)).fetchone()
-        found = Terms(version=r["version"], at=r["at"], by=r["by"], edited=edited, texts={doc: r[doc] for doc in DOCS})
+            at = time.time()
+            for lang in i18n.LANGS:
+                c.execute("INSERT INTO terms_versions (version, lang, at, by, by_id, digest, agreement, privacy) "
+                          "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                          (version, lang, at, by.label, by.id, digest, texts[lang]["agreement"], texts[lang]["privacy"]))
+            r = c.execute("SELECT * FROM terms_versions WHERE version = ? LIMIT 1", (version,)).fetchone()
+        rows = c.execute("SELECT * FROM terms_versions WHERE version = ?", (r["version"],)).fetchall()
+        kept = {row["lang"]: {doc: row[doc] for doc in DOCS} for row in rows}
+        found = Terms(version=r["version"], at=r["at"], by=r["by"], edited=edited, texts=kept)
         _known = (stamp, found)
         return found
 
@@ -130,18 +157,23 @@ def owed(user) -> int | None:
     return None if found else version
 
 
-def record(c, user_id: int, version: int, ip: str) -> None:
-    """That the account agreed to `version` now (inside the caller's transaction `c`), if it is the current one:
-    otherwise the texts changed since the page showed them, and they must be read again (E-TERMS-CHANGED)."""
-    if version != current().version:
+def record(c, user_id: int, version: int, ip: str, lang: str | None = None) -> None:
+    """That the account agreed to `version` now, read in `lang` (else the language now), inside the caller's
+    transaction `c`, if it is the current one: otherwise the texts changed since the page showed them, and they must be
+    read again (E-TERMS-CHANGED)."""
+    now = current()
+    if version != now.version:
         raise Invalid(Msg("E-TERMS-CHANGED"))
-    c.execute("INSERT OR IGNORE INTO terms_agreed (user_id, version, at, ip) VALUES (?, ?, ?, ?)",
-              (user_id, version, time.time(), ip[:100]))
+    lang = lang_of(lang)
+    if lang not in now.texts:  # a version kept before this language was there: what was read is the one there is
+        lang = next(iter(now.texts))
+    c.execute("INSERT OR IGNORE INTO terms_agreed (user_id, version, lang, at, ip) VALUES (?, ?, ?, ?, ?)",
+              (user_id, version, lang, time.time(), ip[:100]))
 
 
-def agree(user_id: int, version: int, ip: str) -> None:
+def agree(user_id: int, version: int, ip: str, lang: str | None = None) -> None:
     with db().write() as c:
-        record(c, user_id, version, ip)
+        record(c, user_id, version, ip, lang)
 
 
 def agreed_count(version: int) -> dict:
@@ -152,28 +184,34 @@ def agreed_count(version: int) -> dict:
     return {"accounts": r["n"], "agreed": r["agreed"]}
 
 
-def edit(texts: dict[str, object], by: Actor) -> Terms:
-    """The administrator's copy of both texts, in effect from now: each made plain lines of text (text.py
-    plain_lines), neither empty nor longer than MOST. The same texts as now change nothing; different ones are the
-    next version, which everyone is asked to agree to."""
-    clean = {doc: plain_lines(texts.get(doc), MOST + 1) for doc in DOCS}
-    for doc, text in clean.items():
-        if not text:
-            raise Invalid(Msg("E-TERMS-EMPTY", title=DOCS[doc]))
-        if len(text) > MOST:
-            raise Invalid(Msg("E-TERMS-TOOLONG", title=DOCS[doc], most=MOST))
-    kept = {doc: text + "\n" for doc, text in clean.items()}  # a text file ends with a line break, as the program's do
+def edit(texts: dict[str, dict[str, object]], by: Actor) -> Terms:
+    """The administrator's copy of both texts in every language ({id: {lang: text}}), in effect from now: each made
+    plain lines of text (text.py plain_lines), none empty nor longer than MOST. The same texts as now change nothing;
+    different ones are the next version, which everyone is asked to agree to."""
+    kept: dict[str, dict[str, str]] = {lang: {} for lang in i18n.LANGS}
+    for doc in DOCS:
+        given = texts.get(doc) if isinstance(texts.get(doc), dict) else {}
+        for lang in i18n.LANGS:
+            text = plain_lines(given.get(lang), MOST + 1)
+            where = f"{title(doc)} ({i18n.t(f'lang.{lang}')})"
+            if not text:
+                raise Invalid(Msg("E-TERMS-EMPTY", title=where))
+            if len(text) > MOST:
+                raise Invalid(Msg("E-TERMS-TOOLONG", title=where, most=MOST))
+            kept[lang][doc] = text + "\n"  # a text file ends with a line break, as the program's do
     with db().write():
         if _digest(kept) == _digest(current().texts):
             return current()
-        for doc, text in kept.items():
-            write_text(_edited_dir() / f"{doc}.md", text)
+        for lang, docs in kept.items():
+            for doc, text in docs.items():
+                write_text(_edited_dir() / lang / f"{doc}.md", text)
         return _look(by)
 
 
 def reset(by: Actor) -> Terms:
     """Back to the program's own texts: the administrator's copy goes (a new version, unless it said the same)."""
     with db().write():
-        for doc in DOCS:
-            (_edited_dir() / f"{doc}.md").unlink(missing_ok=True)
+        for lang in i18n.LANGS:
+            for doc in DOCS:
+                (_edited_dir() / lang / f"{doc}.md").unlink(missing_ok=True)
         return _look(by)

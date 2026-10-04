@@ -1,0 +1,307 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "90eb9be2e5975a2696f3f00d99b52026",
+  "name": {
+   "zh": "4D 高斯 · NeoVerse",
+   "en": "4D Gaussians · NeoVerse"
+  },
+  "intro": {
+   "zh": "动态逐帧高斯与摄影机，同步预览、USD 与逐帧 PLY 交付。",
+   "en": "Dynamic per-frame Gaussians and cameras, with a synchronized preview, USD and per-frame PLY delivery."
+  },
+  "author": "Lab2Shot",
+  "created": "2026-10-01T20:00:00",
+  "updated": "2026-10-03T01:00:00",
+  "deliverable": "gaussian",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "重建",
+    "en": "Reconstruct"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "solve_step",
+     "label": {
+      "zh": "步长",
+      "en": "Step"
+     },
+     "target": "solve.step"
+    },
+    {
+     "name": "solve_resolution",
+     "label": {
+      "zh": "处理分辨率",
+      "en": "Processing Resolution"
+     },
+     "target": "solve.resolution"
+    },
+    {
+     "name": "scale_cm",
+     "label": {
+      "zh": "尺度",
+      "en": "Scale"
+     },
+     "target": "solve.unit_cm"
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "solve_max_frames",
+       "label": {
+        "zh": "每段最多帧数",
+        "en": "Max Frames per Chunk"
+       },
+       "target": "solve.max_frames"
+      }
+     ]
+    },
+    {
+     "name": "cook_solve",
+     "label": {
+      "zh": "重建并预览",
+      "en": "Reconstruct and Preview"
+     },
+     "target": "solve.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "usd_name",
+     "label": {
+      "zh": "文件名（场景 USD）",
+      "en": "File Name (Scene USD)"
+     },
+     "target": "usd.name"
+    },
+    {
+     "name": "ply_name",
+     "label": {
+      "zh": "文件名（高斯 PLY）",
+      "en": "File Name (Gaussian PLY)"
+     },
+     "target": "ply.name"
+    },
+    {
+     "name": "unit",
+     "label": {
+      "zh": "单位（USD）",
+      "en": "Units (USD)"
+     },
+     "target": "usd.unit"
+    },
+    {
+     "name": "fps",
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "usd.fps"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "word": "pack",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
+     "target": "deliver.download"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "file",
+   "params": {
+    "path": "",
+    "colorspace": null,
+    "first": null,
+    "last": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 405
+   }
+  },
+  {
+   "id": "solve",
+   "type": "neoverse.reconstruct",
+   "params": {
+    "resolution": 560,
+    "step": 1,
+    "unit_cm": 100,
+    "max_frames": 32
+   },
+   "ui": {
+    "x": 400,
+    "y": 385
+   }
+  },
+  {
+   "id": "usd",
+   "type": "usd.output",
+   "params": {
+    "name": "gaussian_scene",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24
+   },
+   "ui": {
+    "x": 865,
+    "y": 0
+   }
+  },
+  {
+   "id": "ply",
+   "type": "ply.output_gaussian",
+   "params": {
+    "name": "gaussian",
+    "unit": "m"
+   },
+   "ui": {
+    "x": 816,
+    "y": 367
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "output",
+   "params": {},
+   "ui": {
+    "x": 1225,
+    "y": 381
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "solve",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "camera"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "gaussians"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "gaussians"
+   ],
+   "to": [
+    "ply",
+    "gaussians"
+   ]
+  },
+  {
+   "from": [
+    "usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "ply",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ]
+}

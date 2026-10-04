@@ -3,7 +3,7 @@
 
     python worker.py <job.json>
 
-job["node"] == "mediapipe_face.face". Params (job["params"]):
+job["node"] == "mediapipe_face.face_solve". Params (job["params"]):
 
     max_faces                int   1      1..8   faces tracked per frame (face slots). > 1: the
                                                  detector runs every frame, no smoothing, a face
@@ -66,11 +66,11 @@ from pathlib import Path
 
 import numpy as np
 
-from lab2shot_worker import fail, save_npz, serve
+from lab2shot_worker import fail, reason, save_npz, serve
 from lab2shot_worker.frame_io import FrameReader
 from lab2shot_worker.run import Run
 
-NODE = "mediapipe_face.face"
+NODE = "mediapipe_face.face_solve"
 NUM_LANDMARKS = 478
 NUM_BLENDSHAPES = 52
 VIRTUAL_VFOV_DEG = 63.0  # face_geometry_from_landmarks_graph.cc (Tasks default environment)
@@ -228,7 +228,7 @@ def main(job_path: str) -> None:
     run = Run.start(job_path, NODE, "MediaPipe Face", gpu=False)
     job, p = run.job, run.params
     task = job.weights_dir / "face_landmarker.task"
-    run.weights(task, what="模型")
+    run.weights(task, what=reason("I-MEDIAPIPEFACE-MODEL"))
 
     frames = run.frames()
     raw = job.raw_dir
@@ -253,7 +253,8 @@ def main(job_path: str) -> None:
     )
     canonical = canonical_face(task)
     save_npz(raw / "canonical_face.npz", **canonical)
-    landmarker = run.model("MediaPipe 面部动作模型", vision.FaceLandmarker.create_from_options, options)
+    landmarker = run.model("load_model", vision.FaceLandmarker.create_from_options, options,
+                           stage_params={"model": "MediaPipe Face Landmarker"})
 
     landmarks = np.full((count, n, NUM_LANDMARKS, 3), np.nan, np.float32)
     blendshapes = np.full((count, n, NUM_BLENDSHAPES), np.nan, np.float32)
@@ -265,11 +266,11 @@ def main(job_path: str) -> None:
     frame_seconds: list[float] = []
     duplicates = 0
 
-    run.stage("逐帧跟踪面部")
+    run.stage("track_face")
     with landmarker, FrameReader(frames.paths, threads=READ_THREADS, ahead=2 * READ_THREADS) as reader:
         # PNG decoding (~50 ms for a 1K frame) is slower than the network (~8 ms):
         # decode a few frames ahead in parallel.
-        for i, (frame, _path) in run.each(frames.pairs, "跟踪面部"):
+        for i, (frame, _path) in run.each(frames.pairs, "track_face"):
             rgb = reader.get(i)
             h, w = rgb.shape[:2]
             if size is None:

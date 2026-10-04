@@ -35,13 +35,13 @@ from pathlib import Path
 
 import numpy as np
 
-from lab2shot_worker import WEIGHTS_ENV, fail, progress, save_npz, serve, set_seed, stub_module
+from lab2shot_worker import WEIGHTS_ENV, fail, progress, reason, save_npz, serve, set_seed, stub_module
 from model_spec import WINDOW  # nodes.py refuses shots shorter than it with the same
 from lab2shot_worker.files import read_frame, read_mask
 from lab2shot_worker.run import Run
 from lab2shot_worker.serving import resident
 
-NODE = "mesh4d.solve"
+NODE = "mesh4d.reconstruct"
 
 
 # The dinov2-large weight's dest in extension.py (under weights/): the installer downloads it there as plain files
@@ -97,7 +97,8 @@ def _deform(weights: str):
     model = instantiate_from_config(params["denoiser_cfg"])
     missing, _ = model.load_state_dict(load_file(weights), strict=False)
     if missing:
-        fail("E-MESH4D-STEP", step="装载形变网络", detail=f"缺 {len(missing)} 个权重，第一个是 {missing[0]}")
+        fail("E-MESH4D-STEP", step=reason("I-MESH4D-STEPLOAD"),
+             detail=reason("I-MESH4D-MISSINGTENSORS", count=len(missing), first=missing[0]))
     model = model.cuda().half()
 
     conditioner = instantiate_from_config(params["cond_stage_config"])
@@ -193,17 +194,18 @@ def main(job_path: str) -> None:
     code = _code_base()
     os.chdir(code / "hy3dshape")  # upstream reads ./configs and ../ckpt from here
 
-    run.stage("整理画面")
+    run.stage("stage_frames")
     work = job.scratch("mesh4d")
     name = "shot/seq"
     data_root = work / "DATA"
     frames = _stage_frames(job, data_root / name)
     if len(frames) < WINDOW:  # the node refuses this before cooking (min_frames); a direct call could still get here
-        fail("E-MESH4D-STEP", step="整理画面", detail=f"Mesh4D 一次要 {WINDOW} 帧，这一段只有 {len(frames)} 帧")
+        fail("E-MESH4D-STEP", step=reason("I-MESH4D-STEPFRAMES"),
+             detail=reason("I-MESH4D-TOOFEWFRAMES", window=WINDOW, have=len(frames)))
     starts = _windows(len(frames))
 
-    shapegen = run.model("Hunyuan3D-2.1 形状模型", _shapegen)
-    run.stage("生成网格")
+    shapegen = run.model("load_model", _shapegen, stage_params={"model": "Hunyuan3D-2.1"})
+    run.stage("generate_mesh")
     generator = set_seed(int(params["seed"]))
     mesh, _ = shapegen(image=Image.open(data_root / name / "0.png").convert("RGBA"),
                        preset_latent=None, return_init_latent=True, generator=generator)
@@ -213,8 +215,8 @@ def main(job_path: str) -> None:
         mesh = _simplify(mesh, target, work)
     torch.cuda.empty_cache()
 
-    pipeline = run.model("Mesh4D 形变模型", _deform, str(job.weights_dir / "denoiser.fp16.safetensors"))
-    run.stage("解形变")
+    pipeline = run.model("load_model", _deform, str(job.weights_dir / "denoiser.fp16.safetensors"), stage_params={"model": "Mesh4D"})
+    run.stage("solve_deformation")
     module = _dataset(code, data_root, name, starts, work / "logs")
     out = work / "out"
     done: dict[int, np.ndarray] = {}
@@ -239,7 +241,7 @@ def main(job_path: str) -> None:
             rest = np.asarray(trimesh.load(folder / "gen_mesh" / "registered_gen_mesh.obj",
                                            process=False).vertices, np.float32)
         torch.cuda.empty_cache()
-        progress(window + 1, len(starts), "解形变")
+        progress(window + 1, len(starts), "solve_deformation")
 
     vertices = np.stack([done[i] for i in range(len(frames))])
     save_npz(job.raw_dir / "mesh.npz", faces=faces, vertices=vertices, rest=rest,

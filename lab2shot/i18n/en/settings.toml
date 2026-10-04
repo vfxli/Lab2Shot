@@ -1,0 +1,418 @@
+# Settings pages (lab2shot/config.py PAGES, SCHEMA): page names and tips, group headings, each setting's name, help,
+# why it needs a restart, what leaving it empty means, and its options.
+
+[settings_page.register]
+label = "Registration Settings"
+tip = "Self-registration: whether it is open, whether an invite code is required, how long registered accounts last, their quota and allowed categories, site-wide limits; below, creating and disabling invite codes, who registered with each, and disabling accounts in bulk by invite code or time span"
+[settings_page.register.group]
+register = "Registration"
+
+[settings_page.accounts]
+label = "Account Settings"
+tip = "The department list and the default account quota, how much usage time valid feedback earns, whether users may download the DCC plug-ins; also the administrator notice at the top of the page and the administrator's own password"
+[settings_page.accounts.group]
+accounts = "Accounts"
+feedback = "Feedback Rewards"
+plugins = "DCC Plug-ins"
+
+[settings_page.compute]
+label = "Compute and GPUs"
+tip = "Whether compute and GPU jobs are accepted, how long a node may cook, how many nodes a job and the whole machine cook at once, the frame limit, cores kept for other programs; the GPU memory margin and order when picking a GPU, how long and how many resident models are kept and how they make room, memory kept for other programs and the server's memory reuse"
+[settings_page.compute.group]
+compute = "Scheduling"
+gpu = "GPUs"
+resident = "Resident Models"
+memory = "Memory"
+
+[settings_page.storage]
+label = "Storage and Viewer"
+tip = "How many days jobs stay on the server, the upload limit, where data is kept, how many database backups are kept, log size, count and detail; how large images are in the viewer (server proxy and local proxy), the local cache size, and how much of a point cloud one frame may send"
+[settings_page.storage.group]
+storage = "Jobs and Data"
+database = "Database"
+logs = "Logs"
+view = "Viewer"
+
+[settings_page.network]
+label = "Network and Install"
+tip = "Access, port, HTTPS, external domains, trusted proxies; the mirrors and retries used to install extensions, target architectures, CUDA and compilers, the OCIO config"
+[settings_page.network.group]
+network = "Network"
+install = "Downloads"
+env = "Build and Color"
+
+[setting."register.open"]
+label = "Open Registration"
+note = "On: the login page offers \"Register\": visitors create an account themselves with a user name, display name, department and password, and are logged in at once; such accounts are exactly like those created under \"Users\" and are managed together. Off: only administrators create accounts, and the registration route accepts nothing. Takes effect at once."
+
+[setting."register.invite"]
+label = "Require Invite Code"
+note = "On: registering needs a valid invite code (created in the invite code list below on this page; codes can be limited in uses and expiry and disabled at any time). Off: anyone may register, limited only by the registration limits below and the per-IP limits. Takes effect at once."
+
+[setting."register.days"]
+label = "Registered Account Lifetime"
+note = "How many days a self-registered account can be used from registration; after that it can no longer log in. It can be extended later under \"Users\" like any other account. A change applies only to accounts registered afterwards."
+
+[setting."register.quota_gb"]
+label = "Registered Account Quota"
+note = "How much disk a self-registered account may use (its job folders, compute cache, uploads not yet used by a job, and templates stored on the server); written into the account's own quota at registration and changed per account under \"Users\" afterwards. A change applies only to accounts registered afterwards."
+
+[setting."register.tags"]
+label = "Categories for Registered Accounts"
+note = "Which categories of nodes and templates a self-registered account may use; the same set as \"Available\" when creating an account under \"Users\". Basic nodes are available to everyone. A change applies only to accounts registered afterwards."
+empty = "Basic nodes only"
+
+[setting."register.per_hour"]
+label = "Registrations per Hour"
+note = "The most accounts that may be registered in one hour, site-wide; when reached, registration pauses by itself (shown on \"Overview\" and noted in the log) and resumes after the hour. Changing IP addresses does not get around it. Takes effect at once."
+
+[setting."register.per_day"]
+label = "Registrations per Day"
+note = "The most accounts that may be registered in 24 hours, site-wide; when reached, registration pauses by itself, like the hourly limit. Takes effect at once."
+
+[setting."people.departments"]
+label = "Departments"
+note = "The production department each account belongs to, one per line (no spaces or commas in a name): each account is given one under \"Users\" on the admin page, self-registering users pick one from this list, and usage statistics are grouped by it. Add an entry for a new department; an account whose department is no longer in the list is still listed under its old name in the statistics (marked \"No longer listed\"). Takes effect at once."
+
+[setting."storage.quota_gb"]
+label = "Account Quota"
+note = "How much disk an account without a quota of its own may use: every byte it actually takes on the server — all its job folders (uploaded footage, output folders and zips), its own compute cache, uploads not yet used by a job, and templates stored on the server; the same bytes count once. When full, no new uploads or jobs are accepted (jobs already cooking finish), and the page shows how much is used, the limit, and where most of it is; deleting unneeded jobs frees space. A single account's quota is changed under \"Users\" and takes effect at once."
+
+[setting."feedback.reward_count"]
+label = "Valid Feedback per Reward"
+note = "Each time this many reports under \"Feedback\" are rated \"Valid\", the account that sent them gets usage time added once (how much is the next setting). A change applies only to later rewards: rewards already given stay, and reports not yet counted toward one continue toward the new count."
+
+[setting."feedback.reward_days"]
+label = "Days Added per Reward"
+note = "When the count above is reached, the account's expiry moves this many days later; an account already expired counts from the moment of the rating. 0 means no reward. Accounts that never expire get nothing added; it is only recorded. A change applies only to later rewards; when a rating is changed back to not valid, the days given then are taken back."
+
+[setting."plugins.download"]
+label = "Open DCC Plug-in Downloads"
+note = "On: every signed-in user can download the plug-ins from DCC Plug-ins in the top bar. Off: only administrators and deputy administrators see and download them (for internal testing; the dialog marks them Not open to users); other users do not see the entry, and a direct download request is refused. Only downloads are affected: plug-ins already installed keep connecting to the server. Takes effect at once; the entry appears or disappears on a user's page once it is reloaded."
+
+[setting."queue.compute_jobs"]
+label = "Compute Jobs"
+note = "Off: the server accepts no new compute jobs; every submission is refused with a note that the server is view-only for now. Jobs not yet started wait until it is turned back on; jobs already started finish. Viewing results already cooked is never affected. Turn it off to pause the whole server. Takes effect at once."
+
+[setting."queue.gpu_jobs"]
+label = "GPU Jobs"
+note = "Off: no GPU takes new work, as if none were assigned; jobs cooking finish, and queued jobs continue by themselves once this is turned back on. Jobs without a GPU and viewing cooked results are not affected. Turn it off for GPU maintenance or to free the machine for training. Takes effect at once."
+
+[setting."queue.node_minutes"]
+label = "Node Timeout"
+note = "How long one node may cook: beyond that it is stopped and treated as an error (the node turns red, nodes that use it are skipped, other branches finish, and the job shows \"Partly failed\"). An extension's node (running in a worker process) has its process ended; a core node checks after each frame and stops at the next. Raise it for long shots where a single node often cooks for a long time. Takes effect at once."
+
+[setting."queue.task_gpus"]
+label = "Max GPUs per Job"
+note = "The most GPUs one job uses at once: GPU nodes in a job that do not depend on each other may cook on several GPUs at the same time, one node per GPU. A GPU is held only while a node cooks, and is then given to the first queued job with a node waiting for a GPU. Takes effect at once."
+
+[setting."queue.task_cpus"]
+label = "CPU Node Limit per Job"
+note = "The most nodes without a GPU that one job cooks at once (each node uses several cores itself). Keeps one job with many parallel nodes from taking over the machine. Takes effect at once."
+
+[setting."queue.cpu_nodes"]
+label = "Global CPU Node Limit"
+note = "The most nodes without a GPU the whole machine cooks at once, all jobs together. It counts nodes, not cores: each node uses several cores itself (a per-frame node cooks up to 8 frames at once), so the default is cores ÷ 8. A free slot goes, in queue order, to the first job with a node waiting that is not over its own limit; viewer previews use a free slot only when no node is waiting, never delaying a node. Lower it when training or rendering runs on the same machine and the computer becomes sluggish. Takes effect at once."
+
+[setting."queue.max_frames"]
+label = "Frame Limit"
+note = "The most frames one submission may cook; anything over is refused by the server with the reason (the web page stops it before submitting; this catches submissions that bypass the page). Keeps one long shot from taking over the GPUs and the bandwidth. Only the frame range of this cook counts, not how many frames the footage has: 200 frames of a 1000-frame clip can be submitted. Raise it for few users and long shots; lower it when the machine is needed for other work. Takes effect at once."
+
+[setting."queue.reserved_cores"]
+label = "Reserved Cores"
+note = "Cores that cooking may never use: kept for the browser, DCCs and other programs. Worker processes run only on the remaining cores (pinned, at lower priority), and projects that take a thread count (COLMAP) are given the remaining count. The server and the browser often run on the same machine: in practice, one COLMAP job kept all 32 cores busy for 207 seconds and froze the whole browser, other tabs included, until the job ended. The default follows this machine's cores: cores ÷ 4, at least 2. Set it to 0 on a dedicated server nobody works on (fastest cooking); raise it when the machine is used while cooking. Takes effect at once."
+
+[setting."queue.vram_margin_gb"]
+label = "GPU Memory Margin"
+note = "Extra GPU memory kept beyond what a node declares when picking a GPU: a node declares its model's own peak, and a new worker process also needs a CUDA context (measured: about 0.4 GB on a 4090, about 0.7 GB on a 5090). Raise it when jobs often run out of GPU memory right at the start; lower it when memory is tight and large jobs need to fit, but below 0.5 failures become likely. Takes effect at once."
+
+[setting."queue.gpu_order"]
+label = "GPU Priority Order"
+note = "When several free GPUs can cook a node, they are preferred in this order. Enter CUDA indices separated by commas, for example 1,0; indices follow the PCI bus order, the same as on the \"GPUs\" page and in nvidia-smi. GPUs not listed come after, by the usual rule (the GPU with the least memory that is enough comes first). Applies only when several free GPUs can all fit the node: a GPU that cannot fit it is never chosen because of this, and the queue order does not change. Putting a GPU with more memory first means small nodes take it first too, so nodes that only fit on it may wait longer. Takes effect at once."
+empty = "The GPU with the least memory that is enough comes first"
+
+[setting."resident.keep"]
+label = "Resident Models"
+note = "On: after a job finishes, its model stays in its process, so the next job using the same model does not load it again, saving a minute or more for large models. Off: each job's process ends when it finishes and GPU memory and RAM go back to other programs at once, suited to machines that also train or render. Turning it off unloads resident models at once."
+
+[setting."resident.idle_minutes"]
+label = "Unload When Idle"
+note = "A resident model not used for this long is unloaded completely, freeing GPU memory and RAM. Longer: coming back to the same project later needs no reload; shorter: GPU memory and RAM return to other programs sooner."
+
+[setting."resident.ram_idle_minutes"]
+label = "Unload When Idle in RAM"
+note = "After a resident model moves to RAM to make room for another project, its process ends when it has not been used for this long: a process whose model is in RAM still holds a CUDA context on the GPU and a copy of the model in RAM. Shorter than \"Unload When Idle\", so GPU memory and RAM go back sooner."
+
+[setting."resident.release_below_gb"]
+label = "Release GPU Memory Below"
+note = "When a GPU that is not cooking has less GPU memory unused by anyone than this (another program or another Lab2Shot server's job using it counts too), idle resident models give it back at once: first they move to RAM (when \"Move to RAM to Make Room\" is on), and their processes end when that is not enough. 0: never released for GPU memory pressure, only after \"Unload When Idle\"."
+
+[setting."resident.per_gpu"]
+label = "Resident Models per GPU"
+note = "The most idle resident processes kept on one GPU, not counting the one cooking; beyond that, the least recently used is unloaded first. Each process takes about 0.5 GB of CUDA context on the GPU, even when its model has moved to RAM. Raise it when several projects take turns; lower it when GPU memory is tight."
+
+[setting."resident.to_ram"]
+label = "Move to RAM to Make Room"
+note = "How a resident model gives up GPU memory when another project needs the GPU. On: it moves to RAM (when the machine still has \"Reserved Memory\" left after the move) and moves back to the GPU in seconds next time; off: it is unloaded and reloaded next time, leaving all RAM to other programs."
+
+[setting."resident.ram_pct"]
+label = "Resident Memory Limit"
+note = "The share of the machine's memory the idle resident processes may hold together (models moved to RAM and whatever else the processes keep); beyond it, the least recently used is unloaded first. The same happens when the machine has less than \"Reserved Memory\" left. Lower it when several people work at once and memory is tight. Applies at once."
+
+[setting."memory.keep_free_gb"]
+label = "Reserved Memory"
+note = "The least RAM the machine keeps for other programs: a job waits until this much is free before it starts (nodes that declare more use their own figure), and resident models move to RAM only if this much is still left after the move. Raise it when training or rendering runs on the same machine, so running out of memory never brings the whole machine down."
+
+[setting."memory.reuse"]
+label = "Memory Reuse"
+note = "On: memory the server process used for one frame is not given back to the system but kept for the next frame, making per-frame nodes that process whole images (image compositing, mask to alpha…) about 20% to 30% faster with exactly the same results; the cost is that the server process keeps up to about \"Reuse Limit\" of memory it is not using at the moment. Off: memory goes back to the system right after use; turn it off when memory is tight or training or rendering runs on the same machine. Only the server process itself is affected, not the extensions' worker processes."
+restart = "The memory allocator is chosen when the server starts and cannot be switched back while running"
+
+[setting."memory.reuse_gb"]
+label = "Reuse Limit"
+note = "With \"Memory Reuse\" on, the most memory (approximately) the server process keeps, used and currently idle, for the next frame. 2 GB is enough for 1080p footage; raise it for 4K and other large images, lower it when memory is tight (lowering gives the excess back to the system at once). Takes effect at once."
+
+[setting."tasks.keep_days"]
+label = "Days to Keep Jobs"
+note = "Each job (one cook submitted with \"Cook\") stays on the server this many days after it ends, then is removed whole: its folder (graph, footage, output folders and zips, logs) is deleted, and the cache only it used is cleaned up after it. Footage chosen but not used by any job is also removed after this many days. Raise it when users often collect results days later; lower it when disk is short. Takes effect at once."
+
+[setting."tasks.upload_gb"]
+label = "Upload Limit per Job"
+note = "The most uploaded footage one job may bring (uploads only, not cooked results); beyond that, the server refuses the submission with the reason, and a single file larger than this is not accepted for upload. Keeps one job's uploads from filling the disk; raise it when large videos or EXRs are common. Takes effect at once."
+
+[setting."storage.pause_free_pct"]
+label = "Free Space to Pause New Cooks"
+note = "When free space on the disk holding the data location drops below this share, new cooks pause for every account: new submissions and uploads are not accepted (with the reason), queued jobs not yet started wait, and jobs cooking finish; once space is back above this share, everything resumes by itself. Uploads also always leave at least 10 GB free. Takes effect at once."
+
+[setting."tasks.keep_most"]
+label = "Finished Jobs Kept per Account"
+note = "The most finished jobs kept per account, only to protect the database: beyond that, the oldest are deleted automatically (as if the user deleted them, freeing their space), noted in the log, and the limit is shown in the user's queue window. Disk space is governed by the account quota, not by this. Takes effect at once."
+
+[setting."paths.data_dir"]
+label = "Data Location"
+note = "Where users' data is kept: every job's folder, uploaded footage and cooked cache are here; in production, point it to the data disk. Keeping it in one place keeps the hard links used to share footage between jobs on one file system. A relative path starts from the project folder; empty: data in the work folder. After a change, the existing data stays at the old location and has to be moved along; jobs and footage not moved are gone."
+restart = "Which disk the data is on is decided when the server starts"
+empty = "data in the work folder"
+
+[setting."paths.work_dir"]
+label = "Work Folder"
+note = "Cache, uploaded footage, results waiting to be collected, job records, GPU assignments and logs are all here; a relative path starts from the project folder. Can only be changed in config/local.toml: after a change, all of these stay in the old folder and have to be moved along."
+restart = "The cache, job records and GPU assignments are in this folder, decided when the server starts"
+
+[setting."database.backups"]
+label = "Database Backups"
+note = "How many automatic backups of the database (accounts, job records, usage statistics…) are kept: one a day (manual backups count too), the oldest deleted first. The backup made before each database upgrade or program update is kept separately, the latest 5, and never pushed out by the daily ones. Backups are in work/db/backups/ and are small; keep more to be able to go back further when something goes wrong. Takes effect at once."
+
+[setting."logs.max_mb"]
+label = "Log Size"
+note = "When the server log work/logs/lab2shot.log reaches this size, a new file is started and the old one is renamed and kept."
+
+[setting."logs.files"]
+label = "Old Log Files"
+note = "How many rotated log files are kept; older ones are deleted. Logs take at most \"Log Size\" × (files + 1) in all. Raise it to investigate older problems."
+
+[setting."logs.debug"]
+label = "Verbose Log"
+note = "On: the log also records finer detail, such as what worker processes print while idle, for investigating problems; keep it off normally so the log stays small and readable."
+
+[setting."view.proxy_px"]
+label = "Viewer Proxy Size"
+note = "The 2D half: how large each frame seen in the viewer is. As soon as a solve finishes, its result is scaled proportionally to this many pixels on the long side, compressed and stored, and the web page fetches only that copy. 512 uses the least bandwidth and plays smoothest over the internet; on a good connection raise it to 1024 or 2048 for a sharper image. Images smaller than the tier are not enlarged. For the 3D half see \"Point Cloud Limit\" below. Delivered files are always written at full size and precision, losslessly, unaffected by this; to view them losslessly, download the delivery and open it in Nuke or a DCC. Takes effect at once: the next image viewed uses the new tier."
+
+[setting."view.local_px"]
+label = "Local Proxy Size"
+note = "How large footage on the user's own machine (chosen in a file read, or written back by a delivery) is in the viewer: the browser scales every layer of every frame in the background to this many pixels on the long side, compresses it and stores it on the user's own disk; the viewer draws from that copy, nothing is uploaded and nothing passes through the server. Sharper than the server proxy, a little softer than lossless viewing in Nuke. Takes effect at once: proxies are regenerated the next time images are viewed."
+
+[setting."view.local_cache_gb"]
+label = "Local Cache Limit"
+note = "The most of the user's disk the local proxies may take in the browser's private file system; when full, the least recently viewed go first. Whole-range 3D caches (chunks of per-frame data such as point clouds) count toward this too. This is disk, unrelated to the browser's memory; memory only holds the layers the user has displayed."
+
+[setting."view.points_max_mb"]
+label = "Point Cloud Limit"
+note = "The 3D half: the most one frame of a point cloud may send. Beyond that, every Nth point is kept, and the viewer always shows \"Showing N of M points\", so it is clear how much was dropped. Only the viewed copy is thinned: the kept points' coordinates are unchanged to the bit, and cooking, cache and delivered files keep every point. Point clouds under this size are sent whole. 5 uses the least bandwidth and scrubs smoothest over the internet; on a good connection raise it for denser points. Takes effect at once. For the 2D half see \"Viewer Proxy Size\" above."
+
+[setting."view.gaussian_max"]
+label = "Gaussian Display Limit"
+note = "The 3D half: the most 3D Gaussians of one frame displayed. Beyond that, every Nth one is kept, and the viewer shows \"Showing N of M points\" along with the point clouds, so it is clear how much was dropped. Only the viewed copy is thinned: the kept coordinates are unchanged to the bit, and cooking, cache and delivered files keep every one. Fewer than this are displayed whole. 300,000 tumbles smoothly on an ordinary machine; raise it on a fast machine, lower it on a slow one. Takes effect at once."
+
+[setting."server.host"]
+label = "Access"
+note = "This machine only: only browsers and programs on this machine can connect. Local network: browsers and DCC plug-ins on other computers on the local network can connect; WSL2 needs mirrored networking to tell machines apart. Everyone has to log in with an account (created under \"Users\" on the admin page)."
+restart = "The server opens its listening interface only when it starts"
+[setting."server.host".option]
+"127.0.0.1" = "This machine only"
+"0.0.0.0" = "Local network"
+
+[setting."server.port"]
+label = "Port"
+note = "The port the web page and DCC plug-ins connect to: the address is http(s)://server:port. After a change, everyone's bookmarks, DCC plug-ins and the command line's --server have to use the new address."
+restart = "The port is opened only when the server starts"
+
+[setting."server.https"]
+label = "HTTPS"
+note = "Serve HTTPS with this server's own certificate. Browsers on other computers on the local network need HTTPS to save results straight into the user's folders and save graphs back to their files; over http, saving becomes a download. Install the certificate once on each user's computer: open /api/tls/ca.pem in the browser. When sharing through a tunnel, it is better to let the tunnel encrypt with a proper certificate at the far end; then this need not be on."
+restart = "The certificate is installed only when the server starts"
+
+[setting."server.names"]
+label = "External Domains"
+note = "Domain names or IP addresses others use to reach this server, separated by spaces, such as abc.example.com from a tunnel, or an alias the internal DNS gives this machine. The server answers only requests opened with this machine's name, IP address, or a domain written here (another site pointing its own domain here — \"DNS rebinding\" — gets nothing); requests forwarded by a \"Trusted Proxy\" are routed by domain at the proxy and are not checked against this. With HTTPS on and a tunnel that only forwards the port without encrypting, the certificate must also carry this name for browsers to accept it. Empty: only this machine's own names and addresses."
+restart = "The certificate is made only when the server starts (whether the domain is accepted takes effect at once)"
+empty = "Only this machine's names and addresses"
+
+[setting."server.trusted_proxies"]
+label = "Trusted Proxies"
+note = "Addresses of reverse proxies in front of this server that forward users' requests, separated by spaces; networks may be written, such as 127.0.0.1 or 10.0.0.0/8. Only for requests connecting from these addresses is the user's IP taken from what the proxy passes in X-Forwarded-For / X-Real-IP: the per-IP and per-network registration limits, the counts of wrong invite codes and passwords by source, and the IP in login records all use it; the X-Forwarded-Proto (whether it is HTTPS) and X-Forwarded-Host (the domain the user opened) it passes are also accepted only from these addresses. These headers from any other source are ignored (anyone can write them).\nTwo setups: ① nginx / Caddy / frp https2http on a cloud server decrypts HTTPS with a proper certificate and forwards over HTTP to here (HTTPS off here): enter the address the forwarding comes from (127.0.0.1 when frpc runs on this machine), and each user's real IP is seen. ② frp forwards only TCP connections to this server's own HTTPS port: every source seen here is this machine's address and there are no headers to read; leave this empty. Per-IP limits then do not apply (otherwise everyone would be blocked together as one person); the site-wide registration limits, invite codes and proof of work still apply. Every request then looks as if it came from this machine: the local command line's machine token is still accepted only for the token itself, never by address, but requests not logged in (the login and registration pages) share one request rate, so when one person sends many, others are told \"too frequent\" too. For open public registration use ① (HTTPS decrypted on the cloud server): only then is each person's real IP seen and per-IP limits take effect. Which one is in use: see \"User IP\" below in this group. Takes effect at once."
+empty = "Trust no proxy: always use the connecting address"
+
+[setting."install.mirror_hf"]
+label = "HF Mirrors"
+note = "Mirror URLs tried in order when Hugging Face cannot be reached, separated by spaces. Only model files with a sha256 are downloaded from a mirror, and used only when they match the official sha256; otherwise they are deleted and the next source is tried. Login tokens are never sent to a mirror."
+empty = "Hugging Face only"
+
+[setting."install.mirror_pypi"]
+label = "PyPI Mirrors"
+note = "Mirrors (package index URLs) tried when the official Python package index cannot be reached, separated by spaces. Applies only to extensions with a hash lock file (requirements.lock): each package is installed only when it matches the official hash in the lock; extensions without a lock file install from the official index only."
+empty = "PyPI only"
+
+[setting."install.mirror_github"]
+label = "GitHub Mirrors"
+note = "Proxy mirrors tried when GitHub cannot be reached, separated by spaces; the official URL is appended to the mirror. Code is fetched by its locked commit, and not used if the commit received differs from the locked one; release files are used only when they match their sha256. Not set by default: enter only mirrors you trust."
+empty = "GitHub only"
+
+[setting."install.retries"]
+label = "Retries"
+note = "When installing an extension, the most attempts per source when downloading, cloning code or installing packages hits a network problem (disconnection, timeout, busy server). The wait between attempts doubles (1, 2, 4, 8 seconds…), up to \"Max Wait\". When all attempts fail, the next source (mirror) is tried."
+
+[setting."install.backoff_max"]
+label = "Max Wait"
+note = "The longest wait between two retries. Raise it a little on an unstable network to fail less often."
+
+[setting."build.archs"]
+label = "Build Target Architectures"
+note = "When installing extensions, which GPU architectures CUDA code (pytorch3d, DPVO, SAM 2's _C and so on) is compiled for, one per line: sm_75 Turing, sm_80 Ampere data center, sm_86 Ampere, sm_89 Ada Lovelace, sm_90 Hopper, sm_100 Blackwell data center, sm_120 Blackwell. The compiled code runs only on the architectures listed here, whatever GPU the compiling machine has; when an extension declares which architectures it supports, only those in both are compiled. The CUDA toolkit has to support every architecture chosen (sm_120 needs CUDA 12.8 or later; \"Check Build Tools\" checks each one). After a change, newly installed extensions follow it; ones already installed are not recompiled automatically and need reinstalling."
+
+[setting."build.cuda_home"]
+label = "CUDA Path"
+note = "The CUDA toolkit folder used to compile CUDA code (detectron2 and so on) when installing extensions, such as /usr/local/cuda-12.8. Empty: $CUDA_HOME, else /usr/local/cuda. Takes effect at the next extension install."
+empty = "Use $CUDA_HOME"
+
+[setting."build.cc"]
+label = "C Compiler"
+note = "The C compiler used when installing extensions, such as gcc-14. CUDA supports gcc only up to a certain version; when the system's gcc is too new, name an older one here. Empty: the system default. Takes effect at the next extension install."
+empty = "System default"
+
+[setting."build.cxx"]
+label = "C++ Compiler"
+note = "The C++ compiler used when installing extensions, such as g++-14, the same version as the C compiler. Empty: the system default. Takes effect at the next extension install."
+empty = "System default"
+
+[setting."color.config"]
+label = "OCIO Config"
+note = "The path of the OCIO config file config.ocio on the server, or an OCIO built-in config starting with ocio://. Empty: the environment variable $OCIO, else OCIO's latest built-in ACES studio config. Changing the config changes the default color space when images are read."
+restart = "The color config is read when the server starts, and the web page's color space list follows it"
+empty = "Use $OCIO or built-in ACES"
+
+[settings.unit]
+"days" = "days"
+"GB" = "GB"
+"count" = ""
+"items" = ""
+"minutes" = "min"
+"cards" = ""
+"frames" = "frames"
+"percent" = "%"
+"copies" = ""
+"MB" = "MB"
+"times" = ""
+"seconds" = "s"
+
+[settings]
+on = "On"
+off = "Off"
+empty_is = "Empty: {empty}"
+pixels = "{px} px"
+
+[settings.auto]
+cpu_nodes.one = "This machine has {cores} core: cores ÷ 8 gives {nodes}"
+cpu_nodes.other = "This machine has {cores} cores: cores ÷ 8 gives {nodes}"
+reserved_cores.one = "This machine has {cores} core: cores ÷ 4, at least 2, reserves {reserved}"
+reserved_cores.other = "This machine has {cores} cores: cores ÷ 4, at least 2, reserves {reserved}"
+
+[settings.source]
+changed = "Changed"
+changed_tip = "Changed by an administrator, no longer following the default (default {default})"
+auto = "From this machine"
+auto_tip = "The default is worked out from this machine: {how}. Once changed, the changed value stays"
+
+[settings.overridden]
+option = "Start option {option}"
+env = "Environment variable {name}"
+server = "Server settings"
+
+# The server's state shown with each settings group (server/settings.py status)
+[settings.state.hf]
+out = "Not logged in"
+out_tip = "Gated models cannot be downloaded: run hf auth login on the server, or set the environment variable HF_TOKEN"
+in = "Logged in"
+env_tip = "The token comes from the environment variable HF_TOKEN (the token itself is never shown here)"
+file_tip = "The token is stored in {path} (the token itself is never shown here)"
+
+[settings.state.ip]
+label = "User IP"
+via = "Visible: {ip} (passed on by trusted proxy {via})"
+via_tip = "Per-IP limits (registration, wrong invite codes, request rate) use the real address the proxy passes on"
+via_none = "The user's real IP is not visible: trusted proxy {via} passed no address"
+via_none_tip = "This request came from a trusted proxy without X-Forwarded-For / X-Real-IP: set the proxy to forward that header (nginx: proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;), otherwise per-IP limits have no effect"
+direct = "Visible: {ip} (the connection's own address)"
+direct_tip = "Users connect to this server directly (local network); per-IP limits use the connecting address"
+local = "The user's real IP is not visible: every source is this machine, {ip}; per-IP limits have no effect"
+local_tip = "Requests are forwarded in by this machine itself (a browser on this machine, or a tunnel such as frp that only forwards TCP connections to this port): nobody can be told apart, so the per-IP and per-network registration limits and the count of wrong invite codes by source do not apply, rather than blocking everyone together as one person; the site-wide registration limits, invite codes and proof of work still apply. To see real IPs: let nginx / Caddy / frp https2http on a cloud server decrypt HTTPS and forward over HTTP with X-Forwarded-For, then enter the address it connects from under \"Trusted Proxies\""
+ignored = "This request carries forwarding headers such as X-Forwarded-For, but {host}, where it comes from, is not a \"Trusted Proxy\": none of them were used"
+
+[settings.state.register]
+label = "Registration Status"
+closed = "Closed"
+paused = "Paused automatically"
+open = "Open"
+value = "{state} · last hour {hour} / {per_hour}, last day {day} / {per_day}"
+tip = "Self-registered accounts site-wide against the two limits; at a limit registration pauses by itself and resumes after that hour / day. Invite codes and who registered with them are further down this page"
+
+[settings.state.accounts]
+label = "Accounts"
+value = "{n}"
+tip = "Create accounts and change expiry and department under \"Users\"; the department list is \"Departments\" here"
+
+[settings.state.gpus]
+label = "GPUs Found"
+value = "{n}: {names}"
+tip = "The GPUs found on this machine, whether they take jobs or not"
+
+[settings.state.takers]
+label = "GPUs Taking Jobs"
+tip = "Which GPUs take jobs is changed with the switch on each GPU in \"Overview\" or \"Queue\"; GPUs not assigned take no jobs. Each GPU taking jobs cooks one GPU node at a time"
+
+[settings.state.memory]
+label = "Available Now"
+value = "{free} GB of {total} GB"
+tip = "The memory available on this machine now (all programs together, including others' training and rendering)"
+
+[settings.state.disk]
+label = "Free Disk"
+value = "{free} of {total}"
+tip = "The disk holding the work folder {work}; how much each kind of content takes: see \"Disk\""
+
+[settings.state.address]
+label = "Current Address"
+tip = "Users open this address in the browser; DCC plug-ins and the command line's --server connect to it too. On the local network, replace localhost with this machine's name or IP"
+
+[settings.state.certificate]
+label = "Certificate"
+tip = "With HTTPS, install it once on each user's computer: open /api/tls/ca.pem in the browser to download it and add it to the system's Trusted Root Certification Authorities"
+
+[settings.state.extensions_disk]
+label = "Extensions Disk"
+tip = "How much is left on the disk holding the extensions: a new environment is built beside the old one and swapped in only after its self-test passes, and the old one is kept for rolling back, so installing needs room for one more copy"
+
+[settings.state.version]
+label = "Version"
+tip = "The server's Python: {python}"

@@ -8,6 +8,7 @@ import { say } from "../state/say";
 import { useViewer } from "../state/viewer";
 import { download } from "../platform/util";
 import { allowWrite, canWrite, keep, kept, openFile, saveFile, type FileType } from "../files/handles";
+import { pick, t } from "../i18n/t";
 
 /** The node graph's own file, on the user's machine: 打开 / 保存 / 另存为 with the system's file dialogs. 保存 writes
  * the file chosen before, 另存为 when the browser no longer lets the page write it. Browsers without these dialogs
@@ -20,7 +21,7 @@ export interface GraphFile {
 
 const SCHEMA = "lab2shot.graph/1";
 const DIALOG = "lab2shot-graph"; // graph dialogs open where the last one was
-const TYPES: FileType[] = [{ description: "Lab2Shot 节点图", accept: { "application/json": [".json"] } }];
+const types = (): FileType[] => [{ description: t("ui.graph.file_type"), accept: { "application/json": [".json"] } }];
 
 function parse(text: string, name: string): GraphJSON {
   let g: GraphJSON;
@@ -33,7 +34,7 @@ function parse(text: string, name: string): GraphJSON {
   return g;
 }
 
-const suggestedName = () => `${useCookInputs.getState().meta.name.replace(/[\\/:*?"<>|]+/g, "_") || "未命名"}.json`;
+const suggestedName = () => `${pick(useCookInputs.getState().meta.name).replace(/[\\/:*?"<>|]+/g, "_") || t("ui.common.unnamed")}.json`;
 
 /** Ask for a graph file; resolves with it (null: cancelled). */
 export async function openGraphFile(): Promise<{ graph: GraphJSON; file: GraphFile } | null> {
@@ -41,7 +42,7 @@ export async function openGraphFile(): Promise<{ graph: GraphJSON; file: GraphFi
     const f = await pickWithInput();
     return f && { graph: parse(await f.text(), f.name), file: { name: f.name } };
   }
-  const h = await openFile(DIALOG, TYPES);
+  const h = await openFile(DIALOG, types());
   if (!h) return null;
   const f = await h.getFile();
   return { graph: parse(await f.text(), f.name), file: { name: f.name, handle: await keep(h) } };
@@ -98,7 +99,7 @@ export async function saveGraphFile(saveAs = false): Promise<boolean> {
       // moved or deleted meanwhile: ask where
     }
   }
-  const h = await saveFile(DIALOG, TYPES, viewer.file?.name ?? suggestedName());
+  const h = await saveFile(DIALOG, types(), viewer.file?.name ?? suggestedName());
   return !!h && saved(h);
 }
 

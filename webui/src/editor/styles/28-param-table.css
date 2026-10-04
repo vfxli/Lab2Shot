@@ -3,9 +3,11 @@
    本文件还包含参数行的标签与其三个记号（见下方分节）。 */
 
 /* 条目列表：每条一行（「多层 EXR 输出设置」的图层：端口、图层名、通道）；标签在上方 */
-.prow:has(.ptable) > .plabel {
-  align-self: start;
-  padding-top: 5px;
+/* 有表格的行是 .top（ParamPanel.tsx）：标签与表格第一行对齐（ui/labelRow.css .lrow.top） */
+.pin-slot {
+  flex: none;
+  width: 16px;
+  height: 16px;
 }
 
 /* 每张表使用一套列：列宽由 ParamTable.tsx 按该表的列计算一次（内联 grid-template-columns），
@@ -134,10 +136,8 @@
 
 /* 参数标签旁的「公开参数」记号 */
 .expose-pin {
-  position: absolute;
-  left: -2px;
-  top: 50%;
-  transform: translateY(-50%);
+  /* 标记格里的一个（ui/LabelRow.tsx marks），在文档流里：不压到标签上 */
+  flex: none;
   display: grid;
   place-items: center;
   width: 16px;
@@ -169,10 +169,8 @@
    其右侧另有标记 .onnode-pin「在节点上显示」（23-panel-1.css）：
    该标记只控制显示，不提供输入口。 */
 .socket-pin {
-  position: absolute;
-  left: 15px;
-  top: 50%;
-  transform: translateY(-50%);
+  /* 标记格里的一个（ui/LabelRow.tsx marks），在文档流里：不压到标签上 */
+  flex: none;
   display: grid;
   place-items: center;
   width: 16px;

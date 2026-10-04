@@ -1,0 +1,44 @@
+# The OpenDelight extension's own words and messages in English (the same keys as zh.toml).
+
+"E-OPENDELIGHT-TARMISSING" = "The downloaded OpenDelight model weights archive {archive} has no {name}: the archive is incomplete or the wrong version. Delete it and install again."
+"E-OPENDELIGHT-NOWEIGHTS" = "Model weights opendelight/{name} are missing: an administrator must first run lab2shot ext install opendelight."
+"N-OPENDELIGHT-CPUMATTING" = "DAViD matting could not use the GPU (only {providers} are available): the result is the same, but it will be very slow."
+"W-OPENDELIGHT-NOFACE.one" = "OpenDelight found no face in {count} frame (for example frame {frames}); that frame is output black: the face is too small, turned too far or covered. Cut or fill this frame before delivery."
+"W-OPENDELIGHT-NOFACE.other" = "OpenDelight found no face in {count} frames (for example frame {frames}); those frames are output black: the face is too small, turned too far or covered. Cut or fill these frames before delivery."
+"W-OPENDELIGHT-MANYFACES.one" = "OpenDelight found several faces in {count} frame and processes only the largest (or the one overlapping the previous frame). To process another face, crop the image to that face first."
+"W-OPENDELIGHT-MANYFACES.other" = "OpenDelight found several faces in {count} frames and processes only the largest (or the one overlapping the previous frame). To process another face, crop the image to that face first."
+
+[node."opendelight.delight"]
+subtitle = "Face Delighting"
+description = "Removes the lighting from face photos or video frames, giving the base color (the diffuse color, also called albedo in CG pipelines) and a face mask. Works frame by frame, so video flickers."
+official.note = "Upstream saves both in one RGBA image (save_image(torch.cat([res_torch, final_mask[:, :1]], dim=1)), lines 293-300); we split them into two ports. Upstream runs its own matting and face alignment and takes no mask."
+
+[node."opendelight.delight".port.mask]
+label = "Mask"
+
+[node."opendelight.delight".param.enhancer]
+label = "Detail Enhancement"
+
+[node."opendelight.delight".param.resolution]
+label = "Processing Resolution"
+
+[node."opendelight.delight".param.smooth_landmarks]
+label = "Smooth Landmarks"
+
+[node."opendelight.delight".stage]
+write_basecolor = "Writing base color"
+
+[stage]
+detect_faces = "Detecting faces"
+delight = "Delighting"
+
+[extension.opendelight]
+summary = "A fully open-source, high-performance delighting prior for facial appearance capture"
+license.name = "GPL-3.0 code · non-commercial model weights"
+license.summary = "The code is GPL-3.0. The model weights carry no license; they were trained on FaceOLAT (academic research only) and the authors' private data, so they may be used only for research and evaluation, and not in commercial production until the authors grant a commercial license (contact hanyx22@mails.tsinghua.edu.cn). Auxiliary models: DAViD matting (MIT), ibug face detection / landmarks (MIT), FaRL face parsing (MIT, but its training data LaPa is non-commercial only); the MAE initialization model weights (CC BY-NC 4.0) are not needed for inference and are not downloaded. Runs as a separate process, so the GPL does not affect Lab2Shot itself"
+weight.opendelight.note = "OpenDelight network + UNet enhancer network (no license stated, treated as non-commercial; unpacked after installation)"
+weight.david-foreground.note = "DAViD soft foreground matting, ViT-L ONNX (MIT)"
+weight.farl-lapa-448.note = "FaRL face parsing, LaPa 448 (facer, MIT; the LaPa training data is non-commercial only)"
+weight.ibug-face-detection.note = "ibug RetinaFace face detection code (MIT)"
+weight.ibug-retinaface-r50.note = "ibug RetinaFace ResNet-50 model weights (git-lfs file, MIT)"
+weight.ibug-face-alignment.note = "ibug FAN 68-point face landmark code and model weights (MIT)"

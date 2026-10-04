@@ -26,10 +26,10 @@ from __future__ import annotations
 from typing import Literal
 
 
-from lab2shot.sdk import (rgb_port, CameraSamples, Official, Invalid, MissingFrames, Msg, NodeParams, usd_points_to_opencv_m,
+from lab2shot.sdk import (rgb_port, CameraSamples, Official, Invalid, MissingFrames, Msg, NodeParams, usd_points_to_m,
                           Job, LensParams, WorkerNode, open_scene, P, scene_points,
                           Port, SameShot, camera_port, depth_maps, empty_packet, frame_maps, opencv_points_to_usd,
-                          opencv_poses_to_usd, plate_lens, points_packet, send_camera, solved_camera, Cost, Licence, NONCOMMERCIAL)
+                          opencv_poses_to_usd, plate_lens, points_packet, send_camera, solved_camera, window_of, Cost, Licence, NONCOMMERCIAL)
 
 
 SKY = "sky"  # 上游 VideoFrame.SKY_PROMPT（streams/base.py:64）：唯一不属于运动物体的实例
@@ -54,6 +54,7 @@ class ViPE(WorkerNode):
 
 class CameraSolve(ViPE):
     id = "vipe.camera_solve"
+    version = 4  # 4: warns when SLAM did not converge (too few keyframes) or the focal is not settled yet; 3: an undistorted canvas is solved without its overscan (the official input has no black borders); 2: preserve solved fx/fy/principal point rather than replacing them with one averaged focal
     on_node = ("focal_mm", "mode")
     main = "camera"  # 输出口按类型顺序排列，主输出口标明节点的主要产出
     # 公开基准上的实测（接不接、接什么的差别）：
@@ -64,11 +65,9 @@ class CameraSolve(ViPE):
     # 按关键帧分块仅记录来源帧），而非每帧位于各自相机空间。
     # ViPE 自行检测运动的人和物体（GroundingDINO + SAM），因此不提供遮罩 / 人物框输入
     inputs = (rgb_port(),)
-    outputs = (Port("camera", "scene.camera", "相机"),
-               Port("points", "scene.points", "点云",
-                    help="ViPE 解算时 SLAM 建出来的三维点，每个关键帧一份（上游的 slam_map）。"
-                         "接「ViPE 深度图」算深度图要的就是它"),
-               Port("objects", "image.1", "物体分割", may_be_empty=True))
+    outputs = (Port("camera", "scene.camera"),
+               Port("points", "scene.points", may_be_empty=True),
+               Port("objects", "image.1", may_be_empty=True))
     # 输入输出与上游解算器一一对应：
     # 本节点运行官方的 pose_only / pose_only_long 两个预设，它们只运行到 SLAM 为止
     # （vipe/pipeline/pose_only.py:34-41：跳过 depth 的 post 处理和写盘），
@@ -83,28 +82,18 @@ class CameraSolve(ViPE):
               "third_party/vipe/repo/vipe/pipeline/pose_only.py:34-41"],
         takes={"image": "rgb"},
         gives={"camera": "pose", "points": "slam_map", "objects": "instance"},
-        note="「相机」= pose（streams/base.py:68）加 intrinsics（streams/base.py:70）。"
-             "「点云」= SLAMOutput.slam_map（slam/interface.py:27-38：dense_disp_xyz 每个点的位置、"
-             "dense_disp_rgb 它的颜色、dense_disp_frame_inds 它属于哪个关键帧），"
-             "官方自己也把它单独存盘（pose_only.py:104-106 save_slam_map，slam/interface.py:43-58 SLAMMap.save）。"
-             "「物体分割」= instance（streams/base.py:71，uint8 编号图，0 是背景），每个编号的名字来自 "
-             "instance_phrases（streams/base.py:72 的词表），官方 save_artifacts 存的就是这两样"
-             "（vipe/utils/io.py:359-380）",
     )
     # vram_gb：在 RTX 4090 上以默认「标准」模式测得
     cost = Cost(gpu=True, vram_gb=9.6, seconds_per_frame=0.093)
 
     class Params(LensParams):
-        mode: Literal["pose_only", "pose_only_long"] = P(
-            "pose_only", label="方式", group="解算",
-            option_labels={"pose_only": "标准", "pose_only_long": "长镜头"},
-        )
+        mode: Literal["pose_only", "pose_only_long"] = P("pose_only", group="solve")
 
     @classmethod
     def prepare(cls, ctx) -> Job:
         image = ctx.input("image")
         used = plate_lens(ctx, image)
-        return Job(image, extra={"focal_px": used.focal_px}, lens=used)
+        return Job(image, extra={"focal_px": used.focal_px, "crop": _solve_box(window_of(image))}, lens=used)
 
     @classmethod
     def convert(cls, ctx, raw, job):
@@ -120,19 +109,17 @@ class Depth(ViPE):
     """ViPE 的 post 阶段：基于解算好的相机及其三维点计算逐帧深度图。"""
 
     id = "vipe.depth"
+    version = 3  # 3: SLAM points sent in the camera's own world (they were mirrored and never used); 2: full camera calibration is restored for depth alignment
     on_node = ("model",)
     # 深度位于接入相机的世界坐标系中；运动物体取自接入的「物体分割」（不接入也可计算）
     main = "depth"
     inputs = (
         rgb_port(),
         camera_port(optional=False),
-        Port("points", "scene.points", "点云", expects=(SameShot("image"),),
-             help="「ViPE 相机解算」交出来的那份点云（上游的 slam_map）：深度那一步靠它定尺度"),
-        Port("objects", "image.1", "物体分割", optional=True, expects=(SameShot("image"),),
-             help="「ViPE 相机解算」分出来的运动物体：接上之后走动的人、车不参与深度对齐"
-                  "（官方默认就是这么跑的）。不接也算得出来，节点上会写一句没用上"),
+        Port("points", "scene.points", expects=(SameShot("image"),)),
+        Port("objects", "image.1", optional=True, expects=(SameShot("image"),)),
     )
-    outputs = (Port("depth", "image.1", "深度图", means=("scale",)),)
+    outputs = (Port("depth", "image.1", means=("scale",)),)
     # 输入输出与上游解算器一一对应：
     # 本节点运行 `DefaultAnnotationPipeline._add_post_processors`（default.py:88-98），
     # 其输入为「帧 + slam_output」，该步骤实际读取 slam_output 中的三项：
@@ -148,25 +135,17 @@ class Depth(ViPE):
         takes={"image": "rgb", "camera": "slam_output.get_view_trajectory",
                "points": "slam_output.slam_map", "objects": "frame.mask"},
         gives={"depth": "metric_depth"},
-        note="「深度图」= metric_depth（streams/base.py:74），官方 save_depth_artifacts 存的那一样"
-             "（vipe/utils/io.py:356）。标准模式走 AdaptiveDepthProcessor（processors.py:207-...），"
-             "Depth Anything 3 模式走 MultiviewDepthProcessor（processors.py:376-...）；"
-             "两个都只从 slam_output 读上面那三样",
     )
     # vram_gb：在 RTX 4090 上以默认「标准」深度模型测得
     cost = Cost(gpu=True, vram_gb=9.7, seconds_per_frame=0.15)
     # both of its modes run non-commercial depth models; 「ViPE 相机解算」's modes use none (the extension is 可商用)
-    licence = Licence(NONCOMMERCIAL, note="非商用：ViPE 代码是 Apache-2.0，但这两个模式用到的深度模型非商用：标准模式用 UniDepth-V2（CC-BY-NC-4.0）和含 "
-        "Depth-Anything-V2-Base（CC-BY-NC-4.0）的 Prior-Depth-Anything；DA3 模式用 Depth Anything 3 Giant（CC-BY-NC-4.0）。")
+    licence = Licence(NONCOMMERCIAL, note=True)
 
     class Params(NodeParams):
         # 不提供「已知 Focal Length」「Filmback」：本节点必须接入相机，内参取自该相机
         # （上游 post 阶段读取 slam_output.intrinsics，`default.py:90-92`）。
         # 若另设 Focal Length 参数，同一个值将有两个来源进入 worker，优先级不明确
-        model: Literal["default", "dav3"] = P(
-            "default", label="模型", group="深度",
-            option_labels={"default": "标准", "dav3": "Depth Anything 3"},
-        )
+        model: Literal["default", "dav3"] = P("default", group="depth")
 
     @classmethod
     def prepare(cls, ctx) -> Job:
@@ -177,6 +156,7 @@ class Depth(ViPE):
         focal = CameraSamples.from_packet(camera, frames).focal_px(image.meta["width"])
         sent = {"camera": send_camera(ctx, camera, frames, focal),
                 "points": _send_points(ctx, points, image)}
+        _same_world(sent["camera"], sent["points"])
         extra = None
         if objects is not None and not objects.meta.get("empty"):
             sent.update(ctx.input_files("objects"))
@@ -203,6 +183,8 @@ def _slam_points(ctx, raw, image):
 
     d = raw.arrays("slam_points.npz")
     counts = np.asarray(d["counts"], np.int64)
+    if not counts.size or int(counts.sum()) == 0:  # 长镜头方式不建地图：空点云输出空包
+        return empty_packet(ctx, "points")
     # worker 输出的是流内序号（即上游 dense_disp_frame_inds，processors.py:141 按其 searchsorted），
     # 此处换算回镜头的原始帧号，因为点云包的时间采样以帧号为准
     shot = list(image.meta["frames"])
@@ -213,14 +195,37 @@ def _slam_points(ctx, raw, image):
     starts = ends - counts
     return points_packet(ctx.outputs["points"], keyframes, "vipe_slam_points",
                          [xyz[s:e] for s, e in zip(starts, ends)], [rgb[s:e] for s, e in zip(starts, ends)],
-                         scale="metric", points_from="ViPE 的 SLAM 地图（每个关键帧一份）")
+                         scale="metric", points_from="native")  # the method's own points (geometry.py's word), not from a depth map
+
+
+def _same_world(camera_npz, points_npz):
+    """点和相机必须在同一个世界里：每个关键帧的点大多应在它自己那台相机前方。上游对不上时不报错，只是悄悄
+    退回不带 SLAM 提示的深度（Minimum UV score 0），所以在这里先查：多数点在相机背后就停下说清楚，不静默降级。"""
+    import numpy as np
+
+    cam, pts = np.load(camera_npz), np.load(points_npz)
+    c2w = cam["cam_to_world"] if "cam_to_world" in cam.files else None
+    if c2w is None:
+        return
+    ahead = total = 0
+    start = 0
+    for count, frame in zip(pts["counts"], pts["frames"]):
+        xyz = pts["xyz"][start:start + count]
+        start += count
+        m = c2w[int(frame)]
+        z = ((xyz - m[:3, 3]) @ m[:3, :3])[:, 2]  # OpenCV 相机轴：+Z 朝前
+        ahead += int((z > 0).sum())
+        total += len(z)
+    if total and ahead / total < 0.5:
+        raise Invalid(Msg("E-VIPE-POINTSBEHIND", share=ahead / total))
 
 
 def _send_points(ctx, points, image):
-    """「点云」输入 -> worker 读取的 points_in.npz（OpenCV 世界坐标，米，按关键帧分块）。
+    """「点云」输入 -> worker 读取的 points_in.npz（与 `send_camera` 送出的相机同一个世界坐标，米，按关键帧分块）。
 
-    与 `send_camera` 对相机的处理相对应：本项目场景为厘米、Y 轴向上，上游要求
-    OpenCV 轴向、米。分块依据包内的帧号（每个关键帧一个时间采样，由 `_slam_points` 写入）。
+    `send_camera` 只把相机自身的轴换成 OpenCV，世界仍是本项目的 Y 轴向上；点必须在同一个世界里，
+    否则上游投影时点全在相机背后（Minimum UV score 0），静默退回不带 SLAM 提示的深度。
+    分块依据包内的帧号（每个关键帧一个时间采样，由 `_slam_points` 写入）。
     """
     import numpy as np
     from pxr import Usd
@@ -234,7 +239,7 @@ def _send_points(ctx, points, image):
             continue
         xyz = np.concatenate([p for p, _ in clouds])
         colors = [c for _, c in clouds if c is not None]
-        blocks.append(usd_points_to_opencv_m(xyz))  # 转换回 OpenCV 轴向、米（换算统一定义于 data/units.py）
+        blocks.append(usd_points_to_m(xyz))  # 与相机同一个世界（Y 轴向上），换成米（换算统一定义于 data/units.py）
         rgbs.append(np.concatenate(colors) if len(colors) == len(clouds) else np.zeros((len(xyz), 3), np.float32))
         # 上游按流内序号索引关键帧（processors.py:141 的 searchsorted 使用流内序号），而非原始帧号
         keyframes.append(shot.index(int(f)) if int(f) in shot else len(shot) - 1)
@@ -267,7 +272,7 @@ def _instances(ctx, raw, image):
 
     编号图的格式与「SAM 3 视频分割」相同：编号即像素值，
     名称写入「类别表」，写多层 EXR 时对应 Cryptomatte 的 person_01。
-    需要遮罩（例如仅保留运动物体）时，在节点图上接入「分割转遮罩」`core.segment_select`。
+    需要遮罩（例如仅保留运动物体）时，在节点图上接入「分割转遮罩」`mask_from_segments`。
     该节点是独立的显式工具，并非上游产物，因此不在本节点上设输出口（节点输出与上游一一对应）。"""
     import re
 
@@ -288,14 +293,34 @@ def _instances(ctx, raw, image):
     classes = [{"index": i, "name": name(phrases[i], i)} for i in sorted(phrases)]
     maps = {"objects": ("image.1", lambda d: d["instance"].astype(np.float32),
                         {"value_range": (0.0, float(max(phrases, default=1))), "classes": classes})}
-    return frame_maps(ctx, raw, image, maps, PATTERN, "写出运动物体分割")
+    return frame_maps(ctx, raw, image, maps, PATTERN, "write_objects")
+
+
+def _solve_box(window) -> list[int] | None:
+    """去畸变画布带扩边时，交给 ViPE 解算的那一块（画布坐标 x, y, w, h）；没有扩边为 None（整幅）。
+
+    官方输入是一段普通视频，没有黑边；扩边里镜头照不到的黑角静止、无纹理，GeoCalib 和 SLAM 都会看到
+    （实测 R04 60 帧自动焦距：裁掉 519 px，带黑边 506 / 529 px，真值 517）。取画面框里以画布中心为中心的最大矩形：
+    画布中心就是主点（data/lens_models.py fit_canvas：去畸变画布按镜头中心居中），ViPE 假定主点在画面中心，
+    这样裁完它仍在中心；对称扩边时这一块就是画面框本身。"""
+    if not window.has_overscan:
+        return None
+    (cw, ch), (ox, oy) = window.canvas, window.offset
+    mx, my = cw / 2, ch / 2
+    hx = int(min(mx - ox, ox + window.width - mx))
+    hy = int(min(my - oy, oy + window.height - my))
+    if hx < 8 or hy < 8:  # the plate frame does not hold the canvas centre: nothing sensible to cut
+        return None
+    return [int(round(mx - hx)), int(round(my - hy)), 2 * hx, 2 * hy]
 
 
 def _camera(ctx, raw, image, used):
     """ViPE 的相机（OpenCV，世界坐标系为第一帧相机，米）-> 「相机」输出，使用所用镜头的 Filmback。"""
     cam = raw.arrays("camera.npz")
     source = raw.result().get("focal_source")
-    return solved_camera(ctx, image, cam["frames"], float(cam["focal_px"]), opencv_poses_to_usd(cam["cam_to_world"]),
+    left, top, _, _ = window_of(image).overscan
+    return solved_camera(ctx, image, cam["frames"], float(cam["fx"]), opencv_poses_to_usd(cam["cam_to_world"]),
+                         fy_px=float(cam["fy"]), principal_px=(float(cam["cx"]) - left, float(cam["cy"]) - top),
                          filmback_mm=used.filmback_mm, info={"extension": "vipe", "focal_source": source, "lens": used.said})
 
 

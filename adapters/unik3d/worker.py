@@ -3,7 +3,7 @@ third_party/unik3d/.venv with the pinned repo on sys.path; never imports Lab2Sho
 
     python worker.py <job.json>
 
-job["node"] == "unik3d.geometry". Params:
+job["node"] == "unik3d.depth". Params:
     model       "unik3d-vitl" (default) | "unik3d-vitb" | "unik3d-vits"
     fov_x_deg   known horizontal field of view of a PINHOLE (undistorted) plate, degrees
                 0-180, or null. Given: its rays are fed to the network as the camera
@@ -67,17 +67,17 @@ def fit_pinhole(rays: torch.Tensor) -> dict:
 
 
 def main(job_path: str) -> None:
-    run = begin(job_path, "unik3d.geometry", "UniK3D")
+    run = begin(job_path, "unik3d.depth", "UniK3D")
     params = run.params
     model_id, level, fov_x = params["model"], params["resolution_level"], params["fov_x_deg"]
     model_dir = run.job.weights_dir / model_id
-    run.weights(model_dir / "model.safetensors", what=f"模型 {model_id} 的权重")
+    run.weights(model_dir / "model.safetensors")
 
     from unik3d.models.unik3d import get_paddings, get_resize_factor
     from unik3d.utils.camera import Pinhole
 
     device = torch.device("cuda")
-    model = run.model("UniK3D 模型", load_model, model_dir, device)
+    model = run.model("load_model", load_model, model_dir, device, stage_params={"model": "UniK3D"})
     model.resolution_level = level
 
     # UniK3D's camera module returns (hfov, vfov, cx, cy) at the network's input size and

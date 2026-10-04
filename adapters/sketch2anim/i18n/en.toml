@@ -1,0 +1,88 @@
+# Sketch2Anim extension: its words and messages in English (the same keys as zh.toml).
+
+# ---- sketch
+"E-SKETCH2ANIM-NOPOSE" = "Sketch2Anim Motion Generation has no stick figure yet: on the Draw Figure node click Add Frame, drag the joints into the pose you want in the 2D view, wire it into Sketch and cook again"
+"E-SKETCH2ANIM-NOTFIGURE.one" = "What is wired into Sketch is not a stick figure: it has {count} point, a stick figure has {want} joints. Draw one with Draw Figure and wire it in"
+"E-SKETCH2ANIM-NOTFIGURE.other" = "What is wired into Sketch is not a stick figure: it has {count} points, a stick figure has {want} joints. Draw one with Draw Figure and wire it in"
+"E-SKETCH2ANIM-FLATFIGURE.one" = "The stick figure is only {pixels} pixel tall, too small to measure the body's proportions: draw it bigger (at least a few dozen pixels from head to feet)"
+"E-SKETCH2ANIM-FLATFIGURE.other" = "The stick figure is only {pixels} pixels tall, too small to measure the body's proportions: draw it bigger (at least a few dozen pixels from head to feet)"
+"N-SKETCH2ANIM-SAMEFRAME" = "The stick figure on frame {frame} falls on the same model frame as another one (the model runs at 20 fps): only the one drawn later is used. To use both, draw them further apart"
+
+# ---- duration
+"E-SKETCH2ANIM-TOOLONG.one" = "Sketch2Anim Motion Generation is at most {seconds} s at a time: at {fps} fps that is {most} frames, and Start Frame to End Frame spans {frames}. Shorten the range, or split it and generate each part separately"
+"E-SKETCH2ANIM-TOOLONG.other" = "Sketch2Anim Motion Generation is at most {seconds} s at a time: at {fps} fps that is {most} frames, and Start Frame to End Frame spans {frames}. Shorten the range, or split it and generate each part separately"
+"W-SKETCH2ANIM-SHORT.one" = "Start Frame to End Frame spans only {frames} frame: the shortest motion Sketch2Anim was trained on is {least} frames (2 s at {fps} fps); it has never seen anything shorter and the motion may look wrong. Cooked anyway; check the result"
+"W-SKETCH2ANIM-SHORT.other" = "Start Frame to End Frame spans only {frames} frames: the shortest motion Sketch2Anim was trained on is {least} frames (2 s at {fps} fps); it has never seen anything shorter and the motion may look wrong. Cooked anyway; check the result"
+"E-SKETCH2ANIM-FRAMES.one" = "Sketch2Anim returned {made} frame, the node expects {want}: the extension and the node versions do not match. Reinstall (lab2shot ext install sketch2anim --force)"
+"E-SKETCH2ANIM-FRAMES.other" = "Sketch2Anim returned {made} frames, the node expects {want}: the extension and the node versions do not match. Reinstall (lab2shot ext install sketch2anim --force)"
+
+"E-SKETCH2ANIM-LENGTH" = "Sketch2Anim received {frames} model frames; it takes at most {most} at a time: the extension and the node versions do not match. Reinstall (lab2shot ext install sketch2anim --force)"
+
+# ---- run
+"E-SKETCH2ANIM-WEIGHTS.one" = "Sketch2Anim's model weights do not match the model: {count} tensor was not loaded (the first is {first}). Reinstall the extension (lab2shot ext install sketch2anim --force)"
+"E-SKETCH2ANIM-WEIGHTS.other" = "Sketch2Anim's model weights do not match the model: {count} tensors were not loaded (the first is {first}). Reinstall the extension (lab2shot ext install sketch2anim --force)"
+"I-SKETCH2ANIM-PATH" = "The generated body's path is {error} cm off the line between the two stick figures"
+"I-SKETCH2ANIM-DONE.one" = "Sketch2Anim generated {frames} frame from {keys} key poses: the generated poses are {key_error} cm off the drawing, the skeleton IK fit is {ik_error} cm off; generation took {generate} s, {seconds} s in all with model loading"
+"I-SKETCH2ANIM-DONE.other" = "Sketch2Anim generated {frames} frames from {keys} key poses: the generated poses are {key_error} cm off the drawing, the skeleton IK fit is {ik_error} cm off; generation took {generate} s, {seconds} s in all with model loading"
+"E-SKETCH2ANIM-BADRANGE" = "End Frame {end} is before Start Frame {start}: increase End Frame"
+
+[node."sketch2anim.motion"]
+subtitle = "Motion Generation"
+description = "Generates a whole 3D skeleton animation from stick figures (Sketch2Anim, SIGGRAPH 2025). Draw the stick figures on a Draw Figure node (one key pose per frame: go to another frame to draw a second and third), then wire it into Sketch. With two or more figures, the line through their hips is the path the body travels, and poses and path constrain the generation together. Write one English sentence in Prompt saying what the motion is (run, jump, kick); it works together with the drawn poses. Start Frame and End Frame set the motion's length: the frame you draw a figure on is the frame the motion strikes that pose. This node takes no images; the backdrop pixels you draw over are not used, they are only a storyboard to draw from. No fingers or facial expressions (the model has only 22 body joints); at most 9.8 s at a time."
+official.note = """The sketch is an input of this node, not a parameter on the solver: the solver only solves, and small tools such as drawing stick figures or splitting grid images are separate nodes ("the official input equals the solver's input; anything added is an explicit separate tool"). The sketch has three sources, each a node, all wired into this node's Sketch input: a grid image (rows and columns given by hand) split into an image sequence, an image sequence directly, or a stick figure drawn by hand.
+Stick figures are drawn with Draw Figure `draw_figure` (its Image input is an **optional** backdrop); the backdrop can come from Split Grid `split_grid` (a grid image) or Read Sequence. The frame range is set by this node's own two parameters (Start Frame / End Frame, the same terms as the motion family's `FreeMotionParams`); FPS means the same as Kimodo's parameter of that name (motion_fps_param): the motion is generated at its frame density."""
+cost.whole = "One whole stretch generated at once, not per frame: denoising a 4 s motion takes 0.5 s, plus 6 s to load the model the first time"
+
+[node."sketch2anim.motion".port.sketch]
+label = "Sketch"
+
+[node."sketch2anim.motion".port.skeleton]
+label = "Skeleton Animation"
+
+[node."sketch2anim.motion".stage]
+write_skeleton = "Writing skeleton animation"
+
+[node."sketch2anim.motion".param.start_frame]
+label = "Start Frame"
+
+[node."sketch2anim.motion".param.end_frame]
+label = "End Frame"
+
+[node."sketch2anim.motion".param.prompt]
+label = "Prompt"
+
+[node."sketch2anim.motion".param.sketch_view]
+label = "Sketch View"
+option.front = "Front"
+option.side30 = "Front Side 30"
+option.side45 = "Front Side 45"
+
+[node."sketch2anim.motion".param.text_guidance]
+label = "Prompt Adherence"
+
+[node."sketch2anim.motion".param.control]
+label = "Sketch Adherence"
+
+[node."sketch2anim.motion".param.steps]
+label = "Denoising Steps"
+
+[node."sketch2anim.motion".param.seed]
+label = "Seed"
+
+[node."sketch2anim.motion".param.foot_lock]
+label = "Footplant Lock"
+
+[extension.sketch2anim]
+summary = "Turns storyboard sketches into 3D animation: key poses, joint trajectories and a motion description control 3D motion generation, with 2D sketches mapped to 3D by a neural mapping"
+license.name = "MIT (code) + HumanML3D / AMASS academic license (model weights)"
+license.summary = "Research only. The code is MIT (author Lei Zhong 2025; the text allows commercial use, modification and redistribution), but the official pretrained model weights are trained on HumanML3D, whose motions come from AMASS, and the AMASS license allows only non-commercial academic research, so the model weights and the motions they generate may be used only for research and evaluation. The text encoder sentence-t5-large is Apache-2.0 (commercial use allowed), which does not change this. Commercial use needs retraining on licensed motion capture data"
+weight.adapter.note = "Sketch2Anim official model weights adapter.ckpt (trained on HumanML3D, non-commercial), 357 MB"
+weight.pretrain.note = "Sketch2Anim's officially released pretrained base pretrain_22joint_combine_adapter.ckpt (non-commercial), 303 MB; inference loads only adapter.ckpt and never reads this one"
+weight.t5.note = "sentence-t5-large (Apache-2.0): encodes the English description into a condition vector, 1.3 GB"
+
+# worker progress (worker.py)
+[stage]
+read_sketch = "Reading the sketch"
+generate = "Sketch2Anim generating motion"
+generate_each = "Generating motion"
+solve_rotations = "Solving joint rotations"

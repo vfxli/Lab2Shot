@@ -1,0 +1,42 @@
+# 这个扩展包自己的界面字和消息（中文）。
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+"W-HYWORLD2-VRAMSTEP" = "这张显卡约 {card:.0f} GB，按官方分辨率 {asked}、{views} 个视角算约要 {need:.0f} GB，放不下：这次按 {size} 算（细节少一些）。要按官方分辨率算，放到显存更大的卡上，或把「最多视角」调小"
+"E-HYWORLD2-VRAM" = "这张显卡约 {card:.0f} GB，按最低分辨率 {size}、{views} 个视角算也要约 {need:.0f} GB，放不下：把「最多视角」调小，或放到显存更大的卡上"
+
+[node."hyworld2.reconstruct"]
+subtitle = "3D 高斯"
+description = "从同一静态场景的多视角画面重建 3D 高斯和同一世界里的摄影机。HY-World 2.0 的重建部分就是 WorldMirror 2.0，所以两者是同一个节点；世界生成不在这里。从整段里等距取「最多视角」张画面一起重建，优先用有视差、没有明显运动的镜头。"
+
+[node."hyworld2.reconstruct".param.resolution]
+label = "长边分辨率"
+
+[node."hyworld2.reconstruct".param.resolution.option]
+280 = "280"
+518 = "518"
+952 = "952"
+
+[node."hyworld2.reconstruct".param.max_views]
+label = "最多视角"
+
+[node."hyworld2.reconstruct".official]
+note = "HY-World 2.0 的重建部分就是 WorldMirror 2.0：输出高斯本体与同一世界的摄影机，不加载世界生成部分"
+
+[node."hyworld2.reconstruct".cost]
+note = "RTX 4090 实测：1920×1080、32 个视角，自动降到 518，整卡峰值 18.6 GB（不含空闲占用）。RTX 5090 实测：1280×720、32 个视角、分辨率 518 峰值 18.1 GB；官方 952 约要 50 GB，显卡放不下时自动降到 518 并在节点上说明"
+
+[extension.hyworld2]
+summary = "从多视角画面重建静态 3D 高斯和摄影机；共用官方 WorldMirror 2.0 重建模型"
+
+[extension.hyworld2.license]
+name = "Tencent HY-World 2.0 Community License"
+summary = "腾讯社区许可，附地域、商业规模及使用条件；本扩展接入重建部分，不加载图像或世界生成模型"
+
+[extension.hyworld2.weight.skyseg]
+note = "Sky-Segmentation-and-Post-processing 的天空分割 ONNX（MIT），官方 compute_sky_mask 用"
+
+# ---- worker 的计算阶段（worker.py）
+[stage]
+merge_gaussians = "高斯合并"
+reconstruct_gaussians = "静态高斯重建"

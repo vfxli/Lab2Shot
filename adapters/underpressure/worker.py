@@ -2,7 +2,7 @@
 network and its footskate cleanup. Runs inside third_party/underpressure/.venv with the pinned repo on PYTHONPATH;
 never imports Lab2Shot core.
 
-    python worker.py <job.json>        (node "underpressure.footskate")
+    python worker.py <job.json>        (node "underpressure.footskate_cleanup")
 
 The rig comes in as joint-to-world transforms on its own frames (cm, Y up, the shot's frame rate). This worker:
 
@@ -46,7 +46,7 @@ from lab2shot_worker.run import Run
 from lab2shot_shared import motion as mo
 from lab2shot_shared.units import M_TO_CM
 
-NODE = "underpressure.footskate"
+NODE = "underpressure.footskate_cleanup"
 MODEL_FPS = 100.0  # data.FRAMERATE: the only rate this network was trained at
 ITERATIONS = 100  # footskate.Cleaner's published setting (demo.py). Not a parameter: measured over the twelve
 # shipped samples, 50 / 100 / 200 iterations reduce sliding by 30 / 31 / 27 % on average with no useful ordering;
@@ -174,7 +174,7 @@ def cleanup(run: Run) -> None:
 
     torch.set_num_threads(int(os.environ["OMP_NUM_THREADS"]))
     motion = rm.read_job(job.inputs["motion"])
-    run.stage("对齐骨骼")
+    run.stage("align_skeleton")
     try:
         retarget = motion.retarget(model_skeleton())
     except ValueError as exc:
@@ -189,9 +189,9 @@ def cleanup(run: Run) -> None:
     if abs(motion.fps - MODEL_FPS) > 1e-6:
         say("N-UNDERPRESSURE-RESAMPLED", fps=motion.fps, frames=len(t))
 
-    model = run.model("UnderPressure 模型", load_model, job.repo_dir)
+    model = run.model("load_model", load_model, job.repo_dir, stage_params={"model": "UnderPressure"})
 
-    run.stage("估计脚底支撑力")
+    run.stage("estimate_forces")
     angles, skeleton, trajectory = to_underpressure(world, root_t)
     from anim import FK  # noqa: PLC0415
 
@@ -221,7 +221,7 @@ def cleanup(run: Run) -> None:
     say("I-UNDERPRESSURE-CONTACT", frames=int(frames_on.sum()), total=len(t),
         left=segments(contacts[:, 0] > 0.5), right=segments(contacts[:, 2] > 0.5))
 
-    run.stage("解接触约束，去掉脚滑")
+    run.stage("solve_contacts")
     # Cleaner wraps the trajectory it is handed in a torch.nn.Parameter and lets Adam step it: on the CPU that is
     # the caller's own tensor, so it must get copies (measured: 3.45 cm of drift into the input after 20 steps).
     cleaner = Cleaner(model, iterations=ITERATIONS, margin=int(job.params["contact_margin"]), device="cpu", **WEIGHTS)

@@ -1,282 +1,248 @@
 {
+ "workflow": {
+  "parent": "",
+  "color": "#FF9F0A",
+  "rank": -1.0,
+  "templates_only": true,
+  "created": 1791019749.0037763,
+  "updated": 1791019749.0037763
+ },
  "camera_track": {
   "parent": "",
-  "label": "镜头解算",
-  "tip": "解出拍这个镜头的相机和镜头本身：每帧的位置朝向 Focal Length、镜头畸变、场景的重力方向",
   "color": "#FFD60A",
-  "rank": 0.0
+  "rank": 0.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "camera_traj": {
   "parent": "camera_track",
-  "label": "相机轨迹",
-  "tip": "每帧的相机位置、朝向和 Focal Length；前馈一次出相机和深度的卡在「前馈相机与深度」，解算出来的（ViPE、MonST3R）在「解算相机与深度」",
   "color": "",
-  "rank": 0.0
+  "rank": 0.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
+ },
+ "depth_camera": {
+  "parent": "camera_track",
+  "color": "",
+  "rank": 1.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
+ },
+ "depth_long": {
+  "parent": "camera_track",
+  "color": "",
+  "rank": 2.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "lens_calib": {
   "parent": "camera_track",
-  "label": "镜头标定",
-  "tip": "镜头畸变和 Focal Length",
   "color": "",
-  "rank": 1.0
- },
- "leveling": {
-  "parent": "camera_track",
-  "label": "地平面对齐",
-  "tip": "把解算出来的场景转正、落到 y = 0",
-  "color": "",
-  "rank": 2.0
- },
- "reconstruct": {
-  "parent": "",
-  "label": "三维重建",
-  "tip": "把画面还原成场景：每帧变形的网格",
-  "color": "#30D158",
-  "rank": 1.0
- },
- "mesh_seq": {
-  "parent": "reconstruct",
-  "label": "网格序列",
-  "tip": "从画面解出来的、每帧变形的网格（点缓存）",
-  "color": "",
-  "rank": 0.0
+  "rank": 3.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "depth": {
   "parent": "",
-  "label": "深度与法线",
-  "tip": "每个像素一个三维值的图：EXR 的 Z 和法线，给合成做景深、大气、重新打光",
   "color": "#AC8E68",
-  "rank": 2.0
+  "rank": 1.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "depth_image": {
   "parent": "depth",
-  "label": "单帧深度",
-  "tip": "一帧一帧独立算，只估内参，没有相机轨迹",
   "color": "",
-  "rank": 0.0
+  "rank": 0.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "depth_video": {
   "parent": "depth",
-  "label": "视频深度",
-  "tip": "整段一起算、帧间连贯，但不出相机",
   "color": "",
-  "rank": 1.0
+  "rank": 1.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
- "depth_camera": {
-  "parent": "depth",
-  "label": "前馈相机与深度",
-  "tip": "整段一次前馈，每帧相机和深度一起出；多数带点云（每帧一片）",
-  "color": "",
-  "rank": 2.0
+ "reconstruct": {
+  "parent": "",
+  "color": "#30D158",
+  "rank": 2.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
- "depth_solved": {
-  "parent": "depth",
-  "label": "解算相机与深度",
-  "tip": "相机解算出来、或跟着解好的相机走，深度每帧一片",
+ "points_mesh": {
+  "parent": "reconstruct",
   "color": "",
-  "rank": 3.0
+  "rank": 0.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
- "normal_map": {
-  "parent": "depth",
-  "label": "法线",
-  "tip": "每帧的法线图",
+ "gaussian": {
+  "parent": "reconstruct",
   "color": "",
-  "rank": 4.0
+  "rank": 1.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "matte": {
   "parent": "",
-  "label": "抠像与遮罩",
-  "tip": "把画面切成几块：软边的 alpha 交给合成，硬边的选区和类别图给 roto 和 holdout",
   "color": "#D1D1D6",
-  "rank": 3.0
+  "rank": 3.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "matte_alpha": {
   "parent": "matte",
-  "label": "抠像",
-  "tip": "自己找主体，直接给软边 alpha",
   "color": "",
-  "rank": 0.0
- },
- "matte_fine": {
-  "parent": "matte",
-  "label": "精细抠像",
-  "tip": "给它一张粗遮罩，它修出发丝级的软边",
-  "color": "",
-  "rank": 1.0
+  "rank": 0.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "mask": {
   "parent": "matte",
-  "label": "遮罩",
-  "tip": "0 或 1 的选区",
   "color": "",
-  "rank": 2.0
- },
- "segmentation": {
-  "parent": "matte",
-  "label": "分割",
-  "tip": "按类别或部位区分每个像素",
-  "color": "",
-  "rank": 3.0
+  "rank": 1.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "tracks": {
   "parent": "",
-  "label": "跟踪",
-  "tip": "追着点和面穿过时间：3DE 的 2D 点、CornerPin 的四个角、Houdini 的定位器",
   "color": "#FF8FC7",
-  "rank": 4.0
+  "rank": 4.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "tracks2d": {
   "parent": "tracks",
-  "label": "2D 跟踪点",
-  "tip": "画面上跟住的点",
   "color": "",
-  "rank": 0.0
- },
- "plane": {
-  "parent": "tracks",
-  "label": "平面跟踪",
-  "tip": "一块平面的四个角",
-  "color": "",
-  "rank": 1.0
+  "rank": 0.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "tracks3d": {
   "parent": "tracks",
-  "label": "3D 跟踪点",
-  "tip": "三维空间里跟住的点",
   "color": "",
-  "rank": 2.0
- },
- "warp": {
-  "parent": "",
-  "label": "光流与对位",
-  "tip": "逐像素的对应关系：Nuke 的 motion 图层、把另一张图对位过来、在一帧上画一次贴到整段",
-  "color": "#64D2FF",
-  "rank": 5.0
+  "rank": 1.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "motion": {
-  "parent": "warp",
-  "label": "运动矢量",
-  "tip": "前后两帧之间每个像素的位移",
+  "parent": "tracks",
   "color": "",
-  "rank": 0.0
+  "rank": 2.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
- "paint": {
-  "parent": "warp",
-  "label": "跟踪贴片",
-  "tip": "在参考帧上画一次，跟着画面贴到整段",
+ "align": {
+  "parent": "tracks",
   "color": "",
-  "rank": 1.0
- },
- "match": {
-  "parent": "warp",
-  "label": "图像对位",
-  "tip": "把另一张图对位到画面上",
-  "color": "",
-  "rank": 2.0
+  "rank": 3.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "body": {
   "parent": "",
-  "label": "人体动捕",
-  "tip": "从画面解出人怎么动：全身动作、手",
   "color": "#FF375F",
-  "rank": 6.0
+  "rank": 5.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
+ },
+ "body_video": {
+  "parent": "body",
+  "color": "",
+  "rank": 0.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "body_full": {
   "parent": "body",
-  "label": "全身",
-  "tip": "带骨骼的全身动作",
   "color": "",
-  "rank": 0.0
- },
- "hands": {
-  "parent": "body",
-  "label": "手",
-  "tip": "手的动作和手型",
-  "color": "",
-  "rank": 1.0
- },
- "animation": {
-  "parent": "",
-  "label": "动作编辑",
-  "tip": "改已有的动作、造新动作，以及让一个模型能动起来",
-  "color": "#FF6482",
-  "rank": 7.0
- },
- "cleanup": {
-  "parent": "animation",
-  "label": "动作清理",
-  "tip": "把动捕里坏掉的帧和脚滑修好",
-  "color": "",
-  "rank": 0.0
- },
- "motion_gen": {
-  "parent": "animation",
-  "label": "生成动作",
-  "tip": "按关键帧、草图或文字这些约束生成一整段动作",
-  "color": "",
-  "rank": 1.0
- },
- "auto_rig": {
-  "parent": "animation",
-  "label": "自动绑定",
-  "tip": "骨架加蒙皮权重",
-  "color": "",
-  "rank": 2.0
+  "rank": 1.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "face": {
   "parent": "",
-  "label": "面部",
-  "tip": "角色身上的细活：带表情的头模和表情曲线、面部的 UV 与深度图",
   "color": "#FFB38A",
-  "rank": 8.0
+  "rank": 6.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "face_anim": {
   "parent": "face",
-  "label": "面部动作",
-  "tip": "带表情的头模和表情曲线",
   "color": "",
-  "rank": 0.0
+  "rank": 0.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
- "face_geo": {
+ "face_maps": {
   "parent": "face",
-  "label": "面部通道",
-  "tip": "面部的深度图、UV 图和规范坐标图",
   "color": "",
-  "rank": 1.0
+  "rank": 1.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
+ },
+ "animation": {
+  "parent": "",
+  "color": "#FF6482",
+  "rank": 7.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
+ },
+ "retarget_rig": {
+  "parent": "animation",
+  "color": "",
+  "rank": 0.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
+ },
+ "cleanup": {
+  "parent": "animation",
+  "color": "",
+  "rank": 1.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
+ },
+ "motion_gen": {
+  "parent": "animation",
+  "color": "",
+  "rank": 2.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "light": {
   "parent": "",
-  "label": "光照与材质",
-  "tip": "解出光和表面：照明的 HDRI 环境球、PBR 通道、重新打光、去掉光照的贴图",
   "color": "#FFE9A8",
-  "rank": 9.0
+  "rank": 8.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "env_light": {
   "parent": "light",
-  "label": "HDRI",
-  "tip": "画面里照明的 HDRI 环境球",
   "color": "",
-  "rank": 0.0
- },
- "material": {
-  "parent": "light",
-  "label": "PBR 通道",
-  "tip": "基础色、粗糙度、金属度这些通道",
-  "color": "",
-  "rank": 1.0
+  "rank": 0.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
  "relight": {
   "parent": "light",
-  "label": "重新打光",
-  "tip": "换一张 HDRI 重新照亮画面",
   "color": "",
-  "rank": 2.0
+  "rank": 1.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  },
- "face_texture": {
-  "parent": "light",
-  "label": "面部贴图",
-  "tip": "去掉光照的面部贴图",
+ "generate": {
+  "parent": "",
+  "color": "#BF5AF2",
+  "rank": 9.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
+ },
+ "image_text": {
+  "parent": "generate",
   "color": "",
-  "rank": 3.0
+  "rank": 0.0,
+  "created": 1791017298.0181904,
+  "updated": 1791017298.0181904
  }
 }

@@ -280,7 +280,7 @@ def reconstruct(run: Run, model, shot: Shot, max_frames: int) -> dict:
     written = 0
     with Writer(threads=2, max_pending=8) as writer:
         for ci, (s0, s1) in enumerate(chunks):
-            run.stage(f"重建第 {ci + 1}/{len(chunks)} 段（{s1 - s0} 帧）" if len(chunks) > 1 else f"重建（{n} 帧）")
+            run.stage("reconstruct_segment", segment=ci + 1, segments=len(chunks), frames=s1 - s0) if len(chunks) > 1 else run.stage("reconstruct", frames=n)
             t = time.time()
             chunk = infer_chunk(model, shot, s0, s1)
             r["infer_seconds"] += time.time() - t
@@ -316,7 +316,7 @@ def reconstruct(run: Run, model, shot: Shot, max_frames: int) -> dict:
                 points = cv2.remap(fr.extra["points"], in_x, in_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
                 writer.submit(recon.save_frame, raw, frame, depth, conf, ok, points=points)
                 written += 1
-                progress(written, n, "写出深度")
+                progress(written, n, "write_depth")
     return r
 
 
@@ -333,10 +333,11 @@ def main(job_path: str) -> None:
     # UniCeption builds its DINOv2 backbone through torch.hub: from the pinned code (structure only, the trained
     # weights are in MapAnything's model.safetensors)
     dinov2 = Path(os.environ["MAPANYTHING_DINOV2_CODE"])
-    run.weights(dinov2 / "hubconf.py", what=" DINOv2 代码")
+    run.weights(dinov2 / "hubconf.py", what=reason("I-MAPANYTHING-DINOV2CODE"))
     local_hub({"dinov2": dinov2}, "MapAnything")
     # run.model caps the GPU first: an allocation beyond the card fails (fit_memory decides) instead of spilling into RAM
-    model = run.model("MapAnything 模型", load_model, job.repo_dir, job.weights_dir / repo_id, device)
+    model = run.model("load_model", load_model, job.repo_dir, job.weights_dir / repo_id, device,
+                      stage_params={"model": "MapAnything"})
     cap_dense_head_batches(model, run.gpu_cap_mb * 2**20)
 
     geo = plan_geometry(width, height)

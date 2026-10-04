@@ -30,12 +30,12 @@ from types import MappingProxyType
 from lab2shot.sdk import GroupModel, LensGroup
 
 GROUP = LensGroup("anycalib", "AnyCalib", MappingProxyType({m.name: m for m in (
-    GroupModel("simple_pinhole", "simple_pinhole（无畸变）", "SIMPLE_PINHOLE", ()),
-    GroupModel("simple_radial:1", "simple_radial:1（径向 k1，普通镜头）", "SIMPLE_RADIAL", ("k",)),
-    GroupModel("simple_radial:2", "simple_radial:2（径向 k1 k2，广角）", "RADIAL", ("k1", "k2")),
-    GroupModel("simple_kb:1", "simple_kb:1（鱼眼 Kannala-Brandt，1 项）", "SIMPLE_RADIAL_FISHEYE", ("k",)),
-    GroupModel("simple_kb:2", "simple_kb:2（鱼眼，2 项）", "RADIAL_FISHEYE", ("k1", "k2")),
-    GroupModel("simple_kb:3", "simple_kb:3（鱼眼，3 项）", "OPENCV_FISHEYE", ("k1", "k2", "k3")),
-    GroupModel("simple_kb:4", "simple_kb:4（鱼眼，4 项）", "OPENCV_FISHEYE", ("k1", "k2", "k3", "k4")),
-    GroupModel("simple_division:1", "simple_division:1（除法模型 k）", "SIMPLE_DIVISION", ("k",)),
+    GroupModel("simple_pinhole", "SIMPLE_PINHOLE", ()),
+    GroupModel("simple_radial:1", "SIMPLE_RADIAL", ("k",)),
+    GroupModel("simple_radial:2", "RADIAL", ("k1", "k2")),
+    GroupModel("simple_kb:1", "SIMPLE_RADIAL_FISHEYE", ("k",)),
+    GroupModel("simple_kb:2", "RADIAL_FISHEYE", ("k1", "k2")),
+    GroupModel("simple_kb:3", "OPENCV_FISHEYE", ("k1", "k2", "k3")),
+    GroupModel("simple_kb:4", "OPENCV_FISHEYE", ("k1", "k2", "k3", "k4")),
+    GroupModel("simple_division:1", "SIMPLE_DIVISION", ("k",)),
 )}))

@@ -1,0 +1,13 @@
+# 模板即工具（server/tools.py）：DCC 插件和脚本取工具清单、按自己要的格式交付（engine/deliver_formats.py）、
+# 把单个节点当工具用（engine/node_tools.py）。
+
+# ---- 交付格式由调用方指定（POST /api/jobs 的 formats）
+"E-FORMAT-NOKIND" = "交付格式里的「{kind}」不是三维数据的种类：只能是 {kinds}"
+"E-FORMAT-NOFORMAT" = "没有「{format}」这种交付格式：能选的是 {formats}"
+"E-FORMAT-CANTWRITE" = "{kind}写不成 {format}：{why}。换一种能写它的格式再提交"
+"E-FORMAT-LIST" = "「{node}」收到的是一组场景（列表），没法按种类分开写成不同格式：这几种数据请要同一种格式"
+
+# ---- 工具清单
+"E-TOOL-NOTFOUND" = "没有找到工具「{name}」：可能已被删除、停用，或这个账号不能用它；刷新工具清单再选"
+"W-TOOL-WRAPFAILED" = "节点类型「{type}」包成单节点工具时出错，工具清单里没有它（下面是出错的位置）"
+"W-TOOL-WARMFAILED" = "启动时预先算工具签名没有完成：第一次取工具清单时再算（会慢几秒）"

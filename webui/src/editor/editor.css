@@ -10,7 +10,7 @@
 @import "./styles/08-node-graph.css";
 @import "./styles/08a-node.css";
 @import "./styles/29-node-chrome.css";
-@import "./styles/31-rig-map.css"; /* the 「对应关系」 editor (RigMap.tsx) */
+@import "./styles/31-rig-pair.css"; /* two skeletons edited in the 3D view (view/rigPair.tsx) and the expression table */
 @import "./styles/09-welcome.css";
 @import "./styles/11-sheets.css";
 @import "./styles/12-node-progress.css";

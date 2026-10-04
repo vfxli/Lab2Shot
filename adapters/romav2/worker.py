@@ -71,13 +71,13 @@ def main(job_path: str) -> None:
     if not pairs:
         fail("E-ROMAV2-NOPAIRS")
 
-    model = run.model("RoMa v2 模型", load_model, checkpoint, dinov3)
+    model = run.model("load_model", load_model, checkpoint, dinov3, stage_params={"model": "RoMa v2"})
     model.apply_setting(job.params["setting"])  # a setting is plain attributes (sizes, both directions): set per job
 
-    run.stage(f"稠密匹配（{len(pairs)} 对）")
+    run.stage("match_pairs", pairs=len(pairs))
     matches = {k: [] for k in ("xy_a", "xy_b", "frame_a", "frame_b", "confidence")}
     size_b = None
-    for _i, (fa, fb) in run.each(pairs, "稠密匹配"):
+    for _i, (fa, fb) in run.each(pairs, "match"):
         with run.frame():  # a "frame" here is one pair
             a, b = read_frame(plate[fa]), read_frame(other[fb])
             (ha, wa), (hb, wb) = a.shape[:2], b.shape[:2]

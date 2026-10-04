@@ -4,7 +4,7 @@ directory (upstream loads assets/ relative to it); never imports Lab2Shot core.
 
     python worker.py <job.json>
 
-Node smirk.face, per frame, the upstream demo's pipeline (demo.py / demo_video.py):
+Node smirk.face_solve, per frame, the upstream demo's pipeline (demo.py / demo_video.py):
 crop "auto": MediaPipe Face Landmarker (IMAGE mode, one face) -> square crop
 around the landmarks, 1.4 x their extent -> 224 x 224; crop "none": the whole
 frame, padded to a square (no stretching) -> 224 x 224 -> SMIRK encoder ->
@@ -40,7 +40,8 @@ raw/person_01.npz (one face; every input frame)；结果在相机空间；raw/pl
     cam             f32  [F,3]      SMIRK orthographic camera (s, tx, ty) in the 224 crop
     crop_matrix     f64  [F,3,3]    frame pixels -> crop pixels (similarity)
     landmarks_2d    f32  [F,478,2]  MediaPipe landmarks in frame pixels (NaN where not found)
-    focal_px        float           pinhole focal length behind transl; principal point W/2, H/2
+    focal_px        float           pinhole focal length behind transl
+    principal_px    [cx, cy]        the picture's centre in the pixels sent (overscan aside), the pinhole's principal point
 """
 
 from __future__ import annotations
@@ -86,7 +87,7 @@ def detect_landmarks(run: Run, frames, task: Path) -> dict[int, np.ndarray]:
     )
     found = {}
     with vision.FaceLandmarker.create_from_options(options) as landmarker:
-        for n, (frame, path) in run.each(frames, "找脸"):
+        for n, (frame, path) in run.each(frames, "find_face_each"):
             rgb = read_frame(path)
             result = landmarker.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
             if result.face_landmarks:
@@ -245,7 +246,7 @@ def face_rig(flame, shape: np.ndarray, p: dict[str, np.ndarray], cam_t: np.ndarr
 def main(job_path: str) -> None:
     import torch
 
-    run = Run.start(job_path, "smirk.face", "SMIRK")
+    run = Run.start(job_path, "smirk.face_solve", "SMIRK")
     job, params = run.job, run.params
     crop_mode = params["crop"]
     focal = params["focal_px"]  # the node always sends one (a 50 mm lens by default)
@@ -258,7 +259,7 @@ def main(job_path: str) -> None:
 
     landmarks: dict[int, np.ndarray] = {}
     if crop_mode == "auto":
-        run.stage("MediaPipe 找脸")
+        run.stage("find_face")
         landmarks = detect_landmarks(run, frames.pairs, weights / "face_landmarker.task")
         if not landmarks:
             nothing("N-SMIRK-NOFACE", frames=len(frames))
@@ -268,9 +269,10 @@ def main(job_path: str) -> None:
     else:
         crops = {f: crop_whole_frame(width, height) for f in numbers}
 
-    encoder, flame = run.model("SMIRK 和 FLAME 模型", load_models, job.repo_dir, weights, flame_file, device)
+    encoder, flame = run.model("load_model", load_models, job.repo_dir, weights, flame_file, device,
+                               stage_params={"model": "SMIRK / FLAME"})
 
-    run.stage("估计表情")
+    run.stage("estimate_expressions")
     keys = {"shape_params": "shape", "expression_params": "expression", "jaw_params": "jaw",
             "eyelid_params": "eyelids", "pose_params": "pose", "cam": "cam"}
     acc: dict[str, list[np.ndarray]] = {k: [] for k in keys.values()}
@@ -282,13 +284,14 @@ def main(job_path: str) -> None:
             out = encoder(x)
         for k, name in keys.items():
             acc[name].append(out[k].float().cpu().numpy())
-        progress(min(start + BATCH, len(frames)), len(frames), "估计表情")
+        progress(min(start + BATCH, len(frames)), len(frames), "estimate_expressions")
     p = {k: np.concatenate(v).astype(np.float32) for k, v in acc.items()}
 
-    run.stage("写出结果")
+    run.stage("write_results")
     shape = np.median(p["shape"], axis=0).astype(np.float32)  # one identity for the shot
     crop_matrix = np.stack([crops[f] for f in numbers])
-    cam_t = np.stack([perspective(c, m, focal, width / 2.0, height / 2.0) for c, m in zip(p["cam"], crop_matrix)])
+    cx, cy = (float(v) for v in run.params["principal_px"])  # 画面中心在送去的像素里的位置（nodes.py prepare），不是画布中心
+    cam_t = np.stack([perspective(c, m, focal, cx, cy) for c, m in zip(p["cam"], crop_matrix)])
     rig = face_rig(flame, shape, p, cam_t, device)
     lm = np.full((len(frames), 478, 2), np.nan, np.float32)
     for i, f in enumerate(numbers):

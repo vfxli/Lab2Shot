@@ -7,6 +7,9 @@ A request is its account's when it carries one of:
   - the browser's cookie (COOKIE), given at login: HttpOnly, SameSite=Strict, Secure over HTTPS;
   - a client's token (Authorization: Bearer ...), given to a DCC plugin or the command line at /api/auth/token and
     kept in ~/.lab2shot/;
+  - a DCC plugin's embedded web window's cookie (kind "embedded"): the plugin asks for a one-time ticket with its own
+    token (POST /api/auth/embed), its window opens /embed with it and gets a cookie of its own, under the plugin's
+    login (accounts.start_embedded: it ends with it, displaces no one, has no rights beyond the editor). See Tickets;
   - this machine's token (MACHINE_HEADER): the command line on the server machine, acting as the administrator;
     taken only from a loopback connection that no proxy forwarded (local_request), never as a cookie or bearer. What
     guards it is its secrecy (accounts.machine_token: a 0600 file in the work folder, 256 random bits): behind a TCP
@@ -46,7 +49,8 @@ from fastapi import Request, Response
 from .repeats import Repeats
 from .routes import Access, Body, Limit, Router
 from .wire import SECRETS
-from .. import accounts, logs
+from .words import Word
+from .. import accounts, i18n, logs
 from ..accounts import Session, User, now
 from ..config import proxy_networks, settings
 from ..errors import Forbidden, Invalid, MessageError, NotSignedIn, TooManyTries
@@ -323,7 +327,7 @@ class Watch:
     counts: collections.Counter = field(default_factory=collections.Counter)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
-    def note(self, request: Request, kind: str, detail: str = "", counts: bool = True) -> None:
+    def note(self, request: Request, kind: str, detail: str | Word | Msg = "", counts: bool = True) -> None:
         """`counts` False: recorded for the admin page's 「安全」, but not counted toward BLOCK_AFTER.
 
         For a logged-in request from a page of this site to an endpoint this server does not have (server/access.py
@@ -333,7 +337,8 @@ class Watch:
         u = request.scope.get("lab2shot_session")
         account = u.user.username if u else ""
         with self.lock:
-            self.events.append({"t": t, "kind": kind, "detail": detail[:300], "who": whom, "client": key, "user": account,
+            kept = detail if isinstance(detail, (Word, Msg)) else detail[:300]  # a word or a message: said when shown (view)
+            self.events.append({"t": t, "kind": kind, "detail": kept, "who": whom, "client": key, "user": account,
                                 "path": request.url.path[:200], "method": request.method, "counted": counts})
             self.counts[kind] += 1
             if counts and u is not None:
@@ -344,12 +349,12 @@ class Watch:
                     self.blocked = {k: v for k, v in self.blocked.items() if v["until"] > t}
                 if len(tries) >= BLOCK_AFTER and key not in self.blocked:
                     self.blocked[key] = {"until": t + BLOCK_S, "who": whom, "user": account,
-                                         "why": Msg("W-LOGIN-BLOCKED", minutes=BLOCK_WINDOW_S // 60, count=len(tries)).text}
+                                         "why": Msg("W-LOGIN-BLOCKED", minutes=BLOCK_WINDOW_S // 60, count=len(tries))}
                     logs.say(log, Msg("W-LOGIN-PROBEBLOCKED", account=account, whom=whom, minutes=BLOCK_S // 60, window=BLOCK_WINDOW_S // 60, count=len(tries)))
         # in the log once per address and kind within SUSPICIOUS_S, the rest counted (server/repeats.py): a flood of odd
         # requests, from however many connections, never rolls the log over the records it keeps
         _suspicious.happened((whom, kind), Msg("W-LOGIN-SUSPICIOUS", account=account, whom=whom, kind=kind, method=request.method,
-                                              path=request.url.path[:200], detail=detail[:200] or "-"))
+                                              path=request.url.path[:200], detail=kept or "-"))
 
     def is_blocked(self, request: Request) -> float:
         """Seconds this client is still blocked (0: it is not)."""
@@ -369,8 +374,17 @@ class Watch:
     def view(self, limit: int = 300) -> dict:
         t = now()
         with self.lock:
-            return {"events": list(self.events)[-limit:][::-1], "counts": dict(self.counts),
-                    "blocked": [{"client": k, **v} for k, v in self.blocked.items() if v["until"] > t]}
+            events, counts = list(self.events)[-limit:][::-1], dict(self.counts)
+            blocked = [{"client": k, **v} for k, v in self.blocked.items() if v["until"] > t]
+        # kinds are ids (server.watch.<kind> their words), details and reasons words or messages: said in the language now
+        return {"events": [{**e, "kind": watch_kind(e["kind"]), "detail": str(e["detail"])} for e in events],
+                "counts": {watch_kind(k): n for k, n in counts.items()},
+                "blocked": [{**b, "why": str(b["why"])} for b in blocked]}
+
+
+def watch_kind(kind: str) -> str:
+    """A kind of suspicious activity (Watch.note: an id) in words."""
+    return i18n.t(f"server.watch.{kind}")
 
 
 RATE_PER_S = 200.0
@@ -407,7 +421,7 @@ class Rate:
 
 Key = tuple[str, str]  # a Limiter count: its kind (RULES) and whose it is
 RULES = {"k": (FREE, CLIENT_LOCK), "c": (FREE, CLIENT_LOCK), "a": (ADDRESS_FREE, ADDRESS_LOCK), "s": (SUBJECT_FREE, None)}
-COUNTED_AS = {"k": "登录过的这台设备", "c": "这个来源", "s": "从没登录过的设备一共"}  # a wrong one's first key, in the list
+COUNTED_AS = {k: Word(f"server.counted_as.{k}") for k in ("k", "c", "s")}  # a wrong one's first key, in the list
 LIMITER_KEPT = 20_000  # keys counted at once; above it the ones longest untouched are forgotten
 
 
@@ -588,10 +602,72 @@ class Challenges:
         return said
 
 
+TICKET_S = 60  # an embedded window's ticket is good this long after it was given, and for one use
+TICKETS_KEPT = 10_000  # tickets outstanding at once over every account; past it none is given until some lapse
+TICKETS_PER_LOGIN = 10  # outstanding at once for one plugin login
+
+
+@dataclass(frozen=True)
+class Ticket:
+    """What a ticket stands for: the plugin login (its token's key: accounts.session_by_key) that asked, its account,
+    and until when it may be used."""
+
+    parent: str
+    user_id: int
+    until: float
+
+
+@dataclass
+class Tickets:
+    """One-time tickets for a DCC plugin's embedded web window (POST /api/auth/embed gives one, GET /embed takes it):
+    in this server's memory only, as their sha256 (a restart forgets them all: the plugin asks again), each good for
+    TICKET_S and for one use — taken out of the table the moment it is used, whether it then opens a login or not. A
+    ticket is said in the log only by its first six characters (prefix)."""
+
+    kept: dict[str, Ticket] = field(default_factory=dict)  # sha256 of the ticket -> what it stands for
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def _fresh(self, t: float) -> None:
+        self.kept = {k: v for k, v in self.kept.items() if v.until > t}
+
+    def issue(self, parent: Session) -> str:
+        t = now()
+        with self.lock:
+            self._fresh(t)
+            if len(self.kept) >= TICKETS_KEPT or sum(v.parent == parent.token for v in self.kept.values()) >= TICKETS_PER_LOGIN:
+                raise TooManyTries(Msg("E-EMBED-TOOMANY", seconds=TICKET_S))
+            ticket = secrets.token_urlsafe(32)
+            self.kept[accounts.sha(ticket)] = Ticket(parent.token, parent.user.id, t + TICKET_S)
+        return ticket
+
+    def peek(self, ticket: str) -> Ticket | None:
+        """What a ticket stands for while it is still good, leaving it there (the page that asks which account to keep
+        has not used it)."""
+        if not ticket or len(ticket) > 100:
+            return None
+        with self.lock:
+            found = self.kept.get(accounts.sha(ticket))
+            return found if found is not None and found.until > now() else None
+
+    def take(self, ticket: str) -> Ticket | None:
+        """Use a ticket up: what it stood for, or None when it is not one, lapsed or used before. Taken out either way."""
+        if not ticket or len(ticket) > 100:
+            return None
+        with self.lock:
+            found = self.kept.pop(accounts.sha(ticket), None)
+            return found if found is not None and found.until > now() else None
+
+
+def prefix(ticket: str) -> str:
+    """How the log names a ticket: its first six characters, never the rest."""
+    return (ticket or "")[:6]
+
+
 @dataclass
 class Guards:
     """The counters of one work folder's server."""
 
+    tickets: Tickets = field(default_factory=Tickets)
     limiter: Limiter = field(default_factory=Limiter)
     invites: Limiter = field(default_factory=lambda: Limiter(per_subject=False))  # wrong invite codes (server/register.py)
     challenges: Challenges = field(default_factory=Challenges)
@@ -617,7 +693,7 @@ def _wait(seconds: float) -> Msg:
 
 
 def guarded(request: Request, what: str, check, wrong: Msg | None = None, subject: str = "", limiter: Limiter | None = None,
-            kind: str = "登录失败", known: str = "", refuse: type[MessageError] = NotSignedIn):
+            kind: str = "login_failed", known: str = "", refuse: type[MessageError] = NotSignedIn):
     """Run a check of a secret (`check()`: what it found, falsy when wrong), counting a wrong one; TooManyTries while
     this try must wait (Limiter), NotSignedIn (`wrong`, else E-LOGIN-WRONGSECRET about `what`, the word for the secret)
     when it is wrong. `subject`: whose secret, each kind apart (user:<the username tried>, uid:<the account changing
@@ -637,14 +713,14 @@ def guarded(request: Request, what: str, check, wrong: Msg | None = None, subjec
     try:
         wait = counts.wait(keys)
         if wait > 0:
-            g.watch.note(request, "试错太多被挡", what)
+            g.watch.note(request, "too_many_tries", what)
             raise TooManyTries(_wait(wait))
         found = check()
         if not found:
             got = counts.failed(keys)
             if keys:
                 g.watch.note(request, kind, Msg("W-LOGIN-FAILED", what=what, whose=COUNTED_AS[keys[0][0]], count=got[keys[0]],
-                                                minutes=WINDOW_S // 60).text)
+                                                minutes=WINDOW_S // 60))
             if got.get(("s", subject[:64])) == SUBJECT_FREE:
                 logs.say(log, Msg("W-LOGIN-SLOWED", what=what, subject=subject[:64], minutes=WINDOW_S // 60, count=SUBJECT_FREE,
                                   wait=MAX_WAIT_S))
@@ -657,7 +733,7 @@ def guarded(request: Request, what: str, check, wrong: Msg | None = None, subjec
 
 # ------------------------------------------------------------------ routes (server/access.py: open, or the user's)
 
-router = Router(prefix="/api/auth", tags=["登录"])
+router = Router(prefix="/api/auth", tags=["Login"])
 
 
 def state_of(s: Session | None) -> dict:
@@ -669,24 +745,33 @@ def state_of(s: Session | None) -> dict:
     from .. import terms
     from . import available
 
-    if s is None:
-        return {"user": None, "applies": available.session(None).json()}
+    from .. import i18n
+
+    if s is None:  # `lang`: what this request is said in (server/lang.py), the page's language from here on
+        return {"user": None, "applies": available.session(None).json(), "lang": i18n.current()}
     out = {"user": s.user.public(), "expires": s.user.expires, "admin_until": s.admin_until, "applies": available.session(s).json(),
-           "settings_pages": available.settings_pages(), "terms": terms.owed(s.user)}
+           "settings_pages": available.settings_pages(), "terms": terms.owed(s.user), "lang": i18n.current()}
     if s.user.owner:
         out |= {"passphrase": accounts.passphrase() is not None}
     return out
 
 
 def kicked_detail(info: dict) -> Msg:
-    """The message the kicked page shows (server/access.py's 401, and /api/auth/state): when, from where, what."""
+    """The message the kicked page shows (server/access.py's 401, and /api/auth/state): when, from where, what. An
+    embedded window whose plugin login ended (accounts.kicked_info kind "embedded") is told to open it again from
+    the DCC."""
     import time as _time
+
+    if info.get("kind") == "embedded":
+        return Msg("E-EMBED-ENDED")
 
     when = _time.strftime("%m-%d %H:%M", _time.localtime(info["at"]))
     return Msg("E-LOGIN-KICKED", when=when, ip=info["ip"], device=info["device"])
 
 
-@router.get("/state", access=Access.open("登录了没有、哪个账号、是不是管理员"), summary="这个浏览器登录了没有：哪个账号、到期时间、是不是有管理员权限；管理员另外知道是否设了口令；被别处的登录顶掉时，说明什么时候、从哪、什么设备")
+@router.get("/state", access=Access.open("Whether logged in, which account, whether an administrator"), summary="Whether this browser is logged in: which account, when it expires, whether it has admin rights; an "
+                                                                                                         "administrator also learns whether a passphrase is set; when replaced by a login elsewhere, says when, from "
+                                                                                                         "where and on what device")
 def state(request: Request) -> dict:
     s = session(request)
     out = state_of(s)
@@ -723,22 +808,22 @@ def _check_login(request: Request, username: str, password: str, kind: str, devi
 
     existing = accounts.by_username(username)
     if existing is not None and existing.owner and existing.no_password:  # a new installation: nobody may log in yet
-        logged(False, "管理员还没设密码", existing.id)
+        logged(False, "N-LOGIN-REASONNOPASSWORD", existing.id)
         raise NotSignedIn(Msg("E-LOGIN-NOPASSWORD", user=existing.username))
     try:
         known = device_id if existing is not None and accounts.known_device(existing.id, device_id) else ""
-        u = guarded(request, "密码", lambda: accounts.login(username, password), WRONG, subject=f"user:{username.strip().lower()}",
+        u = guarded(request, Word("server.secret.password"), lambda: accounts.login(username, password), WRONG, subject=f"user:{username.strip().lower()}",
                     known=known)  # the subject as accounts.login reads it: "Admin " is the same account as "admin"
     except TooManyTries:
         existing = accounts.by_username(username)
-        logged(False, "试错太多，暂时锁住", existing.id if existing else None)
+        logged(False, "N-LOGIN-REASONLOCKED", existing.id if existing else None)
         raise
     except NotSignedIn:
         existing = accounts.by_username(username)
-        logged(False, "密码不对" if existing else "用户名不存在", existing.id if existing else None)
+        logged(False, "N-LOGIN-REASONWRONGPASSWORD" if existing else "N-LOGIN-REASONNOUSER", existing.id if existing else None)
         raise
     if problem := u.usable_now():
-        logged(False, problem.text, u.id)
+        logged(False, problem.code, u.id)
         raise NotSignedIn(problem)
     return u
 
@@ -755,7 +840,10 @@ class Login(Body):
 LOGIN = Limit(burst=30, per_s=5)
 
 
-@router.post("/login", access=Access.open("登录（输错多了要等）", limit=LOGIN, lane=SECRETS), summary="登录：用户名和密码对了，这个浏览器换一个新的登录凭证（cookie），30 天内不用再登录；管理员另外有三天的管理权限。同一个账号别的浏览器上的登录会被顶掉。用户名不对和密码不对是同一句回答；输错太多次要等一会儿")
+@router.post("/login", access=Access.open("Log in (wait after too many wrong tries)", limit=LOGIN, lane=SECRETS), summary="Log in: with the right username and password this browser gets a new login credential (cookie) good for 30 "
+                                                                                                                "days; an administrator also gets admin rights for three days. A login of the same account in another browser "
+                                                                                                                "is replaced. A wrong username and a wrong password get the same answer; after too many wrong tries, wait a "
+                                                                                                                "while")
 def login(req: Login, request: Request, response: Response) -> dict:
     u = _check_login(request, req.username, req.password, "web", req.device_id)
     token, s = accounts.start(u, "web", who(request), request.headers.get("user-agent", ""), replaces=_cookie(request),
@@ -770,7 +858,9 @@ class TokenRequest(Login):
     hostname: str = ""  # the computer's name, when the client can tell (a browser cannot)
 
 
-@router.post("/token", access=Access.open("DCC 插件和命令行登录，拿令牌（输错多了要等）", limit=LOGIN, lane=SECRETS), summary="DCC 插件和命令行登录：用户名和密码对了，给一个长期有效的令牌（放在请求头 Authorization: Bearer 里）；同一个账号别的 DCC 插件或命令行的登录会被顶掉（浏览器不受影响）；账号停用或过期时一起失效")
+@router.post("/token", access=Access.open("DCC plugin and command line login, getting a token (wait after too many wrong tries)", limit=LOGIN, lane=SECRETS), summary="DCC plugin and command line login: with the right username and password, a long-lived token (sent in the "
+                                                                                                                                                  "header Authorization: Bearer); another DCC plugin or command line login of the same account is replaced "
+                                                                                                                                                  "(browsers are not affected); it ends when the account is disabled or expires")
 def token(req: TokenRequest, request: Request) -> dict:
     u = _check_login(request, req.username, req.password, "client", req.device_id, req.hostname, req.app)
     agent = f"{req.app[:40]} · {request.headers.get('user-agent', '')}"
@@ -779,7 +869,7 @@ def token(req: TokenRequest, request: Request) -> dict:
     return {"token": got, "expires": s.expires, "user": u.public()}
 
 
-@router.post("/logout", access=Access.open("退出"), summary="退出登录：这个浏览器（或客户端的令牌）不再能用，要重新登录")
+@router.post("/logout", access=Access.open("Log out"), summary="Log out: this browser (or the client's token) can no longer be used until it logs in again")
 def logout(request: Request, response: Response) -> dict:
     s = session(request)
     if token := token_of(request):
@@ -796,14 +886,14 @@ class PasswordChange(Body):
     new: str
 
 
-@router.post("/password", access=Access.user("改自己的密码：要现在的密码", lane=SECRETS), summary="改自己的密码：要现在的密码；改完别处的登录都退出，这个浏览器接着用")
+@router.post("/password", access=Access.user("Change your own password: needs the current one", lane=SECRETS), summary="Change your own password: needs the current one; logins elsewhere are ended, this browser stays logged in")
 def change_password(req: PasswordChange, request: Request, response: Response) -> dict:
     u = me(request)
-    if problem := accounts.rule_problem(req.new, "新密码"):
+    if problem := accounts.rule_problem(req.new, Word("server.secret.new_password")):
         raise Invalid(problem)
-    guarded(request, "现在的密码", lambda: accounts.matches(req.current, accounts.password_hash(u.id)), subject=f"uid:{u.id}",
+    guarded(request, Word("server.secret.current_password"), lambda: accounts.matches(req.current, accounts.password_hash(u.id)), subject=f"uid:{u.id}",
             known=f"session {session(request).token[:16]}", refuse=Forbidden)  # only a live session of the account gets here
-    accounts.set_password(u.id, req.new, "本人")
+    accounts.set_password(u.id, req.new, accounts.BY_SELF)
     token, s = accounts.start(accounts.get(u.id), "web", who(request), request.headers.get("user-agent", ""))
     set_cookie(request, response, token)
     logs.say(log, Msg("I-LOGIN-PASSWORDCHANGED", user=u.username, where=who(request)))
@@ -816,17 +906,155 @@ class Recover(Body):
     device_id: str = ""  # as at login: a browser the administrator has logged in from is not slowed by strangers' tries
 
 
-@router.post("/recover", access=Access.open("管理员忘了密码：用主人的口令设新密码（输错多了要等）", limit=LOGIN, lane=SECRETS), summary="管理员忘了密码：用主人在服务器上设的口令设一个新的管理员密码，并且登录")
+@router.post("/recover", access=Access.open("Administrator forgot the password: set a new one with the owner's passphrase (wait after too many wrong tries)", limit=LOGIN, lane=SECRETS), summary="Administrator forgot the password: set a new administrator password with the passphrase the owner set on the "
+                                                                                                                                                                  "server, and log in")
 def recover(req: Recover, request: Request, response: Response) -> dict:
-    if problem := accounts.rule_problem(req.new, "新密码"):
+    if problem := accounts.rule_problem(req.new, Word("server.secret.new_password")):
         raise Invalid(problem)
     kept = accounts.passphrase()
     if kept is None:
         raise Invalid(Msg("E-LOGIN-NOPASSPHRASE"))
-    guarded(request, "口令", lambda: accounts.matches(req.passphrase, kept["hash"]), subject="passphrase:",
+    guarded(request, Word("server.secret.passphrase"), lambda: accounts.matches(req.passphrase, kept["hash"]), subject="passphrase:",
             known=req.device_id if accounts.known_device(accounts.ADMIN_ID, req.device_id) else "")
-    accounts.set_password(accounts.ADMIN_ID, req.new, "口令")  # the counts of wrong tries start again with it
+    accounts.set_password(accounts.ADMIN_ID, req.new, accounts.BY_PASSPHRASE)  # the counts of wrong tries start again with it
     token, s = accounts.start(accounts.admin(), "web", who(request), request.headers.get("user-agent", ""), replaces=_cookie(request))
     set_cookie(request, response, token)
     logs.say(log, Msg("I-LOGIN-RECOVERED", where=who(request)))
     return state_of(s)
+
+
+# ------------------------------------------------------------------ a DCC plugin's embedded web window (Tickets)
+
+
+EMBED = Limit(burst=10, per_s=1)  # tickets one plugin login may ask for: a window opened now and then
+_FRAGMENT_SAFE = "=&-_.~!$'()*+,;:@/?%"
+
+
+def embed_target(to: object) -> str | None:
+    """Where an embedded window may be sent after its ticket is taken: only the editor of this site ("/"), with an
+    optional fragment (#job=…&focus=…, read by the page itself). Anything else — another site, "//host", a backslash,
+    a scheme, a query, a path other than "/", whitespace or control characters — is None: never an open redirect.
+    The answer is built from the parts checked here, the fragment percent-encoded, never the text as given."""
+    from urllib.parse import quote, urlsplit
+
+    if not isinstance(to, str) or not to.startswith("/") or to.startswith("//") or len(to) > 1000:
+        return None
+    if any(ord(c) < 0x21 or ord(c) == 0x7F or c == "\\" for c in to):
+        return None
+    try:
+        parts = urlsplit(to)
+    except ValueError:
+        return None
+    if parts.scheme or parts.netloc or parts.query or parts.path != "/":
+        return None
+    return "/" + (f"#{quote(parts.fragment, safe=_FRAGMENT_SAFE)}" if parts.fragment else "")
+
+
+class EmbedRequest(Body):
+    to: str = "/"  # where the window goes once logged in (embed_target): "/#job=<id>&focus=<node>"
+
+
+@router.post("/embed", access=Access.user("DCC plugin asks for a one-time ticket for an embedded window (plugin tokens only)", limit=EMBED),
+             summary="One-time ticket a DCC plugin asks for before opening an embedded web window (only with the plugin's token, "
+                     "Authorization: Bearer): valid for 60 seconds and one use; opening url (/embed?ticket=...&to=...) with it logs "
+                     "the window in as this account's embedded window, replacing no login; it ends with the plugin's token when that "
+                     "logs out or is replaced. to may only be an editor address of this site (/ plus #...)")
+def embed_ticket(req: EmbedRequest, request: Request) -> dict:
+    from urllib.parse import urlencode
+
+    s = signed_in(request)
+    if s.kind != "client" or not _bearer(request):  # a browser's cookie, an embedded window's, the machine token: no
+        guards().watch.note(request, "embed_not_plugin", s.kind)
+        raise Forbidden(Msg("E-EMBED-CLIENTONLY"))
+    where = embed_target(req.to)
+    if where is None:
+        raise Invalid(Msg("E-EMBED-BADTARGET"))
+    ticket = guards().tickets.issue(s)
+    logs.say(log, Msg("I-LOGIN-EMBEDTICKET", user=s.user.username, ticket=prefix(ticket), where=who(request)))
+    return {"ticket": ticket, "expires_in": TICKET_S, "url": "/embed?" + urlencode({"ticket": ticket, "to": where})}
+
+
+embed_pages = Router()  # GET /embed: a page address outside /api/ (server/app.py includes it before the page's own)
+
+
+def _embed_page(status: int, title: Msg, body: Msg, actions: tuple[tuple[str, str, str], ...] = ()) -> Response:
+    """The few words /embed says when it does not go on to the editor (a ticket used or lapsed, a refused target,
+    another account in this browser): a page of its own, plain HTML with no script (the guard's CSP holds), its words
+    from the message catalogue. `actions`: (label, address, what it does) links."""
+    import html
+
+    links = "".join(f'<a class="b{" p" if n == 0 else ""}" href="{html.escape(href)}">{html.escape(label)}</a>'
+                    f'<span class="w">{html.escape(what)}</span>' for n, (label, href, what) in enumerate(actions))
+    page = (
+        '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
+        f"<title>Lab2Shot · {html.escape(title.text)}</title><style>"
+        "body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0e0f12;"
+        "color:#e6e7ea;font:14px/1.6 system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif}"
+        "main{max-width:520px;padding:28px 32px;border:1px solid #2a2d34;border-radius:10px;background:#16181d}"
+        "h1{font-size:17px;margin:0 0 10px}p{margin:0 0 18px;color:#b4b7bf}"
+        ".b{display:inline-block;padding:6px 14px;border-radius:6px;border:1px solid #3a3e47;color:#e6e7ea;"
+        "text-decoration:none;margin:0 8px 4px 0}.b.p{background:#2f6fed;border-color:#2f6fed}"
+        ".w{display:block;color:#8a8e98;font-size:12px;margin:0 0 12px}"
+        f"</style></head><body><main data-lab2shot-embed=\"{html.escape(body.code)}\"><h1>{html.escape(title.text)}</h1>"
+        f"<p>{html.escape(body.text)}</p>{links}</main></body></html>")
+    return Response(page, status_code=status, media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-store"})
+
+
+def _embed_refused(request: Request, status: int, body: Msg, noted: str, ticket: str) -> Response:
+    guards().watch.note(request, noted, prefix(ticket))
+    logs.say(log, Msg("W-LOGIN-EMBEDREFUSED", why=body.text, ticket=prefix(ticket), where=who(request)))
+    return _embed_page(status, Msg("N-EMBED-TITLE"), body)
+
+
+@embed_pages.get("/embed", access=Access.page("A DCC plugin's embedded window logs in with a one-time ticket, then opens the editor"), include_in_schema=False)
+def embed(request: Request, ticket: str = "", to: str = "/", switch: int = 0) -> Response:
+    """Take an embedded window's ticket (Tickets) and send it on to `to` (embed_target), logged in as the plugin's
+    account under the plugin's login (accounts.start_embedded):
+      - a browser already holding a live login of the same account keeps it untouched (a system browser opened as a
+        fallback: the user's own login is never replaced); the ticket is used up all the same;
+      - one holding another account's login is never overwritten unasked: a page says so and offers the choice; only
+        `switch=1` (its button, a click on this site's own page or an address typed or opened by the DCC) logs that
+        one out here and goes on;
+      - a request another site's page made (Sec-Fetch-Site cross-site / same-site) is refused, its ticket used up: a
+        link of another site must never log a browser into an account it did not choose (login CSRF; the cookie being
+        SameSite=Strict, such a request would not even show the login this browser has).
+    The ticket is in the log only by its first six characters."""
+    from urllib.parse import quote
+
+    from fastapi.responses import RedirectResponse
+
+    where = embed_target(to)
+    if where is None:
+        return _embed_refused(request, 400, Msg("E-EMBED-BADTARGET"), "embed_bad_target", ticket)
+    fetched = request.headers.get("sec-fetch-site", "").lower()
+    if fetched in ("cross-site", "same-site"):
+        guards().tickets.take(ticket)
+        return _embed_refused(request, 403, Msg("E-EMBED-CROSSSITE"), "embed_cross_site", ticket)
+    found = guards().tickets.peek(ticket)
+    if found is None:
+        return _embed_refused(request, 401, Msg("E-EMBED-TICKET", seconds=TICKET_S), "embed_bad_ticket", ticket)
+    here = session(request) if _cookie(request) else None  # this browser's own login (never a bearer: a browser sends none)
+    if here is not None and here.user.id == found.user_id:
+        guards().tickets.take(ticket)
+        logs.say(log, Msg("I-LOGIN-EMBEDKEPT", user=here.user.username, ticket=prefix(ticket), where=who(request)))
+        return RedirectResponse(where, status_code=303, headers={"Cache-Control": "no-store"})
+    if here is not None and not switch:
+        other = accounts.get(found.user_id)
+        again = "/embed?ticket=" + quote(ticket, safe="") + "&to=" + quote(where, safe="") + "&switch=1"
+        return _embed_page(409, Msg("N-EMBED-OTHERTITLE"),
+                           Msg("E-EMBED-OTHERACCOUNT", here=here.user.label, plugin=other.label, seconds=TICKET_S),
+                           ((Msg("N-EMBED-SWITCH", plugin=other.label).text, again, Msg("N-EMBED-SWITCHWHAT", here=here.user.label).text),
+                            (Msg("N-EMBED-KEEP", here=here.user.label).text, "/", Msg("N-EMBED-KEEPWHAT").text)))
+    taken = guards().tickets.take(ticket)
+    parent = accounts.session_by_key(taken.parent) if taken is not None else None
+    if taken is None or parent is None or parent.kind != "client" or parent.user.id != taken.user_id:
+        return _embed_refused(request, 401, Msg("E-EMBED-TICKET", seconds=TICKET_S), "embed_bad_ticket", ticket)
+    if here is not None:  # switch=1: this browser's login of another account, ended at the user's choice
+        accounts.end(_cookie(request))
+        logs.say(log, Msg("I-LOGIN-OUT", user=here.user.username, where=who(request)))
+    token, s = accounts.start_embedded(parent, who(request), request.headers.get("user-agent", ""))
+    response = RedirectResponse(where, status_code=303, headers={"Cache-Control": "no-store"})
+    response.set_cookie(COOKIE, token, max_age=max(1, int(s.expires - now())), path="/", httponly=True, samesite="strict",
+                        secure=https(request))
+    logs.say(log, Msg("I-LOGIN-EMBED", user=parent.user.username, ticket=prefix(ticket), where=who(request)))
+    return response

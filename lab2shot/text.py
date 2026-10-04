@@ -45,3 +45,12 @@ def file_part(text: object, most: int) -> str:
     refuses as `_`, spaces as `_`, no dots or `_` at either end, at most `most` characters. "" when nothing is left."""
     s = "".join(ch for ch in plain_text(text, 4 * most + 64) if unicodedata.category(ch) != "Cf")
     return _UNSAFE.sub("_", s).replace(" ", "_")[:most].strip("._ ")
+
+
+def ascii_file_part(text: object, most: int) -> str:
+    """Words made an ASCII-safe part of a file name (a download's name: it travels through mail, archives and farm
+    tools that mangle anything else): compatibility forms folded (full-width letters and digits as ASCII), every run of
+    anything but ASCII letters, digits and `-` as one `_`, no `-` or `_` at either end, at most `most` characters. ""
+    when nothing is left (words in Chinese only)."""
+    s = unicodedata.normalize("NFKD", plain_text(text, 4 * most + 64))
+    return re.sub(r"[^A-Za-z0-9-]+", "_", s)[:most].strip("-_")

@@ -2,100 +2,157 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "cfd3ea0887119c1ccb2e146e50c027e8",
-  "name": "运动物体遮罩 · SegAnyMo",
-  "intro": "SegAnyMo 把长距离轨迹的运动线索和 DINO 的语义特征结合起来做运动物体分割，再用 SAM2 以迭代提示把遮罩加密到像素级。这张卡交付整段运动物体遮罩和按物体区分的分割结果。",
+  "name": {
+   "zh": "运动物体遮罩 · SegAnyMo",
+   "en": "Moving Object Mask · SegAnyMo"
+  },
+  "intro": {
+   "zh": "SegAnyMo 把长距离轨迹的运动线索和 DINO 的语义特征结合起来做运动物体分割，再用 SAM 2 以迭代提示把遮罩加密到像素级。这张卡交付整段运动物体遮罩和按物体区分的分割结果。",
+   "en": "SegAnyMo combines motion cues from long-range trajectories with DINO semantic features to segment moving objects, then densifies the masks to pixel level with SAM 2 through iterative prompting. This card delivers moving-object masks for the whole shot and per-object segmentation."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-13T12:00:00",
   "deliverable": "mask",
   "owner": "admin",
-  "updated": "2026-10-01T08:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
-   "name": "analysis_frames",
-   "label": "分析帧数",
-   "target": "seg.analysis_frames"
+   "name": "segment_analysis_frames",
+   "label": {
+    "zh": "分析帧数",
+    "en": "Analysis Frames"
+   },
+   "target": "segment.analysis_frames"
   },
   {
-   "name": "query_step",
-   "label": "查询间隔",
-   "target": "seg.query_step"
+   "name": "segment_query_step",
+   "label": {
+    "zh": "查询间隔",
+    "en": "Query Interval"
+   },
+   "target": "segment.query_step"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "resolution",
-     "label": "处理分辨率",
-     "target": "seg.resolution"
+     "name": "segment_resolution",
+     "label": {
+      "zh": "处理分辨率",
+      "en": "Processing Resolution"
+     },
+     "target": "segment.resolution"
     }
    ]
   },
   {
-   "name": "cook_seg",
-   "label": "分割",
-   "target": "seg.cook"
+   "name": "cook_segment",
+   "label": {
+    "zh": "分割",
+    "en": "Segment"
+   },
+   "target": "segment.cook"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out_o.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "exr.name"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
-       "target": "out_o.exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -105,17 +162,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -124,8 +187,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -138,9 +200,8 @@
    }
   },
   {
-   "id": "seg",
-   "type": "seganymo.moving_objects",
-   "label": "SegAnyMo 运动物体遮罩",
+   "id": "segment",
+   "type": "seganymo.motion_segment",
    "params": {
     "resolution": 1000,
     "analysis_frames": 100,
@@ -152,9 +213,8 @@
    }
   },
   {
-   "id": "out_o",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "id": "exr",
+   "type": "exr.output",
    "params": {
     "name": "moving_mask",
     "layers": [
@@ -174,7 +234,7 @@
     "colorspace": null
    },
    "ui": {
-    "x": 800,
+    "x": 837,
     "y": 0,
     "on_node": [
      "name"
@@ -183,11 +243,10 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1200,
+    "x": 1237,
     "y": 0
    }
   }
@@ -199,33 +258,33 @@
     "image"
    ],
    "to": [
-    "seg",
+    "segment",
     "image"
    ]
   },
   {
    "from": [
-    "seg",
+    "segment",
     "mask"
    ],
    "to": [
-    "out_o",
+    "exr",
     "layer1"
    ]
   },
   {
    "from": [
-    "seg",
+    "segment",
     "objects"
    ],
    "to": [
-    "out_o",
+    "exr",
     "layer2"
    ]
   },
   {
    "from": [
-    "out_o",
+    "exr",
     "files"
    ],
    "to": [
@@ -236,7 +295,7 @@
  ],
  "boxes": [],
  "view": {
-  "display": "seg",
+  "display": "segment",
   "frame": null
  }
 }

@@ -2,149 +2,227 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "f628be5275e2e5d5138a420be2a2c4b4",
-  "name": "2D 跟踪点 · CoTracker3",
-  "intro": "CoTracker3 是基于 transformer 的快速模型，能跟住视频里的任意一个点，点可以手选，也可以在任意一帧上按网格撒。这张卡默认撒 10×10＝100 个网格点，交付 Nuke 的 Tracker 节点。",
+  "name": {
+   "zh": "2D 跟踪点 · CoTracker3",
+   "en": "2D Tracks · CoTracker3"
+  },
+  "intro": {
+   "zh": "CoTracker3 是基于 transformer 的快速模型，能跟住视频里的任意一个点，点可以手选，也可以在任意一帧上按网格撒。这张卡默认撒 10×10＝100 个网格点，交付 Nuke 的 Tracker 节点。",
+   "en": "CoTracker3 is a fast transformer-based model that tracks any point in a video; points can be picked by hand or scattered as a grid on any frame. This card scatters a 10×10 = 100 point grid by default and delivers a Nuke Tracker node."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
   "deliverable": "tracks2d",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "name": "picks",
-   "label": "跟踪点",
+   "label": {
+    "zh": "跟踪点",
+    "en": "Tracks"
+   },
    "target": "track.picks",
    "show_on_change": true
   },
   {
    "name": "picks_pick",
-   "label": "在视图里点选",
+   "label": {
+    "zh": "在视图里点选",
+    "en": "Pick in Viewport"
+   },
    "target": "track.picks_pick"
   },
   {
-   "name": "grid",
-   "label": "网格点数",
+   "name": "track_grid",
+   "label": {
+    "zh": "网格点数",
+    "en": "Grid Points"
+   },
    "target": "track.grid",
    "disable_when": "format == \"cornerpin\""
   },
   {
    "name": "ref_frame",
-   "label": "参考帧",
+   "label": {
+    "zh": "参考帧",
+    "en": "Reference Frame"
+   },
    "target": "track.query_frame",
-   "disable_when": "grid == 0"
+   "disable_when": "track_grid == 0"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "mode",
-     "label": "方式",
+     "name": "track_mode",
+     "label": {
+      "zh": "方式",
+      "en": "Mode"
+     },
      "target": "track.mode"
     },
     {
-     "name": "resolution",
-     "label": "处理分辨率",
+     "name": "track_resolution",
+     "label": {
+      "zh": "处理分辨率",
+      "en": "Processing Resolution"
+     },
      "target": "track.resolution"
     },
     {
-     "name": "min_confidence",
-     "label": "可见门槛",
+     "name": "track_min_confidence",
+     "label": {
+      "zh": "可见门槛",
+      "en": "Visibility Threshold"
+     },
      "target": "track.min_confidence"
     }
    ]
   },
   {
    "name": "cook_track",
-   "label": "跟踪",
+   "label": {
+    "zh": "跟踪",
+    "en": "Track"
+   },
    "target": "track.cook"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "tracks.name"
     },
     {
      "name": "format",
-     "label": "格式",
-     "target": "out.format",
+     "label": {
+      "zh": "格式",
+      "en": "Format"
+     },
+     "target": "tracks.format",
      "widget": "menu",
      "options": [
       {
        "value": "tracker",
-       "label": "Nuke Tracker"
+       "label": {
+        "zh": "Nuke Tracker",
+        "en": "Nuke Tracker"
+       }
       },
       {
        "value": "3de",
-       "label": "3DE"
+       "label": {
+        "zh": "3DE",
+        "en": "3DE"
+       }
       },
       {
        "value": "csv",
-       "label": "CSV"
+       "label": {
+        "zh": "CSV",
+        "en": "CSV"
+       }
       },
       {
        "value": "cornerpin",
-       "label": "Nuke CornerPin（恰好四个点）",
-       "hide_when": "grid != 0"
+       "label": {
+        "zh": "Nuke CornerPin（恰好四个点）",
+        "en": "Nuke CornerPin (Exactly Four Points)"
+       },
+       "hide_when": "track_grid != 0"
       }
      ]
     },
     {
      "name": "origin",
-     "label": "坐标原点",
-     "target": "out.origin",
+     "label": {
+      "zh": "坐标原点",
+      "en": "Origin"
+     },
+     "target": "tracks.origin",
      "hide_when": "format != \"csv\""
     },
     {
      "name": "min_visible",
-     "label": "最少可见帧数",
-     "target": "out.min_visible",
+     "label": {
+      "zh": "最少可见帧数",
+      "en": "Min Visible Frames"
+     },
+     "target": "tracks.min_visible",
      "hide_when": "format == \"cornerpin\""
     }
    ]
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -153,8 +231,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -169,7 +246,6 @@
   {
    "id": "track",
    "type": "cotracker.track",
-   "label": "CoTracker3 2D 跟踪点",
    "params": {
     "query_frame": null,
     "picks": [],
@@ -188,9 +264,8 @@
    }
   },
   {
-   "id": "out",
-   "type": "core.output_tracks",
-   "label": "2D 跟踪点输出设置",
+   "id": "tracks",
+   "type": "tracks.output",
    "params": {
     "name": "tracks",
     "format": "tracker",
@@ -208,8 +283,7 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
     "x": 1200,
@@ -234,13 +308,13 @@
     "tracks"
    ],
    "to": [
-    "out",
+    "tracks",
     "tracks"
    ]
   },
   {
    "from": [
-    "out",
+    "tracks",
     "files"
    ],
    "to": [

@@ -18,7 +18,7 @@ import { useWriteLock } from "../ui/writeLock";
 import { useLook, type Box } from "../state/look";
 import { usePreferences } from "../state/preferences";
 import { useViewer } from "../state/viewer";
-import { BOX_HEAD, boxContents } from "../graph/nodes";
+import { BOX_FOLD_W, BOX_HEAD, boxContents } from "../graph/nodes";
 import { GraphNode } from "./GraphNode";
 import { BlockFrames, useBlockFrames } from "./BlockFrame";
 import { NetworkBox, type BoxNode } from "./NetworkBox";
@@ -29,6 +29,8 @@ import { IconButton } from "../ui/Button";
 import { ConnectionLine, NodeMenu, TypedEdge, zoomClass } from "./FlowParts";
 import { GRAPH_DOT_COLOR } from "../platform/palette";
 import { useShortcut } from "../platform/keys";
+import { t } from "../i18n/t";
+import { tipOf } from "../platform/tips";
 
 const nodeTypes = { l2s: GraphNode, box: NetworkBox, unknown: UnknownNode };
 
@@ -76,11 +78,25 @@ export function NodeEditor() {
   const [nodeMenu, setNodeMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const closeNodeMenu = useCallback(() => setNodeMenu(null), []);
 
-  // xyflow's own ephemera (selected/dragging/measured) merged onto the composed content
-  const liveNodes = useMemo(
-    () => nodes.map((n) => ({ ...n, selected: !!selectedNodeIds[n.id]?.selected, dragging: !!selectedNodeIds[n.id]?.dragging, measured: selectedNodeIds[n.id]?.measured })),
-    [nodes, selectedNodeIds],
-  );
+  // xyflow's own ephemera (selected/dragging/measured) merged onto the composed content. A node none of whose parts
+  // changed keeps last render's object: xyflow then keeps it and draws none of its wrapper again (opening a big graph,
+  // every node's size arrives one after another: without this each arrival redrew every node)
+  const keptLive = useRef(new Map<string, PreparedGNode>());
+  const liveNodes = useMemo(() => {
+    const before = keptLive.current;
+    const now = new Map<string, PreparedGNode>();
+    const out = nodes.map((n) => {
+      const c = selectedNodeIds[n.id];
+      const selected = !!c?.selected, dragging = !!c?.dragging, measured = c?.measured;
+      const old = before.get(n.id);
+      const live = old && old.data === n.data && old.position === n.position && old.selected === selected && old.dragging === dragging && old.measured === measured
+        ? old : { ...n, selected, dragging, measured };
+      now.set(n.id, live);
+      return live;
+    });
+    keptLive.current = now;
+    return out;
+  }, [nodes, selectedNodeIds]);
   const liveWireEdges = useMemo(
     () => wireEdges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle, target: e.target, targetHandle: e.targetHandle, type: "l2s" as const, selected: selectedEdgeIds.includes(e.id) })),
     [wireEdges, selectedEdgeIds],
@@ -96,7 +112,7 @@ export function NodeEditor() {
       type: "box",
       position: { x: b.x, y: b.y },
       data: { box: b },
-      width: b.collapsed ? Math.min(b.w, 280) : b.w,
+      width: b.collapsed ? Math.min(b.w, BOX_FOLD_W) : b.w,
       height: b.collapsed ? BOX_HEAD : b.h,
       zIndex: -1,
       selected: selectedBoxIds.includes(b.id),
@@ -207,6 +223,39 @@ export function NodeEditor() {
 
   const menuAt = useMenuAt();
 
+  // ReactFlow's handlers are the same functions from render to render: xyflow hands the node ones to every node's
+  // wrapper, and a new function there redraws every node of the graph on each render of this component
+  const onNodeDragStart = useCallback((_: unknown, _n: unknown, dragged: Node[]) => {
+    const boxesNow = useLook.getState().boxes;
+    const nodesNow = nodesForBoxContents();
+    const moving = new Set(dragged.map((d) => d.id));
+    dragMembers.current = {};
+    for (const d of dragged) {
+      if (!isBox(d.id)) continue;
+      const box = boxesNow.find((b) => b.id === d.id);
+      // nodes dragged at the same time already move themselves
+      if (box) dragMembers.current[d.id] = boxContents(box, nodesNow).filter((m) => !moving.has(m));
+    }
+  }, []);
+  const onNodeDragStop = useCallback(() => void (dragMembers.current = {}), []);
+  const onNodeClick = useCallback((_: unknown, n: Node) => void (n.type !== "unknown" && !isBox(n.id) && select(n.id)), [select]);
+  const onNodeDoubleClick = useCallback((_: unknown, n: Node) => void (n.type !== "unknown" && !isBox(n.id) && setDisplay(n.id)), [setDisplay]);
+  const onPaneClick = useCallback(() => select(null), [select]);
+  const onSelectionChange = useCallback(({ nodes: picked }: { nodes: Node[] }) => void (boxed.current = picked), []);
+  const onSelectionEnd = useCallback(() => {
+    const real = boxed.current.filter((n) => n.type !== "unknown" && !isBox(n.id));
+    if (real.length === 1) select(real[0].id);
+  }, [select]);
+  const onDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (!viewer && (e.target as HTMLElement).classList.contains("react-flow__pane")) menuAt(e.clientX, e.clientY);
+  }, [viewer, menuAt]);
+  // while the view pans or zooms the canvas is one layer the compositor moves (data-moving: will-change in
+  // styles/08-node-graph.css), not repainted and rasterised again every frame: a big graph stays fluid. When the
+  // gesture ends the mark goes and the canvas is drawn sharp at the new zoom once. Set on the element, not through
+  // React: no render for it
+  const onMoveStart = useCallback(() => wrap.current?.setAttribute("data-moving", ""), []);
+  const onMoveEnd = useCallback(() => wrap.current?.removeAttribute("data-moving"), []);
+
   // the pointer's division of labour and wiring by clicks: editor/graphPointer.ts
   const pointer = useGraphPointer({ wrap, viewer, flow, menuAt, unknownIds: kept.nodes.map((n) => n.id), onNodeMenu: setNodeMenu });
   // wires lifted with Ctrl are drawn faint (they follow the pointer and move as a group when dropped; graphPointer.ts)
@@ -243,37 +292,22 @@ export function NodeEditor() {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onChanges}
-        onNodeDragStart={(_, n, dragged) => {
-          const boxesNow = useLook.getState().boxes;
-          const nodesNow = nodesForBoxContents();
-          const moving = new Set(dragged.map((d) => d.id));
-          dragMembers.current = {};
-          for (const d of dragged) {
-            if (!isBox(d.id)) continue;
-            const box = boxesNow.find((b) => b.id === d.id);
-            // nodes dragged at the same time already move themselves
-            if (box) dragMembers.current[d.id] = boxContents(box, nodesNow).filter((m) => !moving.has(m));
-          }
-          void n;
-        }}
-        onNodeDragStop={() => (dragMembers.current = {})}
+        onNodeDragStart={onNodeDragStart}
+        onNodeDragStop={onNodeDragStop}
         elevateNodesOnSelect={false}
         onEdgesChange={onEdgesChange}
         onDelete={onDelete}
-        onConnect={viewer ? undefined : (c) => connect(c)}
+        onConnect={viewer ? undefined : connect}
         onConnectEnd={viewer ? undefined : pointer.onConnectEnd}
         isValidConnection={isValidConnection}
         connectionLineComponent={ConnectionLine}
-        onNodeClick={(_, n) => n.type !== "unknown" && !isBox(n.id) && select(n.id)}
-        onNodeDoubleClick={(_, n) => n.type !== "unknown" && !isBox(n.id) && setDisplay(n.id)}
-        onPaneClick={() => select(null)}
+        onNodeClick={onNodeClick}
+        onNodeDoubleClick={onNodeDoubleClick}
+        onPaneClick={onPaneClick}
         // a selection box that ends on exactly one node opens it in the parameter panel, as a click does; several leave
         // the panel as it is
-        onSelectionChange={({ nodes: picked }) => (boxed.current = picked)}
-        onSelectionEnd={() => {
-          const real = boxed.current.filter((n) => n.type !== "unknown" && !isBox(n.id));
-          if (real.length === 1) select(real[0].id);
-        }}
+        onSelectionChange={onSelectionChange}
+        onSelectionEnd={onSelectionEnd}
         connectOnClick={false} // a click on a port is the wiring machine's (editor/wiring.ts), not two machines at once
         connectionDragThreshold={CLICK_SLOP} // under it the gesture is a click (the page's one threshold): the wire is carried, not dragged; @xyflow/react starts a drag past it, so the two never both happen
         noPanClassName="l2s-nopan" // nothing has it: a middle-drag pans over a node as well as over the empty pane
@@ -282,15 +316,15 @@ export function NodeEditor() {
         // a node touched by the selection box is selected, it need not be enclosed (as in Nuke and Houdini)
         selectionMode={SelectionMode.Partial}
         selectNodesOnDrag={false}
-        onDoubleClick={(e) => {
-          if (!viewer && (e.target as HTMLElement).classList.contains("react-flow__pane")) menuAt(e.clientX, e.clientY);
-        }}
+        onDoubleClick={onDoubleClick}
         zoomOnDoubleClick={false}
         nodesDraggable={!viewer}
         nodesConnectable={!viewer}
         edgesReconnectable={!viewer}
         deleteKeyCode={null} // Delete / Backspace go through the page's key registry (the shortcut above)
-        minZoom={0.2}
+        onMoveStart={onMoveStart}
+        onMoveEnd={onMoveEnd}
+        minZoom={0.02}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
         fitView
@@ -308,11 +342,7 @@ export function NodeEditor() {
             bgColor="rgba(22,22,26,0.92)"
             maskColor="rgba(0,0,0,0.45)"
             nodeBorderRadius={4}
-            nodeColor={(n) => {
-              if (n.type === "box") return `${(n.data as { box: Box }).box.color}33`;
-              const def = nodeDefsCached()[(n.data as PreparedGNode["data"]).typeId];
-              return catalogCategoryColor(def);
-            }}
+            nodeColor={minimapColor}
           />
         )}
       </ReactFlow>
@@ -325,25 +355,25 @@ export function NodeEditor() {
       <ProjectNotice className="graph-notice" />
       <GraphHelp />
       <div className="flow-controls glass">
-        <IconButton tip="小地图" tone="ghost" on={minimap} onClick={toggleMinimap}>
+        <IconButton aria-label={t("ui.editor.minimap")} tone="ghost" on={minimap} onClick={toggleMinimap}>
           <IconMap size={13} />
         </IconButton>
-        <IconButton tip="分组框（Shift+O）：框住选中的节点" tone="ghost" disabled={viewer} onClick={() => addBox(flow.screenToFlowPosition({ x: (wrap.current?.getBoundingClientRect().left ?? 0) + 80, y: (wrap.current?.getBoundingClientRect().top ?? 0) + 60 }))}>
+        <IconButton aria-label={t("ui.editor.add_box")} tip={tipOf("shortcut", t("ui.editor.add_box"))} tone="ghost" disabled={viewer} onClick={() => addBox(flow.screenToFlowPosition({ x: (wrap.current?.getBoundingClientRect().left ?? 0) + 80, y: (wrap.current?.getBoundingClientRect().top ?? 0) + 60 }))}>
           <IconGroup size={13} />
         </IconButton>
-        <IconButton tip="缩小" tone="ghost" onClick={() => flow.zoomOut({ duration: 150 })}>
+        <IconButton aria-label={t("ui.editor.zoom_out")} tone="ghost" onClick={() => flow.zoomOut({ duration: 150 })}>
           <IconMinus size={13} />
         </IconButton>
-        <IconButton tip="放大" tone="ghost" onClick={() => flow.zoomIn({ duration: 150 })}>
+        <IconButton aria-label={t("ui.editor.zoom_in")} tone="ghost" onClick={() => flow.zoomIn({ duration: 150 })}>
           <IconPlus size={13} />
         </IconButton>
-        <IconButton tip="适配全部" tone="ghost" onClick={() => flow.fitView({ padding: 0.18, duration: 250 })}>
+        <IconButton aria-label={t("ui.editor.fit_all")} tone="ghost" onClick={() => flow.fitView({ padding: 0.18, duration: 250 })}>
           <IconFit size={13} />
         </IconButton>
         {/* arrange the graph (graph/layout.ts): columns left to right in order, few crossings within a column, straight chains
             straightened; with several nodes selected only those are arranged. Not offered in a read-only tab */}
         {!viewer && (
-          <IconButton tip="整理节点图：按先后从左到右排开，少交叉、直链拉直（选中几个节点时只整理它们；Ctrl+Z 撤销）" tone="ghost"
+          <IconButton aria-label={t("ui.editor.arrange")} tone="ghost"
             onClick={() => (arrangeGraph(), requestAnimationFrame(() => flow.fitView({ padding: 0.18, duration: 250 })))}>
             <IconArrange size={13} />
           </IconButton>
@@ -351,6 +381,12 @@ export function NodeEditor() {
       </div>
     </div>
   );
+}
+
+function minimapColor(n: Node): string {
+  if (n.type === "box") return `${(n.data as { box: Box }).box.color}33`;
+  const def = nodeDefsCached()[(n.data as PreparedGNode["data"]).typeId];
+  return catalogCategoryColor(def);
 }
 
 function catalogCategoryColor(def: NodeTypeDef | undefined): string {

@@ -6,30 +6,32 @@ from __future__ import annotations
 
 from typing import Literal
 
-from ...nodes.base import NodeParams, P, Port
+from ...nodes.base import NodeParams, P, Port, Reads
 from ...nodes.expects import DistinctNames
 from ...nodes.formats import ImportNode, import_file_param, selection_param, selection_ports
-from ...nodes.output import OutputSettings, Writes, fps_param, name_param
+from ...nodes.output import Format, OutputSettings, Writes, fps_param, name_param
 from ...nodes.services import services
 from . import SUFFIXES
 
 
 class ImportUsd(ImportNode):
-    id = "core.import_usd"
+    id = "usd.import"
     # 原名从 customData 读取；外来文件里像转写的名字（Bone_u0041）保持原样。
-    version = 5  # 相机片门偏移按 USD 定义读取，取反得到镜头中心偏移。
+    version = 6  # 原生高斯种类与逐帧外观导入
     suffixes = SUFFIXES
+    reads = Reads(rank=9)  # 什么种类都读：别的格式都读不了时才用它
 
     class Params(NodeParams):  # USD can hold every kind found in a DCC file
         path: str = import_file_param(SUFFIXES)
         camera: str = selection_param("camera")
         models: list[str] = selection_param("models")
         points: list[str] = selection_param("points")
+        gaussians: list[str] = selection_param("gaussians")
         curves: list[str] = selection_param("curves")
         skeletons: list[str] = selection_param("skeletons")
         characters: list[str] = selection_param("characters")
     # timeCodesPerSecond: import reads one time code as one frame (reader.py _frames)
-    outputs = selection_ports(Params, fps="USD 记的帧率（timeCodesPerSecond）")
+    outputs = selection_ports(Params, fps=True)
 
     @classmethod
     def listing(cls, params):
@@ -43,7 +45,7 @@ class ImportUsd(ImportNode):
         from . import reader
 
         path = cls.path(ctx.params)
-        group = usd.import_group(ctx.label, cls.label, path.name)  # /shot/<node name or file stem>/...
+        group = usd.import_group(ctx.node_id, cls.id, path.name)  # /shot/<file stem>/...
         out = {}
         for port, entries in chosen.items():
             if port == "camera":
@@ -57,11 +59,12 @@ class ImportUsd(ImportNode):
 
 
 class UsdOutput(OutputSettings):
-    id = "core.output_usd"
+    id = "usd.output"
+    format = Format("usd")
     # 相机片门偏移取镜头中心偏移的相反数；换单位时同步换算相机、基本体和实例的位置尺寸。
-    version = 3
+    version = 4  # 输出单位同步换算高斯尺度
     category = "out_scene"
-    inputs = (Port("scene", "scene|scene[]", "场景", multi=True,
+    inputs = (Port("scene", "scene|scene[]", multi=True,
                    expects=(DistinctNames(),)),)
     on_node = ("name", "unit")
     writes = {
@@ -71,17 +74,17 @@ class UsdOutput(OutputSettings):
         "curves": Writes.full(),
         "skeleton": Writes.full(),
         "character": Writes.full(),
+        "gaussian": Writes.full(),
         "light": Writes.full(),  # 穹顶灯的 HDRI 随文件拷进 <名字>_textures/（data/scene.py _localize_textures）
     }
 
     class Params(NodeParams):
         name: str = name_param("scene")
         format: Literal["usd", "usda"] = P(
-            "usd", label="格式", group="文件", option_labels={"usd": "二进制 .usd", "usda": "文本 .usda"},
+            "usd", group="file",
         )
         unit: Literal["cm", "m"] = P(
-            "cm", label="单位", group="文件",
-            option_labels={"cm": "厘米 · Maya", "m": "米 · Houdini"},
+            "cm", group="file",
         )
         fps: float = fps_param()  # USD's timeCodesPerSecond / framesPerSecond
 

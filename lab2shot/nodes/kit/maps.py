@@ -37,8 +37,8 @@ def points_params(default_step: int = 4):
     from ..base import P
 
     return {
-        "point_step": P(default_step, label="点云间隔", ge=1, le=64, group="点云", worker=False, applies=WiredOut("points")),
-        "point_size": P(0.5, label="点的大小", unit="cm", gt=0, le=100, group="点云", worker=False, applies=WiredOut("points")),
+        "point_step": P(default_step, ge=1, le=64, group="point_cloud", worker=False, applies=WiredOut("points")),
+        "point_size": P(0.5, unit="cm", gt=0, le=100, group="point_cloud", worker=False, applies=WiredOut("points")),
     }
 
 
@@ -49,7 +49,7 @@ def native_points_of(node, raw):
     return raw.maps(node.native_points) if getattr(node, "native_points", "") else None
 
 
-def family_points(ctx, depth, camera, image=None, mask=None, confidence=None, native=None):
+def family_points(ctx, depth, camera, image=None, mask=None, confidence=None, native=None, scale_cm=None):
     """The point cloud (点云) a family gives: the model's own 3D points when its node declares them (`native_points`,
     read with `native_points_of`), else the same unprojection 「深度转点云」 performs, never a second implementation
     (what several projects share is an output of the family). Sampling, colouring, exclusion masks, confidence, point
@@ -59,11 +59,12 @@ def family_points(ctx, depth, camera, image=None, mask=None, confidence=None, na
     from ...data.units import M_TO_CM
 
     sure = confidence if confidence is not None and not confidence.meta.get("empty") else None
-    # The 「尺度」 parameter (unit_cm) is the factor this family uses to convert depth and camera; native point maps
-    # must use the same factor, otherwise changing the scale would misalign the point cloud with the camera and depth.
+    # `scale_cm` is the factor the family converts depth and camera with (DepthCamera.scale_cm: a metre, or a relative
+    # method's 「尺度」); native point maps must use the same factor, otherwise the point cloud would not sit with the
+    # camera and depth.
     return points_from_depth(ctx, depth, camera, image, mask, ctx.params.get("point_step", 4),
                              ctx.params.get("point_size", 0.5), "world", sure, native=native,
-                             scale_cm=float(ctx.params.get("unit_cm", M_TO_CM)))
+                             scale_cm=float(M_TO_CM if scale_cm is None else scale_cm))
 
 
 # The four ways a result map is resized. The channel count cannot distinguish them (an image.1 may be depth or
@@ -113,7 +114,7 @@ def _entry(entry: tuple) -> tuple:
     return kind, value, opts, (rest[0] if rest else (NEAREST if "classes" in opts else LINEAR))
 
 
-def frame_maps(ctx, raw: RawOutput, image: Packet, maps: dict, pattern: str = "frame_{}.npz", stage: str = "写出结果") -> dict[str, Packet]:
+def frame_maps(ctx, raw: RawOutput, image: Packet, maps: dict, pattern: str = "frame_{}.npz", stage: str = "write_results") -> dict[str, Packet]:
     """raw/<pattern> per frame -> one EXR sequence per output port. `maps`: port -> (kind, value, writer options), and
     optionally how it resamples (RESAMPLING; if omitted, NEAREST for a map carrying a 类别表, since ids never interpolate,
     and LINEAR otherwise). value is an array name in the frame's npz, or a function of the npz returning the array or
@@ -177,5 +178,5 @@ def depth_maps(ctx, raw: RawOutput, image: Packet, pattern: str = "frame_{}.npz"
 
     # When nothing wants this port it is not computed (frame_maps writes only wanted ports); an empty packet is returned
     # instead of raising KeyError (when downstream wants only the disparity map, this port is absent from the result).
-    made = frame_maps(ctx, raw, image, {port: ("image.1", depth, {"scale": "metric"})}, pattern, "写出深度图")
+    made = frame_maps(ctx, raw, image, {port: ("image.1", depth, {"scale": "metric"})}, pattern, "write_depth")
     return made[port] if port in made else empty_packet(ctx, port)

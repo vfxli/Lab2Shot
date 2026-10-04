@@ -2,8 +2,8 @@
  * 和参数面板里直接拖动（editor/ParamPanel.tsx）共用这一套。都返回新的树，不改原来的。路径 Path 是一层层的下标。 */
 
 import type { ExposedEntry, ExposedParam, NodeTypeDef } from "../api";
-import { conditionHolds, settledMenus } from "../platform/conditions";
-import { exposedParams, isGroup } from "../state/cookInputs";
+import { conditionHolds, renamedInCondition, settledMenus } from "../platform/conditions";
+import { exposedParams, firstTarget, isGroup, targetsOf } from "../state/cookInputs";
 
 /** 每个公开参数现在的值（按对外名字；节点没写的取节点类型的默认值，目标不在了为 null）——条件表达式里的名字取的就是它，
  * 只在这里算（参数面板、下拉的落位、服务端 engine/templates.py exposed_values 同一口径）。按钮没有值，不影响。 */
@@ -11,7 +11,7 @@ export function exposedValues(tree: ExposedEntry[], nodeOf: (id: string) => { ty
                               defs: Record<string, NodeTypeDef>): Record<string, unknown> {
   const values: Record<string, unknown> = {};
   for (const x of exposedParams(tree)) {
-    const [nid, pname] = x.target.split(".");
+    const [nid, pname] = firstTarget(x); // an entry driving several holds one value (graph/edit.ts writes them all)
     const n = nodeOf(nid);
     values[x.name] = n ? n.params[pname] ?? defs[n.typeId]?.defaults[pname] ?? null : null;
   }
@@ -95,6 +95,29 @@ export function move(tree: ExposedEntry[], from: Path, parent: Path, index: numb
   if (samePath(fParent, parent) && fi < idx) idx--;
   const took = removeAt(tree, from);
   return [insertAt(took, p, idx, [entry]), [...p, idx]];
+}
+
+/** 把 `from` 那一项合并进 `into`（「编辑参数界面」的「合并」：两项变一项，一个值写进两边的参数，同 Houdini 一个参数
+ * 引用到几处）：`into` 留下，目标接上 `from` 的（去重，按先后），`from` 去掉；别的项的 Hide When / Disable When（含下拉
+ * 各项自己的）里用到 `from` 名字的改成 `into` 的。两项都得是参数项。返回新的树和 `into` 现在的位置。 */
+export function mergeInto(tree: ExposedEntry[], into: Path, from: Path): [ExposedEntry[], Path] {
+  const a = at(tree, into) as ExposedParam;
+  const b = at(tree, from) as ExposedParam;
+  const keys = [...new Set([...targetsOf(a), ...targetsOf(b)])];
+  const merged: ExposedParam = { ...a, target: keys.length === 1 ? keys[0] : keys };
+  const renamed = (e: ExposedEntry): ExposedEntry => {
+    if (isGroup(e)) return { ...e, children: e.children.map(renamed) };
+    const r = (s: string | undefined) => (s === undefined ? s : renamedInCondition(s, b.name, a.name));
+    const out: ExposedParam = { ...e };
+    if (e.hide_when !== undefined) out.hide_when = r(e.hide_when);
+    if (e.disable_when !== undefined) out.disable_when = r(e.disable_when);
+    if (e.options) out.options = e.options.map((o) => ({ ...o, ...(o.hide_when !== undefined ? { hide_when: r(o.hide_when) } : {}),
+      ...(o.disable_when !== undefined ? { disable_when: r(o.disable_when) } : {}) }));
+    return out;
+  };
+  const next = removeAt(replaceAt(tree, into, merged), from).map(renamed);
+  const now = rowsOf(next).find((row) => !isGroup(row.entry) && row.entry.name === a.name)?.path ?? into;
+  return [next, now];
 }
 
 /** 拖动排序的落点规则（参数面板里直接拖、「编辑参数界面」弹窗里拖，同一套）：`rows` 是 rowsOf 的一行行，行 `to` 等于

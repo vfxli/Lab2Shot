@@ -8,7 +8,7 @@ Needs the SMPL-X model file, which the user downloads after registering
 
 from __future__ import annotations
 
-from lab2shot.sdk import CUDA_13_2_TOOLKIT, RESEARCH, EnvSpec, Extension, GitSource, LicenseInfo, hf_file, body_model_weight, downloads
+from lab2shot.sdk import CUDA_13_2_TOOLKIT, RESEARCH, EnvSpec, Extension, GitSource, LicenseInfo, hf_file, body_model_weight
 
 
 GVHMR_URL = "https://github.com/zju3dv/GVHMR.git"
@@ -19,16 +19,19 @@ GVHMR_COMMIT = "6ec3ca39336c50492c0fae65fba2fb831fc7d866"  # main (parallel Simp
 # sha256-checked (the gvhmr checkpoint is byte-identical to the Drive original).
 # Laid out as the code expects (inputs/checkpoints/...): the worker makes weights/
 # the project root for these paths.
-MIRROR, MIRROR_REVISION = downloads.GVHMR_MIRROR, downloads.GVHMR_MIRROR_REVISION
+MIRROR, MIRROR_REVISION = "camenduru/GVHMR", "21b32d5389e2e59c0737d4c4095bbc0b8c23f66b"
+# pytorch3d v0.7.9 (pixel3dmm pins the same commit)
+PYTORCH3D = GitSource("https://github.com/facebookresearch/pytorch3d.git", "33824be3cbc87a7dd1db0f6a9a9de9ac81b2d0ba")
+
 MIRROR_FILES = {
-    # key: (path in the mirror, sha256, note). The files WHAM uses too are pinned in extensions/downloads.py.
+    # key: (path in the mirror, sha256); each one's note is extension.gvhmr.weight.<key>.note. WHAM pins the files it uses too in its own declaration.
     # With no 人物框 wired, upstream's own YOLOv8x tracker (hmr4d/utils/preproc/tracker.py) finds
     # the people, so its checkpoint is needed.
-    "yolo": (downloads.YOLOV8X.filename, downloads.YOLOV8X.sha256, "YOLOv8x 人物检测和跟踪（Ultralytics AGPL-3.0），131 MB"),
+    "yolo": ("yolo/yolov8x.pt", "c4d5a3f000d771762f03fc8b57ebd0aae324aeaefdd6e68492a9c4470f2d1e8b"),
     "gvhmr": ("gvhmr/gvhmr_siga24_release.ckpt",
-              "4fae7da2de388d5da3514cb27a2d003f364dacb280e9cf88972b710e589c6b91", "GVHMR 主网络（非商用），156 MB"),
-    "hmr2a": (downloads.HMR2A.filename, downloads.HMR2A.sha256, "HMR2.0a 图像特征（4D-Humans，MIT），2.7 GB"),
-    "vitpose-h": (downloads.VITPOSE_H.filename, downloads.VITPOSE_H.sha256, "ViTPose-H 2D 关键点（Apache-2.0），2.5 GB"),
+              "4fae7da2de388d5da3514cb27a2d003f364dacb280e9cf88972b710e589c6b91"),
+    "hmr2a": ("hmr2/epoch=10-step=25000.ckpt", "2dcf79638109781d1ae5f5c44fee5f55bc83291c210653feead9b7f04fa6f20e"),
+    "vitpose-h": ("vitpose/vitpose-h-multi-coco.pth", "50e33f4077ef2a6bcfd7110c58742b24c5859b7798fb0eedd6d2215e0a8980bc"),
 }
 
 
@@ -36,25 +39,17 @@ class GVHMR(Extension):
     name = "gvhmr"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "GVHMR"
-    summary = "从单目视频恢复落在世界里的人体动作，用重力-视角坐标解决世界坐标系定义不唯一的问题"
     homepage = "https://zju3dv.github.io/gvhmr/"
     source = GitSource(url=GVHMR_URL, commit=GVHMR_COMMIT)
     # pytorch3d v0.7.9, built from source without Pulsar (build_pytorch3d.py). Checked out by the installer like the repo
     # (mirror, retry, pinned commit) and handed to the script as LAB2SHOT_EXTRA_PYTORCH3D — it never fetches on its own
-    extra_sources = {"pytorch3d": downloads.PYTORCH3D}
+    extra_sources = {"pytorch3d": PYTORCH3D}
     license = LicenseInfo(
         tag=RESEARCH,  # its released weights are trained on AMASS and BEDLAM (exp gvhmr/mixed): research only
         uses=("SMPL-X", "AMASS", "BEDLAM"),
-        name="GVHMR 非商用许可 + SMPL-X 非商用 + AMASS / BEDLAM 学术许可（训练数据）",
         url="https://github.com/zju3dv/GVHMR/blob/main/LICENSE",
-        summary=(
-            "仅限研究。发布的权重用 AMASS、BEDLAM 等只许学术研究的数据训练（上游 exp=gvhmr/mixed/mixed）。GVHMR 代码和权重：浙江大学许可，只允许教育、科研和非营利用途，基于它的修改必须开源且禁止商用"
-            "（商用需联系 xwzhou@zju.edu.cn）。运行必须用 SMPL-X 人体模型（SMPLX_NEUTRAL.npz），需要在 smpl-x.is.tue.mpg.de "
-            "注册后自己下载，仅限非商用科研，禁止再分发。其余权重：HMR2.0a（4D-Humans，MIT，训练数据含非商用数据集）、"
-            "ViTPose-H（Apache-2.0，多数据集训练）、YOLOv8x（Ultralytics AGPL-3.0，上游自己的人物检测和跟踪）。"
-            "依赖 pytorch3d（BSD）、pycolmap（BSD）、smplx 代码（MPI 非商用许可）、ultralytics（AGPL-3.0）"
-        ),
     )
+    generative = False
     import_repo = ""
     # 上游 requirements.txt 钉的 torch 2.3.0+cu121 只编到 sm_50-90、没打 PTX，在 Blackwell（sm_120）显卡上
     # 一启动就崩；所以 torch 用带 sm_120 的版本，pytorch3d（Meta 没有对应新 torch/CUDA 组合的预编译 wheel）
@@ -85,8 +80,8 @@ class GVHMR(Extension):
         pickled_checkpoints=True,  # yolov8x.pt（ultralytics 的 torch.load 不传 weights_only）
     )
     weights = tuple(
-        hf_file(MIRROR, MIRROR_REVISION, path, key=key, dest=f"inputs/checkpoints/{path}", note=note, sha256=sha256)
-        for key, (path, sha256, note) in MIRROR_FILES.items()
+        hf_file(MIRROR, MIRROR_REVISION, path, key=key, dest=f"inputs/checkpoints/{path}", sha256=sha256)
+        for key, (path, sha256) in MIRROR_FILES.items()
     ) + (body_model_weight("smplx"),)
 
 

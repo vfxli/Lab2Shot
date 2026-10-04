@@ -1,0 +1,14 @@
+# The node mode / app mode switch and the empty graph's welcome page (webui/src/editor/AppMode.tsx, Welcome.tsx).
+[ui.app]
+mode = "Mode"
+node_mode = "Node Mode"
+app_mode = "App Mode"
+
+[ui.app.welcome]
+title = "Start a Node Graph"
+sub = "Starting from a template is fastest; you can also add nodes one by one"
+templates_desc = "Ready-made workflows: choose your footage and cook"
+add = "Add Node"
+add_desc = "Press Tab or right-click in the node graph"
+open = "Open Node Graph"
+open_desc = "A node graph file saved on this computer"

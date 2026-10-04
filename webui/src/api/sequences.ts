@@ -1,5 +1,6 @@
 import { api } from ".";
 import { rangeText } from "../platform/format";
+import { t } from "../i18n/t.ts";
 
 /** Files the user picked or dropped, the way Nuke reads a folder: numbered frames of one sequence are one item
  * (plate.####.exr 1001-1124, 000000_left.png as ######_left.png), anything else an item of its own. Which names make a
@@ -62,4 +63,4 @@ export async function choices(files: File[], accept: string[], sequence: boolean
 
 /** How a choice is listed: its frames and count, 1001-1124 · 124 帧. */
 export const framesText = (item: Item) =>
-  item.kind === "sequence" ? `${rangeText(item.frames[0], item.frames[item.frames.length - 1])} · ${item.frames.length} 帧` : "单张";
+  item.kind === "sequence" ? t("ui.upload.sequence_frames", { range: rangeText(item.frames[0], item.frames[item.frames.length - 1]), count: item.frames.length }) : t("ui.upload.single_image");

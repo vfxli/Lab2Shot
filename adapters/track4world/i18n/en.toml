@@ -1,0 +1,58 @@
+# Track4World extension: display words and messages in English (the same keys as zh.toml).
+
+# ---- tracking (worker.py)
+"E-TRACK4WORLD-WEIGHTS.one" = "The Track4World model weights are missing {count} parameter ({example}, for one): the weights file and the code are different versions; an administrator should run lab2shot ext install track4world again"
+"E-TRACK4WORLD-WEIGHTS.other" = "The Track4World model weights are missing {count} parameters ({example}, for one): the weights file and the code are different versions; an administrator should run lab2shot ext install track4world again"
+"E-TRACK4WORLD-SMALLSIDE" = "The {width:d}x{height:d} plate scaled to Processing Resolution {side:d} becomes {w:d}x{h:d}, with a short side under {need:d}: Track4World's correlation pyramid has 5 levels and shrinks to 0 pixels when the short side is below {need:d}. Raise Processing Resolution (the wider the plate, the higher it must go)"
+
+[node."track4world.track"]
+subtitle = "Dense 3D Tracks"
+description = "Images → dense 3D trajectories: one point every few pixels of the reference frame, tracked through the whole shot as an animated point cloud with IDs and velocities (real-world scale, plus a camera per frame). It needs only the images; it solves the world and the camera itself, and upstream also outputs a dense world-space point cloud and a valid region per frame. In Houdini, emit particles or dust from moving surfaces, or build proxy geometry for moving objects; for sparse points that export to 3DE, use TAPIP3D 3D Tracks. Research only: the licence forbids production use. The extra point cloud is one cloud per frame (upstream world_points: each frame's dense points placed in the one world it solved), not a single scene point cloud solved over the whole shot."
+official.note = "Upstream model.infer(rgbs_selected, iters, sw, is_training, tracking3d) (demo.py:499-505) takes only the images: no camera, no mask, no query points; it solves the camera itself (camera_poses). So the node has no mask or camera input: to track only one region, wire Person Boxes to Mask → Composite (Keep) in the graph to cover the image before it goes into the RGB port; to place the result in the world of your own camera, use an explicit utility node rather than doing it inside this node. Point Cloud = world_points in upstream's return (a dense world-space point map per frame, demo.py:519; upstream world_points = c2w @ points, nets/model.py:193, so the points (camera space) in the same return are the same data in another coordinate system and get no port of their own); Valid Region = masks in the same return (demo.py:520, which pixels of the frame have a usable 3D point)."
+licence.note = "Research only, the licence forbids production use: Track4World's code and model weights are for academic research only and may not be used commercially or in production under any circumstances; the Depth Anything 3 backbone model weights are CC BY-NC 4.0."
+
+[node."track4world.track".param.query_frame]
+label = "Reference Frame"
+placeholder = "First Frame"
+
+[node."track4world.track".param.track_step]
+label = "Track Spacing"
+
+[node."track4world.track".param.resolution]
+label = "Processing Resolution"
+
+[node."track4world.track".param.max_frames]
+label = "Max Frames per Segment"
+
+[node."track4world.track".param.picks]
+label = "Picked Points"
+placeholder = "Press Pick in Viewport, then click the points to track on the reference frame"
+
+[node."track4world.track".port.points]
+label = "Point Cloud"
+help = "The dense world-space points per frame that upstream outputs in the same pass (upstream world_points = camera × each frame's camera-space points; when the shot is computed in segments, they are placed back in one world by the stitched camera): sampled every Point Cloud Spacing, only pixels inside Valid Region, colored from that frame's image. Not the same as 3D Tracks: each frame is computed on its own, and points carry no correspondence between frames"
+
+[node."track4world.track".port.valid]
+label = "Valid Region"
+help = "Upstream masks: which pixels of the frame have a usable 3D point (0 for sky and textureless areas)"
+
+[node."track4world.track".stage]
+write_valid = "Write Valid Region"
+make_points = "Build Point Cloud"
+
+[extension.track4world]
+summary = "Feed-forward, global estimation of dense 3D scene flow for every pixel between any two frames of a monocular video; research only, the licence forbids production use"
+license.name = "Track4World License (academic research only, no commercial or production use)"
+license.summary = "Research only, the licence forbids production use: the licence text restricts use to academic purposes and states it \"may not be used for commercial or production purposes under any circumstances\", covering the inference code and the model weights. The Depth Anything 3 backbone (Depth Anything 3 Nested Giant-Large 1.1) model weights it uses are CC BY-NC 4.0, non-commercial; the AllTracker part bundled in the repository is MIT. Use it only for research and testing, never in any project's deliverables"
+weight.track4world_da3.note = "Track4World (Depth Anything 3 backbone, 5.5 GB; research only, the licence forbids production use)"
+weight."da3nested/model.safetensors".note = "Depth Anything 3 backbone Depth Anything 3 Nested Giant-Large 1.1 (CC BY-NC 4.0, 6.8 GB)"
+weight."da3nested/config.json".note = "Network configuration of the Depth Anything 3 backbone"
+
+[stage]
+read_images = "Read Images"
+track = "Track"
+track_dense = "Track Points over the Whole Frame"
+track_dense_segments.one = "Track Points over the Whole Frame ({frames} Frame per Segment)"
+track_dense_segments.other = "Track Points over the Whole Frame ({frames} Frames per Segment)"
+write_dense = "Write Dense Points and Valid Mask"
+write_dense_each = "Write Dense Points"

@@ -2,90 +2,141 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "4c1f7a6e58d94b2fa0c3e5d71b8f6a29",
-  "name": "运动矢量 · WAFT",
-  "intro": "WAFT 是简单有效的光流方法，和 RAFT 相似，但把代价体换成高分辨率的扭曲，精度更好、显存更省，在 Spring、Sintel、KITTI 上都排第一。这张卡交付 Nuke 能读的多层 EXR：运动矢量、置信度和遮挡。",
+  "name": {
+   "zh": "运动向量 · WAFT",
+   "en": "Motion Vectors · WAFT"
+  },
+  "intro": {
+   "zh": "WAFT 是简单有效的光流方法，和 RAFT 相似，但把代价体换成高分辨率的扭曲，精度更好、显存更省，在 Spring、Sintel、KITTI 上都排第一。这张卡交付 Nuke 能读的多层 EXR：运动向量、置信度和遮挡。",
+   "en": "WAFT is a simple, effective optical flow method similar to RAFT, but it replaces the cost volume with high-resolution warping, giving better accuracy with less GPU memory, and ranks first on Spring, Sintel and KITTI. This card delivers a multi-layer EXR that Nuke reads: motion vectors, confidence and occlusion."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-20T10:00:00",
   "deliverable": "motion",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
-   "name": "resolution",
-   "label": "处理分辨率",
+   "name": "flow_resolution",
+   "label": {
+    "zh": "处理分辨率",
+    "en": "Processing Resolution"
+   },
    "target": "flow.resolution"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
      "name": "occlusion_tolerance",
-     "label": "遮挡容差",
-     "target": "occ.tolerance"
+     "label": {
+      "zh": "遮挡容差",
+      "en": "Occlusion Tolerance"
+     },
+     "target": "occlusion.tolerance"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "exr.name"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
-       "target": "out.exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -95,17 +146,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "计算",
+     "word": "cook",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -114,8 +171,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -124,28 +180,26 @@
    },
    "ui": {
     "x": 0,
-    "y": 111
+    "y": 118
    }
   },
   {
    "id": "flow",
    "type": "waft.flow",
-   "label": "WAFT 运动矢量",
    "params": {
     "resolution": 960
    },
    "ui": {
     "x": 400,
-    "y": 77,
+    "y": 84,
     "on_node": [
      "resolution"
     ]
    }
   },
   {
-   "id": "occ",
-   "type": "core.motion_occlusion",
-   "label": "遮挡遮罩",
+   "id": "occlusion",
+   "type": "occlusion_from_motion",
    "params": {
     "tolerance": 1.0
    },
@@ -158,9 +212,8 @@
    }
   },
   {
-   "id": "out",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "id": "exr",
+   "type": "exr.output",
    "params": {
     "name": "motion",
     "layers": [
@@ -190,8 +243,8 @@
     "colorspace": null
    },
    "ui": {
-    "x": 1200,
-    "y": 144,
+    "x": 1223,
+    "y": 154,
     "on_node": [
      "name"
     ]
@@ -199,12 +252,11 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1600,
-    "y": 144
+    "x": 1623,
+    "y": 154
    }
   }
  ],
@@ -225,7 +277,7 @@
     "flow"
    ],
    "to": [
-    "occ",
+    "occlusion",
     "flow"
    ]
   },
@@ -235,7 +287,7 @@
     "flow"
    ],
    "to": [
-    "out",
+    "exr",
     "layer1"
    ]
   },
@@ -245,33 +297,33 @@
     "confidence"
    ],
    "to": [
-    "out",
+    "exr",
     "layer2"
    ]
   },
   {
    "from": [
-    "occ",
+    "occlusion",
     "occluded"
    ],
    "to": [
-    "out",
+    "exr",
     "layer3"
    ]
   },
   {
    "from": [
-    "occ",
+    "occlusion",
     "revealed"
    ],
    "to": [
-    "out",
+    "exr",
     "layer4"
    ]
   },
   {
    "from": [
-    "out",
+    "exr",
     "files"
    ],
    "to": [

@@ -1,0 +1,56 @@
+# The StableMotion extension's own words and messages in English (the same keys as zh.toml).
+
+# ---- skeleton
+"E-STABLEMOTION-NOSTATS" = "StableMotion's normalization statistics are missing: {path}. These two files (mean.pt / std.pt) ship with the upstream repository, so the extension may be broken: ask an administrator to run lab2shot ext install stablemotion again"
+"E-STABLEMOTION-SKELETON" = "StableMotion Mocap Cleanup cannot map the wired skeleton onto the SMPL skeleton: {reason}"
+"E-STABLEMOTION-SKELETON.app" = "The skeleton in the motion file cannot be matched to the SMPL skeleton: {reason}"
+
+# ---- frames
+"E-STABLEMOTION-SHORT.one" = "At the model's 20 FPS this animation has only {frames} frame; StableMotion Mocap Cleanup needs at least {least} to tell what is broken. Wire a longer animation, or raise the frame rate with Retime"
+"E-STABLEMOTION-SHORT.other" = "At the model's 20 FPS this animation has only {frames} frames; StableMotion Mocap Cleanup needs at least {least} to tell what is broken. Wire a longer animation, or raise the frame rate with Retime"
+"E-STABLEMOTION-SHORT.app.one" = "At the model's 20 fps this animation has only {frames} frame; it needs at least {least} to tell what is broken: choose a longer animation"
+"E-STABLEMOTION-SHORT.app.other" = "At the model's 20 fps this animation has only {frames} frames; it needs at least {least} to tell what is broken: choose a longer animation"
+"N-STABLEMOTION-PARTS.one" = "The shot is {seconds:.1f} s, longer than the 5 s StableMotion Mocap Cleanup sees at once: the broken frames fall in separate places ({parts}), each redrawn in its own 100-frame window, and only the broken frames are written back (good frames are untouched). Windows are placed where the broken frames are and may overlap or leave gaps (usually of no more than {overlap} frames); there is no crossfade"
+"N-STABLEMOTION-PARTS.other" = "The shot is {seconds:.1f} s, longer than the 5 s StableMotion Mocap Cleanup sees at once: the broken frames fall in separate places ({parts}), each redrawn in its own 100-frame window, and only the broken frames are written back (good frames are untouched). Windows are placed where the broken frames are and may overlap or leave gaps (usually of no more than {overlap} frames); there is no crossfade"
+"I-STABLEMOTION-FOUND" = "StableMotion Mocap Cleanup finds {bad} problem frames (of {total})"
+"W-STABLEMOTION-SHORTTAKE.one" = "This animation is only {seconds:.1f} s ({frames} frames for the model), short of the {window} frames (5 s) StableMotion Mocap Cleanup looks at at once: in tests, shots under 5 s get many frames judged broken (70%–100% for 2 s shots, only 2%–3% for 5 s shots). Cleaning a whole mocap take and cutting it afterwards is far more reliable than cutting first; read the Problem Frames curve with care"
+"W-STABLEMOTION-SHORTTAKE.other" = "This animation is only {seconds:.1f} s ({frames} frames for the model), short of the {window} frames (5 s) StableMotion Mocap Cleanup looks at at once: in tests, shots under 5 s get many frames judged broken (70%–100% for 2 s shots, only 2%–3% for 5 s shots). Cleaning a whole mocap take and cutting it afterwards is far more reliable than cutting first; read the Problem Frames curve with care"
+"W-STABLEMOTION-SHORTTAKE.app.one" = "This animation is only {seconds:.1f} s ({frames} frame of the model's own), short of the {window} frames (5 s) it looks at at once: takes under 5 s get many frames judged bad (70%–100% for 2 s, only 2%–3% for 5 s). Cleaning a whole take and cutting it afterwards is far more reliable; read the Bad Frames curve with care"
+"W-STABLEMOTION-SHORTTAKE.app.other" = "This animation is only {seconds:.1f} s ({frames} frames of the model's own), short of the {window} frames (5 s) it looks at at once: takes under 5 s get many frames judged bad (70%–100% for 2 s, only 2%–3% for 5 s). Cleaning a whole take and cutting it afterwards is far more reliable; read the Bad Frames curve with care"
+
+[node."stablemotion.cleanup"]
+subtitle = "Mocap Cleanup"
+description = "StableMotion from SFU and EA: first judges, frame by frame, whether the pose is broken (jitter, joint pops, interpenetration, feet sinking into the ground), then redraws only the frames judged broken, leaving good frames untouched. The judgement comes out as a Problem Frames curve. Trained on AMASS mocap at 20 FPS; fingers and face are not included."
+official.note = "The Problem Frames curve is upstream's label: `detect_labels` (same file, 33-117) reads channel 233 to judge each frame good or bad, and out['label'] is fed to fix_motion. Both passes are the two commands of upstream's README."
+licence.note = "Research only: the code is MIT, but the released model weights were trained on AMASS, whose license allows only non-commercial academic research. For commercial use, retrain a model on your own mocap as upstream describes."
+cost.whole = "Finds problem frames over the whole take in one pass; only the broken parts are redrawn, in 5 s windows"
+
+[node."stablemotion.cleanup".param.quality]
+label = "Quality"
+option.basic = "Basic"
+option.best = "Enhanced"
+
+[node."stablemotion.cleanup".param.seed]
+label = "Random Seed"
+
+[node."stablemotion.cleanup".port.labels]
+label = "Problem Frames"
+
+[extension.stablemotion]
+summary = "Trains a mocap cleanup model on unpaired broken data: a diffusion model that both discriminates and generates, detecting and fixing broken frames; research only"
+license.name = "MIT (code) + AMASS academic license (model weights)"
+license.summary = "Research only. The code is MIT and free to use, but the released model weights StableMotion-BrokenAMASS were trained on AMASS, whose license allows only non-commercial academic research, so this node is classed at the stricter level (when in doubt, stricter). For commercial use, retrain a model on your own mocap data as upstream's README says."
+
+[manual.stablemotion]
+title = "StableMotion Model Weights"
+what = "Mocap cleanup model StableMotion-BrokenAMASS (a 270 MB archive)"
+download = "The OneDrive link in the Pretrained Checkpoint section of the README"
+note = "The authors host the model weights on OneDrive, which only hands out the file after a click in a browser, so the program cannot download it; the weights were trained on AMASS and are for academic research only"
+
+[stage]
+align_skeleton = "Align Skeleton"
+detect_problems = "Detect Problem Frames"
+find_problems = "Find Problem Frames"
+redraw_problems = "Redraw Problem Frames"
+redraw = "Redraw"
+restore_skeleton = "Back to the Character's Skeleton"

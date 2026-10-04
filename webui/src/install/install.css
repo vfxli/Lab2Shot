@@ -153,7 +153,7 @@
 
 .inst-check {
   display: grid;
-  grid-template-columns: 16px 64px 1fr;
+  grid-template-columns: 16px max-content minmax(0, 1fr); /* the kind as wide as its words, in either language */
   gap: 8px;
   align-items: baseline;
   font-size: var(--fs-md);

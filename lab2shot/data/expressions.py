@@ -1,4 +1,4 @@
-"""Facial expression names (「表情重定向（ARKit52）」, core.expression_retarget_arkit52): which of a source's expression curves drives which
+"""Facial expression names (「表情重定向（ARKit52）」, retarget_expression): which of a source's expression curves drives which
 of a character's blend shapes, guessed by name. The project's one table of expression names and their aliases.
 
 The common vocabulary is Apple ARKit's 52 blend shapes (ARFaceAnchor.BlendShapeLocation): MediaPipe's face landmarker
@@ -14,8 +14,8 @@ not named movements: they reach ARKit shapes through no name, only through a FLA
 same components as blend shapes (matched by their own names, as any name is matched when both sides use it).
 
 A mapping row is the 「对应关系」 row of data/joints.py: {"part": slot, "src": [curve], "dst": [blend shape]}; the slots
-are the source's curves (ARKit ones by their ARKit name, any other by its own name), so the same editor
-(webui/src/editor/RigMap.tsx) shows them as a grid of expression slots instead of a body.
+are the source's curves (ARKit ones by their ARKit name, any other by its own name), shown as a table with one row per
+expression slot (webui/src/editor/ExpressionMap.tsx, widget "expression_map"; nodes/kit/rig_map.py expression_choice).
 """
 
 from __future__ import annotations
@@ -25,20 +25,20 @@ import re
 SIDES = {"left": "Left", "right": "Right"}
 # ARKit's 52, by region (the editor groups its slots by these; the notes of the node too)
 ARKIT: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("眉毛", ("browDownLeft", "browDownRight", "browInnerUp", "browOuterUpLeft", "browOuterUpRight")),
-    ("眼睛", ("eyeBlinkLeft", "eyeBlinkRight", "eyeLookDownLeft", "eyeLookDownRight", "eyeLookInLeft", "eyeLookInRight",
+    ("brows", ("browDownLeft", "browDownRight", "browInnerUp", "browOuterUpLeft", "browOuterUpRight")),
+    ("eyes", ("eyeBlinkLeft", "eyeBlinkRight", "eyeLookDownLeft", "eyeLookDownRight", "eyeLookInLeft", "eyeLookInRight",
               "eyeLookOutLeft", "eyeLookOutRight", "eyeLookUpLeft", "eyeLookUpRight", "eyeSquintLeft", "eyeSquintRight",
               "eyeWideLeft", "eyeWideRight")),
-    ("脸颊、鼻子", ("cheekPuff", "cheekSquintLeft", "cheekSquintRight", "noseSneerLeft", "noseSneerRight")),
-    ("下巴", ("jawForward", "jawLeft", "jawRight", "jawOpen")),
-    ("嘴", ("mouthClose", "mouthFunnel", "mouthPucker", "mouthLeft", "mouthRight", "mouthSmileLeft", "mouthSmileRight",
+    ("cheeks_nose", ("cheekPuff", "cheekSquintLeft", "cheekSquintRight", "noseSneerLeft", "noseSneerRight")),
+    ("jaw", ("jawForward", "jawLeft", "jawRight", "jawOpen")),
+    ("mouth", ("mouthClose", "mouthFunnel", "mouthPucker", "mouthLeft", "mouthRight", "mouthSmileLeft", "mouthSmileRight",
            "mouthFrownLeft", "mouthFrownRight", "mouthDimpleLeft", "mouthDimpleRight", "mouthStretchLeft",
            "mouthStretchRight", "mouthRollLower", "mouthRollUpper", "mouthShrugLower", "mouthShrugUpper",
            "mouthPressLeft", "mouthPressRight", "mouthLowerDownLeft", "mouthLowerDownRight", "mouthUpperUpLeft",
            "mouthUpperUpRight")),
-    ("舌头", ("tongueOut",)),
+    ("tongue", ("tongueOut",)),
 )
-OTHER = "其他"  # the region of a curve that is not an ARKit shape
+OTHER = "other"  # the region of a curve that is not an ARKit shape (region ids: their words expressions.region.<id>)
 # names that say an ARKit shape in other words (compared by key(), like every name)
 ALIASES = {"eyelid_left": "eyeBlinkLeft", "eyelid_right": "eyeBlinkRight",  # FLAME / SMIRK / Pixel3DMM
            "jaw_drop": "jawOpen", "mouth_open": "jawOpen", "brow_raise_inner": "browInnerUp"}
@@ -81,7 +81,10 @@ def slot_rows(curves: list[str]) -> list[dict]:
     ids = list(dict.fromkeys(slot(c) for c in curves))
     order = {n: k for k, n in enumerate(n for _, names in ARKIT for n in names)}
     ids.sort(key=lambda s: order.get(s, len(order)))
-    return [{"id": s, "label": s, "region": REGION_OF.get(s, OTHER), "chain": False, "required": False} for s in ids]
+    from .. import i18n
+
+    return [{"id": s, "label": s, "region": i18n.t(f"expressions.region.{REGION_OF.get(s, OTHER)}"),
+             "region_id": REGION_OF.get(s, OTHER), "chain": False, "required": False} for s in ids]
 
 
 def auto_rows(curves: list[str], shapes: list[str]) -> list[dict]:
@@ -110,12 +113,14 @@ def merged_rows(mapping: list[dict] | None, auto: list[dict]) -> tuple[list[dict
 
 def check_mapping(rows: list[dict], curves: list[str], shapes: list[str]) -> None:
     """Refuses a row naming a curve the source lacks or a shape the target lacks (E-EXPRMAP-NONAME), more than one of
-    either on a slot (E-EXPRMAP-ONENAME), and one curve or one shape on two slots (E-EXPRMAP-SHARED) — the rules the
-    editor shows in the error colour (webui/src/editor/rigMap/rules.ts problems); this is the authority."""
+    either on a slot (E-EXPRMAP-ONENAME), and one curve or one shape on two slots (E-EXPRMAP-SHARED); this is the
+    authority, checked when the node cooks."""
     from ..errors import Invalid
     from ..messages import Msg
 
-    for col, have, said in (("src", curves, "表情"), ("dst", shapes, "目标")):
+    from .. import i18n
+
+    for col, have, said in (("src", curves, i18n.Word("expressions.side")), ("dst", shapes, i18n.Word("role.target"))):
         taken: dict[str, str] = {}
         for row in rows:
             names = list(row[col])

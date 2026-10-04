@@ -1,0 +1,49 @@
+# The RoMa v2 extension's own words and messages in English (the same keys as zh.toml).
+
+"N-ROMAV2-NOSHAREDFRAMES" = "RGB (frames {first}–{last}) and Reference (frames {other_first}–{other_last}) share no frame numbers, so this output is empty. The two are paired by frame number (a reference that is one photo pairs with every frame): make their frame numbers match and cook again."
+"N-ROMAV2-UNPAIRED.one" = "{count:d} frame of RGB has no frame with the same number in Reference: no matches are output for them."
+"N-ROMAV2-UNPAIRED.other" = "{count:d} frames of RGB have no frame with the same number in Reference: no matches are output for them."
+"E-ROMAV2-NOPAIRS" = "RoMa v2 Image Alignment received no frames to match: the node and its worker disagree. Send this node's log from the parameter pane to the developers."
+"E-ROMAV2-REFERENCESIZE" = "Frame {frame} of Reference is {width}×{height}, a different size from its other frames ({other_width}×{other_height}): every frame of the reference must be the same size."
+
+[node."romav2.match"]
+subtitle = "Image Alignment"
+description = "RoMa v2: where each pixel of the image lies in the reference. Outputs an ST map that aligns the reference to the image (wire it into STMap with the reference as the source; in Nuke use STMap), a confidence, and the matches on both sides (points with the same name are one pair, for 3DE, COLMAP and PnP). Use it to align witness cameras and reference photos to the plate, align pickups to hero footage, and carry roto across takes. To track points through a whole shot frame by frame, use AllTracker Tracked Patches."
+official.note = "ST Map is the official warp_AB (romav2.py:344) brought to the image size; Matches on Image and Matches on Reference are the two halves of the same matches_AB (romav2.py:384): each row is an A coordinate plus a B coordinate, and points with the same name are one pair. Upstream also gives the reverse warp_BA / overlap_BA / precision (romav2.py:365-368), which have no port here."
+licence.note = "Code and model weights are MIT; the DINOv3 backbone inside the model weights is under the DINOv3 License (commercial use allowed; no military or similar uses; redistributions include the license)."
+cost.whole = "Works on one pair of images (not a shot frame by frame); measured at about 2.3 s per pair"
+
+[node."romav2.match".port.other]
+label = "Reference"
+
+[node."romav2.match".port.stmap]
+label = "ST Map"
+
+[node."romav2.match".port.matches]
+label = "Matches on Image"
+
+[node."romav2.match".port.other_matches]
+label = "Matches on Reference"
+
+[node."romav2.match".port.confidence]
+help = "Whether each pixel can be found in the reference and how accurate its match is (RoMa v2's own certainty, 0–1). To use it as a mask, wire it through Confidence to Mask first."
+
+[node."romav2.match".param.setting]
+label = "Precision"
+option.fast = "Fast"
+option.base = "Standard"
+option.precise = "Fine"
+
+[node."romav2.match".param.matches]
+label = "Match Count"
+
+[stage]
+match_pairs.one = "Dense matching ({pairs} pair)"
+match_pairs.other = "Dense matching ({pairs} pairs)"
+match = "Dense matching"
+
+[extension.romav2]
+summary = "Dense feature matching: estimates all correspondences between two images of the same 3D scene"
+license.name = "MIT + DINOv3 License"
+license.summary = "The RoMa v2 code and model weights are MIT. The model weights contain a DINOv3 ViT-L backbone under Meta's DINOv3 License: commercial use, modification and redistribution are allowed (redistributions must include the license text, publications must credit DINOv3); military, weapons, nuclear and similar uses and use by sanctioned parties are prohibited. Commercial use allowed"
+weight.romav2.note = "RoMa v2.0.1 (1.1 GB, MIT; contains the DINOv3 ViT-L backbone, DINOv3 License)"

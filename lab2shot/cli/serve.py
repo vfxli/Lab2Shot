@@ -6,16 +6,16 @@ from typing import Optional
 
 import typer
 
+from .. import i18n
 from .base import app, console
 
 
-@app.command()
+@app.command(help=i18n.t("cli.serve.help"))
 def ui(
-    port: Optional[int] = typer.Option(None, "--port", help="端口，仅对本次启动有效；默认使用管理页面「设置」中的端口"),
-    host: Optional[str] = typer.Option(None, "--host", help="监听地址，仅对本次启动有效；默认按管理页面「设置」中的访问范围。0.0.0.0 允许局域网内的计算机和 DCC 插件连接"),
-    https: Optional[bool] = typer.Option(None, "--https/--http", help="使用 HTTPS，仅对本次启动有效；默认按管理页面「设置」。局域网内的浏览器若要将结果直接保存到用户的文件夹、将节点图保存回原文件，必须使用 HTTPS；使用 HTTP 时保存操作改为下载"),
+    port: Optional[int] = typer.Option(None, "--port", help=i18n.t("cli.serve.port")),
+    host: Optional[str] = typer.Option(None, "--host", help=i18n.t("cli.serve.host")),
+    https: Optional[bool] = typer.Option(None, "--https/--http", help=i18n.t("cli.serve.https")),
 ) -> None:
-    """启动网页界面（同时作为 DCC 插件连接的服务）。可在管理页面 /admin 中修改设置、重启此服务。"""
     from ..config import ROOT, WEBUI_DIST, settings
     from ..extensions import manual
     from ..server import restart, tls
@@ -25,19 +25,20 @@ def ui(
              "server.https": (https, "--https" if https else "--http")}
     for key, (value, flag) in flags.items():  # the admin page says these override its settings for this run
         if value is not None:
-            s.run_with(key, value, f"启动命令 {flag}")
+            s.run_with(key, value, flag)  # the option itself: the admin page says it in its reader's language
     host, port, https = s["server.host"], s["server.port"], s["server.https"]
     inbox = manual.ensure_inbox()  # the one folder for everything downloaded by hand
-    console.print(f"手动下载的文件请放入 {inbox.relative_to(ROOT)}（位于 Lab2Shot 项目文件夹下）")
+    console.print(i18n.t("cli.serve.inbox", folder=inbox.relative_to(ROOT)))
     if not WEBUI_DIST.is_dir():
-        console.print("[yellow]界面尚未构建，请执行：cd webui && npm ci && npm run build[/yellow]")
+        console.print(i18n.t("cli.serve.not_built"))
     ssl = {}
     if https:
         cert, key = tls.ensure()
         ssl = {"ssl_certfile": str(cert), "ssl_keyfile": str(key)}
         hosts, ips = tls.names()
-        console.print(f"HTTPS 证书适用于 {', '.join(hosts + ips)}")
-        console.print(f"每台使用的计算机须安装一次证书：在浏览器中打开 https://<本机>:{port}/api/tls/ca.pem 下载，并安装到系统的「受信任的根证书」")
+        console.print(i18n.t("cli.serve.certificate", names=", ".join(hosts + ips)))
+        console.print(i18n.t("cli.serve.install_ca", port=port))
     scheme = "https" if https else "http"
-    console.print(f"Lab2Shot 界面 → [bold]{scheme}://localhost:{port}[/bold]" + (f"（监听 {host}）" if host != "127.0.0.1" else ""))
+    console.print(i18n.t("cli.serve.address", url=f"{scheme}://localhost:{port}")
+                  + (i18n.t("cli.serve.listening", host=host) if host != "127.0.0.1" else ""))
     restart.serve(host, port, ssl)

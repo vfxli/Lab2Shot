@@ -9,18 +9,17 @@ from lab2shot.sdk import (rgb_port, Official, measured_param, Confidence, PerFra
 
 # 每段帧数 / 处理分辨率只给 24 GB 显卡上验证过的几档，不接受任意数字——
 # 一个改过的节点图存了超出这些值的数字会被服务器拒绝（Params 的 Literal），不会真的跑起来撑爆显存。
-CHUNK_CHOICES = {"8": "8", "16": "16", "24": "24"}
-MAX_SIDE_CHOICES = {"504": "标准 504"}
 
 
 class Solve(PerFrameDepthCamera):
-    id = "faceanything.solve"
+    id = "faceanything.face_maps"
+    metric = False  # depth in the model's own units (DepthCamera.metric)
     on_node = ("mode", "max_frames", "resolution")
     # 适合脸占画面大的特写；默认「分段」16 帧一起算（前后帧一致）；深度没有真实尺度，是模型自己的单位；
     # 每帧估的 Focal Length 会飘，节点统一用整段的中位数当一个镜头；遮罩是 Robust Video Matting 抠的人物前景（软边）
     inputs = (rgb_port(),)  # the model estimates its own lens: no camera, no Focal Length (Params)
     # two maps of its own on top of the family's (the point cloud is the family's: one unprojection)
-    outputs = PerFrameDepthCamera.outputs + (Port("canonical", "image.3", "规范坐标", data=True), Port("mask", "image.1", "面部遮罩"))
+    outputs = PerFrameDepthCamera.outputs + (Port("canonical", "image.3", data=True), Port("mask", "image.1"))
     runtime = "faceanything"
     # 上游 faceanything.predict.run_inference(model, frame_paths, mask_paths=None, …) 交出 FacePrediction：
     # depth / intrinsics / extrinsics / images / canonical / conf / valid（predict.py:11-20）。
@@ -28,10 +27,6 @@ class Solve(PerFrameDepthCamera):
         cite="third_party/faceanything/repo/src/faceanything/predict.py:10-48",
         takes={"image": "frame_paths"},
         gives={"depth": "depth", "canonical": "canonical", "camera": "intrinsics", "mask": "valid"},
-        note="「面部遮罩」就是上游那张前景遮罩（predict.py:19 valid）；上游自己用 Robust Video Matting 生成它"
-             "（run_inference.py:--remove-background，src/faceanything/background.py:18-61 generate_masks），"
-             "我们的 worker 照着做同一步。「相机」只用它的 intrinsics：上游默认 monocular=True，"
-             "把预测的 extrinsics 换成单位阵（predict.py:42-45）",
     )
     confidence = Confidence("exp_plus_one")  # how its model gives its confidence (CONFIDENCE_SCALES)
     # vram_gb: RTX 4090，默认每段帧数 16（峰值有时到 21 GB）
@@ -45,15 +40,10 @@ class Solve(PerFrameDepthCamera):
 
     class Params(NodeParams):
         mode: Literal["chunk", "one_by_one"] = P(
-            "chunk", label="方式", group="解算",
-            option_labels={"chunk": "分段", "one_by_one": "逐帧"},
-        )
-        max_frames: Literal[8, 16, 24] = measured_param(
-            "每段最多帧数", {8: Measured(gb=13.2), 16: Measured(gb=15.0), 24: Measured(gb=18.8)}, default=16,
-            group="解算", option_labels=CHUNK_CHOICES, applies=Param("mode").one_of("chunk"))
-        resolution: Literal[504] = measured_param(
-            "处理分辨率", {504: Measured(flat=True)}, default=504,
-            group="解算", option_labels=MAX_SIDE_CHOICES)
+            "chunk", group="solve")
+        max_frames: Literal[8, 16, 24] = measured_param({8: Measured(gb=13.2), 16: Measured(gb=15.0), 24: Measured(gb=18.8)}, default=16,
+            group="solve", applies=Param("mode").one_of("chunk"))
+        resolution: Literal[504] = measured_param({504: Measured(flat=True)}, default=504, group="solve")
 
     @classmethod
     def convert(cls, ctx, raw, job):
@@ -68,7 +58,7 @@ class Solve(PerFrameDepthCamera):
             "canonical": ("image.3", lambda d: (d["canonical"], d["mask"].astype(bool)), {"space": "canonical"}),
             "mask": ("image.1", lambda d: d["mask"].astype(np.float32), None),
         }
-        out |= frame_maps(ctx, raw, image, face, stage="写出规范坐标和面部遮罩")
+        out |= frame_maps(ctx, raw, image, face, stage="write_maps")
         return out
 
 

@@ -2,141 +2,219 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "c30371c6780b4d24bb2880d9bef3f984",
-  "name": "深度图 · Depth Anything 3",
-  "intro": "Depth Anything 3 官方自述：从任意视觉输入预测空间一致的几何；官方称单目深度估计优于 Depth Anything V2。这张卡逐帧交付深度图和相机，填「已知 Focal Length」并把「模型」换成 Metric-Large 可得真实尺度。模型选 Large / Giant 时按非商用算。",
+  "name": {
+   "zh": "深度贴图 · Depth Anything 3",
+   "en": "Depth Map · Depth Anything 3"
+  },
+  "intro": {
+   "zh": "Depth Anything 3 官方自述：从任意视觉输入预测空间一致的几何；官方称单目深度估计优于 Depth Anything V2。这张卡逐帧交付深度贴图和摄影机，填「已知 焦距」并把「模型」换成 Metric-Large 可得真实尺度。模型选 Large / Giant 时按非商用算。",
+   "en": "Depth Anything 3 describes itself as predicting spatially consistent geometry from any visual input; upstream reports monocular depth estimation better than Depth Anything V2. This card delivers a depth map and camera per frame; enter Known Focal Length and set Model to Metric-Large for metric scale. With Model set to Large / Giant, the card counts as non-commercial."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-21T16:00:00",
   "deliverable": "depth_image",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "kind": "group",
-   "label": "镜头",
+   "label": {
+    "zh": "镜头",
+    "en": "Lens"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "focal",
-     "label": "已知 Focal Length",
-     "target": "geo.focal_mm"
+     "label": {
+      "zh": "已知焦距",
+      "en": "Known Focal Length"
+     },
+     "target": "geometry.focal_mm"
     },
     {
      "name": "filmback",
-     "label": "Filmback",
-     "target": "geo.filmback_mm",
+     "label": {
+      "zh": "胶片背",
+      "en": "Aperture"
+     },
+     "target": "geometry.filmback_mm",
      "disable_when": "not focal"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "深度",
+   "label": {
+    "zh": "深度",
+    "en": "Depth"
+   },
    "collapsed": false,
    "children": [
     {
-     "name": "model",
-     "label": "模型",
-     "target": "geo.model"
+     "name": "geometry_model",
+     "label": {
+      "zh": "模型",
+      "en": "Model"
+     },
+     "target": "geometry.model"
     },
     {
-     "name": "resolution",
-     "label": "处理分辨率",
-     "target": "geo.resolution"
+     "name": "geometry_resolution",
+     "label": {
+      "zh": "处理分辨率",
+      "en": "Processing Resolution"
+     },
+     "target": "geometry.resolution"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
-       "name": "ray_pose",
-       "label": "光线求 Focal Length",
-       "target": "geo.ray_pose",
-       "disable_when": "focal or model == \"da3metric-large\""
+       "name": "geometry_ray_pose",
+       "label": {
+        "zh": "光线求焦距",
+        "en": "Focal Length from Rays"
+       },
+       "target": "geometry.ray_pose",
+       "disable_when": "focal or geometry_model == \"da3metric-large\""
       }
      ]
     },
     {
-     "name": "cook_depth",
-     "label": "计算深度图",
-     "target": "geo.cook"
+     "name": "cook_geometry",
+     "label": {
+      "zh": "计算深度贴图",
+      "en": "Cook Depth Map"
+     },
+     "target": "geometry.cook"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "exr_name",
-     "label": "文件名（深度 EXR）",
+     "label": {
+      "zh": "文件名（深度 EXR）",
+      "en": "File Name (Depth EXR)"
+     },
      "target": "exr.name"
     },
     {
      "name": "usd_name",
-     "label": "文件名（相机 USD）",
-     "target": "out_p.name"
+     "label": {
+      "zh": "文件名（摄影机 USD）",
+      "en": "File Name (Camera USD)"
+     },
+     "target": "usd.name"
     },
     {
      "name": "unit",
-     "label": "单位",
-     "target": "out_p.unit"
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
     },
     {
      "name": "fps",
-     "label": "帧率",
-     "target": "out_p.fps"
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "usd.fps"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
        "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -146,17 +224,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -165,8 +249,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -179,9 +262,8 @@
    }
   },
   {
-   "id": "geo",
-   "type": "depthanything3.geometry",
-   "label": "Depth Anything 3 深度图",
+   "id": "geometry",
+   "type": "depthanything3.depth",
    "params": {
     "focal_mm": null,
     "filmback_mm": null,
@@ -199,9 +281,8 @@
    }
   },
   {
-   "id": "out_p",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "id": "usd",
+   "type": "usd.output",
    "params": {
     "name": "scene",
     "format": "usd",
@@ -209,8 +290,8 @@
     "fps": 24.0
    },
    "ui": {
-    "x": 870,
-    "y": 408,
+    "x": 856,
+    "y": 427,
     "on_node": [
      "name",
      "unit"
@@ -222,18 +303,16 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1230,
+    "x": 1216,
     "y": 44
    }
   },
   {
    "id": "exr",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "type": "exr.output",
    "params": {
     "name": "depth",
     "layers": [
@@ -248,7 +327,7 @@
     "colorspace": null
    },
    "ui": {
-    "x": 830,
+    "x": 816,
     "y": 44
    }
   }
@@ -260,23 +339,23 @@
     "image"
    ],
    "to": [
-    "geo",
+    "geometry",
     "image"
    ]
   },
   {
    "from": [
-    "geo",
+    "geometry",
     "camera"
    ],
    "to": [
-    "out_p",
+    "usd",
     "scene"
    ]
   },
   {
    "from": [
-    "out_p",
+    "usd",
     "files"
    ],
    "to": [
@@ -286,7 +365,7 @@
   },
   {
    "from": [
-    "geo",
+    "geometry",
     "depth"
    ],
    "to": [
@@ -307,7 +386,7 @@
  ],
  "boxes": [],
  "view": {
-  "display": "geo",
+  "display": "geometry",
   "frame": null
  }
 }

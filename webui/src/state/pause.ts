@@ -2,7 +2,7 @@ import type { StorageGate } from "../api/library";
 import { msg, type Message } from "../messages/message";
 import { blockedByQuota, quotaNote } from "./quota";
 
-/** 计算任务 off (B-QUEUE-PAUSED, lab2shot/messages/web.toml): the only switch the page decides on. The reason a queued
+/** 计算任务 off (B-QUEUE-PAUSED, lab2shot/i18n/<lang>/messages/web.toml): the only switch the page decides on. The reason a queued
  * job waits (no machine, memory, the cards) is reported by the server in the job's `waiting` text (farm/queue.py). */
 const pausedMessage = (): Message => msg("B-QUEUE-PAUSED");
 

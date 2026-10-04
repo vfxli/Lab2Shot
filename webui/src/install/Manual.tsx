@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Licence, type ManualView } from "../api";
 import { Sheet } from "../ui/Sheet";
-import { copyText, host, webAddress } from "../platform/util";
+import { copyText, webAddress } from "../platform/util";
 import { Button, ButtonLink } from "../ui/Button";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** 手动下载 (lab2shot/extensions/manual.py): part of installing an extension. Many extensions' weights must be
  * downloaded by the user from the official site, and some also need the user's own acceptance of a licence; while
@@ -38,14 +40,14 @@ export function InboxNote({ view }: { view: ManualView | null }) {
   const folder = view.inbox.path;
   return (
     <section className="manual-inbox" id="manual" ref={section}>
-      <span>要手动下载的文件（下面表格里的每一行）放进这个文件夹，不用解压、不用改名：Lab2Shot 按文件内容认出它。</span>
-      <code className="manual-path" data-tip={`在服务器上：${view.inbox.open}`}>{folder}</code>
-      <Button tip="复制能直接打开的完整路径，粘贴到资源管理器的地址栏" onClick={() => void copyText(view.inbox.open).then(() => setCopied(true))}>
-        {copied ? "已复制" : "复制"}
+      <span>{t("ui.install.inbox_lede")}</span>
+      <code className="manual-path" {...tipAttrs(tipOf("value", t("ui.install.on_server", { path: view.inbox.open })))}>{folder}</code>
+      <Button onClick={() => void copyText(view.inbox.open).then(() => setCopied(true))}>
+        {copied ? t("ui.install.copied") : t("ui.common.copy")}
       </Button>
       {view.unknown.length > 0 && (
         <div className="manual-unknown">
-          <b>认不出的文件</b>
+          <b>{t("ui.install.unknown_files")}</b>
           {view.unknown.map((u) => (
             <div key={u.name} className="manual-file">
               <code>{u.name}</code>
@@ -67,18 +69,18 @@ export function ManualRowControl({ manualKey, downloadPage, view, can, onChange 
   return (
     <div className="inst-ctl">
       {webAddress(downloadPage) && (
-        <ButtonLink tip={`到 ${host(downloadPage)} 下载，放进这台电脑的手动下载文件夹`} size="sm" tone="ghost" href={downloadPage} target="_blank" rel="noreferrer">
-          去下载
+        <ButtonLink size="sm" tone="ghost" href={downloadPage} target="_blank" rel="noreferrer">
+          {t("ui.install.go_download")}
         </ButtonLink>
       )}
       {can.consent && consentFile && (
-        <Button tip="看许可协议原文，同意后才安装" size="sm" tone="primary" onClick={() => setLicence(true)}>
-          看许可协议
+        <Button size="sm" tone="primary" onClick={() => setLicence(true)}>
+          {t("ui.install.see_licence")}
         </Button>
       )}
       {can.manual && (
-        <Button tip="放好文件后点这里：认出来的自动装好，认不出的写明原因" size="sm" tone="ghost" onClick={onChange}>
-          重新检查
+        <Button size="sm" tone="ghost" onClick={onChange}>
+          {t("ui.install.check_again")}
         </Button>
       )}
       {licence && consentFile && (
@@ -114,17 +116,17 @@ function LicenceSheet({ file, onClose, onAccepted }: { file: string; onClose: ()
   }, [file, licence, onAccepted]);
 
   return (
-    <Sheet title={licence ? `${licence.title} ${licence.version} 许可协议` : "许可协议"} width={900} onClose={installing ? () => undefined : onClose}>
-      <p className="inst-note">这是安装程序里的原文。点「同意并安装」表示当前账号本人接受这份协议，Lab2Shot 会记下是谁、什么时候同意的，然后安装；不同意就不安装。</p>
-      <div className="licence-text">{licence ? licence.text : error ? "" : "正在从安装程序里取出许可协议…"}</div>
+    <Sheet title={licence ? t("ui.install.licence_of", { title: licence.title, version: licence.version }) : t("ui.install.licence")} width={900} onClose={installing ? () => undefined : onClose}>
+      <p className="inst-note">{t("ui.install.licence_lede")}</p>
+      <div className="licence-text">{licence ? licence.text : error ? "" : t("ui.install.licence_loading")}</div>
       {error && <p className="inst-note err">{error}</p>}
       <div className="licence-actions">
         {installing && <span className="spinner" aria-hidden />}
-        <Button tip="不接受协议，不安装" tone="ghost" disabled={installing} onClick={onClose}>
-          不同意
+        <Button tone="ghost" disabled={installing} onClick={onClose}>
+          {t("ui.install.decline")}
         </Button>
-        <Button tip="本人接受这份许可协议，记下是谁、什么时候同意的，然后安装" tone="primary" disabled={!licence || installing} onClick={accept}>
-          {installing ? "安装中…" : "同意并安装"}
+        <Button tone="primary" disabled={!licence || installing} onClick={accept}>
+          {installing ? t("ui.install.installing") : t("ui.install.accept")}
         </Button>
       </div>
     </Sheet>

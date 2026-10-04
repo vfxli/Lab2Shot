@@ -146,7 +146,7 @@ def track_one_way(conf, predictor, tracker, frames: list[np.ndarray], init: np.n
 
 
 def main(job_path: str) -> None:
-    run = Run.start(job_path, "woftsam.track", "WOFTSAM")
+    run = Run.start(job_path, "woftsam.planar_track", "WOFTSAM")
     job = run.job
     params = job.params
     frames = run.frames()
@@ -165,16 +165,16 @@ def main(job_path: str) -> None:
     w, h = fit_size(width, height, min(long_side, max(width, height)), 8, minimum=64)
     sx, sy = w / width, h / height
 
-    run.stage("读取画面")
+    run.stage("read_frames")
     bgr = []
-    for i, (_, path) in run.each(frames.pairs, "读取画面"):
+    for i, (_, path) in run.each(frames.pairs, "read_frames"):
         img = read_frame(path)
         if img.shape[:2] != (h, w):
             img = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA if w < img.shape[1] else cv2.INTER_LINEAR)
         bgr.append(np.ascontiguousarray(img[..., ::-1]))
 
-    conf, predictor, tracker = run.model("WOFTSAM（加权 RAFT、SAM 2.1、DINOv2）", load_models, job.repo_dir, sam2_dir,
-                                         checkpoint, dinov2)
+    conf, predictor, tracker = run.model("load_model", load_models, job.repo_dir, sam2_dir,
+                                         checkpoint, dinov2, stage_params={"model": "WOFTSAM"})
 
     init = (corners * [sx, sy] - 0.5).T  # 2 x 4, processing pixels, centres at 0
     n = len(frames)
@@ -187,9 +187,9 @@ def main(job_path: str) -> None:
     def tick():
         nonlocal done
         done += 1
-        progress(done, total, "跟踪平面")
+        progress(done, total, "track_plane")
 
-    run.stage("跟踪平面" + ("（先向后，再从起始帧倒着向前）" if len(passes) == 2 else ""))
+    run.stage("track_plane_both" if len(passes) == 2 else "track_plane")
     t2 = time.time()
     with quiet(), in_folder(job.repo_dir):
         for order in passes:

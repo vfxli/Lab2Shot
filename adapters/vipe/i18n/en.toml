@@ -1,0 +1,101 @@
+# The NVIDIA ViPE extension's own words and messages in English (the same keys as zh.toml).
+
+# ---- camera solve (worker.py)
+"E-VIPE-PRESET" = "ViPE's configuration {preset} wants {instance} / {depth} / {post}, which are not the models this extension installs, so nothing was cooked. The extension's code and the ViPE version do not match: ask an administrator to run lab2shot ext install vipe again"
+"W-VIPE-UNCONVERGED.one" = "The clip is too short for ViPE's SLAM to converge: it picked only {keyframes} keyframe, fewer than the {warmup} it needs before it starts optimising. The solved camera path collapses to a very short one and the focal length stays near its initial estimate: neither is reliable. Use a longer clip (so the camera produces more keyframes), or enter the real focal length in Known Focal Length"
+"W-VIPE-UNCONVERGED.app.one" = "The clip is too short for ViPE's SLAM to converge: it picked only {keyframes} keyframe, fewer than the {warmup} it needs before it starts optimising. The solved camera path collapses to a very short one and the focal length stays near its initial estimate: neither is reliable. Use a longer clip so the camera produces more keyframes"
+"W-VIPE-UNCONVERGED.other" = "The clip is too short for ViPE's SLAM to converge: it picked only {keyframes} keyframes, fewer than the {warmup} it needs before it starts optimising. The solved camera path collapses to a very short one and the focal length stays near its initial estimate: neither is reliable. Use a longer clip (so the camera produces more keyframes), or enter the real focal length in Known Focal Length"
+"W-VIPE-UNCONVERGED.app.other" = "The clip is too short for ViPE's SLAM to converge: it picked only {keyframes} keyframes, fewer than the {warmup} it needs before it starts optimising. The solved camera path collapses to a very short one and the focal length stays near its initial estimate: neither is reliable. Use a longer clip so the camera produces more keyframes"
+"W-VIPE-UNCONVERGEDFOCAL.one" = "The clip is too short for ViPE's SLAM to converge: it picked only {keyframes} keyframe, fewer than the {warmup} it needs before it starts optimising. The focal length is the one entered, but the solved camera path collapses to a very short one and is not reliable. Use a longer clip so the camera produces more keyframes"
+"W-VIPE-UNCONVERGEDFOCAL.other" = "The clip is too short for ViPE's SLAM to converge: it picked only {keyframes} keyframes, fewer than the {warmup} it needs before it starts optimising. The focal length is the one entered, but the solved camera path collapses to a very short one and is not reliable. Use a longer clip so the camera produces more keyframes"
+"W-VIPE-FOCALUNSETTLED.one" = "The clip is short: ViPE picked only {keyframes} keyframe (below {settle} it has not yet corrected the focal length mid-solve). The camera path is usable, but the estimated focal length may be far off. Enter Known Focal Length if you know it, or use a longer clip"
+"W-VIPE-FOCALUNSETTLED.app.one" = "The clip is short: ViPE picked only {keyframes} keyframe (below {settle} it has not yet corrected the focal length mid-solve). The camera path is usable, but the estimated focal length may be far off. Use a longer clip so the camera produces more keyframes"
+"W-VIPE-ZOOM" = "The wired camera zooms (focal length {low:.0f}–{high:.0f} px): ViPE takes one fixed calibration, so this run uses the median, {used:.0f} px; depth and points are less accurate where the focal length is far from it"
+"W-VIPE-FOCALUNSETTLED.other" = "The clip is short: ViPE picked only {keyframes} keyframes (below {settle} it has not yet corrected the focal length mid-solve). The camera path is usable, but the estimated focal length may be far off. Enter Known Focal Length if you know it, or use a longer clip"
+"W-VIPE-FOCALUNSETTLED.app.other" = "The clip is short: ViPE picked only {keyframes} keyframes (below {settle} it has not yet corrected the focal length mid-solve). The camera path is usable, but the estimated focal length may be far off. Use a longer clip so the camera produces more keyframes"
+"W-VIPE-PRINCIPAL" = "ViPE's solved principal point is off the image centre: cx={cx:.1f} cy={cy:.1f} px (the centre is {center_x:.1f}, {center_y:.1f})"
+
+# ---- depth (ViPE Depth, nodes.py / worker.py)
+"E-VIPE-NOPOINTS" = "The point cloud on the Point Cloud input has no points: ViPE's depth takes its scale from the points SLAM solved, and cannot be computed without them. Wire the Point Cloud output of ViPE Camera Solve here"
+"N-VIPE-NOOBJECTS" = "Object Segmentation is not wired: the depth is computed as usual, but people and cars moving in the shot also take part in depth alignment, so moving areas may be off. Wire the Object Segmentation output of ViPE Camera Solve to match upstream's default run"
+"E-VIPE-NOSLAMMAP" = "ViPE finished solving without a SLAM map: the Point Cloud output has nothing to deliver, so ViPE Depth cannot be wired. The extension's code and the ViPE version do not match: ask an administrator to run lab2shot ext install vipe again"
+"E-VIPE-NOCAMERA" = "There is no camera on the Camera input: ViPE Depth needs the camera solved by ViPE Camera Solve to compute depth"
+"E-VIPE-CAMFRAMES.one" = "The wired camera has {camera} frame and the image has {frames}: they do not match, so no depth can be computed. The camera and the image must come from the same shot"
+"E-VIPE-CAMFRAMES.other" = "The wired camera has {camera} frames and the image has {frames}: they do not match, so no depth can be computed. The camera and the image must come from the same shot"
+"E-VIPE-POINTSBEHIND" = "The wired Point Cloud and Camera are not in the same world: on each keyframe only {share:.0%} of the points are in front of that frame's camera, so ViPE cannot use them to set the depth scale and would silently fall back to depth without SLAM hints. Wire Point Cloud and Camera from the two outputs of the same ViPE Camera Solve"
+
+[node."vipe.camera_solve"]
+subtitle = "Camera Solve"
+description = "Image → a camera per frame, the 3D points SLAM solved, and the moving objects it segmented while solving (NVIDIA ViPE). Before solving it masks out walking people, cars and animals anyway, and that segmentation is delivered too: wire Multi-Layer EXR Output to write a Cryptomatte, picked in Nuke by names such as person_01; for a single mask, wire Segmentation to Mask. The camera must translate (parallax): on a locked-off or pure pan shot the automatic focal length is unreliable, so if you know it, enter Known Focal Length (or wire the focal length from AnyCalib Lens Calibration). Zoom lenses are not supported; undistort wide-angle footage first. For per-frame depth aligned with the camera, wire Camera and Point Cloud into ViPE Depth."
+official.note = "Camera = pose (streams/base.py:68) plus intrinsics (streams/base.py:70). Point Cloud = SLAMOutput.slam_map (slam/interface.py:27-38: dense_disp_xyz the position of each point, dense_disp_rgb its colour, dense_disp_frame_inds the keyframe it belongs to), which upstream also saves on its own (pose_only.py:104-106 save_slam_map, slam/interface.py:43-58 SLAMMap.save). Object Segmentation = instance (streams/base.py:71, a uint8 id map, 0 is background), each id's name coming from instance_phrases (the vocabulary at streams/base.py:72); these two are what upstream's save_artifacts saves (vipe/utils/io.py:359-380)"
+
+[node."vipe.camera_solve".param.mode]
+label = "Mode"
+option.pose_only = "Standard"
+option.pose_only_long = "Long Shot"
+
+[node."vipe.camera_solve".port.camera]
+label = "Camera"
+
+[node."vipe.camera_solve".port.points]
+label = "Point Cloud"
+help = "The 3D points SLAM builds while ViPE solves, one set per keyframe (upstream's slam_map). It is what ViPE Depth needs to compute depth; the Long Shot mode builds no map to save memory, so this output is empty"
+
+[node."vipe.camera_solve".port.objects]
+label = "Object Segmentation"
+
+[node."vipe.camera_solve".stage]
+write_objects = "Write Moving Object Segmentation"
+
+[node."vipe.depth"]
+subtitle = "Depth"
+description = "The camera and point cloud of ViPE Camera Solve → per-frame depth aligned with that camera (centimetres, close to real scale). This is the step after the poses in upstream's pipeline: it projects the points SLAM solved onto every frame as hints, so Point Cloud must be wired; the camera alone is not enough. Wire Object Segmentation too, and walking people and cars are left out of depth alignment, as in upstream's default run. Uses depth models such as UniDepth / Depth Anything; the whole shot's images must fit in memory."
+official.note = "Depth = metric_depth (streams/base.py:74), the one upstream's save_depth_artifacts saves (vipe/utils/io.py:356). Standard mode uses AdaptiveDepthProcessor (processors.py:207-...), Depth Anything 3 mode uses MultiviewDepthProcessor (processors.py:376-...); both read only the three items above from slam_output"
+licence.note = "Non-commercial: the ViPE code is Apache-2.0, but the depth models of both modes are non-commercial: Standard uses UniDepth-V2 (CC-BY-NC-4.0) and Prior-Depth-Anything, which includes Depth-Anything-V2-Base (CC-BY-NC-4.0); Depth Anything 3 mode uses Depth Anything 3 Giant (CC-BY-NC-4.0)."
+
+[node."vipe.depth".param.model]
+label = "Model"
+option.default = "Standard"
+option.dav3 = "Depth Anything 3"
+
+[node."vipe.depth".port.points]
+label = "Point Cloud"
+help = "The point cloud delivered by ViPE Camera Solve (upstream's slam_map): the depth step takes its scale from it"
+
+[node."vipe.depth".port.objects]
+label = "Object Segmentation"
+help = "The moving objects segmented by ViPE Camera Solve: once wired, walking people and cars are left out of depth alignment (as upstream runs by default). Depth is computed without it too, and the node notes that it was not used"
+
+[node."vipe.depth".port.depth]
+label = "Depth"
+
+[extension.vipe]
+summary = "Estimates camera intrinsics, camera motion and dense near-metric depth from unconstrained raw video, for standard, wide-angle and panoramic lenses; the two depth pipelines are non-commercial"
+license.name = "Apache-2.0 (pose_only / pose_only_long); the default / dav3 modes include CC-BY-NC-4.0 non-commercial models"
+license.summary = "Commercial use allowed (except ViPE Depth). Code Apache-2.0. All model weights of the pose_only / pose_only_long modes allow commercial use (MoGe-2 MIT, GeoCalib/GroundingDINO/SAM/BERT Apache-2.0, DROID-SLAM/DeAOT BSD-3). The default mode is non-commercial: UniDepth-V2 ViT-L (CC-BY-NC-4.0) and the Depth-Anything-V2-Base inside Prior-Depth-Anything (CC-BY-NC-4.0; Prior-Depth-Anything itself and Video-Depth-Anything-Small are Apache-2.0). The dav3 mode is non-commercial: Depth Anything 3 Giant (CC-BY-NC-4.0; Depth Anything 3 Metric-Large is Apache-2.0). Results of default / dav3 (camera and depth) may not be used in commercial projects. UniK3D and the other configurations are neither downloaded nor run. Note: the moving-object mask code comes from Segment-and-Track-Anything and is AGPL-3.0 (fine for internal use; a modified version offered as a service must be open-sourced)"
+weight.droid-slam.note = "DROID-SLAM flow/BA network (BSD-3-Clause)"
+weight.moge-2-vitl.note = "MoGe-2 ViT-L keyframe metric depth (MIT)"
+weight.geocalib-pinhole.note = "GeoCalib initial focal length estimate (Apache-2.0)"
+weight.groundingdino-swint.note = "GroundingDINO Swin-T, finds moving objects (Apache-2.0)"
+weight.bert-base-uncased.note = "BERT, GroundingDINO's text encoder (Apache-2.0)"
+weight.sam-vit-b.note = "Segment Anything ViT-B object masks (Apache-2.0)"
+weight.deaot-r50.note = "DeAOT R50 per-frame mask tracking (BSD-3-Clause)"
+weight.unidepth-v2-vitl14-config.note = "UniDepth-V2 ViT-L configuration (default mode; CC-BY-NC-4.0 non-commercial)"
+weight.unidepth-v2-vitl14.note = "UniDepth-V2 ViT-L keyframe / per-frame metric depth (default mode; CC-BY-NC-4.0 non-commercial)"
+weight.prior-depth-anything-dav2-vitb.note = "Depth-Anything-V2-Base used by Prior-Depth-Anything (default mode; the original model is CC-BY-NC-4.0 non-commercial)"
+weight.prior-depth-anything-vitb.note = "Prior-Depth-Anything ViT-B, completes depth from the SLAM points (default mode; Apache-2.0)"
+weight.video-depth-anything-small.note = "Video-Depth-Anything-Small, temporally stable depth (default mode; Apache-2.0)"
+weight.da3metric-large.note = "Depth Anything 3 Metric-Large keyframe metric depth (dav3 mode; Apache-2.0)"
+weight.da3-giant.note = "Depth Anything 3 Giant multi-view per-frame depth (dav3 mode; CC-BY-NC-4.0 non-commercial)"
+
+# ---- the worker's cooking stages (worker.py run.stage / stage / progress)
+[stage]
+track = "Track"
+estimate_depth = "Estimate Depth"
+depth = "Depth"
+prepare_depth = "Prepare Depth"
+prepare_vipe = "Prepare ViPE"
+solve_camera = "Solve Camera"
+read_sequence = "Read Image Sequence"
+estimate_focal = "Estimate Focal Length / Load Models"
+write_objects = "Write Moving Object Segmentation"

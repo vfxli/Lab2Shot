@@ -1,0 +1,7 @@
+{
+ "_note": "Maya 要的交付格式：三维数据的种类 → 格式名（GET /api/tools 的 formats）。只是数据：以后要 Alembic、USD 改这张表即可。没写的种类按工具自己的格式交付。",
+ "camera": "fbx",
+ "skeleton": "fbx",
+ "character": "fbx",
+ "model": "alembic"
+}

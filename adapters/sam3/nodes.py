@@ -10,38 +10,39 @@ from lab2shot.sdk import (rgb_port, Official, measured_param, Job, NodeParams, P
 
 class Segment(Segmentation):
     id = "sam3.segment"
-    # 上游两条路（worker.py）：提示词走视频预测器 start_session(resource_path=画面)（worker 直接调它内部的
-    # model.init_state）+ add_prompt(text_str) -> {"out_obj_ids", "out_binary_masks"}；人物框走它的跟踪器（SAM 2
+    # 上游两条路（worker.py）：提示词走 SAM 3.1（Object Multiplex，build_sam3_predictor(version="sam3.1",
+    # use_fa3=False)）的视频模型 init_state(resource_path=画面) + add_prompt(text_str) -> {"out_obj_ids",
+    # "out_binary_masks"}；人物框走 SAM 3（sam3.pt；3.1 没有「这个框就是这个人」的框提示）的跟踪器（SAM 2
     # 那一套）：init_state 后每个人 add_new_points_or_box(box=) 一个框提示，段尾还在的人在下一段用上一段的遮罩
     # add_new_mask 接上，丢了的人从他的下一个框重新接
     official = Official(
         cite=("third_party/sam3/repo/sam3/model/sam3_base_predictor.py:119-245",
+              "third_party/sam3/repo/sam3/model_builder.py:1244-1319",
+              "third_party/sam3/repo/sam3/model/sam3_multiplex_tracking.py:207-250",
               "third_party/sam3/repo/sam3/model/sam3_tracking_predictor.py:57-60",
               "third_party/sam3/repo/sam3/model/sam3_tracking_predictor.py:180-190",
               "third_party/sam3/repo/sam3/model/sam3_tracking_predictor.py:343-350"),
         takes={"image": "resource_path", "boxes": "add_new_points_or_box"},
         gives={"mask": "out_binary_masks", "objects": "out_obj_ids"},
-        note="文字提示（text_str）是上游预测器的提示，我们做成了节点参数「提示词」而不是输入口；"
-             "人物框不是预测器的 bounding_boxes 提示，而是跟踪器的框提示（add_new_points_or_box），每人一个、按人分会话跑。",
     )
     # 公开基准上的实测（接不接、接什么的差别）：
     #   boxes：实测（CRGNN 实拍、VideoMatte 绿幕共 8 个人像镜头）：用 ViTDet 人物框代替提示词，人物遮罩 J&F 整体没区别（0.967 → 0.970），但各镜头不一：2 个更好、1 个框错了人明显更差
     on_node = ("prompt", "threshold")
     # 按提示词或人物框整段跟踪；它分的是「哪块是这个物体」，不是精细抠像，边是 0 / 1 的选区；
-    # 长镜头按物体数自动分段（8 个物体时一段约 800 帧），显存不随镜头变长
+    # 长镜头按物体数自动分段（8 个物体时提示词一段约 310 帧、人物框一段约 800 帧），显存不随镜头变长
     inputs = (rgb_port(), people_port(optional=True))  # a matte object per person
-    # 「遮罩」「物体分割」两个输出口由分割家族给（families/segmentation.py）：mask_label 说这个项目选出来的是什么
-    mask_label = "遮罩"
+    # 「遮罩」「物体分割」两个输出口由分割家族给（families/segmentation.py）；「遮罩」口的标签在目录 node.sam3.segment.port.mask.label
     runtime = "sam3"
-    # RTX 4090，文字提示词的默认用法
-    cost = Cost(gpu=True, vram_gb=6.1, seconds_per_frame=0.23)
-    licence = Licence(note="SAM License：可以商用；禁止军事、武器等用途；发表时注明使用了 SAM 3；再分发要附许可证原文。")
+    # RTX 4090，文字提示词的默认用法（SAM 3.1，8 个物体）：实测峰值 16 帧 9.8 GB、100 帧 11.9 GB（约 25 MB/帧）；
+    # 一段最长约 310 帧（worker.py STATE_MB_PER_OBJECT_FRAME_31），按斜率推到段尾约 17.5 GB。人物框模式 SAM 3 约 4.5–5.1 GB
+    cost = Cost(gpu=True, vram_gb=17.5, seconds_per_frame=0.23)
+    licence = Licence(note=True)
 
     class Params(NodeParams):
-        prompt: str = P("person", label="提示词", group="分割", lines=4, applies=Not(Wired("boxes")))
+        prompt: str = P("person", group="segmentation", lines=4, applies=Not(Wired("boxes")))
         max_objects: Literal[1, 2, 4, 8] = measured_param(
-            "最多物体数", {1: Measured(below=2), 2: Measured(gb=5.1), 4: Measured(below=8), 8: Measured(gb=6.1)}, default=8, group="分割")
-        threshold: float = P(0.5, label="检测阈值", ge=0.05, le=0.95, group="分割", widget="slider", applies=Not(Wired("boxes")))
+            {1: Measured(below=8), 2: Measured(below=8), 4: Measured(below=8), 8: Measured(gb=17.5)}, default=8, group="segmentation")
+        threshold: float = P(0.5, ge=0.05, le=0.95, group="segmentation", widget="slider", applies=Not(Wired("boxes")))
 
     @classmethod
     def prepare(cls, ctx) -> Job:

@@ -8,4 +8,5 @@ knowledge of Nuke.
     script.py   the format itself: node blocks, animated knobs, names Nuke accepts
     camera.py   a camera as a Camera3
     tracks.py   tracked points as a Tracker4, a plane's four corners as a CornerPin2D
+    nodes.py    「Nuke 相机输出设置」, the node that writes camera.py's text
 """

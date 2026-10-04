@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { ParamDef } from "../api";
 import { setDerivedParam } from "../graph/edit";
-import { useGraphSnapshot } from "../graph/snapshot";
+import { useGraphDoc } from "../graph/snapshot";
 import { useChoices } from "../ui/choices";
 
 /** 「色彩空间」参数自动填写的唯一所在：该参数在选定文件时即确定，而非在打开节点面板时确定。
@@ -14,7 +14,7 @@ import { useChoices } from "../ui/choices";
  * 查询一次 choices，取得 default 后写入。服务器端的指纹同样按生效值计算（nodes/base.py fingerprint_params），
  * 两端均不依赖执行时序。 */
 export function ColorspaceFills() {
-  const snap = useGraphSnapshot();
+  const snap = useGraphDoc();
   const need: { nodeId: string; p: ParamDef }[] = [];
   for (const n of snap.nodes) {
     const def = snap.nodeDefs[n.data.typeId];

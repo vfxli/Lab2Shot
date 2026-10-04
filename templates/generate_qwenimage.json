@@ -1,0 +1,304 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "31bc1ce43c5df05f24bc2423bbe448ad",
+  "name": {
+   "zh": "生成 · QwenImage",
+   "en": "Generate · QwenImage"
+  },
+  "intro": {
+   "zh": "Qwen-Image 2.1 统一文生图与图像编辑（7B DiT + Qwen3-VL 编码器，原生 RGBA）。一个节点三种用法，按「模式」切换：文生图（写提示词、选比例与分辨率）、图像编辑（接一张「图像」）、多参考图（「图像」一张 + 「参考图」列表，至多 10 张）。输出一张静帧 RGBA；透明背景按官方写法在提示词里注明。权重 Qwen Research License（仅限研究评估，商用需另行授权）；需管理员授予「生成式扩散」能力。",
+   "en": "Qwen-Image 2.1 unifies text-to-image and image editing (7B DiT + Qwen3-VL encoder, native RGBA). Mode switches between text-to-image, image editing (wire one Image) and multiple references (one Image plus up to 10 Reference Images). It outputs one still RGBA; ask for a transparent background in the prompt. Qwen Research License (research only); an administrator must grant Generative Diffusion."
+  },
+  "author": "Lab2Shot",
+  "created": "2026-10-02T12:00:00",
+  "deliverable": "image_text",
+  "owner": "admin",
+  "updated": "2026-10-03T01:00:00"
+ },
+ "exposed": [
+  {
+   "kind": "group",
+   "label": {
+    "zh": "生成",
+    "en": "Generate"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "generate_mode",
+     "label": {
+      "zh": "模式",
+      "en": "Mode"
+     },
+     "target": "generate.mode"
+    },
+    {
+     "name": "input",
+     "label": {
+      "zh": "要改的图",
+      "en": "Image to Edit"
+     },
+     "target": "read.path",
+     "show_on_change": true,
+     "hide_when": "generate_mode == \"text_to_image\""
+    },
+    {
+     "name": "colorspace_in",
+     "label": {
+      "zh": "输入颜色空间",
+      "en": "Input Color Space"
+     },
+     "target": "read.colorspace",
+     "show_on_change": true,
+     "hide_when": "generate_mode == \"text_to_image\""
+    },
+    {
+     "name": "reference",
+     "label": {
+      "zh": "参考图（文件夹，最多 10 张）",
+      "en": "Reference Images (Folder, Up to 10)"
+     },
+     "target": "references.folder",
+     "show_on_change": true,
+     "hide_when": "generate_mode != \"reference_images\""
+    },
+    {
+     "name": "prompt",
+     "label": {
+      "zh": "提示词",
+      "en": "Prompt"
+     },
+     "target": "generate.prompt"
+    },
+    {
+     "name": "generate_aspect",
+     "label": {
+      "zh": "比例",
+      "en": "Ratio"
+     },
+     "target": "generate.aspect",
+     "hide_when": "generate_mode != \"text_to_image\""
+    },
+    {
+     "name": "generate_resolution",
+     "label": {
+      "zh": "生成分辨率",
+      "en": "Generation Resolution"
+     },
+     "target": "generate.resolution"
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "generate_negative",
+       "label": {
+        "zh": "负向提示词",
+        "en": "Negative Prompt"
+       },
+       "target": "generate.negative"
+      },
+      {
+       "name": "generate_true_cfg",
+       "label": {
+        "zh": "CFG 强度",
+        "en": "CFG Scale"
+       },
+       "target": "generate.true_cfg"
+      },
+      {
+       "name": "generate_steps",
+       "label": {
+        "zh": "去噪步数",
+        "en": "Denoising Steps"
+       },
+       "target": "generate.steps"
+      },
+      {
+       "name": "generate_seed",
+       "label": {
+        "zh": "随机种子",
+        "en": "Seed"
+       },
+       "target": "generate.seed"
+      }
+     ]
+    },
+    {
+     "name": "cook_generate",
+     "label": {
+      "zh": "生成并预览",
+      "en": "Generate and Preview"
+     },
+     "target": "generate.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "file_name",
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "images.name"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "word": "pack",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
+     "target": "deliver.download"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "file_still",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 78
+   }
+  },
+  {
+   "id": "references",
+   "type": "file_pattern",
+   "params": {
+    "folder": ""
+   },
+   "ui": {
+    "x": 40,
+    "y": 447
+   }
+  },
+  {
+   "id": "generate",
+   "type": "diffusers.generate",
+   "params": {
+    "mode": "text_to_image",
+    "prompt": "",
+    "aspect": "1:1",
+    "resolution": 2048,
+    "steps": 40,
+    "seed": 0,
+    "negative": "",
+    "true_cfg": 1.0
+   },
+   "ui": {
+    "x": 400,
+    "y": 2,
+    "on_node": [
+     "mode",
+     "prompt",
+     "resolution",
+     "seed"
+    ]
+   }
+  },
+  {
+   "id": "images",
+   "type": "image.output",
+   "params": {
+    "name": "generated",
+    "format": "png",
+    "png_alpha": "auto",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 802,
+    "y": 0
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "output",
+   "params": {},
+   "ui": {
+    "x": 1202,
+    "y": 54
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "generate",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "references",
+    "list"
+   ],
+   "to": [
+    "generate",
+    "references"
+   ]
+  },
+  {
+   "from": [
+    "generate",
+    "image"
+   ],
+   "to": [
+    "images",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "images",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "generate",
+  "frame": null
+ }
+}

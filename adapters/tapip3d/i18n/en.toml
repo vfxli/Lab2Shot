@@ -1,0 +1,39 @@
+# The TAPIP3D extension's own words and messages in English (the same keys as zh.toml).
+
+# ---- depth and camera inputs
+"E-TAPIP3D-NODEPTHCAMERA" = "TAPIP3D 3D Tracks needs both Depth and Camera wired: connect a node that outputs depth maps and a camera node"
+"E-TAPIP3D-DEPTHFRAMES.one" = "Depth is missing {count:d} frame (frame {first}, for one): TAPIP3D needs a depth map on every frame; have the upstream depth node compute every frame of the plate"
+"E-TAPIP3D-DEPTHFRAMES.other" = "Depth is missing {count:d} frames (frame {first}, for one): TAPIP3D needs a depth map on every frame; have the upstream depth node compute every frame of the plate"
+"E-TAPIP3D-DEPTHSIZE" = "Depth on frame {frame} is {width}×{height} while the plate is {plate_width}×{plate_height}: the depth maps must be the same size as the plate; check that the upstream depth node is wired to this plate"
+
+[node."tapip3d.track"]
+subtitle = "3D Tracks"
+description = "Images + depth maps + camera → numbered 3D tracks with visibility and velocity (cm, lining up with the point cloud made from the camera and depth maps); points keep being tracked through occlusion. Depth and camera must be accurate; the scale follows the wired camera. On locked-off short-focal-length shots ViPE gets the focal length wrong, so set it first. In Houdini, 3D tracks serve as locators to pin CG props to flags, clothing or car bodies; for 2D points only, use TAPNext++ 2D Tracks."
+official.note = "The **inputs** are all upstream's: upstream's inference(model, video, depths, intrinsics, extrinsics, query_point) (utils/inference_utils.py:108-118) **takes per-frame extrinsics and intrinsics**, falling back to identity only when no extrinsics are given (inference.py:68-70 \"No extrinsics provided, using identity matrix\"). The mask only decides where query_point is scattered. **The only output is 3D Tracks = coords**: upstream inference() returns only (coords, visibs) (the return annotation at utils/inference_utils.py:119, the call at inference.py:124-133); the intrinsics / extrinsics in the saved npz are **the inputs written back as they came** for visualization (inference.py:137-156), not something it computes. The two ports of the PointTracker3D family that upstream does not have, Camera (the wired camera passed through) and 2D Tracks (our own projection of the 3D points), are not grown on this node (the solves_camera / gives_tracks2d declarations in lab2shot/nodes/families/tracks3d.py). Upstream's visibs are kept: they are the per-point visibility of 3D Tracks."
+
+[node."tapip3d.track".port.depth]
+label = "Depth"
+
+[node."tapip3d.track".port.mask]
+label = "Mask"
+
+[node."tapip3d.track".param.grid]
+label = "Grid Points"
+
+[node."tapip3d.track".param.resolution]
+label = "Processing Resolution"
+option.standard = "Standard"
+option.fine = "Fine"
+
+[extension.tapip3d]
+summary = "Long-term feed-forward 3D point tracking in monocular RGB and RGB-D video, using a persistent world-space feature cloud to cancel out the camera's own motion"
+license.name = "Apache-2.0 + MIT model weights"
+license.summary = "The code is Apache-2.0 and the model weights (Hugging Face zbww/tapip3d, MIT per the model card) allow commercial use. Only the repository's tracking model and its bundled pointops2 (MIT) neighbor ops are used; its own MegaSaM pipeline for estimating depth and camera from images is not installed: depth and camera come in from Lab2Shot nodes"
+weight.tapip3d.note = "TAPIP3D (MIT, 309 MB)"
+
+[stage]
+read_inputs = "Read Images, Depth and Camera"
+read = "Read"
+preprocess = "Preprocess (Resize, Remove Flying Pixels at Depth Edges)"
+track_points.one = "Track {count} Point"
+track_points.other = "Track {count} Points"

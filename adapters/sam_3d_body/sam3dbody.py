@@ -14,6 +14,9 @@ template inverse bind pose -- exactly what UsdSkel evaluates.
 
 from __future__ import annotations
 
+import sys
+from contextlib import contextmanager
+
 import numpy as np
 import roma
 import torch
@@ -28,6 +31,29 @@ CHUNK = 64  # frames per MHR evaluation batch
 # 显存随人数线性涨。批的大小只关显存：一批装不下就换下一档重来这一帧（lab2shot_worker.fit_memory 的 batch
 # 那一档），结果不变，只是慢一点。不按人数丢人：几十个人的镜头按人拆成几十趟整条链重跑（重新检人、重新加载
 # 模型）要几个小时，真正解人的时间只是零头。
+@contextmanager
+def keep_gpu_cache():
+    """While the per-frame loop runs, upstream's process_one_image does not hand PyTorch's cached GPU memory back to
+    the driver on every call (`torch.cuda.empty_cache()` at its start, sam_3d_body_estimator.py:97 / Fast :234-235):
+    the next frame needs the same blocks again, and under WSL every cudaFree / cudaMalloc goes through the
+    driver's kernel path on the CPU. Only calls made from the estimator module are skipped; everyone else's (the
+    out-of-memory recovery's) still empty the cache, and the original is back after the loop. The results are
+    unchanged: only when memory is returned changes."""
+    real = torch.cuda.empty_cache
+
+    def empty_cache():
+        if sys._getframe(1).f_globals.get("__name__", "").endswith("sam_3d_body_estimator"):
+            return
+        real()
+
+    torch.cuda.empty_cache = empty_cache
+    try:
+        yield
+    finally:
+        torch.cuda.empty_cache = real
+        real()
+
+
 PEOPLE_BATCH = 8  # 一批最多几个人（RTX 4090 上 8 人一批稳）
 BATCH_STEPS = (8, 4, 2, 1)  # 显存不够时依次降到的批大小
 
@@ -146,7 +172,7 @@ def estimate_focal_px(job, load_measure) -> tuple[float, str]:
     focal_px = job.params["focal_px"]
     if focal_px:
         return focal_px, "user"
-    stage("估计 Focal Length")
+    stage("estimate_focal")
     measure = load_measure()
     frames = job.frames
     picks = np.unique(np.linspace(0, len(frames) - 1, min(FOV_SAMPLES, len(frames))).round().astype(int))
@@ -156,8 +182,11 @@ def estimate_focal_px(job, load_measure) -> tuple[float, str]:
         progress(n + 1, len(picks))
     return float(np.median(focals)), "moge2"
 
-def intrinsics(focal_px: float, width: int, height: int) -> torch.Tensor:
-    return torch.tensor([[[focal_px, 0.0, width / 2.0], [0.0, focal_px, height / 2.0], [0.0, 0.0, 1.0]]])
+def intrinsics(focal_px: float, principal) -> torch.Tensor:
+    """[1,3,3]; `principal`: the picture's centre in the pixels sent (the node's principal_px: on an undistorted
+    plate's canvas with overscan it is not the canvas centre)."""
+    cx, cy = (float(v) for v in principal)
+    return torch.tensor([[[focal_px, 0.0, cx], [0.0, focal_px, cy], [0.0, 0.0, 1.0]]])
 
 def shot_camera(job, load_measure) -> tuple:
     """(intrinsics: one tensor for the shot or a function of the frame, focal px, where it came from).
@@ -166,14 +195,14 @@ def shot_camera(job, load_measure) -> tuple:
     camera_npz = job.inputs.get("camera")
     if camera_npz is None:
         focal_px, source = estimate_focal_px(job, load_measure)
-        return intrinsics(focal_px, job.width, job.height), focal_px, source
+        return intrinsics(focal_px, job.params["principal_px"]), focal_px, source
     cam = np.load(camera_npz)
     focal_of = {int(f): float(v) for f, v in zip(cam["frames"], cam["focal_px"])}
     known = sorted(focal_of)
 
     def cam_int(frame):  # nearest camera sample for frames the camera does not cover
         focal = focal_of.get(frame) or focal_of[min(known, key=lambda k: abs(k - frame))]
-        return intrinsics(focal, job.width, job.height)
+        return intrinsics(focal, job.params["principal_px"])
 
     return cam_int, float(np.median(list(focal_of.values()))), "camera"
 
@@ -261,7 +290,7 @@ def write_people(job, per_person: dict[int, dict[int, dict]], head, focal_px: fl
     """Every person's solve -> raw/person_<id>.npz, then result.json (the solve node's raw contract)."""
     from lab2shot_worker import save_npz, say, write_result
 
-    stage("锁定体型 · 平滑 · 生成骨骼")
+    stage("finish_people")
     params = job.params
     rig = rig_data(head)
     out = []

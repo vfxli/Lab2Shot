@@ -2,96 +2,153 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "48d18414d9c0579bf7fba28bf152ff48",
-  "name": "人体分割 · Sapiens2",
-  "intro": "Sapiens2 是一组高分辨率 transformer，面向以人为中心的视觉任务，重点在泛化、通用和高保真输出；身体部位分割比第一代高 24.3 mIoU。这张卡整幅画面逐帧做身体部位分割和人物 alpha，交付一套多层 EXR：部位写成 Cryptomatte（CryptoObject），人物 alpha 一层（alpha）。",
+  "name": {
+   "zh": "人体分割 · Sapiens2",
+   "en": "Body Segmentation · Sapiens2"
+  },
+  "intro": {
+   "zh": "Sapiens2 是一组高分辨率 transformer，面向以人为中心的视觉任务，重点在泛化、通用和高保真输出；身体部位分割比第一代高 24.3 mIoU。这张卡整幅画面逐帧做身体部位分割和人物 alpha，交付一套多层 EXR：部位写成 Cryptomatte（CryptoObject），人物 alpha 一层（alpha）。",
+   "en": "Sapiens2 is a family of high-resolution transformers for human-centric vision tasks, focused on generalization, versatility and high-fidelity output; its body-part segmentation is 24.3 mIoU higher than the first generation. This card does body-part segmentation and a person alpha for the whole image per frame and delivers a multi-layer EXR: the parts as Cryptomatte (CryptoObject) and one layer of person alpha (alpha)."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-11T11:00:00",
-  "deliverable": "segmentation",
+  "deliverable": "mask",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
-   "name": "model_size",
-   "label": "模型大小",
-   "target": "seg.model_size"
+   "name": "segment_model_size",
+   "label": {
+    "zh": "模型大小",
+    "en": "Model Size"
+   },
+   "target": "segment.model_size"
   },
   {
-   "name": "matte",
-   "label": "精细抠像（软边 alpha）",
-   "target": "seg.matte",
-   "tip": "开：alpha 由单独的抠像模型给出软边；关：alpha 直接来自分割，边缘硬。两种情况 EXR 都带 alpha 层"
+   "name": "segment_matte",
+   "label": {
+    "zh": "精细抠像（软边 alpha）",
+    "en": "Fine Matte (Soft-Edged Alpha)"
+   },
+   "target": "segment.matte",
+   "note": {
+    "zh": "开：alpha 由单独的抠像模型给出软边；关：alpha 直接来自分割，边缘硬。两种情况 EXR 都带 alpha 层",
+    "en": "On: a separate matte model gives the alpha soft edges; off: the alpha comes straight from the segmentation, with hard edges. The EXR has an alpha layer either way"
+   }
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "fp16",
-     "label": "半精度",
-     "target": "seg.fp16"
+     "name": "segment_fp16",
+     "label": {
+      "zh": "半精度",
+      "en": "Half Precision"
+     },
+     "target": "segment.fp16"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "exr.name"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
-       "target": "out.exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -101,17 +158,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "计算",
+     "word": "cook",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -120,8 +183,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -134,9 +196,8 @@
    }
   },
   {
-   "id": "seg",
+   "id": "segment",
    "type": "sapiens2.segment",
-   "label": "Sapiens2 人体分割",
    "params": {
     "model_size": "1b",
     "fp16": true,
@@ -153,8 +214,7 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
     "x": 1200,
@@ -162,9 +222,8 @@
    }
   },
   {
-   "id": "out",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "id": "exr",
+   "type": "exr.output",
    "params": {
     "name": "segment",
     "layers": [
@@ -196,33 +255,33 @@
     "image"
    ],
    "to": [
-    "seg",
+    "segment",
     "image"
    ]
   },
   {
    "from": [
-    "seg",
+    "segment",
     "parts"
    ],
    "to": [
-    "out",
+    "exr",
     "layer1"
    ]
   },
   {
    "from": [
-    "seg",
+    "segment",
     "alpha"
    ],
    "to": [
-    "out",
+    "exr",
     "layer2"
    ]
   },
   {
    "from": [
-    "out",
+    "exr",
     "files"
    ],
    "to": [
@@ -233,7 +292,7 @@
  ],
  "boxes": [],
  "view": {
-  "display": "seg",
+  "display": "segment",
   "frame": null
  }
 }

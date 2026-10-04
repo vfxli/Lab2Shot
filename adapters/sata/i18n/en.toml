@@ -1,0 +1,47 @@
+# SATA extension: its words in English (the same keys as zh.toml); the shared retarget messages are in the core catalogue.
+
+[node."sata.retarget"]
+subtitle = "Motion Retarget"
+description = "Semantics-aware, cross-topology learned motion retargeting. The middle part of learned retargeting: wire Source and Target from the two outputs of Retarget Prepare (part correspondence, rest pose and which joints stay out of the model are all set there), follow with Retarget Post-Process for translation and hip height, then Bone Deform to see the mesh. The output is the model's native result, written back to the target's own hierarchy; joints not sent into the model keep their rest pose and follow their parents. In the preprocessing ignore rules choose SATA (official body range), or the experimental with-fingers rule."
+official.note = "Uses the officially released models and keeps the target's own hierarchy."
+needs.sata.label = "SATA (official body range)"
+needs.sata_fingers.label = "SATA (with fingers, experimental)"
+
+[node."sata.retarget".param.source_toe_semantics]
+label = "Source Toe Semantics"
+help = "SATA's T5 features tell the toe base from the big toe. Known official names keep their meaning; custom names default to the toe base by their correspondence and can be set by hand."
+option.auto = "Auto (keep known official names)"
+option.base = "Toe Base"
+option.big_toe = "Big Toe"
+
+[node."sata.retarget".param.target_toe_semantics]
+label = "Target Toe Semantics"
+option.auto = "Auto (keep known official names)"
+option.base = "Toe Base"
+option.big_toe = "Big Toe"
+
+[node."sata.retarget".param.model]
+label = "Model"
+option.vae_human = "Human VAE"
+option.vae_merge = "Human and Animal VAE"
+option.vae_animo = "Animal VAE"
+option.rvq_human = "Human RVQ"
+
+[node."sata.retarget".param.window]
+label = "Inference Window"
+
+[node."sata.retarget".param.seed]
+label = "Seed"
+
+[extension.sata]
+summary = "Semantics-aware, cross-topology learned motion retargeting"
+license.name = "Apache-2.0"
+license.summary = "Apache-2.0; the assets it depends on follow their own licenses, see the official repository."
+weight.retarget-models.note = "Official VAE / RVQ retargeting model weights and normalization statistics"
+weight.t5-base.note = "T5-base encoder for the joint semantics text"
+weight.t5-base.notice = "t5-base (Apache-2.0)"
+
+# worker progress (worker.py)
+[stage]
+encode_joint_text = "Encoding joint semantics"
+retarget = "SATA retargeting"

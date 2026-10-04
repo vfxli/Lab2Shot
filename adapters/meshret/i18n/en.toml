@@ -1,0 +1,33 @@
+# The shared retargeting messages are in the core's catalogue. (English; the same keys as zh.toml.)
+
+# ---- words
+
+[stage]
+prepare_input = "Prepare MeshRet Input"
+retarget = "MeshRet Retarget"
+
+[node."meshret.retarget"]
+subtitle = "Motion Retarget"
+description = "Motion retargeting that keeps body contacts by sensing dense mesh interactions. The middle stage of learned retargeting: wire Source and Target from the two outputs of Retarget Prepare (part correspondence, rest pose, and which bones are left out of the model are all set there), and follow it with Retarget Post-Process for translation and hip height, then Bone Deform to see the mesh. The output is the model's native result, written back to the target's own hierarchy; bones not sent to the model keep their rest pose and follow their parents. Both sides need real skinned meshes; the input is projected onto the official 65-joint skeleton (fingers included), and the released model drives only its body joints, so the fingers keep the target's rest pose. In the preprocessing, pick the ignore rule \"MeshRet (body and fingers, the model drives the body only)\"."
+
+[node."meshret.retarget".param.window]
+label = "Inference Window"
+
+[node."meshret.retarget".needs.meshret]
+label = "MeshRet (body and fingers, the model drives the body only)"
+
+[node."meshret.retarget".official]
+note = "Uses the officially released model and keeps the target's own hierarchy."
+
+[extension.meshret]
+summary = "Motion retargeting that keeps body contacts by sensing dense mesh interactions"
+
+[extension.meshret.license]
+name = "MIT"
+summary = "MIT; the assets it depends on follow their own licenses, see the official repository for details."
+
+[manual.meshret-model]
+title = "MeshRet Weights"
+what = "The official full-body retargeting checkpoint"
+note = "The authors' archive is actually a bzip2 TAR, and the original download name is recognised; only the inference checkpoint is extracted"
+download = "The Google Drive link under Pretrained Model in the official README"

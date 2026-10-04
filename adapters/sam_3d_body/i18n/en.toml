@@ -1,0 +1,58 @@
+# SAM 3D Body extension: its words and messages in English (the same keys as zh.toml; sam3dbody.py is shared with Fast SAM 3D Body).
+
+# ---- people detection
+"N-SAM3DBODY-NOPEOPLEFOUND" = "ViTDet People Boxes found no one in the image (Detection Threshold is {threshold:g}), so the boxes are empty: the nodes after it (Select People, Person Boxes to Mask, a solver's People Boxes input) have no boxes this time. For people far away, occluded or seen from behind, lower Detection Threshold to 0.5–0.6 and cook again"
+"N-SAM3DBODY-NOPEOPLEFOUND.app" = "No person was detected in the image (Detection Threshold is {threshold:g}), so there is nobody to solve this time: when people are far away, blocked or seen from behind, lower Detection Threshold to 0.5–0.6 and cook again"
+
+# ---- solve
+"N-SAM3DBODY-NOBODYCHOSEN" = "The wired People Boxes hold no one: there is nobody to solve this time. To solve everyone in the image, set Select People to All, or leave People Boxes unwired"
+"N-SAM3DBODY-UNSOLVEDFRAMES.one" = "{missing} of {frames} frames has no solve for person {person}; the person is not shown on that frame"
+"N-SAM3DBODY-UNSOLVEDFRAMES.other" = "{missing} of {frames} frames have no solve for person {person}; the person is not shown on those frames"
+
+[node."sam_3d_body.detect_people"]
+subtitle = "Person Boxes"
+description = "Finds every person in the image with ViTDet (Meta Detectron2), gives each one an ID, and marks their box on every frame. Installed with the SAM 3D Body extension."
+cost.note = "VRAM is a conservative estimate at the scale of the ViTDet detector"
+
+[node."sam_3d_body.detect_people".param.threshold]
+label = "Detection Threshold"
+
+[node."sam_3d_body.detect_people".port.boxes]
+label = "People Boxes"
+
+[node."sam_3d_body.solve"]
+subtitle = "Full-Body Motion"
+description = "Estimates a person's full-body motion (fingers included); the result is in camera space. With People Boxes wired (ViTDet People Boxes → Select People) only those people are solved and no detection runs; unwired, it detects everyone in the image itself (with the same detector as ViTDet People Boxes). Detection and model loading happen once; the people in a frame are solved in batches, every one of them. To keep only one person, put ViTDet People Boxes → Select People → Person Boxes to Mask → Composite before it to remove everyone else from the image. A Focal Length set on the node (or wired in) is used and makes the people's distance much more accurate. To place the result in a camera's world, follow with Camera Space. For a version 2.5–3x faster use Fast SAM 3D Body Full-Body Motion; for a world trajectory without foot skate use GVHMR Full-Body Motion. Also outputs a Camera: the pinhole camera the people are placed with, at the origin and still (focal length = Focal Length, or when empty the focal length it estimates from the image; principal point at the image center). It is not a solved camera: the 3D viewport looks through it at the image plane so the people line up with the image, and templates use it as the solver's camera."
+official.ours.camera = "The pinhole camera the people are placed with: at the origin, still, focal length = the node's Focal Length (empty: the solver's own estimate / the default), principal point at the image center (families/humans.py plate_camera)"
+official.note = "⓪ **People Boxes is an optional input, handed straight to the official function** (the rule: when the official function accepts boxes, the boxes go straight to it; projects whose function takes no boxes go through Person Boxes to Mask in the network). The official package's `SAM3DBodyEstimator.process_one_image(img, bboxes=None, …)` (sam_3d_body_estimator.py:64-75, **the official package's function, not ours**) takes boxes already; the official demo passes none (demo.py:88-91) only because it has no other boxes at hand, so it builds a HumanDetector of its own (:44-49). ViTDet People Boxes uses that very detector, so what comes in are still the official boxes, with only the Select People step in between (→ this input). Without boxes the worker follows the demo and detects people itself. The mask chain (Person Boxes to Mask → Composite) is for projects whose official function does **not** take boxes. ① **The official full set of MHR parameters is the Skinned Character output**: no separate type and no extra output (parametric bodies such as SMPL / SMPL-X / MANO / FLAME / MHR are skin + skin weights + skeleton animation, packed as a Skinned Character with no data type of their own, whatever their point or joint counts). Item by item (sam3dbody.py solve_person / evaluate / rig_data): `global_rot` + `body_pose_params` + `hand_pose_params` + `scale_params` + `shape_params` go back unchanged into MHR (head.mhr_forward → head.mhr) to evaluate the skeleton on every frame, which becomes the Skinned Character's per-frame joint matrices (npz joint_world); `mhr_model_params` is the intermediate set that same mhr_forward returns: the same output of the same function, not other data; `shape_params` also becomes the person's rest mesh (npz rest_vertices), with MHR's own skin weights and bind pose (npz skin_weights / skin_indices / bind_world); `pred_joint_coords` and `pred_global_rots` (= out['joint_global_rots']) are the joint positions and global rotations of the same skeleton, in the translate and rotate parts of joint_world; `pred_pose_raw` is the same pose before body_pose_params is converted to Euler, not other data. **Not one parameter is lost.** `expr_params` is **always zeroed by upstream itself** (`sam_3d_body/models/heads/mhr_head.py:316 pred_face = pred[:, count : count + self.num_face_comps] * 0`, and the same block at :306-307 zeroes the jaw too), so the Skinned Character has no expression blend shapes: not dropped by us, the official model never outputs them. `mask` exists only when the caller passes a mask in or turns on use_mask to have SAM 2 compute one (sam_3d_body_estimator.py:135-153); we do neither (worker.py node_solve passes only bboxes and cam_int), so on our path it is always None. Upstream also gives `pred_keypoints_2d` (the official 2D keypoints, already saved in the npz by the worker), which has no output yet; **it does not fit in a Skinned Character** (it is points on the image, not a skeleton). ② Upstream gives only focal_length (intrinsics) and pred_cam_t (the person's translation in the camera), never a solved camera. The Camera output is the still pinhole camera at the origin the people are placed with (its focal length is the one used), declared in ours: not solved; the 3D viewport looks through it at the image plane and templates use it as the solver's camera. For a real camera, wire one from a camera-solving node (ViPE, TRAM) or use USD Import; to place the people in that camera's world, follow with the core node Camera Space (camera_space). ③ cam_int (sam_3d_body_estimator.py:69) is intrinsics only: intrinsics (focal length, principal point) are not a camera input, only intrinsics plus extrinsics make a camera; it corresponds to the Known Focal Length and Aperture parameters, not a camera input."
+cost.note = "VRAM taken from the measurement of the same model family, Fast SAM 3D Body; SAM 3D Body itself has not been measured"
+
+[node."sam_3d_body.solve".param.hand_refine]
+label = "Refine Hands"
+
+[node."sam_3d_body.solve".param.lock_shape]
+label = "Lock Body Shape"
+
+[node."sam_3d_body.solve".param.smoothing]
+label = "Smoothing"
+
+[node."sam_3d_body.solve".port.camera]
+help = "The camera the people are placed with: a still pinhole camera at the origin, its focal length the node's Focal Length (the solver's own estimate or the default when left empty), its principal point at the image centre. Not a solved camera: the people are placed in its space, so through it they line up with the image plane. Use it as the solver's camera, or as the target of Camera Space"
+
+[extension.sam_3d_body]
+summary = "Full-body 3D human mesh recovery from a single image; estimates body, foot and hand pose with the MHR parametric mesh representation"
+license.name = "SAM License"
+license.summary = "Commercial use, modification and redistribution allowed (with the license attached); papers must credit SAM 3D Body"
+weight.sam-3d-body-dinov3.note = "SAM 3D Body model weights (2.1 GB, SAM License); access must be requested on the Hugging Face page"
+weight.mhr-model.note = "MHR human rig (0.7 GB, released with the SAM 3D Body model weights)"
+weight.sam-license.note = "The SAM License text (to be included when using or distributing the model weights)"
+weight.moge-2.note = "MoGe-2 focal length estimation (MIT, 1.3 GB)"
+weight.sam-3d-body-config.note = "SAM 3D Body network configuration"
+weight.vitdet.note = "ViTDet-H people detection (Apache-2.0, 2.8 GB)"
+
+# worker progress (worker.py, sam3dbody.py; Fast SAM 3D Body has the same ids in its own catalogue)
+[stage]
+detect_people = "Detecting people"
+estimate_pose = "Estimating body pose"
+estimate_focal = "Estimating focal length"
+finish_people = "Locking body shape · smoothing · building the skeleton"

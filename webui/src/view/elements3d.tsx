@@ -11,6 +11,8 @@ import {boneSegments, columnMajor, heldSample, skinReach, type Typed } from "../
 import { sampleAt } from "../model/timelineMath";
 import { IDENTITY, inverse } from "../model/math3d";
 import { FatLines } from "./lines3d";
+import { t } from "../i18n/t";
+import { useLang } from "../i18n/lang";
 
 export { CameraPath, ShotCamera, cameraAt } from "./cameras3d";
 
@@ -249,7 +251,7 @@ export function Character({ c, frame, o, pickKey, through, meshes, bones, person
     <>
       {meshes &&
         c.meshes.map((m, k) =>
-          m.jointIndices ? (
+          m.jointIndices && !m.ref.per_frame ? (
             <SkinnedBody key={k} c={c} mesh={m} frame={frame} o={o} pickKey={`${pickKey}/mesh/${k}`} through={through} person={person} />
           ) : (
             <EvaluatedBody key={k} c={c} mesh={m} frame={frame} o={o} pickKey={`${pickKey}/mesh/${k}`} through={through} person={person} />
@@ -266,15 +268,15 @@ export function Character({ c, frame, o, pickKey, through, meshes, bones, person
  * 小得离谱；比最长骨稳——根到髋那根「假骨」常常是最长的。骨点与骨的上限都按它。 */
 const REF_PERCENTILE = 0.9;
 /** 骨点半径（「骨点自适应」开）= 与它相连的最短骨 × 这个比例，再不超过与它相连的最长骨 × JOINT_OF_LONGEST：手指、脊椎这类
- * 密集处骨点小、躯干大，层级一眼看清；0.25 让相邻两个骨点之间还留着半根骨的空。相连的骨里长度不到尺度 2% 的不算
+ * 密集处骨点小、躯干大，层级一眼看清；0.125 让相邻两个骨点之间留出大半根骨的空。相连的骨里长度不到尺度 2% 的不算
  * （AccuRIG / CC 的扭转骨、Maya 的辅助关节常常与父关节重合，按它们算骨点就成了零）。 */
-const JOINT_OF_SHORTEST = 0.25;
-const JOINT_OF_LONGEST = 0.1;
+const JOINT_OF_SHORTEST = 0.125;
+const JOINT_OF_LONGEST = 0.05;
 /** 骨点半径（自适应关）= 尺度 × 这个比例：整副一个大小，不同大小的角色仍成比例。 */
-const JOINT_OF_SCALE = 0.05;
-/** 骨（八面体）底面的半宽 = 这根骨长 × 这个比例（Blender 的八面体骨就是 0.1），长过尺度的骨（根到髋）按尺度算，
- * 不会出现一根粗得盖住半个身子的骨。骨的粗细不跟骨点挂钩：关节旁有重合的辅助关节时骨也照样画得出来。 */
-const BONE_OF_LENGTH = 0.1;
+const JOINT_OF_SCALE = 0.025;
+/** 骨（八面体）底面的半宽 = 这根骨长 × 这个比例（Blender 的八面体骨是 0.1；这里细一半，骨架叠在模型上不挡住模型），
+ * 长过尺度的骨（根到髋）按尺度算，不会出现一根粗得盖住半个身子的骨。骨的粗细不跟骨点挂钩：关节旁有重合的辅助关节时骨也照样画得出来。 */
+const BONE_OF_LENGTH = 0.05;
 /** 与父关节重合（不到尺度 2%）的关节不画骨：那是辅助关节，画出来只是一个点。 */
 const TRIVIAL_OF_SCALE = 0.02;
 
@@ -285,7 +287,8 @@ function boneGeometry(): THREE.BufferGeometry {
   const tris: number[] = [];
   for (let k = 0; k < 4; k++) {
     const a = b[k], c = b[(k + 1) % 4];
-    tris.push(...tail, ...c, ...a, ...a, ...c, ...tip);
+    // 逆时针朝外（从外面看）：法线朝外，只画正面时看到的是外表面，打光是凸的。顺序反了就只剩远侧的内壁，看着像凹进去
+    tris.push(...tail, ...a, ...c, ...c, ...a, ...tip);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(tris, 3));
@@ -366,7 +369,8 @@ type Wire = { segments: Float32Array; colors: Float32Array };
 /** 线框骨架的线段：每根骨 12 条棱，每个骨点三个正交圆环（Maya 的骨点画法），并附每段两端的颜色。先数出线段数，
  * 写进 `into`（长度对得上就用它，否则新建一份）：大骨架每帧重算几十万个数，不经 JS 数组，也不每帧新分配。 */
 function wireSegments(points: ArrayLike<number>, parents: number[], sizes: { joint: Float32Array; bone: Float32Array },
-                      bone: THREE.Color, ball: THREE.Color, highlight: number, hi: THREE.Color, into: Wire | null): Wire {
+                      bone: THREE.Color, ball: THREE.Color, highlight: number, hi: THREE.Color, into: Wire | null,
+                      tints: Tints | null = null): Wire {
   const n = parents.length;
   const radius = (i: number) => ballRadius(sizes, parents, i, highlight);
   let verts = 0;
@@ -391,15 +395,16 @@ function wireSegments(points: ArrayLike<number>, parents: number[], sizes: { joi
     const l = d.length();
     q.setFromUnitVectors(UP, l > 1e-9 ? d.normalize() : UP);
     m.compose(at, q, sc.set(sizes.bone[i], l, sizes.bone[i]));
+    const c = tints?.bone[i] ?? bone;
     for (const [a, b] of BONE_EDGES) {
-      v.set(a[0], a[1], a[2]).applyMatrix4(m); put(v.x, v.y, v.z, bone);
-      v.set(b[0], b[1], b[2]).applyMatrix4(m); put(v.x, v.y, v.z, bone);
+      v.set(a[0], a[1], a[2]).applyMatrix4(m); put(v.x, v.y, v.z, c);
+      v.set(b[0], b[1], b[2]).applyMatrix4(m); put(v.x, v.y, v.z, c);
     }
   }
   for (let i = 0; i < n; i++) {
     const r = radius(i);
     if (!(r > 0)) continue;
-    const c = i === highlight ? hi : ball;
+    const c = i === highlight ? hi : tints?.ball[i] ?? ball;
     const x = points[i * 3], y = points[i * 3 + 1], z = points[i * 3 + 2];
     for (let axis = 0; axis < 3; axis++) {
       for (let k = 0; k < RING_SEGMENTS; k++) {
@@ -420,21 +425,41 @@ function wireSegments(points: ArrayLike<number>, parents: number[], sizes: { joi
  * 骨点，一份 FatLines。`overlay`：画在一切之上（骨架总叠在模型上，透过相机看时也是）——实体时靠所有这类骨架之前
  * 清一次深度做到（overlayClear）：骨架内部与骨架之间仍按深度画，八面体才是凸的；关了深度画就会前后颠倒、看着像凹进去。`highlight`：这个关节画成
  * 选中色。骨点比骨稍亮一档，分得清层级。`names` 给了且「骨点名」开着时，在每个骨点旁写名字（JointLabels）。 */
-export function BoneFigure({ points, sizedBy, parents, names, color, o, opacity = 0.95, overlay = true, highlight = -1, highlightColor = "#0a84ff" }: {
+export function BoneFigure({ points, sizedBy, parents, names, color, o, opacity = 0.95, overlay = true, highlight = -1, highlightColor = "#0a84ff", selected, tints, shown }: {
   points: ArrayLike<number>; parents: number[]; names?: string[]; color: string; o: ViewOptions;
   sizedBy?: ArrayLike<number>; // 按哪一份关节位置定骨点与骨的大小（动画角色：它的第一帧，播放时不每帧重算）；缺省按 points
   opacity?: number; overlay?: boolean; highlight?: number; highlightColor?: string;
+  selected?: number[]; // 这些关节的骨点按 highlightColor 上色
+  // 逐关节的颜色：这个关节的骨点和通到它的那根骨用它（空：用 color）。双骨架编辑按状态上色（已配对 / 未配对）
+  tints?: readonly (string | null | undefined)[];
+  // 只画这些关节（true）的骨点和通到它们的骨，其余不画（缺省全画）。同一副骨架按状态分几份画（不同的透明度）、眼睛隐藏
+  shown?: readonly boolean[];
 }) {
   const from = sizedBy ?? points;
-  const sizes = useMemo(() => boneSizes(from, parents, o), [from, parents, o.boneWidth, o.jointSize, o.jointAdaptive]); // eslint-disable-line react-hooks/exhaustive-deps
-  const labels = names && o.jointNames ? <JointLabels points={points} names={names} sizes={sizes.joint} px={o.jointNamePx} color={color} /> : null;
-  if (o.boneStyle === "wire") return <><WireFigure points={points} parents={parents} sizes={sizes} color={color} o={o} opacity={opacity} overlay={overlay} highlight={highlight} highlightColor={highlightColor} />{labels}</>;
-  return <><SolidFigure points={points} parents={parents} sizes={sizes} color={color} opacity={opacity} overlay={overlay} highlight={highlight} highlightColor={highlightColor} />{labels}</>;
+  const all = useMemo(() => boneSizes(from, parents, o), [from, parents, o.boneWidth, o.jointSize, o.jointAdaptive]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sizes = useMemo(() => {
+    if (!shown) return all;
+    const joint = all.joint.slice(), bone = all.bone.slice();
+    for (let i = 0; i < parents.length; i++) if (!shown[i]) joint[i] = bone[i] = 0;
+    return { joint, bone };
+  }, [all, shown, parents.length]);
+  const colors = useMemo((): Tints | null => {
+    if (!tints) return null;
+    const bone = parents.map((_, i) => (tints[i] ? new THREE.Color(tints[i]!) : null));
+    return { bone, ball: bone.map((c) => c && c.clone().offsetHSL(0, 0, 0.15)) };
+  }, [tints, parents]);
+  const labelNames = names && shown ? names.map((n, i) => (shown[i] ? n : "")) : names;
+  const labels = labelNames && o.jointNames ? <JointLabels points={points} names={labelNames} sizes={sizes.joint} px={o.jointNamePx} color={color} /> : null;
+  if (o.boneStyle === "wire") return <><WireFigure points={points} parents={parents} sizes={sizes} color={color} o={o} opacity={opacity} overlay={overlay} highlight={highlight} highlightColor={highlightColor} selected={selected} tints={colors} />{labels}</>;
+  return <><SolidFigure points={points} parents={parents} sizes={sizes} color={color} opacity={opacity} overlay={overlay} highlight={highlight} highlightColor={highlightColor} selected={selected} tints={colors} />{labels}</>;
 }
 
-function WireFigure({ points, parents, sizes, color, o, opacity, overlay, highlight, highlightColor }: {
+/** 逐关节的颜色（BoneFigure `tints` 换成 three 的颜色）：骨用 `bone[i]`，骨点亮一档用 `ball[i]`；null 用整副的颜色。 */
+type Tints = { bone: (THREE.Color | null)[]; ball: (THREE.Color | null)[] };
+
+function WireFigure({ points, parents, sizes, color, o, opacity, overlay, highlight, highlightColor, selected, tints }: {
   points: ArrayLike<number>; parents: number[]; sizes: { joint: Float32Array; bone: Float32Array }; color: string; o: ViewOptions;
-  opacity: number; overlay: boolean; highlight: number; highlightColor: string;
+  opacity: number; overlay: boolean; highlight: number; highlightColor: string; selected?: number[]; tints: Tints | null;
 }) {
   // 两份缓冲轮流写：每次给 FatLines 的是另一份（它按引用认新数据，再拷进自己的缓冲），不每帧新分配
   const bufs = useRef<[Wire | null, Wire | null]>([null, null]);
@@ -442,15 +467,16 @@ function WireFigure({ points, parents, sizes, color, o, opacity, overlay, highli
   const { segments, colors } = useMemo(() => {
     const base = new THREE.Color(color);
     const k = (turn.current ^= 1);
-    return (bufs.current[k] = wireSegments(points, parents, sizes, base, base.clone().offsetHSL(0, 0, 0.15), highlight, new THREE.Color(highlightColor), bufs.current[k]));
-  }, [points, parents, sizes, color, highlight, highlightColor]);
+    const hi = selected && selected.length ? selected[0] : highlight; // wire 模式高亮选中的第一个（多选少见）
+    return (bufs.current[k] = wireSegments(points, parents, sizes, base, base.clone().offsetHSL(0, 0, 0.15), hi, new THREE.Color(highlightColor), bufs.current[k], tints));
+  }, [points, parents, sizes, color, highlight, highlightColor, selected, tints]);
   if (!segments.length) return null;
   return <FatLines segments={segments} colors={colors} color={color} width={o.lineWidth} opacity={opacity} overlay={overlay} renderOrder={overlay ? ORDER.overlayBones : undefined} />;
 }
 
-function SolidFigure({ points, parents, sizes, color, opacity, overlay, highlight, highlightColor }: {
+function SolidFigure({ points, parents, sizes, color, opacity, overlay, highlight, highlightColor, selected, tints }: {
   points: ArrayLike<number>; parents: number[]; sizes: { joint: Float32Array; bone: Float32Array }; color: string;
-  opacity: number; overlay: boolean; highlight: number; highlightColor: string;
+  opacity: number; overlay: boolean; highlight: number; highlightColor: string; selected?: number[]; tints: Tints | null;
 }) {
   const invalidate = useThree((s) => s.invalidate);
   const n = parents.length;
@@ -503,7 +529,8 @@ function SolidFigure({ points, parents, sizes, color, opacity, overlay, highligh
   useLayoutEffect(() => {
     const base = new THREE.Color(color);
     const bright = base.clone().offsetHSL(0, 0, 0.15);
-    for (const [mesh, c, order] of [[boneMesh, base, ORDER.overlayBones], [ballMesh, WHITE, ORDER.overlayBalls]] as const) {
+    // 逐关节上色时骨的颜色也在 instanceColor 里（材质色为白，同骨点）；不上色时 instanceColor 回到白，颜色只在材质上
+    for (const [mesh, c, order] of [[boneMesh, tints ? WHITE : base, ORDER.overlayBones], [ballMesh, WHITE, ORDER.overlayBalls]] as const) {
       const mat = mesh.material as THREE.MeshLambertMaterial;
       mat.color.copy(c);
       mat.transparent = overlay || opacity < 1; // 叠在上面的一律在透明那一批里画：排在清深度（overlayClear）之后
@@ -514,10 +541,15 @@ function SolidFigure({ points, parents, sizes, color, opacity, overlay, highligh
     }
     // 骨点的颜色全在 instanceColor 里、材质色为白：three 把两者相乘，材质色带骨色时选中色会被乘暗
     const hi = new THREE.Color(highlightColor);
-    for (let i = 0; i < n; i++) ballMesh.setColorAt(i, i === highlight ? hi : bright);
+    const sel = selected && selected.length ? new Set(selected) : null;
+    for (let i = 0; i < n; i++) ballMesh.setColorAt(i, (sel ? sel.has(i) : i === highlight) ? hi : tints?.ball[i] ?? bright);
     if (ballMesh.instanceColor) ballMesh.instanceColor.needsUpdate = true;
+    if (tints || boneMesh.instanceColor) {
+      bones.forEach((i, k) => boneMesh.setColorAt(k, tints ? tints.bone[i] ?? base : WHITE));
+      if (boneMesh.instanceColor) boneMesh.instanceColor.needsUpdate = true;
+    }
     invalidate();
-  }, [color, opacity, overlay, highlight, highlightColor, boneMesh, ballMesh, n, invalidate]);
+  }, [color, opacity, overlay, highlight, highlightColor, selected, tints, boneMesh, ballMesh, bones, n, invalidate]);
   return (
     <>
       {overlay && <primitive object={clear} />}
@@ -581,17 +613,18 @@ function JointLabels({ points, names, sizes, px, color }: { points: ArrayLike<nu
 /** 某一帧的骨架骨骼：从每个关节画到它的父关节。 */
 function Bones({ c, frame, o, pickKey }: { c: CharacterData; frame: number; o: ViewOptions; pickKey: string }) {
   const i = sampleAt(c.ref.frames, frame);
+  const lang = useLang((s) => s.lang); // the pick label is a word
   // 骨段只给拾取与框显用：要时才算（播放时每帧不另分配一份）
   const pickable = useMemo(() => {
     let made: Float32Array | null = null;
     const segs = () => (made ??= boneSegments(c.anim, c.ref.parents, i));
     return {
-      label: `${c.ref.name} 骨架`,
+      label: t("ui.view.skeleton_of", { name: c.ref.name }),
       order: ORDER.overlayBones, // drawn over everything (BoneFigure overlay): picked over the mesh around it
       bounds: () => { const segments = segs(); return segments.length ? new THREE.Box3().setFromArray(segments) : null; },
       hit: (p: PickRay) => segmentsHit(segs(), p), // anywhere along a bone, not only at its joints
     };
-  }, [c, i]);
+  }, [c, i, lang]);
   usePickable(pickKey, pickable);
   const points = useMemo(() => jointPoints(c.anim, c.ref.parents.length, i), [c, i]);
   // 骨长在动画里不变：大小按一个不退化的姿势定一次（boneScale > 0，与 boneSizes 同一个判据），播放时只挪位置。

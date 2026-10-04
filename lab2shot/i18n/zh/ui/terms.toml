@@ -1,0 +1,16 @@
+# 条款页（webui/src/terms.tsx）。键 ui.terms.<…>。
+[ui.terms]
+quoted = "《{title}》"
+agree_box = "我已阅读并同意"
+agreement = "用户协议"
+and = "和"
+privacy = "隐私政策"
+both = "用户协议和隐私政策"
+both_changed = "用户协议和隐私政策更新了"
+changed_lede = "《用户协议》和《隐私政策》有了新的版本。读过并同意以后就能接着用，页面上正在做的都还在。"
+lede = "使用之前，请先阅读《用户协议》和《隐私政策》，同意以后才能接着用。"
+version = "（第 {version} 版）"
+need_tick = "先读过并勾选同意"
+submitting = "提交中…"
+agree = "同意并继续"
+log_out = "退出登录"

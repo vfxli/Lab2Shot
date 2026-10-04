@@ -1,0 +1,112 @@
+# This extension's words and messages in English (the same keys as zh.toml): written by P1-B.
+# The LingBot-Map extension's messages (adapters/lingbotmap). One per line: code = template.
+
+# ---- loading the model (worker.py)
+"E-LINGBOTMAP-MISSINGKEYS.one" = "The LingBot-Map weights {file} lack {count} parameter (such as {keys}): the weights and the model code are different versions. An administrator runs lab2shot ext install lingbotmap again"
+"E-LINGBOTMAP-MISSINGKEYS.other" = "The LingBot-Map weights {file} lack {count} parameters (such as {keys}): the weights and the model code are different versions. An administrator runs lab2shot ext install lingbotmap again"
+"I-LINGBOTMAP-EXTRAKEYS.one" = "The LingBot-Map weights hold {count} parameter the model does not use (such as {keys}); they were not loaded"
+"I-LINGBOTMAP-EXTRAKEYS.other" = "The LingBot-Map weights hold {count} parameters the model does not use (such as {keys}); they were not loaded"
+
+# ---- reconstruction (worker.py)
+"W-LINGBOTMAP-RESOLUTION.one" = "LingBot-Map was trained at {native} pixel on the long side, and Processing Resolution is now {resolution}: the cameras and depth maps may get worse. Unless there is a reason, set it back to {native}"
+"W-LINGBOTMAP-RESOLUTION.other" = "LingBot-Map was trained at {native} pixels on the long side, and Processing Resolution is now {resolution}: the cameras and depth maps may get worse. Unless there is a reason, set it back to {native}"
+"W-LINGBOTMAP-MEMORY.one" = "LingBot-Map has to remember {keyframes} keyframe per segment, more than the {trained} frames it was trained with: later camera positions may drift more and more. Raise Keyframe Interval, or lower Max Frames per Segment"
+"W-LINGBOTMAP-MEMORY.other" = "LingBot-Map has to remember {keyframes} keyframes per segment, more than the {trained} frames it was trained with: later camera positions may drift more and more. Raise Keyframe Interval, or lower Max Frames per Segment"
+"E-LINGBOTMAP-NORMALIZATION" = "LingBot-Map's upstream turned on its prediction normalization step, which our per-frame path does not take: the results would differ from the official ones. An administrator runs lab2shot ext install lingbotmap again and checks the upstream changes"
+"E-LINGBOTMAP-NOOVERLAP" = "LingBot-Map segment {segment} has too few reliable points in common with the results before it to be stitched: raise Max Frames per Segment (fewer segments), or lower Frame Step (more overlap)"
+"W-LINGBOTMAP-FOCALXY" = "LingBot-Map's horizontal focal length {fx:.0f} px and vertical focal length {fy:.0f} px differ quite a lot: the output camera uses {used:.0f} px, along the long side. If the pixels are not square (anamorphic, a stretch not undone), restore the picture first"
+"I-LINGBOTMAP-SKYMODEL" = "sky segmentation model"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."lingbotmap.reconstruct"]
+subtitle = "Depth and Camera"
+description = "Picture → a camera and a depth map per frame, read frame by frame as a stream, so GPU memory does not grow with the shot's length (the same for long shots of thousands of frames). The camera jitters more from frame to frame than ViPE's, and focal length is underestimated on long lenses; the scale is arbitrary, converted to centimetres by Scale. Pick it for aerial, walkthrough and car shots of hundreds to thousands of frames; for a more accurate camera on a short shot use pi3.reconstruct. It gives no point cloud: the released weights have no point map head and the official demo also unprojects depth; for a point cloud, wire points_from_depth."
+
+[node."lingbotmap.reconstruct".param.step]
+label = "Frame Step"
+
+[node."lingbotmap.reconstruct".param.model]
+label = "Model"
+
+[node."lingbotmap.reconstruct".param.model.option]
+long = "Long Shots"
+balanced = "Balanced"
+
+[node."lingbotmap.reconstruct".param.max_frames]
+label = "Max Frames per Segment"
+placeholder = "Auto"
+
+[node."lingbotmap.reconstruct".param.max_frames.option]
+100 = "100"
+300 = "300"
+1000 = "1000"
+3000 = "3000"
+
+[node."lingbotmap.reconstruct".param.resolution]
+label = "Processing Resolution"
+
+[node."lingbotmap.reconstruct".param.resolution.option]
+280 = "280"
+392 = "392"
+518 = "518"
+
+[node."lingbotmap.reconstruct".param.keyframe_interval]
+label = "Keyframe Interval"
+
+[node."lingbotmap.reconstruct".param.keyframe_interval.option]
+0 = "0"
+16 = "16"
+32 = "32"
+64 = "64"
+
+[node."lingbotmap.reconstruct".param.context_window]
+label = "Short-Term Memory Frames"
+
+[node."lingbotmap.reconstruct".param.context_window.option]
+16 = "16"
+32 = "32"
+64 = "64"
+
+[node."lingbotmap.reconstruct".param.conf_threshold]
+label = "Confidence Threshold"
+
+[node."lingbotmap.reconstruct".param.mask_sky]
+label = "Remove Sky"
+
+[node."lingbotmap.reconstruct".param.unit_cm]
+label = "Scale"
+
+[node."lingbotmap.reconstruct".port.confidence]
+help = "How reliable each pixel's depth is in this frame (LingBot-Map's raw value 1 + exp(x), mapped to 0–1). The depth this solver gives already leaves out depth edges and sky (the valid area of Depth is its usable mask), so among the remaining pixels it mostly says the farther, the less certain"
+
+[node."lingbotmap.reconstruct".official]
+note = "The camera is the official pose encoding pose_enc (gct_base.py:310), turned into extrinsics plus intrinsics by upstream's own pose_encoding_to_extri_intri (gct_base.py:260). The node has no moving-object mask or person box input: the mask argument of forward is for ordered_video (gct_base.py:293-296), not a picture mask; a picture mask cannot go into the model, moving pixels can only be taken out of the valid area after solving, a step of our own that is not put on the solver. For a local reconstruction go sam_3d_body.detect_people → mask_from_boxes → composite (keep) → the RGB input. The world point map world_points is in forward's docstring (gct_base.py:312), but **the released weights have no such head**: measured, the keys of lingbot-map.pt / lingbot-map-long.pt are only aggregator (1211), camera_head (69) and depth_head (62), not one point_head., and the streaming model does not build it by default either (gct_stream.py:118 enable_point=False). So this node has no point cloud output: not an official result we dropped, but weights upstream did not release"
+
+[node."lingbotmap.reconstruct".licence]
+note = "Code and weights Apache-2.0, commercial use allowed; a few code files from VGGT follow the VGGT License (commercial use allowed, military and similar uses forbidden)."
+
+[extension.lingbotmap]
+summary = "A feed-forward 3D foundation model for streaming 3D reconstruction: a geometric context transformer unifies coordinate anchoring, dense geometric cues and long-range drift correction"
+
+[extension.lingbotmap.license]
+name = "Apache-2.0 (code and weights); some code files from VGGT (Meta VGGT License)"
+summary = "Code Apache-2.0, commercial use allowed. The weights lingbot-map-long / lingbot-map (Hugging Face robbyant/lingbot-map) are released under Apache-2.0 (the model card says Apache-2.0 without filling in the license field); the network is initialized from DINOv2-Large (Apache-2.0) and trained by the authors, without VGGT's non-commercial weights. Note: files in the repository such as geometry / pose_enc / rotation / the prediction heads / load_fn carry Meta's copyright header and come from the VGGT code, originally under the Meta VGGT License (commercial use allowed, subject to its acceptable use policy, which forbids military, weapons, critical infrastructure and similar uses). The sky segmentation model skyseg.onnx is MIT. The training data includes research-licensed datasets such as ScanNet, Matterport3D, HM3D and Waymo; the weights themselves are released under Apache-2.0"
+
+[extension.lingbotmap.weight.lingbot-map-long]
+note = "LingBot-Map long: steadier on long shots / large scenes, the default (Apache-2.0, 4.6 GB)"
+
+[extension.lingbotmap.weight.lingbot-map]
+note = "LingBot-Map balanced: the weights used for the paper and benchmarks (Apache-2.0, 4.6 GB)"
+
+[extension.lingbotmap.weight.skyseg]
+note = "Sky segmentation ONNX, removes the points of the sky (MIT, 176 MB)"
+
+# ---- the worker's stages (worker.py)
+[stage]
+reconstruct = "Reconstruct"
+reconstruct_stream.one = "Streaming Reconstruction ({frames} frame, keyframe interval {interval})"
+reconstruct_stream.other = "Streaming Reconstruction ({frames} frames, keyframe interval {interval})"
+reconstruct_segmented.one = "Segmented Reconstruction ({frames} frame in {segments} segments, keyframe interval {interval})"
+reconstruct_segmented.other = "Segmented Reconstruction ({frames} frames in {segments} segments, keyframe interval {interval})"
+segment = "Segment {segment}/{segments} (frames {first}–{last})"

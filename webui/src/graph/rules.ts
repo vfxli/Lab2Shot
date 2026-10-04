@@ -1,5 +1,8 @@
 import type { Catalog, CookCase, HandleDef, NodePorts, NodeStatus, NodeTypeDef, ParamDef, PortDef, ResolvedCost, StatusReply, WireStatus } from "../api";
 import type { LooseWire } from "../state/viewer";
+import { isDefaultName } from "./naming";
+import { pick, t } from "../i18n/t";
+import { tipOf, type Tip } from "../platform/tips";
 
 /** What the editor knows of the graph's rules: nothing here works a rule out.
  * Every answer is read from the server: the status reply (a node's ports, handles, cost, licence, what a click and
@@ -16,7 +19,7 @@ export const PARAM = "param:";
 
 /** The graph as the lookups read it: a snapshot (graph/snapshot.ts) has all of it. */
 export interface GraphView {
-  nodes: { id: string; data: { typeId: string; label: string; promoted?: string[]; params?: Record<string, unknown> } }[];
+  nodes: { id: string; data: { typeId: string; promoted?: string[]; params?: Record<string, unknown> } }[];
   edges: { source: string; sourceHandle: string | null; target: string; targetHandle: string | null }[];
   nodeDefs: Record<string, NodeTypeDef>;
   reply: StatusReply | null; // the last status reply, trusted or not
@@ -75,6 +78,27 @@ const NO_VALUES: Record<string, string> = {};
 export const licensedValues = (def: NodeTypeDef | undefined, name: string): Record<string, string> =>
   (def ? licensedChoices(def)[name] ?? NO_VALUES : NO_VALUES);
 
+/** Parameter -> String(value) -> whether that value needs a model each user registers for (catalogue `option_traits`:
+ * registration, lab2shot/nodes/tags.py 需注册). The choice that does is hidden from a login without the tag, and
+ * optionView adds 「需注册」 beside its licence word. */
+export function registeredChoices(def: NodeTypeDef): Record<string, Record<string, true>> {
+  const made: Record<string, Record<string, true>> = {};
+  for (const [name, rows] of Object.entries(def.option_traits)) {
+    const values: Record<string, true> = {};
+    for (const [v, r] of Object.entries(rows)) if (r.registration) values[v] = true;
+    if (Object.keys(values).length) made[name] = values;
+  }
+  return made;
+}
+const REGISTERED = new WeakMap<NodeTypeDef, Record<string, Record<string, true>>>();
+export const registeredValues = (def: NodeTypeDef | undefined, name: string): Record<string, true> => {
+  if (!def) return NO_REGISTERED;
+  let kept = REGISTERED.get(def);
+  if (!kept) REGISTERED.set(def, (kept = registeredChoices(def)));
+  return kept[name] ?? NO_REGISTERED;
+};
+const NO_REGISTERED: Record<string, true> = {};
+
 /** An option's name as the node type declares it (`option_labels`), else the value itself: the one place the name is
  * read, for a pull-down (ui/controls.tsx optionView adds the licence word and why it is off) and a message alike. */
 export const optionName = (p: Pick<ParamDef, "option_labels">, o: unknown): string => p.option_labels?.[String(o)] ?? String(o);
@@ -107,9 +131,9 @@ export const mainOutput = (s: GraphView, id: string): PortDef | undefined => {
  * named by its row (nodes/base.py made_ports); [] when the node has no such table. The rows are the document's
  * own (its parameters), so this is what the ports ARE, not a guess: reading a graph file and drawing the node's inputs
  * both ask here. */
-export function tableRows(def: NodeTypeDef | undefined, params: Record<string, unknown> | undefined): { name: string; label: string }[] {
+export function tableRows(def: NodeTypeDef | undefined, params: Record<string, unknown> | undefined): { name: string; label: unknown }[] {
   if (!def || def.ports_from_side !== "inputs" || !def.ports_from) return [];
-  return ((params?.[def.ports_from] as { name: string; label: string }[] | undefined) ?? []).filter((r) => r && typeof r.name === "string");
+  return ((params?.[def.ports_from] as { name: string; label: unknown }[] | undefined) ?? []).filter((r) => r && typeof r.name === "string");
 }
 
 /** Whether one more row fits in a node's input table: a node that names its rows itself (`ports_from_names`,
@@ -146,11 +170,17 @@ export function inputsOf(s: GraphView, id: string): PortDef[] {
   if (!def || def.ports_from_side !== "inputs" || !node?.data.params) return [...own, ...promoted];
   const declared = new Set(def.inputs.map((p) => p.name));
   const replied = new Map(own.map((p) => [p.name, p]));
-  // a row's name (the layer name) is the document's: a rename on the node shows at once, without waiting for the next reply
+  // a row's name (the layer name) is the document's: a rename on the node shows at once, without waiting for the next reply;
+  // a row the node names itself and left unnamed (「切换」's ways) reads as the node's word for its place, in the
+  // language now (catalog ports_from_labels, the server's made_ports)
+  const placeWord = (name: string) => def.ports_from_labels?.[def.ports_from_names?.indexOf(name) ?? -1] ?? "";
   const rows = tableRows(def, node.data.params).map(
-    (r): PortDef => ({ ...(replied.get(r.name) ?? { ...ROW_PORT, name: r.name, type: def.ports_from_type, type_label: def.ports_from_type_label }), label: r.label }),
+    (r): PortDef => ({ ...(replied.get(r.name) ?? { ...ROW_PORT, name: r.name, type: def.ports_from_type, type_label: def.ports_from_type_label }), label: pick(r.label) || placeWord(r.name) }),
   );
-  return [...own.filter((p) => declared.has(p.name)), ...rows, ...promoted];
+  // the standing ones above the rows (a row is added at the bottom, by the 「＋」 under them), as nodes/base.py input_ports
+  const standing = new Set(def.wired_ports ?? []);
+  return [...own.filter((p) => declared.has(p.name)), ...promoted.filter((p) => standing.has(p.name.slice(PARAM.length))), ...rows,
+          ...promoted.filter((p) => !standing.has(p.name.slice(PARAM.length)))];
 }
 
 // inputs made from a table are all optional: a row added but not wired yet is skipped by the node, said once
@@ -173,7 +203,7 @@ function addRowPort(s: GraphView, id: string): PortDef | undefined {
   const def = s.nodeDefs[typeOf(s, id)];
   // a table that is full (「切换」 with its ten ways) has no 「＋」: nothing lands there
   if (!def || !rowsLeft(def, s.nodes.find((n) => n.id === id)?.data.params)) return undefined;
-  return { ...ROW_PORT, name: ADD_ROW, label: "＋", type: def.ports_from_type, type_label: def.ports_from_type_label };
+  return { ...ROW_PORT, name: ADD_ROW, label: t("ui.node.add_row"), type: def.ports_from_type, type_label: def.ports_from_type_label };
 }
 
 export const outputPort = (s: GraphView, id: string, port: string | null | undefined): PortDef | undefined =>
@@ -224,11 +254,12 @@ export function wiredFrom(s: GraphView & { results: Record<string, NodeStatus> }
   const src = s.nodes.find((n) => n.id === e.source);
   const def = s.nodeDefs[src?.data.typeId ?? ""];
   const out = outputPort(s, e.source, e.sourceHandle);
-  const label = src?.data.label ?? e.source;
+  // short, on the node's row: the source node's name (a third-party node never renamed says its project: 「← AnyCalib」)
+  const label = e.source;
   return {
     from: `${label} · ${out?.label ?? e.sourceHandle}`,
     node: label,
-    source: def && def.runtime !== "core" && label === def.label ? def.project : label,
+    source: def && def.runtime !== "core" && isDefaultName(e.source, def.id) ? def.project : label,
     value: s.results[e.source]?.values?.[e.sourceHandle ?? ""] ?? "",
     // the output may give nothing (Port.may_be_empty, as the server says with the port): the parameter keeps its own
     // value for that case and stays editable — the same rule apply_values keeps (engine/templates.py)
@@ -287,15 +318,9 @@ export function clickKind(s: GraphView, id: string): { delivers: boolean; nothin
 const caseWords = (c: CookCase | null | undefined): { delivers: boolean; nothing: boolean } =>
   ({ delivers: !!c?.delivers, nothing: !!c && !c.computes.length });
 
-// how every cook runs, said once (lab2shot/farm/queue.py, farm/scheduler/pools.py)
-const QUEUED = "进队列排队，每个节点轮到了就在空着的显卡或 CPU 名额上算，互不依赖的节点同时算";
-
-/** How the page says a cook: the 计算 button's tooltip and its short word. Only words: what the cook is comes
- * from the server. */
-export function cookWords(delivers: boolean, nothing: boolean): { short: string; tip: string } {
-  if (delivers)
-    return { short: "打包", tip: `整理打包：${nothing ? "上游都已缓存，" : ""}${QUEUED}，算完把接进「输出」的结果整理成一个文件夹、打包成 zip，好了在节点上「下载」` };
-  return nothing
-    ? { short: "已缓存", tip: "要的结果都已缓存，不用算" }
-    : { short: "计算", tip: `计算：${QUEUED}` };
+/** How the page says a cook: its short word, and a tooltip only when a click would compute nothing. Only words: what
+ * the cook is comes from the server. */
+export function cookWords(delivers: boolean, nothing: boolean): { short: string; tip?: Tip } {
+  if (delivers) return { short: t("ui.graph.cook_deliver") };
+  return nothing ? { short: t("ui.graph.cook_cached"), tip: tipOf("value", t("ui.graph.cook_cached_tip")) } : { short: t("ui.graph.cook") };
 }

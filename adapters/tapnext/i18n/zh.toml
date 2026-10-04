@@ -1,0 +1,35 @@
+# TAPNext++ extension: display words and messages (Chinese). One entry per line: key = template.
+
+# ---- 输入
+"N-TAPNEXT-SIDEROUNDED" = "「处理分辨率」要是 8 的倍数：{given} 已改为 {side} 计算"
+
+[node."tapnext.track"]
+subtitle = "2D 跟踪点"
+description = "画面 → 2D 跟踪点：在画面里撒网格点或手动点，逐帧跟满整段镜头，被挡住的点标成不可见（Google DeepMind TAPNext++）。任何机位都能用，可以商用；结果接「2D 跟踪点输出」导给 3DEqualizer 或 Nuke。要整片表面上更密的点用「CoTracker3 2D 跟踪点」，要三维轨迹用「TAPIP3D 3D 跟踪点」。"
+official.note = "上游没有遮罩参数：遮罩在我们这边只决定 query_points 撒在哪，进模型的还是 query_points。可见性（visible_logits）在我们的 2D 跟踪点数据里，不是单独的口。"
+licence.note = "代码和两个模型都是 Apache-2.0，可以商用。"
+
+[node."tapnext.track".param.grid]
+label = "网格点数"
+
+[node."tapnext.track".param.model]
+label = "模型"
+option."512" = "512"
+option."256" = "256"
+
+[node."tapnext.track".param.resolution]
+label = "处理分辨率"
+placeholder = "模型默认"
+
+[extension.tapnext]
+summary = "把「跟住任意一个点」写成「预测下一个 token」；TAPNext++ 微调后稳定跟点的时长长 40 倍，能跟过遮挡"
+license.name = "Apache-2.0"
+license.summary = "代码 Apache-2.0，可商用；TAPNext++ 两个模型权重（tapnextpp_512.ckpt、tapnextpp_ckpt.pt）按仓库 README 同样是 Apache-2.0，可商用。只用到仓库里的 PyTorch 推理代码（torch、torchvision、einops），不装 JAX / recurrentgemma；训练数据集（Kubric、PointOdyssey）不随扩展分发"
+weight.tapnextpp_512.note = "TAPNext++ 512x512 输入（Apache-2.0，2.5 GB）"
+weight.tapnextpp_256.note = "TAPNext++ 256x256 输入（Apache-2.0，2.5 GB）"
+
+[stage]
+read_images = "读取画面"
+track = "跟踪"
+track_points.other = "跟踪 {count} 个点"
+track_points_support.other = "跟踪 {count} 个点（另加 {support} 个辅助点）"

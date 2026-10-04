@@ -1,0 +1,1418 @@
+# The command line's (lab2shot ...) words: help, options, the output of the operations commands (check, setup).
+[cli.app]
+help = "Lab2Shot: research algorithms turned into tools for CG production."
+
+[cli.option]
+version = "Show the version"
+lang = "Interface language: zh or en (default: LAB2SHOT_LANG, else the language LC_ALL / LANG names; Chinese when they name none, or C or POSIX)"
+
+[cli.check]
+summary.one = "{problems} problem, {seconds:.1f} s"
+summary.other = "{problems} problems, {seconds:.1f} s"
+unknown = "No such check: {name} (one of: {names})"
+failed_to_run = "{name}: the check did not finish: {error}"
+only = "Run only this one: {names}"
+
+[cli.check.i18n]
+english = "{where} writes the English \"{text}\" into the page's markup: shown words go in the catalogue (t(\"ui.…\"))"
+unknown = "{where} says the word {key}, which no catalogue has: showing it would fail"
+catalogues.one = "i18n: the catalogues of {langs} read ({words} word, {messages} messages)"
+catalogues.other = "i18n: the catalogues of {langs} read ({words} words, {messages} messages)"
+extra = "i18n: the {language} catalogue has {key}, which the Chinese one does not ({where})"
+placeholders = "i18n: {key} has other placeholders in Chinese ({zh}) than in English ({en})"
+app_placeholders = "i18n: {key} (the app-mode words) names a placeholder {base} does not: the caller gives only those of {base}"
+reserved = "i18n: {key} ({language}) has a placeholder named {name}, which t() takes as its own keyword (a language or scope): rename it"
+eager = "i18n: message parameter {name} at {where} is a word said once in the language of the moment (t / pick / node_text / lookup, or a node named by its subtitle): use i18n.Word, and node_ref (name (type)) for a node"
+unused = "i18n: no code uses the key {key} ({where})"
+over = "i18n: {area} has {now} {what}, over its baseline of {most} (it may only go down; see lab2shot/i18n/baseline.toml)"
+under = "i18n: {area} is down to {now} {what} (baseline {most}): run uv run python tools/i18n_baseline.py to tighten it"
+counted = "i18n: {cjk} Chinese literals in code, {missing} English keys missing, {fields} one-language template fields: none over its baseline"
+cjk = "Chinese literals"
+missing = "missing English keys"
+fields = "one-language template fields"
+lacking = "i18n: the {language} catalogue lacks {key}, which the Chinese one has ({where})"
+plural_zh_one = "i18n: {key}: Chinese writes only the plural form .other, never .one ({where})"
+plural_pair = "i18n: {key} ({language}): a sentence that follows a number is written with .one and .other in English, .other in Chinese ({where})"
+plural_twice = "i18n: {key} ({language}) is written both as one sentence and in plural forms ({where})"
+plural_one_names = "i18n: {key}.one names a placeholder its .other does not ({where})"
+plural_needed = "i18n: {key} ({language}): \"{said}\" follows a number and misreads for 1: write it in plural forms .one / .other ({where})"
+
+[cli.menu]
+number = "No."
+name = "Name"
+description = "Description"
+pick = "Enter a number"
+
+# lab2shot login | logout and lab2shot admin (cli/accounts.py).
+[cli.accounts.option]
+server = "Lab2Shot server address"
+server_example = "Lab2Shot server address, e.g. http://render-box:8765"
+
+[cli.accounts.login]
+help = "Log in to a Lab2Shot server: lab2shot cook --server and the DCC plugins on this machine then use this account (the token is kept in ~/.lab2shot/tokens.json, readable by the current user only)."
+username = "Username (created by the administrator under Users); asked for when left out"
+prompt_username = "Username"
+prompt_password = "Password"
+no_department = "no department"
+done = "[green]Logged in[/green]: {name} ({username} · {department}), token saved to {file}"
+
+[cli.accounts.logout]
+help = "Log out of a Lab2Shot server: the token is revoked and deleted from this machine."
+done = "Logged out"
+
+[cli.admin]
+help = "The administrator account's password and passphrase: changed only on this server with the commands below (also while the service is running)."
+by_command_line = "command line"
+cancelled = "Cancelled, nothing deleted"
+yes = "Do not ask before deleting"
+
+[cli.admin.secret]
+new = "New {what}"
+again = "Repeat the new {what}"
+
+[cli.admin.password]
+help = "Reset the password of the built-in administrator account, when it is forgotten or locked after too many wrong attempts. Takes effect at once: the administrator logs in again with the new password on every web page, and the count of wrong attempts is cleared."
+what = "administrator password"
+done = "[green]Administrator password changed[/green]: username {username}. It takes effect at once; the count of wrong passwords is cleared."
+
+[cli.admin.passphrase]
+help = "Set the passphrase: set only on this server, never shown or changed on the web. When the administrator password is forgotten, click Forgot Password on the login page and set a new one with the passphrase."
+what = "passphrase"
+set = "[green]Passphrase set[/green]: when the administrator password is forgotten, click Forgot Password on the login page and enter the passphrase to set a new password. Only an irreversible fingerprint of the passphrase is kept, so no one can read it back: keep it safe."
+updated = "[green]Passphrase updated[/green]: when the administrator password is forgotten, click Forgot Password on the login page and enter the passphrase to set a new password. Only an irreversible fingerprint of the passphrase is kept, so no one can read it back: keep it safe."
+
+[cli.admin.status]
+help = "Show whether the administrator password is still unset, whether the passphrase is set, and how many accounts there are (who is online only the running service knows: see the Users page of the admin page)."
+no_password = "Administrator  {username}, [yellow]no password set, cannot log in: run ./setup.sh and choose Accounts and Security → Set Administrator Password[/yellow]"
+password = "Administrator  {username}, password changed {when} by {by}"
+no_passphrase = "Passphrase     not set: run lab2shot admin passphrase to set it"
+passphrase = "Passphrase     set {when}"
+accounts = "Accounts       {count} (create them under Users); see who is online on the Users page of the admin page"
+
+[cli.admin.logout]
+help = "Log out every web page, DCC plugin and command line (everyone logs in again). When a password may have leaked, change it first, then run this."
+done = "{count} login sessions ended."
+
+[cli.admin.restart]
+help = "Restart the lab2shot ui running on this machine. Use this for a coordinated restart rather than calling /api/admin/restart with a password login, which would end the administrator's browser session."
+mode = "drain: let running jobs finish, queued jobs stay queued after the restart; now: stop running jobs at once"
+wait = "Return only once the new service has started (its boot number changed), waiting 5 minutes at most"
+asked = "Restart requested ({mode}): this is boot {boot}"
+waiting = "Waiting for the new service to start…"
+done = "[green]Restarted[/green]: boot {boot}"
+timeout = "Waited 5 minutes and the restart has not finished: check the service"
+
+[cli.admin.unlock]
+help = "Clear the count of wrong passwords: accounts slowed down by guesses from unknown devices and locked-out sources can try again at once. Only on this server (machine token): the administrator's browser login cannot clear it, since the count is what stops password guessing."
+done = "[green]Cleared[/green]: {count} wrong-password records removed."
+
+[cli.admin.gpus]
+help = "Show the GPUs the lab2shot ui running on this machine detected: model, memory, architecture, whether each takes jobs (machine token, no password login)."
+json = "Print each GPU's uuid, model, vram_gb, arch and authorized as JSON (for the GPU test tool to pick GPUs)"
+card = "GPU"
+memory = "Memory"
+arch = "Architecture"
+taking = "[green]takes jobs[/green]"
+not_taking = "[dim]takes no jobs[/dim]"
+
+[cli.admin.authorize]
+help = "Authorize GPUs, by UUID, to take jobs on the lab2shot ui running on this machine (machine token, no password login). The list is the whole authorization: GPUs not listed are no longer authorized."
+uuid = "UUIDs of the GPUs that take jobs (see lab2shot admin gpus; several allowed, replacing the current authorization)"
+none = "Authorize no GPU (running jobs finish, no new ones are taken)"
+need_uuid = "Name the UUIDs of the GPUs to authorize (see lab2shot admin gpus); to authorize none, use --none"
+done = "[green]{count} GPUs authorized[/green]"
+listed = ": {uuids}"
+none_taking = ": no GPU takes jobs"
+taking = " ({count} GPUs of the service take jobs now)"
+
+[cli.admin.switches]
+help = "The two switches for GPU jobs and compute jobs (machine token). Without options, only shows them. Running jobs are not affected and run to the end."
+gpu = "GPU jobs switch (queue.gpu_jobs): off, GPU jobs only queue and do not start"
+compute = "Compute jobs switch (queue.compute_jobs): off, no new compute jobs are taken"
+on = "[green]on[/green]"
+off = "[yellow]off[/yellow]"
+gpu_state = "GPU jobs      {state}"
+compute_state = "Compute jobs  {state}"
+
+[cli.admin.queue]
+help = "Check whether the queue is idle (before a coordinated restart; do not call /api/admin/queue with a password login): exit code 0 when idle; when busy, lists the active jobs with exit code 3."
+idle = "Idle: no job is queued or running"
+
+[cli.admin.joblog]
+help = "Look up the full record of a cook by its error number (node, parameters, model, GPU memory, full stack): finds the job's folder in the cache by the eight-character number of the error (<number>*_job) and prints the node, extension, time, frame count and parameters of its job.json and the end of its worker.log; when one number matches several folders, the newest. Exit code 4 when not found."
+code = "The eight-character error number of the error message (given by the user)"
+lines = "How many lines of the end of the log to print; 0 for all"
+bad_code = "[yellow]Malformed error number: {code}[/yellow]"
+not_found = "[yellow]Error number {code} not found[/yellow]: the cache has no such job (it may have been cleaned, or the number is wrong)"
+several.one = "[yellow]Error number {code} matches {count} job; using the newest: {folder}[/yellow]"
+several.other = "[yellow]Error number {code} matches {count} jobs; using the newest: {folder}[/yellow]"
+record = "Node        {node}\nExtension   {extension}\nTime        {created}\nFrames      {frames}\nParameters  {params}"
+no_log = "[yellow]The job has no log file[/yellow] ({file})"
+tail.one = "[dim](only the last {shown} of {total} lines; use --lines 0 to show all)[/dim]"
+tail.other = "[dim](only the last {shown} of {total} lines; use --lines 0 to show all)[/dim]"
+full = "[dim]Full log: {file}[/dim]"
+
+[cli.admin.feedback]
+help = "List the feedback history, or clear all of it with --clear. The delete buttons of the admin page need a password login, which would end the administrator's browser session; this command calls the feedback module directly, without a login. It deletes the rows of the database's feedback table and the screenshots and diagnostics in work/feedback/<id>/, nothing else; copies in database backups stay until the backups rotate."
+clear = "Delete the whole feedback history (with its screenshots and diagnostics)"
+empty = "The feedback history is empty"
+count = "{count} feedback entries:"
+how_to_clear = "[dim]To delete them all: uv run lab2shot admin feedback --clear[/dim]"
+already_empty = "The feedback history is already empty"
+confirm = "Delete {count} feedback entries and their screenshots? This cannot be undone"
+done = "{count} feedback entries deleted"
+orphans.one = "Also removed {count} folder without a record ({mb:.1f} MB): the database no longer had them, but the folders were still on disk"
+orphans.other = "Also removed {count} folders without a record ({mb:.1f} MB): the database no longer had them, but the folders were still on disk"
+
+[cli.admin.jobs]
+help = "List the queue history, or remove every finished job with --clear. Works through the service running on this machine with the machine token, without a login; nothing is removed when the service is not running. The same rules as Delete All of the queue panel: queued or running jobs are kept (the result says how many were skipped); each job's folder (graph, inputs, outputs, logs) is removed whole, and caches only it referenced go with the next cleanup."
+user = "Only this account's jobs (default: the administrator)"
+clear = "Delete the whole history of finished jobs (and free the space it takes)"
+no_account = "No such account: {name} (accounts: {names})"
+empty = "The queue history of {name} is empty"
+count.one = "Queue history of {name}: {count} job ({active} queued or running):"
+count.other = "Queue history of {name}: {count} jobs ({active} queued or running):"
+more = "… {count} more"
+how_to_clear = "[dim]To delete them all: uv run lab2shot admin jobs --clear[/dim]"
+nothing = "No finished job to delete (cancel queued or running jobs first)"
+confirm = "Delete the {count} finished jobs of {name} and free the space they take? This cannot be undone"
+done.one = "{count} job deleted, {mb:.1f} MB freed"
+done.other = "{count} jobs deleted, {mb:.1f} MB freed"
+skipped = "; {count} skipped (queued or running)"
+
+# The checks of lab2shot check (cli/check.py, cli/check_naming.py). Keys cli.check.<check>.<…>.
+[cli.check.help]
+text = "The project's static invariants: ports and citations, node body parameters, categories, message codes, templates, channel mapping, deletion paths, imported names, release notes. Run it after changing code; it takes seconds and changes nothing in work/."
+
+[cli.check.common]
+sep = "; "
+more = "…"
+
+[cli.check.official]
+takes = "official {type}: takes[{port}] is not an input port or parameter of the node"
+gives = "official {type}: gives/ours[{port}] is not an output port of the node"
+input_undeclared = "official {type}: input port {port} is not in takes: upstream does not take it, so it was added by us"
+output_undeclared = "official {type}: output port {port} is not in gives or ours: upstream does not output it, so it was added by us"
+unreadable = "official {type}: cannot read the citation: {error}"
+ok = "official: ports and upstream citations of {count} third-party nodes"
+
+[cli.check.nodes]
+on_node_many.one = "on_node {type}: {count} parameter on the node body, more than {most} ({names})"
+on_node_many.other = "on_node {type}: {count} parameters on the node body, more than {most} ({names})"
+on_node_unknown = "on_node {type}: {names} are not parameters of the node"
+button_clash = "buttons {type}: button names {names} clash with parameters or other buttons"
+button_value = "buttons {type}: buttons {names} need an action and no value, and stay out of the fingerprint and the worker"
+ok.one = "on_node: the {count} node shows no more than {most} parameters on its body; button names clash with no parameter and hold no value"
+ok.other = "on_node: none of the {count} nodes shows more than {most} parameters on its body; button names clash with no parameter and hold no value"
+data_undeclared = "data: image input ports that do not say whether they take pictures or values (Port.data: False / True / EITHER): {ports}"
+data_contrary = "data: one- or two-channel input ports declared to take pictures only: {ports}"
+data_ok = "data: every three-, four- and any-channel image input port declares whether it takes pictures, values or both"
+contracts_missing = "contracts: data types {types} have no row in data/contracts.py META"
+contracts_ok = "contracts: all {count} data types have a row"
+metric_undeclared = "metric {type}: a depth and camera node states whether its output is in metres (metric = True / False, or a condition on its parameters): no default to forget it by"
+metric_ok.one = "metric: the {count} depth and camera node states whether its output is in metres"
+metric_ok.other = "metric: all {count} depth and camera nodes state whether their output is in metres"
+
+[cli.check.workers]
+base = "workers {type}: an extension node inherits WorkerNode (or its families), ImportNode or OutputSettings; now {now}"
+cook = "workers {type}: extension classes do not override cook ({classes}): what is sent goes in prepare, what is read back in convert"
+ok = "workers: all {count} extension nodes run their worker through WorkerNode / import / format output nodes, none overrides cook"
+
+[cli.check.categories]
+bad_id = "categories {tree}: the id {id} breaks the naming rule"
+parent = "categories {tree}: the parent {parent} of {id} is not a top-level category"
+section = "categories {tree}: the top-level category {id} names no section ({sections})"
+stray = "categories menu: menu/categories.json has categories of the Algorithms band {ids}: that band reads the templates tree only (templates/_categories.json), these rows never show; delete them"
+alone_in_menu = "categories menu: the templates-only category {id} shows in the node menu"
+node_in_alone = "categories nodes: {type} is placed in the templates-only category {id} (not in the node menu)"
+not_in_band = "categories menu: the templates tree's category {id} is not in the node menu's Algorithms band (both should be one tree)"
+gone.one = "categories nodes: {count} placement names a node that does not exist now (extension not installed or not loaded): {types}{more}"
+gone.other = "categories nodes: {count} placements name nodes that do not exist now (extension not installed or not loaded): {types}{more}"
+unknown_place = "categories nodes: {type} is placed in {id}, which the menu tree does not have"
+loose.one = "categories nodes: {count} node is not categorized (drag it onto a category in the menu): {types}{more}"
+loose.other = "categories nodes: {count} nodes are not categorized (drag them onto a category in the menu): {types}{more}"
+text_problem = "categories node text: {problem}"
+text_unnamed.one = "categories node text: {count} node has no name (the menu shows its type name; add one with Edit in the node menu): {types}{more}"
+text_unnamed.other = "categories node text: {count} nodes have no name (the menu shows their type name; add one with Edit in the node menu): {types}{more}"
+text_bold = "categories node text {file}: the text of {type} has **: node text shows as plain text, never bold, so the asterisks show as typed"
+text_gone = "categories node text {file}: the node type {type} does not exist now (extension not installed or not loaded, or the type name changed)"
+ok.one = "categories: {templates} row in the templates tree, {menu} in the menu tree, {placed} nodes placed, {files} node text files"
+ok.other = "categories: {templates} rows in the templates tree, {menu} in the menu tree, {placed} nodes placed, {files} node text files"
+
+[cli.check.messages]
+short_wide = "messages: {code}.short ({lang}) is {width} full-width characters wide, more than {most} (it does not fit a node's bottom line and is cut)"
+short_ok = "messages: none of {count} .short forms is wider than {most} full-width characters"
+bad_code = "messages: {code} is not written as a message code (kind letter-module-meaning, lab2shot_shared/protocol.py CODE; {where})"
+no_entry = "messages: {code} has no entry in the catalogue ({where})"
+codes_ok.one = "messages: the {used} code in use is in the catalogue ({known} entries)"
+codes_ok.other = "messages: all {used} codes in use are in the catalogue ({known} entries)"
+web_stale = "messages: the page's message catalogue is out of date (run uv run python tools/messages_web.py)"
+web_ok = "messages: the page's catalogue matches web.toml"
+client_stale = "messages: lab2shot/client.py's generated words are out of date (run uv run python tools/messages_client.py)"
+client_ok = "messages: lab2shot/client.py's generated words match client.toml and dcc.toml"
+dcc_look_stale = "messages: the DCC panel's look is out of date: {what} (run uv run python tools/dcc_theme.py and node tools/dcc_icons.mjs)"
+dcc_look_ok = "messages: the DCC panel's colors and icons match the web page's tokens.css and icons"
+
+[cli.check.templates]
+internal = "Parameters cards list in meta.internal as needing no app-mode entry: {count}"
+pairs = "templates: the fixed-name table reads name / name against target group / target group wrongly: {got}"
+derive = "templates: deriving outside names, node names or menu value meanings goes wrong: {said}; exception card {odd}"
+no_type = "templates {name}: node type {type} does not exist"
+no_param = "templates {name}: node {node} has no parameter {param}"
+no_graph = "templates {name}: cannot build the graph: {error}"
+node_said = "templates {name}: node {node}: {said}"
+node_raised = "templates {name}: node {node} raised while checked: {error}"
+what_name = "name"
+what_intro = "intro"
+too_long.one = "templates {name}: {what} has {count} character, more than {most}"
+too_long.other = "templates {name}: {what} has {count} characters, more than {most}"
+too_wide = "templates {name}: {what} ({lang}) is {width} wide (a full-width character counts 2, a half-width one 1), more than {most}"
+no_category = "templates {name}: meta.deliverable={deliverable} is not a category of the templates tree (the card shows under Uncategorized)"
+loose.one = "templates: {count} card is not categorized: {names}{more}"
+loose.other = "templates: {count} cards are not categorized: {names}{more}"
+no_conventions = "templates: no templates/_conventions.md, the outside parameter name conventions are not checked this time"
+ok.one = "templates: nodes, parameters, wires, parameter interfaces and categories of {count} card"
+ok.other = "templates: nodes, parameters, wires, parameter interfaces and categories of {count} cards"
+ok_conventions.one = "templates: nodes, parameters, wires, parameter interfaces, outside parameter name conventions and categories of {count} card"
+ok_conventions.other = "templates: nodes, parameters, wires, parameter interfaces, outside parameter name conventions and categories of {count} cards"
+
+[cli.check.channels]
+wrong = "channels: file {have} asked for {name} → {got}, should be {want}"
+ok = "channels: {count} channel mappings"
+
+[cli.check.deletion]
+rmtree = "deletion: {file} calls rmtree: cache entries are deleted only through data/packet.py remove(); to delete another folder, list the file in RMTREE_ALLOWED with the reason"
+fresh_dir = "deletion: {file} calls fresh_dir() directly: outside a cook, cache packets are written only through data/packet.py produce() (which holds the entry's lock)"
+ok = "deletion: rmtree only in the {count} listed files; fresh_dir only in cook and produce"
+
+[cli.check.imports]
+failed = "imports {file}:{line}: importing {module} failed: {error}"
+missing = "imports {file}:{line}: {module} has no {name}"
+ok.one = "imports: the {count} name of from … import in lab2shot exists (those imported inside functions too)"
+ok.other = "imports: all {count} names of from … import in lab2shot exist (those imported inside functions too)"
+
+[cli.check.releases]
+ok.one = "releases: {count} version in {file} (newest: {name} {date})"
+ok.other = "releases: {count} versions in {file} (newest: {name} {date})"
+
+[cli.check.empties]
+bad = "empties: these outputs are given empty in a cook but do not declare may_be_empty: {ports}"
+ok.one = "empties: the {count} output given empty by name in node code declares may_be_empty"
+ok.other = "empties: all {count} outputs given empty by name in node code declare may_be_empty"
+
+[cli.check.gates]
+one_one = "{type}: a gate node has one input and one output (now {ins} in, {outs} out)"
+type_from = "{type}: the output type follows the input (type_from=\"input:{input}\", now {now})"
+may_be_empty = "{type}: the output declares may_be_empty"
+route = "{type}: a gate node needs condition_input and chosen_inputs (the same routing as switch)"
+wired = "{type}: the condition {condition} must be a wired port (wired_ports)"
+chosen = "{type}: chosen_inputs gives only {input} or nothing (got {got})"
+collects = "{type} declares collects but has required inputs: {inputs}"
+none = "gates: no gate node found"
+ok = "gates: {gates} gate nodes have one input and one output, the type of the input, may be empty and route by their switch; {collects} collecting nodes have optional inputs only"
+
+[cli.check.formats]
+undeclared = "{type} declares no format (Format(short name, display name))"
+twice = "{type}: the format name {name} is also that of {other}"
+ok = "formats: all {count} format output nodes declare their delivery format, no format name twice"
+
+[cli.check.reads]
+undeclared = "{type} reads a file but declares no reads"
+file = "{type}: reads.file {file} is not one of its parameters"
+goes_with = "{type}: reads.goes_with names what is not its parameter: {names}"
+gives = "{type}: reads.gives names what is not a data type: {types}"
+ok = "reads: all {count} file-reading nodes declare reads (the file parameter, the parameters read with it and the types read exist)"
+
+[cli.check.tips]
+where = "{file}:{line} \"{words}\""
+restates = "tips: the hover tip at {where} restates the words already on the control: delete it, or keep only what cannot be seen (ui/Button.tsx)"
+raw = "tips: {where} writes data-tip directly: a hover tip is made only with tipOf(why, text) + tipAttrs of platform/tips.ts, saying why it is there (the full text of a cut-off one, why a control is off, an exact value, an error, a shortcut, what a destructive action loses)"
+ok = "tips: every hover tip in {count} page source files says why it is there (platform/tips.ts), and none written restates its control's own words"
+
+[cli.check.extensions]
+generative = "extensions: {name} does not state whether it runs a generative diffusion model (Extension.generative = True or False in its extension.py)"
+host = "extensions: {name} runs in {host}, which is not a loaded base (an extension with no nodes that runs in no other)"
+own_env = "extensions: {name} runs in {host}'s environment but still declares its own {what}: the code and environment are the base's alone (one copy)"
+lone_base = "extensions: {name} has no nodes and nothing runs in it (Extension.runs_in): a base no feature uses"
+ok.one = "extensions: the {count} extension states generative; bases and what runs in them agree (bases: {bases})"
+ok.other = "extensions: all {count} extensions state generative; bases and what runs in them agree (bases: {bases})"
+
+[cli.check.dcc]
+missing = "dcc: {file} is missing"
+allowed_gone = "dcc: {file} has no function {function}, which the allow-list names (cli/check_dcc.py ALLOWED: update the table)"
+write = "dcc: {file}:{line} {function} calls {call}, which writes the scene: the read side never writes to what is in the user's scene (only the functions in cli/check_dcc.py ALLOWED make the plugin's own nodes)"
+ok.one = "dcc: no scene-writing call in the {count} function of the Maya and Nuke readers and Hosts outside the allow-list (files read: {files}; functions that make Lab2Shot's own nodes: {allowed})"
+ok.other = "dcc: no scene-writing call in the {count} functions of the Maya and Nuke readers and Hosts outside the allow-list (files read: {files}; functions that make Lab2Shot's own nodes: {allowed})"
+test_failed = "dcc: the unit test {file} failed: {said}"
+test_timeout = "dcc: the unit test {file} did not finish within {seconds} s"
+tests_ok.one = "dcc: the {count} client unit test that needs no DCC and no server passes"
+tests_ok.other = "dcc: all {count} client unit tests that need no DCC and no server pass"
+
+[cli.check.joints]
+wrong = "{case} got {parts} wrong"
+fewer = "{case} recognized fewer parts: {right}, down from {before}"
+worse = "joints: skeleton recognition got worse (data/skeleton_recognition.py): {cases}"
+ok.one = "joints: skeleton recognition found {parts} part on the corpus skeletons ({cases}; nameless, left/right names swapped, turned, Z-up, scaled included), none wrong"
+ok.other = "joints: skeleton recognition found {parts} parts on the corpus skeletons ({cases}; nameless, left/right names swapped, turned, Z-up, scaled included), none wrong"
+
+[cli.check.naming]
+bad_name.one = "node name {name} breaks the rule (starts with a lowercase letter, only lowercase letters, digits and _, at most {most} character)"
+bad_name.other = "node name {name} breaks the rule (starts with a lowercase letter, only lowercase letters, digits and _, at most {most} characters)"
+duplicate = "node names twice: {names}"
+wire = "the wire {start} → {end} leads to the missing node {node}"
+exposed = "the outside parameter's target {target} points to a missing node"
+box = "network box {box}: its members {members} do not exist"
+display = "the display node {node} does not exist"
+type_chars = "type name {type}: only lowercase letters, digits and _, at most one dot"
+type_prefix = "type name {type}: built-in nodes have no prefix; only formats take the format's name as prefix (engine/naming.py format_prefixes)"
+type_extension = "type name {type}: the same name as the extension adapters/{extension}"
+type_third_party = "type name {type}: a third-party node is written {library}.<task>"
+reserved = "the extension name {name} is a reserved format prefix (engine/naming.py format_prefixes), not for a third-party library"
+types_ok = "naming: {count} type names follow the rule (built-in: no prefix or a format prefix; third-party: library.task); {prefixes} format prefixes reserved"
+templates_ok.one = "naming: node names of {count} template follow the rule and are unique in their graph, every reference names an existing node"
+templates_ok.other = "naming: node names of {count} templates follow the rule and are unique in their graph, every reference names an existing node"
+
+# lab2shot db (cli/database.py).
+[cli.db]
+help = "Database management: accounts, job records, usage statistics and result records are all kept in work/db/lab2shot.db."
+
+[cli.db.status]
+help = "Show the database's file, size, version, integrity and backups."
+file = "File         {path} ({mb:.1f} MB, version {version})"
+integrity = "Integrity    {detail}"
+last_backup = "Last backup  {backup}"
+no_backup = "none"
+
+[cli.db.backup]
+help = "Make a backup now (also while the service is running)."
+done = "Backup saved to {file}"
+
+[cli.db.check]
+help = "Check the database's integrity. Ends with exit code 1 when a problem is found (the one-click update relies on it)."
+ok = "[green]Intact[/green]"
+bad = "[red]Problem found: {detail}[/red]"
+
+[cli.db.upgrade]
+help = "Upgrade the database to this Lab2Shot version (backed up first): stop the service before. Starting the service does this too."
+done = "[green]The database is at version {version}[/green]: {path}"
+
+[cli.db.claim]
+help = "Make this Lab2Shot (this project folder) the owner of the work folder: processes of other project folders (branches, tests) can no longer open it. Stop the service that used the folder before."
+yes = "Do not ask"
+confirm = "The work folder {work} belongs to {owner}. Make it belong to {root}?"
+unrecorded = "(not recorded)"
+done = "[green]The work folder {work} now belongs to {root}[/green]"
+
+[cli.db.restore]
+help = "Replace the database with a backup: stop the service before. The replaced database stays in work/db/ (lab2shot.db.replaced-<time>), it is not deleted."
+name = "The backup's file name in work/db/backups/ (lab2shot db status lists them)"
+done = "[green]{name} restored[/green]; the previous database is kept at {replaced}. The service can be started now."
+
+# lab2shot ext ... (cli/extensions.py). Keys cli.ext.<…>.
+[cli.ext]
+help = "Extensions: list, inspect, install."
+name = "Extension name"
+
+[cli.ext.list]
+help = "List every extension and its install state."
+name = "Name"
+summary = "Description"
+state = "State"
+license = "License"
+broken = "Failed to load"
+
+[cli.ext.info]
+help = "Show an extension in detail: source, license, model weights, settings."
+homepage = "Homepage  {url}"
+source = "Source    {url} @ {commit}"
+license = "License   {name} — {summary}"
+environment = "Env       Python {python}"
+location = "Location  {path}"
+weight = "Model Weights"
+note = "Description"
+state = "State"
+
+[cli.ext.weight]
+ok = "[green]In place[/green]"
+missing = "Not downloaded"
+pending = "[yellow]Awaiting approval[/yellow]"
+manual = "[yellow]Download by hand[/yellow]"
+consent = "[yellow]License to accept[/yellow]"
+
+[cli.ext.install]
+help = "Install an extension: the pre-install checks first (manual downloads, licenses, Hugging Face access requests, disk space, GPU), and the install once all pass: the pinned code is fetched, a new environment is built beside the old one, the model weights are downloaded and verified, the self-check runs, and once it passes the extension is switched on. Can be run again: finished steps are skipped and the install goes on from the step that failed."
+revert = "Throw away changes made to the original code (and its submodules) after it was installed"
+rebuild = "Run every step again and build a new environment (the old one is kept to roll back to)"
+license = "[bold]{title}[/bold] License: {name} — {summary}"
+
+[cli.ext.preflight]
+help = "Pre-install checks: list what is missing and how to fix it, without installing anything."
+
+[cli.ext.selfcheck]
+help = "Run only the self-check (imports the package and runs one small computation on the CPU, no footage needed): a card is usable once it passes."
+name = "Extension name (leave out only with --all)"
+all = "Every installed extension whose self-check has not passed for the current code"
+no_target = "Name an extension, or use --all"
+names = ": {names}"
+
+[cli.ext.adopt]
+help = "Register an environment installed by hand: check it against the declaration (code commit, model weights, files placed in the checkout, Python version and pinned dependencies, import self-check) and write the install record once everything matches. On any difference it refuses and says what differs, writing no record and changing no file (to place files, use `ext place`)."
+check = "Only check, do not register"
+matches = "Matches the declaration: adopt can be run"
+
+[cli.ext.place]
+help = "Place the downloaded files where the upstream code expects them (EnvSpec.places) and nothing else: no download, no build, no change to the environment. For model weights deleted by mistake or files `adopt` reports missing, without reinstalling the whole extension."
+
+[cli.ext.migrate]
+help = "One-time migrations of what is installed, for code that identifies or lays it out differently (run by the update): a record of the earlier fingerprint rule for unchanged build inputs is rewritten (no rebuild); an extension now running in a base moves its own environment into the base."
+since = "the commit of the release before: its build inputs count as unchanged when the new rule computes the same for them"
+journal = "a folder that records every change before it is made, so that the update's rollback can undo it"
+moved = "{name}: its environment, checkout and the base's model files moved into the base {base}"
+split = "{name}: an install record of its own weights written"
+rewritten = "{name}: the same build inputs; the record's fingerprint {old} is now {new} (not rebuilt)"
+outdated = "{name}: built for other inputs than this code's: install it again"
+left = "no longer used (the base has its own), free to delete: {path}"
+none = "Nothing to migrate: every installed extension is recorded as this code identifies it."
+
+[cli.ext.rollback]
+help = "Roll back to the environment from before the last install switched it (only while that environment is still on disk)."
+
+[cli.ext.uninstall]
+help = "Uninstall an extension: its environment, code, cache and install record are deleted; the model files are kept, so a reinstall does not download them again."
+yes = "Confirm the uninstall (deletes the environment, code, cache and install record; keeps the model files)"
+confirm = "Confirm the uninstall with --yes"
+
+# lab2shot templates | cook (cli/jobs.py). Keys cli.jobs.<…>.
+[cli.jobs.templates]
+help = "List the templates and their exposed parameters (the names lab2shot cook and the DCC plug-ins use), indented by the template's parameter interface folders."
+button = "[dim]Button[/dim] {label}"
+options = "Options {options}"
+show_on_change = "Display node follows changes"
+current = "Current {value}"
+
+[cli.jobs.phase]
+queued = "Queued"
+loading = "Loading model"
+computing = "Cooking"
+fetching = "Fetching results"
+
+[cli.jobs.progress]
+upload = "Uploading {name}"
+queued = "Queued, position {position}"
+queued_why = "Queued, position {position} ({why})"
+started = "Cooking started"
+cached = "cached "
+seconds = "{seconds} s"
+submit = "Submitting"
+cancelled = "Cancelled"
+done = "Done in {seconds} s"
+done_minutes = "Done in {minutes} min {seconds} s"
+
+[cli.jobs.cook]
+help = "Cook a node graph: process shots in batch with a template and its exposed parameters. Input files are uploaded from this machine (the same file only once); what each output packs (one zip holding one folder of the same name, with one sub-folder per format output node) is downloaded to this machine, resumed when interrupted, and can be unpacked as well. The job goes into the service's queue, queued with the jobs of the web page and the DCC plug-ins and sharing their cache. On the server's own machine it cooks as the administrator; with another service (--server) it uses the account logged in with lab2shot login.\n\nExample: lab2shot cook sam_3d_body_moving_camera -s input=shots/sh030.mov -o shots/sh030 -x shots/sh030/lab2shot"
+graph = "A node graph .json file or a template name (lab2shot templates lists them)"
+set = "Set a parameter as exposed_name=value or node_name.parameter=value; may be given more than once"
+node = "Cook only these nodes (only an output packs results that can be fetched); default: every output of the graph"
+frames = "Cook only this frame range, e.g. 1001-1020, inside the input's frame range; default: the frame range saved in the graph, else every frame of the input"
+force = "Cook the target nodes again instead of using the cache"
+out = "The folder each output's zip is downloaded to (default: the current folder), named by the server (graph_u<account>_<job>.zip)"
+extract = "Unpack each zip into this folder after downloading it (each zip is one folder of the same name, with one sub-folder per format output node)"
+server = "The Lab2Shot service address (default: this machine's <server.port>, https when HTTPS is on), cooking as the administrator; run lab2shot login --server <address> before using another service"
+bad_set = "--set must be written as name=value: {item}"
+
+# The words of docs/manual-downloads.md, written by tools/gen_manual_downloads.py (the document is made in Chinese).
+[cli.manual_downloads]
+title = "# Files to Download Yourself"
+generated = "<!-- Written by tools/gen_manual_downloads.py from the extension declarations; do not edit by hand. -->"
+intro = "The installer downloads the code and almost every model weight an extension needs by itself. Two kinds of files are the exception:"
+kind_manual = "1. **Files to download yourself**: their sites require you to register, log in or accept a license in a browser, which the installer cannot do for you."
+kind_gated = "2. **Hugging Face model weights that need an access request**: their repository must approve your request first, and this machine must be logged in to Hugging Face before the installer can download them."
+when = "You need these files only for the extensions that use them. In the Installation and Environment menu of `./setup.sh`, Install Downloaded Files and Log In to Hugging Face show the state of each one at any time."
+manual_heading = "## 1. Files to Download Yourself"
+steps = "### Steps"
+manual_step1 = "1. Open the download page in the table below, register or log in as it asks, and download the item listed."
+manual_step2 = "2. Put the downloaded file **as it is** in the `downloads/` folder of the Lab2Shot directory: do not unpack or rename it."
+manual_step3 = "3. Run `./setup.sh downloads` (or click Check Again under Extensions → Manual Downloads on the admin page). Lab2Shot recognizes each file by its content, installs it where it belongs and moves the original to `downloads/installed/` (delete it, or keep it as a backup)."
+manual_step4 = "4. For an item whose license must be accepted (such as the Autodesk FBX SDK), read the license under Extensions → Manual Downloads on the admin page and choose Accept and Install, or run `./setup.sh downloads` and accept it after reading it in full in the terminal."
+body_models = "The body and face models (SMPL, SMPL-X, MANO, FLAME) are kept once per machine, in `third_party/_body_models/`, shared by every extension that needs them; every other file is installed in its own folder under `third_party/`."
+item_header = "| Item | Details |"
+item_what = "| Used for | {what} |"
+item_users = "| Needed by | {users} |"
+item_page = "| Download page | {page} |"
+item_download = "| What to download | {download} |"
+item_file = "| Downloaded file | `{filename}` |"
+item_note = "| License and notes | {note} |"
+gated_heading = "## 2. Hugging Face Model Weights That Need an Access Request"
+gated_step1 = "1. Create a Hugging Face account, open the page in the table below, fill in what it asks, accept the license terms and wait for approval (most repositories approve at once, some review by hand)."
+gated_step2 = "2. Create an access token at https://huggingface.co/settings/tokens, with Read permission."
+gated_step3 = "3. Run `./setup.sh hf-login` and paste the token when asked, or set the environment variable `HF_TOKEN` before starting the server."
+gated_step4 = "4. Install or reinstall the extension on the admin page."
+gated_header = "| Extension | Model Weights | Access request page |"
+network_heading = "## 3. Network"
+network = "If the server cannot reach Hugging Face, PyPI or GitHub directly, run `./setup.sh mirrors` (Installation and Environment → Extension Build and Download Settings → Download Mirrors) to set mirror addresses, and `./setup.sh retries` (Download Retries in the same menu) to change how failed downloads are retried."
+
+# lab2shot ui (cli/serve.py).
+[cli.serve]
+help = "Start the web interface (also the service DCC plugins connect to). Its settings can be changed, and it can be restarted, on the admin page /admin."
+port = "Port, for this start only; default: the port of the admin page's Settings"
+host = "Address to listen on, for this start only; default: the access range of the admin page's Settings. 0.0.0.0 lets computers and DCC plugins on the local network connect"
+https = "Use HTTPS, for this start only; default: the admin page's Settings. Browsers on the local network need HTTPS to save results straight into the user's folders and graphs back to their files; with HTTP, saving becomes a download"
+inbox = "Put the files downloaded by hand into {folder} (in the Lab2Shot project folder)"
+not_built = "[yellow]The interface is not built yet: run cd webui && npm ci && npm run build[/yellow]"
+certificate = "The HTTPS certificate covers {names}"
+install_ca = "Each computer that uses it installs the certificate once: open https://<this machine>:{port}/api/tls/ca.pem in a browser to download it, and install it into the system's Trusted Root Certification Authorities"
+address = "Lab2Shot interface → [bold]{url}[/bold]"
+listening = " (listening on {host})"
+
+# The service: starting, stopping and its environment (cli/service.py; shared by the menu and the one-click update).
+[cli.service.env]
+no_uv = "uv not found. Run ./setup.sh again to be guided through installing it, or see https://docs.astral.sh/uv/."
+run = "$ {command} (in {folder})"
+python_ready = "The Python environment is ready."
+mirror_retry = "It failed. Try again with the PyPI mirror ({mirror})?"
+python_ready_mirror = "The Python environment is ready (through the mirror)."
+sync_failed = "It failed; see the output above. Without network access, set a mirror under Installation and Environment → Extension Build and Download Settings → Download Mirrors, or set up a proxy, and try again."
+no_npm = "npm not found. Install Node.js first (https://nodejs.org/)."
+npm_mirror_retry = "It failed. Try again with the npm mirror (registry.npmmirror.com)?"
+failed = "It failed; see the output above."
+web_built = "The web page is built."
+
+[cli.service.start]
+running = "The service is already running: {address}."
+restart_needed = "The address set now is {address}; a change of port or HTTPS takes effect once the service restarts."
+port_busy = "Port {port} is taken by process {pid}; no new service is started. If that process is not Lab2Shot, change the port under Settings → Network and Install."
+no_web = "The web page is not built yet. Run Installation and Environment → Build Web Interface first."
+foreground = "The service runs in this terminal; press Ctrl-C to stop it: {address}"
+started = "The service started: {address} (log: {log})."
+timeout = "The service did not start within 120 seconds; see the log {log}."
+waiting = "Waiting for the service to start (120 seconds at most)…"
+no_answer = "The service did not answer within 120 seconds; ending it (process {pid})."
+this_machine = "<this machine's address>"
+https = "HTTPS is on: every user's computer needs the certificate installed once. Open {url} in a browser to download it and import it into the system's Trusted Root Certification Authorities."
+no_password = "The administrator {username} has no password yet, so nobody can log in. Run Accounts and Security → Set Administrator Password."
+
+[cli.service.stop]
+drain = "Stop after the current jobs"
+drain_note = "No new job starts; the service stops once the jobs cooking are done. Queued jobs wait for the next service started"
+now = "Stop now"
+now_note = "The jobs cooking stop at once (the nodes already cooked stay in the cache); queued jobs wait for the next service started"
+back = "Back"
+back_note = "Do not stop the service; back to the previous menu"
+no_records = "The service answers, but this checkout cannot open its records, so it cannot be asked to stop with this machine's token: {error}"
+waiting = "Waiting for the service to stop ({seconds} s so far; Ctrl-C calls the stop off)…"
+waiting_jobs.one = "Waiting for {jobs} job to finish before the service stops ({seconds} s so far; Ctrl-C calls the stop off)…"
+waiting_jobs.other = "Waiting for {jobs} jobs to finish before the service stops ({seconds} s so far; Ctrl-C calls the stop off)…"
+stopped = "The service stopped (port {port}; process {pid} has ended)."
+nothing = "No service on port {port}. A service started on another port (--port) cannot be seen from here: set that port under Settings → Network and Install first, or stop the process by hand."
+silent = " (it does not answer /api/server: it may not be Lab2Shot, belong to another checkout, or have stopped responding)"
+end = "End process {pid} on port {port}{hint}? Jobs cooking will be interrupted"
+end_named = "End process {pid} ({name}) on port {port}{hint}? Jobs cooking will be interrupted"
+
+[cli.service.restart]
+not_running = "The service is not running. Run Service → Start Service (Background)."
+drain = "Wait for the jobs cooking to finish before restarting? (No interrupts them at once)"
+
+# The words of lab2shot setup (the interactive configuration menu, lab2shot/cli/setup.py). Keys cli.setup.<…>.
+
+[cli.setup]
+help = "Interactive configuration menu, grouped by purpose (first installation wizard, extension build and download settings wizard, extension installation wizard, one-click update, installation and environment, service, accounts and security, settings, database, status overview). An item runs only when chosen, and says beforehand what it does, why, what it writes and where. On first use, run ./setup.sh.\n\nSteps: {steps}."
+step_help = "Run one item directly, without the menu. Steps: {steps}"
+no_such_step = "No step named {step}. Steps: {steps}."
+
+[cli.setup.common]
+back = "Back"
+back_up = "Back to the previous menu"
+quit = "Quit"
+quit_hint = "Leave the configuration menu"
+no_such_number = "No such number. Enter another one."
+bad_number_unchanged = "Invalid number. Nothing was changed."
+cancelled = "Cancelled."
+cancelled_back = "Cancelled. Back to the previous menu."
+cancelled_nothing = "Cancelled. Nothing was done."
+cancelled_unchanged = "Cancelled. Nothing was changed."
+unfinished_back = "This item did not finish. Back to the previous menu."
+result = "Result"
+selected = "Selected"
+
+[cli.setup.table]
+item = "Item"
+description = "Description"
+
+[cli.setup.trouble]
+workdir = "What you can do: use another work folder (set LAB2SHOT_WORK_DIR and open the menu again); or stop the service that uses this folder, then give it to this project folder in Database → Claim the Work Folder for This Project."
+database = "Starting the service backs up the database first, then upgrades it; you can also run Database → Upgrade the Database Version. A damaged or missing database can be restored in Database → Restore the Database from a Backup. No other item of this menu upgrades the database."
+
+[cli.setup.header]
+title = "Lab2Shot {version} Configuration"
+service = "Service"
+admin = "Administrator"
+work_dir = "Work Folder"
+settings_file = "Settings File"
+running = "[green]Running[/green]  {address} (boot {boot})"
+stopped = "[dim]Not running[/dim]  Address by the current settings: {address}"
+admin_uninitialized = "Not initialized yet (the first start of the service creates the administrator account)"
+admin_unreadable = "[red]Cannot be read[/red] (see Database → Database status)"
+admin_no_password = "{name}, [yellow]no password yet: nobody can log in[/yellow]"
+admin_password_set = "{name}, [green]password set[/green]"
+
+[cli.setup.env]
+python = "{version} ({path})"
+uv_missing = "Not installed. See https://docs.astral.sh/uv/, or run ./setup.sh again to be guided through installing it."
+node_missing = "Not installed. Building the web interface needs {need} (https://nodejs.org/)."
+node_old = "{version} is too old. Building the web interface (vite 8) needs {need} (https://nodejs.org/)."
+webui = "Web Build"
+webui_missing = "Not built yet. Run Installation and Environment → Build the Web Interface."
+gpu_sep = "; "
+driver = "GPU Driver"
+driver_missing = "nvidia-smi not found. The service still starts without a GPU, but cannot run GPU jobs."
+work_dir = "Work Folder"
+work_dir_exists = "{path} (exists)"
+work_dir_later = "{path} (created on the first start of the service)"
+work_dir_ours = "{path} (belongs to this project folder)"
+work_dir_other = "{path} belongs to another project folder, {owner}. Use another LAB2SHOT_WORK_DIR, or stop the service there and run Database → Claim the Work Folder for This Project."
+settings_file = "Settings File"
+settings_file_exists = "{path} (exists)"
+settings_file_missing = "{path} (missing: every setting has its default; it is written when a setting is changed)"
+missing = "These need attention: {items}."
+all_ok = "Everything the service needs is in place."
+
+[cli.setup.toolchain]
+git = "Fetches the extensions' source code"
+cc = "C Compiler"
+cxx = "C++ Compiler"
+cuda = "CUDA Toolkit"
+setting = "Setting {key} = {value}"
+system_default = "(system default)"
+cuda_default = "($CUDA_HOME or /usr/local/cuda)"
+ninja = "Speeds up compiling CUDA kernels (optional)"
+here = "Architectures of this machine's GPUs: {archs} (for reference only: compiling does not follow them)"
+no_gpu = "(no GPU found)"
+compatible = "nvcc and compiler compatibility: {state}"
+compatible_ok = "compatible"
+targets = "Compile target architectures: {archs} (setting: Compile Target Architectures)"
+unsupported = "This CUDA toolkit ({nvcc}) cannot compile for: {archs}. Use a newer CUDA toolkit (Set the Compilers and CUDA), or remove them in Choose the Compile Target Architectures."
+supported = "The CUDA toolkit supports every chosen compile target architecture."
+
+[cli.setup.archs]
+arch = "Architecture"
+intro = "The extensions' CUDA code is compiled for the architectures chosen here only, and runs on those only, whatever GPU the compiling machine has. Default: {default}."
+prompt = "Numbers of the architectures to compile for (separated by spaces; Enter keeps the current ones)"
+kept = "Kept: {archs}."
+
+[cli.setup.ext]
+installed = "Installed"
+not_installed = "Not installed"
+format_line = "{state}  License: {license}"
+reinstall = "Install again?"
+install = "Install?"
+unmet = "Some requirements above are not met. Resolve them before installing."
+extension = "Extension"
+state = "State"
+license = "License"
+title = "{title} ({name})"
+prompt = "Numbers to install (separated by spaces; a for every extension not ready; Enter skips)"
+none_chosen = "No extension chosen."
+bad_number = "Invalid number. No extension was installed."
+all_ready = "Every extension is ready."
+license_line = "License: {name} — {summary}"
+result_unmet = "Requirements not met"
+result_failed = "Failed"
+results = "Installation Results"
+
+[cli.setup.hf]
+weights = "Model Weights"
+page = "Access Request Page"
+intro = "The repositories of the model weights above require an access request: open each page with a Hugging Face account, fill it in and accept the license terms; once approved, this machine must be logged in with that account for the installer to download them. Without these extensions no login is needed."
+env_token = "Logged in: the token comes from the environment variable HF_TOKEN."
+saved_token = "Logged in: this machine has a saved Hugging Face token."
+again = "Log in again?"
+now = "This machine is not logged in to Hugging Face. Log in now?"
+token_hint = "Create a token at https://huggingface.co/settings/tokens; Read access is enough."
+no_cli = "{path} not found. Run Installation and Environment → Install the Python Dependencies first."
+failed = "The login did not finish. See the output above."
+done = "Logged in."
+
+[cli.setup.manual.state]
+ready = "[green]Ready[/green]"
+consent = "[yellow]Awaiting license acceptance[/yellow]"
+unrecognised = "[red]File not recognised[/red]"
+missing = "Not downloaded"
+
+[cli.setup.manual]
+status = "State"
+what = "Purpose"
+needed_by = "Needed By"
+page = "Download Page"
+download = "What to Download"
+filename = "File Name"
+in_downloads = "In downloads/"
+file = "{name}: {why}"
+awaiting_consent = "awaiting license acceptance"
+unknown = "{name} in downloads/ is not recognised: {why}"
+how = "Put the downloaded files into {inbox} as they are (no unpacking or renaming), then run this item again to recognise and install them; the original files are then moved to downloads/installed/. For an item marked awaiting license acceptance, running this item again shows its license and installs it once accepted; it can also be read and accepted on the admin page under Extensions → Manual Downloads. See docs/manual-downloads.md for the full instructions."
+
+[cli.setup.consent]
+uninitialized = "Accepting a license is recorded in the database: start the service once first (Service → Start the Service (Background)), then run this item."
+reading = "Reading the license of {title} from {name}..."
+panel = "[bold]{title} License[/bold] ({name})"
+ask = "Have you read and do you accept the license of {title}, and install it?"
+declined = "Not accepted: {title} is not installed. The file stays in downloads/; running this item again asks again."
+done = "Accepted the license of {title} and installed it (the acceptance is recorded in the database)."
+
+[cli.setup.account]
+uninitialized = "The work folder is not initialized yet. The first start of the service creates the accounts and the database: run Service → Start the Service (Background) first, then come back here."
+no_password = "The administrator {name} has no password yet: nobody can log in until it is set. Set it now."
+password_set = "The password of the administrator {name} was set on {when} through {by}."
+set_again = "Set it again?"
+passphrase_set = "The recovery passphrase was set on {when}."
+passphrase_change = "Change it?"
+passphrase_intro = "The recovery passphrase is for a forgotten administrator password: choose Forgot Password on the login page and set a new password with it."
+
+[cli.setup.ask]
+option = "{label} ({value})"
+current_mark = "← current"
+selected_mark = "← selected"
+choice = "{label} (enter a number)"
+bad_number_kept = "Invalid number. The value is kept."
+multi = "{label} (numbers to select, separated by spaces; Enter keeps the value, - selects none)"
+bool = "{label}: turn on?"
+bounds = " (range {min}–{max}{unit})"
+current = "current: {value}; Enter keeps it"
+current_empty = "current: empty"
+clear = "; - clears it, empty means {empty}"
+empty_means = ", meaning {empty}"
+text = "{label} ({hint})"
+list_help = "+ name: add at the end; + name number: insert before that number; - number: remove; number position: move to that position; Enter: done."
+list_bad = "Not understood. Write it as shown above (a name cannot contain spaces)."
+
+[cli.setup.settings]
+title = "Settings"
+intro = "The same settings as the pages of the admin page's Settings group, written to {file}; only values that differ from their defaults are recorded."
+unchanged = "Nothing changed."
+saved = "Saved: {names} (written to {file})."
+edit_hint = "(Enter keeps the current value; written to {file}, only values that differ from their defaults)"
+key = "Setting Key"
+current = "Current Value"
+default = "Default"
+this_run = "This Run"
+this_run_value = "{value} (set by {by}, over the settings file)"
+auto = " ({how})"
+takes_effect = "Takes Effect"
+needs_restart = "[yellow]After a restart of the service[/yellow]: {why}"
+at_once = "At once when saved"
+requires = "Requires"
+only_if = "Only in effect when {label} is on"
+file_only = "This setting can only be changed in the configuration file {file}; this menu and the admin page only show it."
+modify = "Change"
+modify_hint = "Enter a new value and save it"
+reset = "Restore Default"
+reset_hint = "Restore to {value}"
+page_title = "Settings → {page}"
+effect = "Effect"
+source = "Source"
+needs_on = "{name} (needs {label} on)"
+restart_short = "Restart"
+at_once_short = "At once"
+network_wizard = "Set the Network by Access Type"
+network_wizard_hint = "This machine only, direct LAN access, or behind a reverse proxy: sets the listening scope, HTTPS, trusted proxies and public names at once, then the port"
+page_counts.one = "{total} setting; {edited} changed; {restart} take effect after a restart"
+page_counts.other = "{total} settings; {edited} changed; {restart} take effect after a restart"
+back_listing = "Back to the previous menu, listing the changes that need a restart"
+elsewhere = "Change these settings on the admin page or in the configuration file:"
+elsewhere_file = "  · {label} ({key}): only in the configuration file {file}, or by the environment variable LAB2SHOT_WORK_DIR."
+elsewhere_admin = "  · The invitation codes of the Registration page, the administrator notices of the Accounts page, and each account's stages and quotas: on the admin page (/admin)."
+elsewhere_gpus = "  · The GPUs that take jobs: in this menu under Service → Choose the GPUs for Computing, or on the admin page."
+
+[cli.setup.restart]
+new_value = "New Value"
+why = "Why a Restart"
+title = "These settings take effect after the service restarts"
+not_running = "The service is not running; it uses the new settings when it next starts."
+ask = "The service is running. Restart it now?"
+later = "You can restart it later in Service → Restart the Service."
+
+[cli.setup.network.local]
+label = "This machine only"
+purpose = "Only browsers, DCC plugins and the command line on this machine can connect; not encrypted (nothing leaves this machine)"
+
+[cli.setup.network.lan]
+label = "Direct access from the LAN"
+purpose = "Lab2Shot serves HTTPS itself with a self-signed certificate, listening on every interface; each user's computer installs its root certificate once"
+names = "(asked, may be empty: only needed when others reach it by another name)"
+
+[cli.setup.network.proxy]
+label = "Behind a reverse proxy (Nginx, ...) with a proper certificate"
+purpose = "The reverse proxy serves HTTPS with a proper certificate and forwards to here; Lab2Shot trusts only the user addresses the proxy passes on. Then asks where the proxy is: (a) on this machine, or through a tunnel such as frp on this machine (default); (b) on another machine"
+trusted = "= (a) \"127.0.0.1\"  (b) the IP of the proxy machine (asked, required)"
+
+[cli.setup.network]
+port_line = "server.port (asked, default {port})"
+proxy_ip = "IP of the proxy machine (addresses or ranges, separated by spaces; required)"
+proxy_ip_required = "The IP of the proxy machine is required."
+question = "[bold]How is the server reached?[/bold]  (written to {file} by your choice; each value can be changed later in Settings → Network and Installation)"
+no_change = "Change nothing"
+difference_title = "② versus ③"
+difference = "Both let other computers open Lab2Shot over HTTPS; they differ in who faces the users:\n  ② Lab2Shot faces the users itself: it serves HTTPS with a self-signed certificate and listens on every interface; each user's computer installs its root certificate once; it trusts no forwarding header (X-Forwarded-For, ...) and knows users by the address of the connection itself.\n  ③ Lab2Shot is behind a proxy: the proxy serves HTTPS with a proper certificate and users install nothing; Lab2Shot does not encrypt and takes the users' real IPs only from the trusted proxy's address (registration limits per IP, failed password counts and login records rely on it).\n     (a) The proxy is on this machine, or connections come through a tunnel such as frp on this machine: it listens on this machine only, so nobody can bypass the proxy; trusted proxy 127.0.0.1.\n     (b) The proxy is on another machine: it must listen on every interface for the proxy to reach it; the trusted proxy is that machine's IP only, and the firewall should let only that machine reach this port."
+unchanged = "Nothing was changed."
+names_hint = "Public names only go into Lab2Shot's self-signed certificate: press Enter when others use this computer's name or LAN IP; enter the other names (such as a domain from a tunnel service), separated by spaces."
+proxy_here = "On this machine, or through a tunnel such as frp on this machine"
+proxy_elsewhere = "On another machine"
+proxy_where = "Where is the proxy (enter a number)"
+bad_choice = "No such number. Choose again."
+not_saved = "The settings above were not saved. Choose again."
+value = "Value"
+changed = "Changed"
+way = "Access: {key} {label}"
+way_remote = "; the proxy is on another machine"
+way_local = "; the proxy is on this machine, or connections come through a tunnel on this machine"
+ca_hint = "Each user's computer installs the root certificate once: download it from {url} in a browser and import it into the system's Trusted Root Certification Authorities."
+proxy_hint = "The reverse proxy must write the user's address into X-Forwarded-For, replacing it rather than appending (Nginx: proxy_set_header X-Forwarded-For $remote_addr;); it must also pass on the address the user opened unchanged, port included, or logins and other actions are refused as coming from another site (Nginx: proxy_set_header Host $http_host;, not $host, which drops the port); and forward to http://{target}."
+firewall_hint = "Lab2Shot now listens on every interface: in the firewall, allow only the proxy machine ({proxy}) to reach port {port} of this machine; no other machine should bypass the proxy."
+later = "Each of these can be changed later in Settings → Network and Installation."
+written = "Written to {file}"
+
+[cli.setup.source]
+overridden = "Overridden ({by})"
+file_only = "Configuration file only"
+modified = "Changed"
+auto = "Computed for this machine"
+default = "Default"
+
+[cli.setup.gpus]
+not_running = "The service is not running. The running service finds the GPUs: start it first, then authorize them."
+none = "The service found no GPU."
+gpu = "GPU"
+memory = "GPU Memory"
+on = "Takes jobs"
+off = "Takes no jobs"
+prompt = "Numbers of the GPUs that take jobs (separated by spaces; all for every one, none for none)"
+done = "{count} GPUs authorized to take jobs."
+
+[cli.setup.db.reason]
+manual = "Manual backup"
+daily = "Daily backup"
+created = "When the database was created"
+before_update = "Before a one-click update"
+before_version = "Before the upgrade to version {version}"
+unknown = "Unknown"
+
+[cli.setup.db]
+time = "Time"
+size = "Size"
+origin = "Reason"
+missing_with_backups.one = "The database file {path} is missing, but the backup folder holds {count} backup. Restore one in Database → Restore the Database from a Backup."
+missing_with_backups.other = "The database file {path} is missing, but the backup folder holds {count} backups. Restore one in Database → Restore the Database from a Backup."
+not_created = "No database yet: the first start of the service creates it in {path}."
+file = "File"
+size_value = "{size} (write-ahead log included)"
+version = "Version"
+version_value = "Version {version} (this program uses version {ours})"
+integrity = "Integrity"
+intact = "Intact"
+damaged = "Problems: {detail}"
+checked_at = " (checked {when})"
+unchecked = "Not checked yet"
+last_backup = "Last Backup"
+last_backup_value = "{when}, {reason} ({file})"
+no_backup = "No backup yet"
+keep = "Backups Kept"
+keep_value = "{count} (setting: Database Backups Kept; beyond it the oldest backup is deleted)"
+title = "Database"
+no_backups = "The backup folder holds no backup."
+backup_not_created = "No database yet: nothing to back up. The first start of the service creates the database and backs it up once."
+backed_up = "Backed up: {path} ({size})."
+check_not_created = "No database yet: nothing to check."
+check_ok = "The database is intact: the integrity check and the foreign key check both passed."
+check_failed = "The database has problems: {detail}. Restore it in Database → Restore the Database from a Backup."
+must_stop = "The service is running. It must be stopped before {action}."
+still_running = "The service is still running. Cancelled."
+start_again = "Start the service again to use the new database."
+start_now = "Start the Service (Background) now?"
+start_later = "You can start it later in Service → Start the Service (Background)."
+restore_none = "The backup folder holds no backup: nothing to restore."
+restore_prompt = "Number of the backup to restore (0 to go back)"
+bad_number_nothing = "Invalid number. Nothing was done."
+restore_action = "restoring the database"
+restore_keep = "Keep the service running; do not restore the database"
+restore_source = "Restore From"
+restore_source_value = "{name} ({time}, {reason})"
+restore_current = "Current Database"
+time_placeholder = "<time>"
+restore_current_moved = "Moved to {pattern}, for example {example}; not deleted, so it can always be recovered."
+restore_current_none = "None: the backup is put in place directly."
+restore_data = "Data"
+restore_data_value = "Records made after the backup (accounts, jobs, usage statistics, result records, ...) are not in the restored database."
+restore_files = "Attached Files"
+restore_files_value = "The feedback screenshots and benchmark files that came with the backup and are now missing from the work folder are copied back to where they were; existing files are left alone."
+restore_title = "What the Restore Does"
+restore_confirm = "Restore?"
+restore_again = "To prevent mistakes, enter the number of the chosen backup again"
+restore_mismatch = "The two numbers differ. Cancelled; nothing was done."
+restored = "Database restored from {name}."
+restored_moved = "The previous database was moved to {path}."
+upgrade_not_created = "No database yet: nothing to upgrade. The first start of the service creates the latest version."
+upgrade_action = "upgrading the database"
+upgrade_keep = "Keep the service running; do not upgrade the database"
+upgraded = "The database is at version {version} (this program uses version {ours}): {path}. The database was backed up before the upgrade."
+
+[cli.setup.claim]
+missing = "The work folder {path} does not exist yet: nothing to claim. The first start of the service gives it to this project folder."
+ours = "The work folder {path} already belongs to this project folder {root}: nothing to claim."
+other = "The work folder {path} belongs to {owner}. Once claimed, processes of other project folders (other branches, test checkouts) can no longer open it. Stop the service that used it first."
+unrecorded = "(not recorded)"
+ask = "Give it to {root}?"
+done = "The work folder {path} now belongs to {root}."
+
+[cli.setup.status]
+title = "Status Overview"
+stopped = "[dim]Not running[/dim] (address by the current settings: {address})"
+running = "[green]Running[/green]  {address}, boot {boot}"
+work_dir_new = "{path}, not initialized yet: the first start of the service creates the database, the administrator account and the machine token"
+admin_new = "{name}, no default password: after the first start of the service set it in Accounts and Security → Set the Administrator Password; nobody can log in before that"
+passphrase = "Recovery Passphrase"
+set = "Set"
+unset = "Not set"
+accounts = "Accounts"
+accounts_value = "{count} (create them on the admin page's Users page)"
+extensions_value = "{count} installable (see the admin page's Extensions page, or run lab2shot ext list, for what is installed)"
+database_value.one = "Version {version}, {size}; last backup {last}; {count} backup"
+database_value.other = "Version {version}, {size}; last backup {last}; {count} backups"
+none = "none"
+settings_value = "{path} ({count} changed)"
+
+[cli.setup.scope]
+project = "Inside the project folder; installs no system component"
+read_only = "Read-only: changes nothing"
+
+[cli.setup.wizard]
+intro.one = "This wizard goes through the {count} step of {purpose} in order: {steps}.\nBefore each step it says what the step does and asks whether to run it; answering no skips it. Ctrl-C leaves the wizard at any time."
+intro.other = "This wizard goes through the {count} steps of {purpose} in order: {steps}.\nBefore each step it says what the step does and asks whether to run it; answering no skips it. Ctrl-C leaves the wizard at any time."
+step = "Step {i} of {count}: {label}"
+ask = "Run this step?"
+skipped_note = "Step skipped."
+skipped = "Skipped"
+done = "Done"
+unfinished = "Not finished"
+steps = "Step"
+results = "Wizard Results"
+later = "Steps not finished or skipped can be run on their own at any time from their group."
+
+[cli.setup.explain]
+what = "Action"
+why = "Purpose"
+changes = "Writes To"
+scope = "Scope"
+
+[cli.setup.step.wizard]
+purpose = "a first installation"
+label = "First Installation Wizard"
+summary = "In turn: install the Python dependencies, build the web interface, check the requirements, set the network and port, start the service, set the administrator password, choose the GPUs for computing"
+what = "Guides through the seven steps of a first installation in turn; each can be skipped"
+why = "From a fresh checkout to logging in"
+changes = "Depends on the steps run"
+
+[cli.setup.step.build_wizard]
+purpose = "the extension build and download settings"
+label = "Extension Build and Download Settings Wizard"
+summary = "In turn: choose the compile target architectures, set the compilers and CUDA, check the build tools, set the download mirrors, set the download retries, install the Alembic and FBX modules"
+what = "Guides through the six steps of the extension build and download settings in turn; each can be skipped"
+why = "The settings that building and downloading extensions depend on, and the format modules that read and write DCC scene files"
+changes = "Depends on the steps run"
+
+[cli.setup.step.ext_wizard]
+purpose = "the extension installation"
+label = "Extension Installation Wizard"
+summary = "In turn: log in to Hugging Face, install the manually downloaded files, install extensions"
+what = "Guides through the three steps of installing extensions in turn; each can be skipped"
+why = "Installs the extensions that hold the algorithms, and the models and manually downloaded files they need"
+changes = "Depends on the steps run"
+
+[cli.setup.step.build]
+title = "Build Environment"
+label = "Set the Compilers and CUDA"
+summary = "CUDA path, C and C++ compilers"
+what = "Asks for the CUDA path, the C compiler and the C++ compiler in turn"
+why = "The tools extensions use to compile CUDA kernels in their own environments when installed"
+changes = "config/local.toml (only values that differ from their defaults)"
+
+[cli.setup.step.mirrors]
+title = "Mirrors"
+label = "Set the Download Mirrors"
+summary = "Hugging Face, PyPI and GitHub mirrors, tried in order when the official address cannot be reached"
+what = "Asks for the Hugging Face, PyPI and GitHub mirrors in turn"
+why = "Mirrors are tried in order when the official address cannot be reached; a file from a mirror is used only when it matches the official checksum"
+changes = "config/local.toml (only values that differ from their defaults)"
+
+[cli.setup.step.retries]
+title = "Retries"
+label = "Set the Download Retries"
+summary = "How often a failed download is retried, and the longest wait"
+what = "Asks for the number of retries and the longest wait between two retries"
+why = "Fewer failed installations on an unstable network"
+changes = "config/local.toml (only values that differ from their defaults)"
+
+[cli.setup.group.g1]
+summary.one = "From a fresh checkout to logging in: dependencies, web interface, network, start, administrator password, GPUs ({count} step)"
+summary.other = "From a fresh checkout to logging in: dependencies, web interface, network, start, administrator password, GPUs ({count} steps)"
+label = "First Installation Wizard"
+
+[cli.setup.group.g2]
+summary.one = "Compile target architectures, compilers and CUDA, download mirrors and retries, the Alembic and FBX modules ({count} step)"
+summary.other = "Compile target architectures, compilers and CUDA, download mirrors and retries, the Alembic and FBX modules ({count} steps)"
+label = "Extension Build and Download Settings Wizard"
+
+[cli.setup.group.g3]
+summary.one = "Hugging Face login, manually downloaded files, extension installation ({count} step)"
+summary.other = "Hugging Face login, manually downloaded files, extension installation ({count} steps)"
+label = "Extension Installation Wizard"
+
+[cli.setup.step.update]
+label = "One-Click Update"
+summary = "Stop the service and git pull --ff-only by hand first, then upgrade the pulled local code: back up, sync the environment, build the web interface, check, migrate, start; roll back on failure"
+what = "With the newly pulled upgrade program: checks the working tree and that the service is stopped, records the last deployed version (on a first upgrade, from the latest manual pull record), backs up the settings, the locally managed files and the old database, runs uv sync, npm ci and the web build, lab2shot check, the database upgrade and integrity check, starts the service and confirms it answers; a failure after the environment sync restores the recorded code, database and environment and brings the old version back online"
+why = "Deploys the pulled code; the administrator runs git pull by hand before this step"
+changes = ".venv/, webui/node_modules/ and webui/dist/; work/db (backed up before the update); the deployed version in work/installed.json; the update record, settings file and copies of the locally managed files in work/updates/<time>/; on rollback, the project code"
+scope = "Inside the project and work folders; stop the service with the old version before pulling; extensions are not reinstalled"
+
+[cli.setup.step.env]
+label = "Install the Python Dependencies"
+summary = "Create the Python environment of the service and the command line from uv.lock (uv sync)"
+what = "Runs uv sync, installing the dependencies of uv.lock"
+why = "The environment the service and the command line run in"
+changes = ".venv/; the package cache is in ~/.cache/uv"
+
+[cli.setup.step.web]
+label = "Build the Web Interface"
+summary = "Install the front-end dependencies and build the web interface (npm)"
+what = "Runs npm ci (installs exactly by package-lock.json, leaving it unchanged) and npm run build"
+why = "Makes the pages the service gives browsers"
+changes = "webui/node_modules/, webui/dist/"
+
+[cli.setup.step.check]
+label = "Check the Requirements"
+summary = "List the state of what the service needs: Python, Node.js, the web build, the GPU driver, ... (read-only)"
+what = "Lists the state of Python, uv, Node.js, the web build, the GPU driver, the work folder and the settings file"
+why = "Finds what is missing"
+changes = "Nothing"
+
+[cli.setup.step.build_setup]
+label = "Extension Build and Download Settings"
+summary = "The settings building and downloading extensions need, and the Alembic and FBX modules"
+what = "Build environment settings, toolchain check, download mirrors, retry policy, format module installation (Alembic, FBX)"
+why = "The settings extensions depend on when they compile CUDA kernels in their own environments and fetch code and model weights"
+changes = "config/local.toml; format modules are installed into third_party/, the original files moved to downloads/installed/"
+
+[cli.setup.step.archs]
+label = "Choose the Compile Target Architectures"
+summary = "Which GPU architectures the extensions' CUDA code is compiled for (default Ada Lovelace and Blackwell)"
+what = "Lists the architectures (by platform name) to choose by number"
+why = "The compiled CUDA code runs on the chosen architectures only, whatever GPU the compiling machine has"
+changes = "config/local.toml (only values that differ from their defaults); installed extensions compile for the new architectures only when reinstalled"
+
+[cli.setup.step.toolchain]
+label = "Check the Build Tools"
+summary = "git, compilers, nvcc, compile target architectures, and nvcc and GCC compatibility (read-only)"
+what = "Checks git, the C and C++ compilers and nvcc, whether nvcc supports every chosen compile target architecture, and whether the nvcc and GCC versions are compatible"
+why = "Confirms the tools for compiling extensions are all there and their versions match"
+changes = "Nothing"
+
+[cli.setup.step.formats]
+label = "Install the Alembic and FBX Modules"
+summary = "Every template that reads or writes DCC scene files (Alembic, FBX) depends on these two modules"
+what = "Installs the Alembic and FBX format modules; the FBX SDK must be put into downloads/ first, and its license is read and accepted here"
+why = "Every template that reads or writes DCC scene files depends on these two modules"
+changes = "The format modules in third_party/; the original files moved to downloads/installed/; license acceptances recorded in work/db"
+
+[cli.setup.step.hf_login]
+label = "Log in to Hugging Face"
+summary = "List the models that need an access request, and log this machine in to Hugging Face"
+what = "Lists the model weights whose repositories need an access request, with their request pages, and runs hf auth login"
+why = "Once approved, the installer downloads these model weights with the account this machine is logged in with"
+changes = "The Hugging Face token file (by default ~/.cache/huggingface/token; inside HF_HOME when that is set)"
+scope = "The Hugging Face login in the current user's home folder; the project folder is not changed"
+
+[cli.setup.step.downloads]
+label = "Install the Manually Downloaded Files"
+summary = "Recognise and install the files put into downloads/ (SMPL, FLAME, FBX SDK, ...), and list the files still missing with their download pages"
+what = "Recognises and installs the files in downloads/, listing each item's download page, the file it needs and its state"
+why = "Some models can only be downloaded after registering or accepting a license on their site, which the installer cannot do"
+changes = "third_party/_body_models/ or the extension's weights/; the original files moved to downloads/installed/; license acceptances recorded in work/db"
+
+[cli.setup.step.extensions]
+label = "Install Extensions"
+summary = "List every extension with its state, and install the chosen ones in turn"
+what = "Lists every extension and runs the pre-install checks and the installation of the chosen numbers in turn (the same as Install on the admin page's Extensions page)"
+why = "Each algorithm node runs in its extension's own environment"
+changes = "third_party/<project>/: code, its own environment and model weights"
+
+[cli.setup.step.password]
+label = "Set the Administrator Password"
+summary = "Set or reset the password of the administrator account admin"
+what = "Sets or resets the administrator account's password"
+why = "A new installation's administrator has no password; nobody can log in until it is set"
+changes = "The account record in work/db (the service must have started once); takes effect at once, logged-in browsers must log in again"
+
+[cli.setup.step.passphrase]
+label = "Set the Recovery Passphrase"
+summary = "Set the passphrase that resets a forgotten administrator password"
+what = "Sets the passphrase used when the administrator password is forgotten"
+why = "Forgot Password on the login page resets the password with this passphrase; it can only be set on this machine"
+changes = "The passphrase's hash in work/db (the service must have started once)"
+
+[cli.setup.step.start]
+label = "Start the Service (Background)"
+summary = "Start the service in the background, logging to work/logs/"
+what = "Starts lab2shot ui in the background"
+why = "The service the web pages and DCC plugins connect to"
+changes = "work/logs/ui_stdout.log; on the first start the service creates work/ (database, administrator account, machine token)"
+
+[cli.setup.step.start_fg]
+label = "Start the Service (Foreground)"
+summary = "Run the service in this terminal, to watch its log"
+what = "Starts lab2shot ui in this terminal; Ctrl-C stops it"
+why = "Watch the log directly when looking into a problem"
+changes = "The same as the background start"
+
+[cli.setup.step.restart]
+label = "Restart the Service"
+summary = "Restart the running service, optionally waiting for jobs to finish"
+what = "Restarts the running service through the machine token, optionally waiting for the jobs being computed to finish"
+why = "Applies the settings that need a restart"
+changes = "Nothing"
+
+[cli.setup.step.stop]
+label = "Stop the Service"
+summary = "Stop the running service, optionally waiting for jobs to finish"
+what = "Asks the running service to stop through the machine token, either after the current jobs finish or at once, and waits until it exits; when the service does not answer, ends the process listening on the port after confirmation"
+why = "Shutting down, changing the port or retiring the service"
+changes = "Nothing; queued jobs wait for the next start of the service, and stopping at once stops the jobs being computed"
+
+[cli.setup.step.gpus]
+label = "Choose the GPUs for Computing"
+summary = "Choose the GPUs that take jobs (GPU authorization)"
+what = "Chooses the GPUs that take jobs"
+why = "A GPU not authorized does not compute"
+changes = "The running service's authorization list (work/db)"
+
+[cli.setup.step.settings]
+label = "All Settings"
+summary = "View and change every setting, by the pages of the admin page's Settings group"
+what = "Lists every setting by the pages of the admin page's Settings group, with its current value, default and how it takes effect; each can be changed"
+why = "Manage the server's settings without a browser"
+changes = "config/local.toml (only values that differ from their defaults); some settings take effect after a restart of the service"
+
+[cli.setup.step.server]
+label = "Set the Network and Port"
+summary = "By access type (this machine only, direct LAN access, behind a reverse proxy): set the listening scope, HTTPS, trusted proxies and public names, then the port"
+what = "Asks first how the server is reached, listing every setting each way writes; writes the listening scope, HTTPS, trusted proxies and public names of the chosen way, then asks for the port, and sums up the values actually written"
+why = "Each of the three access types needs one definite set of network settings; choosing the type writes them all right, with no setting to work out one by one"
+changes = "config/local.toml (the same as Settings → Network and Installation); with HTTPS on, the service makes a self-signed certificate in work/tls/ when it starts; takes effect after a restart of the service"
+
+[cli.setup.step.db_status]
+label = "Database Status"
+summary = "Database file, size, version, integrity and every backup (read-only)"
+what = "Shows the database's file, size, version, latest integrity check and backup, and lists every backup"
+why = "Know the state of the database"
+changes = "Nothing"
+
+[cli.setup.step.db_backup]
+label = "Back Up the Database Now"
+summary = "Back up the database now (also while the service runs)"
+what = "Copies the database by SQLite's online backup and verifies the copy"
+why = "Keep a restorable copy before an important operation"
+changes = "A new backup and its attached files in work/db/backups/; beyond the number kept, the oldest backup is deleted"
+
+[cli.setup.step.db_check]
+label = "Check the Database Integrity"
+summary = "Check the database's integrity and foreign keys"
+what = "Runs SQLite's integrity check and foreign key check"
+why = "Confirm the database can be trusted"
+changes = "Nothing (only the check's result is recorded)"
+
+[cli.setup.step.db_restore]
+label = "Restore the Database from a Backup"
+summary = "Replace the current database with a backup (the service must be stopped)"
+what = "Lists every backup and replaces the current database with the chosen one"
+why = "Recover the data when the database is damaged, missing or must go back"
+changes = "work/db/lab2shot.db; the previous database moved to work/db/lab2shot.db.replaced-<time>, not deleted"
+
+[cli.setup.step.db_upgrade]
+label = "Upgrade the Database Version"
+summary = "Upgrade the database to the version of this program (the service must be stopped)"
+what = "Backs up first, then upgrades the database to the version of this program"
+why = "Matches the database to the program after updating Lab2Shot; starting the service also does it"
+changes = "work/db/lab2shot.db; a new pre-upgrade backup in work/db/backups/"
+
+[cli.setup.step.db_claim]
+label = "Claim the Work Folder for This Project"
+summary = "Give the work folder to this project folder; services of other project folders can no longer use it"
+what = "Changes the work folder's owner to this project folder"
+why = "Processes of other project folders (other branches, test checkouts) can no longer open it"
+changes = "The owner record in the work folder (owner.json)"
+
+[cli.setup.step.status]
+label = "Status Overview"
+summary = "Service, administrator, passphrase, accounts, extensions, database and work folder (read-only)"
+what = "Shows an overview of the service, the administrator password, the recovery passphrase, the number of accounts and extensions, the database and the work folder"
+why = "See the overall state"
+changes = "Nothing"
+
+[cli.setup.group.g4]
+label = "One-Click Update"
+summary = "After stopping the service and pulling by hand, upgrade the local code; roll back and go online again on failure"
+
+[cli.setup.group.g5]
+label = "Installation and Environment"
+summary = "Python dependencies, web interface, requirements, extension build and download settings, Hugging Face, manually downloaded files, extensions"
+
+[cli.setup.group.g6]
+label = "Service"
+summary = "Network and port; start, restart and stop the service; choose the GPUs for computing"
+
+[cli.setup.group.g7]
+label = "Accounts and Security"
+summary = "Administrator password, recovery passphrase (the service must have started once)"
+
+[cli.setup.group.g8]
+label = "Settings"
+summary = "Every setting of the admin page's Settings group, viewed and changed by the same pages"
+
+[cli.setup.group.g9]
+label = "Database"
+summary = "Status, integrity check, backup, restore, version upgrade, claiming the work folder for this project"
+
+[cli.setup.group.g10]
+label = "Status Overview"
+summary = "Overview of the service, administrator, database and work folder (read-only)"
+
+# lab2shot gpus | color | inspect (cli/tools.py).
+[cli.tools.gpus]
+help = "List the GPUs with their UUIDs, marking those that take jobs (authorized on the admin page /admin)."
+none = "No GPU found (nvidia-smi is not available)"
+card = "GPU"
+memory = "Memory"
+utilization = "Usage"
+taking = "[green]takes jobs[/green]"
+not_taking = "[dim]takes no jobs[/dim]"
+none_authorized = "[yellow]No GPU is authorized: jobs that need a GPU stay queued. Authorize GPUs on the admin page http://<server>:<port>/admin.[/yellow]"
+
+[cli.tools.color]
+help = "Show the current OCIO config and a file's default input color space."
+input = "Optional: the color space a file is read in by default"
+config = "OCIO config      {name}\nSource           {origin}: {uri}\nWorking space    {space} (every input is converted into it when read, and out of it when written)"
+
+[cli.tools.inspect]
+help = "Show how an input is read: frame range, resolution, FPS, color space."
+input = "An image sequence, a folder, any one frame, or a video"
+sequence = "Image Sequence"
+video = "Video"
+still = "Still"
+kind = "Type          {kind}"
+path = "Path          {path}"
+frames.one = "Frames        {range} ({count} frame)"
+frames.other = "Frames        {range} ({count} frames)"
+resolution = "Resolution    {width} × {height}"
+fps = "FPS           {fps}"
+fps_unknown = "unknown (image sequences default to 24)"
+colorspace = "Color space   {space} (by file format; can be changed on the read node)"
+
+# The one-click update (cli/update.py). Keys cli.update.<…>.
+[cli.update.step]
+title = "Step {step} of {steps}: {name}"
+preflight = "Preflight"
+record = "Record the current state"
+managed = "Back up managed files"
+stop = "Confirm the service is stopped and back up the database"
+environment = "Sync the environment and build the web page"
+check = "Check"
+start = "Start the service"
+rollback = "Roll back"
+report = "Report"
+
+[cli.update.baseline]
+other_root = "the deployment record belongs to another checkout"
+no_record = "No finished update on record and no git pull just run: the environment is synced and checked for the current code, which is also the rollback baseline."
+not_ancestor = "the last deployed commit does not exist, or is not an ancestor of the current version; check work/installed.json and the current branch"
+how_uv = "run ./setup.sh again to be guided through installing it, or see https://docs.astral.sh/uv/"
+how_npm = "install Node.js first (https://nodejs.org/)"
+local = "This update uses the local code: branch {branch}, version {version}; on failure it rolls back to {previous}."
+
+[cli.update.record]
+git = "git version: {version} \"{subject}\" (branch {branch})."
+plan = "Step 4 backs up the database of the stopped service, before the environment is synced and migrated."
+settings_copied = "Settings file: copied to {path}."
+settings_none = "Settings file: {path} does not exist; every setting is at its default."
+where = "This update's record: {path}"
+no_database = "The work folder has no database yet (the service has never started): nothing to back up."
+database = "Database backed up: {backup} (work/db/backups/; the service is stopped, nothing is written after the backup)."
+
+[cli.update.managed]
+none = "The managed files (menu/*.json, templates/*.json) have no local changes."
+file = "Managed file"
+change = "Local change"
+backup = "Backup"
+changed = "Modified"
+deleted = "Deleted"
+untracked = "New (not in git)"
+deletion = "Deletion recorded"
+saved = "The local managed files are backed up; the update keeps their current content."
+
+[cli.update.run]
+stopped = "The service is stopped: the database can be backed up."
+checked = "lab2shot check: no problems found."
+no_database = "The work folder has no database yet: nothing to upgrade or check; the new version creates it when it first starts."
+database = "The database is upgraded and passed the integrity check."
+started = "The service started and answers: {address} (/api/server and the web page both answered)."
+output.one = "The new version's service output (the last {lines} line of {log}):"
+output.other = "The new version's service output (the last {lines} lines of {log}):"
+confirm = "Start the update? (back up, sync the environment, build the web page, check, migrate the database and start the service)"
+cancelled = "Cancelled; nothing was changed."
+interrupted = "the rollback was interrupted (Ctrl-C)"
+extension = "{title} ({name})"
+done = "This update's record: {path}; the local managed files keep their current content."
+exit_code = "exit code {code}"
+migrated = "The installed extensions are recorded as the new code identifies them (lab2shot ext migrate)."
+
+[cli.update.rollback]
+new_stopped = "The new version's service stopped (port {port}; process {pid} has ended)."
+new_not_stopped = "the new version's service did not stop: {error}"
+new_no_pid = "the new version's service (port {port}) answers, but its process ID cannot be seen, so it was not stopped"
+git_failed = "git did not go back to {version}"
+code = "The code is back at {version}."
+backup_gone = "{backup} is gone: {path} was not restored"
+file_failed = "{path} was not restored: {error}"
+managed = "{count} managed files restored to their local content from before the update."
+settings = "Settings file restored: {path}."
+settings_removed = "The settings file made during the update was removed: {path}."
+settings_failed = "the settings file was not restored: {error}"
+database = "The database is restored to {backup} (the one the new version used moved to {moved})."
+database_failed = "the database was not restored to {backup}: {error}"
+sync_failed = "uv sync did not restore the old version's Python environment"
+web_failed = "the old version's web page was not built again"
+migrate = "The installed extensions are as they were before the migration."
+migrate_failed = "a migration of the installed extensions was not undone: {error}"
+start_failed = "the old version's service did not start"
+page_failed = "the old version's service started, but its web page does not open"
+started = "The old version's service started and answers: {address}."
+
+[cli.check.routes]
+undeclared = "routes: {route} declares no access (server/routes.py)"
+unowned = "routes: {route} takes one account's data ({params}) but declares no owner (owned=, server/owners.py): any other account could read it"
+body_undeclared = "routes: {route} reads {fields} from its request body, named like one account's data: declare them (body_ids=) with the owner that checks or filters them (owned=, server/owners.py)"
+body_unknown = "routes: {route} declares body_ids {fields}, which are not fields of its request body"
+admin_unowned = "routes: the admin route {route} takes one account's data ({params}): declare its owner (owned=) or make it need {right}"
+ok = "routes: every route is declared, and every one naming an account's data declares its owner (routes: {routes})"
+
+[cli.check.layers]
+unplaced = "layers: {unit} ({where}) is in no layer of the table (cli/check_arch.py LAYERS): put it in one"
+upward = "layers: {where} imports {module}: the {low} layer may not depend on the higher {high} layer (cli/check_arch.py LAYERS)"
+past_sdk = "layers: {where} imports {module}: an extension uses the core only through lab2shot.sdk"
+ok = "layers: every import goes down the layer table, and extensions use the core only through lab2shot.sdk (imports: {imports}; layers: {layers})"
+
+[cli.check.tests]
+passed = "tests: {suite} all passed"
+failed = "tests: {suite} failed (exit code {code}):\n{tail}"
+
+[cli.check.digests]
+direct = "digests: {where} uses hashlib directly: keys and content digests are made by lab2shot/io/digest.py (cli/check_arch.py DIGEST_ALLOWED lists the exceptions)"
+ok = "digests: keys and content digests all go through io/digest.py (files: {files}; exceptions: {allowed})"

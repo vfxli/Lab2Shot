@@ -4,14 +4,20 @@ never repeated here: a row whose target column names `<node type>.<parameter>` b
 targets. Besides the table, the rules its prose states:
 - a card that delivers one file names it `file_name`; one that delivers several, `exr_name` / `usd_name` / …, never
   `file_name`;
-- the last step's button (「输出」's 「计算」) is labelled 「打包」 when the card has other stage buttons, else 「计算」;
+- the last step's button (「输出」's 「计算」) names the shared word `pack` (「打包」) when the card has other stage buttons,
+  else `cook` (「计算」): its `word`, so no shown text is compared;
 - on a card whose EXR carries data layers (anything but colour pictures), the template's menu for `exr_compression` lists
   only what the table allows for it (the lossless ones);
 - a card that exposes `focal` exposes its node's `filmback` too, greyed out while no focal length is given
   (`disable_when` containing `not focal`);
 - a parameter comes before every stage button it acts on: no parameter of a node upstream of a button's node (its
   own included, through wires into parameters too) comes after that button (a person would press it, then change
-  what it already used).
+  what it already used);
+- every other outside name is derived, never judged: a value is `<node id>_<parameter>`; the delivering node's 「计算」
+  is `cook` and its 「下载」 `download`, any other stage's 「计算」 `cook_<node id>`, any other button
+  `<node id>_<button>`. No node of a card ranks above another (a card is a graph), so nothing decides which node's
+  parameters may go without a prefix;
+- a node id is a readable word (rule 2: it is part of every derived name).
 Each problem names the card's parameter it is about."""
 
 from __future__ import annotations
@@ -19,18 +25,20 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .templates import exposed_items, is_group
+from .. import i18n
+from .naming import delivery_names
+from .templates import LAST_STEP_WORD, exposed_items, exposed_label, first_target, is_group, split_target, targets_of
 
 _TICK = re.compile(r"`([^`]+)`")
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
-_TARGET = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+\.[a-z0-9_]+$")  # <extension>.<node>.<parameter>
-SEVERAL = ("exr_name", "usd_name", "nuke_name", "curves_name", "tracks_name")
+NODE_ID = re.compile(r"^[a-z][a-z0-9_]{2,}$")  # rule 2: a readable word, the head of every derived name
+_TARGET = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_]+)?\.[a-z0-9_]+$")  # <node type>.<parameter>; a type is `retarget` or `<extension>.<task>`
 
 
 def read_table(path: Path) -> dict[str, dict]:
     """The fixed-name table of the conventions file: outside name -> {"targets": {(node type, parameter)}, "values":
     the backticked words of its notes, "unread": what its target column names that is not a target (every target is
-    written `<extension>.<node>.<parameter>`, a bare parameter after one being on the same node type), "unpaired":
+    written `<node type>.<parameter>`, a bare parameter after one being on the same node type), "unpaired":
     (names, target groups) when a row of several names has not one group of targets each}. Only rows
     whose names are plain words are read (a pattern row, `<内容>_name`, binds no name); a row of them that binds
     nothing is a problem of the table (table_problems), never silently a row that checks nothing."""
@@ -66,39 +74,26 @@ def read_table(path: Path) -> dict[str, dict]:
 
 def table_problems(rows: dict[str, dict]) -> list[str]:
     """What is wrong with the table itself, each in a sentence: a name whose targets can't be read (none, or a word of
-    its target column that is not `<extension>.<node>.<parameter>`), or a target that names no node type's parameter."""
+    its target column that is not `<node type>.<parameter>`), or a target that names no node type's parameter."""
     from ..nodes import node_types
 
     types, said = node_types(), []
     for name, row in rows.items():
         if row.get("unpaired"):
-            said.append(f"_conventions.md 固定名表「{name}」这一行有 {row['unpaired'][0]} 个名字、{row['unpaired'][1]} 组目标"
-                        f"（按「/」分组）：名字与目标组要一一对应，或者每个名字各占一行")
+            said.append(i18n.t("conventions.unpaired", name=name, names=row["unpaired"][0], groups=row["unpaired"][1]))
         if row["unread"] or not row["targets"]:
-            what = "、".join(f"`{t}`" for t in row["unread"]) or "（没有）"
-            said.append(f"_conventions.md 固定名表「{name}」的目标读不出：{what}（写成 `扩展.节点.参数`）")
+            what = i18n.separator().join(f"`{t}`" for t in row["unread"]) or i18n.t("conventions.none")
+            said.append(i18n.t("conventions.unread", name=name, what=what))
         for node_type, param in sorted(row["targets"]):
             kind = types.get(node_type)
             if kind is None:
-                said.append(f"_conventions.md 固定名表「{name}」的目标 {node_type}.{param}：没有 {node_type} 这种节点")
+                said.append(i18n.t("conventions.no_type", name=name, type=node_type, param=param))
             elif param not in {p["name"] for p in kind.param_specs()} | {b["name"] for b in kind.interface_specs()}:
-                said.append(f"_conventions.md 固定名表「{name}」的目标 {node_type}.{param}：{node_type} 没有参数 {param}")
+                said.append(i18n.t("conventions.no_param", name=name, type=node_type, param=param))
     return said
 
 
-def read_prefixes(path: Path) -> list[str]:
-    """The role prefixes rule 2 of the conventions file registers (the backticked `xxx_` words of its line 「2.」),
-    and the name patterns it writes anywhere (`<内容>_name`, `colorspace_in_<内容>`, `input_*`), as the regular
-    expressions they stand for (a name matching one is a name of the conventions, like one of the fixed table)."""
-    text = path.read_text(encoding="utf-8")
-    line = next((l for l in text.splitlines() if l.lstrip().startswith("2.")), "")
-    prefixes = [t for t in _TICK.findall(line) if re.fullmatch(r"[a-z0-9]+_", t)]
-    patterns = [re.sub(r"<[^<>]+>", "[a-z0-9_]+", t).replace("*", "[a-z0-9_]*") for t in _TICK.findall(text)
-                if re.fullmatch(r"(?:[a-z0-9_]|<[^<>`]+>|\*)+", t) and ("<" in t or "*" in t)]
-    return prefixes + [f"re:{p}" for p in patterns]
-
-
-def problems(data: dict, table: dict[str, dict], prefixes: list[str] = ()) -> list[str]:
+def problems(data: dict, table: dict[str, dict]) -> list[str]:
     """What the card breaks of the conventions (see the module docstring), each in a sentence."""
     from ..nodes import node_types
     from ..nodes.output import OutputSettings
@@ -110,112 +105,117 @@ def problems(data: dict, table: dict[str, dict], prefixes: list[str] = ()) -> li
     by_name = {x["name"]: x for x in items}
     said: list[str] = []
 
-    def target(x: dict) -> tuple[str, str, str]:
-        node_id, _, param = x["target"].partition(".")
+    def target(x: dict) -> tuple[str, str, str]:  # the first target (the one the interface shows)
+        node_id, param = first_target(x)
         return node_id, (nodes.get(node_id) or {}).get("type", ""), param
 
-    # the table: a name bound to its targets
+    # the table: a name bound to its targets (every target of an entry that drives several)
     for x in items:
         row = table.get(x["name"])
         if row and row["targets"]:
-            _, node_type, param = target(x)
-            if (node_type, param) not in row["targets"]:
-                want = "、".join(f"{t}.{p}" for t, p in sorted(row["targets"]))
-                said.append(f"对外名 {x['name']} 只指 {want}，这里指的是 {node_type}.{param}")
+            for key in targets_of(x):
+                node_id, param = split_target(key)
+                node_type = (nodes.get(node_id) or {}).get("type", "")
+                if (node_type, param) not in row["targets"]:
+                    want = i18n.separator().join(f"{t}.{p}" for t, p in sorted(row["targets"]))
+                    said.append(i18n.t("conventions.bound", name=x["name"], want=want, type=node_type, param=param))
     # file_name on a card that delivers one file only
     writers = [nid for nid, t in kind.items() if t is not None and isinstance(t, type) and issubclass(t, OutputSettings)]
     if "file_name" in by_name and len(writers) > 1:
-        said.append(f"卡上有 {len(writers)} 个输出设置（多种交付）：用 {' / '.join(SEVERAL)}，不用 file_name")
-    if len(writers) == 1 and (several := [n for n in SEVERAL if n in by_name]):
-        said.append(f"卡上只有一种交付：它的名字叫 file_name，不叫 {'、'.join(several)}")
+        said.append(i18n.t("conventions.several_outputs", n=len(writers), names=" / ".join(delivery_names())))
+    if len(writers) == 1 and (several := [n for n in delivery_names() if n in by_name]):
+        said.append(i18n.t("conventions.one_output", names=i18n.separator().join(several)))
     # the last step's label
-    cooks = [x for x in items if x["target"].endswith(".cook")]
+    cooks = [x for x in items if target(x)[2] == "cook"]
     last = [x for x in cooks if kind.get(target(x)[0]) is not None and kind[target(x)[0]].delivers]
     for x in last:
-        want = "打包" if len(cooks) > len(last) else "计算"
-        if x.get("label") != want:
-            said.append(f"最后一步的按钮 {x['name']} 应叫「{want}」（{'卡上有其他阶段按钮' if want == '打包' else '卡上没有其他阶段按钮'}），现在叫「{x.get('label')}」")
+        # judged by the shared word the button names (its `word`, button.<word>), never by its shown text
+        stages = len(cooks) > len(last)
+        word = "pack" if stages else "cook"
+        if x.get("word") != word:
+            said.append(i18n.t("conventions.last_button_staged" if stages else "conventions.last_button_alone",
+                               name=x["name"], word=word, want=i18n.t(LAST_STEP_WORD), label=exposed_label(x)))
     # EXR compression on a card with data layers
     menu = by_name.get("exr_compression")
     allowed = set((table.get("exr_compression") or {}).get("values") or ())
     if menu and allowed and isinstance(menu.get("options"), list) and _has_data_layers(data, target(menu)[0]):
         if extra := [o.get("value") for o in menu["options"] if isinstance(o, dict) and o.get("value") not in allowed]:
-            said.append(f"exr_compression 的下拉在带数据层的卡上只能列无损的 {' / '.join(sorted(allowed))}，多了 {extra}")
+            said.append(i18n.t("conventions.exr_lossless", allowed=" / ".join(sorted(allowed)), extra=extra))
     # focal and its filmback
     if focal := by_name.get("focal"):
         node_id, _, _ = target(focal)
-        film = next((x for x in items if x["target"] == f"{node_id}.filmback_mm"), None)
+        film = next((x for x in items if f"{node_id}.filmback_mm" in targets_of(x)), None)
         if film is None:
-            said.append(f"公开了 focal（{focal['target']}）就要公开同一节点的 filmback（{node_id}.filmback_mm）")
+            said.append(i18n.t("conventions.focal_filmback", target=" / ".join(targets_of(focal)), node=node_id))
         elif "not focal" not in str(film.get("disable_when") or ""):
-            said.append(f"{film['name']} 的 Disable When 要含 not focal（没填焦距时置灰），现在是 {film.get('disable_when')!r}")
+            said.append(i18n.t("conventions.filmback_when", name=film["name"], now=repr(film.get("disable_when"))))
     # a parameter before every stage button it acts on
     said += _after_button(data, items, kind)
-    # rules 1 / 2: a name without a registered role prefix is the card's core node's parameter (its main project's,
-    # meta.project or core_project), or a name of the fixed table
-    said += _prefixed(data, items, kind, table, prefixes)
+    # rules 1 / 2 / 6: a name of the fixed table, else the one derived from its target; node ids that read
+    said += _derived(items, kind, table)
+    said += [i18n.t("conventions.node_id", id=repr(nid)) for nid in nodes if not NODE_ID.match(nid)]
     # the menus of the fixed table: each value means on this card what the table says it means (「1 FBX / 2 USD」)
     said += _meanings(data, items, table)
     return said
 
 
-def _prefixed(data: dict, items: list[dict], kind: dict, table: dict[str, dict], prefixes) -> list[str]:
-    from ..nodes import node_types
+def derived_name(node_id: str, param: str, t) -> str:
+    """The outside name a target gets when it is no name of the fixed table (rules 1 and 6)."""
     from ..nodes.params import COOK_BUTTON
-    from .templates import core_project
 
-    from ..nodes.output import OutputSettings
+    if param == COOK_BUTTON.name:
+        return "cook" if t is not None and t.delivers else f"cook_{node_id}"
+    if param == "download" and t is not None and t.delivers:
+        return "download"
+    return f"{node_id}_{param}"
 
-    main = core_project(data, node_types())
+
+def _derived(items: list[dict], kind: dict, table: dict[str, dict]) -> list[str]:
+    """Every outside name outside the fixed table is the one its target derives (derived_name): nothing to judge."""
     said = []
-
-    def written(x: dict, t, param: str) -> bool:  # a name the conventions register: prefix, pattern or the table
-        for p in prefixes:
-            if not p.startswith("re:"):
-                if x["name"].startswith(p):
-                    return True
-            elif re.fullmatch(p[3:], x["name"]):
-                # 「<内容>_name」 is a delivery's name (rule 4): only an output-settings node's `name` takes it; any other
-                # *_name (a node's own character name) is judged by rules 1 / 2 like every other name
-                if not p[3:].endswith("_name") or (isinstance(t, type) and issubclass(t, OutputSettings) and param == "name"):
-                    return True
-        return x["name"] in table
-
     for x in items:
-        nid, _, param = x["target"].partition(".")
+        nid, param = first_target(x)  # an entry that drives several is named after the first
         t = kind.get(nid)
-        if t is None or written(x, t, param):
+        want = derived_name(nid, param, t)
+        row = table.get(want)
+        if row and row["targets"] and (getattr(t, "id", ""), param) not in row["targets"]:
+            # the derived name is a name of the table that means something else: the node id is the one to change
+            said.append(i18n.t("conventions.derived_taken", id=repr(nid), param=param, want=want))
             continue
-        if param == COOK_BUTTON.name or any(b["name"] == param and b.get("widget") == "button" for b in t.interface_specs()):
-            continue  # a button is no value (rule 7)
-        if t.runtime != main:
-            said.append(f"对外名 {x['name']} 指的是辅助节点 {t.id} 的参数：带上通则 2 登记的角色前缀（{' '.join(p for p in prefixes if not p.startswith('re:'))}），"
-                        f"或写进固定名表（不带前缀的名字只给核心节点 {main or '（无）'}，通则 1）")
+        if x["name"] in table:
+            continue  # bound to its targets by the table check
+        if want != x["name"]:
+            said.append(i18n.t("conventions.derived_name", name=x["name"], target=" / ".join(targets_of(x)), want=want))
     return said
 
 
-_MEANING = re.compile(r"(\d+)\s*([^/（(]+)")
+_OPEN, _CLOSE = chr(0xFF08), chr(0xFF09)  # the full-width brackets of Chinese text, by code point
+_MEANING = re.compile(rf"(\d+)\s*([^/{_OPEN}(]+)")
 
 
 def _meanings(data: dict, items: list[dict], table: dict[str, dict]) -> list[str]:
     """A fixed-table menu whose notes say what each value means (「1 FBX / 2 USD / 3 ViPE」): each option of it on the
     card with that value has a label that says so; a card the notes name as an exception (「TRAM 例外」, a word of
-    the card's name) is left out."""
-    name = str((data.get("meta") or {}).get("name") or "")
+    the card's name, in either language) is left out."""
+    meta_name = (data.get("meta") or {}).get("name")
+    name = " ".join(i18n.pick(meta_name, lang) for lang in i18n.LANGS)  # its name in both languages ({zh, en})
     said = []
     for x in items:
         row = table.get(x["name"])
         if not row or x.get("widget") != "menu" or not isinstance(x.get("options"), list):
             continue
         notes = row.get("notes", "")
-        if any(w and w in name for w in re.findall(r"([A-Za-z0-9-]+)\s*例外", notes)):
+        # 「TRAM 例外」: the word the notes mark an exception with, in either language (conventions.exception)
+        marks = "|".join(re.escape(i18n.t("conventions.exception", in_lang=lang)) for lang in i18n.LANGS)
+        if any(w and w in name for w in re.findall(rf"([A-Za-z0-9-]+)\s*(?:{marks})", notes)):
             continue
-        plain = re.sub(r"（[^）]*）|\([^)]*\)", "", notes)
+        plain = re.sub(rf"{_OPEN}[^{_CLOSE}]*{_CLOSE}|\([^)]*\)", "", notes)
         meant = {int(n): w.strip() for n, w in _MEANING.findall(plain) if w.strip()}
         for o in x["options"]:
             v = o.get("value") if isinstance(o, dict) else None
-            if isinstance(v, int) and not isinstance(v, bool) and v in meant and meant[v] not in str(o.get("label", "")):
-                said.append(f"{x['name']} = {v} 在固定名表里是「{meant[v]}」，这张卡上是「{o.get('label', '')}」（取值的含义各卡一致，通则 3）")
+            label = i18n.pick(o.get("label"), "zh")  # the table's notes are in Chinese
+            if isinstance(v, int) and not isinstance(v, bool) and v in meant and meant[v] not in label:
+                said.append(i18n.t("conventions.meaning", name=x["name"], value=v, meant=meant[v], label=i18n.pick(o.get("label"))))
     return said
 
 
@@ -253,7 +253,7 @@ def _after_button(data: dict, items: list[dict], kind: dict) -> list[str]:
 
     said = []
     for i, x in enumerate(items):
-        nid, _, param = x["target"].partition(".")
+        nid, param = first_target(x)
         if param != COOK_BUTTON.name or kind.get(nid) is None or kind[nid].delivers:  # a stage: a node's 「计算」
             continue
         up, stack = set(), [nid]
@@ -261,7 +261,9 @@ def _after_button(data: dict, items: list[dict], kind: dict) -> list[str]:
             if (n := stack.pop()) not in up:
                 up.add(n)
                 stack += feeds.get(n, [])
-        late = [y["name"] for y in items[i + 1:] if (t := y["target"].partition("."))[0] in up and t[2] not in buttons_of(t[0])]
+        late = [y["name"] for y in items[i + 1:]
+                if any((t := split_target(k))[0] in up and t[1] not in buttons_of(t[0]) for k in targets_of(y))]
         if late:
-            said.append(f"参数 {'、'.join(late)} 作用于阶段按钮 {x.get('label') or x['name']}（{x['target']}），却排在它之后：挪到按钮前面")
+            said.append(i18n.t("conventions.after_button", params=i18n.separator().join(late),
+                               button=exposed_label(x), target=" / ".join(targets_of(x))))
     return said

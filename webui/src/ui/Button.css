@@ -14,14 +14,9 @@
   font-weight: 500;
   display: inline-flex;
   align-items: center;
-  /* a tight line height: a button's text is one line, and flex centres it truly only when the line box is about as
-     tall as the text. With the inherited 1.5 the line box is taller than the text and Chinese glyphs sit high in it
-     (most visibly with Microsoft YaHei on Windows) */
+  /* a tight line height: a button's text is one line, and flex centres its line box (the face's metrics put Chinese
+     and Latin at that centre: ui/fonts.css) */
   line-height: 1.3; /* a line box exactly as tall as the text clips Chinese glyphs */
-  /* 1px lower still: Geist comes first in the font stack and Chinese is drawn by the fallback font, so the baseline
-     follows the Latin face and the glyphs' centre sits about 0.7px above the line box's centre (more visibly with
-     Microsoft YaHei on Windows). A 1px top padding pushes it back to the centre */
-  padding-top: 1px;
   gap: var(--sp-1);
   cursor: default;
   transition:

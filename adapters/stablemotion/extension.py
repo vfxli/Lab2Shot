@@ -31,11 +31,9 @@ STABLEMOTION_COMMIT = "45d8836ce5cd7ae70f0065fdac672debfdfd6066"  # "Removed dup
 # downloads/ and the core recognises it and installs it into this extension's weights/. The item is declared by this
 # extension; the core names no assets and only provides the mechanism.
 CHECKPOINT = ManualItem(
-    key="stablemotion", title="StableMotion 权重", what="动捕清理模型 StableMotion-BrokenAMASS（270 MB 的压缩包）",
+    key="stablemotion",
     page="https://github.com/Murrol/StableMotion#pretrained-checkpoint-stablemotion-brokenamass",
-    download="README 里「Pretrained Checkpoint」那一节的 OneDrive 链接",
     filename="stablemotion_ckpt_seed3407.tar.gz",
-    note="作者把权重放在 OneDrive 网盘，要浏览器点过才给文件，程序下不了；权重是在 AMASS 上训练的，只许学术研究",
     markers=("ema001000000.pt", "model001000000.pt"),
     install=ExtensionWeights("stablemotion", ("ema001000000.pt", "args.json")),
     alone=("ema001000000.pt",), looks_like=("*stablemotion*",), noncommercial=True)
@@ -45,18 +43,14 @@ class StableMotion(Extension):
     name = "stablemotion"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "StableMotion"
-    summary = "用没有配对的坏数据训练动捕清理模型：一个既能判别又能生成的扩散模型，识别并修复坏掉的帧；仅限研究"
     homepage = "https://yxmu.foo/stablemotion-page/"
     source = GitSource(url=STABLEMOTION_URL, commit=STABLEMOTION_COMMIT)
     license = LicenseInfo(
         tag=RESEARCH,
         uses=("AMASS",),
-        name="MIT（代码）+ AMASS 学术许可（权重）",
         url="https://github.com/Murrol/StableMotion/blob/main/LICENSE",
-        summary=("仅限研究。代码是 MIT，可以随便用；但发布的权重 StableMotion-BrokenAMASS 是在 AMASS 上训练的，"
-                 "AMASS 的许可只允许非商业的学术研究，所以这个节点按更严的一档标（宁严勿松）。"
-                 "要商用就得按官方 README 说的，拿自己的动捕数据重新训练一个模型。"),
     )
+    generative = False
     import_repo = ""  # upstream's packages (model, diffusion, utils, data_loaders) are imported from its own folder
     env = EnvSpec(
         python="3.11",

@@ -24,22 +24,13 @@ class Cut3r(Extension):
     name = "cut3r"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "CUT3R"
-    summary = "一个统一框架，能解一大类三维任务；核心是带状态的循环模型，每来一帧新观测就更新一次自己的状态"
     homepage = "https://cut3r.github.io/"
     source = GitSource(url=CUT3R_URL, commit=CUT3R_COMMIT)
     license = LicenseInfo(
         tag=NONCOMMERCIAL,
-        name="CC BY-NC-SA 4.0（代码和权重）",
         url="https://github.com/CUT3R/CUT3R/blob/main/LICENSE",
-        summary=(
-            "非商用：CUT3R 代码和 cut3r_512_dpt_4_64 权重都按 CC BY-NC-SA 4.0 发布"
-            "（署名、禁止商用、改编后须以相同许可发布）。"
-            "代码里带的 Naver DUSt3R / CroCo 同为 CC BY-NC-SA 4.0；CroCo 的 pos_embed.py / blocks.py 另含 "
-            "Meta MAE 的 CC BY-NC 4.0 部分和 timm 的 Apache-2.0 部分。没有其他模型或非商用依赖（不需要 SMPL、nvdiffrast 等）。"
-            "「记忆更新」的 TTT3R 模式是 TTT3R（Inception3D，MIT）的记忆更新规则，由本扩展的 worker 按它的代码重写几行实现，"
-            "不另外下载；它用的仍是 CUT3R 的权重，所以整体仍然非商用"
-        ),
     )
+    generative = False
     # Upstream: Python 3.11 + PyTorch for CUDA 12.1. The models are plain PyTorch (the
     # optional cuRoPE kernel is replaced by the same formula in PyTorch, see worker.py),
     # so the same torch as VGGT / Pi3 is used (cu128 wheels include sm_89).
@@ -57,7 +48,6 @@ class Cut3r(Extension):
             source=f"https://drive.usercontent.google.com/download?id={CHECKPOINT_ID}&export=download&confirm=t",
             dest=CHECKPOINT,
             sha256=CHECKPOINT_SHA256,
-            note=f"{CHECKPOINT}（3.2 GB，Google Drive，CC BY-NC-SA 4.0 非商用）",
         ),
     )
 

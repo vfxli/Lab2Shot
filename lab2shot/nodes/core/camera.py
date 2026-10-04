@@ -7,6 +7,7 @@ from typing import Literal
 import numpy as np
 
 from ..kit.ports import rgb_port
+from ... import i18n
 from ...messages import Msg
 from ..base import Info, NodeDef, NodeParams, P, Port, empty_packet
 from ...errors import Invalid
@@ -20,7 +21,7 @@ from ..applies import Wired
 
 
 class CreateCamera(NodeDef):
-    id = "core.create_camera"
+    id = "camera"
     version = 2  # an unknown focal length gives no camera without a warning
     same_on_cards = True  # 各卡上公开的这块参数一样（NodeDef.same_on_cards）
     lens = "given"  # the lens comes from parameter values; a wired image supplies only its size
@@ -28,7 +29,7 @@ class CreateCamera(NodeDef):
     category = "camera_tools"
     # Focal Length 与 Filmback 为可接线的数值参数，相机为输出
     inputs = (rgb_port(optional=True),)
-    outputs = (Port("camera", "scene.camera", "相机", may_be_empty=True),)
+    outputs = (Port("camera", "scene.camera", may_be_empty=True),)
     handles = (Places(translate="translate", rotate="rotate"),)  # viewport gizmo for the camera placement
     # 与镜头标定节点（AnyCalib）的四个数值输出一一对应的常驻接线口，节点创建后即可连接
     wired_ports = ("focal_mm", "filmback_mm", "center_x_mm", "center_y_mm")
@@ -36,12 +37,12 @@ class CreateCamera(NodeDef):
     class Params(NodeParams):
         focal_mm: float | None = focal_param()
         filmback_mm: float | None = filmback_param()
-        center_x_mm: float = P(0.0, label="主点 X", unit="mm", group="镜头")
-        center_y_mm: float = P(0.0, label="主点 Y", unit="mm", group="镜头")
-        translate: tuple[float, float, float] = P((0.0, 0.0, 0.0), label="位置", unit="cm", widget="vec3", group="相机")
-        rotate: tuple[float, float, float] = P((0.0, 0.0, 0.0), label="旋转", unit="°", widget="vec3", group="相机")
-        width: int = P(DEFAULT_WIDTH, label="画面宽度", unit="px", gt=0, group="画面", applies=Not(Wired("image")))
-        height: int = P(DEFAULT_HEIGHT, label="画面高度", unit="px", gt=0, group="画面", applies=Not(Wired("image")))
+        center_x_mm: float = P(0.0, unit="mm", group="lens")
+        center_y_mm: float = P(0.0, unit="mm", group="lens")
+        translate: tuple[float, float, float] = P((0.0, 0.0, 0.0), unit="cm", widget="vec3", group="camera")
+        rotate: tuple[float, float, float] = P((0.0, 0.0, 0.0), unit="°", widget="vec3", group="camera")
+        width: int = P(DEFAULT_WIDTH, unit="px", gt=0, group="image", applies=Not(Wired("image")))
+        height: int = P(DEFAULT_HEIGHT, unit="px", gt=0, group="image", applies=Not(Wired("image")))
 
     @classmethod
     def info(cls, params, inputs):
@@ -81,10 +82,10 @@ class SetPlate(NodeDef):
     imported camera stays exactly what the user brought in. The plate is looked up by frame number, so the camera's
     and the image's frames should agree."""
 
-    id = "core.set_plate"
+    id = "image_plane"
     category = "camera_tools"
-    inputs = (Port("camera", "scene.camera", "相机"), Port("image", "image", "图像", alpha=True, data=False))
-    outputs = (Port("camera", "scene.camera", "相机"),)
+    inputs = (Port("camera", "scene.camera"), Port("image", "image", alpha=True, data=False))
+    outputs = (Port("camera", "scene.camera"),)
 
     class Params(NodeParams):
         pass
@@ -109,24 +110,24 @@ class SetPlate(NodeDef):
         target = ctx.outputs["camera"] / SCENE_FILE
         shutil.copyfile(camera.path(SCENE_FILE), target)
         stage = Usd.Stage.Open(str(target))
-        the_camera(stage, "相机输入").SetCustomDataByKey(usd.PLATE, image.fingerprint)
+        the_camera(stage, i18n.t("scene.where.camera_input")).SetCustomDataByKey(usd.PLATE, image.fingerprint)
         stage.GetRootLayer().Save()
         return {"camera": Packet(ctx.outputs["camera"], camera.type, {**camera.meta, "plate": image.fingerprint})}
 
 
 class DeshakeCamera(NodeDef):
-    id = "core.deshake_camera"
+    id = "deshake_camera"
     on_node = ("strength", "keep_sudden")
     category = "camera_tools"
-    inputs = (Port("camera", "scene.camera", "相机"),)
-    outputs = (Port("camera", "scene.camera", "相机"), Port("curves", "curves", "前后对比", may_be_empty=True))
+    inputs = (Port("camera", "scene.camera"),)
+    outputs = (Port("camera", "scene.camera"), Port("curves", "curves", may_be_empty=True))
 
     class Params(NodeParams):
-        strength: float = P(CUTOFF_DEFAULT, label="强度", unit="帧", group="去抖", widget="slider", ge=CUTOFF_MIN, le=CUTOFF_MAX)
-        keep_sudden: bool = P(True, label="保留急停", group="去抖")
-        rotation: bool = P(True, label="平滑转动", group="去抖")
+        strength: float = P(CUTOFF_DEFAULT, unit="frame", group="stabilize", widget="slider", ge=CUTOFF_MIN, le=CUTOFF_MAX)
+        keep_sudden: bool = P(True, group="stabilize")
+        rotation: bool = P(True, group="stabilize")
         focal: Literal["keep", "smooth"] = P(
-            "keep", label="Focal Length", group="去抖", option_labels={"keep": "原样", "smooth": "一起去抖"},
+            "keep", group="stabilize",
         )
 
     @classmethod
@@ -157,7 +158,7 @@ OFF_PLATE_PX = 2.0  # plate shift (px) at or above which the removed shake may h
 SUDDEN_LISTED = 8  # maximum number of preserved sudden-motion frames named in the message
 
 
-ORIGINAL = "原始"  # suffix of the input ("before") channel in a before/after curves packet
+ORIGINAL = "original"  # suffix of the input ("before") channel in a before/after curves packet (a data name)
 
 
 def before_after(out, frames: list[int], pairs: list[tuple[str, np.ndarray, np.ndarray | None]]):
@@ -173,34 +174,32 @@ def before_after(out, frames: list[int], pairs: list[tuple[str, np.ndarray, np.n
         columns.append(np.asarray(after, np.float64).reshape(-1))
         if original is None:
             continue
-        names.append(f"{label} {ORIGINAL}")
+        names.append(f"{label}_{ORIGINAL}")
         columns.append(np.asarray(original, np.float64).reshape(-1))
-        before[label] = f"{label} {ORIGINAL}"
+        before[label] = f"{label}_{ORIGINAL}"
     return curves_packet(out, frames, names, np.stack(columns, axis=1), before=before)
 
 
 def camera_pairs(report: dict) -> list[tuple[str, np.ndarray, np.ndarray | None]]:
     """Return the six before/after channels of a camera tool: translation (cm) and rotation (degrees) per axis."""
-    axes = (("translate", 0, "位置 X"), ("translate", 1, "位置 Y"), ("translate", 2, "位置 Z"),
-            ("rotate", 0, "旋转 X"), ("rotate", 1, "旋转 Y"), ("rotate", 2, "旋转 Z"))
+    axes = (("translate", 0, "translate_x"), ("translate", 1, "translate_y"), ("translate", 2, "translate_z"),
+            ("rotate", 0, "rotate_x"), ("rotate", 1, "rotate_y"), ("rotate", 2, "rotate_z"))  # curve names: data
     return [(label, np.asarray(report["after"][key])[:, axis], np.asarray(report["before"][key])[:, axis])
             for key, axis, label in axes]
 
 
 class LockFocal(NodeDef):
-    id = "core.lock_focal"
+    id = "lock_focal"
     on_node = ("focal_mm",)
     category = "camera_tools"
     inputs = (
-        Port("camera", "scene.camera", "相机"),
+        Port("camera", "scene.camera"),
         # 必需：缺少场景点到相机的距离则无法求出锁定 Focal Length 后的相机位置。未接线时由 B-GRAPH-NOWIRE 在提交前拦截
-        Port("points", "scene.points", "点云",
-             recommend="core.depth_points",
-             help="拿来当锚点的三维点：解算节点的「点云」输出，或者「3D 跟踪点」"),
-        Port("tracks", "tracks2d", "2D 跟踪点", optional=True,
-             help="和「点云」出自同一个节点、一一对应的画面观测。接上就用真实观测代替「按原相机投出来的位置」"),
+        Port("points", "scene.points",
+             recommend="points_from_depth"),
+        Port("tracks", "tracks2d", optional=True),
     )
-    outputs = (Port("camera", "scene.camera", "相机"), Port("curves", "curves", "前后对比", may_be_empty=True))
+    outputs = (Port("camera", "scene.camera"), Port("curves", "curves", may_be_empty=True))
     wired_ports = ("focal_mm", "filmback_mm")
 
     class Params(NodeParams):
@@ -238,8 +237,8 @@ class LockFocal(NodeDef):
         if report["residual_median"] > REPROJ_MEDIAN_PX or report["residual_max"] > REPROJ_MAX_PX:
             ctx.say("W-FOCAL-REPROJ", low=low, high=high, locked=report["focal_mm_after"],
                     median=report["residual_median"], max=report["residual_max"], frame=report["worst_frame"])
-        pairs = [("Focal Length", np.full(len(frames), report["focal_mm_after"]), report["focal_mm_before"]),
-                 ("沿镜头方向", report["along_cm"], None), ("重投影残差", report["residual_px"], None)]
+        pairs = [("focal_length", np.full(len(frames), report["focal_mm_after"]), report["focal_mm_before"]),
+                 ("along_lens", report["along_cm"], None), ("reprojection_residual", report["residual_px"], None)]
         return {"camera": out, "curves": before_after(ctx.outputs["curves"], frames, pairs)}
 
 
@@ -247,20 +246,19 @@ FEW_ANCHORS = 30  # the threshold of nodes/kit/lock_focal.py FEW_ANCHORS, report
 REPROJ_MEDIAN_PX, REPROJ_MAX_PX = 1.0, 4.0  # above either, repositioning the camera could not compensate for the lock
 
 
-ALIGN_LABELS = {"similarity": "比例+旋转+位置", "rigid": "旋转+位置", "none": "不对齐"}
 
 
 class CompareCameras(NodeDef):
-    id = "core.compare_cameras"
+    id = "compare_cameras"
     on_node = ("align",)
     version = 2  # a collinear path is aligned using the cameras' orientations
     category = "camera_tools"
-    inputs = (Port("camera", "scene.camera", "相机"), Port("reference", "scene.camera", "参考相机"))
-    outputs = (Port("camera", "scene.camera", "对齐后的相机"), Port("errors", "curves", "逐帧误差"))
+    inputs = (Port("camera", "scene.camera"), Port("reference", "scene.camera"))
+    outputs = (Port("camera", "scene.camera"), Port("errors", "curves"))
 
     class Params(NodeParams):
         align: Literal["similarity", "rigid", "none"] = P(
-            "similarity", label="对齐", group="对比", option_labels=ALIGN_LABELS,
+            "similarity", group="compare",
         )
 
     @classmethod

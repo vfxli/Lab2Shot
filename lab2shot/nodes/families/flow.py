@@ -26,7 +26,7 @@ def motion_vectors(ctx, raw: RawOutput, image: Packet, node_type) -> dict[str, P
     from ...data.payloads import window_of
 
     w, h = window_of(image).canvas  # the pixels the worker was sent
-    ctx.stage("写出运动矢量")
+    ctx.stage("write_motion_vectors")
     flow_map = ExrWriter(ctx.outputs["flow"], 4, window=window_of(image))
     scores = ConfidenceWriter(ctx, image, node_type)
     for f, d in raw.frames(ctx, image.meta["frames"]):
@@ -73,9 +73,8 @@ class OpticalFlow(WorkerNode):
 
     on_node = ("resolution",)
     inputs = (rgb_port(),)
-    outputs = (Port("flow", "image.4", "运动矢量", data=True),)
-    confidence = Confidence("probability", help="运动矢量模型自己估的每个矢量有多可信（0–1，越大越可信；前后两个方向取低的）。"
-                                                "只在这个模型的结果之间比高低；当遮罩用先接「置信度转遮罩」，要遮挡的地方用「遮挡遮罩」")
+    outputs = (Port("flow", "image.4", data=True),)
+    confidence = Confidence("probability", help="flow")  # its words: confidence.flow
     cost = Cost(gpu=True)
     Params = OpticalFlowParams
 
@@ -108,7 +107,7 @@ def correspondence(ctx, raw: RawOutput, image: Packet, node_type, frames: list[i
     target = raw.result()["target"]
     tw, th = target["width"], target["height"]
     w, h = window_of(image).canvas  # the pixels the worker was sent
-    ctx.stage("写出 ST-map")
+    ctx.stage("write_stmap")
     stmap = ExrWriter(ctx.outputs["stmap"], 2, value_range=UNIT, window=window_of(image))
     scores = ConfidenceWriter(ctx, image, node_type)
     for f, d in raw.frames(ctx, frames or image.meta["frames"]):

@@ -13,6 +13,8 @@ import { Loading } from "../ui/Loading";
 import { Sheet } from "../ui/Sheet";
 import { Table, type Column } from "../ui/Table";
 import { Section, useAdmin } from "./common";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** 显卡 section. Artists never see or choose a card; this section gathers all card information for the
  * administrator and previews the effect of a change before applying it. It lists every card of this machine
@@ -73,8 +75,8 @@ export function CardsSection() {
     });
   if (!data) {
     return (
-      <Section title="显卡">
-        <Loading what="显卡" />
+      <Section title={t("ui.admin.nav.cards")}>
+        <Loading what={t("ui.admin.nav.cards")} />
       </Section>
     );
   }
@@ -82,61 +84,58 @@ export function CardsSection() {
   const nameOf = (uuid: string) => (byUuid.has(uuid) ? cardName(byUuid.get(uuid)!) : uuid);
 
   const tierColumns: Column<CardTier>[] = [
-    { id: "node", label: "节点", tip: "用显卡的节点", cell: (t) => t.label },
-    { id: "setting", label: "设置", tip: "节点的默认设置，或某个参数的某个选项（它自己实测了显存）", cell: (t) => (t.param ? `${t.param} = ${t.option}` : "默认") },
-    { id: "vram", label: "显存", tip: "实测的显存峰值，调度时再留一点余量", cell: (t) => gbText(t.vram_gb), className: "tnum" },
-    { id: "cards", label: "能跑的卡", tip: "显存够、扩展包环境支持的卡，不管接不接任务", cell: (t) => t.cards.map(nameOf).join("、") || "没有" },
+    { id: "node", label: t("ui.admin.cards.col_node"), cell: (r) => r.subtitle },
+    { id: "setting", label: t("ui.admin.cards.col_setting"), cell: (r) => (r.param ? `${r.param} = ${r.option}` : t("ui.admin.cards.default")) },
+    { id: "vram", label: t("ui.admin.cards.col_vram"), cell: (r) => gbText(r.vram_gb), className: "tnum" },
+    { id: "cards", label: t("ui.admin.cards.col_cards"), cell: (r) => r.cards.map(nameOf).join(t("list.sep")) || t("ui.admin.cards.none") },
     {
       id: "now",
-      label: "现在",
-      tip: "有没有接任务的卡能跑它：没有的话，用户那里这个设置变灰并写原因",
-      cell: (t) => (
-        <span className={`chip${t.available ? " q-ok" : ""}`} data-tip={said(t.message)}>
-          {t.available ? "能跑" : "没有卡"}
+      label: t("ui.admin.cards.col_now"),
+      cell: (r) => (
+        <span className={`chip${r.available ? " q-ok" : ""}`} {...tipAttrs(tipOf("error", said(r.message)))}>
+          {r.available ? t("ui.admin.cards.runs") : t("ui.admin.cards.no_card")}
         </span>
       ),
     },
   ];
   const waitingColumns: Column<CardWaiting>[] = [
-    { id: "title", label: "任务", tip: "有显卡节点在等卡的任务", cell: (w) => <span data-user-data data-tip={w.title}>{w.title}</span> },
-    { id: "node", label: "节点", tip: "在等卡的显卡节点", cell: (w) => <span data-user-data data-tip={w.node}>{w.node}</span> },
-    { id: "who", label: "提交者", tip: "谁提交的", cell: (w) => <span data-user-data data-tip={w.who}>{w.who}</span> },
-    { id: "vram", label: "显存", tip: "这个节点要的显存", cell: (w) => gbText(w.vram_gb), className: "tnum" },
-    { id: "why", label: "在等什么", tip: "服务器说它为什么还没开始", cell: (w) => said(w.reason) || "轮到就开始" },
+    { id: "title", label: t("ui.admin.cards.col_job"), cell: (w) => <span data-user-data {...tipAttrs(tipOf("truncated", w.title))}>{w.title}</span> },
+    { id: "node", label: t("ui.admin.cards.col_node"), cell: (w) => <span data-user-data {...tipAttrs(tipOf("truncated", w.node))}>{w.node}</span> },
+    { id: "who", label: t("ui.admin.cards.col_who"), cell: (w) => <span data-user-data {...tipAttrs(tipOf("truncated", w.who))}>{w.who}</span> },
+    { id: "vram", label: t("ui.admin.cards.col_vram"), cell: (w) => gbText(w.vram_gb), className: "tnum" },
+    { id: "why", label: t("ui.admin.cards.col_why"), cell: (w) => said(w.reason) || t("ui.admin.cards.next_up") },
     {
       id: "ever",
-      label: "能不能开始",
-      tip: "现在接任务的卡里有没有一张显存够、环境支持它：没有的话它会一直等，直到授权一张能跑的卡",
-      cell: (w) => <span className={`chip${w.runnable_ever ? " q-ok" : ""}`}>{w.runnable_ever ? "等到就能开始" : "没有卡能跑"}</span>,
+      label: t("ui.admin.cards.col_ever"),
+      cell: (w) => <span className={`chip${w.runnable_ever ? " q-ok" : ""}`}>{w.runnable_ever ? t("ui.admin.cards.will_start") : t("ui.admin.cards.no_card_runs")}</span>,
     },
   ];
   const nodeColumns: Column<CardNode>[] = [
-    { id: "label", label: "节点", tip: "用显卡的节点", cell: (n) => n.label },
-    { id: "vram", label: "显存", tip: "节点声明的显存峰值", cell: (n) => gbText(n.vram_gb), className: "tnum" },
+    { id: "subtitle", label: t("ui.admin.cards.col_node"), cell: (n) => n.subtitle },
+    { id: "vram", label: t("ui.admin.cards.col_vram"), cell: (n) => gbText(n.vram_gb), className: "tnum" },
     {
       id: "measured",
-      label: "来源",
-      tip: "实测过的写明在哪张卡上测的；没测过的是估计，按估计排任务",
-      cell: (n) => <span data-tip={said(n.note) || undefined}>{n.vram_measured ? `实测${n.measured_on ? ` · ${n.measured_on}` : ""}` : "估计"}</span>,
+      label: t("ui.admin.cards.col_source"),
+      cell: (n) => <span {...tipAttrs(tipOf("value", said(n.note)))}>{n.vram_measured ? (n.measured_on ? t("ui.admin.cards.measured_on", { on: n.measured_on }) : t("ui.admin.cards.measured")) : t("ui.admin.cards.estimated")}</span>,
     },
   ];
 
   return (
     <>
       <Section
-        title="显卡"
-        lede="这台机器的每张显卡：打开开关的卡接队列里的任务，每张同时算一个；关掉的算完手上的任务后不再接新的。改开关之前先列出会发生什么。显存和占用是这张卡上所有程序的。"
+        title={t("ui.admin.nav.cards")}
+        lede={t("ui.admin.cards.lede")}
         actions={
-          <Button tip="重新读取显卡状态" tone="ghost" onClick={reload}>
-            刷新
+          <Button tone="ghost" onClick={reload}>
+            {t("ui.admin.common.refresh")}
           </Button>
         }
       >
         {data.cards.length > 0 && data.cards.every((c) => !c.authorized) && (
           <div className="notice">
             {/* what to do about it is what this login can do: switch a card on, or ask someone who may */}
-            还没有授权任何显卡：用到显卡的任务会一直排队。
-            {canSwitch ? "打开一张卡的开关，它就开始接任务。" : "这个登录改不了显卡的开关：请管理员打开一张卡，它就开始接任务。"}
+            {t("ui.admin.cards.none_on")}
+            {canSwitch ? t("ui.admin.cards.switch_one") : t("ui.admin.cards.ask_admin")}
           </div>
         )}
         {data.cards.length ? (
@@ -146,38 +145,38 @@ export function CardsSection() {
             ))}
           </div>
         ) : (
-          <p className="adm-lede">这台机器上没有找到显卡。</p>
+          <p className="adm-lede">{t("ui.admin.cards.no_gpus")}</p>
         )}
       </Section>
-      <Section title="每小时使用率" lede="每张显卡最近一天每小时的平均占用（0–100%）。数是队列本来就在读的那次显卡状态带回来的，不额外花机器的力气；虚线那根是还没走完的这一小时。">
+      <Section title={t("ui.admin.cards.hourly")} lede={t("ui.admin.cards.hourly_lede")}>
         <GpuHours hourly={data.hourly ?? []} cards={data.cards} />
       </Section>
-      <Section title="参数档位" lede="按扩展包折起来，每包一行写它最吃显存的那一档和现在能不能跑；点开看这个包每个节点在默认设置和每个自己实测了显存的选项下要多少显存、哪些卡能跑。">
+      <Section title={t("ui.admin.cards.tiers")} lede={t("ui.admin.cards.tiers_lede")}>
         <Folds
           rows={data.tiers}
-          groupOf={(t) => t.runtime}
-          titleOf={(t) => t.runtime_title}
+          groupOf={(r) => r.runtime}
+          titleOf={(r) => r.runtime_title}
           summary={(rows) => {
             const top = rows.reduce((a, b) => (b.vram_gb > a.vram_gb ? b : a));
             return (
               <>
-                <span className="adm-fold-count">{rows.length} 档</span>
-                <span className="tnum" data-tip={`最吃显存的一档：${top.label}${top.param ? `，${top.param} = ${top.option}` : ""}`}>最大 {gbText(top.vram_gb)}</span>
-                <span className={`chip${rows.every((t) => t.available) ? " q-ok" : ""}`} data-tip={rows.every((t) => t.available) ? "每一档都有接任务的卡能跑" : `${rows.filter((t) => !t.available).length} 档现在没有卡能跑`}>
-                  {rows.every((t) => t.available) ? "都能跑" : `${rows.filter((t) => t.available).length} / ${rows.length} 档能跑`}
+                <span className="adm-fold-count">{t("ui.admin.cards.tier_count", { n: rows.length })}</span>
+                <span className="tnum" {...tipAttrs(tipOf("value", top.param ? t("ui.admin.cards.top_tier_param", { label: top.subtitle, param: top.param, option: top.option }) : t("ui.admin.cards.top_tier", { label: top.subtitle })))}>{t("ui.admin.cards.max", { gb: gbText(top.vram_gb) })}</span>
+                <span className={`chip${rows.every((r) => r.available) ? " q-ok" : ""}`}>
+                  {rows.every((r) => r.available) ? t("ui.admin.cards.all_run") : t("ui.admin.cards.some_run", { n: rows.filter((r) => r.available).length, all: rows.length })}
                 </span>
               </>
             );
           }}
-          empty="没有用显卡的节点"
+          empty={t("ui.admin.cards.no_gpu_nodes")}
         >
-          {(rows) => <Table rows={rows} columns={tierColumns} rowKey={(t) => t.id} empty="" />}
+          {(rows) => <Table rows={rows} columns={tierColumns} rowKey={(r) => r.id} empty="" />}
         </Folds>
       </Section>
-      <Section title="等卡的显卡节点" lede="任务里在等显卡的节点，它们在等什么，以及现在接任务的卡里有没有能跑它的。">
-        <Table rows={data.waiting} columns={waitingColumns} rowKey={(w) => `${w.job}-${w.node}`} empty="没有在等卡的显卡节点" />
+      <Section title={t("ui.admin.cards.waiting")} lede={t("ui.admin.cards.waiting_lede")}>
+        <Table rows={data.waiting} columns={waitingColumns} rowKey={(w) => `${w.job}-${w.node}`} empty={t("ui.admin.cards.waiting_none")} />
       </Section>
-      <Section title="节点显存" lede="每个用显卡的节点记下的显存：调度按它挑卡，参数档位也按它算。按扩展包折起来，每包一行写它最吃显存的节点。">
+      <Section title={t("ui.admin.cards.node_vram")} lede={t("ui.admin.cards.node_vram_lede")}>
         <Folds
           rows={data.nodes}
           groupOf={(n) => n.runtime}
@@ -186,13 +185,13 @@ export function CardsSection() {
             const top = rows.reduce((a, b) => (b.vram_gb > a.vram_gb ? b : a));
             return (
               <>
-                <span className="adm-fold-count">{rows.length} 个节点</span>
-                <span className="tnum" data-tip={`最吃显存的节点：${top.label}`}>最大 {gbText(top.vram_gb)}</span>
-                <span className="adm-fold-note">{rows.filter((n) => n.vram_measured).length} 个实测</span>
+                <span className="adm-fold-count">{t("ui.admin.cards.node_count", { n: rows.length })}</span>
+                <span className="tnum" {...tipAttrs(tipOf("value", t("ui.admin.cards.top_node", { label: top.subtitle })))}>{t("ui.admin.cards.max", { gb: gbText(top.vram_gb) })}</span>
+                <span className="adm-fold-note">{t("ui.admin.cards.measured_count", { n: rows.filter((n) => n.vram_measured).length })}</span>
               </>
             );
           }}
-          empty="没有用显卡的节点"
+          empty={t("ui.admin.cards.no_gpu_nodes")}
         >
           {(rows) => <Table rows={rows} columns={nodeColumns} rowKey={(n) => n.node} empty="" />}
         </Folds>
@@ -232,33 +231,32 @@ function CardTile({ card, busy, onToggle }: { card: CardRow; busy: boolean; onTo
   return (
     <div className={`q-gpu${card.authorized ? " on" : ""}`}>
       <div className="q-gpu-head">
-        <span className="q-gpu-name" data-tip={`${card.name}${card.arch ? ` · 架构 ${card.arch}` : ""}`}>
+        <span className="q-gpu-name" {...tipAttrs(tipOf("value", card.arch ? t("ui.admin.cards.arch", { name: card.name, arch: card.arch }) : card.name))}>
           {cardName(card)}
         </span>
         {onToggle ? (
           <Switch
             on={card.authorized}
-            label={`${card.model} 接任务`}
-            tip={card.authorized ? "关掉：先列出会发生什么，确认后算完手上的任务不再接新任务" : "打开：先列出会发生什么，确认后这张卡开始接队列里的任务"}
+            label={t("ui.admin.cards.takes_label", { model: card.model })}
             disabled={busy}
             onChange={onToggle}
           />
         ) : (
-          <span className={`chip${card.authorized ? " q-ok" : ""}`}>{card.authorized ? "接任务" : "不接任务"}</span>
+          <span className={`chip${card.authorized ? " q-ok" : ""}`}>{card.authorized ? t("ui.admin.cards.takes") : t("ui.admin.cards.takes_not")}</span>
         )}
       </div>
-      <div className="q-gpu-meter" data-tip="显存占用（这张卡上所有程序的，不只是 Lab2Shot）">
+      <div className="q-gpu-meter">
         <i style={{ width: `${used * 100}%` }} />
       </div>
       <div className="q-gpu-stats tnum">
-        显存 {gbText(card.load.used_gb)} / {gbText(card.memory_gb)} · 占用 {card.load.utilization}% · {card.load.temperature}°C
+        {t("ui.admin.cards.stats", { used: gbText(card.load.used_gb), total: gbText(card.memory_gb), util: card.load.utilization, temp: card.load.temperature })}
       </div>
       <div className="q-gpu-job">
         {card.running
-          ? `正在算：${[card.running.who, card.running.title, card.running.node].filter(Boolean).join(" · ")}`
+          ? t("ui.admin.cards.running", { what: [card.running.who, card.running.title, card.running.node].filter(Boolean).join(" · ") })
           : card.authorized
-            ? "空闲"
-            : "不接 Lab2Shot 的任务"}
+            ? t("ui.admin.cards.idle")
+            : t("ui.admin.cards.not_lab2shot")}
       </div>
       <GpuFits fits={card.extensions} />
       <div className="q-gpu-uuid mono">{card.uuid}</div>
@@ -271,25 +269,25 @@ function Consequences({ asking, busy, onApply, onClose }: { asking: { card: Card
   const { card, on, answer } = asking;
   const other = on && !card.running && card.load.used_gb > BUSY_GB;
   return (
-    <Sheet title={`${on ? "打开" : "关掉"} ${cardName(card)}`} onClose={onClose}>
+    <Sheet title={on ? t("ui.admin.cards.turn_on_title", { card: cardName(card) }) : t("ui.admin.cards.turn_off_title", { card: cardName(card) })} onClose={onClose}>
       <div className="cards-said">
         {other && (
           <div className="notice warn">
-            这张卡上别的程序已经占用了 {gbText(card.load.used_gb)} 显存（可能在训练或渲染）：让它接 Lab2Shot 的任务，两边都可能显存不够而出错。
+            {t("ui.admin.cards.other_programs", { gb: gbText(card.load.used_gb) })}
           </div>
         )}
         {answer.messages.map((m) => (
-          <div key={m.code + m.text} className={`notice${m.level === "W" ? " warn" : ""}`} data-tip={m.code}>
+          <div key={m.code + m.text} className={`notice${m.level === "W" ? " warn" : ""}`}>
             {m.text}
           </div>
         ))}
       </div>
       <div className="dialog-row cards-end">
-        <Button tip="不改" tone="ghost" onClick={onClose}>
-          取消
+        <Button tone="ghost" onClick={onClose}>
+          {t("ui.admin.common.cancel")}
         </Button>
-        <Button tip={on ? "这张卡开始接任务" : "这张卡算完手上的任务后不再接新任务"} tone="primary" disabled={busy} onClick={onApply}>
-          {on ? "打开" : "关掉"}
+        <Button tip={on ? undefined : tipOf("consequence", t("ui.admin.cards.turn_off_tip"))} tone="primary" disabled={busy} onClick={onApply}>
+          {on ? t("ui.admin.cards.turn_on") : t("ui.admin.cards.turn_off")}
         </Button>
       </div>
     </Sheet>

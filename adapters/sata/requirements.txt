@@ -1,0 +1,20 @@
+numpy==1.26.4
+scipy==1.13.1
+pyyaml==6.0.2
+tqdm==4.67.1
+matplotlib==3.9.4
+ipython==8.31.0
+trimesh==4.5.3
+torch-geometric==2.7.0
+torch-scatter @ https://data.pyg.org/whl/torch-2.8.0%2Bcu128/torch_scatter-2.1.2%2Bpt28cu128-cp311-cp311-linux_x86_64.whl
+torch-sparse @ https://data.pyg.org/whl/torch-2.8.0%2Bcu128/torch_sparse-0.6.18%2Bpt28cu128-cp311-cp311-linux_x86_64.whl
+tensorboard==2.18.0
+PyOpenGL==3.1.9
+pillow==11.1.0
+transformers==4.44.2
+sentencepiece==0.2.0
+vector-quantize-pytorch==1.22.18
+einops==0.8.1
+GPUtil==1.4.0
+pynvml==11.5.3
+scikit-learn==1.6.1

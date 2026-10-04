@@ -125,6 +125,21 @@
   color: var(--green);
 }
 
+/* the rating (评定), apart from the status: 有效 earns the account time, 无效 is only the administrator's */
+.chip.fb-rating.valid {
+  background: rgba(48, 209, 88, 0.16);
+  color: var(--green);
+}
+
+/* 我的反馈: what a valid feedback earned, and the rule above the list */
+.fb-reward {
+  padding: 6px 10px;
+  border-radius: var(--r-ctl);
+  background: rgba(48, 209, 88, 0.12);
+  color: var(--green);
+  font-size: var(--fs-md);
+}
+
 .fb-meta {
   display: flex;
   flex-wrap: wrap;
@@ -255,24 +270,11 @@ textarea.field.fb-note {
   user-select: text;
 }
 
-/* every row of the dialog uses the one form row (ui/forms.css .who-row): a label column and a control column.
-   Whatever takes a line of its own (a note, the text area, the pictures, a button group) is indented to the control
-   column's left edge, so the whole dialog shares one edge */
+/* the dialog has no labels beside its controls: one column, edge to edge */
 .fb-form {
-  --form-label-w: 56px;
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-}
-
-.fb-form > .tpl-desc,
-.fb-form > textarea.fb-text,
-.fb-form > .fb-pics,
-.fb-form > .fb-row,
-.fb-form > .fb-diag,
-.fb-form > .fb-why {
-  margin-left: calc(var(--form-label-w) + var(--sp-3));
-  width: auto; /* indented, it cannot be width:100% or it overflows the dialog on the right */
 }
 
 

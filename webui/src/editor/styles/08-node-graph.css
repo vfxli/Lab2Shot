@@ -13,6 +13,12 @@
   cursor: default;
 }
 
+/* 平移、缩放的过程中（NodeEditor onMoveStart / onMoveEnd 标 data-moving）整张画布是合成器直接挪动的一层，不每帧
+   重绘、重新栅格化：大图上拖动、滚轮缩放仍然流畅。松手后去掉，按新的缩放清晰地重画一次 */
+.graph[data-moving] .react-flow__viewport {
+  will-change: transform;
+}
+
 .graph .react-flow__attribution {
   display: none;
 }
@@ -40,4 +46,12 @@
 
 .react-flow__edge.selected .edge-path {
   stroke-width: 3.2;
+}
+
+/* Wires keep their width on screen whatever the zoom (as in Houdini): widths are in screen pixels, so a graph zoomed
+   far out (minZoom 0.02) does not draw them a few hundredths of a pixel wide, which breaks them into jagged bits */
+.react-flow__edge path,
+.react-flow__connection-path,
+.react-flow__connectionline path {
+  vector-effect: non-scaling-stroke;
 }

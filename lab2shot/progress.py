@@ -46,9 +46,9 @@ FETCHING = "fetching"
 NEARLY = 0.99
 
 # 节点实例刚开始、尚未报告任何进度时 `now` 的初始值（每个字段都存在，页面无需处处使用 `?? 0`）。
-BLANK: dict = {"phase": QUEUED, "node": "", "label": "", "note": "", "done": 0, "total": 0, "at": None}
+BLANK: dict = {"phase": QUEUED, "node": "", "label": "", "label_word": None, "note": "", "note_word": None, "done": 0, "total": 0, "at": None}
 
-PUBLIC = ("phase", "node", "label", "note", "done", "total")  # 对外发送的字段（`at` 每次按当前时间另行计算）
+PUBLIC = ("phase", "node", "label", "label_word", "note", "note_word", "done", "total")  # *_word: the label's and note's words, said per reader  # 对外发送的字段（`at` 每次按当前时间另行计算）
 
 
 def fraction(spent: float, running: list[tuple[float, float | None]], budget: float | None) -> float | None:

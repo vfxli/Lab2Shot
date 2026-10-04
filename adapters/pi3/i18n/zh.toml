@@ -1,0 +1,21 @@
+# The Pi3 extension's own words and messages in Chinese (the same keys as en.toml).
+
+[node."pi3.reconstruct"]
+subtitle = "深度与摄影机"
+description = "画面 → 每帧摄影机和深度贴图（π³ / Pi3），一次算完，不用指定参考帧。π³X 摄影机最稳、尺度接近真实；变焦镜头和畸变大的镜头不适合。要真实尺度的点云用「MapAnything 深度与摄影机」，要几千帧的长镜头用「LingBot-Map 深度与摄影机」（它不出点云）。点云是每帧一张点图（官方原生的点图，放回这一帧自己的摄影机里），不是整段一套：官方没有合成一份场景点云的输出。"
+official.note = "深度是官方摄影机空间点图的 Z（pi3.py:212 local_points）；摄影机是 pi3.py:214 camera_poses。「点云」是官方的世界点图 points（pi3.py:211）：上游那一行的定义就是 camera_poses @ local_points，所以 worker 交出 local_points 本身（同一份数据，少乘一次每段自己的位姿），由家族按拼接好的摄影机摆回世界。没有遮罩或人物边界框输入口：上游 forward 只有 imgs 一个入参（pi3.py:173），遮罩进不了模型；想局部重建，在送进去之前把其余部分涂黑：「ViTDet 人物框」→「人物框转遮罩」→「图像合成」（留下）→ 这个节点的「RGB」口"
+
+[node."pi3.reconstruct".param.model]
+label = "模型"
+option.pi3x = "Pi3X"
+option.pi3 = "Pi3 原版"
+
+[node."pi3.reconstruct".param.resolution]
+placeholder = "官方：画面比例下 25.5 万像素以内（16:9 为 672×378）"
+
+[extension.pi3]
+summary = "不需要固定基准视角的前馈网络，从一组无序的画面预测仿射不变的摄影机位姿和尺度不变的逐帧点图"
+license.name = "BSD-3-Clause（代码）+ CC BY-NC 4.0（Pi3 / Pi3X 模型权重）"
+license.summary = "非商用：Pi3 和 Pi3X 模型权重均为 CC BY-NC 4.0（严格非商用，再分发须保留此限制）。代码主体 BSD-3-Clause 可商用，但其中的 RoPE 位置编码文件 pi3/models/layers/pos_embed.py 来自 Naver DUSt3R/CroCo，是 CC BY-NC-SA 4.0 非商用；DINOv2 部分 Apache-2.0，PRoPE 部分 MIT。（Pi3 的 Hugging Face 模型卡标签写的是 bsd-2-clause，但正文写明商用须联系作者，以仓库 README 的许可表为准）"
+weight.Pi3X.note = "yyfz233/Pi3X（5.4 GB，CC BY-NC 4.0 非商用）"
+weight.Pi3.note = "yyfz233/Pi3（3.8 GB，CC BY-NC 4.0 非商用）"

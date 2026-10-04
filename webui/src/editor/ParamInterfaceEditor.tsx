@@ -11,23 +11,29 @@
  *
  * 公开 / 取消公开用参数旁的图钉（graph/edit.ts toggleExposed：新公开的进根下末尾）；这里不增删参数。 */
 
+import { LabelRow } from "../ui/LabelRow";
 import { Num, optionView, paramNum } from "../ui/controls";
-import { licensedValues, optionName } from "../graph/rules";
+import { licensedValues, optionName, registeredValues } from "../graph/rules";
 import { useResults } from "../state/results";
-import { useMemo, useState } from "react";
-import type { ExposedEntry, ExposedGroup, ExposedOption, ExposedParam, NodeTypeDef, ParamDef } from "../api";
-import { exposedParams, isGroup, useCookInputs } from "../state/cookInputs";
-import { at, canDropAt, dropAt, insertAt, move, removeAt, replaceAt, rowsOf, samePath, type Path } from "../graph/exposedTree";
+import { useMemo, useState, useId } from "react";
+import type { ExposedEntry, ExposedGroup, ExposedOption, ExposedParam, NodeTypeDef, ParamDef, Words } from "../api";
+import { entryLabel, exposedParams, isGroup, splitTarget, targetsOf, useCookInputs } from "../state/cookInputs";
+import { listSep } from "../i18n/words";
+import { at, canDropAt, dropAt, insertAt, mergeInto, move, removeAt, replaceAt, rowsOf, samePath, type Path } from "../graph/exposedTree";
 import { getNodeDefs } from "../state/catalog";
 import { compared, conditionProblem, neverValue, parseCondition, condEqual, valueRefused, widgetRefused } from "../platform/conditions";
 import { useRowDrag } from "../ui/rowDrag";
 import { Button, Segmented, Switch } from "../ui/Button";
 import { Select } from "../ui/Select";
 import { SheetFoot, useDraft, Writes, type SheetEditor, type SheetEditorProps } from "./ParamSheet";
+import { nodeRef } from "../graph/naming";
+import { pick, t } from "../i18n/t";
+import { edited, newWords } from "../state/cookInputs";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** 弹窗框架的编辑器都拿一个参数定义（SheetEditorProps.p）：这棵树不是任何节点的参数，这里给一个只有名字的，编辑器不读它。 */
 export const INTERFACE_PARAM: ParamDef = {
-  name: "exposed", label: "参数界面", type: "array", nullable: false, minimum: null, maximum: null, open_minimum: false, open_maximum: false, multiple_of: null,
+  name: "exposed", label: "", type: "array", nullable: false, minimum: null, maximum: null, open_minimum: false, open_maximum: false, multiple_of: null,
   options: null, option_labels: null, widget: "", parts: [], lines: 1, group: "", affects_result: false,
   placeholder: "", accept: [], unit: "", derived_from: [], unique: false, choices_from: [], wire: "", simple: "",
   per_frame: false, panel: true, overrides: [], items: null,
@@ -42,20 +48,42 @@ interface Target {
   p: ParamDef;
 }
 
-function targetOf(x: ExposedParam): Target | null {
-  const [nid, pname] = x.target.split(".");
+/** One node parameter an entry drives (`key`: `node.param`; null when it is not there). */
+function targetAt(key: string): Target | null {
+  const [nid, pname] = splitTarget(key);
   const n = useCookInputs.getState().nodes[nid];
   const def = n && getNodeDefs()[n.typeId];
   const p = def?.params.find((q) => q.name === pname);
-  return n && def && p ? { id: nid, node: n.label, def, p } : null;
+  return n && def && p ? { id: nid, node: nodeRef(nid, n.typeId), def, p } : null;
+}
+
+/** The node parameter the entry shows (its first target: state/cookInputs.ts firstTarget). */
+const targetOf = (x: ExposedParam): Target | null => targetAt(targetsOf(x)[0] ?? "");
+
+// what makes two node parameters one kind (the server's engine/templates.py _SHAPE_KEYS): one entry may drive both
+const KIND_KEYS = ["type", "nullable", "minimum", "maximum", "open_minimum", "open_maximum", "multiple_of", "options", "widget", "unit", "items", "action", "target"] as const;
+const kindOf = (p: ParamDef) => JSON.stringify(KIND_KEYS.map((k) => p[k] ?? null));
+
+/** Why `other` cannot be merged into `x` (「合并」: one entry driving both one's and the other's parameters), null when it
+ * can: a button holds no value to share; the two must be one kind of parameter (what the server checks: E-EXPOSED-TARGETS). */
+function mergeRefused(x: ExposedParam, other: ExposedParam): string | null {
+  const a = targetOf(x);
+  const b = targetOf(other);
+  if (!a || !b) return t("ui.interface.merge_gone");
+  if (a.p.widget === "button" || b.p.widget === "button") return t("ui.interface.merge_button");
+  if (kindOf(a.p) !== kindOf(b.p)) return t("ui.interface.merge_unlike");
+  // the entries' own controls (a menu or checkbox over the parameter, with its own items) must be one too: merged, the
+  // one entry left writes its value into the other's parameter, which would get a value its menu does not offer
+  const own = (q: ExposedParam) => JSON.stringify([q.widget ?? null, q.widget ? (q.options ?? []).map((o) => o.value) : null]);
+  return own(x) === own(other) ? null : t("ui.interface.merge_menu");
 }
 
 
 /** 公开参数 `name` 永远不会是 `value` 的原因（null：可能是，或说不准）：规则在 platform/conditions.ts neverValue（与服务端同一份）。 */
 function never(name: string, value: unknown, all: ExposedParam[]): string | null {
   const x = all.find((q) => q.name === name);
-  const t = x ? targetOf(x) : null;
-  return x && t ? neverValue(name, value, x.options, t.p) : null;
+  const tg = x ? targetOf(x) : null;
+  return x && tg ? neverValue(name, value, x.options, tg.p) : null;
 }
 
 /** 一个 Hide When / Disable When 的问题（null：没有）：写法、用到的名字（conditionProblem），再看拿参数比的字面量它取不取得到。 */
@@ -71,28 +99,32 @@ function exprProblem(text: string | undefined, all: ExposedParam[]): string | nu
 }
 
 export function problemsOf(entry: ExposedEntry, all: ExposedParam[], dupes: Set<string>): string[] {
-  if (isGroup(entry)) return entry.label.trim() ? [] : ["组要有名字"];
+  if (isGroup(entry)) return pick(entry.label).trim() ? [] : [t("ui.interface.problem.group_name")];
   const out: string[] = [];
-  if (!entry.name.trim()) out.push("对外名字不能空着");
-  else if (dupes.has(entry.name)) out.push(`对外名字「${entry.name}」重复了：命令行和插件按它传值，要各不相同`);
-  const t = targetOf(entry);
-  if (!t) out.push(`对应的参数 ${entry.target} 不存在了（节点删了或者参数没了）：去掉公开，或者重新公开`);
-  if (t && entry.widget) {
-    const why = widgetRefused(entry.widget, t.p, entry.options);
-    if (why) out.push(`不能显示成${entry.widget === "menu" ? "下拉" : "复选框"}：${why}`);
+  if (!entry.name.trim()) out.push(t("ui.interface.problem.name_empty"));
+  else if (dupes.has(entry.name)) out.push(t("ui.interface.problem.name_dupe", { name: entry.name }));
+  const tg = targetOf(entry);
+  for (const key of targetsOf(entry)) if (!targetAt(key)) out.push(t("ui.interface.problem.target_gone", { target: key }));
+  if (tg && entry.widget) {
+    const why = widgetRefused(entry.widget, tg.p, entry.options);
+    if (why) out.push(t(entry.widget === "menu" ? "ui.interface.problem.no_menu" : "ui.interface.problem.no_checkbox", { why }));
   }
   const opts = entry.options ?? [];
   opts.forEach((o, i) => {
-    const why = !String(o.label ?? "").trim() ? "要有显示名"
-      : (t ? valueRefused(t.p, o.value) : null) ?? (opts.slice(0, i).some((q) => condEqual(q.value, o.value)) ? "和前面一项的值重复" : null);
+    const why = !pick(o.label).trim() ? t("ui.interface.problem.option_label")
+      : (tg ? valueRefused(tg.p, o.value) : null) ?? (opts.slice(0, i).some((q) => condEqual(q.value, o.value)) ? t("ui.interface.problem.option_dupe") : null);
     // 这一项自己的 Hide When：规则同条目级（exprProblem），文字同服务端 check_exposed
     const hidden = why ? null : o.hide_when !== undefined ? exprProblem(o.hide_when, all) : null;
-    if (why || hidden) out.push(`第 ${i + 1} 项 ${JSON.stringify(o.value)}：${why ?? `Hide When「${o.hide_when}」${hidden}`}`);
+    if (why || hidden) out.push(t("ui.interface.problem.option", { n: i + 1, value: JSON.stringify(o.value), why: why ?? t("ui.interface.problem.option_hide", { when: o.hide_when ?? "", why: hidden ?? "" }) }));
+    // 这一项自己的 Disable When 与它的原因：规则同服务端 check_exposed（有条件就要写为什么）
+    const off = why || hidden ? null : o.disable_when !== undefined ? exprProblem(o.disable_when, all)
+      ?? (!pick(o.disable_why).trim() ? t("ui.interface.problem.disable_why") : null) : null;
+    if (off) out.push(t("ui.interface.problem.option", { n: i + 1, value: JSON.stringify(o.value), why: t("ui.interface.problem.option_disable", { when: o.disable_when ?? "", why: off }) }));
   });
   const hide = exprProblem(entry.hide_when, all);
-  if (hide) out.push(`Hide When ${hide}`);
+  if (hide) out.push(t("ui.interface.problem.hide", { why: hide }));
   const disable = exprProblem(entry.disable_when, all);
-  if (disable) out.push(`Disable When ${disable}`);
+  if (disable) out.push(t("ui.interface.problem.disable", { why: disable }));
   return out;
 }
 
@@ -120,7 +152,7 @@ function InterfaceEditor({ value, set, cancel }: SheetEditorProps) {
   const siblings = (p: Path) => (p.length > 1 ? (at(tree, parentOf(p)) as ExposedGroup).children : tree);
 
   const newGroup = (sub: boolean) => {
-    const g: ExposedGroup = { kind: "group", label: sub ? "子组" : "新组", collapsed: false, children: [] };
+    const g: ExposedGroup = { kind: "group", label: newWords(t(sub ? "ui.interface.new_subgroup_label" : "ui.interface.new_group_label")), collapsed: false, children: [] };
     if (sub && sel && chosen && isGroup(chosen)) {
       setTree(insertAt(tree, sel, chosen.children.length, [g]));
       setSel([...sel, chosen.children.length]);
@@ -149,6 +181,11 @@ function InterfaceEditor({ value, set, cancel }: SheetEditorProps) {
     setSel(null);
   };
   const edit = (entry: ExposedEntry) => sel && setTree(replaceAt(tree, sel, entry));
+  // 「合并」：选中的这一项留下，`name` 那一项并进来（graph/exposedTree.ts mergeInto）
+  const merge = (name: string) => {
+    const from = rows.find((r) => !isGroup(r.entry) && r.entry.name === name)?.path;
+    if (sel && from) moved(mergeInto(tree, sel, from));
+  };
 
   const canUp = !!sel && last(sel) > 0;
   const canDown = !!sel && last(sel) < siblings(sel).length - 1;
@@ -158,39 +195,39 @@ function InterfaceEditor({ value, set, cancel }: SheetEditorProps) {
         <div className="pif-left">
           <div className="pif-tools">
             <Writes>
-            <Button size="sm" tone="ghost" tip="新建一个组：放在选中的那一项后面（没选时放到最后）" onClick={() => newGroup(false)}>新建组</Button>
-            <Button size="sm" tone="ghost" disabled={!chosen || !isGroup(chosen)} tip="在选中的组里新建一个子组" onClick={() => newGroup(true)}>新建子组</Button>
+            <Button size="sm" tone="ghost" onClick={() => newGroup(false)}>{t("ui.interface.new_group")}</Button>
+            <Button size="sm" tone="ghost" disabled={!chosen || !isGroup(chosen)} onClick={() => newGroup(true)}>{t("ui.interface.new_subgroup")}</Button>
             <span className="pif-gap" />
-            <Button size="sm" tone="ghost" disabled={!canUp} tip="在同一层里上移" onClick={() => shift(-1)}>上移</Button>
-            <Button size="sm" tone="ghost" disabled={!canDown} tip="在同一层里下移" onClick={() => shift(1)}>下移</Button>
-            <Button size="sm" tone="ghost" disabled={!sel || sel.length < 2} tip="移出所在的组，放到这个组的后面" onClick={outdent}>移出组</Button>
-            <Button size="sm" tone="ghost" danger disabled={!chosen || !isGroup(chosen)} tip="删除这个组：组里的参数和子组留下，放回组原来的位置" onClick={dissolve}>删除组</Button>
+            <Button size="sm" tone="ghost" disabled={!canUp} onClick={() => shift(-1)}>{t("ui.interface.move_up")}</Button>
+            <Button size="sm" tone="ghost" disabled={!canDown} onClick={() => shift(1)}>{t("ui.interface.move_down")}</Button>
+            <Button size="sm" tone="ghost" disabled={!sel || sel.length < 2} onClick={outdent}>{t("ui.interface.outdent")}</Button>
+            <Button size="sm" tone="ghost" danger disabled={!chosen || !isGroup(chosen)} tip={tipOf("consequence", t("ui.interface.dissolve_tip"))} onClick={dissolve}>{t("ui.interface.dissolve")}</Button>
             </Writes>
           </div>
-          <div className="pif-tree" role="tree" aria-label="参数界面">
-            {rows.length === 0 && <div className="pif-empty">还没有公开参数：关掉这个窗口，点参数旁的图钉公开，再回来摆放</div>}
+          <div className="pif-tree" role="tree" aria-label={t("ui.interface.title_short")}>
+            {rows.length === 0 && <div className="pif-empty">{t("ui.interface.empty")}</div>}
             {rows.map((r, i) => {
               const key = r.path.join("/");
               const wrong = (problems.get(key) ?? []).length > 0;
               return (
                 <div key={key} role="treeitem" aria-selected={samePath(sel, r.path)}
-                  className={`pif-row${isGroup(r.entry) ? " group" : ""}${samePath(sel, r.path) ? " on" : ""}${wrong ? " wrong" : ""}${drag.over === i ? " drag-over" : ""}`}
+                  className={`pif-row${isGroup(r.entry) ? " is-group" : ""}${samePath(sel, r.path) ? " on" : ""}${wrong ? " wrong" : ""}${drag.over === i ? " drag-over" : ""}`}
                   style={{ paddingLeft: 8 + r.depth * 16 }} onClick={() => setSel(r.path)} {...drag.row(i)}>
-                  <span className="pif-grip" {...drag.grip(i)} data-tip="拖动：放到参数上 = 放到它前面；放到组上 = 放进这个组">⋮⋮</span>
+                  <span className="pif-grip" {...drag.grip(i)} {...tipAttrs(tipOf("shortcut", t("ui.interface.drag_tip")))}>⋮⋮</span>
                   {isGroup(r.entry) ? (
                     <>
-                      <span className="pif-kind">组</span>
-                      <span className="pif-name" data-user-data>{r.entry.label || "（没有名字）"}</span>
+                      <span className="pif-kind">{t("ui.interface.kind.group")}</span>
+                      <span className="pif-name" data-user-data>{pick(r.entry.label) || t("ui.interface.no_name")}</span>
                     </>
                   ) : (
                     <>
-                      <span className="pif-name" data-user-data>{r.entry.label}</span>
+                      <span className="pif-name" data-user-data>{entryLabel(r.entry)}</span>
                       <span className="pif-detail" data-user-data>{r.entry.name}</span>
-                      {r.entry.widget && <span className="pif-kind">{r.entry.widget === "menu" ? "下拉" : "复选框"}</span>}
-                      {targetOf(r.entry)?.p.widget === "button" && <span className="pif-kind">按钮</span>}
-                      {r.entry.hide_when && <span className="pif-kind">Hide</span>}
-                      {r.entry.disable_when && <span className="pif-kind">Disable</span>}
-                      {r.entry.show_on_change && <span className="pif-kind">显示</span>}
+                      {r.entry.widget && <span className="pif-kind">{t(r.entry.widget === "menu" ? "ui.interface.kind.menu" : "ui.interface.kind.checkbox")}</span>}
+                      {targetOf(r.entry)?.p.widget === "button" && <span className="pif-kind">{t("ui.interface.kind.button")}</span>}
+                      {r.entry.hide_when && <span className="pif-kind">{t("ui.interface.kind.hide")}</span>}
+                      {r.entry.disable_when && <span className="pif-kind">{t("ui.interface.kind.disable")}</span>}
+                      {r.entry.show_on_change && <span className="pif-kind">{t("ui.interface.kind.show")}</span>}
                     </>
                   )}
                 </div>
@@ -198,21 +235,21 @@ function InterfaceEditor({ value, set, cancel }: SheetEditorProps) {
             })}
             {rows.length > 0 && (
               <div className={`pif-row pif-end${drag.over === rows.length ? " drag-over" : ""}`} {...drag.row(rows.length)}>
-                拖到这里：放到最外层末尾
+                {t("ui.interface.drop_end")}
               </div>
             )}
           </div>
         </div>
         <div className="pif-right">
-          {!chosen && <div className="pif-empty">在左边选一项，这里改它的显示名、显示方式和条件</div>}
+          {!chosen && <div className="pif-empty">{t("ui.interface.pick_one")}</div>}
           <Writes>
             {chosen && isGroup(chosen) && <GroupProps g={chosen} onChange={edit} problems={problems.get(sel!.join("/")) ?? []} />}
-            {chosen && !isGroup(chosen) && <ParamProps key={sel!.join("/")} x={chosen} onChange={edit} all={all} problems={problems.get(sel!.join("/")) ?? []} />}
+            {chosen && !isGroup(chosen) && <ParamProps key={sel!.join("/")} x={chosen} onChange={edit} onMerge={merge} all={all} problems={problems.get(sel!.join("/")) ?? []} />}
           </Writes>
         </div>
       </div>
-      <SheetFoot ok={() => set(tree)} cancel={cancel} okTip="按这个样子摆参数面板（写进节点图）">
-        {bad > 0 && <span className="pif-bad">{bad} 项有问题（标红）：存成模板时服务器会拒绝</span>}
+      <SheetFoot ok={() => set(tree)} cancel={cancel}>
+        {bad > 0 && <span className="pif-bad">{t("ui.interface.bad", { count: bad })}</span>}
       </SheetFoot>
     </>
   );
@@ -229,16 +266,15 @@ function Problems({ list }: { list: string[] }) {
 }
 
 function GroupProps({ g, onChange, problems }: { g: ExposedGroup; onChange: (g: ExposedGroup) => void; problems: string[] }) {
+  const id = useId();
   return (
-    <div className="pif-props">
-      <label className="pif-field">
-        <span>组名</span>
-        <input className="field" value={g.label} spellCheck={false} onChange={(e) => onChange({ ...g, label: e.target.value })} />
-      </label>
-      <div className="pif-field">
-        <span>默认折叠</span>
-        <Switch on={!!g.collapsed} onChange={(on) => onChange({ ...g, collapsed: on })} label="默认折叠" />
-      </div>
+    <div className="pif-props lgrid">
+      <LabelRow className="pif-field" labelAs="label" htmlFor={`${id}-name`} label={t("ui.interface.group_name")}>
+        <input id={`${id}-name`} className="field" value={pick(g.label)} spellCheck={false} onChange={(e) => onChange({ ...g, label: edited(g.label, e.target.value) })} />
+      </LabelRow>
+      <LabelRow className="pif-field" label={t("ui.interface.collapsed")}>
+        <Switch on={!!g.collapsed} onChange={(on) => onChange({ ...g, collapsed: on })} label={t("ui.interface.collapsed")} />
+      </LabelRow>
       <Problems list={problems} />
     </div>
   );
@@ -246,9 +282,13 @@ function GroupProps({ g, onChange, problems }: { g: ExposedGroup; onChange: (g: 
 
 type WidgetChoice = "default" | "menu" | "checkbox";
 
-function ParamProps({ x, onChange, all, problems }: { x: ExposedParam; onChange: (x: ExposedParam) => void; all: ExposedParam[]; problems: string[] }) {
+function ParamProps({ x, onChange, onMerge, all, problems }: {
+  x: ExposedParam; onChange: (x: ExposedParam) => void; onMerge: (name: string) => void; all: ExposedParam[]; problems: string[];
+}) {
   const names = all.map((q) => q.name);
-  const t = useMemo(() => targetOf(x), [x.target]); // eslint-disable-line react-hooks/exhaustive-deps
+  const keys = targetsOf(x).join("+");
+  const tg = useMemo(() => targetOf(x), [keys]); // eslint-disable-line react-hooks/exhaustive-deps
+  const driven = useMemo(() => targetsOf(x).map((k) => ({ k, tg: targetAt(k) })), [keys]); // eslint-disable-line react-hooks/exhaustive-deps
   const widget: WidgetChoice = x.widget ?? "default";
   const setWidget = (w: WidgetChoice) => {
     const { widget: _w, options: _o, ...rest } = x;
@@ -257,80 +297,103 @@ function ParamProps({ x, onChange, all, problems }: { x: ExposedParam; onChange:
     if (w === "default") return onChange(rest);
     // 复选框接整数参数时，选项就是 0 和 1 两项；下拉先按参数自己的可选值（或 0 / 1）填好，作者再改显示名
     const seed = w === "checkbox"
-      ? t?.p.type === "integer" ? [{ value: 0, label: "关" }, { value: 1, label: "开" }] : undefined
-      : x.options?.length ? x.options : t?.p.options?.map((o) => ({ value: o as unknown, label: optionName(t.p, o) }))
-        ?? (t?.p.type === "boolean" ? [{ value: true, label: "是" }, { value: false, label: "否" }] : [{ value: t ? sample(t.p) : "", label: "" }]);
+      ? tg?.p.type === "integer" ? [{ value: 0, label: t("ui.common.off") }, { value: 1, label: t("ui.common.on") }] : undefined
+      : x.options?.length ? x.options : tg?.p.options?.map((o) => ({ value: o as unknown, label: optionName(tg.p, o) }))
+        ?? (tg?.p.type === "boolean" ? [{ value: true, label: t("ui.common.yes") }, { value: false, label: t("ui.common.no") }] : [{ value: tg ? sample(tg.p) : "", label: "" }]);
     onChange({ ...rest, widget: w, ...(seed ? { options: seed } : {}) });
   };
   const options = x.options ?? [];
   const setOptions = (o: ExposedOption[]) => onChange({ ...x, options: o });
-  const button = t?.p.widget === "button";
+  const button = tg?.p.widget === "button";
+  const id = useId();
   return (
-    <div className="pif-props">
-      <label className="pif-field">
-        <span>显示名</span>
-        <input className="field" value={x.label} spellCheck={false} onChange={(e) => onChange({ ...x, label: e.target.value })} />
-      </label>
-      <div className="pif-field">
-        <span>对外名字</span>
-        <span className="pif-note" data-user-data>{x.name}<small>命令行和插件按这个名字传值（lab2shot cook --set {x.name}=…），这里不改</small></span>
-      </div>
-      <div className="pif-field">
-        <span>对应参数</span>
-        <span className="pif-note" data-user-data>{t ? `「${t.node}」的「${t.p.label}」` : x.target}</span>
-      </div>
-      {!button && <div className="pif-field">
-        <span>显示成</span>
-        <Segmented label="显示成" value={widget} onChange={setWidget}
+    <div className="pif-props lgrid">
+      <LabelRow className="pif-field" labelAs="label" htmlFor={`${id}-label`} label={t("ui.interface.label")}>
+        <input id={`${id}-label`} className="field" value={entryLabel(x)} spellCheck={false}
+          // a label typed over a shared button word (「打包」) replaces it: the word goes, the text is the entry's own
+          onChange={(e) => { const { word: _w, ...rest } = x; void _w; onChange({ ...rest, label: edited(x.word ? newWords(entryLabel(x)) : x.label, e.target.value) }); }} />
+      </LabelRow>
+      {/* 作者的说明：行下常显的一句（含义、许可后果、限制），不需要就空着 */}
+      <LabelRow className="pif-field top" labelAs="label" htmlFor={`${id}-note`} label={t("ui.interface.note")}>
+        <textarea id={`${id}-note`} className="field" rows={2} value={pick(x.note)} spellCheck={false}
+          onChange={(e) => {
+            const { note: _n, ...rest } = x;
+            void _n;
+            const next = edited(x.note, e.target.value); // the page's language; the other kept
+            onChange(Object.values(next).some((v) => String(v).trim()) ? { ...x, note: next } : rest);
+          }} />
+      </LabelRow>
+      <LabelRow className="pif-field" label={t("ui.interface.name")}>
+        <span className="pif-note" data-user-data>{x.name}<small>{t("ui.interface.name_note", { name: x.name })}</small></span>
+      </LabelRow>
+      <LabelRow className="pif-field" label={t("ui.interface.target")}>
+        {/* 一项驱动多个参数时逐个列出（值写进每一个，显示第一个的） */}
+        <span className="pif-note" data-user-data>{driven.map(({ k, tg: one }) => (one ? t("ui.interface.target_of", { node: one.node, param: one.p.label }) : k)).join(listSep())}</span>
+      </LabelRow>
+      {!button && (
+        // 「合并」：另一项并进这一项，一个值写进两边的参数（「确定」时另一边取这一项现在的值：graph/edit.ts setInterface）
+        <LabelRow className="pif-field" label={t("ui.interface.merge")}
+          below={<div className="pif-hint lrow-under">{t("ui.interface.merge_note", { label: entryLabel(x) })}</div>}>
+          <Select label={t("ui.interface.merge")} value="" onPick={onMerge}
+            options={[{ value: "", label: t("ui.interface.merge_pick"), off: true },
+              ...all.filter((q) => q.name !== x.name).map((q) => {
+                const why = mergeRefused(x, q);
+                return { value: q.name, label: `${entryLabel(q)} · ${q.name}`, off: !!why, tip: why ? tipOf("disabled", why) : undefined };
+              })]} />
+        </LabelRow>
+      )}
+      {!button && <LabelRow className="pif-field" label={t("ui.interface.widget")}>
+        <Segmented label={t("ui.interface.widget")} value={widget} onChange={setWidget}
           options={[
-            { value: "default" as WidgetChoice, label: "参数自己的" },
-            { value: "menu" as WidgetChoice, label: "下拉", disabled: t && widgetRefused("menu", t.p, [{ value: 0 }]) },
-            { value: "checkbox" as WidgetChoice, label: "复选框", disabled: t && t.p.type !== "boolean" && t.p.type !== "integer" ? "目标参数要是布尔或整数" : false },
+            { value: "default" as WidgetChoice, label: t("ui.interface.widget_default") },
+            { value: "menu" as WidgetChoice, label: t("ui.interface.kind.menu"), disabled: tg && widgetRefused("menu", tg.p, [{ value: 0 }]) },
+            { value: "checkbox" as WidgetChoice, label: t("ui.interface.kind.checkbox"), disabled: tg && tg.p.type !== "boolean" && tg.p.type !== "integer" ? t("ui.interface.checkbox_unfit") : false },
           ]} />
-      </div>}
-      {x.widget && (x.widget === "menu" || t?.p.type === "integer") && (
-        <div className="pif-field top">
-          <span>{x.widget === "menu" ? "选项" : "两个值"}</span>
+      </LabelRow>}
+      {x.widget && (x.widget === "menu" || tg?.p.type === "integer") && (
+        <LabelRow className="pif-field top" label={t(x.widget === "menu" ? "ui.interface.options" : "ui.interface.two_values")}>
           <div className="pif-options">
             {options.map((o, i) => (
               <div className="pif-option" key={i}>
-                <OptionValue t={t} value={o.value} onChange={(v) => setOptions(options.map((q, j) => (j === i ? { ...q, value: v } : q)))} />
-                <input className="field" placeholder="显示名" value={o.label} spellCheck={false}
-                  onChange={(e) => setOptions(options.map((q, j) => (j === i ? { ...q, label: e.target.value } : q)))} />
+                <OptionValue tg={tg} value={o.value} onChange={(v) => setOptions(options.map((q, j) => (j === i ? { ...q, value: v } : q)))} />
+                <input className="field" placeholder={t("ui.interface.label")} value={pick(o.label)} spellCheck={false}
+                  onChange={(e) => setOptions(options.map((q, j) => (j === i ? { ...q, label: edited(q.label, e.target.value) } : q)))} />
                 {x.widget === "menu" && (
-                  <Button size="sm" tone="ghost" tip="去掉这一项" onClick={() => setOptions(options.filter((_, j) => j !== i))}>去掉</Button>
+                  <Button size="sm" tone="ghost" onClick={() => setOptions(options.filter((_, j) => j !== i))}>{t("ui.common.remove")}</Button>
                 )}
                 {x.widget === "menu" && (
                   <OptionHide value={o.hide_when} all={all}
                     onChange={(v) => setOptions(options.map((q, j) => (j === i ? withOptionHide(q, v) : q)))} />
                 )}
+                {x.widget === "menu" && (
+                  <OptionDisable o={o} all={all} onChange={(next) => setOptions(options.map((q, j) => (j === i ? next : q)))} />
+                )}
               </div>
             ))}
             {x.widget === "menu" && (
-              <Button size="sm" tone="ghost" tip="加一项：值和显示名都自己填" onClick={() => setOptions([...options, { value: t ? sample(t.p) : "", label: "" }])}>添加</Button>
+              <Button size="sm" tone="ghost" onClick={() => setOptions([...options, { value: tg ? sample(tg.p) : "", label: "" }])}>{t("ui.common.add")}</Button>
             )}
           </div>
-        </div>
+        </LabelRow>
       )}
       {!button && (
-        <div className="pif-field">
-          <span>显示节点</span>
+        <LabelRow className="pif-field" label={t("ui.interface.show_node")}>
           <label className="pif-check">
-            <Switch on={!!x.show_on_change} label="修改后在视图里显示这个节点"
+            <Switch on={!!x.show_on_change} label={t("ui.interface.show_on_change")}
               onChange={(on) => onChange(on ? { ...x, show_on_change: true } : (({ show_on_change: _s, ...rest }) => (void _s, rest))(x))} />
-            <span>修改后在视图里显示这个节点（点选类：碰到这一行就能在视图里点）</span>
+            <span>{t("ui.interface.show_on_change_note")}</span>
           </label>
-        </div>
+        </LabelRow>
       )}
-      <Expression label="Hide When" value={x.hide_when} all={all} placeholder="空着 = 总显示；例如 cam_src != 1"
+      <Expression label={t("ui.interface.hide_when")} value={x.hide_when} all={all} placeholder={t("ui.interface.hide_placeholder")}
         onChange={(v) => onChange(withExpr(x, "hide_when", v))} />
-      <Expression label="Disable When" value={x.disable_when} all={all} placeholder="空着 = 总能改；例如 not use_cam"
+      <Expression label={t("ui.interface.disable_when")} value={x.disable_when} all={all} placeholder={t("ui.interface.disable_placeholder")}
         onChange={(v) => onChange(withExpr(x, "disable_when", v))} />
       <div className="pif-hint">
-        和 Houdini 一样：Hide When 为真时这一项不显示（组里全不显示时组也不显示），Disable When 为真时置灰不能改。写对外名字和值：
+        {t("ui.interface.hint_head")}
         <code>==</code> <code>!=</code> <code>in [1, 2]</code> <code>not in</code>{" "}
-        <code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code> <code>and</code> <code>or</code> <code>not</code> 括号；
-        文字加引号，布尔写 true / false。可用的名字：{names.filter((n) => n !== x.name).join("、") || "（没有别的公开参数）"}
+        <code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code> <code>and</code> <code>or</code> <code>not</code> {t("ui.interface.hint_parens")}
+        {t("ui.interface.hint_tail", { names: names.filter((n) => n !== x.name).join(", ") || t("ui.interface.no_other_names") })}
       </div>
       <Problems list={problems} />
     </div>
@@ -342,15 +405,12 @@ function Expression({ label, value, all, placeholder, onChange }: {
   label: string; value: string | undefined; all: ExposedParam[]; placeholder: string; onChange: (v: string) => void;
 }) {
   const wrong = exprProblem(value, all);
+  const id = useId();
   return (
-    <>
-      <label className="pif-field">
-        <span>{label}</span>
-        <input className={`field mono${wrong ? " wrong" : ""}`} value={value ?? ""} spellCheck={false} placeholder={placeholder}
-          onChange={(e) => onChange(e.target.value)} />
-      </label>
-      {wrong && <div className="pif-problems">{wrong}</div>}
-    </>
+    <LabelRow className="pif-field" labelAs="label" htmlFor={id} label={label} below={wrong && <div className="pif-problems lrow-under">{wrong}</div>}>
+      <input id={id} className={`field mono${wrong ? " wrong" : ""}`} value={value ?? ""} spellCheck={false} placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)} />
+    </LabelRow>
   );
 }
 
@@ -360,7 +420,26 @@ function OptionHide({ value, all, onChange }: { value: string | undefined; all: 
   return (
     <>
       <input className={`field mono pif-option-hide${wrong ? " wrong" : ""}`} value={value ?? ""} spellCheck={false}
-        placeholder="这一项的 Hide When：空着 = 总列出；例如 robot == 2" onChange={(e) => onChange(e.target.value)} />
+        placeholder={t("ui.interface.option_hide_placeholder")} onChange={(e) => onChange(e.target.value)} />
+      {wrong && <div className="pif-problems pif-option-hide">{wrong}</div>}
+    </>
+  );
+}
+
+/** 一项下拉选项自己的 Disable When 和置灰时说的为什么（两个一起写；条件空着 = 不置灰，为什么也一起去掉）。 */
+function OptionDisable({ o, all, onChange }: { o: ExposedOption; all: ExposedParam[]; onChange: (o: ExposedOption) => void }) {
+  const wrong = o.disable_when ? exprProblem(o.disable_when, all) : null;
+  const set = (when: string, why: Words) => {
+    const { disable_when: _w, disable_why: _y, ...rest } = o;
+    void _w; void _y;
+    onChange(when.trim() ? { ...rest, disable_when: when, disable_why: why } : rest);
+  };
+  return (
+    <>
+      <input className={`field mono pif-option-hide${wrong ? " wrong" : ""}`} value={o.disable_when ?? ""} spellCheck={false}
+        placeholder={t("ui.interface.option_disable_placeholder")} onChange={(e) => set(e.target.value, o.disable_why ?? "")} />
+      {o.disable_when && <input className="field pif-option-hide" value={pick(o.disable_why)} spellCheck={false}
+        placeholder={t("ui.interface.option_why_placeholder")} onChange={(e) => set(o.disable_when ?? "", edited(o.disable_why, e.target.value))} />}
       {wrong && <div className="pif-problems pif-option-hide">{wrong}</div>}
     </>
   );
@@ -387,30 +466,31 @@ function sample(p: ParamDef): unknown {
 
 /** 下拉一项的值：目标参数有自己的可选值、或是布尔时从中选；数字和文字自己填（填的不合法照样留着，标红说明）。
  * 可选值照参数自己的下拉写（ui/controls.tsx optionView：许可词、现在不能选的原因），名称前加上值本身（作者要写的是值）。 */
-function OptionValue({ t, value, onChange }: { t: Target | null; value: unknown; onChange: (v: unknown) => void }) {
-  const p = t?.p ?? null;
-  const answer = useResults((s) => (t ? s.results[t.id]?.applies : undefined));
-  if (t && p && (p.options?.length || p.type === "boolean")) {
+function OptionValue({ tg, value, onChange }: { tg: Target | null; value: unknown; onChange: (v: unknown) => void }) {
+  const p = tg?.p ?? null;
+  const answer = useResults((s) => (tg ? s.results[tg.id]?.applies : undefined));
+  if (tg && p && (p.options?.length || p.type === "boolean")) {
     const all: unknown[] = p.options?.length ? p.options : [true, false];
     const i = all.findIndex((o) => condEqual(o, value));
-    const licensed = licensedValues(t.def, p.name);
+    const licensed = licensedValues(tg.def, p.name);
+    const registered = registeredValues(tg.def, p.name);
     const rows = all.map((o, j) => {
       const named = optionName(p, o);
       // 作者挑的是以后用的值：现在不能选的也能挑，原因写在悬停里
-      const view = optionView(p, o, answer, licensed, named === String(o) ? named : `${String(o)} · ${named}`);
+      const view = optionView(p, o, answer, licensed, named === String(o) ? named : `${String(o)} · ${named}`, p.name, registered);
       return { value: String(j), label: view.label, tip: view.tip };
     });
     return (
-      <Select label="值" value={i < 0 ? "own" : String(i)} onPick={(v) => v !== "own" && onChange(all[Number(v)])}
-        options={i < 0 ? [{ value: "own", label: `${JSON.stringify(value)} · 不合法` }, ...rows] : rows} />
+      <Select label={t("ui.interface.value")} value={i < 0 ? "own" : String(i)} onPick={(v) => v !== "own" && onChange(all[Number(v)])}
+        options={i < 0 ? [{ value: "own", label: t("ui.interface.value_invalid", { value: JSON.stringify(value) }) }, ...rows] : rows} />
     );
   }
   // 数字参数：页面唯一的数字框（ui/controls.tsx Num），按目标参数的声明规范化
   if (p && (p.type === "integer" || p.type === "number"))
-    return <Num value={typeof value === "number" ? value : null} placeholder="值" onChange={onChange} {...paramNum(p)} />;
+    return <Num value={typeof value === "number" ? value : null} placeholder={t("ui.interface.value")} onChange={onChange} {...paramNum(p)} />;
   const text = typeof value === "string" ? value : JSON.stringify(value) ?? "";
   return (
-    <input className={`field mono${p && valueRefused(p, value) ? " wrong" : ""}`} placeholder="值" value={text} spellCheck={false}
+    <input className={`field mono${p && valueRefused(p, value) ? " wrong" : ""}`} placeholder={t("ui.interface.value")} value={text} spellCheck={false}
       onChange={(e) => onChange(e.target.value)} />
   );
 }
@@ -418,6 +498,6 @@ function OptionValue({ t, value, onChange }: { t: Target | null; value: unknown;
 /** 弹窗框架里的这一种编辑器（ParamPanel.tsx 用 ParamSheet.tsx SheetWindow 打开）。 */
 export const ParamInterface: SheetEditor = {
   editor: InterfaceEditor,
-  title: () => "编辑参数界面",
-  width: 920,
+  title: () => t("ui.interface.title"),
+  width: "content", // 树的每一行、右边每一项（含「对应参数」）完整显示（styles/30-param-interface.css .pif）
 };

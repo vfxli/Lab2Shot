@@ -3,11 +3,13 @@ import type { ServerMessage } from "../api";
 import { LEVELS_BY_SEVERITY, LEVEL_TABLE } from "../messages/levels";
 import { IconInfo } from "../ui/icons";
 import { createPortal } from "react-dom";
-import { useGraphSnapshot } from "../graph/snapshot";
+import { useGraphDoc } from "../graph/snapshot";
 import { useKeyLayer, useShortcut } from "../platform/keys";
 import { useRefSize } from "../platform/size";
 import { DataGroup } from "./DataInfo";
 import "./styles/28-node-info-card.css";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** 数据信息: the mark at a node's bottom right and the card it opens (this file holds both — the mark is nothing but
  * the way in). The card itself, beside the node: a glass card floating over the canvas, listing what every input and every output of
@@ -24,7 +26,7 @@ export function NodeInfoCard({ node, label, at, onClose }: {
   at: DOMRect; // where the mark is, in the window's pixels
   onClose: () => void;
 }) {
-  const snap = useGraphSnapshot();
+  const snap = useGraphDoc();
   const g = snap.nodes.find((n) => n.id === node);
   const card = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<{ left: number; top: number } | null>(null);
@@ -69,14 +71,14 @@ export function NodeInfoCard({ node, label, at, onClose }: {
       ref={card}
       className="node-info-card glass strong"
       role="dialog"
-      aria-label={`数据信息：${label}`}
+      aria-label={t("ui.node.info_of", { node: label })}
       style={box ? { left: box.left, top: box.top } : { left: at.right + 8, top: at.top - 8, visibility: "hidden" }}
       onPointerDown={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
       <div className="node-info-head">
-        <span className="node-info-name" data-user-data data-tip={label}>{label}</span>
-        <span className="node-info-what">数据信息</span>
+        <span className="node-info-name" data-user-data {...tipAttrs(tipOf("truncated", label))}>{label}</span>
+        <span className="node-info-what">{t("ui.node.info")}</span>
       </div>
       <div className="node-info-body">
         <DataGroup node={g} />
@@ -101,7 +103,7 @@ export function NodeInfoButton({ node, label, level }: { node: string; label: st
         data-level={level || undefined}
         role="button"
         tabIndex={0}
-        aria-label="数据信息"
+        aria-label={t("ui.node.info")}
         aria-expanded={!!at}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {

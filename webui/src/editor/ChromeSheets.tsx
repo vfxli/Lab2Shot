@@ -10,6 +10,8 @@ import { msg, reasonOf, say } from "../state/say";
 import { Button } from "../ui/Button";
 import { Banner } from "../ui/Banner";
 import { Loading } from "../ui/Loading";
+import { t } from "../i18n/t";
+import { tipOf } from "../platform/tips";
 
 /** Sent to the editor (App.tsx) to open a graph as a new unsaved document: it asks first when the one open has unsaved
  * changes. */
@@ -30,8 +32,8 @@ export function QueueSheet({ data, onRefresh, onClose }: { data: QueueData | nul
   // The default min(90vw, 1800px) is too wide; 900 fits 「提交 · 时间」 split into two columns without a horizontal
   // scrollbar. The graph-name column shrinks first: it is the user's own data and gives up space first (queue.css .q-title)
   return (
-    <Sheet title="队列" width={900} solid onClose={onClose}>
-      {data ? <QueueView data={data} onCancel={cancel} onLoad={(id) => void load(id)} onRefresh={onRefresh} /> : <Loading what="队列" />}
+    <Sheet title={t("ui.editor.queue")} width={900} solid onClose={onClose}>
+      {data ? <QueueView data={data} onCancel={cancel} onLoad={(id) => void load(id)} onRefresh={onRefresh} /> : <Loading what={t("ui.editor.queue")} />}
     </Sheet>
   );
 }
@@ -40,20 +42,20 @@ export function QueueSheet({ data, onRefresh, onClose }: { data: QueueData | nul
 export function UnsavedSheet({ onChoice }: { onChoice: (choice: "save" | "discard" | "cancel") => void }) {
   const file = useViewer((s) => s.file);
   return (
-    <Sheet title="当前节点图有还没保存的修改" width={520} onClose={() => onChoice("cancel")}>
+    <Sheet title={t("ui.editor.unsaved_title")} width={520} onClose={() => onChoice("cancel")}>
       <p className="tpl-desc" style={{ fontSize: 13 }}>
-        {file ? `打开新的节点图之前，要先把修改存进 ${file.name} 吗？` : "这个节点图还没有存成文件。打开新的节点图之前，可以先保存。"}
-        不保存的话，这些修改就丢了。
+        {file ? t("ui.editor.unsaved_file", { name: file.name }) : t("ui.editor.unsaved_nofile")}
+        {t("ui.editor.unsaved_lost")}
       </p>
       <div className="dialog-row" style={{ justifyContent: "flex-end" }}>
-        <Button tip="不打开新的节点图，留在当前这个" tone="ghost" onClick={() => onChoice("cancel")}>
-          取消
+        <Button tone="ghost" onClick={() => onChoice("cancel")}>
+          {t("ui.common.cancel")}
         </Button>
-        <Button tip="不保存修改，打开新的节点图：这些修改就丢了" onClick={() => onChoice("discard")}>
-          不保存打开
+        <Button tip={tipOf("consequence", t("ui.editor.discard_tip"))} onClick={() => onChoice("discard")}>
+          {t("ui.editor.discard")}
         </Button>
-        <Button tip="先保存当前节点图，再打开新的" tone="primary" onClick={() => onChoice("save")} autoFocus>
-          {file ? "保存并打开" : "先保存…"}
+        <Button tone="primary" onClick={() => onChoice("save")} autoFocus>
+          {file ? t("ui.editor.save_open") : t("ui.editor.save_first")}
         </Button>
       </div>
     </Sheet>
@@ -75,18 +77,18 @@ export function TabBanner() {
       float
       actions={
         <>
-          <Button tip="在这个标签页编辑；另一个标签页变成只看" tone="primary" size="sm" onClick={claim}>
-            在这里编辑
+          <Button tip={tipOf("consequence", t("ui.editor.claim_tip"))} tone="primary" size="sm" onClick={claim}>
+            {t("ui.editor.claim")}
           </Button>
           {banner === "same-open" && (
-            <Button tip="这里只看不改，另一个标签页照常编辑" tone="ghost" size="sm" onClick={stay}>
-              只看
+            <Button tone="ghost" size="sm" onClick={stay}>
+              {t("ui.editor.view_only")}
             </Button>
           )}
         </>
       }
     >
-      {banner === "demoted" ? "这张节点图在另一个标签页里正在编辑：这里改不了" : "这张节点图在另一个标签页里也开着：在这里改会覆盖那边"}
+      {banner === "demoted" ? t("ui.editor.tab_demoted") : t("ui.editor.tab_same")}
     </Banner>
   );
 }

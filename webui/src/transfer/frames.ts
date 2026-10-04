@@ -10,6 +10,7 @@ import { describedHeld, describedOf } from "./described";
 import type { FrameSource } from "./sources";
 import { fillWhole } from "./fill";
 import { readyAcross } from "./readiness";
+import { t } from "../i18n/t";
 
 // 单帧的获取方式位于 transfer/sources.ts（下一层）：本模块只负责账本，即当前应取哪些帧、
 // 取到何时、先后顺序及何时取消。取数层的导出在此原样转出，调用方无需了解两层的分界。
@@ -373,7 +374,7 @@ export function useFrame(source: FrameSource | null, frame: number, dir = 1, hol
 
 /** 画面角上（还什么都没画时在中央）的「加载中 1005」：要的这一帧还在路上，底下的图是上一张到达的。 */
 export function drawLoading(ctx: CanvasRenderingContext2D, at: { x: number; y: number; s: number }, width: number, height: number, frame: number, nothing: boolean): void {
-  const text = `加载中 ${frame}`;
+  const text = t("ui.upload.loading_frame", { frame });
   ctx.save();
   ctx.font = "12px system-ui, sans-serif";
   const w = ctx.measureText(text).width + 20;

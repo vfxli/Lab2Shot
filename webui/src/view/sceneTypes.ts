@@ -5,6 +5,9 @@ import type { Bounds } from "../model/math3d";
 import type { GridRef, CameraRef, CharacterMeshRef, CharacterRef, CloudRef, CurveRef, ModelRef, Typed } from "../model/viewFormat";
 
 export interface CloudSample {
+  covariance?: Float32Array;
+  opacity?: Float32Array;
+  sh?: Float32Array;
   points: Float32Array | null; // for a depth cloud: null until requested (bounds, picking); the worker reconstructs them (view/scene.ts Scene.wantBounds)
   colors: Float32Array | Uint8Array | Uint16Array; // bytes: k/255, words: k/65535, the same numbers
   widths: Float32Array | null; // a size per point, when they differ

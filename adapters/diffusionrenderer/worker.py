@@ -5,10 +5,11 @@ with the pinned repo on sys.path; never imports Lab2Shot core.
 
 Two nodes (job["node"]):
 
-diffusionrenderer.inverse  frames -> G-buffers
+diffusionrenderer.inverse_render  frames -> G-buffers
     The shot is cut into windows of `max_frames` frames (8k+1, the tokenizer's causal
     chunk) overlapping by `overlap` frames; each window is placed on the model's 16:9
-    working canvas (Canvas: aspect kept, borders mirrored), encoded by the Cosmos tokenizer and denoised by the
+    working canvas (Framing: upstream's 16:9 crop, as many as cover the plate, blended back; a plate close to 16:9
+    fitted inside), encoded by the Cosmos tokenizer and denoised by the
     inverse 7B DiT once per requested pass (`steps` Euler steps, 15 by default, no guidance, the same
     noise for every window and pass), then decoded. Windows are stitched with a
     linear cross-fade over the overlapping frames (depth is first fitted to the
@@ -125,36 +126,122 @@ def resize(img: np.ndarray, w: int, h: int) -> np.ndarray:
     return out[..., None] if img.ndim == 3 and out.ndim == 2 else out
 
 
-@dataclass(frozen=True)
-class Canvas:
-    """The model's working frame: always 16:9 like the training videos (1280 x 704 at full size). The plate is
-    scaled to fit inside (aspect kept) and the rest is filled by mirroring the plate's edges; results are cut
-    back out of the box (y0, x0, fh, fw). Both models misbehave on other frame shapes (portrait or square
-    canvases turn relit faces into colour noise) and treat black borders as open background."""
+FIT_EXCESS = 0.1  # a plate this close to 16:9 (the covering crop would lose at most this share of a side) fits inside
+MAX_TILES = 2  # a plate that needs more tiles (portrait, square) fits inside with mirrored borders instead
 
-    h: int
+
+@dataclass(frozen=True)
+class Framing:
+    """How the plate goes onto the model's working canvas, always 16:9 like the training videos (1280 x 704 at full
+    size; both models misbehave on other frame shapes: portrait or square canvases turn relit faces into colour noise).
+
+    Upstream scales the plate to cover the canvas and cuts the centre out (--resize_resolution, "e.g. center crop").
+    That loses the rest of a non-16:9 plate, so the plate is covered by several such crops ("tiles" mode): the scaled
+    plate (sh x sw) is cut into canvas-sized tiles along its long side, at least a quarter of a tile overlapping, each
+    one run as upstream runs its crop, and the results blended back with a linear cross-fade over the overlaps (depth,
+    affine-invariant per run, first fitted to what the tiles before gave there). Measured on a 4:3 plate with ground
+    truth (Hypersim, 17 frames, whole frame): normals median 26.2 deg with the plate fitted inside and the borders
+    mirrored (the earlier framing: the mirrored ceiling/floor misled the whole picture), 21.2 deg with two tiles; base
+    colour scale-invariant RMSE 0.223 -> 0.200; on a 2.35:1 plate (Sintel, 5 frames, two tiles) base colour 0.116 ->
+    0.110. Each tile is one more model run.
+
+    A plate within FIT_EXCESS of 16:9 is fitted inside instead ("fit" mode: one run, aspect kept) and the thin border
+    filled by repeating the edge pixels (measured better than mirroring: 23.6 vs 26.2 deg). So is a plate that would
+    need more than MAX_TILES tiles, with the earlier mirrored borders: each tile then sees too little of the picture
+    (a 3:4 plate, Hypersim, 5 frames: three tiles normals median 30.3 deg, fitted and mirrored 22.4 deg)."""
+
+    h: int  # the canvas
     w: int
-    y0: int
-    x0: int
-    fh: int
-    fw: int
+    sh: int  # the scaled plate: fit mode, the plate inside the canvas; tiles mode, covering it
+    sw: int
+    tiles: tuple[tuple[int, int], ...]  # tiles mode: (y, x) of each canvas-sized tile on the scaled plate
+    y0: int = 0  # fit mode: where the scaled plate sits in the canvas
+    x0: int = 0
+    border: int = cv2.BORDER_REPLICATE  # fit mode: how the canvas around the plate is filled
 
     @classmethod
-    def fit(cls, in_h: int, in_w: int, width: int) -> "Canvas":
+    def plan(cls, in_h: int, in_w: int, width: int) -> "Framing":
         h = CANVASES[width]
-        scale = min(width / in_w, h / in_h)
-        fw, fh = min(width, max(16, round(in_w * scale))), min(h, max(16, round(in_h * scale)))
-        return cls(h, width, (h - fh) // 2, (width - fw) // 2, fh, fw)
+        cover = max(width / in_w, h / in_h)
+        sw, sh = max(width, round(in_w * cover)), max(h, round(in_h * cover))
+        along_x = sw > width
+        length, tile = (sw, width) if along_x else (sh, h)
+        least = tile // 4  # overlap
+        n = max(2, math.ceil((length - least) / (tile - least)))
+        near = max((sw - width) / sw, (sh - h) / sh) <= FIT_EXCESS
+        if near or n > MAX_TILES:
+            scale = min(width / in_w, h / in_h)
+            fw, fh = min(width, max(16, round(in_w * scale))), min(h, max(16, round(in_h * scale)))
+            return cls(h, width, fh, fw, ((0, 0),), (h - fh) // 2, (width - fw) // 2,
+                       cv2.BORDER_REPLICATE if near else cv2.BORDER_REFLECT_101)
+        starts = [round(i * (length - tile) / (n - 1)) for i in range(n)]
+        return cls(h, width, sh, sw, tuple((0, o) if along_x else (o, 0) for o in starts))
 
-    def place(self, img: np.ndarray) -> np.ndarray:
-        img = resize(img, self.fw, self.fh)
-        bottom, right = self.h - self.fh - self.y0, self.w - self.fw - self.x0
-        if not (self.y0 or self.x0 or bottom or right):
-            return img
-        return cv2.copyMakeBorder(img, self.y0, bottom, self.x0, right, cv2.BORDER_REFLECT_101)
+    @property
+    def mode(self) -> str:
+        return "tiles" if len(self.tiles) > 1 else "fit"
 
-    def crop(self, img: np.ndarray) -> np.ndarray:
-        return img[self.y0:self.y0 + self.fh, self.x0:self.x0 + self.fw]
+    def place(self, img: np.ndarray, k: int) -> np.ndarray:
+        """Frame `img` (plate size) as tile k's canvas."""
+        img = resize(img, self.sw, self.sh)
+        if self.mode == "fit":
+            bottom, right = self.h - self.sh - self.y0, self.w - self.sw - self.x0
+            if not (self.y0 or self.x0 or bottom or right):
+                return img
+            return cv2.copyMakeBorder(img, self.y0, bottom, self.x0, right, self.border)
+        y, x = self.tiles[k]
+        return img[y:y + self.h, x:x + self.w]
+
+    def weights(self, k: int) -> np.ndarray:
+        """Tile k's blend weight along the tiled side (1 inside, a linear ramp over each overlap with a neighbour)."""
+        y, x = self.tiles[k]
+        along_x = self.sw > self.w
+        o, tile, length = (x, self.w, self.sw) if along_x else (y, self.h, self.sh)
+        ramp = tile - (self.tiles[1][1] - self.tiles[0][1] if along_x else self.tiles[1][0] - self.tiles[0][0])
+        u = np.arange(tile, dtype=np.float32) + 0.5
+        wgt = np.ones(tile, np.float32)
+        if o > 0:
+            wgt = np.minimum(wgt, u / ramp)
+        if o + tile < length:
+            wgt = np.minimum(wgt, (tile - u) / ramp)
+        return wgt[None, :, None] if along_x else wgt[:, None, None]  # broadcast over [T, h, w, C]
+
+    def blend(self, per_tile: list[dict[str, np.ndarray]], align: tuple[str, ...] = ()) -> dict[str, np.ndarray]:
+        """Tile results ({name: [T, h, w, C]} on each canvas) -> {name: [T, sh, sw, C]} on the scaled plate."""
+        if self.mode == "fit":
+            return {n: v[:, self.y0:self.y0 + self.sh, self.x0:self.x0 + self.sw] for n, v in per_tile[0].items()}
+        out = {}
+        for name in per_tile[0]:
+            t, c = per_tile[0][name].shape[0], per_tile[0][name].shape[-1]
+            acc = np.zeros((t, self.sh, self.sw, c), np.float32)
+            total = np.zeros((1, self.sh, self.sw, 1), np.float32)
+            for k, tile in enumerate(per_tile):
+                y, x = self.tiles[k]
+                v, wgt = tile[name], self.weights(k)
+                region, have = acc[:, y:y + self.h, x:x + self.w], total[:, y:y + self.h, x:x + self.w]
+                if name in align and k:  # fitted to the tiles before, where they overlap
+                    seen = np.broadcast_to(have > 0, region.shape)
+                    a, b = fit_scale_offset(v[seen], (region / np.maximum(have, 1e-6))[seen])
+                    v = v * a + b
+                region += v * wgt
+                have += wgt
+            out[name] = acc / np.maximum(total, 1e-6)
+        return out
+
+    def to_plate(self, img: np.ndarray, in_w: int, in_h: int) -> np.ndarray:
+        """A result on the scaled plate -> the plate's own size."""
+        return resize(img, in_w, in_h)
+
+    def said(self) -> dict:
+        if self.mode == "fit":
+            return {"mode": "fit", "x": self.x0, "y": self.y0, "width": self.sw, "height": self.sh,
+                    "border": "edge" if self.border == cv2.BORDER_REPLICATE else "mirror",
+                    "note": "where the plate sits in the 16:9 working canvas; the rest repeats the plate's edge pixels "
+                            "(edge) or mirrors the plate (mirror)"}
+        return {"mode": "tiles", "scaled_plate": {"width": self.sw, "height": self.sh},
+                "tiles": [{"x": x, "y": y, "width": self.w, "height": self.h} for y, x in self.tiles],
+                "note": "the plate scaled to cover the 16:9 canvas and cut into canvas-sized crops (upstream's centre "
+                        "crop, several of them), blended back over their overlaps"}
 
 
 def plan_windows(n: int, max_frames: int, overlap: int) -> list[tuple[int, int]]:
@@ -477,7 +564,7 @@ class Stitcher:
 # ------------------------------------------------------------------ jobs
 
 
-INVERSE_NODE, RELIGHT_NODE = "diffusionrenderer.inverse", "diffusionrenderer.relight"
+INVERSE_NODE, RELIGHT_NODE = "diffusionrenderer.inverse_render", "diffusionrenderer.relight"
 
 
 def needs_offload(hw: tuple[int, int], max_frames: int, budget_mb: int) -> bool:
@@ -496,37 +583,44 @@ def effective_window(n: int, max_frames: int) -> int:
     return min(w for w in WINDOWS if w >= n)
 
 
-def load_window(frames, s, e, max_frames, canvas: Canvas) -> torch.Tensor:
-    imgs = [canvas.place(read_frame(frames[i][1], dtype="float32")) for i in range(s, e)]
+def load_window(frames, s, e, max_frames, framing: Framing, k: int) -> torch.Tensor:
+    imgs = [framing.place(read_frame(frames[i][1], dtype="float32"), k) for i in range(s, e)]
     imgs += [imgs[-1]] * (max_frames - len(imgs))
     v = torch.from_numpy(np.stack(imgs)).permute(3, 0, 1, 2)[None]  # [1,3,T,H,W]
     return v * 2 - 1
 
 
-def run_inverse_windows(r: Renderer, frames, windows, max_frames, canvas: Canvas, passes, steps, seed, keep_latents: bool,
-                        on_window):
-    """Inverse model over all windows. on_window(k, {pass: [T,H,W,3] in [-1,1] np}) or latents kept."""
+def run_inverse_windows(r: Renderer, frames, windows, max_frames, framing: Framing, passes, steps, seed,
+                        keep_latents: bool, on_window):
+    """Inverse model over all windows, every tile of each (Framing). on_window(k, {pass: [T,sh,sw,3] in [-1,1] np},
+    the tiles blended on the scaled plate), or the latents kept: [window][tile] {pass: latent}."""
     kept = []
-    h, w = canvas.h, canvas.w
+    h, w = framing.h, framing.w
     shape = (1, 16, (max_frames - 1) // 8 + 1, h // 8, w // 8)
-    total = len(windows) * len(passes)
+    total = len(windows) * len(framing.tiles) * len(passes)
     done = 0
     for k, (s, e) in enumerate(windows):
-        video = load_window(frames, s, e, max_frames, canvas)
-        r.net_to_cpu()  # only when offloading: the tokenizer encodes without the DiT on the GPU
-        cond = r.condition({"rgb": video})
-        latents = {}
-        for name in passes:
-            latents[name] = r.sample(cond, shape, CONTEXT_INDEX[name], steps, seed)
-            done += 1
-            progress(done, total, f"逆渲染 第 {k + 1}/{len(windows)} 段 {name}")
-        del cond
+        per_tile = []
+        for t in range(len(framing.tiles)):
+            video = load_window(frames, s, e, max_frames, framing, t)
+            r.net_to_cpu()  # only when offloading: the tokenizer encodes without the DiT on the GPU
+            cond = r.condition({"rgb": video})
+            latents = {}
+            for name in passes:
+                latents[name] = r.sample(cond, shape, CONTEXT_INDEX[name], steps, seed)
+                done += 1
+                progress(done, total, "inverse_window", window=k + 1, windows=len(windows), name=name)
+            del cond
+            if keep_latents:
+                per_tile.append({n: l.cpu() for n, l in latents.items()})
+                continue
+            r.net_to_cpu()
+            per_tile.append({n: r.decode(l)[: e - s].float().cpu().numpy() for n, l in latents.items()})
+            del latents
         if keep_latents:
-            kept.append({n: l.cpu() for n, l in latents.items()})
+            kept.append(per_tile)
             continue
-        r.net_to_cpu()
-        decoded = {n: r.decode(l)[: e - s].float().cpu().numpy() for n, l in latents.items()}
-        on_window(k, decoded)
+        on_window(k, framing.blend(per_tile, align=("depth",)))
     return kept
 
 
@@ -537,8 +631,8 @@ def run(job) -> None:
     shot = run.frames()
     frames, n = shot.pairs, len(shot)
     in_h, in_w = shot.height, shot.width
-    canvas = Canvas.fit(in_h, in_w, p["resolution"])
-    hw = (canvas.h, canvas.w)
+    framing = Framing.plan(in_h, in_w, p["resolution"])
+    hw = (framing.h, framing.w)
     max_frames = effective_window(n, p["max_frames"])
     overlap = min(p["overlap"], max_frames // 2) if max_frames > 1 else 0
     windows = plan_windows(n, max_frames, overlap)
@@ -570,9 +664,9 @@ def run(job) -> None:
         say("N-DIFFUSIONRENDERER-OFFLOAD", width=hw[1], height=hw[0], max_frames=max_frames, budget_gb=GPU_BUDGET_MB // 1024)
     timings = {}
 
-    with run.loading("逆渲染模型（7B）"):
+    with run.loading("load_model", model="DiffusionRenderer Inverse (7B)"):
         timings["load_inverse_s"] = round(r.load(INVERSE_MODEL), 1)
-    run.stage("逆渲染（拆 G-buffer）")
+    run.stage("inverse_render")
     t0 = time.time()
 
     if node == INVERSE_NODE:
@@ -587,13 +681,13 @@ def run(job) -> None:
             for f, vals in stitch.add(k, out):
                 arrays = {}
                 for name, v in vals.items():
-                    v = resize(canvas.crop(v), in_w, in_h)
+                    v = framing.to_plate(v, in_w, in_h)
                     v = normalize_normals(v) if name == "normal" else np.clip(v, 0.0, 1.0)
                     arrays[name] = v.astype(np.float32)
                 writer.npz(raw / f"frame_{frames[f][0]}.npz", **arrays)
 
         with writer:
-            run_inverse_windows(r, frames, windows, max_frames, canvas, passes, p["steps"], p["seed"], False, on_window)
+            run_inverse_windows(r, frames, windows, max_frames, framing, passes, p["steps"], p["seed"], False, on_window)
         timings["inverse_s"] = round(time.time() - t0, 1)
         run.finish(
             [f for f, _ in frames],
@@ -607,17 +701,17 @@ def run(job) -> None:
             depth=RELATIVE_DEPTH,
             roughness="0..1 (Disney/principled BRDF roughness)",
             metallic="0..1",
-            **common_result(p, in_h, in_w, canvas, max_frames, overlap, windows, timings, r),
+            **common_result(p, in_h, in_w, framing, max_frames, overlap, windows, timings, r),
             frames=[f for f, _ in frames],  # the whole list, not the standard [first, last]: a file per frame
         )
         return
 
     # ---------------------------------------------------------------- relight
-    latents = run_inverse_windows(r, frames, windows, max_frames, canvas, list(PASSES), p["steps"], p["seed"], True, None)
+    latents = run_inverse_windows(r, frames, windows, max_frames, framing, list(PASSES), p["steps"], p["seed"], True, None)
     timings["inverse_s"] = round(time.time() - t0, 1)
-    with run.loading("正向渲染模型（7B）"):
+    with run.loading("load_model", model="DiffusionRenderer Forward (7B)"):
         timings["load_forward_s"] = round(r.load(FORWARD_MODEL), 1)
-    run.stage("按 HDRI 重打光")
+    run.stage("relight")
     t0 = time.time()
     h, w = hw
     env_hdr = project_hdri(hdri, h, w, p["env_rotate"], device)
@@ -628,28 +722,30 @@ def run(job) -> None:
     writer = Writer(threads=2, max_pending=8)
     env_latents = None
     for k, (s, e) in enumerate(windows):
-        r.net_to_cpu()
-        if env_latents is None:
-            env_latents = {key: r.encode(val) for key, val in env.items()}
-        cond = []
-        for key in r.model.condition_keys:  # upstream's order, each followed by an all-ones mask channel
-            if key in env_latents:
-                lat = env_latents[key]
-            else:  # the G-buffer video, as upstream feeds the inverse renderer's saved frames
-                video = r.decode(latents[k][key])
-                if key not in ("basecolor", "normal"):
-                    video = video.mean(-1, keepdim=True).expand_as(video)
-                lat = r.encode(video.permute(3, 0, 1, 2)[None])
-                del video
-            cond += [lat, torch.ones_like(lat[:, :1])]
-        cond = torch.cat(cond, dim=1)
-        latent = r.sample(cond, shape, None, p["steps"], p["seed"])
-        del cond
-        r.net_to_cpu()
-        rgb = ((r.decode(latent)[: e - s].float() + 1) / 2).cpu().numpy()
-        progress(k + 1, len(windows), f"重打光 第 {k + 1}/{len(windows)} 段")
-        for f, vals in stitch.add(k, {"rgb": rgb}):
-            img = resize(canvas.crop(vals["rgb"]), in_w, in_h)
+        rgb_tiles = []
+        for t in range(len(framing.tiles)):
+            r.net_to_cpu()
+            if env_latents is None:
+                env_latents = {key: r.encode(val) for key, val in env.items()}
+            cond = []
+            for key in r.model.condition_keys:  # upstream's order, each followed by an all-ones mask channel
+                if key in env_latents:
+                    lat = env_latents[key]
+                else:  # the G-buffer video, as upstream feeds the inverse renderer's saved frames
+                    video = r.decode(latents[k][t][key])
+                    if key not in ("basecolor", "normal"):
+                        video = video.mean(-1, keepdim=True).expand_as(video)
+                    lat = r.encode(video.permute(3, 0, 1, 2)[None])
+                    del video
+                cond += [lat, torch.ones_like(lat[:, :1])]
+            cond = torch.cat(cond, dim=1)
+            latent = r.sample(cond, shape, None, p["steps"], p["seed"])
+            del cond
+            r.net_to_cpu()
+            rgb_tiles.append({"rgb": ((r.decode(latent)[: e - s].float() + 1) / 2).cpu().numpy()})
+        progress(k + 1, len(windows), "relight_window", window=k + 1, windows=len(windows))
+        for f, vals in stitch.add(k, framing.blend(rgb_tiles)):
+            img = framing.to_plate(vals["rgb"], in_w, in_h)
             writer.submit(save_png, raw / f"frame_{frames[f][0]}.png", img)
     writer.close()
     timings["forward_s"] = round(time.time() - t0, 1)
@@ -667,18 +763,17 @@ def run(job) -> None:
             "env_rotate turns the environment about the camera up axis, right-handed: "
             "+90 moves what was straight ahead to the camera's left"
         ),
-        **common_result(p, in_h, in_w, canvas, max_frames, overlap, windows, timings, r),
+        **common_result(p, in_h, in_w, framing, max_frames, overlap, windows, timings, r),
         frames=[f for f, _ in frames],  # the whole list, not the standard [first, last]: a file per frame
     )
 
 
-def common_result(p, in_h, in_w, canvas: Canvas, max_frames, overlap, windows, timings, r) -> dict:
+def common_result(p, in_h, in_w, framing: Framing, max_frames, overlap, windows, timings, r) -> dict:
     return {
         "width": in_w,
         "height": in_h,
-        "working_size": {"width": canvas.w, "height": canvas.h},
-        "frame_box": {"x": canvas.x0, "y": canvas.y0, "width": canvas.fw, "height": canvas.fh,
-                      "note": "where the plate sits in the 16:9 working canvas; the rest is mirrored plate edges"},
+        "working_size": {"width": framing.w, "height": framing.h},
+        "framing": framing.said(),
         "resolution": p["resolution"],
         "max_frames": max_frames,
         "overlap": overlap,

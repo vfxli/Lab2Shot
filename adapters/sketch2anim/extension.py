@@ -39,20 +39,14 @@ class Sketch2Anim(Extension):
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "Sketch2Anim"
     worker_modules = ("model_spec.py",)  # the model's rate and lengths, shared with nodes.py
-    summary = "把分镜草图变成三维动画：用关键姿势、关节轨迹和动作描述控制三维动作生成，二维草图经神经映射对到三维"
     homepage = "https://zhongleilz.github.io/Sketch2Anim/"
     source = GitSource(url=SKETCH2ANIM_URL, commit=SKETCH2ANIM_COMMIT)
     license = LicenseInfo(
         tag=RESEARCH,  # its weights are trained on AMASS (through HumanML3D): research only (nodes/tags.py DATA_LICENCES)
         uses=("AMASS",),
-        name="MIT（代码）+ HumanML3D / AMASS 学术许可（权重）",
         url="https://github.com/zhongleilz/Sketch2Animation/blob/main/LICENSE",
-        summary=(
-            "仅限研究。代码是 MIT（作者 Lei Zhong 2025，原文允许商用、允许修改和再发布），但官方预训练权重用 HumanML3D 训练，"
-            "HumanML3D 的动作来自 AMASS，AMASS 的许可只许非商业的学术研究，所以权重和生成出来的动作只能用于研究和评估。"
-            "文字编码用的 sentence-t5-large 是 Apache-2.0（可商用），不改变上面的结论。要商用得用有授权的动捕数据重新训练"
-        ),
     )
+    generative = False
     import_repo = ""  # upstream is not a package: the worker puts the repository root on sys.path (top-level mld / common / visualization)
     env = EnvSpec(
         python="3.11",
@@ -63,14 +57,11 @@ class Sketch2Anim(Extension):
     weights = (
         Weight(key="adapter", kind="url", source=DRIVE.format("161wMAVzFCnqzPHsSaRgsZqWob0uEyMvM"),
                dest="checkpoints/adapter.ckpt",
-               sha256="5f9b3a0e69aad4240a9395956cf3614eeaa143a45fe7c0411c37b6c515b8944c",
-               note="Sketch2Anim 官方权重 adapter.ckpt（HumanML3D 训练，非商用），357 MB"),
+               sha256="5f9b3a0e69aad4240a9395956cf3614eeaa143a45fe7c0411c37b6c515b8944c"),
         Weight(key="pretrain", kind="url", source=DRIVE.format("1XLVncH3Ed7G7sW7HzOdL7xA9Ou7G_Gfm"),
                dest="checkpoints/pretrain_22joint_combine_adapter.ckpt",
-               sha256="251ec98958c2170741444d26c3afc71d917e4c9ad7fc1d8d67ee37ca82d5207b",
-               note="Sketch2Anim 官方发布的预训练底座 pretrain_22joint_combine_adapter.ckpt（非商用），303 MB；推理只加载 adapter.ckpt，这一份不读"),
-        Weight(key="t5", kind="hf", source=T5[0], revision=T5[1], dest="sentence-t5-large", files=T5_FILES,
-               note="sentence-t5-large（Apache-2.0）：把那句英文描述编码成条件向量，1.3 GB"),
+               sha256="251ec98958c2170741444d26c3afc71d917e4c9ad7fc1d8d67ee37ca82d5207b"),
+        Weight(key="t5", kind="hf", source=T5[0], revision=T5[1], dest="sentence-t5-large", files=T5_FILES),
     )
 
     def worker_env(self) -> dict[str, str]:

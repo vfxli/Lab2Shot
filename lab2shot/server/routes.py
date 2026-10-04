@@ -45,9 +45,10 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import compile_path
 
+from .. import i18n
 from ..config import QUOTA_GB_MAX
 from ..errors import Invalid, TooLarge
-from ..messages import Msg
+from ..messages import Msg, localized
 from ..transfer import BODY_MAX
 
 ADMIN = "/api/admin/"
@@ -100,6 +101,10 @@ class Access:
     # only the command line on this machine may use it (server/access.py refusal): stopping the server, clearing the
     # counts of wrong passwords
     local: bool = False
+    # the fields of its request body naming one account's data (a job, a packet, a template...), which its `owned`
+    # resolver checks or filters to the asking account's: `lab2shot check routes` holds every body field named like
+    # account data (cli/check_arch.py OWNED_BODY_FIELDS) to being declared here, and every one declared to an owner
+    body_ids: tuple[str, ...] = ()
 
     @classmethod
     def open(cls, why: str, limit: Limit | None = None, lane: str | None = None) -> Access:
@@ -110,14 +115,14 @@ class Access:
     @classmethod
     def user(cls, why: str, limit: Limit | None = None, hides: Mapping[str, tuple[str, ...]] | None = None,
              keyed: Callable[[Request], str] | None = None, owned: Callable[..., object] | None = None,
-             lane: str | None = None, snapshot: bool = False) -> Access:
-        return cls("user", why, None, limit, hides or {}, keyed, owned, lane, snapshot)
+             lane: str | None = None, snapshot: bool = False, body_ids: tuple[str, ...] = ()) -> Access:
+        return cls("user", why, None, limit, hides or {}, keyed, owned, lane, snapshot, body_ids=body_ids)
 
     @classmethod
     def admin(cls, needs: str, limit: Limit | None = None, hides: Mapping[str, tuple[str, ...]] | None = None,
               owned: Callable[..., object] | None = None, keyed: Callable[[Request], str] | None = None,
-              lane: str | None = None, local: bool = False) -> Access:
-        return cls("admin", "", needs, limit, hides or {}, keyed, owned, lane, local=local)
+              lane: str | None = None, local: bool = False, body_ids: tuple[str, ...] = ()) -> Access:
+        return cls("admin", "", needs, limit, hides or {}, keyed, owned, lane, local=local, body_ids=body_ids)
 
     @classmethod
     def page(cls, why: str) -> Access:
@@ -143,6 +148,8 @@ def declare(method: str, path: str, access: Access) -> None:
         raise RouteDeclarationError(f"{key} {access.level}")
     if access.keyed is not None and access.owned is not None:  # a 304 by its key would answer before its owner is checked
         raise RouteDeclarationError(f"{key}: keyed and owned")
+    if access.body_ids and access.owned is None:  # body fields naming account data, and nobody checking whose
+        raise RouteDeclarationError(f"{key}: body_ids without owned")
     DECLARED[key] = access
     _table.clear()
 
@@ -169,7 +176,7 @@ def _answered_by_key(handler: Callable, keyed: Callable[[Request], str]) -> Call
     @functools.wraps(handler)
     def answer(*args, **kwargs):
         request: Request = kwargs["request"]
-        tag = f'W/"{keyed(request)}"'
+        tag = f'W/"{keyed(request)}.{i18n.current()}"'  # the same state said in another language is another answer
         if tag in (t.strip() for t in request.headers.get("if-none-match", "").split(",")):
             return Response(status_code=304, headers={"ETag": tag})
         with lock:
@@ -177,7 +184,7 @@ def _answered_by_key(handler: Callable, keyed: Callable[[Request], str]) -> Call
             if body is not None:
                 kept.move_to_end(tag)
         if body is None:
-            body = JSONResponse(jsonable_encoder(handler(*args, **kwargs))).body
+            body = JSONResponse(localized(jsonable_encoder(handler(*args, **kwargs)))).body
             with lock:
                 kept[tag] = body
                 while len(kept) > KEPT_ANSWERS:
@@ -202,7 +209,9 @@ def _answered_here(handler: Callable) -> Callable:
         got = handler(*args, **kwargs)
         if isinstance(got, Response):
             return got
-        content = jsonable_encoder(got)
+        # every message in it said in the request's language: what was kept or made elsewhere (a job's record, a
+        # packet's manifest) too (messages.localized)
+        content = localized(jsonable_encoder(got))
         try:
             return JSONResponse(content)
         except ValueError:  # a number JSON cannot say (nan, inf: a packet's meta may hold one): said as null

@@ -5,10 +5,11 @@ from __future__ import annotations
 import numpy as np
 
 
-def camera_points(z, x, y, focal_px: float, width: int, height: int, cam_to_world: np.ndarray, principal=None) -> np.ndarray:
+def camera_points(z, x, y, focal_px, width: int, height: int, cam_to_world: np.ndarray, principal=None) -> np.ndarray:
     """Points [M,3] (cm) at view-axis distances `z` (cm) behind image positions (x, y) (pixels, pixel centres at
     +0.5), through a pinhole with principal point `principal` ((cx, cy) in pixels; the image centre when None) and a
-    GL camera-to-world matrix (identity yields camera space). This is the core's only back-projection:
+    GL camera-to-world matrix (identity yields camera space). `focal_px`: fx, or (fx, fy) for a camera whose pixels are
+    not square (fy = fx x pixel aspect, data/camera.py CameraSamples.focal_xy_px). This is the core's only back-projection:
     lab2shot_shared.poses.unproject_at with OpenCV camera axes converted to GL. The principal point is taken from the
     camera (data/camera.py CameraSamples.principal_px), so a principal point written by a solver is respected, matching
     that solver's own projection."""
@@ -17,12 +18,13 @@ def camera_points(z, x, y, focal_px: float, width: int, height: int, cam_to_worl
     from ...data.units import CV_TO_GL
 
     cx, cy = (width / 2, height / 2) if principal is None else (float(principal[0]), float(principal[1]))
-    k = np.array([[focal_px, 0.0, cx], [0.0, focal_px, cy], [0.0, 0.0, 1.0]])
+    fx, fy = (float(focal_px),) * 2 if np.ndim(focal_px) == 0 else (float(focal_px[0]), float(focal_px[1]))
+    k = np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]])
     p = unproject_at(z, x, y, k, np.eye(4)) * CV_TO_GL
     return p @ cam_to_world[:3, :3].T + cam_to_world[:3, 3]
 
 
-def unproject_depth(z: np.ndarray, focal_px: float, cam_to_world: np.ndarray, rows: np.ndarray, cols: np.ndarray, principal=None) -> np.ndarray:
+def unproject_depth(z: np.ndarray, focal_px, cam_to_world: np.ndarray, rows: np.ndarray, cols: np.ndarray, principal=None) -> np.ndarray:
     """Pixels (rows, cols) of a depth map (cm along the view axis) -> points [M,3] in cm, via camera_points at the
     pixel centres."""
 

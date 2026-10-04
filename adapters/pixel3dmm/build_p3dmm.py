@@ -36,7 +36,7 @@ ext_root = Path(os.environ["LAB2SHOT_EXT_ROOT"])
 prefix = Path(os.environ["LAB2SHOT_EXT_PREFIX"])
 env = cuda_build_env(prefix)
 
-print("组合 Pixel3DMM 代码目录（符号链接，不改原仓库）", flush=True)
+print("Composing the Pixel3DMM code tree (symlinks, the checkouts are not modified)", flush=True)
 lay = compose(ext_root)
 
 # ------------------------------------------------------------------ pytorch3d without pulsar
@@ -56,7 +56,7 @@ text, dropped = re.subn(r"\n *// Pulsar\..*?sphere_ids_from_result_info_nograd\)
 if dropped != 1:
     raise SystemExit(f"pytorch3d ext.cpp: expected one pulsar binding block, found {dropped}")
 ext_cpp.write_text(text)
-print("编译 pytorch3d（去掉 pulsar 点渲染器，CUDA 13 编不出来）", flush=True)
+print("Compiling pytorch3d (without the pulsar point renderer, which does not build with CUDA 13)", flush=True)
 run_env = {**env, "MAX_JOBS": env.get("MAX_JOBS", "4")}
 subprocess.run(["uv", "pip", "install", "--python", sys.executable, "--no-build-isolation", "--no-deps", "--no-cache",
                 str(build)], env=run_env, check=True)
@@ -75,6 +75,6 @@ if changed != 2:  # np.float in the signature, np.int in the dtype: upstream is 
 if nms.is_symlink():
     nms.unlink()
 nms.write_text(fixed)
-print("编译 PIPNet 的 FaceBoxes NMS（Cython，顺手换掉 numpy 1.24 删掉的 np.int / np.float）", flush=True)
+print("Compiling PIPNet's FaceBoxes NMS (Cython; np.int / np.float, removed in numpy 1.24, replaced)", flush=True)
 run([sys.executable, "build.py", "build_ext", "--inplace"], cwd=lay.faceboxes / "utils")
-print("Pixel3DMM 环境就绪", flush=True)
+print("Pixel3DMM environment ready", flush=True)

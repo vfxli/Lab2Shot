@@ -1,6 +1,0 @@
-{
- "colmap.camera_solve": {
-  "label": "COLMAP 相机解算",
-  "description": "传统的特征点相机解算（structure from motion），输出每帧相机和稀疏点云，可以和 ViPE 互相校验。需要相机移动带来视差：固定机位、纯摇镜头会失败。尺度要手动缩放，按「尺度」参数换算成厘米。"
- }
-}

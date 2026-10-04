@@ -1,0 +1,76 @@
+# This extension's words and messages in English (the same keys as zh.toml).
+
+# ---- solve
+"N-FASTSAM3DBODY-NOBODYCHOSEN" = "The wired Boxes hold nobody: there is no one to solve this time. To solve everyone in the picture, set Select People to All, or leave Boxes unwired"
+"N-FASTSAM3DBODY-SLOWHANDS.one" = "The wrists are unclear on {frames} frame; on those frames fast_sam_3d_body.solve computes the hands the way SAM 3D Body originally does (the same result, only a little slower)"
+"N-FASTSAM3DBODY-SLOWHANDS.other" = "The wrists are unclear on {frames} frames; on those frames fast_sam_3d_body.solve computes the hands the way SAM 3D Body originally does (the same result, only a little slower)"
+
+"W-FASTSAM3DBODY-NOTRT" = "TensorRT is not used for part of fast_sam_3d_body.solve, which runs that part on PyTorch instead (nearly the same result, slower): {reason}"
+
+[stage]
+build_engine = "Build TensorRT Engine ({part}, once per GPU model)"
+detect_people = "Detect People"
+estimate_pose = "Estimate Body Pose"
+estimate_focal = "Estimate Focal Length"
+finish_people = "Lock Body Shape · Smooth · Build Skeleton"
+
+[node."fast_sam_3d_body.solve"]
+subtitle = "Full-Body Motion"
+description = "The same full-body motion as sam_3d_body.solve (fingers included, the result in camera space), with accelerated inference: about 2.5–3 times faster per frame, all people of a frame computed together. With Boxes wired (sam_3d_body.detect_people → select_people) only those people are solved; unwired, it detects them itself (YOLO11-Pose, in the same pass as its wrist detection). Detection and model loading happen once; the people of a frame are solved in batches, every one of them. To get only one of them, put sam_3d_body.detect_people → select_people → mask_from_boxes → composite in front to remove the others from the picture first. The body motion is nearly the same as the original, with occasional finger differences on some frames; for the final refinement of a shot use sam_3d_body.solve. It also gives a Camera: the pinhole camera the people are placed with, at the origin and still (focal length = Focal Length, or when left empty the focal length it estimates from the picture itself; the principal point at the picture centre). It is not a solved camera: looking through it in the 3D viewport, the image plane, the people and the picture line up; in templates it serves as the \"solver's camera\" branch."
+
+[node."fast_sam_3d_body.solve".param.focal_mm]
+label = "Known Focal Length"
+placeholder = "Auto"
+
+[node."fast_sam_3d_body.solve".param.hand_refine]
+label = "Hand Refinement"
+
+[node."fast_sam_3d_body.solve".param.lock_shape]
+label = "Lock Body Shape"
+
+[node."fast_sam_3d_body.solve".param.smoothing]
+label = "Smoothing"
+
+[node."fast_sam_3d_body.solve".port.image]
+label = "RGB"
+
+[node."fast_sam_3d_body.solve".port.boxes]
+label = "Boxes"
+
+[node."fast_sam_3d_body.solve".port.camera]
+label = "Camera"
+help = "The camera the people are placed with: a pinhole camera at the origin, still, focal length = the node's Focal Length (when left empty, the solver's own estimate or the default), principal point at the picture centre. Not a solved camera: the people are placed in its space, and looking through it the image plane, the people and the picture line up. Use it as the \"solver's camera\", or as the target of camera_space"
+
+[node."fast_sam_3d_body.solve".cost]
+note = "Measured with Fast SAM 3D Body"
+
+[node."fast_sam_3d_body.solve".official.ours]
+camera = "The pinhole camera the people are placed with: at the origin, still, focal length = the node's Focal Length (when left empty, the solver's own estimate), principal point at the picture centre (families/humans.py plate_camera, as in SAM 3D Body)"
+
+[node."fast_sam_3d_body.solve".official]
+note = "⓪ **Boxes is an optional input, handed straight to the official function** (the rule: when the official function takes person boxes, the boxes go straight to it; projects that take no boxes go through mask_from_boxes in the graph): this repository's own `process_one_image(img, bboxes=None, …)` (sam_3d_body_estimator.py:194-205, **a function of the official package**) takes boxes; the official demo passes none only because it builds its own detector (demo.py:44-49; demo_human.py `--detector` defaults to `yolo`, three choices vitdet / yolo / yolo_pose, :623-629). With boxes wired it solves by the boxes; without, the worker detects with the `yolo_pose` choice itself: **one pass gives both the boxes and the wrists** (the hand crops use the same YOLO-Pose wrists, run_publisher.py:305 `hand_box_source=\"yolo_pose\"`). With boxes wired and Hand Refinement on, YOLO-Pose still runs once, only for the wrists. ① **The official full set of MHR parameters is the skinned character port**, exactly as in SAM 3D Body (both nodes share solve_person / evaluate / rig_data of adapters/sam_3d_body/sam3dbody.py; how each item maps is in note ① of the official there; parametric bodies such as SMPL / SMPL-X / MANO / FLAME / MHR are \"skin + weights + skeleton animation\", packed as a skinned character, no data type of their own): global_rot + body_pose_params + hand_pose_params + scale_params + shape_params go back into MHR as they are to compute the skeleton's joint matrices per frame (npz joint_world); shape_params also gives the rest mesh (npz rest_vertices) and the skin weights (npz skin_weights / bind_world); pred_joint_coords / pred_global_rots / pred_pose_raw are other ways of writing the same skeleton and the same pose. **Not one parameter is lost.** `expr_params` is zeroed by this extension's upstream too (`sam_3d_body/models/heads/mhr_head.py:442、508、901 pred_face = pred[...] * 0`), so there are no expression blend shapes: upstream does not give them. `character` here names body_pose_params instead of SAM 3D Body's mhr_model_params: this extension's output dict has no mhr_model_params item (see the comment above). Upstream also gives `pred_keypoints_2d` (points on the picture, not a skeleton, which **do not fit in a skinned character** either), with no output port for now. ② cam_int (sam_3d_body_estimator.py:199) is only intrinsics: intrinsics (focal length, principal point) are not a camera input; only full intrinsics plus extrinsics make a camera. The node has no Camera output port of a solved camera: upstream solves no camera, and a camera put together from focal_length + pred_cam_t would be an output of our own making, and output ports of our own making are not kept. To place the people in some camera's world, wire the core node camera_space."
+
+[extension.fast_sam_3d_body]
+summary = "A training-free acceleration framework that reorders SAM 3D Body's inference path to reach interactive speed"
+
+[extension.fast_sam_3d_body.license]
+name = "MIT + SAM License + DINOv3 License + AGPL-3.0 (YOLO11-Pose)"
+summary = "Commercial use allowed. The acceleration code is MIT; but it is built on Meta's SAM 3D Body code, and the original parts and the weights (the same ones as the SAM 3D Body extension's) remain under the SAM License (commercial use, modification and redistribution allowed, the licence must be included, papers must credit it, no military use); the backbone code is under the DINOv3 License (similar terms); the MoGe-2 focal length estimation is MIT. Ultralytics YOLO11-Pose, used to find the wrists (code and weights), is AGPL-3.0: fine for internal use; offering a modified version as a service or distributing it requires publishing it under the AGPL, and closed-source commercial use needs an Ultralytics enterprise licence"
+
+[extension.fast_sam_3d_body.weight.sam-3d-body-dinov3]
+note = "SAM 3D Body weights (2.1 GB, SAM License); access must be requested on the Hugging Face page"
+
+[extension.fast_sam_3d_body.weight.mhr-model]
+note = "MHR body rig (0.7 GB, released with the SAM 3D Body weights)"
+
+[extension.fast_sam_3d_body.weight.sam-license]
+note = "The SAM License text (to be included when using and distributing the weights)"
+
+[extension.fast_sam_3d_body.weight.moge-2]
+note = "Focal length estimation MoGe-2 (MIT, 1.3 GB)"
+
+[extension.fast_sam_3d_body.weight.yolo11m-pose]
+note = "YOLO11-Pose wrist keypoints (Ultralytics, AGPL-3.0)"
+
+[extension.fast_sam_3d_body.weight.tensorrt-libs]
+note = "NVIDIA TensorRT libraries (3.1 GB, NVIDIA software license: free to use, not to be redistributed on their own); build the per-GPU speed-up engines, with PyTorch used instead when they cannot be built"

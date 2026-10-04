@@ -2,137 +2,215 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "fe1c731bb817aa6ef7860e5cc2bdc038",
-  "name": "重新打光 · DiffusionRenderer",
-  "intro": "Cosmos DiffusionRenderer 的渲染模型不做显式光线传输模拟，从 G-buffer 生成照片级画面，论文把重新打光列为它的用途之一。这张卡先拆出 G-buffer，再用一张 HDRI 给整段镜头重新打光，交付 EXR 的 rgba。",
+  "name": {
+   "zh": "重新打光 · DiffusionRenderer",
+   "en": "Relight · DiffusionRenderer"
+  },
+  "intro": {
+   "zh": "Cosmos DiffusionRenderer 的渲染模型不做显式光线传输模拟，从 G-buffer 生成照片级画面，论文把重新打光列为它的用途之一。这张卡先拆出 G-buffer，再用一张 HDRI 给整段镜头重新打光，交付 EXR 的 rgba。",
+   "en": "Cosmos DiffusionRenderer's rendering model produces photorealistic images from G-buffers without explicit light transport simulation; the paper lists relighting among its uses. This card first splits out the G-buffers, then relights the whole shot with an HDRI and delivers the EXR's rgba."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-12T08:00:00",
   "deliverable": "relight",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
-   "name": "hdri",
-   "label": "HDRI",
+   "name": "sky_path",
+   "label": {
+    "zh": "HDRI",
+    "en": "HDRI"
+   },
    "target": "sky.path",
    "show_on_change": true
   },
   {
-   "name": "colorspace_in_hdri",
-   "label": "HDRI 色彩空间",
+   "name": "sky_colorspace",
+   "label": {
+    "zh": "HDRI 颜色空间",
+    "en": "HDRI Color Space"
+   },
    "target": "sky.colorspace",
    "show_on_change": true
   },
   {
-   "name": "rotation",
-   "label": "环境旋转",
+   "name": "relight_env_rotate",
+   "label": {
+    "zh": "环境旋转",
+    "en": "Environment Rotation"
+   },
    "target": "relight.env_rotate"
   },
   {
-   "name": "exposure",
-   "label": "曝光",
+   "name": "relight_exposure",
+   "label": {
+    "zh": "曝光",
+    "en": "Exposure"
+   },
    "target": "relight.exposure"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "resolution",
-     "label": "处理分辨率",
+     "name": "relight_resolution",
+     "label": {
+      "zh": "处理分辨率",
+      "en": "Processing Resolution"
+     },
      "target": "relight.resolution"
     },
     {
-     "name": "max_frames",
-     "label": "每段最多帧数",
+     "name": "relight_max_frames",
+     "label": {
+      "zh": "每段最多帧数",
+      "en": "Max Frames per Chunk"
+     },
      "target": "relight.max_frames"
     },
     {
-     "name": "overlap",
-     "label": "段间重叠",
+     "name": "relight_overlap",
+     "label": {
+      "zh": "段间重叠",
+      "en": "Chunk Overlap"
+     },
      "target": "relight.overlap"
     },
     {
-     "name": "steps",
-     "label": "去噪步数",
+     "name": "relight_steps",
+     "label": {
+      "zh": "去噪步数",
+      "en": "Denoising Steps"
+     },
      "target": "relight.steps"
     },
     {
-     "name": "seed",
-     "label": "随机种子",
+     "name": "relight_seed",
+     "label": {
+      "zh": "随机种子",
+      "en": "Seed"
+     },
      "target": "relight.seed"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "exr.name"
     },
     {
      "name": "colorspace_out",
-     "label": "输出色彩空间",
-     "target": "out.colorspace"
+     "label": {
+      "zh": "输出颜色空间",
+      "en": "Output Color Space"
+     },
+     "target": "exr.colorspace"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_bit_depth",
-       "label": "EXR 位深",
-       "target": "out.exr_bit_depth"
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
+       "target": "exr.exr_bit_depth"
       },
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
-       "target": "out.exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -142,17 +220,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "计算",
+     "word": "cook",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -161,8 +245,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -176,22 +259,20 @@
   },
   {
    "id": "sky",
-   "type": "core.read_picture",
-   "label": "读取图片",
+   "type": "file_still",
    "params": {
     "path": "",
     "colorspace": null
    },
    "ui": {
     "x": 40,
-    "y": 368,
+    "y": 387,
     "on_node": []
    }
   },
   {
    "id": "relight",
    "type": "diffusionrenderer.relight",
-   "label": "DiffusionRenderer 重新打光",
    "params": {
     "resolution": 1280,
     "max_frames": 41,
@@ -212,18 +293,16 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1211,
+    "x": 1251,
     "y": 24
    }
   },
   {
-   "id": "out",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "id": "exr",
+   "type": "exr.output",
    "params": {
     "name": "relit",
     "layers": [
@@ -238,7 +317,7 @@
     "colorspace": null
    },
    "ui": {
-    "x": 811,
+    "x": 851,
     "y": 24
    }
   }
@@ -270,13 +349,13 @@
     "image"
    ],
    "to": [
-    "out",
+    "exr",
     "layer1"
    ]
   },
   {
    "from": [
-    "out",
+    "exr",
     "files"
    ],
    "to": [

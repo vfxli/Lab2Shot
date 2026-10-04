@@ -1,0 +1,1364 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "2544e5d36789400e9974c5e9d7a27200",
+  "name": {
+   "zh": "2D 抠像（模型集成）",
+   "en": "2D Matte (Model Ensemble)"
+  },
+  "intro": {
+   "zh": "抠像集成：BiRefNet、VideoMaMa（用 BiRefNet 粗遮罩）、MatAnyone 2（用你点选的物体）合成一张，先剔掉找错对象的再按权重合成；用「稳健」目标，117 条素材上比 VideoMaMa 稳 7.8%、没有一条找错对象。默认只交付集成结果。",
+   "en": "Matte ensemble: BiRefNet, VideoMaMa (on its mask) and MatAnyone 2 (on your picked object), wrong-object candidates left out, the rest averaged; Robustness objective (7.8% steadier than VideoMaMa on 117 clips, no wrong object). Only the ensemble is delivered by default."
+  },
+  "author": "Lab2Shot",
+  "created": "2026-10-04T16:00:00",
+  "updated": "2026-10-04T21:30:00",
+  "deliverable": "workflow",
+  "owner": "admin"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": {
+    "zh": "图像",
+    "en": "Image"
+   },
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "模型集成",
+    "en": "Model Ensemble"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "matte_ensemble_through",
+     "label": {
+      "zh": "集成抠像",
+      "en": "Ensemble Matte"
+     },
+     "target": "matte_ensemble.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "matte_ensemble_confidence_through",
+     "label": {
+      "zh": "抠像置信度图",
+      "en": "Matte Confidence Map"
+     },
+     "target": "matte_ensemble_confidence.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "matte_ensemble_source_through",
+     "label": {
+      "zh": "抠像取自哪个候选（Cryptomatte）",
+      "en": "Matte Source Candidate (Cryptomatte)"
+     },
+     "target": "matte_ensemble_source.through",
+     "widget": "checkbox"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "选择物体（MatAnyone 2 的引导，也是集成的对象检查）",
+    "en": "Select Object (Guides MatAnyone 2)"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "prompt",
+     "label": {
+      "zh": "要选的东西（留空 = 人）",
+      "en": "What to Select (Empty = Person)"
+     },
+     "target": "prompt_text.value"
+    },
+    {
+     "name": "sam3_pick_picks",
+     "label": {
+      "zh": "点选物体（不点 = 全部）",
+      "en": "Picked Objects (None Picked = All)"
+     },
+     "target": "sam3_pick.picks",
+     "show_on_change": true
+    },
+    {
+     "name": "sam3_pick_picks_pick",
+     "label": {
+      "zh": "在视图里点选",
+      "en": "Pick in Viewport"
+     },
+     "target": "sam3_pick.picks_pick"
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "sam3_max_objects",
+       "label": {
+        "zh": "SAM 3 最多物体数",
+        "en": "SAM 3 Max Objects"
+       },
+       "target": "sam3.max_objects"
+      },
+      {
+       "name": "sam3_threshold",
+       "label": {
+        "zh": "SAM 3 检测阈值",
+        "en": "SAM 3 Detection Threshold"
+       },
+       "target": "sam3.threshold"
+      }
+     ]
+    },
+    {
+     "name": "cook_sam3_pick",
+     "label": {
+      "zh": "计算遮罩",
+      "en": "Cook Mask"
+     },
+     "target": "sam3_pick.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "单模型结果（集成的候选）",
+    "en": "Single-Model Results (Candidates)"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "matte_birefnet_through",
+     "label": {
+      "zh": "BiRefNet",
+      "en": "BiRefNet"
+     },
+     "target": "matte_birefnet.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "matte_videomama_through",
+     "label": {
+      "zh": "VideoMaMa（用 BiRefNet 的粗遮罩）",
+      "en": "VideoMaMa (on BiRefNet's Rough Mask)"
+     },
+     "target": "matte_videomama.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "matte_matanyone_through",
+     "label": {
+      "zh": "MatAnyone 2",
+      "en": "MatAnyone 2"
+     },
+     "target": "matte_matanyone.through",
+     "widget": "checkbox"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "exr_name",
+     "label": {
+      "zh": "文件名（多层 EXR）",
+      "en": "File Name (Multi-Layer EXR)"
+     },
+     "target": "exr.name"
+    },
+    {
+     "name": "separate_value",
+     "label": {
+      "zh": "每层另存单独文件",
+      "en": "Also Save Each Layer as Its Own File"
+     },
+     "target": "separate.value",
+     "widget": "checkbox"
+    },
+    {
+     "name": "colorspace_out",
+     "label": {
+      "zh": "输出颜色空间",
+      "en": "Output Color Space"
+     },
+     "target": "exr.colorspace"
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_bit_depth",
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
+       "target": "exr.exr_bit_depth"
+      },
+      {
+       "name": "exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
+        },
+        {
+         "value": "zip",
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
+        },
+        {
+         "value": "piz",
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
+        },
+        {
+         "value": "none",
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "cook_exr",
+   "label": {
+    "zh": "计算并查看",
+    "en": "Cook and View"
+   },
+   "target": "exr.cook"
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "word": "pack",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
+     "target": "deliver.download"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "file",
+   "params": {
+    "path": "",
+    "colorspace": null,
+    "first": null,
+    "last": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 469
+   }
+  },
+  {
+   "id": "prompt_text",
+   "type": "value_string",
+   "params": {
+    "value": ""
+   },
+   "ui": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": "translate",
+   "type": "llm.translate",
+   "params": {
+    "target_lang": "english",
+    "model": "hy_mt2_q4"
+   },
+   "ui": {
+    "x": 360,
+    "y": 0
+   }
+  },
+  {
+   "id": "sam3",
+   "type": "sam3.segment",
+   "params": {
+    "prompt": "person",
+    "max_objects": 8,
+    "threshold": 0.5
+   },
+   "ui": {
+    "x": 720,
+    "y": 0
+   },
+   "promoted": [
+    "prompt"
+   ]
+  },
+  {
+   "id": "sam3_pick",
+   "type": "mask_from_segments",
+   "params": {
+    "classes": "",
+    "picks": []
+   },
+   "ui": {
+    "x": 1080,
+    "y": 0
+   }
+  },
+  {
+   "id": "birefnet",
+   "type": "birefnet.matte",
+   "params": {
+    "model": "hr_matting",
+    "fp16": true
+   },
+   "ui": {
+    "x": 360,
+    "y": 469
+   }
+  },
+  {
+   "id": "videomama",
+   "type": "videomama.matte",
+   "params": {
+    "resolution": 1024,
+    "erode_dilate": 0,
+    "fp16": true
+   },
+   "ui": {
+    "x": 720,
+    "y": 676
+   }
+  },
+  {
+   "id": "matanyone",
+   "type": "matanyone.matte",
+   "params": {
+    "resolution": 1080,
+    "warmup": 10,
+    "mask_close": 10,
+    "fp16": true
+   },
+   "ui": {
+    "x": 1442,
+    "y": 469
+   }
+  },
+  {
+   "id": "ensemble",
+   "type": "ensemble_matte",
+   "params": {
+    "objective": "robust",
+    "candidates": [
+     {
+      "name": "candidate1",
+      "weight": 1.0,
+      "use": "blend",
+      "label": "BiRefNet"
+     },
+     {
+      "name": "candidate2",
+      "weight": 2.0,
+      "use": "trusted",
+      "label": "VideoMaMa"
+     },
+     {
+      "name": "candidate3",
+      "weight": 1.0,
+      "use": "blend",
+      "label": "MatAnyone 2"
+     }
+    ]
+   },
+   "ui": {
+    "x": 1830,
+    "y": 1572
+   }
+  },
+  {
+   "id": "separate",
+   "type": "value_toggle",
+   "params": {
+    "value": false
+   },
+   "ui": {
+    "x": 2190,
+    "y": 1345
+   }
+  },
+  {
+   "id": "matte_ensemble",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 2190,
+    "y": 1572
+   }
+  },
+  {
+   "id": "matte_ensemble_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 2571,
+    "y": 1572
+   }
+  },
+  {
+   "id": "matte_ensemble_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_ensemble",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 2973,
+    "y": 1572
+   }
+  },
+  {
+   "id": "matte_ensemble_confidence",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 2190,
+    "y": 1779
+   }
+  },
+  {
+   "id": "matte_ensemble_confidence_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 2571,
+    "y": 1779
+   }
+  },
+  {
+   "id": "matte_ensemble_confidence_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_ensemble_confidence",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 2973,
+    "y": 1859
+   }
+  },
+  {
+   "id": "matte_ensemble_source",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 2190,
+    "y": 1986
+   }
+  },
+  {
+   "id": "matte_ensemble_source_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 2571,
+    "y": 1986
+   }
+  },
+  {
+   "id": "matte_ensemble_source_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_ensemble_source",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 2973,
+    "y": 2146
+   }
+  },
+  {
+   "id": "matte_birefnet",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 720,
+    "y": 469
+   }
+  },
+  {
+   "id": "matte_birefnet_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 2571,
+    "y": 883
+   }
+  },
+  {
+   "id": "matte_birefnet_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_birefnet",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 2973,
+    "y": 1043
+   }
+  },
+  {
+   "id": "matte_videomama",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 1080,
+    "y": 469
+   }
+  },
+  {
+   "id": "matte_videomama_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 2571,
+    "y": 469
+   }
+  },
+  {
+   "id": "matte_videomama_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_videomama",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 2973,
+    "y": 469
+   }
+  },
+  {
+   "id": "matte_matanyone",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 1830,
+    "y": 469
+   }
+  },
+  {
+   "id": "matte_matanyone_file",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 2571,
+    "y": 676
+   }
+  },
+  {
+   "id": "matte_matanyone_out",
+   "type": "image.output",
+   "params": {
+    "name": "matte_matanyone",
+    "layer": "",
+    "format": "exr",
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "png_bit_depth": 8,
+    "png_compress_level": 6,
+    "png_alpha": "auto",
+    "jpg_quality": 95,
+    "colorspace": null
+   },
+   "ui": {
+    "x": 2973,
+    "y": 756
+   }
+  },
+  {
+   "id": "exr",
+   "type": "exr.output",
+   "params": {
+    "name": "matte_ensemble_2d",
+    "layers": [
+     {
+      "name": "matte_ensemble",
+      "label": "matte.ensemble",
+      "channels": "A"
+     },
+     {
+      "name": "matte_ensemble_confidence",
+      "label": "matte.ensemble_confidence",
+      "channels": "A"
+     },
+     {
+      "name": "matte_ensemble_source",
+      "label": "matte.ensemble_source",
+      "channels": ""
+     },
+     {
+      "name": "matte_birefnet",
+      "label": "matte.birefnet",
+      "channels": "A"
+     },
+     {
+      "name": "matte_videomama",
+      "label": "matte.videomama",
+      "channels": "A"
+     },
+     {
+      "name": "matte_matanyone",
+      "label": "matte.matanyone",
+      "channels": "A"
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 3377,
+    "y": 1110
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "output",
+   "params": {},
+   "ui": {
+    "x": 3737,
+    "y": 1110
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "sam3",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "birefnet",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "videomama",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "matanyone",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "prompt_text",
+    "value"
+   ],
+   "to": [
+    "translate",
+    "text"
+   ]
+  },
+  {
+   "from": [
+    "translate",
+    "text"
+   ],
+   "to": [
+    "sam3",
+    "param:prompt"
+   ]
+  },
+  {
+   "from": [
+    "sam3",
+    "objects"
+   ],
+   "to": [
+    "sam3_pick",
+    "segmentation"
+   ]
+  },
+  {
+   "from": [
+    "birefnet",
+    "alpha"
+   ],
+   "to": [
+    "videomama",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "sam3_pick",
+    "mask"
+   ],
+   "to": [
+    "matanyone",
+    "mask"
+   ]
+  },
+  {
+   "from": [
+    "birefnet",
+    "alpha"
+   ],
+   "to": [
+    "ensemble",
+    "candidate1"
+   ]
+  },
+  {
+   "from": [
+    "videomama",
+    "alpha"
+   ],
+   "to": [
+    "ensemble",
+    "candidate2"
+   ]
+  },
+  {
+   "from": [
+    "matanyone",
+    "alpha"
+   ],
+   "to": [
+    "ensemble",
+    "candidate3"
+   ]
+  },
+  {
+   "from": [
+    "sam3_pick",
+    "mask"
+   ],
+   "to": [
+    "ensemble",
+    "object"
+   ]
+  },
+  {
+   "from": [
+    "ensemble",
+    "alpha"
+   ],
+   "to": [
+    "matte_ensemble",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "matte_ensemble",
+    "data"
+   ],
+   "to": [
+    "matte_ensemble_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_ensemble_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_ensemble_file",
+    "data"
+   ],
+   "to": [
+    "matte_ensemble_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "ensemble",
+    "confidence"
+   ],
+   "to": [
+    "matte_ensemble_confidence",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "matte_ensemble_confidence",
+    "data"
+   ],
+   "to": [
+    "matte_ensemble_confidence_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_ensemble_confidence_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_ensemble_confidence_file",
+    "data"
+   ],
+   "to": [
+    "matte_ensemble_confidence_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "ensemble",
+    "choice"
+   ],
+   "to": [
+    "matte_ensemble_source",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "matte_ensemble_source",
+    "data"
+   ],
+   "to": [
+    "matte_ensemble_source_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_ensemble_source_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_ensemble_source_file",
+    "data"
+   ],
+   "to": [
+    "matte_ensemble_source_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "birefnet",
+    "alpha"
+   ],
+   "to": [
+    "matte_birefnet",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "matte_birefnet",
+    "data"
+   ],
+   "to": [
+    "matte_birefnet_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_birefnet_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_birefnet_file",
+    "data"
+   ],
+   "to": [
+    "matte_birefnet_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "videomama",
+    "alpha"
+   ],
+   "to": [
+    "matte_videomama",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "matte_videomama",
+    "data"
+   ],
+   "to": [
+    "matte_videomama_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_videomama_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_videomama_file",
+    "data"
+   ],
+   "to": [
+    "matte_videomama_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matanyone",
+    "alpha"
+   ],
+   "to": [
+    "matte_matanyone",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "matte_matanyone",
+    "data"
+   ],
+   "to": [
+    "matte_matanyone_file",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "separate",
+    "value"
+   ],
+   "to": [
+    "matte_matanyone_file",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "matte_matanyone_file",
+    "data"
+   ],
+   "to": [
+    "matte_matanyone_out",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "matte_ensemble",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_ensemble"
+   ]
+  },
+  {
+   "from": [
+    "matte_ensemble_confidence",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_ensemble_confidence"
+   ]
+  },
+  {
+   "from": [
+    "matte_ensemble_source",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_ensemble_source"
+   ]
+  },
+  {
+   "from": [
+    "matte_birefnet",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_birefnet"
+   ]
+  },
+  {
+   "from": [
+    "matte_videomama",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_videomama"
+   ]
+  },
+  {
+   "from": [
+    "matte_matanyone",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "matte_matanyone"
+   ]
+  },
+  {
+   "from": [
+    "exr",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_ensemble_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_ensemble_confidence_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_ensemble_source_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_birefnet_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_videomama_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "matte_matanyone_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [
+  {
+   "id": "box:1",
+   "label": {
+    "zh": "分割",
+    "en": "Segmentation"
+   },
+   "color": "#0A84FF",
+   "x": -24,
+   "y": -58,
+   "w": 1370,
+   "h": 269,
+   "collapsed": false,
+   "members": [
+    "prompt_text",
+    "translate",
+    "sam3",
+    "sam3_pick"
+   ]
+  },
+  {
+   "id": "box:2",
+   "label": {
+    "zh": "集成遮罩",
+    "en": "Ensemble Matte"
+   },
+   "color": "#30D158",
+   "x": 1806,
+   "y": 1514,
+   "w": 1475,
+   "h": 903,
+   "collapsed": false,
+   "members": [
+    "ensemble",
+    "matte_ensemble",
+    "matte_ensemble_file",
+    "matte_ensemble_out",
+    "matte_ensemble_confidence",
+    "matte_ensemble_confidence_file",
+    "matte_ensemble_confidence_out",
+    "matte_ensemble_source",
+    "matte_ensemble_source_file",
+    "matte_ensemble_source_out"
+   ]
+  },
+  {
+   "id": "box:3",
+   "label": {
+    "zh": "遮罩",
+    "en": "Mattes"
+   },
+   "color": "#FF9F0A",
+   "x": 336,
+   "y": 411,
+   "w": 2901,
+   "h": 903,
+   "collapsed": false,
+   "members": [
+    "birefnet",
+    "videomama",
+    "matanyone",
+    "matte_birefnet",
+    "matte_birefnet_file",
+    "matte_birefnet_out",
+    "matte_videomama",
+    "matte_videomama_file",
+    "matte_videomama_out",
+    "matte_matanyone",
+    "matte_matanyone_file",
+    "matte_matanyone_out"
+   ]
+  }
+ ],
+ "view": {}
+}

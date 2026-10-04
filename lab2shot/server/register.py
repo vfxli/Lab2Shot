@@ -1,4 +1,4 @@
-"""Registering oneself over HTTP (lab2shot/registration.py): the login page's 「注册」, open to anyone while 开放注册
+"""Registering oneself over HTTP (lab2shot/site/registration.py): the login page's 「注册」, open to anyone while 开放注册
 is on.
 
 What the HTTP side adds to registration's own limits, all checked here on the server, so calling the routes directly
@@ -30,7 +30,9 @@ from fastapi import Request, Response
 
 from .routes import Access, Body, Limit, Router
 from .wire import SECRETS
-from .. import accounts, logs, registration, roles
+from .words import Word
+from .. import accounts, i18n, logs, roles
+from ..site import registration
 from ..config import settings
 from ..errors import Forbidden, Invalid, TooManyTries
 from ..messages import Msg
@@ -40,7 +42,7 @@ from .users import day_text
 
 log = logs.get("auth")
 
-router = Router(prefix="/api/auth", tags=["登录"])
+router = Router(prefix="/api/auth", tags=["Login"])
 
 POW_BITS = 21  # zero bits the answer's hash starts with: 2^21 tries expected, about 1.5 s in a browser's worker (1.4 M tries a second)
 MIN_FILL_S = 4.0  # a registration sent sooner after its challenge was given is not a person typing
@@ -48,17 +50,20 @@ TRAPS = ("website", "homepage", "blog", "referrer")  # names the decoy field may
 NET_BURST, NET_PER_S = 20.0, 1 / 30  # registrations one network (/24, /64) may send at once and then per second
 
 
-@router.get("/register", access=Access.open("登录页：现在能不能自己注册、要不要邀请码、有哪些环节"), summary="自己注册：现在开没开放注册、要不要邀请码、注册页上可选的环节；关着时只回答没开放")
+@router.get("/register", access=Access.open("Login page: whether self-registration is possible now, whether an invite code is needed, which departments "
+                                            "there are"), summary="Self-registration: whether registration is open now, whether an invite code is needed, the departments the "
+                                                                                                                                       "registration page offers; only that it is closed when it is")
 def info() -> dict:
     c = registration.counts()
     if not c["open"]:
         return {"open": False}
-    return {"open": True, "invite": c["invite"], "stages": accounts.departments(), "paused": bool(c["paused"]),
+    return {"open": True, "invite": c["invite"], "stages": accounts.departments_shown(), "paused": bool(c["paused"]),
             "min_fill_s": MIN_FILL_S}
 
 
-@router.post("/register/challenge", access=Access.open("注册页：领一道工作量证明题（浏览器算一两秒）", limit=Limit(burst=20, per_s=1 / 3)),
-             summary="注册前领一道工作量证明题：浏览器找一个数，让 sha256(nonce:数) 以 bits 个 0 位开头，注册时带回；题目有签名、15 分钟内有效、只能用一次")
+@router.post("/register/challenge", access=Access.open("Registration page: get a proof-of-work puzzle (a second or two of the browser's work)", limit=Limit(burst=20, per_s=1 / 3)),
+             summary="A proof-of-work puzzle before registering: the browser finds a number so that sha256(nonce:number) starts with "
+                     "bits zero bits and sends it back when registering; the puzzle is signed, valid for 15 minutes and usable once")
 def challenge() -> dict:
     if not settings()["register.open"]:
         raise Forbidden(Msg("E-REGISTER-CLOSED"))
@@ -79,33 +84,36 @@ class Register(Body):
     device_id: str = ""  # as at login: this browser, on this computer
 
 
-def _refused(request: Request, what: str, message: Msg) -> Invalid:
-    auth.guards().watch.note(request, "注册被挡", what)
+def _refused(request: Request, what: Word, message: Msg) -> Invalid:
+    auth.guards().watch.note(request, "register_refused", what)
     return Invalid(message)
 
 
-@router.post("/register", access=Access.open("自己注册一个账号，注册好直接登录（有工作量证明、诱饵字段、次数上限）", limit=Limit(burst=10, per_s=1 / 6),
+@router.post("/register", access=Access.open("Register an account and log in directly (with proof of work, a decoy field and limits)", limit=Limit(burst=10, per_s=1 / 6),
                                              lane=SECRETS),
-             summary="自己注册：用户名、中文名、环节、密码两遍，勾选同意的用户协议和隐私政策的版本号，开了邀请码验证时再加邀请码，外加工作量证明的题和答案；规则和管理员建账号完全一样，角色一律普通用户，建好这个浏览器直接登录")
+             summary="Self-registration: username, display name, department, password twice, the version of the Terms of Service and "
+                     "Privacy Policy agreed with the box ticked, the invite code when invite codes are required, plus the "
+                     "proof-of-work puzzle and answer; the same rules as accounts an administrator makes, the role is always normal "
+                     "user, and this browser is logged in once it is made")
 def register(req: Register, request: Request, response: Response) -> dict:
     if not settings()["register.open"]:
         raise Forbidden(Msg("E-REGISTER-CLOSED"))
     g, src = auth.guards(), auth.client_source(request)
     ip = src.ip
     if src.apart and not g.rate.take(f"register {registration.net_of(ip)}", NET_BURST, NET_PER_S):
-        g.watch.note(request, "请求太频繁", "注册")
+        g.watch.note(request, "too_fast", Word("server.watch_detail.register"))
         raise TooManyTries(Msg("E-ACCESS-TOOFAST"))
     said = g.challenges.redeem(req.challenge, req.answer)  # used up here, whatever follows
     if req.trap:
-        raise _refused(request, "填了诱饵字段", Msg("E-REGISTER-FAILED"))
+        raise _refused(request, Word("server.watch_detail.trap"), Msg("E-REGISTER-FAILED"))
     if accounts.now() - said["t"] < MIN_FILL_S:
-        raise _refused(request, "填得太快", Msg("E-REGISTER-TOOFAST"))
+        raise _refused(request, Word("server.watch_detail.too_quick"), Msg("E-REGISTER-TOOFAST"))
     if settings()["register.invite"] and req.invite.strip():
         if src.apart:  # wrong codes counted per client, like wrong passwords
-            auth.guarded(request, "邀请码", lambda: registration.invite_usable(req.invite), Msg("E-REGISTER-INVITE"),
-                         subject="invite", limiter=g.invites, kind="邀请码不对")
+            auth.guarded(request, Word("server.secret.invite"), lambda: registration.invite_usable(req.invite), Msg("E-REGISTER-INVITE"),
+                         subject="invite", limiter=g.invites, kind="invite_wrong")
         elif not registration.invite_usable(req.invite):  # everyone looks alike: a count would stop them all
-            raise _refused(request, "邀请码不对", Msg("E-REGISTER-INVITE"))
+            raise _refused(request, Word("server.watch_detail.invite_wrong"), Msg("E-REGISTER-INVITE"))
     u, used = registration.register(req.username, req.name, req.department, req.password, req.again, req.invite,
                                     req.terms, ip, src.apart)  # the account, its quota and the code's use: all or nothing
     token, s = accounts.start(u, "web", ip, request.headers.get("user-agent", ""), replaces=auth.token_of(request),
@@ -113,8 +121,8 @@ def register(req: Register, request: Request, response: Response) -> dict:
     auth.set_cookie(request, response, token)
     invite = registration.invite_label(used)
     logs.say(log, Msg("I-REGISTER-DONE", user=u.username, where=ip, invite=invite))
-    audit(Msg("I-AUDIT-SELFREGISTERED", username=u.username, name=u.name, department=u.department,
-              expires=day_text(u.expires), quota=settings()["register.quota_gb"], tags=registration.tags_label(u.tags),
-              invite=invite, ip=ip, role=roles.label(u.role)),
+    audit(Msg("I-AUDIT-SELFREGISTERED", username=u.username, name=u.name, department=accounts.department_label(u.department),
+              expires=day_text(u.expires), quota=settings()["register.quota_gb"], tags=i18n.Both.of(lambda: registration.tags_label(u.tags)),
+              invite=invite, ip=ip, role=roles.word(u.role)),
           about=u.id, session=s, method="POST", path=str(request.url.path))
     return auth.state_of(s)

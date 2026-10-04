@@ -13,8 +13,9 @@ import threading
 import traceback
 from pathlib import Path
 
+from . import i18n
 from .config import settings
-from .messages import Msg
+from .messages import Msg, localized
 
 FORMAT = "%(asctime)s %(levelname)-7s [%(name)s] %(message)s"
 
@@ -72,11 +73,13 @@ CONTINUED = "    | "  # how each line after a record's first begins (say)
 def say(logger: logging.Logger, message, detail: str = "", *, about: str = "", debug: bool = False) -> None:
     """One line of the server's log, by its message: the only way anything of Lab2Shot writes a line (no logger call
     outside this function). "[CODE] about text", at the level its letter says
-    (E error, W warning, anything else info; `debug`: the finer records, kept only with logs.debug on). `message` is a Msg,
+    (E error, W warning, anything else info; `debug`: the finer records, kept only with logs.debug on), its text in
+    English (i18n.LOG_LANG; a sentence not yet translated reads in Chinese until its area is moved). `message` is a Msg,
     or a message as it travelled ({code, text}: a job's event); `about` what it is about when the message does not say
     (a job and its node); `detail` (a traceback, a worker's line) on the lines after it."""
-    code, text, letter = ((message.code, message.text, message.level) if isinstance(message, Msg)
-                          else (message["code"], message["text"], message["code"][0]))
+    with i18n.using(i18n.LOG_LANG):  # the log is the back end's: always English, whoever's work it was
+        code, text, letter = ((message.code, message.text, message.level) if isinstance(message, Msg)
+                              else (message["code"], localized(message)["text"], message["code"][0]))
     level = logging.DEBUG if debug else {"E": logging.ERROR, "W": logging.WARNING}.get(letter, logging.INFO)
     # every line after a record's first is marked as its continuation: what came from outside (a page's log window, a
     # name) can never write a line that reads as a record of its own

@@ -5,7 +5,9 @@ import { useCookInputs } from "../state/cookInputs";
 import { portColor } from "../graph/nodes";
 import { IconBone, IconCamera, IconChevron, IconClose } from "../ui/icons";
 import { Button, IconButton } from "../ui/Button";
+import { t } from "../i18n/t";
 import { SheetFoot, useDraft, Writes, type SheetEditor, type SheetEditorProps, type SheetSummaryProps } from "./ParamSheet";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 // An import node's selection of one kind of 3D data (widget "hierarchy", nodes/formats.py selection_param): in the
 // panel, what is chosen (a count and the first paths); 「选择…」 opens the file's hierarchy as a tree to pick in, as
@@ -58,12 +60,11 @@ function HierarchySummary(x: SheetSummaryProps) {
   const chosen = chosenOf(x);
   const options = choice?.options ?? [];
   const known = useMemo(() => new Set(options), [options]);
-  const unit = many ? "个" : "台";
-  const none = !all ? "先选择文件" : options.length ? `没有选 · 文件里有 ${options.length.toLocaleString()} ${unit}` : (choice?.empty ?? "先选择文件");
+  const none = !all ? t("ui.params.hier.file_first") : options.length ? t(many ? "ui.params.hier.none_many" : "ui.params.hier.none_one", { count: options.length.toLocaleString() }) : (choice?.empty ?? t("ui.params.hier.file_first"));
   return (
     <>
       {chosen.length === 0 && <span className="hier-none">{none}</span>}
-      {many && chosen.length > 0 && <span className="hier-count">{chosen.length.toLocaleString()} 个</span>}
+      {many && chosen.length > 0 && <span className="hier-count">{t("ui.params.hier.count", { count: chosen.length.toLocaleString() })}</span>}
       {chosen.slice(0, SHOWN).map((path) => (
         <span key={path} className={`chip hier-chip${known.has(path) || !all ? "" : " gone"}`} data-user-data>
           <i style={{ background: kinds[p.name]?.color }} />
@@ -83,7 +84,7 @@ function HierarchySummary(x: SheetSummaryProps) {
 function HierarchyClear(x: SheetSummaryProps) {
   if (!chosenOf(x).length) return null;
   return (
-    <IconButton tone="ghost" onClick={() => x.set(x.p.type === "array" ? [] : "")} aria-label="清掉">
+    <IconButton tone="ghost" onClick={() => x.set(x.p.type === "array" ? [] : "")} aria-label={t("ui.params.clear")}>
       <IconClose size={10} />
     </IconButton>
   );
@@ -103,8 +104,8 @@ function HierarchyEditor({ nodeId, p, value, choices, set, cancel }: SheetEditor
 /** widget "hierarchy": registered in editor/ParamControls.tsx SHEET_EDITORS. */
 export const Hierarchy: SheetEditor = {
   editor: HierarchyEditor,
-  title: (p) => `选择${p.label}`,
-  button: "选择…",
+  title: (p) => t("ui.params.hier.title", { label: p.label }),
+  button: () => t("ui.params.hier.button"),
   width: 780,
   summary: HierarchySummary,
   actions: HierarchyClear,
@@ -308,25 +309,23 @@ function TreePicker({ all, port, kinds, many, label, initial, onOk, onCancel }: 
 
   const first = Math.max(0, Math.floor(top / ROW) - 8);
   const last = Math.min(rows.length, Math.ceil((top + LIST) / ROW) + 8);
-  const count = many ? `已选 ${(picked.size).toLocaleString()} 个${label}` : picked.size ? `已选 ${[...picked][0]}` : "没有选";
+  const count = many ? t("ui.params.hier.picked_many", { count: picked.size.toLocaleString(), label }) : picked.size ? t("ui.params.hier.picked_one", { path: [...picked][0] }) : t("ui.params.hier.picked_none");
   return (
     <>
       <div className="htree-bar">
-        <input className="field htree-search" placeholder="按路径搜索" value={query} onChange={(e) => setQuery(e.target.value)}
-          data-tip={`只列出路径里有这些字的${label}，和到它们的层级`} />
-        <label className="htree-only" data-tip={`不列出下面没有${label}的组；关掉可以看到整个层级（灰色的是别的种类和组）`}>
+        <input className="field htree-search" placeholder={t("ui.params.hier.search")} value={query} onChange={(e) => setQuery(e.target.value)} />
+        <label className="htree-only">
           <input type="checkbox" checked={onlyKind} onChange={(e) => setOnlyKind(e.target.checked)} />
-          只看有{label}的分支
+          {t("ui.params.hier.only_kind", { label })}
         </label>
-        <Button tip="展开每一个组" tone="ghost" disabled={!!query} onClick={() => setExpanded(new Set([...at.values()].filter((n) => n.children.length && (!onlyKind || n.below)).map((n) => n.path)))}>
-          全部展开
+        <Button tone="ghost" disabled={!!query} onClick={() => setExpanded(new Set([...at.values()].filter((n) => n.children.length && (!onlyKind || n.below)).map((n) => n.path)))}>
+          {t("ui.params.hier.expand_all")}
         </Button>
-        <Button tip="收起每一个组" tone="ghost" disabled={!!query} onClick={() => setExpanded(new Set())}>
-          全部收起
+        <Button tone="ghost" disabled={!!query} onClick={() => setExpanded(new Set())}>
+          {t("ui.params.hier.collapse_all")}
         </Button>
       </div>
-      <div className="htree" ref={list} tabIndex={0} onKeyDown={key} onScroll={(e) => setTop(e.currentTarget.scrollTop)} style={{ height: LIST }}
-        data-tip={many ? "点击选中，Ctrl 加选或取消，Shift 连选；方向键走，空格选，回车确定" : "点击选中，双击或回车确定"}>
+      <div className="htree" ref={list} tabIndex={0} onKeyDown={key} onScroll={(e) => setTop(e.currentTarget.scrollTop)} style={{ height: LIST }}>
         <div style={{ height: rows.length * ROW, position: "relative" }}>
           {rows.slice(first, last).map((n, j) => {
             const i = first + j;
@@ -340,31 +339,31 @@ function TreePicker({ all, port, kinds, many, label, initial, onOk, onCancel }: 
                   {n.children.length > 0 && <span style={{ display: "inline-flex", transform: open ? "rotate(180deg)" : "rotate(90deg)" }}><IconChevron size={10} up /></span>}
                 </span>
                 <KindIcon ports={entry ? [port] : n.ports} kinds={kinds} dim={!entry} />
-                <span className="hname" data-user-data data-tip={n.path}>{n.name}</span>
+                <span className="hname" data-user-data {...tipAttrs(tipOf("value", n.path))}>{n.name}</span>
                 {entry && <span className="hdetail">{details[n.path]}</span>}
                 {!entry && n.below > 0 && many && (
-                  <Writes><button className="hgroup-pick" data-tip={`选中「${n.name}」下面所有的${label}（按住 Ctrl 加到已选的里）`}
+                  <Writes><button className="hgroup-pick"
                     onClick={(e) => (e.stopPropagation(), setFocus(i), choose(below(n), e.ctrlKey || e.metaKey))}>
-                    选下面的 {n.below.toLocaleString()} 个
+                    {t("ui.params.hier.pick_below", { count: n.below.toLocaleString() })}
                   </button></Writes>
                 )}
-                {!entry && n.below > 0 && !many && <span className="hdetail">{n.below} 台</span>}
+                {!entry && n.below > 0 && !many && <span className="hdetail">{t("ui.params.hier.below_one", { count: n.below })}</span>}
               </div>
             );
           })}
         </div>
-        {rows.length === 0 && <div className="htree-empty">{query ? `没有路径里有「${query}」的${label}` : `文件里没有${label}`}</div>}
+        {rows.length === 0 && <div className="htree-empty">{query ? t("ui.params.hier.no_match", { query, label }) : t("ui.params.hier.none_in_file", { label })}</div>}
       </div>
-      <SheetFoot layout="htree-foot" okTip="用勾选的层级" ok={ok} cancel={onCancel}>
-        <span className="htree-count" data-tip={many ? [...picked].slice(0, 30).join("\n") : undefined}>{count}</span>
+      <SheetFoot layout="htree-foot" ok={ok} cancel={onCancel}>
+        <span className="htree-count" {...tipAttrs(many ? tipOf("value", [...picked].slice(0, 30).join("\n")) : undefined)}>{count}</span>
         {gone.length > 0 && (
-          <Button tip={gone.join("\n")} tone="ghost" layout="htree-gone" onClick={() => setPicked((was) => new Set([...was].filter((p) => !gone.includes(p))))}>
-            去掉文件里没有的 {gone.length} 个
+          <Button tip={tipOf("value", gone.join("\n"))} tone="ghost" layout="htree-gone" onClick={() => setPicked((was) => new Set([...was].filter((p) => !gone.includes(p))))}>
+            {t("ui.params.hier.drop_gone", { count: gone.length })}
           </Button>
         )}
         {many && picked.size > 0 && (
-          <Button tip="清掉所有勾选" tone="ghost" onClick={() => setPicked(new Set())}>
-            全部不选
+          <Button tone="ghost" onClick={() => setPicked(new Set())}>
+            {t("ui.params.hier.pick_none")}
           </Button>
         )}
       </SheetFoot>

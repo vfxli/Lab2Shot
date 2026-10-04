@@ -111,7 +111,9 @@ export class Scene {
     }));
     this.clouds = desc.clouds.map((c) => ({
       ref: c, key: `${key}.${c.name}`, name: c.name, frames: c.frames, world: a(c.world!) as Float32Array, width: c.width,
-      still: c.points ? explicit(a(c.points) as Float32Array, a(c.colors!) as CloudSample["colors"], c.widths ? (a(c.widths) as Float32Array) : null) : null,
+      still: c.points ? { ...explicit(a(c.points) as Float32Array, a(c.colors!) as CloudSample["colors"], c.widths ? (a(c.widths) as Float32Array) : null),
+        covariance: c.covariance ? a(c.covariance) as Float32Array : undefined,
+        opacity: c.opacity ? a(c.opacity) as Float32Array : undefined, sh: c.sh ? a(c.sh) as Float32Array : undefined } : null,
       samples: new Map(),
       focal: c.grid ? (a(c.grid.focal) as Float32Array) : null,
       cams: c.grid ? (a(c.grid.cam) as Float32Array) : null,
@@ -449,7 +451,8 @@ export class Scene {
           // 这一帧没带颜色：颜色与首帧相同，只在基础数据里发了一次（server/view_data.py encode，点缓存）
           const same = this.cloudColours(i);
           const colors = g.colors?.length ? g.colors : same && same.length === points.length ? same : new Float32Array(points.length).fill(0.7);
-          c.samples.set(s, explicit(points, colors as CloudSample["colors"], g.widths ?? null, bounds[key] ?? null));
+          c.samples.set(s, { ...explicit(points, colors as CloudSample["colors"], g.widths ?? null, bounds[key] ?? null),
+            covariance: g.covariance, opacity: g.opacity, sh: g.sh });
         }
       }
     });
@@ -462,7 +465,7 @@ export class Scene {
     this.askedBounds.add(sample);
     if (sample.grid) {
       const { ref, depth, focal, cam, principal } = sample.grid;
-      gridPointsOf(depth, sample.grid.gw, sample.grid.step, ref.width, ref.height, focal, cam, principal).then(
+      gridPointsOf(depth, sample.grid.gw, sample.grid.step, ref.width, ref.height, focal, cam, principal, ref.aspect ?? 1).then(
         ({ points, bounds }) => {
           sample.points = points;
           sample.bounds = bounds;

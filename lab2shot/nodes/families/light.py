@@ -35,10 +35,9 @@ def probe_plate(ctx, image: Packet, frame: int) -> Packet:
 class LightProbeParams(NodeParams):
     """Parameters every light-probe node shares; each adds its model's own."""
 
-    seed: int = P(0, label="随机种子", ge=0, group="环境光")
+    seed: int = P(0, ge=0, group="environment_light", words="family.light.seed")
     envmap_width: Literal[512, 1024, 2048] = P(
-        1024, label="环境图宽度", group="环境光",
-        option_labels={"512": "512", "1024": "1024", "2048": "2048"},
+        1024, group="environment_light",
     )
 
 
@@ -58,9 +57,8 @@ class LightProbe(WorkerNode):
     # No camera input: the worker never reads one. The HDRI is in the plate camera's frame (see the raw contract).
     inputs = (rgb_port(),)
     # the HDRI and its display-referred PNG are pictures of their own, not the plate's geometry
-    outputs = (Port("hdri", "image.3", "HDRI", shape=NEW_PICTURE),
-               Port("preview", "image.3", "显示图", shape=NEW_PICTURE,
-                    help="HDRI 转成屏幕上看的样子（PNG，显示参考），检查环境对不对；渲染用「HDRI」那根线"))
+    outputs = (Port("hdri", "image.3", shape=NEW_PICTURE),
+               Port("preview", "image.3", shape=NEW_PICTURE, words="family.light.preview"))
     cost = Cost(gpu=True)
     most_frames = 1  # one frame in, one HDRI out: a sequence is refused before submission, with a hint to insert 「FrameHold」
     # An HDRI holds radiance, not a picture: the packet is tagged linear Rec.709 (io/color.LINEAR_REC709) and is not
@@ -94,7 +92,7 @@ class LightProbe(WorkerNode):
         image = job.plate
         frames = image.meta["frames"]
 
-        ctx.stage("写出 HDRI")
+        ctx.stage("write_hdri")
         hdri = ctx.outputs["hdri"] / ENVMAP
         shutil.copyfile(raw.file(ENVMAP), hdri)
         out = {

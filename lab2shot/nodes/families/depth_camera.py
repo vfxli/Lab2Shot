@@ -20,6 +20,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from ..kit.ports import rgb_port
@@ -28,12 +30,15 @@ from ...data.payloads import SIGNED, ExrWriter, window_of
 from ...data.units import M_TO_CM
 from ...errors import Invalid
 from ...messages import Msg
-from ..applies import Cost
+from typing import ClassVar
+
+from ...availability import Because, Cond
+from ..applies import Cost, Fact, NodeFacts, fact
 from ..base import NodeParams, P, Port
 from ..kit.cameras import plate_lens, sent_fov_x_deg, solved_camera
 from ..kit.confidence import ConfidenceWriter
 from ..kit.maps import family_points, native_points_of, points_params, turn_to_camera
-from ..kit.ports import plate_mask_port
+from ..kit.ports import plate_mask_port, unit_cm_param
 from ..lens import LensParams, takes_lens
 from .base import Job, MissingFrames, RawOutput, WorkerNode
 
@@ -56,20 +61,23 @@ class DepthCamera(WorkerNode):
     # 没有「相机」输入端口：成员的上游均不接受逐帧外参（UniDepth 只接受内参 `Pinhole(K=intrinsics)`；UniK3D 的
     # decoder 自行输出内参；Depth Anything 3 使用其自身输出的内外参）。仅有内参不构成相机输入，内参由「Focal Length」
     # 「Filmback」两个普通参数提供。上游不具备的端口不自行添加。
-    outputs = (Port("depth", "image.1", "深度图", means=("scale",)), Port("camera", "scene.camera", "相机"),
-               Port("points", "scene.points", "点云", made_from=("depth", "camera", "confidence")))
+    outputs = (Port("depth", "image.1", means=("scale",)), Port("camera", "scene.camera"),
+               Port("points", "scene.points", made_from=("depth", "camera", "confidence")))
     cost = Cost(gpu=True)
     # 模型额外计算了天空概率图时，在节点上声明 `sky_map = "sky"`（其 worker 在 npz 中使用的数组名），
     # 家族即自动增加「天空遮罩」端口，做法与 `native_points` / `keypoints` / `smpl_body` 相同：
     # 上游输出几种数据就有几个端口，未声明的不增加。
     sky_map: str = ""
+    # 方法自己的单位是否为米（深度和相机即真实距离）：True / False，或按参数的条件（选哪个模型）。
+    # 没有默认值：每个成员必须自己声明（`lab2shot check nodes` 强制），忘了写不会被静默当成度量或相对。
+    # 这是「是否度量」的唯一来源：家族按它写深度的 scale、决定「尺度」是否起作用（整段档 RELATIVE_ONLY）；
+    # worker 在 result.json 里报的 metric 只是记录，与声明不一致时计算失败（agrees_metric），不会各说各的。
+    metric: ClassVar[bool | Cond | None] = None
 
     def __init_subclass__(cls, **kw):
         # 该端口定义在家族上：声明了 sky_map 的节点自动增加「天空遮罩」，适配器中只需一行声明
         if cls.sky_map and not any(p.name == "sky" for p in cls.outputs):
-            cls.outputs = (*cls.outputs, Port("sky", "image.1", "天空遮罩",
-                                              help="模型自己判的天空概率（0–1，越大越像天空）。"
-                                                   "它也是深度图有效位的来源：天空那块没有距离可言"))
+            cls.outputs = (*cls.outputs, Port("sky", "image.1"))
         super().__init_subclass__(**kw)
 
     # ---------------------------------------------------------------- 两档共用的步骤
@@ -93,13 +101,37 @@ class DepthCamera(WorkerNode):
         sky.add(frame, d[cls.sky_map], np.ones(shape, bool))
 
     @classmethod
+    def scale_cm(cls, ctx) -> float:
+        """How many centimetres one unit of the model's output is: a metre (M_TO_CM), unless the family says otherwise
+        (WholeShotDepthCamera: a method of relative scale takes its 「尺度」)."""
+        return M_TO_CM
+
+    @classmethod
+    def is_metric(cls, params) -> bool:
+        """The node's own declaration (`metric`) for these parameters: the one source of whether it is metric."""
+        m = cls.metric
+        return m if isinstance(m, bool) else m.holds(NodeFacts(params=params)) is True
+
+    @classmethod
+    def agrees_metric(cls, ctx, raw: RawOutput) -> bool:
+        """The declaration for this cook; a worker reporting otherwise in result.json fails the cook (the two would
+        deliver different units without a word)."""
+        metric = cls.is_metric(ctx.params)
+        said = raw.result().get("metric") if raw.path("result.json").exists() else None
+        if said is not None and bool(said) != metric:
+            raise Invalid(Msg("E-FAMILY-METRIC", node=ctx.label, said=str(bool(said)), declared=str(metric)))
+        return metric
+
+    @classmethod
     def add_points(cls, ctx, out: dict[str, Packet], raw: RawOutput, image, camera: Packet) -> None:
         """家族的点云输出：声明了 `native_points` 时使用模型自身的三维点，否则由深度 + 相机反投影。
 
         `camera` 单独传入，是因为不输出相机的节点（`solves_camera=False`）的相机不在 `out` 中。"""
         if "points" in ctx.wanted:
-            out["points"] = family_points(ctx, out["depth"], camera, image, confidence=out.get("confidence"),
-                                          native=native_points_of(cls, raw))
+            gates = cls.confidence is not None and cls.confidence.gates_points
+            out["points"] = family_points(ctx, out["depth"], camera, image,
+                                          confidence=out.get("confidence") if gates else None,
+                                          native=native_points_of(cls, raw), scale_cm=cls.scale_cm(ctx))
 
 
 class PerFrameDepthCamera(DepthCamera):
@@ -110,7 +142,7 @@ class PerFrameDepthCamera(DepthCamera):
 
     原始数据约定：raw/frame_<n>.npz 包含 depth [H,W]（米）、mask [H,W]（有值的像素）、intrinsics [3,3]，可选
     normal [H,W,3]（OpenCV 相机坐标）和 confidence [H,W]（模型自身的置信度，含义见 `confidence`）；raw/result.json
-    中模型单位为相对值时 "metric" 为 false（按米的方式乘以 100 写出）。缺少任一帧时失败。
+    中的 "metric" 只是记录，须与节点的 `metric` 声明一致（相对值同样乘以 100 写出）。缺少任一帧时失败。
 
     输出深度（厘米；无效像素在 alpha 中标记）、法线（GL 相机坐标）、置信度，以及深度的观察相机：位于原点的
     固定机位，镜头取所用镜头或模型焦距的中位数。世界位置和点云由「深度转世界位置」/「深度转点云」生成。
@@ -129,7 +161,7 @@ class PerFrameDepthCamera(DepthCamera):
     def __init_subclass__(cls, **kw):
         # 上游不输出内参时不应存在「相机」输出端口（见上方 solves_camera 声明）
         if not cls.solves_camera:
-            cls.outputs = tuple(Port(p.name, p.type, p.label, made_from=("depth", "confidence")) if p.name == "points" else p
+            cls.outputs = tuple(replace(p, made_from=("depth", "confidence")) if p.name == "points" else p
                                 for p in cls.outputs if p.name != "camera")
         super().__init_subclass__(**kw)
 
@@ -152,8 +184,8 @@ class PerFrameDepthCamera(DepthCamera):
         image, lens = job.plate, job.lens
         frames = image.meta["frames"]
         w, h = image.meta["width"], image.meta["height"]
-        metric = raw.result().get("metric", True)
-        ctx.stage("写出深度图")
+        metric = cls.agrees_metric(ctx, raw)
+        ctx.stage("write_depth")
 
         window = window_of(image)  # 发送给 worker 的像素范围（data/windows.py）
         # 深度和相机是家族的核心产物（基于该家族构建的节点也会读回，如 FaceAnything 的点云）；
@@ -199,13 +231,19 @@ class PerFrameDepthCamera(DepthCamera):
         return out
 
 
+# 「尺度」只对相对尺度的方法起作用：方法自己给出真实距离（DepthCamera.metric）时它变灰、写清原因，
+# 不能拿它在算法节点上改尺度（尺度对齐只在卡片层做：camera_space / 深度对齐）
+RELATIVE_ONLY = Because(fact("metric").eq(False), "I-SCALE-METRIC")
+
+
 class WholeShotParams(NodeParams):
     """所有整段节点共用的参数；各节点另外添加其权重及自身的「每段最多帧数」
-    （max_frames_param，上限按该模型实测）。"""
+    （max_frames_param，上限按该模型实测）。「尺度」由家族统一提供，按节点声明的 metric 决定是否起作用。"""
 
-    step: int = P(1, label="隔帧", ge=1, le=10, group="解算")
+    step: int = P(1, ge=1, le=10, group="solve")
     point_step: int = points_params()["point_step"]
     point_size: float = points_params()["point_size"]
+    unit_cm: float = unit_cm_param(applies=RELATIVE_ONLY)
 
 
 class LensWholeShotParams(WholeShotParams, LensParams):
@@ -220,30 +258,42 @@ class WholeShotDepthCamera(DepthCamera):
 
     原始数据约定：raw/cameras.npz 包含 frames [F]、K [F,3,3]（像素）、cam_to_world [F,4,4]（OpenCV，世界 = 第一台相机）；
     raw/frame_<n>.npz 包含 depth [H,W]、confidence [H,W]（模型自身的置信度，含义见 `confidence`）、mask [H,W]（保留的
-    像素），仅限已重建的帧（隔帧时跳过其余帧）。单位为米或任意单位（此时由节点的「尺度」指定一个单位对应的厘米数）。
+    像素），仅限已重建的帧（隔帧时跳过其余帧）。单位为米（`metric`），或任意单位（此时由节点的「尺度」指定一个单位
+    对应的厘米数，RELATIVE_ONLY）。
 
     输出相机（逐帧焦距，世界 = 第一台相机，Y 向上；片门取所用镜头；未重建的帧插值得到）、从该相机观察的深度（厘米）
     及置信度，仅限已重建的帧。
-    Job.notes："scale"，方法声称为真实距离时为 "metric"，否则为 "relative"（由节点在 prepare 中设置）。"""
+    Job.notes："scale"，方法声称为真实距离时为 "metric"，否则为 "relative"（由家族按节点的 `metric` 声明设置）。"""
 
     main = "camera"
     on_node = ("step", "max_frames")
     missing_frames = MissingFrames.SKIP
-    fact_labels = {"segments": "镜头分段数"}  # worker 将镜头切分的段数（CookContext.fact，convert）
-    # 上游实际接受遮罩图时填写（端口标签，如「运动物体遮罩」）：如 MonST3R 的 `dynamic_mask_path`。为空表示上游不接受，节点上不显示该端口。
+    fact_labels = ("segments", "metric")  # worker 将镜头切分的段数（CookContext.fact，convert）；输出是否为真实距离
+    # `metric`（DepthCamera，必填）在此档还决定 Job.notes 的 scale 和「尺度」是否起作用（RELATIVE_ONLY）。只写声明，节点不再自己设 notes
+    # 上游实际接受遮罩图时为 True（端口名在 node.<类型>.port.mask.label，如「运动物体遮罩」）：如 MonST3R 的 `dynamic_mask_path`。
+    # False 表示上游不接受，节点上不显示该端口。
     # 默认没有该端口，由成员声明添加；若默认存在再由成员各自过滤，每个成员都要写过滤代码，新增端口时需多处修改。
-    takes_mask: str = ""
-    version = 6  # 计算方式改变时加一，缓存的结果随之重算（NodeDef.version）
+    takes_mask: bool = False
+    version = 7  # 计算方式改变时加一，缓存的结果随之重算（NodeDef.version）；7：度量输出不再被「尺度」缩放
 
     def __init_subclass__(cls, **kw):
         # 该端口定义在家族上：声明了 takes_mask 的节点自动增加对应的遮罩输入端口
         if cls.takes_mask and not any(p.name == "mask" for p in cls.inputs):
-            cls.inputs = (*cls.inputs, plate_mask_port(cls.takes_mask))
+            cls.inputs = (*cls.inputs, plate_mask_port())
         super().__init_subclass__(**kw)
 
     @classmethod
+    def facts(cls, params: dict) -> dict:
+        return {**super().facts(params), "metric": Fact(cls.is_metric(params), cls.fact_label("metric"))}
+
+    @classmethod
+    def scale_cm(cls, ctx) -> float:
+        return M_TO_CM if cls.is_metric(ctx.params) else float(ctx.params["unit_cm"])
+
+    @classmethod
     def prepare(cls, ctx) -> Job:
-        job = Job(ctx.input("image"), inputs=ctx.input_files("mask"), notes={"scale": "metric"})
+        job = Job(ctx.input("image"), inputs=ctx.input_files("mask"),
+                  notes={"scale": "metric" if cls.is_metric(ctx.params) else "relative"})
         if not takes_lens(cls):
             return job
         lens = plate_lens(ctx, job.plate)
@@ -254,7 +304,8 @@ class WholeShotDepthCamera(DepthCamera):
         from ...data.units import opencv_poses_to_usd
 
         image, lens = job.plate, job.lens
-        scale_cm = ctx.params.get("unit_cm", M_TO_CM)
+        cls.agrees_metric(ctx, raw)
+        scale_cm = cls.scale_cm(ctx)
         if raw.path("result.json").exists() and "chunks" in raw.result():  # 分段处理的 worker 会注明分为几段（loops_param）
             ctx.fact("segments", len(raw.result()["chunks"]))
         cams = raw.arrays("cameras.npz")
@@ -262,7 +313,7 @@ class WholeShotDepthCamera(DepthCamera):
         poses = opencv_poses_to_usd(np.asarray(cams["cam_to_world"], np.float64), scale_cm)
         K = np.asarray(cams["K"], np.float64)
 
-        ctx.stage("写出深度图")
+        ctx.stage("write_depth")
         depth = ExrWriter(ctx.outputs["depth"], 1, validity=True, window=window_of(image),
                           scale=job.notes["scale"])
         scores = ConfidenceWriter(ctx, image, cls)

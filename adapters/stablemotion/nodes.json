@@ -1,6 +1,0 @@
-{
- "stablemotion.cleanup": {
-  "label": "StableMotion 动捕清理",
-  "description": "SFU 和 EA 的 StableMotion：先逐帧判断这一帧的姿势是不是坏的（抖动、关节跳变、穿模、脚陷进地面），再只把判坏的那些帧重画一遍，判好的帧一帧不动。判断结果作为「问题帧」曲线一起交出来。训练数据是 20 帧/秒的 AMASS 动捕，手指和面部不参与。"
- }
-}

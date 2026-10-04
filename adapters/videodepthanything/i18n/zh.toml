@@ -1,0 +1,47 @@
+# Video Depth Anything 扩展自己的界面字和消息（中文）。
+
+# ---- 节点（nodes.py）
+"W-VIDEODEPTHANYTHING-SIZELIMIT" = "「处理分辨率」{size} 对 {model} 模型会超出 24 GB 显存，这次按上限 {limit} 计算：细节比设的少一些。要更高的分辨率，把「模型」换成 Small（1036 约 11 GB）"
+
+# ---- worker（worker.py）
+"N-VIDEODEPTHANYTHING-SHORTSHOT.other" = "画面只有 {count} 帧，不足 Video Depth Anything 一次看的 32 帧：结束帧会重复补齐，结果正常，只是前后帧的稳定性参考少一些"
+
+[node."videodepthanything.depth"]
+subtitle = "深度贴图"
+description = "画面 → 整段前后稳定、逐帧不闪的深度贴图或视差图。都从「深度贴图」口出：真实尺度的模型给摄影机 Z 通道的距离（厘米），只知远近的模型给相对视差（近大远小，无单位，数据里注明是视差），换模型不用改线。要真实尺度又要不闪，用相对模型、把「深度贴图」接「深度对齐」，参考接「MoGe 深度贴图与法线」的深度贴图。"
+official.note = "上游只有一样输出 depths：选「真实」的模型权重时它是米制深度，选「相对」的模型权重时它是相对视差，都走「深度贴图」口，数据里注明是哪一种（scale）"
+licence.note = "代码和 Small 两个模型都是 Apache-2.0，可以商用；Base 和 Large 四个模型是 CC-BY-NC-4.0，非商用。米制模型的训练数据含 Virtual KITTI（CC BY-NC-SA），有潜在的训练数据许可风险。"
+
+[node."videodepthanything.depth".param.model]
+label = "模型"
+option.metric_small = "真实 · Small"
+option.small = "相对 · Small"
+option.metric_base = "真实 · Base"
+option.base = "相对 · Base"
+option.metric_large = "真实 · Large"
+option.large = "相对 · Large"
+
+[node."videodepthanything.depth".param.resolution]
+label = "处理分辨率"
+
+[node."videodepthanything.depth".port.depth]
+label = "深度贴图"
+help = "真实尺度的模型：摄影机 Z 方向的距离（厘米）；相对的模型：相对视差（近大远小，无单位，包里注明是视差）。要真实尺度又要不闪，相对模型的结果接「深度对齐」，参考接逐帧的米制深度"
+
+[node."videodepthanything.depth".stage]
+write_disparity = "写出视差图"
+
+[extension.videodepthanything]
+summary = "在 Depth Anything V2 基础上做的视频深度贴图，任意长的视频都能算，质量、一致性和泛化能力不打折；Small 可商用，Base / Large 非商用"
+license.name = "Apache-2.0（Small / Metric-Small）+ CC-BY-NC-4.0（Base / Large / Metric-Base / Metric-Large，非商用）"
+license.summary = "代码 Apache-2.0。Video-Depth-Anything-Small 和 Metric-Video-Depth-Anything-Small 两个模型为 Apache-2.0，可商用；Video-Depth-Anything-Base、Video-Depth-Anything-Large、Metric-Video-Depth-Anything-Base、Metric-Video-Depth-Anything-Large 四个模型为 CC-BY-NC-4.0，非商用（仅限研究），选这四个模型的结果不能用于商业项目。注意：米制模型的训练数据含 Virtual KITTI 2（CC BY-NC-SA 3.0）"
+weight."vda-small".note = "depth-anything/Video-Depth-Anything-Small（Apache-2.0，ViT-S 28.4M 参数）"
+weight."vda-metric-small".note = "depth-anything/Metric-Video-Depth-Anything-Small（Apache-2.0，ViT-S 28.4M 参数）"
+weight."vda-base".note = "depth-anything/Video-Depth-Anything-Base（CC-BY-NC-4.0，非商用，ViT-B 113.1M 参数）"
+weight."vda-metric-base".note = "depth-anything/Metric-Video-Depth-Anything-Base（CC-BY-NC-4.0，非商用，ViT-B 113.1M 参数）"
+weight."vda-large".note = "depth-anything/Video-Depth-Anything-Large（CC-BY-NC-4.0，非商用，ViT-L 381.8M 参数）"
+weight."vda-metric-large".note = "depth-anything/Metric-Video-Depth-Anything-Large（CC-BY-NC-4.0，非商用，ViT-L 381.8M 参数）"
+
+[stage]
+estimate_depth = "估计深度"
+depth = "深度"

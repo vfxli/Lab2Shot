@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..errors import GraphError, message_of
-from ..messages import Msg
+from ..messages import Msg, again
 from ..nodes.port import PARAM
 from . import scopes as sc
 from .graph import walk
@@ -325,6 +325,8 @@ class Demand:
         refused = None
         try:
             for nid in g.needed(targets, self.surely_takes):
+                if not depth(nid) and self._behind_missing(nid, ()) is not None:  # a wire waiting on a reader with no
+                    continue  # file: the reader is the cause, said below as what does not come through (_behind_missing)
                 if depth(nid) or (sc.chooses(g.nodes[nid].type) and self.taken_ports(nid) is None):
                     # in a block, or a switch whose route is not decided yet: what holds whichever route each
                     # instance takes (its wires), the rest per instance once it is known (its own error then)
@@ -350,7 +352,8 @@ class Demand:
             first = next((i for i in order if i in failing), None)
             said = self.outcome(*first).message if first is not None else next(
                 o.message for t in targets for o in self._fates(t) if o is not None)
-            refused = Msg(said["code"], **(said.get("params") or {}))
+            # made again with its words kept (messages.again: `args`), so it reads in whoever's language asks
+            refused = again(said) or Msg(said["code"], **(said.get("params") or {}))
         return Readiness(refused, frozenset(failing), tuple(computing), tuple(cached), frozenset(skipped))
 
     def fate(self, inst: Inst, wanted: frozenset[str] = frozenset(), force: bool = False, now: bool = False,

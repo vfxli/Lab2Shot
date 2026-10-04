@@ -1,9 +1,0 @@
-# CUT3R 的消息（adapters/cut3r）。
-
-# ---- 参数和画面
-"E-CUT3R-OVERLAP" = "「段间重叠」{overlap:d} 要小于「每段最多帧数」{max_frames:d}：把重叠调小，或把每段帧数调大"
-
-# ---- 重建
-"E-CUT3R-STITCH" = "CUT3R 分段拼接失败：相邻两段重叠的帧里可用的静止点太少，对不齐。把「段间重叠」调大一些再算"
-"W-CUT3R-FOCALJUMP" = "CUT3R 逐帧估的 Focal Length 在 {low:d}–{high:d} px 之间波动（超过 10%）：打开了「整段同一 Focal Length」就按中值用一个 Focal Length；变焦镜头以外，这么大的波动说明相机解得不稳，请和 ViPE 等其他解算对比"
-"W-CUT3R-STITCHERROR" = "CUT3R 在第 {first:d}–{last:d} 帧处两段拼接的误差是 {error:.1%}（超过 5%）：这里相机可能跳一帧。把「段间重叠」调大，或把「每段最多帧数」调大后重算"

@@ -16,11 +16,13 @@ export type { Scope, ScopeItem, ScopeList };
 
 const LIST = "[]";
 
-/** Whether this is a list type (`image[]`, `scene.character[]`). */
-export const isList = (type: string): boolean => type.endsWith(LIST);
+/** Whether this is a list type (`image[]`, `scene.character[]`). Of candidate types (`a|b`): only when every candidate
+ * is one, the same rule as lab2shot/data/types.py is_list. */
+export const isList = (type: string): boolean => type.split("|").every((t) => t.endsWith(LIST));
 
-/** The type of one item (`image[]` -> `image`); a non-list type maps to itself. */
-export const elementOf = (type: string): string => (isList(type) ? type.slice(0, -LIST.length) : type);
+/** The type of one item (`image[]` -> `image`); a non-list type maps to itself; candidate types one by one. */
+export const elementOf = (type: string): string =>
+  [...new Set(type.split("|").map((t) => (t.endsWith(LIST) ? t.slice(0, -LIST.length) : t)))].join("|");
 
 /** The catalogue's data type for a port's declared type. A port type may be a union (`scene.skeleton|scene.character`:
  * the 「动画」 port of the skeleton-motion family, whose type depends on what is wired to it), while the catalogue has

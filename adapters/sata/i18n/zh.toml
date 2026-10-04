@@ -1,0 +1,47 @@
+# SATA extension: its words in Chinese (the same keys as en.toml); the shared retarget messages are in the core catalogue.
+
+[node."sata.retarget"]
+subtitle = "动作重定目标"
+description = "语义感知、跨拓扑的学习式动作重定目标。学习式重定目标的中间一段：「源」「目标」接「重定目标预处理」的两个输出（部位对应、静止姿势、哪些骨骼不送进模型都在那里定），结果接「重定目标后处理」做平移和髋高，再接「骨骼变形」看网格。输出是模型原生的结果，写回目标自己的层次；没送进模型的骨骼保持静止姿势、跟着父骨骼走。预处理的忽略规则选「SATA（官方人体范围）」，或实验性的「加手指」。"
+official.note = "使用官方已发布模型，保留目标自己的层次。"
+needs.sata.label = "SATA（官方人体范围）"
+needs.sata_fingers.label = "SATA（加手指，实验）"
+
+[node."sata.retarget".param.source_toe_semantics]
+label = "源脚趾语义"
+help = "SATA 的 T5 区分脚趾根部和大脚趾。官方名称已知时保持其语义，自定义名称按对应关系默认脚趾根部，可手调。"
+option.auto = "自动（保留官方已知名称语义）"
+option.base = "脚趾根部"
+option.big_toe = "大脚趾"
+
+[node."sata.retarget".param.target_toe_semantics]
+label = "目标脚趾语义"
+option.auto = "自动（保留官方已知名称语义）"
+option.base = "脚趾根部"
+option.big_toe = "大脚趾"
+
+[node."sata.retarget".param.model]
+label = "模型"
+option.vae_human = "人类 VAE"
+option.vae_merge = "人类与动物 VAE"
+option.vae_animo = "动物 VAE"
+option.rvq_human = "人类 RVQ"
+
+[node."sata.retarget".param.window]
+label = "推理窗口"
+
+[node."sata.retarget".param.seed]
+label = "随机种子"
+
+[extension.sata]
+summary = "语义感知、跨拓扑的学习式动作重定目标"
+license.name = "Apache-2.0"
+license.summary = "Apache-2.0；依赖资产遵守各自许可，详情见官方仓库。"
+weight.retarget-models.note = "官方 VAE / RVQ 重定目标模型权重与归一化统计"
+weight.t5-base.note = "关节语义文本的 T5-base 编码器"
+weight.t5-base.notice = "t5-base（Apache-2.0）"
+
+# worker progress (worker.py)
+[stage]
+encode_joint_text = "编码关节语义"
+retarget = "SATA 重定目标"

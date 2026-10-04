@@ -6,6 +6,7 @@
 
 # 各机器的本地设置（OCIO 路径、编译器路径）
 /config/local.toml
+/config/setup.lang
 
 # 服务工作目录：账号、缓存、上传、交付、日志
 /work/

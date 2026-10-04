@@ -2,6 +2,8 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import type { Message } from "../messages/message";
 import { Button } from "./Button";
 import { Sheet } from "./Sheet";
+import { t } from "../i18n/t";
+import type { Tip } from "../platform/tips";
 
 /** The page's one confirmation: a sheet that says, from the message catalogue, what an action will do, with
  * 取消 and the action's own word. Never the browser's window.confirm.
@@ -12,7 +14,7 @@ export interface Ask {
   title: string;
   say: Message;
   yes: string; // the action's own word: 删掉, 清零, 不保存
-  tip: string; // what the action button does
+  tip?: Tip | null; // the action button's tooltip (platform/tips.ts: consequence): what it loses or leaves that the sentence does not say
   danger?: boolean; // it removes or ends something
 }
 
@@ -39,8 +41,8 @@ export function useConfirm(): [(ask: Ask) => Promise<boolean>, ReactNode] {
         {open.say.text}
       </p>
       <div className="dialog-row confirm-end">
-        <Button tip="不做，回到刚才" tone="ghost" onClick={() => done(false)}>
-          取消
+        <Button tone="ghost" onClick={() => done(false)}>
+          {t("ui.common.cancel")}
         </Button>
         <Button tip={open.tip} tone="primary" danger={open.danger} data-field="confirm-yes" onClick={() => done(true)}>
           {open.yes}

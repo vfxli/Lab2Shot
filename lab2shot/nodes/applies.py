@@ -25,14 +25,14 @@ never the rules themselves.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..availability import AVAILABLE, CAPABILITY, COOK, Availability, Cond, level
 from ..availability import resolve as resolve_subjects
 from ..data.types import DATA_TYPES, accepts
-from ..messages import Msg
+from ..messages import Both, Msg
 
 if TYPE_CHECKING:
     from .base import NodeDef, Port
@@ -85,19 +85,14 @@ class NodeFacts:
 
 
 def _param_label(t: type[NodeDef], name: str) -> str:
-    return next((p["label"] for p in t.param_specs() if p["name"] == name), name)
+    # kept in both languages (messages.Both): a message said with it reads right in whoever's language follows the cook
+    return Both.of(lambda: next((p["label"] for p in t.param_specs() if p["name"] == name), name))
 
 
 def _port_label(t: type[NodeDef], name: str) -> str:
     if name == t.ports_from and t.ports_from_side == "inputs":  # every row of a table that makes inputs: the table's label
         return _param_label(t, name)
-    return next((p.label for p in t.inputs if p.name == name), name)
-
-
-def _option_label(t: type[NodeDef], name: str, value: Any) -> Any:
-    spec = next((p for p in t.param_specs() if p["name"] == name), None)
-    labels = (spec or {}).get("option_labels") or {}
-    return labels.get(str(value), value)
+    return t.port_label(name)  # in both languages (nodes/base.py NodeDef.port_label)
 
 
 @dataclass(frozen=True)
@@ -213,7 +208,7 @@ class ParamIn(Cond):
         if len(self.values) == 1 and isinstance(self.values[0], bool):
             return Msg("I-APPLIES-ON" if self.values[0] else "I-APPLIES-OFF", name=param)
         return Msg("I-APPLIES-CHOICE", name=param,
-                   choices=[Msg("I-APPLIES-OPTION", label=_option_label(t, self.name, v)) for v in self.values])
+                   choices=[Msg("I-APPLIES-OPTION", label=t.option_label(self.name, v)) for v in self.values])
 
     def names(self):
         return frozenset({self.name}), frozenset(), frozenset()
@@ -293,11 +288,11 @@ class WiredOut(Cond):
 
 
 def _out_label(t: type[NodeDef], name: str) -> str:
-    return next((p.label for p in all_outputs(t) if p.name == name), name)
+    return Both.of(lambda: next((p.label for p in all_outputs(t) if p.name == name), name))
 
 
 def _type_words(types: tuple[str, ...] | list[str]) -> list[str]:
-    return [DATA_TYPES[x].label if x in DATA_TYPES else x for x in types]
+    return [Both.of(lambda x=x: DATA_TYPES[x].label) if x in DATA_TYPES else x for x in types]
 
 
 @dataclass(frozen=True)
@@ -383,7 +378,7 @@ class Incoming(Cond):
     def why(self, f: NodeFacts, t: type[NodeDef]) -> Msg:
         known = self._now(f)
         return Msg("I-APPLIES-INGT" if self.op == "gt" else "I-APPLIES-INEQ", input=_port_label(t, self.port),
-                   fact=(known.label if known and known.label else self.name), value=self.value,
+                   fact=(Both.of(lambda: known.label if known and known.label else self.name)), value=self.value,
                    now=(known.value if known else None))
 
     def names(self):
@@ -442,7 +437,7 @@ class FactCmp(Cond):
     kind = COOK
 
     def until(self, f: NodeFacts, t: type[NodeDef]) -> Msg:
-        return Msg("I-APPLIES-PENDING", fact=[t.fact_labels.get(self.name, self.name)])
+        return Msg("I-APPLIES-PENDING", fact=[t.fact_label(self.name)])
 
     def holds(self, f: NodeFacts) -> bool | None:
         known = f.own.get(self.name)
@@ -452,7 +447,7 @@ class FactCmp(Cond):
         return v > self.value if self.op == "gt" else bool(v) if self.op == "true" else v == self.value
 
     def why(self, f: NodeFacts, t: type[NodeDef]) -> Msg:
-        label = t.fact_labels.get(self.name, self.name)
+        label = t.fact_label(self.name)
         now = f.own[self.name].value if self.name in f.own else None
         if self.op == "true":
             return Msg("I-APPLIES-FACTTRUE", fact=label)
@@ -479,29 +474,44 @@ class Cost:
     underestimating is the dangerous error, since the scheduler starts a node on a card only when this much is free
     there. A worker's own note may quote torch's reserved peak as a reference; it is not this number. `measured_on`:
     the card the numbers were measured on. The VRAM figures and the card are card information: no text a node shows
-    carries them; the resolved cost gives them structurally for the server to gate."""
+    carries them; the resolved cost gives them structurally for the server to gate.
+    `vram_full_gb`: a node that steps down on a smaller card (fewer frames per chunk, a smaller size: its worker picks
+    by the card's memory) declares the peak of its full tier here, `vram_gb` being what its stepped-down run takes
+    on a 24 GB card. On a machine with a card authorized for jobs that holds the full tier, it asks for that much (it
+    runs on such a card and nowhere else, so it always runs full there); otherwise it asks for `vram_gb` and runs
+    stepped down. Which of the two is in its cache key (engine/evaluation.py Evaluation.full_tier): a stepped-down
+    result is never handed out for a full one, nor the other way round. Its worker gets the VRAM its tier asked for
+    (job parameter `vram_budget_gb`, engine/external.py job_params) and picks its step by that alone, never by what
+    the card happens to have free, so the result is the tier its key says. A full tier that grows with a parameter
+    is worked out by the node (NodeDef.vram_full). 0: it never steps down."""
 
     gpu: bool = False
     vram_gb: float = 0.0
+    vram_full_gb: float = 0.0
     seconds_per_frame: float | None = None
     ram_gb: float = 0.0
-    note: str = ""
-    whole: str = ""
+    note: bool = False  # True: it has a note (node.<type>.cost.note)
+    whole: bool = False  # True: it works on the whole at once (node.<type>.cost.whole says why)
     vram_measured: bool = True
     measured_on: str = MEASURED_ON
 
-    @property
-    def said(self) -> str:
-        """What the card page says beside the numbers: why there is no seconds per frame, then the note."""
-        return "，".join(x for x in (self.whole, self.note) if x)
+    def said(self, t) -> str:
+        """What the card page says beside the numbers for node type `t`, in the language now: why there is no seconds
+        per frame (node.<type>.cost.whole), then the note (node.<type>.cost.note)."""
+        from . import text
+        from .. import i18n
+
+        parts = [text.word(t, "cost", k) or "" for k, v in (("whole", self.whole), ("note", self.note)) if v]
+        return i18n.t("cost.sep").join(x for x in parts if x)
 
 
 @dataclass(frozen=True)
 class Licence:
-    """A node's licence class when it differs from its extension's (nodes/tags.py), and why it is what it is."""
+    """A node's licence class when it differs from its extension's (nodes/tags.py), and why it is what it is: `note`
+    True, its words node.<type>.licence.note."""
 
     tag: str = ""
-    note: str = ""
+    note: bool = False
     # it needs a model each user registers for and downloads (SMPL-X, MANO, FLAME): 需注册, the tag an extension gets
     # from the body models among its manual weights (adapters.py), for a node that declares its own (the core's)
     registration: bool = False
@@ -522,6 +532,9 @@ class OptionTrait:
     # research, stricter); "" none. The same classes as an extension's whole licence, so accounts and cards judge both
     # one way (tags.may)
     licence: str = ""
+    # the choice needs a model each user must register for (SMPL-X, MANO, FLAME): the 需注册 tag, as Licence.registration
+    # is for a whole node, but for one choice only (the core's 「标准人」: only its SMPL-X skeleton does)
+    registration: bool = False
     vram_gb: float | None = None
     seconds_per_frame: float | None = None
     ram_gb: float | None = None
@@ -531,8 +544,9 @@ class OptionTrait:
 
         if self.licence not in ("", tags.NONCOMMERCIAL, tags.RESEARCH):
             raise TypeError(f"an option's licence is {tags.NONCOMMERCIAL!r} or {tags.RESEARCH!r}, not {self.licence!r}")
-        if (self.gpu or self.licence) and not isinstance(self.when, ParamIn):
-            raise TypeError(f"an option trait changing the GPU or the licence is a choice (Param(...).one_of), not {self.when!r}")
+        if (self.gpu or self.licence or self.registration) and not isinstance(self.when, ParamIn):
+            raise TypeError(f"an option trait changing the GPU, the licence or the registration is a choice "
+                            f"(Param(...).one_of), not {self.when!r}")
 
 
 def licence_traits(options: Mapping[str, Mapping[Any, str]]) -> tuple[OptionTrait, ...]:
@@ -555,11 +569,14 @@ class ResolvedCost:
     rating: dict | None  # {"tier"} 低/中/高/超高 (nodes/compute.py); None off a GPU
     vram_measured: bool = True  # False: vram_gb is an estimate (Cost.vram_measured)
     measured_on: str = ""  # the card vram_gb and seconds_per_frame were measured on ("" off a GPU)
+    vram_full_gb: float = 0.0  # Cost.vram_full_gb: its full tier's peak when it steps down on a smaller card; 0 never
 
     def describe(self) -> dict:
-        """vram_gb, vram_measured and measured_on are card information: the server shows them only behind farm.cards."""
+        """vram_gb, vram_full_gb, vram_measured and measured_on are card information: the server shows them only
+        behind farm.cards."""
         return {"gpu": self.gpu, "vram_gb": self.vram_gb, "seconds_per_frame": self.seconds_per_frame,
-                "ram_gb": self.ram_gb, "rating": self.rating, "vram_measured": self.vram_measured, "measured_on": self.measured_on}
+                "ram_gb": self.ram_gb, "rating": self.rating, "vram_measured": self.vram_measured, "measured_on": self.measured_on,
+                "vram_full_gb": self.vram_full_gb}
 
 
 @dataclass(frozen=True)
@@ -676,14 +693,47 @@ def lost_output_params(t: type[NodeDef]) -> list[str]:
 
 
 def option_conditions(t: type[NodeDef]) -> dict[str, Cond]:
-    """Every choice of a parameter that declares when it can be picked (P(option_applies={value: cond})) ->
-    its condition, keyed "<parameter>=<value>". Same mechanism as a parameter's own `applies`, one level down: the
-    server resolves it, the page greys that one option and writes why beside it."""
+    """Every choice of a parameter that declares when it can be picked (P(option_applies={value: cond}), and a
+    registry's choice that says so: P(options_from=) Choice.applies) -> its condition, keyed "<parameter>=<value>".
+    Same mechanism as a parameter's own `applies`, one level down: the server resolves it, the page greys that one
+    option and writes why beside it."""
+    from .params import registered_options
+
     out = {}
     for name, f in t.Params.model_fields.items():
         for value, cond in (getattr(f.json_schema_extra, "option_applies", None) or {}).items():
             out[f"{name}={value}"] = cond
+    for name, choices in registered_options(t.Params).items():
+        for c in choices:
+            if c.applies is not None:
+                out[f"{name}={c.value}"] = c.applies
     return out
+
+
+def traits_of(t: type[NodeDef]) -> tuple[OptionTrait, ...]:
+    """What the node's choices change about it: its own traits, and the licence each registry choice switches it to
+    (P(options_from=) Choice.licence / registration, the same as an OptionTrait on Param(x).one_of(value))."""
+    from .params import registered_options
+
+    more = tuple(OptionTrait(Param(name).one_of(c.value), licence=c.licence, registration=c.registration)
+                 for name, choices in registered_options(t.Params).items() for c in choices
+                 if c.licence or c.registration)
+    return (*t.traits, *more) if more else t.traits
+
+
+@dataclass(frozen=True)
+class Provided(Cond):
+    """Something this server has or lacks, not the node's own data (a body's files an extension installs:
+    data/standard_bodies.py): holds while `lacking()` says nothing, greyed with what it says otherwise. Not known
+    before a cook and never a capability: the `data` kind, so it is shown greyed with the reason."""
+
+    lacking: Callable[[], Msg | None]
+
+    def holds(self, f: NodeFacts) -> bool:
+        return self.lacking() is None
+
+    def why(self, f: NodeFacts, t: type[NodeDef]) -> Msg | None:
+        return self.lacking()  # asked only when it does not hold, i.e. when lacking() says what is missing
 
 
 def table_conditions(t: type[NodeDef]) -> dict[str, dict[str, Cond]]:
@@ -752,7 +802,10 @@ def resolve_cost(t: type[NodeDef], f: NodeFacts) -> ResolvedCost:
               for tr in held if tr.vram_gb is not None or tr.seconds_per_frame is not None]
     worst = max(points or [(c.vram_gb, c.seconds_per_frame)], key=lambda p: TIERS.index(_rating(*p)["tier"]))
     vram = max([c.vram_gb, *(tr.vram_gb for tr in held if tr.vram_gb is not None), *setting_vram(t, f).values()])
-    return ResolvedCost(True, float(vram), worst[1], ram, _rating(worst[0], worst[1]), c.vram_measured, c.measured_on)
+    # the full tier steps down by the same rule whatever else is chosen: never below what the chosen settings take
+    declared = t.vram_full(dict(f.params))
+    full = max(declared, float(vram)) if declared > 0 else 0.0
+    return ResolvedCost(True, float(vram), worst[1], ram, _rating(worst[0], worst[1]), c.vram_measured, c.measured_on, full)
 
 
 def setting_vram(t: type[NodeDef], f: NodeFacts) -> dict[str, float]:
@@ -785,11 +838,17 @@ def may_hold(trait, f: NodeFacts) -> bool:
 def resolve_licence(t: type[NodeDef], f: NodeFacts) -> ResolvedLicence:
     from . import tags
 
-    found = tags.node_tags(t) | {tr.licence for tr in t.traits if tr.licence and may_hold(tr, f)}
+    traits = traits_of(t)
+    found = tags.node_tags(t) | {tr.licence for tr in traits if tr.licence and may_hold(tr, f)}
+    if any(tr.registration and may_hold(tr, f) for tr in traits):
+        found |= {tags.REGISTRATION}
     # the words said about it: the node's own when its licence differs or it has more to say, else its extension's
     # summary — the one text, never restated on the node in other words (MatAnyone's once said 只能研究用 of a 非商用)
     ext = t.project.extension
-    note = t.licence.note or (ext.license.summary if ext is not None else "")
+    from . import text
+
+    own = (text.word(t, "licence", "note") or "") if t.licence.note else ""
+    note = own or (ext.license.summary if ext is not None else "")
     return ResolvedLicence(frozenset(found), tags.commercial(frozenset(found)), note)
 
 
@@ -861,16 +920,20 @@ def option_key(value: Any) -> str:
 
 def option_traits(t: type[NodeDef]) -> dict[str, dict[str, dict]]:
     """The lookup table the catalogue gives for the choices that change something (a trait on Param(x).one_of): parameter
-    -> str(value) -> {"gpu", "licence", "rating"} ("licence": the licence class the choice switches to, "" none; the
-    rating that choice alone gives, None when it measures nothing of its own)."""
+    -> str(value) -> {"gpu", "licence", "registration", "rating"} ("licence": the licence class the choice switches to,
+    "" none; "registration": the choice needs a model each user registers for; the rating that choice alone gives,
+    None when it measures nothing of its own)."""
     out: dict[str, dict[str, dict]] = {}
-    for tr in t.traits:
+    for tr in traits_of(t):
         if not isinstance(tr.when, ParamIn):
             continue
         for value in tr.when.values:
-            row = out.setdefault(tr.when.name, {}).setdefault(option_key(value), {"gpu": False, "licence": "", "rating": None})
+            row = out.setdefault(tr.when.name, {}).setdefault(option_key(value),
+                                                              {"gpu": False, "licence": "", "registration": False,
+                                                               "rating": None})
             row["gpu"] = row["gpu"] or bool(tr.gpu)
             row["licence"] = row["licence"] or tr.licence
+            row["registration"] = row["registration"] or bool(tr.registration)
             if tr.vram_gb is not None or tr.seconds_per_frame is not None:
                 row["rating"] = _rating(tr.vram_gb if tr.vram_gb is not None else t.cost.vram_gb,
                                         tr.seconds_per_frame if tr.seconds_per_frame is not None else t.cost.seconds_per_frame)
@@ -878,12 +941,18 @@ def option_traits(t: type[NodeDef]) -> dict[str, dict[str, dict]]:
 
 
 def licensed_choices(t: type[NodeDef]) -> dict[str, dict]:
-    """Parameter -> value -> the licence class that value switches the node to (its traits: NONCOMMERCIAL, RESEARCH)."""
+    """Parameter -> value -> the tags that value switches the node to (its traits: NONCOMMERCIAL, RESEARCH, and
+    REGISTRATION for a choice that needs a model each user registers for). One value may carry several (the core's
+    「标准人」 SMPL-X choice is noncommercial and needs registration); what a login may not use hides them
+    (server/access.py _hidden_choices)."""
+    from . import tags
+
     out: dict[str, dict] = {}
-    for tr in t.traits:
-        if tr.licence and isinstance(tr.when, ParamIn):
+    for tr in traits_of(t):
+        chosen = frozenset(filter(None, [tr.licence, tags.REGISTRATION if tr.registration else ""]))
+        if chosen and isinstance(tr.when, ParamIn):
             for v in tr.when.values:
-                out.setdefault(tr.when.name, {}).setdefault(v, tr.licence)
+                out.setdefault(tr.when.name, {}).setdefault(v, set()).update(chosen)
     return out
 
 
@@ -911,15 +980,15 @@ def standing_notices(t: type[NodeDef]) -> list[Msg]:
     return said
 
 
-def overscan_notices(t: type[NodeDef], inputs: list[tuple[str, str, object]]) -> list[tuple[str, Msg]]:
+def overscan_notices(t: type[NodeDef], node: str, inputs: list[tuple[str, str, object]]) -> list[tuple[str, Msg]]:
     """(input port, N-COOK-OVERSCAN) for every picture a node that can only work on the plate frame
     (keeps_overscan = False: it unprojects it, renders into it, writes a format without windows) gets with pixels past
-    that frame: it says what it leaves out. `inputs`: (port, its label, a packet) per packet the node cooks with."""
+    that frame: it says what it leaves out. `node`: how messages point at it (GNode.label); `inputs`: (port, its label, a packet) per packet the node cooks with."""
     if t.keeps_overscan:
         return []
     from ..data.windows import Window
 
-    return [(port, Msg("N-COOK-OVERSCAN", node=t.label, input=label, left=o[0], top=o[1], right=o[2], bottom=o[3]))
+    return [(port, Msg("N-COOK-OVERSCAN", node=node, input=label, left=o[0], top=o[1], right=o[2], bottom=o[3]))
             for port, label, packet in inputs if "data_window" in packet.meta
             and any(o := Window.of(packet.meta).overscan)]
 
@@ -1008,8 +1077,8 @@ def check_declarations(t: type[NodeDef]) -> None:
         names = t.ports_from_names
         if not (t.ports_from and t.ports_from_side == "inputs"):
             raise TypeError(f"{t.__name__}: ports_from_names belongs to a table that makes inputs")
-        if len(set(names)) != len(names) or len(t.ports_from_labels) != len(names):
-            raise TypeError(f"{t.__name__}: ports_from_names must be distinct, with one ports_from_labels entry each")
+        if len(set(names)) != len(names):
+            raise TypeError(f"{t.__name__}: ports_from_names must be distinct")
         from typing import get_args
 
         field_ = t.Params.model_fields[t.ports_from]

@@ -40,10 +40,11 @@ CLEANUP = "cleanup"  # 修复动作（交付物子类 cleanup）
 JOBS = (GENERATE, CLEANUP)
 
 GROUND_TOLERANCE_CM = 15.0  # 按键帧计算的最低脚部关节距 y = 0 超过此距离时，节点给出警告
+BAKED_KEY_STEP = 8  # 烘焙过的动画（每帧都有记录）在「关键帧」留空时，每隔这么多帧取一个关键帧
 ON_RIG = Wired("character")  # 这些参数只在接入动画时生效：它们描述的都是结果如何回到该骨骼上
 OFF_RIG = Not(ON_RIG)  # 相反：只在未接入动画时生效的参数（起始帧号、结束帧号）
 PERSON = "generated_01"  # 生成人物在 USD 中的名称（与 Sketch2Anim 的 sketch_01 做法相同）
-CONTACT_CURVES = ("左脚跟", "左脚尖", "右脚跟", "右脚尖")  # 约定中的 contacts [T,4]，顺序与之一致
+CONTACT_CURVES = ("left_heel", "left_toe", "right_heel", "right_toe")  # 约定中的 contacts [T,4]，顺序与之一致
 BAD_FRAME_SHARE = 0.6  # 判为有问题的帧超过此比例时，节点提示该动作可能超出模型的适用范围
 
 
@@ -54,7 +55,7 @@ def motion_fps_param(applies=None):
     """「帧率」：动画是几帧每秒。帧号本身不带时间，而模型按秒工作（各自的训练帧率：Kimodo 30、StableMotion 20、
     UnderPressure 100……），job 的 fps 就是它（kit/rig.py send、free_job）；可接线，模板从读取节点的「帧率」口接来。
     worker=False：它随 job 的 motion.npz / extra 交给 worker，不再作为参数另交一份。"""
-    return P(DEFAULT_FPS, label="帧率", unit="fps", group="时间", gt=0, worker=False, applies=applies)
+    return P(DEFAULT_FPS, unit="fps", group="time", gt=0, worker=False, applies=applies)
 
 
 # ------------------------------------------------------------------ 生成动作一侧的参数
@@ -68,9 +69,9 @@ class MotionGenParams(NodeParams):
     可以不接入动画的成员使用下方的 FreeMotionParams。"""
 
     skeleton: str | None = skeleton_param()
-    keys: str = P("", label="关键帧", group="关键帧", placeholder="自动", worker=False)
-    exact: bool = P(True, label="关键帧精确", group="结果", worker=False)
-    foot_lock: bool = P(True, label="脚锁定", group="结果", worker=False)
+    keys: str = P("", group="keyframes", worker=False)
+    exact: bool = P(True, group="result", worker=False)
+    foot_lock: bool = P(True, group="result", worker=False)
     fps: float = motion_fps_param()
 
 
@@ -83,11 +84,11 @@ class FreeMotionParams(MotionGenParams):
     「起始帧号」与「读取视频」中的用语相同；而「帧数」在本项目中专指「模型一次处理的帧数」这类
     可能耗尽显存的参数，不用于描述镜头长度。"""
 
-    keys: str = P("", label="关键帧", group="关键帧", placeholder="自动", worker=False, applies=ON_RIG)
-    exact: bool = P(True, label="关键帧精确", group="结果", worker=False, applies=ON_RIG)
-    foot_lock: bool = P(True, label="脚锁定", group="结果", worker=False, applies=ON_RIG)
-    start_frame: int = P(1001, label="起始帧号", group="时间", worker=False, applies=OFF_RIG)
-    end_frame: int = P(1120, label="结束帧号", group="时间", worker=False, applies=OFF_RIG)
+    keys: str = P("", group="keyframes", worker=False, applies=ON_RIG)
+    exact: bool = P(True, group="result", worker=False, applies=ON_RIG)
+    foot_lock: bool = P(True, group="result", worker=False, applies=ON_RIG)
+    start_frame: int = P(1001, group="time", worker=False, applies=OFF_RIG)
+    end_frame: int = P(1120, group="time", worker=False, applies=OFF_RIG)
 
 
 # ------------------------------------------------------------------ 清理一侧的参数
@@ -105,8 +106,8 @@ class DetectCleanupParams(CleanupParams):
     这与是否存在对应输出端口（`detects`）是两回事：judges=True、detects=() 的成员有参数而无输出端口。
     UnderPressure 两者都没有（上游只给触地和足底力，没有逐帧判断）：judges=False，整段都按模型改。"""
 
-    only_bad: bool = P(True, label="只改问题帧", group="结果", worker=False)
-    threshold: float = P(0.5, label="检测阈值", group="结果", ge=0.05, le=0.95, worker=False)
+    only_bad: bool = P(True, group="result", worker=False)
+    threshold: float = P(0.5, group="result", ge=0.05, le=0.95, worker=False)
 
 
 # ------------------------------------------------------------------ 家族
@@ -133,7 +134,7 @@ class RigMotion(RigModel, WorkerNode):
     does: ClassVar[str] = ""
     # rig → 模型骨架的对齐（lab2shot_shared.motion.Retarget.align）改过：同一套关节约定按关节坐标系、根按身体坐标系、
     # 静止姿势不是站姿时在发来的姿势里对齐——四个成员的结果都变了，旧缓存要重算
-    version: ClassVar[int] = 11  # 进指纹：rig 与模型骨架的对齐（motion.Retarget.align）变了就加一
+    version: ClassVar[int] = 15  # 15：只为让半途代码的缓存重算；14：两副站着的基准姿势时躯干（根到胸、胸到头）整体按根的对齐，不逐骨对准；13：推测对应时排除没有蒙皮权重的关节（skeleton_recognition，坤）；12：两副站着的基准姿势，根按各自地面（最近的世界轴）对齐，不前后倾；进指纹：rig 与模型骨架的对齐（motion.Retarget.align）变了就加一
     cost = Cost(gpu=True)
 
     # --- 仅 does = "generate" 的成员声明 ---
@@ -183,9 +184,7 @@ class RigMotion(RigModel, WorkerNode):
             cls.on_node = ("keys", "exact")
         if cls.unconstrained and not any(p.name == "character" and p.optional for p in cls.inputs):
             cls.inputs = tuple(
-                Port(p.name, p.type, p.label, optional=True, applies=cls.rig_when,
-                     help="接上动画：它的关键帧就是约束，模型只补关键帧之间的动作，结果回到这副骨骼上。"
-                          "不接：只按文字和「起始帧号」「结束帧号」生成一整段新动作，交出模型自己的骨架动画")
+                replace(p, optional=True, applies=cls.rig_when)
                 if p.name == "character" else p for p in cls.inputs)
 
     @classmethod
@@ -214,15 +213,21 @@ class RigMotion(RigModel, WorkerNode):
                 f"DetectCleanupParams and have the worker write labels; not to judge, inherit CleanupParams "
                 f"and set judges = False")
         if cls.detects and not any(p.name == "labels" for p in cls.outputs):
-            cls.outputs = (*cls.outputs, Port("labels", "curves", cls.detects[0]))
+            cls.outputs = (*cls.outputs, Port("labels", "curves"))  # its words: node.<type>.port.labels.label
         if cls.contacts and not any(p.name == "contacts" for p in cls.outputs):
-            cls.outputs = (*cls.outputs, Port("contacts", "curves", "脚接触"))
+            cls.outputs = (*cls.outputs, Port("contacts", "curves"))
 
     # ------------------------------------------------------------------ 发送给 worker 的内容
 
     @staticmethod
-    def key_frames(text: str, rig) -> list[int]:
-        """关键帧：列出的帧，否则为骨骼动画中有采样的帧。"""
+    def baked(text: str, rig) -> bool:
+        """「关键帧」留空而动画每一帧都有记录（烘焙过的动画）：文件里分不出关键帧。"""
+        return not text.strip() and len(rig.keys) == len(rig.frames)
+
+    @classmethod
+    def key_frames(cls, text: str, rig) -> list[int]:
+        """关键帧：列出的帧，否则为骨骼动画中有采样的帧；烘焙过的动画（baked）每 BAKED_KEY_STEP 帧取一个，
+        末帧总在其中。"""
         from ...data.animation import parse_frames
 
         if text.strip():
@@ -232,8 +237,8 @@ class RigMotion(RigModel, WorkerNode):
                 raise Invalid(Msg("E-MOTIONGEN-KEYOUTSIDE", frame=outside[0], first=rig.frames[0], last=rig.frames[-1]))
         else:
             keys = rig.keys
-            if len(keys) == len(rig.frames):
-                raise Invalid(Msg("E-MOTIONGEN-BAKED", first=rig.frames[0], last=rig.frames[-1]))
+            if cls.baked(text, rig):
+                keys = sorted({int(f) for f in rig.frames[::BAKED_KEY_STEP]} | {int(rig.frames[-1])})
         if len(keys) < 2:
             raise Invalid(Msg("E-MOTIONGEN-FEWKEYS", count=len(keys)))
         return keys
@@ -252,7 +257,7 @@ class RigMotion(RigModel, WorkerNode):
         """清理：发送整段每一帧的世界姿势。"""
         rig = cls.rig(ctx)
         pairs, parts = cls.driven(ctx, rig)
-        ctx.stage("整理动作")
+        ctx.stage("prepare_motion")
         job = cls.send(ctx, rig, pairs, parts, list(rig.frames), rig.world())
         if cls.judges:  # worker 同样按节点的「检测阈值」截断其判断，使其重绘的帧与节点保留的帧一致；
             # 「只改问题帧」关闭时，worker 重绘每一帧（该开关由家族定义），而不只是判定有问题的帧
@@ -264,8 +269,10 @@ class RigMotion(RigModel, WorkerNode):
         """生成动作且接入动画：动画师的关键帧即约束，只发送这些帧的世界姿势。"""
         rig = cls.rig(ctx)
         keys = cls.key_frames(ctx.params["keys"], rig)  # 关键帧先于对应关系处理：无论骨骼关节如何命名，
-        pairs, parts = cls.driven(ctx, rig)  # 烘焙文件都应首先报告
-        ctx.stage("整理关键帧")
+        if cls.baked(ctx.params["keys"], rig):  # 关键帧的问题都应首先报告
+            ctx.say("N-MOTIONGEN-BAKEDSTEP", step=BAKED_KEY_STEP, count=len(keys), first=rig.frames[0], last=rig.frames[-1])
+        pairs, parts = cls.driven(ctx, rig)
+        ctx.stage("prepare_keyframes")
         poses = rig.world()[rig.index(keys)]
         feet = [pairs[parts[x]] for x in ("l.foot", "r.foot", "l.toe", "r.toe") if parts.get(x) in pairs]
         low = float(poses[:, feet][..., 1, 3].min())
@@ -307,7 +314,7 @@ class RigMotion(RigModel, WorkerNode):
         from ...data.animation import on_rig, write_animation
 
         rig, keys, pairs, parts = (job.notes[k] for k in ("rig", "keys", "pairs", "parts"))
-        ctx.stage("动作放回人物骨骼")
+        ctx.stage("motion_to_character")
         feet = [tuple(pairs[parts[f"{s}.{x}"]] for x in ("thigh", "shin", "foot")) for s in ("l", "r")] if ctx.params["foot_lock"] else None
         local, stats = on_rig(rig, keys, result, ctx.params["exact"], feet)
         info = {"extension": cls.runtime, "inbetween": {**result["info"], **stats}, "keys": keys}
@@ -328,7 +335,7 @@ class RigMotion(RigModel, WorkerNode):
         anim = np.asarray(result["anim"], np.float64)  # [F,J,4,4] 逐帧的关节到世界矩阵，单位厘米
         if len(anim) != len(frames):  # worker 已重采样到所要求的帧数：不一致说明两者不同步
             raise Invalid(Msg("E-MOTIONGEN-FRAMES", node=ctx.label, made=len(anim), want=len(frames)))
-        ctx.stage("写骨架动画")
+        ctx.stage("write_skeleton_animation")
         names_cg, bind_cg, anim_cg = rig_of_model(names, parents, bind, anim)
         out = ctx.outputs["character"]
         info = {"extension": cls.runtime, "motion": result["info"]}
@@ -349,7 +356,7 @@ class RigMotion(RigModel, WorkerNode):
         from lab2shot_shared import motion as mo
 
         rig, sent = job.notes["rig"], job.notes["keys"]
-        ctx.stage("清理过的动作放回人物骨骼")
+        ctx.stage("cleaned_motion_to_character")
         at = model_at(rig, sent, result)  # 骨骼每一帧在模型时间轴上的位置
         timeline = np.arange(len(result["rotations"]))
         labels = (mo.resample_values(timeline, result["labels"], at) if cls.judges

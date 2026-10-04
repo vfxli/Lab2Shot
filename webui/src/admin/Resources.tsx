@@ -10,9 +10,11 @@ import { Table, type Column } from "../ui/Table";
 import { useConfirm } from "../ui/Confirm";
 import { msg } from "../messages/message";
 import "./resources.css";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** Per-user resource lookup: one table for every kind of resource an account owns. The server registry
- * (lab2shot/resources.py) defines the kinds, the columns each shows, and which columns the 时间 and 状态 filters
+ * (lab2shot/site/resources.py) defines the kinds, the columns each shows, and which columns the 时间 and 状态 filters
  * read; this file only renders that description. Nothing here knows what a 任务, 上传 or 反馈 is, so adding a new
  * kind of user resource requires one registry entry and no page changes.
  *
@@ -22,17 +24,17 @@ import "./resources.css";
 const PAGE = 50;
 
 /** Time filter options, as spans back from now; 0 means 全部. */
-const SPANS: { value: string; days: number; label: string; tip: string }[] = [
-  { value: "all", days: 0, label: "全部", tip: "不按时间筛选" },
-  { value: "7", days: 7, label: "7 天", tip: "只看最近 7 天的" },
-  { value: "30", days: 30, label: "30 天", tip: "只看最近 30 天的" },
-  { value: "90", days: 90, label: "90 天", tip: "只看最近 90 天的" },
+const SPANS: { value: string; days: number; label: () => string }[] = [
+  { value: "all", days: 0, label: () => t("ui.admin.resources.all") },
+  { value: "7", days: 7, label: () => t("ui.admin.resources.days", { n: 7 }) },
+  { value: "30", days: 30, label: () => t("ui.admin.resources.days", { n: 30 }) },
+  { value: "90", days: 90, label: () => t("ui.admin.resources.days", { n: 90 }) },
 ];
 
 const DAY_S = 86400;
 
 const ROW = "__row"; // Row key used by this page; never a column declared by the registry.
-// Extra row fields the registry may set besides the declared columns (lab2shot/resources.py RESERVED): whether the
+// Extra row fields the registry may set besides the declared columns (lab2shot/site/resources.py RESERVED): whether the
 // row is no longer in use, and which of the page's actions apply to it.
 const DIM = "__dim";
 const ACTS = "__acts";
@@ -46,10 +48,10 @@ const isMoment = (v: number) => v > 1e9 && v < 4e9;
 function Cell({ value, says }: { value: unknown; says: string }) {
   if (value === null || value === undefined || value === "") return <span className="dim">—</span>;
   if (says === "size" && typeof value === "number") return <span className="tnum">{sizeText(value)}</span>;
-  if (typeof value === "boolean") return <>{value ? "是" : "否"}</>;
+  if (typeof value === "boolean") return <>{value ? t("ui.admin.resources.yes") : t("ui.admin.resources.no")}</>;
   if (typeof value === "number") {
     return isMoment(value) ? (
-      <span className="tnum" data-tip={stampText(value)}>
+      <span className="tnum" {...tipAttrs(tipOf("value", stampText(value)))}>
         {whenText(value)}
       </span>
     ) : (
@@ -58,7 +60,7 @@ function Cell({ value, says }: { value: unknown; says: string }) {
   }
   const text = String(value);
   return (
-    <span data-user-data data-tip={text}>
+    <span data-user-data {...tipAttrs(tipOf("truncated", text))}>
       {text}
     </span>
   );
@@ -94,11 +96,11 @@ export function ResourceTable({ user, kind }: { user: number; kind: string }) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   useEffect(() => setPicked(new Set()), [user, kind, q, state, span, offset]);
 
-  /** Runs one declared action on one row (lab2shot/resources.py Act): dangerous actions ask for confirmation first,
+  /** Runs one declared action on one row (lab2shot/site/resources.py Act): dangerous actions ask for confirmation first,
      * then the page is re-read. The available actions, their labels and targets are defined by the server; this file names none. */
   const run = async (act: ResourceAct, row: Record<string, unknown>, rowId: string) => {
     const what = String(row[page?.columns[1]?.key ?? ""] ?? rowId);
-    if (act.danger && !(await ask({ title: act.label, say: msg("N-RESOURCE-ACT", { what: act.label, name: what }), yes: act.label, tip: act.tip, danger: true }))) return;
+    if (act.danger && !(await ask({ title: act.label, say: msg("N-RESOURCE-ACT", { what: act.label, name: what }), yes: act.label, tip: tipOf("consequence", act.tip), danger: true }))) return;
     setBusy(rowId + act.id);
     try {
       await adminApi.rowAct(act, rowId);
@@ -115,17 +117,17 @@ export function ResourceTable({ user, kind }: { user: number; kind: string }) {
   const runMany = async (act: ResourceAct, ids: string[]) => {
     if (!ids.length) return;
     if (!(await ask({ title: act.label, say: msg("N-RESOURCE-ACTMANY", { what: act.label, count: ids.length }),
-                      yes: act.label, tip: act.tip, danger: act.danger }))) return;
+                      yes: act.label, tip: tipOf("consequence", act.tip), danger: act.danger }))) return;
     setBusy(`many:${act.id}`);
     const failed: string[] = [];
     for (const id of ids) {
       try {
         await adminApi.rowAct(act, id);
       } catch (e) {
-        failed.push(`${id}：${reasonOf(e as Error)}`);
+        failed.push(t("ui.admin.resources.failed_one", { id, why: reasonOf(e as Error) }));
       }
     }
-    setProblem(failed.length ? failed.join("；") : "");
+    setProblem(failed.length ? failed.join(t("ui.admin.resources.failed_sep")) : "");
     setPicked(new Set());
     setBusy("");
     setAgain((n) => n + 1);
@@ -133,7 +135,7 @@ export function ResourceTable({ user, kind }: { user: number; kind: string }) {
 
   // a page that never came is replaced by why; a refused action on a page that is there is said above it, and the
   // table (with its filters and checked rows) stays
-  if (!page) return problem ? <Empty title={problem} hint="换一个页签，或者刷新页面再试。" /> : <Loading what="这个账号名下的记录" />;
+  if (!page) return problem ? <Empty title={problem} hint={t("ui.admin.resources.retry_hint")} /> : <Loading what={t("ui.admin.user.records")} />;
 
   const idKeyAll = page.columns[0]?.key ?? "";
   const canPick = page.acts.length > 0;  // Row selection is needed only when actions exist.
@@ -144,7 +146,6 @@ export function ResourceTable({ user, kind }: { user: number; kind: string }) {
   const columns: Column<Record<string, unknown>>[] = page.columns.map((c) => ({
     id: c.key,
     label: c.label,
-    tip: `${page.label}的「${c.label}」`,
     cell: (row) => <Cell value={row[c.key]} says={c.says} />,
   }));
   // 操作 column: only when the registry declares actions and this login may use some. The server has already filtered
@@ -155,14 +156,12 @@ export function ResourceTable({ user, kind }: { user: number; kind: string }) {
       id: "pick",
       width: "2.5rem",
       label: "",
-      tip: "勾选要一起处理的几条",
       cell: (row) => {
         const id = idsOn(row);
         const mine = Array.isArray(row[ACTS]) ? (row[ACTS] as string[]) : [];
         if (!mine.length) return null;  // No checkbox for a row with no applicable action.
         return (
-          <input type="checkbox" checked={picked.has(id)} aria-label="选中这一条"
-            data-tip="选中这一条，上面的按钮对所有选中的一起做"
+          <input type="checkbox" checked={picked.has(id)} aria-label={t("ui.admin.resources.pick")}
             onChange={(e) => setPicked((was) => {
               const now = new Set(was);
               if (e.target.checked) now.add(id); else now.delete(id);
@@ -177,8 +176,7 @@ export function ResourceTable({ user, kind }: { user: number; kind: string }) {
     columns.push({
       id: "acts",
       width: "13rem",
-      label: "操作",
-      tip: `对这一条${page.label}能做的事`,
+      label: t("ui.admin.extensions.col_action"),
       cell: (row) => {
         const rowId = String(row[idKey] ?? "");
         const mine = Array.isArray(row[ACTS]) ? (row[ACTS] as string[]) : [];
@@ -187,7 +185,7 @@ export function ResourceTable({ user, kind }: { user: number; kind: string }) {
             {page.acts
               .filter((a) => mine.includes(a.id))
               .map((a) => (
-                <Button key={a.id} tip={a.tip} tone="ghost" size="sm" danger={a.danger} disabled={busy === rowId + a.id} onClick={() => void run(a, row, rowId)}>
+                <Button key={a.id} tip={tipOf("consequence", a.tip)} tone="ghost" size="sm" danger={a.danger} disabled={busy === rowId + a.id} onClick={() => void run(a, row, rowId)}>
                   {a.label}
                 </Button>
               ))}
@@ -205,53 +203,52 @@ export function ResourceTable({ user, kind }: { user: number; kind: string }) {
           The available actions are computed by the server for the current login; for example, a secondary administrator does not see 「永久删除」 because that route requires data.others. */}
       {canPick && picked.size > 0 && (
         <div className="res-many" role="status">
-          <span>选中 {picked.size} 条</span>
+          <span>{t("ui.admin.resources.picked", { n: picked.size })}</span>
           {page.acts
             .filter((a) => page.rows.some((r) => picked.has(idsOn(r)) && (Array.isArray(r[ACTS]) ? (r[ACTS] as string[]) : []).includes(a.id)))
             .map((a) => (
-              <Button key={a.id} tip={`${a.tip}（对选中的 ${picked.size} 条一起做）`} tone="ghost" size="sm"
+              <Button key={a.id} tip={tipOf("consequence", a.tip)} tone="ghost" size="sm"
                 danger={a.danger} disabled={busy === `many:${a.id}`}
                 onClick={() => void runMany(a, page.rows.filter((r) => picked.has(idsOn(r))).map(idsOn))}>
                 {a.label}
               </Button>
             ))}
-          <Button tip="取消选中" tone="ghost" size="sm" onClick={() => setPicked(new Set())}>
-            取消选中
+          <Button tone="ghost" size="sm" onClick={() => setPicked(new Set())}>
+            {t("ui.admin.resources.unpick")}
           </Button>
           {allOn ? null : (
-            <Button tip="把这一页能做的都选上" tone="ghost" size="sm" onClick={() => setPicked(new Set(pickable))}>
-              全选这一页
+            <Button tone="ghost" size="sm" onClick={() => setPicked(new Set(pickable))}>
+              {t("ui.admin.resources.pick_page")}
             </Button>
           )}
         </div>
       )}
       <Filters>
-        <FilterRow label="搜索">
+        <FilterRow label={t("ui.admin.resources.search")}>
           <input
             className="field res-search"
             value={q}
-            placeholder={`在${page.label}里搜索`}
-            aria-label={`在${page.label}里搜索`}
-            data-tip="按下面每一列里的文字找，大小写不分"
+            placeholder={t("ui.admin.resources.search_in", { what: page.label })}
+            aria-label={t("ui.admin.resources.search_in", { what: page.label })}
             onChange={(e) => setQ(e.target.value)}
           />
           {page.when && (
             <Segmented
-              label="时间"
+              label={t("ui.admin.resources.time")}
               value={span}
-              options={SPANS.map((s) => ({ value: s.value, label: s.label, tip: s.tip }))}
+              options={SPANS.map((s) => ({ value: s.value, label: s.label() }))}
               onChange={setSpan}
               layout="res-span"
             />
           )}
         </FilterRow>
         {page.states.length > 1 && (
-          <FilterRow label="状态">
-            <Chip size="md" tip="不按状态筛选" on={state === ""} count={page.total} onClick={() => setState("")}>
-              全部
+          <FilterRow label={t("ui.admin.resources.state")}>
+            <Chip size="md" on={state === ""} count={page.total} onClick={() => setState("")}>
+              {t("ui.admin.resources.all")}
             </Chip>
             {page.states.map((s) => (
-              <Chip key={s} size="md" tip={`只看${s}的`} on={state === s} onClick={() => setState(s)}>
+              <Chip key={s} size="md" on={state === s} onClick={() => setState(s)}>
                 {s}
               </Chip>
             ))}
@@ -266,18 +263,18 @@ export function ResourceTable({ user, kind }: { user: number; kind: string }) {
         rowKey={(row) => String(row[ROW])}
         /* Rows the user has deleted (in the recycle bin) are dimmed, as flagged by the registry (`__dim`), not inferred here. */
         dim={page.dim ? (row) => !!row[DIM] : undefined}
-        empty={<Empty title={`这个账号名下没有${page.label}`} hint={q || state || span !== "all" ? "放宽上面的搜索和筛选再看。" : undefined} />}
+        empty={<Empty title={t("ui.admin.resources.none", { what: page.label })} hint={q || state || span !== "all" ? t("ui.admin.resources.widen") : undefined} />}
       />
       {page.total > PAGE && (
         <div className="res-pages">
-          <Button tip="上一页" tone="ghost" disabled={offset === 0} onClick={() => setOffset(Math.max(offset - PAGE, 0))}>
-            上一页
+          <Button tone="ghost" disabled={offset === 0} onClick={() => setOffset(Math.max(offset - PAGE, 0))}>
+            {t("ui.admin.resources.prev")}
           </Button>
           <span className="dim tnum">
-            第 {offset + 1}–{last} 条，共 {page.total} 条
+            {t("ui.admin.resources.range", { from: offset + 1, to: last, total: page.total })}
           </span>
-          <Button tip="下一页" tone="ghost" disabled={last >= page.total} onClick={() => setOffset(offset + PAGE)}>
-            下一页
+          <Button tone="ghost" disabled={last >= page.total} onClick={() => setOffset(offset + PAGE)}>
+            {t("ui.admin.resources.next")}
           </Button>
         </div>
       )}
@@ -305,17 +302,17 @@ export function useAccounts(): UserRow[] | null {
 
 /** An account as a person is named where one is picked: 中文名（用户名）, as 使用统计 names them (lab2shot/farm/usage.py).
  * Two people may share a Chinese name; the username is what tells them apart. */
-const personText = (u: UserRow) => (u.name ? `${u.name}（${u.username}）` : u.username);
+const personText = (u: UserRow) => (u.name ? t("ui.admin.resources.person", { name: u.name, username: u.username }) : u.username);
 
-/** The 「按人」 row: 全部 and one chip per account; `allTip` says what 全部 shows where it is used. */
-export function UserChips({ users, chosen, onChoose, allTip }: { users: UserRow[]; chosen: number | null; onChoose: (id: number | null) => void; allTip: string }) {
+/** The 「按人」 row: 全部 and one chip per account. */
+export function UserChips({ users, chosen, onChoose }: { users: UserRow[]; chosen: number | null; onChoose: (id: number | null) => void }) {
   return (
-    <FilterRow label="按人">
-      <Chip size="md" tip={allTip} on={chosen === null} onClick={() => onChoose(null)}>
-        全部
+    <FilterRow label={t("ui.admin.resources.by_person")}>
+      <Chip size="md" on={chosen === null} onClick={() => onChoose(null)}>
+        {t("ui.admin.resources.all")}
       </Chip>
       {users.map((u) => (
-        <Chip key={u.id} size="md" tip={`只看 ${personText(u)} 名下的`} on={chosen === u.id} onClick={() => onChoose(u.id)}>
+        <Chip key={u.id} size="md" on={chosen === u.id} onClick={() => onChoose(u.id)}>
           {personText(u)}
         </Chip>
       ))}
@@ -356,11 +353,11 @@ export function ByUser({ section }: { section: string }) {
   return (
     <div className="res-by-user">
       <Filters>
-        <UserChips users={users} chosen={chosen} onChoose={setChosen} allTip="不按账号筛选：上面按它本来的样子列出" />
+        <UserChips users={users} chosen={chosen} onChoose={setChosen} />
         {chosen !== null && kinds.length > 1 && (
-          <FilterRow label="看哪种">
+          <FilterRow label={t("ui.admin.resources.which")}>
             {kinds.map((k) => (
-              <Chip key={k.kind} size="md" tip={`这个账号名下的${k.label}：${k.count} 条`} on={kind === k.kind} count={k.count} onClick={() => setKind(k.kind)}>
+              <Chip key={k.kind} size="md" on={kind === k.kind} count={k.count} onClick={() => setKind(k.kind)}>
                 {k.label}
               </Chip>
             ))}
@@ -368,7 +365,7 @@ export function ByUser({ section }: { section: string }) {
         )}
       </Filters>
       {chosen !== null && kind && <ResourceTable key={`${chosen}-${kind}`} user={chosen} kind={kind} />}
-      {chosen !== null && !kind && <Empty title="这个账号在这一段里没有记录" hint="换一个账号，或者点「全部」看这一段本来的样子。" />}
+      {chosen !== null && !kind && <Empty title={t("ui.admin.resources.none_here")} hint={t("ui.admin.resources.none_here_hint")} />}
     </div>
   );
 }

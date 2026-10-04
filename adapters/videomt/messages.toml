@@ -1,6 +1,0 @@
-# VidEoMT 整画面分割（adapters/videomt）。一行一条：编号 = 模板。
-
-# ---- 分割结果
-"N-VIDEOMT-EMPTY" = "「VidEoMT 整画面分割」整段没有找到把握够的物体，分割是空的：把「检测阈值」调低再试"
-"E-VIDEOMT-TOOMANY" = "「VidEoMT 整画面分割」留下了 {count:d} 个物体，超过分割图能编号的 254 个：把「检测阈值」调高再算"
-"I-VIDEOMT-SEGMENTS" = "VidEoMT 分出 {count:d} 个分割：{names}{more}"

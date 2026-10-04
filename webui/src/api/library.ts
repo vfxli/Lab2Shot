@@ -7,7 +7,7 @@ import type { GraphJSON } from "./catalog";
 /** 保存在服务器上的一张节点图（列表中不包含节点图本身，打开时才获取）。
  * 名称与简介为使用者填写的文字：绘制时一律按纯文本处理，并带有 data-user-data。 */
 export interface SavedGraph {
-  id: string; // user~<用户名>~<文件名>（lab2shot/library.py card_id）
+  id: string; // user~<用户名>~<文件名>（lab2shot/site/library.py card_id）
   stem: string; // 文件名
   name: string;
   intro: string;
@@ -41,6 +41,8 @@ export interface StorageGate {
   total: number;
   limit: number; // 字节（0：不限）
   over: boolean;
+  // 0：不到 80%（或不限）；1：到了 80%；2：满了（lab2shot/server/quota.py stage_of）。顶栏按阶段提醒一次（editor/Chrome.tsx）
+  stage?: number;
 }
 
 /** 账号占用的资源（lab2shot/server/quota.py usage）：硬盘三项与上限，不含流量：
@@ -51,6 +53,32 @@ export interface StorageUsage extends StorageGate {
   default_gb: number;
   left: number;
   areas: StorageArea[];
+  // 每个已结束任务删掉能腾出多少字节（含只被它引用的缓存；几条共用的缓存不算在任何一条里，lab2shot/farm/space.py）
+  tasks: Record<string, number>;
+  groups: Record<string, number>; // 每组（group.key）已结束的任务一起删掉腾出多少（组里共用的缓存也算）
+  finished: number; // 已结束的任务几条
+  keep_most: number; // 每账号保留的已完成任务（设置 tasks.keep_most）：多了最旧的自动删除
+  trimmed: { at: number; count: number } | null; // 本次服务运行中最近一次自动删除
+}
+
+/** 「腾出空间」的预览（POST /api/my/storage/plan）：删掉最旧的哪几条已结束的任务、一共腾出多少。 */
+export interface StoragePlan {
+  want: number;
+  bytes: number;
+  enough: boolean; // 全删也不够 want 时为 false
+  jobs: { id: string; title: string; submitted: number | null; bytes: number }[];
+  total: number;
+  limit: number;
+  finished: number;
+}
+
+/** 执行「腾出空间」的回答：删了几条、腾出多少（删完后量的），以及删完后的占用。 */
+export interface StorageFreed extends StorageUsage {
+  jobs: number;
+  skipped: number;
+  bytes: number;
+  expected: number;
+  pending: number; // 账号还有任务在算：这些缓存等它们算完后的清理
 }
 
 /** 后台按账号查看的数据：硬盘与流量（GET / PUT /api/admin/users/{id}/quota，权限 users.manage_normal）。
@@ -72,4 +100,6 @@ export const libraryApi = {
   openTemplate: (id: string) => json<SavedGraph & { graph: GraphJSON }>("GET", `/api/my/templates/${encodeURIComponent(id)}`),
   binTemplate: (id: string) => json<MyTemplates>("DELETE", `/api/my/templates/${encodeURIComponent(id)}`),
   storage: () => json<StorageUsage>("GET", "/api/my/storage"),
+  storagePlan: (gb: number) => json<StoragePlan>("POST", "/api/my/storage/plan", { gb }),
+  storageFree: (jobs: string[]) => json<StorageFreed>("POST", "/api/my/storage/free", { jobs }),
 };

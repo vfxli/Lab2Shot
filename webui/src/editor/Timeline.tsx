@@ -17,6 +17,7 @@ import { MoreMenu } from "./TimelineMenu";
 // 时间线的数据来源（帧、已计算的帧、标尺上的标记）在 timelineSource.ts 中，与绘制标尺无关
 import { useSource } from "./timelineSource";
 import { CookRange } from "./Chrome";
+import { t } from "../i18n/t";
 
 /** 两个视图下方的时间线（一条细行），本模块是播放循环与帧标尺绘制的唯一所在：倒放 / 播放、当前帧、帧标尺、2D 缩放、
  * 计算范围、帧率与「播放方式」（MoreMenu）。标尺使用镜头自身的帧号（滚轮缩放，中键或右键拖动平移），
@@ -125,16 +126,16 @@ export function Timeline({ stage2d }: { stage2d: boolean }) {
   return (
     <div className="timeline" data-no-tips>
       {/* 倒放与正放并列置于最左侧，与 DCC 软件一致 */}
-      <IconButton aria-label="倒着播放" tone="ghost" size="sm" layout="tl-playpause" on={playing && playDir < 0} onClick={() => play(-1)} disabled={!has}>
+      <IconButton aria-label={t("ui.timeline.play_backward")} tone="ghost" size="sm" layout="tl-playpause" on={playing && playDir < 0} onClick={() => play(-1)} disabled={!has}>
         {playing && playDir < 0 ? <IconPause size={13} /> : <IconPlay size={13} back />}
       </IconButton>
-      <IconButton aria-label="播放" tone="ghost" size="sm" layout="tl-playpause" on={playing && playDir > 0} onClick={() => play(1)} disabled={!has}>
+      <IconButton aria-label={t("ui.timeline.play")} tone="ghost" size="sm" layout="tl-playpause" on={playing && playDir > 0} onClick={() => play(1)} disabled={!has}>
         {playing && playDir > 0 ? <IconPause size={13} /> : <IconPlay size={13} />}
       </IconButton>
       <FrameField
         className="tl-current"
         value={has ? frame : null}
-        label="当前帧"
+        label={t("ui.timeline.current_frame")}
         onCommit={(f) => setFrame(nearest(frames, f))}
       />
       <Ruler frames={frames} frame={frame} range={range} layers={layers} onFrame={setFrame} onEnd={setEnd} />

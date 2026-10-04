@@ -8,7 +8,7 @@ import type { ViewOptions } from "./viewOptions";
  * 而非依靠控件消失。节点参数仍由服务器计算。
  *
  * 纯模块：除 model/view2d.ts 的纯函数外只引用类型；
- * 本文件不含中文文本：`WHY_OFF` 只写消息编号，模板位于 lab2shot/messages/web.toml。 */
+ * 本文件不含中文文本：`WHY_OFF` 只写消息编号，模板位于 lab2shot/i18n/<lang>/messages/web.toml。 */
 
 export interface ViewFacts {
   stage: "2d" | "3d";
@@ -69,6 +69,7 @@ export const VIEW_CONTROLS: Record<ViewControl, Applies> = {
   jointAdaptive: (f) => in3d(f) && (f.shows.has("skeleton") || f.shows.has("character")),
   jointNames: (f) => in3d(f) && (f.shows.has("skeleton") || f.shows.has("character")),
   jointNamePx: (f) => in3d(f) && (f.shows.has("skeleton") || f.shows.has("character")) && f.options.jointNames,
+  rigPairGap: in3d, // 只在双骨架编辑的功能条上（那时舞台必在三维）
   cameraPath: (f) => in3d(f) && f.shows.has("cameraPath"),
   curveColor: curves,
   curveTint: (f) => curves(f) && f.options.curveColor === "constant",
@@ -96,7 +97,7 @@ export const VIEW_CONTROLS: Record<ViewControl, Applies> = {
 };
 
 /** 各控件不适用时悬停提示原因的消息编号（参照 Houdini 的 disable_when），集中定义，工具条与显示选项面板共用。
- * 中文模板位于消息目录（`lab2shot/messages/web.toml` 的 `I-VIEW-OFF*`，代码中只写编号）；
+ * 中文模板位于消息目录（`lab2shot/i18n/<lang>/messages/web.toml` 的 `I-VIEW-OFF*`，代码中只写编号）；
  * 文字经由 `view/available.ts` 获取。
  *
  * 每个控件都必须在此有对应条目（`Record<ViewControl, string>`，缺一项即类型检查不过），以保证置灰的同时说明原因；
@@ -126,6 +127,7 @@ export const WHY_OFF: Record<ViewControl, string> = {
   jointAdaptive: "I-VIEW-OFFNOSKELETON",
   jointNames: "I-VIEW-OFFNOSKELETON",
   jointNamePx: "I-VIEW-OFFNOJOINTNAMES",
+  rigPairGap: "I-VIEW-OFFONLY3D",
   cameraPath: "I-VIEW-OFFNOCAMERAPATH",
   curveColor: "I-VIEW-OFFNOCURVES",
   curveTint: "I-VIEW-OFFCURVENOTCONSTANT",

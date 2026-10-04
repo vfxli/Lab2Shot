@@ -14,6 +14,8 @@ import { sizeText, stampText } from "../platform/format";
 import { startPolling } from "../platform/poll";
 import { Button, Segmented } from "./Button";
 import { MyFeedbackList } from "./FeedbackMine";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 export { editorContext } from "./feedbackContext";
 
@@ -24,10 +26,10 @@ export { editorContext } from "./feedbackContext";
  * reads and answers it in the admin page's 用户反馈; 我的反馈, the dialog's other tab, shows users their own feedback
  * with its status and reply, and a dot on the button indicates new activity. */
 
-const MAX_TEXT = 10_000; // the server's limits (lab2shot/feedback.py)
+const MAX_TEXT = 10_000; // the server's limits (lab2shot/site/feedback.py)
 const MAX_IMAGES = 3;
 const MAX_IMAGE = 5 << 20;
-// the images the server takes (lab2shot/feedback.py _IMAGES, by their first bytes): anything else is refused here, before
+// the images the server takes (lab2shot/site/feedback.py _IMAGES, by their first bytes): anything else is refused here, before
 // the whole feedback is sent and refused there
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const draftKey = (account: number | undefined) => `lab2shot.feedbackDraft.${account}`; // one per account: never shown to the next person on this browser
@@ -57,7 +59,7 @@ const toBase64 = (blob: Blob) =>
     r.readAsDataURL(blob);
   });
 
-/** One item of the user's own feedback, as the user sees it (lab2shot/feedback.py PUBLIC). */
+/** One item of the user's own feedback, as the user sees it (lab2shot/site/feedback.py PUBLIC). */
 export interface MyFeedback {
   id: string;
   at: number;
@@ -71,19 +73,21 @@ export interface MyFeedback {
   changed: number | null;
   unread: boolean; // a status change or reply the user has not yet seen
   images: number;
+  reward: string; // a valid one: what it earned the account, in the server's words ("" otherwise: 无效 is never said)
 }
 
 const POLL_MS = 60_000;
 
 /** The account's own feedback: read when a page opens, every minute while the tab is visible, and when it becomes
  * visible again. */
-export const useMine = create<{ items: MyFeedback[] | null; unread: number; problem: string; load: () => Promise<void>; read: () => Promise<void> }>((set) => ({
+export const useMine = create<{ items: MyFeedback[] | null; unread: number; rule: string; problem: string; load: () => Promise<void>; read: () => Promise<void> }>((set) => ({
   items: null,
   unread: 0,
+  rule: "", // 有效反馈奖励 now, in the server's words ("": none)
   problem: "", // why the list could not be read (the last try); the polling asks again later
   load: async () => {
     try {
-      set({ ...(await json<{ items: MyFeedback[]; unread: number }>("GET", "/api/feedback/mine")), problem: "" });
+      set({ ...(await json<{ items: MyFeedback[]; unread: number; rule: string }>("GET", "/api/feedback/mine")), problem: "" });
     } catch (e) {
       set({ problem: reasonOf(e) });
       throw e; // the polling backs off (platform/poll.ts)
@@ -101,7 +105,8 @@ export const useMine = create<{ items: MyFeedback[] | null; unread: number; prob
 function useMinePolling(): void {
   const load = useMine((s) => s.load);
   const who = useSession((s) => s.state?.user?.id);
-  useEffect(() => startPolling({ read: load, every: POLL_MS }).stop, [load, who]);
+  // only once the login is known: started before, it would read once for nobody and again for the account
+  useEffect(() => (who === undefined ? undefined : startPolling({ read: load, every: POLL_MS }).stop), [load, who]);
 }
 
 export function FeedbackButton({ context, tone }: { context?: () => Record<string, unknown>; tone?: "ghost" }) {
@@ -112,12 +117,13 @@ export function FeedbackButton({ context, tone }: { context?: () => Record<strin
     <>
       <Button
         tone={tone}
-        tip={`提交反馈：写下遇到的问题或建议，自动附上查问题需要的资料（发送前可以先看），管理员在管理页面能看到；「我的反馈」里看自己提过的和管理员的回复${unread ? `\n有 ${unread} 条反馈有新的回复或状态变化` : ""}`}
+        entry // 和「模板」同一圈转动的彩虹亮边（ui/glow.css .btn.entry）：反馈入口要一眼找得到
+        tip={unread ? tipOf("value", t("ui.feedback.unread_tip", { count: unread })) : undefined}
         layout="fb-button"
         onClick={() => setOpen(true)}
       >
-        提交反馈
-        {unread > 0 && <span className="fb-unread" aria-label={`${unread} 条新回复`} />}
+        {t("ui.feedback.send")}
+        {unread > 0 && <span className="fb-unread" aria-label={t("ui.feedback.unread", { count: unread })} />}
       </Button>
       {open && <FeedbackDialog context={context} onClose={() => setOpen(false)} />}
     </>
@@ -133,16 +139,16 @@ function FeedbackDialog({ context, onClose }: { context?: () => Record<string, u
   const [seen, setSeen] = useState(tab === "mine"); // 我的反馈 has been shown: it stays mounted
   const show = (t: "write" | "mine") => (setTab(t), t === "mine" && setSeen(true));
   return (
-    <Sheet title={tab === "mine" ? "我的反馈" : "提交反馈"} width={680} onClose={onClose}>
+    <Sheet title={tab === "mine" ? t("ui.feedback.mine") : t("ui.feedback.send")} width={680} onClose={onClose}>
       <Segmented
-        label="反馈"
+        label={t("ui.feedback.label")}
         tabs
         size="md"
         layout="fb-tabs"
         value={tab}
         options={[
-          { value: "write", label: "写反馈", tip: "写一条新的反馈" },
-          { value: "mine", label: <>我的反馈{count ? ` ${count}` : ""}{unread > 0 && <span className="fb-unread" />}</>, tip: "当前账号提交过的反馈：处理到哪了、管理员的回复" },
+          { value: "write", label: t("ui.feedback.write") },
+          { value: "mine", label: <>{t("ui.feedback.mine")}{count ? ` ${count}` : ""}{unread > 0 && <span className="fb-unread" />}</> },
         ]}
         onChange={show}
       />
@@ -194,7 +200,7 @@ function WriteFeedback({ context, onClose, onMine }: { context?: () => Record<st
     setShotFailed(false);
     const blob = await snapshotPage(".scrim, .tip").catch(() => null);
     setShooting(false);
-    if (blob) addPicture(blob, "页面截图.png", true);
+    if (blob) addPicture(blob, t("ui.feedback.shot_file"), true);
     else setShotFailed(true);
   };
 
@@ -222,7 +228,7 @@ function WriteFeedback({ context, onClose, onMine }: { context?: () => Record<st
         const f = item.kind === "file" ? item.getAsFile() : null;
         if (f && f.type.startsWith("image/")) { // an image of another format is said so (addPicture)
           e.preventDefault();
-          addPicture(f, f.name || "粘贴的图像.png");
+          addPicture(f, f.name || t("ui.feedback.pasted_file"));
         }
       }
     };
@@ -230,7 +236,7 @@ function WriteFeedback({ context, onClose, onMine }: { context?: () => Record<st
     return () => window.removeEventListener("paste", paste);
   }, []);
 
-  const textWrong = !text.trim() ? "写清遇到了什么问题、在哪一步出现" : text.length > MAX_TEXT ? `写得太长了：${text.length} 个字，最多 ${MAX_TEXT} 个字` : "";
+  const textWrong = !text.trim() ? t("ui.feedback.text_empty") : text.length > MAX_TEXT ? t("ui.feedback.text_long", { count: text.length, max: MAX_TEXT }) : "";
 
   const submit = async () => {
     setTouched(true);
@@ -254,29 +260,29 @@ function WriteFeedback({ context, onClose, onMine }: { context?: () => Record<st
   if (sent)
     return (
       <div className="fb-done">
-        <div className="fb-done-mark">已提交</div>
+        <div className="fb-done-mark">{t("ui.feedback.sent")}</div>
         <p className="tpl-desc">
-          谢谢！管理员会在管理页面的「用户反馈」里看到这条反馈和附带的资料（编号 {sent.id}，{stampText(sent.at * 1000 / 1000)}）。管理员回复了，「提交反馈」按钮上会出现一个点，在「我的反馈」里看。
+          {t("ui.feedback.thanks", { id: sent.id, time: stampText(sent.at * 1000 / 1000) })}
         </p>
         <div className="dialog-row fb-actions">
-          <Button tip="看自己提过的反馈和管理员的回复" onClick={() => (setSent(null), setText(""), setTouched(false), onMine())}>
-            看我的反馈
+          <Button onClick={() => (setSent(null), setText(""), setTouched(false), onMine())}>
+            {t("ui.feedback.see_mine")}
           </Button>
-          <Button tip="关掉这个窗口" tone="primary" onClick={onClose}>
-            关闭
+          <Button tone="primary" onClick={onClose}>
+            {t("ui.common.close")}
           </Button>
         </div>
       </div>
     );
 
-  const groups: { label: string; tip: string; count: string; body: unknown }[] = diag
+  const groups: { label: string; count: string; body: unknown }[] = diag
     ? [
-        { label: "环境", tip: "浏览器、系统、屏幕、语言、这台电脑的客户端编号，和服务器的版本", count: `${server.version ? `Lab2Shot ${server.version} · ${server.revision}` : ""}`, body: { browser: diag.browser, client: diag.client, server } },
-        ...(diag.help ? [{ label: "页面", tip: "正在看的帮助页面，和它显示的扩展包、安装的情况", count: String((diag.help as { title?: string }).title ?? ""), body: diag.help }] : []),
-        ...(diag.graph ? [{ label: "节点图", tip: "现在的节点图（只有文件的名字和位置，不含文件本身）、选中和显示的节点、当前帧和计算范围", count: `${(diag.graph as { nodes?: unknown[] }).nodes?.length ?? 0} 个节点`, body: { editor: diag.editor, graph: diag.graph } }] : []),
-        { label: "日志", tip: "页面日志里最近的记录（最多 200 条）：出现过的提示、每次计算的经过", count: `${diag.log.length} 条`, body: diag.log },
-        { label: "错误", tip: "打开页面以来页面自己出的错，和服务器拒绝或没连上的请求", count: `${diag.errors.length + diag.requests.length} 个`, body: { errors: diag.errors, requests: diag.requests } },
-        { label: "任务", tip: "这个浏览器最近提交的计算任务：状态和报错；服务器还会附上出错节点的日志和服务日志里和它们有关的行", count: jobs ? `${jobs.length} 个` : "…", body: jobs ?? [] },
+        { label: t("ui.feedback.group_environment"), count: `${server.version ? `Lab2Shot ${server.version} · ${server.revision}` : ""}`, body: { browser: diag.browser, client: diag.client, server } },
+        ...(diag.help ? [{ label: t("ui.feedback.group_page"), count: String((diag.help as { title?: string }).title ?? ""), body: diag.help }] : []),
+        ...(diag.graph ? [{ label: t("ui.feedback.group_graph"), count: t("ui.feedback.count_nodes", { count: (diag.graph as { nodes?: unknown[] }).nodes?.length ?? 0 }), body: { editor: diag.editor, graph: diag.graph } }] : []),
+        { label: t("ui.feedback.group_log"), count: t("ui.feedback.count_entries", { count: diag.log.length }), body: diag.log },
+        { label: t("ui.feedback.group_errors"), count: t("ui.feedback.count_errors", { count: diag.errors.length + diag.requests.length }), body: { errors: diag.errors, requests: diag.requests } },
+        { label: t("ui.feedback.group_jobs"), count: jobs ? t("ui.feedback.count_errors", { count: jobs.length }) : "…", body: jobs ?? [] },
       ]
     : [];
 
@@ -294,8 +300,7 @@ function WriteFeedback({ context, onClose, onMine }: { context?: () => Record<st
           className={`field fb-text${touched && textWrong ? " bad" : ""}`}
           value={text}
           autoFocus
-          placeholder="遇到了什么问题？当时在做什么？希望是什么样？"
-          data-tip="必填：写得越具体，越容易找到问题；写的内容会自动留着，关掉窗口也不会丢"
+          placeholder={t("ui.feedback.placeholder")}
           onChange={(e) => (setText(e.target.value), setProblem(null))}
         />
         {touched && textWrong && <div className="fb-why">{textWrong}</div>}
@@ -304,25 +309,25 @@ function WriteFeedback({ context, onClose, onMine }: { context?: () => Record<st
             <figure key={p.url} className="fb-pic">
               <img src={p.url} alt={p.name} />
               <figcaption>
-                <span data-user-data data-tip={p.page ? "页面截图" : p.name}>{p.page ? "页面截图" : p.name}</span>
-                <Button tip="不附这张图" tone="ghost" size="sm" onClick={() => (URL.revokeObjectURL(p.url), setPictures((all) => all.filter((x) => x !== p)))}>
-                  去掉
+                <span data-user-data {...tipAttrs(p.page ? undefined : tipOf("truncated", p.name))}>{p.page ? t("ui.feedback.shot") : p.name}</span>
+                <Button tone="ghost" size="sm" onClick={() => (URL.revokeObjectURL(p.url), setPictures((all) => all.filter((x) => x !== p)))}>
+                  {t("ui.common.remove")}
                 </Button>
               </figcaption>
             </figure>
           ))}
-          {shooting && <div className="fb-pic fb-pic-wait">正在截图…</div>}
+          {shooting && <div className="fb-pic fb-pic-wait">{t("ui.feedback.shooting")}</div>}
         </div>
         <div className="fb-row">
-          <Button tip={`附上自己截的图（最多 ${MAX_IMAGES} 张，每张 ${sizeText(MAX_IMAGE)} 以内）；也可以粘贴（Ctrl+V）或拖进这个窗口`} disabled={pictures.length >= MAX_IMAGES} onClick={() => fileInput.current?.click()}>
-            附图像
+          <Button tip={pictures.length >= MAX_IMAGES ? tipOf("disabled", t("ui.feedback.max_images", { max: MAX_IMAGES })) : undefined} disabled={pictures.length >= MAX_IMAGES} onClick={() => fileInput.current?.click()}>
+            {t("ui.feedback.attach")}
           </Button>
           {!shooting && !pictures.some((p) => p.page) && (
-            <Button tip="重新截一张当前页面（不含这个窗口）" disabled={pictures.length >= MAX_IMAGES} onClick={() => void shoot()}>
-              截当前页面
+            <Button tip={pictures.length >= MAX_IMAGES ? tipOf("disabled", t("ui.feedback.max_images", { max: MAX_IMAGES })) : undefined} disabled={pictures.length >= MAX_IMAGES} onClick={() => void shoot()}>
+              {t("ui.feedback.shoot")}
             </Button>
           )}
-          <span className="tpl-desc">{shotFailed ? "页面截图没成功：可以用「附图像」附上自己截的图" : "可以粘贴或拖进图像"}</span>
+          <span className="tpl-desc">{shotFailed ? t("ui.feedback.shot_failed") : t("ui.feedback.paste_hint")}</span>
           <input
             ref={fileInput}
             type="file"
@@ -336,13 +341,13 @@ function WriteFeedback({ context, onClose, onMine }: { context?: () => Record<st
           />
         </div>
         <details className="fb-diag">
-          <summary data-tip="提交时一起发给服务器的资料，点开可以逐项看；不含密码和令牌">
-            附带的资料：{groups.map((g) => `${g.label}${g.count ? ` ${g.count}` : ""}`).join(" · ")}
+          <summary>
+            {t("ui.feedback.attached", { groups: groups.map((g) => `${g.label}${g.count ? ` ${g.count}` : ""}`).join(" · ") })}
           </summary>
-          <p className="tpl-desc">服务器还会补上：出错节点的日志、服务日志里和这些任务有关的行、节点图用到的扩展包是否装好、显卡和内存的状态。密码和令牌一律去掉。</p>
+          <p className="tpl-desc">{t("ui.feedback.server_adds")}</p>
           {groups.map((g) => (
             <details key={g.label} className="fb-group">
-              <summary data-tip={g.tip}>
+              <summary>
                 {g.label}
                 {g.count && <span className="fb-count">{g.count}</span>}
               </summary>
@@ -352,11 +357,11 @@ function WriteFeedback({ context, onClose, onMine }: { context?: () => Record<st
         </details>
         {problem && <div className="fb-why" data-code={problem.code}>{problem.text}</div>}
         <div className="dialog-row fb-actions">
-          <Button tip="写的内容会留着，下次打开还在" tone="ghost" onClick={onClose}>
-            取消
+          <Button tip={tipOf("consequence", t("ui.feedback.cancel_tip"))} tone="ghost" onClick={onClose}>
+            {t("ui.common.cancel")}
           </Button>
-          <Button tip="把反馈连同附上的截图和诊断资料发给管理员" tone="primary" disabled={sending || !diag || shooting} onClick={() => void submit()}>
-            {sending ? "正在提交…" : shooting ? "正在截图…" : "提交"}
+          <Button tone="primary" disabled={sending || !diag || shooting} onClick={() => void submit()}>
+            {sending ? t("ui.feedback.sending") : shooting ? t("ui.feedback.shooting") : t("ui.feedback.submit")}
           </Button>
         </div>
       </div>

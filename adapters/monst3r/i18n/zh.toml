@@ -1,0 +1,99 @@
+# MonST3R 扩展包（adapters/monst3r）的消息。一行一条：编号 = 模板。
+
+# ---- 加载模型（worker.py）
+"E-MONST3R-RAFTWEIGHTS" = "MonST3R 用的 SEA-RAFT 光流权重和网络对不上（缺 {missing}，多 {unexpected}）：权重和代码的版本不一致，管理员重新执行 lab2shot ext install monst3r"
+"E-MONST3R-CROCO" = "MonST3R 的 croco 子模块不完整（安装时没有拉全）：管理员再执行一次 lab2shot ext install monst3r"
+
+# ---- 重建（worker.py）
+"E-MONST3R-STITCH" = "MonST3R 分段拼接失败：重叠帧里可用的静止点太少，两段对不齐。把「每段最多帧数」调大（分段更少）再算"
+"W-MONST3R-FLOWDROPPED" = "第 {first}–{last} 帧画面动得太厉害（或者太糊），帧与帧之间对不上：这一段没能靠画面的运动把摄影机约束住，摄影机位置可能飘。办法：把「隔帧」调小、换一段动得没这么厉害的帧，或者用「ViPE 摄影机解算」解一遍对比"
+"W-MONST3R-SEAM" = "MonST3R 在第 {first}–{last} 帧处分段拼接后还差 {residual:.1%}（相对景深）：分段处摄影机可能跳一帧。把「每段最多帧数」调大，分段更少"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[stage]
+pairs = "{count} 对画面"
+global_optimization = "全局优化"
+read_frames = "读取画面"
+reconstruct = "重建"
+reconstruct_segment = "重建（第 {segment}/{segments} 段）"
+
+[node."monst3r.reconstruct"]
+subtitle = "深度与摄影机"
+description = "画面 → 每帧摄影机、深度贴图和运动物体遮罩，逐段做全局优化，专为画面里有人车在动的镜头设计。固定机位最稳；很慢（约 3 秒一帧）、显存要得多；尺度要手动缩放，按「尺度」换算成厘米；给了焦距时焦距固定不再优化，摄影机更稳。同样整段解算的还有「COLMAP 摄影机解算」（要视差）和「ViPE 摄影机解算」（要位移），它补的是固定机位加运动物体这一格。不出点云：官方网络只交两两画面间的点图，整段的点云是它的优化器用深度反投影的；要点云接「深度转点云」。长镜头逐段解算（默认每段 36 帧）：每段单独优化，相邻两段共用 8 帧、按这几帧拼起来，焦距沿用第一段的。显卡上只放当前这一段的画面对和光流（官方一次跑整段要全部常驻，README：16:9 的 65 帧就要约 23 GB），长镜头也放得下。"
+
+[node."monst3r.reconstruct".param.focal_mm]
+label = "已知焦距"
+placeholder = "自动"
+
+[node."monst3r.reconstruct".param.filmback_mm]
+label = "胶片背"
+placeholder = "36"
+
+[node."monst3r.reconstruct".param.step]
+label = "隔帧"
+
+[node."monst3r.reconstruct".param.max_frames]
+label = "每段最多帧数"
+
+[node."monst3r.reconstruct".param.max_frames.option]
+12 = "12"
+24 = "24"
+36 = "36"
+40 = "40"
+
+[node."monst3r.reconstruct".param.resolution]
+label = "处理分辨率"
+
+[node."monst3r.reconstruct".param.resolution.option]
+256 = "256"
+384 = "384"
+512 = "512"
+
+[node."monst3r.reconstruct".param.niter]
+label = "优化迭代次数"
+
+[node."monst3r.reconstruct".param.niter.option]
+100 = "100"
+300 = "300"
+500 = "500"
+
+[node."monst3r.reconstruct".param.motion_threshold]
+label = "运动判定门槛"
+
+[node."monst3r.reconstruct".param.sam2_refine]
+label = "SAM 2 修整"
+
+[node."monst3r.reconstruct".param.conf_threshold]
+label = "置信度门槛"
+
+[node."monst3r.reconstruct".param.unit_cm]
+label = "尺度"
+
+[node."monst3r.reconstruct".port.mask]
+label = "运动物体遮罩"
+
+[node."monst3r.reconstruct".stage]
+write_moving_mask = "写出运动遮罩"
+
+[node."monst3r.reconstruct".official]
+note = "遮罩这一路是官方的：上游本来就能收外来的运动物体遮罩（demo.py:107 dynamic_mask_path）。上游只有遮罩图这一种形式，没有框，所以节点没有人物框输入口；要挡人就接「人物框转遮罩」到「运动物体遮罩」口，那一步在节点图上看得见。「运动物体遮罩」输出就是官方 save_dynamic_masks 交的那一张（demo.py:159）"
+
+[extension.monst3r]
+summary = "处理动态视频，基本以前馈的方式给出随时间变化的动态点云，以及每帧的摄影机位姿和内参"
+
+[extension.monst3r.license]
+name = "CC BY-NC-SA 4.0（代码和权重）；附带 SEA-RAFT（BSD-3-Clause）和 SAM 2.1（Apache-2.0）"
+summary = "非商用：MonST3R 代码和权重都按 CC BY-NC-SA 4.0 发布（署名、禁止商用、改编后须以相同许可发布），它基于 Naver DUSt3R / CroCo（同为 CC BY-NC-SA 4.0；CroCo 的 pos_embed.py / blocks.py 另含 Meta MAE 的 CC BY-NC 4.0 部分和 timm 的 Apache-2.0 部分），权重由 DUSt3R 权重微调而来。另外用到的两个模型可商用：光流 SEA-RAFT（代码和权重 BSD-3-Clause，普林斯顿）、SAM 2.1 Hiera-L（代码和权重 Apache-2.0，Meta；其中连通域代码 cc_torch 为 BSD-3-Clause）。整体按最严的 CC BY-NC-SA 4.0 对待。没有 SMPL、nvdiffrast 等其他依赖"
+
+[extension.monst3r.weight.monst3r-config]
+note = "MonST3R 网络配置"
+
+[extension.monst3r.weight.monst3r]
+note = "MonST3R ViT-L 512 DPT 权重（2.3 GB，CC BY-NC-SA 4.0 非商用）"
+
+[extension.monst3r.weight.sea-raft-spring-M]
+note = "SEA-RAFT 光流 Tartan-C-T-TSKH-spring540x960-M（79 MB，BSD-3-Clause）"
+
+[extension.monst3r.weight."sam2.1-hiera-large"]
+note = "SAM 2.1 Hiera-L，细化运动物体遮罩（898 MB，Apache-2.0）"

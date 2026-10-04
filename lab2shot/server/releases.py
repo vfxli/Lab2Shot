@@ -9,13 +9,14 @@ from ..errors import Failed
 from ..messages import Msg
 from .routes import Access, Router
 
-router = Router(prefix="/api", tags=["设置"])
+router = Router(prefix="/api", tags=["Settings"])
 
 releases.current()  # read now, at start: the first request does not pay for it
 
 
-@router.get("/releases", access=Access.user("顶部栏「更新说明」：项目地址和各版本的更新", hides={"releases.admin": ("releases[].admin",)}),
-            summary="更新说明：项目地址，各版本（最新在前）的名称、日期、说明和更新条目；管理员与二级管理员另外看到给后台的条目")
+@router.get("/releases", access=Access.user("Top bar Release Notes: the project address and each version's changes", hides={"releases.admin": ("releases[].admin",)}),
+            summary="Release notes: the project address and each version (newest first) with its name, date, notes and items; "
+                    "administrators and deputy administrators also see the items for the admin side")
 def release_notes() -> dict:
     """Every version whole: the guard leaves each one's `admin` lines out for a login that does not work in the back
     office (server/available.py FIELDS releases.admin), so they never reach an ordinary user's page."""

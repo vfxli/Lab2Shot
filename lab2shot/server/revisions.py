@@ -5,7 +5,7 @@ the answer gets 304 and the handler never runs, and another request with the sam
 names everything the answer reads, each part cheap to look at (names, sizes and times of files, a count in the database),
 never the answer itself:
 
-    code(request)      this run of the server and its work folder, the node types it loaded, the template files (lab2shot/library.py
+    code(request)      this run of the server and its work folder, the node types it loaded, the template files (lab2shot/site/library.py
                        reads them again when they change)
     account(request)   what of the answer is this account's: the account itself (what of another's it may see is
                        its own: access.manages), its licence tags (nodes/tags.py), its role, the
@@ -106,7 +106,8 @@ def kept(request: Request) -> tuple:
     """What the administrator keeps in files and every account is handed: the template files and their tree, the two
     category trees and the node placements (lab2shot/categories.py), every node's name and description
     (nodes/text.py), and the accounts' names the cards say who saved them by (accounts.revision)."""
-    from .. import accounts, categories, library
+    from .. import accounts, categories
+    from ..site import library
     from ..nodes import text
 
     try:

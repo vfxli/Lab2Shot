@@ -106,17 +106,6 @@
   color: var(--accent);
 }
 
-.insp-body::-webkit-scrollbar {
-  width: 8px;
-}
-
-.insp-body::-webkit-scrollbar-thumb {
-  background: var(--hair-strong);
-  border-radius: var(--r-xs);
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-
 /* 分组标题为一行小号字，右侧延伸一条细线；分组之间没有分隔线也没有外框，靠间距区分。 */
 .group {
   padding: 8px 16px 4px;
@@ -142,40 +131,29 @@
   background: var(--hair);
 }
 
-/* 一行 = [标签，固定宽度] [控件，弹性、basis 0、不挤压其他元素]。仅此两列：修改列数时须同步修改
-   ParamControls.tsx fitWidth 中的宽度计算，否则参数右侧会多出或缺少一列的宽度。 */
+/* 一行 = 通用的「标签 + 控件」行（ui/LabelRow.tsx、ui/labelRow.css）：三个标记 / 标签 / 控件各占一格，标签列按本组
+   最长的标签由浏览器算（同组各行经 subgrid 共用一列，有上限），标签放不下省略号截断、悬停看全，从不压到标记或控件上。
+   这里只补参数面板自己的：行高、标签的字号颜色、控件格。 */
 .prow {
   position: relative;
-  display: grid;
-  grid-template-columns: var(--plabel-w, 92px) minmax(0, 1fr);
-  gap: var(--sp-2);
-  align-items: center;
   min-height: 30px;
 }
 
-/* .plabel 是 fieldset（只读标签页里整组标记 disabled，ParamPanel.tsx ParamRow）：清掉 fieldset 自带的边框与内外边距 */
-.prow > .plabel {
+.prow > .lrow-label {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.25;
+}
+
+/* .plabel-marks 是 fieldset（只读标签页里三个标记整组 disabled）：清掉 fieldset 自带的边框与内外边距 */
+.plabel-marks {
   border: 0;
   margin: 0;
   padding: 0;
-  position: relative;
-  color: var(--text-2);
-  font-size: var(--fs-sm);
-  text-align: right;
-  line-height: 1.25;
   min-width: 0;
   display: flex;
-  justify-content: flex-end;
   align-items: center;
-  gap: 2px;
-}
-
-/* 标签列宽按全部标签计算（ParamControls.tsx fitWidth），上限 206px：超过此宽度的标签属于命名问题，应改用更短的词，
-   而不是用省略号隐藏；此处的截断只是兜底，用于宽度计算尚未执行时，或使用者自行输入的文字（重命名的参数分组） */
-.plabel-text {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
+  gap: 1px;
 }
 
 .prow .ctl {
@@ -183,25 +161,14 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
+  flex: 1 1 auto;
   margin: 0;
   padding: 0;
   border: 0;
 }
 
-/* 多行文本框行（参数自身声明 `P(lines=…)`，ParamPanel.tsx 添加 .multi）：标签与第一行对齐，
-   不在四行高的文本框中垂直居中。宽度不变：面板宽度固定（editor/App.tsx INSPECTOR_WIDTH），
-   文本框只在该格内增高（ui/field.css .field.area）。 */
-.prow.multi {
-  align-items: start;
-}
-
-.prow.multi > .plabel {
-  align-items: flex-start;
-  padding-top: 4px;
-}
-
 /* 因本节点的连线或设置而不起作用的参数（引擎同样忽略它） */
-.prow.inactive .plabel-text {
+.prow.inactive > .lrow-label {
   color: var(--text-3);
 }
 
@@ -211,12 +178,16 @@
 
 /* 「支持的数据」：3D 输出设置节点会写出场景中的哪些内容（OutputSettings.writes）；写法或不写的原因见悬停提示 */
 .writes {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  /* items as wide as their words (never cut, never over the mark: a column of fixed width was too narrow for
+     「Skinned Character」 in English), wrapping, each row filled */
+  display: flex;
+  flex-wrap: wrap;
   gap: 4px 6px;
 }
 
 .writes-item {
+  flex: 1 0 auto;
+  min-width: 104px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -268,12 +239,22 @@
   color: var(--error);
 }
 
+/* a line under a parameter row (ParamPanel.tsx below): in the row's control column (ui/labelRow.css .lrow-under), right
+   under the control and never pulled up over it */
 .pwhy {
-  grid-column: 2;
-  margin-top: -4px;
+  margin-top: 0;
   font-size: var(--fs-xs);
   line-height: 1.4;
   color: var(--text-3);
+}
+
+/* 应用模式「计算」按钮下，这一步算出来时说的警告 / 生产风险（ParamPanel.tsx cookNotes）：警告色；说明保持 .pwhy 的灰 */
+.pwhy.pnote-W {
+  color: var(--orange-text);
+}
+
+.pwhy.pnote-P {
+  color: var(--error);
 }
 
 .notice {
@@ -367,4 +348,62 @@
 .paste-row {
   display: flex;
   gap: 6px;
+}
+
+/* 类型名后面的说明（中文界面「导入 FBX」）：小字，和类型名同一行 */
+.insp-type-desc {
+  margin-left: 8px;
+  font-family: var(--font);
+}
+
+.insp-title .node-name-edit {
+  flex: 1;
+}
+
+/* 备注栏（editor/NodeNaming.tsx）：多行文字，旁边「显示备注」开关 */
+.node-comment-field {
+  margin: 6px 0 0 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.node-comment-field textarea {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+  font: inherit;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--text-2);
+  background: var(--field-bg);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-xs);
+  padding: 3px 6px;
+  outline: none;
+}
+
+.node-comment-field textarea:focus {
+  border-color: var(--accent);
+}
+
+.node-comment-show {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+  padding-top: 4px;
+}
+
+/* 整个参数面板是一个 LabelGrid（ui/LabelRow.tsx）：所有组的行共用一列标签（按全面板最长的标签，有上限），控件的左边沿
+   上下对齐；每组是传下这套列的一层（.lsub），组标题、说明等占满整行 */
+.insp-body.lgrid {
+  row-gap: 0;
+  align-content: start;
+}
+
+.group.lsub {
+  display: grid;
 }

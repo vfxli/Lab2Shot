@@ -45,20 +45,13 @@ class BiRefNet(Extension):
     name = "birefnet"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "BiRefNet"
-    summary = "用于高分辨率二分图像分割（DIS）的双边参考框架，由定位模块和带双边参考的还原模块组成"
     homepage = "https://github.com/ZhengPeng7/BiRefNet"
     source = GitSource(url=BIREFNET_URL, commit=BIREFNET_COMMIT)
     license = LicenseInfo(
         tag=COMMERCIAL,
-        name="MIT",
         url="https://github.com/ZhengPeng7/BiRefNet/blob/main/LICENSE",
-        summary=(
-            "代码 MIT；五个权重（BiRefNet、BiRefNet-matting、BiRefNet_HR、BiRefNet_HR-matting、BiRefNet_dynamic）"
-            "的 Hugging Face 模型卡均标 MIT，可商用。注意：训练数据含 DIS5K、P3M-10k、AM-2k、Distinctions-646 等"
-            "仅限学术研究的数据集，作者仍以 MIT 发布权重；严格的商业项目交付前建议法务确认。"
-            "（briaai 的 RMBG-2.0 同为 BiRefNet 结构但权重非商用，本扩展不下载）"
-        ),
     )
+    generative = False
     env = EnvSpec(
         python="3.11",
         # Upstream asks for torch>=2.5; the model code (Swin-L, torchvision deform_conv2d,
@@ -71,7 +64,6 @@ class BiRefNet(Extension):
             repo, revision, "model.safetensors",
             key=key,
             dest=f"{repo}/model.safetensors",
-            note=f"{repo}（MIT，Swin-L，{'任意尺寸' if size is None else f'{size}×{size}'}）",
             sha256=sha256,  # the LFS object: the URL is pinned to a revision, the bytes are checked too
         )
         for key, (repo, revision, sha256, size) in MODELS.items()

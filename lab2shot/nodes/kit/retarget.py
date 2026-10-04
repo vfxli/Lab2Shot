@@ -1,11 +1,12 @@
 """「动作重定向」与「线性蒙皮变形」的核心步骤：两副骨架的部位对应、把一副骨架的动作换到另一副骨架上、
 把一段骨架动画挂到层级完全相同的蒙皮角色上。
 
-数学在 `lab2shot_shared.motion.BodyRetarget`（静止姿势对齐、链状部位按骨长分摊弯曲）与 `hips_path`（水平 1:1 跟着动作，
-髋高按比例固定抬高或逐帧缩放，再加脚底差和高度偏移），核心与 worker 共用一份实现。本模块只做三件事：
+数学在 `lab2shot_shared.motion.BodyRetarget`（静止姿势对齐：保留目标自己的基准姿势、传转动差，或逐根骨骼按方向；
+链状部位按骨长分摊弯曲）与 `hips_path`（水平 1:1 跟着动作，
+髋高按比例跟着脚抬高或逐帧缩放，再加脚底差和高度偏移），核心与 worker 共用一份实现。本模块只做三件事：
 
-  1. 对应关系（`resolve_mapping`）：节点参数里写了的部位以参数为准，没写的部位由 `data/joints.py guess()` 按名字
-     和层级推测；`joints.check_mapping` 校验（权威在这里，网页上的错误色只是按同样的规则做显示）；只对推测的部位
+  1. 对应关系（`resolve_mapping`）：节点参数里写了的部位以参数为准，没写的部位由 `data/joints.py guess()`（识别
+     引擎 data/skeleton_recognition.py：名字、层级、位置、对称综合）推测；`joints.check_mapping` 校验（权威在这里，网页上的错误色只是按同样的规则做显示）；只对推测的部位
      生成说明（data/smpl.py pairing_notes）。
   2. 换动作（`retarget`）：算出目标每个配上的关节的世界旋转和髋关节的位置；髋高比例按「髋高依据」两边各量一次
      （`measure`）。
@@ -19,15 +20,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from lab2shot_shared import motion as mo
 from lab2shot_shared.poses import trs_matrix
 
 from ...data.joints import FINGERS, LANDMARKS, LEGS, LIMB_BONES, joint_keys
+from ... import i18n
 from ...errors import Invalid
-from ...messages import Msg
+from ...messages import Both, Msg
 
 # 「动作重定向」必须两边都有的部位：髋和两条腿定朝前方向（motion.BodyRetarget.align）和髋点（两条大腿中间，hips_path）
 REQUIRED = ("hips", *LEGS)
@@ -36,12 +38,11 @@ BASIS_PARTS = {"legs": (), "height": ("head",), "arms": ("l.upperarm", "l.forear
 
 
 # E-RETARGET-MISSINGPARTS 的 {why}：缺的部位是拿来做什么的，按「髋高依据」说
-WHY = {"legs": "重定向要靠髋和两条腿定前方和髋高", "none": "重定向要靠髋和两条腿定前方和髋点",
-       "height": "重定向要靠髋和两条腿定前方，「髋高依据」按身高还要量到头",
-       "arms": "重定向要靠髋和两条腿定前方，「髋高依据」按臂长还要量上臂和前臂"}
+WHY = i18n.Words("retarget.why.", ("legs", "none", "height", "arms"))
 
 
-WHY_HANDS = "只配了手：目标只是一只手时手腕 1 : 1 跟着动作；手长在身体上时手臂保持目标姿势，只传手指"
+def why_hands() -> str:
+    return i18n.Word("retarget.why.hands")
 
 
 BODY_PARTS = ("hips", *LEGS, "spine", "chest")  # 配上其中任何一个，这一边就是有身体的骨架
@@ -100,14 +101,45 @@ class Mapping:
     guessed: set[str]
     hands: tuple[str, ...] = ()  # 只配手（hands_of）：配的是哪几只手；空 = 整个身体
     bodies: tuple[bool, bool] = (True, True)  # 两边骨架有没有身体（has_body）
+    stale: list[tuple[str, list[str]]] = field(default_factory=list)  # (部位, 骨架上没有的关节)：换过骨架，这次按推测（drop_stale）
 
 
-def merged_parts(mapping: list[dict] | None, src_names, src_parents, dst_names, dst_parents) -> tuple[list[dict], set[str]]:
+def merged_parts(mapping: list[dict] | None, src_names, src_parents, dst_names, dst_parents,
+                 src_rest=None, dst_rest=None, src_weights=None, dst_weights=None) -> tuple[list[dict], set[str]]:
     """参数里的对应关系配上推测补齐的部位（data/joints.py merged_rows）：(行, 推测的部位)。计算（resolve_mapping）和编辑器
-    （Retarget.choices：只配手时标哪些必需）都从这里得到部位，所以用户手配的行两边同样算数。"""
+    （Retarget.choices：只配手时标哪些必需）都从这里得到部位，所以用户手配的行两边同样算数。`*_rest`：两侧的静止位置
+    [J,3]：识别引擎按名字、层级、位置、对称一起判断（data/skeleton_recognition.py；自动绑定的 bone_0、bone_1……
+    靠位置认出）。`*_weights`：两侧带蒙皮权重的关节（data/animation.py Rig.weighted；不驱动顶点的关节不参与对应）。"""
     from ...data.joints import auto_rows, merged_rows, part_names
 
-    return merged_rows(mapping, auto_rows(part_names(list(src_names), src_parents), part_names(list(dst_names), dst_parents)))
+    return merged_rows(mapping, auto_rows(part_names(list(src_names), src_parents, src_rest, src_weights),
+                                          part_names(list(dst_names), dst_parents, dst_rest, dst_weights)))
+
+
+def rest_of(rig) -> np.ndarray:
+    """一副骨架绑定姿势里各关节的位置 [J,3]（骨架自己的空间）：识别引擎（data/skeleton_recognition.py）按它判断部位、
+    角色和朝向——推测对应、忽略建议、编辑器里的依据都传这同一份，识别结果按骨架缓存共用。"""
+    return np.asarray(rig.bind, np.float64)[:, :3, 3]
+
+
+def drop_stale(mapping: list[dict] | None, src_names, src_parents, dst_names, dst_parents) -> tuple[list[dict] | None, list[tuple[str, list[str]]]]:
+    """参数里的对应关系，去掉点了这两副骨架上没有的关节的行：(留下的行, [(去掉的部位, 它点的、骨架上没有的关节)])。换了骨架（换了角色或动作）时，
+    之前点的、自动对应写下的行指的是旧骨架的关节——这些部位这次按新骨架推测，并说一句（notes：W-MAP-STALE），
+    而不是整个节点报错、连编辑器都进不去（初始姿势、忽略骨骼对没有的关节同样是跳过并说明）。某一边故意留空（这一边
+    不配）的行不算：只看写了却找不到的关节名。"""
+    from ...data.joints import joint_keys
+
+    if not mapping:
+        return mapping, []
+    keys = {"src": set(joint_keys(list(src_names), src_parents)), "dst": set(joint_keys(list(dst_names), dst_parents))}
+    kept, gone = [], []
+    for row in mapping:
+        missing = [n for c in ("src", "dst") for n in (row.get(c) or [] if isinstance(row, dict) else []) if n not in keys[c]]
+        if missing:
+            gone.append((str(row.get("part", "")), missing))
+        else:
+            kept.append(row)
+    return kept, gone
 
 
 def resolve_mapping(mapping: list[dict] | None, source, target, by: str = "legs") -> Mapping:
@@ -116,30 +148,37 @@ def resolve_mapping(mapping: list[dict] | None, source, target, by: str = "legs"
     说清是哪一边、缺的部位拿来做什么。"""
     from ...data.joints import check_mapping, part_joints, part_label
 
-    rows, guessed = merged_parts(mapping, source.names, source.parents, target.names, target.parents)
-    check_mapping(rows, {"src": (list(source.names), source.parents, "动作", source.bind[:, :3, 3]),
-                         "dst": (list(target.names), target.parents, "目标", target.bind[:, :3, 3])})
+    mapping, stale = drop_stale(mapping, source.names, source.parents, target.names, target.parents)
+    rows, guessed = merged_parts(mapping, source.names, source.parents, target.names, target.parents,
+                                 rest_of(source), rest_of(target), source.weighted, target.weighted)
+    check_mapping(rows, {"src": (list(source.names), source.parents, i18n.Word("role.motion"), source.bind[:, :3, 3]),
+                         "dst": (list(target.names), target.parents, i18n.Word("role.target"), target.bind[:, :3, 3])})
     src = part_joints(rows, list(source.names), source.parents, "src")
     dst = part_joints(rows, list(target.names), target.parents, "dst")
     bodies = has_body(source.names, source.parents, src), has_body(target.names, target.parents, dst)
     hands = hands_of(src, dst, bodies)
-    for have, rig in ((src, "动作"), (dst, "目标")):
+    for have, rig in ((src, i18n.Word("role.motion")), (dst, i18n.Word("role.target"))):
         missing = [part_label(p) for p in required(by, hands) if p not in have]
         if missing:
-            why = WHY_HANDS if hands else WHY.get(by, WHY["legs"])
+            why = why_hands() if hands else WHY.get(by, WHY["legs"])
             raise Invalid(Msg("E-RETARGET-MISSINGPARTS", parts=missing, rig=rig, why=why))
-    return Mapping(rows, src, dst, guessed, hands, bodies)
+    return Mapping(rows, src, dst, guessed, hands, bodies, stale)
 
 
 def notes(m: Mapping) -> list[Msg]:
     """推测出来的那些部位的说明（手动指定的部位不再说明；全是手动的就一条也没有）。"""
+    from ...data.joints import part_label
     from ...data.smpl import pairing_notes
 
+    said = []
+    if m.stale:
+        said.append(Msg("W-MAP-STALE", parts=[part_label(part) for part, _ in m.stale],
+                        joints=[n for _, gone in m.stale for n in gone][:6]))
     if not m.guessed:
-        return []
+        return said
     driven = {r["part"]: list(r["src"]) for r in m.rows if r["part"] in m.guessed and r["src"] and r["dst"]}
     have = {r["part"] for r in m.rows if r["part"] in m.guessed and r["dst"]}
-    return pairing_notes(driven, have)
+    return said + pairing_notes(driven, have)
 
 
 @dataclass
@@ -162,7 +201,7 @@ class Result:
 
     @property
     def by_label(self) -> str:
-        return SCALE_BY[self.by]
+        return Both.of(lambda: SCALE_BY[self.by])
 
 
 @dataclass
@@ -187,7 +226,7 @@ def character_size(by: str, manual: float, source, target, m: Mapping) -> Size:
     src = float(np.median(measure(basis, m, "src", source.world()[..., :3, 3])))
     dst = float(measure(basis, m, "dst", target.world()[:1, :, :3, 3])[0])
     if min(src, dst) <= MEASURABLE_CM:
-        raise Invalid(Msg("E-RETARGET-NOLENGTH", what=SCALE_BY[basis], rig="动作" if src <= MEASURABLE_CM else "目标"))
+        raise Invalid(Msg("E-RETARGET-NOLENGTH", what=SCALE_BY[basis], rig=i18n.Word("role.motion" if src <= MEASURABLE_CM else "role.target")))
     return Size(src / dst, basis, src, dst)
 
 
@@ -205,7 +244,7 @@ def sized(rig, factor: float):
     return replace(rig, local=local)
 
 
-SCALE_BY = {"legs": "腿长", "height": "身高", "arms": "臂长", "none": "不缩放"}
+SCALE_BY = i18n.Words("retarget.scale_by.", ("legs", "height", "arms", "none"))
 # 依据量沿哪些部位量（按顺序连成一条或几条链，取几条链的平均）；两边都配了的部位才算
 TRUNK = ("hips", "spine", "chest", "neck", "head")
 
@@ -231,11 +270,11 @@ def measure(by: str, m: Mapping, col: str, positions: np.ndarray) -> np.ndarray:
     return np.zeros(positions.shape[0])
 
 
-GROUND_SAID = {"ankles": "脚踝", "below": "小腿下一节（没配脚）", "knees": "膝（没配脚、小腿下面也没有关节）"}
+GROUND_SAID = i18n.Words("retarget.ground.", ("ankles", "below", "knees"))
 
 
 def ground_of(rig, side: dict[str, list[int]]) -> tuple[list[int], str]:
-    """一边离地高度从哪几个关节量（髋高的「固定抬高 / 按比例」、脚底对齐都用它，一处定）：两只脚踝（配上的「脚」）；
+    """一边离地高度从哪几个关节量（髋高的「跟着脚抬高 / 按比例」、脚底对齐都用它，一处定）：两只脚踝（配上的「脚」）；
     没配脚时是每条腿小腿下面那一节（层级里小腿的子关节，取离小腿最远的那个：脚踝常常没配但在骨架里）；小腿下面
     什么都没有时是小腿本身（膝）。返回 (关节, 说法：GROUND_SAID 的键)，完成句里说明没按脚踝量的时候。"""
     if all(f"{s}.foot" in side for s in ("l", "r")):
@@ -256,17 +295,22 @@ def ground_of(rig, side: dict[str, list[int]]) -> tuple[list[int], str]:
     return out, how
 
 
-REST_LABEL = {"bind": "绑定姿势", "first": "第一帧", "frame": "第 {frame} 帧"}
+REST_LABEL = ("bind", "first", "frame")  # retarget.rest.<which>, {frame}: rest_said
+
+
+def rest_said(which: str, frame) -> str:
+    return i18n.Word(f"retarget.rest.{which}", **({"frame": frame} if which == "frame" else {}))
 # 基准姿势摆成 T 姿时每根肢体骨头（data/joints.py LIMB_BONES，同一张表）的朝向：身体坐标系里的方向（motion.Body.axes
 # 的列：0 上、1 前、2 左，左边的手臂朝左、右边的朝右）；锁骨只放平（None：去掉抬起、保留前后的角度——各家锁骨前后
-# 本来就不一样，A 姿里却都压低了 16–27°）
-T_TOWARD = {"clavicle": None, "upperarm": (2, 1), "forearm": (2, 1), "thigh": (0, -1), "shin": (0, -1), "foot": (1, 1)}
+# 本来就不一样，A 姿里却都压低了 16–27°）；脚只转向正前（"heading"：保留它向下的斜度——踝比前脚掌高，脚平踩地面时
+# 踝到脚尖这根骨头本来就朝下，斜多少每副骨架不同：UniRig 的 37°、SOMA 的 23°。放平它，站着时脚尖就翘起来）
+T_TOWARD = {"clavicle": None, "upperarm": (2, 1), "forearm": (2, 1), "thigh": (0, -1), "shin": (0, -1), "foot": "heading"}
 
 
-def _toward(part: str) -> tuple[int, int] | None:
+def _toward(part: str) -> tuple[int, int] | str | None:
     """T_TOWARD for one side's part: the right side's arms point the other way along the body's left axis."""
     got = T_TOWARD[part[2:]]
-    return None if got is None else (got[0], -got[1] if part.startswith("r.") and got[0] == 2 else got[1])
+    return got if got is None or isinstance(got, str) else (got[0], -got[1] if part.startswith("r.") and got[0] == 2 else got[1])
 
 
 T_BONES = tuple((a, b, _toward(a)) for a, b in LIMB_BONES)
@@ -281,7 +325,7 @@ def rest_pose(rig, which: str, frame: int | None, said: str) -> np.ndarray:
     if which == "first":
         return rig.world()[0]
     if frame is None or int(frame) not in rig.frames:
-        raise Invalid(Msg("E-RETARGET-RESTFRAME", rig=said, frame=frame if frame is not None else "（没填）",
+        raise Invalid(Msg("E-RETARGET-RESTFRAME", rig=said, frame=frame if frame is not None else i18n.Word("retarget.frame_unset"),
                           first=rig.frames[0], last=rig.frames[-1]))
     return rig.world()[rig.frames.index(int(frame))]
 
@@ -352,7 +396,11 @@ def t_posed(pose: np.ndarray, parents, side: dict[str, list[int]], body: mo.Body
         cur = pose[jb, :3, 3] - pose[ja, :3, 3]
         if np.linalg.norm(cur) <= MEASURABLE_CM:
             continue
-        if toward is None:  # level: the same heading, no rise
+        if toward == "heading":  # turned to face forward, its slope kept: the same rise, the heading straight ahead
+            rise = cur @ axes[:, 0]
+            flat = np.linalg.norm(cur - rise * axes[:, 0])
+            want = rise * axes[:, 0] + flat * axes[:, 1]
+        elif toward is None:  # level: the same heading, no rise
             want = cur - (cur @ axes[:, 0]) * axes[:, 0]
             if np.linalg.norm(want) < 0.5 * np.linalg.norm(cur):
                 # a clavicle mostly along up (a folded zero pose's lies along the spine): levelled it would point
@@ -401,7 +449,7 @@ def corrected(pose: np.ndarray, parents, names, rows) -> tuple[np.ndarray, list[
 
 @dataclass
 class Rests:
-    """两边对齐用的基准姿势（「动作静止姿势」「目标静止姿势」「基准姿势摆正」），重定向和「对应关系」弹窗的预览同一份。"""
+    """两边对齐用的基准姿势（「动作静止姿势」「目标静止姿势」「基准姿势摆正」），重定向和视图里编辑时画的同一份。"""
 
     source: mo.Skeleton
     target: mo.Skeleton
@@ -415,12 +463,15 @@ class Rests:
     posed: tuple[int, int] = (0, 0)  # 两边修正了几个关节
     bodies: tuple[mo.Body, mo.Body] | None = None  # 两边的身体坐标系（body_of：目标，动作）；只配手时没有
     picked: int = -1  # 动作自动挑的那一帧在它帧里的序号（-1 没挑）：只随骨架、对应关系和选的姿势变，调用方可以记住
+    held: tuple[frozenset, frozenset] = (frozenset(), frozenset())  # 两边「初始姿势」写了的关节（序号）：以用户为准（matched_limbs）
 
     def said(self) -> str:
         """I-RETARGET-DONE 里说基准的那一句。"""
-        fixes = "、".join(f"{who} {n} 个" for who, n in zip(("动作", "目标"), self.posed) if n)
-        return (f"基准：动作{self.source_said}、目标{self.target_said}{'，两边摆成 T 姿' if self.fixed else ''}"
-                + (f"，按初始姿势修正了{fixes}关节" if fixes else ""))
+        fixes = i18n.separator().join(i18n.t("retarget.base.fixed_count", who=i18n.t(who), n=n)
+                                      for who, n in zip(("role.motion", "role.target"), self.posed) if n)
+        return (i18n.t("retarget.base.said", source=self.source_said, target=self.target_said)
+                + (i18n.t("retarget.base.tposed") if self.fixed else "")
+                + (i18n.t("retarget.base.fixes", fixes=fixes) if fixes else ""))
 
 
 def rests(source, target, m: Mapping, motion_rest: str = "bind", motion_frame: int | None = None,
@@ -432,9 +483,10 @@ def rests(source, target, m: Mapping, motion_rest: str = "bind", motion_frame: i
     （corrected）；最后目标按「角色缩放」`size` 放大（sized_pose，`target` 是原大的）。对齐用的是这一副，修正前的
     （原大）也带着给手柄看。`picked`：上一次挑出的帧序号（Rests.picked），给了就不再挑——只改「初始姿势」时挑帧的
     结果不变，而挑帧要把动作的每一帧比一遍。"""
-    pt = rest_pose(target, target_rest, target_frame, "目标")
-    ps = rest_pose(source, motion_rest, motion_frame, "动作")
-    source_said = REST_LABEL[motion_rest].format(frame=motion_frame)
+    pt = rest_pose(target, target_rest, target_frame, i18n.Word("role.target"))
+    ps = rest_pose(source, motion_rest, motion_frame, i18n.Word("role.motion"))
+    # in both languages (messages.Both): said in I-RETARGET-DONE / I-RETARGETPREP-DONE, read in whoever's language
+    source_said = Both.of(lambda: rest_said(motion_rest, motion_frame))
     tb, sb = two_bodies(m, target, pt, source, ps)
     k = -1
     if motion_rest == "bind" and not sb.stands(ps[:, :3, 3]):
@@ -446,31 +498,84 @@ def rests(source, target, m: Mapping, motion_rest: str = "bind", motion_frame: i
         k = picked
         if k >= 0:
             ps = source.world()[k]
-            source_said = f"绑定姿势不是站姿，自动用第 {source.frames[k]} 帧"
+            source_said = i18n.Word("retarget.rest.picked", frame=source.frames[k])
     if fix == "tpose":
         ps, pt = t_posed(ps, source.parents, m.src, sb), t_posed(pt, target.parents, m.dst, tb)
     fs, us, ns = corrected(ps, source.parents, joint_keys(source.names, source.parents), motion_pose)
     ft, ut, nt = corrected(pt, target.parents, joint_keys(target.names, target.parents), target_pose)
     ft = sized_pose(ft, target.parents, size)
     return Rests(mo.Skeleton(source.names, source.parents, fs), mo.Skeleton(target.names, target.parents, ft),
-                 source_said, REST_LABEL[target_rest].format(frame=target_frame), fix == "tpose", ps, pt, (us, ut),
-                 (ns, nt), (tb, sb), k)
+                 source_said, Both.of(lambda: rest_said(target_rest, target_frame)), fix == "tpose", ps, pt, (us, ut),
+                 (ns, nt), (tb, sb), k, (_held(source, motion_pose), _held(target, target_pose)))
 
 
-def rest_diffs(r: Rests, m: Mapping) -> dict[str, float]:
-    """两副基准姿势里对应骨头的方向差（度，各自的身体坐标系里比，面朝哪不算）：弹窗在槽旁标出来，看两边的初始形态对没对上。"""
-    ps, pt = r.source.rest_positions, r.target.rest_positions
-    ft, fs = r.bodies[0].axes(pt), r.bodies[1].axes(ps)
-    out = {}
+def _held(rig, rows) -> frozenset:
+    """一副骨架「初始姿势」里写了的关节（序号；骨架没有的名字不算，corrected 同样跳过）。"""
+    at = {n: j for j, n in enumerate(joint_keys(rig.names, rig.parents))}
+    return frozenset(at[r["joint"]] for r in rows or () if r.get("joint") in at)
+
+
+# 「动作重定向」保留目标自己的基准姿势时（retarget），四肢的哪几根骨头两边的基准方向差得多就先按动作对上：差不到
+# LIMB_SAME 度是同一个姿势里各副骨架自己的样子（手臂略垂、腿略分），保留；超过 LIMB_POSE 度是另一个姿势（A 姿对 T 姿
+# 上臂差 35–50°、手臂垂下对平举差 90°），整根对上；中间平滑过渡（smoothstep），差别跨过界限时结果不跳
+LIMB_SAME, LIMB_POSE = 15.0, 30.0
+MATCHED_LIMBS = ("upperarm", "forearm", "thigh", "shin")  # 只看四肢的长骨：脚的斜度、锁骨、脊柱、手指是骨架自己的样子
+
+
+def matched_limbs(target: mo.Skeleton, source: mo.Skeleton, m: Mapping, turn: np.ndarray,
+                  held: tuple[frozenset, frozenset] = (frozenset(), frozenset())) -> tuple[mo.Skeleton, list[str]]:
+    """保留目标基准姿势的对齐（retarget）之前，四肢长骨（MATCHED_LIMBS：上臂、前臂、大腿、小腿，data/joints.py
+    LIMB_BONES 的顺序，父骨在前）两边基准姿势差了一整个姿势的，目标这根骨头绕起点转到动作的方向（子树跟着转、
+    最小转动不加扭转，t_posed 同样的转法）：`turn` 是目标身体到动作身体的转动（hips_turn），差的角度在动作那边量，
+    转多少按 LIMB_SAME / LIMB_POSE 平滑过渡。两边基准姿势的「初始姿势」写了这根骨头起点关节的（`held`：动作、目标）
+    以用户为准，不转——用户已经把两边摆成了同一个姿势，剩下的差别是有意的。返回 (对齐用的目标骨架, 转了的部位名)；
+    写回没配上的关节仍用原来的基准姿势（Result.rest：整棵子树一起转，它们相对父关节的样子不变）。"""
+    from ...data.joints import part_label
+
+    pose = np.array(target.rest, np.float64)
+    parents = np.asarray(target.parents)
+    kids: dict[int, list[int]] = {}
+    for j, p in enumerate(parents):
+        kids.setdefault(int(p), []).append(j)
+    pp = source.rest_positions
+    said = []
     for a, b in LIMB_BONES:
-        if not all(p in m.src and p in m.dst for p in (a, b)):
+        if a[2:] not in MATCHED_LIMBS or not all(q in m.dst and q in m.src for q in (a, b)):
             continue
-        ds, dt = ps[m.src[b][0]] - ps[m.src[a][0]], pt[m.dst[b][0]] - pt[m.dst[a][0]]
-        if min(np.linalg.norm(ds), np.linalg.norm(dt)) <= MEASURABLE_CM:
+        ja, jb, sa, sb = m.dst[a][0], m.dst[b][0], m.src[a][0], m.src[b][0]
+        if ja in held[1] or sa in held[0]:
             continue
-        u, v = fs.T @ ds / np.linalg.norm(ds), ft.T @ dt / np.linalg.norm(dt)
-        out[a] = round(float(np.degrees(np.arccos(np.clip(u @ v, -1.0, 1.0)))), 1)
-    return out
+        cur, want = turn @ (pose[jb, :3, 3] - pose[ja, :3, 3]), pp[sb] - pp[sa]
+        if min(np.linalg.norm(cur), np.linalg.norm(want)) <= MEASURABLE_CM:
+            continue
+        cur, want = cur / np.linalg.norm(cur), want / np.linalg.norm(want)
+        angle = float(np.degrees(np.arccos(np.clip(cur @ want, -1.0, 1.0))))
+        w = float(mo.smoothstep((angle - LIMB_SAME) / (LIMB_POSE - LIMB_SAME)))
+        if w <= 0.0:
+            continue
+        axis = np.cross(cur, want)
+        if np.linalg.norm(axis) < 1e-9:  # opposite directions (w > 0 rules out the same): any axis across the bone
+            axis = np.cross(cur, [1.0, 0.0, 0.0] if abs(cur[0]) < 0.9 else [0.0, 1.0, 0.0])
+        spin = turn.T @ mo.axis_angle(axis / np.linalg.norm(axis), np.radians(angle) * w) @ turn  # in the target's frame
+        _turn_subtree(pose, kids, ja, spin)
+        foot = m.dst.get(f"{a[:2]}foot", [None])[0]
+        if a[2:] in ("thigh", "shin") and foot is not None:
+            # the foot goes along with the leg but keeps the way it stands: a standing rest pose has its sole on the
+            # ground whatever the leg's angle (the hand, which nothing holds, turns with the arm)
+            _turn_subtree(pose, kids, foot, spin.T)
+        said.append(Both.of(lambda a=a: part_label(a)))  # said again in whoever's language (I-RETARGET-DONE)
+    return mo.Skeleton(target.names, target.parents, pose), said
+
+
+def _turn_subtree(pose: np.ndarray, kids: dict[int, list[int]], joint: int, spin: np.ndarray) -> None:
+    """一副姿势 [J,4,4]（世界）里 `joint` 和它的整棵子树绕 `joint` 的位置转 `spin`（原地改）。"""
+    at = pose[joint, :3, 3].copy()
+    todo = [joint]
+    while todo:
+        k = todo.pop()
+        pose[k, :3, :3] = spin @ pose[k, :3, :3]
+        pose[k, :3, 3] = at + spin @ (pose[k, :3, 3] - at)
+        todo += kids.get(k, [])
 
 
 def _parts(m: Mapping, only: tuple[str, ...] | None = None) -> tuple[dict[int, int], list]:
@@ -515,8 +620,12 @@ def retarget(source, target, m: Mapping, by: str, factor: float, lift: bool = Tr
         if f"{s}.clavicle" in m.dst and both_stand:
             aims[m.dst[f"{s}.clavicle"][0]] = None
     # the hips fork (legs and spine): turned by the two base poses' own axes (motion.hips_turn), with or without an
-    # upper body mapped — a picked frame or a first frame may face any way, a rig may lie any way
-    fixed = {m.dst["hips"][0]: mo.hips_turn(skel_t.rest_positions, skel_s.rest_positions, *base.bodies)}
+    # upper body mapped — a picked frame or a first frame may face any way, a rig may lie any way. Levelled (only the
+    # way the body faces) between two standing base poses the user chose; a frame picked from the take holds the take's
+    # own lean, which stays (as Retarget.align): levelled, LAFAN dance → AccuRIG's man leans 3.6° more than the source
+    # over the take, 1.3° kept (walk → woman 4.3° / 1.6°)
+    fixed = {m.dst["hips"][0]: mo.hips_turn(skel_t.rest_positions, skel_s.rest_positions, *base.bodies,
+                                                   level=both_stand and base.picked < 0)}
     refs = mo.body_refs(skel_t, skel_s, base.bodies)
     trunk = next((p for p in ("neck", "head") if p in m.dst and p in m.src), None)
     if "chest" in m.dst and "chest" in m.src and trunk:
@@ -528,29 +637,44 @@ def retarget(source, target, m: Mapping, by: str, factor: float, lift: bool = Tr
         turn = mo.bone_turn(skel_t, skel_s, *pair, refs)
         if turn is not None:
             fixed = {**(fixed or {}), pair[0][0]: turn}
+    # two standing base poses the user chose (not a frame picked for a folded source): the target keeps its own base
+    # pose — with the source in its base pose the target is in its own (「初始姿势」 corrections included), every joint
+    # turns from there as the source's turns from its own (BodyRetarget keep: one turn, the two bodies' axes). A limb
+    # bone whose two rest directions differ by a whole pose (A against T, arms down against out) is matched onto the
+    # source's first (matched_limbs). A picked frame (an arbitrary frame of the take) or a folded base pose holds no
+    # rest of its own to keep: aligned bone by bone as before, each bone onto the source's direction
+    keep, matched = None, []
+    if both_stand and base.picked < 0:
+        keep = fixed[m.dst["hips"][0]]
+        skel_t, matched = matched_limbs(skel_t, skel_s, m, keep, base.held)
     fit = mo.BodyRetarget.align(skel_t, skel_s, singles, chains, aims, refs, target_world[0, :, :3, 3],
-                                source_world[0, :, :3, 3], fixed)
+                                source_world[0, :, :3, 3], None if keep is not None else fixed, keep)
     rotations = fit.rotations(source_world)
+    def aligned() -> str:  # in the language now; said in both (messages.Both) with base.said() below
+        if keep is None:
+            return i18n.t("retarget.aligned.bones", why=i18n.t("retarget.aligned.picked" if base.picked >= 0 else "retarget.aligned.folded"))
+        return i18n.t("retarget.aligned.kept") + (i18n.t("retarget.aligned.limbs", n=len(matched), names=i18n.separator().join(str(x) for x in matched))
+                                                  if matched else "")
 
     positions = source_world[..., :3, 3]
     measured = measure(by, m, "src", positions)
     target_cm = float(measure(by, m, "dst", target_world[:1, :, :3, 3])[0])
     median = float(np.median(measured))
     if by != "none" and min(median, target_cm) <= MEASURABLE_CM:  # a degenerate skeleton: no ratio (inf / 0 otherwise)
-        raise Invalid(Msg("E-RETARGET-NOLENGTH", what=SCALE_BY[by], rig="动作" if median <= MEASURABLE_CM else "目标"))
+        raise Invalid(Msg("E-RETARGET-NOLENGTH", what=SCALE_BY[by], rig=i18n.Word("role.motion" if median <= MEASURABLE_CM else "role.target")))
     s = (target_cm / median if by != "none" else 1.0) * float(factor)
-    # the lift (固定抬高) is measured from the same joints as the sole alignment (animation.py sole_height): ground_of
-    # heights along the source body's own up over the shot (the body the alignment uses), not the world's Y
+    # the lift (跟着脚抬高) is measured from the same joints as the sole alignment (animation.py sole_height): ground_of
+    # heights along the source body's own up over the frames it stands (Body.up_over), not the world's Y
     path = mo.hips_path(positions, (m.src["l.thigh"][0], m.src["r.thigh"][0]), ground_of(source, m.src)[0], s, lift,
                         extra, base.bodies[1].up_over(positions))
     hips_t = m.dst["hips"][0]
     if hips_t not in rotations:  # 髋总是一对一的部位，这里只防御
-        raise Invalid(Msg("E-RETARGET-MISSINGPARTS", parts=["髋"], rig="目标", why=WHY["legs"]))
+        raise Invalid(Msg("E-RETARGET-MISSINGPARTS", parts=[_part_label("hips")], rig=i18n.Word("role.target"), why=WHY["legs"]))
     # the hip point goes on the path once every rotation is set (target_locals → motion.set_hips): where the thighs
     # hang comes from the hierarchy, not from an offset fixed on the hips joint
     return Result(rotations, {}, s, by, float(factor),
                   (float(measured.min()), median, float(measured.max())), target_cm, len(rotations), float(size),
-                  base.said(), np.linalg.inv(target.placement[0]) @ skel_t.rest, base.unknown,
+                  Both.of(lambda: base.said() + aligned()), np.linalg.inv(target.placement[0]) @ base.target.rest, base.unknown,
                   hips=(hips_t, (m.dst["l.thigh"][0], m.dst["r.thigh"][0]), path))
 
 
@@ -589,7 +713,7 @@ def retarget_hands(source, target, m: Mapping, by: str, factor: float, rest: dic
             placed[wrist_t] = source_world[:, wrist_s, :3, 3]
         rotations.update(got)
     return Result(rotations, placed, 1.0, by, float(factor), (0.0, 0.0, 0.0), 0.0, len(rotations),
-                  rest_said=base.said(), rest=np.linalg.inv(target.placement[0]) @ skel_t.rest, unknown=base.unknown,
+                  rest_said=Both.of(base.said), rest=np.linalg.inv(target.placement[0]) @ skel_t.rest, unknown=base.unknown,
                   wrist_kept=any(hand_on_body(m, s, target.parents) for s in m.hands))
 
 
@@ -667,11 +791,41 @@ def lengths_differ(anim, character, order: list[int], tolerance: float = 0.05) -
 
     只比骨头：根关节（它的平移是整副骨架的摆放）和动画里局部平移逐帧在变的关节（那是位移，不是骨长）不比。
     按层级和动画判断、不看名字：「动作重定向」把位移写在髋上，髋不一定是根（AccuRIG / CC 的髋挂在不动的
-    RL_BoneRoot 下面），DCC 里 K 了位移的关节也一样；只排除根关节时这类骨架每次都报髋「骨长不一致」。"""
+    RL_BoneRoot 下面），DCC 里 K 了位移的关节也一样；只排除根关节时这类骨架每次都报髋「骨长不一致」。
+    不带动任何顶点的关节也不比（_drives_mesh）：它的长度改不了网格上的任何东西（例如 Kimodo SOMA 的
+    LeftHandThumbEnd / RightHandThumbEnd 在标准人上没有蒙皮权重、也没有子关节，每次默认都报）。"""
     moved = np.asarray(anim.local)[:, order][..., :3, 3]  # [F,J,3]，按角色的关节顺序
     a = np.linalg.norm(moved[0], axis=-1)
     b = np.linalg.norm(character.local[0][:, :3, 3], axis=-1)
     parents = np.asarray(character.parents)
-    bone = (parents >= 0) & (np.ptp(moved, axis=0).max(axis=-1) <= STILL_CM)
+    bone = (parents >= 0) & (np.ptp(moved, axis=0).max(axis=-1) <= STILL_CM) & _drives_mesh(character)
     far = (np.abs(a - b) > tolerance * np.maximum(b, 1e-6)) & (np.maximum(a, b) > 1e-3) & bone
     return [character.names[j] for j in np.flatnonzero(far)]
+
+
+def _drives_mesh(character) -> np.ndarray:
+    """Per joint: whether it moves some vertex of the character's mesh, itself (a skin weight above zero:
+    Rig.weighted) or through a joint under it. Every joint when nothing says which deform (no mesh bound)."""
+    parents = np.asarray(character.parents)
+    weighted = getattr(character, "weighted", None)
+    if weighted is None:
+        return np.ones(len(parents), bool)
+    drives = np.zeros(len(parents), bool)
+    drives[[j for j in weighted if 0 <= j < len(parents)]] = True
+    for j in sorted(range(len(parents)), key=lambda j: -_depth(parents, j)):  # children before their parents
+        if drives[j] and parents[j] >= 0:
+            drives[parents[j]] = True
+    return drives
+
+
+def _depth(parents: np.ndarray, j: int) -> int:
+    d = 0
+    while parents[j] >= 0:
+        j, d = int(parents[j]), d + 1
+    return d
+
+
+def _part_label(part: str) -> str:
+    from ...data.joints import part_label
+
+    return part_label(part)

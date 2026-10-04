@@ -2,9 +2,10 @@
 
 import { useScenes, type Scene } from "./sceneData";
 import type { DisplayPlan } from "./plan";
+import { drawsSkeleton } from "./handleEditing";
 
-/** 三维数据的种类及其显示名称，顺序与视图的显示 / 隐藏开关一致。 */
-export const KINDS = { camera: "相机", model: "模型", character: "蒙皮角色", skeleton: "骨架", points: "点云", curves: "三维曲线" } as const;
+/** 三维数据的种类及其显示名称的键（t() 取当前语言），顺序与视图的显示 / 隐藏开关一致。 */
+export const KINDS = { camera: "ui.view.kind.camera", model: "ui.view.kind.model", character: "ui.view.kind.character", skeleton: "ui.view.kind.skeleton", points: "ui.view.kind.points", gaussian: "ui.view.kind.gaussian", curves: "ui.view.kind.curves" } as const;
 export type Kind = keyof typeof KINDS;
 
 /** 场景中包含的数据种类。 */
@@ -14,7 +15,8 @@ function kindsOf(d: Scene): Set<Kind> {
   if (d.models.length) out.add("model");
   if (d.characters.some((c) => c.meshes.length)) out.add("character");
   if (d.characters.length) out.add("skeleton");
-  if (d.clouds.length) out.add("points");
+  if (d.clouds.some((c) => !c.ref.gaussian)) out.add("points");
+  if (d.clouds.some((c) => c.ref.gaussian)) out.add("gaussian");
   if (d.curves.length) out.add("curves");
   return out;
 }
@@ -42,13 +44,14 @@ export function useSceneShows(plan: PlanShown): string[] {
   const [loaded] = useScenes(fps);
   const out: string[] = [];
   if ([...loaded.values()].some((d) => d.cameras.some((c) => c.ref.frames.length > 1))) out.push("cameraPath");
-  if (plan.handles.some((h) => h.kind === "skeleton_pose")) out.push("skeleton");
+  if (plan.handles.some(drawsSkeleton)) out.push("skeleton");
   return out;
 }
 
-/** 视图中当前绘制的点云的抽稀情况（见 server/view_data.py `_proxy_step` / `_point_step`）。
+/** 视图中当前绘制的点云 / 3D 高斯的抽稀情况（见 server/view_data.py `_proxy_step` / `_point_step` / `_gaussian_step`）。
  *
- * 抽稀始终生效，不提供开关：单帧超过后台「点云上限」（设置项 view.points_max_mb，默认 5 MB）时每 N 个点取一个。
+ * 抽稀始终生效，不提供开关：单帧超过后台「点云上限」（设置项 view.points_max_mb，默认 5 MB）时点云每 N 个点取一个，
+ * 单帧超过「高斯显示上限」（设置项 view.gaussian_max，默认 30 万个）时 3D 高斯每 N 个取一个。
  *
  * 抽稀仅作用于显示副本，坐标不做任何修改，计算与交付的点数不受影响。
  * `every` 大于 1 时视图通知区必须持续标示（「显示了 N / 共 M 点」），不得静默抽稀。
@@ -74,6 +77,7 @@ export function useCloudProxy(plan: PlanShown): CloudProxy {
         shown += here;
         total += here * step * step;  // 抽样后为 gw×gh，原始点数为其乘以 step²（横纵两个方向各抽样一次）
       } else {
+        // 普通点云与 3D 高斯都走这里：count 是完整点数，every 是抽样间隔（server/view_data.py _point_step / _gaussian_step）
         const here = c.ref.count ?? 0;
         const step = c.ref.every ?? 1;
         shown += Math.ceil(here / step);

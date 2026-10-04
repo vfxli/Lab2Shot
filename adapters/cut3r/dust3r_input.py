@@ -101,12 +101,13 @@ class Geometry:
 
 
 def read_images(used: list[tuple[int, Path]], geo: Geometry, read_frame, progress) -> list[np.ndarray]:
-    """一段镜头读成网络尺寸的画面，每 16 帧报一次进度。"""
+    """A shot read in at the network's size, reporting progress every 16 frames (stage read_frames: an extension using this
+    module defines stage.read_frames in its own catalogue)."""
     images = []
     for i, (_, path) in enumerate(used):
         images.append(geo.image(read_frame(path)))
         if (i + 1) % 16 == 0 or i + 1 == len(used):
-            progress(i + 1, len(used), "读取画面")
+            progress(i + 1, len(used), "read_frames")
     return images
 
 
@@ -161,5 +162,5 @@ def write_outputs(raw: Path, frames: list[int], geo: Geometry, stitched: list[re
         recon.save_frame(raw, frame, d, geo.to_input(f.confidence), m, **extra)
         depth_median.append(float(np.median(d[m])) if m.any() else float("nan"))
         if progress:
-            progress(i + 1, len(frames), "写出深度")
+            progress(i + 1, len(frames), "write_depth")
     return recon.summary(c2w, K, geo.width, depth_median)

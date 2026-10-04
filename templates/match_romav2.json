@@ -2,166 +2,262 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "7477490c915e1e29505354d37e43371f",
-  "name": "图像对位 · RoMa v2",
-  "intro": "稠密特征匹配要估计同一个三维场景两张画面之间的全部对应关系；RoMa v2 用新的匹配架构和损失，精度明显超过前几代。这张卡把参考图对齐到画面上，按「匹配」看对齐图盖到画面上的效果，交付一套多层 EXR（对齐后的参考图 aligned、ST-map、置信度）和两边的匹配点。",
+  "name": {
+   "zh": "图像对位 · RoMa v2",
+   "en": "Image Alignment · RoMa v2"
+  },
+  "intro": {
+   "zh": "稠密特征匹配要估计同一个三维场景两张画面之间的全部对应关系；RoMa v2 用新的匹配架构和损失，精度明显超过前几代。这张卡把参考图对齐到画面上，按「匹配」看对齐图盖到画面上的效果，交付一套多层 EXR（对齐后的参考图 aligned、ST 贴图、置信度）和两边的匹配点。",
+   "en": "Dense feature matching estimates all correspondences between two images of the same 3D scene; RoMa v2 uses a new matching architecture and loss and is clearly more accurate than earlier generations. This card aligns the reference image to the image; Match shows the aligned image over the image, and it delivers a multi-layer EXR (the aligned reference image, ST map, confidence) and the matches on both sides."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-13T09:00:00",
-  "deliverable": "match",
+  "deliverable": "align",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "画面",
+   "label": {
+    "zh": "图像",
+    "en": "Image"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "name": "reference",
-   "label": "参考图",
-   "target": "ref.path",
+   "label": {
+    "zh": "参考图",
+    "en": "Reference Image"
+   },
+   "target": "reference.path",
    "show_on_change": true
   },
   {
-   "name": "colorspace_in_reference",
-   "label": "参考图色彩空间",
-   "target": "ref.colorspace",
+   "name": "reference_colorspace",
+   "label": {
+    "zh": "参考图颜色空间",
+    "en": "Reference Image Color Space"
+   },
+   "target": "reference.colorspace",
    "show_on_change": true
   },
   {
-   "name": "setting",
-   "label": "精度",
+   "name": "match_setting",
+   "label": {
+    "zh": "精度",
+    "en": "Precision"
+   },
    "target": "match.setting"
   },
   {
-   "name": "matches",
-   "label": "匹配点数",
+   "name": "match_matches",
+   "label": {
+    "zh": "匹配点数",
+    "en": "Match Count"
+   },
    "target": "match.matches"
   },
   {
-   "name": "comp_opacity",
-   "label": "对齐图不透明度",
+   "name": "comp_mix",
+   "label": {
+    "zh": "对齐图不透明度",
+    "en": "Aligned Image Opacity"
+   },
    "target": "comp.mix",
-   "tip": "只影响预览里对齐图的叠加，不进交付"
+   "note": {
+    "zh": "只影响预览里对齐图的叠加，不进交付",
+    "en": "Affects only the aligned image overlay in the preview; not delivered"
+   }
   },
   {
-   "name": "cook_match",
-   "label": "匹配",
+   "name": "cook_comp",
+   "label": {
+    "zh": "匹配",
+    "en": "Match"
+   },
    "target": "comp.cook"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "exr_name",
-     "label": "文件名（EXR）",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名（EXR）",
+      "en": "File Name (EXR)"
+     },
+     "target": "exr.name"
     },
     {
      "name": "colorspace_out",
-     "label": "输出色彩空间",
-     "target": "out.colorspace"
+     "label": {
+      "zh": "输出颜色空间",
+      "en": "Output Color Space"
+     },
+     "target": "exr.colorspace"
     },
     {
-     "name": "tracks_format",
-     "label": "匹配点格式",
+     "name": "track_format_value",
+     "label": {
+      "zh": "匹配点格式",
+      "en": "Match Format"
+     },
      "target": "track_format.value",
      "widget": "menu",
      "options": [
       {
        "value": "3de",
-       "label": "3DE"
+       "label": {
+        "zh": "3DE",
+        "en": "3DE"
+       }
       },
       {
        "value": "tracker",
-       "label": "Nuke Tracker"
+       "label": {
+        "zh": "Nuke Tracker",
+        "en": "Nuke Tracker"
+       }
       },
       {
        "value": "csv",
-       "label": "CSV"
+       "label": {
+        "zh": "CSV",
+        "en": "CSV"
+       }
       }
      ],
-     "hide_when": "matches == 0"
+     "hide_when": "match_matches == 0"
     },
     {
-     "name": "plate_points_name",
-     "label": "文件名（画面匹配点）",
-     "target": "pts.name",
-     "hide_when": "matches == 0"
+     "name": "tracks_name",
+     "label": {
+      "zh": "文件名（图像匹配点）",
+      "en": "File Name (Image Matches)"
+     },
+     "target": "tracks.name",
+     "hide_when": "match_matches == 0"
     },
     {
-     "name": "reference_points_name",
-     "label": "文件名（参考图匹配点）",
-     "target": "rpts.name",
-     "hide_when": "matches == 0"
+     "name": "reference_tracks_name",
+     "label": {
+      "zh": "文件名（参考图匹配点）",
+      "en": "File Name (Reference Image Matches)"
+     },
+     "target": "reference_tracks.name",
+     "hide_when": "match_matches == 0"
     },
     {
-     "label": "坐标原点",
+     "label": {
+      "zh": "坐标原点",
+      "en": "Origin"
+     },
      "name": "origin",
      "target": "track_origin.value",
-     "hide_when": "(matches == 0) or tracks_format != \"csv\"",
+     "hide_when": "(match_matches == 0) or track_format_value != \"csv\"",
      "widget": "menu",
      "options": [
       {
        "value": "bottom_left",
-       "label": "左下"
+       "label": {
+        "zh": "左下",
+        "en": "Bottom Left"
+       }
       },
       {
        "value": "top_left",
-       "label": "左上"
+       "label": {
+        "zh": "左上",
+        "en": "Top Left"
+       }
       }
      ]
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_bit_depth",
-       "label": "EXR 位深",
-       "target": "out.exr_bit_depth"
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
+       "target": "exr.exr_bit_depth"
       },
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
-       "target": "out.exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -171,17 +267,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -190,8 +292,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -200,13 +301,12 @@
    },
    "ui": {
     "x": 0,
-    "y": 428
+    "y": 732
    }
   },
   {
-   "id": "ref",
-   "type": "core.read_sequence",
-   "label": "读取参考图",
+   "id": "reference",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -215,20 +315,19 @@
    },
    "ui": {
     "x": 40,
-    "y": 792
+    "y": 1121
    }
   },
   {
    "id": "match",
    "type": "romav2.match",
-   "label": "RoMa v2 图像对位",
    "params": {
     "setting": "precise",
     "matches": 2000
    },
    "ui": {
     "x": 400,
-    "y": 360,
+    "y": 664,
     "on_node": [
      "setting",
      "matches"
@@ -237,18 +336,16 @@
   },
   {
    "id": "warp",
-   "type": "core.stmap_warp",
-   "label": "STMap",
+   "type": "stmap",
    "params": {},
    "ui": {
     "x": 800,
-    "y": 476
+    "y": 786
    }
   },
   {
-   "id": "out",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "id": "exr",
+   "type": "exr.output",
    "params": {
     "name": "aligned",
     "layers": [
@@ -274,16 +371,15 @@
    },
    "ui": {
     "x": 1200,
-    "y": 472,
+    "y": 782,
     "on_node": [
      "name"
     ]
    }
   },
   {
-   "id": "pts",
-   "type": "core.output_tracks",
-   "label": "2D 跟踪点输出设置（画面）",
+   "id": "tracks",
+   "type": "tracks.output",
    "params": {
     "name": "matches_plate",
     "format": "3de",
@@ -292,7 +388,7 @@
    },
    "ui": {
     "x": 1240,
-    "y": 980,
+    "y": 235,
     "on_node": [
      "name",
      "format"
@@ -304,9 +400,8 @@
    ]
   },
   {
-   "id": "rpts",
-   "type": "core.output_tracks",
-   "label": "2D 跟踪点输出设置（参考图）",
+   "id": "reference_tracks",
+   "type": "tracks.output",
    "params": {
     "name": "matches_reference",
     "format": "3de",
@@ -315,7 +410,7 @@
    },
    "ui": {
     "x": 1240,
-    "y": 792,
+    "y": 0,
     "on_node": [
      "name",
      "format"
@@ -328,49 +423,45 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
     "x": 1600,
-    "y": 472
+    "y": 782
    }
   },
   {
    "id": "track_format",
-   "type": "core.value_text",
-   "label": "匹配点格式",
+   "type": "value_string",
    "params": {
     "value": "3de"
    },
    "ui": {
     "x": 880,
-    "y": 900
+    "y": 146
    }
   },
   {
    "id": "comp",
-   "type": "core.image_merge",
-   "label": "图像合成（对齐图盖到画面）",
+   "type": "composite",
    "params": {
     "operation": "over",
     "mix": 0.5
    },
    "ui": {
     "x": 1160,
-    "y": 0
+    "y": 1121
    }
   },
   {
    "id": "track_origin",
-   "type": "core.value_text",
-   "label": "坐标原点",
+   "type": "value_string",
    "params": {
     "value": "bottom_left"
    },
    "ui": {
     "x": 880,
-    "y": 1020,
+    "y": 325,
     "on_node": [
      "value"
     ]
@@ -390,7 +481,7 @@
   },
   {
    "from": [
-    "ref",
+    "reference",
     "image"
    ],
    "to": [
@@ -400,7 +491,7 @@
   },
   {
    "from": [
-    "ref",
+    "reference",
     "image"
    ],
    "to": [
@@ -424,7 +515,7 @@
     "image"
    ],
    "to": [
-    "out",
+    "exr",
     "layer1"
    ]
   },
@@ -434,7 +525,7 @@
     "stmap"
    ],
    "to": [
-    "out",
+    "exr",
     "layer2"
    ]
   },
@@ -444,7 +535,7 @@
     "confidence"
    ],
    "to": [
-    "out",
+    "exr",
     "layer3"
    ]
   },
@@ -454,7 +545,7 @@
     "matches"
    ],
    "to": [
-    "pts",
+    "tracks",
     "tracks"
    ]
   },
@@ -464,13 +555,13 @@
     "other_matches"
    ],
    "to": [
-    "rpts",
+    "reference_tracks",
     "tracks"
    ]
   },
   {
    "from": [
-    "out",
+    "exr",
     "files"
    ],
    "to": [
@@ -480,7 +571,7 @@
   },
   {
    "from": [
-    "pts",
+    "tracks",
     "files"
    ],
    "to": [
@@ -490,7 +581,7 @@
   },
   {
    "from": [
-    "rpts",
+    "reference_tracks",
     "files"
    ],
    "to": [
@@ -504,7 +595,7 @@
     "value"
    ],
    "to": [
-    "pts",
+    "tracks",
     "param:format"
    ]
   },
@@ -514,7 +605,7 @@
     "value"
    ],
    "to": [
-    "rpts",
+    "reference_tracks",
     "param:format"
    ]
   },
@@ -544,7 +635,7 @@
     "value"
    ],
    "to": [
-    "pts",
+    "tracks",
     "param:origin"
    ]
   },
@@ -554,7 +645,7 @@
     "value"
    ],
    "to": [
-    "rpts",
+    "reference_tracks",
     "param:origin"
    ]
   }

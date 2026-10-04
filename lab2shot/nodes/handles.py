@@ -16,6 +16,7 @@ from typing import NamedTuple
 
 import numpy as np
 
+from .. import i18n
 from ..availability import Cond
 
 
@@ -76,22 +77,37 @@ HANDLE_KINDS: dict[str, Kind] = {
     # shown. Declared as Poses (which input's skeleton); the status reply carries the skeleton (NodeDef.handle_data)
     "skeleton_pose": Kind("3d", (), ("pose",), "rows {joint, translate cm, rotate ° XYZ, scale}: local @ T·R·S in the joint's own axes",
                           {"pose": "skeleton_pose"}, source=True, declared_by="Poses", wants_data=True),
+    # two skeletons side by side in the scene, edited in the view: the mapping of their body parts (click a joint on
+    # one, then on the other), each side's reference pose corrected joint by joint (as "skeleton_pose": rows in the
+    # joint's own axes) and which joints are left out of a solver (click a joint: it and what hangs below it). One side
+    # may be a model's fixed skeleton, which has names, a hierarchy and body parts but no positions (drawn as a tree
+    # only). Declared as RigPair; the status reply carries both skeletons (NodeDef.handle_data, the shape RigPair says)
+    "rig_pair": Kind("3d", ("mapping",), ("src_pose", "dst_pose", "src_ignore", "dst_ignore", "ignore_rule", "auto_record",
+                                         "src_scale", "dst_scale"),
+                     "mapping: rows {part, src, dst} (joint names); poses: rows {joint, translate cm, rotate ° XYZ, scale}; "
+                     "ignore: joint names; ignore_rule: a rule id; auto_record: JSON of the last automatic fills; "
+                     "scale: a side's size factor (empty = automatic)",
+                     {"mapping": "rig_map", "src_pose": "skeleton_pose", "dst_pose": "skeleton_pose",
+                      "src_ignore": "joint_list", "dst_ignore": "joint_list", "ignore_rule": "choice",
+                      "auto_record": "hidden_json", "src_scale": "float", "dst_scale": "float"},
+                     source=True, declared_by="RigPair", wants_data=True),
 }
 
-# The 18 joints drawn on the stick figure, as (SMPL joint name, UI label). The order is the order of the coordinate
+# The widgets of the parameters a 2D handle works on in the view (picks, outlines, a stick figure): each such parameter
+# gets its own 「在视图里点选」 (nodes/params.py pick_button), and the page offers it the pick-in-view row. Derived from
+# the kinds, the one list (the catalogue carries it to the page: server/app.py `picked_in_view`)
+PICKED_IN_VIEW: tuple[str, ...] = tuple(sorted({w for k in HANDLE_KINDS.values() if k.stage == "2d" for w in k.widgets.values()}))
+
+# The 18 joints drawn on the stick figure, as (SMPL joint name, label id: its words handle.label.<id>). The order is the order of the coordinate
 # pairs in a "figure" handle entry; the bone connections on the web side (webui/src/view/figure2d.ts FIGURE_BONES)
 # use the same order. Labels name where the point is on the body (points are drawn, not bones), so 「左胯」 is not
 # called 「左大腿」:
 # data/joints.py part_label names a bone and this table names a point; the two are not interchangeable.
 # The body has 22 joints (the first 22 SMPL joints of lab2shot_shared.smpl); the 4 omitted ones (spine2, spine3 and
 # both shoulders) lie on the lines between drawn points and are filled in by the algorithm rather than drawn.
-FIGURE_JOINTS: tuple[tuple[str, str], ...] = (
-    ("pelvis", "髋"), ("left_hip", "左胯"), ("right_hip", "右胯"), ("spine1", "腰"),
-    ("left_knee", "左膝"), ("right_knee", "右膝"), ("left_ankle", "左踝"), ("right_ankle", "右踝"),
-    ("left_foot", "左脚"), ("right_foot", "右脚"), ("neck", "颈"),
-    ("left_collar", "左肩"), ("right_collar", "右肩"), ("head", "头"),
-    ("left_elbow", "左肘"), ("right_elbow", "右肘"), ("left_wrist", "左腕"), ("right_wrist", "右腕"),
-)
+FIGURE_JOINTS: tuple[tuple[str, str], ...] = tuple((j, j) for j in (
+    "pelvis", "left_hip", "right_hip", "spine1", "left_knee", "right_knee", "left_ankle", "right_ankle", "left_foot", "right_foot", "neck", "left_collar", "right_collar", "head", "left_elbow", "right_elbow", "left_wrist", "right_wrist",
+))
 
 
 def figure_handle(param: str) -> "Handle":
@@ -110,12 +126,19 @@ class Handle:
     # only while it holds (nodes/applies.py: Param("mode").one_of("picked")); the status reply names the handles that
     # apply now (Graph.handles), the page never checks it itself
     when: Cond | None = None
-    labels: tuple[str, ...] = ()  # "points": what a click means, the first by default, e.g. ("主体", "排除")
+    # "points": what a click means, the first by default: ids, their words handle.label.<id> (e.g. subject, exclude)
+    labels: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         kind = HANDLE_KINDS.get(self.kind)
         if kind is not None and kind.declared_by and not isinstance(self, globals()[kind.declared_by]):
             raise TypeError(f"a {self.kind!r} handle is declared as {kind.declared_by}(...), which holds its own rules")
+
+    @property
+    def ports(self) -> tuple[str, ...]:
+        """The inputs whose data the handle works on: the stand-ins the status reply reads for it (engine/routing.py
+        stand_ins) before the node has cooked."""
+        return (self.source,) if self.source else ()
 
     @property
     def wants_data(self) -> bool:
@@ -156,7 +179,7 @@ class Handle:
 
     def describe(self) -> dict:
         return {"kind": self.kind, "stage": HANDLE_KINDS[self.kind].stage, "params": self.params, "source": self.source,
-                "labels": list(self.labels)}
+                "labels": [i18n.lookup(f"handle.label.{x}") or x for x in self.labels]}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -195,10 +218,9 @@ class Places(Handle):
 class Poses(Handle):
     """The skeleton pose handle: `source` is the input whose skeleton it shows, `skeleton` the parameter naming that
     skeleton's prim (None: the first) and `pose` the parameter it edits (kit/rig_map.py pose_param, rows of JointPose),
-    or None for a skeleton only shown (a model node's person skeleton: the 「对应关系」 editor draws both sides the one
-    way, through this handle). What the stage draws (the joints, their hierarchy, the pose before and after the
-    correction, mirror pairs) the node gives from its inputs (NodeDef.handle_data), carried in the status reply for
-    the displayed node (server/packets.py status)."""
+    or None for a skeleton only shown. What the stage draws (the joints, their hierarchy, the pose before and after the
+    correction, mirror pairs) the node gives from its inputs (NodeDef.handle_data, kit/rig_map.py skeleton_handle),
+    carried in the status reply for the displayed node (server/packets.py status)."""
 
     kind: str = field(default="skeleton_pose", init=False)
     params: dict[str, str] = field(default_factory=dict, init=False)
@@ -218,6 +240,65 @@ class Poses(Handle):
 
     def describe(self) -> dict:
         return {**super().describe(), "skeleton": self.skeleton, "readonly": not self.pose}
+
+
+@dataclass(frozen=True, kw_only=True)
+class RigPair(Handle):
+    """The two-skeleton handle (kind "rig_pair"): `src` is the input that drives (its skeleton chosen by the parameter
+    `src_skeleton`, None the first), `dst` the input driven, or None when the other side is the node's own model
+    skeleton (fixed: joint names, hierarchy and body parts only). The parameters it edits are named by role:
+    `mapping` always (kit/rig_map.py rig_map_param, rows of PartMap); each side's pose (JointPose rows), ignored joints
+    (joint names), the ignore rule (a choice), the record of the automatic fills (JSON, not in the panel) and each
+    side's size factor (a number, empty = automatic: the stage draws that side at that size) where the node has them. What the stage draws for both sides the node gives from its inputs (NodeDef.handle_data: one entry,
+    {"src", "dst", "parts_table", "auto_mapping"[, "rules", "default_rule"]}, kit/rig_map.py rig_pair_data)."""
+
+    kind: str = field(default="rig_pair", init=False)
+    params: dict[str, str] = field(default_factory=dict, init=False)
+    source: str | None = field(default=None, init=False)
+    src: str
+    dst: str | None
+    mapping: str
+    src_skeleton: str | None = None
+    dst_skeleton: str | None = None
+    src_pose: str | None = None
+    dst_pose: str | None = None
+    src_ignore: str | None = None
+    dst_ignore: str | None = None
+    ignore_rule: str | None = None
+    auto_record: str | None = None
+    src_scale: str | None = None
+    dst_scale: str | None = None
+
+    def __post_init__(self) -> None:
+        roles = {"mapping": self.mapping, "src_pose": self.src_pose, "dst_pose": self.dst_pose,
+                 "src_ignore": self.src_ignore, "dst_ignore": self.dst_ignore, "ignore_rule": self.ignore_rule,
+                 "auto_record": self.auto_record, "src_scale": self.src_scale, "dst_scale": self.dst_scale}
+        object.__setattr__(self, "params", {r: p for r, p in roles.items() if p})
+        object.__setattr__(self, "source", self.src)
+
+    @property
+    def ports(self) -> tuple[str, ...]:
+        return (self.src, self.dst) if self.dst else (self.src,)
+
+    def check(self, node) -> None:
+        super().check(node)
+        where = f"{node.__name__}: rig pair handle"
+        if self.dst and self.dst not in {p.name for p in node.inputs}:
+            raise TypeError(f"{where} drives input {self.dst!r}, which is not one of its inputs")
+        fields = node.Params.model_fields
+        for name in (self.src_skeleton, self.dst_skeleton):
+            if name and name not in fields:
+                raise TypeError(f"{where} reads skeleton {name!r}, not a parameter of the node")
+        if not self.dst and (self.dst_pose or self.dst_ignore or self.dst_skeleton or self.dst_scale):
+            raise TypeError(f"{where}: a model's fixed skeleton (dst=None) has no pose, ignored joints, size or skeleton choice")
+        if bool(self.src_scale) != bool(self.dst_scale) or (self.src_scale and not self.auto_record):
+            raise TypeError(f"{where}: the two sizes go together, with the record of the automatic fills")
+        if bool(self.src_ignore or self.dst_ignore) != bool(self.ignore_rule):
+            raise TypeError(f"{where}: ignored joints and the ignore rule go together")
+
+    def describe(self) -> dict:
+        return {**super().describe(), "src": self.src, "dst": self.dst, "src_skeleton": self.src_skeleton,
+                "dst_skeleton": self.dst_skeleton}
 
 
 # ---------------------------------------------------------------- what a handle saved, parsed
@@ -269,7 +350,7 @@ def say_bad_entries(ctx, param: str) -> None:
     bad = entries(ctx.node_type, param, saved)[1]
     if bad:
         ctx.say("W-HANDLE-BADPICK", param=param, count=len(bad), grammar=HANDLE_KINDS[kind_of(ctx.node_type, param)].holds,
-                entries="、".join(bad[:4]) + (" 等" if len(bad) > 4 else ""))
+                entries=i18n.Both.of(lambda: i18n.separator().join(bad[:4]) + (i18n.t("list.etc") if len(bad) > 4 else "")))
 
 
 class Pick(NamedTuple):
@@ -278,7 +359,7 @@ class Pick(NamedTuple):
     frame: int
     x: float  # image pixels, top-left corner = 0,0
     y: float
-    label: int = 0  # which of the handle's labels the click is ("主体" / "排除"), 0 without labels
+    label: int = 0  # which of the handle's labels the click is (subject / exclude), 0 without labels
 
 
 def parse_picks(node_type, param: str, picks: list[str]) -> list[Pick]:

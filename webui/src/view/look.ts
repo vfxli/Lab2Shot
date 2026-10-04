@@ -81,47 +81,47 @@ out vec4 colour;
 
 uniform sampler2D left, right, leftLut, rightLut;
 uniform sampler2D leftP1, leftP2, leftValid, rightP1, rightP2, rightValid;
-uniform vec4 leftBox, rightBox;   // 该侧的画面框（x, y, w, h），单位为画布像素
-uniform vec2 canvas;              // 画布尺寸
-uniform int leftIndex, rightIndex;    // -1：整体（仅对图片路径有意义）
-uniform int leftPlanes, rightPlanes;  // 0：图片路径；1：单条通道；2、3：数值图整体
-uniform vec2 leftRange, rightRange;   // 该数据自身的显示范围（通道路径）
+uniform vec4 leftBox, rightBox;   // this side's picture box (x, y, w, h), in canvas pixels
+uniform vec2 canvas;              // canvas size
+uniform int leftIndex, rightIndex;    // -1: all channels (only for the picture path)
+uniform int leftPlanes, rightPlanes;  // 0: picture path; 1: one channel; 2, 3: a value map whole
+uniform vec2 leftRange, rightRange;   // the data's own display range (channel path)
 uniform int leftHasValid, rightHasValid;
 uniform vec2 leftGrade, rightGrade;   // (black, white)
-uniform float leftSolid, rightSolid;  // 1：纯色（浓淡随值变化），0：色标（颜色自带数值信息）
-uniform int leftAlpha, rightAlpha;    // 1：该通道的值作为运算强度
-uniform int hasRight, op;             // op 0 加 · 1 乘 Alpha · 2 乘 RGBA（model/view2d.ts Op）
+uniform float leftSolid, rightSolid;  // 1: solid colour (strength follows the value), 0: a ramp (the colour carries the value)
+uniform int leftAlpha, rightAlpha;    // 1: this channel's value is the operation's strength
+uniform int hasRight, op;             // op 0 add · 1 multiply alpha · 2 multiply RGBA (model/view2d.ts Op)
 uniform float mix_;
-uniform float leftLutTop, rightLutTop;  // 查色表的最大下标（model/view2d.ts lutTop）：色标 255，「编号」为最大编号
-uniform vec2 leftLutSize, rightLutSize; // 查色表纹理的宽高（格数超过显卡最大纹理宽度时折成几行）
+uniform float leftLutTop, rightLutTop;  // the colour table's highest index (model/view2d.ts lutTop): 255 for a ramp, the largest id for "ID"
+uniform vec2 leftLutSize, rightLutSize; // the colour table texture's size (folded into rows when wider than the GPU allows)
 
 float graded(float v, vec2 g) { return (v - g.x) / max(g.y - g.x, 1e-6); }
 
-// 一条通道的值 → 该数据自身范围内的 0..1（与服务器生成显示图时的表达式完全一致：
-// lab2shot/view/frames.py _map_rgb 的 clip((v - lo) / span)，范围反向时斜坡随之翻转）
+// one channel's value -> 0..1 within the data's own range (exactly the server's expression for display images:
+// lab2shot/view/frames.py _map_rgb clip((v - lo) / span); a reversed range flips the ramp)
 float mapped(sampler2D tex, vec2 q, vec2 range) {
   float span = abs(range.y - range.x) > 1e-6 ? (range.y - range.x) : 1e-6;
   return clamp((texture(tex, q).r - range.x) / span, 0.0, 1.0);
 }
 
-// pix：以左上角为原点的画布像素坐标。WebGL 画布原点位于左下角，而图像、画面框（data_window）及
-// 整条二维链的坐标均以左上角为原点，不统一会导致上下颠倒（三维背板的取样同理）。
+// pix: canvas pixels from the top left. WebGL's origin is the bottom left, while the image, the picture box (data_window)
+// and the whole 2D chain count from the top left; mixing them turns the picture upside down (the 3D image plane alike).
 vec4 side(sampler2D tex, sampler2D p1, sampler2D p2, sampler2D validTex, sampler2D lut,
           vec2 pix, vec4 box, int planes, vec2 range, int hasValid,
           int index, vec2 grade, float solid, int asWeight, float lutTop, vec2 lutSize) {
   vec2 q = (pix - box.xy) / max(box.zw, vec2(1.0));
   if (q.x < 0.0 || q.y < 0.0 || q.x > 1.0 || q.y > 1.0) return vec4(0.0);
   float raw;
-  if (planes == 0) {                     // 图片路径：已完成显示变换，在此选取通道
+  if (planes == 0) {                     // picture path: already display-transformed, pick the channel here
     vec4 px = texture(tex, q);
-    if (index < 0) {                     // 多条一起查看：只应用黑白点，不着色
+    if (index < 0) {                     // several channels together: black and white points only, no tint
       return vec4(graded(px.r, grade), graded(px.g, grade), graded(px.b, grade), px.a);
     }
     raw = index == 0 ? px.r : index == 1 ? px.g : index == 2 ? px.b : px.a;
   } else {
-    // 无值像素绘制为黑色（服务器端为 np.where(valid, scaled, 0)）
+    // pixels without a value are drawn black (the server: np.where(valid, scaled, 0))
     float ok = (hasValid == 1 && texture(validTex, q).r <= 0.0) ? 0.0 : 1.0;
-    if (planes > 1) {                    // 数值图「整体」：每条通道一种颜色，缺少第三条时为 0，不着色
+    if (planes > 1) {                    // a value map "whole": one colour per channel, 0 where there is no third, no tint
       return vec4(graded(mapped(tex, q, range) * ok, grade),
                   graded(mapped(p1, q, range) * ok, grade),
                   planes > 2 ? graded(mapped(p2, q, range) * ok, grade) : graded(0.0, grade),
@@ -130,35 +130,35 @@ vec4 side(sampler2D tex, sampler2D p1, sampler2D p2, sampler2D validTex, sampler
     raw = mapped(tex, q, range) * ok;
   }
   float t = clamp(graded(raw, grade), 0.0, 1.0);
-  // 取第 round(t*lutTop) 格，不在两格之间插值：与 model/view2d.ts 的 tintLut(...)[Math.round(t*lutTop)] 等价。
-  // 色标 lutTop = 255（256 档）；「编号」lutTop = 最大编号，t = 编号 / 最大编号，取到的就是这个编号自己的一格
-  // （插值得到的颜色不属于任何类别；也不能几个编号共用一格，否则相邻编号同色）。格数超过纹理宽度时按行折叠。
+  // take cell round(t*lutTop), never between two: the same as model/view2d.ts tintLut(...)[Math.round(t*lutTop)].
+  // A ramp has lutTop = 255 (256 steps); "ID" has lutTop = the largest id, t = id / largest, so it takes that id's own
+  // cell (an interpolated colour belongs to no class; ids may not share a cell either). Folded into rows when wide.
   float cell = floor(t * lutTop + 0.5);
   vec3 rgb = texture(lut, (vec2(mod(cell, lutSize.x), floor(cell / lutSize.x)) + 0.5) / lutSize).rgb;
-  float a = asWeight == 1 ? t : mix(1.0, t, solid);   // tintAlpha：纯色的浓淡即为数值，色标自带数值信息
+  float a = asWeight == 1 ? t : mix(1.0, t, solid);   // tintAlpha: a solid colour's strength is the value; a ramp carries it in its colour
   return vec4(rgb, a);
 }
 
 void main() {
-  vec2 pix = vec2(uv.x, 1.0 - uv.y) * canvas;   // 以左上角为原点（见 side 上方的注释）
+  vec2 pix = vec2(uv.x, 1.0 - uv.y) * canvas;   // from the top left (see the note above side)
   vec4 l = side(left, leftP1, leftP2, leftValid, leftLut, pix, leftBox, leftPlanes, leftRange,
                 leftHasValid, leftIndex, leftGrade, leftSolid, leftAlpha, leftLutTop, leftLutSize);
   vec4 out_ = l;
   if (hasRight == 1) {
     vec4 r = side(right, rightP1, rightP2, rightValid, rightLut, pix, rightBox, rightPlanes, rightRange,
                   rightHasValid, rightIndex, rightGrade, rightSolid, rightAlpha, rightLutTop, rightLutSize);
-    if (op == 0) {                          // 加：右侧按其自身强度叠加，透明度不变
+    if (op == 0) {                   // add: the right side added by its own strength, alpha unchanged
       float k = r.a * mix_;
       out_ = vec4(l.rgb + r.rgb * k, l.a);
-    } else if (op == 3) {                   // 盖上（over）：右侧按其 alpha 盖住原图（未预乘的颜色，model/view2d.ts merged）
+    } else if (op == 3) {                   // over: the right side covers the plate by its alpha (unpremultiplied colour, model/view2d.ts merged)
       float k = r.a * mix_;
       out_ = vec4(mix(l.rgb, r.rgb, k), l.a * (1.0 - k) + k);
-    } else {                                // 乘：mix 将乘数向 1 拉回
+    } else {                                // multiply: mix pulls the factor back towards 1
       float k = 1.0 - mix_ + mix_ * r.a;
       out_ = op == 1 ? vec4(l.rgb, l.a * k) : vec4(l.rgb * k, l.a * k);
     }
   }
-  // 上下文使用 premultipliedAlpha: false，因此颜色按未预乘输出（再乘一次会变暗）
+  // the context has premultipliedAlpha: false, so the colour goes out unpremultiplied (multiplying again darkens it)
   colour = out_;
 }`;
 

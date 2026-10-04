@@ -1,0 +1,49 @@
+# The WHAM extension's own words and messages in English (the same keys as zh.toml).
+
+# ---- image and people
+"N-WHAM-NOPEOPLE" = "WHAM Full-Body Motion found no person in the image, so the output is empty: make sure whole people are in the shot, not too small and not occluded"
+"N-WHAM-NOLONGTRACK.one" = "None of the people WHAM Full-Body Motion found stays in the shot for {frames} frame in a row (it ignores shorter tracks), so the output is empty: use a shot where people stay longer. To solve only one of them, remove the others from the image upstream with ViTDet People Boxes → Select People → Person Boxes to Mask → Composite"
+"N-WHAM-NOLONGTRACK.other" = "None of the people WHAM Full-Body Motion found stays in the shot for {frames} frames in a row (it ignores shorter tracks), so the output is empty: use a shot where people stay longer. To solve only one of them, remove the others from the image upstream with ViTDet People Boxes → Select People → Person Boxes to Mask → Composite"
+"I-WHAM-YOLOWEIGHTS" = "YOLOv8x person detection model weights"
+
+# ---- camera
+"W-WHAM-FOCALCHANGES" = "The wired camera's focal length changes from frame to frame ({low:.1f}–{high:.1f} px), but WHAM Full-Body Motion can use only one focal length for the whole shot and took the median, {focal:.1f} px: on frames whose focal length is far from the median, people's distance and size will be off"
+
+[node."wham.solve"]
+subtitle = "Full-Body Motion"
+description = "WHAM: solves each person's motion in the world from the image (SMPL bodies), with DPVO estimating the camera's rotation and steadier foot contact with the ground. Solves several people together. The people come out in WHAM's own world; to match the plate under your camera, wire Reference Camera together with your camera into Camera Space Transform (as Source Camera), already wired in the templates. For fingers and face use SAM 3D Body Full-Body Motion; for a gravity-aligned world trajectory use GVHMR Body Motion. A Camera output is also given: the pinhole camera the people are placed with, at the origin and still (focal length = Focal Length; when empty, WHAM's own default, the image diagonal; principal point at the image centre). It is not a solved camera: through it the 3D viewport shows the image plane and people lined up with the image, and the templates use it as the solver's camera."
+official.note = "① **People Boxes are not an input: upstream detects the boxes itself**. The official script takes only a video (demo.py:182 `--video`); the boxes come from its own YOLOv8x detection + ViTPose tracking (demo.py:65 `detector.track(img, fps, length)`, lib/models/preproc/detector.py DetectionModel). So the node has no People Boxes input: putting wired boxes into upstream's own structure detector.tracking_results['bbox'] in place of its detection would be an input we made up, not an official one. To solve only one person, remove the others from the image upstream and wire the result into the RGB input: ViTDet People Boxes → Select People → Person Boxes to Mask → Composite. ② **Reference Camera**: WHAM delivers the people in **its own world** (origin at the hips of the person's starting position), and that world comes with a camera that lines the people up with the plate. The reference camera is not a production camera: wire it together with your own camera into the core node Camera Space Transform (as Source Camera), which computes a correction applied to the people; used directly as the shot camera, the people end up off screen or in the wrong place. **It is fully determined by two official outputs**: upstream outputs the same person both in the camera (demo.py:162-163 `results[_id]['pose'] / ['trans']`) and in the world (:164-165 `['pose_world'] / ['trans_world']`), and the rigid transform between them is that camera (worker.py wh.camera_from_body); its **rotation** comes from upstream's own DPVO (demo.py:56 `SLAMModel(...)`, :76 `slam.process()`, :88 `joblib.dump(slam_results, ...)`). This output is required: without it, the alignment in the templates is left with only the camera-space option, and the camera's motion would be applied twice. For a **usable** camera, wire one from a node that really solves cameras (ViPE, TRAM) or from Import USD. ③ The Skinned Character is the CG form; upstream outputs SMPL parameters + vertices. ④ cam_angvel uses only the camera's **rotation**; upstream's --calib (demo.py:189) is just intrinsics, not a camera."
+
+[node."wham.solve".official.ours]
+camera = "The pinhole camera the people are placed with: at the origin, still, focal length = the node's Focal Length (when empty, the solver's own estimate / default), principal point at the image centre (families/humans.py plate_camera)"
+
+[node."wham.solve".port.keypoints]
+help = "The 17 body points ViTPose finds in the image (nose, eyes, ears, shoulders, elbows, wrists, hips, knees, ankles): the ones WHAM found the people by before solving. They are points in the image, not a projection of the 3D result: wire them straight into 2D Tracks Output for 3DEqualizer or Nuke, or overlay them on the image to see whether the solved people fit. Grouped by person, one group each"
+
+[node."wham.solve".param.smplify]
+label = "SMPLify Refinement"
+
+[node."wham.solve".port.camera]
+help = "The camera the people are placed with: a still pinhole camera at the origin, its focal length the node's Focal Length (the solver's own estimate or the default when left empty), its principal point at the image centre. Not a solved camera: the people are placed in its space, so through it they line up with the image plane. Use it as the solver's camera, or as the target of Camera Space"
+
+[extension.wham]
+summary = "Lifts 2D keypoint sequences to 3D using mocap data and image features, then estimates the global trajectory from SLAM camera angular velocity, refined by foot contact"
+license.name = "MIT (code) + SMPL non-commercial + model weights for research only"
+license.summary = "Research only. The WHAM code is MIT, but it needs the SMPL body model (SMPL_NEUTRAL) to run, which you download yourself after registering at smpl.is.tue.mpg.de, for non-commercial research only and with no redistribution; the auxiliary files downloaded with WHAM, such as the joint regressors, are derived from SMPL and fall under the SMPL license too. The authors give the WHAM model weights no license of their own, and the training data includes research-only datasets such as AMASS, BEDLAM and 3DPW, so they are used for research only. The rest: DPVO code and model weights MIT, HMR2.0a (4D-Humans) MIT, ViTPose-H and mmcv / mmpose Apache-2.0, the YOLOv8x model weights and ultralytics code AGPL-3.0 (upstream's own person detection), smplx code (MPI non-commercial license), chumpy MIT, torch-scatter MIT"
+weight.wham.note = "WHAM main network (the BEDLAM+3DPW version the demo defaults to), 503 MB"
+weight.smpl-aux.note = "SMPL joint regressors and other auxiliary files, 1 MB"
+weight.hmr2a.note = "HMR2.0a image features (4D-Humans, MIT), 2.7 GB"
+weight.vitpose-h.note = "ViTPose-H 2D keypoints (Apache-2.0), 2.5 GB"
+weight.dpvo.note = "DPVO visual odometry (MIT), 14 MB"
+weight.yolo.note = "YOLOv8x person detection (Ultralytics AGPL-3.0), 131 MB"
+
+# ---- the worker's cooking stages (worker.py run.model / run.stage / run.each; writing uses the core's write_results)
+[stage]
+detect_keypoints = "YOLOv8 People Detection · ViTPose Keypoints"
+detect = "Detection and Keypoints"
+image_features = "HMR2 Image Features"
+dpvo_rotation = "DPVO Camera Rotation"
+dpvo = "DPVO"
+solve_motion = "WHAM Body Motion Solve"
+solve = "Solve"
+merge_worlds = "Merge World Coordinates"

@@ -12,6 +12,8 @@ per-frame solve is keyed on every frame even where neighbouring frames coincide.
 
 from __future__ import annotations
 
+from .. import i18n
+
 import json
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -90,6 +92,12 @@ class CameraSamples:
         """Per frame at `width` (or the camera's own picture width): an animated aperture keeps its field of view."""
         return units.focal_px(self.focal_mm, self.h_aperture_mm, width if width is not None else self.width)
 
+    def focal_xy_px(self, width: int) -> np.ndarray:
+        """(fx, fy) per sample [F,2] in pixels at this picture width: fy = fx x pixel aspect (a pixel's width over its
+        height), so a camera whose pixels are not square projects and back-projects without being stretched."""
+        fx = np.asarray(self.focal_px(width), np.float64).reshape(-1)
+        return np.stack([fx, fx * float(self.pixel_aspect)], -1)
+
     def principal_px(self, width: int | None = None) -> np.ndarray:
         """Per frame [F,2]: the principal point (cx, cy) in pixels at `width` (the picture scaled to it), +y down — the
         picture's centre moved by the lens centre (center_mm, +y up). A solver that wrote its principal point (COLMAP,
@@ -99,7 +107,7 @@ class CameraSamples:
         n = max(len(self.frames), 1)
         per_mm = np.broadcast_to(w / np.asarray(self.h_aperture_mm, np.float64), (n,))
         c = np.broadcast_to(np.asarray(self.center_mm, np.float64).reshape(-1, 2), (n, 2))
-        return np.stack([w / 2 + c[:, 0] * per_mm, h / 2 - c[:, 1] * per_mm], -1)
+        return np.stack([w / 2 + c[:, 0] * per_mm, h / 2 - c[:, 1] * per_mm * self.pixel_aspect], -1)
 
     def rotations(self) -> np.ndarray:
         """The rotation part of cam_to_world: the nearest rotation (motion.orthonormal, the one rotation-normalization; a
@@ -196,7 +204,7 @@ class CameraSamples:
 
         want = list(frames) if frames is not None else list(camera.meta.get("frames", []))
         stage = open_scene([camera])  # kept alive while the prim below is read
-        prim = the_camera(stage, "相机输入")
+        prim = the_camera(stage, i18n.t("scene.where.camera_input"))
         width, height = int(camera.meta.get("width") or 0), int(camera.meta.get("height") or 0)
         return cls.from_prim(prim, want, width=width, height=height)
 

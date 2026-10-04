@@ -11,8 +11,8 @@ The rig comes in as joint-to-world transforms on its own frames (cm, Y up, the s
   2. turns that into SMPL parameters (lab2shot_shared.smpl to_params / from_params, the project's single conversion)
      and into AMASS's Z-up world, then into upstream's own 232-feature representation
      (`smpldata_to_alignglobsmplrifkefeats`: the features are lossless, max round-trip error 0.5 µm);
-  3. detects over the whole clip in one pass: the model's 233rd channel is a per-frame "this frame is broken"
-     label, and detection holds up at any length (a clean 2400-frame clip flags 8 frames);
+  3. detects in 100-frame windows every 50 frames (upstream's training and inference window), each window encoded
+     on its own and the windows batched: the model's 233rd channel is a per-frame "this frame is broken" label;
   4. fixes in 100-frame windows, the length it was trained on: repair quality falls off beyond it (a 94 cm root
      teleport comes back to 1.5 cm at 100–200 frames, 6.6 cm at 400, 33 cm at 800). Only windows that hold a flagged
      frame are run at all, and each is canonicalised and un-canonicalised on its own (the representation puts every
@@ -52,8 +52,7 @@ BODY = "smpl"
 MODEL_FPS = 20.0  # BrokenAMASS is resampled to 20 fps; the model knows no other rate
 WINDOW = 100  # frames it was trained on
 STRIDE = 50
-DETECT_CHUNK = 1000  # frames the detection pass looks at in one go: it holds up at any length (a clean 2400-frame
-# clip flags 8 frames), but attention costs the square of it, so a ten-minute take is read in pieces
+DETECT_BATCH = 16  # detection windows per pass through the model
 LEAST_FRAMES = 8  # below this a window is mostly padding and the label means nothing
 FEATURES = 232  # the motion features; the 233rd channel is the quality label
 REST_JOINTS = "data_loaders/amasstools/smpl_neutral_nobetas_24J.npz"
@@ -247,31 +246,36 @@ def normalized(feats: torch.Tensor, norm: Normalizer, device) -> tuple[torch.Ten
     return x.to(device), attention.to(device), torch.tensor([frames], device=device)
 
 
-def detect_all(model, diffusion, norm: Normalizer, features, whole: torch.Tensor, device) -> np.ndarray:
-    """The whole take's per-frame score (0..1, the model's label channel), in pieces of at most DETECT_CHUNK frames that
-    overlap by a window (each frame is judged by the piece whose middle it is nearest, so no frame is judged by a
-    piece's unreliable last frames). The cut (the node's 「检测阈值」) is made by the caller, and the score itself goes
-    back as the 「问题帧」 curve, so the artist's threshold on the node and the worker's agree by construction."""
-    total = len(whole)
-    if total <= DETECT_CHUNK:
-        return detect(model, diffusion, norm, normalized(whole, norm, device))
+def detect_all(model, diffusion, norm: Normalizer, features, pose: np.ndarray, transl: np.ndarray, device) -> np.ndarray:
+    """The whole take's per-frame score (0..1, the model's label channel), judged in WINDOW-frame windows every STRIDE
+    frames, as upstream trains and runs it (data_loaders/get_data.py: 5-second items at 20 fps). Each window is
+    encoded on its own, so its features are relative to its own first frame (smpldata_to_alignglobsmplrifkefeats),
+    the distribution the normalisation statistics describe; a longer piece drifts out of it. Each frame takes the
+    score of the window whose middle it is nearest, so no frame is judged by a window's unreliable ends. The
+    windows go through the model DETECT_BATCH at a time. The cut (the node's 「检测阈值」) is made by the caller, and
+    the score itself goes back as the 「问题帧」 curve, so the artist's threshold on the node and the worker's agree."""
+    total = len(pose)
+    starts = list(range(0, max(total - WINDOW, 0) + 1, STRIDE))
+    if starts[-1] + WINDOW < total:
+        starts.append(total - WINDOW)
+    centre = np.array([s + min(WINDOW, total - s) / 2.0 for s in starts])
+    owner = np.abs(np.arange(total)[:, None] + 0.5 - centre[None]).argmin(axis=1)
     out = np.zeros(total, np.float32)
-    step = DETECT_CHUNK - WINDOW
-    starts = list(range(0, total - WINDOW, step))
-    for n, start in enumerate(starts):
-        end = min(start + DETECT_CHUNK, total)
-        got = detect(model, diffusion, norm, normalized(whole[start:end], norm, device))
-        first = start if n == 0 else start + WINDOW // 2
-        last = end if end == total else end - WINDOW // 2
-        out[first:last] = got[first - start:last - start]
-        progress(n + 1, len(starts), "找问题帧")
+    for b in range(0, len(starts), DETECT_BATCH):
+        group = starts[b:b + DETECT_BATCH]
+        sent = [normalized(features.encode(pose[s:s + WINDOW], transl[s:s + WINDOW]), norm, device) for s in group]
+        got = detect(model, diffusion, norm, tuple(torch.cat(parts, dim=0) for parts in zip(*sent)))
+        for k, s in enumerate(group):
+            mine = np.flatnonzero(owner == b + k)
+            out[mine] = got[k][mine - s]
+        progress(min(b + DETECT_BATCH, len(starts)), len(starts), "find_problems")
     return out
 
 
 @torch.no_grad()
-def detect(model, diffusion, norm: Normalizer, sent) -> np.ndarray:
+def detect(model, diffusion, norm: Normalizer, sent) -> list[np.ndarray]:
     """Upstream's detection pass: everything but the label channel is kept, the label channel is predicted; its value
-    per frame (upstream cuts it at ProbDetTh; here the caller does)."""
+    per frame (upstream cuts it at ProbDetTh; here the caller does), one array per window of the batch."""
     x, attention, length = sent
     keep = torch.ones_like(x).bool()
     keep[:, -1] = False
@@ -283,8 +287,20 @@ def detect(model, diffusion, norm: Normalizer, sent) -> np.ndarray:
     sample = diffusion.p_sample_loop(model, tuple(x.shape), clip_denoised=False, model_kwargs=kwargs,
                                      skip_timesteps=0, init_image=None, progress=False, dump_steps=None,
                                      noise=None, const_noise=False)
-    got = norm.inverse(sample.transpose(1, 2).cpu())[0, :, -1].numpy().astype(np.float32)
-    return got[:int(length[0])]
+    got = norm.inverse(sample.transpose(1, 2).cpu())[:, :, -1].numpy().astype(np.float32)
+    return [g[:int(n)] for g, n in zip(got, length.tolist())]
+
+
+def widened(bad: np.ndarray) -> np.ndarray:
+    """The frames upstream's fix pass repaints: the flagged ones widened by one on each side, the window's last frame
+    always kept (fix_globsmpl.py:148-153). The repainted window is taken back over these same frames, so the frames
+    either side of a flagged stretch come from the model too and the seam does not jump."""
+    bad = np.asarray(bad, bool)
+    grown = bad.copy()
+    grown[1:] |= bad[:-1]
+    grown[:-1] |= bad[1:]
+    grown[-1] = False
+    return grown
 
 
 @torch.no_grad()
@@ -293,12 +309,8 @@ def repaint(model, diffusion, norm: Normalizer, args: Args, sent, bad: np.ndarra
     repainted, everything else is held to what came in."""
     x, attention, length = sent
     frames = x.shape[2]
-    label = torch.zeros(1, frames, dtype=torch.bool, device=x.device)
-    label[0, :len(bad)] = torch.as_tensor(bad, dtype=torch.bool, device=x.device)
-    grown = label.clone()
-    grown[:, 1:] |= label[:, :-1]
-    grown[:, :-1] |= label[:, 1:]
-    grown[0, int(length[0]) - 1] = False  # the last real frame is always kept, as upstream does
+    grown = torch.zeros(1, frames, dtype=torch.bool, device=x.device)
+    grown[0, :len(bad)] = torch.as_tensor(widened(bad), dtype=torch.bool, device=x.device)
     keep = torch.zeros_like(x).bool()
     keep[..., (~grown[0]).nonzero().flatten()] = True
     keep[:, -1] = True  # the label channel is never repainted
@@ -363,14 +375,14 @@ def cleanup(run: Run) -> None:
     repo, weights = job.repo_dir, job.weights_dir
     _prepare(repo)
     run.weights(weights / "ema001000000.pt",  # the normaliser is the upstream repo's own mean.pt / std.pt (Normalizer)
-                what="StableMotion 权重", page="https://github.com/Murrol/StableMotion")
+                page="https://github.com/Murrol/StableMotion")
     p = job.params
     device = torch.device("cuda")
     motion = rm.read_job(job.inputs["motion"])
 
     with in_repo(repo):
         rest = np.load(REST_JOINTS)["J"].astype(np.float64)  # the neutral, no-betas body, metres, Y up
-    run.stage("对齐骨骼")
+    run.stage("align_skeleton")
     try:
         retarget = motion.retarget(S.skeleton(BODY, rest))
     except ValueError as exc:
@@ -389,7 +401,7 @@ def cleanup(run: Run) -> None:
     pose, transl = to_amass(*S.to_params(BODY, world, root_t, rest))
     features = Features(rest)
 
-    model, diffusion = run.model("StableMotion 模型", load_model, str(repo), str(weights), device)
+    model, diffusion = run.model("load_model", load_model, str(repo), str(weights), device, stage_params={"model": "StableMotion"})
     norm = Normalizer(repo)  # normalisation statistics from the upstream repository's mean.pt / std.pt
     args = Args()
     args.seed, args.ensemble = int(p["seed"]), p["quality"] == "best"
@@ -399,10 +411,9 @@ def cleanup(run: Run) -> None:
         args.classifier_scale = 100.0
     set_seed(args.seed)
 
-    run.stage("找出有问题的帧")
+    run.stage("detect_problems")
     with in_repo(repo):
-        whole = features.encode(pose, transl)
-        score = detect_all(model, diffusion, norm, features, whole, device)  # per frame, 0..1
+        score = detect_all(model, diffusion, norm, features, pose, transl, device)  # per frame, 0..1
     bad = score > args.ProbDetTh
     say("I-STABLEMOTION-FOUND", bad=int(bad.sum()), total=total)
     if p.get("repaint_all"):  # 「只改问题帧」 off: the whole clip is repainted by the model, including frames judged good
@@ -410,7 +421,7 @@ def cleanup(run: Run) -> None:
 
     parts = windows(bad, total)
     if parts:
-        run.stage("重画有问题的帧")
+        run.stage("redraw_problems")
     if len(parts) > 1:
         say("N-STABLEMOTION-PARTS", seconds=total / MODEL_FPS, parts=len(parts), overlap=WINDOW - STRIDE)
     fixed_pose, fixed_transl = pose.copy(), transl.copy()
@@ -420,15 +431,15 @@ def cleanup(run: Run) -> None:
             sent = normalized(features.encode(pose[start:end], transl[start:end]), norm, device)
             out = repaint(model, diffusion, norm, args, sent, bad[start:end])
             got_pose, got_transl = features.decode(out, place)
-        take = np.flatnonzero(bad[start:end])  # only the frames this pass was asked to repaint
+        take = np.flatnonzero(widened(bad[start:end]))  # the frames this pass repainted (flagged, widened by one)
         fixed_pose[start + take] = got_pose[take]
         fixed_transl[start + take] = got_transl[take]
-        progress(n + 1, len(parts), "重画")
+        progress(n + 1, len(parts), "redraw")
 
-    run.stage("换回人物骨骼")
+    run.stage("restore_skeleton")
     rot, pos = S.from_params(BODY, *from_amass(fixed_pose, fixed_transl), rest)
     rm.write_result(run, retarget, MODEL_FPS, at, rot, pos, np.zeros((total, 4), np.float32),
-                    labels=score.astype(np.float32), label_names=("问题帧",), method="StableMotion",
+                    labels=score.astype(np.float32), label_names=("problem_frames",), method="StableMotion",
                     quality=p["quality"], seed=args.seed, bad_frames=int(bad.sum()), model_frames=total,
                     windows=len(parts))
 

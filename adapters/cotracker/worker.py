@@ -10,10 +10,12 @@ every point-tracking worker).
     mode "offline"  scaled_offline.pth: every point sees a whole window of frames at
                     once, forwards and backwards (best quality; upstream default).
                     A window holds as many frames as fit the GPU (up to
-                    OFFLINE_MAX_WINDOW); longer shots are cut into windows that
-                    overlap by one frame, and each point continues into the next
-                    window from the position the previous window found on that
-                    frame (re-queried there).
+                    OFFLINE_MAX_WINDOW); a shot that fits is tracked in one go,
+                    as upstream does. Longer shots are cut into windows that
+                    overlap by half a window: each point continues into the next
+                    window from the overlap frame where the previous window was
+                    surest of it (re-queried there), and over the overlap the two
+                    windows' tracks are blended by their confidence, cross-faded.
          "online"   scaled_online.pth: upstream's sliding windows of 16 frames
                     (step 8), memory independent of the shot length. Tracks
                     forwards from each query frame, then backwards over the
@@ -59,11 +61,11 @@ OFFLINE_POINT_BYTES = 81e3
 FNET_BYTES_PER_PIXEL = 443.0
 OFFLINE_MAX_WINDOW = 240
 OFFLINE_MIN_WINDOW = 48
-# Consecutive windows share one frame: the positions the previous window found on it are the
-# next window's query points (t, x, y). Upstream's offline predictor runs a clip in one go;
-# only the frames fed to it are cut into windows, the model itself is unchanged and
-# windows are not blended.
-OFFLINE_OVERLAP = 1
+# Consecutive windows overlap by half a window (offline_overlap). A point carried into the next window is re-queried
+# on the overlap frame where the previous window was surest of it (visibility x confidence), so one bad frame at a seam
+# cannot send the rest of the shot astray; over the overlap the two windows' tracks are blended, each weighted by its
+# confidence and a cross-fade (the previous window fading out). Upstream's offline predictor runs a clip in one go;
+# only the frames fed to it are cut into windows, the model itself is unchanged.
 OFFLINE_MAX_POINTS = 1536  # points per pass (joint attention); more points: several passes
 
 
@@ -105,14 +107,20 @@ def to_tensor(clip: np.ndarray, device) -> torch.Tensor:
 # ---------------------------------------------------------------------- offline
 
 
+def offline_overlap(window: int) -> int:
+    """Frames consecutive windows share: half a window."""
+    return max(1, window // 2)
+
+
 def offline_windows(n_frames: int, window: int) -> list[tuple[int, int]]:
     """Equal windows of at most `window` frames, consecutive ones overlapping by
-    OFFLINE_OVERLAP frames."""
+    offline_overlap(window) frames."""
     if n_frames <= window:
         return [(0, n_frames)]
-    k = math.ceil((n_frames - OFFLINE_OVERLAP) / (window - OFFLINE_OVERLAP))
-    length = math.ceil((n_frames + (k - 1) * OFFLINE_OVERLAP) / k)
-    step = length - OFFLINE_OVERLAP
+    ov = offline_overlap(window)
+    k = math.ceil((n_frames - ov) / (window - ov))
+    length = math.ceil((n_frames + (k - 1) * ov) / k)
+    step = length - ov
     return [(i * step, min(n_frames, i * step + length)) for i in range(k)]
 
 
@@ -121,9 +129,11 @@ def offline_sweep(model, video: pt.Frames, q_t: np.ndarray, q_xy: np.ndarray, su
                   window: int, device, tick) -> tuple:
     """Track points through `video` (processing order) window by window, forwards.
 
-    Windows share one frame: the positions the previous window found on it are
-    fed to the upstream predictor as the next window's query points (t, x, y);
-    windows are not blended.
+    A point whose query frame lies in a window is queried there; a point carried
+    from the previous window is re-queried on the overlap frame where that window
+    was surest of it (vis x conf). Over the overlap the two windows' values are
+    blended: weights = confidence x a linear cross-fade (the previous window fading
+    out), the cross-fade alone where neither is confident.
 
     Returns xy [N, F, 2] (model pixels, centre-at-integer), vis, conf [N, F]
     (probabilities) and start [N], the first frame each point has values for
@@ -136,35 +146,48 @@ def offline_sweep(model, video: pt.Frames, q_t: np.ndarray, q_xy: np.ndarray, su
     start = np.full(n, -1, np.int64)
     prev_end = 0
     for s, e in offline_windows(f, window):
-        fresh_ids = np.nonzero((q_t >= s) & (q_t < e))[0]
-        carried_ids = np.nonzero((start >= 0) & (q_t < s))[0]
-        if len(fresh_ids) + len(carried_ids) == 0:
+        ids = np.nonzero(((q_t >= s) & (q_t < e)) | ((start >= 0) & (q_t < s)))[0]
+        if len(ids) == 0:
             tick(e - max(s, prev_end))
             prev_end = e
             continue
-        ov = max(0, prev_end - s)  # frames shared with the previous window (OFFLINE_OVERLAP)
-        # carried points: their query is the previous window's position on the shared frame (frame 0 here)
-        seed = xy[carried_ids, s] if len(carried_ids) else np.zeros((0, 2), np.float32)
-        rows = [np.stack([q_t[fresh_ids] - s, q_xy[fresh_ids, 0], q_xy[fresh_ids, 1]], -1),
-                np.concatenate([np.zeros((len(carried_ids), 1)), seed], -1)]
+        ov = max(0, prev_end - s)  # frames shared with the previous window
+        own = q_t[ids] >= s  # queried on their own frame in this window
+        carried = ids[~own]
+        qt = np.where(own, q_t[ids] - s, 0).astype(np.float32)
+        qxy = q_xy[ids].astype(np.float32).copy()
+        if len(carried):  # re-queried where the previous window was surest of them, within the overlap
+            best = np.argmax(vis[carried, s:s + ov] * conf[carried, s:s + ov], axis=1)
+            qt[~own] = best
+            qxy[~own] = xy[carried, s + best]
+        rows = [np.concatenate([qt[:, None], qxy], -1)]
         if support is not None:
             rows.append(np.concatenate([np.zeros((len(support), 1)), support], -1))
         queries = torch.from_numpy(np.concatenate(rows).astype(np.float32))[None].to(device)
         coords, v, c, _ = model(video=to_tensor(video[s:e], device), queries=queries, iters=ITERS,
                                 fmaps_chunk_size=FNET_CHUNK)
-        coords = coords[0].permute(1, 0, 2).cpu().numpy()  # [M, T, 2]
-        v = v[0].permute(1, 0).cpu().numpy()
-        c = c[0].permute(1, 0).cpu().numpy()
-        ids = np.concatenate([fresh_ids, carried_ids])
         m = len(ids)
-        coords, v, c = coords[:m], v[:m], c[:m]
-        # the shared frame keeps the previous window's values (the carried queries come from them); this window writes after it
+        coords = coords[0].permute(1, 0, 2).cpu().numpy()[:m]  # [M, T, 2]
+        v = v[0].permute(1, 0).cpu().numpy()[:m]
+        c = c[0].permute(1, 0).cpu().numpy()[:m]
+        fresh = start[ids] < 0
+        # frames after the overlap, and every frame of points new in this window: this window's values
         for arr, new in ((xy, coords), (vis, v), (conf, c)):
             arr[ids, s + ov:e] = new[:, ov:]
-            fresh = start[ids] < 0
-            if fresh.any():  # points new in this window also take the shared frame
+            if fresh.any():
                 arr[ids[fresh], s:s + ov] = new[fresh, :ov]
-        start[fresh_ids] = np.where(start[fresh_ids] >= 0, start[fresh_ids], s)
+        old_ids = ids[~fresh]
+        if ov and len(old_ids):  # the overlap of points the previous window had: blended
+            fade = (np.arange(1, ov + 1, dtype=np.float32) / (ov + 1))[None]  # this window's share, rising
+            w_old = (1 - fade) * vis[old_ids, s:s + ov] * conf[old_ids, s:s + ov]
+            w_new = fade * v[~fresh, :ov] * c[~fresh, :ov]
+            total = w_old + w_new
+            sure = total > 1e-6
+            a = np.where(sure, w_new / np.maximum(total, 1e-6), fade)  # this window's weight
+            xy[old_ids, s:s + ov] = (1 - a)[..., None] * xy[old_ids, s:s + ov] + a[..., None] * coords[~fresh, :ov]
+            vis[old_ids, s:s + ov] = (1 - fade) * vis[old_ids, s:s + ov] + fade * v[~fresh, :ov]
+            conf[old_ids, s:s + ov] = (1 - fade) * conf[old_ids, s:s + ov] + fade * c[~fresh, :ov]
+        start[ids[fresh]] = s
         tick(e - max(s, prev_end))
         prev_end = e
     return xy, vis, conf, start
@@ -259,10 +282,10 @@ def offline_plan(n_frames: int, n_points: int, n_support: int, hw: tuple[int, in
     # fewer points per pass until at least OFFLINE_MIN_WINDOW frames fit
     while per_pass > 64 and frames_that_fit(per_pass) < OFFLINE_MIN_WINDOW:
         per_pass = (per_pass + 1) // 2
-    window = max(OFFLINE_OVERLAP * 2, min(frames_that_fit(per_pass), OFFLINE_MAX_WINDOW, n_frames))
+    window = max(2, min(frames_that_fit(per_pass), OFFLINE_MAX_WINDOW, n_frames))
     forced = os.environ.get("LAB2SHOT_COTRACKER_WINDOW")  # testing / tuning: fixed window length
     if forced:
-        window = max(OFFLINE_OVERLAP * 2, min(int(forced), n_frames))
+        window = max(2, min(int(forced), n_frames))
     return window, per_pass
 
 
@@ -284,13 +307,13 @@ def main(job_path: str) -> None:
     support = support_queries(hw) if (n_user or has_mask) else None
     device = torch.device("cuda")
 
-    run.stage("读取画面")
+    run.stage("read_frames")
     t0 = time.time()
     video = pt.Frames(frames.paths, (hw[1], hw[0]))
-    video.preload(lambda d, t: progress(d, t, "读取画面"))
+    video.preload(lambda d, t: progress(d, t, "read_frames"))
     read_s = time.time() - t0
 
-    model = run.model("CoTracker3 模型", load_model, job.repo_dir, checkpoint, p.mode, hw, device)
+    model = run.model("load_model", load_model, job.repo_dir, checkpoint, p.mode, hw, device, stage_params={"model": "CoTracker3"})
 
     n, f = len(queries), len(frames)
     if p.mode == "offline":
@@ -315,9 +338,12 @@ def main(job_path: str) -> None:
     def tick(k: int) -> None:
         nonlocal done
         done = min(total, done + max(0, k))
-        progress(done, total, "跟踪")
+        progress(done, total, "track")
 
-    run.stage(f"跟踪 {n} 个点（{p.mode}" + (f"，每段 {window} 帧" if p.mode == "offline" and window < f else "") + "）")
+    if p.mode == "offline" and window < f:
+        run.stage("track_points_windowed", n=n, mode=p.mode, window=window)
+    else:
+        run.stage("track_points", n=n, mode=p.mode)
     t2 = time.time()
     xy = np.empty((n, f, 2), np.float32)
     vis = np.empty((n, f), np.float32)
@@ -356,7 +382,8 @@ def main(job_path: str) -> None:
         + ", area-averaged resize",
         offline_window=window if p.mode == "offline" else None,
         offline_windows=[list(w) for w in offline_windows(f, window)] if p.mode == "offline" else None,
-        offline_overlap=OFFLINE_OVERLAP if p.mode == "offline" and window < f else None,
+        offline_overlap=offline_overlap(window) if p.mode == "offline" and window < f else None,
+        offline_seams="re-queried at the surest overlap frame, blended by confidence" if p.mode == "offline" and window < f else None,
         points_per_pass=per_pass,
         passes=len(passes),
         support_grid=support is not None,

@@ -32,4 +32,4 @@ subprocess.run(
 )
 shutil.rmtree(build.parent)  # everything is in site-packages now
 subprocess.run([sys.executable, "-c", "import torch, pointops2_cuda"], check=True)
-print("pointops2 编译完成")
+print("pointops2 built")

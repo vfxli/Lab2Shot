@@ -10,6 +10,40 @@
   display: none;
 }
 
+/* ---- 聚焦模式（应用模式的变体，editor/AppMode.tsx）：同一版面，顶栏只有这一步要的（editor/Chrome.tsx FocusBar） */
+.focus-bar .focus-state {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* 点了「完成」而窗口没被关掉（系统浏览器里）：盖在整页上 */
+.focus-done {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-sheet);
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.focus-done-card {
+  padding: 28px 36px;
+  border-radius: var(--r-sheet);
+  text-align: center;
+}
+
+.focus-done-card h1 {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.focus-done-card p {
+  margin: 0;
+  color: var(--text-2);
+}
+
 
 /* ---- 参数面板里的参数界面树：组的标题可以点开 / 收起，子组缩进一级、左边一条细线 */
 .group-title.ptree-title {
@@ -53,9 +87,11 @@
 }
 
 /* ---- 「编辑参数界面」弹窗：左边树、右边属性 */
+/* 窗按内容宽（ParamInterface width "content"）：左边树按最长的一行（所有行都在，选别的项窗宽不变），右边属性一个固定
+   宽度（不随选中的项伸缩），长的「对应参数」在里面换行、不截断；窗口放不下时左边先收（行尾省略号） */
 .pif {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, max-content) minmax(360px, 720px);
   gap: 14px;
   height: 480px;
 }
@@ -82,6 +118,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable; /* the bar is counted in the column's width: a row is never cut by it */
   padding: 4px 0;
   border-radius: var(--r-md);
   background: rgba(0, 0, 0, 0.22);
@@ -109,7 +146,9 @@
   color: var(--text);
 }
 
-.pif-row.group .pif-name {
+/* a folder row is .is-group, not .group: .group is the parameter panel's section (04-inspector.css), whose column layout
+   would stack the row's parts over the rows below */
+.pif-row.is-group .pif-name {
   font-weight: 600;
 }
 
@@ -122,7 +161,7 @@
   box-shadow: inset 0 2px 0 var(--accent);
 }
 
-.pif-row.group.drag-over {
+.pif-row.is-group.drag-over {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
@@ -167,34 +206,29 @@
   overflow-y: auto;
 }
 
-.pif-props {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+/* the properties: a LabelGrid (ui/LabelRow.tsx), every row the site's 「标签 + 控件」 row — the label column as wide as
+   the longest label in either language; a note or a problem under a row starts at the control column */
+.pif-props.lgrid {
+  display: grid;
+  row-gap: 10px;
+  align-content: start;
+  --lrow-gap: 8px;
 }
 
 .pif-field {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
   font-size: var(--fs-sm);
 }
 
-.pif-field.top {
-  align-items: start;
-}
-
-.pif-field > span:first-child {
+.pif-field > .lrow-label {
   color: var(--text-2);
-  text-align: right;
-  white-space: nowrap;
 }
 
 .pif-note {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere; /* a long list of target parameters wraps, never cut off */
   color: var(--text);
 }
 
@@ -212,7 +246,7 @@
 
 .pif-option {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; /* 显示名比值长（「COLMAP (Most Accurate for Static Scenes)」），它占大头 */
   gap: 4px;
   width: 100%;
 }
@@ -222,8 +256,13 @@
   grid-column: 1 / -1;
 }
 
+/* the hint and the problems start at the control column (no indent written in pixels for one language) */
+.pif-props > .pif-hint,
+.pif-props > .pif-problems {
+  grid-column: ctl / -1;
+}
+
 .pif-hint {
-  padding-left: 80px;
   color: var(--text-3);
   font-size: var(--fs-xs);
   line-height: 1.6;
@@ -240,7 +279,7 @@
 
 .pif-problems {
   margin: 0;
-  padding-left: 96px;
+  padding-left: 0;
   color: var(--error-text);
   font-size: var(--fs-xs);
   line-height: 1.6;
@@ -363,4 +402,29 @@
   gap: 8px;
   color: var(--text-2);
   font-size: var(--fs-sm);
+}
+
+/* ---- 组里全是开关时组头右边的「全开」「全关」（ParamPanel.tsx GroupSwitches）：标题的细线让到它们左边为止 */
+.ptree-head:has(> .ptree-switches) {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.ptree-head > .ptree-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.ptree-switches {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+
+/* 参数界面树里的子组、连着的一串参数、拖动的那一行：把所在组的列（ui/labelRow.css）一层层传下去，嵌套的行与组里其他
+   行的标签对齐 */
+.ptree-items.lsub,
+.ptree-sub.lsub {
+  display: grid;
 }

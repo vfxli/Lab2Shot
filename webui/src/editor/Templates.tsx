@@ -32,21 +32,16 @@ import { render } from "../messages/format";
 import { msg, reasonOf } from "../messages/message";
 import { Loading } from "../ui/Loading";
 import { Menu } from "../ui/Menu";
-import { NameSheet, TextSheet, type Naming } from "../ui/NameSheet";
+import { NamesSheet, TextSheet, type Namings } from "../ui/NameSheet";
 import { Sheet } from "../ui/Sheet";
 import { say } from "../state/say";
 import { MyTemplateCards, MyTemplatesState, useMyTemplates } from "./MyTemplates";
 import { refreshTemplates, useTemplates } from "./templatesList";
+import { t as tr } from "../i18n/t";
+import { listSep } from "../i18n/words";
+import { getLang } from "../i18n/lang";
 import "./templates.css";
-
-/** 「默认路线」一行的提示，按页面上实际有的字写：卡片的许可词（服务器的 nodes/tags.py strictest，一处拼成，如「非商用 · 需注册」），
- * 与下拉里选项名后面的许可词（ui/controls.tsx optionView：受限的选项跟「· 非商用」这类，不受限的什么都不带）。 */
-function routeTip(t: { licence_word?: string | null; best_licence_word?: string | null; best_commercial?: boolean | null }): string {
-  const lead = "模板里的选项（模型、方法）换一种，结果的许可会不同：";
-  return t.best_commercial
-    ? `${lead}在参数的下拉里选名称后面不带许可词的那一项，结果可商用`
-    : `${lead}在参数的下拉里换掉名称后面带许可词的那一项，许可最宽能到「${t.best_licence_word}」（默认是「${t.licence_word}」）`;
-}
+import { tipOf } from "../platform/tips";
 
 export { refreshTemplates, useTemplates } from "./templatesList";
 
@@ -56,8 +51,11 @@ const MINE = "mine";
 const LOOSE = "_none"; // the rail's row for 未分类 (a card whose file names no place, or a place missing from the tree)
 const CARD_TYPE = "application/x-lab2shot-template"; // a card in a drag: its template id
 const SUB_TYPE = "application/x-lab2shot-subcategory"; // a subcategory heading in a drag: its id
-const ADMIN = "admin"; // TemplateInfo.owner of a project preset (lab2shot/library.py): the one kind an administrator may delete
-const LOOSE_CAT: TreeCategory = { id: "", label: "未分类", tip: "还没有归到任何分类的模板：管理员把它拖到左边的分类上", color: "#8E8E93", rank: 0, section: "", subs: [] };
+const CATEGORY_MAX = { zh: 10, en: 32 }; // the server's limit per language (lab2shot/categories.py)
+/** A templates panel category's name in every language, as written (the rename sheet's fields). */
+const categoryWords = (id: string) => adminApi.categories().then((r) => r.words?.[id]?.label ?? {});
+const ADMIN = "admin"; // TemplateInfo.owner of a project preset (lab2shot/site/library.py): the one kind an administrator may delete
+const looseCat = (): TreeCategory => ({ id: "", label: tr("ui.templates.loose"), color: "#8E8E93", rank: 0, section: "", subs: [] });
 
 /** Which categories the templates panel shows, each with how many cards it holds. */
 function railOf(tree: TreeCategory[], list: TemplateInfo[], every: boolean): TreeCategory[] {
@@ -77,7 +75,7 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
   const my = useMyTemplates(open); // 「我的模板」 is read again every time the panel opens
   const applies = useSession((st) => st.state)?.applies;
   const manage = shown(applies, "templates.create"); // this login manages the templates: the server says so
-  const [naming, setNaming] = useState<Naming | null>(null);
+  const [naming, setNaming] = useState<Namings | null>(null);
   const [ask, confirmSheet] = useConfirm();
   const [menu, setMenu] = useState<{ t: TemplateInfo; at: { x: number; y: number } } | null>(null); // a card's menu: every hook before the early returns below
   const [props, setProps] = useState<TemplateInfo | null>(null); // the card whose properties are open
@@ -86,8 +84,8 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
   if (!open) return null;
   if (!catalog || !page) {
     return (
-      <Sheet title="从模板新建" onClose={() => setOpen(false)}>
-        <Loading what="模板" />
+      <Sheet title={tr("ui.templates.title")} onClose={() => setOpen(false)}>
+        <Loading what={tr("ui.templates.loading_what")} />
       </Sheet>
     );
   }
@@ -118,30 +116,28 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
   const rail = railOf(tree, list, manage);
   const looseCount = list.filter((t) => !t.category).length;
   const own = group === MINE; // the 「我的模板」 band: graphs saved by this account, outside the deliverable categories
-  const chosen = rail.find((c) => c.id === group) ?? (group === LOOSE && (manage || looseCount) ? LOOSE_CAT : own ? undefined : rail[0]);
+  const chosen = rail.find((c) => c.id === group) ?? (group === LOOSE && (manage || looseCount) ? looseCat() : own ? undefined : rail[0]);
   const cat = chosen ?? null;
   const loosely = cat?.id === ""; // 未分类 is the chosen "category"
   // There is no recycle bin here (to the user a delete is a delete). The bin is on the admin side: when something must
   // come back, an administrator sees what the user deleted on the 「用户」 page and restores it with 「恢复」
-  const mineBand = [
-    { id: MINE, label: "我的模板", tip: "自己存到服务器上的节点图：换台电脑登录也在", count: my.view?.mine.length ?? 0 },
-  ];
+  const mineBand = [{ id: MINE, label: tr("ui.templates.mine"), count: my.view?.mine.length ?? 0 }];
   const all = list.filter((t) => t.category === (cat?.id ?? "\0")); // the whole category
   const needle = typed.trim().toLowerCase();
   const matches = (t: TemplateInfo) => [t.name, t.intro, ...t.projects.map((p) => p.title)].some((s) => s.toLowerCase().includes(needle));
   // a search looks through every category (the person typing a name does not know which category holds it); the
   // results are banded by category › subcategory, and a band drops a card into that subcategory or category as usual
   const found = needle ? list.filter(matches) : all;
-  type Band = { key: string; id: string; sub: boolean; label: string; tip: string; items: TemplateInfo[] };
-  const bandsOf = (c: { id: string; label: string; tip: string; subs: { id: string; label: string; tip: string }[] } | null, items: TemplateInfo[], prefix: string): Band[] => {
+  type Band = { key: string; id: string; sub: boolean; label: string; items: TemplateInfo[] };
+  const bandsOf = (c: { id: string; label: string; subs: { id: string; label: string }[] } | null, items: TemplateInfo[], prefix: string): Band[] => {
     // a manager sees every subcategory of the chosen category (an empty one is a drop target); everyone else only the
     // ones with cards. Cards placed on the category itself get a band of their own only when there are any: a card is
     // dropped on the category through the rail on the left, so an empty band here would only repeat the category's name
     const subs = c ? c.subs.filter((s) => (manage && !needle) || items.some((t) => t.deliverable === s.id)) : [];
     const loose = items.filter((t) => !subs.some((s) => s.id === t.deliverable));
     return [
-      ...subs.map((s) => ({ key: s.id, id: s.id, sub: true, label: prefix + s.label, tip: s.tip, items: items.filter((t) => t.deliverable === s.id) })),
-      ...(loose.length ? [{ key: c?.id || "loose", id: c?.id ?? "", sub: false, label: c?.label ?? "未分类", tip: c?.tip ?? "", items: loose }] : []),
+      ...subs.map((s) => ({ key: s.id, id: s.id, sub: true, label: prefix + s.label, items: items.filter((t) => t.deliverable === s.id) })),
+      ...(loose.length ? [{ key: c?.id || "loose", id: c?.id ?? "", sub: false, label: c?.label ?? tr("ui.templates.loose"), items: loose }] : []),
     ];
   };
   const sections: Band[] = needle
@@ -155,15 +151,15 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
   const railManage: RailManage | undefined = manage
     ? {
         itemType: CARD_TYPE,
-        itemWord: "模板卡",
-        onAdd: () => setNaming({ title: "新建分类", label: "分类的名字", initial: "", save: (name) => act(() => adminApi.saveCategory({ id: nextId("c"), label: name, rank: tree.length + 1 })) }),
+        itemWord: tr("ui.templates.item_word"),
+        onAdd: () => setNaming({ title: tr("ui.templates.cat_new"), label: tr("ui.templates.cat_name"), max: CATEGORY_MAX, save: (name) => act(() => adminApi.saveCategory({ id: nextId("c"), label: name, rank: tree.length + 1 })) }),
         onRename: (id) => {
           const c = treeOf(id);
-          if (c) setNaming({ title: "重命名分类", label: "分类的名字", initial: c.label, save: (name) => act(() => adminApi.saveCategory({ id, label: name, tip: c.tip, color: c.color, rank: c.rank })) });
+          if (c) setNaming({ title: tr("ui.templates.cat_rename"), label: tr("ui.templates.cat_name"), initial: { [getLang()]: c.label }, load: () => categoryWords(id), max: CATEGORY_MAX, save: (name) => act(() => adminApi.saveCategory({ id, label: name, color: c.color, rank: c.rank })) });
         },
         onRemove: async (id) => {
           const c = treeOf(id);
-          if (!c || !(await ask({ title: "删掉分类", say: msg("N-CATEGORY-REMOVE", { name: c.label }), yes: "删掉", tip: "从分类树里去掉它和它的二级分类；模板进「未分类」", danger: true }))) return;
+          if (!c || !(await ask({ title: tr("ui.templates.cat_remove"), say: msg("N-CATEGORY-REMOVE", { name: c.label }), yes: tr("ui.common.delete"), tip: tipOf("consequence", tr("ui.templates.cat_remove_tip")), danger: true }))) return;
           void removeCategory(id);
         },
         onReorder: (id, beforeId) => {
@@ -179,15 +175,15 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
       }
     : undefined;
 
-  const addSub = () => cat && !loosely && setNaming({ title: "新建二级分类", label: "二级分类的名字", initial: "",
+  const addSub = () => cat && !loosely && setNaming({ title: tr("ui.templates.sub_new"), label: tr("ui.templates.sub_name"), max: CATEGORY_MAX,
     save: (name) => act(() => adminApi.saveCategory({ id: nextId("s"), parent: cat.id, label: name, rank: (treeOf(cat.id)?.subs.length ?? 0) + 1 })) });
   const renameSub = (id: string) => {
     const s = subOf(id);
-    if (s) setNaming({ title: "重命名二级分类", label: "二级分类的名字", initial: s.label, save: (name) => act(() => adminApi.saveCategory({ id, parent: s.parent, label: name, tip: s.tip, rank: s.rank })) });
+    if (s) setNaming({ title: tr("ui.templates.sub_rename"), label: tr("ui.templates.sub_name"), initial: { [getLang()]: s.label }, load: () => categoryWords(id), max: CATEGORY_MAX, save: (name) => act(() => adminApi.saveCategory({ id, parent: s.parent, label: name, rank: s.rank })) });
   };
   const removeSub = async (id: string) => {
     const s = subOf(id);
-    if (!s || !(await ask({ title: "删掉二级分类", say: msg("N-CATEGORY-REMOVE", { name: s.label }), yes: "删掉", tip: "从分类树里去掉它；模板进「未分类」", danger: true }))) return;
+    if (!s || !(await ask({ title: tr("ui.templates.sub_remove"), say: msg("N-CATEGORY-REMOVE", { name: s.label }), yes: tr("ui.common.delete"), tip: tipOf("consequence", tr("ui.templates.sub_remove_tip")), danger: true }))) return;
     void removeCategory(id);
   };
   const reorderSub = (id: string, beforeId: string | null) => {
@@ -206,18 +202,18 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
   const bands: RailBand[] = [
     { id: "cats", managed: manage, rows: [
       // 未分类 first, so a manager sees at once what still needs a place; for everyone else only when there is something in it
-      ...(looseCount || manage ? [{ id: LOOSE, label: LOOSE_CAT.label, tip: LOOSE_CAT.tip, count: looseCount, fixed: true }] : []),
-      ...rail.map((c) => ({ id: c.id, label: c.label, tip: c.tip, color: c.color, count: list.filter((t) => t.category === c.id).length })),
+      ...(looseCount || manage ? [{ id: LOOSE, label: tr("ui.templates.loose"), count: looseCount, fixed: true }] : []),
+      ...rail.map((c) => ({ id: c.id, label: c.label, color: c.color, count: list.filter((t) => t.category === c.id).length })),
     ] },
     { id: "mine", rows: mineBand },
   ];
 
   return (
-    <Sheet title="从模板新建" width={1180} height={760} bare onClose={() => setOpen(false)}>
+    <Sheet title={tr("ui.templates.title")} width={1180} height={760} bare onClose={() => setOpen(false)}>
       <div className="tpl-browse">
         <CategoryRail
-          label="模板分类"
-          title="新建节点图"
+          label={tr("ui.templates.rail")}
+          title={tr("ui.templates.rail_title")}
           chosen={own ? group : loosely ? LOOSE : (cat?.id ?? "")}
           onChoose={setGroup}
           bands={bands}
@@ -230,7 +226,7 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
               <div className="tpl-head">
                 <div className="tpl-head-what">
                   <h2>{mineBand.find((b) => b.id === group)?.label}</h2>
-                  <p>{mineBand.find((b) => b.id === group)?.tip}</p>
+                  <p>{tr("ui.templates.mine_intro")}</p>
                 </div>
               </div>
               <div className="tpl-cards">
@@ -249,15 +245,14 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
           <div className="tpl-head">
             <div className="tpl-head-what">
               <h2>{cat?.label}</h2>
-              {manage && <p>{loosely ? "这些模板还没有分类：拖到左边的分类上就归到那里" : "拖动卡片到左边的分类或下面的二级分类标题上就归到那里；卡片右上角的菜单里开关、复制、编辑、看属性、删除"}</p>}
+              {manage && <p>{tr(loosely ? "ui.templates.manage_loose" : "ui.templates.manage_hint")}</p>}
             </div>
             <input
               className="field"
               type="search"
               value={typed}
-              aria-label="搜索模板"
-              placeholder="搜索模板、项目"
-              data-tip="在全部分类里找名字、简介或项目名里有这些字的模板"
+              aria-label={tr("ui.templates.search")}
+              placeholder={tr("ui.templates.search_placeholder")}
               onChange={(e) => setTyped(e.target.value)}
             />
           </div>
@@ -277,20 +272,20 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
               >
                 <div className="tpl-grid">
                   {s.items.map((t) => (
-                    <Card key={t.id} t={t} catalog={catalog} manage={manage} onMenu={cardMenu} onOpen={(g) => (onOpen(g), setOpen(false))} />
+                    <Card key={t.id} t={t} manage={manage} onMenu={cardMenu} onOpen={(g) => (onOpen(g), setOpen(false))} />
                   ))}
                 </div>
               </Section>
             ))}
             {manage && cat && !loosely && (
               <div className="tpl-addsub">
-                <Button tip="在这个分类下新建一个二级分类" tone="ghost" size="sm" onClick={addSub}>
-                  <IconPlus /> 新建二级分类
+                <Button tone="ghost" size="sm" onClick={addSub}>
+                  <IconPlus /> {tr("ui.templates.sub_new")}
                 </Button>
               </div>
             )}
             {!found.length && (!manage || loosely) && (
-              <Empty title={needle ? "没有符合搜索的模板" : loosely ? "没有未分类的模板" : "这个分类还没有模板"} hint={needle ? "换一个搜索词：搜的是全部分类里模板的名字、简介和项目名" : loosely ? "新存的预设模板和新装的接入层带来的模板会先出现在这里" : "在节点图里点右键添加节点，自己接一张"} />
+              <Empty title={tr(needle ? "ui.templates.empty_search" : loosely ? "ui.templates.empty_loose" : "ui.templates.empty_cat")} hint={tr(needle ? "ui.templates.empty_search_hint" : loosely ? "ui.templates.empty_loose_hint" : "ui.templates.empty_cat_hint")} />
             )}
           </div>
           </>
@@ -300,29 +295,29 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
       {menu && (
         <Menu
           at={menu.at}
-          label={`${menu.t.name} 的操作`}
+          label={tr("ui.templates.actions_of", { name: menu.t.name })}
           width={190}
           onClose={() => setMenu(null)}
           rows={[
-            { key: "switch", label: menu.t.enabled === false ? "开启" : "关闭",
-              tip: menu.t.enabled === false ? "重新开启：所有账号在「模板」里又看得到它" : render("N-TEMPLATES-OFF", { name: menu.t.name }),
+            { key: "switch", label: tr(menu.t.enabled === false ? "ui.templates.switch_on" : "ui.templates.switch_off"),
+              tip: menu.t.enabled === false ? undefined : tipOf("consequence", render("N-TEMPLATES-OFF")),
               run: () => void act(() => adminApi.switchTemplate(menu.t.id, menu.t.enabled === false)) },
-            { key: "copy", label: "复制", tip: "复制成一张新的预设卡：节点图一样，归同一分类，名字后加「副本」，之后可改可删",
+            { key: "copy", label: tr("ui.common.copy"),
               run: () => void act(async () => { const got = await adminApi.copyTemplate(menu.t.id); say(msg("I-TEMPLATES-COPIED", { name: got.name })); }) },
-            { key: "edit", label: "编辑", tip: "改这张卡的名字和简介：写进它自己的文件", run: () => setEditing(menu.t) },
-            { key: "props", label: "属性", tip: "这张卡的全部属性：来源、文件、谁创建的、什么时候、分类、用到的项目、许可", run: () => setProps(menu.t) },
-            { key: "delete", label: "删除", tip: menu.t.owner === ADMIN ? "删掉这个项目预设：它的文件从 templates/ 里删掉" : "接入层自带的模板删不了，只能关闭或拖到别的分类", off: menu.t.owner !== ADMIN,
+            { key: "edit", label: tr("ui.common.edit"), run: () => setEditing(menu.t) },
+            { key: "props", label: tr("ui.templates.props"), run: () => setProps(menu.t) },
+            { key: "delete", label: tr("ui.common.delete"), tip: menu.t.owner === ADMIN ? tipOf("consequence", tr("ui.templates.delete_tip")) : tipOf("disabled", tr("ui.templates.delete_adapter")), off: menu.t.owner !== ADMIN,
               run: async () => {
-                if (!(await ask({ title: "删掉预设模板", say: msg("N-TEMPLATES-DELETE", { name: menu.t.name }), yes: "删掉", tip: "文件从 templates/ 里删掉，找不回来", danger: true }))) return;
+                if (!(await ask({ title: tr("ui.templates.delete_title"), say: msg("N-TEMPLATES-DELETE", { name: menu.t.name }), yes: tr("ui.common.delete"), tip: tipOf("consequence", tr("ui.templates.delete_confirm_tip")), danger: true }))) return;
                 void act(() => adminApi.deleteTemplate(menu.t.id));
               } },
           ]}
         />
       )}
-      {naming && <NameSheet {...naming} onClose={() => setNaming(null)} />}
+      {naming && <NamesSheet {...naming} onClose={() => setNaming(null)} />}
       {props && <PropsSheet t={props} tree={tree} catalog={catalog} onClose={() => setProps(null)} />}
       {editing && (
-        <TextSheet title={`编辑「${editing.name}」`} nameLabel="名字" textLabel="简介" initialName={editing.name} initialText={editing.intro} nameMax={40} textMax={240}
+        <TextSheet title={tr("ui.templates.edit_title", { name: editing.name })} nameLabel={tr("ui.templates.name")} textLabel={tr("ui.templates.intro")} initialName={editing.name} initialText={editing.intro} nameMax={60} textMax={240}
           save={async (name, intro) => {
             try {
               await adminApi.editTemplate(editing.id, name, intro);
@@ -340,7 +335,7 @@ export function TemplatesSheet({ onOpen }: { onOpen: (g: GraphJSON) => void }) {
 
 /** One subcategory band: its heading (drags to reorder, takes a dropped card, has its own menu when managed) and its cards. */
 function Section({ section, heading, manage, dropWhere, onDropCard, onDropSub, onRename, onRemove, children }: {
-  section: { id: string; label: string; tip: string; items: TemplateInfo[] };
+  section: { id: string; label: string; items: TemplateInfo[] };
   heading: boolean;
   manage: boolean;
   dropWhere: string; // where a card dropped on this heading goes (the subcategory, or the category itself for the loose band)
@@ -377,33 +372,32 @@ function Section({ section, heading, manage, dropWhere, onDropCard, onDropSub, o
       {heading && (
         <h4
           className="sec-title"
-          data-tip={manage ? `${section.tip}\n把模板卡拖到这里就归到这个分类；拖动标题改顺序` : section.tip}
           draggable={manage && !!section.id}
           onDragStart={(e) => {
             e.dataTransfer.setData(SUB_TYPE, section.id);
             e.dataTransfer.effectAllowed = "move";
           }}
         >
-          {section.label || "没有二级分类"}
+          {section.label || tr("ui.templates.no_sub")}
           <b className="tnum">{section.items.length}</b>
           {manage && onRename && (
-            <IconButton tip="重命名、删除" tone="ghost" size="xs" aria-label={`${section.label} 的操作`} onClick={(e) => setMenu({ x: e.clientX, y: e.clientY })}>
+            <IconButton tone="ghost" size="xs" aria-label={tr("ui.templates.actions_of", { name: section.label })} onClick={(e) => setMenu({ x: e.clientX, y: e.clientY })}>
               <IconMore />
             </IconButton>
           )}
         </h4>
       )}
       {children}
-      {manage && !section.items.length && <p className="tpl-empty-band">没有模板：把卡片拖到这个标题上</p>}
+      {manage && !section.items.length && <p className="tpl-empty-band">{tr("ui.templates.empty_band")}</p>}
       {menu && onRename && (
         <Menu
           at={menu}
-          label={`${section.label} 的操作`}
+          label={tr("ui.templates.actions_of", { name: section.label })}
           width={160}
           onClose={() => setMenu(null)}
           rows={[
-            { key: "rename", label: "重命名", tip: "改这个二级分类的名字", run: onRename },
-            { key: "remove", label: "删除", tip: "删掉这个二级分类：归在它下面的模板进「未分类」，不会跟着删", run: onRemove },
+            { key: "rename", label: tr("ui.common.rename"), run: onRename },
+            { key: "remove", label: tr("ui.common.delete"), tip: tipOf("consequence", tr("ui.templates.sub_remove_menu_tip")), run: onRemove },
           ]}
         />
       )}
@@ -414,27 +408,27 @@ function Section({ section, heading, manage, dropWhere, onDropCard, onDropSub, o
 /** Every property of one card: what the server says of it, laid out as rows, nothing computed here. */
 function PropsSheet({ t, tree, catalog, onClose }: { t: TemplateInfo; tree: TreeCategory[]; catalog: NonNullable<ReturnType<typeof useCatalog>>; onClose: () => void }) {
   const at = placeIn(tree, t.deliverable);
-  const where = at.id ? [at.label, at.subLabel].filter(Boolean).join(" › ") : t.deliverable ? `未分类（原来归在 ${t.deliverable}，那个分类已经删了）` : "未分类";
-  const source = t.owner === ADMIN ? "项目预设（templates/ 文件夹，管理员存的）" : t.owner === "adapter" ? `接入层自带（${t.adapter} 的接入层，只读）` : `用户 ${t.owner}`;
+  const where = at.id ? [at.label, at.subLabel].filter(Boolean).join(" › ") : t.deliverable ? tr("ui.templates.loose_was", { was: t.deliverable }) : tr("ui.templates.loose");
+  const source = t.owner === ADMIN ? tr("ui.templates.source_admin") : t.owner === "adapter" ? tr("ui.templates.source_adapter", { adapter: t.adapter ?? "" }) : tr("ui.templates.source_user", { user: t.owner });
   const kb = t.bytes / 1024;
   const rows: [string, string][] = [
-    ["名字", t.name],
-    ["简介", t.intro || "—"],
-    ["来源", source],
-    ["文件", t.path],
-    ["创建者", t.author || "未记录"],
-    ["创建时间", t.created ? t.created.replace("T", " ") : "未记录"],
-    ["最后修改", new Date(t.updated * 1000).toLocaleString("zh-CN", { hour12: false })],
-    ["分类", where],
-    ["状态", t.enabled === false ? "已关闭：普通账号看不到" : "开启"],
-    ["用到的项目", t.projects.length ? t.projects.map((p) => p.title).join("、") : "只用核心节点"],
-    ["许可", t.licence_word ? `${t.licence_word}${t.licence.length ? `：${t.licence.map((id) => catalog.tags[id]?.label ?? id).join("、")}` : ""}` : "—"],
-    ["大小", kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb.toFixed(1)} KB`],
-    ["节点数", String(t.graph.nodes.length)],
-    ["编号", t.id],
+    [tr("ui.templates.name"), t.name],
+    [tr("ui.templates.intro"), t.intro || "—"],
+    [tr("ui.templates.prop.source"), source],
+    [tr("ui.templates.prop.file"), t.path],
+    [tr("ui.templates.prop.author"), t.author || tr("ui.templates.prop.unknown")],
+    [tr("ui.templates.prop.created"), t.created ? t.created.replace("T", " ") : tr("ui.templates.prop.unknown")],
+    [tr("ui.templates.prop.updated"), new Date(t.updated * 1000).toLocaleString(getLang() === "zh" ? "zh-CN" : "en-US", { hour12: false })],
+    [tr("ui.templates.prop.category"), where],
+    [tr("ui.templates.prop.state"), tr(t.enabled === false ? "ui.templates.prop.state_off" : "ui.templates.prop.state_on")],
+    [tr("ui.templates.prop.projects"), t.projects.length ? t.projects.map((p) => p.title).join(listSep()) : tr("ui.templates.prop.core_only")],
+    [tr("ui.templates.prop.licence"), t.licence_word ? (t.licence.length ? tr("ui.templates.prop.licence_list", { word: t.licence_word, tags: t.licence.map((id) => catalog.tags[id]?.label ?? id).join(listSep()) }) : t.licence_word) : "—"],
+    [tr("ui.templates.prop.size"), kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb.toFixed(1)} KB`],
+    [tr("ui.templates.prop.nodes"), String(t.graph.nodes.length)],
+    [tr("ui.templates.prop.id"), t.id],
   ];
   return (
-    <Sheet title={`${t.name} 的属性`} width={560} onClose={onClose}>
+    <Sheet title={tr("ui.templates.props_of", { name: t.name })} width={560} onClose={onClose}>
       <dl className="tpl-props">
         {rows.map(([k, v]) => (
           <div key={k}>
@@ -444,18 +438,17 @@ function PropsSheet({ t, tree, catalog, onClose }: { t: TemplateInfo; tree: Tree
         ))}
       </dl>
       <div className="dialog-row">
-        <Button tip="关上" tone="ghost" onClick={onClose}>关闭</Button>
+        <Button tone="ghost" onClick={onClose}>{tr("ui.common.close")}</Button>
       </div>
     </Sheet>
   );
 }
 
 /** One template card: its name with the project it is built on in the quieter colour, one line of what it does, and
- * one bottom row with the strictest licence word and the year. The projects it uses appear in the card's hover, not on
- * the card (the face carries only the name, one sentence, the licence word and the year). A manager drags the card to
- * another category (the id rides in the drag) and opens its menu. */
-function Card({ t, catalog, manage, onMenu, onOpen }: {
-  t: TemplateInfo; catalog: NonNullable<ReturnType<typeof useCatalog>>; manage: boolean;
+ * one bottom row with the strictest licence word and the year; no hover (its intro says what it does; the projects it
+ * uses are in 属性). A manager drags the card to another category (the id rides in the drag) and opens its menu. */
+function Card({ t, manage, onMenu, onOpen }: {
+  t: TemplateInfo; manage: boolean;
   onMenu: (t: TemplateInfo, at: { x: number; y: number }) => void; onOpen: (g: GraphJSON) => void;
 }) {
   // The name is 「deliverable · project」 (the template file's own full string, templates/*.json); the card swaps the two:
@@ -474,7 +467,6 @@ function Card({ t, catalog, manage, onMenu, onOpen }: {
         e.dataTransfer.setData(CARD_TYPE, t.id);
         e.dataTransfer.effectAllowed = "move";
       }}
-      data-tip={[t.projects.length ? `用到：${t.projects.map((p) => p.title).join("、")}` : "", manage ? "拖到左边的分类或一个二级分类标题上就归到那里" : ""].filter(Boolean).join("\n")}
       onClick={open}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), open())}
     >
@@ -484,12 +476,12 @@ function Card({ t, catalog, manage, onMenu, onOpen }: {
           {built && <span className="tpl-built">{built}</span>}
         </span>
         {t.enabled === false && (
-          <span className="tpl-off" data-tip={render("N-TEMPLATE-DISABLED")}>
+          <span className="tpl-off">
             {render("I-TEMPLATE-DISABLED")}
           </span>
         )}
         {manage && (
-          <IconButton tip="开关、复制、编辑、属性、删除" tone="ghost" size="xs" layout="tpl-menu" aria-label={`${t.name} 的操作`}
+          <IconButton tone="ghost" size="xs" layout="tpl-menu" aria-label={tr("ui.templates.actions_of", { name: t.name })}
             onClick={(e) => (e.stopPropagation(), onMenu(t, { x: e.clientX, y: e.clientY }))}>
             <IconMore />
           </IconButton>
@@ -498,25 +490,19 @@ function Card({ t, catalog, manage, onMenu, onOpen }: {
       <p className="tpl-intro">{t.intro}</p>
       {/* 默认的选择下许可更严、换一种选择有更宽的路线时（服务器给的 best_licence_word / best_commercial）：一小行说出来 */}
       {t.best_licence_word && t.best_licence_word !== t.licence_word && (
-        <p className="tpl-route" data-tip={routeTip(t)}>
-          默认路线 {t.licence_word || "—"}；{t.best_commercial ? "有可商用路线" : `有「${t.best_licence_word}」路线`}
+        <p className="tpl-route">
+          {tr(t.best_commercial ? "ui.templates.route_commercial" : "ui.templates.route_other", { word: t.licence_word || "—", best: t.best_licence_word })}
         </p>
       )}
       <div className="tpl-foot">
         {t.licence_word && (
-          <span className={`chip${t.commercial ? " ok" : " nc"}`} data-tip={licenceTip(catalog, t)}>
+          <span className={`chip${t.commercial ? " ok" : " nc"}`}>
             {t.licence_word}
           </span>
         )}
         {/* the year sits at the far right of the row */}
-        {t.year != null && <span className="chip year-tag at-end" data-tip="论文 / 发布年份">{t.year}</span>}
+        {t.year != null && <span className="chip year-tag at-end">{t.year}</span>}
       </div>
     </article>
   );
-}
-
-/** Why the card carries that one licence word: the tag table's own sentence for each tag it holds (the word itself is
- * the strictest of them, nodes/tags.py strictest, on the server). */
-function licenceTip(catalog: NonNullable<ReturnType<typeof useCatalog>>, t: TemplateInfo): string {
-  return t.licence.map((id) => catalog.tags[id]).filter(Boolean).map((tag) => `${tag.label}：${tag.tip}`).join("\n");
 }

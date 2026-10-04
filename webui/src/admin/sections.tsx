@@ -19,6 +19,7 @@ import { SecuritySection } from "./Security";
 import { SettingsPage } from "./Settings";
 import { UsageSection } from "./Usage";
 import { UsersSection } from "./Users";
+import { t } from "../i18n/t";
 
 /** The admin page's sections, in the order of its side list: one line each. A section is a component of its own
  * (it reads what it needs; useAdmin() for what the page shares); `badge` puts a count or a mark next to its name.
@@ -30,39 +31,49 @@ import { UsersSection } from "./Users";
  * never looks at a role. */
 export interface AdminSection {
   id: string; // its address: /admin#<id>
-  label: string; // short, one line, no brackets
-  tip: string;
+  label: () => string; // short, one line, no brackets (asked while rendering: in the page's language)
   Component: () => React.ReactNode;
   badge?: (ctx: AdminContext) => string | null;
-  group?: string; // the band it opens ("" or absent: it goes on with the band before it)
+  group?: Band; // the band it opens (absent: it goes on with the band before it)
+}
+
+type Band = "people" | "data" | "system" | "settings";
+
+/** A band's heading on the side list. */
+export function bandLabel(band: string): string {
+  const words: Record<Band, () => string> = {
+    people: () => t("ui.admin.nav.people"),
+    data: () => t("ui.admin.nav.data"),
+    system: () => t("ui.admin.nav.system"),
+    settings: () => t("ui.admin.nav.settings"),
+  };
+  return words[band as Band]?.() ?? band;
 }
 
 const SECTIONS: AdminSection[] = [
   // the machine itself, first and unheaded: what is running right now
-  { id: "overview", label: "概览", tip: "显卡、队列、内存、硬盘、常驻模型和服务本身一眼看全，还有要注意的事，和今天、最近的登录、注册、任务、流量、反馈", Component: OverviewSection },
+  { id: "overview", label: () => t("ui.admin.nav.overview"), Component: OverviewSection },
   {
     id: "queue",
-    label: "队列",
-    tip: "所有人的任务、谁提交的、取消任务，和全部任务记录",
+    label: () => t("ui.admin.nav.queue"),
     Component: QueueSection,
     badge: (c) => {
       const n = c.queue?.jobs.filter((j) => j.state === "running" || j.state === "queued").length ?? 0;
       return n ? String(n) : null;
     },
   },
-  { id: "cards", label: "显卡", tip: "每张卡的型号、显存、接不接任务、在跑什么，扩展包能不能在它上面跑；改授权之前先看后果", Component: CardsSection },
-  { id: "resident", label: "常驻模型", tip: "算完留在进程里的模型：在哪张显卡、占多少显存和内存，卸载到内存或完全卸载", Component: ResidentSection },
+  { id: "cards", label: () => t("ui.admin.nav.cards"), Component: CardsSection },
+  { id: "resident", label: () => t("ui.admin.nav.resident"), Component: ResidentSection },
 
   // 人员
-  { id: "users", group: "人员", label: "用户", tip: "账号：给朋友新建账号，改到期时间、环节和能用哪些节点，停用、重设密码、删除；点用户名看他名下的一切", Component: UsersSection },
+  { id: "users", group: "people", label: () => t("ui.admin.nav.users"), Component: UsersSection },
   {
     id: "feedback",
-    label: "用户反馈",
-    tip: "用户点「提交反馈」发来的问题和建议：写的内容、截图、查问题用的资料；标记已看、已解决，下载，删除",
+    label: () => t("ui.admin.nav.feedback"),
     Component: FeedbackSection,
     badge: (c) => (c.overview?.feedback_new ? String(c.overview.feedback_new) : null),
   },
-  { id: "usage", label: "使用统计", tip: "每个三方项目和节点、每个环节、每个账号用了多少，看哪些项目有用、谁在用", Component: UsageSection },
+  { id: "usage", label: () => t("ui.admin.nav.usage"), Component: UsageSection },
 
   // 数据. The admin page has no templates section: templates are managed entirely in the editor's 模板 dialog
   // (editor/Templates.tsx; an account that manages templates gets the extra actions there). Installing extensions is
@@ -70,23 +81,21 @@ const SECTIONS: AdminSection[] = [
   // admin/Extensions.tsx
   {
     id: "extensions",
-    group: "数据",
-    label: "扩展包",
-    tip: "每个第三方项目装了没有、缺什么模型、装它；还有要人手动下载的文件（SMPL-X、FBX SDK…）放哪、同意许可协议",
+    group: "data",
+    label: () => t("ui.admin.nav.extensions"),
     Component: ExtensionsSection,
   },
-  { id: "disk", label: "硬盘", tip: "缓存、上传的素材、待取回的结果各占多少，清理没用的", Component: DiskSection },
-  { id: "database", label: "数据库", tip: "任务记录和统计存放的数据库：大小、完整性、备份、立即备份、怎么恢复", Component: DatabaseSection },
+  { id: "disk", label: () => t("ui.admin.nav.disk"), Component: DiskSection },
+  { id: "database", label: () => t("ui.admin.nav.database"), Component: DatabaseSection },
 
   // 系统
   {
     id: "security",
-    group: "系统",
-    label: "安全",
-    tip: "有几个登录；看起来像在试探的请求（输错密码、没开放的接口……）和被暂时封住的来源",
+    group: "system",
+    label: () => t("ui.admin.nav.security"),
     Component: SecuritySection,
   },
-  { id: "logs", label: "日志", tip: "服务日志：任务、出错、管理员的操作、用户发来的网页日志", Component: LogsSection },
+  { id: "logs", label: () => t("ui.admin.nav.logs"), Component: LogsSection },
 ];
 
 /** 账号设置's cards besides its settings: the 管理员通知 (its own right, settings.notice: NoticeCard decides) and
@@ -116,9 +125,8 @@ export function sectionsFor(pages: readonly SettingsPageEntry[]): AdminSection[]
     const parts = PAGE_PARTS[page.id] ?? {};
     return {
       id: `settings-${page.id}`,
-      group: i === 0 ? "设置" : undefined,
-      label: page.label,
-      tip: page.tip,
+      group: i === 0 ? "settings" : undefined,
+      label: () => page.label,
       Component: () => (
         <SettingsPage page={page} cards={parts.cards}>
           {parts.below}

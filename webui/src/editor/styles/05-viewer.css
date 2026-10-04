@@ -19,8 +19,8 @@
 .view-bar {
   display: flex;
   align-items: center;
-  /* 从左向右排列，不集中在右侧（space-between 加右对齐会使左侧大片留空、按钮堆在右上角）。
-     与 Nuke 的视图工具栏一致：名称位于最左，控件紧随其后向右排列 */
+  /* 控件从最左向右排列；显示节点的名称在最右（.view-bar-name 的 margin-left: auto）。名称在最左时，切换节点会因
+     名字长短不同把整排控件推来推去 */
   justify-content: flex-start;
   gap: var(--sp-2);
   /* 允许换行，但画布位置不得变化：在两个节点间切换对比画面是该视图的主要用法，工具栏高度变化会使画布跳动。
@@ -41,6 +41,7 @@
   gap: 6px;
   min-width: 0;
   flex: none;
+  margin-left: auto;  /* 贴在最右，控件的位置不随名字变 */
   max-width: 22ch;  /* 名称只占少量宽度，其余宽度留给控件 */
   font-size: var(--fs-sm);
   color: var(--text-2);
@@ -95,7 +96,7 @@
   /* 空间不足时换行，不使用横向滚动。画布保持不动依靠的不是禁止换行，而是这一行的控件数量始终不变：
      三种模式使用同一组控件，不适用的置灰（editor/Viewer.tsx），因此切换模式或节点时行数不变。 */
   flex-wrap: wrap;
-  justify-content: flex-start;  /* 紧随名称向右排列，不贴靠右侧 */
+  justify-content: flex-start;  /* 从最左向右排列 */
   gap: var(--sp-1);  /* 工具栏内排列更紧凑 */
   align-items: center;
   min-width: 0;
@@ -358,4 +359,14 @@
   left: 0;
   top: 0;
   display: block;
+}
+
+/* 「退出编辑」：视图里有操作在进行时（骨架编辑、点选……，state/viewPicking.ts exitViewOperation），贴在节点名左边 */
+.view-bar .view-exit {
+  flex: none;
+  margin-left: auto;
+}
+
+.view-bar .view-exit + .view-bar-name {
+  margin-left: 8px;
 }

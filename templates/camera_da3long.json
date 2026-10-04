@@ -1,0 +1,502 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "be4a358a8f034a9ca6a11f86394367cb",
+  "name": {
+   "zh": "深度与摄影机 · Depth Anything 3 Streaming",
+   "en": "Depth and Camera · Depth Anything 3 Streaming"
+  },
+  "intro": {
+   "zh": "官方 Depth Anything 3 Streaming 长镜头流水线，输出摄影机和深度；通过重叠几何与可选回环统一各段尺度。",
+   "en": "The official Depth Anything 3 Streaming long-shot pipeline, giving cameras and depth; chunk scales are unified through overlapping geometry and optional loop closure."
+  },
+  "author": "Lab2Shot",
+  "created": "2026-10-01T20:00:00",
+  "deliverable": "depth_long",
+  "owner": "admin",
+  "updated": "2026-10-03T01:00:00"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "解算",
+    "en": "Solve"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "solve_step",
+     "label": {
+      "zh": "步长",
+      "en": "Step"
+     },
+     "target": "solve.step"
+    },
+    {
+     "name": "scale_cm",
+     "label": {
+      "zh": "尺度",
+      "en": "Scale"
+     },
+     "target": "solve.unit_cm"
+    },
+    {
+     "name": "points_point_step",
+     "label": {
+      "zh": "点云间隔",
+      "en": "Point Cloud Step"
+     },
+     "target": "points.point_step"
+    },
+    {
+     "name": "points_point_size",
+     "label": {
+      "zh": "点的大小",
+      "en": "Point Size"
+     },
+     "target": "points.point_size"
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "solve_max_frames",
+       "label": {
+        "zh": "每段最多帧数",
+        "en": "Max Frames per Chunk"
+       },
+       "target": "solve.max_frames"
+      },
+      {
+       "name": "solve_overlap",
+       "label": {
+        "zh": "重叠帧数",
+        "en": "Overlap Frames"
+       },
+       "target": "solve.overlap"
+      },
+      {
+       "name": "solve_loops",
+       "label": {
+        "zh": "回环校正",
+        "en": "Loop Correction"
+       },
+       "target": "solve.loops"
+      }
+     ]
+    },
+    {
+     "name": "cook_solve",
+     "label": {
+      "zh": "解算",
+      "en": "Solve"
+     },
+     "target": "solve.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "usd_name",
+     "label": {
+      "zh": "文件名（摄影机与点云 USD）",
+      "en": "File Name (Camera and Point Cloud USD)"
+     },
+     "target": "usd.name"
+    },
+    {
+     "name": "exr_name",
+     "label": {
+      "zh": "文件名（深度 EXR）",
+      "en": "File Name (Depth EXR)"
+     },
+     "target": "exr.name"
+    },
+    {
+     "name": "nuke_name",
+     "label": {
+      "zh": "文件名（Nuke 摄影机）",
+      "en": "File Name (Nuke Camera)"
+     },
+     "target": "nuke.name"
+    },
+    {
+     "name": "unit",
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
+    },
+    {
+     "name": "fps",
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "usd.fps"
+    },
+    {
+     "kind": "group",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
+     "collapsed": true,
+     "children": [
+      {
+       "name": "exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
+       "widget": "menu",
+       "options": [
+        {
+         "value": "zips",
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
+        },
+        {
+         "value": "zip",
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
+        },
+        {
+         "value": "piz",
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
+        },
+        {
+         "value": "none",
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "word": "pack",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
+     "target": "deliver.download"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "file",
+   "params": {
+    "path": "",
+    "colorspace": null,
+    "first": null,
+    "last": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 872
+   }
+  },
+  {
+   "id": "solve",
+   "type": "da3long.reconstruct",
+   "params": {
+    "step": 1,
+    "max_frames": 120,
+    "overlap": 60,
+    "loops": true,
+    "unit_cm": 100.0
+   },
+   "ui": {
+    "x": 400,
+    "y": 748,
+    "on_node": [
+     "step",
+     "max_frames"
+    ]
+   }
+  },
+  {
+   "id": "usd",
+   "type": "usd.output",
+   "params": {
+    "name": "scene",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 1209,
+    "y": 678,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "deliver",
+   "type": "output",
+   "params": {},
+   "ui": {
+    "x": 1609,
+    "y": 706
+   }
+  },
+  {
+   "id": "nuke",
+   "type": "nuke.output",
+   "params": {
+    "name": "camera_nuke"
+   },
+   "ui": {
+    "x": 1249,
+    "y": 0,
+    "on_node": [
+     "name"
+    ]
+   }
+  },
+  {
+   "id": "exr",
+   "type": "exr.output",
+   "params": {
+    "name": "depth",
+    "layers": [
+     {
+      "name": "layer1",
+      "label": "depth",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 1249,
+    "y": 339
+   }
+  },
+  {
+   "id": "points",
+   "type": "points_from_depth",
+   "params": {
+    "point_step": 4,
+    "point_size": 0.5,
+    "space": "world",
+    "conf_threshold": 0.5
+   },
+   "ui": {
+    "x": 809,
+    "y": 804
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "camera"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "camera"
+   ],
+   "to": [
+    "nuke",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "nuke",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "solve",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "depth"
+   ],
+   "to": [
+    "exr",
+    "layer1"
+   ]
+  },
+  {
+   "from": [
+    "exr",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "depth"
+   ],
+   "to": [
+    "points",
+    "depth"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "camera"
+   ],
+   "to": [
+    "points",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "confidence"
+   ],
+   "to": [
+    "points",
+    "confidence"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "points",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "points",
+    "points"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "solve",
+  "frame": null
+ }
+}

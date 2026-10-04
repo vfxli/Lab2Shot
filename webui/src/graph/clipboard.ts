@@ -1,5 +1,5 @@
 import type { CookNode, Wire } from "../state/cookInputs";
-import type { Box, Pos } from "../state/look";
+import type { Box, NodeComment, Pos } from "../state/look";
 import { wireKey } from "./rules";
 
 /** 复制节点（Ctrl+C / Ctrl+V / Ctrl+D）: what a copy holds and which wires a paste brings along. Pure: graph/edit.ts
@@ -16,6 +16,7 @@ interface CopiedNode {
   data: CookNode;
   pos: Pos;
   onNode?: string[]; // the rows its body shows (state/look.ts onNode)
+  comment?: NodeComment; // its comment (state/look.ts comments): a copy keeps it, as Houdini's does
 }
 
 export interface Copied {
@@ -26,14 +27,15 @@ export interface Copied {
 }
 
 /** The copy of these nodes (and boxes), their data taken as it is now. */
-export function takeCopy(graphId: string, ids: string[], boxes: Box[], nodes: Record<string, CookNode>, positions: Record<string, Pos>, onNode: Record<string, string[] | undefined>, edges: Wire[]): Copied {
+export function takeCopy(graphId: string, ids: string[], boxes: Box[], nodes: Record<string, CookNode>, positions: Record<string, Pos>, onNode: Record<string, string[] | undefined>, comments: Record<string, NodeComment | undefined>, edges: Wire[]): Copied {
   const inCopy = new Set(ids);
   return {
     graphId,
     nodes: ids.map((id) => {
       const data = structuredClone(nodes[id]);
       const rows = onNode[id];
-      return { id, data, pos: { ...(positions[id] ?? { x: 0, y: 0 }) }, ...(rows ? { onNode: [...rows] } : {}) };
+      const comment = comments[id];
+      return { id, data, pos: { ...(positions[id] ?? { x: 0, y: 0 }) }, ...(rows ? { onNode: [...rows] } : {}), ...(comment ? { comment: { ...comment } } : {}) };
     }),
     wires: edges.filter((e) => inCopy.has(e.target)).map((e) => ({ ...e })),
     boxes: boxes.map((b) => ({ ...b, members: b.members.filter((m) => inCopy.has(m)) })),

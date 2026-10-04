@@ -1,0 +1,107 @@
+# Mesh4D (adapters/mesh4d/nodes.py, worker.py) in English (the same keys as zh.toml).
+
+# ---- worker: what the environment and the footage must give
+"E-MESH4D-NOCODEBASE" = "The Mesh4D code folder was not passed to the worker ({name} is missing): this extension is not fully installed; reinstall it under Extensions on the admin page"
+"E-MESH4D-EMPTYMASK" = "The Foreground Mask of frame {frame} has no pixel in it. Mesh4D needs the object cut out first: it crops the object by the mask and centres it, and an all-black frame gives nothing to crop. Check whether the mask breaks on this frame, or trim the frames where the object leaves the picture"
+"E-MESH4D-STEP" = "The Mesh4D step \"{step}\" failed. The last thing it said was:\n{detail}"
+"I-MESH4D-STEPLOAD" = "load the deformation network"
+"I-MESH4D-STEPFRAMES" = "stage the frames"
+"I-MESH4D-MISSINGTENSORS.one" = "{count} weight is missing, the first is {first}"
+"I-MESH4D-MISSINGTENSORS.other" = "{count} weights are missing, the first is {first}"
+"I-MESH4D-TOOFEWFRAMES.one" = "Mesh4D takes {window} frame at a time, this shot has only {have}"
+"I-MESH4D-TOOFEWFRAMES.other" = "Mesh4D takes {window} frames at a time, this shot has only {have}"
+
+# ---- node: done
+"I-MESH4D-DONE.one" = "The generated mesh has {verts:,} point and {faces:,} faces, with the same topology over all {frames} frames (a point cache); computed in {windows} windows of 6 frames. 1 unit = {unit:g} cm (from the Scale parameter)"
+"I-MESH4D-DONE.other" = "The generated mesh has {verts:,} points and {faces:,} faces, with the same topology over all {frames} frames (a point cache); computed in {windows} windows of 6 frames. 1 unit = {unit:g} cm (from the Scale parameter)"
+
+# ---- node: three things about the method itself, always said after a cook
+"W-MESH4D-SEAM.one" = "This shot has {frames} frame and Mesh4D looks at only 6 at a time, so it was computed as {windows} separate windows: the mesh is the same (same topology and point count), but the motion may jump at the seams, at frames {seams}. Smooth it downstream if needed, or cut the shot to a multiple of 6 frames"
+"W-MESH4D-SEAM.other" = "This shot has {frames} frames and Mesh4D looks at only 6 at a time, so it was computed as {windows} separate windows: the mesh is the same (same topology and point count), but the motion may jump at the seams, at frames {seams}. Smooth it downstream if needed, or cut the shot to a multiple of 6 frames"
+"N-MESH4D-NOSCALE" = "Mesh4D solves only the shape: no camera, and no idea how big the object is. The result is scaled by the Scale parameter to {unit:g} cm tall. Measure the real object's height and enter it to match the live action"
+"N-MESH4D-SIMPLIFIED.one" = "Faces is set to \"{choice}\": the mesh that is deformed has {faces:,} face (the official pipeline reduces it to 40k faces first). The mesh is fixed once; every frame's points are then derived from this one topology"
+"N-MESH4D-SIMPLIFIED.other" = "Faces is set to \"{choice}\": the mesh that is deformed has {faces:,} faces (the official pipeline reduces it to 40k faces first). The mesh is fixed once; every frame's points are then derived from this one topology"
+
+# ---- node: how heavy this result is
+"W-MESH4D-BIGMESH.one" = "The generated mesh has {verts:,} point; the point cache over all {frames} frames is about {mb:.0f} MB: it will be heavy to tumble in the viewport and not small in Alembic / USD either. If it is too heavy, set Faces one step lower and cook again"
+"W-MESH4D-BIGMESH.other" = "The generated mesh has {verts:,} points; the point cache over all {frames} frames is about {mb:.0f} MB: it will be heavy to tumble in the viewport and not small in Alembic / USD either. If it is too heavy, set Faces one step lower and cook again"
+
+# ---- words
+
+[stage]
+stage_frames = "Stage Frames"
+generate_mesh = "Generate Mesh"
+solve_deformation = "Solve Deformation"
+
+[node."mesh4d.reconstruct"]
+subtitle = "Mesh Sequence"
+description = "Solves a cut-out object into a mesh that deforms per frame: Hunyuan3D-2.1 first generates one mesh from the first frame, then Mesh4D's deformation network moves that mesh's vertices to every frame, with the same topology over the whole shot, which makes a point cache. It looks at only 6 frames at a time; longer shots are computed window after window of 6 frames, and the motion may jump at the seams. It solves no camera and does not know how big the object is: the size is given by the Scale parameter."
+
+[node."mesh4d.reconstruct".param.quality]
+label = "Quality"
+
+[node."mesh4d.reconstruct".param.quality.option]
+fast = "Fast"
+standard = "Standard"
+fine = "Fine"
+
+[node."mesh4d.reconstruct".param.faces]
+label = "Faces"
+
+[node."mesh4d.reconstruct".param.faces.option]
+full = "As Generated"
+100k = "100k"
+40k = "40k (Official)"
+20k = "20k"
+
+[node."mesh4d.reconstruct".param.seed]
+label = "Seed"
+
+[node."mesh4d.reconstruct".param.unit_cm]
+label = "Scale"
+
+[node."mesh4d.reconstruct".port.image]
+label = "RGB"
+
+[node."mesh4d.reconstruct".port.mask]
+label = "Foreground Mask"
+
+[node."mesh4d.reconstruct".port.mesh]
+label = "Mesh"
+help = "The mesh deformed per frame (a point cache): one topology and one set of UVs over the whole shot, only the points change per frame. The first frame's bounding box is centred in X and Z with its bottom at Y=0, and the whole shot is placed by that frame, not re-placed per frame"
+
+[node."mesh4d.reconstruct".port.rest]
+label = "Rest Mesh"
+help = "The one mesh Hunyuan3D-2.1 generated, without deformation: use this one for retopology or UV layout"
+
+[node."mesh4d.reconstruct".official]
+note = "The mask is an official input: the official infer.py reads an RGBA matte (infer.py:148-151; for RGB it mattes with rembg itself), and the dataset class splits it into batch['image'] and batch['mask'] for the deformation pipeline (:1030-1031). Mesh is the per-frame vertices of deformed_verts_gen (:1144); Rest Mesh is the one Hunyuan3D-2.1 generated and registered (:953 registered_gen_mesh.obj)"
+
+[node."mesh4d.reconstruct".cost]
+note = "GPU memory peaks while both the mesh generation and the deformation models are on the card (both stay loaded, not unloaded after a cook). Mesh generation runs once per shot, about 60 s; then each 6-frame window of deformation takes about 14 s (Standard, 50 steps, As Generated without reduction): a 6-frame shot takes about 150 s in all, a 60-frame shot about 280 s"
+
+[node."mesh4d.reconstruct".stage]
+write_mesh = "Write Mesh"
+
+[node."mesh4d.reconstruct".licence]
+note = "Research only: the Mesh4D repository has no license file at all; its inference code and the mesh generation weights are under the Tencent Hunyuan3D-2.1 Community License, which does not apply in the EU, the UK and South Korea."
+
+[extension.mesh4d]
+summary = "A feed-forward model for monocular 4D mesh reconstruction: from a monocular video of a moving object it recovers the object's complete 3D shape and motion (as a deformation field)"
+
+[extension.mesh4d.license]
+name = "No license in the repository + Tencent Hunyuan 3D 2.1 Community License (excluding the EU, the UK and South Korea)"
+summary = "Research only; the label takes the strictest class, erring on the side of caution, for three reasons together: ① the Mesh4D repository itself has no license file, and the authors state no terms anywhere else — no license means no permission to use, so it can only be treated as research code accompanying the paper; the two weights (deformation VAE, denoising network) declare nothing either. ② Its inference code is entirely Tencent Hunyuan3D-2.1 (hy3dshape / hy3dpaint), bound by the Tencent Hunyuan 3D 2.1 Community License Agreement: that agreement explicitly does not apply in the EU, the UK and South Korea and forbids using its code, weights and outputs there; the hunyuan3d-dit-v2-1 weights used to generate the mesh are under the same license. ③ PyMeshLab in the environment is GPL-3.0. Also: the terms of each third-party component listed in Hunyuan3D-2.1's NOTICE (Stable Diffusion's MIT + CreativeML Open RAIL++-M and others) must be followed as well."
+
+[extension.mesh4d.weight.deform_vae]
+note = "Mesh4D deformation VAE, 3.3 GB (the authors' Google Drive, no license stated, treated as research only)"
+
+[extension.mesh4d.weight.denoiser]
+note = "Mesh4D deformation denoising network (MoE DiT), 24 GB: what the authors released is a training archive with optimizer state (the authors' Google Drive, no license stated, treated as research only)"
+
+[extension.mesh4d.weight.hunyuan3d-shape]
+note = "The mesh-generating half of Hunyuan3D-2.1 (DiT 7.4 GB + shape VAE 0.7 GB), Tencent Hunyuan 3D 2.1 Community License (excluding the EU, the UK and South Korea)"
+notice = "Powered by Tencent Hunyuan"
+
+[extension.mesh4d.weight.dinov2-large]
+note = "DINOv2-Large image encoder (Meta, Apache-2.0), 1.2 GB: what the deformation network sees the picture with"

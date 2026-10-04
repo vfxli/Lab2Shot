@@ -1,7 +1,5 @@
 import { useRef, useState } from "react";
 
-// the wording 拖动改顺序, written in one place (the same thing is called by the same word everywhere)
-export const DRAG_TIP = "拖动改顺序";
 
 /** 拖动改顺序, written once: the parameter table's rows (editor/ParamTable.tsx) and a list setting's rows
  * (admin/ListField.tsx) drag this way, so a table that needs it takes this implementation instead of writing its own.

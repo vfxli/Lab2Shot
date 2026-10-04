@@ -1,6 +1,0 @@
-{
- "unirig.auto_rig": {
-  "label": "UniRig 自动绑定",
-  "description": "UniRig：给一块没有骨骼的网格自动生成骨架并刷好蒙皮权重，交出能动起来的蒙皮角色。人、动物、道具用同一个模型（在 Articulation-XL 2.0 上训练）；骨架由自回归 transformer 逐根骨头写出来，所以一定是一棵合法的骨骼树，换一个「随机种子」就是另一副骨架。网格、UV、分区和材质原样保留，只多出骨架和蒙皮。骨骼名是 bone_0、bone_1…（这一版公开的权重不带部位名），要接 HumanIK 或 Mixamo 重定向，先在 DCC 里按部位改名。"
- }
-}

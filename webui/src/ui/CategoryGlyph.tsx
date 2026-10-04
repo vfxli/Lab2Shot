@@ -1,11 +1,13 @@
 import React from "react";
 
-/** The 16x16 mark of one node-menu category (menu/categories.json: the tools band and the delivery band, the administrator's data). Keyed by
+/** The 16x16 mark of one node-menu category (the tools band in menu/categories.json, the algorithms band = the templates tree
+ * in templates/_categories.json; the administrator's data). Keyed by
  * category id — a drawing per id, not a list of nodes or projects: what belongs to a category is the server's
  * answer. An id with no drawing yet shows the plain dot, never an empty box. */
 // a data-tree id that draws as another's mark: the tools band's 「遮罩」 is tools_mask in menu/categories.json (the
-// delivery band's 抠像与遮罩 has a subcategory with the id mask); the icon table below is keyed by the drawn word
-const ALIAS: Record<string, string> = { tools_mask: "mask" };
+// algorithms band's 抠像与遮罩 has a subcategory with the id mask), and the tools band's 「动作」 is tools_motion (its
+// algorithms counterpart 动作处理 is animation); the icon table below is keyed by the drawn word
+const ALIAS: Record<string, string> = { tools_mask: "mask", tools_motion: "animation" };
 
 export function CategoryGlyph({ category, color }: { category: string; color: string }) {
   const g: Record<string, React.ReactNode> = {

@@ -10,23 +10,22 @@ from lab2shot.sdk import (Official, OpticalFlow, OpticalFlowParams, flow_resolut
 
 class Flow(OpticalFlow):
     id = "waft.flow"
+    version = 2  # 2：DINOv2 的注意力换成 torch SDPA（数学等价，浮点有细微差别），旧缓存重算
     # 上游 demo.py：model.calc_flow(image1, image2) -> output['flow']（两帧之间的矢量）
     official = Official(
         cite="third_party/waft/repo/demo.py:102-104",
         takes={"image": "image1"},
         gives={"flow": "flow"},
-        note="两帧法：image1、image2 是相邻两帧，前后各算一遍。每个像素的置信度是 output['info']"
-             "（demo.py:84 get_heatmap 就是拿它算的），在我们的运动矢量包里当置信度通道，不是单独的口。",
     )
     # 和 MEMFOF 同一个家族、同样的输出；两帧方法，前后两个方向各算一遍
     runtime = "waft"
     # vram_gb: RTX 4090，默认长边 960
     cost = Cost(gpu=True, vram_gb=2.2, seconds_per_frame=0.33)
-    licence = Licence(note="代码 BSD-3；权重没有写明许可，而且用只许研究使用的数据集训练，按非商用处理。")
+    licence = Licence(note=True)
 
     class Params(OpticalFlowParams):
         resolution: Literal[960, 1920] | None = flow_resolution_param(
-            {960: Measured(gb=2.2), 1920: Measured(gb=14.3)}, default=960)
+            {960: Measured(gb=2.2), 1920: Measured(gb=9.7)}, default=960)  # 1920：注意力走 SDPA 后实测（原 14.3）
 
 
 NODES = (Flow,)

@@ -1,0 +1,21 @@
+# lab2shot check i18n: what is still to move, by area (lab2shot/i18n/lint.py AREAS). Only ever lowered:
+# uv run python tools/i18n_baseline.py writes what is there now where that is less. 0 = that area is done.
+
+[cjk]
+"A" = 0
+"B1" = 0
+"B2" = 0
+"C" = 0
+"D" = 0
+"E" = 0
+
+[missing]
+"A" = 0
+"B1" = 0
+"B2" = 0
+"C" = 0
+"D" = 0
+"E" = 0
+
+[fields]
+"F" = 0

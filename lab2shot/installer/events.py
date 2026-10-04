@@ -29,12 +29,13 @@ import time
 
 from ..data.units import PERCENT
 from ..farm.tasks import Cancelled
-from ..messages import Msg, said_line
+from ..i18n import LOG_LANG, t, using
+from ..messages import Msg, said_line, word_of
 from .plan import LABELS
 
 STATES = ("waiting", "running", "done", "skipped", "failed", "cancelled")
-STATE_WORDS = {"waiting": "等待", "running": "开始", "done": "完成", "skipped": "已完成，跳过", "failed": "失败",
-               "cancelled": "已取消"}  # a step's state in the install log file (LogFile)
+STATE_WORDS = {"waiting": "waiting", "running": "started", "done": "done", "skipped": "already done, skipped",
+               "failed": "failed", "cancelled": "cancelled"}  # a step's state in the install log file (LogFile: English)
 PERCENT_STEP = 10  # a download is a line every this many percent (the task's output lines, the console)
 
 __all__ = ["STATES", "Cancelled", "ConsoleSink", "LogFile", "Recorder", "Sink", "TaskSink"]
@@ -106,7 +107,8 @@ class TaskSink(Sink):
             task.progress(0, len(event["steps"]), "")
         elif kind == "step":
             if event["state"] == "running":
-                task.progress(label=LABELS[event["step"]])
+                # the step's name as a word: each reader reads it in their own language (farm/tasks.py Task.json)
+                task.progress(label=LABELS[event["step"]], word=word_of(LABELS.key(event["step"])))
             elif event["state"] in ("done", "skipped"):
                 task.progress(task.done + 1)
         elif kind == "log":
@@ -150,7 +152,7 @@ class ConsoleSink(Sink):
                 text = event.get("message", {}).get("text", "")
                 self.console.print(f"[red]✗ {label}[/red] {text}")
             elif event["state"] == "skipped":
-                self.console.print(f"[green]✓[/green] {label}（已完成，跳过）")
+                self.console.print(f"[green]✓[/green] {t('install.console.skipped', step=label)}")
         elif kind == "log":
             colour = {"E": "red", "W": "yellow", "B": "red"}.get(event.get("level", ""), "")
             text = event["text"]
@@ -179,11 +181,14 @@ class LogFile(Sink):
         self.inner.emit(event)
         kind = event["type"]
         if kind == "plan":
-            self._write("步骤：" + "、".join(s["label"] for s in event["steps"]))
+            with using(LOG_LANG):  # the log file is in the back end's language
+                self._write("steps: " + ", ".join(self.labels[s["id"]] if s.get("id") in self.labels else s["label"]
+                                                  for s in event["steps"]))
         elif kind == "step":
-            label = self.labels.get(event["step"], event["step"])
+            with using(LOG_LANG):
+                label = self.labels.get(event["step"], event["step"])
             text = event.get("message", {}).get("text", "")
-            self._write(f"== {label}：{STATE_WORDS.get(event['state'], event['state'])}" + (f"  {text}" if text else ""))
+            self._write(f"== {label}: {STATE_WORDS.get(event['state'], event['state'])}" + (f"  {text}" if text else ""))
         elif kind == "log":
             self._write((f"[{event['code']}] " if event.get("code") else "") + event["text"])
         elif kind == "progress" and (percent := self._tenths(event)) is not None:

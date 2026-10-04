@@ -2,10 +2,9 @@
 
 import { useLook } from "../state/look";
 import { portColor, UNKNOWN_COLOR } from "../graph/nodes";
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { BaseEdge, getBezierPath, type ConnectionLineComponentProps, type EdgeProps } from "@xyflow/react";
-import { cookNote } from "../state/pause";
-import { cookHold, planError } from "../graph/actions";
+import { cookHold, cookHoldWhy } from "../graph/actions";
 import { NODE_MENU, type NodeMenuFacts } from "./nodeActions";
 import { snapshotNow } from "../graph/snapshot";
 import { useCookInputs } from "../state/cookInputs";
@@ -13,12 +12,48 @@ import { useResults } from "../state/results";
 import { useViewer } from "../state/viewer";
 import { clickKind, cookWords, inputPort, outputType, wireState } from "../graph/rules";
 import { ERROR_COLOR } from "../platform/palette";
-import { getNodeDefs as nodeDefsCached, useTypes as useTypesCached } from "../state/catalog";
+import { getNodeDefs as nodeDefsCached, getTypes as getTypesCached, subscribeCatalog } from "../state/catalog";
 import { Menu, type MenuRow } from "../ui/Menu";
 import { isList } from "../state/items";
+import { useWriteLock } from "../ui/writeLock";
+import { t } from "../i18n/t";
+import { tipOf } from "../platform/tips";
 
 const WRONG = ERROR_COLOR;
 const WAITING = "rgba(235, 235, 245, 0.34)";
+
+type WireLook = { look: string; list: boolean };
+const NO_LOOK: WireLook = { look: UNKNOWN_COLOR, list: false };
+
+/** How every wire is drawn now, worked out once for all of them per change of the graph, the last status reply or the
+ * catalogue (never once per wire: each wire would build a view of every node), and handed to each wire as the same
+ * object while its own look stays the same, so a reply that recolours three wires redraws those three. */
+let looks: { edges: unknown; nodes: unknown; reply: unknown; types: unknown; byId: Map<string, WireLook> } | null = null;
+function wireLooks(): Map<string, WireLook> {
+  const { edges, nodes } = useCookInputs.getState();
+  const reply = useResults.getState().reply;
+  const types = getTypesCached();
+  if (looks && looks.edges === edges && looks.nodes === nodes && looks.reply === reply && looks.types === types) return looks.byId;
+  // as the last status reply judged it (graph/rules.ts); a wire connected since is drawn in its output's colour
+  const snap = { nodes: Object.entries(nodes).map(([nid, n]) => ({ id: nid, data: n })), edges, nodeDefs: nodeDefsCached(), reply };
+  const byId = new Map<string, WireLook>();
+  for (const e of edges) {
+    const w = wireState(snap, e);
+    const t = w?.type || outputType(snap, e.source, e.sourceHandle) || "";
+    const list = isList(t.split("|")[0]);
+    // the branch not taken: drawn faint, like a waiting wire. A list is drawn in the colour of what it holds
+    // (图像序列[] is the colour of 图像序列), as two lines, in the list's own shade of it (graph/nodes.ts portColor)
+    const look = w?.state === "waiting" || w?.state === "unused" ? WAITING : w?.state === "wrong" ? WRONG : t ? portColor(types, t) : UNKNOWN_COLOR;
+    const old = looks?.byId.get(e.id);
+    byId.set(e.id, old && old.look === look && old.list === list ? old : { look, list });
+  }
+  looks = { edges, nodes, reply, types, byId };
+  return byId;
+}
+const onLooks = (changed: () => void) => {
+  const off = [useCookInputs.subscribe(changed), useResults.subscribe(changed), subscribeCatalog(changed)];
+  return () => off.forEach((f) => f());
+};
 
 /** A wire in the color of what it carries now; dashed in the error colour once it is wrong (its output gone or of another type);
  * muted and finely dotted while it waits for its output (an import node's kind not selected yet: it connects by itself
@@ -26,24 +61,7 @@ const WAITING = "rgba(235, 235, 245, 0.34)";
  * The wire is looked up by id: a collapsed group box redraws it to the box, the same wire. */
 export function TypedEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected }: EdgeProps) {
   const [path] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, curvature: 0.35 });
-  const edges = useCookInputs((s) => s.edges);
-  const nodes = useCookInputs((s) => s.nodes);
-  const reply = useResults((s) => s.reply);
-  const types = useTypesCached();
-  const { look, list } = useMemo(() => {
-    const e = edges.find((x) => x.id === id);
-    if (!e) return { look: UNKNOWN_COLOR, list: false };
-    // as the last status reply judged it (graph/rules.ts); a wire connected since is drawn in its output's colour
-    const snap = { nodes: Object.entries(nodes).map(([nid, n]) => ({ id: nid, data: n })), edges, nodeDefs: nodeDefsCached(), reply };
-    const w = wireState(snap, e);
-    const t = w?.type || outputType(snap, e.source, e.sourceHandle) || "";
-    const carries = isList(t.split("|")[0]);
-    if (w?.state === "waiting" || w?.state === "unused") return { look: WAITING, list: carries }; // the branch not taken: drawn faint, like a waiting wire
-    if (w?.state === "wrong") return { look: WRONG, list: carries };
-    // a list is drawn in the colour of what it holds: 图像序列[] is the colour of 图像序列
-    // drawn as two lines, in the list's own shade of that colour (graph/nodes.ts portColor: same hue, less saturated)
-    return { look: t ? portColor(types, t) : UNKNOWN_COLOR, list: carries };
-  }, [edges, nodes, reply, types, id]);
+  const { look, list } = useSyncExternalStore(onLooks, () => wireLooks().get(id) ?? NO_LOOK);
   const dash = look === WRONG ? "6 5" : look === WAITING ? "2 5" : undefined;
   return (
     <>
@@ -81,18 +99,17 @@ export function NodeMenu({ at, onClose }: { at: { x: number; y: number; id: stri
   const version = useCookInputs((s) => s.version);
   const port = useLook((s) => s.displayPort);
   const hold = useResults((s) => cookHold(s, { node: at.id, version, port }));
-  const unplannable = useResults((s) => planError(s, { node: at.id, version, port })?.text ?? "");
   const busy = hold === "busy" || hold === "submitting";
-  const queueSwitches = useResults((s) => s.queueSwitches);
-  const storage = useResults((s) => s.storage); // storage full: this 「计算」 is greyed with the reason, like the button parameter's 「计算」
+  const blocked = hold === "paused" || hold === "unplannable";
+  // why it is greyed (storage full, 计算任务 off, the server's reason): graph/actions.ts cookHoldWhy, the one table of them
+  const why = useResults((s) => (blocked ? cookHoldWhy(s, hold, { node: at.id, version, port }) : ""));
   const typeId = useCookInputs((s) => s.nodes[at.id]?.typeId ?? "");
+  const editable = !useWriteLock();
   const snap = useMemo(() => snapshotNow(), [at.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const kind = clickKind(snap, at.id);
   const delivers = kind.delivers;
-  const short = cookWords(kind.delivers, kind.nothing).short;
   // the same rule and note (state/pause.ts, graph/actions.ts cookHold) as every other 计算 entry, so a click here is not a surprise
-  const tip = (unplannable ? `现在算不了：${unplannable}\n\n` : "") + cookWords(kind.delivers, kind.nothing).tip + cookNote(queueSwitches, storage);
-  const blocked = hold === "paused" || hold === "unplannable";
+  const tip = why ? tipOf("disabled", why) : cookWords(kind.delivers, kind.nothing).tip;
   // 序列图输出设置 nodes to merge: the ones selected together with the one right-clicked, or just that node if it is not
   // part of a multi-selection. It is always included, since a right click never clears the canvas selection on its own.
   // Computed once when the menu opens (like `snap` above): the menu closes on any pointerdown/wheel/Escape, so the
@@ -102,33 +119,34 @@ export function NodeMenu({ at, onClose }: { at: { x: number; y: number; id: stri
   const mergeIds = useMemo(() => {
     const ci = useCookInputs.getState();
     const n = ci.nodes[at.id];
-    if (!n || n.typeId !== "core.output_images") return [] as string[];
+    // the node type declares what it merges into (NodeTypeDef.merges_into); the page names no type itself
+    if (!n || !nodeDefsCached()[n.typeId]?.merges_into) return [] as string[];
     const canvas = useViewer.getState().canvas;
-    const selected = ci.order.filter((id) => canvas[id]?.selected && ci.nodes[id].typeId === "core.output_images");
+    const selected = ci.order.filter((id) => canvas[id]?.selected && ci.nodes[id].typeId === n.typeId);
     return selected.includes(at.id) ? selected : [at.id];
   }, [at.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // inside a 逐项处理 block: how many items this node has and which one the view is on, both as the server answered
   // (engine/scopes.py; the page never counts a block's items itself)
-  const status = snap.results[at.id];
+  const status = snap.shown[at.id];
   const facts: NodeMenuFacts = {
     id: at.id,
     typeId,
     items: status?.summary?.total ?? 0,
-    itemName: status?.item?.names.at(-1) ?? "",
     delivers,
     busy,
     blocked,
     cookTip: tip,
-    cookShort: short,
     mergeIds,
+    comment: useLook.getState().comments[at.id],
+    editable,
   };
   const rows: MenuRow[] = NODE_MENU.filter((item) => item.when(facts)).map((item) => ({
     key: item.key,
     label: item.label(facts),
     desc: item.desc(facts),
-    tip: item.tip(facts),
+    tip: item.tip?.(facts),
     off: item.off?.(facts) ?? false,
     run: () => item.run(facts),
   }));
-  return <Menu at={at} rows={rows} label="节点" layout="ctx-menu" onClose={onClose} />;
+  return <Menu at={at} rows={rows} label={t("ui.node.menu")} layout="ctx-menu" onClose={onClose} />;
 }

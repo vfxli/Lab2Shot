@@ -1,0 +1,34 @@
+# The LTX-2.5 Alpha Gen extension's own words and messages in English (the same keys as zh.toml).
+
+# ---- checks
+"E-ALPHAGEN-SHAPE.one" = "The LTX-2.5 Alpha Gen result does not match the input: the input is {frames:d} frame at {width:d} × {height:d}, the result {got_frames:d} frames at {got_width:d} × {got_height:d}. This node gives exactly one alpha of the same size for each input frame, so it stopped and wrote nothing. Send this message and the job log to an administrator"
+"E-ALPHAGEN-SHAPE.other" = "The LTX-2.5 Alpha Gen result does not match the input: the input is {frames:d} frames at {width:d} × {height:d}, the result {got_frames:d} frames at {got_width:d} × {got_height:d}. This node gives exactly one alpha of the same size for each input frame, so it stopped and wrote nothing. Send this message and the job log to an administrator"
+
+[node."alphagen.matte"]
+subtitle = "Matte"
+description = "For matting only: pulls an alpha straight from the plate, with no mask and no prompt; the model decides what the foreground is. Its strength is hard semi-transparent edges such as smoke, fire, glass, water, hair and sheer fabric. You cannot choose which subject to matte; when the shot has several subjects and you want one, use MatAnyone 2 or VideoMaMa with a mask. Outputs the alpha only, with exactly the frames and size of the input. Needs a 32 GB card and is much slower than the other matte nodes."
+
+[node."alphagen.matte".param.resolution]
+label = "Processing Resolution"
+
+[node."alphagen.matte".port.image]
+label = "RGB"
+
+[node."alphagen.matte".official]
+note = "Upstream usage (model card): python -m ltx_pipelines.ic_lora with the distilled base, LoRA strength 1.0, an empty prompt and --skip-stage-2 (stage 1 only, at the native resolution). Frames are padded to multiples of 32 and to 8n+1 frames; at most 1920 × 1088 and 145 frames (longer clips leak picture content into the matte and must be split). No mask input; it cannot be told which subject to matte."
+
+[node."alphagen.matte".licence]
+note = "LTX-2.x Community License: free, commercial use included, for individuals and companies under USD 10 million annual revenue; at USD 10 million or more, any use other than non-commercial research and evaluation needs a paid licence from Lightricks."
+
+[node."alphagen.matte".cost]
+note = "The 22B model stays in GPU memory in fp8, about 22 GB, so it runs only on a 32 GB card; the first run also encodes the empty prompt once and caches it."
+
+[extension.alphagen]
+summary = "Pulls an alpha matte straight from ordinary footage, with no mask and no prompt, good at semi-transparent edges such as hair, smoke, fire, glass and water. An IC-LoRA on the LTX-2.5 video model"
+license.name = "LTX-2.x Community License"
+license.summary = "Free for individuals and for companies with annual revenue under USD 10 million, commercial use included; at USD 10 million or more, any use other than non-commercial research and evaluation needs a paid licence from Lightricks. Redistribution must include the licence text and its use restrictions (Attachment A); the model may only be used lawfully and within its acceptable-use policy, and safety, provenance and watermark features must be kept"
+weight.alphagen_lora.note = "Lightricks/LTX-2.5-22b-IC-LoRA-Alpha-Gen/ltx-2.5-22b-ic-lora-alpha-gen-0.9.safetensors (LTX-2.x Community License)"
+
+[stage]
+encode_prompt = "Prepare Fixed Prompt"
+matte = "Matte"

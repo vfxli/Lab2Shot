@@ -1,0 +1,40 @@
+# The VidMap extension's own words and messages in English (the same keys as zh.toml).
+
+"E-VIDMAP-UNDECLARED" = "VidMap tried to load a model the extension does not declare ({model}): the extension and the VidMap version do not match, so nothing was cooked. Ask an administrator to run lab2shot ext install vidmap again"
+"E-VIDMAP-FEWCAMERAS.one" = "VidMap registered a camera on only {registered} of {frames} frames; at least two are needed for any camera motion: the camera may barely move, or the image is too dark or blurry. Try setting Known Focal Length, lowering Frame Step, or using a shot with parallax"
+"E-VIDMAP-FEWCAMERAS.other" = "VidMap registered cameras on only {registered} of {frames} frames; at least two are needed for any camera motion: the camera may barely move, or the image is too dark or blurry. Try setting Known Focal Length, lowering Frame Step, or using a shot with parallax"
+
+[node."vidmap.camera_solve"]
+subtitle = "Camera Solve"
+description = "Runs upstream's COLMAP global mapping with the video's temporal structure, RoMa v2/ALIKED learned matching and Depth Anything 3 depth priors. Delivers full-shot intrinsics, the camera path and a sparse point cloud for the registered frames; unregistered frames are interpolated by the shared camera tools, with a note. Scale is converted by an explicit parameter; upstream's smooth trajectory configuration is optional."
+official.note = "Upstream's frontend run_local_frontend and reconstruct output a COLMAP Reconstruction: cam_from_world/camera intrinsics and points3D of the registered images. Only truly registered poses are output; the camera's other frames are interpolated by the shared family."
+licence.note = "Includes the non-commercial Depth Anything 3 Giant model weights; for the licenses of the other code and model weights, see the extension's description."
+cost.note = "RoMa v2/Depth Anything 3/MegaLoc frontend stages use memory in turn; 120 KITTI frames peak at 24.4 GB, with 20–23 GB of system memory"
+
+[node."vidmap.camera_solve".param.step]
+label = "Frame Step"
+
+[node."vidmap.camera_solve".param.smooth]
+label = "Smooth Trajectory"
+
+[node."vidmap.camera_solve".port.camera]
+label = "Camera"
+
+[node."vidmap.camera_solve".port.points]
+label = "Point Cloud"
+
+[extension.vidmap]
+summary = "Solves cameras and a sparse point cloud with COLMAP global mapping, using the video's temporal structure and learned matching"
+license.name = "VidMap BSD-3-Clause; Depth Anything 3 Giant CC-BY-NC-4.0"
+license.summary = "Code licenses and model tags are shown through the usual mechanism; includes the non-commercial Depth Anything 3 Giant model weights."
+weight.da3.note = "Depth Anything 3 Giant metric prior, non-commercial"
+weight.da3-config.note = "Depth Anything 3 Giant configuration"
+weight.geocalib.note = "GeoCalib lens estimation"
+weight.roma.note = "RoMa v2 matching"
+weight.aliked.note = "ALIKED features"
+weight.megaloc.note = "MegaLoc loop-closure retrieval"
+
+# ---- the worker's cooking stages (worker.py run.stage)
+[stage]
+frontend = "Video Features, Matching and Depth Priors"
+global_mapping = "Global Mapping and Bundle Adjustment"

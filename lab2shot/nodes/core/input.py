@@ -12,8 +12,9 @@ import numpy as np
 from ...data.units import DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH
 from ...errors import Invalid
 from ...io.sequence import IMAGE_EXTS, VIDEO_EXTS
-from ...messages import Msg
-from ..base import Info, NodeDef, NodeParams, P, Port, ReadsFile, colorspace_param
+from ... import i18n
+from ...messages import Msg, word_of
+from ..base import Info, NodeDef, NodeParams, P, Port, Reads, ReadsFile, colorspace_param
 from ..kit.ports import fps_meta, fps_packet, fps_port
 from ...data.contracts import Shape
 
@@ -140,24 +141,25 @@ def _colorspace_filled(node, params):
 
 
 class ReadSequence(ReadsFile, NodeDef):
-    id = "core.read_sequence"
-    version = 4  # 图像数据包总会注明是否带 alpha
+    id = "file"
+    version = 5  # 5：数据包注明帧号位数（padding）；4：图像数据包总会注明是否带 alpha
     frame_source = True
-    no_file = "没有选择序列图"
     # 选择文件后不上传任何字节（`base.py ReadsFile.head_is_enough`）：
     # 本节点依靠两条回退仍能回答查询：端口按申报时从文件头读出的图层生成（`made_ports` 的 `_declared`），
     # 色彩空间按文件名判断（`choices` 中的相应部分，OCIO 文件规则只依据名称）。
     head_is_enough = True
     category = "read_plate"
+    # 图层在选了文件之后才成为输出口；按「图像」认它读什么。主素材：path / colorspace / first / last 用固定名
+    reads = Reads(gives=(("image", "image"),), goes_with=("colorspace", "first", "last"), main=True)
 
     class Params(NodeParams):
-        path: str = P("", label="序列图", widget="sequence", group="文件", accept=sorted(IMAGE_EXTS))
+        path: str = P("", widget="sequence", group="file", accept=sorted(IMAGE_EXTS))
         colorspace: str | None = colorspace_param(choices_from=("path",))  # 其「自动」项显示按文件规则得到的色彩空间
         # 读哪一段（Nuke Read 的 frame range）：留空 = 序列的头 / 尾。这是素材本身的范围（info 只报这一段）：
         # 计算按钮旁的「计算范围」照旧只能在各输入的范围里再选一段（engine/evaluation.py info、check_frames），
         # 所以实际算的帧 = 两者的交集；状态回复的 range（farm/timings.py）报的就是这一段
-        first: int | None = P(None, label="首帧", group="帧范围", placeholder="序列的第一帧")
-        last: int | None = P(None, label="末帧", group="帧范围", placeholder="序列的最后一帧")
+        first: int | None = P(None, group="frame_range")
+        last: int | None = P(None, group="frame_range")
 
     @classmethod
     def _source(cls, params):
@@ -165,6 +167,15 @@ class ReadSequence(ReadsFile, NodeDef):
         if src.kind == "video":
             raise Invalid(Msg("E-READ-VIDEO", file=Path(src.display).name))
         return src
+
+    @classmethod
+    def said_shot(cls, params):
+        """序列帧号的位数（plate.0001.exr 为 4，不补零为 0）：交付的序列按同样位数编号（nodes/output.py out_file）。
+        未选文件或单张无编号的图片时不声明（交付按默认 4 位）。"""
+        if not params.get("path"):
+            return {}
+        padding = _opened(str(cls.path(params))).padding
+        return {} if padding is None else {"padding": padding}
 
     @classmethod
     def _view(cls, src) -> str | None:
@@ -207,7 +218,7 @@ class ReadSequence(ReadsFile, NodeDef):
             # 上传完成后又变回一半，端口在使用者面前变化却没有任何提示。
             found = (_declared(params) or {}).get("layers") or {}
         if not found:
-            return (Port("image", "image", "图像"),)
+            return (Port("image", "image"),)
         return tuple(Port(name, f"image.{len(picked)}", label, data=not _picture(found[layer], picked))
                      if 1 <= len(picked) <= 4 else Port(name, "image", label)
                      for name, label, layer, picked in _outputs_of(found))
@@ -240,14 +251,14 @@ class ReadSequence(ReadsFile, NodeDef):
         from ...io.color import load_config
 
         if not params.get("path"):
-            return {"colorspace": {"options": [], "empty": "先选择文件"}}
+            return {"colorspace": {"options": [], "empty": i18n.t("choices.pick_file")}}
         try:
             first = next(iter(cls._source(params).files().values()))
         except (OSError, ValueError, StopIteration):
             # 字节尚未上传：色彩空间按文件名确定（OCIO 文件规则只依据名称，无需打开文件）
             said = _declared(params)
             if not said:
-                return {"colorspace": {"options": [], "empty": "先选择文件"}}
+                return {"colorspace": {"options": [], "empty": i18n.t("choices.pick_file")}}
             return {"colorspace": {"options": [], "default": load_config().colorspace_for_file(said.get("of", ""))}}
         return {"colorspace": {"options": [], "default": load_config().colorspace_for_file(str(first))}}
 
@@ -350,7 +361,7 @@ class ReadSequence(ReadsFile, NodeDef):
             if layer == "rgba" and whole_picture and one_layer and view is None and crypto is None and _picture(info, picked):
                 alpha = any(layers.role(c) == "A" for c in info["channels"])
                 packet = ingest_picture(ctx.outputs[name], files, w, h, cs, alpha, window,
-                                        each_done=lambda jobs, work: ctx.each_done(jobs, work, "转到工作空间"))
+                                        each_done=lambda jobs, work: ctx.each_done(jobs, work, word_of("progress.to_working_space")))
             else:
                 # 文件自身记录的信息（本项目写出的 EXR 的 lab2shot:layers 头）原样保留：这些来自文件本身，
                 # 而非使用者的指定，包括尺度、坐标系、投影方式、方向以及置信度的来源。
@@ -375,7 +386,7 @@ class ReadSequence(ReadsFile, NodeDef):
                     writer.add(f, to_working_picture(data, cfg, cs) if ingest else data, valid)
                     return {int(v) for v in np.unique(data) if v > 0} if crypto is not None else set()
 
-                labels: set[int] = set().union(*ctx.each_done(files.items(), read, f"图层 {layer}"))
+                labels: set[int] = set().union(*ctx.each_done(files.items(), read, word_of("progress.layer", layer=layer)))
                 packet = writer.packet()
                 if crypto is not None:  # 类别表：取文件自带的（Cryptomatte），否则按找到的 id 各建一项
                     classes = info.get("classes") or [{"index": v, "name": f"id {v}"} for v in sorted(labels)]
@@ -394,11 +405,12 @@ class ReadPicture(ReadSequence):
     文件对话框只允许选择一张；所选文件为序列时立即拒绝，并说明帧数及应使用的节点。
     HDRI 光照探针、面部去光照、图像对位的参考图、在参考帧上绘制的修补均使用本节点。"""
 
-    id = "core.read_picture"
-    no_file = "没有选择图像"
+    id = "file_still"
+    # 同样读出图像；单个节点包成工具时先用「读取序列」（单张图也是一段序列）
+    reads = Reads(gives=(("image", "image"),), goes_with=("colorspace",), main=True, rank=1)
 
     class Params(NodeParams):  # 单张图：没有「读取序列」的帧范围
-        path: str = P("", label="文件", widget="file", group="文件", accept=sorted(IMAGE_EXTS))
+        path: str = P("", widget="file", group="file", accept=sorted(IMAGE_EXTS))
         colorspace: str | None = colorspace_param(choices_from=("path",))
 
     @classmethod
@@ -414,25 +426,25 @@ class SequenceEntry(NodeParams):
     """「读取多条序列」在文件夹中找到的一条序列：对应哪条序列、在列表中的名称以及是否读取。`pattern` 是标识该行
     对应序列的唯一依据；`frames` 仅记录列目录时找到的帧，因此镜头后续渲染了更多帧时仍是同一行。"""
 
-    pattern: str = P(..., label="序列", widget="fixed")
-    frames: str = P("", label="帧", widget="fixed")
-    name: str = P("", label="名字")
-    use: bool = P(True, label="读")
+    pattern: str = P(..., widget="fixed")
+    frames: str = P("", widget="fixed")
+    name: str = P("")
+    use: bool = P(True)
 
 
 class ReadSequences(ReadsFile, NodeDef):
-    id = "core.read_sequences"
+    id = "file_pattern"
     frame_source = True
-    no_file = "没有选择文件夹"
     category = "read_plate"
+    reads = Reads(file="folder")
     picture = ""
-    outputs = (Port("list", "image.3[]", "列表"),)
+    outputs = (Port("list", "image.3[]"),)
 
     class Params(NodeParams):
-        folder: str = P("", label="文件夹", widget="sequence", group="文件", accept=sorted(IMAGE_EXTS))
+        folder: str = P("", widget="sequence", group="file", accept=sorted(IMAGE_EXTS))
         colorspace: str | None = colorspace_param(choices_from=("folder",))
         sequences: list[SequenceEntry] = P(
-            [], label="序列", widget="table", group="序列", derived_from=("folder",), validate_default=True)
+            [], widget="table", group="sequence", derived_from=("folder",), validate_default=True)
 
     @classmethod
     def path(cls, params) -> Path:
@@ -441,7 +453,7 @@ class ReadSequences(ReadsFile, NodeDef):
         from ...nodes.services import services
 
         if not params.get("folder"):
-            raise ValueError(cls.no_file)
+            raise ValueError(cls.no_file())
         return services().plan.upload(params["folder"])
 
     @classmethod
@@ -489,10 +501,10 @@ class ReadSequences(ReadsFile, NodeDef):
         from ...io.color import load_config
 
         if not params.get("folder"):
-            return {"colorspace": {"options": [], "empty": "先选择文件夹"}}
+            return {"colorspace": {"options": [], "empty": i18n.t("choices.pick_folder")}}
         first = next((seq.path(seq.first) for _, seq in cls._chosen(params)), None)
         if not first:
-            return {"colorspace": {"options": [], "empty": "先选择文件夹"}}
+            return {"colorspace": {"options": [], "empty": i18n.t("choices.pick_folder")}}
         return {"colorspace": {"options": [], "default": load_config().colorspace_for_file(str(first))}}
 
     @classmethod
@@ -585,17 +597,16 @@ def _convert_frame(rgb, ocio_uri: str, colorspace: str, out: str) -> None:
 
 
 class ReadVideo(ReadsFile, NodeDef):
-    id = "core.read_video"
-    no_file = "没有选择视频"
+    id = "file_video"
     category = "read_plate"
+    reads = Reads()
     # 「帧率」：视频自己记的帧率（容器的 average_rate），没记时空包（kit/ports.py fps_port）。
     # 序列图没有帧率的概念，「读取序列」没有这个口
-    outputs = (Port("video", "video", "视频"),
-               fps_port("视频自己记的帧率。接到输出设置或动作模型的「帧率」，就跟素材走；视频没记帧率时这里没有值，"
-                        "那边用自己填的", may_be_empty=True))
+    outputs = (Port("video", "video"),
+               fps_port(may_be_empty=True))
 
     class Params(NodeParams):
-        path: str = P("", label="视频", widget="file", group="文件", accept=sorted(VIDEO_EXTS))
+        path: str = P("", widget="file", group="file", accept=sorted(VIDEO_EXTS))
 
     @classmethod
     def known_outputs(cls, params):
@@ -639,27 +650,25 @@ SCALES = {"full": 1.0, "half": 0.5, "quarter": 0.25}
 
 
 class VideoToSequence(NodeDef):
-    id = "core.video_to_sequence"
+    id = "extract_images"
     version = 3  # 3：YUV 矩阵、色彩范围按流自己标的（io/sources.py；BT.601 的标清视频原来按 709 解，偏色）
     frame_source = True
     on_node = ("range_sec", "step", "downscale")
     category = "read_plate"
-    inputs = (Port("video", "video", "视频"),)
+    inputs = (Port("video", "video"),)
     # 视频是其画面输入：拍摄内容取自视频（data/contracts.py settle），尺寸则不是（由「分辨率」缩放），
     # 因此端口声明由节点决定画面，info() 在计算前报告尺寸。
     picture = "video"
-    outputs = (Port("image", "image.3", "RGB", shape=Shape(window="node")),)
+    outputs = (Port("image", "image.3", shape=Shape(window="node")),)
 
     class Params(NodeParams):
-        range_sec: str | None = P(None, label="区间", unit="秒", group="区间", placeholder="整段")
+        range_sec: str | None = P(None, unit="s", group="range")
         step: Literal[1, 2, 3] = P(
-            1, label="隔帧", group="区间",
-            option_labels={"1": "每帧", "2": "每 2 帧取 1", "3": "每 3 帧取 1"},
+            1, group="range",
         )
-        start_frame: int = P(1001, label="起始帧号", group="区间")
+        start_frame: int = P(1001, group="range")
         downscale: Literal["full", "half", "quarter"] = P(
-            "full", label="分辨率", group="画面",
-            option_labels={"full": "原始", "half": "一半", "quarter": "四分之一"},
+            "full", group="image",
         )
 
     @staticmethod
@@ -721,7 +730,7 @@ class VideoToSequence(NodeDef):
                 pending.append(pool.submit(_convert_frame, rgb, cfg.uri, cs, str(files[frame])))
                 while len(pending) > 16:  # 限制内存占用
                     pending.pop(0).result()
-                ctx.progress(k + 1, len(numbers), f"帧 {frame}")
+                ctx.progress(k + 1, len(numbers), word_of("progress.frame", frame=frame))
             for f in pending:
                 f.result()
         # 帧数取自容器头（io/sources.py open_source：没记才从头解一遍数），头和实际能解出的可能不一样（edit list、
@@ -744,23 +753,21 @@ class VideoToSequence(NodeDef):
 class Constant(NodeDef):
     """不使用任何素材的纯色画面，对应 Nuke 的 Constant 节点。"""
 
-    id = "core.constant"
+    id = "constant"
     category = "read_plate"
     frame_source = True
     on_node = ("width", "height", "frames")
-    outputs = (Port("image", "image.3", "RGB"),)
+    outputs = (Port("image", "image.3"),)
 
     class Params(NodeParams):
-        width: int = P(DEFAULT_WIDTH, label="画面宽度", unit="px", gt=0, le=4096, group="画面")
-        height: int = P(DEFAULT_HEIGHT, label="画面高度", unit="px", gt=0, le=4096, group="画面")
-        first: int = P(1001, label="首帧", group="帧")
+        width: int = P(DEFAULT_WIDTH, unit="px", gt=0, le=4096, group="image")
+        height: int = P(DEFAULT_HEIGHT, unit="px", gt=0, le=4096, group="image")
+        first: int = P(1001, group="frames")
         # 帧数只提供若干档位，不允许任意填写：每一帧都会实际写出一张 EXR，一万帧将占用数十 GB。
         # 最长 192 帧，恰好在「Sketch2Anim 动作生成」可生成的范围内（9.8 秒）。
         frames: Literal[24, 48, 96, 144, 192] = P(
-            96, label="帧数", group="帧",
-            option_labels={"24": "24 帧 · 1 秒", "48": "48 帧 · 2 秒", "96": "96 帧 · 4 秒",
-                           "144": "144 帧 · 6 秒", "192": "192 帧 · 8 秒"})
-        colour: tuple[float, float, float] = P((0.46, 0.46, 0.46), label="颜色", widget="vec3", parts=("R", "G", "B"), group="画面")
+            96, group="frames")
+        colour: tuple[float, float, float] = P((0.46, 0.46, 0.46), widget="vec3", parts=("R", "G", "B"), group="image")
 
     @classmethod
     def info(cls, params, inputs):

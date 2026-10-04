@@ -222,11 +222,14 @@ button.adm-tile:active {
   color: var(--text-2);
 }
 
+/* the tile's number: kept inside its tile — a long one in either language («0 cooking · 0 queued») breaks onto a second
+   line at its words, never runs into the next tile */
 .adm-tile b {
+  max-width: 100%;
   font-size: var(--fs-2xl);
   font-weight: 600;
   line-height: 1.3;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .adm-tile-sub {

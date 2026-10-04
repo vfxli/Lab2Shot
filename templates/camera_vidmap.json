@@ -1,0 +1,335 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "867d370bed31493d8ab1c0f79b2ec8fe",
+  "name": {
+   "zh": "摄影机解算 · VidMap",
+   "en": "Camera Solve · VidMap"
+  },
+  "intro": {
+   "zh": "官方 VidMap 视频前端与 COLMAP 全局建图，交付摄影机和稀疏点云。",
+   "en": "The official VidMap video front end with COLMAP global mapping, delivering cameras and a sparse point cloud."
+  },
+  "author": "Lab2Shot",
+  "created": "2026-10-01T20:00:00",
+  "deliverable": "camera_traj",
+  "owner": "admin",
+  "updated": "2026-10-03T01:00:00"
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "镜头",
+    "en": "Lens"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "focal",
+     "label": {
+      "zh": "已知焦距",
+      "en": "Known Focal Length"
+     },
+     "target": "solve.focal_mm"
+    },
+    {
+     "name": "filmback",
+     "label": {
+      "zh": "胶片背",
+      "en": "Aperture"
+     },
+     "target": "solve.filmback_mm",
+     "disable_when": "not focal"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "解算",
+    "en": "Solve"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "solve_step",
+     "label": {
+      "zh": "步长",
+      "en": "Step"
+     },
+     "target": "solve.step"
+    },
+    {
+     "name": "solve_smooth",
+     "label": {
+      "zh": "平滑轨迹",
+      "en": "Smooth Path"
+     },
+     "target": "solve.smooth"
+    },
+    {
+     "name": "scale_cm",
+     "label": {
+      "zh": "尺度",
+      "en": "Scale"
+     },
+     "target": "solve.unit_cm"
+    },
+    {
+     "name": "cook_solve",
+     "label": {
+      "zh": "解算",
+      "en": "Solve"
+     },
+     "target": "solve.cook"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "usd_name",
+     "label": {
+      "zh": "文件名（摄影机与点云 USD）",
+      "en": "File Name (Camera and Point Cloud USD)"
+     },
+     "target": "usd.name"
+    },
+    {
+     "name": "nuke_name",
+     "label": {
+      "zh": "文件名（Nuke 摄影机）",
+      "en": "File Name (Nuke Camera)"
+     },
+     "target": "nuke.name"
+    },
+    {
+     "name": "unit",
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
+    },
+    {
+     "name": "fps",
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
+     "target": "usd.fps"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "word": "pack",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
+     "target": "deliver.download"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "file",
+   "params": {
+    "path": "",
+    "colorspace": null,
+    "first": null,
+    "last": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 443
+   }
+  },
+  {
+   "id": "solve",
+   "type": "vidmap.camera_solve",
+   "params": {
+    "step": 1,
+    "focal_mm": null,
+    "filmback_mm": null,
+    "smooth": false,
+    "unit_cm": 100.0
+   },
+   "ui": {
+    "x": 400,
+    "y": 395,
+    "on_node": [
+     "focal_mm",
+     "step"
+    ]
+   }
+  },
+  {
+   "id": "usd",
+   "type": "usd.output",
+   "params": {
+    "name": "scene",
+    "format": "usd",
+    "unit": "cm",
+    "fps": 24.0
+   },
+   "ui": {
+    "x": 849,
+    "y": 0,
+    "on_node": [
+     "name",
+     "unit"
+    ]
+   },
+   "promoted": [
+    "fps"
+   ]
+  },
+  {
+   "id": "deliver",
+   "type": "output",
+   "params": {},
+   "ui": {
+    "x": 1209,
+    "y": 419
+   }
+  },
+  {
+   "id": "nuke",
+   "type": "nuke.output",
+   "params": {
+    "name": "camera_nuke"
+   },
+   "ui": {
+    "x": 809,
+    "y": 419,
+    "on_node": [
+     "name"
+    ]
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "usd",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "camera"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "camera"
+   ],
+   "to": [
+    "nuke",
+    "camera"
+   ]
+  },
+  {
+   "from": [
+    "nuke",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "solve",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "solve",
+    "points"
+   ],
+   "to": [
+    "usd",
+    "scene"
+   ]
+  }
+ ],
+ "boxes": [],
+ "view": {
+  "display": "solve",
+  "frame": null
+ }
+}

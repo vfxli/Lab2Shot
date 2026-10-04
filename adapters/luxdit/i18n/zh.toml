@@ -1,0 +1,88 @@
+# LuxDiT 的消息（adapters/luxdit）。
+
+# ---- worker
+"W-LUXDIT-LOWMEMORY" = "显卡只剩约 {free:.1f} GB 可用，LuxDiT 需要约 {need:d} GB：可能中途显存不够而失败。先关掉占用这张卡的其他程序"
+"W-LUXDIT-LOWRANGE" = "LuxDiT 生成的环境图最亮处只有中间亮度的 {ratio:.1f} 倍（低于 4 倍）：画面可能很平（阴天、没有明显光源），打出来的光会发平、影子不明显；换个「随机种子」，或在前面的 time_shift 节点换一帧再试"
+"W-LUXDIT-LOWRANGE.app" = "生成的环境图最亮处只有中间亮度的 {ratio:.1f} 倍（低于 4 倍）：画面可能很平（阴天、没有明显光源），打出来的光会发平、影子不明显；换个「随机种子」，或者换一帧再试"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[stage]
+prepare_frame = "准备画面"
+generate_envmap = "生成环境图"
+merge_hdr = "合成 HDR"
+denoise = "去噪"
+
+[node."luxdit.light_probe"]
+subtitle = "HDRI 估计"
+description = "画面 → 整个环境的 HDRI（经纬图 EXR），由视频扩散模型一次生成（NVIDIA LuxDiT）。室内灯光的高光范围很大；画面外的环境是模型猜的，对随机种子敏感，长焦镜头超出它训练的视角范围，结果不稳。外景阴天、长焦镜头用「DiffusionLight HDRI」；本节点仅限研究，不能用于生产。"
+
+[node."luxdit.light_probe".param.lora_scale]
+label = "贴近画面程度"
+
+[node."luxdit.light_probe".param.steps]
+label = "去噪步数"
+placeholder = "默认"
+
+[node."luxdit.light_probe".param.steps.option]
+20 = "20"
+30 = "30"
+50 = "50"
+
+[node."luxdit.light_probe".param.guidance_scale]
+label = "引导强度"
+
+[node."luxdit.light_probe".param.resolution]
+label = "处理分辨率"
+
+[node."luxdit.light_probe".param.resolution.option]
+auto = "自动"
+480x720 = "竖幅 480×720"
+512x512 = "方形 512"
+720x480 = "横幅 720×480"
+
+[node."luxdit.light_probe".official]
+note = "显示图就是上游第一步的 LDR 经纬图（ldr_log 目录里的 *_ldr.png，hdr_merger.py:60-81 把它和 log 图一起喂给 HDR 合成网络）；HDRI 是第二步写出的 .exr（hdr_merger.py:93）。上游不吃摄影机。"
+
+[node."luxdit.light_probe".cost]
+whole = "只算一帧的环境光（约 29 秒一次），不是逐帧的活"
+
+[node."luxdit.light_probe".licence]
+note = "代码和权重是 NVIDIA OneWay Noncommercial 许可（只能研究和评估）；用到的 CogVideoX 视频 VAE 另有 CogVideoX 许可（商用需登记）。"
+
+[extension.luxdit]
+summary = "生成式光照估计模型，从画面预测高质量 HDR 环境图，光照准确又保住画面的语义"
+
+[extension.luxdit.license]
+name = "NVIDIA OneWay Noncommercial License（代码和权重）· CogVideoX License（VAE）"
+summary = "仅限研究或评估。逐项：LuxDiT 代码和 Hugging Face 上 nvidia/LuxDiT 的全部权重（luxdit_image、luxdit_video 两个 5B 模型、两个真实场景 LoRA、HDR 合成 MLP）均为 NVIDIA OneWay Noncommercial License：只能非商业使用（研究或评估），再分发须附带同一许可证，结果也不能用于商业项目；代码里从 diffusers 改来的 CogVideoX 模型/管线文件头是 Apache-2.0，但随仓库一起按 NVIDIA 非商用许可发布。另外要下载 CogVideoX-5B-I2V（智谱 zai-org / 原 THUDM）的视频 VAE 和采样器配置，为 CogVideoX License：学术研究免费，商用须先在 open.bigmodel.cn 登记取得授权，禁止军事和违法用途。不需要 CogVideoX 的 T5 文本编码器；不依赖 nvdiffrast（仓库注明立方体贴图全在 CPU 上算）"
+
+[extension.luxdit.weight."cogvideox/LICENSE"]
+note = "CogVideoX-5B-I2V 的视频 VAE 和采样器配置（CogVideoX License：学术研究免费，商用须登记）"
+
+[extension.luxdit.weight."cogvideox/scheduler/scheduler_config.json"]
+note = "CogVideoX-5B-I2V 的视频 VAE 和采样器配置（CogVideoX License：学术研究免费，商用须登记）"
+
+[extension.luxdit.weight."cogvideox/vae/config.json"]
+note = "CogVideoX-5B-I2V 的视频 VAE 和采样器配置（CogVideoX License：学术研究免费，商用须登记）"
+
+[extension.luxdit.weight."cogvideox/vae/diffusion_pytorch_model.safetensors"]
+note = "CogVideoX-5B-I2V 的视频 VAE 和采样器配置（CogVideoX License：学术研究免费，商用须登记）"
+
+[extension.luxdit.weight."luxdit/LICENSE.md"]
+note = "LuxDiT 单帧模型 + 真实场景 LoRA + HDR 合成 MLP（NVIDIA OneWay Noncommercial，非商用）"
+
+[extension.luxdit.weight."luxdit/hdr_merge_mlp/config.json"]
+note = "LuxDiT 单帧模型 + 真实场景 LoRA + HDR 合成 MLP（NVIDIA OneWay Noncommercial，非商用）"
+
+[extension.luxdit.weight."luxdit/hdr_merge_mlp/diffusion_pytorch_model.safetensors"]
+note = "LuxDiT 单帧模型 + 真实场景 LoRA + HDR 合成 MLP（NVIDIA OneWay Noncommercial，非商用）"
+
+[extension.luxdit.weight."luxdit/luxdit_image/config.json"]
+note = "LuxDiT 单帧模型 + 真实场景 LoRA + HDR 合成 MLP（NVIDIA OneWay Noncommercial，非商用）"
+
+[extension.luxdit.weight."luxdit/luxdit_image/diffusion_pytorch_model.safetensors"]
+note = "LuxDiT 单帧模型 + 真实场景 LoRA + HDR 合成 MLP（NVIDIA OneWay Noncommercial，非商用）"
+
+[extension.luxdit.weight."luxdit/luxdit_image/lora/model.safetensors"]
+note = "LuxDiT 单帧模型 + 真实场景 LoRA + HDR 合成 MLP（NVIDIA OneWay Noncommercial，非商用）"

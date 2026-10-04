@@ -19,23 +19,21 @@ from ..expects import SameShot
 from ...data.contracts import meant
 
 CANONICAL = "canonical"  # canonical space (the `space` of map.position in data/contracts.py; shared by face, body and object models)
-WAY_LABELS = {"cylinder": "柱面", "sphere": "球面", "plane": "平面"}
 
 
 class PositionToUv(NodeDef):
-    id = "core.position_uv"
+    id = "uv_from_position"
     on_node = ("way",)
     category = "geometry_tools"
     inputs = (
-        values_port("position", "image.3", "位置图", help="模型自己坐标系里的位置图（规范坐标）：投射按整段画面的包围盒做，每帧的 UV 对得上"),
-        Port("mask", "image.1", "遮罩", optional=True, expects=(SameShot("position"),),
-             help="只在遮罩里的像素上算 UV，包围盒也只按这些像素算（脸以外的背景不参与）"),
+        values_port("position", "image.3"),
+        Port("mask", "image.1", optional=True, expects=(SameShot("position"),)),
     )
-    outputs = (Port("uv", "image.2", "UV 坐标图", means=("projection",)),)
+    outputs = (Port("uv", "image.2", means=("projection",)),)
 
     class Params(NodeParams):
         way: Literal["cylinder", "sphere", "plane"] = P(
-            "cylinder", label="投射方式", group="投射", option_labels=WAY_LABELS,
+            "cylinder", group="projection",
         )
 
     @classmethod
@@ -48,8 +46,8 @@ class PositionToUv(NodeDef):
         from ...data.summary import SPACE_SAID
 
         src, mask = ctx.input("position"), ctx.input("mask")
-        same_size({"位置图": src, "遮罩": mask})  # 2D inputs used together must come from the same plate
-        space = meant(ctx, src, "space", "位置图")
+        same_size({ctx.node_type.port_label("position"): src, ctx.node_type.port_label("mask"): mask})  # 2D inputs used together must come from the same plate
+        space = meant(ctx, src, "space", ctx.node_type.port_label("position"))
         if not space.startswith(CANONICAL):
             raise Invalid(Msg("E-UV-SPACE", space=Msg(SPACE_SAID[space]).text))
         way, frames = ctx.params["way"], src.meta["frames"]
@@ -62,7 +60,7 @@ class PositionToUv(NodeDef):
             got = map_at(mask, frame, window.data)
             return alpha if got is None else alpha * got[0][..., 0]
 
-        ctx.stage("量出规范坐标的范围")
+        ctx.stage("measure_canonical_range")
 
         def bounds(f):  # 一帧的范围：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             values, alpha = map_at(src, f)
@@ -75,7 +73,7 @@ class PositionToUv(NodeDef):
         if box is None:
             ctx.say("N-UV-NOPOSITIONS", port="position")
 
-        ctx.stage("投射 UV")
+        ctx.stage("project_uv")
         out = ExrWriter(ctx.outputs["uv"], 2, validity=True, value_range=UNIT, window=window, projection=way,
                         **({"box": box.json()} if box is not None else {}))
         def uv(f):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）

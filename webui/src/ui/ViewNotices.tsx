@@ -17,13 +17,14 @@ import "./viewNotices.css";
  *   partial  边算边看：已计算到第几帧；以及「该帧尚未到达，当前显示的是第几帧」
  *   did      视图刚自动执行的操作，4 秒后消失（三维视图切换视角、曲线无法绘制时使用） */
 import { NOTICE_ORDER, type NoticeKind } from "../model/viewNotices";
+import { tipAttrs, type Tip } from "../platform/tips";
 export type { NoticeKind };
 
 export interface Notice {
   kind: NoticeKind;
   key: string;   // 同一条通知内容变化时仍视为同一条（React 的 key）
   text: string;  // 一句短语
-  tip: string;   // 原因：悬停查看
+  tip?: Tip | null;  // 为什么这样、怎么办：悬停查看；没有时文字已说全
 }
 
 
@@ -33,7 +34,7 @@ export function ViewNotices({ notices }: { notices: Notice[] }) {
   return (
     <div className="view-notices" role="status">
       {sorted.map((n) => (
-        <div key={n.key} className={`view-notice notice-${n.kind}`} data-tip={n.tip}>
+        <div key={n.key} className={`view-notice notice-${n.kind}`} {...tipAttrs(n.tip)}>
           {n.text}
         </div>
       ))}

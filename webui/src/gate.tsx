@@ -2,14 +2,18 @@ import { messageOf, msg, type Message } from "./messages/message";
 import { lazyRetry } from "./platform/lazyRetry";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { deviceId } from "./platform/client";
-import { COPYRIGHT } from "./platform/brand";
+import { COPYRIGHT, PROJECT_URL } from "./platform/brand";
 import { ApiError, belongsTo, changedAccount, fromGate, json, loggedIn, NEED_LOGIN, NEED_TERMS, sawAccount } from "./platform/http";
 import { BrandMark } from "./ui/icons";
 import { Loading } from "./ui/Loading";
+import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { whenText } from "./platform/format";
 import { Button } from "./ui/Button";
 import { RegisterForm, registerInfo, type RegisterInfo } from "./register";
 import { TermsCard } from "./terms";
+import { setLang, useLang } from "./i18n/lang";
+import { t, useT } from "./i18n/t";
+import { tipOf } from "./platform/tips";
 
 /** The gate: all anyone gets before logging in (lab2shot/server/auth.py). It asks the server whether this browser is
  * logged in; if it is, it loads the page (site.tsx, a file the server hands out only then), if not it asks for the
@@ -33,6 +37,7 @@ interface Kicked {
   ip: string;
   device: string;
   detail: string;
+  kind?: string; // "embedded": a DCC plugin's embedded window whose plugin login ended (server/auth.py kicked_detail)
 }
 
 
@@ -43,12 +48,14 @@ type Door = "asking" | "in" | "out" | "terms";
 interface Said {
   user?: { id: number } | null;
   kicked?: Kicked | null;
+  lang?: string; // what the server speaks to this browser (server/lang.py: the account's choice first)
   terms?: number | null; // the version of the 用户协议 and 隐私政策 this account must agree to first
 }
 
 const doorOf = (s: Said | null): Door => (!s?.user ? "out" : s.terms ? "terms" : "in");
 
 export function Gate() {
+  useLang((s) => s.lang); // the language changed: everything here renders again in it
   const [door, setDoor] = useState<Door>("asking");
   const [again, setAgain] = useState(false);
   const [owes, setOwes] = useState(false); // the page is open and the server asks for the agreement over it
@@ -61,6 +68,7 @@ export function Gate() {
       try {
         const s = await fromGate(() => json<Said>("GET", "/api/auth/state", undefined, { cache: "no-store" }));
         belongsTo(s?.user?.id ?? null);
+        setLang(s?.lang);
         if (alive) setDoor(doorOf(s));
         if (alive && s?.kicked) setKicked(s.kicked);
       } catch (e) {
@@ -82,14 +90,16 @@ export function Gate() {
     };
   }, []);
 
-  if (door === "asking") return <Loading what="登录状态" fill />;
+  if (door === "asking") return <Loading what={t("ui.gate.loading_state")} fill />;
   if (door === "terms") return <TermsPage over={false} onAgreed={() => setDoor("in")} />;
   return (
     <>
       {door === "in" && (
-        <Suspense fallback={<Loading what="页面" fill />}>
-          <Site />
-        </Suspense>
+        <ErrorBoundary name={t("ui.gate.loading_page")}>
+          <Suspense fallback={<Loading what={t("ui.gate.loading_page")} fill />}>
+            <Site />
+          </Suspense>
+        </ErrorBoundary>
       )}
       {(door === "out" || again) && (
         <LoginPage
@@ -152,15 +162,24 @@ function TermsPage({ over, onAgreed }: { over: boolean; onAgreed: () => void }) 
  * so the viewer understands why. 重新登录 reveals the ordinary login form (submitting it, in turn, ends whichever place
  * is logged in now). */
 function KickedNotice({ kicked, onLoginAgain }: { kicked: Kicked; onLoginAgain: () => void }) {
+  // a DCC plugin's embedded window: it never offers a password login (one typed here would be a browser's and end the
+  // account's own browser login); it is opened again from the DCC, with a new ticket
+  if (kicked.kind === "embedded")
+    return (
+      <div className="login-card glass clear" role="alert">
+        <h1>{t("ui.gate.embedded_out")}</h1>
+        <p className="login-lede">{kicked.detail}</p>
+      </div>
+    );
   return (
     <div className="login-card glass clear" role="alert">
-      <h1>这个账号在别处登录了</h1>
+      <h1>{t("ui.gate.kicked_title")}</h1>
       <p className="login-lede">
-        {whenText(kicked.at)}，{kicked.ip}，{kicked.device}。同一个账号同时只能有一处在线；不是本人操作的，先改密码。
+        {t("ui.gate.kicked_body", { when: whenText(kicked.at), ip: kicked.ip, device: kicked.device })}
       </p>
       <div className="login-actions">
-        <Button tip="重新登录：会顶掉刚才那一处的登录" tone="primary" type="button" onClick={onLoginAgain}>
-          重新登录
+        <Button tip={tipOf("consequence", t("ui.gate.login_again_tip"))} tone="primary" type="button" onClick={onLoginAgain}>
+          {t("ui.gate.login_again")}
         </Button>
       </div>
     </div>
@@ -208,9 +227,25 @@ function LoginPage({
         ) : (
           <LoginForm over={over} first={first} onIn={onIn} onRegister={register?.open ? () => setRegistering(true) : null} />
         )}
+        {!over && <About />}
       </main>
-      {!over && <footer className="login-legal">{COPYRIGHT}</footer>}
+      {!over && (
+        <footer className="login-legal">
+          {COPYRIGHT} <LanguageLink />
+        </footer>
+      )}
     </div>
+  );
+}
+
+/** What Lab2Shot is, in a few lines under the login card, with a link to the project's page (opens in a new tab). */
+function About() {
+  const tr = useT(); // follows the language link beside the copyright
+  return (
+    <section className="login-about" aria-label={tr("ui.gate.about_link")}>
+      <p>{tr("ui.gate.about")}</p>
+      <a href={PROJECT_URL} target="_blank" rel="noopener noreferrer">{tr("ui.gate.about_link")}</a>
+    </section>
   );
 }
 
@@ -261,15 +296,15 @@ function LoginForm({ over, first, onIn, onRegister }: { over: boolean; first: Me
   };
 
   return (
-    <form className="login-card glass clear" aria-label="登录" onSubmit={(e) => void submit(e)}>
+    <form className="login-card glass clear" aria-label={t("ui.gate.login")} onSubmit={(e) => void submit(e)}>
       {over && (
         <>
-          <h1>要重新登录</h1>
-          <p className="login-lede">登录过期了，或者账号在别处改了密码、被停用。重新登录就能接着用，页面上正在做的都还在。</p>
+          <h1>{t("ui.gate.over_title")}</h1>
+          <p className="login-lede">{t("ui.gate.over_body")}</p>
         </>
       )}
       <label className="login-field">
-        <span data-tip="管理员在管理页面「用户」里建好的用户名，或者自己注册的用户名">用户名</span>
+        <span>{t("ui.gate.username")}</span>
         <input
           ref={field}
           className="field lg"
@@ -278,12 +313,11 @@ function LoginForm({ over, first, onIn, onRegister }: { over: boolean; first: Me
           spellCheck={false}
           value={username}
           aria-invalid={!!problem}
-          data-tip="用户名，小写字母开头"
           onChange={(e) => (setUsername(e.target.value), setProblem(null))}
         />
       </label>
       <label className="login-field">
-        <span data-tip="密码：第一次的密码向管理员要，登录后可以在右上角自己改">密码</span>
+        <span>{t("ui.gate.password")}</span>
         <input
           className="field lg"
           type="password"
@@ -291,7 +325,6 @@ function LoginForm({ over, first, onIn, onRegister }: { over: boolean; first: Me
           autoComplete="current-password"
           value={password}
           aria-invalid={!!problem}
-          data-tip="输入密码，按回车登录"
           onChange={(e) => (setPassword(e.target.value), setProblem(null))}
         />
       </label>
@@ -301,12 +334,12 @@ function LoginForm({ over, first, onIn, onRegister }: { over: boolean; first: Me
         </p>
       )}
       <div className="login-stack">
-        <Button tip={username && password ? "登录" : "先输入用户名和密码"} tone="primary" size="lg" layout="login-go" type="submit" disabled={!username.trim() || !password || busy}>
-          {busy ? "登录中…" : "登录"}
+        <Button tip={username && password ? undefined : tipOf("disabled", t("ui.gate.need_both"))} tone="primary" size="lg" layout="login-go" type="submit" disabled={!username.trim() || !password || busy}>
+          {busy ? t("ui.gate.logging_in") : t("ui.gate.login")}
         </Button>
         {onRegister && (
-          <Button tip="还没有账号：自己注册一个" tone="ghost" type="button" onClick={onRegister}>
-            注册
+          <Button tone="ghost" type="button" onClick={onRegister}>
+            {t("ui.gate.register")}
           </Button>
         )}
       </div>
@@ -314,3 +347,14 @@ function LoginForm({ over, first, onIn, onRegister }: { over: boolean; first: Me
   );
 }
 
+/** The login page's language switch (before a login there is no account to keep it: this browser's cookie does,
+ * server/lang.py; after it, the account menu's). It names the other language in that language. */
+function LanguageLink() {
+  const lang = useLang((s) => s.lang);
+  const other = lang === "zh" ? "en" : "zh";
+  return (
+    <Button tone="ghost" layout="login-lang" onClick={() => setLang(other, true)}>
+      {t(`lang.${other}`)}
+    </Button>
+  );
+}

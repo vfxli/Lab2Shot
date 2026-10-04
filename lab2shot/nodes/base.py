@@ -7,11 +7,12 @@ never ship UI code.
 This module is the facade for node declarations: `Port` lives in nodes/port.py, the parameter machinery (`NodeParams`,
 `P`, parameter tables) in nodes/params.py and handle data parsing in nodes/handles.py. All are re-exported here so
 that node authors import from this module only. The module itself defines `Info`, `NodeDef` (its class body is
-divided into catalogue, ports and usage sections), `ReadsFile` and `empty_packet`.
+divided into catalogue, ports and usage sections), `Reads`, `ReadsFile` and `empty_packet`.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
@@ -19,7 +20,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from pydantic import BaseModel, ValidationError
 
 from ..errors import Invalid, NotFound
-from ..messages import Msg
+from ..messages import Both, Msg
 from ..availability import Cond
 from .applies import Cost, Fact, Licence, OptionTrait, standing_marks  # noqa: F401 (re-exported)
 from .handles import (HANDLE_KINDS, Handle, parse_corners, parse_figures, parse_picks, parse_shapes,  # noqa: F401 (re-exported)
@@ -35,6 +36,30 @@ from ..data.types import DATA_TYPES, KIND_ORDER, SCENE_KINDS, channels_of, eleme
 if TYPE_CHECKING:
     from .expects import Expect
     from .handles import Places
+
+
+@dataclass(frozen=True)
+class Reads:
+    """A reading node's declaration (NodeDef.reads): it turns a file the user picks into data. Whatever hands a node
+    files instead of wires reads it (engine/node_tools.py picks the node that reads each input of a single-node tool by
+    it; engine/external.py names a reading in the background after its file); nothing names reading nodes by id or
+    their parameters by name.
+
+    file       the parameter holding the file (a folder for a node reading several sequences)
+    gives      (output port, data type) of what the file is read into, when the node's outputs are made from the file
+               (a picture's layers); empty: its declared outputs (an import node's selection ports)
+    goes_with  parameters that are read with the file (its colour space, its frame range): exposed beside it when the
+               file is a tool's main material (`main`)
+    main       the first such reader of a tool reads its 主素材: its file and `goes_with` take the outside names
+               templates/_conventions.md binds to them (`input`, `colorspace_in`, `first_frame` …); any other reader's
+               file is named `<node id>_<file>`, as every derived name is
+    rank       several nodes read the same data: the lowest rank is taken (FBX before USD for a camera)"""
+
+    file: str = "path"
+    gives: tuple[tuple[str, str], ...] = ()
+    goes_with: tuple[str, ...] = ()
+    main: bool = False
+    rank: int = 0
 
 
 @dataclass(frozen=True)
@@ -64,6 +89,23 @@ class Info:
                     bool(shots) and all(i.still for i in shots))
 
 
+class _Word:
+    """A node type's word read as a class attribute (`cls.subtitle`, `cls.description`): looked up in the language now
+    (nodes/text.py), never stored on the class. The subtitle, which messages name a node by, is kept in every language
+    (i18n.Both): a message made with it reads right in whoever's language follows it."""
+
+    def __init__(self, part: str) -> None:
+        self.part = part
+
+    def __get__(self, obj, owner) -> str:
+        from .. import i18n
+        from . import text
+
+        if self.part == "subtitle":
+            return i18n.Both.of(lambda: text.subtitle(owner))
+        return text.description(owner)
+
+
 class NodeDef:
     """Subclass per node type. Ids are '<extension>.<name>' (the extension's name, or core), English, stable."""
 
@@ -76,14 +118,22 @@ class NodeDef:
 
     version: ClassVar[int] = 1  # bump when the node computes differently: results cached before are recomputed
 
-    label: ClassVar[str] = ""  # the words come from the folder's nodes.json (nodes/text.py apply); none: the type id shows
+    # its name and description in the language now: node.<type>.subtitle / .description (nodes/text.py); none: its id
+    subtitle = _Word("subtitle")
     # the tool subcategory the node's author suggests (a word only: where a node sits in the node menu is the
     # administrator's file menu/nodes.json, lab2shot/categories.py; a new node is 未分类 until placed there)
     category: ClassVar[str] = ""
 
-    description: ClassVar[str] = ""
+    description = _Word("description")
 
     runtime: ClassVar[str] = "core"  # "core" or the extension name
+    # whether it runs a model: what a delivery is named by and marked with (Evaluation.provenance "learned"; nodes/
+    # output.py learned_projects), and nothing else — which project made a result, and its licence, count every
+    # third-party node whatever this says (the ensembles: nodes/core/ensemble.py identify). True by default, an
+    # extension's node being a model's as a rule; one that computes without one (BiRefNet's 前景色, a CPU blur fusion;
+    # a classical solver such as COLMAP's, Open3D's meshing) says False; a reader or output settings node is not learned
+    # whatever this says
+    learned: ClassVar[bool] = True
 
     # its project (nodes/services.py): the core's, or stamped by the extension loader (lab2shot/adapters.py) on each node
     # class of an extension that loaded; a class of an extension never loaded keeps unloaded_project (never usable)
@@ -115,9 +165,9 @@ class NodeDef:
     # parameter's current value, entered or supplied by a wire (engine/evaluation.py strip_values; same wording as the
     # panel's 「Focal Length 18.03 mm · 来自 COLMAP」). These are not made output ports: a pass-through port cannot show
     # whether the value was modified, and the values are available upstream, so they are displayed only.
-    # Format: {parameter name: card label}; the labels match COLMAP's three cards (「Focal Length」, not the parameter
-    # label 「已知 Focal Length」).
-    strip: ClassVar[dict[str, str]] = {}
+    # The parameters' names; each one's card label is node.<type>.param.<p>.strip (strip_label), matching COLMAP's three
+    # cards (Focal Length, not the parameter's own label).
+    strip: ClassVar[tuple[str, ...]] = ()
 
     # what running it costs (nodes/applies.py Cost): whether it always runs on a GPU, the VRAM and seconds per frame
     # measured on an RTX 4090 at its default parameters (every node that can run on a GPU gives them, taken from the
@@ -126,11 +176,23 @@ class NodeDef:
     # from the resolved cost alone (engine/cook.py, farm/scheduler).
     cost: ClassVar[Cost] = Cost()
 
+    @classmethod
+    def vram_full(cls, params: dict) -> float:
+        """The peak of its full tier with these parameters (Cost.vram_full_gb; 0: it never steps down): the declared
+        one by default; a node whose full tier grows with a parameter (HY-World 2.0 with 「最多视角」) works it out.
+        A parameter driven by a wire (WIRED) counts as its costliest setting."""
+        return float(cls.cost.vram_full_gb)
+
     # its licence class when it differs from its extension's (nodes/tags.py), and why it is what it is
     licence: ClassVar[Licence] = Licence()
 
     # what a parameter value changes about it (applies.OptionTrait): a GPU, non-commercial parts, measured VRAM ...
     traits: ClassVar[tuple[OptionTrait, ...]] = ()
+
+    # capability gates beyond its licence class (nodes/tags.py TAGS, e.g. 生成式扩散): a user must be given each of
+    # them on top of the licence tags before the node exists for them (tags.may). Not licence classes: they never
+    # enter tags.LICENCES or the STRICTNESS order, and strictest() does not show them — a card shows them separately.
+    capability_tags: ClassVar[tuple[str, ...]] = ()
 
     # ==================================================================== 2. Ports
     # What the node takes and gives and how parameters become ports: declared ports, always-on parameter ports,
@@ -165,6 +227,19 @@ class NodeDef:
     #      Length」 and 「Filmback」 appear on many nodes, and listing them per node is error-prone).
     # The criterion is therefore whether the node has the parameter, not a hand-maintained list.
     wired_ports: ClassVar[tuple[str, ...]] = ()
+    # 「阻断」 (gate): a node that can choose to take nothing (its chosen_inputs empty) and is then blocked rather
+    # than in error — it and what needs it are skipped quietly, 「已跳过（被阻断）」 (engine/evaluation.py _blocked).
+    # `lab2shot check gates` holds such a node to one input and one output that follows it (type_from), may be empty.
+    blocks: ClassVar[bool] = False
+    # A node that only gathers what is wired into it, every input optional (多层 EXR 输出设置's rows): when every input
+    # wired into it is blocked on the way (behind a 「阻断」), it has nothing to gather and is blocked too, quietly; an
+    # input that brings nothing on purpose is left out silently (CookContext.quiet), never told as 「没接上」. A node with
+    # one multi input (「输出」, 「合成场景」, 「合成列表」) needs no declaration: a multi input goes on without its blocked
+    # wires and is skipped, blocked, when every wire is (engine/evaluation.py outcome).
+    collects: ClassVar[bool] = False
+    # 「有没有」(has_data): the input whose presence the node tells (engine/evaluation.py present), never taken
+    # (engine/routing.py: its upstream is not computed for it); "" for any other node
+    presence_of: ClassVar[str] = ""
     # Value inputs that set several of the node's parameters at once (「LensDistortion」's 「镜头内参」: the lens group,
     # model, coefficients, principal point and pixel aspect of the lens a calibration node solved). Once the wired
     # value is known (the node feeding it cooked, or gives it from its parameters: known_outputs), the parameters it
@@ -225,16 +300,71 @@ class NodeDef:
     # offers no 「＋」 once they are all used, and the node's own table type refuses more (its row's `name` a Literal
     # of these, the table's max_length theirs). Empty: rows as many as wanted, named by the page (row1, row2…) and
     # labelled after what is wired in (「多层 EXR 输出设置」's 图层 depth, mask…).
+    # The default label of each is its port's word (node.<type>.port.<name>.label).
     ports_from_names: ClassVar[tuple[str, ...]] = ()
-    ports_from_labels: ClassVar[tuple[str, ...]] = ()
-    # what one row is called where the page offers another (「加一层」, 「加一路」)
-    ports_from_word: ClassVar[str] = "行"
+    # what one row is called where the page offers another (add a layer, add a way): node.<type>.row, else row.default
 
     # (from type, to type): it turns data of the one into the other, a generic conversion (「置信度转遮罩」, 「烘焙成模型」).
     # A wire whose type an input does not take, when such a node takes it and gives what the input takes, is kept as a
     # wiring problem with this node as its one click in between (Graph.fix_for; store.ts converterFor): never converted
     # silently
     converts: ClassVar[tuple[str, str]] = ()
+
+    # it reads a file the user picks into data (Reads above): the reading nodes declare it, nothing else
+    reads: ClassVar[Reads | None] = None
+    # offered on its own as a tool to whoever hands files over (a DCC plugin, a script: engine/node_tools.py). False
+    # for a node that only works between others of a graph (「按种类取出」, 「合成场景」): nothing a person picks in a DCC
+    # goes into it, and nothing it gives is what they came for
+    tool: ClassVar[bool] = True
+    # it is told, per wire into it, which third-party projects made what the wire brings (CookContext.lineage): a node
+    # that combines several results of one kind and must know which model each one is (nodes/core/ensemble.py)
+    reads_lineage: ClassVar[bool] = False
+    # parameters this node type no longer has: a saved graph that still carries one opens (load_params drops it)
+    # instead of being refused as a typo would be. Never a name the node uses again.
+    retired_params: ClassVar[frozenset[str]] = frozenset()
+
+    @classmethod
+    def option_label(cls, param: str, value) -> Any:
+        """What one of its parameter's choices is called, for a message: kept in every language (i18n.Both), so a
+        message kept with a result (said, a cache another account reads) reads in its reader's language. The value
+        itself when the choice has no label. The one implementation (nodes/applies.py says its choices with it)."""
+        def labels() -> dict:
+            spec = next((p for p in cls.param_specs() if p["name"] == param), None)
+            return (spec or {}).get("option_labels") or {}
+
+        if value not in labels() and str(value) not in labels():
+            return value
+        return Both.of(lambda: (lambda got: got.get(value, got.get(str(value), value)))(labels()))
+
+    @classmethod
+    def port_label(cls, name: str) -> str:
+        """What one of its ports (or else a parameter: a table that makes the inputs is named by itself) of this name
+        is called, for a message that names an input (same_size, meant): kept in every language (i18n.Both), read in
+        the reader's. The one implementation (nodes/applies.py names inputs with it)."""
+        from .applies import all_outputs
+
+        def label() -> str:
+            port = next((p for p in (*cls.inputs, *all_outputs(cls)) if p.name == name), None)
+            if port is not None:
+                return port.label
+            return next((p["label"] for p in cls.param_specs() if p["name"] == name), name)
+
+        return Both.of(label)
+
+    @classmethod
+    def row_labels(cls) -> list[str]:
+        """The default label of each row ports_from_names allows: its port's word in the language now."""
+        from . import text
+
+        return [text.word(cls, "port", n, "label") or n for n in cls.ports_from_names]
+
+    @classmethod
+    def row_word(cls) -> str:
+        """What one row of its input table is called where the page offers another, in the language now."""
+        from . import text
+        from .. import i18n
+
+        return text.word(cls, "row") or i18n.t("row.default")
 
     @classmethod
     def main_output(cls) -> str:
@@ -256,10 +386,15 @@ class NodeDef:
         Nodes may override it: 「读取序列」 uses no parameter table, and its outputs follow the layers present in the
         file. This method must never raise: it is called for every wire check and every status computation
         (nodes/applies.py output_ports, input_ports)."""
+        from .text import scope_of
+
         entries = params.get(cls.ports_from) or () if cls.ports_from else ()
+        # a row's own label (the graph's data), else its port's words (switch: node.switch.port.<a…j>.label)
+        own = (getattr(cls, "id", ""), scope_of(cls) or "")
         if cls.ports_from_side == "inputs":
-            return tuple(Port(e["name"], cls.ports_from_type, e["label"], optional=True, alpha=True, data=EITHER) for e in entries)
-        return tuple(Port(e["name"], cls.row_type(e), e["label"]) for e in entries)
+            return tuple(Port(e["name"], cls.ports_from_type, e.get("label") or "", optional=True, alpha=True,
+                              data=EITHER).owned(*own) for e in entries)
+        return tuple(Port(e["name"], cls.row_type(e), e.get("label") or "").owned(*own, side="output") for e in entries)
 
     @classmethod
     def row_type(cls, entry: dict) -> str:
@@ -272,18 +407,21 @@ class NodeDef:
 
     @classmethod
     def input_ports(cls, params: dict) -> tuple[Port, ...]:
-        """The node's inputs with these parameters: the declared ones, then one per entry of the ports_from parameter
-        when it makes inputs instead of outputs (「多层 EXR 输出设置」: a port per row of its 图层 table, in row order,
-        which sets the EXR's layer order; 「切换」: one per way), then the ones its `wired_ports` parameters always
-        carry (「切换」's 「走哪一路」 under its ways, as the page draws them: webui graph/rules.ts inputsOf).
+        """The node's inputs with these parameters: the declared ones, then the ones its `wired_ports` parameters always
+        carry, then one per entry of the ports_from parameter when it makes inputs instead of outputs (「多层 EXR 输出
+        设置」: a port per row of its 图层 table, in row order, which sets the EXR's layer order; 「切换」: one per way).
+        The table's rows come last because a row is added at the bottom (the 「＋」 under them): 「切换」's 「走哪一路」
+        stands above its ways, as the page draws them (webui graph/rules.ts inputsOf).
         Graph.input_ports adds the parameters promoted on this instance on top; the web page reads the resolved ports
         from the status reply, and a row added since that reply from its document (webui graph/rules.ts inputsOf)."""
-        return (cls.inputs + (cls.made_ports(params) if cls.ports_from_side == "inputs" else ())
-                + tuple(cls.param_port(n) for n in cls.wired_ports))
+        return (cls.inputs + tuple(cls.param_port(n) for n in cls.wired_ports)
+                + (cls.made_ports(params) if cls.ports_from_side == "inputs" else ()))
 
     @classmethod
     def param_specs(cls) -> list[dict]:
         """Every parameter as front ends and the engine read it (label, type, options, rules): built once per type."""
+        from .params import dressed_specs, with_registered_options
+
         if cls not in _SPECS:
             specs = _param_list(cls.Params, cls.Params.model_json_schema())
             for spec in specs:
@@ -296,7 +434,8 @@ class NodeDef:
                 if spec["widget"] in ("file", "sequence"):
                     spec["head_enough"] = bool(getattr(cls, "head_is_enough", False))
             _SPECS[cls] = specs
-        return _SPECS[cls]
+        # options a registry offers (P(options_from=)) are read now, not kept: extensions register theirs as they load
+        return with_registered_options(dressed_specs(cls, _SPECS[cls]), cls.Params)
 
     @classmethod
     def interface_specs(cls) -> list[dict]:
@@ -308,8 +447,8 @@ class NodeDef:
         for spec in cls.param_specs():
             out.append(spec)
             if spec["widget"] in PICKED_IN_VIEW:
-                out.append(pick_button(spec).spec())
-        return [*out, *(b.spec() for b in (COOK_BUTTON, *cls.buttons))]
+                out.append(pick_button(spec).spec(cls))
+        return [*out, *(b.spec(cls) for b in (COOK_BUTTON, *cls.buttons))]
 
     @classmethod
     def param_port(cls, name: str) -> Port:
@@ -323,9 +462,9 @@ class NodeDef:
 
         spec = next((p for p in cls.param_specs() if p["name"] == name), None)
         if spec is None:
-            raise Invalid(Msg("E-NODE-NOPARAM", node=cls.label, names=name))
+            raise Invalid(Msg("E-NODE-NOPARAM", type=cls.id, names=name))
         if not spec["wire"]:
-            raise Invalid(Msg("E-NODE-NOTWIREABLE", node=cls.label, label=spec["label"]))
+            raise Invalid(Msg("E-NODE-NOTWIREABLE", type=cls.id, label=spec["label"]))
         from ..data.values import FLOAT, INT
 
         plate = any(p.name == "image" for p in cls.inputs)
@@ -336,7 +475,7 @@ class NodeDef:
         plain = not carries and not spec["unit"] and any(t in (INT, FLOAT) for t in spec["wire"].split("|"))
         return Port(PARAM + name, spec["wire"], spec["label"], optional=True, unit=spec["unit"], plain=plain,
                     expects=(SameShot(),) if plate else (),
-                    recommend=CONSTANT_NODES.get(spec["wire"].split("|")[0], "core.make_list"))
+                    recommend=CONSTANT_NODES.get(spec["wire"].split("|")[0], "make_list"))
 
     @classmethod
     def affecting_params(cls) -> set[str]:
@@ -360,10 +499,13 @@ class NodeDef:
 
     @classmethod
     def load_params(cls, params: dict) -> dict:
-        """Saved params -> every parameter (defaults for the ones not given). An unknown one is an error."""
+        """Saved params -> every parameter (defaults for the ones not given). An unknown one is an error, except the
+        node type's retired ones (`retired_params`): dropped, so graphs saved before a parameter was taken out still
+        open."""
+        params = {k: v for k, v in params.items() if k not in cls.retired_params}
         unknown = sorted(set(params) - set(cls.Params.model_fields))
         if unknown:
-            raise Invalid(Msg("E-NODE-NOPARAM", node=cls.label, names=unknown))
+            raise Invalid(Msg("E-NODE-NOPARAM", type=cls.id, names=unknown))
         from .applies import output_ports
 
         try:
@@ -372,10 +514,10 @@ class NodeDef:
             raise Invalid(refusal(cls.param_specs(), exc)) from None
         names = [p.name for p in output_ports(cls, loaded)]
         if len(set(names)) != len(names):
-            raise Invalid(Msg("E-NODE-DUPOUTPUT", node=cls.label, names=sorted({n for n in names if names.count(n) > 1})))
+            raise Invalid(Msg("E-NODE-DUPOUTPUT", type=cls.id, names=sorted({n for n in names if names.count(n) > 1})))
         in_names = [p.name for p in cls.input_ports(loaded)]
         if len(set(in_names)) != len(in_names):
-            raise Invalid(Msg("E-NODE-DUPINPUT", node=cls.label, names=sorted({n for n in in_names if in_names.count(n) > 1})))
+            raise Invalid(Msg("E-NODE-DUPINPUT", type=cls.id, names=sorted({n for n in in_names if in_names.count(n) > 1})))
         return loaded
 
     @classmethod
@@ -418,6 +560,20 @@ class NodeDef:
         """What the node says about how many wires it has (`wires`: input -> how many), beside its parameters: a wire
         or a setting that does nothing with them, said rather than passed over (「与或非」 set to 非 reads one wire,
         「合成列表」 more names than items). (message, input) pairs, notices only (engine/lint.py lists them)."""
+        return []
+
+    # the text input whose being empty makes the node give nothing, as expected (its prepare raises NothingToCook:
+    # 「翻译」 with no text): with the text known before the cook (a constant), the graph knows the node gives nothing
+    # (engine/routing.py gives_nothing) and what it feeds goes without it from the start; "" for any other node
+    nothing_without: ClassVar[str] = ""
+
+    @classmethod
+    def plan_refusals(cls, params: dict, comes: Callable[[str], bool]) -> list[tuple[Msg, str]]:
+        """What makes the node not worth cooking, known before the cook from its parameters and from whether anything
+        comes in on an input (`comes(input)`: engine/evaluation.py Evaluation.comes; what is still to be cooked is
+        taken to come; `comes(input, kind)`: something that may be of that data type, on the route the switches take). (B- message, input) pairs: a B- note blocks the plan (engine/evaluation.py _plan), so
+        「计算」 / 「计算并打包」 is greyed with the reason before anything is submitted. Say the same in prepare() for
+        what is known only once the inputs are cooked (a prompt wired from another node). [] by default."""
         return []
 
     @classmethod
@@ -499,9 +655,9 @@ class NodeDef:
     # it hands files to the user where they chose (「输出」): a side effect, so it runs on a click only, never because
     # a node is shown
     delivers: ClassVar[bool] = False
-    # a model that finishes another's result (BiRefNet 边缘解混合 on a matte) rather than making the deliverable: never
-    # the card's main project (engine/templates.py core_project, the year its card shows)
-    finishes: ClassVar[bool] = False
+    # the node type several of these nodes merge into, one row each (the node menu's 「合并成多层 EXR」 on 序列图输出设置
+    # nodes): the page offers the merge by this declaration, never by a type name of its own. "" for none
+    merges_into: ClassVar[str] = ""
     # the cards that expose its parameters all expose the same ones, named, labelled and hidden alike (a block copied
     # card to card by hand: `lab2shot check templates`, engine/templates.py shared_interfaces); a card that departs on
     # purpose declares it in its meta (`own_interface`: the node types)
@@ -542,9 +698,27 @@ class NodeDef:
     # everything downstream follows (CookContext.frames)
     frame_source: ClassVar[bool] = False
 
-    # the facts about itself it can know (NodeDef.facts before cooking, CookContext.fact while cooking) -> how a message
-    # names each; a condition or a port's kinds_from can only name these
-    fact_labels: ClassVar[dict[str, str]] = {}
+    # the facts about itself it can know (NodeDef.facts before cooking, CookContext.fact while cooking); how a message
+    # names each is node.<type>.fact.<name> (fact_label); a condition or a port's kinds_from can only name these
+    fact_labels: ClassVar[tuple[str, ...]] = ()
+
+    @classmethod
+    def fact_label(cls, name: str) -> str:
+        """How a message names one of its facts, in the language now."""
+        from . import text
+
+        from ..messages import Both
+
+        # kept in both languages (messages.Both): a message naming it reads right in whoever's language follows it
+        return Both.of(lambda: text.word(cls, "fact", name) or name)
+
+    @classmethod
+    def strip_label(cls, name: str) -> str:
+        """The card label of a parameter shown in the value strip (`strip`), in the language now."""
+        from . import text
+
+        return (text.word(cls, "param", name, "strip")
+                or next((p["label"] for p in cls.param_specs() if p["name"] == name), name))
 
     # the ops the node uses (ids in lab2shot/ops/ops.toml), checked against the catalogue when the class is made
     # (nodes/applies.py check_declarations). The algorithms are defined in the catalogue and run by its executor
@@ -651,6 +825,12 @@ class NodeDef:
         super().__init_subclass__(**kw)
         # every node lists its ports by the one type order, whatever order it declared them in
         cls.inputs = in_port_order(cls.inputs)
+        # every port its node type's, its words looked up there (Port.owned)
+        from .text import scope_of
+
+        own = (getattr(cls, "id", ""), scope_of(cls) or "")
+        cls.inputs = tuple(p.owned(*own) for p in cls.inputs)
+        cls.outputs = tuple(p.owned(*own, side="output") for p in cls.outputs)
         # A solver has no outputs its upstream project does not provide (one output per kind of upstream data). The
         # family's convenience output that computes a point cloud (`made_from` = depth + camera + confidence) is kept
         # only for nodes with a native point cloud (`native_points`); other point clouds are made by wiring 「深度转点云」,
@@ -679,6 +859,14 @@ class NodeDef:
             raise TypeError(f"{cls.__name__}: wired_ports names {missing}, which are not parameters it has")
         if missing := [n for n in cls.strip if n not in cls.Params.model_fields]:
             raise TypeError(f"{cls.__name__}: strip names {missing}, which are not parameters it has")
+        # capability gates name real tags (a typo would silently gate nothing) and never a licence class (that order
+        # is the licence system's alone; a capability tag must not shift a card's strictest licence word)
+        from . import tags
+
+        bad = [t for t in cls.capability_tags if t not in tags.TAGS or t in tags.LICENCES]
+        if bad:
+            raise TypeError(f"{cls.__name__}: capability_tags names {bad}, which are not capability tags (nodes/tags.py TAGS, "
+                            "outside LICENCES)")
         cls.wired_ports = tuple(dict.fromkeys(tuple(n for n in cls.wired_ports if n in cls.Params.model_fields)
                                               + always_wired(cls.Params)))
         from .applies import check_declarations
@@ -711,7 +899,7 @@ class NodeDef:
         return {
             # 1. Catalogue
             "id": cls.id,
-            "label": cls.label,
+            "subtitle": cls.subtitle,
             "category": cls.category,  # the tool subcategory its author suggests (a word; its place is menu/nodes.json)
             "description": cls.description,
             # 2. Ports
@@ -738,9 +926,9 @@ class NodeDef:
             "ports_from_type_label": type_label(cls.ports_from_type) if cls.ports_from_type else "",
             # an input table whose rows the node names itself (「切换」's ways): their names and default labels, as
             # many as it may have; sent only when present, like wired_ports (the page reads `def.ports_from_names?.`)
-            **({"ports_from_names": list(cls.ports_from_names), "ports_from_labels": list(cls.ports_from_labels)}
+            **({"ports_from_names": list(cls.ports_from_names), "ports_from_labels": cls.row_labels()}
                if cls.ports_from_names else {}),
-            "ports_from_word": cls.ports_from_word if cls.ports_from and cls.ports_from_side == "inputs" else "",
+            "ports_from_word": cls.row_word() if cls.ports_from and cls.ports_from_side == "inputs" else "",
             "params": cls.interface_specs(),  # the parameters, then the buttons (widget "button")
             "defaults": param_defaults(cls.Params),
             "runtime": cls.runtime,
@@ -748,6 +936,9 @@ class NodeDef:
             "places": cls.places.placement() if cls.places else None,
             "preview": cls.default_preview(),  # the viewer's preview tag (three 2D modes or 3D), one per node
             "delivers": cls.delivers,
+            "merges_into": cls.merges_into,
+            # the begin or end of a block (engine/scopes.py: 「逐项处理」): the layout pairs them by this, never by a type name
+            "scope_role": getattr(cls, "scope_role", ""),
             # what it costs and whose licence it is at its default parameters (a node not in a graph yet: the catalogue's
             # card); a node in a graph reads its status (Evaluation.status), resolved with its own parameters
             "cost": declared_cost(cls),  # what it declares: always on a GPU, its own rating
@@ -780,7 +971,17 @@ class ReadsFile:
     files make another reference and re-cook the node. Without a file the node cannot be planned (the editor shows
     why, and never cooks it by itself)."""
 
-    no_file: ClassVar[str] = "没有选择文件"
+    @classmethod
+    def no_file(cls) -> str:
+        """What it says when no file is chosen, in the language now: node.<type>.no_file, else file.none."""
+        from . import text
+        from .. import i18n
+
+        from ..messages import Both
+
+        # kept in both languages (messages.Both): the error it is raised in reads in whoever's language asks
+        return Both.of(lambda: text.word(cls, "no_file") or i18n.t("file.none"))
+
 
     # Whether the node can answer its questions (which ports it has, how many frames and what size, what the
     # hierarchy contains) when the server holds only the first tens of KB of the selected file. This decides whether
@@ -813,7 +1014,7 @@ class ReadsFile:
     @classmethod
     def path(cls, params: dict) -> Path:
         if not params.get("path"):
-            raise ValueError(cls.no_file)
+            raise ValueError(cls.no_file())
         return services().plan.upload(params["path"])
 
     @classmethod

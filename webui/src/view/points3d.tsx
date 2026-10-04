@@ -43,7 +43,7 @@ function uniforms() {
     uRampNear: { value: new THREE.Vector3() },
     uRampSlope: { value: new THREE.Vector3() },
     uGrid: { value: new THREE.Vector4(1, 1, 1, 1) },
-    uFocal: { value: 1 },
+    uFocal: { value: new THREE.Vector2(1, 1) },
     uPrincipal: { value: new THREE.Vector2() },
     uCam: { value: new THREE.Matrix4() },
   };
@@ -191,7 +191,7 @@ export function Cloud({ src, frame, o, pickKey, version }: Props) {
         u.uRampSlope.value.fromArray(colour[1]);
       }
       u.uGrid.value.set(gs.gw, gs.step, gs.ref.width, gs.ref.height);
-      u.uFocal.value = gs.focal;
+      u.uFocal.value.set(gs.focal, Math.fround(Math.fround(gs.focal) * Math.fround(gs.ref.aspect ?? 1)));
       u.uPrincipal.value.set(gs.principal ? gs.principal[0] : gs.ref.width * 0.5, gs.principal ? gs.principal[1] : gs.ref.height * 0.5);
       u.uCam.value.fromArray(columnMajor(gs.cam, 0, 4));
     }

@@ -14,7 +14,7 @@ JOINTS = body_joints("smpl")
 
 class StableMotionCleanup(RigMotion):
     id = "stablemotion.cleanup"
-    version = 2  # 2：帧号按节点的「帧率」换算成时间（默认 24 与 1 版的固定时基相同）
+    version = 5  # 5：只为让半途代码算出的 4 的缓存重算；4：两副站着的基准姿势时躯干（根、脊柱、胸、颈、头）整体按根的对齐，不再逐骨对准（MHR 的人体曾被对成后仰 18°）；3：判坏帧按官方 100 帧窗口；回填用扩张后的坏帧；2：帧号按节点的「帧率」换算成时间（默认 24 与 1 版的固定时基相同）
     does = "cleanup"  # 修动作（骨骼动作家族的两件活之一，lab2shot/nodes/families/rig_motion.py）
     # 引的是官方 fix_globsmpl.py 的修复那一遍：input_motions（坏动作）+ label（上一遍 detect_labels 判出来的
     # 问题帧，同文件 105-117）进去，fixed_motion 出来。
@@ -22,26 +22,22 @@ class StableMotionCleanup(RigMotion):
         cite="third_party/stablemotion/repo/sample/fix_globsmpl.py:121-239",
         takes={"character": "input_motions"},
         gives={"character": "fixed_motion", "labels": "label"},
-        note="「问题帧」曲线就是官方的 label：`detect_labels`（同文件 33-117）读第 233 个通道判每一帧好坏，"
-             "out['label'] 再喂给 fix_motion。两遍都是官方 README 的那两条命令。",
     )
     # 不读画面，整段一起看；模型一次看 100 帧（自己的 20 帧/秒，5 秒），更长的分段重叠处理
     runtime = "stablemotion"
-    licence = Licence(note="仅限研究：代码是 MIT，但放出来的权重在 AMASS 上训练，AMASS 只许非商业的学术研究。"
-                           "要商用得按官方说明拿自己的动捕重训一个模型。")
+    licence = Licence(note=True)
     joints = JOINTS
-    detects = ("问题帧",)  # 它逐帧判断好坏：家族因此给它「问题帧」输出口，并让「只改问题帧」有意义
+    detects = ("problem_frames",)  # 它逐帧判断好坏：家族因此给它「问题帧」输出口，并让「只改问题帧」有意义
     # RTX 4090：60 秒的动捕 3.5 秒、215 MB 显存；判坏的帧越多，要重画的段越多
-    cost = Cost(gpu=True, vram_gb=0.3, whole="整段一次找问题帧，只有判坏的地方才按 5 秒一段重画")
+    cost = Cost(gpu=True, vram_gb=0.3, whole=True)
 
     class Params(DetectCleanupParams):
         mapping: list[PartMap] | None = mapping_param()
         quality: Literal["basic", "best"] = measured_param(
-            "质量", {"basic": Measured(flat=True),
+            {"basic": Measured(flat=True),
                      "best": Measured(flat=True)},
-            default="basic", group="模型",
-            option_labels={"basic": "基本", "best": "增强"})
-        seed: int = P(10, label="随机种子", group="模型", ge=0)
+            default="basic", group="model")
+        seed: int = P(10, group="model", ge=0)
 
 
 NODES = (StableMotionCleanup,)

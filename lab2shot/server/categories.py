@@ -1,133 +1,232 @@
-"""两棵分类树的路由（树本身在 lab2shot/categories.py：产品这一层的存储，和「我的模板」一样）。
+"""The routes of the two category trees (the trees themselves are lab2shot/categories.py: product-layer storage, like
+「我的模板」).
 
-模板面板的树归「管理模板」（templates.create），节点菜单的树、节点归属和节点的名字说明归「管理节点分类」（menu.edit）：两项权限分开，
-二级管理员由一级分别给。页面按服务器算的可用性显示。每一步写一条「管理操作」留底，两棵树的留底分开写。
+The templates panel's tree belongs to templates.create; the node menu's tree, the node placements and the nodes' names
+and descriptions to menu.edit: two separate rights, which an administrator gives a deputy one by one. The page shows
+what the server says is available. Every step writes an admin audit line, the two trees' lines apart. The node menu's
+algorithms band is the templates panel's tree (lab2shot/categories.py MenuTree): both edit templates/_categories.json,
+and removing one of its categories puts the templates and nodes under it into Uncategorized.
+
+A category's name, and a node's name and description, are edited in every language at once ({lang: text}):
+categories in lab2shot/i18n/<lang>/categories.toml (categories.Words), nodes in their own catalogue files
+(nodes/text.py save, one language at a time).
 """
 
 from __future__ import annotations
 
 from fastapi import Request
 
-from .. import categories, library
+from .. import categories, i18n
+from ..site import library
+from ..errors import Forbidden, Invalid
 from ..messages import Msg
 from . import auth
 from .access import audit
 from .routes import Access, Body, Router
+from .words import Word
 
-admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])
+admin = Router(prefix="/api/admin", tags=["admin"])
 
 
 class CategoryIn(Body):
     id: str
-    parent: str = ""  # 空：一级分类
-    label: str
-    tip: str = ""
+    parent: str = ""  # "": a first-level category
+    # its name in every language ({lang: text}, lab2shot/i18n LANGS); a plain string is the language now's,
+    # the other languages keeping theirs (a new category: the same text until it is written in them)
+    label: dict[str, str] | str
     color: str = ""
     rank: float = 0.0
-    section: str = ""  # 节点菜单的树：一级分类在哪个区（tools / deliver）；模板的树不用
+    section: str = ""  # the node menu's tree: the band a first-level category is in (tools / deliver); not the templates tree
 
 
 class Order(Body):
     ids: list[str]  # the categories under `parent` in their new order
-    parent: str = ""  # 空：一级分类
+    parent: str = ""  # "": the first level
+
+
+def _both(cid: str, part: str, given: dict[str, str] | str | None) -> dict[str, str]:
+    """A category's `part` in every language: `given` as it is ({lang: text}), or a string for the language now with
+    the others as they are written (or the same string where there is none)."""
+    had = categories.words.of(cid)[part]
+    if given is None:
+        return {lang: had.get(lang, "") for lang in i18n.LANGS}
+    if isinstance(given, dict):  # a language left out keeps its words (only an empty string given clears it)
+        return {lang: str(given[lang] or "") if lang in given else had.get(lang, "") for lang in i18n.LANGS}
+    return {lang: given if lang == i18n.current() else (had.get(lang) or given) for lang in i18n.LANGS}
+
+
+def _words(tree: categories.Tree) -> dict:
+    """Every category's name in every language, as written (the editor's two languages): id -> {"label":
+    {lang: text}}."""
+    return {cid: categories.words.of(cid) for cid in tree.rows()}
+
+
+def _menu() -> dict:
+    """The node menu as the catalogue has it, with its categories' words in every language (the admin's answers)."""
+    return {**categories.describe_menu(), "words": _words(categories.menu)}
 
 
 def _label(tree: categories.Tree, cid: str) -> str:
-    return str(tree.rows().get(cid, {}).get("label") or cid)
+    """A category's name in the language now (its id when it has none)."""
+    return categories._word(cid, "label") or cid
 
 
-# ---- 模板面板的树
+def _top() -> Word:
+    return Word("server.categories.first_level")
 
 
-@admin.get("/categories", access=Access.admin("templates.create"), summary="模板面板的分类树（templates/_categories.json），和文件读不出来时的那句话")
+# ---- the templates panel's tree
+
+
+@admin.get("/categories", access=Access.admin("templates.create"), summary="The templates panel's category tree (templates/_categories.json), and what is wrong when the file does not read")
 def listing(request: Request) -> dict:
-    return {"categories": categories.templates.tree(), "problem": categories.templates.problem()}
+    return {"categories": categories.templates.tree(), "problem": categories.templates.problem(), "words": _words(categories.templates)}
 
 
-@admin.put("/categories", access=Access.admin("templates.create"), summary="模板面板：新建一个分类或二级分类，或改一个已有的：名字、说明、颜色、排在第几")
+@admin.put("/categories", access=Access.admin("templates.create"), summary="Templates panel: create a category or subcategory, or change one: name (every language), color, rank")
 def upsert(req: CategoryIn, request: Request) -> dict:
-    if categories.templates.put(req.id, parent=req.parent, label=req.label, tip=req.tip, color=req.color, rank=req.rank):
-        audit(Msg("I-AUDIT-CATEGORYSET", who=auth.actor(request).label, name=req.label),
+    if req.id in categories.menu.own_rows():  # this tree is also the node menu's algorithms band: ids are shared
+        raise Invalid(Msg("E-CATEGORY-TAKEN", id=req.id))
+    label = _both(req.id, "label", req.label)
+    if categories.templates.put(req.id, parent=req.parent, label=label, color=req.color, rank=req.rank):
+        audit(Msg("I-AUDIT-CATEGORYSET", who=auth.actor(request).label, name=i18n.Both.of(lambda: i18n.pick(label))),
               session=auth.session(request), method="PUT", path=str(request.url.path))
-    return {"categories": categories.templates.tree()}
+    return {"categories": categories.templates.tree(), "words": _words(categories.templates)}
 
 
-@admin.put("/categories/order", access=Access.admin("templates.create"), summary="模板面板：一级分类（或一个分类下的二级分类）的新次序，一次写完")
+@admin.put("/categories/order", access=Access.admin("templates.create"), summary="Templates panel: the new order of the first-level categories (or of one category's subcategories), in one write")
 def order(req: Order, request: Request) -> dict:
     if categories.templates.reorder(req.ids, req.parent):
-        audit(Msg("I-AUDIT-CATEGORYORDER", who=auth.actor(request).label, tree="模板", group=_label(categories.templates, req.parent) if req.parent else "一级", count=len(req.ids)),
+        audit(Msg("I-AUDIT-CATEGORYORDER", who=auth.actor(request).label, tree=Word("server.categories.tree_templates"), group=_label(categories.templates, req.parent) if req.parent else _top(), count=len(req.ids)),
               session=auth.session(request), method="PUT", path=str(request.url.path))
-    return {"categories": categories.templates.tree()}
+    return {"categories": categories.templates.tree(), "words": _words(categories.templates)}
 
 
-@admin.delete("/categories/{cid}", access=Access.admin("templates.create"), summary="模板面板：删掉一个分类（连同它的二级分类）；归在它下面的模板进「未分类」，不会跟着删")
+@admin.delete("/categories/{cid}", access=Access.admin("templates.create"), summary="Templates panel: remove a category (with its subcategories); the templates in it become uncategorized, never deleted with it")
 def drop(cid: str, request: Request) -> dict:
+    categories.nodes.writable()  # the tree is also the node menu's algorithms band: nodes placed there are un-placed too
     name = _label(categories.templates, cid)
     gone = categories.templates.remove(cid)
+    categories.nodes.unplace(gone)
     stuck = library.unplace(gone)
     audit(Msg("I-AUDIT-CATEGORYGONE", who=auth.actor(request).label, name=name),
           session=auth.session(request), method="DELETE", path=str(request.url.path))
     if stuck:
-        audit(Msg("I-AUDIT-TEMPLATESTUCK", who=auth.actor(request).label, name=name, count=len(stuck), names="、".join(stuck)),
+        audit(Msg("I-AUDIT-TEMPLATESTUCK", who=auth.actor(request).label, name=name, count=len(stuck), names=i18n.Both.of(lambda: i18n.separator().join(stuck))),
               session=auth.session(request), method="DELETE", path=str(request.url.path))
     # the category is gone either way; files that could not be rewritten still name it (they show as 未分类): said
     # beside the tree, since the removal itself succeeded
-    problem = Msg("E-CATEGORY-UNPLACED", count=len(stuck), names="、".join(stuck)).text if stuck else ""
-    return {"categories": categories.templates.tree(), "problem": problem}
+    problem = Msg("E-CATEGORY-UNPLACED", count=len(stuck), names=i18n.Both.of(lambda: i18n.separator().join(stuck))).text if stuck else ""
+    return {"categories": categories.templates.tree(), "problem": problem, "words": _words(categories.templates)}
 
 
-# ---- 节点菜单的树和节点归属
+# ---- the node menu's tree and the node placements
 
 
-@admin.put("/menu/categories", access=Access.admin("menu.edit"), summary="节点菜单：新建一个分类（说明在哪个区）或二级分类，或改一个已有的：名字、说明、颜色、排在第几")
+def _algorithms_need_templates(request: Request, *ids: str, section: str = "") -> None:
+    """The algorithms band's categories are the templates panel's tree: changing them (create, change, reorder, remove)
+    needs templates.create as well."""
+    rows = categories.menu.rows()
+    band = section or next((categories.MenuTree._band(rows, i) for i in ids if i in rows), "")
+    if band == categories.ALGORITHMS and not auth.can(request, "templates.create"):
+        raise Forbidden(Msg("E-CATEGORY-ALGORITHMS"))
+
+
+@admin.get("/menu/categories", access=Access.admin("menu.edit"), summary="The node menu (bands, category tree, node placements) with every category's name in every language, as the editor shows them")
+def menu_listing() -> dict:
+    return _menu()
+
+
+@admin.put("/menu/categories", access=Access.admin("menu.edit"), summary="Node menu: create a category (saying which band) or subcategory, or change one: name (every language), color, rank")
 def menu_upsert(req: CategoryIn, request: Request) -> dict:
-    if categories.menu.put(req.id, parent=req.parent, label=req.label, tip=req.tip, color=req.color, rank=req.rank,
+    _algorithms_need_templates(request, req.parent or req.id, section="" if req.parent else req.section)
+    label = _both(req.id, "label", req.label)
+    if categories.menu.put(req.id, parent=req.parent, label=label, color=req.color, rank=req.rank,
                            section=req.section):
-        audit(Msg("I-AUDIT-MENUCATEGORYSET", who=auth.actor(request).label, name=req.label),
+        audit(Msg("I-AUDIT-MENUCATEGORYSET", who=auth.actor(request).label, name=i18n.Both.of(lambda: i18n.pick(label))),
               session=auth.session(request), method="PUT", path=str(request.url.path))
-    return categories.describe_menu()
+    return _menu()
 
 
-@admin.put("/menu/categories/order", access=Access.admin("menu.edit"), summary="节点菜单：一个区的一级分类（或一个分类下的二级分类）的新次序，一次写完")
+@admin.put("/menu/categories/order", access=Access.admin("menu.edit"), summary="Node menu: the new order of one band's first-level categories (or of one category's subcategories), in one write")
 def menu_order(req: Order, request: Request) -> dict:
+    _algorithms_need_templates(request, req.parent, *req.ids)
     if categories.menu.reorder(req.ids, req.parent):
-        audit(Msg("I-AUDIT-CATEGORYORDER", who=auth.actor(request).label, tree="节点菜单", group=_label(categories.menu, req.parent) if req.parent else "一级", count=len(req.ids)),
+        audit(Msg("I-AUDIT-CATEGORYORDER", who=auth.actor(request).label, tree=Word("server.categories.tree_menu"), group=_label(categories.menu, req.parent) if req.parent else _top(), count=len(req.ids)),
               session=auth.session(request), method="PUT", path=str(request.url.path))
-    return categories.describe_menu()
+    return _menu()
 
 
-@admin.delete("/menu/categories/{cid}", access=Access.admin("menu.edit"), summary="节点菜单：删掉一个分类（连同它的二级分类）；归在它下面的节点进「未分类」")
+@admin.delete("/menu/categories/{cid}", access=Access.admin("menu.edit"), summary="Node menu: remove a category (with its subcategories); the nodes in it become uncategorized")
 def menu_drop(cid: str, request: Request) -> dict:
+    _algorithms_need_templates(request, cid)
     categories.nodes.writable()  # both files are written: a broken one is refused before the tree loses anything
     name = _label(categories.menu, cid)
     gone = categories.menu.remove(cid)
     categories.nodes.unplace(gone)
+    library.unplace(gone)  # a category of the algorithms band is the templates tree's: its cards become 未分类 too
     audit(Msg("I-AUDIT-MENUCATEGORYGONE", who=auth.actor(request).label, name=name),
           session=auth.session(request), method="DELETE", path=str(request.url.path))
-    return categories.describe_menu()
+    return _menu()
 
 
 class NodeWords(Body):
-    label: str
-    description: str = ""
+    # its subtitle and description in every language ({lang: text}, lab2shot/i18n LANGS); plain strings are the
+    # language now's, the other languages left as they are
+    subtitle: dict[str, str] | str
+    description: dict[str, str] | str = ""
 
 
-@admin.put("/menu/nodes/{type_id}/text", access=Access.admin("menu.edit"), summary="改一个节点的名字和说明（节点菜单里节点的「编辑」）：写进它所在文件夹的 nodes.json，立刻生效")
+def _node_words(type_id: str) -> dict:
+    """A node type's subtitle and description in every language, as its catalogue files hold them now."""
+    from ..errors import NotFound
+    from ..nodes import text
+    from ..nodes.registry import node_types
+
+    cls = node_types().get(type_id)
+    if cls is None:
+        raise NotFound(Msg("E-NODE-NOSUCH", type=type_id))
+    text.refresh()
+    out: dict = {"id": type_id, "subtitle": {}, "description": {}}
+    for lang in i18n.LANGS:  # as written in each language, no fallback to another (what the editor fills in)
+        written = i18n.words(lang)
+        out["subtitle"][lang] = written.get(f"node.{type_id}.subtitle", "")
+        out["description"][lang] = written.get(f"node.{type_id}.description", "")
+    return out
+
+
+@admin.get("/menu/nodes/{type_id}/text", access=Access.admin("menu.edit"), summary="A node's subtitle and description in every language (the node menu's Edit on a node)")
+def menu_text_get(type_id: str) -> dict:
+    return _node_words(type_id)
+
+
+@admin.put("/menu/nodes/{type_id}/text", access=Access.admin("menu.edit"), summary="Change a node's subtitle and description in every language (the node menu's Edit on a node): written into the catalogue file of each language that holds its words, in effect at once")
 def menu_text(type_id: str, req: NodeWords, request: Request) -> dict:
     from ..nodes import text
 
-    entry, changed = text.save(type_id, req.label, req.description)
+    if isinstance(req.subtitle, str):
+        given = {i18n.current(): (req.subtitle, req.description if isinstance(req.description, str) else "")}
+    else:
+        said = req.description if isinstance(req.description, dict) else {}
+        given = {lang: (str(req.subtitle.get(lang) or ""), str(said.get(lang) or "")) for lang in i18n.LANGS}
+    for lang, (subtitle, description) in given.items():  # every subtitle first, so a refused one changes nothing
+        with i18n.using(lang):
+            text._check(subtitle, description)
+    changed = False
+    for lang, (subtitle, description) in given.items():
+        with i18n.using(lang):
+            changed = text.save(type_id, subtitle, description)[1] or changed
     if changed:
-        audit(Msg("I-AUDIT-NODETEXT", who=auth.actor(request).label, node=type_id, name=entry["label"]),
+        audit(Msg("I-AUDIT-NODETEXT", who=auth.actor(request).label, node=type_id, name=i18n.Both.of(lambda: i18n.pick(req.subtitle) if isinstance(req.subtitle, dict) else req.subtitle)),
               session=auth.session(request), method="PUT", path=str(request.url.path))
-    return {"id": type_id, **entry}
+    return _node_words(type_id)
 
 
 class PlaceNode(Body):
-    where: str  # a category or subcategory id of the menu tree, or "" (未分类)
+    where: str  # a category or subcategory id of the menu tree, or "" (uncategorized)
 
 
-@admin.put("/menu/nodes/{type_id}/place", access=Access.admin("menu.edit"), summary="节点菜单：把一个节点类型归到一个分类或二级分类（菜单里拖过去）；空字符串进「未分类」。不在的节点类型（扩展包卸了）只能清掉归属")
+@admin.put("/menu/nodes/{type_id}/place", access=Access.admin("menu.edit"), summary="Node menu: place a node type in a category or subcategory (dragged in the menu); an empty string makes it uncategorized. A node type not loaded (its extension uninstalled) can only be un-placed")
 def menu_place(type_id: str, req: PlaceNode, request: Request) -> dict:
     from ..errors import NotFound
     from ..nodes.registry import node_types
@@ -141,6 +240,6 @@ def menu_place(type_id: str, req: PlaceNode, request: Request) -> dict:
     if req.where and not categories.menu.known(req.where):
         raise NotFound(Msg("E-CATEGORY-NOSUCH", id=req.where))
     if categories.nodes.place(type_id, req.where):
-        audit(Msg("I-AUDIT-NODEPLACED", who=auth.actor(request).label, node=type_id, where=req.where or "未分类"),
+        audit(Msg("I-AUDIT-NODEPLACED", who=auth.actor(request).label, node=type_id, where=_label(categories.menu, req.where) if req.where else Word("server.categories.uncategorized")),
               session=auth.session(request), method="PUT", path=str(request.url.path))
-    return categories.describe_menu()
+    return _menu()

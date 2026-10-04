@@ -5,15 +5,17 @@ from __future__ import annotations
 from typing import Literal
 
 from lab2shot.sdk import (Official, measured_param, Confidence, LensWholeShotParams, P, Port, WholeShotDepthCamera,
-                          conf_threshold_param, frame_maps, resolution_param, unit_cm_param, Cost,
+                          conf_threshold_param, frame_maps, resolution_param, Cost,
                           max_frames_param, Measured)
 
 
 class Reconstruct(WholeShotDepthCamera):
     id = "monst3r.reconstruct"
+    version = 3  # 2：SEA-RAFT / SAM 2.1 每个任务只加载一次；3：试过官方 window_wise 续接后退回独立分段 + 拼接（实测更准，见 worker.py 开头），清掉那期间的缓存
+    metric = False  # its units are arbitrary: the 「尺度」 says how many centimetres one is (DepthCamera.metric)
     # 没有「人物框」输入口：上游只收一张运动物体遮罩图（dynamic_mask_path，demo.py:107/117），
     # 要挡人就接「人物框转遮罩」，那一步在节点图上看得见。
-    takes_mask = "运动物体遮罩"  # 上游真的收一张遮罩图（见 official 的 cite）
+    takes_mask = True  # 上游真的收一张遮罩图（见 official 的 cite）
     # 公开基准上的实测（接不接、接什么的差别）：
     #   focal_mm：实测（12 个镜头）：填真实 Focal Length 或接 AnyCalib，相机轨迹都没区别
     #   mask：实测（8 个镜头）：接 SAM 3 遮罩，相机轨迹没区别，输出的运动物体遮罩 J&F 0.310 → 0.347
@@ -22,7 +24,7 @@ class Reconstruct(WholeShotDepthCamera):
     main = "depth"
     # 固定机位上最稳，慢速移动可用，长焦跟拍不可靠；自己找出运动区域并另外输出运动遮罩（0 / 1 的选区，
     # 适合挡解算，不是精细抠像）；尺度是自己的任意单位，整段一致；显存随每段帧数线性增长，默认每段 36 帧
-    outputs = WholeShotDepthCamera.outputs + (Port("mask", "image.1", "运动物体遮罩"),)
+    outputs = WholeShotDepthCamera.outputs + (Port("mask", "image.1"),)
     runtime = "monst3r"
     # 官方 demo.py get_reconstructed_scene(… filelist …) 收一串画面，外加一份运动物体遮罩
     # （--use_gt_davis_masks → dynamic_mask_path → load_images(dynamic_mask_root=…)，demo.py:107-117，
@@ -32,10 +34,6 @@ class Reconstruct(WholeShotDepthCamera):
         cite="third_party/monst3r/repo/demo.py:94-165",
         takes={"image": "filelist", "mask": "dynamic_mask_path"},
         gives={"depth": "depth_maps", "mask": "dynamic_masks", "camera": "poses"},
-        note="遮罩这一路是官方的：上游本来就能收外来的运动物体遮罩（demo.py:107 dynamic_mask_path）。"
-             "上游只有遮罩图这一种形式，没有框，所以节点没有人物框输入口；要挡人就接「人物框转遮罩」"
-             "到「运动物体遮罩」口，那一步在节点图上看得见。「运动物体遮罩」输出就是官方 save_dynamic_masks "
-             "交的那一张（demo.py:159）",
     )
     confidence = Confidence("exp_plus_one")  # how its model gives its confidence (CONFIDENCE_SCALES)
     # RTX 4090，默认每段约 36 帧
@@ -51,23 +49,17 @@ class Reconstruct(WholeShotDepthCamera):
             {256: Measured(below=512), 384: Measured(below=512),
              512: Measured(gb=17.0)},
             default=512)
-        niter: Literal[100, 300, 500] = measured_param(
-            "优化迭代次数", {100: Measured(flat=True), 300: Measured(flat=True), 500: Measured(flat=True)}, default=300, group="解算")
-        motion_threshold: float = P(0.35, label="运动判定门槛", ge=0.05, le=0.95, group="运动物体")
-        sam2_refine: bool = P(True, label="SAM 2 修整", group="运动物体")
+        niter: Literal[100, 300, 500] = measured_param({100: Measured(flat=True), 300: Measured(flat=True), 500: Measured(flat=True)}, default=300, group="solve")
+        motion_threshold: float = P(0.35, ge=0.05, le=0.95, group="moving_objects")
+        sam2_refine: bool = P(True, group="moving_objects")
         conf_threshold: float = conf_threshold_param(1.1)
-        unit_cm: float = unit_cm_param()
-
-    @classmethod
-    def prepare(cls, ctx):
-        return super().prepare(ctx).with_(notes={"scale": "relative"})  # the model's units are arbitrary
 
     @classmethod
     def convert(cls, ctx, raw, job):
         import numpy as np
 
         moving = {"mask": ("image.1", lambda d: d["moving"].astype(np.float32), None)}  # reconstructed frames only
-        return {**super().convert(ctx, raw, job), **frame_maps(ctx, raw, job.plate, moving, stage="写出运动遮罩")}
+        return {**super().convert(ctx, raw, job), **frame_maps(ctx, raw, job.plate, moving, stage="write_moving_mask")}
 
 
 NODES = (Reconstruct,)

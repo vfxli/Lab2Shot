@@ -1,0 +1,19 @@
+# 时长、相对时间、大数、日期的写法（webui/src/platform/format.ts）。键 ui.format.<…>。
+[ui.format]
+locale = "zh-CN"
+seconds = "{s} 秒"
+minutes_seconds = "{m} 分 {s} 秒"
+hours_minutes = "{h} 小时 {m} 分"
+hours = "{h} 小时"
+hours_tiny = "<0.01 小时"
+just_now = "刚刚"
+minutes_ago = "{n} 分钟前"
+hours_ago = "{n} 小时前"
+days_ago = "{n} 天前"
+under_minute = "不到 1 分钟"
+minutes = "{n} 分钟"
+hours_long = "{n} 小时"
+days = "{n} 天"
+# 大数按哪几档写：因子=单位，用 ; 隔开
+count_steps = "10000=万;100000000=亿"
+count = "{n} {unit}"

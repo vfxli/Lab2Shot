@@ -1,4 +1,4 @@
-"""后台「注册设置」页下面的邀请码：自行注册用的邀请码（lab2shot/registration.py），和按邀请码或时间段批量停用自己注册的账号。
+"""后台「注册设置」页下面的邀请码：自行注册用的邀请码（lab2shot/site/registration.py），和按邀请码或时间段批量停用自己注册的账号。
 
 新建（自己填或随机生成）、改备注 / 可用次数 / 到期、停用和启用、删除；列表写着每个码的全文（随时可以复制）、用了几次、谁用它
 注册了。日志和留底只写码的前几位（registration.HINT），从不写全文。
@@ -13,7 +13,9 @@ import math
 from fastapi import Request
 
 from .routes import Access, Body, Moment, Router
-from .. import accounts, registration, roles
+from .words import Word
+from .. import accounts, roles
+from ..site import registration
 from ..errors import Invalid
 from ..messages import Msg
 from . import auth
@@ -21,7 +23,7 @@ from .access import audit
 from .access import manages, particulars
 from .users import day_text
 
-admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])  # 本模块的管理路由（由 app.py 引入）
+admin = Router(prefix="/api/admin", tags=["Admin (/admin page)"])  # 本模块的管理路由（由 app.py 引入）
 
 
 def _view() -> dict:
@@ -30,17 +32,19 @@ def _view() -> dict:
                      "uses_most": registration.USES_MOST}}
 
 
-def _moment(t: float) -> str:
+def _moment(t: float) -> str | Word:
     import time
 
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(t)) if math.isfinite(t) else day_text(None)
 
 
-def _uses(n: int | None) -> str:
-    return "不限次数" if n is None else f"{n} 次"
+def _uses(n: int | None) -> Word:
+    return Word("server.invite.uses_unlimited") if n is None else Word("server.invite.uses", count=n)
 
 
-@admin.get("/invites", access=Access.admin("invites.manage"), summary="邀请码：每个码的全文、备注、可用次数、用了几次、到期、开没开、能不能用，谁用它注册了；还有现在的注册情况（开没开放、要不要邀请码、最近一小时和一天注册了几个、暂停没有）")
+@admin.get("/invites", access=Access.admin("invites.manage"), summary="Invite codes: each code in full, note, uses allowed, uses so far, expiry, enabled, usable, who registered with "
+                                                                      "it; plus the registration state now (open, invite needed, how many registered in the last hour and day, "
+                                                                      "paused)")
 def invites() -> dict:
     return _view()
 
@@ -52,13 +56,14 @@ class NewInvite(Body):
     expires: Moment | None = None  # 自纪元起的秒数；None：不过期
 
 
-@admin.post("/invites", access=Access.admin("invites.manage"), summary="新建邀请码：自己填一个（6 到 32 个字母和数字），或留空随机生成；可以写备注、限次数、限到期")
+@admin.post("/invites", access=Access.admin("invites.manage"), summary="New invite code: type one (6 to 32 letters and digits) or leave empty for a random one; optionally a note, a "
+                                                                       "use limit and an expiry")
 def create(req: NewInvite, request: Request) -> dict:
     s = auth.signed_in(request)
     made = registration.create_invite(req.code or None, req.note, req.uses_max, req.expires, accounts.Actor.of(s.user))
-    audit(Msg("I-AUDIT-INVITECREATED", who=s.user.label, role=roles.label(s.user.role), hint=made["hint"],
-              note=made["note"] or "没写备注", uses=_uses(made["uses_max"]), expires=day_text(made["expires"]),
-              how="自己填的" if req.code else "随机生成"),
+    audit(Msg("I-AUDIT-INVITECREATED", who=s.user.label, role=roles.word(s.user.role), hint=made["hint"],
+              note=made["note"] or Word("server.invite.no_note"), uses=_uses(made["uses_max"]), expires=day_text(made["expires"]),
+              how=Word("server.invite.typed") if req.code else Word("server.invite.random")),
           session=s, method="POST", path=str(request.url.path))
     return {"made": made, **_view()}
 
@@ -70,28 +75,32 @@ class InviteChange(Body):
     enabled: bool
 
 
-@admin.put("/invites/{invite_id}", access=Access.admin("invites.manage"), summary="改一个邀请码：备注、可用次数（空为不限，不能少于已经用掉的）、到期（空为不过期）、停用或启用；马上生效")
+@admin.put("/invites/{invite_id}", access=Access.admin("invites.manage"), summary="Change an invite code: note, uses allowed (empty for no limit, not fewer than already used), expiry (empty for "
+                                                                                  "never), disable or enable; effective at once")
 def change(invite_id: int, req: InviteChange, request: Request) -> dict:
     s = auth.signed_in(request)
     done = registration.change_invite(invite_id, req.note, req.uses_max, req.expires, req.enabled)
-    audit(Msg("I-AUDIT-INVITECHANGED", who=s.user.label, role=roles.label(s.user.role), hint=done["hint"],
-              note=done["note"] or "没写备注", uses=_uses(done["uses_max"]), expires=day_text(done["expires"]),
-              state="开着" if done["enabled"] else "停用"),
+    audit(Msg("I-AUDIT-INVITECHANGED", who=s.user.label, role=roles.word(s.user.role), hint=done["hint"],
+              note=done["note"] or Word("server.invite.no_note"), uses=_uses(done["uses_max"]), expires=day_text(done["expires"]),
+              state=Word("server.invite.enabled") if done["enabled"] else Word("server.invite.disabled")),
           session=s, method="PUT", path=str(request.url.path))
     return _view()
 
 
-@admin.delete("/invites/{invite_id}", access=Access.admin("invites.manage"), summary="删除一个邀请码：以后不能再用它注册；用它注册的账号照旧，记录里还留着它的前几位")
+@admin.delete("/invites/{invite_id}", access=Access.admin("invites.manage"), summary="Delete an invite code: nobody can register with it any more; accounts registered with it stay, and records "
+                                                                                     "keep its first characters")
 def delete(invite_id: int, request: Request) -> dict:
     s = auth.signed_in(request)
     gone = registration.delete_invite(invite_id)
-    audit(Msg("I-AUDIT-INVITEDELETED", who=s.user.label, role=roles.label(s.user.role), hint=gone["hint"],
-              note=gone["note"] or "没写备注", used=gone["used"]),
+    audit(Msg("I-AUDIT-INVITEDELETED", who=s.user.label, role=roles.word(s.user.role), hint=gone["hint"],
+              note=gone["note"] or Word("server.invite.no_note"), used=gone["used"]),
           session=s, method="DELETE", path=str(request.url.path))
     return _view()
 
 
-@admin.get("/registrations", access=Access.admin("invites.manage"), summary="自己注册的账号（没删的）：按邀请码（invite）或注册时间段（since 起、until 止，自纪元起的秒数）筛选，每个写着注册时间、用的码的前几位、来源地址、现在开没开；这个登录管不着的账号标出来")
+@admin.get("/registrations", access=Access.admin("invites.manage"), summary="Self-registered accounts (not deleted), filtered by invite code (invite) or registration period (since, until: "
+                                                                            "seconds since the epoch), each with its registration time, the first characters of its code, its source "
+                                                                            "address and whether it is enabled; accounts this login does not manage are marked")
 def registrations(request: Request, invite: int | None = None, since: float | None = None, until: float | None = None) -> dict:
     s = auth.signed_in(request)
     rows = registration.registered(invite, since, until)
@@ -106,7 +115,9 @@ class Disable(Body):
     until: Moment | None = None
 
 
-@admin.post("/registrations/disable", access=Access.admin("invites.manage"), summary="批量停用自己注册的账号：按邀请码，或按注册时间段（两个都给就两个都要满足）；只停这个登录管得着、现在还开着的，它们的登录马上失效。回答停了哪些")
+@admin.post("/registrations/disable", access=Access.admin("invites.manage"), summary="Disable self-registered accounts in bulk: by invite code, or by registration period (both given: both must "
+                                                                                     "hold); only those this login manages and still enabled, whose logins end at once. The answer says which were "
+                                                                                     "disabled")
 def disable(req: Disable, request: Request) -> dict:
     s = auth.signed_in(request)
     rows = registration.registered(req.invite, req.since, req.until)
@@ -114,10 +125,11 @@ def disable(req: Disable, request: Request) -> dict:
     if not targets:
         raise Invalid(Msg("E-REGISTER-NONETODISABLE"))
     done = registration.disable(targets)
-    by = f"邀请码 {rows[0]['invite']}…" if req.invite is not None else ""
+    by: list[Word] = [Word("server.invite.by_code", code=rows[0]["invite"])] if req.invite is not None else []
     if req.since is not None or req.until is not None:
-        by += ("、" if by else "") + f"注册时间 {_moment(req.since) if req.since is not None else '最早'} 到 {_moment(req.until) if req.until is not None else '现在'}"
-    audit(Msg("I-AUDIT-REGISTEREDDISABLED", who=s.user.label, role=roles.label(s.user.role), by=by, count=len(done),
-              usernames="、".join(done)),
+        by.append(Word("server.invite.by_time", since=_moment(req.since) if req.since is not None else Word("server.invite.earliest"),
+                       until=_moment(req.until) if req.until is not None else Word("server.invite.now")))
+    audit(Msg("I-AUDIT-REGISTEREDDISABLED", who=s.user.label, role=roles.word(s.user.role), by=by, count=len(done),
+              usernames=list(done)),
           session=s, method="POST", path=str(request.url.path))
     return {"disabled": done, **_view()}

@@ -1,0 +1,292 @@
+# DCC 插件（clients/common/lab2shot_dcc 与各 DCC 的 Host）自己的界面字。键 dcc.<…>。
+# 由 tools/messages_client.py 连同 messages/client.toml 一起生成进 lab2shot/client.py（插件随附的单文件客户端）。
+[dcc.settings]
+language = "语言"
+
+[dcc.language]
+host = "跟随 {host}"
+
+[dcc.menu]
+new_node = "新建节点"
+open_panel = "打开面板"
+login = "登录…"
+queue = "队列"
+open_web = "在网页里打开"
+log_folder = "日志文件夹"
+
+[dcc.login]
+title = "登录 Lab2Shot"
+address_hint = "服务器地址，例如 https://lab2shot.example.com"
+server = "服务器"
+username = "账号"
+password = "密码"
+no_account = "还没有账号？请到网页端注册"
+connect = "连接"
+fill_all = "服务器地址、账号、密码都要填"
+connecting = "正在连接…"
+
+[dcc.ui.top]
+all_tools = "全部工具"
+all_tools_tip = "回到全部工具（当前节点不变）"
+menu = "更多：登录、刷新工具、新建节点、语言…"
+offline = "未连接"
+
+[dcc.ui.menu]
+login = "登录…"
+refresh = "刷新工具"
+new_node = "新建节点"
+local_graph = "添加本地节点图…"
+local_graph_title = "本地节点图"
+local_graph_filter = "Lab2Shot 节点图 (*.json)"
+queue = "队列"
+language = "语言"
+log_folder = "日志文件夹"
+
+[dcc.ui.banner]
+not_connected = "还没有连接服务器：登录后才能取到工具"
+not_logged_in = "{server} 未登录"
+login = "登录"
+tools_failed = "工具清单没有取到：{error}"
+retry = "重试"
+
+[dcc.ui.home]
+search = "搜索工具"
+suggested = "适合当前选中"
+tasks = "本场景的任务"
+loading = "正在取工具清单…"
+no_tools = "还没有工具清单：先登录"
+nothing_found = "没有找到「{search}」"
+
+[dcc.ui.tab]
+all = "全部"
+recent = "最近用过"
+
+[dcc.ui.card]
+needs_word = "需要"
+optional_word = "可选"
+needs = "需要：{types}"
+optional = "可选：{types}"
+no_inputs = "不需要输入"
+
+[dcc.ui.state]
+running = "计算中"
+queued = "排队中"
+failed = "出错"
+cancelled = "已取消"
+done = "有未导入的结果"
+imported = "已导入"
+new = "未计算"
+
+[dcc.ui.step]
+inputs = "输入"
+settings = "设置"
+compute = "计算"
+
+[dcc.ui.tool]
+open_web = "在网页里打开"
+more = "更多：取回结果、换工具"
+fetch = "取回结果"
+gone = "工具「{name}」不在清单里（刷新工具，或它已被删除、停用）"
+none = "这个节点还没有工具：回到全部工具点一个工具卡片"
+
+[dcc.ui.input]
+use_selected = "用选中的"
+pick_file = "选文件"
+pick_sequence = "选序列"
+pick_file_title = "选文件"
+pick_sequence_title = "选图像序列的全部帧（可多选），或其中任意一帧，或视频文件"
+clear = "清除"
+required = "必需：还没有绑定"
+optional = "可选"
+bound = "已绑定：{label}"
+nothing_fits = "场景里选中的东西不能用作这个输入"
+none = "这个工具不需要输入"
+frames.other = "{first} … {last} · {count} 帧"
+
+[dcc.ui.param]
+advanced.other = "高级（{count}）"
+from_scene = "来自场景"
+from_scene_tip = "这个值是从场景读到的（帧范围、帧速率、焦距……），改了就用你的值"
+blank = "留空"
+in_web = "在网页里编辑"
+wired = "由 {wired} 的连接线决定"
+refused = "「{label}」{why}"
+bad_value = "「{label}」写得不对：{value}"
+none = "没有可调的设置"
+
+[dcc.ui.run]
+compute = "计算"
+cancel = "取消"
+missing = "还缺输入：{inputs}"
+error = "{status}：{error}"
+open_log = "打开日志"
+
+[dcc.ui.version]
+title = "结果版本"
+imported = "已导入"
+not_imported = "未导入"
+import_ask = "{version} 已下载但没有导入（文件在 {folder}），现在导入吗？"
+open_folder = "打开文件夹"
+
+[dcc.ui]
+error = "出错：{error}（详情见日志 {log}）"
+
+[dcc.queue]
+title = "Lab2Shot 队列"
+refresh = "刷新"
+asking = "正在查询…"
+position = "第 {position} 位"
+others = "别人的任务"
+empty = "队列是空的"
+
+[dcc.queue.state]
+queued = "排队中"
+running = "计算中"
+done = "完成"
+failed = "出错"
+cancelled = "已取消"
+
+[dcc.web]
+title = "Lab2Shot 网页"
+certificate = "服务器的证书没有通过校验"
+not_loaded = "网页打不开"
+no_engine = "这个软件里没有内嵌浏览器，已用系统浏览器打开：在网页里算完后回来点「取回结果」"
+fell_back = "内嵌窗口打不开（{why}），已改用系统浏览器：在网页里算完后回来点「取回结果」"
+
+[dcc.source]
+preset = "预设模板"
+node = "节点"
+mine = "我的模板"
+local = "本地文件"
+
+[dcc.catalog]
+too_big = "文件太大，不像节点图：{path}"
+not_graph = "不是 Lab2Shot 的节点图文件：{path}"
+
+[dcc.connection]
+bad_address = "服务器地址写得不对：{address}（例如 https://lab2shot.example.com）"
+unreachable = "连不上服务器 {server}：{error}"
+not_connected = "还没有连接服务器：先点「登录」，填服务器地址和账号"
+
+[dcc.contract]
+not_an_option = "只能选列出的几项之一"
+refused = "「{label}」{why}"
+
+[dcc.plugin]
+no_version = "这个节点没有版本 {version}"
+imported_already = "{version} 已经导入过了"
+not_connected = "还没有连接服务器：点「登录」"
+wrong_selection = "选中的东西不是这种数据"
+no_tool = "先选一个工具（工具清单还没取到时先点「刷新工具」）"
+missing_inputs = "还缺输入：{inputs}"
+never_submitted = "这个节点还没有提交过任务"
+nothing_new = "网页里没有算出新的结果（没有点「计算」，或还没算完：算完后点「取回结果」）"
+wrong_format = "这个输入读 {accept} 文件，{host} 给它的是 {suffix} 文件：请绑到读这种文件的那个输入上"
+save_first = "请先保存工程"
+
+[dcc.job]
+version_gone = "{version} 的文件夹不在了：{folder}"
+starting = "准备中"
+cancelling = "正在取消…"
+cancelled = "已取消"
+failed = "出错"
+gave_up_fetch = "服务器一直连不上（{error}）：{step}没有完成。服务器好了以后再点一次「取回结果」（任务 {job} 还在服务器上）"
+gave_up_cook = "服务器一直连不上（{error}）：{step}没有完成。服务器好了以后再点一次「计算」"
+reconnect = "连不上服务器（可能正在重启），{wait} 秒后重连（第 {attempt}/{tries} 次）"
+file_gone = "绑定的文件不在了：{file}"
+exporting = "导出 {what}"
+uploading = "上传 {done}/{total}"
+submitted = "已提交，排队中"
+queued = "排队第 {position} 位"
+running = "计算：{node}"
+no_outputs = "任务算完了，但没有交付任何结果"
+downloading = "下载结果 {index}/{count}（{mb:.0f} MB）"
+unpacking = "检查并解压结果"
+project = "{host} 工程"
+importing = "正在导入 {mb:.0f} MB"
+ask_import = "结果有 {mb:.0f} MB，导入可能要一会儿，现在导入吗？（不导入的话文件留在 {folder}）"
+not_imported = "结果已下载到 {folder}，没有导入"
+imported = "完成：已导入 {version}（{group}）"
+imported_note = "{done}；{note}"
+undo_import = "Lab2Shot 导入 {name}"
+plane_failed = "结果摄影机的图像平面没挂上（{error}）"
+no_plane = "结果摄影机没挂图像平面：这次没有输入画面，绑定的摄影机也没带画面（输入不全）。要图像平面就绑定一个画面，或绑定一台带图像平面的摄影机"
+frames.other = "{first} … {last}（{count} 帧）"
+
+[dcc.job.step]
+connect = "连接服务器"
+read_tool = "读取工具"
+upload = "上传输入"
+submit = "提交任务"
+poll = "查询进度"
+download = "下载结果"
+
+[dcc.results]
+no_room = "磁盘空间不够：结果约 {size:.0f} MB，解压要 {need:.0f} MB，{folder} 所在的盘只剩 {have:.0f} MB"
+corrupt = "下载的结果不完整（{member} 校验不对）：重新取回"
+path_too_long.other = "结果的路径太长（超过 {most} 个字符）：{path}。把{project}放到短一点的路径下"
+project = "工程"
+missing_file = "结果里少了文件：{name}"
+version_exists = "版本文件夹已经存在：{folder}"
+
+[dcc.safety]
+not_writable = "文件夹不能写：{folder}（{error}）"
+
+[dcc.maya]
+import = "导入"
+not_now = "先不导入"
+select_first = "先在场景里选中{what}"
+plane_label = "{node}：{file}"
+binding_gone = "（找不到了，请重新绑定）{label}"
+bound_gone = "绑定的对象找不到了（删掉了，或换了场景）：{label}，请重新绑定"
+no_joints = "{node} 下面没有关节"
+no_skinned_mesh = "{node} 上没有蒙皮的网格：要导出骨架动画请用「骨架」类输入"
+cannot_export = "Maya 还不能把这种数据导出成文件：{kind}"
+worker_timeout.other = "后台 Maya 进程超过 {minutes} 分钟没有完成，已停下"
+worker_died = "后台 Maya 进程没有正常结束（退出码 {code}），详情见 {log}"
+export_failed = "导出失败：{error}"
+import_failed = "整理结果失败：{error}"
+nothing_written = "没有写出文件：{file}"
+cannot_import = "Maya 这一版还不导入 {ext} 文件"
+plugin_failed = "Maya 的 {plugin} 插件加载不了"
+not_scene_data = "导入的应是整理过的结果数据：{path}"
+settings_changed = "导入改了场景设置（单位 / 向上轴 / 帧速率：{before} → {after}）"
+node_gone = "这个 Lab2Shot 节点已经不在场景里了"
+no_mayapy = "找不到这台 Maya 的 mayapy：导出不了"
+
+[dcc.maya.want]
+image = "带图像平面的摄影机或图像平面本身，或者点「选文件」选画面"
+video = "带视频图像平面的摄影机"
+camera = "一台摄影机"
+character = "角色（骨架根关节或角色的顶层组，网格要蒙皮在关节上）"
+skeleton = "骨架的根关节"
+model = "一个网格"
+
+[dcc.nuke]
+select_first = "先在节点图里选中{what}"
+frame_expression = "{node} 的帧号用了表达式，Lab2Shot 跟不了：改用 offset / start at，或者点「选文件」"
+picture_label = "{node}：{file}"
+binding_gone = "（找不到了，请重新绑定）{label}"
+bound_gone = "绑定的节点找不到了（删掉了，或换了脚本）：{label}，请重新绑定"
+cannot_export = "Nuke 还不能把这种数据导出成文件：{kind}"
+kept_as_file = "{ext} 在 Nuke 里不建节点，文件留在版本文件夹里"
+settings_changed = "导入改了工程设置（{knobs}），这次导入已撤回"
+unknown_class = "这个版本的 Nuke 没有 {node_class} 节点"
+node_gone = "这个 Lab2Shot 节点已经不在脚本里了"
+
+[dcc.nuke.want]
+image = "一个 Read（画面），或者点「选文件」选画面"
+video = "读视频的 Read"
+camera = "一台摄影机（Camera）"
+points = "点云文件节点（GeoReference）"
+scene = "三维文件节点（GeoImport）"
+
+[dcc.cli]
+username = "用户名："
+password = "密码："
+failed = "失败：{error}"
+logged_in = "已登录：{name}（{username} · {department}），令牌记在 {file}"
+logged_out = "已退出"
+gpu_on = "接任务"
+gpu_off = "不接任务"
+expires = "（{hours:.0f} 小时后删除）"

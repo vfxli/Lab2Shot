@@ -65,17 +65,26 @@ def cg_orientations(parents, bind_world: np.ndarray, anim_world: np.ndarray) -> 
 
 
 def rig_of_model(joint_names, parents, bind_world: np.ndarray, anim_world: np.ndarray,
-                 lone_side: str | None = None) -> tuple[list[str], np.ndarray, np.ndarray]:
+                 lone_side: str | None = None, *, weights=None,
+                 by_shape: bool = False) -> tuple[list[str], np.ndarray, np.ndarray]:
     """将模型自身的骨架转换为 CG 约定：返回 (CG 骨骼名, 调整朝向后的 bind_world, 调整朝向后的 anim_world)。
-    骨骼名由 joints.cg_names（Mixamo 命名）生成，关节轴由 cg_orientations 规范化。
+    骨骼名由 joints.cg_names（项目骨骼命名规范 data/bone_names.py：Maya HumanIK / Mixamo 名）生成，关节轴由
+    cg_orientations 规范化。
+    `by_shape`：骨骼名本身说明不了部位的骨架（自动绑定的 bone_0、bone_1……）：按绑定姿势的位置和 `weights`
+    （带蒙皮权重的关节）识别部位，认不出的骨骼按规范的规则命名；不给时按模型自己的名字认、认不出的保留原名。
 
     这是整个项目中唯一执行该转换的位置：蒙皮角色经由 character_of_model，仅含骨骼的交付（families/rig_motion.py、families/rigging.py 与 Sketch2Anim）
     直接调用此处，两条路径得到的名称和轴向完全一致，同一人物在两种交付物中可以对应。
     `lone_side` ("l" / "r")：仅解算一只手且关节名不含左右的模型（MANO）由此声明是哪只手。"""
     from .joints import cg_names
 
+    names = [str(n) for n in joint_names]
+    if by_shape:
+        named = cg_names(names, parents, lone_side, np.asarray(bind_world, np.float64)[:, :3, 3], weights, "rule")
+    else:
+        named = cg_names(names, parents, lone_side)
     bind, anim = cg_orientations(parents, bind_world, anim_world)
-    return cg_names([str(n) for n in joint_names], parents, lone_side), bind, anim
+    return named, bind, anim
 
 
 def character_of_model(joint_names, parents, *, lone_side: str | None = None, **rest):
@@ -168,9 +177,29 @@ def model_regions(d, faces) -> dict[str, np.ndarray]:
 # SMPL 的中性体型为 .pkl（需要 chumpy 才能读取），SMPL-X 为 .npz，且 SMPL-X 是 SMPL 的超集
 # （相同的 22 个身体关节，另加手指、下巴和眼睛），一种身体即可覆盖两种用途。
 STANDARD_BODY = "smplx"
+# 其余可选骨架（如 Kimodo 的 SOMA 30、G1 34）由各自的扩展声明并登记（data/standard_bodies.py，Extension.standard_bodies），
+# 核心不写死任何一副；下面两个工具函数（merge_weights、scaled_to_ground）经 lab2shot.sdk 给它们用。
 
 
-def neutral_body(height_cm: float | None = None):
+def merge_weights(weights: np.ndarray, parents, kept: tuple[int, ...]) -> np.ndarray:
+    """把 LBS 蒙皮从 N 根骨骼并到 `kept`（保留关节的下标）上：每个被并掉的关节的权重并入最近的保留祖先
+    （「末端点跟随父关节」）。`weights` 为稠密 [V,N]；返回稠密 [V,len(kept)]（未归一化、未排序）。"""
+    kept = np.asarray(kept, np.int64)
+    parents = np.asarray(parents, np.int64)
+    at = {int(j): i for i, j in enumerate(kept)}
+    remap = np.empty(len(parents), np.int64)
+    for j in range(len(parents)):
+        k = j
+        while k not in at:
+            k = int(parents[k])
+        remap[j] = at[k]
+    out = np.zeros((len(weights), len(kept)), np.float64)
+    for j in range(len(parents)):
+        out[:, remap[j]] += np.asarray(weights, np.float64)[:, j]
+    return out
+
+
+def neutral_body(height_cm: float | None = None, body_only: bool = False):
     """中性体型、T-pose、带蒙皮和骨架的人体（`io/usd.py SkinnedCharacter`），厘米，Y 轴向上。
 
     网格和权重并非本项目生成：读取使用者自行下载并同意许可的身体模型文件
@@ -182,6 +211,9 @@ def neutral_body(height_cm: float | None = None):
     （解算器输出的每个蒙皮角色都经由它），因此「标准人」与 GVHMR / WHAM / SAM 3D Body 输出的人物
     在骨骼命名、关节朝向和每点影响骨骼数上完全一致，可被重定向和 HumanIK 识别。
     此处不引入新的数学计算：姿势全部为零旋转，`body_character` 的结果即静止姿势本身。
+
+    `body_only`：只保留 SMPL-X 的 22 个身体关节（Kimodo SMPL-X 骨架），去掉下巴、眼睛和 30 根手指，
+    它们的蒙皮权重并入最近的保留祖先（下巴、眼睛并入头，手指并入腕）。
 
     `height_cm`：将整个人体（关节与顶点）等比缩放到该身高；None 表示使用模型自身的身高。
     返回 (角色, 向使用者报告的数值)。
@@ -206,6 +238,9 @@ def neutral_body(height_cm: float | None = None):
         raise Invalid(Msg("E-BODY-JOINTCOUNT", model=body.title, file=path.name,
                           got=int(weights.shape[1]), want=body.joints))
     joints = regressor @ template  # 官方关节回归：静止网格 -> 静止姿势中各关节的位置
+    if body_only:
+        joints = joints[:22]
+        weights = merge_weights(weights, np.asarray(body.parents, np.int64), tuple(range(22)))
     tall = float(template[:, 1].max() - template[:, 1].min())  # 模型自身的身高，米
     scale = 1.0 if not height_cm else float(height_cm) / (tall * M_TO_CM)
     # 脚底位于 y = 0：身体模型的原点在骨盆，直接输出时人体会整体位于地面下约 130 厘米。
@@ -216,12 +251,26 @@ def neutral_body(height_cm: float | None = None):
     joints[:, 1] += lift
     template[:, 1] += lift
     character = body_character({
-        "rest_joints": joints, "parents": np.asarray(body.parents, np.int64),
+        "rest_joints": joints, "parents": np.asarray(body.parents[: joints.shape[0]], np.int64),
         "transl": np.zeros((1, 3)), "root_rest": joints[0],  # 根关节位于静止位置：单帧，无位移
         # 所有关节为单位旋转（`world_of` 接受旋转矩阵 [F,J,3,3]），即模型的静止姿势（T-pose）本身
-        "local_rotations": np.tile(np.eye(3), (1, body.joints, 1, 1)),
+        "local_rotations": np.tile(np.eye(3), (1, joints.shape[0], 1, 1)),
         "skin_weights": weights, "rest_vertices": template, "faces": faces,
-        "joint_names": list(body.names), "body_model": STANDARD_BODY,
+        "joint_names": list(body.names[: joints.shape[0]]), "body_model": STANDARD_BODY,
     })
-    return character, {"model": body.title, "joints": body.joints, "vertices": len(template),
+    return character, {"model": body.title, "joints": int(joints.shape[0]), "vertices": len(template),
                        "faces": len(faces), "height_cm": round(tall * M_TO_CM * scale, 1)}
+
+
+def scaled_to_ground(verts: np.ndarray, bind: np.ndarray, height_cm: float | None):
+    """(顶点 [V,3]、绑定 [J,4,4]，米) -> 按身高等比缩放并抬到地面（脚底 y = 0）后的厘米值 (顶点, 绑定)。
+    `height_cm` None：模型自身的身高。扩展登记的「标准人」身体（data/standard_bodies.py）用它和核心的一样落地。"""
+    tall = float(verts[:, 1].max() - verts[:, 1].min())
+    scale = 1.0 if not height_cm else float(height_cm) / (tall * M_TO_CM)
+    verts, bind = verts * scale, np.asarray(bind, np.float64).copy()
+    bind[:, :3, 3] *= scale
+    lift = -float(verts[:, 1].min())
+    verts[:, 1] += lift
+    bind[:, 1, 3] += lift
+    bind[:, :3, 3] *= M_TO_CM  # 米 -> 厘米（旋转矩阵不受影响，只缩放平移）
+    return verts * M_TO_CM, bind

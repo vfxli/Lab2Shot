@@ -18,6 +18,17 @@
   cursor: default;
 }
 
+/* 应用模式（卡片上没有线）：中性色，只写值或「跟随输入」 */
+.prow .ctl.pwired.app {
+  border-color: var(--hair-strong);
+  background: transparent;
+  color: var(--text-2);
+}
+
+.prow .ctl.pwired.app b {
+  font-weight: 400;
+}
+
 /* the value takes its room first; what shrinks first is the node name in 「· 来自 …」 (a name the user gave, i.e. the
    user's data): UI words are never truncated, the user's data may be, with the full name on hover */
 .prow .ctl.pwired b {
@@ -37,7 +48,7 @@
    beside the dot; no other words on the plot */
 .param-curve {
   position: relative;
-  margin: var(--sp-1) 0 0 var(--plabel-w, 92px);
+  margin: var(--sp-1) 16px 0;
   height: 76px;
   border-radius: var(--r-md);
   border: 1px solid var(--hair);

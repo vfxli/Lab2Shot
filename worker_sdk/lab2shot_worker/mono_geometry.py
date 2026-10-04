@@ -176,18 +176,18 @@ def frame_arrays(points: torch.Tensor, mask: torch.Tensor, intrinsics: np.ndarra
     return arrays
 
 
-def run_frames(run: Run, infer: Callable[[np.ndarray, int], dict], label: str = "估计几何", dtype: str = "uint8") -> dict:
+def run_frames(run: Run, infer: Callable[[np.ndarray, int], dict], word: str = "estimate_geometry", dtype: str = "uint8") -> dict:
     """Read every frame (prefetched), run `infer(rgb [H,W,3] of `dtype`, frame) -> frame_arrays(...)` (an extra
     "_stats" dict collects per-frame numbers), write raw/frame_<n>.npz. Timing and progress are the Run's; returns the
     per-shot statistics finish_geometry writes (with the frame numbers under "frames")."""
     frames = run.frames()
     raw = run.job.raw_dir
     stats: dict[str, list] = {"focal_px": [], "depth_median": []}
-    run.stage("逐帧估计几何")
+    run.stage("estimate_geometry")
     # bounded writes: never hold a whole shot of arrays in RAM
     with FrameReader(frames.paths, lambda path: read_frame(path, dtype), threads=1, ahead=1) as reader, \
             Writer(threads=2, max_pending=4) as writer:
-        for i, (frame, _path) in run.each(frames.pairs, label):
+        for i, (frame, _path) in run.each(frames.pairs, word):
             rgb = reader.get(i)
             with run.frame():
                 arrays = infer(rgb, frame)

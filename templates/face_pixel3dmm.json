@@ -2,112 +2,169 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "49e3136e1a092857bad447c5d96ba69a",
-  "name": "面部动作 · Pixel3DMM",
-  "intro": "Pixel3DMM 是一组高度泛化的视觉 transformer：逐像素预测几何线索（法线和规范面部 UV），用来约束三维形变人脸模型（3DMM）的优化。这张卡把 FLAME 头模拟合到整段脸部特写，交付带表情形变的头（网格、102 个 blendshape 与逐帧权重、下巴 / 脖子 / 眼球关节动画）和它解出的相机。",
+  "name": {
+   "zh": "面部动作 · Pixel3DMM",
+   "en": "Face Motion · Pixel3DMM"
+  },
+  "intro": {
+   "zh": "Pixel3DMM 是一组高度泛化的视觉 transformer：逐像素预测几何线索（法线和规范面部 UV），用来约束三维形变人脸模型（3DMM）的优化。这张卡把 FLAME 头部网格拟合到整段脸部特写，交付带表情形变的头（网格、102 个融合变形 与逐帧权重、下巴 / 脖子 / 眼球关节动画）和它解出的摄影机。",
+   "en": "Pixel3DMM is a set of highly generalizable vision transformers that predict per-pixel geometric cues (normals and canonical face UVs) to constrain the optimization of a 3D morphable face model (3DMM). This card fits the FLAME head to a whole face close-up and delivers a head with expression deformation (mesh, 102 blend shapes with per-frame weights, jaw / neck / eye joint animation) and the camera it solves."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-19T22:00:00",
   "deliverable": "face_anim",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00"
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "kind": "group",
-   "label": "镜头",
+   "label": {
+    "zh": "镜头",
+    "en": "Lens"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "focal",
-     "label": "已知 Focal Length",
+     "label": {
+      "zh": "已知焦距",
+      "en": "Known Focal Length"
+     },
      "target": "face.focal_mm"
     },
     {
      "name": "filmback",
-     "label": "Filmback",
+     "label": {
+      "zh": "胶片背",
+      "en": "Aperture"
+     },
      "target": "face.filmback_mm",
      "disable_when": "not focal"
     }
    ]
   },
   {
-   "name": "quality",
-   "label": "质量",
+   "name": "face_quality",
+   "label": {
+    "zh": "质量",
+    "en": "Quality"
+   },
    "target": "face.quality"
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
      "name": "least_frames",
-     "label": "最少解出帧数",
+     "label": {
+      "zh": "最少解出帧数",
+      "en": "Min Solved Frames"
+     },
      "target": "face.least_frames"
     }
    ]
   },
   {
    "name": "cook_face",
-   "label": "解算面部",
+   "label": {
+    "zh": "解算面部",
+    "en": "Solve Face"
+   },
    "target": "face.cook"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "usd.name"
     },
     {
      "name": "unit",
-     "label": "单位",
-     "target": "out.unit"
+     "label": {
+      "zh": "单位",
+      "en": "Units"
+     },
+     "target": "usd.unit"
     },
     {
      "name": "fps",
-     "label": "帧率",
+     "label": {
+      "zh": "帧速率",
+      "en": "FPS"
+     },
      "target": "fps.value"
     }
    ]
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -116,8 +173,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -126,13 +182,12 @@
    },
    "ui": {
     "x": 0,
-    "y": 416
+    "y": 435
    }
   },
   {
    "id": "face",
-   "type": "pixel3dmm.face",
-   "label": "Pixel3DMM 面部动作",
+   "type": "pixel3dmm.face_solve",
    "params": {
     "focal_mm": null,
     "filmback_mm": null,
@@ -141,7 +196,7 @@
    },
    "ui": {
     "x": 400,
-    "y": 348,
+    "y": 367,
     "on_node": [
      "focal_mm",
      "quality"
@@ -149,9 +204,8 @@
    }
   },
   {
-   "id": "out",
-   "type": "core.output_usd",
-   "label": "USD 输出设置",
+   "id": "usd",
+   "type": "usd.output",
    "params": {
     "name": "scene",
     "format": "usd",
@@ -159,8 +213,8 @@
     "fps": 24.0
    },
    "ui": {
-    "x": 830,
-    "y": 364,
+    "x": 816,
+    "y": 383,
     "on_node": [
      "name",
      "unit"
@@ -172,24 +226,22 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
-    "x": 1230,
-    "y": 392
+    "x": 1216,
+    "y": 411
    }
   },
   {
    "id": "fps",
-   "type": "core.value_float",
-   "label": "帧率",
+   "type": "value_float",
    "params": {
     "value": 24.0,
     "unit": ""
    },
    "ui": {
-    "x": 470,
+    "x": 456,
     "y": 0
    },
    "promoted": [
@@ -210,7 +262,7 @@
   },
   {
    "from": [
-    "out",
+    "usd",
     "files"
    ],
    "to": [
@@ -224,7 +276,7 @@
     "camera"
    ],
    "to": [
-    "out",
+    "usd",
     "scene"
    ]
   },
@@ -234,7 +286,7 @@
     "value"
    ],
    "to": [
-    "out",
+    "usd",
     "param:fps"
    ]
   },
@@ -244,7 +296,7 @@
     "character"
    ],
    "to": [
-    "out",
+    "usd",
     "scene"
    ]
   }

@@ -1,0 +1,141 @@
+# This extension's words and messages in English (the same keys as zh.toml).
+
+# ---- reading .abc (worker.py alembic.import)
+"E-ALEMBIC-NOFILE" = "Cannot find the file {path}: it was moved or renamed. Pick it again in alembic.import"
+"E-ALEMBIC-NOTABC" = "Cannot read {name}: it is not a valid Alembic file, or the file is incomplete (an export that was interrupted, a copy not finished). Export it again from the DCC"
+"E-ALEMBIC-NAMEENCODING" = "Cannot read {name}: an object name, face set name or Lab2Shot attribute in the file is not UTF-8 (most likely written as GBK by software on a Chinese system). These names become the paths and group names of the imported items and cannot be guessed at: rename them in English in the DCC, or export the Alembic again as UTF-8, then pick the file again"
+"N-ALEMBIC-NOFPS" = "The file records no frame rate and its samples are not uniform: Alembic seconds are turned into frame numbers at {fps:g} FPS. If the file is at another rate the frame numbers will not match; record the frame rate when exporting from the DCC"
+"N-ALEMBIC-SUBFRAMES.one" = "{path} has {count} sample between frames (motion blur subframes): only the sample nearest each whole frame is taken, animation on subframes is not read"
+"N-ALEMBIC-SUBFRAMES.other" = "{path} has {count} samples between frames (motion blur subframes): only the sample nearest each whole frame is taken, animation on subframes is not read"
+"W-ALEMBIC-FILMBACKOPS" = "Camera {path} has film back operations: they are not applied here, so the frame may not match the original scene"
+"W-ALEMBIC-VARYINGPOINTS" = "The point count of mesh {path} changes from frame to frame (a fluid or particle mesh): only the first frame's shape is taken and later frames do not follow. For a per-frame shape, convert it in the DCC to a mesh with a constant point count, or to VDB, and export again"
+"W-ALEMBIC-FACESETRANGE.one" = "The face set \"{path}\" has {dropped} face that is not on the mesh (the file was written for another topology): those faces were not brought in"
+"W-ALEMBIC-FACESETRANGE.other" = "The face set \"{path}\" has {dropped} faces that are not on the mesh (the file was written for another topology): those faces were not brought in"
+
+# ---- writing .abc (worker.py alembic.output)
+"E-ALEMBIC-SUFFIX" = "The output file must end in .abc: {path}. Change the file name in alembic.output to .abc"
+"E-ALEMBIC-NOSKELETON" = "Alembic has no skeletal animation, and the scene holds {count}: bake them to per-frame geometry first with bake_geometry, or use USD / FBX output instead"
+"E-ALEMBIC-FPS" = "The scene's frame rate is {fps:g}, not a positive number, so frame numbers cannot be turned into Alembic seconds: check the frame rate of the upstream nodes"
+"E-ALEMBIC-FACES.one" = "The mesh has {indices:,} index, but its face vertex counts add up to {corners:,}: the mesh data from upstream is incomplete. This is a program error; send the log to the developers"
+"E-ALEMBIC-FACES.other" = "The mesh has {indices:,} indices, but its face vertex counts add up to {corners:,}: the mesh data from upstream is incomplete. This is a program error; send the log to the developers"
+"E-ALEMBIC-TRANSFORMS.one" = "{name} has {transforms} transform for {frames} frames, which do not match: the scene data from upstream is incomplete. This is a program error; send the log to the developers"
+"E-ALEMBIC-TRANSFORMS.other" = "{name} has {transforms} transforms for {frames} frames, which do not match: the scene data from upstream is incomplete. This is a program error; send the log to the developers"
+"E-ALEMBIC-MESHFRAMES.one" = "Mesh {name} has {samples} point set for {frames} frames, which do not match: the scene data from upstream is incomplete. This is a program error; send the log to the developers"
+"E-ALEMBIC-MESHFRAMES.other" = "Mesh {name} has {samples} point sets for {frames} frames, which do not match: the scene data from upstream is incomplete. This is a program error; send the log to the developers"
+"E-ALEMBIC-CLOUDPOINTS.one" = "Point cloud {name} does not add up: {counted:,} point recorded, {points:,} given (groups: {groups}, frames: {frames}): the scene data from upstream is incomplete. This is a program error; send the log to the developers"
+"E-ALEMBIC-CLOUDPOINTS.other" = "Point cloud {name} does not add up: {counted:,} points recorded, {points:,} given (groups: {groups}, frames: {frames}): the scene data from upstream is incomplete. This is a program error; send the log to the developers"
+"E-ALEMBIC-CURVEPOINTS.one" = "The curves of 3D curves {name} hold {counted:,} point in all, but {points:,} points were given: the scene data from upstream is incomplete. This is a program error; send the log to the developers"
+"E-ALEMBIC-CURVEPOINTS.other" = "The curves of 3D curves {name} hold {counted:,} points in all, but {points:,} points were given: the scene data from upstream is incomplete. This is a program error; send the log to the developers"
+
+"I-ALEMBIC-NOBONES" = "Alembic has no bones"
+"I-ALEMBIC-NOGAUSSIAN" = "Write 3D Gaussians with PLY or USD output"
+"I-ALEMBIC-NOLIGHT" = "Alembic has no lights: a dome light (HDRI) only travels in USD"
+
+# ---- compiling at install (build.py)
+"E-ALEMBIC-NOCOMPILER" = "Cannot find the compiler {name}: install a C/C++ compiler, or put the compiler's name in {setting} of the [build] section of config/local.toml, then run lab2shot ext install alembic"
+
+# ---- words
+
+[node."alembic.import"]
+subtitle = "Import Alembic"
+description = "Imports Alembic (.abc) files exported from Maya, Houdini or 3DE: lists the cameras, geometry, point clouds and 3D curves in the file by hierarchy, and outputs the ones you select, with their parents' transforms (animation included) applied. Alembic records no unit and no up axis: set them in Unit and Up Axis. It stores seconds, which are turned into frame numbers at the frame rate the file records (files Lab2Shot writes record it; 24 when none is recorded). To read skeletal animation and skinned characters, use fbx.import or usd.import (Alembic has no bones)."
+
+[node."alembic.import".param.path]
+label = "File"
+
+[node."alembic.import".param.camera]
+label = "Camera"
+
+[node."alembic.import".param.models]
+label = "Geometry"
+
+[node."alembic.import".param.points]
+label = "Point Cloud"
+
+[node."alembic.import".param.curves]
+label = "3D Curves"
+
+[node."alembic.import".param.unit]
+label = "Unit"
+
+[node."alembic.import".param.unit.option]
+cm = "Centimeters · Maya"
+m = "Meters · Houdini"
+
+[node."alembic.import".param.up]
+label = "Up Axis"
+
+[node."alembic.import".param.up.option]
+y = "Y Up"
+z = "Z Up"
+
+[node."alembic.import".param.width]
+label = "Image Width"
+
+[node."alembic.import".cost]
+note = "CPU only"
+
+[node."alembic.import".port.camera]
+label = "Camera"
+waits = "Select a camera"
+
+[node."alembic.import".port.models]
+label = "Geometry"
+waits = "Select a geometry"
+
+[node."alembic.import".port.points]
+label = "Point Cloud"
+waits = "Select a point cloud"
+
+[node."alembic.import".port.curves]
+label = "3D Curves"
+waits = "Select a set of 3D curves"
+
+[node."alembic.import".port.fps]
+label = "FPS"
+help = "The Alembic's frame rate: the FPS hint the DCC wrote; without one, the rate found from the sampling interval; without either, empty. Wire it to a motion model's or an output setting's FPS to follow this file; when the file records none there is no value here and the other side uses its own"
+
+[node."alembic.output"]
+subtitle = "Alembic Output"
+description = "Writes 3D data as Alembic (.abc): geometry (static, moving with a transform, or deforming per frame), cameras, point clouds and 3D curves, readable in Maya, Houdini and Blender. Scene takes several wires, or one scene list (each item is written under /shot/<item name>), packed into one scene before writing. Wire it to output to deliver it."
+
+[node."alembic.output".cost]
+whole = "Writes one file; the time depends on how much is written (about 1 second for 300 frames of meshes and cameras), not on the frame count"
+
+[node."alembic.output".stage]
+gather_scene = "Gather Scene"
+
+[node."alembic.output".param.name]
+label = "Name"
+
+[node."alembic.output".param.unit]
+label = "Unit"
+
+[node."alembic.output".param.unit.option]
+cm = "Centimeters · Maya"
+m = "Meters · Houdini"
+
+[node."alembic.output".param.fps]
+label = "FPS"
+
+[node."alembic.output".port.scene]
+label = "Scene"
+
+[extension.alembic]
+summary = "An open framework for exchanging computer graphics: bakes complex animated scenes into application-independent, non-procedural geometric results"
+
+[extension.alembic.license]
+name = "BSD-3-Clause"
+summary = "BSD-3: commercial use, modification and redistribution allowed (keep the copyright notice); its dependency Imath is also BSD-3 and Boost is under the Boost license, all usable commercially. It is compiled from source at install, which needs a C++ compiler on this machine (cc / cxx in the build section of config/local.toml)"
+
+[stage]
+read_alembic = "Read Alembic"
+read_object = "Read {name}"
+write_alembic = "Write Alembic"
+write_mesh = "Mesh {name}"
+write_points = "Point Cloud {name}"
+write_camera = "Camera {name}"
+write_curves = "3D Curves {name}"
+
+[format]
+alembic = "Alembic"

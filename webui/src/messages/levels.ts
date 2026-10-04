@@ -6,14 +6,15 @@ import type { Level } from "./format";
  * `order`: which level is shown first when a node has several (errors, then production risk, then the rest);
  * `log`: the page log's level; `listed`: the levels shown to the user (`I` information goes only to the log: never on a node, never counted as
  * the loudest one),
- * read only by `editor/NodeInfoCard.tsx worstLevel`; `risk`: drawn in the production-risk red — the one level that is. */
+ * read only by `editor/NodeInfoCard.tsx worstLevel`; `risk`: drawn in the production-risk red — the one level that is.
+ * `word`, `tip`: the keys of the level's name and its explanation (lab2shot/i18n/<lang>/ui/misc.toml), read with t(). */
 export const LEVEL_TABLE: Readonly<Record<Level, { word: string; tip: string; log: "error" | "warn" | "info"; listed: boolean; risk: boolean; order: number }>> = {
-  P: { word: "生产风险", tip: "生产风险：可能造成生产事故，交付前需处理。红色只用于此级别。", log: "error", listed: true, risk: true, order: 1 },
-  E: { word: "错误", tip: "错误：节点未能完成计算。", log: "error", listed: true, risk: false, order: 0 },
-  B: { word: "拦下", tip: "拦下：提交前已拦下，处理后重新提交。", log: "error", listed: true, risk: false, order: 2 },
-  W: { word: "警告", tip: "警告：已完成计算，结果可能不符合预期。", log: "warn", listed: true, risk: false, order: 3 },
-  N: { word: "提醒", tip: "提醒：正常情况，供参考。", log: "info", listed: true, risk: false, order: 4 },
-  I: { word: "信息", tip: "信息：只记录在日志中。", log: "info", listed: false, risk: false, order: 5 },
+  P: { word: "ui.misc.level.p", tip: "ui.misc.level.p_tip", log: "error", listed: true, risk: true, order: 1 },
+  E: { word: "ui.misc.level.e", tip: "ui.misc.level.e_tip", log: "error", listed: true, risk: false, order: 0 },
+  B: { word: "ui.misc.level.b", tip: "ui.misc.level.b_tip", log: "error", listed: true, risk: false, order: 2 },
+  W: { word: "ui.misc.level.w", tip: "ui.misc.level.w_tip", log: "warn", listed: true, risk: false, order: 3 },
+  N: { word: "ui.misc.level.n", tip: "ui.misc.level.n_tip", log: "info", listed: true, risk: false, order: 4 },
+  I: { word: "ui.misc.level.i", tip: "ui.misc.level.i_tip", log: "info", listed: false, risk: false, order: 5 },
 };
 
 /** The levels in the order they are listed. */

@@ -11,10 +11,11 @@ from lab2shot_shared.motion import orthonormal
 from ..kit.ports import values_port
 from ..kit.ports import normal_port
 from ...errors import Invalid
+from ... import i18n
 from ...messages import Msg
 from ..base import NodeDef, NodeParams, P, Port
 from ..expects import NotAlready, NotDisparity, OwnCamera, SameShot
-from ..applies import Wired
+from ..applies import Cost, Wired
 from ...data.units import M_TO_CM, PERCENT
 from ...data.contracts import meant
 
@@ -36,22 +37,22 @@ def _depth_port(scale_matters: bool = True) -> Port:
     """节点要转成三维的深度。scale_matters 为 False 时只关心形状（法线与尺度无关）。
 
     输入图自身标明为视差时给出提示（NotDisparity）：视差直接反投影得到的三维是变形的，且无法从数值上察觉。"""
-    return Port("depth", "image.1", "深度图", means=("scale",), expects=(OwnCamera(), NotDisparity()) if scale_matters else (NotDisparity(),))
+    return Port("depth", "image.1", means=("scale",), expects=(OwnCamera(), NotDisparity()) if scale_matters else (NotDisparity(),))
 
 
-def _camera_port(of: str, label: str = "相机", optional: bool = False) -> Port:
+def _camera_port(of: str, optional: bool = False) -> Port:
     """二维结果（输入 `of`）所对应的观察相机。"""
-    return Port("camera", "scene.camera", label, optional=optional, expects=(SameShot(of),))
+    return Port("camera", "scene.camera", optional=optional, expects=(SameShot(of),))
 
 
 def _view(camera, frames: list[int], width: int, world: bool) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """`frames` 各帧的相机：以 `width` 为宽度时的像素焦距、相机到世界矩阵 [F,4,4]（相机空间时为单位阵），
-    以及以 `width` 为宽度时的像素主点 [F,2]（相机未写出主点时取画面中心）。"""
+    """`frames` 各帧的相机：以 `width` 为宽度时的像素焦距 (fx, fy) [F,2]（像素不是正方形时 fy ≠ fx）、相机到世界矩阵
+    [F,4,4]（相机空间时为单位阵），以及以 `width` 为宽度时的像素主点 [F,2]（相机未写出主点时取画面中心）。"""
     from ...data.camera import CameraSamples
 
     samples = CameraSamples.from_packet(camera, frames)
     mats = np.repeat(np.eye(4)[None], len(frames), 0) if not world else samples.cam_to_world
-    return samples.focal_px(width), mats, samples.principal_px(width)
+    return samples.focal_xy_px(width), mats, samples.principal_px(width)
 
 
 def normals_from_positions(p: np.ndarray, valid: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -78,21 +79,19 @@ def normals_from_positions(p: np.ndarray, valid: np.ndarray) -> tuple[np.ndarray
     return np.where(ok[..., None], n / np.maximum(length, 1e-12)[..., None], 0.0).astype(np.float32), ok
 
 
-SPACE_LABELS = {"world": "世界", "camera": "相机"}
-NORMAL_SPACES = tuple((k, f"{v}空间的法线") for k, v in SPACE_LABELS.items())
+NORMAL_SPACES = i18n.Words("normals.space.", ("world", "camera"))  # value -> what normals in that space are called
 
 
 class WorldPosition(NodeDef):
-    id = "core.world_position"
+    id = "position_from_depth"
     on_node = ("space",)
     keeps_overscan = False  # 通过相机在画面框内计算：框外像素在三维中没有对应位置
     category = "geometry_tools"
     inputs = (_depth_port(), _camera_port("depth"))
-    outputs = (Port("position", "image.3", "位置图", means=("space",), data=True),)
+    outputs = (Port("position", "image.3", means=("space",), data=True),)
 
     class Params(NodeParams):
-        space: Literal["world", "camera"] = P("world", label="坐标系", group="位置",
-                                              option_labels=SPACE_LABELS)
+        space: Literal["world", "camera"] = P("world", group="position")
 
     @classmethod
     def cook(cls, ctx):
@@ -105,12 +104,12 @@ class WorldPosition(NodeDef):
         rows, cols = (a.ravel() for a in np.indices((h, w)))
         out = ExrWriter(ctx.outputs["position"], 3, validity=True, space=ctx.params["space"])
         files = image_files(depth)
-        ctx.stage("计算位置图")
+        ctx.stage("compute_position")
 
         def position(job):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             i, f = job
             z, alpha = read_map(files[f])
-            out.add(f, unproject_depth(z[..., 0], float(focal[i]), mats[i], rows, cols, pp[i]).reshape(h, w, 3), alpha)
+            out.add(f, unproject_depth(z[..., 0], focal[i], mats[i], rows, cols, pp[i]).reshape(h, w, 3), alpha)
 
         list(ctx.each_done(enumerate(frames), position))
         return {"position": out.packet()}
@@ -192,11 +191,11 @@ def depth_edges(z: np.ndarray, points: np.ndarray | None = None, rtol: float = E
     return jump & (angle > np.radians(float(tol_deg))) & got
 
 
-def camera_grid(z: np.ndarray, focal_px: float) -> np.ndarray:
-    """整幅深度图在相机空间中的三维点 [H,W,3]（针孔模型，主点位于画面中心），仅用于求法线。"""
+def camera_grid(z: np.ndarray, focal_px) -> np.ndarray:
+    """整幅深度图在相机空间中的三维点 [H,W,3]（针孔模型，主点位于画面中心），仅用于求法线。`focal_px`：(fx, fy)。"""
     h, w = z.shape
     y, x = np.mgrid[0:h, 0:w]
-    return np.stack([(x + 0.5 - w / 2) * z / focal_px, (y + 0.5 - h / 2) * z / focal_px, z], axis=-1)
+    return np.stack([(x + 0.5 - w / 2) * z / focal_px[0], (y + 0.5 - h / 2) * z / focal_px[1], z], axis=-1)
 
 
 def points_from_depth(ctx, depth, camera, image, mask, step: int, point_size: float, space: str, confidence=None,
@@ -217,11 +216,11 @@ def points_from_depth(ctx, depth, camera, image, mask, step: int, point_size: fl
     from ..kit.unproject import unproject_depth
     from ...data.units import CV_TO_GL
 
-    same_size({"深度图": depth, "排除遮罩": mask, "置信度": confidence})
+    same_size({ctx.node_type.port_label("depth"): depth, ctx.node_type.port_label("mask"): mask, ctx.node_type.port_label("confidence"): confidence})
     frames, w, h = depth.meta["frames"], depth.meta["width"], depth.meta["height"]
     focal, mats, pp = _view(camera, frames, w, space == "world")
     files = image_files(depth)
-    ctx.stage("生成点云")
+    ctx.stage("make_points")
 
     def points(job):
         """一帧的点（及颜色、是否取自模型的点图）：各帧互不相干，由引擎逐帧并行（ctx.each_done），按帧序收集。"""
@@ -231,7 +230,7 @@ def points_from_depth(ctx, depth, camera, image, mask, step: int, point_size: fl
         # 飞点：前后景交界处反投影出的点悬在半空。判据需要整幅三维点（法线条件需要邻居），因此先按模型点图或
         # 针孔反投影生成一张点图（仅用于求法线方向，量纲和轴向不影响夹角）。
         model_grid = np.asarray(native(f), np.float64) if native is not None else None
-        grid = model_grid if model_grid is not None else camera_grid(z[..., 0], float(focal[i]))
+        grid = model_grid if model_grid is not None else camera_grid(z[..., 0], focal[i])
         keep &= ~depth_edges(z[..., 0], grid)[::step, ::step]
         excluded = map_at(mask, f) if mask is not None else None  # 静态遮罩在每一帧都生效
         if excluded is not None:
@@ -249,7 +248,7 @@ def points_from_depth(ctx, depth, camera, image, mask, step: int, point_size: fl
             got = np.asarray(model, np.float64)[r, c] * CV_TO_GL * scale_cm
             placed = (got @ mats[i][:3, :3].T + mats[i][:3, 3]).astype(np.float32)
         else:
-            placed = unproject_depth(z[..., 0], float(focal[i]), mats[i], r, c, pp[i]).astype(np.float32)
+            placed = unproject_depth(z[..., 0], focal[i], mats[i], r, c, pp[i]).astype(np.float32)
         colored = image is not None and file_at(image, f) is not None
         # 未连接「颜色」时按深度着色（中性灰无法体现远近）：近亮远暗，
         # 范围取该帧保留点的 2%–98% 分位，以避开个别飞点。
@@ -270,12 +269,12 @@ def points_from_depth(ctx, depth, camera, image, mask, step: int, point_size: fl
                  "confidence": confidence.fingerprint if confidence is not None else None,
                  "min_confidence": float(min_confidence) if confidence is not None else None}
     return points_packet(ctx.outputs["points"], frames, "points", pts, cols,
-                         scale=meant(ctx, depth, "scale", "深度图"), width_cm=point_size, width=w, height=h,
+                         scale=meant(ctx, depth, "scale", ctx.node_type.port_label("depth")), width_cm=point_size, width=w, height=h,
                          depth_grid=made_from, points_from=points_from)
 
 
 class DepthToPoints(NodeDef):
-    id = "core.depth_points"
+    id = "points_from_depth"
     on_node = ("point_step", "space")
     version = 5  # 结果变化时递增，work/ 中的旧结果随之不再命中缓存（engine/cook.py）
     keeps_overscan = False  # 通过相机在画面框内计算：框外像素在三维中没有对应位置
@@ -283,20 +282,17 @@ class DepthToPoints(NodeDef):
     inputs = (
         _depth_port(),
         _camera_port("depth"),
-        Port("image", "image.3", "颜色", optional=True, data=False, expects=(SameShot("depth"),),
-             help="点云的颜色取自这张画面。不接就按远近着色：近的亮、远的暗"),
-        Port("mask", "image.1", "排除", optional=True, expects=(SameShot("depth"),)),
-        Port("confidence", "image.1", "置信度", optional=True, expects=(SameShot("depth"),),
-             help="深度图节点给的置信度：低于「置信度门槛」的点不进点云（模型自己没把握的地方：物体边缘拖出的飞点、天空、反光）"),
+        Port("image", "image.3", optional=True, data=False, expects=(SameShot("depth"),)),
+        Port("mask", "image.1", optional=True, expects=(SameShot("depth"),)),
+        Port("confidence", "image.1", optional=True, expects=(SameShot("depth"),)),
     )
-    outputs = (Port("points", "scene.points", "点云"),)
+    outputs = (Port("points", "scene.points"),)
 
     class Params(NodeParams):
-        point_step: int = P(4, label="点云间隔", ge=1, le=64, group="点云")
-        point_size: float = P(0.5, label="点的大小", unit="cm", gt=0, le=100, group="点云")
-        space: Literal["world", "camera"] = P("world", label="坐标系", group="点云",
-                                              option_labels=SPACE_LABELS)
-        conf_threshold: float = P(0.5, label="置信度门槛", ge=0, le=1, group="点云", applies=Wired("confidence"))
+        point_step: int = P(4, ge=1, le=64, group="point_cloud")
+        point_size: float = P(0.5, unit="cm", gt=0, le=100, group="point_cloud")
+        space: Literal["world", "camera"] = P("world", group="point_cloud")
+        conf_threshold: float = P(0.5, ge=0, le=1, group="point_cloud", applies=Wired("confidence"))
 
     @classmethod
     def cook(cls, ctx):
@@ -308,7 +304,7 @@ class DepthToPoints(NodeDef):
 
 
 class DepthNormal(NodeDef):
-    id = "core.depth_normal"
+    id = "normal_from_depth"
     on_node = ("space",)
     keeps_overscan = False  # 通过相机在画面框内计算：框外像素在三维中没有对应位置
     category = "geometry_tools"
@@ -316,8 +312,7 @@ class DepthNormal(NodeDef):
     outputs = (normal_port(),)
 
     class Params(NodeParams):
-        space: Literal["camera", "world"] = P("camera", label="坐标系", group="法线",
-                                              option_labels=SPACE_LABELS)
+        space: Literal["camera", "world"] = P("camera", group="normals")
 
     @classmethod
     def cook(cls, ctx):
@@ -332,12 +327,12 @@ class DepthNormal(NodeDef):
         rows, cols = (a.ravel() for a in np.indices((h, w)))
         out = ExrWriter(ctx.outputs["normal"], 3, validity=True, value_range=SIGNED, half=True, space=ctx.params["space"])
         files = image_files(depth)
-        ctx.stage("计算法线")
+        ctx.stage("compute_normals")
 
         def normal(job):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             i, f = job
             z, alpha = read_map(files[f])
-            p = unproject_depth(z[..., 0], float(focal[i]), np.eye(4), rows, cols, pp[i]).reshape(h, w, 3)
+            p = unproject_depth(z[..., 0], focal[i], np.eye(4), rows, cols, pp[i]).reshape(h, w, 3)
             n, ok = normals_from_positions(p, alpha > 0)
             out.add(f, n @ rotations[i].T if world else n, ok)
 
@@ -346,17 +341,16 @@ class DepthNormal(NodeDef):
 
 
 class NormalSpace(NodeDef):
-    id = "core.normal_space"
+    id = "normal_space"
     on_node = ("space",)
     keeps_overscan = False  # 通过相机在画面框内计算：框外像素在三维中没有对应位置
     category = "geometry_tools"
-    inputs = (values_port("normal", "image.3", "法线图", means=("space",), expects=(NotAlready("space", NORMAL_SPACES),)),
+    inputs = (values_port("normal", "image.3", means=("space",), expects=(NotAlready("space", NORMAL_SPACES),)),
               _camera_port("normal"))
     outputs = (normal_port(),)
 
     class Params(NodeParams):
-        space: Literal["world", "camera"] = P("world", label="转到", group="法线",
-                                              option_labels=SPACE_LABELS)
+        space: Literal["world", "camera"] = P("world", group="normals")
 
     @classmethod
     def cook(cls, ctx):
@@ -364,11 +358,11 @@ class NormalSpace(NodeDef):
 
         normal, camera = ctx.input("normal"), ctx.input("camera")
         frames, w, target = normal.meta["frames"], normal.meta["width"], ctx.params["space"]
-        source = meant(ctx, normal, "space", "法线图")
+        source = meant(ctx, normal, "space", ctx.node_type.port_label("normal"))
         rotations = orthonormal(np.asarray(_view(camera, frames, w, True)[1], np.float64)[:, :3, :3])
         out = ExrWriter(ctx.outputs["normal"], 3, validity=True, value_range=SIGNED, half=True, space=target)
         files = image_files(normal)
-        ctx.stage("转换法线")
+        ctx.stage("convert_normals")
 
         def turn(job):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
             i, f = job
@@ -398,24 +392,23 @@ def depth_under(z: np.ndarray, valid: np.ndarray, xy: np.ndarray) -> np.ndarray:
 
 
 class TracksToPoints(NodeDef):
-    id = "core.tracks_to_points"
+    id = "points_from_tracks"
     keeps_overscan = False  # 通过相机在画面框内计算：框外像素在三维中没有对应位置
     category = "geometry_tools"
     inputs = (
-        Port("tracks", "tracks2d", "2D 跟踪点"),
+        Port("tracks", "tracks2d"),
         _depth_port(),
         _camera_port("tracks"),
-        Port("image", "image.3", "颜色", optional=True, data=False, expects=(SameShot("tracks"),)),
+        Port("image", "image.3", optional=True, data=False, expects=(SameShot("tracks"),)),
     )
     # 端口名为 `tracks3d` 而非 `points`：`points` 在全项目中指「点云」，此处输出的是带编号、整段跟随同一点的
     # 「3D 跟踪点」，与 families/tracks3d.py 中的端口同名。
-    outputs = (Port("tracks3d", "scene.points", "3D 跟踪点"),)
+    outputs = (Port("tracks3d", "scene.points"),)
     on_node = ("space",)
 
     class Params(NodeParams):
-        space: Literal["world", "camera"] = P("world", label="坐标系", group="点",
-                                              option_labels=SPACE_LABELS)
-        point_size: float = P(1.0, label="点的大小", unit="cm", gt=0, le=100, group="点")
+        space: Literal["world", "camera"] = P("world", group="points")
+        point_size: float = P(1.0, unit="cm", gt=0, le=100, group="points")
 
     @classmethod
     def cook(cls, ctx):
@@ -425,7 +418,7 @@ class TracksToPoints(NodeDef):
 
         tracks, image = ctx.input("tracks"), ctx.input("image")
         depth, camera = _depth_and_camera(ctx)
-        same_size({"深度图": depth, "2D 跟踪点": tracks})
+        same_size({ctx.node_type.port_label("depth"): depth, ctx.node_type.port_label("tracks"): tracks})
         t = read_tracks(tracks)
         frames, w, h = tracks.meta["frames"], tracks.meta["width"], tracks.meta["height"]
         files = image_files(depth)
@@ -438,7 +431,7 @@ class TracksToPoints(NodeDef):
         n = len(t["tracks"])
         xyz = np.full((n, len(frames), 3), np.nan)
         seen = t["visible"].copy()
-        ctx.stage("取深度，放进相机的世界")
+        ctx.stage("depth_to_camera_world")
 
         def place(job):
             """一帧：（该帧可见的点，其中取到深度的，它们的位置）；该帧没有深度时为 None。各帧互不相干，
@@ -451,7 +444,7 @@ class TracksToPoints(NodeDef):
             d = depth_under(z[..., 0], alpha > 0, t["tracks"][on, j])
             ok = np.isfinite(d)
             xy = t["tracks"][on[ok], j]
-            return on, ok, camera_points(d[ok], xy[:, 0], xy[:, 1], float(focal[j]), w, h, mats[j], pp[j])
+            return on, ok, camera_points(d[ok], xy[:, 0], xy[:, 1], focal[j], w, h, mats[j], pp[j])
 
         for j, got in enumerate(ctx.each_done(enumerate(frames), place)):
             if got is None:
@@ -465,7 +458,7 @@ class TracksToPoints(NodeDef):
             ctx.say("N-POINTS-NODEPTH", count=lost)
         colours = start_colours(image, t, frames) if image is not None else None
         return {"tracks3d": tracked_points_packet(ctx.outputs["tracks3d"], frames, "tracks", xyz, seen,
-                                                  scale=meant(ctx, depth, "scale", "深度图"), colors=colours, width_cm=ctx.params["point_size"],
+                                                  scale=meant(ctx, depth, "scale", ctx.node_type.port_label("depth")), colors=colours, width_cm=ctx.params["point_size"],
                                                   confidence=t.get("confidence"), width=w, height=h)}
 
 
@@ -474,7 +467,7 @@ class TracksToPoints(NodeDef):
 KEEP = 0.8  # 拟合保留的点对比例：其余（运动物体、天空、边缘、被遮挡的点）被剔除
 SAMPLES_PER_FRAME = 40_000
 MIN_PAIRS = 64
-MODEL_TEXT = {"scale": "按比例", "affine": "按比例和偏移", "inverse": "按视差（1/深度 的比例和偏移）"}
+MODEL_TEXT = i18n.Words("depth_align.model.", ("scale", "affine", "inverse"))
 
 
 def _evenly(n: int, k: int) -> np.ndarray:
@@ -556,30 +549,29 @@ def apply_fit(model: str, s: float, t: float, x: np.ndarray) -> tuple[np.ndarray
 
 
 class DepthAlign(NodeDef):
-    id = "core.depth_align"
+    id = "depth_align"
+    version = 2  # 2: the summary names its reference and what the source was (reference, source_scale)
     on_node = ("fit",)
     keeps_overscan = False  # 通过相机在画面框内计算：框外像素在三维中没有对应位置
     category = "geometry_tools"
     # 对齐后的深度采用参考的尺寸；每帧都对参考拟合，与画面无关
     inputs = (
-        Port("depth", "image.1", "待对齐深度图"),
-        Port("reference", "image.1", "参考深度图", optional=True, expects=(SameShot("depth"),)),
-        Port("points", "scene.points", "参考点云", optional=True),
-        _camera_port("depth", "点云的相机", optional=True),
-        Port("mask", "image.1", "对齐区域", optional=True, expects=(SameShot("depth"),)),
-        Port("confidence", "image.1", "置信度", optional=True, expects=(SameShot("depth"),),
-             help="哪里的深度图更可信（接参考深度图或待对齐深度图那个节点的置信度）：拟合时每个像素按它加权，没把握的算得轻，0 的不算"),
+        Port("depth", "image.1"),
+        Port("reference", "image.1", optional=True, expects=(SameShot("depth"),)),
+        Port("points", "scene.points", optional=True),
+        _camera_port("depth", optional=True),
+        Port("mask", "image.1", optional=True, expects=(SameShot("depth"),)),
+        Port("confidence", "image.1", optional=True, expects=(SameShot("depth"),)),
     )
-    outputs = (Port("depth", "image.1", "深度图", means=("scale",)),)
+    outputs = (Port("depth", "image.1", means=("scale",)),)
 
     class Params(NodeParams):
         # 参数名为 depth_is 而非 source：同一参数名在全项目中只能指一件事，「自动落地」上的 source 已表示「地面依据」
         depth_is: Literal["auto", "disparity", "relative", "affine"] = P(
-            "auto", label="待对齐的是", group="对齐",
-            option_labels={"auto": "自动", "disparity": "视差", "relative": "只差比例", "affine": "只差比例和偏移"},
+            "auto", group="align",
         )
         fit: Literal["shot", "frame"] = P(
-            "shot", label="拟合", group="对齐", option_labels={"shot": "整段一次", "frame": "逐帧"},
+            "shot", group="align",
         )
 
     @classmethod
@@ -591,7 +583,7 @@ class DepthAlign(NodeDef):
         if (ref is None) == (points is None):
             raise Invalid(Msg("E-DEPTHALIGN-NOREF"))
         model = align_model(src, ctx)
-        same_size({"要对齐的深度": src, "参考深度": ref, "对齐区域": ctx.input("mask"), "置信度": ctx.input("confidence")})
+        same_size({ctx.node_type.port_label("depth"): src, ctx.node_type.port_label("reference"): ref, ctx.node_type.port_label("mask"): ctx.input("mask"), ctx.node_type.port_label("confidence"): ctx.input("confidence")})
         if ref is not None:
             if ref.meta.get("scale") in ("affine", "disparity", None):
                 raise Invalid(Msg("E-DEPTHALIGN-AFFINEREF"))
@@ -619,9 +611,13 @@ class DepthAlign(NodeDef):
             if len(own) < len(frames):
                 ctx.say("N-DEPTHALIGN-FEWFRAMES", count=len(frames) - len(own))
 
-        ctx.stage("写出对齐后的深度")
+        ctx.stage("write_aligned_depth")
+        # reference: what it was aligned to (the reference depth's or point cloud's fingerprint), so results aligned to
+        # one reference can be told from others (expects.py SameReference); source_scale: what the source was (its
+        # own scale meaning)
         summary = {"model": model, "fit": ctx.params["fit"], "scale": s, "offset": t, "frames": len(pairs),
-                   "pixels": int(len(x_all)), "error_pct": float(np.median(errors))}
+                   "pixels": int(len(x_all)), "error_pct": float(np.median(errors)),
+                   "reference": (ref if ref is not None else points).fingerprint, "source_scale": src.meta.get("scale")}
         out = ExrWriter(ctx.outputs["depth"], 1, validity=True, scale=out_scale, aligned=summary)
 
         def align(f):  # 一帧：各帧互不相干，由引擎逐帧并行（ctx.each_done）
@@ -662,7 +658,7 @@ class DepthAlign(NodeDef):
         """逐帧：两者均有值（且置信度不为 0）的像素处的（源值、参考深度、权重）采样。"""
         from ...data.maps import map_at
 
-        ctx.stage("读取参考深度")
+        ctx.stage("read_reference_depth")
 
         def sample(f):  # 一帧的点对：各帧互不相干，由引擎逐帧并行（ctx.each_done），按帧序收集
             got = map_at(ref, f)
@@ -698,7 +694,7 @@ class DepthAlign(NodeDef):
         focal, mats, pp = _view(camera, frames, w, True)
         stage = open_scene([points])
         pairs = {}
-        ctx.stage("把点云投到画面上")
+        ctx.stage("project_points")
         for i, f in enumerate(ctx.each(frames)):
             clouds = [p for _, p, _, _ in scene_points(stage, Usd.TimeCode(f))]
             if not clouds:
@@ -708,8 +704,8 @@ class DepthAlign(NodeDef):
             pc = world @ inv[:3, :3].T + inv[:3, 3]
             z = -pc[:, 2]
             with np.errstate(divide="ignore", invalid="ignore"):
-                u = focal[i] * pc[:, 0] / z + pp[i][0]  # 经过相机主点，与反投影一致
-                v = -focal[i] * pc[:, 1] / z + pp[i][1]
+                u = focal[i][0] * pc[:, 0] / z + pp[i][0]  # 经过相机主点，与反投影一致
+                v = -focal[i][1] * pc[:, 1] / z + pp[i][1]
             seen = (z > 1e-3) & (u >= 0) & (u < w) & (v >= 0) & (v < h)
             pixel = (np.floor(v[seen]).astype(np.int64) * w + np.floor(u[seen]).astype(np.int64))
             z = z[seen]
@@ -747,4 +743,280 @@ class DepthAlign(NodeDef):
                                           pixels=summary["pixels"], dropped=round((1 - KEEP) * PERCENT), error=summary["error_pct"])
 
 
-NODES = (WorldPosition, DepthToPoints, DepthNormal, NormalSpace, TracksToPoints, DepthAlign)
+# ------------------------------------------------------------------ 点云融合
+
+
+def _voxelize(xyz: np.ndarray, rgb: np.ndarray | None, voxel: float) -> tuple[np.ndarray, np.ndarray | None]:
+    """把所有点拼在一起后按体素去重：每个体素一个质心（+ 平均颜色）。体素边长 `voxel`（厘米）。
+
+    按体素整数坐标的线性索引分组（比在 [N,3] 上 unique 快、省内存）：同一体素内的点坐标累加后除以点数。"""
+    idx = np.floor(xyz / voxel).astype(np.int64)
+    lo = idx.min(0)
+    shape = idx.max(0) - lo + 1
+    if (shape <= 0).any():
+        return np.zeros((0, 3), np.float32), (np.zeros((0, 3), np.float32) if rgb is not None else None)
+    lin = (idx[:, 0] - lo[0]) * shape[1] * shape[2] + (idx[:, 1] - lo[1]) * shape[2] + (idx[:, 2] - lo[2])
+    uniq, inverse, counts = np.unique(lin, return_inverse=True, return_counts=True)
+    sums = np.zeros((len(uniq), 3), np.float64)
+    np.add.at(sums, inverse, xyz)
+    centroid = (sums / counts[:, None]).astype(np.float32)
+    if rgb is None:
+        return centroid, None
+    cs = np.zeros((len(uniq), 3), np.float32)
+    np.add.at(cs, inverse, rgb)
+    return centroid, (cs / counts[:, None]).astype(np.float32)
+
+
+SLAB_VOXELS = 2_000_000  # voxels handled at once (integration and extraction): a few hundred MB of temporaries
+# bytes per voxel the fusion keeps for the whole run: tsdf + weight (float32), + colour (3 float32) when kept
+VOXEL_BYTES, COLOR_BYTES = 8, 12
+FUSE_MEMORY_SHARE = 0.5  # of the memory free when the cook starts: the rest stays for the slabs and everyone else
+# Largest grid fused at the asked voxel size; a bigger scene (a street, a landscape) is fused with a coarser voxel so
+# the grid stays a few GB and the integration finishes in minutes. The cook says which voxel it used.
+FUSE_MAX_VOXELS = 1 << 27
+
+
+def _slabs(lo: np.ndarray, hi: np.ndarray):
+    """[lo, hi] (inclusive voxel indices) cut along x into slabs of at most SLAB_VOXELS voxels: (x0, x1) half-open."""
+    plane = int(np.prod(hi[1:] - lo[1:] + 1))
+    step = max(1, SLAB_VOXELS // max(plane, 1))
+    for x0 in range(int(lo[0]), int(hi[0]) + 1, step):
+        yield x0, min(x0 + step, int(hi[0]) + 1)
+
+
+def _tsdf_surface(tsdf: np.ndarray, weight: np.ndarray, color: np.ndarray | None,
+                  origin: np.ndarray, voxel: float) -> tuple[np.ndarray, np.ndarray | None]:
+    """TSDF 过零提取表面点：沿每根体素边，TSDF 值变号（两侧都观测到）时按数值线性插值出表面点，
+    颜色同样插值。截断 TSDF 里表面就是 TSDF 从正（体素在表面前方）到负（后方）穿过零的位置。
+
+    按 x 切片做（每片多带一层，x 方向的边跨片也不漏）：临时数组只和一片一样大，坐标只为过零的边算。"""
+    pts, cols = [], []
+    dims = np.asarray(tsdf.shape)
+    for x0, x1 in _slabs(np.zeros(3, np.int64), dims - 1):
+        hi = min(x1 + 1, int(dims[0]))  # one more layer: the x-edges leaving this slab
+        t, wt = tsdf[x0:hi], weight[x0:hi]
+        c = color[x0:hi] if color is not None else None
+        own = x1 - x0  # the layers this slab owns; an x-edge from its last layer ends in the extra one
+        for a in range(3):
+            sl0, sl1 = [slice(0, own), slice(None), slice(None)], [slice(0, own), slice(None), slice(None)]
+            if a == 0:
+                n = min(own, len(t) - 1)
+                sl0[0], sl1[0] = slice(0, n), slice(1, n + 1)
+            else:
+                sl0[a], sl1[a] = slice(0, -1), slice(1, None)
+            t0, t1 = t[tuple(sl0)], t[tuple(sl1)]
+            cross = (np.sign(t0) * np.sign(t1) < 0) & (wt[tuple(sl0)] > 0) & (wt[tuple(sl1)] > 0)
+            at = np.nonzero(cross)
+            if not len(at[0]):
+                continue
+            v0, v1 = t0[at], t1[at]
+            f = v0 / (v0 - v1 + 1e-12)  # 线性插值系数：0 在 t0 侧、1 在 t1 侧
+            center = origin + (np.stack(at, -1) + [x0, 0, 0] + 0.5) * voxel
+            center[:, a] += f * voxel
+            pts.append(center.astype(np.float32))
+            if c is not None:
+                cols.append((c[tuple(sl0)][at] * (1 - f[:, None]) + c[tuple(sl1)][at] * f[:, None]).astype(np.float32))
+    if not pts:
+        return np.zeros((0, 3), np.float32), (np.zeros((0, 3), np.float32) if color is not None else None)
+    return np.concatenate(pts), (np.concatenate(cols) if cols else None)
+
+
+def _tsdf_fuse(read, frames, focal, mats, pp, w, h, voxel, trunc_cm, want_color, paint=None):
+    """逐帧深度 + 相机 → TSDF 融合出的表面点、颜色、融合前的总观测点数（去重对比用）、实际用的体素大小。
+
+    `read(f)` 返回 (深度 z [H,W] 厘米, 有效 alpha [H,W])；`focal` [F,2]（fx, fy）、`mats` [F,4,4]（世界）、`pp` [F,2]
+    为每帧的像素焦距 / 相机到世界矩阵 / 主点。`paint(i, f)` 返回该帧画面的颜色 [H,W,3]（显示用 sRGB 0..1）或 None
+    （没接画面、或画面缺这一帧：按远近着色）。体素的颜色取它投到的那个像素——正是给它 SDF 的那个深度像素，深度与
+    颜色同一像素一一对应；多帧按 TSDF 权重平均。体素网格常驻（每体素 8 字节，带颜色 20 字节），开之前按这次计算
+    开始时的空闲内存核过，放不下就请使用者调大体素；逐帧积分按 x 切片做，临时数组只和一片一样大。"""
+    from lab2shot_shared.memory import available_gb
+
+    from ..kit.unproject import unproject_depth
+
+    def bounds(i, f):
+        z, alpha = read(f)
+        z = z.astype(np.float64)
+        valid = (alpha > 0) & (z > 0) & np.isfinite(z)
+        rows, cols = np.nonzero(valid)
+        if not len(rows):
+            return None, 0
+        pts = unproject_depth(z, focal[i], mats[i], rows, cols, pp[i])
+        # 包围盒取每帧 0.5%–99.5% 分位而非最小 / 最大：深度图边缘的飞点、结构光的噪声点会把盒子撑到十几米外，
+        # 体素网格随之爆炸；真实表面都在中间 99% 里。
+        return np.percentile(pts, [0.5, 99.5], axis=0), int(len(rows))
+
+    found = [bounds(i, f) for i, f in enumerate(frames)]
+    robust = [r for r, _ in found if r is not None]
+    seen = sum(n for _, n in found)
+    if not robust:
+        raise Invalid(Msg("E-FUSE-NOPOINTS"))
+    lo = np.min([r[0] for r in robust], axis=0) - trunc_cm
+    hi = np.max([r[1] for r in robust], axis=0) + trunc_cm
+    span = np.prod((hi - lo) / voxel + 1)
+    if span > FUSE_MAX_VOXELS:  # coarser voxel, same truncation in voxels
+        grow = float(np.cbrt(span / FUSE_MAX_VOXELS)) * 1.01
+        voxel *= grow
+        trunc_cm *= grow
+        lo -= trunc_cm * (1 - 1 / grow)
+        hi += trunc_cm * (1 - 1 / grow)
+    origin = lo
+    dims = np.ceil((hi - lo) / voxel).astype(np.int64) + 1
+    voxels = int(np.prod(dims))
+    budget = available_gb() * FUSE_MEMORY_SHARE * (1 << 30)
+    if voxels * (VOXEL_BYTES + (COLOR_BYTES if want_color else 0)) > budget:
+        raise Invalid(Msg("E-FUSE-TOOBIG", voxels=voxels))
+    tsdf = np.full(dims, trunc_cm, np.float32)
+    weight = np.zeros(dims, np.float32)
+    color = np.zeros((*dims, 3), np.float32) if want_color else None
+    flat_t, flat_w = tsdf.reshape(-1), weight.reshape(-1)
+    flat_c = color.reshape(-1, 3) if color is not None else None
+
+    for i, f in enumerate(frames):
+        z, alpha = read(f)
+        zf = z.astype(np.float32)
+        valid = (alpha > 0) & (zf > 0) & np.isfinite(zf)
+        rows, cols = np.nonzero(valid)
+        if not len(rows):
+            continue
+        pts = unproject_depth(zf, focal[i], mats[i], rows, cols, pp[i])
+        ilo = np.clip(np.floor((pts.min(0) - trunc_cm - origin) / voxel).astype(np.int64), 0, dims - 1)
+        ihi = np.clip(np.floor((pts.max(0) + trunc_cm - origin) / voxel).astype(np.int64), 0, dims - 1)
+        inv = np.linalg.inv(mats[i])
+        shade = None
+        if flat_c is not None:  # [H*W,3]：画面的颜色；不接画面就按远近着色（与「深度转点云」一致）
+            rgb = paint(i, f) if paint is not None else None
+            shade = (np.asarray(rgb, np.float32).reshape(-1, 3) if rgb is not None
+                     else _depth_shade(zf.reshape(-1)))
+        for x0, x1 in _slabs(ilo, ihi):
+            gx, gy, gz = (g.reshape(-1) for g in np.mgrid[x0:x1, ilo[1]:ihi[1] + 1, ilo[2]:ihi[2] + 1])
+            centers = origin + (np.stack([gx, gy, gz], -1) + 0.5) * voxel
+            pc = centers @ inv[:3, :3].T + inv[:3, 3]
+            zv = -pc[:, 2]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                u = focal[i][0] * pc[:, 0] / zv + pp[i][0]
+                v = -focal[i][1] * pc[:, 1] / zv + pp[i][1]
+            uf, vf = np.floor(u), np.floor(v)
+            ok = (zv > 0) & (uf >= 0) & (uf < w) & (vf >= 0) & (vf < h)
+            ui = np.clip(np.nan_to_num(uf), 0, w - 1).astype(np.int64)
+            vi = np.clip(np.nan_to_num(vf), 0, h - 1).astype(np.int64)
+            d_at = np.where(ok, zf[vi, ui], 0.0)
+            ok &= d_at > 0
+            sdf = d_at - zv
+            ok &= sdf > -trunc_cm
+            if not ok.any():
+                continue
+            lin = (gx[ok] * dims[1] + gy[ok]) * dims[2] + gz[ok]
+            old_w = flat_w[lin]
+            new_w = old_w + 1.0
+            flat_t[lin] = (flat_t[lin] * old_w + np.clip(sdf[ok], -trunc_cm, trunc_cm)) / new_w
+            flat_w[lin] = new_w
+            if flat_c is not None:
+                flat_c[lin] = (flat_c[lin] * old_w[:, None] + shade[vi[ok] * w + ui[ok]]) / new_w[:, None]
+
+    return _tsdf_surface(tsdf, weight, color, origin, voxel) + (seen, voxel)
+
+
+class PointCloudFuse(NodeDef):
+    id = "pointcloud_fuse"
+    version = 2  # 结果变化时递增，work/ 中的旧结果随之不再命中缓存（engine/cook.py）；2：「画面」输入给点云上色
+    keeps_overscan = False  # TSDF 反投影只在画面框内：框外像素无三维
+    category = "geometry_tools"
+    cost = Cost(whole=True)  # node.pointcloud_fuse.cost.whole
+    # 「逐帧点云」与「逐帧深度」二选一（input_choice：至少接一路，另一路自动灰显）。接点云走体素拼接；
+    # 接深度走 TSDF，此时必须接「相机」（camera 口按 Wired("depth") 只在接深度时可用，cook 里再校验一次）。
+    inputs = (
+        Port("points", "scene.points", optional=True),
+        Port("depth", "image.1", optional=True, means=("scale",),
+             expects=(OwnCamera(), NotDisparity())),
+        Port("camera", "scene.camera", optional=True, applies=Wired("depth"), expects=(SameShot("depth"),)),
+        Port("image", "image.3", optional=True, data=False, applies=Wired("depth"), expects=(SameShot("depth"),)),
+    )
+    input_choice = (("points",), ("depth",))
+    outputs = (Port("points", "scene.points"),)
+    main = "points"
+
+    class Params(NodeParams):
+        voxel_size: float = P(0.5, unit="cm", gt=0, le=100, group="blend")
+        # TSDF truncation, in voxels: only voxels this close to the surface count, the rest are unobserved
+        truncation: float = P(2.0, gt=0, le=20, group="blend", applies=Wired("depth"))
+        color: bool = P(True, group="blend")
+
+    @classmethod
+    def cook(cls, ctx):
+        points = ctx.input("points")
+        depth = ctx.input("depth")
+        if points is not None:
+            return cls._voxel(ctx, points)
+        if depth is None:
+            raise Invalid(Msg("E-FUSE-NOINPUT"))
+        return cls._tsdf(ctx, depth)
+
+    @classmethod
+    def _voxel(cls, ctx, points_in):
+        from pxr import Usd
+
+        from ...data.evaluate import scene_points
+        from ...data.payloads import points_packet
+        from ...data.scene import open_scene
+
+        frames = points_in.meta["frames"]
+        stage = open_scene([points_in])
+        ctx.stage("merge_frame_points")
+        pts, cols = [], []
+        for f in ctx.each(frames):
+            for _, p, _, c in scene_points(stage, Usd.TimeCode(f)):
+                if len(p):
+                    pts.append(np.asarray(p, np.float64))
+                    cols.append(np.asarray(c, np.float32) if c is not None else None)
+        if not pts:
+            raise Invalid(Msg("E-FUSE-NOPOINTS"))
+        xyz = np.concatenate(pts)
+        keep_color = ctx.params["color"] and all(c is not None and len(c) == len(p) for c, p in zip(cols, pts))
+        rgb = np.concatenate([c for c in cols if c is not None]).astype(np.float32) if keep_color else None
+        voxel = float(ctx.params["voxel_size"])
+        centroid, color = _voxelize(xyz, rgb, voxel)
+        ctx.say("I-FUSE-RESULT", method=i18n.Word("fuse.voxels"), before=int(len(xyz)), after=int(len(centroid)))
+        return {"points": points_packet(ctx.outputs["points"], [], "points", [centroid],
+                                        [color] if color is not None else None,
+                                        scale=points_in.meta.get("scale", "relative"),
+                                        width_cm=max(voxel, 0.2))}
+
+    @classmethod
+    def _tsdf(cls, ctx, depth):
+        from ...data.maps import map_at
+        from ...data.payloads import display_rgb, file_at, points_packet
+
+        if ctx.input("camera") is None:
+            raise Invalid(Msg("E-FUSE-NOCAMERA"))
+        depth, camera = _depth_and_camera(ctx)  # 视差 / 差偏移的深度无法反投影，在这里拒绝
+        voxel = float(ctx.params["voxel_size"])
+        trunc_cm = float(ctx.params["truncation"]) * voxel
+        frames, w, h = depth.meta["frames"], depth.meta["width"], depth.meta["height"]
+        focal, mats, pp = _view(camera, frames, w, True)
+
+        ctx.stage("fuse_tsdf")
+
+        def read(f):
+            z, alpha = map_at(depth, f)
+            return z[..., 0].astype(np.float32), alpha
+
+        image = ctx.input("image")
+
+        def paint(i, f):  # 画面缺这一帧时按远近着色（与「深度转点云」一致）
+            return display_rgb(image, f, w, h) if image is not None and file_at(image, f) is not None else None
+
+        surf, col, seen, used = _tsdf_fuse(read, frames, focal, mats, pp, w, h, voxel, trunc_cm,
+                                           bool(ctx.params["color"]), paint)
+        if used > voxel:
+            ctx.say("W-FUSE-VOXELUP", asked=round(voxel, 2), used=round(used, 2))
+            voxel = used
+        if not len(surf):
+            raise Invalid(Msg("E-FUSE-NOSURFACE"))
+        ctx.say("I-FUSE-RESULT", method="TSDF", before=seen, after=int(len(surf)))
+        return {"points": points_packet(ctx.outputs["points"], [], "points", [surf],
+                                        [col] if col is not None else None,
+                                        scale=meant(ctx, depth, "scale", ctx.node_type.port_label("depth")),
+                                        width_cm=max(voxel, 0.2))}
+
+
+NODES = (WorldPosition, DepthToPoints, DepthNormal, NormalSpace, TracksToPoints, DepthAlign, PointCloudFuse)

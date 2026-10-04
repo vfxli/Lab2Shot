@@ -181,6 +181,17 @@ def curves_stage(stage: Usd.Stage, items: list[dict], axes: Axes, group: str) ->
         got.place(stage, curves)
 
 
+def gaussian_stage(stage: Usd.Stage, items: list[dict], axes: Axes, group: str) -> None:
+    from .gaussian import write
+
+    for item in items:
+        got = _PerPoint(item, axes, stage, group)
+        arrays = {k: got.split(k, np.float32, cm=k in ("points", "scales"))
+                  for k in ("points", "scales", "rotations", "opacity", "sh")}
+        samples = [{k: v[i] for k, v in arrays.items()} for i in range(len(arrays["points"]))]
+        got.place(stage, write(stage, got.path, got.frames, samples))
+
+
 def character_stage(stage: Usd.Stage, items: list[dict], axes: Axes, group: str) -> None:
     """骨架动画 and 蒙皮角色 where their file had them, under their import's folder: each a skeleton root with its
     skeleton, animation (a sample at each of its frames: an animator's keys stay keys), and the meshes skinned to it
@@ -260,7 +271,7 @@ def items_to_packets(npz: Path, chosen: dict[str, list[str]], axes: Axes, width:
             continue
         frames = frames_of(these)
         stage = usd.create_stage(frames, info)
-        {"model": model_stage, "points": points_stage, "curves": curves_stage,
+        {"model": model_stage, "points": points_stage, "gaussian": gaussian_stage, "curves": curves_stage,
          "skeleton": character_stage, "character": character_stage}[kind](stage, these, axes, group)
         usd.mark_group(stage, group, owner)  # the folder of this very import cook
         usd.save_stage(stage, folder / SCENE_FILE)
@@ -433,6 +444,19 @@ def scene_arrays(src: Packet, scale: float = 1.0, samples: bool = True, stage: U
             item = out.add("model", usd.name_of(prim), path, frames, worlds(prim, frames), shown=usd.shown_path(prim),
                            **_mesh_arrays(mesh, times, scale), **_shown(prim, frames))
             if deforming and not samples:
+                item["per_frame"] = np.array(True)
+        elif prim.IsA(UsdGeom.Points) and prim.GetCustomDataByKey("lab2shot:gaussian"):
+            from .gaussian import changing, sample
+
+            moves = changing(prim)
+            frames = _frames_where(src, moves or _moves(prim) or _hides(prim))
+            taken = frames if moves and samples else frames[:1]
+            read = [sample(prim, f, scale) for f in taken]
+            arrays = {k: np.concatenate([s[k] for s in read]) for k in read[0]}
+            item = out.add("gaussian", usd.name_of(prim), path, frames, worlds(prim, frames),
+                           shown=usd.shown_path(prim), counts=np.array([len(s["points"]) for s in read]),
+                           **arrays, **_shown(prim, frames))
+            if moves and not samples:
                 item["per_frame"] = np.array(True)
         elif prim.IsA(UsdGeom.Points) or prim.IsA(UsdGeom.BasisCurves):
             curves = prim.IsA(UsdGeom.BasisCurves)

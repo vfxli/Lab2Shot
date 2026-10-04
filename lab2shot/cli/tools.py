@@ -8,36 +8,36 @@ from typing import Optional
 import typer
 from rich.table import Table
 
+from .. import i18n
 from .base import app, console, failed
 
 
-@app.command()
+@app.command(help=i18n.t("cli.tools.gpus.help"))
 def gpus() -> None:
-    """列出显卡及其 UUID，并标明接受任务的显卡（在管理页面 /admin 中授权）。"""
     from ..farm import gpus as farm_gpus
 
     found = farm_gpus.inventory()
     if not found:
-        failed("未找到显卡（nvidia-smi 不可用）")
+        failed(i18n.t("cli.tools.gpus.none"))
     allowed = farm_gpus.authorized()
-    table = Table("#", "显卡", "UUID", "显存", "占用", "")
+    table = Table("#", i18n.t("cli.tools.gpus.card"), "UUID", i18n.t("cli.tools.gpus.memory"),
+                  i18n.t("cli.tools.gpus.utilization"), "")
     for g in found:
-        mark = "[green]接受任务[/green]" if g.uuid in allowed else "[dim]不接受任务[/dim]"
+        mark = i18n.t("cli.tools.gpus.taking") if g.uuid in allowed else i18n.t("cli.tools.gpus.not_taking")
         table.add_row(str(g.index), g.name, g.uuid, f"{g.used_mb} / {g.memory_mb} MiB", f"{g.utilization} %", mark)
     console.print(table)
     if not allowed:
-        console.print("[yellow]尚未授权任何显卡：需要显卡的任务将持续排队。请在管理页面 http://<服务器>:端口/admin 中授权。[/yellow]")
+        console.print(i18n.t("cli.tools.gpus.none_authorized"))
 
 
-@app.command()
-def color(input: Optional[str] = typer.Argument(None, help="可选：查看指定文件默认识别的色彩空间")) -> None:
-    """显示当前 OCIO 配置，以及文件的默认输入色彩空间。"""
+@app.command(help=i18n.t("cli.tools.color.help"))
+def color(input: Optional[str] = typer.Argument(None, help=i18n.t("cli.tools.color.input"))) -> None:
     from ..io.color import load_config
 
     from ..io.color import working_space
 
     cfg = load_config()
-    console.print(f"OCIO 配置  {cfg.name}\n来源       {cfg.origin}：{cfg.uri}\n工作空间   {working_space(cfg)}（所有输入在读取时统一转换至该空间，输出时再从该空间转换）")
+    console.print(i18n.t("cli.tools.color.config", name=cfg.name, origin=cfg.origin, uri=cfg.uri, space=working_space(cfg)))
     if input:
         from ..io.sources import open_source
 
@@ -45,18 +45,18 @@ def color(input: Optional[str] = typer.Argument(None, help="可选：查看指�
         console.print(f"{input} → [bold]{cfg.colorspace_for_file(hint)}[/bold]")
 
 
-@app.command("inspect")
-def inspect_input(input: str = typer.Argument(..., help="序列图、文件夹、任意一帧或视频")) -> None:
-    """查看输入的识别结果：帧范围、分辨率、帧率、色彩空间。"""
+@app.command("inspect", help=i18n.t("cli.tools.inspect.help"))
+def inspect_input(input: str = typer.Argument(..., help=i18n.t("cli.tools.inspect.input"))) -> None:
     from ..io.color import load_config
     from ..io.sequence import format_frame_range
     from ..io.sources import open_source
 
     src = open_source(input)
     cfg = load_config()
-    console.print(f"类型       {({'sequence': '序列图', 'video': '视频', 'still': '单张图片'})[src.kind]}")
-    console.print(f"路径       {src.display}")
-    console.print(f"帧         {format_frame_range(src.frames)}（共 {len(src.frames)} 帧）")
-    console.print(f"分辨率     {src.width} × {src.height}")
-    console.print(f"帧率       {src.fps if src.fps else '未知（序列图默认为 24）'}")
-    console.print(f"色彩空间   {cfg.colorspace_for_file(src.colorspace_hint)}（按文件格式判断；可在读取节点上修改）")
+    kinds = {"sequence": "cli.tools.inspect.sequence", "video": "cli.tools.inspect.video", "still": "cli.tools.inspect.still"}
+    console.print(i18n.t("cli.tools.inspect.kind", kind=i18n.t(kinds[src.kind])))
+    console.print(i18n.t("cli.tools.inspect.path", path=src.display))
+    console.print(i18n.t("cli.tools.inspect.frames", range=format_frame_range(src.frames), count=len(src.frames)))
+    console.print(i18n.t("cli.tools.inspect.resolution", width=src.width, height=src.height))
+    console.print(i18n.t("cli.tools.inspect.fps", fps=src.fps if src.fps else i18n.t("cli.tools.inspect.fps_unknown")))
+    console.print(i18n.t("cli.tools.inspect.colorspace", space=cfg.colorspace_for_file(src.colorspace_hint)))

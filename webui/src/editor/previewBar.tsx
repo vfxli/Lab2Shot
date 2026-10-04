@@ -1,10 +1,11 @@
 import { mixOf, rampGradient, type Bg, type Mode, type Op, type Tint } from "../model/view2d";
-import { CHOICES, CHOICE_TIPS, RANGES } from "../model/viewOptions";
+import { CHOICES, RANGES } from "../model/viewOptions";
 import { BG_CHOICES, bgColourOf } from "../platform/palette";
 import { Button, Segmented } from "../ui/Button";
 import { Select } from "../ui/Select";
 import { Num } from "../ui/controls";
 import { coerce } from "../model/numbers";
+import { t } from "../i18n/t";
 
 /** 二维预览链在控制栏上的组成部分，三种模式下是同一行控件：
  *
@@ -18,11 +19,11 @@ import { coerce } from "../model/numbers";
 /** 模式：仅原图 / 运算 / 仅结果。 */
 export function ModePick({ mode, onPick }: { mode: Mode; onPick: (m: Mode) => void }) {
   return (
-    <Segmented hud label="预览" value={mode}
+    <Segmented hud label={t("ui.view.preview")} value={mode}
       options={[
-        { value: "plate" as Mode, label: "仅原图" },
-        { value: "over" as Mode, label: "运算" },
-        { value: "result" as Mode, label: "仅结果" },
+        { value: "plate" as Mode, label: t("ui.view.mode_plate") },
+        { value: "over" as Mode, label: t("ui.view.mode_over") },
+        { value: "result" as Mode, label: t("ui.view.mode_result") },
       ]}
       onChange={onPick} />
   );
@@ -32,16 +33,15 @@ export function ModePick({ mode, onPick }: { mode: Mode; onPick: (m: Mode) => vo
 export function ChannelPick({ side, value, options, onPick, off = false }:
   { side: "left" | "right"; value: string; options: { value: string; label: string }[]; onPick: (v: string) => void;
     off?: boolean }) {
-  const what = side === "left" ? "原图" : "结果";
-  const empty = side === "left" ? "没有原图" : "还没有结果";
+  const empty = side === "left" ? t("ui.view.no_plate") : t("ui.view.no_result");
   // 只有一项时也必须可以打开：该控件用于选择右侧显示本节点的哪份结果及哪条通道，而非仅用于选择通道。
   // 单通道结果（各类抠像、遮罩、深度、置信度）始终只有一项，若「只有一项即置灰」，该控件对这些节点
   // 将始终不可用，使用者无法查看计算结果。只有一种情况应置灰：没有任何可选项（该链上尚无结果）。
   // 只剩箭头的下拉无法让使用者判断是故障还是没有内容：没有可选项时，触发器上显示「没有原图」「还没有结果」
   return (
-    <Select className="port-pick fit sm" label={side === "left" ? "原图通道" : "结果通道"} value={options.length ? value : ""} onPick={onPick} width={240}
+    <Select className="port-pick fit sm" label={side === "left" ? t("ui.view.plate_channel") : t("ui.view.result_channel")} value={options.length ? value : ""} onPick={onPick} width={240}
       disabled={off || !options.length}
-      options={options.length ? options.map((o) => ({ value: o.value, label: o.label, tip: `看${what}的「${o.label}」` })) : [{ value: "", label: empty }]} />
+      options={options.length ? options.map((o) => ({ value: o.value, label: o.label })) : [{ value: "", label: empty }]} />
   );
 }
 
@@ -55,9 +55,9 @@ export function MergePick({ op, mix, offOp = false, offMix, onOp, onMix }:
   const shown = mixOf(op, mix);
   return (
     <>
-      <Select className="port-pick fit sm" label="运算" value={op} onPick={(v) => onOp(v as Op)} width={220}
+      <Select className="port-pick fit sm" label={t("ui.view.mode_over")} value={op} onPick={(v) => onOp(v as Op)} width={220}
         disabled={offOp}
-        options={(Object.keys(CHOICES.op) as Op[]).map((v) => ({ value: v, label: CHOICES.op[v], tip: CHOICE_TIPS.op[v] }))} />
+        options={(Object.keys(CHOICES.op) as Op[]).map((v) => ({ value: v, label: t(CHOICES.op[v]) }))} />
       <label className="hud-mix">
         <span>mix</span>
         {/* `--pct` 表示填充进度：滑块的蓝色条据此绘制（styles/03-top-bar.css 的 runnable-track）。
@@ -74,10 +74,10 @@ export function MergePick({ op, mix, offOp = false, offMix, onOp, onMix }:
 /** 着色：单通道显示时的颜色方案（若干色标与纯色）。 */
 export function TintPick({ value, off, onPick }: { value: Tint; off: boolean; onPick: (v: Tint) => void }) {
   return (
-    <Select className="port-pick fit sm" label="着色" value={value} onPick={(v) => onPick(v as Tint)} width={200} disabled={off}
+    <Select className="port-pick fit sm" label={t("ui.display.tint")} value={value} onPick={(v) => onPick(v as Tint)} width={200} disabled={off}
       options={(Object.keys(CHOICES.tint) as Tint[]).map((v) => ({
-        value: v, tip: CHOICE_TIPS.tint[v],
-        label: (<span className="tint-row"><i className="tint-bar" style={{ background: rampGradient(v) }} />{CHOICES.tint[v]}</span>),
+        value: v,
+        label: (<span className="tint-row"><i className="tint-bar" style={{ background: rampGradient(v) }} />{t(CHOICES.tint[v])}</span>),
       }))} />
   );
 }
@@ -96,13 +96,13 @@ export function GradePick({ black, white, off, onSet, fit }:
   );
   return (
     <>
-      {num("黑点", black, (v) => onSet({ black: v }))}
+      {num(t("ui.view.black_point"), black, (v) => onSet({ black: v }))}
       {/* 「自动」并入「白点」格：其作用是同时设置黑点与白点，与这两个数字属于同一功能；
           单独设置按钮会多占约 50 px，在 1600 宽度下会使该行换到第二行。对应 Photoshop 色阶中的「自动」按钮 */}
       {/* 自动：按这份数据里真实的最小和最大值拉满（包里记的 1%–99% 本身就在裁切，这里用的是不裁切的那一份） */}
-      {num("白点", white, (v) => onSet({ white: v }),
+      {num(t("ui.view.white_point"), white, (v) => onSet({ white: v }),
            <Button tone="ghost" size="sm" layout="hud-num-auto" disabled={off} onClick={() => onSet(fit())}>
-             自动
+             {t("ui.view.auto")}
            </Button>)}
     </>
   );
@@ -115,13 +115,13 @@ export function GradePick({ black, white, off, onSet, fit }:
 export function BgPick({ bg, colour, onPick }: { bg: Bg; colour: string; onPick: (p: { bg: Bg; bgColor?: string }) => void }) {
   const now = bg === "checker" ? "checker" : bgColourOf(colour);
   return (
-    <Select className="port-pick fit sm" label="背景" value={now} width={200}
+    <Select className="port-pick fit sm" label={t("ui.display.background")} value={now} width={200}
       onPick={(v) => onPick(v === "checker" ? { bg: "checker" } : { bg: "solid", bgColor: v })}
       options={[
-        { value: "checker", label: <span className="tint-row"><i className="tint-bar checker-bar" />{CHOICES.bg.checker}</span>, tip: CHOICE_TIPS.bg.checker },
+        { value: "checker", label: <span className="tint-row"><i className="tint-bar checker-bar" />{t(CHOICES.bg.checker)}</span> },
         ...BG_CHOICES.map((c) => ({
-          value: c.value, tip: `透出来的地方铺${c.name}`,
-          label: <span className="tint-row"><i className="tint-bar" style={{ background: c.value }} />{c.name}</span>,
+          value: c.value,
+          label: <span className="tint-row"><i className="tint-bar" style={{ background: c.value }} />{t(c.name)}</span>,
         })),
       ]} />
   );

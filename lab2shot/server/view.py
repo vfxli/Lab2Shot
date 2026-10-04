@@ -16,7 +16,7 @@ from ..messages import Msg
 from . import wire
 from .wire import WAITS
 
-router = Router(prefix="/api/view", tags=["视图"])  # 只提供本账号自己缓存里的结果：每条路由声明 owned=owners.packets
+router = Router(prefix="/api/view", tags=["Viewport"])  # 只提供本账号自己缓存里的结果：每条路由声明 owned=owners.packets
 
 
 def _packet(fp: str) -> Packet:
@@ -26,7 +26,9 @@ def _packet(fp: str) -> Packet:
     return Packet.load(d)
 
 
-@router.get("/{fp}/video/{frame}.png", access=Access.user("看结果：视频的一帧", owned=owners.packets), summary="视频某一帧的**代理图**：按管理员设定的那一档（「设置 · 视图 · 视图代理尺寸」）等比缩、有损压缩；看了第一帧，其余的在后台补齐")
+@router.get("/{fp}/video/{frame}.png", access=Access.user("View results: one video frame", owned=owners.packets), summary="The **proxy image** of one video frame: at the size the administrator set (Settings > View > Viewer Proxy "
+                                                                                                                        "Size), scaled to fit and lossy-compressed; once the first frame is viewed the rest are filled in the "
+                                                                                                                        "background")
 def video_frame(fp: str, request: Request, frame: int, g: str = "", px: int | None = None) -> FileResponse:
     """视频帧的代理（`lab2shot/view/proxy.py`）。视频像素位于容器中，先解码为显示用 PNG
     （`view/frames.py video_frames`，与「按通道取」读取的是同一张），再按 `px` 档位缩放并压缩。只有代理这一档，
@@ -76,7 +78,9 @@ def lut_for(space: str | None) -> dict:
     return {**head, "colorspace": space, "mode": "lut", "data": base64.b64encode(data).decode("ascii")}
 
 
-@router.get("/lut", access=Access.user("本地预览 EXR：服务器「转到工作空间」的变换烤成的查找表"), summary="本地预览 EXR 用的查找表：服务器的 OCIO「转到工作空间」变换在对数网格上烤成（工作空间就是屏幕显示的 sRGB，没有另外的显示变换；space：节点的色彩空间，空着按文件名规则）")
+@router.get("/lut", access=Access.user("Local EXR preview: the lookup table baked from the server's transform to the working space"), summary="The lookup table for previewing EXR locally: the server's OCIO transform to the working space baked on a log "
+                                                                                                                                   "grid (the working space is the sRGB the screen shows, there is no separate view transform; space: the node's "
+                                                                                                                                   "color space, empty for the file name rules)")
 def display_lut(space: str = "", file: str = "") -> dict:
     """使用者选择的 EXR 经本服务器「转到工作空间」变换后的效果（lut_for），供浏览器在服务器取得文件之前显示
     （webui/src/transfer/exr.ts）：每个网格点的 RGB，0..65535，小端，base64。
@@ -90,7 +94,8 @@ def display_lut(space: str = "", file: str = "") -> dict:
     return lut_for(space or load_config().colorspace_for_file(PurePosixPath(file.replace("\\", "/")).name or "plate.exr"))
 
 
-@router.get("/{fp}/points", access=Access.user("看结果：深度图显示成的点云", owned=owners.packets, lane=WAITS), summary="深度图（配上相机）或位置图显示成的点云：描述和每一部分数据的地址")
+@router.get("/{fp}/points", access=Access.user("View results: a depth map shown as a point cloud", owned=owners.packets, lane=WAITS), summary="A depth map (with its camera) or position map shown as a point cloud: the description and each part's data "
+                                                                                                                                     "address")
 def points(fp: str, request: Request, camera: str | None = None) -> Response:
     from .view_data import respond_description
     from .view_worker import describe
@@ -103,7 +108,9 @@ def points(fp: str, request: Request, camera: str | None = None) -> Response:
     return respond_description(describe(("points", fp, camera), url), request.headers.get("accept-encoding", ""))
 
 
-@router.get("/{fp}/points/{part}", access=Access.user("看结果：点云的数据（一段）", owned=owners.packets, lane=WAITS), summary="点云预览的一部分数据（二进制，gzip）：每帧每个有值的像素一个点；超过「点云上限」就每 N 个点取一个，坐标一个位不变，视图里写着显示了多少")
+@router.get("/{fp}/points/{part}", access=Access.user("View results: point cloud data (one part)", owned=owners.packets, lane=WAITS), summary="Part of a point cloud preview's data (binary, gzip): one point for each pixel with a value in each frame; "
+                                                                                                                                            "above the point cloud limit one point of every N is kept, coordinates bit-exact, the viewport says how many "
+                                                                                                                                            "are shown")
 def points_part(fp: str, part: str, request: Request, camera: str | None = None, g: str = "", cg: str = "") -> Response:
     """每个有值的像素，在查看器请求时按帧块分批读取（server/view_data.py）。
 

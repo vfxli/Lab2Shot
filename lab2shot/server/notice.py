@@ -28,8 +28,8 @@ TONES = ("info", "notice", "warn", "risk")
 NOTICE_CHARS = 200
 NONE = {"text": "", "tone": "info", "on": False, "updated": 0.0, "by": "", "by_id": None}
 
-router = Router(prefix="/api", tags=["设置"])
-admin = Router(prefix="/api/admin", tags=["管理（/admin 页面）"])
+router = Router(prefix="/api", tags=["Settings"])
+admin = Router(prefix="/api/admin", tags=["Admin (/admin page)"])
 
 
 def current() -> dict:
@@ -60,17 +60,18 @@ def check(req: Notice) -> dict:
     return {"text": text, "tone": req.tone, "on": req.on}
 
 
-@router.get("/notice", access=Access.user("管理员通知：页面顶部的通知条"), summary="管理员通知：文字、颜色（info 信息 / notice 提醒 / warn 警告 / risk 生产风险）、是否显示、上次修改的时间")
+@router.get("/notice", access=Access.user("Admin notice: the bar at the top of the page"), summary="Admin notice: text, color (info / notice / warn / risk: production risk), whether shown, when last changed")
 def notice() -> dict:
     return {k: v for k, v in current().items() if k not in ("by", "by_id")}
 
 
-@admin.get("/notice", access=Access.admin("settings.notice"), summary="管理员通知（编辑用）：连同上次是谁改的")
+@admin.get("/notice", access=Access.admin("settings.notice"), summary="Admin notice (for editing): with who changed it last")
 def admin_notice() -> dict:
     return current()
 
 
-@admin.put("/notice", access=Access.admin("settings.notice"), summary="改管理员通知：文字（最多 200 字）、颜色、开关；所有页面在下一次查服务器状态时换上")
+@admin.put("/notice", access=Access.admin("settings.notice"), summary="Change the admin notice: text (at most 200 characters), color, on/off; every page takes it up the next time it "
+                                                                      "asks for the server state")
 def set_notice(req: Notice, request: Request) -> dict:
     by = auth.actor(request)
     kept = {**check(req), "updated": time.time(), "by": by.label, "by_id": by.id}

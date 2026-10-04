@@ -9,13 +9,12 @@ from lab2shot.sdk import (Official, OpticalFlow, OpticalFlowParams, flow_resolut
 
 class Flow(OpticalFlow):
     id = "memfof.flow"
+    version = 2  # 2：原尺寸低于约 1080p 的素材按官方评测先放大 2 倍再算（worker.py upscale_of）
     # 上游 demo.py：frames_tensor（连续三帧）-> output["flow"] 的前后两个方向
     official = Official(
         cite="third_party/memfof/repo/demo.py:111-115",
         takes={"image": "frames_tensor"},
         gives={"flow": "forward_flow"},
-        note="三帧一起进、中间那帧的前向和后向矢量一起出（model.py:108「flow: List of flow predictions of shape "
-             "[B, 2, 2, H, W]」）；两个方向都在我们的运动矢量包里，不是两个口。",
     )
     # 逐三帧算，每帧的矢量只描述到相邻一帧；帧数没有上限
     runtime = "memfof"

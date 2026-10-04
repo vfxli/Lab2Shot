@@ -1,0 +1,41 @@
+# The SAM 3 extension's own words and messages in English (the same keys as zh.toml).
+
+"E-SAM3-WEIGHTSINCOMPLETE" = "The SAM 3 model weights are incomplete ({path} is missing or under 3 GB, most likely an interrupted download): install again."
+"E-SAM3-NOLICENSE" = "The SAM 3 model weights have no LICENSE file (the SAM License must travel with the model weights): install again."
+"E-SAM3-NOPROMPT" = "SAM 3 Video Segmentation does not know what to segment: enter an English phrase in Prompt (such as person), or wire in people boxes."
+"N-SAM3-NOBOXES" = "None of the wired people boxes falls within this image range (frames {first}–{last}), so SAM 3 Video Segmentation gives an empty mask this time. That is normal when upstream detected nobody; otherwise check that the people boxes and the image come from the same shot."
+"W-SAM3-TOOMANYPEOPLE.one" = "The people boxes hold {count} person, more than Max Objects ({max_objects}): only people {people}, who appear in the most frames, are segmented. To get all of them, increase Max Objects."
+"W-SAM3-TOOMANYPEOPLE.other" = "The people boxes hold {count} people, more than Max Objects ({max_objects}): only people {people}, who appear in the most frames, are segmented. To get all of them, increase Max Objects."
+"N-SAM3-EMPTY" = "SAM 3 found no objects in the whole shot, so the mask is empty: try another Prompt, or lower Detection Threshold."
+"N-SAM3-PERSONEMPTY" = "SAM 3 segmented no mask for person {person} of the people boxes; skipped."
+"W-SAM3-TOOMANYOBJECTS.one" = "SAM 3 found {count} object, more than Max Objects: only the {max_objects} that appear in the most frames are kept. To get all of them, increase Max Objects."
+"W-SAM3-TOOMANYOBJECTS.other" = "SAM 3 found {count} objects, more than Max Objects: only the {max_objects} that appear in the most frames are kept. To get all of them, increase Max Objects."
+
+[node."sam3.segment"]
+subtitle = "Video Segmentation"
+description = "Image → the objects found by a text prompt (in English, such as person or car) or by wired-in people bounding boxes, tracked through the whole shot. Outputs one mask of all objects together and a segmentation map with a number per object. The edges are hard: good enough for selections and guides, not hair-level matting. Wire Object Segmentation into Multi-Layer EXR Output to write a Cryptomatte, each object named by its prompt and number (such as person_01), to pick by name in Nuke. To hold out only objects that really move, use SegAnyMo Moving Object Mask; for soft hair edges, refine with MatAnyone 2 Fine Matting."
+official.note = "The text prompt (text_str) is upstream's predictor prompt; here it is the node parameter Prompt rather than an input. People boxes are not the predictor's bounding_boxes prompt but the tracker's box prompt (add_new_points_or_box): one per person, each person in their own session."
+licence.note = "SAM License: commercial use allowed; no military, weapons or similar uses; publications must credit SAM 3; redistributions must include the license text."
+
+[node."sam3.segment".port.mask]
+label = "Mask"
+
+[node."sam3.segment".param.prompt]
+label = "Prompt"
+
+[node."sam3.segment".param.max_objects]
+label = "Max Objects"
+
+[node."sam3.segment".param.threshold]
+label = "Detection Threshold"
+
+[stage]
+segment_track = "Segmenting and tracking"
+write_masks = "Writing masks"
+
+[extension.sam3]
+summary = "A unified foundation model for promptable segmentation in images and video: detects, segments and tracks objects from text or from visual prompts such as points, boxes and masks"
+license.name = "SAM License"
+license.summary = "Code and model weights are under the same SAM License: commercial use, modification and redistribution are allowed (redistributions must include the license text); publications must credit SAM 3; military, warfare, nuclear, espionage, weapons and similar uses are prohibited, and US and other export controls and sanctions apply; no reverse engineering; the license terminates automatically if you sue Meta over intellectual property; no warranty. Access to the model weights must first be requested on Hugging Face"
+weight.sam3.note = "SAM 3 detection + tracking model weights (3.4 GB, SAM License); request access first at https://huggingface.co/facebook/sam3"
+weight.sam31.note = "SAM 3.1 detection + tracking model weights (3.5 GB, SAM License, used for text prompts); request access first at https://huggingface.co/facebook/sam3.1"

@@ -4,9 +4,14 @@ only means adding a table at its top; no code changes. The file:
 
     project = "https://github.com/..."     the project's address, shown first in the dialog
     [[release]]                             one table per version, the newest first
-    name, date (a TOML date), about         名称, 日期, 说明
-    changes = ["...", ...]                  更新: a few short lines for everyone (may be empty)
-    admin = ["...", ...]                    optional: lines only administrators are shown (the back office)
+    name = {zh = "…", en = "…"}             its name
+    date                                    a TOML date
+    about = {zh = "…", en = "…"}            one sentence
+    changes = {zh = [...], en = [...]}      a few short lines for everyone (may be empty), the same count in both
+    admin = {zh = [...], en = [...]}        optional: lines only administrators are shown (the back office)
+
+Every text is in both languages (i18n.LANGS), as a built-in template's words: the route sends both and the page shows
+the one it speaks (webui/src/i18n/t.ts pick), so switching the page's language needs no new request.
 
 The server reads it once when it starts (current()); `lab2shot check releases` runs the same reading and reports every
 problem (problems), so a broken file is caught before it ships. The text is data only: the page shows it as plain text.
@@ -24,6 +29,7 @@ from functools import cache
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from . import i18n
 from .config import ROOT
 
 FILE = ROOT / "CHANGELOG.toml"
@@ -47,55 +53,54 @@ def read(file: Path = FILE) -> Notes:
     try:
         data = tomllib.loads(file.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return Notes(problems=("文件不存在",))
+        return Notes(problems=(i18n.t("release.no_file"),))
     except tomllib.TOMLDecodeError as exc:
-        return Notes(problems=(f"不是正确的 TOML：{exc}",))
+        return Notes(problems=(i18n.t("release.not_toml", why=exc),))
     except (OSError, UnicodeDecodeError) as exc:
-        return Notes(problems=(f"文件读不出来：{exc}",))
+        return Notes(problems=(i18n.t("release.unreadable", why=exc),))
     bad: list[str] = []
     project = data.get("project")
     if not _https(project):
-        bad.append(f"project 应是 https:// 开头的网址，现在是 {project!r}")
+        bad.append(i18n.t("release.project", now=repr(project)))
     extra = sorted(set(data) - {"project", "release"})
     if extra:
-        bad.append(f"文件顶层有不认识的项：{'、'.join(extra)}")
+        bad.append(i18n.t("release.top_unknown", keys=i18n.separator().join(extra)))
     rows = data.get("release")
     if not isinstance(rows, list) or not rows:
-        bad.append("一个版本也没有：至少要有一段 [[release]]")
+        bad.append(i18n.t("release.none"))
         rows = []
     releases, names = [], set()
     for i, row in enumerate(rows, 1):
-        where = f"第 {i} 个版本"
+        where = i18n.t("release.nth", n=i)
         if not isinstance(row, dict):
-            bad.append(f"{where}不是一段 [[release]] 表")
+            bad.append(i18n.t("release.not_table", where=where))
             continue
         missing = [k for k in FIELDS if k not in row]
         unknown = sorted(set(row) - set(FIELDS) - set(OPTIONAL))
         if missing:
-            bad.append(f"{where}缺少 {'、'.join(missing)}")
+            bad.append(i18n.t("release.missing", where=where, keys=i18n.separator().join(missing)))
         if unknown:
-            bad.append(f"{where}有不认识的项：{'、'.join(unknown)}")
+            bad.append(i18n.t("release.unknown", where=where, keys=i18n.separator().join(unknown)))
         name, date, about, changes = (row.get(k) for k in FIELDS)
-        if "name" in row and not _text(name):
-            bad.append(f"{where}的 name 应是一段不空的文字")
-        elif _text(name):
-            where = f"{where}（{name}）"
-            if name in names:
-                bad.append(f"{where}的名称和前面的版本重复了")
-            names.add(name)
+        if "name" in row and not i18n.is_both(name):
+            bad.append(i18n.t("release.name", where=where))
+        elif i18n.is_both(name):
+            where = i18n.t("release.named", where=where, name=i18n.pick(name))
+            if any((lang, name[lang]) in names for lang in i18n.LANGS):
+                bad.append(i18n.t("release.name_again", where=where))
+            names.update((lang, name[lang]) for lang in i18n.LANGS)
         # a TOML date without quotes; a date-time (with a time of day) is a datetime, which is a date too: refused
         if "date" in row and not (isinstance(date, datetime.date) and not isinstance(date, datetime.datetime)):
-            bad.append(f"{where}的 date 应是不加引号的日期 YYYY-MM-DD，现在是 {date!r}")
+            bad.append(i18n.t("release.date", where=where, now=repr(date)))
             date = None
-        if "about" in row and not _text(about):
-            bad.append(f"{where}的 about 应是一段不空的文字")
-        if "changes" in row and not (isinstance(changes, list) and all(_text(c) for c in changes)):
-            bad.append(f"{where}的 changes 应是一列不空的文字，每条一行")
-        admin = row.get("admin", [])
-        if not (isinstance(admin, list) and all(_text(c) for c in admin)):
-            bad.append(f"{where}的 admin 应是一列不空的文字，每条一行")
+        if "about" in row and not i18n.is_both(about):
+            bad.append(i18n.t("release.about", where=where))
+        if "changes" in row:
+            bad += _lines(changes, "release.changes", where)
+        admin = row.get("admin", {lang: [] for lang in i18n.LANGS})
+        bad += _lines(admin, "release.admin", where)
         if releases and isinstance(date, datetime.date) and releases[-1]["date"] and date.isoformat() > releases[-1]["date"]:
-            bad.append(f"{where}的日期 {date} 比上面一个版本（{releases[-1]['date']}）新：最新的版本要写在最上面")
+            bad.append(i18n.t("release.order", where=where, date=date, above=releases[-1]["date"]))
         releases.append({"name": name, "date": date.isoformat() if isinstance(date, datetime.date) else "",
                          "about": about, "changes": changes, "admin": admin})
     if bad:
@@ -118,3 +123,15 @@ def _https(value: object) -> bool:
 
 def _text(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def _lines(value: object, key: str, where: str) -> list[str]:
+    """What is wrong with a list of lines in both languages ({zh: [...], en: [...]}: non-empty text, one line each, as
+    many in every language): `key` the field's word (release.changes / release.admin)."""
+    if not (isinstance(value, dict) and set(value) == set(i18n.LANGS)
+            and all(isinstance(v, list) and all(_text(c) for c in v) for v in value.values())):
+        return [i18n.t(key, where=where)]
+    counts = {lang: len(value[lang]) for lang in i18n.LANGS}
+    if len(set(counts.values())) > 1:
+        return [i18n.t("release.count", where=where, field=key.rpartition(".")[2], **counts)]
+    return []

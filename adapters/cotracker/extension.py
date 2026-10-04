@@ -23,20 +23,13 @@ class CoTracker(Extension):
     name = "cotracker"
     sdk = 2  # lab2shot.sdk.SDK_API this adapter is written for
     title = "CoTracker3"
-    summary = "基于 Transformer 的快速模型，能跟住视频里的任意一个点，把光流的一些好处带进点跟踪"
     homepage = "https://cotracker3.github.io/"
     source = GitSource(url=COTRACKER_URL, commit=COTRACKER_COMMIT)
     license = LicenseInfo(
         tag=NONCOMMERCIAL,
-        name="CC-BY-NC-4.0（非商用）",
         url="https://github.com/facebookresearch/co-tracker/blob/main/LICENSE.md",
-        summary=(
-            "非商用：代码（LICENSE.md）和 CoTracker3 权重（Hugging Face facebook/cotracker3 模型卡）都是 "
-            "CC-BY-NC 4.0，只能用于研究等非商业用途，使用时需署名 Meta。"
-            "仓库里少量代码来自 PIPs（MIT）、TAP-Vid 和 LocoTrack（Apache-2.0）。"
-            "只依赖 torch / torchvision，没有其他隐藏的非商用依赖"
-        ),
     )
+    generative = False
     env = EnvSpec(
         python="3.12",
         # Pure PyTorch (no compiled ops); same build as tapnext (shared uv cache).
@@ -48,7 +41,6 @@ class CoTracker(Extension):
             HF_REPO, HF_REVISION, filename,
             key=f"cotracker3_{mode}",
             dest=filename,
-            note=f"CoTracker3 {mode}（CC-BY-NC 4.0，{size / 1e6:.0f} MB）",
             sha256=sha256,
         )
         for mode, (filename, size, sha256) in CHECKPOINTS.items()

@@ -152,9 +152,10 @@ def main(job_path: str) -> None:
 
     device = torch.device("cuda")
     # the aux input is part of how the network is wired, so a changed 提示 loads the model again
-    net = run.model("SDMatte", load_model, job.repo_dir, weights, "mask" if guide == "mask" else "bbox_mask", device)
+    net = run.model("load_model", load_model, job.repo_dir, weights, "mask" if guide == "mask" else "bbox_mask", device,
+                    stage_params={"model": "SDMatte"})
 
-    run.stage("抠像")
+    run.stage("matte")
     reader = frame_reader(frames.paths, (height, width))
 
     def matte_shot(value: int):
@@ -167,7 +168,7 @@ def main(job_path: str) -> None:
                     mask = guides.get(frame)
                     mask = np.zeros((height, width), np.float32) if mask is None else mask
                     out.put(frame, matting(reader.get(i, list(range(i, len(frames)))), mask))
-                    progress(i + 1, len(frames), "抠像")
+                    progress(i + 1, len(frames), "matte")
         except BaseException:
             out.close()  # its writing thread, not kept for a run that failed
             raise

@@ -1,0 +1,42 @@
+# The OpenDelight extension's own words and messages in Chinese (the same keys as en.toml).
+
+"E-OPENDELIGHT-TARMISSING" = "下载的 OpenDelight 模型权重包 {archive} 里没有 {name}：包不完整或版本不对，删掉它重新安装"
+"E-OPENDELIGHT-NOWEIGHTS" = "缺少模型权重 opendelight/{name}：管理员先执行 lab2shot ext install opendelight"
+"N-OPENDELIGHT-CPUMATTING" = "DAViD 抠像没能用上显卡（能用的只有 {providers}），结果不变，但会很慢"
+"W-OPENDELIGHT-NOFACE.other" = "OpenDelight 有 {count} 帧没有检测到面部（如第 {frames} 帧），这些帧输出全黑：脸太小、太侧或被挡住，交付前剪掉或补上这些帧"
+"W-OPENDELIGHT-MANYFACES.other" = "有 {count} 帧里 OpenDelight 找到多张脸，只处理最大的（或和上一帧重叠的）那张：要处理别的脸，先把画面裁到那张脸"
+
+[node."opendelight.delight"]
+subtitle = "面部去光照"
+description = "从面部照片或视频帧去掉光照，得到基础颜色（漫反射颜色，CG 流程里也叫 albedo）和脸部遮罩。逐帧处理，视频会闪。"
+official.note = "上游把两样存成同一张 RGBA（save_image(torch.cat([res_torch, final_mask[:, :1]], dim=1))，第 293-300 行）；我们拆成两个口。上游自己跑抠像和人脸对齐，不吃遮罩。"
+
+[node."opendelight.delight".port.mask]
+label = "遮罩"
+
+[node."opendelight.delight".param.enhancer]
+label = "细节增强"
+
+[node."opendelight.delight".param.resolution]
+label = "处理分辨率"
+
+[node."opendelight.delight".param.smooth_landmarks]
+label = "关键点平滑"
+
+[node."opendelight.delight".stage]
+write_basecolor = "写出基础颜色"
+
+[stage]
+detect_faces = "检测面部"
+delight = "去光照"
+
+[extension.opendelight]
+summary = "完全开源、面向面部外观采集的高性能去光照先验"
+license.name = "GPL-3.0 代码 · 模型权重非商用"
+license.summary = "代码 GPL-3.0；模型权重没有声明许可证，训练数据为 FaceOLAT（仅限学术研究）和作者的私有数据，只能用于研究和评估，作者授予商用许可前不能用于商业制作（联系 hanyx22@mails.tsinghua.edu.cn）。辅助模型：DAViD 抠像（MIT）、ibug 面部检测/关键点（MIT）、FaRL 面部分割（MIT，但训练数据 LaPa 仅限非商用）；MAE 初始化模型权重（CC BY-NC 4.0）推理时用不到，不下载。以独立进程运行，GPL 不影响 Lab2Shot 本身"
+weight.opendelight.note = "OpenDelight 网络 + UNet 增强网络（无许可证声明，按非商用对待；安装后处理时解包）"
+weight.david-foreground.note = "DAViD 软前景抠像 ViT-L ONNX（MIT）"
+weight.farl-lapa-448.note = "FaRL 面部分割 LaPa 448（facer，MIT；训练数据 LaPa 仅限非商用）"
+weight.ibug-face-detection.note = "ibug RetinaFace 面部检测代码（MIT）"
+weight.ibug-retinaface-r50.note = "ibug RetinaFace ResNet-50 模型权重（git-lfs 文件，MIT）"
+weight.ibug-face-alignment.note = "ibug FAN 68 点面部关键点代码和模型权重（MIT）"

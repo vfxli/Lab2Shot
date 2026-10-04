@@ -3,14 +3,16 @@
 import { useEffect, useState } from "react";
 import { stampText } from "../platform/format";
 import { Button } from "./Button";
-import { useMine, type MyFeedback } from "./Feedback";
+import { useMine } from "./Feedback";
 import { Loading } from "./Loading";
+import { t } from "../i18n/t";
 
 export function MyFeedbackList({ onWrite }: { onWrite: () => void }) {
   const items = useMine((s) => s.items);
   const load = useMine((s) => s.load);
   const read = useMine((s) => s.read);
   const problem = useMine((s) => s.problem);
+  const rule = useMine((s) => s.rule);
   const [fresh, setFresh] = useState<Set<string> | null>(null); // unread when the list opened: marked while it shows
   const [open, setOpen] = useState<Set<string>>(new Set());
 
@@ -24,20 +26,21 @@ export function MyFeedbackList({ onWrite }: { onWrite: () => void }) {
     );
   }, [load, read]);
 
-  if (items === null) return problem ? <p className="adm-empty">没读到我的反馈：{problem}</p> : <Loading what="我的反馈" />;
-  if (fresh === null) return <Loading what="我的反馈" />;
+  if (items === null) return problem ? <p className="adm-empty">{t("ui.feedback.mine_failed", { reason: problem })}</p> : <Loading what={t("ui.feedback.mine")} />;
+  if (fresh === null) return <Loading what={t("ui.feedback.mine")} />;
   if (!items.length)
     return (
       <div className="fb-mine-empty">
-        <p className="adm-empty">还没有提交过反馈：提交以后，这里列出提过的反馈和管理员的回复</p>
-        <Button tip="写一条新的反馈" onClick={onWrite}>
-          写反馈
+        <p className="adm-empty">{t("ui.feedback.mine_empty")}</p>
+        {rule && <p className="tpl-desc">{t("ui.feedback.rule", { rule })}</p>}
+        <Button onClick={onWrite}>
+          {t("ui.feedback.write")}
         </Button>
       </div>
     );
   return (
     <div className="fb-mine">
-      <p className="tpl-desc">当前账号提交过的反馈。管理员回复或者改了状态，「提交反馈」按钮上会出现一个点。</p>
+      <p className="tpl-desc">{t("ui.feedback.mine_about")}{rule && t("ui.feedback.rule", { rule })}</p>
       {items.map((f) => {
         const long = f.text.length > 160 || f.text.split("\n").length > 3;
         const whole = open.has(f.id);
@@ -46,25 +49,26 @@ export function MyFeedbackList({ onWrite }: { onWrite: () => void }) {
             <div className="fb-meta">
               <span className="tnum">{stampText(f.at)}</span>
               {f.category_label && <span className="chip">{f.category_label}</span>}
-              <span className={`chip fb-status ${f.status}`} data-tip={STATUS_TIP[f.status]}>
+              <span className={`chip fb-status ${f.status}`}>
                 {f.status_label}
               </span>
-              {f.images > 0 && <span>{f.images} 张图</span>}
-              {fresh.has(f.id) && <span className="fb-new-mark">{f.reply && f.replied && f.replied >= (f.changed ?? 0) ? "新回复" : "状态有变化"}</span>}
+              {f.images > 0 && <span>{t("ui.feedback.images", { count: f.images })}</span>}
+              {fresh.has(f.id) && <span className="fb-new-mark">{f.reply && f.replied && f.replied >= (f.changed ?? 0) ? t("ui.feedback.new_reply") : f.reward ? t("ui.feedback.rewarded") : t("ui.feedback.status_changed")}</span>}
             </div>
             <div className={`fb-card-text${long && !whole ? " clipped" : ""}`}>{f.text}</div>
             {long && !whole && (
-              <Button tip="显示这条反馈的全文" tone="ghost" size="sm" layout="fb-more" onClick={() => setOpen((s) => new Set(s).add(f.id))}>
-                展开全文
+              <Button tone="ghost" size="sm" layout="fb-more" onClick={() => setOpen((s) => new Set(s).add(f.id))}>
+                {t("ui.feedback.read_all")}
               </Button>
             )}
+            {f.reward && <div className="fb-reward">{f.reward}</div>}
             {f.reply ? (
               <div className="fb-reply">
-                <span className="fb-reply-head">管理员回复{f.replied ? ` · ${stampText(f.replied)}` : ""}</span>
+                <span className="fb-reply-head">{t("ui.feedback.reply")}{f.replied ? ` · ${stampText(f.replied)}` : ""}</span>
                 {f.reply}
               </div>
             ) : (
-              <div className="tpl-desc">{f.status === "new" ? "管理员还没看到" : "管理员还没有回复"}</div>
+              <div className="tpl-desc">{f.status === "new" ? t("ui.feedback.not_seen") : t("ui.feedback.no_reply")}</div>
             )}
           </article>
         );
@@ -72,9 +76,3 @@ export function MyFeedbackList({ onWrite }: { onWrite: () => void }) {
     </div>
   );
 }
-
-const STATUS_TIP: Record<MyFeedback["status"], string> = {
-  new: "新：管理员还没看到",
-  seen: "已看：管理员看过了，还在处理",
-  solved: "已解决：问题解决了，或者建议处理了",
-};

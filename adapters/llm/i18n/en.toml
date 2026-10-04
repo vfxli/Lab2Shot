@@ -1,0 +1,89 @@
+# The LLM extension's own words and messages (English; the same keys as zh.toml).
+
+"I-LLM-GGUF" = "GGUF model"
+
+[stage]
+generate = "Generate"
+
+[node."llm.translate"]
+subtitle = "Translate"
+description = "Translates the incoming text into the language picked in Translate To (Hy-MT2's official prompt format; languages from the official table of full names, 33 languages). The model is Hy-MT2-1.8B (a small, fast model made for translation) or Qwen3.5-9B, each in a Q4_K_M and a Q8_0 quantization. The output is still a String: wire it to drive a string parameter downstream."
+
+[node."llm.translate".param.target_lang]
+label = "Translate To"
+
+[node."llm.translate".param.target_lang.option]
+chinese = "Chinese"
+english = "English"
+french = "French"
+portuguese = "Portuguese"
+spanish = "Spanish"
+japanese = "Japanese"
+turkish = "Turkish"
+russian = "Russian"
+arabic = "Arabic"
+korean = "Korean"
+thai = "Thai"
+italian = "Italian"
+german = "German"
+vietnamese = "Vietnamese"
+malay = "Malay"
+indonesian = "Indonesian"
+filipino = "Filipino"
+hindi = "Hindi"
+traditional_chinese = "Traditional Chinese"
+polish = "Polish"
+czech = "Czech"
+dutch = "Dutch"
+khmer = "Khmer"
+burmese = "Burmese"
+persian = "Persian"
+gujarati = "Gujarati"
+urdu = "Urdu"
+telugu = "Telugu"
+marathi = "Marathi"
+hebrew = "Hebrew"
+bengali = "Bengali"
+tamil = "Tamil"
+ukrainian = "Ukrainian"
+tibetan = "Tibetan"
+kazakh = "Kazakh"
+mongolian = "Mongolian"
+uyghur = "Uyghur"
+cantonese = "Cantonese"
+
+[node."llm.translate".param.model]
+label = "Model"
+
+[node."llm.translate".param.model.option]
+hy_mt2_q4 = "Hy-MT2-1.8B · Q4_K_M"
+hy_mt2_q8 = "Hy-MT2-1.8B · Q8_0"
+qwen35_q4 = "Qwen3.5-9B · Q4_K_M"
+qwen35_q8 = "Qwen3.5-9B · Q8_0"
+
+[node."llm.translate".official]
+note = "Translate To is the target_lang of the official template (the official rule: languages written in full, by their Chinese names in a Chinese prompt). Translation only, in the official Default Translation form."
+
+[node."llm.translate".cost]
+whole = "One generation, no per-frame time"
+note = "Hy-MT2-1.8B Q4_K_M (measured); the GPU memory of Q8_0 and the 9B model is given with each Model option"
+
+[extension.llm]
+title = "LLM Text"
+summary = "Text-in, text-out language model components: Hy-MT2 / Qwen3.5 translation, turning Chinese into the English prompts nodes downstream want"
+
+[extension.llm.license]
+name = "MIT (llama.cpp) + Apache-2.0 (Hy-MT2 and Qwen3.5-9B weights)"
+summary = "Commercial use allowed. The inference engine llama.cpp is MIT; both models are released under Apache-2.0 (the official Hy-MT2 repository's LICENSE, the license field of the Qwen/Qwen3.5-9B model card; the GGUF files are bartowski's imatrix quantizations, under the original models' licence). Qwen3.5 is a thinking model; this extension calls it the official non-thinking way, enable_thinking=False (checked against the chat template embedded in the GGUF: the accepted output holds no reasoning)."
+
+[extension.llm.weight.hy-mt2-q4]
+note = "Hy-MT2-1.8B Q4_K_M (Tencent, Apache-2.0, 1.1 GB): translation, 33 languages"
+
+[extension.llm.weight.hy-mt2-q8]
+note = "Hy-MT2-1.8B Q8_0 (Tencent, Apache-2.0, 1.9 GB): the same at higher precision"
+
+[extension.llm.weight.qwen35-q4]
+note = "Qwen3.5-9B Q4_K_M (Alibaba, Apache-2.0, bartowski quantization, 6.2 GB): translation, thinking off"
+
+[extension.llm.weight.qwen35-q8]
+note = "Qwen3.5-9B Q8_0 (Alibaba, Apache-2.0, bartowski quantization, 9.8 GB): the same at higher precision"

@@ -6,7 +6,7 @@ input frames listed there, writes raw results into the job's raw folder, and
 reports progress as single stdout lines starting with PREFIX followed by JSON.
 Any other output is treated as log text. What a worker says to the user it says by
 message code and parameters only (say(), fail()): the core writes the words, from its
-catalogue (lab2shot/messages, the extension's own adapters/<name>/messages.toml).
+catalogue (lab2shot/messages, the extension's own adapters/<name>/i18n/<lang>.toml).
 
 Everything a worker needs besides its model lives here, once: the job and its parameters (as the node sent them),
 events, offline model loading (load_job refuses the network; local_hub, hf_dest), and in their own modules:
@@ -235,13 +235,27 @@ def _emit(kind: str, **payload: Any) -> None:
     out.flush()
 
 
-def stage(name: str) -> None:
-    """Start a named stage, e.g. "检测人物"."""
-    _emit("stage", name=name)
+STAGE_ID = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
-def progress(done: int, total: int, message: str = "") -> None:
-    _emit("progress", done=done, total=total, message=message)
+def _stage_id(word: str) -> str:
+    """A stage's id as the worker says it: English, [a-z][a-z0-9_]* (the words are the core's: the node's or the
+    extension's catalogue, `stage.<id>`); "" for a progress line that names no stage of its own."""
+    if word and not STAGE_ID.match(word):
+        raise ValueError(f"a stage is said by its id ([a-z][a-z0-9_]*, its words in the catalogue), not {word!r}")
+    return word
+
+
+def stage(word: str, /, **params: Any) -> None:
+    """Start a stage, said by its id ("detect_people") and the parameters its words name (plain values): the core
+    looks the words up (node.<type>.stage.<id>, then the extension's stage.<id>, then the core's) in the language of
+    whoever watches."""
+    _emit("stage", id=_stage_id(word), params=params)
+
+
+def progress(done: int, total: int, word: str = "", /, **params: Any) -> None:
+    """How far the stage is: `done` of `total`, with the id of what is being counted ("" none) and its parameters."""
+    _emit("progress", done=done, total=total, id=_stage_id(word), params=params)
 
 
 def say(code: str, /, **params: Any) -> None:
@@ -308,10 +322,12 @@ def nothing(code: str, /, **params: Any) -> NoReturn:
     raise SystemExit(0)
 
 
-def require_weights(ext: str, *paths: Path, what: str = "权重", page: str = "") -> None:
+def require_weights(ext: str, *paths: Path, what: dict | None = None, page: str = "") -> None:
     """The installer downloads and verifies every weight file or folder: one that is missing means
-    `lab2shot ext install <ext>` has not run (or is pending). fail() naming it (`what`: a noun, 「找不到{what}」);
+    `lab2shot ext install <ext>` has not run (or is pending). fail() naming it (`what`: a noun as a message,
+    reason("I-<EXT>-…"), the {what} of E-WORKER-MISSINGWEIGHTS; None: plain "weights", I-WORKER-WEIGHTS);
     `page`: where access to gated weights is requested first."""
+    what = what or reason("I-WORKER-WEIGHTS")
     for path in paths:
         if not path.exists():
             if page:

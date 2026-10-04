@@ -1,0 +1,41 @@
+# The UnderPressure extension's own words and messages in English (the same keys as zh.toml).
+
+# ---- skeleton
+"E-UNDERPRESSURE-SKELETON" = "UnderPressure Footskate Cleanup cannot map the wired skeleton onto its 23-joint skeleton: {reason}"
+"E-UNDERPRESSURE-SKELETON.app" = "The skeleton in the motion file cannot be matched to the model's 23-joint skeleton: {reason}"
+"W-UNDERPRESSURE-WEIGHT" = "UnderPressure Footskate Cleanup estimates an average foot support force of only {weight:.2f} body weights, where a person walking averages about 1 over a whole take: the wired skeleton is probably not human-proportioned, or Mapping pairs the wrong joints. Neither the foot contacts nor this cleanup can be trusted; check Mapping first"
+"W-UNDERPRESSURE-WEIGHT.app" = "The estimated foot support averages only {weight:.2f} times body weight, while a person walking averages about 1: the skeleton is most likely not human-proportioned, or joints are mismatched in the correspondence. Foot contacts and this cleanup cannot be trusted; check the correspondence first"
+
+# ---- contacts
+"N-UNDERPRESSURE-NOCONTACT" = "UnderPressure Footskate Cleanup found no frame in this motion where a foot is on the ground: the motion is passed on unchanged. Common causes: the take is a jump, airborne or seated, or the feet are not paired in Mapping"
+"I-UNDERPRESSURE-CONTACT.one" = "UnderPressure Footskate Cleanup finds a foot on the ground in {frames} frame (of the model's own {total}): {left} spans on the left foot, {right} on the right"
+"I-UNDERPRESSURE-CONTACT.other" = "UnderPressure Footskate Cleanup finds a foot on the ground in {frames} frames (of the model's own {total}): {left} spans on the left foot, {right} on the right"
+
+# ---- frame rate
+"N-UNDERPRESSURE-RESAMPLED.one" = "This animation is {fps:g} FPS and the UnderPressure Footskate Cleanup model only takes 100 FPS: the motion was upsampled to 100 FPS ({frames} frames) to detect contacts, and the result converted back to the original frame rate"
+"N-UNDERPRESSURE-RESAMPLED.other" = "This animation is {fps:g} FPS and the UnderPressure Footskate Cleanup model only takes 100 FPS: the motion was upsampled to 100 FPS ({frames} frames) to detect contacts, and the result converted back to the original frame rate"
+"N-UNDERPRESSURE-GROUNDED" = "The lowest point of the feet in this mocap is at {offset:.0f} cm, not on the ground (0): UnderPressure Footskate Cleanup pins feet assuming the character stands on the ground, so the node moves the whole take to the ground, cleans it, and moves it back exactly; the output stands exactly where the input did. To have it stand on the ground in the first place, wire Auto Ground first"
+"N-UNDERPRESSURE-GROUNDED.app" = "The feet of this take are lowest at {offset:.0f} cm, not on the ground (0): it is moved to the ground for the cleanup and moved back afterwards, so the animation delivered stands exactly where it did"
+
+[node."underpressure.footskate_cleanup"]
+subtitle = "Footskate Cleanup"
+description = "InterDigital UnderPressure: estimates the force each foot puts on the ground every frame (trained on ground truth from pressure insoles), decides from the forces which foot is really planted on which frames, then pins planted feet in place with contact-constrained IK to remove foot sliding. The foot contacts come out as four curves for IK in a DCC; the foot forces the model estimates (16 insole cells per foot, as a fraction of body weight) also come out per frame. Contacts are decided from them; use them to set your own contact threshold."
+official.note = "1. Animation goes in and out as the same angles + skeleton + trajectory (demo.py:135: cleaner(item[\"angles\"], item[\"skeleton\"], item[\"trajectory\"])). 2. No footskate output: upstream gives only contacts and vGRFs, with no per-frame footskate judgement, so the node declares judges = False and has no Only Fix Problem Frames or Detection Threshold parameters (_cleaned in lab2shot/nodes/families/rig_motion.py picks frames only when judges is set); the whole take is changed by the model. Fixing only the sliding frames belongs in an explicit core node (measure footskate → a curve → a wired parameter of the cleanup node), outside this node. 3. Foot Forces is upstream's vGRFs (demo.py:22 model.vGRFs(...)); Foot Contacts is upstream's contacts."
+licence.note = "Research only: InterDigital's evaluation license allows only \"fundamental research work\" and explicitly excludes all commercial use, including use in any product or service provided to third parties."
+cost.whole = "Optimizes the whole take at once, not frame by frame; runs on the CPU, no GPU needed (about 34 s for 60 s of mocap)"
+
+[node."underpressure.footskate_cleanup".param.contact_margin]
+label = "Contact Margin"
+
+[node."underpressure.footskate_cleanup".port.vgrfs]
+label = "Foot Forces"
+
+[extension.underpressure]
+summary = "Estimates the ground reaction forces under both feet from mocap, detects foot contacts from them, and removes foot sliding with optimization-based IK; research only"
+license.name = "InterDigital Limited Software Evaluation License"
+license.summary = "Research only. InterDigital's evaluation license allows only \"fundamental research work\" and explicitly excludes all commercial use (including use in any product or service provided to third parties, paid or free). Publications must state \"UnderPressure is an InterDigital product\" and cite the paper. The code and the pretrained network are both under this license; Lab2Shot does not modify any file of the original repository."
+
+[stage]
+align_skeleton = "Align Skeleton"
+estimate_forces = "Estimate Foot Support Forces"
+solve_contacts = "Solve Contact Constraints, Remove Foot Sliding"

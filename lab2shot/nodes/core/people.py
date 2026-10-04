@@ -17,15 +17,15 @@ RULES = {"largest": "first", "top": "top", "all": "all", "ids": "ids", "picked":
 
 
 class SelectPeople(NodeDef):
-    id = "core.select_people"
+    id = "select_people"
     same_on_cards = True  # 各卡上公开的这块参数一样（NodeDef.same_on_cards）
     version = 5  # 输出为一份「人物框」，而非「人物框[]」
     category = "mask_edit"
-    inputs = (Port("boxes", "boxes", "人物框", expects=(KnownPeople(),), takes_empty=False),)  # 未检测到任何人时无可选择
+    inputs = (Port("boxes", "boxes", expects=(KnownPeople(),), takes_empty=False),)  # 未检测到任何人时无可选择
     # 输出为一份人物框：该类型本身可容纳多人，选择一人即为只含一人的一份，可直接接入解算器的「人物框」端口。
     # 不输出「人物框[]」（每人一条的列表）：否则接入解算器前还需合并，先拆分再合并不符合直觉。
     # 确需逐人处理时，显式连接「拆成列表」→「逐项开始」。
-    outputs = (Port("boxes", "boxes", "人物框"),)
+    outputs = (Port("boxes", "boxes"),)
     handles = (Handle("person", {"picks": "picks"}, source="boxes", when=Param("mode").one_of("picked")),)
     on_node = ("mode", "count", "ids")
     # 算法定义不在此处，而在算法目录（lab2shot/ops/ops.toml）中：各选择方式是 people.select 的规则。
@@ -34,13 +34,12 @@ class SelectPeople(NodeDef):
 
     class Params(NodeParams):
         mode: Literal["largest", "top", "all", "ids", "picked"] = P(
-            "largest", label="选择", group="人物",
-            option_labels={"largest": "最大", "top": "前几个", "all": "全部", "ids": "编号", "picked": "点选"},
+            "largest", group="people",
         )
         # 按显著程度取前 N 个：有几十个路人的镜头只计算最显著的几个
-        count: int = P(3, label="人数", ge=1, group="人物", applies=Param("mode").one_of("top"))
-        ids: str = P("", label="编号", group="人物", placeholder="1,3", applies=Param("mode").one_of("ids"))
-        picks: list[str] = P([], label="点选", widget="picks", group="人物", placeholder="在 2D 视图里点人", applies=Param("mode").one_of("picked"))
+        count: int = P(3, ge=1, group="people", applies=Param("mode").one_of("top"))
+        ids: str = P("", group="people", applies=Param("mode").one_of("ids"))
+        picks: list[str] = P([], widget="picks", group="people", applies=Param("mode").one_of("picked"))
 
     @classmethod
     def cook(cls, ctx):

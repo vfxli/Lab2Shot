@@ -5,8 +5,8 @@
 `batch['pose_2d'] / ['hint_2d'] / ['text']`），不使用任何像素。
 
     「手画简笔画」（本模块）────────────────────────────────┐
-    「拆网格图」（core.split_grid）→「手画简笔画」的图像口 ─┼→「Sketch2Anim 动作生成」的「草图」口
-    「读取序列」（core.read_sequence）→ 同上 ──────────────┘
+    「拆网格图」（split_grid）→「手画简笔画」的图像口 ─┼→「Sketch2Anim 动作生成」的「草图」口
+    「读取序列」（file）→ 同上 ──────────────┘
 
 棋盘格图和序列图接入「手画简笔画」而非解算器：上游不使用像素，画面仅作为绘制时参照的分镜图，
 因此它们是「手画简笔画」的底图，而不是解算器的输入。
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from ..port import EITHER
 from ...errors import Invalid
+from ... import i18n
 from ...messages import Msg
 
 from ..base import NodeDef, NodeParams, P, Port, parse_figures, say_bad_entries
@@ -27,7 +28,7 @@ from ..handles import FIGURE_JOINTS, figure_handle
 
 
 class DrawFigure(NodeDef):
-    id = "core.draw_figure"
+    id = "draw_figure"
     # 计算结果变化时必须递增版本，否则 work/ 中的旧结果仍会命中缓存
     # （指纹由 type id + version + 参数构成，见 engine/cook.py）。
     version = 2
@@ -38,10 +39,8 @@ class DrawFigure(NodeDef):
     # 也没有从图像识别关节的步骤（官方 demo 使用动捕 3D 关节经 `project2D()` 投影得到的 2D 坐标）。
     # 本节点只接收一段序列，不识别宫格图，没有行列参数，也不做拆分；宫格图应先经「拆网格图」拆成序列再接入。
     # 端口提示和节点说明中必须写明「底图不参与计算」，以免被误解为基于图像生成。
-    inputs = (Port("image", "image", "图像", optional=True, data=EITHER,
-                   help="照着画的底图，一段序列：时间线拖到哪一帧就显示那一帧，你在那一帧上画。"
-                        "这张图不参与计算——下游 Sketch2Anim 只吃火柴人的关节坐标，一个像素都不吃"),)
-    outputs = (Port("sketch", "tracks2d", "草图"),)
+    inputs = (Port("image", "image", optional=True, data=EITHER),)
+    outputs = (Port("sketch", "tracks2d"),)
     # 画布复用现有的手柄机制（nodes/handles.py），不另建交互。
     handles = (figure_handle("poses"),)
 
@@ -50,8 +49,7 @@ class DrawFigure(NodeDef):
         # 每帧最多一个火柴人（由 cook 中的 E-FIGURE-TWICE 校验）：帧是该数据的单位，因此面板按帧操作，
         # 视图中只负责拖动关节。不使用 widget「canvas」（手画遮罩所用）：拖框创建容易产生失真的人体比例，
         # 且在同一帧上创建第二个会替换第一个。
-        poses: list[str] = P([], label="关键姿势", widget="figure", group="草图",
-                             placeholder="点「添加帧」放第一个姿势")
+        poses: list[str] = P([], widget="figure", group="sketch")
 
     @classmethod
     def cook(cls, ctx):
@@ -80,7 +78,7 @@ class DrawFigure(NodeDef):
         shot = list(src.meta["frames"]) if src is not None else []
         outside = sorted(f for f in seen if shot and f not in shot)
         if outside:  # 仅手工编辑的节点图文件可能出现：姿势位于序列之外的帧（给出提示并继续计算）
-            ctx.say("N-FIGURE-OUTSIDE", count=len(outside), frames="、".join(str(f) for f in outside),
+            ctx.say("N-FIGURE-OUTSIDE", count=len(outside), frames=i18n.Both.of(lambda: i18n.separator().join(str(f) for f in outside)),
                     lo=shot[0], hi=shot[-1], param="poses")
         # 未接序列时，覆盖第一个到最后一个关键姿势之间的整段（理由同上：若只输出两帧，时间线上只有这两帧，
         # 无法在中间插入）。在最后一帧之后添加姿势时，于最后一帧执行添加，下次计算后时间线范围随之扩展。

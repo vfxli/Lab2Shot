@@ -18,26 +18,25 @@ class ConfidenceScale:
     """How a model gives its confidence, and the one mapping to 置信度 (0–1, higher = more trusted; a model's order kept,
     never normalised per shot: a shot's scores then compare with another shot's of the same model)."""
 
-    said: str  # how the model gives it and how it is mapped, as the output's tooltip says
+    # how the model gives it and how it is mapped, as the output's tooltip says: confidence.scale.<id>
     to_unit: Callable[[np.ndarray], np.ndarray]
 
 
 # Declared per node by what its model computes (WorkerNode.confidence), mapped only here.
 CONFIDENCE_SCALES: Mapping[str, ConfidenceScale] = MappingProxyType({
     # already a probability (Pi3's sigmoid; the worker SDK's optical flow and correspondence give 0-1 too)
-    "probability": ConfidenceScale("模型给的就是 0–1 的概率", lambda c: c),
+    "probability": ConfidenceScale(lambda c: c),
     # c = 1 + exp(x) >= 1, the DUSt3R family's way (VGGT, MapAnything, CUT3R, MonST3R, LingBot-Map, Depth Anything 3):
     # 1 - 1/c = exp(x) / (1 + exp(x)) is the sigmoid of x, the same kind of number as Pi3's
-    "exp_plus_one": ConfidenceScale("模型给的是 1 + exp(x)（不小于 1），换成 1 − 1/c，也就是 x 的 sigmoid", lambda c: 1.0 - 1.0 / np.maximum(c, 1.0)),
+    "exp_plus_one": ConfidenceScale(lambda c: 1.0 - 1.0 / np.maximum(c, 1.0)),
     # UniDepth: c = exp(the depth error it expects, metres), trained with log c against |depth - truth| after a median
     # rescale, so larger is LESS trusted (typically 0.77 on smooth walls, 1.7-2.8 on edges, up to hundreds on sky).
     # 1/(1 + c) is the sigmoid of -log c: 0.5 where it expects no error, lower as the error it expects grows
-    "exp_error": ConfidenceScale("模型给的是 exp(预计的深度误差，米)，越大越不可信，换成 1/(1 + c)", lambda c: 1.0 / (1.0 + np.maximum(c, 0.0))),
+    "exp_error": ConfidenceScale(lambda c: 1.0 / (1.0 + np.maximum(c, 0.0))),
     # UniK3D: c = the |log depth| error it expects (about the relative error: 0.008 is 0.8 %), trained against it
     # directly, so larger is LESS trusted (typically 0.007 on smooth surfaces, 0.017 on edges). 0.01 / (0.01 + c): an
     # expected 1 % error is 0.5, 0.25 % is 0.8, 4 % is 0.2
-    "log_error": ConfidenceScale("模型给的是预计的对数深度误差（约等于相对误差），越大越不可信，换成 0.01/(0.01 + c)：预计误差 1% 时是 0.5",
-                                 lambda c: 0.01 / (0.01 + np.maximum(c, 0.0))),
+    "log_error": ConfidenceScale(lambda c: 0.01 / (0.01 + np.maximum(c, 0.0))),
 })
 
 
@@ -47,11 +46,21 @@ class Confidence:
     and, when the generic tooltip does not say it well, what the score means for this model."""
 
     scale: str
-    help: str = ""
+    # True: the node says what the score means itself (node.<type>.port.confidence.help); an id: a family's words
+    # (confidence.<id>)
+    help: str | bool = ""
+    # Whether the family's own point cloud (点云) leaves out pixels scored below 0.5 (kit/maps.py family_points). False
+    # when the official code does not filter its points by this score and the score is only a ranking within a picture,
+    # not a probability (MapAnything: infer(apply_confidence_mask=False) by default, and when asked it cuts a percentile
+    # of each view, model.py:2039-2040; its scores sit at 1.00-1.02, all below 0.5 once mapped). The 置信度 output is
+    # given either way.
+    gates_points: bool = True
 
     def __post_init__(self):
         if self.scale not in CONFIDENCE_SCALES:
             raise ValueError(f"confidence scale {self.scale!r} is not one of CONFIDENCE_SCALES ({', '.join(CONFIDENCE_SCALES)})")
+        if isinstance(self.help, str) and self.help and not (self.help.isidentifier() and self.help.isascii()):
+            raise ValueError(f"confidence help is True or a family's words id (confidence.<id>), not {self.help!r}")
 
     def port(self, node_type) -> Port:
         """The 置信度 output this declaration gives `node_type` (nodes/applies.py all_outputs lists it by the type order)."""
@@ -67,9 +76,16 @@ def to_confidence(raw: np.ndarray, scale: str) -> np.ndarray:
 def confidence_port(node_type) -> Port:
     """The 置信度 output of a node that declares a Confidence: its tooltip says whose it is and how it was mapped."""
     c = node_type.confidence
-    return Port("confidence", "image.1", "置信度", may_be_empty=True,
-                help=c.help or f"{node_type.label}的模型自己估的每个像素有多可信（0–1，越大越可信）。{CONFIDENCE_SCALES[c.scale].said}。"
-                               "只在这个模型的结果之间比高低，和别的模型的置信度不能比；当遮罩用先接「置信度转遮罩」")
+    from ... import i18n
+    from ..text import scope_of
+
+    # its words: the node's own port.confidence.help when it has one (Confidence(help=True)), the family's
+    # (confidence.<id>), else the general one, naming the node and how its scale was mapped
+    if isinstance(c.help, str) and c.help:
+        given = i18n.t(f"confidence.{c.help}")
+    else:
+        given = i18n.t("confidence.help", node=node_type.subtitle, scale=i18n.t(f"confidence.scale.{c.scale}"))
+    return Port("confidence", "image.1", may_be_empty=True, help=given).owned(getattr(node_type, "id", ""), scope_of(node_type) or "", "output")
 
 
 class ConfidenceWriter:

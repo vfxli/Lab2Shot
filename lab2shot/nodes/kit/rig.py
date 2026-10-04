@@ -20,12 +20,13 @@ import numpy as np
 
 from ...data.joints import LANDMARKS, LEGS
 from ...errors import Invalid
+from ... import i18n
 from ...messages import Msg
 
 from ..base import P, Port
 from ..families.base import Job
-from ..handles import Poses
-from .rig_map import bind_handle, pose_handle, rig_map_choice, rig_map_param, rig_side, skeleton_choice
+from ..handles import RigPair
+from .rig_map import rig_map_param, skeleton_choice
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,22 @@ class ModelJoint:
 ARM_PARTS = ("clavicle", "upperarm", "forearm", "hand")
 LEG_PARTS = ("thigh", "shin", "foot", "toe")
 REQUIRED_PARTS = ("hips", *LEGS, "l.foot", "r.foot")
+# what a body part hangs from, for a model skeleton declared by parts only (RigModel.model_parents): the first of these
+# the model has
+BODY_PARENT = {"spine": ("hips",), "chest": ("spine", "hips"), "neck": ("chest", "spine"), "head": ("neck", "chest", "spine"),
+               "jaw": ("head",), "eye": ("head",), "clavicle": ("chest", "spine"), "upperarm": ("clavicle", "chest", "spine"),
+               "forearm": ("upperarm",), "hand": ("forearm",), "thigh": ("hips",), "shin": ("thigh",), "foot": ("shin",),
+               "toe": ("foot",), **{f: ("hand",) for f in ("thumb", "index", "middle", "ring", "pinky")}}
+
+
+def _body_parent(part: str, have: dict) -> str | None:
+    """The part `part` hangs from among those the model has so far (`have`), on its own side: BODY_PARENT."""
+    side, _, name = part.rpartition(".")
+    for up in BODY_PARENT.get(name, ()):
+        for candidate in ((f"{side}.{up}",) if side else ()) + (up,):
+            if candidate in have:
+                return candidate
+    return None
 
 
 def humanoid_joints(trunk: tuple[tuple[str, str, str | None], ...], legs: tuple[str, str, str, str],
@@ -71,8 +88,9 @@ def part_labels(joints: tuple[ModelJoint, ...]) -> list[str]:
 
 def mapping_param(follows: tuple[str, ...] = ()):
     """The 「对应关系」 of a node that drives a model's skeleton: which of the person's rig joints drives each body part
-    of its model, in the editor every such node shares with 「动作重定向」 (kit/rig_map.py, widget "rig_map"): the
-    person's skeleton on one side, the model's joints on the other, fixed by the node. Empty = every part guessed.
+    of its model, edited in the view as every such node and 「动作重定向」 edit theirs (the "rig_pair" handle,
+    kit/rig_map.py): the person's skeleton on one side, the model's joints on the other, fixed by the node (a tree of
+    names, no positions). Empty = every part guessed.
 
     `follows`: the parameters of this node whose change replaces the model's side (Kimodo's 「模型」 selects among
     three skeletons: SOMA with 30 joints, SMPL-X with 22, G1 with 34). A node that declares them implements
@@ -84,8 +102,7 @@ def mapping_param(follows: tuple[str, ...] = ()):
 
 def skeleton_param():
     """The 骨骼 choice every rig-driven node has: which character in the scene this node works on."""
-    return P(None, label="骨骼", widget="choice", group="人物", choices_from=("character",), worker=False,
-             placeholder="第一个")
+    return P(None, widget="choice", group="people", choices_from=("character",), worker=False)
 
 
 class RigModel:
@@ -98,11 +115,11 @@ class RigModel:
     """
 
     # A bare skeleton or a skinned character, as stored in the file; the output is of the same kind.
-    inputs = (Port("character", "scene.skeleton|scene.character", "动画"),)
-    outputs = (Port("character", "scene.skeleton|scene.character", "动画", type_from="input:character"),)
+    inputs = (Port("character", "scene.skeleton|scene.character", words="family.rig_motion.character"),)
+    outputs = (Port("character", "scene.skeleton|scene.character", type_from="input:character", words="family.rig_motion.character"),)
     joints: tuple[ModelJoint, ...] = ()  # the model joints a rig can drive (the model side of its 「对应关系」)
-    # the person's skeleton on the stage, only shown: the 「对应关系」 editor draws it as 「动作重定向」 draws its two
-    handles = (Poses(pose=None, source="character", skeleton="skeleton"),)
+    # the 「对应关系」 edited in the view: the person's skeleton against the model's own (fixed, drawn as a tree)
+    handles = (RigPair(src="character", dst=None, src_skeleton="skeleton", mapping="mapping"),)
 
     @classmethod
     def joints_of(cls, params: dict) -> tuple[ModelJoint, ...]:
@@ -133,29 +150,58 @@ class RigModel:
 
     @classmethod
     def choices(cls, params: dict, inputs: dict) -> dict:
-        """The 骨骼 choice, and for the 「对应关系」 editor the person's skeleton (the side one picks joints in) and the
-        model's joints by part (fixed, read only)."""
+        """The 骨骼 choice: the skeletons of the scene wired in."""
         src = inputs.get("character")
-        if src is None:
-            return {}
-        out = skeleton_choice(src, "skeleton")
-        if not out["skeleton"]["options"]:
-            return {}
-        model = {"label": "模型", "fixed": True, "names": [j.name for j in cls.joints_of(params)],
-                 "parts": cls.model_parts(params), "handle": None}
-        out["mapping"] = rig_map_choice(rig_side(src, params.get("skeleton"), "人物", pose_handle(cls, "character")),
-                                        model, REQUIRED_PARTS)
+        return skeleton_choice(src, "skeleton") if src is not None else {}
+
+    @classmethod
+    def model_parents(cls, params: dict) -> list[int]:
+        """The model skeleton's hierarchy, for the view's tree of its side: the model declares joints by body part
+        only (ModelJoint), so each joint hangs from the joint before it in its chain, a chain's first joint from the
+        last joint of the part the body hangs it from (BODY_PARENT: the spine from the hips, an arm from the chest, a
+        finger from the hand), the hips at the root (a part whose parent part the model lists later is a root too)."""
+        joints = cls.joints_of(params)
+        last: dict[str, int] = {}
+        out = []
+        for k, j in enumerate(joints):
+            if j.part in last:
+                out.append(last[j.part])
+            else:
+                up = _body_parent(j.part, last)
+                out.append(last[up] if up else -1)
+            last[j.part] = k
         return out
 
     @classmethod
     def handle_data(cls, params: dict, inputs: dict) -> dict[int, dict]:
-        """The person's skeleton in its bind pose for the read-only skeleton handle (kit/rig_map.py bind_handle)."""
+        """The 「对应关系」 in the view (the "rig_pair" handle, kit/rig_map.py rig_pair_data): the person's skeleton in
+        its bind pose with its body parts as the cook reads them (side_parts: the rows given, the guess for the rest),
+        and the model's fixed skeleton (names, hierarchy, parts) beside it."""
+        from ...data.animation import bind_skeleton
+        from ...data.joints import auto_rows, joint_keys, part_names
+        from ...data.skeleton_recognition import recognize
+        from .rig_map import fixed_side, rig_pair_data, rig_pair_side, side_parts
+
         src = inputs.get("character")
-        got = bind_handle(src, params.get("skeleton"), params.get("mapping")) if src is not None else None
-        return {0: got} if got else {}
+        found = bind_skeleton(src, params.get("skeleton")) if src is not None else None
+        if not found:
+            return {}
+        names = [j.name for j in cls.joints_of(params)]
+        model = cls.model_parts(params)
+        model_parts = {p: [names.index(n) for n in js] for p, js in model.items()}
+        rows = [{**r, "dst": []} for r in params.get("mapping") or [] if isinstance(r, dict)]
+        rest = np.asarray(found["world"], np.float64)[:, :3, 3]  # 识别引擎按位置、对称一起判断（data/skeleton_recognition.py）
+        weights = found.get("weighted")  # 不驱动任何顶点的关节不参与对应（data/skeleton_recognition.py）
+        parts = side_parts(found["names"], found["parents"], rows, "src", rest, weights)
+        person = rig_pair_side(src.fingerprint, found["path"], joint_keys(found["names"], found["parents"]),
+                               found["parents"], found["world"], parts, i18n.t("retarget.rest.bind"),
+                               recognition=recognize(found["names"], found["parents"], rest, weights=weights).report())
+        guessed = part_names(found["names"], found["parents"], rest, weights)
+        return {0: rig_pair_data(person, fixed_side(names, cls.model_parents(params), model_parts), REQUIRED_PARTS,
+                                 auto_rows(guessed, model))}
 
     @classmethod
-    def mapping(cls, params: dict, names: list[str], parents) -> dict[str, int]:
+    def mapping(cls, params: dict, names: list[str], parents, rest=None, weights=None) -> dict[str, int]:
         """Model joint -> rig joint index. A part the 「对应关系」 lists takes the rig joints given there, every other
         part the guess (data/joints.py guess); a chain part's model joints go over its rig joints by their place along
         it (joints.spread), so the result reverses exactly back onto the rig (motion.Retarget.to_production) — the
@@ -174,9 +220,10 @@ class RigModel:
         names = list(names)
         # the rows a cook uses and their joints: the same two functions as 「动作重定向」 (merged_rows, part_joints);
         # only the person's side is read, the model's side is the node's own
-        rows, _ = merged_rows([{**r, "dst": []} for r in given], auto_rows(part_names(names, parents), {}))
-        check_mapping(rows, {"src": (names, parents, "人物")})
-        rig_parts = part_joints(rows, names, parents, "src")
+        rows, _ = merged_rows([{**r, "dst": []} for r in given],
+                              auto_rows(part_names(names, parents, rest, weights), {}))
+        check_mapping(rows, {"src": (names, parents, i18n.Word("role.person"))})
+        rig_parts = foot_hinges(part_joints(rows, names, parents, "src"), parents)
         out: dict[str, int] = {}
         for part, model in parts.items():
             rig = rig_parts.get(part, [])
@@ -193,7 +240,7 @@ class RigModel:
         for m, r in out.items():
             if r in taken:
                 raise Invalid(Msg("E-MAP-SHARED", first=part_label(part_of[taken[r]]), second=part_label(part_of[m]),
-                                  joint=names[r], side="人物"))
+                                  joint=names[r], side=i18n.Both.of(lambda: i18n.Word("role.person"))))
             taken[r] = m
         return out
 
@@ -210,7 +257,9 @@ class RigModel:
         joint)."""
         from lab2shot_shared import motion as mo
 
-        pairs, parts = cls.mapping(ctx.params, rig.names, rig.parents), {j.part: j.name for j in cls.joints_of(ctx.params)}
+        pairs, parts = (cls.mapping(ctx.params, rig.names, rig.parents, np.asarray(rig.bind, np.float64)[:, :3, 3],
+                                    rig.weighted),
+                        {j.part: j.name for j in cls.joints_of(ctx.params)})
         # the worker aligns the rig by its body (motion.Retarget.align: Body.of_hierarchy); a rig with no trunk to find
         # is taken as standing, which a folded rest pose is not
         legs = [pairs[parts[x]] for x in LEGS]
@@ -218,7 +267,7 @@ class RigModel:
         # the same body the worker aligns by: the same landmarks, the rig's rest as sent (rig.skeleton())
         if not mo.Body.of_hierarchy(rig.parents, (legs[0], legs[2]), (legs[1], legs[3]), marks,
                                     rig.skeleton().rest_positions).trunk:
-            ctx.say("W-BODY-NOTRUNK", rig="人物")
+            ctx.say("W-BODY-NOTRUNK", rig=i18n.Word("role.person"))
         return pairs, parts
 
     @classmethod
@@ -232,6 +281,28 @@ class RigModel:
                            pairs, {j.name: j.aim for j in cls.joints_of(ctx.params) if j.aim},
                            tuple(parts[x] for x in LEGS), tuple(parts[x] for x in LANDMARKS if x in parts))
         return Job(None, inputs={"motion": motion}, notes={"rig": rig, "keys": frames, "pairs": pairs, "parts": parts})
+
+
+def foot_hinges(rig_parts: dict[str, list[int]], parents) -> dict[str, list[int]]:
+    """The rig joint that turns each foot: the one its toe hangs from. The 「对应关系」 names the ankle (l.foot), and in
+    most rigs the toe hangs right under it; SAM 3D Body's MHR hangs it under three joints of the foot's own
+    (LeftFoot → l_talocrural → l_subtalar → l_transversetarsal → LeftToeBase), and the ankle's bend happens there, at
+    l_talocrural and l_subtalar (12° and 7° on a walk), while LeftFoot itself hardly turns (4°). Driven by LeftFoot,
+    the model's ankle stood still and its toe took the whole bend: StableMotion called every frame of such a walk broken
+    (LaFAN1's walk with those feet: 100%; without them: 1%). Driven by the toe's parent, the model's ankle turns as the
+    foot does, and the result goes back onto that same joint (motion.Retarget.to_production), the joints between keeping
+    their own turn."""
+    out = dict(rig_parts)
+    for side in ("l", "r"):
+        foot, toe = out.get(f"{side}.foot"), out.get(f"{side}.toe")
+        if not foot or not toe:
+            continue
+        hinge, above = int(parents[toe[0]]), int(parents[toe[0]])
+        while above >= 0 and above != foot[0]:
+            above = int(parents[above])
+        if hinge != foot[0] and above == foot[0]:
+            out[f"{side}.foot"] = [hinge]
+    return out
 
 
 def body_joints(body: str) -> tuple[ModelJoint, ...]:

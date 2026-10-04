@@ -104,9 +104,11 @@
 }
 
 .q-dname {
-  max-width: 220px;
+  min-width: 0;
+  max-width: 18em;
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* ------------------------------------------------------------------ 队列（编辑器的「队列」窗口与 /admin） */

@@ -1,4 +1,0 @@
-# MoGe 的消息（adapters/moge）。
-
-# ---- 解算
-"N-MOGE-NONORMALS" = "MoGe 模型 {model} 没有法线输出：法线由点云相邻点的差算出，物体边缘处较粗糙"

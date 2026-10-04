@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from lab2shot.sdk import (Official, Keypoints2D, P, WorldHumans, WorldHumansParams, follow_camera_param, Cost, Licence, people_port,
-                          All, Not, Param)
+                          All, Not, Param, window_of)
 
 class Solve(WorldHumans):
     id = "gvhmr.solve"
+    version = 2  # 2：不接人物框时逐帧持续跟踪（编号不再逐帧重置）；主点按画面中心在送去像素里的位置；半分辨率用 INTER_AREA
     # 引用的是官方脚本入口（tools/demo/demo.py 的 argparse 与 main 流程），而非模型函数签名：
     # 命令行接受 --video（以及 --static_cam / --use_dpvo 两个开关和 Focal Length 数值 --f_mm），
     # 输出 pred 中的 smpl_params_global / smpl_params_incam，关键点为其保存的 paths.vitpose。
@@ -25,26 +26,7 @@ class Solve(WorldHumans):
         # :259 smpl_params_global，均保存于 :327 paths.hmr4d_results），两者之间的刚性变换即为该相机，
         # 由这两份官方输出唯一确定
         gives={"character": "smpl_params_global", "keypoints": "kp2d", "ref_camera": "smpl_params_incam"},
-        ours={"camera": "放人用的针孔相机：原点、不动，焦距 = 节点的「Focal Length」（留空用解算器自己估的 / 默认的），主点在画面中心（families/humans.py plate_camera）"},
-        note="① **「人物框」是可选输入，直接交给官方函数**（规则：官方函数接受人物框就直接把框交给它；不接受框的项目，在节点图上走「人物框转遮罩」）：官方包里 "
-             "`VitPoseExtractor.extract(video_path, bbx_xys)`（hmr4d/utils/preproc/vitpose.py:23）、"
-             "`Extractor.extract_video_features(video_path, bbx_xys)`（vitfeat_extractor.py:65）和 `DemoPL.predict(data)` 的 "
-             "`data[\"bbx_xys\"]`（gvhmr_pl_demo.py:16-35）收的就是逐帧的框，官方 demo 自己也是先用 YOLOv8x 跟踪出框"
-             "（demo.py:109-110 `Tracker().get_one_track`）再喂给这几处。接了框：按框解这几个人，不再跑跟踪器；"
-             "不接：照官方 demo 的路自己跟踪（官方只取最大的一条轨迹，我们解每一条够长的）。"
-             "② 「2D 关键点」在上游是**预处理阶段的产物**：`demo.py:126 vitpose_extractor.extract(video_path, bbx_xys)`，"
-             "存成 paths.vitpose，再当作 kp2d 喂给模型——所以它是官方算出来的东西，只是官方自己又拿去当输入。"
-             "③ **「参照相机」**：GVHMR 交出来的人在**它自己的"
-             "重力世界**里（原点在这个人起点的髋部），那个世界里配着一台相机，人和实拍对得上就是靠它。"
-             "参照相机不是成品相机：和你自己的相机一起接进核心节点「相机空间转换」（接到「来源相机」），"
-             "算一个修正挂到人身上；直接当镜头相机用，人会不在画面里、位置不对。"
-             "**它由官方的两套 SMPL 参数唯一确定**：pred 里同时有 smpl_params_incam（demo.py:215，相机空间）"
-             "和 smpl_params_global（:259，世界），两者之间的刚性关系就是那台相机（worker.py "
-             "wh.camera_from_body）；它的**旋转**来自上游自己的 VO（demo.py:149-150 SimpleVO / :186 R_w2c）。"
-             "这个口必须有：没有它，模板上的对齐只剩相机空间那一档，相机的运动会被加两遍。"
-             "要一台**能用**的相机，还是从真正解相机的节点（ViPE、TRAM）或「导入 USD」接。"
-             "④ 「蒙皮角色」是 CG 形态：官方吐的是 SMPL-X 参数，角色的网格要另外跑一次 body model。"
-             "⑤ cam_angvel 只用到相机的**旋转**，官方从来不吃相机的位移。",
+        ours={"camera": ""},  # node."gvhmr.solve".official.ours.camera
     )
     # 公开基准上的实测（接不接、接什么的差别）：
     #   focal_mm：实测（3DPW 6 个镜头）：填真实 Focal Length，人在镜头里的位置误差少 66%（5 好 0 差）；接 AnyCalib 估的 Focal Length 更差（2 好 4 差）
@@ -64,15 +46,24 @@ class Solve(WorldHumans):
     # 模板把它当「解算器的相机」一路：「相机空间转换」把世界里的人从参照相机搬到它（families/humans.py plate_camera）
     plate_camera = True
     # 上游流程的第一步计算 ViTPose 的 17 个关键点（worker crops_features）；除输入网络外也作为输出提供
-    keypoints = Keypoints2D("ViTPose 在画面上找的全身 17 个点（鼻子、双眼、双耳、肩、肘、腕、髋、膝、踝），GVHMR 解算之前就是按它们找的人")
+    keypoints = Keypoints2D("")  # what they are: node."gvhmr.solve".port.keypoints.help
     min_frames = 16  # 时序网络的窗口长度（worker MIN_FRAMES）：不足时在计算前拒绝，并报告实际帧数
     # 显存与速度在 RTX 4090 上测得
     cost = Cost(gpu=True, vram_gb=5.5, seconds_per_frame=0.25)
-    licence = Licence(note="GVHMR 代码和权重仅限非商业科研（浙江大学许可证）；SMPL-X 人体模型需自行注册下载，仅限非商用。")
+    licence = Licence(note=True)
 
     class Params(WorldHumansParams):
         follow_camera: bool = follow_camera_param()
-        vo_step: int = P(8, label="相机估计间隔", ge=1, le=30, group="相机", applies=All(Not(Param("camera_rotate").wired()), Param("static_camera").one_of(False)))
+        vo_step: int = P(8, ge=1, le=30, group="camera", applies=All(Not(Param("camera_rotate").wired()), Param("static_camera").one_of(False)))
+
+    @classmethod
+    def prepare(cls, ctx):
+        """另交给 worker「画面中心在送去的像素里的位置」principal_px：去畸变画面带 overscan 时，送去的是整块画布，
+        画面中心不在画布中心（不对称 overscan 时更明显），worker 的内参主点用它而不用画布的一半。"""
+        job = super().prepare(ctx)
+        window = window_of(job.plate)
+        (x, y), (w, h) = window.offset, window.plate
+        return job.with_(extra={"principal_px": [x + w / 2.0, y + h / 2.0]})
 
 
 NODES = (Solve,)

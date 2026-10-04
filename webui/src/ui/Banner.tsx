@@ -5,6 +5,8 @@ import { readNotice } from "../api/notice";
 import { nextOrigin, useServer } from "../state/server";
 import { Button } from "./Button";
 import "./banner.css";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf, type Tip } from "../platform/tips";
 
 /** The site's single notice bar: the administrator's notice, the server restarting or not answering, this graph being
  * open in another tab. One component, distinguished only by its tone. It never covers anything a click needs and never
@@ -18,14 +20,14 @@ export type BannerTone = "info" | "notice" | "warn" | "error" | "risk" | "ok";
 export function Banner({ tone, children, tip, aside, float, spin, actions }: {
   tone: BannerTone;
   children: ReactNode;
-  tip?: string;
+  tip?: Tip | null;
   aside?: ReactNode; // the author, or the address the server moves to
   float?: boolean;
   spin?: boolean; // an operation is in progress (a restart)
   actions?: ReactNode;
 }) {
   return (
-    <div className={`banner ${tone}${float ? " float glass" : ""}`} role="status" data-tip={tip} data-tone={tone}>
+    <div className={`banner ${tone}${float ? " float glass" : ""}`} role="status" {...tipAttrs(tip)} data-tone={tone}>
       <i className={spin ? "spin" : undefined} />
       <span className="banner-text">{children}</span>
       {aside && <span className="banner-aside">{aside}</span>}
@@ -50,7 +52,7 @@ function AdminNotice() {
   }, [at]);
   if (!said?.on || !said.text) return null;
   return (
-    <Banner tone={said.tone} float aside="管理员通知" tip={said.by ? `${said.by} 发布的通知` : "管理员发布的通知"}>
+    <Banner tone={said.tone} float aside={t("ui.misc.notice")} tip={tipOf("value", said.by ? t("ui.misc.notice_by", { by: said.by }) : t("ui.misc.notice_admin"))}>
       {said.text}
     </Banner>
   );
@@ -66,25 +68,25 @@ function RestartNotice() {
   const back = restarted && !down && !info?.restart && shown !== boot;
   useEffect(() => {
     if (!back || newPage) return;
-    const t = window.setTimeout(() => setShown(boot), 6000);
-    return () => window.clearTimeout(t);
+    const timer = window.setTimeout(() => setShown(boot), 6000);
+    return () => window.clearTimeout(timer);
   }, [back, newPage, boot]);
 
   const moved = nextOrigin(info?.restart);
   let said: Message | null = null;
-  let tip = "";
+  let tip: Tip | undefined;
   let tone: BannerTone = "warn";
   let spin = false;
   if (info?.restart?.state === "draining") {
     said = msg("N-SERVER-DRAINING");
-    tip = "排队的任务会留到重启以后接着算，什么都不会丢；正在编辑的节点图也不受影响";
+    tip = tipOf("consequence", t("ui.misc.draining_tip"));
   } else if (info?.restart || down) {
     said = msg(info?.restart ? "N-SERVER-RESTARTING" : "N-SERVER-OFFLINE");
-    tip = "页面上的节点图照常保留，服务器回来后自动接上，排队的任务接着算";
+    tip = tipOf("consequence", t("ui.misc.offline_tip"));
     spin = true;
   } else if (back) {
     said = msg(newPage ? "N-SERVER-BACKNEWPAGE" : "N-SERVER-BACK");
-    tip = newPage ? "刷新页面用上新的界面；节点图自动保存着，刷新不会丢" : "排队的任务已经接着排上";
+    tip = tipOf("consequence", newPage ? t("ui.misc.new_page_tip") : t("ui.misc.back_tip"));
     tone = "ok";
   }
   if (!said) return null;
@@ -94,11 +96,11 @@ function RestartNotice() {
       float
       spin={spin}
       tip={tip}
-      aside={moved && (info?.restart || down) ? `之后的地址 ${moved}` : undefined}
+      aside={moved && (info?.restart || down) ? t("ui.misc.moved", { address: moved }) : undefined}
       actions={
         back && newPage ? (
-          <Button tip="刷新页面用上新的界面；节点图自动保存着，刷新不会丢" size="sm" onClick={() => window.location.reload()}>
-            刷新
+          <Button size="sm" onClick={() => window.location.reload()}>
+            {t("ui.common.refresh")}
           </Button>
         ) : undefined
       }

@@ -1,26 +1,25 @@
 /* 节点身上的参数行（editor/NodeParamRow.tsx）：节点的关键参数（NodeTypeDef.on_node）与「提升到节点」的参数，
    每个一行：名称，以及可就地编辑的值。与参数面板是同一个值（镜像，而非第二个数据源）：参数面板列出全部参数。
 
-   一行两格，宽度不随状态变化：
-     [标签] flex: 0 1 auto，最宽 96px，空间足够时不压缩；
-     [值]   flex: 1 1 0，始终有内容占位：可编辑时为控件（.gctl），不可编辑时为同尺寸的灰色格
+   每行就是全站那一个「标签 + 控件」行（ui/LabelRow.tsx，.lrow）：节点的参数区是一个 LabelGrid，各行共用一列标签，
+   列宽取本节点最长的标签、最多 --lrow-label-max（9em，且不过半行）；放不下的标签在自己格里省略号截断、悬停看全文，
+   从不压到值上。这里不写任何按语言量出来的像素宽。
+     [标签] 左对齐；
+     [值]   始终有内容占位：可编辑时为控件（.gctl），不可编辑时为同尺寸的灰色格
             （.gctl.gwired，已接线）或置灰的控件（fieldset[disabled]，参数当前不可用）。
    因此接线与断线只改变该格的外观，行高、行宽与控件位置均不变
    （控件不显隐切换，只区分可用与不可用）。
-   .gprow-text 是缩小后才显示的纯文本行（.graph.zoom-text / .zoom-far），正常缩放下不显示。 */
-.gnode-params {
+   .gprow-text 是缩小后才显示的纯文本行（.graph.zoom-text / .zoom-far），与控件同在值格里，正常缩放下不显示。 */
+.gnode-params.lgrid {
+  --lrow-label-max: min(9em, 50%);
   border-top: 1px solid var(--hair);
   padding: 4px 0;
-  display: flex;
-  flex-direction: column;
+  row-gap: 0;
 }
 
 .gprow {
-  position: relative;
+  position: relative; /* 「提升到节点」的输入口贴在本行左边缘 */
   height: 22px;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
   padding: 0 10px;
   font-size: var(--fs-xs);
   color: var(--text-2);
@@ -31,15 +30,13 @@
   background: var(--raised);
 }
 
-/* 标签格最宽 96px。现有最长的参数名「已知 Focal Length」约 89.8 px（11px Geist + 中文回退；
-   Geist 为随包分发的 woff2，各机器上宽度一致）；超出上限的部分会被 `overflow: hidden` 截断，而标签不得被截断。
-   该上限仅在标签超长时生效，短标签按内容宽度显示（flex: 0 1 auto），值格以 flex: 1 1 0 占据剩余宽度。
-   长于 96 的参数名应改用更短的词，而不是依靠截断隐藏。 */
-.gprow-label {
-  flex: 0 1 auto;
-  max-width: 96px;
-  white-space: nowrap;
-  overflow: hidden;
+/* 输入口绝对定位在行的左边缘（xyflow 的 Handle），不占标记格的宽度 */
+.gprow > .lrow-marks:not(:empty) {
+  margin-inline-end: 0;
+}
+
+.gprow > .gprow-label {
+  text-align: start;
 }
 
 .gctl,
@@ -126,17 +123,23 @@ fieldset.gctl {
 节点宽度仅由标题行与端口行决定（见 08a-node.css 的宽度归零规则）。 */
 .gprow.multi {
   height: 94px;
-  flex-direction: column;
+  grid-template-rows: auto minmax(0, 1fr);
   align-items: stretch;
-  justify-content: flex-start;
-  gap: 2px;
+  row-gap: 2px;
   padding-top: 3px;
   padding-bottom: 3px;
 }
 
-/* 标签独占一行，因此无须与控件争用 96 px */
-.gprow.multi .gprow-label {
-  max-width: none;
+/* 标签独占第一行（从标签列一直到行尾，不与控件争宽），文本框在第二行占满整行 */
+.gprow.multi > .gprow-label {
+  grid-row: 1;
+  grid-column: label / -1;
+}
+
+.gprow.multi > .lrow-ctl {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  align-items: stretch;
 }
 
 /* 控件格占满剩余高度，文本框以 stretch 撑满（ui/field.css .field.area.snug） */

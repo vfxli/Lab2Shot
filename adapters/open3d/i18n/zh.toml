@@ -1,0 +1,49 @@
+# The Open3D extension's own words and messages in Chinese (the same keys as en.toml).
+
+"E-OPEN3D-NOPOINTS" = "没有可以转网格的点：上游点云是空的，先把点云接出来（「点云融合」或「深度转点云」）"
+"E-OPEN3D-FAILED" = "表面重建没有产出任何三角形：点云太稀或参数不合适。把点云接去「点云融合」去重变密，或调大「球半径」/「Alpha 值」再试"
+"I-OPEN3D-RESULT.other" = "{method}重建出 {vertices} 个顶点、{triangles} 个三角形"
+
+[node."open3d.mesh_from_points"]
+subtitle = "点云转网格"
+description = "点云 → 网格（USD）：三种经典表面重建——Poisson（水密、光滑）、Ball Pivoting（按球半径滚球成面）、Alpha Shape（按 Alpha 值在凸包与精确贴合之间取一档）。任何点云都能转；点太稀或太密先在「点云融合」里调好再转。"
+official.note = "「方法」选三种官方重建函数之一，都交 TriangleMesh。Poisson 和 Ball Pivoting 吃带法线的 PointCloud（上游写 oriented PointCloud），法线由 worker 按官方用法补上（estimate_normals + orient_normals_consistent_tangent_plane）；Alpha Shape 不用法线。Poisson 之后按官方教程裁掉密度最低 1% 的顶点（remove_vertices_by_mask），再把离点云超过「裁剪距离」的顶点删掉、去掉小碎块，开放场景不会被封出大片假面；点云带颜色时，每个顶点取最近点的颜色作顶点色。"
+cost.whole = "整段一次重建"
+
+[node."open3d.mesh_from_points".port.points]
+label = "点云"
+
+[node."open3d.mesh_from_points".port.model]
+label = "几何体"
+
+[node."open3d.mesh_from_points".param.method]
+label = "方法"
+option.poisson = "Poisson"
+option.ball = "Ball Pivoting"
+option.alpha = "Alpha Shape"
+
+[node."open3d.mesh_from_points".param.depth]
+label = "Poisson 深度"
+help = "Poisson 重建的八叉树深度：越大网格越细，也越慢。"
+
+[node."open3d.mesh_from_points".param.radius]
+label = "球半径"
+placeholder = "自动（按点间距）"
+help = "Ball Pivoting 的球半径（点云单位 = 厘米）：用这个半径和它的 2 倍、4 倍滚球成面。留空按点云的平均点间距取。"
+
+[node."open3d.mesh_from_points".param.alpha]
+label = "Alpha 值"
+placeholder = "自动（按点间距）"
+help = "Alpha Shape 的半径：越大越接近凸包，越小越贴点、越容易出洞。留空按点云的平均点间距取。"
+
+[node."open3d.mesh_from_points".param.trim_distance]
+label = "裁剪距离（点间距倍数）"
+help = "Poisson 在开放场景（街景）会外插出没有点的假面。离输入点云超过这个倍数 × 点间距（各点最近邻距离的中位数）的顶点连同三角形删掉，再去掉不到总面数 1% 的碎块。设 0 不裁剪。"
+
+[stage]
+reconstruct_mesh = "重建网格"
+
+[extension.open3d]
+summary = "点云转网格：Poisson、Ball Pivoting、Alpha Shape 三种经典表面重建，通用任何点云"
+license.name = "MIT（Open3D）"
+license.summary = "可商用：Open3D 是 MIT 许可，pip 包自身就包含全部代码。"

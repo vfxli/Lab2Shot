@@ -1,5 +1,5 @@
 # 允许的重复代码（core_health.py 读）：超过 CoreSettings.clone_tokens 个记号的重复，不重构就要在这里写明理由。
-# 一条管两个文件之间的全部重复；每批集成后的同质审查逐条看，能合并的合并掉并删掉这一条。
+# 一条管两个文件之间的全部重复；能合并的就合并掉，并删掉对应的这一条。
 #
 #   UniDepth / UniK3D  → mono_geometry.load_network / network_camera / infer_frame
 #   CUT3R / MonST3R    → adapters/cut3r/dust3r_input.py read_images / moving_at_model_size

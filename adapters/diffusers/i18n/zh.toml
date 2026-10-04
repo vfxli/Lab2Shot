@@ -1,0 +1,43 @@
+# Diffusers 图像生成（adapters/diffusers）。一行一条：编号 = 模板。
+# 家族层面的通用消息（提示词为空、参考图超上限、参考图跳过）在 lab2shot/messages/nodes.toml 的生成图像一节。
+
+"W-DIFFUSERS-NOSUBJECT" = "「图像」带 alpha，但第 {frame} 帧没有写出对应的透明层文件，这一帧按压在黑底上的普通画面编辑：这是扩展包代码的问题，请把日志发给开发者"
+
+"I-DIFFUSERS-WEIGHTS" = "Qwen-Image 2.1 的权重"
+
+[stage]
+generate = "生成"
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+[node."diffusers.generate"]
+subtitle = "图像生成"
+description = "一条管线一个节点，按「模式」三选一：文生图（不接图）、图像编辑（接一张「图像」）、多参考图（「图像」一张 + 「参考图」列表，至多 10 张）。输出恒为一张静帧 RGBA（模型原生 4 通道 VAE）；透明背景按官方提示词写法写明。参考图不限于图片——项目里任何节点的输出（遮罩、深度、法线、光照……）都能接成参考图。需要「生成式扩散」权限；权重 Qwen Research License，仅限研究评估用途。"
+
+[node."diffusers.generate".port.image]
+label = "图像"
+help = "主体图：图像编辑时是要改的一张图，多参考图时合成到它上面（带 alpha 时按 RGBA 透明层处理）"
+
+[node."diffusers.generate".port.references]
+label = "参考图"
+help = "参考图列表：任何节点的输出都能接（遮罩、深度、法线、光照、另一张图……），逐项取一张；图像序列取与「图像」同一帧，覆盖不到的跳过并提示"
+
+[node."diffusers.generate".cost]
+whole = "按一次生成算的（不是逐帧）：512 基准 10 步实测约 4–8 秒/步、峰值显存 17–19 GB（文生图 / 图条件）"
+
+[node."diffusers.generate".official]
+note = "一个节点三种用法（按「模式」）：文生图不传 image（上游按 None 走 prompt_template_t2i，宽高按官方比例表折算成 width/height 显式传入）；图像编辑传一张；多参考图传「图像 + 参考图」的 image 列表（主体在前、参考图在后，至多 10 张）。带 alpha 的输入以 RGBA 整图进 VAE（上游 convert(\"RGBA\")），输出恒为 RGBA（模型原生 4 通道 VAE，普通提示词 alpha 全不透明）。"
+
+[node."diffusers.generate".licence]
+note = "代码 Apache-2.0；权重 Qwen Research License：仅限研究与评估用途，商用需另行向 Qwen 取得授权。"
+
+[extension.diffusers]
+title = "Diffusers 图像生成"
+summary = "经 Hugging Face Diffusers 接入的生成式图像模型；首批 Qwen-Image 2.1：文生图、图像编辑、多参考图，原生 RGBA 透明输出"
+
+[extension.diffusers.license]
+name = "Apache-2.0 代码 · Qwen Research License 权重"
+summary = "仅限研究/评估用途，商用需向 Qwen 另行取得授权。diffusers 代码为 Apache-2.0；Qwen-Image-2.1 权重（文本编码器、变换器、VAE）按 Qwen Research License 发布：允许研究、评估目的的使用、复制、分发和修改，禁止任何商业用途（商业使用需联系 model-business@notice.qwencloud.com 取得单独授权）；再分发须附本许可协议、保留 Qwen 的版权声明、注明对文件的修改；不得以「Qwen」作为衍生作品的主要名称；用它训练或改进 AI 模型并对外提供时，须在相关文档写明「Built with Qwen」或「Improved using Qwen」。"
+
+[extension.diffusers.weight."qwen-image-2.1"]
+note = "Qwen Research License 权重"

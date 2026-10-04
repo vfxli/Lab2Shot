@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from .compat import Fit, card_extensions, fit, runtime_record, wait_reason
 from .inventory import GpuState, Host, LocalHost, Snapshot, local_host
-from .placement import eligible, place, reclaimable_cards
+from .placement import eligible, place, pressed_cards, reclaimable_cards
 from .pools import Pools, TaskResources, Ticket
 
 __all__ = [
@@ -39,6 +39,7 @@ __all__ = [
     "fit",
     "local_host",
     "place",
+    "pressed_cards",
     "reclaimable_cards",
     "runtime_record",
     "wait_reason",

@@ -2,13 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { messageOf, type Message } from "./messages/message";
 import { deviceId } from "./platform/client";
 import { fromGate, json } from "./platform/http";
-import { nameProblem, passwordProblem, tidyName, usernameProblem } from "./platform/accountRules";
+import { MIN_CHARS, nameProblem, passwordProblem, tidyName, usernameProblem } from "./platform/accountRules";
+import { t } from "./i18n/t";
 import { workerAsks } from "./platform/work";
 import { Button } from "./ui/Button";
 import { StageSelect } from "./ui/StageSelect";
+import type { Department } from "./api/accounts";
 import { readTerms, TermsBox, type TermsView } from "./terms";
+import { tipOf } from "./platform/tips";
 
-/** 注册: the login page's form for making one's own account (lab2shot/registration.py, server/register.py), there
+/** 注册: the login page's form for making one's own account (lab2shot/site/registration.py, server/register.py), there
  * only while the administrator has 开放注册 on. The same fields and rules as the admin page's 新建用户 (username,
  * Chinese name, 环节, the password twice; the invite code when 邀请码验证 is on), checked here first and again by the
  * server; the role is always 普通用户, and the new account is logged in at once. The box 「我已阅读并同意《用户协议》和
@@ -25,7 +28,7 @@ import { readTerms, TermsBox, type TermsView } from "./terms";
 export interface RegisterInfo {
   open: boolean;
   invite?: boolean;
-  stages?: string[];
+  stages?: Department[]; // value + how it shows (lab2shot/accounts.py departments_shown)
   paused?: boolean;
   min_fill_s?: number; // the least time between a challenge and the registration (server/register.py MIN_FILL_S)
 }
@@ -85,13 +88,13 @@ export function RegisterForm({ info, onIn, onBack }: { info: RegisterInfo; onIn:
   }, []);
 
   const wrong = {
-    username: username ? usernameProblem(username) : "要填用户名",
+    username: username ? usernameProblem(username) : t("ui.register.need_username"),
     name: nameProblem(name),
-    stage: stage ? "" : "要选环节",
-    password: password ? passwordProblem(password, "").replace("新密码", "密码") : "要填密码",
-    again: password && again !== password ? "两次输入的密码不一样" : "",
-    invite: info.invite && !invite.trim() ? "要填邀请码：向邀请你来的人要" : "",
-    terms: agreed ? "" : "要先阅读并勾选同意《用户协议》和《隐私政策》",
+    stage: stage ? "" : t("ui.register.need_stage"),
+    password: password ? passwordProblem(password, "", true) : t("ui.register.need_password"),
+    again: password && again !== password ? t("ui.register.again_differs") : "",
+    invite: info.invite && !invite.trim() ? t("ui.register.need_invite") : "",
+    terms: agreed ? "" : t("ui.register.need_terms"),
   };
   const bad = Object.values(wrong).some(Boolean);
   const show = (k: keyof typeof wrong) => (touched ? wrong[k] : "");
@@ -135,44 +138,44 @@ export function RegisterForm({ info, onIn, onBack }: { info: RegisterInfo; onIn:
   };
 
   return (
-    <form className="login-card glass clear register-card" aria-label="注册" onSubmit={(e) => void submit(e)} noValidate>
-      <h1>注册</h1>
-      <p className="login-lede">自己建一个账号：注册好就直接登录。{info.invite ? "要填邀请你来的人给的邀请码。" : ""}</p>
+    <form className="login-card glass clear register-card" aria-label={t("ui.register.title")} onSubmit={(e) => void submit(e)} noValidate>
+      <h1>{t("ui.register.title")}</h1>
+      <p className="login-lede">{info.invite ? t("ui.register.lede_invited") : t("ui.register.lede")}</p>
       <label className="login-field">
-        <span data-tip="登录用的名字：小写英文字母开头，3 到 32 个字符，可以用小写字母、数字和 _ . -">用户名</span>
+        <span>{t("ui.register.username")}</span>
         <input ref={field} className={`field lg${show("username") ? " bad" : ""}`} name="username" autoComplete="username" spellCheck={false}
-          placeholder="如 zhangsan" value={username} data-tip="小写英文字母开头，只用小写字母、数字和 _ . -"
+          placeholder={t("ui.register.username_placeholder")} value={username}
           onChange={(e) => (setUsername(e.target.value.toLowerCase().trim()), setProblem(null))} />
         {show("username") && <em className="login-why">{show("username")}</em>}
       </label>
       <label className="login-field">
-        <span data-tip="你的中文名，2 到 6 个字；少数民族名字的几部分用 · 隔开。队列和统计里都显示它">中文名</span>
-        <input className={`field lg${show("name") ? " bad" : ""}`} name="realname" autoComplete="name" placeholder="如 张三" value={name}
-          data-tip="2 到 6 个中文字" onChange={(e) => (setName(e.target.value), setProblem(null))} />
+        <span>{t("ui.register.name")}</span>
+        <input className={`field lg${show("name") ? " bad" : ""}`} name="realname" autoComplete="name" placeholder={t("ui.register.name_placeholder")} value={name}
+          onChange={(e) => (setName(e.target.value), setProblem(null))} />
         {show("name") && <em className="login-why">{show("name")}</em>}
       </label>
       <div className="login-field">
-        <span data-tip="你在制作里属于哪个环节；找不到自己的就选「其他」">环节</span>
+        <span>{t("ui.register.stage")}</span>
         <StageSelect large list={info.stages ?? []} value={stage} bad={!!show("stage")} onPick={(d) => (setStage(d), setProblem(null))} />
         {show("stage") && <em className="login-why">{show("stage")}</em>}
       </div>
       <label className="login-field">
-        <span data-tip="至少 8 个字符；字母、数字、符号、中文都可以。登录后可以在右上角自己改">密码</span>
-        <input className={`field lg${show("password") ? " bad" : ""}`} type="password" name="password" autoComplete="new-password" value={password}
-          data-tip="至少 8 个字符" onChange={(e) => (setPassword(e.target.value), setProblem(null))} />
+        <span>{t("ui.register.password")}</span>
+        <input className={`field lg${show("password") ? " bad" : ""}`} type="password" name="password" autoComplete="new-password" placeholder={t("ui.register.password_placeholder", { count: MIN_CHARS })} value={password}
+          onChange={(e) => (setPassword(e.target.value), setProblem(null))} />
         {show("password") && <em className="login-why">{show("password")}</em>}
       </label>
       <label className="login-field">
-        <span data-tip="再输一次密码，防止输错">再输一次</span>
+        <span>{t("ui.register.again")}</span>
         <input className={`field lg${show("again") ? " bad" : ""}`} type="password" name="again" autoComplete="new-password" value={again}
-          data-tip="和上面的密码一样" onChange={(e) => (setAgain(e.target.value), setProblem(null))} />
+          onChange={(e) => (setAgain(e.target.value), setProblem(null))} />
         {show("again") && <em className="login-why">{show("again")}</em>}
       </label>
       {info.invite && (
         <label className="login-field">
-          <span data-tip="邀请你来的人给的邀请码；大小写、空格和 - 都不要紧">邀请码</span>
+          <span>{t("ui.register.invite")}</span>
           <input className={`field lg${show("invite") ? " bad" : ""}`} name="invite" autoComplete="off" spellCheck={false} value={invite}
-            data-tip="如 ABCD-EFGH-JKMN-PQRS" onChange={(e) => (setInvite(e.target.value), setProblem(null))} />
+            onChange={(e) => (setInvite(e.target.value), setProblem(null))} />
           {show("invite") && <em className="login-why">{show("invite")}</em>}
         </label>
       )}
@@ -189,11 +192,11 @@ export function RegisterForm({ info, onIn, onBack }: { info: RegisterInfo; onIn:
         </p>
       )}
       <div className="login-stack">
-        <Button tip={bad && touched ? "先把上面标出来的填好" : "注册，注册好这个浏览器直接登录"} tone="primary" size="lg" layout="login-go" type="submit" disabled={!!busy || (touched && bad)}>
-          {busy === "proving" ? "安全验证中…" : busy === "sending" ? "注册中…" : "注册"}
+        <Button tip={bad && touched ? tipOf("disabled", t("ui.register.fix_marked")) : undefined} tone="primary" size="lg" layout="login-go" type="submit" disabled={!!busy || (touched && bad)}>
+          {busy === "proving" ? t("ui.register.proving") : busy === "sending" ? t("ui.register.sending") : t("ui.register.title")}
         </Button>
-        <Button tip="已经有账号了：回去登录" tone="ghost" type="button" onClick={onBack}>
-          返回登录
+        <Button tone="ghost" type="button" onClick={onBack}>
+          {t("ui.register.back")}
         </Button>
       </div>
     </form>

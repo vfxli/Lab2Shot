@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { howFar, retryUpload, type UploadTask } from "../transfer/uploads";
 import { rateText } from "../platform/format";
 import { Button } from "./Button";
+import { t } from "../i18n/t";
 
 /** An upload on its file parameter, in three short lines (the panel is narrow; nothing is cut): the name and how far
  * (帧 or %), a bar, and what is happening — the speed (no estimate of the time left), 「断网了」 and when it tries again, 「没传完」
@@ -12,21 +13,21 @@ export function UploadState({ task }: { task: UploadTask }) {
   const [, tick] = useState(0);
   useEffect(() => {
     if (task.state !== "waiting") return;
-    const t = window.setInterval(() => tick((n) => n + 1), 1000);
-    return () => window.clearInterval(t);
+    const timer = window.setInterval(() => tick((n) => n + 1), 1000);
+    return () => window.clearInterval(timer);
   }, [task.state]);
   const pct = Math.floor((task.sent / Math.max(task.bytes, 1)) * 100);
   const wait = task.state === "waiting" ? Math.max(0, Math.ceil((task.retryAt - Date.now()) / 1000)) : 0;
   const line = {
-    reading: `${task.done}/${task.files.length} 个文件`,
-    picked: "点「计算」时上传",
-    sending: task.rate ? rateText(task.rate) : "开始上传",
-    waiting: wait ? `断网了，${wait} 秒后重连` : "断网了，正在重连",
-    finishing: "传完了，服务器在整理",
-    paused: task.sent ? "没传完，重选即续传" : "还没传，重选一次",
-    elsewhere: "另一个标签页在传",
-    failed: "服务器没收下",
-  }[task.state];
+    reading: () => t("ui.upload.state_reading", { done: task.done, count: task.files.length }),
+    picked: () => t("ui.upload.state_picked"),
+    sending: () => (task.rate ? rateText(task.rate) : t("ui.upload.state_starting")),
+    waiting: () => (wait ? t("ui.upload.state_waiting_in", { seconds: wait }) : t("ui.upload.state_waiting")),
+    finishing: () => t("ui.upload.line_finishing"),
+    paused: () => (task.sent ? t("ui.upload.state_paused") : t("ui.upload.state_notsent")),
+    elsewhere: () => t("ui.upload.state_elsewhere"),
+    failed: () => t("ui.upload.state_failed"),
+  }[task.state]();
   return (
     <>
       <span className="fp-line">
@@ -40,7 +41,7 @@ export function UploadState({ task }: { task: UploadTask }) {
         <span className="fp-meta tnum" data-user-data>{line}</span>
         {task.state === "failed" && (
           <Button tone="ghost" layout="fp-retry" onClick={() => retryUpload(task.key)}>
-            重试
+            {t("ui.common.retry")}
           </Button>
         )}
       </span>

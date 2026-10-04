@@ -536,9 +536,11 @@ class InputCamera:
     cam_to_world: np.ndarray  # [F,4,4] OpenCV, metres
     rotation_only: bool = False
     """True: **not a camera, only a rotation per frame** (written by kit/cameras.py send_rotation): every position is
-    0, because the node has no 「相机」 input: the user wired only a rotation to its 「相机旋转」 parameter (from
-    「拆分相机」). **Code that uses it as a camera must check this flag first**: moving people into "this camera's
+    0, because the node has no camera input: the user wired only a rotation to its camera rotation parameter (from
+    split_camera). **Code that uses it as a camera must check this flag first**: moving people into "this camera's
     world" means nothing for a camera whose position is always 0."""
+
+    K: np.ndarray | None = None  # [F,3,3], full calibration; absent in legacy jobs / rotation-only inputs
 
     def at(self, frames) -> tuple[np.ndarray, np.ndarray]:
         """(focal [N], cam_to_world [N,4,4]) at these frame numbers (nearest sample for missing ones)."""
@@ -563,7 +565,11 @@ def load_camera(job) -> InputCamera | None:
         fail("E-RECON-CAMLENGTHS")
     if not np.all(focal > 0):
         fail("E-RECON-CAMFOCAL")
-    return InputCamera(frames, focal, c2w, bool(d["rotation_only"]) if "rotation_only" in d else False)
+    K = np.asarray(d["K"], np.float64) if "K" in d else None
+    if K is not None and (K.shape != (len(frames), 3, 3) or not np.isfinite(K).all()
+                          or not np.all(K[:, (0, 1), (0, 1)] > 0)):
+        fail("E-RECON-CAMFOCAL")
+    return InputCamera(frames, focal, c2w, bool(d["rotation_only"]) if "rotation_only" in d else False, K)
 
 
 # ---------------------------------------------------------------------- outputs

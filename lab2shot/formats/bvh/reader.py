@@ -6,6 +6,8 @@ numpy."""
 
 from __future__ import annotations
 
+from ... import i18n
+
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -33,7 +35,7 @@ def _finite(path: Path, rows, where: str, first: int = 0) -> np.ndarray:
     values = np.array(rows, np.float64)
     if not np.isfinite(values).all():
         row = int(np.argwhere(~np.isfinite(values))[0][0]) + first
-        raise _refuse(path, f"{where.format(row=row)}有不是数的值（NaN 或无穷大）")
+        raise _refuse(path, i18n.t("reader.bvh.not_finite", where=where.format(row=row)))
     return values
 
 
@@ -51,7 +53,7 @@ def _sections(path: Path, text: str) -> tuple[list[str], list[str]]:
             brace = name.endswith("{")
             name = name[:-1].strip() if brace else name
             if not name:
-                raise _refuse(path, f"第 {n} 行的 {found.group(1)} 没有名字")
+                raise _refuse(path, i18n.t("reader.bvh.no_name", line=n, what=found.group(1)))
             words += [found.group(1), name] + (["{"] if brace else [])
         else:
             words += line.split()
@@ -71,7 +73,7 @@ def parsed(path: str) -> tuple[dict, list[str], int]:
     except Invalid:
         raise
     except (ValueError, IndexError) as exc:
-        raise _refuse(Path(path), f"内容写错了（{exc}）") from None
+        raise _refuse(Path(path), i18n.t("reader.bvh.malformed", why=exc)) from None
     names = [str(n) for n in out["character0_joints"]] if replaced else []
     return out, [n for n in names if "\ufffd" in n], extra
 
@@ -90,11 +92,11 @@ def _arrays(path: Path, words: list[str], motion_lines: list[str]) -> tuple[dict
 
     def need(n: int) -> None:
         if i + n > len(words):
-            raise _refuse(path, "层级没写完，文件不完整")
+            raise _refuse(path, i18n.t("reader.bvh.hierarchy_cut"))
 
     need(1)
     if words[0] != "HIERARCHY":
-        raise _refuse(path, "没有 HIERARCHY")
+        raise _refuse(path, i18n.t("reader.bvh.no_hierarchy"))
     i = 1
     pending: str | None = None
     while True:
@@ -110,7 +112,7 @@ def _arrays(path: Path, words: list[str], motion_lines: list[str]) -> tuple[dict
             i += 2
         elif word == "{":
             if pending is None:
-                raise _refuse(path, "多出的 {")
+                raise _refuse(path, i18n.t("reader.bvh.extra", what="{"))
             # siblings of one name told apart as every format does (names.unique among the parent's children); the
             # same name under two parents (both hands' Index1) stays, the joints' keys are their paths (joints.joint_keys)
             parent = stack[-1] if stack else -1
@@ -123,7 +125,7 @@ def _arrays(path: Path, words: list[str], motion_lines: list[str]) -> tuple[dict
             i += 1
         elif word == "OFFSET":
             need(4)
-            offsets[stack[-1]] = _finite(path, [words[i + 1:i + 4]], f"「{names[stack[-1]]}」的 OFFSET")[0]
+            offsets[stack[-1]] = _finite(path, [words[i + 1:i + 4]], i18n.t("reader.bvh.offset_of", joint=names[stack[-1]]))[0]
             i += 4
         elif word == "CHANNELS":
             need(2)
@@ -133,36 +135,36 @@ def _arrays(path: Path, words: list[str], motion_lines: list[str]) -> tuple[dict
             i += 2 + n
         elif word == "}":
             if not stack:
-                raise _refuse(path, "多出的 }")
+                raise _refuse(path, i18n.t("reader.bvh.extra", what="}"))
             stack.pop()
             i += 1
             if not stack:
                 break
         else:
-            raise _refuse(path, f"不认识的 {word}")
+            raise _refuse(path, i18n.t("reader.bvh.unknown", what=word))
     if i != len(words):
-        raise _refuse(path, f"层级结束后还有 {words[i]}")
+        raise _refuse(path, i18n.t("reader.bvh.after_hierarchy", what=words[i]))
     if not motion_lines:
-        raise _refuse(path, "没有 MOTION")
+        raise _refuse(path, i18n.t("reader.bvh.no_motion"))
     filled = [line.split() for line in motion_lines[1:] if line.strip()]  # blank lines anywhere after MOTION are no line
     head = filled[:2]
     if len(head) < 2 or head[0][:1] != ["Frames:"] or len(head[0]) != 2:
-        raise _refuse(path, "MOTION 下一行应是 Frames: 帧数")
+        raise _refuse(path, i18n.t("reader.bvh.no_frames"))
     if head[1][:2] != ["Frame", "Time:"] or len(head[1]) != 3:
-        raise _refuse(path, "MOTION 下第二行应是 Frame Time: 秒数")
+        raise _refuse(path, i18n.t("reader.bvh.no_frame_time"))
     count = int(head[0][1])
     frame_time = float(_finite(path, [[head[1][2]]], "Frame Time")[0, 0])
     written_time = head[1][2]
     if frame_time <= 0:
-        raise _refuse(path, f"Frame Time 是 {frame_time}，不是正数")
+        raise _refuse(path, i18n.t("reader.bvh.bad_frame_time", value=frame_time))
     width = sum(len(c) for c in channels)
     rows = filled[2:]  # one frame a line, as every writer writes it
     if count <= 0 or len(rows) < count:
-        raise _refuse(path, f"应该有 {count} 帧，文件里只有 {len(rows)} 行，文件不完整")
+        raise _refuse(path, i18n.t("reader.bvh.frames_cut", count=count, rows=len(rows)))
     for n, row in enumerate(rows[:count]):
         if len(row) != width:
-            raise _refuse(path, f"第 {n + FIRST_FRAME} 帧有 {len(row)} 个数，应为 {width} 个（每个通道一个）")
-    motion = _finite(path, rows[:count], "第 {row} 帧", FIRST_FRAME)
+            raise _refuse(path, i18n.t("reader.bvh.row_width", frame=n + FIRST_FRAME, have=len(row), want=width))
+    motion = _finite(path, rows[:count], i18n.lookup("reader.bvh.frame_n"), FIRST_FRAME)
 
     local = np.repeat(np.eye(4)[None, None], count, 0).repeat(len(names), 1)  # [F,J,4,4]
     column = 0
@@ -178,7 +180,7 @@ def _arrays(path: Path, words: list[str], motion_lines: list[str]) -> tuple[dict
             elif what == "rotation":
                 turn = turn @ axis_angle(np.eye(3)["xyz".index(axis)], np.radians(v))
             else:
-                raise _refuse(path, f"不认识的通道 {name}")
+                raise _refuse(path, i18n.t("reader.bvh.unknown_channel", name=name))
         local[:, j, :3, :3] = turn
         local[:, j, :3, 3] = position
     anim = np.empty_like(local)
@@ -231,7 +233,7 @@ def unit_guess(items: dict) -> float | None:
 
 
 # the units a file is written in, as they are called (centimetres per unit); a guess within SNAP of one is that one
-STANDARD_UNITS = {"厘米": 1.0, "英寸": 2.54, "分米": 10.0, "米": 100.0}
+STANDARD_UNITS = {"cm": 1.0, "inch": 2.54, "dm": 10.0, "m": 100.0}  # their words: length.<id>
 SNAP = 0.25
 
 

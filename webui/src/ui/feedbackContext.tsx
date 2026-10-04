@@ -7,6 +7,8 @@ import { framesShown, useViewer } from "../state/viewer";
 import { useCookInputs } from "../state/cookInputs";
 import { useLook } from "../state/look";
 import { useResults } from "../state/results";
+import { nodeRef } from "../graph/naming";
+import { noteText } from "../model/nodeOutcome";
 
 export function editorContext(): Record<string, unknown> {
   const ci = useCookInputs.getState();
@@ -18,7 +20,7 @@ export function editorContext(): Record<string, unknown> {
     const n = id ? ci.nodes[id] : undefined;
     if (!n || !id) return null;
     const status = r.byNode[id];
-    return { id, type: n.typeId, label: n.label, status: status?.status ?? "idle", note: status?.note ?? "", blocked: status?.blocked ?? "" };
+    return { id, type: n.typeId, label: nodeRef(id, n.typeId), status: status?.status ?? "idle", note: noteText(status?.note ?? ""), blocked: status?.blocked ?? "" };
   };
   return {
     editor: {

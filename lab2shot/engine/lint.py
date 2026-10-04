@@ -55,7 +55,8 @@ def warnings(ev: Evaluation, node_id: str, path: tuple[str, ...] = ()) -> list[d
                     fix = {"fix": insert_fix(expect.fix)} if expect.fix else {}
                     out.append({**said.json(), "port": port.name, **fix})
     counts = {p.name: len(g.inputs.get((node_id, p.name), [])) for p in g.input_ports(node_id)}
-    notes = _twice(g, node_id) + node.type.wiring_notes(checked.params, counts)
+    notes = (_twice(g, node_id) + node.type.wiring_notes(checked.params, counts)
+             + node.type.plan_refusals(checked.params, lambda port, kind="": ev.comes(node_id, port, path, kind)))
     out += [{**said.json(), "port": port} for said, port in notes]
     return out
 

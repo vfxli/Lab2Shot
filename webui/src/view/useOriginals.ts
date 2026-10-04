@@ -8,6 +8,7 @@ import { getNodeDefs } from "../state/catalog";
 import { useCookInputs } from "../state/cookInputs";
 import { useLocalDirs } from "../state/localDirs";
 import type { ViewItem } from "./plan";
+import { t } from "../i18n/t";
 
 /** 在使用者本机为当前画面所需的每份数据查找原件：读取类节点读的是用户自己的文件，
  * 预览直接解码本地文件，不使用压缩代理。
@@ -98,7 +99,7 @@ function readAsk(nodeId: string, fp: string, dirs: number): Ask | null {
           frames: mine,
           keys,
           space,
-          where: `本机目录 ${dir.name}`,
+          where: t("ui.view.local_folder", { name: dir.name }),
           // 整段按同一文件名查询色彩空间（`transfer/sources.ts fromFile` 的 `rules`）：一段序列只有一个
           name: nameForFrame(pattern, mine[0]),
           fileOf: async (frame) =>
@@ -150,7 +151,7 @@ export function useOriginals(outputNodeId: string | null, items: readonly ViewIt
         keepOriginals(fp, one, asked);
         // 查找结束即生效，无论是否找到：未找到时也须使当前画面重算，
         // 否则被「正在查找」阻止的后台取回将无法再启动
-        got.push(`${key}@${one ? one.frames.length : "无"}`);
+        got.push(`${key}@${one ? one.frames.length : "none"}`); // a dependency key, not words
       }
       const next = got.join("|");
       if (alive) setFound((had) => (had === next ? had : next));

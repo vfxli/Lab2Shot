@@ -21,8 +21,9 @@ from typing import Literal
 from ..port import EITHER  # containers pass either kind on as it is
 from ...data.packet import Packet, copy_packet, item_fingerprint, items_meta, items_of, packet_dir, produce
 from ...data.types import ANY, ANY_LIST, element_of, is_list, type_label
-from ...data.values import BOOL, FLOAT, INT, TEXT, factor, read, unit_problem, value_packet
+from ...data.values import BOOL, FLOAT, INT, TEXT, factor, read, unit_problem, value_meta, value_packet
 from ...errors import Invalid
+from ... import i18n
 from ...messages import Msg
 from ..applies import Param
 from ..base import PARAM, NodeDef, NodeParams, P, Port, empty_packet, typed_list
@@ -35,7 +36,7 @@ BOTH = f"{ANY}|{ANY_LIST}"  # port type accepting either a single value or a lis
 
 
 def _block_param() -> str:
-    return P("A", label="块名", group="块", affects_result=False)
+    return P("A", group="block", affects_result=False)
 
 
 def _list_type(ctx, port: str = "list") -> str:
@@ -52,7 +53,7 @@ class ItemsOnly:
         from ...data.items import kind_of
 
         if all(kind_of(element_of(t)) is None for t in data_type.split("|")):
-            return Msg("E-LIST-NOITEMS", kind=type_label(data_type))
+            return Msg("E-LIST-NOITEMS", kind=i18n.Both.of(lambda: type_label(data_type)))
         return ""
 
 
@@ -73,15 +74,15 @@ def _item_packets(p: Packet) -> list[tuple[str, Packet]]:
 
 
 class EachBegin(NodeDef):
-    id = "core.each_begin"
+    id = "foreach_begin"
     category = "flow"
     picture = NO_PICTURE
-    inputs = (Port("list", ANY_LIST, "列表", data=EITHER),)
+    inputs = (Port("list", ANY_LIST, data=EITHER),)
     outputs = (
-        Port("item", ANY, "条目", type_from="input:list#item"),
-        Port("name", TEXT, "名字"),
-        Port("index", INT, "序号"),
-        Port("count", INT, "条数"),
+        Port("item", ANY, type_from="input:list#item"),
+        Port("name", TEXT),
+        Port("index", INT),
+        Port("count", INT),
     )
     main = "item"
     # read by engine/scopes.py: this node begins a 逐项处理 block
@@ -120,11 +121,11 @@ class EachBegin(NodeDef):
 
 
 class EachEnd(NodeDef):
-    id = "core.each_end"
+    id = "foreach_end"
     category = "flow"
     picture = NO_PICTURE
-    inputs = (Port("result", BOTH, "结果", multi=True, data=EITHER),)
-    outputs = (Port("list", ANY_LIST, "列表", type_from="input:result#list"),)
+    inputs = (Port("result", BOTH, multi=True, data=EITHER),)
+    outputs = (Port("list", ANY_LIST, type_from="input:result#list"),)
     scope_role, scope_kind = "end", "each"
 
     class Params(NodeParams):
@@ -173,24 +174,23 @@ class EachEnd(NodeDef):
 
 
 class TakeOne(NodeDef):
-    id = "core.take_one"
+    id = "select_item"
     category = "list"
     picture = NO_PICTURE
     list_role = "one"  # offered by engine/graph.py when a list is wired into a single-value port
     # a list with nothing in it as expected (a block's end over items that each gave nothing as expected): no item to
     # take, it gives nothing in turn, quietly (engine/cook.py _context); one that should have had items is said as ever
-    inputs = (Port("list", ANY_LIST, "列表", data=EITHER, takes_empty=False),)
-    outputs = (Port("item", ANY, "条目", type_from="input:list#item"),)
+    inputs = (Port("list", ANY_LIST, data=EITHER, takes_empty=False),)
+    outputs = (Port("item", ANY, type_from="input:list#item"),)
     on_node = ("by", "index", "name")
     # 算法定义在算法目录（lab2shot/ops/ops.toml）：按序号或名字选取条目由 items.take_one 实现。
     # 未选中时该算法只返回事实（超出范围 / 名字不存在），由本节点决定输出哪条消息
     ops = ("items.take_one",)
 
     class Params(NodeParams):
-        by: Literal["index", "name"] = P("index", label="按", group="条目",
-                                         option_labels={"index": "序号", "name": "名字"})
-        index: int = P(1, label="序号", ge=1, group="条目", applies=Param("by").one_of("index"))
-        name: str = P("", label="名字", group="条目", applies=Param("by").one_of("name"))
+        by: Literal["index", "name"] = P("index", group="items")
+        index: int = P(1, ge=1, group="items", applies=Param("by").one_of("index"))
+        name: str = P("", group="items", applies=Param("by").one_of("name"))
 
     @classmethod
     def cook(cls, ctx) -> dict:
@@ -203,21 +203,21 @@ class TakeOne(NodeDef):
         if not got["indices"]:  # 未选中：依据返回的事实输出消息（消息定义在消息目录，不在算法中）
             miss = got["missed"][0]
             if miss["rule"] == "name":
-                raise Invalid(Msg("E-ITEMS-NONAME", name=miss["name"], kind=type_label(ctx.input("list").type)))
+                raise Invalid(Msg("E-ITEMS-NONAME", name=miss["name"], kind=i18n.Both.of(lambda: type_label(ctx.input("list").type))))
             raise Invalid(Msg("E-LIST-NOINDEX", index=miss["index"], count=miss["count"]))
         return {"item": copy_packet(items[got["indices"][0]][1], ctx.outputs["item"])}
 
 
 class MakeList(NodeDef):
-    id = "core.make_list"
+    id = "make_list"
     category = "list"
     picture = NO_PICTURE
     list_role = "make"
-    inputs = (Port("items", ANY, "条目", multi=True, data=EITHER),)
-    outputs = (Port("list", ANY_LIST, "列表", type_from="input:items#list"),)
+    inputs = (Port("items", ANY, multi=True, data=EITHER),)
+    outputs = (Port("list", ANY_LIST, type_from="input:items#list"),)
 
     class Params(NodeParams):
-        names: str = P("", label="名字", group="条目", placeholder="按顺序，逗号分开")
+        names: str = P("", group="items")
 
     @classmethod
     def wiring_notes(cls, params: dict, wires: dict[str, int]) -> list[tuple[Msg, str]]:
@@ -236,12 +236,12 @@ class MakeList(NodeDef):
 
 
 class SplitItems(ItemsOnly, NodeDef):
-    id = "core.split_items"
+    id = "split_items"
     category = "list"
     picture = NO_PICTURE
     list_role = "split"
-    inputs = (Port("data", ANY, "数据", data=EITHER),)
-    outputs = (Port("list", ANY_LIST, "列表", type_from="input:data#list"),)
+    inputs = (Port("data", ANY, data=EITHER),)
+    outputs = (Port("list", ANY_LIST, type_from="input:data#list"),)
 
     @classmethod
     def cook(cls, ctx) -> dict:
@@ -251,17 +251,17 @@ class SplitItems(ItemsOnly, NodeDef):
         # 拆分逻辑只在 data/items.py 中实现（as_items）：每种数据类型的拆法都在那里
         parts = as_items(data, cls.id, cls.version, ctx.each_done)
         if not parts:  # no items (e.g. no person detected): an empty list, not an error
-            ctx.say("N-LIST-NOTHING", node=ctx.label, kind=type_label(data.type))
+            ctx.say("N-LIST-NOTHING", node=ctx.label, kind=i18n.Both.of(lambda: type_label(data.type)))
         return {"list": Packet(ctx.outputs["list"], _list_type(ctx), items_meta(parts))}
 
 
 class MergeItems(ItemsOnly, NodeDef):
-    id = "core.merge_items"
+    id = "merge_items"
     # 通用的列表合并，适用于人物框、场景、跟踪点、分割图等任意列表，与「拆成列表」互逆
     category = "list"
     picture = NO_PICTURE
-    inputs = (Port("list", ANY_LIST, "列表", data=EITHER),)
-    outputs = (Port("data", ANY, "数据", type_from="input:list#item", may_be_empty=True),)
+    inputs = (Port("list", ANY_LIST, data=EITHER),)
+    outputs = (Port("data", ANY, type_from="input:list#item", may_be_empty=True),)
 
     @classmethod
     def cook(cls, ctx) -> dict:
@@ -274,15 +274,15 @@ class MergeItems(ItemsOnly, NodeDef):
 
 
 class NameIt(NodeDef):
-    id = "core.name_item"
+    id = "name"
     category = "list"
     picture = NO_PICTURE
-    inputs = (Port("data", BOTH, "数据", data=EITHER),)
-    outputs = (Port("out", BOTH, "结果", type_from="input:data"),)
+    inputs = (Port("data", BOTH, data=EITHER),)
+    outputs = (Port("out", BOTH, type_from="input:data"),)
     on_node = ("name",)
 
     class Params(NodeParams):
-        name: str = P("名字", label="名字", group="名字")
+        name: str = P("name", group="name")
 
     @classmethod
     def cook(cls, ctx) -> dict:
@@ -307,21 +307,24 @@ class NameIt(NodeDef):
 
 
 # 「切换」's ways: rows of its 「各路」 table, one input each, a…j in the order they are added (a graph's wires to a, b, c
-# keep their meaning however many ways it has), 第一路…第十路 by default; two to begin with, ten at most
+# keep their meaning however many ways it has), named by their ports' words (node.switch.port.<a…j>.label: 第一路…第十路)
+# while a row's own label is empty; two to begin with, ten at most
 WAY_NAMES = tuple("abcdefghij")
-WAY_LABELS = ("第一路", "第二路", "第三路", "第四路", "第五路", "第六路", "第七路", "第八路", "第九路", "第十路")
 
 
 class SwitchWay(NodeParams):
     """「切换」「各路」表中的一行＝一路：其输入口（a、b、c……，稳定不变，连线和节点图文件引用的是口）和显示名（节点上
     这一口的名字，可随时改，改名不断线）。第几路按行序数：「走哪一路」= 2 走表里第二行的口。"""
 
-    name: Literal[WAY_NAMES] = P(..., label="端口", widget="fixed")
-    label: str = P(..., label="显示名")
+    name: Literal[WAY_NAMES] = P(..., widget="fixed")
+    # a user's own name (one language, a string) or a built-in card's in both languages ({"zh": …, "en": …}, read with
+    # i18n.pick in the language now: made_ports). The string last: the parameter table says its column is text
+    # (nodes/params.py _fields takes the last alternative of the schema)
+    label: dict[str, str] | str = P(...)
 
 
 class Switch(NodeDef):
-    id = "core.switch"
+    id = "switch"
     category = "flow"
     picture = NO_PICTURE
     # one input per row of 「各路」 (nodes/base.py made_ports), added on the page with the node's 「＋」 like
@@ -330,10 +333,8 @@ class Switch(NodeDef):
     ports_from_side = "inputs"
     ports_from_type = BOTH
     ports_from_names = WAY_NAMES
-    ports_from_labels = WAY_LABELS
-    ports_from_word = "路"
     # the table's name stands for every way it has (engine/graph.py _followed)
-    outputs = (Port("out", BOTH, "结果", type_from="input:ways#common"),)
+    outputs = (Port("out", BOTH, type_from="input:ways#common"),)
     # 「走哪一路」 is the switch's own parameter, its input port always on the node (wired_ports: "param:which"), the
     # port whose value makes the choice. Not wired, the parameter decides; wired, the wire does (a boolean or an
     # integer). A template exposes it as a menu with its own names for the ways (engine/templates.py).
@@ -346,10 +347,9 @@ class Switch(NodeDef):
         # (B-SWITCH-RANGE). Wired (param_port: a boolean or an integer, nothing else gets through the wire's check): an
         # integer n is way n (0 or past the ways: B-SWITCH-WIREDRANGE); a boolean is not a number here, on is the
         # first way and off the second (chosen_inputs, the one rule)
-        which: int = P(1, label="走哪一路", group="切换", placeholder="1 = 第一路")
+        which: int = P(1, group="switch")
         ways: list[SwitchWay] = P(
-            [{"name": n, "label": label} for n, label in zip(WAY_NAMES[:2], WAY_LABELS)],
-            label="各路", widget="table", group="切换", max_length=len(WAY_NAMES), validate_default=True,
+            [{"name": n, "label": ""} for n in WAY_NAMES[:2]], widget="table", group="switch", max_length=len(WAY_NAMES), validate_default=True,
             # not in the fingerprint: which way is taken shows in the fingerprints of what comes in on it (only that
             # way's wires are the switch's inputs), and a way's 显示名 changes nothing
             affects_result=False,
@@ -361,6 +361,12 @@ class Switch(NodeDef):
         number with a unit is not a way's number (Port.plain)."""
         port = super().param_port(name)
         return replace(port, type=f"{BOOL}|{INT}", expects=(*port.expects, OneValue()), plain=True) if name == "which" else port
+
+    @classmethod
+    def made_ports(cls, params: dict) -> tuple[Port, ...]:
+        """One input per way, named by the row's label in the language now (a built-in card's {zh, en}: i18n.pick)."""
+        ways = [{**w, "label": i18n.pick(w.get("label"))} if isinstance(w, dict) else w for w in params.get("ways") or ()]
+        return super().made_ports({**params, "ways": ways})
 
     @staticmethod
     def way_names(params: dict) -> list[str]:
@@ -393,17 +399,92 @@ class Switch(NodeDef):
         return {"out": copy_packet(taken, ctx.outputs["out"])}
 
 
+
+class Gate(NodeDef):
+    """「阻断」：一个输入一个输出，输出跟输入的类型（type_from）。「通过」开着原样交出接进来的数据；关着（阻断）时它的输入
+    不取——和「切换」没走的那一路同一个机制（engine/routing.py taken_ports：一个能选路的节点，这里选的是「走 / 不走」），
+    上游不算——它自己和只靠它的下游安静地跳过（engine/evaluation.py outcome：Outcome.blocked，「已跳过（被阻断）」，不报错
+    也不出警告）；可选输入、多线输入里的一根、汇总节点的一行接着它，就当没接。
+
+    「通过」是常驻口（wired_ports）：模板用一个布尔数值节点同时开关几个阻断（两条互斥的分支一个开一个关：另一个打开
+    「反过来」）。接的是计算前就知道的值（数值节点）时，算之前就知道走不走；要先算出来的值，和「切换」的条件一样等它。"""
+
+    id = "gate"
+    category = "flow"
+    picture = NO_PICTURE
+    # 一个输入；阻断时它不取（chosen_inputs 给空），这与「切换」的路一样：必需输入 + 不走 = 不检查、不算、不进指纹
+    inputs = (Port("data", BOTH, data=EITHER),)
+    outputs = (Port("data", BOTH, type_from="input:data", may_be_empty=True),)
+    condition_input = PARAM + "through"
+    wired_ports = ("through",)
+    on_node = ("through", "invert")
+    # 阻断时它自己没有结果、也不是出错：引擎据此给它「被阻断」的结果（engine/evaluation.py），lab2shot check gates 核对
+    blocks = True
+
+    class Params(NodeParams):
+        # 勾上 = 通过，不勾 = 阻断（输入不取、上游不算，只靠它的下游安静地跳过）
+        through: bool = P(True, group="gate")
+        # 打开后反着用：开关为开时阻断、为关时通过（两条互斥的分支接同一个开关，一个打开它）
+        invert: bool = P(False, group="gate")
+
+    @classmethod
+    def param_port(cls, name: str) -> Port:
+        """「通过」的口只收一个布尔值（和「切换」的「走哪一路」一样，Port.plain：带单位的数不是开关）。"""
+        port = super().param_port(name)
+        return replace(port, type=BOOL, expects=(*port.expects, OneValue()), plain=True) if name == "through" else port
+
+    @classmethod
+    def chosen_inputs(cls, params: dict, condition) -> frozenset[str]:
+        """走不走：接了线按线上的布尔值，否则按「通过」；「反过来」翻转它。通过 = 取「数据」，阻断 = 什么都不取。"""
+        value = params.get("through", True) if condition is None else read(condition).one()
+        on = bool(value) != bool(params.get("invert", False))
+        return frozenset({"data"}) if on else frozenset()
+
+    @classmethod
+    def cook(cls, ctx) -> dict:
+        # 只在通过时算（阻断时引擎给它「被阻断」的结果，不来这里）；接进来的是空包时交出空包（输出可以为空）
+        got = ctx.inputs.get("data") or ()
+        if not got:
+            return {"data": empty_packet(ctx, "data")}
+        return {"data": copy_packet(got[0], ctx.outputs["data"])}
+
+
+class Exists(NodeDef):
+    """「有没有」：接进来的那根线这次有没有东西——上游是空、被「阻断」、或是没选文件的读取（以及只转手它们的「切换」、
+    放行的「阻断」），就是否，其余是是。只看上游在不在，不取上游的内容（它的输入不取，上游不为它计算）：答案在计划阶段
+    就有（engine/evaluation.py present，写进它的「有」参数），所以接到「切换」的「走哪一路」/「阻断」的「通过」上，提交前
+    页面就知道走哪条路——「上传了参考帧就补帧，没上传就纯生成」这一类卡靠它。"""
+
+    id = "has_data"
+    category = "flow"
+    picture = NO_PICTURE
+    inputs = (Port("data", BOTH, optional=True, data=EITHER),)
+    outputs = (Port("value", BOOL),)
+    # 引擎读这一口的「在不在」（engine/routing.py 不取它，engine/evaluation.py params 填「有」）
+    presence_of = "data"
+
+    class Params(NodeParams):
+        # 引擎在计划阶段填（上游在不在），不由人填：不进参数面板；它进指纹，上游从有到没有时下游跟着重算
+        present: bool = P(False, group="presence", panel=False)
+
+    @classmethod
+    def known_outputs(cls, params):
+        return {"value": value_meta(BOOL, bool(params.get("present")))}
+
+    @classmethod
+    def cook(cls, ctx) -> dict:
+        return {"value": value_packet(ctx.outputs["value"], BOOL, bool(ctx.params["present"]))}
+
 class Logic(NodeDef):
-    id = "core.logic"
+    id = "logic"
     category = "math"
     picture = NO_PICTURE
-    inputs = (Port("values", BOOL, "布尔", multi=True),)
-    outputs = (Port("value", BOOL, "结果"),)
+    inputs = (Port("values", BOOL, multi=True),)
+    outputs = (Port("value", BOOL),)
     on_node = ("operation",)
 
     class Params(NodeParams):
-        operation: Literal["and", "or", "not"] = P("and", label="运算", group="运算",
-                                                   option_labels={"and": "与", "or": "或", "not": "非"})
+        operation: Literal["and", "or", "not"] = P("and", group="operation")
 
     @classmethod
     def wiring_notes(cls, params: dict, wires: dict[str, int]) -> list[tuple[Msg, str]]:
@@ -419,20 +500,20 @@ class Logic(NodeDef):
         return {"value": value_packet(ctx.outputs["value"], BOOL, got)}
 
 
-COMPARISONS = {"gt": "大于", "ge": "不小于", "lt": "小于", "le": "不大于", "eq": "等于", "ne": "不等于"}
+COMPARISONS = i18n.Words("compare.op.", ("gt", "ge", "lt", "le", "eq", "ne"))
 
 
 class Compare(NodeDef):
-    id = "core.compare"
+    id = "compare"
     category = "math"
     picture = NO_PICTURE
-    inputs = (Port("a", "value", "甲"), Port("b", "value", "乙"))
-    outputs = (Port("value", BOOL, "结果"),)
+    inputs = (Port("a", "value"), Port("b", "value"))
+    outputs = (Port("value", BOOL),)
     on_node = ("operation",)
 
     class Params(NodeParams):
         operation: Literal["gt", "ge", "lt", "le", "eq", "ne"] = P(
-            "gt", label="运算", group="运算", option_labels=COMPARISONS)
+            "gt", group="operation")
 
     @classmethod
     def param_refuses(cls, data_type: str, params: dict) -> Msg | None:
@@ -441,7 +522,7 @@ class Compare(NodeDef):
         if params.get("operation") in ("eq", "ne"):
             return None
         if all(t in (BOOL, TEXT) for t in data_type.split("|")):
-            return Msg("E-COMPARE-ORDER", how=COMPARISONS[params["operation"]], kind=type_label(data_type))
+            return Msg("E-COMPARE-ORDER", how=COMPARISONS[params["operation"]], kind=i18n.Both.of(lambda: type_label(data_type)))
         return None
 
     @classmethod
@@ -456,7 +537,7 @@ class Compare(NodeDef):
                    "eq": math.isclose(x, y), "ne": not math.isclose(x, y)}[how]
         else:
             if how not in ("eq", "ne"):
-                raise Invalid(Msg("E-COMPARE-ORDER", kind=type_label(ctx.input("a").type), how=COMPARISONS[how]))
+                raise Invalid(Msg("E-COMPARE-ORDER", kind=i18n.Both.of(lambda: type_label(ctx.input("a").type)), how=COMPARISONS[how]))
             got = (a.one() == b.one()) if how == "eq" else (a.one() != b.one())
         return {"value": value_packet(ctx.outputs["value"], BOOL, bool(got))}
 
@@ -468,25 +549,25 @@ def _number(value) -> float:
     return float(value)
 
 
-OPERATIONS = {"add": "加", "subtract": "减", "multiply": "乘", "divide": "除", "min": "最小", "max": "最大",
-              "round": "取整", "abs": "绝对值"}
 UNARY = ("round", "abs")
-UNITS = {"": "无", "mm": "mm", "cm": "cm", "m": "m", "px": "px", "°": "°", "帧": "帧", "秒": "秒", "EV": "EV"}
 
 
 class Math(NodeDef):
-    id = "core.math"
+    id = "math"
+    version = 2  # 2: the result also as an integer (rounded to the nearest), for an integer parameter
     category = "math"
     picture = NO_PICTURE
-    inputs = (Port("values", f"{FLOAT}|{INT}", "数值", multi=True),)
-    outputs = (Port("value", FLOAT, "结果", unit="param:unit"),)
+    inputs = (Port("values", f"{FLOAT}|{INT}", multi=True),)
+    # the result, and the same rounded to the nearest whole number: a wire into an integer parameter (a radius in px, a
+    # frame count) takes only an integer, so a number worked out on a card reaches one through `integer`
+    outputs = (Port("value", FLOAT, unit="param:unit"), Port("integer", INT, unit="param:unit"))
     on_node = ("operation", "unit")
 
     class Params(NodeParams):
         operation: Literal["add", "subtract", "multiply", "divide", "min", "max", "round", "abs"] = P(
-            "add", label="运算", group="运算", option_labels=OPERATIONS)
-        unit: Literal["", "mm", "cm", "m", "px", "°", "帧", "秒", "EV"] = P(
-            "", label="单位", group="运算", option_labels=UNITS)
+            "add", group="operation")
+        unit: Literal["", "mm", "cm", "m", "px", "°", "frame", "s", "EV"] = P(
+            "", group="operation")
 
     @classmethod
     def cook(cls, ctx) -> dict:
@@ -512,31 +593,32 @@ class Math(NodeDef):
             got = numbers[0] / math.prod(numbers[1:]) if len(numbers) > 1 else numbers[0]
         else:
             got = min(numbers) if how == "min" else max(numbers)
-        return {"value": value_packet(ctx.outputs["value"], FLOAT, float(got), unit=want)}
+        return {"value": value_packet(ctx.outputs["value"], FLOAT, float(got), unit=want),
+                "integer": value_packet(ctx.outputs["integer"], INT, int(math.floor(got + 0.5)), unit=want)}
 
 
 # ------------------------------------------------------------------ 取信息（摘要在 data/summary.py）
 
 
 class DataInfo(NodeDef):
-    id = "core.data_info"
+    id = "data_info"
     category = "value"
     picture = NO_PICTURE
-    inputs = (Port("data", BOTH, "数据", data=EITHER),)
+    inputs = (Port("data", BOTH, data=EITHER),)
     outputs = (
-        Port("frames", INT, "帧数", unit="帧", may_be_empty=True),
-        Port("first", INT, "首帧", unit="帧", may_be_empty=True),
-        Port("last", INT, "末帧", unit="帧", may_be_empty=True),
-        Port("width", INT, "宽", unit="px", may_be_empty=True),
-        Port("height", INT, "高", unit="px", may_be_empty=True),
-        Port("count", INT, "条数", may_be_empty=True),
-        Port("value", FLOAT, "值", may_be_empty=True),
-        Port("text", TEXT, "文字", may_be_empty=True),
+        Port("frames", INT, unit="frame", may_be_empty=True),
+        Port("first", INT, unit="frame", may_be_empty=True),
+        Port("last", INT, unit="frame", may_be_empty=True),
+        Port("width", INT, unit="px", may_be_empty=True),
+        Port("height", INT, unit="px", may_be_empty=True),
+        Port("count", INT, may_be_empty=True),
+        Port("value", FLOAT, may_be_empty=True),
+        Port("text", TEXT, may_be_empty=True),
     )
     main = "frames"
 
     class Params(NodeParams):
-        item: str = P("", label="取哪一项", widget="choice", group="信息", choices_from=("data",), placeholder="先接上数据")
+        item: str = P("", widget="choice", group="info", choices_from=("data",))
 
     @classmethod
     def choices(cls, params: dict, inputs: dict) -> dict:
@@ -545,11 +627,11 @@ class DataInfo(NodeDef):
 
         packet = (inputs.get("data") or [None])[0]
         if packet is None:
-            return {"item": {"options": [], "empty": "先接上数据"}}
+            return {"item": {"options": [], "empty": i18n.t("choices.wire_data")}}
         lines = describe(packet).get("items") or []
         return {"item": {"options": [line["id"] for line in lines],
                          "labels": {line["id"]: line["label"] or line["text"] for line in lines},
-                         "empty": "不取" if lines else "这份数据没有别的信息"}}
+                         "empty": i18n.t("choices.take_none" if lines else "choices.no_more_info")}}
 
     @classmethod
     def cook(cls, ctx) -> dict:
@@ -559,9 +641,9 @@ class DataInfo(NodeDef):
         meta = data.meta
         frames = list(meta.get("frames") or ())
         given: dict[str, tuple[str, object, str]] = {
-            "frames": (INT, len(frames) or None, "帧"),
-            "first": (INT, frames[0] if frames else None, "帧"),
-            "last": (INT, frames[-1] if frames else None, "帧"),
+            "frames": (INT, len(frames) or None, "frame"),
+            "first": (INT, frames[0] if frames else None, "frame"),
+            "last": (INT, frames[-1] if frames else None, "frame"),
             "width": (INT, meta.get("width"), "px"),
             "height": (INT, meta.get("height"), "px"),
             "count": (INT, len(items_of(data)) if is_list(data.type) else None, ""),
@@ -603,4 +685,4 @@ def _one_number(value) -> float | None:
         return None
 
 
-NODES = (EachBegin, EachEnd, TakeOne, MakeList, SplitItems, MergeItems, NameIt, Switch, Logic, Compare, Math, DataInfo)
+NODES = (EachBegin, EachEnd, TakeOne, MakeList, SplitItems, MergeItems, NameIt, Switch, Gate, Exists, Logic, Compare, Math, DataInfo)

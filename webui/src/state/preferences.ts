@@ -22,6 +22,7 @@ interface Preferences {
   timelineOpen: boolean; // the curve strip under the stage
   timelineHeight: number;
   playbackMode: LoopMode;
+  rigTreeWidth: { src: number; dst: number }; // px: the two joint trees of the skeleton-pair editor (view/rigTree.tsx), dragged at their inner edge
 
   setSplit: (v: number) => void;
   setInspectorWidth: (v: number | null) => void;
@@ -32,9 +33,17 @@ interface Preferences {
   setBrowseGroup: (v: string) => void;
   setTimelineStrip: (patch: Partial<{ open: boolean; height: number }>) => void;
   setPlayback: (patch: Partial<{ mode: LoopMode }>) => void;
+  setRigTreeWidth: (side: "src" | "dst", px: number) => void;
 }
 
 export const TIMELINE_STRIP = { min: 120, initial: 240 };
+export const RIG_TREE = { min: 200, initial: 325 };
+
+function readRigTree(): { src: number; dst: number } {
+  const v = readPref<{ src?: unknown; dst?: unknown }>("rigTree", {});
+  const one = (x: unknown) => (typeof x === "number" && x >= RIG_TREE.min ? x : RIG_TREE.initial);
+  return { src: one(v.src), dst: one(v.dst) };
+}
 const RECENT_MAX = 6;
 
 function readTimelineStrip(): { open: boolean; height: number } {
@@ -61,6 +70,7 @@ export const usePreferences = create<Preferences>((set, get) => {
     timelineOpen: strip.open,
     timelineHeight: strip.height,
     playbackMode: playback.mode,
+    rigTreeWidth: readRigTree(),
 
     setSplit: (v) => (writePref("split", String(Math.round(v))), set({ split: v })),
     setInspectorWidth: (v) => (writePref("inspectorWidth", v ? String(v) : ""), set({ inspectorWidth: v })),
@@ -70,6 +80,11 @@ export const usePreferences = create<Preferences>((set, get) => {
       const next = [id, ...get().recentNodes.filter((x) => x !== id)].slice(0, RECENT_MAX);
       writePref("recentNodes", next);
       set({ recentNodes: next });
+    },
+    setRigTreeWidth: (side, px) => {
+      const next = { ...get().rigTreeWidth, [side]: Math.max(RIG_TREE.min, Math.round(px)) };
+      writePref("rigTree", next);
+      set({ rigTreeWidth: next });
     },
     setDisplayOptionsTab: (v) => (writePref("displayOptions.tab", v), set({ displayOptionsTab: v })),
     setBrowseGroup: (v) => (writePref("browse.group", v), set({ browseGroup: v })),

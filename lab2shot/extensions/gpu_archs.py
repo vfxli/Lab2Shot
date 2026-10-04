@@ -129,6 +129,7 @@ def record(ext) -> ExtensionArchRecord:
     file."""
     from .spec import state_writing
 
+    ext = ext.env_owner  # an extension running in another's environment: that environment's record
     fingerprint = ext.install_state().get("env", {}).get("fingerprint", "")
     found = probe(ext.paths.python, ext.paths.root, fingerprint)
     with state_writing(ext.paths):
@@ -144,8 +145,8 @@ def record(ext) -> ExtensionArchRecord:
 
 def recorded(ext) -> ExtensionArchRecord | None:
     """`ext`'s recorded architectures when the record is there and still current, else None (to be probed:
-    `ensure`); never probes."""
-    state = ext.install_state()
+    `ensure`); never probes. The record of the environment it runs in (Extension.env_owner)."""
+    state = ext.env_owner.install_state()
     cached = state.get("gpu_archs")
     return ExtensionArchRecord.from_json(cached) if _current(cached, state.get("env", {}).get("fingerprint", "")) else None
 
@@ -153,6 +154,7 @@ def recorded(ext) -> ExtensionArchRecord | None:
 def ensure(ext) -> ExtensionArchRecord | None:
     """`ext`'s recorded architectures, probing (and saving) now if there is none yet or the environment changed
     since; None when the environment is not installed at all (nothing to probe)."""
+    ext = ext.env_owner
     if (found := recorded(ext)) is not None:
         return found
     if not ext.paths.python.exists():

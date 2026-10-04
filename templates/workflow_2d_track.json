@@ -1,0 +1,805 @@
+{
+ "schema": "lab2shot.graph/1",
+ "meta": {
+  "id": "eace1c913dcd5fb8b54b4948e31d8f28",
+  "name": {
+   "zh": "2D 跟踪",
+   "en": "2D Tracking"
+  },
+  "intro": {
+   "zh": "在画面上点要跟的点、框平面的四个角，再勾要用的跟踪：CoTracker3、TAPNext++ 跟 2D 点（交付 Nuke Tracker），WOFTSAM 跟平面四角（交付 Nuke CornerPin），AllTracker 把你在一帧上画的图贴满整段（交付 EXR）。CoTracker3 与 TAPNext++ 共用一组跟踪点，点一次两个都跟；坐标就是这段画面的像素，与同一画面上的其他 2D 卡天然对齐。",
+   "en": "Pick the points to track and the four corners of a plane in the viewport, then tick the trackers: CoTracker3 and TAPNext++ track 2D points (Nuke Tracker), WOFTSAM tracks plane corners (Nuke CornerPin), AllTracker carries what you paint on one frame through the shot (EXR). CoTracker3 and TAPNext++ share one set of tracks, so you pick once for both; coordinates are the plate's pixels, so they line up with the other 2D cards on the same plate."
+  },
+  "author": "Lab2Shot",
+  "created": "2026-10-04T12:00:00",
+  "updated": "2026-10-04T12:00:00",
+  "deliverable": "workflow",
+  "owner": "admin",
+  "internal": [
+   "alltracker.picks",
+   "alltracker.picks_pick"
+  ]
+ },
+ "exposed": [
+  {
+   "name": "input",
+   "label": {
+    "zh": "图像",
+    "en": "Image"
+   },
+   "target": "read.path",
+   "show_on_change": true
+  },
+  {
+   "name": "colorspace_in",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
+   "target": "read.colorspace",
+   "show_on_change": true
+  },
+  {
+   "name": "first_frame",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
+   "target": "read.first"
+  },
+  {
+   "name": "last_frame",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
+   "target": "read.last"
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "跟踪",
+    "en": "Track"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "track_cotracker_through",
+     "label": {
+      "zh": "CoTracker3（2D 点）",
+      "en": "CoTracker3 (2D Points)"
+     },
+     "target": "track_cotracker.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "track_tapnext_through",
+     "label": {
+      "zh": "TAPNext++（2D 点）",
+      "en": "TAPNext++ (2D Points)"
+     },
+     "target": "track_tapnext.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "track_woftsam_through",
+     "label": {
+      "zh": "WOFTSAM（平面四角）",
+      "en": "WOFTSAM (Plane Corners)"
+     },
+     "target": "track_woftsam.through",
+     "widget": "checkbox"
+    },
+    {
+     "name": "paint_alltracker_through",
+     "label": {
+      "zh": "AllTracker（贴片）",
+      "en": "AllTracker (Paint)"
+     },
+     "target": "paint_alltracker.through",
+     "widget": "checkbox"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "跟踪点（CoTracker3、TAPNext++ 共用）",
+    "en": "Tracks (Shared by CoTracker3 and TAPNext++)"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "picks",
+     "label": {
+      "zh": "跟踪点",
+      "en": "Tracks"
+     },
+     "target": [
+      "cotracker.picks",
+      "tapnext.picks"
+     ],
+     "show_on_change": true,
+     "hide_when": "not track_cotracker_through and not track_tapnext_through"
+    },
+    {
+     "name": "picks_pick",
+     "label": {
+      "zh": "在视图里点选",
+      "en": "Pick in Viewport"
+     },
+     "target": [
+      "cotracker.picks_pick",
+      "tapnext.picks_pick"
+     ],
+     "hide_when": "not track_cotracker_through and not track_tapnext_through"
+    },
+    {
+     "name": "cotracker_grid",
+     "label": {
+      "zh": "另撒网格点（0 = 不撒）",
+      "en": "Extra Grid Points (0 = None)"
+     },
+     "target": [
+      "cotracker.grid",
+      "tapnext.grid"
+     ],
+     "hide_when": "not track_cotracker_through and not track_tapnext_through"
+    },
+    {
+     "name": "cotracker_query_frame",
+     "label": {
+      "zh": "网格点撒在哪一帧",
+      "en": "Grid Frame"
+     },
+     "target": [
+      "cotracker.query_frame",
+      "tapnext.query_frame"
+     ],
+     "hide_when": "(not track_cotracker_through and not track_tapnext_through) or cotracker_grid == 0"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "WOFTSAM 平面四角",
+    "en": "WOFTSAM Plane Corners"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "woftsam_corners",
+     "label": {
+      "zh": "四个角",
+      "en": "Corners"
+     },
+     "target": "woftsam.corners",
+     "show_on_change": true,
+     "hide_when": "not track_woftsam_through"
+    },
+    {
+     "name": "woftsam_corners_pick",
+     "label": {
+      "zh": "在视图里点选",
+      "en": "Pick in Viewport"
+     },
+     "target": "woftsam.corners_pick",
+     "hide_when": "not track_woftsam_through"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "AllTracker 贴片",
+    "en": "AllTracker Paint"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "ref_frame",
+     "label": {
+      "zh": "AllTracker 画图的那一帧",
+      "en": "AllTracker Paint Frame"
+     },
+     "target": "alltracker.query_frame",
+     "hide_when": "not paint_alltracker_through"
+    },
+    {
+     "name": "paint_path",
+     "label": {
+      "zh": "画好的那一帧（不传不算）",
+      "en": "Painted Frame (Optional)"
+     },
+     "target": "paint.path",
+     "show_on_change": true,
+     "hide_when": "not paint_alltracker_through"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "exr_name",
+     "label": {
+      "zh": "贴片文件名（EXR）",
+      "en": "Paint File Name (EXR)"
+     },
+     "target": "exr.name",
+     "hide_when": "not paint_alltracker_through"
+    },
+    {
+     "name": "colorspace_out",
+     "label": {
+      "zh": "输出颜色空间",
+      "en": "Output Color Space"
+     },
+     "target": "exr.colorspace",
+     "hide_when": "not paint_alltracker_through"
+    }
+   ]
+  },
+  {
+   "kind": "group",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
+   "collapsed": false,
+   "children": [
+    {
+     "name": "cook",
+     "word": "cook",
+     "target": "deliver.cook"
+    },
+    {
+     "name": "download",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
+     "target": "deliver.download"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "read",
+   "type": "file",
+   "params": {
+    "path": "",
+    "colorspace": null,
+    "first": null,
+    "last": null
+   },
+   "ui": {
+    "x": 360,
+    "y": 0
+   }
+  },
+  {
+   "id": "cotracker",
+   "type": "cotracker.track",
+   "params": {
+    "query_frame": null,
+    "picks": [],
+    "min_confidence": null,
+    "grid": 0,
+    "mode": "offline",
+    "resolution": null
+   },
+   "ui": {
+    "x": 1080,
+    "y": 0
+   }
+  },
+  {
+   "id": "tapnext",
+   "type": "tapnext.track",
+   "params": {
+    "query_frame": null,
+    "picks": [],
+    "min_confidence": null,
+    "grid": 0,
+    "model": "512",
+    "resolution": null
+   },
+   "ui": {
+    "x": 1080,
+    "y": 227
+   }
+  },
+  {
+   "id": "woftsam",
+   "type": "woftsam.planar_track",
+   "params": {
+    "corners": [],
+    "resolution": null
+   },
+   "ui": {
+    "x": 1080,
+    "y": 454
+   }
+  },
+  {
+   "id": "track_cotracker",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 1456,
+    "y": 0
+   }
+  },
+  {
+   "id": "track_tapnext",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 1456,
+    "y": 207
+   }
+  },
+  {
+   "id": "track_woftsam",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 1456,
+    "y": 414
+   }
+  },
+  {
+   "id": "paint",
+   "type": "file_still",
+   "params": {
+    "path": "",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 0,
+    "y": 875
+   }
+  },
+  {
+   "id": "has_paint",
+   "type": "has_data",
+   "params": {
+    "present": false
+   },
+   "ui": {
+    "x": 360,
+    "y": 875
+   }
+  },
+  {
+   "id": "paint_plate",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 720,
+    "y": 875
+   }
+  },
+  {
+   "id": "alltracker",
+   "type": "alltracker.track",
+   "params": {
+    "query_frame": null,
+    "picks": [],
+    "min_confidence": null,
+    "grid": 0,
+    "resolution": 1024
+   },
+   "ui": {
+    "x": 1080,
+    "y": 875
+   }
+  },
+  {
+   "id": "paint_gate",
+   "type": "gate",
+   "params": {
+    "through": true,
+    "invert": false
+   },
+   "ui": {
+    "x": 1080,
+    "y": 1122
+   }
+  },
+  {
+   "id": "paint_warp",
+   "type": "stmap",
+   "params": {},
+   "ui": {
+    "x": 1456,
+    "y": 875
+   }
+  },
+  {
+   "id": "paint_alltracker",
+   "type": "gate",
+   "params": {
+    "through": false,
+    "invert": false
+   },
+   "ui": {
+    "x": 1816,
+    "y": 875
+   }
+  },
+  {
+   "id": "exr",
+   "type": "exr.output",
+   "params": {
+    "name": "paint_alltracker",
+    "layers": [
+     {
+      "name": "paint_alltracker",
+      "label": "paint.alltracker",
+      "channels": ""
+     }
+    ],
+    "exr_bit_depth": "half",
+    "exr_compression": "zips",
+    "colorspace": null
+   },
+   "ui": {
+    "x": 2176,
+    "y": 558
+   }
+  },
+  {
+   "id": "track_cotracker_out",
+   "type": "tracks.output",
+   "params": {
+    "name": "track_cotracker",
+    "format": "tracker",
+    "origin": "bottom_left",
+    "min_visible": 5
+   },
+   "ui": {
+    "x": 1816,
+    "y": 0
+   }
+  },
+  {
+   "id": "track_tapnext_out",
+   "type": "tracks.output",
+   "params": {
+    "name": "track_tapnext",
+    "format": "tracker",
+    "origin": "bottom_left",
+    "min_visible": 5
+   },
+   "ui": {
+    "x": 1816,
+    "y": 207
+   }
+  },
+  {
+   "id": "track_woftsam_out",
+   "type": "tracks.output",
+   "params": {
+    "name": "track_woftsam",
+    "format": "cornerpin",
+    "origin": "bottom_left",
+    "min_visible": 5
+   },
+   "ui": {
+    "x": 1816,
+    "y": 414
+   }
+  },
+  {
+   "id": "deliver",
+   "type": "output",
+   "params": {},
+   "ui": {
+    "x": 2536,
+    "y": 558
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "cotracker",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "cotracker",
+    "tracks"
+   ],
+   "to": [
+    "track_cotracker",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "tapnext",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "tapnext",
+    "tracks"
+   ],
+   "to": [
+    "track_tapnext",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "woftsam",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "woftsam",
+    "tracks"
+   ],
+   "to": [
+    "track_woftsam",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "paint",
+    "image"
+   ],
+   "to": [
+    "has_paint",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "read",
+    "image"
+   ],
+   "to": [
+    "paint_plate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "has_paint",
+    "value"
+   ],
+   "to": [
+    "paint_plate",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "paint_plate",
+    "data"
+   ],
+   "to": [
+    "alltracker",
+    "image"
+   ]
+  },
+  {
+   "from": [
+    "paint",
+    "image"
+   ],
+   "to": [
+    "paint_gate",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "has_paint",
+    "value"
+   ],
+   "to": [
+    "paint_gate",
+    "param:through"
+   ]
+  },
+  {
+   "from": [
+    "paint_gate",
+    "data"
+   ],
+   "to": [
+    "paint_warp",
+    "src"
+   ]
+  },
+  {
+   "from": [
+    "alltracker",
+    "stmap"
+   ],
+   "to": [
+    "paint_warp",
+    "stmap"
+   ]
+  },
+  {
+   "from": [
+    "paint_warp",
+    "image"
+   ],
+   "to": [
+    "paint_alltracker",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "paint_alltracker",
+    "data"
+   ],
+   "to": [
+    "exr",
+    "paint_alltracker"
+   ]
+  },
+  {
+   "from": [
+    "track_cotracker",
+    "data"
+   ],
+   "to": [
+    "track_cotracker_out",
+    "tracks"
+   ]
+  },
+  {
+   "from": [
+    "track_tapnext",
+    "data"
+   ],
+   "to": [
+    "track_tapnext_out",
+    "tracks"
+   ]
+  },
+  {
+   "from": [
+    "track_woftsam",
+    "data"
+   ],
+   "to": [
+    "track_woftsam_out",
+    "tracks"
+   ]
+  },
+  {
+   "from": [
+    "exr",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "track_cotracker_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "track_tapnext_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  },
+  {
+   "from": [
+    "track_woftsam_out",
+    "files"
+   ],
+   "to": [
+    "deliver",
+    "files"
+   ]
+  }
+ ],
+ "boxes": [
+  {
+   "id": "box:1",
+   "label": {
+    "zh": "跟踪",
+    "en": "Tracking"
+   },
+   "color": "#0A84FF",
+   "x": 1056,
+   "y": -58,
+   "w": 1024,
+   "h": 675,
+   "collapsed": false,
+   "members": [
+    "cotracker",
+    "tapnext",
+    "woftsam",
+    "track_cotracker",
+    "track_tapnext",
+    "track_woftsam",
+    "track_cotracker_out",
+    "track_tapnext_out",
+    "track_woftsam_out"
+   ]
+  },
+  {
+   "id": "box:2",
+   "label": {
+    "zh": "绘制",
+    "en": "Paint"
+   },
+   "color": "#30D158",
+   "x": -24,
+   "y": 817,
+   "w": 2104,
+   "h": 496,
+   "collapsed": false,
+   "members": [
+    "paint",
+    "has_paint",
+    "paint_plate",
+    "alltracker",
+    "paint_gate",
+    "paint_warp",
+    "paint_alltracker"
+   ]
+  }
+ ],
+ "view": {}
+}

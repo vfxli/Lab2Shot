@@ -19,6 +19,7 @@ from lab2shot_worker.build import MAX_JOBS, compute_caps, pip_cuda_home
 
 from .. import config
 from ..extensions.spec import InstallError, clean_environ
+from ..i18n import Word, t
 from ..messages import Msg
 from . import sources
 from .sources import NetworkFailure
@@ -120,17 +121,17 @@ def step_packages(ctx) -> None:
         indexes = sources.package_indexes(lock, ctx.policy)
         for i, index in enumerate(indexes):
             if not index.official:
-                ctx.sink.say(Msg("N-INSTALL-MIRROR", what="Python 包", mirror=index.name))
+                ctx.sink.say(Msg("N-INSTALL-MIRROR", what=Word("install.what.python_packages"), mirror=index.name))
             try:
                 for packages in rounds:
-                    ctx.retry_command([*pip, *backend, *(["--index-url", index.url] if index.url else []), *packages], "Python 包")
-                ctx.sink.say(Msg("I-INSTALL-SOURCE", what="Python 包", source=index.name))
+                    ctx.retry_command([*pip, *backend, *(["--index-url", index.url] if index.url else []), *packages], t("install.what.python_packages"))
+                ctx.sink.say(Msg("I-INSTALL-SOURCE", what=Word("install.what.python_packages"), source=index.name))
                 break
             except NetworkFailure as exc:
                 if i == len(indexes) - 1:
                     if not lock and ctx.policy.pypi:
                         ctx.sink.say(Msg("N-INSTALL-NOLOCK", title=ext.title))
-                    raise InstallError(Msg("E-INSTALL-NETWORK", what="Python 包", detail=str(exc)[-200:])) from exc
+                    raise InstallError(Msg("E-INSTALL-NETWORK", what=Word("install.what.python_packages"), detail=str(exc)[-200:])) from exc
     if env.compiled:
         ctx.wait_memory(BUILD_GB)
         cuda_home = None
@@ -144,7 +145,7 @@ def step_packages(ctx) -> None:
         # killed as stalled, started over and reported as a network failure. A failed compile speaks for itself
         # (E-INSTALL-COMMAND); only output that clearly ends in a download or connection error is retried as the network
         caps = target_caps(ctx) if env.compiled_cuda else None
-        ctx.retry_command([*pip, "--no-build-isolation", "--no-deps", *env.compiled], "编译的包",
+        ctx.retry_command([*pip, "--no-build-isolation", "--no-deps", *env.compiled], t("install.what.compiled_packages"),
                           env=build_env(env.compiled_cuda, cuda_home, caps))
     ctx.retry_command([*pip, "-e", config.WORKER_SDK_DIR], "Lab2Shot worker SDK")
     if not ext.env.build:  # the environment is finished here (else after its build script)

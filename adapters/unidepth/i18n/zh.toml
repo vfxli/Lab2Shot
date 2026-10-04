@@ -1,0 +1,22 @@
+# UniDepth 扩展自己的界面字和消息（中文）。
+
+[node."unidepth.depth"]
+subtitle = "深度贴图"
+description = "画面 → 逐帧的真实尺度深度贴图，同时估计焦距（ETH UniDepth V2）。每帧单独计算；给了焦距（填「已知焦距」、接「AnyCalib 镜头标定」或接一台摄影机）时尺度更准。广角、鱼眼、全景镜头用「UniK3D 深度贴图」，要法线用「MoGe 深度贴图与法线」。点云是每帧一片、各在这一帧自己的摄影机里（官方原生的点图），不是整段求出的一套场景点云。"
+official.note = "「摄影机」口只有内参（out[\"intrinsics\"], unidepthv2.py:330），没有外参；「点云」是模型自己的 out[\"points\"]（unidepthv2.py:336）"
+
+[node."unidepth.depth".param.model]
+label = "模型"
+option."unidepth-v2-vitl14" = "ViT-L"
+option."unidepth-v2-vitb14" = "ViT-B"
+option."unidepth-v2-vits14" = "ViT-S"
+
+[extension.unidepth]
+summary = "跨领域只凭单张画面预测真实尺度的三维点，自带一个可自我提示的摄影机模块；非商用"
+license.name = "CC-BY-NC-4.0（代码和模型权重，非商用）"
+license.summary = "非商用：代码为 CC BY-NC 4.0（仓库 LICENSE 与源码文件头）；Hugging Face 上的 unidepth-v2-vitl14 / vitb14 / vits14 模型权重的模型卡没有写许可证，按仓库许可证 CC BY-NC 4.0 对待，结果不能用于商业项目。主干网络 DINOv2 结构来自 Meta（Apache-2.0），其模型权重已包含在 UniDepth 检查点里，不另外下载"
+weight."unidepth-v2-vitl14".note = "CC BY-NC 4.0，非商用，ViT-L 1.4 GB"
+weight."unidepth-v2-vitb14".note = "CC BY-NC 4.0，非商用，ViT-B 0.46 GB"
+weight."unidepth-v2-vits14".note = "CC BY-NC 4.0，非商用，ViT-S 0.14 GB"
+
+[stage]

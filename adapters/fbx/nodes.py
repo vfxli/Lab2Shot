@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from lab2shot.sdk import (NodeParams, DistinctNames, OutputSettings, P, Port, WorkerImport, Writes, fps_param, import_file_param, name_param, pack, scene_arrays, selection_param, selection_ports)
+from lab2shot.sdk import (Msg, NodeParams, DistinctNames, Format, OutputSettings, P, Port, Reads, WorkerImport, Writes, fps_param, import_file_param, name_param, pack, scene_arrays, selection_param, selection_ports)
 
 SUFFIXES = (".fbx",)
 
@@ -19,35 +19,38 @@ class ImportFbx(WorkerImport):
     version = 6
     runtime = "fbx"
     suffixes = SUFFIXES
-    cost = replace(WorkerImport.cost, whole="读一个文件，时间看文件里有多少东西，不按帧算（只用 CPU）")
+    reads = Reads(rank=0)  # 相机、骨架、角色、模型：DCC 交来的文件先用 FBX
+    cost = replace(WorkerImport.cost, whole=True)
 
     class Params(NodeParams):  # FBX holds cameras, models, skeletons and skinned characters: no point clouds
         path: str = import_file_param(SUFFIXES)
-        take: str = P("", label="动画段", widget="choice", group="文件", choices_from=("path",), placeholder="最长的一段")
+        take: str = P("", widget="choice", group="file", choices_from=("path",))
         camera: str = selection_param("camera")
         models: list[str] = selection_param("models")
         skeletons: list[str] = selection_param("skeletons")
         characters: list[str] = selection_param("characters")
-    outputs = selection_ports(Params, fps="FBX 记的帧率（场景的时间模式）")
+    outputs = selection_ports(Params, fps=True)  # its words: node."fbx.import".port.fps.help
 
 
 class FbxOutput(OutputSettings):
     id = "fbx.output"
+    format = Format("fbx")
     version = 7  # 7：帧号不连续的角色在空档上隐藏（可见性关键帧），不再读回插值出的姿势；6：同层重名按原名写
     category = "out_scene"
     runtime = "fbx"
-    cost = replace(OutputSettings.cost, whole="写一个文件，时间看写多少东西，不按帧算（只用 CPU）")
-    inputs = (Port("scene", "scene|scene[]", "场景", multi=True,
+    cost = replace(OutputSettings.cost, whole=True)
+    inputs = (Port("scene", "scene|scene[]", multi=True,
                    expects=(DistinctNames(),)),)
     on_node = ("name",)
     writes = {
-        "model": Writes.static("FBX 没有逐帧的顶点缓存", lost="网格的分区。FBX 里没有面集，只能借材质分面，那会凭空造出材质；要保住分区写 USD 或 Alembic"),
+        "model": Writes.static(Msg("I-FBX-NOVERTEXCACHE"), lost=Msg("I-FBX-NOGROUPS")),
         "camera": Writes.full(),
-        "points": Writes.no("FBX 没有点云"),
-        "curves": Writes.no("FBX 这一版不读写曲线"),
+        "points": Writes.no(Msg("I-FBX-NOPOINTS")),
+        "curves": Writes.no(Msg("I-FBX-NOCURVES")),
         "skeleton": Writes.full(),
-        "character": Writes.full(lost="网格的分区，同「模型」"),
-        "light": Writes.no("这里的 FBX 不写灯光：穹顶灯（HDRI）只有 USD 带得走"),
+        "character": Writes.full(lost=Msg("I-FBX-NOGROUPS")),
+        "gaussian": Writes.no(Msg("I-FBX-NOGAUSSIAN")),
+        "light": Writes.no(Msg("I-FBX-NOLIGHT")),
     }
 
     class Params(NodeParams):
@@ -57,7 +60,7 @@ class FbxOutput(OutputSettings):
     @classmethod
     def write(cls, ctx) -> str:
         out = cls.out_file(ctx, ".fbx")
-        ctx.stage("整理场景")
+        ctx.stage("prepare_scene")
         npz = scene_arrays(pack(ctx.inputs["scene"], ctx.work / "scene"),
                            fps=float(ctx.params["fps"])).save(ctx.work / "scene.npz")
         ctx.run_worker(None, extra={"file": str(out)}, inputs={"scene": npz}, reuse=False)  # it writes the file

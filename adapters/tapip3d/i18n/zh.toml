@@ -1,0 +1,37 @@
+# TAPIP3D 扩展自己的界面字和消息（中文）。一行一条：编号 = 模板。
+
+# ---- 深度和摄影机输入
+"E-TAPIP3D-NODEPTHCAMERA" = "「TAPIP3D 3D 跟踪点」要同时接「深度贴图」和「摄影机」：把一个输出深度贴图的节点和一个摄影机节点接进来"
+"E-TAPIP3D-DEPTHFRAMES.other" = "「深度贴图」缺 {count:d} 帧（如第 {first} 帧）：TAPIP3D 每一帧都要深度贴图，让上游输出深度贴图的节点算满画面的每一帧"
+"E-TAPIP3D-DEPTHSIZE" = "第 {frame} 帧的「深度贴图」是 {width}×{height}，画面是 {plate_width}×{plate_height}：深度贴图要和画面同样大小，检查上游输出深度贴图的节点接的是不是这段画面"
+
+[node."tapip3d.track"]
+subtitle = "3D 跟踪点"
+description = "画面 + 深度贴图 + 摄影机 → 带编号、可见性和速度的 3D 跟踪点（厘米，和摄影机、深度贴图转出的点云对得上）；点被挡住也接着跟。深度贴图和摄影机要准，尺度跟着接进来的摄影机；固定机位的短焦镜头上 ViPE 的焦距会错，这时先填焦距。3D 跟踪点在 Houdini 里当定位器，钉 CG 道具到旗子、衣服、车身上；只要 2D 点用「TAPNext++ 2D 跟踪点」。"
+official.note = "**输入**侧都是官方的：上游 inference(model, video, depths, intrinsics, extrinsics, query_point)（utils/inference_utils.py:108-118）**每帧外参和内参都吃**，没有外参时才退回单位阵（inference.py:68-70「No extrinsics provided, using identity matrix」）。遮罩只决定 query_point 撒在哪。**输出侧只有「3D 跟踪点」= coords**：上游 inference() 只 return (coords, visibs)（utils/inference_utils.py:119 的返回类型注解、inference.py:124-133 的调用），存的 npz 里 intrinsics / extrinsics 是**把输入原样写回去**给可视化用的（inference.py:137-156），不是它算出来的。家族 PointTracker3D 上那两个上游没有的口——「摄影机」（接进来那台原样透传）和「2D 跟踪点」（我们自己把三维点投影出来的）——这个节点不长出来（lab2shot/nodes/families/tracks3d.py 的 solves_camera / gives_tracks2d 两条声明）。官方的 visibs 我们没丢，它装在「3D 跟踪点」每个点的可见性里。"
+
+[node."tapip3d.track".port.depth]
+label = "深度贴图"
+
+[node."tapip3d.track".port.mask]
+label = "遮罩"
+
+[node."tapip3d.track".param.grid]
+label = "网格点数"
+
+[node."tapip3d.track".param.resolution]
+label = "处理分辨率"
+option.standard = "标准"
+option.fine = "精细"
+
+[extension.tapip3d]
+summary = "单目 RGB 和 RGB-D 视频里的长时前馈三维点跟踪，用一团持久的世界坐标特征云抵掉摄影机自身的运动"
+license.name = "Apache-2.0 + MIT 模型权重"
+license.summary = "代码 Apache-2.0，模型权重（Hugging Face zbww/tapip3d，模型卡写明 MIT）可以商用。只用仓库里的跟踪模型和它自带的 pointops2（MIT）近邻算子；它自己从画面估深度和摄影机的 MegaSaM 流程不装：深度和摄影机由 Lab2Shot 的节点接进来"
+weight.tapip3d.note = "TAPIP3D（MIT，309 MB）"
+
+[stage]
+read_inputs = "读取画面、深度和摄影机"
+read = "读取"
+preprocess = "预处理（缩放、去深度边缘飞点）"
+track_points.other = "跟踪 {count} 个点"

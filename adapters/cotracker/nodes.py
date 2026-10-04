@@ -9,14 +9,12 @@ from lab2shot.sdk import (Official, measured_param, P, PointTracker, TrackParams
 
 class Track(PointTracker):
     id = "cotracker.track"
+    version = 2  # 2：长镜头分段重叠半窗、接缝在置信度最高的帧重新起跟、重叠区按置信度混合
     # 上游 CoTrackerPredictor.forward：video + queries / segm_mask -> tracks、visibilities
     official = Official(
         cite="third_party/cotracker/repo/cotracker/predictor.py:36-68",
         takes={"image": "video", "mask": "segm_mask"},
         gives={"tracks": "tracks"},
-        note="segm_mask 是上游自己的输入（predictor.py:46「Segmentation mask of shape (B, 1, H, W)」）："
-             "给了它，网格点就只撒在遮罩里（第 43 行注释）。可见性（visibilities）在我们的 2D 跟踪点数据里，"
-             "不是单独的口。",
     )
     # 公开基准上的实测（接不接、接什么的差别）：
     #   mask：实测（TAP-Vid、PointOdyssey）：遮罩只决定网格点撒在哪；点进去的跟踪点精度（AJ）没区别
@@ -26,14 +24,11 @@ class Track(PointTracker):
     cost = Cost(gpu=True, vram_gb=5.6, seconds_per_frame=0.012)
 
     class Params(TrackParams):
-        grid: Literal[0, 10, 16, 20] = measured_param(
-            "网格点数", {0: Measured(below=20), 10: Measured(below=20), 16: Measured(below=20), 20: Measured(gb=5.6)}, default=0, group="跟踪")
+        grid: Literal[0, 10, 16, 20] = measured_param({0: Measured(below=20), 10: Measured(below=20), 16: Measured(below=20), 20: Measured(gb=5.6)}, default=0, group="tracking")
         mode: Literal["offline", "online"] = P(
-            "offline", label="方式", group="模型",
-            option_labels={"offline": "整段", "online": "逐段滑动"},
+            "offline", group="model",
         )
-        resolution: Literal[768] | None = measured_param(
-            "处理分辨率", {768: Measured(gb=6.7)}, auto="512×384", group="模型")
+        resolution: Literal[768] | None = measured_param({768: Measured(gb=6.7)}, group="model")
 
 
 NODES = (Track,)

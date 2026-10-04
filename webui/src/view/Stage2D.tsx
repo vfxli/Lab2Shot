@@ -1,15 +1,21 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BoxesData, Manifest, TracksData } from "../api";
 import { msg, textOf } from "../messages/message";
+import { t } from "../i18n/t";
+import { listSep } from "../i18n/words";
+import { useLang } from "../i18n/lang";
 import { setParam } from "../graph/actions";
 import { useStageNotes, useStagePicture, useViewer } from "../state/viewer";
+import { useHandleView } from "../state/handleView";
+
+const SWITCH_HOLD_MS = 250; // 换显示内容时，保留上一张画面等新画面的最长时间
 import { clearLoads, reportLoads } from "../transfer/readiness";
 import { drawLoading, useDecodedFrames, useLoadedFrames } from "../transfer/frames";
 import { isPlane } from "../transfer/plane";
 import type { LocalPicture } from "./localPick";
 import { useDescribed } from "../transfer/described";
 import { useDevicePixelRatio } from "../platform/size";
-import { clickHandle, dragHandle, dragStart, drawHandle, moveDrag, personAt, pickedPeople, removeAt, type Drag, type Pt } from "./handles2d";
+import { clickHandle, dragHandle, dragStart, drawHandle, moveDrag, peopleHandle, removeAt, tool2d, type Drag, type Pt } from "./handles2d";
 import { drawBackground, drawBoxes, drawTracks, type Frame } from "./overlays";
 import { drawLook, useGpuState, type Box, type Merge, type Side } from "./look";
 import type { DisplayPlan, ViewItem } from "./plan";
@@ -22,8 +28,10 @@ import { useView2DNav } from "../state/viewer";
 import { followPress } from "../platform/drag";
 import { useWriteLock } from "../ui/writeLock";
 import type { Partial as PartialResult } from "./partial";
+import { tipOf } from "../platform/tips";
 
-/** 二维舞台：左侧为原图、右侧为该节点的结果，按当前档位（仅原图 / 运算 / 仅结果）绘制，
+/** 二维舞台：左侧为原图、右侧为该节点的结果，按当前档位（仅原图 / 运算 / 仅结果）绘制；A/B 对比（分界线 / 并排）时
+ * 左侧为 A（原图或本节点的任一层）、右侧为 B，两侧各自显示、不合成（model/view2d.ts comparing），
  * 并叠加自带数据的叠加物（人物框、跟踪点）及节点的二维手柄。
  *
  * 主源（时间线跟随的一侧）在「仅结果」档中为右侧，其他档中为左侧；另一侧同样经取帧账本获取（view/stageSources.ts），
@@ -74,6 +82,7 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
   const frame = useViewer((s) => s.frame);
   const playDir = useViewer((s) => s.playDir);
   const locked = !!useWriteLock(); // 写不了（ui/writeLock.ts）：手柄照画，不接
+  const dismissed = useHandleView((s) => s.picking !== plan.node.id); // 没在点选（没进、或退出了编辑）：手柄不画、不接
   const [el, setEl] = useState<HTMLCanvasElement | null>(null);
   // 画布外面的一层（.canvas2d-box）：量尺寸的是它，画布本身按量到的尺寸用像素定宽高、贴在左上角（不用 CSS 100%）。
   // 这样拖参数栏的分割线时，新尺寸量到、重画之前的那一两帧，旧画面只会被裁掉或露出一条空白，不会被 CSS 横向拉伸
@@ -99,7 +108,8 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
   const leftFp = plan.plate ?? rightFp;
   const mainFp = mode === "result" ? rightFp ?? leftFp : leftFp;
   const overFp = mode === "over" && rightFp && rightFp !== leftFp ? rightFp : null;
-  const main = partial ? null : mainFp ? { fp: mainFp, type: mainFp === rightFp ? picture?.type ?? "" : "" } : null;
+  const mainType = mainFp === rightFp ? picture?.type ?? "" : "";
+  const main = partial ? null : mainFp ? { fp: mainFp, type: mainType } : null;
   const manifest = useManifest(main?.fp ?? null);
   const overManifest = useManifest(overFp);
   const overlays = plan.overlays.filter((o) => o.from.own && !hidden.has(o.key)); // 是否有可绘制的内容：见 view/origin.ts
@@ -132,9 +142,9 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
   const handleValues = (h: (typeof plan.handles)[number]) => (plan.node.data.params[Object.values(h.params)[0]] as string[] | undefined) ?? [];
   // 手柄输入上的人物框里高亮哪些人：节点自己的结果（选中的人）；没有与点选相符的结果时（还没算、已过期，view/plan.ts
   // underHandles），按点选当前的参数高亮点到的人（只是显示，不计算）
-  const personHandle = plan.handles.find((h) => h.kind === "person") ?? null;
+  const personHandle = peopleHandle(plan.handles) ?? null;
   const chosen = !sourceBoxesItem ? null : boxes ? new Set(boxes.people.map((p) => p.id))
-    : personHandle ? pickedPeople(sourceBoxes, handleValues(personHandle)) : null;
+    : personHandle ? tool2d(personHandle)!.people!.lit(sourceBoxes, handleValues(personHandle)) : null;
   // 查看器的平移 / 缩放（state/view2d.ts：各节点共用，透过相机看三维结果时也是同一份）；
   // R G B A 切换当前一侧的通道，再按一次回到「整体」（与 Nuke 相同），仅在指针位于舞台上时生效
   // 这一次渲染的右键单击（在下面、手柄知道了以后定）：按下时取的就是它，绑着这次渲染的帧与点
@@ -142,7 +152,7 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
   const nav = useView2DNav(box, width, height, {
     keys: (k) => {
       const want = CHANNEL_KEYS[k];
-      const have = mode === "plate" ? channels : mode === "over" ? overChannels || channels : channels;
+      const have = mode === "plate" ? channels : overFp ? overChannels || channels : channels;
       if (want === undefined || !(want < have)) return false;
       onChannel((mode === "plate" ? leftIndex : rightIndex) === want ? null : want);
       return true;
@@ -176,7 +186,8 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
     return dw && dw.length === 4 && dw[2] > 0 && dw[3] > 0 ? [dw[0], dw[1], dw[2], dw[3]] : [0, 0, w, h];
   };
   // 左侧不调整黑白点、不着色（这些是右侧的工具）；右侧的第四条通道在「运算」档中作为运算强度，其他档中作为其自身的透明度
-  const leftSide: Side = { index: lookIndex(leftIndex, channels), black: 0, white: 1, tint: "grey", alpha: "data" };
+  const leftIdx = lookIndex(leftIndex, channels);
+  const leftSide: Side = { index: leftIdx, black: 0, white: 1, tint: "grey", alpha: "data" };
   const rightCh = overFp ? overChannels : channels;
   const rightIdx = lookIndex(rightIndex, rightCh);
   const rightSide: Side = { index: rightIdx,
@@ -185,8 +196,9 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
                             top: topOf(overFp ? overManifest : manifest),
                             alpha: mode === "over" ? "weight" : "data" };
   const mainSide: Side = mode === "result" ? rightSide : leftSide;
+  const rightBox = (): Box => boxOf(overManifest, width, height);
   const merge: Merge | null = overFp && overManifest
-    ? { width, height, left: boxOf(manifest, width, height), right: boxOf(overManifest, width, height), op, mix: mixOf(op, mix) }
+    ? { width, height, left: boxOf(manifest, width, height), right: rightBox(), op, mix: mixOf(op, mix) }
     : null;
   const lookKey = JSON.stringify([mainSide, overFp ? rightSide : null]);
   const mergeKey = JSON.stringify(merge);
@@ -198,24 +210,25 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
   // 显卡用不了（本机开不出 WebGL2）或中途丢了（等恢复）时给出提示，不静默处理。正常情况下该通知不会出现
   const note = useStageNotes((n) => n.put);
   const gpu = useGpuState(); // 变了才换通知（不是每次渲染都重写）；恢复后重画（下方绘制的依赖里有它）
+  const lang = useLang((s) => s.lang); // 通知里存的是文字：换语言时重写
   useEffect(() => {
-    note("looked", gpu === "broken" ? { text: textOf(msg("N-VIEW-NOGPU")), tip: textOf(msg("I-VIEW-NOGPUWHY")) }
-      : gpu === "lost" ? { text: textOf(msg("N-VIEW-GPULOST")), tip: textOf(msg("I-VIEW-GPULOSTWHY")) } : null);
+    note("looked", gpu === "broken" ? { text: textOf(msg("N-VIEW-NOGPU")), tip: tipOf("error", textOf(msg("I-VIEW-NOGPUWHY"))) }
+      : gpu === "lost" ? { text: textOf(msg("N-VIEW-GPULOST")), tip: tipOf("error", textOf(msg("I-VIEW-GPULOSTWHY"))) } : null);
     return () => note("looked", null);
-  }, [gpu]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [gpu, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   // 所需数据在服务器上不存在时给出提示，不静默回退为空白画布。
   // 走通道路径时尤为重要：一条通道 404 后画面将没有任何内容，若不提示，用户只能看到背景。
-  const missing = [mainHas.failed && (mainNames.join("、") || "这一帧的画面"), overHas.failed && (overNames.join("、") || "右边那一路")]
+  const missing = [mainHas.failed && (mainNames.join(listSep()) || t("ui.view.this_frame_picture")), overHas.failed && (overNames.join(listSep()) || t("ui.view.right_side_input"))]
     .filter(Boolean).join(" / ");
   useEffect(() => {
-    note("error", missing ? { text: textOf(msg("E-VIEW-NOPIXELS", { what: missing })), tip: textOf(msg("E-VIEW-NOPIXELS", { what: missing })) } : null);
+    note("error", missing ? { text: textOf(msg("E-VIEW-NOPIXELS", { what: missing })) } : null);
     return () => note("error", null);
-  }, [missing]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [missing, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   // 「运算」档一侧本来没有这一帧（transfer/readiness.ts PairHold）：说明缺的是哪一侧、哪一帧，只画另一侧
-  const absentSide = merge ? (overHas.absent ? "右边" : mainHas.absent ? "左边" : "") : "";
+  const absentSide = merge ? (overHas.absent ? t("ui.view.right_side") : mainHas.absent ? t("ui.view.left_side") : "") : "";
   useEffect(() => {
     const said = absentSide ? { side: absentSide, frame } : null;
-    note("absent", said ? { text: textOf(msg("N-VIEW-SIDEABSENT", said)), tip: textOf(msg("I-VIEW-SIDEABSENTWHY", said)) } : null);
+    note("absent", said ? { text: textOf(msg("N-VIEW-SIDEABSENT", said)), tip: tipOf("error", textOf(msg("I-VIEW-SIDEABSENTWHY", said))) } : null);
     return () => note("absent", null);
   }, [absentSide, frame]); // eslint-disable-line react-hooks/exhaustive-deps
   // 本机文件已解码而服务器尚未提供尺寸时，使用该图像的尺寸（见上方 localSize 的注释）
@@ -252,6 +265,18 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
 
 
   const dpr = useDevicePixelRatio(); // 换到 DPR 不同的屏上：画布缓冲按新比例重建（下方绘制的依赖里有它）
+  // 换显示内容（双击另一个节点、换层）时，新画面要先取到、解码：这几十毫秒里画布若照常重画，只剩画面框的黑底和
+  // 「加载中」，看起来就是闪一下黑。期间画布保持上一张不擦（最多 SWITCH_HOLD_MS），新画面一到就画；超过时限仍没到，
+  // 照常画框与「加载中」，不让旧画面冒充新节点的结果。同一内容里换帧不受影响（那里有 PairHold 的成对保持）
+  const painted = useRef<string | null>(null); // 上次真正画出画面的内容（主源 + 右侧源）
+  const switchedAt = useRef(0);
+  const contentKey = `${main?.fp ?? ""}|${overFp ?? ""}`;
+  const [holdOver, holdEnded] = useState(0); // 时限到了重画一次（画框与「加载中」）
+  useEffect(() => {
+    switchedAt.current = performance.now();
+    const t = window.setTimeout(() => holdEnded((n) => n + 1), SWITCH_HOLD_MS);
+    return () => window.clearTimeout(t);
+  }, [contentKey]);
   useLayoutEffect(() => {
     if (!el || !at) return;
     const { w: cw, h: ch } = nav.box; // 外层量到的尺寸：画布的显示尺寸和绘制缓冲同时设成它，二者永远同比例
@@ -271,7 +296,14 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
     const leftAbsent = !!merge && mainHas.absent && overHas.ready;
     const on = (main || partial || picked) && (shown(frame) || leftAbsent);
 
+    const resized = el.dataset.size !== `${cw}x${ch}x${dpr}`;
+    el.dataset.size = `${cw}x${ch}x${dpr}`;
+    const switching = !!painted.current && painted.current !== contentKey && !resized
+      && performance.now() - switchedAt.current < SWITCH_HOLD_MS;
+    if (switching && on && !mainHas.ready && !mainHas.absent && !leftAbsent) return; // 新内容还在路上：留着上一张
+
     ctx.clearRect(0, 0, cw, ch);
+    // 画面框
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.6)";
     ctx.shadowBlur = 24;
@@ -286,26 +318,27 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
     const mainManifest = mode === "result" ? (overFp ? overManifest : manifest) : manifest;
     const drawn = on && leftAbsent
       ? drawLook({
-          width, height,
+          width: width, height,
           drawWidth: Math.min(width, width * s * dpr), drawHeight: Math.min(height, height * s * dpr),
-          left: sideSource(5, rightSide, boxOf(overManifest, width, height), overManifest),
+          left: sideSource(5, rightSide, rightBox(), overManifest),
           right: null,
           merge: null,
         })
       : on && mainHas.ready
       ? drawLook({
-          width, height,
+          width: width, height,
           // GL 画布按屏幕上的大小建（画面在屏幕上的像素 × 设备像素比），不按图像尺寸
           drawWidth: Math.min(width, width * s * dpr), drawHeight: Math.min(height, height * s * dpr),
           left: sideSource(0, mainSide, boxOf(mainManifest, width, height), mainManifest),
           // 右侧数据全部到达后才合成：只到达一部分就绘制，等于将不完整的数据当作结果展示
           // 两侧成对地换（view/stageSources.ts PairHold）：拼不成时两侧一起停在上一对；从没有过一对时右侧算加载中
-          right: merge && overHas.ready ? sideSource(5, rightSide, boxOf(overManifest, width, height), overManifest) : null,
+          right: merge && overHas.ready ? sideSource(5, rightSide, rightBox(), overManifest) : null,
           merge,
         })
       : null;
     if (drawn) {
       ctx.drawImage(drawn, at.x, at.y, width * s, height * s);
+      painted.current = contentKey;
     }
     // 无法创建 WebGL2 上下文的浏览器：绘制服务器提供的原图，并在统一通知区说明，不静默回退。
     // 通道路径在此类环境下无法绘制（一条通道不是一张图），此时不绘制任何内容，由通知区的提示说明原因。
@@ -321,11 +354,12 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
     if (sourceBoxes && !hidden.has(sourceBoxesItem!.key)) drawBoxes({ ...f, quiet: true }, sourceBoxes, hover, chosen, byPerson);
     else if (boxes) drawBoxes(f, boxes, hover, null, byPerson);
     if (tracksShown) drawTracks(f, tracksShown);
-    for (const h of plan.handles) if (h.stage === "2d") drawHandle(h, f, handleValues(h), drag, tracks);
-  }, [frame, width, height, main?.fp, overFp, mainHas.ready, overHas.ready, picture?.fp, partial?.info.frames_done.length, overlays.map((o) => o.key).join(), boxes, sourceBoxes, tracks, hover, drag, plan, line, lookKey, mergeKey, channels, bg, bgColor, byPerson, plate.image, plate.loading, plate.window.join(), mainHas.images, overHas.images, el, at?.x, at?.y, at?.s, nav.box, gpu, dpr]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!dismissed) for (const h of plan.handles) if (h.stage === "2d") drawHandle(h, f, handleValues(h), drag, tracks);
+  }, [mode, frame, width, height, main?.fp, overFp, mainHas.ready, overHas.ready, picture?.fp, partial?.info.frames_done.length, overlays.map((o) => o.key).join(), boxes, sourceBoxes, tracks, hover, drag, plan, line, lookKey, mergeKey, channels, bg, bgColor, byPerson, plate.image, plate.loading, plate.window.join(), mainHas.images, overHas.images, el, at?.x, at?.y, at?.s, nav.box, gpu, dpr, holdOver, dismissed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 写不了（ui/writeLock.ts useWriteLock）：手柄照画，点、拖、右键都不接
-  const handle = locked ? null : plan.handles.find((h) => h.stage === "2d") ?? null;
+  // 没在点选（没点「在视图里点选」，或点了「退出编辑」，state/viewPicking.ts）：手柄不画、点拖都不接
+  const handle = locked || dismissed ? null : plan.handles.find((h) => h.stage === "2d") ?? null;
   const pointAt = (e: { clientX: number; clientY: number }): Pt & { inside: boolean } => {
     const r = el!.getBoundingClientRect();
     const { x, y, s } = at ?? { x: 0, y: 0, s: 1 };
@@ -344,12 +378,13 @@ export function Stage2D({ plan, picture, hidden, pointLabel, mode, leftIndex, ri
       ref={setEl}
       className="canvas2d"
       style={{
-        cursor: nav.cursor ?? (handle?.kind === "points" || handle?.kind === "box" || handle?.kind === "corners" || handle?.kind === "canvas" ? "crosshair" : handle && hover !== null ? "pointer" : "default"),
+        cursor: nav.cursor ?? (tool2d(handle)?.draws ? "crosshair" : handle && hover !== null ? "pointer" : "default"),
       }}
       onMouseMove={(e) => {
         nav.onMouseMove(e);
         const p = pointAt(e);
-        if (!drag && handle?.kind === "person") setHover(personAt(sourceBoxes, frame, p));
+        const people = tool2d(handle)?.people;
+        if (!drag && people) setHover(people.at(sourceBoxes, frame, p));
       }}
       onMouseLeave={() => {
         nav.onMouseLeave();

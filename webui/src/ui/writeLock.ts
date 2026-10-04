@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import { READ_ONLY_WHY, useReadOnly } from "../state/cookInputs";
+import { readOnlyWhy, useReadOnly } from "../state/cookInputs";
 
 /** Why nothing may be written here ("" writable): the one question every write control asks, inside an editor window
  * or not. An editor window (editor/ParamSheet.tsx SheetWindow) provides its reason (read-only tab, or the parameter
@@ -11,5 +11,5 @@ export const WriteLock = createContext<string | null>(null);
 export function useWriteLock(): string {
   const why = useContext(WriteLock);
   const readOnly = useReadOnly();
-  return why ?? (readOnly ? READ_ONLY_WHY : "");
+  return why ?? (readOnly ? readOnlyWhy() : "");
 }

@@ -73,7 +73,8 @@ export interface QueueJob {
   // why a waiting task has not started, only for what will not clear by itself (the administrator switched computing
   // off, N-QUEUE-PAUSED; no machine on this server can ever compute it, N-QUEUE-NOMACHINEEVER). Waiting for a card, for
   // memory or behind other tasks clears by itself, is simply 「排队中」 to the user, and goes to `waiting_detail`
-  // below (see lab2shot/farm/queue.py for how waiting reasons are classified)
+  // below (see lab2shot/farm/queue.py for how waiting reasons are classified). A running task has it too while one of
+  // its nodes waits for what needs somebody to act (no card authorized: N-QUEUE-NOCARD)
   waiting?: MessageJson | null;
   waiting_detail?: MessageJson | null; // the reason about the cards (N-QUEUE-GPUOFF): only for whoever may see the cards (farm.cards)
   mine: boolean;
@@ -120,6 +121,8 @@ export interface JobLoad {
   submitted: number;
   graph: GraphJSON;
   cache: CacheMark;
+  nodes: string[]; // what it computed (node ids): the focus mode's 「计算」 computes the same again
+  follows: string; // the job it followed ("" none)
 }
 
 /** How busy the server machine is (lab2shot/farm/load.py): numbers only. */
@@ -142,6 +145,8 @@ export interface ServerLoad {
   // the only thing an idle editor asks for: these three barely change, and polling the queue separately for them
   // would double the idle traffic (mostly request headers and the session cookie); carrying them in this one answer saves that
   switches: { gpu: boolean; compute: boolean };
+  // 数据盘低于「暂停新计算的剩余空间」（lab2shot/farm/policy.py space）：所有账号的新计算暂停，恢复后自动接着
+  disk_low?: boolean;
   max_frames: number;
   storage?: StorageGate | null;
   server?: ServerInfo;  // comes with 「服务本身」: a logged-in page keeps this as its only poll
@@ -161,6 +166,7 @@ export interface QueueView {
   // every task that has not started (it still queues, as when no GPU is authorized); compute off refuses every new
   // task outright (never queued; farm/queue.py submit).
   switches: { gpu?: boolean; compute: boolean }; // gpu: only for whoever may see the cards
+  disk_low?: boolean; // as ServerLoad's
   jobs: QueueJob[];
   history?: HistoryJob[]; // the account's own finished tasks, newest first
   // the version of that history (lab2shot/farm/queue.py listed_version): the poll carries this, api.queue fetches
@@ -181,6 +187,19 @@ export interface DiskUsage {
   areas: DiskArea[] | null; // null: never measured yet
   at: number | null; // when measured (seconds)
   measuring: boolean;
+  space?: DiskSpace;
+}
+
+/** The data disk against 暂停新计算的剩余空间 (lab2shot/farm/policy.py space): below `floor` every account's new
+ * computing pauses (submissions and uploads refused, waiting tasks held), and resumes by itself above it. */
+export interface DiskSpace {
+  path: string;
+  total: number;
+  free: number;
+  pct: number; // free, % of total
+  floor_pct: number; // the setting
+  floor: number; // bytes
+  low: boolean;
 }
 
 /** The server's disk, per area (task folders, cache, uploads). */
@@ -239,5 +258,6 @@ export interface JobRecord {
   outputs: Output[];
   client: JobClient;
   group?: TaskGroup;
+  follows?: string; // the account's own job this one followed (POST /api/jobs follows): "" or absent none
 }
 

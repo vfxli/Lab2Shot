@@ -1,5 +1,5 @@
 """All node types: core nodes plus the nodes of every extension that loaded, as the top layer hands them over
-(nodes/services.py Services.extensions: lab2shot/adapters.py loads them, lab2shot/catalog.py installs it)."""
+(nodes/services.py Services.extensions: lab2shot/adapters.py loads them, lab2shot/site/catalog.py installs it)."""
 
 from __future__ import annotations
 
@@ -11,13 +11,30 @@ from .core import CORE_NODES
 from .services import services
 
 
+def core_nodes() -> tuple[type[NodeDef], ...]:
+    """The node types of the core's own environment: the node kit's (nodes/core) and the core's format modules'
+    (lab2shot/formats, the same layer as the nodes: cli/check_arch.py LAYERS)."""
+    from ..formats import NODES as FORMAT_NODES
+
+    return (*CORE_NODES, *FORMAT_NODES)
+
+
 @cache
 def node_types() -> dict[str, type[NodeDef]]:
+    # their words are looked up in the language now, never stored on them (nodes/text.py)
+    return {**{n.id: n for n in core_nodes()}, **services().extensions().nodes}
+
+
+def registry_key() -> tuple:
+    """What an answer worked out from the node types depends on, as a cache key: the types loaded and the catalogues
+    their words are in (a label edited on the admin page, a file restored by hand: nodes/text.py refresh, read again
+    here first), in the language now (i18n.current). Cheap: file times, no reading."""
     from . import text
 
-    types = {**{n.id: n for n in CORE_NODES}, **services().extensions().nodes}
-    text.apply(types)  # every node's name and description come from its folder's nodes.json (nodes/text.py)
-    return types
+    from .. import i18n
+
+    types = node_types()
+    return (tuple(types), text.refresh(types), i18n.current())  # their words are said in the language now
 
 
 def converter(data_type: str, port_type: str) -> str:

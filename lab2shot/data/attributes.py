@@ -23,7 +23,7 @@ def named(src: Packet) -> list[dict]:
 
 def matching(have: list[dict], patterns: str) -> list[str]:
     """`patterns`（以空格或逗号分隔，支持 * 通配，与 Houdini 的 AttribDelete 一致）在 `have` 中匹配到的名称。"""
-    want = [p for p in patterns.replace("，", ",").replace(",", " ").split() if p]
+    want = [p for p in patterns.replace(chr(0xFF0C), ",").replace(",", " ").split() if p]
     names = [a["name"] for a in have]
     return sorted({n for p in want for n in names if fnmatch.fnmatchcase(n, p)})
 
@@ -66,3 +66,15 @@ def drop(src: Packet, names: list[str], out: Path) -> tuple[Packet, int]:
                              "curves": [p for p in stage.Traverse() if p.IsA(UsdGeom.BasisCurves)]})
     return scene_packet(out, src.meta["frames"], src.type,
                         **meta, **({"attributes": left} if left else {})), gone
+
+
+def attribute_said(a: dict) -> str:
+    """One attribute as said (name, kind, per point or per curve), in the language now."""
+    from .. import i18n
+
+    def said() -> str:
+        kind = i18n.lookup(f"attr.type.{a.get('type')}") or str(a.get("type", ""))
+        per = i18n.lookup(f"attr.per.{a.get('per')}") or str(a.get("per", ""))
+        return i18n.t("attributes.said", name=a.get("name", ""), type=kind, per=per)
+
+    return i18n.Both.of(said)  # every language: a message naming it reads in its reader's

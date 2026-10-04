@@ -13,17 +13,14 @@ class LightProbe(LightProbeBase):
         cite="third_party/diffusionlight/repo/README.md:55-87",
         takes={"image": "--dataset"},
         gives={"hdri": "hdr", "preview": "square"},
-        note="「铬球」显示图就是上游第一步的 square（「Square-cropped chrome ball」，README:68）；"
-             "HDRI 是第三步 exposure2hdr.py 写进 <output_dir>/hdr 的 .exr（exposure2hdr.py:90 hdr_rgb）。"
-             "上游不吃相机、不吃遮罩。",
     )
     version = 2  # image packets always say whether they have an alpha; version 1 results do not
     # 只收一帧（前面接「FrameHold」选），挑环境最完整、遮挡最少的一帧；环境看得比较全的广一点的镜头最好
-    outputs = tuple(p for p in LightProbeBase.outputs if p.name != "preview") + (Port("preview", "image.3", "铬球", shape=NEW_PICTURE),)
+    outputs = tuple(p for p in LightProbeBase.outputs if p.name != "preview") + (Port("preview", "image.3", shape=NEW_PICTURE),)
     runtime = "diffusionlight"
     # vram_gb: RTX 4090，1280×534、默认参数、全新进程：PyTorch 保留峰值 13.69 GB（分配 12.46）
-    cost = Cost(gpu=True, vram_gb=13.7, whole="只算一帧的环境光（约 51 秒一次），不是逐帧的活")
-    licence = Licence(note="代码和 LoRA 是 MIT；SDXL 和 ControlNet 是 CreativeML Open RAIL++-M（可商用，但有用途限制）。")
+    cost = Cost(gpu=True, vram_gb=13.7, whole=True)
+    licence = Licence(note=True)
 
     # 没有相机口：镜头就是两个普通参数
     class Params(LightProbeParams, LensParams):

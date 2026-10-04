@@ -3,6 +3,8 @@ import { inverse } from "../model/math3d";
 import { useAppMode } from "../editor/AppMode";
 import { viewAvailable } from "./available";
 import { msg, textOf } from "../messages/message";
+import { t } from "../i18n/t";
+import { useLang } from "../i18n/lang";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame as useEachDraw, useThree } from "@react-three/fiber";
 import { KeepContext, Redraw } from "./canvasLife";
@@ -29,9 +31,13 @@ import type { Partial as PartialResult } from "./partial";
 import { StageContext, StageState } from "./stageState";
 import { DragGizmo, type DragMode } from "./dragGizmo";
 import { SceneElement } from "./sceneElement";
-import { PoseLayers, ReferenceLayer, type PoseHandle } from "./stageLayers";
+import { PoseLayers, ReferenceLayer, SkinnedPose, poseDataOf, type PoseHandle } from "./stageLayers";
 import { SkeletonPosePanel, usePoseSelection } from "./skeletonPose";
 import { rowsOf as poseRowsOf } from "../model/skeletonPose";
+import { RigPairLayer, RigPairPanels, RigPairWaiting } from "./rigPair";
+import { useRigPairView } from "../state/rigPairView";
+import type { RigPairData } from "../api";
+import { role3d } from "./handleEditing";
 
 import { VIEWER_SLOT, useStageNotes, useViewCamera, useViewer, useViewerNote, useViewOptions, useView2D, useView2DNav } from "../state/viewer";
 import { useShortcut } from "../platform/keys";
@@ -40,6 +46,7 @@ import { getNodeDefs } from "../state/catalog";
 import { draggedPlace, placeMatrix } from "../model/places";
 import { cookedWith, useLastGood } from "../state/stale";
 import { Preparing } from "./StageHud";
+import { tipOf } from "../platform/tips";
 
 /** 三维舞台：节点的全部三维结果放在一个场景里（相机及其路径、模型与蒙皮角色、骨架、点云、三维曲线），深度图 / 位置图
  * 作为点云预览，以及变换手柄。场景中任何一台相机都可以透过去看（视角菜单，与 Houdini 相同）：每一帧取它的视角，
@@ -72,10 +79,11 @@ function TransformHandle({ input, own, mode }: { input: React.ReactNode; own: Re
   const before = placedInverse ? new THREE.Matrix4().fromArray(placedInverse) : null;
   const singular = !!places && !!placedBy && !placedInverse;
   const note = useStageNotes((n) => n.put);
+  const lang = useLang((s) => s.lang); // 通知里存的是文字：换语言时重写
   useEffect(() => {
-    note("absent", singular ? { text: textOf(msg("N-VIEW-PLACEDSINGULAR")), tip: textOf(msg("I-VIEW-PLACEDSINGULARWHY")) } : null);
+    note("absent", singular ? { text: textOf(msg("N-VIEW-PLACEDSINGULAR")), tip: tipOf("error", textOf(msg("I-VIEW-PLACEDSINGULARWHY"))) } : null);
     return () => note("absent", null);
-  }, [singular]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [singular, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!places || !current) return <>{input}{own}</>;
   const at = new THREE.Matrix4().fromArray(live ? placeMatrix(places, { ...p, ...live }) : current); // 显示的位置：拖动中取会写的参数，否则取当前参数
   return (
@@ -153,14 +161,29 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
   // 节点声明的「骨架姿势」手柄：主视图默认不画，只画参数面板上「在视图里改」打开的那一个（state/handleView.ts editing；
   // 数据在状态回复 handle_data 里）
   const editing = useHandleView((s) => s.editing);
-  const poseHandles = useMemo((): PoseHandle[] => plan.handles.flatMap((h) => (h.kind === "skeleton_pose" ? [{ index: plan.def?.handles.indexOf(h) ?? -1, def: h, operable: !h.readonly }] : []))
+  // 双骨架编辑（手柄 rig_pair，view/rigPair.tsx）：同样只在参数面板上「在视图里编辑」打开、且它的节点是显示节点时
+  const rigDef = plan.handles.find((h) => role3d(h) === "pair");
+  const rigIndex = rigDef ? plan.def?.handles.indexOf(rigDef) ?? -1 : -1;
+  const rigEditing = !!rigDef && rigIndex >= 0 && editing?.node === plan.node.id && editing.handle === rigIndex;
+  const rigOf = `${plan.node.id}/${rigIndex}`;
+  useEffect(() => { if (rigEditing) useRigPairView.getState().at(rigOf); }, [rigEditing, rigOf]);
+  const poseHandles = useMemo((): PoseHandle[] => plan.handles.flatMap((h) => (role3d(h) === "pose" ? [{ index: plan.def?.handles.indexOf(h) ?? -1, def: h, operable: !h.readonly }] : []))
     .filter((h) => h.index >= 0 && editing?.node === plan.node.id && editing.handle === h.index),
   [plan.handles, plan.def, plan.node.id, editing]);
+  // 编辑骨架姿势手柄时，场景里的骨架（节点结果的 element）与手柄画的同一副重叠（透传节点的输出与输入完全重合）：
+  // 隐去场景骨架，只画手柄那一副，网格照常。双骨架编辑把两副拉开，蒙皮角色由它跟着各自的骨架画：场景里的角色也隐去
+  const sceneHidden = useMemo(() => {
+    if (!editing || editing.node !== plan.node.id) return hidden;
+    const s = new Set(hidden);
+    s.add("skeleton");
+    if (rigEditing) s.add("character");
+    return s;
+  }, [hidden, editing, plan.node.id, rigEditing]);
   const handleData = useResults((s) => s.reply?.handle_data);
   const poseData = handleData?.node === plan.node.id ? handleData.handles ?? {} : {};
+  const rigData = rigEditing ? (poseData[String(rigIndex)] as RigPairData | undefined) : undefined;
   const nodeParams = useCookInputs((s) => s.nodes[plan.node.id]?.params);
   const reference = useHandleView((s) => s.reference);
-  const poseSel = usePoseSelection((s) => s.by[VIEWER_SLOT]);
   const o = useViewOptions((s) => s.o);
   const appMode = useAppMode((m) => m.mode === "app"); // 舞台左下角放着出处说明时坐标轴往上让
   const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null); // （载入期间不存在；出现后开始观察）
@@ -255,7 +278,7 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
     : [...elements.map((e) => e.fp), ...(cameraFp ? [cameraFp] : [])];
   for (const fp of cameraOrder) {
     for (const cam of loaded.get(fp)?.cameras ?? [])
-      if (cam.ref.frames.length && !cameras.some((c) => c.cam.ref.path === cam.ref.path)) cameras.push({ key: `${fp}|${cam.ref.path}`, fp, cam, label: cam.ref.path || plan.items.find((it) => it.fp === fp)?.label || "相机" });
+      if (cam.ref.frames.length && !cameras.some((c) => c.cam.ref.path === cam.ref.path)) cameras.push({ key: `${fp}|${cam.ref.path}`, fp, cam, label: cam.ref.path || plan.items.find((it) => it.fp === fp)?.label || t("ui.view.camera") });
   }
   // 舞台透过视角菜单中选中的相机看（没有选中：自由视角）
   const looked = cameras.find((c) => c.key === chosen?.key);
@@ -363,53 +386,56 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
   }, [chosen, allLoaded, cameraKeys]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const first = elements.map((e) => loaded.get(e.fp)).find(Boolean);
-  // 点中别的东西或空处：不选关节（点中「骨架姿势」的关节时，那副骨架随后自己选上它：stageState.ts Pickable.choose）
-  const onPick = useCallback((key: string | null) => {
+  // 点中别的东西或空处：不选关节（点中「骨架姿势」的关节时，那副骨架随后自己选上它：stageState.ts Pickable.choose）；
+  // 双骨架编辑点在空处才清掉先点的骨点（点在骨点、连线上由它们自己处理：第二下就是配对）
+  const onPick = useCallback((key: string | null, kept: boolean) => {
     usePoseSelection.getState().set(VIEWER_SLOT, null);
+    if (!kept) useRigPairView.getState().clearPick();
     setSelected(key);
   }, []);
   const onLeave = useCallback(() => setLook(null), [setLook]);
   const errors = [...sceneErrors, ...pointErrors, ...chunkErrors];
   // 画面上需要显示的文字全部进入统一通知区（viewTools.ts useStageNotes）
   const note = useStageNotes((s) => s.put);
+  const lang = useLang((s) => s.lang); // 通知里存的是文字：换语言时重写
   useEffect(() => {
-    note("hint", hint ? { text: hint, tip: hint } : null);
+    note("hint", hint ? { text: hint } : null);
   }, [hint, note]);
   useEffect(() => {
-    note("error", errors.length ? { text: errors[0], tip: errors.join("\n") } : null);
+    note("error", errors.length ? { text: errors[0], tip: tipOf("error", errors.join("\n")) } : null);
   }, [errors.join("\n"), note]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     note("camera", lens && looked
-      ? { text: `${looked.label.split("/").pop() || looked.label} · ${Number(lens.focalMm.toFixed(1))} mm${!plateFp ? " · 没有背板" : through ? " · 背板已去畸变" : ""}`,
-          tip: `透过「${looked.label}」看：${looked.cam.ref.width} × ${looked.cam.ref.height}，框外变暗的部分不在画面里。转动视图就离开相机，回到透视（相机本身不动）`
-            + (!plateFp ? "。这台相机没记背板：导入的相机没有"
-              : through ? `。这台相机带畸变（${distortion}），背板已按它的镜头去畸变，和点云对得上；原图在二维视图里看` : "。背板是它解算时的那张画面") }
+      ? { text: `${looked.label.split("/").pop() || looked.label} · ${Number(lens.focalMm.toFixed(1))} mm${!plateFp ? t("ui.view.camera_no_plate") : through ? t("ui.view.camera_plate_undistorted") : ""}`,
+          tip: tipOf("value", t("ui.view.camera_tip", { camera: looked.label, width: looked.cam.ref.width, height: looked.cam.ref.height })
+            + (through ? t("ui.view.camera_tip_undistorted", { distortion }) : "")) }
       : null);
-  }, [looked?.key, lens?.focalMm, plateFp, through?.fp, note]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [looked?.key, lens?.focalMm, plateFp, through?.fp, note, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { note("hint", null); note("error", null); note("camera", null); }, [note]);
   // 视角控件绘制在上方工具栏中，其所需的两项数据由此处提供
   const setCameras = useViewCamera((s) => s.setCameras);
   const setSelectedName = useViewCamera((s) => s.setSelected);
   useEffect(() => {
     setCameras(cameras.map((c) => ({ key: c.key, path: c.cam.ref.path, label: c.label, width: c.cam.ref.width, height: c.cam.ref.height })));
-  }, [cameras.map((c) => c.key).join("\n"), setCameras]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cameras.map((c) => c.key).join("\n"), setCameras, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setSelectedName(selected ? stage.pickables.get(selected)?.label ?? null : null);
   }, [selected, stage, setSelectedName]);
   // 上方所有 hook 必须位于此 return 之前
   // （React 的 hook 不得在提前 return 之后调用，否则画面内容变化时 hook 顺序会错乱）
-  if (!elements.length && !maps.length && !partialScene) return <div className="empty">没有三维结果</div>;
+  // 双骨架编辑不等节点自己的结果：两副骨架来自它的输入（手柄数据），没算过也能编辑
+  if (!elements.length && !maps.length && !partialScene && !rigEditing) return <div className="empty">{t("ui.view.no_3d_result")}</div>;
 
 
   const waiting = elements.filter((e) => !loaded.get(e.fp)).length > sceneErrors.length; // 有些仍在生成中
   if (elements.length && !first && !waiting && errors.length) return <div className="empty">{errors[0]}</div>;
   if (elements.length && !first) return <Preparing />;
-  const transform = plan.handles.find((h) => h.kind === "transform");
+  const transform = plan.handles.find((h) => role3d(h) === "place");
   const frameKey = `${plan.node.id}|${elements.map((e) => e.fp).join()}|${maps.map((m) => m.fp).join()}`;
   const lookKey = looked?.key ?? null;
 
   const sceneOf = (e: ViewItem & { fp: string }) =>
-    loaded.get(e.fp) && <SceneElement key={e.key} item={e} d={loaded.get(e.fp)!} frame={frame} hidden={hidden} through={!!lens} look={lookKey} o={o} />;
+    loaded.get(e.fp) && <SceneElement key={e.key} item={e} d={loaded.get(e.fp)!} frame={frame} hidden={sceneHidden} through={!!lens} look={lookKey} o={o} />;
   // 手柄的输入（view/plan.ts：节点还没有当前结果时随变换手柄一起显示）与节点自身的产出：变换手柄对二者的摆放方式不同
   // （TransformHandle）
   const input = <>{elements.filter((e) => e.context).map(sceneOf)}</>;
@@ -456,8 +482,12 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
           {transform ? <TransformHandle mode={transformMode} input={input} own={own} /> : <>{input}{own}</>}
           <PoseLayers handles={poseHandles} data={poseData} values={nodeParams} mode={transformMode} slot={VIEWER_SLOT} o={o}
             write={(param, rows) => setParams(plan.node.id, { [param]: rows })} />
-          {reference && reference.node !== plan.node.id && <ReferenceLayer reference={reference} frame={frame} o={o} slot={VIEWER_SLOT}
-            values={(node) => useCookInputs.getState().nodes[node]?.params} />}
+          {poseHandles.filter((h) => h.operable && poseDataOf(poseData, h.index)).map((h) => (
+            <SkinnedPose key={`skin-${h.index}`} data={poseDataOf(poseData, h.index)!} value={nodeParams?.[h.def.params.pose]} o={o} />
+          ))}
+          {rigDef && rigData && <RigPairLayer node={plan.node.id} def={rigDef} data={rigData} params={nodeParams} mode={transformMode} o={o}
+            write={(patch) => setParams(plan.node.id, patch)} />}
+          {reference && reference.node !== plan.node.id && <ReferenceLayer reference={reference} frame={frame} o={o} />}
           <Picked stage={stage} keyOf={selected} width={o.lineWidth} />
           <ViewCamera o={o} frameKey={frameKey} selected={selected} lens={lens} gate={gate} onLeave={onLeave} />
           <Picker onPick={onPick} />
@@ -467,10 +497,14 @@ export function Stage3D({ plan, hidden, transformMode, hint, partial }: Props) {
         </StageContext.Provider>
       </Canvas>
       {lens && gate && looked && <div className="gate" style={{ left: gate.x, top: gate.y, width: gate.w, height: gate.h }} />}
-      {poseHandles.filter((h) => h.operable && h.def.params.pose && poseSel?.handle === h.index && poseData[String(h.index)]).map((h) => (
-        <SkeletonPosePanel key={h.index} data={poseData[String(h.index)]} index={h.index} slot={VIEWER_SLOT} label={plan.def?.params.find((q) => q.name === h.def.params.pose)?.label ?? h.def.params.pose}
+      {poseHandles.filter((h) => h.operable && h.def.params.pose && poseDataOf(poseData, h.index)).map((h) => (
+        <SkeletonPosePanel key={h.index} data={poseDataOf(poseData, h.index)!} index={h.index} slot={VIEWER_SLOT} label={plan.def?.params.find((q) => q.name === h.def.params.pose)?.label ?? h.def.params.pose}
           rows={poseRowsOf(nodeParams?.[h.def.params.pose])} write={(rows) => setParams(plan.node.id, { [h.def.params.pose]: rows })} />
       ))}
+      {rigDef && rigEditing && (rigData
+        ? <RigPairPanels node={plan.node.id} def={rigDef} data={rigData} params={nodeParams} write={(patch) => setParams(plan.node.id, patch)}
+            onInsets={(insets) => void (stage.insets = insets)} />
+        : <RigPairWaiting />)}
       {/* 手柄提示、显示错误不画在舞台上：进入 state 的通知区（viewTools.ts useStageNotes），由 editor/ViewerFrame.tsx
           统一绘制在左上角；视角与框显属于工具，位于上方工具栏。舞台上的字只有属于内容的：骨点名（elements3d.tsx
           JointLabels）和选中关节的数值面板（上面的 SkeletonPosePanel）。 */}

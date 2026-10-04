@@ -55,14 +55,17 @@ SAM 3 是一个可提示分割的统一基础模型，画面和视频都管：�
 
 | 方式 | 找到的物体 | 总耗时（含加载模型约 10 秒） | 每帧 | 显存峰值 |
 |---|---|---|---|---|
-| 提示词 person | 7 个人 | 80 秒 | 约 0.23 秒 | 约 6.1 GB |
+| 提示词 person（当时用 SAM 3；现在提示词走 SAM 3.1，显存见下） | 7 个人 | 80 秒 | 约 0.23 秒 | 约 6.1 GB |
 | 接人物框（2 个人） | 2 个人 | 65 秒 | 约 0.12 秒 | 约 5.1 GB |
 
 已知问题：
 
 - 模型内部把每帧压成 1008×1008 来算，遮罩再放大回原尺寸，所以 4K 素材上的边缘是软的、不是像素级的。
-- 长镜头会自动切成几段来算，每段长度按物体数定（8 个物体时一段约 800 帧），保证显存不会随镜头变长一直涨。用提示词时，段和段之间靠遮罩重叠来对编号，人交叉、长时间被挡住以后编号可能会换。用人物框时编号来自人物框，比较稳。
-- 没有用更新的 SAM 3.1：它要求只有 H100 这类 Hopper 架构显卡才能用的 FlashAttention 3，而且不能按物体给框。
+- 长镜头会自动切成几段来算，每段长度按物体数定（8 个物体时提示词一段约 310 帧，人物框一段约 800 帧），保证显存不会随镜头变长一直涨。用提示词时，段和段之间靠遮罩重叠来对编号，人交叉、长时间被挡住以后编号可能会换。用人物框时编号来自人物框，比较稳。
+- **提示词用 SAM 3.1，人物框用 SAM 3**：两份权重都装（各约 3.5 GB，同一份 SAM License）。
+  - 提示词模式走官方新默认的 SAM 3.1（Object Multiplex）。4090/5090 没有 FlashAttention 3（只有 H100 这类卡有），所以关掉它（`use_fa3=False`）来跑。在两段带真值的人像片段上（VideoMatte 0014 两人、YouTubeMatte 0000 多人，各 16 帧，提示词 person，RTX 4090），所有人合起来的遮罩与真值的 IoU：SAM 3 为 0.979 / 0.855，SAM 3.1 为 0.980 / 0.865，不比 SAM 3 差。
+  - 代价是显存：官方默认一次预先检测 16 帧，换批时新旧两批同时留在显存里，超过 16 帧在 4090 上就爆显存；我们改成一批 4 帧（检测是逐帧做的，批大小只影响显存，16 帧上遮罩与一批 16 帧时的 IoU 完全相同）。这样 8 个物体时峰值 16 帧 9.8 GB、100 帧 11.9 GB（SAM 3 同一段 8.1 GB），长镜头一段最长约 310 帧，段尾约 17.5 GB。再加一段 100 帧多人片段：SAM 3 0.826，SAM 3.1 0.829，强制每 60 帧分段时 0.843（段间编号 8 个里接上 7 个）。官方的「约 7 倍提速」是 H100 上 128 个物体、开 FlashAttention 3 与编译时的数，本节点最多 8 个物体。
+  - 人物框模式仍用 SAM 3：3.1 的框提示是「找同类」的示例，不能指定「这个框就是这个人」。
 
 ## 团队
 
@@ -71,12 +74,13 @@ Meta 超级智能实验室（Meta Superintelligence Labs）出品。Segment Anyt
 ## 模型下载和安装
 
 - **需要先申请权限（Hugging Face gated）**：
-  1. 登录 Hugging Face，打开 https://huggingface.co/facebook/sam3 ；
+  1. 登录 Hugging Face，打开 https://huggingface.co/facebook/sam3 和 https://huggingface.co/facebook/sam3.1 （两个都要申请）；
   2. 按页面提示填写表单（同意共享联系信息）并提交，等 Meta 审批；
   3. 在这台机器上登录 Hugging Face：`uv run hf auth login`，粘贴一个有 Read 权限的 Access Token；
   4. 审批通过后运行安装。审批前运行安装，会提示权重「需要申请权限」，批下来以后再运行一次就行。
 - **自动安装**：运行 `uv run lab2shot ext install sam3`，会下载：
-  - SAM 3 权重 `sam3.pt`（检测和跟踪在同一个文件里，约 3.4 GB）和它的 LICENSE 文件；
+  - SAM 3 权重 `sam3.pt`（检测和跟踪在同一个文件里，约 3.4 GB，人物框模式用）和它的 LICENSE 文件；
+  - SAM 3.1 权重 `sam3.1_multiplex.pt`（约 3.5 GB，提示词模式用）和它的 LICENSE 文件；
   - 一个独立的 Python 环境（含 PyTorch，约 7 GB），不用编译任何东西。
   - 我们这台机器上装完一共用了约 3 分钟。
 
@@ -96,6 +100,6 @@ Meta 超级智能实验室（Meta Superintelligence Labs）出品。Segment Anyt
 - 代码仓库：https://github.com/facebookresearch/sam3
 - 许可证原文：https://github.com/facebookresearch/sam3/blob/main/LICENSE
 - 模型卡（本扩展用的 SAM 3）：https://huggingface.co/facebook/sam3
-- 模型卡（SAM 3.1，本扩展没用）：https://huggingface.co/facebook/sam3.1
+- 模型卡（SAM 3.1，提示词模式用）：https://huggingface.co/facebook/sam3.1
 - 前代 SAM 2：https://github.com/facebookresearch/sam2
 - 初代 SAM：https://github.com/facebookresearch/segment-anything

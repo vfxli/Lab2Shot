@@ -3,6 +3,7 @@ import { useUploads } from "../state/uploads";
 import type { PlanesAnswer } from "./exrWorker";
 import { exrPlanes } from "./exr";
 import { completeSet, lineWait, patchTask, sendBytes, sending, sentHere } from "./uploads";
+import { t } from "../i18n/t";
 
 /** 通道级上传：点击「计算」时，一份 EXR 素材只上传已连线通道的原始像素，而非整个文件；
  * N 个通道未全部使用时，下游计算只上传所用的通道。
@@ -52,8 +53,8 @@ async function planesOf(file: File, take: string[]): Promise<{ blob: Blob; decod
   const found = new Map(decoded.channels.map((c) => [c.name, c]));
   const planes = take.map((name) => {
     const p = found.get(name);
-    if (!p) throw new Undecodable(file.name, `没有通道 ${name}`);
-    if (p.width !== decoded.width || p.height !== decoded.height) throw new Undecodable(file.name, `通道 ${name} 的大小和画面不一样`);
+    if (!p) throw new Undecodable(file.name, t("ui.upload.no_channel", { name }));
+    if (p.width !== decoded.width || p.height !== decoded.height) throw new Undecodable(file.name, t("ui.upload.channel_size", { name }));
     return p;
   });
   const total = planes.reduce((n, p) => n + p.width * p.height * BYTES[p.type], 0);
@@ -61,7 +62,7 @@ async function planesOf(file: File, take: string[]): Promise<{ blob: Blob; decod
   let at = 0;
   for (const p of planes) {
     const raw = new Uint8Array(p.data.buffer, p.data.byteOffset, p.data.byteLength);
-    if (raw.byteLength !== p.width * p.height * BYTES[p.type]) throw new Undecodable(file.name, `通道 ${p.name} 的字节数和大小对不上`);
+    if (raw.byteLength !== p.width * p.height * BYTES[p.type]) throw new Undecodable(file.name, t("ui.upload.channel_bytes", { name: p.name }));
     container.set(raw, at);
     at += raw.byteLength;
   }
@@ -80,7 +81,7 @@ export async function sendPlanes(key: string, ref: string, channels: { take: str
   if (!task || !here) return { ok: false };
   const files = here.files;
   const shaOf = new Map(task.files.map((f) => [f.name, f.sha]));
-  if (files.some((f) => !shaOf.get(f.name))) return { whole: { file: task.name, reason: "还没算出文件的内容指纹" } };
+  if (files.some((f) => !shaOf.get(f.name))) return { whole: { file: task.name, reason: t("ui.upload.no_digest") } };
   const sid = ref.slice("upload:".length).split("/")[0];
   let stopped = false; // 已取消（cancelUpload）
   let failed = false; // 有一帧失败：其余工作者随之停下

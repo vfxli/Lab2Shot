@@ -3,6 +3,8 @@ import { Button, IconButton } from "./Button";
 import { IconMore, IconPlus } from "./icons";
 import { Menu } from "./Menu";
 import "./categories.css";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** Catalogue navigation for the site: the first-level categories down the left with their item counts, and rows of
  * filter chips above the list. The template sheet and the node menu both use these components, so a category looks the
@@ -14,7 +16,6 @@ import "./categories.css";
 interface Category {
   id: string;
   label: string;
-  tip: string;
   count?: number;
   color?: string; // the category's own colour (the wire colour of what it delivers)
   glyph?: ReactNode; // drawn before the name instead of the colour bar (the node menu's category glyphs)
@@ -27,7 +28,6 @@ export interface RailBand {
   id: string;
   rows: Category[];
   heading?: string;
-  tip?: string;
   managed?: boolean;
   fixedOnly?: boolean; // the band holds only fixed rows (未分类): no 「新建分类」 below it
 }
@@ -37,7 +37,7 @@ export interface RailBand {
  * dropped on one (the item's id is carried in the drag as `itemType`). The rail has no notion of roles; the caller decides. */
 export interface RailManage {
   itemType: string;
-  itemWord: string; // the kind of item dropped, for the tips: 模板卡, 节点
+  itemWord: string; // the kind of item dropped, for the 删除 row's tip: 模板卡, 节点
   onAdd: (band: string) => void;
   onRename: (id: string) => void;
   onRemove: (id: string) => void;
@@ -75,7 +75,7 @@ export function CategoryRail({ bands, chosen, onChoose, label, title, manage, on
         key={c.id}
         type="button"
         aria-current={c.id === chosen}
-        data-tip={c.tip}
+        {...tipAttrs(tipOf("truncated", c.label))}
         style={c.color ? ({ ["--c" as string]: c.color }) : undefined}
         onClick={() => onChoose(c.id)}
         onMouseMove={onHover ? () => onHover(c.id) : undefined}
@@ -103,11 +103,10 @@ export function CategoryRail({ bands, chosen, onChoose, label, title, manage, on
         }}
         onDragLeave={() => setOver((d) => (d === c.id ? null : d))}
         onDrop={(e) => dropOn(e, c.id)}
-        data-tip={c.fixed ? `${c.tip}\n把${manage.itemWord}拖到这里就取消它的分类` : `${c.tip}\n拖动改顺序；把${manage.itemWord}拖到这里就归到这个分类`}
       >
         {button}
         {!c.fixed && (
-          <IconButton tip="重命名、删除" tone="ghost" size="sm" aria-label={`${c.label} 的操作`} onClick={(e) => setMenu({ id: c.id, at: { x: e.clientX, y: e.clientY } })}>
+          <IconButton tone="ghost" size="sm" aria-label={t("ui.misc.category_actions", { label: c.label })} onClick={(e) => setMenu({ id: c.id, at: { x: e.clientX, y: e.clientY } })}>
             <IconMore />
           </IconButton>
         )}
@@ -121,7 +120,7 @@ export function CategoryRail({ bands, chosen, onChoose, label, title, manage, on
       {bands.map((band, i) => (
         <div key={band.id} style={{ display: "contents" }}>
           {i > 0 && <div className="cat-gap" />}
-          {band.heading && <h4 className="cat-band" data-tip={band.tip}>{band.heading}</h4>}
+          {band.heading && <h4 className="cat-band">{band.heading}</h4>}
           {band.rows.map((c) => row(c, !!band.managed))}
           {band.managed && !band.fixedOnly && manage && (
             <div
@@ -134,8 +133,8 @@ export function CategoryRail({ bands, chosen, onChoose, label, title, manage, on
               onDragLeave={() => setOver((d) => (d === `end:${band.id}` ? null : d))}
               onDrop={(e) => dropOn(e, null)}
             >
-              <Button tip="新建一个一级分类" tone="ghost" size="sm" onClick={() => manage.onAdd(band.id)}>
-                <IconPlus /> 新建分类
+              <Button tone="ghost" size="sm" onClick={() => manage.onAdd(band.id)}>
+                <IconPlus /> {t("ui.misc.category_new")}
               </Button>
             </div>
           )}
@@ -144,12 +143,12 @@ export function CategoryRail({ bands, chosen, onChoose, label, title, manage, on
       {menuFor && manage && (
         <Menu
           at={menu.at}
-          label={`${menuFor.label} 的操作`}
+          label={t("ui.misc.category_actions", { label: menuFor.label })}
           width={160}
           onClose={() => setMenu(null)}
           rows={[
-            { key: "rename", label: "重命名", tip: "改这个分类的名字", run: () => manage.onRename(menuFor.id) },
-            { key: "remove", label: "删除", tip: `删掉这个分类和它的二级分类：归在下面的${manage.itemWord}进「未分类」，不会跟着删`, run: () => manage.onRemove(menuFor.id) },
+            { key: "rename", label: t("ui.common.rename"), run: () => manage.onRename(menuFor.id) },
+            { key: "remove", label: t("ui.common.delete"), tip: tipOf("consequence", t("ui.misc.category_remove_tip", { items: manage.itemWord })), run: () => manage.onRemove(menuFor.id) },
           ]}
         />
       )}

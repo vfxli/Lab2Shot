@@ -11,6 +11,8 @@ import { InboxNote, ManualRowControl, useManualView } from "../install/Manual";
 import { Table, type Column } from "../ui/Table";
 import { Button } from "../ui/Button";
 import { Loading } from "../ui/Loading";
+import { t } from "../i18n/t";
+import { tipAttrs, tipOf } from "../platform/tips";
 
 /** 扩展包：各第三方项目的安装状态、缺失项及安装操作（lab2shot/installer，GET /api/admin/extensions）。
  *
@@ -44,8 +46,7 @@ export function ExtensionsSection() {
   const columns: Column<ExtensionRow>[] = [
     {
       id: "title",
-      label: "项目",
-      tip: "第三方项目的官方名字；下面一行：还不能用就写差什么，能用就写它是个什么项目",
+      label: t("ui.admin.extensions.col_project"),
       className: "ext-proj",
       cell: (e) => (
         <>
@@ -59,20 +60,18 @@ export function ExtensionsSection() {
     },
     {
       id: "state",
-      label: "状态",
-      tip: "「已就绪」才能算：装好了、模型齐了、自检过了。别的状态鼠标停上去看差什么",
+      label: t("ui.admin.extensions.col_state"),
       width: "11rem",
       cell: (e) => (
-        <span className={`chip${e.ready ? " ok" : e.installed ? " warn" : ""}`} data-tip={e.reason || `${e.title} 装好了，它的节点现在能用`}>
+        <span className={`chip${e.ready ? " ok" : e.installed ? " warn" : ""}`}>
           {e.label}
         </span>
       ),
     },
-    { id: "nodes", label: "节点", tip: "它给编辑器添了几个节点", width: "5rem", className: "tnum", cell: (e) => e.nodes || "—" },
+    { id: "nodes", label: t("ui.admin.extensions.col_nodes"), width: "5rem", className: "tnum", cell: (e) => e.nodes || "—" },
     {
       id: "install",
-      label: "安装",
-      tip: "安装、补全、重新安装、回退到上一个环境、卸载；装着的时候这里是步骤条",
+      label: t("ui.admin.extensions.col_install"),
       width: "21rem",
       cell: (e) => <InstallControl p={e} onChange={recheck} full />,
     },
@@ -80,16 +79,16 @@ export function ExtensionsSection() {
 
   return (
     <Section
-      title="扩展包"
+      title={t("ui.admin.nav.extensions")}
       lede={
         <>
-          每个第三方项目自己一套环境（third_party/&lt;名字&gt;/），装好、模型齐了、自检过了才算「已就绪」，它的节点在编辑器里才能用。
-          {data && ` 共 ${rows.length} 个，已就绪 ${ready} 个。`}
+          {t("ui.admin.extensions.lede")}
+          {data && t("ui.admin.extensions.count", { all: rows.length, ready })}
         </>
       }
       actions={
-        <Button tip="重新读一遍每个扩展包的状态，顺便整理收件文件夹里新放进去的文件" tone="ghost" onClick={recheck}>
-          刷新
+        <Button tone="ghost" onClick={recheck}>
+          {t("ui.admin.common.refresh")}
         </Button>
       }
     >
@@ -97,18 +96,18 @@ export function ExtensionsSection() {
         rows={sorted}
         columns={columns}
         rowKey={(e) => e.name}
-        empty={data ? "这台机器上一个扩展包都没有：adapters/ 里放进项目之后，这里列出来" : <Loading what="扩展包" />}
+        empty={data ? t("ui.admin.extensions.empty") : <Loading what={t("ui.admin.nav.extensions")} />}
       />
       <ManualBlock view={manualView} can={can} onChange={recheck} />
     </Section>
   );
 }
 
-const MANUAL_STATE: Record<ManualItem["state"], string> = {
-  ready: "已就位",
-  consent: "等同意许可协议",
-  unrecognised: "认不出来",
-  missing: "还没下载",
+const MANUAL_STATE: Record<ManualItem["state"], () => string> = {
+  ready: () => t("ui.admin.extensions.manual_ready"),
+  consent: () => t("ui.admin.extensions.manual_consent"),
+  unrecognised: () => t("ui.admin.extensions.manual_unrecognised"),
+  missing: () => t("ui.admin.extensions.manual_missing"),
 };
 
 /** 手动下载：安装流程的一部分。SMPL-X、FLAME、Autodesk FBX SDK 等需使用者自行从官网下载（部分还须本人
@@ -123,8 +122,7 @@ function ManualBlock({ view, can, onChange }: {
   const columns: Column<ManualItem>[] = [
     {
       id: "title",
-      label: "文件",
-      tip: "要手动下载的那一样东西的官方名字，下面一行是它是什么",
+      label: t("ui.admin.extensions.col_file"),
       className: "ext-proj",
       cell: (m) => (
         <>
@@ -135,26 +133,23 @@ function ManualBlock({ view, can, onChange }: {
     },
     {
       id: "state",
-      label: "状态",
-      tip: "「已就位」才算数；「等同意许可协议」要本人点一下，「认不出来」在上面那一块写着原因",
+      label: t("ui.admin.extensions.col_state"),
       width: "11rem",
-      cell: (m) => <span className={`chip${m.state === "ready" ? " ok" : m.state === "missing" ? "" : " warn"}`}>{MANUAL_STATE[m.state]}</span>,
+      cell: (m) => <span className={`chip${m.state === "ready" ? " ok" : m.state === "missing" ? "" : " warn"}`}>{MANUAL_STATE[m.state]()}</span>,
     },
     {
       id: "needed",
-      label: "谁要它",
-      tip: "哪些扩展包缺了它就装不了",
+      label: t("ui.admin.extensions.col_needed"),
       width: "8rem",
       cell: (m) => (
-        <span data-tip={m.needed_by.map((w) => w.title).join("、") || "还没有扩展包用到它"}>
-          {m.needed_by.length ? `${m.needed_by.length} 个扩展包` : "—"}
+        <span {...tipAttrs(tipOf("value", m.needed_by.map((w) => w.title).join(t("list.sep")) || undefined))}>
+          {m.needed_by.length ? t("ui.admin.extensions.needed_count", { n: m.needed_by.length }) : "—"}
         </span>
       ),
     },
     {
       id: "act",
-      label: "操作",
-      tip: "去官网下载、看许可协议原文并同意、放好文件后再查一遍",
+      label: t("ui.admin.extensions.col_action"),
       width: "21rem",
       cell: (m) => <ManualRowControl manualKey={m.key} downloadPage={m.page} view={view} can={can} onChange={onChange} />,
     },
@@ -162,9 +157,9 @@ function ManualBlock({ view, can, onChange }: {
   if (!view) return null;
   return (
     <div className="ext-manual">
-      <h3>手动下载</h3>
+      <h3>{t("ui.admin.extensions.manual")}</h3>
       <InboxNote view={view} />
-      <Table rows={view.items} columns={columns} rowKey={(m) => m.key} empty="没有需要手动下载的文件" />
+      <Table rows={view.items} columns={columns} rowKey={(m) => m.key} empty={t("ui.admin.extensions.manual_none")} />
     </div>
   );
 }

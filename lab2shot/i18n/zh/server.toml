@@ -1,0 +1,128 @@
+# 服务器（lab2shot/server）说给用户和管理员看的词：不是一句消息的那些（名称、状态、作为消息参数的词）。键 server.<…>。
+[server]
+not_signed_in = "未登录"
+request_body = "请求体"
+no_gpu = "不用显卡"
+curve_value = "值"
+uncategorized = "未分类"
+never_expires = "不过期"
+
+# admin_actions.status：管理操作的结果（access.py audit 记的是 id）
+[server.audit]
+done = "成功"
+refused = "拒绝"
+failed = "失败"
+
+# 后台「安全」里可疑请求的种类（auth.py Watch.note 的 kind 是 id）
+[server.watch]
+unknown_host = "陌生的域名"
+too_fast = "请求太频繁"
+odd_path = "路径可疑"
+no_route = "未开放的接口"
+admin_only = "没有管理员权限就访问管理接口"
+no_capability = "角色没有这项权限"
+local_only = "只能本机命令行做的事"
+foreign_credential = "登录凭证不是这台服务器发的"
+cross_site = "跨站请求"
+too_big = "请求太大"
+too_many_tries = "试错太多被挡"
+login_failed = "登录失败"
+embed_not_plugin = "不是插件令牌要内嵌票据"
+embed_bad_target = "内嵌窗口的跳转地址不是本站的"
+embed_cross_site = "别的网站带着内嵌票据跳来"
+embed_bad_ticket = "内嵌票据不对或过期"
+register_refused = "注册被挡"
+invite_wrong = "邀请码不对"
+
+[server.watch_detail]
+ours = "已登录，请求自称来自本站页面；不计入封禁"
+bytes.other = "{count} 字节"
+register = "注册"
+trap = "填了诱饵字段"
+too_quick = "填得太快"
+invite_wrong = "邀请码不对"
+
+# 输错几次的「谁」（auth.py COUNTED_AS：W-LOGIN-FAILED 的 whose）
+[server.counted_as]
+k = "登录过的这台设备"
+c = "这个来源"
+s = "从没登录过的设备一共"
+
+# 要核对的那样东西（E-LOGIN-WRONGSECRET、E-ACCOUNT-SECRET* 的 what）
+[server.secret]
+password = "密码"
+new_password = "新密码"
+current_password = "现在的密码"
+passphrase = "口令"
+invite = "邀请码"
+
+# 密码是经由谁设的（users.password_by，记下当时的说法）
+[server.password_by]
+self = "本人"
+passphrase = "口令"
+
+[server.invite]
+uses_unlimited = "不限次数"
+uses = "{count} 次"
+no_note = "没写备注"
+typed = "自己填的"
+random = "随机生成"
+enabled = "开着"
+disabled = "停用"
+by_code = "邀请码 {code}…"
+by_time = "注册时间 {since} 到 {until}"
+earliest = "最早"
+now = "现在"
+
+[server.rights]
+added = "加上 {items}"
+removed = "去掉 {items}"
+unchanged = "没有变化"
+
+[server.tags]
+basic_only = "只有基础"
+
+[server.logins]
+threshold = "7 天内超过 {ips} 个不同 IP，或超过 {devices} 个不同设备，或有一天失败 {failures} 次以上"
+
+# 磁盘占用的四部分（quota.py _worded）；{days}：任务保留天数
+[server.quota]
+part = "{what} {gb} GB"
+all_empty = "（都是空的）"
+untitled_graph = "节点图"
+
+[server.quota.area.tasks]
+label = "任务"
+note.other = "每个任务的文件夹：节点图、上传的素材（同一份只算一次）、输出的文件夹和 zip、日志；任务结束 {days} 天后整个删除，在「队列」里删掉任务马上腾出来"
+
+[server.quota.area.cache]
+label = "缓存"
+note = "算出来的节点结果和模型原始结果（任务和素材里已经算过的同一份不再算）；删掉任务时，只被它用到的缓存一起清掉，别的任务还用得上的留着"
+
+[server.quota.area.uploads]
+label = "还没用上的素材"
+note.other = "传上来、还没有任务用到的素材（选了文件时传的文件头、传了一半的也算）；用到它的任务提交之后就算在任务里。没有任务用到的 {days} 天后自己清掉"
+
+[server.quota.area.templates]
+label = "我的模板"
+note = "存在服务器上的节点图（在「我的模板」里删掉就不算了；删掉的那一份留给管理员恢复，不占你的额度）"
+
+# 三维显示进程在做的事（view_worker.py wait：E-VIEW-TIMEOUT 等的 doing）
+[server.view]
+building = "准备三维显示数据"
+starting = "启动三维显示的进程"
+
+# 两棵分类树（lab2shot/categories.py、server/categories.py）
+[server.categories]
+first_level = "一级"
+tree_templates = "模板"
+tree_menu = "节点菜单"
+uncategorized = "未分类"
+
+[categories]
+no_bak = "没有上一版"
+
+# 用户协议与隐私政策（lab2shot/terms）
+[terms.title]
+agreement = "用户协议"
+privacy = "隐私政策"

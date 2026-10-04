@@ -1,0 +1,42 @@
+# This extension's words and messages in English (the same keys as zh.toml): written by P1-B.
+
+# ---- words (node texts from nodes.json and nodes.py, extension texts from extension.py)
+
+"W-HYWORLD2-VRAMSTEP" = "This card has about {card:.0f} GB; upstream's resolution {asked} with Max Views {views} needs about {need:.0f} GB, which does not fit: this run uses {size} (less detail). To run at upstream's resolution, use a card with more memory or lower Max Views"
+"E-HYWORLD2-VRAM" = "This card has about {card:.0f} GB; even the lowest resolution {size} with Max Views at {views} needs about {need:.0f} GB, which does not fit: lower Max Views, or use a card with more memory"
+
+[node."hyworld2.reconstruct"]
+subtitle = "Gaussian Splats"
+description = "Reconstructs Gaussian splats, and the cameras in the same world, from multi-view pictures of one static scene. The reconstruction part of HY-World 2.0 is WorldMirror 2.0, so both are this one node; world generation is not here. Max Views pictures, evenly spaced over the shot, are reconstructed together; shots with parallax and no obvious motion work best."
+
+[node."hyworld2.reconstruct".param.resolution]
+label = "Long Side Resolution"
+
+[node."hyworld2.reconstruct".param.resolution.option]
+280 = "280"
+518 = "518"
+952 = "952"
+
+[node."hyworld2.reconstruct".param.max_views]
+label = "Max Views"
+
+[node."hyworld2.reconstruct".official]
+note = "The reconstruction part of HY-World 2.0 is WorldMirror 2.0: it gives the Gaussian splats themselves and the cameras of the same world; the world generation part is not loaded"
+
+[node."hyworld2.reconstruct".cost]
+note = "Measured on an RTX 4090: 1920×1080, 32 views, stepped down to 518, 18.6 GB whole-card peak over idle. Measured on an RTX 5090: 1280×720, 32 views, resolution 518 peaks at 18.1 GB; upstream's 952 needs about 50 GB, so on a card that cannot hold it the node runs at 518 and says so"
+
+[extension.hyworld2]
+summary = "Reconstructs static Gaussian splats and cameras from multi-view pictures, with the official WorldMirror 2.0 reconstruction model"
+
+[extension.hyworld2.license]
+name = "Tencent HY-World 2.0 Community License"
+summary = "Tencent community licence, with conditions on territory, commercial scale and use; this extension uses the reconstruction part and loads no image or world generation model"
+
+[extension.hyworld2.weight.skyseg]
+note = "Sky segmentation ONNX from Sky-Segmentation-and-Post-processing (MIT), used by the official compute_sky_mask"
+
+# ---- the worker's stages (worker.py)
+[stage]
+merge_gaussians = "Merge Gaussians"
+reconstruct_gaussians = "Reconstruct Static Gaussians"

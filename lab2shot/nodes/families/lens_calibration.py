@@ -18,22 +18,11 @@ from __future__ import annotations
 from ..kit.ports import rgb_port
 from ..base import Port
 from .base import WorkerNode
-from ..lens import LENS_HELP
 from ...data.values import LENS
 from ..values import FLOAT
 
-# 「Focal Length」端口的说明，两个成员共用。上游给出像素单位的 Focal Length，此处换算为项目标准单位毫米后输出：
-# 将上游的值转换为标准表示和标准单位不属于二次加工（与 SMPL 参数写入「蒙皮角色」属于同一类）。
-FOCAL_HELP = (
-    "Focal Length（mm）。上游给的是 Focal Length（px）（用「一个感光点有多宽」当尺子量出来的长度），这里换成毫米交出去。"
-    "换算用的是节点上的「Filmback」：Focal Length（mm）= Focal Length（px）÷ 画面宽度 × Filmback。"
-)
-# 「Filmback」即节点参数原样输出。上游没有该项；透传是为了让下游（LensDistortion、创建相机）无需重复填写，
-# 且保证与 Focal Length 的毫米换算始终使用同一数值。
-FILMBACK_HELP = (
-    "节点上填的「Filmback」原样交出去：Focal Length 是按它换算成毫米的，下游（「LensDistortion」「创建相机」）"
-    "接这一根就不用再填一遍，两边永远是同一个数"
-)
+# 「Focal Length」「Filmback」端口的说明，各成员共用（family.lens_calibration.<端口>.help）：上游给出像素单位的 Focal Length，
+# 此处换算为项目标准单位毫米后输出（与 SMPL 参数写入「蒙皮角色」属于同一类）；Filmback 即节点参数原样输出，让下游无需重复填写。
 
 class LensCalibration(WorkerNode):
     """镜头标定节点的共同声明：输入一张画面，输出该镜头的若干参数。
@@ -47,10 +36,10 @@ class LensCalibration(WorkerNode):
     lens = "any"
     inputs = (rgb_port(),)
     outputs = (
-        Port("focal", FLOAT, "Focal Length", unit="mm", help=FOCAL_HELP),
-        Port("filmback", FLOAT, "Filmback", unit="mm", help=FILMBACK_HELP),
+        Port("focal", FLOAT, unit="mm", words="family.lens_calibration.focal"),
+        Port("filmback", FLOAT, unit="mm", words="family.lens_calibration.filmback"),
         # 镜头模型、畸变系数、主点、像素比打包为一份「镜头内参」（nodes/lens.py packed_lens），而非各设一个端口
         # every choice gives one, a pinhole too (no coefficients: an identity ST-map downstream): a port's type never
         # changes with a value
-        Port("lens", LENS, "镜头内参", help=LENS_HELP),
+        Port("lens", LENS, words="family.lens_calibration.lens"),
     )

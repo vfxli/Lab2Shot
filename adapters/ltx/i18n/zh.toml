@@ -1,0 +1,9 @@
+# LTX 底座扩展自己的界面字（中文）。
+
+[extension.ltx]
+summary = "各 LTX 功能（Alpha Gen、Clean Plate）共用的 LTX-2.5 视频模型：代码、运行环境和底模文件。本身没有节点"
+license.name = "LTX-2.x Community License"
+license.summary = "个人和年收入低于 1000 万美元的公司可免费使用，包括商用；年收入达到 1000 万美元的公司，除非商业的研究和评估外，任何使用都须向 Lightricks 购买授权。再分发须附带许可证原文及其使用限制（附件 A）；只能合法使用并遵守其可接受使用政策，不得去除安全、来源标记和水印等功能"
+weight.ltx_transformer.note = "Lightricks/LTX-2.5/diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors（LTX-2.x Community License）"
+weight.ltx_text_encoder.note = "Lightricks/LTX-2.5/text_encoders/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors（LTX-2.x Community License）"
+weight.ltx_video_vae.note = "Lightricks/LTX-2.5/vae/ltx-2.5-video-vae-bf16.safetensors（LTX-2.x Community License）"

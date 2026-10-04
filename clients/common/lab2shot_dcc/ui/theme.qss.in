@@ -1,0 +1,113 @@
+/* The panel's Qt rules (设计_DCC新面板.md §2). Values only as the at-brace placeholders of webui/src/ui/tokens.css: tools/dcc_theme.py
+   fills them into theme.qss. Set on our own windows only (theme.apply); selectors are our objectNames and dynamic
+   properties. What Qt cannot do (shadows, blur, transitions) is left out: depth is the surfaces' lightness. */
+
+#L2SRoot, #L2SDialog { background-color: @{panel}; }
+QWidget { color: @{text}; font-size: @{fs-md}; }
+QWidget#L2SScrollBody, QWidget#L2SHomeBody, QWidget#L2SToolBody, QWidget#L2SVersionStrip, QWidget#L2SViewport,
+QStackedWidget#L2SStack { background: transparent; }
+QScrollArea#L2SScroll, QScrollArea#L2SVersionScroll { background: transparent; border: none; }
+QLabel { background: transparent; }
+
+QLabel[l2s="muted"] { color: @{text-2}; }
+QLabel[l2s="faint"] { color: @{text-3}; font-size: @{fs-sm}; }
+QLabel[l2s="title"] { font-size: @{fs-xl}; font-weight: 600; }
+QLabel[l2s="heading"] { font-size: @{fs-lg}; font-weight: 600; }
+QLabel[l2s="section"] { color: @{text-2}; font-size: @{fs-sm}; font-weight: 600; }
+QLabel[l2s="cardtitle"] { font-size: @{fs-lg}; font-weight: 600; }
+QLabel[l2s="crumb"] { color: @{text-2}; }
+QLabel[l2s="chip"] { color: @{text-2}; font-size: @{fs-sm}; }
+QLabel[l2s="error"] { color: @{error-text}; }
+QLabel[l2s="warn"] { color: @{orange-text}; }
+QLabel[l2s="ok"] { color: @{green}; font-size: @{fs-sm}; }
+
+/* the top bar: the window's own darkest surface, a hairline under it */
+#L2STopBar { background-color: @{window}; border-bottom: 1px solid @{hair}; }
+QToolButton#L2SBack { color: @{text-2}; border: none; border-radius: @{r-ctl}; padding: 3px 8px 3px 4px; }
+QToolButton#L2SBack:hover { background-color: @{ctl-face-hover}; color: @{text}; }
+QToolButton#L2SIconButton { border: none; border-radius: @{r-ctl}; padding: 4px; }
+QToolButton#L2SIconButton:hover { background-color: @{ctl-face-hover}; }
+QToolButton#L2SIconButton::menu-indicator { image: none; width: 0px; }
+
+#L2SBanner { background-color: @{orange-soft}; border: 1px solid @{orange-edge}; border-radius: @{r-md}; }
+#L2SBanner[kind="error"] { background-color: @{accent-soft}; border-color: @{accent-edge}; }
+
+/* buttons: a control's own surface, lighter on hover; one filled main button */
+QPushButton#L2SButton { background-color: @{ctl-face}; border: none; border-radius: @{r-ctl}; padding: 5px 10px; }
+QPushButton#L2SButton:hover { background-color: @{ctl-face-hover}; }
+QPushButton#L2SButton:pressed { background-color: @{lifted-2}; }
+QPushButton#L2SButton:disabled { color: @{text-3}; background-color: @{lifted}; }
+QPushButton#L2SGhost { background: transparent; border: none; border-radius: @{r-ctl}; padding: 5px 8px; color: @{text-2}; }
+QPushButton#L2SGhost:hover { background-color: @{ctl-face-hover}; color: @{text}; }
+QPushButton#L2SGhost:disabled { color: @{text-3}; }
+QPushButton#L2SPrimary { background-color: @{accent-fill}; color: @{on-accent}; border: none; border-radius: @{r-md};
+    padding: 8px 16px; font-size: @{fs-lg}; font-weight: 600; }
+QPushButton#L2SPrimary:hover { background-color: @{accent}; }
+QPushButton#L2SPrimary:disabled { background-color: @{lifted-2}; color: @{text-3}; }
+QPushButton#L2SPrimary[busy="true"] { background-color: @{ctl-face-hover}; color: @{text}; }
+QPushButton#L2SPrimary[busy="true"]:hover { background-color: @{lifted-2}; }
+
+/* fields: the well a value is typed into */
+QLineEdit, QComboBox { background-color: @{field-bg}; border: 1px solid @{hair}; border-radius: @{r-md};
+    padding: 4px 8px; selection-background-color: @{accent-fill}; selection-color: @{on-accent}; }
+QLineEdit:focus, QComboBox:focus { border-color: @{accent-edge}; }
+QLineEdit:disabled, QComboBox:disabled { color: @{text-3}; }
+QLineEdit#L2SSearch { padding: 6px 10px; border-radius: @{r-md}; font-size: @{fs-lg}; }
+QComboBox QAbstractItemView { background-color: @{glass-bg}; border: 1px solid @{hair-strong}; outline: 0;
+    selection-background-color: @{accent-soft}; selection-color: @{text}; }
+QCheckBox { spacing: 6px; }
+
+/* cards: lifted off the panel; lighter under the pointer */
+#L2SCard, #L2STask, #L2SVersion { background-color: @{lifted}; border: 1px solid @{hair}; border-radius: @{r-card}; }
+#L2SCard[hover="true"], #L2STask[hover="true"], #L2SVersion[hover="true"] { background-color: @{ctl-face-hover};
+    border-color: @{hair-strong}; }
+#L2STask { border-radius: @{r-md}; }
+#L2STask[current="true"] { border-color: @{accent-edge}; }
+#L2SVersion { border-radius: @{r-md}; }
+#L2SVersion[imported="false"] { border-color: @{orange-edge}; }
+#L2SChip { background-color: @{fill-strong}; border-radius: @{r-xs}; }
+#L2SChip[faint="true"] { background-color: @{raised}; }
+
+/* the tool page */
+#L2SInput { background-color: @{lifted}; border: 1px solid @{hair}; border-radius: @{r-card}; }
+#L2SInput[bound="true"] { border-color: @{green-edge}; }
+QLabel#L2SStepNumber { background-color: @{accent-soft}; color: @{accent-text}; border-radius: 10px;
+    font-size: @{fs-sm}; font-weight: 600; }
+QLabel#L2SFromScene { background-color: @{accent-soft}; color: @{accent-text}; border-radius: @{r-xs};
+    padding: 0px 5px; font-size: @{fs-xs}; }
+QToolButton#L2SFold { border: none; color: @{text-2}; font-weight: 600; padding: 2px 0px; }
+QToolButton#L2SFold:hover { color: @{text}; }
+QProgressBar#L2SProgress { background-color: @{field-bg}; border: none; border-radius: 3px; }
+QProgressBar#L2SProgress::chunk { background-color: @{accent}; border-radius: 3px; }
+
+/* tabs: a quiet row; the chosen one a lifted segment */
+QPushButton#L2STab { background: transparent; border: none; border-radius: @{r-ctl}; padding: 4px 10px;
+    color: @{text-2}; }
+QPushButton#L2STab:hover { background-color: @{raised-hover}; color: @{text}; }
+QPushButton#L2STab:checked { background-color: @{seg-on}; color: @{text}; font-weight: 600; }
+
+#L2SHair { background-color: @{hair}; border: none; }
+
+/* what floats: menus and tooltips (the page's glass, solid here: Qt has no blur) */
+QMenu { background-color: @{glass-bg}; border: 1px solid @{hair-strong}; border-radius: @{r-md}; padding: 4px; }
+QMenu::item { padding: 5px 22px 5px 12px; border-radius: @{r-xs}; color: @{text}; }
+QMenu::item:selected { background-color: @{accent-soft}; }
+QMenu::item:disabled { color: @{text-3}; }
+QMenu::separator { height: 1px; background: @{hair}; margin: 4px 6px; }
+QToolTip { background-color: @{glass-bg}; color: @{text}; border: 1px solid @{hair-strong}; padding: 4px 6px; }
+
+QScrollBar:vertical { background: transparent; width: 8px; margin: 0px; }
+QScrollBar::handle:vertical { background: @{hair-strong}; border-radius: 4px; min-height: 28px; }
+QScrollBar:horizontal { background: transparent; height: 8px; margin: 0px; }
+QScrollBar::handle:horizontal { background: @{hair-strong}; border-radius: 4px; min-width: 28px; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0px; height: 0px; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+
+QListWidget { background-color: @{field-bg}; border: 1px solid @{hair}; border-radius: @{r-md}; }
+QListWidget::item { padding: 4px 6px; }
+
+QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid @{hair-strong}; border-radius: @{r-xs};
+    background-color: @{field-bg}; }
+QCheckBox::indicator:hover { border-color: @{accent-edge}; }
+QCheckBox::indicator:checked { background-color: @{accent-fill}; border-color: @{accent-fill}; }
+QCheckBox::indicator:disabled { background-color: @{lifted}; border-color: @{hair}; }

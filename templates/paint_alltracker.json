@@ -2,117 +2,187 @@
  "schema": "lab2shot.graph/1",
  "meta": {
   "id": "0f92f26336541f5500f11ee098f457ea",
-  "name": "跟踪贴片 · AllTracker",
-  "intro": "AllTracker 估计查询帧到其余每一帧的流场，由此得到长距离的点轨迹，结果是高分辨率的稠密全像素对应。这张卡在参考帧上画一次（修补、纹身、贴图），按 ST-map 贴满整段镜头；按「贴片」看贴片盖到原图上的效果（A over B），交付一套多层 EXR（贴片 rgba、ST-map、置信度）。",
+  "name": {
+   "zh": "跟踪贴片 · AllTracker",
+   "en": "Tracked Paint · AllTracker"
+  },
+  "intro": {
+   "zh": "AllTracker 估计查询帧到其余每一帧的流场，由此得到长距离的点轨迹，结果是高分辨率的稠密全像素对应。这张卡在参考帧上画一次（修补、纹身、贴图），按 ST 贴图 贴满整段镜头；按「贴片」看贴片盖到原图上的效果（A over B），交付一套多层 EXR（贴片 rgba、ST 贴图、置信度）。",
+   "en": "AllTracker estimates the flow field from the query frame to every other frame, giving long-range point tracks as high-resolution dense correspondence for every pixel. This card lets you paint once on the reference frame (fixes, tattoos, decals) and applies it to the whole shot with an ST map; Paint shows the paint over the original image (A over B), and it delivers a multi-layer EXR (paint rgba, ST map, confidence)."
+  },
   "author": "Lab2Shot",
   "created": "2026-09-13T09:00:00",
-  "deliverable": "paint",
+  "deliverable": "align",
   "owner": "admin",
-  "updated": "2026-10-01T05:00:00"
+  "updated": "2026-10-03T01:00:00",
+  "internal": [
+   "track.picks",
+   "track.picks_pick"
+  ]
  },
  "exposed": [
   {
    "name": "input",
-   "label": "输入序列",
+   "label": {
+    "zh": "输入图像序列",
+    "en": "Input Image Sequence"
+   },
    "target": "read.path",
    "show_on_change": true
   },
   {
    "name": "colorspace_in",
-   "label": "输入色彩空间",
+   "label": {
+    "zh": "输入颜色空间",
+    "en": "Input Color Space"
+   },
    "target": "read.colorspace",
    "show_on_change": true
   },
   {
    "name": "first_frame",
-   "label": "首帧",
+   "label": {
+    "zh": "开始帧",
+    "en": "Start Frame"
+   },
    "target": "read.first"
   },
   {
    "name": "last_frame",
-   "label": "末帧",
+   "label": {
+    "zh": "结束帧",
+    "en": "End Frame"
+   },
    "target": "read.last"
   },
   {
    "name": "ref_frame",
-   "label": "参考帧",
+   "label": {
+    "zh": "参考帧",
+    "en": "Reference Frame"
+   },
    "target": "track.query_frame"
   },
   {
-   "name": "paint",
-   "label": "参考帧上画的图",
+   "name": "paint_path",
+   "label": {
+    "zh": "参考帧上画的图",
+    "en": "Paint on Reference Frame"
+   },
    "target": "paint.path",
    "show_on_change": true
   },
   {
-   "name": "colorspace_in_paint",
-   "label": "画的图色彩空间",
+   "name": "paint_colorspace",
+   "label": {
+    "zh": "画的图颜色空间",
+    "en": "Paint Color Space"
+   },
    "target": "paint.colorspace",
    "show_on_change": true
   },
   {
    "kind": "group",
-   "label": "高级",
+   "label": {
+    "zh": "高级",
+    "en": "Advanced"
+   },
    "collapsed": true,
    "children": [
     {
-     "name": "resolution",
-     "label": "处理分辨率",
+     "name": "track_resolution",
+     "label": {
+      "zh": "处理分辨率",
+      "en": "Processing Resolution"
+     },
      "target": "track.resolution"
     }
    ]
   },
   {
-   "name": "cook_warp",
-   "label": "贴片",
+   "name": "cook_comp",
+   "label": {
+    "zh": "贴片",
+    "en": "Paint"
+   },
    "target": "comp.cook"
   },
   {
    "kind": "group",
-   "label": "交付",
+   "label": {
+    "zh": "交付",
+    "en": "Delivery"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "file_name",
-     "label": "文件名",
-     "target": "out.name"
+     "label": {
+      "zh": "文件名",
+      "en": "File Name"
+     },
+     "target": "exr.name"
     },
     {
      "name": "colorspace_out",
-     "label": "输出色彩空间",
-     "target": "out.colorspace"
+     "label": {
+      "zh": "输出颜色空间",
+      "en": "Output Color Space"
+     },
+     "target": "exr.colorspace"
     },
     {
      "kind": "group",
-     "label": "高级",
+     "label": {
+      "zh": "高级",
+      "en": "Advanced"
+     },
      "collapsed": true,
      "children": [
       {
        "name": "exr_bit_depth",
-       "label": "EXR 位深",
-       "target": "out.exr_bit_depth"
+       "label": {
+        "zh": "EXR 位深",
+        "en": "EXR Bit Depth"
+       },
+       "target": "exr.exr_bit_depth"
       },
       {
        "name": "exr_compression",
-       "label": "EXR 压缩",
-       "target": "out.exr_compression",
+       "label": {
+        "zh": "EXR 压缩",
+        "en": "EXR Compression"
+       },
+       "target": "exr.exr_compression",
        "widget": "menu",
        "options": [
         {
          "value": "zips",
-         "label": "ZIP 逐行"
+         "label": {
+          "zh": "ZIP 逐行",
+          "en": "ZIP (1 Scanline)"
+         }
         },
         {
          "value": "zip",
-         "label": "ZIP 16 行"
+         "label": {
+          "zh": "ZIP 16 行",
+          "en": "ZIP (16 Scanlines)"
+         }
         },
         {
          "value": "piz",
-         "label": "PIZ"
+         "label": {
+          "zh": "PIZ",
+          "en": "PIZ"
+         }
         },
         {
          "value": "none",
-         "label": "无"
+         "label": {
+          "zh": "无",
+          "en": "None"
+         }
         }
        ]
       }
@@ -122,17 +192,23 @@
   },
   {
    "kind": "group",
-   "label": "操作",
+   "label": {
+    "zh": "操作",
+    "en": "Actions"
+   },
    "collapsed": false,
    "children": [
     {
      "name": "cook",
-     "label": "打包",
+     "word": "pack",
      "target": "deliver.cook"
     },
     {
      "name": "download",
-     "label": "下载",
+     "label": {
+      "zh": "下载",
+      "en": "Download"
+     },
      "target": "deliver.download"
     }
    ]
@@ -141,8 +217,7 @@
  "nodes": [
   {
    "id": "read",
-   "type": "core.read_sequence",
-   "label": "读取序列",
+   "type": "file",
    "params": {
     "path": "",
     "colorspace": null,
@@ -156,22 +231,20 @@
   },
   {
    "id": "paint",
-   "type": "core.read_picture",
-   "label": "读取图片",
+   "type": "file_still",
    "params": {
     "path": "",
     "colorspace": null
    },
    "ui": {
     "x": 440,
-    "y": 422,
+    "y": 447,
     "on_node": []
    }
   },
   {
    "id": "track",
    "type": "alltracker.track",
-   "label": "AllTracker 跟踪贴片",
    "params": {
     "query_frame": null,
     "picks": [],
@@ -190,18 +263,16 @@
   },
   {
    "id": "warp",
-   "type": "core.stmap_warp",
-   "label": "STMap",
+   "type": "stmap",
    "params": {},
    "ui": {
     "x": 800,
-    "y": 106
+    "y": 112
    }
   },
   {
-   "id": "out",
-   "type": "core.output_exr",
-   "label": "多层 EXR 输出设置",
+   "id": "exr",
+   "type": "exr.output",
    "params": {
     "name": "paint",
     "layers": [
@@ -227,7 +298,7 @@
    },
    "ui": {
     "x": 1200,
-    "y": 102,
+    "y": 108,
     "on_node": [
      "name"
     ]
@@ -235,25 +306,23 @@
   },
   {
    "id": "deliver",
-   "type": "core.output",
-   "label": "输出",
+   "type": "output",
    "params": {},
    "ui": {
     "x": 1600,
-    "y": 102
+    "y": 108
    }
   },
   {
    "id": "comp",
-   "type": "core.image_merge",
-   "label": "图像合成（贴片盖到原图）",
+   "type": "composite",
    "params": {
     "operation": "over",
     "mix": 1.0
    },
    "ui": {
     "x": 1160,
-    "y": 422
+    "y": 447
    }
   }
  ],
@@ -294,7 +363,7 @@
     "image"
    ],
    "to": [
-    "out",
+    "exr",
     "layer1"
    ]
   },
@@ -304,7 +373,7 @@
     "stmap"
    ],
    "to": [
-    "out",
+    "exr",
     "layer2"
    ]
   },
@@ -314,13 +383,13 @@
     "confidence"
    ],
    "to": [
-    "out",
+    "exr",
     "layer3"
    ]
   },
   {
    "from": [
-    "out",
+    "exr",
     "files"
    ],
    "to": [

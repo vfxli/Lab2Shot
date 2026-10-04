@@ -1,6 +1,6 @@
 [project]
 name = "lab2shot-worker"
-version = "0.1.0"
+version = "0.1.0a1"
 description = "Helper installed into every Lab2Shot extension environment: read the job file, report progress, write results."
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.9"

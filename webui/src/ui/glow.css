@@ -53,8 +53,9 @@
   }
 }
 
-/* The entry rim: the page's one entry point, 「模板」, wears a 1 px rim in the wire colours that turns slowly and
-   never stops — the only thing on the site that loops, so the eye finds it without a second solid button. The same
+/* The entry rim: the entries the eye must find — 「模板」 and 「提交反馈」 (and, in its cooler palette, the
+   「节点模式 / 应用模式」 pair) — wear a 1 px rim in the wire colours that turns slowly and never stops: the only things
+   on the site that loop, so they are found without a solid button. The same
    ring as the hover glow (a conic gradient kept to the border by a mask), its own angle, palette and pace (tokens:
    --entry-palette, --entry-turn). */
 
@@ -77,7 +78,6 @@
 :is(.btn.entry, .entry-rim)::after {
   content: "";
   position: absolute;
-  inset: -1px; /* over the button's own 1 px border, which is transparent: the rim is the border */
   padding: var(--glow-width);
   border-radius: inherit;
   background: conic-gradient(from var(--entry-angle), var(--entry-palette));
@@ -88,11 +88,20 @@
   animation: entry-turn var(--entry-turn) linear infinite;
 }
 
-/* the rim around 「节点模式 / 应用模式」: cool hues, a step darker, told apart from the rim of 「模板」
-   (tokens.css --mode-palette) */
+/* where the rim sits: over a button's own 1 px border, which is transparent (the rim is the border); a group has no
+   border of its own (its buttons do), so its rim sits on its edge -- both come out exactly as tall (「模板」 and
+   「节点模式 / 应用模式」) */
+.btn.entry::after {
+  inset: -1px;
+}
+
+.entry-rim::after {
+  inset: 0;
+}
+
+/* the rim around 「节点模式 / 应用模式」: cool hues as bright as the rim of 「模板」 (tokens.css --mode-palette) */
 .entry-rim.mode-switch::after {
   background: conic-gradient(from var(--entry-angle), var(--mode-palette));
-  opacity: 0.8;
 }
 
 @keyframes entry-turn {

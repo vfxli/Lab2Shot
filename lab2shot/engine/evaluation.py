@@ -32,7 +32,8 @@ from typing import TYPE_CHECKING, Any
 from ..data.contracts import KEEPS, shot_of
 from ..data.packet import CACHE_VERSION, FACTS_VERSION, Packet
 from ..errors import CookError, GraphError, Invalid, NotFound, Refused, message_of
-from ..messages import Msg
+from .. import i18n
+from ..messages import Both, Msg, again
 from ..nodes.applies import NodeFacts, Resolved, effective_params, resolve, standing_notices
 from ..nodes.base import Info
 from ..nodes.port import PARAM
@@ -60,6 +61,12 @@ def _again(exc: BaseException) -> BaseException:
     object adds its own to __traceback__: a kept evaluation polled a thousand times would hold them all)."""
     exc.__context__ = None
     return exc.with_traceback(None)
+
+
+def _said_label(port) -> str:
+    """A port's name for a message, in both languages (messages.Both): read in whoever's language follows it."""
+    return Both.of(lambda: port.label)
+
 
 class Evaluation(Presence, Routing, Demand, Status):
     """One version of one graph, memoised per node instance."""
@@ -289,17 +296,31 @@ class Evaluation(Presence, Routing, Demand, Status):
             return None
         node = self.graph.nodes[node_id]
         project = node.type.project
-        if project.extension is not None and not self.cached(node_id, path) and (why := project.available()) is not None:
+        if project.extension is not None and (why := project.available()) is not None and not self._has_result(node_id, plan):
             return Outcome(sc.FAILED, node_id, Msg("E-COOK-UNAVAILABLE", node=node.label, reason=why).json())  # the one
             # answer the session's node:<type> reads too
         path_ = failure_file(plan.fingerprint)
-        if not path_.exists() or self.cached(node_id, path):  # a record beside the result it lacks: another cook of
-            # it succeeded (the packets on disk are the fact; a record only says why they are not there)
+        if not path_.exists() or self._has_result(node_id, plan):  # a record beside the result it lacks: another cook
+            # of it succeeded (the packets on disk are the fact; a record only says why they are not there)
             return None
         try:
             return Outcome(sc.FAILED, node_id, json.loads(path_.read_text(encoding="utf-8")), retryable=True)
         except (OSError, ValueError):
             return None
+
+    def _has_result(self, node_id: str, plan: NodePlan) -> bool:
+        """Whether the instance has its result on disk, as its own failure (failure) asks it: every output a wire in
+        the graph takes from it, whichever way of a switch that wire goes into (every output when none is wired; a
+        「有没有」's input takes nothing: Routing._choose). Not `cached`, which is about the outputs its readers need
+        along the routes switches take now: a route can hang on what this answer decides — a 「有没有」 driving a
+        switch one of whose ways this node feeds (present -> the source's plan, which leaves out the wires whose source
+        failed -> failure -> which outputs a switch takes -> the 「有没有」 again: the recursion that took /api/status
+        down), or any value known before cooking that drives such a switch."""
+        g = self.graph
+        wired = frozenset(sport for dst, dport in g.outputs_by_node.get(node_id, ())
+                          if dport != g.nodes[dst].type.presence_of
+                          for src, sport in g.inputs.get((dst, dport), []) if src == node_id and sport in plan.outputs)
+        return plan.has(wired or frozenset(plan.outputs))
 
     def _gathers(self, node_id: str, port) -> bool:
         """An input that goes on while one of its wires works: a multi input, and every input of a block's end (one
@@ -315,11 +336,16 @@ class Evaluation(Presence, Routing, Demand, Status):
             return self._outcomes[key]
         self._sources_first(node_id, path, self._outcomes.__contains__, self.plan, self.outcome)
         g, node = self.graph, self.graph.nodes[node_id]
+        if (behind := self._behind_missing(node_id, path)) is not None:  # an input it needs has nothing because a
+            # reader up the line has no file: that reader is the cause, said there (not this node's waiting wire)
+            return self._outcomes.put(key, behind)
         try:  # its own wiring is wrong: that is its own error, whatever stands above it (the first thing its plan says)
             g.check_inputs(node_id, only=self.taken_ports(node_id, path))
         except GraphError as exc:
             if not self.waits(node_id, path):
                 return self._outcomes.put(key, Outcome(sc.ERROR, node_id, exc.message.json()))
+        if (blocked := self._blocked(node_id, path)) is not None:  # a 「阻断」 set to block: nothing above it is taken
+            return self._outcomes.put(key, blocked)
         found = self._outside_frames(node_id, path)
         wires = self.wires(node_id, path)
         for port in g.input_ports(node_id):
@@ -327,7 +353,7 @@ class Evaluation(Presence, Routing, Demand, Status):
                 continue
             ups =[o for src, _, p in wires[port.name] if (o := self.outcome(src, p)) is not None]
             if ups and (not self._gathers(node_id, port) or len(ups) == len(wires[port.name])):
-                found = self._skipped(node, port.label, ups[0])
+                found = self._skipped(node, _said_label(port), ups[0])
                 break
         # alternative wirings (NodeDef.input_choice): when every used wire is gone because upstream failed or was
         # skipped, this node is skipped too. Otherwise it would cook and report "nothing wired" itself, saying the same
@@ -335,14 +361,17 @@ class Evaluation(Presence, Routing, Demand, Status):
         # marked skipped)
         if found is None and node.type.input_choice:
             live = [p for p in g.input_ports(node_id) if p.name in node.type.choice_inputs() and wires[p.name]]
-            gone = [(p.label, o) for p in live for src, _, sub in wires[p.name] if (o := self.outcome(src, sub)) is not None]
+            gone = [(_said_label(p), o) for p in live for src, _, sub in wires[p.name] if (o := self.outcome(src, sub)) is not None]
             if live and len(gone) == len(live):
                 found = self._skipped(node, gone[0][0], gone[0][1])
+        if found is None and getattr(node.type, "collects", False):  # a node that only gathers what comes in (多层
+            # EXR 输出设置's rows): every input wired into it blocked on the way, it has nothing to gather — blocked too
+            found = self._all_blocked(node_id, path)
         if found is None:
             for w in self.waits(node_id, path):
                 if (up := self.outcome(*w.on)) is not None:
                     port = g.input_port(node_id, node.type.item_input if w.kind == "items" and sc.role(node.type) == BEGIN else w.port)
-                    found = self._skipped(node, port.label if port else g.nodes[w.on.node].label, up)
+                    found = self._skipped(node, _said_label(port) if port else g.nodes[w.on.node].label, up)
                     break
         if node.type.delivers and (broken := self._chains_broken(node_id, path)) is not None:
             found = broken  # 「输出」 packs only whole lines: what stands above it decides before anything else
@@ -375,7 +404,11 @@ class Evaluation(Presence, Routing, Demand, Status):
         at its root (and the item, inside a block). None: every line is whole (or not known to be broken yet)."""
         g = self.graph
         seen: set[Inst] = set()
-        said, retryable = [], True
+        broken: dict[tuple[str, tuple[str, ...]], list[str]] = {}  # (root, its items) -> the lines it breaks, in order
+        # what went wrong at each root, said to whoever uses a card (E-OUTPUT-CHAINFAILED's app words: no lines, no
+        # node names, only what to put right — 「没有选择图像序列」)
+        reasons: dict[tuple[str, tuple[str, ...]], Msg] = {}
+        retryable = True
         try:
             wires = self.wires(node_id, path)
         except PLAN_ERRORS:
@@ -386,12 +419,25 @@ class Evaluation(Presence, Routing, Demand, Status):
                 if root is None:
                     continue
                 (at, names), retryable = root[:2], retryable and root[2]
-                chain = g.nodes[src].label
-                said.append(Msg("I-OUTPUT-CHAINITEM", chain=chain, root=g.nodes[at].label, item=" / ".join(names))
-                            if names else Msg("I-OUTPUT-CHAIN", chain=chain, root=g.nodes[at].label))
-        if not said:
+                broken.setdefault((at, tuple(names)), []).append(g.nodes[src].label)
+                if (at, tuple(names)) not in reasons and (why := self._root_message(at, p)) is not None:
+                    reasons[(at, tuple(names))] = why
+        if not broken:
             return None
-        msg = Msg("E-OUTPUT-CHAINFAILED", node=g.nodes[node_id].label, count=len(said), chains=said)
+        # one root cause is said once: lines broken by the same node (the same items) are named together, not one
+        # sentence each that all point at it (「FBX 输出设置」「USD 输出设置」这 2 条线上的「导入 FBX」出错了)
+        said = []
+        for (at, names), chains in broken.items():
+            root, item = g.nodes[at].label, " / ".join(names)
+            if len(chains) > 1:
+                lines = i18n.Both.of(lambda: "".join(i18n.t("engine.quoted", name=c) for c in dict.fromkeys(chains)))  # same-named lines once; the count says how many
+                said.append(Msg("I-OUTPUT-CHAINSITEM", chains=lines, count=len(chains), root=root, item=item) if names
+                            else Msg("I-OUTPUT-CHAINS", chains=lines, count=len(chains), root=root))
+            else:
+                said.append(Msg("I-OUTPUT-CHAINITEM", chain=chains[0], root=root, item=item) if names
+                            else Msg("I-OUTPUT-CHAIN", chain=chains[0], root=root))
+        msg = Msg("E-OUTPUT-CHAINFAILED", node=g.nodes[node_id].label, count=sum(map(len, broken.values())), chains=said,
+                  reasons=list(reasons.values()) or [i18n.Word("engine.chain_unknown")])
         return Outcome("failed", node_id, msg.json(), chain=True, retryable=retryable)
 
     def _failure_above(self, node_id: str, path: ItemPath, seen: set[Inst]) -> tuple[str, list[str], bool] | None:
@@ -417,6 +463,18 @@ class Evaluation(Presence, Routing, Demand, Status):
                 continue
             stack.extend(reversed(ups))
         return None
+
+    def _root_message(self, root: str, path: ItemPath) -> Msg | None:
+        """The failed node's own message (its outcome's, as a message again), from a path at or below its instance;
+        None when it has none to say (it failed only behind something, or its message can't be said again)."""
+        depth = len(self.graph.scopes.chain(root))
+        try:
+            o = self.outcome(root, tuple(path[:depth]) if depth else ())
+        except PLAN_ERRORS:
+            return None
+        if o is None or o.root != root or not isinstance(o.message, dict):
+            return None
+        return again(o.message)
 
     def _root_names(self, root: str, path: ItemPath) -> list[str]:
         """The item names of the failed node's instance, from a path at or below it (a node outside every block: none)."""
@@ -445,9 +503,155 @@ class Evaluation(Presence, Routing, Demand, Status):
         return None
 
     def _skipped(self, node, input_label: str, up: Outcome) -> Outcome:
+        if up.blocked:  # behind a 「阻断」 set to block: skipped quietly, said as information only
+            return Outcome("skipped", up.root, Msg("I-COOK-BLOCKED", node=node.label, input=input_label,
+                                                   root=self.graph.nodes[up.root].label).json(), failure=False, blocked=True)
         return Outcome("skipped", up.root, Msg("N-COOK-SKIPPED", node=node.label, input=input_label,
                                                root=self.graph.nodes[up.root].label).json(), failure=up.failure,
                        retryable=up.retryable)
+
+    def _blocked(self, node_id: str, path: ItemPath) -> Outcome | None:
+        """A 「阻断」 (a node type that `blocks`, gate) whose route is known and takes nothing: blocked, quietly (no
+        error anywhere: its root is itself). None for any other node, or while its route is not known."""
+        node = self.graph.nodes[node_id]
+        if not getattr(node.type, "blocks", False) or (taken := self.taken_ports(node_id, path)) is None:
+            return None
+        if taken - {node.type.condition_input}:
+            return None
+        return Outcome("skipped", node_id, Msg("I-GATE-BLOCKED", node=node.label).json(), failure=False, blocked=True)
+
+    def _all_blocked(self, node_id: str, path: ItemPath) -> Outcome | None:
+        """A node that collects (NodeDef.collects): blocked when every input wired into it gives nothing because of a
+        block — each of its wires dropped behind a 「阻断」, or the input not taken at all (a reader with no file, a
+        mode that has no use for it), at least one of them blocked. None otherwise."""
+        g = self.graph
+        wires, dropped = self.wires(node_id, path), self.dropped(node_id, path)
+        first = None
+        for port in g.input_ports(node_id):
+            if port.param or not g.inputs.get((node_id, port.name)):
+                continue
+            for src, sport, p in wires[port.name]:
+                up = dropped.get((port.name, src, sport, p))
+                if up is None or not up.blocked:
+                    return None
+                first = first or (port, up)
+        return None if first is None else self._skipped(g.nodes[node_id], _said_label(first[0]), first[1])
+
+    def _behind_missing(self, node_id: str, path: ItemPath) -> Outcome | None:
+        """An input the instance takes and cannot go without, every wire of which comes from what surely gives nothing
+        (gives_nothing: a reader with no file picked, or a switch / passing 「阻断」 on the way to one): skipped behind
+        that reader, so what is said — on this node, on what follows it, on an 「输出」 whose line it breaks — names the
+        node that is really missing something (「导入 FBX」没有选择文件), never a wire waiting on the way (THE rule for
+        a missing material: the cause is reported at its source, all along the line)."""
+        g, node = self.graph, self.graph.nodes[node_id]
+        taken = self.taken_ports(node_id, path)
+        for port in g.input_ports(node_id):
+            if port.param or (taken is not None and port.name not in taken) or not self.requires(node_id, path, port):
+                continue
+            wires = [(src, g.scopes.source_path(src, node_id, path)) for src, _ in g.inputs.get((node_id, port.name), [])]
+            if not wires or not all(at is not None and self.gives_nothing(src, at) for src, at in wires):
+                continue
+            root = self._missing_at(*wires[0])
+            if root is not None and (up := self.outcome(*root)) is not None:
+                return self._skipped(node, _said_label(port), up)
+        return None
+
+    def _missing_at(self, node_id: str, path: ItemPath) -> tuple[str, ItemPath] | None:
+        """The reader with no file a source that surely gives nothing comes down to (through the switches and passing
+        gates on the way): gives_nothing's own walk, kept to the first wire."""
+        from ..nodes.base import ReadsFile
+
+        g = self.graph
+        while True:
+            t = g.nodes[node_id].type
+            if issubclass(t, ReadsFile):
+                return node_id, path
+            if not sc.chooses(t) or (taken := self.taken_ports(node_id, path)) is None:
+                return None
+            ways = [w for w in taken if w != t.condition_input]
+            wire = next((w for way in ways for w in g.inputs.get((node_id, way), [])), None)
+            if wire is None or (at := g.scopes.source_path(wire[0], node_id, path)) is None:
+                return None
+            node_id, path = wire[0], at
+
+    def present(self, node_id: str, path: ItemPath = ()) -> bool:
+        """Whether something comes in on the input a 「有没有」 (NodeDef.presence_of) tells of (comes)."""
+        return self.comes(node_id, self.graph.nodes[node_id].type.presence_of, path)
+
+    def comes(self, node_id: str, port: str, path: ItemPath = (), kind: str = "") -> bool:
+        """Whether something comes in on input `port` of the instance, known before anything is cooked: no for a wire
+        from an output the source does not have with its parameters (a reader with that kind not picked: Port.when),
+        from what surely gives nothing (a reader with no file picked, or a switch / passing gate on the way to one:
+        gives_nothing), from what is blocked (behind a 「阻断」 set to block), or from an output on disk that is empty;
+        yes for any other wire (what is still to be cooked is taken to come). No wire: no. A 「有没有」's answer
+        (present) and a node's refusal before the cook (NodeDef.plan_refusals) ask it. `kind`: only what may be of
+        this data type counts (gives_types: a skeleton-only FBX's way through the switches brings no 角色; nothing
+        known of the way's types counts as may be)."""
+        g = self.graph
+        for src, sport in g.inputs.get((node_id, port), []):
+            if all(p.name != sport for p in g.outputs(src)):
+                continue
+            at = g.scopes.source_path(src, node_id, path)
+            if at is None or self.gives_nothing(src, at):
+                continue
+            o = self.outcome(src, at)
+            if o is not None and o.blocked:
+                continue
+            fp = self.on_disk(src, sport, at)
+            if fp and (m := self.manifest(fp)) is not None and m["meta"].get("empty"):
+                continue
+            if kind and (types := self.gives_types(src, sport, at)) and kind not in types:
+                continue  # none known on the way (a reader not picked yet): it may be of that type
+            return True
+        return False
+
+    def gives_types(self, node_id: str, port: str, path: ItemPath = (), _seen: frozenset = frozenset()) -> frozenset[str]:
+        """The data types output `port` of the instance may carry on the route its switches take now: a switch gives
+        what the ways it takes bring, a port that follows one input (Port.type_from "input:<port>") what that input
+        brings, any other its type in the graph (Graph.output_type; each of an open "a|b"). Known before cooking."""
+        g = self.graph
+        key = (node_id, port, path)
+        t = g.nodes[node_id].type
+        if key in _seen:
+            return frozenset(filter(None, g.output_type(node_id, port).split("|")))
+        seen = _seen | {key}
+        ways: list[str] | None = None
+        if sc.chooses(t):
+            taken = self.taken_ports(node_id, path)
+            ways = None if taken is None else [w for w in taken if w != t.condition_input]
+        else:
+            decl = next((p for p in g.outputs(node_id) if p.name == port), None)
+            follows = getattr(decl, "type_from", "") if decl is not None else ""
+            if follows.startswith("input:") and "#" not in follows and "," not in follows:
+                ways = [follows[len("input:"):]]
+        if ways is None:
+            return frozenset(filter(None, g.output_type(node_id, port).split("|")))
+        out: set[str] = set()
+        for way in ways:
+            for src, sport in g.inputs.get((node_id, way), []):
+                if all(p.name != sport for p in g.outputs(src)):
+                    continue
+                at = g.scopes.source_path(src, node_id, path)
+                if at is None or self.gives_nothing(src, at):
+                    continue
+                out |= self.gives_types(src, sport, at, seen)
+        return frozenset(out)
+
+    def quiet_inputs(self, node_id: str, path: ItemPath = ()) -> frozenset[str]:
+        """The inputs wired in the graph that bring nothing this time and are not a mistake to tell of: not taken (a
+        reader with no file on the way, a mode with no use for them: taken_ports), or every wire of them dropped behind
+        a 「阻断」 set to block. A node that would say an input it has a row for is not wired (多层 EXR 输出设置) leaves
+        these out silently (CookContext.quiet)."""
+        g = self.graph
+        wires, dropped = self.wires(node_id, path), self.dropped(node_id, path)
+        out = set()
+        for port in g.input_ports(node_id):
+            if not g.inputs.get((node_id, port.name)):
+                continue
+            ws = wires[port.name]
+            if not ws or all((u := dropped.get((port.name, *w))) is not None and u.blocked for w in ws):
+                out.add(port.name)
+        return frozenset(out)
 
     def dropped(self, node_id: str, path: ItemPath = ()) -> dict[Dropped, Outcome]:
         """The wires whose source failed or was skipped into the instance's optional inputs (a parameter's input too)
@@ -493,6 +697,8 @@ class Evaluation(Presence, Routing, Demand, Status):
         missing: dict[str, Outcome] = {}
         begin = g.scopes.ended.get(node_id)
         for (port, src, _, p), up in self.dropped(node_id, path).items():
+            if up.blocked:  # behind a 「阻断」 set to block: going without it is what was asked for, nothing to say
+                continue
             if begin is not None and len(p) > len(path):
                 missing.setdefault(p[len(path)], up)
                 continue
@@ -569,6 +775,20 @@ class Evaluation(Presence, Routing, Demand, Status):
         return NodeFacts(params, with_table(node.type, node.params, wired), f.own, f.incoming, f.wired_out,
                          with_table(node.type, node.params, data))
 
+    def lineage(self, node_id: str, path: ItemPath = ()) -> dict[str, list[dict]]:
+        """Per input of the instance, per wire in wire order: what the wire brings, as its source's provenance as
+        delivered (delivered_provenance: the third-party projects above it and itself that gave something this time,
+        upstream first, with their licences; the same account a delivery's sidecar gives) and the source node's id
+        and label. For a node that weighs several results of one kind against each other (the ensembles: which model
+        each one is, which share a guide, the strictest licence of them all, CookContext.lineage); worked out only
+        for a node that asks (NodeDef.reads_lineage), since it walks everything above every wire, and only when it
+        cooks (everything above it has then)."""
+        g = self.graph
+        return {port: [{"id": src, "label": g.nodes[src].label, "node": g.nodes[src].type.id,
+                        **self.delivered_provenance(src, at)}
+                       for src, _sport, at in wires]
+                for port, wires in self.wires(node_id, path).items() if wires}
+
     def provenance(self, node_id: str, path: ItemPath = ()) -> dict:
         """Which third-party projects produced what the instance takes (it and every node above it), whether all of
         them allow commercial use, and where the values those nodes were given came from (a focal length wired from
@@ -579,17 +799,46 @@ class Evaluation(Presence, Routing, Demand, Status):
             scopes = self.graph.scopes
             for nid in self.upstream(node_id, path):  # the routes its switches take: what really went into it
                 n = self.graph.nodes[nid]
-                if n.type.runtime != "core":  # learned: it runs a model (not a format module reading or writing a file)
-                    sources.append({"node": n.type.id, "label": n.label, "project": n.type.project.title,
+                if n.type.runtime != "core":  # a third-party project (not the core); `learned` below says whether it runs a model
+                    sources.append({"id": nid, "node": n.type.id, "label": n.label, "project": n.type.project.title,
                                     "commercial": self.resolved(nid, at).licence.commercial if (at := scopes.source_path(nid, node_id, path)) is not None
                                     else self.graph.resolved(nid).licence.commercial,
-                                    "learned": not issubclass(n.type, (ImportNode, OutputSettings))})
+                                    "learned": n.type.learned and not issubclass(n.type, (ImportNode, OutputSettings))})
                 at = scopes.source_path(nid, node_id, path)
                 if at is not None and (said := self.sources(nid, at)):
                     values.append({"node": n.type.id, "label": n.label, "params": said})
             return self._provenance.put(key, {"sources": sources, "commercial": all(s["commercial"] for s in sources),
                                               **({"values": values} if values else {})})
         return self._provenance[key]
+
+    def delivered_provenance(self, node_id: str, path: ItemPath = ()) -> dict:
+        """`provenance` as it stands once everything above the instance has cooked (what an output-settings node
+        records and names its files by: OutputSettings.stem, the sidecar): without the projects whose node gave nothing
+        this time — a translation with no text to translate (NothingToCook, an empty packet), an instance skipped
+        behind a 「阻断」 — so a delivery names only the methods that really made it, and its `commercial` is theirs."""
+        whole = self.provenance(node_id, path)
+        scopes = self.graph.scopes
+        # the same walk as provenance's, one source per node not of the core, in its order
+        above = [nid for nid in self.upstream(node_id, path) if self.graph.nodes[nid].type.runtime != "core"]
+        gave = [self._gave_something(nid, scopes.source_path(nid, node_id, path)) for nid in above]
+        if all(gave) or len(above) != len(whole["sources"]):
+            return whole
+        sources = [s for s, kept in zip(whole["sources"], gave) if kept]
+        return {**whole, "sources": sources, "commercial": all(s["commercial"] for s in sources)}
+
+    def _gave_something(self, node_id: str, at: ItemPath | None) -> bool:
+        """Whether the instance gave anything in this cook: it has no outcome (failed, skipped, blocked) and one of its
+        outputs is a packet that is not empty (engine/cook.py _give_nothing writes empty ones)."""
+        if at is None:
+            return True  # not one instance to ask: counted as given (never drops a project on a guess)
+        try:
+            if self.outcome(node_id, at) is not None:
+                return False
+            fps = self.plan(node_id, at).outputs.values()
+        except PLAN_ERRORS:
+            return True
+        packets = [p for fp in fps if (p := self.packet(fp)) is not None]
+        return not packets or any(not p.meta.get("empty") for p in packets)
 
     def shot(self, node_id: str, port: str, path: ItemPath = ()) -> dict:
         """What was photographed in the instance's output `port`, as far as the graph can tell before anything is
@@ -673,6 +922,8 @@ class Evaluation(Presence, Routing, Demand, Status):
         except ValueError:
             wired = {}
         params = {**self._typed(node_id, path), **{name: one for name, (one, _) in wired.items()}}
+        if getattr(self.graph.nodes[node_id].type, "presence_of", ""):  # 「有没有」: its answer, known before cooking
+            params["present"] = self.present(node_id, path)
         return {**params, **self._set_by_inputs(node_id, path)} if self.graph.nodes[node_id].type.params_inputs else params
 
     def _set_by_inputs(self, node_id: str, path: ItemPath, strict: bool = False) -> dict:
@@ -736,7 +987,7 @@ class Evaluation(Presence, Routing, Demand, Status):
 
     def _where(self, src: str, sport: str) -> str:
         out = next((p for p in self.graph.outputs(src) if p.name == sport), None)
-        return f"「{self.graph.nodes[src].label}」的「{out.label if out else sport}」"
+        return i18n.Word("engine.port_of", node=self.graph.nodes[src].label, port=out.label if out else sport)
 
     def wired_values(self, node_id: str, path: ItemPath = (), inputs: bool = True) -> dict[str, tuple[Any, Any]]:
         """The instance's active parameters driven by a wire whose value is known (the node feeding it is cooked) ->
@@ -793,10 +1044,16 @@ class Evaluation(Presence, Routing, Demand, Status):
         return out
 
     def sources(self, node_id: str, path: ItemPath = ()) -> dict[str, str]:
+        """`source_notes`' full sentences (the footer, the worker's job, the provenance)."""
+        return self.source_notes(node_id, path)[0]
+
+    def source_notes(self, node_id: str, path: ItemPath = ()) -> tuple[dict[str, str], dict[str, str]]:
         """Where the instance's parameters get their values, for those that say something about it: driven by a wire
         ("Focal Length 38.6 mm · 来自 AnyCalib 镜头标定"), or set over what a connected input would give (P(overrides=),
         "（覆盖相机的 Focal Length）"), or left to that input ("Focal Length · 来自相机（ViPE 相机解算）"). The node's footer and
-        parameter panel show it, its worker's job and the provenance of what it makes keep it."""
+        parameter panel show it, its worker's job and the provenance of what it makes keep it. The second table holds,
+        for a parameter set over a connected input, that clause on its own (「覆盖相机的 Focal Length」): a field of its
+        own, so the page never reads it back out of the sentence."""
         from ..data.values import describe_value, option_label, read, say, unit_problem
 
         g = self.graph
@@ -805,7 +1062,8 @@ class Evaluation(Presence, Routing, Demand, Status):
         inactive = self.resolved(node_id, path).params.inactive
         params = self.params(node_id, path)
         ports = {p.name: p.label for p in node.type.input_ports(node.params)}
-        out = {}
+        out: dict[str, str] = {}
+        overrides: dict[str, str] = {}
         from ..nodes.applies import param_conditions, supplying_port
 
         supplies = {n: supplying_port(c) for n, c in param_conditions(node.type).items()}
@@ -825,7 +1083,7 @@ class Evaluation(Presence, Routing, Demand, Status):
                 src = wire.on.node if isinstance(wire, Pending) else wire[0]
                 value = ""
                 if not isinstance(wire, Pending) and spec["items"] is not None:
-                    value = "：" + "、".join(describe_value(v) for v in self._list_values(wire[2])) if wire[2].meta.get("items") else ""
+                    value = i18n.Both.of(lambda: i18n.t("engine.values", values=i18n.separator().join(describe_value(v) for v in self._list_values(wire[2])))) if wire[2].meta.get("items") else ""
                 elif not isinstance(wire, Pending):
                     v = read(wire[2])
                     v = v.in_unit(spec["unit"]) if spec["unit"] and not unit_problem(v.unit, spec["unit"]) else v
@@ -852,9 +1110,11 @@ class Evaluation(Presence, Routing, Demand, Status):
             else:
                 continue
             if over:
-                text += Msg("I-SOURCE-OVERRIDES", inputs="、".join(ports[p] for p in over), label=label).text
+                inputs = i18n.separator().join(ports[p] for p in over)
+                text += Msg("I-SOURCE-OVERRIDES", inputs=inputs, label=label).text
+                overrides[name] = Msg("I-SOURCE-OVERRIDESNOTE", inputs=inputs, label=label).text
             out[name] = text
-        return out
+        return out, overrides
 
     # ------------------------------------------------------------------ frames
 
@@ -931,6 +1191,26 @@ class Evaluation(Presence, Routing, Demand, Status):
         if len(path) != self.graph.scopes.depth(node_id):
             raise GraphError(Msg("E-GRAPH-NONODE", node=f"{node_id}@{'/'.join(path)}"))
 
+    def full_tier(self, node_id: str, path: ItemPath = ()) -> bool | None:
+        """Whether a node that steps down on a smaller card (nodes/applies.py Cost.vram_full_gb) runs its full tier on
+        this machine: a card authorized for jobs holds it (nodes/services.py PlanEnv.holds). Its cook then asks for that
+        much (vram_need), so it runs only on such a card; the answer is in its fingerprint, so a stepped-down result is
+        never reused for a full one. None: the node does not step down."""
+        cost = self.resolved(node_id, path).cost
+        if not cost.gpu or cost.vram_full_gb <= cost.vram_gb:
+            return None
+        from ..nodes.services import services
+
+        return services().plan.holds(self.graph.nodes[node_id].type.runtime, cost.vram_full_gb)
+
+    def vram_need(self, node_id: str, path: ItemPath = ()) -> float:
+        """The VRAM its cook asks a card for: its full tier's where this machine runs it (full_tier), else its
+        resolved cost's; 0 off a GPU."""
+        cost = self.resolved(node_id, path).cost
+        if not cost.gpu:
+            return 0.0
+        return cost.vram_full_gb if self.full_tier(node_id, path) else cost.vram_gb
+
     def plan(self, node_id: str, path: ItemPath = ()) -> NodePlan:
         key = Inst(node_id, path)
         if key in self._plans:
@@ -990,10 +1270,13 @@ class Evaluation(Presence, Routing, Demand, Status):
         # results no longer hit the cache. Core nodes have no extension; the entry is absent and the fingerprint unchanged
         if node.type.project.result_identity:
             blob["ext"] = node.type.project.result_identity
+        if (full := self.full_tier(node_id, path)) is not None:  # a node that steps down on a smaller card: which
+            # tier it runs at here is its result's (nodes/applies.py Cost.vram_full_gb)
+            blob["tier"] = "full" if full else "stepped"
         if node.type.frame_source:
             blob["frames"] = list(self.info(node_id, path).frames)
         if node.type.named_result:  # the node's name is in what it gives (an import's folder): renamed, cooked again
-            blob["label"] = node.label
+            blob["name"] = node.id
         if route is not None:
             blob["route"] = route
         if dropped:
