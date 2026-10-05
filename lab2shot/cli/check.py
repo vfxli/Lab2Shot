@@ -105,7 +105,7 @@ def check_official(r: Report) -> None:
     output in gives or ours: an undeclared one is something added), and each upstream symbol is in the cited lines."""
     from ..nodes.registry import node_types
 
-    n = 0
+    n, absent = 0, []
     for tid, node in sorted(node_types().items()):
         official = getattr(node, "official", None)
         if official is None:
@@ -125,12 +125,26 @@ def check_official(r: Report) -> None:
         for p in node.outputs:
             if p.name not in official.gives and p.name not in official.ours:
                 r.bad(i18n.t("cli.check.official.output_undeclared", type=tid, port=repr(p.name)))
+        # an upstream that is not installed here (a new extension before its first install, as on a server being
+        # upgraded) cannot be read: those nodes are listed, not failed; an installed upstream must hold every citation
+        if not all(_upstream_root(one).is_dir() for one in official.cites):
+            absent.append(tid)
+            continue
         try:
             for m in official.missing_symbols():
                 r.bad(f"official {tid}: {m}")
         except Exception as exc:  # noqa: BLE001 (a missing cited file is also a problem)
             r.bad(i18n.t("cli.check.official.unreadable", type=tid, error=exc))
-    r.ok(i18n.t("cli.check.official.ok", count=n))
+    r.ok(i18n.t("cli.check.official.ok", count=n - len(absent)))
+    if absent:
+        r.info(i18n.t("cli.check.official.absent", count=len(absent), types=i18n.separator().join(absent)))
+
+
+def _upstream_root(cite: str):
+    """The folder a citation's upstream is installed in: third_party/<project>/<checkout>."""
+    from ..nodes.official import CITE, ROOT
+
+    return ROOT.joinpath(*CITE.match(cite).group(1).split("/")[:3])
 
 
 def check_nodes(r: Report) -> None:

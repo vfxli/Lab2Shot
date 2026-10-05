@@ -187,6 +187,7 @@ gives = "official {type}: gives/ours[{port}] 不是该节点的输出端口"
 input_undeclared = "official {type}: 输入端口 {port} 没有写进 takes：上游不接受它，就是自行添加的"
 output_undeclared = "official {type}: 输出端口 {port} 没有写进 gives 或 ours：上游不输出它，就是自行添加的"
 unreadable = "official {type}: 无法读取引文：{error}"
+absent.other = "official：{count} 个节点的上游还没安装，未核对引文：{types}"
 ok = "official：{count} 个第三方节点的端口与上游引文"
 
 [cli.check.nodes]

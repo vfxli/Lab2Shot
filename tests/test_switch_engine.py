@@ -55,7 +55,12 @@ class PresenceDrivesSwitch(unittest.TestCase):
             self.assertEqual(ev.taken_ports("pick"), frozenset({"param:which", "a"}))
 
     def test_status_plans_and_takes_the_way_present_picks(self):
-        self._check("todo")
+        # the extension counts as usable whether or not it is installed on this machine
+        from adapters.diffusers.nodes import Generate as gen_type  # noqa: N813 (the node class)
+
+        usable = dataclasses.replace(gen_type.project, available=lambda: None)
+        with mock.patch.object(gen_type, "project", usable):
+            self._check("todo")
 
     def test_extension_not_usable_still_plans(self):
         # an extension that can't be used now asks whether the node has its result (failure): that must not ask

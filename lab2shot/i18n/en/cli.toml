@@ -194,6 +194,8 @@ gives = "official {type}: gives/ours[{port}] is not an output port of the node"
 input_undeclared = "official {type}: input port {port} is not in takes: upstream does not take it, so it was added by us"
 output_undeclared = "official {type}: output port {port} is not in gives or ours: upstream does not output it, so it was added by us"
 unreadable = "official {type}: cannot read the citation: {error}"
+absent.one = "official: the upstream of {count} node is not installed, its citations not checked: {types}"
+absent.other = "official: the upstream of {count} nodes is not installed, citations not checked: {types}"
 ok = "official: ports and upstream citations of {count} third-party nodes"
 
 [cli.check.nodes]
