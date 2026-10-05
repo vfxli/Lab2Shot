@@ -208,6 +208,28 @@ def collect_named(user_id: int, names: set[str], guard: Guard | None = None) -> 
     return {"removed": removed, "bytes": freed}
 
 
+def collect_account(user_id: int, guard: Guard | None = None) -> dict:
+    """Remove every cache entry of one account that no live task references and no job still to finish uses, whatever
+    its age: run when the account itself frees space (「删除全部」, 「腾出空间」), so what no task names any more (the
+    viewer's display copies, a cook's intermediate results) is freed now, not with the next cleaning. Nothing of an
+    account with a job to finish (`guard`) and no entry whose lock a writer holds (`_remove_unless_held`)."""
+    keep = _kept_entries(user_id)
+    root = current().cache_of(user_id)
+    removed, freed = 0, 0
+    for d in sorted(root.iterdir()) if root.is_dir() else []:
+        if not d.is_dir() or d.name.startswith(".") or base_of(d.name) in keep:
+            continue
+        size = folder_bytes([d])
+        with _go(guard, user_id) as go, serving(Account(user_id)):
+            if not go:
+                break  # a job of the account came in: the rest waits for the next cleaning
+            if not _remove_unless_held(d.name, "clean", lambda: True):
+                continue
+        removed += 1
+        freed += size
+    return {"removed": removed, "bytes": freed}
+
+
 def expire_tasks(now: float | None = None) -> dict:
     """Tasks past 任务保留天数 since they ended go whole (transfer/tasks.py remove), their outputs with them; and task
     folders no row names any more (a purged account's) go too."""

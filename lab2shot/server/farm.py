@@ -294,9 +294,19 @@ def forget(job_id: str, request: Request) -> dict:
                        "were deleted and how much was freed")
 def forget_all(request: Request) -> dict:
     me = auth.me(request).id
+    done = forget_finished(me)
+    done["bytes"] += _collect_own(me)
     # Usage without traffic: traffic is visible only to the admin side, and no user-facing route sends it
     # (server/quota.py my_storage)
-    return {**forget_finished(me), **quota.usage(me)}
+    return {**done, **quota.usage(me)}
+
+
+def _collect_own(user_id: int) -> int:
+    """After the account freed space itself: its cache no task names any more goes now (farm/disk.py collect_account).
+    The bytes freed that way, counted into what the answer says was freed."""
+    from ..farm import disk
+
+    return int(disk.collect_account(user_id, guard=farm().cleaner())["bytes"])
 
 
 def forget_finished(user_id: int) -> dict:
@@ -716,7 +726,9 @@ def admin_forget_task_group(user_id: int, key: str) -> dict:
                       "stay (cancel them first). The answer says how many were deleted, how many skipped and how much was freed. "
                       "`lab2shot admin jobs --clear` comes here with the machine token")
 def admin_forget_finished(user_id: int) -> dict:
-    return forget_finished(user_id)
+    done = forget_finished(user_id)
+    done["bytes"] += _collect_own(user_id)
+    return done
 
 
 @admin.put("/task-groups/{user_id}/{key}/name", access=Access.admin("data.others"),

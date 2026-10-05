@@ -351,6 +351,7 @@ def free(user_id: int, ids: list[str]) -> dict:
         expected = m.fp.frees(done)
     queue = farm()
     disk.collect_named(user_id, names, guard=queue.cleaner())
+    disk.collect_account(user_id, guard=queue.cleaner())  # what no task names any more goes too, not with the next cleaning
     if not queue.ending:
         queue._spawn(queue._tidy, name="farm-tidy-now")
     after = usage(user_id)
