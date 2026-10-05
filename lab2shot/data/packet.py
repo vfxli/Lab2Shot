@@ -506,15 +506,30 @@ def item_fingerprint(*parts: Any) -> str:
     return key(["item", *parts], 24)
 
 
-def copy_packet(src: Packet, out: Path) -> Packet:
-    """The same data under another fingerprint (「取一条」, 「命名」): the packet's own files copied, its description as
-    it is. Files it only points at (an upload a sequence reads, another packet's frames) are named relative to the
-    packet folder and every packet folder is a sibling of every other, so they still point at the same bytes."""
+def copy_packet(src: Packet, out: Path, share: bool = True) -> Packet:
+    """The same data under another fingerprint (「取一条」, 「命名」, 「切换」, 「阻断」): the packet's own files hard-linked
+    (a finished packet's files are never written again, so both names share the bytes and the account's usage counts
+    them once: farm/space.py measures by inode), copied only where a link cannot be made; its description as it is.
+    `share=False` copies the bytes: for a caller that then rewrites a file of the new packet in place (a hard link
+    would rewrite the source packet's file too).
+    Files it only points at (an upload a sequence reads, another packet's frames) are named relative to the packet
+    folder and every packet folder is a sibling of every other, so they still point at the same bytes."""
     for entry in sorted(src.dir.iterdir()):
         if entry.name in (MANIFEST, COMPLETE):
             continue
+        put = _link_or_copy if share else shutil.copyfile
         if entry.is_dir():
-            shutil.copytree(entry, out / entry.name, dirs_exist_ok=True)
+            shutil.copytree(entry, out / entry.name, dirs_exist_ok=True, copy_function=put)
         else:
-            shutil.copyfile(entry, out / entry.name)
+            put(entry, out / entry.name)
     return Packet(out, src.type, dict(src.meta))
+
+
+def _link_or_copy(src, dst) -> None:
+    """A hard link to `src` at `dst` (replacing what is there), a copy where the file system refuses one."""
+    try:
+        if os.path.lexists(dst):
+            os.remove(dst)
+        os.link(src, dst)
+    except OSError:
+        shutil.copyfile(src, dst)

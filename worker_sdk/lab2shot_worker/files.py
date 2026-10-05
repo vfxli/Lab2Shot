@@ -185,9 +185,9 @@ def _mask_channel(path: Path, channels: list[str]) -> str:
     raise Failure("E-FILES-MASKCHANNELS", file=path.name, channels=sorted(channels))
 
 
-def save_npz(path: str | Path, compression: int = 0, **arrays) -> Path:
+def save_npz(path: str | Path, compression: int = 1, **arrays) -> Path:
     """np.savez, written to <name>.part and renamed: a crash never leaves half a file under the real name.
-    compression: 0 = stored (fastest), 1 = fast zlib (masks shrink ~20x), 6 = np.savez_compressed."""
+    compression: 1 (default) = fast zlib: images and masks shrink several to 20x, float depth ~25%, for little time; 0 = stored; 6 = np.savez_compressed."""
     path = Path(path)
     part = path.with_name(path.name + ".part")
     mode = zipfile.ZIP_DEFLATED if compression else zipfile.ZIP_STORED

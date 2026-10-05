@@ -176,7 +176,7 @@ class CameraSpaceConvert(NodeDef):
         if cls._same_camera(source, target, frames):  # 同一台相机（工作流里分支本来就在选定相机里算）：原样交出，不拟合
             from ...data.packet import copy_packet
             ctx.say("I-CAMSPACE-SAME")
-            return {"scene": cls._aligned(copy_packet(scene, ctx.outputs["scene"]), target, "same", 1.0)}
+            return {"scene": cls._aligned(copy_packet(scene, ctx.outputs["scene"], share=False), target, "same", 1.0)}  # _aligned rewrites the camera
         if ctx.params["fit"] == "per_frame":
             fr = CameraSamples.from_packet(source, frames)
             cls._same_lens(fr, to)

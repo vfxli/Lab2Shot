@@ -155,7 +155,7 @@ class Writer:
             self._in_flight.pop(0).result()
         self._in_flight.append(self._pool.submit(write, *args, **kwargs))
 
-    def npz(self, path: Path, compression: int = 0, **arrays: Any) -> None:
+    def npz(self, path: Path, compression: int = 1, **arrays: Any) -> None:
         self.submit(save_npz, path, compression, **arrays)
 
     def close(self) -> None:
