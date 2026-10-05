@@ -62,6 +62,7 @@
 
 .q-run {
   grid-column: 4 / -1;
+  min-width: 0; /* 长的进度文字只在这一格里省略，不伸进右边的按钮列（按钮列宽度不变） */
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -131,10 +132,15 @@
   gap: 5px;
   /* 降低最小宽度，避免整张表宽于容器而出现横向滚动条。该格为纵向排列（当前计算内容、进度条），较窄时不影响阅读。 */
   min-width: 128px;
+  flex: 1 1 128px;
+  max-width: 100%;
 }
 
 .q-now {
   color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .q-bar {

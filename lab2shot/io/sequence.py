@@ -13,7 +13,8 @@ depth passes. A folder holding several sequences is never read as one of them pi
 them (SeveralSequences) and the user chooses.
 
 Rules:
-- hidden and system files (._plate.0001.exr from macOS, .DS_Store, Thumbs.db, desktop.ini) are not pictures;
+- hidden and system files (._plate.0001.exr from macOS, .DS_Store, Thumbs.db, desktop.ini, the <name>:Zone.Identifier
+  a Windows download leaves beside each file on a WSL drive) are not pictures;
 - a minus sign right after a dot or an underscore (or at the start) belongs to the number: plate.-005.exr is -5,
   shot-0005.exr is 5;
 - padding: numbers written with leading zeros are padded to their width (#### = 0001 ... 9999, then 10000 on); a
@@ -58,7 +59,7 @@ JUNK_NAMES = {"thumbs.db", "desktop.ini", "icon\r"}
 
 def is_junk(name: str) -> bool:
     """A file no picture reader should take: hidden (a leading dot: macOS's ._ copies, .DS_Store) or a system file."""
-    return name.startswith(".") or name.lower() in JUNK_NAMES
+    return name.startswith(".") or name.lower() in JUNK_NAMES or name.endswith(":Zone.Identifier")
 
 
 @dataclass(frozen=True)

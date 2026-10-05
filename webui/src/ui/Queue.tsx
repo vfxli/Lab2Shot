@@ -106,7 +106,10 @@ export function Progress({ job }: { job: QueueJob }) {
   return (
     <div className="q-progress">
       {/* 「节点 · 阶段 · 解算器报告的步骤」，例如：「SAM 3D Body 全身动作 · 计算中 · 检测人物」 */}
-      <span className="q-now">{job.stopping ? t("ui.queue.stopping_now") : (live ? [live.label, PHASE_TEXT[live.phase], live.note].filter(Boolean).join(" · ") : "") || t("ui.queue.preparing")}</span>
+      {(() => {
+        const now = job.stopping ? t("ui.queue.stopping_now") : (live ? [live.label, PHASE_TEXT[live.phase], live.note].filter(Boolean).join(" · ") : "") || t("ui.queue.preparing");
+        return <span className="q-now" {...tipAttrs(tipOf("truncated", now))}>{now}</span>; // 一行，过长时省略，悬停看全文
+      })()}
       {/* 进度条只依据 `at`：整个任务的完成度，服务器保证其单调不减（lab2shot/progress.py）。
           不使用解算器当前步骤的 done / total 计算宽度：分母在每个阶段都会变化，进度条会归零重来。
           无法估计时（任务中有节点首次计算，没有历史记录）绘制一条无刻度的进度条。 */}

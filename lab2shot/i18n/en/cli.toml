@@ -83,7 +83,7 @@ updated = "[green]Passphrase updated[/green]: when the administrator password is
 
 [cli.admin.status]
 help = "Show whether the administrator password is still unset, whether the passphrase is set, and how many accounts there are (who is online only the running service knows: see the Users page of the admin page)."
-no_password = "Administrator  {username}, [yellow]no password set, cannot log in: run ./setup.sh and choose Accounts and Security → Set Administrator Password[/yellow]"
+no_password = "Administrator  {username}, [yellow]no password set, cannot log in: run lab2shot admin password (or Accounts and Security → Set Administrator Password in ./setup.sh)[/yellow]"
 password = "Administrator  {username}, password changed {when} by {by}"
 no_passphrase = "Passphrase     not set: run lab2shot admin passphrase to set it"
 passphrase = "Passphrase     set {when}"
@@ -591,7 +591,7 @@ waiting = "Waiting for the service to start (120 seconds at most)…"
 no_answer = "The service did not answer within 120 seconds; ending it (process {pid})."
 this_machine = "<this machine's address>"
 https = "HTTPS is on: every user's computer needs the certificate installed once. Open {url} in a browser to download it and import it into the system's Trusted Root Certification Authorities."
-no_password = "The administrator {username} has no password yet, so nobody can log in. Run Accounts and Security → Set Administrator Password."
+no_password = "The administrator {username} has no password yet, so nobody can log in. Run lab2shot admin password (or Accounts and Security → Set Administrator Password in ./setup.sh)."
 
 [cli.service.stop]
 drain = "Stop after the current jobs"

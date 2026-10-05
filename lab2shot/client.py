@@ -79,7 +79,8 @@ def _shape(name):
 
 
 def _junk(name):
-    return name.startswith(".") or name.lower() in ("thumbs.db", "desktop.ini", "icon\r")
+    # hidden and system files, and the <name>:Zone.Identifier a Windows download leaves beside each file on a WSL drive
+    return name.startswith(".") or name.lower() in ("thumbs.db", "desktop.ini", "icon\r") or name.endswith(":Zone.Identifier")
 
 
 class Lab2ShotError(RuntimeError):

@@ -81,7 +81,7 @@ updated = "[green]口令已更新[/green]：忘记管理员密码时，可在登
 
 [cli.admin.status]
 help = "显示管理员密码是否仍为默认值、口令是否已设置、账号数量（谁在线只有运行中的服务知道：看后台「用户」页）。"
-no_password = "管理员    {username}，[yellow]尚未设置密码，无法登录：请执行 ./setup.sh 并选择「账号与安全 → 设置管理员密码」[/yellow]"
+no_password = "管理员    {username}，[yellow]尚未设置密码，无法登录：请执行 lab2shot admin password（或 ./setup.sh 中「账号与安全 → 设置管理员密码」）[/yellow]"
 password = "管理员    {username}，密码于 {when} 由{by}修改"
 no_passphrase = "我的口令  未设置：运行 lab2shot admin passphrase 进行设置"
 passphrase = "我的口令  {when} 设置"
@@ -562,7 +562,7 @@ waiting = "正在等待服务启动（最长 120 秒）……"
 no_answer = "服务 120 秒内没有回答，结束它（进程 {pid}）。"
 this_machine = "<本机地址>"
 https = "已启用 HTTPS：每台用户电脑需安装一次证书。请在浏览器中打开 {url} 下载，并导入系统的「受信任的根证书颁发机构」。"
-no_password = "管理员 {username} 尚未设置密码，目前任何人都无法登录。请执行「账号与安全 → 设置管理员密码」。"
+no_password = "管理员 {username} 尚未设置密码，目前任何人都无法登录。请执行 lab2shot admin password（或 ./setup.sh 中「账号与安全 → 设置管理员密码」）。"
 
 [cli.service.stop]
 drain = "等当前任务算完再停"

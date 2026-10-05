@@ -50,6 +50,7 @@ zh = [
     "「文件」菜单新增「新建节点图」：新建一张只带输出节点的空白节点图",
     "「删除全部」和「腾出空间」当场释放该账号不再被任何任务用到的缓存，占用立即下降，不再等下一次清理",
     "「切换」「阻断」「取一条」「命名」等只转发数据的节点不再复制图像序列，与上游共用同一份文件，不再重复占用空间；模型原始结果改为压缩保存",
+    "队列里过长的进度文字只在本格内省略显示、悬停看全文，不再压到按钮上；Windows 下载附带的 :Zone.Identifier 文件不再当作素材",
 ]
 en = [
     "Three new camera solvers: VidMap, WildPose and DA3-Long (long shots aligned in segments with loop closure), with templates; ViPE cameras keep their full intrinsics (fx, fy, principal point)",
@@ -78,6 +79,7 @@ en = [
     "The File menu adds New Graph: a blank graph with just an output node",
     "Delete All and Free Space release the account's cache no task uses any more right away, so usage drops at once instead of at the next cleaning",
     "Nodes that only pass data on (Switch, Gate, Pick One, Name) no longer copy image sequences: they share the upstream files and take no extra space; models' raw results are stored compressed",
+    "Long progress text in the queue is cut short within its own cell (full text on hover) instead of running under the buttons; the :Zone.Identifier files a Windows download leaves are no longer taken as footage",
 ]
 
 [release.admin]
